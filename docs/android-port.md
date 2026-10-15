@@ -1,6 +1,6 @@
 # Android ARM64 port status
 
-This branch is preparatory work, **not a working Android engine or APK**.
+This branch is preparatory work, **not a working Android game engine or game APK**.
 Baseline: upstream `a68f43df197a50c5177f40209abc109f01f4b114` (`develop`).
 
 ## Verified changes
@@ -195,6 +195,46 @@ python3 tests/diagnostics/check_fmt.py --fmt-source /path/to/patched/fmt --compi
 FMOD's official download page (https://www.fmod.com/download) requires sign-in;
 a compatible Android ARM64 SDK and its terms have not been obtained. This is a
 remaining full-engine dependency blocker. No mirrored proprietary binaries,
-no-op audio, or game assets have been added. Android activity/storage/lifecycle,
-full-engine CMake integration, packaging and touch controls remain unfinished;
+no-op audio, or game assets have been added. Full-engine activity/lifecycle integration,
+CMake integration, game packaging and touch controls remain unfinished;
 the root Android guard deliberately remains until these are implemented.
+
+## Android application integration checkpoint
+
+A separate [SDL/Vulkan integration probe](../android/README.md) now builds to a
+locally debug-signed APK. Native linking, Java/DEX compilation, APK signatures
+and alignment have been checked with SDK Platform 35 revision 2 / Build Tools
+35.0.0. This APK is **not the full engine**, has no game rendering/audio and has
+not been installed or run on a device. The Gradle scaffold is provided but its
+build has not been executed; direct SDK-tool packaging is the verified path.
+
+The actual engine entry point consumes Android lifecycle events before flushing
+SDL events and suppresses frames in the background. Storage initialization sets
+the game working directory and refreshes the resource index after JNI setup;
+saves/logs use app-private internal storage. Both modified engine translation
+units compile for ARM64. FMOD suspend/resume, D3D9 surface recovery, touch game
+controls and full-engine linking remain outstanding. The native probe exercises
+the same storage/lifecycle policy without pretending to implement missing game
+subsystems.
+
+### FMOD acquisition and licensing checkpoint (2026-10-15)
+
+The recipe's pinned baseline is **2.02.05**. No older minimum has been established
+by a successful build. Use matching headers and ARM64 libraries from one Android
+SDK; a newer 2.02.x needs explicit compile/runtime checks. Source uses Core API
+(`fmod.hpp`, `fmod_errors.h`), not Studio API. Required inputs are Core headers,
+`api/core/lib/arm64-v8a/libfmod.so` (or logging `libfmodL.so`) and `fmod.jar`.
+See [official Android integration guidance](https://www.fmod.com/docs/2.02/api/platforms-android.html).
+The Java component needs initialization before the native system and closing
+after its release. Native mixer suspend/resume must be paired on the same thread.
+
+[Official downloads](https://www.fmod.com/download) require sign-in; available
+historical versions cannot be confirmed without it. No account or license was
+accepted on the user's behalf. The [current EULA](https://www.fmod.com/legal)
+restricts SDK redistribution and distribution as part of a game engine/toolset.
+The repository's GPLv3 text contains no FMOD linking exception found in this
+audit. Distribution compatibility for a combined binary is therefore unresolved;
+the presence of FMOD in upstream's build recipe is not proof of permission to
+redistribute it. Obtain applicable terms/permissions from the rights holders
+before distributing such a binary, or implement and validate a compatible audio
+backend. Keep proprietary SDK files outside the public repository.

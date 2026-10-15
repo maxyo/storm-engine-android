@@ -5,6 +5,9 @@
 
 #include <SDL2/SDL.h>
 #include <exception>
+#ifdef __ANDROID__
+#include "platform/android_runtime.hpp"
+#endif
 #include <string>
 
 #define COMMENT ';'
@@ -39,8 +42,11 @@ FILE_SERVICE::FILE_SERVICE()
     Max_File_Index = 0;
     for (uint32_t n = 0; n < _MAX_OPEN_INI_FILES; n++)
         OpenFiles[n] = nullptr;
+#ifndef __ANDROID__
+    // Android paths are only available after SDLActivity initializes JNI.
     if (ResourcePathsFirstScan)
         ScanResourcePaths();
+#endif
 }
 
 FILE_SERVICE::~FILE_SERVICE()
@@ -223,8 +229,16 @@ std::string FILE_SERVICE::_GetCurrentDirectory()
 
 std::string FILE_SERVICE::_GetExecutableDirectory()
 {
-    std::string result(SDL_GetBasePath());
+#ifdef __ANDROID__
+    return storm::android::storagePaths().game.string() + "/";
+#else
+    char *base = SDL_GetBasePath();
+    if (!base)
+        throw std::runtime_error(SDL_GetError());
+    std::string result(base);
+    SDL_free(base);
     return result;
+#endif
 }
 
 std::uintmax_t FILE_SERVICE::_GetFileSize(const char *filename)

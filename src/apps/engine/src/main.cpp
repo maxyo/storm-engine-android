@@ -129,6 +129,19 @@ int main(int argc, char *argv[])
         return EXIT_SUCCESS;
     }
 #endif
+#ifdef __ANDROID__
+    try
+    {
+        storm::android::prepareGameDirectory();
+        // Build the resource index only after JNI and the game directory are ready.
+        fio->ScanResourcePaths();
+    }
+    catch (const std::exception &error)
+    {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game data required", error.what(), nullptr);
+        return EXIT_FAILURE;
+    }
+#endif
     mi_register_output(mimalloc_fun, nullptr);
     mi_option_set(mi_option_show_errors, 1);
     mi_option_set(mi_option_show_stats, 0);
@@ -232,13 +245,32 @@ int main(int argc, char *argv[])
     // Message loop
     auto dwOldTime = SDL_GetTicks();
 
+#ifdef __ANDROID__
+    storm::android::Lifecycle androidLifecycle;
+#endif
     isRunning = true;
     while (isRunning)
     {
         SDL_PumpEvents();
+#ifdef __ANDROID__
+        SDL_Event appEvent;
+        while (SDL_PeepEvents(&appEvent, 1, SDL_GETEVENT, SDL_APP_TERMINATING,
+                              SDL_APP_DIDENTERFOREGROUND) > 0)
+            androidLifecycle.consume(appEvent.type);
+        if (SDL_HasEvent(SDL_QUIT))
+            androidLifecycle.consume(SDL_QUIT);
+        if (androidLifecycle.terminating())
+            isRunning = false;
+#endif
         SDL_FlushEvents(0, SDL_LASTEVENT);
+        if (!isRunning)
+            break;
 
-        if (bActive || run_in_background)
+        if ((bActive || run_in_background)
+#ifdef __ANDROID__
+            && androidLifecycle.canRun()
+#endif
+        )
         {
             if (dwMaxFPS)
             {

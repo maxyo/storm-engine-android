@@ -1,6 +1,10 @@
 #pragma once
 
 #include <filesystem>
+#include <stdexcept>
+#ifdef __ANDROID__
+#include "platform/android_runtime.hpp"
+#endif
 
 #ifdef _WIN32 // SHGetKnownFolderPath
 #include <ShlObj.h>
@@ -24,10 +28,15 @@ inline path GetStashPath()
         path = str;
         path = path / "My Games" / "Sea Dogs";
         CoTaskMemFree(str);
+#elif defined(__ANDROID__)
+        path = storm::android::storagePaths().user;
 #else
         char *pref_path = nullptr;
         pref_path = SDL_GetPrefPath("Akella", "Sea Dogs");
+        if (!pref_path)
+            throw std::runtime_error(SDL_GetError());
         path = pref_path;
+        SDL_free(pref_path);
 #endif
     }
     return path;

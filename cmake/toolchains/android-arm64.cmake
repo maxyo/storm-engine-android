@@ -22,6 +22,6 @@ if(DEFINED ANDROID_STL AND NOT ANDROID_STL STREQUAL "c++_shared")
     message(FATAL_ERROR "Storm Android uses c++_shared consistently across native libraries")
 endif()
 set(ANDROID_STL c++_shared CACHE STRING "Android C++ runtime")
-# Preserve wrapper inputs in CMake's nested compiler checks.
-list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES STORM_ANDROID_NDK ANDROID_ABI ANDROID_PLATFORM ANDROID_STL)
 include("${STORM_ANDROID_NDK}/build/cmake/android.toolchain.cmake")
+# The NDK assigns this list itself; append wrapper inputs after including it.
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES STORM_ANDROID_NDK ANDROID_ABI ANDROID_PLATFORM ANDROID_STL)

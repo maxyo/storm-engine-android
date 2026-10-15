@@ -1,0 +1,30 @@
+plugins { id 'com.android.application' }
+
+def sdlSource = providers.gradleProperty('stormSdlSource').orNull
+def nativePrefix = providers.gradleProperty('stormNativePrefix').orNull
+if (sdlSource == null || nativePrefix == null) {
+    throw new GradleException('Set -PstormSdlSource and -PstormNativePrefix to the verified SDL source and dependency prefix')
+}
+def sdlJava = file("${sdlSource}/android-project/app/src/main/java")
+if (!new File(sdlJava, 'org/libsdl/app/SDLActivity.java').isFile()) {
+    throw new GradleException('SDL 2.0.18 Java sources are required')
+}
+android {
+    namespace 'org.stormengine.port'
+    compileSdk 35
+    ndkVersion '30.0.16248370'
+    defaultConfig {
+        applicationId 'org.stormengine.port.probe'
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName '0.1-probe'
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild {
+            cmake { arguments "-DSTORM_ANDROID_DEPS=${file(nativePrefix).absolutePath}", '-DANDROID_STL=c++_shared' }
+        }
+    }
+    sourceSets.main.java.srcDir sdlJava
+    externalNativeBuild { cmake { path file('../native/CMakeLists.txt'); version '3.22.1' } }
+    packaging { jniLibs { useLegacyPackaging = true } }
+}
