@@ -434,6 +434,7 @@ bool PCS_CONTROLS::GetControlState(int32_t control_code, CONTROL_STATE &_state_s
 
 void PCS_CONTROLS::Update(uint32_t DeltaTime)
 {
+    input_->PumpEvents();
 #ifdef _WIN32
     static int nMouseXPrev, nMouseYPrev;
     if (updateCursor_) {

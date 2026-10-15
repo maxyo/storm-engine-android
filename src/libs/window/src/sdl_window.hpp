@@ -12,6 +12,7 @@ class SDLWindow : public OSWindow
     SDLWindow(int width, int height, int preferred_display, bool fullscreen, bool bordered);
     ~SDLWindow() override;
 
+    void PumpEvents() override;
     void Show() override;
     void Hide() override;
     void Focus() override;

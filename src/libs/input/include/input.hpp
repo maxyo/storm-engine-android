@@ -116,6 +116,7 @@ class Input
     using EventHandler = std::function<void(const InputEvent &)>;
 
     virtual ~Input(){};
+    virtual void PumpEvents() {}
 
     //! Subscribe for events
     //! \param handler event callback

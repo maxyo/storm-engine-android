@@ -1,6 +1,7 @@
-# Isolated audio experiment (not the game)
+# Open audio primitives and SoundService backend
 
-This deliberately does not replace SoundService or change desktop FMOD. The
+The initial isolated experiment now also backs Android SoundService through
+`service_backend.cpp`; desktop FMOD remains the default desktop path. The
 small RAII adapter uses real miniaudio mixing/decoding, either offline PCM or an
 explicit real-device backend list (Android AAudio/OpenSL ES; no null fallback).
 No SDK terms or FMOD license are accepted by this code.
@@ -15,7 +16,7 @@ and verified by SHA256 before compilation:
   `2c980bb59875b0d32144a71867fbdebb2f77cd20`; SHA256
   `4c7cb2ff1f7011e9d67950446b7eb9ca044f2e464d76bfbb0b84dd2e23e65636`.
   Choose the MIT alternative in its embedded license. Retain that notice when
-  distributing binaries. This experiment does not package an APK.
+  distributing binaries. The full engine APK retains both notices and the applied patch.
 
 Both original source files retain complete upstream notices. A separate build
 copy receives `miniaudio-0.11.23-error-cleanup.patch`: ASan exposed a
@@ -66,3 +67,13 @@ and 20,040/19,900 KiB with sanitizers for 3s/180s inputs in these runs; values a
 machine-specific. NDK r30/API24 links an ELF64 AArch64 PIE with
 `--no-undefined`. Clang emits one upstream stb_vorbis pointer-comparison warning
 at line 1404; it is not suppressed. Android execution remains unverified.
+
+
+## Integrated service
+
+`service_backend` owns the tested priority/virtualization and stamped-ID policy.
+`tests/audio/service.cpp` also checks overflow, category gain behavior, zero pitch,
+100 service lifecycle cycles and 44.1 kHz resources resampled to the engine's
+48 kHz cursor clock. The full service bridge and retained legacy behaviors are
+documented in `android/game/TESTING.md`. Source archives remain unchanged; only
+the explicit miniaudio error-cleanup patch modifies the compilation copy.

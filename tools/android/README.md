@@ -48,3 +48,28 @@ The script applies patches to the supplied pinned SDL, fmt and DXVK checkouts.
 Use checkouts dedicated to this experiment. It also builds shared fmt. The resulting Android libraries still
 need runtime validation and full engine integration. FMOD is not downloaded or
 licensed by this script.
+
+## Full engine after dependency build
+
+Prepare extra pinned sources with `engine_sources.py --directory /path/to/sources`
+(spdlog 1.9.2, fast_float 3.4.0, mimalloc 2.0.3, Catch2 2.13.7; exact Git hashes
+are in that script). Android uses the NDK/platform zlib ABI, not a bundled
+replacement libz. Prepare hashed/patched audio headers with `tests/audio/run.py`.
+Copy the built `libdxvk_d3d9.so` into the dependency prefix's `lib` directory.
+
+```
+cmake -S . -B build/android-engine -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/android-arm64.cmake" \
+  -DSTORM_ANDROID_NDK=/path/to/android-ndk-r30 \
+  -DSTORM_ANDROID_DEPS=/path/to/dependency-prefix \
+  -DSTORM_ANDROID_SOURCES=/path/to/sources \
+  -DSTORM_AUDIO_SOURCES="$PWD/build/audio/patched"
+cmake --build build/android-engine --target engine --parallel 2
+python3 tools/android/verify_engine.py --library build/android-engine/game/libengine.so \
+  --ndk /path/to/android-ndk-r30
+```
+
+The source directory must also contain the pinned DXVK checkout. `ci_engine.sh`
+shows complete packaging arguments after `ci_probe.sh` prepares tools/dependencies.
+`build_probe_apk.py --engine-library` selects the real engine Activity and runtime
+libraries; `--probe-library` retains the diagnostic APK. Both are debug-signed.

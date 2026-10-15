@@ -252,13 +252,18 @@ int main(int argc, char *argv[])
     while (isRunning)
     {
         SDL_PumpEvents();
+        window->PumpEvents();
 #ifdef __ANDROID__
+        const bool wasRunning = androidLifecycle.canRun();
         SDL_Event appEvent;
         while (SDL_PeepEvents(&appEvent, 1, SDL_GETEVENT, SDL_APP_TERMINATING,
                               SDL_APP_DIDENTERFOREGROUND) > 0)
             androidLifecycle.consume(appEvent.type);
         if (SDL_HasEvent(SDL_QUIT))
             androidLifecycle.consume(SDL_QUIT);
+        if (wasRunning != androidLifecycle.canRun() && core_private->initialized())
+            if (auto* audio = static_cast<VSoundService*>(core.GetService("SoundService")))
+                audio->SetActiveWithFade(androidLifecycle.canRun());
         if (androidLifecycle.terminating())
             isRunning = false;
 #endif

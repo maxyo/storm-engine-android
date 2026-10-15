@@ -1,3 +1,6 @@
+For the new full-engine build and device test gate, see [game/TESTING.md](game/TESTING.md).
+The separate probe described below remains available for dependency diagnostics.
+
 # Android integration probe
 
 This is a separate **SDL/Vulkan integration probe**, not the game or full engine.

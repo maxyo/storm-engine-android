@@ -33,6 +33,8 @@ class OSWindow
 
     virtual ~OSWindow(){};
 
+    virtual void PumpEvents() {}
+
     //! Show window
     virtual void Show() = 0;
     //! Hide window

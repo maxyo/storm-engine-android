@@ -1,4 +1,4 @@
-name: Android ARM64 integration probe
+name: Android ARM64 engine
 on:
   push:
     branches: [android/arm64-port]
@@ -7,6 +7,7 @@ on:
       - 'android/**'
       - 'tools/android/**'
       - 'cmake/**'
+      - 'CMakeLists.txt'
       - 'src/**'
       - 'tests/**'
   workflow_dispatch:
@@ -16,7 +17,7 @@ concurrency:
   group: android-probe-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  build-probe:
+  build-engine:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     outputs:
@@ -31,6 +32,8 @@ jobs:
           sudo apt-get install --yes --no-install-recommends ffmpeg
       - name: Build and verify probe (not the game engine)
         run: bash tools/android/ci_probe.sh
+      - name: Build and package full engine with open audio
+        run: bash tools/android/ci_engine.sh
       - name: Read game prerelease readiness
         id: readiness
         run: |
@@ -44,14 +47,14 @@ jobs:
       - name: Upload APK, checksum, exact commit and testing notes
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: storm-integration-probe-arm64-${{ github.sha }}
+          name: storm-engine-arm64-${{ github.sha }}
           path: build/android-ci/dist/
           if-no-files-found: error
           retention-days: 14
 
   publish-game-prerelease:
-    needs: build-probe
-    if: needs.build-probe.outputs.game_ready == 'true'
+    needs: build-engine
+    if: needs.build-engine.outputs.game_ready == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
@@ -63,7 +66,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: storm-integration-probe-arm64-${{ github.sha }}
+          name: storm-engine-arm64-${{ github.sha }}
           path: release-input
       - name: Reject probes and verify game APK provenance
         run: python3 tools/android/prepare_prerelease.py --directory release-input --commit "$GITHUB_SHA"

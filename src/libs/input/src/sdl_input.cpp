@@ -454,8 +454,26 @@ uint32_t SDLInput::GetWheelFactor() const
 int SDLInput::SDLEventHandler(void *userdata, SDL_Event *evt)
 {
     auto in = static_cast<SDLInput *>(userdata);
+#ifdef __ANDROID__
+    // JNI may push events from Android's UI thread. Dispatch game callbacks
+    // only from PCS_CONTROLS::Update, never while holding this queue mutex.
+    if (evt->type >= SDL_KEYDOWN && evt->type <= SDL_CONTROLLERDEVICEREMAPPED) {
+        std::lock_guard<std::mutex> guard(in->pendingMutex_);
+        in->pendingEvents_.push_back(*evt);
+    }
+#else
     in->ProcessEvent(*evt);
+#endif
     return 0;
+}
+
+void SDLInput::PumpEvents()
+{
+#ifdef __ANDROID__
+    std::vector<SDL_Event> events;
+    { std::lock_guard<std::mutex> guard(pendingMutex_); events.swap(pendingEvents_); }
+    for (const auto& event : events) ProcessEvent(event);
+#endif
 }
 
 void SDLInput::OpenController()

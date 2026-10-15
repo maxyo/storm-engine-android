@@ -1,6 +1,9 @@
 # Android ARM64 port status
 
-This branch is preparatory work, **not a working Android game engine or game APK**.
+This branch now builds a **full ARM64 engine APK with open audio**. It is not
+yet a verified working Android game: device startup, graphics, audio routes and
+gameplay remain untested. Earlier checkpoint sections below describe historical
+limitations; the full-engine checkpoint at the end is the current build status.
 Baseline: upstream `a68f43df197a50c5177f40209abc109f01f4b114` (`develop`).
 
 ## Verified changes
@@ -265,3 +268,31 @@ Android CI runs both before packaging its existing integration probe. See the
 [audio experiment instructions](../android/audio/README.md) and the updated
 [SoundService integration assessment](android-audio-audit.md). This is not yet
 SoundService integration and does not make the APK audible or game-ready.
+
+
+## Full-engine/open-audio checkpoint
+
+The root Android target now uses explicit pinned open dependencies, builds all
+engine modules as an SDL-loadable shared library, and links with `--no-undefined`.
+The Android path does not invoke Conan/JFrog or use FMOD. Desktop's existing
+FMOD source remains selected by default. Shared aliases/schemes were extracted
+without behavioral changes; Android uses the tested open audio voice manager.
+
+Resolved build blockers include non-Windows `__try`, Android's missing `gcvt`,
+libc++ execution-policy availability, a non-const sort comparison, a dynamic
+format string and inline-only definitions in the custom logging file helper.
+The sea path is sequential on Android; its performance is unmeasured.
+
+The full APK includes engine/SDL/DXVK/fmt/mimalloc/libc++, audio code and notices,
+a local ZIP importer and basic touch key/mouse controls. No game resources or
+proprietary SDKs are bundled. Window/lifecycle and input callbacks are dispatched
+on the game thread on Android. Real-device surface recovery and route changes
+still require validation.
+
+`ci_engine.sh` follows the existing dependency/probe regression pipeline. Its
+artifact manifest identifies `game-port`, but `game_port_ready` remains false
+until device/game evidence exists. The previous probe is not renamed or
+substituted for the engine; `verify_engine.py` checks real engine/audio symbols
+and runtime dependencies before packaging.
+
+See [device prerequisites and acceptance sequence](../android/game/TESTING.md).

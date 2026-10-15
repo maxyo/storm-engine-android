@@ -3,6 +3,8 @@
 #include <input.hpp>
 #include <SDL2/SDL.h>
 #include <map>
+#include <mutex>
+#include <vector>
 
 #include "platform/platform.hpp"
 
@@ -14,6 +16,7 @@ class SDLInput : public Input
     SDLInput();
     ~SDLInput() override;
 
+    void PumpEvents() override;
     int Subscribe(const EventHandler &handler) override;
     void Unsubscribe(int id) override;
 
@@ -33,6 +36,10 @@ class SDLInput : public Input
     void OpenController();
 
 private:
+#ifdef __ANDROID__
+    std::mutex pendingMutex_;
+    std::vector<SDL_Event> pendingEvents_;
+#endif
     std::map<int, EventHandler> handlers_;
     const uint8_t *keyStates_;
     std::unique_ptr<SDL_GameController, std::function<void(SDL_GameController *)>> controller_;

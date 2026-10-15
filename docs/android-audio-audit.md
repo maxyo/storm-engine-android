@@ -1,7 +1,8 @@
 # Open audio backend decision brief
 
 Scope: inspected Storm at `60f045d0e42faba69204ee7420f7a7cb21cb3e2f`.
-This is an implementation proposal, not an implemented replacement.
+This document retains the original decision brief and subsequent implementation
+checkpoints. The current SoundService integration is described at the end.
 
 ## Recommendation
 
@@ -158,3 +159,22 @@ Full SoundService replacement and Android engine linking are not completed by
 this checkpoint. Device playback, Home/lock/route changes and performance must
 be measured before any game-ready prerelease claim. No FMOD download is needed
 to continue the open backend, but no device or game corpus is available here.
+
+## SoundService integration (work after prototype approval)
+
+Android now selects `STORM_OPEN_AUDIO`; desktop defaults to its original FMOD
+implementation. `sound_service_common.cpp` retains the 15 extracted
+alias/scheme/debug-helper functions byte-for-byte. `sound_service_open.cpp`
+connects the game's real service entry points to `android/audio/service_backend`.
+The prototype is therefore used by the engine target, not substituted for it.
+
+The manager owns stamped logical IDs, two fixed music slots, category gains,
+shared decoded caches, streaming duration indexes, fades, priority selection and
+virtual cursor progression. Synthetic checks cover priority overflow, stale
+handles, pause/cache/resume, lifecycle, music handoff and category gain updates.
+The replacement policy and intentional retained legacy behaviors are documented
+in `android/game/TESTING.md`. No FMOD SDK or headers are needed on Android.
+
+Host checks do not establish FMOD parity for a real resource corpus. No claim is
+made about all device routes, stereo spatial policy, GPU compatibility, voice
+budgets on phones or gameplay. Physical Android validation is the next gate.

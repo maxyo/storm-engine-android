@@ -26,6 +26,15 @@ SDLWindow::~SDLWindow()
     SDL_DelEventWatch(&SDLEventHandler, this);
 }
 
+void SDLWindow::PumpEvents()
+{
+#ifdef __ANDROID__
+    SDL_Event event;
+    while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_WINDOWEVENT, SDL_WINDOWEVENT) > 0)
+        if (event.window.windowID == sdlID_) ProcessEvent(event.window);
+#endif
+}
+
 void SDLWindow::Show()
 {
     SDL_ShowWindow(window_.get());
@@ -173,7 +182,9 @@ int SDLWindow::SDLEventHandler(void *userdata, SDL_Event *evt)
     if ((evt->type != SDL_WINDOWEVENT) || (evt->window.windowID != w->sdlID_))
         return 0;
 
+#ifndef __ANDROID__
     w->ProcessEvent(evt->window);
+#endif
 
     return 0;
 }
