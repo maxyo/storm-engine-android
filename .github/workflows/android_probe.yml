@@ -19,12 +19,24 @@ jobs:
   build-probe:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
+    outputs:
+      game_ready: ${{ steps.readiness.outputs.game_ready }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
       - name: Build and verify probe (not the game engine)
         run: bash tools/android/ci_probe.sh
+      - name: Read game prerelease readiness
+        id: readiness
+        run: |
+          python3 - <<'PYCODE' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          m = json.loads(Path('build/android-ci/dist/build-manifest.json').read_text())
+          ready = m.get('kind') == 'game-port' and m.get('game_port_ready') is True
+          print('game_ready=' + str(ready).lower())
+          PYCODE
       - name: Upload APK, checksum, exact commit and testing notes
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -32,3 +44,30 @@ jobs:
           path: build/android-ci/dist/
           if-no-files-found: error
           retention-days: 14
+
+  publish-game-prerelease:
+    needs: build-probe
+    if: needs.build-probe.outputs.game_ready == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: storm-integration-probe-arm64-${{ github.sha }}
+          path: release-input
+      - name: Reject probes and verify game APK provenance
+        run: python3 tools/android/prepare_prerelease.py --directory release-input --commit "$GITHUB_SHA"
+      - name: Publish testing prerelease with exact commit and limitations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="android-test-${GITHUB_SHA:0:12}"
+          gh release create "$tag" release-input/*.apk release-input/SHA256SUMS release-input/build-manifest.json release-input/TESTING.md \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Android test ${GITHUB_SHA:0:12}" --notes-file release-input/RELEASE_NOTES.md

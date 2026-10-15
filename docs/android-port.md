@@ -238,3 +238,21 @@ the presence of FMOD in upstream's build recipe is not proof of permission to
 redistribute it. Obtain applicable terms/permissions from the rights holders
 before distributing such a binary, or implement and validate a compatible audio
 backend. Keep proprietary SDK files outside the public repository.
+
+## CI artifacts and game prerelease gate
+
+`android_probe.yml` builds on pushes to the Android branch and manual dispatch.
+SDK archives have pinned SHA256 values; dependency commits and action revisions
+are fixed. The build job has only `contents: read` and uses no project secrets.
+It uploads the debug APK, checksum, build manifest with the exact commit, and
+TESTING.md. Reproducibility means pinned inputs and repeatable build steps, not
+bit-identical APKs: each clean runner generates a new local debug signing key.
+
+A separate job has `contents: write` only for creating a test prerelease. It is
+skipped while the manifest identifies an integration probe, as it does today.
+Before publishing, `prepare_prerelease.py` rejects probe artifacts and requires
+an explicit game-port readiness flag, full-engine ARM64 link evidence, matching
+commit, APK checksum and checksum file. The future full-engine builder must
+produce that evidence; simply obtaining a probe APK is insufficient. No game
+prerelease has been created. The negative probe-rejection check is verified;
+a successful game publication remains gated on a real ready game build.
