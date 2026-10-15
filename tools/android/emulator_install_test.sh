@@ -13,9 +13,15 @@ accel=off
 if [[ -r /dev/kvm && -w /dev/kvm ]]; then accel=on; fi
 printf 'Host=%s acceleration=%s; x86_64 packaging/Java test only, ARM64 native unverified\n' "$(uname -m)" "$accel" | tee "$out/scope.txt"
 emulator -avd storm-install -no-window -no-audio -no-boot-anim -no-snapshot -accel "$accel" -gpu swiftshader_indirect > "$out/emulator.log" 2>&1 &
-trap 'adb logcat -d > "$out/logcat.txt" 2>&1 || true; adb emu kill || true' EXIT
+emulator_pid=$!
+trap 'tail -80 "$out/emulator.log"; timeout 15 adb logcat -d > "$out/logcat.txt" 2>&1 || true; timeout 10 adb emu kill || true' EXIT
 adb start-server
-timeout 600 adb wait-for-device
+for i in $(seq 1 120); do
+  if ! kill -0 "$emulator_pid" 2>/dev/null; then echo 'Emulator exited before adb'; exit 1; fi
+  adb devices | grep -q 'emulator-.*device$' && break
+  sleep 3
+done
+timeout 10 adb wait-for-device
 for i in $(seq 1 180); do
   [[ $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r') == 1 ]] && break
   sleep 3
@@ -33,4 +39,31 @@ adb shell uiautomator dump /sdcard/storm-ui.xml || true
 adb pull /sdcard/storm-ui.xml "$out/launcher.xml" || true
 adb shell screencap -p /sdcard/storm.png
 adb pull /sdcard/storm.png "$out/launcher.png"
+# Exercise the Java launcher only if installation succeeded.
+if grep -q 'Success' "$out/install-abi-override.txt"; then
+  tap_text() {
+    adb shell uiautomator dump /sdcard/storm-ui.xml >/dev/null
+    adb pull /sdcard/storm-ui.xml "$out/current.xml" >/dev/null
+    coords=$(python3 - "$out/current.xml" "$1" <<'PYUI'
+import re,sys,xml.etree.ElementTree as E
+for node in E.parse(sys.argv[1]).iter('node'):
+    if node.get('text')==sys.argv[2]:
+        x1,y1,x2,y2=map(int,re.findall(r'\d+',node.get('bounds')))
+        print((x1+x2)//2,(y1+y2)//2);break
+else: raise SystemExit('UI button missing: '+sys.argv[2])
+PYUI
+)
+    adb shell input tap $coords
+  }
+  tap_text 'Start engine'
+  adb shell uiautomator dump /sdcard/storm-ui.xml
+  adb pull /sdcard/storm-ui.xml "$out/missing-assets.xml"
+  grep -q 'engine.ini is missing' "$out/missing-assets.xml"
+  tap_text 'Import game ZIP'
+  adb shell uiautomator dump /sdcard/storm-ui.xml
+  adb pull /sdcard/storm-ui.xml "$out/import-picker.xml"
+  adb shell dumpsys activity activities > "$out/import-activity.txt"
+  grep -q 'documentsui' "$out/import-activity.txt"
+  echo 'PASS: launcher, missing assets, document import picker (Java UI only)' | tee "$out/ui-result.txt"
+fi
 rm "$out/published.apk"
