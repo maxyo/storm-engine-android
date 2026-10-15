@@ -16,7 +16,7 @@ if [[ -r /dev/kvm && -w /dev/kvm ]]; then accel=on; fi
 printf 'Host=%s acceleration=%s; x86_64 packaging/Java test only, ARM64 native unverified\n' "$(uname -m)" "$accel" | tee "$out/scope.txt"
 emulator -avd storm-install -no-window -no-audio -no-boot-anim -no-snapshot -accel "$accel" -gpu swiftshader_indirect > "$out/emulator.log" 2>&1 &
 emulator_pid=$!
-trap 'tail -80 "$out/emulator.log"; timeout 15 adb logcat -d > "$out/logcat.txt" 2>&1 || true; timeout 10 adb emu kill || true' EXIT
+trap 'rm -f "$out/java-test.keystore"; tail -80 "$out/emulator.log"; timeout 15 adb logcat -d > "$out/logcat.txt" 2>&1 || true; timeout 10 adb emu kill || true' EXIT
 adb start-server
 for i in $(seq 1 120); do
   if ! kill -0 "$emulator_pid" 2>/dev/null; then echo 'Emulator exited before adb'; exit 1; fi

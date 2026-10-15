@@ -20,4 +20,8 @@ jobs:
         if: always()
         with:
           name: android-install-diagnosis-${{ github.sha }}
-          path: build/install-test/
+          path: |
+            build/install-test/*.txt
+            build/install-test/*.xml
+            build/install-test/*.png
+            build/install-test/*.log
