@@ -48,4 +48,40 @@ adb install storm-engine-arm64-debug.apk
 
 Device name alone does not verify firmware ABI. No IMEI, serial number, credentials or game resources are needed. If relevant, collect PackageManager/logcat lines around that installation and verify the downloaded APK size/hash above.
 
-To complete emulator UI checks reliably, use a working accelerated emulator or explicitly authorize narrowly scoped KVM access on the disposable Actions runner. The task explicitly prohibited changing KVM permissions without confirmation; no such change was made. A real ARM64 device remains required for engine/Vulkan/audio validation. Do not label a new release installation-fixed until an identified failure is reproduced and the replacement passes the relevant installation test.
+The user's subsequent instruction prohibits running emulators in GitHub Actions. Use a compatible local/cloud test host or a real ARM64 device; GitHub is for builds and releases only. KVM access on an x86_64 runner would not resolve the ARM64 guest architecture rejection below. Do not label a new release installation-fixed until an identified failure is reproduced and the replacement passes the relevant installation test.
+
+## Cloud-local continuation — 2026-10-15
+
+Starting branch: `android/arm64-port`, commit `16ac589b5fc47b0ab8a28dc8d20ef7553518aee1`. No `AGENTS.md` or `.agents/skills` files were present in this checkout. Reported device: Xiaomi 15 Ultra, HyperOS `3.0.312.0.WOACNXM.C11`; exact Android version remains unknown and was not inferred from the device name.
+
+Downloaded the unchanged release APK again: size, SHA256 and ZIP integrity match the exact input above. All six native libraries remain ARM64-only. No Java-only derivative was made. No commercial game resources were added.
+
+Installed official stable Android Emulator **37.2.12.0**, build **16428233**, platform-tools **37.0.1**, and AOSP **API 35 ARM64 image revision 2** from Google's SDK repositories. Expected archive checksums and sizes from Google's repository metadata are recorded; the SDK installer removed its archive cache after installation, so no separate archive checksum recheck is claimed. The image requires emulator >=29.1.11, so this installed emulator meets its version requirement. See [Google SDK metadata](https://dl.google.com/android/repository/repository2-3.xml) and [system-image metadata](https://dl.google.com/android/repository/sys-img/android/sys-img2-3.xml).
+
+All SDK, HOME, Android user, AVD and Java preference paths were placed under `/workspace/android-diagnostic`. The initial SDK installation emitted a Java preference warning; setting `JAVA_TOOL_OPTIONS=-Duser.home=/workspace/android-diagnostic/home` and creating its preference directory resolved that issue for AVD creation. Command-line tools were placed in the standard SDK `cmdline-tools/latest` layout before the final test. No system permissions or security settings were changed.
+
+AVD creation succeeded. The official launcher found the actual ARM64 system-image path, then immediately rejected the host/guest pair, even with software emulation requested:
+
+```text
+FATAL | Avd's CPU Architecture 'arm64' is not supported by the QEMU2 emulator on x86_64 host. System image must match the host architecture.
+exit_code=1
+```
+
+The host is x86_64, `/dev/kvm` is absent, and `emulator -accel-check` also reports `KVM requires a CPU that supports vmx or svm`. The architecture rejection is the direct blocker; it occurs before Android boots, independently of a writable HOME. [Android's acceleration documentation](https://developer.android.com/studio/run/emulator-acceleration) also distinguishes matching host/image architectures for acceleration.
+
+Final launch command (45-second upper bound; process actually exited immediately):
+
+```sh
+env HOME=/workspace/android-diagnostic/home \
+  ANDROID_USER_HOME=/workspace/android-diagnostic/home/.android \
+  ANDROID_AVD_HOME=/workspace/android-diagnostic/avd \
+  ANDROID_HOME=/workspace/android-diagnostic/sdk \
+  ANDROID_SDK_ROOT=/workspace/android-diagnostic/sdk \
+  timeout 45 /workspace/android-diagnostic/sdk/emulator/emulator \
+  -avd storm_api35_arm64 -no-window -no-audio -no-snapshot \
+  -accel off -gpu swiftshader -verbose
+```
+
+Evidence: [launch log](evidence/android-local-arm64-2026-10-15/arm64-launch.log), [successful AVD creation](evidence/android-local-arm64-2026-10-15/avd-create.log), [AVD configuration](evidence/android-local-arm64-2026-10-15/avd-config.ini), [emulator version](evidence/android-local-arm64-2026-10-15/emulator-version.log), [acceleration probe](evidence/android-local-arm64-2026-10-15/accel-check.log), [input verification](evidence/android-local-arm64-2026-10-15/input.json), [image metadata](evidence/android-local-arm64-2026-10-15/image-source.properties), [SDK download metadata](evidence/android-local-arm64-2026-10-15/sdk-download-metadata.json).
+
+**Outcome:** original APK installation and execution remain unverified in this continuation because no compatible Android guest could boot. This does not reproduce or explain Xiaomi's `package is null`. No code fix or replacement prerelease is justified by these findings. No GitHub emulator workflow was launched. Further native testing needs a host supported by the official ARM64 emulator (for example Apple silicon with its official emulator), or an accessible ARM64 Android device; Xiaomi-specific diagnosis still needs that phone's PackageManager/ADB error.

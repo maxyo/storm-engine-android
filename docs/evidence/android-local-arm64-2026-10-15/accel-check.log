@@ -1,0 +1,4 @@
+accel:
+3
+KVM requires a CPU that supports vmx or svm
+accel

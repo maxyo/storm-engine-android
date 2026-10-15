@@ -1,0 +1,11 @@
+INFO         | Android emulator version 37.2.12.0 (build_id 16428233) (CL:N/A)
+INFO         | Graphics backend: gfxstream
+DEBUG   | Current emulator version 37.2.12 is the same as the required version 37.2.12.
+INFO         | Found AVD name 'storm_api35_arm64'
+INFO         | Found AVD target architecture: arm64
+INFO         | argv[0]: '/workspace/android-diagnostic/sdk/emulator/emulator'; program directory: '/workspace/android-diagnostic/sdk/emulator'
+INFO         | Found systemPath /workspace/android-diagnostic/sdk/system-images/android-35/default/arm64-v8a/
+INFO         | emuDirName: '/workspace/android-diagnostic/sdk/emulator'
+FATAL        | Avd's CPU Architecture 'arm64' is not supported by the QEMU2 emulator on x86_64 host. System image must match the host architecture.
+
+exit_code=1

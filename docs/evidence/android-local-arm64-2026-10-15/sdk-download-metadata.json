@@ -1,0 +1,20 @@
+[
+  {
+    "package": "platform-tools",
+    "url": "platform-tools_r37.0.1-linux.zip",
+    "expected_sha1": "477254aa5f903c15cf51001717bdf347fb6b53e0",
+    "bytes": "9054187"
+  },
+  {
+    "package": "emulator",
+    "url": "emulator-linux_x64-16428233.zip",
+    "expected_sha1": "cd7362ea55dfb86a418958138dc396e74165dd01",
+    "bytes": "349654171"
+  },
+  {
+    "package": "system-images;android-35;default;arm64-v8a",
+    "url": "arm64-v8a-35_r02.zip",
+    "expected_sha1": "2026a06409db630b56711afdbffb457c1dbaed49",
+    "bytes": "769099654"
+  }
+]
