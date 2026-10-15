@@ -1,0 +1,21 @@
+--- a/miniaudio.h
++++ b/miniaudio.h
+@@ -70841,8 +70840,0 @@
+-    /* If we failed to initialize the data buffer we need to free it. */
+-    if (result != MA_SUCCESS) {
+-        if (nodeAlreadyExists == MA_FALSE) {
+-            ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBufferNode);
+-            ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
+-        }
+-    }
+-
+@@ -70855,0 +70848,9 @@
++        }
++    }
++
++    /* If we failed to initialize the data buffer we need to free it. */
++    if (result != MA_SUCCESS) {
++        if (nodeAlreadyExists == MA_FALSE) {
++            ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBufferNode);
++            ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
++            pDataBufferNode = NULL;

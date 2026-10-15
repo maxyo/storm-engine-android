@@ -114,3 +114,47 @@ were accepted and no proprietary SDK files were redistributed.
 - [stb_vorbis source, limitations and license](https://github.com/nothings/stb/blob/master/stb_vorbis.c)
 - [OpenAL Soft project and license statement](https://github.com/kcat/openal-soft)
 - [FMOD current EULA](https://www.fmod.com/legal)
+
+## Isolated implementation checkpoint
+
+`android/audio/` and `tests/audio/` now implement the bounded experiment with
+miniaudio 0.11.23 and stb_vorbis pinned to
+`2c980bb59875b0d32144a71867fbdebb2f77cd20`. Source hashes and license choices are
+recorded in the experiment README. Generated sine-wave WAV/MP3/Vorbis fixtures
+stay in ignored build directories. The existing integration-probe APK is
+unchanged and does not contain this audio experiment.
+
+Integration assessment from the experiment and current SoundService source:
+
+- ASan found a use-after-free in miniaudio 0.11.23 when loading a missing file.
+  The pinned build applies a narrow cleanup-order patch with a regression case.
+  Do not use the unpatched pin for the adapter's error paths.
+- Streaming Vorbis may report unknown length and a cumulative loop cursor.
+  Music position persistence must define its own duration/modulo policy rather
+  than assume that every codec returns a wrapped cursor.
+- WAV/MP3/Vorbis, per-instance controls, two music streams and 3D mixing have a
+  usable API mapping. Streaming seek is asynchronous: the mixer consumes a
+  request and a worker refills pages. A service adapter must expose/handle this
+  transition and avoid pretending a returned call means seek has completed.
+- Offline engine stop/start cannot represent device lifecycle directly.
+  Offline tests pause the manual PCM pump; real device mode uses engine stop/
+  start and explicitly limits Android backends to AAudio/OpenSL ES.
+- Keep `VSoundService`, alias/scheme logic, category volumes, cache names,
+  stamped handles and two OGG slots. Replace backend resource/channel fields
+  behind a separate interface rather than making fake FMOD types.
+- Next adapter needs an explicit physical-voice budget, priority ordering and
+  logical voice state/cursor policy. Test overflow and stale IDs before mapping
+  the current 4095 logical slots; `isVirtual` has no assumed equivalent.
+- Existing `SetActiveWithFade` schedules DSP-clock fades and immediately
+  suspends the mixer. The replacement needs a state machine that completes the
+  fade before stopping the device, including reversal during rapid resume.
+  Prototype fade tests do not establish parity with that service behavior.
+- Stereo 3D sounds, engine listener handedness, zero distance/fade cases,
+  resource cache sharing and real game corpus compatibility remain integration
+  tests. The synthetic mono spatial test establishes only its documented
+  left/right and distance behavior.
+
+Full SoundService replacement and Android engine linking are not completed by
+this checkpoint. Device playback, Home/lock/route changes and performance must
+be measured before any game-ready prerelease claim. No FMOD download is needed
+to continue the open backend, but no device or game corpus is available here.

@@ -256,3 +256,12 @@ commit, APK checksum and checksum file. The future full-engine builder must
 produce that evidence; simply obtaining a probe APK is insufficient. No game
 prerelease has been created. The negative probe-rejection check is verified;
 a successful game publication remains gated on a real ready game build.
+
+## Open audio prototype
+
+An isolated miniaudio/stb_vorbis experiment now lives in `android/audio`, with
+synthetic host tests and an NDK ARM64 link check in `tests/audio/run.py`. The
+Android CI runs both before packaging its existing integration probe. See the
+[audio experiment instructions](../android/audio/README.md) and the updated
+[SoundService integration assessment](android-audio-audit.md). This is not yet
+SoundService integration and does not make the APK audible or game-ready.

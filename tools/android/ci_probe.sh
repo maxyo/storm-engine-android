@@ -44,6 +44,10 @@ bt="$work/tools/buildtools/android-15"
 cmake -S "$work/sources/glslang" -B "$work/glslang" -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_OPT=OFF -DBUILD_TESTING=OFF -DENABLE_GLSLANG_BINARIES=ON
 cmake --build "$work/glslang" --target glslangValidator --parallel 2
 python3 "$repo/tools/android/build_dependencies.py" --ndk "$ndk" --sdl-source "$work/sources/SDL" --fmt-source "$work/sources/fmt" --dxvk-source "$work/sources/dxvk" --glslang "$work/glslang/StandAlone/glslangValidator" --build-dir "$work/dependencies" --prefix "$work/prefix" --jobs 2
+# The audio experiment is independently tested; it is not part of the probe APK.
+python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-host"
+python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-sanitized" --sanitize
+python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-android" --cxx "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++" --compile-only
 python3 "$repo/tests/cmake/cross_compile/run.py"
 python3 "$repo/tests/portability/run.py"
 python3 "$repo/tests/portability/check_toolchain.py"
