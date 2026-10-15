@@ -7,6 +7,8 @@ curl -fL "$base/storm-engine-arm64-debug.apk" -o "$out/published.apk"
 echo "9d7b36f3b8770918e5e4029d2b312e53ea2c113b243524454931951e6a226f3e  $out/published.apk" | sha256sum -c -
 export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 sdkmanager 'platform-tools' 'emulator' 'system-images;android-35;default;x86_64'
+export ANDROID_AVD_HOME="$RUNNER_TEMP/storm-avd"
+mkdir -p "$ANDROID_AVD_HOME"
 echo no | avdmanager create avd --name storm-install --package 'system-images;android-35;default;x86_64' --force
 export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 accel=off
