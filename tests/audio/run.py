@@ -44,7 +44,9 @@ run(['patch', '-p1', '-i', ROOT/'tools/android/patches/miniaudio-0.11.23-error-c
 flags = ['-std=c++17', '-O1', '-g', '-pthread', '-I'+str(patched), '-I'+str(ROOT/'android/audio')]
 if a.sanitize:
     flags += ['-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer']
-run([a.cxx, *flags, ROOT/'android/audio/implementation.cpp', ROOT/'tests/audio/probe.cpp', '-Wl,--no-undefined', '-ldl', '-lm', '-o', build/'audio-probe'])
+run([a.cxx, *flags, '-c', ROOT/'android/audio/implementation.cpp', '-o', build/'implementation.o'])
+run([a.cxx, *flags, build/'implementation.o', ROOT/'tests/audio/probe.cpp', '-Wl,--no-undefined', '-ldl', '-lm', '-o', build/'audio-probe'])
+run([a.cxx, *flags, build/'implementation.o', ROOT/'android/audio/service_backend.cpp', ROOT/'tests/audio/service.cpp', '-Wl,--no-undefined', '-ldl', '-lm', '-o', build/'audio-service-check'])
 if a.compile_only:
     print('Audio probe linked only; target playback and tests NOT executed.', flush=True)
 else:
@@ -54,7 +56,10 @@ else:
     run(['ffmpeg', '-nostdin', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=3', '-ac', '1', '-c:a', 'pcm_s16le', fixtures/'tone.wav'])
     for ext, codec in [('mp3','libmp3lame'),('ogg','libvorbis')]:
         run(['ffmpeg', '-nostdin', '-v', 'error', '-y', '-i', fixtures/'tone.wav', '-c:a', codec, fixtures/('tone.'+ext)])
+    for ext, codec in [('wav','pcm_s16le'),('mp3','libmp3lame'),('ogg','libvorbis')]:
+        run(['ffmpeg', '-nostdin', '-v', 'error', '-y', '-i', fixtures/'tone.wav', '-ar', '44100', '-c:a', codec, fixtures/('tone441.'+ext)])
     run([build/'audio-probe', fixtures])
+    run([build/'audio-service-check', fixtures])
 
     long_fixtures = build/'long-fixtures'
     long_fixtures.mkdir(exist_ok=True)

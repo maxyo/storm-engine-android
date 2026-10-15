@@ -4,7 +4,7 @@
 #include <algorithm>
 namespace storm_audio {
 inline void check(ma_result r) { if (r != MA_SUCCESS) throw std::runtime_error(ma_result_description(r)); }
-// Isolated experiment. No game-facing API or FMOD behavior is changed.
+// Shared miniaudio primitive used by the isolated checks and open SoundService.
 class Backend {
     ma_context context{};
     bool hasContext = false;
@@ -48,10 +48,10 @@ public:
 class Sound {
 public:
     ma_sound sound{};
-    Sound(Backend& b, const char* file, bool stream, bool spatial) {
+    Sound(Backend& b, const char* file, bool stream, bool spatial, ma_sound_group* group = nullptr) {
         check(ma_sound_init_from_file(&b.engine, file,
             MA_SOUND_FLAG_WAIT_INIT | (stream ? MA_SOUND_FLAG_STREAM : MA_SOUND_FLAG_DECODE) |
-            (spatial ? 0 : MA_SOUND_FLAG_NO_SPATIALIZATION), nullptr, nullptr, &sound));
+            (spatial ? 0 : MA_SOUND_FLAG_NO_SPATIALIZATION), group, nullptr, &sound));
     }
     ~Sound() { ma_sound_uninit(&sound); }
     Sound(const Sound&) = delete;
