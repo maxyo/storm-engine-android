@@ -6,10 +6,10 @@ base=https://github.com/maxyo/storm-engine-android/releases/download/android-exp
 curl -fL "$base/storm-engine-arm64-debug.apk" -o "$out/published.apk"
 echo "9d7b36f3b8770918e5e4029d2b312e53ea2c113b243524454931951e6a226f3e  $out/published.apk" | sha256sum -c -
 export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
-sdkmanager 'platform-tools' 'emulator' 'system-images;android-35;google_apis;x86_64'
+sdkmanager 'platform-tools' 'emulator' 'system-images;android-35;default;x86_64'
 export ANDROID_AVD_HOME="$RUNNER_TEMP/storm-avd"
 mkdir -p "$ANDROID_AVD_HOME"
-echo no | avdmanager create avd --name storm-install --package 'system-images;android-35;google_apis;x86_64' --force
+echo no | avdmanager create avd --name storm-install --package 'system-images;android-35;default;x86_64' --force
 export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 accel=off
 if [[ -r /dev/kvm && -w /dev/kvm ]]; then accel=on; fi
@@ -25,10 +25,10 @@ for i in $(seq 1 120); do
 done
 timeout 10 adb wait-for-device
 for i in $(seq 1 180); do
-  [[ $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r') == 1 ]] && break
+  [[ $(timeout 10 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r') == 1 ]] && break
   sleep 3
 done
-[[ $(adb shell getprop sys.boot_completed | tr -d '\r') == 1 ]]
+[[ $(timeout 10 adb shell getprop sys.boot_completed | tr -d '\r') == 1 ]]
 adb shell input keyevent 82
 adb shell getprop ro.product.cpu.abilist
 adb shell getprop ro.dalvik.vm.native.bridge
