@@ -1461,7 +1461,11 @@ void SEA::Realize(uint32_t dwDeltaTime)
         PrepareIndicesForBlock(i);
     }
 
-    std::for_each(std::execution::par_unseq, std::begin(aBlocks), std::end(aBlocks),
+    std::for_each(
+#ifndef __ANDROID__
+                  std::execution::par_unseq,
+#endif
+                  std::begin(aBlocks), std::end(aBlocks),
                   [this](auto &i) { SSE_WaveXZBlock(i); });
 
     if (iVStart && iTStart)

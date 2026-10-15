@@ -9,7 +9,11 @@
 #include "sound_defines.h"
 #include "v_sound_service.h"
 
+#ifdef STORM_OPEN_AUDIO
+#include "service_backend.hpp"
+#else
 #include <fmod.hpp>
+#endif
 
 #define MAX_SOUNDS_SLOTS 4095
 
@@ -28,6 +32,11 @@ class SoundService : public VSoundService
     bool bShowDebugInfo;
     bool initialized;
 
+#ifdef STORM_OPEN_AUDIO
+    std::unique_ptr<storm_audio::Mixer> audio;
+    storm_audio::Vec3 listenerPos{}, listenerForward{0,0,1}, listenerUp{0,1,0};
+    void CreateEntityIfNeed();
+#else
     FMOD::System *system;
     FMOD::Sound *OGG_sound[2];
 
@@ -107,6 +116,7 @@ class SoundService : public VSoundService
 
     void CreateEntityIfNeed();
 
+#endif
     // Aliases ------------------------------------------------------------
     struct tAlias
     {

@@ -1,17 +1,16 @@
 cmake_minimum_required(VERSION 3.18)
 project(storm-engine)
 
-# Do not fall through to host Linux DXVK/Conan builds on Android.
-# Remove this guard only when the complete Android dependency and app path exists.
-if(ANDROID)
-    message(FATAL_ERROR
-        "The full Android engine target is not implemented yet: Android D3D9/FMOD dependencies and SDL app packaging are required. See docs/android-port.md. The standalone tests/portability/android target checks math only.")
-endif()
-
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-include(conan)
+if(NOT ANDROID)
+    include(conan)
+endif()
 include(StormSetup)
 
+option(STORM_OPEN_AUDIO "Use the miniaudio audio backend" ${ANDROID})
+if(STORM_OPEN_AUDIO AND NOT ANDROID)
+    message(FATAL_ERROR "Full-engine open audio is currently integrated for Android. Desktop retains FMOD; use tests/audio/run.py for host open-audio checks.")
+endif()
 option(STORM_ENABLE_CRASH_REPORTS "Enable automatic crash reports" OFF)
 option(STORM_ENABLE_STEAM "Enable Steam integration" OFF)
 option(STORM_ENABLE_SAFE_MODE "Enable additional runtime checks" OFF)
@@ -27,6 +26,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Debug
 
 set(STORM_WATERMARK_FILE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/watermark.hpp CACHE FILEPATH "Include file containing build revision, etc." FORCE)
 
+if(ANDROID)
+    include(android)
+else()
 if (WIN32)
     set(SDL2_LIBRARIES "sdl")
 else()
@@ -57,6 +59,8 @@ foreach (conan_target ${CONAN_TARGETS})
 	add_library(${unprefixed_target} ALIAS ${conan_target})
 endforeach()
 ###
+
+endif()
 
 ### Set up build scripts
 set(SRC_DIRS "src" CACHE STRING "File locations for public header files" FORCE)

@@ -168,7 +168,7 @@ class AIShip : public VAI_INNEROBJ
         AICannon *pFortCannon;
         float fDistance;
 
-        bool operator<(can_fire_t &other) const
+        bool operator<(const can_fire_t &other) const
         {
             return fDistance < other.fDistance;
         };

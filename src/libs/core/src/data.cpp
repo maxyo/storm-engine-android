@@ -1074,7 +1074,11 @@ bool DATA::Convert(S_TOKEN_TYPE type)
             return true;
         case VAR_STRING:
             Data_type = type;
+#ifdef __ANDROID__
+            snprintf(buffer, sizeof(buffer), "%.10g", static_cast<double>(fValue));
+#else
             gcvt(fValue, 10, buffer);
+#endif
             Set(buffer);
             return true;
         default:

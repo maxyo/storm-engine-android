@@ -6558,7 +6558,11 @@ void COMPILER::SaveVariable(DATA *pV, bool bdim)
         break;
     case VAR_AREFERENCE:
         pString = nullptr;
+#ifdef _WIN32
         __try
+#else
+        try
+#endif
         {
             pA = TraceARoot(pV->AttributesClass, pString);
         }

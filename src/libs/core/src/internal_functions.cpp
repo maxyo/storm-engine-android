@@ -1946,7 +1946,11 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         pV->Get(TempFloat1);
         pV2->Get(TempLong1);
         pV = SStack.Push();
+#ifdef __ANDROID__
+        snprintf(gs, sizeof(gs), "%.*g", std::clamp(TempLong1, 1, 32), static_cast<double>(TempFloat1));
+#else
         gcvt(TempFloat1, TempLong1, gs);
+#endif
         pV->Set(gs);
         pVResult = pV;
         return pV;
@@ -2564,7 +2568,7 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         }
         pA = pV->GetAClass();
 
-        std::sort(std::execution::seq, std::begin(pA->attributes_), std::end(pA->attributes_),
+        std::sort(std::begin(pA->attributes_), std::end(pA->attributes_),
                   [](const std::unique_ptr<ATTRIBUTES> &lhs, const std::unique_ptr<ATTRIBUTES> &rhs) {
                       return strcmp(lhs->GetThisName(), rhs->GetThisName()) < 0;
                   });

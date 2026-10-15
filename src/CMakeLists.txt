@@ -47,8 +47,10 @@ else()
     add_compile_options(-std=c++20)
 
     # Verbose output
-    add_compile_options(-v)
-    add_link_options(-v)
+    if(NOT ANDROID)
+        add_compile_options(-v)
+        add_link_options(-v)
+    endif()
 
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS} -O3")
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -g")

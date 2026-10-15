@@ -3378,7 +3378,8 @@ int XINTERFACE::LoadIsExist()
     for (std::string path : vFilenames)
     {
         char datBuf[512];
-        sprintf(param, path.c_str());
+        if (snprintf(param, sizeof(param), "%s", path.c_str()) >= static_cast<int>(sizeof(param)))
+            continue;
         if (SFLB_GetSaveFileData(param, sizeof(datBuf), datBuf))
         {
             int nLen = strlen(datBuf);
