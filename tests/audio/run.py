@@ -14,6 +14,8 @@ p.add_argument('--cxx', default='g++')
 p.add_argument('--compile-only', action='store_true')
 p.add_argument('--sanitize', action='store_true')
 a = p.parse_args()
+if not a.compile_only and shutil.which("ffmpeg") is None:
+    raise SystemExit("Host audio tests require ffmpeg with libmp3lame and libvorbis encoders.")
 build = a.build_dir.resolve()
 sources = build/'sources'
 sources.mkdir(parents=True, exist_ok=True)
