@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cmath>
 
-#include <xmmintrin.h>
+#include "float_to_int.h"
 
 #include "c_vector.h"
 
@@ -136,5 +136,5 @@ inline bool IntersectLines2D(const CVECTOR &v1, const CVECTOR &v2, const CVECTOR
 
 inline int ftoi(float f)
 {
-    return _mm_cvt_ss2si(_mm_load_ss(&f));
+    return storm::math::round_to_int(f);
 }

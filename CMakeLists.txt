@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.18)
 project(storm-engine)
 
+# Do not fall through to host Linux DXVK/Conan builds on Android.
+# Remove this guard only when the complete Android dependency and app path exists.
+if(ANDROID)
+    message(FATAL_ERROR
+        "The full Android engine target is not implemented yet: Android D3D9/FMOD dependencies and SDL app packaging are required. See docs/android-port.md. The standalone tests/portability/android target checks math only.")
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(conan)
 include(StormSetup)

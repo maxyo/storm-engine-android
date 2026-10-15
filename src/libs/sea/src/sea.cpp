@@ -790,18 +790,18 @@ void SEA::SSE_WaveXZ(SeaVertex **pArray)
     {
         // INTEL COMMENT:
         // xmm variables.
-        __m128 m128X, m128Y, m128Z;
-        __m128 m128NX, m128NY, m128NZ;
-        __m128 m128Y1, m128Y2;
-        __m128 m128SY1, m128SY2;
+        SeaFloat4 m128X, m128Y, m128Z;
+        SeaFloat4 m128NX, m128NY, m128NZ;
+        SeaFloat4 m128Y1, m128Y2;
+        SeaFloat4 m128SY1, m128SY2;
 
         // INTEL COMMENT:
         // Gather the Y's.
         SSE_GatherFourFloats(&nY1[0], &nY1[1], &nY1[2], &nY1[3], &m128Y1);
         SSE_GatherFourFloats(&nY2[0], &nY2[1], &nY2[2], &nY2[3], &m128Y2);
-        m128SY1 = _mm_sqrt_ps(m128Y1);
-        m128SY2 = _mm_sqrt_ps(m128Y2);
-        m128Y = _mm_add_ps(m128SY1, m128SY2);
+        m128SY1 = SeaSqrt(m128Y1);
+        m128SY2 = SeaSqrt(m128Y2);
+        m128Y = SeaAdd(m128SY1, m128SY2);
 
         // INTEL COMMENT:
         // Gather the X's and Z's.

@@ -4,8 +4,10 @@
 #include <functional>
 #include <memory>
 
+#ifdef STORM_ENABLE_CRASH_REPORTS
 #define SENTRY_BUILD_STATIC 1
 #include <sentry.h>
+#endif
 
 namespace storm::diag
 {
@@ -57,7 +59,9 @@ class LifecycleDiagnosticsService final
     std::unique_ptr<LoggingService> loggingService_;
     crash_info_collector collectCrashInfo_;
 
+#ifdef STORM_ENABLE_CRASH_REPORTS
     static sentry_value_t beforeCrash(const sentry_ucontext_t *uctx, sentry_value_t event, void *closure);
+#endif
 };
 
 } // namespace storm::diag

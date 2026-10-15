@@ -12,6 +12,7 @@
 #include "spdlog_sinks/syncable_sink.hpp"
 #include "watermark.hpp"
 
+#ifdef STORM_ENABLE_CRASH_REPORTS
 #if defined(_UNICODE) && defined(_WIN32)
 #include <tchar.h>
 #define sentry_options_set_database_path sentry_options_set_database_pathw
@@ -81,6 +82,8 @@ void log_sentry(sentry_level_t level, const char *message, va_list args, void *)
 }
 
 }
+
+#endif // STORM_ENABLE_CRASH_REPORTS
 
 namespace storm::diag
 {
@@ -191,6 +194,7 @@ LifecycleDiagnosticsService::Guard LifecycleDiagnosticsService::initialize(const
 {
     loggingService_->initialize();
 
+#ifdef STORM_ENABLE_CRASH_REPORTS
     if (!initialized_)
     {
         // TODO: make this crossplatform
@@ -214,6 +218,12 @@ LifecycleDiagnosticsService::Guard LifecycleDiagnosticsService::initialize(const
         initialized_ = sentry_init(options) == 0;
     }
 
+#else
+    // Logging remains available without linking a crash-reporting SDK.
+    (void)enableCrashReports;
+    initialized_ = true;
+#endif
+
     return Guard(*this);
 }
 
@@ -221,10 +231,12 @@ void LifecycleDiagnosticsService::terminate() const
 {
     loggingService_->terminate();
 
+#ifdef STORM_ENABLE_CRASH_REPORTS
     if (initialized_)
     {
         sentry_close();
     }
+#endif
 }
 
 void LifecycleDiagnosticsService::notifyAfterRun() const
@@ -244,6 +256,7 @@ void LifecycleDiagnosticsService::setCrashInfoCollector(crash_info_collector f)
     collectCrashInfo_ = std::move(f);
 }
 
+#ifdef STORM_ENABLE_CRASH_REPORTS
 sentry_value_t LifecycleDiagnosticsService::beforeCrash(const sentry_ucontext_t *uctx, sentry_value_t event,
                                                         void *closure)
 {
@@ -278,5 +291,7 @@ sentry_value_t LifecycleDiagnosticsService::beforeCrash(const sentry_ucontext_t 
 
     return event;
 }
+
+#endif // STORM_ENABLE_CRASH_REPORTS
 
 } // namespace storm::diag

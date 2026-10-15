@@ -1,5 +1,12 @@
 #pragma once
 
+#include "float_to_int.h"
+
+#if STORM_MATH_HAS_SSE
+using SeaFloat4 = __m128;
+inline SeaFloat4 SeaSqrt(SeaFloat4 value) { return _mm_sqrt_ps(value); }
+inline SeaFloat4 SeaAdd(SeaFloat4 a, SeaFloat4 b) { return _mm_add_ps(a, b); }
+
 // INTEL COMMENT:
 // This function simply gathers 4 floats and places them on a __m128 variable.
 static inline void SSE_GatherFourFloats(float *pf0, float *pf1, float *pf2, float *pf3, __m128 *pm128Result)
@@ -88,3 +95,40 @@ static inline void Normalise(__m128 m128X, __m128 m128Y, __m128 m128Z, __m128 *p
     *pm128Y = _mm_mul_ps(m128Y, xmm0); // RecipLength * Y
     *pm128Z = _mm_mul_ps(m128Z, xmm0); // RecipLength * Z
 }
+
+#else
+// Portable implementation of the same four independent wave-normal lanes.
+// This is real scalar math; a NEON backend can be added after device profiling.
+struct SeaFloat4 { float lane[4]; };
+inline SeaFloat4 SeaSqrt(SeaFloat4 value)
+{
+    for (auto &lane : value.lane) lane = std::sqrt(lane);
+    return value;
+}
+inline SeaFloat4 SeaAdd(SeaFloat4 a, SeaFloat4 b)
+{
+    for (int i = 0; i < 4; ++i) a.lane[i] += b.lane[i];
+    return a;
+}
+inline void SSE_GatherFourFloats(float *a, float *b, float *c, float *d, SeaFloat4 *out)
+{
+    *out = {{*a, *b, *c, *d}};
+}
+inline void SSE_ScatterFourFloats(float *a, float *b, float *c, float *d, SeaFloat4 value)
+{
+    *a = value.lane[0]; *b = value.lane[1];
+    *c = value.lane[2]; *d = value.lane[3];
+}
+inline void SSE_Normalise(SeaFloat4 x, SeaFloat4 y, SeaFloat4 z,
+                          SeaFloat4 *nx, SeaFloat4 *ny, SeaFloat4 *nz)
+{
+    for (int i = 0; i < 4; ++i)
+    {
+        const float lengthSquared = (x.lane[i] * x.lane[i] + y.lane[i] * y.lane[i]) + z.lane[i] * z.lane[i];
+        const float reciprocal = 1.0f / std::sqrt(lengthSquared);
+        nx->lane[i] = x.lane[i] * reciprocal;
+        ny->lane[i] = y.lane[i] * reciprocal;
+        nz->lane[i] = z.lane[i] * reciprocal;
+    }
+}
+#endif

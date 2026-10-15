@@ -1,0 +1,114 @@
+diff --git a/src/dxvk/platform/dxvk_sdl2_exts.cpp b/src/dxvk/platform/dxvk_sdl2_exts.cpp
+index 09de784..40148f8 100644
+--- a/src/dxvk/platform/dxvk_sdl2_exts.cpp
++++ b/src/dxvk/platform/dxvk_sdl2_exts.cpp
+@@ -13,6 +13,18 @@ namespace dxvk {
+ 
+ 
+   DxvkNameSet DxvkPlatformExts::getInstanceExtensions() {
++#ifdef __ANDROID__
++    // Android SDL supports a single native window. Query the platform's
++    // extensions without creating a second window; balance the loader ref.
++    struct VulkanLoaderGuard {
++      VulkanLoaderGuard() {
++        if (SDL_Vulkan_LoadLibrary(nullptr) != 0)
++          throw DxvkError(str::format("SDL2 WSI: Failed to load Vulkan. ", SDL_GetError()));
++      }
++      ~VulkanLoaderGuard() { SDL_Vulkan_UnloadLibrary(); }
++    } loader;
++    SDL_Window* window = nullptr;
++#else
+     SDL_Window* window = SDL_CreateWindow(
+       "Dummy Window",
+       SDL_WINDOWPOS_UNDEFINED,
+@@ -23,6 +35,8 @@ namespace dxvk {
+     if (window == nullptr)
+       throw DxvkError(str::format("SDL2 WSI: Failed to create dummy window. ", SDL_GetError()));
+ 
++#endif
++
+     uint32_t extensionCount = 0;
+     if (!SDL_Vulkan_GetInstanceExtensions(window, &extensionCount, nullptr))
+       throw DxvkError(str::format("SDL2 WSI: Failed to get instance extension count. ", SDL_GetError()));
+@@ -35,7 +49,9 @@ namespace dxvk {
+     for (const char* name : extensionNames)
+       names.add(name);
+ 
++#ifndef __ANDROID__
+     SDL_DestroyWindow(window);
++#endif
+ 
+     return names;
+   }
+diff --git a/src/util/meson.build b/src/util/meson.build
+index dbaba37..e414107 100644
+--- a/src/util/meson.build
++++ b/src/util/meson.build
+@@ -35,7 +35,7 @@ util_src_linux = [
+ 
+ if dxvk_platform == 'windows'
+   util_src += util_src_win32
+-elif dxvk_platform == 'linux'
++elif dxvk_platform == 'linux' or dxvk_platform == 'android'
+   util_src += util_src_linux
+ else
+   error('Unknown platform for util')
+diff --git a/src/util/sync/sync_spinlock.h b/src/util/sync/sync_spinlock.h
+index 2715792..9b1ed85 100644
+--- a/src/util/sync/sync_spinlock.h
++++ b/src/util/sync/sync_spinlock.h
+@@ -21,7 +21,11 @@ namespace dxvk::sync {
+   void spin(uint32_t spinCount, const Fn& fn) {
+     while (unlikely(!fn())) {
+       for (uint32_t i = 1; i < spinCount; i++) {
++        #if defined(__i386__) || defined(__x86_64__) || defined(_M_X64)
+         _mm_pause();
++        #elif defined(__aarch64__)
++        __asm__ __volatile__("yield");
++        #endif
+         if (fn())
+           return;
+       }
+diff --git a/src/util/util_bit.h b/src/util/util_bit.h
+index 3c65c70..7307461 100644
+--- a/src/util/util_bit.h
++++ b/src/util/util_bit.h
+@@ -5,7 +5,9 @@
+ #pragma push_macro("_WIN32")
+ #undef _WIN32
+ #endif
++#if defined(__i386__) || defined(__x86_64__)
+ #include <x86intrin.h>
++#endif
+ #if defined(__WINE__) && defined(__clang__)
+ #pragma pop_macro("_WIN32")
+ #endif
+@@ -144,7 +146,7 @@ namespace dxvk::bit {
+   template<typename T>
+   bool bcmpeq(const T* a, const T* b) {
+     static_assert(alignof(T) >= 16);
+-    #if defined(__GNUC__) || defined(__clang__) || defined(_MSC_VER)
++    #if defined(__SSE2__) || defined(_M_X64)
+     auto ai = reinterpret_cast<const __m128i*>(a);
+     auto bi = reinterpret_cast<const __m128i*>(b);
+ 
+diff --git a/src/util/util_vector.h b/src/util/util_vector.h
+index 77cdf29..21c2479 100644
+--- a/src/util/util_vector.h
++++ b/src/util/util_vector.h
+@@ -151,10 +151,15 @@ namespace dxvk {
+ 
+   inline Vector4 replaceNaN(Vector4 a) {
+     Vector4 result;
++    #if defined(__SSE__) || defined(_M_X64)
+     __m128 value = _mm_load_ps(a.data);
+     __m128 mask  = _mm_cmpeq_ps(value, value);
+            value = _mm_and_ps(value, mask);
+     _mm_store_ps(result.data, value);
++    #else
++    for (size_t i = 0; i < 4; ++i)
++      result.data[i] = std::isnan(a.data[i]) ? 0.0f : a.data[i];
++    #endif
+     return result;
+   }
+ 

@@ -1,0 +1,224 @@
+diff --git a/src/audio/aaudio/SDL_aaudio.c b/src/audio/aaudio/SDL_aaudio.c
+index 43c8971..97b0a4f 100644
+--- a/src/audio/aaudio/SDL_aaudio.c
++++ b/src/audio/aaudio/SDL_aaudio.c
+@@ -436,14 +436,16 @@ void aaudio_ResumeDevices(void)
+ */
+ SDL_bool aaudio_DetectBrokenPlayState( void )
+ {
++    struct SDL_PrivateAudioData *private;
++    int64_t framePosition, timeNanoseconds;
++    aaudio_result_t res;
+     if ( !audioDevice || !audioDevice->hidden ) {
+         return SDL_FALSE;
+     }
+ 
+-    struct SDL_PrivateAudioData *private = audioDevice->hidden;
++    private = audioDevice->hidden;
+ 
+-    int64_t framePosition, timeNanoseconds;
+-    aaudio_result_t res = ctx.AAudioStream_getTimestamp( private->stream, CLOCK_MONOTONIC, &framePosition, &timeNanoseconds );
++    res = ctx.AAudioStream_getTimestamp( private->stream, CLOCK_MONOTONIC, &framePosition, &timeNanoseconds );
+     if ( res == AAUDIO_ERROR_INVALID_STATE ) {
+         aaudio_stream_state_t currentState = ctx.AAudioStream_getState( private->stream );
+         /* AAudioStream_getTimestamp() will also return AAUDIO_ERROR_INVALID_STATE while the stream is still initially starting. But we only care if it silently went invalid while playing. */
+diff --git a/src/audio/openslES/SDL_openslES.c b/src/audio/openslES/SDL_openslES.c
+index f888d2a..b43e2f6 100644
+--- a/src/audio/openslES/SDL_openslES.c
++++ b/src/audio/openslES/SDL_openslES.c
+@@ -132,6 +132,8 @@ static int
+ openslES_CreateEngine(void)
+ {
+     SLresult result;
++    const SLInterfaceID ids[1] = { SL_IID_VOLUME };
++    const SLboolean req[1] = { SL_BOOLEAN_FALSE };
+ 
+     LOGI("openSLES_CreateEngine()");
+ 
+@@ -160,8 +162,6 @@ openslES_CreateEngine(void)
+     LOGI("EngineGetInterface OK");
+ 
+     /* create output mix */
+-    const SLInterfaceID ids[1] = { SL_IID_VOLUME };
+-    const SLboolean req[1] = { SL_BOOLEAN_FALSE };
+     result = (*engineEngine)->CreateOutputMix(engineEngine, &outputMixObject, 1, ids, req);
+     if (SL_RESULT_SUCCESS != result) {
+         LOGE("CreateOutputMix failed: %d", result);
+@@ -230,6 +230,16 @@ openslES_CreatePCMRecorder(_THIS)
+     struct SDL_PrivateAudioData *audiodata = this->hidden;
+     SLDataFormat_PCM format_pcm;
+     SLresult result;
++    SLDataLocator_IODevice loc_dev = {SL_DATALOCATOR_IODEVICE, SL_IODEVICE_AUDIOINPUT, SL_DEFAULTDEVICEID_AUDIOINPUT, NULL};
++    SLDataSource audioSrc = {&loc_dev, NULL};
++    SLDataLocator_AndroidSimpleBufferQueue loc_bufq = { SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, NUM_BUFFERS };
++    SLDataSink audioSnk = { &loc_bufq, &format_pcm };
++    const SLInterfaceID ids[1] = {
++        SL_IID_ANDROIDSIMPLEBUFFERQUEUE,
++    };
++    const SLboolean req[1] = {
++        SL_BOOLEAN_TRUE,
++    };
+     int i;
+ 
+     if (!Android_JNI_RequestPermission("android.permission.RECORD_AUDIO")) {
+@@ -250,11 +260,8 @@ openslES_CreatePCMRecorder(_THIS)
+           this->spec.channels, (this->spec.format & 0x1000) ? "BE" : "LE", this->spec.samples);
+ 
+     /* configure audio source */
+-    SLDataLocator_IODevice loc_dev = {SL_DATALOCATOR_IODEVICE, SL_IODEVICE_AUDIOINPUT, SL_DEFAULTDEVICEID_AUDIOINPUT, NULL};
+-    SLDataSource audioSrc = {&loc_dev, NULL};
+ 
+     /* configure audio sink */
+-    SLDataLocator_AndroidSimpleBufferQueue loc_bufq = { SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, NUM_BUFFERS };
+ 
+     format_pcm.formatType    = SL_DATAFORMAT_PCM;
+     format_pcm.numChannels   = this->spec.channels;
+@@ -264,16 +271,9 @@ openslES_CreatePCMRecorder(_THIS)
+     format_pcm.endianness    = SL_BYTEORDER_LITTLEENDIAN;
+     format_pcm.channelMask   = SL_SPEAKER_FRONT_CENTER;
+ 
+-    SLDataSink audioSnk = { &loc_bufq, &format_pcm };
+ 
+     /* create audio recorder */
+     /* (requires the RECORD_AUDIO permission) */
+-    const SLInterfaceID ids[1] = {
+-        SL_IID_ANDROIDSIMPLEBUFFERQUEUE,
+-    };
+-    const SLboolean req[1] = {
+-        SL_BOOLEAN_TRUE,
+-    };
+ 
+     result = (*engineEngine)->CreateAudioRecorder(engineEngine, &recorderObject, &audioSrc, &audioSnk, 1, ids, req);
+     if (SL_RESULT_SUCCESS != result) {
+@@ -408,6 +408,18 @@ openslES_CreatePCMPlayer(_THIS)
+     struct SDL_PrivateAudioData *audiodata = this->hidden;
+     SLDataFormat_PCM format_pcm;
+     SLresult result;
++    SLDataLocator_AndroidSimpleBufferQueue loc_bufq = { SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, NUM_BUFFERS };
++    SLDataSource audioSrc = { &loc_bufq, &format_pcm };
++    SLDataLocator_OutputMix loc_outmix = { SL_DATALOCATOR_OUTPUTMIX, outputMixObject };
++    SLDataSink audioSnk = { &loc_outmix, NULL };
++    const SLInterfaceID ids[2] = {
++        SL_IID_ANDROIDSIMPLEBUFFERQUEUE,
++        SL_IID_VOLUME
++    };
++    const SLboolean req[2] = {
++        SL_BOOLEAN_TRUE,
++        SL_BOOLEAN_FALSE,
++    };
+     int i;
+ 
+     /* If we want to add floating point audio support (requires API level 21)
+@@ -442,7 +454,6 @@ openslES_CreatePCMPlayer(_THIS)
+           this->spec.channels, (this->spec.format & 0x1000) ? "BE" : "LE", this->spec.samples);
+ 
+     /* configure audio source */
+-    SLDataLocator_AndroidSimpleBufferQueue loc_bufq = { SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, NUM_BUFFERS };
+ 
+     format_pcm.formatType    = SL_DATAFORMAT_PCM;
+     format_pcm.numChannels   = this->spec.channels;
+@@ -489,22 +500,11 @@ openslES_CreatePCMPlayer(_THIS)
+         break;
+     }
+ 
+-    SLDataSource audioSrc = { &loc_bufq, &format_pcm };
+ 
+     /* configure audio sink */
+-    SLDataLocator_OutputMix loc_outmix = { SL_DATALOCATOR_OUTPUTMIX, outputMixObject };
+-    SLDataSink audioSnk = { &loc_outmix, NULL };
+ 
+     /* create audio player */
+-    const SLInterfaceID ids[2] = {
+-        SL_IID_ANDROIDSIMPLEBUFFERQUEUE,
+-        SL_IID_VOLUME
+-    };
+ 
+-    const SLboolean req[2] = {
+-        SL_BOOLEAN_TRUE,
+-        SL_BOOLEAN_FALSE,
+-    };
+ 
+     result = (*engineEngine)->CreateAudioPlayer(engineEngine, &bqPlayerObject, &audioSrc, &audioSnk, 2, ids, req);
+     if (SL_RESULT_SUCCESS != result) {
+diff --git a/src/core/android/SDL_android.c b/src/core/android/SDL_android.c
+index e238414..a850b84 100644
+--- a/src/core/android/SDL_android.c
++++ b/src/core/android/SDL_android.c
+@@ -510,8 +510,8 @@ register_methods(JNIEnv *env, const char *classname, JNINativeMethod *methods, i
+ /* Library init */
+ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
+ {
+-    mJavaVM = vm;
+     JNIEnv *env = NULL;
++    mJavaVM = vm;
+ 
+     if ((*mJavaVM)->GetEnv(mJavaVM, (void **)&env, JNI_VERSION_1_4) != JNI_OK) {
+         __android_log_print(ANDROID_LOG_ERROR, "SDL", "Failed to get JNI Env");
+@@ -2532,6 +2532,7 @@ SDL_bool Android_JNI_RequestPermission(const char *permission)
+ {
+     JNIEnv *env = Android_JNI_GetEnv();
+     const int requestCode = 1;
++    jstring jpermission;
+ 
+     /* Wait for any pending request on another thread */
+     while (SDL_AtomicGet(&bPermissionRequestPending) == SDL_TRUE) {
+@@ -2539,7 +2540,7 @@ SDL_bool Android_JNI_RequestPermission(const char *permission)
+     }
+     SDL_AtomicSet(&bPermissionRequestPending, SDL_TRUE);
+ 
+-    jstring jpermission = (*env)->NewStringUTF(env, permission);
++    jpermission = (*env)->NewStringUTF(env, permission);
+     (*env)->CallStaticVoidMethod(env, mActivityClass, midRequestPermission, jpermission, requestCode);
+     (*env)->DeleteLocalRef(env, jpermission);
+ 
+diff --git a/src/sensor/android/SDL_androidsensor.c b/src/sensor/android/SDL_androidsensor.c
+index 4fe2252..ad472b3 100644
+--- a/src/sensor/android/SDL_androidsensor.c
++++ b/src/sensor/android/SDL_androidsensor.c
+@@ -171,7 +171,7 @@ SDL_ANDROID_SensorUpdate(SDL_Sensor *sensor)
+     ASensorEvent event;
+     struct android_poll_source* source;
+ 
+-    if (ALooper_pollAll(0, NULL, &events, (void**)&source) == LOOPER_ID_USER) {
++    if (ALooper_pollOnce(0, NULL, &events, (void**)&source) == LOOPER_ID_USER) {
+         SDL_zero(event);
+         while (ASensorEventQueue_getEvents(sensor->hwdata->eventqueue, &event, 1) > 0) {
+             SDL_PrivateSensorUpdate(sensor, event.data, SDL_arraysize(event.data));
+diff --git a/src/video/android/SDL_androidwindow.c b/src/video/android/SDL_androidwindow.c
+index 7d0ada0..0c38e7a 100644
+--- a/src/video/android/SDL_androidwindow.c
++++ b/src/video/android/SDL_androidwindow.c
+@@ -114,6 +114,8 @@ Android_SetWindowFullscreen(_THIS, SDL_Window *window, SDL_VideoDisplay *display
+     SDL_LockMutex(Android_ActivityMutex);
+ 
+     if (window == Android_Window) {
++        SDL_WindowData *data;
++        int old_w, old_h, new_w, new_h;
+ 
+         /* If the window is being destroyed don't change visible state */
+         if (!window->is_destroying) {
+@@ -130,7 +132,7 @@ Android_SetWindowFullscreen(_THIS, SDL_Window *window, SDL_VideoDisplay *display
+             goto endfunction;
+         }
+ 
+-        SDL_WindowData *data = (SDL_WindowData *)window->driverdata;
++        data = (SDL_WindowData *)window->driverdata;
+ 
+         if (!data || !data->native_window) {
+             if (data && !data->native_window) {
+@@ -139,11 +141,11 @@ Android_SetWindowFullscreen(_THIS, SDL_Window *window, SDL_VideoDisplay *display
+             goto endfunction;
+         }
+ 
+-        int old_w = window->w;
+-        int old_h = window->h;
++        old_w = window->w;
++        old_h = window->h;
+ 
+-        int new_w = ANativeWindow_getWidth(data->native_window);
+-        int new_h = ANativeWindow_getHeight(data->native_window);
++        new_w = ANativeWindow_getWidth(data->native_window);
++        new_h = ANativeWindow_getHeight(data->native_window);
+ 
+         if (new_w < 0 || new_h < 0) {
+             SDL_SetError("ANativeWindow_getWidth/Height() fails");

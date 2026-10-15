@@ -8,7 +8,7 @@
 
 #include <cstdint>
 
-#include <xmmintrin.h> // espkk # remove inline asm # 30/Dec/2017
+#include "float_to_int.h"
 
 //#define inline __forceinline
 
@@ -17,7 +17,7 @@
 // Fast conversion of a floating point number to an integer with discarding of the fractional part
 inline int32_t fftol(float f)
 {
-    return _mm_cvttss_si32(_mm_load_ss(&f));
+    return storm::math::truncate_to_int(f);
 
     /*int32_t l;
     static const float cnt[2] = {-0.4999999f, 0.4999999f};
@@ -35,7 +35,7 @@ inline int32_t fftol(float f)
 // Fast conversion of a floating point number to an integer with rounding to the nearest
 inline int32_t fftoi(float f)
 {
-    return _mm_cvtss_si32(_mm_load_ss(&f));
+    return storm::math::round_to_int(f);
 
     /*int32_t l;
     _asm
@@ -49,7 +49,7 @@ inline int32_t fftoi(float f)
 // Fast floor
 inline int32_t ffloor(float f)
 {
-    return _mm_cvtss_si32(_mm_add_ss(_mm_load_ss(&f), _mm_set_ss(-0.5f)));
+    return storm::math::round_to_int(f - 0.5f);
 
     /*int32_t l;
     static const float c = -0.5f;
@@ -65,7 +65,7 @@ inline int32_t ffloor(float f)
 // Fast ceil
 inline int32_t fceil(float f)
 {
-    return _mm_cvtss_si32(_mm_add_ss(_mm_load_ss(&f), _mm_set_ss(0.5f)));
+    return storm::math::round_to_int(f + 0.5f);
 
     /*int32_t l;
     static const float c = 0.5f;

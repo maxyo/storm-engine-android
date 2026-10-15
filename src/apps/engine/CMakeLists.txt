@@ -31,7 +31,7 @@ STORM_SETUP(
 
     # external
     mimalloc
-    sentry-native
+    $<$<BOOL:${STORM_ENABLE_CRASH_REPORTS}>:sentry-native>
     ${SDL2_LIBRARIES}
     zlib
 

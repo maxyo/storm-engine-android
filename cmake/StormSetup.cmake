@@ -205,12 +205,20 @@ macro(STORM_SETUP)
                                                  ${_SETUP_TARGET_NAME})
     _set_ide_folder(${test_target} "Tests")
 
-    # setup post-build hook to run the test after build
-    add_custom_command(
-      TARGET ${test_target}
-      COMMENT "Run ${test_target}"
-      POST_BUILD
-      COMMAND ${test_target})
+    # A target binary cannot run on the build host when cross compiling (e.g.
+    # Android ARM64). CMake inserts CROSSCOMPILING_EMULATOR for a target-name
+    # command when one is configured. Otherwise only build the test binary;
+    # it must be deployed and run on the target separately.
+    get_target_property(test_emulator ${test_target} CROSSCOMPILING_EMULATOR)
+    if(NOT CMAKE_CROSSCOMPILING OR test_emulator)
+      add_custom_command(
+        TARGET ${test_target}
+        COMMENT "Run ${test_target}"
+        POST_BUILD
+        COMMAND ${test_target})
+    else()
+      message(STATUS "[StormSetup] ${test_target}: execution requires a target device or CMAKE_CROSSCOMPILING_EMULATOR")
+    endif()
   endif()
 
   set_target_properties(
