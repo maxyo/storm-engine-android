@@ -251,29 +251,25 @@ redistribute it. Obtain applicable terms/permissions from the rights holders
 before distributing such a binary, or implement and validate a compatible audio
 backend. Keep proprietary SDK files outside the public repository.
 
-## CI artifacts and game prerelease gate
+## Application builds and releases
 
-`android_probe.yml` builds on pushes to the Android branch and manual dispatch.
-SDK archives have pinned SHA256 values; dependency commits and action revisions
-are fixed. The build job has only `contents: read` and uses no project secrets.
-It uploads the debug APK, checksum, build manifest with the exact commit, and
-TESTING.md. Reproducibility means pinned inputs and repeatable build steps, not
-bit-identical APKs: each clean runner generates a new local debug signing key.
+This engine repository has no GitHub Actions workflows. Android native support
+and `tools/android/ci_engine.sh` remain available for local and downstream builds.
+APK packaging, importer, mobile UI and release workflow live in
+[the Android application](https://github.com/maxyo/seawolves-3-android), which
+consumes this engine exclusively as a pinned Git submodule.
 
-A separate job has `contents: write` only for creating a test prerelease. It is
-skipped while the manifest identifies an integration probe, as it does today.
-Before publishing, `prepare_prerelease.py` rejects probe artifacts and requires
-an explicit game-port readiness flag, full-engine ARM64 link evidence, matching
-commit, APK checksum and checksum file. The future full-engine builder must
-produce that evidence; simply obtaining a probe APK is insufficient. No game
-prerelease has been created. The negative probe-rejection check is verified;
-a successful game publication remains gated on a real ready game build.
+The application builds and attaches its debug APK only for a published GitHub
+release. Releases are published on the user's command; pushes and pull requests
+do not build an APK. Build success does not establish installation or gameplay.
+SDK and dependency inputs are pinned; clean runners generate a debug signing key,
+so repeatable build steps do not imply bit-identical APKs or a stable certificate.
 
 ## Open audio prototype
 
 An isolated miniaudio/stb_vorbis experiment now lives in `android/audio`, with
 synthetic host tests and an NDK ARM64 link check in `tests/audio/run.py`. The
-Android CI runs both before packaging its existing integration probe. See the
+original probe build ran both before packaging. See the
 [audio experiment instructions](../android/audio/README.md) and the updated
 [SoundService integration assessment](android-audio-audit.md). This is not yet
 SoundService integration and does not make the APK audible or game-ready.
@@ -298,10 +294,9 @@ proprietary SDKs are bundled. Window/lifecycle and input callbacks are dispatche
 on the game thread on Android. Real-device surface recovery and route changes
 still require validation.
 
-`ci_engine.sh` follows the existing dependency/probe regression pipeline. Its
-artifact manifest identifies `game-port`, but `game_port_ready` remains false
-until device/game evidence exists. The previous probe is not renamed or
-substituted for the engine; `verify_engine.py` checks real engine/audio symbols
-and runtime dependencies before packaging.
+`ci_engine.sh` builds the native library after dependency preparation;
+`verify_engine.py` checks real engine/audio symbols and runtime dependencies.
+The application packages that library and records build checks separately from
+device/game evidence. A probe is not substituted for the complete engine APK.
 
-See [device prerequisites and acceptance sequence](../android/game/TESTING.md).
+See [device prerequisites and acceptance sequence in the application](https://github.com/maxyo/seawolves-3-android/blob/main/android/game/TESTING.md).

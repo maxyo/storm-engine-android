@@ -40,6 +40,20 @@ class Quaternion
     // Constructors
     // -----------------------------------------------------------
   public:
+    // Keep serialized x/y/z/w order independent of GLM quaternion data macros.
+    storm::math::GlmVec4 glmComponents() const { return {x, y, z, w}; }
+    storm::math::GlmQuat glmValue() const
+    {
+        storm::math::GlmQuat value;
+        value.x = x; value.y = y; value.z = z; value.w = w;
+        return value;
+    }
+    Quaternion &setGlm(const storm::math::GlmVec4 &value)
+    {
+        x = value.x; y = value.y; z = value.z; w = value.w;
+        return *this;
+    }
+
     // Set identity quaternion
     Quaternion();
     // With rotation angles
@@ -159,11 +173,7 @@ inline Quaternion::Quaternion(const Matrix &mtx)
 // Negation
 inline Quaternion &Quaternion::operator-()
 {
-    x = -x;
-    y = -y;
-    z = -z;
-    w = -w;
-    return *this;
+    return setGlm(-glmComponents());
 }
 
 // Equate
@@ -179,80 +189,50 @@ inline Quaternion &Quaternion::operator=(const Quaternion &q)
 // Addition
 inline Quaternion &Quaternion::operator+=(const Quaternion &q)
 {
-    x += q.x;
-    y += q.y;
-    z += q.z;
-    w += q.w;
-    return *this;
+    return setGlm(glmComponents() + q.glmComponents());
 }
 
 // Addition
 inline Quaternion &Quaternion::operator+=(float f)
 {
-    x += f;
-    y += f;
-    z += f;
-    w += f;
-    return *this;
+    return setGlm(glmComponents() + f);
 }
 
 // Subtract
 inline Quaternion &Quaternion::operator-=(const Quaternion &q)
 {
-    x -= q.x;
-    y -= q.y;
-    z -= q.z;
-    w -= q.w;
-    return *this;
+    return setGlm(glmComponents() - q.glmComponents());
 }
 
 // Subtract
 inline Quaternion &Quaternion::operator-=(float f)
 {
-    x -= f;
-    y -= f;
-    z -= f;
-    w -= f;
-    return *this;
+    return setGlm(glmComponents() - f);
 }
 
 // Multiply
 inline Quaternion &Quaternion::operator*=(float f)
 {
-    x *= f;
-    y *= f;
-    z *= f;
-    w *= f;
-    return *this;
+    return setGlm(glmComponents() * f);
 }
 
 // Multiply
 inline Quaternion &Quaternion::operator*=(const Quaternion &q)
 {
-    const auto a = (w + x) * (q.w + q.x);
-    const auto b = (z - y) * (q.y - q.z);
-    const auto c = (x - w) * (q.y - q.z);
-    const auto d = (y + z) * (q.x - q.w);
-    const auto e = (x + z) * (q.x + q.y);
-    const auto f = (x - z) * (q.x - q.y);
-    const auto g = (w + y) * (q.w - q.z);
-    const auto h = (w - y) * (q.w + q.z);
-    x = a - (e + f + g + h) * 0.5f;
-    y = -c + (e - f + g - h) * 0.5f;
-    z = -d + (e - f - g + h) * 0.5f;
-    w = b + (-e - f + g + h) * 0.5f;
-    return *this;
+    const auto left = glmValue();
+    const auto right = q.glmValue();
+    auto product = left * right;
+    // Preserve the historical non-Hamilton y term. In particular, legacy
+    // identity*(0,0,1,0) is (0,-2,1,0). Correcting that behavior is a separate
+    // compatibility change, not part of replacing the arithmetic backend.
+    product.y += 2.0f * (left.x - left.w) * right.z;
+    return setGlm({product.x, product.y, product.z, product.w});
 }
 
 // Divide
 inline Quaternion &Quaternion::operator/=(float f)
 {
-    const auto k = 1.0 / f;
-    x = static_cast<float>(x * k);
-    y = static_cast<float>(y * k);
-    z = static_cast<float>(z * k);
-    w = static_cast<float>(w * k);
-    return *this;
+    return setGlm(storm::math::GlmVec4(storm::math::GlmDVec4(glmComponents()) * (1.0 / f)));
 }
 
 /*!\relates Quaternion
@@ -449,25 +429,17 @@ inline void Quaternion::Set(const Matrix &mtx)
 // Normalize
 inline Quaternion &Quaternion::Normalize()
 {
-    auto len = static_cast<double>(x) * static_cast<double>(x) + static_cast<double>(y) * static_cast<double>(y) +
-               static_cast<double>(z) * static_cast<double>(z) + static_cast<double>(w) * static_cast<double>(w);
-    if (len <= 0.0)
-        return *this;
-    len = 1.0 / sqrt(len);
-    x = static_cast<float>(x * len);
-    y = static_cast<float>(y * len);
-    z = static_cast<float>(z * len);
-    w = static_cast<float>(w * len);
-    return *this;
+    const auto value = storm::math::GlmDVec4(glmComponents());
+    const double squared = glm::dot(value, value);
+    if (squared <= 0.0) return *this;
+    return setGlm(storm::math::GlmVec4(value * (1.0 / sqrt(squared))));
 }
 
 // Get coplanar quaternion
 inline Quaternion &Quaternion::Conjugate()
 {
-    x = -x;
-    y = -y;
-    z = -z;
-    return *this;
+    const auto result = glm::conjugate(glmValue());
+    return setGlm({result.x, result.y, result.z, result.w});
 }
 
 // Invert quaternion
@@ -510,11 +482,11 @@ inline Quaternion &Quaternion::SLerp(const Quaternion &q1, const Quaternion &q2,
     }
     k0 *= k;
     // Interpolate
-    x = static_cast<float>(q1.x * k0 + q2.x * k1);
-    y = static_cast<float>(q1.y * k0 + q2.y * k1);
-    z = static_cast<float>(q1.z * k0 + q2.z * k1);
-    w = static_cast<float>(q1.w * k0 + q2.w * k1);
-    return *this;
+    // Retain the 0.9 threshold and first-endpoint sign policy above. GLM's
+    // generic slerp uses different policies, so only blend algebra is delegated.
+    const auto result = storm::math::GlmDVec4(q1.glmComponents()) * k0 +
+                        storm::math::GlmDVec4(q2.glmComponents()) * k1;
+    return setGlm(storm::math::GlmVec4(result));
 }
 
 // ===========================================================
@@ -524,38 +496,19 @@ inline Quaternion &Quaternion::SLerp(const Quaternion &q1, const Quaternion &q2,
 // Get a matrix from a quaternion
 inline void Quaternion::GetMatrix(Matrix &mtx) const
 {
-    const auto xx = x * x * 2.0f, xy = x * y * 2.0f, xz = x * z * 2.0f;
-    const auto yy = y * y * 2.0f, yz = y * z * 2.0f;
-    const auto zz = z * z * 2.0f;
-    const auto wx = w * x * 2.0f, wy = w * y * 2.0f, wz = w * z * 2.0f;
-    mtx.m[0][0] = 1.0f - (yy + zz);
-    mtx.m[0][1] = xy + wz;
-    mtx.m[0][2] = xz - wy;
-    mtx.m[0][3] = 0.0f;
-    mtx.m[1][0] = xy - wz;
-    mtx.m[1][1] = 1.0f - (xx + zz);
-    mtx.m[1][2] = yz + wx;
-    mtx.m[1][3] = 0.0f;
-    mtx.m[2][0] = xz + wy;
-    mtx.m[2][1] = yz - wx;
-    mtx.m[2][2] = 1.0f - (xx + yy);
-    mtx.m[2][3] = 0.0f;
-    mtx.m[3][0] = 0.0f;
-    mtx.m[3][1] = 0.0f;
-    mtx.m[3][2] = 0.0f;
-    mtx.m[3][3] = 1.0f;
+    storm::math::storeGlmMatrix(mtx.matrix, glm::mat4_cast(glmValue()));
 }
 
 // Get the length of the quaternion
 inline float Quaternion::GetLength() const
 {
-    return sqrtf(x * x + y * y + z * z + w * w);
+    return glm::length(glmComponents());
 }
 
 // Get the square of the length of a quaternion
 inline float Quaternion::GetLengthSqr() const
 {
-    return x * x + y * y + z * z + w * w;
+    return glm::dot(glmComponents(), glmComponents());
 }
 
 #pragma pack(pop)

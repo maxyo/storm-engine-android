@@ -222,45 +222,7 @@ inline CMatrix::CMatrix(const CMatrix &m1, const CMatrix &m2)
 // Create identity matrix
 inline void CMatrix::SetIdentity()
 {
-    matrix[0] = 1.f;
-    matrix[1] = 0;
-    matrix[2] = 0;
-    matrix[3] = 0;
-    matrix[4] = 0;
-    matrix[5] = 1.f;
-    matrix[6] = 0;
-    matrix[7] = 0;
-    matrix[8] = 0;
-    matrix[9] = 0;
-    matrix[10] = 1.f;
-    matrix[11] = 0;
-    matrix[12] = 0;
-    matrix[13] = 0;
-    matrix[14] = 0;
-    matrix[15] = 1.f;
-
-    /*_asm
-    {
-      mov        eax, this
-      mov        ecx, 0x3f800000
-      xor ebx, ebx
-      mov[eax + 0 * 4], ecx
-      mov[eax + 1 * 4], ebx
-      mov[eax + 2 * 4], ebx
-      mov[eax + 3 * 4], ebx
-      mov[eax + 4 * 4], ebx
-      mov[eax + 5 * 4], ecx
-      mov[eax + 6 * 4], ebx
-      mov[eax + 7 * 4], ebx
-      mov[eax + 8 * 4], ebx
-      mov[eax + 9 * 4], ebx
-      mov[eax + 10 * 4], ecx
-      mov[eax + 11 * 4], ebx
-      mov[eax + 12 * 4], ebx
-      mov[eax + 13 * 4], ebx
-      mov[eax + 14 * 4], ebx
-      mov[eax + 15 * 4], ecx
-    }*/
+    storm::math::storeGlmMatrix(matrix, storm::math::GlmMat4(1.0f));
 }
 
 // Build matrix
@@ -437,22 +399,7 @@ inline void CMatrix::operator*=(CMatrix &matrix)
 
 inline void CMatrix::operator*=(float k)
 {
-    m[0][0] *= k;
-    m[1][0] *= k;
-    m[2][0] *= k;
-    m[3][0] *= k;
-    m[0][1] *= k;
-    m[1][1] *= k;
-    m[2][1] *= k;
-    m[3][1] *= k;
-    m[0][2] *= k;
-    m[1][2] *= k;
-    m[2][2] *= k;
-    m[3][2] *= k;
-    m[0][3] *= k;
-    m[1][3] *= k;
-    m[2][3] *= k;
-    m[3][3] *= k;
+    storm::math::storeGlmMatrix(matrix, storm::math::loadGlmMatrix(matrix) * k);
 }
 
 inline CMatrix CMatrix::operator*(const CMatrix &matrix) const
@@ -464,67 +411,30 @@ inline CMatrix CMatrix::operator*(const CMatrix &matrix) const
 
 inline CVECTOR CMatrix::operator*(const CVECTOR &vector)
 {
-    CVECTOR tmp;
-    tmp.x = matrix[0] * vector.x + matrix[4] * vector.y + matrix[8] * vector.z + matrix[12];
-    tmp.y = matrix[1] * vector.x + matrix[5] * vector.y + matrix[9] * vector.z + matrix[13];
-    tmp.z = matrix[2] * vector.x + matrix[6] * vector.y + matrix[10] * vector.z + matrix[14];
-    return tmp;
+    const auto result = storm::math::loadGlmMatrix(matrix) * storm::math::GlmVec4(vector.glmValue(), 1.0f);
+    return CVECTOR::fromGlm(storm::math::GlmVec3(result));
 }
 
 // this = m1*m2, (m1 != this, m2 != this)
 inline void CMatrix::EqMultiply(const CMatrix &m1, const CMatrix &m2)
 {
-    matrix[0] = m2.matrix[0] * m1.matrix[0] + m2.matrix[4] * m1.matrix[1] + m2.matrix[8] * m1.matrix[2] +
-                m2.matrix[12] * m1.matrix[3];
-    matrix[1] = m2.matrix[1] * m1.matrix[0] + m2.matrix[5] * m1.matrix[1] + m2.matrix[9] * m1.matrix[2] +
-                m2.matrix[13] * m1.matrix[3];
-    matrix[2] = m2.matrix[2] * m1.matrix[0] + m2.matrix[6] * m1.matrix[1] + m2.matrix[10] * m1.matrix[2] +
-                m2.matrix[14] * m1.matrix[3];
-    matrix[3] = m2.matrix[3] * m1.matrix[0] + m2.matrix[7] * m1.matrix[1] + m2.matrix[11] * m1.matrix[2] +
-                m2.matrix[15] * m1.matrix[3];
-
-    matrix[4] = m2.matrix[0] * m1.matrix[4] + m2.matrix[4] * m1.matrix[5] + m2.matrix[8] * m1.matrix[6] +
-                m2.matrix[12] * m1.matrix[7];
-    matrix[5] = m2.matrix[1] * m1.matrix[4] + m2.matrix[5] * m1.matrix[5] + m2.matrix[9] * m1.matrix[6] +
-                m2.matrix[13] * m1.matrix[7];
-    matrix[6] = m2.matrix[2] * m1.matrix[4] + m2.matrix[6] * m1.matrix[5] + m2.matrix[10] * m1.matrix[6] +
-                m2.matrix[14] * m1.matrix[7];
-    matrix[7] = m2.matrix[3] * m1.matrix[4] + m2.matrix[7] * m1.matrix[5] + m2.matrix[11] * m1.matrix[6] +
-                m2.matrix[15] * m1.matrix[7];
-
-    matrix[8] = m2.matrix[0] * m1.matrix[8] + m2.matrix[4] * m1.matrix[9] + m2.matrix[8] * m1.matrix[10] +
-                m2.matrix[12] * m1.matrix[11];
-    matrix[9] = m2.matrix[1] * m1.matrix[8] + m2.matrix[5] * m1.matrix[9] + m2.matrix[9] * m1.matrix[10] +
-                m2.matrix[13] * m1.matrix[11];
-    matrix[10] = m2.matrix[2] * m1.matrix[8] + m2.matrix[6] * m1.matrix[9] + m2.matrix[10] * m1.matrix[10] +
-                 m2.matrix[14] * m1.matrix[11];
-    matrix[11] = m2.matrix[3] * m1.matrix[8] + m2.matrix[7] * m1.matrix[9] + m2.matrix[11] * m1.matrix[10] +
-                 m2.matrix[15] * m1.matrix[11];
-
-    matrix[12] = m2.matrix[0] * m1.matrix[12] + m2.matrix[4] * m1.matrix[13] + m2.matrix[8] * m1.matrix[14] +
-                 m2.matrix[12] * m1.matrix[15];
-    matrix[13] = m2.matrix[1] * m1.matrix[12] + m2.matrix[5] * m1.matrix[13] + m2.matrix[9] * m1.matrix[14] +
-                 m2.matrix[13] * m1.matrix[15];
-    matrix[14] = m2.matrix[2] * m1.matrix[12] + m2.matrix[6] * m1.matrix[13] + m2.matrix[10] * m1.matrix[14] +
-                 m2.matrix[14] * m1.matrix[15];
-    matrix[15] = m2.matrix[3] * m1.matrix[12] + m2.matrix[7] * m1.matrix[13] + m2.matrix[11] * m1.matrix[14] +
-                 m2.matrix[15] * m1.matrix[15];
+    // Legacy row-vector composition: apply m1, then m2.
+    const auto result = storm::math::loadGlmMatrix(m2.matrix) * storm::math::loadGlmMatrix(m1.matrix);
+    storm::math::storeGlmMatrix(matrix, result);
 }
 
 // Transform vertex to local coordinate system
 inline void CMatrix::MulToInv(const CVECTOR &src, CVECTOR &res)
 {
-    res.x = (src.x - matrix[12]) * matrix[0] + (src.y - matrix[13]) * matrix[1] + (src.z - matrix[14]) * matrix[2];
-    res.y = (src.x - matrix[12]) * matrix[4] + (src.y - matrix[13]) * matrix[5] + (src.z - matrix[14]) * matrix[6];
-    res.z = (src.x - matrix[12]) * matrix[8] + (src.y - matrix[13]) * matrix[9] + (src.z - matrix[14]) * matrix[10];
+    const auto basis = storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix));
+    res = CVECTOR::fromGlm(glm::transpose(basis) * (src.glmValue() - Pos().glmValue()));
 }
 
 // Transform normal to local coordinate system
 inline void CMatrix::MulToInvNorm(const CVECTOR &src, CVECTOR &res)
 {
-    res.x = src.x * matrix[0] + src.y * matrix[1] + src.z * matrix[2];
-    res.y = src.x * matrix[4] + src.y * matrix[5] + src.z * matrix[6];
-    res.z = src.x * matrix[8] + src.y * matrix[9] + src.z * matrix[10];
+    const auto basis = storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix));
+    res = CVECTOR::fromGlm(glm::transpose(basis) * src.glmValue());
 }
 
 // Transposition
@@ -541,85 +451,15 @@ inline void CMatrix::Transposition()
 
 inline void CMatrix::Transposition3X3()
 {
-    float tmp;
-    tmp = matrix[1];
-    matrix[1] = matrix[4];
-    matrix[4] = tmp;
-    tmp = matrix[2];
-    matrix[2] = matrix[8];
-    matrix[8] = tmp;
-    tmp = matrix[6];
-    matrix[6] = matrix[9];
-    matrix[9] = tmp;
-
-    /*_asm
-    {
-      mov        eax, this
-      mov        ebx, [eax + 4*4]
-      mov        ecx, [eax + 8*4]
-      mov        esi, [eax + 1*4]
-      mov        edi, [eax + 2*4]
-      mov        [eax + 4*4], esi
-      mov        [eax + 8*4], edi
-      mov        [eax + 1*4], ebx
-      mov        [eax + 2*4], ecx
-      mov        ebx, [eax + 6*4]
-      mov        esi, [eax + 9*4]
-      mov        [eax + 6*4], esi
-      mov        [eax + 9*4], ebx
-    }*/
+    const auto basis = glm::transpose(storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix)));
+    for (int column = 0; column < 3; ++column)
+        for (int row = 0; row < 3; ++row)
+            m[column][row] = basis[column][row];
 }
 
 inline CMatrix &CMatrix::Transposition4x4()
 {
-    float tmp;
-    tmp = matrix[1];
-    matrix[1] = matrix[4];
-    matrix[4] = tmp;
-    tmp = matrix[2];
-    matrix[2] = matrix[8];
-    matrix[8] = tmp;
-    tmp = matrix[3];
-    matrix[3] = matrix[12];
-    matrix[12] = tmp;
-    tmp = matrix[6];
-    matrix[6] = matrix[9];
-    matrix[9] = tmp;
-    tmp = matrix[7];
-    matrix[7] = matrix[13];
-    matrix[13] = tmp;
-    tmp = matrix[11];
-    matrix[11] = matrix[14];
-    matrix[14] = tmp;
-
-    /*_asm
-    {
-      mov        eax, this
-      mov        ebx, [eax + 1*4]
-      mov        ecx, [eax + 2*4]
-      mov        esi, [eax + 4*4]
-      mov        edi, [eax + 8*4]
-      mov        [eax + 4*4], ebx
-      mov        [eax + 8*4], ecx
-      mov        [eax + 1*4], esi
-      mov        [eax + 2*4], edi
-      mov        ebx, [eax + 3*4]
-      mov        ecx, [eax + 6*4]
-      mov        esi, [eax + 12*4]
-      mov        edi, [eax + 9*4]
-      mov        [eax + 12*4], ebx
-      mov        [eax + 9*4], ecx
-      mov        [eax + 3*4], esi
-      mov        [eax + 6*4], edi
-      mov        ebx, [eax + 7*4]
-      mov        ecx, [eax + 11*4]
-      mov        esi, [eax + 13*4]
-      mov        edi, [eax + 14*4]
-      mov        [eax + 13*4], ebx
-      mov        [eax + 14*4], ecx
-      mov        [eax + 7*4], esi
-      mov        [eax + 11*4], edi
-    }*/
+    storm::math::storeGlmMatrix(matrix, glm::transpose(storm::math::loadGlmMatrix(matrix)));
     return *this;
 }
 
@@ -802,24 +642,17 @@ inline CMatrix &CMatrix::BuildProjectionMatrix(float viewAngle, float vpWidth, f
 inline void CMatrix::Projection(CVECTOR *srcArray, MTX_PRJ_VECTOR *dstArray, int32_t num, float vphWidth05,
                                 float vphHeight05, int32_t srcStrcSize, int32_t dstStrcSize)
 {
-    float k;
-    for (; num > 0; num--)
+    const auto transform = storm::math::loadGlmMatrix(matrix);
+    for (; num > 0; --num)
     {
-        dstArray->x = matrix[0] * srcArray->x + matrix[4] * srcArray->y + matrix[8] * srcArray->z + matrix[12];
-        dstArray->y = matrix[1] * srcArray->x + matrix[5] * srcArray->y + matrix[9] * srcArray->z + matrix[13];
-        dstArray->z = matrix[2] * srcArray->x + matrix[6] * srcArray->y + matrix[10] * srcArray->z + matrix[14];
-        dstArray->rhw = matrix[3] * srcArray->x + matrix[7] * srcArray->y + matrix[11] * srcArray->z + matrix[15];
-
-        k = 1.0f / dstArray->rhw;
-
-        dstArray->x = (1.0f + dstArray->x * k) * vphWidth05;
-        dstArray->y = (1.0f - dstArray->y * k) * vphHeight05;
-        dstArray->z *= k;
-
-        dstArray->rhw = k;
-
-        srcArray = (CVECTOR *)((char *)(srcArray) + srcStrcSize);
-        dstArray = (MTX_PRJ_VECTOR *)((char *)(dstArray) + dstStrcSize);
+        const auto clip = transform * storm::math::GlmVec4(srcArray->glmValue(), 1.0f);
+        const float reciprocalW = 1.0f / clip.w;
+        dstArray->x = (1.0f + clip.x * reciprocalW) * vphWidth05;
+        dstArray->y = (1.0f - clip.y * reciprocalW) * vphHeight05;
+        dstArray->z = clip.z * reciprocalW;
+        dstArray->rhw = reciprocalW;
+        srcArray = reinterpret_cast<CVECTOR *>(reinterpret_cast<char *>(srcArray) + srcStrcSize);
+        dstArray = reinterpret_cast<MTX_PRJ_VECTOR *>(reinterpret_cast<char *>(dstArray) + dstStrcSize);
     }
 }
 
@@ -941,3 +774,7 @@ inline CMatrix &CMatrix::BuildScale(const CVECTOR &scale)
     BuildScale(scale.x, scale.y, scale.z);
     return *this;
 }
+
+static_assert(std::is_standard_layout_v<CMatrix>);
+static_assert(sizeof(CMatrix) == 64 && alignof(CMatrix) == 16);
+static_assert(offsetof(CMatrix, matrix) == 0 && offsetof(CMatrix, m) == 0 && offsetof(CMatrix, v) == 0);

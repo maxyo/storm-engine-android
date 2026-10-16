@@ -4,6 +4,7 @@
 #include <SDL2/SDL_system.h>
 #include <SDL2/SDL_video.h>
 #include <windows.h>
+#include <algorithm>
 #include <map>
 
 namespace storm
@@ -291,10 +292,7 @@ inline unsigned int keyToSDL(KeyboardKey key)
 SDLInput::SDLInput()
 {
     keyStates_ = SDL_GetKeyboardState(nullptr);
-#ifndef _WIN32
-    // since SDL 2.0.18 breaks WINAPI mouse api
-    SDL_SetRelativeMouseMode(SDL_TRUE);
-#endif
+    SetRelativeMouseMode(true);
     SDL_AddEventWatch(&SDLEventHandler, this);
     OpenController();
 }
@@ -302,6 +300,7 @@ SDLInput::SDLInput()
 SDLInput::~SDLInput()
 {
     SDL_DelEventWatch(&SDLEventHandler, this);
+    SetRelativeMouseMode(false);
 }
 
 int SDLInput::Subscribe(const EventHandler &handler)
@@ -443,6 +442,23 @@ bool SDLInput::MouseKeyState(const MouseKey &key) const
         return btn & SDL_BUTTON_X2MASK ? true : false;
 
     return false;
+}
+
+bool SDLInput::SetRelativeMouseMode(bool enabled)
+{
+    // SDL owns platform capture, acceleration and cursor visibility. In particular,
+    // Windows no longer derives deltas by polling and warping the OS cursor.
+    const bool result = SDL_SetRelativeMouseMode(enabled ? SDL_TRUE : SDL_FALSE) == 0;
+#ifdef __ANDROID__
+    // SDL flushes its own queued motion on a mode switch. JNI events already
+    // copied by our watch must follow the same rule; keep every key/button event,
+    // especially releases posted by GameActivity.onPause.
+    std::lock_guard<std::mutex> guard(pendingMutex_);
+    pendingEvents_.erase(std::remove_if(pendingEvents_.begin(), pendingEvents_.end(),
+                                      [](const SDL_Event &event) { return event.type == SDL_MOUSEMOTION; }),
+                         pendingEvents_.end());
+#endif
+    return result;
 }
 
 uint32_t SDLInput::GetWheelFactor() const

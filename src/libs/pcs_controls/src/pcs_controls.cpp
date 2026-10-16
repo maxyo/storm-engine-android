@@ -28,6 +28,7 @@ PCS_CONTROLS::PCS_CONTROLS()
     nLastControlTime = 0;
 
     nMouseWheel = 0;
+    nMouseDx = nMouseDy = 0;
     memset(&ControlsTab[0], 0, sizeof(ControlsTab));
 
     auto pIni = fio->OpenIniFile(core.EngineIniFileName());
@@ -38,32 +39,20 @@ PCS_CONTROLS::PCS_CONTROLS()
 
     input_ = Input::Create();
     inputHandlerID_ = input_->Subscribe([this](const InputEvent &evt) { HandleEvent(evt); });
-
-    // RECT r;
-    // GetWindowRect(core.GetAppHWND(),&r);
-    // ClipCursor(&r);
 }
 
 PCS_CONTROLS::~PCS_CONTROLS()
 {
     input_->Unsubscribe(inputHandlerID_);
     Release();
-    // ClipCursor(0);
 }
 
 void PCS_CONTROLS::AppState(bool state)
 {
     updateCursor_ = state;
-    if (state)
-    {
-        // RECT r;
-        // GetWindowRect(core.GetAppHWND(),&r);
-        // ClipCursor(&r);
-    }
-    else
-    {
-        // ClipCursor(0);
-    }
+    // Focus transitions must not replay pre-pause camera deltas on resume.
+    nMouseDx = nMouseDy = 0;
+    input_->SetRelativeMouseMode(state);
 }
 
 void PCS_CONTROLS::Release()
@@ -435,26 +424,6 @@ bool PCS_CONTROLS::GetControlState(int32_t control_code, CONTROL_STATE &_state_s
 void PCS_CONTROLS::Update(uint32_t DeltaTime)
 {
     input_->PumpEvents();
-#ifdef _WIN32
-    static int nMouseXPrev, nMouseYPrev;
-    if (updateCursor_) {
-        POINT point;
-        GetCursorPos(&point);
-
-        nMouseDx = point.x - nMouseXPrev;
-        nMouseDy = point.y - nMouseYPrev;
-
-        RECT r;
-        GetWindowRect(static_cast<HWND>(core.GetWindow()->OSHandle()), &r);
-        nMouseXPrev = r.left + (r.right - r.left) / 2;
-        nMouseYPrev = r.top + (r.bottom - r.top) / 2;
-        SetCursorPos(nMouseXPrev, nMouseYPrev);
-    }
-    else {
-        nMouseDx = 0;
-        nMouseDy = 0;
-    }
-#endif
 
     m_ControlTree.Process();
     m_KeyBuffer.Reset();
@@ -701,7 +670,7 @@ void PCS_CONTROLS::HandleEvent(const InputEvent &evt)
         const auto &text = std::get<std::string>(evt.data);
         m_KeyBuffer.AddKey((char *)text.c_str(), text.length(), false);
     }
-    else if (evt.type == InputEvent::MouseMove)
+    else if (evt.type == InputEvent::MouseMove && updateCursor_)
     {
         const auto &dxdy = std::get<MousePos>(evt.data);
         nMouseDx += dxdy.x;

@@ -1,6 +1,12 @@
 #pragma once
 
+#pragma pack(push)
+#pragma pack()
 #include <math.h>
+#include <cstddef>
+#include <type_traits>
+#include "glm_backend.h"
+#pragma pack(pop)
 
 struct CVECTOR
 {
@@ -59,65 +65,57 @@ struct CVECTOR
     };
     // CVECTOR(const DVECTOR &d) : x((float)d.x), y((float)d.y), z((float)d.z){};
 
+    // Explicit value conversion preserves this legacy type's public binary layout.
+    storm::math::GlmVec3 glmValue() const { return {x, y, z}; }
+    static CVECTOR fromGlm(const storm::math::GlmVec3 &value) { return {value.x, value.y, value.z}; }
+
     CVECTOR &operator+=(const CVECTOR &v)
     {
-        x += v.x;
-        y += v.y;
-        z += v.z;
+        *this = fromGlm(glmValue() + v.glmValue());
         return *this;
     };
 
     CVECTOR &operator-=(const CVECTOR &v)
     {
-        x -= v.x;
-        y -= v.y;
-        z -= v.z;
+        *this = fromGlm(glmValue() - v.glmValue());
         return *this;
     };
 
     CVECTOR &operator*=(const CVECTOR &v)
     {
-        x *= v.x;
-        y *= v.y;
-        z *= v.z;
+        *this = fromGlm(glmValue() * v.glmValue());
         return *this;
     };
 
     CVECTOR &operator/=(const CVECTOR &v)
     {
-        x /= v.x;
-        y /= v.y;
-        z /= v.z;
+        *this = fromGlm(glmValue() / v.glmValue());
         return *this;
     };
 
     // square magnitude
     friend float operator~(const CVECTOR &v)
     {
-        return v.x * v.x + v.y * v.y + v.z * v.z;
+        return glm::dot(v.glmValue(), v.glmValue());
     };
 
     float GetLength() const
     {
-        return static_cast<float>(sqrt(static_cast<double>(x) * static_cast<double>(x) +
-                                       static_cast<double>(y) * static_cast<double>(y) +
-                                       static_cast<double>(z) * static_cast<double>(z)));
+        return static_cast<float>(glm::length(storm::math::GlmDVec3(glmValue())));
     }
 
     float GetLength2D() const
     {
-        return static_cast<float>(
-            sqrt(static_cast<double>(x) * static_cast<double>(x) + static_cast<double>(z) * static_cast<double>(z)));
+        return static_cast<float>(glm::length(storm::math::GlmDVec2(static_cast<double>(x), static_cast<double>(z))));
     }
 
     // normalize
     friend CVECTOR operator!(const CVECTOR &v)
     {
-        double len = v.x * v.x + v.y * v.y + v.z * v.z;
-        if (len == 0.0)
-            return CVECTOR(0.0f);
-        len = 1.0 / sqrt(len);
-        return CVECTOR(v.x * len, v.y * len, v.z * len);
+        // Preserve legacy float squared-length, then double reciprocal/multiply.
+        const double squared = glm::dot(v.glmValue(), v.glmValue());
+        if (squared == 0.0) return CVECTOR(0.0f);
+        return fromGlm(storm::math::GlmVec3(storm::math::GlmDVec3(v.glmValue()) * (1.0 / sqrt(squared))));
     };
 
     // none
@@ -128,49 +126,48 @@ struct CVECTOR
     // add
     friend CVECTOR operator+(const CVECTOR &v1, const CVECTOR &v2)
     {
-        return CVECTOR(v1.x + v2.x, v1.y + v2.y, v1.z + v2.z);
+        return fromGlm(v1.glmValue() + v2.glmValue());
     };
     // negative
     friend CVECTOR operator-(const CVECTOR &v)
     {
-        return CVECTOR(-v.x, -v.y, -v.z);
+        return fromGlm(-v.glmValue());
     };
     // sub
     friend CVECTOR operator-(const CVECTOR &v1, const CVECTOR &v2)
     {
-        return CVECTOR(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
+        return fromGlm(v1.glmValue() - v2.glmValue());
     };
     // multiply each element by each
     friend CVECTOR operator*(const CVECTOR &v1, const CVECTOR &v2)
     {
-        return CVECTOR(v1.x * v2.x, v1.y * v2.y, v1.z * v2.z);
+        return fromGlm(v1.glmValue() * v2.glmValue());
     };
     // multiply each element by float
     friend CVECTOR operator*(const CVECTOR &v1, float f)
     {
-        return CVECTOR(v1.x * f, v1.y * f, v1.z * f);
+        return fromGlm(v1.glmValue() * f);
     };
     // divide each element by each
     friend CVECTOR operator/(const CVECTOR &v1, const CVECTOR &v2)
     {
-        return CVECTOR(v1.x / v2.x, v1.y / v2.y, v1.z / v2.z);
+        return fromGlm(v1.glmValue() / v2.glmValue());
     };
     // divide each element by float
     friend CVECTOR operator/(const CVECTOR &v1, float f)
     {
-        const auto _f = 1.0 / f;
-        return CVECTOR(v1.x * _f, v1.y * _f, v1.z * _f);
+        return fromGlm(storm::math::GlmVec3(storm::math::GlmDVec3(v1.glmValue()) * (1.0 / f)));
     };
     // cross product
     friend CVECTOR operator^(const CVECTOR &v1, const CVECTOR &v2)
     {
-        return CVECTOR(v1.y * v2.z - v1.z * v2.y, v1.z * v2.x - v1.x * v2.z, v1.x * v2.y - v1.y * v2.x);
+        return fromGlm(glm::cross(v1.glmValue(), v2.glmValue()));
     }
 
     // dot product
     friend float operator|(const CVECTOR &v1, const CVECTOR &v2)
     {
-        return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+        return glm::dot(v1.glmValue(), v2.glmValue());
     }
 };
 
@@ -211,49 +208,45 @@ struct DVECTOR
         z = d.z;
     };
 
+    // Explicit value conversion preserves this legacy type's public binary layout.
+    storm::math::GlmDVec3 glmValue() const { return {x, y, z}; }
+    static DVECTOR fromGlm(const storm::math::GlmDVec3 &value) { return {value.x, value.y, value.z}; }
+
     DVECTOR &operator+=(const DVECTOR &v)
     {
-        x += v.x;
-        y += v.y;
-        z += v.z;
+        *this = fromGlm(glmValue() + v.glmValue());
         return *this;
     };
 
     DVECTOR &operator-=(const DVECTOR &v)
     {
-        x -= v.x;
-        y -= v.y;
-        z -= v.z;
+        *this = fromGlm(glmValue() - v.glmValue());
         return *this;
     };
 
     DVECTOR &operator*=(const DVECTOR &v)
     {
-        x *= v.x;
-        y *= v.y;
-        z *= v.z;
+        *this = fromGlm(glmValue() * v.glmValue());
         return *this;
     };
 
     DVECTOR &operator/=(const DVECTOR &v)
     {
-        x /= v.x;
-        y /= v.y;
-        z /= v.z;
+        *this = fromGlm(glmValue() / v.glmValue());
         return *this;
     };
 
     // square magnitude
     friend double operator~(const DVECTOR &v)
     {
-        return v.x * v.x + v.y * v.y + v.z * v.z;
+        return glm::dot(v.glmValue(), v.glmValue());
     };
 
     // normalize
     friend DVECTOR operator!(const DVECTOR &v)
     {
-        const auto len = 1.0 / sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-        return DVECTOR(v.x * len, v.y * len, v.z * len);
+        // The legacy double vector has no zero-vector guard (NaN is preserved).
+        return fromGlm(glm::normalize(v.glmValue()));
     };
 
     // none
@@ -264,48 +257,55 @@ struct DVECTOR
     // add
     friend DVECTOR operator+(const DVECTOR &v1, const DVECTOR &v2)
     {
-        return DVECTOR(v1.x + v2.x, v1.y + v2.y, v1.z + v2.z);
+        return fromGlm(v1.glmValue() + v2.glmValue());
     };
     // negative
     friend DVECTOR operator-(const DVECTOR &v)
     {
-        return DVECTOR(-v.x, -v.y, -v.z);
+        return fromGlm(-v.glmValue());
     };
     // sub
     friend DVECTOR operator-(const DVECTOR &v1, const DVECTOR &v2)
     {
-        return DVECTOR(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
+        return fromGlm(v1.glmValue() - v2.glmValue());
     };
     // multiply each element by each
     friend DVECTOR operator*(const DVECTOR &v1, const DVECTOR &v2)
     {
-        return DVECTOR(v1.x * v2.x, v1.y * v2.y, v1.z * v2.z);
+        return fromGlm(v1.glmValue() * v2.glmValue());
     };
     // multiply each element by double
     friend DVECTOR operator*(const DVECTOR &v1, double f)
     {
-        return DVECTOR(v1.x * f, v1.y * f, v1.z * f);
+        return fromGlm(v1.glmValue() * f);
     };
     // divide each element by each
     friend DVECTOR operator/(const DVECTOR &v1, const DVECTOR &v2)
     {
-        return DVECTOR(v1.x / v2.x, v1.y / v2.y, v1.z / v2.z);
+        return fromGlm(v1.glmValue() / v2.glmValue());
     };
     // divide each element by double
     friend DVECTOR operator/(const DVECTOR &v1, double f)
     {
-        const auto _f = 1.0 / f;
-        return DVECTOR(v1.x * _f, v1.y * _f, v1.z * _f);
+        return fromGlm(v1.glmValue() * (1.0 / f));
     };
     // cross product
     friend DVECTOR operator^(const DVECTOR &v1, const DVECTOR &v2)
     {
-        return DVECTOR(v1.y * v2.z - v1.z * v2.y, v1.z * v2.x - v1.x * v2.z, v1.x * v2.y - v1.y * v2.x);
+        return fromGlm(glm::cross(v1.glmValue(), v2.glmValue()));
     }
 
     // dot product
     friend double operator|(const DVECTOR &v1, const DVECTOR &v2)
     {
-        return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+        return glm::dot(v1.glmValue(), v2.glmValue());
     }
 };
+
+// Raw animation vertices and SaveVector persist these exact representations.
+// Legacy callers can lower alignment with pragma pack; retain that ABI context.
+static_assert(std::is_standard_layout_v<CVECTOR> && std::is_trivially_copyable_v<CVECTOR>);
+static_assert(sizeof(CVECTOR) == 12 && alignof(CVECTOR) <= alignof(float));
+static_assert(offsetof(CVECTOR, x) == 0 && offsetof(CVECTOR, y) == 4 && offsetof(CVECTOR, z) == 8);
+static_assert(std::is_standard_layout_v<DVECTOR> && std::is_trivially_copyable_v<DVECTOR>);
+static_assert(sizeof(DVECTOR) == 24 && alignof(DVECTOR) <= alignof(double));

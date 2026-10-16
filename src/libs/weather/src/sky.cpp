@@ -3,6 +3,7 @@
 #include "core.h"
 #include "attributes.h"
 #include "math_inlines.h"
+#include "fog_sphere_mesh.hpp"
 
 namespace
 {
@@ -15,19 +16,7 @@ struct SKYVERTEX
     float tu2, tv2;
 };
 
-struct FOGVERTEX
-{
-    CVECTOR pos;
-    uint32_t diffuse;
-};
-
-FOGVERTEX CreateFogVertex(const CVECTOR &vPos)
-{
-    auto *pvData = core.Event(WEATHER_CALC_FOG_COLOR, "fff", vPos.x, vPos.y, vPos.z);
-    Assert(pvData);
-
-    return {vPos, static_cast<uint32_t>(pvData->GetInt())};
-}
+using FOGVERTEX = storm::weather::FogVertex;
 
 }
 
@@ -96,7 +85,7 @@ void SKY::UpdateFogSphere(const bool initialize)
         if (iFogVertsID < 0)
         {
             iFogVertsID =
-                pRS->CreateVertexBuffer(FOGVERTEX_FORMAT, kFogVertsNum * sizeof(SKYVERTEX), D3DUSAGE_WRITEONLY);
+                pRS->CreateVertexBuffer(FOGVERTEX_FORMAT, kFogVertsNum * sizeof(FOGVERTEX), D3DUSAGE_WRITEONLY);
         }
         if (iFogIndexID < 0)
         {
@@ -108,55 +97,22 @@ void SKY::UpdateFogSphere(const bool initialize)
         return;
     }
 
-    FOGVERTEX vertices[kFogVertsNum];
-    uint16_t indices[kFogTrgsNum];
-    auto *pIndices = indices;
-
-    int32_t idx = 0;
-    for (size_t y = 0; y < kNumLevels; y++)
-    {
-        const auto h = y * kR / kNumLevels;
-        const auto R1 = sqrtf(SQR(kR) - SQR(h));
-        for (size_t x = 0; x < kNumAngles; x++)
-        {
-            const auto fCos = cosf(static_cast<float>(x) / static_cast<float>(kNumAngles) * PIm2);
-            const auto fSin = sinf(static_cast<float>(x) / static_cast<float>(kNumAngles) * PIm2);
-
-            vertices[idx] = CreateFogVertex(CVECTOR(R1 * fCos, h, R1 * fSin));
-
-            if (initialize)
-            {
-                if (y == kNumLevels - 1)
-                {
-                    *pIndices++ = static_cast<uint16_t>(kFogVertsNum - 1);
-                    *pIndices++ = static_cast<uint16_t>(idx);
-                    *pIndices++ = static_cast<uint16_t>((x == kNumAngles - 1) ? idx - (kNumAngles - 1) : idx + 1);
-                }
-                else
-                {
-                    *pIndices++ = static_cast<uint16_t>(idx);
-                    *pIndices++ = static_cast<uint16_t>((x == kNumAngles - 1) ? idx - (kNumAngles - 1) : idx + 1);
-                    *pIndices++ = static_cast<uint16_t>(idx + kNumAngles);
-
-                    *pIndices++ = static_cast<uint16_t>((x == kNumAngles - 1) ? idx - (kNumAngles - 1) : idx + 1);
-                    *pIndices++ = static_cast<uint16_t>(idx + kNumAngles);
-                    *pIndices++ = static_cast<uint16_t>((x == kNumAngles - 1) ? idx + 1 : idx + kNumAngles + 1);
-                }
-            }
-
-            idx++;
-        }
-    }
-    vertices[idx] = CreateFogVertex(CVECTOR(0.0f, kR, 0.0f));
+    static_assert(kFogVertsNum == storm::weather::fogVertexCount);
+    static_assert(kFogTrgsNum == storm::weather::fogIndexCount);
+    const auto mesh = storm::weather::makeFogSphere([](float x, float y, float z) {
+        auto *value = core.Event(WEATHER_CALC_FOG_COLOR, "fff", x, y, z);
+        Assert(value);
+        return static_cast<uint32_t>(value->GetInt());
+    }, initialize);
 
     auto *vertBuf = static_cast<FOGVERTEX *>(pRS->LockVertexBuffer(iFogVertsID));
-    memcpy(vertBuf, vertices, kFogVertsNum * sizeof(FOGVERTEX));
+    memcpy(vertBuf, mesh.vertices.data(), kFogVertsNum * sizeof(FOGVERTEX));
     pRS->UnLockVertexBuffer(iFogVertsID);
 
     if (initialize)
     {
         auto *indBuf = static_cast<uint16_t *>(pRS->LockIndexBuffer(iFogIndexID));
-        memcpy(indBuf, indices, kFogTrgsNum * 2);
+        memcpy(indBuf, mesh.indices.data(), kFogTrgsNum * 2);
         pRS->UnLockIndexBuffer(iFogIndexID);
     }
 }
