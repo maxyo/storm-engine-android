@@ -16,6 +16,10 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <linux/fs.h>
+#include <sys/syscall.h>
+#endif
 
 namespace storm::android::writable
 {
@@ -244,7 +248,17 @@ private:
             writer(output.fd);
             if (::fsync(output.fd)) fail("Sync migration temporary file");
             output.closeChecked();
-            if (::link(temp.c_str(), destination.c_str()))
+            // Android SELinux denies hard links even inside the app's private
+            // directory. Use the kernel ABI directly: bionic's renameat2 wrapper
+            // is API 30+, while the port also supports earlier Android releases.
+            // NOREPLACE keeps a concurrently-created private save authoritative.
+#if defined(__linux__)
+            const auto result = ::syscall(SYS_renameat2, AT_FDCWD, temp.c_str(),
+                                          AT_FDCWD, destination.c_str(), RENAME_NOREPLACE);
+#else
+            const auto result = ::link(temp.c_str(), destination.c_str());
+#endif
+            if (result)
             {
                 if (errno != EEXIST) fail("Publish migration file");
                 if (!fs::is_regular_file(entryStatus(destination)))
