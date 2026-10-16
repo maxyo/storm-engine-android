@@ -1,4 +1,4 @@
-# GLM math migration: first compatibility layer
+# GLM math migration: compatibility layers
 
 This branch replaces working arithmetic behind the engine's existing `CVECTOR`, `DVECTOR`, and central `CMatrix` operations, plus the separate packed `Vector`/`Matrix`/`Quaternion` arithmetic, with GLM. It does not rename serialized types or claim to finish every custom math implementation.
 
@@ -8,7 +8,7 @@ This branch replaces working arithmetic behind the engine's existing `CVECTOR`, 
 | --- | --- | --- |
 | `CVECTOR` | Three floats, 12 bytes, native alignment 4 (or the caller's legacy pack alignment); public x/y/z and v[3]. Word appears in 279 source/header files. Used in vertex buffers, raw animation reads and save files. | Component arithmetic, dot/cross, length and normalization delegate to GLM, retaining legacy precision and zero-vector behavior. Storage is unchanged. |
 | `DVECTOR` | Three doubles, 24 bytes; four source/header files. | Arithmetic, dot/cross and normalization delegate to GLM. Zero normalization still produces NaN as before. |
-| `CMatrix` | 16 floats, 64 bytes, alignment 16, overlaid axis/position fields. Word appears in 131 files. | Identity, scalar/matrix multiplication, point and inverse-basis transforms, 3x3/4x4 transpose and strided screen projection use GLM. Existing constructors and callers exercise these operations immediately. |
+| `CMatrix` | 16 floats, 64 bytes, alignment 16, overlaid axis/position fields. Word appears in 131 files. | Identity, scalar/matrix multiplication, point and inverse-basis transforms, 3x3/4x4 transpose and strided screen projection use GLM. Euler/axis builders, view basis, inverse-position helpers and mirror products also use GLM. Projection retains its compatibility coefficients. Existing constructors and callers exercise these operations immediately. |
 | `math3d::Vector` / `Matrix` / `Quaternion` (global class names) | Separate older family under pack(1); 37 / 30 / 10 files contain the respective words. Different normalization and rich geometry APIs. | Vector arithmetic/normalization/length/reflection/interpolation; matrix products, transforms, transpose and projection; quaternion arithmetic, matrix output, normalization/conjugation and interpolation blending now use GLM temporaries. Packed storage and legacy branch policies remain. |
 | `CVECTOR4`, `Vector4`, `types3d.h` PODs | Legacy interop/vertex declarations. | Unchanged. |
 | `storm_d3dx9.cpp`, sea SIMD helpers, scalar angle/rounding helpers | D3DX compatibility and specialized kernels. | Unchanged. Existing SSE/scalar portability regressions run with the new dependency. |
@@ -44,7 +44,7 @@ The host math harness uses a minimal documented D3DMATRIX shape when no SDK is p
 
 ## Remaining migration and acceptance work
 
-Custom Euler/view/projection/mirror builders, scaled matrix inverse, matrix-to-quaternion branch selection, vector angle/clamp/random helpers, and D3DX/math kernels remain. Migrate those as separately bounded changes, retaining their distinct edge-case policies, formats and calling contracts; do not bulk-replace names with GLM aliases. Before promoting this layer to a released build, perform the full native build and representative render, animation, camera, physics and save/load checks on the target device. Tiny numerical changes may accumulate in simulation even though bytes and conventions are preserved. No gameplay resources are needed for the committed tests.
+Packed Matrix special builders and scaled inverse, matrix-to-quaternion branch selection, vector angle/clamp/random helpers, and specialized sea/SSE kernels remain. CMatrix projection coefficients and view degeneracy policies remain as bounded adapters. Migrate those as separately bounded changes, retaining their distinct edge-case policies, formats and calling contracts; do not bulk-replace names with GLM aliases. Before promoting this layer to a released build, perform the full native build and representative render, animation, camera, physics and save/load checks on the target device. Tiny numerical changes may accumulate in simulation even though bytes and conventions are preserved. No gameplay resources are needed for the committed tests.
 
 The GLM boundary resets packing to the platform default for its headers and
 calculation types, then restores the caller's packing. CVECTOR/DVECTOR retain
@@ -101,3 +101,49 @@ screen coordinates. Numerical tolerances are explicit; this stage does not
 promise bit-identical simulation output. The random harness compares builds
 using the same compiler; constructor argument evaluation can consume the random
 sequence in a different order between compilers.
+
+## CMatrix builders and D3DX boundary
+
+The third stage moves CMatrix Euler/axis construction to pinned GLM's
+`gtx/euler_angles` extension. Row-vector ZXY maps to GLM YXZ, and XYZ maps to
+GLM ZYX. The experimental-extension opt-in is local to the include and restored
+afterward; explicit packed temporaries still protect serialized storage from
+GLM default-alignment settings. Mirror construction uses GLM outer products
+without normalizing the caller's normal. Inverse-position helpers and view basis
+construction use GLM matrix/vector operations.
+
+Two compatibility adapters deliberately remain:
+
+- Projection keeps five nonzero coefficients: vertical angle is horizontal
+  angle multiplied by viewport height/width, rather than the usual perspective
+  aspect conversion; Q uses a double division of the float depth difference,
+  then rounds before multiplication by near. GLM `perspectiveLH_ZO` would change
+  framing and the coefficient evaluation, and its aspect assertion would add a
+  new error policy. The adapter constructs a GLM matrix with those coefficients.
+- View keeps the existing Gram-Schmidt up correction, zero-forward false status,
+  zero-up fallback and parallel-up identity-basis fallback. `lookAtLH` normalizes
+  the zero cross product and reconstructs up differently. GLM supplies the vector
+  algebra, basis transpose and translated matrix inside the existing policy.
+
+Simple field setters, scale diagonals and translation-only builders contain no
+substantial algebra to replace and keep their original assignments, including
+non-finite-value behavior. The packed Matrix family has its own builders and is
+not silently switched to CMatrix's policy.
+
+The repository's non-Windows D3DX shim (`util/include/platform/d3dx9.hpp` and
+`renderer/src/storm_d3dx9.cpp`) implements surface copies and pixel format/filter
+conversion; it has no D3DX vector/matrix math routines to migrate. Its `vec4`
+represents pixel channels. Replacing that POD alone would add no GLM computation,
+and changing format quantization/filtering belongs to separate rendering work.
+The only `D3DXMatrixMultiply/Transpose` text is in technique.cpp's WORLDVIEWPROJ
+opcode, under an inner `_WIN32` guard while the entire file has `#ifndef _WIN32`.
+Those calls are excluded; the existing non-Windows opcode throws. Enabling it
+would change a renderer capability, not just an arithmetic backend, and is left
+unchanged here. No D3DX-shim math migration is claimed.
+
+Validation for this stage:
+
+- `python3 tests/glm_math/run.py --build-dir build/glm-builders --sanitize --aligned-defaults --glm-source build/glm-download/glm-8d1fd52e5ab5590e2c81768ace50c72bae28f2ed --baseline d5cbf60`: GCC ASan/UBSan PASS.
+- Default GCC build (`--build-dir build/glm-builders-default`, without sanitizer/aligned flags): PASS. The new builder harness compares 773,616 scalar samples, including degenerate/parallel views, singular projection and Inf/NaN inputs; maximum scaled error 7.94e-08. All 1,038,112 previous samples also pass.
+- Clang with forced aligned defaults, `GLM_FORCE_LEFT_HANDED` and `GLM_FORCE_DEPTH_ZERO_TO_ONE`, versus the same Clang-built legacy harness: all 773,616 builder samples PASS, maximum scaled error 7.94e-08. These macros do not change the explicit legacy conventions.
+- Actual NDK r30 ARM64 objects for builders_check.cpp, geometry/collide.cpp and geometry/geom_static.cpp compile with actual D3D headers. Full engine linking and device execution remain integration checks; no device or shared build/cache files were changed by this stage.

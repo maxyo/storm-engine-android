@@ -228,63 +228,17 @@ inline void CMatrix::SetIdentity()
 // Build matrix
 inline void CMatrix::BuildMatrix(float angX, float angY, float angZ, float x, float y, float z)
 {
-    const auto sinAx = sinf(angX);
-    const auto cosAx = cosf(angX);
-    const auto sinAy = sinf(angY);
-    const auto cosAy = cosf(angY);
-    const auto sinAz = sinf(angZ);
-    const auto cosAz = cosf(angZ);
-
-    // Create a matrix with rotation order rz * rx * ry
-    m[0][0] = cosAz * cosAy + sinAz * sinAx * sinAy;
-    m[1][0] = -sinAz * cosAy + cosAz * sinAx * sinAy;
-    m[2][0] = cosAx * sinAy;
-    m[3][0] = x;
-
-    m[0][1] = sinAz * cosAx;
-    m[1][1] = cosAz * cosAx;
-    m[2][1] = -sinAx;
-    m[3][1] = y;
-
-    m[0][2] = cosAz * -sinAy + sinAz * sinAx * cosAy;
-    m[1][2] = -sinAz * -sinAy + cosAz * sinAx * cosAy;
-    m[2][2] = cosAx * cosAy;
-    m[3][2] = z;
-
-    m[0][3] = 0.0f;
-    m[1][3] = 0.0f;
-    m[2][3] = 0.0f;
-    m[3][3] = 1.0f;
+    // Legacy row-vector Rz*Rx*Ry maps to GLM's column-vector Ry*Rx*Rz.
+    storm::math::GlmMat4 result(glm::eulerAngleYXZ(angY, angX, angZ));
+    result[3] = storm::math::GlmVec4(x, y, z, 1.0f);
+    storm::math::storeGlmMatrix(matrix, result);
 }
 
 inline void CMatrix::BuildMatrixXYZ(float angX, float angY, float angZ, float x, float y, float z)
 {
-    const auto sinAx = sinf(angX);
-    const auto cosAx = cosf(angX);
-    const auto sinAy = sinf(angY);
-    const auto cosAy = cosf(angY);
-    const auto sinAz = sinf(angZ);
-    const auto cosAz = cosf(angZ);
-
-    m[0][0] = cosAy * cosAz;
-    m[1][0] = sinAx * sinAy * cosAz - cosAx * sinAz;
-    m[2][0] = cosAx * sinAy * cosAz + sinAx * sinAz;
-    m[3][0] = x;
-
-    m[0][1] = cosAy * sinAz;
-    m[1][1] = sinAx * sinAy * sinAz + cosAx * cosAz;
-    m[2][1] = cosAx * sinAy * sinAz - sinAx * cosAz;
-    m[3][1] = y;
-
-    m[0][2] = -sinAy;
-    m[1][2] = sinAx * cosAy;
-    m[2][2] = cosAx * cosAy;
-    m[3][2] = z;
-
-    m[0][3] = 0.0f;
-    m[1][3] = 0.0f;
-    m[2][3] = 0.0f;
-    m[3][3] = 1.0f;
+    storm::math::GlmMat4 result(glm::eulerAngleZYX(angZ, angY, angX));
+    result[3] = storm::math::GlmVec4(x, y, z, 1.0f);
+    storm::math::storeGlmMatrix(matrix, result);
 }
 
 inline void CMatrix::BuildMatrix(float angX, float angY, float angZ)
@@ -305,29 +259,17 @@ inline void CMatrix::BuildMatrix(const CVECTOR &ang)
 // Build rotate matrix
 inline void CMatrix::BuildRotateX(float ang)
 {
-    SetIdentity();
-    m[1][1] = cosf(ang);
-    m[2][1] = -sinf(ang);
-    m[1][2] = sinf(ang);
-    m[2][2] = cosf(ang);
+    storm::math::storeGlmMatrix(matrix, storm::math::GlmMat4(glm::eulerAngleX(ang)));
 }
 
 inline void CMatrix::BuildRotateY(float ang)
 {
-    SetIdentity();
-    m[0][0] = cosf(ang);
-    m[2][0] = sinf(ang);
-    m[0][2] = -sinf(ang);
-    m[2][2] = cosf(ang);
+    storm::math::storeGlmMatrix(matrix, storm::math::GlmMat4(glm::eulerAngleY(ang)));
 }
 
 inline void CMatrix::BuildRotateZ(float ang)
 {
-    SetIdentity();
-    m[0][0] = cosf(ang);
-    m[1][0] = -sinf(ang);
-    m[0][1] = sinf(ang);
-    m[1][1] = cosf(ang);
+    storm::math::storeGlmMatrix(matrix, storm::math::GlmMat4(glm::eulerAngleZ(ang)));
 }
 
 // Build position matrix
@@ -496,9 +438,8 @@ inline void CMatrix::Move(float dX, float dY, float dZ)
 // Move(-(pos * this))
 inline void CMatrix::MoveInversePosition(float x, float y, float z)
 {
-    m[3][0] -= m[0][0] * x + m[1][0] * y + m[2][0] * z;
-    m[3][1] -= m[0][1] * x + m[1][1] * y + m[2][1] * z;
-    m[3][2] -= m[0][2] * x + m[1][2] * y + m[2][2] * z;
+    const auto basis = storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix));
+    Pos() = CVECTOR::fromGlm(Pos().glmValue() - basis * storm::math::GlmVec3(x, y, z));
 }
 
 // Set new position
@@ -519,9 +460,8 @@ inline void CMatrix::SetPosition(const CVECTOR &pos)
 // SetPosition(-(pos * this))
 inline void CMatrix::SetInversePosition(float x, float y, float z)
 {
-    m[3][0] = -(m[0][0] * x + m[1][0] * y + m[2][0] * z);
-    m[3][1] = -(m[0][1] * x + m[1][1] * y + m[2][1] * z);
-    m[3][2] = -(m[0][2] * x + m[1][2] * y + m[2][2] * z);
+    const auto basis = storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix));
+    Pos() = CVECTOR::fromGlm(-(basis * storm::math::GlmVec3(x, y, z)));
 }
 
 //============================================================================================
@@ -601,42 +541,17 @@ inline void CMatrix::Get3X3(CMatrix *mtr)
 // Projection
 inline CMatrix &CMatrix::BuildProjectionMatrix(float viewAngle, float vpWidth, float vpHeight, float zNear, float zFar)
 {
-    matrix[0] = 0;
-    matrix[1] = 0;
-    matrix[2] = 0;
-    matrix[3] = 0;
-    matrix[4] = 0;
-    matrix[5] = 0;
-    matrix[6] = 0;
-    matrix[7] = 0;
-    matrix[8] = 0;
-    matrix[9] = 0;
-    matrix[10] = 0;
-    matrix[11] = 0;
-    matrix[12] = 0;
-    matrix[13] = 0;
-    matrix[14] = 0;
-    matrix[15] = 0;
-
-    /*_asm
-    {
-      cld
-      xor        eax, eax
-      mov        edi, this
-      mov        ecx, 16
-      rep        stosd
-    }*/
-    // auto cs = cosf(viewAngle * 0.5f);
-    // auto sn = sinf(viewAngle * 0.5f);
-    const auto Q = static_cast<double>(zFar) / static_cast<double>(zFar - zNear);
-
-    matrix[0] = 1.0f / tanf(viewAngle * 0.5f);
-    matrix[5] = 1.0f / tanf((vpHeight / vpWidth) * viewAngle * 0.5f);
-    matrix[10] = static_cast<float>(Q);
-    matrix[11] = 1.0f;
-    matrix[14] = -static_cast<float>(Q) * zNear;
-
-    return (*this);
+    // Compatibility adapter: Storm scales the vertical angle linearly and
+    // rounds Q before multiplying by near. Generic GLM perspective changes both.
+    storm::math::GlmMat4 result(0.0f);
+    const double q = static_cast<double>(zFar) / static_cast<double>(zFar - zNear);
+    result[0][0] = 1.0f / tanf(viewAngle * 0.5f);
+    result[1][1] = 1.0f / tanf((vpHeight / vpWidth) * viewAngle * 0.5f);
+    result[2][2] = static_cast<float>(q);
+    result[2][3] = 1.0f;
+    result[3][2] = -static_cast<float>(q) * zNear;
+    storm::math::storeGlmMatrix(matrix, result);
+    return *this;
 }
 
 inline void CMatrix::Projection(CVECTOR *srcArray, MTX_PRJ_VECTOR *dstArray, int32_t num, float vphWidth05,
@@ -659,48 +574,35 @@ inline void CMatrix::Projection(CVECTOR *srcArray, MTX_PRJ_VECTOR *dstArray, int
 // View
 inline bool CMatrix::BuildViewMatrix(CVECTOR lookFrom, CVECTOR lookTo, CVECTOR upVector)
 {
-    SetIdentity();
-    // Normalize the look-at vector
-    lookTo -= lookFrom;
-    auto l = ~lookTo;
-    if (l == 0.0f)
+    storm::math::GlmMat4 result(1.0f);
+    const auto origin = lookFrom.glmValue();
+    auto forward = lookTo.glmValue() - origin;
+    float squared = glm::dot(forward, forward);
+    if (squared == 0.0f)
     {
-        // Putting a position for a non-rotated matrix
-        Pos() = -lookFrom;
+        result[3] = storm::math::GlmVec4(-origin, 1.0f);
+        storm::math::storeGlmMatrix(matrix, result);
         return false;
     }
-    lookTo *= 1.0f / sqrtf(l);
-    // Directing the vector up in the desired direction
-    upVector -= lookTo * (lookTo | upVector);
-    // Normalize the upward vertor
-    l = ~upVector;
-    if (l == 0.0f)
-        upVector.y = 1.0f;
+    forward *= 1.0f / sqrtf(squared);
+    auto up = upVector.glmValue();
+    up -= forward * glm::dot(forward, up);
+    squared = glm::dot(up, up);
+    // Keep legacy zero/parallel-up behavior. lookAtLH would normalize a zero
+    // cross product, and reconstructing up would also change this contract.
+    if (squared == 0.0f)
+        up.y = 1.0f;
     else
-        upVector *= 1.0f / sqrtf(l);
-    // looking for the third vector of the basis
-    CVECTOR v = upVector ^ lookTo;
-    l = ~v;
-    if (l != 0.0f)
+        up *= 1.0f / sqrtf(squared);
+    auto right = glm::cross(up, forward);
+    squared = glm::dot(right, right);
+    if (squared != 0.0f)
     {
-        v *= (1.0f / sqrtf(l));
-        // set the rotation matrix
-        Vx() = upVector;
-        Vy() = lookTo;
-        Vz() = v;
-
-        m[0][0] = v.x;
-        m[1][0] = v.y;
-        m[2][0] = v.z;
-        m[0][1] = upVector.x;
-        m[1][1] = upVector.y;
-        m[2][1] = upVector.z;
-        m[0][2] = lookTo.x;
-        m[1][2] = lookTo.y;
-        m[2][2] = lookTo.z;
+        right *= 1.0f / sqrtf(squared);
+        result = storm::math::GlmMat4(glm::transpose(storm::math::GlmMat3(right, up, forward)));
     }
-    // set the position
-    SetInversePosition(lookFrom.x, lookFrom.y, lookFrom.z);
+    result[3] = storm::math::GlmVec4(-(storm::math::GlmMat3(result) * origin), 1.0f);
+    storm::math::storeGlmMatrix(matrix, result);
     return true;
 }
 
@@ -708,25 +610,18 @@ inline bool CMatrix::BuildViewMatrix(CVECTOR lookFrom, CVECTOR lookTo, CVECTOR u
 // Formation of the reflection matrix according to the plane
 inline void CMatrix::BuildMirrorMatrix(float Nx, float Ny, float Nz, float D)
 {
-    m[0][0] = -Nx * 2.0f * Nx + 1.0f;
-    m[1][0] = -Nx * 2.0f * Ny;
-    m[2][0] = -Nx * 2.0f * Nz;
-    m[3][0] = -Nx * 2.0f * -D;
-
-    m[0][1] = -Ny * 2.0f * Nx;
-    m[1][1] = -Ny * 2.0f * Ny + 1.0f;
-    m[2][1] = -Ny * 2.0f * Nz;
-    m[3][1] = -Ny * 2.0f * -D;
-
-    m[0][2] = -Nz * 2.0f * Nx;
-    m[1][2] = -Nz * 2.0f * Ny;
-    m[2][2] = -Nz * 2.0f * Nz + 1.0f;
-    m[3][2] = -Nz * 2.0f * -D;
-
-    m[0][3] = 0.0f;
-    m[1][3] = 0.0f;
-    m[2][3] = 0.0f;
-    m[3][3] = 1.0f;
+    // The normal is deliberately not normalized: legacy callers own that
+    // policy. Storm's plane equation uses N dot position = D.
+    const storm::math::GlmVec3 normal(Nx, Ny, Nz);
+    const auto twiceNegativeNormal = normal * -2.0f;
+    auto basis = glm::outerProduct(twiceNegativeNormal, normal);
+    // Add identity only on the diagonal, retaining signed-zero off-diagonals.
+    basis[0][0] += 1.0f;
+    basis[1][1] += 1.0f;
+    basis[2][2] += 1.0f;
+    storm::math::GlmMat4 result(basis);
+    result[3] = storm::math::GlmVec4(twiceNegativeNormal * -D, 1.0f);
+    storm::math::storeGlmMatrix(matrix, result);
 }
 
 #ifdef _WIN32 // for Effects (see libs/location/src/grass.cpp)

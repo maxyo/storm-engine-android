@@ -7,6 +7,17 @@
 #include <cstring>
 #include <glm/geometric.hpp>
 #include <glm/gtc/quaternion.hpp>
+// The pinned Euler extension matches the legacy rotation orders directly.
+// Opt in only for this include; do not change the caller's GLM feature policy.
+#ifndef GLM_ENABLE_EXPERIMENTAL
+#define GLM_ENABLE_EXPERIMENTAL
+#define STORM_GLM_RESTORE_EXPERIMENTAL
+#endif
+#include <glm/gtx/euler_angles.hpp>
+#ifdef STORM_GLM_RESTORE_EXPERIMENTAL
+#undef STORM_GLM_RESTORE_EXPERIMENTAL
+#undef GLM_ENABLE_EXPERIMENTAL
+#endif
 #include <glm/mat3x3.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/matrix.hpp>

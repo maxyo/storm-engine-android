@@ -33,7 +33,7 @@ def run_variant(name, baseline_headers=None):
     subprocess.run(['cmake', '--build', str(target), '--parallel', '2'], check=True)
     subprocess.run([str(target / 'packed_vector_include')], check=True)
     samples = {}
-    for executable in ('check', 'packed_check'):
+    for executable in ('check', 'packed_check', 'builders_check'):
         samples[executable] = target / (executable + '-samples.bin')
         subprocess.run([str(target / executable), str(samples[executable])], check=True)
     return samples
