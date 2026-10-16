@@ -5,8 +5,6 @@
 #include <functional>
 #include <vector>
 
-#include "plf_stack.h"
-
 #include "entity.h"
 #include "entity_container_cache.h"
 
@@ -91,10 +89,10 @@ class EntityManager final
     std::vector<EntityInternalData> entities_;
 
     // stack of erased entities
-    plf::stack<entity_index_t> freeIndices_;
+    std::vector<entity_index_t> freeIndices_;
 
     // stack of entities for deferred delete
-    plf::stack<entity_index_t> deletedIndices_;
+    std::vector<entity_index_t> deletedIndices_;
 
     entid_stamp_t previousStamp_ = 0;
 };

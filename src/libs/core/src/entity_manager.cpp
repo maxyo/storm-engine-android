@@ -35,7 +35,7 @@ void EntityManager::MarkDeleted(EntityInternalData &data)
 {
     data.state = kExists;
     const auto index = static_cast<entid_index_t>(data.id);
-    deletedIndices_.push(index);
+    deletedIndices_.push_back(index);
 }
 
 hash_t EntityManager::GetClassCode(const entid_t id) const
@@ -377,12 +377,12 @@ void EntityManager::RemoveFromLayer(layer_index_t layer_idx, entid_t entity_id)
 
 void EntityManager::NewLifecycle()
 {
-    // deletedSize will increment while erasing entities. this is safe for std::array iteration
+    // Destructors may enqueue more deletions; consume indices by value before calling them.
     while (!deletedIndices_.empty())
     {
-        const auto entity_idx = deletedIndices_.top();
+        const auto entity_idx = deletedIndices_.back();
         assert(entity_idx < entities_.size());
-        deletedIndices_.pop();
+        deletedIndices_.pop_back();
 
         auto &data = entities_[entity_idx];
         // release
@@ -390,7 +390,7 @@ void EntityManager::NewLifecycle()
         // erase entity data
         data = {};
         // push free index to stack instead of shifting
-        freeIndices_.push(entity_idx);
+        freeIndices_.push_back(entity_idx);
     }
 }
 
@@ -460,9 +460,9 @@ entid_t EntityManager::InsertEntity(entptr_t ptr, hash_t hash)
     }
     else
     {
-        const entid_index_t index = freeIndices_.top();
+        const entid_index_t index = freeIndices_.back();
         id = CalculateEntityId(index);
-        freeIndices_.pop();
+        freeIndices_.pop_back();
         entities_[index] = {{}, {}, kValid, ptr, id, hash};
     }
 
