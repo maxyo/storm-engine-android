@@ -86,11 +86,12 @@ needs_exe_wrapper = true
 [built-in options]
 c_args = ['-I{prefix}/include']
 cpp_args = ['-I{prefix}/include']
-c_link_args = ['-L{prefix}/lib']
-cpp_link_args = ['-L{prefix}/lib']
+c_link_args = ['-L{prefix}/lib', '-llog']
+cpp_link_args = ['-L{prefix}/lib', '-llog']
 """)
     command = ["meson", "setup", build / "dxvk", dxvk, "--cross-file", cross,
-               "--buildtype=release", "-Ddxvk_native_force=true", "-Ddxvk_native_wsi=sdl2",
+               "--buildtype=release", f"-Dc_link_args=['-L{prefix}/lib','-llog']",
+               f"-Dcpp_link_args=['-L{prefix}/lib','-llog']", "-Ddxvk_native_force=true", "-Ddxvk_native_wsi=sdl2",
                "-Denable_d3d9=true", "-Denable_d3d10=false", "-Denable_d3d11=false", "-Denable_dxgi=false"]
     if (build / "dxvk/meson-private/coredata.dat").exists():
         command.append("--reconfigure")

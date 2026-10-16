@@ -24,6 +24,13 @@ int main()
     assert(paths.user == "/data/user/0/app/files/storm");
     assert(storm::android::storagePaths("/private", nullptr).game == "/private/game");
     assert(storm::android::storagePaths("/private", "").game == "/private/game");
+    const auto direct = storm::android::storagePaths("/private", "/external", "/storage/emulated/0/TEHO");
+    assert(direct.game == "/storage/emulated/0/TEHO");
+    assert(direct.user == "/private/storm");
+    bool relativeRejected = false;
+    try { storm::android::storagePaths("/private", "/external", "relative/game"); }
+    catch (const std::runtime_error &) { relativeRejected = true; }
+    assert(relativeRejected);
     for (const char *invalid : {static_cast<const char *>(nullptr), "", "relative"})
     {
         bool rejected = false;

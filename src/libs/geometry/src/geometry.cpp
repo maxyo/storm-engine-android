@@ -59,6 +59,7 @@ bool GEOMETRY::Init()
     if (!RenderService)
     {
         core.Trace("No service: %s", RenderServiceName);
+        return false;
     }
     GSR.SetRenderService(RenderService);
 

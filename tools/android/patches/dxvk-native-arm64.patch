@@ -112,3 +112,29 @@ index 77cdf29..21c2479 100644
      return result;
    }
  
+diff --git a/src/util/log/log.cpp b/src/util/log/log.cpp
+index bddff02..63f447b 100644
+--- a/src/util/log/log.cpp
++++ b/src/util/log/log.cpp
+@@ -1,4 +1,7 @@
+ #include "log.h"
++#ifdef __ANDROID__
++#include <android/log.h>
++#endif
+ 
+ #include "../util_env.h"
+ 
+@@ -66,7 +69,13 @@ namespace dxvk {
+       std::string       line;
+ 
+       while (std::getline(stream, line, '\n')) {
++#ifdef __ANDROID__
++        const int priority = level == LogLevel::Error ? ANDROID_LOG_ERROR
++          : level == LogLevel::Warn ? ANDROID_LOG_WARN : ANDROID_LOG_INFO;
++        __android_log_write(priority, "StormDXVK", line.c_str());
++#else
+         std::cerr << prefix << line << std::endl;
++#endif
+ 
+         if (m_fileStream)
+           m_fileStream << prefix << line << std::endl;

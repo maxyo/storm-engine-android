@@ -1,6 +1,9 @@
 #include "logging.hpp"
 
 #include <spdlog/spdlog.h>
+#ifdef __ANDROID__
+#include <spdlog/sinks/android_sink.h>
+#endif
 
 #include "spdlog_sinks/syncable_sink.hpp"
 #include "fs.h"
@@ -30,6 +33,10 @@ logger_ptr getOrCreateLogger(const std::string &name, const spdlog::level::level
 
     logger = spdlog::create<sinks::syncable_sink>(name, path.string(), truncate);
     logger->set_level(level);
+#ifdef __ANDROID__
+    logger->sinks().push_back(std::make_shared<spdlog::sinks::android_sink_mt>("StormEngine"));
+    logger->flush_on(spdlog::level::info);
+#endif
 
     return logger;
 }
