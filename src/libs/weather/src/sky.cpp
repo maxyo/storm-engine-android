@@ -1,3 +1,6 @@
+#ifdef STORM_ENABLE_BGFX
+#include "fog_snapshot.hpp"
+#endif
 #include "sky.h"
 #include "sun_glow.h"
 #include "core.h"
@@ -105,6 +108,9 @@ void SKY::UpdateFogSphere(const bool initialize)
         return static_cast<uint32_t>(value->GetInt());
     }, initialize);
 
+#ifdef STORM_ENABLE_BGFX
+    storm::render::stageFogMesh(mesh, initialize);
+#endif
     auto *vertBuf = static_cast<FOGVERTEX *>(pRS->LockVertexBuffer(iFogVertsID));
     memcpy(vertBuf, mesh.vertices.data(), kFogVertsNum * sizeof(FOGVERTEX));
     pRS->UnLockVertexBuffer(iFogVertsID);
@@ -378,6 +384,14 @@ void SKY::Realize(uint32_t Delta_Time)
     pMatTranslate.BuildPosition(vPos.x, vPos.y / 6.0f, vPos.z);
     pMatWorld = pMatWorld * pMatTranslate;
     pRS->SetTransform(D3DTS_WORLD, pMatWorld);
+#ifdef STORM_ENABLE_BGFX
+    D3DMATRIX fogView{}, fogProjection{};
+    pRS->GetTransform(D3DTS_VIEW, &fogView);
+    pRS->GetTransform(D3DTS_PROJECTION, &fogProjection);
+    std::string captureResult;
+    if (storm::render::captureFogFrame(pMatWorld.matrix, &fogView.m[0][0], &fogProjection.m[0][0], captureResult))
+        core.Trace("bgfx fog capture: %s", captureResult.empty() ? "saved" : captureResult.c_str());
+#endif
     pRS->DrawBuffer(iFogVertsID, sizeof(FOGVERTEX), iFogIndexID, 0, kFogVertsNum, 0, kFogTrgsNum / 3,
                     sTechSkyFog.c_str());
 }

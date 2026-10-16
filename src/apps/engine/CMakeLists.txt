@@ -44,3 +44,8 @@ STORM_SETUP(
 if(ANDROID)
     set_target_properties(engine PROPERTIES VERSION "" SOVERSION "" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/game")
 endif()
+
+if(STORM_ENABLE_BGFX)
+    target_link_libraries(engine PRIVATE storm_bgfx_preview)
+    target_compile_definitions(engine PRIVATE STORM_ENABLE_BGFX=1)
+endif()

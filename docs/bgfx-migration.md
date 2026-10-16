@@ -118,3 +118,59 @@ constitute full-engine or physical Android runtime validation.
 
 New postprocessing or quality improvements must remain configurable. This stage
 adds no forced artistic effect and makes no FPS or mobile GPU cost claim.
+
+## Stage 2: exclusive startup preview and real SKY capture
+
+`STORM_ENABLE_BGFX=ON` now also builds a separate SDL frame owner and selects its
+startup path **before** `OSWindow::Create`, `InitBase`, scripts or DX9 services.
+The normal game path remains DX9. Setting the INI key `bgfx_fog_preview_file` to
+an existing snapshot selects the partial preview instead. It does not start the
+game simulation. There is never a DXVK swapchain and bgfx swapchain on the same
+window. The owner destroys its pass/context before SDL destroys the window;
+background events destroy the context and foreground events recreate it.
+
+Development workflow (paths must be writable/readable by the engine process):
+
+1. Build the engine with `STORM_ENABLE_BGFX=ON`, leave `bgfx_fog_preview_file`
+   empty and set `bgfx_fog_capture_file=/absolute/path/weather.fog` in engine.ini.
+   Start the normal game, reach a weather scene and press F11 once. The next SKY
+   realization captures script-generated fog colors/vertices/indices and the
+   actual world, view and projection matrices. The log reports success/error.
+2. Exit fully. Set `bgfx_fog_preview_file` to that file and
+   `bgfx_shader_directory` to a directory containing generated `vs_fog.bin` and
+   `fs_fog.bin`. Restart. The engine enters the fog-only preview, not gameplay.
+3. `bgfx_preview_fog=0/1` controls this pass; `screen_x`, `screen_y`, `vsync`
+   remain configurable. Android graphics preferences override resolution/vsync
+   exactly as they do for the legacy renderer. No texture filtering/degradation
+   setting is applicable to this untextured pass. Clear the preview key to play.
+
+The snapshot format has a versioned header, fixed bounded counts, finite-value
+and index validation, and rejects truncated/trailing data. It contains generated
+fog geometry/colors and camera matrices, no commercial textures or models.
+Capture is inert unless configured; I/O failure logs an error without terminating
+gameplay. Snapshot data is not added to git or bundled in the APK.
+
+Validation on 2026-10-17:
+
+- Host Vulkan pixel oracle still passes all four cases; snapshot roundtrip,
+  one-shot capture, topology retention, truncated/trailing rejection pass.
+- Xvfb + lavapipe preview ran two consecutive window/context lifetimes, each with
+  injected background/foreground and resize events, then shut down successfully.
+  This tests SDL events and Vulkan ownership, not a real Android surface loss.
+- NDK r30 ARM64/API24 compiles and final-links preview + SDL + frame owner with
+  `--no-undefined`. The full-engine Android CMake graph configures with bgfx ON;
+  main/weather are checked with their Android compiler settings.
+- No device, APK, stable worktree or dependency source/cache was changed. Actual
+  game capture/replay and image parity for the D3D camera matrices remain pending.
+
+For the SDL ownership test configure the standalone target with
+`STORM_BGFX_BUILD_SDL_PREVIEW=ON` and SDL2 include/library paths, build
+`storm_bgfx_preview_check`, then run it under `xvfb-run -a` with the shader output
+directory as its only argument. Use a software Vulkan ICD explicitly if desired.
+
+This is an engine-selected **capture/replay preview**, not a complete or live
+world backend. The next prerequisite is to separate weather simulation/camera
+submission from `VDX9RENDER` services and supply a renderer-neutral scene sink;
+loading the present game with an empty D3D facade would conceal missing draws.
+Textured sky, depth-tested geometry, materials, sea, actors and UI still require
+real ports. Android lifecycle and real scene parity remain release gates.

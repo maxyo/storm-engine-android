@@ -8,3 +8,10 @@ extern "C" void storm_bgfx_link_probe(const bgfx::Memory* vs, const bgfx::Memory
     pass.submit(0,world);
     bgfx::frame();
 }
+
+#ifdef STORM_BGFX_LINK_PREVIEW
+#include "fog_preview.hpp"
+extern "C" int storm_bgfx_preview_link_probe(const storm::render::FogPreviewOptions* options) {
+    return storm::render::runFogPreview(*options);
+}
+#endif

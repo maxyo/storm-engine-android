@@ -1,3 +1,6 @@
+#ifdef STORM_ENABLE_BGFX
+#include "fog_preview.hpp"
+#endif
 #include <thread>
 
 #include <SDL2/SDL.h>
@@ -229,6 +232,36 @@ int main(int argc, char *argv[])
         bSteam = ini->GetInt(nullptr, "Steam", 1) != 0;
     }
 
+#ifdef STORM_ENABLE_BGFX
+    // This mode branches before OSWindow/InitBase: DXVK never owns this surface.
+    char fogPreview[1024]{}, fogCapture[1024]{}, fogShaders[1024]{};
+    if (ini) {
+        ini->ReadString(nullptr, "bgfx_fog_preview_file", fogPreview, sizeof(fogPreview), "");
+        ini->ReadString(nullptr, "bgfx_fog_capture_file", fogCapture, sizeof(fogCapture), "");
+        ini->ReadString(nullptr, "bgfx_shader_directory", fogShaders, sizeof(fogShaders), "");
+    }
+    if (fogPreview[0]) {
+        storm::render::FogPreviewOptions options;
+        options.snapshotPath = fogPreview;
+        options.shaderDirectory = fogShaders;
+        options.width = std::max(320, width);
+        options.height = std::max(180, height);
+        options.vsync = ini->GetInt(nullptr, "vsync", 1) != 0;
+        options.fogEnabled = ini->GetInt(nullptr, "bgfx_preview_fog", 1) != 0;
+#ifdef __ANDROID__
+        options.width = std::max(320, storm::android::graphicsSetting("screen_x", options.width));
+        options.height = std::max(180, storm::android::graphicsSetting("screen_y", options.height));
+        options.vsync = storm::android::graphicsSetting("vsync", options.vsync) != 0;
+#endif
+        core_private->CleanUp();
+        core_private->ReleaseBase();
+        const int result = storm::render::runFogPreview(options);
+        SDL_Quit();
+        return result;
+    }
+    storm::render::configureFogCapture(fogCapture);
+#endif
+
     // initialize SteamApi through evaluating its singleton
     try
     {
@@ -350,6 +383,12 @@ int main(int argc, char *argv[])
             }
 
             RunFrameWithOverflowCheck();
+#ifdef STORM_ENABLE_BGFX
+            static bool fogCaptureKeyDown = false;
+            const bool fogCaptureKey = core.Controls && core.Controls->GetDebugAsyncKeyState(VK_F11) != 0;
+            if (fogCaptureKey && !fogCaptureKeyDown) storm::render::requestFogCapture();
+            fogCaptureKeyDown = fogCaptureKey;
+#endif
 #ifdef __ANDROID__
             // Execute commands at a completed game-frame boundary, after control
             // polling and outside Android dialog callbacks. No timed key pulse
