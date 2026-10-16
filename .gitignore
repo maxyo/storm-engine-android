@@ -4,3 +4,15 @@
 .vs
 .idea
 *.user
+
+# Local development audits, migration notes and diagnostic evidence.
+/docs/android-*.md
+/docs/*-migration.md
+/docs/modernization-*.md
+/docs/evidence/
+
+/docs/local/
+/docs/*-audit.md
+/docs/*-report*.md
+/docs/*-notes*.md
+/docs/*-plan*.md
