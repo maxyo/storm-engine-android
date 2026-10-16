@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include "backend.hpp"
 #include <array>
 #include <memory>

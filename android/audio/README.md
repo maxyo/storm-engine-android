@@ -75,5 +75,5 @@ at line 1404; it is not suppressed. Android execution remains unverified.
 `tests/audio/service.cpp` also checks overflow, category gain behavior, zero pitch,
 100 service lifecycle cycles and 44.1 kHz resources resampled to the engine's
 48 kHz cursor clock. The full service bridge and retained legacy behaviors are
-documented in `android/game/TESTING.md`. Source archives remain unchanged; only
+documented in the application repository’s `android/game/TESTING.md`. Source archives remain unchanged; only
 the explicit miniaudio error-cleanup patch modifies the compilation copy.

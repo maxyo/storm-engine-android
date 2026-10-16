@@ -69,7 +69,7 @@ python3 tools/android/verify_engine.py --library build/android-engine/game/liben
   --ndk /path/to/android-ndk-r30
 ```
 
-The source directory must also contain the pinned DXVK checkout. `ci_engine.sh`
-shows complete packaging arguments after `ci_probe.sh` prepares tools/dependencies.
-`build_probe_apk.py --engine-library` selects the real engine Activity and runtime
-libraries; `--probe-library` retains the diagnostic APK. Both are debug-signed.
+The source directory must also contain the pinned DXVK checkout.
+`ci_dependencies.sh` prepares tools/dependencies and runs regressions;
+`ci_engine.sh` builds and verifies only the native library.
+APK packaging and releases belong to https://github.com/maxyo/corsairs-android.

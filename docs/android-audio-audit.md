@@ -173,7 +173,7 @@ shared decoded caches, streaming duration indexes, fades, priority selection and
 virtual cursor progression. Synthetic checks cover priority overflow, stale
 handles, pause/cache/resume, lifecycle, music handoff and category gain updates.
 The replacement policy and intentional retained legacy behaviors are documented
-in `android/game/TESTING.md`. No FMOD SDK or headers are needed on Android.
+in the application repository’s `android/game/TESTING.md`. No FMOD SDK or headers are needed on Android.
 
 Host checks do not establish FMOD parity for a real resource corpus. No claim is
 made about all device routes, stereo spatial policy, GPU compatibility, voice

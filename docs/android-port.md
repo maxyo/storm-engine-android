@@ -1,3 +1,12 @@
+# Current ownership after application split — 2026-10-16
+
+This repository builds only Android native libraries. The application, importer,
+APK packaging and APK/release workflows moved to
+https://github.com/maxyo/corsairs-android. See `android/README.md` for current
+native instructions. The checkpoints below are historical evidence; references
+to removed APK scripts describe their former locations, not current commands.
+Xiaomi installation and native gameplay remain unverified.
+
 # Android ARM64 port status
 
 This branch now builds a **full ARM64 engine APK with open audio**. It is not
