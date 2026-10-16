@@ -435,6 +435,7 @@ class DX9RENDER : public VDX9RENDER
     void SetGLOWParams(float _fBlurBrushSize, int32_t _GlowIntensity, int32_t _GlowPasses) override;
 
     IDirect3DBaseTexture9 *GetTextureFromID(int32_t nTextureID) override;
+    bool sampleTextureArgb(int32_t texture,float u,float v,uint32_t& result) override;
 
     bool GetRenderTargetAsTexture(IDirect3DTexture9 **tex) override;
 

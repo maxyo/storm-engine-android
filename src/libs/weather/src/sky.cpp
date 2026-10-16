@@ -7,21 +7,9 @@
 #include "attributes.h"
 #include "math_inlines.h"
 #include "fog_sphere_mesh.hpp"
-
-namespace
-{
-
-struct SKYVERTEX
-{
-    CVECTOR pos;
-    uint32_t diffuse;
-    float tu, tv;
-    float tu2, tv2;
-};
-
-using FOGVERTEX = storm::weather::FogVertex;
-
-}
+#include "legacy_colored_mesh.hpp"
+#include "legacy_textured_mesh.hpp"
+#include "sky_mesh.hpp"
 
 SKY::SKY()
 {
@@ -54,19 +42,8 @@ void SKY::Release()
         }
     }
 
-    if (iSkyVertsID >= 0)
-        pRS->ReleaseVertexBuffer(iSkyVertsID);
-    iSkyVertsID = -1;
-    if (iSkyIndexID >= 0)
-        pRS->ReleaseIndexBuffer(iSkyIndexID);
-    iSkyIndexID = -1;
-
-    if (iFogVertsID >= 0)
-        pRS->ReleaseVertexBuffer(iFogVertsID);
-    iFogVertsID = -1;
-    if (iFogIndexID >= 0)
-        pRS->ReleaseIndexBuffer(iFogIndexID);
-    iFogIndexID = -1;
+    skyMesh_.reset();
+    fogMesh_.reset();
 }
 
 bool SKY::Init()
@@ -83,22 +60,8 @@ void SKY::SetDevice()
 
 void SKY::UpdateFogSphere(const bool initialize)
 {
-    if (initialize)
-    {
-        if (iFogVertsID < 0)
-        {
-            iFogVertsID =
-                pRS->CreateVertexBuffer(FOGVERTEX_FORMAT, kFogVertsNum * sizeof(FOGVERTEX), D3DUSAGE_WRITEONLY);
-        }
-        if (iFogIndexID < 0)
-        {
-            iFogIndexID = pRS->CreateIndexBuffer(kFogTrgsNum * 2);
-        }
-    }
-    else if (iFogVertsID < 0 || iFogIndexID < 0)
-    {
-        return;
-    }
+    if (initialize && !fogMesh_) fogMesh_ = storm::render::makeLegacyColoredMesh(*pRS);
+    if (!fogMesh_) return;
 
     static_assert(kFogVertsNum == storm::weather::fogVertexCount);
     static_assert(kFogTrgsNum == storm::weather::fogIndexCount);
@@ -111,16 +74,7 @@ void SKY::UpdateFogSphere(const bool initialize)
 #ifdef STORM_ENABLE_BGFX
     storm::render::stageFogMesh(mesh, initialize);
 #endif
-    auto *vertBuf = static_cast<FOGVERTEX *>(pRS->LockVertexBuffer(iFogVertsID));
-    memcpy(vertBuf, mesh.vertices.data(), kFogVertsNum * sizeof(FOGVERTEX));
-    pRS->UnLockVertexBuffer(iFogVertsID);
-
-    if (initialize)
-    {
-        auto *indBuf = static_cast<uint16_t *>(pRS->LockIndexBuffer(iFogIndexID));
-        memcpy(indBuf, mesh.indices.data(), kFogTrgsNum * 2);
-        pRS->UnLockIndexBuffer(iFogIndexID);
-    }
+    fogMesh_->update(mesh.vertices, initialize ? std::span<const uint16_t>(mesh.indices) : std::span<const uint16_t>{});
 }
 
 void SKY::GenerateSky(const bool initialize)
@@ -131,120 +85,10 @@ void SKY::GenerateSky(const bool initialize)
         LoadTextures();
     }
 
-    if (iSkyVertsID < 0)
-    {
-        iSkyVertsID = pRS->CreateVertexBuffer(SKYVERTEX_FORMAT, SKY_NUM_VERTEX * sizeof(SKYVERTEX), D3DUSAGE_WRITEONLY);
-        
-    }
-    if (iSkyIndexID < 0)
-    {
-        iSkyIndexID = pRS->CreateIndexBuffer(20 * 3 * 2);
-    }
+    if (!skyMesh_) skyMesh_ = storm::render::makeLegacyTexturedMesh(*pRS);
 
-    const auto fpdelta = 1.0f / 1024.0f;
-    const auto fpdx = 1.0f - fpdelta; //.25f - fpdelta;
-    const auto fp0 = fpdelta;
-    //auto fp1 = 0.25f + fpdelta;
-    //auto fp2 = 0.5f + fpdelta;
-    //auto fp3 = 0.75f + fpdelta;
-    const auto fp4 = 1.0f - fpdelta;
-
-    const CVECTOR dir[8]{CVECTOR(-1.0f, 0.0f, -1.0f), CVECTOR(1.0f, 0.0f, -1.0f),  CVECTOR(1.0f, 0.0f, 1.0f),
-                 CVECTOR(-1.0f, 0.0f, 1.0f),  CVECTOR(-1.0f, 1.0f, -1.0f), CVECTOR(1.0f, 1.0f, -1.0f),
-                 CVECTOR(1.0f, 1.0f, 1.0f),   CVECTOR(-1.0f, 1.0f, 1.0f)};
-
-    SKYVERTEX Verts[SKY_NUM_VERTEX];
-    Verts[0].pos = dir[1];
-    Verts[0].tu = fp4;
-    Verts[0].tv = fp0 + fpdx;
-    Verts[1].pos = dir[5];
-    Verts[1].tu = fp4;
-    Verts[1].tv = fp0;
-    Verts[2].pos = dir[4];
-    Verts[2].tu = fp0;
-    Verts[2].tv = fp0;
-    Verts[3].pos = dir[0];
-    Verts[3].tu = fp0;
-    Verts[3].tv = fp0 + fpdx;
-
-    Verts[4].pos = dir[2];
-    Verts[4].tu = fp4;
-    Verts[4].tv = fp0 + fpdx;
-    Verts[5].pos = dir[6];
-    Verts[5].tu = fp4;
-    Verts[5].tv = fp0;
-    Verts[6].pos = dir[5];
-    Verts[6].tu = fp0;
-    Verts[6].tv = fp0;
-    Verts[7].pos = dir[1];
-    Verts[7].tu = fp0;
-    Verts[7].tv = fp0 + fpdx;
-
-    Verts[8].pos = dir[3];
-    Verts[8].tu = fp4;
-    Verts[8].tv = fp0 + fpdx;
-    Verts[9].pos = dir[7];
-    Verts[9].tu = fp4;
-    Verts[9].tv = fp0;
-    Verts[10].pos = dir[6];
-    Verts[10].tu = fp0;
-    Verts[10].tv = fp0;
-    Verts[11].pos = dir[2];
-    Verts[11].tu = fp0;
-    Verts[11].tv = fp0 + fpdx;
-
-    Verts[12].pos = dir[0];
-    Verts[12].tu = fp4;
-    Verts[12].tv = fp0 + fpdx;
-    Verts[13].pos = dir[4];
-    Verts[13].tu = fp4;
-    Verts[13].tv = fp0;
-    Verts[14].pos = dir[7];
-    Verts[14].tu = fp0;
-    Verts[14].tv = fp0;
-    Verts[15].pos = dir[3];
-    Verts[15].tu = fp0;
-    Verts[15].tv = fp0 + fpdx;
-
-    Verts[16].pos = dir[5];
-    Verts[16].tu = fp0;
-    Verts[16].tv = fp0;
-    Verts[17].pos = dir[6];
-    Verts[17].tu = fp0;
-    Verts[17].tv = fp4;
-    Verts[18].pos = dir[7];
-    Verts[18].tu = fp4;
-    Verts[18].tv = fp4;
-    Verts[19].pos = dir[4];
-    Verts[19].tu = fp4;
-    Verts[19].tv = fp0;
-
-    for (size_t i = 0; i < 20; i++)
-    {
-        Verts[i].diffuse = 0xFFFFFFFF;
-        Verts[i].pos *= fSkySize;
-        Verts[i + 20] = Verts[i];
-        Verts[i + 20].pos.y = -Verts[i + 20].pos.y;
-        Verts[i].tu2 = Verts[i].tu;
-        Verts[i].tv2 = Verts[i].tv;
-    }
-
-    auto *pVertBuf = static_cast<SKYVERTEX *>(pRS->LockVertexBuffer(iSkyVertsID));
-    if (pVertBuf)
-        memcpy(pVertBuf, &Verts[0], sizeof(Verts));
-    pRS->UnLockVertexBuffer(iSkyVertsID);
-
-    auto *pTrgs = static_cast<uint16_t *>(pRS->LockIndexBuffer(iSkyIndexID));
-    for (size_t i = 0; i < 10; i++)
-    {
-        *pTrgs++ = static_cast<uint16_t>(i * 4) + 0;
-        *pTrgs++ = static_cast<uint16_t>(i * 4) + 1;
-        *pTrgs++ = static_cast<uint16_t>(i * 4) + 2;
-        *pTrgs++ = static_cast<uint16_t>(i * 4) + 0;
-        *pTrgs++ = static_cast<uint16_t>(i * 4) + 2;
-        *pTrgs++ = static_cast<uint16_t>(i * 4) + 3;
-    }
-    pRS->UnLockIndexBuffer(iSkyIndexID);
+    const auto mesh=storm::weather::makeSkyMesh(fSkySize);
+    skyMesh_->update(mesh.vertices,mesh.indices);
 
     UpdateFogSphere(true);
 }
@@ -299,6 +143,17 @@ void SKY::Realize(uint32_t Delta_Time)
     pMatWorld = pMatRotate * pMatWorld;
     pRS->SetTransform(D3DTS_WORLD, pMatWorld);
 
+    const auto drawSky = [&](const std::string& material,uint32_t factor,bool transition) {
+        if (!skyMesh_) return;
+        std::array<storm::render::TextureDrawRange,10> ranges;
+        size_t count=0;
+        for (uint32_t i=0;i<SKY_NUM_TEXTURES;++i) {
+            ranges[count++]={i*6,6,TexturesID[i],transition?TexturesNextID[i]:-1};
+            if (Delta_Time==0) ranges[count++]={30+i*6,6,TexturesID[i],transition?TexturesNextID[i]:-1};
+        }
+        skyMesh_->submit({std::span<const float,16>(pMatWorld.matrix),{ranges.data(),count},material,factor});
+    };
+
     if (aSkyDirArray.size() > 1)
     {
         UpdateTimeFactor();
@@ -307,21 +162,10 @@ void SKY::Realize(uint32_t Delta_Time)
             fBlendFactor = 0.f;
         if (fBlendFactor > 1.f)
             fBlendFactor = 1.f;
-        uint32_t dwColor = (dwSkyColor & 0x00FFFFFF) | (static_cast<int32_t>(0xFF000000 * fBlendFactor) & 0xFF000000);
+        uint32_t dwColor = (dwSkyColor & 0x00FFFFFF) | (static_cast<uint32_t>(255.f * fBlendFactor) << 24);
         pRS->SetRenderState(D3DRS_TEXTUREFACTOR, dwColor);
 
-        if (pRS->TechniqueExecuteStart(sTechSkyBlend.c_str()))
-            do
-            {
-                for (int32_t i = 0; i < SKY_NUM_TEXTURES; i++)
-                {
-                    pRS->TextureSet(0, TexturesID[i]);
-                    pRS->TextureSet(1, TexturesNextID[i]);
-                    pRS->DrawBuffer(iSkyVertsID, sizeof(SKYVERTEX), iSkyIndexID, 0, 20, i * 6, 2);
-                    if (Delta_Time == 0)
-                        pRS->DrawBuffer(iSkyVertsID, sizeof(SKYVERTEX), iSkyIndexID, 0, 40, 30 + i * 6, 2);
-                }
-            } while (pRS->TechniqueExecuteNext());
+        drawSky(sTechSkyBlend, dwColor, true);
 
         if (Delta_Time != 0)
         {
@@ -343,18 +187,7 @@ void SKY::Realize(uint32_t Delta_Time)
                     static_cast<SUNGLOW *>(pSunGlow)->DrawSunMoon();
 
                 pRS->SetTransform(D3DTS_WORLD, pMatWorld);
-                if (pRS->TechniqueExecuteStart(sTechSkyBlendAlpha.c_str()))
-                    do
-                    {
-                        for (int32_t i = 0; i < SKY_NUM_TEXTURES; i++)
-                        {
-                            pRS->TextureSet(0, TexturesID[i]);
-                            pRS->TextureSet(1, TexturesNextID[i]);
-                            pRS->DrawBuffer(iSkyVertsID, sizeof(SKYVERTEX), iSkyIndexID, 0, 20, i * 6, 2);
-                            if (Delta_Time == 0) //~!~
-                                pRS->DrawBuffer(iSkyVertsID, sizeof(SKYVERTEX), iSkyIndexID, 0, 40, 30 + i * 6, 2);
-                        }
-                    } while (pRS->TechniqueExecuteNext());
+                drawSky(sTechSkyBlendAlpha, dwColor, true);
             }
         }
 
@@ -367,23 +200,13 @@ void SKY::Realize(uint32_t Delta_Time)
     {
         pRS->SetRenderState(D3DRS_TEXTUREFACTOR, dwSkyColor);
 
-        if (pRS->TechniqueExecuteStart(sTechSky.c_str()))
-            do
-            {
-                for (int32_t i = 0; i < SKY_NUM_TEXTURES; i++)
-                {
-                    pRS->TextureSet(0, TexturesID[i]);
-                    pRS->DrawBuffer(iSkyVertsID, sizeof(SKYVERTEX), iSkyIndexID, 0, 20, i * 6, 2);
-                    if (Delta_Time == 0)
-                        pRS->DrawBuffer(iSkyVertsID, sizeof(SKYVERTEX), iSkyIndexID, 0, 40, 30 + i * 6, 2);
-                }
-            } while (pRS->TechniqueExecuteNext());
+        drawSky(sTechSky, dwSkyColor, false);
     }
 
     pMatWorld.SetIdentity();
     pMatTranslate.BuildPosition(vPos.x, vPos.y / 6.0f, vPos.z);
     pMatWorld = pMatWorld * pMatTranslate;
-    pRS->SetTransform(D3DTS_WORLD, pMatWorld);
+    // The colored-mesh backend consumes the transform explicitly.
 #ifdef STORM_ENABLE_BGFX
     D3DMATRIX fogView{}, fogProjection{};
     pRS->GetTransform(D3DTS_VIEW, &fogView);
@@ -392,8 +215,7 @@ void SKY::Realize(uint32_t Delta_Time)
     if (storm::render::captureFogFrame(pMatWorld.matrix, &fogView.m[0][0], &fogProjection.m[0][0], captureResult))
         core.Trace("bgfx fog capture: %s", captureResult.empty() ? "saved" : captureResult.c_str());
 #endif
-    pRS->DrawBuffer(iFogVertsID, sizeof(FOGVERTEX), iFogIndexID, 0, kFogVertsNum, 0, kFogTrgsNum / 3,
-                    sTechSkyFog.c_str());
+    if (fogMesh_) fogMesh_->submit({std::span<const float,16>(pMatWorld.matrix), sTechSkyFog});
 }
 
 uint32_t SKY::AttributeChanged(ATTRIBUTES *pAttribute)
@@ -676,9 +498,9 @@ float SKY::CalculateAlphaForSun(const CVECTOR &vSunPos, float fSunSize)
         if (nTexNum != -1)
         {
             const auto dwCol1 =
-                GetPixelColor(static_cast<IDirect3DTexture9 *>(pRS->GetTextureFromID(TexturesID[nTexNum])), fu, fv);
+                GetPixelColor(TexturesID[nTexNum], fu, fv);
             const auto dwCol2 =
-                GetPixelColor(static_cast<IDirect3DTexture9 *>(pRS->GetTextureFromID(TexturesNextID[nTexNum])), fu, fv);
+                GetPixelColor(TexturesNextID[nTexNum], fu, fv);
 
             const auto fK = fTimeFactor - static_cast<int32_t>(fTimeFactor);
             const auto fAlpha = (1.f - fK) * (dwCol1 >> 24) / 255.f + fK * (dwCol2 >> 24) / 255.f;
@@ -689,28 +511,9 @@ float SKY::CalculateAlphaForSun(const CVECTOR &vSunPos, float fSunSize)
     return 1.f;
 }
 
-uint32_t SKY::GetPixelColor(IDirect3DTexture9 *pTex, float fu, float fv) const
+uint32_t SKY::GetPixelColor(int32_t texture, float fu, float fv) const
 {
-    HRESULT hok;
-    auto dwCol = 0xFFFFFFFF;
-
-    if (!pTex)
-        return dwCol;
-
-    D3DSURFACE_DESC texdesc;
-    pRS->GetLevelDesc(pTex, 0, &texdesc);
-    const auto x = static_cast<int32_t>(Bring2Range(0.0f, static_cast<float>(texdesc.Width - 1), 0.0f,
-                                                 static_cast<float>(texdesc.Width), texdesc.Width * fu));
-    const auto y = static_cast<int32_t>(Bring2Range(0.0f, static_cast<float>(texdesc.Height - 1), 0.0f,
-                                                 static_cast<float>(texdesc.Height), texdesc.Height * fv));
-
-    D3DLOCKED_RECT lockRect;
-    if ((hok = pRS->LockRect(pTex, 0, &lockRect, nullptr, D3DLOCK_READONLY)) == D3D_OK)
-    {
-        auto *pLine = (uint32_t *)(static_cast<uint8_t *>(lockRect.pBits) + y * lockRect.Pitch);
-        dwCol = pLine[x];
-        pRS->UnlockRect(pTex, 0);
-    }
-
-    return dwCol;
+    uint32_t color=0xffffffffu;
+    pRS->sampleTextureArgb(texture,fu,fv,color);
+    return color;
 }

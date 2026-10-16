@@ -10,9 +10,29 @@ void CXI_BUTTON::MobileCollect(std::vector<MobileWidget> &widgets) const
     if (name.compare(0, 11, "LEFTCHANGE_") == 0) label = "‹";
     else if (name.compare(0, 12, "RIGHTCHANGE_") == 0) label = "›";
     else if (m_idString != -1) label = pStringService->GetString(m_idString);
+    // These icon/hit-area nodes deliberately keep text in STR_BUTTONS. Export
+    // the actual command-bearing node, using the same localized resource key.
+    if ((!label || !*label) && pStringService)
+    {
+        std::string baseName = name;
+        if (baseName.size() > 2 && baseName.compare(baseName.size() - 2, 2, "_2") == 0)
+            baseName.resize(baseName.size() - 2);
+        static constexpr struct { const char *node; const char *key; } navigation[] = {
+            {"I_SHIP", "buttonShip"}, {"I_QUESTBOOK", "buttonQuestBook"},
+            {"I_NATIONS", "buttonNation"}, {"I_TRADEBOOK", "buttonTradeBook"},
+            {"I_ITEMS", "Sel Items"}, {"I_CHARACTER", "buttonCharacter"}};
+        for (const auto &entry : navigation)
+            if (baseName == entry.node)
+            {
+                const auto id = pStringService->GetStringNum(entry.key);
+                if (id != -1) label = pStringService->GetString(id);
+                break;
+            }
+    }
     if (label && *label)
         widgets.push_back({name, "button", label, "", -1, m_rect.top * 8192 + m_rect.left,
-            m_bClickable && !m_bLockStatus});
+            m_bUse && m_bClickable && !m_bLockedNode && !m_bLockStatus &&
+            (CheckCommandUsed(ACTION_MOUSECLICK) || CheckCommandUsed(ACTION_ACTIVATE))});
 }
 
 bool CXI_BUTTON::MobileApply(int index, const std::string &value)

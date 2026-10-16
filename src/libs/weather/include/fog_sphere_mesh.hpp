@@ -1,4 +1,5 @@
 #pragma once
+#include "colored_mesh.hpp"
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -6,7 +7,7 @@
 namespace storm::weather {
 // Shared geometry for the legacy skyfog pass and the bgfx migration. Packed
 // color stays D3D ARGB here; each backend must explicitly decode its byte order.
-struct FogVertex { float x, y, z; uint32_t argb; };
+using FogVertex = storm::render::ColorVertex;
 static_assert(sizeof(FogVertex) == 16, "Legacy XYZ + diffuse vertex layout must stay packed");
 inline constexpr uint32_t fogLevels = 64, fogAngles = 8;
 inline constexpr float fogRadius = 2000.f;

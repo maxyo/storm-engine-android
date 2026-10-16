@@ -1,6 +1,8 @@
 #pragma once
 
 #include "typedef.h"
+#include "colored_mesh.hpp"
+#include "textured_mesh.hpp"
 #include <string>
 #include <vector>
 
@@ -38,8 +40,6 @@ class SKY : public Entity
   private:
     enum
     {
-        FOGVERTEX_FORMAT = D3DFVF_XYZ | D3DFVF_DIFFUSE,
-        SKYVERTEX_FORMAT = D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX2 | D3DFVF_TEXTUREFORMAT2,
         SKY_NUM_TEXTURES = 5,
         SKY_NUM_VERTEX = 40,
 
@@ -67,10 +67,8 @@ class SKY : public Entity
     int32_t TexturesNextID[SKY_NUM_TEXTURES];
     float fTimeFactor;
 
-    int32_t iSkyVertsID = -1;
-    int32_t iSkyIndexID = -1;
-    int32_t iFogVertsID = -1;
-    int32_t iFogIndexID = -1;
+    std::unique_ptr<storm::render::TexturedMesh> skyMesh_;
+    std::unique_ptr<storm::render::ColoredMesh> fogMesh_;
 
     Entity *pAstronomy;
     Entity *pSunGlow;
@@ -87,5 +85,5 @@ class SKY : public Entity
     void GetSkyDirStrings(std::string &sSkyDir, std::string &sSkyDirNext);
     void UpdateTimeFactor();
 
-    uint32_t GetPixelColor(IDirect3DTexture9 *pTex, float fu, float fv) const;
+    uint32_t GetPixelColor(int32_t texture, float fu, float fv) const;
 };

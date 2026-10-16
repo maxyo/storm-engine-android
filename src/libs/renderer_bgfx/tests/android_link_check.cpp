@@ -15,3 +15,18 @@ extern "C" int storm_bgfx_preview_link_probe(const storm::render::FogPreviewOpti
     return storm::render::runFogPreview(*options);
 }
 #endif
+
+#include "rgba_texture.hpp"
+extern "C" bool storm_bgfx_texture_link_probe(const storm::render::TexturePixels* pixels,uint32_t* color) {
+    storm::render::RgbaTexture texture(*pixels);
+    return texture.sample(0.f,0.f,*color);
+}
+
+#include "sky_pass.hpp"
+extern "C" void storm_bgfx_sky_link_probe(storm::render::TextureStore* textures,const bgfx::Memory* vs,
+    const bgfx::Memory* fs,const storm::render::TexturedVertex* vertices,size_t vertexCount,
+    const uint16_t* indices,size_t indexCount,const storm::render::TexturedDraw* draw) {
+    storm::render::SkyPass pass(*textures,vs,fs);
+    pass.update({vertices,vertexCount},{indices,indexCount});
+    pass.submit(*draw);
+}

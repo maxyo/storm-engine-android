@@ -31,9 +31,9 @@ FetchContent_Declare(storm_bgfx_upstream
     GIT_SUBMODULES_RECURSE TRUE)
 FetchContent_MakeAvailable(storm_bgfx_upstream)
 
-add_library(storm_bgfx_world STATIC src/fog_pass.cpp src/fog_snapshot.cpp src/fog_frame_owner.cpp)
+add_library(storm_bgfx_world STATIC src/fog_pass.cpp src/fog_snapshot.cpp src/fog_frame_owner.cpp src/rgba_texture.cpp src/sky_pass.cpp)
 target_compile_features(storm_bgfx_world PUBLIC cxx_std_20)
-target_include_directories(storm_bgfx_world PUBLIC include ../weather/include)
+target_include_directories(storm_bgfx_world PUBLIC include ../weather/include ../renderer/include)
 target_link_libraries(storm_bgfx_world PUBLIC bgfx)
 set_target_properties(storm_bgfx_world PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
@@ -46,21 +46,23 @@ if(ANDROID)
     target_link_options(storm_bgfx_link_check PRIVATE -Wl,--no-undefined)
 elseif(NOT CMAKE_CROSSCOMPILING)
     set(shader_outputs)
-    foreach(stage vs fs)
-        if(stage STREQUAL vs)
-            set(shader_type vertex)
-        else()
-            set(shader_type fragment)
-        endif()
-        set(output "${CMAKE_CURRENT_BINARY_DIR}/${stage}_fog.bin")
-        add_custom_command(OUTPUT "${output}"
-            COMMAND shaderc -f "${CMAKE_CURRENT_SOURCE_DIR}/shaders/${stage}_fog.sc"
-                -o "${output}" --type ${shader_type} --platform linux -p spirv
-                --varyingdef "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc"
-                -i "${storm_bgfx_upstream_SOURCE_DIR}/bgfx/src"
-            DEPENDS shaderc shaders/${stage}_fog.sc shaders/varying.def.sc
-            VERBATIM)
-        list(APPEND shader_outputs "${output}")
+    foreach(pass fog sky)
+        foreach(stage vs fs)
+            if(stage STREQUAL vs)
+                set(shader_type vertex)
+            else()
+                set(shader_type fragment)
+            endif()
+            set(output "${CMAKE_CURRENT_BINARY_DIR}/${stage}_${pass}.bin")
+            add_custom_command(OUTPUT "${output}"
+                COMMAND shaderc -f "${CMAKE_CURRENT_SOURCE_DIR}/shaders/${stage}_${pass}.sc"
+                    -o "${output}" --type ${shader_type} --platform linux -p spirv
+                    --varyingdef "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc"
+                    -i "${storm_bgfx_upstream_SOURCE_DIR}/bgfx/src"
+                DEPENDS shaderc shaders/${stage}_${pass}.sc shaders/varying.def.sc
+                VERBATIM)
+            list(APPEND shader_outputs "${output}")
+        endforeach()
     endforeach()
     add_custom_target(storm_bgfx_shaders DEPENDS ${shader_outputs})
     add_executable(storm_bgfx_fog_check tests/fog_check.cpp)
@@ -96,4 +98,17 @@ if(STORM_BGFX_BUILD_SDL_PREVIEW AND NOT CMAKE_CROSSCOMPILING)
     target_include_directories(storm_bgfx_preview_check PRIVATE ${SDL2_INCLUDE_DIRS})
     add_dependencies(storm_bgfx_preview_check storm_bgfx_shaders)
     # Needs an actual X11 display (xvfb-run is sufficient); kept out of headless CTest.
+endif()
+if(NOT CMAKE_CROSSCOMPILING)
+    add_executable(storm_resource_contract_check tests/resource_contract_check.cpp)
+    target_compile_features(storm_resource_contract_check PRIVATE cxx_std_20)
+    target_include_directories(storm_resource_contract_check PRIVATE ../renderer/include)
+    add_test(NAME renderer_resource_contract COMMAND storm_resource_contract_check)
+endif()
+if(NOT CMAKE_CROSSCOMPILING)
+    add_executable(storm_bgfx_sky_check tests/sky_check.cpp)
+    target_link_libraries(storm_bgfx_sky_check PRIVATE storm_bgfx_world bx)
+    add_dependencies(storm_bgfx_sky_check storm_bgfx_shaders)
+    add_test(NAME bgfx_sky_pixels COMMAND storm_bgfx_sky_check
+        "${CMAKE_CURRENT_BINARY_DIR}/vs_sky.bin" "${CMAKE_CURRENT_BINARY_DIR}/fs_sky.bin")
 endif()

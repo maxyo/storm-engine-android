@@ -1,4 +1,5 @@
 #include "fog_pass.hpp"
+#include "rgba_texture.hpp"
 #include <bx/math.h>
 #include <fstream>
 #include <iostream>
@@ -50,9 +51,18 @@ int main(int argc, char** argv) {
                 auto mesh=storm::weather::makeFogSphere([&](float,float,float){++calls;return argb[scenario];});
                 if(calls!=513 || mesh.indices.size()!=3048) throw std::runtime_error("fog topology count changed");
                 for(auto index:mesh.indices) if(index>=mesh.vertices.size()) throw std::runtime_error("fog index out of bounds");
-                pass.update(mesh);
+                storm::render::ColoredMesh& neutral=pass;
+                std::vector<storm::render::ColorVertex> submitted(mesh.vertices.begin(),mesh.vertices.end());
+                if(scenario==3) submitted.push_back(submitted.back()); // Resize without replacing topology.
+                neutral.update(submitted,scenario==0?std::span<const uint16_t>(mesh.indices):std::span<const uint16_t>{});
+                if(!neutral.supportsMaterial("SkyFog")||neutral.supportsMaterial("Sea"))
+                    throw std::runtime_error("Material capability mismatch");
+                bool rejected=false;
+                try {neutral.submit({std::span<const float,16>(world),"Sea",0});}
+                catch(const std::invalid_argument&) {rejected=true;}
+                if(!rejected) throw std::runtime_error("Unsupported material silently accepted");
                 bgfx::touch(0);
-                pass.submit(0,world,scenario!=2);
+                if(scenario!=2) neutral.submit({std::span<const float,16>(world),"SkyFog",0});
                 bgfx::TextureRegion source,destination;
                 source.init(color); destination.init(readback);
                 bgfx::blit(1,destination,source);
@@ -67,6 +77,27 @@ int main(int argc, char** argv) {
                             " got "+std::to_string(center[0])+","+std::to_string(center[1])+","+std::to_string(center[2]));
                 std::cout << "fog scenario " << scenario << " passed, center=" << int(center[0]) << ',' << int(center[1]) << ',' << int(center[2]) << '\n';
             }
+        }
+        // Padded BGRA CPU source -> retained canonical CPU pixels and GPU RGBA8.
+        {
+            const std::array<uint8_t,24> sourcePixels{30,20,10,255,60,50,40,128,9,9,9,9,
+                                                    90,80,70,64,120,110,100,32,8,8,8,8};
+            storm::render::RgbaTexture texture({sourcePixels,2,2,12,storm::render::PixelOrder::bgra8});
+            uint32_t sampled=0;
+            if(!texture.sample(1,1,sampled)||sampled!=0x20646e78u) throw std::runtime_error("CPU texture sampling mismatch");
+            const auto destinationTexture=bgfx::createTexture2D(2,2,false,1,bgfx::TextureFormat::RGBA8,
+                BGFX_TEXTURE_READ_BACK|BGFX_TEXTURE_BLIT_DST);
+            bgfx::TextureRegion source,destination;
+            source.init(texture.handle()); destination.init(destinationTexture);
+            bgfx::blit(2,destination,source);
+            std::array<uint8_t,16> pixels{};
+            const auto ready=bgfx::read(destination,pixels.data());
+            unsigned frames=0;
+            while(bgfx::frame()<ready) if(++frames>20) throw std::runtime_error("Texture readback timeout");
+            const std::array<uint8_t,16> expected{10,20,30,255,40,50,60,128,70,80,90,64,100,110,120,32};
+            if(pixels!=expected) throw std::runtime_error("CPU/GPU texture byte parity failed");
+            bgfx::destroy(destinationTexture);
+            std::cout<<"Padded BGRA -> CPU/GPU RGBA texture parity passed\n";
         }
         bgfx::destroy(readback); bgfx::destroy(target);
         bgfx::frame();

@@ -1,18 +1,16 @@
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "s_eventmsg.h"
 
 class POSTEVENTS_LIST
 {
-    S_EVENTMSG **pTable;
-    uint32_t nClassesNum;
+    std::vector<std::unique_ptr<S_EVENTMSG>> events_;
 
   public:
-    POSTEVENTS_LIST()
-    {
-        nClassesNum = 0;
-        pTable = nullptr;
-    };
+    POSTEVENTS_LIST() = default;
 
     ~POSTEVENTS_LIST()
     {
@@ -21,66 +19,50 @@ class POSTEVENTS_LIST
 
     void Release()
     {
-        if (pTable)
-        {
-            for (uint32_t n = 0; n < nClassesNum; n++)
-                delete pTable[n];
-            free(pTable);
-            pTable = nullptr;
-        }
-        nClassesNum = 0;
+        // Keep the original forward destruction order and release the storage.
+        for (auto &event : events_)
+            event.reset();
+        decltype(events_){}.swap(events_);
     };
 
     void Add(S_EVENTMSG *pClass)
     {
-        uint32_t n = nClassesNum;
-        nClassesNum++;
-        pTable = (S_EVENTMSG **)realloc(pTable, nClassesNum * sizeof(S_EVENTMSG *));
-        pTable[n] = pClass;
+        events_.push_back(std::unique_ptr<S_EVENTMSG>(pClass));
     };
 
     void Del(uint32_t _n)
     {
-        if (_n >= nClassesNum)
+        if (_n >= events_.size())
             return;
-        delete pTable[_n];
-        for (uint32_t n = _n; n < (nClassesNum - 1); n++)
-            pTable[n] = pTable[n + 1];
-        nClassesNum--;
+        events_.erase(events_.begin() + _n);
     }
 
     S_EVENTMSG *Read(uint32_t _n)
     {
-        if (_n >= nClassesNum)
+        if (_n >= events_.size())
             return nullptr;
-        return pTable[_n];
+        return events_[_n].get();
     };
 
     uint32_t GetClassesNum()
     {
-        return nClassesNum;
+        return static_cast<uint32_t>(events_.size());
     }
 
     void InvalidateAll()
     {
-        if (pTable)
-        {
-            for (uint32_t n = 0; n < nClassesNum; n++)
-                pTable[n]->Invalidate();
-        }
+        for (const auto &event : events_)
+            event->Invalidate();
     };
 
     void RemoveInvalidated()
     {
-        if (pTable)
+        for (uint32_t n = 0; n < events_.size(); n++)
         {
-            for (uint32_t n = 0; n < nClassesNum; n++)
+            if (events_[n]->bInvalide)
             {
-                if (pTable[n]->bInvalide)
-                {
-                    Del(n);
-                    n = 0;
-                }
+                Del(n);
+                n = 0;
             }
         }
     }

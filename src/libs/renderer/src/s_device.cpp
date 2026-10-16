@@ -4659,6 +4659,30 @@ IDirect3DBaseTexture9 *DX9RENDER::GetTextureFromID(int32_t nTextureID)
     return Textures[nTextureID].d3dtex;
 }
 
+bool DX9RENDER::sampleTextureArgb(int32_t texture,float u,float v,uint32_t& result)
+{
+    if(texture<0 || size_t(texture)>=MAX_STEXTURES) return false;
+    auto* base=Textures[texture].d3dtex;
+    if(!base || base->GetType()!=D3DRTYPE_TEXTURE) return false;
+    auto* image=static_cast<IDirect3DTexture9*>(base);
+    D3DSURFACE_DESC desc{};
+    if(FAILED(image->GetLevelDesc(0,&desc)) ||
+       (desc.Format!=D3DFMT_A8R8G8B8 && desc.Format!=D3DFMT_X8R8G8B8)) return false;
+    D3DLOCKED_RECT lock{};
+    if(FAILED(image->LockRect(0,&lock,nullptr,D3DLOCK_READONLY))) return false;
+    bool success=false;
+    uint32_t color=0;
+    if(lock.pBits && lock.Pitch>0 && size_t(lock.Pitch)<=SIZE_MAX/std::max(1u,desc.Height)) {
+        storm::render::TexturePixels pixels{
+            {static_cast<const uint8_t*>(lock.pBits),size_t(lock.Pitch)*desc.Height},
+            desc.Width,desc.Height,size_t(lock.Pitch),storm::render::PixelOrder::bgra8};
+        success=storm::render::sampleArgb(pixels,u,v,color);
+    }
+    image->UnlockRect(0);
+    if(success) result=desc.Format==D3DFMT_X8R8G8B8 ? color|0xff000000u : color;
+    return success;
+}
+
 bool DX9RENDER::GetRenderTargetAsTexture(IDirect3DTexture9 **tex)
 {
     Release(*tex);

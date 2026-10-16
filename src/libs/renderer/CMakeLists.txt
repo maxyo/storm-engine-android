@@ -9,3 +9,6 @@ STORM_SETUP(
     TYPE storm_module
     DEPENDENCIES core $<$<BOOL:${WIN32}>:directx> util ${SYSTEM_DEPS}
 )
+
+# Renderer-neutral resource contracts use bounded std::span views.
+target_compile_features(renderer PUBLIC cxx_std_20)
