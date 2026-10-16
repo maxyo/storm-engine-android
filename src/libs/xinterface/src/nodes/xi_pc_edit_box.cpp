@@ -13,6 +13,7 @@
 CXI_PCEDITBOX::CXI_PCEDITBOX()
     : m_nStringAlign(0), m_nMaxSize(0), m_nMaxWidth(0)
 {
+    m_nNodeType = NODETYPE_PCEDITBOX;
     m_nFontID = -1;
     m_dwFontColor = 0xFFFFFFFF;
     m_pntFontOffset.x = 0;
