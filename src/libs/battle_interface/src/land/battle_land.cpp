@@ -1,3 +1,4 @@
+#include <platform/android_ui.hpp>
 #include "battle_land.h"
 #include "battle_man_sign.h"
 #include "core.h"
@@ -58,7 +59,36 @@ void BATTLE_LAND_INTERFACE::Realize(uint32_t delta_time)
             m_pManSign->Draw();
 
         m_Images.Draw();
+#ifdef __ANDROID__
+        std::string info;
+        auto *texts = AttributesPointer ? AttributesPointer->GetAttributeClass("textinfo") : nullptr;
+        if (texts) for (uint32_t i=0; i<texts->GetAttributesNum(); ++i) {
+            auto *item=texts->GetAttributeClass(i);
+            if (!item) continue;
+            const auto name=item->GetThisName();
+            const bool mobile=storm::iEquals(name,"islandname") || storm::iEquals(name,"villagename") ||
+                storm::iEquals(name,"locationname") || storm::iEquals(name,"datatext") || storm::iEquals(name,"timetext");
+            if (mobile) {
+                const char *value=item->GetAttribute("text");
+                if(value && *value) {
+                    std::string_view display=value;
+                    const auto colon=display.find(':');
+                    if(colon!=std::string_view::npos) {
+                        const auto prefix=display.substr(0,colon);
+                        if(prefix=="Остров" || prefix=="Поселение" || prefix=="Дата" ||
+                           storm::iEquals(prefix,"Island") || storm::iEquals(prefix,"Colony") || storm::iEquals(prefix,"Date")) {
+                            display.remove_prefix(colon+1);
+                            while(!display.empty() && display.front()==' ')display.remove_prefix(1);
+                        }
+                    }
+                    if(!display.empty()){if(!info.empty())info+='\n';info+=display;}
+                }
+            } else if(i<m_TextInfo.size()) m_TextInfo[i].Print();
+        }
+        storm::android::publishWorldInfo(info);
+#else
         BIUtils::PrintTextInfoArray(m_TextInfo);
+#endif
     }
 }
 
@@ -128,6 +158,10 @@ void BATTLE_LAND_INTERFACE::SetParameters()
 
 void BATTLE_LAND_INTERFACE::Release()
 {
+#ifdef __ANDROID__
+    storm::android::publishWorldInfo("");
+    storm::android::publishVitals("");
+#endif
     m_pRS = nullptr;
     STORM_DELETE(m_pManSign);
 

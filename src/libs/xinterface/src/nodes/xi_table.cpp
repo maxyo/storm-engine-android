@@ -1,5 +1,7 @@
 #include "xi_table.h"
 
+
+
 #include "string_compare.hpp"
 #include "../str_utils.h"
 #include "xi_scroller.h"
@@ -1497,3 +1499,42 @@ void CXI_TABLE::RecalculateLineHeights()
     while (n < m_anRowsHeights.size())
         m_anRowsHeights.erase(m_anRowsHeights.begin() + n);
 }
+
+#ifdef __ANDROID__
+void CXI_TABLE::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    auto *root = core.Entity_GetAttributeClass(g_idInterface, m_nodeName);
+    if (!root) return;
+    // Export attribute rows, not just the desktop table's visible scroll window.
+    for (int row = 0; row < m_nLineQuantity; ++row)
+    {
+        const std::string key = "tr" + std::to_string(row + 1);
+        auto *line = root->GetAttributeClass(key.c_str());
+        if (!line) break;
+        std::string text;
+        bool hasText = false;
+        for (int col = 0; col < m_nColQuantity; ++col)
+        {
+            if (col) text += '\t';
+            const std::string cellKey = "td" + std::to_string(col + 1);
+            auto *cell = line->GetAttributeClass(cellKey.c_str());
+            const char *value = cell ? cell->GetAttribute("str") : nullptr;
+            if (value && *value) { text += value; hasText = true; }
+        }
+        if (hasText) widgets.push_back({m_nodeName, "choice", text, row == m_nSelectIndex ? "1" : "0",
+            row, m_rect.top * 8192 + m_rect.left + row, m_bClickable && !m_bLockStatus});
+    }
+}
+
+bool CXI_TABLE::MobileApply(int index, const std::string &value)
+{
+    if (value != "select" || index < 0 || index >= m_nLineQuantity || !m_bUse ||
+        !m_bClickable || m_bLockedNode || m_bLockStatus) return false;
+    auto *root = core.Entity_GetAttributeClass(g_idInterface, m_nodeName);
+    const std::string key = "tr" + std::to_string(index + 1);
+    if (!root || !root->GetAttributeClass(key.c_str())) return false;
+    SetTopIndexForSelect(index);
+    SelectLine(index);
+    return true;
+}
+#endif

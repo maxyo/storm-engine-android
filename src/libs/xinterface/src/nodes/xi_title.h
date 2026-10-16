@@ -9,6 +9,9 @@ class CXI_TITLE : public CINODE
     CXI_TITLE(const CXI_TITLE &) = delete;
     CXI_TITLE();
     ~CXI_TITLE() override;
+#ifdef __ANDROID__
+    void MobileCollect(std::vector<MobileWidget> &widgets) const override;
+#endif
     void Draw(bool bSelected, uint32_t Delta_Time) override;
     bool Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs, XYRECT &hostRect,
               XYPOINT &ScreenSize) override;

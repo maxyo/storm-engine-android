@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <ranges>
+#include <string>
 
 #define USE_FX // Will load techniques from fx files
 
@@ -495,6 +496,7 @@ SRSPARAM MYD3DTEXTUREOP[] = {{"disable", D3DTOP_DISABLE},
                              {"addsigned", D3DTOP_ADDSIGNED},
                              {"addsigned2x", D3DTOP_ADDSIGNED2X},
                              {"substract", D3DTOP_SUBTRACT},
+                             {"subtract", D3DTOP_SUBTRACT},
                              {"addsmooth", D3DTOP_ADDSMOOTH},
                              {"blenddiffusealpha", D3DTOP_BLENDDIFFUSEALPHA},
                              {"blendtexturealpha", D3DTOP_BLENDTEXTUREALPHA},
@@ -847,6 +849,26 @@ uint32_t CTechnique::GetIndex(char *pStr, SRSPARAM *pParam, uint32_t dwNumParam,
 uint32_t CTechnique::GetCode(char *pStr, SRSPARAM *pParam, uint32_t dwNumParam, uint32_t *pPassCode, bool bCanBeNumber)
 {
     Assert(pStr);
+
+    // FX texture arguments can combine a source with flags, for example
+    // "texture | complement" in particles_inv. Passing the whole expression
+    // to GetIndex silently selected diffuse (zero) on non-Windows builds.
+    if (const auto separator = strchr(pStr, '|'))
+    {
+        std::string left(pStr, separator);
+        std::string right(separator + 1);
+        const auto trim = [](std::string &part) {
+            const auto begin = part.find_first_not_of(" \t\r\n");
+            if (begin == std::string::npos)
+                part.clear();
+            else
+                part = part.substr(begin, part.find_last_not_of(" \t\r\n") - begin + 1);
+        };
+        trim(left);
+        trim(right);
+        return GetCode(left.data(), pParam, dwNumParam, pPassCode, bCanBeNumber) |
+               GetCode(right.data(), pParam, dwNumParam, pPassCode, bCanBeNumber);
+    }
 
     uint32_t dwCode = 0;
     if (pParam && dwNumParam)
@@ -1791,7 +1813,11 @@ void CTechnique::DecodeFiles(char *sub_dir)
 
     STORM_DELETE(pPassStorage);
     RDTSC_E(dwRDTSC);
-    core.Trace("Techniques: %d shaders compiled.", dwNumShaders);
+    uint32_t loadedShaders = 0;
+    for (uint32_t i = 0; i < dwNumShaders; ++i)
+        if (pShaders[i].pVertexShader || pShaders[i].pPixelShader)
+            ++loadedShaders;
+    core.Trace("Techniques: %u/%u shaders loaded.", loadedShaders, dwNumShaders);
     core.Trace("Techniques: %d techniques compiled.", dwNumBlocks);
     core.Trace("Techniques: compiled by %d ticks.", dwRDTSC);
 

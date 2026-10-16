@@ -282,3 +282,19 @@ int32_t CXI_LRCHANGER::GetClickState()
         return 1;
     return 2;
 }
+
+#ifdef __ANDROID__
+
+void CXI_LRCHANGER::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    widgets.push_back({m_nodeName, "stepper", "", "", -1, m_rect.top * 8192 + m_rect.left});
+}
+bool CXI_LRCHANGER::MobileApply(int index, const std::string &value)
+{
+    if (value != "left" && value != "right") return false;
+    m_bLeftPress = value == "left";
+    bool stop = false;
+    DoAction(ACTION_MOUSECLICK, stop, true); return true;
+}
+
+#endif

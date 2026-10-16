@@ -435,3 +435,37 @@ void CXI_PICTURE::ReleasePicture()
     TEXTURE_RELEASE(m_rs, m_idTex);
     VIDEOTEXTURE_RELEASE(m_rs, m_pTex);
 }
+
+#ifdef __ANDROID__
+namespace {
+int MobileSaveSlot(const char *node)
+{
+    if (!node) return -1;
+    for (int slot = 0; slot < 10; ++slot)
+        if (std::string(node) == "SAVEIMG" + std::to_string(slot + 1)) return slot;
+    return -1;
+}
+}
+
+void CXI_PICTURE::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    const int slot = MobileSaveSlot(m_nodeName);
+    if (slot < 0) return;
+    // Names and dates remain runtime SAVENOTES entries, joined by the Java presentation.
+    widgets.push_back({m_nodeName, "save", "", m_bMakeBlind ? "1" : "0", slot,
+        m_rect.top * 8192 + m_rect.left, m_bSelected && m_bClickable && !m_bLockStatus});
+}
+
+bool CXI_PICTURE::MobileApply(int index, const std::string &value)
+{
+    const int slot = MobileSaveSlot(m_nodeName);
+    if (slot < 0 || index != slot || !m_bUse || !m_bSelected || !m_bClickable ||
+        m_bLockedNode || m_bLockStatus) return false;
+    const int code = value == "select" ? ACTION_MOUSECLICK :
+        value == "activate" ? ACTION_MOUSEDBLCLICK : -1;
+    if (code < 0 || !CheckCommandUsed(code)) return false;
+    bool stop = false;
+    DoAction(code, stop, true);
+    return true;
+}
+#endif

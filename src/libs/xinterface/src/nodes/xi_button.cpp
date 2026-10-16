@@ -2,6 +2,31 @@
 
 #include "string_compare.hpp"
 
+#ifdef __ANDROID__
+void CXI_BUTTON::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    const std::string name = m_nodeName ? m_nodeName : "";
+    const char *label = nullptr;
+    if (name.compare(0, 11, "LEFTCHANGE_") == 0) label = "‹";
+    else if (name.compare(0, 12, "RIGHTCHANGE_") == 0) label = "›";
+    else if (m_idString != -1) label = pStringService->GetString(m_idString);
+    if (label && *label)
+        widgets.push_back({name, "button", label, "", -1, m_rect.top * 8192 + m_rect.left,
+            m_bClickable && !m_bLockStatus});
+}
+
+bool CXI_BUTTON::MobileApply(int index, const std::string &value)
+{
+    if (index != -1 || value != "press" || !m_bUse || !m_bClickable || m_bLockedNode || m_bLockStatus)
+        return false;
+    const int action = CheckCommandUsed(ACTION_MOUSECLICK) ? ACTION_MOUSECLICK : ACTION_ACTIVATE;
+    if (!CheckCommandUsed(action)) return false;
+    bool stop = false;
+    DoAction(action, stop, true);
+    return true;
+}
+#endif
+
 CXI_BUTTON::CXI_BUTTON()
 {
     m_rs = nullptr;

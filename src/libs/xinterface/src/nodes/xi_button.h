@@ -32,6 +32,10 @@ class CXI_BUTTON : public CINODE
 
     void SetUsing(bool bUsing) override;
     uint32_t MessageProc(int32_t msgcode, MESSAGE &message) override;
+#ifdef __ANDROID__
+    void MobileCollect(std::vector<MobileWidget> &widgets) const override;
+    bool MobileApply(int index, const std::string &value) override;
+#endif
 
   protected:
     void LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2) override;

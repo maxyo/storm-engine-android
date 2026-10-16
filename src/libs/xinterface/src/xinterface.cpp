@@ -1,3 +1,4 @@
+#include <memory>
 #include "options_parser.hpp"
 
 #include <SDL2/SDL.h>
@@ -12,6 +13,9 @@
 #include "string_service/str_service.h"
 #include "xservice.h"
 #include <cstdio>
+#ifdef __ANDROID__
+#include "platform/android_ui.hpp"
+#endif
 
 #define CHECK_FILE_NAME "PiratesReadme.txt"
 
@@ -349,6 +353,29 @@ void XINTERFACE::Realize(uint32_t)
 
     DrawNode(m_pNodes, Delta_Time, 0, 80);
 
+#ifdef __ANDROID__
+    static uint32_t lastMobileSnapshotTime = 0;
+    if (storm::android::mobileScreen != "mainmenu" && SDL_GetTicks() - lastMobileSnapshotTime >= 200)
+    {
+        lastMobileSnapshotTime = SDL_GetTicks();
+        std::vector<MobileWidget> widgets;
+        const auto collect = [&](const auto &self, CINODE *node) -> void {
+            for (; node; node = node->m_next)
+            {
+                if (!node->m_bUse) continue;
+                const auto start = widgets.size();
+                node->MobileCollect(widgets);
+                for (auto n = start; n < widgets.size(); ++n)
+                    widgets[n].enabled = widgets[n].enabled && !node->m_bLockedNode;
+                self(self, node->m_list);
+            }
+        };
+        collect(collect, m_pNodes);
+        std::stable_sort(widgets.begin(), widgets.end(), [](const auto &a, const auto &b) {return a.order < b.order;});
+        storm::android::publishMobileWidgets(MobileWidgetJson(storm::android::mobileScreen, widgets));
+    }
+#endif
+
     // Do mouse move
     auto *pOldNode = m_pCurNode;
     MouseMove();
@@ -535,6 +562,9 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
         const std::string &param = message.String();
         ReleaseOld();
         LoadDialog(param.c_str());
+#ifdef __ANDROID__
+        storm::android::showMobileScreen(param);
+#endif
         m_bUse = true;
         bDisableControl = true;
     }
@@ -563,6 +593,9 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
     break;
 
     case MSG_INTERFACE_RELEASE: {
+#ifdef __ANDROID__
+        storm::android::showMobileScreen("");
+#endif
         ReleaseOld();
         m_bUse = false;
         bDisableControl = true;
@@ -1936,6 +1969,51 @@ void XINTERFACE::DoControl()
     if (!m_bUse)
         return;
 
+#ifdef __ANDROID__
+    while (!storm::android::uiWidgetActions.empty() && m_bUse)
+    {
+        const auto action = storm::android::uiWidgetActions.front();
+        storm::android::uiWidgetActions.pop_front();
+        if (action.screen != storm::android::mobileScreen) continue;
+        storm::android::lastWidgetSnapshot.clear();
+        const auto find = [&](const auto &self, CINODE *node) -> CINODE * {
+            for (; node; node = node->m_next)
+            {
+                if (!node->m_bUse || node->m_bLockedNode) continue;
+                if (node->m_nodeName && action.node == node->m_nodeName) return node;
+                if (auto *child = self(self, node->m_list)) return child;
+            }
+            return nullptr;
+        };
+        auto *node = find(find, m_pNodes);
+        if (!node) continue;
+        if (node->MobileApply(action.index, action.value)) continue;
+        if (action.index == -1 && action.value == "press" && node->m_bSelected && node->m_bClickable)
+        {
+            const int code = node->CheckCommandUsed(ACTION_MOUSECLICK) ? ACTION_MOUSECLICK : ACTION_ACTIVATE;
+            if (node->CheckCommandUsed(code))
+            {
+                bool stop = false;
+                if (auto *next = node->DoAction(code, stop, true)) SetCurNode(next);
+            }
+        }
+    }
+    if (!m_bUse) return;
+    while (!storm::android::uiTouches.empty() && m_bUse)
+    {
+        const auto touch = storm::android::uiTouches.front();
+        storm::android::uiTouches.pop_front();
+        fXMousePos = touch.x * dwScreenWidth - m_lXMouse;
+        fYMousePos = touch.y * dwScreenHeight - m_lYMouse;
+        m_bShowMouse = false;
+        m_idButton = MOUSE_LBUTTON;
+        if (touch.phase == 0) { m_bNotFirstPress = false; MouseClick(true); }
+        else if (touch.phase == 1) MouseClick(false);
+        else if (touch.phase == 2) { MouseDeClick(); m_bNotFirstPress = false; }
+        else { m_pMouseNode = nullptr; m_bNotFirstPress = false; }
+    }
+    if (!m_bUse) return;
+#endif
     core.Controls->GetControlState("IContextHelp", cs);
 
     if (m_nInterfaceMode == CONTEXTHELP_IMODE)
@@ -3201,7 +3279,7 @@ char *AddAttributesStringsToBuffer(char *inBuffer, char *prevStr, ATTRIBUTES *pA
             strcat_s(pNew, nadd, "=");
             strcat_s(pNew, nadd, attrVal);
 
-            delete inBuffer;
+            delete[] inBuffer;
             inBuffer = pNew;
         }
 
@@ -3221,34 +3299,38 @@ char *AddAttributesStringsToBuffer(char *inBuffer, char *prevStr, ATTRIBUTES *pA
 
 void XINTERFACE::SaveOptionsFile(const char *fileName, ATTRIBUTES *pAttr)
 {
-    char FullPath[MAX_PATH];
-
-    if (fileName == nullptr || pAttr == nullptr)
-    {
-        return;
+    if (!fileName || !pAttr) return;
+    const auto target = std::filesystem::u8path(fio->ConvertPathResource(fileName));
+#ifdef __ANDROID__
+    auto pending=target;
+    pending += ".storm-tmp";
+#else
+    const auto &pending=target;
+#endif
+    std::error_code error;
+    if(!target.parent_path().empty())std::filesystem::create_directories(target.parent_path(),error);
+    bool saved=false;
+    if(!error) {
+        auto file=fio->_CreateFile(pending.string().c_str(),std::ios::binary|std::ios::out|std::ios::trunc);
+        if(file.is_open()) {
+            std::unique_ptr<char[]> buffer(AddAttributesStringsToBuffer(nullptr,nullptr,pAttr));
+            const bool written=!buffer || fio->_WriteFile(file,buffer.get(),static_cast<std::streamsize>(strlen(buffer.get())));
+            fio->_FlushFileBuffers(file);
+            fio->_CloseFile(file);
+            saved=written && !file.fail();
+#ifdef __ANDROID__
+            if(saved) {std::filesystem::rename(pending,target,error);saved=!error;}
+#endif
+        }
     }
-    strcpy_s(FullPath, fileName);
-
-    PrecreateDirForFile(FullPath);
-    auto fileS = fio->_CreateFile(FullPath, std::ios::binary | std::ios::out);
-    if (!fileS.is_open())
-    {
-        return;
+    if(!saved) {
+        core.Trace("Could not save options '%s' (resolved '%s'), filesystem error=%d: %s",fileName,target.string().c_str(),error.value(),error.message().c_str());
+#ifdef __ANDROID__
+        storm::android::showSaveError();
+        std::error_code cleanup;
+        std::filesystem::remove(pending,cleanup);
+#endif
     }
-
-    char *pOutBuffer = nullptr;
-
-    if (pAttr)
-    {
-        pOutBuffer = AddAttributesStringsToBuffer(nullptr, nullptr, pAttr);
-    }
-
-    if (pOutBuffer)
-    {
-        fio->_WriteFile(fileS, pOutBuffer, strlen(pOutBuffer));
-        delete pOutBuffer;
-    }
-    fio->_CloseFile(fileS);
 }
 
 void XINTERFACE::LoadOptionsFile(std::string_view fileName, ATTRIBUTES *pAttr)

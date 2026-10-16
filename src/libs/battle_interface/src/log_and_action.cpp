@@ -1,3 +1,4 @@
+#include <platform/android_ui.hpp>
 #include "log_and_action.h"
 #include "controls.h"
 #include "core.h"
@@ -31,6 +32,7 @@ ILogAndActions::ILogAndActions()
     m_nStringBegin = 0;
     m_bDontShowAll = false;
     m_sOldActionName[0] = 0;
+    m_sActionName[0] = 0;
     m_nTimeCounter = 0;
 }
 
@@ -53,6 +55,15 @@ bool ILogAndActions::Init()
 
 void ILogAndActions::Execute(uint32_t delta_time)
 {
+#ifdef __ANDROID__
+    const bool available = m_bThatRealAction && !m_bDontShowAll && m_bShowActiveCommand && !storm::iEquals(m_sActionName,"Closed");
+    storm::android::publishContextAction(available ? m_sActionName : "");
+    if (!storm::android::requestedContextAction.empty()) {
+        const bool accepted = available && storm::android::requestedContextAction == m_sActionName;
+        storm::android::requestedContextAction.clear();
+        if (accepted) { core.Event("BI_FastCommand", "s", m_sActionName); return; }
+    }
+#endif
     if (m_bDontShowAll)
         return;
 
@@ -399,6 +410,9 @@ void ILogAndActions::ActionChange(bool bFastComShow, bool bLogStringShow)
 
 void ILogAndActions::Release()
 {
+#ifdef __ANDROID__
+    storm::android::publishContextAction("");
+#endif
     TEXTURE_RELEASE(rs, m_idIconTexture);
 
     rs->UnloadFont(m_fontID);
@@ -482,6 +496,7 @@ void ILogAndActions::SetString(const char *str, bool immortal)
 
 void ILogAndActions::SetAction(const char *actionName)
 {
+    m_bThatRealAction=false;
     ATTRIBUTES *pA;
 
     if (actionName == nullptr)

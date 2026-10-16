@@ -1642,3 +1642,35 @@ void CXI_FORMATEDTEXT::VAlignment(int32_t nAlign)
         }
     }
 }
+
+#ifdef __ANDROID__
+
+void CXI_FORMATEDTEXT::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    std::string text;
+    int group = -1;
+    auto append = [&]() {
+        if (!text.empty()) widgets.push_back({m_nodeName, m_bSelectableCursor ? "choice" : "text", text,
+            group == m_nCurGroupNum ? "1" : "0", group, m_rect.top * 8192 + m_rect.left + std::max(group, 0)});
+        text.clear();
+    };
+    for (auto *line = m_listRoot; line; line = line->next)
+    {
+        if (group != line->strGroup) { append(); group = line->strGroup; }
+        if (line->lineStr && *line->lineStr) { if (!text.empty()) text += ' '; text += line->lineStr; }
+        if (text.size() > 32768) break;
+    }
+    append();
+}
+bool CXI_FORMATEDTEXT::MobileApply(int index, const std::string &value)
+{
+    if (!m_bSelectableCursor || value != "select") return false;
+    bool found = false;
+    for (auto *line = m_listRoot; line; line = line->next) if (line->strGroup == index) { found = true; break; }
+    if (!found) return false;
+    SetCurrentGroupNum(index, index);
+    core.Event("FTChange", "sf", m_nodeName, GetCurPos());
+    CommandExecute(ACTION_ACTIVATE); return true;
+}
+
+#endif

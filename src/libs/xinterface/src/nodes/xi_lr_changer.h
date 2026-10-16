@@ -8,6 +8,10 @@ class CXI_LRCHANGER : public CINODE
   public:
     CXI_LRCHANGER();
     ~CXI_LRCHANGER() override;
+#ifdef __ANDROID__
+    void MobileCollect(std::vector<MobileWidget> &widgets) const override;
+    bool MobileApply(int index, const std::string &value) override;
+#endif
 
     void Draw(bool bSelected, uint32_t Delta_Time) override;
     bool Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs, XYRECT &hostRect,

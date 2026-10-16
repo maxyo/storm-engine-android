@@ -184,3 +184,23 @@ uint32_t CXI_RECTANGLE::MessageProc(int32_t msgcode, MESSAGE &message)
 
     return 0;
 }
+
+#ifdef __ANDROID__
+void CXI_RECTANGLE::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    if (!m_nodeName || std::string(m_nodeName) != "SAVE_SELECTER") return;
+    widgets.push_back({m_nodeName, "stepper", "Сохранения", "", -1,
+        m_rect.top * 8192 + m_rect.left, m_bSelected && !m_bLockStatus});
+}
+
+bool CXI_RECTANGLE::MobileApply(int index, const std::string &value)
+{
+    if (!m_nodeName || std::string(m_nodeName) != "SAVE_SELECTER" || index != -1 ||
+        !m_bUse || !m_bSelected || m_bLockedNode || m_bLockStatus) return false;
+    const int code = value == "left" ? ACTION_UPSTEP : value == "right" ? ACTION_DOWNSTEP : -1;
+    if (code < 0 || !CheckCommandUsed(code)) return false;
+    bool stop = false;
+    DoAction(code, stop, true);
+    return true;
+}
+#endif

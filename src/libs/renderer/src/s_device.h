@@ -481,11 +481,20 @@ private:
     VideoTextureEntity *pVTL;
 
     int32_t nTextureDegradation;
+    int32_t requestedTextureAnisotropy = 0;
+    uint32_t textureAnisotropy = 0; // 0 preserves technique-defined filtering.
     float aspectRatio;
     float m_fHeightDeformator;
 
     bool bSafeRendering;
     bool bShowFps, bShowExInfo;
+    // Opt-in presentation cadence diagnostics; these are not GPU timings.
+    bool renderMetricsEnabled = false;
+    double metricsPreviousPresent = 0.0;
+    double metricsElapsed = 0.0;
+    double metricsPresentTime = 0.0;
+    uint64_t metricsDrawCalls = 0;
+    std::vector<double> metricsFrameTimes;
     bool bInsideScene;
 
     PLANE viewplane[4];

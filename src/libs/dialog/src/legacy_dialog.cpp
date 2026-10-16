@@ -1,3 +1,4 @@
+#include "android_dialog.hpp"
 #include "legacy_dialog.hpp"
 
 #include "dialog.hpp"
@@ -131,6 +132,9 @@ VDX9RENDER *LegacyDialog::RenderService = nullptr;
 
 LegacyDialog::~LegacyDialog() noexcept
 {
+#ifdef __ANDROID__
+    storm::android::closeDialogue(this);
+#endif
     core.SetTimeScale(1.f);
 
     if (interfaceTexture_)
@@ -205,6 +209,16 @@ void LegacyDialog::Realize(uint32_t deltaTime)
         dialogNeedsUpdate_ = false;
     }
 
+#ifdef __ANDROID__
+    const bool mobileDialogue = storm::android::publishDialogue(this, AttributesPointer, characterName_.c_str());
+    if (auto *choice = storm::android::takeDialogueChoice(this, AttributesPointer)) {
+        AttributesPointer->SetAttribute("CurrentNode", choice->GetAttribute("go"));
+        PlayTick();
+        core.Event("DialogEvent");
+        return;
+    }
+    if (!mobileDialogue)
+#endif
     ProcessControls();
 
     if (backNeedsUpdate_)
@@ -212,6 +226,9 @@ void LegacyDialog::Realize(uint32_t deltaTime)
         UpdateBackBuffers();
     }
 
+#ifdef __ANDROID__
+    if (!mobileDialogue) {
+#endif
     const bool shouldDrawDivider = linkDescribe_.GetShowHeight() != 0;
     DrawBackground(2, 5 + textureLines_);
     DrawBackground(7 + DIALOG_MAX_LINES, shouldDrawDivider ? 2 : 1);
@@ -231,6 +248,9 @@ void LegacyDialog::Realize(uint32_t deltaTime)
     // Head overlay
     DrawBackground(0, 2);
 
+#ifdef __ANDROID__
+    }
+#endif
     if (soundState_ == SOUND_PLAYING && soundService_ && !soundService_->SoundIsPlaying(currentSound_))
     {
         SetAction("dialog_idle");

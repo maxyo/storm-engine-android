@@ -15,6 +15,11 @@
 #include "v_sound_service.h"
 #include "fs.h"
 #include "watermark.hpp"
+#ifdef __ANDROID__
+#include "platform/android_ui.hpp"
+#include <sstream>
+#include <charconv>
+#endif
 
 namespace
 {
@@ -253,6 +258,52 @@ int main(int argc, char *argv[])
     isRunning = true;
     while (isRunning)
     {
+#ifdef __ANDROID__
+        for (const auto &command : storm::android::pollMobileActions())
+        {
+            if (command.starts_with("main:") && storm::android::mobileScreen == "mainmenu")
+            {
+                const auto action = command.substr(5);
+                if (action == "New" || action == "Load" || action == "Options" || action == "Credits" || action == "Exit")
+                    core_private->Event("backgroundcommand", "s", action.c_str());
+            }
+            else if (command == "back" && !storm::android::mobileScreen.empty())
+                core_private->Event("exitCancel");
+            else if (command.starts_with("context:") && storm::android::mobileScreen.empty())
+            {
+                if (command.substr(8) == storm::android::contextAction)
+                    storm::android::requestedContextAction = command.substr(8);
+            }
+            else if (command.starts_with("dialogue:"))
+            {
+                if (storm::android::dialogueActions.size() < 8)
+                    storm::android::dialogueActions.push_back(command.substr(9));
+            }
+            else if (command.starts_with("widget:"))
+            {
+                std::istringstream stream(command.substr(7));
+                std::string screen, node, indexText, value;
+                if (std::getline(stream, screen, '\t') && std::getline(stream, node, '\t') &&
+                    std::getline(stream, indexText, '\t') && std::getline(stream, value) &&
+                    screen == storm::android::mobileScreen)
+                {
+                    int index;
+                    const auto parsed = std::from_chars(indexText.data(), indexText.data() + indexText.size(), index);
+                    if (parsed.ec == std::errc() && parsed.ptr == indexText.data() + indexText.size())
+                        storm::android::uiWidgetActions.push_back({screen, node, value, index});
+                }
+            }
+            else if (command.starts_with("touch:"))
+            {
+                std::istringstream stream(command.substr(6));
+                std::string screen;
+                float x, y; int phase;
+                if (stream >> screen >> x >> y >> phase && screen == storm::android::mobileScreen &&
+                    x >= 0 && x <= 1 && y >= 0 && y <= 1 && phase >= 0 && phase <= 3)
+                    storm::android::uiTouches.push_back({x, y, phase});
+            }
+        }
+#endif
         SDL_PumpEvents();
         window->PumpEvents();
 #ifdef __ANDROID__
@@ -289,6 +340,22 @@ int main(int argc, char *argv[])
             }
 
             RunFrameWithOverflowCheck();
+#ifdef __ANDROID__
+            static uint32_t lastMobileState = 0;
+            if (core_private->initialized() && SDL_GetTicks() - lastMobileState >= 200) {
+                lastMobileState = SDL_GetTicks();
+                bool cinematic = false;
+                auto *index = static_cast<VDATA *>(core.GetScriptVariable("nMainCharacterIndex"));
+                auto *characters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
+                if (index && characters && index->GetInt() >= 0) {
+                    if (auto *character = characters->GetAClass(index->GetInt())) {
+                        auto *type = character->FindAClass(character, "chr_ai.type");
+                        cinematic = type && type->HasValue() && std::string_view(type->GetValue()) == "actor";
+                    }
+                }
+                storm::android::publishCinematic(cinematic || core.GetEntityId("CAviPlayer") != invalid_entity || core.GetEntityId("WMVideoPlay") != invalid_entity);
+            }
+#endif
         }
         else
         {

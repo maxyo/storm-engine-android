@@ -1,3 +1,5 @@
+#include <platform/android_ui.hpp>
+#include <cmath>
 #include "battle_man_sign.h"
 #include "bi_utils.h"
 #include "battle_man_command.h"
@@ -74,6 +76,16 @@ void BIManSign::Draw()
         m_bMakeVertexFill = false;
     }
 
+#ifdef __ANDROID__
+    auto *icons=m_pARoot ? m_pARoot->FindAClass(m_pARoot,"data.icons.id0") : nullptr;
+    if(icons && icons->GetAttribute("health") && icons->GetAttribute("energy")) {
+        const auto ratio=[icons](const char *key){const float n=icons->GetAttributeAsFloat(key);return std::isfinite(n)?std::clamp(n,0.f,1.f):0.f;};
+        const int capacity=std::clamp(static_cast<int>(icons->GetAttributeAsDword("shootMax",0)),0,100000);
+        const int loaded=std::clamp(static_cast<int>(icons->GetAttributeAsDword("shootCur",0)),0,capacity);
+        storm::android::publishVitals("{\"health\":"+std::to_string(ratio("health"))+",\"energy\":"+std::to_string(ratio("energy"))+
+            ",\"loaded\":"+std::to_string(loaded)+",\"capacity\":"+std::to_string(capacity)+",\"reload\":"+std::to_string(ratio("gunprogress"))+"}");
+    } else storm::android::publishVitals("");
+#else
     if (m_nVBufID != -1 && m_nIBufID != -1)
     {
         int32_t nStartV = 0;
@@ -132,6 +144,7 @@ void BIManSign::Draw()
         nStartV += m_nGunChargeSquareQ * 4;
     }
 
+#endif
     if (m_pCommandList)
         m_pCommandList->Draw();
 }

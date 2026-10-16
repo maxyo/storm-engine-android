@@ -335,3 +335,13 @@ void CXI_TITLE::FillVertexBuffer() const
         m_rs->UnLockVertexBuffer(m_idVBuf);
     }
 }
+
+#ifdef __ANDROID__
+
+void CXI_TITLE::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    const char *text = m_idString >= 0 ? pStringService->GetString(m_idString) : nullptr;
+    if (text && *text) widgets.push_back({m_nodeName, "heading", text, "", -1, m_rect.top * 8192 + m_rect.left});
+}
+
+#endif
