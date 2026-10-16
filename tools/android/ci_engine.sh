@@ -12,4 +12,4 @@ cmake -S "$repo" -B "$work/engine" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_TOOLCHAIN_FILE="$repo/cmake/toolchains/android-arm64.cmake" -DSTORM_ANDROID_NDK="$ndk" \
   -DSTORM_ANDROID_DEPS="$work/prefix" -DSTORM_ANDROID_SOURCES="$work/sources" -DSTORM_AUDIO_SOURCES="$work/audio-host/patched"
 cmake --build "$work/engine" --target engine --parallel 2
-python3 "$repo/tools/android/verify_engine.py" --library "$work/engine/game/libengine.so" --ndk "$ndk"
+python3 "$repo/tools/android/verify_engine.py" --library "$work/engine/game/libengine.so" --ndk "$ndk" --allocator-library "$work/engine/runtime/libmimalloc.so"

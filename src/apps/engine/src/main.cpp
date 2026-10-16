@@ -1,7 +1,9 @@
 #include <thread>
 
 #include <SDL2/SDL.h>
+#ifndef __ANDROID__
 #include <mimalloc-new-delete.h>
+#endif
 #include <mimalloc.h>
 #include <spdlog/spdlog.h>
 

@@ -32,7 +32,12 @@ target_include_directories(catch2 INTERFACE "${STORM_ANDROID_SOURCES}/catch2/sin
 set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(MI_BUILD_STATIC OFF CACHE BOOL "" FORCE)
 set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
-set(MI_OVERRIDE ON CACHE BOOL "" FORCE)
+# Android API 24 uses emulated TLS. Its first allocation calls libc malloc;
+# interposing malloc with mimalloc re-enters the uninitialized heap recursively.
+# Keep both C and C++ allocations on Bionic on Android: shared libc++ may
+# free storage internally, so mixing its heap with an engine-only new override
+# also corrupts allocator ownership. Explicit mi_* diagnostics remain available.
+set(MI_OVERRIDE OFF CACHE BOOL "" FORCE)
 add_subdirectory("${STORM_ANDROID_SOURCES}/mimalloc" "${CMAKE_BINARY_DIR}/mimalloc")
 set_target_properties(mimalloc PROPERTIES OUTPUT_NAME mimalloc VERSION "" SOVERSION "" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/runtime")
 # NDK exposes the Android platform zlib ABI. Do not package a competing libz.so.

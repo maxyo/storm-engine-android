@@ -14,3 +14,6 @@ See `tools/android/README.md` for manual native build commands.
 
 Historical APK/device evidence remains in `docs/android-install-audit.md`.
 Native linking does not establish installation, Vulkan rendering or gameplay.
+
+Android uses platform C/C++ allocation to avoid mimalloc TLS recursion and
+shared-libc++ heap ownership mismatches. See [allocator audit](../docs/android-allocator-audit.md).
