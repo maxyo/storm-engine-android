@@ -79,6 +79,9 @@ void CoreImpl::CleanUp()
 {
     Initialized = false;
     bEngineIniProcessed = false;
+    // Entity destructors still need renderer/geometry/animation services and
+    // script attributes. Also empty the realization layers before another run.
+    EraseEntities();
     ReleaseServices();
     Compiler->Release();
     Services_List.Release();
