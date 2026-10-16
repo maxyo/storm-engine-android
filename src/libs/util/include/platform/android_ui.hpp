@@ -2,10 +2,12 @@
 #ifdef __ANDROID__
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_system.h>
-#include <jni.h>
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cstdint>
 #include <deque>
+#include <jni.h>
 #include <string>
 #include <vector>
 
@@ -14,6 +16,7 @@ namespace storm::android
 struct UiTouch { float x, y; int phase; };
 // All native state is accessed only by the game thread. Java marshals its UI queue.
 inline std::string mobileScreen;
+inline uint64_t mobileScreenRevision = 1;
 inline std::deque<std::string> dialogueActions;
 inline std::deque<UiTouch> uiTouches;
 struct UiWidgetAction { std::string screen, node, value; int index; };
@@ -145,6 +148,132 @@ inline void publishMobileWidgets(const std::string &json)
     env->DeleteLocalRef(activity);
 }
 
+// Optional v2 image bridge. All access and local JNI refs stay on the game thread.
+struct MobileImageRequest
+{
+    int64_t requestId, screenRevision, handle, imageRevision, maxEdge;
+    uint64_t activityRevision;
+};
+inline jweak imageActivity = nullptr;
+inline uint64_t imageActivityRevision = 0;
+inline jmethodID imagePoll = nullptr, imageReply = nullptr;
+inline bool imageMethodsKnown = false;
+inline void prepareImageActivity(JNIEnv *env, jobject activity)
+{
+    if (imageActivity && env->IsSameObject(imageActivity, activity))
+        return;
+    if (imageActivity)
+        env->DeleteWeakGlobalRef(imageActivity);
+    imageActivity = env->NewWeakGlobalRef(activity);
+    ++imageActivityRevision;
+    imageMethodsKnown = false;
+    imagePoll = nullptr;
+    imageReply = nullptr;
+    lastWidgetSnapshot.clear();
+}
+inline bool imageMethods(JNIEnv *env, jobject activity)
+{
+    prepareImageActivity(env, activity);
+    if (env->ExceptionCheck())
+    {
+        env->ExceptionClear();
+        return false;
+    }
+    if (!imageMethodsKnown)
+    {
+        imageMethodsKnown = true;
+        auto type = env->GetObjectClass(activity);
+        if (type)
+        {
+            imagePoll = env->GetMethodID(type, "pollMobileImageRequest", "()[J");
+            if (env->ExceptionCheck())
+                env->ExceptionClear(); // Old apps intentionally omit these methods.
+            imageReply = env->GetMethodID(type, "onMobileImage", "(JJJJII[BLjava/lang/String;)V");
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+            env->DeleteLocalRef(type);
+        }
+    }
+    return imagePoll && imageReply;
+}
+inline std::vector<MobileImageRequest> pollMobileImageRequests(size_t limit)
+{
+    std::vector<MobileImageRequest> out;
+    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity)
+        return out;
+    if (imageMethods(env, activity))
+        for (size_t i = 0; i < std::min(size_t(4), limit); ++i)
+        {
+            auto value = static_cast<jlongArray>(env->CallObjectMethod(activity, imagePoll));
+            if (env->ExceptionCheck())
+            {
+                env->ExceptionClear();
+                if (value)
+                    env->DeleteLocalRef(value);
+                break;
+            }
+            if (!value)
+                break;
+            if (env->GetArrayLength(value) == 5)
+            {
+                std::array<jlong, 5> fields{};
+                env->GetLongArrayRegion(value, 0, 5, fields.data());
+                if (!env->ExceptionCheck())
+                    out.push_back({fields[0], fields[1], fields[2], fields[3], fields[4], imageActivityRevision});
+            }
+            env->DeleteLocalRef(value);
+            if (env->ExceptionCheck())
+            {
+                env->ExceptionClear();
+                break;
+            }
+        }
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    env->DeleteLocalRef(activity);
+    return out;
+}
+inline void publishMobileImage(const MobileImageRequest &request, int width, int height,
+                               const std::vector<uint8_t> &rgba, const std::string &error)
+{
+    if (request.screenRevision != int64_t(mobileScreenRevision) || rgba.size() > 512 * 512 * 4)
+        return;
+    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity)
+        return;
+    if (imageMethods(env, activity) && request.activityRevision == imageActivityRevision)
+    {
+        auto bytes = env->NewByteArray(static_cast<jsize>(rgba.size()));
+        if (!bytes || env->ExceptionCheck())
+        {
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+            if (bytes)
+                env->DeleteLocalRef(bytes);
+            env->DeleteLocalRef(activity);
+            return;
+        }
+        auto message = env->NewStringUTF(error.c_str());
+        if (bytes && !env->ExceptionCheck() && !rgba.empty())
+            env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(rgba.size()),
+                                    reinterpret_cast<const jbyte *>(rgba.data()));
+        if (bytes && message && !env->ExceptionCheck())
+            env->CallVoidMethod(activity, imageReply, jlong(request.requestId), jlong(request.screenRevision),
+                                jlong(request.handle), jlong(request.imageRevision), jint(width), jint(height), bytes,
+                                message);
+        if (bytes)
+            env->DeleteLocalRef(bytes);
+        if (message)
+            env->DeleteLocalRef(message);
+    }
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    env->DeleteLocalRef(activity);
+}
+
 inline void showMobileScreen(const std::string &name)
 {
     auto screen = name;
@@ -154,6 +283,7 @@ inline void showMobileScreen(const std::string &name)
     if (suffix != std::string::npos) screen.resize(suffix);
     for (auto &c : screen) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     mobileScreen = screen;
+    ++mobileScreenRevision;
     uiTouches.clear();
     uiWidgetActions.clear();
     lastWidgetSnapshot.clear();
@@ -167,6 +297,15 @@ inline void showMobileScreen(const std::string &name)
     if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
     if (value) env->DeleteLocalRef(value);
     if (type) env->DeleteLocalRef(type);
+    if (screen.empty() && imageActivity)
+    {
+        env->DeleteWeakGlobalRef(imageActivity);
+        imageActivity = nullptr;
+        imageMethodsKnown = false;
+        imagePoll = nullptr;
+        imageReply = nullptr;
+        ++imageActivityRevision;
+    }
     env->DeleteLocalRef(activity);
 }
 

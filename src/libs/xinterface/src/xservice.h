@@ -50,6 +50,9 @@ class XSERVICE : public VXSERVICE
 
     int32_t GetImageNum(const char *sImageListName, const char *sImageName) override;
 
+    bool ResolveImageSource(const char *group, const char *image, std::string &path, FXYRECT &uv, int32_t &width,
+                            int32_t &height) override;
+
     void ReleaseAll() override;
 
   protected:

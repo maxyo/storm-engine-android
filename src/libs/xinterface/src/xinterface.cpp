@@ -14,6 +14,7 @@
 #include "xservice.h"
 #include <cstdio>
 #ifdef __ANDROID__
+#include "mobile_image_bridge.hpp"
 #include "platform/android_ui.hpp"
 #endif
 
@@ -328,6 +329,9 @@ void XINTERFACE::Execute(uint32_t)
 
 void XINTERFACE::Realize(uint32_t)
 {
+#ifdef __ANDROID__
+    storm::mobile::PumpImages(); // Reap cancelled CPU work even after the interface closes.
+#endif
     if (!m_bUse || !bActive)
         return;
 
@@ -372,7 +376,18 @@ void XINTERFACE::Realize(uint32_t)
         };
         collect(collect, m_pNodes);
         std::stable_sort(widgets.begin(), widgets.end(), [](const auto &a, const auto &b) {return a.order < b.order;});
-        storm::android::publishMobileWidgets(MobileWidgetJson(storm::android::mobileScreen, widgets));
+        static uint64_t snapshotRevision = 0;
+        static std::string previousPayload;
+        const char *gameLanguage = pStringService ? pStringService->GetLanguage() : nullptr;
+        const std::string language = gameLanguage ? gameLanguage : "";
+        auto payload = MobileWidgetJson(storm::android::mobileScreen, widgets, storm::android::mobileScreenRevision, 0, language);
+        if (payload != previousPayload)
+        {
+            previousPayload = std::move(payload);
+            ++snapshotRevision;
+        }
+        storm::android::publishMobileWidgets(MobileWidgetJson(storm::android::mobileScreen, widgets,
+                                                              storm::android::mobileScreenRevision, snapshotRevision, language));
     }
 #endif
 
@@ -564,6 +579,7 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
         LoadDialog(param.c_str());
 #ifdef __ANDROID__
         storm::android::showMobileScreen(param);
+        storm::mobile::ResetImages();
 #endif
         m_bUse = true;
         bDisableControl = true;
@@ -595,6 +611,7 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
     case MSG_INTERFACE_RELEASE: {
 #ifdef __ANDROID__
         storm::android::showMobileScreen("");
+        storm::mobile::ResetImages();
 #endif
         ReleaseOld();
         m_bUse = false;

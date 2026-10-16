@@ -1,4 +1,8 @@
 #include "xi_picture.h"
+#include "../mobile_image_bridge.hpp"
+#ifdef __ANDROID__
+#include "platform/android_ui.hpp"
+#endif
 
 #include "storm_assert.h"
 #include "string_compare.hpp"
@@ -76,6 +80,7 @@ void CXI_PICTURE::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, const
     char param[255];
 
     m_idTex = -1;
+    m_mobileTexturePath.clear();
 
     auto texRect = FXYRECT(0.f, 0.f, 1.f, 1.f);
 
@@ -88,12 +93,20 @@ void CXI_PICTURE::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, const
         memcpy(m_pcGroupName, param, len);
 
         if (ReadIniString(ini1, name1, ini2, name2, "picName", param, sizeof(param), ""))
+        {
             pPictureService->GetTexturePos(m_pcGroupName, param, texRect);
+            FXYRECT unused;
+            int32_t width = 0, height = 0;
+            pPictureService->ResolveImageSource(m_pcGroupName, param, m_mobileTexturePath, unused, width, height);
+        }
     }
     else
     {
         if (ReadIniString(ini1, name1, ini2, name2, "textureName", param, sizeof(param), ""))
+        {
             m_idTex = m_rs->TextureCreate(param);
+            m_mobileTexturePath = param;
+        }
         texRect = GetIniFloatRect(ini1, name1, ini2, name2, "textureRect", texRect);
     }
 
@@ -180,7 +193,10 @@ void CXI_PICTURE::SetNewPicture(bool video, const char *sNewTexName)
     if (video)
         m_pTex = m_rs->GetVideoTexture(sNewTexName);
     else
+    {
         m_idTex = m_rs->TextureCreate(sNewTexName);
+        m_mobileTexturePath = sNewTexName ? sNewTexName : "";
+    }
 
     FXYRECT uv;
     uv.left = uv.top = 0.f;
@@ -226,6 +242,10 @@ void CXI_PICTURE::SetNewPictureByGroup(const char *groupName, const char *picNam
     {
         FXYRECT texRect;
         pPictureService->GetTexturePos(m_pcGroupName, picName, texRect);
+        FXYRECT unused;
+        int32_t width = 0, height = 0;
+        m_mobileTexturePath.clear();
+        pPictureService->ResolveImageSource(m_pcGroupName, picName, m_mobileTexturePath, unused, width, height);
         ChangeUV(texRect);
     }
 }
@@ -429,6 +449,7 @@ void CXI_PICTURE::SetNewPictureByPointer(int32_t textureId)
 
 void CXI_PICTURE::ReleasePicture()
 {
+    m_mobileTexturePath.clear();
     PICTURE_TEXTURE_RELEASE(pPictureService, m_pcGroupName, m_idTex);
 
     STORM_DELETE(m_pcGroupName);
@@ -450,7 +471,25 @@ int MobileSaveSlot(const char *node)
 void CXI_PICTURE::MobileCollect(std::vector<MobileWidget> &widgets) const
 {
     const int slot = MobileSaveSlot(m_nodeName);
-    if (slot < 0) return;
+    if (slot < 0)
+    {
+        // Legacy Java forms render unknown widget types as blank text rows.
+        if (!storm::android::imagePoll || !storm::android::imageReply)
+            return;
+        if (m_mobileTexturePath.empty() || m_pTex)
+            return;
+        auto ref =
+            storm::mobile::Reference({m_mobileTexturePath, {m_v[0].tu, m_v[0].tv, m_v[3].tu, m_v[3].tv}}, m_v[0].color);
+        if (!ref.handle)
+            return;
+        MobileWidget widget{m_nodeName, "image", "", "", -1, m_rect.top * 8192 + m_rect.left, false};
+        widget.enabled = m_bSelected && m_bClickable && !m_bLockStatus;
+        if (widget.enabled && (CheckCommandUsed(ACTION_MOUSECLICK) || CheckCommandUsed(ACTION_ACTIVATE)))
+            widget.actions.push_back("press");
+        widget.images.push_back(ref);
+        widgets.push_back(std::move(widget));
+        return;
+    }
     // Names and dates remain runtime SAVENOTES entries, joined by the Java presentation.
     widgets.push_back({m_nodeName, "save", "", m_bMakeBlind ? "1" : "0", slot,
         m_rect.top * 8192 + m_rect.left, m_bSelected && m_bClickable && !m_bLockStatus});

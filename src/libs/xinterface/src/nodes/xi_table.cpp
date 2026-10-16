@@ -1,3 +1,7 @@
+#include "../mobile_image_bridge.hpp"
+#ifdef __ANDROID__
+#include "platform/android_ui.hpp"
+#endif
 #include "xi_table.h"
 
 
@@ -1501,38 +1505,133 @@ void CXI_TABLE::RecalculateLineHeights()
 }
 
 #ifdef __ANDROID__
+namespace
+{
+std::string MobileTableRowId(ATTRIBUTES *row)
+{
+    auto *data = row ? row->GetAttributeClass("UserData") : nullptr;
+    const char *id = data ? data->GetAttribute("ID") : nullptr;
+    return id ? std::string(id) : std::string();
+}
+} // namespace
 void CXI_TABLE::MobileCollect(std::vector<MobileWidget> &widgets) const
 {
     auto *root = core.Entity_GetAttributeClass(g_idInterface, m_nodeName);
     if (!root) return;
-    // Export attribute rows, not just the desktop table's visible scroll window.
     for (int row = 0; row < m_nLineQuantity; ++row)
     {
         const std::string key = "tr" + std::to_string(row + 1);
         auto *line = root->GetAttributeClass(key.c_str());
         if (!line) break;
-        std::string text;
-        bool hasText = false;
+        MobileWidget widget{m_nodeName,
+                            "choice",
+                            "",
+                            row == m_nSelectIndex ? "1" : "0",
+                            row,
+                            m_rect.top * 8192 + m_rect.left + row,
+                            m_bClickable && !m_bLockStatus};
+        widget.rowId = MobileTableRowId(line);
+        if (widget.enabled)
+        {
+            widget.actions.push_back("select");
+            if (CheckCommandUsed(ACTION_ACTIVATE) || CheckCommandUsed(ACTION_MOUSEDBLCLICK))
+                widget.actions.push_back("activate");
+        }
+        bool hasContent = false;
         for (int col = 0; col < m_nColQuantity; ++col)
         {
-            if (col) text += '\t';
+            if (col)
+                widget.label += '\t';
             const std::string cellKey = "td" + std::to_string(col + 1);
             auto *cell = line->GetAttributeClass(cellKey.c_str());
+            MobileCell output;
+            output.column = col;
+            output.colorArgb = m_dwFontCellColor;
             const char *value = cell ? cell->GetAttribute("str") : nullptr;
-            if (value && *value) { text += value; hasText = true; }
+            if (value && *value)
+            {
+                output.text = std::string(value);
+                widget.label += output.text;
+                hasContent = true;
+            }
+            if (cell)
+            {
+                output.colorArgb = cell->GetAttributeAsDword("color", m_dwFontCellColor);
+                const auto addIcon = [&](ATTRIBUTES *icon) {
+                    if (!icon || icon->GetAttribute("texturepointer"))
+                        return;
+                    storm::mobile::ImageRef ref;
+                    if (icon->GetAttribute("group"))
+                        ref = storm::mobile::AtlasReference(pPictureService, icon->GetAttribute("group"),
+                                                            icon->GetAttribute("image"));
+                    else if (const char *texture = icon->GetAttribute("texture"))
+                    {
+                        storm::mobile::Crop uv;
+                        if (const char *text = icon->GetAttribute("uv"))
+                            if (sscanf(text, "%f,%f,%f,%f", &uv.left, &uv.top, &uv.right, &uv.bottom) != 4)
+                                return;
+                        ref = storm::mobile::Reference({texture, uv});
+                    }
+                    if (ref.handle)
+                    {
+                        output.images.push_back(ref);
+                        // Old Java forms cannot render images-only rows.
+                        hasContent = hasContent || (storm::android::imagePoll && storm::android::imageReply);
+                    }
+                };
+                if (auto *icon = cell->GetAttributeClass("icon"))
+                    addIcon(icon);
+                else
+                    for (int n = 1; n <= 8; ++n)
+                    {
+                        auto name = "icon" + std::to_string(n);
+                        auto *icon = cell->GetAttributeClass(name.c_str());
+                        if (!icon)
+                            break;
+                        addIcon(icon);
+                    }
+            }
+            widget.cells.push_back(std::move(output));
         }
-        if (hasText) widgets.push_back({m_nodeName, "choice", text, row == m_nSelectIndex ? "1" : "0",
-            row, m_rect.top * 8192 + m_rect.left + row, m_bClickable && !m_bLockStatus});
+        if (hasContent)
+            widgets.push_back(std::move(widget));
     }
 }
 
 bool CXI_TABLE::MobileApply(int index, const std::string &value)
 {
-    if (value != "select" || index < 0 || index >= m_nLineQuantity || !m_bUse ||
-        !m_bClickable || m_bLockedNode || m_bLockStatus) return false;
+    if (index < 0 || index >= m_nLineQuantity || !m_bUse || !m_bClickable || m_bLockedNode || m_bLockStatus)
+        return false;
     auto *root = core.Entity_GetAttributeClass(g_idInterface, m_nodeName);
     const std::string key = "tr" + std::to_string(index + 1);
-    if (!root || !root->GetAttributeClass(key.c_str())) return false;
+    auto *row = root ? root->GetAttributeClass(key.c_str()) : nullptr;
+    if (!row)
+        return false;
+    const auto id = MobileTableRowId(row);
+    const auto suffix = "@" + std::to_string(storm::android::mobileScreenRevision) + ":" + id;
+    const bool select = value == "select" || value == "select" + suffix;
+    const bool activate = value == "activate" + suffix;
+    const bool dispatch = value == "dispatch" + suffix;
+    if (!select && !activate && !dispatch)
+        return false;
+    if (activate || dispatch)
+    {
+        const int code = CheckCommandUsed(ACTION_ACTIVATE) ? ACTION_ACTIVATE : ACTION_MOUSEDBLCLICK;
+        if (!CheckCommandUsed(code))
+            return false;
+        if (dispatch)
+        {
+            if (m_nSelectIndex != index)
+                return false;
+            bool stop = false;
+            DoAction(code, stop, true);
+            return true;
+        }
+        // Re-resolve node, screen epoch and row identity in XINTERFACE after the selection
+        // callback. That callback may rebuild the table or destroy this node entirely.
+        storm::android::uiWidgetActions.push_front(
+            {storm::android::mobileScreen, m_nodeName, "dispatch" + suffix, index});
+    }
     SetTopIndexForSelect(index);
     SelectLine(index);
     return true;

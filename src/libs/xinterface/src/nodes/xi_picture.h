@@ -43,6 +43,7 @@ class CXI_PICTURE : public CINODE
     void SetNewPictureByPointer(int32_t pTex);
     void ReleasePicture();
 
+    std::string m_mobileTexturePath; // CPU source metadata only; never a GPU pointer.
     char *m_pcGroupName;
     int32_t m_idTex;
     CVideoTexture *m_pTex;

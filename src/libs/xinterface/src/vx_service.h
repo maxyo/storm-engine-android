@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #define TEXTURE_MODIFY_NONE 0
 #define TEXTURE_MODIFY_HORZFLIP 1
@@ -35,6 +36,12 @@ class VXSERVICE
                                       int32_t nSrcWidth, int32_t nSrcHeight, FXYRECT &outUV) = 0;
 
     virtual int32_t GetImageNum(const char *sImageListName, const char *sImageName) = 0;
+
+    virtual bool ResolveImageSource(const char *group, const char *image, std::string &path, FXYRECT &uv,
+                                    int32_t &width, int32_t &height)
+    {
+        return false;
+    }
 
     virtual void ReleaseAll() = 0;
 };
