@@ -14,6 +14,10 @@
 #include "location_camera.h"
 #include "collide.h"
 #include "shared/messages.h"
+#ifdef __ANDROID__
+#include <android/log.h>
+#include <sys/system_properties.h>
+#endif
 
 // ============================================================================================
 // Construction, destruction
@@ -60,6 +64,23 @@ void Player::Reset()
 // Move the character to the desired position
 void Player::Move(float dltTime)
 {
+#ifdef __ANDROID__
+    const auto traceCombat = [this](const char *action) {
+        static unsigned budget = 192;
+        if (!budget) return;
+        char setting[PROP_VALUE_MAX] = {};
+        __system_property_get("log.tag.StormCombat", setting);
+        if (std::string_view(setting) != "DEBUG") return;
+        --budget;
+        auto *energy = AttributesPointer ? AttributesPointer->FindAClass(AttributesPointer, "chr_ai.energy") : nullptr;
+        const std::string energyText = energy && energy->HasValue() ? std::string(energy->GetValue()) : "<absent>";
+        __android_log_print(ANDROID_LOG_DEBUG, "StormCombat", "player=%llu action=%s setType=%d currentType=%d energy=%s priority=%s",
+            static_cast<unsigned long long>(GetId()), action, static_cast<int>(fgtSetType), static_cast<int>(fgtCurType),
+            energyText.c_str(), priorityAction.name ? priorityAction.name : "none");
+    };
+#else
+    const auto traceCombat = [](const char *) {};
+#endif
     kSMReload += dltTime * 0.7f;
     if (kSMReload > 1.0f)
         kSMReload = 1.0f;
@@ -153,6 +174,7 @@ void Player::Move(float dltTime)
             {
                 isSetBlock = false;
                 SetFightMode(!IsFight());
+                traceCombat("weapon");
             }
             if (IsFight())
             {
@@ -178,6 +200,7 @@ void Player::Move(float dltTime)
                     }
                     // boal <--
                     Parry();
+                    traceCombat("parry");
                 }
                 else if (IsDoAttackForce())
                 {
@@ -188,6 +211,7 @@ void Player::Move(float dltTime)
                     }
                     // boal <--
                     Attack(FindAttackCharacter(), fgt_attack_force);
+                    traceCombat("force");
                 }
                 else if (IsDoAttackFast())
                 {
@@ -196,6 +220,7 @@ void Player::Move(float dltTime)
                         StopFightAnimation();
                     }
                     Attack(FindAttackCharacter(), fgt_attack_fast);
+                    traceCombat("fast");
                 }
                 else if (IsDoAttackRound())
                 {
@@ -205,6 +230,7 @@ void Player::Move(float dltTime)
                         StopFightAnimation();
                     }
                     Attack(FindAttackCharacter(), fgt_attack_round);
+                    traceCombat("round");
                 }
                 else if (IsDoAttackBreak())
                 {
@@ -213,6 +239,7 @@ void Player::Move(float dltTime)
                         StopFightAnimation();
                     }
                     Attack(FindAttackCharacter(), fgt_attack_break);
+                    traceCombat("break");
                 }
                 else if (IsDoAttackFeint())
                 {
@@ -222,6 +249,7 @@ void Player::Move(float dltTime)
                         StopFightAnimation();
                     }
                     Attack(FindAttackCharacter(), fgt_attack_feint);
+                    traceCombat("feint");
                 }
                 else if (IsFire())
                 {
@@ -231,6 +259,7 @@ void Player::Move(float dltTime)
                         StopFightAnimation();
                     }
                     Fire();
+                    traceCombat("pistol");
                 }
             }
         }
@@ -505,6 +534,18 @@ void Player::StrafeWhenStop(float dltTime)
 
 bool Player::IsDoBlock()
 {
+#ifdef __ANDROID__
+    // A modal/actor can skip the release frame. Reconcile both real controls
+    // instead of retaining a latch after all physical/virtual input is gone.
+    CONTROL_STATE primary{}, secondary{};
+    core.Controls->GetControlState("ChrBlock", primary);
+    core.Controls->GetControlState("ChrBlock2", secondary);
+    const auto held = [](const CONTROL_STATE &state) {
+        return state.state == CST_ACTIVATED || state.state == CST_ACTIVE;
+    };
+    isSetBlock = IsFight() && (held(primary) || held(secondary));
+    return isSetBlock;
+#else
     //    return true;
     CONTROL_STATE cs;
     core.Controls->GetControlState("ChrBlock", cs);
@@ -533,6 +574,7 @@ bool Player::IsDoBlock()
         isSetBlock = false;
     }
     return isSetBlock;
+#endif
 }
 
 bool Player::IsDoParry()

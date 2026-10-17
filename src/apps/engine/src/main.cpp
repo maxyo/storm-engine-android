@@ -22,6 +22,7 @@
 #include "platform/android_ui.hpp"
 #include "platform/android_shortcuts.hpp"
 #include "android_gameplay_state.hpp"
+#include "android_combat_state.hpp"
 #include "android_sea_orders_state.hpp"
 #include <sstream>
 #include <charconv>
@@ -293,6 +294,13 @@ int main(int argc, char *argv[])
     storm::android::GameplayShortcuts gameplayShortcuts;
     storm::android::GameplayState gameplayState;
     gameplayState.update({});
+    storm::android::combatInput.guard = [&]() {
+        return storm::android::combatInput.player() == std::to_string(core.GetEntityId("Player")) &&
+            storm::android::combatContextCurrent(gameplayState, isRunning && bActive && androidLifecycle.canRun() &&
+            core_private->initialized() && core.Controls && storm::android::loadingState == 0 && storm::android::mobileScreen.empty());
+    };
+    storm::android::updateCombatState(gameplayState);
+    storm::android::publishCombatState();
     storm::android::publishGameplayState(gameplayState.json());
     storm::android::shipTelemetry.update(gameplayState.revision(), {});
     storm::android::publishShipTelemetry();
@@ -302,9 +310,14 @@ int main(int argc, char *argv[])
     while (isRunning)
     {
 #ifdef __ANDROID__
+        const auto combatDrainEpoch = storm::android::combatCancelEpoch.load(std::memory_order_acquire);
         for (const auto &command : storm::android::pollMobileActions())
         {
-            if (command.starts_with("orders:"))
+            if (command.starts_with("combat:"))
+            {
+                storm::android::combatInput.offer(std::string_view(command).substr(7), SDL_GetTicks(), combatDrainEpoch);
+            }
+            else if (command.starts_with("orders:"))
             {
                 storm::android::seaOrders.offer(std::string_view(command).substr(7), SDL_GetTicks());
             }
@@ -379,7 +392,10 @@ int main(int argc, char *argv[])
             androidLifecycle.consume(appEvent.type);
             if (appEvent.type == SDL_APP_WILLENTERBACKGROUND || appEvent.type == SDL_APP_DIDENTERBACKGROUND ||
                 appEvent.type == SDL_APP_TERMINATING)
+            {
+                storm::android::cancelAndroidCombatInput();
                 storm::android::closeSeaOrders();
+            }
         }
         if (SDL_HasEvent(SDL_QUIT))
             androidLifecycle.consume(SDL_QUIT);
@@ -393,6 +409,8 @@ int main(int argc, char *argv[])
             storm::android::closeSeaOrders();
             storm::android::publishSeaOrders();
             gameplayState.update({});
+            storm::android::updateCombatState(gameplayState);
+            storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
             storm::android::shipTelemetry.update(gameplayState.revision(), {});
             storm::android::publishShipTelemetry();
@@ -419,6 +437,11 @@ int main(int argc, char *argv[])
                 dwOldTime = dwNewTime;
             }
 
+#ifdef __ANDROID__
+            // Activity changes revoke queued intents before any native Player
+            // or Control Activation handler can consume the next frame.
+            storm::android::publishCombatState();
+#endif
             RunFrameWithOverflowCheck();
 #ifdef STORM_ENABLE_BGFX
             static bool fogCaptureKeyDown = false;
@@ -440,6 +463,8 @@ int main(int argc, char *argv[])
                 storm::android::publishSeaOrders();
             }
             gameplayState.update(storm::android::readGameplaySnapshot(gameplayReady));
+            storm::android::updateCombatState(gameplayState);
+            storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
             storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipTelemetry(gameplayState));
             // Activity recreation revokes pending targets/ready ACKs before dispatch.
@@ -517,6 +542,8 @@ int main(int argc, char *argv[])
 
     // Release
 #ifdef __ANDROID__
+    storm::android::combatInput.clear();
+    storm::android::combatInput.guard = {};
     storm::android::closeSeaOrders();
     storm::android::publishSeaOrders();
     gameplayState.update({});

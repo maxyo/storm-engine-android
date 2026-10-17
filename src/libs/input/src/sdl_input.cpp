@@ -6,8 +6,12 @@
 #include <windows.h>
 #include <algorithm>
 #include <map>
+#include <string_view>
 #if defined(__ANDROID__) && !defined(STORM_INPUT_HOST_TEST)
 #include <jni.h>
+#include <platform/android_combat_input.hpp>
+#include <android/log.h>
+#include <sys/system_properties.h>
 #endif
 
 namespace storm
@@ -590,7 +594,21 @@ void SDLInput::PumpEvents()
             keyboard_.Set(static_cast<std::size_t>(event.key.keysym.scancode), event.type == SDL_KEYDOWN,
                           event.key.repeat != 0);
         else if (event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP)
+        {
             mouse_.Set(event.button.button, event.type == SDL_MOUSEBUTTONDOWN);
+#ifndef STORM_INPUT_HOST_TEST
+            static unsigned traceBudget = 256;
+            char setting[PROP_VALUE_MAX] = {};
+            if (traceBudget) __system_property_get("log.tag.StormNativeInput", setting);
+            if (traceBudget && (std::string_view(setting) == "DEBUG" || std::string_view(setting) == "VERBOSE"))
+            {
+                --traceBudget;
+                __android_log_print(ANDROID_LOG_DEBUG, "StormNativeInput", "mouse %s button=%u frameActive=%d",
+                    event.type == SDL_MOUSEBUTTONDOWN ? "down" : "up", event.button.button,
+                    mouse_.Active(event.button.button));
+            }
+#endif
+        }
         ProcessEvent(event);
     }
     if (!SnapshotCurrent())
@@ -632,6 +650,7 @@ std::shared_ptr<Input> Input::Create()
 extern "C" JNIEXPORT void JNICALL
 Java_org_stormengine_port_GameActivity_nativeCancelInput(JNIEnv *, jclass)
 {
+    storm::android::cancelAndroidCombatInput();
     storm::SDLInput::CancelPendingInput();
 }
 #endif
