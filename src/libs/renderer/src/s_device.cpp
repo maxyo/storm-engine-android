@@ -3513,9 +3513,19 @@ void DX9RENDER::DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlock
         // Buffer
         RECT_VERTEX *data = nullptr;
         if (rectsVBuffer->Lock(0, drawCount * 6 * sizeof(RECT_VERTEX), (void **)&data, D3DLOCK_DISCARD) != D3D_OK)
+        {
+            d3d9->SetTransform(D3DTS_VIEW, camMtx);
+            d3d9->SetTransform(D3DTS_WORLD, oldWorldMatrix);
             return;
+        }
         if (!data)
+        {
+            // Lock succeeded: balance it even if the driver supplied no data.
+            rectsVBuffer->Unlock();
+            d3d9->SetTransform(D3DTS_VIEW, camMtx);
+            d3d9->SetTransform(D3DTS_WORLD, oldWorldMatrix);
             return;
+        }
         // Filling the buffer
         for (uint32_t i = 0; i < drawCount && cnt < dwRectsNum; i++)
         {
