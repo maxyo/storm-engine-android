@@ -3,6 +3,7 @@
 #include "typedef.h"
 #include "colored_mesh.hpp"
 #include "textured_mesh.hpp"
+#include <array>
 #include <string>
 #include <vector>
 
@@ -65,7 +66,13 @@ class SKY : public Entity
     VDX9RENDER *pRS;
     int32_t TexturesID[SKY_NUM_TEXTURES];
     int32_t TexturesNextID[SKY_NUM_TEXTURES];
-    float fTimeFactor;
+    float fTimeFactor = 0.f;
+    float requestedSkyTimeFactor_ = 0.f;
+    // These identify acquired textures, independently of weather time/table changes.
+    std::array<std::string, 2> loadedSkyDirs_;
+    std::array<std::string, 2> failedSkyDirs_;
+    size_t loadedSkySetCount_ = 0;
+    size_t failedSkySetCount_ = 0;
 
     std::unique_ptr<storm::render::TexturedMesh> skyMesh_;
     std::unique_ptr<storm::render::ColoredMesh> fogMesh_;
@@ -82,7 +89,8 @@ class SKY : public Entity
     void UpdateFogSphere(bool initialize);
 
     void FillSkyDirArray(ATTRIBUTES *pAttribute);
-    void GetSkyDirStrings(std::string &sSkyDir, std::string &sSkyDirNext);
+    float TimeToFactor(float hours) const;
+    bool SelectSkyTextures(float factor);
     void UpdateTimeFactor();
 
     uint32_t GetPixelColor(int32_t texture, float fu, float fv) const;

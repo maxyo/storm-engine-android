@@ -3456,6 +3456,12 @@ uint32_t Character::zExMessage(MESSAGE &message)
     {
         return IsFight();
     }
+    if (storm::iEquals(msg, "IsSetGun"))
+    {
+        // Pure observation; IsGunLoad also invokes a script event and must not
+        // be polled by the Android HUD merely to display equipment readiness.
+        return isGunSet;
+    }
     if (storm::iEquals(msg, "IsSetBalde"))
     {
         return IsSetBlade();

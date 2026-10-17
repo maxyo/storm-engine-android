@@ -10,6 +10,13 @@
 #include "legacy_colored_mesh.hpp"
 #include "legacy_textured_mesh.hpp"
 #include "sky_mesh.hpp"
+#include <algorithm>
+#include <cmath>
+#ifdef __ANDROID__
+#include <android/log.h>
+#include <sys/system_properties.h>
+#include <string_view>
+#endif
 
 SKY::SKY()
 {
@@ -44,6 +51,9 @@ void SKY::Release()
 
     skyMesh_.reset();
     fogMesh_.reset();
+    loadedSkyDirs_ = {};
+    loadedSkySetCount_ = 0;
+    failedSkySetCount_ = 0;
 }
 
 bool SKY::Init()
@@ -95,24 +105,8 @@ void SKY::GenerateSky(const bool initialize)
 
 void SKY::LoadTextures()
 {
-    char str[256];
-    const char *names[SKY_NUM_TEXTURES] = {"sky_fr.tga", "sky_lf.tga", "sky_bk.tga", "sky_rt.tga", "sky_up.tga"};
-
-    std::string sSkyDir, sSkyDirNext;
-    GetSkyDirStrings(sSkyDir, sSkyDirNext);
-
-    for (int32_t i = 0; i < SKY_NUM_TEXTURES; i++)
-    {
-        sprintf_s(str, "%s%s", static_cast<const char *>(sSkyDir.c_str()), names[i]);
-        TexturesID[i] = pRS->TextureCreate(str);
-
-        if (aSkyDirArray.size() > 1)
-        {
-            sprintf_s(str, "%s%s", static_cast<const char *>(sSkyDirNext.c_str()), names[i]);
-            TexturesNextID[i] = pRS->TextureCreate(str);
-        }
-    }
-
+    failedSkySetCount_ = 0; // Explicit reload also retries a previously missing asset.
+    SelectSkyTextures(requestedSkyTimeFactor_);
     fAngleY = 0.0f;
 }
 
@@ -144,7 +138,7 @@ void SKY::Realize(uint32_t Delta_Time)
     pRS->SetTransform(D3DTS_WORLD, pMatWorld);
 
     const auto drawSky = [&](const std::string& material,uint32_t factor,bool transition) {
-        if (!skyMesh_) return;
+        if (!skyMesh_ || loadedSkySetCount_ == 0) return;
         std::array<storm::render::TextureDrawRange,10> ranges;
         size_t count=0;
         for (uint32_t i=0;i<SKY_NUM_TEXTURES;++i) {
@@ -155,8 +149,11 @@ void SKY::Realize(uint32_t Delta_Time)
     };
 
     if (aSkyDirArray.size() > 1)
-    {
         UpdateTimeFactor();
+    else
+        SelectSkyTextures(requestedSkyTimeFactor_);
+    if (loadedSkySetCount_ == 2)
+    {
         auto fBlendFactor = fTimeFactor - static_cast<int32_t>(fTimeFactor);
         if (fBlendFactor < 0.f)
             fBlendFactor = 0.f;
@@ -190,11 +187,6 @@ void SKY::Realize(uint32_t Delta_Time)
                 drawSky(sTechSkyBlendAlpha, dwColor, true);
             }
         }
-
-        std::string sSkyPrev, sSkyNext;
-        GetSkyDirStrings(sSkyPrev, sSkyNext);
-        // debug pRS->Print( 10,10, "time = %.2f(%.2f), skydir = %s,%s", fTimeFactor,fBlendFactor, (const
-        // char*)sSkyPrev,(const char*)sSkyNext);
     }
     else
     {
@@ -301,6 +293,7 @@ void SKY::RestoreRender()
 void SKY::FillSkyDirArray(ATTRIBUTES *pAttribute)
 {
     aSkyDirArray.clear();
+    failedSkySetCount_ = 0;
     const int32_t q = pAttribute->GetAttributesNum();
     if (q < 1)
         return;
@@ -324,63 +317,117 @@ void SKY::FillSkyDirArray(ATTRIBUTES *pAttribute)
     {
         aSkyDirArray[0] = to_string(pAttribute->GetAttribute(0U));
     }
-    fTimeFactor = static_cast<float>(atof(pAttribute->GetThisAttr()));
-    if (fTimeFactor < 0.f || fTimeFactor > 24.f)
-        fTimeFactor = 0.f;
-    fTimeFactor *= (1.f / 24.f) * aSkyDirArray.size();
+    // Attribute setup is batched until isDone; retain the requested phase even
+    // if a subsequent load fails, independently of the still-visible old pair.
+    requestedSkyTimeFactor_ = TimeToFactor(static_cast<float>(atof(pAttribute->GetThisAttr())));
 }
 
-void SKY::GetSkyDirStrings(std::string &sSkyDir, std::string &sSkyDirNext)
+float SKY::TimeToFactor(float hours) const
 {
-    auto n1 = static_cast<int32_t>(fTimeFactor);
-    if (n1 >= 0)
-    {
-        if (n1 >= static_cast<int32_t>(aSkyDirArray.size()))
-            n1 -= aSkyDirArray.size();
-        auto n2 = n1 + 1;
-        if (n2 >= static_cast<int32_t>(aSkyDirArray.size()))
-            n2 -= aSkyDirArray.size();
+    if (aSkyDirArray.empty() || !std::isfinite(hours))
+        return 0.f;
+    double time = std::fmod(static_cast<double>(hours), 24.0);
+    if (time < 0.0)
+        time += 24.0;
+    // Do not let float rounding turn the last interval into an out-of-range index.
+    const float count = static_cast<float>(aSkyDirArray.size());
+    return std::min(static_cast<float>(time / 24.0 * aSkyDirArray.size()), std::nextafter(count, 0.f));
+}
 
-        sSkyDir = aSkyDirArray[n1];
-        sSkyDirNext = aSkyDirArray[n2];
-        return;
+bool SKY::SelectSkyTextures(float factor)
+{
+    if (aSkyDirArray.empty() || !std::isfinite(factor) || factor < 0.f || factor >= aSkyDirArray.size())
+        return false;
+    const auto current = static_cast<size_t>(factor);
+    const size_t setCount = aSkyDirArray.size() > 1 ? 2 : 1;
+    const std::string empty;
+    const auto &currentDir = aSkyDirArray[current];
+    const auto &nextDir = aSkyDirArray.size() > 1 ? aSkyDirArray[(current + 1) % aSkyDirArray.size()] : empty;
+    if (failedSkySetCount_ == setCount && currentDir == failedSkyDirs_[0] && nextDir == failedSkyDirs_[1])
+        return false;
+    failedSkySetCount_ = 0;
+    if (loadedSkySetCount_ == setCount && currentDir == loadedSkyDirs_[0] && nextDir == loadedSkyDirs_[1])
+    {
+        fTimeFactor = factor;
+        return true;
     }
-    sSkyDir = sSkyDirNext = "";
+    // Acquire a whole pair before releasing anything. Shared filenames still own
+    // one renderer reference per slot, including a reused previous next set.
+    std::array<std::string, 2> dirs{currentDir, nextDir};
+    std::array<int32_t, SKY_NUM_TEXTURES * 2> replacement;
+    replacement.fill(-1);
+    const auto discard = [&] {
+        for (const auto texture : replacement)
+            if (texture >= 0) pRS->TextureRelease(texture);
+    };
+    const auto fail = [&] {
+        discard();
+        failedSkyDirs_.swap(dirs);
+        failedSkySetCount_ = setCount; // No missing-file I/O every frame; retry on a new pair/reload.
+        return false;
+    };
+    constexpr const char *names[SKY_NUM_TEXTURES] = {"sky_fr.tga", "sky_lf.tga", "sky_bk.tga", "sky_rt.tga", "sky_up.tga"};
+    try
+    {
+        for (size_t set = 0; set < setCount; ++set)
+        {
+            const int32_t *reuse = loadedSkySetCount_ > 0 && dirs[set] == loadedSkyDirs_[0] ? TexturesID :
+                                  loadedSkySetCount_ > 1 && dirs[set] == loadedSkyDirs_[1] ? TexturesNextID : nullptr;
+            for (size_t face = 0; face < SKY_NUM_TEXTURES; ++face)
+            {
+                auto &texture = replacement[set * SKY_NUM_TEXTURES + face];
+                if (reuse && reuse[face] >= 0)
+                {
+                    if (pRS->TextureIncReference(reuse[face])) texture = reuse[face];
+                }
+                else
+                    texture = pRS->TextureCreate((dirs[set] + names[face]).c_str());
+                if (texture < 0) return fail();
+            }
+        }
+    }
+    catch (...)
+    {
+        discard();
+        throw;
+    }
+    for (size_t face = 0; face < SKY_NUM_TEXTURES; ++face)
+    {
+        if (TexturesID[face] >= 0) pRS->TextureRelease(TexturesID[face]);
+        if (TexturesNextID[face] >= 0) pRS->TextureRelease(TexturesNextID[face]);
+        TexturesID[face] = replacement[face];
+        TexturesNextID[face] = replacement[SKY_NUM_TEXTURES + face];
+    }
+    loadedSkyDirs_.swap(dirs);
+    loadedSkySetCount_ = setCount;
+    fTimeFactor = factor;
+#ifdef __ANDROID__
+    // Opt-in transition evidence only; no per-frame logging or unlimited output.
+    static unsigned logsRemaining = 64;
+    char logLevel[PROP_VALUE_MAX] = {};
+    if (logsRemaining && __system_property_get("log.tag.StormSky", logLevel) > 0 &&
+        std::string_view(logLevel) == "DEBUG")
+    {
+        --logsRemaining;
+        __android_log_print(ANDROID_LOG_DEBUG, "StormSky",
+            "pair entity=%llu phase=%.6f sets=%zu current=%s next=%s handles=%d,%d",
+            static_cast<unsigned long long>(GetId()), static_cast<double>(fTimeFactor), loadedSkySetCount_,
+            loadedSkyDirs_[0].c_str(), loadedSkyDirs_[1].c_str(), TexturesID[0], TexturesNextID[0]);
+    }
+#endif
+    return true;
 }
 
 void SKY::UpdateTimeFactor()
 {
-    const auto nPrev = static_cast<int32_t>(fTimeFactor);
-
-    // fTimeFactor += core.GetDeltaTime() * 0.00005f;
     entid_t eid;
     if (!(eid = core.GetEntityId("weather")))
         return;
-    fTimeFactor = static_cast<WEATHER_BASE *>(core.GetEntityPointer(eid))->GetFloat(whf_time_counter);
-    fTimeFactor *= (1.f / 24.f) * aSkyDirArray.size();
-
-    if (static_cast<int32_t>(fTimeFactor) >= static_cast<int32_t>(aSkyDirArray.size()))
-        fTimeFactor -= aSkyDirArray.size();
-    const auto nNext = static_cast<int32_t>(fTimeFactor);
-    if (nPrev != nNext)
+    const float hours = static_cast<WEATHER_BASE *>(core.GetEntityPointer(eid))->GetFloat(whf_time_counter);
+    if (std::isfinite(hours))
     {
-        // re-read textures
-
-        char str[256];
-        const char *names[SKY_NUM_TEXTURES] = {"sky_fr.tga", "sky_lf.tga", "sky_bk.tga", "sky_rt.tga", "sky_up.tga"};
-
-        std::string sSkyDir, sSkyDirNext;
-        GetSkyDirStrings(sSkyDir, sSkyDirNext);
-
-        for (int32_t i = 0; i < SKY_NUM_TEXTURES; i++)
-        {
-            if (TexturesID[i] >= 0)
-                pRS->TextureRelease(TexturesID[i]);
-            TexturesID[i] = TexturesNextID[i];
-
-            sprintf_s(str, "%s%s", static_cast<const char *>(sSkyDirNext.c_str()), names[i]);
-            TexturesNextID[i] = pRS->TextureCreate(str);
-        }
+        requestedSkyTimeFactor_ = TimeToFactor(hours);
+        SelectSkyTextures(requestedSkyTimeFactor_);
     }
 }
 

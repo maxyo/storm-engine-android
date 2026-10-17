@@ -3,6 +3,7 @@
 #include "android_gameplay_state.hpp"
 #include "platform/android_ui.hpp"
 #include "platform/android_combat_input.hpp"
+#include "platform/android_pistol_state.hpp"
 
 namespace storm::android
 {
@@ -60,6 +61,17 @@ inline jweak combatActivity = nullptr;
 inline jmethodID combatMethod = nullptr;
 inline bool combatMethodKnown = false;
 inline std::string lastCombatState;
+inline PistolState readPistolState()
+{
+    if (combatInput.player().empty()) return {};
+    const auto player = core.GetEntityId("Player");
+    auto *character = shipMainCharacter();
+    if (player == invalid_entity || !character || core.Entity_GetAttributePointer(player) != character ||
+        combatInput.player() != std::to_string(player)) return {};
+    const bool equipped = core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "IsSetGun") != 0;
+    return pistolState(equipped, shipText(character, "chr_ai.tmpl") == "player",
+                       shipNumber(character, "chr_ai.charge"), shipNumber(character, "chr_ai.chargeprc"));
+}
 inline void publishCombatState()
 {
     auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
@@ -82,7 +94,11 @@ inline void publishCombatState()
         }
         if(env->ExceptionCheck())env->ExceptionClear();
     }
-    const auto json=combatInput.json();
+    auto json=combatInput.json();
+    const auto pistol = readPistolState();
+    json.pop_back();
+    json += ",\"pistol\":{\"state\":" + gameplayJsonString(pistol.state) +
+            ",\"progress\":" + std::to_string(pistol.progress) + "}}";
     if(combatMethod && json!=lastCombatState && !env->ExceptionCheck())
     {
         auto bytes=env->NewByteArray(static_cast<jsize>(json.size()));
