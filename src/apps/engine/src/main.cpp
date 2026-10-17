@@ -22,6 +22,7 @@
 #include "platform/android_ui.hpp"
 #include "platform/android_shortcuts.hpp"
 #include "android_gameplay_state.hpp"
+#include "android_sea_orders_state.hpp"
 #include <sstream>
 #include <charconv>
 #endif
@@ -303,7 +304,11 @@ int main(int argc, char *argv[])
 #ifdef __ANDROID__
         for (const auto &command : storm::android::pollMobileActions())
         {
-            if (command.starts_with("shiphud:"))
+            if (command.starts_with("orders:"))
+            {
+                storm::android::seaOrders.offer(std::string_view(command).substr(7), SDL_GetTicks());
+            }
+            else if (command.starts_with("shiphud:"))
             {
                 storm::android::shipTelemetry.acknowledge(std::string_view(command).substr(8));
             }
@@ -370,7 +375,12 @@ int main(int argc, char *argv[])
         SDL_Event appEvent;
         while (SDL_PeepEvents(&appEvent, 1, SDL_GETEVENT, SDL_APP_TERMINATING,
                               SDL_APP_DIDENTERFOREGROUND) > 0)
+        {
             androidLifecycle.consume(appEvent.type);
+            if (appEvent.type == SDL_APP_WILLENTERBACKGROUND || appEvent.type == SDL_APP_DIDENTERBACKGROUND ||
+                appEvent.type == SDL_APP_TERMINATING)
+                storm::android::closeSeaOrders();
+        }
         if (SDL_HasEvent(SDL_QUIT))
             androidLifecycle.consume(SDL_QUIT);
         if (wasRunning != androidLifecycle.canRun() && core_private->initialized())
@@ -380,6 +390,8 @@ int main(int argc, char *argv[])
             gameplayShortcuts.clear();
         if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty() || storm::android::loadingState != 0)
         {
+            storm::android::closeSeaOrders();
+            storm::android::publishSeaOrders();
             gameplayState.update({});
             storm::android::publishGameplayState(gameplayState.json());
             storm::android::shipTelemetry.update(gameplayState.revision(), {});
@@ -418,6 +430,15 @@ int main(int argc, char *argv[])
             const bool gameplayReady = isRunning && bActive && androidLifecycle.canRun() &&
                 core_private->initialized() && core.Controls && storm::android::loadingState == 0 &&
                 storm::android::mobileScreen.empty();
+            storm::android::refreshSeaOrders(storm::android::seaOrdersReady(gameplayReady));
+            // Detect Activity replacement before accepting any queued action.
+            storm::android::publishSeaOrders();
+            if (const auto request = storm::android::seaOrders.take(SDL_GetTicks()))
+            {
+                storm::android::executeSeaOrder(*request);
+                storm::android::refreshSeaOrders(storm::android::seaOrdersReady(gameplayReady));
+                storm::android::publishSeaOrders();
+            }
             gameplayState.update(storm::android::readGameplaySnapshot(gameplayReady));
             storm::android::publishGameplayState(gameplayState.json());
             storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipTelemetry(gameplayState));
@@ -496,6 +517,8 @@ int main(int argc, char *argv[])
 
     // Release
 #ifdef __ANDROID__
+    storm::android::closeSeaOrders();
+    storm::android::publishSeaOrders();
     gameplayState.update({});
     storm::android::publishGameplayState(gameplayState.json());
     storm::android::shipTelemetry.update(gameplayState.revision(), {});

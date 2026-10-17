@@ -3,6 +3,9 @@
 #include "bi_defines.h"
 #include <string>
 #include <vector>
+#ifdef __ANDROID__
+#include <platform/android_sea_orders.hpp>
+#endif
 
 class BIImageRender;
 
@@ -44,6 +47,12 @@ class BICommandList
     }
 
     void SetUpDown(bool bUp, bool bDown);
+#ifdef __ANDROID__
+    void ReadAndroidOrders(storm::android::SeaOrdersFrame &frame) const;
+    bool SelectAndroidItem(const std::string &id);
+    void ResetAndroidCommand();
+    bool AndroidPendingAllowed();
+#endif
 
     virtual void Init();
 
@@ -75,6 +84,7 @@ class BICommandList
         int32_t nTargetIndex;
         std::string sLocName;
         std::string sNote;
+        std::string sKind;
 
         int32_t nTextureIndex;
         int32_t nSelPictureIndex;
@@ -97,6 +107,7 @@ class BICommandList
     bool m_bActive;
 
     std::vector<UsedCommand> m_aUsedCommand;
+    std::string m_fillingKind = "command";
     int32_t m_nStartUsedCommandIndex;
     int32_t m_nSelectedCommandIndex;
     int32_t m_nIconShowMaxQuantity;

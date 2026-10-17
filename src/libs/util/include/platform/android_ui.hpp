@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include "android_ship_telemetry.hpp"
+#include "android_sea_orders.hpp"
 
 namespace storm::android
 {
@@ -121,6 +122,45 @@ inline void publishShipTelemetry()
             if (bytes && !env->ExceptionCheck()) shipTelemetry.published(*json, tick);
             if (bytes) env->DeleteLocalRef(bytes);
         }
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(activity);
+}
+inline jweak seaOrdersActivity = nullptr;
+inline jmethodID seaOrdersMethod = nullptr;
+inline bool seaOrdersMethodKnown = false;
+inline std::string lastSeaOrders;
+inline void publishSeaOrders()
+{
+    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return;
+    if (!seaOrdersActivity || !env->IsSameObject(seaOrdersActivity, activity))
+    {
+        if (seaOrdersActivity) env->DeleteWeakGlobalRef(seaOrdersActivity);
+        seaOrdersActivity = env->NewWeakGlobalRef(activity);
+        seaOrdersMethod = nullptr; seaOrdersMethodKnown = false; lastSeaOrders.clear();
+        seaOrders.resetActivity();
+    }
+    if (!seaOrdersMethodKnown && !env->ExceptionCheck())
+    {
+        auto type = env->GetObjectClass(activity);
+        if (type)
+        {
+            seaOrdersMethod = env->GetMethodID(type, "showSeaOrders", "([B)V");
+            env->DeleteLocalRef(type); seaOrdersMethodKnown = true;
+        }
+        if (env->ExceptionCheck()) env->ExceptionClear();
+    }
+    const auto json = seaOrders.json();
+    if (seaOrdersMethod && json != lastSeaOrders && json.size() <= 65536 && !env->ExceptionCheck())
+    {
+        auto bytes = env->NewByteArray(static_cast<jsize>(json.size()));
+        if (bytes && !env->ExceptionCheck())
+            env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(json.size()), reinterpret_cast<const jbyte *>(json.data()));
+        if (bytes && !env->ExceptionCheck()) env->CallVoidMethod(activity, seaOrdersMethod, bytes);
+        if (bytes && !env->ExceptionCheck()) lastSeaOrders = json;
+        if (bytes) env->DeleteLocalRef(bytes);
     }
     if (env->ExceptionCheck()) env->ExceptionClear();
     env->DeleteLocalRef(activity);

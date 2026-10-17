@@ -4,6 +4,10 @@
 #include "image/img_render.h"
 #include "sea/ships_list.h"
 #include "shared/battle_interface/msg_control.h"
+#ifdef __ANDROID__
+#include <android/log.h>
+#include <sys/system_properties.h>
+#endif
 
 BICommandList::BICommandList(entid_t eid, ATTRIBUTES *pA, VDX9RENDER *rs)
 {
@@ -25,6 +29,8 @@ BICommandList::BICommandList(entid_t eid, ATTRIBUTES *pA, VDX9RENDER *rs)
     m_bUpArrow = m_bDownArrow = m_bLeftArrow = m_bRightArrow = false;
 
     m_bActive = false;
+    m_nCurrentCommandMode = 0;
+    m_nCurrentCommandCharacterIndex = -1;
 
     Init();
 }
@@ -132,8 +138,43 @@ int32_t BICommandList::ExecuteConfirm()
     {
     case -1:
     case 0:
+#ifdef __ANDROID__
+        {
+            static unsigned traceBudget = 96;
+            char traceSetting[PROP_VALUE_MAX] = {};
+            if (traceBudget) __system_property_get("log.tag.StormOrders", traceSetting);
+            const bool trace = traceBudget && (std::string_view(traceSetting) == "DEBUG" || std::string_view(traceSetting) == "VERBOSE");
+            const auto traceTasks = [&](const char *phase) {
+                auto *characters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
+                const auto *mainShip = g_ShipList.GetMainCharacterShip();
+                const int mainIndex = mainShip ? mainShip->characterIndex : -1;
+                for (const int index : {m_nCurrentCommandCharacterIndex, mainIndex})
+                {
+                    auto *character = characters && index >= 0 && static_cast<uint32_t>(index) < characters->GetElementsNum() ? characters->GetAClass(index) : nullptr;
+                    const auto value = [character](const char *path) {
+                        auto *attr = character ? character->FindAClass(character, path) : nullptr;
+                        return attr && attr->HasValue() ? std::string(attr->GetValue()) : std::string("<absent>");
+                    };
+                    __android_log_print(ANDROID_LOG_DEBUG, "StormOrders", "%s recipient=%d main=%d task=%s target=%s secondary=%s secondaryTarget=%s",
+                        phase, index, index == mainIndex, value("SeaAI.Task").c_str(), value("SeaAI.Task.Target").c_str(),
+                        value("SeaAI.Task.Secondary").c_str(), value("SeaAI.Task.Secondary.Target").c_str());
+                    if (m_nCurrentCommandCharacterIndex == mainIndex) break;
+                }
+            };
+            if (trace)
+            {
+                traceTasks("before");
+                --traceBudget;
+                __android_log_print(ANDROID_LOG_DEBUG, "StormOrders", "launch recipient=%d event=%s target=%d locator=%s",
+                    m_nCurrentCommandCharacterIndex, m_sCurrentCommandName.c_str(), nTargIndex, sLocName.c_str());
+            }
+#endif
         core.Event("BI_LaunchCommand", "lsls", m_nCurrentCommandCharacterIndex, m_sCurrentCommandName.c_str(),
                    nTargIndex, sLocName.c_str());
+#ifdef __ANDROID__
+            if (trace) traceTasks("after");
+        }
+#endif
         m_sCurrentCommandName = "";
         break;
     default:
@@ -358,6 +399,7 @@ int32_t BICommandList::AddToIconList(int32_t nTextureNum, int32_t nNormPictureNu
     }
 
     UsedCommand uc;
+    uc.sKind = m_fillingKind;
     uc.fCooldownFactor = 1.f;
     uc.nCharIndex = nCharacterIndex;
     uc.nCooldownPictureIndex = nCooldownPictureNum;
@@ -609,3 +651,73 @@ ATTRIBUTES *BICommandList::GetCurrentCommandAttribute() const
     }
     return nullptr;
 }
+
+#ifdef __ANDROID__
+void BICommandList::ReadAndroidOrders(storm::android::SeaOrdersFrame &frame) const
+{
+    frame.items.clear();
+    frame.selectedItemId.clear();
+    frame.pendingLabel.clear();
+    if (const auto *attribute = GetCurrentCommandAttribute())
+        if (const char *note = attribute->GetAttribute("note")) frame.pendingLabel = note;
+    if (m_aUsedCommand.size() > 256) { frame.complete = false; return; }
+    for (size_t i = 0; i < m_aUsedCommand.size(); ++i)
+    {
+        const auto &command = m_aUsedCommand[i];
+        storm::android::SeaOrderItem item;
+        item.id = "i" + std::to_string(i);
+        item.kind = command.sKind;
+        item.label = command.sNote;
+        item.cooldown = command.fCooldownFactor;
+        item.enabled = command.nCooldownPictureIndex < 0 || command.fCooldownFactor >= 1.f;
+        // Include target entity identity so a reused character slot cannot
+        // inherit a pending touch even when its visible name is unchanged.
+        const auto *ship = g_ShipList.FindShip(command.nCharIndex);
+        const auto part = [](const std::string &s) { return std::to_string(s.size()) + ":" + s; };
+        item.identity = part(command.sKind) + part(command.sCommandName) + part(command.sLocName) +
+            ":" + std::to_string(command.nCharIndex) + ":" + std::to_string(command.nTargetIndex) + ":" +
+            std::to_string(ship && ship->pShip ? ship->pShip->GetId() : 0);
+        if (item.label.empty() || item.label.size() > 1024) frame.complete = false;
+        frame.items.push_back(std::move(item));
+        if (static_cast<int32_t>(i) == m_nSelectedCommandIndex) frame.selectedItemId = frame.items.back().id;
+    }
+}
+
+bool BICommandList::SelectAndroidItem(const std::string &id)
+{
+    for (size_t i = 0; i < m_aUsedCommand.size(); ++i)
+        if (id == "i" + std::to_string(i))
+        {
+            m_nSelectedCommandIndex = static_cast<int32_t>(i);
+            m_nStartUsedCommandIndex = std::max(0, m_nSelectedCommandIndex - m_nIconShowMaxQuantity + 1);
+            UpdateShowIcon(); // Preserve native target highlight/event behavior.
+            return true;
+        }
+    return false;
+}
+
+void BICommandList::ResetAndroidCommand()
+{
+    m_sCurrentCommandName.clear();
+    m_nSelectedCommandIndex = m_nStartUsedCommandIndex = 0;
+}
+
+bool BICommandList::AndroidPendingAllowed()
+{
+    if (m_sCurrentCommandName.empty()) return true;
+    core.Event("BI_SetPossibleCommands", "l", m_nCurrentCommandCharacterIndex);
+    core.Event("evntSetUsingAbility", "l", m_nCurrentCommandCharacterIndex);
+    for (const auto *collection : {"Commands", "AbilityIcons"})
+    {
+        auto *root = m_pARoot ? m_pARoot->GetAttributeClass(collection) : nullptr;
+        if (!root) continue;
+        for (size_t i = 0; i < root->GetAttributesNum(); ++i)
+        {
+            auto *entry = root->GetAttributeClass(i);
+            const char *event = entry ? entry->GetAttribute("event") : nullptr;
+            if (event && m_sCurrentCommandName == event) return entry->GetAttributeAsDword("enable", 0) != 0;
+        }
+    }
+    return false;
+}
+#endif
