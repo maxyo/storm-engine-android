@@ -138,3 +138,72 @@ index bddff02..63f447b 100644
  
          if (m_fileStream)
            m_fileStream << prefix << line << std::endl;
+diff --git a/src/d3d9/d3d9_present_extent.h b/src/d3d9/d3d9_present_extent.h
+new file mode 100644
+index 0000000..1feeba3
+--- /dev/null
++++ b/src/d3d9/d3d9_present_extent.h
+@@ -0,0 +1,17 @@
++#pragma once
++
++namespace dxvk {
++  // A null D3D9 destination means the complete output surface. Android's
++  // compositor owns buffer-to-view scaling; SDL logical dimensions need not
++  // equal the acquired Vulkan image extent. Keep explicit rectangles intact.
++  // Structural templates keep this coordinate policy independent of Vulkan
++  // headers; production uses VkRect2D/VkExtent2D, tests exercise the same code.
++  template<typename Rect, typename Extent>
++  Rect presentSurfaceRegion(Rect requested, Extent acquiredExtent, bool fullSurface) {
++    if (fullSurface) {
++      requested.offset = { 0, 0 };
++      requested.extent = acquiredExtent;
++    }
++    return requested;
++  }
++}
+diff --git a/src/d3d9/d3d9_swapchain.cpp b/src/d3d9/d3d9_swapchain.cpp
+index 673ac04..d4fce13 100644
+--- a/src/d3d9/d3d9_swapchain.cpp
++++ b/src/d3d9/d3d9_swapchain.cpp
+@@ -3,6 +3,7 @@
+ #include "d3d9_monitor.h"
+ 
+ #include "d3d9_hud.h"
++#include "d3d9_present_extent.h"
+ 
+ namespace dxvk {
+ 
+@@ -842,6 +843,13 @@ namespace dxvk {
+         {  int32_t(m_dstRect.left),                    int32_t(m_dstRect.top)                    },
+         { uint32_t(m_dstRect.right - m_dstRect.left), uint32_t(m_dstRect.bottom - m_dstRect.top) } };
+ 
++#ifdef __ANDROID__
++      // Android can retain a buffer extent different from the resized SDL
++      // window. The compositor scales that buffer to the view. Filling only
++      // the logical window rectangle would apply the resize a second time.
++      dstRect = presentSurfaceRegion(dstRect, info.imageExtent, m_presentToSurface);
++#endif
++
+       m_blitter->presentImage(m_context.ptr(),
+         m_imageViews.at(imageIndex), dstRect,
+         swapImageView, srcRect);
+@@ -1265,6 +1273,7 @@ namespace dxvk {
+ 
+ 
+   bool    D3D9SwapChainEx::UpdatePresentRegion(const RECT* pSourceRect, const RECT* pDestRect) {
++    m_presentToSurface = pDestRect == nullptr;
+     if (pSourceRect == nullptr) {
+       m_srcRect.top    = 0;
+       m_srcRect.left   = 0;
+diff --git a/src/d3d9/d3d9_swapchain.h b/src/d3d9/d3d9_swapchain.h
+index 88953b2..e390a5b 100644
+--- a/src/d3d9/d3d9_swapchain.h
++++ b/src/d3d9/d3d9_swapchain.h
+@@ -103,6 +103,7 @@ namespace dxvk {
+     
+     RECT                      m_srcRect;
+     RECT                      m_dstRect;
++    bool                      m_presentToSurface = true;
+ 
+     DxvkSubmitStatus          m_presentStatus;
+ 

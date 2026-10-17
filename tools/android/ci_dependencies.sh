@@ -41,6 +41,8 @@ ndk="$work/tools/ndk/android-ndk-r30"
 cmake -S "$work/sources/glslang" -B "$work/glslang" -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_OPT=OFF -DBUILD_TESTING=OFF -DENABLE_GLSLANG_BINARIES=ON
 cmake --build "$work/glslang" --target glslangValidator --parallel 2
 python3 "$repo/tools/android/build_dependencies.py" --ndk "$ndk" --sdl-source "$work/sources/SDL" --fmt-source "$work/sources/fmt" --dxvk-source "$work/sources/dxvk" --glslang "$work/glslang/StandAlone/glslangValidator" --build-dir "$work/dependencies" --prefix "$work/prefix" --jobs 2
+python3 "$repo/tools/android/test_sdl_surface_lifecycle.py" --sdl-source "$work/sources/SDL"
+python3 "$repo/tools/android/test_dxvk_present_extent.py" --dxvk-source "$work/sources/dxvk"
 # The audio experiment is independently tested; it is not part of the probe APK.
 python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-host"
 python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-sanitized" --sanitize
