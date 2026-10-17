@@ -103,6 +103,8 @@ class LostDeviceSentinel : public SERVICE
 {
     void RunStart() override
     {
+        if (!DX9RENDER::pRS)
+            return;
         if (auto d3d9 = static_cast<IDirect3DDevice9 *>(DX9RENDER::pRS->GetD3DDevice()))
         {
             switch (d3d9->TestCooperativeLevel())
@@ -487,6 +489,8 @@ bool DX9RENDER::Init()
     create_directories(fs::GetScreenshotsPath());
 
     auto ini = fio->OpenIniFile(core.EngineIniFileName());
+    if (!ini)
+        throw std::runtime_error("Cannot initialize renderer: engine.ini is unavailable");
     if (ini)
     {
         // bPostProcessEnabled = ini->GetInt(0, "PostProcess", 0) == 1;
@@ -573,7 +577,12 @@ bool DX9RENDER::Init()
 
         // stencil_format = D3DFMT_D24S8;
         if (!InitDevice(bWindow, static_cast<HWND>(core.GetWindow()->OSHandle()), screen_size.x, screen_size.y))
-            return false;
+#ifdef __ANDROID__
+            throw std::runtime_error("Cannot initialize renderer: Vulkan/DXVK could not create a graphics device. "
+                                     "The game cannot start with this graphics driver.");
+#else
+            throw std::runtime_error("Cannot initialize renderer: could not create a Direct3D 9 device");
+#endif
 
 #ifdef _WIN32 // Effects
         RecompileEffects();
@@ -643,7 +652,7 @@ bool DX9RENDER::Init()
                              RS_RECT_VERTEX_FORMAT, D3DPOOL_DEFAULT, &rectsVBuffer, nullptr); // D3DPOOL_MANAGED
     if (!pDropConveyorVBuffer || !rectsVBuffer)
     {
-        return false;
+        throw std::runtime_error("Cannot initialize renderer: could not allocate vertex buffers");
     }
 
     uint16_t *pI = &qi[0];
@@ -686,6 +695,7 @@ DX9RENDER::~DX9RENDER()
     S_RELEASE(pSmallPostProcessTexture, 7);
 
     S_RELEASE(rectsVBuffer, 8);
+    S_RELEASE(pDropConveyorVBuffer, 9);
 
     delete progressImage;
     progressImage = nullptr;
@@ -705,6 +715,7 @@ DX9RENDER::~DX9RENDER()
 
     STORM_DELETE(DX9sphereVertex);
     ReleaseDevice();
+    pRS = nullptr;
 }
 
 bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t height)
