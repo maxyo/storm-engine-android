@@ -1354,7 +1354,7 @@ void SEA::Realize(uint32_t dwDeltaTime)
     if (vCamPos.y < 0.0f)
         bUnderSea = true;
 
-    if (vCamPos.y < WaveXZ(vCamPos.x, vCamPos.z && bStarted))
+    if (bStarted && vCamPos.y < WaveXZ(vCamPos.x, vCamPos.z))
         bUnderSea = true;
 
     if (!bUnderSea)
