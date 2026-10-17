@@ -45,10 +45,12 @@ GEOMETRY::ANIMATION_VB GEOMETRY::GetAnimationVBDesc(int32_t vb)
 }
 
 VERTEX_TRANSFORM transform_func = nullptr;
+void *transform_context = nullptr;
 
-void GEOMETRY::SetVBConvertFunc(VERTEX_TRANSFORM _transform_func)
+void GEOMETRY::SetVBConvertFunc(VERTEX_TRANSFORM _transform_func, void *context)
 {
     transform_func = _transform_func;
+    transform_context = _transform_func ? context : nullptr;
 }
 
 static bool geoLog = false;
@@ -335,7 +337,10 @@ GEOS::ID GEOM_SERVICE_R::CreateVertexBuffer(int32_t type, int32_t size)
         for (a = 0; a < AVB_MAX; a++)
             if (avb[a].nvertices == 0)
                 break;
+        if (a == AVB_MAX) return INVALID_BUFFER_ID;
+        auto lifetime = std::make_shared<storm::render::VertexSourceLifetime>();
         avb[a].buff = new char[size];
+        avb[a].lifetime = std::move(lifetime);
         avb[a].stride = sizeof(GEOS::VERTEX0);
         avb[a].nvertices = size / sizeof(GEOS::AVERTEX0);
         avb[a].fvf = FVF;
@@ -369,14 +374,19 @@ void GEOM_SERVICE_R::ReleaseVertexBuffer(GEOS::ID vb)
 {
     if (vb == INVALID_BUFFER_ID)
         return;
-    if (RenderService)
-        if (vb >= SHIFT_VALUE)
-        {
-            delete static_cast<char*>(avb[vb - SHIFT_VALUE].buff);
-            avb[vb - SHIFT_VALUE].nvertices = 0;
-        }
-        else
-            RenderService->ReleaseVertexBuffer(vb);
+    if (vb >= SHIFT_VALUE)
+    {
+        auto& source = avb[vb - SHIFT_VALUE];
+        // Invalidate every model's dependent stream before source bytes can be
+        // freed/reused, including direct NODE replacement and descriptor copies.
+        if (source.lifetime) source.lifetime->invalidate();
+        source.lifetime.reset();
+        delete[] static_cast<char*>(source.buff);
+        source.buff = nullptr;
+        source.nvertices = 0;
+    }
+    else if (RenderService)
+        RenderService->ReleaseVertexBuffer(vb);
 }
 
 GEOS::ID GEOM_SERVICE_R::CreateIndexBuffer(int32_t size)
@@ -463,21 +473,13 @@ void GEOM_SERVICE_R::DrawIndexedPrimitive(int32_t minv, int32_t numv, int32_t vr
     {
         auto *cavb = &avb[CurentVertexBuffer - SHIFT_VALUE];
 
-        auto *transformed_vb =
-            static_cast<IDirect3DVertexBuffer9 *>(transform_func(cavb->buff, minv, numv, cavb->nvertices));
+        const auto transformed = transform_func(transform_context,cavb->buff,cavb->lifetime,minv,numv,cavb->nvertices);
+        if (!transformed) return;
         if (!bCaustic)
-        {
-            RenderService->SetStreamSource(0, transformed_vb, cavb->stride);
-            RenderService->SetFVF(cavb->fvf);
-
-            RenderService->DrawBuffer(-1, cavb->stride, CurentIndexBuffer, minv, numv, startidx, numtrg, technique);
-        }
+            RenderService->DrawBuffer(transformed.value,cavb->stride,CurentIndexBuffer,minv,numv,startidx,numtrg,technique);
         else
-        {
-            RenderService->SetStreamSource(0, transformed_vb, cavb->stride);
-            RenderService->DrawIndexedPrimitiveNoVShader(D3DPT_TRIANGLELIST, CurentVertexBuffer, 0, CurentIndexBuffer,
-                                                         minv, numv, startidx, numtrg, "caustic");
-        }
+            RenderService->DrawIndexedPrimitiveNoVShader(D3DPT_TRIANGLELIST,transformed.value,cavb->stride,
+                CurentIndexBuffer,minv,numv,startidx,numtrg,"caustic");
         return;
     }
     if (CurentIndexBuffer != INVALID_BUFFER_ID)

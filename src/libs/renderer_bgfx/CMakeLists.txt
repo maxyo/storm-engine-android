@@ -31,7 +31,7 @@ FetchContent_Declare(storm_bgfx_upstream
     GIT_SUBMODULES_RECURSE TRUE)
 FetchContent_MakeAvailable(storm_bgfx_upstream)
 
-add_library(storm_bgfx_world STATIC src/fog_pass.cpp src/fog_snapshot.cpp src/fog_frame_owner.cpp src/rgba_texture.cpp src/sky_pass.cpp)
+add_library(storm_bgfx_world STATIC src/fog_pass.cpp src/fog_snapshot.cpp src/fog_frame_owner.cpp src/rgba_texture.cpp src/sky_pass.cpp src/dynamic_vertex_stream_bgfx.cpp)
 target_compile_features(storm_bgfx_world PUBLIC cxx_std_20)
 target_include_directories(storm_bgfx_world PUBLIC include ../weather/include ../renderer/include)
 target_link_libraries(storm_bgfx_world PUBLIC bgfx)
@@ -111,4 +111,24 @@ if(NOT CMAKE_CROSSCOMPILING)
     add_dependencies(storm_bgfx_sky_check storm_bgfx_shaders)
     add_test(NAME bgfx_sky_pixels COMMAND storm_bgfx_sky_check
         "${CMAKE_CURRENT_BINARY_DIR}/vs_sky.bin" "${CMAKE_CURRENT_BINARY_DIR}/fs_sky.bin")
+endif()
+if(NOT CMAKE_CROSSCOMPILING)
+    add_executable(storm_skinning_cache_check tests/skinning_cache_check.cpp)
+    target_compile_features(storm_skinning_cache_check PRIVATE cxx_std_20)
+    target_include_directories(storm_skinning_cache_check PRIVATE ../renderer/include ../model/include)
+    add_test(NAME skinning_stream_cache COMMAND storm_skinning_cache_check)
+endif()
+if(NOT CMAKE_CROSSCOMPILING)
+    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/vs_dynamic_probe.bin"
+        COMMAND shaderc -f "${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders/vs_dynamic_probe.sc"
+            -o "${CMAKE_CURRENT_BINARY_DIR}/vs_dynamic_probe.bin" --type vertex --platform linux -p spirv
+            --varyingdef "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc"
+            -i "${storm_bgfx_upstream_SOURCE_DIR}/bgfx/src"
+        DEPENDS shaderc tests/shaders/vs_dynamic_probe.sc shaders/varying.def.sc VERBATIM)
+    add_custom_target(storm_bgfx_dynamic_probe_shader DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/vs_dynamic_probe.bin")
+    add_executable(storm_dynamic_stream_check tests/dynamic_stream_check.cpp)
+    target_link_libraries(storm_dynamic_stream_check PRIVATE storm_bgfx_world)
+    add_dependencies(storm_dynamic_stream_check storm_bgfx_shaders storm_bgfx_dynamic_probe_shader)
+    add_test(NAME bgfx_dynamic_stream_pixels COMMAND storm_dynamic_stream_check
+        "${CMAKE_CURRENT_BINARY_DIR}/vs_dynamic_probe.bin" "${CMAKE_CURRENT_BINARY_DIR}/fs_fog.bin")
 endif()

@@ -2,6 +2,7 @@
 #include "entity.h"
 #include "modelr.h"
 #include "shared/messages.h"
+#include "legacy_dynamic_vertex_stream.hpp"
 
 #ifdef _WIN32 // FIX_LINUX DirectXMath
 #include <DirectXMath.h>
@@ -9,7 +10,6 @@
 
 CREATE_CLASS(MODELR)
 
-IDirect3DVertexBuffer9 *dest_vb;
 
 MODELR::MODELR()
 {
@@ -18,21 +18,17 @@ MODELR::MODELR()
     lmPath[0] = 0;
     ani = nullptr;
     memset(aniVerts, 0, sizeof(aniVerts));
-    d3dDestVB = nullptr;
     for (int32_t i = 0; i < ANI_MAX_ACTIONS; i++)
         aniPos[i] = -1.0f;
     root = nullptr;
     useBlend = false;
     idxBuff = nullptr;
-    nAniVerts = 0;
 }
 
-CMatrix *bones;
 
 MODELR::~MODELR()
 {
-    if (d3dDestVB != nullptr)
-        d3dDestVB->Release();
+    skinnedStreams_.clear();
     delete root;
     for (auto i = 0; i < MODEL_ANI_MAXBUFFERS; i++)
         delete aniVerts[i].v;
@@ -54,21 +50,19 @@ bool MODELR::Init()
     return true;
 }
 
-bool alreadyTransformed;
-
-void *VBTransform(void *vb, int32_t startVrt, int32_t nVerts, int32_t totVerts)
+storm::render::VertexBufferId MODELR::VBTransform(void *context, const void *vb, const std::shared_ptr<storm::render::VertexSourceLifetime>& lifetime, int32_t startVrt, int32_t nVerts, int32_t totVerts)
 {
-    if (alreadyTransformed)
-        return dest_vb;
-    alreadyTransformed = true;
-    if (!totVerts)
-        return dest_vb;
-
-    auto *src = static_cast<GEOS::AVERTEX0 *>(vb);
-
-    GEOS::VERTEX0 *dst;
-    dest_vb->Lock(0, 0, (void **)&dst, D3DLOCK_DISCARD | D3DLOCK_NOSYSLOCK);
-
+    if(!context) throw std::invalid_argument("Missing skinning context");
+    auto& model=*static_cast<MODELR*>(context);
+    if(totVerts<=0 || startVrt<0 || nVerts<0 || startVrt>totVerts || nVerts>totVerts-startVrt)
+        throw std::invalid_argument("Invalid animated draw range");
+    static_assert(sizeof(GEOS::VERTEX0)==storm::render::skinnedVertexStride);
+    static_assert(offsetof(GEOS::VERTEX0,color)==storm::render::skinnedColorOffset);
+    auto* bones=&model.ani->GetAnimationMatrix(0);
+    const auto* src=static_cast<const GEOS::AVERTEX0*>(vb);
+    return model.skinnedStreams_.transform(vb,lifetime,uint32_t(totVerts),
+        [&] {return storm::render::makeLegacyDynamicVertexStream(*model.rs);},
+        [&](GEOS::VERTEX0* dst) {
 #ifndef _WIN32 // FIX_LINUX DirectXMath
     CMatrix mtx;
 #endif
@@ -149,8 +143,7 @@ void *VBTransform(void *vb, int32_t startVrt, int32_t nVerts, int32_t totVerts)
         dstVrt.tv = vrt.tv0;
     }
 
-    dest_vb->Unlock();
-    return dest_vb;
+        });
 }
 
 void SetChildrenTechnique(NODE *_root, const char *_name)
@@ -223,54 +216,13 @@ void MODELR::Realize(uint32_t Delta_Time)
     // if have animation - special render
     if (ani)
     {
-        // create VB
-        if (d3dDestVB == nullptr)
-        {
-            // calculate total number of vertices
-            GEOS::INFO gi;
-            root->geo->GetInfo(gi);
-            nAniVerts = 0;
-            for (int32_t vb = 0; vb < gi.nvrtbuffs; vb++)
-            {
-                int32_t avb = root->geo->GetVertexBuffer(vb);
-                VGEOMETRY::ANIMATION_VB gavb = GeometyService->GetAnimationVBDesc(avb);
-                nAniVerts += gavb.nvertices;
-            }
-
-            int32_t fvf = D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE | D3DFVF_TEXTUREFORMAT2 | D3DFVF_TEX1;
-            rs->CreateVertexBuffer(sizeof(GEOS::VERTEX0) * nAniVerts, D3DUSAGE_WRITEONLY | D3DUSAGE_DYNAMIC, fvf,
-                                   D3DPOOL_DEFAULT, &d3dDestVB);
-        }
-        dest_vb = d3dDestVB;
-
-        alreadyTransformed = true;
-        for (int32_t i = 0; i < 2; i++)
-        {
-            if (ani->Player(i).IsPlaying())
-            {
-                float ap = ani->Player(i).GetPosition();
-                if (aniPos[i] != ap)
-                    alreadyTransformed = false;
-                aniPos[i] = ap;
-            }
-            else
-            {
-                if (aniPos[i] != -1.0f)
-                    alreadyTransformed = false;
-                aniPos[i] = -1.0f;
-            }
-        }
-
-        GeometyService->SetVBConvertFunc(VBTransform);
-
-        bones = &ani->GetAnimationMatrix(0);
+        skinnedStreams_.beginPose(); // All bone-matrix inputs, including stationary actions.
+        GeometyService->SetVBConvertFunc(VBTransform,this);
+        struct ClearTransform {
+            VGEOMETRY* geometry;
+            ~ClearTransform() {geometry->SetVBConvertFunc(nullptr);}
+        } clearTransform{GeometyService};
         root->Draw();
-        GeometyService->SetVBConvertFunc(nullptr);
-        if (!alreadyTransformed)
-        {
-            aniPos[0] = -2.0f;
-            aniPos[1] = -2.0f;
-        }
     }
     else
         root->Draw();
@@ -370,6 +322,9 @@ uint64_t MODELR::ProcessMessage(MESSAGE &message)
     {
         str = message.String();
         auto asr = static_cast<AnimationService *>(core.GetService("AnimationServiceImp"));
+        skinnedStreams_.clear();
+        delete ani;
+        ani = nullptr;
         ani = asr->CreateAnimation(str.c_str());
         if (ani)
             return 1;
@@ -535,7 +490,7 @@ float MODELR::Trace(const CVECTOR &src, const CVECTOR &dst)
         // if(core.Controls->GetAsyncKeyState(VK_SHIFT)<0 && dist2ray2 > dlmn*root->radius*root->radius)    return 2.0f;
 
         // get bones
-        bones = &ani->GetAnimationMatrix(0);
+        auto* bones = &ani->GetAnimationMatrix(0);
 
         CVECTOR _src, _dst;
         root->glob_mtx.MulToInv(src, _src);
@@ -742,15 +697,12 @@ void MODELR::FindPlanes(const CMatrix &view, const CMatrix &proj)
 
 void MODELR::LostRender()
 {
+    skinnedStreams_.clear();
     root->ReleaseGeometry();
-    rs->Release(d3dDestVB);
 }
 
 void MODELR::RestoreRender()
 {
     root->RestoreGeometry();
-    const int32_t fvf = D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE | D3DFVF_TEXTUREFORMAT2 | D3DFVF_TEX1;
-    if (nAniVerts)
-        rs->CreateVertexBuffer(sizeof(GEOS::VERTEX0) * nAniVerts, D3DUSAGE_WRITEONLY | D3DUSAGE_DYNAMIC, fvf,
-                               D3DPOOL_DEFAULT, &d3dDestVB);
+    skinnedStreams_.clear(); // First draw uploads each restored source buffer.
 }

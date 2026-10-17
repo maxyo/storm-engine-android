@@ -30,3 +30,10 @@ extern "C" void storm_bgfx_sky_link_probe(storm::render::TextureStore* textures,
     pass.update({vertices,vertexCount},{indices,indexCount});
     pass.submit(*draw);
 }
+
+#include "dynamic_vertex_stream_bgfx.hpp"
+extern "C" void storm_bgfx_dynamic_stream_link_probe(const std::byte* bytes,size_t size) {
+    storm::render::BgfxDynamicVertexStream stream;
+    stream.upload({bytes,size});
+    stream.bind();
+}

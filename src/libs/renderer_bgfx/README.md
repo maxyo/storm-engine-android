@@ -53,3 +53,24 @@ Resolution/vsync settings apply; `bgfx_preview_fog=0/1` toggles the pass.
 `STORM_BGFX_BUILD_SDL_PREVIEW=ON` additionally builds the SDL lifetime check when
 SDL2 is available. Run `storm_bgfx_preview_check <shader-output-directory>` on an
 X11 display (or under `xvfb-run -a`). No test should use the shared Android device.
+
+## Animated vertex streams
+
+`DynamicVertexStream` owns a complete position/normal/ARGB/UV pose (36-byte
+vertices) and exposes an ID valid only for its lifetime and selected renderer.
+`SkinningStreamCache` keeps separate CPU staging and GPU streams per source VB;
+source-lifetime invalidation releases its dependent buffers before geometry teardown.
+Each animated Realize begins a new pose epoch, including stationary or paused
+actors: normalized animation position alone cannot identify head/blend/action
+changes. A source uploads once within that draw. Staging adds a CPU copy per
+animated source buffer; this conservative correctness policy does not establish
+a performance improvement. Measure its CPU, GPU and memory costs on real scenes
+and devices.
+
+The geometry transform callback now takes an explicit context and returns a
+`VertexBufferId`. Rebuild all geometry/model consumers together; old callback
+binaries are incompatible. Legacy geometry draws by the actual registered buffer
+ID, including the caustic path. The bgfx stream implements upload/binding only:
+actor materials, lighting and geometry index-resource dispatch still need porting.
+`bgfx_dynamic_stream_pixels` validates the upload layout with a test-only shader;
+it is not a completed character-rendering shader.

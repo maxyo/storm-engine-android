@@ -1,6 +1,8 @@
 #pragma once
 
 #include "geos.h"
+#include "dynamic_vertex_stream.hpp"
+#include "vertex_source_lifetime.hpp"
 #include "service.h"
 #include "vma.hpp"
 
@@ -12,7 +14,7 @@ class ANIMATION
     virtual void SetMatrix() = 0;
 };
 
-using VERTEX_TRANSFORM = void *(*)(void *vb, int32_t startVrt, int32_t nVerts, int32_t totVerts);
+using VERTEX_TRANSFORM = storm::render::VertexBufferId (*)(void *context, const void *vb, const std::shared_ptr<storm::render::VertexSourceLifetime>& lifetime, int32_t startVrt, int32_t nVerts, int32_t totVerts);
 
 class VGEOMETRY : public SERVICE
 {
@@ -24,6 +26,7 @@ class VGEOMETRY : public SERVICE
         int32_t fvf;
         int32_t stride;
         void *buff;
+        std::shared_ptr<storm::render::VertexSourceLifetime> lifetime;
     };
 
     ~VGEOMETRY() override{};
@@ -32,7 +35,7 @@ class VGEOMETRY : public SERVICE
     virtual void DeleteGeometry(GEOS *) = 0;
     virtual ANIMATION *LoadAnimation(const char *anim) = 0;
     virtual void SetTechnique(const char *name) = 0;
-    virtual void SetVBConvertFunc(VERTEX_TRANSFORM _transform_func) = 0;
+    virtual void SetVBConvertFunc(VERTEX_TRANSFORM _transform_func, void *context = nullptr) = 0;
     virtual ANIMATION_VB GetAnimationVBDesc(int32_t avb) = 0;
 
     virtual const char *GetTexturePath() = 0;
