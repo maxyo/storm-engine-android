@@ -288,6 +288,7 @@ BITextInfo::BITextInfo(BITextInfo &&text_info) noexcept
 {
     pRS = text_info.pRS;
     sText = std::move(text_info.sText);
+    sourceName = std::move(text_info.sourceName);
     pos = std::move(text_info.pos);
     fScale = text_info.fScale;
     nFont = text_info.nFont;
@@ -302,6 +303,7 @@ BITextInfo::BITextInfo(const BITextInfo &text_info)
 {
     pRS = text_info.pRS;
     sText = text_info.sText;
+    sourceName = text_info.sourceName;
     pos = text_info.pos;
     fScale = text_info.fScale;
     nFont = text_info.nFont;
@@ -333,6 +335,7 @@ void BITextInfo::Init(VDX9RENDER *rs, ATTRIBUTES *pA)
 {
     FONT_RELEASE(pRS, nFont);
     pRS = rs;
+    sourceName = pA ? pA->GetThisName() : "";
     if (!pRS || !pA)
         return;
 

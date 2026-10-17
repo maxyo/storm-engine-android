@@ -86,6 +86,9 @@ inline ShipTelemetryFrame readShipTelemetry(const GameplayState &gameplay)
         if (!ship) return out;
         out.valid = true;
         out.ship = shipEntry(ship);
+        readShipCaptions(out, ship->GetId());
+        auto *powder = character->FindAClass(character, "Ship.Cargo.Goods.powder");
+        if (powder && powder->HasValue()) out.powderCount = shipPowderCount(powder->GetValue());
         const auto sailState = ship->GetSailState();
         if (std::isfinite(sailState) && sailState >= 0 && sailState <= 1) out.sailState = sailState;
         out.canSetSails = shipSailControlAllowed(ship, gameplay);

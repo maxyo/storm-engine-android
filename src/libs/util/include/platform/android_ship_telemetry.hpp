@@ -3,11 +3,16 @@
 #include <cmath>
 #include <cstdlib>
 #include <cctype>
+#include <limits>
+#include <cstdio>
 
 namespace storm::android
 {
 enum ShipHudMask : uint32_t { ShipHull = 1, ShipCrew = 2, ShipAmmo = 4, ShipSailPosition = 8,
-                             ShipSailIntegrity = 16, ShipFleet = 32 };
+                             ShipSailIntegrity = 16, ShipFleet = 32, ShipSpeed = 64, ShipPowder = 128,
+                             ShipDateTime = 256, ShipLocation = 512, ShipWind = 1024,
+                             ShipAll = 2047 };
+inline constexpr uint32_t ShipCaptions = ShipSpeed | ShipPowder | ShipDateTime | ShipLocation | ShipWind;
 // Runtime text is UTF-8 in the engine's resource pipeline. Never guess another
 // encoding: malformed metadata is omitted, while valid names are clipped only
 // between code points. Keep the entire JSON payload valid and bounded.
@@ -43,6 +48,62 @@ inline std::optional<double> shipNumberValue(std::string_view text)
     while (end < input.data() + input.size() && std::isspace(static_cast<unsigned char>(*end))) ++end;
     if (end != input.data() + input.size() || !std::isfinite(value) || value < 0) return {};
     return value;
+}
+// Captions must be complete: clipping a date/location must never authorize hiding
+// its native counterpart. Reject malformed UTF-8, controls and oversize input.
+inline std::string shipCaptionText(std::string_view text)
+{
+    if (text.size() > 160) return {};
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) text.remove_prefix(1);
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) text.remove_suffix(1);
+    for (size_t i = 0; i < text.size();)
+    {
+        const auto lead = static_cast<unsigned char>(text[i]);
+        const size_t count = lead >= 0x20 && lead <= 0x7e ? 1 : lead >= 0xc2 && lead <= 0xdf ? 2 :
+            lead >= 0xe0 && lead <= 0xef ? 3 : lead >= 0xf0 && lead <= 0xf4 ? 4 : 0;
+        if (!count || i + count > text.size()) return {};
+        for (size_t j = 1; j < count; ++j)
+            if ((static_cast<unsigned char>(text[i + j]) & 0xc0) != 0x80) return {};
+        if (count >= 3)
+        {
+            const auto second = static_cast<unsigned char>(text[i + 1]);
+            if ((lead == 0xe0 && second < 0xa0) || (lead == 0xed && second >= 0xa0) ||
+                (lead == 0xf0 && second < 0x90) || (lead == 0xf4 && second > 0x8f)) return {};
+        }
+        i += count;
+    }
+    return std::string(text);
+}
+inline std::string shipDateTimeText(std::string_view text, std::string_view prefix)
+{
+    if (prefix.empty() || shipCaptionText(prefix).empty() || !text.starts_with(prefix)) return {};
+    return shipCaptionText(text.substr(prefix.size()));
+}
+inline std::optional<double> shipDisplayedSpeed(double value)
+{
+    if (!std::isfinite(value)) return {};
+    // Match the original ExtPrint %.1f rounding, including signed reverse speed.
+    char display[64];
+    const int length = std::snprintf(display, sizeof(display), "%.1f", value);
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(display)) return {};
+    char *end = nullptr;
+    const auto rounded = std::strtod(display, &end);
+    if (end != display + length || !std::isfinite(rounded)) return {};
+    return rounded == 0 ? 0 : rounded;
+}
+inline std::optional<int32_t> shipPowderCount(std::string_view text)
+{
+    const auto value = shipNumberValue(text);
+    if (!value || *value > std::numeric_limits<int32_t>::max() || std::floor(*value) != *value) return {};
+    return static_cast<int32_t>(*value);
+}
+inline uint32_t shipCaptionMask(bool visible, bool commandActive, uint32_t mask)
+{
+    return visible && !commandActive ? mask : mask & ~ShipCaptions;
+}
+inline bool shipHideSpeedHeading(uint32_t mask)
+{
+    return (mask & (ShipSpeed | ShipWind)) == (ShipSpeed | ShipWind);
 }
 struct ShipMetric
 {
@@ -82,6 +143,10 @@ struct ShipTelemetryFrame
     int ammoType = -1;
     std::optional<double> ammoCount, sailState;
     bool canSetSails = false;
+    bool captionsVisible = false;
+    std::optional<double> shipSpeedKnots, windSpeed;
+    std::optional<int32_t> powderCount;
+    std::string dateTimeText, locationText;
     bool operator==(const ShipTelemetryFrame &) const = default;
     uint32_t availableMask() const
     {
@@ -91,9 +156,22 @@ struct ShipTelemetryFrame
         if (!ammo.empty() && ammoType >= 0 && ammoCount) mask |= ShipAmmo;
         if (std::all_of(fleet.begin(), fleet.end(), [](const auto &entry) {
             return entry.hull && entry.crew && entry.sails && !entry.name.empty(); })) mask |= ShipFleet;
+        if (captionsVisible)
+        {
+            if (shipSpeedKnots) mask |= ShipSpeed;
+            if (windSpeed) mask |= ShipWind;
+            if (powderCount) mask |= ShipPowder;
+            if (!dateTimeText.empty()) mask |= ShipDateTime;
+            if (!locationText.empty()) mask |= ShipLocation;
+        }
         return mask;
     }
 };
+// Resolve current battle-interface captions on the game thread; implemented by battle_interface.
+#ifdef __ANDROID__
+void readShipCaptions(ShipTelemetryFrame &frame, uint64_t mainShipId);
+#endif
+
 // Native and Java exchange value copies only. All instances are game-thread owned.
 class ShipTelemetryState
 {
@@ -157,10 +235,13 @@ public:
             // Java has rendered it. Ordinary changing HP values retain the ACK.
             const bool sameFleet = sameFleetIdentity();
             const bool sameMain = frame_.ship.entityId == frame.ship.entityId;
-            if (!sameFleet || !sameMain || frame_.availableMask() != frame.availableMask())
+            if (!sameFleet || !sameMain || frame_.availableMask() != frame.availableMask() ||
+                frame_.captionsVisible != frame.captionsVisible)
             {
                 ++hudRevision_;
                 forcePublish_ = true;
+                // Caption visibility/availability generations require a fresh render.
+                acknowledged_ &= ~ShipCaptions;
             }
             if (!sameFleet) acknowledged_ &= ~ShipFleet;
             if (!sameMain) { acknowledged_ = 0; target_.reset(); }
@@ -192,7 +273,7 @@ public:
         uint64_t hudRevision = 0;
         const auto generation = std::from_chars(request.data() + lastTab + 1, request.data() + request.size(), hudRevision);
         if (!parsed || generation.ec != std::errc() || generation.ptr != request.data() + request.size() ||
-            hudRevision != hudRevision_ || parsed->first != revision_ || parsed->second > 63 || !frame_.valid) return false;
+            hudRevision != hudRevision_ || parsed->first != revision_ || parsed->second > ShipAll || !frame_.valid) return false;
         acknowledged_ = parsed->second & frame_.availableMask();
         return true;
     }
@@ -219,6 +300,12 @@ public:
         if (frame_.valid)
         {
             appendEntry(result, frame_.ship);
+            result += std::string(",\"captionsVisible\":") + (frame_.captionsVisible ? "true" : "false");
+            if (frame_.shipSpeedKnots) result += ",\"shipSpeedKnots\":" + std::to_string(*frame_.shipSpeedKnots);
+            if (frame_.windSpeed) result += ",\"windSpeed\":" + std::to_string(*frame_.windSpeed);
+            if (frame_.powderCount) result += ",\"powderCount\":" + std::to_string(*frame_.powderCount);
+            if (!frame_.dateTimeText.empty()) result += ",\"dateTimeText\":" + gameplayJsonString(frame_.dateTimeText);
+            if (!frame_.locationText.empty()) result += ",\"locationText\":" + gameplayJsonString(frame_.locationText);
             if (!frame_.ammo.empty()) result += ",\"ammo\":" + gameplayJsonString(frame_.ammo);
             if (frame_.ammoType >= 0) result += ",\"ammoType\":" + std::to_string(frame_.ammoType);
             if (frame_.ammoCount) result += ",\"ammoCount\":" + std::to_string(*frame_.ammoCount);

@@ -10,6 +10,10 @@
 #define FIRERANGE_QUANTITY (BI_ONESIDE_SIZE + 1) * BI_SIDE_QUANTITY
 #define MAX_ENEMY_SHIP_QUANTITY 20
 
+#ifdef __ANDROID__
+namespace storm::android { struct ShipTelemetryFrame; }
+#endif
+
 class BATTLE_NAVIGATOR
 {
     VDX9RENDER *rs{};
@@ -22,6 +26,9 @@ class BATTLE_NAVIGATOR
     ~BATTLE_NAVIGATOR();
 
     void Draw() const;
+#ifdef __ANDROID__
+    void ReadAndroidSpeeds(storm::android::ShipTelemetryFrame &frame, uint64_t mainShipId) const;
+#endif
     void Update();
     void Init(VDX9RENDER *RenderService, Entity *pOwnerEI);
     void SetIsland();
@@ -98,6 +105,10 @@ class BATTLE_NAVIGATOR
     float m_fYPos{};
     float m_fAngle{};
     float m_fShipSpeed{};
+#ifdef __ANDROID__
+    uint64_t m_speedShipId{};
+    bool m_shipSpeedAvailable = false, m_windSpeedAvailable = false;
+#endif
     float m_fMaxShipSpeed{};
     float m_fShipSpeedScale{-1.f};
     float m_fShipWindAgainst{};

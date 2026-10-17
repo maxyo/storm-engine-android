@@ -20,6 +20,7 @@ class BITextInfo final
 
     VDX9RENDER *pRS;
     std::string sText;
+    std::string sourceName; // Stable source identity, including non-refreshable captions.
     POINT pos;
     float fScale;
     int32_t nFont;

@@ -3,6 +3,9 @@
 #include <stdio.h>
 
 #include "i_battle.h"
+#ifdef __ANDROID__
+#include "../../../xinterface/src/string_service.h"
+#endif
 
 #include "core.h"
 #include "vma.hpp"
@@ -155,6 +158,9 @@ void BATTLE_INTERFACE::Execute(uint32_t delta_time)
 
 void BATTLE_INTERFACE::Realize(uint32_t delta_time)
 {
+#ifdef __ANDROID__
+    m_androidCaptionsDrawn = false;
+#endif
     if (core.Controls->GetDebugAsyncKeyState('K') < 0)
         return;
     if (m_bNeedIslandSet)
@@ -179,20 +185,27 @@ void BATTLE_INTERFACE::Realize(uint32_t delta_time)
             if (m_bShowCommandMenu)
                 m_pShipIcon->Draw();
             if (m_bShowBattleNavigator)
+            {
+#ifdef __ANDROID__
+                m_androidCaptionsDrawn = true;
+#endif
                 BattleNavigator.Draw();
+            }
             // if( m_pMessageIcons ) m_pMessageIcons->Draw();
 
             if (m_bShowBattleNavigator)
             {
 #ifdef __ANDROID__
-                const uint32_t mobileMask = AttributesPointer && AttributesPointer->GetAttributeAsDword("ComState", 0) ?
-                    0 : storm::android::mobileShipHudMask();
+                const uint32_t mobileMask = AndroidCommandActive() ? 0 :
+                    storm::android::shipCaptionMask(AndroidCaptionsVisible(), false, storm::android::mobileShipHudMask());
                 for (auto &text : m_TextArray)
                 {
-                    // Ammo count is replaced only together with its selected type.
-                    // Powder, wind/speed and all other native labels stay visible.
-                    if ((mobileMask & storm::android::ShipAmmo) && text.pARefresh &&
-                        storm::iEquals(text.pARefresh->GetThisName(), "Ammo")) continue;
+                    const auto &name = text.sourceName;
+                    if (((mobileMask & storm::android::ShipAmmo) && storm::iEquals(name, "Ammo")) ||
+                        ((mobileMask & storm::android::ShipPowder) && storm::iEquals(name, "Powder")) ||
+                        ((mobileMask & storm::android::ShipDateTime) && storm::iEquals(name, "Date")) ||
+                        ((mobileMask & storm::android::ShipLocation) && storm::iEquals(name, "Location")) ||
+                        (storm::android::shipHideSpeedHeading(mobileMask) && storm::iEquals(name, "Speed"))) continue;
                     text.Print();
                 }
 #else
@@ -430,3 +443,44 @@ void BATTLE_INTERFACE::EnableMessageIcons(VDATA *pvdat)
 
     m_pMessageIcons->StartData( pAttr, pLeft );*/
 }
+
+#ifdef __ANDROID__
+bool BATTLE_INTERFACE::AndroidCommandActive() const
+{
+    return (m_pShipIcon && m_pShipIcon->IsActive()) ||
+        (AttributesPointer && AttributesPointer->GetAttributeAsDword("ComState", 0));
+}
+
+bool BATTLE_INTERFACE::AndroidCaptionsVisible() const
+{
+    return m_androidCaptionsDrawn && m_bYesShowAll && m_bVisible && m_bShowBattleNavigator &&
+        !AndroidCommandActive();
+}
+
+void BATTLE_INTERFACE::ReadAndroidCaptions(storm::android::ShipTelemetryFrame &frame, uint64_t mainShipId) const
+{
+    frame.captionsVisible = AndroidCaptionsVisible();
+    if (!frame.captionsVisible) return;
+    BattleNavigator.ReadAndroidSpeeds(frame, mainShipId);
+    for (const auto &text : m_TextArray)
+    {
+        if (text.nFont == -1) continue;
+        const auto *value = text.pARefresh ? text.pARefresh->GetAttribute("text") : text.sText.c_str();
+        if (!value) continue;
+        if (storm::iEquals(text.sourceName, "Date"))
+        {
+            auto *strings = static_cast<VSTRSERVICE *>(core.GetService("STRSERVICE"));
+            const auto *prefix = strings ? strings->GetString("Date:") : nullptr;
+            if (prefix) frame.dateTimeText = storm::android::shipDateTimeText(value, prefix);
+        }
+        else if (storm::iEquals(text.sourceName, "Location"))
+            frame.locationText = storm::android::shipCaptionText(value);
+    }
+}
+
+void storm::android::readShipCaptions(ShipTelemetryFrame &frame, uint64_t mainShipId)
+{
+    if (auto *battleInterface = dynamic_cast<BATTLE_INTERFACE *>(core.GetEntityPointer(BIUtils::idBattleInterface)))
+        battleInterface->ReadAndroidCaptions(frame, mainShipId);
+}
+#endif

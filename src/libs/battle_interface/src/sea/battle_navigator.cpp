@@ -1,5 +1,6 @@
 #include <platform/android_ui.hpp>
 #include "battle_navigator.h"
+#include "i_battle.h"
 #include <stdio.h>
 
 #include "core.h"
@@ -52,9 +53,9 @@ void BATTLE_NAVIGATOR::Draw() const
         return;
     int n;
 #ifdef __ANDROID__
-    const auto *attributes = m_pOwnerEI ? m_pOwnerEI->AttributesPointer : nullptr;
-    const uint32_t mobileMask = attributes && attributes->GetAttributeAsDword("ComState", 0) ?
-        0 : storm::android::mobileShipHudMask();
+    const auto *owner = static_cast<const BATTLE_INTERFACE *>(m_pOwnerEI);
+    const uint32_t mobileMask = !owner || owner->AndroidCommandActive() ?
+        0 : storm::android::shipCaptionMask(owner->AndroidCaptionsVisible(), false, storm::android::mobileShipHudMask());
 #endif
 
     // set world matrix
@@ -153,9 +154,15 @@ void BATTLE_NAVIGATOR::Draw() const
         rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCourseVBuf, sizeof(BI_ONETEXTURE_VERTEX), 4, 2, "battle_rectangle");
     }
 
-    // print wind and ship speed
+    // Each numeric caption is hidden only after its own Android draw ACK.
+#ifdef __ANDROID__
+    if (!(mobileMask & storm::android::ShipWind))
+#endif
     rs->ExtPrint(m_speedFont, 0xFFFFFFFF, 0, PR_ALIGN_CENTER, true, m_fFontScale, 0, 0, m_xWindSpeed, m_ySpeedShow,
                  "%.1f", m_fWindStrength);
+#ifdef __ANDROID__
+    if (!(mobileMask & storm::android::ShipSpeed))
+#endif
     rs->ExtPrint(m_speedFont, 0xFFFFFFFF, 0, PR_ALIGN_CENTER, true, m_fFontScale, 0, 0, m_xShipSpeed, m_ySpeedShow,
                  "%.1f", m_fShipSpeed);
 
@@ -178,9 +185,15 @@ void BATTLE_NAVIGATOR::Draw() const
         rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 12, 2,
                           m_bPowderRunOut ? "battle_texure_blend_tf" : "battle_rectangle");
     }
-    // show wind icon
-    rs->TextureSet(0, m_idWindTexture);
-    rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 4, 2, "battle_rectangle");
+    // Wind strength/state icon shares the numeric wind replacement ACK.
+    // The separate compass wind-direction arrow above always remains native.
+#ifdef __ANDROID__
+    if (!(mobileMask & storm::android::ShipWind))
+#endif
+    {
+        rs->TextureSet(0, m_idWindTexture);
+        rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 4, 2, "battle_rectangle");
+    }
     // show sails position icon
 #ifdef __ANDROID__
     if (!(mobileMask & storm::android::ShipSailPosition))
@@ -926,6 +939,9 @@ int32_t BATTLE_NAVIGATOR::SetCircleVertexTex(BI_ONETEXTURE_VERTEX *v, float x, f
 
 void BATTLE_NAVIGATOR::SetMainCharacterData()
 {
+#ifdef __ANDROID__
+    m_shipSpeedAvailable = false;
+#endif
     m_fCurAnglLeftCharge = 0;
     m_fCurAnglRightCharge = 0;
     m_fCurAnglForwardCharge = 0;
@@ -956,6 +972,14 @@ void BATTLE_NAVIGATOR::SetMainCharacterData()
     m_fAngle = cAng.y;
     m_fShipSpeed = static_cast<SHIP_BASE *>(psd->pShip)->State.vSpeed.z;
     m_fShipSpeed *= m_fShipSpeedScale; // speed reduction is more necessary here
+#ifdef __ANDROID__
+    const auto *scaleText = m_pOwnerEI && m_pOwnerEI->AttributesPointer ?
+        m_pOwnerEI->AttributesPointer->GetAttribute("ShipSpeedScaler") : nullptr;
+    const auto scale = scaleText ? storm::android::shipNumberValue(scaleText) : std::nullopt;
+    m_speedShipId = psd->pShip->GetId();
+    m_shipSpeedAvailable = scale && *scale > 0 && std::isfinite(m_fShipSpeedScale) &&
+        m_fShipSpeedScale > 0 && std::isfinite(m_fShipSpeed);
+#endif
     if (m_fShipSpeed > m_fMaxShipSpeed)
         m_fCurAnglShipSpeed = m_fEndAnglShipSpeed;
     else
@@ -1512,6 +1536,9 @@ void BATTLE_NAVIGATOR::UpdateCurrentCharge()
 
 void BATTLE_NAVIGATOR::UpdateWindParam()
 {
+#ifdef __ANDROID__
+    m_windSpeedAvailable = false;
+#endif
     if (!m_wb && !m_pAWeather)
     {
         m_wb = static_cast<WEATHER_BASE *>(core.GetEntityPointer(core.GetEntityId("weather")));
@@ -1525,10 +1552,18 @@ void BATTLE_NAVIGATOR::UpdateWindParam()
     {
         m_fWindAngle = m_wb->GetFloat(whf_wind_angle);
         m_fWindStrength = m_wb->GetFloat(whf_wind_speed);
+#ifdef __ANDROID__
+        m_windSpeedAvailable = std::isfinite(m_fWindStrength) && m_fWindStrength >= 0;
+#endif
     }
     if (m_pAWeather)
     {
         m_fWindStrength = m_pAWeather->GetAttributeAsFloat("WindSpeed");
+#ifdef __ANDROID__
+        const char *windText = m_pAWeather->GetAttribute("WindSpeed");
+        m_windSpeedAvailable = windText && storm::android::shipNumberValue(windText).has_value() &&
+            std::isfinite(m_fWindStrength) && m_fWindStrength >= 0;
+#endif
         m_fWindAngle = m_pAWeather->GetAttributeAsFloat("WindAngle");
     }
 }
@@ -1545,3 +1580,13 @@ void BATTLE_NAVIGATOR::RestoreRender()
     // rs->CreateTexture(MAP_TEXTURE_WIDTH, MAP_TEXTURE_HEIGHT, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5,
     // D3DPOOL_DEFAULT, &m_pIslandTexture);
 }
+
+#ifdef __ANDROID__
+void BATTLE_NAVIGATOR::ReadAndroidSpeeds(storm::android::ShipTelemetryFrame &frame, uint64_t mainShipId) const
+{
+    if (m_shipSpeedAvailable && m_speedShipId == mainShipId)
+        frame.shipSpeedKnots = storm::android::shipDisplayedSpeed(m_fShipSpeed);
+    if (m_windSpeedAvailable)
+        frame.windSpeed = storm::android::shipDisplayedSpeed(m_fWindStrength);
+}
+#endif

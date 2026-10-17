@@ -11,4 +11,4 @@ with tempfile.TemporaryDirectory(prefix='storm-ship-') as d:
                     '-I'+str(root/'src/libs/util/include'), str(Path(__file__).with_name('check.cpp')),
                     '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
-print('PASS: ship telemetry validity, ready masks, stable gameplay epochs, throttle, sail guards and coalescing, lifecycle')
+print('PASS: ship telemetry validity, ready masks, stable gameplay epochs, caption UTF-8/date/speeds/visibility, throttle, sail guards and coalescing, lifecycle')
