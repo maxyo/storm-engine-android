@@ -211,7 +211,8 @@ void LegacyDialog::Realize(uint32_t deltaTime)
 
 #ifdef __ANDROID__
     const bool mobileDialogue = storm::android::publishDialogue(this, AttributesPointer, characterName_.c_str());
-    if (auto *choice = storm::android::takeDialogueChoice(this, AttributesPointer)) {
+    if (auto *choice = storm::android::takeDialogueChoice(this, AttributesPointer,
+            [this](std::string_view text) { return linkDescribe_.FitsEditWidth(text); })) {
         AttributesPointer->SetAttribute("CurrentNode", choice->GetAttribute("go"));
         PlayTick();
         core.Event("DialogEvent");

@@ -695,7 +695,8 @@ void DIALOG::Realize(uint32_t Delta_Time)
 
 #ifdef __ANDROID__
     const bool mobileDialogue = storm::android::publishDialogue(this, AttributesPointer, m_sTalkPersName.c_str());
-    if (auto *choice = storm::android::takeDialogueChoice(this, AttributesPointer)) {
+    if (auto *choice = storm::android::takeDialogueChoice(this, AttributesPointer,
+            [this](std::string_view text) { return linkDescribe_.FitsEditWidth(text); })) {
         const char *goName = choice->GetAttribute("go");
         if (storm::iEquals(goName, selectedLinkName)) EmergencyExit();
         else {

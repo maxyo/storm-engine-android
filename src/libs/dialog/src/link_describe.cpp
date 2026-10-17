@@ -272,6 +272,12 @@ bool DlgLinkDescribe::IsInEditMode() const noexcept
     return editMode_;
 }
 
+bool DlgLinkDescribe::FitsEditWidth(std::string_view text) const
+{
+    return renderer_ && windowWidth_ > 0 &&
+        renderer_->StringWidth(text, fontId_, fontScale_, 0) <= windowWidth_;
+}
+
 bool DlgLinkDescribe::CanMoveUp() const noexcept
 {
     return selectedLine_ > 0;
