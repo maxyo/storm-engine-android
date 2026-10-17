@@ -483,6 +483,18 @@ void CXI_PICTURE::MobileCollect(std::vector<MobileWidget> &widgets) const
         if (!ref.handle)
             return;
         MobileWidget widget{m_nodeName, "image", "", "", -1, m_rect.top * 8192 + m_rect.left, false};
+        // The stock tab's active artwork is named TabDeSelected. Compare the
+        // actual atlas crop; no optimistic Android state or image paths leak.
+        const std::string name = m_nodeName ? m_nodeName : "";
+        if (name.size() == 8 && name.compare(0, 7, "TABBTN_") == 0 && name[7] >= '1' && name[7] <= '4' &&
+            m_pcGroupName && storm::iEquals(m_pcGroupName, "TABS"))
+        {
+            FXYRECT active;
+            if (pPictureService->GetTexturePos(m_pcGroupName, "TabDeSelected", active))
+                widget.value = m_v[0].tu == active.left && m_v[0].tv == active.top &&
+                                       m_v[3].tu == active.right && m_v[3].tv == active.bottom
+                                   ? "1" : "0";
+        }
         widget.enabled = m_bSelected && m_bClickable && !m_bLockStatus;
         if (widget.enabled && (CheckCommandUsed(ACTION_MOUSECLICK) || CheckCommandUsed(ACTION_ACTIVATE)))
             widget.actions.push_back("press");

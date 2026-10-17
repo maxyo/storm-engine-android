@@ -1,6 +1,7 @@
 #include "../mobile_image_bridge.hpp"
 #ifdef __ANDROID__
 #include "platform/android_ui.hpp"
+#include "../mobile_inventory.hpp"
 #endif
 #include "xi_table.h"
 
@@ -1505,19 +1506,11 @@ void CXI_TABLE::RecalculateLineHeights()
 }
 
 #ifdef __ANDROID__
-namespace
-{
-std::string MobileTableRowId(ATTRIBUTES *row)
-{
-    auto *data = row ? row->GetAttributeClass("UserData") : nullptr;
-    const char *id = data ? data->GetAttribute("ID") : nullptr;
-    return id ? std::string(id) : std::string();
-}
-} // namespace
 void CXI_TABLE::MobileCollect(std::vector<MobileWidget> &widgets) const
 {
     auto *root = core.Entity_GetAttributeClass(g_idInterface, m_nodeName);
     if (!root) return;
+    auto *characters = core.Entity_GetAttributeClass(g_idInterface, "CHARACTERS_SCROLL");
     for (int row = 0; row < m_nLineQuantity; ++row)
     {
         const std::string key = "tr" + std::to_string(row + 1);
@@ -1530,7 +1523,7 @@ void CXI_TABLE::MobileCollect(std::vector<MobileWidget> &widgets) const
                             row,
                             m_rect.top * 8192 + m_rect.left + row,
                             m_bClickable && !m_bLockStatus};
-        widget.rowId = MobileTableRowId(line);
+        widget.rowId = storm::mobile::MobileTableRowId(m_nodeName, line, characters);
         if (widget.enabled)
         {
             widget.actions.push_back("select");
@@ -1607,7 +1600,8 @@ bool CXI_TABLE::MobileApply(int index, const std::string &value)
     auto *row = root ? root->GetAttributeClass(key.c_str()) : nullptr;
     if (!row)
         return false;
-    const auto id = MobileTableRowId(row);
+    const auto id = storm::mobile::MobileTableRowId(
+        m_nodeName, row, core.Entity_GetAttributeClass(g_idInterface, "CHARACTERS_SCROLL"));
     const auto suffix = "@" + std::to_string(storm::android::mobileScreenRevision) + ":" + id;
     const bool select = value == "select" || value == "select" + suffix;
     const bool activate = value == "activate" + suffix;

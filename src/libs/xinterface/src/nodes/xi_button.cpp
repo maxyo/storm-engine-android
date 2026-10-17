@@ -3,9 +3,24 @@
 #include "string_compare.hpp"
 
 #ifdef __ANDROID__
+#include "platform/android_ui.hpp"
+
 void CXI_BUTTON::MobileCollect(std::vector<MobileWidget> &widgets) const
 {
     const std::string name = m_nodeName ? m_nodeName : "";
+    // This icon has a real ExitMapWindow script command but no text resource.
+    // Export only the live close capability; Android supplies its localized label.
+    if (name == "MAP_EXIT_BTN" && storm::android::mobileScreen == "items")
+    {
+        if (m_bUse && m_bClickable && !m_bLockedNode && !m_bLockStatus &&
+            (CheckCommandUsed(ACTION_MOUSECLICK) || CheckCommandUsed(ACTION_ACTIVATE)))
+        {
+            MobileWidget widget{name, "button", "×", "", -1, m_rect.top * 8192 + m_rect.left, true};
+            widget.actions.push_back("press");
+            widgets.push_back(std::move(widget));
+        }
+        return;
+    }
     const char *label = nullptr;
     if (name.compare(0, 11, "LEFTCHANGE_") == 0) label = "‹";
     else if (name.compare(0, 12, "RIGHTCHANGE_") == 0) label = "›";

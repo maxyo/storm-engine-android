@@ -15,7 +15,9 @@
 #include <cstdio>
 #ifdef __ANDROID__
 #include "mobile_image_bridge.hpp"
+#include "mobile_inventory.hpp"
 #include "platform/android_ui.hpp"
+static storm::mobile::InventoryEquipCapability inventoryEquipCapability;
 #endif
 
 #define CHECK_FILE_NAME "PiratesReadme.txt"
@@ -377,6 +379,10 @@ void XINTERFACE::Realize(uint32_t)
         // Main menu uses app-owned controls, but still needs the game's language.
         if (storm::android::mobileScreen != "mainmenu") collect(collect, m_pNodes);
         std::stable_sort(widgets.begin(), widgets.end(), [](const auto &a, const auto &b) {return a.order < b.order;});
+        if (storm::android::mobileScreen == "items")
+            inventoryEquipCapability.published(storm::android::mobileScreenRevision, widgets);
+        else
+            inventoryEquipCapability.invalidate();
         static uint64_t snapshotRevision = 0;
         static std::string previousPayload;
         const char *gameLanguage = pStringService ? pStringService->GetLanguage() : nullptr;
@@ -580,6 +586,7 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
         LoadDialog(param.c_str());
 #ifdef __ANDROID__
         storm::android::showMobileScreen(param);
+        inventoryEquipCapability.invalidate();
         storm::mobile::ResetImages();
 #endif
         m_bUse = true;
@@ -612,6 +619,7 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
     case MSG_INTERFACE_RELEASE: {
 #ifdef __ANDROID__
         storm::android::showMobileScreen("");
+        inventoryEquipCapability.invalidate();
         storm::mobile::ResetImages();
 #endif
         ReleaseOld();
@@ -1994,6 +2002,10 @@ void XINTERFACE::DoControl()
         storm::android::uiWidgetActions.pop_front();
         if (action.screen != storm::android::mobileScreen) continue;
         storm::android::lastWidgetSnapshot.clear();
+        const bool guardedEquip = action.screen == "items" && action.node == "EQUIP_BUTTON" &&
+                                  action.value.rfind("press@", 0) == 0;
+        if (action.screen == "items" && !guardedEquip)
+            inventoryEquipCapability.invalidate();
         const auto find = [&](const auto &self, CINODE *node) -> CINODE * {
             for (; node; node = node->m_next)
             {
@@ -2005,6 +2017,25 @@ void XINTERFACE::DoControl()
         };
         auto *node = find(find, m_pNodes);
         if (!node) continue;
+        if (guardedEquip)
+        {
+            if (action.index != -1 || !node->m_bSelected || !node->m_bClickable || node->m_bLockStatus)
+                continue;
+            const int code = node->CheckCommandUsed(ACTION_MOUSECLICK) ? ACTION_MOUSECLICK : ACTION_ACTIVATE;
+            if (!node->CheckCommandUsed(code))
+                continue;
+            auto *table = core.Entity_GetAttributeClass(g_idInterface, "TABLE_ITEMS");
+            auto *characters = core.Entity_GetAttributeClass(g_idInterface, "CHARACTERS_SCROLL");
+            auto *tableNode = FindNode("TABLE_ITEMS", nullptr);
+            const bool tableEnabled = tableNode && tableNode->m_bUse && tableNode->m_bClickable &&
+                                      !tableNode->m_bLockedNode && !tableNode->m_bLockStatus;
+            if (!inventoryEquipCapability.consume(action.value, storm::android::mobileScreenRevision,
+                                                 storm::mobile::InventorySelectedRowId(table, characters), tableEnabled))
+                continue;
+            bool stop = false;
+            if (auto *next = node->DoAction(code, stop, true)) SetCurNode(next);
+            continue;
+        }
         if (node->MobileApply(action.index, action.value)) continue;
         if (action.index == -1 && action.value == "press" && node->m_bSelected && node->m_bClickable)
         {
