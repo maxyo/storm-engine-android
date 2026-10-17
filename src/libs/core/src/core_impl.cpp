@@ -508,7 +508,21 @@ void *CoreImpl::GetService(const char *service_name)
     const auto class_code = MakeHashValue(service_name);
     pClass->SetHash(class_code);
 
-    if (!service_PTR->Init()) {
+    bool initialized;
+    try
+    {
+        initialized = service_PTR->Init();
+    }
+    catch (...)
+    {
+        // CreateClass caches the singleton before Init. Never hand a failed
+        // instance to a later caller merely because its reference count is set.
+        pClass->Clear();
+        throw;
+    }
+    if (!initialized)
+    {
+        pClass->Clear();
         CheckAutoExceptions(0);
         return nullptr;
     }
