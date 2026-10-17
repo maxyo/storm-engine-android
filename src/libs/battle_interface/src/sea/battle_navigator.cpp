@@ -1,3 +1,4 @@
+#include <platform/android_ui.hpp>
 #include "battle_navigator.h"
 #include <stdio.h>
 
@@ -50,6 +51,11 @@ void BATTLE_NAVIGATOR::Draw() const
     if (rs == nullptr)
         return;
     int n;
+#ifdef __ANDROID__
+    const auto *attributes = m_pOwnerEI ? m_pOwnerEI->AttributesPointer : nullptr;
+    const uint32_t mobileMask = attributes && attributes->GetAttributeAsDword("ComState", 0) ?
+        0 : storm::android::mobileShipHudMask();
+#endif
 
     // set world matrix
     const CMatrix matw;
@@ -154,7 +160,11 @@ void BATTLE_NAVIGATOR::Draw() const
                  "%.1f", m_fShipSpeed);
 
     // show current charge
-    if (m_curCharge >= 0)
+    if (m_curCharge >= 0
+#ifdef __ANDROID__
+        && !(mobileMask & storm::android::ShipAmmo)
+#endif
+    )
     {
         rs->TextureSet(0, m_idChargeTexture);
         rs->SetRenderState(D3DRS_TEXTUREFACTOR, (BIUtils::g_dwBlinkColor << 24L) | 0xFFFFFF);
@@ -172,8 +182,13 @@ void BATTLE_NAVIGATOR::Draw() const
     rs->TextureSet(0, m_idWindTexture);
     rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 4, 2, "battle_rectangle");
     // show sails position icon
-    rs->TextureSet(0, m_idSailTexture);
-    rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 8, 2, "battle_rectangle");
+#ifdef __ANDROID__
+    if (!(mobileMask & storm::android::ShipSailPosition))
+#endif
+    {
+        rs->TextureSet(0, m_idSailTexture);
+        rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 8, 2, "battle_rectangle");
+    }
 }
 
 void BATTLE_NAVIGATOR::Update()

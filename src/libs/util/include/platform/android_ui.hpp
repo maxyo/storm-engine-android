@@ -10,6 +10,7 @@
 #include <jni.h>
 #include <string>
 #include <vector>
+#include "android_ship_telemetry.hpp"
 
 namespace storm::android
 {
@@ -33,6 +34,95 @@ inline void showSaveError() {
     if(method)env->CallVoidMethod(activity,method);
     if(env->ExceptionCheck()){env->ExceptionDescribe();env->ExceptionClear();}
     if(type)env->DeleteLocalRef(type);
+    env->DeleteLocalRef(activity);
+}
+// Optional gameplay-state v1 bridge. Cached per Activity, never per process:
+// activity recreation must receive an identical snapshot again. One weak ref,
+// one method id and one bounded snapshot, all owned by the game thread.
+inline jweak gameplayActivity = nullptr;
+inline jmethodID gameplayMethod = nullptr;
+inline bool gameplayMethodKnown = false;
+inline std::string lastGameplayState;
+inline void publishGameplayState(const std::string &json)
+{
+    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return;
+    if (!gameplayActivity || !env->IsSameObject(gameplayActivity, activity))
+    {
+        if (gameplayActivity) env->DeleteWeakGlobalRef(gameplayActivity);
+        gameplayActivity = env->NewWeakGlobalRef(activity);
+        gameplayMethodKnown = false;
+        gameplayMethod = nullptr;
+        lastGameplayState.clear();
+    }
+    if (!gameplayMethodKnown && !env->ExceptionCheck())
+    {
+        auto type = env->GetObjectClass(activity);
+        if (type)
+        {
+            gameplayMethod = env->GetMethodID(type, "showGameplayState", "([B)V");
+            env->DeleteLocalRef(type);
+            gameplayMethodKnown = true;
+        }
+        // Old apps intentionally omit the optional method.
+        if (env->ExceptionCheck()) env->ExceptionClear();
+    }
+    if (gameplayMethod && lastGameplayState != json && json.size() <= 8192 && !env->ExceptionCheck())
+    {
+        auto bytes = env->NewByteArray(static_cast<jsize>(json.size()));
+        if (bytes && !env->ExceptionCheck())
+            env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(json.size()), reinterpret_cast<const jbyte *>(json.data()));
+        if (bytes && !env->ExceptionCheck()) env->CallVoidMethod(activity, gameplayMethod, bytes);
+        if (bytes && !env->ExceptionCheck()) lastGameplayState = json;
+        if (bytes) env->DeleteLocalRef(bytes);
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(activity);
+}
+// Optional live ship telemetry channel. Independent from action revisions and
+// replayed to every Activity. Rendering acknowledgements are never inherited.
+inline jweak shipTelemetryActivity = nullptr;
+inline jmethodID shipTelemetryMethod = nullptr;
+inline bool shipTelemetryMethodKnown = false;
+inline void publishShipTelemetry()
+{
+    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return;
+    if (!shipTelemetryActivity || !env->IsSameObject(shipTelemetryActivity, activity))
+    {
+        if (shipTelemetryActivity) env->DeleteWeakGlobalRef(shipTelemetryActivity);
+        shipTelemetryActivity = env->NewWeakGlobalRef(activity);
+        shipTelemetryMethod = nullptr;
+        shipTelemetryMethodKnown = false;
+        shipTelemetry.resetActivity();
+    }
+    if (!shipTelemetryMethodKnown && !env->ExceptionCheck())
+    {
+        auto type = env->GetObjectClass(activity);
+        if (type)
+        {
+            shipTelemetryMethod = env->GetMethodID(type, "showShipTelemetry", "([B)V");
+            shipTelemetryMethodKnown = true;
+            env->DeleteLocalRef(type);
+        }
+        if (env->ExceptionCheck()) env->ExceptionClear(); // Old app: retain all native indicators.
+    }
+    if (shipTelemetryMethod && !env->ExceptionCheck())
+    {
+        const auto tick = SDL_GetTicks();
+        if (const auto json = shipTelemetry.publication(tick))
+        {
+            auto bytes = env->NewByteArray(static_cast<jsize>(json->size()));
+            if (bytes && !env->ExceptionCheck())
+                env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(json->size()), reinterpret_cast<const jbyte *>(json->data()));
+            if (bytes && !env->ExceptionCheck()) env->CallVoidMethod(activity, shipTelemetryMethod, bytes);
+            if (bytes && !env->ExceptionCheck()) shipTelemetry.published(*json, tick);
+            if (bytes) env->DeleteLocalRef(bytes);
+        }
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
     env->DeleteLocalRef(activity);
 }
 inline std::string lastVitals;
@@ -307,6 +397,12 @@ inline void showMobileScreen(const std::string &name)
         ++imageActivityRevision;
     }
     env->DeleteLocalRef(activity);
+}
+
+inline uint32_t mobileShipHudMask()
+{
+    if (!mobileScreen.empty() || loadingState != 0 || cinematicState == 1) return 0;
+    return shipTelemetry.mask();
 }
 
 inline std::vector<std::string> pollMobileActions()

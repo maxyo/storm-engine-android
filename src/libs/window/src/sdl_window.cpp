@@ -1,6 +1,9 @@
 #include "sdl_window.hpp"
 
+#ifdef _WIN32
 #include <SDL2/SDL_syswm.h>
+#endif
+#include <algorithm>
 
 namespace storm
 {
@@ -29,9 +32,17 @@ SDLWindow::~SDLWindow()
 void SDLWindow::PumpEvents()
 {
 #ifdef __ANDROID__
-    SDL_Event event;
-    while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_WINDOWEVENT, SDL_WINDOWEVENT) > 0)
-        if (event.window.windowID == sdlID_) ProcessEvent(event.window);
+    std::array<SDL_WindowEvent, pendingWindowCapacity> events;
+    size_t count;
+    {
+        std::lock_guard lock(pendingWindowMutex_);
+        count = pendingWindowCount_;
+        std::copy_n(pendingWindowEvents_.begin(), count, events.begin());
+        pendingWindowCount_ = 0;
+    }
+    // Do not hold the producer lock while invoking core/application callbacks.
+    // Events arriving now stay in the next batch even if main flushes SDL's queue.
+    for (size_t i = 0; i < count; ++i) ProcessEvent(events[i]);
 #endif
 }
 
@@ -182,7 +193,27 @@ int SDLWindow::SDLEventHandler(void *userdata, SDL_Event *evt)
     if ((evt->type != SDL_WINDOWEVENT) || (evt->window.windowID != w->sdlID_))
         return 0;
 
-#ifndef __ANDROID__
+#ifdef __ANDROID__
+    const auto kind = evt->window.event;
+    if (kind != SDL_WINDOWEVENT_FOCUS_GAINED && kind != SDL_WINDOWEVENT_FOCUS_LOST &&
+        kind != SDL_WINDOWEVENT_CLOSE) return 0;
+    std::lock_guard lock(w->pendingWindowMutex_);
+    auto &events = w->pendingWindowEvents_;
+    auto &count = w->pendingWindowCount_;
+    // Close is latched until delivery; a producer flood cannot evict it.
+    if (kind == SDL_WINDOWEVENT_CLOSE && std::any_of(events.begin(), events.begin() + count,
+        [](const auto &event) { return event.event == SDL_WINDOWEVENT_CLOSE; })) return 0;
+    if (count == pendingWindowCapacity)
+    {
+        // At most one close is stored, so an old focus event always exists.
+        // Keep the latest focus transition and preserve ordering of retained events.
+        const auto oldestFocus = std::find_if(events.begin(), events.begin() + count,
+            [](const auto &event) { return event.event != SDL_WINDOWEVENT_CLOSE; });
+        std::move(oldestFocus + 1, events.begin() + count, oldestFocus);
+        --count;
+    }
+    events[count++] = evt->window;
+#else
     w->ProcessEvent(evt->window);
 #endif
 

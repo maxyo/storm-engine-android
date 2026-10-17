@@ -1,3 +1,4 @@
+#include <platform/android_ui.hpp>
 #include "battle_ship_sign.h"
 
 #include "core.h"
@@ -59,6 +60,21 @@ void BIShipIcon::Draw()
     }
 
     FillVertexBuffer();
+#ifdef __ANDROID__
+    const uint32_t mobileMask = IsActive() ? 0 : storm::android::mobileShipHudMask();
+    constexpr uint32_t mainCardMask = storm::android::ShipHull | storm::android::ShipCrew | storm::android::ShipSailIntegrity;
+    // The whole main card is replaced only after all three real status displays
+    // have rendered. Partial ACKs retain its portrait, background, class and name.
+    const bool mobileMainCard = (mobileMask & mainCardMask) == mainCardMask;
+    const auto mobileCard = [this, mobileMask, mobileMainCard](int32_t n) {
+        if (n == 0) return mobileMainCard;
+        if (!(mobileMask & storm::android::ShipFleet)) return false;
+        const auto &fleet = storm::android::shipTelemetry.frame().fleet;
+        return std::any_of(fleet.begin(), fleet.end(), [this, n](const auto &entry) {
+            return entry.characterIndex == m_Ship[n].nCharacterIndex;
+        });
+    };
+#endif
 
     if (m_nVBufID != -1 && m_nIBufID != -1)
     {
@@ -69,6 +85,16 @@ void BIShipIcon::Draw()
         if (m_nShipSquareQ > 0)
         {
             m_pRS->TextureSet(0, m_nShipTextureID);
+#ifdef __ANDROID__
+            if (mobileMainCard || (mobileMask & storm::android::ShipFleet))
+            {
+                for (int32_t n = 0; n < m_nShipSquareQ; ++n)
+                    if (!mobileCard(n))
+                        m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV + n * 4, 4, 0, 2,
+                                          "battle_colorRectangle");
+            }
+            else
+#endif
             m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV, m_nShipSquareQ * 4, nStartI,
                               m_nShipSquareQ * 2, "battle_colorRectangle");
         }
@@ -78,6 +104,16 @@ void BIShipIcon::Draw()
         if (m_nBackSquareQ > 0)
         {
             m_pRS->TextureSet(0, m_nBackTextureID);
+#ifdef __ANDROID__
+            if (mobileMainCard || (mobileMask & storm::android::ShipFleet))
+            {
+                for (int32_t n = 0; n < m_nBackSquareQ; ++n)
+                    if (!mobileCard(n))
+                        m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV + n * 4, 4, 0, 2,
+                                          "battle_colorRectangle");
+            }
+            else
+#endif
             m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV, m_nBackSquareQ * 4, nStartI,
                               m_nBackSquareQ * 2, "battle_colorRectangle");
         }
@@ -87,6 +123,19 @@ void BIShipIcon::Draw()
         if (m_nShipStateSquareQ > 0)
         {
             m_pRS->TextureSet(0, m_nShipStateTextureID);
+#ifdef __ANDROID__
+            if (mobileMask & (storm::android::ShipHull | storm::android::ShipSailIntegrity | storm::android::ShipFleet))
+            {
+                for (int32_t q = 0; q < m_nShipStateSquareQ; ++q)
+                {
+                    if (mobileCard(q / 2) || (q == 0 && (mobileMask & storm::android::ShipHull)) ||
+                        (q == 1 && (mobileMask & storm::android::ShipSailIntegrity))) continue;
+                    m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV + q * 4, 4, 0, 2,
+                                      "battle_colorRectangle");
+                }
+            }
+            else
+#endif
             m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV, m_nShipStateSquareQ * 4, nStartI,
                               m_nShipStateSquareQ * 2, "battle_colorRectangle");
         }
@@ -96,6 +145,16 @@ void BIShipIcon::Draw()
         if (m_nShipClassSquareQ > 0)
         {
             m_pRS->TextureSet(0, m_nShipClassTextureID);
+#ifdef __ANDROID__
+            if (mobileMainCard || (mobileMask & storm::android::ShipFleet))
+            {
+                for (int32_t n = 0; n < m_nShipClassSquareQ; ++n)
+                    if (!mobileCard(n))
+                        m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV + n * 4, 4, 0, 2,
+                                          "battle_alphacutcolor");
+            }
+            else
+#endif
             m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV, m_nShipClassSquareQ * 4, nStartI,
                               m_nShipClassSquareQ * 2, "battle_alphacutcolor");
         }
@@ -104,7 +163,13 @@ void BIShipIcon::Draw()
 
     for (int32_t n = 0; n < m_nShipQuantity; n++)
     {
+#ifdef __ANDROID__
+        if (mobileCard(n)) continue;
+        const bool mobileCrew = n == 0 && (mobileMask & storm::android::ShipCrew);
+        if (m_Ship[n].pASailorQuantity && !mobileCrew)
+#else
         if (m_Ship[n].pASailorQuantity)
+#endif
         {
             m_pRS->ExtPrint(m_idSailorFont, m_dwSailorFontColor, 0, PR_ALIGN_CENTER, true, m_fSailorFontScale, 0, 0,
                             // shadow

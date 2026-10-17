@@ -21,6 +21,7 @@
 #ifdef __ANDROID__
 #include "platform/android_ui.hpp"
 #include "platform/android_shortcuts.hpp"
+#include "android_gameplay_state.hpp"
 #include <sstream>
 #include <charconv>
 #endif
@@ -289,6 +290,11 @@ int main(int argc, char *argv[])
 #ifdef __ANDROID__
     storm::android::Lifecycle androidLifecycle;
     storm::android::GameplayShortcuts gameplayShortcuts;
+    storm::android::GameplayState gameplayState;
+    gameplayState.update({});
+    storm::android::publishGameplayState(gameplayState.json());
+    storm::android::shipTelemetry.update(gameplayState.revision(), {});
+    storm::android::publishShipTelemetry();
     unsigned shortcutLogBudget = 64;
 #endif
     isRunning = true;
@@ -297,7 +303,19 @@ int main(int argc, char *argv[])
 #ifdef __ANDROID__
         for (const auto &command : storm::android::pollMobileActions())
         {
-            if (command.starts_with("shortcut:"))
+            if (command.starts_with("shiphud:"))
+            {
+                storm::android::shipTelemetry.acknowledge(std::string_view(command).substr(8));
+            }
+            else if (command.starts_with("sails:"))
+            {
+                storm::android::shipTelemetry.offerSails(std::string_view(command).substr(6), SDL_GetTicks());
+            }
+            else if (command.starts_with("gameplay:"))
+            {
+                gameplayState.offer(std::string_view(command).substr(9), SDL_GetTicks());
+            }
+            else if (command.starts_with("shortcut:"))
             {
                 if (storm::android::mobileScreen.empty())
                     gameplayShortcuts.offer(std::string_view(command).substr(9), SDL_GetTicks());
@@ -360,6 +378,13 @@ int main(int argc, char *argv[])
                 audio->SetActiveWithFade(androidLifecycle.canRun());
         if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty())
             gameplayShortcuts.clear();
+        if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty() || storm::android::loadingState != 0)
+        {
+            gameplayState.update({});
+            storm::android::publishGameplayState(gameplayState.json());
+            storm::android::shipTelemetry.update(gameplayState.revision(), {});
+            storm::android::publishShipTelemetry();
+        }
         if (androidLifecycle.terminating())
             isRunning = false;
 #endif
@@ -390,6 +415,22 @@ int main(int argc, char *argv[])
             fogCaptureKeyDown = fogCaptureKey;
 #endif
 #ifdef __ANDROID__
+            const bool gameplayReady = isRunning && bActive && androidLifecycle.canRun() &&
+                core_private->initialized() && core.Controls && storm::android::loadingState == 0 &&
+                storm::android::mobileScreen.empty();
+            gameplayState.update(storm::android::readGameplaySnapshot(gameplayReady));
+            storm::android::publishGameplayState(gameplayState.json());
+            storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipTelemetry(gameplayState));
+            // Activity recreation revokes pending targets/ready ACKs before dispatch.
+            storm::android::publishShipTelemetry();
+            if (const auto detent = storm::android::shipTelemetry.takeSails(SDL_GetTicks()))
+                if (storm::android::applyShipSailTarget(gameplayState, *detent))
+                {
+                    storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipTelemetry(gameplayState));
+                    storm::android::publishShipTelemetry();
+                }
+            if (const auto action = gameplayState.take(SDL_GetTicks()))
+                core_private->Event("Control Activation", "s", action->c_str());
             // Execute commands at a completed game-frame boundary, after control
             // polling and outside Android dialog callbacks. No timed key pulse
             // or held bit can be lost between two slow native frames.
@@ -454,6 +495,12 @@ int main(int argc, char *argv[])
     }
 
     // Release
+#ifdef __ANDROID__
+    gameplayState.update({});
+    storm::android::publishGameplayState(gameplayState.json());
+    storm::android::shipTelemetry.update(gameplayState.revision(), {});
+    storm::android::publishShipTelemetry();
+#endif
     core_private->Event("ExitApplication");
     core_private->CleanUp();
     core_private->ReleaseBase();

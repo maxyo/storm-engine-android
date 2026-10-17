@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix='storm-input-std-') as d:
         target = b/('android-queue' if android_queue else 'desktop')
         command = [cxx, *flags]
         if android_queue:
-            command += ['-D__ANDROID__']
+            command += ['-D__ANDROID__', '-DSTORM_INPUT_HOST_TEST']
         command += [str(r/'tests/input_std/input.cpp'), str(r/'src/libs/input/src/sdl_input.cpp'),
                     '-Wl,-l:'+a.sdl_library, '-o', str(target)]
         subprocess.run(command, check=True)

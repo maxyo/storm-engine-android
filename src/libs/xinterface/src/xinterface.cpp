@@ -359,7 +359,7 @@ void XINTERFACE::Realize(uint32_t)
 
 #ifdef __ANDROID__
     static uint32_t lastMobileSnapshotTime = 0;
-    if (storm::android::mobileScreen != "mainmenu" && SDL_GetTicks() - lastMobileSnapshotTime >= 200)
+    if (SDL_GetTicks() - lastMobileSnapshotTime >= 200)
     {
         lastMobileSnapshotTime = SDL_GetTicks();
         std::vector<MobileWidget> widgets;
@@ -374,7 +374,8 @@ void XINTERFACE::Realize(uint32_t)
                 self(self, node->m_list);
             }
         };
-        collect(collect, m_pNodes);
+        // Main menu uses app-owned controls, but still needs the game's language.
+        if (storm::android::mobileScreen != "mainmenu") collect(collect, m_pNodes);
         std::stable_sort(widgets.begin(), widgets.end(), [](const auto &a, const auto &b) {return a.order < b.order;});
         static uint64_t snapshotRevision = 0;
         static std::string previousPayload;

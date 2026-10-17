@@ -1,3 +1,5 @@
+#include <platform/android_ui.hpp>
+#include "string_compare.hpp"
 #include <stdio.h>
 
 #include "i_battle.h"
@@ -182,7 +184,20 @@ void BATTLE_INTERFACE::Realize(uint32_t delta_time)
 
             if (m_bShowBattleNavigator)
             {
+#ifdef __ANDROID__
+                const uint32_t mobileMask = AttributesPointer && AttributesPointer->GetAttributeAsDword("ComState", 0) ?
+                    0 : storm::android::mobileShipHudMask();
+                for (auto &text : m_TextArray)
+                {
+                    // Ammo count is replaced only together with its selected type.
+                    // Powder, wind/speed and all other native labels stay visible.
+                    if ((mobileMask & storm::android::ShipAmmo) && text.pARefresh &&
+                        storm::iEquals(text.pARefresh->GetThisName(), "Ammo")) continue;
+                    text.Print();
+                }
+#else
                 BIUtils::PrintTextInfoArray(m_TextArray);
+#endif
                 m_LinesInfo.Draw();
                 if (m_bShowBattleBorder)
                     m_BattleBorder.Draw();
