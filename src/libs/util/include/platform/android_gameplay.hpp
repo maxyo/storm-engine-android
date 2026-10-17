@@ -13,8 +13,9 @@ namespace storm::android
 {
 // Game-thread owned. Java only receives immutable JSON and supplies a bounded
 // mailbox through pollMobileAction; no script/entity pointers cross threads.
-// Script control groups can lag entity Execute by a frame. Select a mode only
-// when direct modal/native state agrees with the group whose bindings we use.
+// Script control groups can lag entity Execute by a frame. For the two ordinary
+// land groups, the verified Player owns stance; actual group bindings still own
+// capabilities. Modal, scene and player guards are resolved before this policy.
 struct GameplayContext
 {
     std::string_view group;
@@ -28,14 +29,19 @@ inline std::string_view gameplayMode(const GameplayContext &context)
         return context.group == "Sailing1Pers" || context.group == "Sailing3Pers" ?
             (context.naval ? "naval" : "sailing") : "unknown";
     if (!context.land || !context.nativeFight.has_value()) return "unknown";
-    if (context.group == "PrimaryLand" && !*context.nativeFight) return "explore";
-    if (context.group == "FightModeControls" && *context.nativeFight) return "melee";
+    if (context.group == "PrimaryLand" || context.group == "FightModeControls")
+        return *context.nativeFight ? "melee" : "explore";
     return "unknown";
 }
 struct GameplaySnapshot
 {
     std::string mode = "unknown", language, group, scene;
     std::vector<std::string> capabilities;
+    // Stable only for one native land Player in one loaded scene. Android may
+    // retain locomotion across stance revisions only when this nonempty token matches.
+    std::string inputOwner;
+    bool analogMovement = false;
+    uint64_t movementGeneration = 0;
     bool operator==(const GameplaySnapshot &) const = default;
 };
 inline std::string gameplayJsonString(std::string_view value)
@@ -75,6 +81,9 @@ public:
     {
         std::string result = "{\"schemaVersion\":1,\"revision\":" + std::to_string(revision_) +
             ",\"mode\":" + gameplayJsonString(snapshot_.mode) + ",\"language\":" + gameplayJsonString(snapshot_.language) +
+            ",\"inputOwner\":" + gameplayJsonString(snapshot_.inputOwner) +
+            ",\"analogMovement\":" + (snapshot_.analogMovement ? "true" : "false") +
+            ",\"movementGeneration\":" + std::to_string(snapshot_.movementGeneration) +
             ",\"capabilities\":[";
         for (size_t i = 0; i < snapshot_.capabilities.size(); ++i)
         {

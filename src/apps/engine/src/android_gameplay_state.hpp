@@ -55,6 +55,7 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
             core.GetEntityId("WorldMap") != invalid_entity ||
             core.GetEntityId("CAviPlayer") != invalid_entity ||
             core.GetEntityId("WMVideoPlay") != invalid_entity;
+        auto player = invalid_entity;
         if (sea)
         {
             auto *pos = character->FindAClass(character, "Ship.POS");
@@ -64,7 +65,7 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         {
             // Resolve the native Player, then verify it owns this exact main
             // character's attributes. Never query an arbitrary NPC or retain ids.
-            const auto player = core.GetEntityId("Player");
+            player = core.GetEntityId("Player");
             if (player != invalid_entity && core.Entity_GetAttributePointer(player) == character)
                 context.nativeFight = core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "IsFightMode") != 0;
         }
@@ -75,6 +76,7 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         if (sea && !mainShip) return {};
         out.scene = std::to_string(index) + ":" + (location ? location : "") + ":" +
             std::to_string(sea ? mainShip->GetId() : core.GetEntityId("location"));
+        if (!sea) out.inputOwner = out.scene + ":" + std::to_string(player);
         if (auto *strings = static_cast<VSTRSERVICE *>(core.GetService("STRSERVICE")))
             if (const auto language = strings->GetLanguage()) out.language = std::string(language).substr(0, 32);
         auto *controls = static_cast<VDATA *>(core.GetScriptVariable("objControlsState"));

@@ -1510,6 +1510,15 @@ void CXI_TABLE::MobileCollect(std::vector<MobileWidget> &widgets) const
 {
     auto *root = core.Entity_GetAttributeClass(g_idInterface, m_nodeName);
     if (!root) return;
+    std::vector<std::string> columnHeaders;
+    if (auto *header = root->GetAttributeClass("hr"))
+        for (int col = 0; col < m_nColQuantity; ++col)
+        {
+            const std::string key = "td" + std::to_string(col + 1);
+            auto *cell = header->GetAttributeClass(key.c_str());
+            const char *text = cell ? cell->GetAttribute("str") : nullptr;
+            columnHeaders.emplace_back(text ? text : "");
+        }
     auto *characters = core.Entity_GetAttributeClass(g_idInterface, "CHARACTERS_SCROLL");
     for (int row = 0; row < m_nLineQuantity; ++row)
     {
@@ -1524,6 +1533,7 @@ void CXI_TABLE::MobileCollect(std::vector<MobileWidget> &widgets) const
                             m_rect.top * 8192 + m_rect.left + row,
                             m_bClickable && !m_bLockStatus};
         widget.rowId = storm::mobile::MobileTableRowId(m_nodeName, line, characters);
+        widget.columnHeaders = columnHeaders;
         if (widget.enabled)
         {
             widget.actions.push_back("select");

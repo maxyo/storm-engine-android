@@ -583,8 +583,14 @@ void CXI_CHECKBUTTONS::MobileCollect(std::vector<MobileWidget> &widgets) const
         const auto *button = m_aButton[i];
         std::string text;
         for (const auto &line : button->aStr) { if (!text.empty()) text += ' '; text += line.str; }
-        if (!text.empty()) widgets.push_back({m_nodeName, "check", text, button->bChoose ? "1" : "0",
-            static_cast<int>(i), m_rect.top * 8192 + m_rect.left + static_cast<int>(i), !button->bDisable && m_bClickable && !m_bLockStatus});
+        if (!text.empty())
+        {
+            MobileWidget widget{m_nodeName, "check", text, button->bChoose ? "1" : "0",
+                static_cast<int>(i), m_rect.top * 8192 + m_rect.left + static_cast<int>(i),
+                !button->bDisable && m_bClickable && !m_bLockStatus};
+            widget.exclusive = m_bExclusiveChoose;
+            widgets.push_back(std::move(widget));
+        }
     }
 }
 bool CXI_CHECKBUTTONS::MobileApply(int index, const std::string &value)

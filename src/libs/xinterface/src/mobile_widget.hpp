@@ -2,6 +2,7 @@
 #include "mobile_image_cache.hpp"
 #include <string>
 #include <vector>
+#include <limits>
 
 struct MobileCell
 {
@@ -21,7 +22,35 @@ struct MobileWidget
     std::vector<MobileCell> cells;
     std::vector<storm::mobile::ImageRef> images;
     std::vector<std::string> actions;
+    // Optional schema-2 capabilities, serialized only for their control type.
+    int min = 0, max = 0, step = 1;
+    bool exclusive = false;
+    std::string unavailableReason;
+    // Table hr.tdN.str, indexed by MobileCell::column; absent without hr.
+    std::vector<std::string> columnHeaders;
 };
+
+inline bool MobileSliderPosition(const std::string &text, int minimum, int maximum, int &position)
+{
+    if (text.empty() || minimum < 0 || maximum < minimum) return false;
+    int parsed = 0;
+    for (const unsigned char ch : text)
+    {
+        if (ch < '0' || ch > '9' || parsed > (std::numeric_limits<int>::max() - (ch - '0')) / 10)
+            return false;
+        parsed = parsed * 10 + (ch - '0');
+    }
+    if (parsed < minimum || parsed > maximum) return false;
+    position = parsed;
+    return true;
+}
+
+inline bool MobileSliderSetPosition(const std::string &action, uint64_t screenRevision, int &position)
+{
+    const std::string prefix = "set@" + std::to_string(screenRevision) + ":";
+    return action.compare(0, prefix.size(), prefix) == 0 &&
+           MobileSliderPosition(action.substr(prefix.size()), 0, std::numeric_limits<int>::max(), position);
+}
 
 inline std::string MobileJsonString(const std::string &text)
 {
@@ -90,7 +119,25 @@ inline std::string MobileWidgetJson(const std::string &screen, const std::vector
             firstAction = false;
             result += MobileJsonString(a);
         }
-        result += "],\"cells\":[";
+        result += "]";
+        if (widget.type == "slider")
+            result += ",\"min\":" + std::to_string(widget.min) + ",\"max\":" + std::to_string(widget.max) +
+                      ",\"step\":" + std::to_string(widget.step);
+        if (widget.type == "check")
+            result += std::string(",\"exclusive\":") + (widget.exclusive ? "true" : "false");
+        if (!widget.unavailableReason.empty())
+            result += ",\"unavailableReason\":" + MobileJsonString(widget.unavailableReason);
+        if (!widget.columnHeaders.empty())
+        {
+            result += ",\"columnHeaders\":[";
+            for (size_t column = 0; column < widget.columnHeaders.size(); ++column)
+            {
+                if (column) result += ',';
+                result += MobileJsonString(widget.columnHeaders[column]);
+            }
+            result += ']';
+        }
+        result += ",\"cells\":[";
         bool firstCell = true;
         for (const auto &c : widget.cells)
         {

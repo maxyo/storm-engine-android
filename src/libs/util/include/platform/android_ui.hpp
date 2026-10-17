@@ -8,10 +8,13 @@
 #include <cstdint>
 #include <deque>
 #include <jni.h>
+#include <android/log.h>
+#include <sys/system_properties.h>
 #include <string>
 #include <vector>
 #include "android_ship_telemetry.hpp"
 #include "android_sea_orders.hpp"
+#include "android_interface_presentation.hpp"
 
 namespace storm::android
 {
@@ -19,12 +22,25 @@ struct UiTouch { float x, y; int phase; };
 // All native state is accessed only by the game thread. Java marshals its UI queue.
 inline std::string mobileScreen;
 inline uint64_t mobileScreenRevision = 1;
+inline InterfacePresentation interfacePresentation;
 inline std::deque<std::string> dialogueActions;
 inline std::deque<UiTouch> uiTouches;
 struct UiWidgetAction { std::string screen, node, value; int index; };
 inline std::deque<UiWidgetAction> uiWidgetActions;
 inline std::string lastWidgetSnapshot;
 inline std::string contextAction, requestedContextAction;
+// Opt-in, bounded diagnostics for the Android interaction bridge. Game thread only.
+inline void traceContextAction(const char *stage, const std::string &action, const std::string &detail)
+{
+    static unsigned budget = 192;
+    if (!budget) return;
+    char setting[PROP_VALUE_MAX] = {};
+    __system_property_get("log.tag.StormInput", setting);
+    if (std::string_view(setting) != "DEBUG") return;
+    --budget;
+    __android_log_print(ANDROID_LOG_DEBUG, "StormInput", "context %s action=%s %s",
+                        stage, action.c_str(), detail.c_str());
+}
 inline int cinematicState = -1;
 inline void showSaveError() {
     auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
@@ -218,6 +234,7 @@ inline int graphicsSetting(const char *key, int fallback) {
 }
 inline void publishContextAction(const std::string &name) {
     if (contextAction == name) return;
+    traceContextAction("publish", name, "previous=" + contextAction);
     contextAction = name; requestedContextAction.clear();
     auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
     auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
@@ -414,6 +431,7 @@ inline void showMobileScreen(const std::string &name)
     for (auto &c : screen) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     mobileScreen = screen;
     ++mobileScreenRevision;
+    interfacePresentation.begin(mobileScreenRevision, !screen.empty(), interfacePresentation.negotiated());
     uiTouches.clear();
     uiWidgetActions.clear();
     lastWidgetSnapshot.clear();
@@ -421,9 +439,14 @@ inline void showMobileScreen(const std::string &name)
     auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
     if (!env || !activity) return;
     const auto type = env->GetObjectClass(activity);
-    const auto method = type ? env->GetMethodID(type, "showMobileScreen", "(Ljava/lang/String;)V") : nullptr;
+    const auto versionedMethod = type ? env->GetMethodID(type, "showMobileScreen", "(Ljava/lang/String;J)V") : nullptr;
+    // Old applications intentionally omit the overload and retain native UI.
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    const auto method = !versionedMethod && type ? env->GetMethodID(type, "showMobileScreen", "(Ljava/lang/String;)V") : nullptr;
+    interfacePresentation.begin(mobileScreenRevision, !screen.empty(), versionedMethod != nullptr);
     const auto value = env->NewStringUTF(screen.c_str());
-    if (method && value) env->CallVoidMethod(activity, method, value);
+    if (versionedMethod && value) env->CallVoidMethod(activity, versionedMethod, value, static_cast<jlong>(mobileScreenRevision));
+    else if (method && value) env->CallVoidMethod(activity, method, value);
     if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
     if (value) env->DeleteLocalRef(value);
     if (type) env->DeleteLocalRef(type);

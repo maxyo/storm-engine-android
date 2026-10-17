@@ -11,11 +11,22 @@ int main()
     context.nativeFight = false;
     assert(gameplayMode(context) == "explore");
     context.nativeFight = true;
-    assert(gameplayMode(context) == "unknown"); // sword drawn after control group update
+    assert(gameplayMode(context) == "melee"); // native stance changed before script group
     context.group = "FightModeControls";
     assert(gameplayMode(context) == "melee");
     context.nativeFight = false;
-    assert(gameplayMode(context) == "unknown"); // sword sheathed, stale fight group
+    assert(gameplayMode(context) == "explore"); // native stance changed before script group
+    for (const auto *group : {"PrimaryLand", "FightModeControls"})
+        for (bool fight : {false, true})
+        {
+            context.group = group; context.nativeFight = fight;
+            assert(gameplayMode(context) == (fight ? "melee" : "explore"));
+            context.blocked = true;
+            assert(gameplayMode(context) == "unknown");
+            context.blocked = false;
+        }
+    context.group = "BattleInterfaceControls";
+    assert(gameplayMode(context) == "unknown");
     context.group = "Sailing3Pers";
     context.sea = true;
     assert(gameplayMode(context) == "sailing");
@@ -62,6 +73,10 @@ int main()
     state.update(sea);
     assert(!state.take(14));
     assert(state.json().find("\"schemaVersion\":1") != std::string::npos);
+    assert(state.json().find("\"inputOwner\":\"\"") != std::string::npos);
+    sea.inputOwner = "scene:player";
+    assert(state.update(sea));
+    assert(state.json().find("\"inputOwner\":\"scene:player\"") != std::string::npos);
     GameplayState restarted;
     restarted.update(sea);
     assert(restarted.revision() > state.revision());

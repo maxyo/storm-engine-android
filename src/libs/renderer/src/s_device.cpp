@@ -1,5 +1,6 @@
 #include "s_device.h"
 #include <platform/android_ui.hpp>
+#include <platform/android_interface_presentation.hpp>
 
 #include "core.h"
 
@@ -2335,8 +2336,11 @@ void DX9RENDER::DrawBuffer(int32_t vbuff, int32_t stride, int32_t ibuff, int32_t
     if (bDraw)
         do
         {
-            dwNumDrawPrimitive++;
-            CHECKD3DERR(d3d9->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, minv, 0, numv, startidx, numtrg));
+            if (!storm::android::NativeInterfaceDrawSuppressed())
+            {
+                dwNumDrawPrimitive++;
+                CHECKD3DERR(d3d9->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, minv, 0, numv, startidx, numtrg));
+            }
         } while (cBlockName && cBlockName[0] && TechniqueExecuteNext());
 }
 
@@ -2360,8 +2364,11 @@ void DX9RENDER::DrawIndexedPrimitiveNoVShader(D3DPRIMITIVETYPE dwPrimitiveType, 
     if (bDraw)
         do
         {
-            dwNumDrawPrimitive++;
-            CHECKD3DERR(d3d9->DrawIndexedPrimitive(dwPrimitiveType, iMinV, 0, iNumV, iStartIdx, iNumTrg));
+            if (!storm::android::NativeInterfaceDrawSuppressed())
+            {
+                dwNumDrawPrimitive++;
+                CHECKD3DERR(d3d9->DrawIndexedPrimitive(dwPrimitiveType, iMinV, 0, iNumV, iStartIdx, iNumTrg));
+            }
         } while (cBlockName && TechniqueExecuteNext());
 }
 
@@ -2375,9 +2382,12 @@ void DX9RENDER::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE dwPrimitiveType, uint32_
     if (bDraw)
         do
         {
-            dwNumDrawPrimitive++;
-            CHECKD3DERR(d3d9->DrawIndexedPrimitiveUP(dwPrimitiveType, dwMinIndex, dwNumVertices, dwPrimitiveCount,
-                                                     pIndexData, IndexDataFormat, pVertexData, dwVertexStride));
+            if (!storm::android::NativeInterfaceDrawSuppressed())
+            {
+                dwNumDrawPrimitive++;
+                CHECKD3DERR(d3d9->DrawIndexedPrimitiveUP(dwPrimitiveType, dwMinIndex, dwNumVertices, dwPrimitiveCount,
+                                                         pIndexData, IndexDataFormat, pVertexData, dwVertexStride));
+            }
         } while (cBlockName && TechniqueExecuteNext());
 }
 
@@ -2394,8 +2404,11 @@ void DX9RENDER::DrawPrimitiveUP(D3DPRIMITIVETYPE dwPrimitiveType, uint32_t dwVer
     if (bDraw)
         do
         {
-            dwNumDrawPrimitive++;
-            CHECKD3DERR(d3d9->DrawPrimitiveUP(dwPrimitiveType, dwNumPT, pVerts, dwStride));
+            if (!storm::android::NativeInterfaceDrawSuppressed())
+            {
+                dwNumDrawPrimitive++;
+                CHECKD3DERR(d3d9->DrawPrimitiveUP(dwPrimitiveType, dwNumPT, pVerts, dwStride));
+            }
         } while (cBlockName && TechniqueExecuteNext());
 }
 
@@ -2415,8 +2428,11 @@ void DX9RENDER::DrawPrimitive(D3DPRIMITIVETYPE dwPrimitiveType, int32_t iVBuff, 
     if (bDraw)
         do
         {
-            dwNumDrawPrimitive++;
-            CHECKD3DERR(d3d9->DrawPrimitive(dwPrimitiveType, iStartV, iNumPT));
+            if (!storm::android::NativeInterfaceDrawSuppressed())
+            {
+                dwNumDrawPrimitive++;
+                CHECKD3DERR(d3d9->DrawPrimitive(dwPrimitiveType, iStartV, iNumPT));
+            }
         } while (cBlockName && TechniqueExecuteNext());
 }
 
@@ -2462,9 +2478,11 @@ void DX9RENDER::RenderAnimation(int32_t ib, void *src, int32_t numVrts, int32_t 
     if (CHECKD3DERR(d3d9->SetStreamSource(0, aniVBuffer, 0, sizeof(FVF_VERTEX))) == true)
         return;
 
-    CHECKD3DERR(d3d9->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, minv, 0, numv, startidx, numtrg));
-
-    dwNumDrawPrimitive++;
+    if (!storm::android::NativeInterfaceDrawSuppressed())
+    {
+        CHECKD3DERR(d3d9->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, minv, 0, numv, startidx, numtrg));
+        dwNumDrawPrimitive++;
+    }
 }
 
 //################################################################################
@@ -3700,6 +3718,7 @@ HRESULT DX9RENDER::SetIndices(void *pIndexData)
 
 HRESULT DX9RENDER::DrawPrimitive(D3DPRIMITIVETYPE dwPrimitiveType, UINT StartVertex, UINT PrimitiveCount)
 {
+    if (storm::android::NativeInterfaceDrawSuppressed()) return D3D_OK;
     dwNumDrawPrimitive++;
     return CHECKD3DERR(d3d9->DrawPrimitive(dwPrimitiveType, StartVertex, PrimitiveCount));
 }
@@ -4159,8 +4178,12 @@ HRESULT DX9RENDER::ImageBlt(int32_t TextureID, RECT *pDstRect, RECT *pSrcRect)
         do
         {
             SetFVF(D3DFVF_XYZRHW | D3DFVF_TEX1 | D3DFVF_TEXTUREFORMAT2);
-            hRes = d3d9->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, &v, sizeof(F3DVERTEX));
-            dwNumDrawPrimitive++;
+            hRes = D3D_OK;
+            if (!storm::android::NativeInterfaceDrawSuppressed())
+            {
+                hRes = d3d9->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, &v, sizeof(F3DVERTEX));
+                dwNumDrawPrimitive++;
+            }
         } while (TechniqueExecuteNext());
 
     return hRes;

@@ -293,11 +293,43 @@ int main(int argc, char *argv[])
     storm::android::Lifecycle androidLifecycle;
     storm::android::GameplayShortcuts gameplayShortcuts;
     storm::android::GameplayState gameplayState;
+    storm::android::movementInput.updateOwner({});
     gameplayState.update({});
     storm::android::combatInput.guard = [&]() {
         return storm::android::combatInput.player() == std::to_string(core.GetEntityId("Player")) &&
             storm::android::combatContextCurrent(gameplayState, isRunning && bActive && androidLifecycle.canRun() &&
             core_private->initialized() && core.Controls && storm::android::loadingState == 0 && storm::android::mobileScreen.empty());
+    };
+    storm::android::movementInput.guard = [&](std::string_view owner) -> std::optional<storm::android::MovementPermission> {
+        const bool ready = isRunning && bActive && androidLifecycle.canRun() && core_private->initialized() &&
+            core.Controls && storm::android::loadingState == 0 && storm::android::mobileScreen.empty();
+        const auto current = storm::android::readGameplaySnapshot(ready);
+        if (!storm::android::movementOwnerCurrent(owner, current)) return std::nullopt;
+        storm::android::MovementPermission permissions;
+        unsigned processed = 0;
+        const auto count = core.Controls->GetControlsNum();
+        for (int32_t i=0; i<count; ++i)
+        {
+            USER_CONTROL descriptor{};
+            if (!core.Controls->GetControlDesc(i, descriptor) || !descriptor.name) continue;
+            const std::string_view name = descriptor.name;
+            unsigned bit = 0;
+            bool *allowed = nullptr;
+            if (name == "ChrForward") { bit = 1; allowed = &permissions.forward; }
+            else if (name == "ChrBackward") { bit = 2; allowed = &permissions.backward; }
+            else if (name == "ChrStrafeLeft") { bit = 4; allowed = &permissions.left; }
+            else if (name == "ChrStrafeRight") { bit = 8; allowed = &permissions.right; }
+            else if (name == "ChrRun") { bit = 16; allowed = &permissions.run; }
+            if (!bit || (processed & bit)) continue;
+            processed |= bit;
+            *allowed = !descriptor.bLocked && !descriptor.bSystemLocked &&
+                (descriptor.control_type == UCT_ControlTree || descriptor.system_code != UNASSIGNED_CONTROL) &&
+                std::find(current.capabilities.begin(), current.capabilities.end(), name) != current.capabilities.end();
+            // Locked and unmapped names are resolved too. No index cache: the
+            // next request observes remapping and current global/control locks.
+            if (processed == 31) break;
+        }
+        return permissions;
     };
     storm::android::updateCombatState(gameplayState);
     storm::android::publishCombatState();
@@ -317,6 +349,10 @@ int main(int argc, char *argv[])
             {
                 storm::android::combatInput.offer(std::string_view(command).substr(7), SDL_GetTicks(), combatDrainEpoch);
             }
+            else if (command.starts_with("move:"))
+            {
+                storm::android::movementInput.offer(std::string_view(command).substr(5), storm::android::movementTick(), combatDrainEpoch);
+            }
             else if (command.starts_with("orders:"))
             {
                 storm::android::seaOrders.offer(std::string_view(command).substr(7), SDL_GetTicks());
@@ -324,6 +360,10 @@ int main(int argc, char *argv[])
             else if (command.starts_with("shiphud:"))
             {
                 storm::android::shipTelemetry.acknowledge(std::string_view(command).substr(8));
+            }
+            else if (command.starts_with("interface:"))
+            {
+                storm::android::interfacePresentation.offer(std::string_view(command).substr(10));
             }
             else if (command.starts_with("sails:"))
             {
@@ -346,9 +386,12 @@ int main(int argc, char *argv[])
             }
             else if (command == "back" && !storm::android::mobileScreen.empty())
                 core_private->Event("exitCancel");
-            else if (command.starts_with("context:") && storm::android::mobileScreen.empty())
+            else if (command.starts_with("context:"))
             {
-                if (command.substr(8) == storm::android::contextAction)
+                const bool accepted = storm::android::mobileScreen.empty() && command.substr(8) == storm::android::contextAction;
+                storm::android::traceContextAction("receive", command.substr(8),
+                    std::string("accepted=") + (accepted ? "1" : "0") + " current=" + storm::android::contextAction);
+                if (accepted)
                     storm::android::requestedContextAction = command.substr(8);
             }
             else if (command.starts_with("dialogue:"))
@@ -408,6 +451,7 @@ int main(int argc, char *argv[])
         {
             storm::android::closeSeaOrders();
             storm::android::publishSeaOrders();
+            storm::android::movementInput.updateOwner({});
             gameplayState.update({});
             storm::android::updateCombatState(gameplayState);
             storm::android::publishCombatState();
@@ -462,7 +506,11 @@ int main(int argc, char *argv[])
                 storm::android::refreshSeaOrders(storm::android::seaOrdersReady(gameplayReady));
                 storm::android::publishSeaOrders();
             }
-            gameplayState.update(storm::android::readGameplaySnapshot(gameplayReady));
+            auto gameplaySnapshot = storm::android::readGameplaySnapshot(gameplayReady);
+            storm::android::movementInput.updateOwner(gameplaySnapshot.inputOwner);
+            gameplaySnapshot.analogMovement = !gameplaySnapshot.inputOwner.empty();
+            gameplaySnapshot.movementGeneration = gameplaySnapshot.analogMovement ? storm::android::movementInput.generation() : 0;
+            gameplayState.update(std::move(gameplaySnapshot));
             storm::android::updateCombatState(gameplayState);
             storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
@@ -544,8 +592,10 @@ int main(int argc, char *argv[])
 #ifdef __ANDROID__
     storm::android::combatInput.clear();
     storm::android::combatInput.guard = {};
+    storm::android::movementInput.guard = {};
     storm::android::closeSeaOrders();
     storm::android::publishSeaOrders();
+    storm::android::movementInput.updateOwner({});
     gameplayState.update({});
     storm::android::publishGameplayState(gameplayState.json());
     storm::android::shipTelemetry.update(gameplayState.revision(), {});

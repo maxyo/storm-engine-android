@@ -57,9 +57,20 @@ void ILogAndActions::Execute(uint32_t delta_time)
 {
 #ifdef __ANDROID__
     const bool available = m_bThatRealAction && !m_bDontShowAll && m_bShowActiveCommand && !storm::iEquals(m_sActionName,"Closed");
+    static int lastFlags = -1;
+    static std::string lastAction;
+    const int flags = (m_bThatRealAction ? 1 : 0) | (m_bShowActiveCommand ? 2 : 0) | (m_bDontShowAll ? 4 : 0);
+    if (flags != lastFlags || lastAction != m_sActionName)
+    {
+        lastFlags = flags; lastAction = m_sActionName;
+        storm::android::traceContextAction("state", m_sActionName,
+            "flags(real=1,show=2,hidden=4)=" + std::to_string(flags) + " available=" + (available ? "1" : "0"));
+    }
     storm::android::publishContextAction(available ? m_sActionName : "");
     if (!storm::android::requestedContextAction.empty()) {
         const bool accepted = available && storm::android::requestedContextAction == m_sActionName;
+        storm::android::traceContextAction(accepted ? "dispatch" : "reject", storm::android::requestedContextAction,
+            "current=" + std::string(m_sActionName));
         storm::android::requestedContextAction.clear();
         if (accepted) { core.Event("BI_FastCommand", "s", m_sActionName); return; }
     }

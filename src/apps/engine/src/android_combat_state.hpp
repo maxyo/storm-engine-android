@@ -3,6 +3,7 @@
 #include "android_gameplay_state.hpp"
 #include "platform/android_ui.hpp"
 #include "platform/android_combat_input.hpp"
+#include "platform/android_movement.hpp"
 #include "platform/android_pistol_state.hpp"
 
 namespace storm::android
@@ -42,6 +43,9 @@ inline void updateCombatState(const GameplayState &gameplay)
         };
         if (gameplay.allows("ChrFightMode")) add("weapon",false,{"ChrFightMode"});
         if (gameplay.allows("BOAL_UsePotion")) add("potion",false,{"BOAL_UsePotion"});
+        // Primary interaction is polled by Player::Update. The script's quick
+        // action icon need not advertise Talk, even when an NPC is in range.
+        if (mode == "explore" && gameplay.allows("ChrAction")) add("interact",false,{"ChrAction"});
         add("freelook",true,{"ChrCamSpecMode"});
         if (mode == "melee")
         {
@@ -72,6 +76,14 @@ inline PistolState readPistolState()
     return pistolState(equipped, shipText(character, "chr_ai.tmpl") == "player",
                        shipNumber(character, "chr_ai.charge"), shipNumber(character, "chr_ai.chargeprc"));
 }
+inline std::string_view readInteractKind()
+{
+    const auto player = core.GetEntityId("Player");
+    auto *character = shipMainCharacter();
+    const bool verified = player != invalid_entity && character &&
+        core.Entity_GetAttributePointer(player) == character && combatInput.player() == std::to_string(player);
+    return interactKind(verified, verified ? shipText(character, "dialogready") : std::string{});
+}
 inline void publishCombatState()
 {
     auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
@@ -83,6 +95,7 @@ inline void publishCombatState()
         combatActivity = env->NewWeakGlobalRef(activity);
         combatMethod = nullptr; combatMethodKnown = false; lastCombatState.clear();
         combatInput.resetActivity();
+        movementInput.resetActivity();
     }
     if (!combatMethodKnown && !env->ExceptionCheck())
     {
@@ -97,6 +110,7 @@ inline void publishCombatState()
     auto json=combatInput.json();
     const auto pistol = readPistolState();
     json.pop_back();
+    json += ",\"interactKind\":" + gameplayJsonString(readInteractKind());
     json += ",\"pistol\":{\"state\":" + gameplayJsonString(pistol.state) +
             ",\"progress\":" + std::to_string(pistol.progress) + "}}";
     if(combatMethod && json!=lastCombatState && !env->ExceptionCheck())

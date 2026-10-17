@@ -17,6 +17,8 @@
 #ifdef __ANDROID__
 #include <android/log.h>
 #include <sys/system_properties.h>
+#include <platform/android_ui.hpp>
+#include <platform/android_movement.hpp>
 #endif
 
 // ============================================================================================
@@ -81,6 +83,28 @@ void Player::Move(float dltTime)
 #else
     const auto traceCombat = [](const char *) {};
 #endif
+#ifdef __ANDROID__
+    androidMotion = false;
+    androidMotionApplied = false;
+    // Poll even during a scripted task: hard context invalidation and lease
+    // expiry must not leave a sample waiting to resume after that task ends.
+    const auto androidAxes = GetId() == core.GetEntityId("Player") ?
+        storm::android::movementInput.read(storm::android::movementTick()) : std::nullopt;
+    if (task.task != npct_none || command.cmd != aicmd_none || GetId() != core.GetEntityId("Player"))
+    {
+        androidMotionStop = false;
+        if (androidAxes) storm::android::movementInput.resetActivity();
+    }
+    else if ((androidMovementHeld && !androidAxes) || (androidAxes && androidAxes->magnitude == 0.0f))
+    {
+        // StopMove only requests idle; bspeed still holds the full native gait
+        // during blending. Do not let that residual speed replace a slow touch
+        // vector after release, zero input, expiry or hard cancellation.
+        StopAndroidMovement();
+    }
+    androidMovementHeld = androidAxes.has_value();
+    androidTraceMagnitude = androidAxes ? androidAxes->magnitude : 0.0f;
+#endif
     kSMReload += dltTime * 0.7f;
     if (kSMReload > 1.0f)
         kSMReload = 1.0f;
@@ -141,28 +165,91 @@ void Player::Move(float dltTime)
         if (lastChange > 0.3f)
         {
             // lastChange = 0.0f;
-            SetRunMode(IsRunMode(dltTime));
-            if (GoForward(dltTime))
+#ifdef __ANDROID__
+            if (androidAxes && command.cmd == aicmd_none && !shootgunMode && !isSwim && !isJump)
             {
-                StartMove(false);
-                StrafeWhenMove(dltTime);
-            }
-            else if (GoBack(dltTime))
-            {
-                if (!IsFight())
+                const auto &axes = *androidAxes;
+                if (axes.magnitude == 0.0f)
                 {
-                    StartMove(true);
-                    StrafeWhenMove(dltTime);
+                    StopAndroidMovement();
+                }
+                else if (IsFight() && axes.y < -0.22f)
+                {
+                    // Backstep and side dodges are native combat actions, not
+                    // ordinary locomotion whose impulses may be rescaled.
+                    StopAndroidMovement();
+                    if (axes.magnitude > .22f) Recoil();
+                }
+                else if (IsFight() && std::fabs(axes.y) < .22f)
+                {
+                    StopAndroidMovement();
+                    if (axes.magnitude > .22f)
+                    {
+                        if (axes.x < 0) StrafeLeft(); else StrafeRight();
+                    }
                 }
                 else
                 {
-                    Recoil();
+                    const bool back = axes.y < 0;
+                    const float walking = IsFight() ? fightwalk.speed : (back ? backwalk.speed : walk.speed);
+                    const float running = IsFight() ? fightrun.speed : (back ? backrun.speed : run.speed);
+                    const auto pace = storm::android::movementPace(axes.magnitude, walking, running,
+                        axes.runAllowed && !isRunDisable);
+                    SetRunMode(pace.run);
+                    StartMove(back);
+                    androidMotionStop = false;
+                    strafeMove = axes.x;
+                    CMatrix camera;
+                    GetLocation()->GetRS()->GetTransform(D3DTS_VIEW, camera);
+                    camera.Transposition3X3();
+                    CVECTOR forward = camera.Vz();
+                    forward.y = 0.0f;
+                    const float length = sqrtf(forward.x * forward.x + forward.z * forward.z);
+                    if (length > .001f) forward *= 1.0f / length;
+                    else forward = CVECTOR(sinf(ay), 0.0f, cosf(ay));
+                    const CVECTOR right(forward.z, 0.0f, -forward.x);
+                    androidMotionDirection = right * axes.x + forward * axes.y;
+                    androidMotionSpeed = pace.speed;
+                    androidMotionWalkSpeed = std::fabs(walking);
+                    androidMotion = true;
                 }
             }
             else
+#endif
             {
-                StopMove();
-                StrafeWhenStop(dltTime);
+                SetRunMode(IsRunMode(dltTime));
+                if (GoForward(dltTime))
+                {
+#ifdef __ANDROID__
+                    androidMotionStop = false;
+#endif
+                    StartMove(false);
+                    StrafeWhenMove(dltTime);
+                }
+                else if (GoBack(dltTime))
+                {
+#ifdef __ANDROID__
+                    androidMotionStop = false;
+#endif
+                    if (!IsFight())
+                    {
+                        StartMove(true);
+                        StrafeWhenMove(dltTime);
+                    }
+                    else
+                    {
+                        Recoil();
+                    }
+                }
+                else
+                {
+#ifdef __ANDROID__
+                    if (androidMovementHeld) StopAndroidMovement();
+                    else
+#endif
+                        StopMove();
+                    StrafeWhenStop(dltTime);
+                }
             }
         }
         else
@@ -289,10 +376,19 @@ void Player::Update(float dltTime)
             CONTROL_STATE cs;
             core.Controls->GetControlState("ChrAction", cs);
             if (cs.state == CST_ACTIVATED)
+            {
                 aDialog = true;
+#ifdef __ANDROID__
+                storm::android::traceContextAction("primary-poll", "ChrAction", "player=" + std::to_string(GetId()));
+#endif
+            }
             if (activatedDialog)
             {
                 auto *chr = FindDialogCharacter();
+#ifdef __ANDROID__
+                storm::android::traceContextAction("dialog-target", "ChrAction",
+                    "target=" + std::to_string(chr && chr->AttributesPointer ? chr->AttributesPointer->GetAttributeAsDword("index", -1) : uint32_t(-1)));
+#endif
                 if (chr)
                 {
                     Assert(AttributesPointer);
@@ -301,6 +397,10 @@ void Player::Update(float dltTime)
                     const int32_t next = chr->AttributesPointer->GetAttributeAsDword("index", -1);
                     if (first >= 0 && next >= 0)
                     {
+#ifdef __ANDROID__
+                        storm::android::traceContextAction("dialog-dispatch", "dlgReady",
+                            "target=" + std::to_string(next) + " player=" + std::to_string(first));
+#endif
                         core.Event("dlgReady", "ll", next, first);
                     }
                     else
@@ -332,6 +432,9 @@ void Player::Update(float dltTime)
     // Character * c = FindGunTarget(kDist);
     // if(c) c->Select();
     NPCharacter::Update(dltTime);
+#ifdef __ANDROID__
+    TraceAndroidMovement(dltTime);
+#endif
     activatedDialog = aDialog;
     core.Send_Message(baterfl, "lff", MSG_ANIMALS_BUTTERFLIES_XYZ, curPos.x, curPos.z);
     // go through characters in search of enemies to the player
@@ -348,6 +451,62 @@ void Player::Update(float dltTime)
         }
     }
 }
+
+#ifdef __ANDROID__
+void Player::StopAndroidMovement()
+{
+    StopMove();
+    strafeMove = 0.0f;
+    androidMotionStop = true;
+}
+
+void Player::TraceAndroidMovement(float dltTime)
+{
+    // Diagnostic observations after collision/forces/floor update. Never poll
+    // the input mailbox here: logging must not renew a lease or change its token.
+    static unsigned budget = 192;
+    if (!budget) return;
+    if (androidTraceHasPosition) androidTraceSimulationTime += dltTime;
+    const auto now = storm::android::movementTick();
+    if (androidTraceHasTick && now - androidTraceTick < 250) return;
+    if (!androidMovementHeld && !androidTraceTail) return;
+    const auto elapsed = androidTraceHasPosition ? now - androidTraceTick : 0;
+    androidTraceTick = now;
+    androidTraceHasTick = true;
+    char setting[PROP_VALUE_MAX] = {};
+    __system_property_get("log.tag.StormInput", setting);
+    if (std::string_view(setting) != "DEBUG")
+    {
+        androidTraceHasPosition = false;
+        androidTraceSimulationTime = 0.0f;
+        androidTraceTail = 0;
+        return;
+    }
+    const float dx = androidTraceHasPosition ? curPos.x - androidTracePosition.x : 0.0f;
+    const float dz = androidTraceHasPosition ? curPos.z - androidTracePosition.z : 0.0f;
+    const float distance = sqrtf(dx * dx + dz * dz);
+    const float velocity = androidTraceSimulationTime > 0.0f ? distance / androidTraceSimulationTime : 0.0f;
+    const char *phase = androidMovementHeld ? "held" : (androidTraceTail == 2 ? "stop" : "idle");
+    __android_log_print(ANDROID_LOG_DEBUG, "StormInput",
+        "move-observe phase=%s player=%llu tick=%u wallMs=%u simSec=%.4f held=%d applied=%d mag=%.4f "
+        "target=%.4f run=%d vector=(%.4f,%.4f) pos=(%.4f,%.4f,%.4f) delta=(%.4f,%.4f) "
+        "distance=%.4f velocity=%.4f collision=%d locked=%d task=%d fight=%d",
+        phase, static_cast<unsigned long long>(GetId()), now, elapsed, androidTraceSimulationTime,
+        androidMovementHeld, androidMotionApplied, androidTraceMagnitude, androidMotion ? androidMotionSpeed : 0.0f,
+        IsRun(), androidMotion ? androidMotionDirection.x : 0.0f, androidMotion ? androidMotionDirection.z : 0.0f,
+        curPos.x, curPos.y, curPos.z, dx, dz, distance, velocity, isCollision, lockMove,
+        static_cast<int>(task.task), IsFight());
+    --budget;
+    androidTracePosition = curPos;
+    androidTraceTick = now;
+    androidTraceSimulationTime = 0.0f;
+    androidTraceHasPosition = true;
+    // One release observation followed by one settled observation, both under
+    // the same 250 ms throttle; never flood logs while idle in the game world.
+    if (androidMovementHeld) androidTraceTail = 2;
+    else --androidTraceTail;
+}
+#endif
 
 // Save parameters
 void Player::SetSaveData(ATTRIBUTES *sdata)
@@ -514,6 +673,11 @@ void Player::StrafeWhenMove(float dltTime)
 void Player::StrafeWhenStop(float dltTime)
 {
     StrafeWhenMove(dltTime);
+#ifdef __ANDROID__
+    // The native poll above owns physical A/D, including configurations whose
+    // stopped strafe is subsequently cleared or converted into a combat dodge.
+    if (strafeMove != 0.0f) androidMotionStop = false;
+#endif
     if (IsFight())
     {
         if (strafeMove > 0.5f)

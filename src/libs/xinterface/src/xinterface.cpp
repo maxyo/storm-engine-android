@@ -339,6 +339,10 @@ void XINTERFACE::Realize(uint32_t)
 
     pRenderService->MakePostProcess();
 
+#ifdef __ANDROID__
+    const storm::android::NativeInterfaceDrawScope mobileDrawScope(storm::android::interfacePresentation.suppressed());
+#endif
+
     auto Delta_Time = core.GetRDeltaTime();
 
     CMatrix moldv, moldp, moldw;
@@ -2017,6 +2021,15 @@ void XINTERFACE::DoControl()
         };
         auto *node = find(find, m_pNodes);
         if (!node) continue;
+        if (node->m_nNodeType == NODETYPE_SLIDELINE)
+        {
+            int position;
+            // A delayed drag from a previous opening of the same screen must
+            // never modify the new screen's slider state.
+            if (MobileSliderSetPosition(action.value, storm::android::mobileScreenRevision, position))
+                node->MobileApply(action.index, std::to_string(position));
+            continue;
+        }
         if (guardedEquip)
         {
             if (action.index != -1 || !node->m_bSelected || !node->m_bClickable || node->m_bLockStatus)

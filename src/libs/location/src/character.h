@@ -514,6 +514,18 @@ class Character : public Entity
 
     bool isLookFromEyes;
 
+#ifdef __ANDROID__
+    // Player supplies only voluntary locomotion; NPCs and special animations
+    // retain the original displacement. Reset by Player on every Move call.
+    bool androidMotion = false;
+    // Retain a zero voluntary-motion override while native gait blending winds
+    // down. Physical movement and scripted ownership explicitly release it.
+    bool androidMotionStop = false;
+    bool androidMotionApplied = false; // Observation only, for bounded DEBUG telemetry.
+    CVECTOR androidMotionDirection = CVECTOR(0.0f, 0.0f, 0.0f);
+    float androidMotionSpeed = 0.0f;
+    float androidMotionWalkSpeed = 0.0f;
+#endif
     ActionMove *curMove; // Current move action
 
     ActionMove walk;           // Walking forward

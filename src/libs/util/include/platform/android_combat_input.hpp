@@ -6,6 +6,15 @@
 
 namespace storm::android
 {
+// Script-maintained one-second proximity hint; actual ChrAction dispatch still
+// performs the native FindDialogCharacter query and owns eligibility.
+inline std::string_view interactKind(bool verifiedPlayer, std::string_view cachedTarget)
+{
+    uint32_t index = 0;
+    const auto parsed = std::from_chars(cachedTarget.data(), cachedTarget.data()+cachedTarget.size(), index);
+    return verifiedPlayer && !cachedTarget.empty() && parsed.ec == std::errc() &&
+        parsed.ptr == cachedTarget.data()+cachedTarget.size() && index <= 0x7fffffffU ? "dialog" : "interact";
+}
 inline std::atomic<uint64_t> combatCancelEpoch{0};
 // JNI producer safe: no container, engine pointer or script access here.
 inline void cancelAndroidCombatInput() { combatCancelEpoch.fetch_add(1, std::memory_order_release); }

@@ -2,6 +2,7 @@
 #include "core.h"
 #include "storm/config.hpp"
 #include "utf8.h"
+#include <platform/android_interface_presentation.hpp>
 
 #include <fmt/format.h>
 
@@ -347,12 +348,14 @@ int32_t FONT::Print(int32_t x, int32_t y, char *data_PTR, const FONT_PRINT_OVERR
         device_.SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ZERO);
         device_.SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
 
-        device_.DrawPrimitive(D3DPT_TRIANGLELIST, 0, s_num * 2);
+        if (!storm::android::NativeInterfaceDrawSuppressed())
+            device_.DrawPrimitive(D3DPT_TRIANGLELIST, 0, s_num * 2);
     }
     xoffset = UpdateVertexBuffer(x, y, data_PTR, s_num, scale, color);
     device_.SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
     device_.SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
-    device_.DrawPrimitive(D3DPT_TRIANGLELIST, 0, s_num * 2);
+    if (!storm::android::NativeInterfaceDrawSuppressed())
+        device_.DrawPrimitive(D3DPT_TRIANGLELIST, 0, s_num * 2);
     while (renderService_.TechniqueExecuteNext())
         ;
 
