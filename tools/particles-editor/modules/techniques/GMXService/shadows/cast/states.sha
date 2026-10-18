@@ -1,7 +1,0 @@
-#define GMX_SHADOW_CAST_STATES																														\
- VertexShaderConstant[GC_SHADOW_CONST1] = (mWorld * mShadowView) * mShadowProjection;			\
- CullMode = ccw;																																					\
- AlphaBlendEnable = false;																																\
- AlphaTestEnable = false;                                                                 \
- FogEnable = false;																																				\
- Texture[0] = GMX_TextureStage0;																													\

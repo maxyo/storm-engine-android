@@ -1,6 +1,0 @@
-#pragma once
-
-#define MIN_GRAPH_TIME 0.0f
-#define MAX_GRAPH_TIME 99999.0f
-
-#define NOT_INITED_CACHE_VALUE 999999999999.0f

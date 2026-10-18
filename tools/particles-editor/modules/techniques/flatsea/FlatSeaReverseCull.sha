@@ -1,8 +1,0 @@
-block_noopt FlatSeaReverseCull()
-{
-  CullMode = cw;
-//  ZFunc = GREATEREQUAL;
-
-
-  
-}
