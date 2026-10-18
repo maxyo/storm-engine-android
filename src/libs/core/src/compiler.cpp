@@ -6388,7 +6388,11 @@ bool COMPILER::ReadVariable(char *name, /* DWORD code,*/ bool bDim, uint32_t a_i
         ReadData(&eid, sizeof(eid));
         if (!bSkipVariable)
         {
-            pV->Set(eid);
+            // Saves contain script attributes, not the runtime entities they
+            // once referenced. OnLoad recreates those entities explicitly.
+            // Keep consuming the legacy handle for file compatibility, but
+            // never bind it to an unrelated entity in this process.
+            pV->Set(invalid_entity);
 
             if (pV->AttributesClass == nullptr)
                 pV->AttributesClass = new ATTRIBUTES(&SCodec);

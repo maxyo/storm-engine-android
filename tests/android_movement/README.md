@@ -1,4 +1,4 @@
-# Android analog movement
+# Android movement: discrete gait, continuous direction
 
 Run `python3 tests/android_movement/run.py` for the portable production input,
 geometry, speed and special-action guard regression under ASan/UBSan.
@@ -31,11 +31,24 @@ Stance changes within one owner preserve the generation and the held vector.
 A generation-only notification cancels the Java gesture locally; calling JNI
 hard cancel again would create a feedback loop.
 
-The circular deadzone is 150/1000. Remaining radius maps continuously to [0,1].
-Normal walking reaches native walk speed at .65; remaining travel interpolates
-to native run speed. Walking/running animations use corresponding playback pace.
-Native run locks limit the maximum to walk speed. This explicit intent does not
-use or invert the user's physical Shift/always-run preference.
+The circular deadzone starts movement above 180/1000 and stops it at or below
+120/1000. Radius selects one of two discrete native speeds: walk, or run entered
+at 800/1000 and left below 650/1000. The gaps provide hysteresis against thumb
+jitter. UP, cancellation and expiry reset the gait. Native run locks immediately
+limit movement to walk. Direction remains normalized and continuous at every
+angle, with no diagonal speed boost. This explicit intent does not use or invert
+the user's physical Shift/always-run preference.
+
+In explore mode the actor faces its camera-relative travel direction and uses
+the corresponding forward walk/run gait. The basis comes from LocationCamera,
+not temporary renderer view state. Touch camera yaw is independent of these
+joystick turns and remains stable after UP; right swipes orbit it. Cancellation,
+scripted ownership and physical forward/back requests restore native ownership.
+First-person keeps actor-relative forward/back/strafe and native look rotation;
+independent camera yaw and automatic travel-facing apply only to third-person.
+The camera regression executes the real CameraFollow::MoveCamera method;
+`python3 tests/android_movement/camera.py --source-root PATH` can check an older
+checkout against the same no-feedback camera contract.
 
 Only ordinary Player locomotion receives the camera-relative vector, before the
 existing collision/force pipeline. Backsteps and side dodges in combat retain

@@ -204,7 +204,8 @@ void EntityManager::EraseAll()
     // clear cache
     cache_.Clear();
 
-    previousStamp_ = 0;
+    // Script objects can retain handles across EraseAll. Preserve the generation
+    // so those handles cannot resolve to unrelated entities in reused slots.
 }
 
 entptr_t EntityManager::GetEntityPointer(const entid_t id) const

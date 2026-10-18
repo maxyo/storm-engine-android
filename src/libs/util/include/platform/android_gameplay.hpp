@@ -19,12 +19,14 @@ namespace storm::android
 struct GameplayContext
 {
     std::string_view group;
-    bool blocked = false, sea = false, land = false, naval = false;
+    bool blocked = false, sea = false, land = false, naval = false, worldmap = false;
     std::optional<bool> nativeFight;
 };
 inline std::string_view gameplayMode(const GameplayContext &context)
 {
     if (context.blocked) return "unknown";
+    if (context.worldmap)
+        return context.group == "WorldMapControls" ? "worldmap" : "unknown";
     if (context.sea)
         return context.group == "Sailing1Pers" || context.group == "Sailing3Pers" ?
             (context.naval ? "naval" : "sailing") : "unknown";

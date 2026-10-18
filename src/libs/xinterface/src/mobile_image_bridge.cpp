@@ -242,8 +242,11 @@ ImageRef AtlasReference(VXSERVICE *service, const char *group, const char *image
     int32_t width = 0, height = 0;
     if (!service || !service->ResolveImageSource(group, image, path, uv, width, height))
         return {};
-    return Reference({std::move(path), {uv.left, uv.top, uv.right, uv.bottom}, uint32_t(width), uint32_t(height)},
-                     tint);
+    auto reference = Reference({std::move(path), {uv.left, uv.top, uv.right, uv.bottom}, uint32_t(width), uint32_t(height)},
+                               tint);
+    if (reference.handle && group && image)
+        reference.source = {"atlas", group, image, {}, {}, -1};
+    return reference;
 }
 void ResetImages()
 {

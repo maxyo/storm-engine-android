@@ -130,6 +130,22 @@ int main()
     {
         core.entities[entity] = 10; unknown(); core.entities.erase(entity);
     }
+    auto *mapBindings = groups->CreateAttribute("WorldMapControls", nullptr);
+    for (const char *control : {"WMapShipSailUp", "WMapShipSailDown", "WMapShipTurnLeft", "WMapShipTurnRight", "WMapCancel", "WMapCameraSwitch"})
+        mapBindings->CreateAttribute(control, nullptr);
+    core.entities["WorldMap"] = 21;
+    core.variables["curKeyGroupName"].text = "WorldMapControls";
+    core.variables["bSeaActive"].integer = 1; // old sea flags must not mask the live map
+    auto map = readGameplaySnapshot(true);
+    assert(map.mode == "worldmap" && map.inputOwner.empty() && map.capabilities.size() == 6);
+    assert(std::find(map.capabilities.begin(), map.capabilities.end(), "ChrAction") == map.capabilities.end());
+    core.entities["WorldMap"] = 22;
+    assert(readGameplaySnapshot(true).scene != map.scene);
+    interfaceState.SetAttributeUseDword("Launched", 1); unknown();
+    interfaceState.SetAttributeUseDword("Launched", 0);
+    core.entities["CAviPlayer"] = 23; unknown(); core.entities.erase("CAviPlayer");
+    core.entities.erase("WorldMap"); unknown(); // group alone cannot authorize map input
+    core.variables["bSeaActive"].integer = 0;
     core.variables["curKeyGroupName"].text = "BattleInterfaceControls"; unknown();
     core.variables["curKeyGroupName"].text = "PrimaryLand";
     core.variables["bLandInterfaceStart"].integer = 0; unknown();

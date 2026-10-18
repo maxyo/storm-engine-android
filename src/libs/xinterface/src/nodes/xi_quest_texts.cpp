@@ -126,6 +126,9 @@ static void SubRightWord(char *buf, int fontNum, int width, VDX9RENDER *rs)
 
 void CXI_QUESTTEXTS::ReleaseStringes()
 {
+#ifdef __ANDROID__
+    m_mobileText.clear();
+#endif
     while (m_listRoot != nullptr)
     {
         m_listCur = m_listRoot;
@@ -320,6 +323,9 @@ void CXI_QUESTTEXTS::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, co
 
 void CXI_QUESTTEXTS::StartQuestShow(ATTRIBUTES *pA, int qn)
 {
+#ifdef __ANDROID__
+    m_mobileText.clear();
+#endif
     if (pA == nullptr)
         return;
     const int32_t aq = pA->GetAttributesNum();
@@ -364,6 +370,14 @@ void CXI_QUESTTEXTS::StartQuestShow(ATTRIBUTES *pA, int qn)
             // whole string list for one record
             asStringList.clear();
             GetStringListForQuestRecord(asStringList, pAttr->GetThisAttr(), pAttr->GetAttribute("UserData"));
+#ifdef __ANDROID__
+            if (!m_mobileText.empty() && !asStringList.empty()) m_mobileText += "\n\n";
+            for (const auto &paragraph : asStringList)
+            {
+                if (!m_mobileText.empty() && m_mobileText.back() != '\n') m_mobileText += '\n';
+                m_mobileText += paragraph.c_str();
+            }
+#endif
             for (int32_t i = 0; i < asStringList.size(); i++)
             {
                 // decompose the resulting string into lines that fit into the output area
@@ -460,3 +474,11 @@ void CXI_QUESTTEXTS::GetStringListForQuestRecord(std::vector<std::string> &strin
         stringList.push_back(ptrOwner->QuestFileReader()->GetRecordText(pcQuestID, pcTextID, userData ? userData : ""));
     }
 }
+
+#ifdef __ANDROID__
+void CXI_QUESTTEXTS::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    if (m_bUse)
+        widgets.push_back({m_nodeName, "text", m_mobileText, "", -1, m_rect.top * 8192 + m_rect.left, false});
+}
+#endif

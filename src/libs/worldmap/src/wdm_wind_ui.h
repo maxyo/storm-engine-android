@@ -54,6 +54,9 @@ class WdmWindUI : public WdmInterfaceObject
 
     int32_t dateFont;
     float morale{};
+#ifdef __ANDROID__
+    bool androidMoraleValid = false, androidFoodValid = false;
+#endif
     int32_t food{};
     std::optional<int32_t> rum;
     char month[12][128];

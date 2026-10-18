@@ -15,6 +15,16 @@ inline bool combatContextCurrent(const GameplayState &gameplay, bool ready)
     return current.mode == gameplay.snapshot().mode && current.scene == gameplay.snapshot().scene &&
         current.group == gameplay.snapshot().group && !current.scene.empty();
 }
+inline bool dialogTargetAvailable()
+{
+    const auto player = core.GetEntityId("Player");
+    auto *character = shipMainCharacter();
+    if (player == invalid_entity || !character || core.Entity_GetAttributePointer(player) != character ||
+        core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "IsDead")) return false;
+    // Query the same range, facing, life and fight checks used by Player::Update.
+    // The script's dialogready attribute is only a one-second hint and can be stale.
+    return validDialogTarget(core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "FindDialogCharacter"));
+}
 inline void updateCombatState(const GameplayState &gameplay)
 {
     std::vector<CombatBinding> bindings;
@@ -43,9 +53,8 @@ inline void updateCombatState(const GameplayState &gameplay)
         };
         if (gameplay.allows("ChrFightMode")) add("weapon",false,{"ChrFightMode"});
         if (gameplay.allows("BOAL_UsePotion")) add("potion",false,{"BOAL_UsePotion"});
-        // Primary interaction is polled by Player::Update. The script's quick
-        // action icon need not advertise Talk, even when an NPC is in range.
-        if (mode == "explore" && gameplay.allows("ChrAction")) add("interact",false,{"ChrAction"});
+        if (mode == "explore" && gameplay.allows("ChrAction") && dialogTargetAvailable())
+            add("interact",false,{"ChrAction"});
         add("freelook",true,{"ChrCamSpecMode"});
         if (mode == "melee")
         {
@@ -76,14 +85,6 @@ inline PistolState readPistolState()
     return pistolState(equipped, shipText(character, "chr_ai.tmpl") == "player",
                        shipNumber(character, "chr_ai.charge"), shipNumber(character, "chr_ai.chargeprc"));
 }
-inline std::string_view readInteractKind()
-{
-    const auto player = core.GetEntityId("Player");
-    auto *character = shipMainCharacter();
-    const bool verified = player != invalid_entity && character &&
-        core.Entity_GetAttributePointer(player) == character && combatInput.player() == std::to_string(player);
-    return interactKind(verified, verified ? shipText(character, "dialogready") : std::string{});
-}
 inline void publishCombatState()
 {
     auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
@@ -110,7 +111,7 @@ inline void publishCombatState()
     auto json=combatInput.json();
     const auto pistol = readPistolState();
     json.pop_back();
-    json += ",\"interactKind\":" + gameplayJsonString(readInteractKind());
+    json += ",\"interactKind\":" + gameplayJsonString("dialog");
     json += ",\"pistol\":{\"state\":" + gameplayJsonString(pistol.state) +
             ",\"progress\":" + std::to_string(pistol.progress) + "}}";
     if(combatMethod && json!=lastCombatState && !env->ExceptionCheck())

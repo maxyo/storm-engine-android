@@ -39,7 +39,8 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         if (interfaceAttrs && interfaceAttrs->GetAttributeAsDword("Launched", 0)) return {};
         auto *ai = character->FindAClass(character, "chr_ai.type");
         if (ai && ai->HasValue() && ai->GetValue() == "actor") return {};
-        const bool sea = integer("bSeaActive") && !integer("bAbordageStarted");
+        const auto worldmap = core.GetEntityId("WorldMap");
+        const bool sea = worldmap == invalid_entity && integer("bSeaActive") && !integer("bAbordageStarted");
         const auto commandActive = [](const char *name) {
             auto *value = static_cast<VDATA *>(core.GetScriptVariable(name));
             auto *attributes = value ? value->GetAClass() : nullptr;
@@ -47,12 +48,12 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         };
         GameplayContext context;
         context.group = out.group;
+        context.worldmap = worldmap != invalid_entity;
         context.sea = sea;
         context.land = integer("bLandInterfaceStart");
         // BICommandList::SetActive writes ComState during entity Execute, after
         // scripts may have last updated curKeyGroupName. Gate taps immediately.
         context.blocked = commandActive("BattleInterface") || commandActive("objLandInterface") ||
-            core.GetEntityId("WorldMap") != invalid_entity ||
             core.GetEntityId("CAviPlayer") != invalid_entity ||
             core.GetEntityId("WMVideoPlay") != invalid_entity;
         auto player = invalid_entity;
@@ -75,8 +76,8 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         auto *mainShip = sea ? shipForCharacter(character) : nullptr;
         if (sea && !mainShip) return {};
         out.scene = std::to_string(index) + ":" + (location ? location : "") + ":" +
-            std::to_string(sea ? mainShip->GetId() : core.GetEntityId("location"));
-        if (!sea) out.inputOwner = out.scene + ":" + std::to_string(player);
+            std::to_string(context.worldmap ? worldmap : sea ? mainShip->GetId() : core.GetEntityId("location"));
+        if (!sea && !context.worldmap) out.inputOwner = out.scene + ":" + std::to_string(player);
         if (auto *strings = static_cast<VSTRSERVICE *>(core.GetService("STRSERVICE")))
             if (const auto language = strings->GetLanguage()) out.language = std::string(language).substr(0, 32);
         auto *controls = static_cast<VDATA *>(core.GetScriptVariable("objControlsState"));
@@ -88,7 +89,10 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         };
         // Binding availability only; readiness, range, cargo and script guards
         // remain authoritative at action time.
-        if (sea)
+        if (context.worldmap)
+            for (auto name : {"WMapShipSailUp", "WMapShipSailDown", "WMapShipTurnLeft", "WMapShipTurnRight",
+                 "WMapCancel", "WMapCameraSwitch", "WMapCameraRotate"}) add(name);
+        else if (sea)
             for (auto name : {"Ship_TurnLeft", "Ship_TurnRight", "Ship_SailUp", "Ship_SailDown",
                  "Ship_Fire", "Sea_CameraSwitch", "hk_charge1", "hk_charge2", "hk_charge3", "hk_charge4",
                  "BICommandsActivate", "BIFastCommand", "TelescopeIn", "TelescopeOut"}) add(name);

@@ -279,6 +279,9 @@ class Character : public Entity
     void Turn(float _ay);
     // Find out direction
     float GetAY() const;
+#ifdef __ANDROID__
+    bool UsesTouchCamera() const { return androidCameraRelative && !isFight && !isSwim && !isJump; }
+#endif
     // Set running mode
     void SetRunMode(bool _isRun = true);
     // Are we moving
@@ -517,6 +520,7 @@ class Character : public Entity
 #ifdef __ANDROID__
     // Player supplies only voluntary locomotion; NPCs and special animations
     // retain the original displacement. Reset by Player on every Move call.
+    bool androidCameraRelative = false; // Touch explore camera yaw is independent of movement heading.
     bool androidMotion = false;
     // Retain a zero voluntary-motion override while native gait blending winds
     // down. Physical movement and scripted ownership explicitly release it.

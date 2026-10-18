@@ -1,6 +1,10 @@
 #pragma once
 
 #include "bi_defines.h"
+#ifdef __ANDROID__
+#include "platform/android_worldmap.hpp"
+#include <chrono>
+#endif
 
 class WMShipIcon;
 class WMShipCommandList;
@@ -13,6 +17,12 @@ class WM_INTERFACE : public Entity
     WM_INTERFACE();
     ~WM_INTERFACE() override;
     bool Init() override;
+#ifdef __ANDROID__
+    std::string androidCommandContext;
+    std::chrono::steady_clock::time_point androidCommandPoll{};
+    void ReadAndroidMapCommands(storm::android::WorldMapFrame &frame);
+    bool ActivateAndroidMapCommand(const std::string &id);
+#endif
     void Realize(uint32_t delta_time);
     uint64_t ProcessMessage(MESSAGE &message) override;
     uint32_t AttributeChanged(ATTRIBUTES *pAttr) override;

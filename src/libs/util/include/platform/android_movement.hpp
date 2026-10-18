@@ -19,13 +19,15 @@ struct MovementAxes
     float x = 0, y = 0, magnitude = 0;
     bool runAllowed = false;
 };
-inline MovementAxes movementAxes(int x, int y, const MovementPermission &permission)
+inline MovementAxes movementAxes(int x, int y, const MovementPermission &permission, bool wasMoving = false)
 {
     if ((x < 0 && !permission.left) || (x > 0 && !permission.right)) x = 0;
     if ((y < 0 && !permission.backward) || (y > 0 && !permission.forward)) y = 0;
     const float length = std::hypot(float(x), float(y));
-    if (length <= 150) return {0, 0, 0, permission.run};
-    return {x / length, y / length, (std::min(length, 1000.0f) - 150.0f) / 850.0f, permission.run};
+    // Radial hysteresis prevents a resting thumb from repeatedly starting and
+    // stopping. Normalize direction only; radius selects a gait, never speed.
+    if (length <= (wasMoving ? 120.0f : 180.0f)) return {0, 0, 0, permission.run};
+    return {x / length, y / length, std::min(length, 1000.0f) / 1000.0f, permission.run};
 }
 inline bool movementOwnerCurrent(std::string_view owner, const GameplaySnapshot &current)
 {
@@ -39,15 +41,24 @@ inline bool ordinaryMovementAllowed(bool requested, bool moving, bool locked, bo
         !fighting && !queuedFight && locomotion;
 }
 struct MovementPace { bool run; float speed; };
-// Continuous target speed, with a walk/run animation boundary at 65% travel.
-// Native action speeds (including backward/fight variants) supply the units.
-inline MovementPace movementPace(float magnitude, float walkSpeed, float runSpeed, bool canRun)
+// Two native gait speeds. Enter run at 80% travel and return to walk below
+// 65%; permission changes always take effect immediately. Direction stays analog.
+inline MovementPace movementPace(float magnitude, float walkSpeed, float runSpeed, bool canRun,
+                                  bool wasRunning = false)
 {
-    magnitude = std::clamp(magnitude, 0.0f, 1.0f);
+    if (magnitude <= 0.0f) return {false, 0.0f};
     walkSpeed = std::fabs(walkSpeed); runSpeed = std::max(walkSpeed, std::fabs(runSpeed));
-    if (!canRun) return {false, walkSpeed * magnitude};
-    if (magnitude <= .65f) return {false, walkSpeed * magnitude / .65f};
-    return {true, walkSpeed + (runSpeed - walkSpeed) * (magnitude - .65f) / .35f};
+    const bool run = canRun && magnitude >= (wasRunning ? .65f : .80f);
+    return {run, run ? runSpeed : walkSpeed};
+}
+struct MovementDirection { float x, z; };
+inline MovementDirection movementDirection(const MovementAxes &axes, float cameraX, float cameraZ,
+                                            float fallbackYaw)
+{
+    const float length = std::hypot(cameraX, cameraZ);
+    if (length > .001f) { cameraX /= length; cameraZ /= length; }
+    else { cameraX = std::sin(fallbackYaw); cameraZ = std::cos(fallbackYaw); }
+    return {cameraZ * axes.x + cameraX * axes.y, -cameraX * axes.x + cameraZ * axes.y};
 }
 // One latest-value slot, owned by the engine thread. No entity/script pointers
 // cross JNI. The atomic cancellation epoch is the existing JNI hard-cancel fence.
@@ -58,7 +69,7 @@ class MovementInput
     uint64_t generation_ = 0, sequence_ = 0, cancel_ = 0;
     uint32_t tick_ = 0;
     int x_ = 0, y_ = 0;
-    bool active_ = false;
+    bool active_ = false, moving_ = false;
     template<class T> static bool number(std::string_view value, T &out)
     {
         const auto parsed = std::from_chars(value.data(), value.data()+value.size(), out);
@@ -76,7 +87,7 @@ public:
     void resetActivity()
     {
         generation_ = nextGeneration_.fetch_add(1, std::memory_order_relaxed) + 1;
-        sequence_ = 0; active_ = false; x_ = y_ = 0;
+        sequence_ = 0; active_ = moving_ = false; x_ = y_ = 0;
     }
     void updateOwner(std::string owner)
     {
@@ -106,6 +117,7 @@ public:
             x < -1000 || x > 1000 || y < -1000 || y > 1000 || (fields[4] == "0" && (x || y))) return false;
         if (!guard || !guard(owner_)) { updateOwner({}); return false; }
         sequence_ = sequence; tick_ = tick; x_ = x; y_ = y; active_ = fields[4] == "1";
+        if (!active_) moving_ = false;
         return true;
     }
     std::optional<MovementAxes> read(uint32_t tick)
@@ -116,7 +128,9 @@ public:
         if (tick - tick_ > 350) { resetActivity(); return std::nullopt; }
         const auto permission = guard ? guard(owner_) : std::nullopt;
         if (!permission) { updateOwner({}); return std::nullopt; }
-        return movementAxes(x_, y_, *permission);
+        const auto axes = movementAxes(x_, y_, *permission, moving_);
+        moving_ = axes.magnitude > 0.0f;
+        return axes;
     }
 };
 inline MovementInput movementInput;

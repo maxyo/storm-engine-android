@@ -14,6 +14,7 @@
 #include <vector>
 #include "android_ship_telemetry.hpp"
 #include "android_sea_orders.hpp"
+#include "android_worldmap.hpp"
 #include "android_interface_presentation.hpp"
 
 namespace storm::android
@@ -140,6 +141,44 @@ inline void publishShipTelemetry()
         }
     }
     if (env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(activity);
+}
+inline jweak worldMapActivity = nullptr;
+inline jmethodID worldMapMethod = nullptr;
+inline bool worldMapMethodKnown = false;
+inline uint32_t worldMapPublishedAt = 0;
+inline uint64_t worldMapPublishedRevision = UINT64_MAX;
+inline void publishWorldMapHud()
+{
+    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
+    if(!env||!activity)return;
+    if(!worldMapActivity||!env->IsSameObject(worldMapActivity,activity))
+    {
+        if(worldMapActivity)env->DeleteWeakGlobalRef(worldMapActivity);
+        worldMapActivity=env->NewWeakGlobalRef(activity);worldMapMethod=nullptr;worldMapMethodKnown=false;
+        worldMapHud.resetActivity();worldMapPublishedAt=0;
+    }
+    if(!worldMapMethodKnown&&!env->ExceptionCheck())
+    {
+        auto type=env->GetObjectClass(activity);
+        if(type){worldMapMethod=env->GetMethodID(type,"showWorldMapHud","([B)V");env->DeleteLocalRef(type);worldMapMethodKnown=true;}
+        if(env->ExceptionCheck())env->ExceptionClear();
+    }
+    const auto tick=SDL_GetTicks();
+    if(worldMapMethod && (tick-worldMapPublishedAt>=200 || worldMapPublishedRevision!=worldMapHud.revision()) && !env->ExceptionCheck())
+    {
+        const auto json=worldMapHud.json();
+        if(json.size()<=16384)
+        {
+            auto bytes=env->NewByteArray(static_cast<jsize>(json.size()));
+            if(bytes&&!env->ExceptionCheck())env->SetByteArrayRegion(bytes,0,static_cast<jsize>(json.size()),reinterpret_cast<const jbyte *>(json.data()));
+            if(bytes&&!env->ExceptionCheck())env->CallVoidMethod(activity,worldMapMethod,bytes);
+            if(bytes)env->DeleteLocalRef(bytes);
+            worldMapPublishedAt=tick;worldMapPublishedRevision=worldMapHud.revision();
+        }
+    }
+    if(env->ExceptionCheck())env->ExceptionClear();
     env->DeleteLocalRef(activity);
 }
 inline jweak seaOrdersActivity = nullptr;

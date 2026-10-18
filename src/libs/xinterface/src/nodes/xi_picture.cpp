@@ -81,6 +81,8 @@ void CXI_PICTURE::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, const
 
     m_idTex = -1;
     m_mobileTexturePath.clear();
+    m_mobilePictureName.clear();
+    std::string atlasPicture;
 
     auto texRect = FXYRECT(0.f, 0.f, 1.f, 1.f);
 
@@ -94,6 +96,7 @@ void CXI_PICTURE::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, const
 
         if (ReadIniString(ini1, name1, ini2, name2, "picName", param, sizeof(param), ""))
         {
+            atlasPicture = param;
             pPictureService->GetTexturePos(m_pcGroupName, param, texRect);
             FXYRECT unused;
             int32_t width = 0, height = 0;
@@ -119,6 +122,7 @@ void CXI_PICTURE::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, const
     // Create rectangle
     ChangePosition(m_rect);
     ChangeUV(texRect);
+    m_mobilePictureName = std::move(atlasPicture);
     for (auto i = 0; i < 4; i++)
     {
         m_v[i].color = color;
@@ -247,6 +251,7 @@ void CXI_PICTURE::SetNewPictureByGroup(const char *groupName, const char *picNam
         m_mobileTexturePath.clear();
         pPictureService->ResolveImageSource(m_pcGroupName, picName, m_mobileTexturePath, unused, width, height);
         ChangeUV(texRect);
+        m_mobilePictureName = picName;
     }
 }
 
@@ -365,6 +370,8 @@ uint32_t CXI_PICTURE::MessageProc(int32_t msgcode, MESSAGE &message)
                 m_v[n].tu = pOtherPic->m_v[n].tu;
                 m_v[n].tv = pOtherPic->m_v[n].tv;
             }
+            m_mobileTexturePath = std::move(pOtherPic->m_mobileTexturePath);
+            m_mobilePictureName = std::move(pOtherPic->m_mobilePictureName);
             pOtherPic->ReleasePicture();
         }
     }
@@ -376,6 +383,8 @@ uint32_t CXI_PICTURE::MessageProc(int32_t msgcode, MESSAGE &message)
 
 void CXI_PICTURE::ChangeUV(FXYRECT &frNewUV)
 {
+    // An arbitrary crop no longer proves that this is the named atlas entry.
+    m_mobilePictureName.clear();
     m_v[0].tu = frNewUV.left;
     m_v[0].tv = frNewUV.top;
     m_v[1].tu = frNewUV.left;
@@ -450,6 +459,7 @@ void CXI_PICTURE::SetNewPictureByPointer(int32_t textureId)
 void CXI_PICTURE::ReleasePicture()
 {
     m_mobileTexturePath.clear();
+    m_mobilePictureName.clear();
     PICTURE_TEXTURE_RELEASE(pPictureService, m_pcGroupName, m_idTex);
 
     STORM_DELETE(m_pcGroupName);
@@ -482,12 +492,19 @@ void CXI_PICTURE::MobileCollect(std::vector<MobileWidget> &widgets) const
             storm::mobile::Reference({m_mobileTexturePath, {m_v[0].tu, m_v[0].tv, m_v[3].tu, m_v[3].tv}}, m_v[0].color);
         if (!ref.handle)
             return;
+        if (m_pcGroupName && !m_mobilePictureName.empty())
+            ref.source = {"atlas", m_pcGroupName, m_mobilePictureName, {}, {}, -1};
         MobileWidget widget{m_nodeName, "image", "", "", -1, m_rect.top * 8192 + m_rect.left, false};
         // The stock tab's active artwork is named TabDeSelected. Compare the
         // actual atlas crop; no optimistic Android state or image paths leak.
         const std::string name = m_nodeName ? m_nodeName : "";
-        if (name.size() == 8 && name.compare(0, 7, "TABBTN_") == 0 && name[7] >= '1' && name[7] <= '4' &&
-            m_pcGroupName && storm::iEquals(m_pcGroupName, "TABS"))
+        const bool numberedTab = name.size() == 8 && name.compare(0, 7, "TABBTN_") == 0 &&
+            name[7] >= '1' && name[7] <= '4';
+        const bool journalTab = storm::android::mobileScreen == "questbook" &&
+            (name == "TABBTN_QUEST" || name == "TABBTN_QUESTARJ" || name == "TABBTN_INFO" ||
+             name == "TABBTN_CASHBOOK" || name == "TABBTN_STATISTIC" ||
+             name == "TABBTN_SHIP_PLACE" || name == "TABBTN_STOREBOOK");
+        if ((numberedTab || journalTab) && m_pcGroupName && storm::iEquals(m_pcGroupName, "TABS"))
         {
             FXYRECT active;
             if (pPictureService->GetTexturePos(m_pcGroupName, "TabDeSelected", active))

@@ -32,11 +32,17 @@ MovementPermission permissions(const GameplaySnapshot &current)
 #include "permissions.inc"
 }
 struct CMatrix { CVECTOR Vz(){return {0,0,1};} void Transposition3X3(){} };
+struct Camera { bool thirdPerson=true; CVECTOR forward{0,0,1};
+    CVECTOR MovementViewDirection()const{return forward;} bool IsThirdPersonFollow()const{return thirdPerson;} } camera;
 constexpr int D3DTS_VIEW=0;
 struct Renderer { void GetTransform(int,CMatrix&){} } renderer;
 struct Location { Renderer *GetRS(){return &renderer;} } location;
 struct Motion
 {
+    bool fight=false,isTurnLock=false,androidCameraRelative=false;
+    bool IsFight(){return fight;}
+    bool UsesTouchCamera()const{return androidCameraRelative&&!fight&&!isSwim&&!isJump;}
+    float nay=0,turnDir=0;
     bool androidMotion=true,androidMotionStop=false,androidMotionApplied=false,isMove=true,lockMove=false,isJump=false,isSwim=false;
     struct { const char *name=nullptr; } priorityAction;
     int fgtCurType=fgt_none,fgtSetType=fgt_none;
@@ -56,17 +62,19 @@ struct Player:Motion
 {
     struct {int task=0;} task;
     struct {int cmd=0;} command;
-    bool androidMovementHeld=true;
+    bool androidMovementHeld=true,androidRunTier=false;
+    uint64_t androidCameraGeneration=0;
+    Camera *locCam=&camera;
+    bool lastBack=false,lastRun=false;
     bool nativeForward=false,nativeBack=false;
     bool GoForward(float){return nativeForward;}
     bool GoBack(float){return nativeBack;}
     bool IsRunMode(float){return true;}
-    bool fight=false,isSpecialMode=false,allowDodge=true,isRunDisable=false; int dodges=0,recoils=0;
-    bool IsFight(){return fight;}
+    bool isSpecialMode=false,allowDodge=true,isRunDisable=false; int dodges=0,recoils=0;
     void StrafeLeft(){++dodges;if(allowDodge)fgtSetType=1;}
     void StrafeRight(){++dodges;if(allowDodge)fgtSetType=1;}
-    void SetRunMode(bool){}
-    void StartMove(bool){isMove=true;}
+    void SetRunMode(bool run){lastRun=run;}
+    void StartMove(bool back){isMove=true;lastBack=back;}
     void StrafeWhenMove(float);
     void StrafeWhenStop(float);
     void Recoil(){++recoils;if(allowDodge)fgtSetType=1;}
@@ -76,6 +84,7 @@ struct Player:Motion
     {
         std::optional<MovementAxes> androidAxes=sample;
         androidMotion=false; // the real Move clears the per-frame vector first
+        release(androidAxes);
 #include "analog_decision.inc"
     }
     void physical()
@@ -120,8 +129,9 @@ int main()
         if(special==4)native.isJump=touch.isJump=true;
         native.step();touch.step();same(native.curPos,touch.curPos);assert(!touch.androidMotionApplied);
     }
-    Player scripted;scripted.androidMotionStop=true;scripted.task.task=1;scripted.release(std::nullopt);
-    assert(!scripted.androidMotionStop);
+    Player scripted;scripted.androidMotionStop=true;scripted.androidRunTier=true;
+    scripted.androidCameraRelative=true;scripted.task.task=1;scripted.release(std::nullopt);
+    assert(!scripted.androidMotionStop&&!scripted.androidRunTier&&!scripted.androidCameraRelative);
     scripted.task.task=0;scripted.command.cmd=1;scripted.androidMotionStop=true;scripted.release(std::nullopt);
     assert(!scripted.androidMotionStop);
     // A physical movement request clears the stop latch and resumes the exact
@@ -166,6 +176,38 @@ int main()
     Player analogCenter;analogCenter.analog({0,1,.1f,true});analogCenter.step();
     auto beforeCenter=analogCenter.curPos;analogCenter.analog({0,0,0,true});analogCenter.step();
     same(analogCenter.curPos,beforeCenter);assert(analogCenter.androidMotionStop);
+    // Real Player decision + Character displacement: a front-facing camera
+    // or a diagonal may not produce backwards gait / motion against heading.
+    for(int cam=0;cam<360;cam+=30) for(int angle=0;angle<360;angle+=5)
+    {
+        const float c=cam*.017453292519943295f,a=angle*.017453292519943295f;
+        camera.forward={std::sin(c),0,std::cos(c)};
+        Player moving;
+        moving.analog({std::sin(a),std::cos(a),.5f,true});moving.step();
+        assert(!moving.lastBack&&!moving.lastRun);
+        assert(near(std::hypot(moving.curPos.x,moving.curPos.z),.2f));
+        assert(near(std::sin(moving.ay),moving.androidMotionDirection.x));
+        assert(near(std::cos(moving.ay),moving.androidMotionDirection.z));
+        assert(moving.strafeMove==0);
+    }
+    camera.forward={0,0,-1};
+    Player combat;combat.fight=true;combat.ay=0;
+    combat.analog({0,1,.5f,true});combat.step();
+    assert(combat.curPos.z>0&&combat.curPos.x==0&&!combat.lastBack);
+    camera.forward={0,0,1};
+    // First-person uses actor-relative forward/back and preserves look yaw.
+    camera.thirdPerson=false;camera.forward={0,0,-1};
+    Player eyes;eyes.ay=0;eyes.analog({0,-1,.5f,true});eyes.step();
+    assert(!eyes.androidCameraRelative&&eyes.lastBack&&eyes.ay==0&&eyes.curPos.z<0);
+    eyes.analog({1,0,.5f,true});eyes.step();
+    assert(eyes.ay==0&&eyes.androidMotionDirection.x==1&&eyes.androidMotionDirection.z==0);
+    camera.thirdPerson=true;camera.forward={0,0,1};
+    Player tiers;
+    for(float radius : {.2f,.4f,.79f}) {tiers.analog({0,1,radius,true});assert(tiers.androidMotionSpeed==2&&!tiers.lastRun);}
+    for(float radius : {.8f,1.f,.7f,.65f}) {tiers.analog({0,1,radius,true});assert(tiers.androidMotionSpeed==5&&tiers.lastRun);}
+    tiers.analog({0,1,.64f,true});assert(tiers.androidMotionSpeed==2&&!tiers.lastRun);
+    tiers.analog({0,1,1,true});tiers.analog({0,0,0,true});assert(!tiers.androidRunTier);
+    tiers.analog({0,1,.7f,true});assert(tiers.androidMotionSpeed==2&&!tiers.lastRun);
     GameplaySnapshot snapshot;snapshot.capabilities={"ChrForward","ChrBackward","ChrStrafeLeft","ChrStrafeRight","ChrRun"};
     controls.entries={{"irrelevant"},{"ChrForward"},{"ChrBackward",true},{"ChrStrafeLeft",false,true},
         {"ChrStrafeRight",false,false,0,UNASSIGNED_CONTROL},{"ChrRun",false,false,UCT_ControlTree,UNASSIGNED_CONTROL},

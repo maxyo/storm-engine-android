@@ -77,9 +77,17 @@ inline std::string MobileJsonString(const std::string &text)
 
 inline std::string MobileImageJson(const storm::mobile::ImageRef &image)
 {
-    return "{\"handle\":" + std::to_string(image.handle) + ",\"imageRevision\":" + std::to_string(image.imageRevision) +
+    std::string json = "{\"handle\":" + std::to_string(image.handle) + ",\"imageRevision\":" + std::to_string(image.imageRevision) +
            ",\"width\":" + std::to_string(image.width) + ",\"height\":" + std::to_string(image.height) +
-           ",\"tintArgb\":" + std::to_string(image.tintArgb) + '}';
+           ",\"tintArgb\":" + std::to_string(image.tintArgb);
+    const auto &source = image.source;
+    if (source.kind == "atlas" && !source.group.empty() && !source.image.empty())
+        json += ",\"source\":{\"kind\":\"atlas\",\"group\":" + MobileJsonString(source.group) +
+                ",\"image\":" + MobileJsonString(source.image) + '}';
+    else if (source.kind == "battle_icon" && !source.mode.empty() && !source.atlas.empty() && source.pic >= 0)
+        json += ",\"source\":{\"kind\":\"battle_icon\",\"mode\":" + MobileJsonString(source.mode) +
+                ",\"atlas\":" + MobileJsonString(source.atlas) + ",\"pic\":" + std::to_string(source.pic) + '}';
+    return json + '}';
 }
 inline std::string MobileImagesJson(const std::vector<storm::mobile::ImageRef> &images)
 {

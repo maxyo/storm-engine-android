@@ -1519,7 +1519,7 @@ void CXI_TABLE::MobileCollect(std::vector<MobileWidget> &widgets) const
             const char *text = cell ? cell->GetAttribute("str") : nullptr;
             columnHeaders.emplace_back(text ? text : "");
         }
-    auto *characters = core.Entity_GetAttributeClass(g_idInterface, "CHARACTERS_SCROLL");
+    auto *interfaceRoot = core.Entity_GetAttributeClass(g_idInterface, "");
     for (int row = 0; row < m_nLineQuantity; ++row)
     {
         const std::string key = "tr" + std::to_string(row + 1);
@@ -1532,7 +1532,9 @@ void CXI_TABLE::MobileCollect(std::vector<MobileWidget> &widgets) const
                             row,
                             m_rect.top * 8192 + m_rect.left + row,
                             m_bClickable && !m_bLockStatus};
-        widget.rowId = storm::mobile::MobileTableRowId(m_nodeName, line, characters);
+        widget.rowId = storm::mobile::InterfaceTableRowId(storm::android::mobileScreen, m_nodeName, line, interfaceRoot);
+        if (storm::mobile::LeasedTableIdentityRequired(storm::android::mobileScreen, m_nodeName) && widget.rowId.empty())
+            widget.enabled = false;
         widget.columnHeaders = columnHeaders;
         if (widget.enabled)
         {
@@ -1610,10 +1612,13 @@ bool CXI_TABLE::MobileApply(int index, const std::string &value)
     auto *row = root ? root->GetAttributeClass(key.c_str()) : nullptr;
     if (!row)
         return false;
-    const auto id = storm::mobile::MobileTableRowId(
-        m_nodeName, row, core.Entity_GetAttributeClass(g_idInterface, "CHARACTERS_SCROLL"));
+    const auto id = storm::mobile::InterfaceTableRowId(
+        storm::android::mobileScreen, m_nodeName, row, core.Entity_GetAttributeClass(g_idInterface, ""));
+    const bool leased = storm::mobile::LeasedTableIdentityRequired(storm::android::mobileScreen, m_nodeName);
+    if (leased && id.empty())
+        return false;
     const auto suffix = "@" + std::to_string(storm::android::mobileScreenRevision) + ":" + id;
-    const bool select = value == "select" || value == "select" + suffix;
+    const bool select = (!leased && value == "select") || value == "select" + suffix;
     const bool activate = value == "activate" + suffix;
     const bool dispatch = value == "dispatch" + suffix;
     if (!select && !activate && !dispatch)

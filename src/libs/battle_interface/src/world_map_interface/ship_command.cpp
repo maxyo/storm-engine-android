@@ -56,3 +56,23 @@ int32_t WMShipCommandList::CommandAdding()
 
     return retVal;
 }
+
+#ifdef __ANDROID__
+std::vector<storm::android::MapCommand> WMShipCommandList::AndroidMapCommands() const
+{
+    std::vector<storm::android::MapCommand> out;
+    for (const auto &c:m_aUsedCommand)
+    {
+        if ((c.sCommandName == "Cancel" || c.sCommandName == "cancel")) continue;
+        if (c.sCommandName.empty() || c.sNote.empty() || c.sNote.size()>256) return {};
+        out.push_back({c.sCommandName, storm::android::shipCaptionText(c.sNote)});
+    }
+    return out;
+}
+bool WMShipCommandList::SelectAndroidMapCommand(const std::string &id)
+{
+    for(size_t i=0;i<m_aUsedCommand.size();++i)
+        if(m_aUsedCommand[i].sCommandName==id) return SelectAndroidItem("i"+std::to_string(i));
+    return false;
+}
+#endif

@@ -1,4 +1,7 @@
 #include "xi_quest_titles.h"
+#ifdef __ANDROID__
+#include "platform/android_ui.hpp"
+#endif
 
 void SubRightWord(char *buf, int fontNum, int width, VDX9RENDER *rs)
 {
@@ -157,6 +160,9 @@ bool CXI_QUESTTITLE::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const
 
 void CXI_QUESTTITLE::ReleaseAll()
 {
+#ifdef __ANDROID__
+    m_mobileQuests.clear();
+#endif
     FONT_RELEASE(m_rs, m_idFont);
     if (m_strList != nullptr)
         for (auto i = 0; i < m_stringQuantity; i++)
@@ -311,6 +317,9 @@ void CXI_QUESTTITLE::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, co
 
 void CXI_QUESTTITLE::SetNewTopQuest(ATTRIBUTES *pA, int topNum)
 {
+#ifdef __ANDROID__
+    RefreshMobileQuests(pA, topNum);
+#endif
     int i;
     m_nCommonQuantity = 0;
     // delete old lines
@@ -433,3 +442,57 @@ void CXI_QUESTTITLE::MouseThis(float fX, float fY)
         top = bottom;
     }
 }
+
+#ifdef __ANDROID__
+void CXI_QUESTTITLE::RefreshMobileQuests(ATTRIBUTES *quests, int top)
+{
+    m_mobileQuests.clear();
+    m_mobileTop = top;
+    if (!quests || !ptrOwner->QuestFileReader()) return;
+    // Native rows hold only a screenful of wrapped titles. Android scrolls the
+    // complete list, preserving the script's absolute attribute index and ID.
+    for (int i = 0; i < quests->GetAttributesNum(); ++i)
+    {
+        auto *quest = quests->GetAttributeClass(i);
+        if (!quest) continue;
+        const char *log = quest->GetAttribute("LogName");
+        std::string title;
+        if (!ptrOwner->QuestFileReader()->GetQuestTitle(log ? log : quest->GetThisName(),
+                                                       quest->GetThisName(), title)) continue;
+        // The legacy reader includes an explicit C terminator in its string.
+        MobileWidget row{m_nodeName, "choice", title.c_str(), quest->GetAttributeAsDword("Complete", 0) ? "1" : "0",
+                         i, m_rect.top * 8192 + m_rect.left + i, true};
+        row.rowId = quest->GetThisName();
+        row.actions.push_back("open");
+        m_mobileQuests.push_back(std::move(row));
+    }
+}
+
+void CXI_QUESTTITLE::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    if (!m_bUse) return;
+    if (m_mobileQuests.empty())
+        widgets.push_back({m_nodeName, "text", "", "", -1, m_rect.top * 8192 + m_rect.left, false});
+    for (auto row : m_mobileQuests)
+    {
+        row.enabled = m_bClickable && !m_bLockedNode && !m_bLockStatus;
+        if (!row.enabled) row.actions.clear();
+        widgets.push_back(std::move(row));
+    }
+}
+
+bool CXI_QUESTTITLE::MobileApply(int index, const std::string &value)
+{
+    if (!m_bUse || !m_bClickable || m_bLockedNode || m_bLockStatus) return false;
+    for (const auto &row : m_mobileQuests)
+        if (row.index == index && value == "open@" + std::to_string(storm::android::mobileScreenRevision) + ":" + row.rowId)
+        {
+            const int relative = index - m_mobileTop;
+            // This callback changes active nodes and can rebuild the title cache.
+            // Copy all input before entering the original game script.
+            core.Event("QuestActivate", "l", relative);
+            return true;
+        }
+    return false;
+}
+#endif

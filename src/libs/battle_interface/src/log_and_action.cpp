@@ -1,3 +1,6 @@
+#ifdef __ANDROID__
+#include "platform/android_worldmap.hpp"
+#endif
 #include <platform/android_ui.hpp>
 #include "log_and_action.h"
 #include "controls.h"
@@ -66,6 +69,8 @@ void ILogAndActions::Execute(uint32_t delta_time)
         storm::android::traceContextAction("state", m_sActionName,
             "flags(real=1,show=2,hidden=4)=" + std::to_string(flags) + " available=" + (available ? "1" : "0"));
     }
+    storm::android::worldMapHud.contextActionOwner=core.GetEntityId("WorldMap");
+    storm::android::worldMapHud.contextAction=available?m_sActionName:"";
     storm::android::publishContextAction(available ? m_sActionName : "");
     if (!storm::android::requestedContextAction.empty()) {
         const bool accepted = available && storm::android::requestedContextAction == m_sActionName;
@@ -250,7 +255,11 @@ void ILogAndActions::Realize(uint32_t delta_time)
 
     // Show Active Action
     //---------------------
-    if (m_bShowActiveCommand)
+    if (m_bShowActiveCommand
+#ifdef __ANDROID__
+        && !storm::android::worldMapHud.covered(storm::android::MapCommands,core.GetEntityId("WorldMap"))
+#endif
+       )
     {
         CMatrix matw;
         rs->SetTransform(D3DTS_WORLD, matw);

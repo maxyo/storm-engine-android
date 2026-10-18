@@ -1,6 +1,10 @@
 #pragma once
 
 #include "../inode.h"
+#ifdef __ANDROID__
+#include "../mobile_officer_selection.hpp"
+#include <optional>
+#endif
 
 // scroll image
 class CXI_SCROLLIMAGE : public CINODE
@@ -41,6 +45,15 @@ class CXI_SCROLLIMAGE : public CINODE
     CXI_SCROLLIMAGE(const CXI_SCROLLIMAGE &) = delete;
     CXI_SCROLLIMAGE();
     ~CXI_SCROLLIMAGE() override;
+#ifdef __ANDROID__
+    void MobileCollect(std::vector<MobileWidget> &widgets) const override;
+    bool MobileApply(int index, const std::string &value) override;
+    std::optional<std::string> MobileHireCrewQuantity(const std::string &node, const std::string &value) const;
+private:
+    bool MobileOwnerRows(storm::mobile::OfficerListIdentity &state, std::vector<MobileWidget> &rows) const;
+    mutable storm::mobile::OfficerSelection m_mobileOwners;
+public:
+#endif
     void Draw(bool bSelected, uint32_t Delta_Time) override;
     bool Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs, XYRECT &hostRect,
               XYPOINT &ScreenSize) override;

@@ -8,6 +8,9 @@ Comments:
 dynamic shadow cpp file
 ******************************************************************************/
 #include "shadow.h"
+#ifdef __ANDROID__
+#include "platform/android_graphics_effects.hpp"
+#endif
 
 #include "core.h"
 #include "shared/messages.h"
@@ -44,6 +47,9 @@ Shadow::~Shadow()
 
 bool Shadow::Init()
 {
+#ifdef __ANDROID__
+    (void)storm::android::CharacterShadowsEnabled();
+#endif
     // GUARD(Shadow::SHADOW())
 
     col = static_cast<COLLIDE *>(core.GetService("coll"));
@@ -136,6 +142,11 @@ bool AddPoly(const CVECTOR *vr, int32_t nverts)
 //------------------------------------------------------------------------------------
 void Shadow::Realize(uint32_t Delta_Time)
 {
+#ifdef __ANDROID__
+    // Skip shadow rendering, blur AND projection together, before touching render state.
+    // No other pass consumes the retained private shadow textures.
+    if (!storm::android::CharacterShadowsEnabled()) return;
+#endif
     auto *obj = static_cast<MODEL *>(core.GetEntityPointer(entity));
     if (!obj)
         return;

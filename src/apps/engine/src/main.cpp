@@ -24,6 +24,7 @@
 #include "android_gameplay_state.hpp"
 #include "android_combat_state.hpp"
 #include "android_sea_orders_state.hpp"
+#include "android_worldmap_state.hpp"
 #include <sstream>
 #include <charconv>
 #endif
@@ -334,10 +335,13 @@ int main(int argc, char *argv[])
     storm::android::updateCombatState(gameplayState);
     storm::android::publishCombatState();
     storm::android::publishGameplayState(gameplayState.json());
+    storm::android::worldMapHud.update({},SDL_GetTicks());
+    storm::android::publishWorldMapHud();
     storm::android::shipTelemetry.update(gameplayState.revision(), {});
     storm::android::publishShipTelemetry();
     unsigned shortcutLogBudget = 64;
 #endif
+    int exitCode = EXIT_SUCCESS;
     isRunning = true;
     while (isRunning)
     {
@@ -356,6 +360,10 @@ int main(int argc, char *argv[])
             else if (command.starts_with("orders:"))
             {
                 storm::android::seaOrders.offer(std::string_view(command).substr(7), SDL_GetTicks());
+            }
+            else if (command.starts_with("worldmap:"))
+            {
+                storm::android::worldMapHud.offer(std::string_view(command).substr(9),SDL_GetTicks());
             }
             else if (command.starts_with("shiphud:"))
             {
@@ -456,6 +464,8 @@ int main(int argc, char *argv[])
             storm::android::updateCombatState(gameplayState);
             storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
+            storm::android::worldMapHud.update({},SDL_GetTicks());
+            storm::android::publishWorldMapHud();
             storm::android::shipTelemetry.update(gameplayState.revision(), {});
             storm::android::publishShipTelemetry();
         }
@@ -485,8 +495,31 @@ int main(int argc, char *argv[])
             // Activity changes revoke queued intents before any native Player
             // or Control Activation handler can consume the next frame.
             storm::android::publishCombatState();
-#endif
+            try
+            {
+                RunFrameWithOverflowCheck();
+            }
+            catch (const std::exception &error)
+            {
+                isRunning = false;
+                exitCode = EXIT_FAILURE;
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Engine stopped: %s", error.what());
+                // SDL's Android bridge shows a Java dialog and waits for dismissal
+                // before SDL_main returns and the game Activity is finished.
+                // SDL's Android default TextView colors can be dark on a dark
+                // Activity theme, so explicitly style this fatal error message.
+                const SDL_MessageBoxColorScheme colors{{
+                    {24, 24, 24}, {255, 255, 255}, {128, 128, 128}, {64, 64, 64}, {96, 96, 96}}};
+                const SDL_MessageBoxButtonData button{
+                    SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "OK"};
+                const SDL_MessageBoxData dialog{
+                    SDL_MESSAGEBOX_ERROR, nullptr, "Game stopped", error.what(), 1, &button, &colors};
+                SDL_ShowMessageBox(&dialog, nullptr);
+                break;
+            }
+#else
             RunFrameWithOverflowCheck();
+#endif
 #ifdef STORM_ENABLE_BGFX
             static bool fogCaptureKeyDown = false;
             const bool fogCaptureKey = core.Controls && core.Controls->GetDebugAsyncKeyState(VK_F11) != 0;
@@ -514,6 +547,14 @@ int main(int argc, char *argv[])
             storm::android::updateCombatState(gameplayState);
             storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
+            storm::android::worldMapHud.update(storm::android::readWorldMapFrame(gameplayState,gameplayReady),SDL_GetTicks());
+            storm::android::publishWorldMapHud();
+            if(const auto command=storm::android::worldMapHud.take(SDL_GetTicks()))
+            {
+                storm::android::executeWorldMapCommand(*command);
+                storm::android::worldMapHud.update(storm::android::readWorldMapFrame(gameplayState,gameplayReady),SDL_GetTicks());
+                storm::android::publishWorldMapHud();
+            }
             storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipTelemetry(gameplayState));
             // Activity recreation revokes pending targets/ready ACKs before dispatch.
             storm::android::publishShipTelemetry();
@@ -598,10 +639,13 @@ int main(int argc, char *argv[])
     storm::android::movementInput.updateOwner({});
     gameplayState.update({});
     storm::android::publishGameplayState(gameplayState.json());
+    storm::android::worldMapHud.update({},SDL_GetTicks());
+    storm::android::publishWorldMapHud();
     storm::android::shipTelemetry.update(gameplayState.revision(), {});
     storm::android::publishShipTelemetry();
 #endif
-    core_private->Event("ExitApplication");
+    if (exitCode == EXIT_SUCCESS)
+        core_private->Event("ExitApplication");
     core_private->CleanUp();
     core_private->ReleaseBase();
 #ifdef _WIN32 // FIX_LINUX Cursor
@@ -611,5 +655,5 @@ int main(int argc, char *argv[])
 #endif
     SDL_Quit();
 
-    return EXIT_SUCCESS;
+    return exitCode;
 }

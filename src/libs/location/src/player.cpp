@@ -93,6 +93,7 @@ void Player::Move(float dltTime)
     if (task.task != npct_none || command.cmd != aicmd_none || GetId() != core.GetEntityId("Player"))
     {
         androidMotionStop = false;
+        androidRunTier = false;
         if (androidAxes) storm::android::movementInput.resetActivity();
     }
     else if ((androidMovementHeld && !androidAxes) || (androidAxes && androidAxes->magnitude == 0.0f))
@@ -102,6 +103,15 @@ void Player::Move(float dltTime)
         // vector after release, zero input, expiry or hard cancellation.
         StopAndroidMovement();
     }
+    const auto cameraGeneration = storm::android::movementInput.generation();
+    if (cameraGeneration != androidCameraGeneration || task.task != npct_none ||
+        command.cmd != aicmd_none || GetId() != core.GetEntityId("Player") ||
+        (locCam && !locCam->IsThirdPersonFollow()))
+        androidCameraRelative = false;
+    androidCameraGeneration = cameraGeneration;
+    if (androidAxes && task.task == npct_none && command.cmd == aicmd_none &&
+        (!locCam || locCam->IsThirdPersonFollow()))
+        androidCameraRelative = true;
     androidMovementHeld = androidAxes.has_value();
     androidTraceMagnitude = androidAxes ? androidAxes->magnitude : 0.0f;
 #endif
@@ -190,25 +200,26 @@ void Player::Move(float dltTime)
                 }
                 else
                 {
-                    const bool back = axes.y < 0;
+                    // Explore input turns the actor towards its travel vector;
+                    // moving towards the camera is a forward gait after a turn,
+                    // never a backwards gait selected from the screen-space Y.
+                    const bool cameraRelative = UsesTouchCamera();
+                    const bool back = !cameraRelative && axes.y < 0;
                     const float walking = IsFight() ? fightwalk.speed : (back ? backwalk.speed : walk.speed);
                     const float running = IsFight() ? fightrun.speed : (back ? backrun.speed : run.speed);
                     const auto pace = storm::android::movementPace(axes.magnitude, walking, running,
-                        axes.runAllowed && !isRunDisable);
+                        axes.runAllowed && !isRunDisable, androidRunTier);
+                    androidRunTier = pace.run;
                     SetRunMode(pace.run);
                     StartMove(back);
                     androidMotionStop = false;
-                    strafeMove = axes.x;
-                    CMatrix camera;
-                    GetLocation()->GetRS()->GetTransform(D3DTS_VIEW, camera);
-                    camera.Transposition3X3();
-                    CVECTOR forward = camera.Vz();
-                    forward.y = 0.0f;
-                    const float length = sqrtf(forward.x * forward.x + forward.z * forward.z);
-                    if (length > .001f) forward *= 1.0f / length;
-                    else forward = CVECTOR(sinf(ay), 0.0f, cosf(ay));
-                    const CVECTOR right(forward.z, 0.0f, -forward.x);
-                    androidMotionDirection = right * axes.x + forward * axes.y;
+                    strafeMove = cameraRelative ? 0.0f : axes.x;
+                    // Combat stays relative to the fighter, like native
+                    // recoil/strafe. Camera inertia cannot reverse its forward gait.
+                    const CVECTOR forward = cameraRelative && locCam ? locCam->MovementViewDirection() :
+                        CVECTOR(sinf(ay), 0.0f, cosf(ay));
+                    const auto direction = storm::android::movementDirection(axes, forward.x, forward.z, ay);
+                    androidMotionDirection = CVECTOR(direction.x, 0.0f, direction.z);
                     androidMotionSpeed = pace.speed;
                     androidMotionWalkSpeed = std::fabs(walking);
                     androidMotion = true;
@@ -222,6 +233,7 @@ void Player::Move(float dltTime)
                 {
 #ifdef __ANDROID__
                     androidMotionStop = false;
+                    androidCameraRelative = false;
 #endif
                     StartMove(false);
                     StrafeWhenMove(dltTime);
@@ -230,6 +242,7 @@ void Player::Move(float dltTime)
                 {
 #ifdef __ANDROID__
                     androidMotionStop = false;
+                    androidCameraRelative = false;
 #endif
                     if (!IsFight())
                     {
@@ -458,6 +471,7 @@ void Player::StopAndroidMovement()
     StopMove();
     strafeMove = 0.0f;
     androidMotionStop = true;
+    androidRunTier = false;
 }
 
 void Player::TraceAndroidMovement(float dltTime)
@@ -490,12 +504,14 @@ void Player::TraceAndroidMovement(float dltTime)
     __android_log_print(ANDROID_LOG_DEBUG, "StormInput",
         "move-observe phase=%s player=%llu tick=%u wallMs=%u simSec=%.4f held=%d applied=%d mag=%.4f "
         "target=%.4f run=%d vector=(%.4f,%.4f) pos=(%.4f,%.4f,%.4f) delta=(%.4f,%.4f) "
-        "distance=%.4f velocity=%.4f collision=%d locked=%d task=%d fight=%d",
+        "distance=%.4f velocity=%.4f collision=%d locked=%d task=%d fight=%d yaw=%.4f cameraYaw=%.4f touchCamera=%d",
         phase, static_cast<unsigned long long>(GetId()), now, elapsed, androidTraceSimulationTime,
         androidMovementHeld, androidMotionApplied, androidTraceMagnitude, androidMotion ? androidMotionSpeed : 0.0f,
         IsRun(), androidMotion ? androidMotionDirection.x : 0.0f, androidMotion ? androidMotionDirection.z : 0.0f,
         curPos.x, curPos.y, curPos.z, dx, dz, distance, velocity, isCollision, lockMove,
-        static_cast<int>(task.task), IsFight());
+        static_cast<int>(task.task), IsFight(), ay,
+        locCam ? atan2f(locCam->MovementViewDirection().x, locCam->MovementViewDirection().z) : ay,
+        UsesTouchCamera());
     --budget;
     androidTracePosition = curPos;
     androidTraceTick = now;
@@ -530,6 +546,11 @@ void Player::GetSaveData(ATTRIBUTES *sdata)
 void Player::Rotate(float dltTime)
 {
     CONTROL_STATE cs;
+#ifdef __ANDROID__
+    // Touch camera orbit is handled by CameraFollow. Feeding its swipe back
+    // into character yaw would fight joystick steering and re-orbit the camera.
+    if (UsesTouchCamera() && (!locCam || locCam->IsThirdPersonFollow())) return;
+#endif
     if (!isSpecialMode)
     {
         auto a = GetRotateH() * 0.01f;

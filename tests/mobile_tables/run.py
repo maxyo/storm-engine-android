@@ -14,6 +14,8 @@ collect = table[table.index("void CXI_TABLE::MobileCollect("):table.index("bool 
 with tempfile.TemporaryDirectory(prefix="storm-mobile-tables-") as directory:
     build = Path(directory)
     (build / "table_collect.inc").write_text(collect)
+    apply = table[table.index("bool CXI_TABLE::MobileApply("):].split("\n#endif", 1)[0]
+    (build / "table_apply.inc").write_text(apply)
     binary = build / "check"
     subprocess.run([
         os.environ.get("CXX", "c++"), "-std=c++20", "-O1", "-g", "-DEX_OFF",
@@ -32,4 +34,4 @@ with tempfile.TemporaryDirectory(prefix="storm-mobile-tables-") as directory:
     assert all(row["columnHeaders"] == ['', '', 'Новый вес'] for row in changed["widgets"])
     for before, after in zip(plain["widgets"], sparse["widgets"]):
         assert {key: value for key, value in after.items() if key != "columnHeaders"} == before
-print("PASS table headers preserve sparse column indexes, UTF-8/escaping, updates, absent headers and existing row contract")
+print("PASS table headers preserve sparse column indexes, UTF-8/escaping, updates, absent headers and existing row contract; commerce row/owner/epoch/lock guards execute real MobileApply")

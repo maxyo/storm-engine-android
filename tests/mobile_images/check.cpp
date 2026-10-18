@@ -1,6 +1,7 @@
 #include "mobile_image_cache.hpp"
 #include "mobile_image_decode.hpp"
 #include "mobile_widget.hpp"
+#include "mobile_image_bridge.hpp"
 #include <array>
 #include <cassert>
 #include <fstream>
@@ -197,6 +198,19 @@ int main(int argc, char **argv)
     auto a = cache.reference({"INTERFACES\\test.tga", {}});
     auto same = cache.reference({"resource/textures/interfaces/test.tga", {}});
     assert(a.handle && a.handle == same.handle);
+    // Optional semantic identity belongs to each reference, not the bitmap cache.
+    assert(MobileImageJson(a).find("\"source\"") == std::string::npos);
+    auto atlas = a;
+    atlas.source = {"atlas", "ICONS_SPEC", "FencingL skill icon", {}, {}, -1};
+    assert(MobileImageJson(atlas).find("\"source\":{\"kind\":\"atlas\",\"group\":\"ICONS_SPEC\",\"image\":\"FencingL skill icon\"}") != std::string::npos);
+    assert(atlas.handle == same.handle && same.source.kind.empty());
+    auto escaped = atlas;
+    escaped.source.image = "quote\"\\\n";
+    assert(MobileImageJson(escaped).find("quote\\\"\\\\\\u000a") != std::string::npos);
+    auto battle = WithBattleIconSource(a, "land", "LandTarget_SLB", 16);
+    assert(MobileImageJson(battle).find("\"atlas\":\"LandTarget_SLB\",\"pic\":16") != std::string::npos);
+    assert(WithBattleIconSource({}, "land", "LandTarget_SLB", 16).source.kind.empty());
+    assert(WithBattleIconSource(a, "land", "LandTarget_SLB", -1).source.kind.empty());
     auto changed = cache.reference({"interfaces/test.tga", {0, 0, .5f, 1}});
     assert(a.handle != changed.handle);
     assert(!cache.reference({"../outside", {}}).handle);

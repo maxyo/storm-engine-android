@@ -74,19 +74,50 @@ int main()
     assert(!ordinaryMovementAllowed(true,true,false,false,false,false,true,false,true));
     assert(!ordinaryMovementAllowed(true,true,false,false,false,false,false,true,true));
     assert(!ordinaryMovementAllowed(true,true,false,false,false,false,false,false,false));
-    assert(movementAxes(150,0,permission).magnitude==0);
-    assert(movementAxes(151,0,permission).magnitude>0);
+    assert(movementAxes(180,0,permission).magnitude==0);
+    assert(movementAxes(181,0,permission).magnitude>0);
+    assert(movementAxes(121,0,permission,true).magnitude>0);
+    assert(movementAxes(120,0,permission,true).magnitude==0);
     assert(near(movementAxes(0,-1000,permission).y,-1));
+    bool running=false;
     float previous=-1;
     for(int i=0;i<=1000;++i) {
-        auto pace=movementPace(i/1000.0f,2,5,true);
+        auto pace=movementPace(i/1000.0f,2,5,true,running);running=pace.run;
         assert(pace.speed>=previous); previous=pace.speed;
-        assert(pace.run==(i>650));
+        assert(pace.speed==0 || pace.speed==2 || pace.speed==5);
+        assert(pace.run==(i>=800));
     }
-    assert(near(movementPace(.65f,2,5,true).speed,2));
-    assert(near(movementPace(1,2,5,true).speed,5));
-    assert(near(movementPace(1,-2,-5,true).speed,5)); // native backward speed sign
-    assert(!movementPace(1,2,5,false).run && near(movementPace(1,2,5,false).speed,2));
+    previous=5;
+    for(int i=1000;i>=0;--i) {
+        auto pace=movementPace(i/1000.0f,2,5,true,running);running=pace.run;
+        assert(pace.speed<=previous); previous=pace.speed;
+        assert(pace.run==(i>=650));
+    }
+    assert(!movementPace(.79f,2,5,true,false).run);
+    assert(movementPace(.66f,2,5,true,true).run);
+    assert(!movementPace(.64f,2,5,true,true).run);
+    assert(near(movementPace(.3f,-2,-5,true).speed,2));
+    assert(near(movementPace(1,-2,-5,true).speed,5));
+    assert(!movementPace(1,2,5,false,true).run && near(movementPace(1,2,5,false,true).speed,2));
+    // Direction is continuous, camera relative, unit length and independent of
+    // the gait tier, including cameras looking at the character from the front.
+    for(int camera=0;camera<360;camera+=15) for(int stick=0;stick<360;++stick) {
+        const float c=camera*.017453292519943295f, a=stick*.017453292519943295f;
+        MovementAxes sample{std::sin(a),std::cos(a),.5f,true};
+        const auto direction=movementDirection(sample,std::sin(c),std::cos(c),0);
+        assert(near(std::hypot(direction.x,direction.z),1));
+        assert(near(direction.x,std::sin(c+a)) && near(direction.z,std::cos(c+a)));
+    }
+    const auto vertical=movementDirection({0,1,.5f,true},0,0,1.2f);
+    assert(near(vertical.x,std::sin(1.2f))&&near(vertical.z,std::cos(1.2f)));
+    input.resetActivity();
+    assert(input.offer(wire(1,"1\t0\t200"),2000)); assert(input.read(2000)->magnitude>0);
+    assert(input.offer(wire(2,"1\t0\t140"),2010)); assert(input.read(2010)->magnitude>0);
+    assert(input.offer(wire(3,"1\t0\t120"),2020)); assert(input.read(2020)->magnitude==0);
+    assert(input.offer(wire(4,"1\t0\t140"),2030)); assert(input.read(2030)->magnitude==0);
+    assert(input.offer(wire(5,"1\t0\t200"),2040)); assert(input.read(2040)->magnitude>0);
+    assert(input.offer(wire(6,"0\t0\t0"),2050)); assert(!input.read(2050));
+    assert(input.offer(wire(7,"1\t0\t140"),2060)); assert(input.read(2060)->magnitude==0);
     GameplayState json; state.analogMovement=true; state.movementGeneration=123;
     json.update(state); assert(json.json().find("\"analogMovement\":true")!=std::string::npos);
     assert(json.json().find("\"movementGeneration\":123")!=std::string::npos);

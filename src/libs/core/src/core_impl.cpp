@@ -1,3 +1,6 @@
+#ifdef __ANDROID__
+#include "android_newgame.hpp"
+#endif
 #include "core_impl.h"
 
 #include "compiler.h"
@@ -187,6 +190,9 @@ bool CoreImpl::Run()
 
     Compiler->ProcessFrame(Timer.GetDeltaTime());
     Compiler->ProcessEvent("frame");
+#ifdef __ANDROID__
+    storm::android::ApplyNewGameChoiceAfterFrame();
+#endif
 
     ProcessStateLoading();
 
@@ -362,10 +368,18 @@ uint64_t CoreImpl::Send_Message(entid_t Destination, const char *Format, ...)
 
     va_list args;
     va_start(args, Format);
-    message.ResetVA(Format, args);
-    const auto rc = static_cast<Entity *>(ptr)->ProcessMessage(message); // transfer control
+    try { message.ResetVA(Format, args); }
+    catch (...) { va_end(args); throw; }
     va_end(args);
-    return rc;
+    const auto classCode = GetClassCode(Destination);
+    try { return static_cast<Entity *>(ptr)->ProcessMessage(message); }
+    catch (MessageFormatError &error)
+    {
+        auto *receiver = FindVMA(classCode);
+        error.AppendContext(fmt::format("native Send_Message destination={} receiver={} classHash={}",
+            Destination, receiver && receiver->GetName() ? receiver->GetName() : "<unknown>", classCode));
+        throw;
+    }
 }
 
 uint32_t CoreImpl::PostEvent(const char *Event_name, uint32_t post_time, const char *Format, ...)
@@ -508,7 +522,21 @@ void *CoreImpl::GetService(const char *service_name)
     const auto class_code = MakeHashValue(service_name);
     pClass->SetHash(class_code);
 
-    if (!service_PTR->Init()) {
+    bool initialized;
+    try
+    {
+        initialized = service_PTR->Init();
+    }
+    catch (...)
+    {
+        // CreateClass caches the singleton before Init. Never hand a failed
+        // instance to a later caller merely because its reference count is set.
+        pClass->Clear();
+        throw;
+    }
+    if (!initialized)
+    {
+        pClass->Clear();
         CheckAutoExceptions(0);
         return nullptr;
     }

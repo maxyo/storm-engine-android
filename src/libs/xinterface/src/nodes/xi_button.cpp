@@ -25,6 +25,20 @@ void CXI_BUTTON::MobileCollect(std::vector<MobileWidget> &widgets) const
     if (name.compare(0, 11, "LEFTCHANGE_") == 0) label = "‹";
     else if (name.compare(0, 12, "RIGHTCHANGE_") == 0) label = "›";
     else if (m_idString != -1) label = pStringService->GetString(m_idString);
+    // Stock commerce quantity arrows are command-bearing icon buttons without
+    // a string resource. Export only these known controls, never arbitrary IDs.
+    if ((!label || !*label) &&
+        (storm::android::mobileScreen == "store" || storm::android::mobileScreen == "storage" ||
+         storm::android::mobileScreen == "contraband" || storm::android::mobileScreen == "cannons" ||
+         storm::android::mobileScreen == "itemstrade" || storm::android::mobileScreen == "itemsbox" ||
+         storm::android::mobileScreen == "hirecrew"))
+    {
+        if (name == "QTY_ADD_BUTTON") label = "+";
+        else if (name == "QTY_REMOVE_BUTTON") label = "−";
+        else if (name == "QTY_ADD_ALL_BUTTON") label = "+ max";
+        else if (name == "QTY_REMOVE_ALL_BUTTON") label = "− max";
+        if (label && !m_bUse) return;
+    }
     // These icon/hit-area nodes deliberately keep text in STR_BUTTONS. Export
     // the actual command-bearing node, using the same localized resource key.
     if ((!label || !*label) && pStringService)

@@ -47,4 +47,5 @@ with tempfile.TemporaryDirectory(prefix="storm-movement-") as d:
                     "-I"+str(root/"src/libs/util/include"), str(Path(__file__).with_name("native_motion.cpp")),
                     "-o", str(native)], check=True)
     subprocess.run([str(native)], check=True)
+subprocess.run([os.environ.get("PYTHON", "python3"), str(Path(__file__).with_name("camera.py"))], check=True)
 print("PASS: analog axis/pace, locks, specials, owner/generation/cancel, stale/replay/overflow, lease/rollover")

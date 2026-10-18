@@ -73,6 +73,8 @@ class Player : public NPCharacter
   private:
 #ifdef __ANDROID__
     bool androidMovementHeld = false;
+    bool androidRunTier = false;
+    uint64_t androidCameraGeneration = 0;
     void TraceAndroidMovement(float dltTime);
     void StopAndroidMovement();
     float androidTraceMagnitude = 0.0f;

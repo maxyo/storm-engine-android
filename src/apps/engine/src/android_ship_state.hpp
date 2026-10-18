@@ -38,6 +38,12 @@ inline std::string shipText(ATTRIBUTES *attributes, const char *path)
     if (!value || !value->HasValue()) return {};
     return shipTextValue(value->GetValue());
 }
+// Stock CreateBaseShip preserves the canonical type before adding a model-folder suffix.
+inline std::string shipCanonicalType(ATTRIBUTES *attributes)
+{
+    auto base = shipText(attributes, "BaseName");
+    return base.empty() ? shipText(attributes, "Name") : base;
+}
 inline ShipTelemetryEntry shipEntry(SHIP_BASE *ship)
 {
     ShipTelemetryEntry entry;
@@ -46,7 +52,9 @@ inline ShipTelemetryEntry shipEntry(SHIP_BASE *ship)
     entry.entityId = std::to_string(ship->GetId());
     entry.characterIndex = static_cast<int>(character->GetAttributeAsDword("index", -1));
     entry.name = shipText(character, "Ship.Name");
-    entry.type = shipText(type, "Name");
+    entry.type = shipCanonicalType(type);
+    if (const auto value = shipNumber(type, "Class"); value && *value >= 1 && *value <= 7 && std::floor(*value) == *value)
+        entry.shipClass = static_cast<int32_t>(*value);
     const auto metric = [character, type](const char *currentPath, const char *maximumPath) -> std::optional<ShipMetric> {
         const auto current = shipNumber(character, currentPath), maximum = shipNumber(type, maximumPath);
         return current && maximum ? shipMetric(*current, *maximum) : std::nullopt;
@@ -92,6 +100,12 @@ inline ShipTelemetryFrame readShipTelemetry(const GameplayState &gameplay)
         const auto sailState = ship->GetSailState();
         if (std::isfinite(sailState) && sailState >= 0 && sailState <= 1) out.sailState = sailState;
         out.canSetSails = shipSailControlAllowed(ship, gameplay);
+        for (size_t i = 0; i < ShipAmmoNames.size(); ++i)
+        {
+            const std::string path = std::string("Ship.Cargo.Goods.") + ShipAmmoNames[i];
+            auto *cargo = character->FindAClass(character, path.c_str());
+            if (cargo && cargo->HasValue()) out.ammoCounts[i] = shipAmmoCount(cargo->GetValue());
+        }
         const auto ammoType = shipNumber(character, "Ship.Cannons.Charge.Type");
         auto *goods = static_cast<VDATA *>(core.GetScriptVariable("Goods"));
         if (ammoType && goods && *ammoType < goods->GetElementsNum() && std::floor(*ammoType) == *ammoType)

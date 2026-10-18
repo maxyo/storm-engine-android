@@ -44,6 +44,7 @@ class CXI_PICTURE : public CINODE
     void ReleasePicture();
 
     std::string m_mobileTexturePath; // CPU source metadata only; never a GPU pointer.
+    std::string m_mobilePictureName; // Exact atlas entry; empty for file/video/pointer/edited UV sources.
     char *m_pcGroupName;
     int32_t m_idTex;
     CVideoTexture *m_pTex;

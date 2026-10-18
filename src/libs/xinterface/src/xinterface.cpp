@@ -16,6 +16,11 @@
 #ifdef __ANDROID__
 #include "mobile_image_bridge.hpp"
 #include "mobile_inventory.hpp"
+#include "mobile_save_list.hpp"
+#include <chrono>
+static std::optional<storm::mobile::SaveListCapability::Target> deferredSaveAction;
+static std::chrono::steady_clock::time_point deferredSaveDeadline;
+#include "android_newgame.hpp"
 #include "platform/android_ui.hpp"
 static storm::mobile::InventoryEquipCapability inventoryEquipCapability;
 #endif
@@ -382,6 +387,25 @@ void XINTERFACE::Realize(uint32_t)
         };
         // Main menu uses app-owned controls, but still needs the game's language.
         if (storm::android::mobileScreen != "mainmenu") collect(collect, m_pNodes);
+        if (const auto saves = storm::mobile::ReadSaveList())
+        {
+            auto *window = FindNode("MAIN_WINDOW", nullptr);
+            const bool enabled = window && window->m_nNodeType == NODETYPE_WINDOW &&
+                static_cast<CXI_WINDOW *>(window)->GetActive();
+            widgets.erase(std::remove_if(widgets.begin(), widgets.end(), [](const auto &row) {
+                return row.type == "save";
+            }), widgets.end());
+            storm::mobile::saveListCapability.collect(*saves, enabled, widgets);
+        }
+        if (storm::android::mobileScreen == "selectcharacter" && !storm::android::TutorialSkipSupported())
+            storm::android::tutorialSkip.selected = false;
+        if (storm::android::mobileScreen == "selectcharacter" && storm::android::TutorialSkipSupported())
+        {
+            MobileWidget option{"ANDROID_TUTORIAL_SKIP", "check", "Пропустить вступительное обучение",
+                storm::android::tutorialSkip.selected ? "1" : "0", 0, 0, true};
+            option.rowId = std::to_string(storm::android::mobileScreenRevision);
+            widgets.push_back(std::move(option));
+        }
         std::stable_sort(widgets.begin(), widgets.end(), [](const auto &a, const auto &b) {return a.order < b.order;});
         if (storm::android::mobileScreen == "items")
             inventoryEquipCapability.published(storm::android::mobileScreenRevision, widgets);
@@ -590,6 +614,7 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
         LoadDialog(param.c_str());
 #ifdef __ANDROID__
         storm::android::showMobileScreen(param);
+        storm::android::tutorialSkip.reset(storm::android::mobileScreenRevision);
         inventoryEquipCapability.invalidate();
         storm::mobile::ResetImages();
 #endif
@@ -2000,27 +2025,118 @@ void XINTERFACE::DoControl()
         return;
 
 #ifdef __ANDROID__
+    // The stock script may open a profile chooser on initial load. Select only
+    // its already-current profile, through its existing handler; never delete,
+    // migrate, or enumerate another profile on behalf of the Android UI.
+    if (storm::android::mobileScreen == "save_load")
+    {
+        auto *window = FindNode("PROFILE_WINDOW", nullptr);
+        if (window && window->m_nNodeType == NODETYPE_WINDOW && static_cast<CXI_WINDOW *>(window)->GetActive())
+        {
+            auto *profile = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
+            auto *attributes = profile ? profile->GetAClass() : nullptr;
+            auto *table = core.Entity_GetAttributeClass(g_idInterface, "profile_window_list");
+            const char *name = attributes ? attributes->GetAttribute("name") : nullptr;
+            const int index = table ? static_cast<int>(table->GetAttributeAsDword("select", 0)) - 1 : -1;
+            const char *chosen = attributes && index >= 0 ? attributes->GetAttribute(("profile_" + std::to_string(index)).c_str()) : nullptr;
+            if (name && chosen && std::string(name) == chosen) core.Event("LoadProfile");
+        }
+    }
+    if (deferredSaveAction)
+    {
+        const auto state = storm::mobile::ReadSaveList();
+        auto *window = FindNode("MAIN_WINDOW", nullptr);
+        if (!state || !storm::mobile::SaveListCapability::current(*deferredSaveAction, *state) ||
+            std::chrono::steady_clock::now() >= deferredSaveDeadline || !window ||
+            window->m_nNodeType != NODETYPE_WINDOW || !static_cast<CXI_WINDOW *>(window)->GetActive())
+            deferredSaveAction.reset();
+        else if (storm::mobile::SelectSaveTarget(*deferredSaveAction))
+        {
+            const auto target = *deferredSaveAction;
+            deferredSaveAction.reset();
+            storm::mobile::saveListCapability.pending = target;
+            if (target.verb == "delete") core.Event("eventBtnAction", "ls", ACTION_ACTIVATE, "BTN_DELETE");
+            else core.Event("eventSelecterActivate");
+        }
+    }
     while (!storm::android::uiWidgetActions.empty() && m_bUse)
     {
-        const auto action = storm::android::uiWidgetActions.front();
+        auto action = storm::android::uiWidgetActions.front();
         storm::android::uiWidgetActions.pop_front();
         if (action.screen != storm::android::mobileScreen) continue;
         storm::android::lastWidgetSnapshot.clear();
+        deferredSaveAction.reset();
+        if (action.screen == "selectcharacter" && action.node == "ANDROID_TUTORIAL_SKIP")
+        {
+            if (action.index == 0 && storm::android::TutorialSkipSupported())
+                storm::android::tutorialSkip.apply(storm::android::mobileScreenRevision, action.value);
+            continue;
+        }
+
+        if (action.screen == "save_load" && action.node == "ANDROID_SAVE_LIST")
+        {
+            auto *window = FindNode("MAIN_WINDOW", nullptr);
+            const auto state = storm::mobile::ReadSaveList();
+            if (!window || window->m_nNodeType != NODETYPE_WINDOW || !static_cast<CXI_WINDOW *>(window)->GetActive() || !state) continue;
+            const auto target = storm::mobile::saveListCapability.accept(*state, action.index, action.value);
+            if (!target) continue;
+            if (!storm::mobile::SelectSaveTarget(*target))
+            {
+                // The original script populates thumbnails asynchronously and
+                // temporarily makes newly paged slots unselectable. Retry the
+                // identity-bound request while that cache loads, never a raw index.
+                deferredSaveAction = target;
+                deferredSaveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                continue;
+            }
+            storm::mobile::saveListCapability.pending = target;
+            if (target->verb == "delete") core.Event("eventBtnAction", "ls", ACTION_ACTIVATE, "BTN_DELETE");
+            else core.Event("eventSelecterActivate");
+            continue;
+        }
+        if (action.screen == "save_load" && (action.node == "CONFIRM_YES" || action.node == "CUSTOM_SAVE_BTN_OK"))
+        {
+            const auto &pending = storm::mobile::saveListCapability.pending;
+            if (pending && pending->owner.revision == storm::android::mobileScreenRevision)
+            {
+                if (!storm::mobile::RestoreSaveTarget(*pending)) continue;
+                if (action.node == "CONFIRM_YES")
+                {
+                    auto *mode = static_cast<VDATA *>(core.GetScriptVariable("g_nConfirmMode"));
+                    int32_t actual = -1;
+                    const int expected = pending->verb == "delete" ? 2 : pending->owner.saving ? 3 : 4;
+                    if (!mode || !mode->Get(actual) || actual != expected) continue;
+                }
+                else if (!pending->owner.saving) continue;
+            }
+        }
         const bool guardedEquip = action.screen == "items" && action.node == "EQUIP_BUTTON" &&
                                   action.value.rfind("press@", 0) == 0;
         if (action.screen == "items" && !guardedEquip)
             inventoryEquipCapability.invalidate();
-        const auto find = [&](const auto &self, CINODE *node) -> CINODE * {
+        const auto find = [&](const auto &self, CINODE *node, const std::string &target) -> CINODE * {
             for (; node; node = node->m_next)
             {
                 if (!node->m_bUse || node->m_bLockedNode) continue;
-                if (node->m_nodeName && action.node == node->m_nodeName) return node;
-                if (auto *child = self(self, node->m_list)) return child;
+                if (node->m_nodeName && target == node->m_nodeName) return node;
+                if (auto *child = self(self, node->m_list, target)) return child;
             }
             return nullptr;
         };
-        auto *node = find(find, m_pNodes);
+        auto *node = find(find, m_pNodes, action.node);
         if (!node) continue;
+        if (action.value.rfind("guard@", 0) == 0)
+        {
+            std::optional<std::string> original;
+            if (action.screen == "hirecrew") {
+                auto *owner = find(find, m_pNodes, "SHIPS_SCROLL");
+                if (owner && owner->m_nNodeType == NODETYPE_SCROLLIMAGE)
+                    original = static_cast<CXI_SCROLLIMAGE *>(owner)->MobileHireCrewQuantity(action.node, action.value);
+            } else original = storm::mobile::CommerceQuantityValue(action.screen, action.node,
+                storm::android::mobileScreenRevision, AttributesPointer, action.value);
+            if (!original) continue;
+            action.value = *original;
+        }
         if (node->m_nNodeType == NODETYPE_SLIDELINE)
         {
             int position;

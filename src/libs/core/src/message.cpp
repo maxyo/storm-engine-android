@@ -134,10 +134,16 @@ bool MESSAGE::Set(ATTRIBUTES *value)
 
 void MESSAGE::ValidateFormat(char c)
 {
-    if (format_.empty())
-        throw std::runtime_error("Read from empty message");
-    if (format_[index] != c)
-        throw std::runtime_error("Incorrect message data");
+    const bool exhausted = index < 0 || static_cast<size_t>(index) >= format_.size();
+    if (exhausted || format_[index] != c)
+    {
+        std::string code = "<none>";
+        if (!params_.empty() && !format_.empty() && format_.front() == 'l')
+            if (const auto *value = std::get_if<int32_t>(&params_.front())) code = std::to_string(*value);
+        const auto actual = exhausted ? "<end>" : fmt::format("'{}'", format_[index]);
+        throw MessageFormatError(fmt::format("{}: expected='{}' actual={} parameter={} format='{}' messageCode={}",
+            format_.empty() ? "Read from empty message" : "Incorrect message data", c, actual, index, format_, code));
+    }
     index++;
 }
 

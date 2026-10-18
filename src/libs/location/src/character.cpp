@@ -2024,6 +2024,15 @@ void Character::Move(float dltTime)
     const bool touchMotion = touchStop || storm::android::ordinaryMovementAllowed(androidMotion, isMove, lockMove,
         priorityAction.name != nullptr, isJump, isSwim, fgtCurType != fgt_none, fgtSetType != fgt_none, curMove != nullptr);
     androidMotionApplied = touchMotion;
+    if (touchMotion && !touchStop && UsesTouchCamera() && !isTurnLock)
+    {
+        // The native pose and collision heading must agree with the voluntary
+        // travel vector. Keep all angles, including diagonals, continuous; a
+        // camera looking at the actor's face cannot make a forward gait run
+        // backwards. Special/locked motion never reaches this branch.
+        ay = nay = atan2f(androidMotionDirection.x, androidMotionDirection.z);
+        turnDir = 0.0f;
+    }
     float touchSpeed = touchStop ? 0.0f : androidMotionSpeed;
     if (touchMotion && curMove && androidMotionWalkSpeed > .001f &&
         (curMove == &stsUp || curMove == &stsDown || curMove == &stsUpBack || curMove == &stsDownBack))

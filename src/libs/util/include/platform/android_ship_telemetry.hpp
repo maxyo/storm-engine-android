@@ -1,6 +1,7 @@
 #pragma once
 #include "android_gameplay.hpp"
 #include <cmath>
+#include <array>
 #include <cstdlib>
 #include <cctype>
 #include <limits>
@@ -132,8 +133,16 @@ struct ShipTelemetryEntry
     int characterIndex = -1;
     std::string entityId, name, type;
     std::optional<ShipMetric> hull, crew, sails;
+    std::optional<int32_t> shipClass;
     bool operator==(const ShipTelemetryEntry &) const = default;
 };
+inline constexpr std::array<const char *, 4> ShipAmmoNames{"balls", "grapes", "knippels", "bombs"};
+inline std::optional<int64_t> shipAmmoCount(std::string_view text)
+{
+    const auto value = shipNumberValue(text);
+    if (!value || *value >= 0x1p63 || std::floor(*value) != *value) return {};
+    return static_cast<int64_t>(*value);
+}
 struct ShipTelemetryFrame
 {
     bool valid = false;
@@ -142,6 +151,8 @@ struct ShipTelemetryFrame
     std::string ammo;
     int ammoType = -1;
     std::optional<double> ammoCount, sailState;
+    // Cargo inventory per ammunition kind; an absent attribute is not an empty hold.
+    std::array<std::optional<int64_t>, 4> ammoCounts{};
     bool canSetSails = false;
     bool captionsVisible = false;
     std::optional<double> shipSpeedKnots, windSpeed;
@@ -207,6 +218,7 @@ class ShipTelemetryState
             ",\"entityId\":" + gameplayJsonString(entry.entityId);
         if (!entry.name.empty()) json += ",\"name\":" + gameplayJsonString(entry.name);
         if (!entry.type.empty()) json += ",\"type\":" + gameplayJsonString(entry.type);
+        if (entry.shipClass) json += ",\"shipClass\":" + std::to_string(*entry.shipClass);
         appendMetric(json, "hull", entry.hull);
         appendMetric(json, "crew", entry.crew);
         appendMetric(json, "sailIntegrity", entry.sails);
@@ -309,6 +321,16 @@ public:
             if (!frame_.ammo.empty()) result += ",\"ammo\":" + gameplayJsonString(frame_.ammo);
             if (frame_.ammoType >= 0) result += ",\"ammoType\":" + std::to_string(frame_.ammoType);
             if (frame_.ammoCount) result += ",\"ammoCount\":" + std::to_string(*frame_.ammoCount);
+            result += ",\"ammoCounts\":{";
+            bool firstAmmo = true;
+            for (size_t i = 0; i < ShipAmmoNames.size(); ++i)
+                if (frame_.ammoCounts[i])
+                {
+                    if (!firstAmmo) result += ',';
+                    firstAmmo = false;
+                    result += gameplayJsonString(ShipAmmoNames[i]) + ':' + std::to_string(*frame_.ammoCounts[i]);
+                }
+            result += '}';
             if (frame_.sailState) result += ",\"sailState\":" + std::to_string(*frame_.sailState);
             result += std::string(",\"canSetSails\":") + (frame_.canSetSails ? "true" : "false") +
                 ",\"sailSteps\":[0,0.5,1],\"fleet\":[";

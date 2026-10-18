@@ -24,7 +24,8 @@ struct Core
 
 namespace storm::android
 {
-bool current = true;
+bool current = true, dialogAvailable = true;
+bool dialogTargetAvailable() { return dialogAvailable; }
 bool combatContextCurrent(const GameplayState &, bool ready) { return current && ready; }
 #include "adapter.inc"
 }
@@ -32,11 +33,8 @@ bool combatContextCurrent(const GameplayState &, bool ready) { return current &&
 int main()
 {
     using namespace storm::android;
-    assert(interactKind(true, "0") == "dialog");
-    assert(interactKind(true, "123") == "dialog");
-    for (const auto *value : {"", "-1", "1x", "1.5", "2147483648", "4294967295", "99999999999999999"})
-        assert(interactKind(true, value) == "interact");
-    assert(interactKind(false, "123") == "interact");
+    assert(validDialogTarget(0) && validDialogTarget(123));
+    assert(!validDialogTarget(-1) && !validDialogTarget(2147483648LL));
     GameplayState gameplay;
     GameplaySnapshot state;
     state.mode = "explore";
@@ -65,9 +63,17 @@ int main()
     combatInput.advance(13);
     assert(combatInput.merge("ChrAction", 0) == 0);
 
-    // A hidden quick-action icon is irrelevant: binding needs only the native
-    // configured control. Existing Player/dialog scripts decide the NPC target.
+    // Walking away revokes both the visible capability and already queued taps.
     auto stale = packet(2);
+    assert(combatInput.offer(stale, 14));
+    dialogAvailable = false; refresh();
+    assert(combatInput.json().find("\"interact\"") == std::string::npos);
+    combatInput.advance(15);
+    assert(combatInput.merge("ChrAction", 0) != 3);
+    assert(!combatInput.offer(stale, 16));
+    dialogAvailable = true; refresh();
+    assert(!combatInput.offer(stale, 17)); // New capability generation fences stale UI.
+    stale = packet(2);
     state.mode = "melee";
     gameplay.update(state); refresh();
     assert(combatInput.json().find("\"interact\"") == std::string::npos);

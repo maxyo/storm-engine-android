@@ -91,7 +91,26 @@ void lifecycle()
     require(Probe::destroyed == std::vector<entid_t>({a, b, f, e, c, d}), "EraseAll visits occupied slots once");
     require(manager.GetEntityIds("Probe").empty() && manager.GetEntityIds(layer_index_t{0}).empty(), "EraseAll clears cache and layers");
     const auto reset = manager.CreateEntity("Probe");
-    require(reset == a, "EraseAll resets indices and generation as before");
+    require(index(reset) == index(a) && generation(reset) > generation(f),
+            "EraseAll reuses slots without reusing generations");
+    require(!manager.IsEntityValid(a) && manager.GetEntityPointer(a) == nullptr && manager.GetClassCode(a) == 0,
+            "handle retained across EraseAll must not resolve to a new entity");
+    manager.EraseEntity(a);
+    manager.NewLifecycle();
+    require(manager.IsEntityValid(reset) && manager.GetEntityId("Probe") == reset,
+            "stale handle must not erase replacement after EraseAll");
+    manager.EraseAll();
+    manager.EraseAll(); // empty resets must not rewind the generation counter either
+    const auto again = manager.CreateEntity("Probe");
+    require(index(again) == index(reset) && generation(again) > generation(reset),
+            "generation survives repeated and empty EraseAll");
+    require(!manager.IsEntityValid(reset) && manager.GetEntityPointer(reset) == nullptr,
+            "previous reset generation stays invalid");
+    manager.EraseEntity(reset);
+    manager.EraseEntity(a);
+    manager.NewLifecycle();
+    require(manager.IsEntityValid(again) && manager.GetEntityIds("Probe") == std::vector<entid_t>({again}),
+            "all earlier reset handles remain harmless");
     manager.EraseAll();
 }
 
@@ -159,7 +178,9 @@ void growth()
     manager.EraseEntity(second);
     manager.EraseAll();
     manager.NewLifecycle();
-    require(manager.CreateEntity("Probe") == ids[0], "reset after mixed pending/free slots");
+    const auto reset = manager.CreateEntity("Probe");
+    require(index(reset) == index(ids[0]) && generation(reset) > generation(second),
+            "reset after mixed pending/free slots preserves generation");
     manager.EraseAll();
 }
 }

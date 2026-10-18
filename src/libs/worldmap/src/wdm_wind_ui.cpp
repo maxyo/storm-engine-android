@@ -1,3 +1,6 @@
+#ifdef __ANDROID__
+#include "platform/android_worldmap.hpp"
+#endif
 //============================================================================================
 //    Spirenkov Maxim, 2005
 //--------------------------------------------------------------------------------------------
@@ -353,7 +356,12 @@ void WdmWindUI::SetAttributes(ATTRIBUTES *apnt)
 void WdmWindUI::LRender(VDX9RENDER *rs)
 {
     if (!wdmObjects->showWindUI)
+    {
+#ifdef __ANDROID__
+        storm::android::worldMapHud.source = {};
+#endif
         return;
+    }
 
     if ((wdmObjects->isNextDayUpdate) || (wdmObjects->forceUpdate))
     {
@@ -361,11 +369,17 @@ void WdmWindUI::LRender(VDX9RENDER *rs)
         if (data)
         {
             morale = data->GetFloat() * 0.02f - 1.0f;
+#ifdef __ANDROID__
+            androidMoraleValid = std::isfinite(morale);
+#endif
         }
         data = core.Event("WorldMap_GetFood");
         if (data)
         {
             food = static_cast<int32_t>(data->GetFloat() + 0.5f);
+#ifdef __ANDROID__
+            androidFoodValid = std::isfinite(data->GetFloat());
+#endif
             if (food < 0)
                 food = 0;
         }
@@ -388,6 +402,29 @@ void WdmWindUI::LRender(VDX9RENDER *rs)
     resizeRatio = wdmObjects->resizeRatio;
     const auto widForce = wdmObjects->GetWind(x, y, windDir);
     const auto ang = static_cast<float>(atan2(windDir.x, windDir.z));
+#ifdef __ANDROID__
+    storm::android::MapInstrumentFrame source;
+    source.owner = wdmObjects->wm->GetId();
+    source.visible = true;
+    if (wdmObjects->wm->mon >= 1 && wdmObjects->wm->mon <= 12)
+        source.date = storm::android::shipCaptionText(std::to_string(wdmObjects->wm->day) + " " +
+            month[wdmObjects->wm->mon-1] + " " + std::to_string(wdmObjects->wm->year));
+    const auto finite = [](double value)->std::optional<double>{return std::isfinite(value)?std::optional<double>(value):std::nullopt;};
+    source.hour = finite(wdmObjects->wm->hour);
+    source.windForce = finite(widForce); source.windAngle = finite(ang); source.heading = finite(ay);
+    if (androidMoraleValid) source.morale = (morale + 1.0) * 50.0;
+    if (androidFoodValid) source.foodDays = food;
+    source.rumDays = rum;
+    source.coordinates = storm::android::shipCaptionText(wdmObjects->coordinate);
+    source.flag = wdmObjects->nationFlagIndex;
+    if (auto *attributes = wdmObjects->wm->AttributesPointer)
+        source.stormState = storm::android::mapStormState(attributes->GetAttribute("playerInStorm"),
+            attributes->GetAttribute("stormWhithTornado"));
+    source.complete = (!source.flag || (*source.flag>=0 && *source.flag<=4)) &&
+        (wdmObjects->coordinate.empty() || !source.coordinates.empty());
+    storm::android::worldMapHud.source = std::move(source);
+    if (storm::android::worldMapHud.covered(storm::android::MapInstruments, wdmObjects->wm->GetId())) return;
+#endif
     // Buffer for drawing
     Vertex buf[(3 * 2) * 2];
 

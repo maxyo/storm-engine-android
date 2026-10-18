@@ -16,6 +16,12 @@ struct ImageRef
 {
     uint64_t handle = 0, imageRevision = 0;
     uint32_t width = 0, height = 0, tintArgb = 0xffffffff;
+    // Optional public source identity. Never contains filesystem paths or cache handles.
+    struct Source
+    {
+        std::string kind, group, image, mode, atlas;
+        int pic = -1;
+    } source;
 };
 // Game-thread-only registry and LRU. Workers receive copies/immutable shared pixels.
 class ImageCache
