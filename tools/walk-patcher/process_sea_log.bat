@@ -1,1 +1,0 @@
-PatchCreator.exe -s -l %1

@@ -1,0 +1,30 @@
+name: Import exact approved engine source objects
+on:
+  push:
+    branches: ["ci/exact-source-1158-20261018"]
+permissions:
+  contents: write
+concurrency:
+  group: exact-source-1158
+  cancel-in-progress: false
+jobs:
+  import:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download pinned source transport within this repository
+        timeout-minutes: 6
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 330s gh api repos/maxyo/storm-engine-android/git/blobs/79117740dd1043fe22c51f4855510000d3a8901a --header 'Accept: application/vnd.github.raw+json' > engine-objects.json.gz
+          test "$(git hash-object engine-objects.json.gz)" = 79117740dd1043fe22c51f4855510000d3a8901a
+      - name: Verify and create exact Git objects without changing refs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 import_objects.py engine engine-objects.json.gz

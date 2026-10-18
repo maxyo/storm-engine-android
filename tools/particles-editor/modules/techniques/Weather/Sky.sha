@@ -1,5 +1,0 @@
-block_noopt SkyFogOff()
-{
-	ZEnable = false;
-	FogEnable = false;
-}
