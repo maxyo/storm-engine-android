@@ -1,6 +1,9 @@
 #include "s_device.h"
 #include <platform/android_ui.hpp>
 #include <platform/android_interface_presentation.hpp>
+#ifdef __ANDROID__
+#include "android_render_resolution.hpp"
+#endif
 
 #include "core.h"
 #include "scene_sweep.hpp"
@@ -484,10 +487,6 @@ bool DX9RENDER::Init()
 
         screen_size.x = ini->GetInt(nullptr, "screen_x", 1024);
         screen_size.y = ini->GetInt(nullptr, "screen_y", 768);
-#ifdef __ANDROID__
-        screen_size.x = std::clamp(storm::android::graphicsSetting("screen_x", screen_size.x), 320, 8192);
-        screen_size.y = std::clamp(storm::android::graphicsSetting("screen_y", screen_size.y), 320, 8192);
-#endif
         fNearClipPlane = ini->GetFloat(nullptr, "NearClipPlane", 0.1f);
         fFarClipPlane = ini->GetFloat(nullptr, "FarClipPlane", 4000.0f);
         bBackBufferCanLock = ini->GetInt(nullptr, "lockable_back_buffer", 0) != 0;
@@ -528,12 +527,33 @@ bool DX9RENDER::Init()
         videoAdapterIndex = ini->GetInt(nullptr, "adapter", std::numeric_limits<int32_t>::max());
 
         // stencil_format = D3DFMT_D24S8;
+#ifdef __ANDROID__
+        // SDL's view already exists and has been shown by main. Query it here,
+        // immediately before device creation; imported PC dimensions are only
+        // a fallback. Presentation continues to handle later view resizes.
+        const storm::android::RenderExtent legacySize{screen_size.x, screen_size.y};
+        const auto viewSize = core.GetWindow()->GetWindowSize();
+        const auto startupSize = storm::android::chooseStartupRenderResolution(
+            {viewSize.width, viewSize.height}, legacySize);
+        screen_size.x = startupSize.extent.width;
+        screen_size.y = startupSize.extent.height;
+        core.Trace("AndroidRenderResolution: legacy=%dx%d view=%dx%d chosen=%dx%d reason=%s",
+                   legacySize.width, legacySize.height, viewSize.width, viewSize.height,
+                   screen_size.x, screen_size.y, startupSize.reason);
+#endif
         if (!InitDevice(bWindow, static_cast<HWND>(core.GetWindow()->OSHandle()), screen_size.x, screen_size.y))
 #ifdef __ANDROID__
             throw std::runtime_error("Cannot initialize renderer: OpenGL ES 3.0 could not create a graphics device. "
                                      "The game cannot start with this graphics driver.");
 #else
             throw std::runtime_error("Cannot initialize renderer: could not create an OpenGL ES 3.0 device");
+#endif
+#ifdef __ANDROID__
+        core.Trace("AndroidRenderResolution: legacy=%dx%d view=%dx%d chosen=%dx%d final=%dx%d reason=%s deviceAdjusted=%d",
+                   legacySize.width, legacySize.height, viewSize.width, viewSize.height,
+                   startupSize.extent.width, startupSize.extent.height, screen_size.x, screen_size.y,
+                   startupSize.reason,
+                   screen_size.x != startupSize.extent.width || screen_size.y != startupSize.extent.height);
 #endif
 
         gamePictures_ = std::make_unique<storm::GamePictures>(*this);
