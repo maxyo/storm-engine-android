@@ -1,4 +1,6 @@
 #include "s_device.h"
+#include <platform/android_ui.hpp>
+#include <platform/android_interface_presentation.hpp>
 
 #include "core.h"
 
@@ -101,6 +103,8 @@ class LostDeviceSentinel : public SERVICE
 {
     void RunStart() override
     {
+        if (!DX9RENDER::pRS)
+            return;
         if (auto d3d9 = static_cast<IDirect3DDevice9 *>(DX9RENDER::pRS->GetD3DDevice()))
         {
             switch (d3d9->TestCooperativeLevel())
@@ -485,6 +489,8 @@ bool DX9RENDER::Init()
     create_directories(fs::GetScreenshotsPath());
 
     auto ini = fio->OpenIniFile(core.EngineIniFileName());
+    if (!ini)
+        throw std::runtime_error("Cannot initialize renderer: engine.ini is unavailable");
     if (ini)
     {
         // bPostProcessEnabled = ini->GetInt(0, "PostProcess", 0) == 1;
@@ -506,6 +512,7 @@ bool DX9RENDER::Init()
 
         bShowFps = ini->GetInt(nullptr, "show_fps", 0) == 1;
         bShowExInfo = ini->GetInt(nullptr, "show_exinfo", 0) == 1;
+        renderMetricsEnabled = ini->GetInt(nullptr, "render_metrics", 0) == 1;
         bSafeRendering = ini->GetInt(nullptr, "safe_render", 0) == 0;
         bDropVideoConveyor = ini->GetInt(nullptr, "DropVideoConveyor", 0) != 0;
         texLog = ini->GetInt(nullptr, "texture_log", 0) == 1;
@@ -514,11 +521,21 @@ bool DX9RENDER::Init()
         bWindow = ini->GetInt(nullptr, "full_screen", 1) == 0;
 
         nTextureDegradation = ini->GetInt(nullptr, "texture_degradation", 0);
+        requestedTextureAnisotropy = ini->GetInt(nullptr, "texture_anisotropy", 0);
+#ifdef __ANDROID__
+        nTextureDegradation = std::clamp(storm::android::graphicsSetting("texture_degradation", nTextureDegradation), 0, 2);
+        requestedTextureAnisotropy = storm::android::graphicsSetting("texture_anisotropy", requestedTextureAnisotropy);
+#endif
+        requestedTextureAnisotropy = std::clamp(requestedTextureAnisotropy, 0, 16);
 
         FovMultiplier = ini->GetFloat(nullptr, "fov_multiplier", 1.0f);
 
         screen_size.x = ini->GetInt(nullptr, "screen_x", 1024);
         screen_size.y = ini->GetInt(nullptr, "screen_y", 768);
+#ifdef __ANDROID__
+        screen_size.x = std::clamp(storm::android::graphicsSetting("screen_x", screen_size.x), 320, 8192);
+        screen_size.y = std::clamp(storm::android::graphicsSetting("screen_y", screen_size.y), 320, 8192);
+#endif
         fNearClipPlane = ini->GetFloat(nullptr, "NearClipPlane", 0.1f);
         fFarClipPlane = ini->GetFloat(nullptr, "FarClipPlane", 4000.0f);
         bBackBufferCanLock = ini->GetInt(nullptr, "lockable_back_buffer", 0) != 0;
@@ -543,6 +560,9 @@ bool DX9RENDER::Init()
 
         // new renderer settings
         vSyncEnabled = ini->GetInt(nullptr, "vsync", 0);
+#ifdef __ANDROID__
+        vSyncEnabled = storm::android::graphicsSetting("vsync", vSyncEnabled) != 0;
+#endif
 
         msaa = ini->GetInt(nullptr, "msaa", D3DMULTISAMPLE_NONE);
         if (msaa != D3DMULTISAMPLE_NONE)
@@ -557,7 +577,12 @@ bool DX9RENDER::Init()
 
         // stencil_format = D3DFMT_D24S8;
         if (!InitDevice(bWindow, static_cast<HWND>(core.GetWindow()->OSHandle()), screen_size.x, screen_size.y))
-            return false;
+#ifdef __ANDROID__
+            throw std::runtime_error("Cannot initialize renderer: Vulkan/DXVK could not create a graphics device. "
+                                     "The game cannot start with this graphics driver.");
+#else
+            throw std::runtime_error("Cannot initialize renderer: could not create a Direct3D 9 device");
+#endif
 
 #ifdef _WIN32 // Effects
         RecompileEffects();
@@ -627,7 +652,7 @@ bool DX9RENDER::Init()
                              RS_RECT_VERTEX_FORMAT, D3DPOOL_DEFAULT, &rectsVBuffer, nullptr); // D3DPOOL_MANAGED
     if (!pDropConveyorVBuffer || !rectsVBuffer)
     {
-        return false;
+        throw std::runtime_error("Cannot initialize renderer: could not allocate vertex buffers");
     }
 
     uint16_t *pI = &qi[0];
@@ -670,6 +695,7 @@ DX9RENDER::~DX9RENDER()
     S_RELEASE(pSmallPostProcessTexture, 7);
 
     S_RELEASE(rectsVBuffer, 8);
+    S_RELEASE(pDropConveyorVBuffer, 9);
 
     delete progressImage;
     progressImage = nullptr;
@@ -689,6 +715,7 @@ DX9RENDER::~DX9RENDER()
 
     STORM_DELETE(DX9sphereVertex);
     ReleaseDevice();
+    pRS = nullptr;
 }
 
 bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t height)
@@ -811,6 +838,19 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
     effects_.setDevice(d3d9);
 #endif
 
+    textureAnisotropy = 0;
+    if (requestedTextureAnisotropy > 0)
+    {
+        D3DCAPS9 caps{};
+        textureAnisotropy = 1;
+        if (SUCCEEDED(d3d9->GetDeviceCaps(&caps)) &&
+            (caps.TextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC))
+            textureAnisotropy = std::min(static_cast<uint32_t>(requestedTextureAnisotropy),
+                                        std::max(1U, static_cast<uint32_t>(caps.MaxAnisotropy)));
+    }
+    core.Trace("Texture filtering: requested anisotropy=%d effective=%u (0=game defaults)",
+               requestedTextureAnisotropy, textureAnisotropy);
+
     // Create render targets for POST PROCESS effects
     d3d9->GetRenderTarget(0, &pOriginalScreenSurface);
     d3d9->GetDepthStencilSurface(&pOriginalDepthSurface);
@@ -894,6 +934,8 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
         SetSamplerState(s, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
         SetSamplerState(s, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
         SetSamplerState(s, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+        if (textureAnisotropy)
+            SetSamplerState(s, D3DSAMP_MAXANISOTROPY, textureAnisotropy);
     }
 
     // set base texture and diffuse+specular lighting
@@ -1262,12 +1304,61 @@ bool DX9RENDER::DX9EndScene()
     }
 
     if (CHECKD3DERR(EndScene()))
+    {
+#ifdef __ANDROID__
+        storm::android::worldMapHud.presented(false);
+#endif
         return false;
+    }
 
     if (bMakeShoot)
         MakeScreenShot();
 
+    const auto presentStart = renderMetricsEnabled ? SDL_GetPerformanceCounter() : 0;
     const HRESULT hRes = d3d9->Present(nullptr, nullptr, nullptr, nullptr);
+#ifdef __ANDROID__
+    storm::android::worldMapHud.presented(hRes==D3D_OK);
+#endif
+    if (renderMetricsEnabled)
+    {
+        const auto presentEnd = SDL_GetPerformanceCounter();
+        const double frequency = static_cast<double>(SDL_GetPerformanceFrequency());
+        const double now = static_cast<double>(presentEnd) / frequency;
+        if (hRes == D3D_OK && metricsPreviousPresent != 0.0)
+        {
+            const double interval = now - metricsPreviousPresent;
+            metricsFrameTimes.push_back(interval * 1000.0);
+            metricsElapsed += interval;
+            metricsPresentTime += static_cast<double>(presentEnd - presentStart) / frequency;
+            metricsDrawCalls += dwNumDrawPrimitive;
+            // Also bound memory if a driver presents without throttling.
+            if (metricsElapsed >= 5.0 || metricsFrameTimes.size() >= 4096)
+            {
+                std::sort(metricsFrameTimes.begin(), metricsFrameTimes.end());
+                const auto count = metricsFrameTimes.size();
+                const auto percentile = [&](size_t percent) {
+                    return metricsFrameTimes[(count * percent + 99) / 100 - 1];
+                };
+                core.Trace("RenderMetrics: frames=%u seconds=%.3f fps=%.2f frame_ms_p50=%.2f "
+                           "frame_ms_p95=%.2f frame_ms_p99=%.2f frame_ms_max=%.2f "
+                           "present_ms_mean=%.2f draws_mean=%.1f resolution=%dx%d",
+                           static_cast<unsigned>(count), metricsElapsed, count / metricsElapsed,
+                           percentile(50), percentile(95), percentile(99), metricsFrameTimes.back(),
+                           1000.0 * metricsPresentTime / count, static_cast<double>(metricsDrawCalls) / count,
+                           screen_size.x, screen_size.y);
+                metricsFrameTimes.clear();
+                metricsElapsed = metricsPresentTime = 0.0;
+                metricsDrawCalls = 0;
+            }
+        }
+        if (hRes != D3D_OK)
+        {
+            metricsFrameTimes.clear();
+            metricsElapsed = metricsPresentTime = 0.0;
+            metricsDrawCalls = 0;
+        }
+        metricsPreviousPresent = hRes == D3D_OK ? now : 0.0;
+    }
 
     if (hRes == D3DERR_DEVICELOST)
     {
@@ -2264,8 +2355,11 @@ void DX9RENDER::DrawBuffer(int32_t vbuff, int32_t stride, int32_t ibuff, int32_t
     if (bDraw)
         do
         {
-            dwNumDrawPrimitive++;
-            CHECKD3DERR(d3d9->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, minv, 0, numv, startidx, numtrg));
+            if (!storm::android::NativeInterfaceDrawSuppressed())
+            {
+                dwNumDrawPrimitive++;
+                CHECKD3DERR(d3d9->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, minv, 0, numv, startidx, numtrg));
+            }
         } while (cBlockName && cBlockName[0] && TechniqueExecuteNext());
 }
 
@@ -2289,8 +2383,11 @@ void DX9RENDER::DrawIndexedPrimitiveNoVShader(D3DPRIMITIVETYPE dwPrimitiveType, 
     if (bDraw)
         do
         {
-            dwNumDrawPrimitive++;
-            CHECKD3DERR(d3d9->DrawIndexedPrimitive(dwPrimitiveType, iMinV, 0, iNumV, iStartIdx, iNumTrg));
+            if (!storm::android::NativeInterfaceDrawSuppressed())
+            {
+                dwNumDrawPrimitive++;
+                CHECKD3DERR(d3d9->DrawIndexedPrimitive(dwPrimitiveType, iMinV, 0, iNumV, iStartIdx, iNumTrg));
+            }
         } while (cBlockName && TechniqueExecuteNext());
 }
 
@@ -2304,9 +2401,12 @@ void DX9RENDER::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE dwPrimitiveType, uint32_
     if (bDraw)
         do
         {
-            dwNumDrawPrimitive++;
-            CHECKD3DERR(d3d9->DrawIndexedPrimitiveUP(dwPrimitiveType, dwMinIndex, dwNumVertices, dwPrimitiveCount,
-                                                     pIndexData, IndexDataFormat, pVertexData, dwVertexStride));
+            if (!storm::android::NativeInterfaceDrawSuppressed())
+            {
+                dwNumDrawPrimitive++;
+                CHECKD3DERR(d3d9->DrawIndexedPrimitiveUP(dwPrimitiveType, dwMinIndex, dwNumVertices, dwPrimitiveCount,
+                                                         pIndexData, IndexDataFormat, pVertexData, dwVertexStride));
+            }
         } while (cBlockName && TechniqueExecuteNext());
 }
 
@@ -2323,8 +2423,11 @@ void DX9RENDER::DrawPrimitiveUP(D3DPRIMITIVETYPE dwPrimitiveType, uint32_t dwVer
     if (bDraw)
         do
         {
-            dwNumDrawPrimitive++;
-            CHECKD3DERR(d3d9->DrawPrimitiveUP(dwPrimitiveType, dwNumPT, pVerts, dwStride));
+            if (!storm::android::NativeInterfaceDrawSuppressed())
+            {
+                dwNumDrawPrimitive++;
+                CHECKD3DERR(d3d9->DrawPrimitiveUP(dwPrimitiveType, dwNumPT, pVerts, dwStride));
+            }
         } while (cBlockName && TechniqueExecuteNext());
 }
 
@@ -2344,8 +2447,11 @@ void DX9RENDER::DrawPrimitive(D3DPRIMITIVETYPE dwPrimitiveType, int32_t iVBuff, 
     if (bDraw)
         do
         {
-            dwNumDrawPrimitive++;
-            CHECKD3DERR(d3d9->DrawPrimitive(dwPrimitiveType, iStartV, iNumPT));
+            if (!storm::android::NativeInterfaceDrawSuppressed())
+            {
+                dwNumDrawPrimitive++;
+                CHECKD3DERR(d3d9->DrawPrimitive(dwPrimitiveType, iStartV, iNumPT));
+            }
         } while (cBlockName && TechniqueExecuteNext());
 }
 
@@ -2391,9 +2497,11 @@ void DX9RENDER::RenderAnimation(int32_t ib, void *src, int32_t numVrts, int32_t 
     if (CHECKD3DERR(d3d9->SetStreamSource(0, aniVBuffer, 0, sizeof(FVF_VERTEX))) == true)
         return;
 
-    CHECKD3DERR(d3d9->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, minv, 0, numv, startidx, numtrg));
-
-    dwNumDrawPrimitive++;
+    if (!storm::android::NativeInterfaceDrawSuppressed())
+    {
+        CHECKD3DERR(d3d9->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, minv, 0, numv, startidx, numtrg));
+        dwNumDrawPrimitive++;
+    }
 }
 
 //################################################################################
@@ -2621,6 +2729,8 @@ void DX9RENDER::RestoreRender()
         SetSamplerState(s, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
         SetSamplerState(s, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
         SetSamplerState(s, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+        if (textureAnisotropy)
+            SetSamplerState(s, D3DSAMP_MAXANISOTROPY, textureAnisotropy);
     }
     // set base texture and diffuse+specular lighting
     SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
@@ -3210,6 +3320,15 @@ uint32_t DX9RENDER::GetSamplerState(uint32_t Sampler, D3DSAMPLERSTATETYPE Type, 
 
 uint32_t DX9RENDER::SetSamplerState(uint32_t Sampler, D3DSAMPLERSTATETYPE Type, uint32_t Value)
 {
+    if (textureAnisotropy)
+    {
+        // Preserve explicit point sampling (lookup/postprocess textures), mip
+        // filtering and magnification. Only improve smooth minification.
+        if (Type == D3DSAMP_MINFILTER && (Value == D3DTEXF_LINEAR || Value == D3DTEXF_ANISOTROPIC))
+            Value = textureAnisotropy > 1 ? D3DTEXF_ANISOTROPIC : D3DTEXF_LINEAR;
+        else if (Type == D3DSAMP_MAXANISOTROPY)
+            Value = textureAnisotropy;
+    }
     return CHECKD3DERR(d3d9->SetSamplerState(Sampler, Type, Value));
 }
 
@@ -3431,9 +3550,19 @@ void DX9RENDER::DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlock
         // Buffer
         RECT_VERTEX *data = nullptr;
         if (rectsVBuffer->Lock(0, drawCount * 6 * sizeof(RECT_VERTEX), (void **)&data, D3DLOCK_DISCARD) != D3D_OK)
+        {
+            d3d9->SetTransform(D3DTS_VIEW, camMtx);
+            d3d9->SetTransform(D3DTS_WORLD, oldWorldMatrix);
             return;
+        }
         if (!data)
+        {
+            // Lock succeeded: balance it even if the driver supplied no data.
+            rectsVBuffer->Unlock();
+            d3d9->SetTransform(D3DTS_VIEW, camMtx);
+            d3d9->SetTransform(D3DTS_WORLD, oldWorldMatrix);
             return;
+        }
         // Filling the buffer
         for (uint32_t i = 0; i < drawCount && cnt < dwRectsNum; i++)
         {
@@ -3608,6 +3737,7 @@ HRESULT DX9RENDER::SetIndices(void *pIndexData)
 
 HRESULT DX9RENDER::DrawPrimitive(D3DPRIMITIVETYPE dwPrimitiveType, UINT StartVertex, UINT PrimitiveCount)
 {
+    if (storm::android::NativeInterfaceDrawSuppressed()) return D3D_OK;
     dwNumDrawPrimitive++;
     return CHECKD3DERR(d3d9->DrawPrimitive(dwPrimitiveType, StartVertex, PrimitiveCount));
 }
@@ -4067,8 +4197,12 @@ HRESULT DX9RENDER::ImageBlt(int32_t TextureID, RECT *pDstRect, RECT *pSrcRect)
         do
         {
             SetFVF(D3DFVF_XYZRHW | D3DFVF_TEX1 | D3DFVF_TEXTUREFORMAT2);
-            hRes = d3d9->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, &v, sizeof(F3DVERTEX));
-            dwNumDrawPrimitive++;
+            hRes = D3D_OK;
+            if (!storm::android::NativeInterfaceDrawSuppressed())
+            {
+                hRes = d3d9->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, &v, sizeof(F3DVERTEX));
+                dwNumDrawPrimitive++;
+            }
         } while (TechniqueExecuteNext());
 
     return hRes;
@@ -4145,6 +4279,9 @@ char *DX9RENDER::GetTipsImage()
 
 void DX9RENDER::StartProgressView()
 {
+#ifdef __ANDROID__
+    storm::android::publishLoading(true);
+#endif
     progressSafeCounter = 0;
     if (progressTexture < 0)
     {
@@ -4348,6 +4485,10 @@ void DX9RENDER::ProgressView()
     DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1, 2, v, sizeof(v[0]),
                     "ProgressTech");
     EndScene();
+#ifdef __ANDROID__
+    // A progress/loading present is not the admitted world-map frame.
+    storm::android::worldMapHud.presented(false);
+#endif
     d3d9->Present(nullptr, nullptr, nullptr, nullptr);
     BeginScene();
     // Next frame
@@ -4360,6 +4501,9 @@ void DX9RENDER::ProgressView()
 
 void DX9RENDER::EndProgressView()
 {
+#ifdef __ANDROID__
+    storm::android::publishLoading(false);
+#endif
     if (progressTexture >= 0)
         TextureRelease(progressTexture);
     progressTexture = -1;
@@ -4569,6 +4713,30 @@ IDirect3DBaseTexture9 *DX9RENDER::GetTextureFromID(int32_t nTextureID)
     if (nTextureID < 0)
         return nullptr;
     return Textures[nTextureID].d3dtex;
+}
+
+bool DX9RENDER::sampleTextureArgb(int32_t texture,float u,float v,uint32_t& result)
+{
+    if(texture<0 || size_t(texture)>=MAX_STEXTURES) return false;
+    auto* base=Textures[texture].d3dtex;
+    if(!base || base->GetType()!=D3DRTYPE_TEXTURE) return false;
+    auto* image=static_cast<IDirect3DTexture9*>(base);
+    D3DSURFACE_DESC desc{};
+    if(FAILED(image->GetLevelDesc(0,&desc)) ||
+       (desc.Format!=D3DFMT_A8R8G8B8 && desc.Format!=D3DFMT_X8R8G8B8)) return false;
+    D3DLOCKED_RECT lock{};
+    if(FAILED(image->LockRect(0,&lock,nullptr,D3DLOCK_READONLY))) return false;
+    bool success=false;
+    uint32_t color=0;
+    if(lock.pBits && lock.Pitch>0 && size_t(lock.Pitch)<=SIZE_MAX/std::max(1u,desc.Height)) {
+        storm::render::TexturePixels pixels{
+            {static_cast<const uint8_t*>(lock.pBits),size_t(lock.Pitch)*desc.Height},
+            desc.Width,desc.Height,size_t(lock.Pitch),storm::render::PixelOrder::bgra8};
+        success=storm::render::sampleArgb(pixels,u,v,color);
+    }
+    image->UnlockRect(0);
+    if(success) result=desc.Format==D3DFMT_X8R8G8B8 ? color|0xff000000u : color;
+    return success;
 }
 
 bool DX9RENDER::GetRenderTargetAsTexture(IDirect3DTexture9 **tex)

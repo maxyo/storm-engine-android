@@ -1,3 +1,4 @@
+#include <platform/android_ui.hpp>
 #include "battle_ship_sign.h"
 
 #include "core.h"
@@ -58,7 +59,27 @@ void BIShipIcon::Draw()
             core.Event("evntBISelectShip", "ll", -1, true);
     }
 
+    // Only the separate, current orders draw acknowledgement transfers these
+    // native controls to Android. Telemetry ACKs never hide active orders.
+#ifdef __ANDROID__
+    if (IsActive() && storm::android::seaOrders.covered()) return;
+#endif
     FillVertexBuffer();
+#ifdef __ANDROID__
+    const uint32_t mobileMask = IsActive() ? 0 : storm::android::mobileShipHudMask();
+    constexpr uint32_t mainCardMask = storm::android::ShipHull | storm::android::ShipCrew | storm::android::ShipSailIntegrity;
+    // The whole main card is replaced only after all three real status displays
+    // have rendered. Partial ACKs retain its portrait, background, class and name.
+    const bool mobileMainCard = (mobileMask & mainCardMask) == mainCardMask;
+    const auto mobileCard = [this, mobileMask, mobileMainCard](int32_t n) {
+        if (n == 0) return mobileMainCard;
+        if (!(mobileMask & storm::android::ShipFleet)) return false;
+        const auto &fleet = storm::android::shipTelemetry.frame().fleet;
+        return std::any_of(fleet.begin(), fleet.end(), [this, n](const auto &entry) {
+            return entry.characterIndex == m_Ship[n].nCharacterIndex;
+        });
+    };
+#endif
 
     if (m_nVBufID != -1 && m_nIBufID != -1)
     {
@@ -69,6 +90,16 @@ void BIShipIcon::Draw()
         if (m_nShipSquareQ > 0)
         {
             m_pRS->TextureSet(0, m_nShipTextureID);
+#ifdef __ANDROID__
+            if (mobileMainCard || (mobileMask & storm::android::ShipFleet))
+            {
+                for (int32_t n = 0; n < m_nShipSquareQ; ++n)
+                    if (!mobileCard(n))
+                        m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV + n * 4, 4, 0, 2,
+                                          "battle_colorRectangle");
+            }
+            else
+#endif
             m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV, m_nShipSquareQ * 4, nStartI,
                               m_nShipSquareQ * 2, "battle_colorRectangle");
         }
@@ -78,6 +109,16 @@ void BIShipIcon::Draw()
         if (m_nBackSquareQ > 0)
         {
             m_pRS->TextureSet(0, m_nBackTextureID);
+#ifdef __ANDROID__
+            if (mobileMainCard || (mobileMask & storm::android::ShipFleet))
+            {
+                for (int32_t n = 0; n < m_nBackSquareQ; ++n)
+                    if (!mobileCard(n))
+                        m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV + n * 4, 4, 0, 2,
+                                          "battle_colorRectangle");
+            }
+            else
+#endif
             m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV, m_nBackSquareQ * 4, nStartI,
                               m_nBackSquareQ * 2, "battle_colorRectangle");
         }
@@ -87,6 +128,19 @@ void BIShipIcon::Draw()
         if (m_nShipStateSquareQ > 0)
         {
             m_pRS->TextureSet(0, m_nShipStateTextureID);
+#ifdef __ANDROID__
+            if (mobileMask & (storm::android::ShipHull | storm::android::ShipSailIntegrity | storm::android::ShipFleet))
+            {
+                for (int32_t q = 0; q < m_nShipStateSquareQ; ++q)
+                {
+                    if (mobileCard(q / 2) || (q == 0 && (mobileMask & storm::android::ShipHull)) ||
+                        (q == 1 && (mobileMask & storm::android::ShipSailIntegrity))) continue;
+                    m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV + q * 4, 4, 0, 2,
+                                      "battle_colorRectangle");
+                }
+            }
+            else
+#endif
             m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV, m_nShipStateSquareQ * 4, nStartI,
                               m_nShipStateSquareQ * 2, "battle_colorRectangle");
         }
@@ -96,6 +150,16 @@ void BIShipIcon::Draw()
         if (m_nShipClassSquareQ > 0)
         {
             m_pRS->TextureSet(0, m_nShipClassTextureID);
+#ifdef __ANDROID__
+            if (mobileMainCard || (mobileMask & storm::android::ShipFleet))
+            {
+                for (int32_t n = 0; n < m_nShipClassSquareQ; ++n)
+                    if (!mobileCard(n))
+                        m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV + n * 4, 4, 0, 2,
+                                          "battle_alphacutcolor");
+            }
+            else
+#endif
             m_pRS->DrawBuffer(m_nVBufID, sizeof(BI_COLOR_VERTEX), m_nIBufID, nStartV, m_nShipClassSquareQ * 4, nStartI,
                               m_nShipClassSquareQ * 2, "battle_alphacutcolor");
         }
@@ -104,7 +168,13 @@ void BIShipIcon::Draw()
 
     for (int32_t n = 0; n < m_nShipQuantity; n++)
     {
+#ifdef __ANDROID__
+        if (mobileCard(n)) continue;
+        const bool mobileCrew = n == 0 && (mobileMask & storm::android::ShipCrew);
+        if (m_Ship[n].pASailorQuantity && !mobileCrew)
+#else
         if (m_Ship[n].pASailorQuantity)
+#endif
         {
             m_pRS->ExtPrint(m_idSailorFont, m_dwSailorFontColor, 0, PR_ALIGN_CENTER, true, m_fSailorFontScale, 0, 0,
                             // shadow
@@ -477,6 +547,7 @@ int32_t BIShipIcon::CalculateShipQuantity()
             continue; // the main character is already on the list
         if (pSD->isMyShip)
         {
+            if (m_nShipQuantity >= MAX_SHIP_QUANTITY) break;
             m_Ship[m_nShipQuantity].nCharacterIndex = pSD->characterIndex;
             m_Ship[m_nShipQuantity].pASailorQuantity = GetSailorQuantityAttribute(pSD);
             m_Ship[m_nShipQuantity].pAShip = pSD->pAttr;
@@ -788,3 +859,101 @@ int32_t BIShipIcon::GetShipClass(int32_t nCharIdx)
         return 1;
     return pVDat->GetInt();
 }
+
+#ifdef __ANDROID__
+namespace
+{
+std::string androidRecipientId(const SHIP_DESCRIBE_LIST::SHIP_DESCR *ship)
+{
+    return ship && ship->pShip ? "r" + std::to_string(ship->pShip->GetId()) + "_" + std::to_string(ship->characterIndex) : "";
+}
+}
+void BIShipIcon::ReadAndroidOrders(storm::android::SeaOrdersFrame &frame)
+{
+    if (!m_pCommandList) return;
+    const auto selected = m_nShipQuantity > 0 && m_nCurrentShipIndex < m_nShipQuantity ?
+        m_Ship[m_nCurrentShipIndex].nCharacterIndex : -1;
+    Recollect();
+    m_bMakeUpdate = false;
+    frame.recipients.clear();
+    int selectedIndex = -1;
+    for (int i = 0; i < m_nShipQuantity; ++i)
+    {
+        auto *ship = g_ShipList.FindShip(m_Ship[i].nCharacterIndex);
+        if (!ship || !ship->pShip || ship->isDead) continue;
+        storm::android::SeaOrderRecipient recipient;
+        recipient.id = androidRecipientId(ship);
+        recipient.entityId = std::to_string(ship->pShip->GetId());
+        recipient.characterIndex = ship->characterIndex;
+        recipient.name = storm::android::shipTextValue(m_Ship[i].sShipName);
+        recipient.main = ship == g_ShipList.GetMainCharacterShip();
+        if (recipient.name.empty()) frame.complete = false;
+        frame.recipients.push_back(std::move(recipient));
+        if (ship->characterIndex == selected) selectedIndex = i;
+    }
+    if (frame.recipients.empty() || !frame.recipients.front().main) return;
+    frame.available = true;
+    if (selectedIndex < 0)
+    {
+        CloseAndroidOrders();
+        selectedIndex = 0;
+    }
+    m_nCurrentShipIndex = selectedIndex;
+    frame.recipientId = androidRecipientId(g_ShipList.FindShip(m_Ship[selectedIndex].nCharacterIndex));
+    frame.active = IsActive();
+    frame.mode = m_nCommandMode;
+    if (!frame.active) return;
+    if (!m_pCommandList->AndroidPendingAllowed())
+    {
+        ExecuteCommand(Command_cancel);
+        frame.mode = m_nCommandMode;
+    }
+    UpdateCommandList(); // Live script filtering, distance, cooldown and targets.
+    m_pCommandList->SetUpDown(m_nCurrentShipIndex > 0, m_nCurrentShipIndex < m_nShipQuantity - 1);
+    frame.stage = m_nCommandMode == BI_COMMODE_COMMAND_SELECT ? "commands" :
+        (m_nCommandMode & (BI_COMMODE_CANNON_CHARGE | BI_COMMODE_USER_ICONS | BI_COMMODE_ABILITY_ICONS)) ? "options" : "targets";
+    m_pCommandList->ReadAndroidOrders(frame);
+}
+
+void BIShipIcon::CloseAndroidOrders()
+{
+    if (!m_pCommandList) return;
+    m_pCommandList->ResetAndroidCommand();
+    SetActive(false);
+    m_nCommandMode = BI_COMMODE_COMMAND_SELECT;
+    core.Event("evntBISelectShip", "ll", -1, true);
+}
+
+bool BIShipIcon::ExecuteAndroidOrder(const storm::android::SeaOrdersRequest &request)
+{
+    if (!m_pCommandList || !m_nShipQuantity) return false;
+    if (request.verb == "close") { CloseAndroidOrders(); return true; }
+    if (request.verb == "back") { ExecuteCommand(Command_cancel); return true; }
+    if (request.verb == "open" || request.verb == "selectRecipient")
+    {
+        for (int i = 0; i < m_nShipQuantity; ++i)
+        {
+            auto *ship = g_ShipList.FindShip(m_Ship[i].nCharacterIndex);
+            if (!ship || ship->isDead || !ship->pShip) continue;
+            if ((request.id.empty() && ship == g_ShipList.GetMainCharacterShip()) || androidRecipientId(ship) == request.id)
+            {
+                m_pCommandList->ResetAndroidCommand();
+                m_nCurrentShipIndex = i;
+                SetActive(true);
+                m_nCommandMode = BI_COMMODE_COMMAND_SELECT;
+                UpdateCommandList();
+                m_pCommandList->SetUpDown(i > 0, i < m_nShipQuantity - 1);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (request.verb == "selectItem" || request.verb == "activateItem")
+    {
+        if (!IsActive() || !m_pCommandList->SelectAndroidItem(request.id)) return false;
+        if (request.verb == "activateItem") ExecuteCommand(Command_confirm);
+        return true;
+    }
+    return false;
+}
+#endif

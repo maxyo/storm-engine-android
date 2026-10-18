@@ -72,4 +72,34 @@ python3 tools/android/verify_engine.py --library build/android-engine/game/liben
 The source directory must also contain the pinned DXVK checkout.
 `ci_dependencies.sh` prepares tools/dependencies and runs regressions;
 `ci_engine.sh` builds and verifies only the native library.
+It defaults to `Debug`. For performance measurements with symbols retained, use
+an isolated optimized build directory:
+
+```sh
+STORM_NATIVE_BUILD_TYPE=RelWithDebInfo \
+STORM_NATIVE_BUILD_DIR="$PWD/build/android-ci/engine-relwithdebinfo" \
+  bash tools/android/ci_engine.sh
+```
+
+Package both `game/libengine.so` and `runtime/libmimalloc.so` from that build.
+Compare the same source revision, scene/save, camera, resolution and settings;
+do not compare while other emulator instances or native builds compete for the
+host. Emulator measurements include ARM translation and host graphics overhead.
+
+`render_metrics=1` in the test game's `engine.ini` enables five-second logs of
+successful Present cadence (FPS and frame interval p50/p95/p99/max), mean Present
+call time and draw count. These are not GPU timestamps. The default is off.
+`capture_render_scene.py --help` describes read-only scene capture, including
+screenshots, logs, memory and the tested APK hash. Allow loading and warmup to
+finish before capture; window boundaries can extend outside the capture interval.
+
+`texture_anisotropy` controls smooth texture minification: `0` preserves the
+game's techniques (default), `1` uses linear filtering, and `2`, `4`, `8`, or `16`
+request anisotropic filtering capped by device capabilities. Explicit point
+sampling, mip filtering and magnification are preserved. Android graphics
+preferences override this key and `texture_degradation`, `vsync`, `screen_x`,
+and `screen_y` at renderer startup; unset preferences use the game INI values.
+Changes require restarting the game. Evaluate increased filtering on oblique
+ground/deck textures and measure its cost before choosing a device-specific default.
+
 APK packaging and releases belong to https://github.com/maxyo/corsairs-android.

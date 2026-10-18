@@ -1653,3 +1653,56 @@ int32_t CXI_SCROLLIMAGE::GetMousePointedPictureNum() const
         n += m_Image.size();
     return n;
 }
+
+#ifdef __ANDROID__
+#include "../mobile_owner_bridge.hpp"
+#include "shared/interface/messages.h"
+bool CXI_SCROLLIMAGE::MobileOwnerRows(storm::mobile::OfficerListIdentity &state,
+                                     std::vector<MobileWidget> &rows) const
+{
+    if (!m_nodeName || !m_bUse) return false;
+    return storm::mobile::OwnerRows(storm::android::mobileScreen, m_nodeName, false,
+        core.Entity_GetAttributeClass(g_idInterface, m_nodeName), m_Image.size(),
+        storm::android::mobileScreenRevision, storm::mobile::OwnerProfile(),
+        m_bClickable && !m_bLockedNode && !m_bLockStatus && !m_bDoMove,
+        m_rect.top * 8192 + m_rect.left, storm::mobile::OwnerLabel, "", state, rows);
+}
+void CXI_SCROLLIMAGE::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    storm::mobile::OfficerListIdentity state; std::vector<MobileWidget> rows;
+    if (!MobileOwnerRows(state, rows)) return;
+    m_mobileOwners.publish(state);
+    for (auto &row : rows) {
+        row.rowId = m_mobileOwners.rowId(row.index);
+        if (row.enabled) row.actions.push_back("select");
+        widgets.push_back(std::move(row));
+    }
+}
+std::optional<std::string> CXI_SCROLLIMAGE::MobileHireCrewQuantity(const std::string &node, const std::string &value) const
+{
+    if (storm::android::mobileScreen != "hirecrew" || !m_nodeName || std::string_view(m_nodeName) != "SHIPS_SCROLL") return {};
+    storm::mobile::OfficerListIdentity state; std::vector<MobileWidget> rows;
+    if (!MobileOwnerRows(state, rows)) return {};
+    auto *character = static_cast<VDATA *>(core.GetScriptVariable("refCharacter"));
+    if (!storm::mobile::HireCrewBoundOwner(core.Entity_GetAttributeClass(g_idInterface, m_nodeName),
+        character ? character->GetAClass() : nullptr)) return {};
+    return storm::mobile::HireCrewQuantityValue(storm::android::mobileScreen, node, m_mobileOwners, state, rows, value);
+}
+bool CXI_SCROLLIMAGE::MobileApply(int index, const std::string &value)
+{
+    if (!m_bUse || !m_bClickable || m_bLockedNode || m_bLockStatus || m_bDoMove) return false;
+    storm::mobile::OfficerListIdentity state; std::vector<MobileWidget> rows;
+    if (!MobileOwnerRows(state, rows) || !m_mobileOwners.accepts(state, index, value)) return false;
+    bool present = false; for (const auto &row : rows) if (row.index == index && row.enabled) present = true;
+    if (!present) return false;
+    const std::string name = m_nodeName;
+    core.Send_Message(g_idInterface, "ls", MSG_INTERFACE_NEW_CURRENT_NODE, name.c_str());
+    m_nCurImage = index;
+    core.Entity_GetAttributeClass(g_idInterface, name.c_str())->SetAttributeUseDword("current", index);
+    ChangeDinamicParameters(0);
+    // Same notification as normal horizontal image selection; no further node
+    // access after script dispatch, since a callback may close the interface.
+    core.Event("ChangeSelectScrollImage", "sl", name.c_str(), index);
+    return true;
+}
+#endif

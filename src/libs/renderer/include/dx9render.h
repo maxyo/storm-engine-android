@@ -1,4 +1,5 @@
 #pragma once
+#include "texture_pixels.hpp"
 
 #include <cstdint>
 #include <d3d9.h>
@@ -169,7 +170,7 @@ inline uint32_t F2DW(float f)
 
 class CVideoTexture;
 
-class VDX9RENDER : public SERVICE
+class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
 {
   public:
     // DX9Render: Construct/Destruct

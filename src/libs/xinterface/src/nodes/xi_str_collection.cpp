@@ -428,3 +428,18 @@ CXI_STRCOLLECTION::STRINGDESCR *CXI_STRCOLLECTION::CreateNewDinamicString(const 
     memcpy(m_pStrDescr[i].strStr, strStr, len2);
     return &m_pStrDescr[i];
 }
+
+#ifdef __ANDROID__
+
+void CXI_STRCOLLECTION::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    for (int i = 0; i < m_nStr; ++i)
+    {
+        const auto &entry = m_pStrDescr[i];
+        const char *text = entry.strNum >= 0 ? pStringService->GetString(entry.strNum) : entry.strStr;
+        if (text && *text) widgets.push_back({m_nodeName, "text", text, "", i,
+                                            entry.scrPos.y * 8192 + entry.scrPos.x});
+    }
+}
+
+#endif

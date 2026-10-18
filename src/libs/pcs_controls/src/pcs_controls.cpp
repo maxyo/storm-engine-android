@@ -6,6 +6,13 @@
 #include "v_file_service.h"
 
 #include <input.hpp>
+#ifdef __ANDROID__
+#include <platform/android_combat_input.hpp>
+#include <platform/android_worldmap.hpp>
+#include <SDL2/SDL.h>
+#include <android/log.h>
+#include <sys/system_properties.h>
+#endif
 
 CREATE_SERVICE(PCS_CONTROLS)
 
@@ -28,6 +35,7 @@ PCS_CONTROLS::PCS_CONTROLS()
     nLastControlTime = 0;
 
     nMouseWheel = 0;
+    nMouseDx = nMouseDy = 0;
     memset(&ControlsTab[0], 0, sizeof(ControlsTab));
 
     auto pIni = fio->OpenIniFile(core.EngineIniFileName());
@@ -38,32 +46,23 @@ PCS_CONTROLS::PCS_CONTROLS()
 
     input_ = Input::Create();
     inputHandlerID_ = input_->Subscribe([this](const InputEvent &evt) { HandleEvent(evt); });
-
-    // RECT r;
-    // GetWindowRect(core.GetAppHWND(),&r);
-    // ClipCursor(&r);
 }
 
 PCS_CONTROLS::~PCS_CONTROLS()
 {
     input_->Unsubscribe(inputHandlerID_);
     Release();
-    // ClipCursor(0);
 }
 
 void PCS_CONTROLS::AppState(bool state)
 {
+#ifdef __ANDROID__
+    if (!state) storm::android::cancelAndroidCombatInput();
+#endif
     updateCursor_ = state;
-    if (state)
-    {
-        // RECT r;
-        // GetWindowRect(core.GetAppHWND(),&r);
-        // ClipCursor(&r);
-    }
-    else
-    {
-        // ClipCursor(0);
-    }
+    // Focus transitions must not replay pre-pause camera deltas on resume.
+    nMouseDx = nMouseDy = 0;
+    input_->SetRelativeMouseMode(state);
 }
 
 void PCS_CONTROLS::Release()
@@ -151,6 +150,8 @@ int32_t PCS_CONTROLS::CreateControl(const char *control_name)
     pUserControls[n].state = CST_INACTIVE;
     pUserControls[n].nframe = 0;
     pUserControls[n].bLocked = false;
+    pUserControls[n].bSystemLocked = false;
+    pUserControls[n].fTreshold = 0;
     pUserControls[n].control_type = UCT_Standart;
 
     return n;
@@ -166,8 +167,11 @@ bool PCS_CONTROLS::GetControlDesc(int32_t code, USER_CONTROL &_user_desc_struct)
     if (code < 0 || code >= nControlsNum)
         return false;
 
-    _user_desc_struct.name = pUserControls[code].name;
-    _user_desc_struct.system_code = pUserControls[code].system_code;
+    _user_desc_struct = pUserControls[code];
+    _user_desc_struct.bLocked = _user_desc_struct.bLocked || m_bLockAll;
+#ifdef __ANDROID__
+    _user_desc_struct.bLocked = _user_desc_struct.bLocked || !AndroidControlAllowed(code);
+#endif
 
     return true;
 }
@@ -272,12 +276,72 @@ bool PCS_CONTROLS::GetControlState(const char *control_name, CONTROL_STATE &_sta
     return bControlFound;
 }
 
+#ifdef __ANDROID__
+bool PCS_CONTROLS::AndroidControlAllowed(int32_t code) const
+{
+    if (code < 0 || code >= nControlsNum || m_bLockAll) return false;
+    const auto &control = pUserControls[code];
+    if (control.bLocked || control.bSystemLocked) return false;
+    if (control.control_type != UCT_ControlTree) return control.system_code >= 0 && control.system_code < CONTROL_ELEMENTS_NUM;
+    // Derived outputs inherit availability from the actual imported tree.
+    // A custom direct-key branch is accepted without requiring a PC Shift chord.
+    return m_ControlTree.HasAvailableOutput(control.name, [this](const std::string &base) {
+        for (const auto &input : pUserControls)
+            if (input.name && base == input.name)
+                return !input.bLocked && !input.bSystemLocked &&
+                    (input.control_type == UCT_ControlTree || (input.system_code >= 0 && input.system_code < CONTROL_ELEMENTS_NUM));
+        return false;
+    });
+}
+#endif
+
 bool PCS_CONTROLS::GetControlState(int32_t control_code, CONTROL_STATE &_state_struct)
+{
+#ifdef __ANDROID__
+    // Realize precedes Controls::Update. Fence even a previous-frame cached
+    // activation/tree/axis before it can bypass the physical SDL input gate.
+    if(storm::android::worldMapHud.modal.ownsInput(SDL_GetTicks())){
+        _state_struct.state=CST_INACTIVE;_state_struct.lValue=0;_state_struct.fValue=0.f;
+        return control_code>=0&&control_code<nControlsNum;
+    }
+#endif
+    const bool found = GetPhysicalControlState(control_code, _state_struct);
+#ifdef __ANDROID__
+    static_assert(CST_INACTIVE == 0 && CST_ACTIVE == 1 && CST_INACTIVATED == 2 && CST_ACTIVATED == 3);
+    if (found && AndroidControlAllowed(control_code))
+    {
+        const int physical = _state_struct.state;
+        const int combined = storm::android::combatInput.merge(pUserControls[control_code].name, physical);
+        if (combined != physical)
+        {
+            _state_struct.state = static_cast<CONTROL_STATE_TYPE>(combined);
+            _state_struct.lValue = (combined == CST_ACTIVE || combined == CST_ACTIVATED) ? 1 : 0;
+            _state_struct.fValue = static_cast<float>(_state_struct.lValue);
+            static unsigned budget = 256;
+            static uint32_t loggedFrame = ~0u;
+            static std::string loggedControl;
+            if (budget && combined == CST_ACTIVATED && (loggedFrame != nFrameCounter || loggedControl != pUserControls[control_code].name))
+            {
+                char setting[PROP_VALUE_MAX] = {};
+                __system_property_get("log.tag.StormCombat", setting);
+                if (std::string_view(setting) == "DEBUG")
+                {
+                    --budget; loggedFrame = nFrameCounter; loggedControl = pUserControls[control_code].name;
+                    __android_log_print(ANDROID_LOG_DEBUG, "StormCombat", "poll frame=%u control=%s state=activated", nFrameCounter, loggedControl.c_str());
+                }
+            }
+        }
+    }
+#endif
+    return found;
+}
+
+bool PCS_CONTROLS::GetPhysicalControlState(int32_t control_code, CONTROL_STATE &_state_struct)
 {
     uint32_t system_code;
     int32_t lRes;
 
-    if (control_code >= nControlsNum)
+    if (control_code < 0 || control_code >= nControlsNum)
     {
         _state_struct.state = CST_INACTIVE;
         _state_struct.lValue = 0;
@@ -285,7 +349,7 @@ bool PCS_CONTROLS::GetControlState(int32_t control_code, CONTROL_STATE &_state_s
         return false;
     }
 
-    if (pUserControls[control_code].bLocked)
+    if (m_bLockAll || pUserControls[control_code].bLocked || pUserControls[control_code].bSystemLocked)
     {
         _state_struct.state = CST_INACTIVE;
         _state_struct.lValue = 0;
@@ -435,31 +499,14 @@ bool PCS_CONTROLS::GetControlState(int32_t control_code, CONTROL_STATE &_state_s
 void PCS_CONTROLS::Update(uint32_t DeltaTime)
 {
     input_->PumpEvents();
-#ifdef _WIN32
-    static int nMouseXPrev, nMouseYPrev;
-    if (updateCursor_) {
-        POINT point;
-        GetCursorPos(&point);
-
-        nMouseDx = point.x - nMouseXPrev;
-        nMouseDy = point.y - nMouseYPrev;
-
-        RECT r;
-        GetWindowRect(static_cast<HWND>(core.GetWindow()->OSHandle()), &r);
-        nMouseXPrev = r.left + (r.right - r.left) / 2;
-        nMouseYPrev = r.top + (r.bottom - r.top) / 2;
-        SetCursorPos(nMouseXPrev, nMouseYPrev);
-    }
-    else {
-        nMouseDx = 0;
-        nMouseDy = 0;
-    }
-#endif
 
     m_ControlTree.Process();
     m_KeyBuffer.Reset();
 
     nFrameCounter++;
+#ifdef __ANDROID__
+    storm::android::combatInput.advance(SDL_GetTicks());
+#endif
     uint32_t system_code = CE_MOUSE_X_AXIS;
     ControlsTab[system_code].state.lValue = nMouseDx;
     ControlsTab[system_code].state.fValue =
@@ -701,7 +748,7 @@ void PCS_CONTROLS::HandleEvent(const InputEvent &evt)
         const auto &text = std::get<std::string>(evt.data);
         m_KeyBuffer.AddKey((char *)text.c_str(), text.length(), false);
     }
-    else if (evt.type == InputEvent::MouseMove)
+    else if (evt.type == InputEvent::MouseMove && updateCursor_)
     {
         const auto &dxdy = std::get<MousePos>(evt.data);
         nMouseDx += dxdy.x;

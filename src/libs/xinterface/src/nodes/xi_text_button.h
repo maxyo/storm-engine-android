@@ -10,6 +10,9 @@ class CXI_TEXTBUTTON : public CINODE
     CXI_TEXTBUTTON(const CXI_TEXTBUTTON &) = delete;
     CXI_TEXTBUTTON();
     ~CXI_TEXTBUTTON() override;
+#ifdef __ANDROID__
+    void MobileCollect(std::vector<MobileWidget> &widgets) const override;
+#endif
 
     void Draw(bool bSelected, uint32_t Delta_Time) override;
     bool Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs, XYRECT &hostRect,

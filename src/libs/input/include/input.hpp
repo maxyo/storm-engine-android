@@ -138,6 +138,11 @@ class Input
     //! \return true if key is pressed
     virtual bool MouseKeyState(const MouseKey &key) const = 0;
 
+    //! Let the platform library capture relative mouse motion (no cursor warping).
+    //! Mode changes discard pending motion, but must retain key/button releases.
+    //! \return true when the platform supports the requested mode
+    virtual bool SetRelativeMouseMode(bool enabled) = 0;
+
     //! Platform-specific multiplier to use for scaling
     //! \return unsigned integer representing specific convenient value
     virtual uint32_t GetWheelFactor() const = 0;

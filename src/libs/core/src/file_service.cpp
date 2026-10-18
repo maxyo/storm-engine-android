@@ -2,11 +2,14 @@
 #include "core_impl.h"
 #include "string_compare.hpp"
 #include "platform/platform.hpp"
+#include "platform/checked_file_io.hpp"
 
 #include <SDL2/SDL.h>
 #include <exception>
 #ifdef __ANDROID__
 #include "platform/android_runtime.hpp"
+#include "platform/resource_overlay.hpp"
+#include "platform/android_writable_storage.hpp"
 #endif
 #include <string>
 
@@ -57,54 +60,52 @@ FILE_SERVICE::~FILE_SERVICE()
 std::fstream FILE_SERVICE::_CreateFile(const char *filename, std::ios::openmode mode)
 {
     const auto path = filename ? std::filesystem::u8path(ConvertPathResource(filename)) : std::filesystem::path();
+    errno = 0;
     std::fstream fileS(path, mode);
+    const int error = errno;
+    if (!fileS.is_open() && (mode & std::ios::out))
+        spdlog::error("Cannot open writable file '{}' (resolved '{}'): errno={}",
+                      filename ? filename : "", path.string(), error);
     return fileS;
 }
 
 void FILE_SERVICE::_CloseFile(std::fstream &fileS)
 {
-    fileS.close();
+    const auto result = storm::io::checked(fileS, [&] { fileS.close(); });
+    if (!result.ok)
+        spdlog::error("Failed to CloseFile: state={} errno={}", static_cast<unsigned>(result.state), result.error);
 }
 
 void FILE_SERVICE::_SetFilePointer(std::fstream &fileS, std::streamoff off, std::ios::seekdir dir)
 {
-    fileS.seekp(off, dir);
+    const auto result = storm::io::checked(fileS, [&] { fileS.seekp(off, dir); });
+    if (!result.ok)
+        spdlog::error("Failed to SetFilePointer: state={} errno={}", static_cast<unsigned>(result.state), result.error);
 }
 
 bool FILE_SERVICE::_DeleteFile(const char *filename)
 {
     std::filesystem::path path = std::filesystem::u8path(ConvertPathResource(filename));
-    return std::filesystem::remove(path);
+    std::error_code error;
+    const bool removed = std::filesystem::remove(path, error);
+    if (error) spdlog::error("Cannot delete '{}': {}", path.string(), error.message());
+    return !error && removed;
 }
 
 bool FILE_SERVICE::_WriteFile(std::fstream &fileS, const void *s, std::streamsize count)
 {
-    fileS.exceptions(std::fstream::failbit | std::fstream::badbit);
-    try
-    {
-        fileS.write(reinterpret_cast<const char *>(s), count);
-        return true;
-    }
-    catch (const std::fstream::failure &e)
-    {
-        spdlog::error("Failed to WriteFile: {}", e.what());
-        return false;
-    }
+    const auto result = storm::io::checked(fileS, [&] { fileS.write(reinterpret_cast<const char *>(s), count); });
+    if (!result.ok)
+        spdlog::error("Failed to WriteFile: state={} errno={}", static_cast<unsigned>(result.state), result.error);
+    return result.ok;
 }
 
 bool FILE_SERVICE::_ReadFile(std::fstream &fileS, void *s, std::streamsize count)
 {
-    fileS.exceptions(std::fstream::failbit | std::fstream::badbit);
-    try
-    {
-        fileS.read(reinterpret_cast<char *>(s), count);
-        return true;
-    }
-    catch (const std::fstream::failure &e)
-    {
-        spdlog::error("Failed to ReadFile: {}", e.what());
-        return false;
-    }
+    const auto result = storm::io::checked(fileS, [&] { fileS.read(reinterpret_cast<char *>(s), count); });
+    if (!result.ok)
+        spdlog::error("Failed to ReadFile: state={} errno={}", static_cast<unsigned>(result.state), result.error);
+    return result.ok;
 }
 
 bool FILE_SERVICE::_FileOrDirectoryExists(const char *p)
@@ -150,9 +151,20 @@ std::vector<std::filesystem::path> iter_directory(DirIterator &it, std::error_co
     }
 
     std::filesystem::path curPath;
-    for (auto &dirEntry : it)
+    for (; it != DirIterator(); it.increment(ec))
     {
-        bool thisIsDir = dirEntry.is_directory();
+        if (ec) break;
+        const auto &dirEntry = *it;
+        const auto type = dirEntry.symlink_status(ec);
+        if (ec) break;
+#ifdef __ANDROID__
+        // Save enumeration must not expose links outside the selected namespace.
+        if (std::filesystem::is_symlink(type)) continue;
+        bool thisIsDir = std::filesystem::is_directory(type);
+#else
+        bool thisIsDir = dirEntry.is_directory(ec);
+        if (ec) break;
+#endif
         if ((onlyFiles && thisIsDir) || (onlyDirs && !thisIsDir))
         {
             continue;
@@ -169,6 +181,12 @@ std::vector<std::filesystem::path> iter_directory(DirIterator &it, std::error_co
                 result.push_back(curPath.filename());
             }
         }
+    }
+
+    if (ec)
+    {
+        spdlog::error("Failed to enumerate folder: {}", ec.message());
+        result.clear();
     }
 
     return result;
@@ -212,12 +230,17 @@ std::time_t FILE_SERVICE::_ToTimeT(std::filesystem::file_time_type tp)
 std::filesystem::file_time_type FILE_SERVICE::_GetLastWriteTime(const char *filename)
 {
     std::filesystem::path path = std::filesystem::u8path(ConvertPathResource(filename));
-    return std::filesystem::last_write_time(path);
+    std::error_code error;
+    const auto time = std::filesystem::last_write_time(path, error);
+    if (error) spdlog::error("Cannot get timestamp '{}': {}", path.string(), error.message());
+    return error ? std::filesystem::file_time_type{} : time;
 }
 
 void FILE_SERVICE::_FlushFileBuffers(std::fstream &fileS)
 {
-    fileS.flush();
+    const auto result = storm::io::checked(fileS, [&] { fileS.flush(); });
+    if (!result.ok)
+        spdlog::error("Failed to FlushFileBuffers: state={} errno={}", static_cast<unsigned>(result.state), result.error);
 }
 
 std::string FILE_SERVICE::_GetCurrentDirectory()
@@ -244,25 +267,36 @@ std::string FILE_SERVICE::_GetExecutableDirectory()
 std::uintmax_t FILE_SERVICE::_GetFileSize(const char *filename)
 {
     std::filesystem::path path = std::filesystem::u8path(ConvertPathResource(filename));
-    return std::filesystem::file_size(path);
+    std::error_code error;
+    const auto size = std::filesystem::file_size(path, error);
+    if (error) spdlog::error("Cannot get file size '{}': {}", path.string(), error.message());
+    return error ? 0 : size;
 }
 
 void FILE_SERVICE::_SetCurrentDirectory(const char *pathName)
 {
     std::filesystem::path path = std::filesystem::u8path(ConvertPathResource(pathName));
-    std::filesystem::current_path(path);
+    std::error_code error;
+    std::filesystem::current_path(path, error);
+    if (error) spdlog::error("Cannot change directory '{}': {}", path.string(), error.message());
 }
 
 bool FILE_SERVICE::_CreateDirectory(const char *pathName)
 {
     std::filesystem::path path = std::filesystem::u8path(ConvertPathResource(pathName));
-    return std::filesystem::create_directories(path);
+    std::error_code error;
+    const bool created = std::filesystem::create_directories(path, error);
+    if (error) spdlog::error("Cannot create directory '{}': {}", path.string(), error.message());
+    return !error && created;
 }
 
 std::uintmax_t FILE_SERVICE::_RemoveDirectory(const char *pathName)
 {
     std::filesystem::path path = std::filesystem::u8path(ConvertPathResource(pathName));
-    return std::filesystem::remove_all(path);
+    std::error_code error;
+    const auto removed = std::filesystem::remove_all(path, error);
+    if (error) spdlog::error("Cannot remove directory '{}': {}", path.string(), error.message());
+    return error ? 0 : removed;
 }
 
 //------------------------------------------------------------------------------------------------
@@ -484,6 +518,12 @@ void FILE_SERVICE::ScanResourcePaths()
         AddEntryToResourcePaths(entry, ExePath);
     }
 #endif
+#ifdef __ANDROID__
+    storm::android::indexUiOverlay(std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "mobile-ui/current",
+                                  ResourcePaths);
+    storm::android::indexUiOverlay(std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "engine-shaders/current",
+                                  ResourcePaths, true);
+#endif
     ResourcePathsFirstScan = false;
 }
 
@@ -492,6 +532,37 @@ std::string FILE_SERVICE::ConvertPathResource(const char *path)
 #ifdef _WIN32
     return std::string(path);
 #else
+#ifdef __ANDROID__
+    // Mutable paths must never use the game resource index, even for reads,
+    // directory queries, or already-resolved paths returned by enumeration.
+    try
+    {
+        static const auto roots = storm::android::storagePaths();
+        static const storm::android::writable::Storage writableStorage(roots.game, roots.user);
+        if (writableStorage.resolve(path))
+        {
+            static bool migrationAttempted = false;
+            if (!migrationAttempted)
+            {
+                migrationAttempted = true;
+                try { writableStorage.migrate(); }
+                catch (const std::exception &error)
+                {
+                    spdlog::error("Legacy save migration failed; originals retained, no completion recorded: {}", error.what());
+                }
+            }
+            // Migration may have preserved mixed-case existing profile names.
+            return writableStorage.resolve(path)->string();
+        }
+    }
+    catch (const std::exception &error)
+    {
+        spdlog::error("Rejected writable path '{}': {}", path, error.what());
+        // Empty paths mean CWD to legacy find-folder callers. A child of this
+        // Android character device fails every operation without that fallback.
+        return "/dev/null/storm-invalid-writable-path";
+    }
+#endif
     if (ResourcePathsFirstScan)
     {
         ScanResourcePaths();
@@ -529,6 +600,10 @@ std::string FILE_SERVICE::ConvertPathResource(const char *path)
 uint64_t FILE_SERVICE::GetPathFingerprint(const std::filesystem::path &path)
 {
     uint64_t result = 0U;
+#ifdef __ANDROID__
+    if (storm::android::resourceKey(path.lexically_normal()) == "program")
+        result += GetPathFingerprint(std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "mobile-ui/current");
+#endif
 
     if (exists(path))
     {

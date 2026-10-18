@@ -1,4 +1,7 @@
+#include <platform/android_ui.hpp>
+#include <cmath>
 #include "battle_man_sign.h"
+#include "platform/android_land_diagnostics.hpp"
 #include "bi_utils.h"
 #include "battle_man_command.h"
 #include "core.h"
@@ -74,6 +77,16 @@ void BIManSign::Draw()
         m_bMakeVertexFill = false;
     }
 
+#ifdef __ANDROID__
+    auto *icons=m_pARoot ? m_pARoot->FindAClass(m_pARoot,"data.icons.id0") : nullptr;
+    if(icons && icons->GetAttribute("health") && icons->GetAttribute("energy")) {
+        const auto ratio=[icons](const char *key){const float n=icons->GetAttributeAsFloat(key);return std::isfinite(n)?std::clamp(n,0.f,1.f):0.f;};
+        const int capacity=std::clamp(static_cast<int>(icons->GetAttributeAsDword("shootMax",0)),0,100000);
+        const int loaded=std::clamp(static_cast<int>(icons->GetAttributeAsDword("shootCur",0)),0,capacity);
+        storm::android::publishVitals("{\"health\":"+std::to_string(ratio("health"))+",\"energy\":"+std::to_string(ratio("energy"))+
+            ",\"loaded\":"+std::to_string(loaded)+",\"capacity\":"+std::to_string(capacity)+",\"reload\":"+std::to_string(ratio("gunprogress"))+"}");
+    } else storm::android::publishVitals("");
+#else
     if (m_nVBufID != -1 && m_nIBufID != -1)
     {
         int32_t nStartV = 0;
@@ -132,8 +145,12 @@ void BIManSign::Draw()
         nStartV += m_nGunChargeSquareQ * 4;
     }
 
-    if (m_pCommandList)
-        m_pCommandList->Draw();
+#endif
+    if (m_pCommandList
+#ifdef __ANDROID__
+        && !(IsActive() && storm::android::landCommands.suppressStock(SDL_GetTicks()))
+#endif
+    ) m_pCommandList->Draw();
 }
 
 void BIManSign::Init(ATTRIBUTES *pRoot, ATTRIBUTES *pA)
@@ -831,3 +848,46 @@ void BIManSign::CheckDataChange()
         }
     }
 }
+
+#ifdef __ANDROID__
+storm::android::LandCommandSource BIManSign::ReadAndroidLand(storm::android::LandCommandsFrame &frame)
+{
+    if (!m_pCommandList) { storm::android::traceLandAdapter(5, "missing-command-list"); return storm::android::LandCommandSource::Missing; }
+    const auto source = m_pCommandList->RefreshAndroidSource();
+    if (source != storm::android::LandCommandSource::Ready) { storm::android::traceLandAdapter(5, "list-present-source-unavailable"); return source; }
+    // Missing adapters leave the native list's own refresh flags untouched.
+    if (m_bMakeUpdate) {
+        Recollect(); CheckDataChange(); m_bMakeUpdate = false; m_bMakeVertexFill = true;
+    }
+    if (IsActive()) UpdateCommandList();
+    frame.ownerIdentity = std::to_string(reinterpret_cast<uintptr_t>(m_pCommandList));
+    const auto characterIndex = GetCurrentCommandCharacterIndex();
+    storm::android::traceLandAdapter(5, "character=" + std::to_string(characterIndex));
+    frame.available = characterIndex >= 0;
+    frame.active = IsActive();
+    if (frame.active) m_pCommandList->ReadAndroidLand(frame);
+    return frame.available ? storm::android::LandCommandSource::Ready : storm::android::LandCommandSource::Forbidden;
+}
+bool BIManSign::ExecuteAndroidLand(const storm::android::LandCommandsRequest &request)
+{
+    if (!m_pCommandList) return false;
+    if (request.verb == "open") {
+        // Same activation as LICommandsActivate; retain the script sound/hint handler.
+        core.Event("Control Activation", "s", "LICommandsActivate");
+        m_pCommandList->ResetAndroidCommand(); SetActive(true); UpdateCommandList(); return true;
+    }
+    if (!IsActive()) return false;
+    if (request.verb == "close") { CloseAndroidLand(); return true; }
+    if (request.verb == "back") { ExecuteCommand(BI_MSG_COMMAND_DEACTIVATE); return true; }
+    if (request.verb == "selectItem") return m_pCommandList->SelectAndroidLand(request.id);
+    if (request.verb == "activateItem") { ExecuteCommand(BI_MSG_COMMAND_ACTIVATE); return true; }
+    return false;
+}
+void BIManSign::CloseAndroidLand()
+{
+    if (!m_pCommandList) return;
+    for (int i = 0; i < 2 && IsActive(); ++i) ExecuteCommand(BI_MSG_COMMAND_DEACTIVATE);
+    if (IsActive()) SetActive(false);
+    m_pCommandList->ResetAndroidCommand();
+}
+#endif

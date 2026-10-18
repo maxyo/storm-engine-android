@@ -4,6 +4,9 @@
 #include "bi_defines.h"
 #include "battle_navigator.h"
 #include "dx9render.h"
+#ifdef __ANDROID__
+#include <platform/android_sea_orders.hpp>
+#endif
 
 class BIShipIcon;
 class ShipInfoImages;
@@ -18,6 +21,14 @@ class BATTLE_INTERFACE : public Entity
     bool Init() override;
     void Execute(uint32_t delta_time);
     void Realize(uint32_t delta_time);
+#ifdef __ANDROID__
+    bool AndroidCommandActive() const;
+    bool AndroidCaptionsVisible() const;
+    void ReadAndroidCaptions(storm::android::ShipTelemetryFrame &frame, uint64_t mainShipId) const;
+    bool ReadAndroidOrders(storm::android::SeaOrdersFrame &frame);
+    bool ExecuteAndroidOrder(const storm::android::SeaOrdersRequest &request);
+    void CloseAndroidOrders();
+#endif
     uint64_t ProcessMessage(MESSAGE &message) override;
     uint32_t AttributeChanged(ATTRIBUTES *pAttr) override;
 
@@ -58,6 +69,9 @@ class BATTLE_INTERFACE : public Entity
     bool m_bShowBattleNavigator;
     bool m_bYesShowAll;
     bool m_bVisible;
+#ifdef __ANDROID__
+    bool m_androidCaptionsDrawn = false;
+#endif
 
     float m_fBlinkSpeed;
     float m_fCurBlinkTime;

@@ -129,6 +129,10 @@ class CXI_TABLE : public CINODE
     void ChangePosition(XYRECT &rNewPos) override;
     void SaveParametersToIni() override;
     uint32_t MessageProc(int32_t msgcode, MESSAGE &message) override;
+#ifdef __ANDROID__
+    void MobileCollect(std::vector<MobileWidget> &widgets) const override;
+    bool MobileApply(int index, const std::string &value) override;
+#endif
 
     bool GetInternalNameList(std::vector<std::string> &aStr) override;
     void SetInternalName(std::string &sName) override;

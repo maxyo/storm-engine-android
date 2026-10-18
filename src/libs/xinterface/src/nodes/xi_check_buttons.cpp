@@ -573,3 +573,32 @@ void CXI_CHECKBUTTONS::WriteToAttributeButtonState(int32_t nButtonIndex)
     if (pA)
         pA->SetAttributeUseDword(atrName, m_aButton[nButtonIndex]->bChoose ? 1 : 0);
 }
+
+#ifdef __ANDROID__
+
+void CXI_CHECKBUTTONS::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    for (size_t i = 0; i < m_aButton.size(); ++i)
+    {
+        const auto *button = m_aButton[i];
+        std::string text;
+        for (const auto &line : button->aStr) { if (!text.empty()) text += ' '; text += line.str; }
+        if (!text.empty())
+        {
+            MobileWidget widget{m_nodeName, "check", text, button->bChoose ? "1" : "0",
+                static_cast<int>(i), m_rect.top * 8192 + m_rect.left + static_cast<int>(i),
+                !button->bDisable && m_bClickable && !m_bLockStatus};
+            widget.exclusive = m_bExclusiveChoose;
+            widgets.push_back(std::move(widget));
+        }
+    }
+}
+bool CXI_CHECKBUTTONS::MobileApply(int index, const std::string &value)
+{
+    if (!m_bUse || !m_bClickable || m_bLockedNode || m_bLockStatus ||
+        index < 0 || index >= static_cast<int>(m_aButton.size()) || m_aButton[index]->bDisable ||
+        (value != "0" && value != "1")) return false;
+    SetCheckToButton(index, value == "1"); return true;
+}
+
+#endif

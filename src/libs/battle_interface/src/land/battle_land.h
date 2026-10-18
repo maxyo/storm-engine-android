@@ -2,6 +2,9 @@
 
 #include "bi_utils.h"
 #include "bi_defines.h"
+#ifdef __ANDROID__
+#include <platform/android_land_commands.hpp>
+#endif
 
 class BIManSign;
 
@@ -15,6 +18,11 @@ class BATTLE_LAND_INTERFACE : public Entity
     void Execute(uint32_t delta_time) const;
     void Realize(uint32_t delta_time);
     uint64_t ProcessMessage(MESSAGE &message) override;
+#ifdef __ANDROID__
+    storm::android::LandCommandSource ReadAndroidLand(storm::android::LandCommandsFrame &frame);
+    bool ExecuteAndroidLand(const storm::android::LandCommandsRequest &request);
+    void CloseAndroidLand();
+#endif
 
     void ProcessStage(Stage stage, uint32_t delta) override
     {

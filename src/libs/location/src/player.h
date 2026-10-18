@@ -71,6 +71,20 @@ class Player : public NPCharacter
     float GetRotateH();
 
   private:
+#ifdef __ANDROID__
+    bool androidMovementHeld = false;
+    bool androidRunTier = false;
+    uint64_t androidCameraGeneration = 0;
+    void TraceAndroidMovement(float dltTime);
+    void StopAndroidMovement();
+    float androidTraceMagnitude = 0.0f;
+    float androidTraceSimulationTime = 0.0f;
+    uint32_t androidTraceTick = 0;
+    unsigned androidTraceTail = 0;
+    bool androidTraceHasPosition = false;
+    bool androidTraceHasTick = false;
+    CVECTOR androidTracePosition = CVECTOR(0.0f, 0.0f, 0.0f);
+#endif
     float lastChange;
     bool activatedDialog;
     bool isSpecialMode;

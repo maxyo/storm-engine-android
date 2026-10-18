@@ -788,3 +788,14 @@ void CXI_TEXTBUTTON::FillPositionIntoVertices()
     m_v[7].pos.x = (m_v[3].pos.x = fRightMiddle) + m_fXDeltaPress;
     m_v[7].pos.y = (m_v[3].pos.y = static_cast<float>(m_rect.bottom)) + m_fYDeltaPress;
 }
+
+#ifdef __ANDROID__
+
+void CXI_TEXTBUTTON::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    const char *text = m_idString != -1 ? pStringService->GetString(m_idString) : m_sString;
+    if (text && *text) widgets.push_back({m_nodeName, "button", text, "", -1, m_rect.top * 8192 + m_rect.left,
+        m_bSelected && m_bClickable && !m_bLockStatus});
+}
+
+#endif

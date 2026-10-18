@@ -73,6 +73,9 @@ TSplash::~TSplash()
             renderer->TextureRelease(texture);
         if (texture2)
             renderer->TextureRelease(texture2);
+        // The renderer service may be destroyed before another engine run.
+        // The next shared-buffer cohort must bind its current renderer.
+        renderer = nullptr;
     }
 }
 

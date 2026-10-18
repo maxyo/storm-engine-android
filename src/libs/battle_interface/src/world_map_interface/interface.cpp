@@ -5,6 +5,9 @@
 #include "ship_command.h"
 #include "ship_sign.h"
 #include "string_compare.hpp"
+#ifdef __ANDROID__
+#include <SDL2/SDL_timer.h>
+#endif
 
 WM_INTERFACE::WM_INTERFACE() : rs(nullptr)
 {
@@ -41,7 +44,10 @@ void WM_INTERFACE::Realize(uint32_t delta_time)
 
         if (m_pShipIcon)
         {
-            m_pShipIcon->Draw();
+#ifdef __ANDROID__
+            if (!storm::android::worldMapHud.covered(storm::android::MapShips,core.GetEntityId("WorldMap"),SDL_GetTicks()))
+#endif
+                m_pShipIcon->Draw();
         }
         if (m_pCommandList)
         {
@@ -215,3 +221,46 @@ bool WM_INTERFACE::IsCommandMenuActive() const
         return false;
     return m_pCommandList->GetActive();
 }
+
+#ifdef __ANDROID__
+#include "v_data.h"
+void WM_INTERFACE::ReadAndroidMapCommands(storm::android::WorldMapFrame &frame)
+{
+    frame.shipsVisible=m_bVisible;
+    if (!m_bVisible || !m_pCommandList || IsCommandMenuActive()) return;
+    // Refresh through the original callback, bounded to 5 Hz. A changed encounter
+    // is refreshed immediately; execution independently refreshes again.
+    const auto now=std::chrono::steady_clock::now();
+    if(androidCommandContext!=frame.context || now-androidCommandPoll>=std::chrono::milliseconds(200))
+    {
+        androidCommandContext=frame.context;androidCommandPoll=now;
+        m_nCommandMode = BI_COMMODE_COMMAND_SELECT;
+        UpdateCommandList();
+    }
+    frame.commands=m_pCommandList->AndroidMapCommands();
+    frame.commandsReady=!frame.commands.empty();
+}
+bool WM_INTERFACE::ActivateAndroidMapCommand(const std::string &id)
+{
+    if (!m_bVisible || !m_pCommandList || IsCommandMenuActive())return false;
+    m_nCommandMode=BI_COMMODE_COMMAND_SELECT;
+    UpdateCommandList();
+    if(!m_pCommandList->SelectAndroidMapCommand(id))return false;
+    // Keep original end-check, launch event, sound, and command teardown.
+    ExecuteCommand(BI_MSG_COMMAND_ACTIVATE);
+    return true;
+}
+void storm::android::readWorldMapCommands(WorldMapFrame &frame)
+{
+    const auto id=core.GetEntityId("WM_INTERFACE");
+    auto *map=dynamic_cast<WM_INTERFACE *>(core.GetEntityPointer(id));
+    if(!map)return;
+    frame.identity+=":"+std::to_string(id);
+    map->ReadAndroidMapCommands(frame);
+}
+bool storm::android::executeWorldMapCommand(const std::string &id)
+{
+    auto *map=dynamic_cast<WM_INTERFACE *>(core.GetEntityPointer(core.GetEntityId("WM_INTERFACE")));
+    return map && map->ActivateAndroidMapCommand(id);
+}
+#endif

@@ -1,4 +1,7 @@
 #include "xi_formt_text.h"
+#ifdef __ANDROID__
+#include "platform/android_ui.hpp"
+#endif
 #include "../xinterface.h"
 #include "entity.h"
 #include "string_compare.hpp"
@@ -1642,3 +1645,41 @@ void CXI_FORMATEDTEXT::VAlignment(int32_t nAlign)
         }
     }
 }
+
+#ifdef __ANDROID__
+
+void CXI_FORMATEDTEXT::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    std::string text;
+    int group = -1;
+    uint32_t color=0xffffffff;
+    const bool styled=storm::android::mobileScreen=="shipyard"&&storm::iEquals(std::string(m_nodeName).substr(0,8),"tooltip_");
+    auto append = [&]() {
+        if (!text.empty()) {
+            MobileWidget widget{m_nodeName, m_bSelectableCursor ? "choice" : "text", text,
+                group == m_nCurGroupNum ? "1" : "0", group, m_rect.top * 8192 + m_rect.left + std::max(group, 0)};
+            if(styled)widget.textColorArgb=color;
+            widgets.push_back(std::move(widget));
+        }
+        text.clear();
+    };
+    for (auto *line = m_listRoot; line; line = line->next)
+    {
+        if (group != line->strGroup || (styled&&color!=line->color)) { append(); group = line->strGroup; color=line->color; }
+        if (line->lineStr && *line->lineStr) { if (!text.empty()) text += ' '; text += line->lineStr; }
+        if (text.size() > 32768) break;
+    }
+    append();
+}
+bool CXI_FORMATEDTEXT::MobileApply(int index, const std::string &value)
+{
+    if (!m_bSelectableCursor || value != "select") return false;
+    bool found = false;
+    for (auto *line = m_listRoot; line; line = line->next) if (line->strGroup == index) { found = true; break; }
+    if (!found) return false;
+    SetCurrentGroupNum(index, index);
+    core.Event("FTChange", "sf", m_nodeName, GetCurPos());
+    CommandExecute(ACTION_ACTIVATE); return true;
+}
+
+#endif

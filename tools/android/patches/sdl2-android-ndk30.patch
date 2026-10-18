@@ -141,7 +141,7 @@ index f888d2a..b43e2f6 100644
      result = (*engineEngine)->CreateAudioPlayer(engineEngine, &bqPlayerObject, &audioSrc, &audioSnk, 2, ids, req);
      if (SL_RESULT_SUCCESS != result) {
 diff --git a/src/core/android/SDL_android.c b/src/core/android/SDL_android.c
-index e238414..a850b84 100644
+index e238414..c0266e0 100644
 --- a/src/core/android/SDL_android.c
 +++ b/src/core/android/SDL_android.c
 @@ -510,8 +510,8 @@ register_methods(JNIEnv *env, const char *classname, JNINativeMethod *methods, i
@@ -154,7 +154,26 @@ index e238414..a850b84 100644
  
      if ((*mJavaVM)->GetEnv(mJavaVM, (void **)&env, JNI_VERSION_1_4) != JNI_OK) {
          __android_log_print(ANDROID_LOG_ERROR, "SDL", "Failed to get JNI Env");
-@@ -2532,6 +2532,7 @@ SDL_bool Android_JNI_RequestPermission(const char *permission)
+@@ -1012,7 +1012,8 @@ JNIEXPORT void JNICALL SDL_JAVA_INTERFACE(onNativeSurfaceChanged)(JNIEnv *env, j
+         SDL_WindowData  *data  = (SDL_WindowData *) Android_Window->driverdata;
+ 
+         /* If the surface has been previously destroyed by onNativeSurfaceDestroyed, recreate it here */
+-        if (data->egl_surface == EGL_NO_SURFACE) {
++        /* Vulkan windows must never acquire an EGL surface on resize/resume. */
++        if ((Android_Window->flags & SDL_WINDOW_OPENGL) && data->egl_surface == EGL_NO_SURFACE) {
+             data->egl_surface = SDL_EGL_CreateSurface(_this, (NativeWindowType) data->native_window);
+         }
+ 
+@@ -1037,7 +1038,7 @@ retry:
+         SDL_WindowData  *data  = (SDL_WindowData *) Android_Window->driverdata;
+ 
+         /* Wait for Main thread being paused and context un-activated to release 'egl_surface' */
+-        if (! data->backup_done) {
++        if ((Android_Window->flags & SDL_WINDOW_OPENGL) && !data->backup_done) {
+             nb_attempt -= 1;
+             if (nb_attempt == 0) {
+                 SDL_SetError("Try to release egl_surface with context probably still active");
+@@ -2532,6 +2533,7 @@ SDL_bool Android_JNI_RequestPermission(const char *permission)
  {
      JNIEnv *env = Android_JNI_GetEnv();
      const int requestCode = 1;
@@ -162,7 +181,7 @@ index e238414..a850b84 100644
  
      /* Wait for any pending request on another thread */
      while (SDL_AtomicGet(&bPermissionRequestPending) == SDL_TRUE) {
-@@ -2539,7 +2540,7 @@ SDL_bool Android_JNI_RequestPermission(const char *permission)
+@@ -2539,7 +2541,7 @@ SDL_bool Android_JNI_RequestPermission(const char *permission)
      }
      SDL_AtomicSet(&bPermissionRequestPending, SDL_TRUE);
  

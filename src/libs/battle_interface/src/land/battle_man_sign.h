@@ -1,6 +1,9 @@
 #pragma once
 
 #include "bi_defines.h"
+#ifdef __ANDROID__
+#include <platform/android_land_commands.hpp>
+#endif
 #include <string>
 #include <vector>
 
@@ -30,6 +33,11 @@ class BIManSign
     void SetActive(bool bActive);
     void MakeControl();
     void ExecuteCommand(int32_t command);
+#ifdef __ANDROID__
+    storm::android::LandCommandSource ReadAndroidLand(storm::android::LandCommandsFrame &frame);
+    bool ExecuteAndroidLand(const storm::android::LandCommandsRequest &request);
+    void CloseAndroidLand();
+#endif
 
   protected:
     void Release();

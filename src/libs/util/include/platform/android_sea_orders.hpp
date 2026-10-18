@@ -1,0 +1,231 @@
+#pragma once
+#include "android_gameplay.hpp"
+#include <array>
+#include <cmath>
+#include <limits>
+
+namespace storm::android
+{
+inline bool seaOrdersTextValid(std::string_view value, size_t maximum)
+{
+    if (value.size() > maximum) return false;
+    for (size_t i = 0; i < value.size();)
+    {
+        const auto lead = static_cast<unsigned char>(value[i]);
+        const size_t count = lead >= 32 && lead < 127 ? 1 : lead >= 0xc2 && lead <= 0xdf ? 2 :
+            lead >= 0xe0 && lead <= 0xef ? 3 : lead >= 0xf0 && lead <= 0xf4 ? 4 : 0;
+        if (!count || i + count > value.size()) return false;
+        for (size_t j = 1; j < count; ++j)
+            if ((static_cast<unsigned char>(value[i + j]) & 0xc0) != 0x80) return false;
+        // Java's strict parser also rejects the Unicode C1 control range.
+        if (lead == 0xc2 && static_cast<unsigned char>(value[i + 1]) < 0xa0) return false;
+        if (count >= 3)
+        {
+            const auto second = static_cast<unsigned char>(value[i + 1]);
+            if ((lead == 0xe0 && second < 0xa0) || (lead == 0xed && second >= 0xa0) ||
+                (lead == 0xf0 && second < 0x90) || (lead == 0xf4 && second > 0x8f)) return false;
+        }
+        i += count;
+    }
+    return true;
+}
+struct SeaOrderRecipient
+{
+    std::string id, name, entityId;
+    int characterIndex = -1;
+    bool main = false;
+    bool operator==(const SeaOrderRecipient &) const = default;
+};
+struct SeaOrderItem
+{
+    std::string id, kind, label;
+    // Identity is native-only and includes the complete command/target tuple.
+    std::string identity;
+    bool enabled = true;
+    double cooldown = 1;
+    bool operator==(const SeaOrderItem &) const = default;
+};
+struct SeaOrdersFrame
+{
+    bool available = false, active = false, complete = true;
+    std::string language, stage = "commands", recipientId, pendingLabel, selectedItemId;
+    int mode = 0;
+    std::vector<SeaOrderRecipient> recipients;
+    std::vector<SeaOrderItem> items;
+    bool operator==(const SeaOrdersFrame &) const = default;
+};
+struct SeaOrdersRequest
+{
+    uint64_t scene = 0, revision = 0, activity = 0;
+    std::string verb, id;
+    uint32_t tick = 0;
+};
+class SeaOrdersState
+{
+    inline static std::atomic<uint64_t> nextEpoch_{0};
+    SeaOrdersFrame frame_;
+    std::string sceneKey_;
+    uint64_t scene_ = 0, revision_ = 1, activity_ = 0;
+    bool covered_ = false;
+    std::deque<SeaOrdersRequest> pending_;
+    static bool number(std::string_view value, uint64_t &result)
+    {
+        const auto parsed = std::from_chars(value.data(), value.data() + value.size(), result);
+        return !value.empty() && parsed.ec == std::errc() && parsed.ptr == value.data() + value.size();
+    }
+public:
+    const SeaOrdersFrame &frame() const { return frame_; }
+    uint64_t sceneEpoch() const { return scene_; }
+    uint64_t revision() const { return revision_; }
+    uint64_t activityGeneration() const { return activity_; }
+    bool covered() const { return covered_ && frame_.active && frame_.complete; }
+    void invalidate()
+    {
+        ++revision_;
+        covered_ = false;
+        pending_.clear();
+    }
+    void resetActivity()
+    {
+        activity_ = nextEpoch_.fetch_add(1, std::memory_order_relaxed) + 1;
+        invalidate();
+    }
+    void update(std::string sceneKey, SeaOrdersFrame frame)
+    {
+        // Always publish a bounded valid snapshot, including a recoverable
+        // active/Back/Close state for incompatible or malformed script data.
+        size_t textBytes = 0;
+        const auto checkText = [&](std::string &text, size_t limit, bool required = false) {
+            if (!seaOrdersTextValid(text, limit) || (required && text.find_first_not_of(" ") == std::string::npos))
+            { text = "\xE2\x80\xA6"; frame.complete = false; }
+            textBytes += text.size();
+        };
+        checkText(frame.language, 32); checkText(frame.pendingLabel, 1024);
+        for (auto &recipient : frame.recipients) checkText(recipient.name, 512, true);
+        for (auto &item : frame.items) checkText(item.label, 1024, true);
+        if (frame.items.size() > 256 || frame.recipients.size() > 32 || textBytes > 24000)
+        {
+            frame.items.clear(); frame.selectedItemId.clear(); frame.complete = false;
+            if (frame.recipients.size() > 32) { frame.recipients.clear(); frame.available = false; }
+        }
+        // JSON escaping can expand otherwise valid text (quotes/backslashes)
+        // beyond the JNI/Java limit. Keep a complete recoverable envelope,
+        // including current Back/Close ownership, instead of dropping updates.
+        // Headroom covers epoch/revision digit growth later in this update.
+        if (jsonFor(frame).size() > 64000)
+        {
+            frame.items.clear(); frame.selectedItemId.clear(); frame.complete = false;
+            if (jsonFor(frame).size() > 64000)
+                for (auto &recipient : frame.recipients) recipient.name = "\xE2\x80\xA6";
+        }
+        if (sceneKey_ != sceneKey || !scene_)
+        {
+            sceneKey_ = std::move(sceneKey);
+            scene_ = nextEpoch_.fetch_add(1, std::memory_order_relaxed) + 1;
+            invalidate();
+        }
+        // Fractional cooldown animation must not invalidate every in-flight tap.
+        // Enabled state changes still invalidate the list; native confirm checks
+        // the freshly sampled cooldown even if a stale UI claims readiness.
+        auto stable = frame;
+        for (auto &item : stable.items) item.cooldown = item.enabled ? 1 : 0;
+        auto old = frame_;
+        for (auto &item : old.items) item.cooldown = item.enabled ? 1 : 0;
+        if (stable != old) invalidate();
+        frame_ = std::move(frame);
+    }
+    bool offer(std::string_view payload, uint32_t tick)
+    {
+        if (payload.size() > 256 || pending_.size() >= 8) return false;
+        std::array<std::string_view, 6> fields;
+        for (size_t i = 0; i < fields.size(); ++i)
+        {
+            const auto tab = payload.find('\t');
+            if (i + 1 == fields.size())
+            {
+                if (tab != std::string_view::npos) return false;
+                fields[i] = payload;
+            }
+            else
+            {
+                if (tab == std::string_view::npos) return false;
+                fields[i] = payload.substr(0, tab);
+                payload.remove_prefix(tab + 1);
+            }
+        }
+        SeaOrdersRequest request;
+        if (fields[0] != "1" || !number(fields[1], request.scene) || !number(fields[2], request.revision) ||
+            !number(fields[3], request.activity) || request.scene != scene_ || request.revision != revision_ ||
+            request.activity != activity_ || !activity_ || !frame_.available) return false;
+        request.verb = fields[4]; request.id = fields[5]; request.tick = tick;
+        if (request.verb == "ack")
+        {
+            if (request.id != "0" && request.id != "1") return false;
+            covered_ = request.id == "1" && frame_.active && frame_.complete;
+            return true;
+        }
+        if (request.verb != "open" && request.verb != "selectRecipient" && request.verb != "selectItem" &&
+            request.verb != "activateItem" && request.verb != "back" && request.verb != "close") return false;
+        if ((request.verb == "back" || request.verb == "close") && !request.id.empty()) return false;
+        if (request.verb != "open" && !frame_.active) return false;
+        if (request.verb == "open" && frame_.active) return false;
+        if (request.verb == "selectRecipient" || (request.verb == "open" && !request.id.empty()))
+        {
+            if (std::none_of(frame_.recipients.begin(), frame_.recipients.end(), [&](const auto &r) { return r.id == request.id; })) return false;
+        }
+        if (request.verb == "selectItem" || request.verb == "activateItem")
+        {
+            if (std::none_of(frame_.items.begin(), frame_.items.end(), [&](const auto &item) {
+                return item.id == request.id && (request.verb != "activateItem" || item.enabled);
+            })) return false;
+        }
+        pending_.push_back(std::move(request));
+        return true;
+    }
+    std::optional<SeaOrdersRequest> take(uint32_t tick)
+    {
+        while (!pending_.empty())
+        {
+            auto request = std::move(pending_.front()); pending_.pop_front();
+            if (request.scene == scene_ && request.revision == revision_ && request.activity == activity_ &&
+                tick - request.tick <= 1500 && frame_.available) return request;
+        }
+        return {};
+    }
+    std::string jsonFor(const SeaOrdersFrame &frame) const
+    {
+        const auto quote = [](const std::string &s) { return gameplayJsonString(s); };
+        std::string out = "{\"schemaVersion\":1,\"sceneEpoch\":" + std::to_string(scene_) +
+            ",\"revision\":" + std::to_string(revision_) + ",\"activityGeneration\":" + std::to_string(activity_) +
+            ",\"available\":" + (frame.available ? "true" : "false") + ",\"active\":" + (frame.active ? "true" : "false") +
+            ",\"complete\":" + (frame.complete ? "true" : "false") +
+            ",\"language\":" + quote(frame.language) + ",\"stage\":" + quote(frame.stage) +
+            ",\"mode\":" + std::to_string(frame.mode) + ",\"recipientId\":" + quote(frame.recipientId) +
+            ",\"pendingLabel\":" + quote(frame.pendingLabel) + ",\"selectedItemId\":" + quote(frame.selectedItemId) +
+            ",\"canBack\":" + (frame.active ? "true" : "false") + ",\"canClose\":" + (frame.active ? "true" : "false") + ",\"recipients\":[";
+        for (size_t i = 0; i < frame.recipients.size(); ++i)
+        {
+            const auto &r = frame.recipients[i]; if (i) out += ',';
+            out += "{\"id\":" + quote(r.id) + ",\"name\":" + quote(r.name) + ",\"entityId\":" + quote(r.entityId) +
+                ",\"characterIndex\":" + std::to_string(r.characterIndex) + ",\"main\":" + (r.main ? "true" : "false") + "}";
+        }
+        out += "],\"items\":[";
+        for (size_t i = 0; i < frame.items.size(); ++i)
+        {
+            const auto &item = frame.items[i]; if (i) out += ',';
+            out += "{\"id\":" + quote(item.id) + ",\"kind\":" + quote(item.kind) + ",\"label\":" + quote(item.label) +
+                ",\"enabled\":" + (item.enabled ? "true" : "false") + ",\"cooldown\":" +
+                std::to_string(std::isfinite(item.cooldown) ? std::clamp(item.cooldown, 0.0, 1.0) : 0.0) + "}";
+        }
+        return out + "]}";
+    }
+    std::string json() const { return jsonFor(frame_); }
+
+};
+inline SeaOrdersState seaOrders;
+// Defined by battle_interface. All entry points run on the game thread and
+// resolve the live entity on each call; no retained pointers cross a frame.
+void refreshSeaOrders(bool ready);
+bool executeSeaOrder(const SeaOrdersRequest &request);
+void closeSeaOrders();
+} // namespace storm::android

@@ -74,6 +74,11 @@ class LocationCamera : public Entity
 
     void LockFPMode(bool isLock);
     float GetAx() const;
+#ifdef __ANDROID__
+    // Use the actual camera, not a renderer view temporarily changed by UI/shadow draws.
+    CVECTOR MovementViewDirection() const { return lookTo - camPos; }
+    bool IsThirdPersonFollow() const { return wmode == cwm_follow && !isLookMode && !isLockFPMode; }
+#endif
 
     // --------------------------------------------------------------------------------------------
     // Encapsulation

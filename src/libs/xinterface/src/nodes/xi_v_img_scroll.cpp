@@ -1743,3 +1743,90 @@ int32_t CXI_VIMAGESCROLL::GetMousePointedPictureNum()
         n += m_nListSize;
     return n;
 }
+
+#ifdef __ANDROID__
+#include "platform/android_ui.hpp"
+#include "../mobile_owner_bridge.hpp"
+#include "shared/interface/messages.h"
+#include "v_data.h"
+
+bool CXI_VIMAGESCROLL::MobileOfficerRows(storm::mobile::OfficerListIdentity &state,
+                                      std::vector<MobileWidget> &rows) const
+{
+    if (m_nodeName && m_bUse && storm::mobile::OwnerField(storm::android::mobileScreen, m_nodeName, true))
+    {
+        const char *empty = pStringService->GetString(pStringService->GetStringNum("NoneBoat"));
+        return storm::mobile::OwnerRows(storm::android::mobileScreen, m_nodeName, true,
+            core.Entity_GetAttributeClass(g_idInterface, m_nodeName), m_nListSize,
+            storm::android::mobileScreenRevision, storm::mobile::OwnerProfile(),
+            m_bClickable && !m_bLockedNode && !m_bLockStatus && !m_bDoMove,
+            m_rect.top * 8192 + m_rect.left, storm::mobile::OwnerLabel,
+            empty ? empty : "", state, rows);
+    }
+    // Other vertical image lists keep their existing behavior.
+    if (storm::android::mobileScreen != "lscchar_all" || !m_nodeName ||
+        std::string(m_nodeName) != "CHARACTERS_SCROLL" || !m_bUse) return false;
+    auto *profile = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
+    auto *attrs = core.Entity_GetAttributeClass(g_idInterface, m_nodeName);
+    const char *name = profile && profile->GetAClass() ? profile->GetAClass()->GetAttribute("name") : nullptr;
+    if (!name || !*name || !attrs) return false;
+    const auto count = attrs->GetAttributeAsDword("ListSize", 0);
+    if (count == 0 || count > 1000 || count > static_cast<uint32_t>(m_nListSize)) return false;
+    state.revision = storm::android::mobileScreenRevision;
+    state.profile = name;
+    const bool enabled = m_bClickable && !m_bLockedNode && !m_bLockStatus;
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        auto *entry = attrs->GetAttributeClass(("pic" + std::to_string(i + 1)).c_str());
+        const char *character = entry ? entry->GetAttribute("character") : nullptr;
+        if (!character) return false;
+        std::string label;
+        for (int field = 1; field <= 5; ++field)
+        {
+            const char *raw = entry->GetAttribute(("str" + std::to_string(field)).c_str());
+            if (!raw || !*raw) continue;
+            const char *text = raw[0] == '#' ? raw + 1 : pStringService->GetString(pStringService->GetStringNum(raw));
+            if (!text || !*text || std::string(text).find_first_not_of(" ") == std::string::npos) continue;
+            if (!label.empty()) label += " · ";
+            label += text;
+        }
+        // Include labels as well as character IDs: empty role slots share ID 0.
+        state.rows.push_back(std::string(character) + "\n" + label);
+        rows.push_back({m_nodeName, "choice", label,
+            attrs->GetAttributeAsDword("current", 0) == i ? "1" : "0",
+            static_cast<int>(i), m_rect.top * 8192 + m_rect.left + static_cast<int>(i), enabled});
+    }
+    return true;
+}
+
+void CXI_VIMAGESCROLL::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    storm::mobile::OfficerListIdentity state;
+    std::vector<MobileWidget> rows;
+    if (!MobileOfficerRows(state, rows)) return;
+    m_mobileOfficers.publish(state);
+    for (auto &row : rows)
+    {
+        row.rowId = m_mobileOfficers.rowId(row.index);
+        if (row.enabled) row.actions.push_back("select");
+        widgets.push_back(std::move(row));
+    }
+}
+
+bool CXI_VIMAGESCROLL::MobileApply(int index, const std::string &value)
+{
+    if (!m_bUse || !m_bClickable || m_bLockedNode || m_bLockStatus || m_bDoMove) return false;
+    storm::mobile::OfficerListIdentity state;
+    std::vector<MobileWidget> rows;
+    if (!MobileOfficerRows(state, rows) || !m_mobileOfficers.accepts(state, index, value)) return false;
+    bool present = false; for (const auto &row : rows) if (row.index == index && row.enabled) present = true;
+    if (!present) return false;
+    core.Send_Message(g_idInterface, "ls", MSG_INTERFACE_NEW_CURRENT_NODE, m_nodeName);
+    m_nCurImage = index;
+    core.Entity_GetAttributeClass(g_idInterface, m_nodeName)->SetAttributeUseDword("current", index);
+    ChangeDinamicParameters(0);
+    // character_all.c ProcessFrame observes current + focus and invokes its
+    // own SetButtonsState; no direct/reentrant script callback is necessary.
+    return true;
+}
+#endif

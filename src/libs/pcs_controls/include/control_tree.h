@@ -4,6 +4,7 @@
 #include "vma.hpp"
 #include <string>
 #include <vector>
+#include <functional>
 
 struct ControlTree
 {
@@ -45,6 +46,17 @@ struct ControlTree
     bool AddOutControl(const char *pcOutControlName, bool isActive);
     void ControlInAction(const char *pcControlName, int32_t nLayer);
     bool ExcludeControlFromActive(const char *pcControlName);
+    bool HasAvailableOutput(const std::string &output, const std::function<bool(const std::string &)> &available) const
+    {
+        const auto visit = [&](const auto &self, const ControlChild &node, bool parents) -> bool {
+            const bool enabled = parents && (node.sControlName.empty() || available(node.sControlName));
+            if (!enabled) return false;
+            if (node.sOutControlName == output) return true;
+            for (const auto &child : node.aChild) if (self(self, child, enabled)) return true;
+            return false;
+        };
+        return visit(visit, m_RootControl, true);
+    }
 
   protected:
     void Init();

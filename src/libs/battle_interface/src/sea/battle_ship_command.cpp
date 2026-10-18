@@ -5,6 +5,9 @@
 #include "island_descr.h"
 #include "shared/battle_interface/msg_control.h"
 #include "ships_list.h"
+#ifdef __ANDROID__
+#include "../../../xinterface/src/string_service.h"
+#endif
 
 BIShipCommandList::BIShipCommandList(entid_t eid, ATTRIBUTES *pA, VDX9RENDER *rs) : BICommandList(eid, pA, rs)
 {
@@ -133,6 +136,7 @@ void BIShipCommandList::Release()
 
 int32_t BIShipCommandList::ShipAdding(bool allLabel, bool bMyShip, bool bEnemy, bool bNeutral, bool bFriend)
 {
+    m_fillingKind = "ship";
     int32_t n;
     int32_t retVal = 0;
 
@@ -215,6 +219,7 @@ int32_t BIShipCommandList::ShipAdding(bool allLabel, bool bMyShip, bool bEnemy, 
 
 int32_t BIShipCommandList::FortAdding(bool allLabel, bool bFriend, bool bNeutral, bool bEnemy)
 {
+    m_fillingKind = "fort";
     auto *pL = g_IslandDescr.GetFirstFort();
     if (pL == nullptr)
         return 0;
@@ -270,6 +275,7 @@ int32_t BIShipCommandList::FortAdding(bool allLabel, bool bFriend, bool bNeutral
 
 int32_t BIShipCommandList::LandAdding(bool allLabel)
 {
+    m_fillingKind = "land";
     auto *pL = g_IslandDescr.GetFirstLand();
     if (pL == nullptr)
         return 0;
@@ -318,6 +324,7 @@ int32_t BIShipCommandList::LandAdding(bool allLabel)
 
 int32_t BIShipCommandList::CommandAdding()
 {
+    m_fillingKind = "command";
     core.Event("BI_SetPossibleCommands", "l", m_nCurrentCommandCharacterIndex);
     int32_t retVal = 0;
     auto *pAttr = m_pARoot->GetAttributeClass("Commands");
@@ -346,6 +353,7 @@ int32_t BIShipCommandList::CommandAdding()
 
 int32_t BIShipCommandList::ChargeAdding()
 {
+    m_fillingKind = "charge";
     // Determine the amount of each charge on board
     auto *tmpDat = core.Event("BI_GetChargeQuantity", "l", m_nCurrentCommandCharacterIndex);
     if (tmpDat == nullptr)
@@ -368,14 +376,29 @@ int32_t BIShipCommandList::ChargeAdding()
         auto *pA = pAList ? pAList->GetAttributeClass(param) : nullptr;
         const int32_t nNormalPicIndex = pA ? pA->GetAttributeAsDword("picNum", -1) : -1;
         const int32_t nSelectPicIndex = pA ? pA->GetAttributeAsDword("selPicNum", -1) : -1;
-        retVal += AddToIconList(m_nChargeTextureNum, nNormalPicIndex, nSelectPicIndex, -1, -1, nullptr, i + 1, nullptr,
-                                nullptr);
+        const char *note = nullptr;
+        std::string androidNote;
+#ifdef __ANDROID__
+        // The public game uses this exact charge order; names are resolved by
+        // the live string service, never substituted with Java gameplay data.
+        static const char *keys[] = {"Balls", "Grapes", "Knippels", "Bombs"};
+        if (pA) note = pA->GetAttribute("note");
+        if (!note && i < 4)
+            if (auto *strings = static_cast<VSTRSERVICE *>(core.GetService("STRSERVICE"))) note = strings->GetString(keys[i]);
+        if (note)
+        {
+            androidNote = std::string(note) + " (" + std::to_string(m_aChargeQuantity[i]) + ")";
+            note = androidNote.c_str();
+        }
+#endif
+        retVal += AddToIconList(m_nChargeTextureNum, nNormalPicIndex, nSelectPicIndex, -1, -1, nullptr, i + 1, nullptr, note);
     }
     return retVal;
 }
 
 int32_t BIShipCommandList::UserIconsAdding()
 {
+    m_fillingKind = "option";
     int32_t retVal = 0;
     auto *pAttr = m_pARoot->GetAttributeClass("UserIcons");
     if (!pAttr)
@@ -401,6 +424,7 @@ int32_t BIShipCommandList::UserIconsAdding()
 
 int32_t BIShipCommandList::AbilityAdding()
 {
+    m_fillingKind = "ability";
     core.Event("evntSetUsingAbility", "l", m_nCurrentCommandCharacterIndex);
     int32_t retVal = 0;
     auto *pAttr = m_pARoot->GetAttributeClass("AbilityIcons");
@@ -431,6 +455,7 @@ int32_t BIShipCommandList::AbilityAdding()
 
 int32_t BIShipCommandList::AddCancelIcon()
 {
+    m_fillingKind = "cancel";
     auto *pA = m_pARoot->GetAttributeClass("Commands");
     if (pA)
         pA = pA->GetAttributeClass("Cancel");
@@ -446,6 +471,7 @@ int32_t BIShipCommandList::AddCancelIcon()
 int32_t BIShipCommandList::TownAdding(bool allLabel, bool bDiseased, bool bNotDiseased, bool bEnemy, bool bNeutral,
                                    bool bFriend)
 {
+    m_fillingKind = "town";
     auto *pL = g_IslandDescr.GetFirstLocator();
     if (pL == nullptr)
         return 0;

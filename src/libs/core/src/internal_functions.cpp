@@ -3,6 +3,7 @@
 #include "debug-trap.h"
 
 #include <execution>
+#include <fmt/format.h>
 
 #define INVALID_FA "Invalid function argument"
 #define BAD_FA "Bad function argument"
@@ -1863,7 +1864,17 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         if (pE)
         {
             ms.Move2Start();
-            mresult = pE->ProcessMessage(ms);
+            const auto classCode = core.GetClassCode(ent);
+            try { mresult = pE->ProcessMessage(ms); }
+            catch (MessageFormatError &error)
+            {
+                FindErrorSource();
+                CollectCallStack();
+                auto *receiver = core_internal.FindVMA(classCode);
+                error.AppendContext(fmt::format("script SendMessage destination={} receiver={} classHash={} source={}:{}",
+                    ent, receiver && receiver->GetName() ? receiver->GetName() : "<unknown>", classCode, DebugSourceFileName, DebugSourceLine + 1));
+                throw;
+            }
         }
         for (n = 0; n < arguments; n++)
         {

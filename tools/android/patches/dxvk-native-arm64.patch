@@ -138,3 +138,337 @@ index bddff02..63f447b 100644
  
          if (m_fileStream)
            m_fileStream << prefix << line << std::endl;
+diff --git a/src/d3d9/d3d9_present_extent.h b/src/d3d9/d3d9_present_extent.h
+new file mode 100644
+index 0000000..1feeba3
+--- /dev/null
++++ b/src/d3d9/d3d9_present_extent.h
+@@ -0,0 +1,17 @@
++#pragma once
++
++namespace dxvk {
++  // A null D3D9 destination means the complete output surface. Android's
++  // compositor owns buffer-to-view scaling; SDL logical dimensions need not
++  // equal the acquired Vulkan image extent. Keep explicit rectangles intact.
++  // Structural templates keep this coordinate policy independent of Vulkan
++  // headers; production uses VkRect2D/VkExtent2D, tests exercise the same code.
++  template<typename Rect, typename Extent>
++  Rect presentSurfaceRegion(Rect requested, Extent acquiredExtent, bool fullSurface) {
++    if (fullSurface) {
++      requested.offset = { 0, 0 };
++      requested.extent = acquiredExtent;
++    }
++    return requested;
++  }
++}
+diff --git a/src/d3d9/d3d9_swapchain.cpp b/src/d3d9/d3d9_swapchain.cpp
+index 673ac04..cbc61f1 100644
+--- a/src/d3d9/d3d9_swapchain.cpp
++++ b/src/d3d9/d3d9_swapchain.cpp
+@@ -3,6 +3,7 @@
+ #include "d3d9_monitor.h"
+ 
+ #include "d3d9_hud.h"
++#include "d3d9_present_extent.h"
+ 
+ namespace dxvk {
+ 
+@@ -810,11 +811,14 @@ namespace dxvk {
+     auto swapImage = m_backBuffers[0]->GetCommonTexture()->GetImage();
+     auto swapImageView = m_backBuffers[0]->GetImageView(false);
+ 
+-    // Bump our frame id.
+-    ++m_frameId;
+-
+     for (uint32_t i = 0; i < SyncInterval || i < 1; i++) {
+       SynchronizePresent();
++      if (!m_presenter->hasSwapChain()) {
++        // A zero-size surface suspended the chain during synchronization.
++        // Retry on the next Present, without acquiring from empty semaphores.
++        m_dirty = true;
++        return;
++      }
+ 
+       // Presentation semaphores and WSI swap chain image
+       vk::PresenterInfo info = m_presenter->info();
+@@ -825,7 +829,14 @@ namespace dxvk {
+       VkResult status = m_presenter->acquireNextImage(sync, imageIndex);
+ 
+       while (status != VK_SUCCESS && status != VK_SUBOPTIMAL_KHR) {
++        if (status != VK_ERROR_OUT_OF_DATE_KHR && status != VK_ERROR_SURFACE_LOST_KHR
++         && status != VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT)
++          throw DxvkError(str::format("D3D9SwapChainEx: Failed to acquire image: ", status));
+         RecreateSwapChain(m_vsync);
++        if (!m_presenter->hasSwapChain()) {
++          m_dirty = true;
++          return;
++        }
+         
+         info = m_presenter->info();
+         status = m_presenter->acquireNextImage(sync, imageIndex);
+@@ -842,6 +853,13 @@ namespace dxvk {
+         {  int32_t(m_dstRect.left),                    int32_t(m_dstRect.top)                    },
+         { uint32_t(m_dstRect.right - m_dstRect.left), uint32_t(m_dstRect.bottom - m_dstRect.top) } };
+ 
++#ifdef __ANDROID__
++      // Android can retain a buffer extent different from the resized SDL
++      // window. The compositor scales that buffer to the view. Filling only
++      // the logical window rectangle would apply the resize a second time.
++      dstRect = presentSurfaceRegion(dstRect, info.imageExtent, m_presentToSurface);
++#endif
++
+       m_blitter->presentImage(m_context.ptr(),
+         m_imageViews.at(imageIndex), dstRect,
+         swapImageView, srcRect);
+@@ -850,11 +868,14 @@ namespace dxvk {
+         m_hud->render(m_context, info.format, info.imageExtent);
+ 
+       if (i + 1 >= SyncInterval)
+-        m_context->signal(m_frameLatencySignal, m_frameId);
++        m_context->signal(m_frameLatencySignal, m_frameId + 1);
+ 
+       SubmitPresent(sync, i);
+     }
+ 
++    // Count only completed Presents. A suspended partial SyncInterval must
++    // not leave holes in frame-latency fence values and block a future frame.
++    ++m_frameId;
+     SyncFrameLatency();
+ 
+     // Rotate swap chain buffers so that the back
+@@ -894,8 +915,13 @@ namespace dxvk {
+     // Recreate swap chain if the previous present call failed
+     VkResult status = m_device->waitForSubmission(&m_presentStatus);
+ 
+-    if (status != VK_SUCCESS)
++    if (status != VK_SUCCESS) {
++      if (status != VK_SUBOPTIMAL_KHR && status != VK_ERROR_OUT_OF_DATE_KHR
++       && status != VK_ERROR_SURFACE_LOST_KHR
++       && status != VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT)
++        throw DxvkError(str::format("D3D9SwapChainEx: Failed to present image: ", status));
+       RecreateSwapChain(m_vsync);
++    }
+   }
+ 
+ 
+@@ -908,6 +934,12 @@ namespace dxvk {
+ 
+     vk::PresenterDesc presenterDesc;
+     presenterDesc.imageExtent     = GetPresentExtent();
++#ifdef __ANDROID__
++    presenterDesc.preferAndroidViewExtent = m_presentToSurface;
++    Logger::info(str::format("D3D9 present sizes: backbuffer=", m_presentParams.BackBufferWidth,
++      "x", m_presentParams.BackBufferHeight, " output=", presenterDesc.imageExtent.width,
++      "x", presenterDesc.imageExtent.height, " fullSurface=", m_presentToSurface));
++#endif
+     presenterDesc.imageCount      = PickImageCount(m_presentParams.BackBufferCount + 1);
+     presenterDesc.numFormats      = PickFormats(EnumerateFormat(m_presentParams.BackBufferFormat), presenterDesc.formats);
+     presenterDesc.numPresentModes = PickPresentModes(Vsync, presenterDesc.presentModes);
+@@ -936,6 +968,12 @@ namespace dxvk {
+ 
+     vk::PresenterDesc presenterDesc;
+     presenterDesc.imageExtent     = GetPresentExtent();
++#ifdef __ANDROID__
++    presenterDesc.preferAndroidViewExtent = m_presentToSurface;
++    Logger::info(str::format("D3D9 present sizes: backbuffer=", m_presentParams.BackBufferWidth,
++      "x", m_presentParams.BackBufferHeight, " output=", presenterDesc.imageExtent.width,
++      "x", presenterDesc.imageExtent.height, " fullSurface=", m_presentToSurface));
++#endif
+     presenterDesc.imageCount      = PickImageCount(m_presentParams.BackBufferCount + 1);
+     presenterDesc.numFormats      = PickFormats(EnumerateFormat(m_presentParams.BackBufferFormat), presenterDesc.formats);
+     presenterDesc.numPresentModes = PickPresentModes(false, presenterDesc.presentModes);
+@@ -1265,6 +1303,10 @@ namespace dxvk {
+ 
+ 
+   bool    D3D9SwapChainEx::UpdatePresentRegion(const RECT* pSourceRect, const RECT* pDestRect) {
++#ifdef __ANDROID__
++    const bool previousFullSurface = m_presentToSurface;
++#endif
++    m_presentToSurface = pDestRect == nullptr;
+     if (pSourceRect == nullptr) {
+       m_srcRect.top    = 0;
+       m_srcRect.left   = 0;
+@@ -1295,6 +1337,11 @@ namespace dxvk {
+     || m_dstRect.bottom != dstRect.bottom;
+ 
+     m_dstRect = dstRect;
++#ifdef __ANDROID__
++    // Switching between explicit and full-surface output also changes the
++    // extent policy, even if the logical destination rectangles are equal.
++    recreate |= previousFullSurface != m_presentToSurface;
++#endif
+ 
+     return recreate;
+   }
+diff --git a/src/d3d9/d3d9_swapchain.h b/src/d3d9/d3d9_swapchain.h
+index 88953b2..e390a5b 100644
+--- a/src/d3d9/d3d9_swapchain.h
++++ b/src/d3d9/d3d9_swapchain.h
+@@ -103,6 +103,7 @@ namespace dxvk {
+     
+     RECT                      m_srcRect;
+     RECT                      m_dstRect;
++    bool                      m_presentToSurface = true;
+ 
+     DxvkSubmitStatus          m_presentStatus;
+ 
+diff --git a/src/d3d9/d3d9_device.cpp b/src/d3d9/d3d9_device.cpp
+index 7af7f51..bac6bdf 100644
+--- a/src/d3d9/d3d9_device.cpp
++++ b/src/d3d9/d3d9_device.cpp
+@@ -292,18 +292,23 @@ namespace dxvk {
+   HRESULT STDMETHODCALLTYPE D3D9DeviceEx::Reset(D3DPRESENT_PARAMETERS* pPresentationParameters) {
+     D3D9DeviceLock lock = LockDevice();
+ 
+-    HRESULT hr = ResetSwapChain(pPresentationParameters, nullptr);
+-    if (FAILED(hr))
+-      return hr;
++    try {
++      HRESULT hr = ResetSwapChain(pPresentationParameters, nullptr);
++      if (FAILED(hr))
++        return hr;
+ 
+-    hr = ResetState(pPresentationParameters);
+-    if (FAILED(hr))
+-      return hr;
++      hr = ResetState(pPresentationParameters);
++      if (FAILED(hr))
++        return hr;
+ 
+-    Flush();
+-    SynchronizeCsThread();
++      Flush();
++      SynchronizeCsThread();
+ 
+-    return D3D_OK;
++      return D3D_OK;
++    } catch (const DxvkError& e) {
++      Logger::err(e.message());
++      return D3DERR_DEVICEREMOVED;
++    }
+   }
+ 
+ 
+@@ -3570,11 +3575,16 @@ namespace dxvk {
+           D3DDISPLAYMODEEX*      pFullscreenDisplayMode) {
+     D3D9DeviceLock lock = LockDevice();
+ 
+-    HRESULT hr = ResetSwapChain(pPresentationParameters, pFullscreenDisplayMode);
+-    if (FAILED(hr))
+-      return hr;
++    try {
++      HRESULT hr = ResetSwapChain(pPresentationParameters, pFullscreenDisplayMode);
++      if (FAILED(hr))
++        return hr;
+ 
+-    return D3D_OK;
++      return D3D_OK;
++    } catch (const DxvkError& e) {
++      Logger::err(e.message());
++      return D3DERR_DEVICEREMOVED;
++    }
+   }
+ 
+ 
+diff --git a/src/vulkan/vulkan_android_extent.h b/src/vulkan/vulkan_android_extent.h
+new file mode 100644
+index 0000000..a786065
+--- /dev/null
++++ b/src/vulkan/vulkan_android_extent.h
+@@ -0,0 +1,24 @@
++#pragma once
++#include <algorithm>
++
++namespace dxvk::vk {
++  // Android permits imageExtent != currentExtent; currentExtent is the
++  // consumer's preferred size, which can lag a SurfaceView resize. The caller
++  // supplies the current view's pixel extent, NOT the D3D render resolution.
++  // Called only for Android full-surface presentation with identity transform.
++  // https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateAndroidSurfaceKHR.html
++  template<typename Caps, typename Extent>
++  Extent pickAndroidViewExtent(const Caps& caps, Extent desired) {
++    // Zero returns are handled by Presenter::recreateSwapChain before creation.
++    // Never turn a suspended/unsupported surface into an artificial 1x1 chain.
++    if (!desired.width || !desired.height
++     || !caps.currentExtent.width || !caps.currentExtent.height
++     || !caps.maxImageExtent.width || !caps.maxImageExtent.height
++     || caps.minImageExtent.width > caps.maxImageExtent.width
++     || caps.minImageExtent.height > caps.maxImageExtent.height)
++      return { 0, 0 };
++    return {
++      std::clamp(desired.width, caps.minImageExtent.width, caps.maxImageExtent.width),
++      std::clamp(desired.height, caps.minImageExtent.height, caps.maxImageExtent.height) };
++  }
++}
+diff --git a/src/vulkan/vulkan_presenter.cpp b/src/vulkan/vulkan_presenter.cpp
+index 0181100..b6aff7b 100644
+--- a/src/vulkan/vulkan_presenter.cpp
++++ b/src/vulkan/vulkan_presenter.cpp
+@@ -1,4 +1,5 @@
+ #include "vulkan_presenter.h"
++#include "vulkan_android_extent.h"
+ 
+ #include "../dxvk/dxvk_format.h"
+ #include "../wsi/wsi_presenter.h"
+@@ -138,8 +139,18 @@ namespace dxvk::vk {
+     // Select actual swap chain properties and create swap chain
+     m_info.format       = pickFormat(formats.size(), formats.data(), desc.numFormats, desc.formats);
+     m_info.presentMode  = pickPresentMode(modes.size(), modes.data(), desc.numPresentModes, desc.presentModes);
+-    m_info.imageExtent  = pickImageExtent(caps, desc.imageExtent);
++    m_info.imageExtent  = pickImageExtent(caps, desc.imageExtent, desc.preferAndroidViewExtent);
+     m_info.imageCount   = pickImageCount(caps, m_info.presentMode, desc.imageCount);
++#ifdef __ANDROID__
++    // Recreation-only telemetry: distinguish view, consumer and image sizes.
++    Logger::info(str::format("Presenter extent: desired=", desc.imageExtent.width, "x", desc.imageExtent.height,
++      " current=", caps.currentExtent.width, "x", caps.currentExtent.height,
++      " min=", caps.minImageExtent.width, "x", caps.minImageExtent.height,
++      " max=", caps.maxImageExtent.width, "x", caps.maxImageExtent.height,
++      " chosen=", m_info.imageExtent.width, "x", m_info.imageExtent.height,
++      " preferView=", desc.preferAndroidViewExtent,
++      " transform=", caps.currentTransform, " supportedTransforms=", caps.supportedTransforms));
++#endif
+ 
+     if (!m_info.imageExtent.width || !m_info.imageExtent.height) {
+       m_info.imageCount = 0;
+@@ -417,7 +428,18 @@ namespace dxvk::vk {
+ 
+   VkExtent2D Presenter::pickImageExtent(
+     const VkSurfaceCapabilitiesKHR& caps,
+-          VkExtent2D                desired) {
++          VkExtent2D                desired,
++          bool                      preferAndroidViewExtent) {
++#ifdef __ANDROID__
++    // Bounded to the existing identity-transform path. Rotation/pretransform
++    // changes require an independent surface-coordinate audit.
++    if (preferAndroidViewExtent
++     && caps.currentTransform == VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
++     && (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR))
++      return pickAndroidViewExtent(caps, desired);
++#else
++    (void)preferAndroidViewExtent;
++#endif
+     if (caps.currentExtent.width != std::numeric_limits<uint32_t>::max())
+       return caps.currentExtent;
+     
+diff --git a/src/vulkan/vulkan_presenter.h b/src/vulkan/vulkan_presenter.h
+index 40562f6..7b10d47 100644
+--- a/src/vulkan/vulkan_presenter.h
++++ b/src/vulkan/vulkan_presenter.h
+@@ -22,6 +22,7 @@ namespace dxvk::vk {
+    */
+   struct PresenterDesc {
+     VkExtent2D          imageExtent;
++    bool                preferAndroidViewExtent = false;
+     uint32_t            imageCount;
+     uint32_t            numFormats;
+     VkSurfaceFormatKHR  formats[4];
+@@ -230,7 +231,8 @@ namespace dxvk::vk {
+ 
+     VkExtent2D pickImageExtent(
+       const VkSurfaceCapabilitiesKHR& caps,
+-            VkExtent2D                desired);
++            VkExtent2D                desired,
++            bool                      preferAndroidViewExtent);
+ 
+     uint32_t pickImageCount(
+       const VkSurfaceCapabilitiesKHR& caps,

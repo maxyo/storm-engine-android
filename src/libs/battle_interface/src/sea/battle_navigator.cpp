@@ -1,4 +1,6 @@
+#include <platform/android_ui.hpp>
 #include "battle_navigator.h"
+#include "i_battle.h"
 #include <stdio.h>
 
 #include "core.h"
@@ -50,10 +52,33 @@ void BATTLE_NAVIGATOR::Draw() const
     if (rs == nullptr)
         return;
     int n;
+#ifdef __ANDROID__
+    m_androidDrawn = DrawAndroid();
+    // Opt-in exact owner/readiness trace for APK acceptance, not a fake data source.
+    static int previous=-1;
+    const int state=(AndroidAvailable()?1:0)|(m_androidDrawn?2:0)|(m_islandExpected?4:0)|(m_islandTextureReady?8:0);
+    if(previous!=state){previous=state;
+        storm::android::traceContextAction("navigator", "draw", "state(available=1,new=2,island=4,mapReady=8)="+std::to_string(state)+
+            " ship="+std::to_string(m_speedShipId)+" generation="+std::to_string(m_navigatorGeneration)+
+            " scale="+std::to_string(m_fCurScale)+" windState="+std::to_string(m_curWindPic));}
+
+    const auto *owner = static_cast<const BATTLE_INTERFACE *>(m_pOwnerEI);
+    const uint32_t mobileMask = !owner || owner->AndroidCommandActive() ?
+        0 : storm::android::shipCaptionMask(owner->AndroidCaptionsVisible(), false, storm::android::mobileShipHudMask());
+#endif
 
     // set world matrix
     const CMatrix matw;
     rs->SetTransform(D3DTS_WORLD, matw);
+#ifdef __ANDROID__
+    if (m_androidDrawn) {
+        const auto required=storm::android::ShipCaptions|storm::android::ShipAmmo;
+        if(AndroidPresented()||(mobileMask&required)==required)return;
+        // The native map is ready before Android reveals its panel. Keep the
+        // old numerical/icon readouts until the visible captions acknowledge.
+        goto readouts;
+    }
+#endif
 
     // gradient background
     // rs->DrawPrimitive(D3DPT_TRIANGLEFAN,m_idGradBackVBuf,sizeof(BI_COLORONLY_VERTEX),0,1,"battle_only_color");
@@ -147,14 +172,27 @@ void BATTLE_NAVIGATOR::Draw() const
         rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCourseVBuf, sizeof(BI_ONETEXTURE_VERTEX), 4, 2, "battle_rectangle");
     }
 
-    // print wind and ship speed
+#ifdef __ANDROID__
+readouts:
+#endif
+    // Each numeric caption is hidden only after its own Android draw ACK.
+#ifdef __ANDROID__
+    if (!(mobileMask & storm::android::ShipWind))
+#endif
     rs->ExtPrint(m_speedFont, 0xFFFFFFFF, 0, PR_ALIGN_CENTER, true, m_fFontScale, 0, 0, m_xWindSpeed, m_ySpeedShow,
                  "%.1f", m_fWindStrength);
+#ifdef __ANDROID__
+    if (!(mobileMask & storm::android::ShipSpeed))
+#endif
     rs->ExtPrint(m_speedFont, 0xFFFFFFFF, 0, PR_ALIGN_CENTER, true, m_fFontScale, 0, 0, m_xShipSpeed, m_ySpeedShow,
                  "%.1f", m_fShipSpeed);
 
     // show current charge
-    if (m_curCharge >= 0)
+    if (m_curCharge >= 0
+#ifdef __ANDROID__
+        && (!(mobileMask & storm::android::ShipAmmo) || m_bNotEnoughBallFlag)
+#endif
+    )
     {
         rs->TextureSet(0, m_idChargeTexture);
         rs->SetRenderState(D3DRS_TEXTUREFACTOR, (BIUtils::g_dwBlinkColor << 24L) | 0xFFFFFF);
@@ -168,12 +206,23 @@ void BATTLE_NAVIGATOR::Draw() const
         rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 12, 2,
                           m_bPowderRunOut ? "battle_texure_blend_tf" : "battle_rectangle");
     }
-    // show wind icon
-    rs->TextureSet(0, m_idWindTexture);
-    rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 4, 2, "battle_rectangle");
+    // Wind strength/state icon shares the numeric wind replacement ACK.
+    // The separate compass wind-direction arrow above always remains native.
+#ifdef __ANDROID__
+    if (!(mobileMask & storm::android::ShipWind))
+#endif
+    {
+        rs->TextureSet(0, m_idWindTexture);
+        rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 4, 2, "battle_rectangle");
+    }
     // show sails position icon
-    rs->TextureSet(0, m_idSailTexture);
-    rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 8, 2, "battle_rectangle");
+#ifdef __ANDROID__
+    if (!(mobileMask & storm::android::ShipSailPosition))
+#endif
+    {
+        rs->TextureSet(0, m_idSailTexture);
+        rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 8, 2, "battle_rectangle");
+    }
 }
 
 void BATTLE_NAVIGATOR::Update()
@@ -184,6 +233,22 @@ void BATTLE_NAVIGATOR::Update()
     UpdateWindParam();
     SetMainCharacterData();
     UpdateCurrentCharge();
+#ifdef __ANDROID__
+    UpdateAndroidBorts();
+    const auto *owner = static_cast<const BATTLE_INTERFACE *>(m_pOwnerEI);
+    if (owner && !owner->AndroidCommandActive() && storm::android::mobileScreen.empty() && AndroidAvailable()) {
+        const auto &telemetry=storm::android::shipTelemetry;
+        const int zoom=storm::android::seaNavigator.takeZoom(SDL_GetTicks(),telemetry.revision(),telemetry.hudRevision(),m_navigatorGeneration);
+        if(zoom){
+            const float before=m_fCurScale;
+            if(zoom<0)DecrementScale();else IncrementScale();
+            storm::android::traceContextAction("navigator-zoom",zoom<0?"in":"out",
+                "scale="+std::to_string(before)+"->"+std::to_string(m_fCurScale)+
+                " min="+std::to_string(m_fMinScale)+" max="+std::to_string(m_fMaxScale)+
+                " generation="+std::to_string(m_navigatorGeneration));
+        }
+    } else storm::android::seaNavigator.clear();
+#endif
 
     // change compass buffer
     auto *pV = static_cast<BI_ONETEXTURE_VERTEX *>(rs->LockVertexBuffer(m_idEmptyVBuf));
@@ -911,6 +976,9 @@ int32_t BATTLE_NAVIGATOR::SetCircleVertexTex(BI_ONETEXTURE_VERTEX *v, float x, f
 
 void BATTLE_NAVIGATOR::SetMainCharacterData()
 {
+#ifdef __ANDROID__
+    m_shipSpeedAvailable = false;
+#endif
     m_fCurAnglLeftCharge = 0;
     m_fCurAnglRightCharge = 0;
     m_fCurAnglForwardCharge = 0;
@@ -941,6 +1009,18 @@ void BATTLE_NAVIGATOR::SetMainCharacterData()
     m_fAngle = cAng.y;
     m_fShipSpeed = static_cast<SHIP_BASE *>(psd->pShip)->State.vSpeed.z;
     m_fShipSpeed *= m_fShipSpeedScale; // speed reduction is more necessary here
+#ifdef __ANDROID__
+    const auto *scaleText = m_pOwnerEI && m_pOwnerEI->AttributesPointer ?
+        m_pOwnerEI->AttributesPointer->GetAttribute("ShipSpeedScaler") : nullptr;
+    const auto scale = scaleText ? storm::android::shipNumberValue(scaleText) : std::nullopt;
+    if(m_speedShipId!=psd->pShip->GetId()) {
+        ++m_navigatorGeneration;m_androidDrawn=false;m_androidLayoutId=0;
+        storm::android::seaNavigator.clear();
+    }
+    m_speedShipId = psd->pShip->GetId();
+    m_shipSpeedAvailable = scale && *scale > 0 && std::isfinite(m_fShipSpeedScale) &&
+        m_fShipSpeedScale > 0 && std::isfinite(m_fShipSpeed);
+#endif
     if (m_fShipSpeed > m_fMaxShipSpeed)
         m_fCurAnglShipSpeed = m_fEndAnglShipSpeed;
     else
@@ -1047,6 +1127,9 @@ void BATTLE_NAVIGATOR::SetAnotherShip()
             dwColor = m_dwDeadShipColor;
         // determine the angle of the ship
         const auto fAngle = psd->pShip->GetAng().y - m_fAngle;
+        // The legacy buffer is fixed-sized. The Android replacement traverses
+        // the complete live list independently, with dynamically sized geometry.
+        if (idx + 3 > MAX_ENEMY_SHIP_QUANTITY * 3) break;
         // fill buffer
         pv[idx].col = pv[idx + 1].col = pv[idx + 2].col = dwColor;
         pv[idx + 0].pos.x = fX + m_fShipShowRad * sinf(fAngle);
@@ -1300,6 +1383,16 @@ int32_t BATTLE_NAVIGATOR::SetRectangleSegVertexTex(BI_ONETEXTURE_VERTEX *v, floa
 
 void BATTLE_NAVIGATOR::SetIsland()
 {
+#ifdef __ANDROID__
+    ++m_navigatorGeneration;
+    m_androidDrawn=false;m_androidLayoutId=0;
+    storm::android::seaNavigator.clear();
+    m_islandExpected = false;
+    m_islandTextureReady = false;
+    m_renderLost = false;
+    rs->Release(m_pIslandTexture);
+    m_pIslandTexture = nullptr;
+#endif
     CVECTOR posCenter{};
     float islSize = 0;
 
@@ -1311,6 +1404,9 @@ void BATTLE_NAVIGATOR::SetIsland()
     }
     if (pM != nullptr)
     {
+#ifdef __ANDROID__
+        m_islandExpected = true;
+#endif
         pM->Update();
         // Get island size
         auto xMin = 0.f, yMin = 0.f, zMin = 0.f, xMax = 0.f, yMax = 0.f, zMax = 0.f;
@@ -1374,6 +1470,9 @@ void BATTLE_NAVIGATOR::SetIsland()
                         if (rs->TechniqueExecuteStart("battle_island_gettexture"))
                         {
                             pM->ProcessStage(Entity::Stage::realize, 1);
+#ifdef __ANDROID__
+                            m_islandTextureReady = true;
+#endif
                             while (rs->TechniqueExecuteNext())
                                 ;
                         }
@@ -1417,6 +1516,9 @@ void BATTLE_NAVIGATOR::UpdateMiniMap()
 
 void BATTLE_NAVIGATOR::UpdateCurrentCharge()
 {
+#ifdef __ANDROID__
+    m_chargeSignalAvailable = false;
+#endif
     VDATA *pVD = core.Event("GetCurrentCharge");
     if (pVD == nullptr)
         return;
@@ -1425,9 +1527,15 @@ void BATTLE_NAVIGATOR::UpdateCurrentCharge()
     int32_t curWindPic = m_curWindPic;
     int32_t curPowder = m_curPowder;
     int32_t isPowderRunOut = 0;
+#ifdef __ANDROID__
+    // Only these three slots are assigned by stock GetCurrentCharge. The shared
+    // array's slots 3/4 can contain results of unrelated events; never export them.
+    m_chargeSignalAvailable = pVD->Get(curCharge, 0) && pVD->Get(curSailState, 1) && pVD->Get(curWindPic, 2);
+#else
     pVD->Get(curCharge, 0);
     pVD->Get(curSailState, 1);
     pVD->Get(curWindPic, 2);
+#endif
     pVD->Get(curPowder, 3);
     pVD->Get(isPowderRunOut, 4);
     m_bPowderRunOut = isPowderRunOut;
@@ -1497,6 +1605,9 @@ void BATTLE_NAVIGATOR::UpdateCurrentCharge()
 
 void BATTLE_NAVIGATOR::UpdateWindParam()
 {
+#ifdef __ANDROID__
+    m_windSpeedAvailable = false;
+#endif
     if (!m_wb && !m_pAWeather)
     {
         m_wb = static_cast<WEATHER_BASE *>(core.GetEntityPointer(core.GetEntityId("weather")));
@@ -1510,23 +1621,61 @@ void BATTLE_NAVIGATOR::UpdateWindParam()
     {
         m_fWindAngle = m_wb->GetFloat(whf_wind_angle);
         m_fWindStrength = m_wb->GetFloat(whf_wind_speed);
+#ifdef __ANDROID__
+        m_windSpeedAvailable = std::isfinite(m_fWindStrength) && m_fWindStrength >= 0;
+#endif
     }
     if (m_pAWeather)
     {
         m_fWindStrength = m_pAWeather->GetAttributeAsFloat("WindSpeed");
+#ifdef __ANDROID__
+        const char *windText = m_pAWeather->GetAttribute("WindSpeed");
+        m_windSpeedAvailable = windText && storm::android::shipNumberValue(windText).has_value() &&
+            std::isfinite(m_fWindStrength) && m_fWindStrength >= 0;
+#endif
         m_fWindAngle = m_pAWeather->GetAttributeAsFloat("WindAngle");
     }
 }
 
 void BATTLE_NAVIGATOR::LostRender()
 {
+#ifdef __ANDROID__
+    m_renderLost = true;
+    ++m_navigatorGeneration;
+    m_androidDrawn=false;m_androidLayoutId=0;
+    storm::android::seaNavigator.clear();
+#endif
     rs->Release(m_pIslandTexture);
     m_pIslandTexture = nullptr;
 }
 
 void BATTLE_NAVIGATOR::RestoreRender()
 {
+#ifdef __ANDROID__
+    SetIsland();
+#endif
     //~!~
     // rs->CreateTexture(MAP_TEXTURE_WIDTH, MAP_TEXTURE_HEIGHT, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5,
     // D3DPOOL_DEFAULT, &m_pIslandTexture);
 }
+
+#ifdef __ANDROID__
+void BATTLE_NAVIGATOR::ReadAndroidSpeeds(storm::android::ShipTelemetryFrame &frame, uint64_t mainShipId) const
+{
+    if (m_shipSpeedAvailable && m_speedShipId == mainShipId)
+        frame.shipSpeedKnots = storm::android::shipDisplayedSpeed(m_fShipSpeed);
+    frame.navigatorGeneration=m_navigatorGeneration;
+    const auto *layout=storm::android::seaNavigator.layout(SDL_GetTicks(),storm::android::shipTelemetry.revision(),
+        storm::android::shipTelemetry.hudRevision(),m_navigatorGeneration);
+    frame.navigatorLayoutId=m_androidDrawn&&layout&&layout->id==m_androidLayoutId?m_androidLayoutId:0;
+    frame.navigatorAvailable=AndroidAvailable() && m_speedShipId==mainShipId;
+    frame.navigatorZoomIn=m_fCurScale>m_fMinScale;
+    frame.navigatorZoomOut=m_fCurScale<m_fMaxScale;
+    if(m_chargeSignalAvailable) {
+        frame.navigatorAmmoWarning=m_bNotEnoughBallFlag;
+        frame.navigatorWindState=m_curWindPic;
+    }
+    if (m_windSpeedAvailable)
+        frame.windSpeed = storm::android::shipDisplayedSpeed(m_fWindStrength);
+}
+#endif

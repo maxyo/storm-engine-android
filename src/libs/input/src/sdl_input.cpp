@@ -4,12 +4,58 @@
 #include <SDL2/SDL_system.h>
 #include <SDL2/SDL_video.h>
 #include <windows.h>
+#include <algorithm>
 #include <map>
+#include <string_view>
+#ifdef __ANDROID__
+#include <platform/android_worldmap.hpp>
+#endif
+#if defined(__ANDROID__) && !defined(STORM_INPUT_HOST_TEST)
+#include <jni.h>
+#include <platform/android_combat_input.hpp>
+#include <android/log.h>
+#include <sys/system_properties.h>
+#endif
 
 namespace storm
 {
 namespace
 {
+#ifdef __ANDROID__
+Uint32 InputCancelEventType()
+{
+    static const Uint32 type = SDL_RegisterEvents(1);
+    return type;
+}
+
+bool IsInputEvent(const SDL_Event &event)
+{
+    return event.type >= SDL_KEYDOWN && event.type <= SDL_CONTROLLERDEVICEREMAPPED;
+}
+
+bool IsKeyboardMouseEvent(const SDL_Event &event)
+{
+    return event.type >= SDL_KEYDOWN && event.type <= SDL_MOUSEWHEEL;
+}
+
+bool IsGameplayInputEvent(const SDL_Event &event)
+{
+    return IsKeyboardMouseEvent(event) || event.type==SDL_CONTROLLERAXISMOTION ||
+        event.type==SDL_CONTROLLERBUTTONDOWN || event.type==SDL_CONTROLLERBUTTONUP ||
+        event.type==SDL_JOYAXISMOTION || event.type==SDL_JOYBALLMOTION || event.type==SDL_JOYHATMOTION ||
+        event.type==SDL_JOYBUTTONDOWN || event.type==SDL_JOYBUTTONUP;
+}
+bool MapModalInputBlocked() { return android::worldMapHud.modal.ownsInput(SDL_GetTicks()); }
+
+bool IsInputBoundary(const SDL_Event &event)
+{
+    return event.type == InputCancelEventType() || event.type == SDL_QUIT ||
+           event.type == SDL_APP_WILLENTERBACKGROUND || event.type == SDL_APP_DIDENTERBACKGROUND ||
+           event.type == SDL_APP_WILLENTERFOREGROUND || event.type == SDL_APP_DIDENTERFOREGROUND ||
+           (event.type == SDL_WINDOWEVENT &&
+            (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST || event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED));
+}
+#endif
 // TODO: Use scancodes everywhere instead of Windows virtual key
 static const std::map<unsigned int, unsigned int> VK_TO_SDL_MAP{
     {VK_CANCEL, SDL_SCANCODE_CANCEL},
@@ -291,9 +337,9 @@ inline unsigned int keyToSDL(KeyboardKey key)
 SDLInput::SDLInput()
 {
     keyStates_ = SDL_GetKeyboardState(nullptr);
-#ifndef _WIN32
-    // since SDL 2.0.18 breaks WINAPI mouse api
-    SDL_SetRelativeMouseMode(SDL_TRUE);
+    SetRelativeMouseMode(true);
+#ifdef __ANDROID__
+    InputCancelEventType(); // Register before the watch can run on a JNI producer thread.
 #endif
     SDL_AddEventWatch(&SDLEventHandler, this);
     OpenController();
@@ -302,6 +348,7 @@ SDLInput::SDLInput()
 SDLInput::~SDLInput()
 {
     SDL_DelEventWatch(&SDLEventHandler, this);
+    SetRelativeMouseMode(false);
 }
 
 int SDLInput::Subscribe(const EventHandler &handler)
@@ -322,6 +369,9 @@ void SDLInput::Unsubscribe(int id)
 
 void SDLInput::ProcessEvent(const SDL_Event &event)
 {
+#ifdef __ANDROID__
+    if(IsGameplayInputEvent(event)&&MapModalInputBlocked())return;
+#endif
     InputEvent out;
     out.type = InputEvent::Unknown;
 
@@ -386,12 +436,20 @@ void SDLInput::ProcessEvent(const SDL_Event &event)
     if (out.type != InputEvent::Unknown)
     {
         for (const auto &handler : handlers_)
+        {
+#ifdef __ANDROID__
+            if (IsKeyboardMouseEvent(event) && !SnapshotCurrent()) break;
+#endif
             handler.second(out);
+        }
     }
 }
 
 bool SDLInput::KeyboardModState(const KeyboardKey &key) const
 {
+#ifdef __ANDROID__
+    if(MapModalInputBlocked())return false;
+#endif
     if (key == VK_NUMLOCK)
         return SDL_GetModState() & KMOD_NUM;
     else if (key == VK_CAPITAL)
@@ -404,16 +462,27 @@ bool SDLInput::KeyboardModState(const KeyboardKey &key) const
 
 bool SDLInput::KeyboardKeyState(const KeyboardKey &key) const
 {
+#ifdef __ANDROID__
+    return !MapModalInputBlocked() && keyboard_.Active(keyToSDL(key)) && SnapshotCurrent();
+#else
     return keyStates_[keyToSDL(key)] != 0;
+#endif
 }
 
 bool SDLInput::KeyboardSDLKeyState(const SDL_Scancode &key) const
 {
+#ifdef __ANDROID__
+    return !MapModalInputBlocked() && keyboard_.Active(static_cast<std::size_t>(key)) && SnapshotCurrent();
+#else
     return keyStates_[key] != 0;
+#endif
 }
 
 bool SDLInput::ControllerButtonState(const ControllerButton &button) const
 {
+#ifdef __ANDROID__
+    if(MapModalInputBlocked())return false;
+#endif
     if (!controller_)
         return false;
 
@@ -422,6 +491,9 @@ bool SDLInput::ControllerButtonState(const ControllerButton &button) const
 
 int SDLInput::ControllerAxisValue(const ControllerAxis &axis) const
 {
+#ifdef __ANDROID__
+    if(MapModalInputBlocked())return 0;
+#endif
     if (!controller_)
         return 0;
 
@@ -430,6 +502,18 @@ int SDLInput::ControllerAxisValue(const ControllerAxis &axis) const
 
 bool SDLInput::MouseKeyState(const MouseKey &key) const
 {
+#ifdef __ANDROID__
+    if(MapModalInputBlocked())return false;
+    switch (key)
+    {
+    case MouseKey::Left: return mouse_.Active(SDL_BUTTON_LEFT) && SnapshotCurrent();
+    case MouseKey::Right: return mouse_.Active(SDL_BUTTON_RIGHT) && SnapshotCurrent();
+    case MouseKey::Middle: return mouse_.Active(SDL_BUTTON_MIDDLE) && SnapshotCurrent();
+    case MouseKey::Special1: return mouse_.Active(SDL_BUTTON_X1) && SnapshotCurrent();
+    case MouseKey::Special2: return mouse_.Active(SDL_BUTTON_X2) && SnapshotCurrent();
+    }
+    return false;
+#else
     uint32_t btn = SDL_GetMouseState(nullptr, nullptr);
     if (key == MouseKey::Left)
         return btn & SDL_BUTTON_LMASK ? true : false;
@@ -443,6 +527,27 @@ bool SDLInput::MouseKeyState(const MouseKey &key) const
         return btn & SDL_BUTTON_X2MASK ? true : false;
 
     return false;
+#endif
+}
+
+bool SDLInput::SetRelativeMouseMode(bool enabled)
+{
+    // SDL owns platform capture, acceleration and cursor visibility. In particular,
+    // Windows no longer derives deltas by polling and warping the OS cursor.
+    const bool result = SDL_SetRelativeMouseMode(enabled ? SDL_TRUE : SDL_FALSE) == 0;
+#ifdef __ANDROID__
+    // PCS_CONTROLS::AppState uses this call for focus transitions. Discard
+    // pre-transition actions as well as camera motion; require a fresh press.
+    std::lock_guard<std::mutex> guard(pendingMutex_);
+    inputGeneration_.fetch_add(1, std::memory_order_release);
+    pendingEvents_.erase(std::remove_if(pendingEvents_.begin(), pendingEvents_.end(),
+                                      IsKeyboardMouseEvent),
+                         pendingEvents_.end());
+    keyboard_.Clear();
+    mouse_.Clear();
+    focused_ = enabled;
+#endif
+    return result;
 }
 
 uint32_t SDLInput::GetWheelFactor() const
@@ -457,8 +562,17 @@ int SDLInput::SDLEventHandler(void *userdata, SDL_Event *evt)
 #ifdef __ANDROID__
     // JNI may push events from Android's UI thread. Dispatch game callbacks
     // only from PCS_CONTROLS::Update, never while holding this queue mutex.
-    if (evt->type >= SDL_KEYDOWN && evt->type <= SDL_CONTROLLERDEVICEREMAPPED) {
+    if (IsInputEvent(*evt) || IsInputBoundary(*evt)) {
+        if(IsGameplayInputEvent(*evt)&&MapModalInputBlocked())return 0;
         std::lock_guard<std::mutex> guard(in->pendingMutex_);
+        if (IsInputBoundary(*evt))
+        {
+            // Also invalidate a batch already detached by PumpEvents and all
+            // current-frame key/button reads, before the next engine update.
+            in->inputGeneration_.fetch_add(1, std::memory_order_release);
+            in->pendingEvents_.erase(std::remove_if(in->pendingEvents_.begin(), in->pendingEvents_.end(),
+                                                    IsKeyboardMouseEvent), in->pendingEvents_.end());
+        }
         in->pendingEvents_.push_back(*evt);
     }
 #else
@@ -471,10 +585,76 @@ void SDLInput::PumpEvents()
 {
 #ifdef __ANDROID__
     std::vector<SDL_Event> events;
-    { std::lock_guard<std::mutex> guard(pendingMutex_); events.swap(pendingEvents_); }
-    for (const auto& event : events) ProcessEvent(event);
+    {
+        std::lock_guard<std::mutex> guard(pendingMutex_);
+        events.swap(pendingEvents_);
+        const auto generation = inputGeneration_.load(std::memory_order_acquire);
+        if (snapshotGeneration_ != generation)
+        {
+            keyboard_.Clear();
+            mouse_.Clear();
+        }
+        snapshotGeneration_ = generation;
+    }
+    keyboard_.BeginFrame();
+    mouse_.BeginFrame();
+    if(MapModalInputBlocked()){keyboard_.Clear();mouse_.Clear();}
+    for (const auto& event : events)
+    {
+        if (IsInputBoundary(event))
+        {
+            keyboard_.Clear();
+            mouse_.Clear();
+            if (event.type == SDL_WINDOWEVENT)
+                focused_ = event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED;
+            else if (event.type == SDL_APP_WILLENTERBACKGROUND || event.type == SDL_APP_DIDENTERBACKGROUND ||
+                     event.type == SDL_APP_WILLENTERFOREGROUND || event.type == SDL_QUIT)
+                foreground_ = false;
+            else if (event.type == SDL_APP_DIDENTERFOREGROUND)
+                foreground_ = true;
+            continue;
+        }
+        // Keep lifecycle/device events even in an invalidated batch: losing a
+        // background transition here could enable input before foregrounding.
+        if(IsGameplayInputEvent(event)&&MapModalInputBlocked()){keyboard_.Clear();mouse_.Clear();continue;}
+        if (IsKeyboardMouseEvent(event) && (!focused_ || !foreground_ || !SnapshotCurrent())) continue;
+        if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP)
+            keyboard_.Set(static_cast<std::size_t>(event.key.keysym.scancode), event.type == SDL_KEYDOWN,
+                          event.key.repeat != 0);
+        else if (event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP)
+        {
+            mouse_.Set(event.button.button, event.type == SDL_MOUSEBUTTONDOWN);
+#ifndef STORM_INPUT_HOST_TEST
+            static unsigned traceBudget = 256;
+            char setting[PROP_VALUE_MAX] = {};
+            if (traceBudget) __system_property_get("log.tag.StormNativeInput", setting);
+            if (traceBudget && (std::string_view(setting) == "DEBUG" || std::string_view(setting) == "VERBOSE"))
+            {
+                --traceBudget;
+                __android_log_print(ANDROID_LOG_DEBUG, "StormNativeInput", "mouse %s button=%u frameActive=%d",
+                    event.type == SDL_MOUSEBUTTONDOWN ? "down" : "up", event.button.button,
+                    mouse_.Active(event.button.button));
+            }
+#endif
+        }
+        ProcessEvent(event);
+    }
+    if (!SnapshotCurrent())
+    {
+        keyboard_.Clear();
+        mouse_.Clear();
+    }
 #endif
 }
+
+#ifdef __ANDROID__
+void SDLInput::CancelPendingInput()
+{
+    SDL_Event event{};
+    event.type = InputCancelEventType();
+    if (event.type != static_cast<Uint32>(-1)) SDL_PushEvent(&event);
+}
+#endif
 
 void SDLInput::OpenController()
 {
@@ -493,3 +673,12 @@ std::shared_ptr<Input> Input::Create()
     return std::make_shared<SDLInput>();
 }
 } // namespace storm
+
+#if defined(__ANDROID__) && !defined(STORM_INPUT_HOST_TEST)
+extern "C" JNIEXPORT void JNICALL
+Java_org_stormengine_port_GameActivity_nativeCancelInput(JNIEnv *, jclass)
+{
+    storm::android::cancelAndroidCombatInput();
+    storm::SDLInput::CancelPendingInput();
+}
+#endif

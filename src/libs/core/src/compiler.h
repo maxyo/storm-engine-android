@@ -268,6 +268,11 @@ class COMPILER : public VIRTUAL_COMPILER
     void PrintoutUsage();
 
 private:
+#ifdef __ANDROID__
+    bool androidUiAdapterAttempted_ = false;
+    void ResetAndroidUiAdapter();
+    void LoadAndroidUiAdapter();
+#endif
     [[nodiscard]] std::filesystem::path GetSegmentCachePath(const SEGMENT_DESC &segment) const;
 
     uint64_t cache_fingerprint_{};

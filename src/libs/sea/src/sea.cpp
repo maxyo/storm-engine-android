@@ -1,4 +1,7 @@
 #include "sea.h"
+#ifdef __ANDROID__
+#include "platform/android_graphics_effects.hpp"
+#endif
 
 #include <algorithm>
 #include <execution>
@@ -191,6 +194,10 @@ bool SEA::Init()
     {
         auto pEngineIni = fio->OpenIniFile(core.EngineIniFileName());
         bIniFoamEnable = (pEngineIni) ? pEngineIni->GetInt("Sea", "FoamEnable", 1) != 0 : false;
+#ifdef __ANDROID__
+        // An Android quality cut cannot re-enable foam disabled by game config.
+        bIniFoamEnable = storm::android::SeaFoamEnabled() && bIniFoamEnable;
+#endif
     }
 
     iFoamTexture = rs->TextureCreate("weather\\sea\\pena\\pena.tga");
@@ -1354,7 +1361,7 @@ void SEA::Realize(uint32_t dwDeltaTime)
     if (vCamPos.y < 0.0f)
         bUnderSea = true;
 
-    if (vCamPos.y < WaveXZ(vCamPos.x, vCamPos.z && bStarted))
+    if (bStarted && vCamPos.y < WaveXZ(vCamPos.x, vCamPos.z))
         bUnderSea = true;
 
     if (!bUnderSea)

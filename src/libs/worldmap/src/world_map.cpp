@@ -1244,3 +1244,19 @@ ATTRIBUTES *WorldMap::GetEncSaveData(const char *type, const char *retName)
     }
     return a;
 }
+
+#ifdef __ANDROID__
+#include "platform/android_worldmap.hpp"
+std::string storm::android::worldMapContext(uint64_t owner)
+{
+    if (!wdmObjects || !wdmObjects->wm || wdmObjects->wm->GetId()!=owner) return {};
+    const auto part=[](const char *s){std::string v=s?s:"";return std::to_string(v.size())+":"+v;};
+    const auto *enemy=wdmObjects->enemyShip;
+    const auto *a=wdmObjects->wm->AttributesPointer;
+    if(enemy && (!enemy->GetAttributeName() || !*enemy->GetAttributeName()))return {};
+    return part(wdmObjects->curIsland)+part(enemy?enemy->GetAttributeName():nullptr)+
+        part(a?a->GetAttribute("stormId"):nullptr)+part(a?a->GetAttribute("stormWhithTornado"):nullptr)+
+        ":"+std::to_string(wdmObjects->playarInStorm)+":"+
+        std::to_string(a?a->GetAttributeAsDword("encounter_type",-1):uint32_t(-1));
+}
+#endif

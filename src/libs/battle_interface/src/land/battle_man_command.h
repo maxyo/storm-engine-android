@@ -1,6 +1,9 @@
 #pragma once
 
 #include "../battle_command.h"
+#ifdef __ANDROID__
+#include <platform/android_land_commands.hpp>
+#endif
 
 class BIManCommandList : public BICommandList
 {
@@ -10,6 +13,11 @@ class BIManCommandList : public BICommandList
 
     void FillIcons() override;
     void Init() override;
+#ifdef __ANDROID__
+    storm::android::LandCommandSource RefreshAndroidSource();
+    bool SelectAndroidLand(const std::string &id);
+    void ReadAndroidLand(storm::android::LandCommandsFrame &frame) const;
+#endif
 
   protected:
     void Release();

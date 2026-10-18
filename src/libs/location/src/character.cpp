@@ -8,6 +8,9 @@
 //
 //============================================================================================
 
+#ifdef __ANDROID__
+#include <platform/android_movement.hpp>
+#endif
 #include "character.h"
 #include "characters_groups.h"
 #include "lights.h"
@@ -2013,14 +2016,40 @@ void Character::Move(float dltTime)
         kSpd = 1.0f;
     kSpdCur += (kSpd - kSpdCur) * k;
     k = kSpdCur * 0.3f + 0.7f + kSpdDlt;
+#ifdef __ANDROID__
+    // Only ordinary locomotion may consume the touch vector. Priority, recoil,
+    // attack, jump, swim and scripted movement retain all existing physics.
+    const bool touchStop = storm::android::ordinaryMovementAllowed(androidMotionStop && !isMove, true, lockMove,
+        priorityAction.name != nullptr, isJump, isSwim, fgtCurType != fgt_none, fgtSetType != fgt_none, true);
+    const bool touchMotion = touchStop || storm::android::ordinaryMovementAllowed(androidMotion, isMove, lockMove,
+        priorityAction.name != nullptr, isJump, isSwim, fgtCurType != fgt_none, fgtSetType != fgt_none, curMove != nullptr);
+    androidMotionApplied = touchMotion;
+    if (touchMotion && !touchStop && UsesTouchCamera() && !isTurnLock)
+    {
+        // The native pose and collision heading must agree with the voluntary
+        // travel vector. Keep all angles, including diagonals, continuous; a
+        // camera looking at the actor's face cannot make a forward gait run
+        // backwards. Special/locked motion never reaches this branch.
+        ay = nay = atan2f(androidMotionDirection.x, androidMotionDirection.z);
+        turnDir = 0.0f;
+    }
+    float touchSpeed = touchStop ? 0.0f : androidMotionSpeed;
+    if (touchMotion && curMove && androidMotionWalkSpeed > .001f &&
+        (curMove == &stsUp || curMove == &stsDown || curMove == &stsUpBack || curMove == &stsDownBack))
+        touchSpeed *= fabsf(curMove->speed) / androidMotionWalkSpeed;
+    const float animationPace = touchMotion && !touchStop && curMove && fabsf(curMove->speed) > .001f ?
+        touchSpeed / fabsf(curMove->speed) : 1.0f;
+#else
+    const float animationPace = 1.0f;
+#endif
     MODEL *m = Model();
     if (m)
     {
         Animation *a = m->GetAnimation();
         if (a)
         {
-            a->Player(0).SetSpeed(a->Player(0).GetDefSpeed() * k);
-            a->Player(1).SetSpeed(a->Player(1).GetDefSpeed() * k);
+            a->Player(0).SetSpeed(a->Player(0).GetDefSpeed() * k * animationPace);
+            a->Player(1).SetSpeed(a->Player(1).GetDefSpeed() * k * animationPace);
         }
     }
     // Current position
@@ -2036,10 +2065,16 @@ void Character::Move(float dltTime)
         // Moving
         const float spd = dltTime * speed * k;
         CVECTOR moveVec(sinf(ay) * spd, 0.0f, cosf(ay) * spd);
-        curPos += moveVec;
-        if (spd < 0.0f)
-            moveVec = -moveVec;
-        curPos += CVECTOR(moveVec.z, 0.0f, -moveVec.x) * (strafeMove * 0.8f);
+#ifdef __ANDROID__
+        if (touchMotion)
+            curPos += androidMotionDirection * (dltTime * touchSpeed * k);
+        else
+#endif
+        {
+            curPos += moveVec;
+            if (spd < 0.0f) moveVec = -moveVec;
+            curPos += CVECTOR(moveVec.z, 0.0f, -moveVec.x) * (strafeMove * 0.8f);
+        }
         curPos += impulse * dltTime;
         const float kStrafe = dltTime * 8.0f;
         bool noStrafe = true;
@@ -2116,7 +2151,10 @@ void Character::Move(float dltTime)
                     strafeVel = 0.0f;
             }
         }
-        curPos += CVECTOR(cosf(ay), 0.0f, -sinf(ay)) * (strafeVel * dltTime * 0.9f);
+#ifdef __ANDROID__
+        if (!touchMotion)
+#endif
+            curPos += CVECTOR(cosf(ay), 0.0f, -sinf(ay)) * (strafeVel * dltTime * 0.9f);
         // Rotation
         if (turnDir > 0.0f)
         {
@@ -3455,6 +3493,12 @@ uint32_t Character::zExMessage(MESSAGE &message)
     if (storm::iEquals(msg, "IsFightMode"))
     {
         return IsFight();
+    }
+    if (storm::iEquals(msg, "IsSetGun"))
+    {
+        // Pure observation; IsGunLoad also invokes a script event and must not
+        // be polled by the Android HUD merely to display equipment readiness.
+        return isGunSet;
     }
     if (storm::iEquals(msg, "IsSetBalde"))
     {

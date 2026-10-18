@@ -4,6 +4,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class VDX9RENDER;
@@ -35,6 +36,7 @@ class DlgLinkDescribe final
 
     [[nodiscard]] int32_t GetSelectedLine() const noexcept;
     [[nodiscard]] bool IsInEditMode() const noexcept;
+    [[nodiscard]] bool FitsEditWidth(std::string_view text) const;
 
     [[nodiscard]] bool CanMoveUp() const noexcept;
     DlgLinkDescribe &MoveUp();

@@ -14,6 +14,12 @@
 #include "location_camera.h"
 #include "collide.h"
 #include "shared/messages.h"
+#ifdef __ANDROID__
+#include <android/log.h>
+#include <sys/system_properties.h>
+#include <platform/android_ui.hpp>
+#include <platform/android_movement.hpp>
+#endif
 
 // ============================================================================================
 // Construction, destruction
@@ -60,6 +66,55 @@ void Player::Reset()
 // Move the character to the desired position
 void Player::Move(float dltTime)
 {
+#ifdef __ANDROID__
+    const auto traceCombat = [this](const char *action) {
+        static unsigned budget = 192;
+        if (!budget) return;
+        char setting[PROP_VALUE_MAX] = {};
+        __system_property_get("log.tag.StormCombat", setting);
+        if (std::string_view(setting) != "DEBUG") return;
+        --budget;
+        auto *energy = AttributesPointer ? AttributesPointer->FindAClass(AttributesPointer, "chr_ai.energy") : nullptr;
+        const std::string energyText = energy && energy->HasValue() ? std::string(energy->GetValue()) : "<absent>";
+        __android_log_print(ANDROID_LOG_DEBUG, "StormCombat", "player=%llu action=%s setType=%d currentType=%d energy=%s priority=%s",
+            static_cast<unsigned long long>(GetId()), action, static_cast<int>(fgtSetType), static_cast<int>(fgtCurType),
+            energyText.c_str(), priorityAction.name ? priorityAction.name : "none");
+    };
+#else
+    const auto traceCombat = [](const char *) {};
+#endif
+#ifdef __ANDROID__
+    androidMotion = false;
+    androidMotionApplied = false;
+    // Poll even during a scripted task: hard context invalidation and lease
+    // expiry must not leave a sample waiting to resume after that task ends.
+    const auto androidAxes = GetId() == core.GetEntityId("Player") ?
+        storm::android::movementInput.read(storm::android::movementTick()) : std::nullopt;
+    if (task.task != npct_none || command.cmd != aicmd_none || GetId() != core.GetEntityId("Player"))
+    {
+        androidMotionStop = false;
+        androidRunTier = false;
+        if (androidAxes) storm::android::movementInput.resetActivity();
+    }
+    else if ((androidMovementHeld && !androidAxes) || (androidAxes && androidAxes->magnitude == 0.0f))
+    {
+        // StopMove only requests idle; bspeed still holds the full native gait
+        // during blending. Do not let that residual speed replace a slow touch
+        // vector after release, zero input, expiry or hard cancellation.
+        StopAndroidMovement();
+    }
+    const auto cameraGeneration = storm::android::movementInput.generation();
+    if (cameraGeneration != androidCameraGeneration || task.task != npct_none ||
+        command.cmd != aicmd_none || GetId() != core.GetEntityId("Player") ||
+        (locCam && !locCam->IsThirdPersonFollow()))
+        androidCameraRelative = false;
+    androidCameraGeneration = cameraGeneration;
+    if (androidAxes && task.task == npct_none && command.cmd == aicmd_none &&
+        (!locCam || locCam->IsThirdPersonFollow()))
+        androidCameraRelative = true;
+    androidMovementHeld = androidAxes.has_value();
+    androidTraceMagnitude = androidAxes ? androidAxes->magnitude : 0.0f;
+#endif
     kSMReload += dltTime * 0.7f;
     if (kSMReload > 1.0f)
         kSMReload = 1.0f;
@@ -120,28 +175,94 @@ void Player::Move(float dltTime)
         if (lastChange > 0.3f)
         {
             // lastChange = 0.0f;
-            SetRunMode(IsRunMode(dltTime));
-            if (GoForward(dltTime))
+#ifdef __ANDROID__
+            if (androidAxes && command.cmd == aicmd_none && !shootgunMode && !isSwim && !isJump)
             {
-                StartMove(false);
-                StrafeWhenMove(dltTime);
-            }
-            else if (GoBack(dltTime))
-            {
-                if (!IsFight())
+                const auto &axes = *androidAxes;
+                if (axes.magnitude == 0.0f)
                 {
-                    StartMove(true);
-                    StrafeWhenMove(dltTime);
+                    StopAndroidMovement();
+                }
+                else if (IsFight() && axes.y < -0.22f)
+                {
+                    // Backstep and side dodges are native combat actions, not
+                    // ordinary locomotion whose impulses may be rescaled.
+                    StopAndroidMovement();
+                    if (axes.magnitude > .22f) Recoil();
+                }
+                else if (IsFight() && std::fabs(axes.y) < .22f)
+                {
+                    StopAndroidMovement();
+                    if (axes.magnitude > .22f)
+                    {
+                        if (axes.x < 0) StrafeLeft(); else StrafeRight();
+                    }
                 }
                 else
                 {
-                    Recoil();
+                    // Explore input turns the actor towards its travel vector;
+                    // moving towards the camera is a forward gait after a turn,
+                    // never a backwards gait selected from the screen-space Y.
+                    const bool cameraRelative = UsesTouchCamera();
+                    const bool back = !cameraRelative && axes.y < 0;
+                    const float walking = IsFight() ? fightwalk.speed : (back ? backwalk.speed : walk.speed);
+                    const float running = IsFight() ? fightrun.speed : (back ? backrun.speed : run.speed);
+                    const auto pace = storm::android::movementPace(axes.magnitude, walking, running,
+                        axes.runAllowed && !isRunDisable, androidRunTier);
+                    androidRunTier = pace.run;
+                    SetRunMode(pace.run);
+                    StartMove(back);
+                    androidMotionStop = false;
+                    strafeMove = cameraRelative ? 0.0f : axes.x;
+                    // Combat stays relative to the fighter, like native
+                    // recoil/strafe. Camera inertia cannot reverse its forward gait.
+                    const CVECTOR forward = cameraRelative && locCam ? locCam->MovementViewDirection() :
+                        CVECTOR(sinf(ay), 0.0f, cosf(ay));
+                    const auto direction = storm::android::movementDirection(axes, forward.x, forward.z, ay);
+                    androidMotionDirection = CVECTOR(direction.x, 0.0f, direction.z);
+                    androidMotionSpeed = pace.speed;
+                    androidMotionWalkSpeed = std::fabs(walking);
+                    androidMotion = true;
                 }
             }
             else
+#endif
             {
-                StopMove();
-                StrafeWhenStop(dltTime);
+                SetRunMode(IsRunMode(dltTime));
+                if (GoForward(dltTime))
+                {
+#ifdef __ANDROID__
+                    androidMotionStop = false;
+                    androidCameraRelative = false;
+#endif
+                    StartMove(false);
+                    StrafeWhenMove(dltTime);
+                }
+                else if (GoBack(dltTime))
+                {
+#ifdef __ANDROID__
+                    androidMotionStop = false;
+                    androidCameraRelative = false;
+#endif
+                    if (!IsFight())
+                    {
+                        StartMove(true);
+                        StrafeWhenMove(dltTime);
+                    }
+                    else
+                    {
+                        Recoil();
+                    }
+                }
+                else
+                {
+#ifdef __ANDROID__
+                    if (androidMovementHeld) StopAndroidMovement();
+                    else
+#endif
+                        StopMove();
+                    StrafeWhenStop(dltTime);
+                }
             }
         }
         else
@@ -153,6 +274,7 @@ void Player::Move(float dltTime)
             {
                 isSetBlock = false;
                 SetFightMode(!IsFight());
+                traceCombat("weapon");
             }
             if (IsFight())
             {
@@ -178,6 +300,7 @@ void Player::Move(float dltTime)
                     }
                     // boal <--
                     Parry();
+                    traceCombat("parry");
                 }
                 else if (IsDoAttackForce())
                 {
@@ -188,6 +311,7 @@ void Player::Move(float dltTime)
                     }
                     // boal <--
                     Attack(FindAttackCharacter(), fgt_attack_force);
+                    traceCombat("force");
                 }
                 else if (IsDoAttackFast())
                 {
@@ -196,6 +320,7 @@ void Player::Move(float dltTime)
                         StopFightAnimation();
                     }
                     Attack(FindAttackCharacter(), fgt_attack_fast);
+                    traceCombat("fast");
                 }
                 else if (IsDoAttackRound())
                 {
@@ -205,6 +330,7 @@ void Player::Move(float dltTime)
                         StopFightAnimation();
                     }
                     Attack(FindAttackCharacter(), fgt_attack_round);
+                    traceCombat("round");
                 }
                 else if (IsDoAttackBreak())
                 {
@@ -213,6 +339,7 @@ void Player::Move(float dltTime)
                         StopFightAnimation();
                     }
                     Attack(FindAttackCharacter(), fgt_attack_break);
+                    traceCombat("break");
                 }
                 else if (IsDoAttackFeint())
                 {
@@ -222,6 +349,7 @@ void Player::Move(float dltTime)
                         StopFightAnimation();
                     }
                     Attack(FindAttackCharacter(), fgt_attack_feint);
+                    traceCombat("feint");
                 }
                 else if (IsFire())
                 {
@@ -231,6 +359,7 @@ void Player::Move(float dltTime)
                         StopFightAnimation();
                     }
                     Fire();
+                    traceCombat("pistol");
                 }
             }
         }
@@ -260,10 +389,19 @@ void Player::Update(float dltTime)
             CONTROL_STATE cs;
             core.Controls->GetControlState("ChrAction", cs);
             if (cs.state == CST_ACTIVATED)
+            {
                 aDialog = true;
+#ifdef __ANDROID__
+                storm::android::traceContextAction("primary-poll", "ChrAction", "player=" + std::to_string(GetId()));
+#endif
+            }
             if (activatedDialog)
             {
                 auto *chr = FindDialogCharacter();
+#ifdef __ANDROID__
+                storm::android::traceContextAction("dialog-target", "ChrAction",
+                    "target=" + std::to_string(chr && chr->AttributesPointer ? chr->AttributesPointer->GetAttributeAsDword("index", -1) : uint32_t(-1)));
+#endif
                 if (chr)
                 {
                     Assert(AttributesPointer);
@@ -272,6 +410,10 @@ void Player::Update(float dltTime)
                     const int32_t next = chr->AttributesPointer->GetAttributeAsDword("index", -1);
                     if (first >= 0 && next >= 0)
                     {
+#ifdef __ANDROID__
+                        storm::android::traceContextAction("dialog-dispatch", "dlgReady",
+                            "target=" + std::to_string(next) + " player=" + std::to_string(first));
+#endif
                         core.Event("dlgReady", "ll", next, first);
                     }
                     else
@@ -303,6 +445,9 @@ void Player::Update(float dltTime)
     // Character * c = FindGunTarget(kDist);
     // if(c) c->Select();
     NPCharacter::Update(dltTime);
+#ifdef __ANDROID__
+    TraceAndroidMovement(dltTime);
+#endif
     activatedDialog = aDialog;
     core.Send_Message(baterfl, "lff", MSG_ANIMALS_BUTTERFLIES_XYZ, curPos.x, curPos.z);
     // go through characters in search of enemies to the player
@@ -319,6 +464,65 @@ void Player::Update(float dltTime)
         }
     }
 }
+
+#ifdef __ANDROID__
+void Player::StopAndroidMovement()
+{
+    StopMove();
+    strafeMove = 0.0f;
+    androidMotionStop = true;
+    androidRunTier = false;
+}
+
+void Player::TraceAndroidMovement(float dltTime)
+{
+    // Diagnostic observations after collision/forces/floor update. Never poll
+    // the input mailbox here: logging must not renew a lease or change its token.
+    static unsigned budget = 192;
+    if (!budget) return;
+    if (androidTraceHasPosition) androidTraceSimulationTime += dltTime;
+    const auto now = storm::android::movementTick();
+    if (androidTraceHasTick && now - androidTraceTick < 250) return;
+    if (!androidMovementHeld && !androidTraceTail) return;
+    const auto elapsed = androidTraceHasPosition ? now - androidTraceTick : 0;
+    androidTraceTick = now;
+    androidTraceHasTick = true;
+    char setting[PROP_VALUE_MAX] = {};
+    __system_property_get("log.tag.StormInput", setting);
+    if (std::string_view(setting) != "DEBUG")
+    {
+        androidTraceHasPosition = false;
+        androidTraceSimulationTime = 0.0f;
+        androidTraceTail = 0;
+        return;
+    }
+    const float dx = androidTraceHasPosition ? curPos.x - androidTracePosition.x : 0.0f;
+    const float dz = androidTraceHasPosition ? curPos.z - androidTracePosition.z : 0.0f;
+    const float distance = sqrtf(dx * dx + dz * dz);
+    const float velocity = androidTraceSimulationTime > 0.0f ? distance / androidTraceSimulationTime : 0.0f;
+    const char *phase = androidMovementHeld ? "held" : (androidTraceTail == 2 ? "stop" : "idle");
+    __android_log_print(ANDROID_LOG_DEBUG, "StormInput",
+        "move-observe phase=%s player=%llu tick=%u wallMs=%u simSec=%.4f held=%d applied=%d mag=%.4f "
+        "target=%.4f run=%d vector=(%.4f,%.4f) pos=(%.4f,%.4f,%.4f) delta=(%.4f,%.4f) "
+        "distance=%.4f velocity=%.4f collision=%d locked=%d task=%d fight=%d yaw=%.4f cameraYaw=%.4f touchCamera=%d",
+        phase, static_cast<unsigned long long>(GetId()), now, elapsed, androidTraceSimulationTime,
+        androidMovementHeld, androidMotionApplied, androidTraceMagnitude, androidMotion ? androidMotionSpeed : 0.0f,
+        IsRun(), androidMotion ? androidMotionDirection.x : 0.0f, androidMotion ? androidMotionDirection.z : 0.0f,
+        curPos.x, curPos.y, curPos.z, dx, dz, distance, velocity, isCollision, lockMove,
+        static_cast<int>(task.task), IsFight(), ay,
+        locCam ? atan2f(locCam->MovementViewDirection().x, locCam->MovementViewDirection().z) : ay,
+        UsesTouchCamera());
+    --budget;
+    androidTracePosition = curPos;
+    androidTraceTick = now;
+    androidTraceSimulationTime = 0.0f;
+    androidTraceHasPosition = true;
+    // One release observation followed by one settled observation, both under
+    // the same 250 ms throttle; never flood logs while idle in the game world.
+    if (androidMovementHeld) androidTraceTail = 2;
+    else --androidTraceTail;
+}
+#endif
 
 // Save parameters
 void Player::SetSaveData(ATTRIBUTES *sdata)
@@ -342,6 +546,11 @@ void Player::GetSaveData(ATTRIBUTES *sdata)
 void Player::Rotate(float dltTime)
 {
     CONTROL_STATE cs;
+#ifdef __ANDROID__
+    // Touch camera orbit is handled by CameraFollow. Feeding its swipe back
+    // into character yaw would fight joystick steering and re-orbit the camera.
+    if (UsesTouchCamera() && (!locCam || locCam->IsThirdPersonFollow())) return;
+#endif
     if (!isSpecialMode)
     {
         auto a = GetRotateH() * 0.01f;
@@ -485,6 +694,11 @@ void Player::StrafeWhenMove(float dltTime)
 void Player::StrafeWhenStop(float dltTime)
 {
     StrafeWhenMove(dltTime);
+#ifdef __ANDROID__
+    // The native poll above owns physical A/D, including configurations whose
+    // stopped strafe is subsequently cleared or converted into a combat dodge.
+    if (strafeMove != 0.0f) androidMotionStop = false;
+#endif
     if (IsFight())
     {
         if (strafeMove > 0.5f)
@@ -505,6 +719,18 @@ void Player::StrafeWhenStop(float dltTime)
 
 bool Player::IsDoBlock()
 {
+#ifdef __ANDROID__
+    // A modal/actor can skip the release frame. Reconcile both real controls
+    // instead of retaining a latch after all physical/virtual input is gone.
+    CONTROL_STATE primary{}, secondary{};
+    core.Controls->GetControlState("ChrBlock", primary);
+    core.Controls->GetControlState("ChrBlock2", secondary);
+    const auto held = [](const CONTROL_STATE &state) {
+        return state.state == CST_ACTIVATED || state.state == CST_ACTIVE;
+    };
+    isSetBlock = IsFight() && (held(primary) || held(secondary));
+    return isSetBlock;
+#else
     //    return true;
     CONTROL_STATE cs;
     core.Controls->GetControlState("ChrBlock", cs);
@@ -533,6 +759,7 @@ bool Player::IsDoBlock()
         isSetBlock = false;
     }
     return isSetBlock;
+#endif
 }
 
 bool Player::IsDoParry()

@@ -1,3 +1,4 @@
+#include "android_dialog.hpp"
 #include "dialog.hpp"
 
 #include <dialog/dialog_utils.hpp>
@@ -216,6 +217,9 @@ DIALOG::DIALOG()
 //--------------------------------------------------------------------
 DIALOG::~DIALOG()
 {
+#ifdef __ANDROID__
+    storm::android::closeDialogue(this);
+#endif
     core.SetTimeScale(1.f);
 
     if (m_idVBufBack != -1)
@@ -689,6 +693,23 @@ void DIALOG::Realize(uint32_t Delta_Time)
         FillButtons();
     }
 
+#ifdef __ANDROID__
+    const bool mobileDialogue = storm::android::publishDialogue(this, AttributesPointer, m_sTalkPersName.c_str());
+    if (auto *choice = storm::android::takeDialogueChoice(this, AttributesPointer,
+            [this](std::string_view text) { return linkDescribe_.FitsEditWidth(text); })) {
+        const char *goName = choice->GetAttribute("go");
+        if (storm::iEquals(goName, selectedLinkName)) EmergencyExit();
+        else {
+            AttributesPointer->SetAttribute("CurrentNode", goName);
+            strcpy_s(selectedLinkName, goName);
+            strcpy_s(soundName, charDefSnd);
+            if (snd) snd->SoundPlay(TICK_SOUND, PCM_STEREO, VOLUME_FX);
+            core.Event("DialogEvent");
+        }
+        return;
+    }
+    if (!mobileDialogue) {
+#endif
     CONTROL_STATE cs;
     CONTROL_STATE cs1; // boal
     CONTROL_STATE cs2;
@@ -846,6 +867,9 @@ void DIALOG::Realize(uint32_t Delta_Time)
         linkDescribe_.Show(
             static_cast<int32_t>(textViewport.Y + m_BackParams.nDividerOffsetY + m_BackParams.nDividerHeight));
 
+#ifdef __ANDROID__
+    }
+#endif
     if (snd && !snd->SoundIsPlaying(curSnd))
     {
         // stop animation

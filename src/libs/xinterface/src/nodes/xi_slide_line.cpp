@@ -1,4 +1,57 @@
 #include "xi_slide_line.h"
+#include "string_compare.hpp"
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+static int32_t SliderPositionFromNormalized(float value, int32_t quantity)
+{
+    // A saved 0.59 is represented just below 0.59 as float. Truncation would
+    // turn 59 into 58 on reopening; select the nearest discrete slider unit.
+    const double position = std::round(static_cast<double>(value) * quantity);
+    if (!std::isfinite(position)) return 0;
+    return static_cast<int32_t>(std::clamp(position,
+        static_cast<double>(std::numeric_limits<int32_t>::min()),
+        static_cast<double>(std::numeric_limits<int32_t>::max())));
+}
+
+#ifdef __ANDROID__
+void CXI_SLIDELINE::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    if (!m_bUse) return;
+    MobileWidget widget{m_nodeName, "slider", "", std::to_string(m_nCurValue), -1,
+                        m_rect.top * 8192 + m_rect.left};
+    widget.min = std::max(0, m_nMinValue);
+    widget.max = m_nMaxValue < 0 ? m_nGrateQuantity : std::min(m_nGrateQuantity, m_nMaxValue);
+    widget.step = 1;
+    widget.enabled = m_bSelected && m_bClickable && !m_bLockedNode && !m_bLockStatus &&
+                     m_nGrateQuantity > 0 && widget.max >= widget.min;
+    // SDL's Android window driver has no gamma-ramp implementation. Do not
+    // advertise color correction until the renderer implements it on Android.
+    if (storm::iEquals(m_nodeName, "GAMMA_SLIDE") || storm::iEquals(m_nodeName, "BRIGHT_SLIDE") ||
+        storm::iEquals(m_nodeName, "CONTRAST_SLIDE"))
+    {
+        widget.enabled = false;
+        widget.unavailableReason = "android_color_correction";
+    }
+    if (widget.enabled) widget.actions.push_back("set");
+    widgets.push_back(std::move(widget));
+}
+
+bool CXI_SLIDELINE::MobileApply(int index, const std::string &value)
+{
+    if (index != -1) return false;
+    std::vector<MobileWidget> widgets;
+    MobileCollect(widgets);
+    int position;
+    if (widgets.empty() || !widgets.front().enabled ||
+        !MobileSliderPosition(value, widgets.front().min, widgets.front().max, position)) return false;
+    // The established setter owns attribute synchronization, limits and the
+    // eSlideChange event consumed by game scripts; never write attributes here.
+    SetNewValue(position);
+    return true;
+}
+#endif
 
 CXI_SLIDELINE::CXI_SLIDELINE()
 {
@@ -205,7 +258,7 @@ uint32_t CXI_SLIDELINE::MessageProc(int32_t msgcode, MESSAGE &message)
     {
     case 0: // Set slide to new value
     {
-        SetNewValue(static_cast<int32_t>(message.Float() * m_nGrateQuantity));
+        SetNewValue(SliderPositionFromNormalized(message.Float(), m_nGrateQuantity));
     }
     break;
     case 1: //
@@ -268,7 +321,7 @@ void CXI_SLIDELINE::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, con
     if (pA != nullptr)
         pA = pA->GetAttributeClass(m_nodeName);
     if (pA != nullptr)
-        m_nCurValue = static_cast<int32_t>(pA->GetAttributeAsFloat("value", 0.f) * m_nGrateQuantity);
+        m_nCurValue = SliderPositionFromNormalized(pA->GetAttributeAsFloat("value", 0.f), m_nGrateQuantity);
     m_nMinValue = m_nMaxValue = -1;
     if (pA)
     {

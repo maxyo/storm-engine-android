@@ -2,6 +2,9 @@
 
 #include "bi_defines.h"
 #include "weather_base.h"
+#ifdef __ANDROID__
+#include <platform/android_sea_navigator.hpp>
+#endif
 
 #define RADIAL_QUANTITY 36
 #define BI_DEFAULT_COLOR 0xFF0010C0
@@ -9,6 +12,10 @@
 #define BI_SIDE_QUANTITY 4
 #define FIRERANGE_QUANTITY (BI_ONESIDE_SIZE + 1) * BI_SIDE_QUANTITY
 #define MAX_ENEMY_SHIP_QUANTITY 20
+
+#ifdef __ANDROID__
+namespace storm::android { struct ShipTelemetryFrame; }
+#endif
 
 class BATTLE_NAVIGATOR
 {
@@ -22,22 +29,35 @@ class BATTLE_NAVIGATOR
     ~BATTLE_NAVIGATOR();
 
     void Draw() const;
+#ifdef __ANDROID__
+    bool AndroidDrawn() const { return m_androidDrawn; }
+    bool AndroidPresented() const;
+    void ReadAndroidSpeeds(storm::android::ShipTelemetryFrame &frame, uint64_t mainShipId) const;
+#endif
     void Update();
     void Init(VDX9RENDER *RenderService, Entity *pOwnerEI);
     void SetIsland();
 
     void DecrementScale()
     {
+#ifdef __ANDROID__
+        m_fCurScale=storm::android::sea_nav::zoom(m_fCurScale,m_fScaleStep,m_fMinScale,m_fMaxScale,true);
+#else
         m_fCurScale -= m_fScaleStep;
         if (m_fCurScale < m_fMinScale)
             m_fCurScale = m_fMinScale;
+#endif
     }
 
     void IncrementScale()
     {
+#ifdef __ANDROID__
+        m_fCurScale=storm::android::sea_nav::zoom(m_fCurScale,m_fScaleStep,m_fMinScale,m_fMaxScale,false);
+#else
         m_fCurScale += m_fScaleStep;
         if (m_fCurScale > m_fMaxScale)
             m_fCurScale = m_fMaxScale;
+#endif
     }
 
     void SetEnoughBalls(bool notEnoughBallFlag)
@@ -98,6 +118,18 @@ class BATTLE_NAVIGATOR
     float m_fYPos{};
     float m_fAngle{};
     float m_fShipSpeed{};
+#ifdef __ANDROID__
+    bool DrawAndroid() const;
+    bool AndroidAvailable() const;
+    void UpdateAndroidBorts();
+    mutable bool m_androidDrawn = false;
+    mutable uint64_t m_androidLayoutId = 0;
+    uint64_t m_navigatorGeneration = 1;
+    bool m_chargeSignalAvailable = false, m_islandExpected = false, m_islandTextureReady = false, m_renderLost = false;
+    std::array<storm::android::sea_nav::Bort, 4> m_androidBorts{};
+    uint64_t m_speedShipId{};
+    bool m_shipSpeedAvailable = false, m_windSpeedAvailable = false;
+#endif
     float m_fMaxShipSpeed{};
     float m_fShipSpeedScale{-1.f};
     float m_fShipWindAgainst{};

@@ -1,6 +1,11 @@
+#include <platform/android_ui.hpp>
+#include "string_compare.hpp"
 #include <stdio.h>
 
 #include "i_battle.h"
+#ifdef __ANDROID__
+#include "../../../xinterface/src/string_service.h"
+#endif
 
 #include "core.h"
 #include "vma.hpp"
@@ -153,6 +158,9 @@ void BATTLE_INTERFACE::Execute(uint32_t delta_time)
 
 void BATTLE_INTERFACE::Realize(uint32_t delta_time)
 {
+#ifdef __ANDROID__
+    m_androidCaptionsDrawn = false;
+#endif
     if (core.Controls->GetDebugAsyncKeyState('K') < 0)
         return;
     if (m_bNeedIslandSet)
@@ -177,13 +185,39 @@ void BATTLE_INTERFACE::Realize(uint32_t delta_time)
             if (m_bShowCommandMenu)
                 m_pShipIcon->Draw();
             if (m_bShowBattleNavigator)
+            {
+#ifdef __ANDROID__
+                m_androidCaptionsDrawn = true;
+#endif
                 BattleNavigator.Draw();
+            }
             // if( m_pMessageIcons ) m_pMessageIcons->Draw();
 
             if (m_bShowBattleNavigator)
             {
+#ifdef __ANDROID__
+                const uint32_t mobileMask = AndroidCommandActive() ? 0 :
+                    storm::android::shipCaptionMask(AndroidCaptionsVisible(), false, storm::android::mobileShipHudMask());
+                for (auto &text : m_TextArray)
+                {
+                    const auto &name = text.sourceName;
+                    if(BattleNavigator.AndroidPresented() && (storm::iEquals(name,"Speed") || storm::iEquals(name,"Ammo") ||
+                        storm::iEquals(name,"Powder") || storm::iEquals(name,"Date") || storm::iEquals(name,"Location"))) continue;
+                    if (((mobileMask & storm::android::ShipAmmo) && storm::iEquals(name, "Ammo")) ||
+                        ((mobileMask & storm::android::ShipPowder) && storm::iEquals(name, "Powder")) ||
+                        ((mobileMask & storm::android::ShipDateTime) && storm::iEquals(name, "Date")) ||
+                        ((mobileMask & storm::android::ShipLocation) && storm::iEquals(name, "Location")) ||
+                        (storm::android::shipHideSpeedHeading(mobileMask) && storm::iEquals(name, "Speed"))) continue;
+                    text.Print();
+                }
+#else
                 BIUtils::PrintTextInfoArray(m_TextArray);
+#endif
+#ifdef __ANDROID__
+                m_LinesInfo.Draw(BattleNavigator.AndroidPresented() || (BattleNavigator.AndroidDrawn() && storm::android::shipHideSpeedHeading(mobileMask) && (mobileMask & storm::android::ShipAmmo)));
+#else
                 m_LinesInfo.Draw();
+#endif
                 if (m_bShowBattleBorder)
                     m_BattleBorder.Draw();
             }
@@ -415,3 +449,110 @@ void BATTLE_INTERFACE::EnableMessageIcons(VDATA *pvdat)
 
     m_pMessageIcons->StartData( pAttr, pLeft );*/
 }
+
+#ifdef __ANDROID__
+bool BATTLE_INTERFACE::ReadAndroidOrders(storm::android::SeaOrdersFrame &frame)
+{
+    if (!m_bYesShowAll || !m_bVisible || !m_bShowCommandMenu || !m_pShipIcon) return false;
+    m_pShipIcon->ReadAndroidOrders(frame);
+    return frame.available;
+}
+
+bool BATTLE_INTERFACE::ExecuteAndroidOrder(const storm::android::SeaOrdersRequest &request)
+{
+    return m_bYesShowAll && m_bVisible && m_bShowCommandMenu && m_pShipIcon && m_pShipIcon->ExecuteAndroidOrder(request);
+}
+
+void BATTLE_INTERFACE::CloseAndroidOrders()
+{
+    if (m_pShipIcon) m_pShipIcon->CloseAndroidOrders();
+}
+
+bool BATTLE_INTERFACE::AndroidCommandActive() const
+{
+    return (m_pShipIcon && m_pShipIcon->IsActive()) ||
+        (AttributesPointer && AttributesPointer->GetAttributeAsDword("ComState", 0));
+}
+
+bool BATTLE_INTERFACE::AndroidCaptionsVisible() const
+{
+    return m_androidCaptionsDrawn && m_bYesShowAll && m_bVisible && m_bShowBattleNavigator &&
+        !AndroidCommandActive();
+}
+
+void BATTLE_INTERFACE::ReadAndroidCaptions(storm::android::ShipTelemetryFrame &frame, uint64_t mainShipId) const
+{
+    frame.captionsVisible = AndroidCaptionsVisible();
+    if (!frame.captionsVisible) return;
+    BattleNavigator.ReadAndroidSpeeds(frame, mainShipId);
+    for (const auto &text : m_TextArray)
+    {
+        if (text.nFont == -1) continue;
+        const auto *value = text.pARefresh ? text.pARefresh->GetAttribute("text") : text.sText.c_str();
+        if (!value) continue;
+        if (storm::iEquals(text.sourceName, "Date"))
+        {
+            auto *strings = static_cast<VSTRSERVICE *>(core.GetService("STRSERVICE"));
+            const auto *prefix = strings ? strings->GetString("Date:") : nullptr;
+            if (prefix) frame.dateTimeText = storm::android::shipDateTimeText(value, prefix);
+        }
+        else if (storm::iEquals(text.sourceName, "Ammo"))
+            frame.navigatorAmmoText = storm::android::shipCaptionText(value);
+        else if (storm::iEquals(text.sourceName, "Location"))
+            frame.locationText = storm::android::shipCaptionText(value);
+    }
+}
+
+void storm::android::readShipCaptions(ShipTelemetryFrame &frame, uint64_t mainShipId)
+{
+    if (auto *battleInterface = dynamic_cast<BATTLE_INTERFACE *>(core.GetEntityPointer(BIUtils::idBattleInterface)))
+        battleInterface->ReadAndroidCaptions(frame, mainShipId);
+}
+#endif
+
+#ifdef __ANDROID__
+void storm::android::refreshSeaOrders(bool ready)
+{
+    auto *battle = dynamic_cast<BATTLE_INTERFACE *>(core.GetEntityPointer(BIUtils::idBattleInterface));
+    if (!ready || !battle)
+    {
+        if (battle && battle->AndroidCommandActive()) battle->CloseAndroidOrders();
+        seaOrders.update({}, {});
+        return;
+    }
+    auto *main = g_ShipList.GetMainCharacterShip();
+    if (!main || !main->pShip || main->isDead)
+    {
+        battle->CloseAndroidOrders();
+        seaOrders.update({}, {});
+        return;
+    }
+    const auto key = std::to_string(battle->GetId()) + ":" + std::to_string(main->pShip->GetId()) + ":" + std::to_string(main->characterIndex);
+    SeaOrdersFrame frame;
+    if (auto *strings = static_cast<VSTRSERVICE *>(core.GetService("STRSERVICE")))
+        if (const auto *language = strings->GetLanguage()) frame.language = language;
+    battle->ReadAndroidOrders(frame);
+    if (!frame.available) battle->CloseAndroidOrders();
+    seaOrders.update(key, std::move(frame));
+}
+
+bool storm::android::executeSeaOrder(const SeaOrdersRequest &request)
+{
+    if (request.scene != seaOrders.sceneEpoch() || request.revision != seaOrders.revision() ||
+        request.activity != seaOrders.activityGeneration() || !seaOrders.frame().available) return false;
+    auto *battle = dynamic_cast<BATTLE_INTERFACE *>(core.GetEntityPointer(BIUtils::idBattleInterface));
+    if (!battle) return false;
+    const bool executed = battle->ExecuteAndroidOrder(request);
+    // Even idempotent selection consumes this revision, preventing a duplicated
+    // confirmation from running against another stage or dispatching twice.
+    seaOrders.invalidate();
+    return executed;
+}
+
+void storm::android::closeSeaOrders()
+{
+    if (auto *battle = dynamic_cast<BATTLE_INTERFACE *>(core.GetEntityPointer(BIUtils::idBattleInterface)))
+        if (battle->AndroidCommandActive()) battle->CloseAndroidOrders();
+    seaOrders.update({}, {});
+}
+#endif

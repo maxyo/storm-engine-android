@@ -435,6 +435,7 @@ class DX9RENDER : public VDX9RENDER
     void SetGLOWParams(float _fBlurBrushSize, int32_t _GlowIntensity, int32_t _GlowPasses) override;
 
     IDirect3DBaseTexture9 *GetTextureFromID(int32_t nTextureID) override;
+    bool sampleTextureArgb(int32_t texture,float u,float v,uint32_t& result) override;
 
     bool GetRenderTargetAsTexture(IDirect3DTexture9 **tex) override;
 
@@ -481,11 +482,20 @@ private:
     VideoTextureEntity *pVTL;
 
     int32_t nTextureDegradation;
+    int32_t requestedTextureAnisotropy = 0;
+    uint32_t textureAnisotropy = 0; // 0 preserves technique-defined filtering.
     float aspectRatio;
     float m_fHeightDeformator;
 
     bool bSafeRendering;
     bool bShowFps, bShowExInfo;
+    // Opt-in presentation cadence diagnostics; these are not GPU timings.
+    bool renderMetricsEnabled = false;
+    double metricsPreviousPresent = 0.0;
+    double metricsElapsed = 0.0;
+    double metricsPresentTime = 0.0;
+    uint64_t metricsDrawCalls = 0;
+    std::vector<double> metricsFrameTimes;
     bool bInsideScene;
 
     PLANE viewplane[4];

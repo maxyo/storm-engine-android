@@ -372,45 +372,7 @@ inline Vector operator*(const Vector &v, const Matrix &mtx)
 // Set identity matrix
 inline Matrix &Matrix::SetIdentity()
 {
-    matrix[0] = 1.f;
-    matrix[1] = 0;
-    matrix[2] = 0;
-    matrix[3] = 0;
-    matrix[4] = 0;
-    matrix[5] = 1.f;
-    matrix[6] = 0;
-    matrix[7] = 0;
-    matrix[8] = 0;
-    matrix[9] = 0;
-    matrix[10] = 1.f;
-    matrix[11] = 0;
-    matrix[12] = 0;
-    matrix[13] = 0;
-    matrix[14] = 0;
-    matrix[15] = 1.f;
-
-    /*_asm
-    {
-      mov        eax, this
-      mov        ecx, 0x3f800000
-      xor        ebx, ebx
-      mov        [eax + 0*4], ecx
-      mov        [eax + 1*4], ebx
-      mov        [eax + 2*4], ebx
-      mov        [eax + 3*4], ebx
-      mov        [eax + 4*4], ebx
-      mov        [eax + 5*4], ecx
-      mov        [eax + 6*4], ebx
-      mov        [eax + 7*4], ebx
-      mov        [eax + 8*4], ebx
-      mov        [eax + 9*4], ebx
-      mov        [eax + 10*4], ecx
-      mov        [eax + 11*4], ebx
-      mov        [eax + 12*4], ebx
-      mov        [eax + 13*4], ebx
-      mov        [eax + 14*4], ebx
-      mov        [eax + 15*4], ecx
-    }*/
+    storm::math::storeGlmMatrix(matrix, storm::math::GlmMat4(1.0f));
     return *this;
 }
 
@@ -1140,87 +1102,17 @@ inline Matrix &Matrix::InverseWhithScale()
 // Matrix Transposition
 inline Matrix &Matrix::Transposition()
 {
-    float tmp;
-    tmp = matrix[1];
-    matrix[1] = matrix[4];
-    matrix[4] = tmp;
-    tmp = matrix[2];
-    matrix[2] = matrix[8];
-    matrix[8] = tmp;
-    tmp = matrix[3];
-    matrix[3] = matrix[12];
-    matrix[12] = tmp;
-    tmp = matrix[6];
-    matrix[6] = matrix[9];
-    matrix[9] = tmp;
-    tmp = matrix[7];
-    matrix[7] = matrix[13];
-    matrix[13] = tmp;
-    tmp = matrix[11];
-    matrix[11] = matrix[14];
-    matrix[14] = tmp;
-
-    /*    _asm
-      {
-        mov        eax, this
-        mov        ebx, [eax + 1*4]
-        mov        ecx, [eax + 2*4]
-        mov        esi, [eax + 4*4]
-        mov        edi, [eax + 8*4]
-        mov        [eax + 4*4], ebx
-        mov        [eax + 8*4], ecx
-        mov        [eax + 1*4], esi
-        mov        [eax + 2*4], edi
-        mov        ebx, [eax + 3*4]
-        mov        ecx, [eax + 6*4]
-        mov        esi, [eax + 12*4]
-        mov        edi, [eax + 9*4]
-        mov        [eax + 12*4], ebx
-        mov        [eax + 9*4], ecx
-        mov        [eax + 3*4], esi
-        mov        [eax + 6*4], edi
-        mov        ebx, [eax + 7*4]
-        mov        ecx, [eax + 11*4]
-        mov        esi, [eax + 13*4]
-        mov        edi, [eax + 14*4]
-        mov        [eax + 13*4], ebx
-        mov        [eax + 14*4], ecx
-        mov        [eax + 7*4], esi
-        mov        [eax + 11*4], edi
-      }*/
+    storm::math::storeGlmMatrix(matrix, glm::transpose(storm::math::loadGlmMatrix(matrix)));
     return *this;
 }
 
 // Rotation Matrix Transposition
 inline Matrix &Matrix::Transposition3X3()
 {
-    float tmp;
-    tmp = matrix[1];
-    matrix[1] = matrix[4];
-    matrix[4] = tmp;
-    tmp = matrix[2];
-    matrix[2] = matrix[8];
-    matrix[8] = tmp;
-    tmp = matrix[6];
-    matrix[6] = matrix[9];
-    matrix[9] = tmp;
-
-    /*    _asm
-      {
-        mov        eax, this
-        mov        ebx, [eax + 4*4]
-        mov        ecx, [eax + 8*4]
-        mov        esi, [eax + 1*4]
-        mov        edi, [eax + 2*4]
-        mov        [eax + 1*4], ebx
-        mov        [eax + 2*4], ecx
-        mov        [eax + 4*4], esi
-        mov        [eax + 8*4], edi
-        mov        ebx, [eax + 6*4]
-        mov        esi, [eax + 9*4]
-        mov        [eax + 9*4], ebx
-        mov        [eax + 6*4], esi
-      }*/
+    const auto basis = glm::transpose(storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix)));
+    for (int column = 0; column < 3; ++column)
+        for (int row = 0; row < 3; ++row)
+            m[column][row] = basis[column][row];
     return *this;
 }
 
@@ -1279,63 +1171,36 @@ inline Matrix &Matrix::EqMultiply(const Matrix &m1, const Matrix &m2)
 // Multiply matrices and place the result in the current m1 != this && m2 != this
 inline Matrix &Matrix::EqMultiplyFast(const Matrix &m1, const Matrix &m2)
 {
-    m[0][0] = m2.m[0][0] * m1.m[0][0] + m2.m[1][0] * m1.m[0][1] + m2.m[2][0] * m1.m[0][2] + m2.m[3][0] * m1.m[0][3];
-    m[0][1] = m2.m[0][1] * m1.m[0][0] + m2.m[1][1] * m1.m[0][1] + m2.m[2][1] * m1.m[0][2] + m2.m[3][1] * m1.m[0][3];
-    m[0][2] = m2.m[0][2] * m1.m[0][0] + m2.m[1][2] * m1.m[0][1] + m2.m[2][2] * m1.m[0][2] + m2.m[3][2] * m1.m[0][3];
-    m[0][3] = m2.m[0][3] * m1.m[0][0] + m2.m[1][3] * m1.m[0][1] + m2.m[2][3] * m1.m[0][2] + m2.m[3][3] * m1.m[0][3];
-    m[1][0] = m2.m[0][0] * m1.m[1][0] + m2.m[1][0] * m1.m[1][1] + m2.m[2][0] * m1.m[1][2] + m2.m[3][0] * m1.m[1][3];
-    m[1][1] = m2.m[0][1] * m1.m[1][0] + m2.m[1][1] * m1.m[1][1] + m2.m[2][1] * m1.m[1][2] + m2.m[3][1] * m1.m[1][3];
-    m[1][2] = m2.m[0][2] * m1.m[1][0] + m2.m[1][2] * m1.m[1][1] + m2.m[2][2] * m1.m[1][2] + m2.m[3][2] * m1.m[1][3];
-    m[1][3] = m2.m[0][3] * m1.m[1][0] + m2.m[1][3] * m1.m[1][1] + m2.m[2][3] * m1.m[1][2] + m2.m[3][3] * m1.m[1][3];
-    m[2][0] = m2.m[0][0] * m1.m[2][0] + m2.m[1][0] * m1.m[2][1] + m2.m[2][0] * m1.m[2][2] + m2.m[3][0] * m1.m[2][3];
-    m[2][1] = m2.m[0][1] * m1.m[2][0] + m2.m[1][1] * m1.m[2][1] + m2.m[2][1] * m1.m[2][2] + m2.m[3][1] * m1.m[2][3];
-    m[2][2] = m2.m[0][2] * m1.m[2][0] + m2.m[1][2] * m1.m[2][1] + m2.m[2][2] * m1.m[2][2] + m2.m[3][2] * m1.m[2][3];
-    m[2][3] = m2.m[0][3] * m1.m[2][0] + m2.m[1][3] * m1.m[2][1] + m2.m[2][3] * m1.m[2][2] + m2.m[3][3] * m1.m[2][3];
-    m[3][0] = m2.m[0][0] * m1.m[3][0] + m2.m[1][0] * m1.m[3][1] + m2.m[2][0] * m1.m[3][2] + m2.m[3][0] * m1.m[3][3];
-    m[3][1] = m2.m[0][1] * m1.m[3][0] + m2.m[1][1] * m1.m[3][1] + m2.m[2][1] * m1.m[3][2] + m2.m[3][1] * m1.m[3][3];
-    m[3][2] = m2.m[0][2] * m1.m[3][0] + m2.m[1][2] * m1.m[3][1] + m2.m[2][2] * m1.m[3][2] + m2.m[3][2] * m1.m[3][3];
-    m[3][3] = m2.m[0][3] * m1.m[3][0] + m2.m[1][3] * m1.m[3][1] + m2.m[2][3] * m1.m[3][2] + m2.m[3][3] * m1.m[3][3];
+    const auto product = storm::math::loadGlmMatrix(m2.matrix) * storm::math::loadGlmMatrix(m1.matrix);
+    storm::math::storeGlmMatrix(matrix, product);
     return *this;
 }
 
 // Multiply vertex by matrix
 inline Vector Matrix::MulVertex(const Vector &v) const
 {
-    Vector tv;
-    tv.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0];
-    tv.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z + m[3][1];
-    tv.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2];
-    return tv;
+    const auto point = storm::math::loadGlmMatrix(matrix) * storm::math::GlmVec4(v.glmValue(), 1.0f);
+    return Vector::fromGlm(storm::math::GlmVec3(point));
 }
 
 // Multiply normal by matrix
 inline Vector Matrix::MulNormal(const Vector &v) const
 {
-    Vector tv;
-    tv.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
-    tv.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
-    tv.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
-    return tv;
+    return Vector::fromGlm(storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix)) * v.glmValue());
 }
 
 // Multiply vertex by inverse matrix
 inline Vector Matrix::MulVertexByInverse(const Vector &v) const
 {
-    Vector tv;
-    tv.x = m[0][0] * (v.x - m[3][0]) + m[0][1] * (v.y - m[3][1]) + m[0][2] * (v.z - m[3][2]);
-    tv.y = m[1][0] * (v.x - m[3][0]) + m[1][1] * (v.y - m[3][1]) + m[1][2] * (v.z - m[3][2]);
-    tv.z = m[2][0] * (v.x - m[3][0]) + m[2][1] * (v.y - m[3][1]) + m[2][2] * (v.z - m[3][2]);
-    return tv;
+    const auto basis = storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix));
+    return Vector::fromGlm(glm::transpose(basis) * (v.glmValue() - this->v.pos.glmValue()));
 }
 
 // Multiply normal by inverse matrix
 inline Vector Matrix::MulNormalByInverse(const Vector &v) const
 {
-    Vector tv;
-    tv.x = m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z;
-    tv.y = m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z;
-    tv.z = m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z;
-    return tv;
+    const auto basis = storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix));
+    return Vector::fromGlm(glm::transpose(basis) * v.glmValue());
 }
 
 // Get camera position from camera matrix
@@ -1401,43 +1266,31 @@ inline bool Matrix::IsScale() const
 // Project Vertex (for projection matrix)
 inline Vector4 Matrix::Projection(Vector vertex, float vphWidth05, float vphHeight05) const
 {
-    Vector4 res;
-    // Transforming the vertex
-    res.x = m[0][0] * vertex.x + m[1][0] * vertex.y + m[2][0] * vertex.z + m[3][0];
-    res.y = m[0][1] * vertex.x + m[1][1] * vertex.y + m[2][1] * vertex.z + m[3][1];
-    res.z = m[0][2] * vertex.x + m[1][2] * vertex.y + m[2][2] * vertex.z + m[3][2];
-    res.w = m[0][3] * vertex.x + m[1][3] * vertex.y + m[2][3] * vertex.z + m[3][3];
-    // Normalization factor
-    const auto w = 1.0f / res.w;
-    // Normalize
-    res.x = (1.0f + res.x * w) * vphWidth05;
-    res.y = (1.0f - res.y * w) * vphHeight05;
-    res.z *= w;
-    res.w = w;
-    return res;
+    const auto clip = storm::math::loadGlmMatrix(matrix) * storm::math::GlmVec4(vertex.glmValue(), 1.0f);
+    const float reciprocalW = 1.0f / clip.w;
+    Vector4 result;
+    result.x = (1.0f + clip.x * reciprocalW) * vphWidth05;
+    result.y = (1.0f - clip.y * reciprocalW) * vphHeight05;
+    result.z = clip.z * reciprocalW;
+    result.w = reciprocalW;
+    return result;
 }
 
 // Project vertex array (for projection matrix)
 inline void Matrix::Projection(Vector4 *dstArray, Vector *srcArray, int32_t num, float vphWidth05, float vphHeight05,
                                int32_t srcSize, int32_t dstSize) const
 {
-    for (; num > 0; num--)
+    const auto transform = storm::math::loadGlmMatrix(matrix);
+    for (; num > 0; --num)
     {
-        // Transforming the vertex
-        dstArray->x = m[0][0] * srcArray->x + m[1][0] * srcArray->y + m[2][0] * srcArray->z + m[3][0];
-        dstArray->y = m[0][1] * srcArray->x + m[1][1] * srcArray->y + m[2][1] * srcArray->z + m[3][1];
-        dstArray->z = m[0][2] * srcArray->x + m[1][2] * srcArray->y + m[2][2] * srcArray->z + m[3][2];
-        dstArray->w = m[0][3] * srcArray->x + m[1][3] * srcArray->y + m[2][3] * srcArray->z + m[3][3];
-        // Normalization factor
-        const auto w = 1.0f / dstArray->w;
-        // Normalize
-        dstArray->x = (1.0f + dstArray->x * w) * vphWidth05;
-        dstArray->y = (1.0f - dstArray->y * w) * vphHeight05;
-        dstArray->z *= w;
-        dstArray->w = w;
-        // Pointers to the next vertices
-        srcArray = (Vector *)((char *)srcArray + srcSize);
-        dstArray = (Vector4 *)((char *)dstArray + dstSize);
+        const auto clip = transform * storm::math::GlmVec4(srcArray->glmValue(), 1.0f);
+        const float reciprocalW = 1.0f / clip.w;
+        dstArray->x = (1.0f + clip.x * reciprocalW) * vphWidth05;
+        dstArray->y = (1.0f - clip.y * reciprocalW) * vphHeight05;
+        dstArray->z = clip.z * reciprocalW;
+        dstArray->w = reciprocalW;
+        srcArray = reinterpret_cast<Vector *>(reinterpret_cast<char *>(srcArray) + srcSize);
+        dstArray = reinterpret_cast<Vector4 *>(reinterpret_cast<char *>(dstArray) + dstSize);
     }
 }
 

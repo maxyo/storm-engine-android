@@ -421,3 +421,30 @@ int ComboString::GetComboString(int align, int x, int y, int needWidth, int need
 void ComboString::ComboStringRelease(int comboStrID)
 {
 }
+
+// Resolve atlas metadata without creating or retaining a renderer texture.
+bool XSERVICE::ResolveImageSource(const char *group, const char *image, std::string &path, FXYRECT &uv, int32_t &width,
+                                  int32_t &height)
+{
+    if (!group || !image)
+        return false;
+    const int g = FindGroup(group);
+    if (g < 0 || g >= m_dwListQuantity)
+        return false;
+    const auto &list = m_pList[g];
+    if (!list.sTextureName || list.textureWidth <= 0 || list.textureHeight <= 0)
+        return false;
+    const int pic = GetImageNum(group, image);
+    XYRECT rect;
+    if (pic < 0 || !GetTexturePos(pic, rect))
+        return false;
+    if (rect.left < 0 || rect.top < 0 || rect.right > list.textureWidth || rect.bottom > list.textureHeight ||
+        rect.right <= rect.left || rect.bottom <= rect.top)
+        return false;
+    path = std::string("INTERFACES\\") + list.sTextureName;
+    uv = FXYRECT(float(rect.left) / list.textureWidth, float(rect.top) / list.textureHeight,
+                 float(rect.right) / list.textureWidth, float(rect.bottom) / list.textureHeight);
+    width = rect.right - rect.left;
+    height = rect.bottom - rect.top;
+    return true;
+}

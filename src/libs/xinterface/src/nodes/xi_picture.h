@@ -27,6 +27,10 @@ class CXI_PICTURE : public CINODE
     void ChangePosition(XYRECT &rNewPos) override;
     void SaveParametersToIni() override;
     uint32_t MessageProc(int32_t msgcode, MESSAGE &message) override;
+#ifdef __ANDROID__
+    void MobileCollect(std::vector<MobileWidget> &widgets) const override;
+    bool MobileApply(int index, const std::string &value) override;
+#endif
     virtual void ChangeUV(FXYRECT &frNewUV);
     void ChangeColor(uint32_t dwColor);
     void SetPictureSize(int32_t &nWidth, int32_t &nHeight);
@@ -39,6 +43,8 @@ class CXI_PICTURE : public CINODE
     void SetNewPictureByPointer(int32_t pTex);
     void ReleasePicture();
 
+    std::string m_mobileTexturePath; // CPU source metadata only; never a GPU pointer.
+    std::string m_mobilePictureName; // Exact atlas entry; empty for file/video/pointer/edited UV sources.
     char *m_pcGroupName;
     int32_t m_idTex;
     CVideoTexture *m_pTex;

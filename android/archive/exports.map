@@ -1,0 +1,4 @@
+{
+ global: storm_archive_inspect; storm_archive_manifest; storm_archive_extract; storm_archive_free; storm_archive_test_*; Java_org_stormengine_port_NativeArchives_*;
+ local: *;
+};

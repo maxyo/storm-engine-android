@@ -6,8 +6,12 @@
 
 #pragma once
 
+#pragma pack(push)
+#pragma pack()
 #include <math.h>
 #include <stdlib.h>
+#include "../glm_backend.h"
+#pragma pack(pop)
 
 #pragma pack(push, 1)
 
@@ -34,6 +38,10 @@ class Vector
     // Constructors
     // -----------------------------------------------------------
   public:
+    // Value conversions keep the packed x/y/z representation unchanged.
+    storm::math::GlmVec3 glmValue() const { return {x, y, z}; }
+    static Vector fromGlm(const storm::math::GlmVec3 &value) { return {value.x, value.y, value.z}; }
+
     // Empty constructor
     Vector();
     // Fill with number
@@ -257,7 +265,7 @@ inline Vector::Vector(const Vector &v)
 // Find the square of the length of a vector
 inline float Vector::operator~() const
 {
-    return x * x + y * y + z * z;
+    return glm::dot(glmValue(), glmValue());
 }
 
 // Return normalized vector
@@ -271,11 +279,7 @@ inline Vector Vector::operator!() const
 
 inline Vector Vector::operator-() const
 {
-    auto v(*this);
-    v.x = -v.x;
-    v.y = -v.y;
-    v.z = -v.z;
-    return v;
+    return fromGlm(-glmValue());
 }
 
 // Assign
@@ -308,129 +312,98 @@ inline Vector &Vector::operator=(const Vector &v)
 // per Component addition with assignment
 inline Vector &Vector::operator+=(float f)
 {
-    x += f;
-    y += f;
-    z += f;
+    *this = fromGlm(glmValue() + f);
     return *this;
 }
 
 // per Component addition with assignment
 inline Vector &Vector::operator+=(double d)
 {
-    x += static_cast<float>(d);
-    y += static_cast<float>(d);
-    z += static_cast<float>(d);
+    *this = fromGlm(glmValue() + static_cast<float>(d));
     return *this;
 }
 
 // per Component addition with assignment
 inline Vector &Vector::operator+=(const Vector &v)
 {
-    x += v.x;
-    y += v.y;
-    z += v.z;
+    *this = fromGlm(glmValue() + v.glmValue());
     return *this;
 }
 
 // per Component Subtraction with Assignment
 inline Vector &Vector::operator-=(float f)
 {
-    x -= f;
-    y -= f;
-    z -= f;
+    *this = fromGlm(glmValue() - f);
     return *this;
 }
 
 // per Component Subtraction with Assignment
 inline Vector &Vector::operator-=(double d)
 {
-    x -= static_cast<float>(d);
-    y -= static_cast<float>(d);
-    z -= static_cast<float>(d);
+    *this = fromGlm(glmValue() - static_cast<float>(d));
     return *this;
 }
 
 // per Component Subtraction with Assignment
 inline Vector &Vector::operator-=(const Vector &v)
 {
-    x -= v.x;
-    y -= v.y;
-    z -= v.z;
+    *this = fromGlm(glmValue() - v.glmValue());
     return *this;
 }
 
 // per Component multiplication with assignment
 inline Vector &Vector::operator*=(float f)
 {
-    x *= f;
-    y *= f;
-    z *= f;
+    *this = fromGlm(glmValue() * f);
     return *this;
 }
 
 // per Component multiplication with assignment
 inline Vector &Vector::operator*=(double d)
 {
-    x *= static_cast<float>(d);
-    y *= static_cast<float>(d);
-    z *= static_cast<float>(d);
+    *this = fromGlm(glmValue() * static_cast<float>(d));
     return *this;
 }
 
 // per Component multiplication with assignment
 inline Vector &Vector::operator*=(const Vector &v)
 {
-    x *= v.x;
-    y *= v.y;
-    z *= v.z;
+    *this = fromGlm(glmValue() * v.glmValue());
     return *this;
 }
 
 // per Component division with assignment
 inline Vector &Vector::operator/=(float f)
 {
-    const auto d = 1.0 / f;
-    x = static_cast<float>(x * d);
-    y = static_cast<float>(y * d);
-    z = static_cast<float>(z * d);
+    *this = fromGlm(storm::math::GlmVec3(storm::math::GlmDVec3(glmValue()) * (1.0 / f)));
     return *this;
 }
 
 // per Component division with assignment
 inline Vector &Vector::operator/=(double d)
 {
-    d = 1.0 / d;
-    x = static_cast<float>(x * d);
-    y = static_cast<float>(y * d);
-    z = static_cast<float>(z * d);
+    *this = fromGlm(storm::math::GlmVec3(storm::math::GlmDVec3(glmValue()) * (1.0 / d)));
     return *this;
 }
 
 // per Component division with assignment
 inline Vector &Vector::operator/=(const Vector &v)
 {
-    x /= v.x;
-    y /= v.y;
-    z /= v.z;
+    *this = fromGlm(glmValue() / v.glmValue());
     return *this;
 }
 
 // Scalar multiplication, the result is copied to all components
 inline Vector &Vector::operator|=(const Vector &v)
 {
-    x = y = z = v.x * x + v.y * y + v.z * z;
+    x = y = z = glm::dot(v.glmValue(), glmValue());
     return *this;
 }
 
 // Vector multiplication
 inline Vector &Vector::operator^=(const Vector &v)
 {
-    const auto tx = y * v.z - z * v.y;
-    const auto ty = z * v.x - x * v.z;
-    const auto tz = x * v.y - y * v.x;
-    x = tx;
-    y = ty;
-    z = tz;
+    *this = fromGlm(glm::cross(glmValue(), v.glmValue()));
     return *this;
 }
 
@@ -639,7 +612,7 @@ Scalar multiplication
 */
 inline float operator|(const Vector &v1, const Vector &v2)
 {
-    return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+    return glm::dot(v1.glmValue(), v2.glmValue());
 }
 
 /*!\relates Vector
@@ -647,11 +620,7 @@ Vector multiplication
 */
 inline Vector operator^(const Vector &v1, const Vector &v2)
 {
-    Vector v;
-    v.x = v1.y * v2.z - v1.z * v2.y;
-    v.y = v1.z * v2.x - v1.x * v2.z;
-    v.z = v1.x * v2.y - v1.y * v2.x;
-    return v;
+    return Vector::fromGlm(glm::cross(v1.glmValue(), v2.glmValue()));
 }
 
 /*!\relates Vector
@@ -719,32 +688,25 @@ inline bool operator!=(const Vector &v1, const Vector &v2)
 // Normalize the vector, and return it to its former length
 inline float Vector::Normalize()
 {
-    const auto len =
-        sqrt(static_cast<double>(x) * static_cast<double>(x) + static_cast<double>(y) * static_cast<double>(y) +
-             static_cast<double>(z) * static_cast<double>(z));
-    if (len > 0.0)
-    {
-        const auto k = 1.0 / len;
-        x = static_cast<float>(x * k);
-        y = static_cast<float>(y * k);
-        z = static_cast<float>(z * k);
-    }
-    return static_cast<float>(len);
+    const auto value = storm::math::GlmDVec3(glmValue());
+    const double length = glm::length(value);
+    if (length > 0.0) *this = fromGlm(storm::math::GlmVec3(value * (1.0 / length)));
+    return static_cast<float>(length);
 }
 
 // Project to XZ Plane and Normalize
 inline float Vector::Normalize2D()
 {
     y = 0.0f;
-    const auto len =
-        sqrt(static_cast<double>(x) * static_cast<double>(x) + static_cast<double>(z) * static_cast<double>(z));
-    if (len > 0.0)
+    const auto value = storm::math::GlmDVec2(static_cast<double>(x), static_cast<double>(z));
+    const double length = glm::length(value);
+    if (length > 0.0)
     {
-        const auto k = 1.0 / len;
-        x = static_cast<float>(x * k);
-        z = static_cast<float>(z * k);
+        const auto normalized = value * (1.0 / length);
+        x = static_cast<float>(normalized.x);
+        z = static_cast<float>(normalized.y);
     }
-    return static_cast<float>(len);
+    return static_cast<float>(length);
 }
 
 // Limit the length of the vector, and return the current length
@@ -968,22 +930,20 @@ inline Vector &Vector::Make2D(float ay)
 // Get vector length
 inline float Vector::GetLength() const
 {
-    return static_cast<float>(sqrt(static_cast<double>(x) * static_cast<double>(x) +
-                                   static_cast<double>(y) * static_cast<double>(y) +
-                                   static_cast<double>(z) * static_cast<double>(z)));
+    return static_cast<float>(glm::length(storm::math::GlmDVec3(glmValue())));
 }
 
 // Get vector length in 2D
 inline float Vector::GetLength2D() const
 {
-    return static_cast<float>(
-        sqrt(static_cast<double>(x) * static_cast<double>(x) + static_cast<double>(z) * static_cast<double>(z)));
+    return static_cast<float>(glm::length(storm::math::GlmDVec2(static_cast<double>(x), static_cast<double>(z))));
 }
 
 // Get the squared length of a vector in 2D
 inline float Vector::GetLength2D2() const
 {
-    return x * x + z * z;
+    const auto value = storm::math::GlmVec2(x, z);
+    return glm::dot(value, value);
 }
 
 // Rotate a vector in the XZ plane by an angle
@@ -1023,19 +983,14 @@ inline Vector &Vector::Rotate_PI2_CCW()
 // Calculate linearly interpolated value
 inline Vector &Vector::Lerp(const Vector &v1, const Vector &v2, float kBlend)
 {
-    x = v1.x + (v2.x - v1.x) * kBlend;
-    y = v1.y + (v2.y - v1.y) * kBlend;
-    z = v1.z + (v2.z - v1.z) * kBlend;
+    *this = fromGlm(v1.glmValue() + (v2.glmValue() - v1.glmValue()) * kBlend);
     return *this;
 }
 
 // Calculate the reflected vector
 inline Vector &Vector::Reflection(const Vector &normal)
 {
-    const auto k = -2.0f * (x * normal.x + y * normal.y + z * normal.z);
-    x += normal.x * k;
-    y += normal.y * k;
-    z += normal.z * k;
+    *this = fromGlm(glm::reflect(glmValue(), normal.glmValue()));
     return *this;
 }
 

@@ -19,7 +19,7 @@ class GEOMETRY final : public VGEOMETRY
     void DeleteGeometry(GEOS *);
     ANIMATION *LoadAnimation(const char *anim);
     void SetTechnique(const char *name);
-    void SetVBConvertFunc(VERTEX_TRANSFORM _transform_func);
+    void SetVBConvertFunc(VERTEX_TRANSFORM _transform_func, void *context = nullptr);
     ANIMATION_VB GetAnimationVBDesc(int32_t avb);
 
     const char *GetTexturePath();

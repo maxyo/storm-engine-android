@@ -2,6 +2,80 @@
 
 #include "string_compare.hpp"
 
+#ifdef __ANDROID__
+#include "platform/android_ui.hpp"
+
+void CXI_BUTTON::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    const std::string name = m_nodeName ? m_nodeName : "";
+    // This icon has a real ExitMapWindow script command but no text resource.
+    // Export only the live close capability; Android supplies its localized label.
+    if (name == "MAP_EXIT_BTN" && storm::android::mobileScreen == "items")
+    {
+        if (m_bUse && m_bClickable && !m_bLockedNode && !m_bLockStatus &&
+            (CheckCommandUsed(ACTION_MOUSECLICK) || CheckCommandUsed(ACTION_ACTIVATE)))
+        {
+            MobileWidget widget{name, "button", "×", "", -1, m_rect.top * 8192 + m_rect.left, true};
+            widget.actions.push_back("press");
+            widgets.push_back(std::move(widget));
+        }
+        return;
+    }
+    const char *label = nullptr;
+    if (name.compare(0, 11, "LEFTCHANGE_") == 0) label = "‹";
+    else if (name.compare(0, 12, "RIGHTCHANGE_") == 0) label = "›";
+    else if (m_idString != -1) label = pStringService->GetString(m_idString);
+    // Stock commerce quantity arrows are command-bearing icon buttons without
+    // a string resource. Export only these known controls, never arbitrary IDs.
+    if ((!label || !*label) &&
+        (storm::android::mobileScreen == "store" || storm::android::mobileScreen == "storage" ||
+         storm::android::mobileScreen == "contraband" || storm::android::mobileScreen == "cannons" ||
+         storm::android::mobileScreen == "itemstrade" || storm::android::mobileScreen == "itemsbox" ||
+         storm::android::mobileScreen == "hirecrew"))
+    {
+        if (name == "QTY_ADD_BUTTON") label = "+";
+        else if (name == "QTY_REMOVE_BUTTON") label = "−";
+        else if (name == "QTY_ADD_ALL_BUTTON") label = "+ max";
+        else if (name == "QTY_REMOVE_ALL_BUTTON") label = "− max";
+        if (label && !m_bUse) return;
+    }
+    // These icon/hit-area nodes deliberately keep text in STR_BUTTONS. Export
+    // the actual command-bearing node, using the same localized resource key.
+    if ((!label || !*label) && pStringService)
+    {
+        std::string baseName = name;
+        if (baseName.size() > 2 && baseName.compare(baseName.size() - 2, 2, "_2") == 0)
+            baseName.resize(baseName.size() - 2);
+        static constexpr struct { const char *node; const char *key; } navigation[] = {
+            {"I_SHIP", "buttonShip"}, {"I_QUESTBOOK", "buttonQuestBook"},
+            {"I_NATIONS", "buttonNation"}, {"I_TRADEBOOK", "buttonTradeBook"},
+            {"I_ITEMS", "Sel Items"}, {"I_CHARACTER", "buttonCharacter"}};
+        for (const auto &entry : navigation)
+            if (baseName == entry.node)
+            {
+                const auto id = pStringService->GetStringNum(entry.key);
+                if (id != -1) label = pStringService->GetString(id);
+                break;
+            }
+    }
+    if (label && *label)
+        widgets.push_back({name, "button", label, "", -1, m_rect.top * 8192 + m_rect.left,
+            m_bUse && m_bClickable && !m_bLockedNode && !m_bLockStatus &&
+            (CheckCommandUsed(ACTION_MOUSECLICK) || CheckCommandUsed(ACTION_ACTIVATE))});
+}
+
+bool CXI_BUTTON::MobileApply(int index, const std::string &value)
+{
+    if (index != -1 || value != "press" || !m_bUse || !m_bClickable || m_bLockedNode || m_bLockStatus)
+        return false;
+    const int action = CheckCommandUsed(ACTION_MOUSECLICK) ? ACTION_MOUSECLICK : ACTION_ACTIVATE;
+    if (!CheckCommandUsed(action)) return false;
+    bool stop = false;
+    DoAction(action, stop, true);
+    return true;
+}
+#endif
+
 CXI_BUTTON::CXI_BUTTON()
 {
     m_rs = nullptr;

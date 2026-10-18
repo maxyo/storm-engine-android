@@ -12,6 +12,10 @@ class CXI_PCEDITBOX : public CINODE
     CXI_PCEDITBOX(const CXI_PCEDITBOX &) = delete;
     CXI_PCEDITBOX();
     ~CXI_PCEDITBOX() override;
+#ifdef __ANDROID__
+    void MobileCollect(std::vector<MobileWidget> &widgets) const override;
+    bool MobileApply(int index, const std::string &value) override;
+#endif
 
     void ReleaseAll() override;
     void Draw(bool bSelected, uint32_t Delta_Time) override;

@@ -6,6 +6,7 @@
 #include "dx9render.h"
 #include "geometry.h"
 #include "model.h"
+#include "skinning_stream_cache.hpp"
 
 class NODER : public NODE
 {
@@ -91,13 +92,13 @@ class MODELR : public MODEL
     bool bFogEnable;
     float fFogDensity;
 
-    int32_t nAniVerts;
+    storm::model::SkinningStreamCache<GEOS::VERTEX0> skinnedStreams_;
+    static storm::render::VertexBufferId VBTransform(void*, const void*, const std::shared_ptr<storm::render::VertexSourceLifetime>&, int32_t, int32_t, int32_t);
 
     ANIBUFFER aniVerts[MODEL_ANI_MAXBUFFERS];
     void AniRender();
     NODE *colideNode;
     void FindPlanes(const CMatrix &view, const CMatrix &proj);
-    IDirect3DVertexBuffer9 *d3dDestVB;
 
     unsigned short *idxBuff;
 

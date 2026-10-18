@@ -1,3 +1,4 @@
+#include <memory>
 #include "options_parser.hpp"
 
 #include <SDL2/SDL.h>
@@ -12,6 +13,19 @@
 #include "string_service/str_service.h"
 #include "xservice.h"
 #include <cstdio>
+#ifdef __ANDROID__
+#include "mobile_image_bridge.hpp"
+#include "mobile_inventory.hpp"
+#include "mobile_save_list.hpp"
+#include "mobile_nation_relations.hpp"
+#include "mobile_owner_bridge.hpp"
+#include <chrono>
+static std::optional<storm::mobile::SaveListCapability::Target> deferredSaveAction;
+static std::chrono::steady_clock::time_point deferredSaveDeadline;
+#include "android_newgame.hpp"
+#include "platform/android_ui.hpp"
+static storm::mobile::InventoryEquipCapability inventoryEquipCapability;
+#endif
 
 #define CHECK_FILE_NAME "PiratesReadme.txt"
 
@@ -322,12 +336,116 @@ void XINTERFACE::Execute(uint32_t)
         m_pMouseWeel->Set(0);
 }
 
+#ifdef __ANDROID__
+void XINTERFACE::MobileCollectWidgets(std::vector<MobileWidget> &widgets)
+{
+    const auto collect = [&](const auto &self, CINODE *node) -> void {
+        for (; node; node = node->m_next) {
+            if (!node->m_bUse) continue;
+            const auto start = widgets.size(); node->MobileCollect(widgets);
+            for(auto n=start;n<widgets.size();++n)widgets[n].enabled=widgets[n].enabled&&!node->m_bLockedNode;
+            self(self,node->m_list);
+        }
+    };
+    if(storm::android::mobileScreen!="mainmenu")collect(collect,m_pNodes);
+    if(storm::android::mobileScreen=="nationrelation")MobileCollectNations(widgets);
+    if(storm::android::mobileScreen=="shipyard")MobileCollectShipyard(widgets);
+}
+
+void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
+{
+    std::vector<storm::mobile::NationImage> pictures;
+    const auto caption=[&](const char *key)->std::string {
+        if(!key)return {};
+        const char *text=pStringService?pStringService->GetString(key):nullptr;
+        return text?text:"";
+    };
+    for(auto *p=m_imgLists;p;p=p->next) {
+        if(!p->sImageName||!p->sImageListName||!p->sPicture)continue;
+        auto image=storm::mobile::AtlasReference(pPictureService,p->sImageListName,p->sPicture);
+        // Source identity exists independently of asynchronous bitmap decoding.
+        image.source={"atlas",p->sImageListName,p->sPicture,{},{},-1};
+        pictures.push_back({p->sImageName,caption(p->sPicture),p->position.left,p->position.top,image});
+    }
+    std::string failure;
+    const bool matrix=storm::mobile::CollectNationMatrix(pictures,widgets,&failure);
+    auto *strings=core.Entity_GetAttributeClass(g_idInterface,"strings");
+    const auto text=[&](const char *key)->std::string {const char *s=strings?strings->GetAttribute(key):nullptr;return s?s:"";};
+    static constexpr struct {const char *image,*caption,*value;} rep[]={
+        {"Eng","EngH","ENG_TEXT"},{"Fra","FraH","FRA_TEXT"},{"Spa","SpaH","SPA_TEXT"},{"Hol","HolH","HOL_TEXT"}};
+    bool complete=matrix;
+    for(const auto &r:rep) {
+        const auto p=std::find_if(pictures.begin(),pictures.end(),[&](const auto &v){return storm::iEquals(v.node,r.image);});
+        const auto w=std::find_if(widgets.begin(),widgets.end(),[&](const auto &v){return storm::iEquals(v.node,r.value)&&v.type=="text";});
+        if(p==pictures.end()||w==widgets.end()||text(r.caption).empty()){
+            complete=false;failure+=" reputation:"+std::string(r.image)+
+                (p==pictures.end()?":image-missing":"")+(w==widgets.end()?":text-missing":"")+
+                (text(r.caption).empty()?":caption-missing":"");continue;
+        }
+        MobileWidget row{"ANDROID_NATION_REPUTATION","nation_reputation",text(r.caption),w->label,-1,0,false};
+        row.rowId=p->image.source.image;row.images.push_back(p->image);widgets.push_back(std::move(row));
+    }
+    bool candidateSeen=false;
+    for(auto &w:widgets)if(storm::iEquals(w.node,"FlagPic")) {
+        candidateSeen=true;
+        if(w.images.size()!=1) {complete=false;failure+=" candidate:image-count="+std::to_string(w.images.size());continue;}
+        w.label=caption(w.images.front().source.image.c_str());
+        if(w.label.empty()){complete=false;failure+=" candidate:caption-missing source="+w.images.front().source.image;}
+    }
+    complete=complete&&candidateSeen;
+    if(!candidateSeen)failure+=" candidate:widget-missing";
+    // Export the real right-click commands; the script chooses Nation_hint or Hunter_hint.
+    for(const char *name:{"FlagPic","INFO_CLICK"}) {
+        auto *node=FindNode(name,nullptr);
+        if(!node||!node->m_bUse||!node->CheckCommandUsed(ACTION_MOUSERCLICK)){complete=false;failure+=" help:"+std::string(name)+":rclick-unavailable";continue;}
+        MobileWidget help{name,"nation_help",name,"",-2,0,!node->m_bLockedNode&&!node->m_bLockStatus&&node->m_bClickable};
+        help.actions.push_back("help");widgets.push_back(std::move(help));
+    }
+    if(auto *fader=FindNode("tooltip_fader",nullptr);fader&&fader->m_bUse) {
+        MobileWidget close{"tooltip_fader","nation_help_close","","",-3,0,!fader->m_bLockedNode};
+        widgets.push_back(std::move(close));
+    }
+    MobileWidget marker{"ANDROID_NATION_RELATIONS","nation_relations",text("titul"),complete?"1":"0",-1,0,false};
+    if(!complete)marker.unavailableReason=failure;
+    if(!complete)for(size_t i=0;i<pictures.size()&&i<64;++i){
+        const auto &p=pictures[i];MobileWidget source{"ANDROID_NATION_SOURCE","nation_source",p.caption,
+            "x="+std::to_string(p.x)+" y="+std::to_string(p.y),int(i),0,false};
+        source.rowId=p.node;source.images.push_back(p.image);widgets.push_back(std::move(source));
+    }
+    widgets.push_back(std::move(marker));
+    // All native text/source/control updates and owner changes revoke old capabilities.
+    const auto signature=MobileWidgetJson("nationrelation",widgets,storm::android::mobileScreenRevision);
+    if(signature!=m_mobileNationSignature){m_mobileNationSignature=signature;++m_mobileNationGeneration;}
+    for(auto &w:widgets) {
+        auto *node=FindNode(w.node.c_str(),nullptr);
+        if(!node||!node->m_bUse)continue;
+        if(w.type=="button"||w.type=="nation_help"||w.type=="nation_help_close") {
+            w.enabled=w.enabled&&(w.type=="nation_help_close"||node->m_bSelected)&&!node->m_bLockedNode&&!node->m_bLockStatus&&node->m_nDoDelay==0;
+            w.actions.clear();
+            if(w.enabled)w.actions.push_back("nation@"+std::to_string(storm::android::mobileScreenRevision)+":"+
+                std::to_string(m_mobileNationGeneration)+":"+(w.type=="nation_help"?"help":w.type=="nation_help_close"?"close":"press"));
+        }
+    }
+}
+#endif
+
+#ifdef __ANDROID__
+#include "mobile_shipyard.inc"
+#endif
+
 void XINTERFACE::Realize(uint32_t)
 {
+#ifdef __ANDROID__
+    storm::mobile::PumpImages(); // Reap cancelled CPU work even after the interface closes.
+#endif
     if (!m_bUse || !bActive)
         return;
 
     pRenderService->MakePostProcess();
+
+#ifdef __ANDROID__
+    const storm::android::NativeInterfaceDrawScope mobileDrawScope(storm::android::interfacePresentation.suppressed());
+#endif
 
     auto Delta_Time = core.GetRDeltaTime();
 
@@ -348,6 +466,52 @@ void XINTERFACE::Realize(uint32_t)
     pRenderService->SetTransform(D3DTS_PROJECTION, matp);
 
     DrawNode(m_pNodes, Delta_Time, 0, 80);
+
+#ifdef __ANDROID__
+    static uint32_t lastMobileSnapshotTime = 0;
+    if (SDL_GetTicks() - lastMobileSnapshotTime >= 200)
+    {
+        lastMobileSnapshotTime = SDL_GetTicks();
+        std::vector<MobileWidget> widgets;
+        MobileCollectWidgets(widgets);
+        if (const auto saves = storm::mobile::ReadSaveList())
+        {
+            auto *window = FindNode("MAIN_WINDOW", nullptr);
+            const bool enabled = window && window->m_nNodeType == NODETYPE_WINDOW &&
+                static_cast<CXI_WINDOW *>(window)->GetActive();
+            widgets.erase(std::remove_if(widgets.begin(), widgets.end(), [](const auto &row) {
+                return row.type == "save";
+            }), widgets.end());
+            storm::mobile::saveListCapability.collect(*saves, enabled, widgets);
+        }
+        if (storm::android::mobileScreen == "selectcharacter" && !storm::android::TutorialSkipSupported())
+            storm::android::tutorialSkip.selected = false;
+        if (storm::android::mobileScreen == "selectcharacter" && storm::android::TutorialSkipSupported())
+        {
+            MobileWidget option{"ANDROID_TUTORIAL_SKIP", "check", "Пропустить вступительное обучение",
+                storm::android::tutorialSkip.selected ? "1" : "0", 0, 0, true};
+            option.rowId = std::to_string(storm::android::mobileScreenRevision);
+            widgets.push_back(std::move(option));
+        }
+        std::stable_sort(widgets.begin(), widgets.end(), [](const auto &a, const auto &b) {return a.order < b.order;});
+        if (storm::android::mobileScreen == "items")
+            inventoryEquipCapability.published(storm::android::mobileScreenRevision, widgets);
+        else
+            inventoryEquipCapability.invalidate();
+        static uint64_t snapshotRevision = 0;
+        static std::string previousPayload;
+        const char *gameLanguage = pStringService ? pStringService->GetLanguage() : nullptr;
+        const std::string language = gameLanguage ? gameLanguage : "";
+        auto payload = MobileWidgetJson(storm::android::mobileScreen, widgets, storm::android::mobileScreenRevision, 0, language);
+        if (payload != previousPayload)
+        {
+            previousPayload = std::move(payload);
+            ++snapshotRevision;
+        }
+        storm::android::publishMobileWidgets(MobileWidgetJson(storm::android::mobileScreen, widgets,
+                                                              storm::android::mobileScreenRevision, snapshotRevision, language));
+    }
+#endif
 
     // Do mouse move
     auto *pOldNode = m_pCurNode;
@@ -535,6 +699,12 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
         const std::string &param = message.String();
         ReleaseOld();
         LoadDialog(param.c_str());
+#ifdef __ANDROID__
+        storm::android::showMobileScreen(param);
+        storm::android::tutorialSkip.reset(storm::android::mobileScreenRevision);
+        inventoryEquipCapability.invalidate();
+        storm::mobile::ResetImages();
+#endif
         m_bUse = true;
         bDisableControl = true;
     }
@@ -563,6 +733,11 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
     break;
 
     case MSG_INTERFACE_RELEASE: {
+#ifdef __ANDROID__
+        storm::android::showMobileScreen("");
+        inventoryEquipCapability.invalidate();
+        storm::mobile::ResetImages();
+#endif
         ReleaseOld();
         m_bUse = false;
         bDisableControl = true;
@@ -1936,6 +2111,194 @@ void XINTERFACE::DoControl()
     if (!m_bUse)
         return;
 
+#ifdef __ANDROID__
+    // The stock script may open a profile chooser on initial load. Select only
+    // its already-current profile, through its existing handler; never delete,
+    // migrate, or enumerate another profile on behalf of the Android UI.
+    if (storm::android::mobileScreen == "save_load")
+    {
+        auto *window = FindNode("PROFILE_WINDOW", nullptr);
+        if (window && window->m_nNodeType == NODETYPE_WINDOW && static_cast<CXI_WINDOW *>(window)->GetActive())
+        {
+            auto *profile = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
+            auto *attributes = profile ? profile->GetAClass() : nullptr;
+            auto *table = core.Entity_GetAttributeClass(g_idInterface, "profile_window_list");
+            const char *name = attributes ? attributes->GetAttribute("name") : nullptr;
+            const int index = table ? static_cast<int>(table->GetAttributeAsDword("select", 0)) - 1 : -1;
+            const char *chosen = attributes && index >= 0 ? attributes->GetAttribute(("profile_" + std::to_string(index)).c_str()) : nullptr;
+            if (name && chosen && std::string(name) == chosen) core.Event("LoadProfile");
+        }
+    }
+    if (deferredSaveAction)
+    {
+        const auto state = storm::mobile::ReadSaveList();
+        auto *window = FindNode("MAIN_WINDOW", nullptr);
+        if (!state || !storm::mobile::SaveListCapability::current(*deferredSaveAction, *state) ||
+            std::chrono::steady_clock::now() >= deferredSaveDeadline || !window ||
+            window->m_nNodeType != NODETYPE_WINDOW || !static_cast<CXI_WINDOW *>(window)->GetActive())
+            deferredSaveAction.reset();
+        else if (storm::mobile::SelectSaveTarget(*deferredSaveAction))
+        {
+            const auto target = *deferredSaveAction;
+            deferredSaveAction.reset();
+            storm::mobile::saveListCapability.pending = target;
+            if (target.verb == "delete") core.Event("eventBtnAction", "ls", ACTION_ACTIVATE, "BTN_DELETE");
+            else core.Event("eventSelecterActivate");
+        }
+    }
+    while (!storm::android::uiWidgetActions.empty() && m_bUse)
+    {
+        auto action = storm::android::uiWidgetActions.front();
+        storm::android::uiWidgetActions.pop_front();
+        if (action.screen != storm::android::mobileScreen) continue;
+        if(action.screen=="shipyard"&&action.value.rfind("yard@",0)==0){
+            MobileApplyShipyard(action.node,action.index,action.value);continue;
+        }
+        storm::android::lastWidgetSnapshot.clear();
+        deferredSaveAction.reset();
+        if (action.screen == "selectcharacter" && action.node == "ANDROID_TUTORIAL_SKIP")
+        {
+            if (action.index == 0 && storm::android::TutorialSkipSupported())
+                storm::android::tutorialSkip.apply(storm::android::mobileScreenRevision, action.value);
+            continue;
+        }
+
+        if (action.screen == "save_load" && action.node == "ANDROID_SAVE_LIST")
+        {
+            auto *window = FindNode("MAIN_WINDOW", nullptr);
+            const auto state = storm::mobile::ReadSaveList();
+            if (!window || window->m_nNodeType != NODETYPE_WINDOW || !static_cast<CXI_WINDOW *>(window)->GetActive() || !state) continue;
+            const auto target = storm::mobile::saveListCapability.accept(*state, action.index, action.value);
+            if (!target) continue;
+            if (!storm::mobile::SelectSaveTarget(*target))
+            {
+                // The original script populates thumbnails asynchronously and
+                // temporarily makes newly paged slots unselectable. Retry the
+                // identity-bound request while that cache loads, never a raw index.
+                deferredSaveAction = target;
+                deferredSaveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                continue;
+            }
+            storm::mobile::saveListCapability.pending = target;
+            if (target->verb == "delete") core.Event("eventBtnAction", "ls", ACTION_ACTIVATE, "BTN_DELETE");
+            else core.Event("eventSelecterActivate");
+            continue;
+        }
+        if (action.screen == "save_load" && (action.node == "CONFIRM_YES" || action.node == "CUSTOM_SAVE_BTN_OK"))
+        {
+            const auto &pending = storm::mobile::saveListCapability.pending;
+            if (pending && pending->owner.revision == storm::android::mobileScreenRevision)
+            {
+                if (!storm::mobile::RestoreSaveTarget(*pending)) continue;
+                if (action.node == "CONFIRM_YES")
+                {
+                    auto *mode = static_cast<VDATA *>(core.GetScriptVariable("g_nConfirmMode"));
+                    int32_t actual = -1;
+                    const int expected = pending->verb == "delete" ? 2 : pending->owner.saving ? 3 : 4;
+                    if (!mode || !mode->Get(actual) || actual != expected) continue;
+                }
+                else if (!pending->owner.saving) continue;
+            }
+        }
+        const bool guardedEquip = action.screen == "items" && action.node == "EQUIP_BUTTON" &&
+                                  action.value.rfind("press@", 0) == 0;
+        if (action.screen == "items" && !guardedEquip)
+            inventoryEquipCapability.invalidate();
+        const auto find = [&](const auto &self, CINODE *node, const std::string &target) -> CINODE * {
+            for (; node; node = node->m_next)
+            {
+                if (!node->m_bUse || node->m_bLockedNode) continue;
+                if (node->m_nodeName && target == node->m_nodeName) return node;
+                if (auto *child = self(self, node->m_list, target)) return child;
+            }
+            return nullptr;
+        };
+        auto *node = find(find, m_pNodes, action.node);
+        if (!node) continue;
+        if (action.value.rfind("guard@", 0) == 0)
+        {
+            std::optional<std::string> original;
+            if (action.screen == "hirecrew") {
+                auto *owner = find(find, m_pNodes, "SHIPS_SCROLL");
+                if (owner && owner->m_nNodeType == NODETYPE_SCROLLIMAGE)
+                    original = static_cast<CXI_SCROLLIMAGE *>(owner)->MobileHireCrewQuantity(action.node, action.value);
+            } else original = storm::mobile::CommerceQuantityValue(action.screen, action.node,
+                storm::android::mobileScreenRevision, AttributesPointer, action.value);
+            if (!original) continue;
+            action.value = *original;
+        }
+        if (node->m_nNodeType == NODETYPE_SLIDELINE)
+        {
+            int position;
+            // A delayed drag from a previous opening of the same screen must
+            // never modify the new screen's slider state.
+            if (MobileSliderSetPosition(action.value, storm::android::mobileScreenRevision, position))
+                node->MobileApply(action.index, std::to_string(position));
+            continue;
+        }
+        if (guardedEquip)
+        {
+            if (action.index != -1 || !node->m_bSelected || !node->m_bClickable || node->m_bLockStatus)
+                continue;
+            const int code = node->CheckCommandUsed(ACTION_MOUSECLICK) ? ACTION_MOUSECLICK : ACTION_ACTIVATE;
+            if (!node->CheckCommandUsed(code))
+                continue;
+            auto *table = core.Entity_GetAttributeClass(g_idInterface, "TABLE_ITEMS");
+            auto *characters = core.Entity_GetAttributeClass(g_idInterface, "CHARACTERS_SCROLL");
+            auto *tableNode = FindNode("TABLE_ITEMS", nullptr);
+            const bool tableEnabled = tableNode && tableNode->m_bUse && tableNode->m_bClickable &&
+                                      !tableNode->m_bLockedNode && !tableNode->m_bLockStatus;
+            if (!inventoryEquipCapability.consume(action.value, storm::android::mobileScreenRevision,
+                                                 storm::mobile::InventorySelectedRowId(table, characters), tableEnabled))
+                continue;
+            bool stop = false;
+            if (auto *next = node->DoAction(code, stop, true)) SetCurNode(next);
+            continue;
+        }
+        if(action.screen=="nationrelation" && action.value.rfind("nation@",0)==0) {
+            std::vector<MobileWidget> live;MobileCollectWidgets(live);
+            const auto granted=std::find_if(live.begin(),live.end(),[&](const auto &w){
+                return w.node==action.node&&w.index==action.index&&w.enabled&&
+                    std::find(w.actions.begin(),w.actions.end(),action.value)!=w.actions.end();
+            });
+            if(granted==live.end()||node->m_bLockStatus||node->m_nDoDelay>0)continue;
+            ++m_mobileNationGeneration; // Consume this frame capability before callbacks or delayed native events.
+            if(granted->type=="nation_help_close") {core.Event("MouseRClickUP");continue;}
+            if(!node->m_bSelected)continue;
+            const int code=granted->type=="nation_help"?ACTION_MOUSERCLICK:
+                node->CheckCommandUsed(ACTION_MOUSECLICK)?ACTION_MOUSECLICK:ACTION_ACTIVATE;
+            if(!node->CheckCommandUsed(code))continue;
+            SetCurNode(node);bool stop=false;
+            if(auto *next=node->DoAction(code,stop,true))SetCurNode(next);
+            continue;
+        }
+        if (node->MobileApply(action.index, action.value)) continue;
+        if (action.index == -1 && action.value == "press" && node->m_bSelected && node->m_bClickable)
+        {
+            const int code = node->CheckCommandUsed(ACTION_MOUSECLICK) ? ACTION_MOUSECLICK : ACTION_ACTIVATE;
+            if (node->CheckCommandUsed(code))
+            {
+                bool stop = false;
+                if (auto *next = node->DoAction(code, stop, true)) SetCurNode(next);
+            }
+        }
+    }
+    if (!m_bUse) return;
+    while (!storm::android::uiTouches.empty() && m_bUse)
+    {
+        const auto touch = storm::android::uiTouches.front();
+        storm::android::uiTouches.pop_front();
+        fXMousePos = touch.x * dwScreenWidth - m_lXMouse;
+        fYMousePos = touch.y * dwScreenHeight - m_lYMouse;
+        m_bShowMouse = false;
+        m_idButton = MOUSE_LBUTTON;
+        if (touch.phase == 0) { m_bNotFirstPress = false; MouseClick(true); }
+        else if (touch.phase == 1) MouseClick(false);
+        else if (touch.phase == 2) { MouseDeClick(); m_bNotFirstPress = false; }
+        else { m_pMouseNode = nullptr; m_bNotFirstPress = false; }
+    }
+    if (!m_bUse) return;
+#endif
     core.Controls->GetControlState("IContextHelp", cs);
 
     if (m_nInterfaceMode == CONTEXTHELP_IMODE)
@@ -3201,7 +3564,7 @@ char *AddAttributesStringsToBuffer(char *inBuffer, char *prevStr, ATTRIBUTES *pA
             strcat_s(pNew, nadd, "=");
             strcat_s(pNew, nadd, attrVal);
 
-            delete inBuffer;
+            delete[] inBuffer;
             inBuffer = pNew;
         }
 
@@ -3221,34 +3584,38 @@ char *AddAttributesStringsToBuffer(char *inBuffer, char *prevStr, ATTRIBUTES *pA
 
 void XINTERFACE::SaveOptionsFile(const char *fileName, ATTRIBUTES *pAttr)
 {
-    char FullPath[MAX_PATH];
-
-    if (fileName == nullptr || pAttr == nullptr)
-    {
-        return;
+    if (!fileName || !pAttr) return;
+    const auto target = std::filesystem::u8path(fio->ConvertPathResource(fileName));
+#ifdef __ANDROID__
+    auto pending=target;
+    pending += ".storm-tmp";
+#else
+    const auto &pending=target;
+#endif
+    std::error_code error;
+    if(!target.parent_path().empty())std::filesystem::create_directories(target.parent_path(),error);
+    bool saved=false;
+    if(!error) {
+        auto file=fio->_CreateFile(pending.string().c_str(),std::ios::binary|std::ios::out|std::ios::trunc);
+        if(file.is_open()) {
+            std::unique_ptr<char[]> buffer(AddAttributesStringsToBuffer(nullptr,nullptr,pAttr));
+            const bool written=!buffer || fio->_WriteFile(file,buffer.get(),static_cast<std::streamsize>(strlen(buffer.get())));
+            fio->_FlushFileBuffers(file);
+            fio->_CloseFile(file);
+            saved=written && !file.fail();
+#ifdef __ANDROID__
+            if(saved) {std::filesystem::rename(pending,target,error);saved=!error;}
+#endif
+        }
     }
-    strcpy_s(FullPath, fileName);
-
-    PrecreateDirForFile(FullPath);
-    auto fileS = fio->_CreateFile(FullPath, std::ios::binary | std::ios::out);
-    if (!fileS.is_open())
-    {
-        return;
+    if(!saved) {
+        core.Trace("Could not save options '%s' (resolved '%s'), filesystem error=%d: %s",fileName,target.string().c_str(),error.value(),error.message().c_str());
+#ifdef __ANDROID__
+        storm::android::showSaveError();
+        std::error_code cleanup;
+        std::filesystem::remove(pending,cleanup);
+#endif
     }
-
-    char *pOutBuffer = nullptr;
-
-    if (pAttr)
-    {
-        pOutBuffer = AddAttributesStringsToBuffer(nullptr, nullptr, pAttr);
-    }
-
-    if (pOutBuffer)
-    {
-        fio->_WriteFile(fileS, pOutBuffer, strlen(pOutBuffer));
-        delete pOutBuffer;
-    }
-    fio->_CloseFile(fileS);
 }
 
 void XINTERFACE::LoadOptionsFile(std::string_view fileName, ATTRIBUTES *pAttr)

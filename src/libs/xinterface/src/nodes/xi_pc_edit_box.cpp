@@ -13,6 +13,7 @@
 CXI_PCEDITBOX::CXI_PCEDITBOX()
     : m_nStringAlign(0), m_nMaxSize(0), m_nMaxWidth(0)
 {
+    m_nNodeType = NODETYPE_PCEDITBOX;
     m_nFontID = -1;
     m_dwFontColor = 0xFFFFFFFF;
     m_pntFontOffset.x = 0;
@@ -494,3 +495,36 @@ bool CXI_PCEDITBOX::IsExcludeChar(utf8::u8_char chr) const
     // if( m_sExcludeChars.FindSubStr(fndStr)>=0 ) return true;
     return m_sExcludeChars.find(fndStr) != std::string::npos;
 }
+
+#ifdef __ANDROID__
+
+void CXI_PCEDITBOX::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    const auto *attributes = core.Entity_GetAttributeClass(g_idInterface, m_nodeName);
+    const char *value = attributes ? attributes->GetAttribute("str") : nullptr;
+    if (!m_bDisguiseString) widgets.push_back({m_nodeName, "edit", "", value ? value : "", -1,
+                                             m_rect.top * 8192 + m_rect.left});
+}
+bool CXI_PCEDITBOX::MobileApply(int index, const std::string &value)
+{
+    if(index!=-1 || !m_bUse || m_bLockedNode || m_bLockStatus || value.size()>4096 ||
+       (m_nMaxSize>=0 && utf8::Utf8StringLength(value.c_str())>m_nMaxSize))return false;
+    for(size_t offset=0;offset<value.size();) {
+        const auto lead=static_cast<unsigned char>(value[offset]);
+        utf8::u8_char chr;
+        chr.l=lead<0x80?1:lead>=0xc2&&lead<=0xdf?2:lead>=0xe0&&lead<=0xef?3:lead>=0xf0&&lead<=0xf4?4:0;
+        if(!chr.l || lead<32 || lead==127 || offset+chr.l>value.size())return false;
+        for(int i=1;i<chr.l;++i)if((static_cast<unsigned char>(value[offset+i])&0xc0)!=0x80)return false;
+        std::memcpy(chr.b,value.data()+offset,chr.l);
+        if(IsExcludeChar(chr))return false;
+        offset+=chr.l;
+    }
+    auto *attributes=core.Entity_GetAttributeClass(g_idInterface,m_nodeName);
+    if(!attributes)return false;
+    attributes->SetAttribute("str",value.c_str());
+    m_nEditPos=utf8::Utf8StringLength(value.c_str());
+    if(CheckCommandUsed(ACTION_ACTIVATE)){bool stop=false;DoAction(ACTION_ACTIVATE,stop,true);}
+    return true;
+}
+
+#endif

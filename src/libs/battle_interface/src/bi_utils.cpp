@@ -288,6 +288,7 @@ BITextInfo::BITextInfo(BITextInfo &&text_info) noexcept
 {
     pRS = text_info.pRS;
     sText = std::move(text_info.sText);
+    sourceName = std::move(text_info.sourceName);
     pos = std::move(text_info.pos);
     fScale = text_info.fScale;
     nFont = text_info.nFont;
@@ -302,6 +303,7 @@ BITextInfo::BITextInfo(const BITextInfo &text_info)
 {
     pRS = text_info.pRS;
     sText = text_info.sText;
+    sourceName = text_info.sourceName;
     pos = text_info.pos;
     fScale = text_info.fScale;
     nFont = text_info.nFont;
@@ -333,6 +335,7 @@ void BITextInfo::Init(VDX9RENDER *rs, ATTRIBUTES *pA)
 {
     FONT_RELEASE(pRS, nFont);
     pRS = rs;
+    sourceName = pA ? pA->GetThisName() : "";
     if (!pRS || !pA)
         return;
 
@@ -396,6 +399,7 @@ BILinesInfo::~BILinesInfo()
 void BILinesInfo::Release()
 {
     lines.clear();
+    sourceNames.clear();
 }
 
 void BILinesInfo::Init(VDX9RENDER *rs, ATTRIBUTES *pA)
@@ -411,6 +415,7 @@ void BILinesInfo::Init(VDX9RENDER *rs, ATTRIBUTES *pA)
         if (!pAttr)
             break;
 
+        sourceNames.emplace_back(pAttr->GetThisName());
         // int32_t bi = lines.Add();
         // int32_t ei = lines.Add();
         lines.push_back(RS_LINE2D{});
@@ -444,8 +449,15 @@ void BILinesInfo::Init(VDX9RENDER *rs, ATTRIBUTES *pA)
     }
 }
 
-void BILinesInfo::Draw()
+void BILinesInfo::Draw(bool navigatorReplaced)
 {
+    if(navigatorReplaced) {
+        for(size_t i=0;i<sourceNames.size();++i) {
+            if(storm::iEquals(sourceNames[i],"Speed")||storm::iEquals(sourceNames[i],"Ammo"))continue;
+            pRS->DrawLines2D(lines.data()+i*2,1,"Line");
+        }
+        return;
+    }
     pRS->DrawLines2D(std::data(lines), lines.size() / 2, "Line");
 }
 

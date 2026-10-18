@@ -3,11 +3,24 @@
 #include <cstdarg>
 #include <cstring>
 #include <variant>
+#include <stdexcept>
+#include <string>
 
 #include "c_vector.h"
 #include "entity.h"
 
 class VDATA;
+
+/** A protocol mismatch remains fatal; delivery boundaries only add provenance. */
+class MessageFormatError final : public std::runtime_error
+{
+    std::string diagnostic_;
+public:
+    explicit MessageFormatError(std::string diagnostic)
+        : std::runtime_error(diagnostic), diagnostic_(std::move(diagnostic)) {}
+    void AppendContext(std::string context) { diagnostic_ += "\n  " + std::move(context); }
+    const char *what() const noexcept override { return diagnostic_.c_str(); }
+};
 
 namespace storm
 {

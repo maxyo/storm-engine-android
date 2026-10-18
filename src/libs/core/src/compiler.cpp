@@ -1,4 +1,9 @@
 #include "compiler.h"
+#ifdef __ANDROID__
+#include "platform/android_land_commands.hpp"
+#include "platform/android_land_diagnostics.hpp"
+#include "platform/android_script_errors.hpp"
+#endif
 
 #include <chrono>
 #include <cstdio>
@@ -148,6 +153,9 @@ COMPILER::~COMPILER()
 
 void COMPILER::Release()
 {
+#ifdef __ANDROID__
+    ResetAndroidUiAdapter();
+#endif
     for (uint32_t n = 0; n < SegmentsNum; n++)
     {
         delete[] SegmentTable[n].pData;
@@ -375,6 +383,9 @@ void COMPILER::SetError(const char *data_PTR, ...)
         return;
     if (data_PTR == nullptr)
         return;
+#ifdef __ANDROID__
+    ++storm::android::scriptErrorEpoch;
+#endif
     char LogBuffer[BUFSIZ];
     char ErrorBuffer[MAX_PATH + BUFSIZ];
     va_list args;
@@ -522,14 +533,48 @@ bool COMPILER::CreateProgram(const char *file_name)
     return bRes;
 }
 
+#ifdef __ANDROID__
+void COMPILER::ResetAndroidUiAdapter()
+{
+    androidUiAdapterAttempted_ = false;
+    // Script tables and static events are about to disappear. Revoke only our
+    // Android leases/tokens; missing presentation support must not close stock.
+    storm::android::landCommands.releaseUnavailableSource(storm::android::LandCommandSource::Missing);
+    storm::android::traceLandAdapter(0, "script-reset");
+}
+void COMPILER::LoadAndroidUiAdapter()
+{
+    // Called after Main/OnLoad return, never inside a frame or an event handler.
+    // Optional app-owned entry point: no shipped game script is copied here.
+    if (androidUiAdapterAttempted_) return;
+    androidUiAdapterAttempted_ = true;
+    constexpr const char *segment = "interface/android_ui_bootstrap.c";
+    if (BC_SegmentIsLoaded(segment)) {
+        storm::android::traceLandAdapter(0, "already-loaded"); return;
+    }
+    const std::string path = std::string(ProgramDirectory ? ProgramDirectory : "") + segment;
+    if (!fio->_FileOrDirectoryExists(path.c_str())) {
+        storm::android::traceLandAdapter(0, "missing-entrypoint"); return;
+    }
+    const bool loaded = BC_LoadSegment(segment);
+    storm::android::traceLandAdapter(0, loaded ? "loaded" : "compile-failed");
+}
+#endif
+
 bool COMPILER::Run()
 {
     pRun_fi = nullptr;
     const uint32_t function_code = FuncTab.FindFunc("Main");
     DATA *pResult;
     bFirstRun = false;
-    BC_Execute(function_code, pResult);
+    const bool executed = BC_Execute(function_code, pResult);
     pRun_fi = nullptr;
+#ifdef __ANDROID__
+    if (executed) LoadAndroidUiAdapter();
+    else storm::android::traceLandAdapter(0, "main-execution-failed");
+#else
+    (void)executed;
+#endif
 
     // DATA Result;
     // Result.SetVCompiler(this);
@@ -6388,7 +6433,11 @@ bool COMPILER::ReadVariable(char *name, /* DWORD code,*/ bool bDim, uint32_t a_i
         ReadData(&eid, sizeof(eid));
         if (!bSkipVariable)
         {
-            pV->Set(eid);
+            // Saves contain script attributes, not the runtime entities they
+            // once referenced. OnLoad recreates those entities explicitly.
+            // Keep consuming the legacy handle for file compatibility, but
+            // never bind it to an unrelated entity in this process.
+            pV->Set(invalid_entity);
 
             if (pV->AttributesClass == nullptr)
                 pV->AttributesClass = new ATTRIBUTES(&SCodec);
@@ -6601,7 +6650,13 @@ bool COMPILER::OnLoad()
 {
     const uint32_t function_code = FuncTab.FindFunc("OnLoad");
     DATA *pResult;
-    BC_Execute(function_code, pResult);
+    const bool executed = BC_Execute(function_code, pResult);
+#ifdef __ANDROID__
+    if (executed) LoadAndroidUiAdapter();
+    else storm::android::traceLandAdapter(0, "onload-execution-failed");
+#else
+    (void)executed;
+#endif
     return true;
 }
 

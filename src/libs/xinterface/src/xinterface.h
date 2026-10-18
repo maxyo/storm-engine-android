@@ -328,6 +328,17 @@ class XINTERFACE : public XINTERFACE_BASE
     std::vector<STRING_Entity> m_stringes;
     int m_nStringQuantity;
 
+#ifdef __ANDROID__
+    void MobileCollectWidgets(std::vector<MobileWidget> &widgets);
+    void MobileCollectNations(std::vector<MobileWidget> &widgets);
+    void MobileCollectShipyard(std::vector<MobileWidget> &widgets);
+    bool MobileApplyShipyard(const std::string &node,int index,const std::string &value);
+    std::string m_mobileShipyardSignature;
+    uint64_t m_mobileShipyardGeneration=0;
+    std::string m_mobileNationSignature;
+    uint64_t m_mobileNationGeneration = 0;
+#endif
+
     // dynamic images data
     struct IMAGE_Entity
     {

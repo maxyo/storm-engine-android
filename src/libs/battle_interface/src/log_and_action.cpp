@@ -1,3 +1,8 @@
+#ifdef __ANDROID__
+#include "platform/android_worldmap.hpp"
+#include <SDL2/SDL_timer.h>
+#endif
+#include <platform/android_ui.hpp>
 #include "log_and_action.h"
 #include "controls.h"
 #include "core.h"
@@ -31,6 +36,7 @@ ILogAndActions::ILogAndActions()
     m_nStringBegin = 0;
     m_bDontShowAll = false;
     m_sOldActionName[0] = 0;
+    m_sActionName[0] = 0;
     m_nTimeCounter = 0;
 }
 
@@ -53,6 +59,28 @@ bool ILogAndActions::Init()
 
 void ILogAndActions::Execute(uint32_t delta_time)
 {
+#ifdef __ANDROID__
+    const bool available = m_bThatRealAction && !m_bDontShowAll && m_bShowActiveCommand && !storm::iEquals(m_sActionName,"Closed");
+    static int lastFlags = -1;
+    static std::string lastAction;
+    const int flags = (m_bThatRealAction ? 1 : 0) | (m_bShowActiveCommand ? 2 : 0) | (m_bDontShowAll ? 4 : 0);
+    if (flags != lastFlags || lastAction != m_sActionName)
+    {
+        lastFlags = flags; lastAction = m_sActionName;
+        storm::android::traceContextAction("state", m_sActionName,
+            "flags(real=1,show=2,hidden=4)=" + std::to_string(flags) + " available=" + (available ? "1" : "0"));
+    }
+    storm::android::worldMapHud.contextActionOwner=core.GetEntityId("WorldMap");
+    storm::android::worldMapHud.contextAction=available?m_sActionName:"";
+    storm::android::publishContextAction(available ? m_sActionName : "");
+    if (!storm::android::requestedContextAction.empty()) {
+        const bool accepted = available && storm::android::requestedContextAction == m_sActionName;
+        storm::android::traceContextAction(accepted ? "dispatch" : "reject", storm::android::requestedContextAction,
+            "current=" + std::string(m_sActionName));
+        storm::android::requestedContextAction.clear();
+        if (accepted) { core.Event("BI_FastCommand", "s", m_sActionName); return; }
+    }
+#endif
     if (m_bDontShowAll)
         return;
 
@@ -228,7 +256,11 @@ void ILogAndActions::Realize(uint32_t delta_time)
 
     // Show Active Action
     //---------------------
-    if (m_bShowActiveCommand)
+    if (m_bShowActiveCommand
+#ifdef __ANDROID__
+        && !storm::android::worldMapHud.covered(storm::android::MapCommands,core.GetEntityId("WorldMap"),SDL_GetTicks())
+#endif
+       )
     {
         CMatrix matw;
         rs->SetTransform(D3DTS_WORLD, matw);
@@ -236,11 +268,38 @@ void ILogAndActions::Realize(uint32_t delta_time)
         if ((m_idIconTexture != -1L) && m_bThatRealAction)
         {
             rs->TextureSet(0, m_idIconTexture);
-            rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, BI_ONETEX_VERTEX_FORMAT, 2, m_IconVertex,
+            auto *icon=m_IconVertex;
+#ifdef __ANDROID__
+            BI_ONETEXTURE_VERTEX relocated[4];
+            float shiftX=0,shiftY=0;
+            const auto &telemetry=storm::android::shipTelemetry;
+            const auto *layout=storm::android::seaNavigator.layout(SDL_GetTicks(),telemetry.revision(),telemetry.hudRevision(),telemetry.frame().navigatorGeneration);
+            if(layout && telemetry.frame().navigatorAvailable && storm::android::mobileScreen.empty()) {
+                D3DVIEWPORT9 viewport;rs->GetViewport(&viewport);
+                const float scale=float(viewport.Width)/layout->width;
+                const float dp=layout->densityMilli/1000.f;
+                // Keep the independent quick action at its approved viewport anchor.
+                // Navigator 10B shrinks its own aperture, not this control.
+                const bool compact=layout->width/dp<=700;
+                const float panelLeft=layout->width-(compact?216:274)*dp;
+                const float panelTop=8*dp;
+                const float left=panelLeft-(compact?28:33)*dp,top=panelTop+(compact?4:8)*dp,size=(compact?20:26)*dp;
+                for(int i=0;i<4;++i){relocated[i]=m_IconVertex[i];relocated[i].pos.x=viewport.X+(left+(i>=2?size:0))*scale;relocated[i].pos.y=viewport.Y+(top+(i%2?size:0))*scale;}
+                shiftX=viewport.X+left*scale-m_nIconLeft;shiftY=viewport.Y+top*scale-m_nIconUp;icon=relocated;
+            }
+#endif
+            rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, BI_ONETEX_VERTEX_FORMAT, 2, icon,
                                 sizeof(BI_ONETEXTURE_VERTEX), "battle_rectangle");
-
+#ifdef __ANDROID__
+            const auto first=m_ActionHint1.pos,second=m_ActionHint2.pos;
+            m_ActionHint1.pos.x+=int(shiftX);m_ActionHint1.pos.y+=int(shiftY);
+            m_ActionHint2.pos.x+=int(shiftX);m_ActionHint2.pos.y+=int(shiftY);
+#endif
             m_ActionHint1.Print();
             m_ActionHint2.Print();
+#ifdef __ANDROID__
+            m_ActionHint1.pos=first;m_ActionHint2.pos=second;
+#endif
         }
     }
 
@@ -399,6 +458,9 @@ void ILogAndActions::ActionChange(bool bFastComShow, bool bLogStringShow)
 
 void ILogAndActions::Release()
 {
+#ifdef __ANDROID__
+    storm::android::publishContextAction("");
+#endif
     TEXTURE_RELEASE(rs, m_idIconTexture);
 
     rs->UnloadFont(m_fontID);
@@ -482,6 +544,7 @@ void ILogAndActions::SetString(const char *str, bool immortal)
 
 void ILogAndActions::SetAction(const char *actionName)
 {
+    m_bThatRealAction=false;
     ATTRIBUTES *pA;
 
     if (actionName == nullptr)

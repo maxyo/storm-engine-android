@@ -20,6 +20,11 @@ class CXI_QUESTTITLE : public CINODE
     void ChangePosition(XYRECT &rNewPos) override;
     void SaveParametersToIni() override;
 
+#ifdef __ANDROID__
+    void MobileCollect(std::vector<MobileWidget> &widgets) const override;
+    bool MobileApply(int index, const std::string &value) override;
+#endif
+
     void SetNewTopQuest(ATTRIBUTES *pA, int topNum);
 
     float GetLineStep() const;
@@ -29,6 +34,11 @@ class CXI_QUESTTITLE : public CINODE
     bool GetLineNext(int fontNum, char *&pInStr, char *buf, int bufSize) const;
     void LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2) override;
 
+#ifdef __ANDROID__
+    void RefreshMobileQuests(ATTRIBUTES *quests, int top);
+    std::vector<MobileWidget> m_mobileQuests;
+    int m_mobileTop = 0;
+#endif
     int m_iconWidth;
     int m_iconHeight;
     int m_iconVOffset;

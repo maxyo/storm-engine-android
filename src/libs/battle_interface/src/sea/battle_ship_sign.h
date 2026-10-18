@@ -4,6 +4,9 @@
 #include "ships_list.h"
 #include <string>
 #include <vector>
+#ifdef __ANDROID__
+#include <platform/android_sea_orders.hpp>
+#endif
 
 #define MAX_SHIP_QUANTITY 8
 
@@ -45,6 +48,11 @@ class BIShipIcon
     void SetActive(bool bActive);
     void MakeControl();
     void ExecuteCommand(CommandType command);
+#ifdef __ANDROID__
+    void ReadAndroidOrders(storm::android::SeaOrdersFrame &frame);
+    bool ExecuteAndroidOrder(const storm::android::SeaOrdersRequest &request);
+    void CloseAndroidOrders();
+#endif
 
   protected:
     void Release();

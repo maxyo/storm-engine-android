@@ -133,7 +133,12 @@ void CameraFollow::MoveCamera(float dltTime)
         return;
     // Where are we looking
     auto likeCamay = lc->chay;
-    if (lc->isSpecialMode)
+#ifdef __ANDROID__
+    const bool touchCamera = lc->character->UsesTouchCamera();
+#else
+    constexpr bool touchCamera = false;
+#endif
+    if (lc->isSpecialMode || touchCamera)
     {
         likeCamay = camay + lc->dAy;
     }
@@ -160,7 +165,7 @@ void CameraFollow::MoveCamera(float dltTime)
         if (k > 1.0f)
             k = 1.0f;
         camay = cay + dAng * k;
-        lc->character->LockRotate(true);
+        if (!touchCamera) lc->character->LockRotate(true);
     }
     ChangeRadius(dltTime, FindRadius(camay));
     CalcPosition(camay, camradius, 0.0f, camPos);

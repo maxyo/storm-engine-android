@@ -1,4 +1,7 @@
 #pragma once
+#ifdef __ANDROID__
+#include "mobile_widget.hpp"
+#endif
 
 #include "nodes/xi_tooltips.h"
 #include "video_texture.h"
@@ -170,6 +173,10 @@ class CINODE
   public:
     CINODE();
     virtual ~CINODE();
+#ifdef __ANDROID__
+    virtual void MobileCollect(std::vector<MobileWidget> &widgets) const {}
+    virtual bool MobileApply(int index, const std::string &value) { return false; }
+#endif
     virtual void Draw(bool bSelected, uint32_t Delta_Time) = 0;
     virtual bool Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs,
                       XYRECT &hostRect, XYPOINT &ScreenSize);

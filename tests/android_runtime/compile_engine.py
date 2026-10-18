@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 p = argparse.ArgumentParser(description=__doc__)
-for name in ('ndk', 'sdl-source', 'spdlog-source', 'fmt-source', 'mimalloc-source', 'dxvk-source'):
+for name in ('ndk', 'sdl-source', 'spdlog-source', 'fmt-source', 'mimalloc-source', 'dxvk-source', 'glm-source'):
     p.add_argument('--' + name, type=Path, required=True)
 a = p.parse_args()
 r = Path(__file__).resolve().parents[2]
@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory(prefix='storm-entry-') as d:
     watermark.write_text('#define STORM_BUILD_WATERMARK android_compile_check\n')
     includes = list((r / 'src/libs').glob('*/include')) + [r / 'src/libs/core/src', b]
     includes += [a.spdlog_source / 'include', a.fmt_source / 'include', a.mimalloc_source / 'include',
-                 a.dxvk_source / 'include/native/directx', a.dxvk_source / 'include/native/windows']
+                 a.dxvk_source / 'include/native/directx', a.dxvk_source / 'include/native/windows', a.glm_source]
     compiler = a.ndk / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++'
     for source in ('src/apps/engine/src/main.cpp', 'src/libs/core/src/file_service.cpp'):
         command = [str(compiler), '-std=c++20', '-DSPDLOG_FMT_EXTERNAL', '-DFMT_HEADER_ONLY',

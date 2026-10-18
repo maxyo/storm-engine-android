@@ -1,6 +1,9 @@
 #pragma once
 
 #include "../battle_command.h"
+#ifdef __ANDROID__
+#include "platform/android_worldmap.hpp"
+#endif
 
 class WMShipCommandList : public BICommandList
 {
@@ -10,6 +13,10 @@ class WMShipCommandList : public BICommandList
 
     void FillIcons() override;
     void Init() override;
+#ifdef __ANDROID__
+    std::vector<storm::android::MapCommand> AndroidMapCommands() const;
+    bool SelectAndroidMapCommand(const std::string &id);
+#endif
 
   protected:
     void Release();

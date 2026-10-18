@@ -6,6 +6,7 @@
 
 CINODE::CINODE()
 {
+    m_nNodeType = -1;
     m_bMouseWeelReaction = false;
     m_bLockedNode = false;
     m_nDoDelay = 0;

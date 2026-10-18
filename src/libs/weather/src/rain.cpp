@@ -384,64 +384,71 @@ void RAIN::RealizeDrops(uint32_t Delta_Time)
     rs->SetWorld(IMatrix);
     rs->TextureSet(0, iSeaDropTex);
 
-    auto pVSeaDropBuffer = static_cast<SEADROPVERTEX *>(rs->LockVertexBuffer(iVBSeaDrops, D3DLOCK_DISCARD));
+    SEADROPVERTEX *pVSeaDropBuffer = nullptr;
     int32_t n = 0;
-    if (pVSeaDropBuffer)
-        for (int32_t i = 0; i < aSeaDrops.size(); i++)
+    for (int32_t i = 0; i < aSeaDrops.size(); i++)
+    {
+        seadrop_t &drop = aSeaDrops[i];
+
+        drop.fTime -= fDeltaTime;
+        if (drop.fTime <= 0.0f)
         {
-            seadrop_t &drop = aSeaDrops[i];
-
-            drop.fTime -= fDeltaTime;
-            if (drop.fTime <= 0.0f)
-            {
-                // aSeaDrops.ExtractNoShift(i);
-                aSeaDrops[i] = aSeaDrops.back();
-                aSeaDrops.pop_back();
-                i--;
-                continue;
-            }
-
-            CVECTOR v = drop.vPos;
-            v.y = pSea->WaveXZ(v.x, v.z) + 0.015f;
-
-            SEADROPVERTEX *pV = &pVSeaDropBuffer[n * 4];
-
-            float fSize = 0.15f;
-            int32_t frame = static_cast<int32_t>((1.0f - drop.fTime / drop.fLifeTime) * 8.0f);
-            float du = 1.0f / 8.0f;
-            float u = static_cast<float>(frame) * du;
-
-            pV[0].vPos = v + CVECTOR(-fSize, 0.0f, -fSize);
-            pV[0].dwColor = 0xFFFFFFFF;
-            pV[0].tu = u;
-            pV[0].tv = 0.0f;
-
-            pV[1].vPos = v + CVECTOR(fSize, 0.0f, -fSize);
-            pV[1].dwColor = 0xFFFFFFFF;
-            pV[1].tu = u + du;
-            pV[1].tv = 0.0f;
-
-            pV[2].vPos = v + CVECTOR(fSize, 0.0f, fSize);
-            pV[2].dwColor = 0xFFFFFFFF;
-            pV[2].tu = u + du;
-            pV[2].tv = 1.0f;
-
-            pV[3].vPos = v + CVECTOR(-fSize, 0.0f, fSize);
-            pV[3].dwColor = 0xFFFFFFFF;
-            pV[3].tu = u;
-            pV[3].tv = 1.0f;
-
-            n++;
-
-            if (n >= NUM_SEA_DROPS)
-            {
-                rs->UnLockVertexBuffer(iVBSeaDrops);
-                rs->DrawBuffer(iVBSeaDrops, sizeof(SEADROPVERTEX), iIBSeaDrops, 0, n * 4, 0, n * 2, "sea_rain_drops");
-
-                n = 0;
-                pVSeaDropBuffer = static_cast<SEADROPVERTEX *>(rs->LockVertexBuffer(iVBSeaDrops, D3DLOCK_DISCARD));
-            }
+            // aSeaDrops.ExtractNoShift(i);
+            aSeaDrops[i] = aSeaDrops.back();
+            aSeaDrops.pop_back();
+            i--;
+            continue;
         }
+
+        CVECTOR v = drop.vPos;
+        v.y = pSea->WaveXZ(v.x, v.z) + 0.015f;
+
+        // Acquire only for a nonempty batch. Full batches leave no lock
+        // outstanding, including when the last drop exactly fills one.
+        if (!pVSeaDropBuffer)
+        {
+            pVSeaDropBuffer = static_cast<SEADROPVERTEX *>(rs->LockVertexBuffer(iVBSeaDrops, D3DLOCK_DISCARD));
+            if (!pVSeaDropBuffer)
+                break;
+        }
+        SEADROPVERTEX *pV = &pVSeaDropBuffer[n * 4];
+
+        float fSize = 0.15f;
+        int32_t frame = static_cast<int32_t>((1.0f - drop.fTime / drop.fLifeTime) * 8.0f);
+        float du = 1.0f / 8.0f;
+        float u = static_cast<float>(frame) * du;
+
+        pV[0].vPos = v + CVECTOR(-fSize, 0.0f, -fSize);
+        pV[0].dwColor = 0xFFFFFFFF;
+        pV[0].tu = u;
+        pV[0].tv = 0.0f;
+
+        pV[1].vPos = v + CVECTOR(fSize, 0.0f, -fSize);
+        pV[1].dwColor = 0xFFFFFFFF;
+        pV[1].tu = u + du;
+        pV[1].tv = 0.0f;
+
+        pV[2].vPos = v + CVECTOR(fSize, 0.0f, fSize);
+        pV[2].dwColor = 0xFFFFFFFF;
+        pV[2].tu = u + du;
+        pV[2].tv = 1.0f;
+
+        pV[3].vPos = v + CVECTOR(-fSize, 0.0f, fSize);
+        pV[3].dwColor = 0xFFFFFFFF;
+        pV[3].tu = u;
+        pV[3].tv = 1.0f;
+
+        n++;
+
+        if (n >= NUM_SEA_DROPS)
+        {
+            rs->UnLockVertexBuffer(iVBSeaDrops);
+            rs->DrawBuffer(iVBSeaDrops, sizeof(SEADROPVERTEX), iIBSeaDrops, 0, n * 4, 0, n * 2, "sea_rain_drops");
+
+            n = 0;
+            pVSeaDropBuffer = nullptr;
+        }
+    }
 
     if (n > 0)
     {

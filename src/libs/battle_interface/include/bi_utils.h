@@ -20,6 +20,7 @@ class BITextInfo final
 
     VDX9RENDER *pRS;
     std::string sText;
+    std::string sourceName; // Stable source identity, including non-refreshable captions.
     POINT pos;
     float fScale;
     int32_t nFont;
@@ -36,10 +37,11 @@ class BILinesInfo
     ~BILinesInfo();
     void Release();
     void Init(VDX9RENDER *rs, ATTRIBUTES *pA);
-    void Draw();
+    void Draw(bool navigatorReplaced = false);
 
     VDX9RENDER *pRS;
     std::vector<RS_LINE2D> lines;
+    std::vector<std::string> sourceNames;
 };
 
 class IBIImage;
