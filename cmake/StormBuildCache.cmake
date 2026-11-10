@@ -109,6 +109,22 @@ function(storm_fetch_declare name)
                 "Shared source copy chosen by storm_fetch_declare (cmake/StormBuildCache.cmake)" FORCE)
         endif()
         set(FETCHCONTENT_SOURCE_DIR_${upper} "${source}" PARENT_SCOPE)
+    else()
+        # An explicit override (offline sources) must carry the same patches: refuse a tree that lacks one.
+        set(patches ${arg_STORM_PATCHES})
+        if(patches)
+            list(POP_FRONT patches patch_dir)
+            foreach(patch ${patches})
+                execute_process(COMMAND git apply --reverse --check "${patch}"
+                    WORKING_DIRECTORY "${FETCHCONTENT_SOURCE_DIR_${upper}}/${patch_dir}"
+                    RESULT_VARIABLE applied OUTPUT_QUIET ERROR_QUIET)
+                if(NOT applied EQUAL 0)
+                    message(FATAL_ERROR "FETCHCONTENT_SOURCE_DIR_${upper}=${FETCHCONTENT_SOURCE_DIR_${upper}} does not "
+                        "carry ${patch}. Drop the override (cmake -U FETCHCONTENT_SOURCE_DIR_${upper} <build dir>: the "
+                        "shared patched copy is used) or apply the patch to that tree.")
+                endif()
+            endforeach()
+        endif()
     endif()
     FetchContent_Declare(${name} ${fetch})
 endfunction()
