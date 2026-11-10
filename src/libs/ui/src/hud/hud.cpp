@@ -17,9 +17,6 @@ namespace
 constexpr double kIdle = 3600.0;
 constexpr double kLineSeconds = 2.6; // an event line stays this long (pack setting toastMs)
 constexpr size_t kLines = 3;
-// The spyglass overlay is acknowledged this often while it is drawn; the engine keeps its
-// own info hidden for a second after the last one (android_spyglass.hpp).
-constexpr double kSpyglassHeartbeat = 0.3;
 // The layout scene under the spyglass when no ported scene owns the mode (the platform still
 // draws the sea HUD): the overlay alone, no elements.
 constexpr const char *kSpyglassLayout = "sea";
@@ -237,6 +234,7 @@ double Hud::Tick()
         for (const SceneEntry &entry : scenes_)
             if (entry.presents)
                 Send("hudowner", entry.presents);
+        Send("hudowner", "spyglass"); // the Hud lays the spyglass overlay over any scene
     }
     const double now = mount_.Now();
     const bool interface = mount_.InterfaceActive();
@@ -259,8 +257,6 @@ double Hud::Tick()
         if (!changed_)
             break;
     }
-    if (visible_ && !view_.overlay.empty())
-        next = std::min(next, std::max(0.0, spyglass_ack_at_ + kSpyglassHeartbeat - now));
     if (changed_)
         next = 0.0;
     for (const Line &line : lines_)
@@ -272,18 +268,22 @@ void Hud::Drawn()
 {
     if (visible_ && scene_ && !changed_)
         scene_->Drawn(states_);
-    // The spyglass card is on the screen: the engine may hide its own info for this raise of
-    // the telescope. Repeated while it stays; stopping lets the engine draw its own again.
-    if (visible_ && !changed_ && !view_.overlay.empty() && states_.spyglass.target)
+    // The spyglass overlay is on the screen, or not: said once per raise of the telescope (and
+    // again when that changes); the engine keeps the word for the raise (android_spyglass.hpp).
+    const Spyglass &spyglass = states_.spyglass;
+    if (!spyglass.known || !spyglass.on)
     {
-        const double now = mount_.Now();
-        if (states_.spyglass.generation != spyglass_ack_generation_ || now - spyglass_ack_at_ >= kSpyglassHeartbeat)
-        {
-            spyglass_ack_generation_ = states_.spyglass.generation;
-            spyglass_ack_at_ = now;
-            Send("spyglass", std::to_string(states_.spyglass.generation), "spyglass-ack");
-        }
+        spyglass_answer_.clear();
+        return;
     }
+    if (changed_)
+        return; // the view is not settled yet: answer for what is drawn
+    const bool covering = visible_ && !view_.overlay.empty();
+    const std::string answer = std::to_string(spyglass.generation) + "\t" + (covering ? "1" : "0");
+    if (answer == spyglass_answer_)
+        return;
+    spyglass_answer_ = answer;
+    Send("spyglass", answer, "spyglass-ack");
 }
 
 void Hud::Released()

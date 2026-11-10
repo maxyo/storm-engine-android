@@ -1,9 +1,12 @@
 #pragma once
 // The spyglass (ISPYGLASS) for the portable UI: what the telescope shows about its target
-// as the `spyglass` state channel, and the UI's coverage acknowledgement that lets the
-// engine hide its own info icons and texts while the UI draws them (only a drawn frame
-// acknowledges; without a fresh acknowledgement the engine draws its own again).
+// as the `spyglass` state channel, and the UI's coverage answer that lets the engine hide
+// its own info icons and texts while the UI draws them: "<generation>\t1" once its overlay
+// is drawn for this raise, "<generation>\t0" when it is not (any more). The word lasts until
+// the next raise; while the presenting UI has not answered a raise the native info stays
+// off (android_hud_presenter.hpp, no lease).
 #include "android_gameplay.hpp"
+#include "android_hud_presenter.hpp"
 #include "android_ship_telemetry.hpp"
 
 #include <cstdint>
@@ -60,17 +63,15 @@ inline std::pair<std::string, std::string> spyglassCaptainLine(std::string_view 
 class SpyglassState
 {
   public:
-    static constexpr uint32_t kCoverageMs = 1000; // an acknowledgement holds this long
-
     void turn(bool on)
     {
         if (on == on_)
             return;
         on_ = on;
         known_ = false;
-        acknowledged_ = false;
+        covering_ = false;
         target_ = SpyglassTarget();
-        ++generation_; // every raise of the telescope is a new view: old acknowledgements lapse
+        ++generation_; // every raise of the telescope is a new view: old answers lapse
         ++revision_;
     }
     void target(const SpyglassTarget &next)
@@ -98,21 +99,25 @@ class SpyglassState
         return generation_;
     }
 
-    // "<generation>" from the UI after a frame with the overlay was drawn.
-    bool acknowledge(std::string_view value, uint32_t now)
+    // "<generation>\t<1|0>" from the UI once a frame with (1) or without (0) the overlay is drawn.
+    bool acknowledge(std::string_view value)
     {
-        const std::string text(value);
+        const auto tab = value.find('\t');
+        if (tab == std::string_view::npos) return false;
+        const std::string text(value.substr(0, tab));
+        const auto word = value.substr(tab + 1);
         char *end = nullptr;
         const unsigned long long generation = std::strtoull(text.c_str(), &end, 10);
-        if (text.empty() || !end || *end != '\0' || generation != generation_ || !on_)
+        if (text.empty() || !end || *end != '\0' || generation != generation_ || !on_ || (word != "0" && word != "1"))
             return false;
-        acknowledged_ = true;
-        acknowledgedAt_ = now;
+        answered_ = generation_;
+        covering_ = word == "1";
         return true;
     }
-    bool covered(uint32_t now) const
+    bool awaiting() const { return on_ && answered_ != generation_; }
+    bool covered() const
     {
-        return on_ && acknowledged_ && now - acknowledgedAt_ <= kCoverageMs;
+        return on_ && (answered_ == generation_ ? covering_ : hudPresenters.spyglass);
     }
 
     std::string json() const
@@ -152,9 +157,8 @@ class SpyglassState
     }
 
   private:
-    bool on_ = false, known_ = false, acknowledged_ = false;
-    uint64_t generation_ = 0, revision_ = 0;
-    uint32_t acknowledgedAt_ = 0;
+    bool on_ = false, known_ = false, covering_ = false;
+    uint64_t generation_ = 0, revision_ = 0, answered_ = 0;
     SpyglassTarget target_;
 };
 

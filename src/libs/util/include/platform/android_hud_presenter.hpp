@@ -27,33 +27,34 @@ namespace storm::android
 struct HudPresenters
 {
     static constexpr uint32_t kSilentMs = 10000;
-    bool sea = false, worldMap = false;
+    bool sea = false, worldMap = false, spyglass = false;
     // A sea scene began (load, new location) and the UI has not said a word about it yet: the
     // first frames of a scene may come before any valid owner the UI could answer (gameplay
     // still "unknown"), so the presented native parts stay off until its first sea answer.
     bool seaFresh = false;
     void seaSceneStarted() { seaFresh = sea; }
     void seaAnswered() { seaFresh = false; }
-    uint32_t seaSince = 0, worldMapSince = 0; // engine tick a revision began waiting; 0 = none
+    uint32_t seaSince = 0, worldMapSince = 0, spyglassSince = 0; // engine tick a revision began waiting; 0 = none
     bool declare(std::string_view hud)
     {
         if (hud == "sea") { seaSince = 0; seaFresh = false; return sea = true; }
         if (hud == "worldmap") { worldMapSince = 0; return worldMap = true; }
+        if (hud == "spyglass") { spyglassSince = 0; return spyglass = true; }
         return false;
     }
     // The UI runtime failed: nothing it declared is presented any more.
     std::string lost()
     {
-        const bool had = sea || worldMap;
-        sea = worldMap = seaFresh = false; seaSince = worldMapSince = 0;
-        return had ? "HUD presenter lost: the UI runtime failed; native sea and world map HUD parts are back" : std::string();
+        const bool had = sea || worldMap || spyglass;
+        sea = worldMap = spyglass = seaFresh = false; seaSince = worldMapSince = spyglassSince = 0;
+        return had ? "HUD presenter lost: the UI runtime failed; native sea, world map and spyglass HUD parts are back" : std::string();
     }
     // Called every engine frame with whether a presented HUD has a revision the UI has not
     // answered. Returns the error line to log when the UI stays silent and is withdrawn.
     std::optional<std::string> watch(std::string_view hud, bool waiting, uint32_t tick)
     {
-        bool &declared = hud == "sea" ? sea : worldMap;
-        uint32_t &since = hud == "sea" ? seaSince : worldMapSince;
+        bool &declared = hud == "sea" ? sea : hud == "worldmap" ? worldMap : spyglass;
+        uint32_t &since = hud == "sea" ? seaSince : hud == "worldmap" ? worldMapSince : spyglassSince;
         if (!declared || !waiting) { since = 0; return std::nullopt; }
         if (!since) { since = tick ? tick : 1; return std::nullopt; }
         if (tick - since < kSilentMs) return std::nullopt;

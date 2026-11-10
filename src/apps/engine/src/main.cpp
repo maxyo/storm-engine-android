@@ -638,7 +638,7 @@ int main(int argc, char *argv[])
             }
             else if (command.starts_with("spyglass:"))
             {
-                storm::android::spyglass.acknowledge(std::string_view(command).substr(9), SDL_GetTicks());
+                storm::android::spyglass.acknowledge(std::string_view(command).substr(9));
             }
             else if (command.starts_with("hold:"))
             {
@@ -910,7 +910,8 @@ int main(int argc, char *argv[])
                 const bool seaWaiting = gameplayReady && (hudPresenters.seaFresh || seaQuickAction.awaiting() || telemetry.awaiting() ||
                     (telemetry.frame().valid && seaNavigator.pending(telemetry.revision(), telemetry.hudRevision(), telemetry.frame().navigatorGeneration)));
                 for (const auto &line : {hudPresenters.watch("sea", seaWaiting, SDL_GetTicks()),
-                                         hudPresenters.watch("worldmap", gameplayReady && worldMapHud.awaiting(), SDL_GetTicks())})
+                                         hudPresenters.watch("worldmap", gameplayReady && worldMapHud.awaiting(), SDL_GetTicks()),
+                                         hudPresenters.watch("spyglass", gameplayReady && spyglass.awaiting(), SDL_GetTicks())})
                     if (line) __android_log_print(ANDROID_LOG_ERROR, "StormInput", "%s", line->c_str());
             }
             if(storm::android::worldMapHud.modal.hold(bActive,SDL_GetTicks()))continue;

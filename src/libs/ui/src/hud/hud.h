@@ -458,8 +458,7 @@ class Hud
     std::set<std::string> reported_;
     std::string language_; // game language last given to the mount
     bool changed_ = true;
-    double spyglass_ack_at_ = -1.0;  // last coverage acknowledgement of the spyglass overlay
-    uint64_t spyglass_ack_generation_ = 0;
+    std::string spyglass_answer_; // the last word said about the spyglass overlay
     bool visible_ = false;
     bool live_ = false;
     bool interface_ = false;
