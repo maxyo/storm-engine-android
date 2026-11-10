@@ -1,0 +1,69 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 1,
+ "screenRevision": 3,
+ "screen": "dirsailenc",
+ "widgets": [
+  {
+   "node": "MAP_CAPTION",
+   "type": "text",
+   "label": "Вахтенный",
+   "value": "",
+   "index": -1,
+   "order": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 2,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 11,
+     "imageRevision": 11,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "По курсу два торговца.",
+   "value": "",
+   "index": -1,
+   "order": 3,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_OK",
+   "type": "button",
+   "label": "Есть!",
+   "value": "",
+   "index": -1,
+   "order": 5,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}

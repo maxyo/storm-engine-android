@@ -118,6 +118,13 @@ static void Card(const std::string &models)
     router.OnEvent({"card", "dismiss", ""});
     Expect(surface.commands.size() == sent && surface.errors.empty(), "a tap beside the card answers nothing");
 
+    router.SetInterface(Load(models, "reading-dirsailenc.json"));
+    Expect(surface.props["actions"].size() == 1 && surface.props["actions"][0]["label"] == "Есть!" && surface.props["icon"] == "spyglass" &&
+               surface.errors.empty(),
+           "the straight-sail signal: one answer, the primary");
+    router.OnEvent({"ok", "click", ""});
+    ExpectEqual(surface.Last(), "widget:dirsailenc\tB_OK\t-1\tpress", "«Есть!» presses B_OK");
+
     router.SetInterface(Load(models, "reading-leavebattle.json"));
     ExpectEqual(surface.props["icon"], "swords", "leaving a battle: swords");
     Expect(surface.props["actions"][0]["variant"] == "danger" && surface.props["actions"][0]["label"] == "Остаться", "the other answer is the wax seal");
