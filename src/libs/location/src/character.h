@@ -395,6 +395,9 @@ class Character : public Entity
   protected:
     // Find a character for dialogue
     Character *FindDialogCharacter();
+#ifdef __ANDROID__
+    entid_t androidDialogTarget = invalid_entity; // kept with hysteresis (FindDialogCharacter)
+#endif
 
     int32_t startColCharacter;
     int32_t numColCharacter;
