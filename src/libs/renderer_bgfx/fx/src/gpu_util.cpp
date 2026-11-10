@@ -137,6 +137,11 @@ bool SupportsNormalMap()
     return Format(bgfx::TextureFormat::RG8, BGFX_CAPS_FORMAT_TEXTURE_2D);
 }
 
+bool SupportsMsaa()
+{
+    return Format(bgfx::TextureFormat::RGBA8, BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA);
+}
+
 void SetupView(bgfx::ViewId view, const char *name, bgfx::FrameBufferHandle target, uint16_t width, uint16_t height)
 {
     bgfx::setViewName(view, name);

@@ -11,7 +11,7 @@ SAMPLER2D(s_fxCloudNoise, 6);
 // [0] xyz: unit vector to the sun (world), w: cosine of the solar disc radius
 // [1] xy: unit horizontal direction to the sun, z: fog density, w: cloud cover
 // [2] rgb: halo colour around the sun, w: cloud layer scale (uv per unit of d.xz / d.y)
-// [3] rgb: solar disc colour, w: unused
+// [3] rgb: solar disc colour, w: dither amplitude (0 = off)
 // [4] rgb: sun-lit cloud colour, w: cloud drift u
 // [5] rgb: shaded cloud colour, w: cloud drift v
 uniform vec4 u_fxSky[6];

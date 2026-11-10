@@ -5,6 +5,7 @@
 
 #include "storm/fx/capabilities.hpp"
 #include "storm/fx/color_lut.hpp"
+#include "storm/fx/contact_shadows.hpp"
 #include "storm/fx/lighting.hpp"
 #include "storm/fx/log.hpp"
 #include "storm/fx/noise_bake.hpp"
@@ -70,6 +71,8 @@ struct GpuMesh
     // Stage 1 of the game's materials: the height texture as a detail layer, and the normal map derived from it.
     bgfx::TextureHandle detail = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle base = BGFX_INVALID_HANDLE; // stage 0, RGBA; alpha tested when set
+    float base_size = 1.0f;                         // its size in texels
 
     void Set(const preview::Mesh &mesh)
     {
@@ -117,6 +120,7 @@ enum class Content
     Harbour,  // night quay with torches, lanterns, a figure and a moored ship: point lights, bloom
     Broadside, // a ship firing its guns at dusk: flash lights
     Materials, // wall, boulder, plank deck and sail with height textures: derived normal maps
+    Garden,    // palms, grass and rigging: alpha to coverage, wind sway
     Pattern,  // aliasing test chart
 };
 
@@ -137,6 +141,9 @@ struct Shot
     WaterSource source = WaterSource::Field;
     bool env_cube = false;
     float sun_turn = 0.0f; // rotates the sun around the vertical axis, degrees
+    float time = 12.5f;    // seconds: waves, clouds, wind
+    float interior = 0.0f; // 1 = the scene counts as indoors for the scene grade
+    bool blobs = false;    // contact shadow blobs under the quay's figure and objects
 };
 
 // Vertex + fragment pair of the fixed-function stand-in per lighting variant, keyed by fx::LightingDefines().
@@ -191,6 +198,7 @@ class Preview
         u_point_ = bgfx::createUniform("u_previewPoint", bgfx::UniformType::Vec4, fx::kMaxPointLights * 4);
         u_point_count_ = bgfx::createUniform("u_previewPointCount", bgfx::UniformType::Vec4);
         s_detail_ = bgfx::createUniform("s_previewDetail", bgfx::UniformType::Sampler);
+        s_base_ = bgfx::createUniform("s_previewBase", bgfx::UniformType::Sampler);
         u_light_ = bgfx::createUniform("u_previewLight", bgfx::UniformType::Vec4, 3);
         // bgfx without a window has no back buffer: the final image goes to a frame buffer and is read back.
         output_fb_ = bgfx::createFrameBuffer(kWidth, kHeight, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
@@ -253,6 +261,39 @@ class Preview
                                                                     {preview::Relief::Rock, "rockBump"},
                                                                     {preview::Relief::Deck, "woodBump"},
                                                                     {preview::Relief::Sail, "sailBumpU1"}};
+        const uint8_t white[4] = {255, 255, 255, 255};
+        white_base_ = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_NONE, bgfx::copy(white, 4));
+        // With a full mip chain, like the game's textures: thin strands fade to partial alpha in the distance.
+        const auto texture = [](std::vector<uint8_t> rgba, int size) {
+            size_t source = 0;
+            for (int s = size; s > 1; s /= 2)
+            {
+                const size_t target = rgba.size();
+                rgba.resize(target + static_cast<size_t>(s / 2) * (s / 2) * 4);
+                for (int y = 0; y < s / 2; ++y)
+                    for (int x = 0; x < s / 2; ++x)
+                        for (int c = 0; c < 4; ++c)
+                        {
+                            const auto at = [&](int px, int py) { return rgba[source + (static_cast<size_t>(py) * s + px) * 4 + c]; };
+                            rgba[target + (static_cast<size_t>(y) * (s / 2) + x) * 4 + c] = static_cast<uint8_t>(
+                                (at(2 * x, 2 * y) + at(2 * x + 1, 2 * y) + at(2 * x, 2 * y + 1) + at(2 * x + 1, 2 * y + 1) + 2) / 4);
+                        }
+                source = target;
+            }
+            return bgfx::createTexture2D(static_cast<uint16_t>(size), static_cast<uint16_t>(size), true, 1, bgfx::TextureFormat::RGBA8,
+                                         BGFX_SAMPLER_NONE, bgfx::copy(rgba.data(), static_cast<uint32_t>(rgba.size())));
+        };
+        frond_texture_ = texture(preview::MakeFrondTexture(128), 128);
+        rope_texture_ = texture(preview::MakeRopeTexture(32), 32);
+        const preview::Garden garden = preview::MakeGarden();
+        garden_ground_.Set(garden.ground);
+        garden_trunks_.Set(garden.trunks);
+        garden_foliage_.Set(garden.foliage);
+        garden_foliage_.base = frond_texture_;
+        garden_foliage_.base_size = 128.0f;
+        garden_ropes_.Set(garden.ropes);
+        garden_ropes_.base = rope_texture_;
+        garden_ropes_.base_size = 32.0f;
         for (size_t i = 0; i < 4; ++i)
         {
             int width = 256, height = 256;
@@ -282,6 +323,12 @@ class Preview
         bgfx::destroy(u_point_count_);
         bgfx::destroy(s_detail_);
         bgfx::destroy(neutral_detail_);
+        bgfx::destroy(white_base_);
+        bgfx::destroy(frond_texture_);
+        bgfx::destroy(rope_texture_);
+        bgfx::destroy(s_base_);
+        for (GpuMesh *mesh : {&garden_ground_, &garden_trunks_, &garden_foliage_, &garden_ropes_})
+            mesh->Reset();
         bgfx::destroy(flat_normal_map_);
         for (bgfx::TextureHandle texture : relief_detail_)
             bgfx::destroy(texture);
@@ -307,11 +354,9 @@ class Preview
         const fx::Settings &settings = shot.settings;
         const auto scene_w = static_cast<uint16_t>(std::lround(kWidth * shot.render_scale));
         const auto scene_h = static_cast<uint16_t>(std::lround(kHeight * shot.render_scale));
-        EnsureSceneTarget(scene_w, scene_h);
-
-        const fx::WeatherInput weather = preview::MakeWeather(shot.weather, shot.sun_turn);
-        sky_.Update(weather, kTime);
-        const fx::SkyState &sky_state = sky_.State();
+        // This tool is the renderer: it applies what fx asks of one.
+        const fx::RendererState renderer = fx::RendererStateFor(settings);
+        EnsureSceneTarget(scene_w, scene_h, renderer.msaa_samples);
 
         // Camera.
         bx::Vec3 eye{0.0f, 7.5f, -20.0f}, at{12.0f, 5.0f, 100.0f};
@@ -342,6 +387,11 @@ class Preview
             at = {-0.5f, 1.9f, 5.0f};
             fov = 60.0f;
             break;
+        case Content::Garden:
+            eye = {1.0f, 2.2f, -3.5f};
+            at = {0.5f, 3.2f, 10.0f};
+            fov = 62.0f;
+            break;
         case Content::Pattern:
             eye = {0.0f, 0.0f, -11.0f};
             at = {0.0f, 0.0f, 0.0f};
@@ -353,6 +403,10 @@ class Preview
         float view[16], proj[16];
         bx::mtxLookAt(view, eye, at);
         bx::mtxProj(proj, fov, static_cast<float>(kWidth) / kHeight, kNear, kFar, bgfx::getCaps()->homogeneousDepth);
+
+        const fx::WeatherInput weather = preview::MakeWeather(shot.weather, shot.sun_turn);
+        sky_.Update(weather, shot.time, eye.y);
+        const fx::SkyState &sky_state = sky_.State();
 
         const bool night = shot.weather == preview::Weather::Night;
         // The game lights the scene with the moon at night; the weather tables give it a direction above the horizon.
@@ -415,6 +469,8 @@ class Preview
             casters = {&quay_, &figure_, &moored_hull_, &moored_sails_}, focus = {2.0f, 3.0f, 16.0f};
         else if (shot.content == Content::Broadside)
             casters = {&firing_hull_, &firing_sails_}, focus = firing_hull_.center;
+        else if (shot.content == Content::Garden)
+            casters = {&garden_trunks_}, focus = {0.0f, 2.0f, 10.0f};
         else if (shot.content == Content::Materials)
         {
             // The wall is static location geometry: its sun and ambient light are baked into the vertex colours.
@@ -460,10 +516,14 @@ class Preview
                 fx::ComputeLighting(lighting, material ? *material : fx::LightingMaterial::Stone(), &sky_state, settings);
             const float light[3][4] = {
                 {uniforms.u_fxLight[0][0], uniforms.u_fxLight[0][1], uniforms.u_fxLight[0][2], material ? 1.0f : 0.0f},
-                {lighting.sun_diffuse[0], lighting.sun_diffuse[1], lighting.sun_diffuse[2], 0.0f},
-                {lighting.ambient[0], lighting.ambient[1], lighting.ambient[2], 0.0f}};
+                {lighting.sun_diffuse[0], lighting.sun_diffuse[1], lighting.sun_diffuse[2], mesh.base_size},
+                {lighting.ambient[0], lighting.ambient[1], lighting.ambient[2], renderer.alpha_to_coverage ? 1.0f : 0.0f}};
             bgfx::setUniform(u_light_, light, 3);
             lighting_.Apply(uniforms);
+            if (settings.lighting_flags & fx::kLightingAerial)
+                sky_.BindAerial(lighting.view);
+            if (settings.lighting_flags & fx::kLightingWind)
+                sky_.BindWind();
             if (per_pixel_points)
             {
                 // Lit geometry: the strongest lights around it. Baked geometry: only lights that are not baked in.
@@ -482,20 +542,24 @@ class Preview
             }
             if (settings.shadows != fx::ShadowQuality::Off && (settings.lighting_flags & fx::kLightingPerPixel))
                 shadows_.Bind();
-            bgfx::setTexture(1, s_detail_, bgfx::isValid(mesh.detail) ? mesh.detail : neutral_detail_);
+            // Renderer state from fx: anisotropic filtering on the world textures, alpha to coverage on alpha-tested ones.
+            const uint32_t sampler = renderer.max_anisotropy > 1 ? BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC : BGFX_SAMPLER_NONE;
+            bgfx::setTexture(0, s_base_, bgfx::isValid(mesh.base) ? mesh.base : white_base_, sampler);
+            bgfx::setTexture(1, s_detail_, bgfx::isValid(mesh.detail) ? mesh.detail : neutral_detail_, sampler);
             // The game selects a normal-mapped variant only for materials with a height texture; this tool has
             // one variant per shot and gives the other meshes a flat map instead.
             if (settings.lighting_flags & fx::kLightingNormalMap)
-                lighting_.BindNormalMap(bgfx::isValid(mesh.normal_map) ? mesh.normal_map : flat_normal_map_);
+                lighting_.BindNormalMap(bgfx::isValid(mesh.normal_map) ? mesh.normal_map : flat_normal_map_, sampler);
             bgfx::setVertexBuffer(0, mesh.vertices);
             bgfx::setIndexBuffer(mesh.indices);
-            bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS);
+            bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS |
+                           (renderer.alpha_to_coverage && bgfx::isValid(mesh.base) ? BGFX_STATE_BLEND_ALPHA_TO_COVERAGE : 0));
             bgfx::submit(kSceneView, programs_[variant]);
         };
         const fx::LightingMaterial hull = fx::LightingMaterial::Hull(), sail = fx::LightingMaterial::Sail(),
                                    character = fx::LightingMaterial::Character(), stone = fx::LightingMaterial::Stone(), matte{};
 
-        const bool has_sea = shot.content != Content::Pattern && shot.content != Content::Materials;
+        const bool has_sea = shot.content != Content::Pattern && shot.content != Content::Materials && shot.content != Content::Garden;
         if (shot.content == Content::Ocean || shot.content == Content::Shore)
         {
             draw(island_, &matte);
@@ -517,6 +581,13 @@ class Preview
             draw(harbour_hull_, &hull);
             draw(harbour_sails_, &sail);
         }
+        else if (shot.content == Content::Garden)
+        {
+            draw(garden_ground_, &stone);
+            draw(garden_trunks_, &hull);
+            draw(garden_foliage_, &sail);
+            draw(garden_ropes_, &matte);
+        }
         else if (shot.content == Content::Materials)
         {
             draw(relief_[0], nullptr);
@@ -534,6 +605,15 @@ class Preview
         {
             draw(pattern_, nullptr);
         }
+
+        if (shot.blobs)
+        {
+            // Under the quay's figure, crate and ball; the renderer would add one per character and object.
+            contact_shadows_.Add({-0.6f, 2.4f, 4.2f}, 0.5f, 0.5f);
+            contact_shadows_.Add({-6.0f, 2.4f, 8.0f}, 1.5f, 0.45f);
+            contact_shadows_.Add({4.5f, 2.4f, 7.5f}, 0.9f, 0.5f);
+        }
+        contact_shadows_.Submit(kSceneView, settings);
 
         if (shot.content != Content::Pattern)
         {
@@ -622,6 +702,9 @@ class Preview
         post.near_plane = kNear;
         post.far_plane = kFar;
         post.projection_scale = {proj[0], proj[5]};
+        post.sun_color = weather.sun_color;
+        post.scene_grade = fx::SceneGrade(sky_state, weather.overcast, shot.interior);
+        post.scene_cut = true; // every shot is a new scene
         post.target_width = kWidth;
         post.target_height = kHeight;
         post.first_view = kPostView;
@@ -661,19 +744,22 @@ class Preview
   private:
     static constexpr float kTime = 12.5f;
 
-    void EnsureSceneTarget(uint16_t width, uint16_t height)
+    void EnsureSceneTarget(uint16_t width, uint16_t height, uint8_t samples)
     {
-        if (bgfx::isValid(scene_fb_) && width == scene_w_ && height == scene_h_)
+        if (bgfx::isValid(scene_fb_) && width == scene_w_ && height == scene_h_ && samples == scene_samples_)
             return;
         if (bgfx::isValid(scene_fb_))
             bgfx::destroy(scene_fb_);
-        const uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+        // Multisampled targets resolve into these textures when the frame buffer is left.
+        const uint64_t msaa = samples >= 4 ? BGFX_TEXTURE_RT_MSAA_X4 : samples >= 2 ? BGFX_TEXTURE_RT_MSAA_X2 : BGFX_TEXTURE_RT;
+        const uint64_t flags = msaa | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
         const bgfx::TextureHandle attachments[2] = {
             bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA8, flags),
             bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::D24, flags | BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT)};
         scene_fb_ = bgfx::createFrameBuffer(2, attachments, true);
         scene_w_ = width;
         scene_h_ = height;
+        scene_samples_ = samples;
     }
 
     // The sea as the SEA entity builds it on the CPU: every vertex through EngineWaveField::Displace.
@@ -784,12 +870,15 @@ class Preview
     fx::Sky sky_;
     fx::Lighting lighting_;
     fx::Shadows shadows_;
+    fx::ContactShadows contact_shadows_;
     fx::FlashLights flashes_;
     std::vector<fx::PointLight> town_lights_;
     fx::EngineWaveField field_;
     fx::EngineSeaState sea_;
     std::vector<bgfx::ProgramHandle> programs_; // parallel to kMeshVariants
-    bgfx::UniformHandle u_light_, u_point_, u_point_count_, s_detail_;
+    bgfx::UniformHandle u_light_, u_point_, u_point_count_, s_detail_, s_base_;
+    bgfx::TextureHandle white_base_ = BGFX_INVALID_HANDLE, frond_texture_ = BGFX_INVALID_HANDLE, rope_texture_ = BGFX_INVALID_HANDLE;
+    GpuMesh garden_ground_, garden_trunks_, garden_foliage_, garden_ropes_;
     bgfx::TextureHandle neutral_detail_ = BGFX_INVALID_HANDLE, flat_normal_map_ = BGFX_INVALID_HANDLE;
     std::array<preview::Mesh, 4> relief_cpu_;
     std::array<GpuMesh, 4> relief_;
@@ -798,6 +887,7 @@ class Preview
     bgfx::FrameBufferHandle output_fb_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle readback_ = BGFX_INVALID_HANDLE;
     uint16_t scene_w_ = 0, scene_h_ = 0;
+    uint8_t scene_samples_ = 0;
     GpuMesh ship_hull_, ship_sails_, island_, quay_, figure_, moored_hull_, moored_sails_, town_, town_glow_, harbour_figure_,
         harbour_hull_, harbour_sails_, firing_hull_, firing_sails_, muzzle_fire_, pattern_, legacy_sky_, legacy_sea_;
     std::vector<fx::SeaVertex> cpu_sea_vertices_;
@@ -888,12 +978,33 @@ void WriteCpuImages(const std::string &dir)
                 detail_ms, cloud_ms, sky_ms, lut_ms, pack_ms);
 }
 
-std::vector<Shot> AllShots(bool game_height_maps)
+std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
 {
     using fx::QualityPreset;
     const fx::Settings original = fx::Settings::FromPreset(QualityPreset::Original);
-    const fx::Settings medium = fx::Settings::FromPreset(QualityPreset::Medium);
-    const fx::Settings high = fx::Settings::FromPreset(QualityPreset::High);
+    // The presets as this device can run them: what it lacks is taken out here, once, and said so.
+    std::vector<std::string> changes;
+    const fx::Settings medium = fx::ConstrainSettings(fx::Settings::FromPreset(QualityPreset::Medium), support, changes);
+    for (const std::string &change : changes)
+        std::printf("preset Medium on this device: %s\n", change.c_str());
+    changes.clear();
+    const fx::Settings high = fx::ConstrainSettings(fx::Settings::FromPreset(QualityPreset::High), support, changes);
+    for (const std::string &change : changes)
+        std::printf("preset High on this device: %s\n", change.c_str());
+    // High with the scene depth kept readable instead of MSAA (FXAA takes over): the choice for depth-based
+    // effects on renderers that cannot resolve the depth of a multisampled scene.
+    fx::Settings depth_high = fx::Settings::FromPreset(QualityPreset::High);
+    depth_high.msaa = 1;
+    depth_high.alpha_to_coverage = false;
+    depth_high.fxaa = true;
+    // The High preset before the cheap upgrades: the "before" of their comparisons, one upgrade added at a time.
+    fx::Settings basic = depth_high;
+    basic.lighting_flags &= ~static_cast<uint32_t>(fx::kLightingRim | fx::kLightingLinear | fx::kLightingAerial | fx::kLightingWind);
+    basic.msaa = 1;
+    basic.alpha_to_coverage = false;
+    basic.anisotropy = 1;
+    basic.fxaa = true;
+    basic.dither = basic.lens_flare = basic.scene_grading = basic.contact_shadows = false;
     std::vector<Shot> shots;
     const auto add = [&](std::string name, Content content, fx::Settings settings, preview::Weather weather = preview::Weather::Day) -> Shot & {
         shots.push_back({std::move(name), content, settings, weather});
@@ -951,7 +1062,7 @@ std::vector<Shot> AllShots(bool game_height_maps)
     add("broadside_dusk_3_high", Content::Broadside, high, preview::Weather::Sunset);
 
     // Water quality levels at the shore, and the geometry sources.
-    fx::Settings water = high;
+    fx::Settings water = depth_high;
     water.water_refraction = false; // exists at High only
     water.water = fx::WaterQuality::Legacy;
     add("water_shore_0_legacy", Content::Shore, water);
@@ -960,11 +1071,11 @@ std::vector<Shot> AllShots(bool game_height_maps)
     water.water = fx::WaterQuality::Medium;
     add("water_shore_2_medium", Content::Shore, water);
     add("water_shore_2_medium_envcube", Content::Shore, water).env_cube = true;
-    add("water_shore_3_high", Content::Shore, high);
-    fx::Settings no_refraction = high;
+    add("water_shore_3_high", Content::Shore, depth_high);
+    fx::Settings no_refraction = depth_high;
     no_refraction.water_refraction = false;
     add("water_shore_3_high_no_refraction", Content::Shore, no_refraction);
-    add("water_shore_3_high_envcube", Content::Shore, high).env_cube = true;
+    add("water_shore_3_high_envcube", Content::Shore, depth_high).env_cube = true;
     add("water_source_field", Content::Ocean, medium);
     add("water_source_mesh", Content::Ocean, medium).source = WaterSource::Mesh;
     add("water_source_gerstner", Content::Ocean, medium).source = WaterSource::Gerstner;
@@ -975,7 +1086,7 @@ std::vector<Shot> AllShots(bool game_height_maps)
     add("sky_clear", Content::Ocean, clear);
 
     // Sun lighting flags, without shadows and occlusion so only the shading changes.
-    fx::Settings lit = high;
+    fx::Settings lit = basic;
     lit.shadows = fx::ShadowQuality::Off;
     lit.ssao = false;
     lit.lighting_flags = fx::kLightingNone;
@@ -988,7 +1099,7 @@ std::vector<Shot> AllShots(bool game_height_maps)
     add("lighting_sunset_2_full", Content::Deck, lit, preview::Weather::Sunset);
 
     // Sun shadows and ambient occlusion on the quay.
-    fx::Settings shadowed = high;
+    fx::Settings shadowed = basic;
     shadowed.ssao = false;
     shadowed.shadows = fx::ShadowQuality::Off;
     add("shadows_0_off", Content::Deck, shadowed);
@@ -997,10 +1108,87 @@ std::vector<Shot> AllShots(bool game_height_maps)
     shadowed.shadows = fx::ShadowQuality::Soft;
     add("shadows_2_soft", Content::Deck, shadowed);
     add("ssao_0_off", Content::Deck, shadowed);
-    add("ssao_1_on", Content::Deck, high);
+    add("ssao_1_on", Content::Deck, basic);
+
+    // ---- the cheap upgrades, each against `basic` ----
+    // Anisotropic filtering: the plank deck at a grazing angle.
+    add("aniso_0_off", Content::Materials, basic).sun_turn = 240.0f;
+    fx::Settings one_more = basic;
+    one_more.anisotropy = 8;
+    add("aniso_1_on", Content::Materials, one_more).sun_turn = 240.0f;
+    // MSAA with alpha to coverage on foliage and rigging; wind sway at two moments.
+    one_more = basic;
+    one_more.fxaa = false;
+    one_more.ssao = false; // depth-based effects and MSAA exclude each other on this renderer
+    one_more.water = fx::WaterQuality::Medium;
+    one_more.water_refraction = false;
+    add("a2c_0_no_aa_alpha_test", Content::Garden, one_more).sun_turn = 215.0f;
+    one_more.msaa = 4;
+    add("a2c_1_msaa_alpha_test", Content::Garden, one_more).sun_turn = 215.0f;
+    one_more.alpha_to_coverage = true;
+    add("a2c_2_msaa_alpha_to_coverage", Content::Garden, one_more).sun_turn = 215.0f;
+    one_more = basic;
+    one_more.lighting_flags |= fx::kLightingWind;
+    add("wind_0_off", Content::Garden, basic).sun_turn = 215.0f;
+    add("wind_1_on", Content::Garden, one_more).sun_turn = 215.0f;
+    {
+        Shot &later = add("wind_2_on_later", Content::Garden, one_more);
+        later.sun_turn = 215.0f;
+        later.time = 14.1f;
+    }
+    // Lights added in linear light: the torch-lit wall and the harbour.
+    one_more = basic;
+    one_more.lighting_flags |= fx::kLightingLinear;
+    add("linear_torch_0_off", Content::Materials, basic, preview::Weather::Night);
+    add("linear_torch_1_on", Content::Materials, one_more, preview::Weather::Night);
+    add("linear_day_0_off", Content::Deck, basic);
+    add("linear_day_1_on", Content::Deck, one_more);
+    // Rim light: the quay seen against the sun.
+    one_more = basic;
+    one_more.lighting_flags |= fx::kLightingRim;
+    add("rim_0_off", Content::Deck, basic).sun_turn = 20.0f;
+    add("rim_1_on", Content::Deck, one_more).sun_turn = 20.0f;
+    // Aerial perspective and height haze: the island across the water.
+    one_more = basic;
+    one_more.lighting_flags |= fx::kLightingAerial;
+    add("aerial_0_off", Content::Ocean, basic);
+    add("aerial_1_on", Content::Ocean, one_more);
+    add("aerial_storm_0_off", Content::Ocean, basic, preview::Weather::Storm);
+    add("aerial_storm_1_on", Content::Ocean, one_more, preview::Weather::Storm);
+    // Contact shadows where there is no sun shadow: an overcast quay.
+    one_more = basic;
+    one_more.shadows = fx::ShadowQuality::Off;
+    add("contact_0_off", Content::Deck, one_more, preview::Weather::Storm).blobs = true;
+    one_more.contact_shadows = true;
+    add("contact_1_on", Content::Deck, one_more, preview::Weather::Storm).blobs = true;
+    // Scene grades by hour, weather and place.
+    one_more = basic;
+    one_more.scene_grading = true;
+    for (const auto &[weather, name] : weathers)
+    {
+        add(std::string("scenegrade_") + name + "_0_off", Content::Ocean, basic, weather);
+        add(std::string("scenegrade_") + name + "_1_on", Content::Ocean, one_more, weather);
+    }
+    add("scenegrade_interior_0_off", Content::Materials, basic, preview::Weather::Night);
+    add("scenegrade_interior_1_on", Content::Materials, one_more, preview::Weather::Night).interior = 1.0f;
+    // Sun glare and lens flare.
+    one_more = basic;
+    one_more.lens_flare = true;
+    add("flare_0_off", Content::Ocean, basic, preview::Weather::Sunset);
+    add("flare_1_on", Content::Ocean, one_more, preview::Weather::Sunset);
+    add("flare_day_1_on", Content::Shore, one_more).sun_turn = 215.0f;
+    // Dither against banding in the night sky; optional vignette and grain.
+    one_more = basic;
+    one_more.dither = true;
+    add("dither_0_off", Content::Ocean, basic, preview::Weather::Night);
+    add("dither_1_on", Content::Ocean, one_more, preview::Weather::Night);
+    one_more = basic;
+    one_more.vignette = 0.5f;
+    one_more.film_grain = 0.5f;
+    add("optional_vignette_grain", Content::Ocean, one_more);
 
     // Normal maps derived from height textures: the sun in two positions, then a torch at night.
-    fx::Settings flat = high;
+    fx::Settings flat = basic;
     flat.lighting_flags &= ~static_cast<uint32_t>(fx::kLightingNormalMap);
     const std::string suffix = game_height_maps ? "_game" : "";
     const std::tuple<const char *, preview::Weather, float> relief_lights[] = {
@@ -1009,7 +1197,7 @@ std::vector<Shot> AllShots(bool game_height_maps)
     {
         add(std::string("normalmap_") + light + "_0_off" + suffix, Content::Materials, flat, weather).sun_turn = turn;
         add(std::string("normalmap_") + light + "_1_medium" + suffix, Content::Materials, medium, weather).sun_turn = turn;
-        add(std::string("normalmap_") + light + "_2_high" + suffix, Content::Materials, high, weather).sun_turn = turn;
+        add(std::string("normalmap_") + light + "_2_high" + suffix, Content::Materials, basic, weather).sun_turn = turn;
     }
 
     // Anti-aliasing, sharpening and dynamic resolution on the test chart.
@@ -1019,6 +1207,9 @@ std::vector<Shot> AllShots(bool game_height_maps)
     add("aa_1_fxaa", Content::Pattern, aa);
     aa.sharpen = true;
     add("aa_2_fxaa_sharpen", Content::Pattern, aa);
+    fx::Settings msaa = original;
+    msaa.msaa = 4;
+    add("aa_3_msaa4", Content::Pattern, msaa);
     add("aa_scale75_0_bilinear", Content::Pattern, original).render_scale = 0.75f;
     add("aa_scale75_1_fxaa_sharpen", Content::Pattern, aa).render_scale = 0.75f;
     add("dynres_day_scale75_high", Content::Ocean, high).render_scale = 0.75f;
@@ -1050,6 +1241,7 @@ int main(int argc, char **argv)
     // No native window and no back buffer size: bgfx creates a 1x1 EGL pbuffer.
     init.swapChain.width = 0;
     init.swapChain.height = 0;
+    init.reset = BGFX_RESET_MAXANISOTROPY; // anisotropic samplers use the device's maximum level
     init.fallback = false; // never fall back to the no-op renderer: black images would look like a pass
     if (!bgfx::init(init))
     {
@@ -1062,13 +1254,15 @@ int main(int argc, char **argv)
         std::printf("[fx] %s%s\n", level == fx::LogLevel::Error ? "ERROR: " : "", message);
         errors += level == fx::LogLevel::Error;
     });
-    const fx::Support support = fx::DetectSupport(true); // the preview's scene depth is a sampleable D24 texture
+    // What this tool, as the renderer, provides: a sampleable D24 scene depth, but not from a multisampled scene
+    // (bgfx resolves colour only), and anisotropic samplers.
+    const fx::Support support = fx::DetectSupport({true, false, true});
     if (filter.empty())
         WriteCpuImages(out_dir);
     {
         Preview preview(out_dir, height_map_dir);
         std::vector<uint8_t> field, mesh;
-        for (Shot shot : AllShots(!height_map_dir.empty()))
+        for (Shot shot : AllShots(support, !height_map_dir.empty()))
         {
             if (!filter.empty() && shot.name.find(filter) == std::string::npos)
                 continue;

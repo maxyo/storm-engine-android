@@ -181,7 +181,11 @@ Touches over the game are decided per pointer at pointer-down: `Host::WantsTouch
 true on an interactive HUD element (what the behaviours report as `Regions`), anywhere
 while a modal sheet, an interface or a plain document is shown, and false elsewhere, so the
 game keeps the rest (camera look). It is answered from the layout of the last frame and is
-thread-safe. A layout element may add a behaviour: `"behavior": "hold"` (reports `down` /
+thread-safe. The land move stick floats: its layout element is the zone (anchor and size in
+`hud-layout.json`, drawn under every other element), the stick rests at `restLeft` /
+`restBottom` and appears under the thumb that lands anywhere in the zone where no other
+control is hit; plates that only show are `pointer-events: none`, so they do not shield
+it. A layout element may add a behaviour: `"behavior": "hold"` (reports `down` /
 `up`) or `"swipe"` (a drag picks a move; `data` → `data-swipe-*`).
 
 Remaining fallbacks, each logged and tested: a context action name the land table lacks

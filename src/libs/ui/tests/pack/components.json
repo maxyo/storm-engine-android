@@ -93,12 +93,24 @@
     "active": {
      "type": "bool",
      "default": false
+    },
+    "floating": {
+     "type": "bool",
+     "default": false
+    },
+    "atX": {
+     "type": "number",
+     "default": 0
+    },
+    "atY": {
+     "type": "number",
+     "default": 0
     }
    },
    "behaviors": [
     "stick"
    ],
-   "template": "<div data-stick=\"xy\" data-knob-size=\"20\" style=\"width: 100dp; height: 100dp;\"></div>"
+   "template": "<div data-stick=\"xy\" data-knob-size=\"20\" style=\"position: absolute; width: 100dp; height: 100dp; {{ active ? 'left: ' + atX + 'dp; top: ' + atY + 'dp;' : 'left: 40dp; bottom: 30dp;' }}\"></div>"
   },
   {
    "tag": "s-hud-sheet",

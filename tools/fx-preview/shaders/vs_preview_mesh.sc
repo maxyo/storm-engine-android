@@ -3,12 +3,15 @@ $output v_color0, v_albedo, v_vnormal, v_vpos, v_uv
 // Stand-in for the fixed-function vertex pipeline. Two kinds of geometry, as in the game:
 //   lit    D3DRS_LIGHTING on: one directional light, a global ambient and up to eight point / spot lights,
 //          per vertex unless the fx lighting flags take terms over (see the contract in fx_lighting.sh);
-//   baked  D3DRS_LIGHTING off: a_color1 is the lighting baked into the vertex colours (src/libs/lighter).
-// a_color0 plays the role of the base texture; a_texcoord0 are the coordinates of the detail stage (the
-// game's second UV set), where the height ("bump") texture is multiplied in.
+//   baked  D3DRS_LIGHTING off: a_color1.rgb is the lighting baked into the vertex colours (src/libs/lighter).
+// a_color0 tints the base texture; a_texcoord0 are the texture coordinates (base texture and the detail
+// stage, where the height ("bump") texture is multiplied in); 1 - a_color1.a is the wind sway weight.
 #include <bgfx_shader.sh>
+#ifdef FX_WIND
+#include "fx_wind.sh"
+#endif
 
-// [0] xyz: view-space direction to the sun, w: 1 lit / 0 baked  [1] sun diffuse  [2] ambient
+// [0] xyz: view-space direction to the sun, w: 1 lit / 0 baked  [1] sun diffuse  [2] ambient, w: 1 = alpha to coverage
 uniform vec4 u_previewLight[3];
 #ifndef FX_LIGHT_POINT
 uniform vec4 u_previewPoint[32]; // same layout as u_fxPoint
@@ -17,7 +20,11 @@ uniform vec4 u_previewPointCount;
 
 void main()
 {
-    vec4 viewPos = mul(u_modelView, vec4(a_position, 1.0));
+    vec3 worldPos = a_position; // the preview's meshes are already in world space
+#ifdef FX_WIND
+    worldPos += fxWindOffset(worldPos, 1.0 - a_color1.a);
+#endif
+    vec4 viewPos = mul(u_modelView, vec4(worldPos, 1.0));
     gl_Position = mul(u_proj, viewPos);
     vec3 N = normalize(mul(u_modelView, vec4(a_normal, 0.0)).xyz);
     vec3 light = a_color1.rgb;

@@ -57,4 +57,25 @@ Vec3 SkyColor(const SkyState &sky, Vec3 dir);
 // Fog colour for geometry seen in the horizontal direction (x, z): the sky at the horizon there.
 Vec3 FogColor(const SkyState &sky, std::array<float, 2> view_xz);
 
+// ---- aerial perspective and height haze (shaders/include/fx_aerial.sh) ----
+inline constexpr float kHazeLayerHeight = 60.0f; // metres: the haze over the sea thins out by 1/e per this height
+inline constexpr float kHazeDensityFactor = 3.0f; // density of the haze at sea level relative to the game's fog density
+
+struct AerialUniforms
+{
+    std::array<std::array<float, 4>, 3> u_fxAerial{};
+};
+// `view` is the world -> view matrix (row-vector convention), `camera_height` the camera's y above the sea.
+AerialUniforms ComputeAerial(const SkyState &sky, float camera_height, const std::array<float, 16> &view);
+// Fog density for a surface at sea level seen from `camera_height`: the game's fog plus the haze layer.
+float SeaFogDensity(const SkyState &sky, float camera_height);
+
+// ---- wind (shaders/include/fx_wind.sh) ----
+struct WindUniforms
+{
+    std::array<std::array<float, 4>, 2> u_fxWind{};
+};
+// Sway grows with the game's wind speed (whf_wind_speed) and saturates in a storm.
+WindUniforms ComputeWind(const WeatherInput &weather, float time_seconds);
+
 } // namespace storm::fx
