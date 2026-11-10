@@ -28,7 +28,7 @@ class RenderBackend
     virtual void EndFrame() = 0;
 };
 
-// Needs a current GLES 3.2 (Android) or GL 3.3 core (desktop) context.
+// Needs a current GLES 3.0 (Android) or GL 3.3 core (desktop) context.
 std::unique_ptr<RenderBackend> CreateGl3Backend(std::string *error = nullptr);
 
 // For backend authors: decodes a PNG/JPEG of the UI pack (through Rml::GetFileInterface)

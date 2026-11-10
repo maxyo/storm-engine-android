@@ -67,11 +67,21 @@ target_include_directories(storm_ui PUBLIC include PRIVATE src "${storm_ui_rmlui
 target_link_libraries(storm_ui PUBLIC RmlUi::RmlUi nlohmann_json::nlohmann_json PRIVATE lunasvg::lunasvg plutovg::plutovg)
 
 if(ANDROID)
+    # RmlUi's GL3 renderer picks GLSL ES 3.20 on Android. Its WebGL 2 path is the same code
+    # with GLSL ES 3.00 and <GLES3/gl3.h>, which every GLES 3.0 device (and the emulator's
+    # SwiftShader) accepts; select it for that one file.
+    set_source_files_properties("${storm_ui_rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp"
+        PROPERTIES COMPILE_DEFINITIONS RMLUI_PLATFORM_EMSCRIPTEN)
     # The Java host owns the EGL context (GLSurfaceView); this library only issues GLES calls.
     add_library(storm_ui_android SHARED android/jni_host.cpp android/asset_files.cpp)
     target_link_libraries(storm_ui_android PRIVATE storm_ui android log GLESv3)
     target_link_options(storm_ui_android PRIVATE -Wl,--no-undefined -Wl,-z,max-page-size=16384)
     set_target_properties(storm_ui_android PROPERTIES OUTPUT_NAME storm_ui)
+    # The APK ships the stripped copy; the unstripped one stays for symbolication.
+    add_custom_command(TARGET storm_ui_android POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/package"
+        COMMAND ${CMAKE_STRIP} --strip-unneeded -o "${CMAKE_CURRENT_BINARY_DIR}/package/libstorm_ui.so" "$<TARGET_FILE:storm_ui_android>"
+        VERBATIM)
 elseif(NOT CMAKE_CROSSCOMPILING)
     # Headless host renderer for design checks: EGL pbuffer + desktop GL 3.3, PNG output.
     add_executable(storm_ui_shot tools/ui_shot.cpp)
