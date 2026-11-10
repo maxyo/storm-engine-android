@@ -42,7 +42,7 @@
 // The stage itself stays as it is (the 2x multiply detail layer of the original look). Cost per pixel:
 // one RG8 fetch, four screen-space derivatives, two cross products and two normalisations.
 // For baked geometry, which has no run-time sun term, multiply the baked colour instead:
-//   current.rgb *= fxBakedRelief(Ngeometry, N);
+//   current.rgb *= fxBakedRelief(Ngeometry, N, V);
 //
 // Geometry drawn with D3DRS_LIGHTING off and baked vertex colours (static
 // location models, see src/libs/lighter) already contains the location's
@@ -162,11 +162,17 @@ vec3 fxPerturbNormal(vec3 N, vec3 P, vec2 uv)
     return normalize(T * (scale * n.x) + B * (scale * n.y) + N * nz);
 }
 
-// Baked geometry: how much brighter or darker the relief makes a surface that was baked with normal Ng,
-// judged by the sun. Averages to 1 over a texture, so the baked brightness is kept.
-float fxBakedRelief(vec3 Ng, vec3 N)
+// Baked geometry: how much brighter or darker the relief makes a surface that was baked with normal Ng; V: unit
+// vector to the eye. The baked colours already hold the sun's strength, so only its direction matters here: a light
+// 60 degrees from the surface normal on the sun's side (the viewer's side when the sun stands straight above the
+// surface), otherwise a high sun would flatten the relief of the ground. Averages to 1 over a texture, so the baked
+// brightness is kept.
+float fxBakedRelief(vec3 Ng, vec3 N, vec3 V)
 {
-    return clamp(1.0 + 1.6 * (dot(N, u_fxLight[0].xyz) - dot(Ng, u_fxLight[0].xyz)), 0.55, 1.5);
+    vec3 t = u_fxLight[0].xyz - Ng * dot(u_fxLight[0].xyz, Ng);
+    if (dot(t, t) < 1e-4) t = V - Ng * dot(V, Ng);
+    vec3 L = Ng * 0.5 + t * (0.866 * inversesqrt(max(dot(t, t), 1e-12)));
+    return clamp(1.0 + 1.6 * (dot(N, L) - 0.5), 0.55, 1.5);
 }
 #endif // FX_LIGHT_NORMALMAP
 

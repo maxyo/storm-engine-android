@@ -24,6 +24,11 @@ class CXI_SCROLLEDPICTURE : public CXI_PICTURE
     uint32_t MessageProc(int32_t msgcode, MESSAGE &message) override;
     void MoveMouseOutScreen(float fX, float fY) override;
     void ChangeUV(FXYRECT &frNewUV) override;
+#ifdef __ANDROID__
+    void MobileCollect(std::vector<MobileWidget> &widgets) const override;
+    bool MobileApply(int index, const std::string &value) override;
+    int RClickCommand() const;
+#endif
 
   protected:
     void LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2) override;
@@ -46,6 +51,9 @@ class CXI_SCROLLEDPICTURE : public CXI_PICTURE
         FXYPOINT fpPos;
         FXYPOINT fpSize;
         bool bShow;
+        std::string id;          // name in the interface's imagelist ("FortFrance", "PShip")
+        std::string group, pic;  // picture of pictures.ini, or
+        std::string file;        // a texture file
     };
 
     int32_t m_nScaleNum;

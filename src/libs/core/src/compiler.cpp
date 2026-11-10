@@ -1441,7 +1441,7 @@ bool COMPILER::InitInternalFunctions()
         fi.arguments = GetInternalFunctionArgumentsNum(n);
         fi.decl_file_name = "engine";
         fi.decl_line = 0;
-        fi.return_type = IntFuncTable[n].ReturnType;
+        fi.return_type = GetIntFunctionReturnType(n);
         uint32_t func_code = FuncTab.AddFunc(fi);
 
         if (func_code == INVALID_FUNC_CODE)

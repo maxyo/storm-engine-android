@@ -15,6 +15,7 @@
 // "test_"; it must return 1 (int) without a runtime error. A "fail_" function must stop with a
 // runtime error within 5 s (the script call time limit is 1 s here). A script whose first line is
 // "// expect-error: <text>" must instead fail to compile with an error containing <text>.
+#include "game_profile.hpp"
 #include "compiler.h"
 #include "core_impl.h"
 #include "game_profile.hpp"
@@ -192,7 +193,7 @@ int check(int argc, char **argv)
     std::printf("script_check: indexing %s without the engine-shaders overlay (scripts only)\n",
                 fs::current_path().string().c_str());
     fio->ScanResourcePaths(false);
-    storm::initGameProfile(); // built-in signatures differ between the games
+    storm::initGameProfile(); // built-in signatures that differ between the games (builtin_signatures.hpp)
     std::vector<std::string> diagnostics;
     COMPILER compiler;
     core_internal.Compiler = &compiler;
@@ -362,6 +363,8 @@ int test(int argc, char **argv)
         }
 
         std::vector<std::string> diagnostics;
+        // the language cases exercise Caribbean Legend's script dialect
+        storm::setGameProfile(storm::GameProfile::CaribbeanLegend);
         fs::current_path(script.parent_path());
         fio->ScanResourcePaths(false); // scripts only, no engine-shaders overlay
         const auto name = script.filename().string();

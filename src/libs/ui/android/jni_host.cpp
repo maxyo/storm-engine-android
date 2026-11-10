@@ -208,11 +208,6 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeScrollTo(JNIEnv *
     From(handle)->host->ScrollTo(Text(env, element_id));
 }
 
-JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeHostOwnsInterface(JNIEnv *env, jclass, jstring screen)
-{
-    return storm::ui::HostOwnsInterface(Text(env, screen)) ? JNI_TRUE : JNI_FALSE;
-}
-
 JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeHostOwnsHud(JNIEnv *env, jclass, jstring mode)
 {
     return storm::ui::HostOwnsHud(Text(env, mode)) ? JNI_TRUE : JNI_FALSE;

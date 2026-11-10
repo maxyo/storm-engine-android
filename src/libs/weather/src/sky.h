@@ -92,6 +92,9 @@ class SKY : public Entity
     float TimeToFactor(float hours) const;
     bool SelectSkyTextures(float factor);
     void UpdateTimeFactor();
+    // Stars and planets (Astronomy) and the SUNGLOW sun / moon sprite (the sun only with `sun_sprite`); false when
+    // neither entity exists.
+    bool DrawSkyObjects(uint32_t Delta_Time, bool sun_sprite);
 
     uint32_t GetPixelColor(int32_t texture, float fu, float fv) const;
 };

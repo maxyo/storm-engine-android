@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Native dependency and regression pipeline; no APK packaging or game resources.
+# STORM_ANDROID_ABI=x86_64 builds the emulator prefix ($work/prefix-x86_64); see abi.sh.
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 work=${STORM_CI_WORK:-"$repo/build/android-ci"}
+source "$repo/tools/android/abi.sh"
 mkdir -p "$work/downloads" "$work/sources" "$work/tools"
 fetch_archive() {
     local filename=$1 digest=$2 destination=$3
@@ -36,15 +38,15 @@ if [[ -n "${JAVA_HOME_17_X64:-}" ]]; then
     export PATH="$JAVA_HOME/bin:$PATH"
 fi
 ndk="$work/tools/ndk/android-ndk-r30"
-python3 "$repo/tools/android/build_dependencies.py" --ndk "$ndk" --sdl-source "$work/sources/SDL" --fmt-source "$work/sources/fmt" --build-dir "$work/dependencies" --prefix "$work/prefix" --jobs 2
+python3 "$repo/tools/android/build_dependencies.py" --ndk "$ndk" --sdl-source "$work/sources/SDL" --fmt-source "$work/sources/fmt" --build-dir "$work/dependencies$sfx" --prefix "$work/prefix$sfx" --abi "$abi" --jobs "${STORM_BUILD_JOBS:-2}"
 # Checks that run the compiler themselves compile through the Storm ccache launcher.
 cxx="$repo/tools/ccache/cxx"
-ndk_cxx="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
+ndk_cxx="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/${triple}24-clang++"
 python3 "$repo/tools/android/test_sdl_surface_lifecycle.py" --sdl-source "$work/sources/SDL"
 # The audio experiment is independently tested; it is not part of the probe APK.
 python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-host" --cxx "$cxx"
 python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-sanitized" --sanitize --cxx "$cxx"
-STORM_CCACHE_CXX="$ndk_cxx" python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-android" --cxx "$cxx" --compile-only
+STORM_CCACHE_CXX="$ndk_cxx" python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-android$sfx" --cxx "$cxx" --compile-only
 python3 "$repo/tests/cmake/cross_compile/run.py"
 python3 "$repo/tests/portability/run.py"
 python3 "$repo/tests/portability/check_toolchain.py"

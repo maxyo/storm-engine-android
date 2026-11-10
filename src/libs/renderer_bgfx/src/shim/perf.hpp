@@ -23,6 +23,13 @@ inline const bgfx::Memory *counted_texture_upload(const bgfx::Memory *memory)
     return memory;
 }
 
+// Live memory accounting (perf_stats.hpp *_bytes): `field` += new_size - old_size.
+inline void perf_resize(uint64_t render::PerfCounters::*field, size_t old_size, size_t new_size)
+{
+    perf().*field += new_size;
+    perf().*field -= old_size;
+}
+
 // Adds the scope's wall time to `sink` (milliseconds).
 class PerfScope
 {

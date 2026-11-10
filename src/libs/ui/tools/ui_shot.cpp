@@ -2,8 +2,17 @@
 //
 //   storm_ui_shot --pack DIR --doc gallery/buttons.rml --size 915x412 --density 2 --out shot.png
 //                 [--game-root DIR] [--safe L,T,R,B] [--script "down 1 120 80; wait 0.5; shot held.png; up 1 120 80"]
-//   script commands: down|move|up <pointer> <x> <y>, wait <s>, shot <png>, toast <text>,
-//                    props <element id> <json>, scroll <element id>
+//                 [--backend gl3|bgfx] [--views N]
+//   script commands: down|move|up <pointer> <x> <y>, wait <s>, shot <png>, toast <text>, timed (print what
+//                    each later command costs up to its finished frame),
+//                    props <element id> <json>, scroll <element id>,
+//                    device-reset (bgfx: device loss and restore, as after a lost EGL context)
+//
+// --backend bgfx (build option STORM_UI_BGFX) draws through the bgfx backend on bgfx's
+// GLES 3.0 renderer, the engine configuration, with the tool acting as the frame owner and
+// N UI views from storm::render::kUiViewBegin (default kUiViewCount, the engine's range).
+// Before each capture it renders frames on the same clock until the backend has no queued
+// layer work (at most 60), and reports how many.
 //
 // A game interface instead of a document: --interface model.json renders a recorded
 // interface model through the screen routing (--state dialogue=state.json feeds a state
@@ -22,7 +31,7 @@
 //
 // Frame cost: bench <frames> [<channel> <a.json> <b.json>] runs that many frames as a
 // platform host does (Host::Prepare, and Host::Frame only for an out-of-date frame), each
-// finished on the GPU (glFinish), and prints what they cost (Host::LastFrameStats: CPU of
+// finished on the GPU (glFinish; bgfx: every frame is drawn, as in the engine frame), and prints what they cost (Host::LastFrameStats: CPU of
 // update and render, GPU wait, rebuilds, layout, meshes, draw calls, texture uploads).
 // With a channel the two states alternate every frame (a HUD that changes each frame);
 // the channel "interface" alternates two interface models instead.
@@ -31,6 +40,12 @@
 // so captures are repeatable. Reported actions go to stdout as "action id verb value".
 #include "storm_ui/render_backend.h"
 #include "storm_ui/ui.h"
+
+#if STORM_UI_BGFX
+#include "storm_ui/backend_bgfx.h"
+#include <bgfx/bgfx.h>
+#include <cstdarg>
+#endif
 
 #include <plutovg.h>
 
@@ -45,6 +60,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 namespace
@@ -121,13 +137,9 @@ bool MakeContext(Egl &egl, int width, int height)
 
 using ReadPixelsFn = void (*)(int, int, int, int, unsigned, unsigned, void *);
 
-bool SavePng(const Egl &egl, int width, int height, const std::string &path)
+// `rgba`: premultiplied RGBA8 rows, bottom row first (GL read-back order).
+bool SavePng(const std::vector<unsigned char> &rgba, int width, int height, const std::string &path)
 {
-    const auto read_pixels = reinterpret_cast<ReadPixelsFn>(egl.GetProcAddress("glReadPixels"));
-    if (!read_pixels)
-        return false;
-    std::vector<unsigned char> rgba(static_cast<size_t>(width) * height * 4);
-    read_pixels(0, 0, width, height, 0x1908 /*GL_RGBA*/, 0x1401 /*GL_UNSIGNED_BYTE*/, rgba.data());
     plutovg_surface_t *surface = plutovg_surface_create(width, height);
     unsigned char *data = plutovg_surface_get_data(surface);
     const int stride = plutovg_surface_get_stride(surface);
@@ -144,6 +156,275 @@ bool SavePng(const Egl &egl, int width, int height, const std::string &path)
     return ok;
 }
 
+// Where frames are drawn and read back.
+class Capture
+{
+  public:
+    virtual ~Capture() = default;
+    virtual storm::ui::RenderBackend *Backend() = 0;
+    virtual void Attach(storm::ui::Host &host) = 0;
+    virtual void Frame(storm::ui::Host &host) = 0;
+    virtual bool Shot(storm::ui::Host &host, const std::string &path) = 0;
+    virtual bool ResetDevice()
+    {
+        return false;
+    }
+    // bench: one frame as the platform host draws it; true when one was drawn.
+    virtual bool BenchFrame(storm::ui::Host &host) = 0;
+    // bench: waits until the GPU has finished the frame.
+    virtual void Finish() = 0;
+};
+
+class Gl3Capture final : public Capture
+{
+  public:
+    bool Start(int width, int height)
+    {
+        width_ = width;
+        height_ = height;
+        if (!egl_.Load() || !MakeContext(egl_, width, height))
+            return false;
+        std::string error;
+        backend_ = storm::ui::CreateGl3Backend(&error);
+        if (!backend_)
+            std::fprintf(stderr, "GL backend: %s\n", error.c_str());
+        return backend_ != nullptr;
+    }
+    storm::ui::RenderBackend *Backend() override
+    {
+        return backend_.get();
+    }
+    void Attach(storm::ui::Host &) override
+    {
+    }
+    void Frame(storm::ui::Host &host) override
+    {
+        host.Frame();
+    }
+    bool Shot(storm::ui::Host &host, const std::string &path) override
+    {
+        host.Frame();
+        const auto read_pixels = reinterpret_cast<ReadPixelsFn>(egl_.GetProcAddress("glReadPixels"));
+        if (!read_pixels)
+            return false;
+        std::vector<unsigned char> rgba(static_cast<size_t>(width_) * height_ * 4);
+        read_pixels(0, 0, width_, height_, 0x1908 /*GL_RGBA*/, 0x1401 /*GL_UNSIGNED_BYTE*/, rgba.data());
+        return SavePng(rgba, width_, height_, path);
+    }
+    bool BenchFrame(storm::ui::Host &host) override
+    {
+        double delay = 0.0;
+        if (!host.Prepare(delay)) // the Java GL host draws only an out-of-date frame
+            return false;
+        host.Frame();
+        return true;
+    }
+    void Finish() override
+    {
+        reinterpret_cast<void (*)()>(egl_.GetProcAddress("glFinish"))();
+    }
+
+  private:
+    Egl egl_;
+    std::unique_ptr<storm::ui::RenderBackend> backend_;
+    int width_ = 0;
+    int height_ = 0;
+};
+
+#if STORM_UI_BGFX
+struct QuietCallback final : bgfx::CallbackI
+{
+    void fatal(const char *file, uint16_t line, bgfx::Fatal::Enum, const char *message) override
+    {
+        std::fprintf(stderr, "bgfx fatal %s:%u: %s\n", file, line, message);
+        std::abort();
+    }
+    void traceVargs(const char *, uint16_t, const char *, va_list) override
+    {
+    }
+    void profilerBegin(const char *, uint32_t, const char *, uint16_t) override
+    {
+    }
+    void profilerBeginLiteral(const char *, uint32_t, const char *, uint16_t) override
+    {
+    }
+    void profilerEnd() override
+    {
+    }
+    uint32_t cacheReadSize(uint64_t) override
+    {
+        return 0;
+    }
+    bool cacheRead(uint64_t, void *, uint32_t) override
+    {
+        return false;
+    }
+    void cacheWrite(uint64_t, const void *, uint32_t) override
+    {
+    }
+    void screenShot(const char *, uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, const void *, uint32_t, bool) override
+    {
+    }
+    void captureBegin(uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, bool) override
+    {
+    }
+    void captureEnd() override
+    {
+    }
+    void captureFrame(const void *, uint32_t) override
+    {
+    }
+};
+
+// The tool plays the engine's frame owner: bgfx GLES 3.0 on a headless EGL context, an
+// RGBA8 + D24S8 frame buffer standing in for the surface, UI views re-pointed every frame.
+class BgfxCapture final : public Capture
+{
+  public:
+    ~BgfxCapture() override
+    {
+        if (!started_)
+            return;
+        backend_.reset();
+        bgfx::destroy(readback_);
+        bgfx::destroy(target_);
+        bgfx::shutdown();
+    }
+    bool Start(int width, int height, int views)
+    {
+        width_ = width;
+        height_ = height;
+        views_ = uint16_t(views);
+        first_view_ = storm::render::kUiViewBegin;
+        // bgfx opens the default EGL display: pick Mesa (llvmpipe, as the GL capture) over
+        // other vendors' drivers, for the same pixels on every machine.
+        setenv("EGL_PLATFORM", "surfaceless", 0);
+        if (access(kMesaVendor, R_OK) == 0)
+            setenv("__EGL_VENDOR_LIBRARY_FILENAMES", kMesaVendor, 0);
+        if (!StartDevice())
+            return false;
+        std::string error;
+        backend_ = storm::ui::BgfxBackend::Create({}, &error);
+        if (!backend_)
+        {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return false;
+        }
+        backend_->SetTarget(target_.idx);
+        backend_->SetViewport(width, height);
+        return true;
+    }
+    bool ResetDevice() override
+    {
+        backend_->OnDeviceLost();
+        bgfx::shutdown(); // handles die with the device, as on a lost EGL context
+        started_ = false;
+        if (!StartDevice())
+            return false;
+        backend_->SetTarget(target_.idx);
+        backend_->OnDeviceRestored();
+        return true;
+    }
+    bool StartDevice()
+    {
+        bgfx::Init init;
+        init.type = bgfx::RendererType::OpenGLES;
+        init.swapChain.nwh = nullptr; // headless (EGL pbuffer): no back buffer, 0x0
+        init.swapChain.width = 0;
+        init.swapChain.height = 0;
+        init.callback = &callback_;
+        if (!bgfx::init(init))
+        {
+            std::fprintf(stderr, "bgfx::init failed\n");
+            return false;
+        }
+        started_ = true;
+        bgfx::TextureHandle attachments[2] = {
+            bgfx::createTexture2D(uint16_t(width_), uint16_t(height_), false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT),
+            bgfx::createTexture2D(uint16_t(width_), uint16_t(height_), false, 1, bgfx::TextureFormat::D24S8, BGFX_TEXTURE_RT_WRITE_ONLY)};
+        color_ = attachments[0];
+        target_ = bgfx::createFrameBuffer(2, attachments, true);
+        readback_ = bgfx::createTexture2D(uint16_t(width_), uint16_t(height_), false, 1, bgfx::TextureFormat::RGBA8,
+                                          BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK);
+        return true;
+    }
+    storm::ui::RenderBackend *Backend() override
+    {
+        return backend_.get();
+    }
+    void Attach(storm::ui::Host &host) override
+    {
+        backend_->AttachHost(&host);
+    }
+    void Frame(storm::ui::Host &) override
+    {
+        for (uint16_t view = first_view_; view < first_view_ + views_; ++view)
+        {
+            bgfx::setViewFrameBuffer(view, target_);
+            bgfx::setViewRect(view, 0, 0, uint16_t(width_), uint16_t(height_));
+            bgfx::setViewClear(view, BGFX_CLEAR_NONE);
+            bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
+        }
+        storm::render::FrameContext frame;
+        frame.frame_index = ++frame_index_;
+        frame.ui_view_begin = first_view_;
+        frame.ui_view_count = views_;
+        backend_->OnUiRender(frame);
+        bgfx::frame();
+    }
+    bool Shot(storm::ui::Host &host, const std::string &path) override
+    {
+        int settle = 0;
+        // Animated shadows queue new work every frame: give up after a second.
+        while (backend_->PendingWork() > 0 && settle < 60)
+        {
+            Frame(host);
+            ++settle;
+        }
+        if (settle)
+            std::fprintf(stderr, "settle %d frames\n", settle);
+        Frame(host);
+        std::vector<unsigned char> rgba(static_cast<size_t>(width_) * height_ * 4);
+        bgfx::TextureRegion destination, source;
+        destination.init(readback_);
+        source.init(color_);
+        const bgfx::ViewId read_view = bgfx::ViewId(first_view_ + views_); // after every UI view
+        bgfx::blit(read_view, destination, source);
+        bgfx::touch(read_view);
+        bgfx::TextureRegion whole;
+        whole.init(readback_);
+        const uint32_t ready = bgfx::read(whole, rgba.data());
+        while (bgfx::frame() < ready)
+        {
+        }
+        return SavePng(rgba, width_, height_, path);
+    }
+    bool BenchFrame(storm::ui::Host &host) override
+    {
+        Frame(host); // the engine frame redraws the UI over every game picture
+        return true;
+    }
+    void Finish() override
+    {
+        // bgfx::frame() renders inline (single-threaded bgfx); the driver may still be busy.
+    }
+
+  private:
+    static constexpr const char *kMesaVendor = "/usr/share/glvnd/egl_vendor.d/50_mesa.json";
+    QuietCallback callback_;
+    std::unique_ptr<storm::ui::BgfxBackend> backend_;
+    bgfx::FrameBufferHandle target_ = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle color_ = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle readback_ = BGFX_INVALID_HANDLE;
+    int width_ = 0;
+    int height_ = 0;
+    uint16_t first_view_ = 0;
+    uint16_t views_ = storm::render::kUiViewCount;
+    uint64_t frame_index_ = 0;
+    bool started_ = false;
+};
+#endif
+
 std::string ReadFile(const std::string &path)
 {
     std::ifstream file(path, std::ios::binary);
@@ -156,7 +437,8 @@ std::string ReadFile(const std::string &path)
 
 int main(int argc, char **argv)
 {
-    std::string pack, doc, out = "shot.png", game_root, script, interface, text_token;
+    std::string pack, doc, out = "shot.png", game_root, script, interface, text_token, backend_name = "gl3";
+    int views = 0; // bgfx: storm::render::kUiViewCount
     std::vector<std::string> states;
     int width_dp = 915, height_dp = 412;
     float density = 2.0f;
@@ -178,6 +460,10 @@ int main(int argc, char **argv)
             interface = value;
         else if (key == "--state")
             states.push_back(value);
+        else if (key == "--backend")
+            backend_name = value;
+        else if (key == "--views")
+            views = std::atoi(value.c_str());
         else if (key == "--safe" && std::sscanf(value.c_str(), "%f,%f,%f,%f", &safe[0], &safe[1], &safe[2], &safe[3]) == 4)
             continue;
         else if (key == "--density")
@@ -192,31 +478,49 @@ int main(int argc, char **argv)
     }
     if (pack.empty() || (doc.empty() && interface.empty() && states.empty()))
     {
-        std::fprintf(stderr, "usage: storm_ui_shot --pack DIR (--doc FILE | --interface JSON | --state CHANNEL=JSON …) [--size WxH] [--density D] [--out PNG] [--game-root DIR] [--safe L,T,R,B] [--script S]\n");
+        std::fprintf(stderr, "usage: storm_ui_shot --pack DIR (--doc FILE | --interface JSON | --state CHANNEL=JSON …) [--size WxH] [--density D] [--out PNG] [--game-root DIR] [--safe L,T,R,B] [--script S] [--backend gl3|bgfx] [--views N]\n");
         return 2;
     }
     const int width = static_cast<int>(static_cast<float>(width_dp) * density), height = static_cast<int>(static_cast<float>(height_dp) * density);
 
     setenv("LIBGL_ALWAYS_SOFTWARE", "1", 0); // same pixels on every machine
-    Egl egl;
-    if (!egl.Load() || !MakeContext(egl, width, height))
+    std::unique_ptr<Capture> capture;
+    if (backend_name == "gl3")
     {
-        std::fprintf(stderr, "no off-screen OpenGL 3.3 context (EGL)\n");
-        return 3;
+        auto gl3 = std::make_unique<Gl3Capture>();
+        if (!gl3->Start(width, height))
+        {
+            std::fprintf(stderr, "no off-screen OpenGL 3.3 context (EGL)\n");
+            return 3;
+        }
+        capture = std::move(gl3);
+    }
+#if STORM_UI_BGFX
+    else if (backend_name == "bgfx")
+    {
+        auto bgfx_capture = std::make_unique<BgfxCapture>();
+        if (views == 0)
+            views = storm::render::kUiViewCount;
+        if (views < 2 || views > 1024 || !bgfx_capture->Start(width, height, views))
+        {
+            std::fprintf(stderr, "no bgfx GLES 3.0 device (EGL surfaceless, texture blit)\n");
+            return 3;
+        }
+        capture = std::move(bgfx_capture);
+    }
+#endif
+    else
+    {
+        std::fprintf(stderr, "unknown backend %s\n", backend_name.c_str());
+        return 2;
     }
 
     double clock = 0.0;
     const auto files = storm::ui::DirectoryFiles(pack);
     std::string error;
-    const auto backend = storm::ui::CreateGl3Backend(&error);
-    if (!backend)
-    {
-        std::fprintf(stderr, "GL backend: %s\n", error.c_str());
-        return 4;
-    }
     storm::ui::Config config;
     config.files = files.get();
-    config.backend = backend.get();
+    config.backend = capture->Backend();
     config.show_errors = true;
     config.verify_unchanged = true;
     config.width = width;
@@ -243,6 +547,7 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "UI host: %s\n", error.c_str());
         return 4;
     }
+    capture->Attach(*host);
     host->SetSafeArea(safe[0], safe[1], safe[2], safe[3]);
     if (!doc.empty() ? !host->LoadDocument(doc) : !interface.empty() && !host->SetInterface(ReadFile(interface)))
     {
@@ -270,7 +575,7 @@ int main(int argc, char **argv)
         for (int i = 0; i < frames; ++i)
         {
             clock += 1.0 / 60.0;
-            host->Frame();
+            capture->Frame(*host);
         }
     };
     run(0.05);
@@ -287,12 +592,35 @@ int main(int argc, char **argv)
     int status = 0;
     std::stringstream commands(script);
     std::string command;
+    bool timed = false;
     while (std::getline(commands, command, ';'))
     {
         std::stringstream words(command);
         std::string verb;
         words >> verb;
-        if (verb == "down" || verb == "move" || verb == "up")
+        const auto command_started = std::chrono::steady_clock::now();
+        struct Timing // `timed`: what each later command cost, its input and the frame after it, GPU finished
+        {
+            bool on;
+            std::string text;
+            std::chrono::steady_clock::time_point started;
+            Capture *capture; // the GPU work of the frame is finished through the backend
+            storm::ui::Host *host;
+            ~Timing()
+            {
+                if (!on || text.empty())
+                    return;
+                capture->Finish();
+                const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+                const storm::ui::FrameStats stats = host->LastFrameStats();
+                std::printf("timed %s: %.2f ms to a finished frame (update %.2f, render %.2f, rebuilds %d)\n", text.c_str(), ms, stats.update_ms,
+                            stats.render_ms, stats.rebuilds);
+            }
+        } timing{timed && verb != "timed", command.substr(command.find_first_not_of(' ') == std::string::npos ? 0 : command.find_first_not_of(' ')),
+                 command_started, capture.get(), host.get()};
+        if (verb == "timed")
+            timed = true;
+        else if (verb == "down" || verb == "move" || verb == "up")
         {
             int pointer = 0;
             float x = 0, y = 0;
@@ -311,8 +639,7 @@ int main(int argc, char **argv)
         {
             std::string path;
             words >> path;
-            host->Frame();
-            if (!SavePng(egl, width, height, path))
+            if (!capture->Shot(*host, path))
                 status = 6;
         }
         else if (verb == "toast")
@@ -377,7 +704,6 @@ int main(int argc, char **argv)
             std::string channel, first, second;
             words >> frames >> channel >> first >> second;
             const std::string alternate[2] = {channel.empty() ? std::string() : ReadFile(first), channel.empty() ? std::string() : ReadFile(second)};
-            const auto finish = reinterpret_cast<void (*)()>(egl.GetProcAddress("glFinish"));
             struct Sum
             {
                 double total = 0, worst = 0;
@@ -397,16 +723,14 @@ int main(int argc, char **argv)
                 else if (!channel.empty())
                     host->SetState(channel, alternate[i % 2]);
                 clock += 1.0 / 60.0;
-                double delay = 0.0;
                 storm::ui::FrameStats stats;
-                if (host->Prepare(delay)) // as a platform host does: draw only an out-of-date frame
+                if (capture->BenchFrame(*host))
                 {
-                    host->Frame();
                     stats = host->LastFrameStats();
                     ++drawn_frames;
                 }
                 const auto drawn = std::chrono::steady_clock::now();
-                finish();
+                capture->Finish();
                 const auto finished = std::chrono::steady_clock::now();
                 update.Add(stats.update_ms);
                 render.Add(stats.render_ms);
@@ -429,6 +753,15 @@ int main(int argc, char **argv)
                         render.total / n, render.worst, gpu.total / n, gpu.worst, rebuilds / n, laid_out / n, geometry / n, draws / n, masks / n, layers / n, cached / n, textures / n,
                         bytes / n);
         }
+        else if (verb == "device-reset")
+        {
+            if (!capture->ResetDevice())
+            {
+                std::fprintf(stderr, "device-reset: not supported by this backend\n");
+                status = 2;
+            }
+            run(1.0 / 60.0);
+        }
         else if (verb == "scroll")
         {
             std::string id;
@@ -442,12 +775,12 @@ int main(int argc, char **argv)
             status = 2;
         }
     }
-    host->Frame();
-    if (!SavePng(egl, width, height, out))
+    if (!capture->Shot(*host, out))
     {
         std::fprintf(stderr, "cannot write %s\n", out.c_str());
         status = 6;
     }
     host.reset();
+    capture.reset();
     return status;
 }

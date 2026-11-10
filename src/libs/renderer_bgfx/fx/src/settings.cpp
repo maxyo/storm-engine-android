@@ -9,26 +9,25 @@ Settings Settings::FromPreset(QualityPreset preset)
     if (preset == QualityPreset::Original)
         return s;
 
-    s.tonemap = true;
+    // «Среднее» and «Высокое» are the same game, cleaner: the legacy palette, exposure and saturation stay. No tone
+    // curve, no colour grade, no lens flare or sun shafts (all options); a faint bloom on the brightest highlights,
+    // MSAA, sharper textures, per-pixel lighting that keeps the legacy brightness (the global ambient stays the
+    // flat one of the fixed-function pipeline, lights add in gamma space as before), the game's own sky.
     s.bloom = true;
+    s.bloom_threshold = 0.92f;
+    s.bloom_intensity = 0.12f;
     s.msaa = 4; // the primary anti-aliasing; FXAA stays available as an option
     s.alpha_to_coverage = true;
-    s.dither = true;
-    s.lens_flare = true;
-    s.scene_grading = true;
+    s.dither = true; // ±0.5/255: invisible, removes banding of the bloom
     s.contact_shadows = true;
-    s.sky_atmosphere = true;
-    s.sky_clouds = true;
 
     if (preset == QualityPreset::Medium)
     {
         s.bloom_downscale = 4;
         s.bloom_levels = 3;
-        s.bloom_intensity = 0.30f;
         s.water = WaterQuality::Medium;
         s.anisotropy = 4;
-        s.lighting_flags = kLightingPerPixel | kLightingHemisphere | kLightingPoint | kLightingNormalMap | kLightingRim | kLightingLinear |
-                           kLightingAerial | kLightingWind;
+        s.lighting_flags = kLightingPerPixel | kLightingPoint | kLightingNormalMap | kLightingWind;
         s.point_lights = 4;
         s.normal_map_strength = 0.6f;
         s.shadows = ShadowQuality::Low;
@@ -36,16 +35,17 @@ Settings Settings::FromPreset(QualityPreset preset)
     }
     s.bloom_downscale = 2;
     s.bloom_levels = 4;
-    s.bloom_intensity = 0.35f;
     s.anisotropy = 8;
-    s.sharpen = true;
-    s.sun_shafts = true;
+    // No sharpening by default: CAS turns the sub-pixel detail of distant foliage into a visible mosaic even at
+    // low strength; it stays an option.
     s.water = WaterQuality::High;
     s.water_refraction = true;
-    s.lighting_flags = kLightingAll;
+    s.lighting_flags = kLightingPerPixel | kLightingSpecular | kLightingTranslucent | kLightingPoint | kLightingNormalMap |
+                       kLightingWind;
     s.point_lights = 8;
     s.shadows = ShadowQuality::Soft;
     s.ssao = true;
+    s.ssao_intensity = 0.35f;
     return s;
 }
 

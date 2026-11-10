@@ -14,6 +14,7 @@
 
 #include <stack>
 #include <vector>
+#include <unordered_map>
 
 #define MAX_STEXTURES 10240
 #define MAX_BUFFERS 10240
@@ -436,6 +437,7 @@ class DX9RENDER : public VDX9RENDER
     int appEventsSubscription_ = -1;
 
   public:
+    bool keepTexturePixels(int32_t texture) override;
     bool sampleTextureArgb(int32_t texture,float u,float v,uint32_t& result) override;
 
     bool GetRenderTargetAsTexture(IDirect3DTexture9 **tex) override;
@@ -484,8 +486,6 @@ private:
     VideoTextureEntity *pVTL;
 
     int32_t nTextureDegradation;
-    int32_t requestedTextureAnisotropy = 0;
-    uint32_t textureAnisotropy = 0; // 0 preserves technique-defined filtering.
     float aspectRatio;
     float m_fHeightDeformator;
 
@@ -503,6 +503,13 @@ private:
     PLANE viewplane[4];
 
     STEXTURE Textures[MAX_STEXTURES]{};
+    struct KeptPixels
+    {
+        std::vector<uint8_t> bytes;
+        uint32_t width = 0, height = 0;
+        bool opaque = false; // X8R8G8B8
+    };
+    std::unordered_map<int32_t, KeptPixels> keptPixels_; // keepTexturePixels, by texture ID
     INDEX_BUFFER IndexBuffers[MAX_BUFFERS]{};
     VERTEX_BUFFER VertexBuffers[MAX_BUFFERS]{};
 

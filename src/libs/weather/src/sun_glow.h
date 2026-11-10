@@ -37,7 +37,8 @@ class SUNGLOW : public Entity
         }
     }
 
-    void DrawSunMoon();
+    // The sun or moon sprite; the sun only with `sun` (the fx sky draws its own disc).
+    void DrawSunMoon(bool sun);
 
   private:
     enum

@@ -3,6 +3,7 @@
 #include "core.h"
 #include "debug-trap.h"
 #include "math_inlines.h"
+#include "storm/render/effects.hpp"
 #include "string_compare.hpp"
 #include "vma.hpp"
 
@@ -1680,6 +1681,7 @@ bool CTechnique::ExecutePassStart()
     // clear old saved states
     ClearSavedStates();
 
+    storm::render::SetEffectsTechnique(sCurrentBlockName); // material of the per-pixel lighting
     return ExecutePass(true);
 }
 
@@ -1695,6 +1697,7 @@ bool CTechnique::ExecutePassNext()
 
 bool CTechnique::ExecutePassClose()
 {
+    storm::render::SetEffectsTechnique(nullptr);
     ClearSavedStates();
     pRS->SetPixelShader(nullptr);
     return true;

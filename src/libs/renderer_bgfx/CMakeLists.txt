@@ -6,15 +6,6 @@ include(FetchContent)
 # Third-party code must not inherit the engine's global flags (UNICODE, the
 # Windows type headers, -std=c++20 for C sources ...).
 set_directory_properties(PROPERTIES INCLUDE_DIRECTORIES "" COMPILE_DEFINITIONS "" COMPILE_OPTIONS "")
-set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
-set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
-set(BGFX_WITH_WAYLAND OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_GEOMETRY OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_TEXTURE OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_BIN2C OFF CACHE BOOL "" FORCE)
-set(BGFX_CONFIG_VIDEO OFF CACHE BOOL "" FORCE)
 # The engine renders from its main thread; bgfx::frame() executes the backend
 # inline, so the EGL context lives on the thread that owns the SDL window.
 set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
@@ -30,15 +21,8 @@ set(BGFX_CONFIG_MAX_TRANSIENT_INDEX_BUFFER_SIZE 8388608 CACHE STRING "" FORCE)
 # Shaders compile with a host shaderc built once per machine and pin (cmake/storm_shaderc.cmake),
 # never with bgfx's tools inside this build.
 set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-include("${CMAKE_CURRENT_LIST_DIR}/cmake/bgfx_pin.cmake")
-FetchContent_GetProperties(storm_bgfx_upstream)
-if(NOT storm_bgfx_upstream_POPULATED)
-    FetchContent_Populate(storm_bgfx_upstream)
-    # Upstream warning flags and tools must not inherit the engine's global
-    # definitions (UNICODE etc.); EXCLUDE_FROM_ALL keeps unused tools unbuilt.
-    add_subdirectory("${storm_bgfx_upstream_SOURCE_DIR}" "${storm_bgfx_upstream_BINARY_DIR}" EXCLUDE_FROM_ALL)
-endif()
-set(STORM_BGFX_SOURCE_DIR "${storm_bgfx_upstream_SOURCE_DIR}" CACHE INTERNAL "")
+# The pinned bgfx/bx/bimg (also used by the standalone UI runtime for bimg).
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/bgfx_upstream.cmake")
 # Android and the Linux development host both run the GLES 3.0 backend so the
 # same ESSL shader blobs and code paths are exercised. Selecting one renderer
 # explicitly disables all the others (bgfx/src/config.h).
@@ -48,12 +32,6 @@ if(ANDROID)
 else()
     target_link_libraries(bgfx PUBLIC EGL GLESv2)
 endif()
-foreach(target bgfx bx bimg bimg_decode)
-    if(TARGET ${target})
-        set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
-        target_compile_options(${target} PRIVATE -w)
-    endif()
-endforeach()
 
 # etcpak: ETC2 encoder for the DXT -> ETC2 texture transcode (src/texture).
 # Only the block compressors are built; no application, image I/O or threading code.
@@ -87,8 +65,30 @@ include(cmake/storm_shaders.cmake)
 
 file(GLOB shader_sources CONFIGURE_DEPENDS shaders/*.sc shaders/ports/*.sc)
 list(FILTER shader_sources EXCLUDE REGEX "varying\\.def\\.sc$")
+# Graphics effects variants of the fixed-function emulator (src/effects/lighting.cpp picks them by name):
+# s = FX_LIGHT_SPECULAR, l = FX_LIGHT_LINEAR, n = FX_LIGHT_NORMALMAP. The base sources fs_ff_lit.sc and fs_ff_baked.sc are the
+# variants without a suffix.
+set(ff_fx_variants)
+foreach(suffix _l _s _sl _n _nl _sn _snl)
+    set(defines)
+    if(suffix MATCHES "s")
+        list(APPEND defines FX_LIGHT_SPECULAR)
+    endif()
+    if(suffix MATCHES "l")
+        list(APPEND defines FX_LIGHT_LINEAR)
+    endif()
+    if(suffix MATCHES "n")
+        list(APPEND defines FX_LIGHT_NORMALMAP)
+    endif()
+    list(JOIN defines "," defines)
+    list(APPEND ff_fx_variants "fs_ff_lit${suffix}|${CMAKE_CURRENT_SOURCE_DIR}/shaders/fs_ff_lit.sc|${defines}")
+    if(NOT suffix MATCHES "s")
+        list(APPEND ff_fx_variants "fs_ff_baked${suffix}|${CMAKE_CURRENT_SOURCE_DIR}/shaders/fs_ff_baked.sc|${defines}")
+    endif()
+endforeach()
 storm_bgfx_embed_shaders(TARGET storm_bgfx_shaders NAMESPACE storm_shaders
-    VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${shader_sources})
+    VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${shader_sources}
+    INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/fx/shaders/include" VARIANTS ${ff_fx_variants})
 
 # Effekseer runtime + the vendored efkbgfx renderer and its shaders (effekseer/README.md).
 add_subdirectory(effekseer)
@@ -124,6 +124,13 @@ target_include_directories(storm_texture_formats PUBLIC include)
 target_link_libraries(storm_texture_formats PRIVATE bimg bx)
 set_target_properties(storm_texture_formats PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(storm_bgfx PUBLIC storm_texture_formats)
+
+# Graphics effects package (fx/README.md): presets «Оригинал / Среднее / Высокое», driven by src/effects.
+set(STORM_FX_SHADERC_COMMAND "${STORM_SHADERC_COMMAND}")
+set(STORM_FX_SHADERC_DEPENDS "${STORM_SHADERC_DEPENDS}")
+set(STORM_FX_BGFX_SHADER_INCLUDE "${STORM_BGFX_SOURCE_DIR}/bgfx/src")
+add_subdirectory(fx)
+target_link_libraries(storm_bgfx PUBLIC storm_bgfx_fx)
 
 # Texture transcode tests and benchmark: only on request, so projects that merely consume
 # storm_bgfx (e.g. the standalone UI build) do not build them.

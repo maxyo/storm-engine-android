@@ -84,7 +84,10 @@ int main() {
     assert(MobileImageJson(w.images.front()).find("\"kind\":\"texture\",\"image\":\"portraits/player\"")!=std::string::npos);
     picture.SetNewPictureByGroup("PERK_ENABLE","Alchemy");
     assert(read().images.front().source.image=="Alchemy");
-    FXYRECT custom;picture.ChangeUV(custom);assert(read().images.front().source.kind.empty());
+    // An atlas picture with edited UVs is no longer that atlas entry: it is the texture and the
+    // rectangle shown.
+    FXYRECT custom;picture.ChangeUV(custom);w=read();
+    assert(w.images.front().source.kind=="texture" && w.images.front().source.uv[2]==.5f && w.images.front().source.uv[3]==.5f);
     picture.SetNewPictureByGroup("PERK_ENABLE","BasicDefense");
     picture.SetNewPicture(true,"video");assert(picture.m_mobilePictureName.empty());
     std::vector<MobileWidget> hidden;picture.MobileCollect(hidden);assert(hidden.empty());

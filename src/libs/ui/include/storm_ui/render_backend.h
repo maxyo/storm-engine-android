@@ -4,8 +4,8 @@
 //
 //   * GL3 backend (this library): a GLES 3 / GL 3.3 context owned by the platform host.
 //     Used by the host capture tool and as the Android bridge until bgfx is live.
-//   * bgfx backend (target): implemented next to the bgfx renderer; draws inside the
-//     engine frame in the last view. See src/libs/ui/README.md.
+//   * bgfx backend (backend_bgfx.h): draws inside the engine frame in the frame owner's
+//     UI view range. See src/libs/ui/README.md.
 #pragma once
 
 #include <RmlUi/Core/RenderInterface.h>
@@ -26,7 +26,35 @@ class RenderBackend
     // that draws over the game frame ignores it.
     virtual void BeginFrame(bool clear) = 0;
     virtual void EndFrame() = 0;
+
+    // Game pictures (.tx). A backend that draws inside the engine frame gets them from the
+    // renderer: Pending keeps the element's placeholder and polls again next frame, Ready
+    // means GamePictureSource(texture) loads as an RmlUi texture, Failed keeps the
+    // placeholder for good (logged by the backend). Unavailable: the backend has no picture
+    // source at all (a capture tool without a frame owner), the neutral placeholder stays,
+    // as for a GL host without a game root. A backend without a renderer behind it
+    // (GL) answers DecodeOnCpu: the UI reads the file itself (Config::game_picture_loader
+    // or the built-in reader). That choice belongs to the backend, it is never a fallback.
+    enum class PictureState
+    {
+        Pending,
+        Ready,
+        Failed,
+        Unavailable,
+        DecodeOnCpu
+    };
+    virtual PictureState AcquireGamePicture(const std::string &texture)
+    {
+        (void)texture;
+        return PictureState::DecodeOnCpu;
+    }
 };
+
+// RmlUi texture source of a renderer-supplied game picture (see AcquireGamePicture).
+inline std::string GamePictureSource(const std::string &texture)
+{
+    return "storm-game-picture:" + texture;
+}
 
 // Needs a current GLES 3.0 (Android) or GL 3.3 core (desktop) context.
 std::unique_ptr<RenderBackend> CreateGl3Backend(std::string *error = nullptr);
