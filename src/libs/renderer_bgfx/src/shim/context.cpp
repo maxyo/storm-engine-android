@@ -1,4 +1,5 @@
 #include "device.hpp"
+#include "perf.hpp"
 #include "storm/render/d3d_interop.hpp"
 #include "storm/render/effekseer_device.hpp"
 
@@ -169,6 +170,21 @@ bool native_handles(SDL_Window *window, void **nwh, void **ndt)
 
 bool Context::init(SDL_Window *window, uint32_t width, uint32_t height, bool vsync)
 {
+    if (!window)
+    {
+        logf("ERROR: bgfx needs a window");
+        return false;
+    }
+    return start(window, width, height, vsync);
+}
+
+bool Context::init_headless(uint32_t width, uint32_t height)
+{
+    return start(nullptr, width, height, false);
+}
+
+bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vsync)
+{
     if (initialised_)
     {
         resize(width, height);
@@ -177,9 +193,18 @@ bool Context::init(SDL_Window *window, uint32_t width, uint32_t height, bool vsy
     window_ = window;
     vsync_ = vsync;
     bgfx::Init init;
-    init.type = bgfx::RendererType::OpenGLES;
-    if (!native_handles(window, &init.swapChain.nwh, &init.swapChain.ndt))
-        return false;
+    if (window)
+    {
+        init.type = bgfx::RendererType::OpenGLES;
+        if (!native_handles(window, &init.swapChain.nwh, &init.swapChain.ndt))
+            return false;
+    }
+    else
+    {
+        // init_headless(): the shim does all its work, bgfx's Noop backend draws nothing.
+        init.type = bgfx::RendererType::Noop;
+        logf("headless: bgfx Noop renderer, nothing is drawn");
+    }
     init.swapChain.width = width;
     init.swapChain.height = height;
     init.swapChain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
@@ -198,7 +223,8 @@ bool Context::init(SDL_Window *window, uint32_t width, uint32_t height, bool vsy
     surface_.height_px = height;
     surface_.valid = true;
     surface_in_use_ = true;
-    read_density();
+    if (window_)
+        read_density();
     ++surface_.generation;
     logf("bgfx renderer=%s %ux%u originBottomLeft=%d homogeneousDepth=%d maxTextureSize=%u BC1=%d BC3=%d ETC2=%d BGRA8=%d",
          bgfx::getRendererName(bgfx::getRendererType()), width, height, caps_->originBottomLeft,
@@ -347,6 +373,7 @@ bool Context::run_frame(uint32_t flags, uint32_t *frame_number)
         return false;
     }
     const uint32_t number = bgfx::frame(flags);
+    ++submitted_frames_;
     {
         std::lock_guard lock(release_mutex_);
         in_frame_ = false;
@@ -515,7 +542,10 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
         for (auto &entry : clients_)
             entry.client->OnUiRender(frame_);
         pace();
-        run_frame(BGFX_FRAME_NONE);
+        const auto started = std::chrono::steady_clock::now();
+        if (run_frame(BGFX_FRAME_NONE))
+            perf_frame_presented(
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
     }
     else
     {

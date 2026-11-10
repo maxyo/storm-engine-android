@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Build the bgfx renderer library (shim + embedded shaders) and run its texture transcode and texture file tests.
+"""Build the bgfx renderer library (shim + embedded shaders), run its texture transcode and texture file tests and
+the draw/state counter check of a fixed synthetic frame (perf_check.cpp, bgfx Noop backend).
 
 Uses the pinned bgfx (src/libs/renderer_bgfx/cmake/bgfx_pin.cmake) and etcpak. Fast paths, as in CI:
 STORM_SHADERC=<host shaderc from src/libs/renderer_bgfx/host-tools> skips building bgfx's tools, and
@@ -31,8 +32,9 @@ for name in ('STORM_SHADERC', 'FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM', 'FE
     if os.environ.get(name):
         configure.append(f'-D{name}={os.environ[name]}')
 subprocess.run(configure, check=True, stdout=subprocess.DEVNULL)
-subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm_texture_tests', 'storm_texture_format_tests'],
-               check=True)
+subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm_texture_tests', 'storm_texture_format_tests',
+                'perf_check'], check=True)
 subprocess.run([str(build / 'renderer_bgfx' / 'storm_texture_tests')], check=True)
 subprocess.run([str(build / 'renderer_bgfx' / 'storm_texture_format_tests')], check=True)
-print('PASS: storm_bgfx builds; storm_texture_tests; storm_texture_format_tests', flush=True)
+subprocess.run([str(build / 'perf_check')], check=True)
+print('PASS: storm_bgfx builds; storm_texture_tests; storm_texture_format_tests; perf_check', flush=True)

@@ -17,6 +17,7 @@
 #include "fs.h"
 #include "debug-trap.h"
 #include "string_compare.hpp"
+#include "storm/render/perf_stats.hpp"
 #include "storm/render/texture_cache.hpp"
 #include "storm/render/texture_file.hpp"
 
@@ -460,6 +461,14 @@ bool DX9RENDER::Init()
         bShowFps = ini->GetInt(nullptr, "show_fps", 0) == 1;
         bShowExInfo = ini->GetInt(nullptr, "show_exinfo", 0) == 1;
         renderMetricsEnabled = ini->GetInt(nullptr, "render_metrics", 0) == 1;
+#ifdef STORM_SCENE_SWEEP
+        storm::scene_sweep::setRendererWindow([start = storm::render::PerfTotals()]() mutable {
+            const storm::render::PerfCounters &totals = storm::render::PerfTotals();
+            std::string summary = totals.Since(start).Summary();
+            start = totals;
+            return summary;
+        });
+#endif
         bDropVideoConveyor = ini->GetInt(nullptr, "DropVideoConveyor", 0) != 0;
         texLog = ini->GetInt(nullptr, "texture_log", 0) == 1;
         bUseLargeBackBuffer = ini->GetInt(nullptr, "UseLargeBackBuffer", 0) != 0;
@@ -1332,18 +1341,22 @@ bool DX9RENDER::DX9EndScene()
                 const auto percentile = [&](size_t percent) {
                     return metricsFrameTimes[(count * percent + 99) / 100 - 1];
                 };
+                const storm::render::PerfCounters &perfTotals = storm::render::PerfTotals();
                 core.Trace("RenderMetrics: frames=%u seconds=%.3f fps=%.2f frame_ms_p50=%.2f "
                            "frame_ms_p95=%.2f frame_ms_p99=%.2f frame_ms_max=%.2f "
-                           "present_ms_mean=%.2f draws_mean=%.1f resolution=%dx%d",
+                           "present_ms_mean=%.2f draws_mean=%.1f resolution=%dx%d %s",
                            static_cast<unsigned>(count), metricsElapsed, count / metricsElapsed,
                            percentile(50), percentile(95), percentile(99), metricsFrameTimes.back(),
                            1000.0 * metricsPresentTime / count, static_cast<double>(metricsDrawCalls) / count,
-                           screen_size.x, screen_size.y);
+                           screen_size.x, screen_size.y, perfTotals.Since(metricsPerfStart).Summary().c_str());
+                metricsPerfStart = perfTotals;
                 metricsFrameTimes.clear();
                 metricsElapsed = metricsPresentTime = 0.0;
                 metricsDrawCalls = 0;
             }
         }
+        if (hRes != D3D_OK || metricsPreviousPresent == 0.0)
+            metricsPerfStart = storm::render::PerfTotals();
         if (hRes != D3D_OK)
         {
             metricsFrameTimes.clear();

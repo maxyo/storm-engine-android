@@ -68,7 +68,11 @@ python3 tools/scene_sweep/run.py --game <game dir> --engine <build>/engine --out
   when the engine binary or `scene_sweep.c` changed: use `--smoke` or `--failed` then).
   With nothing changed it reruns only the previous failures.
 - `--baseline report.json` exits non-zero only for scenes that pass in that report.
+- `--settle MS` how long each scene renders after its fader before the capture (default 300).
+  Frame time and the renderer counters are means over this window: raise it (e.g. 5000) with
+  `--only` on a few scenes and `--jobs 1` for performance measurements.
 
 Output in `--out`: `report.json` (per-scene status, reasons, load time, frame time, draw
-calls, RSS), `summary.txt`, `shots/` and contact sheets in `contact/` (failures framed red).
+calls, RSS, and `renderer`: per-frame means of the bgfx shim counters, see
+`src/libs/renderer_bgfx/include/storm/render/perf_stats.hpp`), `summary.txt`, `shots/` and contact sheets in `contact/` (failures framed red).
 Keep reports out of the repository.
