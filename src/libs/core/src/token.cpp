@@ -175,6 +175,7 @@ const char *TokenTypeName[] = { // in S_TOKEN_TYPE order
     "ATTR_PARENT",
     "ATTR_DELETE",
     "AP_CHILD",
+    "CALL_NAMED",
 
 };
 

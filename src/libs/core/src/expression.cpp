@@ -906,6 +906,26 @@ bool COMPILER::CompileExpression(SEGMENT_DESC &Segment)
         }
 
         const S_TOKEN_TYPE sttTokenType = Token.Get();
+        if (sttTokenType == SQUARE_OPEN_BRACKET && IsArefVariable(sttVariableType, dwVarCode))
+        {
+            // &aref[i]: its i-th attribute
+            if (!CompileExpression(Segment))
+                return false;
+            if (Token.GetType() != SQUARE_CLOSE_BRACKET)
+            {
+                SetError("missing ']'");
+                return false;
+            }
+            CompileToken(Segment, STACK_POP);
+            CompileToken(Segment, BX);
+            CompileToken(Segment, MOVEAP);
+            CompileToken(Segment, AP);
+            CompileToken(Segment, sttVariableType, 1, &dwVarCode, sizeof(uint32_t));
+            CompileToken(Segment, AP_CHILD);
+            CompileToken(Segment, PUSH_AP);
+            CompileAuxiliaryTokens(Segment);
+            return true;
+        }
         if (sttTokenType == DOT || (sttTokenType == SQUARE_OPEN_BRACKET && IsIndexedChain()))
             return CompileAttributeAddress(Segment, sttVariableType, dwVarCode, kAccessCreate);
 
@@ -1285,6 +1305,26 @@ bool COMPILER::CompileExpression_L4(SEGMENT_DESC &Segment)
 bool COMPILER::CompileExpression_L5(SEGMENT_DESC &Segment)
 {
     const S_TOKEN_TYPE sttOpType = Token.GetType();
+    if (sttOpType == OP_DOLLAR)
+    {
+        // $(x): the text of x
+        if (Token.Get() != OPEN_BRACKET)
+        {
+            SetError("'(' expected after '$'");
+            return false;
+        }
+        if (!CompileExpression(Segment))
+            return false;
+        if (Token.GetType() != CLOSE_BRACKET)
+        {
+            SetError("')' expected after $(...");
+            return false;
+        }
+        uint32_t target = VAR_STRING;
+        CompileToken(Segment, OP_CAST, 1, &target, sizeof(uint32_t));
+        CompileAuxiliaryTokens(Segment);
+        return true;
+    }
     if (sttOpType == OP_SIZEOF)
     {
         // @array: number of elements; @object / @aref: number of attributes
@@ -1597,9 +1637,10 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
                 CompileToken(Segment, AP);
                 CompileToken(Segment, sttVariableField, 1, (char *)&dwVarCode, sizeof(uint32_t));
                 CompileToken(Segment, AP_CHILD);
+                if (Token.Get() == DOT)
+                    return CompileChainTail(Segment); // aref[i].name
                 CompileToken(Segment, STACK_POP_VOID); // the value slot: the result is the reference
                 CompileToken(Segment, PUSH_AP);
-                CompileAuxiliaryTokens(Segment);
                 return true;
             }
             if (sttResult == SQUARE_OPEN_BRACKET)
@@ -1715,76 +1756,7 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
                 CompileToken(Segment, sttVariableField, 1, (char *)&dwVarCode, sizeof(uint32_t));
             }
 
-            // ADVANCE AP
-
-            sttResult = Token.Get();
-            do
-            {
-                // if(sttResult == OPEN_BRACKET)
-                if (Token.GetType() == OPEN_BRACKET && !IsAccessVariable())
-                {
-                    // .(expression): the attribute named by the expression's text
-                    chain.push_back(Segment.BCode_Program_size);
-                    if (!CompileAccessExpression(Segment, kAccessRead))
-                        return false;
-                }
-                else if (Token.GetType() == OPEN_BRACKET)
-                {
-                    // access var
-                    sttResult = Token.Get();
-                    if (sttResult != UNKNOWN)
-                    {
-                        SetError("Invalid access var syntax");
-                        return false;
-                    }
-                    sttResult = DetectUnknown(dwVarCode);
-                    if (!(sttResult == VARIABLE || sttResult == LOCAL_VARIABLE))
-                    {
-                        SetError("not variable: %s", Token.GetData());
-                        return false;
-                    }
-                    chain.push_back(Segment.BCode_Program_size);
-                    CompileToken(Segment, ADVANCE_AP);
-                    CompileToken(Segment, sttResult, 1, &dwVarCode, sizeof(uint32_t));
-                    if (Token.Get() != CLOSE_BRACKET)
-                    {
-                        SetError("missing ')'");
-                        return false;
-                    }
-                }
-                else
-                {
-                    // access word
-                    if (Token.GetData() == nullptr)
-                    {
-                        SetError("Invalid access string");
-                        return false;
-                    }
-                    Token.LowCase();
-                    dwAWCode = SCodec.Convert(Token.GetData());
-                    chain.push_back(Segment.BCode_Program_size);
-                    CompileToken(Segment, ADVANCE_AP);
-                    CompileToken(Segment, ACCESS_WORD_CODE, 1, &dwAWCode, sizeof(uint32_t));
-                }
-                sttResult = Token.Get();
-                if (sttResult == DOT)
-                    Token.Get(); // get next token (after dot)
-            } while (sttResult == DOT);
-
-            if (Token.GetType() == OP_DOLLAR)
-            {
-                // a.b$int(0): the attribute converted to the type, or the default when it is missing
-                for (const auto offset : chain)
-                    QuietChainElement(Segment, offset);
-                CompileToken(Segment, STACK_POP_VOID); // the slot allocated for the value
-                return CompileAttributeDefault(Segment);
-            }
-
-            // write attribute string to stack top
-            CompileToken(Segment, STACK_WRITE);
-            CompileToken(Segment, AP_VALUE);
-
-            return true;
+            return CompileChainTail(Segment);
         default:
             // ???
             SetError(ERR_INVALID_EXPRESSION);
@@ -2412,4 +2384,157 @@ bool COMPILER::IsArefVariable(S_TOKEN_TYPE var_type, uint32_t var_code)
     }
     LocalVarInfo lvi;
     return FuncTab.GetVar(lvi, CurrentFuncCode, var_code) && lvi.type == VAR_AREFERENCE && !lvi.IsArray();
+}
+
+// after the root of an attribute chain (rAP set, a value slot allocated, current token '.'):
+// the rest of the chain, then the attribute's text, a.b$type(default) or a call a.b(args)
+bool COMPILER::CompileChainTail(SEGMENT_DESC &Segment)
+{
+    S_TOKEN_TYPE sttResult;
+    uint32_t dwVarCode;
+    uint32_t dwAWCode;
+    std::vector<uint32_t> chain; // offsets of the ADVANCE_AP instructions
+    sttResult = Token.Get();
+    do
+    {
+        // if(sttResult == OPEN_BRACKET)
+        if (Token.GetType() == OPEN_BRACKET && !IsAccessVariable())
+        {
+            // .(expression): the attribute named by the expression's text
+            chain.push_back(Segment.BCode_Program_size);
+            if (!CompileAccessExpression(Segment, kAccessRead))
+                return false;
+        }
+        else if (Token.GetType() == OPEN_BRACKET)
+        {
+            // access var
+            sttResult = Token.Get();
+            if (sttResult != UNKNOWN)
+            {
+                SetError("Invalid access var syntax");
+                return false;
+            }
+            sttResult = DetectUnknown(dwVarCode);
+            if (!(sttResult == VARIABLE || sttResult == LOCAL_VARIABLE))
+            {
+                SetError("not variable: %s", Token.GetData());
+                return false;
+            }
+            chain.push_back(Segment.BCode_Program_size);
+            CompileToken(Segment, ADVANCE_AP);
+            CompileToken(Segment, sttResult, 1, &dwVarCode, sizeof(uint32_t));
+            if (Token.Get() != CLOSE_BRACKET)
+            {
+                SetError("missing ')'");
+                return false;
+            }
+        }
+        else
+        {
+            // access word
+            if (Token.GetData() == nullptr)
+            {
+                SetError("Invalid access string");
+                return false;
+            }
+            Token.LowCase();
+            dwAWCode = SCodec.Convert(Token.GetData());
+            chain.push_back(Segment.BCode_Program_size);
+            CompileToken(Segment, ADVANCE_AP);
+            CompileToken(Segment, ACCESS_WORD_CODE, 1, &dwAWCode, sizeof(uint32_t));
+        }
+        sttResult = Token.Get();
+        if (sttResult == DOT)
+            Token.Get(); // get next token (after dot)
+    } while (sttResult == DOT);
+
+    if (Token.GetType() == OP_DOLLAR)
+    {
+        // a.b$int(0): the attribute converted to the type, or the default when it is missing
+        for (const auto offset : chain)
+            QuietChainElement(Segment, offset);
+        CompileToken(Segment, STACK_POP_VOID); // the slot allocated for the value
+        return CompileAttributeDefault(Segment);
+    }
+
+    if (Token.GetType() == OPEN_BRACKET)
+    {
+        // a.b(args): calls the function the attribute names (a function reference)
+        CompileToken(Segment, STACK_WRITE);
+        CompileToken(Segment, AP_VALUE);
+        uint32_t func_args;
+        if (!CompileCallArguments(Segment, func_args))
+            return false;
+        CompileToken(Segment, CALL_NAMED);
+        CompileToken(Segment, ARGS_NUM, 1, &func_args, sizeof(uint32_t));
+        CompileAuxiliaryTokens(Segment);
+        return true;
+    }
+
+    // write attribute string to stack top
+    CompileToken(Segment, STACK_WRITE);
+    CompileToken(Segment, AP_VALUE);
+
+    return true;
+}
+
+// on an identifier starting a statement: is it "name[i].chain(args)"? (the position is kept)
+bool COMPILER::IsAttributeCall()
+{
+    uint32_t code;
+    const S_TOKEN_TYPE var_type = DetectUnknown(code);
+    if (!(var_type == VARIABLE || var_type == LOCAL_VARIABLE))
+        return false;
+    char *const at = Token.GetProgramControl();
+    const std::string name = Token.GetData();
+    bool call = false, word = false, dot = false;
+    auto skip = [this](S_TOKEN_TYPE open, S_TOKEN_TYPE close) {
+        for (uint32_t depth = 0;;)
+        {
+            const S_TOKEN_TYPE t = Token.Get();
+            if (t == END_OF_PROGRAMM || t == SEPARATOR)
+                return false;
+            if (t == open)
+                depth++;
+            else if (t == close && depth-- == 0)
+                return true;
+        }
+    };
+    for (bool more = true; more;)
+    {
+        const S_TOKEN_TYPE t = Token.Get();
+        switch (t)
+        {
+        case DOT:
+            dot = true;
+            word = false;
+            break;
+        case SQUARE_OPEN_BRACKET:
+            more = skip(SQUARE_OPEN_BRACKET, SQUARE_CLOSE_BRACKET);
+            word = false;
+            break;
+        case OPEN_BRACKET:
+            if (dot && word)
+            {
+                call = true;
+                more = false;
+            }
+            else
+                more = dot && skip(OPEN_BRACKET, CLOSE_BRACKET); // .(expression)
+            word = false;
+            break;
+        case DEBUG_LINEFEED:
+        case COMMENT:
+            break;
+        default:
+            if (dot && Token.GetData() && t != OP_EQUAL && t != SEPARATOR)
+                word = true;
+            else
+                more = false;
+            break;
+        }
+    }
+    Token.SetProgramControl(at - name.size()); // back on the identifier (current token again)
+    Token.Get();
+    return call;
 }

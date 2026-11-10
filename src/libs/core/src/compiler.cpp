@@ -4249,6 +4249,23 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
 
             // CompileToken(Segment,Token_type);
             Token_type = CompileAuxiliaryTokens(Segment);
+            if (Token_type == OPEN_BRACKET)
+            {
+                // call (expression)(args): the expression's text names the function
+                if (!CompileExpression(Segment))
+                    return false;
+                if (Token.GetType() != CLOSE_BRACKET || CompileAuxiliaryTokens(Segment) != OPEN_BRACKET)
+                {
+                    SetError("call (name)(arguments) expected");
+                    return false;
+                }
+                if (!CompileCallArguments(Segment, func_args))
+                    return false;
+                CompileToken(Segment, CALL_NAMED);
+                CompileToken(Segment, ARGS_NUM, 1, &func_args, sizeof(uint32_t));
+                CompileToken(Segment, POP_NZ);
+                break;
+            }
             if (Token_type != UNKNOWN)
             {
                 SetError("invalid dynamic call");
@@ -4315,6 +4332,16 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             Token.StepBack(); // back to the identifier (restores its data)
             Token.StepBack();
             Token.Get();
+            if (IsAttributeCall())
+            {
+                // object.attr(args); calls the function the attribute names
+                Token.StepBack();
+                if (!CompileExpression(Segment))
+                    return false;
+                CompileToken(Segment, POP_NZ); // drop a returned value
+                Token.StepBack();
+                break;
+            }
             if (Token.GetData() && IsAttributeIntrinsic(Token.GetData()))
             {
                 // deleteattr(&a.b); touchattr(a.b); as statements
@@ -7326,6 +7353,41 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 return false;
             }
             pLeftOperandAClass = pLeftOperandAClass->CreateSubAClass(pLeftOperandAClass, key);
+            break;
+        }
+        case CALL_NAMED: {
+            // stack: function name, arguments: calls it; the result (if any) replaces the name
+            uint32_t args;
+            memcpy(&args, &pCodeBase[InstructionPointer + 2], sizeof(uint32_t)); // ARGS_NUM data
+            const uint32_t name_slot = SStack.GetDataNum() - args - 1;
+            DATA *name = Deref(SStack.Read(name_slot, 0));
+            std::string function;
+            if (name && name->GetType() == VAR_FREF)
+                function = name->sValue;
+            else if (name)
+            {
+                ExpressionResult.ClearType();
+                ExpressionResult.Copy(name);
+                const char *text = nullptr;
+                if (ExpressionResult.Convert(VAR_STRING) && ExpressionResult.Get(text))
+                    function = text;
+            }
+            func_code = function.empty() ? INVALID_FUNC_CODE : FuncTab.FindFunc(function);
+            if (func_code == INVALID_FUNC_CODE)
+            {
+                SetError("call: function '%s' not found", function.c_str());
+                return false;
+            }
+            pVResult = nullptr;
+            if (!BC_CallFunction(func_code, ip, pVResult))
+                return false;
+            if (pVResult)
+            {
+                SStack.Read(name_slot, 0)->ClearType();
+                SStack.Read(name_slot, 0)->Copy(pVResult);
+            }
+            SStack.Pop();
+            StoreDynamicCallStatus(pVResult != nullptr);
             break;
         }
         case AP_CHILD: // rAP = its BX-th attribute (aref[i])

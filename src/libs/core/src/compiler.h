@@ -296,6 +296,8 @@ class COMPILER : public VIRTUAL_COMPILER
     bool CompileCallThrough(SEGMENT_DESC &Segment, S_TOKEN_TYPE call_type);
     bool CompileObjectLiteral(SEGMENT_DESC &Segment);
     bool IsAccessVariable();
+    bool CompileChainTail(SEGMENT_DESC &Segment);
+    bool IsAttributeCall();
     bool IsArefVariable(S_TOKEN_TYPE var_type, uint32_t var_code);
     bool IsIndexedChain();
     static constexpr uint32_t kAccessRead = 0, kAccessQuiet = 1, kAccessCreate = 2; // ADVANCE_AP_EXPR modes
