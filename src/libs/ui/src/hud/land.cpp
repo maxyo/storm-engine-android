@@ -88,7 +88,18 @@ class LandScene final : public Scene
 
         if (states.vitals.known)
         {
-            view.elements["vitals"] = Json::object();
+            // The effects row under the bars (V2-Land-Explore: small state icons in one row).
+            static const struct
+            {
+                const char *effect, *icon, *tone, *label;
+            } kEffects[] = {{"poison", "skull", "danger", StringKey("hud.effect.poison")},
+                            {"drunk", "rum", "effect", StringKey("hud.effect.drunk")},
+                            {"healing", "potion", "active", StringKey("hud.effect.healing")}};
+            Json effects = Json::array();
+            for (const auto &known : kEffects)
+                if (std::find(states.vitals.effects.begin(), states.vitals.effects.end(), known.effect) != states.vitals.effects.end())
+                    effects.push_back(Json{{"icon", known.icon}, {"fill", 100}, {"fillTone", known.tone}, {"label", hud_.Text(known.label)}});
+            view.elements["vitals"] = Json{{"states", effects}};
             view.elements["health"] = Json{{"value", std::lround(states.vitals.health * 100.0)}};
             view.elements["energy"] = Json{{"value", std::lround(states.vitals.energy * 100.0)}};
         }
@@ -136,7 +147,15 @@ class LandScene final : public Scene
         }
         if (combat.Has("potion"))
         {
-            view.elements["potion"] = Json{{"disabled", !ready}};
+            Json potion = {{"disabled", !ready}};
+            if (states.vitals.known)
+            {
+                potion["badge"] = std::to_string(states.vitals.potions);
+                // A potion still healing fills the button (V2-Land-Combat).
+                if (std::find(states.vitals.effects.begin(), states.vitals.effects.end(), "healing") != states.vitals.effects.end())
+                    potion["fill"] = 100, potion["fillTone"] = "active";
+            }
+            view.elements["potion"] = std::move(potion);
             input.On("potion", "click", [this](const Event &) { Strike("potion", "tap"); });
         }
         if (combat.Has("weapon"))
@@ -365,6 +384,25 @@ class LandScene final : public Scene
                 shot["badge"] = std::to_string(states.vitals.loaded);
             view.elements["shot"] = std::move(shot);
             input.On("shot", "click", [this](const Event &) { Strike("pistol", "tap"); });
+        }
+        if (combat.Has("dash") && states.vitals.known && states.vitals.dash >= 0.0)
+        {
+            const bool cooling = states.vitals.dash > 0.0;
+            Json dash = {{"disabled", !ready || cooling}};
+            if (cooling)
+                dash["fill"] = std::lround(states.vitals.dash * 100.0), dash["fillTone"] = "cooldown";
+            view.elements["dash"] = std::move(dash);
+            input.On("dash", "click", [this](const Event &) { Strike("dash", "tap"); });
+        }
+        // The officers column (V2-Land-Combat): portraits of the land officers with their health.
+        if (states.vitals.known && !states.vitals.officers.empty())
+        {
+            Json officers = Json::array();
+            for (const Vitals::Officer &officer : states.vitals.officers)
+                officers.push_back(Json{{"name", officer.name},
+                                        {"texture", officer.face.empty() ? std::string() : "INTERFACES/PORTRAITS/128/face_" + officer.face},
+                                        {"hp", std::lround(officer.health * 100.0)}});
+            view.elements["officers"] = Json{{"officers", officers}};
         }
         // Elements of a dimmed cluster that are not shown now cannot be dimmed.
         view.dimmed.erase(std::remove_if(view.dimmed.begin(), view.dimmed.end(), [&view](const std::string &id) { return !view.elements.contains(id); }),

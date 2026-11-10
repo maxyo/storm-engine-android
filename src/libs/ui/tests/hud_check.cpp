@@ -277,6 +277,17 @@ static void CheckConsumers()
            "vitals: bars and charges");
     bench.Feed("vitals", Json{{"health", 7.5}, {"energy", -1}, {"loaded", 9}, {"capacity", 2}});
     Expect(states.vitals.health == 1.0 && states.vitals.energy == 0.0 && states.vitals.loaded == 2, "vitals: values are clamped");
+    bench.Feed("vitals", State("vitals-status"));
+    Expect(states.vitals.effects == std::vector<std::string>{"poison", "healing"} && states.vitals.potions == 3 && states.vitals.officers.size() == 2 &&
+               states.vitals.officers[0].face == "205" && states.vitals.officers[1].health == 0.12 && states.vitals.dash == 0.4,
+           "vitals: the hero's status");
+    for (const Json &bad : {Json{{"health", 1}, {"energy", 1}, {"effects", {"cursed"}}}, Json{{"health", 1}, {"energy", 1}, {"potions", -1}},
+                            Json{{"health", 1}, {"energy", 1}, {"officers", {Json{{"id", 1}}}}}, Json{{"health", 1}, {"energy", 1}, {"dash", "x"}}})
+    {
+        const size_t errors = bench.mount.errors.size();
+        bench.Feed("vitals", bad);
+        Expect(bench.mount.errors.size() == errors + 1, "vitals: a malformed status is rejected aloud: " + bad.dump());
+    }
     bench.Feed("vitals", nullptr);
     Expect(!states.vitals.known, "vitals: null hides the bars");
     const size_t before = bench.mount.errors.size();

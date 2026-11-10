@@ -185,7 +185,7 @@ class CombatConsumer final : public HudConsumer
             if (!action.is_string())
                 return "an action is not a name";
             const std::string name = action.get<std::string>();
-            if (!OneOf(name, {"weapon", "potion", "force", "fast", "break", "parry", "feint", "round", "pistol", "block", "freelook", "interact"}))
+            if (!OneOf(name, {"weapon", "potion", "force", "fast", "break", "parry", "feint", "round", "pistol", "block", "freelook", "interact", "dash"}))
                 return "unknown action '" + name + "'";
             if (!out.actions.insert(name).second)
                 return "action '" + name + "' is listed twice";
@@ -240,9 +240,57 @@ class VitalsConsumer final : public HudConsumer
             next.reload = Ratio(state, "reload");
             next.capacity = static_cast<int>(std::min<uint64_t>(Whole(state, "capacity").value_or(0), 100000));
             next.loaded = std::min(static_cast<int>(std::min<uint64_t>(Whole(state, "loaded").value_or(0), 100000)), next.capacity);
+            if (std::string error = Status(state, next); !error.empty())
+                return error;
         }
         hud.Edit().vitals = next;
         return state.is_object() || state.is_null() ? std::string() : "expected an object or null";
+    }
+
+  private:
+    // The status fields; each one, when present, must have its shape.
+    static std::string Status(const Json &state, Vitals &next)
+    {
+        static const std::set<std::string> kEffects = {"poison", "drunk", "healing"};
+        if (const auto effects = state.find("effects"); effects != state.end())
+        {
+            if (!effects->is_array())
+                return "effects: expected an array";
+            for (const Json &effect : *effects)
+            {
+                if (!effect.is_string() || !kEffects.count(effect.get<std::string>()))
+                    return "effects: unknown effect " + effect.dump();
+                next.effects.push_back(effect.get<std::string>());
+            }
+        }
+        if (state.contains("potions"))
+        {
+            const auto potions = Whole(state, "potions");
+            if (!potions)
+                return "potions: expected a whole number";
+            next.potions = static_cast<int>(std::min<uint64_t>(*potions, 100000));
+        }
+        if (const auto officers = state.find("officers"); officers != state.end())
+        {
+            if (!officers->is_array())
+                return "officers: expected an array";
+            for (const Json &officer : *officers)
+            {
+                const auto id = officer.is_object() ? Whole(officer, "id") : std::nullopt;
+                if (!id || !officer.contains("name") || !officer["name"].is_string() || !officer.contains("face") ||
+                    !officer["face"].is_string() || !officer.contains("health") || !officer["health"].is_number())
+                    return "officers: expected {id, name, face, health}";
+                next.officers.push_back({static_cast<int>(*id), officer["name"].get<std::string>(), officer["face"].get<std::string>(),
+                                         Ratio(officer, "health")});
+            }
+        }
+        if (const auto dash = state.find("dash"); dash != state.end())
+        {
+            if (!dash->is_number())
+                return "dash: expected a number";
+            next.dash = Ratio(state, "dash");
+        }
+        return {};
     }
 };
 

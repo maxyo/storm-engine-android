@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Isolated allocation-failure sweep for the private C archive allocator.
 
+Covers inspect, manifest, extract, cancellation and source discovery (including a
+nested container written to scratch).
+
 Build the host reader with -DSTORM_ARCHIVE_TESTING=ON. Every operation/allocation
 position runs in a subprocess; a signal, exit(), hang or leaked quota fails the
 suite. Single and persistent failures are repeated within each child, followed
@@ -29,6 +32,8 @@ def load(path):
     lib.storm_archive_free.argtypes=[C.c_void_p]
     callback=C.CFUNCTYPE(C.c_int,C.c_void_p,C.c_char_p,C.c_uint64,C.c_uint64)
     lib.storm_archive_extract.argtypes=[C.c_char_p,C.c_char_p,C.c_void_p,callback,C.c_void_p,C.c_char_p,C.c_size_t]
+    staged=C.CFUNCTYPE(C.c_int,C.c_void_p,C.c_int,C.c_char_p,C.c_uint64,C.c_uint64,C.c_uint64)
+    lib.storm_archive_discover.argtypes=[C.c_char_p,C.c_char_p,C.c_char_p,C.c_void_p,staged,C.c_void_p,C.POINTER(C.c_void_p),C.c_char_p,C.c_size_t]
     lib.storm_archive_test_fault(0,0,0)  # Initialize loader/TLS before arming.
     return lib,callback
 
@@ -43,6 +48,14 @@ def child(args):
             data=C.c_void_p()
             code=lib.storm_archive_manifest(os.fsencode(args.input),C.byref(data),error,len(error))
             lib.storm_archive_free(data)
+        elif args.operation=='discover':
+            # A source set holding the input; nested containers go to scratch.
+            with tempfile.TemporaryDirectory(prefix='storm-oom-source-') as source, tempfile.TemporaryDirectory(prefix='storm-oom-scratch-') as scratch:
+                shutil.copy(args.input,Path(source)/args.input.name)
+                data=C.c_void_p();progress=C.CFUNCTYPE(C.c_int,C.c_void_p,C.c_int,C.c_char_p,C.c_uint64,C.c_uint64,C.c_uint64)()
+                code=lib.storm_archive_discover(os.fsencode(source),os.fsencode(scratch),None,None,progress,None,C.byref(data),error,len(error))
+                if code==0 and b'"candidates":[]' in C.string_at(data):code=-1
+                lib.storm_archive_free(data)
         else:
             with tempfile.TemporaryDirectory(prefix='storm-oom-output-') as out:
                 cb=callback(lambda user,path,size,files:int(size>1024*1024) if args.input.suffix.lower()=='.exe' else 1) if args.operation=='cancel' else callback()
@@ -82,6 +95,10 @@ def fixtures(root):
         path=root/'game.7z'
         subprocess.run(['7z','a',str(path),'app'],cwd=source,stdout=subprocess.DEVNULL,check=True)
         result.append(path)
+    # A game ZIP inside a ZIP: discovery writes the inner archive to scratch.
+    path=root/'nested.zip'
+    with zipfile.ZipFile(path,'w',compression=zipfile.ZIP_STORED) as archive:archive.writestr('inner.zip',(root/'game.zip').read_bytes())
+    result.append(path)
     return result
 
 def main():
@@ -92,7 +109,7 @@ def main():
     p.add_argument('--inno-only',action='store_true')
     p.add_argument('--child',action='store_true')
     p.add_argument('--input',type=Path)
-    p.add_argument('--operation',choices=['inspect','manifest','extract','cancel'])
+    p.add_argument('--operation',choices=['inspect','manifest','extract','cancel','discover'])
     p.add_argument('--position',type=int,default=0)
     p.add_argument('--persistent',type=int,default=0)
     p.add_argument('--quota',type=int,default=0)
@@ -112,7 +129,8 @@ def main():
         inputs=[] if args.inno_only else fixtures(Path(directory))
         if args.inno_installer:inputs.append(args.inno_installer.resolve())
         for path in inputs:
-            operations=['inspect','manifest','cancel'] if path.suffix.lower()=='.exe' else ['inspect','manifest','extract','cancel']
+            operations=(['inspect','manifest','cancel'] if path.suffix.lower()=='.exe' else ['discover'] if path.name=='nested.zip'
+                        else ['inspect','manifest','extract','cancel','discover'])
             for op in operations:
                 baseline=run(path,op);count=baseline['outcomes'][0]['allocations']
                 for persistent in [0,1]:

@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <deque>
 #include <jni.h>
+#include <spdlog/spdlog.h>
 #include <android/log.h>
 #include <sys/system_properties.h>
 #include <string>
@@ -376,6 +377,25 @@ inline void publishLoading(bool active) {
     auto method=type ? env->GetMethodID(type,"showLoading","(Z)V") : nullptr;
     if (method) env->CallVoidMethod(activity,method,static_cast<jboolean>(active));
     if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
+    if (type) env->DeleteLocalRef(type);
+    env->DeleteLocalRef(activity);
+}
+// A state channel of the portable UI (JSON as is, "null" = nothing) through GameActivity
+// showUiState: for channels the platform host only forwards.
+inline void publishUiState(const char *channel, const std::string &json) {
+    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return;
+    auto type=env->GetObjectClass(activity);
+    auto method=type ? env->GetMethodID(type,"showUiState","(Ljava/lang/String;[B)V") : nullptr;
+    auto name=env->NewStringUTF(channel);
+    auto bytes=env->NewByteArray(static_cast<jsize>(json.size()));
+    if (bytes) env->SetByteArrayRegion(bytes,0,static_cast<jsize>(json.size()),reinterpret_cast<const jbyte *>(json.data()));
+    if (method && name && bytes) env->CallVoidMethod(activity,method,name,bytes);
+    else spdlog::error("UI state {}: GameActivity.showUiState is missing", channel);
+    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
+    if (bytes) env->DeleteLocalRef(bytes);
+    if (name) env->DeleteLocalRef(name);
     if (type) env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);
 }

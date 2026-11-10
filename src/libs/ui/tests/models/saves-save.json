@@ -18,6 +18,18 @@
    "cells": []
   },
   {
+   "node": "ANDROID_SAVES",
+   "type": "list",
+   "label": "",
+   "value": "3",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
    "node": "ANDROID_SAVE_LIST",
    "type": "save",
    "label": "Порт Альфа",
@@ -30,7 +42,15 @@
     "activate",
     "delete"
    ],
-   "cells": []
+   "cells": [],
+   "context": {
+    "hero": "Герой Альфа",
+    "location": "Порт Альфа",
+    "gameDate": "1654-10-01",
+    "gameTime": "10:20",
+    "created": "2001-03-10 08:50",
+    "playMinutes": "300"
+   }
   },
   {
    "node": "ANDROID_SAVE_LIST",
@@ -45,7 +65,15 @@
     "activate",
     "delete"
    ],
-   "cells": []
+   "cells": [],
+   "context": {
+    "hero": "Герой Альфа",
+    "location": "Бухта Бета",
+    "gameDate": "1654-10-02",
+    "gameTime": "11:20",
+    "created": "2001-03-11 08:51",
+    "playMinutes": "402"
+   }
   },
   {
    "node": "ANDROID_SAVE_LIST",
@@ -60,7 +88,14 @@
     "activate",
     "delete"
    ],
-   "cells": []
+   "cells": [],
+   "context": {
+    "location": "Остров Гамма",
+    "gameDate": "1654-10-03",
+    "gameTime": "12:20",
+    "created": "2001-03-12 08:52",
+    "playMinutes": "1500"
+   }
   },
   {
    "node": "ANDROID_SAVE_LIST",
@@ -75,7 +110,12 @@
     "activate"
    ],
    "cells": [],
-   "unavailableReason": "new"
+   "unavailableReason": "new",
+   "context": {
+    "hero": "Герой Альфа",
+    "location": "Порт Дельта",
+    "playMinutes": "1520"
+   }
   },
   {
    "node": "TITLE",

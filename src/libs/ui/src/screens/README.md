@@ -22,7 +22,8 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `trade_crew.cpp` | crew hire: the trade layout with one always-open row |
 | `trade_shipyard.cpp` | shipyard: catalogue, ship card, the game's windows as sheets; sends the engine's `yard@` capability tokens, one per model revision |
 | `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout, a column table per interface |
-| `dialogue.cpp` | reference state channel: `dialogue` |
+| `dialogue.cpp` | state channel `dialogue`: speech paged by `<ui-pages>` (pure rules in `../text_pages.h`), replies in two columns, the answer editor (text through the IME bridge, or an amount on the number panel), the menu button (`pause` to the platform host) |
+| `menu_game_over.cpp` | state channel `gameOver` (`{kind: sea\|land\|defeat, language}` or `null`, engine xinterface `info_handler.cpp`): the game-over screen |
 
 The design rules are GENERIC-LAYOUT (pipeline, type → component, button roles, templates,
 verbs, §8 admission and extras) and the V2 mockups of the design canvas.
@@ -45,9 +46,12 @@ verbs, §8 admission and extras) and the V2 mockups of the design canvas.
      `admitted.One/All/Label`; bind every interactive element by its element id:
      `bindings.Forward(id, widget, "press")`, `bindings.On(id, verb, handler)` and inside a
      handler `bindings.Send(widget, verb, value)`, `SendLatest` (drags), `Back(exit)`,
-     `EditText`, `Read`, `Rebuild()` for local state kept in members, `SendHost(node,
-     value)` for a setting of the application itself (an `Action` without a screen that the
-     platform host keeps; `app-settings` = the renderer options). Mark events that are
+     `EditText` / `AskText` (the screen gets the typed text), `Read`, `Rebuild()` for local
+     state kept in members, `Platform(verb)` for a request to the platform host (`pause`),
+     `SendHost(node, value)` for a setting of the application itself (an `Action` without a
+     screen that the platform host keeps; `app-settings` = the renderer options). A screen
+     with a modal of its own returns true from `OwnsBack()` and closes it in `Back()`: the
+     back key then goes there first (`Host::WantsBack`). Mark events that are
      expected but need nothing with `bindings.Ignore(id, verb)`.
    Add the file to `CMakeLists.txt`.
 3. **Registry.** Add `{"<interface id>", Create…}` to `kPorted` in `registry.cpp` and
@@ -149,7 +153,7 @@ Channels (JSON as the engine publishes it unless noted):
 |---|---|---|
 | `gameplay` | `{schemaVersion: 1, revision, mode: explore\|melee\|sailing\|naval\|worldmap\|unknown, language, inputOwner, analogMovement, movementGeneration, capabilities: […]}` | `Gameplay` |
 | `combat` | `{schemaVersion: 1, gameplayRevision, activityGeneration, playerId, mode, actions: […], interactKind, pistol: {state, progress 0…20}}` | `Combat` |
-| `vitals` | `{health, energy, reload: 0…1, loaded, capacity}` or `null` | `Vitals` |
+| `vitals` | `{health, energy, reload: 0…1, loaded, capacity, effects: [poison\|drunk\|healing], potions, officers: [{id, name, face, health}], dash?: 0…1}` or `null` | `Vitals` |
 | `worldInfo` | a JSON string: the engine's location lines, `\n` between them | `States::world_info` |
 | `contextAction` | a JSON string: the script's quick action name, `""` = none | `States::context_action` |
 | `landCommands` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage, pendingLabel, selectedItemId, canBack, canClose, items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `LandCommands` |
@@ -171,9 +175,10 @@ contract are errors (log, toast in debug hosts), never quiet drops.
 
 Input goes out with `Hud::Send(verb, value, slot)`: the engine command is `<verb>:<value>`
 (`move`, `combat`, `landcommands`, `context`); a `slot` marks a latest-value input (stick
-position, coverage acknowledgement) of which a queueing host keeps only the newest. Two
-verbs are for the platform host: `shortcut` (`mainmenu`, `character`) and `presence`
-(`shown` / `hidden`). Sequences, owners and revisions are formed here; the platform adds
+position, coverage acknowledgement) of which a queueing host keeps only the newest. Three
+verbs are for the platform host: `shortcut` (`mainmenu`, `character`), `presence`
+(`shown` / `hidden`) and `pause` (its pause menu; the dialogue's menu button, through
+`Bindings::Platform`). Sequences, owners and revisions are formed here; the platform adds
 nothing.
 
 Touches over the game are decided per pointer at pointer-down: `Host::WantsTouch(x, y)` is
