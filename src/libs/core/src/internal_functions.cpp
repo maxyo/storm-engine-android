@@ -119,6 +119,8 @@ enum FUNCTION_CODE
     FUNC_SORT,
     FUNC_GET_ARG,
     FUNC_GET_ARG_COUNT,
+    FUNC_SET_CLASSTABLE,
+    FUNC_GET_TYPE_NAME_BY_TYPE_ID,
     // Caribbean Legend 2.0 additions (natives_ext_list.h); keep them last
     FUNC_NATIVE_EXT_BASE,
     FUNC_NATIVE_EXT_BASE_PREV_ = FUNC_NATIVE_EXT_BASE - 1, // the first addition takes the base value
@@ -161,6 +163,8 @@ INTFUNCDESC IntFuncTable[] = {
     VAR_INTEGER, 1, "sort", TVOID,
     // arguments of the running script function, also those passed to its "..."
     1, "GetArg", VAR_REFERENCE, 0, "GetArgCount", VAR_INTEGER,
+    // object->Method: the class table (a global object) of an object; names of typeid values
+    2, "SetClasstable", TVOID, 1, "GetTypeNameByTypeID", VAR_STRING,
     // Caribbean Legend 2.0 additions; keep them last
 #define STORM_NATIVE(id, name, arguments, return_type, varargs) arguments, name, return_type,
 #include "natives_ext_list.h"
@@ -2713,6 +2717,31 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         pResult = SStack.Push();
         pResult->SetType(VAR_REFERENCE);
         pResult->SetReference(pV->GetVarPointer());
+        pVResult = pResult;
+        return pResult;
+    }
+    case FUNC_SET_CLASSTABLE: {
+        // SetClasstable(object, table): object->Method calls the function table.Method names
+        pV2 = SStack.Pop(); // table
+        pV = SStack.Pop();  // object
+        DATA *table = pV2 ? Deref(pV2) : nullptr;
+        ATTRIBUTES *object = pV ? AttributesOf(pV) : nullptr;
+        uint32_t var_index, array_index;
+        if (!table || !object || !FindReferencedVariable(table, var_index, array_index) ||
+            array_index != 0xffffffff)
+        {
+            SetError("SetClasstable: the class table must be a global object");
+            break;
+        }
+        object->SetAttribute("classtable", VarTab.GetVarX(var_index)->name);
+        break;
+    }
+    case FUNC_GET_TYPE_NAME_BY_TYPE_ID: {
+        pV = SStack.Pop();
+        static constexpr const char *names[] = {"", "int", "string", "float", "aref", "object", "ref", "bool", "fref"};
+        const int32_t id = pV ? IntValue(pV) : 0;
+        pResult = SStack.Push();
+        pResult->Set(std::string(id > 0 && id < static_cast<int32_t>(std::size(names)) ? names[id] : ""));
         pVResult = pResult;
         return pResult;
     }

@@ -273,11 +273,24 @@ static void Settings(const std::string &models)
 
     router.OnEvent({"tabs", "select", "2"});
     Json image = surface.props["sections"];
-    Expect(image.size() == 2 && image[0]["title"] == "<settings.graphics>", "image page: the renderer options first");
+    Expect(image.size() == 3 && image[0]["title"] == "<settings.graphics>", "image page: the renderer options first");
+    const Json preset = image[1]["columns"][0]["rows"][0];
+    Expect(image[1]["columns"][0]["title"] == "<settings.fx_quality>" && preset["id"] == "app-fx_preset" && preset["selected"] == 0 &&
+               preset["restart"] == false && image[1]["columns"][0]["rows"][1]["id"] == "fx-more",
+           "graphics effects: the preset, applied at once, and «Подробнее»");
+    router.OnEvent({"fx-more", "click", ""});
+    image = surface.props["sections"];
+    Expect(image.size() == 4 && image[2]["columns"][0]["rows"][0]["id"] == "app-fx_msaa" && image[2]["columns"][0]["rows"][0]["selected"] == 0 &&
+               image[2]["columns"][0]["rows"][0]["options"][0] == "<settings.fx_from_preset>",
+           "«Подробнее» opens one override per effect, «Пресет» chosen by default");
+    router.OnEvent({"app-fx_bloom", "change", "1"});
+    router.OnEvent({"app-fx_preset", "change", "2"});
+    router.OnEvent({"fx-more", "click", ""});
+    image = surface.props["sections"];
     const Json filtering = image[0]["columns"][0]["rows"][0];
     Expect(filtering["kind"] == "segment" && filtering["selected"] == 0 && filtering["restart"] == true && filtering["disabled"] == false,
            "texture filtering from the host, marked as needing a restart");
-    const Json grass = image[1]["columns"][0]["rows"][3];
+    const Json grass = image[2]["columns"][0]["rows"][3];
     Expect(grass["kind"] == "segment" && grass["selected"] == 2 && grass["label"] == "<settings.grass>", "grass radio group as one segment");
     router.OnEvent({grass["id"], "change", "3"});
     ExpectEqual(surface.Last(), prefix + "HERB_CHECKBOX\t3\t1", "grass option chosen");
@@ -287,7 +300,7 @@ static void Settings(const std::string &models)
     router.OnEvent({"app-sea_foam", "change", "0"});
     router.OnEvent({"done", "click", ""});
     Expect(surface.commands.size() == 2 &&
-               surface.commands[0] == "host app-settings {\"character_shadows\":0,\"sea_foam\":0,\"texture_anisotropy\":8,\"texture_degradation\":0,\"vsync\":1}" &&
+               surface.commands[0] == "host app-settings {\"character_shadows\":0,\"fx_bloom\":0,\"fx_msaa\":-1,\"fx_preset\":2,\"fx_water\":-1,\"sea_foam\":0,\"texture_anisotropy\":8,\"texture_degradation\":0,\"vsync\":1}" &&
                surface.commands[1] == prefix + "BTN_OK\t-1\tpress",
            "«Готово» hands the renderer options to the host and confirms the game's settings");
     surface.commands.clear();
@@ -357,7 +370,8 @@ static void NewGame(const std::string &models)
     Expect(surface.props["hero"]["name"] == "Герой Альфа" && surface.props["hero"]["nation"] == "<menu.nation_france>", "hero and nation");
     ExpectEqual(surface.props["hero"]["image"]["texture"], "INTERFACES/PORTRAITS/128/face_1", "the hero's game portrait by face");
     ExpectEqual(surface.props["toggles"][1]["label"], "<menu.hardcore>", "the untranslated «HardcoreGame» key gets our name");
-    Expect(surface.props["setup"]["text"] == "фехтование" && surface.props["setup"]["note"] == "Описание занятия героя.", "occupation and its text");
+    Expect(surface.props["setup"]["text"] == "<menu.hero_type_1>" && surface.props["setup"]["note"] == "Описание занятия героя.",
+           "occupation titled by its key, and its text");
     Expect(!surface.props.contains("stats"), "no attribute table (V2-Menu-NewGame)");
     const std::string prefix = "widget:selectcharacter\t";
     router.OnEvent({"difficulty-right", "click", ""});

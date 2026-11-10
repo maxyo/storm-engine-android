@@ -161,6 +161,18 @@ enum S_TOKEN_TYPE
     OBJ_NEW,
     OBJ_SET,
     RANGE_NEXT,
+    OP_SLICE,
+    ARRAY_BUILD,
+    ADVANCE_AP_EXPR,
+    ACCESS_EXPR,
+    ATTR_PARENT,
+    ATTR_DELETE,
+    AP_CHILD,
+    CALL_NAMED,
+    NEW_ARRAY,
+    STACK_INDEX,
+    LEFTOP_SUBINDEX,
+    AP_FROM_STACK,
     TOKEN_TYPES_COUNT
 };
 // bytecode stores the instruction in one byte (read as uint8_t)

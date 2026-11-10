@@ -378,6 +378,10 @@ inline void publishGameMessage(const std::string &text) {
     if (type) env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);
 }
+// Set from the game thread's command queue ("graphics:reload", sent by the platform host after
+// the settings screen stored new renderer preferences); the renderer re-applies the graphics
+// effects from the preferences at its next frame (s_device.cpp).
+inline std::atomic<bool> graphicsSettingsChanged{false};
 inline int graphicsSetting(const char *key, int fallback) {
     auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
     auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
@@ -450,6 +454,22 @@ inline void publishSpyglass() {
     lastSpyglass=json;
     publishUiState("spyglass",json);
 }
+// Channel "video": {"fullscreen": true} while a game video plays over the whole screen (the
+// scripts' StartVideo player), null when it ends. A player embedded in an interface node
+// (xi_video_rect, SetShowVideo(false)) never sets it: its screen stays. Back is then the
+// game's Cancel to the video (main.cpp).
+inline const void *fullscreenVideoOwner = nullptr;
+inline void publishFullscreenVideo(const void *owner, bool active) {
+    if (active) {
+        if (fullscreenVideoOwner == owner) return;
+        fullscreenVideoOwner = owner;
+        publishUiState("video", "{\"fullscreen\":true}");
+    } else if (fullscreenVideoOwner == owner) {
+        fullscreenVideoOwner = nullptr;
+        publishUiState("video", "null");
+    }
+}
+inline bool fullscreenVideo() { return fullscreenVideoOwner != nullptr; }
 inline void publishCinematic(bool active) {
     if (cinematicState == static_cast<int>(active)) return;
     cinematicState=active;

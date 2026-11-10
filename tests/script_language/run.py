@@ -2,7 +2,8 @@
 """Script language and VM tests: compile and run tests/script_language/cases/*.c with script_check.
 
 Each case runs every `int test_*()` function, which must return 1 without a runtime error; a case
-whose first line is `// expect-error: <text>` must fail to compile with that error.
+whose first line is `// expect-error: <text>` must fail to compile with that error. Every case runs
+twice: compiled, and loaded from a script cache another compiler wrote.
 
   python3 tests/script_language/run.py --script-check build/host/script_check
   python3 tests/script_language/run.py --build-dir build/host   (builds the script_check target)
@@ -25,4 +26,7 @@ elif a.build_dir and (a.build_dir / 'build.ninja').exists():
 else:
     sys.exit('script_language: pass --script-check or --build-dir with a configured host build '
              '(cmake -S . -B <dir> -G Ninja -DSTORM_HOST_SOURCES=... -DSTORM_AUDIO_SOURCES=..., see cmake/host.cmake)')
-sys.exit(subprocess.run([str(tool), 'test', *map(str, cases)]).returncode)
+# once compiled, once loaded from the script cache (written by a first compiler)
+plain = subprocess.run([str(tool), 'test', *map(str, cases)]).returncode
+cached = subprocess.run([str(tool), 'test', '--cache', *map(str, cases)]).returncode
+sys.exit(plain or cached)

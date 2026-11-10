@@ -1,6 +1,7 @@
 $input a_position, a_color0, a_texcoord0
 $output v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v_texcoord4, v_fog
 // Port of the technique shader worldmap_shader (vs_1_1) of src/techniques/worldmap/worldmap.fx, one D3D9 instruction per line.
+#define PORT_VSC_COUNT 7 // registers c0..c6 (the GL program uploads exactly these)
 #include "port_vs.sh"
 
 void main()

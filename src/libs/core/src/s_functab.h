@@ -23,13 +23,14 @@ struct LocalVarInfo
 
     bool IsArray()
     {
-        return elements > 1;
+        return array || elements != 1; // 0: an array sized at run time
     }
 
     std::string name;
     size_t hash; // for faster comparison
     S_TOKEN_TYPE type;
     size_t elements;
+    bool array{}; // declared with [], also "int a[1]"
 };
 
 // value of a defaulted trailing parameter: NUMBER (int), FLOAT_NUMBER, STRING or, for a ref/aref

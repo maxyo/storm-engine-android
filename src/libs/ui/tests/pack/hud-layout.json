@@ -118,6 +118,20 @@
      "props": {}
     },
     {
+     "id": "opponent",
+     "component": "c-box",
+     "rcss": "position: absolute; left: 340dp; top: 8dp; width: 230dp; height: 30dp;",
+     "props": {},
+     "children": [
+      {
+       "id": "opponent-hp",
+       "component": "c-box",
+       "rcss": "",
+       "props": {}
+      }
+     ]
+    },
+    {
      "id": "location",
      "component": "c-box",
      "rcss": "position: absolute; right: 130dp; top: 10dp; width: 200dp; height: 30dp;",

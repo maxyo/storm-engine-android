@@ -30,7 +30,11 @@ inline bool sampleArgb(const TexturePixels& image,float u,float v,uint32_t& resu
 class TextureColorReader {
 public:
     virtual ~TextureColorReader()=default;
-    // False means unavailable (invalid ID, unsupported format or no CPU copy).
+    // Keeps a CPU copy of level 0 for sampleTextureArgb. File textures drop their CPU copy once
+    // they are on the GPU, so call this right after TextureCreate, before the texture is drawn.
+    // False (and a log line) when the format is not A8R8G8B8/X8R8G8B8 or the pixels are gone.
+    virtual bool keepTexturePixels(int32_t texture)=0;
+    // False means unavailable (invalid ID or no copy kept by keepTexturePixels).
     // Caller chooses a fallback; implementations must leave result untouched.
     virtual bool sampleTextureArgb(int32_t texture,float u,float v,uint32_t& result)=0;
 };

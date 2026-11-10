@@ -77,18 +77,22 @@ void Lighting::configure(const fx::Settings &settings, const fx::RendererState &
     lighting_ = (flags_ & (fx::kLightingPerPixel | fx::kLightingPoint)) != 0;
     coverage_ = state.alpha_to_coverage;
     budget_ = fx::PointLightBudget(settings);
+    normal_maps_.configure(lighting_ && (flags_ & fx::kLightingNormalMap));
     if (!vs_lit_)
     {
         vs_ff_ = shim::shader_id_by_name("vs_ff");
         vs_lit_ = shim::shader_id_by_name("vs_ff_lit");
         fs_coverage_ = shim::shader_id_by_name("fs_ff_coverage");
-        static const char *const lit[2][2] = {{"fs_ff_lit", "fs_ff_lit_l"}, {"fs_ff_lit_s", "fs_ff_lit_sl"}};
-        static const char *const baked[2] = {"fs_ff_baked", "fs_ff_baked_l"};
+        static const char *const lit[2][2][2] = {{{"fs_ff_lit", "fs_ff_lit_l"}, {"fs_ff_lit_n", "fs_ff_lit_nl"}},
+                                                 {{"fs_ff_lit_s", "fs_ff_lit_sl"}, {"fs_ff_lit_sn", "fs_ff_lit_snl"}}};
+        static const char *const baked[2][2] = {{"fs_ff_baked", "fs_ff_baked_l"}, {"fs_ff_baked_n", "fs_ff_baked_nl"}};
         for (int s = 0; s < 2; ++s)
+            for (int n = 0; n < 2; ++n)
+                for (int l = 0; l < 2; ++l)
+                    fs_lit_[s][n][l] = shim::shader_id_by_name(lit[s][n][l]);
+        for (int n = 0; n < 2; ++n)
             for (int l = 0; l < 2; ++l)
-                fs_lit_[s][l] = shim::shader_id_by_name(lit[s][l]);
-        for (int l = 0; l < 2; ++l)
-            fs_baked_[l] = shim::shader_id_by_name(baked[l]);
+                fs_baked_[n][l] = shim::shader_id_by_name(baked[n][l]);
     }
 }
 
@@ -142,6 +146,14 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         baked_lights = select(dynamic_lights_, eye, kBakedRadius, budget_, &unused);
         baked = baked_lights.count > 0;
     }
+    // Relief: stage 1 holds a height texture with a derived normal map (the game's 2x detail layer).
+    bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE;
+    shim::TexStore *stage1 = shim::store_of(device.s.textures[1]);
+    if ((flags_ & fx::kLightingNormalMap) && lighting_ && layout.has_normal && stage1 &&
+        device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE && device.s.tss[1][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
+        !(lit && material_ == Material::Character))
+        normal_map = normal_maps_.handle(*stage1, fx_);
+    baked |= !lit_state && bgfx::isValid(normal_map);
     if (!lit && !baked && !coverage)
         return;
     if (cube_variant != 0)
@@ -251,6 +263,13 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     if (!per_pixel || !(flags_ & fx::kLightingRim))
         u[5][1] = 0.0f;
     draw.ff = {two_sided && u[2][3] > 0.0f ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+    const bool relief = bgfx::isValid(normal_map) && u[5][0] > 0.0f;
+    if (relief)
+    {
+        draw.normal_map = normal_map;
+        draw.normal_map_flags = device.sampler_flags(1, *stage1);
+        ++frame_.relief;
+    }
 
     if (lit)
     {
@@ -271,13 +290,13 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             selection.dropped = 0; // the rest is lit per vertex
         }
         draw.points = fx::PackPointLights(selection, input.view);
-        draw.fs_id = fs_lit_[specular][linear];
+        draw.fs_id = fs_lit_[specular][relief][linear];
         ++frame_.lit;
     }
     else
     {
         draw.points = fx::PackPointLights(baked_lights, input.view);
-        draw.fs_id = fs_baked_[linear];
+        draw.fs_id = fs_baked_[relief][linear];
         ++frame_.baked;
     }
 }
@@ -295,6 +314,8 @@ void Lighting::submit(const FfDraw &draw)
     bgfx::setUniform(u_ff_, draw.ff.data());
     fx_.Apply(draw.light);
     fx_.Apply(draw.points);
+    if (bgfx::isValid(draw.normal_map))
+        fx_.BindNormalMap(draw.normal_map, draw.normal_map_flags);
 }
 
 void Lighting::end_frame()

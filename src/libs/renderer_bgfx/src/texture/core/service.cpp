@@ -53,6 +53,7 @@ void Service::shutdown()
         for (auto &job : queue_)
             job->state = Job::Failed;
         queue_.clear();
+        tasks_.clear();
         queued_bytes_ = 0;
     }
     wake_.notify_all();
@@ -108,6 +109,17 @@ std::shared_ptr<Job> Service::submit(const Layout &layout, uint64_t key, EtcForm
     return job;
 }
 
+void Service::post(std::function<void()> task)
+{
+    {
+        std::lock_guard lock(mutex_);
+        tasks_.push_back(std::move(task));
+        if (workers_.empty())
+            start_workers();
+    }
+    wake_.notify_one();
+}
+
 void Service::release(std::shared_ptr<Job> &job)
 {
     if (!job)
@@ -147,6 +159,17 @@ void Service::worker(unsigned index)
                 total = evict_cache(directory, max_bytes / 10 * 9);
             cache_bytes_ = total;
             lock.lock();
+            continue;
+        }
+        if (queue_.empty() && !tasks_.empty())
+        {
+            std::function<void()> task = std::move(tasks_.front());
+            tasks_.pop_front();
+            ++running_;
+            lock.unlock();
+            task();
+            lock.lock();
+            --running_;
             continue;
         }
         if (queue_.empty())

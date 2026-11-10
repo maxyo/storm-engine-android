@@ -67,7 +67,7 @@ auto GetCacheFolder()
 // themselves: the engine build (token numbering, internal function table and
 // bytecode layout are not stable across builds), the cache layout, and which
 // game directory the scripts came from (the cache folder is shared).
-constexpr uint64_t kCacheFormatVersion = 3; // 3: CL script extensions (functions keep defaults, "...", native)
+constexpr uint64_t kCacheFormatVersion = 4; // 3: CL script extensions (defaults, "...", native); 4: array flag
 
 uint64_t CalculateCacheKey(const char *program_directory)
 {
@@ -99,7 +99,7 @@ COMPILER::COMPILER()
       InstructionPointer(0), pBuffer(nullptr), ProgramDirectory(nullptr), bCompleted(false), bEntityUpdate(true),
       pDebExpBuffer(nullptr), nDebExpBufferSize(0), pRun_fi(nullptr), bRuntimeLog(false),
       nRuntimeLogEventsBufferSize(0), nRuntimeLogEventsNum(0), nRuntimeTicks(0), bFirstRun(true), bWriteCodeFile(false),
-      bDebugInfo(false), DebugSourceLine(0), pCompileTokenTempBuffer(nullptr), bDebugExpressionRun(false),
+      bDebugInfo(false), DebugSourceLine(0), bDebugExpressionRun(false),
       bTraceMode(true), nDebugTraceLineCode(0), nIOBufferSize(0), pIOBuffer(nullptr), rAP(nullptr),
       script_cache_mode_(kCacheDisabled)
 
@@ -163,8 +163,7 @@ void COMPILER::Release()
     delete[] ProgramDirectory;
     ProgramDirectory = nullptr;
     RunningSegmentID = INVALID_SEGMENT_INDEX;
-    delete[] pCompileTokenTempBuffer;
-    pCompileTokenTempBuffer = nullptr;
+
 
     FuncTab.Release();
     VarTab.Release();
@@ -175,6 +174,7 @@ void COMPILER::Release()
     SCodec.Release();
     LibriaryFuncs.clear();
     pendingNatives_.clear();
+    newArrays_.clear();
 
     delete[] pDebExpBuffer;
     pDebExpBuffer = nullptr;
@@ -273,6 +273,9 @@ char *COMPILER::LoadFile(const char *file_name, uint32_t &file_size, bool bFullP
     fio->_CloseFile(fileS);
     file_size = fsize;
     pData[fsize] = 0;
+    if (fsize >= 3 && static_cast<uint8_t>(pData[0]) == 0xEF && static_cast<uint8_t>(pData[1]) == 0xBB &&
+        static_cast<uint8_t>(pData[2]) == 0xBF)
+        pData[0] = pData[1] = pData[2] = ' '; // UTF-8 byte order mark
     return pData;
 }
 
@@ -331,38 +334,36 @@ Append_program_size, int32_t& new_program_size)
 bool COMPILER::AppendProgram(char *&pBase_program, uint32_t &Base_program_size, const char *pAppend_program,
                              uint32_t &Append_program_size, bool bAddLinefeed)
 {
-    const auto offset = Base_program_size;
+    // appends a file and a separator ("\r\n" between files, ';' after a #file marker) so that
+    // their tokens cannot merge; the buffer grows geometrically (a segment appends hundreds of files)
     if (pAppend_program == nullptr)
         return false;
-    if (bAddLinefeed)
+    const uint32_t offset = Base_program_size;
+    const uint32_t separator = bAddLinefeed ? 2 : 1;
+    const uint32_t needed = Base_program_size + Append_program_size + separator + 1; // + terminating zero
+    if (pBase_program == nullptr || pBase_program != appendBuffer_ || needed > appendCapacity_)
     {
-        // pBase_program = (char *)RESIZE(pBase_program,Base_program_size + Append_program_size + 3); // +1 for
-        // terminating zero, +1 for 0xd +1 for 0xa
-        auto *const newPtr = new char[Base_program_size + Append_program_size + 3];
-        memcpy(newPtr, pBase_program, Base_program_size);
+        const uint32_t capacity = std::max(needed, pBase_program == appendBuffer_ ? appendCapacity_ * 2 : needed);
+        auto *const newPtr = new char[capacity];
+        if (pBase_program)
+            memcpy(newPtr, pBase_program, Base_program_size);
         delete[] pBase_program;
         pBase_program = newPtr;
-        Base_program_size = Base_program_size + Append_program_size + 2;
-        memcpy(&pBase_program[offset], pAppend_program, Append_program_size);
-        pBase_program[Base_program_size - 2] = 0xd; // code blocks separator to prevent data merging
-        pBase_program[Base_program_size - 1] = 0xa; // code blocks separator to prevent data merging
-        pBase_program[Base_program_size] = 0;       // terminating zero
-        delete[] pAppend_program;
-        Append_program_size += 2;
-        return true;
+        appendBuffer_ = newPtr;
+        appendCapacity_ = capacity;
     }
-    // pBase_program = (char *)RESIZE(pBase_program,Base_program_size + Append_program_size + 2); // +1 for terminating
-    // zero, +1 for ';'
-    auto *const newPtr = new char[Base_program_size + Append_program_size + 2];
-    memcpy(newPtr, pBase_program, Base_program_size);
-    delete[] pBase_program;
-    pBase_program = newPtr;
-    Base_program_size = Base_program_size + Append_program_size + 1;
     memcpy(&pBase_program[offset], pAppend_program, Append_program_size);
-    pBase_program[Base_program_size - 1] = ';'; // code blocks separator to prevent data merging
-    pBase_program[Base_program_size] = 0;       // terminating zero
+    Base_program_size += Append_program_size + separator;
+    if (bAddLinefeed)
+    {
+        pBase_program[Base_program_size - 2] = 0xd;
+        pBase_program[Base_program_size - 1] = 0xa;
+    }
+    else
+        pBase_program[Base_program_size - 1] = ';';
+    pBase_program[Base_program_size] = 0;
     delete[] pAppend_program;
-    Append_program_size += 1;
+    Append_program_size += separator;
     return true;
 }
 
@@ -433,6 +434,46 @@ void COMPILER::SetWarning(const char *data_PTR, ...)
         diagnosticsSink_->emplace_back(ErrorBuffer);
 }
 
+std::string COMPILER::ScriptLanguageDirectory()
+{
+    // %language% in include paths: the directory of the game language, as the string service
+    // takes it from RESOURCE\INI\TEXTS\language.ini ([COMMON] defaultLanguage, [DIRECTORY])
+    // unless SetScriptLanguage chose another language
+    constexpr const char *language_ini = "resource\\ini\\texts\\language.ini";
+    auto ini = fio->OpenIniFile(language_ini);
+    if (!ini)
+    {
+        SetError("%%language%% in an include: %s not found", language_ini);
+        return {};
+    }
+    char language[256]{};
+    if (!scriptLanguage_.empty())
+        strcpy_s(language, scriptLanguage_.c_str());
+    else if (!ini->ReadString("COMMON", "defaultLanguage", language, sizeof(language) - 1, ""))
+    {
+        SetError("%%language%% in an include: %s has no [COMMON] defaultLanguage", language_ini);
+        return {};
+    }
+    char directory[256]{};
+    if (!ini->ReadString("DIRECTORY", language, directory, sizeof(directory) - 1, "") || directory[0] == 0)
+    {
+        SetError("%%language%% in an include: %s has no [DIRECTORY] entry for '%s'", language_ini, language);
+        return {};
+    }
+    return directory;
+}
+
+std::filesystem::path COMPILER::CacheFolder() const
+{
+    return cacheFolder_.empty() ? GetCacheFolder() : cacheFolder_;
+}
+
+void COMPILER::UseScriptCache(std::filesystem::path folder)
+{
+    cacheFolder_ = std::move(folder);
+    script_cache_mode_ = kCacheEnabled;
+}
+
 void COMPILER::ConfigureCompileCheck(std::vector<std::string> *sink, bool missing_natives_are_errors)
 {
     diagnosticsSink_ = sink;
@@ -454,6 +495,30 @@ const char *COMPILER::GetSegmentCode(const char *segment_name, uint32_t &size) c
     }
     size = 0;
     return nullptr;
+}
+
+std::vector<std::string> COMPILER::GetSegmentSymbols(const char *segment_name)
+{
+    std::vector<std::string> names;
+    uint32_t id = INVALID_SEGMENT_ID;
+    for (uint32_t n = 0; n < SegmentsNum; n++)
+        if (SegmentTable[n].name == segment_name)
+            id = SegmentTable[n].id;
+    if (id == INVALID_SEGMENT_ID)
+        return names;
+    for (size_t n = 0; n < FuncTab.GetFuncNum(); n++)
+        if (const auto *fi = FuncTab.GetFuncInfo(n); fi && fi->segment_id == id && fi->offset != INVALID_FUNC_OFFSET)
+            names.push_back(fi->name);
+    for (size_t n = 0; n < VarTab.GetVarNum(); n++)
+        if (const auto *vi = VarTab.GetVarX(n); vi && vi->segment_id == id)
+            names.push_back(vi->name);
+    for (uint32_t n = 0; n < DefTab.GetDefNum(); n++)
+    {
+        DEFINFO di;
+        if (DefTab.GetDefX(di, n) && di.segment_id == id && di.name)
+            names.emplace_back(di.name);
+    }
+    return names;
 }
 
 bool COMPILER::RunScriptFunction(const char *func_name, std::string &value)
@@ -1027,7 +1092,7 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
 
         using storm::script_cache::StateFile;
         uint64_t stored_fingerprint = 0;
-        const auto state = storm::script_cache::readState(GetCacheFolder(), stored_fingerprint);
+        const auto state = storm::script_cache::readState(CacheFolder(), stored_fingerprint);
         if (state == StateFile::Read && stored_fingerprint == calculated_fingerprint)
         {
             // attempt to load from cache first
@@ -1037,13 +1102,13 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
         {
             // Every outcome is logged: a rebuild costs a full compile at startup.
             if (state == StateFile::Missing)
-                spdlog::info("Script cache: none in '{}'; compiling and storing scripts", GetCacheFolder().string());
+                spdlog::info("Script cache: none in '{}'; compiling and storing scripts", CacheFolder().string());
             else if (state == StateFile::Damaged)
-                spdlog::warn("Script cache: state file in '{}' is damaged; rebuilding", GetCacheFolder().string());
+                spdlog::warn("Script cache: state file in '{}' is damaged; rebuilding", CacheFolder().string());
             else
                 spdlog::info("Script cache: scripts or engine build changed (key {:016x} -> {:016x}); rebuilding",
                              stored_fingerprint, calculated_fingerprint);
-            if (const auto error = storm::script_cache::resetFolder(GetCacheFolder(), calculated_fingerprint);
+            if (const auto error = storm::script_cache::resetFolder(CacheFolder(), calculated_fingerprint);
                 !error.empty())
             {
                 spdlog::error("Script cache: {}; disabled for this session, scripts are compiled from source", error);
@@ -1056,6 +1121,7 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
     {
         result = Compile(SegmentTable[index]);
     }
+    lastSegmentFromCache_ = result && from_cache;
     if (result)
     {
         spdlog::info("Script segment '{}' {} in {} ms", file_name, from_cache ? "loaded from cache" : "compiled",
@@ -1262,25 +1328,25 @@ void COMPILER::ProcessFrame(uint32_t DeltaTime)
 
 void COMPILER::ResizeBCodeBuffer(SEGMENT_DESC &Segment, uint32_t add_size)
 {
-    int64_t needed_memory = static_cast<int64_t>(Segment.BCode_Program_size) + add_size - Segment.BCode_Buffer_size;
-    if (needed_memory >= 0)
-    {
-        const auto needed_blocks = (needed_memory - 1) / BCODE_BUFFER_BLOCKSIZE + 1;
-        Segment.BCode_Buffer_size += needed_blocks * BCODE_BUFFER_BLOCKSIZE;
-        // Segment.pCode = (char *)RESIZE(Segment.pCode,Segment.BCode_Buffer_size);
-        auto *const newPtr = new char[Segment.BCode_Buffer_size];
+    // geometric growth: segments compile to megabytes of bytecode
+    const uint64_t needed = static_cast<uint64_t>(Segment.BCode_Program_size) + add_size;
+    if (needed <= Segment.BCode_Buffer_size)
+        return;
+    uint64_t capacity = std::max<uint64_t>(Segment.BCode_Buffer_size * 2ull, BCODE_BUFFER_BLOCKSIZE);
+    while (capacity < needed)
+        capacity *= 2;
+    auto *const newPtr = new char[capacity];
+    if (Segment.pCode)
         memcpy(newPtr, Segment.pCode, Segment.BCode_Program_size);
-        delete[] Segment.pCode;
-        Segment.pCode = newPtr;
-    }
+    delete[] Segment.pCode;
+    Segment.pCode = newPtr;
+    Segment.BCode_Buffer_size = static_cast<uint32_t>(capacity);
 }
 
 void COMPILER::CompileToken(SEGMENT_DESC &Segment, S_TOKEN_TYPE Token_type, uint32_t data_blocks_num, ...)
 {
-    uint32_t data_size;
     uint32_t n;
     va_list args;
-    char *data_ptr;
 
     // DTrace("token: %s : %s",Token.GetTypeName(Token_type),Token.GetData());
 
@@ -1301,23 +1367,18 @@ void COMPILER::CompileToken(SEGMENT_DESC &Segment, S_TOKEN_TYPE Token_type, uint
         return;
     }
 
-    // pCompileTokenTempBuffer = (char *)RESIZE(pCompileTokenTempBuffer,data_blocks_num * (sizeof(char *) +
-    // sizeof(uint32_t)));
-    auto *const newPtr = new char[data_blocks_num * (sizeof(char *) + sizeof(uint32_t))];
-    delete[] pCompileTokenTempBuffer;
-    pCompileTokenTempBuffer = newPtr;
-
     // gather data blocks information and count total data size ----------------
+    constexpr uint32_t kMaxBlocks = 8;
+    const char *block_data[kMaxBlocks];
+    uint32_t block_size[kMaxBlocks];
+    Assert(data_blocks_num <= kMaxBlocks);
     va_start(args, data_blocks_num);
     write_size = 0;
     for (n = 0; n < data_blocks_num; n++)
     {
-        data_ptr = va_arg(args, char *);
-        data_size = va_arg(args, uint32_t);
-        memcpy(pCompileTokenTempBuffer + n * (sizeof(char *) + sizeof(uint32_t)), &data_ptr, sizeof(char *));
-        memcpy(pCompileTokenTempBuffer + n * (sizeof(char *) + sizeof(uint32_t)) + sizeof(char *), &data_size,
-               sizeof(uint32_t));
-        write_size += data_size;
+        block_data[n] = va_arg(args, char *);
+        block_size[n] = va_arg(args, uint32_t);
+        write_size += block_size[n];
     }
     va_end(args);
     //--------------------------------------------------------------------------
@@ -1345,17 +1406,25 @@ void COMPILER::CompileToken(SEGMENT_DESC &Segment, S_TOKEN_TYPE Token_type, uint
     ResizeBCodeBuffer(Segment, write_size);
     for (n = 0; n < data_blocks_num; n++)
     {
-        memcpy(&data_ptr, pCompileTokenTempBuffer + n * (sizeof(char *) + sizeof(uint32_t)), sizeof(char *));
-        memcpy(&data_size, pCompileTokenTempBuffer + n * (sizeof(char *) + sizeof(uint32_t)) + sizeof(char *),
-               sizeof(uint32_t));
-        memcpy(&Segment.pCode[Segment.BCode_Program_size], data_ptr, data_size);
-        Segment.BCode_Program_size += data_size;
+        memcpy(&Segment.pCode[Segment.BCode_Program_size], block_data[n], block_size[n]);
+        Segment.BCode_Program_size += block_size[n];
     }
 }
 
 bool COMPILER::InitInternalFunctions()
 {
     FuncInfo fi;
+
+    // constants the engine defines for scripts (CL uses them)
+    for (const auto &[name, value] : {std::pair<const char *, int32_t>{"INT_MAX", INT32_MAX}, {"INT_MIN", INT32_MIN}})
+    {
+        DEFINFO di;
+        di.name = const_cast<char *>(name);
+        di.segment_id = IMPORTED_SEGMENT_ID; // INTERNAL_SEGMENT_ID equals INVALID_SEGMENT_ID (unused entry)
+        di.deftype = NUMBER;
+        di.data4b = static_cast<uint32_t>(value);
+        DefTab.AddDef(di);
+    }
 
     // register internal functions ------------
 
@@ -1483,6 +1552,8 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
     std::unordered_map<std::string, uint32_t> declaredLocals; // pass 1: declarations per name
     bool resumed = false;                                    // see SkipInitializer
     LabelTable.Release(); // labels belong to a function of this segment
+    appendBuffer_ = nullptr; // AppendProgram starts a new buffer
+    appendCapacity_ = 0;
     compileErrors_ = 0;   // some compile paths report an error and carry on
     missingNatives_.clear();
     do
@@ -1516,9 +1587,13 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     hidden.type = loop_type == VAR_AREFERENCE ? VAR_AREFERENCE : VAR_REFERENCE;
                     hidden.name = LocalSlotName(kRangeContainer, declaredLocals[kRangeContainer]++);
                     FuncTab.AddFuncVar(func_code, hidden);
+                    if (script_cache_mode_ != kCacheDisabled)
+                        script_cache_.functions.back().local_variables.emplace_back(hidden);
                     hidden.type = VAR_INTEGER;
                     hidden.name = LocalSlotName(kRangePosition, declaredLocals[kRangePosition]++);
                     FuncTab.AddFuncVar(func_code, hidden);
+                    if (script_cache_mode_ != kCacheDisabled)
+                        script_cache_.functions.back().local_variables.emplace_back(hidden);
                 }
             }
             break;
@@ -1554,9 +1629,7 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     DebugSourceLine++;
                 else if (t == OPEN_BRACKET)
                     depth++;
-                else if ((t == CLOSE_BRACKET ||
-                          (Token.GetData() && strcmp(Token.GetData(), ")") == 0)) && // typeid(int): "int)" is one token
-                         depth > 0)
+                else if (t == CLOSE_BRACKET && depth > 0)
                     depth--;
                 else if (t == OP_QUESTION)
                     pendingQuestions++;
@@ -1631,26 +1704,38 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
 
             break;
         }
-        case INCLIDE_FILE:
-            if (Segment.Files_list->AddUnicalString(Token.GetData()))
+        case INCLIDE_FILE: {
+            // CL: "scripts\%language%\file.h" is the file of the current game language
+            std::string include_name = Token.GetData();
+            if (const auto at = include_name.find("%language%"); at != std::string::npos)
             {
-                file_code = Segment.Files_list->GetStringCode(Token.GetData());
+                const std::string language = ScriptLanguageDirectory();
+                if (language.empty())
+                {
+                    bPass1Ok = false;
+                    break;
+                }
+                include_name.replace(at, strlen("%language%"), language);
+            }
+            if (Segment.Files_list->AddUnicalString(include_name.c_str()))
+            {
+                file_code = Segment.Files_list->GetStringCode(include_name.c_str());
                 Control_offset = Token.GetProgramControl() - Token.GetProgramBase(); // store program scan point
-                pApend_file = LoadFile(Token.GetData(), Append_file_size);
+                pApend_file = LoadFile(include_name.c_str(), Append_file_size);
                 if (pApend_file == nullptr)
                 {
-                    SetError("can't load file: %s", Token.GetData());
+                    SetError("can't load file: %s", include_name.c_str());
                     return false;
                 }
                 if (script_cache_mode_ != kCacheDisabled)
                 {
-                    script_cache_.files.emplace_back(Token.GetData());
+                    script_cache_.files.emplace_back(include_name.c_str());
                 }
                 if (bDebugInfo)
                 {
                     uint32_t aps;
                     strcpy_s(dbg_file_name, "#file \"");
-                    strcat_s(dbg_file_name, Token.GetData());
+                    strcat_s(dbg_file_name, include_name.c_str());
                     strcat_s(dbg_file_name, "\";");
                     aps = strlen(dbg_file_name);
                     char *pTempS;
@@ -1663,6 +1748,7 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                 Token.SetProgram(pProgram, pProgram + Control_offset);
             }
             break;
+        }
         case DEFINE_COMMAND: // create define
             // DefineTable
             if (inout == 0)
@@ -1680,6 +1766,13 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     di.deftype = Token.GetType();
                 }
                 di.data4b = {};
+                if (Token.GetType() == TRUE_CONST || Token.GetType() == FALSE_CONST)
+                {
+                    // CL: #define X true
+                    lvalue = Token.GetType() == TRUE_CONST;
+                    di.deftype = NUMBER;
+                    memcpy(&di.data4b, &lvalue, sizeof(int32_t));
+                }
                 switch (Token.GetType())
                 {
                 case NUMBER:
@@ -1763,6 +1856,16 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
             {
                 if (!bFunctionBlock)
                 {
+                    if (Token.GetData() && strcmp(Token.GetData(), "[") == 0)
+                    {
+                        // "type []Name(": a function returning an array
+                        if (Token.Get() != SQUARE_CLOSE_BRACKET || Token.Get() != UNKNOWN)
+                        {
+                            SetError("function name expected after 'type []'");
+                            bPass1Ok = false;
+                            break;
+                        }
+                    }
                     Token.Get();
                     if (Token.GetType() == OPEN_BRACKET)
                     {
@@ -1872,11 +1975,18 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                         vi.name = Token.GetData();
                         vi.segment_id = Segment.id;
                         vi.elements = 1;
+                        vi.array = false;
                         vi.type = Token_type;
                         Token.Get();
-                        if (Token.GetType() == SQUARE_OPEN_BRACKET)
+                        const bool sized = Token.GetType() == SQUARE_OPEN_BRACKET && Token.Get() != SQUARE_CLOSE_BRACKET;
+                        if (Token.GetType() == SQUARE_CLOSE_BRACKET)
                         {
+                            vi.elements = kRuntimeArraySize; // "string a[];": sized by SetArraySize or @a = n
+                            vi.array = true;
                             Token.Get();
+                        }
+                        else if (sized)
+                        {
                             if (Token.GetType() != NUMBER)
                             {
                                 def_code = DefTab.FindDef(Token.GetData());
@@ -1902,6 +2012,7 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                             else
                                 lvalue = ParseIntLiteral(Token.GetData());
                             vi.elements = lvalue;
+                            vi.array = true;
                             Token.Get(); // SQUARE_CLOSE_BRACKET
                             Token.Get();
                         }
@@ -2127,20 +2238,18 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     }
                     lvi.name = Token.GetData();
                     lvi.elements = 1;
+                    lvi.array = false;
                     Token.Get();
                     if (Token.GetType() == SQUARE_OPEN_BRACKET)
+                    {
                         lvi.elements = ScanLocalArraySize();
+                        lvi.array = true;
+                    }
                     if (Token.GetType() == OP_EQUAL)
                     {
                         const uint32_t items = SkipInitializer(resumed);
                         if (lvi.elements == 0)
                             lvi.elements = items;
-                    }
-                    if (lvi.elements == 0)
-                    {
-                        SetError("array '%s' needs a size or an initializer", lvi.name.c_str());
-                        bPass1Ok = false;
-                        lvi.elements = 1;
                     }
                     lvi.name = LocalSlotName(lvi.name, declaredLocals[LowerName(lvi.name)]++);
                     if (func_code != INVALID_FUNC_CODE && !FuncTab.AddFuncVar(func_code, lvi))
@@ -2268,7 +2377,9 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
 
 bool COMPILER::IsIdentifier(const char *text)
 {
-    return text != nullptr && (std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_');
+    // ASCII letters, '_' and UTF-8 letters (CL has a Cyrillic parameter name)
+    return text != nullptr && (std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_' ||
+                               static_cast<unsigned char>(text[0]) >= 0x80);
 }
 
 std::string COMPILER::LowerName(const std::string &name)
@@ -2456,6 +2567,10 @@ bool COMPILER::BindPassedArguments(const FuncInfo &fi, FuncFrame &frame, uint32_
             case STRING:
                 pV->Set(value.string_value);
                 break;
+            case VAR_FREF:
+                pV->ClearType();
+                pV->SetFref(value.string_value);
+                break;
             default: // nullptr for a ref or aref parameter
                 pV->SetType(fi.local_vars[n].type);
                 break;
@@ -2574,6 +2689,15 @@ bool COMPILER::CastValue(DATA *pV, S_TOKEN_TYPE target)
         const bool truth = value != nullptr && value->Truth();
         pV->ClearType();
         pV->Set(static_cast<int32_t>(truth));
+        return true;
+    }
+    if (target == VAR_AREFERENCE)
+    {
+        // aref(object or reference): the attribute reference of its root
+        ATTRIBUTES *attributes = value ? AttributesOf(value) : nullptr;
+        pV->ClearType();
+        pV->SetType(VAR_AREFERENCE);
+        pV->SetAReference(attributes);
         return true;
     }
     if (target == VAR_FREF && (value == nullptr || value->IsNull()))
@@ -2825,19 +2949,16 @@ bool COMPILER::CompileRangeFor(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint
     }
     else
     {
-        if (var_type == VARIABLE || var_type == LOCAL_VARIABLE)
+        if ((var_type == VARIABLE || var_type == LOCAL_VARIABLE) && IsPlainAttributePath())
         {
             if (!CompileAttributeRoot(Segment))
                 return false;
         }
         else
         {
-            if (address)
-            {
-                SetError("range-for: '&' needs a variable");
-                return false;
-            }
             Token.StepBack();
+            if (address)
+                Token.StepBack();
             if (!CompileExpression(Segment))
                 return false;
         }
@@ -2881,6 +3002,28 @@ bool COMPILER::CompileRangeFor(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint
     UpdateOffsets(Segment, BreakUpdateTable, Segment.BCode_Program_size, "b");
     UpdateOffsets(Segment, BreakUpdateTable, loop, "c");
     return true;
+}
+
+bool COMPILER::AssignValue(DATA *destination, DATA *value)
+{
+    // destination = value, converting the value to the destination's type as MOVE does
+    if (!destination)
+    {
+        SetError("assignment through a null reference");
+        return false;
+    }
+    DATA *source = value->GetVarPointer();
+    if (source && source->GetType() != destination->GetType())
+    {
+        ExpressionResult.ClearType();
+        ExpressionResult.Copy(value);
+        if (ExpressionResult.IsReference())
+            ExpressionResult.RefConvert();
+        if (!ExpressionResult.Convert(destination->GetType()))
+            return false;
+        source = ExpressionResult.GetVarPointer();
+    }
+    return destination->Copy(source);
 }
 
 uint32_t COMPILER::FindLocal(const char *name) const
@@ -3134,11 +3277,27 @@ bool COMPILER::ScanDefaultArgument(S_TOKEN_TYPE param_type, DefaultArgument &val
         value.type = NUMBER;
         value.int_value = type == TRUE_CONST;
         break;
+    case VAR_FREF: // fref(nullptr)
+        if (Token.TypeCast() && Token.Get() == OPEN_BRACKET && Token.Get() == UNKNOWN &&
+            storm::iEquals(Token.GetData(), "nullptr") && Token.Get() == CLOSE_BRACKET && param_type == VAR_FREF)
+        {
+            value.type = VAR_FREF;
+            return true;
+        }
+        break;
+    case AND: // &Function
+        if (Token.Get() == UNKNOWN && Token.GetData() && param_type == VAR_FREF)
+        {
+            value.type = VAR_FREF;
+            value.string_value = Token.GetData();
+            return true;
+        }
+        break;
     case UNKNOWN:
         if (storm::iEquals(text, "nullptr") && !negative &&
-            (param_type == VAR_REFERENCE || param_type == VAR_AREFERENCE))
+            (param_type == VAR_REFERENCE || param_type == VAR_AREFERENCE || param_type == VAR_FREF))
         {
-            value.type = VAR_REFERENCE;
+            value.type = param_type == VAR_FREF ? VAR_FREF : VAR_REFERENCE;
             return true;
         }
         if (const auto def_code = DefTab.FindDef(text); def_code != INVALID_DEF_CODE)
@@ -3631,6 +3790,11 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             balance_block++;
             break;
         case BLOCK_OUT:
+            if (bound_type == BREAK_COMMAND && balance_block == 0)
+            {
+                Token.StepBack(); // the switch's '}' ends the last case (no break): the switch closes it
+                return true;
+            }
 
             if (inout == 0)
             {
@@ -4082,7 +4246,13 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                 inout++;
                 // if(!CompileBlock(Segment,bFunctionBlock,inout,BLOCK_OUT,jump_offset,6,BreakUpdateTable)) return
                 // false;
-                if (!CompileBlock(Segment, bFunctionBlock, inout, BLOCK_OUT, continue_jump, 6, BreakUpdateTable))
+                std::vector<uint32_t> fallthrough; // jumps of cases without break into the next case
+                auto *const outer = switchFallthrough_;
+                switchFallthrough_ = &fallthrough;
+                const bool compiled_switch =
+                    CompileBlock(Segment, bFunctionBlock, inout, BLOCK_OUT, continue_jump, 6, BreakUpdateTable);
+                switchFallthrough_ = outer;
+                if (!compiled_switch)
                     return false;
             }
             else
@@ -4097,6 +4267,18 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             BreakUpdateTable.Release();
             break;
         case CASE_COMMAND:
+            if (bound_type == BREAK_COMMAND && balance_block == 0)
+            {
+                // the previous case has no break: jump over this comparison into this case's code
+                if (switchFallthrough_)
+                {
+                    switchFallthrough_->push_back(Segment.BCode_Program_size + 2);
+                    vuint32_t = INVALID_OFFSET;
+                    CompileToken(Segment, JUMP, 1, (char *)&vuint32_t, sizeof(uint32_t));
+                }
+                Token.StepBack();
+                return true;
+            }
             // CompileToken(Segment,Token_type);
             // Token_type = CompileAuxiliaryTokens(Segment);
             CompileExpression(Segment);
@@ -4127,6 +4309,12 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
 
             update_offset = Segment.BCode_Program_size + 2;
             CompileToken(Segment, JUMP_Z, 1, (char *)&jump_offset, sizeof(uint32_t));
+            if (switchFallthrough_)
+            {
+                for (const auto offset : *switchFallthrough_)
+                    memcpy(&Segment.pCode[offset], &Segment.BCode_Program_size, sizeof(uint32_t));
+                switchFallthrough_->clear();
+            }
 
             // if(!CompileBlock(Segment,bFunctionBlock,inout,BREAK_COMMAND,INVALID_OFFSET,0,BreakTable)) return false;
             // ??? why INVALID_OFFSET on continue_jump here? dont remember; anyway now change to normal
@@ -4164,6 +4352,23 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
 
             // CompileToken(Segment,Token_type);
             Token_type = CompileAuxiliaryTokens(Segment);
+            if (Token_type == OPEN_BRACKET)
+            {
+                // call (expression)(args): the expression's text names the function
+                if (!CompileExpression(Segment))
+                    return false;
+                if (Token.GetType() != CLOSE_BRACKET || CompileAuxiliaryTokens(Segment) != OPEN_BRACKET)
+                {
+                    SetError("call (name)(arguments) expected");
+                    return false;
+                }
+                if (!CompileCallArguments(Segment, func_args))
+                    return false;
+                CompileToken(Segment, CALL_NAMED);
+                CompileToken(Segment, ARGS_NUM, 1, &func_args, sizeof(uint32_t));
+                CompileToken(Segment, POP_NZ);
+                break;
+            }
             if (Token_type != UNKNOWN)
             {
                 SetError("invalid dynamic call");
@@ -4206,6 +4411,8 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                     return false;
                 break;
             }
+            if (inout == 0 && Token.GetData() && storm::iEquals(Token.GetData(), "nullptr"))
+                break; // "ref g = nullptr;": global initializers are not code
             if (Token.Get() == LABEL)
             {
                 // "name:" starts a statement: a goto label (registered by pass 1) or a switch's "default:"
@@ -4230,6 +4437,24 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             Token.StepBack(); // back to the identifier (restores its data)
             Token.StepBack();
             Token.Get();
+            if (IsAttributeCall())
+            {
+                // object.attr(args); calls the function the attribute names
+                Token.StepBack();
+                if (!CompileExpression(Segment))
+                    return false;
+                CompileToken(Segment, POP_NZ); // drop a returned value
+                Token.StepBack();
+                break;
+            }
+            if (Token.GetData() && IsAttributeIntrinsic(Token.GetData()))
+            {
+                // deleteattr(&a.b); touchattr(a.b); as statements
+                if (!CompileAttributeIntrinsic(Segment))
+                    return false;
+                CompileToken(Segment, STACK_POP_VOID);
+                break;
+            }
             if (S_TOKEN_TYPE call_type = DetectCallThrough(); call_type != UNKNOWN)
             {
                 // object->Method(...) or fref_variable(...) as a statement
@@ -4283,6 +4508,11 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                 if (!CompileLocalDeclarator(Segment, inout, true))
                     return false;
                 break;
+            }
+            if (Token.GetData() && strcmp(Token.GetData(), "[") == 0)
+            {
+                Token.Get(); // "type []Name(": a function returning an array (checked by pass 1)
+                Token.Get();
             }
             Token_type = DetectUnknown(unk_code);
             if (Token_type == CALL_FUNCTION)
@@ -4453,12 +4683,25 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             //        break;
 
         case SQUARE_OPEN_BRACKET:
+            if (Token.Get() == SQUARE_CLOSE_BRACKET)
+                break; // "type name[]" of a global array sized at run time
+            Token.StepBack();
             if (!CompileExpression(Segment))
             {
                 return false;
             }
             CompileToken(Segment, STACK_POP);
             CompileToken(Segment, LEFTOP_INDEX);
+            // a[i][j] = ...: an element of the array a[i] refers to
+            while (Token.Get() == SQUARE_OPEN_BRACKET)
+            {
+                if (!CompileExpression(Segment))
+                    return false;
+                CompileToken(Segment, STACK_POP);
+                CompileToken(Segment, BX);
+                CompileToken(Segment, LEFTOP_SUBINDEX);
+            }
+            Token.StepBack();
 
             break;
         case SQUARE_CLOSE_BRACKET:
@@ -4753,6 +4996,19 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
 
         case DOT:
             Token_type = Token.Get();
+            if (Token_type == OPEN_BRACKET && !IsAccessVariable())
+            {
+                // .(expression) on the left side: the expression's text names the attribute
+                if (!CompileExpression(Segment))
+                    return false;
+                if (Token.GetType() != CLOSE_BRACKET)
+                {
+                    SetError("no mathcing ')'");
+                    return false;
+                }
+                CompileToken(Segment, ACCESS_EXPR);
+                break;
+            }
             if (Token_type == OPEN_BRACKET)
             {
                 // access word inside variable
@@ -5149,6 +5405,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
     entid_t eid;
     //    ATTRIBUTES * pRoot;
     ATTRIBUTES *pLeftOperandAClass;
+    DATA *pLeftOperandElement = nullptr; // a[i][j] = ...: the element itself
     bool bDebugWaitForThisFunc;
     DATA *pVDst;
     DATA *pVSrc;
@@ -5256,7 +5513,13 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
         for (n = frame.arguments; n < pfi->local_vars.size(); n++)
         {
             pV = SStack.Push();
-            pV->SetType(pfi->local_vars[n].type, pfi->local_vars[n].elements);
+            if (pfi->local_vars[n].elements == 0 || (pfi->local_vars[n].array && pfi->local_vars[n].elements == 1))
+            {
+                pV->SetType(pfi->local_vars[n].type); // an array sized at run time, or of one element
+                pV->SetArraySize(static_cast<uint32_t>(pfi->local_vars[n].elements));
+            }
+            else
+                pV->SetType(pfi->local_vars[n].type, pfi->local_vars[n].elements);
         }
 
         pRun_fi = &frame; // set pointer to 'this' function info
@@ -5341,12 +5604,14 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             break;
         case LOCAL_VARIABLE:
             pLeftOperandAClass = nullptr;            // reset attribute
+            pLeftOperandElement = nullptr;
             nLeftOperandIndex = INVALID_ARRAY_INDEX; // reset index
             nLeftOperandCode = *((int32_t *)&pRunCodeBase[TLR_DataOffset]);
             bLeftOperandType = LOCAL_VARIABLE;
             break;
         case VARIABLE:
             pLeftOperandAClass = nullptr;            // reset attribute
+            pLeftOperandElement = nullptr;
             nLeftOperandIndex = INVALID_ARRAY_INDEX; // reset index
             nLeftOperandCode = *((int32_t *)&pRunCodeBase[TLR_DataOffset]);
             bLeftOperandType = VARIABLE;
@@ -6513,6 +6778,22 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
 
             pVDst = nullptr;
             pVSrc = nullptr;
+            if (pLeftOperandElement)
+            {
+                // a[i][j] = value
+                BC_TokenGet(ip, token_data_size); // LEFT_OPERAND
+                if (BC_TokenGet(ip, token_data_size) != STACK_TOP)
+                {
+                    SetError("incorrect SRC");
+                    return false;
+                }
+                pVSrc = SStack.Read();
+                if (pVSrc->GetType() == VAR_REFERENCE && pLeftOperandElement->GetType() == VAR_REFERENCE)
+                    pLeftOperandElement->SetReference(pVSrc->GetReference());
+                else
+                    AssignValue(pLeftOperandElement->GetVarPointer(), pVSrc);
+                break;
+            }
             // find destination
             Token_type = BC_TokenGet(ip, token_data_size);
             switch (Token_type)
@@ -6621,6 +6902,19 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 break;
             }
 
+            if (pVSrc->GetType() == VAR_REFERENCE && nLeftOperandIndex != INVALID_ARRAY_INDEX)
+            {
+                // refs[i] = reference: an element of an array of references (directly or through
+                // a reference to it) refers to the value
+                DATA *container = pVDst->IsArray() ? pVDst : pVDst->GetVarPointer();
+                DATA *element = container && container->IsArray() ? container->GetArrayElement(nLeftOperandIndex)
+                                                                  : nullptr;
+                if (element && element->GetType() == VAR_REFERENCE)
+                {
+                    element->SetReference(pVSrc->GetReference());
+                    break;
+                }
+            }
             // test for references operations
             if (pVSrc->GetType() == VAR_REFERENCE && pVDst->GetType() == VAR_REFERENCE)
             {
@@ -6713,7 +7007,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 pVV = real_var->value.get();
                 // pVV = pVV->GetVarPointer();
                 // if(!pVV) { SetError("invalid ref"); break; }
-                if (pVV->IsReference())
+                if (pVV->IsReference() && !pVV->IsArray()) // an array of references indexes as any array
                 {
                     if (bUseIndex)
                     {
@@ -6757,7 +7051,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                     SetError("Local variable not found");
                     return false;
                 }
-                if (pVar->IsReference())
+                if (pVar->IsReference() && !pVar->IsArray()) // an array of references indexes as any array
                 {
                     if (bUseIndex)
                     {
@@ -7095,6 +7389,248 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 SStack.Read(pRun_fi->stack_offset, slots[3])->Set(at);
             position->Set(at + 1);
             ExpressionResult.Set(int32_t{1});
+            break;
+        }
+        case OP_SLICE: {
+            // stack: slot or text, [start], [end]; operand: the text (a variable or the stack top)
+            uint32_t flags;
+            memcpy(&flags, &pCodeBase[ip], sizeof(uint32_t));
+            int32_t end = INT32_MAX, start = 0;
+            if (flags & 2)
+                end = IntValue(SStack.Pop());
+            if (flags & 1)
+                start = IntValue(SStack.Pop());
+            const bool character = flags & 4; // text[i]
+            pVV = GetOperand(pCodeBase, ip);
+            pV = SStack.Read();
+            if (!pVV || !pV)
+                return false;
+            ExpressionResult.ClearType();
+            if (DATA *text = Deref(pVV))
+                ExpressionResult.Copy(text);
+            const char *chars = nullptr;
+            if (!ExpressionResult.Convert(VAR_STRING) || !ExpressionResult.Get(chars))
+            {
+                SetError("slice of a value that is not text");
+                return false;
+            }
+            const auto length = static_cast<int32_t>(strlen(chars));
+            auto clamp = [length](int32_t i) { return std::clamp(i < 0 ? length + i : i, 0, length); };
+            start = clamp(start);
+            end = character ? std::min(start + 1, length) : clamp(end);
+            const std::string slice = start < end ? std::string(chars + start, end - start) : std::string();
+            pV->ClearType();
+            pV->Set(slice);
+            break;
+        }
+        case ARRAY_BUILD: {
+            // stack: count items -> an array of the first item's type
+            uint32_t count;
+            memcpy(&count, &pCodeBase[ip], sizeof(uint32_t));
+            std::vector<DATA> items(count);
+            for (uint32_t n = count; n-- > 0;)
+            {
+                items[n].SetVCompiler(this);
+                DATA *value = Deref(SStack.Pop());
+                if (!value)
+                {
+                    SetError("array literal item is a null reference");
+                    return false;
+                }
+                items[n].Copy(value);
+            }
+            pV = SStack.Push();
+            pV->ClearType();
+            pV->SetType(count ? items[0].GetType() : VAR_INTEGER);
+            pV->SetArraySize(count);
+            for (uint32_t n = 0; n < count; n++)
+                pV->GetArrayElement(n)->Copy(&items[n]);
+            break;
+        }
+        case ADVANCE_AP_EXPR: {
+            // stack: saved attribute reference, key -> rAP = its attribute named key
+            uint32_t mode;
+            memcpy(&mode, &pCodeBase[ip], sizeof(uint32_t));
+            ExpressionResult.ClearType();
+            ExpressionResult.Copy(SStack.Pop());
+            const char *key = nullptr;
+            if (!ExpressionResult.Convert(VAR_STRING) || !ExpressionResult.Get(key))
+            {
+                SetError("attribute name expression is not text");
+                return false;
+            }
+            pV = SStack.Pop();
+            rAP = pV->AttributesClass;
+            if (!rAP)
+            {
+                if (mode != kAccessQuiet)
+                    SetError("missed attribute before (%s)", key);
+                break;
+            }
+            ATTRIBUTES *base = rAP;
+            rAP = mode == kAccessCreate ? base->CreateSubAClass(base, key) : base->FindAClass(base, key);
+            if (!rAP && mode == kAccessRead)
+                SetError("missed attribute: %s", key);
+            break;
+        }
+        case ACCESS_EXPR: {
+            // left side: the attribute named by the text on the stack
+            if (nLeftOperandCode == INVALID_VAR_CODE)
+            {
+                SetError("no Lvalue");
+                return false;
+            }
+            ExpressionResult.ClearType();
+            ExpressionResult.Copy(SStack.Pop());
+            const char *key = nullptr;
+            if (!ExpressionResult.Convert(VAR_STRING) || !ExpressionResult.Get(key))
+            {
+                SetError("attribute name expression is not text");
+                return false;
+            }
+            if (pLeftOperandAClass == nullptr)
+            {
+                pV = bLeftOperandType == VARIABLE ? VarTab.GetVar(nLeftOperandCode)->value.get()
+                                                  : SStack.Read(pRun_fi->stack_offset, nLeftOperandCode);
+                pLeftOperandAClass =
+                    nLeftOperandIndex == INVALID_ARRAY_INDEX ? pV->GetAClass() : pV->GetAClass(nLeftOperandIndex);
+            }
+            if (pLeftOperandAClass == nullptr)
+            {
+                SetError("AClass ERROR n1");
+                return false;
+            }
+            pLeftOperandAClass = pLeftOperandAClass->CreateSubAClass(pLeftOperandAClass, key);
+            break;
+        }
+        case CALL_NAMED: {
+            // stack: function name, arguments: calls it; the result (if any) replaces the name
+            uint32_t args;
+            memcpy(&args, &pCodeBase[InstructionPointer + 2], sizeof(uint32_t)); // ARGS_NUM data
+            const uint32_t name_slot = SStack.GetDataNum() - args - 1;
+            DATA *name = Deref(SStack.Read(name_slot, 0));
+            std::string function;
+            if (name && name->GetType() == VAR_FREF)
+                function = name->sValue;
+            else if (name)
+            {
+                ExpressionResult.ClearType();
+                ExpressionResult.Copy(name);
+                const char *text = nullptr;
+                if (ExpressionResult.Convert(VAR_STRING) && ExpressionResult.Get(text))
+                    function = text;
+            }
+            func_code = function.empty() ? INVALID_FUNC_CODE : FuncTab.FindFunc(function);
+            if (func_code == INVALID_FUNC_CODE)
+            {
+                SetError("call: function '%s' not found", function.c_str());
+                return false;
+            }
+            pVResult = nullptr;
+            if (!BC_CallFunction(func_code, ip, pVResult))
+                return false;
+            if (pVResult)
+            {
+                SStack.Read(name_slot, 0)->ClearType();
+                SStack.Read(name_slot, 0)->Copy(pVResult);
+            }
+            SStack.Pop();
+            StoreDynamicCallStatus(pVResult != nullptr);
+            break;
+        }
+        case NEW_ARRAY: {
+            // stack: size -> a reference to a new array of the type
+            uint32_t type;
+            memcpy(&type, &pCodeBase[ip], sizeof(uint32_t));
+            pV = SStack.Read();
+            const int32_t size = IntValue(pV);
+            if (size < 0)
+            {
+                SetError("new array of %d elements", size);
+                return false;
+            }
+            DATA &array = newArrays_.emplace_back();
+            array.SetVCompiler(this);
+            array.SetType(static_cast<S_TOKEN_TYPE>(type));
+            array.SetArraySize(static_cast<uint32_t>(size));
+            pV->ClearType();
+            pV->SetType(VAR_REFERENCE);
+            pV->SetReference(&array);
+            break;
+        }
+        case STACK_INDEX: {
+            // the stack top (an array or a reference to one) becomes a reference to its element BX
+            pV = SStack.Read();
+            DATA *array = Deref(pV);
+            rBX.Convert(VAR_INTEGER);
+            rBX.Get(lvalue);
+            DATA *element = array && array->IsArray() ? array->GetArrayElement(lvalue) : nullptr;
+            if (!element)
+            {
+                SetError("[%d]: not an array element", lvalue);
+                return false;
+            }
+            pV->ClearType();
+            pV->SetType(VAR_REFERENCE);
+            pV->SetReference(element);
+            break;
+        }
+        case LEFTOP_SUBINDEX: {
+            // left side a[i][j]: from the element a[i] (an array or a reference to one) to its element BX
+            DATA *base = pLeftOperandElement;
+            if (!base)
+            {
+                base = bLeftOperandType == VARIABLE ? VarTab.GetVar(nLeftOperandCode)->value.get()
+                                                    : SStack.Read(pRun_fi->stack_offset, nLeftOperandCode);
+                DATA *container = base->IsArray() ? base : base->GetVarPointer();
+                base = container && nLeftOperandIndex != INVALID_ARRAY_INDEX && container->IsArray()
+                           ? container->GetArrayElement(nLeftOperandIndex)
+                           : nullptr;
+            }
+            DATA *array = base ? Deref(base) : nullptr;
+            rBX.Convert(VAR_INTEGER);
+            rBX.Get(lvalue);
+            pLeftOperandElement = array && array->IsArray() ? array->GetArrayElement(lvalue) : nullptr;
+            if (!pLeftOperandElement)
+            {
+                SetError("[%d]: not an array element", lvalue);
+                return false;
+            }
+            break;
+        }
+        case AP_FROM_STACK: // rAP = the attributes of the value on the stack (popped)
+            pV = SStack.Pop();
+            rAP = pV ? AttributesOf(pV) : nullptr;
+            if (!rAP)
+                SetError("attribute of a call result that has no attributes");
+            break;
+        case AP_CHILD: // rAP = its BX-th attribute (aref[i])
+            rBX.Convert(VAR_INTEGER);
+            rBX.Get(lvalue);
+            rAP = rAP && lvalue >= 0 && static_cast<size_t>(lvalue) < rAP->GetAttributesNum()
+                      ? rAP->GetAttributeClass(static_cast<uint32_t>(lvalue))
+                      : nullptr;
+            if (!rAP)
+                SetError("aref[%d]: no such attribute", lvalue);
+            break;
+        case ATTR_PARENT: {
+            pV = SStack.Read();
+            ATTRIBUTES *attribute = AttributesOf(pV);
+            ATTRIBUTES *parent = attribute ? attribute->GetParent() : nullptr;
+            pV->ClearType();
+            pV->SetType(VAR_AREFERENCE);
+            pV->SetAReference(parent);
+            break;
+        }
+        case ATTR_DELETE: {
+            // leaves 0 for the statement form to drop
+            pV = SStack.Read();
+            ATTRIBUTES *attribute = AttributesOf(pV);
+            ATTRIBUTES *parent = attribute ? attribute->GetParent() : nullptr;
+            if (parent)
+                parent->DeleteAttributeClassX(attribute);
+            pV->ClearType();
+            pV->Set(int32_t{0});
             break;
         }
         case OBJ_NEW:
@@ -8717,6 +9253,7 @@ void COMPILER::LoadVariablesFromCache(storm::script_cache::BufferReader &reader,
         vi.name = reader.ReadArray();
         vi.type = reader.Read<decltype(vi.type)>();
         vi.elements = reader.Read<decltype(vi.elements)>();
+        vi.array = reader.Read<bool>();
 
         const auto var_code = VarTab.AddVar(vi);
         if (var_code == INVALID_VAR_CODE)
@@ -8727,7 +9264,7 @@ void COMPILER::LoadVariablesFromCache(storm::script_cache::BufferReader &reader,
         }
         const auto real_var = VarTab.GetVarX(var_code);
 
-        if (vi.elements == 1)
+        if (!vi.IsArray())
         {
             ReadScriptData(reader, vi.type, real_var->value.get());
         }
@@ -8776,6 +9313,7 @@ void COMPILER::LoadFunctionsFromCache(storm::script_cache::BufferReader &reader,
             lvi.name = reader.ReadArray();
             lvi.type = reader.Read<decltype(lvi.type)>();
             lvi.elements = reader.Read<decltype(lvi.elements)>();
+            lvi.array = reader.Read<bool>();
 
             auto is_extern = reader.Read<bool>();
 
@@ -8791,6 +9329,7 @@ void COMPILER::LoadFunctionsFromCache(storm::script_cache::BufferReader &reader,
             lvi.name = reader.ReadArray();
             lvi.type = reader.Read<decltype(lvi.type)>();
             lvi.elements = reader.Read<decltype(lvi.elements)>();
+            lvi.array = reader.Read<bool>();
 
             FuncTab.AddFuncVar(func_code, lvi);
         }
@@ -8901,7 +9440,7 @@ void COMPILER::LoadByteCodeFromCache(storm::script_cache::BufferReader &reader, 
 
 std::filesystem::path COMPILER::GetSegmentCachePath(const SEGMENT_DESC &segment) const
 {
-    auto path = GetCacheFolder() / segment.name;
+    auto path = CacheFolder() / segment.name;
     path.replace_extension(".b");
     return path;
 }
@@ -8914,8 +9453,9 @@ void COMPILER::SaveVariablesToCache(storm::script_cache::BufferWriter &writer)
         writer.WriteArray(vi.name);
         writer.WriteData(vi.type);
         writer.WriteData(vi.elements);
+        writer.WriteData(vi.array);
 
-        if (vi.elements == 1)
+        if (!vi.IsArray())
         {
             WriteScriptData(writer, vi.type, vi.value.get());
         }
@@ -8956,6 +9496,7 @@ void COMPILER::SaveFunctionsToCache(storm::script_cache::BufferWriter &writer)
             writer.WriteArray(lvi.name);
             writer.WriteData(lvi.type);
             writer.WriteData(lvi.elements);
+            writer.WriteData(lvi.array);
             writer.WriteData(is_extern);
         }
 
@@ -8965,6 +9506,7 @@ void COMPILER::SaveFunctionsToCache(storm::script_cache::BufferWriter &writer)
             writer.WriteArray(lvi.name);
             writer.WriteData(lvi.type);
             writer.WriteData(lvi.elements);
+            writer.WriteData(lvi.array);
         }
     }
 }

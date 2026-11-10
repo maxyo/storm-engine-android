@@ -2,7 +2,8 @@
 // nothing, the synthetic pack tests/pack plus one row component and a real font, so text
 // is measured): a long press on a row whose title was cut to fit opens the tooltip with
 // the full text and sends nothing; on a row whose title fits it is a plain press. The
-// panzoom behaviour (c-map-view) reports taps in the picture's units through pan and zoom.
+// panzoom behaviour (c-map-view) reports taps in the picture's units through pan and zoom. A full-screen
+// game video (state channel "video") hides the screen and passes every touch to the game.
 // No GL context, no game data.
 #include "runtime_stub.h"
 #include "storm_ui/ui.h"
@@ -131,6 +132,19 @@ int main(int argc, char **argv)
     Expect(clicks.empty(), "a drag pans and sends nothing");
     tap(600, 300);
     Expect(clicks.size() == 1 && clicks[0] == "pz point 400.0,250.0", "after a 64 px pan the centre shows a point 100 units left");
+    // A full-screen game video (channel "video") hides what the UI shows and gives every touch
+    // to the game; the screen comes back as it was when the video ends.
+    Expect(host->WantsTouch(100, 24) && host->InterfaceActive(), "a document takes the touches");
+    Expect(host->SetState("video", R"({"fullscreen":true})"), "the video state is accepted");
+    frames(0.05);
+    Expect(!host->WantsTouch(100, 24) && !host->InterfaceActive() && !host->WantsBack(),
+           "during a full-screen video the touches and the back key go to the game");
+    hold(24);
+    Expect(clicks.empty(), "nothing of the hidden screen is pressed during the video");
+    Expect(host->SetState("video", "null"), "the video end is accepted");
+    frames(0.05);
+    Expect(host->WantsTouch(100, 24) && host->InterfaceActive(), "after the video the screen takes the touches again");
+    Expect(!host->SetState("video", R"({"fullscreen":"yes"})"), "a malformed video state is refused aloud");
     host.reset();
     fs::remove_all(pack);
     if (failures)

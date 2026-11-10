@@ -12,6 +12,11 @@
 #include <cmath>
 #include <cstring>
 
+namespace bgfx::gl
+{
+extern float g_stormMaxAnisotropy; // patches/bgfx-anisotropy-level.patch
+}
+
 namespace storm::effects
 {
 
@@ -100,10 +105,6 @@ struct Pending
 };
 
 const Pending kPending[] = {
-    {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingNormalMap) != 0; },
-     [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingNormalMap; }, "fx_light_normal_map",
-     "normal maps from the game's height textures are not derived yet (texture worker + disk cache pending): "
-     "switched off"},
     {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingAerial) != 0; },
      [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingAerial; }, "fx_aerial",
      "aerial perspective is not bound in the emulator variants yet (fx::Sky::BindAerial): the "
@@ -160,6 +161,11 @@ void Host::on_device_created()
     facts.msaa_depth = true;
     // bgfx has no capability bit for it; the GL backend applies it only with this extension.
     facts.anisotropy = has_extension("GL_EXT_texture_filter_anisotropic");
+    if (facts.anisotropy)
+    {
+        constexpr GLenum kMaxAnisotropy = 0x84FF; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
+        glGetFloatv(kMaxAnisotropy, &device_max_anisotropy_);
+    }
     support_ = fx::DetectSupport(facts);
     device_ready_ = true;
     apply();
@@ -258,10 +264,6 @@ void Host::apply()
             report_.disabled.push_back(names.substr(start, end - start));
         }
     }
-    // Anisotropy: the pinned bgfx GL backend has one level for every sampler, the device maximum.
-    if (next.anisotropy > 1)
-        report_.changes.push_back("anisotropic filtering " + std::to_string(next.anisotropy) +
-                                  "x requested: bgfx applies the device maximum level to world textures");
     const bool changed = !(next == settings_) || !device_ready_;
     settings_ = next;
     const fx::RendererState state = fx::RendererStateFor(settings_);
@@ -269,6 +271,11 @@ void Host::apply()
                               (device_ready_ && (state.msaa_samples != renderer_state_.msaa_samples ||
                                                  state.max_anisotropy != renderer_state_.max_anisotropy));
     renderer_state_ = state;
+    // The level of every anisotropic sampler (patches/bgfx-anisotropy-level.patch), applied at the next reset.
+    bgfx::gl::g_stormMaxAnisotropy = static_cast<float>(state.max_anisotropy);
+    if (device_ready_ && state.max_anisotropy > 1 && device_max_anisotropy_ < state.max_anisotropy)
+        report_.changes.push_back("anisotropic filtering " + std::to_string(state.max_anisotropy) + "x: the device allows " +
+                                  std::to_string(static_cast<int>(device_max_anisotropy_)) + "x");
     lighting_.configure(settings_, renderer_state_);
     report_.summary = describe(settings_);
     if (changed)
@@ -415,9 +422,9 @@ void Host::end_frame(bool scene_frame)
                          profile_sum_post_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u",
                        preset_, gpu, profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
-                       last_post_views_, counts.lit, counts.baked, counts.coverage);
+                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief);
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_draws_ = 0;
@@ -469,6 +476,12 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)
                         .att2 = l.att2};
     }
     effects::Host::instance().lighting().set_dynamic_lights(std::span(converted, count));
+}
+
+void SetEffectsTextureSource(IDirect3DBaseTexture9 *texture, const char *path)
+{
+    if (shim::TexStore *store = shim::store_of(texture))
+        effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path);
 }
 
 EffectsReport CurrentEffects()

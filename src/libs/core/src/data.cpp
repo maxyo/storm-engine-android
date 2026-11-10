@@ -980,6 +980,12 @@ void DATA::ClearType()
     Data_type = UNKNOWN;
     pReference = nullptr;
     sValue.clear();
+    if (bArray) // a register or stack slot that held an array (array literals, functions returning arrays)
+    {
+        bArray = false;
+        ArrayPTR.clear();
+        Number_of_elements = 1;
+    }
 }
 
 void DATA::SetType(S_TOKEN_TYPE _element_type, uint32_t array_size)
@@ -1038,6 +1044,14 @@ bool DATA::Convert(S_TOKEN_TYPE type)
         return false;
     } // yet
     char buffer[128];
+    if (Data_type == VAR_AREFERENCE && (type == VAR_STRING || type == VAR_INTEGER || type == VAR_FLOAT))
+    {
+        // the attribute's value (CL passes attribute references where values are expected)
+        const std::string text = AttributesClass ? to_string(AttributesClass->GetThisAttr()) : std::string();
+        ClearType();
+        Set(text);
+        return Convert(type);
+    }
     if (Data_type == VAR_FREF || type == VAR_FREF)
     {
         // a function reference is the function's name
@@ -1261,7 +1275,7 @@ void DATA::SetArraySize(uint32_t size)
 
 void DATA::SetElementsNum(uint32_t _asize)
 {
-    if (Data_type == VAR_REFERENCE)
+    if (Data_type == VAR_REFERENCE && !bArray) // an array of references has its own elements
     {
         if (pReference)
         {
@@ -1302,7 +1316,7 @@ void DATA::SetElementsNum(uint32_t _asize)
         // ArrayPTR[n] = new DATA(Data_type);
         // new (&ArrayPTR[n]) DATA(Data_type);
         ArrayPTR.emplace_back(Data_type);
-        ArrayPTR.back().SetVCompiler(ArrayPTR[0].pVCompiler);
+        ArrayPTR.back().SetVCompiler(pVCompiler); // also when the array was empty
     }
     Number_of_elements = _asize;
 }
@@ -1310,7 +1324,7 @@ void DATA::SetElementsNum(uint32_t _asize)
 uint32_t DATA::GetElementsNum()
 {
     // if(bRef)
-    if (Data_type == VAR_REFERENCE)
+    if (Data_type == VAR_REFERENCE && !bArray) // an array of references has its own elements
     {
         if (pReference)
         {
@@ -2124,6 +2138,15 @@ bool DATA::Copy(DATA *pV)
         }
     }
 
+    if (Data_type == UNKNOWN && pV->IsArray())
+    {
+        // a fresh value (stack slot, expression register, return value) takes the whole array
+        Data_type = pV->Data_type;
+        bArray = true;
+        Number_of_elements = pV->Number_of_elements;
+        ArrayPTR = pV->ArrayPTR;
+        return true;
+    }
     if (IsArray() && !pV->IsArray())
     {
         Error("Incorrect copy from single to array");
@@ -2521,7 +2544,7 @@ void DATA::SetVCompiler(VIRTUAL_COMPILER *pVC)
 DATA *DATA::GetVarPointer()
 {
     // if(!bRef) return this;
-    if (Data_type != VAR_REFERENCE)
+    if (Data_type != VAR_REFERENCE || bArray) // an array of references is a variable of its own
         return this;
     if (pReference == this) {
         Error("ref points to itself");
