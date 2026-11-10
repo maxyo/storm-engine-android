@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Build the bgfx renderer library (shim + embedded shaders) and run its texture transcode tests.
+"""Build the bgfx renderer library (shim + embedded shaders), run its texture transcode tests and
+the draw/state counter check of a fixed synthetic frame (perf_check.cpp, bgfx Noop backend).
 
 Uses the pinned bgfx (src/libs/renderer_bgfx/cmake/bgfx_pin.cmake) and etcpak, the shared host shaderc
 of that pin (STORM_SHADERC overrides it) and the Storm ccache launcher (tools/ccache/README.md); the kept
@@ -30,7 +31,8 @@ for name in ('STORM_SHADERC', 'FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM', 'FE
 subprocess.run(configure, check=True, stdout=subprocess.DEVNULL)
 warmth = here.parents[1] / 'tools/ccache/warmth'
 subprocess.run([str(warmth), 'begin', str(build)], check=True)
-subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm_texture_tests'], check=True)
+subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm_texture_tests', 'perf_check'], check=True)
 subprocess.run([str(warmth), 'end', str(build)], check=True)
 subprocess.run([str(build / 'renderer_bgfx' / 'storm_texture_tests')], check=True)
-print('PASS: storm_bgfx builds; storm_texture_tests', flush=True)
+subprocess.run([str(build / 'perf_check')], check=True)
+print('PASS: storm_bgfx builds; storm_texture_tests; perf_check', flush=True)

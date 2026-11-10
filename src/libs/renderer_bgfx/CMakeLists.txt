@@ -106,7 +106,7 @@ file(GLOB texture_core_sources CONFIGURE_DEPENDS src/texture/core/*.cpp src/text
 add_library(storm_texture_core STATIC ${texture_core_sources})
 target_compile_features(storm_texture_core PUBLIC cxx_std_20)
 target_include_directories(storm_texture_core PUBLIC src/texture/core)
-target_link_libraries(storm_texture_core PRIVATE storm_etcpak)
+target_link_libraries(storm_texture_core PRIVATE storm_etcpak bimg bx)
 find_package(Threads REQUIRED)
 target_link_libraries(storm_texture_core PUBLIC Threads::Threads)
 set_target_properties(storm_texture_core PROPERTIES POSITION_INDEPENDENT_CODE ON)

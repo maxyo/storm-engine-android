@@ -1,4 +1,5 @@
 #include "device.hpp"
+#include "perf.hpp"
 #include "util.hpp"
 
 #include <SDL2/SDL.h>
@@ -124,7 +125,6 @@ Device::Device(SDL_Window *sdl_window, const D3DPRESENT_PARAMETERS &present) : w
         bgfx::UniformType::Enum type;
         uint16_t count;
     } table[] = {
-        {U_WORLDVIEW, "u_ffWorldView", bgfx::UniformType::Mat4, 1},
         {U_PROJ, "u_ffProj", bgfx::UniformType::Mat4, 1},
         {U_VS, "u_ffVs", bgfx::UniformType::Vec4, 4},
         {U_CLIP, "u_ffClipPlane", bgfx::UniformType::Vec4, 1},
@@ -332,6 +332,8 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
     view_dirty = true;
     view_has_content = false;
     invalidate_uniforms();
+    last_draw = LastDraw{};
+    transient_ranges.clear();
     return D3D_OK;
 }
 
@@ -394,6 +396,7 @@ uint16_t Device::new_view()
         return view;
     }
     view = render::kGameViewBegin + views_used++;
+    ++perf().views;
     view_dirty = false;
     view_has_content = false;
     TexStore *color = rt->store.get();
@@ -588,8 +591,8 @@ HRESULT Device::UpdateSurface(IDirect3DSurface9 *src, const RECT *src_rect, IDir
         return trap("IDirect3DDevice9::UpdateSurface(format)");
     const uint32_t bpp = format_info(from->store->format).bytes_per_pixel;
     uint32_t src_pitch = 0, dst_pitch = 0;
-    const uint8_t *source = from->store->lock(from->face, from->level, &src_pitch, nullptr);
-    uint8_t *dest = to->store->lock(to->face, to->level, &dst_pitch, nullptr);
+    const uint8_t *source = from->store->lock(from->face, from->level, &src_pitch, nullptr, true);
+    uint8_t *dest = to->store->lock(to->face, to->level, &dst_pitch, nullptr, false);
     const uint32_t sw = from->store->level_width(from->level), sh = from->store->level_height(from->level);
     const uint32_t dw = to->store->level_width(to->level), dh = to->store->level_height(to->level);
     const uint32_t sx = src_rect ? src_rect->left : 0, sy = src_rect ? src_rect->top : 0;
@@ -721,7 +724,7 @@ HRESULT Device::GetRenderTargetData(IDirect3DSurface9 *target, IDirect3DSurface9
     invalidate_uniforms();
     bgfx::destroy(staging);
     uint32_t pitch = 0;
-    uint8_t *out = to->store->lock(to->face, to->level, &pitch, nullptr);
+    uint8_t *out = to->store->lock(to->face, to->level, &pitch, nullptr, false);
     const D3DFORMAT format = to->store->format;
     for (uint32_t y = 0; y < h; ++y)
     {
