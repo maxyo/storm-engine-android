@@ -30,13 +30,7 @@ set(BGFX_CONFIG_MAX_TRANSIENT_INDEX_BUFFER_SIZE 8388608 CACHE STRING "" FORCE)
 if(CMAKE_CROSSCOMPILING)
     set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 endif()
-# bgfx.cmake pins bgfx/bx/bimg as gitlinks (see README.md). Never track master.
-# Offline: -DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=/path/to/pinned/checkout
-FetchContent_Declare(storm_bgfx_upstream
-    GIT_REPOSITORY https://github.com/bkaradzic/bgfx.cmake.git
-    GIT_TAG 8d950d6dc3df1d763e7d3655987c89009767a07e
-    GIT_SUBMODULES bgfx bx bimg
-    GIT_SUBMODULES_RECURSE TRUE)
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/bgfx_pin.cmake")
 FetchContent_GetProperties(storm_bgfx_upstream)
 if(NOT storm_bgfx_upstream_POPULATED)
     FetchContent_Populate(storm_bgfx_upstream)
@@ -102,7 +96,7 @@ endif()
 set_target_properties(storm_etcpak PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Host shader compiler. Cross builds must supply one built for the host:
-#   cmake -S src/libs/renderer_bgfx/tools-host -B build/bgfx-host-tools && cmake --build ... --target shaderc
+#   cmake -S src/libs/renderer_bgfx/host-tools -B build/bgfx-host-tools && cmake --build build/bgfx-host-tools
 if(CMAKE_CROSSCOMPILING)
     set(STORM_SHADERC "" CACHE FILEPATH "Host bgfx shaderc built from the pinned sources")
     if(NOT EXISTS "${STORM_SHADERC}")
