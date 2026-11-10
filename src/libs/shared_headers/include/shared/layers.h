@@ -31,4 +31,11 @@
 #define BLOOD 27
 #define RAIN_DROPS 28
 
+//============================================================================================
+// Caribbean Legend 2.0: ids its scripts use (Resource/shared headers of the game). The values
+// are fixed by those scripts; an id here does not mean the engine handles it yet.
+//============================================================================================
+#define CULL_DRAW_SHADOWS 29
+#define VK_REFLECTIONS    30
+
 #endif
