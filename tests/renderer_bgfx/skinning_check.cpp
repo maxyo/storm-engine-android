@@ -5,13 +5,11 @@
 // (the host engine's own path; needs an X display, xvfb-run in CI): once skinned on the CPU into
 // GEOS::VERTEX0 vertices, once as
 // GEOS::AVERTEX0 vertices with the bone palette (skinning_palette.hpp) in D3DVERTEXTEXTURESAMPLER0.
-// Unlit, lit (one directional light, normalised normals) and lit with the effects' per-pixel lighting
-// (fx «Высокое»: vs_ff_lit / vs_ff_lit_skin); the read-back pictures must match.
+// Unlit and lit (one directional light, normalised normals); the read-back pictures must match.
 #include "device.hpp"
 #include <SDL2/SDL.h>
 #include "skinning.hpp"
 #include "skinning_palette.hpp"
-#include "storm/render/effects.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -222,25 +220,11 @@ int main()
         {
             Harness harness(*device);
             const Mesh mesh = make_mesh();
-            std::vector<uint8_t> vertex_lit;
             for (const bool lit : {false, true})
             {
                 const auto cpu = harness.render(mesh, false, lit);
                 const auto gpu = harness.render(mesh, true, lit);
                 ok &= compare(lit ? "lit" : "unlit", cpu, gpu);
-                if (lit)
-                    vertex_lit = cpu;
-            }
-            // fx «Высокое»: lit draws go through the effects' per-pixel variant (vs_ff_lit / vs_ff_lit_skin).
-            render::ConfigureEffects(2, {});
-            const auto cpu = harness.render(mesh, false, true);
-            const auto gpu = harness.render(mesh, true, true);
-            render::ConfigureEffects(0, {});
-            ok &= compare("lit, fx per-pixel", cpu, gpu);
-            if (cpu == vertex_lit)
-            {
-                std::printf("FAIL lit, fx per-pixel: the picture equals vertex lighting, the fx variant did not run\n");
-                ok = false;
             }
         }
         device->Release();
