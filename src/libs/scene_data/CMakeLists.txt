@@ -6,7 +6,8 @@ add_library(scene_data STATIC
     src/model_material.cpp
     src/lighting_preset.cpp
     src/texture_library.cpp
-    src/effects_table.cpp)
+    src/effects_table.cpp
+    src/tone_mapping.cpp)
 target_compile_features(scene_data PUBLIC cxx_std_20)
 target_include_directories(scene_data PUBLIC include PRIVATE src)
 target_link_libraries(scene_data PRIVATE nlohmann_json::nlohmann_json)
