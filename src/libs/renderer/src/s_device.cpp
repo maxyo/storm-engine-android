@@ -871,7 +871,7 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
     }
 
     d3dpp.MultiSampleType = D3DMULTISAMPLE_NONE;
-    for (auto samples = msaa; msaa > D3DMULTISAMPLE_2_SAMPLES; samples--)
+    for (auto samples = msaa; samples >= D3DMULTISAMPLE_2_SAMPLES; samples--)
     {
         if (SUCCEEDED(d3d->CheckDeviceMultiSampleType(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, d3dpp.BackBufferFormat, false,
                                                       static_cast<D3DMULTISAMPLE_TYPE>(samples), nullptr)))
@@ -880,6 +880,10 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
             break;
         }
     }
+    if (msaa >= D3DMULTISAMPLE_2_SAMPLES && d3dpp.MultiSampleType == D3DMULTISAMPLE_NONE)
+        spdlog::warn("engine.ini msaa = {}: no multisample back buffer is available on this device; the back buffer is "
+                     "not multisampled (scene MSAA is the fx_msaa option)",
+                     static_cast<int>(msaa));
 
     if (bBackBufferCanLock)
         d3dpp.Flags = D3DPRESENTFLAG_LOCKABLE_BACKBUFFER;
