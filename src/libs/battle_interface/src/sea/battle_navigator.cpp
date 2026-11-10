@@ -1676,5 +1676,11 @@ void BATTLE_NAVIGATOR::ReadAndroidSpeeds(storm::android::ShipTelemetryFrame &fra
     }
     if (m_windSpeedAvailable)
         frame.windSpeed = storm::android::shipDisplayedSpeed(m_fWindStrength);
+    float charge = 0.f;
+    int sides = 0;
+    for (const auto &side : m_androidBorts)
+        if (side.present && storm::android::sea_nav::valid(side)) { charge += side.charge; ++sides; }
+    // Two decimals: the fill of the fire button, not a reason to publish every frame.
+    if (sides && m_speedShipId == mainShipId) frame.cannonCharge = std::round(charge / sides * 100.f) / 100.f;
 }
 #endif

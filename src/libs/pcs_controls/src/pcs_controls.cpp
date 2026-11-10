@@ -8,6 +8,7 @@
 #include <input.hpp>
 #ifdef __ANDROID__
 #include <platform/android_combat_input.hpp>
+#include <platform/android_held_controls.hpp>
 #include <platform/android_worldmap.hpp>
 #include <SDL2/SDL.h>
 #include <android/log.h>
@@ -311,7 +312,8 @@ bool PCS_CONTROLS::GetControlState(int32_t control_code, CONTROL_STATE &_state_s
     if (found && AndroidControlAllowed(control_code))
     {
         const int physical = _state_struct.state;
-        const int combined = storm::android::combatInput.merge(pUserControls[control_code].name, physical);
+        const int combined = storm::android::heldControls.merge(pUserControls[control_code].name,
+            storm::android::combatInput.merge(pUserControls[control_code].name, physical));
         if (combined != physical)
         {
             _state_struct.state = static_cast<CONTROL_STATE_TYPE>(combined);
@@ -506,6 +508,7 @@ void PCS_CONTROLS::Update(uint32_t DeltaTime)
     nFrameCounter++;
 #ifdef __ANDROID__
     storm::android::combatInput.advance(SDL_GetTicks());
+    storm::android::heldControls.advance(SDL_GetTicks(), storm::android::combatCancelEpoch.load(std::memory_order_acquire));
 #endif
     uint32_t system_code = CE_MOUSE_X_AXIS;
     ControlsTab[system_code].state.lValue = nMouseDx;

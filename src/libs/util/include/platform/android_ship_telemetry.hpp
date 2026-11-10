@@ -161,6 +161,8 @@ struct ShipTelemetryFrame
     std::optional<int> navigatorWindState;
 
     std::optional<double> shipSpeedKnots, windSpeed;
+    // How far the guns are loaded: the mean charge of the cannon sides the ship has, 0…1.
+    std::optional<double> cannonCharge;
     std::optional<int32_t> powderCount;
     std::string dateTimeText, locationText, navigatorAmmoText;
     bool operator==(const ShipTelemetryFrame &) const = default;
@@ -328,6 +330,7 @@ public:
             if(frame_.navigatorWindState) result += ",\"navigatorWindState\":" + std::to_string(*frame_.navigatorWindState);
             if (frame_.shipSpeedKnots) result += ",\"shipSpeedKnots\":" + std::to_string(*frame_.shipSpeedKnots);
             if (frame_.windSpeed) result += ",\"windSpeed\":" + std::to_string(*frame_.windSpeed);
+            if (frame_.cannonCharge) result += ",\"cannonCharge\":" + std::to_string(*frame_.cannonCharge);
             if (frame_.powderCount) result += ",\"powderCount\":" + std::to_string(*frame_.powderCount);
             if (!frame_.dateTimeText.empty()) result += ",\"dateTimeText\":" + gameplayJsonString(frame_.dateTimeText);
             if (!frame_.locationText.empty()) result += ",\"locationText\":" + gameplayJsonString(frame_.locationText);
