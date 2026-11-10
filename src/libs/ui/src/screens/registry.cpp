@@ -27,6 +27,7 @@ std::unique_ptr<Screen> CreateDiceScreen();
 std::unique_ptr<Screen> CreateCardsScreen();
 std::unique_ptr<Screen> CreateRepairScreen();
 std::unique_ptr<Screen> CreateTransferScreen();
+std::unique_ptr<Screen> CreateAlchemyScreen();
 std::unique_ptr<Screen> CreateGoodsOrderScreen();
 std::unique_ptr<Screen> CreateSailEmblemScreen();
 
@@ -54,6 +55,7 @@ const ScreenEntry kPorted[] = {
     {"boal_cards", CreateCardsScreen},
     {"repair", CreateRepairScreen},
     {"transfer_main", CreateTransferScreen},
+    {"alchemy", CreateAlchemyScreen},
 };
 
 // Interfaces the platform host still draws with its own forms. Anything not listed here

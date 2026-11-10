@@ -21,6 +21,7 @@
 #include "mobile_table_game.hpp"
 #include "mobile_goods_transfer.hpp"
 #include "mobile_sails_gerald.hpp"
+#include "mobile_alchemy.hpp"
 #include <set>
 #include "mobile_owner_bridge.hpp"
 #include <chrono>
@@ -357,6 +358,7 @@ void XINTERFACE::MobileCollectWidgets(std::vector<MobileWidget> &widgets)
     if(storm::android::mobileScreen=="boal_dice"||storm::android::mobileScreen=="boal_cards")MobileCollectTableGame(widgets);
     if(storm::android::mobileScreen=="goodstransfer")MobileCollectGoodsTransfer(widgets);
     if(storm::android::mobileScreen=="sailsgerald")MobileCollectSailsGerald(widgets);
+    if(storm::android::mobileScreen=="alchemy")MobileCollectAlchemy(widgets);
 }
 
 void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
@@ -441,6 +443,7 @@ void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
 #include "mobile_table_game.inc"
 #include "mobile_goods_transfer.inc"
 #include "mobile_sails_gerald.inc"
+#include "mobile_alchemy.inc"
 #endif
 
 void XINTERFACE::Realize(uint32_t)
@@ -2207,6 +2210,9 @@ void XINTERFACE::DoControl()
         if (action.screen != storm::android::mobileScreen) continue;
         if(action.screen=="goodstransfer"&&action.node=="ANDROID_GOODS_ORDER"){
             storm::android::lastWidgetSnapshot.clear();MobileApplyGoodsTransfer(action.value);continue;
+        }
+        if(action.screen=="alchemy"&&(action.node=="ANDROID_ALCHEMY"||action.node=="ANDROID_ALCHEMY_RECIPE")){
+            storm::android::lastWidgetSnapshot.clear();MobileApplyAlchemy(action.node,action.value);continue;
         }
         if(action.screen=="shipyard"&&action.value.rfind("yard@",0)==0){
             MobileApplyShipyard(action.node,action.index,action.value);continue;

@@ -49,6 +49,11 @@ class CXI_SCROLLIMAGE : public CINODE
     void MobileCollect(std::vector<MobileWidget> &widgets) const override;
     bool MobileApply(int index, const std::string &value) override;
     std::optional<std::string> MobileHireCrewQuantity(const std::string &node, const std::string &value) const;
+    // Alchemy's recipe scroll: whether it is still animating, and selecting an image the way a
+    // tap does (the node becomes current, the script is told).
+    bool MobileMoving() const { return m_bDoMove; }
+    int MobileCurrent() const { return m_nCurImage; }
+    void MobileSelect(int index);
 private:
     bool MobileOwnerRows(storm::mobile::OfficerListIdentity &state, std::vector<MobileWidget> &rows) const;
     // Sail emblem files of sailsgerald's SCROLL_GERALD (mobile_sails_gerald.hpp); empty elsewhere.

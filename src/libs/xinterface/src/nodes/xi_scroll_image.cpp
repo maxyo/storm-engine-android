@@ -1726,6 +1726,12 @@ bool CXI_SCROLLIMAGE::MobileApply(int index, const std::string &value)
         bool present = false; for (const auto &row : rows) if (row.index == index && row.enabled) present = true;
         if (!present) return false;
     }
+    MobileSelect(index);
+    return true;
+}
+
+void CXI_SCROLLIMAGE::MobileSelect(int index)
+{
     const std::string name = m_nodeName;
     core.Send_Message(g_idInterface, "ls", MSG_INTERFACE_NEW_CURRENT_NODE, name.c_str());
     m_nCurImage = index;
@@ -1734,6 +1740,5 @@ bool CXI_SCROLLIMAGE::MobileApply(int index, const std::string &value)
     // Same notification as normal horizontal image selection; no further node
     // access after script dispatch, since a callback may close the interface.
     core.Event("ChangeSelectScrollImage", "sl", name.c_str(), index);
-    return true;
 }
 #endif

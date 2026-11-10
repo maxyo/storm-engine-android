@@ -28,6 +28,7 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `extra_repair.cpp` | self repair (`repair`): hull, masts, sails as amounts sent as the game's arrow presses, materials per amount |
 | `extra_transfer.cpp` | loot and exchange (`transfer_main`): cargo by pack arrows, crew tab, the game's windows as modals / a sheet; the question window's script mode from `ANDROID_TRANSFER`; dangerous answers held |
 | `extra_sails.cpp` | sail emblems (`sailsgerald`): the emblem ribbon (`SCROLL_GERALD` rows with texture paths) and one contextual primary |
+| `extra_alchemy.cpp` | alchemy (`alchemy`): recipe rows the engine exports (`ANDROID_ALCHEMY_RECIPE`, `choose`), the components and N batches crafted by one guarded `craft` action (`ANDROID_ALCHEMY`) |
 
 The design rules are GENERIC-LAYOUT (pipeline, type → component, button roles, templates,
 verbs, §8 admission and extras) and the V2 mockups of the design canvas.

@@ -70,6 +70,7 @@ add_library(storm_ui STATIC
     src/screens/extra_games.cpp
     src/screens/extra_repair.cpp
     src/screens/extra_transfer.cpp
+    src/screens/extra_alchemy.cpp
     src/screens/extra_goods.cpp
     src/screens/extra_sails.cpp
     src/hud/hud.cpp
