@@ -41,6 +41,8 @@ class STRSERVICE : public VSTRSERVICE
     int32_t OpenUsersStringFile(const char *fileName) override;
     void CloseUsersStringFile(int32_t id) override;
     char *TranslateFromUsers(int32_t id, const char *inStr) override;
+    // Strings in the users file `id` (OpenUsersStringFile), or -1 when no such file is open.
+    [[nodiscard]] int32_t GetUsersStringsQuantity(int32_t id) const;
 
     void SetDialogSourceFile(const char *fileName);
 

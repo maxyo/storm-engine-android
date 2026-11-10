@@ -8,9 +8,13 @@
 //       Renders the effect offscreen on the real GLES backend (headless EGL) after one second,
 //       writes the picture and fails when nothing was drawn.
 //
+// Effect textures use the engine texture cache in $STORM_TEXTURE_CACHE_DIR (no disk cache when
+// unset): the first run decodes and transcodes, later runs load prebuilt ETC2 mips.
 // Exit code 77 (CTest SKIP_RETURN_CODE) when the game directory does not exist.
 #include "storm/render/effekseer.hpp"
 #include "storm/render/effekseer_device.hpp"
+
+#include "service.hpp"
 
 #include <bgfx/bgfx.h>
 #include <bimg/bimg.h>
@@ -21,11 +25,15 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdarg>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -34,6 +42,14 @@ namespace efk = storm::render::effekseer;
 namespace
 {
 constexpr int kSkip = 77;
+
+// CPU time of the process: wall time is meaningless on a shared, overloaded build machine.
+double cpu_ms()
+{
+    timespec ts{};
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+    return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
+}
 
 std::string lower(std::string text)
 {
@@ -136,6 +152,15 @@ std::vector<fs::path> effect_files(const fs::path &game)
     return files;
 }
 
+void print_line(const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    std::vprintf(format, args);
+    va_end(args);
+    std::printf("\n");
+}
+
 bool init_bgfx(bgfx::RendererType::Enum type)
 {
     bgfx::Init init;
@@ -151,12 +176,36 @@ bool init_bgfx(bgfx::RendererType::Enum type)
         return false;
     const bgfx::Caps *caps = bgfx::getCaps();
     efk::AttachDevice({caps->originBottomLeft, caps->homogeneousDepth});
+    storm::texture::Config cache;
+    if (const char *dir = std::getenv("STORM_TEXTURE_CACHE_DIR"))
+        cache.directory = dir;
+    storm::texture::Service::instance().configure(cache, &print_line);
+    std::printf("texture cache: %s\n", cache.directory.empty() ? "none (STORM_TEXTURE_CACHE_DIR unset)"
+                                                               : cache.directory.string().c_str());
+    return true;
+}
+
+// Lets the ETC2 transcodes finish (the swap happens in Update), so the disk cache is complete.
+bool drain_transcodes()
+{
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+    while (efk::GetStats().textures_transcoding > 0)
+    {
+        if (std::chrono::steady_clock::now() > deadline)
+        {
+            std::printf("FAIL: %u texture transcodes still running after 120 s\n", efk::GetStats().textures_transcoding);
+            return false;
+        }
+        efk::Update(0.0f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
     return true;
 }
 
 void shutdown_bgfx()
 {
     efk::DetachDevice();
+    storm::texture::Service::instance().shutdown();
     bgfx::shutdown();
 }
 
@@ -176,6 +225,7 @@ int load_all(const fs::path &game)
     GameFiles reader(game);
     efk::Configure({[&](const std::string &path, std::vector<uint8_t> &data) { return reader.read(path, data); }});
     int loaded = 0, incomplete = 0;
+    double load_total_ms = 0.0;
     efk::EffectInfo total;
     const Mat view = look_at_lh(0, 2, -8, 0, 1, 0);
     const Mat proj = perspective_lh(1.0f, 16.0f / 9.0f, 0.1f, 200.0f);
@@ -184,7 +234,10 @@ int load_all(const fs::path &game)
     {
         // Upper/lower case differs from the disk on purpose: lookups must not depend on it.
         const std::string path = "RESOURCE/effects/" + lower(file.filename().string());
+        const double load_start = cpu_ms();
         const efk::EffectId id = efk::LoadEffect(path);
+        const double load_ms = cpu_ms() - load_start;
+        load_total_ms += load_ms;
         efk::EffectInfo info;
         if (id == 0 || !efk::GetEffectInfo(id, info))
         {
@@ -209,10 +262,10 @@ int load_all(const fs::path &game)
         }
         efk::Stop(instance);
         std::printf("%s  %-28s nodes=%d textures=%d missing=%d models=%d missing=%d sounds=%d distortion=%d "
-                    "soft=%d material=%d peak_instances=%d peak_draws=%d\n",
+                    "soft=%d material=%d peak_instances=%d peak_draws=%d load_cpu=%.1fms\n",
                     complete ? "OK  " : "FAIL", file.filename().string().c_str(), info.nodes, info.textures,
                     info.missing_textures, info.models, info.missing_models, info.sounds, info.distortion_nodes,
-                    info.soft_particle_nodes, info.material_nodes, peak_instances, peak_draws);
+                    info.soft_particle_nodes, info.material_nodes, peak_instances, peak_draws, load_ms);
         total.nodes += info.nodes;
         total.textures += info.textures;
         total.models += info.models;
@@ -221,13 +274,20 @@ int load_all(const fs::path &game)
         total.soft_particle_nodes += info.soft_particle_nodes;
         total.material_nodes += info.material_nodes;
     }
+    const double drain_start = cpu_ms();
+    const bool drained = drain_transcodes();
+    const double drain_ms = cpu_ms() - drain_start;
+    const efk::Stats stats = efk::GetStats();
+    std::printf("textures: %u from the ETC2 cache, %u decoded; transcode wait %.0f ms CPU\n",
+                stats.texture_cache_hits, stats.textures_decoded, drain_ms);
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
     std::printf("effects: %d/%zu loaded, %d with missing resources; nodes=%d textures=%d models=%d sounds=%d "
-                "distortion_nodes=%d soft_particle_nodes=%d material_nodes=%d; %u files read; %.2f s\n",
+                "distortion_nodes=%d soft_particle_nodes=%d material_nodes=%d; %u files read; loading %.0f ms CPU; %.2f s\n",
                 loaded, files.size(), incomplete, total.nodes, total.textures, total.models, total.sounds,
-                total.distortion_nodes, total.soft_particle_nodes, total.material_nodes, reader.reads, seconds);
+                total.distortion_nodes, total.soft_particle_nodes, total.material_nodes, reader.reads, load_total_ms,
+                seconds);
     shutdown_bgfx();
-    return loaded == static_cast<int>(files.size()) && incomplete == 0 ? 0 : 1;
+    return loaded == static_cast<int>(files.size()) && incomplete == 0 && drained ? 0 : 1;
 }
 
 int render_one(const fs::path &game, const std::string &effect, const fs::path &out, float distance)
@@ -263,6 +323,13 @@ int render_one(const fs::path &game, const std::string &effect, const fs::path &
     efk::Play(id, {0, 0, 0});
     for (int frame = 0; frame < 60; ++frame)
         efk::Update(1.0f / 60.0f);
+    if (!drain_transcodes()) // draw the ETC2 versions, the textures the game ends up with
+    {
+        shutdown_bgfx();
+        return 1;
+    }
+    std::printf("textures: %u from the ETC2 cache, %u decoded\n", efk::GetStats().texture_cache_hits,
+                efk::GetStats().textures_decoded);
     bgfx::setViewFrameBuffer(1, target);
     bgfx::setViewRect(1, 0, 0, kWidth, kHeight);
     bgfx::setViewClear(1, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, kBackground, 1.0f, 0);

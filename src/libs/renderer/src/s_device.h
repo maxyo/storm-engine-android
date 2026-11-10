@@ -443,6 +443,12 @@ class DX9RENDER : public VDX9RENDER
     void LostRender();
     void RestoreRender();
 
+    // Texture search path `level` (0..3) set by the script's SetTexturePath; "" when out of range.
+    [[nodiscard]] const char *GetTexturePath(int32_t level) const
+    {
+        return level >= 0 && level < 4 ? TexPaths[level].str : "";
+    }
+
 
 private:
     struct RECT_VERTEX

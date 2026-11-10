@@ -1,5 +1,7 @@
 #include "steam_api_script_lib.hpp"
 
+#include "cl_platform_natives.hpp"
+
 #include "steam_api.hpp"
 #include "core.h"
 #include "vma.hpp"
@@ -331,6 +333,7 @@ bool SteamApiScriptLib::Init()
     sIFuncInfo.pFuncAddress = slResetStats;
     core.SetScriptFunction(&sIFuncInfo);
 
+    registerClPlatformNatives();
     return true;
 }
 } // namespace steamapi

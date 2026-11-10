@@ -10,11 +10,9 @@
 #include <EffekseerRendererCommon/EffekseerRenderer.TrackRendererBase.h>
 #include <EffekseerRendererCommon/EffekseerRenderer.ModelRendererBase.h>
 #include <EffekseerRendererCommon/ModelLoader.h>
-#include <EffekseerRendererCommon/TextureLoader.h>
 #include "bgfxrenderer.h"
 #include "shaders.h"
 
-#include <bimg/bimg.h>
 #include <vector>
 
 #define BGFX(api) m_bgfx->api
@@ -62,11 +60,19 @@ private:
 	const RendererImplemented *m_render;
 	bgfx_texture_handle_t m_handle;
 public:
-	Texture(const RendererImplemented *render, bgfx_texture_handle_t handle) : m_render(render), m_handle(handle) {}
+	Texture(const RendererImplemented *render, bgfx_texture_handle_t handle, int width, int height, int levels)
+		: m_render(render), m_handle(handle) {
+		param_.Format = Effekseer::Backend::TextureFormatType::R8G8B8A8_UNORM;
+		param_.Dimension = 2;
+		param_.Size = {width, height, 1};
+		param_.MipLevelCount = levels;
+	}
 	~Texture() override;
 	bgfx_texture_handle_t GetInterface() const {
 		return m_handle;
 	}
+	// The texture keeps its identity for the effects that hold it; the old handle is destroyed.
+	void ReplaceInterface(bgfx_texture_handle_t handle);
 	bgfx_texture_handle_t RemoveInterface() {
 		bgfx_texture_handle_t ret = m_handle;
 		m_handle.idx = UINT16_MAX;
@@ -805,7 +811,7 @@ public:
 		return Effekseer::TrackRendererRef(new EffekseerRenderer::TrackRendererBase<RendererImplemented, false>(this));
 	}
 	Effekseer::TextureLoaderRef CreateTextureLoader(Effekseer::FileInterfaceRef fileInterface = nullptr) override {
-		return EffekseerRenderer::CreateTextureLoader(m_device, fileInterface);
+		return nullptr;	// the host loads textures through its texture cache (CreateTextureFromHandle)
 	}
 	Effekseer::ModelLoaderRef CreateModelLoader(::Effekseer::FileInterfaceRef fileInterface = nullptr) override {
 		return Effekseer::MakeRefPtr<EffekseerRenderer::ModelLoader>(m_device, fileInterface);
@@ -1090,40 +1096,30 @@ public:
 		snprintf(message, sizeof(message), "ERROR: %s %s", what, name);
 		m_initArgs.log(message);
 	}
-	// Proxy textures and Effekseer's texture loader (PNG/TGA decode to RGBA8). MipLevelCount 0
-	// asks for a full chain, built here with a box filter. Other formats (BC* from DDS) are not
-	// available on every GLES device and are refused.
+	// Only Effekseer's proxy textures (1x1 white/normal, RGBA8 without mips) come through here:
+	// effect textures are created by the host (CreateTextureFromHandle).
 	Effekseer::Backend::TextureRef CreateTexture(const Effekseer::Backend::TextureParameter& param, const Effekseer::CustomVector<uint8_t>& initialData) const {
 		const int width = param.Size[0];
 		const int height = param.Size[1];
 		if (param.Dimension != 2 || param.Format != Effekseer::Backend::TextureFormatType::R8G8B8A8_UNORM
-			|| width <= 0 || height <= 0 || initialData.size() < size_t(width) * height * 4) {
+			|| param.MipLevelCount != 1 || width <= 0 || height <= 0 || initialData.size() < size_t(width) * height * 4) {
 			char message[160];
-			snprintf(message, sizeof(message), "ERROR: unsupported Effekseer texture (format %d, dimension %d, %dx%d)",
-				int(param.Format), param.Dimension, width, height);
+			snprintf(message, sizeof(message), "ERROR: unsupported Effekseer texture (format %d, dimension %d, %dx%d, %d levels)",
+				int(param.Format), param.Dimension, width, height, param.MipLevelCount);
 			m_initArgs.log(message);
 			return nullptr;
 		}
-		const bool mips = param.MipLevelCount != 1;
-		std::vector<uint8_t> chain(initialData.begin(), initialData.begin() + size_t(width) * height * 4);
-		if (mips) {
-			size_t offset = 0;
-			for (int w = width, h = height; w > 1 || h > 1;) {
-				const int nw = w > 1 ? w / 2 : 1;
-				const int nh = h > 1 ? h / 2 : 1;
-				const size_t next = offset + size_t(w) * h * 4;
-				chain.resize(next + size_t(nw) * nh * 4);
-				bimg::imageRgba8Downsample2x2(chain.data() + next, uint32_t(w), uint32_t(h), 1, uint32_t(w * 4),
-					uint32_t(nw * 4), chain.data() + offset);
-				offset = next;
-				w = nw;
-				h = nh;
-			}
-		}
-		const bgfx_memory_t *mem = BGFX(copy)(chain.data(), (uint32_t)chain.size());
-		bgfx_texture_handle_t handle = BGFX(create_texture_2d)(uint16_t(width), uint16_t(height), mips, 1, BGFX_TEXTURE_FORMAT_RGBA8,
+		const bgfx_memory_t *mem = BGFX(copy)(initialData.data(), uint32_t(size_t(width) * height * 4));
+		bgfx_texture_handle_t handle = BGFX(create_texture_2d)(uint16_t(width), uint16_t(height), false, 1, BGFX_TEXTURE_FORMAT_RGBA8,
 			BGFX_TEXTURE_NONE | BGFX_SAMPLER_NONE, mem, 0);
-		return Effekseer::MakeRefPtr<Texture>(this, handle);
+		return Effekseer::MakeRefPtr<Texture>(this, handle, width, height, 1);
+	}
+	Effekseer::Backend::TextureRef WrapTexture(bgfx_texture_handle_t handle, int width, int height, int levels) const {
+		return Effekseer::MakeRefPtr<Texture>(this, handle, width, height, levels);
+	}
+	void DestroyHandle(bgfx_texture_handle_t handle) const {
+		if (BGFX_HANDLE_IS_VALID(handle))
+			BGFX(destroy_texture)(handle);
 	}
 	void ReleaseTexture(Texture *t) const {
 		bgfx_texture_handle_t h = t->RemoveInterface();
@@ -1222,6 +1218,11 @@ Texture::~Texture() {
 	m_render->ReleaseTexture(this);
 }
 
+void Texture::ReplaceInterface(bgfx_texture_handle_t handle) {
+	m_render->DestroyHandle(m_handle);
+	m_handle = handle;
+}
+
 // Create Renderer
 
 EffekseerRenderer::RendererRef CreateRenderer(struct InitArgs *init) {
@@ -1239,6 +1240,15 @@ Effekseer::ModelRendererRef CreateModelRenderer(EffekseerRenderer::RendererRef r
 
 void SetViewId(const EffekseerRenderer::RendererRef &renderer, bgfx_view_id_t viewid) {
 	renderer.DownCast<RendererImplemented>()->SetViewId(viewid);
+}
+
+Effekseer::Backend::TextureRef CreateTextureFromHandle(const EffekseerRenderer::RendererRef &renderer,
+	bgfx_texture_handle_t handle, int width, int height, int levels) {
+	return renderer.DownCast<RendererImplemented>()->WrapTexture(handle, width, height, levels);
+}
+
+void ReplaceTextureHandle(const Effekseer::Backend::TextureRef &texture, bgfx_texture_handle_t handle) {
+	texture.DownCast<Texture>()->ReplaceInterface(handle);
 }
 
 }

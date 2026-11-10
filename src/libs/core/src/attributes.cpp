@@ -478,3 +478,22 @@ void ATTRIBUTES::Release() const noexcept
     if (break_)
         stringCodec_.VariableChanged();
 }
+
+bool ATTRIBUTES::ReorderAttributes(const std::vector<size_t> &order)
+{
+    if (order.size() != attributes_.size())
+        return false;
+    std::vector<bool> used(order.size(), false);
+    for (const size_t from : order)
+    {
+        if (from >= order.size() || used[from])
+            return false;
+        used[from] = true;
+    }
+    std::vector<std::unique_ptr<ATTRIBUTES>> reordered;
+    reordered.reserve(order.size());
+    for (const size_t from : order)
+        reordered.push_back(std::move(attributes_[from]));
+    attributes_ = std::move(reordered);
+    return true;
+}
