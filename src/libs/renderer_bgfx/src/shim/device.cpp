@@ -142,6 +142,7 @@ Device::Device(SDL_Window *sdl_window, const D3DPRESENT_PARAMETERS &present) : w
         {U_FS, "u_ffFs", bgfx::UniformType::Vec4, 4},
         {U_VSC, "u_vsc", bgfx::UniformType::Vec4, kVsConstants},
         {U_PSC, "u_psc", bgfx::UniformType::Vec4, kPsConstants},
+        {U_BEM, "u_psBem", bgfx::UniformType::Vec4, kFfStages},
     };
     for (const auto &entry : table)
     {

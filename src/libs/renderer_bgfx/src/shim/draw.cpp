@@ -326,7 +326,15 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
         set_uniform(U_VSC, &s.vs_const[0][0], kVsConstants);
     }
     if (ps_port)
+    {
         set_uniform(U_PSC, &s.ps_const[0][0], kPsConstants);
+        // texbem/texbeml read the stage's bump environment matrix: (M00, M01, M10, M11) per stage.
+        float bem[kFfStages][4];
+        for (uint32_t stage = 0; stage < kFfStages; ++stage)
+            for (uint32_t i = 0; i < 4; ++i)
+                bem[stage][i] = as_float(s.tss[stage][D3DTSS_BUMPENVMAT00 + i]);
+        set_uniform(U_BEM, &bem[0][0], kFfStages);
+    }
 
     const bool lighting = rs[D3DRS_LIGHTING] != 0 && !layout.rhw;
     const bool color_vertex = rs[D3DRS_COLORVERTEX] != 0;
@@ -1040,9 +1048,16 @@ HRESULT Device::draw(const DrawCall &call)
         uint32_t unit = stage;
         if (store->kind != TexKind::Tex2D)
         {
-            if (stage >= 3)
+            // cube: stages 0..2 -> units 5..7, stage 3 -> 11; volume: stages 0..2 -> 8..10, stage 4 -> 12
+            const bool cube = store->kind == TexKind::Cube;
+            if (stage < 3)
+                unit = (cube ? 5 : 8) + stage;
+            else if (cube && stage == 3)
+                unit = 11;
+            else if (!cube && stage == 4)
+                unit = 12;
+            else
                 continue;
-            unit = (store->kind == TexKind::Cube ? 5 : 8) + stage;
         }
         bgfx::setTexture(static_cast<uint8_t>(unit), Context::instance().sampler(unit), store->handle,
                          sampler_flags(stage, *store));

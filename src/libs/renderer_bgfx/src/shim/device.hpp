@@ -11,7 +11,7 @@ namespace storm::shim
 {
 
 // Texture units: 0..4 2D stage N, 5..7 cube of stage 0..2, 8..10 volume of stage 0..2.
-inline constexpr uint32_t kSamplerUnits = 11;
+inline constexpr uint32_t kSamplerUnits = 13;
 
 // Owns bgfx::init/shutdown, the surface and the frame-owner contract.
 class Context final : public render::FrameOwner
@@ -273,6 +273,7 @@ struct Device final : Direct3DDevice9Stub
         U_FS,
         U_VSC,
         U_PSC,
+        U_BEM,
         U_COUNT
     };
     Uniform uniforms[U_COUNT];
