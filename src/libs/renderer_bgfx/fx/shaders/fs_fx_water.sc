@@ -80,10 +80,10 @@ void main()
     if (dot(V, G) < 0.0)
     {
         // Under the surface (SEA's underwater mode): the scene above shows through Snell's window (critical
-        // angle of water, cos = 0.66), attenuated along the way up; outside the window the surface mirrors the
-        // water body (total internal reflection).
+        // angle of water, cos = 0.66), attenuated along the way up and scaled by Sea2.Transparency as from above;
+        // outside the window the surface mirrors the water body (total internal reflection).
         float window = smoothstep(0.62, 0.72, max(dot(-N, V), 0.0));
-        float up = window * exp2(-u_fxWater[6].x * dist * u_fxWater[7].y);
+        float up = window * exp2(-u_fxWater[6].x * dist * u_fxWater[7].y) * u_fxWater[6].y;
         vec3 water = fxSea2Fog(u_fxWater[2].rgb * (1.0 - up));
 #ifdef FX_WATER_DEPTH
         vec2 aboveUv = gl_FragCoord.xy * u_viewTexel.xy - N.xz * (u_fxWater[7].x * u_fxWater[6].w);
