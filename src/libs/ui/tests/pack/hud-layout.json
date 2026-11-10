@@ -4,6 +4,14 @@
   "land": {
    "elements": [
     {
+     "id": "move",
+     "component": "c-stick",
+     "rcss": "position: absolute; left: 0dp; bottom: 0dp; width: 42%; height: 224dp; max-height: 58%;",
+     "props": {
+      "floating": true
+     }
+    },
+    {
      "id": "vitals",
      "component": "c-box",
      "rcss": "position: absolute; left: 10dp; top: 10dp; width: 200dp; height: 40dp;",
@@ -26,7 +34,7 @@
     {
      "id": "log",
      "component": "c-box",
-     "rcss": "position: absolute; left: 300dp; top: 10dp; width: 200dp; height: 30dp;",
+     "rcss": "position: absolute; left: 150dp; bottom: 150dp; width: 100dp; height: 30dp;",
      "props": {}
     },
     {
@@ -48,12 +56,6 @@
      "props": {}
     },
     {
-     "id": "move",
-     "component": "c-stick",
-     "rcss": "position: absolute; left: 40dp; bottom: 30dp; width: 100dp; height: 100dp;",
-     "props": {}
-    },
-    {
      "id": "context",
      "component": "c-button",
      "rcss": "position: absolute; right: 20dp; bottom: 80dp; width: 64dp; height: 64dp;",
@@ -62,7 +64,7 @@
     {
      "id": "actions",
      "component": "c-button",
-     "rcss": "position: absolute; right: 150dp; bottom: 10dp; width: 52dp; height: 52dp;",
+     "rcss": "position: absolute; left: 250dp; bottom: 10dp; width: 52dp; height: 52dp;",
      "props": {}
     },
     {
@@ -82,6 +84,14 @@
   "land-combat": {
    "elements": [
     {
+     "id": "move",
+     "component": "c-stick",
+     "rcss": "position: absolute; left: 0dp; bottom: 0dp; width: 42%; height: 224dp; max-height: 58%;",
+     "props": {
+      "floating": true
+     }
+    },
+    {
      "id": "vitals",
      "component": "c-box",
      "rcss": "position: absolute; left: 10dp; top: 10dp; width: 200dp; height: 40dp;",
@@ -123,12 +133,6 @@
      "id": "pause",
      "component": "c-button",
      "rcss": "position: absolute; right: 10dp; top: 10dp; width: 48dp; height: 48dp;",
-     "props": {}
-    },
-    {
-     "id": "move",
-     "component": "c-stick",
-     "rcss": "position: absolute; left: 40dp; bottom: 30dp; width: 100dp; height: 100dp;",
      "props": {}
     },
     {
