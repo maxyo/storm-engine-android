@@ -1,6 +1,7 @@
 // Host checks for screen routing: admission (KNOWN / REQUIRED / extras), the generic
 // classification and the mapping of component events to engine actions. Synthetic
 // models only (tests/models); no GL context, no game data.
+#include "../src/picture_atlas.h"
 #include "../src/screens/controls.h"
 
 #include <cstdio>
@@ -270,7 +271,7 @@ static void Store(const std::string &models)
     Router router(surface);
     router.SetInterface(Load(models, "store.json"));
     ExpectEqual(router.Using(), "store", "store is a ported screen");
-    ExpectEqual(surface.tag, "s-store", "store screen mounted");
+    ExpectEqual(surface.tag, "s-trade", "store screen mounted");
     Expect(surface.props["list"]["rows"].size() == 8 && surface.props["primary"].is_null(), "goods listed, no deal yet");
     ExpectEqual(surface.props["extras"]["note"], "Членам купеческой гильдии — скидка 5 % до 1 декабря", "unknown text → parchment note");
     Expect(surface.props["extras"]["rows"].size() == 1 && surface.props["extras"]["rows"][0]["title"] == "Гильдейский счёт", "unknown button → «Прочее» row");
@@ -323,6 +324,89 @@ static void Store(const std::string &models)
     Expect(HostOwned("ship") && !HostOwned("store") && !HostOwned("mod_bounty"), "host keeps only the listed interfaces");
 }
 
+// The other commerce interfaces share the store's screen; these check what differs.
+static void Commerce(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    for (const char *name : {"storage.json", "storage-deal.json", "itemsbox.json", "itemsbox-deal.json", "itemstrade-deal.json",
+                             "cannons-deal.json", "contraband-deal.json"})
+    {
+        const InterfaceModel model = Load(models, name);
+        router.SetInterface(model);
+        Expect(router.Using() == model.screen && surface.tag == "s-trade" && router.Rejection().empty(), std::string(name) + " is drawn by the trade screen");
+        Expect(surface.props["extras"]["rows"].empty() && surface.props["extras"]["note"] == "", std::string(name) + " has no extras");
+    }
+    Expect(surface.errors.empty(), "no errors on the commerce models");
+
+    // Storage: a free transfer applies when the amount settles; no primary button.
+    router.SetInterface(Load(models, "storage-deal.json"));
+    Expect(surface.props["primary"].is_null() && surface.props["list"]["cols"].size() == 2, "storage: two amount columns, no deal button");
+    ExpectEqual(surface.props["list"]["rows"][0]["image"]["texture"], "atlas:GOODS/Sugar", "rows carry the game's picture reference");
+    Expect(surface.props["stats"].size() == 2 && surface.props["stats"][1]["value"] == "2328 / 10000", "hold and storage figures in the header");
+    surface.commands.clear();
+    router.OnEvent({"goods", "change", "80"});
+    router.OnEvent({"goods", "change", "90"});
+    Expect(surface.commands.empty(), "steps wait for the amount to settle");
+    surface.now += 0.5;
+    router.Tick();
+    Expect(surface.commands.size() == 2 && surface.commands[0] == "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|30" &&
+               surface.commands[1] == "widget:storage\tQTY_OK_BUTTON\t-1\tguard@7:row:0|press",
+           "then the last amount is entered and confirmed, in that order");
+    surface.commands.clear();
+    router.OnEvent({"goods", "commit", "10"});
+    router.Tick();
+    Expect(surface.commands.size() == 2 && surface.commands[0] == "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|-50", "the end of a drag applies at once; less than we hold = give");
+    surface.commands.clear();
+    router.OnEvent({"goods", "commit", "60"});
+    router.Tick();
+    Expect(surface.commands.size() == 1, "an unchanged amount confirms nothing");
+
+    // Chest / body: the game's category tabs, take all, remove body.
+    router.SetInterface(Load(models, "itemsbox.json"));
+    Expect(surface.props["filters"].size() == 4 && surface.props["filters"][0]["selected"] == true, "itemsbox: the game's tabs");
+    ExpectEqual(surface.props["primary"]["label"], "Взять всё", "itemsbox: take all is the primary");
+    Expect(surface.props["actions"].size() == 1 && surface.props["actions"][0]["label"] == "Убрать тело", "itemsbox: remove body beside it");
+    router.OnEvent({"filters", "select", "2"});
+    ExpectEqual(surface.Last(), "widget:itemsbox\tTABBTN_3\t-1\tpress", "a tab presses the game's tab button");
+    router.OnEvent({"primary", "click", ""});
+    ExpectEqual(surface.Last(), "widget:itemsbox\tGETALL_BUTTON\t-1\tpress", "take all");
+    router.OnEvent({"action-0", "click", ""});
+    ExpectEqual(surface.Last(), "widget:itemsbox\tDELBODY_BUTTON\t-1\tpress", "remove body");
+    router.SetInterface(Load(models, "itemsbox-deal.json"));
+    Expect(surface.props["list"]["rows"][0]["q"]["steps"].size() == 2 && surface.props["list"]["rows"][0]["q"]["max"] == 26, "single items: steps 1 and 10, up to both sides");
+
+    // Money trades: explicit primary with the price.
+    router.SetInterface(Load(models, "cannons-deal.json"));
+    ExpectEqual(surface.props["primary"]["label"], "Купить 6", "cannons: the primary names the deal");
+    ExpectEqual(surface.props["primary"]["sub"], "Деньги 1740, вес 36 ц", "and carries the price");
+    ExpectEqual(surface.props["list"]["rows"][1]["meta"], "Дист. 450 · Урон x1.5 · Время 11", "cannons: range, damage, reload under the name");
+    router.SetInterface(Load(models, "contraband-deal.json"));
+    Expect(surface.props["list"]["rows"][0]["q"]["max"] == 50 && surface.props["list"]["rows"][0]["q"]["min"] == 0, "contraband: goods without a buy price can only be sold");
+    ExpectEqual(surface.props["primary"]["label"], "Продать 50", "contraband: selling");
+    router.SetInterface(Load(models, "itemstrade-deal.json"));
+    ExpectEqual(surface.props["subject"]["label"], "Шарль де Мор", "items trade: the character selector is the subject");
+    router.OnEvent({"goods", "commit", "5"});
+    surface.now += 0.5;
+    router.Tick();
+    ExpectEqual(surface.Last(), "widget:itemstrade\tQTY_EDIT\t-1\tguard@7:row:0|2", "money trades only enter the amount");
+}
+
+static void Atlas()
+{
+    PictureAtlas atlas;
+    const size_t count = atlas.Load("; comment\n[GOODS]\nsTextureName\t= goods.tga\nwTextureWidth = 1024\nwTextureHeight = 512\n"
+                                    "picture = Balls,128,256,256,384\n\n[icons]\nsTextureName = ..\\BATTLE_INTERFACE\\land_icon.tga\n"
+                                    "wTextureWidth = 256\nwTextureHeight = 256\npicture = talk, 0,0,64,64 ; first\npicture = broken,1\n");
+    Expect(count == 2, "two well-formed pictures");
+    const AtlasPicture *balls = atlas.Find("goods", "BALLS");
+    Expect(balls && balls->texture == "INTERFACES/goods" && balls->uv[0] == 0.125f && balls->uv[1] == 0.5f && balls->uv[2] == 0.25f && balls->uv[3] == 0.75f,
+           "group and picture are case-insensitive; the rectangle becomes texture coordinates");
+    const AtlasPicture *talk = atlas.Find("ICONS", "talk");
+    Expect(talk && talk->texture == "BATTLE_INTERFACE/land_icon" && talk->uv[2] == 0.25f, "a texture outside INTERFACES is resolved");
+    Expect(!atlas.Find("GOODS", "Rum") && !atlas.Find("ICONS", "broken"), "unknown and malformed pictures are not found");
+}
+
 static void Dialogue(const std::string &models)
 {
     FakeSurface surface;
@@ -349,6 +433,8 @@ int main(int argc, char **argv)
     Commands();
     Generic(models);
     Store(models);
+    Commerce(models);
+    Atlas();
     Dialogue(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);

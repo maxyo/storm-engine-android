@@ -75,6 +75,10 @@ class Bindings
     // The same, but a newer value for the same widget and verb replaces one still waiting
     // (drags): at most one goes out per flush interval.
     void SendLatest(const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard = {});
+    // Sends after `seconds` unless a newer SendAfter for the same widget and verb arrives
+    // first, which replaces it and restarts the wait (settling a drag before it applies).
+    void SendAfter(double seconds, const Widget &widget, const std::string &verb, const std::string &value = {},
+                   const std::string &guard = {});
     // The player's way out: the screen's exit button when it has one, else the global back.
     void Back(const Widget *exit_button);
     // Opens the native text editor over the field; the accepted text is sent as `edit`.

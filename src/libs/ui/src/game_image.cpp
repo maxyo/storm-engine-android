@@ -4,10 +4,15 @@
 // the parent then gets the class "has-image". A picture that cannot be had (file missing,
 // loader refused, decode error, bad atlas cell) is logged once with texture, cell and reason
 // and the parent gets "image-missing", drawn unlike the neutral loading placeholder.
+// texture="atlas:GOODS/Balls" names a picture the way interface models do: a group and a
+// picture of the game's own RESOURCE/INI/interfaces/pictures.ini, read at run time from
+// the game root (picture_atlas.h). It resolves to a texture and a rectangle; `cell` is
+// then ignored.
 // Exactly one source is used: the configured loader if there is one, else the .tx files
 // under the game root. With neither (gallery on the build host, the design canvas) the
 // pictures are "unavailable": the neutral placeholder stays and one line is logged.
 #include "elements.h"
+#include "picture_atlas.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -107,6 +112,42 @@ class Store
         ++generation_;
         entries_.clear();
         queue_.clear();
+        atlas_.reset();
+    }
+
+    // Resolves "GROUP/Picture" through the game's pictures.ini. False with a reason when
+    // the file or the picture is not there.
+    bool Atlas(const std::string &reference, AtlasPicture &out, std::string &reason)
+    {
+        std::lock_guard lock(mutex_);
+        if (!atlas_)
+        {
+            atlas_ = std::make_unique<PictureAtlas>();
+            std::filesystem::path path;
+            if (!root_.empty() && ResolvePath(std::filesystem::path(root_), "RESOURCE/INI/interfaces/pictures.ini", path))
+            {
+                std::ifstream file(path, std::ios::binary);
+                const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+                atlas_->Load(text);
+            }
+            else
+                atlas_missing_ = root_.empty() ? "no game root to read pictures.ini from" : "no RESOURCE/INI/interfaces/pictures.ini under " + root_;
+        }
+        const size_t slash = reference.find('/');
+        const AtlasPicture *found = slash == std::string::npos ? nullptr : atlas_->Find(reference.substr(0, slash), reference.substr(slash + 1));
+        if (!found)
+        {
+            reason = !atlas_missing_.empty() ? atlas_missing_ : "pictures.ini has no picture " + reference;
+            return false;
+        }
+        out = *found;
+        return true;
+    }
+
+    bool HasSource()
+    {
+        std::lock_guard lock(mutex_);
+        return !root_.empty() || loader_;
     }
 
     void SetLoader(std::function<bool(const std::string &, Picture &)> loader)
@@ -210,6 +251,8 @@ class Store
     }
 
     std::mutex mutex_;
+    std::unique_ptr<PictureAtlas> atlas_; // of the current game root, read on first use
+    std::string atlas_missing_;
     std::condition_variable wake_;
     std::deque<Job> queue_;
     std::unordered_map<std::string, std::shared_ptr<Entry>> entries_;
@@ -234,19 +277,33 @@ class GameImageElement final : public Rml::Element
     {
         Rml::Element::OnAttributeChange(changed);
         if (changed.count("texture"))
+        {
             entry_.reset();
+            atlas_reason_.clear();
+            atlas_ = AtlasPicture();
+        }
         built_size_ = {-1, -1};
     }
 
     void OnUpdate() override
     {
         Rml::Element::OnUpdate();
-        const std::string texture = GetAttribute<Rml::String>("texture", "");
-        if (!entry_ && !texture.empty())
+        std::string texture = GetAttribute<Rml::String>("texture", "");
+        const bool by_atlas = texture.rfind("atlas:", 0) == 0;
+        if (!entry_ && by_atlas && atlas_reason_.empty() && Store::Get().HasSource())
+        {
+            if (Store::Get().Atlas(texture.substr(6), atlas_, atlas_reason_))
+                entry_ = Store::Get().Request(atlas_.texture);
+        }
+        else if (!entry_ && !by_atlas && !texture.empty())
             entry_ = Store::Get().Request(texture);
-        const State state = entry_ ? entry_->state.load() : State::Loading;
+        const State state = entry_ ? entry_->state.load() : by_atlas && !Store::Get().HasSource() ? State::Unavailable : State::Loading;
         std::string reason;
-        if (state == State::Missing)
+        if (!atlas_reason_.empty())
+            reason = atlas_reason_;
+        else if (by_atlas)
+            reason = state == State::Missing ? entry_->reason : std::string();
+        else if (state == State::Missing)
             reason = entry_->reason;
         else if (state == State::Ready && !AtlasCell(GetAttribute<int>("cell", 0), GetAttribute<int>("grid", 4), nullptr))
             reason = "cell outside the " + std::to_string(GetAttribute<int>("grid", 4)) + "x" + std::to_string(GetAttribute<int>("grid", 4)) + " atlas";
@@ -294,7 +351,10 @@ class GameImageElement final : public Rml::Element
         if (size != built_size_ || opacity != built_opacity_)
         {
             float uv[4];
-            AtlasCell(GetAttribute<int>("cell", 0), GetAttribute<int>("grid", 4), uv);
+            if (atlas_.texture.empty())
+                AtlasCell(GetAttribute<int>("cell", 0), GetAttribute<int>("grid", 4), uv);
+            else
+                std::copy(std::begin(atlas_.uv), std::end(atlas_.uv), uv);
             const Rml::Vector2f uv0 = {uv[0], uv[1]}, uv1 = {uv[2], uv[3]};
             Rml::Mesh mesh = geometry_.Release(Rml::Geometry::ReleaseMode::ClearMesh);
             Rml::MeshUtilities::GenerateQuad(mesh, {0, 0}, size, Rml::Colourb(255, 255, 255, 255).ToPremultiplied(opacity), uv0, uv1);
@@ -307,6 +367,8 @@ class GameImageElement final : public Rml::Element
 
   private:
     std::shared_ptr<Entry> entry_;
+    AtlasPicture atlas_;       // set when the texture attribute is an atlas reference
+    std::string atlas_reason_; // why the reference could not be resolved
     Rml::Geometry geometry_;
     Rml::Vector2f built_size_ = {-1, -1};
     float built_opacity_ = -1.0f;

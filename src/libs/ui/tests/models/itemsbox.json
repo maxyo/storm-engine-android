@@ -1,0 +1,429 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 1,
+ "screenRevision": 7,
+ "screen": "itemsbox",
+ "widgets": [
+  {
+   "node": "STORECAPTION1",
+   "type": "text",
+   "label": "Обыск тела",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "23\t2.3\tСвинцовые пули\t0.3\t3",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "row:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "23",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "2.3",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Свинцовые пули",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ITEMS_9",
+        "image": "itm3"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "0.3",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "3",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Предметов",
+    "Общий\nвес",
+    "Наименование предметов",
+    "Общий\nвес",
+    "Предметов"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "0\t0\tАбордажный тесак\t3\t1",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "row:1",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Абордажный тесак",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 2,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ITEMS_9",
+        "image": "itm5"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "3",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Предметов",
+    "Общий\nвес",
+    "Наименование предметов",
+    "Общий\nвес",
+    "Предметов"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "0\t0\tСтроевой пистоль\t2\t1",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "row:2",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Строевой пистоль",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 3,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ITEMS_9",
+        "image": "itm4"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "2",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Предметов",
+    "Общий\nвес",
+    "Наименование предметов",
+    "Общий\nвес",
+    "Предметов"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "3\t1.5\tЛечебное зелье\t1\t2",
+   "value": "0",
+   "index": 3,
+   "enabled": true,
+   "rowId": "row:3",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "3",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "1.5",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Лечебное зелье",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 4,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ITEMS_9",
+        "image": "itm1"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "2",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Предметов",
+    "Общий\nвес",
+    "Наименование предметов",
+    "Общий\nвес",
+    "Предметов"
+   ]
+  },
+  {
+   "node": "TABBTN_1",
+   "type": "image",
+   "label": "",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABSTR_1",
+   "type": "text",
+   "label": "Все",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABBTN_2",
+   "type": "image",
+   "label": "",
+   "value": "0",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABSTR_2",
+   "type": "text",
+   "label": "Оружие",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABBTN_3",
+   "type": "image",
+   "label": "",
+   "value": "0",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABSTR_3",
+   "type": "text",
+   "label": "Зелья",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABBTN_4",
+   "type": "image",
+   "label": "",
+   "value": "0",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABSTR_4",
+   "type": "text",
+   "label": "Разное",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CAPACITY",
+   "type": "text",
+   "label": "Вес:\n34 / 120",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "GETALL_BUTTON",
+   "type": "button",
+   "label": "Взять всё",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "DELBODY_BUTTON",
+   "type": "button",
+   "label": "Убрать тело",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  }
+ ]
+}

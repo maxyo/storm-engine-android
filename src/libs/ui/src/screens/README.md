@@ -19,7 +19,7 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `router.cpp` | admission, shared extras («Прочее» sheet, note, reading sheet), event dispatch, busy marks, throttled sends, `EngineCommand` |
 | `controls.*` | shared view builders: buttons and their roles, action rows, control rows (toggle, segment, slider, stepper, field) |
 | `generic.cpp` | the generic auto-layout for interfaces without a ported screen |
-| `trade_store.cpp` | reference ported screen: the store |
+| `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout, a column table per interface |
 | `dialogue.cpp` | reference state channel: `dialogue` |
 
 The design rules are GENERIC-LAYOUT (pipeline, type → component, button roles, templates,
@@ -84,6 +84,15 @@ Verbs and what the engine receives (`EngineCommand`, today's queue line
 - **Nothing is dropped quietly.** Malformed models, a missing pack screen, an event
   without a binding and a state channel without a consumer are error log lines and, with
   `Config::show_errors`, toasts.
+
+## Game pictures in rows
+
+Widgets name pictures by group and picture of the game's `pictures.ini`
+(`ImageRef{kind "atlas", group, image}`). `PictureOf(image)` (controls.h) turns that into
+the row image `{kind: "item", texture: "atlas:GROUP/Picture"}`; `<ui-game-image>` resolves
+it at run time through `<game root>/RESOURCE/INI/interfaces/pictures.ini`
+(`picture_atlas.h`) to the texture and rectangle. Nothing of the game is bundled; without
+a game root the neutral placeholder stays.
 
 ## State channels
 

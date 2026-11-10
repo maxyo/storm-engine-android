@@ -209,6 +209,20 @@ void Bindings::SendLatest(const Widget &widget, const std::string &verb, const s
     router_.waiting_.push_back({std::move(action), router_.last_flush_ + kFlushSeconds});
 }
 
+void Bindings::SendAfter(double seconds, const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard)
+{
+    Action action = router_.Make(widget, verb, value, guard);
+    const double due = router_.surface_.Now() + seconds;
+    for (Router::Waiting &waiting : router_.waiting_)
+        if (waiting.action.node == action.node && waiting.action.index == action.index && waiting.action.verb == action.verb)
+        {
+            waiting.action = std::move(action);
+            waiting.due = due;
+            return;
+        }
+    router_.waiting_.push_back({std::move(action), due});
+}
+
 void Bindings::Back(const Widget *exit_button)
 {
     if (exit_button && exit_button->Offers("press"))
@@ -511,7 +525,8 @@ double Router::Tick()
         return kIdle;
     const double now = surface_.Now();
     double next = kIdle;
-    for (size_t i = waiting_.size(); i-- > 0;)
+    // In the order they were asked for: an edit goes out before the press that confirms it.
+    for (size_t i = 0; i < waiting_.size();)
     {
         if (now >= waiting_[i].due)
         {
@@ -520,7 +535,10 @@ double Router::Tick()
             waiting_.erase(waiting_.begin() + static_cast<long>(i));
         }
         else
+        {
             next = std::min(next, waiting_[i].due - now);
+            ++i;
+        }
     }
     const size_t before = pending_.size();
     pending_.erase(std::remove_if(pending_.begin(), pending_.end(), [&](const PendingMark &mark) { return now >= mark.until; }),
