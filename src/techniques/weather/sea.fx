@@ -1,5 +1,3 @@
-#include "sea_shaders.h"
-
 technique Sea2_Foam
 {
     pass p0

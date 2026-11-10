@@ -1,5 +1,3 @@
-#include "worldmap_shader.h"
-
 technique WdmModelDrawStd
 {
     pass p0

@@ -1450,7 +1450,7 @@ bool SHIP::Mount(ATTRIBUTES *_pAShip)
     Assert(_pAShip);
     pAShip = _pAShip;
 
-    if (isnan(fSailState))
+    if (std::isnan(fSailState))
     {
         InitSailState();
     }

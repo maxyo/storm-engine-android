@@ -318,7 +318,7 @@ void DATA::Set(float value)
     }
     Data_type = VAR_FLOAT;
     fValue = value;
-    if (isnan(fValue))
+    if (std::isnan(fValue))
         Error("NAN ERROR");
 }
 
