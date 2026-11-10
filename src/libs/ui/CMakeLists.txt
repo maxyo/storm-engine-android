@@ -64,6 +64,7 @@ add_library(storm_ui STATIC
     src/screens/menu_game.cpp
     src/screens/menu_saves.cpp
     src/screens/menu_settings.cpp
+    src/screens/menu_title.cpp
     src/template.cpp
     src/components.cpp
     src/behaviors.cpp

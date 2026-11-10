@@ -12,6 +12,8 @@ std::string EngineCommand(const Action &action)
     if (action.screen == "dialogue") // reply: "<generation>:<index>"; edit: the typed reply text
         return action.verb == "edit" ? "dialogue:" + std::to_string(action.opening) + ":" + std::to_string(action.index) + ":" + action.value
                                      : "dialogue:" + action.value;
+    if (action.screen == "mainmenu") // the title screen's commands: "main:New", "main:Load", …
+        return action.verb == "back" ? "back" : "main:" + action.node;
     if (action.node.empty())
         return action.verb == "back" ? "back" : std::string();
     const std::string stamp = "@" + std::to_string(action.opening) + ":";

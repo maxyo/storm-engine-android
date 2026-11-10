@@ -289,12 +289,43 @@ static void Settings(const std::string &models)
            "without «Ок» the settings screen is rejected loudly");
 }
 
+static void Title(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "title.json"));
+    ExpectEqual(router.Using(), "mainmenu", "title is a ported screen");
+    ExpectEqual(surface.tag, "s-title", "title mounted");
+    Expect(surface.errors.empty() && FromTitle(), "no errors; the menus now run from the title screen");
+    Expect(surface.props["primary"]["label"] == "<menu.continue>" && surface.props["buttons"].size() == 4, "«Продолжить» and four buttons");
+    const char *const commands[][2] = {{"new", "New"}, {"load", "Load"}, {"options", "Options"}, {"credits", "Credits"}, {"exit", "Exit"}};
+    for (const auto &[id, command] : commands)
+    {
+        router.OnEvent({id, "click", ""});
+        ExpectEqual(surface.Last(), std::string("main:") + command, std::string(id) + " sends the engine's title command");
+    }
+    router.OnEvent({"about", "click", ""});
+    ExpectEqual(surface.Last(), "host app-about ", "«О программе» asks the host for its about page");
+
+    router.OnEvent({"continue", "click", ""});
+    Expect(surface.Last() == "main:Load" && ContinueRequested(), "«Продолжить» opens the saves");
+    router.SetInterface(Load(models, "saves-load.json"));
+    Expect(!ContinueRequested() && surface.Last() == "widget:save_load\tANDROID_SAVE_LIST\t0\tactivate@9:1",
+           "the saves screen loads the newest record at once");
+    InterfaceModel question = Load(models, "saves-confirm.json");
+    surface.commands.clear();
+    router.SetInterface(question);
+    Expect(surface.commands.size() == 1 && surface.Last() == "widget:save_load\tCONFIRM_YES\t-1\tpress", "and answers the load question");
+    SetFromTitle(false);
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
     GameMenu(models);
     Saves(models);
     Settings(models);
+    Title(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else

@@ -173,6 +173,21 @@ class SavesScreen final : public Screen
             chosen = &records.front();
         chosen_ = chosen ? chosen->row->row_id : std::string();
 
+        // «Продолжить» from the title screen: the newest record (the game lists them newest
+        // first) is loaded at once; with no record the list stays open.
+        if (ContinueRequested())
+        {
+            SetContinueRequested(false);
+            if (!saving && !records.empty() && records.front().row->Offers("activate"))
+            {
+                asked_ = "load";
+                asked_row_ = records.front().row->label;
+                chosen_ = records.front().row->row_id;
+                chosen = &records.front();
+                bindings.Send(*records.front().row, "activate", records.front().row->row_id);
+            }
+        }
+
         Json rows = Json::array();
         for (const Record &record : records)
         {
