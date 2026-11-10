@@ -606,6 +606,11 @@ bool CoreImpl::SaveState(const char *file_name)
         throw std::logic_error("Bad file name of save");
     }
 
+    // Resolve the path first: file_name usually points into a script stack value,
+    // and serializing runs the script OnSave handler, which reuses that storage.
+    const std::string name = file_name;
+    const auto path = std::filesystem::u8path(fio->ConvertPathResource(name.c_str()));
+
     // The state is serialized in memory and swapped in atomically
     // (temporary file -> fsync -> verify -> rename); see save_file.hpp.
     storm::save::Bytes image;
@@ -614,7 +619,6 @@ bool CoreImpl::SaveState(const char *file_name)
         return false;
     }
 
-    const auto path = std::filesystem::u8path(fio->ConvertPathResource(file_name));
     const auto validate = [](const storm::save::Bytes &stored, std::string &why) {
         storm::save::Bytes scratch;
         return storm::save::readState(stored, scratch, why);
@@ -626,7 +630,7 @@ bool CoreImpl::SaveState(const char *file_name)
     }
     if (!storm::save::writeAtomic(path, image, validate, error))
     {
-        spdlog::error("Cannot save '{}' (resolved '{}'): {}; the previous save, if any, is unchanged", file_name,
+        spdlog::error("Cannot save '{}' (resolved '{}'): {}; the previous save, if any, is unchanged", name,
                       path.string(), error);
         return false;
     }
