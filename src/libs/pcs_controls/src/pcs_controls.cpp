@@ -508,7 +508,7 @@ void PCS_CONTROLS::Update(uint32_t DeltaTime)
     nFrameCounter++;
 #ifdef __ANDROID__
     storm::android::combatInput.advance(SDL_GetTicks());
-    storm::android::heldControls.advance(SDL_GetTicks(), storm::android::combatCancelEpoch.load(std::memory_order_acquire));
+    storm::android::heldControls.advance(storm::android::combatCancelEpoch.load(std::memory_order_acquire));
 #endif
     uint32_t system_code = CE_MOUSE_X_AXIS;
     ControlsTab[system_code].state.lValue = nMouseDx;

@@ -24,7 +24,6 @@ namespace
 {
 
 constexpr double kIdle = 3600.0;
-constexpr double kHoldHeartbeat = 0.1;   // the engine lets go of a held control after 350 ms of silence
 constexpr double kChoiceSeconds = 1.5;   // a tapped order waits this long for the engine to select it
 constexpr double kSailSeconds = 1.5;     // the lever shows the position asked for until the sails follow
 constexpr double kFanSeconds = 6.0;      // an untouched ammunition fan folds by itself
@@ -243,9 +242,6 @@ class SeaScene final : public Scene
                 hold.second.down = false; // its gameplay is gone: the engine has let go already
                 continue;
             }
-            if (now - hold.second.sent >= kHoldHeartbeat)
-                SendHold(hold.first, hold.second, states.gameplay);
-            next = std::min(next, std::max(0.0, hold.second.sent + kHoldHeartbeat - now));
         }
         const auto expire = [&](bool active, double until, const std::function<void()> &end) {
             if (!active)
@@ -616,8 +612,7 @@ class SeaScene final : public Scene
 
     struct Held
     {
-        bool down = false;
-        double sent = 0.0;
+        bool down = false; // held until the pointer's up or cancel: the engine keeps it till then
     };
 
     void Helm(const std::string &value)
@@ -646,7 +641,6 @@ class SeaScene final : public Scene
 
     void SendHold(const std::string &control, Held &held, const Gameplay &gameplay)
     {
-        held.sent = hud_.Now();
         hud_.Send("hold", std::to_string(gameplay.revision) + "\t" + control + "\t" + (held.down ? "1" : "0"), "hold-" + control);
     }
 

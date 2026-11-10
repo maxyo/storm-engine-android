@@ -15,7 +15,8 @@ without editing the tool:
   (towns, interiors, jungles, caves, forts, beaches, decks, cabins...), categorised by its `type`;
 - the sea around every island of `PROGRAM/islands/islands_init.c`;
 - special scenes: the main menu with its 3D back scene, the new-game intro, one location of
-  every type at midnight, land fights (jungle, town, cave, deck), a sea battle, a boarding,
+  every type at midnight, land fights (jungle, town, cave, deck), the sea surface seen from below
+  (the first underwater location with a sea, camera looking up), a sea battle, a boarding,
   the world map and a storm entered from the world map.
 
 After the new game the script reports the size of the game's own location and island tables;

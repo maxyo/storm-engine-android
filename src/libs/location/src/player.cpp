@@ -90,7 +90,7 @@ void Player::Move(float dltTime)
     // Poll even during a scripted task: hard context invalidation and lease
     // expiry must not leave a sample waiting to resume after that task ends.
     const auto androidAxes = GetId() == core.GetEntityId("Player") ?
-        storm::android::movementInput.read(storm::android::movementTick()) : std::nullopt;
+        storm::android::movementInput.read() : std::nullopt;
     if (task.task != npct_none || command.cmd != aicmd_none || GetId() != core.GetEntityId("Player"))
     {
         androidMotionStop = false;

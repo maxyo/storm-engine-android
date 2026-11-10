@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix="storm-mobile-tables-") as directory:
         str(root / "src/libs/core/src/attributes.cpp"), "-o", str(binary),
     ], check=True)
     snapshots = [json.loads(line) for line in subprocess.check_output([str(binary)], text=True).splitlines()]
-    plain, sparse, changed, removed, empty, nations, reordered, gaps, untranslated, no_service, bad_uv, texture = snapshots
+    plain, sparse, changed, removed, empty_table, empty, nations, reordered, gaps, untranslated, no_service, bad_uv, texture = snapshots
     assert all(item["schemaVersion"] == 2 for item in snapshots)
     assert all("columnHeaders" not in row for row in plain["widgets"] + removed["widgets"])
     expected = ['Товар "A"\nшт.', '', 'Вес']
@@ -38,6 +38,9 @@ with tempfile.TemporaryDirectory(prefix="storm-mobile-tables-") as directory:
     assert [cell["column"] for cell in sparse["widgets"][0]["headerCells"]] == [0, 2]
     assert [cell["column"] for cell in changed["widgets"][0]["headerCells"]] == [0, 1, 2]
     assert all(row["headerCells"] == [] for row in empty["widgets"])
+    marker = empty_table["widgets"]
+    assert len(marker) == 1 and marker[0]["type"] == "table" and marker[0]["index"] == -1 and marker[0]["actions"] == []
+    assert marker[0]["columnHeaders"] == ["Город", "", ""]
     header = nations["widgets"][0]["headerCells"]
     assert header[1]["images"][0]["source"] == {"kind": "atlas", "group": "NATIONS", "image": 'Zeta"\\\n'}
     assert header[1]["text"] == 'Реальная "страна"\n'
@@ -58,4 +61,4 @@ with tempfile.TemporaryDirectory(prefix="storm-mobile-tables-") as directory:
     assert no_service["widgets"][0]["headerCells"][2]["text"] == ''
     assert bad_uv["widgets"][0]["headerCells"][3]["images"] == []
     assert len(texture["widgets"][0]["headerCells"][3]["images"]) == 1
-print("PASS sanitizer table headers: actual source identities/captions, reordering, duplicate/missing/ambiguous sources, safe icons, sparse indexes, UTF-8/escaping, absence vs empty; body/actions/epoch guards preserved")
+print("PASS sanitizer table headers: actual source identities/captions, reordering, duplicate/missing/ambiguous sources, safe icons, sparse indexes, UTF-8/escaping, absence vs empty, an empty table as one 'table' widget; body/actions/epoch guards preserved")
