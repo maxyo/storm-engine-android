@@ -161,6 +161,8 @@ enum S_TOKEN_TYPE
     OBJ_NEW,
     OBJ_SET,
     RANGE_NEXT,
+    OP_SLICE,
+    ARRAY_BUILD,
     TOKEN_TYPES_COUNT
 };
 // bytecode stores the instruction in one byte (read as uint8_t)

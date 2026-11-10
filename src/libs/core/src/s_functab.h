@@ -23,7 +23,7 @@ struct LocalVarInfo
 
     bool IsArray()
     {
-        return elements > 1;
+        return elements != 1; // 0: an array sized at run time
     }
 
     std::string name;

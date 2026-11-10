@@ -1631,26 +1631,38 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
 
             break;
         }
-        case INCLIDE_FILE:
-            if (Segment.Files_list->AddUnicalString(Token.GetData()))
+        case INCLIDE_FILE: {
+            // CL: "scripts\%language%\file.h" is the file of the current game language
+            std::string include_name = Token.GetData();
+            if (const auto at = include_name.find("%language%"); at != std::string::npos)
             {
-                file_code = Segment.Files_list->GetStringCode(Token.GetData());
+                if (scriptLanguage_.empty())
+                {
+                    SetError("include '%s': no game language is set", include_name.c_str());
+                    bPass1Ok = false;
+                    break;
+                }
+                include_name.replace(at, strlen("%language%"), scriptLanguage_);
+            }
+            if (Segment.Files_list->AddUnicalString(include_name.c_str()))
+            {
+                file_code = Segment.Files_list->GetStringCode(include_name.c_str());
                 Control_offset = Token.GetProgramControl() - Token.GetProgramBase(); // store program scan point
-                pApend_file = LoadFile(Token.GetData(), Append_file_size);
+                pApend_file = LoadFile(include_name.c_str(), Append_file_size);
                 if (pApend_file == nullptr)
                 {
-                    SetError("can't load file: %s", Token.GetData());
+                    SetError("can't load file: %s", include_name.c_str());
                     return false;
                 }
                 if (script_cache_mode_ != kCacheDisabled)
                 {
-                    script_cache_.files.emplace_back(Token.GetData());
+                    script_cache_.files.emplace_back(include_name.c_str());
                 }
                 if (bDebugInfo)
                 {
                     uint32_t aps;
                     strcpy_s(dbg_file_name, "#file \"");
-                    strcat_s(dbg_file_name, Token.GetData());
+                    strcat_s(dbg_file_name, include_name.c_str());
                     strcat_s(dbg_file_name, "\";");
                     aps = strlen(dbg_file_name);
                     char *pTempS;
@@ -1663,6 +1675,7 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                 Token.SetProgram(pProgram, pProgram + Control_offset);
             }
             break;
+        }
         case DEFINE_COMMAND: // create define
             // DefineTable
             if (inout == 0)
@@ -1763,6 +1776,16 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
             {
                 if (!bFunctionBlock)
                 {
+                    if (Token.GetData() && strcmp(Token.GetData(), "[") == 0)
+                    {
+                        // "type []Name(": a function returning an array
+                        if (Token.Get() != SQUARE_CLOSE_BRACKET || Token.Get() != UNKNOWN)
+                        {
+                            SetError("function name expected after 'type []'");
+                            bPass1Ok = false;
+                            break;
+                        }
+                    }
                     Token.Get();
                     if (Token.GetType() == OPEN_BRACKET)
                     {
@@ -1874,9 +1897,14 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                         vi.elements = 1;
                         vi.type = Token_type;
                         Token.Get();
-                        if (Token.GetType() == SQUARE_OPEN_BRACKET)
+                        const bool sized = Token.GetType() == SQUARE_OPEN_BRACKET && Token.Get() != SQUARE_CLOSE_BRACKET;
+                        if (Token.GetType() == SQUARE_CLOSE_BRACKET)
                         {
+                            vi.elements = kRuntimeArraySize; // "string a[];": sized by SetArraySize or @a = n
                             Token.Get();
+                        }
+                        else if (sized)
+                        {
                             if (Token.GetType() != NUMBER)
                             {
                                 def_code = DefTab.FindDef(Token.GetData());
@@ -2136,12 +2164,6 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                         if (lvi.elements == 0)
                             lvi.elements = items;
                     }
-                    if (lvi.elements == 0)
-                    {
-                        SetError("array '%s' needs a size or an initializer", lvi.name.c_str());
-                        bPass1Ok = false;
-                        lvi.elements = 1;
-                    }
                     lvi.name = LocalSlotName(lvi.name, declaredLocals[LowerName(lvi.name)]++);
                     if (func_code != INVALID_FUNC_CODE && !FuncTab.AddFuncVar(func_code, lvi))
                     {
@@ -2268,7 +2290,9 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
 
 bool COMPILER::IsIdentifier(const char *text)
 {
-    return text != nullptr && (std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_');
+    // ASCII letters, '_' and UTF-8 letters (CL has a Cyrillic parameter name)
+    return text != nullptr && (std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_' ||
+                               static_cast<unsigned char>(text[0]) >= 0x80);
 }
 
 std::string COMPILER::LowerName(const std::string &name)
@@ -4284,6 +4308,11 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                     return false;
                 break;
             }
+            if (Token.GetData() && strcmp(Token.GetData(), "[") == 0)
+            {
+                Token.Get(); // "type []Name(": a function returning an array (checked by pass 1)
+                Token.Get();
+            }
             Token_type = DetectUnknown(unk_code);
             if (Token_type == CALL_FUNCTION)
             {
@@ -4453,6 +4482,9 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             //        break;
 
         case SQUARE_OPEN_BRACKET:
+            if (Token.Get() == SQUARE_CLOSE_BRACKET)
+                break; // "type name[]" of a global array sized at run time
+            Token.StepBack();
             if (!CompileExpression(Segment))
             {
                 return false;
@@ -5256,7 +5288,13 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
         for (n = frame.arguments; n < pfi->local_vars.size(); n++)
         {
             pV = SStack.Push();
-            pV->SetType(pfi->local_vars[n].type, pfi->local_vars[n].elements);
+            if (pfi->local_vars[n].elements == 0)
+            {
+                pV->SetType(pfi->local_vars[n].type); // an array sized at run time
+                pV->SetArraySize(0);
+            }
+            else
+                pV->SetType(pfi->local_vars[n].type, pfi->local_vars[n].elements);
         }
 
         pRun_fi = &frame; // set pointer to 'this' function info
@@ -7095,6 +7133,61 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 SStack.Read(pRun_fi->stack_offset, slots[3])->Set(at);
             position->Set(at + 1);
             ExpressionResult.Set(int32_t{1});
+            break;
+        }
+        case OP_SLICE: {
+            // stack: slot or text, [start], [end]; operand: the text (a variable or the stack top)
+            uint32_t flags;
+            memcpy(&flags, &pCodeBase[ip], sizeof(uint32_t));
+            int32_t end = INT32_MAX, start = 0;
+            if (flags & 2)
+                end = IntValue(SStack.Pop());
+            if (flags & 1)
+                start = IntValue(SStack.Pop());
+            pVV = GetOperand(pCodeBase, ip);
+            pV = SStack.Read();
+            if (!pVV || !pV)
+                return false;
+            ExpressionResult.ClearType();
+            if (DATA *text = Deref(pVV))
+                ExpressionResult.Copy(text);
+            const char *chars = nullptr;
+            if (!ExpressionResult.Convert(VAR_STRING) || !ExpressionResult.Get(chars))
+            {
+                SetError("slice of a value that is not text");
+                return false;
+            }
+            const auto length = static_cast<int32_t>(strlen(chars));
+            auto clamp = [length](int32_t i) { return std::clamp(i < 0 ? length + i : i, 0, length); };
+            start = clamp(start);
+            end = clamp(end);
+            const std::string slice = start < end ? std::string(chars + start, end - start) : std::string();
+            pV->ClearType();
+            pV->Set(slice);
+            break;
+        }
+        case ARRAY_BUILD: {
+            // stack: count items -> an array of the first item's type
+            uint32_t count;
+            memcpy(&count, &pCodeBase[ip], sizeof(uint32_t));
+            std::vector<DATA> items(count);
+            for (uint32_t n = count; n-- > 0;)
+            {
+                items[n].SetVCompiler(this);
+                DATA *value = Deref(SStack.Pop());
+                if (!value)
+                {
+                    SetError("array literal item is a null reference");
+                    return false;
+                }
+                items[n].Copy(value);
+            }
+            pV = SStack.Push();
+            pV->ClearType();
+            pV->SetType(count ? items[0].GetType() : VAR_INTEGER);
+            pV->SetArraySize(count);
+            for (uint32_t n = 0; n < count; n++)
+                pV->GetArrayElement(n)->Copy(&items[n]);
             break;
         }
         case OBJ_NEW:

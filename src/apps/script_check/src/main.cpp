@@ -1,6 +1,7 @@
 // script_check: compile a game's whole script tree on the host and report every diagnostic.
 //
 //   script_check check <game dir> [--program <dir>] [--main <file>] [--dump <dir>] [--warnings]
+//                [--language <name>]   (for %language% in include paths, default english)
 //   script_check test <script>...
 //
 // check: compiles the main segment (seadogs.c) and then every other .c file under the program
@@ -101,7 +102,7 @@ bool isError(const std::string &line)
 int usage()
 {
     std::fprintf(stderr, "usage: script_check check <game dir> [--program <dir>] [--main <file>] [--dump <dir>] "
-                         "[--warnings]\n       script_check test <script>...\n");
+                         "[--warnings] [--language <name>]\n       script_check test <script>...\n");
     return 2;
 }
 
@@ -113,6 +114,7 @@ int check(int argc, char **argv)
     std::string program_name, main_name = "seadogs.c";
     fs::path dump;
     bool warnings = false;
+    std::string language = "english"; // %language% in include paths (CL)
     for (int i = 1; i < argc; ++i)
     {
         const std::string arg = argv[i];
@@ -124,6 +126,8 @@ int check(int argc, char **argv)
             dump = argv[++i];
         else if (arg == "--warnings")
             warnings = true;
+        else if (arg == "--language" && i + 1 < argc)
+            language = argv[++i];
         else
             return usage();
     }
@@ -174,6 +178,7 @@ int check(int argc, char **argv)
     COMPILER compiler;
     core_internal.Compiler = &compiler;
     compiler.ConfigureCompileCheck(&diagnostics, false);
+    compiler.SetScriptLanguage(language);
     compiler.SetProgramDirectory(program_name.c_str());
 
     const auto started = std::chrono::steady_clock::now();

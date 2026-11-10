@@ -1330,7 +1330,8 @@ bool COMPILER::CompileExpression_L6(SEGMENT_DESC &Segment)
             SetError("No matching ')' in expression");
             return false;
         }
-        CompileAuxiliaryTokens(Segment);
+        if (CompileAuxiliaryTokens(Segment) == SQUARE_OPEN_BRACKET)
+            return CompileSlice(Segment, STACK_TOP, 0); // (expression)[a .. b]
         return true;
     }
     return CompileExpression_L7(Segment);
@@ -1573,6 +1574,8 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
             CompileToken(Segment, STACK_ALLOC);
 
             sttResult = Token.Get();
+            if (sttResult == SQUARE_OPEN_BRACKET && IsSlice())
+                return CompileSlice(Segment, sttVariableField, dwVarCode); // text[a .. b]
             if (sttResult == SQUARE_OPEN_BRACKET)
             {
                 // way for array element
@@ -2032,6 +2035,19 @@ bool COMPILER::CompileCallThrough(SEGMENT_DESC &Segment, S_TOKEN_TYPE call_type)
 // { key = value, "key" = value, classtable = GlobalObject }: a new object with these attributes
 bool COMPILER::CompileObjectLiteral(SEGMENT_DESC &Segment)
 {
+    {
+        // "{ a, b }" is an array literal: its first item is not "key ="
+        char *const at = Token.GetProgramControl();
+        const uint32_t line = DebugSourceLine;
+        S_TOKEN_TYPE first = Token.Get();
+        while (first == DEBUG_LINEFEED || first == COMMENT)
+            first = Token.Get();
+        const bool object = first == BLOCK_OUT || ((first == UNKNOWN || first == STRING) && Token.Get() == OP_EQUAL);
+        Token.SetProgramControl(at);
+        DebugSourceLine = line;
+        if (!object)
+            return CompileArrayLiteral(Segment);
+    }
     CompileToken(Segment, OBJ_NEW);
     for (;;)
     {
@@ -2078,6 +2094,96 @@ bool COMPILER::CompileObjectLiteral(SEGMENT_DESC &Segment)
             return false;
         }
     }
+    CompileAuxiliaryTokens(Segment);
+    return true;
+}
+
+// after '[': is this "[a .. b]" (a slice of text, either bound optional)? The position is kept.
+bool COMPILER::IsSlice()
+{
+    char *const at = Token.GetProgramControl();
+    bool slice = false;
+    S_TOKEN_TYPE previous = SQUARE_OPEN_BRACKET;
+    for (uint32_t depth = 0;;)
+    {
+        const S_TOKEN_TYPE t = Token.Get();
+        if (t == END_OF_PROGRAMM || t == SEPARATOR || t == BLOCK_IN)
+            break;
+        if (t == SQUARE_OPEN_BRACKET || t == OPEN_BRACKET)
+            depth++;
+        else if (t == SQUARE_CLOSE_BRACKET || t == CLOSE_BRACKET)
+        {
+            if (depth-- == 0)
+                break;
+        }
+        else if (t == DOT && previous == DOT && depth == 0)
+        {
+            slice = true;
+            break;
+        }
+        if (t != DEBUG_LINEFEED && t != COMMENT)
+            previous = t;
+    }
+    Token.SetProgramControl(at);
+    return slice;
+}
+
+// [a .. b] after a variable (source) or after a bracketed expression (source STACK_TOP: the value on
+// the stack); negative bounds count from the end; leaves the text slice on the stack
+bool COMPILER::CompileSlice(SEGMENT_DESC &Segment, S_TOKEN_TYPE source, uint32_t source_code)
+{
+    uint32_t flags = 0;
+    if (Token.Get() != DOT)
+    {
+        Token.StepBack();
+        if (!CompileExpression(Segment))
+            return false;
+        flags |= 1;
+    }
+    if (Token.GetType() != DOT || Token.Get() != DOT)
+    {
+        SetError("'..' expected in slice");
+        return false;
+    }
+    if (Token.Get() != SQUARE_CLOSE_BRACKET)
+    {
+        Token.StepBack();
+        if (!CompileExpression(Segment))
+            return false;
+        if (Token.GetType() != SQUARE_CLOSE_BRACKET)
+        {
+            SetError("']' expected after slice");
+            return false;
+        }
+        flags |= 2;
+    }
+    CompileToken(Segment, OP_SLICE, 1, &flags, sizeof(uint32_t));
+    if (source == STACK_TOP)
+        CompileToken(Segment, STACK_TOP);
+    else
+        CompileToken(Segment, source, 1, &source_code, sizeof(uint32_t));
+    CompileAuxiliaryTokens(Segment);
+    return true;
+}
+
+// { a, b, c }: an array of the items' type
+bool COMPILER::CompileArrayLiteral(SEGMENT_DESC &Segment)
+{
+    uint32_t count = 0;
+    for (;;)
+    {
+        if (!CompileExpression(Segment))
+            return false;
+        count++;
+        if (Token.GetType() == BLOCK_OUT)
+            break;
+        if (Token.GetType() != COMMA)
+        {
+            SetError("',' or '}' expected in array literal");
+            return false;
+        }
+    }
+    CompileToken(Segment, ARRAY_BUILD, 1, &count, sizeof(uint32_t));
     CompileAuxiliaryTokens(Segment);
     return true;
 }

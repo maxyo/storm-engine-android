@@ -175,7 +175,7 @@ class COMPILER : public VIRTUAL_COMPILER
     static std::string LowerName(const std::string &name);
     static std::string LocalSlotName(const std::string &name, uint32_t occurrence);
     static std::string LabelKey(const std::string &func_name, const char *label);
-    static constexpr uint32_t kRuntimeArraySize = 2; // slot of an array sized at run time: an array until then
+    static constexpr uint32_t kRuntimeArraySize = 0; // elements of an array sized at run time
     uint32_t ScanLocalArraySize();
     uint32_t ConstantArraySize();
     uint32_t SkipInitializer(bool &resumed);
@@ -295,6 +295,9 @@ class COMPILER : public VIRTUAL_COMPILER
     S_TOKEN_TYPE DetectCallThrough();
     bool CompileCallThrough(SEGMENT_DESC &Segment, S_TOKEN_TYPE call_type);
     bool CompileObjectLiteral(SEGMENT_DESC &Segment);
+    bool CompileArrayLiteral(SEGMENT_DESC &Segment);
+    bool IsSlice();
+    bool CompileSlice(SEGMENT_DESC &Segment, S_TOKEN_TYPE source, uint32_t source_code);
     uint32_t FindMethod(DATA *self, const char *method);
     bool ScanObjectLiteral(ATTRIBUTES *object);
     bool PeekRangeFor(S_TOKEN_TYPE &loop_type);
@@ -331,6 +334,11 @@ class COMPILER : public VIRTUAL_COMPILER
     // missing_natives_are_errors: false for a game check (no engine library is linked), true for
     // script tests (as in the game)
     void ConfigureCompileCheck(std::vector<std::string> *sink, bool missing_natives_are_errors);
+    // the game language substituted for %language% in include paths (CL)
+    void SetScriptLanguage(std::string language)
+    {
+        scriptLanguage_ = std::move(language);
+    }
     // bytecode of a loaded segment, nullptr if it is not loaded
     const char *GetSegmentCode(const char *segment_name, uint32_t &size) const;
     // runs a script function that takes no arguments; `value` receives its result as text
@@ -451,6 +459,7 @@ private:
     // see ConfigureCompileCheck
     std::vector<std::string> *diagnosticsSink_ = nullptr;
     bool compileCheck_ = false;
+    std::string scriptLanguage_; // see SetScriptLanguage
     uint32_t compileErrors_ = 0; // errors reported while compiling the current segment
     bool missingNativesAreErrors_ = true;
     std::set<std::string> missingNatives_; // reported once per segment

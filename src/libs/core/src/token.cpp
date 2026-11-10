@@ -168,6 +168,8 @@ const char *TokenTypeName[] = { // in S_TOKEN_TYPE order
     "OBJ_NEW",
     "OBJ_SET",
     "RANGE_NEXT",
+    "OP_SLICE",
+    "ARRAY_BUILD",
 
 };
 
@@ -747,6 +749,12 @@ ptrdiff_t TOKEN::SetNTokenData(const char *pointer, ptrdiff_t Data_size)
 // search throw the program code until find non significant argument character:
 // SPACE,TAB,0,'\r','\n'
 // return number of significant symbols
+// UTF-8 no-break space (C2 A0): a blank between tokens (TEHO scripts have them)
+static bool IsNoBreakSpace(const char *pointer)
+{
+    return static_cast<unsigned char>(pointer[0]) == 0xC2 && static_cast<unsigned char>(pointer[1]) == 0xA0;
+}
+
 int32_t TOKEN::StopArgument(const char *pointer, bool bKeepControlSymbols)
 {
     int32_t size = 0;
@@ -783,7 +791,7 @@ int32_t TOKEN::StopArgument(const char *pointer, bool bKeepControlSymbols)
                 return size;
             }
         }
-        if (sym <= ' ')
+        if (static_cast<unsigned char>(sym) <= ' ' || IsNoBreakSpace(pointer)) // UTF-8 letters belong to it
             return size;
         if (sym == ';')
             return size;
@@ -1001,8 +1009,10 @@ void TOKEN::StartArgument(char *&pointer, bool bKeepControlSymbols)
             if (sym == '\t' || sym == ' ')
                 return;
         }
-        if (sym <= ' ')
+        if (static_cast<unsigned char>(sym) <= ' ') // UTF-8 letters are not blanks
             pointer++;
+        else if (IsNoBreakSpace(pointer))
+            pointer += 2;
         else
             return;
     } while (true);

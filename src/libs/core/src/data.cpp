@@ -980,6 +980,12 @@ void DATA::ClearType()
     Data_type = UNKNOWN;
     pReference = nullptr;
     sValue.clear();
+    if (bArray) // a register or stack slot that held an array (array literals, functions returning arrays)
+    {
+        bArray = false;
+        ArrayPTR.clear();
+        Number_of_elements = 1;
+    }
 }
 
 void DATA::SetType(S_TOKEN_TYPE _element_type, uint32_t array_size)
@@ -1302,7 +1308,7 @@ void DATA::SetElementsNum(uint32_t _asize)
         // ArrayPTR[n] = new DATA(Data_type);
         // new (&ArrayPTR[n]) DATA(Data_type);
         ArrayPTR.emplace_back(Data_type);
-        ArrayPTR.back().SetVCompiler(ArrayPTR[0].pVCompiler);
+        ArrayPTR.back().SetVCompiler(pVCompiler); // also when the array was empty
     }
     Number_of_elements = _asize;
 }
@@ -2124,6 +2130,15 @@ bool DATA::Copy(DATA *pV)
         }
     }
 
+    if (Data_type == UNKNOWN && pV->IsArray())
+    {
+        // a fresh value (stack slot, expression register, return value) takes the whole array
+        Data_type = pV->Data_type;
+        bArray = true;
+        Number_of_elements = pV->Number_of_elements;
+        ArrayPTR = pV->ArrayPTR;
+        return true;
+    }
     if (IsArray() && !pV->IsArray())
     {
         Error("Incorrect copy from single to array");

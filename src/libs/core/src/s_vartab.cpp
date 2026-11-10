@@ -58,7 +58,13 @@ size_t VarTable::AddVar(const VarInfo &vi)
 
     var.value = std::make_unique<DATA>();
     var.value->SetVCompiler(vc_);
-    var.value->SetType(var.type, var.elements);
+    if (var.elements == 0)
+    {
+        var.value->SetType(var.type); // "type name[]": an array sized at run time
+        var.value->SetArraySize(0);
+    }
+    else
+        var.value->SetType(var.type, var.elements);
     var.value->SetGlobalVarTableIndex(var_index); // todo change to size_t
 
     return var_index;
