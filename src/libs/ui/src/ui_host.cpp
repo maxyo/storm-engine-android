@@ -490,6 +490,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         double delay = context_->GetNextUpdateDelay();
         if (!ticking_.empty() || images)
             delay = 0.0;
+        else if (GameImagesPending())
+            delay = std::min(delay, 0.05); // a decoded picture is shown on the next frame
         delay = std::min(delay, routing);
         for (const Toast_ &toast : toasts_)
             delay = std::min(delay, std::max(0.0, toast.until - now));

@@ -1,0 +1,1062 @@
+{
+ "schemaVersion": 2,
+ "language": "english",
+ "revision": 10,
+ "screenRevision": 4,
+ "screen": "lscchar_all",
+ "widgets": [
+  {
+   "node": "TITLE",
+   "type": "heading",
+   "label": "  Character  ",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_SHIP",
+   "type": "button",
+   "label": "Ships",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_SHIP_2",
+   "type": "button",
+   "label": "Ships",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "STR_BUTTONS",
+   "type": "text",
+   "label": "Ships",
+   "value": "",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "HERO_NAME",
+   "type": "text",
+   "label": "Anne Bonny",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CHARACTER_BIG_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "portrait",
+      "image": "7"
+     }
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABBTN_1",
+   "type": "image",
+   "label": "",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 1,
+     "imageRevision": 1,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "TABS",
+      "image": "TabDeSelected"
+     }
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABBTN_2",
+   "type": "image",
+   "label": "",
+   "value": "0",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 1,
+     "imageRevision": 1,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "TABS",
+      "image": "TabSelected"
+     }
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABSTR_1",
+   "type": "text",
+   "label": "Personal 1",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABSTR_2",
+   "type": "text",
+   "label": "Ship 0",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_SKILL_1",
+   "type": "choice",
+   "label": "\tCharisma\t40%\t\t12",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "Leadership",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_SPEC",
+        "image": "Leadership skill icon"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Charisma",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "40%",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "12",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_SKILL_1",
+   "type": "choice",
+   "label": "\tRapiers\t0%\t(-2)\t3",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "FencingL",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_SPEC",
+        "image": "FencingL skill icon"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Rapiers",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "0%",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "(-2)",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "3",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_SKILL_2",
+   "type": "choice",
+   "label": "\tSailing\t0%\t\t11",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "Sailing",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_SPEC",
+        "image": "Sailing skill icon"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Sailing",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "0%",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "11",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_SKILL_2",
+   "type": "choice",
+   "label": "\tCommerce\t0%\t\t5",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "Commerce",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_SPEC",
+        "image": "Commerce skill icon"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Commerce",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "0%",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "5",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_SPECIAL",
+   "type": "choice",
+   "label": "S\tStrength\t\t5",
+   "value": "0",
+   "index": 0,
+   "enabled": false,
+   "rowId": "Strength",
+   "images": [],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "S",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Strength",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "5",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_SPECIAL",
+   "type": "choice",
+   "label": "S\tAgility\t+1\t7",
+   "value": "0",
+   "index": 1,
+   "enabled": false,
+   "rowId": "Agility",
+   "images": [],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "S",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Agility",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "+1",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "7",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tRank\t4\t",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "Rank",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Rank"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Rank",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "4",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tLife\t90 / 120\t",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "Life",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Life"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Life",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "90 / 120",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tHealth\tEXCELLENT\t",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "Health",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Health"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Health",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "EXCELLENT",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tEnergy\t30 / 40\t",
+   "value": "0",
+   "index": 3,
+   "enabled": true,
+   "rowId": "Energy",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Energy"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Energy",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "30 / 40",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tMoney\t500\t",
+   "value": "0",
+   "index": 4,
+   "enabled": true,
+   "rowId": "Money",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Money"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Money",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "500",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "LOYALITY_STR",
+   "type": "text",
+   "label": "Authority",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPUTATION_STR",
+   "type": "text",
+   "label": "Unknown adventurer",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "FREE_SKILL",
+   "type": "text",
+   "label": "2",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_SKILLUP",
+   "type": "button",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABLE_PERKS",
+   "type": "choice",
+   "label": "\tBasic defense",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "basicdefense",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "PERK_DISABLE",
+        "image": "basicdefense"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Basic defense",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_PERKS",
+   "type": "choice",
+   "label": "\tCritical hit",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "criticalhit",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "PERK_DISABLE",
+        "image": "criticalhit"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Critical hit",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "CHARACTERS_SCROLL",
+   "type": "choice",
+   "label": "Captain · Anne · Bonny · 4",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "1:0",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "CHARACTERS_SCROLL",
+   "type": "choice",
+   "label": "Navigator · Jack · Rackham · 5",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "1:1",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "CHARACTERS_SCROLL",
+   "type": "choice",
+   "label": "Boatswain · Not assigned",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "1:2",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_SUBJECT",
+   "type": "fact",
+   "label": "Anne Bonny",
+   "value": "",
+   "index": 0,
+   "enabled": false,
+   "rowId": "s0",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "character": "1",
+    "label": "Anne Bonny",
+    "face": "7",
+    "rank": "4",
+    "hero": "1",
+    "authority": "63",
+    "freeself": "1",
+    "freeship": "0",
+    "expself": "340",
+    "rateself": "1000",
+    "expship": "0",
+    "rateship": "1000"
+   }
+  },
+  {
+   "node": "ANDROID_POSTS",
+   "type": "fact",
+   "label": "Anne Bonny",
+   "value": "",
+   "index": 0,
+   "enabled": false,
+   "rowId": "pic1",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "slot": "0",
+    "post": "",
+    "role": "Captain",
+    "character": "1",
+    "label": "Anne Bonny",
+    "face": "7",
+    "rank": "4"
+   }
+  },
+  {
+   "node": "ANDROID_POSTS",
+   "type": "fact",
+   "label": "Jack Rackham",
+   "value": "",
+   "index": 1,
+   "enabled": false,
+   "rowId": "pic2",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "slot": "1",
+    "post": "navigator",
+    "role": "Navigator",
+    "character": "9",
+    "label": "Jack Rackham",
+    "face": "12",
+    "rank": "5",
+    "loyalty": "Good",
+    "salary": "1500",
+    "skill": "Sailing",
+    "skillvalue": "34"
+   }
+  },
+  {
+   "node": "ANDROID_POSTS",
+   "type": "fact",
+   "label": "",
+   "value": "",
+   "index": 2,
+   "enabled": false,
+   "rowId": "pic3",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "slot": "2",
+    "post": "boatswain",
+    "role": "Boatswain"
+   }
+  },
+  {
+   "node": "ANDROID_PASSENGERS",
+   "type": "fact",
+   "label": "Mary Read",
+   "value": "",
+   "index": 0,
+   "enabled": false,
+   "rowId": "p0",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "character": "11",
+    "label": "Mary Read",
+    "face": "30",
+    "rank": "6",
+    "loyalty": "Normal",
+    "salary": "1200"
+   }
+  },
+  {
+   "node": "ANDROID_PERKS",
+   "type": "fact",
+   "label": "Basic defense",
+   "value": "",
+   "index": 0,
+   "enabled": false,
+   "rowId": "basicdefense",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "label": "Basic defense",
+    "text": "Damage taken is 10% lower.",
+    "type": "self",
+    "learned": "0",
+    "officer": "0",
+    "need": ""
+   }
+  },
+  {
+   "node": "ANDROID_PERKS",
+   "type": "fact",
+   "label": "Critical hit",
+   "value": "",
+   "index": 1,
+   "enabled": false,
+   "rowId": "criticalhit",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "label": "Critical hit",
+    "text": "Sometimes a blow hits twice.",
+    "type": "self",
+    "learned": "0",
+    "officer": "0",
+    "need": "Basic defense"
+   }
+  }
+ ]
+}

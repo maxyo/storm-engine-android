@@ -338,6 +338,8 @@ class XINTERFACE : public XINTERFACE_BASE
     void MobileNationPickFailed(const std::string &target) const;
     std::string MobileNationFlags() const;
     void MobileCollectNations(std::vector<MobileWidget> &widgets);
+    void MobileCollectHero(std::vector<MobileWidget> &widgets);
+    void MobileCollectFacts(std::vector<MobileWidget> &widgets);
     void MobileCollectShipyard(std::vector<MobileWidget> &widgets);
     void MobileCollectTableGame(std::vector<MobileWidget> &widgets);
     void MobileCollectGoodsTransfer(std::vector<MobileWidget> &widgets);
