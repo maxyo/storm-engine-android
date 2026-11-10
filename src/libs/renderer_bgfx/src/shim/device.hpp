@@ -23,6 +23,8 @@ class Context final : public render::FrameOwner
     static Context &instance();
 
     bool init(SDL_Window *window, uint32_t width, uint32_t height, bool vsync);
+    // Host checks without a display (tests/renderer_bgfx): bgfx's Noop renderer, no window, no surface events.
+    bool init_headless(uint32_t width, uint32_t height);
     void shutdown();
     bool ready() const { return initialised_ && surface_.valid; }
     bool initialised() const { return initialised_; }
@@ -89,6 +91,7 @@ class Context final : public render::FrameOwner
         uint32_t refs = 0;
         uint32_t token = 0;
     };
+    bool start(SDL_Window *window, uint32_t width, uint32_t height, bool vsync); // null window: headless
     void create_resources();
     void pace();
     void try_restore();
