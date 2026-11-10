@@ -1654,10 +1654,10 @@ bool CXI_TABLE::MobileApply(int index, const std::string &value)
         storm::android::uiWidgetActions.push_front(
             {storm::android::mobileScreen, m_nodeName, "dispatch" + suffix, index});
     }
-    // Mouse selection focuses the table before TableSelectChange. Without this,
-    // shipyard ProcessFrame still sees SHIPS_SCROLL and resets the chosen offer.
-    if(storm::android::mobileScreen=="shipyard")
-        core.Send_Message(g_idInterface,"ls",MSG_INTERFACE_NEW_CURRENT_NODE,m_nodeName);
+    // A mouse selection focuses the table before TableSelectChange, and scripts depend on
+    // it: shipyard's ProcessFrame resets the chosen offer while SHIPS_SCROLL is current,
+    // transfer_main's hides the cargo arrows (B_LEFT / B_RIGHT) unless TABLE_LIST is.
+    core.Send_Message(g_idInterface,"ls",MSG_INTERFACE_NEW_CURRENT_NODE,m_nodeName);
     SetTopIndexForSelect(index);
     SelectLine(index);
     return true;

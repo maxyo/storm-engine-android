@@ -325,6 +325,7 @@ int main()
     cityData->SetAttribute("CityID",std::string(129,'x'));assert(storm::mobile::InterfaceTableRowId("tradebook","TABLE_CITY",city,&reference).empty());
     cityData->SetAttribute("ID","Food");assert(storm::mobile::InterfaceTableRowId("tradebook","TABLE_GOODS",city,&reference)=="Food");
     assert(!storm::mobile::LeasedTableIdentityRequired("other","TABLE_CITY"));
-    assert(core.focusedNodes.empty()); // only the shipyard moves interface focus on selection
+    // A selection focuses its table like a mouse click (scripts check the current node).
+    assert(!core.focusedNodes.empty() && core.focusedNodes.back() == "TABLE_CITY");
 
 }
