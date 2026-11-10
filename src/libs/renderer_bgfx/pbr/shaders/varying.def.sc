@@ -8,3 +8,5 @@ vec4 a_position  : POSITION;
 vec3 a_normal    : NORMAL;
 vec4 a_texcoord0 : TEXCOORD0;
 vec4 a_texcoord1 : TEXCOORD1;
+vec4 a_weight    : BLENDWEIGHT;
+ivec4 a_indices  : BLENDINDICES; // integer: bgfx binds non-normalised Uint8 with glVertexAttribIPointer

@@ -76,7 +76,11 @@ class Renderer
     void Shutdown();
     bool ready() const { return ready_; }
 
-    bgfx::ProgramHandle Program(Variant variant) const { return programs_[size_t(variant)]; }
+    // `skinned`: GEOS::AVERTEX0 vertices with the bone palette at unit 13 (not with Variant::Layer, whose textures use it).
+    bgfx::ProgramHandle Program(Variant variant, bool skinned = false) const
+    {
+        return (skinned ? skinned_programs_ : programs_)[size_t(variant)];
+    }
     bgfx::TextureHandle White() const { return white_; }
 
     bool Upload(const Environment &environment, GpuEnvironment &out, std::string &error) const;
@@ -87,11 +91,15 @@ class Renderer
 
   private:
     bool ready_ = false;
-    std::array<bgfx::ProgramHandle, size_t(Variant::Count)> programs_ = [] {
-        std::array<bgfx::ProgramHandle, size_t(Variant::Count)> all;
+    using Programs = std::array<bgfx::ProgramHandle, size_t(Variant::Count)>;
+    static Programs NoPrograms()
+    {
+        Programs all;
         all.fill(BGFX_INVALID_HANDLE);
         return all;
-    }();
+    }
+    Programs programs_ = NoPrograms();
+    Programs skinned_programs_ = NoPrograms(); // Variant::Layer stays invalid
     bgfx::TextureHandle brdf_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
     const GpuEnvironment *environment_ = nullptr;

@@ -257,7 +257,13 @@ Draw Host::prepare(const shim::Device &device, const shim::LayoutInfo &layout, b
         return {Draw::Kind::Skip};
     }
     (void)device;
-    return {Draw::Kind::Pbr, renderer_.Program(material_->desc.variant)};
+    if (layout.skinned && material_->desc.variant == pbr::Variant::Layer)
+    {
+        report_once("skinlayer:" + material_->name,
+                    "ERROR: pbr: " + material_->name + ": a layer material on a skinned model is not supported; drawn with the legacy path");
+        return {};
+    }
+    return {Draw::Kind::Pbr, renderer_.Program(material_->desc.variant, layout.skinned)};
 }
 
 void Host::submit(const shim::Device &device, const Draw &draw)

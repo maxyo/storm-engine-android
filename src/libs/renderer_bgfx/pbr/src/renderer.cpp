@@ -98,23 +98,26 @@ bool Renderer::Init(std::string &error)
     for (size_t i = 0; i < kUnitCount; ++i)
         u_.samplers[i] = bgfx::createUniform(kSamplerNames[i], bgfx::UniformType::Sampler);
     // Programs after the uniforms: the GL backend binds a program's uniforms by name when it creates it.
-    // Each program holds its own reference to the shared vertex shader; the creation references are dropped here.
-    const bgfx::ShaderHandle vs = LoadShader("vs_pbr");
-    bool ok = bgfx::isValid(vs);
+    // Each program holds its own reference to its shaders; the creation references are dropped here.
+    const bgfx::ShaderHandle vs = LoadShader("vs_pbr"), vs_skin = LoadShader("vs_pbr_skin");
+    bool ok = bgfx::isValid(vs) && bgfx::isValid(vs_skin);
     for (size_t i = 0; i < programs_.size() && ok; ++i)
     {
         const bgfx::ShaderHandle fs = LoadShader(kFragmentNames[i]);
         if (bgfx::isValid(fs))
         {
             programs_[i] = bgfx::createProgram(vs, fs, false);
+            if (Variant(i) != Variant::Layer) // the layer textures use unit 13, the bone palette's
+                skinned_programs_[i] = bgfx::createProgram(vs_skin, fs, false);
             bgfx::destroy(fs);
         }
-        ok = bgfx::isValid(programs_[i]);
+        ok = bgfx::isValid(programs_[i]) && (Variant(i) == Variant::Layer || bgfx::isValid(skinned_programs_[i]));
         if (!ok)
-            error = std::string("cannot create the program vs_pbr + ") + kFragmentNames[i];
+            error = std::string("cannot create the programs vs_pbr[_skin] + ") + kFragmentNames[i];
     }
-    if (bgfx::isValid(vs))
-        bgfx::destroy(vs);
+    for (bgfx::ShaderHandle shader : {vs, vs_skin})
+        if (bgfx::isValid(shader))
+            bgfx::destroy(shader);
     if (!ok)
     {
         Shutdown();
@@ -127,6 +130,8 @@ bool Renderer::Init(std::string &error)
 void Renderer::Shutdown()
 {
     for (auto &program : programs_)
+        Destroy(program);
+    for (auto &program : skinned_programs_)
         Destroy(program);
     Destroy(brdf_);
     Destroy(white_);
