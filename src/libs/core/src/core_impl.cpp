@@ -982,6 +982,11 @@ bool CoreImpl::SetSaveData(const char *file_name, void *data_ptr, int32_t data_s
     return Compiler->SetSaveData(file_name, data_ptr, data_size);
 }
 
+void CoreImpl::SetScriptLanguage(const char *language)
+{
+    Compiler->SetScriptLanguage(language ? language : "");
+}
+
 uint32_t CoreImpl::SetScriptFunction(IFUNCINFO *pFuncInfo)
 {
     return Compiler->SetScriptFunction(pFuncInfo);

@@ -362,6 +362,7 @@ class COMPILER : public VIRTUAL_COMPILER
     void SetScriptLanguage(std::string language)
     {
         scriptLanguage_ = std::move(language);
+        cacheKeyCalculated_ = false; // segments compiled from now on include that language's files
     }
     // bytecode of a loaded segment, nullptr if it is not loaded
     const char *GetSegmentCode(const char *segment_name, uint32_t &size) const;
@@ -489,7 +490,9 @@ private:
     std::filesystem::path cacheFolder_; // UseScriptCache; empty: the stash folder
     bool lastSegmentFromCache_ = false;
     [[nodiscard]] std::filesystem::path CacheFolder() const;
-    std::string ScriptLanguageDirectory();
+    std::string ScriptLanguageDirectory(bool report);
+    bool cacheKeyCalculated_ = false; // the script cache key (scripts, build, language)
+    uint64_t cacheKey_ = 0;
     char *appendBuffer_ = nullptr; // AppendProgram's buffer and its capacity
     uint32_t appendCapacity_ = 0;
     std::string scriptLanguage_; // see SetScriptLanguage
