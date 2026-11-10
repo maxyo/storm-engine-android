@@ -41,16 +41,17 @@ def launchers(build):
             for lang in ('C', 'CXX') if f'CMAKE_{lang}_FLAGS' in entries}
 
 
-def compiled_objects(build):
+def compiled_objects(build, make):
+    if make:
+        return next(build.rglob('*.o'), None) is not None
+    # CMake's own compiler checks leave objects under CMakeFiles/: ask Ninja's log instead.
     log = build / '.ninja_log'
-    if log.is_file():
-        return re.search(r'\.o\t', log.read_text(errors='replace'), re.M) is not None
-    return next(build.rglob('*.o'), None) is not None
+    return log.is_file() and re.search(r'\.o\t', log.read_text(errors='replace')) is not None
 
 
 def begin(build, make=False):
     (build / LOG).unlink(missing_ok=True)
-    (build / STATE).write_text('incremental\n' if compiled_objects(build) else 'fresh\n')
+    (build / STATE).write_text('incremental\n' if compiled_objects(build, make) else 'fresh\n')
     if make:
         return
     found = launchers(build)
