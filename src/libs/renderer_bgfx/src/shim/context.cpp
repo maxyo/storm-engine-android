@@ -73,6 +73,16 @@ FrameOwner *FrameOwner::Get()
     auto &context = shim::Context::instance();
     return context.initialised() ? &context : nullptr;
 }
+
+void NotifySurfaceLost()
+{
+    shim::Context::instance().surface_lost();
+}
+
+void NotifySurfaceRestored()
+{
+    shim::Context::instance().surface_restored();
+}
 } // namespace storm::render
 
 namespace storm::shim

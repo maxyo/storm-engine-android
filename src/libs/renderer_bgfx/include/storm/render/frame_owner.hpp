@@ -188,6 +188,11 @@ class FrameOwner
     virtual ~FrameOwner() = default;
 };
 
+// Platform surface lifecycle, reported by the application loop (Android pause/resume).
+// Between Lost and Restored nothing is presented and FrameClient::OnUiRender is not called.
+void NotifySurfaceLost();
+void NotifySurfaceRestored();
+
 } // namespace storm::render
 
 // Version history
