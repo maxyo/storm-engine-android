@@ -283,8 +283,10 @@ void SubscribeEngineToAppEvents()
                 if (event.immediate && core_private && core_private->initialized())
                 {
                     // Hook for scripts (the app's background autosave). Runs between frames on
-                    // the game thread. The renderer stops presenting first (early subscriber); the
-                    // Android UI thread waits in surfaceDestroyed only for a running bgfx frame.
+                    // the game thread. This handler runs before the renderer's (early handlers are
+                    // called in subscription order), so the scripts, and the save thumbnail, still
+                    // see a live surface; the renderer stops presenting right after. The Android
+                    // UI thread waits in surfaceDestroyed only for a running bgfx frame.
                     const auto started = std::chrono::steady_clock::now();
                     core_private->Event("AppWillEnterBackground");
                     spdlog::info("AppWillEnterBackground handlers took {} ms",

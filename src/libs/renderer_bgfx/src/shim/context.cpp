@@ -357,7 +357,8 @@ void Context::poll_surface()
         restore_pending_ = true;
     if (restore_pending_)
         try_restore();
-    if (density_refresh_requested_.exchange(false) && surface_.valid && read_density())
+    // Without a surface the request stays pending; try_restore re-reads the density anyway.
+    if (surface_.valid && density_refresh_requested_.exchange(false) && read_density())
     {
         ++surface_.generation;
         logf("display density %.2f", surface_.density);
@@ -395,6 +396,9 @@ void Context::try_restore()
         surface_.width_px = static_cast<uint32_t>(w);
         surface_.height_px = static_cast<uint32_t>(h);
     }
+    // The display may have changed while the surface was gone (density included).
+    density_refresh_requested_ = false;
+    read_density();
     chain.width = surface_.width_px;
     chain.height = surface_.height_px;
     chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
