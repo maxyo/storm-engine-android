@@ -81,6 +81,7 @@ public:
             if (fields[4] != "0" && fields[4] != "1") return false;
             covered_ = fields[4] == "1" && valid();
             answered_ = revision_;
+            hudPresenters.seaAnswered();
             if (!covered_) pending_ = false;
             return fields[4] == "0" || covered_;
         }
@@ -94,7 +95,7 @@ public:
     // presenting UI has not answered it yet, however slow its frame.
     bool covered(uint64_t host) const
     {
-        return valid() && frame_.host == host && (covered_ || (hudPresenters.sea && answered_ != revision_));
+        return valid() && frame_.host == host && (covered_ || (hudPresenters.sea && (hudPresenters.seaFresh || answered_ != revision_)));
     }
     // A valid offer the UI has not answered yet (for HudPresenters::watch).
     bool awaiting() const { return valid() && answered_ != revision_; }

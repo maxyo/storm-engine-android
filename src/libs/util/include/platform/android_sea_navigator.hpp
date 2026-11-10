@@ -42,7 +42,7 @@ public:
         auto a=number(parts[0]),b=number(parts[1]),c=number(parts[2]);
         if(!a||!b||!c)return reject("owner-format");
         if(*a!=revision||*b!=hud||*c!=source)return reject("owner-generation");
-        if(parts[3]=="clear"&&n==4){clear();answered_={revision,hud,source};result_="cleared";return true;}
+        if(parts[3]=="clear"&&n==4){clear();answered_={revision,hud,source};hudPresenters.seaAnswered();result_="cleared";return true;}
         if(parts[3]=="visible") {
             const auto id=n==5?number(parts[4]):std::nullopt;
             const auto *current=layout(revision,hud,source);
@@ -61,7 +61,7 @@ public:
         const bool sameOwner=revision_==revision&&hud_==hud&&source_==source;
         if(sameOwner&&layout_&&layout_->id==*id&&*layout_!=next)return reject("layout-id-reused");
         if(!layout(revision,hud,source)||layout_->id!=*id)nativeDrawnId_=presentedId_=0;
-        revision_=revision;hud_=hud;source_=source;answered_={revision,hud,source};
+        revision_=revision;hud_=hud;source_=source;answered_={revision,hud,source};hudPresenters.seaAnswered();
         layout_=next;result_="prepared";return true;
     }
     const SeaNavigatorLayout *layout(uint64_t revision,uint64_t hud,uint64_t source)const {
@@ -70,7 +70,7 @@ public:
     // The UI presents the sea HUD and has not answered this owner yet: the native compass
     // stays off until it does, however long its first frame takes.
     bool pending(uint64_t revision,uint64_t hud,uint64_t source)const {
-        return hudPresenters.sea&&!(answered_==Owner{revision,hud,source});
+        return hudPresenters.sea&&(hudPresenters.seaFresh||!(answered_==Owner{revision,hud,source}));
     }
     void didDraw(uint64_t id) { nativeDrawnId_=layout_&&layout_->id==id?id:0; }
     bool presented(uint64_t revision,uint64_t hud,uint64_t source,uint64_t id) const {

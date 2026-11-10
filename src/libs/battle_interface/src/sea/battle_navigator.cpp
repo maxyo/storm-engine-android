@@ -78,7 +78,7 @@ void BATTLE_NAVIGATOR::Draw() const
     if (!m_androidDrawn) {
         const auto &telemetry = storm::android::shipTelemetry;
         if (storm::android::seaNavigator.layout(telemetry.revision(), telemetry.hudRevision(), m_navigatorGeneration) ||
-            (telemetry.frame().valid && storm::android::seaNavigator.pending(telemetry.revision(), telemetry.hudRevision(), m_navigatorGeneration)))
+            ((telemetry.frame().valid || storm::android::hudPresenters.seaFresh) && storm::android::seaNavigator.pending(telemetry.revision(), telemetry.hudRevision(), m_navigatorGeneration)))
             return;
     }
     if (m_androidDrawn) {
@@ -1397,6 +1397,7 @@ int32_t BATTLE_NAVIGATOR::SetRectangleSegVertexTex(BI_ONETEXTURE_VERTEX *v, floa
 void BATTLE_NAVIGATOR::SetIsland()
 {
 #ifdef __ANDROID__
+    storm::android::hudPresenters.seaSceneStarted();
     ++m_navigatorGeneration;
     m_androidDrawn=false;m_androidLayoutId=0;
     storm::android::seaNavigator.clear();

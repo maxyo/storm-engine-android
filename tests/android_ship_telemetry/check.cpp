@@ -147,6 +147,9 @@ int main()
         assert(presented.acknowledge(std::to_string(epoch) + "\t0\t" + std::to_string(presented.hudRevision())) && presented.mask() == 0);
         presented.resetActivity();
         assert(presented.mask() == presented.frame().availableMask());
+        hudPresenters.seaSceneStarted(); // a new scene before its first answer: every native indicator off
+        assert(presented.mask() == ShipAll);
+        assert(presented.acknowledge(std::to_string(epoch) + "\t1\t" + std::to_string(presented.hudRevision())) && presented.mask() == 1);
         hudPresenters.sea = false;
     }
     const auto first = state.publication(0);

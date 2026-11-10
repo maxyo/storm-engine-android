@@ -282,6 +282,7 @@ public:
     bool awaiting() const { return frame_.valid && answered_ != hudRevision_; }
     uint32_t mask() const
     {
+        if (hudPresenters.sea && hudPresenters.seaFresh) return ShipAll; // a new scene, before any owner: all of it
         if (hudPresenters.sea && frame_.valid && answered_ != hudRevision_) return frame_.availableMask();
         return acknowledged_ & frame_.availableMask();
     }
@@ -305,6 +306,7 @@ public:
             hudRevision != hudRevision_ || parsed->first != revision_ || parsed->second > ShipAll || !frame_.valid) return false;
         acknowledged_ = parsed->second & frame_.availableMask();
         answered_ = hudRevision_;
+        hudPresenters.seaAnswered();
         return true;
     }
     bool offerSails(std::string_view request, uint32_t tick)
