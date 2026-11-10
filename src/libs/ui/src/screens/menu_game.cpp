@@ -69,6 +69,28 @@ std::string Joined(const Admission &admitted, const char *node)
     return text;
 }
 
+// «Продолжить» resumes through the menu's cancel (engine "back" → exitCancel → the script's
+// ProcessCancelExit), the route of MB_RESUME's own ini command. The game honours it while the
+// engine's resumeOnCancel fact is 1, also where it greys out the button itself (TEHO's
+// game_menu.c during a boarding, where the original resumes only on Esc).
+Json ResumeView(Bindings &bindings, const Widget &resume)
+{
+    const auto fact = resume.context.find("resumeOnCancel");
+    if (fact == resume.context.end())
+        bindings.Error("game_menu: MB_RESUME has no resumeOnCancel; «Продолжить» stays unavailable");
+    const bool resumes = fact != resume.context.end() && fact->second == "1";
+    if (resumes)
+        bindings.On("resume", "", [&bindings](const Event &) { bindings.Back(nullptr); });
+    else
+        bindings.Ignore("resume", "");
+    return Json{{"id", "resume"},
+                {"label", resume.label},
+                {"variant", "primary"},
+                {"disabled", !resumes},
+                {"reason", resume.unavailable_reason},
+                {"busy", bindings.Pending("resume")}};
+}
+
 class GameMenuScreen final : public Screen
 {
   public:
@@ -86,8 +108,7 @@ class GameMenuScreen final : public Screen
         SetFromTitle(false);
         Json view = Json::object();
         view["line"] = GameLine(bindings, admitted.One("ANDROID_GAME"));
-        const Widget *resume = admitted.One("MB_RESUME");
-        view["resume"] = ButtonView(bindings, *resume, "resume", "primary");
+        view["resume"] = ResumeView(bindings, *admitted.One("MB_RESUME"));
 
         Json buttons = Json::array();
         const Widget *exit = admitted.One("MB_EXITGAME") ? admitted.One("MB_EXITGAME") : admitted.One("MB_QUIT");

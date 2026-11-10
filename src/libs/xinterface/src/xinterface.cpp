@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <memory>
 #include "options_parser.hpp"
 
@@ -677,8 +678,22 @@ void XINTERFACE::Realize(uint32_t)
                                                             [this](const std::string &path) { return SaveDescription(path); }))
                 widgets.push_back(std::move(*newest));
         if (storm::android::mobileScreen == "game_menu")
+        {
             if (auto game = storm::mobile::GameIdentityWidget(storm::android::mobileScreenRevision))
                 widgets.push_back(std::move(*game));
+            // The menu's cancel (game_menu.c ProcessCancelExit on exitCancel, the route of MB_RESUME's
+            // own ini command "deactivate,event:exitCancel") resumes while the script's
+            // InterfaceStates.Buttons.Resume.enable is 1 (sti), even where the game greys out the
+            // button: TEHO's game_menu.c makes MB_RESUME unselectable during a boarding and resumes
+            // only on Esc there. The UI's «Продолжить» takes that route.
+            auto *states = static_cast<VDATA *>(core.GetScriptVariable("InterfaceStates"));
+            auto *attributes = states ? states->GetAClass() : nullptr;
+            auto *enable = attributes ? attributes->FindAClass(attributes, "Buttons.Resume.enable") : nullptr;
+            const bool resumes = enable && enable->HasValue() && std::atoi(enable->GetValue().c_str()) != 0;
+            for (auto &widget : widgets)
+                if (storm::iEquals(widget.node, "MB_RESUME"))
+                    widget.context["resumeOnCancel"] = resumes ? "1" : "0";
+        }
         if (storm::android::mobileScreen == "selectcharacter" && !storm::android::TutorialSkipSupported())
             storm::android::tutorialSkip.selected = false;
         if (storm::android::mobileScreen == "selectcharacter")
