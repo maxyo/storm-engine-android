@@ -321,7 +321,7 @@ static void Store(const std::string &models)
     router.SetInterface(Load(models, "store.json"));
     Expect(router.Using() == "store" && router.Rejection().empty(), "the ported screen returns when its nodes are back");
 
-    Expect(HostOwned("ship") && !HostOwned("store") && !HostOwned("mod_bounty"), "host keeps only the listed interfaces");
+    Expect(HostOwned("ship") && !HostOwned("store") && !HostOwned("hirecrew") && !HostOwned("mod_bounty"), "host keeps only the listed interfaces");
 }
 
 // The other commerce interfaces share the store's screen; these check what differs.
@@ -392,6 +392,48 @@ static void Commerce(const std::string &models)
     ExpectEqual(surface.Last(), "widget:itemstrade\tQTY_EDIT\t-1\tguard@7:row:0|2", "money trades only enter the amount");
 }
 
+static void Crew(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "hirecrew.json"));
+    Expect(router.Using() == "hirecrew" && surface.tag == "s-crew" && surface.errors.empty(), "hirecrew is drawn by the crew screen");
+    Json row = surface.props["list"]["rows"][0];
+    Expect(row["q"]["value"] == 40 && row["q"]["max"] == 65 && row["cells"][2]["text"] == "23", "crew on the ship, up to ship + tavern, price per man");
+    Expect(surface.props["primary"]["disabled"] == true, "nothing to confirm yet");
+    Expect(surface.props["ship"].size() == 4 && surface.props["ship"][0]["v"] == "Хорошая" && surface.props["tavern"][1]["v"] == "неопытные",
+           "morale and experience of both crews");
+    router.OnEvent({"crew", "commit", "50"});
+    ExpectEqual(surface.Last(), "widget:hirecrew\tQTY_EDIT\t-1\tguard@7:ship:0|10", "more men = hire, bound to the ship");
+
+    router.SetInterface(Load(models, "hirecrew-hire.json"));
+    row = surface.props["list"]["rows"][0];
+    Expect(row["q"]["value"] == 50 && surface.props["stats"][0]["preview"] == "50", "hiring 10 shows 50 on the ship");
+    ExpectEqual(surface.props["primary"]["label"], "Нанять 10", "primary names the deal");
+    ExpectEqual(surface.props["primary"]["sub"], "Стоимость найма 230", "with its cost");
+    router.OnEvent({"primary", "click", ""});
+    ExpectEqual(surface.Last(), "widget:hirecrew\tQTY_OK_BUTTON\t-1\tguard@7:ship:0|press", "confirm is bound to the ship");
+
+    surface.now += 2.0; // past the moment the player's own amount is preferred
+    router.Tick();
+    router.SetInterface(Load(models, "hirecrew-fire.json"));
+    Expect(surface.props["list"]["rows"][0]["q"]["value"] == 35, "firing 5 shows 35 on the ship");
+    surface.commands.clear();
+    router.OnEvent({"crew", "commit", "45"});
+    Expect(surface.commands.size() == 2 && surface.commands[0] == "widget:hirecrew\tQTY_EDIT\t-1\tguard@7:ship:0|0" &&
+               surface.commands[1] == "widget:hirecrew\tQTY_EDIT\t-1\tguard@7:ship:0|5",
+           "from firing to hiring: zero first, then the amount");
+    router.OnEvent({"header", "subject-next", ""});
+    ExpectEqual(surface.Last(), "widget:hirecrew\tSHIPS_SCROLL\t1\tselect@7:ship:1", "the next ship");
+
+    InterfaceModel broken = Load(models, "hirecrew.json");
+    broken.widgets.erase(std::remove_if(broken.widgets.begin(), broken.widgets.end(), [](const Widget &w) { return w.node == "QTY_EDIT"; }),
+                         broken.widgets.end());
+    broken.opening = 9;
+    router.SetInterface(broken);
+    Expect(router.Using() == "generic" && router.Rejection() == "QTY_EDIT(edit)" && surface.errors.size() == 1, "without its edit box the crew screen is rejected loudly");
+}
+
 static void Atlas()
 {
     PictureAtlas atlas;
@@ -434,6 +476,7 @@ int main(int argc, char **argv)
     Generic(models);
     Store(models);
     Commerce(models);
+    Crew(models);
     Atlas();
     Dialogue(models);
     if (failures)

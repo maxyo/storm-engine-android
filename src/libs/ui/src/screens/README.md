@@ -19,6 +19,7 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `router.cpp` | admission, shared extras («Прочее» sheet, note, reading sheet), event dispatch, busy marks, throttled sends, `EngineCommand` |
 | `controls.*` | shared view builders: buttons and their roles, action rows, control rows (toggle, segment, slider, stepper, field) |
 | `generic.cpp` | the generic auto-layout for interfaces without a ported screen |
+| `trade_crew.cpp` | crew hire: the trade layout with one always-open row |
 | `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout, a column table per interface |
 | `dialogue.cpp` | reference state channel: `dialogue` |
 

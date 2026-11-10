@@ -11,6 +11,7 @@ std::unique_ptr<Screen> CreateContrabandScreen();
 std::unique_ptr<Screen> CreateCannonsScreen();
 std::unique_ptr<Screen> CreateItemsTradeScreen();
 std::unique_ptr<Screen> CreateItemsBoxScreen();
+std::unique_ptr<Screen> CreateCrewScreen();
 std::unique_ptr<Screen> CreateDialogueScreen();
 std::unique_ptr<StateConsumer> CreateDialogueConsumer();
 
@@ -24,6 +25,7 @@ const ScreenEntry kPorted[] = {
     {"cannons", CreateCannonsScreen},
     {"itemstrade", CreateItemsTradeScreen},
     {"itemsbox", CreateItemsBoxScreen},
+    {"hirecrew", CreateCrewScreen},
     {"dialogue", CreateDialogueScreen},
 };
 
@@ -32,7 +34,7 @@ const ScreenEntry kPorted[] = {
 const char *const kHostOwned[] = {
     "mainmenu",       "option_screen", "game_menu", "save_load", "selectcharacter",           // menus, saves, settings
     "character",      "lscchar_all",   "items",     "ship",      "questbook", "nationrelation", // hero sections
-    "hirecrew",       "shipyard",                                                              // trade zone
+    "shipyard",                                                                                // trade zone
     "map",            "dirsailenc",    "leavebattle", "salary",  "about", "boal_frame", "quick_save", // reading menus
 };
 
