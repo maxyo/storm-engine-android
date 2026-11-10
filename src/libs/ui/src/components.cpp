@@ -402,9 +402,16 @@ void ComponentElement::OnUpdate()
         RebuildNow();
 }
 
+void ComponentElement::OnLayout()
+{
+    Rml::Element::OnLayout();
+    ++services_.Counters().laid_out;
+}
+
 void ComponentElement::RebuildNow()
 {
     dirty_ = false;
+    ++services_.Counters().rebuilds;
 
     // First build: the element's own children are the content for the slot.
     std::vector<Rml::ElementPtr> kept;
