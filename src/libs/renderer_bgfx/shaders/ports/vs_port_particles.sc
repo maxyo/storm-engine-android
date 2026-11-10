@@ -1,6 +1,7 @@
 $input a_position, a_color0, a_texcoord0, a_texcoord1, a_tangent, a_weight, a_texcoord2, a_texcoord3
 $output v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v_texcoord4, v_fog
 // Port of the technique shader particles_vertex_shader (vs_1_1) of src/techniques/particles/particles.fx, one D3D9 instruction per line.
+#define PORT_VSC_COUNT 14 // registers c0..c13 (the GL program uploads exactly these)
 #include "port_vs.sh"
 
 void main()
