@@ -25,6 +25,7 @@ std::unique_ptr<Screen> CreateTitleScreen();
 std::unique_ptr<Screen> CreateNewGameScreen();
 std::unique_ptr<Screen> CreateDiceScreen();
 std::unique_ptr<Screen> CreateCardsScreen();
+std::unique_ptr<Screen> CreateRepairScreen();
 
 namespace
 {
@@ -46,6 +47,7 @@ const ScreenEntry kPorted[] = {
     {"selectcharacter", CreateNewGameScreen},
     {"boal_dice", CreateDiceScreen},
     {"boal_cards", CreateCardsScreen},
+    {"repair", CreateRepairScreen},
 };
 
 // Interfaces the platform host still draws with its own forms. Anything not listed here

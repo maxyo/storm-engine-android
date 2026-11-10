@@ -513,6 +513,46 @@ static void Crew(const std::string &models)
     Expect(router.Using() == "generic" && router.Rejection() == "QTY_EDIT(edit)" && surface.errors.size() == 1, "without its edit box the crew screen is rejected loudly");
 }
 
+static void Repair(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    const InterfaceModel model = Load(models, "repair.json");
+    router.SetInterface(model);
+    Expect(router.Using() == "repair" && surface.tag == "s-repair" && surface.errors.empty(), "repair is drawn by the repair screen");
+    const Json &parts = surface.props["parts"];
+    Expect(parts.size() == 3 && parts[0]["q"]["value"] == 75 && parts[0]["q"]["min"] == 62 && parts[0]["q"]["max"] == 80,
+           "hull: set 75 %, from 62 % now up to the 80 % the materials allow");
+    ExpectEqual(parts[0]["need"], "<repair.planks> 17", "the planks the set amount takes (linear in the full-repair need)");
+    Expect(parts[2]["short"] == true && parts[2]["disabled"] == true, "sails without sailcloth: the row is off and says why");
+    Expect(surface.props["stock"][0]["value"] == "40" && surface.props["stock"][1]["value"] == "0", "planks and sailcloth in stock");
+    ExpectEqual(surface.props["primary"]["sub"], "6 <save.hours> · <repair.planks> 17", "repair button: time and planks");
+    std::string prefix = "widget:repair\t";
+
+    surface.commands.clear();
+    router.OnEvent({"hull", "commit", "78"});
+    Expect(surface.commands.size() == 3 && surface.commands[0] == prefix + "REPAIR_RIGHT_H\t-1\tpress", "+3 % = three presses of the right arrow");
+    Expect(surface.props["parts"][0]["q"]["value"] == 78, "the amount set is shown until the game answers");
+    surface.commands.clear();
+    router.OnEvent({"hull", "change", "70"});
+    Expect(surface.commands.empty(), "a drag waits until it settles");
+    surface.now += 0.5;
+    router.Tick();
+    Expect(surface.commands.size() == 5 && surface.commands[0] == prefix + "REPAIR_LEFT_H\t-1\tpress", "then 75 → 70 = five presses left");
+    surface.commands.clear();
+    router.OnEvent({"masts", "commit", "3"});
+    Expect(surface.commands.size() == 1 && surface.commands[0] == prefix + "REPAIR_RIGHT_M\t-1\tpress", "masts move all at once: one press");
+
+    router.OnEvent({"primary", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "REPAIR_OK\t-1\tpress", "repair");
+    router.OnEvent({"all-ships", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "REPAIR_ALL_SQUADRON\t-1\tpress", "all ships");
+    router.OnEvent({"header", "subject-next", ""});
+    ExpectEqual(surface.Last(), prefix + "SHIPS_SCROLL\t1\tselect@13:ship:1", "the next ship");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "REPAIR_CANCEL\t-1\tpress", "back cancels");
+}
+
 // The capability token a widget of the model offers for `verb` ("yard@7:2:press").
 static std::string Yard(const InterfaceModel &model, const char *node, int index, const char *type, const std::string &verb)
 {
@@ -891,6 +931,7 @@ int main(int argc, char **argv)
     Atlas();
     Dialogue(models);
     Games(models);
+    Repair(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else
