@@ -62,6 +62,7 @@ add_library(storm_ui STATIC
     src/screens/dialogue.cpp
     src/hud/hud.cpp
     src/hud/states.cpp
+    src/hud/land.cpp
     src/template.cpp
     src/components.cpp
     src/behaviors.cpp
