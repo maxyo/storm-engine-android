@@ -8,7 +8,6 @@ set(STORM_SDL_INCLUDE "" CACHE PATH "directory that contains SDL2/SDL.h")
 add_library(storm_check_sdl INTERFACE)
 target_include_directories(storm_check_sdl INTERFACE "${STORM_SDL_INCLUDE}")
 set(SDL2_LIBRARIES storm_check_sdl)
-add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../src/libs/scene_data" scene_data)
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx" renderer_bgfx)
 
 # Render check: the production .gm loader (geometry) feeds a Caribbean Legend model to the PBR renderer.

@@ -1,12 +1,16 @@
 # PBR materials and image-based lighting for Caribbean Legend models (see README.md).
 #
 # Added by renderer_bgfx (or tests/pbr) with add_subdirectory() after the bgfx targets and
-# storm_bgfx_embed_shaders exist. Needs the scene_data target (linked by name).
+# storm_bgfx_embed_shaders exist.
 #   storm_bgfx_pbr_core  CPU: material resolution, IBL bake (bimg), BRDF table, preset constants
 #   storm_bgfx_pbr       GPU: programs, environment textures, per-draw binding (bgfx only)
 cmake_minimum_required(VERSION 3.21)
 if(NOT TARGET bimg_encode)
     message(FATAL_ERROR "renderer_bgfx/pbr needs the pinned bgfx targets (bimg_encode)")
+endif()
+# The engine adds scene_data itself (after renderer_bgfx); stand-alone renderer builds get it from here.
+if(NOT TARGET scene_data)
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../scene_data" "${CMAKE_CURRENT_BINARY_DIR}/scene_data")
 endif()
 set_target_properties(bimg_encode PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(bimg_encode PRIVATE -w)

@@ -1,5 +1,9 @@
 # Data-only parsers of the Caribbean Legend JSON presets (model sidecar materials, lighting presets,
-# texture library, effects table). No rendering; the PBR renderer consumes these structures.
+# texture library, effects table, tone mapping). No rendering; the PBR renderer consumes these structures.
+# Also added by renderer_bgfx/pbr when a project builds the renderer on its own: the first one defines the target.
+if(TARGET scene_data)
+    return()
+endif()
 include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/nlohmann_json.cmake")
 add_library(scene_data STATIC
     src/json_reader.cpp
