@@ -399,6 +399,33 @@ void test_service(const fs::path &directory)
 }
 } // namespace
 
+// RGBA8 sources (decoded PNGs of Effekseer effects): mip chain, edge padding and the KTX transcode.
+void test_rgba_source()
+{
+    // 3x2 image: odd width exercises the clamped box filter and the block padding.
+    const uint8_t image[3 * 2 * 4] = {
+        0,   0, 0, 255, 100, 0, 0, 255, 200, 0, 0, 255, //
+        40,  0, 0, 255, 140, 0, 0, 255, 240, 0, 0, 255,
+    };
+    CHECK(full_mip_count(3, 2) == 2);
+    CHECK(full_mip_count(1024, 256) == 11);
+    const std::vector<uint8_t> chain = build_rgba_mips(image, 3, 2, 2);
+    const Layout layout{DxtFormat::Rgba8, 3, 2, 2, 1};
+    CHECK(chain.size() == dxt_payload_size(layout));
+    CHECK(chain.size() == 3 * 2 * 4 + 1 * 1 * 4);
+    CHECK(chain[24] == (0 + 100 + 40 + 140 + 2) / 4 && chain[27] == 255); // level 1 = average of 2x2
+    std::vector<uint8_t> padded(4 * 4 * 4);
+    decode_level(DxtFormat::Rgba8, chain.data(), 3, 2, padded.data());
+    CHECK(padded[3 * 4] == 200);              // x = 3 repeats x = 2
+    CHECK(padded[(3 * 4 + 0) * 4] == 40);     // y = 3 repeats y = 1
+    CHECK(choose_etc_format(DxtFormat::Rgba8, chain.data(), chain.size()) == EtcFormat::Rgb8);
+    std::vector<uint8_t> translucent = chain;
+    translucent[3] = 128;
+    CHECK(choose_etc_format(DxtFormat::Rgba8, translucent.data(), translucent.size()) == EtcFormat::Rgba8);
+    const Blob blob = transcode_to_ktx(layout, chain.data(), EtcFormat::Rgb8);
+    CHECK(blob.size == ktx_size(EtcFormat::Rgb8, layout));
+}
+
 int main()
 {
     const fs::path directory = fs::temp_directory_path() / ("storm_texture_tests_" + std::to_string(getpid()));
@@ -408,6 +435,7 @@ int main()
     test_hash();
     test_quality();
     test_cube();
+    test_rgba_source();
     test_cache_files(directory / "files");
     test_service(directory / "service");
     fs::remove_all(directory);

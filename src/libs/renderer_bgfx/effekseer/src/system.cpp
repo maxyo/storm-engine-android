@@ -3,12 +3,12 @@
 #include "storm/render/effekseer_device.hpp"
 
 #include "bgfxrenderer.h"
+#include "textures.hpp"
 
 #include <Effekseer.h>
 #include <Effekseer/Effekseer.CurveLoader.h>
 #include <Effekseer/Effekseer.DefaultEffectLoader.h>
 #include <EffekseerRendererCommon/EffekseerRenderer.Renderer.h>
-#include <EffekseerRendererCommon/TextureLoader.h>
 
 #include <bgfx/bgfx.h>
 
@@ -204,7 +204,7 @@ bool ensure_manager()
     s.manager->SetModelRenderer(EffekseerRendererBGFX::CreateModelRenderer(s.renderer, &args));
     const auto files = Effekseer::MakeRefPtr<EngineFiles>(s.settings.read_file);
     s.manager->SetEffectLoader(Effekseer::MakeRefPtr<Effekseer::DefaultEffectLoader>(files));
-    s.manager->SetTextureLoader(EffekseerRenderer::CreateTextureLoader(s.renderer->GetGraphicsDevice(), files));
+    s.manager->SetTextureLoader(CreateCachedTextureLoader(s.renderer, files, logf));
     s.manager->SetModelLoader(s.renderer->CreateModelLoader(files));
     s.manager->SetCurveLoader(Effekseer::MakeRefPtr<Effekseer::CurveLoader>(files));
     s.manager->SetMaterialLoader(Effekseer::MakeRefPtr<NoMaterials>());
@@ -470,8 +470,10 @@ void SendTrigger(InstanceId instance, int32_t index)
 
 void Update(float delta_seconds)
 {
-    if (sys().manager != nullptr)
-        sys().manager->Update(std::max(0.0f, delta_seconds) * 60.0f);
+    if (sys().manager == nullptr)
+        return;
+    PollTextures();
+    sys().manager->Update(std::max(0.0f, delta_seconds) * 60.0f);
 }
 
 bool GetEffectInfo(EffectId effect, EffectInfo &info)
@@ -490,6 +492,10 @@ Stats GetStats()
     stats.effects = static_cast<uint32_t>(s.effects.size());
     stats.instances = s.manager != nullptr ? s.manager->GetTotalInstanceCount() : 0;
     stats.draw_calls = s.last_draw_calls;
+    const TextureStats textures = GetTextureStats();
+    stats.texture_cache_hits = textures.cache_hits;
+    stats.textures_decoded = textures.decoded;
+    stats.textures_transcoding = textures.transcoding;
     return stats;
 }
 
@@ -505,6 +511,7 @@ void DetachDevice()
     System &s = sys();
     if (s.manager != nullptr)
         logf("device shutdown: releasing %zu effect(s)", s.effects.size());
+    ReleasePendingTextures();
     s.effects.clear();
     s.by_path.clear();
     s.manager.Reset();

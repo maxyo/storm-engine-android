@@ -100,6 +100,10 @@ struct Stats
     uint32_t effects = 0;
     int32_t instances = 0;
     int32_t draw_calls = 0; // in the last Draw
+    // Effect textures go through the engine texture cache (ETC2 on disk, see effekseer/README.md).
+    uint32_t texture_cache_hits = 0;   // served from the disk cache without decoding
+    uint32_t textures_decoded = 0;     // decoded (first use on this machine, or RGBA8 mode)
+    uint32_t textures_transcoding = 0; // shown as RGBA8 until their ETC2 version is ready
 };
 Stats GetStats();
 
