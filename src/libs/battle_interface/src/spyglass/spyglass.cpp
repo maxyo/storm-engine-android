@@ -177,7 +177,7 @@ void ISPYGLASS::Execute(uint32_t delta_time)
         core.Event("MSG_TELESCOPE_REQUEST", "l", 0);
 
 #ifdef __ANDROID__
-    if (const bool covered = storm::android::spyglass.covered(SDL_GetTicks()); covered != m_bAndroidCovered)
+    if (const bool covered = storm::android::spyglass.covered(); covered != m_bAndroidCovered)
     {
         m_bAndroidCovered = covered;
         ApplyInfoColors();

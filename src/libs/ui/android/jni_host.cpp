@@ -12,6 +12,7 @@
 #include <jni.h>
 #include <memory>
 #include <string>
+#include <time.h>
 #include <vector>
 
 namespace
@@ -25,7 +26,39 @@ struct Session
     std::vector<storm::ui::Action> actions;
     std::vector<storm::ui::TextRequest> text_requests;
     jobject assets_reference = nullptr; // keeps the Java AssetManager alive
+    // Debug hosts log what the UI frames cost, every few seconds (logcat tag StormUiFrames).
+    bool log_frames = false;
+    struct
+    {
+        double since = -1.0; // monotonic seconds
+        int prepares = 0, drawn = 0, cached_layers = 0, layers = 0, textures = 0, rebuilds = 0;
+        double update_ms = 0.0, render_ms = 0.0, frame_ms = 0.0, worst_ms = 0.0;
+    } frames;
 };
+
+double Seconds()
+{
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return static_cast<double>(now.tv_sec) + static_cast<double>(now.tv_nsec) * 1e-9;
+}
+
+void LogFrames(Session &session, double now)
+{
+    auto &f = session.frames;
+    if (f.since < 0.0)
+        f.since = now;
+    if (now - f.since < 5.0)
+        return;
+    const double drawn = f.drawn > 0 ? f.drawn : 1;
+    __android_log_print(ANDROID_LOG_INFO, "StormUiFrames",
+                        "%.1f s: %d prepares, %d frames drawn (%.1f/s); per drawn frame: %.2f ms in Frame (worst %.2f) = update %.2f + render %.2f "
+                        "(CPU; GPU work is asynchronous), rebuilds %.1f, layers %.1f (cached %.1f), textures %.2f",
+                        now - f.since, f.prepares, f.drawn, f.drawn / (now - f.since), f.frame_ms / drawn, f.worst_ms, f.update_ms / drawn,
+                        f.render_ms / drawn, f.rebuilds / drawn, f.layers / drawn, f.cached_layers / drawn, f.textures / drawn);
+    f = {};
+    f.since = now;
+}
 
 std::string Bytes(JNIEnv *env, jbyteArray value)
 {
@@ -72,6 +105,7 @@ JNIEXPORT jlong JNICALL Java_org_stormengine_port_StormUi_nativeCreate(JNIEnv *e
     config.on_action = [raw](const storm::ui::Action &action) { raw->actions.push_back(action); };
     config.on_text_request = [raw](const storm::ui::TextRequest &request) { raw->text_requests.push_back(request); };
     config.show_errors = show_errors == JNI_TRUE;
+    session->log_frames = config.show_errors;
     std::string error;
     session->backend = storm::ui::CreateGl3Backend(&error);
     config.backend = session->backend.get();
@@ -119,9 +153,44 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeTouch(JNIEnv *, j
     From(handle)->host->Touch(static_cast<storm::ui::TouchPhase>(phase), pointer, x, y);
 }
 
+// Settles the UI without drawing: < 0 when the frame on the screen is out of date (ask for
+// a frame), otherwise the seconds until the next Prepare.
+JNIEXPORT jdouble JNICALL Java_org_stormengine_port_StormUi_nativePrepare(JNIEnv *, jclass, jlong handle)
+{
+    Session *session = From(handle);
+    double delay = 0.0;
+    const bool draw = session->host->Prepare(delay);
+    if (session->log_frames)
+    {
+        ++session->frames.prepares;
+        LogFrames(*session, Seconds());
+    }
+    return draw ? -1.0 : delay;
+}
+
 JNIEXPORT jdouble JNICALL Java_org_stormengine_port_StormUi_nativeFrame(JNIEnv *, jclass, jlong handle)
 {
-    return From(handle)->host->Frame();
+    Session *session = From(handle);
+    const double started = session->log_frames ? Seconds() : 0.0;
+    const double delay = session->host->Frame();
+    if (session->log_frames)
+    {
+        const double now = Seconds();
+        const storm::ui::FrameStats stats = session->host->LastFrameStats();
+        auto &f = session->frames;
+        const double ms = (now - started) * 1000.0;
+        ++f.drawn;
+        f.frame_ms += ms;
+        f.worst_ms = ms > f.worst_ms ? ms : f.worst_ms;
+        f.update_ms += stats.update_ms;
+        f.render_ms += stats.render_ms;
+        f.rebuilds += stats.rebuilds;
+        f.layers += stats.layers;
+        f.cached_layers += stats.cached_layers;
+        f.textures += stats.textures;
+        LogFrames(*session, now);
+    }
+    return delay;
 }
 
 JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeToast(JNIEnv *env, jclass, jlong handle, jstring text, jstring tone)

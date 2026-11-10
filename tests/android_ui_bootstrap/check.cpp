@@ -52,7 +52,7 @@ int main(){
     landCommands.resetActivity();landCommands.update("same-land-save",frame(),10);
     assert(landCommands.offer(action("ack","1"),11));auto oldAck=action("ack","1"),oldAction=action("activateItem","i0");
     assert(landCommands.offer(oldAction,12));
-    c.releasedTables();assert(!c.handler&&!landCommands.frame().available&&!landCommands.suppressStock(13)&&!landCommands.take(13));
+    c.releasedTables();assert(!c.handler&&!landCommands.frame().available&&!landCommands.suppressStock()&&!landCommands.take(13));
     assert(!landCommands.offer(oldAck,13)&&!landCommands.offer(oldAction,13));
     c.restoreBase();c.OnLoad();assert(c.handler&&c.compiles==2&&c.order[c.order.size()-2]=="OnLoad returned");
     landCommands.update("same-land-save",frame(),14);assert(!landCommands.offer(oldAck,14));

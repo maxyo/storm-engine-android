@@ -13,7 +13,8 @@
 //               choices: [{id, name, version, languages, defaultLanguage, bytes, files,
 //               patches, place, missing}], password: {for, retry}}}
 //   downloads: {sets: [{id, kind, name, state, downloaded, wanted, rate, peers, stalled,
-//               networkError, error, errorKind, verified, main: <verb>, menu: [<verb>], busy}],
+//               networkError, error, errorKind, discovered: ""|checking|game|none|undecided,
+//               main: <verb>, menu: [<verb>], busy}],
 //               error, magnetDraft, dialog: {kind: candidates|details|error, ...}}
 //               (the app's DownloadLibraryState defines states, verbs and candidates)
 //   about:     {app: {version, code, flavor, appCommit, engineCommit, appSource,
@@ -171,8 +172,13 @@ const char *const kStages[] = {"copying", "reading", "nested", "choosing", "inst
 [[maybe_unused]] const char *const kStageKeys[] = {
     StringKey("launcher.stage.copying"),    StringKey("launcher.stage.reading"),   StringKey("launcher.stage.nested"),
     StringKey("launcher.stage.choosing"),   StringKey("launcher.stage.installing"), StringKey("launcher.stage.verifying"),
-    StringKey("launcher.stage.finishing"),  StringKey("downloads.verified_candidate"),
+    StringKey("launcher.stage.finishing"),
 };
+// What the import's discovery found in a finished set's files (the app's SetDiscovery; never
+// file names): "downloads.discovered." + result. "undecided" (password, missing volumes) says
+// nothing; the import explains it.
+const char *const kDiscovered[] = {StringKey("downloads.discovered.checking"), StringKey("downloads.discovered.game"),
+                                   StringKey("downloads.discovered.none")};
 
 // Short status for a finished import or a launcher message: {tone, lead, text}, null when none.
 Json ResultNotice(Bindings &bindings, const Json &result, bool has_game)
@@ -641,8 +647,15 @@ class DownloadsScreen final : public Screen
             bindings.Error("downloads: unknown set state " + state);
         std::string meta = known ? bindings.Text(key) : state;
         const std::string error = Str(set, "error");
-        if (Str(set, "verified") == "candidate")
-            meta += " · " + bindings.Text("downloads.verified_candidate");
+        const std::string discovered = Str(set, "discovered");
+        if (!discovered.empty() && discovered != "undecided")
+        {
+            const std::string found = "downloads.discovered." + discovered;
+            if (std::find_if(std::begin(kDiscovered), std::end(kDiscovered), [&found](const char *k) { return found == k; }) != std::end(kDiscovered))
+                meta += " · " + bindings.Text(found);
+            else
+                bindings.Error("downloads: unknown discovery result " + discovered);
+        }
         if (state == "downloading")
         {
             const std::string left = TimeLeft(bindings, rate > 0 && wanted > done ? (wanted - done) / rate : 0.0);

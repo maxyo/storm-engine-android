@@ -1,22 +1,22 @@
 {
- "schemaVersion": 1,
+ "schemaVersion": 2,
  "gameplayRevision": 8,
  "activityGeneration": 6,
  "playerId": "42",
  "mode": "melee",
- "actions": [
-  "weapon",
-  "potion",
-  "freelook",
-  "force",
-  "fast",
-  "break",
-  "parry",
-  "feint",
-  "round",
-  "pistol",
-  "block"
- ],
+ "actions": {
+  "weapon": 11,
+  "potion": 12,
+  "freelook": 13,
+  "force": 15,
+  "fast": 16,
+  "break": 17,
+  "parry": 18,
+  "feint": 19,
+  "round": 20,
+  "pistol": 21,
+  "block": 22
+ },
  "interactKind": "dialog",
  "pistol": {
   "state": "unloaded",

@@ -11,4 +11,4 @@ with tempfile.TemporaryDirectory(prefix='storm-spyglass-') as d:
                     '-I'+str(root/'src/libs/util/include'), str(Path(__file__).with_name('check.cpp')),
                     '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
-print("PASS: spyglass state JSON (hidden fields left out, escaping, revisions), captain line, coverage acknowledgement by generation and age")
+print("PASS: spyglass state JSON (hidden fields left out, escaping, revisions), captain line, coverage answers per raise without a lease, presenter pending and silent-UI withdrawal")
