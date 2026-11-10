@@ -8,8 +8,8 @@
 #include "vma.hpp"
 
 #include <algorithm>
-#include <ranges>
 #include <string>
+#include <vector>
 
 #define USE_FX // Will load techniques from fx files
 
@@ -42,11 +42,7 @@
 #define VERTEX_SHADER_CONST "vertexshaderconstant"
 #define PIXEL_SHADER_CONST "pixelshaderconstant"
 #define VERTEX_DECL "decl"
-#define ASM_SHADER "asm"
 #define PASS "pass"
-#define INCLUDE "#include"
-#define DEFINE "#define"
-#define BEGIN_BRACKET "{"
 #define END_BRACKET "}"
 #define NOSAVE_STATE "!"
 
@@ -645,12 +641,6 @@ CTechnique::CTechnique(VDX9RENDER *_pRS)
     pCurParams = nullptr;
 
     pRS = _pRS;
-
-    std::ranges::fill(sDelimTable, 0);
-    char sDelimeters[] = " ,.[]-+\0\n\r\t";
-    size_t len = strlen(sDelimeters);
-    for (uint32_t i = 0; i < len; i++)
-        sDelimTable[sDelimeters[i]] = 1;
 }
 
 CTechnique::~CTechnique()
@@ -735,10 +725,6 @@ bool isVertexDeclaration(char *pStr)
 {
     return (SkipToken(pStr, VERTEX_DECL)) ? true : false;
 }
-bool isAsm(char *pStr)
-{
-    return (SkipToken(pStr, ASM_SHADER)) ? true : false;
-}
 bool isVertexShaderConst(char *pStr)
 {
     return (SkipToken(pStr, VERTEX_SHADER_CONST)) ? true : false;
@@ -766,18 +752,6 @@ bool isTechnique(char *pStr)
 bool isPass(char *pStr)
 {
     return (SkipToken(pStr, PASS)) ? true : false;
-}
-bool isInclude(char *pStr)
-{
-    return (SkipToken(pStr, INCLUDE)) ? true : false;
-}
-bool isDefine(char *pStr)
-{
-    return (SkipToken(pStr, DEFINE)) ? true : false;
-}
-bool isBeginBracket(char *pStr)
-{
-    return (SkipToken(pStr, BEGIN_BRACKET)) ? true : false;
 }
 bool isEndBracket(char *pStr)
 {
@@ -1113,14 +1087,14 @@ uint32_t CTechnique::ProcessPass(char *pFile, uint32_t dwSize, char **pStr)
             *pPass++ = CODE_SPS;
 #ifdef USE_FX
             pTemp = SkipToken(*pStr, "=");
-            GetShaderBinPath(pTemp, CODE_SPS, temp);
+            GetShaderKey(pTemp, temp);
 
             auto i = AddShader(temp);
             shader_t *pS = &pShaders[i];
             if (pS->dwShaderType == 0)
             {
                 pS->dwShaderType = CODE_SPS;
-                ProcessShaderBin(pS, temp, CODE_SPS);
+                CreateShader(pS, temp, CODE_SPS);
             }
 #else
             GetTokenWhile(SkipToken(*pStr, "\""), temp, "\"");
@@ -1135,14 +1109,14 @@ uint32_t CTechnique::ProcessPass(char *pFile, uint32_t dwSize, char **pStr)
             *pPass++ = CODE_SVS;
 #ifdef USE_FX
             pTemp = SkipToken(*pStr, "=");
-            GetShaderBinPath(pTemp, CODE_SVS, temp);
+            GetShaderKey(pTemp, temp);
 
             auto i = AddShader(temp);
             shader_t *pS = &pShaders[i];
             if (pS->dwShaderType == 0)
             {
                 pS->dwShaderType = CODE_SVS;
-                ProcessShaderBin(pS, temp, CODE_SVS);
+                CreateShader(pS, temp, CODE_SVS);
             }
 #else
             GetTokenWhile(SkipToken(*pStr, "\""), temp, "\"");
@@ -1354,229 +1328,9 @@ uint32_t CTechnique::ProcessVertexDeclaration(shader_t *pS, char *pFile, uint32_
     return 0;
 }
 
-char *CTechnique::GetToken(char *pToken, char *pResult, bool &bToken)
+void CTechnique::GetShaderKey(char *pShaderStr, char *dest)
 {
-    char *pStart = pToken;
-    bToken = false;
-    while (*pToken && !sDelimTable[*pToken])
-        pToken++;
-    pResult[pToken - pStart] = 0;
-    if (pToken - pStart == 0 && *pToken == 0)
-        return nullptr;
-    if (pToken - pStart == 0 && sDelimTable[*pToken])
-    {
-        bToken = true;
-        pResult[0] = *pToken;
-        pResult[1] = 0;
-        return pToken + 1;
-    }
-    strncpy_s(pResult, pToken - pStart + 1, pStart, pToken - pStart);
-    return pToken;
-}
-
-char *CTechnique::Preprocessor(char *pBuffer, uint32_t &dwSize)
-{
-    bool bToken;
-    char sValue[256], sName[256], sToken[1024];
-    char *pStr = pBuffer;
-    uint32_t dwBufSize = strlen(pBuffer);
-    uint32_t i, dwNumDefines = 0;
-    char *pProgram = nullptr;
-    uint32_t dwProgramSize = 0;
-    define_t *pDefines = nullptr;
-    uint32_t dwMaxDefineElements = 0;
-    uint32_t dwMaxProgramElements = 0;
-    uint32_t dwNewSize;
-
-    // change all 0xd 0xa to 0x0
-    for (i = 0; i < dwSize; i++)
-    {
-        if (pBuffer[i] == 0xa || pBuffer[i] == 0xd)
-            pBuffer[i] = 0;
-        if (pBuffer[i] == 0x9)
-            pBuffer[i] = ' ';
-    }
-
-    while (nullptr != (pStr = GetString(pBuffer, dwBufSize, pStr)))
-    {
-        // tolwr(pStr);
-        ClearComment(pStr);
-        if (isDefine(pStr))
-        {
-            GetTokenWhile(SkipToken(pStr, DEFINE), sName, " ");
-            GetTokenWhile(SkipToken(pStr, sName), sValue, " ");
-            dwNewSize = 16 * ((dwNumDefines / 16) + 1);
-            if (dwMaxDefineElements != dwNewSize)
-            {
-                dwMaxDefineElements = dwNewSize;
-                pDefines = (define_t *)realloc(pDefines, sizeof(define_t) * dwMaxDefineElements);
-            }
-            auto len = strlen(sName) + 1;
-            pDefines[dwNumDefines].pName = new char[len];
-            memcpy(pDefines[dwNumDefines].pName, sName, len);
-
-            pDefines[dwNumDefines].dwNameLen = len - 1;
-
-            len = strlen(sValue) + 1;
-            pDefines[dwNumDefines].pValue = new char[len];
-            memcpy(pDefines[dwNumDefines].pValue, sValue, len);
-
-            dwNumDefines++;
-            pStr++;
-            continue;
-        }
-        // else real code string
-        bool bNewString = false;
-        char *pToken = pStr;
-        while (nullptr != (pToken = GetToken(pToken, sToken, bToken)))
-        {
-            uint32_t dwTempLen = strlen(sToken);
-            if (!bToken)
-            {
-                // find define
-                for (i = 0; i < dwNumDefines; i++)
-                    if (dwTempLen == pDefines[i].dwNameLen && storm::iEquals(pDefines[i].pName, sToken))
-                    {
-                        if (pDefines[i].pValue)
-                            strcpy_s(sToken, pDefines[i].pValue);
-                        dwTempLen = strlen(sToken);
-                        break;
-                    }
-            }
-            // add sToken to programm
-            dwNewSize = 8192 * (((dwTempLen + dwProgramSize + 4) / 8192) + 1);
-            if (dwNewSize > dwMaxProgramElements)
-            {
-                dwMaxProgramElements = dwNewSize;
-                pProgram = (char *)realloc(pProgram, dwMaxProgramElements);
-            }
-            strcpy_s(&pProgram[dwProgramSize], dwNewSize - dwProgramSize, sToken);
-            dwProgramSize += dwTempLen;
-            bNewString = true;
-        }
-        if (pProgram && bNewString)
-        {
-            pProgram[dwProgramSize] = 0xd;
-            pProgram[dwProgramSize + 1] = 0xa;
-            pProgram[dwProgramSize + 2] = 0x0;
-            dwProgramSize += 2;
-        }
-        pStr++;
-        continue;
-    }
-    STORM_DELETE(pBuffer);
-    if (pProgram)
-        pProgram[dwProgramSize] = 0x0;
-    dwSize = dwProgramSize;
-    // api->Trace(pProgram);
-    for (i = 0; i < dwNumDefines; i++)
-    {
-        STORM_DELETE(pDefines[i].pName);
-        STORM_DELETE(pDefines[i].pValue);
-    }
-    STORM_DELETE(pDefines);
-
-    return pProgram;
-}
-
-uint32_t CTechnique::ProcessShaderAsm(shader_t *pS, char *pFile, uint32_t dwSize, char **pStr, uint32_t dwShaderType,
-                                      bool HLSL)
-{
-    uint32_t dwFileSize;
-    uint32_t dwTotalLen = 0;
-    char *pBuffer = nullptr;
-    while (nullptr != (*pStr = GetString(pFile, dwSize, *pStr)))
-    {
-        // tolwr(*pStr);
-        ClearComment(*pStr);
-        if (isBeginBracket(*pStr))
-            TOTAL_SKIP;
-        if (isEndBracket(*pStr))
-            break; // end of declaration
-
-        char *pTemp = *pStr;
-        char *pTempBuffer = nullptr;
-
-        if (isInclude(*pStr))
-        {
-            char sIncFileName[256], sName[256];
-            GetTokenWhile(SkipToken(*pStr, "\""), &sName[0], "\"");
-            sprintf_s(sIncFileName, "%s\\%s", sCurrentDir, sName);
-            if (!fio->LoadFile(sIncFileName, &pTempBuffer, &dwFileSize))
-            {
-                core.Trace("ERROR: in file %s, file not found : %s", sCurrentFileName, sIncFileName);
-                TOTAL_SKIP;
-            }
-            pTempBuffer[dwFileSize - 1] = 0x0;
-            pTemp = pTempBuffer;
-        }
-
-        int32_t iLen = strlen(pTemp) - 1;
-        pBuffer = (char *)realloc(pBuffer, dwTotalLen + iLen + 4);
-        strcpy_s(&pBuffer[dwTotalLen], iLen + 4, pTemp);
-        strcpy_s(&pBuffer[dwTotalLen + iLen + 1], 3, "\r\n");
-        dwTotalLen += iLen + 2;
-        STORM_DELETE(pTempBuffer);
-        TOTAL_SKIP;
-    }
-#ifdef _WIN32 // replace D3DXAssembleShader with D3DCompile or similar
-#ifndef _XBOX
-    ID3DXBuffer *CompiledShader = nullptr, *ErrorShader = nullptr;
-#else
-    LPXGBUFFER CompiledShader = null, ErrorShader = null;
-#endif
-    HRESULT hr;
-    pBuffer = Preprocessor(pBuffer, dwTotalLen);
-
-    if (HLSL)
-    {
-        if (dwShaderType == CODE_SVS)
-            hr = D3DXCompileShader(pBuffer, dwTotalLen, nullptr, nullptr, "main", "vs_3_0",
-                                   D3DXSHADER_OPTIMIZATION_LEVEL3, &CompiledShader, &ErrorShader, nullptr);
-        else
-            hr = D3DXCompileShader(pBuffer, dwTotalLen, nullptr, nullptr, "main", "ps_3_0",
-                                   D3DXSHADER_OPTIMIZATION_LEVEL3, &CompiledShader, &ErrorShader, nullptr);
-    }
-    else
-        hr = D3DXAssembleShader(pBuffer, dwTotalLen, nullptr, nullptr, 0, &CompiledShader, &ErrorShader);
-
-    //#ifndef _XBOX
-    /*#else
-        hr = XGAssembleShader(0, pBuffer, dwTotalLen, 0, 0, &CompiledShader, &ErrorShader, 0, 0, 0,
-    0);//D3DXAssembleShader(pBuffer,dwTotalLen,0,0,&CompiledShader,&ErrorShader); #endif*/
-    if (D3D_OK != hr && ErrorShader)
-    {
-        const auto len = ErrorShader->GetBufferSize() + 1;
-        char *pErrStr = new char[len];
-        strncpy_s(pErrStr, len, (char *)ErrorShader->GetBufferPointer(), ErrorShader->GetBufferSize());
-        pErrStr[ErrorShader->GetBufferSize()] = 0;
-        core.Trace("ERROR: in compile shader %s\nerror:\n%s", pS->pName, pErrStr);
-        RELEASE(CompiledShader);
-        RELEASE(ErrorShader);
-        STORM_DELETE(pBuffer);
-        STORM_DELETE(pErrStr);
-        return 0;
-    }
-    if (dwShaderType == CODE_SVS)
-        hr = pRS->CreateVertexShader((uint32_t *)CompiledShader->GetBufferPointer(), &pS->pVertexShader);
-    else
-        hr = pRS->CreatePixelShader((uint32_t *)CompiledShader->GetBufferPointer(), &pS->pPixelShader);
-
-    /*#ifndef _XBOX
-    #else
-            hr = pRS->CreatePixelShader((uint32_t*)(D3DPIXELSHADERDEF
-    *)CompiledShader->GetBufferPointer(),&pS->dwShaderHandle); #endif*/
-
-    RELEASE(CompiledShader);
-    RELEASE(ErrorShader);
-#endif
-    STORM_DELETE(pBuffer);
-    return 0;
-}
-
-void CTechnique::GetShaderBinPath(char *pShaderStr, uint32_t dwShaderType, char *dest)
-{
-    // dest will contain path to shader file "currentFilename_shaderName.vso" (or .pso) in folder of sCurrentFileName
+    // dest will contain the shader key "currentFilename_shaderName" (fx base name, lower case)
     char sShaderName[256];
     if (pShaderStr[strlen(pShaderStr)-2] == '(' && pShaderStr[strlen(pShaderStr)-1] == ')')
     {
@@ -1588,33 +1342,32 @@ void CTechnique::GetShaderBinPath(char *pShaderStr, uint32_t dwShaderType, char 
         strcpy_s(sShaderName, pShaderStr);
     }
 
-    GetTokenWhile(sCurrentFileName, dest, ".");
+    const char *pBaseName = sCurrentFileName;
+    for (const char *p = sCurrentFileName; *p; p++)
+        if (*p == '\\' || *p == '/')
+            pBaseName = p + 1;
+    GetTokenWhile(const_cast<char *>(pBaseName), dest, ".");
     sprintf(dest + strlen(dest), "_%s", sShaderName);
-    if (dwShaderType == CODE_SVS)
-        sprintf(dest + strlen(dest), ".vso");
-    else
-        sprintf(dest + strlen(dest), ".pso");
+    tolwr(dest);
 }
 
-uint32_t CTechnique::ProcessShaderBin(shader_t *pS, char *pFile, uint32_t dwShaderType)
+uint32_t CTechnique::CreateShader(shader_t *pS, const char *pKey, uint32_t dwShaderType)
 {
-    char *pBuffer = nullptr;
-    if (!fio->LoadFile(pFile, &pBuffer, nullptr))
-    {
-        core.Trace("ERROR: in file %s, file not found : %s", sCurrentFileName, pFile);
-        return 0;
-    }
+    // The renderer selects its port of the shader by key: magic, key bytes padded to DWORDs, end token
+    const size_t len = strlen(pKey);
+    std::vector<uint32_t> blob(2 + (len + sizeof(uint32_t) - 1) / sizeof(uint32_t), 0);
+    blob.front() = 0x4D525453; // "STRM"
+    memcpy(&blob[1], pKey, len);
+    blob.back() = 0x0000FFFF;
 
     HRESULT hr;
     if (dwShaderType == CODE_SVS)
-        hr = pRS->CreateVertexShader((uint32_t *)pBuffer, &pS->pVertexShader);
+        hr = pRS->CreateVertexShader(blob.data(), &pS->pVertexShader);
     else
-        hr = pRS->CreatePixelShader((uint32_t *)pBuffer, &pS->pPixelShader);
+        hr = pRS->CreatePixelShader(blob.data(), &pS->pPixelShader);
 
     if (hr != D3D_OK)
-        core.Trace("ERROR: can't create shader from %s\nfrom file: %s", pS->pName, pFile);
-
-    STORM_DELETE(pBuffer);
+        core.Trace("ERROR: can't create shader %s", pKey);
     return 0;
 }
 
@@ -1638,8 +1391,6 @@ uint32_t CTechnique::ProcessVertexShader(char *pFile, uint32_t dwSize, char **pS
             break; // end of vertex shader
         if (isVertexDeclaration(*pStr))
             ProcessVertexDeclaration(pS, pFile, dwSize, pStr);
-        if (isAsm(*pStr))
-            ProcessShaderAsm(pS, pFile, dwSize, pStr, CODE_SVS);
         TOTAL_SKIP;
     }
 
@@ -1664,8 +1415,6 @@ uint32_t CTechnique::ProcessPixelShader(char *pFile, uint32_t dwSize, char **pSt
         ClearComment(*pStr);
         if (isEndBracket(*pStr))
             break; // end of vertex shader
-        if (isAsm(*pStr))
-            ProcessShaderAsm(pS, pFile, dwSize, pStr, CODE_SPS);
         TOTAL_SKIP;
     }
 

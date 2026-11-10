@@ -1,5 +1,3 @@
-#include "caustic_shaders.h"
-
 technique caustic
 {
     pass p0
