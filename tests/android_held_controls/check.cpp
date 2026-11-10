@@ -11,49 +11,55 @@ int main()
     held.update(7);
     const auto state = [&](const char *control) { return held.merge(control, 0); };
 
-    // activated, active while repeated, released
-    assert(held.offer("7\tShip_TurnLeft\t1", 100, 0));
-    held.advance(110, 0);
+    // activated, active, released: no repetition needed
+    assert(held.offer("7\tShip_TurnLeft\t1", 0));
+    held.advance(0);
     assert(state("Ship_TurnLeft") == 3 && state("Ship_TurnRight") == 0);
-    held.advance(120, 0);
+    held.advance(0);
     assert(state("Ship_TurnLeft") == 1);
-    assert(held.offer("7\tShip_TurnLeft\t1", 300, 0));
-    held.advance(600, 0);
+    assert(held.offer("7\tShip_TurnLeft\t1", 0));
+    held.advance(0);
     assert(state("Ship_TurnLeft") == 1);
-    assert(held.offer("7\tShip_TurnLeft\t0", 610, 0));
-    held.advance(620, 0);
+    assert(held.offer("7\tShip_TurnLeft\t0", 0));
+    held.advance(0);
     assert(state("Ship_TurnLeft") == 2);
-    held.advance(630, 0);
+    held.advance(0);
     assert(state("Ship_TurnLeft") == 0);
 
-    // silence lets go
-    assert(held.offer("7\tShip_TurnRight\t1", 1000, 0));
-    held.advance(1010, 0);
-    held.advance(1000 + HeldControls::leaseMs + 1, 0);
-    assert(state("Ship_TurnRight") == 2 && !held.holding("Ship_TurnRight"));
+    // Silence does not let go (event model): held through any number of frames, slow or fast,
+    // until its "0".
+    assert(held.offer("7\tShip_TurnRight\t1", 0));
+    for (int frame = 0; frame < 1000; ++frame) held.advance(0);
+    assert(state("Ship_TurnRight") == 1 && held.holding("Ship_TurnRight"));
+    assert(held.offer("7\tShip_TurnRight\t0", 0));
+    held.advance(0);
+    assert(state("Ship_TurnRight") == 2);
 
     // a physical key keeps priority; an unknown control is left alone
-    assert(held.offer("7\tShip_TurnRight\t1", 2000, 0));
-    held.advance(2001, 0);
+    assert(held.offer("7\tShip_TurnRight\t1", 0));
+    held.advance(0);
     assert(held.merge("Ship_TurnRight", 1) == 1 && held.merge("Ship_Fire", 0) == 0 && held.merge("Ship_Fire", 3) == 3);
 
-    // another gameplay revision, a cancelled input, a control the gameplay does not bind
+    // another gameplay revision keeps a taken hold (the guard decides) but refuses a new one made
+    // in the old revision; a cancelled input and a control the gameplay does not bind let go
     held.update(8);
-    held.advance(2002, 0);
-    assert(state("Ship_TurnRight") == 2);
-    assert(!held.offer("7\tShip_TurnRight\t1", 2003, 0) && held.offer("8\tShip_TurnRight\t1", 2004, 0));
-    held.advance(2005, 1);
+    held.advance(0);
+    assert(state("Ship_TurnRight") == 1);
+    assert(held.offer("7\tShip_TurnRight\t0", 0)); // the release always counts
+    held.advance(0);
+    assert(!held.offer("7\tShip_TurnRight\t1", 0) && held.offer("8\tShip_TurnRight\t1", 0));
+    held.advance(1);
     assert(!held.holding("Ship_TurnRight"));
-    assert(!held.offer("8\tWMapShipSailUp\t1", 2006, 1) && held.offer("8\tWMapShipSailDown\t1", 2006, 1));
+    assert(!held.offer("8\tWMapShipSailUp\t1", 1) && held.offer("8\tWMapShipSailDown\t1", 1));
     allowed = false;
-    held.advance(2007, 1);
+    held.advance(1);
     assert(!held.holding("WMapShipSailDown"));
     allowed = true;
 
     for (const auto *bad : {"", "8", "8\tShip_TurnLeft", "8\tShip_TurnLeft\t2", "x\tShip_TurnLeft\t1", "8\tShip_Fire\t1", "8\tChrForward\t1"})
-        assert(!held.offer(bad, 3000, 1));
+        assert(!held.offer(bad, 1));
     HeldControls unguarded;
     unguarded.update(1);
-    assert(!unguarded.offer("1\tShip_TurnLeft\t1", 1, 0));
-    std::cout << "held controls: activation phases, lease, priority, revision, cancellation, guard, malformed requests PASS\n";
+    assert(!unguarded.offer("1\tShip_TurnLeft\t1", 0));
+    std::cout << "held controls: activation phases, held through silence until released, priority, revision, cancellation, guard, malformed requests PASS\n";
 }

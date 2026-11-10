@@ -9,9 +9,12 @@ namespace storm::android
 // spyglass, the world-map sail lever and its camera button. The engine polls them like keys, so a hold is a virtual state
 // merged into Controls::GetControlState. Game-thread owned.
 //
-// Request "<gameplayRevision>\t<control>\t<0|1>". A hold belongs to the gameplay revision
-// it was made in and must be repeated at least every 350 ms; a new revision, a cancelled
-// input (cancelAndroidCombatInput) and silence release it.
+// Request "<gameplayRevision>\t<control>\t<0|1>". A hold is taken with "1" in the current
+// gameplay revision and lasts until its "0" (pointer up or cancel in the UI), a cancelled
+// input (cancelAndroidCombatInput: lifecycle, screen, UI loss) or the guard failing (the
+// gameplay no longer binds the control or the player cannot act): events, never a clock. It
+// used to need a repeat every 350 ms and to end with each gameplay revision, so a slow UI
+// frame or an unrelated state change let go of a held helm or spyglass.
 inline constexpr std::array<std::string_view, 8> HeldControlNames{"Ship_TurnLeft", "Ship_TurnRight", "TelescopeIn", "WMapShipSailUp",
                                                                  "WMapShipSailDown", "WMapShipTurnLeft", "WMapShipTurnRight", "WMapCameraSwitch"};
 class HeldControls
@@ -20,7 +23,6 @@ class HeldControls
     {
         bool wanted = false, previous = false;
         int state = 0; // 0 inactive, 1 active, 2 released, 3 activated: the CONTROL_STATE contract
-        uint32_t tick = 0;
     };
     std::array<Held, HeldControlNames.size()> held_{};
     uint64_t revision_ = 0, cancel_ = 0;
@@ -35,16 +37,11 @@ class HeldControls
         for (auto &held : held_) held.wanted = false;
     }
 public:
-    static constexpr uint32_t leaseMs = 350;
     // Installed by the engine: the current gameplay binds this control and the player can act.
     std::function<bool(std::string_view)> guard;
-    void update(uint64_t gameplayRevision)
-    {
-        if (gameplayRevision == revision_) return;
-        revision_ = gameplayRevision;
-        release();
-    }
-    bool offer(std::string_view request, uint32_t tick, uint64_t cancelEpoch)
+    // The revision a new hold must be made in; holds already taken carry on (the guard decides).
+    void update(uint64_t gameplayRevision) { revision_ = gameplayRevision; }
+    bool offer(std::string_view request, uint64_t cancelEpoch)
     {
         if (cancelEpoch != cancel_) { cancel_ = cancelEpoch; release(); }
         if (request.size() > 96) return false;
@@ -56,20 +53,19 @@ public:
         const int slot = index(control);
         if (parsed.ec != std::errc() || parsed.ptr != request.data() + first || slot < 0 || (value != "0" && value != "1")) return false;
         auto &held = held_[static_cast<size_t>(slot)];
-        if (value == "0") { held.wanted = false; return revision == revision_; }
+        if (value == "0") { held.wanted = false; return true; } // a release always counts
         if (revision != revision_ || !revision_ || !guard || !guard(control)) return false;
         held.wanted = true;
-        held.tick = tick;
         return true;
     }
     // Called at Controls::Update, once per frame.
-    void advance(uint32_t tick, uint64_t cancelEpoch)
+    void advance(uint64_t cancelEpoch)
     {
         if (cancelEpoch != cancel_) { cancel_ = cancelEpoch; release(); }
         for (size_t i = 0; i < held_.size(); ++i)
         {
             auto &held = held_[i];
-            if (held.wanted && (tick - held.tick > leaseMs || !guard || !guard(HeldControlNames[i]))) held.wanted = false;
+            if (held.wanted && (!guard || !guard(HeldControlNames[i]))) held.wanted = false;
             held.state = held.wanted ? (held.previous ? 1 : 3) : (held.previous ? 2 : 0);
             held.previous = held.wanted;
         }
