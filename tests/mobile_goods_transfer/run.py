@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Purchase list export (mobile_goods_transfer.hpp): rows, ship line, open action, click geometry."""
+"""Purchase list export (mobile_goods_transfer.hpp): rows, ship line, order action, click geometry."""
 import json, pathlib, subprocess, tempfile
 here = pathlib.Path(__file__).resolve().parent
 root = here.parents[1]
@@ -9,4 +9,4 @@ with tempfile.TemporaryDirectory(prefix='goods-transfer-') as tmp:
                     '-I' + str(root / 'src/libs/xinterface/src'), str(here / 'check.cpp'), '-o', str(exe)], check=True)
     model = json.loads(subprocess.check_output([str(exe)], text=True))
     assert model['screen'] == 'goodstransfer' and model['widgets'][-1]['node'] == 'ANDROID_GOODS_SHIP'
-print('PASS goods transfer export: rows replace the collection texts, open window, missing facts, click geometry; ASAN/UBSAN')
+print('PASS goods transfer export: rows replace the collection texts, order action, missing facts, click geometry; ASAN/UBSAN')

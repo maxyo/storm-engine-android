@@ -63,19 +63,20 @@ void XINTERFACE::MobileCollectGoodsTransfer(std::vector<MobileWidget> &widgets)
 bool XINTERFACE::MobileApplyGoodsTransfer(const std::string &value)
 {
     // Only from the list window, for a good the list shows, at this opening of the screen.
-    const auto id=storm::mobile::GoodsTransferOpenTarget(value,storm::android::mobileScreenRevision);
+    const auto order=storm::mobile::GoodsTransferOrder(value,storm::android::mobileScreenRevision);
     std::vector<MobileWidget> live;MobileCollectWidgets(live);
     const auto row=std::find_if(live.begin(),live.end(),[&](const auto &w){
-        return id&&w.node=="ANDROID_GOODS_ORDER"&&w.rowId==*id&&w.enabled;});
+        return order&&w.node=="ANDROID_GOODS_ORDER"&&w.rowId==order->good&&w.enabled;});
     if(row==live.end())return false;
+    const std::string &id=order->good;
     auto *icons=core.Entity_GetAttributeClass(g_idInterface,"GOODS_ICONS");
     auto *window=GoodsScriptObject("showWindow");
-    const char *gx=GoodsAttr(icons,"imagelist."+*id+".x"),*gy=GoodsAttr(icons,"imagelist."+*id+".y");
+    const char *gx=GoodsAttr(icons,"imagelist."+id+".x"),*gy=GoodsAttr(icons,"imagelist."+id+".y");
     const char *ox=GoodsAttr(icons,"offset.x"),*oy=GoodsAttr(icons,"offset.y");
     const char *sx=GoodsAttr(icons,"scale.x"),*sy=GoodsAttr(icons,"scale.y");
     const char *ww=GoodsAttr(window,"width"),*wh=GoodsAttr(window,"height");
     if(!gx||!gy||!ox||!oy||!sx||!sy||!ww||!wh||std::atof(sx)<=0||std::atof(sy)<=0){
-        core.Trace("goodstransfer: cannot open %s: GOODS_ICONS or showWindow geometry missing",id->c_str());
+        core.Trace("goodstransfer: cannot order %s: GOODS_ICONS or showWindow geometry missing",id.c_str());
         return false;
     }
     const storm::mobile::GoodsIconPicture picture{static_cast<float>(std::atof(ox)),static_cast<float>(std::atof(oy)),
@@ -87,5 +88,16 @@ bool XINTERFACE::MobileApplyGoodsTransfer(const std::string &value)
     if(!mouse)return false;
     mouse->SetAttributeUseFloat("x",point.x);mouse->SetAttributeUseFloat("y",point.y);
     core.Event("ShowItemsWindow");
+    // The script must now show this good's amount window; anything else is not ours to confirm.
+    const auto current=GoodsInteger("iCurGoodIndex");
+    const char *opened=current&&*current>=0?GoodsAttr(GoodsScriptObject("Goods",static_cast<uint32_t>(*current)),"name"):nullptr;
+    auto *edit=FindNode("TG_EDIT",nullptr);auto *ok=FindNode("TG_OK_BUTTON",nullptr);
+    if(!opened||id!=opened||!edit||!edit->m_bUse||!ok||!ok->m_bUse){
+        core.Trace("goodstransfer: the amount window of %s did not open",id.c_str());
+        return false;
+    }
+    if(!edit->MobileApply(-1,std::to_string(order->amount)))return false;
+    const int code=ok->CheckCommandUsed(ACTION_MOUSECLICK)?ACTION_MOUSECLICK:ACTION_ACTIVATE;
+    bool stop=false;if(auto *next=ok->DoAction(code,stop,true))SetCurNode(next);
     return true;
 }

@@ -18,7 +18,7 @@ int main()
     assert(widgets.size() == 4 && widgets[0].node == "EXIT_BTN");
     const auto &balls = widgets[1];
     assert(balls.node == "ANDROID_GOODS_ORDER" && balls.type == "choice" && balls.rowId == "Balls" && balls.index == 0);
-    assert(balls.value == "0" && balls.enabled && balls.actions == std::vector<std::string>{"open"});
+    assert(balls.value == "0" && balls.enabled && balls.actions == std::vector<std::string>{"order"});
     assert(balls.images.size() == 1 && balls.images[0].source.group == "GOODS" && balls.images[0].source.image == "Balls");
     assert(balls.context.at("order") == "600" && balls.context.at("hold") == "400");
     assert(widgets[2].context.count("hold") == 0);
@@ -32,8 +32,10 @@ int main()
     assert(widgets[0].value == "0" && widgets[1].value == "1" && !widgets[1].enabled && widgets[1].actions.empty());
     assert(widgets[2].unavailableReason == "goods-transfer:missing=companion");
     // Actions bound to this opening only.
-    assert(GoodsTransferOpenTarget("open@7:Balls", 7) == std::optional<std::string>("Balls"));
-    assert(!GoodsTransferOpenTarget("open@6:Balls", 7) && !GoodsTransferOpenTarget("open@7:", 7));
+    const auto order = GoodsTransferOrder("order@7:Balls=600", 7);
+    assert(order && order->good == "Balls" && order->amount == 600);
+    assert(!GoodsTransferOrder("order@6:Balls=600", 7) && !GoodsTransferOrder("order@7:=5", 7));
+    assert(!GoodsTransferOrder("order@7:Balls=", 7) && !GoodsTransferOrder("order@7:Balls=-3", 7) && !GoodsTransferOrder("order@7:Balls", 7));
     // The click point lands in the script's box of that good and of no neighbour (82 apart
     // vertically, 123 horizontally), also scrolled, scaled and on a wide screen.
     for (const GoodsIconPicture picture : {GoodsIconPicture{}, GoodsIconPicture{40, 25, 0.8f, 0.8f, GoodsWindowOffsetX(2400, 1080)}})

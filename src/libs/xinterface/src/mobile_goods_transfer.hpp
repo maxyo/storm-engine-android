@@ -6,14 +6,15 @@
 //   choice ANDROID_GOODS_ORDER  one row per good: label = the good's name (the collection's own
 //          text), rowId = the good id, value "1" = its amount window is open, images[0] = the atlas
 //          cell GOODS/<id>, context: order (amount to buy, PChar.TransferGoods), hold (in the
-//          selected ship's hold, absent when the script has no cargo record); actions ["open"]
+//          selected ship's hold, absent when the script has no cargo record); actions ["order"]
 //          while the list window is active.
 //   text   ANDROID_GOODS_SHIP  label = the selected ship (the script's CurCompanion string),
 //          context: index (iCurCompanion, 0-based), count (ships that can take part).
 // The collection's own GOODS_NAMES texts are dropped: the rows carry them. A fact the script does
 // not have is named in the ship widget's unavailableReason (goods-transfer:missing=...).
-// `open@<screen revision>:<good id>` opens that good's window: the engine places the interface's
-// mouse position over the good's icon (GoodsIconClick) and raises the script's ShowItemsWindow.
+// `order@<screen revision>:<good id>=<amount>` sets a good's standing order the way a player does
+// it: the engine places the interface's mouse position over the good's icon (GoodsIconClick),
+// raises the script's ShowItemsWindow, enters the amount in TG_EDIT and presses TG_OK_BUTTON.
 #include "mobile_widget.hpp"
 #include <algorithm>
 #include <optional>
@@ -56,7 +57,7 @@ inline void CollectGoodsTransfer(const GoodsTransferSource &source, std::vector<
         if (good.hold)
             row.context["hold"] = std::to_string(*good.hold);
         if (source.listActive)
-            row.actions.push_back("open");
+            row.actions.push_back("order");
         widgets.push_back(std::move(row));
         ++index;
     }
@@ -73,13 +74,22 @@ inline void CollectGoodsTransfer(const GoodsTransferSource &source, std::vector<
     widgets.push_back(std::move(ship));
 }
 
-// The good id of an `open@<revision>:<id>` action of this screen opening, or nothing.
-inline std::optional<std::string> GoodsTransferOpenTarget(const std::string &value, uint64_t revision)
+// The good and amount of an `order@<revision>:<id>=<amount>` action of this screen opening.
+struct GoodsOrder
 {
-    const std::string prefix = "open@" + std::to_string(revision) + ":";
-    if (value.rfind(prefix, 0) != 0 || value.size() == prefix.size())
+    std::string good;
+    int amount = 0;
+};
+inline std::optional<GoodsOrder> GoodsTransferOrder(const std::string &value, uint64_t revision)
+{
+    const std::string prefix = "order@" + std::to_string(revision) + ":";
+    const size_t equals = value.rfind('=');
+    if (value.rfind(prefix, 0) != 0 || equals == std::string::npos || equals <= prefix.size() || equals + 1 == value.size())
         return std::nullopt;
-    return value.substr(prefix.size());
+    const std::string digits = value.substr(equals + 1);
+    if (digits.size() > 6 || digits.find_first_not_of("0123456789") != std::string::npos)
+        return std::nullopt;
+    return GoodsOrder{value.substr(prefix.size(), equals - prefix.size()), std::stoi(digits)};
 }
 
 // GoodsTransfer.c ShowItemsWindow maps the mouse position (mx, my) to the picture as
