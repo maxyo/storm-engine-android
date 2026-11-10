@@ -875,6 +875,107 @@ static void DialogueNumber(const std::string &models)
     Expect(surface.props["edit"]["max"] == 100 && surface.props["edit"]["money"] == -1, "without the hero's money the proposal is the limit");
 }
 
+static void Nations(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    InterfaceModel model = Load(models, "nationrelation.json");
+    router.SetInterface(model);
+    ExpectEqual(router.Using(), "nationrelation", "the relations draw on the nations screen");
+    ExpectEqual(surface.tag, "s-nations", "s-nations mounted");
+    const Json &view = surface.props;
+    Expect(view["columns"].size() == 5 && view["rows"].size() == 5 && view["reputation"].size() == 4, "five nations, four reputations");
+    Expect(view["rows"][0]["cells"][0]["self"] == true && view["rows"][0]["cells"][1]["icon"] == "rel-neutral" &&
+               view["rows"][0]["cells"][2]["icon"] == "rel-war" && view["rows"][1]["cells"][3]["icon"] == "rel-ally",
+           "relation pictures become the legend glyphs");
+    Expect(view["columns"][4]["image"]["icon"] == "nation-pirates" && view["rows"][1]["image"]["icon"] == "nation-france", "our flags for the nations");
+    Expect(view["flag"]["label"] == "France" && view["apply"]["disabled"] == true && view["prev"] == true && view["next"] == true,
+           "the candidate flag, the arrows offered, «change flag» not offered");
+    Expect(view["help"].is_null() && view["helpFlag"] == true && view["helpReputation"] == true, "help offered, not open");
+    Expect(view["extras"]["rows"].empty() && view["extras"]["note"] == "", "every widget is known: no extras");
+    ExpectEqual(view["title"].get<std::string>(), "Relations", "the game's title, trimmed");
+
+    router.OnEvent({"flag-next", "click", ""});
+    ExpectEqual(surface.Last(), "widget:nationrelation\tRIGHTCHANGE_NATION\t-1\tnation@6:2:press", "› sends its capability");
+    router.OnEvent({"flag-prev", "click", ""});
+    Expect(surface.commands.size() == 1, "one capability per revision: the engine consumed this generation");
+    InterfaceModel next = model;
+    next.revision += 1;
+    for (Widget &widget : next.widgets)
+        for (std::string &action : widget.actions)
+            if (action.rfind("nation@6:2:", 0) == 0)
+                action.replace(0, 11, "nation@6:3:");
+    router.SetInterface(next);
+    router.OnEvent({"flag-prev", "click", ""});
+    ExpectEqual(surface.Last(), "widget:nationrelation\tLEFTCHANGE_NATION\t-1\tnation@6:3:press", "‹ in the next revision");
+    next.revision += 1;
+    router.SetInterface(next);
+    router.OnEvent({"help-flag", "click", ""});
+    ExpectEqual(surface.Last(), "widget:nationrelation\tFlagPic\t-2\tnation@6:3:help", "the flag's (i) asks for the game's help");
+    next.revision += 1;
+    router.SetInterface(next);
+    router.OnEvent({"help-reputation", "click", ""});
+    ExpectEqual(surface.Last(), "widget:nationrelation\tINFO_CLICK\t-2\tnation@6:3:help", "the reputation's (i) asks for the game's help");
+    next.revision += 1;
+    router.SetInterface(next);
+    router.OnEvent({"header", "section", "ship"});
+    ExpectEqual(surface.Last(), "widget:nationrelation\tI_SHIP\t-1\tnation@6:3:press", "a header section opens that section");
+    next.revision += 1;
+    router.SetInterface(next);
+    router.OnEvent({"flag-apply", "click", ""});
+    ExpectEqual(surface.Last(), "widget:nationrelation\tI_SHIP\t-1\tnation@6:3:press", "«change flag» not offered: nothing sent");
+    for (Widget &widget : next.widgets)
+        if (widget.node == "FLAGS")
+        {
+            widget.enabled = true;
+            widget.actions = {"nation@6:3:press"};
+        }
+    next.revision += 1;
+    router.SetInterface(next);
+    router.OnEvent({"flag-apply", "click", ""});
+    ExpectEqual(surface.Last(), "widget:nationrelation\tFLAGS\t-1\tnation@6:3:press", "«change flag» when offered");
+    next.revision += 1;
+    router.SetInterface(next);
+    Expect(!router.WantsBack(), "no help open: back is the engine's");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), "back", "← without an exit button: the engine's back");
+
+    // The game's help sheet.
+    InterfaceModel help = Load(models, "nationrelation-help.json");
+    help.revision = next.revision + 1;
+    router.SetInterface(help);
+    Expect(surface.props["help"]["title"] == "Ship flag" && surface.props["help"]["text"] == "The flag your ship flies.\n\nForts fire at enemies.",
+           "the help sheet: the game's texts, a tilde line becomes a blank one");
+    Expect(router.WantsBack(), "back closes the help first");
+    router.Back();
+    ExpectEqual(surface.Last(), "widget:nationrelation\ttooltip_fader\t-3\tnation@6:3:close", "Android back closes the game's help");
+    help.revision += 1;
+    router.SetInterface(help);
+    router.OnEvent({"help-close", "click", ""});
+    ExpectEqual(surface.Last(), "widget:nationrelation\ttooltip_fader\t-3\tnation@6:3:close", "✕ closes the game's help");
+
+    // Unknown relation picture: drawn as the game's picture and reported.
+    InterfaceModel odd = Load(models, "nationrelation.json");
+    odd.opening = 99;
+    for (Widget &widget : odd.widgets)
+        if (widget.type == "nation_row" && widget.index == 0)
+            widget.cells[1].images[0].image = "Vassal";
+    const size_t errors = surface.errors.size();
+    router.SetInterface(odd);
+    Expect(surface.errors.size() == errors + 1 && surface.props["rows"][0]["cells"][1]["image"]["texture"] == "atlas:relations/Vassal",
+           "an unknown relation picture is the game's picture, reported");
+
+    // Without the matrix the ported screen is not used, loudly.
+    InterfaceModel broken = Load(models, "nationrelation.json");
+    broken.opening = 100;
+    broken.widgets.erase(std::remove_if(broken.widgets.begin(), broken.widgets.end(), [](const Widget &w) { return w.type == "nation_row"; }),
+                         broken.widgets.end());
+    router.SetInterface(broken);
+    surface.now += 2.0;
+    router.Tick();
+    Expect(router.Using() == "generic" && router.Rejection() == "ANDROID_NATION_ROW(nation_row)", "without its rows the nations screen is rejected loudly");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
@@ -890,6 +991,7 @@ int main(int argc, char **argv)
     Dialogue(models);
     DialogueText(models);
     DialogueNumber(models);
+    Nations(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else
