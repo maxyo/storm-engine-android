@@ -138,6 +138,9 @@ class Host
     virtual void SubmitText(const std::string &token, const std::string &text, bool accepted) = 0;
     // True while a game interface is mounted (the host then gives the UI every touch).
     virtual bool InterfaceActive() const = 0;
+    // The platform's back (Android back, Escape) while an interface is mounted: closes the
+    // screen's sheet or open part first, as its ← does; the engine's own back otherwise.
+    virtual void Back() = 0;
 };
 
 } // namespace storm::ui

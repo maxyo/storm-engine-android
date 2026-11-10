@@ -265,14 +265,20 @@ class ShipyardScreen final : public Screen
         // Our ship: its picture and trade-in value, repair and sell.
         const std::string quote = Context(owned, "saleQuote");
         Json own{{"title", owned ? slot_name(owned) : std::string()},
-                 {"sub", !quote.empty() ? bindings.Text("yard.trade_in") + " " + KeepTogether(quote) : Context(owned, "class")},
+                 {"sub", Context(owned, "class")},
                  {"image", PictureOf(owned ? owned->FirstImage() : nullptr)},
+                 {"selected", Context(state, "previewKind") == "owned"},
+                 {"disabled", !main || !offers(owned, "select")},
                  {"actions", Json::array()}};
+        // Our ship back on the right after looking at an offer.
+        bindings.On("own", "", [send, owned](const Event &) { send(owned, "select"); });
         for (const auto &[node, id] : {std::pair{"BUTTON_REPAIR", "repair"}, std::pair{"BUTTON_SELL", "sell"}})
             if (const Widget *button = Typed(admitted, node, "button"))
             {
                 own["actions"].push_back(Json{{"id", id},
                                               {"label", button->label},
+                                              // selling is a money deal: its button names the price
+                                              {"sub", std::string(id) == "sell" ? KeepTogether(quote) : std::string()},
                                               {"disabled", !main || !offers(button, "press")},
                                               {"reason", button->unavailable_reason},
                                               {"busy", bindings.Pending(id)}});

@@ -331,6 +331,13 @@ static void Store(const std::string &models)
            "another row: cancel the open deal, then open the new one");
     router.OnEvent({"header-back", "click", ""});
     ExpectEqual(surface.Last(), "widget:store\tQTY_CANCEL_BUTTON\t-1\tguard@7:goods:0:ship:0|press", "← closes the deal first");
+    surface.commands.clear();
+    router.Back();
+    ExpectEqual(surface.Last(), "widget:store\tQTY_CANCEL_BUTTON\t-1\tguard@7:goods:0:ship:0|press", "the platform's back does what ← does");
+    router.OnEvent({"extras-more", "click", ""});
+    surface.commands.clear();
+    router.Back();
+    Expect(surface.commands.empty() && surface.props["extras"]["open"] != true, "back closes the «Прочее» sheet before anything else");
     router.OnEvent({"header", "subject-next", ""});
     Expect(surface.Last().find("SHIPS_SCROLL") == std::string::npos, "the ship cannot change during a deal");
 
@@ -546,7 +553,8 @@ static void Shipyard(const std::string &models)
     Expect(surface.props["catalog"]["rows"].size() == 3 && surface.props["catalog"]["rows"][2]["cells"][2]["text"] == "23 824" &&
                surface.props["catalog"]["rows"][0]["cells"][0]["sub"] == "«Чайка»",
            "catalogue: type, «name», grouped price");
-    Expect(surface.props["own"]["sub"] == "<yard.trade_in> 11 575" && surface.props["own"]["actions"].size() == 2, "our ship: trade-in value, repair and sell");
+    Expect(surface.props["own"]["sub"] == "Класс 5" && surface.props["own"]["actions"].size() == 2 && surface.props["own"]["actions"][1]["sub"] == "11\u00a0575",
+           "our ship: repair, and sell with its trade-in price");
     Expect(surface.props["detail"]["title"] == "Кеч «Марта»" && surface.props["detail"]["primary"].is_null() &&
                surface.props["detail"]["cannons"]["value"] == "6 фунт / 12" && surface.props["sheet"].is_null(),
            "our ship on the right; no buy button for it");
@@ -594,6 +602,11 @@ static void Shipyard(const std::string &models)
            "an offer on the right: buy with its price");
     router.OnEvent({"primary", "click", ""});
     ExpectEqual(surface.Last(), Yard(preview, "BUTTON_BUY", -1, "button", "press"), "buy presses the game's button");
+    InterfaceModel looking = preview;
+    looking.revision += 1;
+    router.SetInterface(looking);
+    router.OnEvent({"own", "click", ""});
+    ExpectEqual(surface.Last(), Yard(looking, "SHIPS_SCROLL", 0, "choice", "select"), "our ship's row brings it back to the card");
 
     const InterfaceModel sell = Load(models, "shipyard-confirm-sell.json");
     router.SetInterface(sell);
@@ -606,8 +619,8 @@ static void Shipyard(const std::string &models)
     InterfaceModel again = sell;
     again.revision += 1;
     router.SetInterface(again);
-    router.OnEvent({"header-back", "click", ""});
-    ExpectEqual(surface.Last(), Yard(again, "MSG_CANCEL", -1, "button", "press"), "← closes the window first");
+    router.Back();
+    ExpectEqual(surface.Last(), Yard(again, "MSG_CANCEL", -1, "button", "press"), "the platform's back closes the window first, as ← does");
 
     const InterfaceModel cannons = Load(models, "shipyard-cannons.json");
     router.SetInterface(cannons);

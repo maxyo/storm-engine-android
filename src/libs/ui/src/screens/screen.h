@@ -193,6 +193,9 @@ class Router
     // False when no screen is mounted or the event belongs to nothing bound.
     bool OnEvent(const Event &event);
     void SubmitText(const std::string &token, const std::string &text, bool accepted);
+    // The platform's back: the reading or «Прочее» sheet first, then what the screen's ← does,
+    // the engine's back when the screen binds no ←.
+    void Back();
     // Flushes throttled sends and expired pending marks; returns seconds until it must be
     // called again (a large number when idle).
     double Tick();

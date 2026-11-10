@@ -560,6 +560,11 @@ class HostImpl final : public Host, public Services, public screens::Surface
         return router_->Active();
     }
 
+    void Back() override
+    {
+        router_->Back();
+    }
+
     // --- screens::Surface ---------------------------------------------------------
 
     void Show(const std::string &tag, const Json &props) override

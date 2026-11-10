@@ -144,6 +144,11 @@ JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeSetInterface(
     return From(handle)->host->SetInterface(text) ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeBack(JNIEnv *, jclass, jlong handle)
+{
+    From(handle)->host->Back();
+}
+
 JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeCloseInterface(JNIEnv *, jclass, jlong handle)
 {
     From(handle)->host->CloseInterface();
