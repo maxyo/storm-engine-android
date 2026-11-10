@@ -20,6 +20,13 @@ on Android and on the Linux development host alike.
 - `include/storm/render/frame_owner.hpp` — the frame owner contract (bgfx context, surface,
   view order, client views for the UI). The header is the documentation.
 - `host-tools/` — builds only the host `shaderc` from the same pin, for cross builds.
+- `src/texture/` — DXT → ETC2 transcode (etcpak, pinned in this CMakeLists) with an on-device cache for
+  GPUs without S3TC. The tier (bc / etc2 / rgba8) is fixed per GPU at startup and logged once;
+  `texture_compression` and `texture_cache_mb` in engine.ini override it. Tests and the benchmark build with
+  `-DSTORM_BGFX_BUILD_TESTS=ON` (`storm_texture_tests`, `storm_texture_bench`).
+- `patches/` — fixes applied to the pinned bgfx at configure time (currently: re-attach to a new
+  Android native window after the activity returns from background).
+- `fx/` — optional effects package (not wired into the frame yet; see its README).
 
 ## Building
 
