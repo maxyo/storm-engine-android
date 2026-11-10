@@ -678,6 +678,13 @@ int main(int argc, char *argv[])
             {
                 gameplayState.offer(std::string_view(command).substr(9), SDL_GetTicks());
             }
+            else if (command == "shortcut:mainmenu" && storm::android::mobileScreen.empty() &&
+                     (core.GetEntityId("CAviPlayer") != invalid_entity || core.GetEntityId("WMVideoPlay") != invalid_entity))
+            {
+                // Back during a game video skips it, the way the game's Cancel does (interface.c
+                // IVideoBreak: ICancel always ends the video).
+                core_private->Event("ievntEndVideo");
+            }
             else if (command.starts_with("shortcut:"))
             {
                 if (storm::android::mobileScreen.empty())

@@ -47,10 +47,12 @@ std::unique_ptr<Screen> CreateRestScreen();
 std::unique_ptr<Screen> CreateTradeBookScreen();
 std::unique_ptr<Screen> CreateColonyCaptureScreen();
 std::unique_ptr<Screen> CreateFortCaptureScreen();
+std::unique_ptr<Screen> CreateMapScreen();
 std::unique_ptr<Screen> CreateLauncherScreen();
 std::unique_ptr<Screen> CreateDownloadsScreen();
 std::unique_ptr<Screen> CreateAboutScreen();
 std::unique_ptr<StateConsumer> CreateLauncherConsumer();
+std::unique_ptr<StateConsumer> CreateEngineNoticeConsumer();
 
 namespace
 {
@@ -94,6 +96,9 @@ const ScreenEntry kPorted[] = {
     {"tradebook", CreateTradeBookScreen},
     {"colonycapture", CreateColonyCaptureScreen},
     {"fortcapture", CreateFortCaptureScreen},
+    {"mapview", CreateMapScreen},
+    {"mapbest", CreateMapScreen},
+    {"papermap", CreateMapScreen},
     // The application's own screens, routed from the platform host's "launcher" channel; the
     // "app:" prefix keeps them apart from game interfaces (ids are ini stems, e.g. "about").
     {"app:launcher", CreateLauncherScreen},
@@ -129,6 +134,7 @@ std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()
     consumers.push_back(CreateAppSettingsConsumer());
     consumers.push_back(CreateGameOverConsumer());
     consumers.push_back(CreateLauncherConsumer());
+    consumers.push_back(CreateEngineNoticeConsumer());
     hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, ship, seaOrders, seaQuickAction, presentation, spyglass
     return consumers;
 }
