@@ -11,6 +11,7 @@
 #include <memory>
 #include <set>
 #include <span>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -86,11 +87,16 @@ class Bindings
     void Send(const Widget &widget, const std::string &verb, const std::string &value = {}, const std::string &guard = {});
     // The same, but a newer value for the same widget and verb replaces one still waiting
     // (drags): at most one goes out per flush interval.
-    void SendLatest(const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard = {});
+    // `lead`, when given, goes out right before the value in the same flush (a reset the
+    // value depends on, e.g. the trade amount's "0"): the engine never sees one without the other.
+    void SendLatest(const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard = {},
+                    const std::optional<std::string> &lead = std::nullopt);
     // Sends after `seconds` unless a newer SendAfter for the same widget and verb arrives
     // first, which replaces it and restarts the wait (settling a drag before it applies).
     void SendAfter(double seconds, const Widget &widget, const std::string &verb, const std::string &value = {},
-                   const std::string &guard = {});
+                   const std::string &guard = {}, const std::optional<std::string> &lead = std::nullopt);
+    // True while a SendLatest / SendAfter of this widget and verb has not gone out yet.
+    bool Waiting(const Widget &widget, const std::string &verb) const;
     // A setting of the application itself, not of the game (renderer options): an Action
     // without a screen that the platform host keeps (the Android host: GraphicsSettings).
     void SendHost(const std::string &node, const std::string &value);
@@ -263,6 +269,7 @@ class Router
     {
         Action action;
         double due = 0.0;
+        std::optional<Action> lead; // goes out right before `action`
     };
 
     void Build();
