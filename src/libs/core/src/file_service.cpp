@@ -1,4 +1,7 @@
 #include "file_service.h"
+
+#include <cctype>
+
 #include "core_impl.h"
 #include "string_compare.hpp"
 #include "platform/platform.hpp"
@@ -588,7 +591,7 @@ std::string FILE_SERVICE::ConvertPathResource(const char *path)
     }
     std::string conv = convert_path(path);
     std::string path_lwr = conv; // save original string if we will need to create new file in existing folder
-    std::ranges::for_each(path_lwr, [](char &c) { c = std::tolower(c); });
+    std::ranges::for_each(path_lwr, [](char &c) { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
     std::filesystem::path tmp_path = std::filesystem::u8path(path_lwr).lexically_normal(); // remove relative paths
     path_lwr = tmp_path.string();
     std::string result = ResourcePaths[path_lwr];

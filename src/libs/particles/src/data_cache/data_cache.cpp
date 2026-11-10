@@ -1,5 +1,8 @@
 #include "data_cache.h"
 
+#include <algorithm>
+#include <cctype>
+
 #include "core.h"
 #include "string_compare.hpp"
 
@@ -33,7 +36,7 @@ void DataCache::CacheSystem(const char *FileName)
     if (!storm::iEquals(pathStr, ".xps"))
         path += ".xps";
     pathStr = path.string();
-    std::transform(pathStr.begin(), pathStr.end(), pathStr.begin(), tolower);
+    std::ranges::for_each(pathStr, [](char &c) { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
     // MessageBoxA(NULL, (LPCSTR)path.c_str(), "", MB_OK); //~!~
 
     auto sysFile = fio->_CreateFile(pathStr.c_str(), std::ios::binary | std::ios::in);
@@ -80,7 +83,7 @@ DataSource *DataCache::GetParticleSystemDataSource(const char *FileName)
     if (!storm::iEquals(pathStr, ".xps"))
         path += ".xps";
     pathStr = path.string();
-    std::transform(pathStr.begin(), pathStr.end(), pathStr.begin(), tolower);
+    std::ranges::for_each(pathStr, [](char &c) { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
 
     for (auto n = 0; n < Cache.size(); n++)
     {
