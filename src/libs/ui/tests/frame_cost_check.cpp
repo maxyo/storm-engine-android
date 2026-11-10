@@ -259,6 +259,8 @@ void ScrollFling(const std::string &pack)
     {
         runtime.host->Touch(TouchPhase::Move, 1, 150, static_cast<float>(y));
         runtime.Frame();
+        if (y < 260) // the first move may add the edge fade (a new element)
+            Expect(runtime.host->LastFrameStats().laid_out == 0, "scrolling lays nothing out (the edge fade moves by transform)");
     }
     runtime.host->Touch(TouchPhase::Up, 1, 150, 60);
     int moving = 0;
