@@ -207,6 +207,13 @@ int main(int argc, char **argv)
     auto escaped = atlas;
     escaped.source.image = "quote\"\\\n";
     assert(MobileImageJson(escaped).find("quote\\\"\\\\\\u000a") != std::string::npos);
+    // A picture the engine names by file: its texture-namespace name and the rectangle shown.
+    assert(MobileTextureName("Interfaces\\Maps\\Kayman.tga") == "interfaces/maps/kayman");
+    assert(MobileTextureName("resource/textures/loading/inside/kiss.tga.tx") == "loading/inside/kiss");
+    assert(MobileTextureName("../secret.tga").empty() && MobileTextureName("C:/x.tga").empty());
+    auto texture = a;
+    texture.source = {"texture", {}, "interfaces/maps/kayman", {}, {}, -1, {0.f, 0.25f, 0.5f, 1.f}};
+    assert(MobileImageJson(texture).find("\"source\":{\"kind\":\"texture\",\"image\":\"interfaces/maps/kayman\",\"uv\":[0,0.25,0.5,1]}") != std::string::npos);
     auto battle = WithBattleIconSource(a, "land", "LandTarget_SLB", 16);
     assert(MobileImageJson(battle).find("\"atlas\":\"LandTarget_SLB\",\"pic\":16") != std::string::npos);
     assert(WithBattleIconSource({}, "land", "LandTarget_SLB", 16).source.kind.empty());

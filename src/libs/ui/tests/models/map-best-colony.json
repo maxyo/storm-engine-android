@@ -1,0 +1,680 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 6,
+ "screenRevision": 7,
+ "screen": "mapbest",
+ "widgets": [
+  {
+   "node": "TITLE",
+   "type": "heading",
+   "label": "Карта",
+   "value": "",
+   "index": -1,
+   "order": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MAIN_BACK",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 2,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 1,
+     "imageRevision": 1,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "texture",
+      "image": "interfaces/maps/map_good",
+      "uv": [
+       0,
+       0,
+       1,
+       1
+      ]
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MAP",
+   "type": "map",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 3,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "point",
+    "release"
+   ],
+   "cells": [],
+   "context": {
+    "base": "2048,2048",
+    "view": "0,0,2048,2048"
+   }
+  },
+  {
+   "node": "MAP",
+   "type": "map_marker",
+   "label": "",
+   "value": "",
+   "index": 0,
+   "order": 3,
+   "enabled": false,
+   "rowId": "FortFrance",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "France"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "x": "1530",
+    "y": "1548",
+    "width": "16",
+    "height": "16"
+   }
+  },
+  {
+   "node": "MAP",
+   "type": "map_marker",
+   "label": "",
+   "value": "",
+   "index": 1,
+   "order": 3,
+   "enabled": false,
+   "rowId": "LeFransua",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "Pirate"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "x": "1600",
+    "y": "1508",
+    "width": "16",
+    "height": "16"
+   }
+  },
+  {
+   "node": "MAP",
+   "type": "map_marker",
+   "label": "",
+   "value": "",
+   "index": 2,
+   "order": 3,
+   "enabled": false,
+   "rowId": "BasTer",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "France"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "x": "1520",
+    "y": "1308",
+    "width": "16",
+    "height": "16"
+   }
+  },
+  {
+   "node": "MAP",
+   "type": "map_marker",
+   "label": "",
+   "value": "",
+   "index": 3,
+   "order": 3,
+   "enabled": false,
+   "rowId": "SentJons",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "England"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "x": "1570",
+    "y": "1188",
+    "width": "16",
+    "height": "16"
+   }
+  },
+  {
+   "node": "MAP",
+   "type": "map_marker",
+   "label": "",
+   "value": "",
+   "index": 4,
+   "order": 3,
+   "enabled": false,
+   "rowId": "Bridgetown",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "England"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "x": "1700",
+    "y": "1658",
+    "width": "16",
+    "height": "16"
+   }
+  },
+  {
+   "node": "MAP",
+   "type": "map_marker",
+   "label": "",
+   "value": "",
+   "index": 5,
+   "order": 3,
+   "enabled": false,
+   "rowId": "SanJuan",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "Spain"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "x": "1140",
+    "y": "908",
+    "width": "16",
+    "height": "16"
+   }
+  },
+  {
+   "node": "MAP",
+   "type": "map_marker",
+   "label": "",
+   "value": "",
+   "index": 6,
+   "order": 3,
+   "enabled": false,
+   "rowId": "Charles",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "England"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "x": "1470",
+    "y": "1158",
+    "width": "16",
+    "height": "16"
+   }
+  },
+  {
+   "node": "MAP",
+   "type": "map_marker",
+   "label": "",
+   "value": "",
+   "index": 7,
+   "order": 3,
+   "enabled": false,
+   "rowId": "PShip",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "ICONS",
+      "image": "ship class icon"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "x": "1380",
+    "y": "1450",
+    "width": "20",
+    "height": "20"
+   }
+  },
+  {
+   "node": "INFO_CAPTION",
+   "type": "text",
+   "label": "Сен-Пьер",
+   "value": "",
+   "index": -1,
+   "order": 100,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_NATION_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 101,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "France"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "COLONY_TRAVEL_INFO",
+   "type": "text",
+   "label": "1–3 дня пути",
+   "value": "",
+   "index": -1,
+   "order": 102,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "COLONY_INFO_LABEL",
+   "type": "text",
+   "label": "Сведения о колонии",
+   "value": "",
+   "index": -1,
+   "order": 104,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "EXPORT_CAPTION",
+   "type": "text",
+   "label": "Экспорт",
+   "value": "",
+   "index": -1,
+   "order": 105,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "IMPORT_CAPTION",
+   "type": "text",
+   "label": "Импорт",
+   "value": "",
+   "index": -1,
+   "order": 110,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TRADEASSISTANT_CAPTION",
+   "type": "text",
+   "label": "Помощник: прибыль из Бас-Тера",
+   "value": "",
+   "index": -1,
+   "order": 120,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TRADEASSISTANT_TO",
+   "type": "text",
+   "label": "Ром +6,4",
+   "value": "",
+   "index": -1,
+   "order": 121,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TRADEASSISTANT_FROM",
+   "type": "text",
+   "label": "Сахар +5,7",
+   "value": "",
+   "index": -1,
+   "order": 122,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "COLONY_INFO_TEXT",
+   "type": "text",
+   "label": "Население",
+   "value": "",
+   "index": 0,
+   "order": 130,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "COLONY_INFO_TEXT",
+   "type": "text",
+   "label": "Казна",
+   "value": "",
+   "index": 1,
+   "order": 131,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "COLONY_INFO_TEXT",
+   "type": "text",
+   "label": "Форт",
+   "value": "",
+   "index": 2,
+   "order": 132,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "COLONY_INFO_TEXT",
+   "type": "text",
+   "label": "Верфь",
+   "value": "",
+   "index": 3,
+   "order": 133,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "COLONY_INFO_TEXT2",
+   "type": "text",
+   "label": "4 860",
+   "value": "",
+   "index": 0,
+   "order": 140,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "COLONY_INFO_TEXT2",
+   "type": "text",
+   "label": "86 300",
+   "value": "",
+   "index": 1,
+   "order": 141,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "COLONY_INFO_TEXT2",
+   "type": "text",
+   "label": "есть",
+   "value": "",
+   "index": 2,
+   "order": 142,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "COLONY_INFO_TEXT2",
+   "type": "text",
+   "label": "есть",
+   "value": "",
+   "index": 3,
+   "order": 143,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "EXPORT1_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 106,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "Sugar"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "EXPORT2_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 107,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "Coffee"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "EXPORT_INFO",
+   "type": "text",
+   "label": "Сахар",
+   "value": "",
+   "index": 0,
+   "order": 108,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "EXPORT_INFO",
+   "type": "text",
+   "label": "Кофе",
+   "value": "",
+   "index": 1,
+   "order": 109,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "IMPORT1_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 111,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "Rum"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "IMPORT_INFO",
+   "type": "text",
+   "label": "Ром",
+   "value": "",
+   "index": 0,
+   "order": 112,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}
