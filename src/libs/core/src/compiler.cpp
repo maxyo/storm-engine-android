@@ -566,6 +566,9 @@ bool COMPILER::Run()
 #else
     (void)executed;
 #endif
+#ifdef STORM_SCENE_SWEEP
+    LoadSceneSweep();
+#endif
 
     // DATA Result;
     // Result.SetVCompiler(this);
