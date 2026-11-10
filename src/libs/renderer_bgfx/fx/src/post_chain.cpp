@@ -5,6 +5,7 @@
 #include "storm/fx/log.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace storm::fx
 {
@@ -54,10 +55,13 @@ void PostChain::Shutdown()
     Destroy(antialiased_.fb);
     Destroy(occlusion_.fb);
     Destroy(lut_);
+    Destroy(flare_);
+    Destroy(u_finish_);
     for (bgfx::UniformHandle *uniform :
          {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_, &u_ao_})
         Destroy(*uniform);
     lut_strength_ = -1.0f;
+    pending_slice_ = -1;
 }
 
 void PostChain::OnDeviceLost()
@@ -69,10 +73,13 @@ void PostChain::OnDeviceLost()
     antialiased_ = {};
     occlusion_ = {};
     lut_ = BGFX_INVALID_HANDLE;
+    flare_ = BGFX_INVALID_HANDLE;
+    u_finish_ = BGFX_INVALID_HANDLE;
     for (bgfx::UniformHandle *uniform :
          {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_, &u_ao_})
         *uniform = BGFX_INVALID_HANDLE;
     lut_strength_ = -1.0f;
+    pending_slice_ = -1;
 }
 
 bgfx::ProgramHandle PostChain::Program(int index)
@@ -92,6 +99,7 @@ bgfx::ProgramHandle PostChain::Program(int index)
         s_ao_ = bgfx::createUniform("s_fxAoTex", bgfx::UniformType::Sampler);
         s_depth_ = bgfx::createUniform("s_fxSceneDepth", bgfx::UniformType::Sampler);
         u_ao_ = bgfx::createUniform("u_fxAo", bgfx::UniformType::Vec4, 3);
+        u_finish_ = bgfx::createUniform("u_fxFinish", bgfx::UniformType::Vec4);
     }
     if (!bgfx::isValid(programs_[index]))
         programs_[index] = LoadProgram("vs_fx_screen", kFragmentNames[index]);
@@ -110,19 +118,48 @@ void PostChain::EnsureTarget(Target &target, uint16_t width, uint16_t height)
     target.height = height;
 }
 
-void PostChain::EnsureLut(const Settings &settings)
+void PostChain::EnsureLut(const Settings &settings, const ColorGrade &scene_grade, bool scene_cut)
 {
     const float strength = std::clamp(settings.grade_strength, 0.0f, 1.0f);
-    if (bgfx::isValid(lut_) && lut_grade_ == settings.grade && lut_strength_ == strength)
-        return;
+    const ColorGrade scene = settings.scene_grading ? scene_grade : ColorGrade{};
     const ColorGrade grade = ColorGrade::Lerp(ColorGrade{}, ColorGrade::Preset(settings.grade), strength);
-    const std::vector<uint8_t> texels = BuildLutRgba8(grade, kDefaultLutSize);
-    const bgfx::Memory *memory = bgfx::copy(texels.data(), static_cast<uint32_t>(texels.size()));
-    if (!bgfx::isValid(lut_))
-        lut_ = bgfx::createTexture3D(kDefaultLutSize, kDefaultLutSize, kDefaultLutSize, false, bgfx::TextureFormat::RGBA8, kClampLinear);
-    bgfx::updateTexture3D(lut_, 0, 0, 0, 0, kDefaultLutSize, kDefaultLutSize, kDefaultLutSize, memory);
-    lut_grade_ = settings.grade;
-    lut_strength_ = strength;
+    constexpr int size = kDefaultLutSize;
+    const auto upload = [&](const std::vector<uint8_t> &texels) {
+        const bgfx::Memory *memory = bgfx::copy(texels.data(), static_cast<uint32_t>(texels.size()));
+        if (!bgfx::isValid(lut_))
+            lut_ = bgfx::createTexture3D(size, size, size, false, bgfx::TextureFormat::RGBA8, kClampLinear);
+        bgfx::updateTexture3D(lut_, 0, 0, 0, 0, size, size, size, memory);
+    };
+
+    // The player's choice changed, a cut, or first use: the whole table now.
+    if (!bgfx::isValid(lut_) || lut_grade_ != settings.grade || lut_strength_ != strength || (scene_cut && !(lut_scene_ == scene)))
+    {
+        upload(BuildLutRgba8(grade, size, scene));
+        lut_grade_ = settings.grade;
+        lut_strength_ = strength;
+        lut_scene_ = scene;
+        pending_slice_ = -1;
+        return;
+    }
+    // The scene grade drifts with the hour and the weather. A full table costs ~13 ms on a desktop CPU, so
+    // it is rebuilt only once the drift shows in 8-bit output, a few slices per frame, then swapped in.
+    if (pending_slice_ < 0 && !(lut_scene_ == scene) && GradeDifference(lut_scene_, scene) > 0.5f / 255.0f)
+    {
+        pending_scene_ = scene;
+        pending_texels_.resize(static_cast<size_t>(size) * size * size * 4);
+        pending_slice_ = 0;
+    }
+    if (pending_slice_ < 0)
+        return;
+    const int count = std::min(kLutSlicesPerFrame, size - pending_slice_);
+    BuildLutSlices(grade, size, pending_scene_, pending_slice_, count, pending_texels_.data());
+    pending_slice_ += count;
+    if (pending_slice_ == size)
+    {
+        upload(pending_texels_);
+        lut_scene_ = pending_scene_;
+        pending_slice_ = -1;
+    }
 }
 
 uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
@@ -235,7 +272,7 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
     const bool composite_is_final = !then_fxaa && !then_sharpen;
     if (!composite_is_final)
         EnsureTarget(graded_, frame.scene_width, frame.scene_height);
-    EnsureLut(settings);
+    EnsureLut(settings, frame.scene_grade, frame.scene_cut);
     {
         const bgfx::FrameBufferHandle out = composite_is_final ? frame.target : graded_.fb;
         SetupView(view, "fx composite", out, composite_is_final ? frame.target_width : frame.scene_width,
@@ -247,6 +284,9 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
         const float lut[4] = {static_cast<float>(kDefaultLutSize - 1) / kDefaultLutSize, 0.5f / kDefaultLutSize, 0.0f, 0.0f};
         bgfx::setUniform(u_tone_, tone);
         bgfx::setUniform(u_lut_, lut);
+        const float finish[4] = {settings.dither ? 1.0f / 255.0f : 0.0f, std::clamp(settings.vignette, 0.0f, 1.0f),
+                                 std::clamp(settings.film_grain, 0.0f, 1.0f), static_cast<float>((++frame_counter_ * 37u) % 251u)};
+        bgfx::setUniform(u_finish_, finish);
         bgfx::setTexture(0, s_scene_, frame.scene_color, same_size || !composite_is_final ? kClampPoint : kClampLinear);
         if (levels > 0)
             bgfx::setTexture(1, s_bloom_, bgfx::getTexture(bloom_[0].fb), kClampLinear);
@@ -288,6 +328,65 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
         bgfx::setUniform(u_texel_, texel);
         bgfx::setTexture(0, s_scene_, current, kClampLinear);
         SubmitScreenTriangle(view++, cas, kWriteColor, frame.flip_v);
+    }
+    // ---- lens flare: procedural sprites added on top of the finished image ----
+    if (settings.lens_flare && frame.sun_visibility > 0.0f)
+    {
+        struct Element
+        {
+            float along;      // position on the line sun -> screen centre -> beyond (0 = at the sun)
+            float size;       // half height in clip units
+            float stretch;    // width / height
+            float shape;      // fs_fx_sprite.sc: 0 glare, 1 ghost, 2 streak
+            float r, g, b;
+        };
+        static constexpr Element kElements[] = {
+            {0.0f, 0.62f, 1.0f, 0.0f, 0.42f, 0.36f, 0.26f},  {0.0f, 0.10f, 14.0f, 2.0f, 0.20f, 0.26f, 0.36f},
+            {0.42f, 0.050f, 1.0f, 1.0f, 0.05f, 0.09f, 0.05f}, {0.70f, 0.110f, 1.0f, 1.0f, 0.08f, 0.045f, 0.03f},
+            {1.22f, 0.080f, 1.0f, 1.0f, 0.04f, 0.05f, 0.09f}, {1.60f, 0.190f, 1.0f, 1.0f, 0.045f, 0.04f, 0.025f},
+            {2.05f, 0.045f, 1.0f, 1.0f, 0.06f, 0.07f, 0.04f},
+        };
+        const float sx = frame.sun_uv[0] * 2.0f - 1.0f;
+        const float sy = (1.0f - frame.sun_uv[1] * 2.0f) * (frame.flip_v ? -1.0f : 1.0f);
+        // Fades out as the sun leaves the screen.
+        const float off_screen = std::max(std::fabs(sx), std::fabs(sy));
+        const float strength = settings.lens_flare_intensity * frame.sun_visibility * std::clamp((1.25f - off_screen) / 0.35f, 0.0f, 1.0f);
+        struct Vertex
+        {
+            float pos[3], color[3], uv[3];
+        };
+        static const bgfx::VertexLayout layout = [] {
+            bgfx::VertexLayout l;
+            l.begin()
+                .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+                .add(bgfx::Attrib::Normal, 3, bgfx::AttribType::Float)
+                .add(bgfx::Attrib::TexCoord0, 3, bgfx::AttribType::Float)
+                .end();
+            return l;
+        }();
+        const uint32_t count = static_cast<uint32_t>(std::size(kElements)) * 6;
+        if (strength > 0.0f && bgfx::getAvailTransientVertexBuffer(count, layout) >= count)
+        {
+            bgfx::TransientVertexBuffer buffer;
+            bgfx::allocTransientVertexBuffer(&buffer, count, layout);
+            auto *v = reinterpret_cast<Vertex *>(buffer.data);
+            const float aspect = static_cast<float>(frame.target_height) / static_cast<float>(frame.target_width);
+            for (const Element &e : kElements)
+            {
+                const float cx = sx * (1.0f - e.along), cy = sy * (1.0f - e.along);
+                const float corners[6][2] = {{-1, -1}, {1, -1}, {-1, 1}, {-1, 1}, {1, -1}, {1, 1}};
+                for (const auto &corner : corners)
+                    *v++ = {{cx + corner[0] * e.size * e.stretch * aspect, cy + corner[1] * e.size, 0.0f},
+                            {e.r * frame.sun_color[0] * strength, e.g * frame.sun_color[1] * strength, e.b * frame.sun_color[2] * strength},
+                            {corner[0], corner[1], e.shape}};
+            }
+            if (!bgfx::isValid(flare_))
+                flare_ = LoadProgram("vs_fx_sprite", "fs_fx_sprite");
+            SetupView(view, "fx lens flare", frame.target, frame.target_width, frame.target_height);
+            bgfx::setVertexBuffer(0, &buffer);
+            bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_BLEND_ADD);
+            bgfx::submit(view++, flare_);
+        }
     }
     return static_cast<uint16_t>(view - frame.first_view);
 }

@@ -268,4 +268,32 @@ Vec3 FogColor(const SkyState &sky, std::array<float, 2> view_xz)
     return SkyColor(sky, Vec3{view_xz[0] / len, 0.0f, view_xz[1] / len});
 }
 
+float SeaFogDensity(const SkyState &sky, float camera_height)
+{
+    const float rise = -std::max(camera_height, 0.0f) / kHazeLayerHeight;
+    const float layer = std::fabs(rise) > 1e-3f ? (1.0f - std::exp(-rise)) / rise : 1.0f;
+    return sky.fog_density * (1.0f + kHazeDensityFactor * std::exp(rise) * layer);
+}
+
+AerialUniforms ComputeAerial(const SkyState &sky, float camera_height, const std::array<float, 16> &view)
+{
+    AerialUniforms u;
+    for (int i = 0; i < 3; ++i)
+        u.u_fxAerial[0][i] = std::sqrt(Saturate(sky.horizon[i])); // the emulator's colours are gamma encoded
+    u.u_fxAerial[0][3] = sky.fog_density;
+    u.u_fxAerial[1] = {sky.fog_density * kHazeDensityFactor * std::exp(-std::max(camera_height, 0.0f) / kHazeLayerHeight),
+                       1.0f / kHazeLayerHeight, 0.55f, 0.94f};
+    u.u_fxAerial[2] = {view[4], view[5], view[6], 0.0f}; // world up (0, 1, 0) in view space
+    return u;
+}
+
+WindUniforms ComputeWind(const WeatherInput &weather, float time_seconds)
+{
+    WindUniforms u;
+    const float strength = Saturate(weather.wind_speed / 18.0f);
+    u.u_fxWind[0] = {weather.wind[0], 0.0f, weather.wind[1], time_seconds};
+    u.u_fxWind[1] = {0.05f + 0.45f * strength, 1.1f + 1.6f * strength, 0.35f, 0.012f + 0.05f * strength};
+    return u;
+}
+
 } // namespace storm::fx

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "storm/fx/settings.hpp"
+#include "storm/fx/sky_model.hpp"
 
 #include <array>
 #include <cstdint>
@@ -28,18 +29,42 @@ struct ColorGrade
     std::array<float, 3> gain{1.0f, 1.0f, 1.0f};
 
     static ColorGrade Preset(GradePreset preset);
+    // Mood of a place and hour; see SceneGrade().
+    enum class Mood
+    {
+        TropicalNoon, // crisp, slightly warm, deep blues
+        Sunset,       // golden, long warm highlights
+        Night,        // cool, low saturation, readable shadows
+        Storm,        // grey-green, flat
+        Interior,     // taverns, cabins, caves: warm lamp light, soft contrast
+    };
+    static ColorGrade ForMood(Mood mood);
     // Component-wise interpolation, e.g. for weather transitions or grade_strength.
     static ColorGrade Lerp(const ColorGrade &a, const ColorGrade &b, float t);
 
     bool IsIdentity() const;
+    bool operator==(const ColorGrade &) const = default;
     std::array<float, 3> Apply(std::array<float, 3> rgb) const;
 };
 
 inline constexpr int kDefaultLutSize = 32;
 
+// The grade for the current place and hour (Settings::scene_grading): a blend of the moods by the sky's night
+// factor and sun height, the weather's overcast factor and `interior` (0 outdoors .. 1 inside a tavern, cabin
+// or cave). Every input is continuous, so the result changes smoothly through dusk and weather fronts; pass
+// it as PostChain::Frame::scene_grade every frame.
+ColorGrade SceneGrade(const SkyState &sky, float overcast, float interior);
+
+// Largest output difference of the two grades over a set of probe colours (0..1).
+float GradeDifference(const ColorGrade &a, const ColorGrade &b);
+
 // size^3 RGBA8 texels, red fastest, then green, then blue (the layout of a
 // bgfx 3D texture with red on U, green on V, blue on W). Alpha is 255.
-std::vector<uint8_t> BuildLutRgba8(const ColorGrade &grade, int size = kDefaultLutSize);
+// `scene` is applied first (the place), then `grade` (the player's choice).
+std::vector<uint8_t> BuildLutRgba8(const ColorGrade &grade, int size = kDefaultLutSize, const ColorGrade &scene = {});
+// The blue slices [first_blue, first_blue + blue_count) of the same table, written into `lut` (size^3 * 4 bytes,
+// size 2..64): lets a caller spread a rebuild over several frames.
+void BuildLutSlices(const ColorGrade &grade, int size, const ColorGrade &scene, int first_blue, int blue_count, uint8_t *lut);
 
 // CPU reference of the shader's trilinear LUT fetch (tests and tools).
 std::array<float, 3> SampleLut(const std::vector<uint8_t> &lut, int size, std::array<float, 3> rgb);

@@ -118,7 +118,7 @@ void Water::EnsureResources()
     u_capture_ = bgfx::createUniform("u_fxCapture", bgfx::UniformType::Vec4);
     const BakedTexture detail = BakeWaterDetail();
     detail_ = bgfx::createTexture2D(static_cast<uint16_t>(detail.size), static_cast<uint16_t>(detail.size), true, 1,
-                                    bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_MIN_ANISOTROPIC,
+                                    bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_NONE,
                                     bgfx::copy(detail.rgba.data(), static_cast<uint32_t>(detail.rgba.size())));
 }
 
@@ -218,7 +218,8 @@ bgfx::ProgramHandle Water::Bind(Source source, const Settings &settings, const W
         {state.dome[0], state.dome[1], state.dome[2], 0.0f},
     };
     bgfx::setUniform(u_water_, uniforms, 9);
-    bgfx::setTexture(0, s_detail_, detail_);
+    // The detail texture is seen at grazing angles almost everywhere: anisotropic filtering when it is on.
+    bgfx::setTexture(0, s_detail_, detail_, settings.anisotropy > 1 ? BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC : BGFX_SAMPLER_NONE);
     if (cube)
         bgfx::setTexture(1, s_env_, frame.env_cube, kClampLinear);
     uint64_t state_flags = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS;

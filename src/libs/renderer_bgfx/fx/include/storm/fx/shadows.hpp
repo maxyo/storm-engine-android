@@ -45,7 +45,7 @@ class Shadows
     bool Begin(const Settings &settings, const ShadowFrame &frame);
     bgfx::ProgramHandle CasterProgram();
 
-    // Sets the shadow map (sampler stage 10), u_fxShadowMtx and u_fxShadow for the next draw call. Required
+    // Sets the shadow map (sampler stage kShadowMapStage), u_fxShadowMtx and u_fxShadow for the next draw call. Required
     // for every draw of a FX_LIGHT_SHADOW variant; calling it before the first Begin() is an error.
     void Bind();
 

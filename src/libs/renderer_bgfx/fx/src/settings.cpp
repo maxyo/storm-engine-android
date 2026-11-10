@@ -11,16 +11,24 @@ Settings Settings::FromPreset(QualityPreset preset)
 
     s.tonemap = true;
     s.bloom = true;
-    s.fxaa = true;
+    s.msaa = 4; // the primary anti-aliasing; FXAA stays available as an option
+    s.alpha_to_coverage = true;
+    s.dither = true;
+    s.lens_flare = true;
+    s.scene_grading = true;
+    s.contact_shadows = true;
     s.sky_atmosphere = true;
     s.sky_clouds = true;
+
     if (preset == QualityPreset::Medium)
     {
         s.bloom_downscale = 4;
         s.bloom_levels = 3;
         s.bloom_intensity = 0.30f;
         s.water = WaterQuality::Medium;
-        s.lighting_flags = kLightingPerPixel | kLightingHemisphere | kLightingPoint | kLightingNormalMap;
+        s.anisotropy = 4;
+        s.lighting_flags = kLightingPerPixel | kLightingHemisphere | kLightingPoint | kLightingNormalMap | kLightingRim | kLightingLinear |
+                           kLightingAerial | kLightingWind;
         s.point_lights = 4;
         s.normal_map_strength = 0.6f;
         s.shadows = ShadowQuality::Low;
@@ -29,6 +37,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.bloom_downscale = 2;
     s.bloom_levels = 4;
     s.bloom_intensity = 0.35f;
+    s.anisotropy = 8;
     s.sharpen = true;
     s.sun_shafts = true;
     s.water = WaterQuality::High;
@@ -43,7 +52,8 @@ Settings Settings::FromPreset(QualityPreset preset)
 bool Settings::PostIsIdentity() const
 {
     const bool graded = grade != GradePreset::Original && grade_strength > 0.0f;
-    return !tonemap && !graded && !bloom && !fxaa && !sharpen && !sun_shafts && !ssao;
+    return !tonemap && !graded && !bloom && !fxaa && !sharpen && !sun_shafts && !ssao && !dither && !lens_flare && !scene_grading &&
+           vignette <= 0.0f && film_grain <= 0.0f;
 }
 
 std::string Support::Describe() const
@@ -61,6 +71,12 @@ std::string Support::Describe() const
     text += word(scene_depth);
     text += ", RG8 normal maps: ";
     text += word(normal_map);
+    text += ", MSAA targets: ";
+    text += word(msaa);
+    text += ", sampleable depth with MSAA: ";
+    text += word(msaa_depth);
+    text += ", anisotropic filtering: ";
+    text += word(anisotropy);
     return text;
 }
 
@@ -75,14 +91,36 @@ struct Rule
 };
 
 constexpr Rule kRules[] = {
-    {[](const Settings &s, const Support &c) {
-         return !c.lut_3d && (s.tonemap || s.bloom || s.ssao || s.sun_shafts || (s.grade != GradePreset::Original && s.grade_strength > 0.0f));
-     },
+    {[](const Settings &s, const Support &c) { return !c.lut_3d && !s.PostIsIdentity(); },
      [](Settings &s) {
-         s.tonemap = s.bloom = s.ssao = s.sun_shafts = false;
+         s.tonemap = s.bloom = s.ssao = s.sun_shafts = s.scene_grading = s.dither = s.lens_flare = s.fxaa = s.sharpen = false;
+         s.vignette = s.film_grain = 0.0f;
          s.grade = GradePreset::Original;
      },
-     "tone curve, colour grade, bloom, sun shafts and ambient occlusion need 3D textures: switched off"},
+     "the post-processing chain needs 3D textures: every post effect switched off"},
+    {[](const Settings &s, const Support &) { return s.msaa != 1 && s.msaa != 2 && s.msaa != 4; }, [](Settings &s) { s.msaa = s.msaa > 2 ? 4 : 1; },
+     "MSAA sample count must be 1, 2 or 4: rounded"},
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa; }, [](Settings &s) { s.msaa = 1; },
+     "MSAA needs multisampled render targets: switched off"},
+    {[](const Settings &s, const Support &) { return s.alpha_to_coverage && s.msaa <= 1; }, [](Settings &s) { s.alpha_to_coverage = false; },
+     "alpha to coverage works only with MSAA: switched off"},
+    {[](const Settings &s, const Support &c) { return s.anisotropy > 1 && !c.anisotropy; }, [](Settings &s) { s.anisotropy = 1; },
+     "anisotropic filtering is not available: switched off"},
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa_depth && s.ssao; }, [](Settings &s) { s.ssao = false; },
+     "ambient occlusion cannot read the depth of a multisampled scene on this renderer: switched off (or turn MSAA off)"},
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa_depth && s.water == WaterQuality::High; },
+     [](Settings &s) {
+         s.water = WaterQuality::Medium;
+         s.water_refraction = false;
+     },
+     "high water quality cannot read the depth of a multisampled scene on this renderer: lowered to medium (or turn MSAA off)"},
+    {[](const Settings &s, const Support &) { return (s.lighting_flags & kLightingRim) && !(s.lighting_flags & kLightingPerPixel); },
+     [](Settings &s) { s.lighting_flags &= ~static_cast<uint32_t>(kLightingRim); }, "rim light needs per-pixel lighting: switched off"},
+    {[](const Settings &s, const Support &) {
+         return (s.lighting_flags & kLightingLinear) && !(s.lighting_flags & (kLightingPerPixel | kLightingPoint));
+     },
+     [](Settings &s) { s.lighting_flags &= ~static_cast<uint32_t>(kLightingLinear); },
+     "linear-light lighting needs per-pixel lighting or per-pixel point lights: switched off"},
     {[](const Settings &s, const Support &) { return s.sun_shafts && !s.bloom; }, [](Settings &s) { s.sun_shafts = false; },
      "sun shafts are part of the bloom chain and bloom is off: sun shafts switched off"},
     {[](const Settings &s, const Support &c) { return s.ssao && !c.scene_depth; }, [](Settings &s) { s.ssao = false; },
@@ -141,6 +179,15 @@ Settings ConstrainSettings(const Settings &requested, const Support &support, st
             }
     }
     return settings;
+}
+
+RendererState RendererStateFor(const Settings &settings)
+{
+    RendererState state;
+    state.msaa_samples = settings.msaa;
+    state.alpha_to_coverage = settings.alpha_to_coverage && settings.msaa > 1;
+    state.max_anisotropy = settings.anisotropy;
+    return state;
 }
 
 std::string_view NameRu(QualityPreset preset)

@@ -14,9 +14,10 @@ float Saturate(float v)
     return std::clamp(v, 0.0f, 1.0f);
 }
 
+// Exact at both ends, so a fully blended grade equals its target.
 float Mix(float a, float b, float t)
 {
-    return a + (b - a) * t;
+    return a * (1.0f - t) + b * t;
 }
 
 float Luma(const Rgb &c)
@@ -66,6 +67,63 @@ ColorGrade ColorGrade::Preset(GradePreset preset)
         break;
     }
     return g;
+}
+
+ColorGrade ColorGrade::ForMood(Mood mood)
+{
+    ColorGrade g;
+    switch (mood)
+    {
+    case Mood::TropicalNoon:
+        g.temperature = 0.04f;
+        g.contrast = 1.06f;
+        g.saturation = 1.06f;
+        g.vibrance = 0.20f;
+        g.shadow_tint = {-0.008f, 0.0f, 0.012f};
+        break;
+    case Mood::Sunset:
+        g.temperature = 0.16f;
+        g.tint = 0.03f;
+        g.contrast = 1.05f;
+        g.saturation = 1.08f;
+        g.shadow_tint = {0.004f, -0.006f, 0.016f};
+        g.highlight_tint = {0.030f, 0.010f, -0.030f};
+        break;
+    case Mood::Night:
+        g.temperature = -0.16f;
+        g.saturation = 0.78f;
+        g.contrast = 0.96f;
+        g.lift = {0.010f, 0.014f, 0.026f};
+        g.highlight_tint = {0.012f, 0.006f, -0.010f}; // lamps and windows stay warm
+        break;
+    case Mood::Storm:
+        g.temperature = -0.08f;
+        g.tint = -0.04f;
+        g.saturation = 0.72f;
+        g.contrast = 0.95f;
+        g.gain = {0.95f, 0.97f, 0.96f};
+        break;
+    case Mood::Interior:
+        g.temperature = 0.12f;
+        g.saturation = 0.94f;
+        g.contrast = 0.97f;
+        g.lift = {0.014f, 0.010f, 0.006f};
+        g.highlight_tint = {0.020f, 0.008f, -0.016f};
+        break;
+    }
+    return g;
+}
+
+ColorGrade SceneGrade(const SkyState &sky, float overcast, float interior)
+{
+    const float night = Saturate(sky.night);
+    // Golden hour: the sun within about 17 degrees of the horizon.
+    const float low_sun = (1.0f - Saturate((sky.sun_dir[1] - 0.05f) / 0.25f)) * (1.0f - night);
+    ColorGrade g = ColorGrade::ForMood(ColorGrade::Mood::TropicalNoon);
+    g = ColorGrade::Lerp(g, ColorGrade::ForMood(ColorGrade::Mood::Sunset), low_sun);
+    g = ColorGrade::Lerp(g, ColorGrade::ForMood(ColorGrade::Mood::Night), night);
+    g = ColorGrade::Lerp(g, ColorGrade::ForMood(ColorGrade::Mood::Storm), Saturate(overcast) * (1.0f - 0.5f * night));
+    return ColorGrade::Lerp(g, ColorGrade::ForMood(ColorGrade::Mood::Interior), Saturate(interior));
 }
 
 ColorGrade ColorGrade::Lerp(const ColorGrade &a, const ColorGrade &b, float t)
@@ -147,21 +205,39 @@ std::array<float, 3> ColorGrade::Apply(std::array<float, 3> c) const
     return c;
 }
 
-std::vector<uint8_t> BuildLutRgba8(const ColorGrade &grade, int size)
+float GradeDifference(const ColorGrade &a, const ColorGrade &b)
 {
-    size = std::clamp(size, 2, 64);
-    std::vector<uint8_t> lut(static_cast<size_t>(size) * size * size * 4);
+    float worst = 0.0f;
+    for (int i = 0; i < 27; ++i)
+    {
+        const Rgb probe{0.1f + 0.4f * (i % 3), 0.1f + 0.4f * (i / 3 % 3), 0.1f + 0.4f * (i / 9)};
+        const Rgb x = a.Apply(probe), y = b.Apply(probe);
+        for (int c = 0; c < 3; ++c)
+            worst = std::max(worst, std::fabs(x[c] - y[c]));
+    }
+    return worst;
+}
+
+void BuildLutSlices(const ColorGrade &grade, int size, const ColorGrade &scene, int first_blue, int blue_count, uint8_t *lut)
+{
     const float step = 1.0f / static_cast<float>(size - 1);
-    size_t o = 0;
-    for (int b = 0; b < size; ++b)
+    size_t o = static_cast<size_t>(first_blue) * size * size * 4;
+    for (int b = first_blue; b < first_blue + blue_count; ++b)
         for (int g = 0; g < size; ++g)
             for (int r = 0; r < size; ++r)
             {
-                const Rgb out = grade.Apply(Rgb{r * step, g * step, b * step});
+                const Rgb out = grade.Apply(scene.Apply(Rgb{r * step, g * step, b * step}));
                 for (int i = 0; i < 3; ++i)
                     lut[o++] = static_cast<uint8_t>(std::lround(Saturate(out[i]) * 255.0f));
                 lut[o++] = 255;
             }
+}
+
+std::vector<uint8_t> BuildLutRgba8(const ColorGrade &grade, int size, const ColorGrade &scene)
+{
+    size = std::clamp(size, 2, 64);
+    std::vector<uint8_t> lut(static_cast<size_t>(size) * size * size * 4);
+    BuildLutSlices(grade, size, scene, 0, size, lut.data());
     return lut;
 }
 

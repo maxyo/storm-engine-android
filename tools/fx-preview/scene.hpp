@@ -19,7 +19,8 @@ struct Vertex
     float pos[3];
     float normal[3];
     uint32_t abgr;               // surface colour: the role the texture plays in the game
-    uint32_t baked = 0xffffffffu; // lighting baked into the vertex colours of static geometry (white = none)
+    uint32_t baked = 0xffffffffu; // rgb: lighting baked into the vertex colours of static geometry (white = none);
+                                  // alpha: 255 * (1 - wind sway weight)
     float uv[2] = {0.0f, 0.0f};   // coordinates of the detail / height texture (the game's second UV set)
 };
 
@@ -56,6 +57,20 @@ Harbour MakeHarbour();
 void BakeLighting(Mesh &mesh, const std::vector<storm::fx::PointLight> &lights, Color ambient);
 // Thin slanted bars, fan lines and a fine checker: content that aliases badly.
 Mesh MakeAliasingPattern();
+
+// Vegetation and rigging: what the game draws alpha tested. `foliage` and `ropes` use the textures below;
+// their vertices carry a wind sway weight (0 at the trunk, the ground or a rope's ends).
+struct Garden
+{
+    Mesh ground;
+    Mesh trunks;  // palm trunks and the two posts
+    Mesh foliage; // palm fronds and grass tufts
+    Mesh ropes;   // lines between the posts
+};
+Garden MakeGarden();
+// RGBA textures, size * size: a palm frond (leaflets along a rib) and a rope (opaque strand on a clear ground).
+std::vector<uint8_t> MakeFrondTexture(int size);
+std::vector<uint8_t> MakeRopeTexture(int size);
 
 // Surfaces that carry a height ("bump") texture in the game, each with texture coordinates: a house wall,
 // a boulder, a plank deck and a sail.
