@@ -339,7 +339,7 @@ class XINTERFACE : public XINTERFACE_BASE
     void MobileCollectGoodsTransfer(std::vector<MobileWidget> &widgets);
     bool MobileApplyGoodsTransfer(const std::string &value);
     void MobileCollectSailsGerald(std::vector<MobileWidget> &widgets);
-    storm::mobile::AlchemySource MobileAlchemySource();
+    storm::mobile::AlchemySource MobileAlchemySource(const std::vector<MobileWidget> &widgets);
     void MobileCollectAlchemy(std::vector<MobileWidget> &widgets);
     bool MobileApplyAlchemy(const std::string &node,const std::string &value);
     int32_t m_mobileAlchemyStrings=-1;

@@ -31,17 +31,15 @@ std::map<std::string,uint32_t> AlchemyItemIndex(const std::set<std::string> &ids
 }
 }
 
-storm::mobile::AlchemySource XINTERFACE::MobileAlchemySource()
+storm::mobile::AlchemySource XINTERFACE::MobileAlchemySource(const std::vector<MobileWidget> &widgets)
 {
     storm::mobile::AlchemySource source;
     auto *root=AttributesPointer;
     auto *list=root?root->GetAttributeClass("ITEMS_SCROLL"):nullptr;
-    auto *table=root?root->GetAttributeClass("TABLE_LIST"):nullptr;
     auto *scroll=FindNode("ITEMS_SCROLL",nullptr);
     auto *items=static_cast<VDATA*>(core.GetScriptVariable("Items"));
     source.current=AlchemyString("sCurItem");
     if(!list)source.missing.push_back("ITEMS_SCROLL");
-    if(!table)source.missing.push_back("TABLE_LIST");
     if(!scroll||scroll->m_nNodeType!=NODETYPE_SCROLLIMAGE)source.missing.push_back("ITEMS_SCROLL node");
     if(!items)source.missing.push_back("Items");
     if(source.current.empty())source.missing.push_back("sCurItem");
@@ -89,24 +87,16 @@ storm::mobile::AlchemySource XINTERFACE::MobileAlchemySource()
     if(!components)source.missing.push_back("component:"+source.current);
     else{
         source.description=text(AlchemyAttr(recipeItem,"describe"));
-        std::set<std::string> parts;
-        for(uint32_t i=0;i<components->GetAttributesNum();++i)
-            if(const char *id=AlchemyAttr(components->GetAttributeClass(i),"id"))parts.insert(id);
-        const auto partIndex=AlchemyItemIndex(parts);
         for(uint32_t i=0;i<components->GetAttributesNum();++i){
             auto *part=components->GetAttributeClass(i);
             storm::mobile::AlchemyComponent c;
             const char *id=AlchemyAttr(part,"id"),*use=AlchemyAttr(part,"use"),*qty=AlchemyAttr(part,"qty");
             c.itemId=id?id:"";c.need=qty?std::atoi(qty):0;
             c.catalyst=use&&!storm::iEquals(use,"component");
-            auto *row=table->GetAttributeClass("tr"+std::to_string(i+1));
-            const char *rowItem=AlchemyAttr(row,"index"),*hero=AlchemyAttr(row,"td1.str"),*pot=AlchemyAttr(row,"td5.str");
-            const auto item=partIndex.find(c.itemId);
-            if(!row||!rowItem||!hero||!pot||item==partIndex.end()||uint32_t(std::atoi(rowItem))!=item->second)
-                source.busy="table-pending";
-            else{c.hero=std::atoi(hero);c.pot=std::atoi(pot);}
+            if(c.itemId.empty()||c.need<=0)source.missing.push_back("component:"+source.current+"#"+std::to_string(i+1));
             source.components.push_back(std::move(c));
         }
+        source.busy=storm::mobile::AlchemyFillCounts(widgets,source.components);
     }
 
     // Ready only when the script shows what the scroll shows and nothing is in flight.
@@ -125,13 +115,14 @@ storm::mobile::AlchemySource XINTERFACE::MobileAlchemySource()
 
 void XINTERFACE::MobileCollectAlchemy(std::vector<MobileWidget> &widgets)
 {
-    storm::mobile::CollectAlchemy(MobileAlchemySource(),widgets);
+    storm::mobile::CollectAlchemy(MobileAlchemySource(widgets),widgets);
 }
 
 bool XINTERFACE::MobileApplyAlchemy(const std::string &node,const std::string &value)
 {
     const uint64_t revision=storm::android::mobileScreenRevision;
-    const auto source=MobileAlchemySource();
+    std::vector<MobileWidget> live;MobileCollectWidgets(live);
+    const auto source=MobileAlchemySource(live);
     if(!source.busy.empty()||!source.missing.empty()){core.Trace("alchemy: %s refused: %s",value.c_str(),source.busy.c_str());return false;}
     if(node=="ANDROID_ALCHEMY_RECIPE"){
         const auto choose=storm::mobile::ParseAlchemyAction(value,"choose",revision,false);
@@ -144,9 +135,14 @@ bool XINTERFACE::MobileApplyAlchemy(const std::string &node,const std::string &v
     if(!craft||craft->item!=source.current)return false;
     const auto changes=storm::mobile::AlchemyPotChanges(source.components,craft->batches);
     if(!changes){core.Trace("alchemy: %d batches of %s are not possible",craft->batches,craft->item.c_str());return false;}
-    auto *table=AttributesPointer->GetAttributeClass("TABLE_LIST");
+    // The pot as the script keeps it (NullCharacter.alchemy.Items, read by GetCharacterFreeItem);
+    // the table shows it a frame later.
+    auto *pot=AlchemyObject("NullCharacter");
+    const auto inPot=[&](const std::string &id){const char *n=AlchemyAttr(pot,"alchemy.Items."+id);return n?std::atoi(n):0;};
     for(size_t i=0;i<changes->size();++i){
-        const int change=(*changes)[i];
+        const auto &part=source.components[i];
+        const int want=part.catalyst?part.need:part.need*craft->batches;
+        const int change=want-inPot(part.itemId);
         if(change==0)continue;
         // The player's way: select the row (ShowGoodsInfo), type the amount, confirm. A negative
         // amount gives from the hero to the pot, a positive one takes back.
@@ -156,9 +152,8 @@ bool XINTERFACE::MobileApplyAlchemy(const std::string &node,const std::string &v
         if(!edit)return false;
         edit->SetAttribute("str",std::to_string(-change));
         core.Event("TransactionOK");
-        const char *pot=AlchemyAttr(table?table->GetAttributeClass("tr"+std::to_string(i+1)):nullptr,"td5.str");
-        if(!pot||std::atoi(pot)!=source.components[i].pot+change){
-            core.Trace("alchemy: the pot of %s did not take %d",source.components[i].itemId.c_str(),change);
+        if(inPot(part.itemId)!=want){
+            core.Trace("alchemy: the pot of %s holds %d, not %d",part.itemId.c_str(),inPot(part.itemId),want);
             return false;
         }
     }
