@@ -26,6 +26,6 @@ vec4 a_texcoord5 : TEXCOORD5;
 vec4 a_texcoord6 : TEXCOORD6;
 vec4 a_texcoord7 : TEXCOORD7;
 vec4 a_weight    : BLENDWEIGHT;
-ivec4 a_indices  : BLENDINDICES; // integer: bgfx binds non-normalised Uint8 with glVertexAttribIPointer
+vec4 a_indices   : BLENDINDICES;
 vec3 a_tangent   : TANGENT;
 vec3 a_bitangent : BITANGENT;

@@ -30,7 +30,6 @@ MODELR::MODELR()
 MODELR::~MODELR()
 {
     skinnedStreams_.clear();
-    gpuSkinning_.clear();
     delete root;
     for (auto i = 0; i < MODEL_ANI_MAXBUFFERS; i++)
         delete aniVerts[i].v;
@@ -44,7 +43,6 @@ bool MODELR::Init()
     rs = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
     if (!rs)
         throw std::runtime_error("No service: dx9render");
-    gpuSkinning_.setRenderer(rs);
 
     GeometyService = static_cast<VGEOMETRY *>(core.GetService("geometry"));
     if (!GeometyService)
@@ -53,18 +51,12 @@ bool MODELR::Init()
     return true;
 }
 
-storm::render::VertexBufferId MODELR::VBTransform(void *context, const void *vb, const std::shared_ptr<storm::render::VertexSourceLifetime>& lifetime, int32_t startVrt, int32_t nVerts, int32_t totVerts, bool gpuSkinning)
+storm::render::VertexBufferId MODELR::VBTransform(void *context, const void *vb, const std::shared_ptr<storm::render::VertexSourceLifetime>& lifetime, int32_t startVrt, int32_t nVerts, int32_t totVerts)
 {
     if(!context) throw std::invalid_argument("Missing skinning context");
     auto& model=*static_cast<MODELR*>(context);
     if(totVerts<=0 || startVrt<0 || nVerts<0 || startVrt>totVerts || nVerts>totVerts-startVrt)
         throw std::invalid_argument("Invalid animated draw range");
-    if(gpuSkinning) {
-        static_assert(sizeof(GEOS::AVERTEX0)==storm::model::kSkinnedSourceStride);
-        const auto id=model.gpuSkinning_.vertexBuffer(vb,lifetime,uint32_t(totVerts));
-        model.gpuSkinning_.bind(&model.ani->GetAnimationMatrix(0),uint32_t(model.ani->GetNumBones()));
-        return {id};
-    }
     static_assert(sizeof(GEOS::VERTEX0)==storm::render::skinnedVertexStride);
     static_assert(offsetof(GEOS::VERTEX0,color)==storm::render::skinnedColorOffset);
     auto* bones=&model.ani->GetAnimationMatrix(0);
@@ -222,13 +214,11 @@ void MODELR::Realize(uint32_t Delta_Time)
     if (ani)
     {
         skinnedStreams_.beginPose(); // All bone-matrix inputs, including stationary actions.
-        gpuSkinning_.beginPose();
         GeometyService->SetVBConvertFunc(VBTransform,this);
         struct ClearTransform {
             VGEOMETRY* geometry;
-            storm::model::GpuSkinning& skinning;
-            ~ClearTransform() {geometry->SetVBConvertFunc(nullptr); skinning.unbind();}
-        } clearTransform{GeometyService,gpuSkinning_};
+            ~ClearTransform() {geometry->SetVBConvertFunc(nullptr);}
+        } clearTransform{GeometyService};
         root->Draw();
     }
     else
@@ -330,7 +320,6 @@ uint64_t MODELR::ProcessMessage(MESSAGE &message)
         str = message.String();
         auto asr = static_cast<AnimationService *>(core.GetService("AnimationServiceImp"));
         skinnedStreams_.clear();
-        gpuSkinning_.clear();
         delete ani;
         ani = nullptr;
         ani = asr->CreateAnimation(str.c_str());
@@ -706,7 +695,6 @@ void MODELR::FindPlanes(const glm::mat4 &view, const glm::mat4 &proj)
 void MODELR::LostRender()
 {
     skinnedStreams_.clear();
-    gpuSkinning_.clear();
     root->ReleaseGeometry();
 }
 
@@ -714,5 +702,4 @@ void MODELR::RestoreRender()
 {
     root->RestoreGeometry();
     skinnedStreams_.clear(); // First draw uploads each restored source buffer.
-    gpuSkinning_.clear();
 }

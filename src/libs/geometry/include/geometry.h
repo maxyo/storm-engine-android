@@ -14,10 +14,7 @@ class ANIMATION
     virtual void SetMatrix() = 0;
 };
 
-// Animated (GEOS::AVERTEX0) vertices. gpuSkinning: return a buffer of the AVERTEX0 sources for the
-// renderer's skinned vertex shader (stride sizeof(AVERTEX0), the pose bound by the callee);
-// otherwise skin on the CPU into GEOS::VERTEX0 (the caustic pass, whose shader port has no skinning).
-using VERTEX_TRANSFORM = storm::render::VertexBufferId (*)(void *context, const void *vb, const std::shared_ptr<storm::render::VertexSourceLifetime>& lifetime, int32_t startVrt, int32_t nVerts, int32_t totVerts, bool gpuSkinning);
+using VERTEX_TRANSFORM = storm::render::VertexBufferId (*)(void *context, const void *vb, const std::shared_ptr<storm::render::VertexSourceLifetime>& lifetime, int32_t startVrt, int32_t nVerts, int32_t totVerts);
 
 class VGEOMETRY : public SERVICE
 {

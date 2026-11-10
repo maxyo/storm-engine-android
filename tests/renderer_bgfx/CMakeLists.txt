@@ -11,9 +11,6 @@ target_include_directories(storm_check_sdl INTERFACE "${STORM_SDL_INCLUDE}")
 set(SDL2_LIBRARIES storm_check_sdl)
 set(STORM_BGFX_BUILD_TESTS ON CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx" renderer_bgfx)
-# The pinned SDL source headers carry no platform configuration; the checks run on the host's X11
-# SDL runtime, so the shim takes its native window from SDL's X11 window info (skinning_check).
-target_compile_definitions(storm_bgfx PRIVATE SDL_VIDEO_DRIVER_X11=1)
 
 # perf_check drives the shim on bgfx's Noop backend; the shim calls a few SDL window functions,
 # so it links the host's SDL2 runtime like the other SDL host checks.
@@ -23,12 +20,3 @@ target_include_directories(perf_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../s
 target_compile_definitions(perf_check PRIVATE NOMINMAX)
 target_compile_options(perf_check PRIVATE -fsigned-char)
 target_link_libraries(perf_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
-
-# skinning_check renders through OpenGL ES in an SDL window (an X display: xvfb-run in CI) and
-# compares GPU skinning with the CPU kernel of src/libs/model.
-add_executable(skinning_check skinning_check.cpp)
-target_include_directories(skinning_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim"
-    "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/model/src" "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/model/include")
-target_compile_definitions(skinning_check PRIVATE NOMINMAX)
-target_compile_options(skinning_check PRIVATE -fsigned-char)
-target_link_libraries(skinning_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
