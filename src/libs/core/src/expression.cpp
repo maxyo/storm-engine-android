@@ -2573,10 +2573,10 @@ bool COMPILER::IsAttributeCall()
         case COMMENT:
             break;
         default:
-            if (dot && Token.GetData() && t != OP_EQUAL && t != SEPARATOR)
-                word = true;
+            if (dot && !word && IsIdentifier(Token.GetData()))
+                word = true; // an attribute name
             else
-                more = false;
+                more = false; // "a.b := f(x)" is an assignment, not a call
             break;
         }
     }

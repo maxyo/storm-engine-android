@@ -352,6 +352,11 @@ class COMPILER : public VIRTUAL_COMPILER
     // missing_natives_are_errors: false for a game check (no engine library is linked), true for
     // script tests (as in the game)
     void ConfigureCompileCheck(std::vector<std::string> *sink, bool missing_natives_are_errors);
+    // engine.ini [script] call_time_limit (seconds); script_check tests use a short one
+    void SetScriptCallTimeLimit(uint32_t milliseconds)
+    {
+        scriptCallTimeLimitMs_ = milliseconds;
+    }
     // script tests: store and load the script cache in this folder (also checks its integrity)
     void UseScriptCache(std::filesystem::path folder);
     // whether the last BC_LoadSegment took the segment from the script cache
@@ -364,6 +369,7 @@ class COMPILER : public VIRTUAL_COMPILER
     void SetScriptLanguage(std::string language)
     {
         scriptLanguage_ = std::move(language);
+        cacheKeyCalculated_ = false; // segments compiled from now on include that language's files
     }
     // bytecode of a loaded segment, nullptr if it is not loaded
     const char *GetSegmentCode(const char *segment_name, uint32_t &size) const;
@@ -488,10 +494,18 @@ private:
     // see ConfigureCompileCheck
     std::vector<std::string> *diagnosticsSink_ = nullptr;
     bool compileCheck_ = false;
+    // endless loop guard (BC_Execute): time of the outermost call from the engine
+    uint32_t scriptCallDepth_ = 0;
+    std::chrono::steady_clock::time_point scriptCallStart_{};
+    uint32_t scriptCallTimeLimitMs_ = 60000;
+    bool scriptCallAborted_ = false;
+    bool ScriptCallInTime();
     std::filesystem::path cacheFolder_; // UseScriptCache; empty: the stash folder
     bool lastSegmentFromCache_ = false;
     [[nodiscard]] std::filesystem::path CacheFolder() const;
-    std::string ScriptLanguageDirectory();
+    std::string ScriptLanguageDirectory(bool report);
+    bool cacheKeyCalculated_ = false; // the script cache key (scripts, build, language)
+    uint64_t cacheKey_ = 0;
     char *appendBuffer_ = nullptr; // AppendProgram's buffer and its capacity
     uint32_t appendCapacity_ = 0;
     std::string scriptLanguage_; // see SetScriptLanguage

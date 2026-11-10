@@ -221,6 +221,7 @@ void STRSERVICE::SetLanguage(const char *sLanguage)
         throw std::runtime_error("Allocate memory error");
     }
     memcpy(m_sLanguage, sLanguage, len);
+    core.SetScriptLanguage(m_sLanguage); // %language% in script includes compiled from now on
 
     while (true)
     {

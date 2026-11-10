@@ -67,15 +67,17 @@ auto GetCacheFolder()
 // themselves: the engine build (token numbering, internal function table and
 // bytecode layout are not stable across builds), the cache layout, and which
 // game directory the scripts came from (the cache folder is shared).
-constexpr uint64_t kCacheFormatVersion = 4; // 3: CL script extensions (defaults, "...", native); 4: array flag
+constexpr uint64_t kCacheFormatVersion = 5; // 3: CL script extensions (defaults, "...", native); 4: array flag;
+                                             // 5: the key has the script language
 
-uint64_t CalculateCacheKey(const char *program_directory)
+uint64_t CalculateCacheKey(const char *program_directory, const std::string &language)
 {
     const std::string resolved = fio->ConvertPathResource(program_directory ? program_directory : "");
     std::error_code ec;
     const auto absolute = std::filesystem::absolute(std::filesystem::u8path(resolved), ec);
     uint64_t key = storm::fingerprint::fnv1a(STORM_BUILD_WATERMARK_STRING " " __DATE__ " " __TIME__);
     key = storm::fingerprint::fnv1a(kCacheFormatVersion, key);
+    key = storm::fingerprint::fnv1a(language, key); // %language% includes
     key = storm::fingerprint::fnv1a(static_cast<uint64_t>(sizeof(size_t)), key);
     key = storm::fingerprint::fnv1a(ec ? resolved : absolute.lexically_normal().generic_string(), key);
     return storm::fingerprint::mix(key) + fio->GetPathFingerprint(std::filesystem::u8path(resolved));
@@ -434,7 +436,7 @@ void COMPILER::SetWarning(const char *data_PTR, ...)
         diagnosticsSink_->emplace_back(ErrorBuffer);
 }
 
-std::string COMPILER::ScriptLanguageDirectory()
+std::string COMPILER::ScriptLanguageDirectory(bool report)
 {
     // %language% in include paths: the directory of the game language, as the string service
     // takes it from RESOURCE\INI\TEXTS\language.ini ([COMMON] defaultLanguage, [DIRECTORY])
@@ -443,7 +445,8 @@ std::string COMPILER::ScriptLanguageDirectory()
     auto ini = fio->OpenIniFile(language_ini);
     if (!ini)
     {
-        SetError("%%language%% in an include: %s not found", language_ini);
+        if (report)
+            SetError("%%language%% in an include: %s not found", language_ini);
         return {};
     }
     char language[256]{};
@@ -451,13 +454,15 @@ std::string COMPILER::ScriptLanguageDirectory()
         strcpy_s(language, scriptLanguage_.c_str());
     else if (!ini->ReadString("COMMON", "defaultLanguage", language, sizeof(language) - 1, ""))
     {
-        SetError("%%language%% in an include: %s has no [COMMON] defaultLanguage", language_ini);
+        if (report)
+            SetError("%%language%% in an include: %s has no [COMMON] defaultLanguage", language_ini);
         return {};
     }
     char directory[256]{};
     if (!ini->ReadString("DIRECTORY", language, directory, sizeof(directory) - 1, "") || directory[0] == 0)
     {
-        SetError("%%language%% in an include: %s has no [DIRECTORY] entry for '%s'", language_ini, language);
+        if (report)
+            SetError("%%language%% in an include: %s has no [DIRECTORY] entry for '%s'", language_ini, language);
         return {};
     }
     return directory;
@@ -572,6 +577,9 @@ void COMPILER::LoadPreprocess()
             bWriteCodeFile = false;
         else
             bWriteCodeFile = true;
+
+        // seconds one call from the engine into the scripts may run (0: no limit)
+        scriptCallTimeLimitMs_ = static_cast<uint32_t>(engine_ini->GetInt("script", "call_time_limit", 60)) * 1000;
 
         if (engine_ini->GetInt("script", "runtimelog", 0) == 0)
             bRuntimeLog = false;
@@ -1078,17 +1086,12 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
     bool from_cache = false;
     if (script_cache_mode_ != kCacheDisabled)
     {
-        static bool is_calculated;
-        static uint64_t calculated_fingerprint;
-        if (!is_calculated)
+        if (!cacheKeyCalculated_ || script_cache_mode_ == kCacheEnabled)
         {
-            is_calculated = true;
-            calculated_fingerprint = CalculateCacheKey(ProgramDirectory);
+            cacheKeyCalculated_ = true;
+            cacheKey_ = CalculateCacheKey(ProgramDirectory, ScriptLanguageDirectory(false));
         }
-        else if (script_cache_mode_ == kCacheEnabled)
-        {
-            calculated_fingerprint = CalculateCacheKey(ProgramDirectory);
-        }
+        const uint64_t calculated_fingerprint = cacheKey_;
 
         using storm::script_cache::StateFile;
         uint64_t stored_fingerprint = 0;
@@ -1709,7 +1712,7 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
             std::string include_name = Token.GetData();
             if (const auto at = include_name.find("%language%"); at != std::string::npos)
             {
-                const std::string language = ScriptLanguageDirectory();
+                const std::string language = ScriptLanguageDirectory(true);
                 if (language.empty())
                 {
                     bPass1Ok = false;
@@ -5281,6 +5284,19 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
     }
     else if (call_segment_id == IMPORTED_SEGMENT_ID)
     {
+        // a native reads its arguments after it pushes its result into the same stack slot (the
+        // value's type is reset by then): give numbers and text the declared parameter types now
+        // (CL passes ints to float parameters, e.g. Degree2Radian(14))
+        const uint32_t first = SStack.GetDataNum() - arguments;
+        for (uint32_t n = 0; n < arguments && n < call_fi.local_vars.size(); n++)
+        {
+            const S_TOKEN_TYPE declared = call_fi.local_vars[n].type;
+            DATA *argument = SStack.Read(first, n);
+            const S_TOKEN_TYPE type = argument->GetType();
+            auto scalar = [](S_TOKEN_TYPE t) { return t == VAR_INTEGER || t == VAR_FLOAT || t == VAR_STRING; };
+            if (type != declared && scalar(type) && scalar(declared) && !argument->IsArray())
+                argument->Convert(declared);
+        }
         pVResult = nullptr;
         RDTSC_B(nTicks);
         const uint32_t nResult = call_imported_func(&SStack);
@@ -5544,10 +5560,32 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
     bLeftOperandType = 0xffffffff;
     pLeftOperandAClass = nullptr;
 
+    // a call from the engine (outermost BC_Execute) gets a time limit: an endless script loop stops
+    // with an error and the script stack instead of hanging the engine
+    struct CallDepth
+    {
+        COMPILER &compiler;
+        explicit CallDepth(COMPILER &c) : compiler(c)
+        {
+            if (compiler.scriptCallDepth_++ == 0)
+            {
+                compiler.scriptCallStart_ = std::chrono::steady_clock::now();
+                compiler.scriptCallAborted_ = false;
+            }
+        }
+        ~CallDepth()
+        {
+            compiler.scriptCallDepth_--;
+        }
+    } call_depth(*this);
+
     // S_TOKEN_TYPE oldToken_type;
     do
     {
-        dwNumberScriptCommandsExecuted++;
+        // the clock is read every 2^20 instructions; after a stop every frame of the call returns
+        if (scriptCallAborted_ || ((++dwNumberScriptCommandsExecuted & 0xFFFFF) == 0 && scriptCallTimeLimitMs_ != 0 &&
+                                   !ScriptCallInTime()))
+            return false;
         // oldToken_type = Token_type;
         Token_type = BC_TokenGet(ip, token_data_size);
 
@@ -9169,6 +9207,19 @@ DATA *COMPILER::GetOperand(const char *pCodeBase, uint32_t &ip, S_TOKEN_TYPE *pT
         return nullptr;
     }
     return nullptr;
+}
+
+bool COMPILER::ScriptCallInTime()
+{
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                              scriptCallStart_).count();
+    if (elapsed <= scriptCallTimeLimitMs_)
+        return true;
+    SetError("script call stopped after %lld ms (limit %u ms, engine.ini [script] call_time_limit): an endless loop?",
+             static_cast<long long>(elapsed), scriptCallTimeLimitMs_);
+    CollectCallStack();
+    scriptCallAborted_ = true;
+    return false;
 }
 
 void COMPILER::CollectCallStack() const

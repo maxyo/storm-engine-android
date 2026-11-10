@@ -104,6 +104,8 @@ class Core
     virtual bool SetSaveData(const char *file_name, void *data_ptr, int32_t data_size) = 0;
 
     virtual uint32_t SetScriptFunction(IFUNCINFO *pFuncInfo) = 0;
+    // the game language (a language.ini name): %language% in script include paths
+    virtual void SetScriptLanguage(const char *language) = 0;
 
     virtual const char *EngineIniFileName() = 0;
 

@@ -1,5 +1,5 @@
 # Host tool: compiles a game's whole script tree (no renderer, no game start) and reports every
-# compile error. Links only core: STORM_SETUP executables pull in every engine module.
+# compile error (README.md). Links only core: STORM_SETUP executables pull in every engine module.
 if(ANDROID)
     return()
 endif()

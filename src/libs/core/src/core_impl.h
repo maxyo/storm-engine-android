@@ -108,6 +108,7 @@ class CoreImpl final : public CorePrivate
     bool SetSaveData(const char *file_name, void *data_ptr, int32_t data_size) override;
 
     uint32_t SetScriptFunction(IFUNCINFO *pFuncInfo) override;
+    void SetScriptLanguage(const char *language) override;
 
     const char *EngineIniFileName() override;
 
