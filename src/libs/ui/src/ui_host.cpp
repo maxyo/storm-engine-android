@@ -412,6 +412,8 @@ class HostImpl final : public Host, public Services
         const bool images = GameImagesChanged();
 
         context_->Update();
+        if (TextClampsChanged()) // clamped text was re-cut for a new width
+            context_->Update();
         backend_->BeginFrame(true);
         context_->Render();
         backend_->EndFrame();

@@ -181,6 +181,8 @@ void SyncElement(Rml::Element *live, Rml::Element *fresh)
     }
     if (live->HasAttribute("slot"))
         return; // the component's own children live here
+    if (live->GetTagName().rfind("ui-", 0) == 0)
+        return; // code-drawn elements own their children (ui-clamp keeps its cut text)
     if (auto *component = dynamic_cast<ComponentElement *>(live))
     {
         // A nested component rebuilds itself from its attributes; only content passed

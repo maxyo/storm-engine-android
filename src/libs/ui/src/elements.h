@@ -1,4 +1,4 @@
-// Elements drawn by code: <ui-icon>, <ui-ring>, <ui-paper>, <ui-game-image>.
+// Elements drawn by code: <ui-icon>, <ui-ring>, <ui-paper>, <ui-clamp>, <ui-game-image>.
 #pragma once
 
 #include "storm_ui/ui.h"
@@ -13,6 +13,8 @@ namespace storm::ui
 {
 
 void RegisterDrawElements();
+// True once after a <ui-clamp> changed its text during layout: lay out again before drawing.
+bool TextClampsChanged();
 void ReleaseDrawTextures();
 
 // icons.json of the UI pack: shared defs plus one SVG symbol per icon id.

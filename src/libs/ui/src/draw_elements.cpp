@@ -1,10 +1,14 @@
 // <ui-ring>: hold-to-confirm progress frame (rectangle or circle).
 // <ui-paper>: aged parchment sheet with a torn deckle edge, fibres, foxing and a fold.
+// <ui-clamp>: text cut to a number of lines with an ellipsis.
 // Colours come from RCSS properties registered here, so the tokens stay the only source.
 #include "elements.h"
 
+#include <RmlUi/Core/ElementUtilities.h>
+
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <memory>
 
 namespace storm::ui
@@ -390,6 +394,122 @@ void ReleaseDrawTextures()
     PaperElement::FibreSlot().reset();
 }
 
+namespace
+{
+
+bool clamps_changed = false;
+
+// <ui-clamp lines="2" text="…">: at most `lines` lines (1–3 in the design: list rows,
+// dialogue replies, table cells); a longer text ends in "…" after the last whole word.
+// The text is wrapped here with the same font metrics RmlUi uses, after each layout that
+// changed the width.
+class ClampElement final : public Rml::Element
+{
+  public:
+    using Rml::Element::Element;
+
+  protected:
+    void OnAttributeChange(const Rml::ElementAttributes &changed) override
+    {
+        Rml::Element::OnAttributeChange(changed);
+        if (changed.count("text") || changed.count("lines"))
+        {
+            width_ = -1.0f;
+            Show(GetAttribute<Rml::String>("text", ""));
+        }
+    }
+
+    void OnLayout() override
+    {
+        Rml::Element::OnLayout();
+        const float width = GetBox().GetSize(Rml::BoxArea::Content).x;
+        if (width <= 0.0f || std::fabs(width - width_) < 0.5f)
+            return;
+        width_ = width;
+        Show(Fit(GetAttribute<Rml::String>("text", ""), width));
+    }
+
+  private:
+    void Show(const std::string &text)
+    {
+        if (text == shown_ && GetNumChildren() > 0)
+            return;
+        shown_ = text;
+        SetInnerRML(EscapeRml(text));
+        clamps_changed = true;
+    }
+
+    float Width(const std::string &text)
+    {
+        return static_cast<float>(Rml::ElementUtilities::GetStringWidth(this, text));
+    }
+
+    std::string Fit(const std::string &text, float width)
+    {
+        const int lines = std::clamp(GetAttribute<int>("lines", 1), 1, 6);
+        std::vector<std::string> words;
+        for (size_t at = 0; at <= text.size();)
+        {
+            const size_t end = std::min(text.find(' ', at), text.size());
+            if (end > at)
+                words.push_back(text.substr(at, end - at));
+            at = end + 1;
+        }
+        std::string done, line;
+        int line_count = 1;
+        for (size_t i = 0; i < words.size(); ++i)
+        {
+            const std::string candidate = line.empty() ? words[i] : line + " " + words[i];
+            if (line.empty() || Width(candidate) <= width)
+            {
+                line = candidate;
+                continue;
+            }
+            if (line_count == lines)
+                return done + Ellipsis(line, width);
+            done += line + " ";
+            line = words[i];
+            ++line_count;
+        }
+        return text;
+    }
+
+    // The last line with as much of it as fits before "…".
+    std::string Ellipsis(std::string line, float width)
+    {
+        static const std::string dots = "\xE2\x80\xA6";
+        while (!line.empty() && Width(line + dots) > width)
+        {
+            const size_t space = line.rfind(' ');
+            if (space != std::string::npos)
+                line.erase(space);
+            else
+            {
+                line.pop_back();
+                while (!line.empty() && (static_cast<unsigned char>(line.back()) & 0xC0) == 0x80)
+                    line.pop_back();
+                if (!line.empty() && (static_cast<unsigned char>(line.back()) & 0x80))
+                    line.pop_back(); // lead byte of the cut character
+            }
+        }
+        while (!line.empty() && std::strchr(" ,;:.!?-", line.back()))
+            line.pop_back();
+        return line + dots;
+    }
+
+    float width_ = -1.0f;
+    std::string shown_;
+};
+
+} // namespace
+
+bool TextClampsChanged()
+{
+    const bool changed = clamps_changed;
+    clamps_changed = false;
+    return changed;
+}
+
 void RegisterDrawElements()
 {
     const auto colour = [](const char *name, const char *fallback) {
@@ -409,6 +529,8 @@ void RegisterDrawElements()
     static Rml::ElementInstancerGeneric<PaperElement> paper;
     Rml::Factory::RegisterElementInstancer("ui-ring", &ring);
     Rml::Factory::RegisterElementInstancer("ui-paper", &paper);
+    static Rml::ElementInstancerGeneric<ClampElement> clamp;
+    Rml::Factory::RegisterElementInstancer("ui-clamp", &clamp);
 }
 
 } // namespace storm::ui
