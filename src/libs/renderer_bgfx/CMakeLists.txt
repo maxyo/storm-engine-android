@@ -61,6 +61,31 @@ foreach(target bgfx bx bimg bimg_decode)
     endif()
 endforeach()
 
+# etcpak: ETC2 encoder for the DXT -> ETC2 texture transcode (src/texture).
+# Only the block compressors are built; no application, image I/O or threading code.
+# Offline: -DFETCHCONTENT_SOURCE_DIR_STORM_ETCPAK=/path/to/pinned/checkout
+FetchContent_Declare(storm_etcpak
+    GIT_REPOSITORY https://github.com/wolfpld/etcpak
+    GIT_TAG 3d716e1550023dc5ff8b602636af8b76584e0b66)
+FetchContent_GetProperties(storm_etcpak)
+if(NOT storm_etcpak_POPULATED)
+    FetchContent_Populate(storm_etcpak)
+endif()
+add_library(storm_etcpak STATIC
+    "${storm_etcpak_SOURCE_DIR}/ProcessRGB.cpp"
+    "${storm_etcpak_SOURCE_DIR}/Tables.cpp"
+    "${storm_etcpak_SOURCE_DIR}/Dither.cpp")
+target_include_directories(storm_etcpak SYSTEM INTERFACE "${storm_etcpak_SOURCE_DIR}")
+target_compile_features(storm_etcpak PRIVATE cxx_std_17)
+target_compile_options(storm_etcpak PRIVATE -w -O3)
+target_compile_definitions(storm_etcpak PRIVATE NDEBUG)
+# SSE4.1 is part of the x86-64 Android ABI and of every x86-64 development host;
+# arm64 uses etcpak's NEON paths by default.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    target_compile_options(storm_etcpak PRIVATE -msse4.1)
+endif()
+set_target_properties(storm_etcpak PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # Host shader compiler. Cross builds must supply one built for the host:
 #   cmake -S src/libs/renderer_bgfx/tools-host -B build/bgfx-host-tools && cmake --build ... --target shaderc
 if(CMAKE_CROSSCOMPILING)
@@ -84,6 +109,7 @@ storm_bgfx_embed_shaders(TARGET storm_bgfx_shaders NAMESPACE storm_shaders
     VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${shader_sources})
 
 file(GLOB_RECURSE shim_sources CONFIGURE_DEPENDS src/*.cpp src/*.hpp)
+list(FILTER shim_sources EXCLUDE REGEX "/src/texture/core/")
 add_library(storm_bgfx STATIC ${shim_sources})
 target_compile_features(storm_bgfx PUBLIC cxx_std_20)
 target_include_directories(storm_bgfx PUBLIC include "${CMAKE_SOURCE_DIR}/third_party/d3d9-headers/directx"
@@ -92,3 +118,23 @@ target_link_libraries(storm_bgfx PUBLIC bgfx bx bimg PRIVATE storm_bgfx_shaders 
 set_target_properties(storm_bgfx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(storm_bgfx PRIVATE -fsigned-char)
 target_compile_definitions(storm_bgfx PRIVATE NOMINMAX)
+
+# DXT -> ETC2 transcode and on-disk cache (no bgfx dependency; unit-tested on the host).
+file(GLOB texture_core_sources CONFIGURE_DEPENDS src/texture/core/*.cpp src/texture/core/*.hpp)
+add_library(storm_texture_core STATIC ${texture_core_sources})
+target_compile_features(storm_texture_core PUBLIC cxx_std_20)
+target_include_directories(storm_texture_core PUBLIC src/texture/core)
+target_link_libraries(storm_texture_core PRIVATE storm_etcpak)
+find_package(Threads REQUIRED)
+target_link_libraries(storm_texture_core PUBLIC Threads::Threads)
+set_target_properties(storm_texture_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(storm_bgfx PRIVATE storm_texture_core)
+
+add_executable(storm_texture_bench tests/texture/bench.cpp)
+target_link_libraries(storm_texture_bench PRIVATE storm_texture_core)
+if(NOT CMAKE_CROSSCOMPILING)
+    add_executable(storm_texture_tests tests/texture/tests.cpp)
+    target_link_libraries(storm_texture_tests PRIVATE storm_texture_core bimg_decode bimg bx)
+    enable_testing()
+    add_test(NAME storm_texture_tests COMMAND storm_texture_tests)
+endif()
