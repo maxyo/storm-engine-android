@@ -34,7 +34,12 @@
 // finished on the GPU (glFinish; bgfx: every frame is drawn, as in the engine frame), and prints what they cost (Host::LastFrameStats: CPU of
 // update and render, GPU wait, rebuilds, layout, meshes, draw calls, texture uploads).
 // With a channel the two states alternate every frame (a HUD that changes each frame);
-// the channel "interface" alternates two interface models instead.
+// the channel "interface" alternates two interface models instead. "redraw" draws every
+// frame (Host::Frame, the cost of a frame while something animates); "drag <x> <y> <dx> <dy>"
+// holds a pointer down at x,y, moves it by dx,dy every frame and lifts it on the last (a list
+// scroll; a following "bench" measures the fling). With GPU queries (GL backend) it also
+// prints the GPU time and the fragments shaded per drawn frame, every layer and filter pass
+// included, in screens of the capture size (overdraw).
 //
 // Sizes and script coordinates are in dp. The clock is simulated (60 frames a second),
 // so captures are repeatable. Reported actions go to stdout as "action id verb value".
@@ -51,6 +56,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -173,6 +179,16 @@ class Capture
     virtual bool BenchFrame(storm::ui::Host &host) = 0;
     // bench: waits until the GPU has finished the frame.
     virtual void Finish() = 0;
+    // bench: GPU time and fragments shaded (every target: layers, filter passes) of what is
+    // drawn between the two calls; false when the backend cannot measure them.
+    virtual bool BeginGpuQuery()
+    {
+        return false;
+    }
+    virtual void EndGpuQuery(double &gpu_ms, double &fragments)
+    {
+        gpu_ms = fragments = 0.0;
+    }
 };
 
 class Gl3Capture final : public Capture
@@ -223,8 +239,40 @@ class Gl3Capture final : public Capture
     {
         reinterpret_cast<void (*)()>(egl_.GetProcAddress("glFinish"))();
     }
+    bool BeginGpuQuery() override
+    {
+        if (!queries_[0])
+        {
+            gen_queries_ = reinterpret_cast<void (*)(int, unsigned *)>(egl_.GetProcAddress("glGenQueries"));
+            begin_query_ = reinterpret_cast<void (*)(unsigned, unsigned)>(egl_.GetProcAddress("glBeginQuery"));
+            end_query_ = reinterpret_cast<void (*)(unsigned)>(egl_.GetProcAddress("glEndQuery"));
+            query_result_ = reinterpret_cast<void (*)(unsigned, unsigned, uint64_t *)>(egl_.GetProcAddress("glGetQueryObjectui64v"));
+            if (!gen_queries_ || !begin_query_ || !end_query_ || !query_result_)
+                return false;
+            gen_queries_(2, queries_);
+        }
+        begin_query_(kTimeElapsed, queries_[0]);
+        begin_query_(kSamplesPassed, queries_[1]);
+        return true;
+    }
+    void EndGpuQuery(double &gpu_ms, double &fragments) override
+    {
+        end_query_(kSamplesPassed);
+        end_query_(kTimeElapsed);
+        uint64_t ns = 0, samples = 0;
+        query_result_(queries_[0], kQueryResult, &ns);
+        query_result_(queries_[1], kQueryResult, &samples);
+        gpu_ms = static_cast<double>(ns) / 1e6;
+        fragments = static_cast<double>(samples);
+    }
 
   private:
+    static constexpr unsigned kTimeElapsed = 0x88BF, kSamplesPassed = 0x8914, kQueryResult = 0x8866;
+    void (*gen_queries_)(int, unsigned *) = nullptr;
+    void (*begin_query_)(unsigned, unsigned) = nullptr;
+    void (*end_query_)(unsigned) = nullptr;
+    void (*query_result_)(unsigned, unsigned, uint64_t *) = nullptr;
+    unsigned queries_[2] = {};
     Egl egl_;
     std::unique_ptr<storm::ui::RenderBackend> backend_;
     int width_ = 0;
@@ -698,12 +746,19 @@ int main(int argc, char **argv)
             words >> x >> y;
             std::printf("wants %.0f %.0f %s\n", x, y, host->WantsTouch(x * density, y * density) ? "ui" : "game");
         }
-        else if (verb == "bench") // bench <frames> [<channel> <a.json> <b.json>]
+        else if (verb == "bench") // bench <frames> [<channel> <a.json> <b.json> | redraw | drag <x> <y> <dx> <dy>]
         {
             int frames = 0;
             std::string channel, first, second;
-            words >> frames >> channel >> first >> second;
-            const std::string alternate[2] = {channel.empty() ? std::string() : ReadFile(first), channel.empty() ? std::string() : ReadFile(second)};
+            words >> frames >> channel;
+            const bool redraw = channel == "redraw", drag = channel == "drag";
+            float drag_x = 0, drag_y = 0, drag_dx = 0, drag_dy = 0;
+            if (drag)
+                words >> drag_x >> drag_y >> drag_dx >> drag_dy;
+            else if (!redraw)
+                words >> first >> second;
+            const bool alternating = !channel.empty() && !redraw && !drag;
+            const std::string alternate[2] = {alternating ? ReadFile(first) : std::string(), alternating ? ReadFile(second) : std::string()};
             struct Sum
             {
                 double total = 0, worst = 0;
@@ -712,22 +767,42 @@ int main(int argc, char **argv)
                     total += value;
                     worst = std::max(worst, value);
                 }
-            } update, render, gpu, frame;
+            } update, render, gpu, frame, gpu_timer, fragments;
             int drawn_frames = 0;
+            bool measured = false;
             long rebuilds = 0, laid_out = 0, geometry = 0, draws = 0, masks = 0, layers = 0, cached = 0, textures = 0, bytes = 0;
+            if (drag)
+            {
+                host->Touch(storm::ui::TouchPhase::Down, 1, drag_x * density, drag_y * density);
+                run(1.0 / 60.0);
+            }
             for (int i = 0; i < frames; ++i)
             {
                 const auto started = std::chrono::steady_clock::now();
                 if (channel == "interface")
                     host->SetInterface(alternate[i % 2]);
-                else if (!channel.empty())
+                else if (alternating)
                     host->SetState(channel, alternate[i % 2]);
+                else if (drag)
+                    host->Touch(i + 1 < frames ? storm::ui::TouchPhase::Move : storm::ui::TouchPhase::Up, 1, (drag_x + drag_dx * (i + 1)) * density,
+                                (drag_y + drag_dy * (i + 1)) * density);
                 clock += 1.0 / 60.0;
                 storm::ui::FrameStats stats;
-                if (capture->BenchFrame(*host))
+                const bool query = capture->BeginGpuQuery();
+                const bool drew = redraw ? (capture->Frame(*host), true) : capture->BenchFrame(*host);
+                double frame_gpu = 0, frame_fragments = 0;
+                if (query)
+                    capture->EndGpuQuery(frame_gpu, frame_fragments);
+                if (drew)
                 {
                     stats = host->LastFrameStats();
                     ++drawn_frames;
+                    if (query)
+                    {
+                        measured = true;
+                        gpu_timer.Add(frame_gpu);
+                        fragments.Add(frame_fragments);
+                    }
                 }
                 const auto drawn = std::chrono::steady_clock::now();
                 capture->Finish();
@@ -746,12 +821,16 @@ int main(int argc, char **argv)
                 textures += stats.textures;
                 bytes += static_cast<long>(stats.texture_bytes);
             }
-            const double n = std::max(1, frames);
+            const double n = std::max(1, frames), drawn_n = std::max(1, drawn_frames);
             std::printf("bench %d frames%s%s, %d drawn: frame %.2f ms (max %.2f) = update %.2f (max %.2f) + render %.2f (max %.2f) + gpu %.2f (max %.2f); "
                         "per frame: rebuilds %.1f, laid out %.1f, meshes %.1f, draws %.1f, masks %.1f, layers %.1f (cached %.1f), textures %.2f (%.0f bytes)\n",
-                        frames, channel.empty() ? "" : " alternating ", channel.c_str(), drawn_frames, frame.total / n, frame.worst, update.total / n, update.worst,
+                        frames, alternating ? " alternating " : channel.empty() ? "" : " ", channel.c_str(), drawn_frames, frame.total / n, frame.worst, update.total / n, update.worst,
                         render.total / n, render.worst, gpu.total / n, gpu.worst, rebuilds / n, laid_out / n, geometry / n, draws / n, masks / n, layers / n, cached / n, textures / n,
                         bytes / n);
+            // Per drawn frame, from GPU queries: GPU time and fragments shaded over the screen area (overdraw).
+            if (measured)
+                std::printf("bench gpu per drawn frame: %.3f ms (max %.3f), overdraw %.2f screens (max %.2f)\n", gpu_timer.total / drawn_n, gpu_timer.worst,
+                            fragments.total / drawn_n / (static_cast<double>(width) * height), fragments.worst / (static_cast<double>(width) * height));
         }
         else if (verb == "device-reset")
         {
