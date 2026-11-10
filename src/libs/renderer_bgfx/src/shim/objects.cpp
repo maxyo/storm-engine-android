@@ -1,5 +1,7 @@
 #include "device.hpp"
 
+#include "../texture/core/service.hpp"
+
 #include <algorithm>
 
 namespace storm::shim
@@ -189,6 +191,9 @@ TexStorePtr make_store(Device *device, TexKind kind, uint32_t width, uint32_t he
 
 TexStore::~TexStore()
 {
+    if (transcode_job)
+        transcode_job->cancelled = true;
+    texture::Service::instance().add_fallback_bytes(-fallback_bytes);
     if (bgfx::isValid(handle) && Context::instance().initialised())
     {
         if (device)
@@ -269,16 +274,78 @@ void TexStore::create_gpu()
 
 namespace
 {
+bgfx::TextureFormat::Enum bc_format(D3DFORMAT format)
+{
+    return format_info(format).block_bytes == 8                    ? bgfx::TextureFormat::BC1
+           : (format == D3DFMT_DXT2 || format == D3DFMT_DXT3) ? bgfx::TextureFormat::BC2
+                                                               : bgfx::TextureFormat::BC3;
+}
+
+texture::Layout layout_of(const TexStore &store)
+{
+    const bgfx::TextureFormat::Enum bc = bc_format(store.format);
+    texture::Layout layout;
+    layout.format = bc == bgfx::TextureFormat::BC1   ? texture::DxtFormat::Bc1
+                    : bc == bgfx::TextureFormat::BC2 ? texture::DxtFormat::Bc2
+                                                     : texture::DxtFormat::Bc3;
+    layout.width = store.width;
+    layout.height = store.height;
+    layout.levels = store.levels;
+    layout.faces = store.faces();
+    return layout;
+}
+
+// bgfx keeps a reference to the shared blob until it has consumed the upload.
+const bgfx::Memory *ref_blob(std::shared_ptr<const texture::Blob> blob)
+{
+    auto *owner = new std::shared_ptr<const texture::Blob>(std::move(blob));
+    return bgfx::makeRef((*owner)->data.get(), static_cast<uint32_t>((*owner)->size),
+                         [](void *, void *user) { delete static_cast<std::shared_ptr<const texture::Blob> *>(user); },
+                         owner);
+}
+
+enum class Tier
+{
+    Direct,    // DXT as BC (bgfx decodes it to RGBA8 itself without S3TC)
+    Transcode, // ETC2 from the cache or the transcode workers
+    Rgba,      // decoded to RGBA8 here
+};
+
+Tier select_tier(const TexStore &store)
+{
+    if (!format_info(store.format).block_bytes)
+        return Tier::Direct;
+    const bgfx::Caps *caps = Context::instance().caps();
+    const uint16_t need = store.kind == TexKind::Cube ? BGFX_CAPS_FORMAT_TEXTURE_CUBE : BGFX_CAPS_FORMAT_TEXTURE_2D;
+    const bool bc = (caps->formats[bc_format(store.format)] & need) != 0;
+    const bool etc2 = (caps->formats[bgfx::TextureFormat::ETC2] & need) && (caps->formats[bgfx::TextureFormat::ETC2A] & need);
+    switch (texture::Service::instance().mode())
+    {
+    case texture::Mode::Bc:
+        return Tier::Direct;
+    case texture::Mode::Rgba:
+        return Tier::Rgba;
+    case texture::Mode::Etc2:
+        return etc2 ? Tier::Transcode : Tier::Direct;
+    case texture::Mode::Auto:
+        break;
+    }
+    return bc || !etc2 ? Tier::Direct : Tier::Transcode;
+}
+
 // bgfx can only restrict the mip range of a texture created from an image container;
 // D3D textures with a partial mip chain (very common in .tx files) need that.
-const bgfx::Memory *make_dds(const TexStore &store, bgfx::TextureFormat::Enum gpu_format, bool compressed)
+// `first_level` drops the largest levels (temporary textures while transcoding).
+const bgfx::Memory *make_dds(const TexStore &store, bgfx::TextureFormat::Enum gpu_format, bool compressed,
+                             uint32_t first_level = 0)
 {
     const uint32_t dxgi = gpu_format == bgfx::TextureFormat::BC1   ? 71
                           : gpu_format == bgfx::TextureFormat::BC2 ? 74
                           : gpu_format == bgfx::TextureFormat::BC3 ? 77
                                                                    : 28; // R8G8B8A8_UNORM
+    const uint32_t levels = store.levels - first_level;
     size_t payload = 0;
-    for (uint32_t level = 0; level < store.levels; ++level)
+    for (uint32_t level = first_level; level < store.levels; ++level)
     {
         const uint32_t w = store.level_width(level), h = store.level_height(level);
         payload += compressed ? level_size(store.format, w, h) : static_cast<size_t>(w) * h * 4;
@@ -291,21 +358,23 @@ const bgfx::Memory *make_dds(const TexStore &store, bgfx::TextureFormat::Enum gp
     header[0] = 0x20534444; // "DDS "
     header[1] = 124;
     header[2] = 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000;
-    header[3] = store.height;
-    header[4] = store.width;
-    header[7] = store.levels;
+    header[3] = store.level_height(first_level);
+    header[4] = store.level_width(first_level);
+    header[7] = levels;
     header[19] = 32;         // pixel format size
     header[20] = 0x4;        // DDPF_FOURCC
     header[21] = 0x30315844; // "DX10"
-    header[27] = 0x1000 | (store.levels > 1 ? 0x400008 : 0) | (cube ? 0x8 : 0);
+    header[27] = 0x1000 | (levels > 1 ? 0x400008 : 0) | (cube ? 0x8 : 0);
     header[28] = cube ? 0xFE00 : 0;
     header[32] = dxgi;
     header[33] = 3; // D3D10_RESOURCE_DIMENSION_TEXTURE2D
     header[34] = cube ? 4 : 0;
     header[35] = 1;
+    const bool block_source = format_info(store.format).block_bytes != 0;
+    std::vector<uint8_t> decoded;
     uint8_t *out = memory->data + 4 + 124 + 20;
     for (uint32_t face = 0; face < store.faces(); ++face)
-        for (uint32_t level = 0; level < store.levels; ++level)
+        for (uint32_t level = first_level; level < store.levels; ++level)
         {
             const TexStore::Sub &sub = store.subs[face * store.levels + level];
             const uint32_t w = store.level_width(level), h = store.level_height(level);
@@ -314,35 +383,165 @@ const bgfx::Memory *make_dds(const TexStore &store, bgfx::TextureFormat::Enum gp
                 memset(out, 0, bytes);
             else if (compressed)
                 memcpy(out, sub.data.data(), bytes);
+            else if (block_source)
+            {
+                // the decoder writes whole 4x4 blocks; keep the visible w x h part
+                const uint32_t aligned_w = texture::blocks_x(w) * 4;
+                decoded.resize(static_cast<size_t>(aligned_w) * texture::blocks_x(h) * 4 * 4);
+                texture::decode_level(layout_of(store).format, sub.data.data(), w, h, decoded.data());
+                for (uint32_t y = 0; y < h; ++y)
+                    memcpy(out + static_cast<size_t>(y) * w * 4, decoded.data() + static_cast<size_t>(y) * aligned_w * 4,
+                           static_cast<size_t>(w) * 4);
+            }
             else
                 convert_to_rgba8(store.format, sub.data.data(), level_pitch(store.format, w), w, h, out);
             out += bytes;
         }
     return memory;
 }
+
+void submit_transcode(TexStore &store)
+{
+    texture::Service &service = texture::Service::instance();
+    if (!service.has_room())
+        return;
+    std::vector<uint8_t> input;
+    size_t total = 0;
+    for (const TexStore::Sub &sub : store.subs)
+        total += sub.data.size();
+    input.reserve(total);
+    for (const TexStore::Sub &sub : store.subs)
+        input.insert(input.end(), sub.data.begin(), sub.data.end());
+    const texture::Layout layout = layout_of(store);
+    const texture::EtcFormat format = texture::choose_etc_format(layout.format, input.data(), input.size());
+    store.transcode_job = service.submit(layout, store.transcode_key, format, std::move(input));
+}
+
+bgfx::TextureFormat::Enum etc_format(texture::EtcFormat format)
+{
+    return format == texture::EtcFormat::Rgb8 ? bgfx::TextureFormat::ETC2 : bgfx::TextureFormat::ETC2A;
+}
 } // namespace
+
+void TexStore::create_sampled()
+{
+    const Tier tier = select_tier(*this);
+    if (tier == Tier::Transcode && create_transcoded())
+    {
+        for (Sub &s : subs)
+            s.dirty = false;
+        any_dirty = false;
+        return;
+    }
+    gpu_compressed = format_info(format).block_bytes != 0 && tier != Tier::Rgba;
+    gpu_format = gpu_compressed ? bc_format(format) : bgfx::TextureFormat::RGBA8;
+    handle = bgfx::createTexture(make_dds(*this, gpu_format, gpu_compressed));
+    if (!bgfx::isValid(handle))
+        logf("texture creation failed: %ux%u levels=%u d3dformat=%u", width, height, levels,
+             static_cast<uint32_t>(format));
+    // a decoded DXT texture cannot take partial DXT updates: re-locking recreates it
+    transcoded = tier == Tier::Rgba && format_info(format).block_bytes != 0;
+    for (Sub &s : subs)
+        s.dirty = false;
+    any_dirty = false;
+}
+
+bool TexStore::create_transcoded()
+{
+    for (const Sub &s : subs)
+        if (s.data.empty())
+            return false;
+    const texture::Layout layout = layout_of(*this);
+    texture::KeyBuilder key(layout);
+    for (const Sub &s : subs)
+        key.add(s.data.data(), s.data.size());
+    transcode_key = key.key();
+    texture::Service &service = texture::Service::instance();
+    if (auto blob = service.lookup(transcode_key, layout))
+    {
+        const uint32_t internal_format = blob->data[28] | blob->data[29] << 8;
+        handle = bgfx::createTexture(ref_blob(std::make_shared<const texture::Blob>(std::move(*blob))));
+        gpu_format = internal_format == 0x9274 ? bgfx::TextureFormat::ETC2 : bgfx::TextureFormat::ETC2A;
+        gpu_compressed = true;
+        transcoded = bgfx::isValid(handle);
+        return transcoded;
+    }
+    // Miss: show the DXT data now (without its top level when large, which
+    // bounds the RGBA8 copy bgfx makes on GPUs without S3TC) and swap in the
+    // ETC2 texture once a worker has produced it.
+    const uint32_t first_level = levels > 1 && std::max(width, height) >= 1024 ? 1 : 0;
+    gpu_compressed = true;
+    gpu_format = bc_format(format);
+    handle = bgfx::createTexture(make_dds(*this, gpu_format, true, first_level));
+    if (!bgfx::isValid(handle))
+        return false;
+    transcoded = true;
+    const bool bc_native = Context::instance().caps()->formats[gpu_format] &
+                           (kind == TexKind::Cube ? BGFX_CAPS_FORMAT_TEXTURE_CUBE : BGFX_CAPS_FORMAT_TEXTURE_2D);
+    for (uint32_t level = first_level; level < levels; ++level)
+        fallback_bytes += bc_native ? level_size(format, level_width(level), level_height(level))
+                                    : int64_t(level_width(level)) * level_height(level) * 4;
+    fallback_bytes *= faces();
+    service.add_fallback_bytes(fallback_bytes);
+    submit_transcode(*this);
+    return true;
+}
+
+void TexStore::finish_transcode()
+{
+    if (!fallback_bytes)
+        return;
+    if (!transcode_job)
+    {
+        submit_transcode(*this); // the queue was full at creation
+        return;
+    }
+    if (transcode_job->state.load(std::memory_order_acquire) != texture::Job::Done)
+        return;
+    const bgfx::TextureHandle etc = bgfx::createTexture(ref_blob(transcode_job->result));
+    const bgfx::TextureFormat::Enum etc_gpu_format = etc_format(transcode_job->format);
+    transcode_job.reset();
+    if (!bgfx::isValid(etc))
+        return;
+    bgfx::destroy(handle);
+    handle = etc;
+    gpu_format = etc_gpu_format;
+    texture::Service::instance().add_fallback_bytes(-fallback_bytes);
+    fallback_bytes = 0;
+}
+
+void TexStore::destroy_sampled()
+{
+    if (transcode_job)
+        transcode_job->cancelled = true;
+    transcode_job.reset();
+    texture::Service::instance().add_fallback_bytes(-fallback_bytes);
+    fallback_bytes = 0;
+    transcoded = false;
+    if (bgfx::isValid(handle))
+        bgfx::destroy(handle);
+    handle = BGFX_INVALID_HANDLE;
+}
 
 void TexStore::sync()
 {
     if (system_memory)
         return;
+    const bool sampled = !render_target && !depth_stencil && kind != TexKind::Volume;
+    if (transcoded)
+    {
+        if (!any_dirty)
+        {
+            finish_transcode();
+            return;
+        }
+        destroy_sampled(); // re-locked: start over from the new contents
+    }
     if (!bgfx::isValid(handle))
     {
-        if (!render_target && !depth_stencil && kind != TexKind::Volume)
+        if (sampled)
         {
-            const FormatInfo info = format_info(format);
-            gpu_compressed = info.block_bytes != 0;
-            gpu_format = !gpu_compressed ? bgfx::TextureFormat::RGBA8
-                         : info.block_bytes == 8 ? bgfx::TextureFormat::BC1
-                         : (format == D3DFMT_DXT2 || format == D3DFMT_DXT3) ? bgfx::TextureFormat::BC2
-                                                                             : bgfx::TextureFormat::BC3;
-            handle = bgfx::createTexture(make_dds(*this, gpu_format, gpu_compressed));
-            if (!bgfx::isValid(handle))
-                logf("texture creation failed: %ux%u levels=%u d3dformat=%u", width, height, levels,
-                     static_cast<uint32_t>(format));
-            for (Sub &s : subs)
-                s.dirty = false;
-            any_dirty = false;
+            create_sampled();
             return;
         }
         create_gpu();

@@ -13,6 +13,7 @@
 #include "fs.h"
 #include "debug-trap.h"
 #include "string_compare.hpp"
+#include "storm/render/texture_cache.hpp"
 
 #include <algorithm>
 #include <SDL_timer.h>
@@ -529,6 +530,17 @@ bool DX9RENDER::Init()
 #endif
         requestedTextureAnisotropy = std::clamp(requestedTextureAnisotropy, 0, 16);
 
+        storm::render::TextureCacheConfig textureCache;
+        ini->ReadString(nullptr, "texture_compression", str, sizeof(str), "auto");
+        textureCache.mode = storm::render::ParseTextureCompression(str).value_or(storm::render::TextureCompression::Auto);
+#ifdef __ANDROID__
+        textureCache.mode = static_cast<storm::render::TextureCompression>(
+            std::clamp(storm::android::graphicsSetting("texture_compression", static_cast<int>(textureCache.mode)), 0, 3));
+#endif
+        textureCache.max_bytes = static_cast<uint64_t>(std::max(ini->GetInt(nullptr, "texture_cache_mb", 3072), 64)) << 20;
+        textureCache.cache_directory = fs::GetStashPath() / "TextureCache";
+        storm::render::ConfigureTextureCache(textureCache);
+
         FovMultiplier = ini->GetFloat(nullptr, "fov_multiplier", 1.0f);
 
         screen_size.x = ini->GetInt(nullptr, "screen_x", 1024);
@@ -684,6 +696,7 @@ gamePictures_ = std::make_unique<storm::GamePictures>(*this);
 //################################################################################
 DX9RENDER::~DX9RENDER()
 {
+    storm::render::ShutdownTextureCache();
     // d3d9->SetRenderTarget(NULL, NULL); //~!~
 
     S_RELEASE(pSmallPostProcessSurface2, 0);

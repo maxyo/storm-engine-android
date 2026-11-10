@@ -19,6 +19,11 @@
 #include <unordered_map>
 #include <vector>
 
+namespace storm::texture
+{
+struct Job;
+}
+
 namespace storm::shim
 {
 
@@ -81,6 +86,13 @@ struct TexStore
     bool any_dirty = false;
     uint32_t bound_frame = 0;
 
+    // DXT -> ETC2 transcode (tier 2): `handle` is either the ETC2 texture or a
+    // temporary uncompressed one while `transcode_job` runs.
+    bool transcoded = false;          // the handle is not in `format`; re-locking recreates it
+    uint64_t transcode_key = 0;
+    int64_t fallback_bytes = 0;       // size of the temporary texture, 0 once ETC2 is in place
+    std::shared_ptr<texture::Job> transcode_job;
+
     ~TexStore();
     uint32_t faces() const { return kind == TexKind::Cube ? 6 : 1; }
     uint32_t level_width(uint32_t level) const { return std::max(1u, width >> level); }
@@ -92,6 +104,10 @@ struct TexStore
     // Creates the bgfx texture if needed and uploads dirty levels.
     void sync();
     void create_gpu();
+    void create_sampled();
+    void destroy_sampled();
+    bool create_transcoded();
+    void finish_transcode();
 };
 using TexStorePtr = std::shared_ptr<TexStore>;
 TexStorePtr make_store(Device *device, TexKind kind, uint32_t width, uint32_t height, uint32_t depth, uint32_t levels,
