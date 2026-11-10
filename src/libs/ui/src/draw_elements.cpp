@@ -819,6 +819,52 @@ bool TextClampsChanged()
     return changed;
 }
 
+bool ScrollEdgesChanged(Rml::Element *root)
+{
+    if (!root)
+        return false;
+    bool changed = false;
+    const auto overflow = root->GetComputedValues().overflow_y();
+    if (overflow == Rml::Style::Overflow::Auto || overflow == Rml::Style::Overflow::Scroll)
+    {
+        const float top = root->GetScrollTop(), height = root->GetClientHeight();
+        const bool below = top < root->GetScrollHeight() - height - 0.5f;
+        if (root->IsClassSet("scroll-below") != below)
+            root->SetClass("scroll-below", below), changed = true;
+        // The fade: a child of the runtime's own, pinned to the bottom edge of the visible
+        // part (children of a scrolling box move with its content). Re-made if a rebuild of
+        // the component dropped it.
+        Rml::Element *fade = nullptr;
+        for (int i = 0; i < root->GetNumChildren() && !fade; ++i)
+            if (root->GetChild(i)->IsClassSet("scroll-fade"))
+                fade = root->GetChild(i);
+        if (below && !fade)
+        {
+            if (root->GetComputedValues().position() == Rml::Style::Position::Static)
+                root->SetProperty(Rml::PropertyId::Position, Rml::Property(Rml::Style::Position::Relative));
+            Rml::ElementPtr made = root->GetOwnerDocument()->CreateElement("div");
+            made->SetClass("scroll-fade", true);
+            fade = root->AppendChild(std::move(made));
+            changed = true;
+        }
+        if (fade)
+        {
+            const float at = top + height - fade->GetOffsetHeight();
+            const std::string position = std::to_string(static_cast<int>(std::lround(at))) + "px";
+            if (fade->GetAttribute<Rml::String>("data-at", "") != position)
+            {
+                fade->SetAttribute("data-at", position);
+                fade->SetProperty("top", position);
+                changed = true;
+            }
+        }
+    }
+    for (int i = 0; i < root->GetNumChildren(); ++i)
+        if (!root->GetChild(i)->IsClassSet("scroll-fade"))
+            changed = ScrollEdgesChanged(root->GetChild(i)) || changed;
+    return changed;
+}
+
 void RegisterDrawElements()
 {
     const auto colour = [](const char *name, const char *fallback) {

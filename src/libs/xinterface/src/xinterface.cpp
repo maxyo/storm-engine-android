@@ -583,6 +583,15 @@ void XINTERFACE::Realize(uint32_t)
                 widgets.push_back(std::move(*game));
         if (storm::android::mobileScreen == "selectcharacter" && !storm::android::TutorialSkipSupported())
             storm::android::tutorialSkip.selected = false;
+        if (storm::android::mobileScreen == "selectcharacter")
+        {
+            // The occupation's text key (HeroType_N): the game's caption for it is a fragment of
+            // a sentence ("гимнастику и искусство фехтования"); the UI names it by the key.
+            auto *hero = static_cast<VDATA *>(core.GetScriptVariable("NullCharacter"));
+            auto *type = hero && hero->GetAClass() ? hero->GetAClass()->FindAClass(hero->GetAClass(), "HeroParam.HeroType") : nullptr;
+            if (type && type->HasValue())
+                widgets.push_back(MobileWidget{"ANDROID_HERO_TYPE", "text", type->GetValue(), "", -1, -1, true});
+        }
         if (storm::android::mobileScreen == "selectcharacter" && storm::android::TutorialSkipSupported())
         {
             MobileWidget option{"ANDROID_TUTORIAL_SKIP", "check", "Пропустить вступительное обучение",
