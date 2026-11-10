@@ -217,47 +217,6 @@ void mimalloc_fun(const char *msg, void *arg)
 
 } // namespace
 
-void HandleWindowEvent(const storm::OSWindow::Event &event)
-{
-    if (event == storm::OSWindow::Closed)
-    {
-        isRunning = false;
-        if (core_private->initialized())
-        {
-            core_private->Event("DestroyWindow");
-        }
-    }
-    else if (event == storm::OSWindow::FocusGained)
-    {
-        bActive = true;
-        audioGate.windowFocused = true;
-        if (core_private->initialized())
-        {
-            core_private->AppState(bActive);
-            audioGate.apply();
-        }
-    }
-    else if (event == storm::OSWindow::FocusLost)
-    {
-        bActive = false;
-        audioGate.windowFocused = false;
-#ifdef __ANDROID__
-        // AppState/audio fading can block this thread beyond the opening grace.
-        // Observe the real SDL focus event before those calls, at its actual time.
-        const auto observedAt=SDL_GetTicks();
-        if(storm::android::worldMapHud.modal.ownsInput(observedAt)){
-            storm::android::worldMapHud.modal.hold(false,observedAt);
-            storm::android::traceWorldMapModal("focus-lost-observed",storm::android::worldMapHud.modal.debug());
-        }
-#endif
-        if (core_private->initialized())
-        {
-            core_private->AppState(bActive);
-            audioGate.apply();
-        }
-    }
-}
-
 // Engine-side reactions to application events. Other subsystems subscribe to
 // storm::AppEvents themselves; see src/libs/window/README.md.
 void SubscribeEngineToAppEvents()
@@ -314,6 +273,47 @@ void SubscribeEngineToAppEvents()
             break;
         }
     });
+}
+
+void HandleWindowEvent(const storm::OSWindow::Event &event)
+{
+    if (event == storm::OSWindow::Closed)
+    {
+        isRunning = false;
+        if (core_private->initialized())
+        {
+            core_private->Event("DestroyWindow");
+        }
+    }
+    else if (event == storm::OSWindow::FocusGained)
+    {
+        bActive = true;
+        audioGate.windowFocused = true;
+        if (core_private->initialized())
+        {
+            core_private->AppState(bActive);
+            audioGate.apply();
+        }
+    }
+    else if (event == storm::OSWindow::FocusLost)
+    {
+        bActive = false;
+        audioGate.windowFocused = false;
+#ifdef __ANDROID__
+        // AppState/audio fading can block this thread beyond the opening grace.
+        // Observe the real SDL focus event before those calls, at its actual time.
+        const auto observedAt=SDL_GetTicks();
+        if(storm::android::worldMapHud.modal.ownsInput(observedAt)){
+            storm::android::worldMapHud.modal.hold(false,observedAt);
+            storm::android::traceWorldMapModal("focus-lost-observed",storm::android::worldMapHud.modal.debug());
+        }
+#endif
+        if (core_private->initialized())
+        {
+            core_private->AppState(bActive);
+            audioGate.apply();
+        }
+    }
 }
 
 int main(int argc, char *argv[])
