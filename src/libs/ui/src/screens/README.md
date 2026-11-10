@@ -24,6 +24,7 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout, a column table per interface |
 | `dialogue.cpp` | state channel `dialogue`: speech paged by `<ui-pages>` (pure rules in `../text_pages.h`), replies in two columns, the answer editor (text through the IME bridge, or an amount on the number panel), the menu button (`pause` to the platform host) |
 | `menu_game_over.cpp` | state channel `gameOver` (`{kind: sea\|land\|defeat, language}` or `null`, engine xinterface `info_handler.cpp`): the game-over screen |
+| `launcher.cpp` | the application's own screens (launcher, download library, about) from the platform host's `launcher` channel; the contract is at the top of the file |
 
 The design rules are GENERIC-LAYOUT (pipeline, type → component, button roles, templates,
 verbs, §8 admission and extras) and the V2 mockups of the design canvas.

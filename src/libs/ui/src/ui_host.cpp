@@ -16,6 +16,7 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -174,9 +175,14 @@ bool ReadJson(FileSource &files, const std::string &path, Json &out, std::string
     return true;
 }
 
+// The one live host of this process (Host::Create).
+std::atomic<bool> g_host_alive{false};
+
 class HostImpl final : public Host, public Services, public screens::Surface, public hud::Mount
 {
   public:
+    bool owns_process_slot = false;
+
     ~HostImpl() override
     {
         captures_.clear();
@@ -194,6 +200,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         if (initialised_)
             Rml::Shutdown();
         registry_.reset();
+        if (owns_process_slot)
+            g_host_alive = false;
     }
 
     bool Start(const Config &config, std::string *error)
@@ -1159,7 +1167,16 @@ std::unique_ptr<FileSource> DirectoryFiles(std::string root)
 
 std::unique_ptr<Host> Host::Create(const Config &config, std::string *error)
 {
+    if (g_host_alive.exchange(true))
+    {
+        const std::string why = "a UI host already lives in this process: one host per process (RmlUi state is process-global)";
+        Rml::Log::Message(Rml::Log::LT_ERROR, "%s", why.c_str());
+        if (error)
+            *error = why;
+        return nullptr;
+    }
     auto host = std::make_unique<HostImpl>();
+    host->owns_process_slot = true;
     if (!host->Start(config, error))
         return nullptr;
     return host;
