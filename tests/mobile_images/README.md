@@ -110,13 +110,16 @@ cache, releases the weak reference and invalidates running worker results.
 ## Validation
 
 ```sh
-python3 tests/mobile_images/run.py
-python3 tests/mobile_images/run.py --compiler clang++ # requires Clang sanitizer runtimes
-python3 tests/mobile_images/run.py --local-texture /path/to/user/goods.tga.tx
+python3 tests/mobile_images/run.py --build-dir build/host-ci/build/mobile_images
+python3 tests/mobile_images/run.py --build-dir build/host-ci/build/mobile_images --compiler clang++ # needs Clang sanitizer runtimes
+python3 tests/mobile_images/run.py --build-dir build/host-ci/build/mobile_images --local-texture /path/to/user/goods.tga.tx
 python3 tests/mobile_images/compile_android.py --reference-build /path/to/existing/engine-build
 ```
 
-The standalone host test compiles production decoder/cache/schema with ASan/UBSan.
+The standalone host test compiles production decoder/cache/schema with ASan/UBSan and links bimg
+from the renderer's bgfx pin (`src/libs/renderer_bgfx/cmake/bgfx_upstream.cmake`), which decodes
+BC1/2/3 and the TX raw formats; 5/6-bit channels expand to 8 bits with rounding.
+Offline: set `FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM` to a pinned checkout.
 It checks channels, alpha endpoints/interpolation, padded DDS rows, BC edge blocks,
 TGA origins/RLE, truncation/mips, crop/flips/half-texel coverage, output bounds,
 immutable handles, epoch invalidation, descriptor cap and combined LRU eviction.

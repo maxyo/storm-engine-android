@@ -6,15 +6,6 @@ include(FetchContent)
 # Third-party code must not inherit the engine's global flags (UNICODE, the
 # Windows type headers, -std=c++20 for C sources ...).
 set_directory_properties(PROPERTIES INCLUDE_DIRECTORIES "" COMPILE_DEFINITIONS "" COMPILE_OPTIONS "")
-set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
-set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
-set(BGFX_WITH_WAYLAND OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_GEOMETRY OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_TEXTURE OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_BIN2C OFF CACHE BOOL "" FORCE)
-set(BGFX_CONFIG_VIDEO OFF CACHE BOOL "" FORCE)
 # The engine renders from its main thread; bgfx::frame() executes the backend
 # inline, so the EGL context lives on the thread that owns the SDL window.
 set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
@@ -33,30 +24,8 @@ set(STORM_SHADERC "" CACHE FILEPATH "Host bgfx shaderc built from the pinned sou
 if(CMAKE_CROSSCOMPILING OR STORM_SHADERC)
     set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 endif()
-include("${CMAKE_CURRENT_LIST_DIR}/cmake/bgfx_pin.cmake")
-FetchContent_GetProperties(storm_bgfx_upstream)
-if(NOT storm_bgfx_upstream_POPULATED)
-    FetchContent_Populate(storm_bgfx_upstream)
-    # Local fixes on top of the pinned bgfx (see patches/). Applied once; a tree that already
-    # carries a patch is left alone, anything else is a hard error.
-    file(GLOB bgfx_patches "${CMAKE_CURRENT_SOURCE_DIR}/patches/bgfx-*.patch")
-    foreach(patch ${bgfx_patches})
-        execute_process(COMMAND git apply --reverse --check "${patch}"
-            WORKING_DIRECTORY "${storm_bgfx_upstream_SOURCE_DIR}/bgfx" RESULT_VARIABLE already_applied
-            OUTPUT_QUIET ERROR_QUIET)
-        if(NOT already_applied EQUAL 0)
-            execute_process(COMMAND git apply "${patch}"
-                WORKING_DIRECTORY "${storm_bgfx_upstream_SOURCE_DIR}/bgfx" RESULT_VARIABLE patch_result)
-            if(NOT patch_result EQUAL 0)
-                message(FATAL_ERROR "Cannot apply ${patch} to the pinned bgfx")
-            endif()
-        endif()
-    endforeach()
-    # Upstream warning flags and tools must not inherit the engine's global
-    # definitions (UNICODE etc.); EXCLUDE_FROM_ALL keeps unused tools unbuilt.
-    add_subdirectory("${storm_bgfx_upstream_SOURCE_DIR}" "${storm_bgfx_upstream_BINARY_DIR}" EXCLUDE_FROM_ALL)
-endif()
-set(STORM_BGFX_SOURCE_DIR "${storm_bgfx_upstream_SOURCE_DIR}" CACHE INTERNAL "")
+# The pinned bgfx/bx/bimg with the local patches (also used by the standalone UI runtime).
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/bgfx_upstream.cmake")
 # Android and the Linux development host both run the GLES 3.0 backend so the
 # same ESSL shader blobs and code paths are exercised. Selecting one renderer
 # explicitly disables all the others (bgfx/src/config.h).
@@ -66,12 +35,6 @@ if(ANDROID)
 else()
     target_link_libraries(bgfx PUBLIC EGL GLESv2)
 endif()
-foreach(target bgfx bx bimg bimg_decode)
-    if(TARGET ${target})
-        set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
-        target_compile_options(${target} PRIVATE -w)
-    endif()
-endforeach()
 
 # etcpak: ETC2 encoder for the DXT -> ETC2 texture transcode (src/texture).
 # Only the block compressors are built; no application, image I/O or threading code.

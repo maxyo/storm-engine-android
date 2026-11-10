@@ -74,15 +74,17 @@ jobs:
       - name: Install host packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build ccache
+          # libx11-dev, libgl-dev: the UI decodes .tx textures with bimg from the renderer's bgfx pin, and
+          # bgfx.cmake configures (does not build) the bgfx runtime with X11 and OpenGL on Linux.
+          sudo apt-get install -y --no-install-recommends ninja-build ccache libx11-dev libgl-dev
       - name: Cache fetched UI dependencies and compiler output
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: |
             build/ui-host/_deps
             ~/.cache/ccache
-          key: ui-host-${{ hashFiles('src/libs/ui/CMakeLists.txt') }}-${{ github.sha }}
-          restore-keys: ui-host-${{ hashFiles('src/libs/ui/CMakeLists.txt') }}-
+          key: ui-host-${{ hashFiles('src/libs/ui/CMakeLists.txt', 'src/libs/renderer_bgfx/cmake/bgfx_pin.cmake') }}-${{ github.sha }}
+          restore-keys: ui-host-${{ hashFiles('src/libs/ui/CMakeLists.txt', 'src/libs/renderer_bgfx/cmake/bgfx_pin.cmake') }}-
       - name: Build and test
         run: |
           cmake -S src/libs/ui -B build/ui-host -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache
