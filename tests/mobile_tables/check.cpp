@@ -145,6 +145,17 @@ int main()
     collect();
     data.DeleteAttributeClassX(header);
     collect();
+    // A table without rows is still in the model: one "table" widget with its headers, no verbs.
+    {
+        ATTRIBUTES emptyRoot(codec);
+        emptyRoot.CreateAttribute("hr", nullptr)->CreateAttribute("td1", nullptr)->SetAttribute("str", "Город");
+        core.table = &emptyRoot;
+        std::vector<MobileWidget> empty;
+        table.MobileCollect(empty);
+        assert(empty.size() == 1 && empty[0].type == "table" && empty[0].index == -1 && empty[0].actions.empty());
+        assert(empty[0].columnHeaders.size() == 3 && empty[0].columnHeaders[0] == "Город" && empty[0].headerCells.has_value());
+        std::cout << MobileWidgetJson("test_screen", empty, 9, 1) << '\n';
+    }
     core.table = nullptr;
     std::vector<MobileWidget> absent;
     table.MobileCollect(absent);
@@ -218,18 +229,20 @@ int main()
     assert((*nationRows()[0].headerCells)[3].images.empty());
     textureIcon->SetAttribute("uv", "0,0,1,1");
     assert((*nationRows()[0].headerCells)[3].images.size() == 1);
-    // Header content never makes an empty body visible to old clients.
+    // Header content never makes an empty body visible: rows without drawable content leave
+    // only the empty-table widget.
     for (int row = 1; row <= 2; ++row)
         nation->GetAttributeClass(("tr" + std::to_string(row)).c_str())->GetAttributeClass("td1")->SetAttribute("str", "");
     std::vector<MobileWidget> imageOnly;
-    storm::android::imagePoll = false;table.MobileCollect(imageOnly);assert(imageOnly.empty());
+    const auto onlyEmptyTable = [&] { return imageOnly.size() == 1 && imageOnly[0].type == "table"; };
+    storm::android::imagePoll = false;table.MobileCollect(imageOnly);assert(onlyEmptyTable());
     storm::android::imagePoll = true;storm::android::imageReply = false;
-    table.MobileCollect(imageOnly);assert(imageOnly.empty());
-    storm::android::imageReply = true;table.MobileCollect(imageOnly);assert(imageOnly.size() == 2);
+    imageOnly.clear();table.MobileCollect(imageOnly);assert(onlyEmptyTable());
+    imageOnly.clear();storm::android::imageReply = true;table.MobileCollect(imageOnly);assert(imageOnly.size() == 2);
     for (int row = 1; row <= 2; ++row)
         nation->GetAttributeClass(("tr" + std::to_string(row)).c_str())->GetAttributeClass("td3")
             ->GetAttributeClass("icon")->SetAttribute("texturepointer", "1");
-    imageOnly.clear();table.MobileCollect(imageOnly);assert(imageOnly.empty());
+    imageOnly.clear();table.MobileCollect(imageOnly);assert(onlyEmptyTable());
     core.root = nullptr;table.m_nodeName = "TABLE_LIST";table.m_nColQuantity = 3;
 
     // Real stock commerce structure: row.index + selector.current/picN.owner.
