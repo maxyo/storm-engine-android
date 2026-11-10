@@ -24,7 +24,7 @@ jobs:
       - name: Install host packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libsdl2-2.0-0 xvfb ninja-build
+          sudo apt-get install -y --no-install-recommends libsdl2-2.0-0 xvfb ninja-build ffmpeg clang-18 libclang-rt-18-dev
       - name: Cache pinned dependency sources
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
@@ -33,6 +33,9 @@ jobs:
             build/host-ci/glm
           key: host-sources-${{ hashFiles('tools/android/engine_sources.py', 'tools/android/ci_dependencies.sh', 'cmake/glm.cmake') }}
       - name: Run host checks
+        # Clang, like the NDK that builds the shipped engine.
+        env:
+          CXX: clang++-18
         run: xvfb-run -a python3 tools/ci/run_host_tests.py
   ui:
     name: Host build of the UI runtime
