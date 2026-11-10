@@ -565,9 +565,6 @@ class HostImpl final : public Host, public Services, public screens::Surface
             Rml::ElementPtr created = document_->CreateElement(tag);
             created->SetId("screen");
             mounted = document_->AppendChild(std::move(created));
-            // A screen that leaves the game visible (dialogue) says so in its spec.
-            const ComponentSpec *spec = registry_->Find(tag);
-            document_->SetClass("over-game", spec && Truthy(spec->constants.value("overGame", Json(false))));
         }
         if (auto *component = dynamic_cast<ComponentElement *>(mounted))
             component->SetProps(props);
