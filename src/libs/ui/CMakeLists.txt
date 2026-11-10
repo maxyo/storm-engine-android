@@ -69,6 +69,7 @@ add_library(storm_ui STATIC
     src/screens/menu_settings.cpp
     src/screens/menu_title.cpp
     src/screens/menu_game_over.cpp
+    src/screens/maps.cpp
     src/screens/reading.cpp
     src/screens/rest.cpp
     src/screens/hero_tradebook.cpp

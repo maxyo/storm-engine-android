@@ -1,4 +1,10 @@
 #include "xi_scrolled_pic.h"
+#include "../mobile_image_bridge.hpp"
+#ifdef __ANDROID__
+#include "platform/android_ui.hpp"
+#endif
+#include <cmath>
+#include <cstdio>
 #include <stdio.h>
 
 CXI_SCROLLEDPICTURE::CXI_SCROLLEDPICTURE()
@@ -78,12 +84,15 @@ void CXI_SCROLLEDPICTURE::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini
                     m_aImg[i].fpPos.y = pA->GetAttributeAsFloat("y", 0.f);
                     m_aImg[i].fpSize.x = pA->GetAttributeAsFloat("width", -1.f);
                     m_aImg[i].fpSize.y = pA->GetAttributeAsFloat("height", -1.f);
+                    m_aImg[i].id = pA->GetThisName() ? pA->GetThisName() : "";
 
                     m_aImg[i].pImg = new CXI_IMAGE;
                     Assert(m_aImg[i].pImg);
                     const char *pcGroupName = pA->GetAttribute("group");
                     if (pcGroupName)
                     {
+                        m_aImg[i].group = pcGroupName;
+                        m_aImg[i].pic = pA->GetAttribute("pic") ? pA->GetAttribute("pic") : "";
                         m_aImg[i].pImg->LoadFromBase(pcGroupName, pA->GetAttribute("pic"), true);
                         if (m_aImg[i].fpSize.x > 0.f && m_aImg[i].fpSize.y > 0.f)
                             m_aImg[i].pImg->SetSize(static_cast<int32_t>(m_aImg[i].fpSize.x),
@@ -91,6 +100,7 @@ void CXI_SCROLLEDPICTURE::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini
                     }
                     else
                     {
+                        m_aImg[i].file = pA->GetAttribute("file") ? pA->GetAttribute("file") : "";
                         m_aImg[i].pImg->LoadFromFile(pA->GetAttribute("file"));
                     }
                     m_aImg[i].fpSize.x = static_cast<float>(m_aImg[i].pImg->GetWidth());
@@ -337,3 +347,94 @@ void CXI_SCROLLEDPICTURE::SetScale(float fsx, float fsy)
     frNewUV.bottom = fTop + fsy;
     ChangeUV(frNewUV);
 }
+
+#ifdef __ANDROID__
+// The scrolled picture as a map for touch (type "map"): the whole picture as a texture source,
+// context "base" (the size the scripts measure it in, ini basesize) and "view" (the part the
+// game shows now, in the same units), then one "map_marker" widget per imagelist entry with
+// its centre and size in base units. The portable UI pans and zooms the picture itself; a tap
+// comes back as "point@<opening>:<x>,<y>" in base units and "release" ends the hold.
+void CXI_SCROLLEDPICTURE::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    if (!storm::android::imagePoll || !storm::android::imageReply || m_mobileTexturePath.empty() || m_pTex)
+        return;
+    auto picture = storm::mobile::Reference({m_mobileTexturePath, {0.f, 0.f, 1.f, 1.f}}, m_v[0].color);
+    const std::string texture = MobileTextureName(m_mobileTexturePath);
+    if (!picture.handle || texture.empty())
+        return;
+    picture.source = {"texture", {}, texture, {}, {}, -1};
+    const int order = m_rect.top * 8192 + m_rect.left;
+    MobileWidget map{m_nodeName, "map", "", "", -1, order, m_bSelected && !m_bLockStatus};
+    map.images.push_back(picture);
+    map.context["base"] = MobileNumber(m_fpBaseSize.x) + "," + MobileNumber(m_fpBaseSize.y);
+    map.context["view"] = MobileNumber(m_v[0].tu * m_fpBaseSize.x) + "," + MobileNumber(m_v[0].tv * m_fpBaseSize.y) + "," +
+                          MobileNumber(m_v[3].tu * m_fpBaseSize.x) + "," + MobileNumber(m_v[3].tv * m_fpBaseSize.y);
+    if (map.enabled && m_pCommands[RClickCommand()].bUse && m_pCommands[RClickCommand()].sEventName)
+        map.actions = {"point", "release"};
+    widgets.push_back(std::move(map));
+    for (size_t n = 0; n < m_aImg.size(); ++n)
+    {
+        const BuildinImage &image = m_aImg[n];
+        storm::mobile::ImageRef ref;
+        if (!image.group.empty())
+            ref = storm::mobile::AtlasReference(pPictureService, image.group.c_str(), image.pic.c_str());
+        else if (const std::string file = MobileTextureName(image.file); !file.empty())
+        {
+            ref = storm::mobile::Reference({image.file, {0.f, 0.f, 1.f, 1.f}});
+            ref.source = {"texture", {}, file, {}, {}, -1};
+        }
+        if (!ref.handle)
+            continue;
+        MobileWidget marker{m_nodeName, "map_marker", "", "", static_cast<int>(n), order, false};
+        marker.rowId = image.id;
+        marker.images.push_back(ref);
+        marker.context["x"] = MobileNumber(image.fpPos.x);
+        marker.context["y"] = MobileNumber(image.fpPos.y);
+        marker.context["width"] = MobileNumber(image.fpSize.x);
+        marker.context["height"] = MobileNumber(image.fpSize.y);
+        widgets.push_back(std::move(marker));
+    }
+}
+
+int CXI_SCROLLEDPICTURE::RClickCommand() const
+{
+    for (int i = 0; i < COMMAND_QUANTITY; i++)
+        if (pCommandsList[i].code == ACTION_MOUSERCLICK)
+            return i;
+    return 0;
+}
+
+bool CXI_SCROLLEDPICTURE::MobileApply(int index, const std::string &value)
+{
+    const COMMAND_ACTION &command = m_pCommands[RClickCommand()];
+    if (index != -1 || !m_bUse || !command.bUse || !command.sEventName)
+        return false;
+    if (value == "release")
+    {
+        // The game shows what the right button picked for as long as it is held; its release
+        // is the script's MouseRClickUP. The window it opened usually locks the map meanwhile.
+        core.Event("MouseRClickUP");
+        return true;
+    }
+    if (!m_bSelected || m_bLockedNode || m_bLockStatus)
+        return false;
+    const std::string prefix = "point@" + std::to_string(storm::android::mobileScreenRevision) + ":";
+    float x = 0.f, y = 0.f;
+    if (value.compare(0, prefix.size(), prefix) != 0 || std::sscanf(value.c_str() + prefix.size(), "%f,%f", &x, &y) != 2 ||
+        !std::isfinite(x) || !std::isfinite(y) || m_fUTexPerPixel <= 0.f || m_fVTexPerPixel <= 0.f)
+        return false;
+    // The screen point where the game shows this point of the picture now, so that the script
+    // reads it from mousepos the way it reads a right click there (its own offset/scale maths).
+    // The event goes out at once: the next mouse update would overwrite mousepos.
+    auto *root = core.Entity_GetAttributePointer(g_idInterface);
+    auto *mouse = root ? root->GetAttributeClass("mousepos") : nullptr;
+    if (root && !mouse)
+        mouse = root->CreateSubAClass(root, "mousepos");
+    if (!mouse)
+        return false;
+    mouse->SetAttributeUseFloat("x", m_rect.left + (x / m_fpBaseSize.x - m_v[0].tu) / m_fUTexPerPixel);
+    mouse->SetAttributeUseFloat("y", m_rect.top + (y / m_fpBaseSize.y - m_v[0].tv) / m_fVTexPerPixel);
+    core.Event(command.sEventName, "ls", RClickCommand(), m_nodeName);
+    return true;
+}
+#endif

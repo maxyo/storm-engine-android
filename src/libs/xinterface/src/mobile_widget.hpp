@@ -1,6 +1,7 @@
 #pragma once
 #include "mobile_image_cache.hpp"
 #include <cctype>
+#include <cstdio>
 #include <string>
 #include <vector>
 #include <limits>
@@ -95,6 +96,29 @@ inline std::string MobilePortraitFace(const std::string &path)
     for (size_t i = face + 6; i < lower.size() && std::isdigit(static_cast<unsigned char>(lower[i])); ++i) id += lower[i];
     return id;
 }
+// The texture-namespace name of a game texture ("Interfaces\\Maps\\Kayman.tga" →
+// "interfaces/maps/kayman"): no resource prefix, no extension; "" for a path outside the namespace.
+inline std::string MobileTextureName(const std::string &path)
+{
+    std::string name = storm::mobile::TexturePath(path);
+    const std::string prefix = "resource/textures/";
+    if (name.compare(0, prefix.size(), prefix) != 0)
+        return {};
+    name.erase(0, prefix.size());
+    for (const char *extension : {".tx", ".tga"})
+    {
+        const size_t length = std::char_traits<char>::length(extension);
+        if (name.size() > length && name.compare(name.size() - length, length, extension) == 0)
+            name.erase(name.size() - length);
+    }
+    return name;
+}
+inline std::string MobileNumber(float value)
+{
+    char text[32];
+    std::snprintf(text, sizeof text, "%.6g", value);
+    return text;
+}
 inline std::string MobileImageJson(const storm::mobile::ImageRef &image)
 {
     std::string json = "{\"handle\":" + std::to_string(image.handle) + ",\"imageRevision\":" + std::to_string(image.imageRevision) +
@@ -109,6 +133,10 @@ inline std::string MobileImageJson(const storm::mobile::ImageRef &image)
     else if (source.kind == "battle_icon" && !source.mode.empty() && !source.atlas.empty() && source.pic >= 0)
         json += ",\"source\":{\"kind\":\"battle_icon\",\"mode\":" + MobileJsonString(source.mode) +
                 ",\"atlas\":" + MobileJsonString(source.atlas) + ",\"pic\":" + std::to_string(source.pic) + '}';
+    else if (source.kind == "texture" && !source.image.empty())
+        json += ",\"source\":{\"kind\":\"texture\",\"image\":" + MobileJsonString(source.image) + ",\"uv\":[" +
+                MobileNumber(source.uv[0]) + ',' + MobileNumber(source.uv[1]) + ',' + MobileNumber(source.uv[2]) + ',' +
+                MobileNumber(source.uv[3]) + "]}";
     return json + '}';
 }
 inline std::string MobileImagesJson(const std::vector<storm::mobile::ImageRef> &images)

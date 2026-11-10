@@ -1,5 +1,8 @@
 #include "controls.h"
 
+#include <cstdio>
+#include <cstdlib>
+
 #include <algorithm>
 #include <cmath>
 
@@ -155,6 +158,70 @@ Json PictureOf(const ImageRef *image)
     if (!image || image->kind != "atlas" || image->group.empty() || image->image.empty())
         return Json();
     return Json{{"kind", "item"}, {"texture", "atlas:" + image->group + "/" + image->image}};
+}
+
+Json TextureOf(const ImageRef *image)
+{
+    if (image && image->kind == "texture" && !image->image.empty())
+    {
+        char uv[96];
+        std::snprintf(uv, sizeof uv, "%g,%g,%g,%g", image->uv[0], image->uv[1], image->uv[2], image->uv[3]);
+        return Json{{"texture", image->image}, {"uv", uv}};
+    }
+    if (image && image->kind == "atlas" && !image->group.empty() && !image->image.empty())
+        return Json{{"texture", "atlas:" + image->group + "/" + image->image}, {"uv", ""}};
+    return Json();
+}
+
+namespace
+{
+// "a,b[,c,d]" of the engine's map context as numbers; empty when malformed.
+Json Numbers(const Widget &widget, const char *key, size_t count)
+{
+    const auto found = widget.context.find(key);
+    if (found == widget.context.end())
+        return Json::array();
+    Json out = Json::array();
+    std::string_view text = found->second;
+    while (!text.empty() && out.size() < count)
+    {
+        const size_t comma = text.find(',');
+        const std::string part(text.substr(0, comma));
+        char *end = nullptr;
+        const double value = std::strtod(part.c_str(), &end);
+        if (part.empty() || end != part.c_str() + part.size())
+            return Json::array();
+        out.push_back(value);
+        text = comma == std::string_view::npos ? std::string_view() : text.substr(comma + 1);
+    }
+    return out.size() == count && text.empty() ? out : Json::array();
+}
+double Context(const Widget &widget, const char *key)
+{
+    const Json value = Numbers(widget, key, 1);
+    return value.empty() ? 0.0 : value[0].get<double>();
+}
+} // namespace
+
+Json MapViewOf(const Widget &map, std::span<const Widget *const> markers)
+{
+    const Json picture = TextureOf(map.FirstImage());
+    Json view{{"texture", picture.is_null() ? "" : picture["texture"]},
+              {"uv", picture.is_null() ? "" : picture["uv"]},
+              {"base", Numbers(map, "base", 2)},
+              {"view", Numbers(map, "view", 4)}};
+    Json pins = Json::array();
+    for (const Widget *marker : markers)
+    {
+        const Json texture = TextureOf(marker->FirstImage());
+        if (texture.is_null())
+            continue;
+        pins.push_back(Json{{"texture", texture["texture"]}, {"uv", texture["uv"]}, {"id", marker->row_id},
+                            {"x", Context(*marker, "x")}, {"y", Context(*marker, "y")},
+                            {"w", Context(*marker, "width")}, {"h", Context(*marker, "height")}});
+    }
+    view["markers"] = pins;
+    return view;
 }
 
 std::string NationOf(const ImageRef *image)

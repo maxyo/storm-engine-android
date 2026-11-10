@@ -11,7 +11,7 @@
 namespace storm {
 bool iEquals(const char *a,const char *b) {return strcasecmp(a,b)==0;}
 namespace android { bool imagePoll=true,imageReply=true; std::string mobileScreen="questbook"; }
-namespace mobile { ImageRef Reference(Descriptor,uint32_t) {return {1,1,64,64};} }
+namespace mobile { ImageRef Reference(Descriptor,uint32_t) {return {1,1,64,64};} std::string TexturePath(std::string path) {return path;} }
 }
 struct FXYRECT {float left=0,top=0,right=.5f,bottom=.5f;};
 struct PictureService {

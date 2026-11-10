@@ -2304,6 +2304,11 @@ void XINTERFACE::DoControl()
             return nullptr;
         };
         auto *node = find(find, m_pNodes, action.node);
+        // A map's "release" ends the right-button hold while the window the hold opened has
+        // locked the map (CXI_SCROLLEDPICTURE::MobileApply).
+        if (!node && action.value == "release")
+            if (auto *map = FindNode(action.node.c_str(), nullptr); map && map->m_bUse && map->m_nNodeType == NODETYPE_SCROLLEDPICTURE)
+                node = map;
         if (!node) continue;
         if (action.value.rfind("guard@", 0) == 0)
         {
