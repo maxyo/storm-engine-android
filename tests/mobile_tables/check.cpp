@@ -64,8 +64,14 @@ struct Core
         if (root) return root->FindAClass(root, name);
         return std::string(name) == "TABLE_LIST" ? table : nullptr;
     }
+    std::vector<std::string> focusedNodes; // MSG_INTERFACE_NEW_CURRENT_NODE targets
+    void Send_Message(int, const char *, int message, const char *node)
+    {
+        assert(message == 1);
+        focusedNodes.emplace_back(node);
+    }
 } core;
-constexpr int g_idInterface = 1, ACTION_ACTIVATE = 1, ACTION_MOUSEDBLCLICK = 2;
+constexpr int g_idInterface = 1, ACTION_ACTIVATE = 1, ACTION_MOUSEDBLCLICK = 2, MSG_INTERFACE_NEW_CURRENT_NODE = 1;
 struct StringService
 {
     std::map<std::string, std::string> translations;
@@ -319,5 +325,6 @@ int main()
     cityData->SetAttribute("CityID",std::string(129,'x'));assert(storm::mobile::InterfaceTableRowId("tradebook","TABLE_CITY",city,&reference).empty());
     cityData->SetAttribute("ID","Food");assert(storm::mobile::InterfaceTableRowId("tradebook","TABLE_GOODS",city,&reference)=="Food");
     assert(!storm::mobile::LeasedTableIdentityRequired("other","TABLE_CITY"));
+    assert(core.focusedNodes.empty()); // only the shipyard moves interface focus on selection
 
 }
