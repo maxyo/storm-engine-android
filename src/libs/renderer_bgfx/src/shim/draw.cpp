@@ -933,9 +933,15 @@ HRESULT Device::draw(const DrawCall &call)
             }
             const size_t begin = static_cast<size_t>(first_vertex) * stride;
             const size_t bytes = static_cast<size_t>(vertex_count) * stride;
-            if (begin + bytes > available || bgfx::getAvailTransientVertexBuffer(vertex_count, layout->layout[i]) < vertex_count)
+            if (begin + bytes > available)
             {
-                skip_draw("vertex range outside the buffer or transient vertex budget exhausted");
+                // The caller's indices or vertex range reach past the end of its vertex buffer.
+                skip_draw("vertex range outside the vertex buffer");
+                return D3D_OK;
+            }
+            if (bgfx::getAvailTransientVertexBuffer(vertex_count, layout->layout[i]) < vertex_count)
+            {
+                skip_draw("transient vertex budget exhausted");
                 return D3D_OK;
             }
             bgfx::TransientVertexBuffer tvb;
