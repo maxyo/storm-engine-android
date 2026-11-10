@@ -455,6 +455,20 @@ int main(int argc, char *argv[])
 #ifdef __ANDROID__
     AnnounceScriptPatches();
 #endif
+#if !defined(__ANDROID__) && !defined(_WIN32)
+    try
+    {
+        // The working directory is the game directory (see FILE_SERVICE::_GetExecutableDirectory).
+        fio->ScanResourcePaths();
+    }
+    catch (const std::exception &error)
+    {
+        spdlog::critical("{}", error.what());
+        spdlog::default_logger()->flush();
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game data required", error.what(), nullptr);
+        return EXIT_FAILURE;
+    }
+#endif
 
     // Init core
     core_private = static_cast<CorePrivate *>(&core);

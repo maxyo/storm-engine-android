@@ -15,9 +15,11 @@
 #include <exception>
 #ifdef __ANDROID__
 #include "platform/android_runtime.hpp"
-#include "platform/resource_overlay.hpp"
 #include "platform/script_patches.hpp"
+#endif
+#ifndef _WIN32
 #include "platform/android_writable_storage.hpp"
+#include "platform/resource_overlay.hpp"
 #endif
 #include <string>
 
@@ -75,11 +77,8 @@ FILE_SERVICE::FILE_SERVICE()
     Max_File_Index = 0;
     for (uint32_t n = 0; n < _MAX_OPEN_INI_FILES; n++)
         OpenFiles[n] = nullptr;
-#ifndef __ANDROID__
-    // Android paths are only available after SDLActivity initializes JNI.
-    if (ResourcePathsFirstScan)
-        ScanResourcePaths();
-#endif
+    // main() scans the resources once the game directory is known (on Android after
+    // SDLActivity initializes JNI); a lookup before that scans on first use.
 }
 
 FILE_SERVICE::~FILE_SERVICE()
@@ -305,17 +304,22 @@ std::string FILE_SERVICE::_GetCurrentDirectory()
     return result;
 }
 
+// The game directory (engine.ini, Program, Resource), with a trailing separator. Windows
+// builds run from the game directory; Android uses the game storage; the Linux host runs
+// with the game directory as the working directory and the binary in its build tree.
 std::string FILE_SERVICE::_GetExecutableDirectory()
 {
 #ifdef __ANDROID__
     return storm::android::storagePaths().game.string() + "/";
-#else
+#elif defined(_WIN32)
     char *base = SDL_GetBasePath();
     if (!base)
         throw std::runtime_error(SDL_GetError());
     std::string result(base);
     SDL_free(base);
     return result;
+#else
+    return std::filesystem::current_path().string() + "/";
 #endif
 }
 
@@ -534,8 +538,7 @@ void FILE_SERVICE::ScanResourcePaths()
         ResourcePaths = std::unordered_map<std::string, std::string>();
     }
     ResourcePaths.clear();
-    // One walk when the working directory is the game directory (always on
-    // Android), two otherwise; see platform/resource_index.hpp.
+    // The working directory is the game directory; see platform/resource_index.hpp.
     storm::resource_index::scan(ResourcePaths, fio->_GetExecutableDirectory());
 #endif
 #ifdef __ANDROID__
@@ -546,6 +549,18 @@ void FILE_SERVICE::ScanResourcePaths()
     storm::script_patches::lastReport() = storm::script_patches::applyLayer(
         internal / "script-patches/current", internal / "script-patches/derived", ResourcePaths);
 #endif
+#if !defined(_WIN32) && !defined(__ANDROID__)
+    // The engine's techniques laid over the game's, as the APK does with its engine-shaders
+    // layer: staged next to the binary by the engine target (src/apps/engine/CMakeLists.txt).
+    char *base = SDL_GetBasePath();
+    if (!base)
+        throw std::runtime_error(SDL_GetError());
+    const auto engineShaders = std::filesystem::path(base) / "engine-shaders";
+    SDL_free(base);
+    if (!std::filesystem::is_directory(engineShaders))
+        throw std::runtime_error("The engine's techniques are missing: " + engineShaders.string());
+    storm::android::indexUiOverlay(engineShaders, ResourcePaths, true);
+#endif
     ResourcePathsFirstScan = false;
 }
 
@@ -554,13 +569,15 @@ std::string FILE_SERVICE::ConvertPathResource(const char *path)
 #ifdef _WIN32
     return std::string(path);
 #else
-#ifdef __ANDROID__
-    // Mutable paths must never use the game resource index, even for reads,
-    // directory queries, or already-resolved paths returned by enumeration.
+    // Mutable paths (saves, options) must never use the game resource index, even for
+    // reads, directory queries, or already-resolved paths returned by enumeration: they
+    // live in the user's storage, never in the game directory.
     try
     {
-        static const auto roots = storm::android::storagePaths();
-        static const storm::android::writable::Storage writableStorage(roots.game, roots.user);
+        // Both directory spellings may end with a separator; the storage wants none.
+        static const storm::android::writable::Storage writableStorage(
+            std::filesystem::path(_GetExecutableDirectory()).parent_path(),
+            (fs::GetStashPath() / "").parent_path());
         if (writableStorage.resolve(path))
         {
             static bool migrationAttempted = false;
@@ -584,7 +601,6 @@ std::string FILE_SERVICE::ConvertPathResource(const char *path)
         // Android character device fails every operation without that fallback.
         return "/dev/null/storm-invalid-writable-path";
     }
-#endif
     if (ResourcePathsFirstScan)
     {
         ScanResourcePaths();

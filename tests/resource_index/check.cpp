@@ -4,6 +4,7 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 using namespace storm::resource_index;
@@ -21,12 +22,37 @@ template <typename Operation> static double ms(Operation operation)
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
 }
 
+// The original two walks: relative keys from the working directory, absolute keys below `root`.
 static Map reference(const std::string &root)
 {
     Map map;
-    scanRelative(map);
-    scanAbsolute(map, root);
+    for (const auto &entry : fs::recursive_directory_iterator("."))
+    {
+        if (!indexable(entry))
+            continue;
+        auto path = entry.path().string();
+        if (path.rfind("./", 0) == 0)
+            path.erase(0, 2);
+        add(map, path, "");
+    }
+    const auto prefix = lowered(root);
+    for (const auto &entry : fs::recursive_directory_iterator(root))
+        if (indexable(entry))
+            add(map, entry.path().string(), prefix);
     return map;
+}
+
+template <typename Operation> static bool throws(Operation operation)
+{
+    try
+    {
+        operation();
+    }
+    catch (const std::runtime_error &)
+    {
+        return true;
+    }
+    return false;
 }
 
 int main(int argc, char **argv)
@@ -44,10 +70,10 @@ int main(int argc, char **argv)
     fs::create_directories(game / "RESOURCE/Empty");
     const std::string root = game.string() + "/";
 
-    // Working directory == game directory (Android): one walk, identical index.
+    // The working directory is the game directory: one walk, identical index.
     fs::current_path(game);
     Map single;
-    assert(scan(single, root) == 1);
+    scan(single, root);
     const Map expected = reference(root);
     assert(single == expected);
     assert(single.at("resource/ini/interfaces/main.ini") == "RESOURCE/Ini/Interfaces/Main.INI");
@@ -60,20 +86,17 @@ int main(int argc, char **argv)
     fs::create_directory_symlink(game, fs::path(argv[1]) / "link");
     Map linked;
     const std::string linkRoot = (fs::path(argv[1]) / "link").string() + "/";
-    assert(scan(linked, linkRoot) == 1 && linked == reference(linkRoot));
+    scan(linked, linkRoot);
+    assert(linked == reference(linkRoot));
 
-    // Different working directory (desktop launch from elsewhere): two walks, as before.
+    // Any other root is an error, never a partial index.
     const fs::path elsewhere = fs::path(argv[1]) / "elsewhere";
     touch(elsewhere / "resource/local.txt");
     fs::current_path(elsewhere);
-    Map twice;
-    assert(scan(twice, root) == 2);
-    assert(twice == reference(root));
-    assert(twice.count("resource/local.txt") == 1 && twice.count("program/seadogs.c") == 0);
-    // Root without a trailing separator is not eligible for the shortcut.
+    Map wrong;
+    assert(throws([&] { scan(wrong, root); }));
     fs::current_path(game);
-    Map plain;
-    assert(scan(plain, game.string()) == 2 && plain == reference(game.string()));
+    assert(throws([&] { scan(wrong, game.string()); })); // no trailing separator
 
     if (argc >= 3)
     {
@@ -81,7 +104,7 @@ int main(int argc, char **argv)
         fs::current_path(argv[2]);
         Map before, after;
         const double twoWalks = ms([&] { before = reference(real); });
-        const double oneWalk = ms([&] { assert(scan(after, real) == 1); });
+        const double oneWalk = ms([&] { scan(after, real); });
         assert(before == after);
         std::cout << "real tree: " << after.size() << " keys, two walks " << twoWalks << " ms, one walk " << oneWalk
                   << " ms (warm cache)\n";
