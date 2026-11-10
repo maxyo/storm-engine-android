@@ -44,7 +44,7 @@ produces `<build>/package/libstorm_ui.so` (stripped, 16 KiB pages) and
 | `include/storm_ui/render_backend.h` | the only renderer-specific seam |
 | `src/backend_gl3.cpp` | GL backend: RmlUi's stock GL3 renderer (GLES 3.0 / GL 3.3) |
 | `src/components.*`, `src/template.*` | `<c-…>` elements rendered from spec + template + props |
-| `src/behaviors.cpp` | press, hold-to-confirm, long-press tooltip, range, stick, lever |
+| `src/behaviors.cpp` | press, hold-to-confirm, long-press tooltip, range, stick, lever, sticky rows |
 | `src/draw_elements.cpp` | `<ui-ring>` (hold progress), `<ui-paper>` (aged parchment), `<ui-clamp>` (text cut to N lines with an ellipsis) |
 | `src/icons.cpp` | `<ui-icon>`: SVG symbols rasterised per size and colour |
 | `src/tx_texture.cpp`, `src/game_image.cpp` | `<ui-game-image>`: pictures decoded from the player's `.tx` files on a worker thread; a placeholder shows until then |
