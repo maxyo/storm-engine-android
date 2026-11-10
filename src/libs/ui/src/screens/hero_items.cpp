@@ -117,6 +117,7 @@ class ItemsScreen final : public Screen
         std::string weight = Trim(admitted.Label("Weight_TEXT"));
         if (const size_t colon = weight.find(':'); colon != std::string::npos)
             weight = Trim(weight.substr(colon + 1));
+        weight = Decimal(weight, admitted.model->language);
         view["stats"] = weight.empty() ? Json::array() : Json::array({Json{{"icon", "weight"}, {"value", weight}}});
 
         // Facts by row and slot.
@@ -202,7 +203,7 @@ class ItemsScreen final : public Screen
             else if (Field(fact, "quest") == "1")
                 name["badge"] = "seal";
             const int count = Number(row->CellText(2));
-            rows.push_back(Json{{"cells", Json::array({name, count > 1 ? "\xC3\x97" + std::to_string(count) : std::string(), Trim(row->CellText(3))})},
+            rows.push_back(Json{{"cells", Json::array({name, count > 1 ? "\xC3\x97" + std::to_string(count) : std::string(), Decimal(Trim(row->CellText(3)), admitted.model->language)})},
                                 {"selected", row->value == "1"}});
             shown.push_back(row);
         }
@@ -361,7 +362,21 @@ class ItemsScreen final : public Screen
         Json image = PictureOf(info ? info->FirstImage() : nullptr);
         if (image.is_null())
             image = PictureOf(row.cells.empty() || row.cells[0].images.empty() ? nullptr : &row.cells[0].images[0]);
-        Json detail{{"title", Trim(row.CellText(0))}, {"sub", sub}, {"text", Trim(a_->Label("INFO_TEXT"))}, {"image", image}};
+        // The game's description: a short "key: value" paragraph (Атака/Баланс, Тип) is a fact row,
+        // the rest stays text.
+        Json facts = Json::array();
+        std::string text;
+        const std::string &language = a_->model->language;
+        for (const Widget *part : a_->All("INFO_TEXT"))
+        {
+            const std::string paragraph = Trim(part->label);
+            const size_t colon = paragraph.find(':');
+            if (colon != std::string::npos && colon > 0 && colon <= 32 && paragraph.size() <= 64 && colon + 1 < paragraph.size())
+                facts.push_back(Json{{"k", Trim(paragraph.substr(0, colon))}, {"v", Decimal(Trim(paragraph.substr(colon + 1)), language)}});
+            else if (!paragraph.empty())
+                text += (text.empty() ? "" : "\n") + Decimal(paragraph, language);
+        }
+        Json detail{{"title", Trim(row.CellText(0))}, {"sub", sub}, {"facts", facts}, {"text", text}, {"image", image}};
         const Widget *equip = a_->One("EQUIP_BUTTON");
         // A quest item has no action (the game offers none either).
         if (equip && !quest && !Trim(equip->label).empty())
@@ -370,7 +385,8 @@ class ItemsScreen final : public Screen
             detail["action"] = Json{{"id", "item-equip"},
                                     {"label", Trim(equip->label)},
                                     {"disabled", !ready},
-                                    {"reason", equip->unavailable_reason},
+                                    // The stock screen gives no reason; a tap on the disabled action says so.
+                                    {"reason", !equip->unavailable_reason.empty() ? equip->unavailable_reason : bindings.Text("items.unavailable")},
                                     {"busy", bindings.Pending("item-equip")}};
             const Widget *target = equip;
             bindings.On("item-equip", "", [this, &bindings, target](const Event &) {
