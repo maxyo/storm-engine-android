@@ -3221,6 +3221,13 @@ char *XINTERFACE::SaveFileFind(int32_t saveNum, char *buffer, size_t bufSize, in
         const auto vFilePaths = fio->_GetFsPathsByMask(sSavePath, nullptr, true);
         for (std::filesystem::path filePath : vFilePaths)
         {
+            // Leftovers of an interrupted atomic save (core/src/save_file.hpp:
+            // "<name>.storm-tmp" / "<name>.storm-bak") are not saves.
+            const auto extension = filePath.extension().string();
+            if (extension == ".storm-tmp" || extension == ".storm-bak")
+            {
+                continue;
+            }
             AddFindData(filePath);
         }
         // common part

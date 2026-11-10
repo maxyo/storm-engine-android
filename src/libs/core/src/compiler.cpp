@@ -18,6 +18,7 @@
 #include "debug-trap.h"
 #include "fs.h"
 #include "logging.hpp"
+#include "save_file.hpp"
 #include "script_cache.h"
 #include "storm_assert.h"
 
@@ -6675,7 +6676,7 @@ bool COMPILER::OnLoad()
     return true;
 }
 
-bool COMPILER::SaveState(std::fstream &fileS)
+bool COMPILER::SaveState(std::vector<char> &image)
 {
     uint32_t n;
     delete[] pBuffer;
@@ -6689,16 +6690,12 @@ bool COMPILER::SaveState(std::fstream &fileS)
     if (function_code != INVALID_FUNC_CODE)
         BC_Execute(function_code, pResult);
 
-    EXTDATA_HEADER edh;
+    // Serialize into memory only: the caller replaces the file atomically, so a
+    // failure or crash at any point leaves the previous save intact.
+    std::string save_info = "save";
     auto *pVDat = static_cast<VDATA *>(core_internal.GetScriptVariable("savefile_info"));
     if (pVDat && pVDat->GetString())
-        sprintf_s(edh.sFileInfo, sizeof(edh.sFileInfo), "%s", pVDat->GetString());
-    else
-        sprintf_s(edh.sFileInfo, sizeof(edh.sFileInfo), "save");
-    edh.dwExtDataOffset = 0;
-    edh.dwExtDataSize = 0;
-
-    fio->_WriteFile(fileS, &edh, sizeof(edh));
+        save_info = pVDat->GetString();
 
     // 1. Program Directory
     SaveString(ProgramDirectory);
@@ -6747,54 +6744,39 @@ bool COMPILER::SaveState(std::fstream &fileS)
         SaveVariable(real_var->value.get());
     }
 
-    uint64_t dw2;
-    if (dwCurPointer)
+    std::string error;
+    const bool built = storm::save::buildState(save_info.c_str(), pBuffer, dwCurPointer, image, error);
+    if (!built)
     {
-        char *pDst = new char[dwCurPointer * 2];
-        uLongf ulPackLen = dwCurPointer * 2;
-        RDTSC_B(dw2);
-        compress2((Bytef *)pDst, &ulPackLen, (Bytef *)pBuffer, dwCurPointer, Z_BEST_COMPRESSION);
-        RDTSC_E(dw2);
-        uint32_t uiPackLen = ulPackLen;
-
-        fio->_WriteFile(fileS, &dwCurPointer, sizeof(dwCurPointer));
-        fio->_WriteFile(fileS, &uiPackLen, sizeof(uiPackLen));
-        fio->_WriteFile(fileS, pDst, uiPackLen);
-
-        delete[] pDst;
+        spdlog::error("Cannot build save image: {}", error);
     }
 
     delete[] pBuffer;
     pBuffer = nullptr;
+    dwCurPointer = 0;
+    dwMaxSize = 0;
 
-    return true;
+    return built;
 }
 
-bool COMPILER::LoadState(std::fstream &fileS)
+// `raw` is the already validated, uncompressed script state (see save_file.hpp).
+// Validation happens before the caller erases the running game, so a corrupt
+// file can no longer destroy the current session.
+bool COMPILER::LoadState(const std::vector<char> &raw)
 {
     uint32_t n;
     char *pString;
 
     delete[] pBuffer;
     pBuffer = nullptr;
-
-    EXTDATA_HEADER exdh;
-    fio->_ReadFile(fileS, &exdh, sizeof(exdh));
-
-    uint32_t dwPackLen;
-    fio->_ReadFile(fileS, &dwMaxSize, sizeof(dwMaxSize));
-    fio->_ReadFile(fileS, &dwPackLen, sizeof(dwPackLen));
-    if (dwPackLen == 0 || dwPackLen > 0x8000000 || dwMaxSize == 0 || dwMaxSize > 0x8000000)
+    if (raw.empty())
     {
         return false;
     }
-    char *pCBuffer = new char[dwPackLen];
-    pBuffer = new char[dwMaxSize];
-    fio->_ReadFile(fileS, pCBuffer, dwPackLen);
-    uLongf ulMaxSize = dwMaxSize;
-    uncompress((Bytef *)pBuffer, &ulMaxSize, (Bytef *)pCBuffer, dwPackLen);
-    dwMaxSize = ulMaxSize;
-    delete[] pCBuffer;
+
+    pBuffer = new char[raw.size()];
+    memcpy(pBuffer, raw.data(), raw.size());
+    dwMaxSize = static_cast<uint32_t>(raw.size());
     dwCurPointer = 0;
 
     // Release all data
@@ -6937,36 +6919,37 @@ void COMPILER::AddPostEvent(S_EVENTMSG *pEM)
 
 bool COMPILER::SetSaveData(const char *file_name, void *save_data, int32_t data_size)
 {
-    EXTDATA_HEADER exdh;
-
-    auto fileS = fio->_CreateFile(file_name, std::ios::binary | std::ios::in | std::ios::out);
-    if (!fileS.is_open())
+    if (file_name == nullptr || save_data == nullptr || data_size <= 0)
     {
         return false;
     }
 
-    const uint32_t dwFileSize = fio->_GetFileSize(file_name);
+    // Read-modify-write through a temporary file: the save written by
+    // SaveState stays loadable if this step fails or the process dies.
+    const auto path = std::filesystem::u8path(fio->ConvertPathResource(file_name));
+    std::string error;
+    storm::save::Bytes image;
+    if (!storm::save::readFile(path, image, error))
+    {
+        spdlog::error("Cannot attach save data to '{}': {}", path.string(), error);
+        return false;
+    }
+
+    std::string save_info = "save";
     auto *pVDat = static_cast<VDATA *>(core_internal.GetScriptVariable("savefile_info"));
     if (pVDat && pVDat->GetString())
-        sprintf_s(exdh.sFileInfo, sizeof(exdh.sFileInfo), "%s", pVDat->GetString());
-    else
-        sprintf_s(exdh.sFileInfo, sizeof(exdh.sFileInfo), "save");
-    exdh.dwExtDataOffset = dwFileSize;
-    exdh.dwExtDataSize = data_size;
+        save_info = pVDat->GetString();
 
-    fio->_WriteFile(fileS, &exdh, sizeof(exdh));
-    fio->_SetFilePointer(fileS, dwFileSize, std::ios::beg);
-
-    char *pDst = new char[data_size * 2];
-    uLongf ulPackLen = data_size * 2;
-    compress2((Bytef *)pDst, &ulPackLen, static_cast<Bytef *>(save_data), data_size, Z_BEST_COMPRESSION);
-    uint32_t uiPackLen = ulPackLen;
-
-    fio->_WriteFile(fileS, &uiPackLen, sizeof(uiPackLen));
-    fio->_WriteFile(fileS, pDst, uiPackLen);
-    fio->_CloseFile(fileS);
-
-    delete[] pDst;
+    const auto validate = [](const storm::save::Bytes &stored, std::string &why) {
+        storm::save::Bytes scratch;
+        return storm::save::readState(stored, scratch, why) && storm::save::readExtData(stored, scratch, why);
+    };
+    if (!storm::save::appendExtData(image, save_info.c_str(), save_data, static_cast<uint32_t>(data_size), error) ||
+        !storm::save::writeAtomic(path, image, validate, error))
+    {
+        spdlog::error("Cannot attach save data to '{}': {}", path.string(), error);
+        return false;
+    }
 
     return true;
 }
@@ -7059,53 +7042,37 @@ bool COMPILER::SetSaveData(const char *file_name, void *save_data, int32_t data_
 
 void *COMPILER::GetSaveData(const char *file_name, int32_t &data_size)
 {
-    auto fileS = fio->_CreateFile(file_name, std::ios::binary | std::ios::in);
-    if (!fileS.is_open())
+    data_size = 0;
+    if (file_name == nullptr)
+    {
+        return nullptr;
+    }
+
+    const auto path = std::filesystem::u8path(fio->ConvertPathResource(file_name));
+    std::string error;
+    storm::save::Bytes image;
+    storm::save::Bytes data;
+    if (!storm::save::readFile(path, image, error))
     {
         SetError("cant open save file: %s", file_name);
         return nullptr;
     }
-
-    const auto file_size = fio->_GetFileSize(file_name);
-    if (file_size < sizeof(EXTDATA_HEADER) + sizeof(uint32_t))
+    // Corrupt or truncated extended data is reported as "no data" instead of
+    // handing the caller a buffer of uninitialized bytes.
+    if (!storm::save::readExtData(image, data, error))
     {
-        data_size = 0;
-        fio->_CloseFile(fileS);
+        spdlog::warn("Ignoring damaged save description in '{}': {}", path.string(), error);
+        return nullptr;
+    }
+    if (data.empty())
+    {
         return nullptr;
     }
 
-    uint64_t dw2;
-    RDTSC_B(dw2);
-    EXTDATA_HEADER exdh;
-    fio->_ReadFile(fileS, &exdh, sizeof(exdh));
-    if (exdh.dwExtDataSize <= 0 || file_size < exdh.dwExtDataOffset + sizeof(uint32_t))
-    {
-        data_size = 0;
-        fio->_CloseFile(fileS);
-        return nullptr;
-    }
-
-    uint32_t dwPackLen;
-    fio->_SetFilePointer(fileS, exdh.dwExtDataOffset, std::ios::beg);
-    fio->_ReadFile(fileS, &dwPackLen, sizeof(dwPackLen));
-    if (dwPackLen == 0 || file_size < exdh.dwExtDataOffset + sizeof(uint32_t) + dwPackLen)
-    {
-        data_size = 0;
-        fio->_CloseFile(fileS);
-        return nullptr;
-    }
-    char *pCBuffer = new char[dwPackLen];
-    fio->_ReadFile(fileS, pCBuffer, dwPackLen);
-    char *pBuffer = new char[exdh.dwExtDataSize];
-    uLongf ulDestLen = exdh.dwExtDataSize;
-    uncompress((Bytef *)pBuffer, &ulDestLen, (Bytef *)pCBuffer, dwPackLen);
-    fio->_CloseFile(fileS);
-    delete[] pCBuffer;
-    RDTSC_E(dw2);
-    // core_internal.Trace("GetSaveData = %d", dw2);
-
-    data_size = ulDestLen;
-    return pBuffer;
+    char *pResult = new char[data.size()];
+    memcpy(pResult, data.data(), data.size());
+    data_size = static_cast<int32_t>(data.size());
+    return pResult;
 }
 
 /*void * COMPILER::GetSaveData(char * file_name, int32_t & data_size)

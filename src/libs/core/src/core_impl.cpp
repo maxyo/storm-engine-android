@@ -6,6 +6,7 @@
 #include "compiler.h"
 #include "controls.h"
 #include "fs.h"
+#include "save_file.hpp"
 #include "steam_api.hpp"
 
 #include <fstream>
@@ -605,15 +606,30 @@ bool CoreImpl::SaveState(const char *file_name)
         throw std::logic_error("Bad file name of save");
     }
 
-    auto fileS = fio->_CreateFile(file_name, std::ios::binary | std::ios::out);
-
-    if (!fileS.is_open())
+    // The state is serialized in memory and swapped in atomically
+    // (temporary file -> fsync -> verify -> rename); see save_file.hpp.
+    storm::save::Bytes image;
+    if (!Compiler->SaveState(image))
     {
         return false;
     }
 
-    Compiler->SaveState(fileS);
-    fio->_CloseFile(fileS);
+    const auto path = std::filesystem::u8path(fio->ConvertPathResource(file_name));
+    const auto validate = [](const storm::save::Bytes &stored, std::string &why) {
+        storm::save::Bytes scratch;
+        return storm::save::readState(stored, scratch, why);
+    };
+    std::string error;
+    if (std::error_code ec; !path.parent_path().empty())
+    {
+        std::filesystem::create_directories(path.parent_path(), ec);
+    }
+    if (!storm::save::writeAtomic(path, image, validate, error))
+    {
+        spdlog::error("Cannot save '{}' (resolved '{}'): {}; the previous save, if any, is unchanged", file_name,
+                      path.string(), error);
+        return false;
+    }
 
     return true;
 }
@@ -621,12 +637,27 @@ bool CoreImpl::SaveState(const char *file_name)
 // force core to load state file at the start of next game loop, return false if no state file
 bool CoreImpl::InitiateStateLoading(const char *file_name)
 {
-    auto fileS = fio->_CreateFile(file_name, std::ios::binary | std::ios::in);
-    if (!fileS.is_open())
+    if (!file_name)
     {
         return false;
     }
-    fio->_CloseFile(fileS);
+
+    // Reject missing or damaged saves here, while the caller can still react,
+    // instead of discovering it after the running game has been torn down.
+    const auto path = std::filesystem::u8path(fio->ConvertPathResource(file_name));
+    storm::save::Bytes image, raw;
+    std::string error;
+    const auto source = storm::save::loadWithRecovery(path, image, raw, error);
+    if (source == storm::save::Source::None)
+    {
+        spdlog::error("Cannot load save '{}' (resolved '{}'): {}", file_name, path.string(), error);
+        return false;
+    }
+    if (source == storm::save::Source::Backup)
+    {
+        spdlog::warn("Save '{}': {}", file_name, error);
+    }
+
     delete[] State_file_name;
 
     const auto len = strlen(file_name) + 1;
@@ -642,16 +673,29 @@ void CoreImpl::ProcessStateLoading()
         return;
     }
 
+    // Read and validate before erasing anything: a save that became unreadable
+    // since InitiateStateLoading must not cost the player the current session.
+    const auto path = std::filesystem::u8path(fio->ConvertPathResource(State_file_name));
+    storm::save::Bytes image, raw;
+    std::string error;
+    const auto source = storm::save::loadWithRecovery(path, image, raw, error);
+    if (source == storm::save::Source::None)
+    {
+        spdlog::error("Save '{}' is unreadable, load cancelled: {}", State_file_name, error);
+        delete[] State_file_name;
+        State_file_name = nullptr;
+        State_loading = false;
+        return;
+    }
+    image = {};
+
     State_loading = true;
     EraseEntities();
 
-    auto fileS = fio->_CreateFile(State_file_name, std::ios::binary | std::ios::in);
-    if (!fileS.is_open())
+    if (!Compiler->LoadState(raw))
     {
-        return;
+        spdlog::error("Save '{}' could not be applied", State_file_name);
     }
-    Compiler->LoadState(fileS);
-    fio->_CloseFile(fileS);
 
     delete[] State_file_name;
     State_file_name = nullptr;

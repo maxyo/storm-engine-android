@@ -209,8 +209,8 @@ class COMPILER : public VIRTUAL_COMPILER
     bool CreateMessage(MESSAGE *pMs, uint32_t stack_offset, uint32_t vindex, bool s2s = false);
     void ProcessEvent(const char *event_name, MESSAGE *pMs);
 
-    bool SaveState(std::fstream &fileS);
-    bool LoadState(std::fstream &fileS);
+    bool SaveState(std::vector<char> &image);
+    bool LoadState(const std::vector<char> &raw);
     bool OnLoad();
     void SaveDataDebug(char *data_PTR, ...);
     void SaveData(const void *data_PTR, uint32_t data_size);
