@@ -487,6 +487,12 @@ void XINTERFACE::Realize(uint32_t)
                 return SFLB_GetSaveFileData(path.c_str(), sizeof(description), description) ? std::string(description) : std::string();
             });
         }
+        if (storm::android::mobileScreen == "mainmenu")
+            if (auto newest = storm::mobile::ContinueWidget(storm::android::mobileScreenRevision, [this](const std::string &path) {
+                        char description[512] = {};
+                        return SFLB_GetSaveFileData(path.c_str(), sizeof(description), description) ? std::string(description) : std::string();
+                    }))
+                widgets.push_back(std::move(*newest));
         if (storm::android::mobileScreen == "game_menu")
             if (auto game = storm::mobile::GameIdentityWidget(storm::android::mobileScreenRevision))
                 widgets.push_back(std::move(*game));

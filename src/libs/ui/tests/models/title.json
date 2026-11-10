@@ -1,1 +1,25 @@
-{"schemaVersion":2,"language":"russian","revision":1,"screenRevision":2,"screen":"mainmenu","widgets":[]}
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 1,
+ "screenRevision": 2,
+ "screen": "mainmenu",
+ "widgets": [
+  {
+   "node": "ANDROID_CONTINUE",
+   "type": "text",
+   "label": "Герой Альфа · Порт Альфа",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "hero": "Герой Альфа",
+    "location": "Порт Альфа"
+   }
+  }
+ ]
+}

@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <map>
 #include <optional>
 #include <spdlog/spdlog.h>
@@ -233,6 +234,7 @@ public:
             widgets.push_back(std::move(row));
         }
     }
+    template <typename Read> const SaveFacts &facts(const std::string &path, Read &&read) { return facts_.get(path, read); }
     std::optional<Target> accept(const SaveListSnapshot &state, int index, const std::string &value) const
     {
         if (!sameList(state) || index < 0 || static_cast<size_t>(index) >= ids_.size()) return {};
@@ -250,6 +252,46 @@ public:
     }
 };
 inline SaveListCapability saveListCapability;
+
+// The record «Продолжить» loads on the title screen (V2-Menu-Title): the newest file of the
+// profile's save folder ("SAVE\\" + PlayerProfile.name, as save_load.c opens it), as the
+// ANDROID_CONTINUE text «<hero> · <location>» with the record's facts as context. Scanned
+// once per opening of the screen.
+template <typename Read>
+std::optional<MobileWidget> ContinueWidget(uint64_t opening, Read &&read)
+{
+    static std::pair<uint64_t, std::string> newest{~0ull, {}};
+    if (newest.first != opening)
+    {
+        auto *profile = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
+        const char *profileName = profile && profile->GetAClass() ? profile->GetAClass()->GetAttribute("name") : nullptr;
+        if (!profileName || !*profileName) return {};
+        newest = {opening, {}};
+        const std::string folder = std::string("SAVE\\") + profileName;
+        const char *savePath = folder.c_str();
+        std::filesystem::file_time_type best{};
+        for (const auto &path : fio->_GetFsPathsByMask(savePath, nullptr, true))
+        {
+            const auto utf8 = path.filename().u8string();
+            const std::string name(utf8.begin(), utf8.end());
+            std::error_code error;
+            const auto written = std::filesystem::last_write_time(path, error);
+            const auto ends = [&name](const std::string &suffix) {
+                return name.size() >= suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0;
+            };
+            if (error || ends(".storm-tmp") || ends(".storm-bak") || (!newest.second.empty() && written <= best)) continue;
+            best = written;
+            newest.second = std::string(savePath) + "\\" + name;
+        }
+    }
+    if (newest.second.empty()) return {};
+    const SaveFacts &facts = saveListCapability.facts(newest.second, read);
+    if (facts.location.empty()) return {};
+    MobileWidget widget{"ANDROID_CONTINUE", "text", facts.hero.empty() ? facts.location : facts.hero + " · " + facts.location, "", -1, -1, true};
+    widget.context = {{"location", facts.location}};
+    if (!facts.hero.empty()) widget.context["hero"] = facts.hero;
+    return widget;
+}
 
 // Select through the original script so its ten-slot cache and delete shifting
 // stay consistent, even when Android displays a row far beyond the native page.

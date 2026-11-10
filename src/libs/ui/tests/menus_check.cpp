@@ -318,6 +318,7 @@ static void Title(const std::string &models)
     ExpectEqual(surface.tag, "s-title", "title mounted");
     Expect(surface.errors.empty() && FromTitle(), "no errors; the menus now run from the title screen");
     Expect(surface.props["primary"]["label"] == "<menu.continue>" && surface.props["buttons"].size() == 4, "«Продолжить» and four buttons");
+    ExpectEqual(surface.props["primary"]["sub"], "Герой Альфа · Порт Альфа", "«Продолжить» names the newest record");
     const char *const commands[][2] = {{"new", "New"}, {"load", "Load"}, {"options", "Options"}, {"credits", "Credits"}, {"exit", "Exit"}};
     for (const auto &[id, command] : commands)
     {
