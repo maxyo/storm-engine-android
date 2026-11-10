@@ -12,6 +12,7 @@
 // test: compiles each script as the main segment and runs every function whose name starts with
 // "test_"; it must return 1 (int) without a runtime error. A script whose first line is
 // "// expect-error: <text>" must instead fail to compile with an error containing <text>.
+#include "game_profile.hpp"
 #include "compiler.h"
 #include "core_impl.h"
 #include "s_import_func.h"
@@ -170,6 +171,7 @@ int check(int argc, char **argv)
     std::printf("script_check: indexing %s without the engine-shaders overlay (scripts only)\n",
                 fs::current_path().string().c_str());
     fio->ScanResourcePaths(false);
+    storm::initGameProfile(); // built-in signatures that differ between the games (builtin_signatures.hpp)
     std::vector<std::string> diagnostics;
     COMPILER compiler;
     core_internal.Compiler = &compiler;
@@ -264,6 +266,8 @@ int test(int argc, char **argv)
         }
 
         std::vector<std::string> diagnostics;
+        // the language cases exercise Caribbean Legend's script dialect
+        storm::setGameProfile(storm::GameProfile::CaribbeanLegend);
         COMPILER compiler;
         core_internal.Compiler = &compiler;
         compiler.ConfigureCompileCheck(&diagnostics, true);

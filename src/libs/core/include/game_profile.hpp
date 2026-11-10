@@ -62,4 +62,8 @@ GameProfile initGameProfile();
 
 // The profile initGameProfile() detected; throws std::logic_error before that.
 GameProfile gameProfile();
+
+// Sets the profile without a game directory: tools and tests that compile scripts on their own
+// (script_check test mode). The engine uses initGameProfile().
+void setGameProfile(GameProfile profile);
 } // namespace storm
