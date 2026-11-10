@@ -3,6 +3,8 @@
 #include "string_compare.hpp"
 #include "platform/platform.hpp"
 #include "platform/checked_file_io.hpp"
+#include "platform/resource_index.hpp"
+#include "platform/path_fingerprint.hpp"
 
 #include <SDL2/SDL.h>
 #include <exception>
@@ -446,17 +448,6 @@ void terminate_with_char(std::string &buffer, const char chr)
     }
 }
 
-std::string get_dir_iterator_path(const std::filesystem::path &path)
-{
-    std::string path_str = path.string();
-    size_t pos = path_str.find(std::string(".") + PATH_SEP);
-    if (pos != std::string::npos && pos == 0)
-    {
-        path_str.erase(0, 2);
-    }
-    return path_str;
-}
-
 void string_replace(std::string &input, const char *find, const char *paste)
 {
     size_t pos = 0;
@@ -481,21 +472,6 @@ std::string convert_path(const char *path)
     return conv;
 }
 
-void FILE_SERVICE::AddEntryToResourcePaths(const std::filesystem::directory_entry &entry, std::string &CheckingPath)
-{
-    if (entry.is_regular_file() || entry.is_directory())
-    {
-        std::string path = get_dir_iterator_path(entry.path());
-        std::string path_lwr = convert_path(path.c_str());
-        std::ranges::for_each(path_lwr, [](char &c) { c = std::tolower(c); });
-        if (starts_with(path_lwr, CheckingPath + "program") || starts_with(path_lwr, CheckingPath + "resource") ||
-            starts_with(path_lwr, CheckingPath + "save") || ends_with(path_lwr, ".ini"))
-        {
-            ResourcePaths[path_lwr] = path;
-        }
-    }
-}
-
 void FILE_SERVICE::ScanResourcePaths()
 {
 #ifndef _WIN32
@@ -505,18 +481,9 @@ void FILE_SERVICE::ScanResourcePaths()
         ResourcePaths = std::unordered_map<std::string, std::string>();
     }
     ResourcePaths.clear();
-    std::string ExePath = "";
-    for (const auto &entry : std::filesystem::recursive_directory_iterator("."))
-    {
-        AddEntryToResourcePaths(entry, ExePath);
-    }
-    ExePath = fio->_GetExecutableDirectory();
-    auto it = std::filesystem::recursive_directory_iterator(ExePath);
-    std::ranges::for_each(ExePath, [](char &c) { c = std::tolower(c); });
-    for (const auto &entry : it)
-    {
-        AddEntryToResourcePaths(entry, ExePath);
-    }
+    // One walk when the working directory is the game directory (always on
+    // Android), two otherwise; see platform/resource_index.hpp.
+    storm::resource_index::scan(ResourcePaths, fio->_GetExecutableDirectory());
 #endif
 #ifdef __ANDROID__
     storm::android::indexUiOverlay(std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "mobile-ui/current",
@@ -599,28 +566,16 @@ std::string FILE_SERVICE::ConvertPathResource(const char *path)
 
 uint64_t FILE_SERVICE::GetPathFingerprint(const std::filesystem::path &path)
 {
-    uint64_t result = 0U;
+    // Hash of (relative path, size, mtime) per file; see platform/path_fingerprint.hpp.
+    uint64_t result = storm::fingerprint::tree(path);
 #ifdef __ANDROID__
-    if (storm::android::resourceKey(path.lexically_normal()) == "program")
-        result += GetPathFingerprint(std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "mobile-ui/current");
+    // Interface scripts shipped inside the APK override files of the program tree.
+    const auto normal = path.lexically_normal();
+    const auto leaf = normal.filename().empty() ? normal.parent_path().filename() : normal.filename();
+    if (storm::android::resourceKey(leaf) == "program")
+        result += storm::fingerprint::mix(
+            storm::fingerprint::tree(std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "mobile-ui/current"));
 #endif
-
-    if (exists(path))
-    {
-        if (is_directory(path))
-        {
-            for (const auto &entry : std::filesystem::directory_iterator(path))
-            {
-                result += GetPathFingerprint(entry);
-            }
-        }
-        else if (is_regular_file(path))
-        {
-            const auto timestamp = last_write_time(path).time_since_epoch().count();
-            result += timestamp;
-        }
-    }
-    
     return result;
 }
 
