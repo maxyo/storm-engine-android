@@ -641,6 +641,11 @@ uint32_t Device::sampler_flags(uint32_t stage, const TexStore &store) const
         flags |= BGFX_SAMPLER_MAG_POINT;
     if (sm[D3DSAMP_MIPFILTER] <= D3DTEXF_POINT || store.levels <= 1)
         flags |= BGFX_SAMPLER_MIP_POINT;
+    // Effects: anisotropic filtering of linearly filtered, mip-mapped world textures (render targets and mip-less
+    // interface pictures and fonts keep their filter).
+    else if (world_anisotropy && store.kind == TexKind::Tex2D && !store.render_target && !(flags & BGFX_SAMPLER_MIN_POINT))
+        flags = (flags & ~(BGFX_SAMPLER_MIN_MASK | BGFX_SAMPLER_MAG_MASK)) | BGFX_SAMPLER_MIN_ANISOTROPIC |
+                BGFX_SAMPLER_MAG_ANISOTROPIC;
     return flags;
 }
 
@@ -822,6 +827,13 @@ HRESULT Device::draw(const DrawCall &call)
     {
         skip_draw("no vertex layout");
         return D3D_OK;
+    }
+    // Effects: a perspective draw into the game picture makes this frame a 3D scene (Device::scene_complete).
+    if (rt == back_color && !layout->rhw && s.proj.m[2][3] != 0.0f)
+    {
+        scene_drawn = true;
+        scene_view = s.view;
+        scene_proj = s.proj;
     }
 
     // ---- program ----

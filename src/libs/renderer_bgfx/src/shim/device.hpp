@@ -259,6 +259,10 @@ struct Device final : Direct3DDevice9Stub
     void set_default_state();
     void bind_state_refs(const DeviceState &next);
     void create_backbuffer(uint32_t width, uint32_t height);
+    // Graphics effects (src/effects): the 3D scene of this frame is complete; runs the post chain on it and
+    // makes its output the game picture the interface is drawn on. Once per presented frame.
+    void scene_complete();
+    static Device *current; // the one device (effects hooks reach it through the public render API)
     bgfx::ProgramHandle program(uint32_t vs_id, uint32_t fs_id);
 
     SDL_Window *window = nullptr;
@@ -267,6 +271,14 @@ struct Device final : Direct3DDevice9Stub
     std::vector<Light> lights;
     Surface *back_color = nullptr, *back_depth = nullptr; // owned references
     Surface *rt = nullptr, *ds = nullptr;                  // owned references
+    // Effects: the second game picture the post chain writes (swapped with back_color's store at the scene
+    // boundary), and a single-sample depth for other render targets while the scene target is multisampled.
+    TexStorePtr post_color, single_depth;
+    bool scene_done = false;  // the post chain ran (or was not needed) in this presented frame
+    bool scene_drawn = false; // a perspective draw reached the game picture in this presented frame
+    bool post_view_logged = false;
+    bool world_anisotropy = false; // fx::RendererState::max_anisotropy > 1, fixed when the device is created
+    D3DMATRIX scene_view{}, scene_proj{}; // camera of the last perspective draw into the game picture
     uint16_t view = 0;
     uint16_t views_used = 0;
     bool view_dirty = true;

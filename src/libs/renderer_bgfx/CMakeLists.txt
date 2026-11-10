@@ -112,6 +112,13 @@ target_link_libraries(storm_texture_core PUBLIC Threads::Threads)
 set_target_properties(storm_texture_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(storm_bgfx PRIVATE storm_texture_core)
 
+# Graphics effects package (fx/README.md): presets «Оригинал / Среднее / Высокое», driven by src/effects.
+set(STORM_FX_SHADERC_COMMAND "${STORM_SHADERC_COMMAND}")
+set(STORM_FX_SHADERC_DEPENDS "${STORM_SHADERC_DEPENDS}")
+set(STORM_FX_BGFX_SHADER_INCLUDE "${STORM_BGFX_SOURCE_DIR}/bgfx/src")
+add_subdirectory(fx)
+target_link_libraries(storm_bgfx PUBLIC storm_bgfx_fx)
+
 # Texture transcode tests and benchmark: only on request, so projects that merely consume
 # storm_bgfx (e.g. the standalone UI build) do not build them.
 option(STORM_BGFX_BUILD_TESTS "Build the renderer_bgfx texture tests and benchmark" OFF)

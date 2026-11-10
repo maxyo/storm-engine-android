@@ -5,6 +5,9 @@
 #include "sun_glow.h"
 #include "water_flare.h"
 #include "math_inlines.h"
+#include "storm/render/effects.hpp"
+
+#include <cmath>
 
 CREATE_CLASS(WEATHER)
 
@@ -108,6 +111,32 @@ void WEATHER::Execute(uint32_t Delta_Time)
         // updating date in scripts
         // if( fFloats[whf_time_counter] fOldTimer
     }
+    PushEffectsWeather();
+
+}
+
+// The graphics effects (renderer_bgfx/fx) read the weather through the renderer, once per frame.
+void WEATHER::PushEffectsWeather()
+{
+    storm::render::EffectsWeather out;
+    glm::vec3 sun = vVectors[whv_sun_pos];
+    if (const float length = glm::length(sun); length > 0.0f)
+        sun /= length;
+    out.sun_dir = {sun.x, sun.y, sun.z};
+    out.sun_present = bSunPresent && !bMoonPresent;
+    glm::vec3 color;
+    GetColor(whc_sun_color, &color);
+    out.sun_color = {color.x, color.y, color.z};
+    GetColor(whc_sun_ambient, &color);
+    out.ambient = {color.x, color.y, color.z};
+    GetColor(whc_fog_color, &color);
+    out.fog_color = {color.x, color.y, color.z};
+    out.fog_density = fFloats[whf_fog_density];
+    // Rain darkens the sky; a thunderstorm is the full storm.
+    out.overcast = iLongs[whi_lightning_enable] ? 1.0f : iLongs[whi_rain_drops_num] > 0 ? 0.6f : 0.0f;
+    out.wind_dir = {std::cos(fFloats[whf_wind_angle]), std::sin(fFloats[whf_wind_angle])};
+    out.wind_speed = fFloats[whf_wind_speed];
+    storm::render::SetEffectsWeather(out);
 }
 
 void WEATHER::UpdateSunMoonPos()

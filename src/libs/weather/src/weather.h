@@ -37,6 +37,7 @@ class WEATHER : public WEATHER_BASE
 
     void SetBeginData();
     void UpdateSunMoonPos();
+    void PushEffectsWeather();
 
     void SetCommonStates();
     void CleanUP();

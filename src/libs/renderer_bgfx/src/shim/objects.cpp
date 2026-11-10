@@ -265,6 +265,7 @@ void TexStore::create_gpu()
         if (render_target)
             flags |= BGFX_TEXTURE_RT;
     }
+    flags |= target_flags;
     const bool mips = levels > 1;
     switch (kind)
     {

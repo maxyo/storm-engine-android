@@ -17,6 +17,7 @@
 #include "fs.h"
 #include "debug-trap.h"
 #include "string_compare.hpp"
+#include "storm/render/effects.hpp"
 #include "storm/render/perf_stats.hpp"
 #include "storm/render/texture_cache.hpp"
 
@@ -424,6 +425,64 @@ DX9RENDER::DX9RENDER()
     bUseLargeBackBuffer = false;
 }
 
+namespace
+{
+// Graphics effects (renderer_bgfx/fx): «fx_preset» 0 Оригинал / 1 Среднее / 2 Высокое and the individual fx_* options
+// (-1 = the preset's value), from engine.ini and, on Android, the app's graphics preferences, which win.
+// STORM_FX_OPTIONS="fx_preset=2,fx_bloom=0" overrides both (measurements, scene sweeps); it is logged.
+void ConfigureGraphicsEffects(INIFILE *ini)
+{
+    const auto read = [ini](const char *name, int fallback) {
+        int value = ini->GetInt(nullptr, name, fallback);
+#ifdef __ANDROID__
+        value = storm::android::graphicsSetting(name, value);
+#endif
+        return value;
+    };
+    int preset = read("fx_preset", 0);
+    // Anisotropic filtering stays the existing player setting «Filtering» (texture_anisotropy 1, 2, 4, 8, 16),
+    // independent of the preset; fx_anisotropy, when given, wins.
+    std::vector<storm::render::EffectsOption> options{{"fx_anisotropy", std::clamp(read("texture_anisotropy", 1), 1, 16)}};
+    for (const auto &info : storm::render::EffectsOptionNames())
+        if (std::string_view(info.name) != "fx_preset")
+            if (const int value = read(info.name, -1); value >= 0)
+            {
+                std::erase_if(options, [&](const auto &option) { return option.name == info.name; });
+                options.push_back({info.name, value});
+            }
+    if (const char *overrides = std::getenv("STORM_FX_OPTIONS"); overrides && *overrides)
+    {
+        spdlog::warn("graphics effects: STORM_FX_OPTIONS overrides the settings: {}", overrides);
+        std::string_view rest(overrides);
+        while (!rest.empty())
+        {
+            const auto comma = rest.find(',');
+            const std::string_view item = rest.substr(0, comma);
+            rest = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 1);
+            const auto equals = item.find('=');
+            if (equals == std::string_view::npos)
+            {
+                spdlog::error("graphics effects: STORM_FX_OPTIONS item '{}' is not name=value", item);
+                continue;
+            }
+            const std::string name(item.substr(0, equals));
+            const int value = std::atoi(std::string(item.substr(equals + 1)).c_str());
+            if (name == "fx_preset")
+                preset = value;
+            else
+            {
+                std::erase_if(options, [&](const auto &option) { return option.name == name; });
+                options.push_back({name, value});
+            }
+        }
+    }
+    const auto report = storm::render::ConfigureEffects(preset, options);
+    for (const auto &error : report.errors)
+        spdlog::error("graphics effects: {}", error);
+}
+} // namespace
+
+
 static bool texLog = false;
 static float fSin = 0.0f;
 
@@ -475,12 +534,10 @@ bool DX9RENDER::Init()
         bWindow = ini->GetInt(nullptr, "full_screen", 1) == 0;
 
         nTextureDegradation = ini->GetInt(nullptr, "texture_degradation", 0);
-        requestedTextureAnisotropy = ini->GetInt(nullptr, "texture_anisotropy", 0);
 #ifdef __ANDROID__
         nTextureDegradation = std::clamp(storm::android::graphicsSetting("texture_degradation", nTextureDegradation), 0, 2);
-        requestedTextureAnisotropy = storm::android::graphicsSetting("texture_anisotropy", requestedTextureAnisotropy);
 #endif
-        requestedTextureAnisotropy = std::clamp(requestedTextureAnisotropy, 0, 16);
+        ConfigureGraphicsEffects(ini.get());
 
         storm::render::TextureCacheConfig textureCache;
         ini->ReadString(nullptr, "texture_compression", str, sizeof(str), "auto");
@@ -831,19 +888,6 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
         }
     }
 
-    textureAnisotropy = 0;
-    if (requestedTextureAnisotropy > 0)
-    {
-        D3DCAPS9 caps{};
-        textureAnisotropy = 1;
-        if (SUCCEEDED(d3d9->GetDeviceCaps(&caps)) &&
-            (caps.TextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC))
-            textureAnisotropy = std::min(static_cast<uint32_t>(requestedTextureAnisotropy),
-                                        std::max(1U, static_cast<uint32_t>(caps.MaxAnisotropy)));
-    }
-    core.Trace("Texture filtering: requested anisotropy=%d effective=%u (0=game defaults)",
-               requestedTextureAnisotropy, textureAnisotropy);
-
     // Create render targets for POST PROCESS effects
     d3d9->GetRenderTarget(0, &pOriginalScreenSurface);
     d3d9->GetDepthStencilSurface(&pOriginalDepthSurface);
@@ -927,8 +971,6 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
         SetSamplerState(s, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
         SetSamplerState(s, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
         SetSamplerState(s, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
-        if (textureAnisotropy)
-            SetSamplerState(s, D3DSAMP_MAXANISOTROPY, textureAnisotropy);
     }
 
     // set base texture and diffuse+specular lighting
@@ -1214,6 +1256,8 @@ void DX9RENDER::SetPostProcessTextureAsRenderTarget()
 
 void DX9RENDER::MakePostProcess()
 {
+    // Every interface calls this before it draws: the 3D scene of this frame ends here (graphics effects).
+    storm::render::EffectsSceneComplete();
     if (bPostProcessError)
         return;
     if (!bSeaEffect && !bPostProcessEnabled)
@@ -2691,8 +2735,6 @@ void DX9RENDER::RestoreRender()
         SetSamplerState(s, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
         SetSamplerState(s, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
         SetSamplerState(s, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
-        if (textureAnisotropy)
-            SetSamplerState(s, D3DSAMP_MAXANISOTROPY, textureAnisotropy);
     }
     // set base texture and diffuse+specular lighting
     SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
@@ -3257,15 +3299,6 @@ uint32_t DX9RENDER::GetSamplerState(uint32_t Sampler, D3DSAMPLERSTATETYPE Type, 
 
 uint32_t DX9RENDER::SetSamplerState(uint32_t Sampler, D3DSAMPLERSTATETYPE Type, uint32_t Value)
 {
-    if (textureAnisotropy)
-    {
-        // Preserve explicit point sampling (lookup/postprocess textures), mip
-        // filtering and magnification. Only improve smooth minification.
-        if (Type == D3DSAMP_MINFILTER && (Value == D3DTEXF_LINEAR || Value == D3DTEXF_ANISOTROPIC))
-            Value = textureAnisotropy > 1 ? D3DTEXF_ANISOTROPIC : D3DTEXF_LINEAR;
-        else if (Type == D3DSAMP_MAXANISOTROPY)
-            Value = textureAnisotropy;
-    }
     return CHECKD3DERR(d3d9->SetSamplerState(Sampler, Type, Value));
 }
 

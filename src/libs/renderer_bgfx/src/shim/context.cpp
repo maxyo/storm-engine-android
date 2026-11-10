@@ -1,4 +1,5 @@
 #include "device.hpp"
+#include "effects/effects.hpp"
 #include "perf.hpp"
 #include "storm/render/d3d_interop.hpp"
 
@@ -232,6 +233,7 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
          (caps_->formats[bgfx::TextureFormat::ETC2] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
          (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0);
     create_resources();
+    effects::Host::instance().on_device_created();
     for (auto &entry : clients_)
     {
         entry.client->OnDeviceRestored();
@@ -268,6 +270,7 @@ void Context::shutdown()
     for (auto &entry : clients_)
         entry.client->OnDeviceLost();
     dump_traps();
+    effects::Host::instance().shutdown();
     bgfx::shutdown();
     initialised_ = false;
     surface_.valid = false;
@@ -324,7 +327,11 @@ void Context::request_surface_restore()
 uint32_t Context::reset_flags() const
 {
     // Flip right after rendering: no swap of a previous frame is ever pending when the surface changes.
+    // Effects: anisotropic filtering of world textures needs the backend's maximum level (fx::RendererState; before
+    // the device exists this is the request, without the extension the backend ignores the flag).
+    const bool anisotropy = effects::Host::instance().renderer_state().max_anisotropy > 1;
     return (vsync_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) | BGFX_RESET_FLIP_AFTER_RENDER |
+           (anisotropy ? BGFX_RESET_MAXANISOTROPY : BGFX_RESET_NONE) |
            (surface_epoch_flag_ ? BGFX_RESET_FLUSH_AFTER_RENDER : BGFX_RESET_NONE);
 }
 
