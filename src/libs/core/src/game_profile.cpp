@@ -21,6 +21,12 @@ GameProfile initGameProfile()
     return *detected;
 }
 
+void setGameProfile(const GameProfile profile)
+{
+    detected = profile;
+    spdlog::info("Game profile: {} (set by the caller)", gameProfileName(profile));
+}
+
 GameProfile gameProfile()
 {
     if (!detected)

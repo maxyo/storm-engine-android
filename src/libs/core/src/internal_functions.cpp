@@ -1,10 +1,12 @@
 #include "compiler.h"
 #include "core_impl.h"
 #include "debug-trap.h"
+#include "builtin_signatures.hpp"
 #include "natives_ext.h"
 
 #include <execution>
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
 
 #define INVALID_FA "Invalid function argument"
 #define BAD_FA "Bad function argument"
@@ -378,9 +380,59 @@ uint32_t COMPILER::GetIntFunctionsNum()
     // return sizeof(FuncNameTable)/sizeof(char *);
 }
 
+namespace
+{
+S_TOKEN_TYPE ToTokenType(storm::builtins::ReturnKind kind)
+{
+    switch (kind)
+    {
+    case storm::builtins::ReturnKind::Int:
+        return VAR_INTEGER;
+    case storm::builtins::ReturnKind::Float:
+        return VAR_FLOAT;
+    case storm::builtins::ReturnKind::String:
+        return VAR_STRING;
+    case storm::builtins::ReturnKind::Void:
+        break;
+    }
+    return TVOID;
+}
+
+bool IsCaribbeanLegend()
+{
+    return storm::gameProfile() == storm::GameProfile::CaribbeanLegend;
+}
+} // namespace
+
+// The return type of built-in `code` in the running game (builtin_signatures.hpp).
+S_TOKEN_TYPE COMPILER::GetIntFunctionReturnType(uint32_t code)
+{
+    const INTFUNCDESC &desc = IntFuncTable[code];
+    for (const auto &entry : storm::builtins::kBuiltinReturnTypes)
+        if (entry.name == desc.pName)
+            return ToTokenType(IsCaribbeanLegend() ? entry.caribbean_legend : entry.teho);
+    return desc.ReturnType;
+}
+
+// Checks the argument count of a built-in that accepts a range (builtin_signatures.hpp); on a
+// bad count reports the error and removes the arguments.
+bool COMPILER::IntFuncArgumentsInRange(uint32_t code, uint32_t arguments)
+{
+    const auto *range = storm::builtins::argumentRange(IntFuncTable[code].pName);
+    if (!range || (arguments >= range->min && arguments <= range->max))
+        return true;
+    SetError("function '%s' takes %u to %u arguments, not %u", IntFuncTable[code].pName, range->min, range->max,
+             arguments);
+    for (uint32_t n = 0; n < arguments; n++)
+        SStack.Pop();
+    return false;
+}
+
 bool COMPILER::IsIntFuncVarArgsNum(uint32_t code)
 {
     // if(code == FUNC_SEND_MESSAGE) return true;
+    if (code < FUNC_COUNT_ && storm::builtins::argumentRange(IntFuncTable[code].pName))
+        return true;
     if (code >= FUNC_NATIVE_EXT_BASE)
         return storm::natives::isNativeExtVarArgs(code - FUNC_NATIVE_EXT_BASE);
     switch (code)
@@ -890,6 +942,18 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         break;
 
     case FUNC_MAP_CONTROL:
+        // MapControl(control, key[, extra]): CL declares a third parameter and never passes it; its
+        // meaning is unknown, so a passed value is reported and not used
+        if (!IntFuncArgumentsInRange(func_code, arguments))
+            return nullptr;
+        if (arguments == 3)
+        {
+            SStack.Pop();
+            static bool reported = false;
+            if (!reported)
+                spdlog::warn("MapControl: the third argument has no known meaning and is ignored");
+            reported = true;
+        }
         pV2 = SStack.Pop();
         if (!pV2)
         {
@@ -1063,7 +1127,10 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         break;
     case FUNC_GETDELTATIME:
         pV = SStack.Push();
-        pV->Set(static_cast<int32_t>(core_internal.GetDeltaTime()));
+        if (GetIntFunctionReturnType(func_code) == VAR_FLOAT) // CL
+            pV->Set(static_cast<float>(core_internal.GetDeltaTime()));
+        else
+            pV->Set(static_cast<int32_t>(core_internal.GetDeltaTime()));
         pVResult = pV;
         return pV;
 
@@ -1162,7 +1229,10 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         {
             SetError("Invalid string argument");
             pV = SStack.Push();
-            pV->Set("");
+            if (GetIntFunctionReturnType(func_code) == VAR_INTEGER) // CL
+                pV->Set(static_cast<int32_t>(-1));
+            else
+                pV->Set("");
             pVResult = pV;
             return pV;
         }
@@ -1185,6 +1255,8 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         break;
 
     case FUNC_FINDSUBSTR:
+        if (!IntFuncArgumentsInRange(func_code, arguments))
+            return nullptr;
         pV3 = SStack.Pop();
         if (!pV3)
         {
@@ -1979,30 +2051,27 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         pVResult = pV;
         return pV;
     case FUNC_FTS:
-        pV2 = SStack.Pop();
-        if (!pV2)
+        // fts(value[, significant digits]); CL's one-argument form uses 6 digits, as printf's %g
+        if (!IntFuncArgumentsInRange(func_code, arguments))
+            return nullptr;
+        TempLong1 = 6;
+        if (arguments == 2)
         {
-            SetError(INVALID_FA);
-            break;
+            pV2 = SStack.Pop();
+            if (!pV2 || pV2->GetType() != VAR_INTEGER)
+            {
+                SetError(INVALID_FA);
+                break;
+            }
+            pV2->Get(TempLong1);
         }
         pV = SStack.Pop();
-        if (!pV)
-        {
-            SetError(INVALID_FA);
-            break;
-        }
-        if (pV->GetType() != VAR_FLOAT)
-        {
-            SetError(INVALID_FA);
-            break;
-        }
-        if (pV2->GetType() != VAR_INTEGER)
+        if (!pV || pV->GetType() != VAR_FLOAT)
         {
             SetError(INVALID_FA);
             break;
         }
         pV->Get(TempFloat1);
-        pV2->Get(TempLong1);
         pV = SStack.Push();
 #ifdef __ANDROID__
         snprintf(gs, sizeof(gs), "%.*g", std::clamp(TempLong1, 1, 32), static_cast<double>(TempFloat1));
@@ -2604,8 +2673,13 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         }
         pV->Convert(VAR_STRING);
         pV->Get(pChar);
-        core_internal.SaveState(pChar);
-        break;
+        TempBool = core_internal.SaveState(pChar);
+        if (GetIntFunctionReturnType(func_code) == TVOID)
+            break;
+        pV = SStack.Push(); // CL: whether the state was saved
+        pV->Set(static_cast<int32_t>(TempBool));
+        pVResult = pV;
+        return pV;
     case FUNC_LOADENGINESTATE:
         pV = SStack.Pop();
         if (!pV)

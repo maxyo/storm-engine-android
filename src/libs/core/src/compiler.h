@@ -241,6 +241,8 @@ class COMPILER : public VIRTUAL_COMPILER
     void DumpAttributes(ATTRIBUTES *pA, int32_t level);
 
     bool IsIntFuncVarArgsNum(uint32_t code);
+    S_TOKEN_TYPE GetIntFunctionReturnType(uint32_t code);
+    bool IntFuncArgumentsInRange(uint32_t code, uint32_t arguments);
     uint32_t GetInternalFunctionArgumentsNum(uint32_t code);
     bool CreateMessage(MESSAGE *pMs, uint32_t stack_offset, uint32_t vindex, bool s2s = false);
     void ProcessEvent(const char *event_name, MESSAGE *pMs);
