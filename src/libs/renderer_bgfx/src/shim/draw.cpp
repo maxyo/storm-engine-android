@@ -1,5 +1,6 @@
 #include "device.hpp"
 #include "effects/effects.hpp"
+#include "pbr/host.hpp"
 #include "perf.hpp"
 #include "ports.hpp"
 #include "util.hpp"
@@ -858,14 +859,19 @@ HRESULT Device::draw(const DrawCall &call)
             fs_variant = stage + 1;
             break;
         }
+    // Caribbean Legend PBR material set by the geometry (src/pbr/host.hpp): its program replaces the emulator's,
+    // fx per-pixel lighting (and its derived normal maps) does not apply to it.
+    const pbr_host::Draw pbr_draw = pbr_host::Host::instance().prepare(*this, *layout, !vs_port && !ps_port);
+    if (pbr_draw.kind == pbr_host::Draw::Kind::Skip)
+        return D3D_OK;
     // Effects: per-pixel lighting / alpha to coverage variant of a fixed-function draw (effects/lighting.hpp).
     effects::Lighting &fx_lighting = effects::Host::instance().lighting();
     effects::FfDraw fx_draw;
-    if (!vs_port && !ps_port && !fx_lighting.idle())
+    if (!vs_port && !ps_port && !fx_lighting.idle() && pbr_draw.kind == pbr_host::Draw::Kind::None)
         fx_lighting.prepare(*this, *layout, fs_variant, fx_draw);
     const uint32_t vs_id = vs_port ? s.vs->port->shader_id() : fx_draw.active ? fx_draw.vs_id : id_vs_ff;
     const uint32_t fs_id = ps_port ? s.ps->port->shader_id() : fx_draw.active ? fx_draw.fs_id : id_fs_ff[fs_variant];
-    const bgfx::ProgramHandle handle = program(vs_id, fs_id);
+    const bgfx::ProgramHandle handle = pbr_draw.kind == pbr_host::Draw::Kind::Pbr ? pbr_draw.program : program(vs_id, fs_id);
     if (!bgfx::isValid(handle))
     {
         skip_draw("program creation failed");
@@ -1127,6 +1133,7 @@ HRESULT Device::draw(const DrawCall &call)
     apply_ff_uniforms(*layout, vs_port, ps_port, fx_draw);
     if (fx_draw.active)
         fx_lighting.submit(fx_draw);
+    pbr_host::Host::instance().submit(*this, pbr_draw);
 
     bool stencil = false;
     uint32_t fstencil = 0;
