@@ -1764,6 +1764,7 @@ bool DX9RENDER::TextureLoad(int32_t t)
         }
         Textures[t].d3dtex = tex;
         Textures[t].isCubeMap = false;
+        storm::render::SetEffectsTextureSource(tex, Textures[t].name); // relief from height textures
     }
     else
     {

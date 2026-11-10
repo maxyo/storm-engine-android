@@ -34,7 +34,7 @@ void main()
     vec3 Ng = N;
     N = fxPerturbNormal(N, v_vpos, v_uv);
     if (v_albedo.a < 0.5)
-        color *= fxBakedRelief(Ng, N);
+        color *= fxBakedRelief(Ng, N, V);
 #endif
     vec3 diffuse = vec3_splat(0.0);
     vec3 ambient = vec3_splat(0.0);

@@ -57,7 +57,7 @@ void CheckSettings()
     const Settings high = Settings::FromPreset(QualityPreset::High);
     CHECK(!medium.PostIsIdentity() && !high.PostIsIdentity());
     CHECK(medium.bloom_downscale == 4 && high.bloom_downscale == 2);
-    CHECK(!medium.sharpen && high.sharpen);
+    CHECK(!medium.sharpen && !high.sharpen);
     // MSAA is the primary anti-aliasing of the presets; FXAA is left to the player. Optional looks stay off.
     CHECK(medium.msaa == 4 && high.msaa == 4 && !medium.fxaa && !high.fxaa && original.msaa == 1);
     CHECK(medium.anisotropy == 4 && high.anisotropy == 8 && original.anisotropy == 1);
@@ -66,6 +66,11 @@ void CheckSettings()
     CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
     CHECK(!medium.ssao && high.ssao && !original.ssao);
+    // The presets keep the legacy look: no tone curve, grade, flare, shafts, fx sky, hemisphere or linear sums.
+    for (const Settings *preset : {&medium, &high})
+        CHECK(!preset->tonemap && !preset->scene_grading && !preset->lens_flare && !preset->sun_shafts &&
+              !preset->sky_atmosphere && preset->grade == GradePreset::Original &&
+              !(preset->lighting_flags & (kLightingHemisphere | kLightingLinear | kLightingRim | kLightingAerial)));
     Settings graded = original;
     graded.grade = GradePreset::Caribbean;
     CHECK(!graded.PostIsIdentity());
@@ -495,11 +500,10 @@ void CheckLighting()
     s.lighting_flags = kLightingPoint; // baked geometry: dynamic point lights only
     CHECK(LightingDefines(s) == "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4" && PointLightBudget(s) == 4);
     CHECK(LightingDefines(Settings::FromPreset(QualityPreset::Medium)) ==
-          "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_SHADOW;FX_LIGHT_RIM;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4;"
-          "FX_LIGHT_NORMALMAP;FX_LIGHT_LINEAR;FX_AERIAL;FX_WIND");
+          "FX_LIGHT_PER_PIXEL;FX_LIGHT_SHADOW;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4;FX_LIGHT_NORMALMAP;FX_WIND");
     CHECK(LightingDefines(Settings::FromPreset(QualityPreset::High)) ==
-          "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_SPECULAR;FX_LIGHT_TRANSLUCENT;FX_LIGHT_SHADOW;FX_LIGHT_SHADOW_SOFT;"
-          "FX_LIGHT_RIM;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=8;FX_LIGHT_NORMALMAP;FX_LIGHT_LINEAR;FX_AERIAL;FX_WIND");
+          "FX_LIGHT_PER_PIXEL;FX_LIGHT_SPECULAR;FX_LIGHT_TRANSLUCENT;FX_LIGHT_SHADOW;FX_LIGHT_SHADOW_SOFT;"
+          "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=8;FX_LIGHT_NORMALMAP;FX_WIND");
     CHECK(PointLightBudget(Settings::FromPreset(QualityPreset::High)) == 8);
 }
 
