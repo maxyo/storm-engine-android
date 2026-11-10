@@ -165,6 +165,7 @@ class COMPILER : public VIRTUAL_COMPILER
 
     S_TOKEN_TYPE NextTokenType();
     S_TOKEN_TYPE SkipAuxiliaryTokens();
+    bool SkipToTopLevel(uint32_t depth);
 
     bool BC_ProcessExpression(DATA *value);
     void BC_ProcessExpression_L0(DATA *value);
@@ -259,6 +260,15 @@ class COMPILER : public VIRTUAL_COMPILER
 
     // printout script functions usage
     void PrintoutUsage();
+
+    // Host compile check (src/apps/script_check): every compile diagnostic is also appended to
+    // `sink`; source line tracking is on, the script cache is off and a segment that fails to
+    // compile keeps its declarations, so the segments compiled after it are checked against them.
+    void ConfigureCompileCheck(std::vector<std::string> *sink);
+    // bytecode of a loaded segment, nullptr if it is not loaded
+    const char *GetSegmentCode(const char *segment_name, uint32_t &size) const;
+    // runs a script function that takes no arguments; `value` receives its result as text
+    bool RunScriptFunction(const char *func_name, std::string &value);
 
 private:
 #ifdef __ANDROID__
@@ -366,5 +376,9 @@ private:
 
     // attempt to read/write script cache?
     int script_cache_mode_;
+
+    // see ConfigureCompileCheck
+    std::vector<std::string> *diagnosticsSink_ = nullptr;
+    bool compileCheck_ = false;
     storm::ScriptCache script_cache_;
 };

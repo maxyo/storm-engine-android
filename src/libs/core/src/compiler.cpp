@@ -214,7 +214,9 @@ char *COMPILER::LoadFile(const char *file_name, uint32_t &file_size, bool bFullP
         std::string EngineDir = "storm-engine\\";
         if (strncmp(file_name, EngineDir.c_str(), EngineDir.length()) == 0)
         {
-            std::string ExePath = fio->_GetExecutableDirectory() + "resource\\shared\\";
+            // the compile check runs in the game directory, which ships these headers
+            std::string ExePath = compileCheck_ ? std::string("resource\\shared\\")
+                                                      : fio->_GetExecutableDirectory() + "resource\\shared\\";
             strcpy_s(buffer, ExePath.c_str());
             strcat_s(buffer, file_name + EngineDir.length());
         }
@@ -396,6 +398,8 @@ void COMPILER::SetError(const char *data_PTR, ...)
     va_end(args);
 
     logError_->error(ErrorBuffer);
+    if (diagnosticsSink_)
+        diagnosticsSink_->emplace_back(ErrorBuffer);
 
 #ifdef _WIN32 // S_DEBUG
     if (bBreakOnError)
@@ -424,6 +428,56 @@ void COMPILER::SetWarning(const char *data_PTR, ...)
     va_end(args);
 
     logTrace_->warn(ErrorBuffer);
+    if (diagnosticsSink_)
+        diagnosticsSink_->emplace_back(ErrorBuffer);
+}
+
+void COMPILER::ConfigureCompileCheck(std::vector<std::string> *sink)
+{
+    diagnosticsSink_ = sink;
+    compileCheck_ = true;
+    bDebugInfo = true;
+    script_cache_mode_ = kCacheDisabled;
+}
+
+const char *COMPILER::GetSegmentCode(const char *segment_name, uint32_t &size) const
+{
+    for (uint32_t n = 0; n < SegmentsNum; n++)
+    {
+        if (SegmentTable[n].name == segment_name)
+        {
+            size = SegmentTable[n].BCode_Program_size;
+            return SegmentTable[n].pCode;
+        }
+    }
+    size = 0;
+    return nullptr;
+}
+
+bool COMPILER::RunScriptFunction(const char *func_name, std::string &value)
+{
+    value.clear();
+    const auto func_code = FuncTab.FindFunc(func_name);
+    if (func_code == INVALID_FUNC_CODE)
+    {
+        SetError("function '%s' not found", func_name);
+        return false;
+    }
+    DATA *result = nullptr;
+    if (!BC_Execute(func_code, result))
+        return false;
+    if (result)
+    {
+        DATA copy;
+        copy.SetVCompiler(this);
+        copy.Copy(result);
+        copy.Convert(VAR_STRING);
+        const char *text = nullptr;
+        copy.Get(text);
+        value = text ? text : "";
+        SStack.Pop();
+    }
+    return true;
 }
 
 void COMPILER::LoadPreprocess()
@@ -1006,7 +1060,7 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
                      duration_cast<milliseconds>(std::chrono::steady_clock::now() - load_started).count());
     }
 
-    if (!result)
+    if (!result && !compileCheck_)
     {
         delete SegmentTable[index].Files_list;
         SegmentsNum--;
@@ -1366,6 +1420,7 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
 
     //    bool bCDStop;
     bool bFunctionBlock;
+    bool bPass1Ok = true; // false after a recoverable declaration error: keep scanning, then fail
     int32_t lvalue;
     float fvalue;
 
@@ -1580,7 +1635,8 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                 if (def_code == INVALID_DEF_CODE)
                 {
                     SetError("define redefinition: %s", di.name);
-                    return false;
+                    bPass1Ok = false;
+                    break;
                 }
                 if (script_cache_mode_ != kCacheDisabled)
                 {
@@ -1661,13 +1717,11 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
 
                         if (func_code == INVALID_FUNC_CODE)
                         {
-                            func_code = FuncTab.FindFunc(fi.name);
-                            FuncTab.GetFunc(fi, func_code);
-                            // SetError("Duplicate function name: %s",fi.name);
+                            FuncTab.GetFunc(fi, FuncTab.FindFunc(fi.name));
                             SetError("Function [%s] already declared in: %s line %d", fi.name.c_str(),
                                      fi.decl_file_name.c_str(), fi.decl_line);
-
-                            return false;
+                            bPass1Ok = false; // its arguments and locals go nowhere (invalid func_code)
+                            break;
                         }
                         if (script_cache_mode_ != kCacheDisabled)
                         {
@@ -1728,7 +1782,8 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                         if (var_code == INVALID_VAR_CODE)
                         {
                             SetError("Duplicate variable name: %s", vi.name.c_str());
-                            return false;
+                            bPass1Ok = false;
+                            continue;
                         }
 
                         real_var = VarTab.GetVarX(var_code);
@@ -1975,10 +2030,10 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     {
                         SetWarning("Empty variable name");
                     }
-                    else if (!FuncTab.AddFuncVar(func_code, lvi))
+                    else if (!FuncTab.AddFuncVar(func_code, lvi) && func_code != INVALID_FUNC_CODE)
                     {
                         SetError("Duplicate variable name: %s", lvi.name.c_str());
-                        return false;
+                        bPass1Ok = false;
                     }
 
                     if (script_cache_mode_ != kCacheDisabled)
@@ -2035,7 +2090,18 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
     Token.SetProgram(pProgram, pProgram);
 
     STRINGS_LIST BreakUpdateTable;
-    if (!CompileBlock(Segment, bFunctionBlock, inout, TVOID, INVALID_OFFSET, INVALID_OFFSET, BreakUpdateTable))
+    // After an error, resume at the next top-level declaration so that one run reports every error.
+    bool compiled = bPass1Ok;
+    while (!CompileBlock(Segment, bFunctionBlock, inout, TVOID, INVALID_OFFSET, INVALID_OFFSET, BreakUpdateTable))
+    {
+        compiled = false;
+        if (!SkipToTopLevel(inout))
+            break;
+        bFunctionBlock = false;
+        inout = 0;
+        BreakUpdateTable.Release();
+    }
+    if (!compiled)
         return false;
     DOUBLE_DWORD ddw;
     uint32_t label_offset;
@@ -2070,6 +2136,45 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
         SaveSegmentToCache(Segment);
     }
     return true;
+}
+
+bool COMPILER::SkipToTopLevel(uint32_t depth)
+{
+    // skip the rest of the statement (at top level) or of the function body the error occurred in
+    for (;;)
+    {
+        switch (Token.Get())
+        {
+        case END_OF_PROGRAMM:
+            return false;
+        case DEBUG_LINEFEED:
+            DebugSourceLine++;
+            break;
+        case COMMENT:
+            DebugSourceLine += Token.TokenLines();
+            break;
+        case DEBUG_FILE_NAME:
+            DebugSourceLine = DSL_INI_VALUE;
+            if (Token.GetData())
+                strcpy_s(DebugSourceFileName, Token.GetData());
+            break;
+        case BLOCK_IN:
+            depth++;
+            break;
+        case BLOCK_OUT:
+            if (depth > 0)
+                depth--;
+            if (depth == 0)
+                return true;
+            break;
+        case SEPARATOR:
+            if (depth == 0)
+                return true;
+            break;
+        default:
+            break;
+        }
+    }
 }
 
 S_TOKEN_TYPE COMPILER::SkipAuxiliaryTokens()
