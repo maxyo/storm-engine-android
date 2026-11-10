@@ -265,7 +265,7 @@ class SavesScreen final : public Screen
         view["title"] = bindings.Text(saving ? "save.title_save" : "save.title_load");
         view["columns"] = Json::array({Json{{"label", bindings.Text("save.record")}, {"w", "1"}},
                                        Json{{"label", bindings.Text("save.game_date")}, {"w", "104px"}, {"align", "right"}},
-                                       Json{{"label", bindings.Text("save.created")}, {"w", "128px"}, {"align", "right"}},
+                                       Json{{"label", bindings.Text("save.created")}, {"w", "150px"}, {"align", "right"}}, // «18 окт. 2025, 08:53» whole at 915 dp
                                        Json{{"label", ""}, {"w", "24px"}, {"align", "center"}}});
         view["rows"] = rows;
         view["detail"] = chosen ? Detail(bindings, *chosen, saving) : Json();
