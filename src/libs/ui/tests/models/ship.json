@@ -1,0 +1,1242 @@
+{
+ "schemaVersion": 2,
+ "language": "english",
+ "revision": 30,
+ "screenRevision": 7,
+ "screen": "ship",
+ "widgets": [
+  {
+   "node": "ANDROID_SHIP",
+   "type": "fact",
+   "label": "",
+   "value": "",
+   "index": 0,
+   "enabled": true,
+   "rowId": "s0",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "hero": "0",
+    "exchange": "1",
+    "money": "500",
+    "type": "Sloop",
+    "rename": "1",
+    "morale": "45",
+    "moraleprice": "340",
+    "sailors": "62",
+    "cannoners": "18",
+    "soldiers": "30",
+    "bow": "2",
+    "stern": "2",
+    "port": "4",
+    "starboard": "4"
+   }
+  },
+  {
+   "node": "ANDROID_SHARES",
+   "type": "fact",
+   "label": "",
+   "value": "",
+   "index": 0,
+   "enabled": true,
+   "rowId": "s0",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "captain": "400",
+    "officers": "300",
+    "crew": "500",
+    "month": "1200",
+    "state": "0",
+    "last": "0",
+    "pay": "500",
+    "paid": "1 September 1654"
+   }
+  },
+  {
+   "node": "TITLE",
+   "type": "heading",
+   "label": " Ship  ",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_CHARACTER",
+   "type": "button",
+   "label": "Character",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_CHARACTER_2",
+   "type": "button",
+   "label": "Character",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_QUESTBOOK",
+   "type": "button",
+   "label": "Questbook",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_QUESTBOOK_2",
+   "type": "button",
+   "label": "Questbook",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_NATIONS",
+   "type": "button",
+   "label": "Nations",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_NATIONS_2",
+   "type": "button",
+   "label": "Nations",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_TRADEBOOK",
+   "type": "button",
+   "label": "Tradebook",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_TRADEBOOK_2",
+   "type": "button",
+   "label": "Tradebook",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_ITEMS",
+   "type": "button",
+   "label": "Items",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_ITEMS_2",
+   "type": "button",
+   "label": "Items",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIP_BIG_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "texture",
+      "image": "interfaces/ships/Sloop"
+     }
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "HERO_NAME",
+   "type": "text",
+   "label": "Peter Marsh",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIP_RANK",
+   "type": "text",
+   "label": "6",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "EDIT_BOX",
+   "type": "edit",
+   "label": "",
+   "value": "Swallow",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Adeline",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "1:0",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Swallow",
+   "value": "1",
+   "index": 1,
+   "enabled": true,
+   "rowId": "1:1",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tHull\t300 / 600\t",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "Hull",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Hull"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Hull",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "300 / 600",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tSails\t100 / 100\t",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "Sails",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Sails"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Sails",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "100 / 100",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tSpeed\t13.07 / 15.20\t",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "Speed",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Speed"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Speed",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "13.07 / 15.20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tTurn rate\t34.01 / 58.80\t",
+   "value": "0",
+   "index": 3,
+   "enabled": true,
+   "rowId": "Maneuver",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Maneuver"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Turn rate",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "34.01 / 58.80",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tUpwind\t65 / 114\t",
+   "value": "0",
+   "index": 4,
+   "enabled": true,
+   "rowId": "AgainstWind",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "AgainstWind"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Upwind",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "65 / 114",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tDeadweight\t189 / 700\t",
+   "value": "0",
+   "index": 5,
+   "enabled": true,
+   "rowId": "Capacity",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Capacity"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Deadweight",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "189 / 700",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tCrew\t40 : 9 / 40\t",
+   "value": "0",
+   "index": 6,
+   "enabled": true,
+   "rowId": "Crew",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Crew"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Crew",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "40 : 9 / 40",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tArmament\t6 lb / 12\t",
+   "value": "0",
+   "index": 7,
+   "enabled": true,
+   "rowId": "sCannons",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "sCannons"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Armament",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "6 lb / 12",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tCannons\t6 lb / 12\t",
+   "value": "0",
+   "index": 8,
+   "enabled": true,
+   "rowId": "CannonType",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "CannonType"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Cannons",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "6 lb / 12",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "Cannonballs\t100\t10\t20\t2",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "ship:good:0:owner:31",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Cannonballs",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Balls"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "100",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "2",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Goods in the hold",
+    "Qty",
+    "Weight",
+    "Pack",
+    "Pack weight"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "Gunpowder\t220\t11\t20\t1",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "ship:good:5:owner:31",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Gunpowder",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Powder"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "220",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "11",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Goods in the hold",
+    "Qty",
+    "Weight",
+    "Pack",
+    "Pack weight"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "Rum\t10\t10\t1\t1",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "ship:good:8:owner:31",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Rum",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Rum"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Goods in the hold",
+    "Qty",
+    "Weight",
+    "Pack",
+    "Pack weight"
+   ]
+  },
+  {
+   "node": "TABLE_CREW",
+   "type": "choice",
+   "label": "\tSailors\tSkilled\t",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "Sailors",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Sailors",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Skilled",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "node": "TABLE_CREW",
+   "type": "choice",
+   "label": "\tGunners\tGreen\t",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "Cannoners",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Gunners",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Green",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "node": "TABLE_CREW",
+   "type": "choice",
+   "label": "\tSoldiers\tRaw\t",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "Soldiers",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Soldiers",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Raw",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "node": "FOOD_SHIP",
+   "type": "text",
+   "label": "Food aboard for 12 days",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "FOOD",
+   "type": "text",
+   "label": "Food in the squadron for 9 days",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MONEY_SHIP",
+   "type": "text",
+   "label": "Ship upkeep: \r 1 240 pesos",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CREW_QTY",
+   "type": "text",
+   "label": "40",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CREW_MORALE_TEXT",
+   "type": "text",
+   "label": "Crew morale: NORMAL",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CREW_PARTITION",
+   "type": "button",
+   "label": "Debt",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CREW_MORALE_BUTTON",
+   "type": "button",
+   "label": "Raise morale",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Money_TEXT",
+   "type": "text",
+   "label": "500",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}
