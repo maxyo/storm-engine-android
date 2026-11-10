@@ -9,6 +9,9 @@
 #include "vma.hpp"
 
 #include <filesystem>
+#ifdef __ANDROID__
+#include "mobile_alchemy.hpp"
+#endif
 
 class CXI_WINDOW;
 
@@ -336,6 +339,11 @@ class XINTERFACE : public XINTERFACE_BASE
     void MobileCollectGoodsTransfer(std::vector<MobileWidget> &widgets);
     bool MobileApplyGoodsTransfer(const std::string &value);
     void MobileCollectSailsGerald(std::vector<MobileWidget> &widgets);
+    storm::mobile::AlchemySource MobileAlchemySource();
+    void MobileCollectAlchemy(std::vector<MobileWidget> &widgets);
+    bool MobileApplyAlchemy(const std::string &node,const std::string &value);
+    int32_t m_mobileAlchemyStrings=-1;
+    std::string m_mobileAlchemyLanguage;
     bool MobileApplyShipyard(const std::string &node,int index,const std::string &value);
     std::string m_mobileShipyardSignature;
     uint64_t m_mobileShipyardGeneration=0;
