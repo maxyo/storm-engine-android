@@ -49,11 +49,18 @@ const LayoutInfo *Device::fvf_layout(DWORD fvf, uint32_t stride)
     else
     {
         layout.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float);
-        if (position >= D3DFVF_XYZB1 && position <= D3DFVF_XYZB5)
+        if (position == D3DFVF_XYZB2 && (fvf & D3DFVF_LASTBETA_UBYTE4))
+        {
+            // GPU skinning: one blend weight, bone indices in the last beta (GEOS::AVERTEX0).
+            layout.add(bgfx::Attrib::Weight, 1, bgfx::AttribType::Float);
+            layout.add(bgfx::Attrib::Indices, 4, bgfx::AttribType::Uint8);
+            info.skinned = true;
+        }
+        else if (position >= D3DFVF_XYZB1 && position <= D3DFVF_XYZB5)
         {
             const uint32_t weights = (position - D3DFVF_XYZB1) / 2 + 1;
             layout.skip(static_cast<uint8_t>(weights * 4));
-            trap("FVF with blend weights");
+            trap("FVF with blend weights other than XYZB2 | LASTBETA_UBYTE4");
         }
     }
     if (fvf & D3DFVF_NORMAL)
@@ -737,6 +744,26 @@ bgfx::ProgramHandle Device::program(uint32_t vs_id, uint32_t fs_id)
             if (!bgfx::isValid(shaders[id]))
                 shaders[id] = create_embedded_shader(id);
         handle = bgfx::createProgram(shaders[vs_id], shaders[fs_id], false);
+        if (bgfx::isValid(handle))
+        {
+            uint32_t bytes = 0;
+            for (const uint32_t id : {vs_id, fs_id})
+            {
+                bgfx::UniformHandle list[64];
+                const uint16_t count = bgfx::getShaderUniforms(shaders[id], list, 64);
+                for (uint16_t i = 0; i < std::min<uint16_t>(count, 64); ++i)
+                {
+                    bgfx::UniformInfo info;
+                    bgfx::getUniformInfo(list[i], info);
+                    const uint32_t size = info.type == bgfx::UniformType::Vec4   ? 16
+                                          : info.type == bgfx::UniformType::Mat3 ? 48
+                                          : info.type == bgfx::UniformType::Mat4 ? 64
+                                                                                 : 0; // samplers
+                    bytes += size * info.num;
+                }
+            }
+            program_uniform_bytes[handle.idx] = bytes;
+        }
     }
     if (!bgfx::isValid(handle))
         logf("program creation failed (vs=%u fs=%u)", vs_id, fs_id);
@@ -791,6 +818,23 @@ HRESULT Device::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE type, UINT min_index, UI
     call.up_vertex_count = min_index + vertex_count;
     return draw(call);
 }
+
+namespace
+{
+// The FF_SKIN variant of a fixed-function vertex shader (GEOS::AVERTEX0 vertices), UINT32_MAX if none.
+uint32_t skinned_variant(uint32_t vs_id)
+{
+    static const std::pair<uint32_t, uint32_t> table[] = {
+        {shader_id_by_name("vs_ff"), shader_id_by_name("vs_ff_skin")},
+        {shader_id_by_name("vs_ff_unlit"), shader_id_by_name("vs_ff_unlit_skin")},
+        {shader_id_by_name("vs_ff_lit"), shader_id_by_name("vs_ff_lit_skin")}, // effects: per-pixel lighting
+    };
+    for (const auto &[plain, skinned] : table)
+        if (plain == vs_id)
+            return skinned;
+    return UINT32_MAX;
+}
+} // namespace
 
 // A draw that cannot be issued is never dropped quietly: it is counted and its reason logged once.
 void Device::skip_draw(const char *reason)
@@ -856,7 +900,8 @@ HRESULT Device::draw(const DrawCall &call)
         skip_draw("shader without bgfx port");
         return D3D_OK;
     }
-    static const uint32_t id_vs_ff = shader_id_by_name("vs_ff");
+    // [0] vertex lighting (D3DRS_LIGHTING), [1] unlit: the lights stay out of the program (ff_vertex.sh FF_UNLIT).
+    static const uint32_t id_vs_ff[2] = {shader_id_by_name("vs_ff"), shader_id_by_name("vs_ff_unlit")};
     static const uint32_t id_fs_ff[5] = {shader_id_by_name("fs_ff"), shader_id_by_name("fs_ff_cube0"),
                                          shader_id_by_name("fs_ff_cube1"), shader_id_by_name("fs_ff_cube2"),
                                          shader_id_by_name("fs_ff_slopebias")};
@@ -885,7 +930,24 @@ HRESULT Device::draw(const DrawCall &call)
     effects::FfDraw fx_draw;
     if (!vs_port && !ps_port && fs_variant != 4 && !fx_lighting.idle())
         fx_lighting.prepare(*this, *layout, fs_variant, fx_draw);
-    const uint32_t vs_id = vs_port ? s.vs->port->shader_id() : fx_draw.active ? fx_draw.vs_id : id_vs_ff;
+    if (layout->skinned && (vs_port || !store_of(s.vertex_texture)))
+    {
+        skip_draw(vs_port ? "skinned vertices with a vertex shader port"
+                          : "skinned draw without a bone palette in D3DVERTEXTEXTURESAMPLER0");
+        return D3D_OK;
+    }
+    // Without lighting the unlit variant leaves the lights out of the program (see ff_vertex.sh).
+    const bool lit = s.rs[D3DRS_LIGHTING] != 0 && !layout->rhw;
+    uint32_t vs_id = vs_port ? s.vs->port->shader_id() : fx_draw.active ? fx_draw.vs_id : id_vs_ff[lit ? 0 : 1];
+    if (layout->skinned)
+    {
+        vs_id = skinned_variant(vs_id);
+        if (vs_id == UINT32_MAX)
+        {
+            skip_draw("skinned draw with a vertex shader that has no skinned variant");
+            return D3D_OK;
+        }
+    }
     const uint32_t fs_id = ps_port ? s.ps->port->shader_id() : fx_draw.active ? fx_draw.fs_id : id_fs_ff[fs_variant];
     const bgfx::ProgramHandle handle = program(vs_id, fs_id);
     if (!bgfx::isValid(handle))
@@ -1150,6 +1212,15 @@ HRESULT Device::draw(const DrawCall &call)
         }
     }
 
+    if (layout->skinned)
+    {
+        TexStore *palette = store_of(s.vertex_texture);
+        palette->sync();
+        bgfx::setTexture(static_cast<uint8_t>(kBonePaletteUnit), Context::instance().sampler(kBonePaletteUnit),
+                         palette->handle, BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+        ++perf().texture_binds;
+    }
+
     apply_ff_uniforms(*layout, vs_port, ps_port, fx_draw);
     if (fx_draw.active)
         fx_lighting.submit(fx_draw);
@@ -1180,8 +1251,11 @@ HRESULT Device::draw(const DrawCall &call)
     view_has_content = true;
     render::PerfCounters &counters = perf();
     ++counters.draws;
-    if (last_draw.program != handle.idx)
+    const bool program_changed = last_draw.program != handle.idx;
+    if (program_changed)
         ++counters.program_changes, last_draw.program = handle.idx;
+    if (uniforms_changed || program_changed)
+        counters.uniform_commit_bytes += program_uniform_bytes[handle.idx];
     const uint32_t stencil_bits = stencil ? fstencil : 0;
     if (last_draw.state != bits || last_draw.stencil != stencil_bits || last_draw.factor != factor)
     {
