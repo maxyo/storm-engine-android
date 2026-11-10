@@ -461,9 +461,9 @@ static void CheckSheet()
     ExpectEqual(mount.Last(), "landcommands:1\t4\t11\t2\tack\t1", "a drawn sheet covers the engine's menu");
     Expect(mount.slots.back() == "landcommands-ack", "acknowledgements use their latest-value slot");
     bench.Frame(0.1);
-    Expect(mount.commands.size() == 2, "no repeat before 250 ms");
-    bench.Frame(0.2);
-    Expect(mount.commands.size() == 3 && mount.Last() == "landcommands:1\t4\t11\t2\tack\t1", "the coverage is repeated while the sheet stays (750 ms watchdog)");
+    bench.Frame(5.0);
+    Expect(mount.commands.size() == 2, "coverage is said once per revision: no heartbeat, however far apart frames are");
+    Expect(bench.hud.Tick() > 5.0, "… and the sheet asks for no frames to repeat it");
 
     // the engine reports no gameplay mode while its menu is open: the sheet stays, nothing is closed
     Json blocked = State("gameplay-explore");
@@ -522,6 +522,21 @@ static void CheckSheet()
     bench.Press("sheet-close");
     ExpectEqual(mount.Last(), "landcommands:1\t4\t11\t2\tclose\t", "✕ closes");
 
+    // a revision the sheet will not draw is still answered, once: the engine keeps its menu hidden until then
+    mount.commands.clear();
+    bench.Feed("presentation", "presentation-menu");
+    Json moved = State("land-commands-root");
+    moved["revision"] = 30;
+    bench.Set("landCommands", moved);
+    bench.Frame();
+    bench.Frame();
+    Expect(std::count(mount.commands.begin(), mount.commands.end(), "landcommands:1\t4\t30\t2\tack\t0") == 1,
+           "a hidden sheet declines the new revision once: " + mount.Last());
+    bench.Feed("presentation", "presentation-game");
+    bench.Set("landCommands", Json(nullptr));
+    bench.Feed("landCommands", "land-commands-root");
+    bench.Frame();
+
     // losing the screen: no coverage, the menu is closed
     mount.commands.clear();
     bench.Feed("presentation", "presentation-background");
@@ -551,9 +566,10 @@ static void CheckSheet()
     mount.commands.clear();
     bench.Feed("landCommands", "land-commands-unknown-kind");
     bench.Frame();
-    Expect(mount.shown.sheet.empty() && !mount.shown.modal && !mount.Has("move") && mount.commands.empty() && !mount.errors.empty() &&
+    Expect(mount.shown.sheet.empty() && !mount.shown.modal && !mount.Has("move") && mount.commands.size() == 1 &&
+               mount.Last() == "landcommands:1\t4\t15\t2\tack\t0" && !mount.errors.empty() &&
                mount.errors.back().find("not drawable here") != std::string::npos && !bench.hud.Back(),
-           "an undrawable menu: nothing is claimed, the engine's own menu stays, and that is reported");
+           "an undrawable menu: declined once so the engine draws its own at once, and that is reported");
 }
 
 // --- the whole runtime ------------------------------------------------------------------

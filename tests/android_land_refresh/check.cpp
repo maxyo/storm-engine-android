@@ -74,7 +74,7 @@ int main(){
     state.update("scene",f,10);assert(state.offer(action(state,"ack","1"),11));auto oldAck=action(state,"ack","1"),oldAction=action(state,"activateItem","i0");assert(state.offer(oldAction,12));
     core.refresh=[&]{populate(root);DATA invalid;assert(!invalid.Convert(VAR_STRING));};
     assert(!state.releaseUnavailableSource(list.RefreshAndroidSource())); // Missing releases only Android, never requests native Close
-    assert(!state.take(13)&&!state.suppressStock(13)&&!state.offer(oldAck,13)&&!state.offer(oldAction,13));
+    assert(!state.take(13)&&!state.suppressStock()&&!state.offer(oldAck,13)&&!state.offer(oldAction,13));
     core.refresh=[&]{populate(root);};assert(list.RefreshAndroidSource()==LandCommandSource::Ready);
     state.update("scene",f,14);assert(!state.offer(oldAck,14)&&!state.offer(oldAction,14));
     std::cout<<"PASS production DATA conversion and refresh admission: int boundary, full fresh metadata, missing/partial/malformed fields, nonfatal errors before/after version1, recovery, Forbidden distinction, stale leases rejected\n";
