@@ -23,6 +23,7 @@
 //           game measures the picture in. One finger pans, two pinch; a tap reports
 //           `point x,y` in those units; parts marked data-zoom="in|out" zoom one step around
 //           the centre. The view is the component's own: nothing goes to the engine for it.
+//           A change of the prop `room` (the layout around the view) refits it to the new size.
 //
 // Two more are given to single elements with data-behavior="…" (HUD layout), on top of
 // what their component has:
@@ -820,10 +821,12 @@ class PanZoomBehavior final : public Behavior
         self.Emit("point", value);
     }
 
+    // After a rebuild the viewport may change size (a sheet opens beside it) once the layout
+    // has run: a few frames re-check it before the ticks stop.
     void Tick(ComponentElement &self, double) override
     {
         Rml::Element *port = FindWith(&self, "data-panzoom");
-        if (port && Ready(self, port))
+        if (port && Ready(self, port) && --settle_ <= 0)
             self.Host().RequestTicks(self, false);
     }
 
@@ -839,8 +842,8 @@ class PanZoomBehavior final : public Behavior
         }
         if (ready_)
             Apply(self);
-        else
-            self.Host().RequestTicks(self, true); // fitted once the viewport has a size
+        settle_ = 3;
+        self.Host().RequestTicks(self, true); // fitted (again) once the viewport has its size
     }
 
     void Regions(ComponentElement &self, std::vector<Rml::Element *> &out) const override
@@ -926,6 +929,7 @@ class PanZoomBehavior final : public Behavior
     Rml::Rectanglef zoom_box_;
     bool moved_ = false;
     bool ready_ = false;
+    int settle_ = 0;
     std::string key_;
     Rml::Vector2f base_ = {1.0f, 1.0f};
     Rml::Vector2f port_size_;

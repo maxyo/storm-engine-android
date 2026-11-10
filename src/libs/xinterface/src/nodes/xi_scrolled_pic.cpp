@@ -356,16 +356,19 @@ void CXI_SCROLLEDPICTURE::SetScale(float fsx, float fsy)
 // comes back as "point@<opening>:<x>,<y>" in base units and "release" ends the hold.
 void CXI_SCROLLEDPICTURE::MobileCollect(std::vector<MobileWidget> &widgets) const
 {
-    if (!storm::android::imagePoll || !storm::android::imageReply || m_mobileTexturePath.empty() || m_pTex)
+    if (!storm::android::imagePoll || !storm::android::imageReply || m_pTex)
         return;
-    auto picture = storm::mobile::Reference({m_mobileTexturePath, {0.f, 0.f, 1.f, 1.f}}, m_v[0].color);
-    const std::string texture = MobileTextureName(m_mobileTexturePath);
-    if (!picture.handle || texture.empty())
-        return;
-    picture.source = {"texture", {}, texture, {}, {}, -1};
     const int order = m_rect.top * 8192 + m_rect.left;
     MobileWidget map{m_nodeName, "map", "", "", -1, order, m_bSelected && !m_bLockStatus};
-    map.images.push_back(picture);
+    // A scrolled picture may carry no texture of its own: MapBest.ini draws the map as the
+    // picture MAIN_BACK under a transparent MAP that holds the markers and the clicks.
+    if (const std::string texture = MobileTextureName(m_mobileTexturePath); !texture.empty())
+    {
+        auto picture = storm::mobile::Reference({m_mobileTexturePath, {0.f, 0.f, 1.f, 1.f}}, m_v[0].color);
+        picture.source = {"texture", {}, texture, {}, {}, -1};
+        if (picture.handle)
+            map.images.push_back(picture);
+    }
     map.context["base"] = MobileNumber(m_fpBaseSize.x) + "," + MobileNumber(m_fpBaseSize.y);
     map.context["view"] = MobileNumber(m_v[0].tu * m_fpBaseSize.x) + "," + MobileNumber(m_v[0].tv * m_fpBaseSize.y) + "," +
                           MobileNumber(m_v[3].tu * m_fpBaseSize.x) + "," + MobileNumber(m_v[3].tv * m_fpBaseSize.y);

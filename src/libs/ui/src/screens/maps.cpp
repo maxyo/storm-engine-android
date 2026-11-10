@@ -98,8 +98,17 @@ class MapScreen final : public Screen
         std::string title = admitted.Label("TITLE");
         view["title"] = title.empty() ? bindings.Text("map.title") : title;
         Json picture = map ? MapViewOf(*map, markers) : Json::object();
+        // MapBest.ini draws the map as the picture MAIN_BACK under a transparent MAP (the
+        // markers and the clicks); the scripts measure it in MAP's base units all the same.
+        if (map && picture["texture"] == "")
+            if (const Widget *back = admitted.One("MAIN_BACK"); back && !TextureOf(back->FirstImage()).is_null())
+            {
+                const Json texture = TextureOf(back->FirstImage());
+                picture["texture"] = texture["texture"];
+                picture["uv"] = texture["uv"];
+            }
         if (!map || picture["texture"] == "")
-            bindings.Error("map: the engine sent no picture for MAP");
+            bindings.Error("map: the engine sent no picture for MAP (nor MAIN_BACK)");
         if (map && picture["base"].empty())
         {
             bindings.Error("map: MAP has no base size in its context; drawn as 1000 x 1000");
@@ -188,8 +197,10 @@ class MapScreen final : public Screen
             for (const Widget *text : texts)
                 if (!text->label.empty() && (goods.empty() || Upper(text->node) != std::string(prefix) + "_INFO"))
                     lines.push_back(text->label);
+            // A caption alone says nothing (MapBest draws its goods as an image collection the
+            // engine does not export): the section is left out.
             const std::string title = admitted.Label(caption_node);
-            if (title.empty() && goods.empty() && lines.empty())
+            if (goods.empty() && lines.empty())
                 continue;
             sections.push_back(Json{{"title", title}, {"goods", goods}, {"lines", lines}});
         }

@@ -203,6 +203,8 @@ static void Maps(const std::string &models)
 
     router.SetInterface(Load(models, "map-best.json"));
     const Json &markers = surface.props["map"]["markers"];
+    Expect(surface.props["map"]["texture"] == "interfaces/maps/map_good" && surface.errors.empty(),
+           "the excellent map's picture is MAIN_BACK under its transparent MAP");
     Expect(router.Using() == "mapbest" && markers.size() == 8 && markers[0]["texture"] == "atlas:NATIONS/France" &&
                markers[0]["x"] == 1530 && markers[0]["w"] == 16 && markers[7]["id"] == "PShip",
            "the excellent map carries the game's markers in base units");
