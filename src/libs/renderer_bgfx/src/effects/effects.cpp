@@ -12,6 +12,11 @@
 #include <cmath>
 #include <cstring>
 
+namespace bgfx::gl
+{
+extern float g_stormMaxAnisotropy; // patches/bgfx-anisotropy-level.patch
+}
+
 namespace storm::effects
 {
 
@@ -160,6 +165,11 @@ void Host::on_device_created()
     facts.msaa_depth = true;
     // bgfx has no capability bit for it; the GL backend applies it only with this extension.
     facts.anisotropy = has_extension("GL_EXT_texture_filter_anisotropic");
+    if (facts.anisotropy)
+    {
+        constexpr GLenum kMaxAnisotropy = 0x84FF; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
+        glGetFloatv(kMaxAnisotropy, &device_max_anisotropy_);
+    }
     support_ = fx::DetectSupport(facts);
     device_ready_ = true;
     apply();
@@ -258,10 +268,6 @@ void Host::apply()
             report_.disabled.push_back(names.substr(start, end - start));
         }
     }
-    // Anisotropy: the pinned bgfx GL backend has one level for every sampler, the device maximum.
-    if (next.anisotropy > 1)
-        report_.changes.push_back("anisotropic filtering " + std::to_string(next.anisotropy) +
-                                  "x requested: bgfx applies the device maximum level to world textures");
     const bool changed = !(next == settings_) || !device_ready_;
     settings_ = next;
     const fx::RendererState state = fx::RendererStateFor(settings_);
@@ -269,6 +275,11 @@ void Host::apply()
                               (device_ready_ && (state.msaa_samples != renderer_state_.msaa_samples ||
                                                  state.max_anisotropy != renderer_state_.max_anisotropy));
     renderer_state_ = state;
+    // The level of every anisotropic sampler (patches/bgfx-anisotropy-level.patch), applied at the next reset.
+    bgfx::gl::g_stormMaxAnisotropy = static_cast<float>(state.max_anisotropy);
+    if (device_ready_ && state.max_anisotropy > 1 && device_max_anisotropy_ < state.max_anisotropy)
+        report_.changes.push_back("anisotropic filtering " + std::to_string(state.max_anisotropy) + "x: the device allows " +
+                                  std::to_string(static_cast<int>(device_max_anisotropy_)) + "x");
     lighting_.configure(settings_, renderer_state_);
     report_.summary = describe(settings_);
     if (changed)
