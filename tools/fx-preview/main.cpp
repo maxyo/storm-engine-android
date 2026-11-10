@@ -3,10 +3,13 @@
 // enough) and writes PNG files for visual review. See README.md.
 #include "scene.hpp"
 
+#include "storm/fx/capabilities.hpp"
 #include "storm/fx/color_lut.hpp"
 #include "storm/fx/lighting.hpp"
+#include "storm/fx/log.hpp"
 #include "storm/fx/noise_bake.hpp"
 #include "storm/fx/post_chain.hpp"
+#include "storm/fx/shadows.hpp"
 #include "storm/fx/sky.hpp"
 #include "storm/fx/water.hpp"
 
@@ -34,9 +37,10 @@ constexpr uint16_t kWidth = 1280;
 constexpr uint16_t kHeight = 720;
 constexpr float kNear = 0.5f;
 constexpr float kFar = 4000.0f;
-constexpr bgfx::ViewId kSceneView = 0;
-constexpr bgfx::ViewId kCaptureView = 1;
-constexpr bgfx::ViewId kWaterView = 2;
+constexpr bgfx::ViewId kShadowView = 0;
+constexpr bgfx::ViewId kSceneView = 1;
+constexpr bgfx::ViewId kCaptureView = 2;
+constexpr bgfx::ViewId kWaterView = 3;
 constexpr bgfx::ViewId kPostView = 10;
 constexpr bgfx::ViewId kReadbackView = 40;
 
@@ -58,6 +62,8 @@ struct GpuMesh
 {
     bgfx::VertexBufferHandle vertices = BGFX_INVALID_HANDLE;
     bgfx::IndexBufferHandle indices = BGFX_INVALID_HANDLE;
+    fx::Vec3 center{0.0f, 0.0f, 0.0f}; // bounding sphere, for light selection
+    float radius = 0.0f;
 
     void Set(const preview::Mesh &mesh)
     {
@@ -69,7 +75,17 @@ struct GpuMesh
             .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
             .add(bgfx::Attrib::Normal, 3, bgfx::AttribType::Float)
             .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
+            .add(bgfx::Attrib::Color1, 4, bgfx::AttribType::Uint8, true)
             .end();
+        fx::Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
+        for (const preview::Vertex &v : mesh.vertices)
+            for (int c = 0; c < 3; ++c)
+            {
+                lo[c] = std::min(lo[c], v.pos[c]);
+                hi[c] = std::max(hi[c], v.pos[c]);
+            }
+        center = {0.5f * (lo[0] + hi[0]), 0.5f * (lo[1] + hi[1]), 0.5f * (lo[2] + hi[2])};
+        radius = 0.5f * std::sqrt((hi[0] - lo[0]) * (hi[0] - lo[0]) + (hi[1] - lo[1]) * (hi[1] - lo[1]) + (hi[2] - lo[2]) * (hi[2] - lo[2]));
         vertices = bgfx::createVertexBuffer(
             bgfx::copy(mesh.vertices.data(), static_cast<uint32_t>(mesh.vertices.size() * sizeof(preview::Vertex))), layout);
         indices = bgfx::createIndexBuffer(bgfx::copy(mesh.indices.data(), static_cast<uint32_t>(mesh.indices.size() * 4)),
@@ -90,8 +106,9 @@ enum class Content
 {
     Ocean,    // open sea with a ship and an island
     Shore,    // low camera next to the island's beach
-    Deck,     // ship and a figure close up: lighting
-    Harbour,  // night scene with lanterns: bloom
+    Deck,     // ship and a figure close up: lighting, shadows, ambient occlusion
+    Harbour,  // night quay with torches, lanterns, a figure and a moored ship: point lights, bloom
+    Broadside, // a ship firing its guns at dusk: flash lights
     Pattern,  // aliasing test chart
 };
 
@@ -113,19 +130,31 @@ struct Shot
     bool env_cube = false;
 };
 
-bgfx::ProgramHandle LoadPreviewProgram(const uint8_t *vs, uint32_t vs_size, const uint8_t *fs, uint32_t fs_size)
+// Vertex + fragment pair of the fixed-function stand-in per lighting variant, keyed by fx::LightingDefines().
+struct MeshVariant
 {
-    return bgfx::createProgram(bgfx::createShader(bgfx::makeRef(vs, vs_size)), bgfx::createShader(bgfx::makeRef(fs, fs_size)), true);
-}
+    const char *defines;
+    const uint8_t *vs;
+    uint32_t vs_size;
+    const uint8_t *fs;
+    uint32_t fs_size;
+};
+constexpr MeshVariant kMeshVariants[] = {
+#define PREVIEW_VARIANT(defines, vs, fs) {defines, vs, sizeof(vs), fs, sizeof(fs)},
+#include "preview_shaders/variants.inc"
+#undef PREVIEW_VARIANT
+};
 
 class Preview
 {
   public:
     explicit Preview(std::string out_dir) : out_dir_(std::move(out_dir))
     {
-        legacy_ = LoadPreviewProgram(vs_preview_mesh, sizeof(vs_preview_mesh), fs_preview_mesh, sizeof(fs_preview_mesh));
-        per_pixel_ = LoadPreviewProgram(vs_preview_mesh_pp, sizeof(vs_preview_mesh_pp), fs_preview_mesh_pp, sizeof(fs_preview_mesh_pp));
-        full_ = LoadPreviewProgram(vs_preview_mesh_pp, sizeof(vs_preview_mesh_pp), fs_preview_mesh_full, sizeof(fs_preview_mesh_full));
+        for (const MeshVariant &variant : kMeshVariants)
+            programs_.push_back(bgfx::createProgram(bgfx::createShader(bgfx::makeRef(variant.vs, variant.vs_size)),
+                                                    bgfx::createShader(bgfx::makeRef(variant.fs, variant.fs_size)), true));
+        u_point_ = bgfx::createUniform("u_previewPoint", bgfx::UniformType::Vec4, fx::kMaxPointLights * 4);
+        u_point_count_ = bgfx::createUniform("u_previewPointCount", bgfx::UniformType::Vec4);
         u_light_ = bgfx::createUniform("u_previewLight", bgfx::UniformType::Vec4, 3);
         // bgfx without a window has no back buffer: the final image goes to a frame buffer and is read back.
         output_fb_ = bgfx::createFrameBuffer(kWidth, kHeight, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
@@ -147,32 +176,51 @@ class Preview
         const preview::Ship moored = preview::MakeShip({6.0f, ship_y, 34.0f}, 1.25f);
         moored_hull_.Set(moored.hull);
         moored_sails_.Set(moored.sails);
-        // Harbour: dark buildings with lit windows and lanterns.
-        preview::Mesh town = preview::MakeGround(120.0f, 0.0f, {0.20f, 0.19f, 0.18f});
-        preview::Mesh lights;
-        for (int i = 0; i < 7; ++i)
+        // Harbour at night: baked town, a figure under a torch, a ship moored at the quay.
+        preview::Harbour harbour = preview::MakeHarbour();
+        town_.Set(harbour.town);
+        town_glow_.Set(harbour.glow);
+        town_lights_ = harbour.lights;
+        // The engine flickers each torch every frame (Lights::Execute); freeze one such state.
+        for (size_t i = 0; i < town_lights_.size(); ++i)
         {
-            const float x = -42.0f + 14.0f * i, depth = 34.0f + 6.0f * (i % 3), height = 5.0f + 2.5f * (i % 4);
-            town.Append(preview::MakeBox({x, height, depth}, {5.0f, height, 4.0f}, {0.33f, 0.30f, 0.27f}));
-            for (int w = 0; w < 2 + i % 2; ++w)
-                lights.Append(preview::MakeBox({x - 2.4f + 2.4f * w, 3.0f + 3.2f * (w % 2), depth - 4.02f}, {0.55f, 0.8f, 0.04f},
-                                               {1.0f, 0.80f, 0.42f}));
-            lights.Append(preview::MakeSphere({x + 6.5f, 4.2f, depth - 9.0f}, 0.28f, {1.0f, 0.90f, 0.62f}, 8));
-            town.Append(preview::MakeBox({x + 6.5f, 2.0f, depth - 9.0f}, {0.08f, 2.0f, 0.08f}, {0.12f, 0.11f, 0.10f}));
+            const float flicker = 1.0f + 0.16f * std::sin(7.3f * static_cast<float>(i) + 1.1f);
+            for (float &channel : town_lights_[i].color)
+                channel *= flicker;
         }
-        town_.Set(town);
-        town_lights_.Set(lights);
+        harbour_figure_.Set(preview::MakeFigure({-9.6f, 2.4f, 20.6f}));
+        const preview::Ship harbour_ship = preview::MakeShip({-24.0f, ship_y, 2.6f}, 0.0f);
+        harbour_hull_.Set(harbour_ship.hull);
+        harbour_sails_.Set(harbour_ship.sails);
+        // Broadside: the ship lies across the view and fires the guns of the side that faces the camera.
+        const preview::Ship firing = preview::MakeShip({4.0f, ship_y, 46.0f}, 0.0f);
+        firing_hull_.Set(firing.hull);
+        firing_sails_.Set(firing.sails);
+        preview::Mesh fire;
+        for (int gun = 0; gun < 6; ++gun)
+        {
+            const fx::Vec3 muzzle{-7.0f + 4.4f * gun, ship_y + 2.3f, 46.0f - 5.6f};
+            // The guns fire in a ripple: let the frame fall 20 to 170 ms after each shot.
+            flashes_.Add(muzzle, {3.4f, 2.3f, 1.0f}, 26.0f, 0.22f);
+            flashes_.Update(0.03f);
+            const float left = 1.0f - 0.03f * static_cast<float>(6 - gun) / 0.22f;
+            fire.Append(preview::MakeSphere({muzzle[0], muzzle[1], muzzle[2] - 0.6f}, 0.25f + 0.75f * left, {1.0f, 0.86f, 0.55f}, 8));
+        }
+        muzzle_fire_.Set(fire);
         pattern_.Set(preview::MakeAliasingPattern());
     }
 
     ~Preview()
     {
-        for (GpuMesh *mesh : {&ship_hull_, &ship_sails_, &island_, &quay_, &figure_, &moored_hull_, &moored_sails_, &town_, &town_lights_,
-                              &pattern_, &legacy_sky_, &legacy_sea_})
+        for (GpuMesh *mesh : {&ship_hull_, &ship_sails_, &island_, &quay_, &figure_, &moored_hull_, &moored_sails_, &town_, &town_glow_,
+                              &harbour_figure_, &harbour_hull_, &harbour_sails_, &firing_hull_, &firing_sails_, &muzzle_fire_, &pattern_,
+                              &legacy_sky_, &legacy_sea_})
             mesh->Reset();
-        for (bgfx::ProgramHandle program : {legacy_, per_pixel_, full_})
+        for (bgfx::ProgramHandle program : programs_)
             bgfx::destroy(program);
         bgfx::destroy(u_light_);
+        bgfx::destroy(u_point_);
+        bgfx::destroy(u_point_count_);
         bgfx::destroy(output_fb_);
         bgfx::destroy(readback_);
         if (bgfx::isValid(scene_fb_))
@@ -213,8 +261,14 @@ class Preview
             fov = 62.0f;
             break;
         case Content::Harbour:
-            eye = {0.0f, 2.2f, -8.0f};
-            at = {0.0f, 5.0f, 40.0f};
+            eye = {-3.0f, 4.3f, 14.5f};
+            at = {-17.0f, 3.9f, 15.5f};
+            fov = 66.0f;
+            break;
+        case Content::Broadside:
+            eye = {-7.0f, 4.6f, 24.0f};
+            at = {4.0f, 6.0f, 46.0f};
+            fov = 62.0f;
             break;
         case Content::Pattern:
             eye = {0.0f, 0.0f, -11.0f};
@@ -250,13 +304,53 @@ class Preview
         lighting.sun_diffuse = weather.sun_color;
         lighting.ambient = weather.ambient_color;
         std::copy_n(view, 16, lighting.view.begin());
+        // This frame's point lights, as the engine would hand them to SetLight.
+        std::vector<fx::PointLight> lights;
+        if (shot.content == Content::Harbour)
+            lights = town_lights_;
+        if (shot.content == Content::Broadside)
+            flashes_.AppendTo(lights);
+
+        // Lighting variant of the fixed-function stand-in for these settings.
+        const std::string defines = fx::LightingDefines(settings);
+        size_t variant = 0;
+        while (variant < std::size(kMeshVariants) && defines != kMeshVariants[variant].defines)
+            ++variant;
+        if (variant == std::size(kMeshVariants))
+        {
+            std::printf("%s: no shader variant for \"%s\"\n", shot.name.c_str(), defines.c_str());
+            variant = 0;
+        }
+        const bool per_pixel_points = (settings.lighting_flags & fx::kLightingPoint) != 0;
+
+        // Sun shadows: the lit meshes of the scene are the casters, as ships and characters are in the game.
+        std::vector<const GpuMesh *> casters;
+        fx::Vec3 focus{eye.x, eye.y, eye.z};
+        if (shot.content == Content::Ocean || shot.content == Content::Shore)
+            casters = {&ship_hull_, &ship_sails_};
+        else if (shot.content == Content::Deck)
+            casters = {&quay_, &figure_, &moored_hull_, &moored_sails_}, focus = {2.0f, 3.0f, 16.0f};
+        else if (shot.content == Content::Broadside)
+            casters = {&firing_hull_, &firing_sails_}, focus = firing_hull_.center;
+        fx::ShadowFrame shadow_frame;
+        shadow_frame.view = kShadowView;
+        shadow_frame.sun_dir = light_dir;
+        shadow_frame.focus = focus;
+        shadow_frame.radius = shot.content == Content::Deck ? 34.0f : 60.0f;
+        std::copy_n(view, 16, shadow_frame.camera_view.begin());
+        if (shadows_.Begin(settings, shadow_frame))
+            for (const GpuMesh *mesh : casters)
+            {
+                bgfx::setVertexBuffer(0, mesh->vertices);
+                bgfx::setIndexBuffer(mesh->indices);
+                bgfx::setState(fx::Shadows::kCasterState);
+                bgfx::submit(kShadowView, shadows_.CasterProgram());
+            }
+
+        // material == nullptr: geometry with baked vertex colours (D3DRS_LIGHTING off).
         const auto draw = [&](const GpuMesh &mesh, const fx::LightingMaterial *material) {
             if (!bgfx::isValid(mesh.vertices))
                 return;
-            const uint32_t flags = material ? settings.lighting_flags : 0u;
-            bgfx::ProgramHandle program = legacy_;
-            if (flags & fx::kLightingPerPixel)
-                program = flags & (fx::kLightingSpecular | fx::kLightingTranslucent) ? full_ : per_pixel_;
             const fx::LightingUniforms uniforms = fx::ComputeLighting(lighting, material ? *material : fx::LightingMaterial{}, &sky_state);
             const float light[3][4] = {
                 {uniforms.u_fxLight[0][0], uniforms.u_fxLight[0][1], uniforms.u_fxLight[0][2], material ? 1.0f : 0.0f},
@@ -264,15 +358,33 @@ class Preview
                 {lighting.ambient[0], lighting.ambient[1], lighting.ambient[2], 0.0f}};
             bgfx::setUniform(u_light_, light, 3);
             lighting_.Apply(uniforms);
+            if (per_pixel_points)
+            {
+                // Lit geometry: the strongest lights around it. Baked geometry: only lights that are not baked in.
+                const fx::LightSelection selection =
+                    fx::SelectLights(lights, mesh.center, mesh.radius, fx::PointLightBudget(settings), material != nullptr);
+                lighting_.Apply(fx::PackPointLights(selection, lighting.view));
+            }
+            else
+            {
+                // Legacy: lit geometry gets the engine's seven nearest lights per vertex, baked geometry none.
+                const fx::LightSelection selection =
+                    material ? fx::SelectLights(lights, mesh.center, mesh.radius, 7) : fx::LightSelection{};
+                const fx::PointLightUniforms packed = fx::PackPointLights(selection, lighting.view);
+                bgfx::setUniform(u_point_, packed.u_fxPoint.data(), fx::kMaxPointLights * 4);
+                bgfx::setUniform(u_point_count_, packed.u_fxPointCount.data());
+            }
+            if (settings.shadows != fx::ShadowQuality::Off && (settings.lighting_flags & fx::kLightingPerPixel))
+                shadows_.Bind();
             bgfx::setVertexBuffer(0, mesh.vertices);
             bgfx::setIndexBuffer(mesh.indices);
             bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS);
-            bgfx::submit(kSceneView, program);
+            bgfx::submit(kSceneView, programs_[variant]);
         };
         const fx::LightingMaterial hull = fx::LightingMaterial::Hull(), sail = fx::LightingMaterial::Sail(),
                                    character = fx::LightingMaterial::Character(), matte{};
 
-        const bool has_sea = shot.content == Content::Ocean || shot.content == Content::Shore || shot.content == Content::Deck;
+        const bool has_sea = shot.content != Content::Pattern;
         if (shot.content == Content::Ocean || shot.content == Content::Shore)
         {
             draw(island_, &matte);
@@ -288,8 +400,17 @@ class Preview
         }
         else if (shot.content == Content::Harbour)
         {
-            draw(town_, &matte);
-            draw(town_lights_, nullptr);
+            draw(town_, nullptr);
+            draw(town_glow_, nullptr);
+            draw(harbour_figure_, &character);
+            draw(harbour_hull_, &hull);
+            draw(harbour_sails_, &sail);
+        }
+        else if (shot.content == Content::Broadside)
+        {
+            draw(firing_hull_, &hull);
+            draw(firing_sails_, &sail);
+            draw(muzzle_fire_, nullptr);
         }
         else
         {
@@ -363,9 +484,12 @@ class Preview
                 {
                     BuildEngineSea(eye);
                     const bgfx::ProgramHandle program = water_.PrepareMesh(settings, frame, shading, sky_, {eye.x, eye.z});
-                    bgfx::setVertexBuffer(0, sea_vertices_);
-                    bgfx::setIndexBuffer(sea_indices_);
-                    bgfx::submit(kWaterView, program);
+                    if (bgfx::isValid(program))
+                    {
+                        bgfx::setVertexBuffer(0, sea_vertices_);
+                        bgfx::setIndexBuffer(sea_indices_);
+                        bgfx::submit(kWaterView, program);
+                    }
                 }
             }
         }
@@ -376,6 +500,10 @@ class Preview
         post.scene_width = scene_w;
         post.scene_height = scene_h;
         post.target = output_fb_;
+        post.scene_depth = bgfx::getTexture(scene_fb_, 1);
+        post.near_plane = kNear;
+        post.far_plane = kFar;
+        post.projection_scale = {proj[0], proj[5]};
         post.target_width = kWidth;
         post.target_height = kHeight;
         post.first_view = kPostView;
@@ -387,7 +515,7 @@ class Preview
         const bx::Vec3 forward = bx::normalize(bx::sub(at, eye));
         const float facing = forward.x * weather.sun_dir[0] + forward.y * weather.sun_dir[1] + forward.z * weather.sun_dir[2];
         post.sun_uv = {0.5f + 0.5f * sun_clip.x, 0.5f - 0.5f * sun_clip.y};
-        post.sun_visibility = shot.content == Content::Pattern || shot.content == Content::Harbour
+        post.sun_visibility = shot.content == Content::Pattern || night
                                   ? 0.0f
                                   : std::clamp(facing * 2.0f, 0.0f, 1.0f) * std::clamp(weather.sun_dir[1] * 12.0f + 0.5f, 0.0f, 1.0f) *
                                         (1.0f - weather.overcast);
@@ -407,7 +535,8 @@ class Preview
         // Read-back rows start at the texture origin: the bottom row on GL.
         const bool bottom_up = bgfx::getCaps()->originBottomLeft;
         WritePng(out_dir_ + "/" + shot.name + ".png", kWidth, kHeight, kWidth * 4, pixels.data(), bimg::TextureFormat::RGBA8, bottom_up);
-        std::printf("%-34s %ux%u -> %ux%u, %u post views\n", shot.name.c_str(), scene_w, scene_h, kWidth, kHeight, used);
+        std::printf("%-34s %ux%u -> %ux%u, %u post views, %d point lights over budget\n", shot.name.c_str(), scene_w, scene_h, kWidth,
+                    kHeight, used, lighting_.TakeDroppedLights());
         return pixels;
     }
 
@@ -536,16 +665,19 @@ class Preview
     fx::Water water_;
     fx::Sky sky_;
     fx::Lighting lighting_;
+    fx::Shadows shadows_;
+    fx::FlashLights flashes_;
+    std::vector<fx::PointLight> town_lights_;
     fx::EngineWaveField field_;
     fx::EngineSeaState sea_;
-    bgfx::ProgramHandle legacy_, per_pixel_, full_;
-    bgfx::UniformHandle u_light_;
+    std::vector<bgfx::ProgramHandle> programs_; // parallel to kMeshVariants
+    bgfx::UniformHandle u_light_, u_point_, u_point_count_;
     bgfx::FrameBufferHandle scene_fb_ = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle output_fb_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle readback_ = BGFX_INVALID_HANDLE;
     uint16_t scene_w_ = 0, scene_h_ = 0;
-    GpuMesh ship_hull_, ship_sails_, island_, quay_, figure_, moored_hull_, moored_sails_, town_, town_lights_, pattern_, legacy_sky_,
-        legacy_sea_;
+    GpuMesh ship_hull_, ship_sails_, island_, quay_, figure_, moored_hull_, moored_sails_, town_, town_glow_, harbour_figure_,
+        harbour_hull_, harbour_sails_, firing_hull_, firing_sails_, muzzle_fire_, pattern_, legacy_sky_, legacy_sea_;
     std::vector<fx::SeaVertex> cpu_sea_vertices_;
     std::vector<uint32_t> cpu_sea_indices_;
     bgfx::VertexBufferHandle sea_vertices_ = BGFX_INVALID_HANDLE;
@@ -678,17 +810,25 @@ std::vector<Shot> AllShots()
     fx::Settings no_bloom = high;
     no_bloom.bloom = false;
     no_bloom.sun_shafts = false;
-    add("bloom_harbour_off", Content::Harbour, no_bloom, preview::Weather::Night);
-    add("bloom_harbour_quarter", Content::Harbour, medium, preview::Weather::Night);
-    add("bloom_harbour_half", Content::Harbour, high, preview::Weather::Night);
     add("bloom_sunset_off", Content::Ocean, no_bloom, preview::Weather::Sunset);
     fx::Settings no_shafts = high;
     no_shafts.sun_shafts = false;
     add("bloom_sunset_on", Content::Ocean, no_shafts, preview::Weather::Sunset);
     add("bloom_sunset_on_shafts", Content::Ocean, high, preview::Weather::Sunset);
 
+    // Point lights: a night quay lit by torches and lanterns (baked town, dynamically lit figure and ship),
+    // and a broadside at dusk lit by muzzle flashes.
+    add("harbour_night_1_original", Content::Harbour, original, preview::Weather::Night);
+    add("harbour_night_2_medium", Content::Harbour, medium, preview::Weather::Night);
+    add("harbour_night_3_high", Content::Harbour, high, preview::Weather::Night);
+    add("harbour_night_3_high_no_bloom", Content::Harbour, no_bloom, preview::Weather::Night);
+    add("broadside_dusk_1_original", Content::Broadside, original, preview::Weather::Sunset);
+    add("broadside_dusk_2_medium", Content::Broadside, medium, preview::Weather::Sunset);
+    add("broadside_dusk_3_high", Content::Broadside, high, preview::Weather::Sunset);
+
     // Water quality levels at the shore, and the geometry sources.
     fx::Settings water = high;
+    water.water_refraction = false; // exists at High only
     water.water = fx::WaterQuality::Legacy;
     add("water_shore_0_legacy", Content::Shore, water);
     water.water = fx::WaterQuality::Low;
@@ -710,19 +850,30 @@ std::vector<Shot> AllShots()
     clear.sky_clouds = false;
     add("sky_clear", Content::Ocean, clear);
 
-    // Lighting flags.
+    // Sun lighting flags, without shadows and occlusion so only the shading changes.
     fx::Settings lit = high;
+    lit.shadows = fx::ShadowQuality::Off;
+    lit.ssao = false;
     lit.lighting_flags = fx::kLightingNone;
     add("lighting_0_per_vertex", Content::Deck, lit);
+    add("lighting_sunset_0_per_vertex", Content::Deck, lit, preview::Weather::Sunset);
     lit.lighting_flags = fx::kLightingPerPixel | fx::kLightingHemisphere;
     add("lighting_1_per_pixel_hemisphere", Content::Deck, lit);
-    add("lighting_2_specular_translucent", Content::Deck, high);
-    add("lighting_sunset_0_per_vertex", Content::Deck, [&] {
-            fx::Settings s = high;
-            s.lighting_flags = fx::kLightingNone;
-            return s;
-        }(), preview::Weather::Sunset);
-    add("lighting_sunset_2_full", Content::Deck, high, preview::Weather::Sunset);
+    lit.lighting_flags |= fx::kLightingSpecular | fx::kLightingTranslucent;
+    add("lighting_2_specular_translucent", Content::Deck, lit);
+    add("lighting_sunset_2_full", Content::Deck, lit, preview::Weather::Sunset);
+
+    // Sun shadows and ambient occlusion on the quay.
+    fx::Settings shadowed = high;
+    shadowed.ssao = false;
+    shadowed.shadows = fx::ShadowQuality::Off;
+    add("shadows_0_off", Content::Deck, shadowed);
+    shadowed.shadows = fx::ShadowQuality::Low;
+    add("shadows_1_low", Content::Deck, shadowed);
+    shadowed.shadows = fx::ShadowQuality::Soft;
+    add("shadows_2_soft", Content::Deck, shadowed);
+    add("ssao_0_off", Content::Deck, shadowed);
+    add("ssao_1_on", Content::Deck, high);
 
     // Anti-aliasing, sharpening and dynamic resolution on the test chart.
     add("aa_0_off", Content::Pattern, original);
@@ -760,16 +911,29 @@ int main(int argc, char **argv)
         std::printf("bgfx::init failed (is an EGL implementation available?)\n");
         return 1;
     }
-    std::printf("renderer: %s\n", bgfx::getRendererName(bgfx::getRendererType()));
+    // Every error the package reports fails the run: the shots must render exactly what their settings say.
+    static int errors = 0;
+    fx::SetLogSink([](fx::LogLevel level, const char *message) {
+        std::printf("[fx] %s%s\n", level == fx::LogLevel::Error ? "ERROR: " : "", message);
+        errors += level == fx::LogLevel::Error;
+    });
+    const fx::Support support = fx::DetectSupport(true); // the preview's scene depth is a sampleable D24 texture
     if (filter.empty())
         WriteCpuImages(out_dir);
     {
         Preview preview(out_dir);
         std::vector<uint8_t> field, mesh;
-        for (const Shot &shot : AllShots())
+        for (Shot shot : AllShots())
         {
             if (!filter.empty() && shot.name.find(filter) == std::string::npos)
                 continue;
+            std::vector<std::string> changes;
+            shot.settings = fx::ConstrainSettings(shot.settings, support, changes);
+            for (const std::string &change : changes)
+            {
+                std::printf("%s: %s\n", shot.name.c_str(), change.c_str());
+                ++errors; // on this host nothing should have to change
+            }
             const std::vector<uint8_t> pixels = preview.Render(shot);
             if (shot.name == "water_source_field")
                 field = pixels;
@@ -780,5 +944,7 @@ int main(int argc, char **argv)
             std::printf("height-field (GPU) vs engine mesh (CPU) sea: mean difference %.2f / 255\n", MeanDifference(field, mesh));
     }
     bgfx::shutdown();
-    return 0;
+    if (errors)
+        std::printf("%d error(s)\n", errors);
+    return errors ? 1 : 0;
 }

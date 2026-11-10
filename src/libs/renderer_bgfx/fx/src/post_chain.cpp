@@ -2,6 +2,7 @@
 
 #include "gpu_util.hpp"
 #include "storm/fx/color_lut.hpp"
+#include "storm/fx/log.hpp"
 
 #include <algorithm>
 
@@ -18,17 +19,20 @@ enum ProgramIndex
     kBloomDown,
     kBloomUp,
     kShafts,
-    kComposite, // + 1 bloom, + 2 tone curve
-    kFxaa = kComposite + 4,
+    kSsao,
+    kComposite, // + 1 bloom, + 2 tone curve, + 4 ambient occlusion
+    kFxaa = kComposite + 8,
     kCas,
 };
 
 constexpr const char *kFragmentNames[] = {
     "fs_fx_copy",        "fs_fx_bloom_prefilter", "fs_fx_bloom_down",  "fs_fx_bloom_up", "fs_fx_shafts",
+    "fs_fx_ssao",
     "fs_fx_composite",   "fs_fx_composite_b",     "fs_fx_composite_t", "fs_fx_composite_bt",
+    "fs_fx_composite_a", "fs_fx_composite_ab",    "fs_fx_composite_at", "fs_fx_composite_abt",
     "fs_fx_fxaa",        "fs_fx_cas",
 };
-static_assert(std::size(kFragmentNames) == 11);
+static_assert(std::size(kFragmentNames) == kCas + 1);
 
 constexpr uint64_t kWriteColor = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A;
 } // namespace
@@ -48,8 +52,10 @@ void PostChain::Shutdown()
         Destroy(target.fb);
     Destroy(graded_.fb);
     Destroy(antialiased_.fb);
+    Destroy(occlusion_.fb);
     Destroy(lut_);
-    for (bgfx::UniformHandle *uniform : {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_})
+    for (bgfx::UniformHandle *uniform :
+         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_, &u_ao_})
         Destroy(*uniform);
     lut_strength_ = -1.0f;
 }
@@ -61,8 +67,10 @@ void PostChain::OnDeviceLost()
         target = {};
     graded_ = {};
     antialiased_ = {};
+    occlusion_ = {};
     lut_ = BGFX_INVALID_HANDLE;
-    for (bgfx::UniformHandle *uniform : {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_})
+    for (bgfx::UniformHandle *uniform :
+         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_, &u_ao_})
         *uniform = BGFX_INVALID_HANDLE;
     lut_strength_ = -1.0f;
 }
@@ -81,6 +89,9 @@ bgfx::ProgramHandle PostChain::Program(int index)
         u_tone_ = bgfx::createUniform("u_fxTone", bgfx::UniformType::Vec4);
         u_lut_ = bgfx::createUniform("u_fxLut", bgfx::UniformType::Vec4);
         u_texel_ = bgfx::createUniform("u_fxTexel", bgfx::UniformType::Vec4);
+        s_ao_ = bgfx::createUniform("s_fxAoTex", bgfx::UniformType::Sampler);
+        s_depth_ = bgfx::createUniform("s_fxSceneDepth", bgfx::UniformType::Sampler);
+        u_ao_ = bgfx::createUniform("u_fxAo", bgfx::UniformType::Vec4, 3);
     }
     if (!bgfx::isValid(programs_[index]))
         programs_[index] = LoadProgram("vs_fx_screen", kFragmentNames[index]);
@@ -121,13 +132,46 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
     bgfx::ViewId view = frame.first_view;
     const bool same_size = frame.scene_width == frame.target_width && frame.scene_height == frame.target_height;
 
-    if (settings.PostIsIdentity())
+    // Everything past a plain copy goes through the 3D grading table.
+    const bool usable = SupportsLut3d();
+    if (!usable && !settings.PostIsIdentity())
+        STORM_FX_ERROR_ONCE(reported_lut_, "post effects are on but the device has no 3D textures (Support::lut_3d): frame copied unprocessed");
+    if (settings.PostIsIdentity() || !usable)
     {
         SetupView(view, "fx copy", frame.target, frame.target_width, frame.target_height);
         const bgfx::ProgramHandle copy = Program(kCopy);
         bgfx::setTexture(0, s_scene_, frame.scene_color, same_size ? kClampPoint : kClampLinear);
         SubmitScreenTriangle(view, copy, kWriteColor, frame.flip_v);
         return 1;
+    }
+
+    // ---- ambient occlusion (half resolution) ----
+    const bool occlusion = settings.ssao && bgfx::isValid(frame.scene_depth);
+    if (settings.ssao && !occlusion)
+        STORM_FX_ERROR_ONCE(reported_depth_, "ambient occlusion is on but PostChain::Frame::scene_depth is not set");
+    if (settings.sun_shafts && !settings.bloom)
+        STORM_FX_ERROR_ONCE(reported_shafts_, "sun shafts are on but bloom, which carries them, is off");
+    float ao[3][4] = {};
+    if (occlusion)
+    {
+        EnsureTarget(occlusion_, frame.scene_width / 2, frame.scene_height / 2);
+        ao[0][0] = frame.near_plane * frame.far_plane;
+        ao[0][1] = frame.far_plane;
+        ao[0][2] = frame.far_plane - frame.near_plane;
+        ao[0][3] = settings.ssao_radius;
+        ao[1][0] = 1.0f / frame.projection_scale[0];
+        ao[1][1] = 1.0f / frame.projection_scale[1];
+        ao[1][2] = settings.ssao_intensity;
+        ao[1][3] = 1.0f / frame.far_plane;
+        ao[2][0] = 1.0f / frame.scene_width;
+        ao[2][1] = 1.0f / frame.scene_height;
+        ao[2][2] = 1.0f / occlusion_.width;
+        ao[2][3] = 1.0f / occlusion_.height;
+        SetupView(view, "fx ambient occlusion", occlusion_.fb, occlusion_.width, occlusion_.height);
+        const bgfx::ProgramHandle program = Program(kSsao);
+        bgfx::setUniform(u_ao_, ao, 3);
+        bgfx::setTexture(4, s_depth_, frame.scene_depth, kClampPoint);
+        SubmitScreenTriangle(view++, program, kWriteColor);
     }
 
     // ---- bloom ----
@@ -196,7 +240,8 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
         const bgfx::FrameBufferHandle out = composite_is_final ? frame.target : graded_.fb;
         SetupView(view, "fx composite", out, composite_is_final ? frame.target_width : frame.scene_width,
                   composite_is_final ? frame.target_height : frame.scene_height);
-        const bgfx::ProgramHandle composite = Program(kComposite + (levels > 0 ? 1 : 0) + (settings.tonemap ? 2 : 0));
+        const bgfx::ProgramHandle composite =
+            Program(kComposite + (levels > 0 ? 1 : 0) + (settings.tonemap ? 2 : 0) + (occlusion ? 4 : 0));
         const float tone[4] = {settings.exposure * TonemapExposureBias(), std::clamp(settings.tonemap_strength, 0.0f, 1.0f),
                                settings.bloom_intensity, settings.exposure};
         const float lut[4] = {static_cast<float>(kDefaultLutSize - 1) / kDefaultLutSize, 0.5f / kDefaultLutSize, 0.0f, 0.0f};
@@ -206,6 +251,12 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
         if (levels > 0)
             bgfx::setTexture(1, s_bloom_, bgfx::getTexture(bloom_[0].fb), kClampLinear);
         bgfx::setTexture(2, s_lut_, lut_, kClampLinear);
+        if (occlusion)
+        {
+            bgfx::setUniform(u_ao_, ao, 3);
+            bgfx::setTexture(3, s_ao_, bgfx::getTexture(occlusion_.fb), kClampLinear);
+            bgfx::setTexture(4, s_depth_, frame.scene_depth, kClampPoint);
+        }
         // The intermediate target keeps luma in alpha for FXAA; a final target must stay opaque.
         SubmitScreenTriangle(view++, composite, composite_is_final ? BGFX_STATE_WRITE_RGB : kWriteColor,
                              composite_is_final && frame.flip_v);

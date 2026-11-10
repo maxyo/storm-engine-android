@@ -65,9 +65,14 @@ class Water
 
     // WaterQuality::High only, once per frame after the opaque scene and before the water: copies the scene
     // colour and view distance at half resolution in `view` (one full-screen pass). `scene_depth` must be a
-    // sampleable depth texture (BGFX_TEXTURE_RT, not write-only). Without it High renders as Medium.
+    // sampleable depth texture (BGFX_TEXTURE_RT, not write-only). High without this call is refused.
     void CaptureScene(bgfx::ViewId view, bgfx::TextureHandle scene_color, bgfx::TextureHandle scene_depth, uint16_t width,
                       uint16_t height, float near_plane, float far_plane);
+
+    // Nothing here falls back to a lesser path. A request that cannot be honoured is refused and logged
+    // once (fx/log.hpp): settings.water == Legacy, High without CaptureScene() this frame, SubmitField()
+    // without UpdateField(). The Submit* calls then return false and PrepareMesh() an invalid program: draw
+    // the legacy sea instead, or fix the caller. Use ConstrainSettings() to keep unsupported levels out.
 
     // Sets program state for a draw call with SeaVertex geometry and returns the program. The caller binds
     // its vertex / index buffers and calls bgfx::submit(frame.view, program). `world_offset` is what the
@@ -77,9 +82,9 @@ class Water
 
     // Uploads the two height-field layers for SubmitField() (128x128 RGBA16F with mips, about 0.1 ms).
     void UpdateField(const EngineWaveField &field);
-    void SubmitField(const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
+    bool SubmitField(const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
                      const EngineSeaState &sea);
-    void SubmitGerstner(const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
+    bool SubmitGerstner(const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
                         const GerstnerSet &waves, float bump_scale);
 
     void Shutdown();
@@ -96,7 +101,7 @@ class Water
     void EnsureGrid(WaterQuality quality);
     bgfx::ProgramHandle Bind(Source source, const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky);
     template <typename SetWaveUniforms>
-    void SubmitGrid(Source source, const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
+    bool SubmitGrid(Source source, const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
                     SetWaveUniforms &&set_wave_uniforms);
 
     bool resources_ = false;
@@ -107,6 +112,9 @@ class Water
     uint16_t behind_width_ = 0;
     uint16_t behind_height_ = 0;
     bool behind_valid_ = false;
+    bool reported_legacy_ = false;
+    bool reported_snapshot_ = false;
+    bool reported_field_ = false;
     bgfx::ProgramHandle capture_program_ = BGFX_INVALID_HANDLE;
     int grid_cells_ = 0;
     bgfx::VertexBufferHandle grid_vertices_ = BGFX_INVALID_HANDLE;

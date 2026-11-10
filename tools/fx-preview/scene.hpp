@@ -3,6 +3,7 @@
 // from game data.
 #pragma once
 
+#include "storm/fx/light_set.hpp"
 #include "storm/fx/sky_model.hpp"
 #include "storm/fx/wave_model.hpp"
 
@@ -17,7 +18,8 @@ struct Vertex
 {
     float pos[3];
     float normal[3];
-    uint32_t abgr;
+    uint32_t abgr;               // surface colour: the role the texture plays in the game
+    uint32_t baked = 0xffffffffu; // lighting baked into the vertex colours of static geometry (white = none)
 };
 
 struct Mesh
@@ -40,7 +42,17 @@ Mesh MakeIsland(std::array<float, 3> centre, float radius, float height);
 Mesh MakeFigure(std::array<float, 3> feet); // a "character": legs, torso, head, arms
 Mesh MakeSphere(std::array<float, 3> centre, float radius, Color color, int rings = 24);
 Mesh MakeBox(std::array<float, 3> centre, std::array<float, 3> half, Color color);
-Mesh MakeGround(float half, float y, Color color);
+// Night harbour: a quay with houses, torches on the walls and lanterns on posts. The static geometry carries
+// baked lighting from those lights, as location models do after the lighter tool.
+struct Harbour
+{
+    Mesh town;                              // baked geometry
+    Mesh glow;                              // flames, lantern glasses, lit windows (unlit, bright)
+    std::vector<storm::fx::PointLight> lights; // the location's light sources (baked = true)
+};
+Harbour MakeHarbour();
+// Writes Vertex::baked: night ambient plus the fixed-function sum of `lights`, as the lighter tool would.
+void BakeLighting(Mesh &mesh, const std::vector<storm::fx::PointLight> &lights, Color ambient);
 // Thin slanted bars, fan lines and a fine checker: content that aliases badly.
 Mesh MakeAliasingPattern();
 

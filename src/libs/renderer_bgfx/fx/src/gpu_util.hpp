@@ -28,6 +28,12 @@ template <typename Handle> void Destroy(Handle &handle)
 // Sequential view rendering into `target` (invalid = back buffer) without clearing.
 void SetupView(bgfx::ViewId view, const char *name, bgfx::FrameBufferHandle target, uint16_t width, uint16_t height);
 
+// Device capabilities the passes depend on; fx::DetectSupport() reports the same answers.
+bool SupportsLut3d();
+bool SupportsShadowMap();
+bool SupportsSceneSnapshot();
+bool SupportsWaveField();
+
 inline constexpr uint32_t kClampLinear = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_W_CLAMP;
 inline constexpr uint32_t kClampPoint = kClampLinear | BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT | BGFX_SAMPLER_MIP_POINT;
 

@@ -42,8 +42,13 @@ struct LightingUniforms
 // `sky` may be null: the hemisphere then has no colour tint.
 LightingUniforms ComputeLighting(const LightingInput &input, const LightingMaterial &material, const SkyState *sky);
 
-// shaderc --define value for a flag set, e.g. "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE".
-// Flags that need kLightingPerPixel are dropped when it is not set.
-std::string LightingDefines(uint32_t lighting_flags);
+// shaderc --define value for the lighting variant these settings ask for, e.g.
+// "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4". Empty = legacy path.
+// Flags that need kLightingPerPixel are dropped when it is not set; kLightingPoint works on its own
+// (geometry with baked vertex colours, see fx_lighting.sh).
+std::string LightingDefines(const Settings &settings);
+
+// Number of point / spot lights to select per draw call (0 when kLightingPoint is off).
+int PointLightBudget(const Settings &settings);
 
 } // namespace storm::fx

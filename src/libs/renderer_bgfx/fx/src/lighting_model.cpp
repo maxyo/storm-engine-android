@@ -56,17 +56,41 @@ LightingUniforms ComputeLighting(const LightingInput &input, const LightingMater
     return u;
 }
 
-std::string LightingDefines(uint32_t flags)
+int PointLightBudget(const Settings &settings)
 {
-    if (!(flags & kLightingPerPixel))
-        return {};
-    std::string defines = "FX_LIGHT_PER_PIXEL";
-    if (flags & kLightingHemisphere)
-        defines += ";FX_LIGHT_HEMISPHERE";
-    if (flags & kLightingSpecular)
-        defines += ";FX_LIGHT_SPECULAR";
-    if (flags & kLightingTranslucent)
-        defines += ";FX_LIGHT_TRANSLUCENT";
+    if (!(settings.lighting_flags & kLightingPoint))
+        return 0;
+    return settings.point_lights > 4 ? 8 : 4;
+}
+
+std::string LightingDefines(const Settings &settings)
+{
+    const uint32_t flags = settings.lighting_flags;
+    std::string defines;
+    const auto add = [&defines](const char *define) {
+        if (!defines.empty())
+            defines += ';';
+        defines += define;
+    };
+    if (flags & kLightingPerPixel)
+    {
+        add("FX_LIGHT_PER_PIXEL");
+        if (flags & kLightingHemisphere)
+            add("FX_LIGHT_HEMISPHERE");
+        if (flags & kLightingSpecular)
+            add("FX_LIGHT_SPECULAR");
+        if (flags & kLightingTranslucent)
+            add("FX_LIGHT_TRANSLUCENT");
+        if (settings.shadows != ShadowQuality::Off)
+            add("FX_LIGHT_SHADOW");
+        if (settings.shadows == ShadowQuality::Soft)
+            add("FX_LIGHT_SHADOW_SOFT");
+    }
+    if (flags & kLightingPoint)
+    {
+        add("FX_LIGHT_POINT");
+        add(PointLightBudget(settings) > 4 ? "FX_LIGHT_POINT_MAX=8" : "FX_LIGHT_POINT_MAX=4");
+    }
     return defines;
 }
 

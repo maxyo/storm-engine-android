@@ -1,6 +1,7 @@
 #include "storm/fx/water.hpp"
 
 #include "gpu_util.hpp"
+#include "storm/fx/log.hpp"
 #include "storm/fx/noise_bake.hpp"
 
 #include <algorithm>
@@ -147,6 +148,11 @@ void Water::EnsureGrid(WaterQuality quality)
 void Water::CaptureScene(bgfx::ViewId view, bgfx::TextureHandle scene_color, bgfx::TextureHandle scene_depth, uint16_t width,
                          uint16_t height, float near_plane, float far_plane)
 {
+    if (!SupportsSceneSnapshot())
+    {
+        STORM_FX_ERROR_ONCE(reported_snapshot_, "Water::CaptureScene(): the device has no multiple render targets (Support::scene_snapshot)");
+        return;
+    }
     EnsureResources();
     const uint16_t w = std::max<uint16_t>(width / 2, 1), h = std::max<uint16_t>(height / 2, 1);
     if (!bgfx::isValid(behind_) || behind_width_ != w || behind_height_ != h)
@@ -173,11 +179,21 @@ void Water::CaptureScene(bgfx::ViewId view, bgfx::TextureHandle scene_color, bgf
 bgfx::ProgramHandle Water::Bind(Source source, const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky)
 {
     EnsureResources();
-    WaterQuality quality = settings.water == WaterQuality::Legacy ? WaterQuality::Low : settings.water;
+    const WaterQuality quality = settings.water;
+    if (quality == WaterQuality::Legacy)
+    {
+        STORM_FX_ERROR_ONCE(reported_legacy_, "Water called with WaterQuality::Legacy: the legacy sea must be drawn instead");
+        return BGFX_INVALID_HANDLE;
+    }
     if (quality != WaterQuality::High)
+    {
         behind_valid_ = false; // a later switch back to High must not show a stale snapshot
+    }
     else if (!behind_valid_)
-        quality = WaterQuality::Medium;
+    {
+        STORM_FX_ERROR_ONCE(reported_snapshot_, "WaterQuality::High needs Water::CaptureScene() before the sea is drawn");
+        return BGFX_INVALID_HANDLE;
+    }
     const bool cube = bgfx::isValid(frame.env_cube) && quality != WaterQuality::Low;
     const int fragment = quality == WaterQuality::Low ? 0 : (quality == WaterQuality::Medium ? 1 : 3) + (cube ? 1 : 0);
     bgfx::ProgramHandle &program = programs_[static_cast<int>(source) * 5 + fragment];
@@ -222,6 +238,8 @@ bgfx::ProgramHandle Water::PrepareMesh(const Settings &settings, const WaterFram
                                        std::array<float, 2> world_offset)
 {
     const bgfx::ProgramHandle program = Bind(Source::Mesh, settings, frame, shading, sky);
+    if (!bgfx::isValid(program))
+        return program;
     const float vs[4] = {world_offset[0], world_offset[1], 0.0f, 0.0f};
     bgfx::setUniform(u_water_vs_, vs);
     return program;
@@ -229,6 +247,11 @@ bgfx::ProgramHandle Water::PrepareMesh(const Settings &settings, const WaterFram
 
 void Water::UpdateField(const EngineWaveField &field)
 {
+    if (!SupportsWaveField())
+    {
+        STORM_FX_ERROR_ONCE(reported_field_, "Water::UpdateField(): no RGBA16F vertex textures on this device (Support::wave_field)");
+        return;
+    }
     EnsureResources();
     for (int layer = 0; layer < 2; ++layer)
     {
@@ -248,7 +271,7 @@ void Water::UpdateField(const EngineWaveField &field)
 }
 
 template <typename SetWaveUniforms>
-void Water::SubmitGrid(Source source, const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
+bool Water::SubmitGrid(Source source, const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
                        SetWaveUniforms &&set_wave_uniforms)
 {
     EnsureResources();
@@ -262,6 +285,8 @@ void Water::SubmitGrid(Source source, const Settings &settings, const WaterFrame
     for (const WaterGridLevel &level : levels)
     {
         const bgfx::ProgramHandle program = Bind(source, settings, frame, shading, sky);
+        if (!bgfx::isValid(program))
+            return false;
         const float vs[4] = {level.origin[0], level.origin[1], level.step, 0.0f};
         bgfx::setUniform(u_water_vs_, vs);
         set_wave_uniforms(level);
@@ -269,14 +294,18 @@ void Water::SubmitGrid(Source source, const Settings &settings, const WaterFrame
         bgfx::setIndexBuffer(level.ring < 0 ? grid_full_ : grid_rings_[level.ring]);
         bgfx::submit(frame.view, program);
     }
+    return true;
 }
 
-void Water::SubmitField(const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
+bool Water::SubmitField(const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
                         const EngineSeaState &sea)
 {
     if (!bgfx::isValid(layers_[0]))
-        return;
-    SubmitGrid(Source::Field, settings, frame, shading, sky, [&](const WaterGridLevel &level) {
+    {
+        STORM_FX_ERROR_ONCE(reported_field_, "Water::SubmitField() needs Water::UpdateField() first");
+        return false;
+    }
+    return SubmitGrid(Source::Field, settings, frame, shading, sky, [&](const WaterGridLevel &level) {
         float wave[4][4] = {};
         for (int i = 0; i < 2; ++i)
         {
@@ -297,7 +326,7 @@ void Water::SubmitField(const Settings &settings, const WaterFrame &frame, const
     });
 }
 
-void Water::SubmitGerstner(const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
+bool Water::SubmitGerstner(const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
                            const GerstnerSet &waves, float bump_scale)
 {
     float wave[13][4] = {};
@@ -314,7 +343,7 @@ void Water::SubmitGerstner(const Settings &settings, const WaterFrame &frame, co
     }
     wave[12][0] = waves.mean_level;
     wave[12][1] = bump_scale;
-    SubmitGrid(Source::Gerstner, settings, frame, shading, sky,
+    return SubmitGrid(Source::Gerstner, settings, frame, shading, sky,
                [&](const WaterGridLevel &) { bgfx::setUniform(u_wave_, wave, 13); });
 }
 

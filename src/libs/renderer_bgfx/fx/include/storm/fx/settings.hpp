@@ -7,7 +7,9 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace storm::fx
 {
@@ -43,7 +45,15 @@ enum LightingFlags : uint32_t
     kLightingHemisphere = 1u << 1, // FX_LIGHT_HEMISPHERE: sky/ground ambient instead of a flat one
     kLightingSpecular = 1u << 2,   // FX_LIGHT_SPECULAR: Blinn-Phong highlight
     kLightingTranslucent = 1u << 3, // FX_LIGHT_TRANSLUCENT: back-lit thin surfaces (sails, flags)
-    kLightingAll = 0xf,
+    kLightingPoint = 1u << 4,       // FX_LIGHT_POINT: point and spot lights evaluated per pixel
+    kLightingAll = 0x1f,
+};
+
+enum class ShadowQuality : uint8_t
+{
+    Off,
+    Low,  // 1024² map, one hardware-filtered tap
+    Soft, // 2048² map, four taps
 };
 
 struct Settings
@@ -65,6 +75,9 @@ struct Settings
     float sharpness = 0.5f;       // 0..1
     bool sun_shafts = false;      // high end only
     float sun_shafts_intensity = 0.35f;
+    bool ssao = false;            // high end only; needs the scene depth texture
+    float ssao_radius = 0.6f;     // metres
+    float ssao_intensity = 0.8f;
 
     // ---- world passes ----
     WaterQuality water = WaterQuality::Legacy;
@@ -72,6 +85,8 @@ struct Settings
     bool sky_atmosphere = false;   // analytic sky instead of the textured sky box
     bool sky_clouds = false;
     uint32_t lighting_flags = kLightingNone;
+    uint8_t point_lights = 4;      // per draw call with kLightingPoint: 4 or 8
+    ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
 
     static Settings FromPreset(QualityPreset preset);
 
@@ -81,6 +96,29 @@ struct Settings
 
     bool operator==(const Settings &) const = default;
 };
+
+// What the device and the renderer can do, decided once at start-up (fx::DetectSupport() in capabilities.hpp
+// fills the GPU part; the renderer fills `scene_depth`). Show it on the settings screen: an option whose
+// requirement is missing must be disabled there, not quietly ignored.
+struct Support
+{
+    bool lut_3d = false;        // 3D RGBA8 texture: colour grade (any post effect but FXAA / sharpening needs it)
+    bool shadow_map = false;    // D16 texture as a render target: Settings::shadows
+    bool scene_snapshot = false; // two colour attachments: WaterQuality::High
+    bool wave_field = false;    // RGBA16F texture readable in the vertex shader: Water::SubmitField
+    bool scene_depth = false;   // the scene's depth attachment can be sampled: Settings::ssao, WaterQuality::High
+
+    std::string Describe() const;
+};
+
+// Inconsistent or unsupported requests in `settings`, one message each; empty = every effect will run exactly
+// as asked. PostChain, Water and Shadows refuse (and log) what this reports.
+std::vector<std::string> ValidateSettings(const Settings &settings, const Support &support);
+
+// The explicit, one-time alternative to a silent fallback: returns `requested` with every option that
+// ValidateSettings() objects to switched off or lowered, and appends one line per change to `changes`.
+// Call it when settings are loaded or changed, log the lines, and store / display the result.
+Settings ConstrainSettings(const Settings &requested, const Support &support, std::vector<std::string> &changes);
 
 // Names for the settings screen (UTF-8, Russian).
 std::string_view NameRu(QualityPreset preset);

@@ -20,8 +20,13 @@ build/fx-preview/fx_preview <output directory> [name filter]
 Scenes: open sea with a ship and an island in four weathers × the three quality presets; colour grades; tone
 curve and bloom alone; a night harbour (bloom); the shore (water quality levels, environment cube, refraction);
 the three sea geometry sources, with the GPU height field compared against the CPU mesh; a quay with a ship and
-a figure (lighting flags); an aliasing chart (FXAA, sharpening, 75 % render scale). CPU products (baked
+a figure (sun lighting flags, sun shadows, ambient occlusion); a night harbour with torches and lanterns (town
+with baked vertex lighting, figure and ship lit dynamically: point lights, bloom); a broadside at dusk (flash
+lights); an aliasing chart (FXAA, sharpening, 75 % render scale). CPU products (baked
 textures, sky panoramas, grading tables) are written as images too.
 
-The "original" shots use stand-ins for the legacy sea and sky (vertex-coloured), since the real ones live in
+The run fails (exit code 1) if the package reports an error or if `ConstrainSettings()` has to change a
+shot's settings: every image shows exactly the settings in its name.
+
+The "original" shots use stand-ins for the legacy sea, sky and fixed-function lighting (per-vertex, the engine's seven nearest lights), since the real ones live in
 the game; they show what the package leaves untouched, not how the game looks.

@@ -1,10 +1,13 @@
 // Unit checks for the CPU side of the fx package: grading LUTs, tone curve,
 // baked noise, the engine wave model and its GPU/Gerstner mappings, the sea
-// grid, the sky model and the lighting uniforms. No GPU is needed.
+// grid, the sky model, lighting and point-light selection, the shadow cascade and the
+// explicit handling of unsupported settings. No GPU is needed.
 #include "storm/fx/color_lut.hpp"
+#include "storm/fx/light_set.hpp"
 #include "storm/fx/lighting_model.hpp"
 #include "storm/fx/noise_bake.hpp"
 #include "storm/fx/settings.hpp"
+#include "storm/fx/shadow_model.hpp"
 #include "storm/fx/sky_model.hpp"
 #include "storm/fx/water_grid.hpp"
 #include "storm/fx/wave_model.hpp"
@@ -55,6 +58,8 @@ void CheckSettings()
     CHECK(!medium.sharpen && high.sharpen);
     CHECK(high.water == WaterQuality::High && medium.water == WaterQuality::Medium);
     CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
+    CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
+    CHECK(!medium.ssao && high.ssao && !original.ssao);
     Settings graded = original;
     graded.grade = GradePreset::Caribbean;
     CHECK(!graded.PostIsIdentity());
@@ -75,7 +80,7 @@ void CheckLut()
             for (int r = 0; r < n; ++r)
             {
                 const uint8_t *t = &identity[((static_cast<size_t>(b) * n + g) * n + r) * 4];
-                const auto expect = [n](int i) { return static_cast<int>(std::lround(i * 255.0f / (n - 1))); };
+                const auto expect = [](int i) { return static_cast<int>(std::lround(i * 255.0f / (n - 1))); };
                 exact = exact && t[0] == expect(r) && t[1] == expect(g) && t[2] == expect(b) && t[3] == 255;
             }
     CHECK(exact);
@@ -471,10 +476,191 @@ void CheckLighting()
     CHECK(tinted.u_fxLight[3][2] > tinted.u_fxLight[3][0]);
     CHECK(tinted.u_fxLight[4][0] > tinted.u_fxLight[4][2]);
 
-    CHECK(LightingDefines(kLightingNone).empty());
-    CHECK(LightingDefines(kLightingSpecular).empty());
-    CHECK(LightingDefines(kLightingPerPixel | kLightingHemisphere) == "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE");
-    CHECK(LightingDefines(kLightingAll) == "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_SPECULAR;FX_LIGHT_TRANSLUCENT");
+    Settings s;
+    CHECK(LightingDefines(s).empty() && PointLightBudget(s) == 0);
+    s.lighting_flags = kLightingPerPixel | kLightingHemisphere;
+    CHECK(LightingDefines(s) == "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE");
+    s.lighting_flags = kLightingPoint; // baked geometry: dynamic point lights only
+    CHECK(LightingDefines(s) == "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4" && PointLightBudget(s) == 4);
+    CHECK(LightingDefines(Settings::FromPreset(QualityPreset::Medium)) ==
+          "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_SHADOW;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4");
+    CHECK(LightingDefines(Settings::FromPreset(QualityPreset::High)) ==
+          "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_SPECULAR;FX_LIGHT_TRANSLUCENT;FX_LIGHT_SHADOW;FX_LIGHT_SHADOW_SOFT;"
+          "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=8");
+    CHECK(PointLightBudget(Settings::FromPreset(QualityPreset::High)) == 8);
+}
+
+// Nothing is downgraded silently: every unsupported request is reported and fixed explicitly.
+void CheckSupport()
+{
+    Support all;
+    all.lut_3d = all.shadow_map = all.scene_snapshot = all.wave_field = all.scene_depth = true;
+    for (QualityPreset preset : {QualityPreset::Original, QualityPreset::Medium, QualityPreset::High})
+    {
+        const Settings settings = Settings::FromPreset(preset);
+        CHECK(ValidateSettings(settings, all).empty());
+        std::vector<std::string> changes;
+        CHECK(ConstrainSettings(settings, all, changes) == settings && changes.empty());
+        // The original look never depends on a capability.
+        if (preset == QualityPreset::Original)
+            CHECK(ValidateSettings(settings, Support{}).empty());
+    }
+    const Settings high = Settings::FromPreset(QualityPreset::High);
+
+    // No sampleable scene depth: occlusion off, water one level down (and its refraction with it).
+    Support no_depth = all;
+    no_depth.scene_depth = false;
+    CHECK(ValidateSettings(high, no_depth).size() == 2);
+    std::vector<std::string> changes;
+    Settings constrained = ConstrainSettings(high, no_depth, changes);
+    CHECK(!constrained.ssao && constrained.water == WaterQuality::Medium && !constrained.water_refraction);
+    CHECK(changes.size() == 2); // occlusion, water quality (which takes refraction with it)
+    CHECK(constrained.shadows == high.shadows && constrained.bloom && constrained.lighting_flags == high.lighting_flags);
+    CHECK(ValidateSettings(constrained, no_depth).empty());
+
+    // No shadow maps.
+    Support no_shadow = all;
+    no_shadow.shadow_map = false;
+    changes.clear();
+    constrained = ConstrainSettings(high, no_shadow, changes);
+    CHECK(constrained.shadows == ShadowQuality::Off && changes.size() == 1);
+    CHECK(LightingDefines(constrained).find("FX_LIGHT_SHADOW") == std::string::npos);
+
+    // No 3D textures: the whole grading / bloom part goes, anti-aliasing stays.
+    Support no_lut = all;
+    no_lut.lut_3d = false;
+    changes.clear();
+    constrained = ConstrainSettings(high, no_lut, changes);
+    CHECK(!constrained.tonemap && !constrained.bloom && !constrained.sun_shafts && !constrained.ssao && constrained.fxaa);
+    CHECK(ValidateSettings(constrained, no_lut).empty());
+
+    // Inconsistent requests are reported as well.
+    Settings odd;
+    odd.sun_shafts = true; // without bloom
+    odd.lighting_flags = kLightingSpecular; // without per-pixel lighting
+    odd.shadows = ShadowQuality::Soft;
+    odd.water_refraction = true;
+    CHECK(ValidateSettings(odd, all).size() == 4);
+    changes.clear();
+    constrained = ConstrainSettings(odd, all, changes);
+    CHECK(changes.size() == 4 && constrained == Settings{});
+    CHECK(Support{}.Describe().find("NO") != std::string::npos && all.Describe().find("NO") == std::string::npos);
+}
+
+void CheckLights()
+{
+    PointLight torch;
+    torch.position = {0.0f, 2.0f, 0.0f};
+    torch.color = {1.0f, 0.6f, 0.3f};
+    torch.range = 10.0f;
+    torch.att0 = 0.5f;
+    torch.att1 = 0.1f;
+    torch.att2 = 0.05f;
+    // D3D9 attenuation inside the range, nothing beyond it, a short fade right before the limit.
+    CHECK(Near(LightAttenuation(torch, 0.0f), 2.0f, 1e-5f));
+    CHECK(Near(LightAttenuation(torch, 4.0f), 1.0f / (0.5f + 0.4f + 0.8f), 1e-5f));
+    CHECK(LightAttenuation(torch, 10.01f) == 0.0f);
+    CHECK(Near(LightAttenuation(torch, 9.25f), 0.5f / (0.5f + 0.925f + 0.05f * 9.25f * 9.25f), 1e-4f));
+    float previous = 1e9f;
+    for (int i = 0; i <= 100; ++i)
+    {
+        const float a = LightAttenuation(torch, 0.1f * i);
+        CHECK(a <= previous && a >= 0.0f);
+        previous = a;
+    }
+
+    // Selection: strongest at the object first, unreachable lights dropped, the overflow counted.
+    std::vector<PointLight> lights;
+    for (int i = 0; i < 12; ++i)
+    {
+        PointLight light = torch;
+        light.position = {3.0f * i, 2.0f, 0.0f};
+        light.baked = i % 2 == 0;
+        lights.push_back(light);
+    }
+    const LightSelection four = SelectLights(lights, {0.0f, 1.0f, 0.0f}, 1.0f, 4);
+    CHECK(four.count == 4 && four.dropped == 0); // lights at x = 0, 3, 6, 9 reach; x = 12 and beyond do not
+    CHECK(four.lights[0].position[0] == 0.0f && four.lights[3].position[0] == 9.0f);
+    const LightSelection crowded = SelectLights(lights, {15.0f, 1.0f, 0.0f}, 6.0f, 4);
+    CHECK(crowded.count == 4 && crowded.dropped > 0);
+    CHECK(SelectLights(lights, {15.0f, 1.0f, 0.0f}, 6.0f, 8).dropped < crowded.dropped);
+    CHECK(SelectLights(lights, {500.0f, 0.0f, 0.0f}, 1.0f, 8).count == 0);
+    CHECK(SelectLights(lights, {0.0f, 1.0f, 0.0f}, 1.0f, 100).count <= kMaxPointLights);
+    // Geometry with baked vertex colours: baked lights are left out, dynamic ones stay.
+    const LightSelection dynamic = SelectLights(lights, {0.0f, 1.0f, 0.0f}, 1.0f, 8, false);
+    CHECK(dynamic.count == 2 && !dynamic.lights[0].baked && !dynamic.lights[1].baked);
+    // A brighter light further away can outrank a dim one nearby.
+    lights[3].color = {16.0f, 16.0f, 16.0f};
+    CHECK(SelectLights(lights, {0.0f, 1.0f, 0.0f}, 1.0f, 1).lights[0].position[0] == 9.0f);
+
+    // Uniform packing: view-space position, D3D terms, spot cone as scale and bias.
+    std::array<float, 16> view = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -1, -2, -3, 1};
+    LightSelection selection;
+    selection.count = 2;
+    selection.dropped = 3;
+    selection.lights[0] = torch;
+    selection.lights[1] = torch;
+    selection.lights[1].direction = {0.0f, -1.0f, 0.0f};
+    selection.lights[1].cos_inner = 0.9f;
+    selection.lights[1].cos_outer = 0.7f;
+    selection.lights[1].falloff = 2.0f;
+    const PointLightUniforms packed = PackPointLights(selection, view);
+    CHECK(packed.u_fxPointCount[0] == 2.0f && packed.dropped == 3);
+    CHECK(Near(packed.u_fxPoint[0][0], -1.0f, 1e-6f) && Near(packed.u_fxPoint[0][1], 0.0f, 1e-6f) && packed.u_fxPoint[0][3] == 10.0f);
+    CHECK(packed.u_fxPoint[1][3] == 0.5f && packed.u_fxPoint[2][0] == 0.1f && packed.u_fxPoint[2][1] == 0.05f);
+    CHECK(packed.u_fxPoint[2][2] == 0.0f && packed.u_fxPoint[2][3] == 1.0f); // point light: cone factor is always 1
+    const float scale = packed.u_fxPoint[6][2], bias = packed.u_fxPoint[6][3];
+    CHECK(Near(0.9f * scale + bias, 1.0f, 1e-4f) && Near(0.7f * scale + bias, 0.0f, 1e-4f) && packed.u_fxPoint[7][3] == 2.0f);
+
+    // Flashes: bright at once, gone after their duration, never more than the pool holds.
+    FlashLights flashes;
+    flashes.Add({1.0f, 2.0f, 3.0f}, {3.0f, 2.0f, 1.0f}, 20.0f, 0.2f);
+    std::vector<PointLight> out;
+    flashes.AppendTo(out);
+    CHECK(out.size() == 1 && out[0].color[0] == 3.0f && !out[0].baked && out[0].range == 20.0f);
+    CHECK(LightAttenuation(out[0], 0.0f) == 1.0f && LightAttenuation(out[0], 19.0f) < 0.06f);
+    flashes.Update(0.1f);
+    out.clear();
+    flashes.AppendTo(out);
+    CHECK(Near(out[0].color[0], 0.75f, 1e-4f)); // half the time left: a quarter of the peak
+    flashes.Update(0.11f);
+    CHECK(flashes.Count() == 0);
+    for (int i = 0; i < 50; ++i)
+        flashes.Add({0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, 5.0f, 1.0f);
+    CHECK(flashes.Count() == FlashLights::kCapacity);
+    flashes.Add({0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, 5.0f, 0.0f); // nonsense is ignored
+    CHECK(flashes.Count() == FlashLights::kCapacity);
+}
+
+void CheckShadows()
+{
+    CHECK(ShadowMapSize(ShadowQuality::Off) == 0 && ShadowMapSize(ShadowQuality::Low) == 1024 && ShadowMapSize(ShadowQuality::Soft) == 2048);
+    const Vec3 sun{0.48f, 0.64f, 0.6f};
+    const Vec3 focus{100.0f, 5.0f, -40.0f};
+    const ShadowSetup setup = ComputeShadowSetup(sun, focus, 50.0f, 120.0f, 1024);
+    CHECK(Near(setup.texel_world, 100.0f / 1024.0f, 1e-6f));
+    // The focus is at the centre of the map (within a texel), half way through the receiver depth range.
+    const auto centre = ShadowCoord(setup, focus);
+    CHECK(Near(centre[0], 0.5f, 1.0f / 1024.0f) && Near(centre[1], 0.5f, 1.0f / 1024.0f));
+    CHECK(Near(centre[2], 170.0f / 220.0f, 1e-3f));
+    // Moving towards the sun: same texel, smaller depth. A caster 100 m up the sun ray is still inside.
+    const auto nearer = ShadowCoord(setup, {focus[0] + sun[0] * 100.0f, focus[1] + sun[1] * 100.0f, focus[2] + sun[2] * 100.0f});
+    CHECK(Near(nearer[0], centre[0], 1e-3f) && Near(nearer[1], centre[1], 1e-3f) && nearer[2] < centre[2] && nearer[2] > 0.0f);
+    // Points on the edge of the sphere stay inside the map.
+    for (Vec3 offset : {Vec3{49.0f, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, -49.0f}, Vec3{-30.0f, 20.0f, 30.0f}})
+    {
+        const auto c = ShadowCoord(setup, {focus[0] + offset[0], focus[1] + offset[1], focus[2] + offset[2]});
+        CHECK(c[0] > 0.0f && c[0] < 1.0f && c[1] > 0.0f && c[1] < 1.0f && c[2] > 0.0f && c[2] < 1.0f);
+    }
+    // Texel snapping: a small camera move does not shift the map by a fraction of a texel.
+    const ShadowSetup moved = ComputeShadowSetup(sun, {focus[0] + 0.013f, focus[1], focus[2] + 0.021f}, 50.0f, 120.0f, 1024);
+    const Vec3 probe{90.0f, 3.0f, -35.0f};
+    const float shift_u = (ShadowCoord(moved, probe)[0] - ShadowCoord(setup, probe)[0]) * 1024.0f;
+    const float shift_v = (ShadowCoord(moved, probe)[1] - ShadowCoord(setup, probe)[1]) * 1024.0f;
+    CHECK(Near(shift_u, std::round(shift_u), 2e-2f) && Near(shift_v, std::round(shift_v), 2e-2f));
+    // A sun straight overhead is a valid direction.
+    const ShadowSetup zenith = ComputeShadowSetup({0.0f, 1.0f, 0.0f}, focus, 50.0f, 120.0f, 1024);
+    CHECK(Near(ShadowCoord(zenith, focus)[0], 0.5f, 1.0f / 1024.0f));
 }
 } // namespace
 
@@ -489,6 +675,9 @@ int main()
     CheckGrid();
     CheckSky();
     CheckLighting();
+    CheckSupport();
+    CheckLights();
+    CheckShadows();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

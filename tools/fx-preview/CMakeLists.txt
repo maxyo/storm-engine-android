@@ -52,14 +52,27 @@ add_subdirectory("${STORM_FX_DIR}" fx)
 # the way the emulator will. Built with the same rules as the package shaders.
 set(preview_sc "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 set(preview_shaders)
-storm_fx_add_shader(preview_shaders vs_preview_mesh "${preview_sc}/vs_preview_mesh.sc")
-storm_fx_add_shader(preview_shaders fs_preview_mesh "${preview_sc}/fs_preview_mesh.sc")
-storm_fx_add_shader(preview_shaders vs_preview_mesh_pp "${preview_sc}/vs_preview_mesh.sc"
-    DEFINES FX_LIGHT_PER_PIXEL FX_LIGHT_HEMISPHERE)
-storm_fx_add_shader(preview_shaders fs_preview_mesh_pp "${preview_sc}/fs_preview_mesh.sc"
-    DEFINES FX_LIGHT_PER_PIXEL FX_LIGHT_HEMISPHERE)
-storm_fx_add_shader(preview_shaders fs_preview_mesh_full "${preview_sc}/fs_preview_mesh.sc"
-    DEFINES FX_LIGHT_PER_PIXEL FX_LIGHT_HEMISPHERE FX_LIGHT_SPECULAR FX_LIGHT_TRANSLUCENT)
+# One vertex + fragment pair per lighting variant the shots use; the define lists are what
+# fx::LightingDefines() returns for those settings, with + for ; (main.cpp looks the pair up by that string).
+set(preview_variants
+    "legacy|"
+    "pp|FX_LIGHT_PER_PIXEL+FX_LIGHT_HEMISPHERE"
+    "spec|FX_LIGHT_PER_PIXEL+FX_LIGHT_HEMISPHERE+FX_LIGHT_SPECULAR+FX_LIGHT_TRANSLUCENT"
+    "medium|FX_LIGHT_PER_PIXEL+FX_LIGHT_HEMISPHERE+FX_LIGHT_SHADOW+FX_LIGHT_POINT+FX_LIGHT_POINT_MAX=4"
+    "high|FX_LIGHT_PER_PIXEL+FX_LIGHT_HEMISPHERE+FX_LIGHT_SPECULAR+FX_LIGHT_TRANSLUCENT+FX_LIGHT_SHADOW+FX_LIGHT_SHADOW_SOFT+FX_LIGHT_POINT+FX_LIGHT_POINT_MAX=8"
+    "high_noshadow|FX_LIGHT_PER_PIXEL+FX_LIGHT_HEMISPHERE+FX_LIGHT_SPECULAR+FX_LIGHT_TRANSLUCENT+FX_LIGHT_POINT+FX_LIGHT_POINT_MAX=8"
+    "high_hardshadow|FX_LIGHT_PER_PIXEL+FX_LIGHT_HEMISPHERE+FX_LIGHT_SPECULAR+FX_LIGHT_TRANSLUCENT+FX_LIGHT_SHADOW+FX_LIGHT_POINT+FX_LIGHT_POINT_MAX=8")
+set(preview_table "")
+foreach(variant ${preview_variants})
+    string(REGEX MATCH "^([a-z_]+)\\|(.*)$" _ "${variant}")
+    set(name "${CMAKE_MATCH_1}")
+    string(REPLACE "+" ";" fields "${CMAKE_MATCH_2}")
+    storm_fx_add_shader(preview_shaders vs_preview_mesh_${name} "${preview_sc}/vs_preview_mesh.sc" DEFINES ${fields})
+    storm_fx_add_shader(preview_shaders fs_preview_mesh_${name} "${preview_sc}/fs_preview_mesh.sc" DEFINES ${fields})
+    list(JOIN fields "$<SEMICOLON>" joined)
+    string(APPEND preview_table "PREVIEW_VARIANT(\"${joined}\", vs_preview_mesh_${name}, fs_preview_mesh_${name})\n")
+endforeach()
+file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/shaders-gen/preview_shaders/variants.inc" CONTENT "${preview_table}")
 storm_fx_build_shaders(TARGET preview_shaders NAMESPACE preview_shaders VARYING "${preview_sc}/varying.def.sc"
     INCLUDES "${STORM_FX_DIR}/shaders/include" SHADERS ${preview_shaders})
 

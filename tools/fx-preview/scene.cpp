@@ -85,6 +85,83 @@ void Transform(Mesh &mesh, std::array<float, 3> origin, float heading)
 }
 } // namespace
 
+Harbour MakeHarbour()
+{
+    Harbour harbour;
+    const Color stone{0.46f, 0.43f, 0.39f}, plaster{0.62f, 0.56f, 0.47f}, roof{0.36f, 0.20f, 0.15f}, wood{0.25f, 0.18f, 0.12f};
+    // Quay: a finely tessellated slab, so the baked vertex lighting has something to interpolate.
+    harbour.town.Append(MakeSurface(
+        96, 48, [](float u, float v) { return V3{(u * 2.0f - 1.0f) * 60.0f, 2.4f, 8.0f + v * 60.0f}; }, stone));
+    harbour.town.Append(MakeSurface(
+        96, 4, [](float u, float v) { return V3{(u * 2.0f - 1.0f) * 60.0f, 2.4f - v * 6.0f, 8.0f}; }, stone, true));
+    const auto torch = [&](V3 p) {
+        storm::fx::PointLight light;
+        light.position = {p.x, p.y, p.z};
+        light.color = {1.0f, 0.60f, 0.26f};
+        light.range = 16.0f;
+        light.att0 = 0.35f;
+        light.att1 = 0.10f;
+        light.att2 = 0.035f;
+        light.baked = true;
+        harbour.lights.push_back(light);
+        harbour.glow.Append(MakeSphere({p.x, p.y, p.z}, 0.16f, {1.0f, 0.78f, 0.36f}, 6));
+        harbour.town.Append(MakeBox({p.x, p.y - 0.45f, p.z + 0.12f}, {0.04f, 0.32f, 0.04f}, wood));
+    };
+    const auto lantern = [&](V3 p) {
+        storm::fx::PointLight light;
+        light.position = {p.x, p.y, p.z};
+        light.color = {0.95f, 0.82f, 0.52f};
+        light.range = 11.0f;
+        light.att0 = 0.5f;
+        light.att1 = 0.12f;
+        light.att2 = 0.06f;
+        light.baked = true;
+        harbour.lights.push_back(light);
+        harbour.glow.Append(MakeBox({p.x, p.y, p.z}, {0.11f, 0.15f, 0.11f}, {1.0f, 0.92f, 0.66f}));
+        harbour.town.Append(MakeBox({p.x, 2.4f + 0.5f * (p.y - 2.6f), p.z}, {0.06f, 0.5f * (p.y - 2.6f), 0.06f}, wood));
+    };
+    for (int i = 0; i < 9; ++i)
+    {
+        const float x = -52.0f + 13.0f * i, front = 24.0f + 3.0f * (i % 3), width = 5.2f, height = 6.0f + 1.6f * (i % 4);
+        // Front wall as a grid (baked lighting), the rest as a box, a darker roof on top.
+        harbour.town.Append(MakeSurface(
+            14, 12, [=](float u, float v) { return V3{x + (u * 2.0f - 1.0f) * width, 2.4f + v * height, front}; }, plaster, true));
+        harbour.town.Append(MakeBox({x, 2.4f + 0.5f * height, front + 4.05f}, {width, 0.5f * height, 4.0f}, plaster));
+        harbour.town.Append(MakeBox({x, 2.4f + height + 0.35f, front + 3.8f}, {width + 0.4f, 0.35f, 4.5f}, roof));
+        harbour.town.Append(MakeBox({x - 0.2f, 3.5f, front - 0.03f}, {0.6f, 1.1f, 0.03f}, wood)); // door
+        for (int w = 0; w < 1 + i % 3; ++w)
+            harbour.glow.Append(MakeBox({x - 2.8f + 2.6f * w, 5.6f + 1.9f * ((w + i) % 2), front - 0.03f}, {0.5f, 0.7f, 0.03f},
+                                        {1.0f, 0.80f, 0.42f}));
+        torch({x + 1.6f, 4.9f, front - 0.35f});
+        if (i % 2 == 0)
+            torch({x - 3.6f, 4.7f, front - 0.35f});
+        lantern({x + 6.5f, 5.4f, 11.5f + 2.0f * (i % 2)});
+    }
+    // Crates and barrels to catch the light.
+    for (int i = 0; i < 6; ++i)
+        harbour.town.Append(MakeBox({-20.0f + 7.5f * i, 2.4f + 0.55f, 15.0f + 2.5f * (i % 3)}, {0.7f, 0.55f, 0.6f}, wood));
+    BakeLighting(harbour.town, harbour.lights, {0.085f, 0.10f, 0.15f});
+    return harbour;
+}
+
+void BakeLighting(Mesh &mesh, const std::vector<storm::fx::PointLight> &lights, Color ambient)
+{
+    for (Vertex &v : mesh.vertices)
+    {
+        Color sum = ambient;
+        for (const storm::fx::PointLight &light : lights)
+        {
+            const V3 to{light.position[0] - v.pos[0], light.position[1] - v.pos[1], light.position[2] - v.pos[2]};
+            const float dist = std::sqrt(to.x * to.x + to.y * to.y + to.z * to.z);
+            const float ndl = std::max((to.x * v.normal[0] + to.y * v.normal[1] + to.z * v.normal[2]) / std::max(dist, 1e-4f), 0.0f);
+            const float k = ndl * storm::fx::LightAttenuation(light, dist);
+            for (int c = 0; c < 3; ++c)
+                sum[c] += light.color[c] * k;
+        }
+        v.baked = Pack(sum);
+    }
+}
+
 void Mesh::Append(const Mesh &other)
 {
     const uint32_t base = static_cast<uint32_t>(vertices.size());
@@ -124,12 +201,6 @@ Mesh MakeBox(std::array<float, 3> c, std::array<float, 3> h, Color color)
         mesh.indices.insert(mesh.indices.end(), {base, base + 1, base + 2, base + 2, base + 1, base + 3});
     }
     return mesh;
-}
-
-Mesh MakeGround(float half, float y, Color color)
-{
-    return MakeSurface(
-        8, 8, [=](float u, float v) { return V3{(u * 2.0f - 1.0f) * half, y, (v * 2.0f - 1.0f) * half}; }, color);
 }
 
 Ship MakeShip(std::array<float, 3> origin, float heading)

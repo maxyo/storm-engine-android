@@ -99,6 +99,39 @@ void SubmitScreenTriangle(bgfx::ViewId view, bgfx::ProgramHandle program, uint64
     bgfx::submit(view, program);
 }
 
+namespace
+{
+bool Format(bgfx::TextureFormat::Enum format, uint32_t flags)
+{
+    return (bgfx::getCaps()->formats[format] & flags) == flags;
+}
+} // namespace
+
+bool SupportsLut3d()
+{
+    return Format(bgfx::TextureFormat::RGBA8, BGFX_CAPS_FORMAT_TEXTURE_3D);
+}
+
+bool SupportsShadowMap()
+{
+    // Compare samplers have no capability bit of their own: every backend bgfx offers for this engine has them.
+    return Format(bgfx::TextureFormat::D16, BGFX_CAPS_FORMAT_TEXTURE_2D | BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER);
+}
+
+bool SupportsSceneSnapshot()
+{
+    return bgfx::getCaps()->limits.maxFBAttachments >= 2;
+}
+
+bool SupportsWaveField()
+{
+    // bgfx's GL backends never set the vertex-texture bit, but OpenGL ES 3.0 guarantees vertex texture
+    // fetch and filterable RGBA16F; elsewhere the bit is authoritative.
+    const bgfx::RendererType::Enum type = bgfx::getCaps()->rendererType;
+    const bool gl = type == bgfx::RendererType::OpenGLES || type == bgfx::RendererType::OpenGL;
+    return Format(bgfx::TextureFormat::RGBA16F, BGFX_CAPS_FORMAT_TEXTURE_2D | (gl ? 0u : BGFX_CAPS_FORMAT_TEXTURE_VERTEX));
+}
+
 void SetupView(bgfx::ViewId view, const char *name, bgfx::FrameBufferHandle target, uint16_t width, uint16_t height)
 {
     bgfx::setViewName(view, name);
