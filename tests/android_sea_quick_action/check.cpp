@@ -78,6 +78,6 @@ int main()
         assert(!state.offer(bad, 5000));
     SeaQuickActionState wrap; // SDL ticks wrap around
     wrap.update(frame());
-    assert(wrap.offer(request(wrap, "ack", "1"), UINT32_MAX - 300) && wrap.covered(19, 100) && !wrap.covered(19, 600));
+    assert(wrap.offer(request(wrap, "ack", "1"), UINT32_MAX - 300) && wrap.covered(19, 100) && !wrap.covered(19, 1300));
     std::cout << "sea quick action: coverage lease, exact single activation, stale target and tap, activity, unknown actions PASS\n";
 }

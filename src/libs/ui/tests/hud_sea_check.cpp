@@ -236,6 +236,8 @@ static void CheckSailing()
                fan["ammo-2"]["icon"] == "chain" && fan["ammo-3"]["icon"] == "bomb" && fan["ammo-3"]["badge"] == "16" && fan["ammo"]["variant"] == "active",
            "the fan offers the other three kinds with their counts");
     Expect(!mount.Has("context") && !mount.Has("camera") && mount.Has("fire") && mount.Has("helm"), "the fan takes the place of the buttons around it");
+    bench.Frame(0.3);
+    Expect(!Sent(mount, "seaquick:1\t5\t34\tack\t0") && mount.Last() == "seaquick:1\t5\t34\tack\t1", "the quick action stays covered while the fan is open: " + mount.Last());
     bench.Press("ammo-2");
     Expect(mount.Last() == "gameplay:9\thk_charge3" && !mount.Has("ammo-1") && mount.Has("context"), "a kind is chosen and the fan folds: " + mount.Last());
     bench.Press("ammo");

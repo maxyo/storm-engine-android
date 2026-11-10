@@ -184,7 +184,14 @@ void BATTLE_INTERFACE::Realize(uint32_t delta_time)
 
             if (m_bShowCommandMenu)
                 m_pShipIcon->Draw();
-            if (m_bShowBattleNavigator)
+#ifdef __ANDROID__
+            // The touch orders panel covers the open command menu: the native navigator and its
+            // readouts step aside with the menu (the panel brings its own ship list and bars).
+            const bool navigatorShown = m_bShowBattleNavigator && !(AndroidCommandActive() && storm::android::seaOrders.covered());
+#else
+            const bool navigatorShown = m_bShowBattleNavigator;
+#endif
+            if (navigatorShown)
             {
 #ifdef __ANDROID__
                 m_androidCaptionsDrawn = true;
@@ -193,7 +200,7 @@ void BATTLE_INTERFACE::Realize(uint32_t delta_time)
             }
             // if( m_pMessageIcons ) m_pMessageIcons->Draw();
 
-            if (m_bShowBattleNavigator)
+            if (navigatorShown)
             {
 #ifdef __ANDROID__
                 const uint32_t mobileMask = AndroidCommandActive() ? 0 :

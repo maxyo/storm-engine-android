@@ -21,7 +21,7 @@ inline bool knownSeaQuickAction(std::string_view action)
 //
 // Requests "1\t<activity>\t<revision>\t<verb>\t<value>":
 //   ack       value 1: the touch control showing exactly this revision is on the screen (repeat
-//             within 750 ms while it stays); value 0: it went away. Only a covered action
+//             within 1500 ms while it stays); value 0: it went away. Only a covered action
 //             hides the native icon.
 //   activate  value = the action id. Accepted once per revision, for the covered action only.
 class SeaQuickActionState
@@ -37,7 +37,7 @@ class SeaQuickActionState
         return !text.empty() && parsed.ec == std::errc() && parsed.ptr == text.data() + text.size();
     }
 public:
-    static constexpr uint32_t coverMs = 750, activateMs = 1500;
+    static constexpr uint32_t coverMs = 1500, activateMs = 1500;
     const SeaQuickActionFrame &frame() const { return frame_; }
     uint64_t activity() const { return activity_; }
     uint64_t revision() const { return revision_; }
