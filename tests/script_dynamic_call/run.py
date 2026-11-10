@@ -29,8 +29,8 @@ with tempfile.TemporaryDirectory(prefix='storm-dynamic-call-') as directory:
     (b/'SDL2').symlink_to(deps/'SDL/include', target_is_directory=True)
     includes = list((r/'src/libs').glob('*/include')) + [r/'src/libs/core/src', b,
         deps/'fmt/include', deps/'spdlog/include', deps/'mimalloc/include',
-        deps/'fast_float/include', deps/'dxvk/include/native/directx',
-        deps/'dxvk/include/native/windows', a.glm_source.resolve()]
+        deps/'fast_float/include', r/'third_party/d3d9-headers/directx',
+        r/'third_party/d3d9-headers/windows', a.glm_source.resolve()]
     flags = ['-std=c++20', '-DFMT_HEADER_ONLY', '-DSPDLOG_FMT_EXTERNAL', '-g',
              '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
              '-fno-sanitize-recover=all'] + ['-I'+str(i) for i in includes]
