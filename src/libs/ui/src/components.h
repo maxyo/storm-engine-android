@@ -167,6 +167,10 @@ class ComponentElement final : public Rml::Element
     void PointerUp(const Pointer &pointer, bool cancelled);
     void Tick(double now);
     void RebuildNow();
+    // Makes the slot content equal to the children of `content` (taken from it), the
+    // content a parent template passes now; content that appears or disappears rebuilds
+    // the component, since its template may have a slot only `t-if children`.
+    void SyncSlot(Rml::Element *content);
 
   protected:
     void OnAttributeChange(const Rml::ElementAttributes &changed) override;
@@ -188,6 +192,9 @@ class ComponentElement final : public Rml::Element
     std::string extra_behavior_; // added by data-behavior
     bool dirty_ = true;
     bool built_ = false;
+    bool built_children_ = false; // `children` of the last build
+    bool pending_slot_ = false;   // slot_content_ replaces the slot on the next build
+    std::vector<Rml::ElementPtr> slot_content_;
     bool error_ = false; // ReportError happened since the last rebuild
 };
 
