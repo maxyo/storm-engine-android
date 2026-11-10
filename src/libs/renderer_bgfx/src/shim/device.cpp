@@ -299,6 +299,7 @@ void Device::bind_state_refs(const DeviceState &next)
 {
     for (uint32_t i = 0; i < kMaxStages; ++i)
         assign_ref(s.textures[i], next.textures[i]);
+    assign_ref(s.vertex_texture, next.vertex_texture);
     for (uint32_t i = 0; i < kMaxStreams; ++i)
         assign_ref(s.stream[i], next.stream[i]);
     assign_ref(s.indices, next.indices);
@@ -690,6 +691,7 @@ HRESULT Device::CreateVertexBuffer(UINT length, DWORD usage, DWORD fvf, D3DPOOL,
     auto *vb = new VertexBuffer();
     vb->device = this;
     vb->shadow.assign(length, 0);
+    perf_resize(&render::PerfCounters::buffer_shadow_bytes, 0, length);
     vb->usage = usage;
     vb->fvf = fvf;
     *buffer = vb;
@@ -702,6 +704,7 @@ HRESULT Device::CreateIndexBuffer(UINT length, DWORD usage, D3DFORMAT format, D3
     auto *ib = new IndexBuffer();
     ib->device = this;
     ib->shadow.assign(length, 0);
+    perf_resize(&render::PerfCounters::buffer_shadow_bytes, 0, length);
     ib->usage = usage;
     ib->index32 = format == D3DFMT_INDEX32;
     *buffer = ib;
@@ -1006,6 +1009,11 @@ HRESULT Device::GetTexture(DWORD stage, IDirect3DBaseTexture9 **texture)
 }
 HRESULT Device::SetTexture(DWORD stage, IDirect3DBaseTexture9 *texture)
 {
+    if (stage == D3DVERTEXTEXTURESAMPLER0)
+    {
+        assign_ref(s.vertex_texture, texture);
+        return D3D_OK;
+    }
     if (stage >= kMaxStages)
         return D3DERR_INVALIDCALL;
     assign_ref(s.textures[stage], texture);

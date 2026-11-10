@@ -43,6 +43,8 @@ FormatInfo format_info(D3DFORMAT format)
     case D3DFMT_A8B8G8R8:
     case D3DFMT_X8B8G8R8:
         return {4, 0, false, true};
+    case D3DFMT_A32B32G32R32F: // bone palettes (GPU skinning), sampled with texelFetch
+        return {16, 0, false, true};
     case D3DFMT_DXT1:
         return {0, 8, false, true};
     case D3DFMT_DXT2:
@@ -198,6 +200,8 @@ TexStorePtr make_store(Device *device, TexKind kind, uint32_t width, uint32_t he
 
 TexStore::~TexStore()
 {
+    for (const Sub &s : subs)
+        perf_resize(&render::PerfCounters::texture_shadow_bytes, s.data.size(), 0);
     texture::Service::instance().release(transcode_job);
     texture::Service::instance().add_fallback_bytes(-fallback_bytes);
     if (bgfx::isValid(handle) && Context::instance().initialised())
@@ -219,7 +223,8 @@ uint8_t *TexStore::lock(uint32_t face, uint32_t level, uint32_t *pitch, uint32_t
     if (s.data.size() != total)
     {
         if (shadow_released)
-            trap("lock of a compressed texture whose CPU copy was released after upload (contents read as zero)");
+            trap("lock of a texture whose CPU copy was released after upload (compressed or immutable; contents read as zero)");
+        perf_resize(&render::PerfCounters::texture_shadow_bytes, s.data.size(), total);
         s.data.assign(total, 0);
     }
     ++s.lock_count;
@@ -259,6 +264,8 @@ void TexStore::create_gpu()
                                                                          : bgfx::TextureFormat::BC3;
         gpu_compressed = true;
     }
+    else if (format == D3DFMT_A32B32G32R32F && !render_target)
+        gpu_format = bgfx::TextureFormat::RGBA32F; // uploaded as it is (same channel order)
     else
     {
         gpu_format = bgfx::TextureFormat::RGBA8;
@@ -490,14 +497,18 @@ bgfx::TextureFormat::Enum etc_format(texture::EtcFormat format)
 }
 } // namespace
 
-// DXT payloads are never patched in place by the game, so their CPU copy (the bulk of all
-// texture memory) is dropped once the GPU texture exists and no transcode job still needs it.
+// DXT payloads are never patched in place by the game, and file textures are marked immutable by
+// the renderer, so their CPU copy (the bulk of all texture memory) is dropped once the GPU texture
+// exists and no transcode job still needs it.
 void TexStore::release_shadow()
 {
-    if (!format_info(format).block_bytes || (fallback_bytes && !transcode_job))
+    if ((!format_info(format).block_bytes && !immutable) || render_target || (fallback_bytes && !transcode_job))
         return;
     for (Sub &s : subs)
+    {
+        perf_resize(&render::PerfCounters::texture_shadow_bytes, s.data.size(), 0);
         std::vector<uint8_t>().swap(s.data);
+    }
     shadow_released = true;
 }
 
@@ -655,7 +666,8 @@ void TexStore::sync()
 {
     if (system_memory)
         return;
-    const bool sampled = !render_target && !depth_stencil;
+    // Float textures (bone palettes) skip the DDS/transcode path: created empty, levels uploaded raw.
+    const bool sampled = !render_target && !depth_stencil && format != D3DFMT_A32B32G32R32F;
     if (transcoded)
     {
         if (!any_dirty)
@@ -691,7 +703,7 @@ void TexStore::sync()
             s.dirty = false;
             const uint32_t w = level_width(level), h = level_height(level), d = level_depth(level);
             const bgfx::Memory *memory;
-            if (gpu_compressed)
+            if (gpu_compressed || gpu_format == bgfx::TextureFormat::RGBA32F)
             {
                 memory = bgfx::copy(s.data.data(), static_cast<uint32_t>(s.data.size()));
             }
@@ -903,6 +915,8 @@ VertexBuffer::~VertexBuffer()
         device->forget_transient(this);
     if (bgfx::isValid(handle) && Context::instance().initialised())
         bgfx::destroy(handle);
+    perf_resize(&render::PerfCounters::buffer_shadow_bytes, shadow.size(), 0);
+    perf_resize(&render::PerfCounters::buffer_gpu_bytes, gpu_bytes, 0);
 }
 HRESULT VertexBuffer::Lock(UINT offset, UINT size, void **data, DWORD flags)
 {
@@ -938,6 +952,8 @@ IndexBuffer::~IndexBuffer()
 {
     if (bgfx::isValid(handle) && Context::instance().initialised())
         bgfx::destroy(handle);
+    perf_resize(&render::PerfCounters::buffer_shadow_bytes, shadow.size(), 0);
+    perf_resize(&render::PerfCounters::buffer_gpu_bytes, gpu_bytes, 0);
 }
 HRESULT IndexBuffer::Lock(UINT offset, UINT size, void **data, DWORD flags)
 {

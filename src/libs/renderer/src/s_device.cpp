@@ -17,6 +17,7 @@
 #include "fs.h"
 #include "debug-trap.h"
 #include "string_compare.hpp"
+#include "storm/render/d3d_interop.hpp"
 #include "storm/render/effects.hpp"
 #include "storm/render/perf_stats.hpp"
 #include "storm/render/texture_cache.hpp"
@@ -1934,6 +1935,7 @@ bool DX9RENDER::TextureLoad(int32_t t)
     dwTotalSize += Textures[t].dwSize;
     //---------------------------------------------------------------
     Textures[t].loaded = true;
+    storm::render::MarkTextureImmutable(Textures[t].d3dtex); // the shim keeps no CPU copy after the upload
     // Close the file
     fio->_CloseFile(fileS);
     return true;
@@ -2074,6 +2076,7 @@ bool DX9RENDER::TextureRelease(int32_t texid)
     {
         return false;
     }
+    keptPixels_.erase(texid);
     if (Textures[texid].name != nullptr)
     {
         if (texLog)
@@ -4712,28 +4715,43 @@ IDirect3DBaseTexture9 *DX9RENDER::GetTextureFromID(int32_t nTextureID)
     return Textures[nTextureID].d3dtex;
 }
 
-bool DX9RENDER::sampleTextureArgb(int32_t texture,float u,float v,uint32_t& result)
+bool DX9RENDER::keepTexturePixels(int32_t texture)
 {
     if(texture<0 || size_t(texture)>=MAX_STEXTURES) return false;
+    if(keptPixels_.contains(texture)) return true;
     auto* base=Textures[texture].d3dtex;
-    if(!base || base->GetType()!=D3DRTYPE_TEXTURE) return false;
-    auto* image=static_cast<IDirect3DTexture9*>(base);
     D3DSURFACE_DESC desc{};
-    if(FAILED(image->GetLevelDesc(0,&desc)) ||
-       (desc.Format!=D3DFMT_A8R8G8B8 && desc.Format!=D3DFMT_X8R8G8B8)) return false;
     D3DLOCKED_RECT lock{};
-    if(FAILED(image->LockRect(0,&lock,nullptr,D3DLOCK_READONLY))) return false;
-    bool success=false;
-    uint32_t color=0;
-    if(lock.pBits && lock.Pitch>0 && size_t(lock.Pitch)<=SIZE_MAX/std::max(1u,desc.Height)) {
-        storm::render::TexturePixels pixels{
-            {static_cast<const uint8_t*>(lock.pBits),size_t(lock.Pitch)*desc.Height},
-            desc.Width,desc.Height,size_t(lock.Pitch),storm::render::PixelOrder::bgra8};
-        success=storm::render::sampleArgb(pixels,u,v,color);
+    if(!base || base->GetType()!=D3DRTYPE_TEXTURE ||
+       FAILED(static_cast<IDirect3DTexture9*>(base)->GetLevelDesc(0,&desc)) ||
+       (desc.Format!=D3DFMT_A8R8G8B8 && desc.Format!=D3DFMT_X8R8G8B8) ||
+       FAILED(static_cast<IDirect3DTexture9*>(base)->LockRect(0,&lock,nullptr,D3DLOCK_READONLY)))
+    {
+        core.Trace("keepTexturePixels: texture %d (%s) has no readable A8R8G8B8/X8R8G8B8 level 0", texture,
+                   Textures[texture].name ? Textures[texture].name : "?");
+        return false;
     }
-    image->UnlockRect(0);
-    if(success) result=desc.Format==D3DFMT_X8R8G8B8 ? color|0xff000000u : color;
-    return success;
+    auto& kept=keptPixels_[texture];
+    kept.width=desc.Width; kept.height=desc.Height; kept.opaque=desc.Format==D3DFMT_X8R8G8B8;
+    kept.bytes.resize(size_t(desc.Width)*desc.Height*4);
+    for(uint32_t y=0;y<desc.Height;++y)
+        std::memcpy(kept.bytes.data()+size_t(y)*desc.Width*4,
+                    static_cast<const uint8_t*>(lock.pBits)+size_t(y)*lock.Pitch,size_t(desc.Width)*4);
+    static_cast<IDirect3DTexture9*>(base)->UnlockRect(0);
+    return true;
+}
+
+bool DX9RENDER::sampleTextureArgb(int32_t texture,float u,float v,uint32_t& result)
+{
+    const auto it=keptPixels_.find(texture);
+    if(it==keptPixels_.end()) return false;
+    const KeptPixels& kept=it->second;
+    const storm::render::TexturePixels pixels{kept.bytes,kept.width,kept.height,size_t(kept.width)*4,
+                                              storm::render::PixelOrder::bgra8};
+    uint32_t color=0;
+    if(!storm::render::sampleArgb(pixels,u,v,color)) return false;
+    result=kept.opaque ? color|0xff000000u : color;
+    return true;
 }
 
 bool DX9RENDER::GetRenderTargetAsTexture(IDirect3DTexture9 **tex)

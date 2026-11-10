@@ -383,7 +383,11 @@ bool SKY::SelectSkyTextures(float factor)
                     if (pRS->TextureIncReference(reuse[face])) texture = reuse[face];
                 }
                 else
+                {
                     texture = pRS->TextureCreate((dirs[set] + names[face]).c_str());
+                    // GetPixelColor (sun fade) samples the sky on the CPU.
+                    if (texture >= 0) pRS->keepTexturePixels(texture);
+                }
                 if (texture < 0) return fail();
             }
         }
