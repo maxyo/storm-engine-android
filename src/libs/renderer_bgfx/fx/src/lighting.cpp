@@ -77,7 +77,7 @@ void Lighting::BindNormalMap(bgfx::TextureHandle normal_map, uint32_t sampler_fl
 {
     if (!bgfx::isValid(s_normal_map_))
         s_normal_map_ = bgfx::createUniform("s_fxNormalMap", bgfx::UniformType::Sampler);
-    bgfx::setTexture(11, s_normal_map_, normal_map, sampler_flags);
+    bgfx::setTexture(kNormalMapStage, s_normal_map_, normal_map, sampler_flags);
 }
 
 int Lighting::TakeDroppedLights()

@@ -27,7 +27,7 @@ class Lighting
     void Apply(const PointLightUniforms &uniforms);
 
     // FX_LIGHT_NORMALMAP variants. CreateNormalMap() uploads a derived map (RG8 with mips; the caller owns
-    // and destroys the texture). BindNormalMap() binds it to sampler stage 11 for the next draw call with
+    // and destroys the texture). BindNormalMap() binds it to sampler stage kNormalMapStage for the next draw call with
     // the sampler flags of the height texture's stage (wrap mode, anisotropy). A draw call whose stage 1
     // holds no height map must use a variant without FX_LIGHT_NORMALMAP.
     bgfx::TextureHandle CreateNormalMap(const NormalMap &map);

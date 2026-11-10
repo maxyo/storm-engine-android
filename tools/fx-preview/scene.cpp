@@ -85,6 +85,125 @@ void Transform(Mesh &mesh, std::array<float, 3> origin, float heading)
 }
 } // namespace
 
+namespace
+{
+// Quad a-b-c-d (a, b at the anchored end); `tip` is the sway weight of c and d, `base` that of a and b.
+void AddCard(Mesh &mesh, V3 a, V3 b, V3 c, V3 d, Color color, float base, float tip)
+{
+    const V3 n = Normalize(Cross(b - a, d - a));
+    const auto first = static_cast<uint32_t>(mesh.vertices.size());
+    const V3 corners[4] = {a, b, c, d};
+    const float uvs[4][2] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
+    for (int i = 0; i < 4; ++i)
+    {
+        const float weight = i < 2 ? base : tip;
+        const uint32_t baked = 0x00ffffffu | (static_cast<uint32_t>(std::lround(255.0f * (1.0f - weight))) << 24);
+        mesh.vertices.push_back({{corners[i].x, corners[i].y, corners[i].z}, {n.x, n.y, n.z}, Pack(color), baked, {uvs[i][0], uvs[i][1]}});
+    }
+    mesh.indices.insert(mesh.indices.end(), {first, first + 1, first + 2, first, first + 2, first + 3});
+}
+} // namespace
+
+Garden MakeGarden()
+{
+    Garden garden;
+    garden.ground = MakeSurface(
+        2, 2, [](float u, float v) { return V3{-16.0f + 32.0f * u, 0.0f, -4.0f + 30.0f * v}; }, {0.42f, 0.44f, 0.24f}, true);
+    const Color bark{0.40f, 0.31f, 0.22f}, leaf{0.36f, 0.56f, 0.22f}, blade{0.46f, 0.60f, 0.26f}, hemp{0.62f, 0.54f, 0.38f};
+    const V3 palms[3] = {{-6.5f, 0.0f, 9.0f}, {-1.5f, 0.0f, 13.0f}, {-9.5f, 0.0f, 15.0f}};
+    for (int p = 0; p < 3; ++p)
+    {
+        const float height = 5.2f + 0.9f * p;
+        const V3 top = palms[p] + V3{0.5f - 0.4f * p, height, 0.3f};
+        garden.trunks.Append(MakeCylinder(palms[p], top, 0.24f, 0.15f, bark));
+        for (int f = 0; f < 11; ++f)
+        {
+            // Fronds arch out and down from the crown.
+            const float angle = 2.0f * kPi * f / 11.0f + 0.4f * p, droop = 0.25f + 0.45f * ((f * 7) % 5) / 4.0f;
+            const V3 out{std::cos(angle), 0.0f, std::sin(angle)}, side{-std::sin(angle), 0.0f, std::cos(angle)};
+            const V3 mid = top + out * 1.6f + V3{0.0f, 0.55f - droop, 0.0f}, tip = top + out * 3.1f + V3{0.0f, -0.4f - 2.0f * droop, 0.0f};
+            AddCard(garden.foliage, top - side * 0.55f, top + side * 0.55f, mid + side * 0.7f, mid - side * 0.7f, leaf, 0.05f, 0.45f);
+            AddCard(garden.foliage, mid - side * 0.7f, mid + side * 0.7f, tip + side * 0.35f, tip - side * 0.35f, leaf, 0.45f, 1.0f);
+        }
+    }
+    // The second half of each frond continues the texture: v 0.5..1 (the cards above both map v 0..1).
+    for (size_t i = 0; i < garden.foliage.vertices.size(); i += 8)
+        for (size_t k = 0; k < 8; ++k)
+            garden.foliage.vertices[i + k].uv[1] = 0.5f * garden.foliage.vertices[i + k].uv[1] + (k < 4 ? 0.0f : 0.5f);
+    for (int i = 0; i < 90; ++i)
+    {
+        // Grass: two crossed blades' worth of card per tuft.
+        const float x = -14.0f + 28.0f * std::fmod(i * 0.6180339f, 1.0f), z = -2.0f + 14.0f * std::fmod(i * 0.3819660f + 0.2f, 1.0f);
+        const float a = 1.9f * i, h = 0.5f + 0.35f * std::fmod(i * 0.754877f, 1.0f);
+        for (int c = 0; c < 2; ++c)
+        {
+            const V3 dir{0.45f * std::cos(a + 1.57f * c), 0.0f, 0.45f * std::sin(a + 1.57f * c)}, base{x, 0.0f, z};
+            AddCard(garden.foliage, base - dir, base + dir, base + dir * 1.25f + V3{0.0f, h, 0.0f}, base - dir * 1.25f + V3{0.0f, h, 0.0f}, blade, 0.0f, 0.8f);
+        }
+    }
+    // Two posts with standing rigging between them and stays to the ground.
+    const V3 post_a{3.0f, 0.0f, 9.0f}, post_b{11.5f, 0.0f, 12.0f};
+    garden.trunks.Append(MakeCylinder(post_a, post_a + V3{0.0f, 7.0f, 0.0f}, 0.14f, 0.10f, bark));
+    garden.trunks.Append(MakeCylinder(post_b, post_b + V3{0.0f, 7.0f, 0.0f}, 0.14f, 0.10f, bark));
+    const auto rope = [&](V3 from, V3 to, float sag) {
+        // Ropes face the camera (which looks along +z): a thin vertical ribbon, in segments so that it can sag and sway.
+        V3 previous = from;
+        for (int s = 1; s <= 8; ++s)
+        {
+            const float t = s / 8.0f;
+            const V3 next = from + (to - from) * t - V3{0.0f, sag * 4.0f * t * (1.0f - t), 0.0f};
+            const float w0 = 4.0f * (t - 0.125f) * (1.125f - t), w1 = 4.0f * t * (1.0f - t);
+            const V3 thick{0.0f, 0.035f, 0.0f};
+            AddCard(garden.ropes, previous - thick, previous + thick, next + thick, next - thick, hemp, 0.3f * std::max(w0, 0.0f), 0.3f * w1);
+            previous = next;
+        }
+    };
+    for (int i = 0; i < 6; ++i)
+        rope(post_a + V3{0.0f, 2.0f + 0.9f * i, 0.0f}, post_b + V3{0.0f, 6.8f - 0.9f * i, 0.0f}, 0.25f);
+    for (int i = 0; i < 4; ++i)
+    {
+        rope(post_a + V3{0.0f, 6.9f, 0.0f}, post_a + V3{-3.5f + 0.8f * i, 0.0f, -2.5f}, 0.05f);
+        rope(post_b + V3{0.0f, 6.9f, 0.0f}, post_b + V3{3.5f - 0.8f * i, 0.0f, -2.5f}, 0.05f);
+    }
+    return garden;
+}
+
+std::vector<uint8_t> MakeFrondTexture(int size)
+{
+    std::vector<uint8_t> rgba(static_cast<size_t>(size) * size * 4);
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x)
+        {
+            const float u = (x + 0.5f) / size - 0.5f, v = (y + 0.5f) / size;
+            // A rib along v with leaflets slanting towards the tip, narrowing to a point.
+            const float reach = 0.48f * (1.0f - 0.75f * v * v);
+            const float leaflet = std::fabs(std::fmod((v + 0.35f * std::fabs(u)) * 13.0f, 1.0f) - 0.5f);
+            const bool solid = std::fabs(u) < 0.025f || (std::fabs(u) < reach && leaflet < 0.30f);
+            const float shade = 0.75f + 0.25f * storm::fx::PeriodicFbm(u + 0.5f, v, 8, 2, 31u) - 0.25f * std::fabs(u);
+            uint8_t *texel = &rgba[(static_cast<size_t>(y) * size + x) * 4];
+            texel[0] = static_cast<uint8_t>(std::lround(255.0f * std::clamp(0.80f * shade, 0.0f, 1.0f)));
+            texel[1] = static_cast<uint8_t>(std::lround(255.0f * std::clamp(shade, 0.0f, 1.0f)));
+            texel[2] = static_cast<uint8_t>(std::lround(255.0f * std::clamp(0.62f * shade, 0.0f, 1.0f)));
+            texel[3] = solid ? 255 : 0;
+        }
+    return rgba;
+}
+
+std::vector<uint8_t> MakeRopeTexture(int size)
+{
+    std::vector<uint8_t> rgba(static_cast<size_t>(size) * size * 4);
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x)
+        {
+            // The strand runs along v in the middle third of u, with a twist pattern.
+            const float v = (x + 0.5f) / size - 0.5f, twist = 0.8f + 0.2f * std::sin((y + 2.0f * x) * 1.6f);
+            uint8_t *texel = &rgba[(static_cast<size_t>(y) * size + x) * 4];
+            texel[0] = texel[1] = texel[2] = static_cast<uint8_t>(std::lround(255.0f * twist));
+            texel[3] = std::fabs(v) < 0.17f ? 255 : 0;
+        }
+    return rgba;
+}
+
 Mesh MakeReliefMesh(Relief kind)
 {
     Mesh mesh;

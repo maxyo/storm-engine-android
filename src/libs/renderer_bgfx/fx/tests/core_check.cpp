@@ -58,6 +58,10 @@ void CheckSettings()
     CHECK(!medium.PostIsIdentity() && !high.PostIsIdentity());
     CHECK(medium.bloom_downscale == 4 && high.bloom_downscale == 2);
     CHECK(!medium.sharpen && high.sharpen);
+    // MSAA is the primary anti-aliasing of the presets; FXAA is left to the player. Optional looks stay off.
+    CHECK(medium.msaa == 4 && high.msaa == 4 && !medium.fxaa && !high.fxaa && original.msaa == 1);
+    CHECK(medium.anisotropy == 4 && high.anisotropy == 8 && original.anisotropy == 1);
+    CHECK(high.vignette == 0.0f && high.film_grain == 0.0f && medium.dither && !original.dither);
     CHECK(high.water == WaterQuality::High && medium.water == WaterQuality::Medium);
     CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
@@ -491,10 +495,11 @@ void CheckLighting()
     s.lighting_flags = kLightingPoint; // baked geometry: dynamic point lights only
     CHECK(LightingDefines(s) == "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4" && PointLightBudget(s) == 4);
     CHECK(LightingDefines(Settings::FromPreset(QualityPreset::Medium)) ==
-          "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_SHADOW;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4;FX_LIGHT_NORMALMAP");
+          "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_SHADOW;FX_LIGHT_RIM;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4;"
+          "FX_LIGHT_NORMALMAP;FX_LIGHT_LINEAR;FX_AERIAL;FX_WIND");
     CHECK(LightingDefines(Settings::FromPreset(QualityPreset::High)) ==
           "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_SPECULAR;FX_LIGHT_TRANSLUCENT;FX_LIGHT_SHADOW;FX_LIGHT_SHADOW_SOFT;"
-          "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=8;FX_LIGHT_NORMALMAP");
+          "FX_LIGHT_RIM;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=8;FX_LIGHT_NORMALMAP;FX_LIGHT_LINEAR;FX_AERIAL;FX_WIND");
     CHECK(PointLightBudget(Settings::FromPreset(QualityPreset::High)) == 8);
 }
 
@@ -503,6 +508,7 @@ void CheckSupport()
 {
     Support all;
     all.lut_3d = all.shadow_map = all.scene_snapshot = all.wave_field = all.scene_depth = all.normal_map = true;
+    all.msaa = all.msaa_depth = all.anisotropy = true;
     for (QualityPreset preset : {QualityPreset::Original, QualityPreset::Medium, QualityPreset::High})
     {
         const Settings settings = Settings::FromPreset(preset);
@@ -534,13 +540,34 @@ void CheckSupport()
     CHECK(constrained.shadows == ShadowQuality::Off && changes.size() == 1);
     CHECK(LightingDefines(constrained).find("FX_LIGHT_SHADOW") == std::string::npos);
 
-    // No 3D textures: the whole grading / bloom part goes, anti-aliasing stays.
+    // No 3D textures: the post chain is reduced to its plain copy; MSAA is the renderer's and stays.
     Support no_lut = all;
     no_lut.lut_3d = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_lut, changes);
-    CHECK(!constrained.tonemap && !constrained.bloom && !constrained.sun_shafts && !constrained.ssao && constrained.fxaa);
+    CHECK(!constrained.tonemap && !constrained.bloom && !constrained.sun_shafts && !constrained.ssao && !constrained.dither);
+    CHECK(constrained.msaa == 4 && constrained.PostIsIdentity());
     CHECK(ValidateSettings(constrained, no_lut).empty());
+
+    // MSAA without depth resolve: the multisampled scene keeps MSAA and gives up what needs depth.
+    Support no_msaa_depth = all;
+    no_msaa_depth.msaa_depth = false;
+    changes.clear();
+    constrained = ConstrainSettings(high, no_msaa_depth, changes);
+    CHECK(constrained.msaa == 4 && !constrained.ssao && constrained.water == WaterQuality::Medium && changes.size() == 2);
+    // No MSAA at all: alpha to coverage goes with it, and then depth-based effects are fine again.
+    Support no_msaa = no_msaa_depth;
+    no_msaa.msaa = false;
+    changes.clear();
+    constrained = ConstrainSettings(high, no_msaa, changes);
+    CHECK(constrained.msaa == 1 && !constrained.alpha_to_coverage && constrained.ssao && constrained.water == WaterQuality::High);
+    const RendererState state = RendererStateFor(high);
+    CHECK(state.msaa_samples == 4 && state.alpha_to_coverage && state.max_anisotropy == 8);
+    CHECK(RendererStateFor(Settings{}).msaa_samples == 1 && !RendererStateFor(Settings{}).alpha_to_coverage);
+    Support no_aniso = all;
+    no_aniso.anisotropy = false;
+    changes.clear();
+    CHECK(ConstrainSettings(high, no_aniso, changes).anisotropy == 1 && changes.size() == 1);
 
     // No RG8 textures: normal maps go, and so does the shader define.
     Support no_rg = all;
@@ -799,6 +826,74 @@ void CheckNormalMaps()
     CHECK(DeriveNormalMap(flat, n, n + 1, options).rg.empty());
 }
 
+void CheckCheapUpgrades()
+{
+    WeatherInput weather;
+    weather.sun_dir = {0.6f, 0.8f, 0.0f};
+    weather.fog_density = 0.002f;
+    const SkyState noon = ComputeSky(weather);
+
+    // Aerial perspective: the game's fog density, a haze layer that thins with the camera's height, world up
+    // taken from the view matrix, haze colour = the horizon (gamma encoded).
+    const std::array<float, 16> view = {0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1}; // world y -> view x
+    const AerialUniforms low = ComputeAerial(noon, 2.0f, view), high_up = ComputeAerial(noon, 200.0f, view);
+    CHECK(low.u_fxAerial[0][3] == 0.002f && Near(low.u_fxAerial[0][1], std::sqrt(noon.horizon[1]), 1e-5f));
+    CHECK(low.u_fxAerial[1][0] > 10.0f * high_up.u_fxAerial[1][0] && high_up.u_fxAerial[1][0] > 0.0f);
+    CHECK(low.u_fxAerial[2][0] == 1.0f && low.u_fxAerial[2][1] == 0.0f && low.u_fxAerial[1][3] < 1.0f);
+    // The sea under the haze: denser than the plain fog, less so from the masthead than from the deck.
+    CHECK(SeaFogDensity(noon, 2.0f) > SeaFogDensity(noon, 30.0f) && SeaFogDensity(noon, 30.0f) > noon.fog_density);
+    CHECK(SeaFogDensity(noon, 2.0f) < noon.fog_density * (1.0f + kHazeDensityFactor) + 1e-6f);
+
+    // Wind: stronger weather, larger and faster sway; the direction is the weather's.
+    weather.wind = {0.6f, 0.8f};
+    weather.wind_speed = 3.0f;
+    const WindUniforms breeze = ComputeWind(weather, 5.0f);
+    weather.wind_speed = 30.0f;
+    const WindUniforms gale = ComputeWind(weather, 5.0f);
+    CHECK(breeze.u_fxWind[0][0] == 0.6f && breeze.u_fxWind[0][2] == 0.8f && breeze.u_fxWind[0][3] == 5.0f);
+    CHECK(gale.u_fxWind[1][0] > 2.0f * breeze.u_fxWind[1][0] && gale.u_fxWind[1][1] > breeze.u_fxWind[1][1]);
+    CHECK(gale.u_fxWind[1][0] <= 0.5f + 1e-6f); // saturates: trees do not fly away in a storm
+
+    // Scene grades: each mood is distinct, the blend follows the sky continuously.
+    const auto sky_at = [](float sun_height) {
+        WeatherInput w;
+        w.sun_dir = {std::sqrt(1.0f - sun_height * sun_height), sun_height, 0.0f};
+        return ComputeSky(w);
+    };
+    const std::array<float, 3> grey{0.5f, 0.5f, 0.5f};
+    const ColorGrade day = SceneGrade(sky_at(0.8f), 0.0f, 0.0f), dusk = SceneGrade(sky_at(0.08f), 0.0f, 0.0f);
+    const ColorGrade night = SceneGrade(sky_at(-0.5f), 0.0f, 0.0f), storm = SceneGrade(sky_at(0.8f), 1.0f, 0.0f);
+    const ColorGrade indoors = SceneGrade(sky_at(-0.5f), 0.0f, 1.0f);
+    CHECK(day == ColorGrade::ForMood(ColorGrade::Mood::TropicalNoon) && night == ColorGrade::ForMood(ColorGrade::Mood::Night));
+    CHECK(indoors == ColorGrade::ForMood(ColorGrade::Mood::Interior));
+    CHECK(dusk.Apply(grey)[0] > dusk.Apply(grey)[2] + 0.015f);   // warm
+    CHECK(night.Apply(grey)[2] > night.Apply(grey)[0] + 0.015f); // cool
+    CHECK(storm.saturation < day.saturation && night.saturation < day.saturation);
+    // A small step of the sun is a small step of the grade (no jump at dusk).
+    float worst = 0.0f;
+    for (int i = 0; i < 60; ++i)
+    {
+        const auto a = SceneGrade(sky_at(-0.3f + 0.01f * i), 0.0f, 0.0f).Apply(grey), b = SceneGrade(sky_at(-0.29f + 0.01f * i), 0.0f, 0.0f).Apply(grey);
+        worst = std::max({worst, std::fabs(a[0] - b[0]), std::fabs(a[2] - b[2])});
+    }
+    CHECK(worst < 0.02f);
+    // The post chain rebuilds the table only when the drift shows in 8-bit output.
+    CHECK(GradeDifference(day, day) == 0.0f && GradeDifference(day, night) > 0.02f);
+    const ColorGrade user = ColorGrade::Preset(GradePreset::Caribbean);
+    // Built two slices at a time (the post chain's background rebuild), the table is the same.
+    std::vector<uint8_t> sliced(8 * 8 * 8 * 4);
+    for (int first = 0; first < 8; first += 2)
+        BuildLutSlices(user, 8, dusk, first, 2, sliced.data());
+    CHECK(sliced == BuildLutRgba8(user, 8, dusk));
+    CHECK(GradeDifference(SceneGrade(sky_at(0.5f), 0.0f, 0.0f), SceneGrade(sky_at(0.501f), 0.0f, 0.0f)) < 0.5f / 255.0f);
+    // The scene grade is applied before the player's grade.
+    const std::vector<uint8_t> both = BuildLutRgba8(user, 8, night);
+    const auto expected = user.Apply(night.Apply({1.0f / 7.0f, 3.0f / 7.0f, 5.0f / 7.0f}));
+    const uint8_t *texel = &both[((5 * 8 + 3) * 8 + 1) * 4];
+    CHECK(std::abs(texel[0] - static_cast<int>(std::lround(expected[0] * 255.0f))) <= 1 &&
+          std::abs(texel[2] - static_cast<int>(std::lround(expected[2] * 255.0f))) <= 1);
+}
+
 int g_log_lines = 0;
 
 void CheckHeightMapRules()
@@ -851,6 +946,7 @@ int main()
     CheckLights();
     CheckShadows();
     CheckNormalMaps();
+    CheckCheapUpgrades();
     CheckHeightMapRules();
     if (failures)
     {
