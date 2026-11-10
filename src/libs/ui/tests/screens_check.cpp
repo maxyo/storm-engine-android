@@ -573,6 +573,18 @@ static void Transfer(const std::string &models)
     router.OnEvent({"header-back", "click", ""});
     ExpectEqual(surface.Last(), prefix + "EXIT_BTN\t-1\tpress", "back leaves through the game's exit (it asks about the ship)");
 
+    router.OnEvent({"goods", "row", "0"});
+    ExpectEqual(surface.Last(), prefix + "TABLE_LIST\t0\tselect", "a tap selects the cargo row (the game's rows carry no identity here)");
+    router.SetInterface(Load(models, "transfer-loot-row.json"));
+    const Json &shot = surface.props["list"]["rows"][0];
+    Expect(shot["q"]["value"] == 100 && shot["q"]["max"] == 595 && shot["q"]["steps"][0] == 20, "the selected row: ours of both, in packs of 20");
+    surface.commands.clear();
+    router.OnEvent({"goods", "commit", "145"});
+    Expect(surface.commands.size() == 3 && surface.commands[0] == prefix + "B_LEFT\t-1\tpress", "+45 = three packs taken (the game moves whole packs)");
+    surface.commands.clear();
+    router.OnEvent({"goods", "commit", "0"});
+    Expect(surface.commands.size() == 5 && surface.commands[0] == prefix + "B_RIGHT\t-1\tpress", "all 100 given = five packs");
+
     router.SetInterface(Load(models, "transfer-hire.json"));
     const Json &hire = surface.props["modal"];
     Expect(hire["step"] == "1/2" && hire["q"]["value"] == 8 && hire["q"]["max"] == 8, "defectors: all 8 willing are taken by default");

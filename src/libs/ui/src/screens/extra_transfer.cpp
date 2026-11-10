@@ -206,16 +206,8 @@ class TransferScreen final : public Screen
         else if (free_theirs >= 0)
             stats.push_back(Json{{"label", theirs}, {"value", std::to_string(free_theirs) + " " + bindings.Text("transfer.free")}});
         view["stats"] = stats;
-        const Widget *left = admitted.One("B_LEFT"), *right = admitted.One("B_RIGHT");
         view["subject"] = Json();
-        if ((left && left->Offers("press")) || (right && right->Offers("press")))
-        {
-            view["subject"] = Json{{"label", theirs}, {"sub", admitted.Label("SHIP_TYPE2")}, {"prev", left && left->Offers("press")},
-                                   {"next", right && right->Offers("press")}, {"list", false}};
-            bindings.On("header", "subject-prev", [&bindings, left](const Event &) { if (left) bindings.Send(*left, "press"); });
-            bindings.On("header", "subject-next", [&bindings, right](const Event &) { if (right) bindings.Send(*right, "press"); });
-            bindings.Ignore("header", "subject-list");
-        }
+        Cargo(admitted, bindings, view, ours);
 
         // Tabs: the crew is the game's crew window.
         const Widget *crew_button = admitted.One("CREW_BUTTON");
@@ -348,6 +340,70 @@ class TransferScreen final : public Screen
     {
         bindings.Forward(id, widget, "press");
         return Json{{"id", id}, {"label", label}, {"variant", variant}, {"hold", hold}, {"disabled", !widget.Offers("press")}, {"reason", widget.unavailable_reason}};
+    }
+
+    // The cargo: a tap selects a row (the game's arrows act on the selected row), the
+    // selected row opens its amount; the game moves one pack per arrow press (B_LEFT takes,
+    // B_RIGHT gives). The game's own amount window here is «throw overboard», not a
+    // transfer, and is not offered.
+    void Cargo(const Admission &admitted, Bindings &bindings, Json &view, const std::string &ours)
+    {
+        const std::vector<const Widget *> goods = admitted.All("TABLE_LIST");
+        const Widget *take = admitted.One("B_LEFT"), *give = admitted.One("B_RIGHT");
+        const Widget *selected = nullptr;
+        for (const Widget *row : goods)
+            if (row->value == "1")
+                selected = row;
+        if (!view["list"].contains("rows"))
+            return;
+        Json &rows = view["list"]["rows"];
+        const int own = selected ? Number(selected->CellText(0)) : 0, other = selected ? Number(selected->CellText(3)) : 0;
+        const int pack = selected ? std::max(1, Number(selected->CellText(5))) : 1;
+        if (!selected || selected->row_id != cargo_row_)
+        {
+            cargo_ = Amount();
+            cargo_row_ = selected ? selected->row_id : std::string();
+        }
+        const bool recent = cargo_.target >= 0 && (cargo_.send >= 0 || bindings.Now() - cargo_.send_at < 1.0);
+        if (recent && cargo_.send < 0)
+            bindings.RebuildAfter(cargo_.send_at + 1.0 - bindings.Now());
+        if (selected && cargo_.send >= 0 && bindings.Now() >= cargo_.send_at && take && give)
+        {
+            const int delta = cargo_.send - own;
+            cargo_.send = -1;
+            const int presses = (std::abs(delta) + pack - 1) / pack;
+            for (int i = 0; i < presses; ++i)
+                bindings.Send(delta > 0 ? *take : *give, "press");
+        }
+        else if (cargo_.send >= 0)
+            bindings.RebuildAfter(cargo_.send_at - bindings.Now());
+        for (size_t i = 0; i < rows.size() && i < goods.size(); ++i)
+        {
+            Json &row = rows[i];
+            const size_t index = static_cast<size_t>(std::atoi(row["id"].get<std::string>().c_str()));
+            const bool open = index < goods.size() && goods[index] == selected;
+            row["selected"] = open;
+            row.erase("q");
+            if (open)
+                row["q"] = Json{{"value", recent ? cargo_.target : own},
+                                {"min", 0},
+                                {"max", own + other},
+                                {"label", ours},
+                                {"steps", Json::array({pack, pack * 10, pack * 100})},
+                                {"disabled", !take || !give || !take->Offers("press") || !give->Offers("press")}};
+        }
+        bindings.On("goods", "row", [&bindings, goods, selected](const Event &event) {
+            const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
+            if (index < goods.size() && goods[index] != selected && goods[index]->Offers("select"))
+                bindings.Send(*goods[index], "select", goods[index]->row_id);
+        });
+        const auto set = [this, &bindings](const Event &event) {
+            cargo_.target = cargo_.send = std::atoi(event.value.c_str());
+            cargo_.send_at = bindings.Now() + (event.verb == "commit" ? 0.0 : 0.4);
+            bindings.Rebuild();
+        };
+        bindings.On("goods", "change", set);
+        bindings.On("goods", "commit", set);
     }
 
     // The crew of both ships: our number moves by the game's arrows, one man per press.
@@ -487,7 +543,8 @@ class TransferScreen final : public Screen
         double send_at = 0.0;
     };
     std::unique_ptr<Screen> goods_;
-    Amount crew_, hire_;
+    Amount crew_, hire_, cargo_;
+    std::string cargo_row_; // the cargo row the amount above belongs to
     int hire_max_ = 0;
     bool hire_seen_ = false;
 };
