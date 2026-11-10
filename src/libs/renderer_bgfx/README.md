@@ -41,6 +41,9 @@ on Android and on the Linux development host alike.
   fd541f05). It is not taken yet because every bgfx.cmake revision that carries it (5730f7a and later)
   replaces the bgfx/bx/bimg submodules with FetchContent, which changes how this pin, host-tools/ and
   the offline Android sources work. Drop the patch with that pin bump.
+  `bgfx-anisotropy-level.patch`: the GL backend applies one anisotropy level to every sampler, the device
+  maximum; the patch caps it with `bgfx::gl::g_stormMaxAnisotropy` so the presets get 4x / 8x (set by
+  `src/effects`). Upstream bgfx has no per-level API; keep it until it does.
 - `fx/` — optional effects package (see its README), driven by `src/effects/` (presets, post chain,
   lighting and alpha to coverage of the fixed-function emulator).
 
