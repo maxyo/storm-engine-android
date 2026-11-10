@@ -1,6 +1,4 @@
 #include "xi_button.h"
-#include <algorithm>
-#include <iterator>
 
 #include "string_compare.hpp"
 
@@ -48,9 +46,9 @@ void CXI_BUTTON::MobileCollect(std::vector<MobileWidget> &widgets) const
     // words for them.
     static constexpr const char *iconScreens[] = {"boal_dice", "boal_cards", "repair", "transfer_main",
                                                   "sailsgerald", "goodstransfer", "alchemy"};
-    if ((!label || !*label) && std::any_of(std::begin(iconScreens), std::end(iconScreens),
-                                           [](const char *id) { return storm::android::mobileScreen == id; }))
-        label = m_nodeName;
+    for (const char *id : iconScreens)
+        if ((!label || !*label) && storm::android::mobileScreen == id)
+            label = m_nodeName;
     // These icon/hit-area nodes deliberately keep text in STR_BUTTONS. Export
     // the actual command-bearing node, using the same localized resource key.
     if ((!label || !*label) && pStringService)
