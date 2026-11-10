@@ -205,6 +205,9 @@ class SeaScene final : public Scene
             hud_.Error("sea HUD: the engine binds no helm (Ship_TurnLeft / Ship_TurnRight) in mode " + gameplay.mode + "; no helm");
 
         BuildGuns(states, ship, view, input);
+        BuildTime(gameplay, ship, view, input);
+        if (ship && layout_ == "sea-battle")
+            BuildAbilities(gameplay, *ship, view, input);
         if (fan_open_)
             return; // the fan takes the place of the buttons around the ammunition
         BuildQuick(states.sea_quick, view, input);
@@ -495,6 +498,63 @@ class SeaScene final : public Scene
                 hud_.Rebuild();
             });
         }
+    }
+
+    // The game's time acceleration (its R / + / − keys): the scripts step and clamp the scale,
+    // the button shows the scale the engine runs at.
+    void BuildTime(const Gameplay &gameplay, const Ship *ship, View &view, Input &input)
+    {
+        if (!gameplay.Has("TimeScale") || !ship || ship->time_scale < 0.0)
+            return;
+        char text[16];
+        std::snprintf(text, sizeof(text), "%.2f", ship->time_scale);
+        std::string scale = text;
+        while (scale.back() == '0')
+            scale.pop_back();
+        if (scale.back() == '.')
+            scale.pop_back();
+        const bool fast = std::abs(ship->time_scale - 1.0) > 0.001;
+        view.elements["time"] = Json{{"badge", "×" + scale}, {"variant", fast ? "active" : "normal"}};
+        input.On("time", "click", [this](const Event &) { Control("TimeScale"); });
+        for (const auto &[element, control] : {std::pair{"time-slower", "TimeScaleSlower"}, std::pair{"time-faster", "TimeScaleFaster"}})
+        {
+            if (!gameplay.Has(control))
+                continue;
+            view.elements[element] = Json::object();
+            input.On(element, "click", [this, control = std::string(control)](const Event &) { Control(control); });
+        }
+    }
+
+    // The battle abilities beside the guns (V2-Sea-Battle effect-0 / effect-1): a tap launches
+    // the ability through the engine's command list; the fill rises bottom to top: what is left
+    // of an active effect, or how far a used ability has recovered.
+    void BuildAbilities(const Gameplay &gameplay, const Ship &ship, View &view, Input &input)
+    {
+        struct Look
+        {
+            const char *id, *element, *icon, *label;
+        };
+        static const Look kLooks[] = {{"InstantRepair", "effect-0", "perk-instantrepair", StringKey("hud.sea.ability.repair")},
+                                      {"ImmediateReload", "effect-1", "reload", StringKey("hud.sea.ability.reload")}};
+        for (const Look &look : kLooks)
+            for (const Ship::Ability &ability : ship.abilities)
+            {
+                if (ability.id != look.id)
+                    continue;
+                const std::string control = std::string("BI_") + look.id;
+                Json button = {{"icon", look.icon}, {"label", hud_.Text(look.label)}};
+                if (ability.state == "active")
+                    button.update(Json{{"fill", std::lround(ability.fill * 100.0)}, {"fillTone", "active"}, {"reloading", true}});
+                else if (ability.state == "recovery")
+                    button.update(Json{{"fill", std::lround(ability.fill * 100.0)}, {"fillTone", "cooldown"}, {"reloading", true}});
+                else if (ability.state == "blocked" || !gameplay.Has(control))
+                    button["disabled"] = true;
+                view.elements[look.element] = std::move(button);
+                if (ability.state == "ready" && gameplay.Has(control))
+                    input.On(look.element, "click", [this, control](const Event &) { Control(control); });
+                else
+                    input.Ignore(look.element, "click"); // the disabled reason is the fill itself
+            }
     }
 
     // A tap control: the engine runs it once, in the gameplay revision it was drawn for.

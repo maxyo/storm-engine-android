@@ -546,6 +546,23 @@ class ShipConsumer final : public HudConsumer
         out.speed = speed != state.end() && speed->is_number() && std::isfinite(speed->get<double>()) ? std::abs(speed->get<double>()) : -1.0;
         out.wind = Amount(state, "windSpeed");
         out.cannon_charge = Amount(state, "cannonCharge") < 0.0 ? -1.0 : std::min(1.0, Amount(state, "cannonCharge"));
+        out.time_scale = Amount(state, "timeScale");
+        const auto abilities = state.find("abilities");
+        if (abilities != state.end())
+        {
+            if (!abilities->is_array() || abilities->size() > 4)
+                return "abilities is not a short list";
+            for (const Json &source : *abilities)
+            {
+                Ship::Ability ability;
+                ability.id = source.is_object() ? Text(source, "id").value_or("") : "";
+                ability.state = source.is_object() ? Text(source, "state").value_or("") : "";
+                ability.fill = source.is_object() ? Ratio(source, "fill") : 0.0;
+                if (!OneOf(ability.id, {"InstantRepair", "ImmediateReload"}) || !OneOf(ability.state, {"ready", "active", "recovery", "blocked"}))
+                    return "an unknown ability or ability state";
+                out.abilities.push_back(std::move(ability));
+            }
+        }
         out.date_time = Text(state, "dateTimeText").value_or("");
         out.location = Text(state, "locationText").value_or("");
         if (!Printable(out.date_time, 160, true) || !Printable(out.location, 160, true))

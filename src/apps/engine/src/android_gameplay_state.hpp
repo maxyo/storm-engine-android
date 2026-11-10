@@ -103,6 +103,17 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
             if (out.mode == "melee")
                 for (auto name : {"ChrAltAttackBase", "ChrAttackBase", "ChrAttackBreakBase", "ChrAttackChoseBase", "ChrBlock", "ChrFire"}) add(name);
         }
+        // The time scale controls are global (no key group): offered when the scripts created them.
+        auto *created = attributes ? attributes->FindAClass(attributes, "map.controls") : nullptr;
+        if (sea && !context.worldmap && created)
+            for (auto name : {"TimeScale", "TimeScaleFaster", "TimeScaleSlower"})
+                if (created->GetAttributeClass(name)) out.capabilities.emplace_back(name);
+        // The battle abilities the scripts' command list knows (launched like its own buttons).
+        auto *battleData = static_cast<VDATA *>(core.GetScriptVariable("BattleInterface"));
+        auto *battle = sea && !context.worldmap && battleData ? battleData->GetAClass() : nullptr;
+        if (auto *commands = battle ? battle->FindAClass(battle, "Commands") : nullptr)
+            for (auto name : {"InstantRepair", "ImmediateReload"})
+                if (commands->GetAttributeClass(name)) out.capabilities.emplace_back(std::string("BI_") + name);
         return out;
     }
     catch (...) { return {}; } // Missing/incompatible scripts fail closed.
