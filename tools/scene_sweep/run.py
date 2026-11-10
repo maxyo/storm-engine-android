@@ -257,6 +257,9 @@ class Shard(threading.Thread):
         source = self.arguments.game
         for name in ('engine.ini', 'options'):  # files the game rewrites must not be the player's
             (game / name).unlink(missing_ok=True)
+        # The player's profiles: a profile named like the sweep's new game stops it at "the profile exists" (and the
+        # game would write into the player's hard-linked saves).
+        shutil.rmtree(inventory.find_case_insensitive(game, 'save') or game / 'save', ignore_errors=True)
         if (source / 'options').exists():
             shutil.copy(source / 'options', game / 'options')
         settings = inventory.read_script(source / 'engine.ini')
