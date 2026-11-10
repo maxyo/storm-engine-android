@@ -3221,13 +3221,6 @@ char *XINTERFACE::SaveFileFind(int32_t saveNum, char *buffer, size_t bufSize, in
         const auto vFilePaths = fio->_GetFsPathsByMask(sSavePath, nullptr, true);
         for (std::filesystem::path filePath : vFilePaths)
         {
-            // Leftovers of an interrupted atomic save (core/src/save_file.hpp:
-            // "<name>.storm-tmp" / "<name>.storm-bak") are not saves.
-            const auto extension = filePath.extension().string();
-            if (extension == ".storm-tmp" || extension == ".storm-bak")
-            {
-                continue;
-            }
             AddFindData(filePath);
         }
         // common part
@@ -3282,13 +3275,6 @@ void XINTERFACE::DeleteSaveFile(const char *fileName)
     const char *sSavePath = AttributesPointer->GetAttribute("SavePath");
     const std::string param = sSavePath == nullptr ? std::string(fileName) : std::string(sSavePath) + "\\" + fileName;
     fio->_DeleteFile(param.c_str());
-    // Leftovers of an interrupted atomic save of the same name (core/src/save_file.hpp).
-    for (const char *suffix : {".storm-tmp", ".storm-bak"})
-    {
-        const std::string leftover = param + suffix;
-        if (fio->_FileOrDirectoryExists(leftover.c_str()))
-            fio->_DeleteFile(leftover.c_str());
-    }
 }
 
 uint32_t XINTERFACE_BASE::GetBlendColor(uint32_t minCol, uint32_t maxCol, float fBlendFactor)

@@ -7,6 +7,7 @@
 #include "controls.h"
 #include "fs.h"
 #include "save_file.hpp"
+#include "save_trash.hpp"
 #include "steam_api.hpp"
 
 #include <fstream>
@@ -151,6 +152,7 @@ bool CoreImpl::Run()
         return false; // exit
 
     Timer.Run(); // calc delta time
+    storm::save::trash().tick(); // finalize save deletes whose grace period has passed
 
     auto *pVCTime = static_cast<VDATA *>(core_internal.GetScriptVariable("iRealDeltaTime"));
     if (pVCTime)
@@ -616,6 +618,7 @@ bool CoreImpl::SaveState(const char *file_name)
     storm::save::Bytes image;
     if (!Compiler->SaveState(image))
     {
+        storm::save::trash().rollback(); // nothing was written: undo the slot delete that preceded this save
         return false;
     }
 
@@ -632,9 +635,12 @@ bool CoreImpl::SaveState(const char *file_name)
     {
         spdlog::error("Cannot save '{}' (resolved '{}'): {}; the previous save, if any, is unchanged", name,
                       path.string(), error);
+        storm::save::trash().rollback();
         return false;
     }
 
+    // The new save is durable: deletes made on the way to it (slot overwrite) are final.
+    storm::save::trash().commit();
     return true;
 }
 
