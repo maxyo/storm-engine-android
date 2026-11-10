@@ -20,7 +20,6 @@ namespace
 {
 
 constexpr double kIdle = 3600.0;
-constexpr double kMoveHeartbeat = 0.1;    // the engine drops a stick it has not heard from for 350 ms
 constexpr double kChoiceSeconds = 1.5;    // a tapped row waits this long for the engine to select it
 
 using screens::StringKey;
@@ -174,12 +173,8 @@ class LandScene final : public Scene
         {
             if (!states.gameplay.analog_movement || !hud_.Interactive())
                 moving_ = false; // the owner is gone: the engine has dropped the stick already
-            else
-            {
-                if (now - moved_at_ >= kMoveHeartbeat)
-                    Move(states.gameplay, true);
-                next = std::min(next, std::max(0.0, moved_at_ + kMoveHeartbeat - now));
-            }
+            else if (states.gameplay.input_owner != move_owner_ || states.gameplay.movement_generation != move_generation_)
+                Move(states.gameplay, true); // a new movement session (owner, generation): the held stick goes on in it
         }
         if (!choice_.empty() && now >= choice_until_)
         {
@@ -463,7 +458,8 @@ class LandScene final : public Scene
         if (!active && !moving_)
             return;
         moving_ = active;
-        moved_at_ = hud_.Now();
+        move_owner_ = gameplay.input_owner;
+        move_generation_ = gameplay.movement_generation;
         hud_.Send("move",
                   "1\t" + gameplay.input_owner + "\t" + std::to_string(gameplay.movement_generation) + "\t" + std::to_string(++move_sequence_) + "\t" +
                       (active ? "1" : "0") + "\t" + std::to_string(active ? x_ : 0) + "\t" + std::to_string(active ? y_ : 0),
@@ -603,7 +599,9 @@ class LandScene final : public Scene
     // movement
     bool moving_ = false;
     int x_ = 0, y_ = 0;
-    double moved_at_ = 0.0;
+    // The stick is said on change only (event model): the engine holds it until its release.
+    std::string move_owner_;
+    uint64_t move_generation_ = 0;
     uint64_t move_sequence_ = 0;
     // combat
     uint64_t combat_activity_ = 0, combat_sequence_ = 0;
