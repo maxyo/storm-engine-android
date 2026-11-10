@@ -63,14 +63,6 @@ const Named kPlaces[] = {
     {"fr_6", "church", ""}, {"fr_7", "lantern", ""},  {"fr_8", "portoffice", ""}, {"fr_9", "prison", ""},
 };
 
-std::string Lower(std::string text)
-{
-    for (char &c : text)
-        if (c >= 'A' && c <= 'Z')
-            c = static_cast<char>(c - 'A' + 'a');
-    return text;
-}
-
 class LandScene final : public Scene
 {
   public:

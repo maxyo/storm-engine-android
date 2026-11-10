@@ -725,6 +725,23 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         return complete;
     }
 
+    bool Measure(const std::string &id, const std::string &selector, hud::Placement &out) const override
+    {
+        Rml::Element *element = hud_document_ && hud_document_->IsVisible() ? hud_document_->GetElementById(id) : nullptr;
+        if (element && !selector.empty())
+            element = element->QuerySelector(selector);
+        if (!element || !element->IsVisible(true))
+            return false;
+        const Rml::Vector2f origin = element->GetAbsoluteOffset(Rml::BoxArea::Border), size = element->GetBox().GetSize(Rml::BoxArea::Border);
+        if (size.x <= 0.0f || size.y <= 0.0f)
+            return false;
+        auto *root = dynamic_cast<ComponentElement *>(hud_document_->GetElementById("hud"));
+        Rml::Element *layer = root ? ComponentSlot(*root) : nullptr;
+        const Rml::Vector2f corner = layer ? layer->GetAbsoluteOffset(Rml::BoxArea::Border) : Rml::Vector2f(0.0f, 0.0f);
+        out = {origin.x, origin.y, size.x, size.y, corner.x, corner.y, static_cast<float>(config_.width), static_cast<float>(config_.height), config_.density};
+        return true;
+    }
+
     void HideHud() override
     {
         if (!hud_document_)

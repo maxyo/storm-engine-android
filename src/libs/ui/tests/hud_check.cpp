@@ -94,6 +94,10 @@ struct FakeMount final : Mount
     {
         return interface;
     }
+    bool Measure(const std::string &, const std::string &, Placement &) const override
+    {
+        return false;
+    }
 };
 
 // What the scene under test was told, in order.

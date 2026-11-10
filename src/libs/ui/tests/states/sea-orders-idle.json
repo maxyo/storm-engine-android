@@ -1,0 +1,48 @@
+{
+ "schemaVersion": 1,
+ "sceneEpoch": 6,
+ "revision": 14,
+ "activityGeneration": 2,
+ "available": true,
+ "active": false,
+ "complete": true,
+ "language": "russian",
+ "stage": "commands",
+ "mode": 0,
+ "recipientId": "r501_1",
+ "pendingLabel": "",
+ "selectedItemId": "",
+ "canBack": false,
+ "canClose": false,
+ "recipients": [
+  {
+   "id": "r501_1",
+   "name": "Аделина",
+   "entityId": "501",
+   "characterIndex": 1,
+   "main": true
+  },
+  {
+   "id": "r502_7",
+   "name": "Сокол",
+   "entityId": "502",
+   "characterIndex": 7,
+   "main": false
+  },
+  {
+   "id": "r503_8",
+   "name": "Ласточка",
+   "entityId": "503",
+   "characterIndex": 8,
+   "main": false
+  },
+  {
+   "id": "r504_9",
+   "name": "Мария",
+   "entityId": "504",
+   "characterIndex": 9,
+   "main": false
+  }
+ ],
+ "items": []
+}

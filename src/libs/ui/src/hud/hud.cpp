@@ -8,6 +8,7 @@ namespace storm::ui::hud
 {
 
 std::unique_ptr<Scene> CreateLandScene(Hud &hud);
+std::unique_ptr<Scene> CreateSeaScene(Hud &hud);
 
 namespace
 {
@@ -17,11 +18,13 @@ constexpr double kLineSeconds = 2.6; // an event line stays this long (pack sett
 constexpr size_t kLines = 3;
 
 const char *const kLandModes[] = {"explore", "melee"};
+const char *const kSeaModes[] = {"sailing", "naval"};
 
 // Ported HUD scenes by gameplay mode. Porting a zone = adding its scene here; the
 // platform host stops drawing that mode's HUD because HostOwnsHud turns false for it.
 const SceneEntry kScenes[] = {
     {"land", kLandModes, CreateLandScene},
+    {"sea", kSeaModes, CreateSeaScene},
 };
 
 } // namespace
@@ -38,6 +41,14 @@ bool Ported(std::string_view mode)
             if (mode == name)
                 return true;
     return false;
+}
+
+std::string Lower(std::string text)
+{
+    for (char &c : text)
+        if (c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c - 'A' + 'a');
+    return text;
 }
 
 void Input::On(const std::string &id, const std::string &verb, Handler handler)

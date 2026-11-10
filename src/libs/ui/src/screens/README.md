@@ -138,6 +138,7 @@ engine ◀──"<verb>:<value>" (Action, screen "hud")── Hud::Send ◀─�
 | `hud.cpp` | **the migration switch** `kScenes` (gameplay mode → scene), visibility, event dispatch, the event log |
 | `states.cpp` | one consumer per channel: the engine's JSON checked once, kept typed; bad data is rejected aloud |
 | `land.cpp` | the land scene: explore and combat sets, the action sheet, the sword-move wheel |
+| `sea.cpp` | the sea scene: sailing and naval battle, fleet, minimap (the engine's radar in its disc), sail lever, helm slider, guns and ammunition fan, quick action, orders sheet |
 
 Channels (JSON as the engine publishes it unless noted):
 
@@ -149,6 +150,9 @@ Channels (JSON as the engine publishes it unless noted):
 | `worldInfo` | a JSON string: the engine's location lines, `\n` between them | `States::world_info` |
 | `contextAction` | a JSON string: the script's quick action name, `""` = none | `States::context_action` |
 | `landCommands` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage, pendingLabel, selectedItemId, canBack, canClose, items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `LandCommands` |
+| `ship` | the engine's ship telemetry (`android_ship_telemetry.hpp`): `{schemaVersion: 1, gameplayRevision, sequence, hudRevision, valid, …own ship, fleet: […], navigator…, shipSpeedKnots, windSpeed, cannonCharge, ammo, ammoCount, ammoCounts, sailState, canSetSails, dateTimeText, locationText}` | `Ship` |
+| `seaOrders` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage: commands\|options\|targets, recipientId, selectedItemId, pendingLabel, canBack, canClose, recipients: […], items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `SeaOrders` |
+| `seaQuickAction` | `{schemaVersion: 1, activity, revision, available, action: Map\|Moor\|Board\|LandTroops\|Reload, label}` | `SeaQuick` |
 | `presentation` | written by the platform host: `{screen, loading, cinematic, dialogue, live}` | `Presentation` |
 
 The HUD is visible when a scene draws the gameplay mode, `presentation` reports a free game
@@ -166,7 +170,8 @@ a layout scene or element the pack lacks, and a channel carrying something else 
 contract are errors (log, toast in debug hosts), never quiet drops.
 
 Input goes out with `Hud::Send(verb, value, slot)`: the engine command is `<verb>:<value>`
-(`move`, `combat`, `landcommands`, `context`); a `slot` marks a latest-value input (stick
+(`move`, `combat`, `landcommands`, `context`; at sea `hold` (held controls: helm, spyglass),
+`sails`, `gameplay`, `seaquick`, `orders`, `shiphud`, `navigator`); a `slot` marks a latest-value input (stick
 position, coverage acknowledgement) of which a queueing host keeps only the newest. Two
 verbs are for the platform host: `shortcut` (`mainmenu`, `character`) and `presence`
 (`shown` / `hidden`). Sequences, owners and revisions are formed here; the platform adds
