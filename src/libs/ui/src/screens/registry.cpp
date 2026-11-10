@@ -45,7 +45,7 @@ const ScreenEntry kPorted[] = {
 const char *const kHostOwned[] = {
     "character",      "lscchar_all",   "items",     "ship",      "questbook", "nationrelation", // hero sections
     "shipyard",                                                                                // trade zone
-    "map",            "dirsailenc",    "leavebattle", "salary",  "about", "boal_frame", "quick_save", // reading menus
+    "map",            "dirsailenc",    "leavebattle", "salary", "boal_frame", // reading menus
 };
 
 } // namespace
