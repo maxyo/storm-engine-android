@@ -619,8 +619,28 @@ HRESULT Device::StretchRect(IDirect3DSurface9 *src, const RECT *src_rect, IDirec
 {
     auto *from = static_cast<Surface *>(src);
     auto *to = static_cast<Surface *>(dst);
-    if (!from || !to || !to->store->render_target)
-        return trap("IDirect3DDevice9::StretchRect(target)");
+    if (!from || !to)
+        return D3DERR_INVALIDCALL;
+    if (!from->store->render_target || to->store->system_memory || to->store->depth_stencil)
+        return D3DERR_INVALIDCALL; // CPU-side copies go through the lock path of the caller
+    if (!to->store->render_target)
+    {
+        // The engine copies render targets into ordinary textures (D3DX surface loads). Keep the
+        // copy on the GPU: the destination becomes a render target and loses its CPU contents.
+        TexStore &store = *to->store;
+        if (format_info(store.format).block_bytes)
+            return D3DERR_INVALIDCALL;
+        if (bgfx::isValid(store.handle))
+        {
+            purge_framebuffers(store.handle);
+            bgfx::destroy(store.handle);
+            store.handle = BGFX_INVALID_HANDLE;
+        }
+        store.render_target = true;
+        for (auto &sub : store.subs)
+            sub.dirty = false;
+        store.any_dirty = false;
+    }
     from->store->sync();
     if (!bgfx::isValid(from->store->handle))
         return D3DERR_INVALIDCALL;
