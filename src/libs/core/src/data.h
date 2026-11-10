@@ -119,6 +119,12 @@ class DATA : public VDATA
     void SetElementsNum(uint32_t asize) override;
     // makes this an array of `size` elements of its type (also 0 or 1 element)
     void SetArraySize(uint32_t size);
+    // function reference: the function's name, empty for a null reference
+    void SetFref(std::string name);
+    // null reference, attribute reference or function reference
+    bool IsNull();
+    // value of the referenced variable, an attribute reference's attribute value as a string
+    bool Truth();
 
     bool IsArray() override
     {

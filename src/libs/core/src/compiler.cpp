@@ -1499,6 +1499,29 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
         case COMMENT:
             DebugSourceLine += Token.TokenLines();
             break;
+        case FOR_BLOCK:
+            if (inout > 0)
+            {
+                // for (type x : container): two hidden locals, the container and the position
+                char *const at = Token.GetProgramControl();
+                const uint32_t line = DebugSourceLine;
+                S_TOKEN_TYPE loop_type = UNKNOWN;
+                const bool range = Token.Get() == OPEN_BRACKET && PeekRangeFor(loop_type);
+                Token.SetProgramControl(at);
+                DebugSourceLine = line;
+                if (range && func_code != INVALID_FUNC_CODE)
+                {
+                    LocalVarInfo hidden;
+                    hidden.elements = 1;
+                    hidden.type = loop_type == VAR_AREFERENCE ? VAR_AREFERENCE : VAR_REFERENCE;
+                    hidden.name = LocalSlotName(kRangeContainer, declaredLocals[kRangeContainer]++);
+                    FuncTab.AddFuncVar(func_code, hidden);
+                    hidden.type = VAR_INTEGER;
+                    hidden.name = LocalSlotName(kRangePosition, declaredLocals[kRangePosition]++);
+                    FuncTab.AddFuncVar(func_code, hidden);
+                }
+            }
+            break;
         case OP_QUESTION:
             pendingQuestions++;
             break;
@@ -1531,7 +1554,9 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     DebugSourceLine++;
                 else if (t == OPEN_BRACKET)
                     depth++;
-                else if (t == CLOSE_BRACKET && depth > 0)
+                else if ((t == CLOSE_BRACKET ||
+                          (Token.GetData() && strcmp(Token.GetData(), ")") == 0)) && // typeid(int): "int)" is one token
+                         depth > 0)
                     depth--;
                 else if (t == OP_QUESTION)
                     pendingQuestions++;
@@ -1732,6 +1757,7 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
         case VAR_FLOAT:
         case VAR_STRING:
         case VAR_OBJECT:
+        case VAR_FREF:
         case TVOID:
             if (inout == 0)
             {
@@ -1995,6 +2021,16 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                                 }
                                 SkipAuxiliaryTokens();
                             }
+                            else if (vi.type == VAR_OBJECT)
+                            {
+                                if (NextScanToken() != BLOCK_IN ||
+                                    !ScanObjectLiteral(real_var->value->GetAClass()))
+                                {
+                                    SetError("Invalid object '%s' initialization", vi.name.c_str());
+                                    bPass1Ok = false;
+                                }
+                                Token.Get();
+                            }
                             else
                             {
                                 // single variable
@@ -2067,14 +2103,22 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
             {
                 // local variables: a name declared again (sibling blocks, two for loops) gets its own
                 // slot, pass 2 binds each declaration to it in the same order
-                if (!IsIdentifier(Token.GetData()))
+                if (Token.TypeCast() || !IsIdentifier(Token.GetData()))
                     break; // a type used as a function-style cast, e.g. int(x)
                 lvi.type = Token_type;
                 Token.StepBack();
                 resumed = false;
+                bool first_declarator = true;
                 do
                 {
                     Token.Get();
+                    if (!first_declarator && Token.GetType() != UNKNOWN)
+                    {
+                        resumed = true; // "int i, ref x": the main loop reads the next declaration
+                        Token.StepBack();
+                        break;
+                    }
+                    first_declarator = false;
                     if (!IsIdentifier(Token.GetData()))
                     {
                         SetError("Invalid variable name");
@@ -2451,6 +2495,394 @@ bool COMPILER::ReturnTypesMatch(S_TOKEN_TYPE declared, S_TOKEN_TYPE engine)
     return engine == UNKNOWN || same(declared) == same(engine);
 }
 
+DATA *COMPILER::Deref(DATA *pV)
+{
+    // the value a stack entry stands for; nullptr for a null reference (without an error)
+    if (pV->Data_type != VAR_REFERENCE)
+        return pV;
+    return pV->pReference ? pV->pReference->GetVarPointer() : nullptr;
+}
+
+int32_t COMPILER::IntValue(DATA *pV)
+{
+    DATA *value = Deref(pV);
+    if (value == nullptr)
+    {
+        SetError("integer operation on a null reference");
+        return 0;
+    }
+    switch (value->GetType())
+    {
+    case VAR_INTEGER:
+        return value->GetInt();
+    case VAR_FLOAT:
+        return static_cast<int32_t>(value->GetFloat());
+    case VAR_STRING:
+        return static_cast<int32_t>(strtoll(value->GetString(), nullptr, 10));
+    default:
+        SetError("integer operation on a %s value", Token.GetTypeName(value->GetType()));
+        return 0;
+    }
+}
+
+ATTRIBUTES *COMPILER::AttributesOf(DATA *pV)
+{
+    if (pV->GetType() == VAR_AREFERENCE)
+        return pV->AttributesClass; // null for a missing attribute
+    DATA *value = Deref(pV);
+    if (value == nullptr || value->IsArray())
+        return nullptr;
+    if (value->GetType() == VAR_AREFERENCE)
+        return value->AttributesClass;
+    if (value->GetType() == VAR_OBJECT)
+        return value->GetAClass();
+    return nullptr;
+}
+
+int32_t COMPILER::TypeidOf(DATA *pV)
+{
+    DATA *value = Deref(pV);
+    if (value == nullptr)
+        return kTypeidRef;
+    switch (value->GetType())
+    {
+    case VAR_INTEGER:
+    case VAR_PTR:
+        return kTypeidInt;
+    case VAR_FLOAT:
+        return kTypeidFloat;
+    case VAR_STRING:
+        return kTypeidString;
+    case VAR_OBJECT:
+        return kTypeidObject;
+    case VAR_AREFERENCE:
+        return kTypeidAref;
+    case VAR_FREF:
+        return kTypeidFref;
+    default:
+        return kTypeidRef;
+    }
+}
+
+bool COMPILER::CastValue(DATA *pV, S_TOKEN_TYPE target)
+{
+    // replaces *pV (a stack value, possibly a reference) with its value converted to target;
+    // TRUE_CONST stands for bool
+    DATA *value = Deref(pV);
+    if (target == TRUE_CONST)
+    {
+        const bool truth = value != nullptr && value->Truth();
+        pV->ClearType();
+        pV->Set(static_cast<int32_t>(truth));
+        return true;
+    }
+    if (target == VAR_FREF && (value == nullptr || value->IsNull()))
+    {
+        pV->ClearType();
+        pV->SetFref({});
+        return true;
+    }
+    if (value == nullptr)
+    {
+        SetError("%s(nullptr)", Token.GetTypeName(target));
+        return false;
+    }
+    DATA result;
+    result.SetVCompiler(this);
+    if (value->GetType() == VAR_AREFERENCE)
+        result.Set(value->GetAClass() ? to_string(value->GetAClass()->GetThisAttr()) : std::string());
+    else
+        result.Copy(value);
+    if (!result.Convert(target))
+        return false;
+    pV->ClearType();
+    pV->Copy(&result);
+    return true;
+}
+
+uint32_t COMPILER::FindMethod(DATA *self, const char *method)
+{
+    // object->Method: the object's "classtable" attribute names a global object whose attribute
+    // Method names the function
+    ATTRIBUTES *object = self ? AttributesOf(self) : nullptr;
+    ATTRIBUTES *table_name = object ? object->GetAttributeClass("classtable") : nullptr;
+    if (!table_name)
+    {
+        SetError("->%s: the object has no class table", method);
+        return INVALID_FUNC_CODE;
+    }
+    const std::string table = to_string(table_name->GetThisAttr());
+    const auto *var = VarTab.GetVar(VarTab.FindVar(table));
+    ATTRIBUTES *entry = var && var->value->GetAClass() ? var->value->GetAClass()->GetAttributeClass(method) : nullptr;
+    if (!entry)
+    {
+        SetError("->%s: class table '%s' has no such method", method, table.c_str());
+        return INVALID_FUNC_CODE;
+    }
+    const std::string function = to_string(entry->GetThisAttr());
+    const auto func_code = FuncTab.FindFunc(function);
+    if (func_code == INVALID_FUNC_CODE)
+        SetError("->%s: function '%s' not found", method, function.c_str());
+    return func_code;
+}
+
+S_TOKEN_TYPE COMPILER::NextScanToken()
+{
+    // pass 1: the next significant token, counting source lines
+    for (;;)
+    {
+        const S_TOKEN_TYPE t = Token.Get();
+        if (t == DEBUG_LINEFEED)
+            DebugSourceLine++;
+        else if (t == COMMENT)
+            DebugSourceLine += Token.TokenLines();
+        else
+            return t;
+    }
+}
+
+bool COMPILER::ScanObjectLiteral(ATTRIBUTES *object)
+{
+    // pass 1, after '{' of a global object's initializer: constant values only
+    if (object == nullptr)
+        return false;
+    for (;;)
+    {
+        S_TOKEN_TYPE t = NextScanToken();
+        if (t == BLOCK_OUT)
+            return true;
+        if (!((t == UNKNOWN || t == STRING) && Token.GetData()))
+            return false;
+        std::string key = Token.GetData();
+        if (NextScanToken() != OP_EQUAL)
+            return false;
+        bool negative = false;
+        t = NextScanToken();
+        if (t == OP_MINUS)
+        {
+            negative = true;
+            t = Token.Get();
+        }
+        std::string value = Token.GetData() ? Token.GetData() : "";
+        switch (t)
+        {
+        case BLOCK_IN:
+            if (!ScanObjectLiteral(object->CreateSubAClass(object, key.c_str())))
+                return false;
+            break;
+        case STRING:
+            object->SetAttribute(key, value.c_str());
+            break;
+        case NUMBER:
+            value = std::to_string(negative ? -ParseIntLiteral(value.c_str()) : ParseIntLiteral(value.c_str()));
+            object->SetAttribute(key, value.c_str());
+            break;
+        case FLOAT_NUMBER:
+            sprintf_s(gs, "%.7f", (negative ? -1.0f : 1.0f) * static_cast<float>(atof(value.c_str())));
+            object->SetAttribute(key, gs);
+            break;
+        case TRUE_CONST:
+        case FALSE_CONST:
+            object->SetAttribute(key, t == TRUE_CONST ? "1" : "0");
+            break;
+        case AND: // &Function: a function reference is the function's name
+            if (Token.Get() != UNKNOWN || !Token.GetData())
+                return false;
+            object->SetAttribute(key, Token.GetData());
+            break;
+        case UNKNOWN: {
+            // a define's value, or a global object by name (classtable)
+            const auto def_code = DefTab.FindDef(value.c_str());
+            if (def_code != INVALID_DEF_CODE)
+            {
+                DEFINFO di;
+                DefTab.GetDef(di, def_code);
+                if (di.deftype == STRING)
+                    value = reinterpret_cast<const char *>(di.data4b);
+                else if (di.deftype == NUMBER)
+                    value = std::to_string(static_cast<int32_t>(di.data4b));
+                else
+                    return false;
+            }
+            else if (VarTab.FindVar(value) == INVALID_VAR_CODE)
+                return false;
+            object->SetAttribute(key, value.c_str());
+            break;
+        }
+        default:
+            return false;
+        }
+        t = NextScanToken();
+        if (t == BLOCK_OUT)
+            return true;
+        if (t != COMMA)
+            return false;
+    }
+}
+
+bool COMPILER::PeekRangeFor(S_TOKEN_TYPE &loop_type)
+{
+    // after "for (": a ':' before the closing ')' makes it a range-for; loop_type is the type of
+    // the variable declared right before ':' (the caller restores the position)
+    loop_type = UNKNOWN;
+    for (uint32_t depth = 0;;)
+    {
+        const S_TOKEN_TYPE t = Token.Get();
+        switch (t)
+        {
+        case END_OF_PROGRAMM:
+        case SEPARATOR:
+        case BLOCK_IN:
+            return false;
+        case OPEN_BRACKET:
+            depth++;
+            break;
+        case CLOSE_BRACKET:
+            if (depth-- == 0)
+                return false;
+            break;
+        case LABEL:
+            return depth == 0 && loop_type != UNKNOWN;
+        case VAR_INTEGER:
+        case VAR_FLOAT:
+        case VAR_STRING:
+        case VAR_OBJECT:
+        case VAR_REFERENCE:
+        case VAR_AREFERENCE:
+        case VAR_FREF:
+            if (depth == 0)
+                loop_type = t;
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+bool COMPILER::CompileRangeFor(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_t &inout, S_TOKEN_TYPE loop_type,
+                               STRINGS_LIST &BreakUpdateTable)
+{
+    // for ([type index,] type item : container) body
+    //   aref item: the container's attributes; otherwise the elements of the array it refers to
+    const uint32_t depth = inout + 1;
+    uint32_t index_slot = INVALID_VAR_CODE;
+    uint32_t item_slot = INVALID_VAR_CODE;
+    for (;;)
+    {
+        const S_TOKEN_TYPE t = CompileAuxiliaryTokens(Segment);
+        if (t == LABEL)
+            break;
+        if (t == COMMA)
+            continue;
+        if (Token.TypeCast() || !IsIdentifier(Token.GetData()))
+        {
+            SetError("invalid range-for variable");
+            return false;
+        }
+        if (item_slot != INVALID_VAR_CODE)
+        {
+            if (index_slot != INVALID_VAR_CODE)
+            {
+                SetError("range-for takes an index and an item variable");
+                return false;
+            }
+            index_slot = item_slot;
+        }
+        item_slot = BindLocal(Token.GetData(), depth);
+        if (item_slot == INVALID_VAR_CODE)
+        {
+            SetError("Undeclared identifier: %s", Token.GetData());
+            return false;
+        }
+    }
+    const uint32_t container = BindLocal(kRangeContainer, depth);
+    const uint32_t position = BindLocal(kRangePosition, depth);
+    if (container == INVALID_VAR_CODE || position == INVALID_VAR_CODE)
+    {
+        SetError("range-for: hidden locals missing");
+        return false;
+    }
+
+    // container
+    uint32_t var_code;
+    S_TOKEN_TYPE t = CompileAuxiliaryTokens(Segment);
+    const bool address = t == AND;
+    if (address)
+        t = Token.Get();
+    const S_TOKEN_TYPE var_type = t == UNKNOWN ? DetectUnknown(var_code) : UNKNOWN;
+    if (loop_type != VAR_AREFERENCE)
+    {
+        // an array variable, by reference
+        if (!(var_type == VARIABLE || var_type == LOCAL_VARIABLE))
+        {
+            SetError("range-for over elements needs an array variable");
+            return false;
+        }
+        CompileToken(Segment, SETREF);
+        CompileToken(Segment, LOCAL_VARIABLE, 1, &container, sizeof(uint32_t));
+        CompileToken(Segment, var_type, 1, &var_code, sizeof(uint32_t));
+        CompileAuxiliaryTokens(Segment);
+    }
+    else
+    {
+        if (var_type == VARIABLE || var_type == LOCAL_VARIABLE)
+        {
+            if (!CompileAttributeRoot(Segment))
+                return false;
+        }
+        else
+        {
+            if (address)
+            {
+                SetError("range-for: '&' needs a variable");
+                return false;
+            }
+            Token.StepBack();
+            if (!CompileExpression(Segment))
+                return false;
+        }
+        CompileToken(Segment, STACK_POP);
+        CompileToken(Segment, LOCAL_VARIABLE, 1, &container, sizeof(uint32_t));
+    }
+    if (Token.GetType() != CLOSE_BRACKET)
+    {
+        SetError("')' expected after the range-for container");
+        return false;
+    }
+    // position = 0
+    const int32_t zero = 0;
+    CompileToken(Segment, STACK_PUSH);
+    CompileToken(Segment, NUMBER, 1, &zero, sizeof(int32_t));
+    CompileToken(Segment, STACK_POP);
+    CompileToken(Segment, LOCAL_VARIABLE, 1, &position, sizeof(uint32_t));
+
+    const uint32_t loop = Segment.BCode_Program_size;
+    CompileToken(Segment, RANGE_NEXT, 4, &container, sizeof(uint32_t), &position, sizeof(uint32_t), &item_slot,
+                 sizeof(uint32_t), &index_slot, sizeof(uint32_t));
+    uint32_t jump = 0;
+    const uint32_t to_end = Segment.BCode_Program_size + 2;
+    CompileToken(Segment, JUMP_Z, 1, &jump, sizeof(uint32_t));
+
+    if (CompileAuxiliaryTokens(Segment) == BLOCK_IN)
+    {
+        inout++;
+        if (!CompileBlock(Segment, bFunctionBlock, inout, BLOCK_OUT, loop, 6, BreakUpdateTable))
+            return false;
+    }
+    else
+    {
+        Token.StepBack();
+        if (!CompileBlock(Segment, bFunctionBlock, inout, SEPARATOR, loop, 6, BreakUpdateTable))
+            return false;
+        CloseLocalScopes(inout);
+    }
+    CompileToken(Segment, JUMP, 1, &loop, sizeof(uint32_t));
+    memcpy(&Segment.pCode[to_end], &Segment.BCode_Program_size, sizeof(uint32_t));
+    UpdateOffsets(Segment, BreakUpdateTable, Segment.BCode_Program_size, "b");
+    UpdateOffsets(Segment, BreakUpdateTable, loop, "c");
+    return true;
+}
+
 uint32_t COMPILER::FindLocal(const char *name) const
 {
     for (auto it = localScopes_.rbegin(); it != localScopes_.rend(); ++it)
@@ -2480,7 +2912,7 @@ bool COMPILER::CompileLocalDeclarator(SEGMENT_DESC &Segment, uint32_t depth, boo
     // declarations compile exactly as before; arrays sized at run time and array initializers
     // compile here.
     const char *name = Token.GetData();
-    if (!IsIdentifier(name))
+    if (Token.TypeCast() || !IsIdentifier(name))
     {
         SetError("variable name expected after type");
         return false;
@@ -2631,7 +3063,7 @@ bool COMPILER::ScanParameterList(uint32_t func_code, bool bExtern, FuncInfo &dec
             return false;
         }
         const char *name = Token.GetData();
-        if (name == nullptr || name[0] == 0 || !(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_'))
+        if (Token.TypeCast() || !IsIdentifier(name))
         {
             SetError("Invalid function declaration: parameter name expected");
             return false;
@@ -3541,6 +3973,22 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                 return false;
             }
 
+            {
+                char *const at = Token.GetProgramControl();
+                const uint32_t line = DebugSourceLine;
+                S_TOKEN_TYPE loop_type = UNKNOWN;
+                const bool range = PeekRangeFor(loop_type);
+                Token.SetProgramControl(at);
+                DebugSourceLine = line;
+                if (range)
+                {
+                    if (!CompileRangeFor(Segment, bFunctionBlock, inout, loop_type, BreakUpdateTable))
+                        return false;
+                    BreakUpdateTable.Release();
+                    break;
+                }
+            }
+
             // var = initial_value
             if (!CompileBlock(Segment, bFunctionBlock, inout, SEPARATOR, INVALID_OFFSET, INVALID_OFFSET, BreakTable))
                 return false;
@@ -3782,6 +4230,14 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             Token.StepBack(); // back to the identifier (restores its data)
             Token.StepBack();
             Token.Get();
+            if (S_TOKEN_TYPE call_type = DetectCallThrough(); call_type != UNKNOWN)
+            {
+                // object->Method(...) or fref_variable(...) as a statement
+                if (!CompileCallThrough(Segment, call_type))
+                    return false;
+                CompileToken(Segment, POP_NZ); // drop a returned value
+                break;
+            }
 
             if (DetectUnknown(func_code) == CALL_FUNCTION)
             {
@@ -3819,6 +4275,7 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
         case VAR_FLOAT:
         case VAR_STRING:
         case VAR_OBJECT:
+        case VAR_FREF:
         case TVOID:
             if (inout > 0)
             {
@@ -3899,6 +4356,29 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             // case MAKEREF_COMMAND: CompileToken(Segment,Token_type); break;
             // case MAKEAREF_COMMAND: CompileToken(Segment,Token_type); break;
 
+        case OP_SIZEOF: {
+            // @array = size
+            uint32_t var_code;
+            if (Token.Get() != UNKNOWN)
+            {
+                SetError("array expected after '@'");
+                return false;
+            }
+            const S_TOKEN_TYPE var_type = DetectUnknown(var_code);
+            if (!(var_type == VARIABLE || var_type == LOCAL_VARIABLE) || Token.Get() != OP_EQUAL)
+            {
+                SetError("'@array = size' expected");
+                return false;
+            }
+            if (!CompileExpression(Segment))
+                return false;
+            CompileToken(Segment, STACK_POP);
+            CompileToken(Segment, BX);
+            CompileToken(Segment, RESIZE_ARRAY);
+            CompileToken(Segment, var_type, 1, &var_code, sizeof(uint32_t));
+            Token.StepBack();
+            break;
+        }
         case OP_BOOL_NEG:
             // case OP_EQUAL:
         case OP_BOOL_EQUAL:
@@ -3937,6 +4417,8 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
         case OP_DECADD:
         case OP_MULTIPLYEQ:
         case OP_DIVIDEEQ:
+        case OP_OREQ:
+        case OP_ANDEQ:
             // CompileToken(Segment,Token_type);
             CompileExpression(Segment);
             CompileToken(Segment, Token_type);
@@ -3951,6 +4433,7 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             break;
             //*/
 
+        case OP_COLON_EQUAL: // CL: assignment that keeps the value's type; attributes hold text anyway
         case OP_EQUAL:
             if (inout == 0 && !bDebugExpressionRun)
                 break; // skip global vars initialization
@@ -4748,6 +5231,9 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             pV = SStack.Read(frame.stack_offset, n);
             if (pV->GetType() != pfi->local_vars[n].type)
             {
+                if (pV->GetType() == VAR_REFERENCE && pV->pReference == nullptr &&
+                    (pfi->local_vars[n].type == VAR_AREFERENCE || pfi->local_vars[n].type == VAR_FREF))
+                    continue; // nullptr for an aref or fref parameter
                 pV = pV->GetVarPointer();
                 if (!pV)
                 {
@@ -5254,12 +5740,22 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 }
             }
             pVV = pVV->GetVarPointer();
-            if (pVV->GetType() != VAR_STRING)
+            if (pVV->GetType() != VAR_STRING && pVV->GetType() != VAR_FREF)
             {
                 SetError("string call argument isnt string var");
                 return false;
             }
-            pVV->Get(pAccess_string); // func name
+            if (pVV->GetType() == VAR_FREF)
+            {
+                if (pVV->sValue.empty())
+                {
+                    SetError("call through a null function reference");
+                    return false;
+                }
+                pAccess_string = pVV->sValue.c_str(); // a function reference holds the name
+            }
+            else
+                pVV->Get(pAccess_string); // func name
             func_code = FuncTab.FindFunc(pAccess_string);
             if (func_code == INVALID_FUNC_CODE)
             {
@@ -5365,6 +5861,8 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
         case OP_DIVIDEEQ:
         case OP_INCADD:
         case OP_DECADD:
+        case OP_OREQ:
+        case OP_ANDEQ:
             S_TOKEN_TYPE OpType;
             OpType = Token_type;
             if (nLeftOperandCode == INVALID_VAR_CODE)
@@ -5417,6 +5915,12 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             case OP_DIVIDEEQ:
                 pV->Divide(pVV);
                 break;
+            case OP_OREQ:
+            case OP_ANDEQ: {
+                const int32_t a = IntValue(pV), b = IntValue(pVV);
+                pV->Set(OpType == OP_OREQ ? (a | b) : (a & b));
+                break;
+            }
             }
 
             break; //*/
@@ -6372,6 +6876,269 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             }
             break;
 
+        case OP_BIT_OR:
+        case OP_BIT_AND:
+        case OP_SHL:
+        case OP_SHR: {
+            pV = GetOperand(pCodeBase, ip);
+            pVV = GetOperand(pCodeBase, ip);
+            if (!pV || !pVV)
+                return false;
+            const auto a = static_cast<uint32_t>(IntValue(pV));
+            const auto b = static_cast<uint32_t>(IntValue(pVV));
+            uint32_t r = 0;
+            switch (Token_type)
+            {
+            case OP_BIT_OR:
+                r = a | b;
+                break;
+            case OP_BIT_AND:
+                r = a & b;
+                break;
+            case OP_SHL:
+                r = b < 32 ? a << b : 0;
+                break;
+            default:
+                r = b < 32 ? a >> b : 0;
+                break;
+            }
+            pV->ClearType();
+            pV->Set(static_cast<int32_t>(r));
+            break;
+        }
+        case OP_BIT_NOT:
+            pV = GetOperand(pCodeBase, ip);
+            if (!pV)
+                return false;
+            lvalue = ~IntValue(pV);
+            pV->ClearType();
+            pV->Set(lvalue);
+            break;
+        case OP_CAST: {
+            // int(x) float(x) string(x) bool(x) fref(x): a converted copy of the value on the stack top
+            uint32_t target;
+            memcpy(&target, &pCodeBase[ip], sizeof(uint32_t));
+            pV = SStack.Read();
+            if (!CastValue(pV, static_cast<S_TOKEN_TYPE>(target)))
+                return false;
+            break;
+        }
+        case PUSH_NULL:
+            pV = SStack.Push();
+            pV->ClearType();
+            pV->SetType(VAR_REFERENCE);
+            break;
+        case OP_IS_NULL: {
+            pV = GetOperand(pCodeBase, ip);
+            if (!pV)
+                return false;
+            const bool null = pV->IsNull();
+            pV->ClearType();
+            pV->Set(static_cast<int32_t>(null));
+            break;
+        }
+        case OP_TYPEID: {
+            pV = GetOperand(pCodeBase, ip);
+            if (!pV)
+                return false;
+            const int32_t id = TypeidOf(pV);
+            pV->ClearType();
+            pV->Set(id);
+            break;
+        }
+        case PUSH_AP:
+            pV = SStack.Push();
+            pV->ClearType();
+            pV->SetType(VAR_AREFERENCE);
+            pV->SetAReference(rAP);
+            break;
+        case ATTR_DEFAULT: {
+            // stack: attribute reference, default value
+            uint32_t target;
+            memcpy(&target, &pCodeBase[ip], sizeof(uint32_t));
+            pVV = SStack.Pop(); // default
+            pV = SStack.Read(); // attribute reference -> result
+            ATTRIBUTES *attribute = pV->AttributesClass; // the attribute reference PUSH_AP made, null if missing
+            if (attribute != nullptr)
+            {
+                pV->ClearType();
+                pV->Set(to_string(attribute->GetThisAttr()));
+            }
+            else
+            {
+                pV->ClearType();
+                pV->Copy(pVV);
+            }
+            if (!CastValue(pV, static_cast<S_TOKEN_TYPE>(target)))
+                return false;
+            break;
+        }
+        case ADVANCE_AP_QUIET: {
+            // as ADVANCE_AP without creating or reporting missing attributes: rAP becomes null
+            Token_type = BC_TokenGet();
+            const char *name = nullptr;
+            if (Token_type == ACCESS_WORD_CODE)
+            {
+                if (rAP)
+                    rAP = rAP->GetAttributeClassByCode(*((int32_t *)&pRunCodeBase[TLR_DataOffset]));
+                break;
+            }
+            pVV = Token_type == VARIABLE ? VarTab.GetVar(*((int32_t *)&pRunCodeBase[TLR_DataOffset]))->value.get()
+                                         : SStack.Read(pRun_fi->stack_offset, *((int32_t *)&pRunCodeBase[TLR_DataOffset]));
+            ExpressionResult.ClearType();
+            ExpressionResult.Copy(pVV);
+            if (!ExpressionResult.Convert(VAR_STRING) || !ExpressionResult.Get(name))
+            {
+                SetError("invalid type for attribute var");
+                return false;
+            }
+            if (rAP)
+                rAP = rAP->FindAClass(rAP, name);
+            break;
+        }
+        case OP_IN: {
+            // stack: key, object reference / attribute reference -> 1 if the attribute (path) exists
+            pVV = SStack.Pop();
+            pV = SStack.Read();
+            ATTRIBUTES *root = AttributesOf(pVV);
+            ExpressionResult.ClearType();
+            ExpressionResult.Copy(pV);
+            const char *key = nullptr;
+            if (!ExpressionResult.Convert(VAR_STRING) || !ExpressionResult.Get(key))
+            {
+                SetError("'in': the key must be a string");
+                return false;
+            }
+            const bool found = root != nullptr && root->FindAClass(root, key) != nullptr;
+            pV->ClearType();
+            pV->Set(static_cast<int32_t>(found));
+            break;
+        }
+        case OP_SIZEOF_REF: {
+            // @x: elements of an array, attributes of an object or attribute reference
+            pV = GetOperand(pCodeBase, ip);
+            if (!pV)
+                return false;
+            DATA *target = Deref(pV);
+            int32_t count = 0;
+            if (target && target->IsArray())
+                count = static_cast<int32_t>(target->GetElementsNum());
+            else if (ATTRIBUTES *attributes = AttributesOf(pV))
+                count = static_cast<int32_t>(attributes->GetAttributesNum());
+            else if (!target || pV->IsNull())
+            {
+                SetError("'@' of a null reference");
+                return false;
+            }
+            pV->ClearType();
+            pV->Set(count);
+            break;
+        }
+        case RESIZE_ARRAY: // @array = BX
+            pV = GetOperand(pCodeBase, ip);
+            if (!pV || !(pV = pV->GetVarPointer()) || !pV->IsArray())
+            {
+                SetError("'@x = size': x is not an array");
+                return false;
+            }
+            rBX.Convert(VAR_INTEGER);
+            rBX.Get(lvalue);
+            if (lvalue < 1)
+            {
+                SetError("array size %d", lvalue);
+                return false;
+            }
+            pV->SetElementsNum(static_cast<uint32_t>(lvalue));
+            break;
+        case CALL_METHOD: {
+            uint32_t args;
+            const char *method = &pRunCodeBase[TLR_DataOffset + sizeof(uint32_t)];
+            memcpy(&args, &pCodeBase[InstructionPointer + 2], sizeof(uint32_t)); // ARGS_NUM data
+            func_code = FindMethod(SStack.Read(SStack.GetDataNum() - args, 0), method);
+            if (func_code == INVALID_FUNC_CODE)
+                return false;
+            pVResult = nullptr;
+            if (!BC_CallFunction(func_code, ip, pVResult))
+                return false;
+            StoreDynamicCallStatus(pVResult != nullptr);
+            break;
+        }
+        case RANGE_NEXT: {
+            // container, position, item, index (locals): the next element or attribute, EX = 0 at the end
+            uint32_t slots[4];
+            memcpy(slots, &pCodeBase[ip], sizeof(slots));
+            DATA *container = SStack.Read(pRun_fi->stack_offset, slots[0]);
+            DATA *position = SStack.Read(pRun_fi->stack_offset, slots[1]);
+            DATA *item = SStack.Read(pRun_fi->stack_offset, slots[2]);
+            const int32_t at = position->GetInt();
+            DATA *array = container->GetType() == VAR_REFERENCE ? Deref(container) : nullptr;
+            ATTRIBUTES *attributes = array ? nullptr : AttributesOf(container);
+            const int32_t count = array ? (array->IsArray() ? static_cast<int32_t>(array->GetElementsNum()) : 1)
+                                        : attributes ? static_cast<int32_t>(attributes->GetAttributesNum()) : 0;
+            ExpressionResult.ClearType();
+            if (at >= count)
+            {
+                ExpressionResult.Set(int32_t{0});
+                break;
+            }
+            if (array)
+            {
+                DATA *element = array->IsArray() ? array->GetArrayElement(at) : array;
+                if (item->GetType() == VAR_REFERENCE)
+                    item->SetReference(element->GetVarPointer());
+                else
+                    item->Copy(element);
+            }
+            else
+                item->SetAReference(attributes->GetAttributeClass(static_cast<uint32_t>(at)));
+            if (slots[3] != INVALID_VAR_CODE)
+                SStack.Read(pRun_fi->stack_offset, slots[3])->Set(at);
+            position->Set(at + 1);
+            ExpressionResult.Set(int32_t{1});
+            break;
+        }
+        case OBJ_NEW:
+            pV = SStack.Push();
+            pV->ClearType();
+            pV->SetType(VAR_OBJECT);
+            break;
+        case OBJ_SET: {
+            // stack: object, value
+            const char *key = &pRunCodeBase[TLR_DataOffset + sizeof(uint32_t)];
+            pVV = SStack.Pop();
+            pV = SStack.Read();
+            ATTRIBUTES *object = pV->GetAClass();
+            if (!object)
+            {
+                SetError("object literal without attributes");
+                return false;
+            }
+            DATA *value = Deref(pVV);
+            if (value && value->GetType() == VAR_OBJECT && !value->IsArray())
+            {
+                ATTRIBUTES *child = object->CreateSubAClass(object, key);
+                if (value->GetAClass())
+                    *child = value->GetAClass()->Copy();
+                break;
+            }
+            ExpressionResult.ClearType();
+            ExpressionResult.Copy(pVV);
+            if (ExpressionResult.GetType() == VAR_FLOAT)
+            {
+                float f;
+                ExpressionResult.Get(f);
+                sprintf_s(gs, "%.7f", f);
+                ExpressionResult.Set(gs);
+            }
+            const char *text = nullptr;
+            if (!ExpressionResult.Convert(VAR_STRING) || !ExpressionResult.Get(text))
+            {
+                SetError("object literal: '%s' has no text value", key);
+                return false;
+            }
+            object->SetAttribute(key, text);
+            break;
+        }
         case SET_ARRAY_SIZE: // array local sized at run time: BX elements
             pV = GetOperand(pCodeBase, ip);
             if (!pV)

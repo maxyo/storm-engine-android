@@ -872,10 +872,7 @@ bool COMPILER::CompileExpression(SEGMENT_DESC &Segment)
 
     const S_TOKEN_TYPE Token_type = CompileAuxiliaryTokens(Segment);
     if (Token_type == SEPARATOR)
-    {
-        SetError(ERR_INVALID_EXPRESSION);
-        return false;
-    }
+        return false; // the failing operand reported the error
 
     if (Token_type == AND)
     {
@@ -890,6 +887,18 @@ bool COMPILER::CompileExpression(SEGMENT_DESC &Segment)
         }
 
         sttVariableType = DetectUnknown(dwVarCode);
+        if (sttVariableType == CALL_FUNCTION)
+        {
+            // &Function: a function reference
+            const std::string name = Token.GetData();
+            const uint32_t size = static_cast<uint32_t>(name.size() + 1);
+            CompileToken(Segment, STACK_PUSH);
+            CompileToken(Segment, STRING, 2, &size, sizeof(uint32_t), name.c_str(), size);
+            uint32_t target = VAR_FREF;
+            CompileToken(Segment, OP_CAST, 1, &target, sizeof(uint32_t));
+            CompileAuxiliaryTokens(Segment);
+            return true;
+        }
         if (!(sttVariableType == VARIABLE || sttVariableType == LOCAL_VARIABLE))
         {
             SetError("variable not found");
@@ -976,7 +985,72 @@ bool COMPILER::CompileExpression(SEGMENT_DESC &Segment)
 
         return true;
     }
-    return CompileExpression_L0(Segment);
+    return CompileTernary(Segment);
+}
+
+// cond ? a : b
+bool COMPILER::CompileTernary(SEGMENT_DESC &Segment)
+{
+    if (!CompileExpression_L0(Segment))
+        return false;
+    if (Token.GetType() != OP_QUESTION)
+        return true;
+    uint32_t jump = 0;
+    CompileToken(Segment, STACK_POP);
+    CompileToken(Segment, EX);
+    const uint32_t to_else = Segment.BCode_Program_size + 2;
+    CompileToken(Segment, JUMP_Z, 1, &jump, sizeof(uint32_t));
+    if (!CompileExpression(Segment))
+        return false;
+    if (Token.GetType() != LABEL)
+    {
+        SetError("':' expected in conditional expression");
+        return false;
+    }
+    const uint32_t to_end = Segment.BCode_Program_size + 2;
+    CompileToken(Segment, JUMP, 1, &jump, sizeof(uint32_t));
+    memcpy(&Segment.pCode[to_else], &Segment.BCode_Program_size, sizeof(uint32_t));
+    if (!CompileExpression(Segment))
+        return false;
+    memcpy(&Segment.pCode[to_end], &Segment.BCode_Program_size, sizeof(uint32_t));
+    return true;
+}
+
+// binary operators of one level: operand, then (op operand)*; each op is OP STACK_TOP AX
+bool COMPILER::CompileBinaryLevel(SEGMENT_DESC &Segment, bool (COMPILER::*operand)(SEGMENT_DESC &),
+                                  std::initializer_list<S_TOKEN_TYPE> ops, S_TOKEN_TYPE emitted_for_and)
+{
+    if (!(this->*operand)(Segment))
+        return false;
+    for (;;)
+    {
+        S_TOKEN_TYPE op = Token.GetType();
+        if (std::find(ops.begin(), ops.end(), op) == ops.end())
+            return true;
+        CompileAuxiliaryTokens(Segment);
+        if (!(this->*operand)(Segment))
+            return false;
+        CompileToken(Segment, STACK_POP);
+        CompileToken(Segment, AX);
+        CompileToken(Segment, op == AND ? emitted_for_and : op);
+        CompileToken(Segment, STACK_TOP);
+        CompileToken(Segment, AX);
+    }
+}
+
+bool COMPILER::CompileBitOr(SEGMENT_DESC &Segment)
+{
+    return CompileBinaryLevel(Segment, &COMPILER::CompileBitAnd, {OP_BIT_OR}, OP_BIT_AND);
+}
+
+bool COMPILER::CompileBitAnd(SEGMENT_DESC &Segment)
+{
+    return CompileBinaryLevel(Segment, &COMPILER::CompileExpression_L1, {AND}, OP_BIT_AND);
+}
+
+bool COMPILER::CompileShift(SEGMENT_DESC &Segment)
+{
+    return CompileBinaryLevel(Segment, &COMPILER::CompileExpression_L2, {OP_SHL, OP_SHR}, OP_BIT_AND);
 }
 
 // logical operators (OR,AND)
@@ -985,11 +1059,8 @@ bool COMPILER::CompileExpression_L0(SEGMENT_DESC &Segment)
     uint32_t dwJumpOffset1;
     uint32_t dwJumpOffset2;
 
-    if (!CompileExpression_L1(Segment))
-    {
-        SetError(ERR_INVALID_EXPRESSION);
-        return false;
-    }
+    if (!CompileBitOr(Segment))
+        return false; // the failing operand reported the error
 
     S_TOKEN_TYPE sttOpType = Token.GetType();
 
@@ -1023,11 +1094,8 @@ bool COMPILER::CompileExpression_L0(SEGMENT_DESC &Segment)
             CompileToken(Segment, JUMP_NZ, 1, (char *)&dwJumpOffset1, sizeof(uint32_t));
         }
 
-        if (!CompileExpression_L1(Segment))
-        {
-            SetError(ERR_INVALID_EXPRESSION);
+        if (!CompileBitOr(Segment))
             return false;
-        }
 
         CompileToken(Segment, STACK_POP);
         CompileToken(Segment, AX);
@@ -1059,47 +1127,86 @@ bool COMPILER::CompileExpression_L0(SEGMENT_DESC &Segment)
 // logical compare (>,<,==,>=,<=,!=)
 bool COMPILER::CompileExpression_L1(SEGMENT_DESC &Segment)
 {
-    if (!CompileExpression_L2(Segment))
-    {
-        SetError(ERR_INVALID_EXPRESSION);
-        return false;
-    }
+    if (!CompileShift(Segment))
+        return false; // the failing operand reported the error
 
-    S_TOKEN_TYPE sttOpType = Token.GetType();
-
-    while (sttOpType == OP_NOT_EQUAL || sttOpType == OP_LESSER_OR_EQUAL || sttOpType == OP_LESSER ||
-           sttOpType == OP_GREATER_OR_EQUAL || sttOpType == OP_GREATER || sttOpType == OP_BOOL_EQUAL)
+    for (;;)
     {
-        sttOpType = Token.GetType();
+        S_TOKEN_TYPE sttOpType = Token.GetType();
+        const char *word = sttOpType == UNKNOWN && Token.GetData() ? Token.GetData() : "";
+        if (sttOpType == OP_BOOL_NEG || storm::iEquals(word, "in") || storm::iEquals(word, "is"))
+        {
+            // "key" in object, "key" !in object, x is nullptr
+            bool negate = sttOpType == OP_BOOL_NEG;
+            if (negate)
+            {
+                Token.Get();
+                if (!(Token.GetType() == UNKNOWN && storm::iEquals(Token.GetData(), "in")))
+                {
+                    SetError("'in' expected after '!'");
+                    return false;
+                }
+                word = "in";
+            }
+            if (storm::iEquals(word, "is"))
+            {
+                Token.Get();
+                if (!(Token.GetType() == UNKNOWN && storm::iEquals(Token.GetData(), "nullptr")))
+                {
+                    SetError("'nullptr' expected after 'is'");
+                    return false;
+                }
+                CompileToken(Segment, OP_IS_NULL);
+                CompileToken(Segment, STACK_TOP);
+                CompileAuxiliaryTokens(Segment);
+                continue;
+            }
+            CompileAuxiliaryTokens(Segment);
+            if (!CompileAttributeRoot(Segment))
+                return false;
+            CompileToken(Segment, OP_IN);
+            if (negate)
+            {
+                CompileToken(Segment, OP_BOOL_NEG);
+                CompileToken(Segment, STACK_TOP);
+            }
+            continue;
+        }
+        if (!(sttOpType == OP_NOT_EQUAL || sttOpType == OP_LESSER_OR_EQUAL || sttOpType == OP_LESSER ||
+              sttOpType == OP_GREATER_OR_EQUAL || sttOpType == OP_GREATER || sttOpType == OP_BOOL_EQUAL))
+            return true;
 
         CompileAuxiliaryTokens(Segment);
-
-        if (!CompileExpression_L2(Segment))
+        if ((sttOpType == OP_BOOL_EQUAL || sttOpType == OP_NOT_EQUAL) && Token.GetType() == UNKNOWN &&
+            storm::iEquals(Token.GetData(), "nullptr"))
         {
-            SetError(ERR_INVALID_EXPRESSION);
-            return false;
+            // x == nullptr: a null reference, attribute reference or function reference
+            CompileToken(Segment, OP_IS_NULL);
+            CompileToken(Segment, STACK_TOP);
+            if (sttOpType == OP_NOT_EQUAL)
+            {
+                CompileToken(Segment, OP_BOOL_NEG);
+                CompileToken(Segment, STACK_TOP);
+            }
+            CompileAuxiliaryTokens(Segment);
+            continue;
         }
+
+        if (!CompileShift(Segment))
+            return false;
 
         CompileToken(Segment, STACK_POP);
         CompileToken(Segment, AX);
         CompileToken(Segment, sttOpType);
         CompileToken(Segment, STACK_TOP);
         CompileToken(Segment, AX);
-
-        sttOpType = Token.GetType();
     }
-
-    return true;
 }
 
-// '+' and '-' operators
 bool COMPILER::CompileExpression_L2(SEGMENT_DESC &Segment)
 {
     if (!CompileExpression_L3(Segment))
-    {
-        SetError(ERR_INVALID_EXPRESSION);
-        return false;
-    }
+        return false; // the failing operand reported the error
 
     S_TOKEN_TYPE sttOpType = Token.GetType();
 
@@ -1110,10 +1217,7 @@ bool COMPILER::CompileExpression_L2(SEGMENT_DESC &Segment)
         CompileAuxiliaryTokens(Segment);
 
         if (!CompileExpression_L3(Segment))
-        {
-            SetError(ERR_INVALID_EXPRESSION);
             return false;
-        }
 
         CompileToken(Segment, STACK_POP);
         CompileToken(Segment, AX);
@@ -1130,10 +1234,7 @@ bool COMPILER::CompileExpression_L2(SEGMENT_DESC &Segment)
 bool COMPILER::CompileExpression_L3(SEGMENT_DESC &Segment)
 {
     if (!CompileExpression_L4(Segment))
-    {
-        SetError(ERR_INVALID_EXPRESSION);
-        return false;
-    }
+        return false; // the failing operand reported the error
 
     S_TOKEN_TYPE sttOpType = Token.GetType();
 
@@ -1143,10 +1244,7 @@ bool COMPILER::CompileExpression_L3(SEGMENT_DESC &Segment)
         CompileAuxiliaryTokens(Segment);
 
         if (!CompileExpression_L4(Segment))
-        {
-            SetError(ERR_INVALID_EXPRESSION);
             return false;
-        }
 
         CompileToken(Segment, STACK_POP);
         CompileToken(Segment, AX);
@@ -1163,20 +1261,14 @@ bool COMPILER::CompileExpression_L3(SEGMENT_DESC &Segment)
 bool COMPILER::CompileExpression_L4(SEGMENT_DESC &Segment)
 {
     if (!CompileExpression_L5(Segment))
-    {
-        SetError(ERR_INVALID_EXPRESSION);
-        return false;
-    }
+        return false; // the failing operand reported the error
 
     if (Token.GetType() == OP_POWER)
     {
         CompileAuxiliaryTokens(Segment);
 
         if (!CompileExpression_L5(Segment))
-        {
-            SetError(ERR_INVALID_EXPRESSION);
             return false;
-        }
 
         CompileToken(Segment, STACK_POP);
         CompileToken(Segment, AX);
@@ -1191,14 +1283,21 @@ bool COMPILER::CompileExpression_L4(SEGMENT_DESC &Segment)
 bool COMPILER::CompileExpression_L5(SEGMENT_DESC &Segment)
 {
     const S_TOKEN_TYPE sttOpType = Token.GetType();
-    if (sttOpType == OP_PLUS || sttOpType == OP_MINUS || sttOpType == OP_BOOL_NEG)
+    if (sttOpType == OP_SIZEOF)
+    {
+        // @array: number of elements; @object / @aref: number of attributes
+        CompileAuxiliaryTokens(Segment);
+        if (!CompileAttributeRoot(Segment))
+            return false;
+        CompileToken(Segment, OP_SIZEOF_REF);
+        CompileToken(Segment, STACK_TOP);
+        return true;
+    }
+    if (sttOpType == OP_PLUS || sttOpType == OP_MINUS || sttOpType == OP_BOOL_NEG || sttOpType == OP_BIT_NOT)
         CompileAuxiliaryTokens(Segment);
 
     if (!CompileExpression_L6(Segment))
-    {
-        SetError(ERR_INVALID_EXPRESSION);
-        return false;
-    }
+        return false; // the failing operand reported the error
 
     switch (sttOpType)
     {
@@ -1208,6 +1307,10 @@ bool COMPILER::CompileExpression_L5(SEGMENT_DESC &Segment)
         break;
     case OP_BOOL_NEG:
         CompileToken(Segment, OP_BOOL_NEG);
+        CompileToken(Segment, STACK_TOP);
+        break;
+    case OP_BIT_NOT:
+        CompileToken(Segment, OP_BIT_NOT);
         CompileToken(Segment, STACK_TOP);
         break;
     }
@@ -1220,11 +1323,8 @@ bool COMPILER::CompileExpression_L6(SEGMENT_DESC &Segment)
     if (Token.GetType() == OPEN_BRACKET)
     {
         CompileAuxiliaryTokens(Segment);
-        if (!CompileExpression_L1(Segment))
-        {
-            SetError(ERR_INVALID_EXPRESSION);
+        if (!CompileTernary(Segment))
             return false;
-        }
         if (Token.GetType() != CLOSE_BRACKET)
         {
             SetError("No matching ')' in expression");
@@ -1250,11 +1350,21 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
     FuncInfo fi;
 
     bool bDynamicCall = false;
+    std::vector<uint32_t> chain; // offsets of the ADVANCE_AP instructions of an attribute chain
     switch (Token.GetType())
     {
     case SEPARATOR:
 
         return true;
+    case VAR_INTEGER:
+    case VAR_FLOAT:
+    case VAR_STRING:
+    case VAR_FREF:
+        if (Token.TypeCast())
+            return CompileCast(Segment);
+        break;
+    case BLOCK_IN:
+        return CompileObjectLiteral(Segment);
     case NUMBER:
         CompileToken(Segment, STACK_PUSH);
         CompileNumber(Segment);
@@ -1286,6 +1396,22 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
     case CALL:
         bDynamicCall = true;
     case UNKNOWN:
+        if (!bDynamicCall && Token.GetData() && storm::iEquals(Token.GetData(), "nullptr"))
+        {
+            CompileToken(Segment, PUSH_NULL);
+            CompileAuxiliaryTokens(Segment);
+            return true;
+        }
+        if (!bDynamicCall && Token.GetData() && storm::iEquals(Token.GetData(), "typeid"))
+            return CompileTypeid(Segment);
+        if (!bDynamicCall)
+            if (const S_TOKEN_TYPE call_type = DetectCallThrough(); call_type != UNKNOWN)
+            {
+                if (!CompileCallThrough(Segment, call_type))
+                    return false;
+                CompileAuxiliaryTokens(Segment);
+                return true;
+            }
         if (!bDynamicCall)
         {
             sttResult = DetectUnknown(dwRCode);
@@ -1536,6 +1662,14 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
             {
                 // way for non array var
 
+                if (sttResult == OP_DOLLAR)
+                {
+                    CompileToken(Segment, STACK_POP_VOID);
+                    CompileToken(Segment, MOVEAP);
+                    CompileToken(Segment, AP);
+                    CompileToken(Segment, sttVariableField, 1, (char *)&dwVarCode, sizeof(uint32_t));
+                    return CompileAttributeDefault(Segment);
+                }
                 if (sttResult != DOT)
                 {
                     // copy variavle to stack
@@ -1573,6 +1707,7 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
                         SetError("not variable: %s", Token.GetData());
                         return false;
                     }
+                    chain.push_back(Segment.BCode_Program_size);
                     CompileToken(Segment, ADVANCE_AP);
                     CompileToken(Segment, sttResult, 1, &dwVarCode, sizeof(uint32_t));
                     if (Token.Get() != CLOSE_BRACKET)
@@ -1591,6 +1726,7 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
                     }
                     Token.LowCase();
                     dwAWCode = SCodec.Convert(Token.GetData());
+                    chain.push_back(Segment.BCode_Program_size);
                     CompileToken(Segment, ADVANCE_AP);
                     CompileToken(Segment, ACCESS_WORD_CODE, 1, &dwAWCode, sizeof(uint32_t));
                 }
@@ -1598,6 +1734,15 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
                 if (sttResult == DOT)
                     Token.Get(); // get next token (after dot)
             } while (sttResult == DOT);
+
+            if (Token.GetType() == OP_DOLLAR)
+            {
+                // a.b$int(0): the attribute converted to the type, or the default when it is missing
+                for (const auto offset : chain)
+                    Segment.pCode[offset] = ADVANCE_AP_QUIET;
+                CompileToken(Segment, STACK_POP_VOID); // the slot allocated for the value
+                return CompileAttributeDefault(Segment);
+            }
 
             // write attribute string to stack top
             CompileToken(Segment, STACK_WRITE);
@@ -1613,4 +1758,326 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
     }
     SetError(ERR_INVALID_EXPRESSION);
     return false;
+}
+
+// int(x), float(x), bool(x), string(x), kstring(x), fref(x)
+bool COMPILER::CompileCast(SEGMENT_DESC &Segment)
+{
+    const std::string keyword = Token.GetData() ? Token.GetData() : "";
+    uint32_t target = Token.GetType();
+    if (storm::iEquals(keyword, "bool"))
+        target = TRUE_CONST; // marker: truth value
+    if (Token.Get() != OPEN_BRACKET)
+    {
+        SetError("'(' expected after %s", keyword.c_str());
+        return false;
+    }
+    if (!CompileExpression(Segment))
+        return false;
+    if (Token.GetType() != CLOSE_BRACKET)
+    {
+        SetError("')' expected after %s(...", keyword.c_str());
+        return false;
+    }
+    CompileToken(Segment, OP_CAST, 1, &target, sizeof(uint32_t));
+    CompileAuxiliaryTokens(Segment);
+    return true;
+}
+
+// typeid(type) is a constant, typeid(expression) the type of its value (through references)
+bool COMPILER::CompileTypeid(SEGMENT_DESC &Segment)
+{
+    if (Token.Get() != OPEN_BRACKET)
+    {
+        SetError("'(' expected after typeid");
+        return false;
+    }
+    const S_TOKEN_TYPE type = Token.Get();
+    const char *data = Token.GetData() ? Token.GetData() : "";
+    int32_t id = -1;
+    switch (type)
+    {
+    case VAR_INTEGER:
+        id = storm::iEquals(data, "bool") ? kTypeidBool : kTypeidInt;
+        break;
+    case VAR_FLOAT:
+        id = kTypeidFloat;
+        break;
+    case VAR_STRING:
+        id = kTypeidString;
+        break;
+    case VAR_OBJECT:
+        id = kTypeidObject;
+        break;
+    case VAR_REFERENCE:
+        id = kTypeidRef;
+        break;
+    case VAR_AREFERENCE:
+        id = kTypeidAref;
+        break;
+    case VAR_FREF:
+        id = kTypeidFref;
+        break;
+    default:
+        break;
+    }
+    if (id >= 0)
+    {
+        // the lexer reads "bool)" as the keyword with data ")"
+        if (strcmp(data, ")") != 0 && Token.Get() != CLOSE_BRACKET)
+        {
+            SetError("')' expected after typeid(type");
+            return false;
+        }
+        CompileToken(Segment, STACK_PUSH);
+        CompileToken(Segment, NUMBER, 1, &id, sizeof(int32_t));
+        CompileAuxiliaryTokens(Segment);
+        return true;
+    }
+    Token.StepBack();
+    if (!CompileExpression(Segment))
+        return false;
+    if (Token.GetType() != CLOSE_BRACKET)
+    {
+        SetError("')' expected after typeid(...");
+        return false;
+    }
+    CompileToken(Segment, OP_TYPEID);
+    CompileToken(Segment, STACK_TOP);
+    CompileAuxiliaryTokens(Segment);
+    return true;
+}
+
+// after the attribute chain (rAP set by MOVEAP/ADVANCE_AP_QUIET), on '$': type(default)
+bool COMPILER::CompileAttributeDefault(SEGMENT_DESC &Segment)
+{
+    CompileToken(Segment, PUSH_AP);
+    Token.Get();
+    const char *keyword = Token.GetData() ? Token.GetData() : "";
+    uint32_t target = Token.GetType();
+    if (!Token.TypeCast() ||
+        !(target == VAR_INTEGER || target == VAR_FLOAT || target == VAR_STRING || target == VAR_FREF))
+    {
+        SetError("type(default) expected after '$'");
+        return false;
+    }
+    if (storm::iEquals(keyword, "bool"))
+        target = TRUE_CONST;
+    Token.Get(); // '('
+    if (!CompileExpression(Segment))
+        return false;
+    if (Token.GetType() != CLOSE_BRACKET)
+    {
+        SetError("')' expected after the default value");
+        return false;
+    }
+    CompileToken(Segment, ATTR_DEFAULT, 1, &target, sizeof(uint32_t));
+    CompileAuxiliaryTokens(Segment);
+    return true;
+}
+
+// the operand of in and @: a variable, optionally indexed, and an optional attribute chain. Leaves a
+// reference to the variable (no chain) or an attribute reference (null when an attribute is missing).
+bool COMPILER::CompileAttributeRoot(SEGMENT_DESC &Segment)
+{
+    uint32_t var_code;
+    if (Token.GetType() != UNKNOWN)
+    {
+        SetError("variable expected");
+        return false;
+    }
+    const S_TOKEN_TYPE var_type = DetectUnknown(var_code);
+    if (!(var_type == VARIABLE || var_type == LOCAL_VARIABLE))
+    {
+        SetError("variable expected, not '%s'", Token.GetData());
+        return false;
+    }
+    bool indexed = false;
+    if (CompileAuxiliaryTokens(Segment) == SQUARE_OPEN_BRACKET)
+    {
+        if (!CompileExpression(Segment))
+            return false;
+        if (Token.GetType() != SQUARE_CLOSE_BRACKET)
+        {
+            SetError("missing ']'");
+            return false;
+        }
+        CompileToken(Segment, STACK_POP);
+        CompileToken(Segment, BX);
+        indexed = true;
+        CompileAuxiliaryTokens(Segment);
+    }
+    if (Token.GetType() != DOT)
+    {
+        CompileToken(Segment, STACK_ALLOC);
+        CompileToken(Segment, indexed ? SETREF_BXINDEX : SETREF);
+        CompileToken(Segment, STACK_TOP);
+        CompileToken(Segment, var_type, 1, &var_code, sizeof(uint32_t));
+        return true;
+    }
+    CompileToken(Segment, indexed ? MOVEAP_BXINDEX : MOVEAP);
+    CompileToken(Segment, AP);
+    CompileToken(Segment, var_type, 1, &var_code, sizeof(uint32_t));
+    while (Token.GetType() == DOT)
+    {
+        Token.Get();
+        if (Token.GetType() == OPEN_BRACKET)
+        {
+            Token.Get();
+            const S_TOKEN_TYPE access = DetectUnknown(var_code);
+            if (!(access == VARIABLE || access == LOCAL_VARIABLE) || Token.Get() != CLOSE_BRACKET)
+            {
+                SetError("Invalid access var syntax");
+                return false;
+            }
+            CompileToken(Segment, ADVANCE_AP_QUIET);
+            CompileToken(Segment, access, 1, &var_code, sizeof(uint32_t));
+        }
+        else
+        {
+            if (Token.GetData() == nullptr)
+            {
+                SetError("Invalid access string");
+                return false;
+            }
+            Token.LowCase();
+            const uint32_t word = SCodec.Convert(Token.GetData());
+            CompileToken(Segment, ADVANCE_AP_QUIET);
+            CompileToken(Segment, ACCESS_WORD_CODE, 1, &word, sizeof(uint32_t));
+        }
+        CompileAuxiliaryTokens(Segment);
+    }
+    CompileToken(Segment, PUSH_AP);
+    return true;
+}
+
+// On an identifier: CALL_METHOD for "object->Method(", CALL for "fref_variable(", else UNKNOWN.
+// The token stream is left where it was.
+S_TOKEN_TYPE COMPILER::DetectCallThrough()
+{
+    uint32_t code;
+    const S_TOKEN_TYPE var_type = DetectUnknown(code);
+    if (!(var_type == VARIABLE || var_type == LOCAL_VARIABLE))
+        return UNKNOWN;
+    S_TOKEN_TYPE result = UNKNOWN;
+    const S_TOKEN_TYPE next = Token.Get();
+    if (next == OP_ARROW)
+        result = CALL_METHOD;
+    else if (next == OPEN_BRACKET)
+    {
+        S_TOKEN_TYPE type = UNKNOWN;
+        if (var_type == VARIABLE)
+        {
+            if (const auto *var = VarTab.GetVarX(code))
+                type = var->type;
+        }
+        else
+        {
+            LocalVarInfo lvi;
+            if (FuncTab.GetVar(lvi, CurrentFuncCode, code))
+                type = lvi.type;
+        }
+        if (type == VAR_FREF)
+            result = CALL;
+    }
+    Token.StepBack(); // back to the identifier: its data again
+    Token.StepBack();
+    Token.Get();
+    return result;
+}
+
+// object->Method(args): calls the function its class table names for Method with the object as
+// the first argument; fref_variable(args): calls the function the reference names
+bool COMPILER::CompileCallThrough(SEGMENT_DESC &Segment, S_TOKEN_TYPE call_type)
+{
+    uint32_t var_code;
+    const S_TOKEN_TYPE var_type = DetectUnknown(var_code);
+    uint32_t func_args = 0;
+    if (call_type == CALL)
+    {
+        Token.Get(); // '('
+        if (!CompileCallArguments(Segment, func_args))
+            return false;
+        CompileToken(Segment, CALL);
+        CompileToken(Segment, var_type, 1, &var_code, sizeof(uint32_t));
+        CompileToken(Segment, ARGS_NUM, 1, &func_args, sizeof(uint32_t));
+        return true;
+    }
+    Token.Get(); // '->'
+    if (Token.Get() != UNKNOWN || Token.GetData() == nullptr)
+    {
+        SetError("method name expected after '->'");
+        return false;
+    }
+    const std::string method = Token.GetData();
+    if (Token.Get() != OPEN_BRACKET)
+    {
+        SetError("'(' expected after '->%s'", method.c_str());
+        return false;
+    }
+    // the object, by reference, is the first argument
+    CompileToken(Segment, STACK_ALLOC);
+    CompileToken(Segment, SETREF);
+    CompileToken(Segment, STACK_TOP);
+    CompileToken(Segment, var_type, 1, &var_code, sizeof(uint32_t));
+    if (!CompileCallArguments(Segment, func_args))
+        return false;
+    func_args++;
+    const uint32_t size = static_cast<uint32_t>(method.size() + 1);
+    CompileToken(Segment, CALL_METHOD, 2, &size, sizeof(uint32_t), method.c_str(), size);
+    CompileToken(Segment, ARGS_NUM, 1, &func_args, sizeof(uint32_t));
+    return true;
+}
+
+// { key = value, "key" = value, classtable = GlobalObject }: a new object with these attributes
+bool COMPILER::CompileObjectLiteral(SEGMENT_DESC &Segment)
+{
+    CompileToken(Segment, OBJ_NEW);
+    for (;;)
+    {
+        S_TOKEN_TYPE t = CompileAuxiliaryTokens(Segment);
+        if (t == BLOCK_OUT)
+            break;
+        if (!((t == UNKNOWN || t == STRING) && Token.GetData()))
+        {
+            SetError("attribute name expected in object literal");
+            return false;
+        }
+        std::string key = Token.GetData();
+        if (CompileAuxiliaryTokens(Segment) != OP_EQUAL)
+        {
+            SetError("'=' expected after '%s' in object literal", key.c_str());
+            return false;
+        }
+        if (storm::iEquals(key, "classtable"))
+        {
+            // the class table is a global object, stored by name (survives saving)
+            uint32_t var_code;
+            if (CompileAuxiliaryTokens(Segment) != UNKNOWN || DetectUnknown(var_code) != VARIABLE)
+            {
+                SetError("classtable must name a global object");
+                return false;
+            }
+            const std::string table = Token.GetData();
+            const uint32_t size = static_cast<uint32_t>(table.size() + 1);
+            CompileToken(Segment, STACK_PUSH);
+            CompileToken(Segment, STRING, 2, &size, sizeof(uint32_t), table.c_str(), size);
+            CompileAuxiliaryTokens(Segment);
+        }
+        else if (!CompileExpression(Segment))
+            return false;
+        for (auto &c : key)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        const uint32_t size = static_cast<uint32_t>(key.size() + 1);
+        CompileToken(Segment, OBJ_SET, 2, &size, sizeof(uint32_t), key.c_str(), size);
+        if (Token.GetType() == BLOCK_OUT)
+            break;
+        if (Token.GetType() != COMMA)
+        {
+            SetError("',' or '}' expected in object literal");
+            return false;
+        }
+    }
+    CompileAuxiliaryTokens(Segment);
+    return true;
 }

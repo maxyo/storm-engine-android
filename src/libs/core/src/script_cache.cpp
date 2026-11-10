@@ -40,10 +40,43 @@ std::string_view storm::script_cache::BufferWriter::GetDataBuffer() const noexce
     return {std::data(buffer_), std::size(buffer_)};
 }
 
+namespace
+{
+// attribute tree of a global object initialised by an object literal: value, children (name, tree)
+void WriteAttributes(storm::script_cache::BufferWriter &writer, ATTRIBUTES *attributes)
+{
+    writer.WriteArray(attributes ? to_string(attributes->GetThisAttr()) : std::string());
+    const size_t count = attributes ? attributes->GetAttributesNum() : 0;
+    writer.WriteData(count);
+    for (size_t n = 0; n < count; n++)
+    {
+        ATTRIBUTES *child = attributes->GetAttributeClass(static_cast<uint32_t>(n));
+        writer.WriteArray(child->GetThisName());
+        WriteAttributes(writer, child);
+    }
+}
+
+void ReadAttributes(storm::script_cache::BufferReader &reader, ATTRIBUTES *attributes)
+{
+    const auto value = reader.ReadArray();
+    if (!value.empty())
+        attributes->SetValue(value);
+    const auto count = reader.Read<size_t>();
+    for (size_t n = 0; n < count; n++)
+    {
+        const std::string name(reader.ReadArray());
+        ReadAttributes(reader, &attributes->CreateAttribute(name));
+    }
+}
+} // namespace
+
 void storm::script_cache::ReadScriptData(BufferReader &reader, S_TOKEN_TYPE type, DATA *data)
 {
     switch (type)
     {
+    case VAR_OBJECT:
+        ReadAttributes(reader, data->GetAClass());
+        break;
     case VAR_INTEGER: {
         const auto value = reader.Read<int32_t>();
         data->Set(value);
@@ -67,6 +100,9 @@ void storm::script_cache::WriteScriptData(BufferWriter &writer, S_TOKEN_TYPE typ
 {
     switch (type)
     {
+    case VAR_OBJECT:
+        WriteAttributes(writer, data->GetAClass());
+        break;
     case VAR_INTEGER: {
         const auto value = data->GetInt();
         writer.WriteData(value);

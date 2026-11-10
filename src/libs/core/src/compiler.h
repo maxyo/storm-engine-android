@@ -181,6 +181,11 @@ class COMPILER : public VIRTUAL_COMPILER
     uint32_t SkipInitializer(bool &resumed);
     // pass 2: block scoped locals
     uint32_t FindLocal(const char *name) const;
+    int32_t IntValue(DATA *pV);
+    static DATA *Deref(DATA *pV);
+    static ATTRIBUTES *AttributesOf(DATA *pV);
+    int32_t TypeidOf(DATA *pV);
+    bool CastValue(DATA *pV, S_TOKEN_TYPE target);
     static bool ReturnTypesMatch(S_TOKEN_TYPE declared, S_TOKEN_TYPE engine);
     const std::string &CurrentFunctionName() const;
     // script function name of a CALL_FUNCTION code (codes depend on the order functions were seen)
@@ -277,6 +282,30 @@ class COMPILER : public VIRTUAL_COMPILER
     uint32_t SetScriptFunction(IFUNCINFO *pFuncInfo);
 
     bool CompileExpression(SEGMENT_DESC &Segment);
+    bool CompileTernary(SEGMENT_DESC &Segment);
+    bool CompileBinaryLevel(SEGMENT_DESC &Segment, bool (COMPILER::*operand)(SEGMENT_DESC &),
+                            std::initializer_list<S_TOKEN_TYPE> ops, S_TOKEN_TYPE emitted_for_and);
+    bool CompileBitOr(SEGMENT_DESC &Segment);
+    bool CompileBitAnd(SEGMENT_DESC &Segment);
+    bool CompileShift(SEGMENT_DESC &Segment);
+    bool CompileCast(SEGMENT_DESC &Segment);
+    bool CompileTypeid(SEGMENT_DESC &Segment);
+    bool CompileAttributeDefault(SEGMENT_DESC &Segment);
+    bool CompileAttributeRoot(SEGMENT_DESC &Segment);
+    S_TOKEN_TYPE DetectCallThrough();
+    bool CompileCallThrough(SEGMENT_DESC &Segment, S_TOKEN_TYPE call_type);
+    bool CompileObjectLiteral(SEGMENT_DESC &Segment);
+    uint32_t FindMethod(DATA *self, const char *method);
+    bool ScanObjectLiteral(ATTRIBUTES *object);
+    bool PeekRangeFor(S_TOKEN_TYPE &loop_type);
+    bool CompileRangeFor(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_t &inout, S_TOKEN_TYPE loop_type,
+                         STRINGS_LIST &BreakUpdateTable);
+    static constexpr const char *kRangeContainer = "#rangecontainer"; // hidden locals of a range-for
+    static constexpr const char *kRangePosition = "#rangeposition";
+    S_TOKEN_TYPE NextScanToken();
+    // typeid values
+    static constexpr int32_t kTypeidInt = 1, kTypeidString = 2, kTypeidFloat = 3, kTypeidAref = 4, kTypeidObject = 5,
+                             kTypeidRef = 6, kTypeidBool = 7, kTypeidFref = 8;
     bool CompileExpression_L0(SEGMENT_DESC &Segment);
     bool CompileExpression_L1(SEGMENT_DESC &Segment);
     bool CompileExpression_L2(SEGMENT_DESC &Segment);
