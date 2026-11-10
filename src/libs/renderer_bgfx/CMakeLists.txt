@@ -121,8 +121,8 @@ file(GLOB_RECURSE shim_sources CONFIGURE_DEPENDS src/*.cpp src/*.hpp)
 list(FILTER shim_sources EXCLUDE REGEX "/src/texture/core/")
 add_library(storm_bgfx STATIC ${shim_sources})
 target_compile_features(storm_bgfx PUBLIC cxx_std_20)
-target_include_directories(storm_bgfx PUBLIC include "${CMAKE_SOURCE_DIR}/third_party/d3d9-headers/directx"
-    "${CMAKE_SOURCE_DIR}/third_party/d3d9-headers/windows" PRIVATE src)
+target_include_directories(storm_bgfx PUBLIC include "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/d3d9-headers/directx"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/d3d9-headers/windows" PRIVATE src)
 target_link_libraries(storm_bgfx PUBLIC bgfx bx bimg PRIVATE storm_bgfx_shaders ${SDL2_LIBRARIES})
 set_target_properties(storm_bgfx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(storm_bgfx PRIVATE -fsigned-char)
