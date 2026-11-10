@@ -19,6 +19,9 @@
 #include "mobile_save_list.hpp"
 #include "mobile_nation_relations.hpp"
 #include "mobile_table_game.hpp"
+#include "mobile_goods_transfer.hpp"
+#include "mobile_sails_gerald.hpp"
+#include <set>
 #include "mobile_owner_bridge.hpp"
 #include <chrono>
 static std::optional<storm::mobile::SaveListCapability::Target> deferredSaveAction;
@@ -352,6 +355,8 @@ void XINTERFACE::MobileCollectWidgets(std::vector<MobileWidget> &widgets)
     if(storm::android::mobileScreen=="nationrelation")MobileCollectNations(widgets);
     if(storm::android::mobileScreen=="shipyard")MobileCollectShipyard(widgets);
     if(storm::android::mobileScreen=="boal_dice"||storm::android::mobileScreen=="boal_cards")MobileCollectTableGame(widgets);
+    if(storm::android::mobileScreen=="goodstransfer")MobileCollectGoodsTransfer(widgets);
+    if(storm::android::mobileScreen=="sailsgerald")MobileCollectSailsGerald(widgets);
 }
 
 void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
@@ -434,6 +439,8 @@ void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
 #ifdef __ANDROID__
 #include "mobile_shipyard.inc"
 #include "mobile_table_game.inc"
+#include "mobile_goods_transfer.inc"
+#include "mobile_sails_gerald.inc"
 #endif
 
 void XINTERFACE::Realize(uint32_t)
@@ -2165,6 +2172,9 @@ void XINTERFACE::DoControl()
         auto action = storm::android::uiWidgetActions.front();
         storm::android::uiWidgetActions.pop_front();
         if (action.screen != storm::android::mobileScreen) continue;
+        if(action.screen=="goodstransfer"&&action.node=="ANDROID_GOODS_ORDER"){
+            storm::android::lastWidgetSnapshot.clear();MobileApplyGoodsTransfer(action.value);continue;
+        }
         if(action.screen=="shipyard"&&action.value.rfind("yard@",0)==0){
             MobileApplyShipyard(action.node,action.index,action.value);continue;
         }
