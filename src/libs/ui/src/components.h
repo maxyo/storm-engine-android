@@ -198,6 +198,7 @@ class ComponentElement final : public Rml::Element
     bool dirty_ = true;
     bool built_ = false;
     bool built_children_ = false; // `children` of the last build
+    std::string built_rml_;        // what the template gave at the last build
     bool pending_slot_ = false;   // slot_content_ replaces the slot on the next build
     std::vector<Rml::ElementPtr> slot_content_;
     bool error_ = false; // ReportError happened since the last rebuild

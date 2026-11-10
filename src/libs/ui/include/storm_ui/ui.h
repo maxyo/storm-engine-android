@@ -113,7 +113,7 @@ struct FrameStats
 {
     double update_ms = 0.0; // CPU: timers, routing, Context::Update (styles, rebuilds, layout)
     double render_ms = 0.0; // CPU: Context::Render and the backend's frame (command submission, not GPU time)
-    int rebuilds = 0;       // components re-rendered from their template
+    int rebuilds = 0;       // components re-rendered from their template (an unchanged output patches nothing)
     int laid_out = 0;       // component boxes formatted (0 = no layout ran)
     int geometry = 0;       // meshes compiled
     int draws = 0;          // draw calls (geometry, shaders)
