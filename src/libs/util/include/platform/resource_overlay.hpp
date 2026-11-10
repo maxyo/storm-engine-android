@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace storm::android
 {
@@ -35,6 +36,13 @@ inline bool isEngineShaderOverlayPath(const std::filesystem::path &relative)
     const auto extension = resourceKey(relative.extension());
     return key.starts_with("resource/techniques/") &&
         (extension == ".vso" || extension == ".pso" || extension == ".fx" || extension == ".h" || extension == ".sha");
+}
+
+// APK layers that change the scripts of the program tree; part of the compiled
+// script cache key (FILE_SERVICE::GetPathFingerprint).
+inline std::vector<std::filesystem::path> programLayers(const std::filesystem::path &internalStorage)
+{
+    return {internalStorage / "mobile-ui/current", internalStorage / "script-patches/current"};
 }
 
 inline void indexUiOverlay(const std::filesystem::path &root,

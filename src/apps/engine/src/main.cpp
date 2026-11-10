@@ -25,6 +25,7 @@
 #ifdef __ANDROID__
 #include "platform/android_ui.hpp"
 #include "platform/android_held_controls.hpp"
+#include "platform/script_patches.hpp"
 #include "platform/android_shortcuts.hpp"
 #include "android_gameplay_state.hpp"
 #include "android_combat_state.hpp"
@@ -200,6 +201,50 @@ void ReportFatalError(const char *what)
     SDL_ShowMessageBox(&dialog, nullptr);
 }
 
+#ifdef __ANDROID__
+// Logs what the script patch layer did during the resource scan (which runs
+// before logging is ready) and, once per distinct set of unapplied fixes, tells
+// the player which fixes their game files did not allow.
+void AnnounceScriptPatches()
+{
+    const auto &report = storm::script_patches::lastReport();
+    for (const auto &line : report.info)
+        spdlog::info("{}", line);
+    for (const auto &line : report.errors)
+        spdlog::error("{}", line);
+    const auto key = report.noticeKey();
+    if (key.empty())
+        return;
+    const auto stamp = std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "script-patches/notice-shown";
+    std::string shown;
+    if (std::ifstream file(stamp); file)
+        std::getline(file, shown);
+    if (shown == key)
+        return;
+    bool russian = false;
+    if (SDL_Locale *locales = SDL_GetPreferredLocales())
+    {
+        russian = locales[0].language && std::string_view(locales[0].language) == "ru";
+        SDL_free(locales);
+    }
+    const auto text = storm::script_patches::noticeText(report, russian);
+    const SDL_MessageBoxButtonData button{
+        SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "OK"};
+    const SDL_MessageBoxData dialog{SDL_MESSAGEBOX_WARNING, nullptr,
+                                    russian ? "Исправления не применены" : "Fixes not applied", text.c_str(), 1,
+                                    &button, nullptr};
+    if (SDL_ShowMessageBox(&dialog, nullptr) != 0)
+    {
+        spdlog::error("Cannot show the script patch notice: {}", SDL_GetError());
+        return; // shown again next start
+    }
+    std::ofstream file(stamp, std::ios::trunc);
+    file << key << '\n';
+    if (!file)
+        spdlog::error("Cannot record the script patch notice in {}", stamp.string());
+}
+#endif
+
 void mimalloc_fun(const char *msg, void *arg)
 {
     static std::filesystem::path mimalloc_log_path;
@@ -348,6 +393,11 @@ int main(int argc, char *argv[])
         // Build the resource index only after JNI and the game directory are ready.
         fio->ScanResourcePaths();
     }
+    catch (const storm::script_patches::LayerError &error)
+    {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Damaged script fixes", error.what(), nullptr);
+        return EXIT_FAILURE;
+    }
     catch (const std::exception &error)
     {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game data required", error.what(), nullptr);
@@ -403,6 +453,9 @@ int main(int argc, char *argv[])
     spdlog::set_default_logger(storm::logging::getOrCreateLogger(defaultLoggerName));
     spdlog::info("Logging system initialized. Running on {}", STORM_BUILD_WATERMARK_STRING);
     spdlog::info("mimalloc-redirect status: {}", mi_is_redirected());
+#ifdef __ANDROID__
+    AnnounceScriptPatches();
+#endif
 
     // Init core
     core_private = static_cast<CorePrivate *>(&core);
