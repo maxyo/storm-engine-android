@@ -3,6 +3,7 @@
 # engine. See README.md.
 cmake_minimum_required(VERSION 3.21)
 project(storm-fx-preview LANGUAGES C CXX)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/StormBuildCache.cmake")
 include(FetchContent)
 
 set(STORM_FX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../src/libs/renderer_bgfx/fx")
@@ -27,7 +28,7 @@ set(BGFX_BUILD_TOOLS_BIN2C OFF CACHE BOOL "" FORCE)
 set(BGFX_CONFIG_VIDEO OFF CACHE BOOL "" FORCE)
 set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
 # Offline: -DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=/path/to/pinned/checkout
-FetchContent_Declare(storm_bgfx_upstream
+storm_fetch_declare(storm_bgfx_upstream
     GIT_REPOSITORY https://github.com/bkaradzic/bgfx.cmake.git
     GIT_TAG ${bgfx_pin}
     GIT_SUBMODULES bgfx bx bimg

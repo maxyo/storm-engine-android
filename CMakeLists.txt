@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 project(storm-engine)
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/StormBuildCache.cmake")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(STORM_HOST_SOURCES "" CACHE PATH "Pinned dependency sources for the Linux host build")

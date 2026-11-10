@@ -25,6 +25,10 @@ This port builds for Android (ARM64) and, for development, for the Linux host. T
 - Linux host: configure with `-DSTORM_HOST_SOURCES=<prepared sources>` and
   `-DSTORM_AUDIO_SOURCES=<prepared audio sources>` (see `cmake/host.cmake`).
 
+Builds stay warm across all worktrees: every native build compiles through ccache with the
+project's own cache, and configuration fails otherwise. Never build cold except in exceptional
+cases; see `tools/ccache/README.md`.
+
 You will also need assets from one of the supported games.
 
 ## Roadmap

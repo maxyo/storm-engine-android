@@ -16,6 +16,9 @@ def glm_source(explicit=None):
     for pattern in ('build/*/_deps/storm_glm-src', 'build/*/*/_deps/storm_glm-src',
                     'build/*/*/*/_deps/storm_glm-src'):
         candidates += sorted(ROOT.glob(pattern))
+    # The copy shared by all build directories (cmake/StormBuildCache.cmake), newest first.
+    shared = Path(os.environ.get('STORM_DEPS_CACHE', Path.home() / '.cache/storm-deps')) / 'fetchcontent'
+    candidates += sorted(shared.glob('storm_glm-*'), key=lambda path: path.stat().st_mtime, reverse=True)
     for candidate in candidates:
         if candidate and (Path(candidate) / 'glm/glm.hpp').is_file():
             return Path(candidate).resolve()

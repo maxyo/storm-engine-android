@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Is this build warm? Run around the build step of every Storm build script.
+
+  warmth begin <build dir>   after configuring: fails unless the build directory
+                             compiles through tools/ccache/launcher; starts its stats log
+  warmth begin <build dir> --make   the same for a make build whose script passes
+                             CC="<repo>/tools/ccache/launcher <compiler>" (no CMakeCache.txt)
+  warmth end <build dir>     after building: prints the ccache hit rate of this build and
+                             fails with a ХОЛОДНАЯ СБОРКА alarm when a fresh build directory
+                             missed the cache (README.md here)
+
+A fresh build directory (nothing compiled in it yet) of sources that any worktree has
+compiled before must be served by the cache. Misses in a directory that already has
+objects are explained by the edits ninja found. The documented exception is
+STORM_ALLOW_COLD_BUILD="<reason>": the alarm is printed with the reason and the build passes.
+"""
+import os
+from pathlib import Path
+import re
+import sys
+
+COLD_MISSES = 100      # a fresh build may miss this many (new or edited sources) ...
+MIN_HIT_RATE = 0.6     # ... or, beyond that, must hit at least this share of compilations
+LOG = 'ccache-stats.log'
+STATE = '.storm-warmth'
+LAUNCHER = re.compile(r'/tools/ccache/(launcher|uncached)(;|$)')
+
+
+def alarm(lines):
+    bar = '!' * 78
+    print('\n'.join(['', bar, *lines, bar, '']), file=sys.stderr, flush=True)
+
+
+def launchers(build):
+    """Launcher of each compiled language configured in <build>/CMakeCache.txt."""
+    cache = build / 'CMakeCache.txt'
+    if not cache.is_file():
+        return None
+    entries = dict(re.findall(r'^([A-Za-z_]+):[A-Z]+=(.*)$', cache.read_text(errors='replace'), re.M))
+    return {lang: entries.get(f'CMAKE_{lang}_COMPILER_LAUNCHER', '')
+            for lang in ('C', 'CXX') if f'CMAKE_{lang}_FLAGS' in entries}
+
+
+def compiled_objects(build):
+    log = build / '.ninja_log'
+    if log.is_file():
+        return re.search(r'\.o\t', log.read_text(errors='replace'), re.M) is not None
+    return next(build.rglob('*.o'), None) is not None
+
+
+def begin(build, make=False):
+    (build / LOG).unlink(missing_ok=True)
+    (build / STATE).write_text('incremental\n' if compiled_objects(build) else 'fresh\n')
+    if make:
+        return
+    found = launchers(build)
+    if found is None:
+        sys.exit(f'warmth: {build} is not a configured CMake build directory')
+    for lang, launcher in found.items():
+        if not LAUNCHER.search(launcher):
+            alarm([f'STORM ALARM: {build} compiles {lang} without tools/ccache/launcher '
+                   f'(CMAKE_{lang}_COMPILER_LAUNCHER="{launcher}").',
+                   'Reconfigure it: the Storm CMake projects set the launcher themselves; for a '
+                   'third-party project pass -DCMAKE_C_COMPILER_LAUNCHER and -DCMAKE_CXX_COMPILER_LAUNCHER '
+                   '(tools/ccache/README.md).'])
+            sys.exit(1)
+        if '/uncached' in launcher:
+            alarm([f'STORM ALARM: {build} builds WITHOUT CCACHE: {launcher.split(";", 1)[-1]}'])
+
+
+def end(build):
+    state = build / STATE
+    if not state.is_file():
+        sys.exit(f'warmth: run "warmth begin {build}" before the build')
+    fresh = state.read_text().strip() == 'fresh'
+    hits = misses = 0
+    missed = []
+    current = None
+    log = build / LOG
+    for line in (log.read_text(errors='replace').splitlines() if log.is_file() else []):
+        if line.startswith('# '):
+            current = line[2:]
+        elif line in ('direct_cache_hit', 'preprocessed_cache_hit'):
+            hits += 1
+        elif line == 'cache_miss':
+            misses += 1
+            missed.append(current)
+    total = hits + misses
+    rate = hits / total if total else 1.0
+    kind = 'fresh build directory' if fresh else 'incremental build'
+    print(f'ccache: {build}: {total} compilations, {hits} hits ({rate:.0%}), {misses} misses [{kind}]',
+          flush=True)
+    if fresh and misses > COLD_MISSES and rate < MIN_HIT_RATE:
+        reason = os.environ.get('STORM_ALLOW_COLD_BUILD', '').strip()
+        alarm(['ХОЛОДНАЯ СБОРКА / COLD BUILD: ' + f'{misses} of {total} compilations missed the cache '
+               f'in the fresh build directory {build}.',
+               'Sources compiled before in any worktree must hit. Check the build dir depth matches other '
+               'worktrees (build/<name>), CCACHE_* overrides in your environment and tools/ccache/README.md.',
+               'First misses: ' + ', '.join(str(path) for path in missed[:5]),
+               (f'Allowed by STORM_ALLOW_COLD_BUILD="{reason}".' if reason else
+                'Genuinely new sources (initial cache fill, a widely included header changed on this branch)? '
+                'Re-run with STORM_ALLOW_COLD_BUILD="<reason>".')])
+        if not reason:
+            sys.exit(1)
+    state.unlink()
+
+
+arguments = sys.argv[1:]
+if arguments[:1] == ['begin'] and len(arguments) in (2, 3) and arguments[2:] in ([], ['--make']):
+    begin(Path(arguments[1]).resolve(), make=len(arguments) == 3)
+elif arguments[:1] == ['end'] and len(arguments) == 2:
+    end(Path(arguments[1]).resolve())
+else:
+    sys.exit(__doc__)
