@@ -1,4 +1,5 @@
 #include "sun_glow.h"
+#include "storm/render/effects.hpp"
 
 #include "core.h"
 #include "math_inlines.h"
@@ -286,7 +287,8 @@ void SUNGLOW::Realize(uint32_t Delta_Time)
 
     // calculate and draw flares
     aRSR.clear();
-    if (Delta_Time && Flares.aFlares.size() && bHaveFlare)
+    // The fx post chain draws its own lens flare (renderer_bgfx/fx): the flare sprites are left out then.
+    if (Delta_Time && Flares.aFlares.size() && bHaveFlare && !storm::render::CurrentEffectsWorld().lens_flare)
     {
         auto mCam = OldMatrix;
         storm::math::invertRigid(mCam);
@@ -318,8 +320,10 @@ void SUNGLOW::Realize(uint32_t Delta_Time)
     }
 }
 
-void SUNGLOW::DrawSunMoon()
+void SUNGLOW::DrawSunMoon(bool sun)
 {
+    if (!bMoon && !sun)
+        return;
     const auto fGlowSize = bMoon ? Glow.fMoonSize : Glow.fSunSize;
 
     float fFov;

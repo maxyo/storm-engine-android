@@ -233,6 +233,8 @@ class Router
     }
     // For consumers: something is wrong with the data of their channel.
     void ReportError(const std::string &line);
+    // For consumers: a short notice for the player, the UI string `key` (and what it is about).
+    void Notify(const std::string &key, const std::string &subject);
     bool Active() const
     {
         return screen_ != nullptr;

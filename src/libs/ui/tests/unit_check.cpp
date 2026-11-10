@@ -88,6 +88,14 @@ int main()
     ExpectText("{{ spec.h[size] + 4 }}", scope, "48");
     ExpectText("{{ missing }}|{{ or(missing, 'x') }}|{{ len(items) }}", scope, "|x|2");
     ExpectText("{{ variant == 'primary' ? 'ink' : 'duo' }}", scope, "ink");
+    {
+        // A call in a branch not taken is never made (tr of an empty key would be an error).
+        std::vector<std::string> asked;
+        storm::ui::SetTemplateStrings([&asked](const std::string &key) { asked.push_back(key); return "[" + key + "]"; });
+        ExpectText("{{ missing ? tr(missing) : 'plain' }}|{{ variant ? tr('a.b') : tr(missing) }}", scope, "plain|[a.b]");
+        Expect(asked == std::vector<std::string>({"a.b"}), "template: calls only in the branch taken");
+        storm::ui::SetTemplateStrings(nullptr);
+    }
     ExpectText("{{ pick(variant, 'danger', 1, 'primary', 2, 3) }}{{ in(size, 'sm', 'md') }}", scope, "2true");
     ExpectText("<t-if test=\"on\">A<t-else/>B</t-if><t-if test=\"off\">C<t-else/>D</t-if>", scope, "AD");
     ExpectText("<t-for each=\"items\" as=\"it\">[{{it_i}}:{{it.label}}<t-if test=\"it.count\">×{{it.count}}</t-if>{{ it_last ? '' : ',' }}]</t-for>", scope,

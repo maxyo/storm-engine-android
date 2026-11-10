@@ -50,7 +50,7 @@ std::optional<storm::mobile::SaveListSnapshot> storm::mobile::ReadSaveList()
     if (!profile || !profile->Get(name) || !name || !container || !container->GetAClass() ||
         !number("g_nSaveQuantity", count) || !number("g_nCurrentSaveIndex", selected) ||
         !number("bThisSave", saving) || count < 0 || count > 10000) return {};
-    storm::mobile::SaveListSnapshot result{storm::android::mobileScreenRevision, name, {}, selected, saving != 0};
+    storm::mobile::SaveListSnapshot result{storm::android::mobileScreenRevision, name, {}, selected, saving != 0, {}};
     for (int i = 0; i < count; ++i)
     {
         auto *entry = container->GetAClass()->GetAttributeClass(("s" + std::to_string(i)).c_str());
@@ -58,7 +58,87 @@ std::optional<storm::mobile::SaveListSnapshot> storm::mobile::ReadSaveList()
         if (!file || !*file) return {};
         result.files.emplace_back(file);
     }
+    if (result.saving)
+    {
+        // A save goes to the profile of the game in progress: its records are the rows.
+        for (const auto &file : result.files)
+            result.records.push_back({result.profile, file});
+        return result;
+    }
+    // Loading: every profile's records (no profiles in this port). The folders are scanned
+    // again only when the game's own list changed (a save deleted, another profile chosen).
+    static std::tuple<uint64_t, std::string, std::vector<std::string>> scanned{~0ull, {}, {}};
+    static std::vector<storm::mobile::SaveRecord> records;
+    if (std::get<0>(scanned) != result.revision || std::get<1>(scanned) != result.profile || std::get<2>(scanned) != result.files)
+    {
+        scanned = {result.revision, result.profile, result.files};
+        records = storm::mobile::SaveRecordsOfAllProfiles();
+    }
+    result.records = records;
     return result;
+}
+
+// The game's profile list (save_load.c FillProfileList: PlayerProfile.profile_<i>).
+static int SaveProfileIndex(const std::string &profile)
+{
+    auto *player = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
+    ATTRIBUTES *profiles = player ? player->GetAClass() : nullptr;
+    const int count = profiles ? static_cast<int>(profiles->GetAttributeAsDword("profilesQuantity", 0)) : 0;
+    for (int i = 0; i < count; ++i)
+        if (const char *name = profiles->GetAttribute(("profile_" + std::to_string(i)).c_str()); name && profile == name)
+            return i;
+    return -1;
+}
+
+bool storm::mobile::ChooseSaveProfile(const std::string &profile)
+{
+    const int index = SaveProfileIndex(profile);
+    ATTRIBUTES *gameInterface = XINTERFACE::pThis ? XINTERFACE::pThis->AttributesPointer : nullptr;
+    if (index < 0 || !gameInterface)
+    {
+        core.Trace("ERROR save_load: profile '%s' is not in the game's profile list", profile.c_str());
+        return false;
+    }
+    gameInterface->CreateSubAClass(gameInterface, "profile_window_list")->SetAttribute("select", std::to_string(index + 1));
+    core.Event("LoadProfile"); // ProcChooseProfile: SetCurrentProfile, the chooser closed
+    const auto state = ReadSaveList();
+    return state && state->profile == profile;
+}
+#endif
+
+#ifdef __ANDROID__
+// No profiles in this port (owner decision). The game's profile chooser (save_load.c opens it
+// on a load from the main menu when there is more than one profile folder) never reaches the
+// player: it is answered with the profile of this opening at once. Whenever the list is idle
+// that profile is the game's current one again: another profile becomes current only to load
+// or delete one of its records (SelectSaveTarget), and a deletion must not leave the game in
+// progress saving into another profile.
+void XINTERFACE::MobileKeepSaveProfile()
+{
+    static uint64_t opening = ~0ull;
+    static std::string profile;
+    if (opening != storm::android::mobileScreenRevision)
+    {
+        opening = storm::android::mobileScreenRevision;
+        auto *player = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
+        const char *name = player && player->GetAClass() ? player->GetAClass()->GetAttribute("name") : nullptr;
+        profile = name ? name : "";
+        if (profile.empty())
+            if (const auto records = storm::mobile::SaveRecordsOfAllProfiles(); !records.empty())
+                profile = records.front().profile; // the newest record's
+    }
+    const auto window = [this](const char *name) {
+        auto *node = FindNode(name, nullptr);
+        return node && node->m_nNodeType == NODETYPE_WINDOW ? static_cast<CXI_WINDOW *>(node) : nullptr;
+    };
+    CXI_WINDOW *chooser = window("PROFILE_WINDOW"), *main = window("MAIN_WINDOW");
+    const bool chooserOpen = chooser && chooser->GetShow();
+    const bool idle = main && main->GetActive() && !chooserOpen && !deferredSaveAction;
+    if (profile.empty() || (!chooserOpen && !idle))
+        return;
+    const auto state = storm::mobile::ReadSaveList();
+    if (chooserOpen || (state && state->profile != profile))
+        storm::mobile::ChooseSaveProfile(profile);
 }
 #endif
 
@@ -555,13 +635,31 @@ void XINTERFACE::Realize(uint32_t)
     DrawNode(m_pNodes, Delta_Time, 0, 80);
 
 #ifdef __ANDROID__
-    static uint32_t lastMobileSnapshotTime = 0;
-    if (SDL_GetTicks() - lastMobileSnapshotTime >= 200)
+    // The interface model goes out in the frame it changes (publishMobileWidgets sends only a
+    // changed snapshot). A timer here made every change wait up to its period. The save screen's
+    // model is complete only once the script has filled its save list (ReadSaveList: an empty
+    // list is readable, a list not yet filled is not); before that nothing is sent, so the UI never
+    // gets a save screen without its saves.
+    if (storm::android::mobileScreen == "save_load")
+        MobileKeepSaveProfile();
+    const auto saves = storm::mobile::ReadSaveList();
+    if (!saves && storm::android::mobileScreen == "save_load")
     {
-        lastMobileSnapshotTime = SDL_GetTicks();
+        static uint64_t waitingRevision = 0;
+        static uint32_t waitingSince = 0;
+        if (waitingRevision != storm::android::mobileScreenRevision)
+            waitingRevision = storm::android::mobileScreenRevision, waitingSince = SDL_GetTicks();
+        else if (waitingSince && SDL_GetTicks() - waitingSince >= 2000)
+        {
+            core.Trace("ERROR save_load: the script's save list is still unreadable after 2 s; the screen has no model");
+            waitingSince = 0; // said once per opening
+        }
+    }
+    else
+    {
         std::vector<MobileWidget> widgets;
         MobileCollectWidgets(widgets);
-        if (const auto saves = storm::mobile::ReadSaveList())
+        if (saves)
         {
             auto *window = FindNode("MAIN_WINDOW", nullptr);
             const bool enabled = window && window->m_nNodeType == NODETYPE_WINDOW &&
@@ -583,6 +681,15 @@ void XINTERFACE::Realize(uint32_t)
                 widgets.push_back(std::move(*game));
         if (storm::android::mobileScreen == "selectcharacter" && !storm::android::TutorialSkipSupported())
             storm::android::tutorialSkip.selected = false;
+        if (storm::android::mobileScreen == "selectcharacter")
+        {
+            // The occupation's text key (HeroType_N): the game's caption for it is a fragment of
+            // a sentence ("гимнастику и искусство фехтования"); the UI names it by the key.
+            auto *hero = static_cast<VDATA *>(core.GetScriptVariable("NullCharacter"));
+            auto *type = hero && hero->GetAClass() ? hero->GetAClass()->FindAClass(hero->GetAClass(), "HeroParam.HeroType") : nullptr;
+            if (type && type->HasValue())
+                widgets.push_back(MobileWidget{"ANDROID_HERO_TYPE", "text", type->GetValue(), "", -1, -1, true});
+        }
         if (storm::android::mobileScreen == "selectcharacter" && storm::android::TutorialSkipSupported())
         {
             MobileWidget option{"ANDROID_TUTORIAL_SKIP", "check", "Пропустить вступительное обучение",
@@ -644,13 +751,15 @@ void XINTERFACE::Realize(uint32_t)
         const char *gameLanguage = pStringService ? pStringService->GetLanguage() : nullptr;
         const std::string language = gameLanguage ? gameLanguage : "";
         auto payload = MobileWidgetJson(storm::android::mobileScreen, widgets, storm::android::mobileScreenRevision, 0, language);
-        if (payload != previousPayload)
+        const bool changed = payload != previousPayload;
+        if (changed)
         {
             previousPayload = std::move(payload);
             ++snapshotRevision;
         }
-        storm::android::publishMobileWidgets(MobileWidgetJson(storm::android::mobileScreen, widgets,
-                                                              storm::android::mobileScreenRevision, snapshotRevision, language));
+        if (changed || storm::android::lastWidgetSnapshot.empty()) // nothing new: nothing to build or send
+            storm::android::publishMobileWidgets(MobileWidgetJson(storm::android::mobileScreen, widgets,
+                                                                  storm::android::mobileScreenRevision, snapshotRevision, language));
     }
 #endif
 
@@ -2361,6 +2470,11 @@ void XINTERFACE::DoControl()
             return nullptr;
         };
         auto *node = find(find, m_pNodes, action.node);
+        // A map's "release" ends the right-button hold while the window the hold opened has
+        // locked the map (CXI_SCROLLEDPICTURE::MobileApply).
+        if (!node && action.value == "release")
+            if (auto *map = FindNode(action.node.c_str(), nullptr); map && map->m_bUse && map->m_nNodeType == NODETYPE_SCROLLEDPICTURE)
+                node = map;
         if (!node) continue;
         if (action.value.rfind("guard@", 0) == 0)
         {

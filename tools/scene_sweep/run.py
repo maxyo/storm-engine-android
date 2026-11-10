@@ -74,6 +74,9 @@ def parse_arguments():
     parser.add_argument('--size', default='1280x720', help='window size (default 1280x720)')
     parser.add_argument('--timeout', type=int, default=240, help='seconds one scene may take before the engine is killed')
     parser.add_argument('--gl-threads', type=int, default=2, help='software rasteriser threads per engine')
+    parser.add_argument('--variants', default='',
+                        help="graphics option sets separated by ';' (e.g. 'fx_preset=0;fx_preset=2,fx_bloom=0'): every "
+                             "game scene is captured once per set (shots/<scene>@v<i>.jpg, report 'variants')")
     parser.add_argument('--settle', type=int, default=300,
                         help='ms each scene renders after its fader before the capture; frame time and the renderer '
                              'counters are means over this window (raise it for performance measurements)')
@@ -257,6 +260,9 @@ class Shard(threading.Thread):
         source = self.arguments.game
         for name in ('engine.ini', 'options'):  # files the game rewrites must not be the player's
             (game / name).unlink(missing_ok=True)
+        # The player's profiles: a profile named like the sweep's new game stops it at "the profile exists" (and the
+        # game would write into the player's hard-linked saves).
+        shutil.rmtree(inventory.find_case_insensitive(game, 'save') or game / 'save', ignore_errors=True)
         if (source / 'options').exists():
             shutil.copy(source / 'options', game / 'options')
         settings = inventory.read_script(source / 'engine.ini')
@@ -285,7 +291,8 @@ class Shard(threading.Thread):
         environment = dict(os.environ, DISPLAY=f':{self.display}', XDG_DATA_HOME=str(run / 'data'),
                            SDL_VIDEODRIVER='x11', SDL_AUDIODRIVER='dummy', LIBGL_ALWAYS_SOFTWARE='1',
                            LP_NUM_THREADS=str(self.arguments.gl_threads), STORM_SCENE_SWEEP_DIR=str(control),
-                           STORM_SCENE_SWEEP_SETTLE_MS=str(self.arguments.settle))
+                           STORM_SCENE_SWEEP_SETTLE_MS=str(self.arguments.settle),
+                           STORM_SCENE_SWEEP_VARIANTS=self.arguments.variants)
         stdout = run / 'stdout.log'
         with open(stdout, 'wb') as output:
             engine = subprocess.Popen(
@@ -340,19 +347,24 @@ class Shard(threading.Thread):
                     values = dict(item.split('=') for item in rest.split())
                     pending += tail.collect()
                     image = read_frame(self.work / 'Xvfb_screen0', self.size)
-                    reasons, previous_frame = frame_reasons(image, previous_frame)
-                    shot = Path('shots') / current.replace(':', '/')
-                    target = (self.arguments.out / shot).with_suffix('.jpg')
+                    variant = values.get('variant')
+                    shot = Path('shots') / (current.replace(':', '/') + (f'@v{variant}' if variant else '') + '.jpg')
+                    target = self.arguments.out / shot
                     target.parent.mkdir(parents=True, exist_ok=True)
                     image.save(target, quality=82)
                     status = Path(f'/proc/{engine.pid}/status').read_text()
-                    metrics.update(frame_ms=round(float(values['frame_ms']), 1), draws=int(values['draws']),
-                                   rss_mb=int(re.search(r'VmRSS:\s+(\d+)', status)[1]) // 1024,
-                                   shot=str(shot.with_suffix('.jpg')))
-                    # Per-frame means of the renderer counters (storm/render/perf_stats.hpp).
-                    metrics['renderer'] = {key: float(value) for key, value in
-                                           (item.split('=') for item in renderer.split())}
-                    metrics['capture_reasons'] = reasons
+                    measured = dict(frame_ms=round(float(values['frame_ms']), 1), draws=int(values['draws']),
+                                    rss_mb=int(re.search(r'VmRSS:\s+(\d+)', status)[1]) // 1024, shot=str(shot),
+                                    # Per-frame means of the renderer counters (storm/render/perf_stats.hpp).
+                                    renderer={key: float(value) for key, value in
+                                              (item.split('=') for item in renderer.split())})
+                    if variant is None or variant == '0':
+                        # Later variants show the same scene: only the first is checked against the previous scene.
+                        reasons, previous_frame = frame_reasons(image, previous_frame)
+                        metrics.update(measured)
+                        metrics['capture_reasons'] = reasons
+                    if variant is not None:
+                        metrics.setdefault('variants', {})[variant] = measured
                     (control / 'ack').touch()
                 elif kind == 'end':
                     close(rest, [])

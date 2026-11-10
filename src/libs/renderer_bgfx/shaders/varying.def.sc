@@ -6,6 +6,12 @@ vec4 v_texcoord2 : TEXCOORD2 = vec4(0.0, 0.0, 0.0, 1.0);
 vec4 v_texcoord3 : TEXCOORD3 = vec4(0.0, 0.0, 0.0, 1.0);
 vec4 v_texcoord4 : TEXCOORD4 = vec4(0.0, 0.0, 0.0, 1.0);
 vec4 v_fog       : TEXCOORD7 = vec4(0.0, 0.0, 0.0, 0.0);
+// Per-pixel lighting variants only (vs_ff_lit / fs_ff_lit*, fs_ff_baked*): view-space normal and position,
+// material diffuse and ambient colour of the vertex.
+vec4 v_normal     : NORMAL    = vec4(0.0, 0.0, -1.0, 0.0);
+vec4 v_position   : TEXCOORD5 = vec4(0.0, 0.0, 0.0, 1.0);
+vec4 v_matDiffuse : COLOR2    = vec4(0.0, 0.0, 0.0, 0.0);
+vec4 v_matAmbient : COLOR3    = vec4(0.0, 0.0, 0.0, 0.0);
 
 vec4 a_position  : POSITION;
 vec3 a_normal    : NORMAL;

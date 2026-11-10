@@ -54,9 +54,11 @@ struct FakeSurface final : Surface
     void RequestText(TextRequest, const std::string &) override
     {
     }
-    void Toast(const std::string &) override
+    void Toast(const std::string &text) override
     {
+        toasts.push_back(text);
     }
+    std::vector<std::string> toasts;
     void SetLanguage(const std::string &) override
     {
     }
@@ -167,6 +169,67 @@ static void Frame(const std::string &models)
     ExpectEqual(surface.Last(), "back", "a tap ends the interlude the game's way (the global back)");
 }
 
+static void FramePicture(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "reading-frame.json"));
+    Expect(surface.props["picture"].is_null(), "the interlude without a quest picture shows none (the ini's frame ornament is left out)");
+    router.SetInterface(Load(models, "reading-frame-picture.json"));
+    Expect(surface.props["picture"]["texture"] == "loading/inside/kiss" && surface.props["picture"]["uv"] == "0,0,1,1",
+           "the quest's picture is the interlude's backdrop, by its texture");
+}
+
+static void Maps(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "map-view.json"));
+    Expect(router.Using() == "mapview" && surface.tag == "s-map", "the atlas is a ported screen");
+    Expect(surface.errors.empty() && surface.props["extras"]["rows"].empty(), "every node of the atlas is known");
+    const Json &map = surface.props["map"];
+    Expect(map["texture"] == "interfaces/maps/martinica" && map["base"] == Json::array({2048, 2048}) &&
+               map["view"] == Json::array({0, 0, 2048, 2048}) && map["markers"].empty(),
+           "the atlas map: the game's texture, its base size and view");
+    Expect(surface.props["maps"].size() == 5 && surface.props["maps"][1]["selected"] == true &&
+               surface.props["maps"][1]["cells"][0]["text"] == "Карта Мартиники" && surface.props["info"].is_null(),
+           "the atlas lists the hero's maps, the shown one selected");
+    router.OnEvent({"maps", "row", "2"});
+    ExpectEqual(surface.Last(), "widget:mapview\tTABLE_MAPS\t3\tselect@7:3", "a map row selects it");
+    router.OnEvent({"map", "point", "1024.0,900.5"});
+    ExpectEqual(surface.Last(), "widget:mapview\tMAP\t-1\tpoint@7:1024.0,900.5", "a tap on the map is the game's right click there");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), "widget:mapview\tEXIT_BTN\t-1\tpress", "← is the exit button");
+
+    router.SetInterface(Load(models, "map-best.json"));
+    const Json &markers = surface.props["map"]["markers"];
+    Expect(surface.props["map"]["texture"] == "interfaces/maps/map_good" && surface.errors.empty(),
+           "the excellent map's picture is MAIN_BACK under its transparent MAP");
+    Expect(router.Using() == "mapbest" && markers.size() == 8 && markers[0]["texture"] == "atlas:NATIONS/France" &&
+               markers[0]["x"] == 1530 && markers[0]["w"] == 16 && markers[7]["id"] == "PShip",
+           "the excellent map carries the game's markers in base units");
+    Expect(!router.WantsBack(), "no colony open: back is the game's");
+
+    router.SetInterface(Load(models, "map-best-colony.json"));
+    const Json &info = surface.props["info"];
+    Expect(surface.errors.empty() && surface.props["extras"]["rows"].empty(), "every node of the colony window is known");
+    Expect(info["title"] == "Сен-Пьер" && info["nation"] == "nation-france" && info["sub"] == "1–3 дня пути",
+           "colony sheet: name, flag, travel");
+    Expect(info["facts"].size() == 4 && info["facts"][1] == Json({{"k", "Казна"}, {"v", "86 300"}}) && info["factsTitle"] == "Сведения о колонии",
+           "colony facts pair the game's two columns");
+    const Json &sections = info["sections"];
+    Expect(sections.size() == 3 && sections[0]["title"] == "Экспорт" && sections[0]["goods"].size() == 2 &&
+               sections[0]["goods"][1] == Json({{"texture", "atlas:GOODS/Coffee"}, {"uv", ""}, {"label", "Кофе"}}) &&
+               sections[0]["lines"].empty() && sections[1]["goods"][0]["label"] == "Ром" &&
+               sections[2]["title"] == "Помощник: прибыль из Бас-Тера" && sections[2]["lines"].size() == 2,
+           "sections: goods pictures with their names, the trade assistant's lines");
+    Expect(router.WantsBack(), "an open colony takes the back key");
+    router.OnEvent({"info-close", "click", ""});
+    ExpectEqual(surface.Last(), "widget:mapbest\tMAP\t-1\trelease", "the cross lets go of the colony (the game's right button up)");
+    router.Back();
+    ExpectEqual(surface.Last(), "widget:mapbest\tMAP\t-1\trelease", "so does the back key");
+}
+
 static void Notices(const std::string &models)
 {
     FakeSurface surface;
@@ -269,6 +332,8 @@ int main(int argc, char **argv)
     const std::string models = argc > 1 ? argv[1] : "tests/models";
     Card(models);
     Frame(models);
+    FramePicture(models);
+    Maps(models);
     Rest(models);
     Notices(models);
     TradeBook(models);

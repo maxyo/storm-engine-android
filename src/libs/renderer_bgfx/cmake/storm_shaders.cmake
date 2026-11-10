@@ -1,24 +1,42 @@
 # storm_bgfx_embed_shaders(TARGET <interface target> NAMESPACE <id> VARYING <varying.def.sc>
-#                          SOURCES vs_*.sc fs_*.sc ... [DEFINES "A;B=1"] [INCLUDES dir...])
+#                          SOURCES vs_*.sc fs_*.sc ... [DEFINES "A;B=1"] [INCLUDES dir...]
+#                          [VARIANTS "<name>|<source>|A,B=1" ...])
 # Compiles each bgfx shader with the pinned host shaderc for STORM_BGFX_SHADER_PROFILE
 # and exposes `<build>/<NAMESPACE>/<name>.bin.h` (a `static const uint8_t <name>[]`)
 # through the INTERFACE target's include path as "<NAMESPACE>/<name>.bin.h".
-# File names must start with vs_ or fs_. Other libraries (e.g. the UI) call
-# this with their own sources and varying.def.sc; see renderer_bgfx/README.md.
+# File names must start with vs_ or fs_; a variant compiles <source> again with extra
+# defines under its own <name>. Other libraries (e.g. the UI) call this with their own
+# sources and varying.def.sc; see renderer_bgfx/README.md.
 function(storm_bgfx_embed_shaders)
-    cmake_parse_arguments(arg "" "TARGET;NAMESPACE;VARYING" "SOURCES;DEFINES;INCLUDES" ${ARGN})
+    cmake_parse_arguments(arg "" "TARGET;NAMESPACE;VARYING" "SOURCES;DEFINES;INCLUDES;VARIANTS" ${ARGN})
     set(out_dir "${CMAKE_CURRENT_BINARY_DIR}/shaders-gen/${arg_NAMESPACE}")
     file(MAKE_DIRECTORY "${out_dir}")
     set(outputs)
     set(include_lines "")
     set(table_lines "")
     set(include_args -i "${STORM_BGFX_SOURCE_DIR}/bgfx/src" -i "${STORM_BGFX_SHADER_INCLUDE}")
+    file(GLOB common_deps "${STORM_BGFX_SHADER_INCLUDE}/*")
     foreach(dir ${arg_INCLUDES})
         list(APPEND include_args -i "${dir}")
+        file(GLOB dir_deps "${dir}/*")
+        list(APPEND common_deps ${dir_deps})
     endforeach()
-    file(GLOB common_deps "${STORM_BGFX_SHADER_INCLUDE}/*")
+    set(jobs)
     foreach(source ${arg_SOURCES})
         get_filename_component(name "${source}" NAME_WE)
+        list(APPEND jobs "${name}|${source}|")
+    endforeach()
+    list(APPEND jobs ${arg_VARIANTS})
+    foreach(job ${jobs})
+        string(REPLACE "|" ";" fields "${job}")
+        list(GET fields 0 name)
+        list(GET fields 1 source)
+        list(LENGTH fields field_count)
+        set(variant_defines)
+        if(field_count GREATER 2)
+            list(GET fields 2 variant_defines)
+            string(REPLACE "," ";" variant_defines "${variant_defines}")
+        endif()
         if(name MATCHES "^vs_")
             set(type vertex)
         elseif(name MATCHES "^fs_")
@@ -28,8 +46,9 @@ function(storm_bgfx_embed_shaders)
         endif()
         set(output "${out_dir}/${name}.bin.h")
         set(define_args)
-        if(arg_DEFINES)
-            list(JOIN arg_DEFINES ";" joined)
+        set(all_defines ${arg_DEFINES} ${variant_defines})
+        if(all_defines)
+            list(JOIN all_defines "$<SEMICOLON>" joined) # one shaderc argument
             set(define_args --define "${joined}")
         endif()
         add_custom_command(OUTPUT "${output}"

@@ -48,6 +48,7 @@ std::unique_ptr<Screen> CreateRestScreen();
 std::unique_ptr<Screen> CreateTradeBookScreen();
 std::unique_ptr<Screen> CreateColonyCaptureScreen();
 std::unique_ptr<Screen> CreateFortCaptureScreen();
+std::unique_ptr<Screen> CreateMapScreen();
 std::unique_ptr<Screen> CreateLauncherScreen();
 std::unique_ptr<Screen> CreateDownloadsScreen();
 std::unique_ptr<Screen> CreateAboutScreen();
@@ -96,6 +97,9 @@ const ScreenEntry kPorted[] = {
     {"tradebook", CreateTradeBookScreen},
     {"colonycapture", CreateColonyCaptureScreen},
     {"fortcapture", CreateFortCaptureScreen},
+    {"mapview", CreateMapScreen},
+    {"mapbest", CreateMapScreen},
+    {"papermap", CreateMapScreen},
     // The application's own screens, routed from the platform host's "launcher" channel; the
     // "app:" prefix keeps them apart from game interfaces (ids are ini stems, e.g. "about").
     {"app:launcher", CreateLauncherScreen},

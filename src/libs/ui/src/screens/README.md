@@ -31,6 +31,7 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `hero_ship.cpp` | the ship (`ship`): overview, crew, hold over the one stock screen; the game's windows (drop overboard, cannons by side, shares, the morale and exchange questions) as our controls; facts from the adapter `android_hero.c` (`ANDROID_SHIP`, `ANDROID_SHARES`) |
 | `dialogue.cpp` | state channel `dialogue`: speech paged by `<ui-pages>` (pure rules in `../text_pages.h`), replies in two columns, the answer editor (text through the IME bridge, or an amount on the number panel), the menu button (`pause` to the platform host) |
 | `menu_game_over.cpp` | state channel `gameOver` (`{kind: sea\|land\|defeat, language}` or `null`, engine xinterface `info_handler.cpp`): the game-over screen |
+| `maps.cpp` | the game's maps (`mapview`, `mapbest`, `papermap`): c-map-view (pan, pinch, zoom; the game's markers), a tap is `point` in the picture's base units, the colony sheet from the game's colony window, `release` closes it |
 | `launcher.cpp` | the application's own screens (launcher, download library, about) from the platform host's `launcher` channel; the contract is at the top of the file |
 
 The design rules are GENERIC-LAYOUT (pipeline, type → component, button roles, templates,
@@ -131,6 +132,11 @@ it at run time through `<game root>/RESOURCE/INI/interfaces/pictures.ini`
 (`picture_atlas.h`) to the texture and rectangle. Nothing of the game is bundled; without
 a game root the neutral placeholder stays.
 
+A picture the engine names by file (a map, an interlude picture, a map item) comes as
+`ImageRef{kind "texture", image "interfaces/maps/kayman", uv}`; `TextureOf(image)` (controls.h)
+gives `{texture, uv}` for `<ui-game-image texture uv [fit="contain|cover"]>`, and `MapViewOf`
+the props of `c-map-view` for a scrolled picture (`map` widget and its `map_marker` rows).
+
 ## State channels
 
 `Host::SetState(channel, json)` carries the state of the game outside interfaces. A zone
@@ -174,6 +180,7 @@ Channels (JSON as the engine publishes it unless noted):
 | `seaQuickAction` | `{schemaVersion: 1, activity, revision, available, action: Map\|Moor\|Board\|LandTroops\|Reload, label}` | `SeaQuick` |
 | `worldMap` | the engine's world-map frame (`android_worldmap.hpp`): `{schemaVersion: 1, revision, activity, gameplayRevision, available, mask, commandsReady, shipsVisible, instrumentsVisible, date, hour, windForce, windAngle, heading, speed, morale, foodDays, rumDays, coordinates, flag, stormState, ships: […], commands: [{id, label}]}` | `WorldMap` |
 | `presentation` | written by the platform host: `{screen, loading, cinematic, dialogue, live}` | `Presentation` |
+| `video` | `{fullscreen: true}` while a game video plays over the whole screen (engine aviplayer.cpp; never for a player embedded in an interface node), `null` after | the host (ui_host.cpp): the interface screen is hidden and takes no touch or back key until it ends |
 
 The HUD is visible when a scene draws the gameplay mode, `presentation` reports a free game
 (no screen, loading, cutscene or dialogue of the platform host) and no interface of the UI

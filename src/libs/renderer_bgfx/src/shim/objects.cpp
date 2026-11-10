@@ -198,6 +198,8 @@ TexStorePtr make_store(Device *device, TexKind kind, uint32_t width, uint32_t he
 
 TexStore::~TexStore()
 {
+    for (const Sub &s : subs)
+        perf_resize(&render::PerfCounters::texture_shadow_bytes, s.data.size(), 0);
     texture::Service::instance().release(transcode_job);
     texture::Service::instance().add_fallback_bytes(-fallback_bytes);
     if (bgfx::isValid(handle) && Context::instance().initialised())
@@ -219,7 +221,8 @@ uint8_t *TexStore::lock(uint32_t face, uint32_t level, uint32_t *pitch, uint32_t
     if (s.data.size() != total)
     {
         if (shadow_released)
-            trap("lock of a compressed texture whose CPU copy was released after upload (contents read as zero)");
+            trap("lock of a texture whose CPU copy was released after upload (compressed or immutable; contents read as zero)");
+        perf_resize(&render::PerfCounters::texture_shadow_bytes, s.data.size(), total);
         s.data.assign(total, 0);
     }
     ++s.lock_count;
@@ -265,6 +268,7 @@ void TexStore::create_gpu()
         if (render_target)
             flags |= BGFX_TEXTURE_RT;
     }
+    flags |= target_flags;
     const bool mips = levels > 1;
     switch (kind)
     {
@@ -283,6 +287,8 @@ void TexStore::create_gpu()
     if (!bgfx::isValid(handle))
         logf("texture creation failed: %ux%ux%u levels=%u d3dformat=%u", width, height, depth, levels,
              static_cast<uint32_t>(format));
+    else if (render_target)
+        needs_clear = true;
 }
 
 namespace
@@ -487,14 +493,18 @@ bgfx::TextureFormat::Enum etc_format(texture::EtcFormat format)
 }
 } // namespace
 
-// DXT payloads are never patched in place by the game, so their CPU copy (the bulk of all
-// texture memory) is dropped once the GPU texture exists and no transcode job still needs it.
+// DXT payloads are never patched in place by the game, and file textures are marked immutable by
+// the renderer, so their CPU copy (the bulk of all texture memory) is dropped once the GPU texture
+// exists and no transcode job still needs it.
 void TexStore::release_shadow()
 {
-    if (!format_info(format).block_bytes || (fallback_bytes && !transcode_job))
+    if ((!format_info(format).block_bytes && !immutable) || render_target || (fallback_bytes && !transcode_job))
         return;
     for (Sub &s : subs)
+    {
+        perf_resize(&render::PerfCounters::texture_shadow_bytes, s.data.size(), 0);
         std::vector<uint8_t>().swap(s.data);
+    }
     shadow_released = true;
 }
 
@@ -900,6 +910,8 @@ VertexBuffer::~VertexBuffer()
         device->forget_transient(this);
     if (bgfx::isValid(handle) && Context::instance().initialised())
         bgfx::destroy(handle);
+    perf_resize(&render::PerfCounters::buffer_shadow_bytes, shadow.size(), 0);
+    perf_resize(&render::PerfCounters::buffer_gpu_bytes, gpu_bytes, 0);
 }
 HRESULT VertexBuffer::Lock(UINT offset, UINT size, void **data, DWORD flags)
 {
@@ -935,6 +947,8 @@ IndexBuffer::~IndexBuffer()
 {
     if (bgfx::isValid(handle) && Context::instance().initialised())
         bgfx::destroy(handle);
+    perf_resize(&render::PerfCounters::buffer_shadow_bytes, shadow.size(), 0);
+    perf_resize(&render::PerfCounters::buffer_gpu_bytes, gpu_bytes, 0);
 }
 HRESULT IndexBuffer::Lock(UINT offset, UINT size, void **data, DWORD flags)
 {

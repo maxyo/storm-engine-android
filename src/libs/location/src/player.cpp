@@ -554,9 +554,9 @@ void Player::Rotate(float dltTime)
 {
     CONTROL_STATE cs;
 #ifdef __ANDROID__
-    // Touch camera orbit is handled by CameraFollow. Feeding its swipe back
-    // into character yaw would fight joystick steering and re-orbit the camera.
-    if (UsesTouchCamera() && (!locCam || locCam->IsThirdPersonFollow())) return;
+    // Mobile camera mode: out of a fight the drag turns the camera only (CameraFollow), never
+    // the hero; feeding it into the hero's yaw would fight the stick and re-orbit the camera.
+    if (MobileCameraOrbit() && (!locCam || locCam->IsThirdPersonFollow())) return;
 #endif
     if (!isSpecialMode)
     {

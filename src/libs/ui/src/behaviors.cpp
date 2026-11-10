@@ -14,9 +14,13 @@
 //           the width of its widest content (the cells are laid out shrink-to-fit first,
 //           then given a common min-width), so numeric columns line up without the
 //           screen guessing widths
-//   sticky  data-sticky on rows inside a scrolling element (which must be positioned, so
-//           it is their offset parent): a row scrolled above the top edge stays pinned
-//           there (CSS position: sticky; top: 0, which RmlUi lacks)
+//
+//   panzoom data-panzoom on the viewport (clips), data-plane on the picture plane inside it;
+//           props base [w, h] and view [x0, y0, x1, y1] (the part shown first) in the units the
+//           game measures the picture in. One finger pans, two pinch; a tap reports
+//           `point x,y` in those units; parts marked data-zoom="in|out" zoom one step around
+//           the centre. The view is the component's own: nothing goes to the engine for it.
+//           A change of the prop `room` (the layout around the view) refits it to the new size.
 //
 // Two more are given to single elements with data-behavior="…" (HUD layout), on top of
 // what their component has:
@@ -33,6 +37,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <unordered_map>
 
@@ -721,6 +726,216 @@ class SwipeBehavior final : public Behavior
     std::vector<float> bounds_;
 };
 
+class PanZoomBehavior final : public Behavior
+{
+  public:
+    bool Exclusive(const Pointer &) const override
+    {
+        return true;
+    }
+
+    bool Down(ComponentElement &self, const Pointer &pointer) override
+    {
+        Rml::Element *port = FindWith(&self, "data-panzoom");
+        if (!port || fingers_.size() >= 2 || !Ready(self, port))
+            return false;
+        if (fingers_.empty())
+        {
+            moved_ = false;
+            Rml::Element *zoom = ClosestWith(pointer.target, &self, "data-zoom");
+            zoom_ = zoom ? Attr(zoom, "data-zoom") : std::string();
+            zoom_box_ = zoom ? BorderBox(zoom) : Rml::Rectanglef();
+        }
+        fingers_.push_back({pointer.id, pointer.position});
+        if (fingers_.size() == 2)
+        {
+            moved_ = true; // a pinch is never a tap
+            zoom_.clear();
+            pinch_distance_ = std::max(1.0f, (fingers_[0].at - fingers_[1].at).Magnitude());
+            pinch_scale_ = scale_;
+            pinch_anchor_ = (Middle() - BorderBox(port).TopLeft() - offset_) / scale_; // base point under the fingers
+        }
+        return true;
+    }
+
+    void Move(ComponentElement &self, const Pointer &pointer) override
+    {
+        Finger *finger = Find(pointer.id);
+        Rml::Element *port = FindWith(&self, "data-panzoom");
+        if (!finger || !port || !ready_)
+            return;
+        const Rml::Vector2f last = finger->at;
+        finger->at = pointer.position;
+        if (fingers_.size() == 2)
+        {
+            const float distance = std::max(1.0f, (fingers_[0].at - fingers_[1].at).Magnitude());
+            scale_ = std::clamp(pinch_scale_ * distance / pinch_distance_, min_scale_, max_scale_);
+            offset_ = Middle() - BorderBox(port).TopLeft() - pinch_anchor_ * scale_;
+            Apply(self);
+            return;
+        }
+        if (!zoom_.empty())
+            return;
+        const float slop = 8.0f * self.Host().Density();
+        if (!moved_ && (pointer.position - pointer.start).SquaredMagnitude() <= slop * slop)
+            return;
+        moved_ = true;
+        offset_ += pointer.position - last;
+        Apply(self);
+    }
+
+    void Up(ComponentElement &self, const Pointer &pointer, bool cancelled) override
+    {
+        if (!Find(pointer.id))
+            return;
+        fingers_.erase(std::remove_if(fingers_.begin(), fingers_.end(), [&](const Finger &f) { return f.id == pointer.id; }), fingers_.end());
+        if (!fingers_.empty() || moved_ || cancelled)
+            return;
+        Rml::Element *port = FindWith(&self, "data-panzoom");
+        if (!port || !ready_)
+            return;
+        if (!zoom_.empty())
+        {
+            const float slop = 12.0f * self.Host().Density();
+            const Rml::Vector2f at = pointer.position;
+            if (at.x >= zoom_box_.Left() - slop && at.x <= zoom_box_.Right() + slop && at.y >= zoom_box_.Top() - slop &&
+                at.y <= zoom_box_.Bottom() + slop)
+            {
+                const Rml::Vector2f centre = BorderBox(port).Size() * 0.5f;
+                const Rml::Vector2f anchor = (centre - offset_) / scale_;
+                scale_ = std::clamp(scale_ * (zoom_ == "out" ? 1.0f / kStep : kStep), min_scale_, max_scale_);
+                offset_ = centre - anchor * scale_;
+                Apply(self);
+            }
+            zoom_.clear();
+            return;
+        }
+        const Rml::Vector2f at = (pointer.position - BorderBox(port).TopLeft() - offset_) / scale_;
+        if (at.x < 0.0f || at.y < 0.0f || at.x > base_.x || at.y > base_.y)
+            return;
+        char value[48];
+        std::snprintf(value, sizeof value, "%.1f,%.1f", at.x, at.y);
+        self.Emit("point", value);
+    }
+
+    // After a rebuild the viewport may change size (a sheet opens beside it) once the layout
+    // has run: a few frames re-check it before the ticks stop.
+    void Tick(ComponentElement &self, double) override
+    {
+        Rml::Element *port = FindWith(&self, "data-panzoom");
+        if (port && Ready(self, port) && --settle_ <= 0)
+            self.Host().RequestTicks(self, false);
+    }
+
+    void Rebuilt(ComponentElement &self) override
+    {
+        // A new picture (or measure) starts at the game's view; anything else keeps the
+        // player's pan and zoom on the rebuilt plane.
+        const std::string key = ToText(self.Prop("texture")) + "|" + ToText(self.Prop("base"));
+        if (key != key_)
+        {
+            key_ = key;
+            ready_ = false;
+        }
+        if (ready_)
+            Apply(self);
+        settle_ = 3;
+        self.Host().RequestTicks(self, true); // fitted (again) once the viewport has its size
+    }
+
+    void Regions(ComponentElement &self, std::vector<Rml::Element *> &out) const override
+    {
+        AllWith(&self, "data-panzoom", out);
+    }
+
+  private:
+    static constexpr float kStep = 1.6f;
+    struct Finger
+    {
+        int id;
+        Rml::Vector2f at;
+    };
+
+    Finger *Find(int id)
+    {
+        for (Finger &finger : fingers_)
+            if (finger.id == id)
+                return &finger;
+        return nullptr;
+    }
+    Rml::Vector2f Middle() const
+    {
+        return (fingers_[0].at + fingers_[1].at) * 0.5f;
+    }
+
+    // Fits the game's view into the viewport the first time it has a size (and again when
+    // that size changes): the whole picture is the least zoom, eight times that the most.
+    bool Ready(ComponentElement &self, Rml::Element *port)
+    {
+        const Rml::Vector2f size = BorderBox(port).Size();
+        if (size.x < 1.0f || size.y < 1.0f)
+            return false;
+        if (ready_ && size == port_size_)
+            return true;
+        const Json base = self.Prop("base"), view = self.Prop("view");
+        base_ = {static_cast<float>(Number(base.is_array() && base.size() == 2 ? base[0] : Json(), 1.0)),
+                 static_cast<float>(Number(base.is_array() && base.size() == 2 ? base[1] : Json(), 1.0))};
+        base_ = {std::max(base_.x, 1.0f), std::max(base_.y, 1.0f)};
+        Rml::Vector2f lo = {0.0f, 0.0f}, hi = base_;
+        if (view.is_array() && view.size() == 4)
+        {
+            lo = {static_cast<float>(Number(view[0])), static_cast<float>(Number(view[1]))};
+            hi = {static_cast<float>(Number(view[2], base_.x)), static_cast<float>(Number(view[3], base_.y))};
+        }
+        if (ready_) // the viewport changed size: keep the centre and the zoom relative to the fit
+        {
+            const Rml::Vector2f centre = (port_size_ * 0.5f - offset_) / scale_;
+            lo = centre - port_size_ * 0.5f / scale_;
+            hi = centre + port_size_ * 0.5f / scale_;
+        }
+        min_scale_ = std::min(size.x / base_.x, size.y / base_.y);
+        max_scale_ = min_scale_ * 8.0f;
+        const Rml::Vector2f span = {std::max(hi.x - lo.x, 1.0f), std::max(hi.y - lo.y, 1.0f)};
+        scale_ = std::clamp(std::min(size.x / span.x, size.y / span.y), min_scale_, max_scale_);
+        offset_ = size * 0.5f - (lo + hi) * 0.5f * scale_;
+        port_size_ = size;
+        ready_ = true;
+        Apply(self);
+        return true;
+    }
+
+    // Keeps the picture over the viewport (centred while it is smaller) and lays the plane out.
+    void Apply(ComponentElement &self)
+    {
+        const Rml::Vector2f plane = base_ * scale_;
+        const auto fit = [](float offset, float plane_size, float port_size) {
+            return plane_size <= port_size ? (port_size - plane_size) * 0.5f : std::clamp(offset, port_size - plane_size, 0.0f);
+        };
+        offset_ = {fit(offset_.x, plane.x, port_size_.x), fit(offset_.y, plane.y, port_size_.y)};
+        Rml::Element *element = FindWith(&self, "data-plane");
+        if (!element)
+            return;
+        element->SetProperty(Rml::PropertyId::Left, Rml::Property(offset_.x, Rml::Unit::PX));
+        element->SetProperty(Rml::PropertyId::Top, Rml::Property(offset_.y, Rml::Unit::PX));
+        element->SetProperty(Rml::PropertyId::Width, Rml::Property(plane.x, Rml::Unit::PX));
+        element->SetProperty(Rml::PropertyId::Height, Rml::Property(plane.y, Rml::Unit::PX));
+    }
+
+    std::vector<Finger> fingers_;
+    std::string zoom_; // "in" / "out" while the finger is on a zoom part
+    Rml::Rectanglef zoom_box_;
+    bool moved_ = false;
+    bool ready_ = false;
+    int settle_ = 0;
+    std::string key_;
+    Rml::Vector2f base_ = {1.0f, 1.0f};
+    Rml::Vector2f port_size_;
+    Rml::Vector2f offset_;
+    float scale_ = 1.0f, min_scale_ = 1.0f, max_scale_ = 8.0f;
+    float pinch_distance_ = 1.0f, pinch_scale_ = 1.0f;
+    Rml::Vector2f pinch_anchor_;
+};
+
 template <typename T> std::unique_ptr<Behavior> Make()
 {
     return std::make_unique<T>();
@@ -728,79 +943,6 @@ template <typename T> std::unique_ptr<Behavior> Make()
 
 } // namespace
 
-class StickyBehavior final : public Behavior, public Rml::EventListener
-{
-  public:
-    ~StickyBehavior() override
-    {
-        if (Rml::Element *self = self_.get())
-            self->RemoveEventListener(Rml::EventId::Scroll, this);
-    }
-
-    void Rebuilt(ComponentElement &self) override
-    {
-        if (!self_)
-        {
-            // Scroll events bubble: one listener on the component hears its lists.
-            self_ = self.GetObserverPtr();
-            self.AddEventListener(Rml::EventId::Scroll, this);
-        }
-        rows_.clear();
-        Collect(&self);
-        Place();
-    }
-
-    void ProcessEvent(Rml::Event &) override
-    {
-        Place();
-    }
-
-  private:
-    void Collect(Rml::Element *element)
-    {
-        for (int i = 0; i < element->GetNumChildren(); ++i)
-        {
-            Rml::Element *child = element->GetChild(i);
-            if (child->HasAttribute("data-sticky"))
-            {
-                rows_.push_back(child->GetObserverPtr());
-                child->SetProperty(Rml::PropertyId::ZIndex, Rml::Property(1, Rml::Unit::NUMBER));
-            }
-            else if (!dynamic_cast<ComponentElement *>(child))
-                Collect(child);
-        }
-    }
-
-    void Place()
-    {
-        for (const auto &entry : rows_)
-        {
-            Rml::Element *row = entry.get();
-            if (!row)
-                continue;
-            // The nearest scrolling ancestor; it must be positioned so that it ends the
-            // chain of offset parents (offsets ignore scroll and transforms).
-            Rml::Element *scroller = row->GetParentNode();
-            for (; scroller; scroller = scroller->GetParentNode())
-            {
-                const auto overflow = scroller->GetComputedValues().overflow_y();
-                if (overflow == Rml::Style::Overflow::Auto || overflow == Rml::Style::Overflow::Scroll)
-                    break;
-            }
-            float top = 0.0f;
-            Rml::Element *at = row;
-            for (; at && at != scroller; at = at->GetOffsetParent())
-                top += at->GetOffsetTop();
-            if (!scroller || !at)
-                continue;
-            const float shift = std::max(0.0f, scroller->GetScrollTop() - top);
-            row->SetProperty("transform", "translateY(" + std::to_string(shift) + "px)");
-        }
-    }
-
-    Rml::ObserverPtr<Rml::Element> self_;
-    std::vector<Rml::ObserverPtr<Rml::Element>> rows_;
-};
 
 // Columns sized by their content. The cells must be flex columns that do not stretch
 // their children (align-items other than stretch), so each child keeps its natural width.
@@ -858,10 +1000,10 @@ void RegisterBuiltinBehaviors()
     RegisterBehavior("range", &Make<RangeBehavior>);
     RegisterBehavior("stick", &Make<StickBehavior>);
     RegisterBehavior("lever", &Make<LeverBehavior>);
-    RegisterBehavior("sticky", &Make<StickyBehavior>);
     RegisterBehavior("columns", &Make<ColumnsBehavior>);
     RegisterBehavior("hold", &Make<HoldBehavior>);
     RegisterBehavior("swipe", &Make<SwipeBehavior>);
+    RegisterBehavior("panzoom", &Make<PanZoomBehavior>);
 }
 
 } // namespace storm::ui

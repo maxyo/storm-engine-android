@@ -2,7 +2,8 @@
 // -ConfirmDelete, -Overwrite): every record in one C-Table, the chosen record in the detail
 // column with its primary action and the bare trash glyph. Fills the pack screen <s-saves>.
 //
-// The engine lists the records as ANDROID_SAVE_LIST rows under the ANDROID_SAVES list
+// The engine lists the records of every profile (no profiles in this port; when saving, those
+// of the game in progress) as ANDROID_SAVE_LIST rows under the ANDROID_SAVES list
 // (value = number of records; label = the file name, `delete` / `activate` verbs; the save
 // slot of a new record has the reason "new"). Each row's context carries what the record
 // says about itself (xinterface mobile_save_list.hpp SaveFacts): hero, location, gameDate
@@ -47,6 +48,9 @@ constexpr NodeRule kNodes[] = {
     {"SAVENOTES", "text"},
     {"SAVEINFO", "text"},
     {"BTN_PROFILE", "button"},
+    // The game's profile chooser: the engine answers it before the player sees it (no
+    // profiles; xinterface MobileKeepSaveProfile), the list shows every profile's records.
+    {"PROFILE_*", "*"},
     {"OFFICER*", "image|text"},
     {"MAIN_BACK", "image"},
 };
@@ -90,7 +94,7 @@ std::string GameDate(const Bindings &bindings, const Stamp &stamp)
     return std::to_string(stamp.day) + " " + bindings.Text(kMonths[stamp.month - 1]) + " " + std::to_string(stamp.year);
 }
 
-// "сегодня, 22:14", "вчера, 23:05", "7 нояб., 20:12", "18 окт. 2025, 08:53"
+// "сегодня, 22:14", "вчера, 23:05", "7 нояб., 20:12", "18 окт. 2025"
 std::string CreatedDate(const Bindings &bindings, const Stamp &stamp)
 {
     const std::time_t now = std::time(nullptr);
@@ -113,8 +117,9 @@ std::string CreatedDate(const Bindings &bindings, const Stamp &stamp)
     else
     {
         day = std::to_string(stamp.day) + " " + bindings.Text(kMonths[stamp.month - 1]);
+        // A record of another year needs its year more than its time (and the column stays narrow).
         if (stamp.year != today.tm_year + 1900)
-            day += " " + std::to_string(stamp.year);
+            return day + " " + std::to_string(stamp.year);
     }
     return day + ", " + stamp.clock;
 }
