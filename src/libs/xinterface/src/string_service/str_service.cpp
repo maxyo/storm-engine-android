@@ -1,4 +1,5 @@
 #include "str_service.h"
+#include "cl_string_natives.h"
 
 #include "core.h"
 #include "string_compare.hpp"
@@ -1749,8 +1750,17 @@ bool SCRIPT_INTERFACE_FUNCTIONS::Init()
     sIFuncInfo.pFuncAddress = _AddControlTreeNode;
     core.SetScriptFunction(&sIFuncInfo);
 
+    registerClStringNatives();
     return true;
 }
 
 //===============================================================
 //===============================================================
+
+int32_t STRSERVICE::GetUsersStringsQuantity(int32_t id) const
+{
+    for (const UsersStringBlock *block = m_pUsersBlocks; block != nullptr; block = block->next)
+        if (block->blockID == id)
+            return block->nStringsQuantity;
+    return -1;
+}
