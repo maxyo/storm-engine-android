@@ -168,6 +168,18 @@ const char *TokenTypeName[] = { // in S_TOKEN_TYPE order
     "OBJ_NEW",
     "OBJ_SET",
     "RANGE_NEXT",
+    "OP_SLICE",
+    "ARRAY_BUILD",
+    "ADVANCE_AP_EXPR",
+    "ACCESS_EXPR",
+    "ATTR_PARENT",
+    "ATTR_DELETE",
+    "AP_CHILD",
+    "CALL_NAMED",
+    "NEW_ARRAY",
+    "STACK_INDEX",
+    "LEFTOP_SUBINDEX",
+    "AP_FROM_STACK",
 
 };
 
@@ -315,6 +327,8 @@ S_KEYWORD Keywords[] = {
     "!",
     IMPORT,
     "native",
+    IMPORT,
+    "lua", // CL: functions implemented in Lua, called like natives
     CALL,
     "call",
     OP_QUESTION,
@@ -538,12 +552,14 @@ S_TOKEN_TYPE TOKEN::Get(bool bKeepData)
         eTokenType = INVALID_TOKEN;
         return eTokenType;
     case '"':
+    case '`': { // CL also quotes strings with backticks
+        const char quote = sym;
         Program += utf8::u8_inc(Program);
         pBase = Program;
         do
         {
             sym = *Program;
-            if (sym == '"')
+            if (sym == quote)
             {
                 SetNTokenData(pBase, Program - pBase);
                 eTokenType = STRING;
@@ -558,6 +574,7 @@ S_TOKEN_TYPE TOKEN::Get(bool bKeepData)
         SetNTokenData(pBase, counter);
         eTokenType = INVALID_TOKEN;
         return eTokenType;
+    }
     }
     const auto stt = ProcessToken(Program, bKeepData);
     if (stt == HOLD_COMPILATION)
@@ -747,6 +764,12 @@ ptrdiff_t TOKEN::SetNTokenData(const char *pointer, ptrdiff_t Data_size)
 // search throw the program code until find non significant argument character:
 // SPACE,TAB,0,'\r','\n'
 // return number of significant symbols
+// UTF-8 no-break space (C2 A0): a blank between tokens (TEHO scripts have them)
+static bool IsNoBreakSpace(const char *pointer)
+{
+    return static_cast<unsigned char>(pointer[0]) == 0xC2 && static_cast<unsigned char>(pointer[1]) == 0xA0;
+}
+
 int32_t TOKEN::StopArgument(const char *pointer, bool bKeepControlSymbols)
 {
     int32_t size = 0;
@@ -783,7 +806,7 @@ int32_t TOKEN::StopArgument(const char *pointer, bool bKeepControlSymbols)
                 return size;
             }
         }
-        if (sym <= ' ')
+        if (static_cast<unsigned char>(sym) <= ' ' || IsNoBreakSpace(pointer)) // UTF-8 letters belong to it
             return size;
         if (sym == ';')
             return size;
@@ -1001,8 +1024,10 @@ void TOKEN::StartArgument(char *&pointer, bool bKeepControlSymbols)
             if (sym == '\t' || sym == ' ')
                 return;
         }
-        if (sym <= ' ')
+        if (static_cast<unsigned char>(sym) <= ' ') // UTF-8 letters are not blanks
             pointer++;
+        else if (IsNoBreakSpace(pointer))
+            pointer += 2;
         else
             return;
     } while (true);
@@ -1310,6 +1335,12 @@ S_TOKEN_TYPE TOKEN::ProcessToken(char *&pointer, bool bKeepData)
         if (*pointer == '(') // function-style cast, e.g. int(x): the data stays the type keyword
         {
             bTypeCast = true;
+            break;
+        }
+        if (*pointer == ')' || *pointer == ';' || *pointer == ',' || *pointer == ']')
+        {
+            // no name follows (typeid(int), x$aref;): the punctuation stays a token of its own
+            DISCARD_DATABUFFER
             break;
         }
         pointer += SetTokenData(pointer);

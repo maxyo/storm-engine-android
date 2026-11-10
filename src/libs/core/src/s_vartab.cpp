@@ -5,7 +5,8 @@ VarInfo::VarInfo() : name(), type(TVOID), value(), elements(0), segment_id(INVAL
 }
 
 VarInfo::VarInfo(const VarInfo &other)
-    : name(other.name), type(other.type), value(), elements(other.elements), segment_id(other.segment_id)
+    : name(other.name), type(other.type), value(), elements(other.elements), array(other.array),
+      segment_id(other.segment_id)
 {
 }
 
@@ -17,6 +18,7 @@ VarInfo &VarInfo::operator=(const VarInfo &other)
         type = other.type;
         value = {};
         elements = other.elements;
+        array = other.array;
         segment_id = other.segment_id;
     }
 
@@ -58,7 +60,13 @@ size_t VarTable::AddVar(const VarInfo &vi)
 
     var.value = std::make_unique<DATA>();
     var.value->SetVCompiler(vc_);
-    var.value->SetType(var.type, var.elements);
+    if (var.elements == 0 || (var.array && var.elements == 1))
+    {
+        var.value->SetType(var.type); // "type name[]": an array sized at run time
+        var.value->SetArraySize(static_cast<uint32_t>(var.elements));
+    }
+    else
+        var.value->SetType(var.type, var.elements);
     var.value->SetGlobalVarTableIndex(var_index); // todo change to size_t
 
     return var_index;

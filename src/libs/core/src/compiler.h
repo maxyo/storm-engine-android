@@ -175,12 +175,13 @@ class COMPILER : public VIRTUAL_COMPILER
     static std::string LowerName(const std::string &name);
     static std::string LocalSlotName(const std::string &name, uint32_t occurrence);
     static std::string LabelKey(const std::string &func_name, const char *label);
-    static constexpr uint32_t kRuntimeArraySize = 2; // slot of an array sized at run time: an array until then
+    static constexpr uint32_t kRuntimeArraySize = 0; // elements of an array sized at run time
     uint32_t ScanLocalArraySize();
     uint32_t ConstantArraySize();
     uint32_t SkipInitializer(bool &resumed);
     // pass 2: block scoped locals
     uint32_t FindLocal(const char *name) const;
+    bool AssignValue(DATA *destination, DATA *value);
     int32_t IntValue(DATA *pV);
     static DATA *Deref(DATA *pV);
     static ATTRIBUTES *AttributesOf(DATA *pV);
@@ -297,6 +298,24 @@ class COMPILER : public VIRTUAL_COMPILER
     S_TOKEN_TYPE DetectCallThrough();
     bool CompileCallThrough(SEGMENT_DESC &Segment, S_TOKEN_TYPE call_type);
     bool CompileObjectLiteral(SEGMENT_DESC &Segment);
+    bool IsAccessVariable();
+    bool IsPlainAttributePath();
+    bool IsTextVariable(S_TOKEN_TYPE var_type, uint32_t var_code);
+    bool CompileNewArray(SEGMENT_DESC &Segment);
+    std::deque<DATA> newArrays_; // arrays made by "new type[n]" (scripts keep references to them)
+    bool CompileChainTail(SEGMENT_DESC &Segment);
+    bool IsAttributeCall();
+    bool IsArefVariable(S_TOKEN_TYPE var_type, uint32_t var_code);
+    bool IsIndexedChain();
+    static constexpr uint32_t kAccessRead = 0, kAccessQuiet = 1, kAccessCreate = 2; // ADVANCE_AP_EXPR modes
+    bool CompileAccessExpression(SEGMENT_DESC &Segment, uint32_t mode);
+    void QuietChainElement(SEGMENT_DESC &Segment, uint32_t offset);
+    bool CompileAttributeAddress(SEGMENT_DESC &Segment, S_TOKEN_TYPE var_type, uint32_t var_code, uint32_t mode);
+    static bool IsAttributeIntrinsic(const char *name);
+    bool CompileAttributeIntrinsic(SEGMENT_DESC &Segment);
+    bool CompileArrayLiteral(SEGMENT_DESC &Segment);
+    bool IsSlice();
+    bool CompileSlice(SEGMENT_DESC &Segment, S_TOKEN_TYPE source, uint32_t source_code);
     uint32_t FindMethod(DATA *self, const char *method);
     bool ScanObjectLiteral(ATTRIBUTES *object);
     bool PeekRangeFor(S_TOKEN_TYPE &loop_type);
@@ -333,8 +352,16 @@ class COMPILER : public VIRTUAL_COMPILER
     // missing_natives_are_errors: false for a game check (no engine library is linked), true for
     // script tests (as in the game)
     void ConfigureCompileCheck(std::vector<std::string> *sink, bool missing_natives_are_errors);
+    // the game language substituted for %language% in include paths (CL)
+    void SetScriptLanguage(std::string language)
+    {
+        scriptLanguage_ = std::move(language);
+    }
     // bytecode of a loaded segment, nullptr if it is not loaded
     const char *GetSegmentCode(const char *segment_name, uint32_t &size) const;
+    // names a loaded segment defines (functions, globals, defines): script_check retries a segment
+    // that uses them with that segment loaded, as the game loads segments together
+    std::vector<std::string> GetSegmentSymbols(const char *segment_name);
     // runs a script function that takes no arguments; `value` receives its result as text
     bool RunScriptFunction(const char *func_name, std::string &value);
     // attribute name of an ACCESS_WORD_CODE (codes depend on the order names were first seen)
@@ -453,6 +480,7 @@ private:
     // see ConfigureCompileCheck
     std::vector<std::string> *diagnosticsSink_ = nullptr;
     bool compileCheck_ = false;
+    std::string scriptLanguage_; // see SetScriptLanguage
     uint32_t compileErrors_ = 0; // errors reported while compiling the current segment
     bool missingNativesAreErrors_ = true;
     std::set<std::string> missingNatives_; // reported once per segment
@@ -467,6 +495,7 @@ private:
     std::unordered_map<std::string, uint32_t> localDeclarations_; // declarations so far per name
     bool declListActive_ = false; // inside "int a, b;"
     bool declExpectName_ = false; // a ',' of that list was just compiled
+    std::vector<uint32_t> *switchFallthrough_ = nullptr; // innermost switch: jumps into the next case
     std::vector<std::string> *undeclaredNatives_ = nullptr; // SetScriptFunction during a library's Init
     std::unordered_map<std::string, IFUNCINFO> pendingNatives_; // registered, not declared yet (lowercase)
     storm::ScriptCache script_cache_;
