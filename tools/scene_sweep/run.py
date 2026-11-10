@@ -51,6 +51,7 @@ LOG_RULES = [
     (r'error\.log', r'.', 'script error'),
     (r'.', r"Can't load texture .*[^\\/\s]\.tx", 'missing texture'),  # the game also asks for textures with no name
     (r'.', r"Invalid model|Can't load model|can't open file|Can't find model|No geometry", 'missing model'),
+    (r'compile\.log', r'Main character <.*> error teleportation', 'teleport failed'),  # characters_login.c
     (r'.', r'\[(critical|error)\]', 'engine error'),
     (r'stdout', r'(?i)\[storm-bgfx\].*(error|fail|trap|unsupported|missing|invalid)', 'renderer error'),
 ]
