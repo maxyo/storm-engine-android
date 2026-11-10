@@ -154,11 +154,11 @@ static void Saves(const std::string &models)
     ExpectEqual(rows[0]["cells"][0], "Герой Альфа · Порт Альфа", "a record is named «<hero> · <location>»");
     ExpectEqual(rows[2]["cells"][0], "Остров Гамма", "a record written without the hero: its location");
     ExpectEqual(rows[0]["cells"][1]["text"], "1 <common.month_10> 1654", "in-game date of the record");
-    ExpectEqual(rows[0]["cells"][2]["text"], "10 <common.month_3> 2001, 08:50", "creation date of the record");
+    ExpectEqual(rows[0]["cells"][2]["text"], "10 <common.month_3> 2001", "creation date of the record (another year: the year instead of the time)");
     const Json detail = surface.props["detail"];
     Expect(detail["title"] == "Бухта Бета" && detail["sub"] == "Герой Альфа" && detail["delete"] == true && detail["primary"] == "<save.load>", "detail of the chosen record");
     Expect(detail["facts"].size() == 3 && detail["facts"][0]["v"] == "2 <common.month_10> 1654, 11:20" &&
-               detail["facts"][1]["v"] == "6 <save.hours> 42 <save.minutes>" && detail["facts"][2]["v"] == "11 <common.month_3> 2001, 08:51",
+               detail["facts"][1]["v"] == "6 <save.hours> 42 <save.minutes>" && detail["facts"][2]["v"] == "11 <common.month_3> 2001",
            "in-game date, play time, created");
 
     router.OnEvent({"saves", "row", "2"});
@@ -273,11 +273,24 @@ static void Settings(const std::string &models)
 
     router.OnEvent({"tabs", "select", "2"});
     Json image = surface.props["sections"];
-    Expect(image.size() == 2 && image[0]["title"] == "<settings.graphics>", "image page: the renderer options first");
+    Expect(image.size() == 3 && image[0]["title"] == "<settings.graphics>", "image page: the renderer options first");
+    const Json preset = image[1]["columns"][0]["rows"][0];
+    Expect(image[1]["columns"][0]["title"] == "<settings.fx_quality>" && preset["id"] == "app-fx_preset" && preset["selected"] == 0 &&
+               preset["restart"] == false && image[1]["columns"][0]["rows"][1]["id"] == "fx-more",
+           "graphics effects: the preset, applied at once, and «Подробнее»");
+    router.OnEvent({"fx-more", "click", ""});
+    image = surface.props["sections"];
+    Expect(image.size() == 4 && image[2]["columns"][0]["rows"][0]["id"] == "app-fx_msaa" && image[2]["columns"][0]["rows"][0]["selected"] == 0 &&
+               image[2]["columns"][0]["rows"][0]["options"][0] == "<settings.fx_from_preset>",
+           "«Подробнее» opens one override per effect, «Пресет» chosen by default");
+    router.OnEvent({"app-fx_bloom", "change", "1"});
+    router.OnEvent({"app-fx_preset", "change", "2"});
+    router.OnEvent({"fx-more", "click", ""});
+    image = surface.props["sections"];
     const Json filtering = image[0]["columns"][0]["rows"][0];
     Expect(filtering["kind"] == "segment" && filtering["selected"] == 0 && filtering["restart"] == true && filtering["disabled"] == false,
            "texture filtering from the host, marked as needing a restart");
-    const Json grass = image[1]["columns"][0]["rows"][3];
+    const Json grass = image[2]["columns"][0]["rows"][3];
     Expect(grass["kind"] == "segment" && grass["selected"] == 2 && grass["label"] == "<settings.grass>", "grass radio group as one segment");
     router.OnEvent({grass["id"], "change", "3"});
     ExpectEqual(surface.Last(), prefix + "HERB_CHECKBOX\t3\t1", "grass option chosen");
@@ -287,7 +300,7 @@ static void Settings(const std::string &models)
     router.OnEvent({"app-sea_foam", "change", "0"});
     router.OnEvent({"done", "click", ""});
     Expect(surface.commands.size() == 2 &&
-               surface.commands[0] == "host app-settings {\"character_shadows\":0,\"sea_foam\":0,\"texture_anisotropy\":8,\"texture_degradation\":0,\"vsync\":1}" &&
+               surface.commands[0] == "host app-settings {\"character_shadows\":0,\"fx_bloom\":0,\"fx_msaa\":-1,\"fx_preset\":2,\"fx_water\":-1,\"sea_foam\":0,\"texture_anisotropy\":8,\"texture_degradation\":0,\"vsync\":1}" &&
                surface.commands[1] == prefix + "BTN_OK\t-1\tpress",
            "«Готово» hands the renderer options to the host and confirms the game's settings");
     surface.commands.clear();
@@ -319,6 +332,16 @@ static void Title(const std::string &models)
     Expect(surface.errors.empty() && FromTitle(), "no errors; the menus now run from the title screen");
     Expect(surface.props["primary"]["label"] == "<menu.continue>" && surface.props["buttons"].size() == 4, "«Продолжить» and four buttons");
     ExpectEqual(surface.props["primary"]["sub"], "Герой Альфа · Порт Альфа", "«Продолжить» names the newest record");
+    Expect(surface.props["primary"]["disabled"] == false, "«Продолжить» with a record");
+    {
+        InterfaceModel none = Load(models, "title.json");
+        Without(none, "ANDROID_CONTINUE");
+        none.revision = 7;
+        router.SetInterface(none);
+        Expect(surface.props["primary"]["disabled"] == true && surface.props["primary"]["reason"] == "<menu.no_saves>",
+               "no record: «Продолжить» disabled, the reason on a tap");
+        router.SetInterface(Load(models, "title.json"));
+    }
     const char *const commands[][2] = {{"new", "New"}, {"load", "Load"}, {"options", "Options"}, {"credits", "Credits"}, {"exit", "Exit"}};
     for (const auto &[id, command] : commands)
     {
@@ -391,9 +414,11 @@ static void NewGame(const std::string &models)
     window.widgets.push_back(yes);
     window.revision = 2;
     router.SetInterface(window);
-    Expect(surface.props["modal"]["title"] == "Начать заново?" && surface.props["modal"]["actions"].size() == 1, "the game's window as a dialog");
-    router.OnEvent({"modal-0", "click", ""});
-    ExpectEqual(surface.Last(), prefix + "CONFIRM_WINDOW_MB_YES\t-1\tpress", "its button presses the game's button");
+    Expect(surface.props["modal"].is_null() && surface.Last() == prefix + "CONFIRM_WINDOW_MB_YES\t-1\tpress",
+           "the game's question about its existing profile folder is answered for the player (no profiles)");
+    const size_t sent = surface.commands.size();
+    router.SetInterface(window);
+    Expect(surface.commands.size() == sent, "once per revision");
 
     InterfaceModel broken = Load(models, "new-game.json");
     Without(broken, "OK_BUTTON");

@@ -8,6 +8,7 @@ Comments:
 dynamic shadow cpp file
 ******************************************************************************/
 #include "shadow.h"
+#include "live_list.hpp"
 #include "storm/render/effects.hpp"
 #ifdef __ANDROID__
 #include "platform/android_graphics_effects.hpp"
@@ -193,8 +194,8 @@ void Shadow::prepareAll(uint32_t Delta_Time)
     rs->GetRenderTarget(&backbuff);
     rs->GetDepthStencilSurface(&zbuff);
     bool sceneOpen = true;
-    for (Shadow *shadow : instances_)
-        shadow->prepare(Delta_Time, prev_view, prev_proj, sceneOpen);
+    // prepare() runs script events and the character's realize, which may create or delete shadows.
+    storm::shadow::forEachLive(instances_, [&](Shadow *shadow) { shadow->prepare(Delta_Time, prev_view, prev_proj, sceneOpen); });
     if (!sceneOpen)
     {
         rs->SetRenderTarget(backbuff, zbuff);

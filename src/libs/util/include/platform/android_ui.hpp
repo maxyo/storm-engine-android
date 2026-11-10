@@ -378,6 +378,10 @@ inline void publishGameMessage(const std::string &text) {
     if (type) env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);
 }
+// Set from the game thread's command queue ("graphics:reload", sent by the platform host after
+// the settings screen stored new renderer preferences); the renderer re-applies the graphics
+// effects from the preferences at its next frame (s_device.cpp).
+inline std::atomic<bool> graphicsSettingsChanged{false};
 inline int graphicsSetting(const char *key, int fallback) {
     auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
     auto activity=static_cast<jobject>(SDL_AndroidGetActivity());

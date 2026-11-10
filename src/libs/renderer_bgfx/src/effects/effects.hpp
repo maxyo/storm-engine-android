@@ -102,6 +102,7 @@ class Host
     fx::Support support_{};
     bool device_ready_ = false;
     bool renderer_state_changed_ = false;
+    float device_max_anisotropy_ = 0.0f; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
     render::EffectsReport report_{};
     render::EffectsWeather weather_{};
     bool weather_this_frame_ = false; // pushed since the last presented frame
@@ -116,6 +117,7 @@ class Host
     bool sky_weather_logged_ = false;
     bool water_buffers_logged_ = false;
     bool water_capture_logged_ = false;
+    bool water_env_logged_ = false;
     // The fx view transform last set on a shim view this frame: another camera in the same view needs a new view.
     bgfx::ViewId transform_view_ = UINT16_MAX;
     std::array<float, 32> transform_{};

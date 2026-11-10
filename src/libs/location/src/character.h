@@ -281,6 +281,9 @@ class Character : public Entity
     float GetAY() const;
 #ifdef __ANDROID__
     bool UsesTouchCamera() const { return androidCameraRelative && !isFight && !isSwim && !isJump; }
+    // The mobile camera mode (CameraFollow::MoveCamera): out of a fight the camera turns only
+    // from the player's drag. A fight keeps the native camera, which already follows the drag.
+    bool MobileCameraOrbit() const { return !isFight; }
 #endif
     // Set running mode
     void SetRunMode(bool _isRun = true);

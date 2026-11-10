@@ -601,7 +601,7 @@ int main(int argc, char *argv[])
             }
             else if (command.starts_with("move:"))
             {
-                storm::android::movementInput.offer(std::string_view(command).substr(5), storm::android::movementTick(), combatDrainEpoch);
+                storm::android::movementInput.offer(std::string_view(command).substr(5), combatDrainEpoch);
             }
             else if (command.starts_with("landcommands:"))
             {
@@ -613,7 +613,7 @@ int main(int argc, char *argv[])
             }
             else if (command.starts_with("hold:"))
             {
-                storm::android::heldControls.offer(std::string_view(command).substr(5), SDL_GetTicks(), combatDrainEpoch);
+                storm::android::heldControls.offer(std::string_view(command).substr(5), combatDrainEpoch);
             }
             else if (command.starts_with("seaquick:"))
             {
@@ -665,6 +665,10 @@ int main(int argc, char *argv[])
             else if (command.starts_with("shiphud:"))
             {
                 storm::android::shipTelemetry.acknowledge(std::string_view(command).substr(8));
+            }
+            else if (command == "graphics:reload")
+            {
+                storm::android::graphicsSettingsChanged = true;
             }
             else if (command.starts_with("interface:"))
             {

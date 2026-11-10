@@ -351,8 +351,8 @@ void Context::request_surface_restore()
 uint32_t Context::reset_flags() const
 {
     // Flip right after rendering: no swap of a previous frame is ever pending when the surface changes.
-    // Effects: anisotropic filtering of world textures needs the backend's maximum level (fx::RendererState; before
-    // the device exists this is the request, without the extension the backend ignores the flag).
+    // Effects: anisotropic filtering of world textures at the level of fx::RendererState (before the device exists this
+    // is the request; without the extension the backend ignores the flag).
     const bool anisotropy = effects::Host::instance().renderer_state().max_anisotropy > 1;
     return (vsync_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) | BGFX_RESET_FLIP_AFTER_RENDER |
            (anisotropy ? BGFX_RESET_MAXANISOTROPY : BGFX_RESET_NONE) |

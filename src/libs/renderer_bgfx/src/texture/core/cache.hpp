@@ -69,6 +69,20 @@ uint64_t write_cache_file(const std::filesystem::path &directory, uint64_t key, 
 // Returns the KTX blob or nothing; a mismatching or damaged file is deleted.
 std::optional<Blob> read_cache_file(const std::filesystem::path &directory, uint64_t key, const Layout &layout);
 
+// Other data derived from a texture (normal maps of height textures), kept in the same directory under the same
+// budget and LRU eviction. `magic` names the kind, `version` its format; both must match on reading.
+struct DerivedShape
+{
+    char magic[8];
+    uint32_t version = 0;
+    uint32_t width = 0, height = 0, levels = 0;
+};
+uint64_t write_derived_file(const std::filesystem::path &directory, uint64_t key, const DerivedShape &shape,
+                            const uint8_t *data, size_t size);
+// The payload or nothing; a mismatching, oversized or damaged file is deleted.
+std::optional<Blob> read_derived_file(const std::filesystem::path &directory, uint64_t key, const DerivedShape &shape,
+                                      size_t max_size);
+
 // Total size of cache files; removes stale temporary files.
 uint64_t scan_cache(const std::filesystem::path &directory);
 // Deletes least recently used files (by mtime) until the total is below

@@ -23,6 +23,8 @@
 #include "storm/render/texture_cache.hpp"
 
 #include <algorithm>
+#include <functional>
+#include <map>
 #include <SDL_timer.h>
 
 #include <fmt/chrono.h>
@@ -467,10 +469,14 @@ void ApplyEffects(int preset, const std::vector<storm::render::EffectsOption> &o
         spdlog::error("graphics effects: {}", error);
 }
 
-void ConfigureGraphicsEffects(INIFILE *ini)
+// engine.ini's values of the effect options: the fallbacks when the app's preferences are read
+// again (live re-application, ReconfigureGraphicsEffects).
+std::map<std::string, int> effectsIniValues;
+
+void ConfigureGraphicsEffects(const std::function<int(const char *, int)> &iniValue)
 {
-    const auto read = [ini](const char *name, int fallback) {
-        int value = ini->GetInt(nullptr, name, fallback);
+    const auto read = [&iniValue](const char *name, int fallback) {
+        int value = iniValue(name, fallback);
 #ifdef __ANDROID__
         value = storm::android::graphicsSetting(name, value);
 #endif
@@ -504,6 +510,21 @@ void ConfigureGraphicsEffects(INIFILE *ini)
     });
 #endif
 }
+#ifdef __ANDROID__
+// The settings screen stored new preferences: the effects follow them without a restart
+// (MSAA and anisotropy rebuild the scene stores at the next Present). Options engine.ini
+// gave keep its values as fallbacks.
+void ReconfigureGraphicsEffects()
+{
+    if (!storm::android::graphicsSettingsChanged.exchange(false))
+        return;
+    spdlog::info("graphics effects: preferences changed, applying them");
+    ConfigureGraphicsEffects([](const char *name, int fallback) {
+        const auto found = effectsIniValues.find(name);
+        return found == effectsIniValues.end() ? fallback : found->second;
+    });
+}
+#endif
 } // namespace
 
 
@@ -561,7 +582,9 @@ bool DX9RENDER::Init()
 #ifdef __ANDROID__
         nTextureDegradation = std::clamp(storm::android::graphicsSetting("texture_degradation", nTextureDegradation), 0, 2);
 #endif
-        ConfigureGraphicsEffects(ini.get());
+        ConfigureGraphicsEffects([&ini](const char *name, int fallback) {
+            return effectsIniValues[name] = ini->GetInt(nullptr, name, fallback);
+        });
 
         storm::render::TextureCacheConfig textureCache;
         ini->ReadString(nullptr, "texture_compression", str, sizeof(str), "auto");
@@ -848,7 +871,7 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
     }
 
     d3dpp.MultiSampleType = D3DMULTISAMPLE_NONE;
-    for (auto samples = msaa; msaa > D3DMULTISAMPLE_2_SAMPLES; samples--)
+    for (auto samples = msaa; samples >= D3DMULTISAMPLE_2_SAMPLES; samples--)
     {
         if (SUCCEEDED(d3d->CheckDeviceMultiSampleType(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, d3dpp.BackBufferFormat, false,
                                                       static_cast<D3DMULTISAMPLE_TYPE>(samples), nullptr)))
@@ -857,6 +880,10 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
             break;
         }
     }
+    if (msaa >= D3DMULTISAMPLE_2_SAMPLES && d3dpp.MultiSampleType == D3DMULTISAMPLE_NONE)
+        spdlog::warn("engine.ini msaa = {}: no multisample back buffer is available on this device; the back buffer is "
+                     "not multisampled (scene MSAA is the fx_msaa option)",
+                     static_cast<int>(msaa));
 
     if (bBackBufferCanLock)
         d3dpp.Flags = D3DPRESENTFLAG_LOCKABLE_BACKBUFFER;
@@ -1741,6 +1768,7 @@ bool DX9RENDER::TextureLoad(int32_t t)
         }
         Textures[t].d3dtex = tex;
         Textures[t].isCubeMap = false;
+        storm::render::SetEffectsTextureSource(tex, Textures[t].name); // relief from height textures
     }
     else
     {
@@ -2805,6 +2833,9 @@ void DX9RENDER::SetGLOWParams(float _fBlurBrushSize, int32_t _GlowIntensity, int
 
 void DX9RENDER::RunStart()
 {
+#ifdef __ANDROID__
+    ReconfigureGraphicsEffects(); // the settings screen stored new preferences
+#endif
     auto *pScriptRender = static_cast<VDATA *>(core.GetScriptVariable("Render"));
     ATTRIBUTES *pARender = pScriptRender->GetAClass();
 
