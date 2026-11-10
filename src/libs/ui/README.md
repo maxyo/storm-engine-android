@@ -16,7 +16,7 @@ configure time: RmlUi 6.3 (MIT), FreeType 2.14.3 (FTL), lunasvg 3.5.0 with pluto
 ```sh
 cmake -S src/libs/ui -B build/ui-host -G Ninja
 cmake --build build/ui-host
-ctest --test-dir build/ui-host --output-on-failure       # template language, .tx decoder
+ctest --test-dir build/ui-host --output-on-failure       # template language, .tx decoder, screen routing
 build/ui-host/storm_ui_shot --pack <pack dir> --doc gallery/button.rml --out shot.png
 ```
 
@@ -67,7 +67,7 @@ list scroll.
 Nothing above `RenderBackend` calls a graphics API. The bundled GL backend needs a
 current context supplied by the host and is the bridge until the engine renders through
 bgfx. The bgfx backend will implement the same interface next to the bgfx renderer and
-draw inside the engine frame as its last view; `Config::backend` takes it. The
+draw inside the engine frame as its last view; `Config::backend` takes it. The host always names its backend (`CreateGl3Backend()` or its own): there is no default and no second choice when it fails. The
 application's ARCHITECTURE.md describes that plug-in point (view id, order, texture
 handles for `.tx` pictures).
 
