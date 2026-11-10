@@ -147,6 +147,7 @@ class COMPILER : public VIRTUAL_COMPILER
     bool BC_SegmentIsLoaded(const char *file_name);
     bool BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const char *pDbgExpSource = nullptr);
     bool BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult);
+    void StoreDynamicCallStatus(bool returned_value);
     void FindErrorSource();
     S_TOKEN_TYPE BC_TokenGet(uint32_t &ip, uint32_t &token_data_size);
     S_TOKEN_TYPE BC_TokenGet();
