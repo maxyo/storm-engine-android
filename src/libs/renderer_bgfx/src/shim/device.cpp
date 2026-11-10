@@ -1,4 +1,5 @@
 #include "device.hpp"
+#include "perf.hpp"
 #include "util.hpp"
 
 #include <SDL2/SDL.h>
@@ -332,6 +333,7 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
     view_dirty = true;
     view_has_content = false;
     invalidate_uniforms();
+    last_draw = LastDraw{};
     return D3D_OK;
 }
 
@@ -394,6 +396,7 @@ uint16_t Device::new_view()
         return view;
     }
     view = render::kGameViewBegin + views_used++;
+    ++perf().views;
     view_dirty = false;
     view_has_content = false;
     TexStore *color = rt->store.get();

@@ -1,4 +1,5 @@
 #include "device.hpp"
+#include "perf.hpp"
 #include "storm/render/d3d_interop.hpp"
 
 #include <SDL2/SDL.h>
@@ -512,7 +513,10 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
         for (auto &entry : clients_)
             entry.client->OnUiRender(frame_);
         pace();
-        run_frame(BGFX_FRAME_NONE);
+        const auto started = std::chrono::steady_clock::now();
+        if (run_frame(BGFX_FRAME_NONE))
+            perf_frame_presented(
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
     }
     else
     {

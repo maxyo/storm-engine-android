@@ -317,6 +317,23 @@ struct Device final : Direct3DDevice9Stub
     void set_uniform(UniformId id, const float *data, uint16_t count);
     void invalidate_uniforms();
 
+    // What the previous draw of the frame submitted, for the change counters (perf_stats.hpp).
+    struct LastDraw
+    {
+        uint16_t program = UINT16_MAX;
+        uint64_t state = UINT64_MAX;
+        uint32_t stencil = UINT32_MAX, factor = UINT32_MAX;
+        uint16_t texture[kSamplerUnits];
+        uint32_t sampler[kSamplerUnits];
+        LastDraw()
+        {
+            std::fill(std::begin(texture), std::end(texture), UINT16_MAX);
+            std::fill(std::begin(sampler), std::end(sampler), UINT32_MAX);
+        }
+    };
+    LastDraw last_draw;
+    bool uniforms_changed = false; // a uniform was set since the previous submit
+
 };
 
 uint32_t shader_id_by_name(const char *name);

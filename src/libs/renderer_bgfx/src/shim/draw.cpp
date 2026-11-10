@@ -1,4 +1,5 @@
 #include "device.hpp"
+#include "perf.hpp"
 #include "ports.hpp"
 #include "util.hpp"
 
@@ -219,6 +220,9 @@ void Device::set_uniform(UniformId id, const float *data, uint16_t count)
     uniform.last.assign(data, data + floats);
     uniform.sent = true;
     bgfx::setUniform(uniform.handle, data, count);
+    ++perf().uniform_updates;
+    perf().uniform_bytes += floats * sizeof(float);
+    uniforms_changed = true;
 }
 
 void Device::invalidate_uniforms()
@@ -775,6 +779,7 @@ HRESULT Device::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE type, UINT min_index, UI
 // A draw that cannot be issued is never dropped quietly: it is counted and its reason logged once.
 void Device::skip_draw(const char *reason)
 {
+    ++perf().skipped_draws;
     bgfx::discard(); // buffers or textures may already be bound for this draw
     trap(reason);
 }
@@ -783,6 +788,7 @@ HRESULT Device::draw(const DrawCall &call)
 {
     if (call.primitive_count == 0)
         return D3D_OK;
+    PerfScope timing(perf().shim_ms);
     Context::instance().poll_surface();
     if (!Context::instance().ready())
         return D3D_OK;
@@ -947,6 +953,7 @@ HRESULT Device::draw(const DrawCall &call)
             bgfx::TransientVertexBuffer tvb;
             bgfx::allocTransientVertexBuffer(&tvb, vertex_count, layout->layout[i]);
             memcpy(tvb.data, source + begin, bytes);
+            perf().transient_vb_bytes += bytes;
             bgfx::setVertexBuffer(static_cast<uint8_t>(i), &tvb, 0, vertex_count);
         }
     }
@@ -963,6 +970,8 @@ HRESULT Device::draw(const DrawCall &call)
                     bgfx::destroy(vb->handle);
                 vb->handle = bgfx::createVertexBuffer(
                     bgfx::copy(vb->shadow.data(), static_cast<uint32_t>(vb->shadow.size())), byte_layout);
+                ++perf().buffer_uploads;
+                perf().buffer_upload_bytes += vb->shadow.size();
                 vb->dirty_begin = UINT32_MAX;
                 vb->dirty_end = 0;
             }
@@ -1007,6 +1016,8 @@ HRESULT Device::draw(const DrawCall &call)
             for (uint32_t i = 0; i < out_count; ++i)
                 put(i, source(i));
         bgfx::setIndexBuffer(&tib, 0, out_count);
+        perf().transient_ib_bytes += static_cast<uint64_t>(out_count) * (out32 ? 4 : 2);
+        perf().fan_draws += fan ? 1 : 0;
     }
     else if (call.indexed)
     {
@@ -1016,6 +1027,8 @@ HRESULT Device::draw(const DrawCall &call)
                 bgfx::destroy(ib->handle);
             ib->handle = bgfx::createIndexBuffer(bgfx::copy(ib->shadow.data(), static_cast<uint32_t>(ib->shadow.size())),
                                                  index32 ? BGFX_BUFFER_INDEX32 : BGFX_BUFFER_NONE);
+            ++perf().buffer_uploads;
+            perf().buffer_upload_bytes += ib->shadow.size();
             ib->dirty_begin = UINT32_MAX;
             ib->dirty_end = 0;
         }
@@ -1051,8 +1064,15 @@ HRESULT Device::draw(const DrawCall &call)
             else
                 continue;
         }
-        bgfx::setTexture(static_cast<uint8_t>(unit), Context::instance().sampler(unit), store->handle,
-                         sampler_flags(stage, *store));
+        const uint32_t flags = sampler_flags(stage, *store);
+        bgfx::setTexture(static_cast<uint8_t>(unit), Context::instance().sampler(unit), store->handle, flags);
+        ++perf().texture_binds;
+        if (last_draw.texture[unit] != store->handle.idx || last_draw.sampler[unit] != flags)
+        {
+            ++perf().texture_changes;
+            last_draw.texture[unit] = store->handle.idx;
+            last_draw.sampler[unit] = flags;
+        }
     }
 
     apply_ff_uniforms(*layout, vs_port, ps_port);
@@ -1081,6 +1101,18 @@ HRESULT Device::draw(const DrawCall &call)
     }
     bgfx::submit(view_id, handle);
     view_has_content = true;
+    render::PerfCounters &counters = perf();
+    ++counters.draws;
+    if (last_draw.program != handle.idx)
+        ++counters.program_changes, last_draw.program = handle.idx;
+    const uint32_t stencil_bits = stencil ? fstencil : 0;
+    if (last_draw.state != bits || last_draw.stencil != stencil_bits || last_draw.factor != factor)
+    {
+        ++counters.state_changes;
+        last_draw.state = bits, last_draw.stencil = stencil_bits, last_draw.factor = factor;
+    }
+    counters.uniform_draws += uniforms_changed ? 1 : 0;
+    uniforms_changed = false;
     return D3D_OK;
 }
 

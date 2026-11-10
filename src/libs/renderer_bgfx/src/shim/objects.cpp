@@ -1,4 +1,5 @@
 #include "device.hpp"
+#include "perf.hpp"
 
 #include <chrono>
 #include <thread>
@@ -505,7 +506,7 @@ void TexStore::create_sampled()
     }
     gpu_compressed = format_info(format).block_bytes != 0 && tier != Tier::Rgba;
     gpu_format = gpu_compressed ? bc_format(format) : bgfx::TextureFormat::RGBA8;
-    handle = bgfx::createTexture(make_dds(*this, gpu_format, gpu_compressed));
+    handle = bgfx::createTexture(counted_texture_upload(make_dds(*this, gpu_format, gpu_compressed)));
     if (!bgfx::isValid(handle))
         logf("texture creation failed: %ux%u levels=%u d3dformat=%u", width, height, levels,
              static_cast<uint32_t>(format));
@@ -532,7 +533,7 @@ bool TexStore::create_transcoded()
     if (auto blob = service.lookup(transcode_key, layout))
     {
         const uint32_t internal_format = blob->data[28] | blob->data[29] << 8;
-        handle = bgfx::createTexture(ref_blob(std::make_shared<const texture::Blob>(std::move(*blob))));
+        handle = bgfx::createTexture(counted_texture_upload(ref_blob(std::make_shared<const texture::Blob>(std::move(*blob)))));
         gpu_format = internal_format == 0x9274 ? bgfx::TextureFormat::ETC2 : bgfx::TextureFormat::ETC2A;
         gpu_compressed = true;
         transcoded = bgfx::isValid(handle);
@@ -544,7 +545,7 @@ bool TexStore::create_transcoded()
     const uint32_t first_level = levels > 1 && std::max(width, height) >= 1024 ? 1 : 0;
     gpu_compressed = true;
     gpu_format = bc_format(format);
-    handle = bgfx::createTexture(make_dds(*this, gpu_format, true, first_level));
+    handle = bgfx::createTexture(counted_texture_upload(make_dds(*this, gpu_format, true, first_level)));
     if (!bgfx::isValid(handle))
         return false;
     transcoded = true;
@@ -596,7 +597,7 @@ void TexStore::finish_transcode()
     }
     if (state != texture::Job::Done)
         return;
-    const bgfx::TextureHandle etc = bgfx::createTexture(ref_blob(transcode_job->result));
+    const bgfx::TextureHandle etc = bgfx::createTexture(counted_texture_upload(ref_blob(transcode_job->result)));
     const bgfx::TextureFormat::Enum etc_gpu_format = etc_format(transcode_job->format);
     if (!bgfx::isValid(etc))
     {
@@ -694,6 +695,7 @@ void TexStore::sync()
                     convert_to_rgba8(format, s.data.data() + static_cast<size_t>(z) * pitch * h, pitch, w, h,
                                      memory->data + static_cast<size_t>(z) * w * h * 4);
             }
+            counted_texture_upload(memory);
             switch (kind)
             {
             case TexKind::Tex2D:
