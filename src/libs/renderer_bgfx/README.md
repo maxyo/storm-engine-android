@@ -1,0 +1,79 @@
+# renderer_bgfx
+
+The engine's only GPU backend: [bgfx](https://github.com/bkaradzic/bgfx) on OpenGL ES 3.0,
+on Android and on the Linux development host alike.
+
+- `cmake/bgfx_pin.cmake` — the single pin of bgfx.cmake (bgfx/bx/bimg as its submodules).
+  Other libraries link the `storm_bgfx` target and never fetch bgfx themselves. Offline
+  builds pass `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<pinned checkout>`.
+  Licences: `third_party/licenses/{bgfx,bx,bimg}-BSD-2-Clause.txt`.
+- `src/shim/` — the D3D9-shaped shim. `DX9RENDER` (src/libs/renderer) and its consumers still
+  call `IDirect3DDevice9` and friends, declared by the vendored type headers in
+  `third_party/d3d9-headers/`; the objects behind those interfaces are implemented here on bgfx
+  handles. `d3d9_stubs.gen.hpp` makes every unimplemented method log a `[storm-bgfx] TRAP`.
+- `shaders/` — fixed-function emulation (`vs_ff`, `fs_ff*`), the blit used for compositing,
+  and `include/` with the shared conventions (`storm_common.sh`).
+- `shaders/ports/` + `src/shim/ports.cpp` — hand ports of the 15 vs_1_1/ps_1_x shaders used by
+  `src/techniques`. `CTechnique` passes the shim a reference blob with the technique shader key
+  (`<fx base name>_<shader name>`, e.g. `sea_sea2_vertex_shader`); unknown keys are logged and
+  their draws skipped.
+- `include/storm/render/frame_owner.hpp` — the frame owner contract (bgfx context, surface,
+  view order, client views for the UI). The header is the documentation.
+- `host-tools/` — builds only the host `shaderc` from the same pin, for cross builds.
+
+## Building
+
+Host (builds its own `shaderc`):
+
+```sh
+cmake -S . -B build/host -G Ninja -DSTORM_HOST_SOURCES=<prepared sources> -DSTORM_AUDIO_SOURCES=<audio sources>
+ninja -C build/host engine
+```
+
+Android (needs a host `shaderc` from the same pin):
+
+```sh
+cmake -S src/libs/renderer_bgfx/host-tools -B build/bgfx-host-tools -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/bgfx-host-tools
+cmake -S . -B build/android -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/toolchains/android-arm64.cmake \
+  -DSTORM_ANDROID_NDK=... -DSTORM_ANDROID_DEPS=... -DSTORM_ANDROID_SOURCES=... -DSTORM_AUDIO_SOURCES=... \
+  -DSTORM_SHADERC=$PWD/build/bgfx-host-tools/shaderc
+ninja -C build/android engine
+```
+
+`tools/android/ci_engine.sh` does both steps.
+
+## Shaders
+
+`cmake/storm_shaders.cmake` (`storm_bgfx_embed_shaders`) compiles every `shaders/*.sc` and
+`shaders/ports/*.sc` with `shaderc` for the `300_es` profile (`STORM_BGFX_SHADER_PROFILE`) at
+build time and embeds the blobs (`--bin2c`) into the `storm_bgfx_shaders` library; the shim
+looks them up by name. Nothing is compiled at run time and no shader files ship in the APK.
+
+## D3D9 conventions handled by the shim
+
+- Matrices are D3D row-vector matrices and are uploaded as they are; the shaders multiply
+  `vector * matrix`.
+- A clip-space fix-up matrix is applied last: D3D depth 0..1 is remapped to -1..1 when the
+  backend uses homogeneous depth, plus the D3D half-pixel offset and depth bias. vs_1_1 ports
+  output D3D clip space and apply the same matrix themselves.
+- GL render targets have a bottom-left origin: the fix-up flips Y and culling is mirrored
+  (CW and CCW swapped); viewports, scissors and blits account for the flip.
+- `D3DCOLOR` vertex colours arrive as B,G,R,A bytes and are swizzled in the shader
+  (`D3DCOLOR_TO_RGBA`).
+- Triangle fans are converted to triangle lists in transient index buffers.
+- Vertex/index buffers that are not written in the current frame are drawn from immutable bgfx
+  snapshots, re-created when they go stale; buffers written in the current frame, user-pointer
+  draws and fans go through transient buffers.
+- Textures are created from an in-memory DDS so that partial mip chains (common in `.tx`
+  files) keep their mip range.
+- Render-target to texture copies (`StretchRect`, D3DX surface loads) stay on the GPU: the
+  destination becomes a render target.
+
+## Known limits
+
+- 5 fixed-function texture stages (`kFfStages`).
+- 1 user clip plane, emulated with `discard` in the fragment shader.
+- `D3DTEXF_NONE` as a mip filter is not emulated (sampled like `D3DTEXF_POINT`).
+- The game may use views `0..223` per frame (`kGameViewEnd`); later passes reuse the last view
+  and the overflow is logged once.
