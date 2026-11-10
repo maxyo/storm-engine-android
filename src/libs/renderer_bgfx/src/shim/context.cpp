@@ -93,6 +93,16 @@ uint16_t BgfxTextureOf(IDirect3DBaseTexture9 *texture, uint16_t *width, uint16_t
     return store->handle.idx;
 }
 
+void MarkTextureImmutable(IDirect3DBaseTexture9 *texture)
+{
+    shim::TexStore *store = shim::store_of(texture);
+    if (!store)
+        return;
+    store->immutable = true;
+    if (bgfx::isValid(store->handle) && !store->any_dirty)
+        store->release_shadow(); // already uploaded
+}
+
 void SetGamePictureProvider(GamePictureProvider *provider)
 {
     shim::Context::instance().set_picture_provider(provider);

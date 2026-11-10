@@ -1043,6 +1043,8 @@ HRESULT Device::draw(const DrawCall &call)
                     bgfx::copy(vb->shadow.data(), static_cast<uint32_t>(vb->shadow.size())), byte_layout);
                 ++perf().buffer_uploads;
                 perf().buffer_upload_bytes += vb->shadow.size();
+                perf_resize(&render::PerfCounters::buffer_gpu_bytes, vb->gpu_bytes, vb->shadow.size());
+                vb->gpu_bytes = vb->shadow.size();
                 vb->dirty_begin = UINT32_MAX;
                 vb->dirty_end = 0;
             }
@@ -1100,6 +1102,8 @@ HRESULT Device::draw(const DrawCall &call)
                                                  index32 ? BGFX_BUFFER_INDEX32 : BGFX_BUFFER_NONE);
             ++perf().buffer_uploads;
             perf().buffer_upload_bytes += ib->shadow.size();
+            perf_resize(&render::PerfCounters::buffer_gpu_bytes, ib->gpu_bytes, ib->shadow.size());
+            ib->gpu_bytes = ib->shadow.size();
             ib->dirty_begin = UINT32_MAX;
             ib->dirty_end = 0;
         }

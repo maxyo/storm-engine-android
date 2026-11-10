@@ -73,6 +73,7 @@ struct TexStore
     bool system_memory = false; // never uploaded (offscreen plain surfaces)
     bool backbuffer = false;    // the game's offscreen backbuffer colour/depth
     uint64_t target_flags = 0;  // extra bgfx texture flags of a render target (MSAA of the scene target)
+    bool immutable = false;     // MarkTextureImmutable: no CPU copy is kept after the upload
 
     bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
     bgfx::TextureFormat::Enum gpu_format = bgfx::TextureFormat::Unknown;
@@ -192,6 +193,7 @@ struct BufferBase
     uint32_t dirty_begin = UINT32_MAX, dirty_end = 0; // bytes not yet sent to the GPU copy
     uint64_t write_frame = UINT64_MAX;                // frame of the last Unlock
     uint32_t write_serial = 0;                        // incremented by every writing Lock
+    size_t gpu_bytes = 0;                             // size of the bgfx snapshot (perf accounting)
     uint32_t lock_count = 0;
     DWORD usage = 0;
     void mark(uint32_t offset, uint32_t size);

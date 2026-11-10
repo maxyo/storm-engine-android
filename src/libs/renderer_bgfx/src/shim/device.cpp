@@ -690,6 +690,7 @@ HRESULT Device::CreateVertexBuffer(UINT length, DWORD usage, DWORD fvf, D3DPOOL,
     auto *vb = new VertexBuffer();
     vb->device = this;
     vb->shadow.assign(length, 0);
+    perf_resize(&render::PerfCounters::buffer_shadow_bytes, 0, length);
     vb->usage = usage;
     vb->fvf = fvf;
     *buffer = vb;
@@ -702,6 +703,7 @@ HRESULT Device::CreateIndexBuffer(UINT length, DWORD usage, D3DFORMAT format, D3
     auto *ib = new IndexBuffer();
     ib->device = this;
     ib->shadow.assign(length, 0);
+    perf_resize(&render::PerfCounters::buffer_shadow_bytes, 0, length);
     ib->usage = usage;
     ib->index32 = format == D3DFMT_INDEX32;
     *buffer = ib;
