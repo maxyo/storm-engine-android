@@ -1,0 +1,141 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 2,
+ "screenRevision": 4,
+ "screen": "game_menu",
+ "widgets": [
+  {
+   "node": "LOGO",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MB_OPTIONS",
+   "type": "button",
+   "label": "Настройки",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MB_RESUME",
+   "type": "button",
+   "label": "Продолжить",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MB_SAVE",
+   "type": "button",
+   "label": "Сохранить",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MB_LOAD",
+   "type": "button",
+   "label": "Загрузить",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MB_EXITGAME",
+   "type": "button",
+   "label": "Выйти из игры",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MB_UPDATES",
+   "type": "button",
+   "label": "Дополнения",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "VERSION_TEXT",
+   "type": "text",
+   "label": "ver. 0.0",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CONFIRM_EXIT_TEXT",
+   "type": "text",
+   "label": "Выйти?",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CONFIRM_EXIT_YES",
+   "type": "button",
+   "label": "Да",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CONFIRM_EXIT_NO",
+   "type": "button",
+   "label": "Нет",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}

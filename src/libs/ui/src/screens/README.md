@@ -44,7 +44,9 @@ verbs, §8 admission and extras) and the V2 mockups of the design canvas.
      `admitted.One/All/Label`; bind every interactive element by its element id:
      `bindings.Forward(id, widget, "press")`, `bindings.On(id, verb, handler)` and inside a
      handler `bindings.Send(widget, verb, value)`, `SendLatest` (drags), `Back(exit)`,
-     `EditText`, `Read`, `Rebuild()` for local state kept in members. Mark events that are
+     `EditText`, `Read`, `Rebuild()` for local state kept in members, `SendHost(node,
+     value)` for a setting of the application itself (an `Action` without a screen that the
+     platform host keeps; `app-settings` = the renderer options). Mark events that are
      expected but need nothing with `bindings.Ignore(id, verb)`.
    Add the file to `CMakeLists.txt`.
 3. **Registry.** Add `{"<interface id>", Create…}` to `kPorted` in `registry.cpp` and
@@ -121,7 +123,8 @@ a game root the neutral placeholder stays.
 `Host::SetState(channel, json)` carries the state of the game outside interfaces. A zone
 implements `StateConsumer` (`Channel()`, `OnState(json, router)`) and registers it in
 `CreateStateConsumers()`. `dialogue.cpp` turns its state into an `InterfaceModel` of its
-own and lets a ported screen draw it. The HUD channels are consumed in `../hud`.
+own and lets a ported screen draw it. The HUD channels are consumed in `../hud`; the
+platform host's `appSettings` (its renderer options) is read by the settings screen.
 
 ## The HUD
 

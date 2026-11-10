@@ -91,6 +91,9 @@ class Bindings
     // first, which replaces it and restarts the wait (settling a drag before it applies).
     void SendAfter(double seconds, const Widget &widget, const std::string &verb, const std::string &value = {},
                    const std::string &guard = {});
+    // A setting of the application itself, not of the game (renderer options): an Action
+    // without a screen that the platform host keeps (the Android host: GraphicsSettings).
+    void SendHost(const std::string &node, const std::string &value);
     // The player's way out: the screen's exit button when it has one, else the global back.
     void Back(const Widget *exit_button);
     // Opens the native text editor over the field; the accepted text is sent as `edit`.

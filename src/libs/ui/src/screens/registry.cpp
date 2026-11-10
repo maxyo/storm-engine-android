@@ -16,6 +16,12 @@ std::unique_ptr<Screen> CreateItemsBoxScreen();
 std::unique_ptr<Screen> CreateCrewScreen();
 std::unique_ptr<Screen> CreateDialogueScreen();
 std::unique_ptr<StateConsumer> CreateDialogueConsumer();
+std::unique_ptr<Screen> CreateGameMenuScreen();
+std::unique_ptr<Screen> CreateSavesScreen();
+std::unique_ptr<Screen> CreateSettingsScreen();
+std::unique_ptr<StateConsumer> CreateAppSettingsConsumer();
+std::unique_ptr<Screen> CreateTitleScreen();
+std::unique_ptr<Screen> CreateNewGameScreen();
 
 namespace
 {
@@ -29,15 +35,19 @@ const ScreenEntry kPorted[] = {
     {"itemsbox", CreateItemsBoxScreen},
     {"hirecrew", CreateCrewScreen},
     {"dialogue", CreateDialogueScreen},
+    {"game_menu", CreateGameMenuScreen},
+    {"save_load", CreateSavesScreen},
+    {"option_screen", CreateSettingsScreen},
+    {"mainmenu", CreateTitleScreen},
+    {"selectcharacter", CreateNewGameScreen},
 };
 
 // Interfaces the platform host still draws with its own forms. Anything not listed here
 // and not ported above gets the generic layout.
 const char *const kHostOwned[] = {
-    "mainmenu",       "option_screen", "game_menu", "save_load", "selectcharacter",           // menus, saves, settings
     "character",      "lscchar_all",   "items",     "ship",      "questbook", "nationrelation", // hero sections
     "shipyard",                                                                                // trade zone
-    "map",            "dirsailenc",    "leavebattle", "salary",  "about", "boal_frame", "quick_save", // reading menus
+    "map",            "dirsailenc",    "leavebattle", "salary", "boal_frame", // reading menus
 };
 
 } // namespace
@@ -59,6 +69,7 @@ std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()
 {
     std::vector<std::unique_ptr<StateConsumer>> consumers;
     consumers.push_back(CreateDialogueConsumer());
+    consumers.push_back(CreateAppSettingsConsumer());
     hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, presentation
     return consumers;
 }

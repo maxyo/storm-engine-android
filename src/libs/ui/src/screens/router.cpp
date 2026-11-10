@@ -16,6 +16,8 @@ std::string EngineCommand(const Action &action)
     if (action.screen == "dialogue") // reply: "<generation>:<index>"; edit: the typed reply text
         return action.verb == "edit" ? "dialogue:" + std::to_string(action.opening) + ":" + std::to_string(action.index) + ":" + action.value
                                      : "dialogue:" + action.value;
+    if (action.screen == "mainmenu") // the title screen's commands: "main:New", "main:Load", …
+        return action.verb == "back" ? "back" : "main:" + action.node;
     if (action.node.empty())
         return action.verb == "back" ? "back" : std::string();
     const std::string stamp = "@" + std::to_string(action.opening) + ":";
@@ -234,6 +236,15 @@ void Bindings::SendAfter(double seconds, const Widget &widget, const std::string
             return;
         }
     router_.waiting_.push_back({std::move(action), due});
+}
+
+void Bindings::SendHost(const std::string &node, const std::string &value)
+{
+    Action action;
+    action.node = node;
+    action.verb = "set";
+    action.value = value;
+    router_.Emit(std::move(action));
 }
 
 void Bindings::Back(const Widget *exit_button)
