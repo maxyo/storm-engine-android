@@ -39,11 +39,13 @@ licensed by this script.
 ## Full engine after dependency build
 
 Prepare extra pinned sources with `engine_sources.py --directory /path/to/sources`
-(spdlog 1.9.2, fast_float 3.4.0, mimalloc 2.0.3, Catch2 2.13.7; exact Git hashes
-are in that script). Android uses the NDK/platform zlib ABI, not a bundled
+(spdlog 1.9.2, fast_float 3.4.0, mimalloc 2.0.3, Catch2 2.13.7, FFmpeg 8.1.3; exact Git hashes
+are in that script). CMake builds the LGPL FFmpeg for video from it once and caches it
+(`tools/ffmpeg/README.md`); package `runtime/ffmpeg/*.so` and `configure.txt` with the engine. Android uses the NDK/platform zlib ABI, not a bundled
 replacement libz. Prepare hashed/patched audio headers with `tests/audio/run.py`.
-Build the host shader compiler from the engine's bgfx pin once:
-`cmake -S src/libs/renderer_bgfx/host-tools -B build/bgfx-host-tools -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build/bgfx-host-tools`.
+The configure step builds the host shader compiler of the bgfx pin once per machine
+(`src/libs/renderer_bgfx/cmake/storm_shaderc.cmake`) and compiles through ccache
+(`tools/ccache/README.md`).
 
 ```
 cmake -S . -B build/android-engine -G Ninja -DCMAKE_BUILD_TYPE=Debug \
@@ -51,8 +53,7 @@ cmake -S . -B build/android-engine -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DSTORM_ANDROID_NDK=/path/to/android-ndk-r30 \
   -DSTORM_ANDROID_DEPS=/path/to/dependency-prefix \
   -DSTORM_ANDROID_SOURCES=/path/to/sources \
-  -DSTORM_AUDIO_SOURCES="$PWD/build/audio/patched" \
-  -DSTORM_SHADERC="$PWD/build/bgfx-host-tools/shaderc"
+  -DSTORM_AUDIO_SOURCES="$PWD/build/audio/patched"
 cmake --build build/android-engine --target engine --parallel 2
 python3 tools/android/verify_engine.py --library build/android-engine/game/libengine.so \
   --ndk /path/to/android-ndk-r30

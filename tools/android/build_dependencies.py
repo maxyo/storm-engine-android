@@ -12,6 +12,16 @@ SDL_REVISION = "2e9821423a237a1206e3c09020778faacfe430be"
 FMT_REVISION = "d141cdbeb0fb422a3fb7173b285fd38e0d1772dc"
 
 
+# Third-party CMake projects compile through the Storm ccache launcher too (tools/ccache/README.md).
+LAUNCHER = [f"-DCMAKE_{lang}_COMPILER_LAUNCHER={ROOT / 'tools/ccache/launcher'}" for lang in ("C", "CXX")]
+
+
+def build_cached(directory, jobs):
+    run([ROOT / "tools/ccache/warmth", "begin", directory])
+    run(["cmake", "--build", directory, "--parallel", jobs])
+    run([ROOT / "tools/ccache/warmth", "end", directory])
+
+
 def run(command, **kwargs):
     print("+", " ".join(map(str, command)), flush=True)
     subprocess.run(list(map(str, command)), check=True, **kwargs)
@@ -49,14 +59,14 @@ def main():
     run(["cmake", "-S", sdl, "-B", build / "sdl", "-G", "Ninja",
          "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_TOOLCHAIN_FILE={ROOT / 'cmake/toolchains/android-arm64.cmake'}",
          f"-DSTORM_ANDROID_NDK={ndk}", f"-DCMAKE_INSTALL_PREFIX={prefix}",
-         "-DSDL_SHARED=ON", "-DSDL_STATIC=OFF", "-DSDL_TEST=OFF"])
-    run(["cmake", "--build", build / "sdl", "--parallel", args.jobs])
+         "-DSDL_SHARED=ON", "-DSDL_STATIC=OFF", "-DSDL_TEST=OFF", *LAUNCHER])
+    build_cached(build / "sdl", args.jobs)
     run(["cmake", "--install", build / "sdl"])
     run(["cmake", "-S", fmt, "-B", build / "fmt", "-G", "Ninja",
          "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_TOOLCHAIN_FILE={ROOT / 'cmake/toolchains/android-arm64.cmake'}",
          f"-DSTORM_ANDROID_NDK={ndk}", f"-DCMAKE_INSTALL_PREFIX={prefix}",
-         "-DBUILD_SHARED_LIBS=ON", "-DFMT_TEST=OFF", "-DFMT_DOC=OFF", "-DCMAKE_CXX_STANDARD=20"])
-    run(["cmake", "--build", build / "fmt", "--parallel", args.jobs])
+         "-DBUILD_SHARED_LIBS=ON", "-DFMT_TEST=OFF", "-DFMT_DOC=OFF", "-DCMAKE_CXX_STANDARD=20", *LAUNCHER])
+    build_cached(build / "fmt", args.jobs)
     run(["cmake", "--install", build / "fmt"])
     for library in (prefix / "lib/libSDL2.so", prefix / "lib/libfmt.so"):
         header = library.read_bytes()[:20]

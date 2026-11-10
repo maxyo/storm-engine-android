@@ -95,6 +95,22 @@ uint64_t SoundService::TrimCaches() {
     try {return audio->trim(0);}
     catch(const std::exception& e) {core.Trace("Audio cache trim failed: %s",e.what());return 0;}
 }
+namespace {
+class OpenSoundStream final : public VSoundStream {
+public:
+    explicit OpenSoundStream(std::unique_ptr<storm_audio::PcmStream> stream):stream(std::move(stream)) {}
+    uint32_t Write(const float* pcm,uint32_t frames) override {return stream->write(pcm,frames);}
+    uint64_t PlayedFrames() override {return stream->played();}
+    void SetPaused(bool paused) override {stream->pause(paused);}
+    void SetVolume(float volume) override {stream->volume(volume);}
+private:
+    std::unique_ptr<storm_audio::PcmStream> stream;
+};
+}
+std::unique_ptr<VSoundStream> SoundService::CreatePcmStream() {
+    if(!audio)return nullptr;
+    return std::make_unique<OpenSoundStream>(audio->stream(VSoundStream::kRate));
+}
 void SoundService::DebugDraw() {
     if(core.Controls->GetDebugAsyncKeyState('J')<0) {bShowDebugInfo=!bShowDebugInfo;std::this_thread::sleep_for(std::chrono::milliseconds(200));}
     if(!bShowDebugInfo || !audio)return;

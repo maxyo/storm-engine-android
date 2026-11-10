@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Compiler launcher for every Storm native build: CMAKE_<LANG>_COMPILER_LAUNCHER, or the
+# prefix of CC/CXX for make-based builds (CC="<repo>/tools/ccache/launcher clang").
+# Sets the project's ccache settings (see README.md here) unless already set, then runs
+# ccache. Setting CCACHE_DIR also makes ccache read $CCACHE_DIR/ccache.conf instead of
+# ~/.config/ccache/ccache.conf, which belongs to another project and must not be used.
+here=${BASH_SOURCE[0]%/*}
+[[ $here == /* ]] || here=$PWD/$here
+repo=${here%/tools/ccache}
+workspace=${repo%/*}
+# Inside the application the engine is the submodule <app>/engine: the workspace is one up.
+[[ -f $workspace/.gitmodules ]] && workspace=${workspace%/*}
+export CCACHE_DIR=${CCACHE_DIR:-$HOME/.cache/ccache-storm}
+export CCACHE_BASEDIR=${CCACHE_BASEDIR:-$workspace}
+export CCACHE_NOHASHDIR=${CCACHE_NOHASHDIR:-1}
+export CCACHE_COMPILERCHECK=${CCACHE_COMPILERCHECK:-content}
+export CCACHE_SLOPPINESS=${CCACHE_SLOPPINESS:-include_file_ctime,include_file_mtime,time_macros,locale}
+export CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-30G}
+export CCACHE_COMPRESS=${CCACHE_COMPRESS:-1}
+# Ninja and make run commands in the build directory: one stats log per build directory,
+# read by tools/ccache/warmth.
+if [[ -z ${CCACHE_STATSLOG:-} && ( -f build.ninja || -f Makefile ) ]]; then
+  export CCACHE_STATSLOG=$PWD/ccache-stats.log
+fi
+exec ccache "$@"

@@ -2,17 +2,25 @@
 
 #include "../base_video.h"
 
+#include <memory>
+#include <string>
+
+namespace storm::video
+{
+class Player;
+struct Frame;
+}
+
+// Script-facing video player entity ("CAviPlayer"). Scripts send MSG_SET_VIDEO_PLAY with a file
+// name under resource\videos and receive "ievntEndVideo" when it has played out (or failed);
+// MSG_SET_VIDEO_FLAGS bit 0 loops. xi_video_rect embeds one with SetShowVideo(false) and draws
+// GetCurrentVideoTexture() itself. Decoding: src/libs/video.
 class CAviPlayer : public xiBaseVideo
 {
-    VDX9RENDER *rs;
-    bool m_bShowVideo;
-
   public:
     CAviPlayer();
     ~CAviPlayer() override;
     bool Init() override;
-    void Execute(uint32_t delta_time);
-    void Realize(uint32_t delta_time);
     uint64_t ProcessMessage(MESSAGE &message) override;
 
     void ProcessStage(Stage stage, uint32_t delta) override
@@ -20,15 +28,13 @@ class CAviPlayer : public xiBaseVideo
         switch (stage)
         {
         case Stage::execute:
-            Execute(delta);
+            Execute();
             break;
         case Stage::realize:
-            Realize(delta);
+            Realize();
             break;
-            /*case Stage::lost_render:
-              LostRender(delta); break;
-            case Stage::restore_render:
-              RestoreRender(delta); break;*/
+        default:
+            break;
         }
     }
 
@@ -39,17 +45,28 @@ class CAviPlayer : public xiBaseVideo
 
     IDirect3DTexture9 *GetCurrentVideoTexture() override
     {
-        return nullptr;
+        return texture_;
     }
 
-  protected:
-    bool m_bContinue;
+  private:
+    void Execute();
+    void Realize();
+    bool Start();
+    void Finish();
+    void Upload(const storm::video::Frame &frame);
+    void ReleaseTexture();
+    void DetectTapToSkip();
 
-    void ReleaseAll();
-    bool PlayMedia(const char *fileName);
-    bool GetInterfaces();
-    void CleanupInterfaces();
-
+    VDX9RENDER *rs = nullptr;
+    bool m_bShowVideo = true;
+    bool bLoop = false;
     std::string filename;
-    bool bLoop{false};
+    std::unique_ptr<storm::video::Player> player_;
+    IDirect3DTexture9 *texture_ = nullptr;
+    int textureWidth_ = 0, textureHeight_ = 0;
+    bool ended_ = false;        // ievntEndVideo sent
+    bool background_ = false;   // application in background (AppEvents)
+    bool reupload_ = false;     // upload the shown frame again (surface may have been recreated)
+    int appEvents_ = -1;
+    int tapState_ = 0;          // 0: wait for release, 1: wait for press, 2: pressed
 };
