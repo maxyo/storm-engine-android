@@ -372,39 +372,41 @@ void Host::end_frame(bool scene_frame)
         return;
     }
     // GPU timer queries per view (BGFX_DEBUG_PROFILER, option fx_gpu_profile=1): the whole frame and the post chain,
-    // averaged and logged every kProfileFrames presented frames. Results lag a few frames; averages hide that.
+    // averaged and logged every kProfileFrames presented frames with the CPU frame time and draw calls. Timer
+    // results lag a few frames; a backend without timer queries reports none (logged as n/a).
     const bgfx::Stats *stats = bgfx::getStats();
-    if (stats && stats->gpuTimerFreq > 0 && stats->gpuTimeEnd > stats->gpuTimeBegin)
+    if (stats)
     {
-        const double to_ms = 1000.0 / static_cast<double>(stats->gpuTimerFreq);
-        times_.frame_ms = static_cast<double>(stats->gpuTimeEnd - stats->gpuTimeBegin) * to_ms;
-        for (uint16_t i = 0; i < stats->numViews; ++i)
+        if (stats->gpuTimerFreq > 0 && stats->gpuTimeEnd > stats->gpuTimeBegin)
         {
-            const bgfx::ViewStats &view = stats->viewStats[i];
-            if (last_post_views_ && view.view >= last_post_first_ && view.view < last_post_first_ + last_post_views_)
-                times_.post_ms += static_cast<double>(view.gpuTimeEnd - view.gpuTimeBegin) * to_ms;
+            const double to_ms = 1000.0 / static_cast<double>(stats->gpuTimerFreq);
+            times_.frame_ms = static_cast<double>(stats->gpuTimeEnd - stats->gpuTimeBegin) * to_ms;
+            for (uint16_t i = 0; i < stats->numViews; ++i)
+            {
+                const bgfx::ViewStats &view = stats->viewStats[i];
+                if (last_post_views_ && view.view >= last_post_first_ && view.view < last_post_first_ + last_post_views_)
+                    times_.post_ms += static_cast<double>(view.gpuTimeEnd - view.gpuTimeBegin) * to_ms;
+            }
+            times_.post_views = last_post_views_;
+            profile_sum_frame_ += times_.frame_ms;
+            profile_sum_post_ += times_.post_ms;
+            ++profile_gpu_frames_;
         }
-        times_.post_views = last_post_views_;
-        profile_sum_frame_ += times_.frame_ms;
-        profile_sum_post_ += times_.post_ms;
         profile_sum_cpu_ += static_cast<double>(stats->cpuTimeFrame) * 1000.0 / static_cast<double>(stats->cpuTimerFreq);
         profile_draws_ += stats->numDraw;
         if (++profile_count_ == kProfileFrames)
         {
-            shim::logf("effects profile: preset %d gpu_frame_ms=%.2f gpu_post_ms=%.2f cpu_frame_ms=%.2f draws=%.0f "
-                       "post_views=%u",
-                       preset_, profile_sum_frame_ / kProfileFrames, profile_sum_post_ / kProfileFrames,
+            char gpu[96] = "gpu_frame_ms=n/a gpu_post_ms=n/a (no timer queries)";
+            if (profile_gpu_frames_ > 0)
+                snprintf(gpu, sizeof(gpu), "gpu_frame_ms=%.2f gpu_post_ms=%.2f", profile_sum_frame_ / profile_gpu_frames_,
+                         profile_sum_post_ / profile_gpu_frames_);
+            shim::logf("effects profile: preset %d %s cpu_frame_ms=%.2f draws=%.0f post_views=%u", preset_, gpu,
                        profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
                        last_post_views_);
-            profile_count_ = 0;
+            profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_draws_ = 0;
         }
-    }
-    else if (!profile_unsupported_logged_)
-    {
-        profile_unsupported_logged_ = true;
-        shim::logf("effects profile: this backend reports no GPU timer queries; only CPU times are available");
     }
     last_post_views_ = 0;
 }

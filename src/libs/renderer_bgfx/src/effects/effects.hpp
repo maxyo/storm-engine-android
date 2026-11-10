@@ -89,8 +89,8 @@ class Host
     PassTimes times_{};
     static constexpr int kProfileFrames = 30;
     bool profile_ = false;
-    bool profile_unsupported_logged_ = false;
     int profile_count_ = 0;
+    int profile_gpu_frames_ = 0;
     double profile_sum_frame_ = 0.0, profile_sum_post_ = 0.0, profile_sum_cpu_ = 0.0;
     uint64_t profile_draws_ = 0;
 };
