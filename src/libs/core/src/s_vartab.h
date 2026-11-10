@@ -20,13 +20,14 @@ struct VarInfo
 
     bool IsArray() const
     {
-        return elements != 1; // 0: an array sized at run time
+        return array || elements != 1; // 0: an array sized at run time
     }
 
     std::string name;
     S_TOKEN_TYPE type;
     std::unique_ptr<DATA> value;
     size_t elements;
+    bool array{}; // declared with [], also "int a[1]"
     uint32_t segment_id;
 };
 

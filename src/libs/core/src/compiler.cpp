@@ -67,7 +67,7 @@ auto GetCacheFolder()
 // themselves: the engine build (token numbering, internal function table and
 // bytecode layout are not stable across builds), the cache layout, and which
 // game directory the scripts came from (the cache folder is shared).
-constexpr uint64_t kCacheFormatVersion = 3; // 3: CL script extensions (functions keep defaults, "...", native)
+constexpr uint64_t kCacheFormatVersion = 4; // 3: CL script extensions (defaults, "...", native); 4: array flag
 
 uint64_t CalculateCacheKey(const char *program_directory)
 {
@@ -1362,7 +1362,7 @@ bool COMPILER::InitInternalFunctions()
     {
         DEFINFO di;
         di.name = const_cast<char *>(name);
-        di.segment_id = INTERNAL_SEGMENT_ID;
+        di.segment_id = IMPORTED_SEGMENT_ID; // INTERNAL_SEGMENT_ID equals INVALID_SEGMENT_ID (unused entry)
         di.deftype = NUMBER;
         di.data4b = static_cast<uint32_t>(value);
         DefTab.AddDef(di);
@@ -1702,6 +1702,13 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     di.deftype = Token.GetType();
                 }
                 di.data4b = {};
+                if (Token.GetType() == TRUE_CONST || Token.GetType() == FALSE_CONST)
+                {
+                    // CL: #define X true
+                    lvalue = Token.GetType() == TRUE_CONST;
+                    di.deftype = NUMBER;
+                    memcpy(&di.data4b, &lvalue, sizeof(int32_t));
+                }
                 switch (Token.GetType())
                 {
                 case NUMBER:
@@ -1904,12 +1911,14 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                         vi.name = Token.GetData();
                         vi.segment_id = Segment.id;
                         vi.elements = 1;
+                        vi.array = false;
                         vi.type = Token_type;
                         Token.Get();
                         const bool sized = Token.GetType() == SQUARE_OPEN_BRACKET && Token.Get() != SQUARE_CLOSE_BRACKET;
                         if (Token.GetType() == SQUARE_CLOSE_BRACKET)
                         {
                             vi.elements = kRuntimeArraySize; // "string a[];": sized by SetArraySize or @a = n
+                            vi.array = true;
                             Token.Get();
                         }
                         else if (sized)
@@ -1939,6 +1948,7 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                             else
                                 lvalue = ParseIntLiteral(Token.GetData());
                             vi.elements = lvalue;
+                            vi.array = true;
                             Token.Get(); // SQUARE_CLOSE_BRACKET
                             Token.Get();
                         }
@@ -2164,9 +2174,13 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     }
                     lvi.name = Token.GetData();
                     lvi.elements = 1;
+                    lvi.array = false;
                     Token.Get();
                     if (Token.GetType() == SQUARE_OPEN_BRACKET)
+                    {
                         lvi.elements = ScanLocalArraySize();
+                        lvi.array = true;
+                    }
                     if (Token.GetType() == OP_EQUAL)
                     {
                         const uint32_t items = SkipInitializer(resumed);
@@ -2607,6 +2621,15 @@ bool COMPILER::CastValue(DATA *pV, S_TOKEN_TYPE target)
         const bool truth = value != nullptr && value->Truth();
         pV->ClearType();
         pV->Set(static_cast<int32_t>(truth));
+        return true;
+    }
+    if (target == VAR_AREFERENCE)
+    {
+        // aref(object or reference): the attribute reference of its root
+        ATTRIBUTES *attributes = value ? AttributesOf(value) : nullptr;
+        pV->ClearType();
+        pV->SetType(VAR_AREFERENCE);
+        pV->SetAReference(attributes);
         return true;
     }
     if (target == VAR_FREF && (value == nullptr || value->IsNull()))
@@ -3664,6 +3687,11 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             balance_block++;
             break;
         case BLOCK_OUT:
+            if (bound_type == BREAK_COMMAND && balance_block == 0)
+            {
+                Token.StepBack(); // the switch's '}' ends the last case (no break): the switch closes it
+                return true;
+            }
 
             if (inout == 0)
             {
@@ -4115,7 +4143,13 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                 inout++;
                 // if(!CompileBlock(Segment,bFunctionBlock,inout,BLOCK_OUT,jump_offset,6,BreakUpdateTable)) return
                 // false;
-                if (!CompileBlock(Segment, bFunctionBlock, inout, BLOCK_OUT, continue_jump, 6, BreakUpdateTable))
+                std::vector<uint32_t> fallthrough; // jumps of cases without break into the next case
+                auto *const outer = switchFallthrough_;
+                switchFallthrough_ = &fallthrough;
+                const bool compiled_switch =
+                    CompileBlock(Segment, bFunctionBlock, inout, BLOCK_OUT, continue_jump, 6, BreakUpdateTable);
+                switchFallthrough_ = outer;
+                if (!compiled_switch)
                     return false;
             }
             else
@@ -4130,6 +4164,18 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             BreakUpdateTable.Release();
             break;
         case CASE_COMMAND:
+            if (bound_type == BREAK_COMMAND && balance_block == 0)
+            {
+                // the previous case has no break: jump over this comparison into this case's code
+                if (switchFallthrough_)
+                {
+                    switchFallthrough_->push_back(Segment.BCode_Program_size + 2);
+                    vuint32_t = INVALID_OFFSET;
+                    CompileToken(Segment, JUMP, 1, (char *)&vuint32_t, sizeof(uint32_t));
+                }
+                Token.StepBack();
+                return true;
+            }
             // CompileToken(Segment,Token_type);
             // Token_type = CompileAuxiliaryTokens(Segment);
             CompileExpression(Segment);
@@ -4160,6 +4206,12 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
 
             update_offset = Segment.BCode_Program_size + 2;
             CompileToken(Segment, JUMP_Z, 1, (char *)&jump_offset, sizeof(uint32_t));
+            if (switchFallthrough_)
+            {
+                for (const auto offset : *switchFallthrough_)
+                    memcpy(&Segment.pCode[offset], &Segment.BCode_Program_size, sizeof(uint32_t));
+                switchFallthrough_->clear();
+            }
 
             // if(!CompileBlock(Segment,bFunctionBlock,inout,BREAK_COMMAND,INVALID_OFFSET,0,BreakTable)) return false;
             // ??? why INVALID_OFFSET on continue_jump here? dont remember; anyway now change to normal
@@ -5318,10 +5370,10 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
         for (n = frame.arguments; n < pfi->local_vars.size(); n++)
         {
             pV = SStack.Push();
-            if (pfi->local_vars[n].elements == 0)
+            if (pfi->local_vars[n].elements == 0 || (pfi->local_vars[n].array && pfi->local_vars[n].elements == 1))
             {
-                pV->SetType(pfi->local_vars[n].type); // an array sized at run time
-                pV->SetArraySize(0);
+                pV->SetType(pfi->local_vars[n].type); // an array sized at run time, or of one element
+                pV->SetArraySize(static_cast<uint32_t>(pfi->local_vars[n].elements));
             }
             else
                 pV->SetType(pfi->local_vars[n].type, pfi->local_vars[n].elements);
@@ -7276,6 +7328,15 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             pLeftOperandAClass = pLeftOperandAClass->CreateSubAClass(pLeftOperandAClass, key);
             break;
         }
+        case AP_CHILD: // rAP = its BX-th attribute (aref[i])
+            rBX.Convert(VAR_INTEGER);
+            rBX.Get(lvalue);
+            rAP = rAP && lvalue >= 0 && static_cast<size_t>(lvalue) < rAP->GetAttributesNum()
+                      ? rAP->GetAttributeClass(static_cast<uint32_t>(lvalue))
+                      : nullptr;
+            if (!rAP)
+                SetError("aref[%d]: no such attribute", lvalue);
+            break;
         case ATTR_PARENT: {
             pV = SStack.Read();
             ATTRIBUTES *attribute = AttributesOf(pV);
@@ -8916,6 +8977,7 @@ void COMPILER::LoadVariablesFromCache(storm::script_cache::BufferReader &reader,
         vi.name = reader.ReadArray();
         vi.type = reader.Read<decltype(vi.type)>();
         vi.elements = reader.Read<decltype(vi.elements)>();
+        vi.array = reader.Read<bool>();
 
         const auto var_code = VarTab.AddVar(vi);
         if (var_code == INVALID_VAR_CODE)
@@ -8926,7 +8988,7 @@ void COMPILER::LoadVariablesFromCache(storm::script_cache::BufferReader &reader,
         }
         const auto real_var = VarTab.GetVarX(var_code);
 
-        if (vi.elements == 1)
+        if (!vi.IsArray())
         {
             ReadScriptData(reader, vi.type, real_var->value.get());
         }
@@ -8975,6 +9037,7 @@ void COMPILER::LoadFunctionsFromCache(storm::script_cache::BufferReader &reader,
             lvi.name = reader.ReadArray();
             lvi.type = reader.Read<decltype(lvi.type)>();
             lvi.elements = reader.Read<decltype(lvi.elements)>();
+            lvi.array = reader.Read<bool>();
 
             auto is_extern = reader.Read<bool>();
 
@@ -8990,6 +9053,7 @@ void COMPILER::LoadFunctionsFromCache(storm::script_cache::BufferReader &reader,
             lvi.name = reader.ReadArray();
             lvi.type = reader.Read<decltype(lvi.type)>();
             lvi.elements = reader.Read<decltype(lvi.elements)>();
+            lvi.array = reader.Read<bool>();
 
             FuncTab.AddFuncVar(func_code, lvi);
         }
@@ -9113,8 +9177,9 @@ void COMPILER::SaveVariablesToCache(storm::script_cache::BufferWriter &writer)
         writer.WriteArray(vi.name);
         writer.WriteData(vi.type);
         writer.WriteData(vi.elements);
+        writer.WriteData(vi.array);
 
-        if (vi.elements == 1)
+        if (!vi.IsArray())
         {
             WriteScriptData(writer, vi.type, vi.value.get());
         }
@@ -9155,6 +9220,7 @@ void COMPILER::SaveFunctionsToCache(storm::script_cache::BufferWriter &writer)
             writer.WriteArray(lvi.name);
             writer.WriteData(lvi.type);
             writer.WriteData(lvi.elements);
+            writer.WriteData(lvi.array);
             writer.WriteData(is_extern);
         }
 
@@ -9164,6 +9230,7 @@ void COMPILER::SaveFunctionsToCache(storm::script_cache::BufferWriter &writer)
             writer.WriteArray(lvi.name);
             writer.WriteData(lvi.type);
             writer.WriteData(lvi.elements);
+            writer.WriteData(lvi.array);
         }
     }
 }

@@ -1363,6 +1363,7 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
     case VAR_FLOAT:
     case VAR_STRING:
     case VAR_FREF:
+    case VAR_AREFERENCE:
         if (Token.TypeCast())
             return CompileCast(Segment);
         break;
@@ -1580,6 +1581,27 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
             sttResult = Token.Get();
             if (sttResult == SQUARE_OPEN_BRACKET && IsSlice())
                 return CompileSlice(Segment, sttVariableField, dwVarCode); // text[a .. b]
+            if (sttResult == SQUARE_OPEN_BRACKET && IsArefVariable(sttVariableField, dwVarCode))
+            {
+                // aref[i]: its i-th attribute
+                if (!CompileExpression(Segment))
+                    return false;
+                if (Token.GetType() != SQUARE_CLOSE_BRACKET)
+                {
+                    SetError("missing ']'");
+                    return false;
+                }
+                CompileToken(Segment, STACK_POP);
+                CompileToken(Segment, BX);
+                CompileToken(Segment, MOVEAP);
+                CompileToken(Segment, AP);
+                CompileToken(Segment, sttVariableField, 1, (char *)&dwVarCode, sizeof(uint32_t));
+                CompileToken(Segment, AP_CHILD);
+                CompileToken(Segment, STACK_POP_VOID); // the value slot: the result is the reference
+                CompileToken(Segment, PUSH_AP);
+                CompileAuxiliaryTokens(Segment);
+                return true;
+            }
             if (sttResult == SQUARE_OPEN_BRACKET)
             {
                 // way for array element
@@ -2379,4 +2401,15 @@ bool COMPILER::CompileAttributeIntrinsic(SEGMENT_DESC &Segment)
     }
     CompileAuxiliaryTokens(Segment);
     return true;
+}
+
+bool COMPILER::IsArefVariable(S_TOKEN_TYPE var_type, uint32_t var_code)
+{
+    if (var_type == VARIABLE)
+    {
+        const auto *var = VarTab.GetVarX(var_code);
+        return var && var->type == VAR_AREFERENCE && !var->IsArray();
+    }
+    LocalVarInfo lvi;
+    return FuncTab.GetVar(lvi, CurrentFuncCode, var_code) && lvi.type == VAR_AREFERENCE && !lvi.IsArray();
 }

@@ -167,6 +167,7 @@ enum S_TOKEN_TYPE
     ACCESS_EXPR,
     ATTR_PARENT,
     ATTR_DELETE,
+    AP_CHILD,
     TOKEN_TYPES_COUNT
 };
 // bytecode stores the instruction in one byte (read as uint8_t)

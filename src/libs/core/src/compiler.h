@@ -296,6 +296,7 @@ class COMPILER : public VIRTUAL_COMPILER
     bool CompileCallThrough(SEGMENT_DESC &Segment, S_TOKEN_TYPE call_type);
     bool CompileObjectLiteral(SEGMENT_DESC &Segment);
     bool IsAccessVariable();
+    bool IsArefVariable(S_TOKEN_TYPE var_type, uint32_t var_code);
     bool IsIndexedChain();
     static constexpr uint32_t kAccessRead = 0, kAccessQuiet = 1, kAccessCreate = 2; // ADVANCE_AP_EXPR modes
     bool CompileAccessExpression(SEGMENT_DESC &Segment, uint32_t mode);
@@ -482,6 +483,7 @@ private:
     std::unordered_map<std::string, uint32_t> localDeclarations_; // declarations so far per name
     bool declListActive_ = false; // inside "int a, b;"
     bool declExpectName_ = false; // a ',' of that list was just compiled
+    std::vector<uint32_t> *switchFallthrough_ = nullptr; // innermost switch: jumps into the next case
     std::vector<std::string> *undeclaredNatives_ = nullptr; // SetScriptFunction during a library's Init
     std::unordered_map<std::string, IFUNCINFO> pendingNatives_; // registered, not declared yet (lowercase)
     storm::ScriptCache script_cache_;
