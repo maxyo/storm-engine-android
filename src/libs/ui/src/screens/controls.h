@@ -24,7 +24,8 @@ ButtonRole RoleOf(const Widget &button);
 std::string SectionOf(const Widget &button);
 
 // The unified row image {kind:"item", texture:"atlas:GROUP/Picture"} for a picture the
-// engine names by its pictures.ini group; null when the widget carries no such reference.
+// engine names by its pictures.ini group, {kind:"portrait", texture:"INTERFACES/PORTRAITS/
+// 128/face_N"} for a game portrait; null when the widget carries no such reference.
 Json PictureOf(const ImageRef *image);
 // {id, label, variant, disabled, reason, busy} of a c-button; a tap presses the widget.
 Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id, const char *variant);

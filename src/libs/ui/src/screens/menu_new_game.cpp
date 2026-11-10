@@ -30,7 +30,7 @@ constexpr NodeRule kNodes[] = {
     {"SETUP_TEXT", "text"},
     {"LEFTCHANGE_SETUP", "button"},
     {"RIGHTCHANGE_SETUP", "button"},
-    {"TABLE_SMALLSKILL", "choice"},
+    {"TABLE_SMALLSKILL", "choice"}, // the starting attributes: not on the mockup (V2-Menu-NewGame)
     {"CHECK_ARCADESAIL_NAME", "text"},
     {"CHECK_ARCADESAIL", "check"},
     {"CHECK_OTHER_NAME", "text"},
@@ -154,6 +154,11 @@ class NewGameScreen final : public Screen
             const std::vector<const Widget *> checks = admitted.All(node);
             ControlRows(bindings, checks, std::string(node) + "-", {}, toggles);
         }
+        // The game's interface file labels the hardcore toggle with its untranslated text key
+        // ("HardcoreGame" in every language): our string names it.
+        for (Json &toggle : toggles)
+            if (toggle.value("label", std::string()) == "HardcoreGame")
+                toggle["label"] = bindings.Text(StringKey("menu.hardcore"));
 
         Json view = Json::object();
         view["title"] = bindings.Text("menu.new_game_title");
@@ -167,7 +172,16 @@ class NewGameScreen final : public Screen
         const std::string bio_title = Trimmed(admitted.Label("INFO_FRAME_CAPTION"));
         Json portrait = face ? PictureOf(face->FirstImage()) : Json();
         if (portrait.is_null())
+        {
+            // The hero's portrait is a game texture the engine names by face; without one the
+            // neutral portrait stands in, and the log says so.
+            if (face && reported_portrait_ != admitted.model->opening)
+            {
+                reported_portrait_ = admitted.model->opening;
+                bindings.Error("new game: the hero picture (FACEPICT) names no portrait face; neutral portrait shown");
+            }
             portrait = Json{{"kind", "portrait"}};
+        }
         view["hero"] = Json{{"name", Trimmed(admitted.Label("HERO_NAME"))},
                             {"nation", nation ? bindings.Text(nation) : std::string()},
                             {"image", portrait},
@@ -178,21 +192,7 @@ class NewGameScreen final : public Screen
         if (!setup.is_null())
             setup["note"] = setup_text;
         view["setup"] = setup;
-        const std::string occupation = Trimmed(admitted.Label("SETUP_FRAME_CAPTION"));
-        bindings.On("setup-note", "", [&bindings, occupation, setup_text](const Event &) { bindings.Read(occupation, setup_text); });
 
-        // The hero's starting attributes: a row of names over a row of values.
-        Json stats = Json::array();
-        const std::vector<const Widget *> table = admitted.All("TABLE_SMALLSKILL");
-        if (table.size() >= 2)
-            for (int column = 0;; ++column)
-            {
-                const std::string name = table[0]->CellText(column), value = table[1]->CellText(column);
-                if (name.empty() && value.empty())
-                    break;
-                stats.push_back(Json{{"k", name}, {"v", value}});
-            }
-        view["stats"] = stats;
 
         const Widget *ok = admitted.One("OK_BUTTON");
         view["start"] = Json{{"label", bindings.Text("menu.start")},
@@ -235,6 +235,8 @@ class NewGameScreen final : public Screen
         bindings.Ignore("modal", "dismiss"); // the game's window closes only by its buttons
         return Json{{"title", text}, {"text", ""}, {"actions", actions}};
     }
+
+    uint64_t reported_portrait_ = ~0ull; // opening whose missing portrait was reported
 };
 
 } // namespace

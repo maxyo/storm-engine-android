@@ -150,6 +150,8 @@ ButtonRole RoleOf(const Widget &button)
 
 Json PictureOf(const ImageRef *image)
 {
+    if (image && image->kind == "portrait" && !image->image.empty())
+        return Json{{"kind", "portrait"}, {"texture", "INTERFACES/PORTRAITS/128/face_" + image->image}};
     if (!image || image->kind != "atlas" || image->group.empty() || image->image.empty())
         return Json();
     return Json{{"kind", "item"}, {"texture", "atlas:" + image->group + "/" + image->image}};

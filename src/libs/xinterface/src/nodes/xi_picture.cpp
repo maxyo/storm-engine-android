@@ -494,6 +494,8 @@ void CXI_PICTURE::MobileCollect(std::vector<MobileWidget> &widgets) const
             return;
         if (m_pcGroupName && !m_mobilePictureName.empty())
             ref.source = {"atlas", m_pcGroupName, m_mobilePictureName, {}, {}, -1};
+        else if (const std::string face = MobilePortraitFace(m_mobileTexturePath); !face.empty())
+            ref.source = {"portrait", {}, face, {}, {}, -1};
         MobileWidget widget{m_nodeName, "image", "", "", -1, m_rect.top * 8192 + m_rect.left, false};
         // The stock tab's active artwork is named TabDeSelected. Compare the
         // actual atlas crop; no optimistic Android state or image paths leak.
