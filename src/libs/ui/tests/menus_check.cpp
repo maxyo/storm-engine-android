@@ -378,11 +378,32 @@ static void NewGame(const std::string &models)
     Expect(router.Using() == "generic" && router.Rejection() == "OK_BUTTON(button)", "without «Ок» the new game screen is rejected loudly");
 }
 
+static void Autosaves(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "saves-autosave.json"));
+    const Json rows = surface.props["rows"];
+    Expect(rows.size() == 4 && rows[0]["cells"][0]["text"] == "<save.autosave> 2" && rows[0]["cells"][0]["icon"] == "reload",
+           "autosaves form their own group at the top, named by the string table");
+    router.OnEvent({"saves", "row", "0"});
+    Expect(surface.props["detail"]["delete"] == false && surface.props["detail"]["title"] == "<save.autosave> 2", "an autosave has no quick delete");
+    router.OnEvent({"primary", "click", ""});
+    ExpectEqual(surface.Last(), "widget:save_load\tANDROID_SAVE_LIST\t1\tactivate@9:9", "an autosave loads");
+    InterfaceModel saving = Load(models, "saves-autosave-save.json");
+    router.SetInterface(saving);
+    bool listed = false;
+    for (const Json &row : surface.props["rows"])
+        listed = listed || row["cells"][0].dump().find("autosave") != std::string::npos;
+    Expect(!listed && surface.props["rows"].size() == 4, "autosaves are never an overwrite target");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
     GameMenu(models);
     Saves(models);
+    Autosaves(models);
     Settings(models);
     Title(models);
     NewGame(models);

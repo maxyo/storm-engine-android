@@ -132,12 +132,35 @@ std::pair<std::string, std::string> PlayTime(const Bindings &bindings, const std
     return {text.substr(0, colon), value + std::to_string(numbers[1]) + " " + bindings.Text("save.minutes")};
 }
 
+// The application's background autosaves, two rotating records the game lists like any
+// other (app PROGRAM/interface/android_background_save.c names them "Автосохранение 1|2";
+// the name is matching data, not UI text). Returns the slot number, 0 for other records.
+int AutosaveSlot(const std::string &label)
+{
+    static const std::string prefix = "Автосохранение ";
+    if (label.size() <= prefix.size() || label.compare(0, prefix.size(), prefix) != 0)
+        return 0;
+    const std::string number = label.substr(prefix.size());
+    return number.find_first_not_of("0123456789") == std::string::npos ? std::atoi(number.c_str()) : 0;
+}
+
 struct Record
 {
     const Widget *row = nullptr;
     bool fresh = false;
+    int autosave = 0;
     Stamp played, created;
 };
+
+// What the player sees as the record's name.
+std::string Name(const Bindings &bindings, const Record &record)
+{
+    if (record.fresh)
+        return bindings.Text("save.new");
+    if (record.autosave)
+        return bindings.Text("save.autosave") + " " + std::to_string(record.autosave);
+    return record.row->label;
+}
 
 class SavesScreen final : public Screen
 {
@@ -155,13 +178,22 @@ class SavesScreen final : public Screen
     {
         std::vector<Record> records;
         for (const Widget *row : admitted.All("ANDROID_SAVE_LIST"))
-            records.push_back({row, row->unavailable_reason == "new"});
+            records.push_back({row, row->unavailable_reason == "new", AutosaveSlot(row->label)});
         const bool saving = std::any_of(records.begin(), records.end(), [](const Record &r) { return r.fresh; });
         Dates(admitted, records);
 
-        // The new record leads the list (V2-Save-Save); the player's choice holds while it
-        // exists, else the new record when saving, else the one the game has selected.
-        std::stable_partition(records.begin(), records.end(), [](const Record &r) { return r.fresh; });
+        // The game lists the records newest first: «Продолжить» takes the first.
+        const Widget *newest = nullptr;
+        for (const Record &record : records)
+            if (!newest && !record.fresh)
+                newest = record.row;
+        // Autosaves are never an overwrite target; when loading they form their own group
+        // at the top. The new record leads the list (V2-Save-Save). The player's choice
+        // holds while it exists, else the new record when saving, else the game's selection.
+        if (saving)
+            std::erase_if(records, [](const Record &r) { return r.autosave != 0; });
+        std::stable_sort(records.begin(), records.end(),
+                         [](const Record &a, const Record &b) { return (a.fresh ? 0 : a.autosave ? 1 : 2) < (b.fresh ? 0 : b.autosave ? 1 : 2); });
         const Record *chosen = nullptr;
         for (const Record &record : records)
             if (record.row->row_id == chosen_)
@@ -178,21 +210,25 @@ class SavesScreen final : public Screen
         if (ContinueRequested())
         {
             SetContinueRequested(false);
-            if (!saving && !records.empty() && records.front().row->Offers("activate"))
+            if (!saving && newest && newest->Offers("activate"))
             {
                 asked_ = "load";
-                asked_row_ = records.front().row->label;
-                chosen_ = records.front().row->row_id;
-                chosen = &records.front();
-                bindings.Send(*records.front().row, "activate", records.front().row->row_id);
+                asked_row_ = newest->label;
+                asked_name_ = newest->label;
+                chosen_ = newest->row_id;
+                for (const Record &record : records)
+                    if (record.row == newest)
+                        chosen = &record;
+                bindings.Send(*newest, "activate", newest->row_id);
             }
         }
 
         Json rows = Json::array();
         for (const Record &record : records)
         {
-            Json cells = record.fresh ? Json::array({Json{{"text", bindings.Text("save.new")}, {"icon", "plus"}, {"iconTone", "brass"}}, "", ""})
-                                      : Json::array({record.row->label,
+            Json cells = record.fresh      ? Json::array({Json{{"text", Name(bindings, record)}, {"icon", "plus"}, {"iconTone", "brass"}}, "", ""})
+                         : Json::array({record.autosave ? Json{{"text", Name(bindings, record)}, {"icon", "reload"}, {"iconTone", "brass"}}
+                                                        : Json(record.row->label),
                                                      Json{{"text", record.played.Valid() ? GameDate(bindings, record.played) : ""}, {"tone", "dim"}},
                                                      Json{{"text", record.created.Valid() ? CreatedDate(bindings, record.created) : ""}, {"tone", "dim"}}});
             rows.push_back(Json{{"cells", cells}, {"selected", &record == chosen}, {"disabled", !record.row->enabled}});
@@ -233,8 +269,7 @@ class SavesScreen final : public Screen
     }
 
   private:
-    // Dates of the game's page of slots, matched to the records by name: the page shows
-    // ten consecutive records starting at the one whose name opens it.
+    // Dates of the game's page of slots: the page shows ten consecutive records.
     static void Dates(const Admission &admitted, std::vector<Record> &records)
     {
         std::vector<std::array<std::string, 3>> slots;
@@ -252,25 +287,28 @@ class SavesScreen final : public Screen
         // A slot without a valid in-game date is empty or not filled in yet (the game fills
         // its page over a few frames).
         const auto filled = [&slots](size_t s) { return ParseStamp(slots[s][1]).Valid(); };
+        // The page starts at the record where the most filled slots carry the record's name
+        // (a slot shows the name stored inside the file, which the player cannot change but
+        // a copied file can differ in); its slots then belong to the records by position.
+        size_t best = records.size(), best_matches = 0;
         for (size_t first = 0; first < records.size(); ++first)
         {
-            bool fits = !records[first].fresh, any = false;
-            for (size_t s = 0; s < slots.size() && first + s < records.size() && fits; ++s)
-                if (filled(s))
-                {
-                    fits = !records[first + s].fresh && slots[s][0] == records[first + s].row->label;
-                    any = true;
-                }
-            if (!fits || !any)
-                continue;
+            size_t matches = 0;
             for (size_t s = 0; s < slots.size() && first + s < records.size(); ++s)
-                if (filled(s))
-                {
-                    records[first + s].played = ParseStamp(slots[s][1]);
-                    records[first + s].created = ParseStamp(slots[s][2]);
-                }
-            return;
+                if (filled(s) && !records[first + s].fresh && slots[s][0] == records[first + s].row->label)
+                    ++matches;
+            if (matches > best_matches)
+            {
+                best = first;
+                best_matches = matches;
+            }
         }
+        for (size_t s = 0; best < records.size() && s < slots.size() && best + s < records.size(); ++s)
+            if (filled(s) && !records[best + s].fresh)
+            {
+                records[best + s].played = ParseStamp(slots[s][1]);
+                records[best + s].created = ParseStamp(slots[s][2]);
+            }
     }
 
     Json Detail(const Admission &admitted, Bindings &bindings, const Record &record, bool saving)
@@ -293,23 +331,26 @@ class SavesScreen final : public Screen
         const Widget *row = record.row;
         const bool busy = bindings.Pending("primary") || bindings.Pending("delete");
         const char *kind = record.fresh ? "save" : saving ? "overwrite" : "load";
-        bindings.On("primary", "", [this, &bindings, row, kind](const Event &) {
+        const std::string name = Name(bindings, record);
+        bindings.On("primary", "", [this, &bindings, row, kind, name](const Event &) {
             asked_ = kind;
             asked_row_ = row->label;
+            asked_name_ = name;
             bindings.Send(*row, "activate", row->row_id);
         });
-        bindings.On("delete", "", [this, &bindings, row](const Event &) {
+        bindings.On("delete", "", [this, &bindings, row, name](const Event &) {
             asked_ = "delete";
             asked_row_ = row->label;
+            asked_name_ = name;
             bindings.Send(*row, "delete", row->row_id);
         });
-        return Json{{"title", record.fresh ? bindings.Text("save.new") : row->label},
+        return Json{{"title", Name(bindings, record)},
                     {"sub", ""},
                     {"facts", facts},
                     {"primary", primary},
                     {"disabled", !row->Offers("activate")},
                     {"reason", row->unavailable_reason == "new" ? std::string() : row->unavailable_reason},
-                    {"delete", row->Offers("delete")},
+                    {"delete", row->Offers("delete") && !record.autosave}, // no quick delete of an autosave
                     {"busy", busy}};
     }
 
@@ -347,7 +388,7 @@ class SavesScreen final : public Screen
         for (const auto &kind : kinds)
             if (asked_here && asked_ == kind.kind)
                 view = Json{{"preset", kind.preset},       {"title", bindings.Text(kind.title)},
-                            {"subject", asked_ == "save" ? "" : asked_row_}, {"text", text},
+                            {"subject", asked_ == "save" ? "" : asked_name_}, {"text", text},
                             {"yes", bindings.Text(kind.title)}, {"no", no ? no->label : bindings.Text("common.cancel")}};
         bindings.Forward("confirm-confirm", *yes, "press");
         if (no)
@@ -364,7 +405,8 @@ class SavesScreen final : public Screen
     }
 
     std::string asked_;     // what the player asked for last: load, save, overwrite, delete
-    std::string asked_row_; // and the record it was asked for
+    std::string asked_row_; // and the record it was asked for (the game's name of it)
+    std::string asked_name_; // as the player sees it
     std::string chosen_;    // row identity of the record in the detail column
     uint64_t named_ = 0;     // model revision whose name editor was accepted
     uint64_t confirmed_ = 0; // model revision whose load question was answered for the player
