@@ -201,6 +201,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             Rml::RemoveContext(context_->GetName());
         }
         ShutdownGameImages();
+        SetGameImageRenderer(nullptr);
         ReleaseIconTextures();
         ReleaseDrawTextures();
         if (initialised_)
@@ -255,6 +256,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         registry_ = std::make_unique<ComponentRegistry>(*this);
         registry_->Load(components);
         SetGameImageLoader(config.game_picture_loader);
+        SetGameImageRenderer(backend_);
         SetGameImageRoot(config.game_root);
 
         bool fallback = true;
