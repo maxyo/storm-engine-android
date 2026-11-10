@@ -630,6 +630,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             Error("state channel " + channel + ": malformed JSON");
             return false;
         }
+        if (channel == "video")
+            return SetVideo(state);
         try
         {
             router_->SetState(channel, state);
@@ -650,7 +652,38 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     bool InterfaceActive() const override
     {
-        return router_->Active() || document_ != nullptr; // hud::Mount too: a plain document covers the game as well
+        // hud::Mount too: a plain document covers the game as well; a full-screen video covers both
+        return !video_ && (router_->Active() || document_ != nullptr);
+    }
+
+    // Channel "video" ({"fullscreen": true} or null, engine aviplayer.cpp): while a game video
+    // plays over the whole screen the interface screen is hidden and takes no touch, so the
+    // video is seen and a tap reaches the game (the player's tap-to-skip). The screen itself
+    // stays mounted: the script that started the video may leave its interface open (the main
+    // menu's «Создатели» exits without a release) and it returns as it was.
+    bool SetVideo(const Json &state)
+    {
+        if (!state.is_null() && !(state.is_object() && state.contains("fullscreen") && state["fullscreen"].is_boolean()))
+        {
+            Error("state channel video: expected {fullscreen: bool} or null, got " + state.dump());
+            return false;
+        }
+        const bool video = state.is_object() && state["fullscreen"].get<bool>();
+        if (video == video_)
+            return true;
+        video_ = video;
+        if (video_)
+            CancelInput();
+        ShowDocument();
+        PublishTouchMap();
+        return true;
+    }
+
+    void ShowDocument()
+    {
+        changed_ = true;
+        if (document_)
+            video_ ? document_->Hide() : document_->Show();
     }
 
     bool WantsTouch(float x, float y) const override
@@ -905,6 +938,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             component->SetProps(props);
         else
             Error("UI pack has no screen " + tag);
+        if (video_)
+            ShowDocument();
         PublishTouchMap();
     }
 
@@ -1198,8 +1233,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         TouchMap map;
         const bool hud = hud_->Interactive();
-        map.back = (hud && hud_->Shown().modal) || router_->WantsBack(); // a modal HUD sheet or a screen's own modal
-        map.everywhere = document_ != nullptr || map.back; // a document or an interface screen, or a modal HUD sheet
+        map.back = !video_ && ((hud && hud_->Shown().modal) || router_->WantsBack()); // a modal HUD sheet or a screen's own modal
+        map.everywhere = !video_ && (document_ != nullptr || map.back); // a document or an interface screen, or a modal HUD sheet
         if (hud && !map.everywhere && hud_document_)
             CollectRegions(hud_document_, map.regions);
         const std::lock_guard<std::mutex> lock(touch_mutex_);
@@ -1235,6 +1270,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     std::unique_ptr<FrameRenderer> renderer_;
     FrameStats counters_;   // the frame being made, including the work done since the last one
     FrameStats last_frame_; // what the last Frame did
+    bool video_ = false;    // a full-screen game video plays (channel "video")
     bool changed_ = true;   // something since the last drawn frame may look different (Prepare)
     bool drawn_ = false;
     uint64_t shown_hash_ = 0; // drawing commands of the frame on the screen

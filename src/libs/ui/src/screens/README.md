@@ -173,6 +173,7 @@ Channels (JSON as the engine publishes it unless noted):
 | `seaQuickAction` | `{schemaVersion: 1, activity, revision, available, action: Map\|Moor\|Board\|LandTroops\|Reload, label}` | `SeaQuick` |
 | `worldMap` | the engine's world-map frame (`android_worldmap.hpp`): `{schemaVersion: 1, revision, activity, gameplayRevision, available, mask, commandsReady, shipsVisible, instrumentsVisible, date, hour, windForce, windAngle, heading, speed, morale, foodDays, rumDays, coordinates, flag, stormState, ships: […], commands: [{id, label}]}` | `WorldMap` |
 | `presentation` | written by the platform host: `{screen, loading, cinematic, dialogue, live}` | `Presentation` |
+| `video` | `{fullscreen: true}` while a game video plays over the whole screen (engine aviplayer.cpp; never for a player embedded in an interface node), `null` after | the host (ui_host.cpp): the interface screen is hidden and takes no touch or back key until it ends |
 
 The HUD is visible when a scene draws the gameplay mode, `presentation` reports a free game
 (no screen, loading, cutscene or dialogue of the platform host) and no interface of the UI
