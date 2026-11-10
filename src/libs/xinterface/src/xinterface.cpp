@@ -537,10 +537,9 @@ void XINTERFACE::Realize(uint32_t)
     DrawNode(m_pNodes, Delta_Time, 0, 80);
 
 #ifdef __ANDROID__
-    static uint32_t lastMobileSnapshotTime = 0;
-    if (SDL_GetTicks() - lastMobileSnapshotTime >= 200)
+    // The interface model goes out in the frame it changes (publishMobileWidgets sends only a
+    // changed snapshot). A timer here made every change wait up to its period.
     {
-        lastMobileSnapshotTime = SDL_GetTicks();
         std::vector<MobileWidget> widgets;
         MobileCollectWidgets(widgets);
         if (const auto saves = storm::mobile::ReadSaveList())
@@ -593,13 +592,15 @@ void XINTERFACE::Realize(uint32_t)
         const char *gameLanguage = pStringService ? pStringService->GetLanguage() : nullptr;
         const std::string language = gameLanguage ? gameLanguage : "";
         auto payload = MobileWidgetJson(storm::android::mobileScreen, widgets, storm::android::mobileScreenRevision, 0, language);
-        if (payload != previousPayload)
+        const bool changed = payload != previousPayload;
+        if (changed)
         {
             previousPayload = std::move(payload);
             ++snapshotRevision;
         }
-        storm::android::publishMobileWidgets(MobileWidgetJson(storm::android::mobileScreen, widgets,
-                                                              storm::android::mobileScreenRevision, snapshotRevision, language));
+        if (changed || storm::android::lastWidgetSnapshot.empty()) // nothing new: nothing to build or send
+            storm::android::publishMobileWidgets(MobileWidgetJson(storm::android::mobileScreen, widgets,
+                                                                  storm::android::mobileScreenRevision, snapshotRevision, language));
     }
 #endif
 
