@@ -35,7 +35,7 @@ class DialogueScreen final : public Screen
                 else
                     bindings.Send(*reply, "reply", reply->row_id);
             });
-            replies.push_back(Json{{"id", id}, {"title", reply->label}, {"busy", bindings.Pending(id)}});
+            replies.push_back(Json{{"id", id}, {"title", reply->label}, {"pressed", bindings.Pending(id)}});
         }
         return Json{{"speaker", admitted.Label("SPEAKER")}, {"text", admitted.Label("TEXT")}, {"replies", replies}};
     }
