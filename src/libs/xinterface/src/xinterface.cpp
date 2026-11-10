@@ -18,6 +18,7 @@
 #include "mobile_inventory.hpp"
 #include "mobile_save_list.hpp"
 #include "mobile_nation_relations.hpp"
+#include "mobile_table_game.hpp"
 #include "mobile_owner_bridge.hpp"
 #include <chrono>
 static std::optional<storm::mobile::SaveListCapability::Target> deferredSaveAction;
@@ -350,6 +351,7 @@ void XINTERFACE::MobileCollectWidgets(std::vector<MobileWidget> &widgets)
     if(storm::android::mobileScreen!="mainmenu")collect(collect,m_pNodes);
     if(storm::android::mobileScreen=="nationrelation")MobileCollectNations(widgets);
     if(storm::android::mobileScreen=="shipyard")MobileCollectShipyard(widgets);
+    if(storm::android::mobileScreen=="boal_dice"||storm::android::mobileScreen=="boal_cards")MobileCollectTableGame(widgets);
 }
 
 void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
@@ -431,6 +433,7 @@ void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
 
 #ifdef __ANDROID__
 #include "mobile_shipyard.inc"
+#include "mobile_table_game.inc"
 #endif
 
 void XINTERFACE::Realize(uint32_t)

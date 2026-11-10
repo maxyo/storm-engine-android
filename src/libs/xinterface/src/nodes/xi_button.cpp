@@ -39,6 +39,10 @@ void CXI_BUTTON::MobileCollect(std::vector<MobileWidget> &widgets) const
         else if (name == "QTY_REMOVE_ALL_BUTTON") label = "− max";
         if (label && !m_bUse) return;
     }
+    // The tavern mini-games are played on hit areas without text (cup, deck, dice, pass,
+    // exit icon). Export them by node name; the UI draws its own words for them.
+    if ((!label || !*label) && (storm::android::mobileScreen == "boal_dice" || storm::android::mobileScreen == "boal_cards"))
+        label = m_nodeName;
     // These icon/hit-area nodes deliberately keep text in STR_BUTTONS. Export
     // the actual command-bearing node, using the same localized resource key.
     if ((!label || !*label) && pStringService)
