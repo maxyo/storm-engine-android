@@ -65,6 +65,11 @@ int main()
     ExpectText("<t-if test=\"len(items) > 1 && items[1].label == 'b'\">ok</t-if>", scope, "ok");
     ExpectText("<div class=\"a {{ on ? 'on' : '' }}\">{{ 7 / 2 }} {{ 10 % 4 }} {{ -n < 0 }}</div>", scope, "<div class=\"a on\">3.5 2 true</div>");
 
+    ExpectText("{{ replace('Удалить {s}?', '{s}', label) }}|{{ contains(variant, 'rim') }}|{{ ends('Цель?', '?') }}", scope,
+               "Удалить Купить &lt;1&gt;?|true|true");
+    ExpectText("<t-for each=\"range(int(split('2/3', '/')[1]))\" as=\"d\">{{ d < int(split('2/3', '/')[0]) ? '#' : '.' }}</t-for>", scope, "##.");
+    ExpectText("{{ digits('1\xE2\x80\xAF" "500') + 1 }}", scope, "1501");
+
     // 2×2 A8R8G8B8: stored as B, G, R, A; output is premultiplied RGBA.
     {
         std::vector<uint8_t> data = TxHeader(2, 2, 21);

@@ -448,6 +448,57 @@ class Parser
         }
         if (name == "starts")
             return ToText(arg(0)).rfind(ToText(arg(1)), 0) == 0;
+        if (name == "contains")
+            return ToText(arg(0)).find(ToText(arg(1))) != std::string::npos;
+        if (name == "ends")
+        {
+            const std::string text = ToText(arg(0)), tail = ToText(arg(1));
+            return text.size() >= tail.size() && text.compare(text.size() - tail.size(), tail.size(), tail) == 0;
+        }
+        if (name == "replace") // replace(text, from, to): every occurrence
+        {
+            std::string text = ToText(arg(0));
+            const std::string from = ToText(arg(1)), to = ToText(arg(2));
+            if (from.empty())
+                return text;
+            for (size_t at = 0; (at = text.find(from, at)) != std::string::npos; at += to.size())
+                text.replace(at, from.size(), to);
+            return text;
+        }
+        if (name == "split") // split('2/3', '/') → ['2', '3']
+        {
+            const std::string text = ToText(arg(0)), separator = ToText(arg(1));
+            Json parts = Json::array();
+            size_t at = 0;
+            while (!separator.empty())
+            {
+                const size_t end = text.find(separator, at);
+                if (end == std::string::npos)
+                    break;
+                parts.push_back(text.substr(at, end - at));
+                at = end + separator.size();
+            }
+            parts.push_back(text.substr(at));
+            return parts;
+        }
+        if (name == "range") // range(3) → [0, 1, 2]
+        {
+            Json list = Json::array();
+            const int count = static_cast<int>(std::min(ToNumber(arg(0)), 1000.0));
+            for (int i = 0; i < count; ++i)
+                list.push_back(i);
+            return list;
+        }
+        if (name == "digits") // number written with spaces or thin spaces → number
+        {
+            std::string kept;
+            for (const char c : ToText(arg(0)))
+                if ((c >= '0' && c <= '9') || c == '-' || c == '.')
+                    kept += c;
+                else if (c == ',')
+                    kept += '.';
+            return kept.empty() ? Json() : Json(std::strtod(kept.c_str(), nullptr));
+        }
         if (name == "json") // for passing a structure on to a nested component attribute
             return arg(0).dump();
         if (name == "pick") // pick(key, 'a', x, 'b', y, fallback)
