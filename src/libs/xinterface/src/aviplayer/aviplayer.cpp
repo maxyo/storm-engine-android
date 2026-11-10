@@ -9,6 +9,9 @@
 #include "v_sound_service.h"
 
 #include <spdlog/spdlog.h>
+#ifdef __ANDROID__
+#include <platform/android_ui.hpp>
+#endif
 
 #include <algorithm>
 #include <cstring>
@@ -70,6 +73,9 @@ CAviPlayer::CAviPlayer() = default;
 
 CAviPlayer::~CAviPlayer()
 {
+#ifdef __ANDROID__
+    storm::android::publishFullscreenVideo(this, false);
+#endif
     if (appEvents_ >= 0)
         storm::AppEvents::instance().unsubscribe(appEvents_);
     player_.reset();
@@ -139,7 +145,11 @@ uint64_t CAviPlayer::ProcessMessage(MESSAGE &message)
         player_.reset();
         ended_ = false;
         tapState_ = 0;
-        if (!Start())
+        const bool started = Start();
+#ifdef __ANDROID__
+        storm::android::publishFullscreenVideo(this, started && m_bShowVideo);
+#endif
+        if (!started)
         {
             ended_ = true;
             core.PostEvent("ievntEndVideo", 1, nullptr);
@@ -176,6 +186,9 @@ void CAviPlayer::Finish()
     if (bLoop && !failed && Start())
         return;
     ended_ = true;
+#ifdef __ANDROID__
+    storm::android::publishFullscreenVideo(this, false);
+#endif
     core.Event("ievntEndVideo");
 }
 

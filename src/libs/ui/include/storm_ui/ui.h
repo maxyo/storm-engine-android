@@ -78,14 +78,17 @@ struct Config
 {
     FileSource *files = nullptr; // must outlive the host
     // Renderer seam, chosen by the host and required: CreateGl3Backend() of
-    // render_backend.h (its GL context must be current) or the engine's own backend once
-    // the UI is drawn inside its frame. There is no default and nothing else is tried.
+    // render_backend.h (its GL context must be current) or BgfxBackend::Create()
+    // (backend_bgfx.h, inside the engine frame). There is no default and nothing else is tried.
     RenderBackend *backend = nullptr; // must outlive the host
     int width = 0;               // physical pixels
     int height = 0;
     float density = 1.0f; // physical pixels per dp
-    // Directory with the player's game files (the one holding RESOURCE/). Game pictures
-    // are decoded from there at run time; nothing of them ships with the application.
+    // Directory with the player's game files (the one holding RESOURCE/). With a backend
+    // that decodes game pictures on the CPU (GL) they are read from there at run time;
+    // nothing of them ships with the application. The bgfx backend takes them from the
+    // engine's texture module instead (RenderBackend::AcquireGamePicture). pictures.ini
+    // (atlas references) is always read from here.
     std::string game_root;
     // Optional replacement for the built-in .tx reader: called on a worker thread with
     // the texture name ("INTERFACES/items6"); false keeps the placeholder. This is where

@@ -1,6 +1,7 @@
 // Elements drawn by code: <ui-icon>, <ui-ring>, <ui-paper>, <ui-clamp>, <ui-wheel>, <ui-game-image>.
 #pragma once
 
+#include "storm_ui/render_backend.h"
 #include "storm_ui/ui.h"
 #include "template.h"
 
@@ -42,6 +43,8 @@ void RegisterGameImageElement();
 bool AtlasCell(int cell, int grid, float uv[4]);
 void SetGameImageRoot(const std::string &game_root);
 void SetGameImageLoader(std::function<bool(const std::string &, Picture &)> loader);
+// Renderer asked first for game pictures (RenderBackend::AcquireGamePicture); may be null.
+void SetGameImageRenderer(RenderBackend *renderer);
 // True once after a background decode finished: the host draws another frame.
 bool GameImagesChanged();
 // True while pictures are queued or decoding, or decoded but not yet taken: the host must keep

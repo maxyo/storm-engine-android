@@ -93,6 +93,16 @@ uint16_t BgfxTextureOf(IDirect3DBaseTexture9 *texture, uint16_t *width, uint16_t
     return store->handle.idx;
 }
 
+void MarkTextureImmutable(IDirect3DBaseTexture9 *texture)
+{
+    shim::TexStore *store = shim::store_of(texture);
+    if (!store)
+        return;
+    store->immutable = true;
+    if (bgfx::isValid(store->handle) && !store->any_dirty)
+        store->release_shadow(); // already uploaded
+}
+
 void SetGamePictureProvider(GamePictureProvider *provider)
 {
     shim::Context::instance().set_picture_provider(provider);
@@ -247,7 +257,9 @@ void Context::create_resources()
     static const char *names[kSamplerUnits] = {"s_tex0", "s_tex1", "s_tex2", "s_tex3", "s_tex4", "s_cube0",
                                                 "s_cube1", "s_cube2", "s_vol0", "s_vol1", "s_vol2",
                                                 // pixel-port extras: cube at stage 3, volume at stage 4 (sea)
-                                                "s_cube3", "s_vol4"};
+                                                "s_cube3", "s_vol4",
+                                                // skinned fixed-function draws (ff_vertex.sh FF_SKIN)
+                                                "s_bones"};
     for (uint32_t i = 0; i < kSamplerUnits; ++i)
         samplers_[i] = bgfx::createUniform(names[i], bgfx::UniformType::Sampler);
     blit_program_ = bgfx::createProgram(create_embedded_shader(shader_id_by_name("vs_blit")),

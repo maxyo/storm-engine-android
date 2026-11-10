@@ -682,12 +682,14 @@ int main(int argc, char *argv[])
             {
                 gameplayState.offer(std::string_view(command).substr(9), SDL_GetTicks());
             }
-            else if (command == "shortcut:mainmenu" && storm::android::mobileScreen.empty() &&
-                     (core.GetEntityId("CAviPlayer") != invalid_entity || core.GetEntityId("WMVideoPlay") != invalid_entity))
+            else if ((command == "back" || command == "shortcut:mainmenu") && storm::android::fullscreenVideo())
             {
-                // Back during a game video skips it, the way the game's Cancel does (interface.c
-                // IVideoBreak: ICancel always ends the video).
-                core_private->Event("ievntEndVideo");
+                // Back during a full-screen game video is the game's Cancel: the scripts'
+                // video-break handlers decide whether this video may be skipped (as the
+                // player's tap does). The interface behind it (often a stale one: the main menu
+                // leaves without a release) gets nothing.
+                core_private->Event("Control Activation", "s", "ICancel");
+                core_private->Event("Control Deactivation", "s", "ICancel");
             }
             else if (command.starts_with("shortcut:"))
             {

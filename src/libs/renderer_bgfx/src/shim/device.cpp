@@ -147,6 +147,7 @@ Device::Device(SDL_Window *sdl_window, const D3DPRESENT_PARAMETERS &present) : w
         {U_VSC, "u_vsc", bgfx::UniformType::Vec4, kVsConstants},
         {U_PSC, "u_psc", bgfx::UniformType::Vec4, kPsConstants},
         {U_BEM, "u_psBem", bgfx::UniformType::Vec4, kFfStages},
+        {U_DEPTHBIAS, "u_ffDepthBias", bgfx::UniformType::Vec4, 1},
     };
     for (const auto &entry : table)
     {
@@ -298,6 +299,7 @@ void Device::bind_state_refs(const DeviceState &next)
 {
     for (uint32_t i = 0; i < kMaxStages; ++i)
         assign_ref(s.textures[i], next.textures[i]);
+    assign_ref(s.vertex_texture, next.vertex_texture);
     for (uint32_t i = 0; i < kMaxStreams; ++i)
         assign_ref(s.stream[i], next.stream[i]);
     assign_ref(s.indices, next.indices);
@@ -452,6 +454,33 @@ HRESULT Device::GetBackBuffer(UINT, UINT, D3DBACKBUFFER_TYPE, IDirect3DSurface9 
     return D3D_OK;
 }
 
+// D3D9 leaves the contents of a new render target undefined, but the reference (desktop drivers,
+// DXVK) hands them out cleared, and the game relies on it: the sea environment cube map never
+// renders its -Y face above water, and on mobile GPUs that face showed uninitialised memory as
+// sparkling noise in the water. Every face and level starts at zero, like the reference.
+void Device::clear_if_new(TexStore *store)
+{
+    if (!store->needs_clear || !Context::instance().ready())
+        return;
+    store->needs_clear = false;
+    for (uint32_t face = 0; face < store->faces(); ++face)
+        for (uint32_t level = 0; level < store->levels; ++level)
+        {
+            if (views_used >= render::kGameViewEnd - render::kGameViewBegin)
+            {
+                trap("view budget exhausted: a new render target stays uncleared");
+                return;
+            }
+            const uint16_t id = render::kGameViewBegin + views_used++;
+            bgfx::setViewFrameBuffer(id, framebuffer(store, face, level, nullptr));
+            bgfx::setViewMode(id, bgfx::ViewMode::Sequential);
+            bgfx::setViewRect(id, 0, 0, static_cast<uint16_t>(store->level_width(level)),
+                              static_cast<uint16_t>(store->level_height(level)));
+            bgfx::setViewClear(id, BGFX_CLEAR_COLOR, 0x00000000, 1.0f, 0);
+            bgfx::touch(id);
+        }
+}
+
 bgfx::FrameBufferHandle Device::framebuffer(TexStore *color, uint32_t face, uint32_t level, TexStore *depth)
 {
     color->sync();
@@ -492,6 +521,9 @@ void Device::purge_framebuffers(bgfx::TextureHandle texture)
 
 uint16_t Device::new_view()
 {
+    // A never-written target is cleared in views ordered before the one that renders into it.
+    rt->store->sync();
+    clear_if_new(rt->store.get());
     if (views_used >= render::kGameViewEnd - render::kGameViewBegin)
     {
         if (!view_overflow_logged)
@@ -659,6 +691,7 @@ HRESULT Device::CreateVertexBuffer(UINT length, DWORD usage, DWORD fvf, D3DPOOL,
     auto *vb = new VertexBuffer();
     vb->device = this;
     vb->shadow.assign(length, 0);
+    perf_resize(&render::PerfCounters::buffer_shadow_bytes, 0, length);
     vb->usage = usage;
     vb->fvf = fvf;
     *buffer = vb;
@@ -671,6 +704,7 @@ HRESULT Device::CreateIndexBuffer(UINT length, DWORD usage, D3DFORMAT format, D3
     auto *ib = new IndexBuffer();
     ib->device = this;
     ib->shadow.assign(length, 0);
+    perf_resize(&render::PerfCounters::buffer_shadow_bytes, 0, length);
     ib->usage = usage;
     ib->index32 = format == D3DFMT_INDEX32;
     *buffer = ib;
@@ -975,6 +1009,11 @@ HRESULT Device::GetTexture(DWORD stage, IDirect3DBaseTexture9 **texture)
 }
 HRESULT Device::SetTexture(DWORD stage, IDirect3DBaseTexture9 *texture)
 {
+    if (stage == D3DVERTEXTEXTURESAMPLER0)
+    {
+        assign_ref(s.vertex_texture, texture);
+        return D3D_OK;
+    }
     if (stage >= kMaxStages)
         return D3DERR_INVALIDCALL;
     assign_ref(s.textures[stage], texture);
