@@ -6,6 +6,8 @@
 #include "sun_glow.h"
 #include "water_flare.h"
 #include "math_inlines.h"
+#include "game_profile.hpp"
+#include "pbr_lighting.hpp"
 #include "storm/render/effects.hpp"
 
 #include <algorithm>
@@ -149,6 +151,8 @@ void WEATHER::PushEffectsWeather()
     out.wind_dir = {std::cos(fFloats[whf_wind_angle]), std::sin(fFloats[whf_wind_angle])};
     out.wind_speed = fFloats[whf_wind_speed];
     storm::render::SetEffectsWeather(out);
+    if (storm::gameProfile() == storm::GameProfile::CaribbeanLegend)
+        storm::weather::PushPbrLighting(fFloats[whf_time_counter]);
 
     // With the fx sky the fog takes its horizon colour (SKY draws no fog sphere then), so far geometry meets the sky.
     std::array<float, 3> fog;

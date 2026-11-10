@@ -1,5 +1,6 @@
 #include "device.hpp"
 #include "effects/effects.hpp"
+#include "pbr/host.hpp"
 #include "perf.hpp"
 #include "storm/render/d3d_interop.hpp"
 #include "storm/render/effekseer_device.hpp"
@@ -246,6 +247,7 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
          (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0);
     create_resources();
     effects::Host::instance().on_device_created();
+    pbr_host::Host::instance().on_device_created();
     for (auto &entry : clients_)
     {
         entry.client->OnDeviceRestored();
@@ -286,6 +288,7 @@ void Context::shutdown()
     dump_traps();
     render::effekseer::DetachDevice();
     effects::Host::instance().shutdown();
+    pbr_host::Host::instance().shutdown();
     bgfx::shutdown();
     initialised_ = false;
     surface_.valid = false;
