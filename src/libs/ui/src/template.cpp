@@ -501,6 +501,25 @@ class Parser
         }
         if (name == "json") // for passing a structure on to a nested component attribute
             return arg(0).dump();
+        if (name == "image_kind") // image_kind(image, icon): the lead of a row (one row-image API)
+        {
+            // image = {kind: icon|token|item|portrait|emblem, icon, enamel, texture, cell}; a bare
+            // `icon` is the shorthand for {kind: 'icon'}; nothing at all = no lead ('').
+            const Json &image = arg(0);
+            if (image.is_object())
+            {
+                const std::string kind = image.contains("kind") ? ToText(image["kind"]) : std::string();
+                if (!kind.empty())
+                    return kind;
+                if (!ToText(image.value("texture", Json())).empty())
+                    return "item";
+                if (!ToText(image.value("enamel", Json())).empty())
+                    return "token";
+                if (!ToText(image.value("icon", Json())).empty())
+                    return "icon";
+            }
+            return ToText(arg(1)).empty() ? "" : "icon";
+        }
         if (name == "pick") // pick(key, 'a', x, 'b', y, fallback)
         {
             size_t i = 1;

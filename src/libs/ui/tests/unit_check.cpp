@@ -68,6 +68,11 @@ int main()
     ExpectText("{{ replace('Удалить {s}?', '{s}', label) }}|{{ contains(variant, 'rim') }}|{{ ends('Цель?', '?') }}", scope,
                "Удалить Купить &lt;1&gt;?|true|true");
     ExpectText("<t-for each=\"range(int(split('2/3', '/')[1]))\" as=\"d\">{{ d < int(split('2/3', '/')[0]) ? '#' : '.' }}</t-for>", scope, "##.");
+    const Json images = Json::parse(R"({"tok":{"icon":"ship","enamel":"red"},"pic":{"texture":"INTERFACES/items6","cell":3},
+        "face":{"kind":"portrait","texture":"x"},"bare":{"icon":"anchor"}})");
+    ExpectText("{{ image_kind(tok, '') }}|{{ image_kind(pic, '') }}|{{ image_kind(face, 'a') }}|{{ image_kind(bare, '') }}|"
+               "{{ image_kind(none, 'anchor') }}|{{ image_kind(none, '') }}",
+               images, "token|item|portrait|icon|icon|");
     ExpectText("{{ digits('1\xE2\x80\xAF" "500') + 1 }}", scope, "1501");
 
     // 2×2 A8R8G8B8: stored as B, G, R, A; output is premultiplied RGBA.
