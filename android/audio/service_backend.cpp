@@ -8,32 +8,118 @@ namespace storm_audio {
 namespace {
 float nonnegative(float x) { return std::isfinite(x) ? std::max(0.0f,x) : 0.0f; }
 float seconds(float x) { return std::min(nonnegative(x),60.0f); }
+const ma_uint32 decodeFlags=MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE;
 }
-Mixer::Mixer(bool off,unsigned limit):backend(off),budget(std::clamp(limit,2u,capacity)),offline(off) {
+Mixer::Mixer(bool off,unsigned limit,Limits policy):backend(off),budget(std::clamp(limit,2u,capacity)),offline(off),limits(policy) {
     check(ma_sound_group_init(&backend.engine,0,nullptr,&master));
     lastFrame=ma_engine_get_time_in_pcm_frames(&backend.engine);
     // Storm/FMOD default uses left-handed coordinates. Reflect Z consistently.
     ma_engine_listener_set_direction(&backend.engine,0,0,0,-1);
+    asyncDecode=limits.asyncDecode<0 ? !offline : limits.asyncDecode!=0;
+    if(asyncDecode) {
+        try {decoder=std::thread([this]{decodeLoop();});}
+        catch(...) {ma_sound_group_uninit(&master);throw;}
+    }
 }
 Mixer::~Mixer() {
+    if(decoder.joinable()) {
+        {std::lock_guard<std::mutex> lock(decodeMutex);decodeQuit=true;}
+        decodeWake.notify_all();decoder.join();
+    }
     for(auto& voice:voices) voice.reset();
+    for(auto& entry:cache) release(*entry.second);
     cache.clear();
     ma_sound_group_uninit(&master);
 }
+// Worker: fully decode one file at a time into the resource manager. The game
+// thread does not create a sound for the file until state leaves Pending, so
+// nobody observes the half-decoded buffer.
+void Mixer::decodeLoop() {
+    auto* manager=ma_engine_get_resource_manager(&backend.engine);
+    for(;;) {
+        std::shared_ptr<Resource> r;
+        {
+            std::unique_lock<std::mutex> lock(decodeMutex);
+            decodeWake.wait(lock,[this]{return decodeQuit || !decodeQueue.empty();});
+            if(decodeQuit) return;
+            r=std::move(decodeQueue.front());decodeQueue.pop_front();
+        }
+        auto result=ma_resource_manager_register_file(manager,r->path.c_str(),decodeFlags);
+        r->state.store(result==MA_SUCCESS ? Resource::Ready:Resource::Failed,std::memory_order_release);
+    }
+}
+// Game thread: account finished decodes, drop failed ones.
+void Mixer::collectDecodes() {
+    for(size_t i=0;i<decoding.size();) {
+        auto& r=decoding[i];
+        int state=r->state.load(std::memory_order_acquire);
+        if(state==Resource::Pending) {++i;continue;}
+        if(state==Resource::Ready) {r->accounted=true;cacheBytes+=r->bytes;}
+        else {
+            failures.push_back(r->path);
+            // Forget the entry so a later play() retries (and reports) the file.
+            for(auto it=cache.begin();it!=cache.end();++it) if(it->second==r) {cache.erase(it);break;}
+        }
+        decoding[i]=std::move(decoding.back());decoding.pop_back();
+    }
+}
+void Mixer::release(Resource& r) {
+    if(!r.accounted) return;
+    ma_resource_manager_unregister_file(ma_engine_get_resource_manager(&backend.engine),r.path.c_str());
+    r.accounted=false;cacheBytes-=r.bytes;
+}
+// Least recently used first; entries referenced by a voice or still decoding stay.
+void Mixer::evict(uint64_t targetBytes) {
+    while(cacheBytes>targetBytes || cache.size()>limits.maxEntries) {
+        auto victim=cache.end();
+        bool needBytes=cacheBytes>targetBytes;
+        for(auto it=cache.begin();it!=cache.end();++it) {
+            auto& r=*it->second;
+            if(it->second.use_count()!=1 || r.state.load(std::memory_order_acquire)!=Resource::Ready) continue;
+            if(needBytes && !r.accounted) continue;
+            if(victim==cache.end() || r.lastUse<victim->second->lastUse) victim=it;
+        }
+        if(victim==cache.end()) return; // everything left is in use
+        release(*victim->second);cache.erase(victim);
+    }
+}
+uint64_t Mixer::trim(uint64_t targetBytes) {
+    update();
+    uint64_t before=cacheBytes;evict(targetBytes);return before-cacheBytes;
+}
+std::vector<std::string> Mixer::takeFailures() {auto result=std::move(failures);failures.clear();return result;}
+void Mixer::duck(float gain) {
+    // Group volume is separate from the fade envelope used by active().
+    ma_sound_group_set_volume(&master,std::clamp(nonnegative(gain),0.0f,1.0f));
+}
 std::shared_ptr<Mixer::Resource> Mixer::load(const std::string& path,bool stream) {
     auto key=path+(stream ? "\nstream":"\nsample");
-    auto it=cache.find(key); if(it!=cache.end()) return it->second;
-    auto r=std::make_shared<Resource>(); r->path=path;
+    auto it=cache.find(key); if(it!=cache.end()) {it->second->lastUse=++useClock;return it->second;}
+    auto r=std::make_shared<Resource>(); r->path=path;r->lastUse=++useClock;
+    // Header-only probe: fails here, synchronously, for missing or unsupported files.
     ma_decoder decoder{};
     auto config=ma_decoder_config_init(ma_format_f32,0,48000);
     check(ma_decoder_init_file(path.c_str(),&config,&decoder));
-    r->rate=decoder.outputSampleRate;
+    r->rate=decoder.outputSampleRate;r->channels=decoder.outputChannels;
     auto result=ma_decoder_get_length_in_pcm_frames(&decoder,&r->frames);
     ma_decoder_uninit(&decoder);
     if(result!=MA_SUCCESS || r->frames==0) r->frames=storm_vorbis_frames(path.c_str(),&r->rate);
     if(!r->frames || !r->rate) throw std::runtime_error("audio resource has no seekable duration: "+path);
-    if(!stream) r->cache=std::make_unique<Sound>(backend,path.c_str(),false,false,&master);
-    cache.emplace(key,r); return r;
+    r->bytes=r->frames*std::max(1u,r->channels)*sizeof(float);
+    r->streamed=stream || r->bytes>limits.streamBytes;
+    if(r->streamed) r->bytes=0;
+    else if(asyncDecode) {
+        r->state.store(Resource::Pending,std::memory_order_release);
+        decoding.push_back(r);
+        {std::lock_guard<std::mutex> lock(decodeMutex);decodeQueue.push_back(r);}
+        decodeWake.notify_one();
+    } else {
+        check(ma_resource_manager_register_file(ma_engine_get_resource_manager(&backend.engine),path.c_str(),decodeFlags));
+        r->accounted=true;cacheBytes+=r->bytes;
+    }
+    cache.emplace(key,r);
+    evict(limits.cacheBytes);
+    return r;
 }
 Mixer::Voice* Mixer::find(uint32_t id) {
     unsigned index=(id&0xffffu)-1;
@@ -102,7 +188,8 @@ void Mixer::apply(Voice& v) {
 }
 void Mixer::rebalance() {
     std::vector<Voice*> eligible;
-    for(auto& v:voices) if(v && !v->stopped && !v->parameters.paused && v->parameters.pitch>0) eligible.push_back(v.get());
+    for(auto& v:voices) if(v && !v->stopped && !v->parameters.paused && v->parameters.pitch>0 &&
+        v->resource->state.load(std::memory_order_acquire)==Resource::Ready) eligible.push_back(v.get());
     std::sort(eligible.begin(),eligible.end(),[&](const Voice* a,const Voice* b){
         if(a->parameters.priority!=b->parameters.priority)return a->parameters.priority<b->parameters.priority;
         float ag=audibility(*a),bg=audibility(*b);if(ag!=bg)return ag>bg;
@@ -116,7 +203,7 @@ void Mixer::rebalance() {
     }
     for(auto* v:eligible) {
         if(!v->physical) {
-            v->physical=std::make_unique<Sound>(backend,v->resource->path.c_str(),v->parameters.stream,v->parameters.spatial,&master);
+            v->physical=std::make_unique<Sound>(backend,v->resource->path.c_str(),v->resource->streamed,v->parameters.spatial,&master);
             v->physical->seek(uint64_t(v->cursor));
             v->physicalAtFrame=ma_engine_get_time_in_pcm_frames(&backend.engine);
         }
@@ -125,8 +212,19 @@ void Mixer::rebalance() {
 }
 void Mixer::update() {
     uint64_t now=ma_engine_get_time_in_pcm_frames(&backend.engine), delta=now-lastFrame;lastFrame=now;
+    if(!decoding.empty()) collectDecodes();
     for(unsigned i=0;i<capacity;++i) {
         if(!voices[i])continue;auto& v=*voices[i];
+        int state=v.resource->state.load(std::memory_order_acquire);
+        if(state==Resource::Failed) {finish(i);continue;}
+        if(state==Resource::Pending) {
+            // Still decoding: hold the cursor at the start so the sound is delayed, not clipped.
+            // Fades are restarted so a fade-in is heard in full once playback begins.
+            // A voice stopped before it ever played simply ends.
+            if(v.stopped || v.stopAfterFade) {finish(i);continue;}
+            if(v.fadeFrames) v.fadeBegin=now;
+            continue;
+        }
         if(v.physical && !v.parameters.paused) {
             if(now>v.physicalAtFrame) v.cursor=v.physical->cursor();
             if(ma_sound_at_end(&v.physical->sound) && !v.parameters.loop)v.stopped=true;
@@ -143,6 +241,8 @@ void Mixer::update() {
         if(v.stopped)finish(i);
     }
     rebalance();
+    // Voices that ended above released their samples; keep the cache within budget.
+    if(cacheBytes>limits.cacheBytes) evict(limits.cacheBytes);
 }
 void Mixer::stop(uint32_t id,float duration) {
     update();for(auto& v:voices)if(v && (id==0 || v->id==id))fade(*v,0,duration,true);update();

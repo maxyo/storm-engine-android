@@ -77,3 +77,38 @@ at line 1404; it is not suppressed. Android execution remains unverified.
 48 kHz cursor clock. The full service bridge and retained legacy behaviors are
 documented in the application repository’s `android/game/TESTING.md`. Source archives remain unchanged; only
 the explicit miniaudio error-cleanup patch modifies the compilation copy.
+
+
+## Sample cache, streaming and background decode
+
+Decoded samples used to stay in memory for the whole session and were decoded
+inside `SoundPlay` on the game thread. `Mixer` now applies `Limits`:
+
+- **LRU cache** (`cacheBytes`, 48 MiB by default; `[sound] cache_mb` in
+  `engine.ini`, 4..512). A decoded sample is pinned in miniaudio's resource
+  manager while any voice references it or while it is among the most recently
+  used; unused samples are released oldest first when the total exceeds the
+  budget. Samples in use are never evicted, so the total can exceed the budget
+  temporarily and drops back when their voices end. `Mixer::trim(0)` /
+  `VSoundService::TrimCaches()` release everything unused (memory pressure).
+- **Streaming long samples** (`streamBytes`, 4 MiB decoded, about 11 s of
+  48 kHz stereo; `[sound] stream_threshold_mb`, 1..64). Longer effects and
+  ambience are played through a miniaudio stream like music, costing about one
+  second of PCM per playing voice instead of the whole file. They keep effect
+  IDs and priorities; only the music type uses the two fixed music slots.
+- **Background decode** (`asyncDecode`, on for a real device, off for the
+  offline test mixer; `[sound] async_decode=0` disables it). `play()` only
+  probes the file header (missing or unsupported files still fail
+  synchronously) and queues the decode on one worker thread. Until it
+  finishes the voice exists, reports as playing and holds its cursor at the
+  start, so the sound starts a few milliseconds late instead of losing its
+  attack. A failed decode ends the voice and is reported through
+  `takeFailures()`.
+- `duck(gain)` scales the master group independently of fades and category
+  volumes (Android transient audio focus loss).
+
+`tests/audio/service.cpp` covers eviction order and pinning, the stream
+threshold, background decode (cursor hold, stop while decoding, destruction
+with queued decodes) and ducking; run with and without `--sanitize`.
+Not verified on a device: decode latency on phone storage and the audible
+effect of the default thresholds.

@@ -2,8 +2,13 @@
 #include <cstdint>
 #include "backend.hpp"
 #include <array>
+#include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -15,16 +20,38 @@ struct Play {
     float volume=1, pitch=1, fade=0, minDistance=1, maxDistance=10000;
     Vec3 position;
 };
-// Game-thread owned. The only other thread touching miniaudio nodes is its mixer.
+// Memory and latency policy for decoded samples.
+struct Limits {
+    // Decoded PCM kept for reuse. Least recently used samples that no voice
+    // references are released once the total exceeds this.
+    uint64_t cacheBytes=48ull*1024*1024;
+    // A sample whose decoded size exceeds this is never fully decoded: its
+    // voices read through a miniaudio stream (about one second of PCM each).
+    // 4 MiB is ~11 s of 48 kHz stereo or ~22 s of mono.
+    uint64_t streamBytes=4ull*1024*1024;
+    // Metadata-only entries (streams) are tiny; this only bounds the map.
+    unsigned maxEntries=2048;
+    // Decode new samples on a worker thread instead of inside play().
+    // -1: on for a real device, off for the offline (test/PCM pump) mixer.
+    int asyncDecode=-1;
+};
+// Game-thread owned. The only other threads touching miniaudio are its mixer,
+// its resource-manager job thread and this class's decoder thread, which only
+// calls the thread-safe resource manager and never creates sounds or nodes.
 // 0 means all; slots 1 and 2 retain the game's fixed music IDs.
 class Mixer {
 public:
     static constexpr unsigned capacity=4095;
     struct Resource {
+        enum State:int {Ready,Pending,Failed};
         std::string path;
         ma_uint64 frames=0;
-        unsigned rate=0;
-        std::unique_ptr<Sound> cache;
+        unsigned rate=0,channels=0;
+        bool streamed=false;      // physical voices stream instead of sharing decoded PCM
+        bool accounted=false;     // decoded PCM is pinned in the resource manager and counted in cachedBytes()
+        uint64_t bytes=0;         // decoded size when not streamed
+        uint64_t lastUse=0;
+        std::atomic<int> state{Ready};
     };
     struct Voice {
         uint32_t id=0;
@@ -37,7 +64,7 @@ public:
         uint64_t fadeBegin=0, fadeFrames=0;
         bool stopped=false, stopAfterFade=false;
     };
-    explicit Mixer(bool offline=false, unsigned budget=64);
+    explicit Mixer(bool offline=false, unsigned budget=64, Limits limits={});
     ~Mixer();
     uint32_t play(const std::string&, const Play&);
     void stop(uint32_t, float fade=0);
@@ -57,6 +84,17 @@ public:
     unsigned logicalCount() const;
     std::vector<unsigned> takeEnded();
     float positionSeconds(uint32_t) const;
+    // Master attenuation that is independent of fades and category gains
+    // (Android transient audio-focus loss). 1 restores full volume.
+    void duck(float gain);
+    // Release unused decoded samples until at most `targetBytes` remain
+    // (0: everything not referenced by a voice). Returns the bytes freed.
+    uint64_t trim(uint64_t targetBytes);
+    uint64_t cachedBytes() const {return cacheBytes;}
+    unsigned cachedCount() const {return unsigned(cache.size());}
+    unsigned pendingDecodes() const {return unsigned(decoding.size());}
+    // Paths whose background decode failed since the last call; their voices have ended.
+    std::vector<std::string> takeFailures();
 private:
     Backend backend;
     ma_sound_group master{};
@@ -71,7 +109,21 @@ private:
     bool offline=false,suspended=false;
     std::array<float,3> gains{{0.5f,0.5f,0.5f}};
     Vec3 listenerPosition;
+    Limits limits;
+    bool asyncDecode=false;
+    uint64_t cacheBytes=0,useClock=0;
+    std::vector<std::shared_ptr<Resource>> decoding; // queued or being decoded; game thread only
+    std::vector<std::string> failures;
+    std::thread decoder;
+    std::mutex decodeMutex;
+    std::condition_variable decodeWake;
+    std::deque<std::shared_ptr<Resource>> decodeQueue; // guarded by decodeMutex
+    bool decodeQuit=false;                             // guarded by decodeMutex
     std::shared_ptr<Resource> load(const std::string&,bool);
+    void decodeLoop();
+    void collectDecodes();
+    void evict(uint64_t targetBytes);
+    void release(Resource&);
     void finish(unsigned);
     void apply(Voice&);
     void rebalance();

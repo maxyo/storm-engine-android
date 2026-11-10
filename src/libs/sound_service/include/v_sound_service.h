@@ -116,6 +116,18 @@ class VSoundService : public SERVICE
 
     virtual void SetActiveWithFade(bool active) = 0;
 
+    // Attenuate everything by `gain` (0..1) on top of the regular volumes, e.g.
+    // while another app holds transient audio focus. Backends without support ignore it.
+    virtual void SetDucking(float gain)
+    {
+    }
+
+    // Drop cached sound data that is not in use (memory pressure). Returns bytes released.
+    virtual uint64_t TrimCaches()
+    {
+        return 0;
+    }
+
     tSoundStatistics soundStatistics;
 };
 

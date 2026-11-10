@@ -12,12 +12,23 @@ bool SoundService::Init() {
     if(!rs)return false;
     try {
         unsigned budget=64;
-        if(auto ini=fio->OpenIniFile(core.EngineIniFileName())) {
+        auto ini=fio->OpenIniFile(core.EngineIniFileName());
+        if(ini) {
             fadeTimeInSeconds=ini->GetFloat("sound","fade_time",.5f);
             budget=std::clamp(ini->GetInt("sound","physical_voices",64),2,128);
         }
-        audio=std::make_unique<storm_audio::Mixer>(false,budget);
-        core.Trace("Open audio: miniaudio 0.11.23 + stb_vorbis, %u physical voices",budget);
+        // [sound] cache_mb: decoded samples kept for reuse (LRU). stream_threshold_mb:
+        // longer samples are streamed instead of decoded. async_decode=0 restores
+        // decoding inside SoundPlay. See android/audio/README.md.
+        storm_audio::Limits limits;
+        if(ini) {
+            limits.cacheBytes=uint64_t(std::clamp(ini->GetInt("sound","cache_mb",48),4,512))*1024*1024;
+            limits.streamBytes=uint64_t(std::clamp(ini->GetInt("sound","stream_threshold_mb",4),1,64))*1024*1024;
+            limits.asyncDecode=ini->GetInt("sound","async_decode",1)!=0;
+        }
+        audio=std::make_unique<storm_audio::Mixer>(false,budget,limits);
+        core.Trace("Open audio: miniaudio 0.11.23 + stb_vorbis, %u physical voices, %u MiB sample cache, stream above %u MiB, %s decode",
+                   budget,unsigned(limits.cacheBytes>>20),unsigned(limits.streamBytes>>20),limits.asyncDecode ? "background":"inline");
         InitAliases();CreateEntityIfNeed();initialized=true;return true;
     } catch(const std::exception& e) {core.Trace("Audio initialization failed: %s",e.what());audio.reset();return false;}
 }
@@ -28,6 +39,7 @@ void SoundService::RunStart() {
     try {
         audio->update();
         for(unsigned slot:audio->takeEnded())core.Event("SoundEnded","l",slot+2); // Preserve legacy event payload.
+        for(const auto& path:audio->takeFailures())core.Trace("Audio decode failed '%s'",path.c_str());
         ProcessSoundSchemes();
     } catch(const std::exception& e) {core.Trace("Audio update failed: %s",e.what());}
 }
@@ -77,6 +89,12 @@ void SoundService::SetCameraOrientation(const CVECTOR& nose,const CVECTOR& head)
     if(audio)audio->listener(listenerPos,listenerForward,listenerUp);
 }
 void SoundService::SetActiveWithFade(bool active) {if(audio)audio->active(active,fadeTimeInSeconds);}
+void SoundService::SetDucking(float gain) {if(audio)audio->duck(gain);}
+uint64_t SoundService::TrimCaches() {
+    if(!audio)return 0;
+    try {return audio->trim(0);}
+    catch(const std::exception& e) {core.Trace("Audio cache trim failed: %s",e.what());return 0;}
+}
 void SoundService::DebugDraw() {
     if(core.Controls->GetDebugAsyncKeyState('J')<0) {bShowDebugInfo=!bShowDebugInfo;std::this_thread::sleep_for(std::chrono::milliseconds(200));}
     if(!bShowDebugInfo || !audio)return;
