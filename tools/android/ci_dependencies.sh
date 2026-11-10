@@ -55,4 +55,6 @@ python3 "$repo/tests/portability/run.py"
 python3 "$repo/tests/portability/check_toolchain.py"
 python3 "$repo/tests/android_runtime/run.py" --sdl-source "$work/sources/SDL"
 CXX="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++" python3 "$repo/tests/android_runtime/run.py" --sdl-source "$work/sources/SDL" --compile-only
+python3 "$repo/tests/host_hooks/run.py"
+CXX="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++" python3 "$repo/tests/host_hooks/run.py" --sdl-source "$work/sources/SDL"
 python3 "$repo/tests/diagnostics/check_fmt.py" --fmt-source "$work/sources/fmt"

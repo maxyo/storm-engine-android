@@ -20,6 +20,7 @@
 #include "steam_api.hpp"
 #include "v_sound_service.h"
 #include "fs.h"
+#include "platform/host_hooks.hpp"
 #include "watermark.hpp"
 #ifdef __ANDROID__
 #include "platform/android_ui.hpp"
@@ -48,6 +49,12 @@ Java_org_stormengine_port_GameActivity_nativeWorldMapModal(JNIEnv *env,jobject c
     storm::android::traceWorldMapModal(accepted?"accepted":"rejected",
         "op="+std::to_string(operation)+" requested="+std::to_string(token)+"/"+std::to_string(proof)+" "+storm::android::worldMapHud.modal.debug());
     return accepted?JNI_TRUE:JNI_FALSE;
+}
+
+// GameActivity's bounded exit wait polls this from the UI thread; see host_hooks.hpp.
+extern "C" JNIEXPORT jboolean JNICALL Java_org_stormengine_port_GameActivity_nativeSaveInProgress(JNIEnv *, jclass)
+{
+    return storm::platform::saveInProgress() ? JNI_TRUE : JNI_FALSE;
 }
 #endif
 
@@ -542,9 +549,12 @@ int main(int argc, char *argv[])
     unsigned shortcutLogBudget = 64;
 #endif
     int exitCode = EXIT_SUCCESS;
+    storm::platform::FrameWorkClock frameWork;
     isRunning = true;
     while (isRunning)
     {
+        if (const auto work = frameWork.lap(storm::platform::FrameWorkClock::Clock::now()))
+            storm::platform::reportFrameWork(std::chrono::duration_cast<std::chrono::nanoseconds>(*work));
 #ifdef __ANDROID__
         storm::android::worldMapHud.clock(SDL_GetTicks());
         const auto combatDrainEpoch = storm::android::combatCancelEpoch.load(std::memory_order_acquire);
@@ -728,7 +738,9 @@ int main(int argc, char *argv[])
 #endif
         )
         {
+            const auto limiterStart = storm::platform::FrameWorkClock::Clock::now();
             frameLimiter.wait();
+            frameWork.frame(storm::platform::FrameWorkClock::Clock::now() - limiterStart);
 
 #ifdef __ANDROID__
             // Activity changes revoke queued intents before any native Player
