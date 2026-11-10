@@ -281,7 +281,9 @@ struct Device final : Direct3DDevice9Stub
     TexStorePtr post_color, single_depth;
     bool scene_done = false;  // the post chain ran (or was not needed) in this presented frame
     bool scene_drawn = false; // a perspective draw reached the game picture in this presented frame
+    bool interface_drawn = false; // an interface announced itself (MakePostProcess) in this presented frame
     bool post_view_logged = false;
+    bool interface_first_logged = false;
     bool world_anisotropy = false; // fx::RendererState::max_anisotropy > 1, fixed when the device is created
     D3DMATRIX scene_view{}, scene_proj{}; // camera of the last perspective draw into the game picture
     uint16_t view = 0;

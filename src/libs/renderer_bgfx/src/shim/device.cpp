@@ -355,11 +355,14 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
         back_color->store->sync();
         back_depth->store->sync();
     }
-    if (!scene_done)
-        scene_complete(); // no interface marked the end of the scene: the whole frame is the scene
+    // No interface marked the end of the scene: the whole frame is the scene. A frame whose interface was drawn
+    // before any 3D cannot be split: it is presented as it is.
+    if (!scene_done && !interface_drawn)
+        scene_complete();
     const bool scene_frame = scene_drawn;
     scene_done = false;
     scene_drawn = false;
+    interface_drawn = false;
     context.set_game_target({back_color->store->handle.idx, back_depth->store->handle.idx, back_color->store->width,
                              back_color->store->height});
     context.present(back_color->store->handle, back_color->store->width, back_color->store->height);
@@ -382,8 +385,16 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
 
 void Device::scene_complete()
 {
+    interface_drawn = true;
     if (!scene_drawn)
-        return; // nothing 3D yet: an interface drawn before the scene does not end it
+    {
+        // Nothing 3D in the game picture yet: the interface and the 3D drawn after it cannot be separated, so this
+        // frame is presented without the post chain.
+        if (!interface_first_logged && effects::Host::instance().post_active())
+            logf("effects: an interface was drawn before the 3D scene; such frames are presented without post effects");
+        interface_first_logged = true;
+        return;
+    }
     scene_done = true;
     auto &host = effects::Host::instance();
     if (!host.post_active() || !Context::instance().ready())
