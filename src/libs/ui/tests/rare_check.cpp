@@ -149,6 +149,13 @@ static void Frame(const std::string &models)
     router.SetInterface(Load(models, "reading-frame.json"));
     Expect(surface.tag == "s-reading" && surface.props["mode"] == "frame" && surface.props["text"] == "Прошёл один час…", "interlude: its line");
     Expect(surface.errors.empty(), "every node of the interlude is known");
+    InterfaceModel fort;
+    fort.screen = "fortcapture";
+    fort.opening = 9;
+    router.SetInterface(fort);
+    Expect(router.Using() == "fortcapture" && surface.props["mode"] == "none" && surface.errors.empty(),
+           "the fort capture moment draws nothing (the game closes it at once)");
+    router.SetInterface(Load(models, "reading-frame.json"));
     router.OnEvent({"frame", "click", ""});
     ExpectEqual(surface.Last(), "back", "a tap ends the interlude the game's way (the global back)");
 }

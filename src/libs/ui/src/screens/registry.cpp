@@ -33,6 +33,7 @@ std::unique_ptr<Screen> CreateNationNewsScreen();
 std::unique_ptr<Screen> CreateRestScreen();
 std::unique_ptr<Screen> CreateTradeBookScreen();
 std::unique_ptr<Screen> CreateColonyCaptureScreen();
+std::unique_ptr<Screen> CreateFortCaptureScreen();
 
 namespace
 {
@@ -62,6 +63,7 @@ const ScreenEntry kPorted[] = {
     {"tavernwait", CreateRestScreen},
     {"tradebook", CreateTradeBookScreen},
     {"colonycapture", CreateColonyCaptureScreen},
+    {"fortcapture", CreateFortCaptureScreen},
 };
 
 // Interfaces the platform host still draws with its own forms. Anything not listed here

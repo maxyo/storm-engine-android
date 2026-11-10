@@ -227,6 +227,31 @@ class NoticeScreen final : public Screen
     const char *title_key_;
 };
 
+// Fort capture (interface "fortcapture"): the game opens it and leaves it in the same frame
+// (fortcapture.c: straight to the port); the capture itself reaches the player as a log toast
+// of the sea HUD (V2-Extra-FortCapture). Nothing is drawn for that moment.
+constexpr NodeRule kFortNodes[] = {
+    {"SCROLLPICT", "image"},
+    {"EXIT_BTN", "button"},
+};
+
+class FortCaptureScreen final : public Screen
+{
+  public:
+    const char *Component() const override
+    {
+        return "s-reading";
+    }
+    std::span<const NodeRule> Nodes() const override
+    {
+        return kFortNodes;
+    }
+    Json Build(const Admission &, Bindings &) override
+    {
+        return Json{{"mode", "none"}, {"title", ""}, {"text", ""}, {"icon", ""}, {"actions", Json::array()}};
+    }
+};
+
 const CardKind &Kind(const char *screen)
 {
     for (const CardKind &kind : kKinds)
@@ -260,6 +285,10 @@ std::unique_ptr<Screen> CreateColonyNewsScreen()
 std::unique_ptr<Screen> CreateNationNewsScreen()
 {
     return std::make_unique<NoticeScreen>(StringKey("reading.nation_news"));
+}
+std::unique_ptr<Screen> CreateFortCaptureScreen()
+{
+    return std::make_unique<FortCaptureScreen>();
 }
 std::unique_ptr<Screen> CreateFrameScreen()
 {
