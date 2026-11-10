@@ -208,7 +208,7 @@ static void Generic(const std::string &models)
     ExpectEqual(surface.Last(), prefix + "CHECK_DIFF\t2\t1", "segment chooses the option");
     router.OnEvent({rows[3]["id"], "commit", "47"});
     ExpectEqual(surface.Last(), prefix + "SLIDE_VOL\t-1\tset@7:25", "slider percent → position snapped to the step");
-    router.OnEvent({rows[4]["id"], "edit", ""});
+    router.OnEvent({rows[4]["id"], "focus", "Аделина"});
     ExpectEqual(surface.text.text, "Аделина", "field asks for the editor with its text");
     router.SubmitText(surface.text.token, "Мария", true);
     ExpectEqual(surface.Last(), prefix + "EDIT_NAME\t-1\tМария", "accepted text goes to the edit box");

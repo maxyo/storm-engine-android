@@ -261,7 +261,7 @@ void ControlRows(Bindings &bindings, std::span<const Widget *const> widgets, con
         else if (widget->type == "edit")
         {
             const std::string title = label;
-            bindings.On(id, "edit", [&bindings, widget, title](const Event &event) {
+            bindings.On(id, "focus", [&bindings, widget, title](const Event &event) {
                 if (widget->Offers("edit"))
                     bindings.EditText(event, *widget, title, false);
             });

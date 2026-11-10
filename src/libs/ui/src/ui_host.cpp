@@ -305,6 +305,42 @@ class HostImpl final : public Host, public Services, public screens::Surface
         context_->SetDensityIndependentPixelRatio(density);
     }
 
+    void SetSafeArea(float left, float top, float right, float bottom) override
+    {
+        const Json safe = {{"left", left}, {"top", top}, {"right", right}, {"bottom", bottom}};
+        if (safe == safe_)
+            return;
+        safe_ = safe;
+        // Rebuild every component: the insets reach the templates through their scope.
+        std::vector<Rml::Element *> pending = {document_, overlay_};
+        while (!pending.empty())
+        {
+            Rml::Element *element = pending.back();
+            pending.pop_back();
+            if (!element)
+                continue;
+            if (auto *component = dynamic_cast<ComponentElement *>(element))
+                component->SetProps(Json::object());
+            for (int i = 0; i < element->GetNumChildren(); ++i)
+                pending.push_back(element->GetChild(i));
+        }
+        // The host's own toast stacks keep clear of the cutout too (8 / 16 dp: their offsets in base.rcss).
+        if (overlay_)
+        {
+            const auto inset = [this](const char *id, Rml::PropertyId side, float base, float extra) {
+                if (Rml::Element *stack = overlay_->GetElementById(id))
+                    stack->SetProperty(side, Rml::Property(base + extra, Rml::Unit::DP));
+            };
+            for (const char *id : {"toasts-top", "toasts-bottom"})
+            {
+                inset(id, Rml::PropertyId::Left, 0.0f, left);
+                inset(id, Rml::PropertyId::Right, 0.0f, right);
+            }
+            inset("toasts-top", Rml::PropertyId::Top, 8.0f, top);
+            inset("toasts-bottom", Rml::PropertyId::Bottom, 16.0f, bottom);
+        }
+    }
+
     void SetGameRoot(const std::string &game_root) override
     {
         config_.game_root = game_root;
@@ -404,6 +440,8 @@ class HostImpl final : public Host, public Services, public screens::Surface
         const double routing = router_->Tick();
 
         context_->Update();
+        if (TextClampsChanged()) // clamped text was re-cut for a new width
+            context_->Update();
         backend_->BeginFrame(true);
         context_->Render();
         backend_->EndFrame();
@@ -504,15 +542,6 @@ class HostImpl final : public Host, public Services, public screens::Surface
         router_->SubmitText(token, text, accepted);
     }
 
-    void SetSafeArea(int left, int top, int right, int bottom) override
-    {
-        safe_[0] = left;
-        safe_[1] = top;
-        safe_[2] = right;
-        safe_[3] = bottom;
-        ApplySafeArea();
-    }
-
     bool InterfaceActive() const override
     {
         return router_->Active();
@@ -539,7 +568,6 @@ class HostImpl final : public Host, public Services, public screens::Surface
             // A screen that leaves the game visible (dialogue) says so in its spec.
             const ComponentSpec *spec = registry_->Find(tag);
             document_->SetClass("over-game", spec && Truthy(spec->constants.value("overGame", Json(false))));
-            ApplySafeArea();
         }
         if (auto *component = dynamic_cast<ComponentElement *>(mounted))
             component->SetProps(props);
@@ -600,6 +628,10 @@ class HostImpl final : public Host, public Services, public screens::Surface
     float Density() const override
     {
         return config_.density;
+    }
+    Json SafeArea() const override
+    {
+        return safe_;
     }
     double Setting(const std::string &name, double fallback) const override
     {
@@ -682,16 +714,6 @@ class HostImpl final : public Host, public Services, public screens::Surface
         double until = 0.0;
     };
 
-    void ApplySafeArea()
-    {
-        if (!screen_root_ || !document_)
-            return;
-        static const Rml::PropertyId sides[] = {Rml::PropertyId::PaddingLeft, Rml::PropertyId::PaddingTop, Rml::PropertyId::PaddingRight,
-                                                Rml::PropertyId::PaddingBottom};
-        for (int i = 0; i < 4; ++i)
-            document_->SetProperty(sides[i], Rml::Property(static_cast<float>(safe_[i]), Rml::Unit::PX));
-    }
-
     void RemoveToast(size_t index)
     {
         if (Rml::Element *element = toasts_[index].element.get())
@@ -720,8 +742,8 @@ class HostImpl final : public Host, public Services, public screens::Surface
     std::string screen_path_;
     std::unique_ptr<screens::Router> router_;
     Rml::ElementDocument *screen_root_ = nullptr; // the screen document while a game interface is mounted
-    int safe_[4] = {0, 0, 0, 0};
     Json settings_ = Json::object();
+    Json safe_ = {{"left", 0}, {"top", 0}, {"right", 0}, {"bottom", 0}};
     std::unordered_map<int, Capture> captures_;
     std::vector<Rml::ObserverPtr<Rml::Element>> ticking_;
     std::vector<Toast_> toasts_;

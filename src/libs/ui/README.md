@@ -22,7 +22,9 @@ build/ui-host/storm_ui_shot --pack <pack dir> --doc gallery/button.rml --out sho
 
 `storm_ui_shot` renders a document off-screen (EGL pbuffer, software GL 3.3, simulated
 clock) and can replay touches: `--script "down 1 660 88; wait 0.5; shot held.png; up 1 660 88"`.
-Reported component actions are printed as `action <id> <verb> <value>`.
+Reported component actions are printed as `action <id> <verb> <value>`; `--safe L,T,R,B`
+applies safe-area insets in dp (what `Host::SetSafeArea` receives from the platform:
+display cutout and system bars). Component templates read them as `safe.left` … `safe.bottom`.
 
 ## Android
 
@@ -38,12 +40,12 @@ produces `<build>/package/libstorm_ui.so` (stripped, 16 KiB pages) and
 
 | File | Role |
 |---|---|
-| `include/storm_ui/ui.h` | `Host`: load a document, touches in, frames out, actions out |
+| `include/storm_ui/ui.h` | `Host`: load a document, touches in, frames out, actions out, safe-area insets |
 | `include/storm_ui/render_backend.h` | the only renderer-specific seam |
 | `src/backend_gl3.cpp` | GL backend: RmlUi's stock GL3 renderer (GLES 3.0 / GL 3.3) |
 | `src/components.*`, `src/template.*` | `<c-…>` elements rendered from spec + template + props |
-| `src/behaviors.cpp` | press, hold-to-confirm, long-press tooltip, range, stick, lever |
-| `src/draw_elements.cpp` | `<ui-ring>` (hold progress), `<ui-paper>` (aged parchment) |
+| `src/behaviors.cpp` | press, hold-to-confirm, long-press tooltip, range, stick, lever, sticky rows |
+| `src/draw_elements.cpp` | `<ui-ring>` (hold progress), `<ui-paper>` (aged parchment), `<ui-clamp>` (text cut to N lines with an ellipsis) |
 | `src/icons.cpp` | `<ui-icon>`: SVG symbols rasterised per size and colour |
 | `src/tx_texture.cpp`, `src/game_image.cpp` | `<ui-game-image>`: pictures decoded from the player's `.tx` files on a worker thread; a placeholder shows until then |
 | `src/ui_host.cpp` | RmlUi set-up, pointer routing, toasts, tooltip |

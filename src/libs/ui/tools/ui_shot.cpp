@@ -1,7 +1,7 @@
 // Headless capture of a UI document for design checks, without a device:
 //
 //   storm_ui_shot --pack DIR --doc gallery/buttons.rml --size 915x412 --density 2 --out shot.png
-//                 [--game-root DIR] [--script "down 1 120 80; wait 0.5; shot held.png; up 1 120 80"]
+//                 [--game-root DIR] [--safe L,T,R,B] [--script "down 1 120 80; wait 0.5; shot held.png; up 1 120 80"]
 //   script commands: down|move|up <pointer> <x> <y>, wait <s>, shot <png>, toast <text>,
 //                    props <element id> <json>, scroll <element id>
 //
@@ -141,6 +141,7 @@ int main(int argc, char **argv)
     std::string pack, doc, out = "shot.png", game_root, script, interface, state, text_token;
     int width_dp = 915, height_dp = 412;
     float density = 2.0f;
+    float safe[4] = {0, 0, 0, 0}; // safe-area insets in dp
     for (int i = 1; i + 1 < argc; i += 2)
     {
         const std::string key = argv[i], value = argv[i + 1];
@@ -158,6 +159,8 @@ int main(int argc, char **argv)
             interface = value;
         else if (key == "--state")
             state = value;
+        else if (key == "--safe" && std::sscanf(value.c_str(), "%f,%f,%f,%f", &safe[0], &safe[1], &safe[2], &safe[3]) == 4)
+            continue;
         else if (key == "--density")
             density = std::strtof(value.c_str(), nullptr);
         else if (key == "--size" && std::sscanf(value.c_str(), "%dx%d", &width_dp, &height_dp) == 2)
@@ -170,7 +173,7 @@ int main(int argc, char **argv)
     }
     if (pack.empty() || (doc.empty() && interface.empty() && state.empty()))
     {
-        std::fprintf(stderr, "usage: storm_ui_shot --pack DIR (--doc FILE | --interface JSON | --state CHANNEL=JSON) [--size WxH] [--density D] [--out PNG] [--game-root DIR] [--script S]\n");
+        std::fprintf(stderr, "usage: storm_ui_shot --pack DIR (--doc FILE | --interface JSON | --state CHANNEL=JSON) [--size WxH] [--density D] [--out PNG] [--game-root DIR] [--safe L,T,R,B] [--script S]\n");
         return 2;
     }
     const int width = static_cast<int>(static_cast<float>(width_dp) * density), height = static_cast<int>(static_cast<float>(height_dp) * density);
@@ -210,6 +213,7 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "UI host: %s\n", error.c_str());
         return 4;
     }
+    host->SetSafeArea(safe[0], safe[1], safe[2], safe[3]);
     const auto feed_state = [&host](const std::string &pair) {
         const size_t equals = pair.find('=');
         return equals != std::string::npos && host->SetState(pair.substr(0, equals), ReadFile(pair.substr(equals + 1)));

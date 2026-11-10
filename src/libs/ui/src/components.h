@@ -52,6 +52,8 @@ class Services
     virtual ~Services() = default;
     virtual double Now() const = 0;
     virtual float Density() const = 0;
+    // Safe-area insets in dp: {left, top, right, bottom}.
+    virtual Json SafeArea() const = 0;
     // A number from pack.json "settings" (timings from the design tokens).
     virtual double Setting(const std::string &name, double fallback) const = 0;
     virtual void Emit(ComponentElement &source, const std::string &verb, const std::string &value) = 0;

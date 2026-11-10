@@ -153,8 +153,8 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeSubmitText(JNIEnv
     From(handle)->host->SubmitText(Text(env, token), Text(env, text), accepted == JNI_TRUE);
 }
 
-JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeSetSafeArea(JNIEnv *, jclass, jlong handle, jint left, jint top, jint right,
-                                                                          jint bottom)
+JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeSetSafeArea(JNIEnv *, jclass, jlong handle, jfloat left, jfloat top,
+                                                                          jfloat right, jfloat bottom)
 {
     From(handle)->host->SetSafeArea(left, top, right, bottom);
 }

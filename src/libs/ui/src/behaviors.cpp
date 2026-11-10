@@ -9,7 +9,12 @@
 //   range   data-range="prop" on the track (props min, max, step)
 //   stick   data-stick="x|xy" on the travel area, data-knob on the knob
 //   lever   data-lever="steps|continuous" on the rail (prop value / dir)
+//   sticky  data-sticky on rows inside a scrolling element (which must be positioned, so
+//           it is their offset parent): a row scrolled above the top edge stays pinned
+//           there (CSS position: sticky; top: 0, which RmlUi lacks)
 #include "components.h"
+
+#include <RmlUi/Core/EventListener.h>
 
 #include <algorithm>
 #include <cmath>
@@ -521,12 +526,87 @@ template <typename T> std::unique_ptr<Behavior> Make()
 
 } // namespace
 
+class StickyBehavior final : public Behavior, public Rml::EventListener
+{
+  public:
+    ~StickyBehavior() override
+    {
+        if (Rml::Element *self = self_.get())
+            self->RemoveEventListener(Rml::EventId::Scroll, this);
+    }
+
+    void Rebuilt(ComponentElement &self) override
+    {
+        if (!self_)
+        {
+            // Scroll events bubble: one listener on the component hears its lists.
+            self_ = self.GetObserverPtr();
+            self.AddEventListener(Rml::EventId::Scroll, this);
+        }
+        rows_.clear();
+        Collect(&self);
+        Place();
+    }
+
+    void ProcessEvent(Rml::Event &) override
+    {
+        Place();
+    }
+
+  private:
+    void Collect(Rml::Element *element)
+    {
+        for (int i = 0; i < element->GetNumChildren(); ++i)
+        {
+            Rml::Element *child = element->GetChild(i);
+            if (child->HasAttribute("data-sticky"))
+            {
+                rows_.push_back(child->GetObserverPtr());
+                child->SetProperty(Rml::PropertyId::ZIndex, Rml::Property(1, Rml::Unit::NUMBER));
+            }
+            else if (!dynamic_cast<ComponentElement *>(child))
+                Collect(child);
+        }
+    }
+
+    void Place()
+    {
+        for (const auto &entry : rows_)
+        {
+            Rml::Element *row = entry.get();
+            if (!row)
+                continue;
+            // The nearest scrolling ancestor; it must be positioned so that it ends the
+            // chain of offset parents (offsets ignore scroll and transforms).
+            Rml::Element *scroller = row->GetParentNode();
+            for (; scroller; scroller = scroller->GetParentNode())
+            {
+                const auto overflow = scroller->GetComputedValues().overflow_y();
+                if (overflow == Rml::Style::Overflow::Auto || overflow == Rml::Style::Overflow::Scroll)
+                    break;
+            }
+            float top = 0.0f;
+            Rml::Element *at = row;
+            for (; at && at != scroller; at = at->GetOffsetParent())
+                top += at->GetOffsetTop();
+            if (!scroller || !at)
+                continue;
+            const float shift = std::max(0.0f, scroller->GetScrollTop() - top);
+            row->SetProperty("transform", "translateY(" + std::to_string(shift) + "px)");
+        }
+    }
+
+    Rml::ObserverPtr<Rml::Element> self_;
+    std::vector<Rml::ObserverPtr<Rml::Element>> rows_;
+};
+
 void RegisterBuiltinBehaviors()
 {
     RegisterBehavior("press", &Make<PressBehavior>);
     RegisterBehavior("range", &Make<RangeBehavior>);
     RegisterBehavior("stick", &Make<StickBehavior>);
     RegisterBehavior("lever", &Make<LeverBehavior>);
+    RegisterBehavior("sticky", &Make<StickyBehavior>);
 }
 
 } // namespace storm::ui

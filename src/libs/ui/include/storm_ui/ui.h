@@ -107,6 +107,9 @@ class Host
     virtual bool LoadDocument(const std::string &path) = 0;
     virtual void Resize(int width, int height, float density) = 0;
     virtual void SetGameRoot(const std::string &game_root) = 0;
+    // Safe-area insets in dp (display cutout and system bars). HUD scenes and menu screens
+    // keep their content inside; templates read them as `safe.left` … `safe.bottom`.
+    virtual void SetSafeArea(float left, float top, float right, float bottom) = 0;
     virtual void Touch(TouchPhase phase, int pointer, float x, float y) = 0;
     // Updates and draws one frame over a transparent background. Returns the time in
     // seconds until another frame is needed: 0 while something animates.
@@ -129,8 +132,6 @@ class Host
     virtual bool SetState(const std::string &channel, const std::string &json) = 0;
     // Answer to Config::on_text_request; `accepted` false = the editor was dismissed.
     virtual void SubmitText(const std::string &token, const std::string &text, bool accepted) = 0;
-    // Display-cutout insets in physical pixels; screens keep their content inside.
-    virtual void SetSafeArea(int left, int top, int right, int bottom) = 0;
     // True while a game interface is mounted (the host then gives the UI every touch).
     virtual bool InterfaceActive() const = 0;
 };
