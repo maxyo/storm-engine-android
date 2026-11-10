@@ -23,6 +23,8 @@ std::unique_ptr<Screen> CreateSettingsScreen();
 std::unique_ptr<StateConsumer> CreateAppSettingsConsumer();
 std::unique_ptr<Screen> CreateTitleScreen();
 std::unique_ptr<Screen> CreateNewGameScreen();
+std::unique_ptr<Screen> CreateDiceScreen();
+std::unique_ptr<Screen> CreateCardsScreen();
 
 namespace
 {
@@ -42,6 +44,8 @@ const ScreenEntry kPorted[] = {
     {"option_screen", CreateSettingsScreen},
     {"mainmenu", CreateTitleScreen},
     {"selectcharacter", CreateNewGameScreen},
+    {"boal_dice", CreateDiceScreen},
+    {"boal_cards", CreateCardsScreen},
 };
 
 // Interfaces the platform host still draws with its own forms. Anything not listed here

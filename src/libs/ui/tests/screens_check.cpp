@@ -757,6 +757,126 @@ static void Dialogue(const std::string &models)
            "a channel without a consumer is an error");
 }
 
+static void Games(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    // Dice, our reroll: two dice marked (already paid), the cup throws them.
+    InterfaceModel reroll = Load(models, "boal_dice-reroll.json");
+    router.SetInterface(reroll);
+    Expect(router.Using() == "boal_dice" && surface.tag == "s-table-game" && router.Rejection().empty() && surface.errors.empty(),
+           "boal_dice is drawn by the table-game screen");
+    Expect(surface.props["extras"]["rows"].empty() && surface.props["extras"]["note"] == "", "every exported node is known");
+    Expect(surface.props["kind"] == "dice" && surface.props["locked"] == true, "back is locked during a round");
+    Expect(surface.props["stats"][0]["value"] == "200" && surface.props["stats"][1]["value"] == "7 600", "stake and our money");
+    Expect(surface.props["table"]["opponent"] == "Жак Дюбуа" && surface.props["table"]["portrait"] == "INTERFACES/PORTRAITS/128/face_377" &&
+               surface.props["table"]["bank"] == "2 400" && surface.props["table"]["coins"] == "silver",
+           "opponent, portrait, bank and the coins the script lays");
+    const Json ours = surface.props["bottom"]["pieces"];
+    Expect(ours.size() == 5 && ours[0]["pips"].size() == 3 && ours[0]["action"] == "mark" && ours[0]["disabled"] == false,
+           "our dice: faces from the script pictures, tappable");
+    Expect(ours[3]["lift"] == true && ours[3]["pips"].size() == 6 && ours[3]["cost"] == "−200" && ours[3].count("action") == 0,
+           "a marked die keeps its face, rises, shows the stake and cannot be unmarked");
+    Expect(surface.props["bottom"]["label"] == "" && surface.props["top"]["label"] == "<games.combo_6>",
+           "the combination of a complete row");
+    Expect(surface.props["buttons"].size() == 1 && surface.props["buttons"][0]["label"] == "<games.roll>" &&
+               surface.props["buttons"][0]["sub"] == "2 <games.die_few>" && surface.props["buttons"][0]["disabled"] == false,
+           "throw the two marked dice");
+    router.OnEvent({"bottom", "mark", "2"});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tB_HeroDice2\t-1\tpress", "a tap on our die marks it in the script");
+    router.OnEvent({"throw", "click", ""});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tB_PACK\t-1\tpress", "the primary throws the cup");
+    router.OnEvent({"pack", "press", ""});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tB_PACK\t-1\tpress", "the cup itself throws too");
+    const size_t sent = surface.commands.size();
+    router.OnEvent({"header-back", "click", ""});
+    Expect(surface.commands.size() == sent, "no way out during a round");
+
+    // Nothing marked in our reroll: keep the dice (B_ICON_1).
+    InterfaceModel keep = reroll;
+    for (Widget &widget : keep.widgets)
+        if (widget.node == "ANDROID_TABLE_GAME")
+            widget.context["heroMix"] = "0,0,0,0,0";
+    keep.revision = 2;
+    router.SetInterface(keep);
+    Expect(surface.props["buttons"][0]["label"] == "<games.keep>", "nothing marked: keep the dice");
+    router.OnEvent({"throw", "click", ""});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tB_ICON_1\t-1\tpress", "keeping is the script's pass");
+
+    // The round ends with our win: the bank is ours, another round or leave.
+    InterfaceModel result = Load(models, "boal_dice-result.json");
+    result.revision = 3;
+    router.SetInterface(result);
+    Expect(surface.props["locked"] == false && surface.props["table"]["bankLabel"] == "<games.won>" &&
+               surface.props["table"]["bank"] == "+2 400" && surface.props["table"]["bankTone"] == "win",
+           "after the round: what we won");
+    Expect(surface.props["bottom"]["label"] == "<games.combo_4>" && surface.props["bottom"]["pieces"][0].count("action") == 0,
+           "our combination; dice are not tappable between rounds");
+    Expect(surface.props["buttons"][1]["id"] == "again" && surface.props["buttons"][1]["variant"] == "primary" &&
+               surface.props["buttons"][1]["sub"] == "<games.stake_short> 200",
+           "another round is the primary");
+    router.OnEvent({"again", "click", ""});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tB_PACK\t-1\tpress", "another round is B_PACK");
+    router.OnEvent({"leave", "click", ""});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tEXIT_BTN\t-1\tpress", "leave the table");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tEXIT_BTN\t-1\tpress", "back leaves between rounds");
+
+    // The opponent has no money left: only leaving.
+    router.SetInterface(Load(models, "boal_dice-end.json"));
+    Expect(surface.props["buttons"][0]["id"] == "again" && surface.props["buttons"][0]["disabled"] == true &&
+               surface.props["buttons"][1]["id"] == "leave" && surface.props["buttons"][1]["variant"] == "primary",
+           "the opponent quits: leaving is the primary");
+
+    // A fact the script lacks is an error, never a guess.
+    InterfaceModel broken = Load(models, "boal_dice-reroll.json");
+    broken.widgets.back().unavailable_reason = "table-game:missing=heroDice";
+    surface.errors.clear();
+    router.SetInterface(broken);
+    Expect(surface.errors.size() == 1, "a missing script fact is reported");
+
+    // Cards, our turn.
+    FakeSurface cards;
+    Router table(cards);
+    table.SetInterface(Load(models, "boal_cards.json"));
+    Expect(table.Using() == "boal_cards" && cards.tag == "s-table-game" && cards.errors.empty() && cards.props["kind"] == "cards",
+           "boal_cards is drawn by the table-game screen");
+    Expect(cards.props["table"]["coins"] == "gold" && cards.props["pack"][0]["kind"] == "deck", "gold coins, the deck");
+    const Json hand = cards.props["bottom"]["pieces"];
+    Expect(hand.size() == 3 && hand[0]["rank"] == "7" && hand[0]["suit"] == "spades" && hand[0]["red"] == false &&
+               hand[1]["rank"] == "<games.rank_J>" && hand[1]["red"] == true,
+           "our cards: rank and suit from the picture names");
+    Expect(cards.props["bottom"]["label"] == "19 <games.point_many>", "our points (7 + J 2 + 10)");
+    Expect(cards.props["top"]["pieces"].size() == 2 && cards.props["top"]["pieces"][0]["kind"] == "back" && cards.props["top"]["label"] == "",
+           "the opponent's cards face down, no points");
+    Expect(cards.props["buttons"][0]["id"] == "stand" && cards.props["buttons"][1]["id"] == "take" &&
+               cards.props["buttons"][1]["sub"] == "−500" && cards.props["buttons"][1]["disabled"] == false,
+           "stand, or take a card for the stake");
+    table.OnEvent({"take", "click", ""});
+    ExpectEqual(cards.Last(), "widget:boal_cards\tB_PACK\t-1\tpress", "take a card is B_PACK");
+    table.OnEvent({"stand", "click", ""});
+    ExpectEqual(cards.Last(), "widget:boal_cards\tB_ICON_1\t-1\tpress", "stand is B_ICON_1");
+
+    // The opponent's turn: nothing to press.
+    InterfaceModel opponent = Load(models, "boal_cards-opponent.json");
+    opponent.revision = 2;
+    table.SetInterface(opponent);
+    Expect(cards.props["buttons"][0]["disabled"] == true && cards.props["buttons"][1]["disabled"] == true &&
+               cards.props["buttons"][1]["reason"] == "<games.wait>",
+           "the opponent plays: both buttons wait");
+
+    // Opened: he has 20, the bank is his.
+    InterfaceModel opened = Load(models, "boal_cards-result.json");
+    opened.revision = 3;
+    table.SetInterface(opened);
+    Expect(cards.props["top"]["label"] == "20 <games.point_many>" && cards.props["top"]["pieces"][0]["rank"] == "<games.rank_A>",
+           "the opponent's cards open with his points");
+    Expect(cards.props["table"]["bankLabel"] == "<games.taken> Жак" && cards.props["table"]["bank"] == "3 000" &&
+               cards.props["table"]["bankTone"] == "loss",
+           "the bank went to the opponent");
+    Expect(cards.props["buttons"][1]["id"] == "again" && cards.props["buttons"][1]["disabled"] == false, "another round");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
@@ -770,6 +890,7 @@ int main(int argc, char **argv)
     Shipyard(models);
     Atlas();
     Dialogue(models);
+    Games(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else
