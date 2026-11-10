@@ -147,21 +147,27 @@ SEA::~SEA()
         rs->TextureRelease(iFoamTexture);
     iFoamTexture = -1;
 
-    STORM_DELETE(pIndices);
-    STORM_DELETE(pVSea);
+    delete[] pIndices;
+    pIndices = nullptr;
+    delete[] pVSea;
+    pVSea = nullptr;
 
     for (int32_t i = 0; i < aBumpMaps.size(); i++)
         rs->Release(aBumpMaps[i]);
 
     for (int32_t i = 0; i < aBumps.size(); i++)
-        STORM_DELETE(aBumps[i]);
+        delete[] aBumps[i];
     for (int32_t i = 0; i < aNormals.size(); i++)
-        STORM_DELETE(aNormals[i]);
+        delete[] aNormals[i];
 
-    STORM_DELETE(pSeaFrame1);
-    STORM_DELETE(pSeaFrame2);
-    STORM_DELETE(pSeaNormalsFrame1);
-    STORM_DELETE(pSeaNormalsFrame2);
+    delete[] pSeaFrame1;
+    pSeaFrame1 = nullptr;
+    delete[] pSeaFrame2;
+    pSeaFrame2 = nullptr;
+    delete[] pSeaNormalsFrame1;
+    pSeaNormalsFrame1 = nullptr;
+    delete[] pSeaNormalsFrame2;
+    pSeaNormalsFrame2 = nullptr;
 }
 
 void SEA::SFLB_CreateBuffers()
@@ -301,7 +307,7 @@ void SEA::BuildVolumeTexture()
     uint32_t i, j;
 
     for (const auto &normal : aNormals)
-        delete normal;
+        delete[] normal;
     aNormals.clear();
 
     D3DLOCKED_BOX box[4];
@@ -490,7 +496,7 @@ void SEA::BuildVolumeTexture()
                                 ARGB(0x80, blue, green, red);
                     }
         }
-        STORM_DELETE(pVectors);
+        delete[] pVectors;
     }
 
     if (pVolumeTexture)
@@ -498,10 +504,10 @@ void SEA::BuildVolumeTexture()
             pVolumeTexture->UnlockBox(i);
 
     for (const auto &vector : aVectors)
-        delete vector;
+        delete[] vector;
     aVectors.clear();
     // aVectors.DelAllWithPointers();
-    STORM_DELETE(pDst);
+    delete[] pDst;
 }
 
 bool SEA::EditMode_Update()
@@ -1468,12 +1474,17 @@ void SEA::Realize(uint32_t dwDeltaTime)
         PrepareIndicesForBlock(i);
     }
 
-    std::for_each(
-#ifndef __ANDROID__
-                  std::execution::par_unseq,
-#endif
-                  std::begin(aBlocks), std::end(aBlocks),
+    // Blocks write disjoint vertex ranges ([iIFirst, iILast], assigned above by
+    // PrepareIndicesForBlock) and only read per-frame constants and the height /
+    // normal maps, so they can be evaluated concurrently. The vertex buffer
+    // upload below stays on this thread.
+#ifdef __ANDROID__
+    // libc++ in the NDK has no parallel algorithms; use the engine's fork-join helper.
+    waveWorkers_.run(aBlocks.size(), [this](size_t index) { SSE_WaveXZBlock(aBlocks[index]); });
+#else
+    std::for_each(std::execution::par_unseq, std::begin(aBlocks), std::end(aBlocks),
                   [this](auto &i) { SSE_WaveXZBlock(i); });
+#endif
 
     if (iVStart && iTStart)
         memcpy(pVSea2, pVSea, iVStart * sizeof(SeaVertex));
