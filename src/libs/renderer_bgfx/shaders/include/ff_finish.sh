@@ -8,6 +8,7 @@
 // [0] texture factor  [1] fog colour rgb, fog mode (0 off, 1 exp, 2 exp2, 3 linear, 4 factor passthrough)
 // [2] fog start, fog end, fog density, alpha ref  [3] alpha func (0 = off, else D3DCMP), specular add, stage count, fog depth is in v_fog.z
 uniform vec4 u_ffFs[4];
+uniform vec4 u_ffDepthBias; // x: D3DRS_SLOPESCALEDEPTHBIAS (fs_ff_slopebias only)
 
 #ifdef FX_FF_COVERAGE
 #include "fx_coverage.sh"
