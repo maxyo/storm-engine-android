@@ -619,7 +619,9 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             const std::lock_guard<std::mutex> lock(touch_mutex_);
             hud_sheet = touch_map_.back;
         }
-        if (hud_sheet || !router_->Active())
+        if (router_->WantsBack()) // a screen's own modal (the dialogue's answer editor)
+            router_->Back();
+        else if (hud_sheet || !router_->Active())
             hud_->Back();
         else
             router_->Back();
@@ -792,6 +794,10 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         if (Rml::Element *element = document_ ? document_->GetElementById(anchor) : nullptr)
         {
+            // A field marks the box the text sits in (c-field: data-action="focus"); the
+            // editor goes exactly over it, not over the label and error lines.
+            if (Rml::Element *box = element->QuerySelector("[data-action=focus]"))
+                element = box;
             const Rml::Vector2f origin = element->GetAbsoluteOffset(Rml::BoxArea::Border);
             const Rml::Vector2f size = element->GetBox().GetSize(Rml::BoxArea::Border);
             request.x = origin.x;
@@ -1048,7 +1054,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         TouchMap map;
         const bool hud = hud_->Interactive();
-        map.back = hud && hud_->Shown().modal;
+        map.back = (hud && hud_->Shown().modal) || router_->WantsBack(); // a modal HUD sheet or a screen's own modal
         map.everywhere = document_ != nullptr || map.back; // a document or an interface screen, or a modal HUD sheet
         if (hud && !map.everywhere && hud_document_)
             CollectRegions(hud_document_, map.regions);
