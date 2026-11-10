@@ -23,6 +23,10 @@ namespace storm::texture
 {
 struct Job;
 }
+namespace storm::effects
+{
+struct NormalMapEntry;
+}
 
 namespace storm::shim
 {
@@ -96,6 +100,8 @@ struct TexStore
     uint64_t transcode_key = 0;
     int64_t fallback_bytes = 0;       // size of the temporary texture, 0 once ETC2 is in place
     std::shared_ptr<texture::Job> transcode_job;
+    // Effects: the normal map derived from this height texture (src/effects/normal_maps.hpp), null for others.
+    std::shared_ptr<effects::NormalMapEntry> normal_map;
 
     ~TexStore();
     uint32_t faces() const { return kind == TexKind::Cube ? 6 : 1; }
