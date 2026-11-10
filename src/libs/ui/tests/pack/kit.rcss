@@ -1,5 +1,6 @@
 body { display: block; width: 100%; height: 100%; }
 div { display: block; }
-s-hud, c-box, c-button, c-stick, t-sheet { display: block; }
+s-hud, c-box, c-button, c-stick, c-fleet, c-minimap, c-lever, c-helm, s-hud-orders, t-sheet { display: block; }
+s-hud-orders { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
 /* boxes only show: a touch on one belongs to what lies under it */
 c-box { pointer-events: none; }

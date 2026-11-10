@@ -76,6 +76,8 @@ add_library(storm_ui STATIC
     src/hud/hud.cpp
     src/hud/states.cpp
     src/hud/land.cpp
+    src/hud/sea.cpp
+    src/hud/world_map.cpp
     src/template.cpp
     src/components.cpp
     src/behaviors.cpp
@@ -133,4 +135,10 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     add_executable(storm_ui_hud_land_unit tests/hud_land_check.cpp)
     target_link_libraries(storm_ui_hud_land_unit PRIVATE storm_ui)
     add_test(NAME ui_hud_land COMMAND storm_ui_hud_land_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
+    add_executable(storm_ui_hud_sea_unit tests/hud_sea_check.cpp)
+    target_link_libraries(storm_ui_hud_sea_unit PRIVATE storm_ui)
+    add_executable(storm_ui_hud_worldmap_unit tests/hud_worldmap_check.cpp)
+    target_link_libraries(storm_ui_hud_worldmap_unit PRIVATE storm_ui)
+    add_test(NAME ui_hud_worldmap COMMAND storm_ui_hud_worldmap_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states")
+    add_test(NAME ui_hud_sea COMMAND storm_ui_hud_sea_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
 endif()

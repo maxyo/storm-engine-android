@@ -147,6 +147,8 @@ engine ◀──"<verb>:<value>" (Action, screen "hud")── Hud::Send ◀─�
 | `hud.cpp` | **the migration switch** `kScenes` (gameplay mode → scene), visibility, event dispatch, the event log |
 | `states.cpp` | one consumer per channel: the engine's JSON checked once, kept typed; bad data is rejected aloud |
 | `land.cpp` | the land scene: explore and combat sets, the action sheet, the sword-move wheel |
+| `world_map.cpp` | the world-map scene: fleet, compass (a tap shows the details beside it), helm slider, sail lever (held SailUp/SailDown), camera, menu, the map's commands |
+| `sea.cpp` | the sea scene: sailing and naval battle, fleet, minimap (the engine's radar in its disc), sail lever, helm slider, guns and ammunition fan, quick action, orders sheet |
 
 Channels (JSON as the engine publishes it unless noted):
 
@@ -158,6 +160,10 @@ Channels (JSON as the engine publishes it unless noted):
 | `worldInfo` | a JSON string: the engine's location lines, `\n` between them | `States::world_info` |
 | `contextAction` | a JSON string: the script's quick action name, `""` = none | `States::context_action` |
 | `landCommands` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage, pendingLabel, selectedItemId, canBack, canClose, items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `LandCommands` |
+| `ship` | the engine's ship telemetry (`android_ship_telemetry.hpp`): `{schemaVersion: 1, gameplayRevision, sequence, hudRevision, valid, …own ship, fleet: […], navigator…, shipSpeedKnots, windSpeed, cannonCharge, ammo, ammoCount, ammoCounts, sailState, canSetSails, dateTimeText, locationText}` | `Ship` |
+| `seaOrders` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage: commands\|options\|targets, recipientId, selectedItemId, pendingLabel, canBack, canClose, recipients: […], items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `SeaOrders` |
+| `seaQuickAction` | `{schemaVersion: 1, activity, revision, available, action: Map\|Moor\|Board\|LandTroops\|Reload, label}` | `SeaQuick` |
+| `worldMap` | the engine's world-map frame (`android_worldmap.hpp`): `{schemaVersion: 1, revision, activity, gameplayRevision, available, mask, commandsReady, shipsVisible, instrumentsVisible, date, hour, windForce, windAngle, heading, speed, morale, foodDays, rumDays, coordinates, flag, stormState, ships: […], commands: [{id, label}]}` | `WorldMap` |
 | `presentation` | written by the platform host: `{screen, loading, cinematic, dialogue, live}` | `Presentation` |
 
 The HUD is visible when a scene draws the gameplay mode, `presentation` reports a free game
@@ -175,7 +181,8 @@ a layout scene or element the pack lacks, and a channel carrying something else 
 contract are errors (log, toast in debug hosts), never quiet drops.
 
 Input goes out with `Hud::Send(verb, value, slot)`: the engine command is `<verb>:<value>`
-(`move`, `combat`, `landcommands`, `context`); a `slot` marks a latest-value input (stick
+(`move`, `combat`, `landcommands`, `context`; at sea `hold` (held controls: helm, spyglass),
+`sails`, `gameplay`, `seaquick`, `orders`, `shiphud`, `navigator`; on the world map `hold` and `worldmap`); a `slot` marks a latest-value input (stick
 position, coverage acknowledgement) of which a queueing host keeps only the newest. Three
 verbs are for the platform host: `shortcut` (`mainmenu`, `character`), `presence`
 (`shown` / `hidden`) and `pause` (its pause menu; the dialogue's menu button, through

@@ -3,6 +3,7 @@
 // and leaves that channel without data (its controls disappear), never half-read.
 #include "hud.h"
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 
@@ -63,6 +64,29 @@ bool OneOf(const std::string &text, std::initializer_list<const char *> options)
         if (text == option)
             return true;
     return false;
+}
+
+// Text the engine shows the player: bounded, without control characters.
+bool Printable(const std::string &text, size_t limit, bool may_be_blank)
+{
+    if (text.size() > limit)
+        return false;
+    bool blank = true;
+    for (const unsigned char c : text)
+    {
+        if (c < 32 || c == 127)
+            return false;
+        blank = blank && c == ' ';
+    }
+    return may_be_blank || !blank;
+}
+
+// A finite number that is not negative; negative when the key is absent or something else.
+double Amount(const Json &object, const char *key)
+{
+    const auto found = object.find(key);
+    const double number = found != object.end() && found->is_number() ? found->get<double>() : -1.0;
+    return std::isfinite(number) && number >= 0.0 ? number : -1.0;
 }
 
 double Ratio(const Json &object, const char *key)
@@ -362,20 +386,6 @@ class LandCommandsConsumer final : public HudConsumer
     }
 
   private:
-    static bool Printable(const std::string &text, size_t limit, bool may_be_blank)
-    {
-        if (text.size() > limit)
-            return false;
-        bool blank = true;
-        for (const unsigned char c : text)
-        {
-            if (c < 32 || c == 127)
-                return false;
-            blank = blank && c == ' ';
-        }
-        return may_be_blank || !blank;
-    }
-
     static std::string Parse(const Json &state, LandCommands &out)
     {
         if (!state.is_object() || Whole(state, "schemaVersion") != uint64_t{1})
@@ -443,6 +453,411 @@ class LandCommandsConsumer final : public HudConsumer
     }
 };
 
+// The player's ship at sea. `valid: false` = the engine has no sea scene to show.
+class ShipConsumer final : public HudConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "ship";
+    }
+
+  protected:
+    std::string Read(const Json &state, Hud &hud) override
+    {
+        Ship next;
+        const std::string problem = Parse(state, next);
+        if (!problem.empty())
+        {
+            hud.Edit().ship = Ship();
+            return problem;
+        }
+        const Ship &current = hud.Current().ship;
+        if (current.gameplay_revision == next.gameplay_revision && next.sequence < current.sequence)
+            return {}; // late news of an older frame
+        hud.Edit().ship = std::move(next);
+        return {};
+    }
+
+  private:
+    // current / maximum as a share; negative when the engine did not send the pair.
+    static double Share(const Json &object, const char *key, const char *maximum)
+    {
+        const double value = Amount(object, key), limit = Amount(object, maximum);
+        return value < 0.0 || limit <= 0.0 ? -1.0 : std::min(1.0, value / limit);
+    }
+
+    static std::string Vessel(const Json &object, Ship::Vessel &out)
+    {
+        const auto character = object.find("characterIndex");
+        const auto entity = Text(object, "entityId");
+        if (character == object.end() || !character->is_number_integer() || !entity || !Token(*entity, false))
+            return "a ship lacks characterIndex or entityId";
+        out.character = character->get<int>();
+        out.entity = *entity;
+        out.name = Text(object, "name").value_or("");
+        out.type = Text(object, "type").value_or("");
+        if (!Printable(out.name, 512, true) || !Printable(out.type, 128, true))
+            return "a ship has a bad name or type";
+        out.ship_class = static_cast<int>(std::min<uint64_t>(Whole(object, "shipClass").value_or(0), 9));
+        out.hull = Share(object, "hull", "hullMax");
+        out.crew = Share(object, "crew", "crewMax");
+        out.sails = Share(object, "sailIntegrity", "sailIntegrityMax");
+        return {};
+    }
+
+    static std::string Parse(const Json &state, Ship &out)
+    {
+        if (!state.is_object())
+            return "expected an object, got " + std::string(state.type_name());
+        if (Whole(state, "schemaVersion") != uint64_t{1})
+            return "expected {schemaVersion: 1, …}";
+        const auto revision = Whole(state, "gameplayRevision"), sequence = Whole(state, "sequence"), hud = Whole(state, "hudRevision");
+        const auto valid = Flag(state, "valid");
+        if (!revision || !sequence || !hud || !valid)
+            return "lacks gameplayRevision, sequence, hudRevision or valid";
+        out.gameplay_revision = *revision;
+        out.sequence = *sequence;
+        out.hud_revision = *hud;
+        if (!*valid)
+            return {};
+        std::string problem = Vessel(state, out.own);
+        if (!problem.empty())
+            return problem;
+        const auto fleet = state.find("fleet");
+        if (fleet == state.end() || !fleet->is_array() || fleet->size() > 16)
+            return "lacks the fleet list";
+        for (const Json &source : *fleet)
+        {
+            Ship::Vessel vessel;
+            problem = source.is_object() ? Vessel(source, vessel) : "a fleet entry is not an object";
+            if (!problem.empty())
+                return problem;
+            out.fleet.push_back(std::move(vessel));
+        }
+        out.captions = Flag(state, "captionsVisible").value_or(false);
+        out.navigator = Flag(state, "navigatorAvailable").value_or(false);
+        out.zoom_in = Flag(state, "navigatorZoomIn").value_or(false);
+        out.zoom_out = Flag(state, "navigatorZoomOut").value_or(false);
+        out.navigator_generation = Whole(state, "navigatorGeneration").value_or(0);
+        out.navigator_layout = Whole(state, "navigatorLayoutId").value_or(0);
+        // The speed may be negative (a ship making sternway): any finite number.
+        const auto speed = state.find("shipSpeedKnots");
+        out.speed = speed != state.end() && speed->is_number() && std::isfinite(speed->get<double>()) ? std::abs(speed->get<double>()) : -1.0;
+        out.wind = Amount(state, "windSpeed");
+        out.cannon_charge = Amount(state, "cannonCharge") < 0.0 ? -1.0 : std::min(1.0, Amount(state, "cannonCharge"));
+        out.date_time = Text(state, "dateTimeText").value_or("");
+        out.location = Text(state, "locationText").value_or("");
+        if (!Printable(out.date_time, 160, true) || !Printable(out.location, 160, true))
+            return "bad dateTimeText or locationText";
+        out.ammo = Text(state, "ammo").value_or("");
+        if (!out.ammo.empty() && !OneOf(out.ammo, {"balls", "grapes", "knippels", "bombs"}))
+            return "unknown ammo '" + out.ammo + "'";
+        out.ammo_count = Amount(state, "ammoCount");
+        out.ammo_low = Flag(state, "navigatorAmmoWarning").value_or(false);
+        out.powder_out = Flag(state, "navigatorPowderWarning").value_or(false);
+        const auto counts = state.find("ammoCounts");
+        if (counts != state.end() && counts->is_object())
+        {
+            const char *const kinds[] = {"balls", "grapes", "knippels", "bombs"};
+            for (size_t i = 0; i < std::size(kinds); ++i)
+                out.ammo_counts[i] = Amount(*counts, kinds[i]);
+        }
+        out.sail_state = Amount(state, "sailState") > 1.0 ? -1.0 : Amount(state, "sailState");
+        out.can_set_sails = Flag(state, "canSetSails").value_or(false);
+        out.known = true;
+        return {};
+    }
+};
+
+// null = the engine has no sea command menu now.
+class SeaOrdersConsumer final : public HudConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "seaOrders";
+    }
+
+  protected:
+    std::string Read(const Json &state, Hud &hud) override
+    {
+        if (state.is_null())
+        {
+            hud.Edit().sea_orders = SeaOrders();
+            return {};
+        }
+        SeaOrders next;
+        const std::string problem = Parse(state, next);
+        if (!problem.empty())
+        {
+            hud.Edit().sea_orders = SeaOrders();
+            return problem;
+        }
+        const SeaOrders &current = hud.Current().sea_orders;
+        if (current.known && (next.activity < current.activity ||
+                              (next.activity == current.activity &&
+                               (next.scene < current.scene || (next.scene == current.scene && next.revision < current.revision)))))
+            return {}; // late news of an older menu
+        hud.Edit().sea_orders = std::move(next);
+        return {};
+    }
+
+  private:
+    static std::string Parse(const Json &state, SeaOrders &out)
+    {
+        if (!state.is_object() || Whole(state, "schemaVersion") != uint64_t{1})
+            return "expected {schemaVersion: 1, …}";
+        const auto scene = Whole(state, "sceneEpoch"), revision = Whole(state, "revision"), activity = Whole(state, "activityGeneration");
+        const auto active = Flag(state, "active"), available = Flag(state, "available"), back = Flag(state, "canBack"),
+                   close = Flag(state, "canClose"), complete = Flag(state, "complete");
+        const auto stage = Text(state, "stage"), selected = Text(state, "selectedItemId"), title = Text(state, "pendingLabel"),
+                   recipient = Text(state, "recipientId");
+        const auto items = state.find("items"), recipients = state.find("recipients");
+        if (!scene || !revision || !activity || !active || !available || !back || !close || !complete || !stage || !selected || !title ||
+            !recipient || items == state.end() || !items->is_array() || recipients == state.end() || !recipients->is_array())
+            return "a required field is missing or mistyped";
+        if (!OneOf(*stage, {"commands", "options", "targets"}))
+            return "unknown stage '" + *stage + "'";
+        if (!Token(*selected, true) || !Token(*recipient, true) || !Printable(*title, 1024, true) || items->size() > 256 || recipients->size() > 32)
+            return "bad selectedItemId, recipientId, pendingLabel or list size";
+        std::set<std::string> ids;
+        for (const Json &source : *recipients)
+        {
+            SeaOrders::Recipient entry;
+            const auto id = source.is_object() ? Text(source, "id") : std::nullopt;
+            const auto name = source.is_object() ? Text(source, "name") : std::nullopt;
+            const auto entity = source.is_object() ? Text(source, "entityId") : std::nullopt;
+            const auto main = source.is_object() ? Flag(source, "main") : std::nullopt;
+            const auto character = source.is_object() ? source.find("characterIndex") : Json::const_iterator();
+            if (!id || !name || !entity || !main || character == source.end() || !character->is_number_integer())
+                return "a recipient lacks id, name, entityId, characterIndex or main";
+            if (!Token(*id, false) || !Token(*entity, true) || !Printable(*name, 512, false))
+                return "a recipient has a bad id, entityId or name";
+            if (!ids.insert(*id).second)
+                return "recipient id '" + *id + "' is listed twice";
+            entry.id = *id;
+            entry.name = *name;
+            entry.entity = *entity;
+            entry.character = character->get<int>();
+            entry.main = *main;
+            out.recipients.push_back(std::move(entry));
+        }
+        if (!recipient->empty() && !ids.count(*recipient))
+            return "recipientId names no recipient";
+        bool drawable = true;
+        int cancels = 0;
+        ids.clear();
+        for (const Json &source : *items)
+        {
+            SeaOrders::Item item;
+            const auto id = source.is_object() ? Text(source, "id") : std::nullopt;
+            const auto kind = source.is_object() ? Text(source, "kind") : std::nullopt;
+            const auto label = source.is_object() ? Text(source, "label") : std::nullopt;
+            const auto enabled = source.is_object() ? Flag(source, "enabled") : std::nullopt;
+            const auto cooldown = source.is_object() ? source.find("cooldown") : Json::const_iterator();
+            if (!id || !kind || !label || !enabled || cooldown == source.end() || !cooldown->is_number())
+                return "an item lacks id, kind, label, enabled or cooldown";
+            item.cooldown = cooldown->get<double>();
+            item.source = Text(source, "source").value_or("");
+            if (!Token(*id, false) || !Token(*kind, false) || !Printable(*label, 1024, false) || !Printable(item.source, 128, true) ||
+                !std::isfinite(item.cooldown) || item.cooldown < 0.0 || item.cooldown > 1.0)
+                return "an item has a bad id, kind, label, source or cooldown";
+            if (!ids.insert(*id).second)
+                return "item id '" + *id + "' is listed twice";
+            item.id = *id;
+            item.kind = *kind;
+            item.label = *label;
+            item.enabled = *enabled;
+            cancels += item.kind == "cancel" ? 1 : 0;
+            // A kind this runtime does not know cannot be drawn truthfully: the menu is then
+            // left to the engine as a whole.
+            drawable = drawable && OneOf(item.kind, {"command", "charge", "option", "ability", "ship", "fort", "land", "town", "cancel"});
+            out.items.push_back(std::move(item));
+        }
+        if (!selected->empty() && !ids.count(*selected))
+            return "selectedItemId names no item";
+        if (*active && (recipient->empty() || out.recipients.empty()))
+            return "an open menu without a recipient";
+        out.known = true;
+        out.scene = *scene;
+        out.revision = *revision;
+        out.activity = *activity;
+        out.active = *active;
+        out.available = *available;
+        out.can_back = *back;
+        out.can_close = *close;
+        out.stage = *stage;
+        out.recipient = *recipient;
+        out.title = *title;
+        out.selected = *selected;
+        out.complete = drawable && *complete && cancels <= 1 && (!out.active || (out.can_back && out.can_close));
+        return {};
+    }
+};
+
+class SeaQuickConsumer final : public HudConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "seaQuickAction";
+    }
+
+  protected:
+    std::string Read(const Json &state, Hud &hud) override
+    {
+        SeaQuick next;
+        const auto activity = state.is_object() ? Whole(state, "activity") : std::nullopt;
+        const auto revision = state.is_object() ? Whole(state, "revision") : std::nullopt;
+        const auto available = state.is_object() ? Flag(state, "available") : std::nullopt;
+        const auto action = state.is_object() ? Text(state, "action") : std::nullopt;
+        const auto label = state.is_object() ? Text(state, "label") : std::nullopt;
+        std::string problem;
+        if (!state.is_object() || Whole(state, "schemaVersion") != uint64_t{1} || !activity || !revision || !available || !action || !label)
+            problem = "expected {schemaVersion: 1, activity, revision, available, action, label}";
+        else if (*available && !OneOf(*action, {"Map", "Moor", "Board", "LandTroops", "Reload"}))
+            problem = "unknown sea quick action '" + *action + "'";
+        else if (*available && !Printable(*label, 1024, false))
+            problem = "a quick action without its caption";
+        if (!problem.empty())
+        {
+            hud.Edit().sea_quick = next;
+            return problem;
+        }
+        const SeaQuick &current = hud.Current().sea_quick;
+        if (current.known && (*activity < current.activity || (*activity == current.activity && *revision < current.revision)))
+            return {}; // late news of an older offer
+        next.known = true;
+        next.activity = *activity;
+        next.revision = *revision;
+        next.available = *available;
+        next.action = *available ? *action : std::string();
+        next.label = *available ? *label : std::string();
+        hud.Edit().sea_quick = std::move(next);
+        return {};
+    }
+};
+
+// The world map. A frame of an older revision of the same activity is not news.
+class WorldMapConsumer final : public HudConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "worldMap";
+    }
+
+  protected:
+    std::string Read(const Json &state, Hud &hud) override
+    {
+        WorldMap next;
+        const std::string problem = Parse(state, next);
+        if (!problem.empty())
+        {
+            hud.Edit().world_map = WorldMap();
+            return problem;
+        }
+        const WorldMap &current = hud.Current().world_map;
+        if (current.known && current.activity == next.activity && current.gameplay_revision == next.gameplay_revision && next.revision < current.revision)
+            return {};
+        hud.Edit().world_map = std::move(next);
+        return {};
+    }
+
+  private:
+    // A finite number in [low, high]; `fallback` when absent or null.
+    static std::optional<double> Number(const Json &object, const char *key, double low, double high, bool &bad)
+    {
+        const auto found = object.find(key);
+        if (found == object.end() || found->is_null())
+            return std::nullopt;
+        if (!found->is_number() || !std::isfinite(found->get<double>()) || found->get<double>() < low || found->get<double>() > high)
+        {
+            bad = true;
+            return std::nullopt;
+        }
+        return found->get<double>();
+    }
+
+    static std::string Parse(const Json &state, WorldMap &out)
+    {
+        if (!state.is_object())
+            return "expected an object, got " + std::string(state.type_name());
+        if (Whole(state, "schemaVersion") != uint64_t{1})
+            return "expected {schemaVersion: 1, …}";
+        const auto revision = Whole(state, "revision"), activity = Whole(state, "activity"), gameplay = Whole(state, "gameplayRevision"),
+                   mask = Whole(state, "mask");
+        const auto available = Flag(state, "available"), ready = Flag(state, "commandsReady"), ships = Flag(state, "shipsVisible"),
+                   instruments = Flag(state, "instrumentsVisible");
+        const auto date = Text(state, "date"), coordinates = Text(state, "coordinates");
+        const auto fleet = state.find("ships"), commands = state.find("commands");
+        if (!revision || !activity || !gameplay || !mask || !available || !ready || !ships || !instruments || !date || !coordinates ||
+            fleet == state.end() || !fleet->is_array() || commands == state.end() || !commands->is_array())
+            return "a required field is missing or mistyped";
+        if (*mask > 7 || fleet->size() > 8 || commands->size() > 6 || !Printable(*date, 160, true) || !Printable(*coordinates, 160, true))
+            return "bad mask, list size, date or coordinates";
+        bool bad = false;
+        const auto hour = Number(state, "hour", 0.0, 24.0, bad), force = Number(state, "windForce", 0.0, 1.0, bad),
+                   wind = Number(state, "windAngle", -7.0, 7.0, bad), heading = Number(state, "heading", -1e6, 1e6, bad),
+                   morale = Number(state, "morale", 0.0, 100.0, bad), speed = Number(state, "speed", 0.0, 1.0, bad),
+                   food = Number(state, "foodDays", 0.0, 1e9, bad), rum = Number(state, "rumDays", 0.0, 1e9, bad),
+                   flag = Number(state, "flag", 0.0, 4.0, bad), storm = Number(state, "stormState", 0.0, 2.0, bad);
+        if (bad)
+            return "an instrument value is out of range";
+        for (const Json &source : *fleet)
+        {
+            WorldMap::Vessel vessel;
+            const auto id = source.is_object() ? Text(source, "id") : std::nullopt;
+            const auto name = source.is_object() ? Text(source, "name") : std::nullopt;
+            if (!id || !name || !Printable(*id, 256, true) || !Printable(*name, 160, true))
+                return "a ship lacks id or name";
+            vessel.id = *id;
+            vessel.name = *name;
+            vessel.type = Text(source, "type").value_or("");
+            vessel.hull = Number(source, "hull", 0.0, 100.0, bad).value_or(-1.0);
+            if (bad || !Printable(vessel.type, 128, true))
+                return "a ship has a bad hull or type";
+            out.fleet.push_back(std::move(vessel));
+        }
+        std::set<std::string> ids;
+        for (const Json &source : *commands)
+        {
+            const auto id = source.is_object() ? Text(source, "id") : std::nullopt;
+            const auto label = source.is_object() ? Text(source, "label") : std::nullopt;
+            if (!id || !label || !OneOf(*id, {"EnterToSea", "EnterToIsland", "EnterToShip", "EnterToStorm", "EnterToAttack", "EnterToEnemy"}) ||
+                !Printable(*label, 160, false))
+                return "unknown or unlabelled command";
+            if (!ids.insert(*id).second)
+                return "command '" + *id + "' is listed twice";
+            out.commands.push_back({*id, *label});
+        }
+        out.known = true;
+        out.available = *available;
+        out.revision = *revision;
+        out.activity = *activity;
+        out.gameplay_revision = *gameplay;
+        out.mask = static_cast<unsigned>(*mask);
+        out.instruments = *instruments;
+        out.ships_visible = *ships;
+        out.commands_ready = *ready;
+        out.date = *date;
+        out.coordinates = *coordinates;
+        out.hour = hour.value_or(-1.0);
+        out.wind_force = force.value_or(-1.0);
+        out.morale = morale.value_or(-1.0);
+        out.speed = speed.value_or(-1.0);
+        out.angles = wind && heading;
+        out.wind_angle = wind.value_or(0.0);
+        out.heading = heading.value_or(0.0);
+        out.food_days = food ? static_cast<int>(*food) : -1;
+        out.rum_days = rum ? static_cast<int>(*rum) : -1;
+        out.flag = flag ? static_cast<int>(*flag) : -1;
+        out.storm = storm ? static_cast<int>(*storm) : -1;
+        return {};
+    }
+};
+
 class PresentationConsumer final : public HudConsumer
 {
   public:
@@ -485,6 +900,10 @@ void AddStateConsumers(std::vector<std::unique_ptr<screens::StateConsumer>> &con
     consumers.push_back(std::make_unique<WorldInfoConsumer>());
     consumers.push_back(std::make_unique<ContextActionConsumer>());
     consumers.push_back(std::make_unique<LandCommandsConsumer>());
+    consumers.push_back(std::make_unique<ShipConsumer>());
+    consumers.push_back(std::make_unique<SeaOrdersConsumer>());
+    consumers.push_back(std::make_unique<SeaQuickConsumer>());
+    consumers.push_back(std::make_unique<WorldMapConsumer>());
     consumers.push_back(std::make_unique<PresentationConsumer>());
 }
 

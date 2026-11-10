@@ -61,9 +61,12 @@ inline WorldMapFrame readWorldMapFrame(const GameplayState &gameplay, bool ready
     readWorldMapCommands(frame);
     // Respect the actual fast-action visibility as well as the command list.
     // Stock deliberately labels the island action EnterToSea in ILogAndActions.
-    if(worldMapHud.contextActionOwner!=frame.owner || frame.commands.size()!=1 ||
-        (worldMapHud.contextAction!=frame.commands.front().id &&
-         !(worldMapHud.contextAction=="EnterToSea"&&frame.commands.front().id=="EnterToIsland")))frame.commandsReady=false;
+    // An encounter offers several commands (attack, enter the storm, go to sea); the native
+    // fast action must be one of them.
+    const auto offered=[&](const std::string &id){return std::any_of(frame.commands.begin(),frame.commands.end(),
+        [&](const MapCommand &c){return c.id==id;});};
+    if(worldMapHud.contextActionOwner!=frame.owner || frame.commands.empty() ||
+        (!offered(worldMapHud.contextAction) && !(worldMapHud.contextAction=="EnterToSea"&&offered("EnterToIsland"))))frame.commandsReady=false;
     for(const auto *flag:{"wdmLockReload","questwdmLockReload"})
     {
         auto *v=static_cast<VDATA *>(core.GetScriptVariable(flag));int32_t locked=1;
