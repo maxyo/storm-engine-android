@@ -331,6 +331,9 @@ class XINTERFACE : public XINTERFACE_BASE
 
 #ifdef __ANDROID__
     void MobileCollectWidgets(std::vector<MobileWidget> &widgets);
+    std::string MobileNationScore(const std::string &nation) const;
+    void MobileNationPickFailed(const std::string &target) const;
+    std::string MobileNationFlags() const;
     void MobileCollectNations(std::vector<MobileWidget> &widgets);
     void MobileCollectShipyard(std::vector<MobileWidget> &widgets);
     bool MobileApplyShipyard(const std::string &node,int index,const std::string &value);
