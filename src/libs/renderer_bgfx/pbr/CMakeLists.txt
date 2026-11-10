@@ -25,7 +25,7 @@ file(GLOB pbr_shader_sources CONFIGURE_DEPENDS shaders/*.sc)
 list(FILTER pbr_shader_sources EXCLUDE REGEX "varying\\.def\\.sc$")
 storm_bgfx_embed_shaders(TARGET storm_pbr_shaders NAMESPACE storm_pbr_shaders
     VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${pbr_shader_sources}
-    INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/include")
+    INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/include" "${CMAKE_CURRENT_SOURCE_DIR}/../fx/shaders/include")
 add_library(storm_bgfx_pbr STATIC src/renderer.cpp)
 target_link_libraries(storm_bgfx_pbr PUBLIC storm_bgfx_pbr_core bgfx bx PRIVATE storm_pbr_shaders)
 set_target_properties(storm_bgfx_pbr PROPERTIES POSITION_INDEPENDENT_CODE ON)
