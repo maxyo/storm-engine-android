@@ -110,8 +110,9 @@ public:
     uint64_t revision() const { return revision_; }
     bool covered(uint32_t mask, uint64_t owner) const
     {
-        // Not answered yet by the presenting UI: the native parts stay off until it is.
-        const uint32_t replaced = hudPresenters.worldMap && answered_ != revision_ ? frame_.availableMask() : covered_;
+        // One coverage rule (android_hud_presenter.hpp): while the UI presents the world map HUD
+        // every native part is replaced; otherwise what the UI answered (no UI: nothing).
+        const uint32_t replaced = hudPresenters.worldMap ? 7u : covered_;
         const bool result=frame_.available && owner == frame_.owner && (replaced & frame_.availableMask() & mask) == mask;
         if(result&&drawing_&&drawnOwner_==this->owner())drawnMask_|=mask;
         return result;

@@ -159,8 +159,8 @@ static void CheckSailing()
     Expect(!Sent(mount, "seaquick:1\t5\t31\tactivate\tMoor"), "a quick action that was not drawn yet cannot be tapped");
     bench.Frame();
     Expect(Sent(mount, "shiphud:9\t2047\t3"), "the drawn elements replace the engine's indicators: hull, crew, sails, ammunition, fleet, speed, wind, date, place");
-    Expect(Count(mount, "hudowner:sea") == 1 && Count(mount, "hudowner:worldmap") == 1 && !Sent(mount, "hudowner:land"),
-           "the HUD declares once which engine HUDs it presents (the engine then keeps their unanswered revisions native-free)");
+    Expect(Count(mount, "hudowner:sea") == 1 && Count(mount, "hudowner:worldmap") == 1 && Count(mount, "hudowner:land") == 1,
+           "the HUD declares once which engine HUDs it presents (the engine then keeps their legacy HUD off)");
     Expect(mount.slots.back() == "seaquick-ack" && mount.Last() == "seaquick:1\t5\t31\tack\t1", "the drawn quick action is acknowledged: " + mount.Last());
     bench.Frame(0.1);
     bench.Frame(5.0);

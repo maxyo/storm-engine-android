@@ -73,11 +73,6 @@ bool BATTLE_NAVIGATOR::AndroidAvailable() const {
     return true;
 }
 
-bool BATTLE_NAVIGATOR::AndroidPresented() const {
-    using namespace storm::android;
-    return m_androidDrawn && seaNavigator.presented(shipTelemetry.revision(),shipTelemetry.hudRevision(),
-        m_navigatorGeneration,m_androidLayoutId);
-}
 
 bool BATTLE_NAVIGATOR::DrawAndroid() const {
     using namespace storm::android;

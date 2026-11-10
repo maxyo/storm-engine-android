@@ -31,7 +31,6 @@ class BATTLE_NAVIGATOR
     void Draw() const;
 #ifdef __ANDROID__
     bool AndroidDrawn() const { return m_androidDrawn; }
-    bool AndroidPresented() const;
     void ReadAndroidSpeeds(storm::android::ShipTelemetryFrame &frame, uint64_t mainShipId) const;
 #endif
     void Update();

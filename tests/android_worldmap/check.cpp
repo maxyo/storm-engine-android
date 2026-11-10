@@ -153,16 +153,17 @@ int main()
     h.update(complete(),513);
     auto json=h.json();assert(json.find("\"foodDays\":17")!=std::string::npos);assert(json.find("Adelina")!=std::string::npos);
     {
-        // A UI presenting the world map HUD: a revision it has not answered keeps the native
-        // instruments, fleet and command icon off, however slow its first frame; its word decides.
+        // One coverage rule: while the UI presents the world map HUD the native instruments, fleet
+        // and command icon are off, whatever the UI answered (or not yet).
         hudPresenters.worldMap=true;
         WorldMapHud p;p.update(complete(),10);p.resetActivity();
         auto word=[&](std::string mask){return std::to_string(p.revision())+"\t1\tack\t"+mask;};
-        assert(p.covered(7,19)&&!p.covered(7,20));
-        assert(p.offer(word("2"),60000)&&!p.covered(1,19)&&p.covered(2,19));
-        auto next=complete();next.instruments.flag.reset();p.update(next,60001);assert(p.covered(7,19)); // new revision: pending again
-        assert(p.offer(word("0"),60002)&&!p.covered(1,19));
+        assert(p.covered(7,19)&&!p.covered(7,20)&&p.awaiting());
+        assert(p.offer(word("2"),60000)&&p.covered(7,19)&&!p.awaiting());
+        auto next=complete();next.instruments.flag.reset();p.update(next,60001);assert(p.covered(7,19)&&p.awaiting());
+        assert(p.offer(word("0"),60002)&&p.covered(7,19));
         hudPresenters.worldMap=false;
+        assert(!p.covered(1,19)); // no presenting UI: its last word (nothing) stands
     }
     std::cout<<"PASS map coverage without a lease, presenter pending, command identity, one-shot dispatch, quest lock, release, activity and tick rollover\n";
 }

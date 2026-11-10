@@ -1,3 +1,6 @@
+#ifdef __ANDROID__
+#include <platform/android_hud_presenter.hpp>
+#endif
 #include "i_boarding_status.h"
 #include "entity.h"
 #include "core.h"
@@ -43,6 +46,10 @@ uint64_t IBoardingStatus::ProcessMessage(MESSAGE &message)
 
 void IBoardingStatus::Realize(uint32_t delta_time)
 {
+#ifdef __ANDROID__
+    // One coverage rule (android_hud_presenter.hpp): the touch HUD presents this mode.
+    if (storm::android::legacyDrawRefused("boarding status")) return;
+#endif
     if (rs == nullptr)
         return;
 

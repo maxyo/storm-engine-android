@@ -99,14 +99,6 @@ inline std::optional<int32_t> shipPowderCount(std::string_view text)
     if (!value || *value > std::numeric_limits<int32_t>::max() || std::floor(*value) != *value) return {};
     return static_cast<int32_t>(*value);
 }
-inline uint32_t shipCaptionMask(bool visible, bool commandActive, uint32_t mask)
-{
-    return visible && !commandActive ? mask : mask & ~ShipCaptions;
-}
-inline bool shipHideSpeedHeading(uint32_t mask)
-{
-    return (mask & (ShipSpeed | ShipWind)) == (ShipSpeed | ShipWind);
-}
 struct ShipMetric
 {
     double current, maximum;
@@ -209,7 +201,7 @@ class ShipTelemetryState
     ShipTelemetryFrame frame_;
     uint64_t revision_ = 0, sequence_ = 0, hudRevision_ = 0;
     uint64_t answered_ = 0; // the last HUD revision the UI answered with its mask
-    uint32_t acknowledged_ = 0, lastPublishedTick_ = 0;
+    uint32_t lastPublishedTick_ = 0;
     bool published_ = false, forcePublish_ = true;
     std::string lastPublished_;
     struct SailTarget { uint64_t revision; int detent; uint32_t tick; };
@@ -251,7 +243,6 @@ public:
         {
             revision_ = revision;
             ++hudRevision_;
-            acknowledged_ = 0;
             target_.reset();
             forcePublish_ = true;
         }
@@ -264,8 +255,8 @@ public:
                         frame_.fleet[i].entityId != frame.fleet[i].entityId) return false;
                 return true;
             };
-            // A ready ACK for an old list cannot hide a newly arrived ship before
-            // Java has rendered it. Ordinary changing HP values retain the ACK.
+            // Another fleet, main ship, availability or caption visibility is a new HUD revision
+            // for the UI to answer; ordinary changing HP values are not.
             const bool sameFleet = sameFleetIdentity();
             const bool sameMain = frame_.ship.entityId == frame.ship.entityId;
             if (!sameFleet || !sameMain || frame_.availableMask() != frame.availableMask() ||
@@ -273,46 +264,26 @@ public:
             {
                 ++hudRevision_;
                 forcePublish_ = true;
-                // Caption visibility/availability generations require a fresh render.
-                acknowledged_ &= ~ShipCaptions;
             }
-            if (!sameFleet) acknowledged_ &= ~ShipFleet;
-            if (!sameMain) { acknowledged_ = 0; target_.reset(); }
+            if (!sameMain) target_.reset();
             if (frame_.valid != frame.valid) forcePublish_ = true;
             frame_ = std::move(frame);
             ++sequence_;
         }
-        acknowledged_ &= frame_.availableMask();
-        if (!frame_.valid) { acknowledged_ = 0; target_.reset(); }
+        if (!frame_.valid) target_.reset();
     }
     const ShipTelemetryFrame &frame() const { return frame_; }
     uint64_t revision() const { return revision_; }
     uint64_t hudRevision() const { return hudRevision_; }
-    // The native indicators the touch HUD replaces. While the presenting UI has not answered
-    // this HUD revision yet (after a load, a new fleet), every available one stays off rather
-    // than flashing up until its slow first frame; the answer then returns what it leaves.
+    // The native indicators the touch HUD replaces: all of them while the UI presents the sea HUD
+    // (android_hud_presenter.hpp: one deterministic rule, no answer timing); otherwise none is
+    // replaced (no UI acknowledges anything then).
+    uint32_t mask() const { return hudPresenters.sea ? ShipAll : 0u; }
+    // A valid revision the UI has not answered yet (its silence watchdog, HudPresenters::watch).
     bool awaiting() const { return frame_.valid && answered_ != hudRevision_; }
-    uint32_t mask() const
-    {
-        if (hudPresenters.sea && hudPresenters.seaFresh) return ShipAll; // a new scene, before any owner: all of it
-        if (hudPresenters.sea && frame_.valid && answered_ != hudRevision_) return frame_.availableMask();
-        return acknowledged_ & frame_.availableMask();
-    }
-    // The native sea interface was shown or hidden by the game (BI_SET_VISIBLE: the telescope
-    // going down, a script). What the UI said about the old state does not cover the new one,
-    // so this is a new HUD revision: while a presenting UI has not answered it, the native parts
-    // stay off (mask() and the navigator's pending owner), with no frame of the native compass,
-    // date and readouts over the touch HUD. Called before the frame that would draw them.
-    void nativeVisibilityChanged()
-    {
-        ++hudRevision_;
-        acknowledged_ = 0;
-        forcePublish_ = true;
-    }
     void resetActivity()
     {
         ++hudRevision_;
-        acknowledged_ = 0;
         target_.reset();
         published_ = false;
         forcePublish_ = true;
@@ -327,9 +298,7 @@ public:
         const auto generation = std::from_chars(request.data() + lastTab + 1, request.data() + request.size(), hudRevision);
         if (!parsed || generation.ec != std::errc() || generation.ptr != request.data() + request.size() ||
             hudRevision != hudRevision_ || parsed->first != revision_ || parsed->second > ShipAll || !frame_.valid) return false;
-        acknowledged_ = parsed->second & frame_.availableMask();
         answered_ = hudRevision_;
-        hudPresenters.seaAnswered();
         return true;
     }
     bool offerSails(std::string_view request, uint32_t tick)

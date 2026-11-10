@@ -81,7 +81,6 @@ public:
             if (fields[4] != "0" && fields[4] != "1") return false;
             covered_ = fields[4] == "1" && valid();
             answered_ = revision_;
-            hudPresenters.seaAnswered();
             if (!covered_) pending_ = false;
             return fields[4] == "0" || covered_;
         }
@@ -91,11 +90,11 @@ public:
         pendingAt_ = tick;
         return true;
     }
-    // The native icon is hidden under a touch control drawn for this revision, and while the
-    // presenting UI has not answered it yet, however slow its frame.
+    // The native icon is off whenever the UI presents the sea HUD (one rule,
+    // android_hud_presenter.hpp); a tap is accepted only for a drawn control (covered_).
     bool covered(uint64_t host) const
     {
-        return valid() && frame_.host == host && (covered_ || (hudPresenters.sea && (hudPresenters.seaFresh || answered_ != revision_)));
+        return valid() && frame_.host == host && (covered_ || hudPresenters.sea);
     }
     // A valid offer the UI has not answered yet (for HudPresenters::watch).
     bool awaiting() const { return valid() && answered_ != revision_; }

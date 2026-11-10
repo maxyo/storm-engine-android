@@ -930,7 +930,7 @@ int main(int argc, char *argv[])
                 // silent is withdrawn loudly and the native HUD parts come back (android_hud_presenter.hpp).
                 using namespace storm::android;
                 const auto &telemetry = shipTelemetry;
-                const bool seaWaiting = gameplayReady && (hudPresenters.seaFresh || seaQuickAction.awaiting() || telemetry.awaiting() ||
+                const bool seaWaiting = gameplayReady && (seaQuickAction.awaiting() || telemetry.awaiting() ||
                     (telemetry.frame().valid && seaNavigator.pending(telemetry.revision(), telemetry.hudRevision(), telemetry.frame().navigatorGeneration)));
                 for (const auto &line : {hudPresenters.watch("sea", seaWaiting, SDL_GetTicks()),
                                          hudPresenters.watch("worldmap", gameplayReady && worldMapHud.awaiting(), SDL_GetTicks()),

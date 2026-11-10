@@ -329,8 +329,7 @@ struct SceneEntry
     std::span<const char *const> modes; // gameplay modes it draws
     std::unique_ptr<Scene> (*create)(Hud &);
     // The engine's name for this HUD in "hudowner:<name>", said once when the HUD starts: the
-    // engine then keeps the native parts it replaces off while a revision is unanswered.
-    // nullptr: the scene only answers revisions it was asked about (the land sheet).
+    // engine then keeps that HUD's legacy rendering off (android_hud_presenter.hpp).
     const char *presents = nullptr;
 };
 // The migration switch of the HUD (scenes.cpp): gameplay modes whose HUD is drawn here.

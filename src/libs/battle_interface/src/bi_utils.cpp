@@ -399,7 +399,6 @@ BILinesInfo::~BILinesInfo()
 void BILinesInfo::Release()
 {
     lines.clear();
-    sourceNames.clear();
 }
 
 void BILinesInfo::Init(VDX9RENDER *rs, ATTRIBUTES *pA)
@@ -415,7 +414,6 @@ void BILinesInfo::Init(VDX9RENDER *rs, ATTRIBUTES *pA)
         if (!pAttr)
             break;
 
-        sourceNames.emplace_back(pAttr->GetThisName());
         // int32_t bi = lines.Add();
         // int32_t ei = lines.Add();
         lines.push_back(RS_LINE2D{});
@@ -449,15 +447,8 @@ void BILinesInfo::Init(VDX9RENDER *rs, ATTRIBUTES *pA)
     }
 }
 
-void BILinesInfo::Draw(bool navigatorReplaced)
+void BILinesInfo::Draw()
 {
-    if(navigatorReplaced) {
-        for(size_t i=0;i<sourceNames.size();++i) {
-            if(storm::iEquals(sourceNames[i],"Speed")||storm::iEquals(sourceNames[i],"Ammo"))continue;
-            pRS->DrawLines2D(lines.data()+i*2,1,"Line");
-        }
-        return;
-    }
     pRS->DrawLines2D(std::data(lines), lines.size() / 2, "Line");
 }
 
