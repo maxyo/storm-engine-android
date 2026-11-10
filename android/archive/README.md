@@ -40,10 +40,13 @@ Load: `System.loadLibrary("storm_archive")`.
 ```java
 static native String[] inspect(String localInputPath);
 static native String[] manifest(String localInputPath);
-static native String[] extract(String localInputPath, String emptyPrivateStaging,
-                               long[] limitsOrNull, Progress callbackOrNull);
+static native String[] discover(String source, String emptyScratch, String passwordOrNull,
+                                long[] limits, Progress callbackOrNull);
+static native String[] extractRoot(String source, String scratch, String passwordOrNull,
+                                   String rootId, String emptyPrivateStaging,
+                                   long[] limits, Progress callbackOrNull);
 interface Progress {
-    boolean onProgress(String path, long expandedBytes, long filesCreated);
+    boolean onProgress(int stage, String path, long bytes, long totalBytes, long filesCreated);
 }
 ```
 
@@ -51,11 +54,14 @@ All calls are synchronous and belong on a worker thread. The callback runs on
 that same thread and returns **true to cancel**. It may fire while reading or
 skipping compressed data, including with an empty path. `filesCreated` counts
 opened output files, not completed/checksummed files. Successful completion is
-only status 0 from `extract`.
+only status 0 from `extractRoot`.
 
-Results are `[decimalStatus, format, error]`; `manifest` adds a fourth JSON
-string. Inspect only identifies the container; use **manifest** for the source
-preview and structural game check. C consumers use `storm_archive.h`.
+Results are `[decimalStatus, format, error]`; `manifest`, `discover` and
+`extractRoot` add a fourth JSON string. Inspect only identifies the container;
+**manifest** previews one installer without its volumes (the torrent library
+uses it to fetch `setup.exe` first). Imports use **discover** and
+**extractRoot** (below). C consumers use `storm_archive.h`; the single-container
+C call `storm_archive_extract` remains for C users and the regression tests.
 
 | Status | Meaning |
 |---|---|
@@ -69,6 +75,7 @@ preview and structural game check. C consumers use `storm_archive.h`.
 | 7 | Cancelled |
 | 8 | Missing Inno sibling volume |
 | 9 | Required game structure missing |
+| 10 | Not enough free storage (JSON says how much is needed) |
 
 The optional limits array contains `[totalBytes, fileBytes, entries, seconds]`.
 Defaults are 32 GiB, 4 GiB, 200000, and 3600. JNI converts ordinary UTF-8 to/from
@@ -123,8 +130,9 @@ selected source documents first. Keep each source set in its own directory.
   installer packers are not advertised as supported. In particular, Microsoft
   CAB and InstallShield CAB are different formats. No installer is run as a
   fallback.
-* Nested archive recursion is disabled (depth zero). An archive containing only
-  another installer/archive is not a game-data archive.
+* The legacy single-container calls (`manifest`, `storm_archive_extract`) do
+  not recurse and require one game root. Source discovery (next section) reads
+  nested containers, multi-volume sets and several game roots.
 
 The output whitelist is a single `RESOURCE/`, `PROGRAM/`, `engine.ini`, and
 `options` root; packaging wrappers such as `app/` are removed. Other files are
@@ -162,6 +170,83 @@ allocations and no separate OS resources. Time/cancellation is checked at
 archive reads and extraction blocks; metadata parsing itself is bounded by its
 size limits.
 
+## Source discovery and explicit root selection
+
+`discover(source, scratch, password, limits, progress)` finds **every complete
+game root** (a folder holding `engine.ini`, `PROGRAM/` and `RESOURCE/`, ASCII
+case-insensitive) in a private source and returns
+`[status, "", error, json]`. `source` is a directory (copied picker documents,
+searched recursively) or one file in a directory (only that file and its own
+volumes are read; the torrent library passes the chosen archive). Inside it:
+
+* loose game folders (`kind:"folder"`);
+* ZIP/7z/RAR/tar(.gz/.bz2/.xz)/CAB/ISO archives (`kind:"archive"`), recognised by
+  signature, also when renamed;
+* Inno Setup installers (`kind:"inno"`) with their standard sibling volumes;
+  metadata only, missing volumes make the root `ready:false` and are named;
+* multi-volume archives: raw byte-split sets (`game.7z.001`, `.002`, ...), RAR
+  `game.part1.rar`... and `game.rar` + `game.r00`...; a gap is named, a set that
+  ends early names the next part. Split ZIP (`.z01`) is reported as unsupported;
+* containers inside containers, up to `maxDepth` (1..3, default 3) levels below
+  the source. Their members are written to `scratch/<n>/<member path>` and read
+  like a source folder, so an installer with its `.bin` files inside a ZIP, an
+  installer inside an archive inside an archive, or a split set inside an
+  archive all work. Members inside a found game root (its executables, DLLs)
+  and game data are never treated as containers. Data inside an Inno payload is
+  not searched for further containers.
+
+Each root is a separate candidate; roots are never merged. JSON version 2:
+
+```json
+{"version":2,
+ "candidates":[{"id":"…","kind":"archive","format":"zip","location":["download.zip","repack.7z"],
+   "root":"Game/","title":"Корсары: Каждому Свое","version":"ver. 1.7.3 (26.11.21) x64",
+   "languages":["english","russian"],"default_language":"russian","file_count":46418,
+   "unpacked_bytes":12734518486,"patch_markers":["Patch_1.3_readme.txt"],
+   "ready":true,"missing_volumes":[]}],
+ "issues":[{"location":["menu.exe"],"status":3,"error":"…","missing_volumes":[]}],
+ "partial_roots":[{"location":["half.zip"],"root":"Game/","has_engine_ini":false,
+   "has_program":true,"has_resource":true}],
+ "scratch_bytes":3624000000}
+```
+
+Metadata is read where it is cheap: title/version from `PROGRAM/_LSC_on_off.h`
+(`VERSION_NUMBER1/2`, Windows-1251 converted), default language from
+`RESOURCE/INI/texts/language.ini`, for folders and ZIP/ISO/CAB; installers give
+their header name/version. Languages are the `RESOURCE/INI/texts/<language>/`
+folders; `patch_markers` are root-level files named like patches/updates. An
+unreadable child is an `issue` (status, error, missing volumes) and healthy
+siblings stay available; `partial_roots` explain incomplete copies.
+`file_count`/`unpacked_bytes` are exactly what `extractRoot` writes.
+
+`extractRoot(source, scratch, password, id, staging, ...)` writes exactly the
+root named by the opaque `id` (from the same source and scratch) into an empty
+staging directory, under the canonical names `RESOURCE/`, `PROGRAM/`,
+`engine.ini`, `options`. Files of other roots and wrappers are skipped. A source
+that changed since discovery fails (status 5 or 8). The caller deletes scratch
+afterwards and discards a failed staging directory.
+
+Limits (`long[8]`, all positive):
+`[totalBytes, fileBytes, entries, seconds, scratchBytes, maxDepth, maxRatio, reserveBytes]`;
+defaults 64 GiB, 4 GiB, 400000, 3600, 32 GiB, 3, 100, 64 MiB. Bytes and entries
+count everything one call decodes or lists. **Bomb guard:** declared sizes of
+an archive and the bytes actually decoded from one container (archive or
+installer with its volumes) may not exceed `maxRatio` times its input size plus
+1 MiB. **Free space:** before each nested container is written and before
+extraction starts, free space must cover the data plus `reserveBytes`; writes
+re-check every 16 MiB and `ENOSPC` becomes status 10. Status 10 returns
+`{"no_space":{"step":"nested"|"install","needed_bytes":N,"available_bytes":M}}`.
+
+**Passwords:** an encrypted container returns status 4 with
+`{"encrypted":{"location":[…],"password_supported":bool,"password_given":bool}}`.
+Only ZIP traditional (ZipCrypto) encryption can be opened (no crypto library is
+linked): pass the password to both calls. 7z/RAR/AES-ZIP/Inno encryption is
+`password_supported:false`. A wrong ZIP password is reported as status 4 when
+data is first decrypted (discovery reads metadata files; otherwise extraction).
+
+Status 6 (limit, bomb, memory, time), 7 (cancelled) and 10 (space) end the
+call; other container failures become issues.
+
 ## Verification
 
 ```sh
@@ -176,6 +261,27 @@ expects 46418 selected files and 12734518486 bytes; no game assets are included
 in tests or Git. Synthetic tests exercise extraction, checksums, truncation,
 encryption, path/link attacks, collisions, byte/count limits and cancellation.
 
+Discovery and nested extraction (host library built with
+`-DSTORM_ARCHIVE_TESTING=ON`, which adds simulated free space):
+
+```sh
+python3 android/archive/tests/test_discovery.py \
+  --library /absolute/build/reader/libstorm_archive.so \
+  [--libarchive-tests /absolute/sources/libarchive-3.8.10/libarchive/test] \
+  [--inno-installer /absolute/setup.exe] -v
+```
+
+Fixtures are generated in the test: wrapped and case-distinct roots, two copies
+in one archive, loose folder beside an archive, three-level nesting (zip › 7z ›
+zip) and the depth limit, tar.gz in ZIP, raw split sets with missing middle/last
+parts, single-file sources, declared and nested bombs, ZIP passwords (right,
+wrong, at extraction), unsupported 7z header encryption, no space for nested
+data and for installation, orphan Inno volumes, unsupported/split-ZIP/foreign
+executables, partial roots, unsafe members, staged progress and cancellation,
+scratch rules and changed sources. libarchive's own RAR multi-volume fixtures
+check volume switching and a missing part; the optional real installer checks an
+installer inside a ZIP without its volumes.
+
 Allocation-failure regression (host-only controls are prohibited in Android
 builds):
 
@@ -187,8 +293,9 @@ python3 android/archive/tests/test_oom.py \
   --report /absolute/local-testing/archive-oom.json
 ```
 
-Every C allocation position for ZIP/gzip/7z inspect, manifest, extract and
-cancellation runs in an isolated subprocess with single and persistent failures,
+Every C allocation position for ZIP/gzip/7z inspect, manifest, extract,
+cancellation and source discovery (also of a ZIP nested in a ZIP, written to
+scratch) runs in an isolated subprocess with single and persistent failures,
 three repeated failed calls, quota accounting, and a subsequent successful call.
 Optional `--inno-installer /absolute/setup.exe` extends this to the reference Inno
 metadata and decoder cancellation after 1 MiB; it never extracts the full game.
@@ -196,7 +303,7 @@ The fault controls affect this library's private C allocator, not the JVM or
 platform loader. Platform process termination before entering the library (for
 example a dynamic loader unable to initialize TLS) is outside this API boundary.
 
-For host JNI encoding and callback verification:
+For host JNI encoding, staged callbacks, discovery and root extraction:
 
 ```sh
 cmake -S android/archive -B /absolute/build/reader -DSTORM_ARCHIVE_HOST_JNI=ON
