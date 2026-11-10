@@ -697,7 +697,10 @@
     }
    ],
    "actions": [],
-   "cells": []
+   "cells": [],
+   "context": {
+    "score": "5"
+   }
   },
   {
    "node": "ANDROID_NATION_REPUTATION",
@@ -722,7 +725,10 @@
     }
    ],
    "actions": [],
-   "cells": []
+   "cells": [],
+   "context": {
+    "score": "35"
+   }
   },
   {
    "node": "ANDROID_NATION_REPUTATION",
@@ -747,7 +753,10 @@
     }
    ],
    "actions": [],
-   "cells": []
+   "cells": [],
+   "context": {
+    "score": "-40"
+   }
   },
   {
    "node": "ANDROID_NATION_REPUTATION",
@@ -772,7 +781,10 @@
     }
    ],
    "actions": [],
-   "cells": []
+   "cells": [],
+   "context": {
+    "score": "5"
+   }
   },
   {
    "node": "FlagPic",
@@ -1099,7 +1111,10 @@
    "actions": [
     "press"
    ],
-   "cells": []
+   "cells": [],
+   "context": {
+    "flags": "England=0,France=1,Spain=0,Holland=0,Pirate=1"
+   }
   },
   {
    "node": "LEFTCHANGE_NATION",
@@ -1125,7 +1140,8 @@
    "rowId": "",
    "images": [],
    "actions": [
-    "nation@6:2:press"
+    "nation@6:2:press",
+    "nation@6:2:pick"
    ],
    "cells": []
   },

@@ -22,6 +22,7 @@ struct XINTERFACE {
  std::string m_mobileNationSignature;uint64_t m_mobileNationGeneration=0;
  CINODE *FindNode(const char *name,void*){for(auto *n=m_pNodes;n;n=n->m_next)if(storm::iEquals(n->name,name))return n;return nullptr;}
  void MobileCollectShipyard(std::vector<MobileWidget>&){}
+ std::string MobileNationScore(const std::string &n) const{return n=="Spa"?"-40":"5";}int pickFailed=0;std::string MobileNationFlags() const{return "England=0,France=1,Spain=1,Holland=0,Pirate=1";}void MobileNationPickFailed(const std::string&){++pickFailed;}
  void SetCurNode(CINODE*){}void MobileCollectWidgets(std::vector<MobileWidget>&);void MobileCollectNations(std::vector<MobileWidget>&);
  struct Action {std::string screen="nationrelation",node,value;int index=-1;};
  void apply(Action action){for(int once=0;once<1;once++){auto *node=FindNode(action.node.c_str(),nullptr);if(!node)continue;
@@ -54,5 +55,11 @@ int main(){
  token=control("FLAGS").actions[0];nodes[6].m_nDoDelay=150;xi.apply({"nationrelation","FLAGS",token,-1});assert(nodes[6].fired==1);nodes[6].m_nDoDelay=0;
  token=control("INFO_CLICK",-2).actions[0];xi.apply({"nationrelation","INFO_CLICK",token,-2});assert(nodes[9].fired==1&&nodes[9].code==ACTION_MOUSERCLICK);
  token=control("FlagPic",-2).actions[0];nodes[5].m_bLockedNode=true;xi.apply({"nationrelation","FlagPic",token,-2});assert(nodes[5].fired==0);
- std::cout<<"PASS actual collection and native dispatch: source/candidate/epoch updates revoke, disabled/locked/delayed deny, single-use tokens, exact right-click help\n";
+ assert(control("FlagPic").context.at("flags")=="England=0,France=1,Spain=1,Holland=0,Pirate=1");
+ {auto v=snapshot();int scored=0;for(auto &w:v)if(w.type=="nation_reputation"){assert(w.context.count("score"));scored+=w.context.at("score")=="-40";}assert(scored==1);}
+ nodes[5].m_bLockedNode=false;auto right=control("RIGHTCHANGE_NATION");auto pick=right.actions.back();assert(pick.size()>5&&pick.compare(pick.size()-5,5,":pick")==0);
+ xi.apply({"nationrelation","RIGHTCHANGE_NATION",pick+"=Pirate",-1});assert(nodes[8].fired==0&&xi.pickFailed==0); // already the candidate
+ pick=control("RIGHTCHANGE_NATION").actions.back();xi.apply({"nationrelation","RIGHTCHANGE_NATION",pick+"=Spain",-1});assert(nodes[8].fired==8&&xi.pickFailed==1); // bounded, reported
+ xi.apply({"nationrelation","RIGHTCHANGE_NATION",pick+"=Spain",-1});assert(nodes[8].fired==8); // single use
+ std::cout<<"PASS actual collection and native dispatch: source/candidate/epoch updates revoke, disabled/locked/delayed deny, single-use tokens, exact right-click help, reputation scores, bounded flag pick\n";
 }

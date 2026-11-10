@@ -889,15 +889,22 @@ static void Nations(const std::string &models)
                view["rows"][0]["cells"][2]["icon"] == "rel-war" && view["rows"][1]["cells"][3]["icon"] == "rel-ally",
            "relation pictures become the legend glyphs");
     Expect(view["columns"][4]["image"]["icon"] == "nation-pirates" && view["rows"][1]["image"]["icon"] == "nation-france", "our flags for the nations");
-    Expect(view["flag"]["label"] == "France" && view["apply"]["disabled"] == true && view["prev"] == true && view["next"] == true,
-           "the candidate flag, the arrows offered, «change flag» not offered");
+    Expect(view["flag"]["label"] == "France" && view["apply"]["disabled"] == true && view["flagsDisabled"] == false &&
+               view["flags"].size() == 5 && view["flags"][1]["selected"] == true && view["flags"][1]["id"] == "France" &&
+               view["flags"][4]["icon"] == "nation-pirates" && view["flags"][4]["disabled"] == false && view["flags"][2]["disabled"] == true,
+           "five flags to pick, the candidate selected, «change flag» not offered");
+    Expect(view["reputation"][1]["bar"] == 67 && view["reputation"][1]["tone"] == "ok" && view["reputation"][2]["bar"] == 30 &&
+               view["reputation"][2]["tone"] == "danger" && view["reputation"][0]["tone"] == "",
+           "reputation numbers become bars (-100 … 100) with a tone");
     Expect(view["help"].is_null() && view["helpFlag"] == true && view["helpReputation"] == true, "help offered, not open");
     Expect(view["extras"]["rows"].empty() && view["extras"]["note"] == "", "every widget is known: no extras");
     ExpectEqual(view["title"].get<std::string>(), "Relations", "the game's title, trimmed");
 
-    router.OnEvent({"flag-next", "click", ""});
-    ExpectEqual(surface.Last(), "widget:nationrelation\tRIGHTCHANGE_NATION\t-1\tnation@6:2:press", "› sends its capability");
-    router.OnEvent({"flag-prev", "click", ""});
+    router.OnEvent({"flags", "pick", "France"});
+    Expect(surface.commands.empty(), "picking the candidate again sends nothing");
+    router.OnEvent({"flags", "pick", "Pirate"});
+    ExpectEqual(surface.Last(), "widget:nationrelation\tRIGHTCHANGE_NATION\t-1\tnation@6:2:pick=Pirate", "a flag is picked directly");
+    router.OnEvent({"flags", "pick", "France"});
     Expect(surface.commands.size() == 1, "one capability per revision: the engine consumed this generation");
     InterfaceModel next = model;
     next.revision += 1;
@@ -906,8 +913,10 @@ static void Nations(const std::string &models)
             if (action.rfind("nation@6:2:", 0) == 0)
                 action.replace(0, 11, "nation@6:3:");
     router.SetInterface(next);
-    router.OnEvent({"flag-prev", "click", ""});
-    ExpectEqual(surface.Last(), "widget:nationrelation\tLEFTCHANGE_NATION\t-1\tnation@6:3:press", "‹ in the next revision");
+    router.OnEvent({"flags", "pick", "Spain"});
+    Expect(surface.commands.size() == 1, "a flag the hero may not raise is not picked");
+    router.OnEvent({"flags", "pick", "Pirate"});
+    ExpectEqual(surface.Last(), "widget:nationrelation\tRIGHTCHANGE_NATION\t-1\tnation@6:3:pick=Pirate", "the next pick in the next revision");
     next.revision += 1;
     router.SetInterface(next);
     router.OnEvent({"help-flag", "click", ""});
