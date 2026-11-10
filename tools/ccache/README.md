@@ -37,6 +37,9 @@ instead of a cold compile.
   `__FILE__` and the debug-info file names are relative (`../../src/...`) and identical in all
   worktrees, so they do not break hits. `DW_AT_comp_dir` of a hit names the worktree that
   first compiled it; symbolication (addr2line, symbol upload) is unaffected.
+- Never put absolute paths into compile definitions (`-DX="/abs/path"`): ccache does not
+  rewrite them, so every worktree misses. Generate a header into a build include directory and
+  include it by name, as `src/libs/diagnostics/include/watermark.hpp` does.
 - Cross-worktree hits need **the same build directory depth** in the worktree (relative paths
   must match): `build/<name>` everywhere, or the script defaults (`build/android-ci/<name>`).
 - Pinned FetchContent sources (bgfx with its patches, etcpak, glm, RmlUi, FreeType, lunasvg,
