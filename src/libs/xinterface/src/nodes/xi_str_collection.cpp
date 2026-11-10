@@ -436,9 +436,13 @@ void CXI_STRCOLLECTION::MobileCollect(std::vector<MobileWidget> &widgets) const
     for (int i = 0; i < m_nStr; ++i)
     {
         const auto &entry = m_pStrDescr[i];
-        const char *text = entry.strNum >= 0 ? pStringService->GetString(entry.strNum) : entry.strStr;
-        if (text && *text) widgets.push_back({m_nodeName, "text", text, "", i,
-                                            entry.scrPos.y * 8192 + entry.scrPos.x});
+        // As drawn: a raw string first (strings added at run time keep strNum 0), else the
+        // string resource. The script's id of a string added at run time goes as rowId.
+        const char *text = entry.strStr ? entry.strStr : entry.strNum >= 0 ? pStringService->GetString(entry.strNum) : nullptr;
+        if (!text || !*text) continue;
+        MobileWidget widget{m_nodeName, "text", text, "", i, entry.scrPos.y * 8192 + entry.scrPos.x};
+        if (entry.strID) widget.rowId = entry.strID;
+        widgets.push_back(std::move(widget));
     }
 }
 

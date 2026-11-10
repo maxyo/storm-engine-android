@@ -23,6 +23,13 @@ std::unique_ptr<Screen> CreateSettingsScreen();
 std::unique_ptr<StateConsumer> CreateAppSettingsConsumer();
 std::unique_ptr<Screen> CreateTitleScreen();
 std::unique_ptr<Screen> CreateNewGameScreen();
+std::unique_ptr<Screen> CreateDiceScreen();
+std::unique_ptr<Screen> CreateCardsScreen();
+std::unique_ptr<Screen> CreateRepairScreen();
+std::unique_ptr<Screen> CreateTransferScreen();
+std::unique_ptr<Screen> CreateAlchemyScreen();
+std::unique_ptr<Screen> CreateGoodsOrderScreen();
+std::unique_ptr<Screen> CreateSailEmblemScreen();
 std::unique_ptr<Screen> CreateGameOverScreen();
 std::unique_ptr<StateConsumer> CreateGameOverConsumer();
 std::unique_ptr<Screen> CreateNationsScreen();
@@ -46,6 +53,8 @@ namespace
 {
 
 const ScreenEntry kPorted[] = {
+    {"goodstransfer", CreateGoodsOrderScreen},
+    {"sailsgerald", CreateSailEmblemScreen},
     {"store", CreateStoreScreen},
     {"storage", CreateStorageScreen},
     {"contraband", CreateContrabandScreen},
@@ -60,6 +69,11 @@ const ScreenEntry kPorted[] = {
     {"option_screen", CreateSettingsScreen},
     {"mainmenu", CreateTitleScreen},
     {"selectcharacter", CreateNewGameScreen},
+    {"boal_dice", CreateDiceScreen},
+    {"boal_cards", CreateCardsScreen},
+    {"repair", CreateRepairScreen},
+    {"transfer_main", CreateTransferScreen},
+    {"alchemy", CreateAlchemyScreen},
     {"game_over", CreateGameOverScreen}, // state channel gameOver, not a game interface
     {"nationrelation", CreateNationsScreen},
     {"map", CreateMapEncounterScreen},
@@ -108,7 +122,7 @@ std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()
     consumers.push_back(CreateAppSettingsConsumer());
     consumers.push_back(CreateGameOverConsumer());
     consumers.push_back(CreateLauncherConsumer());
-    hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, ship, seaOrders, seaQuickAction, presentation
+    hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, ship, seaOrders, seaQuickAction, presentation, spyglass
     return consumers;
 }
 

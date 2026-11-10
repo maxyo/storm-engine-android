@@ -1,0 +1,400 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 2,
+ "screenRevision": 5,
+ "screen": "goodstransfer",
+ "widgets": [
+  {
+   "node": "EXIT_BTN",
+   "type": "button",
+   "label": "EXIT_BTN",
+   "value": "",
+   "index": -1,
+   "order": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MAIN_BACK",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "",
+      "image": ""
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_GOODS_ORDER",
+   "type": "choice",
+   "label": "Ядра",
+   "value": "0",
+   "index": 0,
+   "order": 1000,
+   "enabled": false,
+   "rowId": "Balls",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "Balls"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "order": "600",
+    "hold": "400"
+   }
+  },
+  {
+   "node": "ANDROID_GOODS_ORDER",
+   "type": "choice",
+   "label": "Провиант",
+   "value": "0",
+   "index": 1,
+   "order": 1001,
+   "enabled": false,
+   "rowId": "Food",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "Food"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "order": "200",
+    "hold": "160"
+   }
+  },
+  {
+   "node": "ANDROID_GOODS_ORDER",
+   "type": "choice",
+   "label": "Ром",
+   "value": "0",
+   "index": 2,
+   "order": 1002,
+   "enabled": false,
+   "rowId": "Rum",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "Rum"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "order": "100",
+    "hold": "60"
+   }
+  },
+  {
+   "node": "ANDROID_GOODS_ORDER",
+   "type": "choice",
+   "label": "Порох",
+   "value": "1",
+   "index": 3,
+   "order": 1003,
+   "enabled": false,
+   "rowId": "Powder",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "Powder"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "order": "400",
+    "hold": "300"
+   }
+  },
+  {
+   "node": "ANDROID_GOODS_ORDER",
+   "type": "choice",
+   "label": "Доски",
+   "value": "0",
+   "index": 4,
+   "order": 1004,
+   "enabled": false,
+   "rowId": "Planks",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "Planks"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "order": "0"
+   }
+  },
+  {
+   "node": "ANDROID_GOODS_ORDER",
+   "type": "choice",
+   "label": "Парусина",
+   "value": "0",
+   "index": 5,
+   "order": 1005,
+   "enabled": false,
+   "rowId": "Sailcloth",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "Sailcloth"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "order": "0",
+    "hold": "12"
+   }
+  },
+  {
+   "node": "ANDROID_GOODS_SHIP",
+   "type": "text",
+   "label": "Люггер 'Ласточка'",
+   "value": "",
+   "index": -1,
+   "order": 999,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "index": "0",
+    "count": "2"
+   }
+  },
+  {
+   "node": "CHECK_BUYCONTRABAND",
+   "type": "check",
+   "label": "Закупать контрабанду",
+   "value": "0",
+   "index": 0,
+   "order": 5000,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "BTN_CHOOSESHIP_LEFT",
+   "type": "button",
+   "label": "BTN_CHOOSESHIP_LEFT",
+   "value": "",
+   "index": -1,
+   "order": 6000,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "BTN_CHOOSESHIP_RIGHT",
+   "type": "button",
+   "label": "BTN_CHOOSESHIP_RIGHT",
+   "value": "",
+   "index": -1,
+   "order": 6001,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TG_GOODS_CAPTION",
+   "type": "text",
+   "label": "Закупка товаров",
+   "value": "",
+   "index": -1,
+   "order": 7000,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TG_GOODS_INFO",
+   "type": "text",
+   "label": "Порох.",
+   "value": "",
+   "index": -1,
+   "order": 7001,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TG_EDIT",
+   "type": "edit",
+   "label": "",
+   "value": "400",
+   "index": -1,
+   "order": 7002,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TG_ADD_BUTTON",
+   "type": "button",
+   "label": "TG_ADD_BUTTON",
+   "value": "",
+   "index": -1,
+   "order": 7003,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TG_REMOVE_BUTTON",
+   "type": "button",
+   "label": "TG_REMOVE_BUTTON",
+   "value": "",
+   "index": -1,
+   "order": 7004,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TG_OK_BUTTON",
+   "type": "button",
+   "label": "Ok",
+   "value": "",
+   "index": -1,
+   "order": 7005,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TG_CANCEL_BUTTON",
+   "type": "button",
+   "label": "Отмена",
+   "value": "",
+   "index": -1,
+   "order": 7006,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TG_GOODS_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 7007,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "Powder"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}

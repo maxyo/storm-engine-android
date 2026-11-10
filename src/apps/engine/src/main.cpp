@@ -636,6 +636,10 @@ int main(int argc, char *argv[])
             {
                 storm::android::landCommands.offer(std::string_view(command).substr(13), SDL_GetTicks());
             }
+            else if (command.starts_with("spyglass:"))
+            {
+                storm::android::spyglass.acknowledge(std::string_view(command).substr(9), SDL_GetTicks());
+            }
             else if (command.starts_with("hold:"))
             {
                 storm::android::heldControls.offer(std::string_view(command).substr(5), SDL_GetTicks(), combatDrainEpoch);
