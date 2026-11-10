@@ -24,9 +24,6 @@ FetchContent_Declare(storm_ui_freetype
 FetchContent_Declare(storm_ui_lunasvg
     URL https://github.com/sammycage/lunasvg/archive/refs/tags/v3.5.0.tar.gz
     URL_HASH SHA256=1abf1472ee6c4d19797916e8cc3c2e4b628e0d81178ffac60bdb0d457e32c690)
-FetchContent_Declare(storm_ui_json
-    URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
-    URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa)
 FetchContent_Declare(storm_ui_rmlui
     URL https://github.com/mikke89/RmlUi/archive/refs/tags/6.3.tar.gz
     URL_HASH SHA256=d977298bb6147610e5984d5db85ddf284020d655a8713913f6982074f1dbdede)
@@ -39,8 +36,8 @@ set(LUNASVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(PLUTOVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LUNASVG_DISABLE_LOAD_SYSTEM_FONTS ON CACHE BOOL "" FORCE)
 set(PLUTOVG_DISABLE_FONT_FACE_CACHE_LOAD ON CACHE BOOL "" FORCE)
-set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(storm_ui_freetype storm_ui_lunasvg storm_ui_json)
+FetchContent_MakeAvailable(storm_ui_freetype storm_ui_lunasvg)
+include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/nlohmann_json.cmake")
 if(NOT TARGET Freetype::Freetype)
     add_library(Freetype::Freetype ALIAS freetype)
 endif()

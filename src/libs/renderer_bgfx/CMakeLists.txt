@@ -123,7 +123,7 @@ storm_bgfx_embed_shaders(TARGET storm_bgfx_shaders NAMESPACE storm_shaders
 add_subdirectory(effekseer)
 
 file(GLOB_RECURSE shim_sources CONFIGURE_DEPENDS src/*.cpp src/*.hpp)
-list(FILTER shim_sources EXCLUDE REGEX "/src/texture/core/")
+list(FILTER shim_sources EXCLUDE REGEX "/src/texture/(core|formats)/")
 add_library(storm_bgfx STATIC ${shim_sources})
 target_compile_features(storm_bgfx PUBLIC cxx_std_20)
 target_include_directories(storm_bgfx PUBLIC include "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/d3d9-headers/directx"
@@ -138,11 +138,21 @@ file(GLOB texture_core_sources CONFIGURE_DEPENDS src/texture/core/*.cpp src/text
 add_library(storm_texture_core STATIC ${texture_core_sources})
 target_compile_features(storm_texture_core PUBLIC cxx_std_20)
 target_include_directories(storm_texture_core PUBLIC src/texture/core)
-target_link_libraries(storm_texture_core PRIVATE storm_etcpak)
+target_link_libraries(storm_texture_core PRIVATE storm_etcpak bimg bx)
 find_package(Threads REQUIRED)
 target_link_libraries(storm_texture_core PUBLIC Threads::Threads)
 set_target_properties(storm_texture_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(storm_bgfx PRIVATE storm_texture_core)
+
+# Texture files other than .tx (DDS through bimg, CL .txx) and the texture name -> file rule;
+# public API in include/storm/render/texture_file.hpp, used by the renderer's texture loader.
+file(GLOB texture_format_sources CONFIGURE_DEPENDS src/texture/formats/*.cpp)
+add_library(storm_texture_formats STATIC ${texture_format_sources})
+target_compile_features(storm_texture_formats PUBLIC cxx_std_20)
+target_include_directories(storm_texture_formats PUBLIC include)
+target_link_libraries(storm_texture_formats PRIVATE bimg bx)
+set_target_properties(storm_texture_formats PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(storm_bgfx PUBLIC storm_texture_formats)
 
 # Texture transcode tests and benchmark: only on request, so projects that merely consume
 # storm_bgfx (e.g. the standalone UI build) do not build them.
@@ -153,7 +163,10 @@ if(STORM_BGFX_BUILD_TESTS)
     if(NOT CMAKE_CROSSCOMPILING)
         add_executable(storm_texture_tests tests/texture/tests.cpp)
         target_link_libraries(storm_texture_tests PRIVATE storm_texture_core bimg_decode bimg bx)
+        add_executable(storm_texture_format_tests tests/texture/format_tests.cpp)
+        target_link_libraries(storm_texture_format_tests PRIVATE storm_texture_formats bimg bx)
         enable_testing()
         add_test(NAME storm_texture_tests COMMAND storm_texture_tests)
+        add_test(NAME storm_texture_format_tests COMMAND storm_texture_format_tests)
     endif()
 endif()

@@ -16,5 +16,5 @@ cp "$build_dir/_deps/storm_ui_rmlui-src/LICENSE.txt" "$build_dir/licenses/RmlUi-
 cp "$build_dir/_deps/storm_ui_freetype-src/docs/FTL.TXT" "$build_dir/licenses/FreeType-FTL.txt"
 cp "$build_dir/_deps/storm_ui_lunasvg-src/LICENSE" "$build_dir/licenses/lunasvg-MIT.txt"
 cp "$build_dir/_deps/storm_ui_lunasvg-src/plutovg/LICENSE" "$build_dir/licenses/plutovg-MIT.txt"
-cp "$build_dir/_deps/storm_ui_json-src/LICENSE.MIT" "$build_dir/licenses/nlohmann-json-MIT.txt"
+cp "$build_dir/_deps/storm_json-src/LICENSE.MIT" "$build_dir/licenses/nlohmann-json-MIT.txt"
 echo "UI runtime: $build_dir/package/libstorm_ui.so"

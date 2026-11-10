@@ -45,3 +45,15 @@ if(ANDROID)
     set_target_properties(engine PROPERTIES VERSION "" SOVERSION "" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/game")
 endif()
 
+
+if(NOT ANDROID AND NOT WIN32)
+    # The engine's techniques next to the binary, laid over the game's at run time
+    # (FILE_SERVICE::ScanResourcePaths), in the layout of the APK's engine-shaders layer.
+    file(GLOB_RECURSE STORM_TECHNIQUES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/techniques/*")
+    set(STORM_ENGINE_SHADERS "$<TARGET_FILE_DIR:engine>/engine-shaders")
+    add_custom_command(TARGET engine POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${STORM_ENGINE_SHADERS}"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/src/techniques" "${STORM_ENGINE_SHADERS}/RESOURCE/techniques"
+        VERBATIM)
+    set_property(TARGET engine APPEND PROPERTY LINK_DEPENDS ${STORM_TECHNIQUES})
+endif()

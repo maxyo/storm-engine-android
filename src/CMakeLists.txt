@@ -49,7 +49,7 @@ if (MSVC)
     add_link_options("$<$<CONFIG:Release>:/OPT:ICF>") # Perform identical COMDAT folding, needs to be explicitly specified with /DEBUG
     add_link_options("$<$<CONFIG:Release>:/LTCG>") # Enable link-time code generation
 else()
-    add_compile_options(-std=c++20)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-std=c++20>) # C sources (libogg/libvorbis) must not get it
     # Matrices, vertex data and D3D structures are viewed through differently
     # typed pointers throughout the engine (storm_glm.h accessors, vertex locks).
     add_compile_options(-fno-strict-aliasing)

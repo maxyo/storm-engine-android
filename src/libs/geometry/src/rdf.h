@@ -41,6 +41,10 @@ BSP_TRIANGLE - bsp triangles
 //------------------------------------------------------------
 
 #define RDF_VERSION '1.05'
+// Caribbean Legend 2.0 models: the record layout is byte-identical to 1.05 (all 774 files of the game
+// parse to their exact size); 1.06 marks the newer exporter whose materials carry fixed defaults and
+// whose PBR textures come from the per-model sidecar .json (see geom_static.cpp).
+#define RDF_VERSION_CL '1.06'
 
 enum RDF_FLAGS
 {
