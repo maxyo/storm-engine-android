@@ -2,7 +2,6 @@
 #include "ports.hpp"
 #include "util.hpp"
 
-#include <cstdlib>
 
 namespace storm::shim
 {
@@ -822,44 +821,6 @@ HRESULT Device::draw(const DrawCall &call)
 
     const uint16_t view_id = ensure_view();
     const uint64_t frame = Context::instance().frame_index();
-    static const char *trace = getenv("STORM_BGFX_TRACE");
-    if (trace && frame == static_cast<uint64_t>(atoi(trace)))
-    {
-        const float *p = call.up_vertices ? reinterpret_cast<const float *>(call.up_vertices)
-                         : s.stream[0] ? reinterpret_cast<const float *>(s.stream[0]->shadow.data() + s.stream_offset[0] +
-                                                                          static_cast<size_t>(call.base_vertex + call.start_vertex) * layout->stride[0])
-                                       : nullptr;
-        logf("draw view=%u type=%d prims=%u indexed=%d up=%d fvf=%x decl=%d stride=%u/%u base=%d start=%u si=%u vs=%d ps=%d rhw=%d light=%u z=%u/%u blend=%u cull=%u tex0=%p op0=%u p0=(%g %g %g) world3=(%g %g %g) view3=(%g %g %g) proj=(%g %g %g %g)",
-             view_id, call.type, call.primitive_count, call.indexed, call.up_vertices != nullptr, s.fvf, s.decl != nullptr,
-             layout->stride[0], s.stream_stride[0], call.base_vertex, call.start_vertex, call.start_index, vs_port, ps_port,
-             layout->rhw, s.rs[D3DRS_LIGHTING], s.rs[D3DRS_ZENABLE], s.rs[D3DRS_ZWRITEENABLE], s.rs[D3DRS_ALPHABLENDENABLE],
-             s.rs[D3DRS_CULLMODE], static_cast<void *>(s.textures[0]), s.tss[0][D3DTSS_COLOROP], p ? p[0] : 0, p ? p[1] : 0,
-             p ? p[2] : 0, s.world.m[3][0], s.world.m[3][1], s.world.m[3][2], s.view.m[3][0], s.view.m[3][1], s.view.m[3][2],
-             s.proj.m[0][0], s.proj.m[1][1], s.proj.m[2][2], s.proj.m[3][2]);
-        if (const TexStore *t0 = store_of(s.textures[0]))
-            logf("  .. tex0 fmt=%u %ux%u levels=%u rt=%d valid=%d | v0 color=%08x light0: type=%d dir=(%g %g %g) diff=(%g %g %g) amb=(%g %g %g)",
-                 static_cast<uint32_t>(t0->format), t0->width, t0->height, t0->levels, t0->render_target,
-                 bgfx::isValid(t0->handle), p && layout->has_color0 ? reinterpret_cast<const uint32_t *>(p)[layout->has_normal ? 6 : 3] : 0,
-                 lights.empty() ? 0 : lights[0].light.Type, lights[0].light.Direction.x, lights[0].light.Direction.y,
-                 lights[0].light.Direction.z, lights[0].light.Diffuse.r, lights[0].light.Diffuse.g, lights[0].light.Diffuse.b,
-                 lights[0].light.Ambient.r, lights[0].light.Ambient.g, lights[0].light.Ambient.b);
-        uint32_t enabled = 0;
-        for (const Light &l : lights)
-            enabled += l.enabled;
-        logf("  .. fog=%u vm=%u tm=%u start=%g end=%g dens=%g col=%08x | atest=%u func=%u ref=%u | amb=%08x mat.d=(%g %g %g %g) mat.a=(%g %g %g) mat.e=(%g %g %g) lights=%u cv=%u dsrc=%u asrc=%u | s0=(%u %x %x / %u %x %x) s1=(%u %x %x / %u %x %x tex=%p) s2=(%u tex=%p) tf=%08x zf=%u sb=%u db=%u",
-             s.rs[D3DRS_FOGENABLE], s.rs[D3DRS_FOGVERTEXMODE], s.rs[D3DRS_FOGTABLEMODE], as_float(s.rs[D3DRS_FOGSTART]),
-             as_float(s.rs[D3DRS_FOGEND]), as_float(s.rs[D3DRS_FOGDENSITY]), s.rs[D3DRS_FOGCOLOR], s.rs[D3DRS_ALPHATESTENABLE],
-             s.rs[D3DRS_ALPHAFUNC], s.rs[D3DRS_ALPHAREF], s.rs[D3DRS_AMBIENT], s.material.Diffuse.r, s.material.Diffuse.g,
-             s.material.Diffuse.b, s.material.Diffuse.a, s.material.Ambient.r, s.material.Ambient.g, s.material.Ambient.b,
-             s.material.Emissive.r, s.material.Emissive.g, s.material.Emissive.b, enabled, s.rs[D3DRS_COLORVERTEX],
-             s.rs[D3DRS_DIFFUSEMATERIALSOURCE], s.rs[D3DRS_AMBIENTMATERIALSOURCE], s.tss[0][D3DTSS_COLOROP],
-             s.tss[0][D3DTSS_COLORARG1], s.tss[0][D3DTSS_COLORARG2], s.tss[0][D3DTSS_ALPHAOP], s.tss[0][D3DTSS_ALPHAARG1],
-             s.tss[0][D3DTSS_ALPHAARG2], s.tss[1][D3DTSS_COLOROP], s.tss[1][D3DTSS_COLORARG1], s.tss[1][D3DTSS_COLORARG2],
-             s.tss[1][D3DTSS_ALPHAOP], s.tss[1][D3DTSS_ALPHAARG1], s.tss[1][D3DTSS_ALPHAARG2],
-             static_cast<void *>(s.textures[1]), s.tss[2][D3DTSS_COLOROP], static_cast<void *>(s.textures[2]),
-             s.rs[D3DRS_TEXTUREFACTOR], s.rs[D3DRS_ZFUNC], s.rs[D3DRS_SRCBLEND], s.rs[D3DRS_DESTBLEND]);
-    }
-
     // ---- index source ----
     const uint8_t *index_source = nullptr;
     bool index32 = false;
