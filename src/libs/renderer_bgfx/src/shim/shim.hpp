@@ -104,6 +104,8 @@ struct TexStore
     // Creates the bgfx texture if needed and uploads dirty levels.
     void sync();
     void create_gpu();
+    void release_shadow();
+    bool shadow_released = false;
     void create_sampled();
     void destroy_sampled();
     bool create_transcoded();

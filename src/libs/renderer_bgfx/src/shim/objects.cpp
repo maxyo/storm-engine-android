@@ -211,7 +211,11 @@ uint8_t *TexStore::lock(uint32_t face, uint32_t level, uint32_t *pitch, uint32_t
     const uint32_t slice = level_size(format, w, h);
     const size_t total = static_cast<size_t>(slice) * level_depth(level);
     if (s.data.size() != total)
+    {
+        if (shadow_released)
+            trap("lock of a compressed texture whose CPU copy was released after upload (contents read as zero)");
         s.data.assign(total, 0);
+    }
     ++s.lock_count;
     if (pitch)
         *pitch = level_pitch(format, w);
@@ -452,6 +456,17 @@ bgfx::TextureFormat::Enum etc_format(texture::EtcFormat format)
 }
 } // namespace
 
+// DXT payloads are never patched in place by the game, so their CPU copy (the bulk of all
+// texture memory) is dropped once the GPU texture exists and no transcode job still needs it.
+void TexStore::release_shadow()
+{
+    if (!format_info(format).block_bytes || (fallback_bytes && !transcode_job))
+        return;
+    for (Sub &s : subs)
+        std::vector<uint8_t>().swap(s.data);
+    shadow_released = true;
+}
+
 void TexStore::create_sampled()
 {
     const Tier tier = select_tier(*this);
@@ -460,6 +475,7 @@ void TexStore::create_sampled()
         for (Sub &s : subs)
             s.dirty = false;
         any_dirty = false;
+        release_shadow();
         return;
     }
     gpu_compressed = format_info(format).block_bytes != 0 && tier != Tier::Rgba;
@@ -473,6 +489,8 @@ void TexStore::create_sampled()
     for (Sub &s : subs)
         s.dirty = false;
     any_dirty = false;
+    if (bgfx::isValid(handle))
+        release_shadow();
 }
 
 bool TexStore::create_transcoded()
@@ -523,6 +541,7 @@ void TexStore::finish_transcode()
     if (!transcode_job)
     {
         submit_transcode(*this); // the queue was full at creation
+        release_shadow();
         return;
     }
     if (transcode_job->state.load(std::memory_order_acquire) != texture::Job::Done)
@@ -547,6 +566,7 @@ void TexStore::destroy_sampled()
     texture::Service::instance().add_fallback_bytes(-fallback_bytes);
     fallback_bytes = 0;
     transcoded = false;
+    shadow_released = false;
     if (bgfx::isValid(handle))
         bgfx::destroy(handle);
     handle = BGFX_INVALID_HANDLE;
