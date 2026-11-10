@@ -1,4 +1,3 @@
-#ifndef _WIN32 // Effects
 #pragma once
 
 #include <unordered_map>
@@ -164,4 +163,3 @@ class CTechnique
     ~CTechnique();
 };
 
-#endif // _WIN32

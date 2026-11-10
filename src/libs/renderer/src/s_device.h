@@ -1,12 +1,7 @@
 #pragma once
 
 #include "game_pictures.hpp"
-
-#ifdef _WIN32 // Effects
-#include "effects.h"
-#else
 #include "technique.h"
-#endif
 #include "font.h"
 #include "video_texture.h"
 #include "dx9render.h"
@@ -311,9 +306,6 @@ class DX9RENDER : public VDX9RENDER
     HRESULT SetFVF(uint32_t handle) override;
     HRESULT GetVertexShader(IDirect3DVertexShader9 **ppShader) override;
     HRESULT GetPixelShader(IDirect3DPixelShader9 **ppShader) override;
-#ifdef _WIN32 // Effects
-    ID3DXEffect *GetEffectPointer(const char *techniqueName) override;
-#endif
 
     // D3D Render Target/Begin/End/Clear
     HRESULT GetRenderTarget(IDirect3DSurface9 **ppRenderTarget) override;
@@ -449,7 +441,6 @@ class DX9RENDER : public VDX9RENDER
     void LostRender();
     void RestoreRender();
 
-    void RecompileEffects();
 
 private:
     struct RECT_VERTEX
@@ -475,11 +466,7 @@ private:
 
     float FovMultiplier{ 1.0f };
 
-#ifdef _WIN32 // Effects
-    Effects effects_;
-#else
     std::unique_ptr<CTechnique> pTechnique;
-#endif
 
     char *fontIniFileName;
     int32_t nFontQuantity;
@@ -494,7 +481,6 @@ private:
     float aspectRatio;
     float m_fHeightDeformator;
 
-    bool bSafeRendering;
     bool bShowFps, bShowExInfo;
     // Opt-in presentation cadence diagnostics; these are not GPU timings.
     bool renderMetricsEnabled = false;
@@ -610,11 +596,7 @@ private:
 
     std::stack<RenderTarget> stRenderTarget;
 
-#ifdef _WIN32 // Screenshot
-    D3DXIMAGE_FILEFORMAT screenshotFormat;
-#endif
     std::string screenshotExt;
 
     bool TextureLoad(int32_t texid);
-    bool TextureLoadUsingD3DX(const char *path, int32_t texid);
 };

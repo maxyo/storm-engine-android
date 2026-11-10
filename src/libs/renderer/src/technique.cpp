@@ -1,4 +1,3 @@
-#ifndef _WIN32 // Effects
 #include "technique.h"
 
 #include "core.h"
@@ -2039,4 +2038,3 @@ void CTechnique::SetCurrentBlock(const char *name, uint32_t _dwNumParams, void *
         core.Trace("ERROR: SetCurrentBlock: unknown technique <%s> first character is <%s> ", name, name[0]);
     }
 }
-#endif // _WIN32
