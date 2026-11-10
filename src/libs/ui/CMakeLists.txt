@@ -64,6 +64,7 @@ add_library(storm_ui STATIC
     src/screens/hero.cpp
     src/screens/hero_character.cpp
     src/screens/hero_items.cpp
+    src/screens/hero_journal.cpp
     src/screens/hero_nations.cpp
     src/screens/dialogue.cpp
     src/screens/menu_game.cpp

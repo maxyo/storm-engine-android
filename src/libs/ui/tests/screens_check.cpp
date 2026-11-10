@@ -1195,6 +1195,70 @@ static void Items(const std::string &models)
     ExpectEqual(surface.Last(), "widget:items\tMAP_EXIT_BTN\t-1\tpress", "back is the map's close");
 }
 
+static void Journal(const std::string &)
+{
+    FakeSurface surface;
+    Router router(surface);
+    InterfaceModel model;
+    model.screen = "questbook";
+    model.language = "english";
+    model.opening = 8;
+    model.revision = 30;
+    model.widgets.push_back(Make("TITLE", "heading", " Log "));
+    for (const char *tab : {"TABBTN_QUEST", "TABBTN_QUESTARJ", "TABBTN_INFO", "TABBTN_CASHBOOK", "TABBTN_SHIP_PLACE", "TABBTN_STOREBOOK", "TABBTN_STATISTIC"})
+    {
+        Widget button = Make(tab, "image", "", {"press"});
+        button.value = std::string(tab) == "TABBTN_QUEST" ? "1" : "0";
+        model.widgets.push_back(button);
+        model.widgets.push_back(Make((std::string("TABSTR_") + (tab + 7)).c_str(), "text", tab + 7));
+    }
+    for (int i = 0; i < 2; ++i)
+    {
+        Widget title = Make("QUEST_TITLE", "choice", i ? "Debts" : "Burden", {"open"});
+        title.index = i;
+        title.row_id = i ? "debts" : "burden";
+        model.widgets.push_back(title);
+    }
+    router.SetInterface(model);
+    ExpectEqual(router.Using(), "questbook", "the journal draws on the journal screen");
+    Json view = surface.props;
+    Expect(view["section"] == "quests" && view["list"].size() == 2 && view["subtabs"].size() == 2 && view["entry"].is_null() &&
+               view["sections"][0]["count"] == "2",
+           "quests: active and completed, the titles, nothing open");
+    Expect(view["extras"]["rows"].empty(), "every widget is known: no extras");
+
+    router.OnEvent({"entries", "row", "1"});
+    ExpectEqual(surface.Last(), "widget:questbook\tQUEST_TITLE\t1\topen@8:debts", "a title opens its text");
+    InterfaceModel text = model;
+    text.revision += 1;
+    text.widgets.erase(std::remove_if(text.widgets.begin(), text.widgets.end(), [](const Widget &w) { return w.node == "QUEST_TITLE"; }), text.widgets.end());
+    text.widgets.push_back(Make("QUEST_TEXT", "text", "1 May 1654 10:02\nArrived.\nMet the brother.\n2 May 1654 09:00\nLeft."));
+    router.SetInterface(text);
+    view = surface.props;
+    Expect(view["list"].size() == 2 && view["list"][1]["selected"] == true && view["entry"]["title"] == "Debts" &&
+               view["entry"]["entries"].size() == 2 && view["entry"]["entries"][0]["text"] == "Arrived.\nMet the brother.",
+           "the titles stay while the text is open; the text split into dated entries");
+    const size_t sent = surface.commands.size();
+    router.OnEvent({"entries", "row", "0"});
+    ExpectEqual(surface.Last(), "back", "another entry: back to the titles first");
+    model.revision = text.revision + 1;
+    router.SetInterface(model);
+    ExpectEqual(surface.Last(), "widget:questbook\tQUEST_TITLE\t0\topen@8:burden", "then open it");
+    Expect(surface.commands.size() == sent + 2, "two steps");
+
+    text.revision = model.revision + 1;
+    router.SetInterface(text);
+    Expect(router.WantsBack(), "an open text: back is the screen's");
+    router.Back();
+    ExpectEqual(surface.Last(), "back", "back closes the text");
+    model.revision = text.revision + 1;
+    router.SetInterface(model);
+    Expect(surface.commands.back() == "back" && surface.commands[surface.commands.size() - 2] == "back", "and goes on to leave the journal");
+
+    router.OnEvent({"section-stats", "click", ""});
+    ExpectEqual(surface.Last(), "widget:questbook\tTABBTN_STATISTIC\t-1\tpress", "a section presses its game tab");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
@@ -1213,6 +1277,7 @@ int main(int argc, char **argv)
     Nations(models);
     Hero(models);
     Items(models);
+    Journal(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else
