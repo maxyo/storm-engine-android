@@ -1,5 +1,6 @@
 #include "device.hpp"
 #include "storm/render/d3d_interop.hpp"
+#include "storm/render/effekseer_device.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_syswm.h>
@@ -191,6 +192,7 @@ bool Context::init(SDL_Window *window, uint32_t width, uint32_t height, bool vsy
     }
     caps_ = bgfx::getCaps();
     flip_y_ = caps_->originBottomLeft;
+    render::effekseer::AttachDevice({caps_->originBottomLeft, caps_->homogeneousDepth});
     initialised_ = true;
     surface_.width_px = width;
     surface_.height_px = height;
@@ -242,6 +244,7 @@ void Context::shutdown()
     for (auto &entry : clients_)
         entry.client->OnDeviceLost();
     dump_traps();
+    render::effekseer::DetachDevice();
     bgfx::shutdown();
     initialised_ = false;
     surface_.valid = false;

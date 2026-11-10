@@ -245,6 +245,9 @@ struct Device final : Direct3DDevice9Stub
     bool build_decl_layout(VertexDeclaration &decl);
     uint16_t ensure_view();
     uint16_t new_view();
+    // A fresh game view on the current render target and viewport for an external bgfx renderer
+    // (src/effekseer); the next shim draw opens its own view again. Needs a live surface.
+    uint16_t begin_external_pass();
     bgfx::FrameBufferHandle framebuffer(TexStore *color, uint32_t face, uint32_t level, TexStore *depth);
     void purge_framebuffers(bgfx::TextureHandle texture);
     void apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_port);

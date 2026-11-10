@@ -413,6 +413,14 @@ uint16_t Device::new_view()
     return view;
 }
 
+uint16_t Device::begin_external_pass()
+{
+    Context::instance().begin_frame_if_needed();
+    const uint16_t external = new_view();
+    view_dirty = true;
+    return external;
+}
+
 uint16_t Device::ensure_view()
 {
     Context::instance().begin_frame_if_needed();
