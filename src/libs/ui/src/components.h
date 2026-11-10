@@ -31,6 +31,7 @@ struct PropSpec
     Type type = Type::Text;
     Json fallback;
     bool as_class = false; // bool → "name", enum → "name-value" on the root element
+    std::vector<Json> options; // enum values
 };
 
 struct ComponentSpec
@@ -44,6 +45,16 @@ struct ComponentSpec
     std::vector<std::pair<std::string, std::string>> class_rules;
     const PropSpec *FindAttribute(const std::string &attribute) const;
 };
+
+// One entry of components.json.
+std::unique_ptr<ComponentSpec> ParseComponentSpec(const Json &entry);
+// Attributes every component accepts besides its props: id, class, style, props, slot, data-*.
+bool IsGenericAttribute(const std::string &attribute);
+// Empty when `value` is acceptable for the prop, else what is wrong (enum value not listed).
+std::string CheckPropValue(const PropSpec &prop, const Json &value);
+// Logs and marks (class "ui-error") every <c-…> element under `root` that has no spec;
+// returns how many it found. Nested components check their own content.
+int ReportUnknownComponents(Rml::Element *root);
 
 // Services the host gives to components and behaviours.
 class Services
@@ -156,6 +167,9 @@ class ComponentElement final : public Rml::Element
 
   private:
     void ApplyClasses();
+    // A wrong prop, enum value or template: logged with the element and drawn as the
+    // striped "ui-error" marker instead of a silent default.
+    void ReportError(const std::string &what);
 
     const ComponentSpec &spec_;
     Services &services_;
@@ -166,6 +180,7 @@ class ComponentElement final : public Rml::Element
     std::vector<std::string> applied_classes_;
     bool dirty_ = true;
     bool built_ = false;
+    bool error_ = false; // ReportError happened since the last rebuild
 };
 
 class ComponentRegistry

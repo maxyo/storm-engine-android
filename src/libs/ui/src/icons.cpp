@@ -3,6 +3,8 @@
 // keep their own fills. The accent layer of a symbol, when it has one, is drawn on top.
 #include "elements.h"
 
+#include <cstdlib>
+
 #include <lunasvg.h>
 #include <memory>
 #include <unordered_map>
@@ -102,6 +104,24 @@ bool Rasterise(const std::string &id, bool plain, Rml::Colourb colour, int pixel
     return true;
 }
 
+// Premultiplied RGBA of the "missing icon" marker: a red frame with a cross.
+std::vector<Rml::byte> MissingIconMarker(int pixels)
+{
+    std::vector<Rml::byte> data(static_cast<size_t>(pixels) * pixels * 4, 0);
+    const int line = std::max(1, pixels / 12);
+    for (int y = 0; y < pixels; ++y)
+        for (int x = 0; x < pixels; ++x)
+        {
+            const bool frame = x < line || y < line || x >= pixels - line || y >= pixels - line;
+            const bool cross = std::abs(x - y) < line || std::abs(x + y - (pixels - 1)) < line;
+            if (!frame && !cross)
+                continue;
+            Rml::byte *pixel = &data[(static_cast<size_t>(y) * pixels + x) * 4];
+            pixel[0] = 0xc4, pixel[1] = 0x47, pixel[2] = 0x3a, pixel[3] = 0xff; // dangerFill
+        }
+    return data;
+}
+
 Rml::CallbackTextureSource &Source(const std::string &id, bool plain, Rml::Colourb colour, int pixels)
 {
     char suffix[48];
@@ -113,9 +133,10 @@ Rml::CallbackTextureSource &Source(const std::string &id, bool plain, Rml::Colou
             std::vector<Rml::byte> data;
             if (!Rasterise(id, plain, colour, pixels, data))
             {
-                Rml::Log::Message(Rml::Log::LT_WARNING, "Icon '%s' is not in the icon pack", id.c_str());
-                data.assign(4, 0);
-                return texture.GenerateTexture({data.data(), data.size()}, {1, 1});
+                // No silent blank: a missing or broken symbol is logged and drawn as a
+                // crossed red box so it is seen on the screen.
+                Rml::Log::Message(Rml::Log::LT_ERROR, "Icon '%s' is not in the icon pack (or does not rasterise)", id.c_str());
+                data = MissingIconMarker(pixels);
             }
             return texture.GenerateTexture({data.data(), data.size()}, {pixels, pixels});
         });
@@ -158,13 +179,8 @@ class IconElement final : public Rml::Element
         std::string name = GetAttribute<Rml::String>("name", "");
         if (name.empty())
             return;
-        if (name.rfind("i-", 0) == 0)
-            name = name.substr(2);
-        if (name.size() > 4 && name.compare(name.size() - 4, 4, "-acc") == 0)
-            name.resize(name.size() - 4); // the accent layer is never drawn alone
-        const bool colour_art = name.rfind("c-", 0) == 0;
-        const bool plain = colour_art || name.rfind("nation-", 0) == 0 || HasAttribute("plain");
-        const std::string id = colour_art ? name : "i-" + name;
+        bool plain = HasAttribute("plain");
+        const std::string id = IconSymbolId(name, plain);
         const Rml::Colourb colour = GetComputedValues().color();
         const float opacity = GetComputedValues().opacity();
         const int pixels = std::max(1, static_cast<int>(std::lround(std::min(size.x, size.y))));
@@ -190,6 +206,23 @@ class IconElement final : public Rml::Element
 };
 
 } // namespace
+
+std::string IconSymbolId(std::string name, bool &plain)
+{
+    if (name.rfind("i-", 0) == 0)
+        name = name.substr(2);
+    if (name.size() > 4 && name.compare(name.size() - 4, 4, "-acc") == 0)
+        name.resize(name.size() - 4); // the accent layer is never drawn alone
+    const bool colour_art = name.rfind("c-", 0) == 0;
+    plain = plain || colour_art || name.rfind("nation-", 0) == 0;
+    return colour_art ? name : "i-" + name;
+}
+
+bool HasIcon(const std::string &name)
+{
+    bool plain = false;
+    return Pack().symbols.count(IconSymbolId(name, plain)) > 0;
+}
 
 void LoadIconPack(const Json &pack)
 {

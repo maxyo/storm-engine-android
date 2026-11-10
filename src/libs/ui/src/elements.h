@@ -20,6 +20,9 @@ void ReleaseDrawTextures();
 // icons.json of the UI pack: shared defs plus one SVG symbol per icon id.
 void LoadIconPack(const Json &pack);
 void RegisterIconElement();
+// Symbol id of an icon name ("ship" → "i-ship"; c-* and nation-* are full colour).
+std::string IconSymbolId(std::string name, bool &plain);
+bool HasIcon(const std::string &name);
 void ReleaseIconTextures();
 
 using TxImage = Picture; // premultiplied alpha, top row first
@@ -27,6 +30,9 @@ using TxImage = Picture; // premultiplied alpha, top row first
 bool DecodeTx(const uint8_t *data, size_t size, TxImage &out, std::string *error = nullptr);
 
 void RegisterGameImageElement();
+// UVs (u0, v0, u1, v1) of atlas cell 1…grid² (0 = the whole texture); false when the cell
+// does not exist. `uv` may be null to only check.
+bool AtlasCell(int cell, int grid, float uv[4]);
 void SetGameImageRoot(const std::string &game_root);
 void SetGameImageLoader(std::function<bool(const std::string &, Picture &)> loader);
 // True once after a background decode finished: the host draws another frame.

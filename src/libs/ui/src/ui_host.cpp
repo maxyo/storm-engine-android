@@ -287,6 +287,7 @@ class HostImpl final : public Host, public Services, public screens::Surface
         document_ = context_->LoadDocument(path);
         if (!document_)
             return false;
+        ReportUnknownComponents(document_);
         document_->Show();
         if (overlay_)
             overlay_->PullToFront();

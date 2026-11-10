@@ -47,8 +47,15 @@ produces `<build>/package/libstorm_ui.so` (stripped, 16 KiB pages) and
 | `src/behaviors.cpp` | press, hold-to-confirm, long-press tooltip, range, stick, lever, sticky rows |
 | `src/draw_elements.cpp` | `<ui-ring>` (hold progress), `<ui-paper>` (aged parchment), `<ui-clamp>` (text cut to N lines with an ellipsis) |
 | `src/icons.cpp` | `<ui-icon>`: SVG symbols rasterised per size and colour |
-| `src/tx_texture.cpp`, `src/game_image.cpp` | `<ui-game-image>`: pictures decoded from the player's `.tx` files on a worker thread; a placeholder shows until then |
+| `src/tx_texture.cpp`, `src/game_image.cpp` | `<ui-game-image>`: pictures decoded from the player's `.tx` files (or by the host's `game_picture_loader`, never both) on a worker thread; the loading placeholder shows until then, a picture that cannot be had is logged with texture, cell and reason and marked `image-missing` |
 | `src/ui_host.cpp` | RmlUi set-up, pointer routing, toasts, tooltip |
+
+Errors are loud, not defaults: an unknown `<c-…>` tag, an attribute a component does not
+have, an enum value outside its options, a template or class expression error and an icon
+missing from the pack are logged with the element (`[ui 1] Component <c-button>
+(c-button#id …): …`) and drawn as the striped `ui-error` marker or a crossed red icon.
+The one documented fallback: with no game root and no picture loader, game pictures are
+"unavailable" (one info line) and keep their neutral placeholder.
 
 Touch routing: each pointer is captured by the nearest interactive component under it.
 Drag behaviours (stick, lever, slider) keep their pointer exclusively, so several
