@@ -11,6 +11,11 @@
 #include "shared/events.h"
 #include "shared/messages.h"
 
+#ifdef __ANDROID__
+#include "platform/android_ui.hpp"
+#include <tuple>
+#endif
+
 void ISPYGLASS::ImageParam::Release()
 {
     STORM_DELETE(pImage);
@@ -171,6 +176,13 @@ void ISPYGLASS::Execute(uint32_t delta_time)
     if (cs.state == CST_ACTIVATED)
         core.Event("MSG_TELESCOPE_REQUEST", "l", 0);
 
+#ifdef __ANDROID__
+    if (const bool covered = storm::android::spyglass.covered(SDL_GetTicks()); covered != m_bAndroidCovered)
+    {
+        m_bAndroidCovered = covered;
+        ApplyInfoColors();
+    }
+#endif
     if (m_bIsOn)
     {
         UpdateCamera();
@@ -199,7 +211,7 @@ void ISPYGLASS::Realize(uint32_t delta_time) const
         if (m_pImgRender)
             m_pImgRender->Render();
 
-        if (m_bIsPresentShipInfo)
+        if (m_bIsPresentShipInfo && !m_bAndroidCovered)
         {
             m_txtShipType.Print();
             m_txtShipName.Print();
@@ -348,6 +360,10 @@ void ISPYGLASS::TurnOnTelescope(bool bTurnOn)
     if (bTurnOn == m_bIsOn)
         return;
     m_bIsOn = bTurnOn;
+#ifdef __ANDROID__
+    storm::android::spyglass.turn(bTurnOn);
+    storm::android::publishSpyglass();
+#endif
     if (m_bIsOn)
     {
         m_Camera.bIsActive = false;
@@ -384,48 +400,33 @@ void ISPYGLASS::SetShipInfo(int32_t nCharIndex)
 
     core.Event("SetTelescopeInfo", "l", m_nInfoCharacterIndex);
 
-    if (m_bIsPresentShipInfo)
+#ifdef __ANDROID__
+    if (m_nInfoCharacterIndex < 0)
     {
-        m_ShipImage.pImage->SetColor(m_ShipImage.dwColor);
-        m_ShipBack.pImage->SetColor(m_ShipBack.dwColor);
-        m_ShipHP.pImage->SetColor(m_ShipHP.dwColor);
-        m_ShipSP.pImage->SetColor(m_ShipSP.dwColor);
-        m_Class.pImage->SetColor(m_Class.dwColor);
-        m_Nation.pImage->SetColor(m_Nation.dwColor);
-        m_Cannon.pImage->SetColor(m_Cannon.dwColor);
-        m_Sail.pImage->SetColor(m_Sail.dwColor);
-        m_Charge.pImage->SetColor(m_Charge.dwColor);
-        m_SailTo.pImage->SetColor(m_SailTo.dwColor); // boal
-
-        m_CaptainBack.pImage->SetColor(m_CaptainBack.dwColor);
-        m_CaptainFace.pImage->SetColor(m_CaptainFace.dwColor);
-        m_ImgCaptainFencing.pImage->SetColor(m_ImgCaptainFencing.dwColor);
-        m_ImgCaptainCannon.pImage->SetColor(m_ImgCaptainCannon.dwColor);
-        m_ImgCaptainAccuracy.pImage->SetColor(m_ImgCaptainAccuracy.dwColor);
-        m_ImgCaptainNavigation.pImage->SetColor(m_ImgCaptainNavigation.dwColor);
-        m_ImgCaptainBoarding.pImage->SetColor(m_ImgCaptainBoarding.dwColor);
+        storm::android::spyglass.clear();
+        storm::android::publishSpyglass();
     }
-    else
-    {
-        m_ShipImage.pImage->SetColor(m_ShipImage.dwColor & 0xFFFFFF);
-        m_ShipBack.pImage->SetColor(m_ShipBack.dwColor & 0xFFFFFF);
-        m_ShipHP.pImage->SetColor(m_ShipHP.dwColor & 0xFFFFFF);
-        m_ShipSP.pImage->SetColor(m_ShipSP.dwColor & 0xFFFFFF);
-        m_Class.pImage->SetColor(m_Class.dwColor & 0xFFFFFF);
-        m_Nation.pImage->SetColor(m_Nation.dwColor & 0xFFFFFF);
-        m_Cannon.pImage->SetColor(m_Cannon.dwColor & 0xFFFFFF);
-        m_Sail.pImage->SetColor(m_Sail.dwColor & 0xFFFFFF);
-        m_Charge.pImage->SetColor(m_Charge.dwColor & 0xFFFFFF);
-        m_SailTo.pImage->SetColor(m_SailTo.dwColor & 0xFFFFFF); // boal
+#endif
+    ApplyInfoColors();
+}
 
-        m_CaptainBack.pImage->SetColor(0xFFFFFF);
-        m_CaptainFace.pImage->SetColor(0xFFFFFF);
-        m_ImgCaptainFencing.pImage->SetColor(0xFFFFFF);
-        m_ImgCaptainCannon.pImage->SetColor(0xFFFFFF);
-        m_ImgCaptainAccuracy.pImage->SetColor(0xFFFFFF);
-        m_ImgCaptainNavigation.pImage->SetColor(0xFFFFFF);
-        m_ImgCaptainBoarding.pImage->SetColor(0xFFFFFF);
-    }
+// The info icons: lit while a target is shown, transparent otherwise and while the portable
+// UI draws the same information (its acknowledgement is fresh, see android_spyglass.hpp).
+void ISPYGLASS::ApplyInfoColors()
+{
+    const bool lit = m_bIsPresentShipInfo && !m_bAndroidCovered;
+    const bool hidden = m_bAndroidCovered;
+    const auto paint = [lit, hidden](ImageParam &image, uint32_t shown) {
+        if (image.pImage)
+            image.pImage->SetColor(hidden ? 0u : lit ? shown : shown & 0xFFFFFF);
+    };
+    for (ImageParam *image : {&m_ShipImage, &m_ShipBack, &m_ShipHP, &m_ShipSP, &m_Class, &m_Nation, &m_Cannon, &m_Sail,
+                              &m_Charge, &m_SailTo})
+        paint(*image, image->dwColor);
+    paint(m_CaptainBack, m_CaptainBack.dwColor);
+    for (ImageParam *image : {&m_CaptainFace, &m_ImgCaptainFencing, &m_ImgCaptainCannon, &m_ImgCaptainAccuracy,
+                              &m_ImgCaptainNavigation, &m_ImgCaptainBoarding})
+        paint(*image, lit ? image->dwColor : 0xFFFFFF);
 }
 
 void ISPYGLASS::FindNewTargetShip()
@@ -778,6 +779,32 @@ void ISPYGLASS::ChangeTargetData(const char *pcShipName, const char *pcShipType,
             m_ImgCaptainBoarding.pImage->CutSide(0.f, 1.f, 0.f, 0.f);
     }
     m_TextCaptainName.sText = pcCaptainName;
+#ifdef __ANDROID__
+    storm::android::SpyglassTarget target;
+    // The script sends a fort with the fort icon, no class and no sails.
+    target.fort = nShipClass <= 0 && nSailState < 0;
+    target.name = pcShipName;
+    target.type = pcShipType;
+    target.shipClass = nShipClass > 0 ? nShipClass : -1;
+    target.hull = static_cast<int>(fRelativeHP * 100.f + .5f);
+    target.sails = target.fort ? -1 : static_cast<int>(fRelativeSP * 100.f + .5f);
+    target.crew = nShipCrew;
+    target.speed = fShipSpeed;
+    target.distance = fSailTo;
+    target.cannons = nMaxCannons >= 0 ? nCurCannons : -1;
+    target.cannonsMax = nCurCannons >= 0 ? nMaxCannons : -1;
+    target.charge = nCharge;
+    target.nation = nNation;
+    target.sail = nSailState;
+    std::tie(target.cannonType, target.captain) = storm::android::spyglassCaptainLine(pcCaptainName ? pcCaptainName : "");
+    if (nFace >= 0)
+        target.portrait = "INTERFACES/PORTRAITS/128/face_" + std::to_string(nFace);
+    const int32_t skills[] = {nFencing, nCannon, nAccuracy, nNavigation, nBoarding};
+    for (int i = 0; i < 5; ++i)
+        target.skills[i] = skills[i];
+    storm::android::spyglass.target(target);
+    storm::android::publishSpyglass();
+#endif
 }
 
 void ISPYGLASS::FillUVArrayFromAttributes(std::vector<FRECT> &m_aUV, ATTRIBUTES *pA) const

@@ -97,6 +97,18 @@ struct Presentation
     bool live = false;     // the game is in front and running: input may be sent
 };
 
+// Channel "spyglass": the telescope and what it shows of its target (spyglass.cpp). A field
+// the telescope cannot show at its level is -1 / empty.
+struct Spyglass
+{
+    bool known = false, on = false, target = false;
+    uint64_t generation = 0;
+    std::string kind, name, type, captain, cannon_type, portrait; // kind: ship | fort
+    int ship_class = -1, hull = -1, sails = -1, crew = -1, cannons = -1, cannons_max = -1, charge = -1, nation = -1, sail = -1;
+    double speed = -1.0, distance = -1.0;
+    int skills[5] = {-1, -1, -1, -1, -1}; // fencing, cannons, accuracy, navigation, boarding
+};
+
 struct States
 {
     Gameplay gameplay;
@@ -106,6 +118,7 @@ struct States
     std::string context_action; // channel "contextAction": the script's quick action, "" = none
     LandCommands land_commands;
     Presentation presentation;
+    Spyglass spyglass;
 };
 
 // --- view -----------------------------------------------------------------------------
@@ -121,6 +134,8 @@ struct View
     Json sheet_props = Json::object();
     bool modal = false;                   // the sheet takes every touch and the back key
     bool log = false;                     // event lines are shown now (Hud::LogLines in the `log` element)
+    std::string overlay;                  // pack part over the scene and under the sheet, takes no touches
+    Json overlay_props = Json::object();  // (the spyglass target card, laid by the Hud over any scene)
     bool operator==(const View &) const = default;
 };
 
@@ -310,10 +325,16 @@ class Hud
     std::set<std::string> reported_;
     std::string language_; // game language last given to the mount
     bool changed_ = true;
+    double spyglass_ack_at_ = -1.0;  // last coverage acknowledgement of the spyglass overlay
+    uint64_t spyglass_ack_generation_ = 0;
     bool visible_ = false;
     bool live_ = false;
     bool interface_ = false;
 };
+
+// The spyglass overlay (spyglass.cpp): its channel's consumer and the props of its part.
+std::unique_ptr<screens::StateConsumer> CreateSpyglassConsumer();
+Json SpyglassProps(const Spyglass &spyglass, Hud &hud);
 
 // Consumers of the HUD channels, added to the router's list (screens/registry.cpp).
 void AddStateConsumers(std::vector<std::unique_ptr<screens::StateConsumer>> &consumers);

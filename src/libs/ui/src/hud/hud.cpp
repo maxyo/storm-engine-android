@@ -15,6 +15,12 @@ namespace
 constexpr double kIdle = 3600.0;
 constexpr double kLineSeconds = 2.6; // an event line stays this long (pack setting toastMs)
 constexpr size_t kLines = 3;
+// The spyglass overlay is acknowledged this often while it is drawn; the engine keeps its
+// own info hidden for a second after the last one (android_spyglass.hpp).
+constexpr double kSpyglassHeartbeat = 0.3;
+// The layout scene under the spyglass when no ported scene owns the mode (the platform still
+// draws the sea HUD): the overlay alone, no elements.
+constexpr const char *kSpyglassLayout = "sea";
 
 const char *const kLandModes[] = {"explore", "melee"};
 
@@ -156,7 +162,9 @@ void Hud::Refresh()
     }
     live_ = live;
 
-    const bool visible = scene_ && shown.known && shown.screen.empty() && !shown.loading && !shown.cinematic && !shown.dialogue && !interface_;
+    // The raised telescope is drawn over any scene, and also where no scene is ported yet.
+    const bool spyglass = states_.spyglass.known && states_.spyglass.on;
+    const bool visible = (scene_ || spyglass) && shown.known && shown.screen.empty() && !shown.loading && !shown.cinematic && !shown.dialogue && !interface_;
     if (!visible)
     {
         Conceal();
@@ -172,7 +180,15 @@ void Hud::Refresh()
     View view;
     Input input;
     Present(true); // Build may read LogLines and send input
-    scene_->Build(states_, view, input);
+    if (scene_)
+        scene_->Build(states_, view, input);
+    else
+        view.layout = kSpyglassLayout;
+    if (spyglass)
+    {
+        view.overlay = "s-hud-spyglass";
+        view.overlay_props = SpyglassProps(states_.spyglass, *this);
+    }
     input_ = std::move(input);
     if (!mount_.ShowHud(view))
     {
@@ -222,6 +238,8 @@ double Hud::Tick()
         if (!changed_)
             break;
     }
+    if (visible_ && !view_.overlay.empty())
+        next = std::min(next, std::max(0.0, spyglass_ack_at_ + kSpyglassHeartbeat - now));
     if (changed_)
         next = 0.0;
     for (const Line &line : lines_)
@@ -233,6 +251,18 @@ void Hud::Drawn()
 {
     if (visible_ && scene_ && !changed_)
         scene_->Drawn(states_);
+    // The spyglass card is on the screen: the engine may hide its own info for this raise of
+    // the telescope. Repeated while it stays; stopping lets the engine draw its own again.
+    if (visible_ && !changed_ && !view_.overlay.empty() && states_.spyglass.target)
+    {
+        const double now = mount_.Now();
+        if (states_.spyglass.generation != spyglass_ack_generation_ || now - spyglass_ack_at_ >= kSpyglassHeartbeat)
+        {
+            spyglass_ack_generation_ = states_.spyglass.generation;
+            spyglass_ack_at_ = now;
+            Send("spyglass", std::to_string(states_.spyglass.generation), "spyglass-ack");
+        }
+    }
 }
 
 void Hud::Released()

@@ -145,6 +145,7 @@ engine ◀──"<verb>:<value>" (Action, screen "hud")── Hud::Send ◀─�
 | `hud.cpp` | **the migration switch** `kScenes` (gameplay mode → scene), visibility, event dispatch, the event log |
 | `states.cpp` | one consumer per channel: the engine's JSON checked once, kept typed; bad data is rejected aloud |
 | `land.cpp` | the land scene: explore and combat sets, the action sheet, the sword-move wheel |
+| `spyglass.cpp` | the spyglass card (`<s-hud-spyglass>`): laid by the Hud as the view's `overlay` over any scene, and alone where no scene owns the mode; acknowledged per drawn frame (`spyglass:<generation>`) so the engine hides its own info |
 
 Channels (JSON as the engine publishes it unless noted):
 
@@ -156,6 +157,7 @@ Channels (JSON as the engine publishes it unless noted):
 | `worldInfo` | a JSON string: the engine's location lines, `\n` between them | `States::world_info` |
 | `contextAction` | a JSON string: the script's quick action name, `""` = none | `States::context_action` |
 | `landCommands` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage, pendingLabel, selectedItemId, canBack, canClose, items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `LandCommands` |
+| `spyglass` | `{schemaVersion: 1, revision, on, generation, target: null \| {kind: ship\|fort, name, type, class, hull, sails, crew, cannons, cannonsMax, charge, nation, sail, speed, distance, captain, cannonType, portrait, skills: {…}}}`, fields the telescope cannot show left out | `Spyglass` |
 | `presentation` | written by the platform host: `{screen, loading, cinematic, dialogue, live}` | `Presentation` |
 
 The HUD is visible when a scene draws the gameplay mode, `presentation` reports a free game

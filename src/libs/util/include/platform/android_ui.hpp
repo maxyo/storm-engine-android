@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 #include "android_ship_telemetry.hpp"
+#include "android_spyglass.hpp"
 #include "android_sea_navigator.hpp"
 #include "android_sea_orders.hpp"
 #include "android_land_commands.hpp"
@@ -290,6 +291,26 @@ inline void publishVitals(const std::string &json) {
     if(method && bytes)env->CallVoidMethod(activity,method,bytes);
     if(env->ExceptionCheck()){env->ExceptionDescribe();env->ExceptionClear();}
     else {lastVitals=json;lastVitalsTick=now;}
+    if(bytes)env->DeleteLocalRef(bytes);
+    if(type)env->DeleteLocalRef(type);
+    env->DeleteLocalRef(activity);
+}
+// Channel "spyglass" (android_spyglass.hpp): sent when it changes; the app forwards it.
+inline std::string lastSpyglass;
+inline void publishSpyglass() {
+    const std::string json=spyglass.json();
+    if(lastSpyglass==json)return;
+    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return;
+    auto type=env->GetObjectClass(activity);
+    auto method=type ? env->GetMethodID(type,"showSpyglass","([B)V") : nullptr;
+    if(env->ExceptionCheck())env->ExceptionClear(); // an older app without the channel: the engine keeps its own info
+    auto bytes=method ? env->NewByteArray(static_cast<jsize>(json.size())) : nullptr;
+    if(bytes)env->SetByteArrayRegion(bytes,0,static_cast<jsize>(json.size()),reinterpret_cast<const jbyte *>(json.data()));
+    if(method && bytes)env->CallVoidMethod(activity,method,bytes);
+    if(env->ExceptionCheck()){env->ExceptionDescribe();env->ExceptionClear();}
+    else if(method)lastSpyglass=json;
     if(bytes)env->DeleteLocalRef(bytes);
     if(type)env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);

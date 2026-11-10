@@ -83,7 +83,7 @@ std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()
     std::vector<std::unique_ptr<StateConsumer>> consumers;
     consumers.push_back(CreateDialogueConsumer());
     consumers.push_back(CreateAppSettingsConsumer());
-    hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, presentation
+    hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, presentation, spyglass
     return consumers;
 }
 
