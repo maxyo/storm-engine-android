@@ -54,6 +54,10 @@ MediaCodec gives hardware VP8/VP9 decoding (policy: `src/libs/video/README.md`);
 libraries link `libmediandk.so` and `libandroid.so` from the platform. The NEON assembly is on.
 The 16 KiB page alignment is required of every library in the APK.
 
+`android-x86_64` (emulator debug builds only; release APKs are arm64) has the same Android flags
+with `--arch=x86_64 --disable-x86asm` instead of the arm64 CPU flags (no nasm on the development
+hosts, so the x86 SIMD paths are off).
+
 `host` adds `--disable-x86asm` (no nasm on the development hosts; the host build only serves
 tests and the desktop development build).
 

@@ -83,7 +83,8 @@ STORM_NATIVE_BUILD_DIR="$PWD/build/android-ci/engine-relwithdebinfo" \
 Package both `game/libengine.so` and `runtime/libmimalloc.so` from that build.
 Compare the same source revision, scene/save, camera, resolution and settings;
 do not compare while other emulator instances or native builds compete for the
-host. Emulator measurements include ARM translation and host graphics overhead.
+host. Emulator measurements of arm64 builds include ARM translation; use an x86_64
+build there (see ABIs below). They always include host graphics overhead.
 
 `render_metrics=1` in the test game's `engine.ini` enables five-second logs of
 successful Present cadence (FPS and frame interval p50/p95/p99/max), mean Present
@@ -100,6 +101,22 @@ preferences override this key and `texture_degradation`, `vsync`, `screen_x`,
 and `screen_y` at renderer startup; unset preferences use the game INI values.
 Changes require restarting the game. Evaluate increased filtering on oblique
 ground/deck textures and measure its cost before choosing a device-specific default.
+
+## ABIs: arm64-v8a releases, x86_64 emulator builds
+
+Every release is arm64-v8a. x86_64 exists only for debug builds that run natively on x86_64
+emulators (arm64 libraries there run through ARM translation, far slower). The ABI is a
+parameter of every Android build script, default `arm64-v8a`:
+
+- `STORM_ANDROID_ABI=x86_64` for `ci_dependencies.sh`, `ci_engine.sh` and `ci_ui.sh`
+  (`abi.sh`); `--abi x86_64` for `build_dependencies.py`, `verify_engine.py`,
+  `build_torrent.py` and `android/archive/build.py` (`android_abi.py`).
+- CMake: `cmake/toolchains/android-x86_64.cmake` instead of `android-arm64.cmake`; FFmpeg
+  builds the `android-x86_64` target (`tools/ffmpeg/README.md`).
+- Default directories of other ABIs carry a suffix so the warm arm64 ones stay untouched:
+  `$work/prefix-x86_64`, `$work/dependencies-x86_64`, `$work/engine-x86_64`, `$work/ui-x86_64`,
+  `<torrent work>/android-x86_64`; pass the archive build its own `--build-dir`.
+- The application packages one ABI per APK (`build_apk.py --abi`, under `lib/<abi>/`).
 
 ## Host checks and CI
 
