@@ -8,8 +8,6 @@
 // The picture is the game's painting of the watch; the card shows the icon of the situation.
 #include "controls.h"
 
-#include <cctype>
-
 namespace storm::ui::screens
 {
 
@@ -167,22 +165,10 @@ constexpr NodeRule kNoticeNodes[] = {
     {"RelNat", "image"},
 };
 
-// The game's picture of a nation (pictures.ini group NATIONS) as our flag icon.
 std::string FlagOf(const Widget *picture)
 {
-    const ImageRef *image = picture ? picture->FirstImage() : nullptr;
-    if (!image || image->image.empty())
-        return {};
-    static const char *const flags[][2] = {
-        {"england", "nation-england"}, {"france", "nation-france"}, {"spain", "nation-spain"},
-        {"holland", "nation-holland"}, {"pirate", "nation-pirates"}, {"pirates", "nation-pirates"}};
-    std::string name = image->image;
-    for (char &c : name)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    for (const auto &[game, icon] : flags)
-        if (name == game)
-            return icon;
-    return {};
+    const std::string nation = NationOf(picture ? picture->FirstImage() : nullptr);
+    return nation.empty() ? nation : "nation-" + nation;
 }
 
 class NoticeScreen final : public Screen

@@ -1,0 +1,569 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 3,
+ "screenRevision": 8,
+ "screen": "tradebook",
+ "widgets": [
+  {
+   "node": "TITLE",
+   "type": "heading",
+   "label": "Торговая книга",
+   "value": "",
+   "index": -1,
+   "order": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "EXIT_BTN",
+   "type": "button",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_CHARACTER",
+   "type": "button",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 3,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_SHIP",
+   "type": "button",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 4,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_QUESTBOOK",
+   "type": "button",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 5,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_NATIONS",
+   "type": "button",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 6,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_ITEMS",
+   "type": "button",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 7,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_CHARACTER_2",
+   "type": "button",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 8,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_CITY",
+   "type": "choice",
+   "label": "\tГавана\tКуба\t14.09.1654",
+   "value": "0",
+   "index": 0,
+   "order": 100,
+   "enabled": true,
+   "rowId": "city:0",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 3,
+       "imageRevision": 3,
+       "width": 26,
+       "height": 26,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "NATIONS",
+        "image": "Spain"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Гавана",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Куба",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "14.09.1654",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Нация",
+    "Город",
+    "Местоположение",
+    "Актуальность"
+   ]
+  },
+  {
+   "node": "TABLE_CITY",
+   "type": "choice",
+   "label": "\tПорт-Ройал\tЯмайка\t02.10.1654",
+   "value": "1",
+   "index": 1,
+   "order": 100,
+   "enabled": true,
+   "rowId": "city:1",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 3,
+       "imageRevision": 3,
+       "width": 26,
+       "height": 26,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "NATIONS",
+        "image": "England"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Порт-Ройал",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Ямайка",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "02.10.1654",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Нация",
+    "Город",
+    "Местоположение",
+    "Актуальность"
+   ]
+  },
+  {
+   "node": "TABLE_CITY",
+   "type": "choice",
+   "label": "\tЛа Вега\tЭспаньола\t??.??.????",
+   "value": "0",
+   "index": 2,
+   "order": 100,
+   "enabled": true,
+   "rowId": "city:2",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 3,
+       "imageRevision": 3,
+       "width": 26,
+       "height": 26,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "NATIONS",
+        "image": "Pirate"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Ла Вега",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Эспаньола",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "??.??.????",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Нация",
+    "Город",
+    "Местоположение",
+    "Актуальность"
+   ]
+  },
+  {
+   "node": "TABLE_GOODS",
+   "type": "choice",
+   "label": "Провиант\t\t6\t9\t1835\t20\t1",
+   "value": "0",
+   "index": 0,
+   "order": 200,
+   "enabled": true,
+   "rowId": "goods:0",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Провиант",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 3,
+       "imageRevision": 3,
+       "width": 26,
+       "height": 26,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Food"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 3,
+       "imageRevision": 3,
+       "width": 26,
+       "height": 26,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "TRADE_TYPE",
+        "image": "ico_0"
+       }
+      }
+     ]
+    },
+    {
+     "column": 2,
+     "text": "6",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "9",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "1835",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Товар",
+    "Тип",
+    "Продажа",
+    "Покупка",
+    "Запас",
+    "Пачка",
+    "Вес пачки"
+   ]
+  },
+  {
+   "node": "TABLE_GOODS",
+   "type": "choice",
+   "label": "Ром\t\t7\t10\t940\t20\t1",
+   "value": "0",
+   "index": 1,
+   "order": 200,
+   "enabled": true,
+   "rowId": "goods:1",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Ром",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 3,
+       "imageRevision": 3,
+       "width": 26,
+       "height": 26,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Rum"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 3,
+       "imageRevision": 3,
+       "width": 26,
+       "height": 26,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "TRADE_TYPE",
+        "image": "ico_3"
+       }
+      }
+     ]
+    },
+    {
+     "column": 2,
+     "text": "7",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "940",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Товар",
+    "Тип",
+    "Продажа",
+    "Покупка",
+    "Запас",
+    "Пачка",
+    "Вес пачки"
+   ]
+  },
+  {
+   "node": "TABLE_GOODS",
+   "type": "choice",
+   "label": "Табак\t\t110\t160\t45\t20\t1",
+   "value": "0",
+   "index": 2,
+   "order": 200,
+   "enabled": true,
+   "rowId": "goods:2",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Табак",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 3,
+       "imageRevision": 3,
+       "width": 26,
+       "height": 26,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Tobacco"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 3,
+       "imageRevision": 3,
+       "width": 26,
+       "height": 26,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "TRADE_TYPE",
+        "image": "ico_7"
+       }
+      }
+     ]
+    },
+    {
+     "column": 2,
+     "text": "110",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "160",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "45",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Товар",
+    "Тип",
+    "Продажа",
+    "Покупка",
+    "Запас",
+    "Пачка",
+    "Вес пачки"
+   ]
+  }
+ ]
+}

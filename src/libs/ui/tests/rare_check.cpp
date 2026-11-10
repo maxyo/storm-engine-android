@@ -210,6 +210,35 @@ static void Rest(const std::string &models)
     ExpectEqual(surface.props["actions"][0]["sub"], "Полдня", "another span is named by the game's text");
 }
 
+static void TradeBook(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "tradebook.json"));
+    ExpectEqual(surface.tag, "s-tradebook", "trade book is a ported screen");
+    Expect(surface.errors.empty() && surface.props["extras"]["rows"].empty(), "every node of the trade book is known");
+    const Json &towns = surface.props["towns"];
+    Expect(towns.size() == 3 && towns[1]["selected"] == true && towns[0]["cells"][0]["icon"] == "nation-spain" &&
+               towns[0]["cells"][0]["sub"] == "Куба" && towns[0]["cells"][1]["text"] == "14.09.1654",
+           "towns: flag, town, island, date");
+    Expect(towns[2]["cells"][1]["text"] == "<tradebook.no_data>" && towns[2]["cells"][0]["icon"] == "nation-pirates", "unknown prices say so");
+    const Json &columns = surface.props["columns"];
+    Expect(columns.size() == 4 && columns[0]["label"] == "Порт-Ройал" && columns[1]["label"] == "Продажа" && columns[3]["label"] == "Запас",
+           "price list headed by the chosen town and the game's column names");
+    const Json &prices = surface.props["prices"];
+    Expect(prices.size() == 3 && prices[1]["cells"][0]["tag"] == "export" && prices[2]["cells"][0]["tag"] == "contraband" &&
+               !prices[0]["cells"][0].contains("tag") && prices[0]["cells"][0]["image"]["texture"] == "atlas:GOODS/Food" &&
+               prices[0]["cells"][3] == "1835",
+           "goods: picture, trade type tag, sell, buy, stock");
+    Expect(surface.props["sections"] == "tradebook", "hero sections in the header");
+    router.OnEvent({"towns", "row", "0"});
+    ExpectEqual(surface.Last(), "widget:tradebook\tTABLE_CITY\t0\tselect@8:city:0", "a town row selects it");
+    router.OnEvent({"header", "section", "ship"});
+    ExpectEqual(surface.Last(), "widget:tradebook\tI_SHIP\t-1\tpress", "a section icon presses its button");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), "widget:tradebook\tEXIT_BTN\t-1\tpress", "← is the exit button");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
@@ -217,6 +246,7 @@ int main(int argc, char **argv)
     Frame(models);
     Rest(models);
     Notices(models);
+    TradeBook(models);
     for (const char *id : {"map", "dirsailenc", "leavebattle", "salary", "boal_frame", "tavernwait"})
         Expect(!HostOwned(id), std::string(id) + " is not drawn by the platform host");
     if (failures)

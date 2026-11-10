@@ -69,6 +69,7 @@ add_library(storm_ui STATIC
     src/screens/menu_title.cpp
     src/screens/reading.cpp
     src/screens/rest.cpp
+    src/screens/hero_tradebook.cpp
     src/hud/hud.cpp
     src/hud/states.cpp
     src/hud/land.cpp
