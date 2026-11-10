@@ -3259,19 +3259,11 @@ bool XINTERFACE::NewSaveFileName(const char *fileName) const
         return false;
     }
 
-    char param[256];
+    // Save names come from player input; no fixed-size buffer.
     const char *sSavePath = AttributesPointer->GetAttribute("SavePath");
+    const std::string param = sSavePath == nullptr ? std::string(fileName) : std::string(sSavePath) + "\\" + fileName;
 
-    if (sSavePath == nullptr)
-    {
-        sprintf(param, "%s", fileName);
-    }
-    else
-    {
-        sprintf(param, "%s\\%s", sSavePath, fileName);
-    }
-
-    return !(fio->_FileOrDirectoryExists(param));
+    return !(fio->_FileOrDirectoryExists(param.c_str()));
 }
 
 void XINTERFACE::DeleteSaveFile(const char *fileName)
@@ -3280,17 +3272,9 @@ void XINTERFACE::DeleteSaveFile(const char *fileName)
     {
         return;
     }
-    char param[256];
     const char *sSavePath = AttributesPointer->GetAttribute("SavePath");
-    if (sSavePath == nullptr)
-    {
-        sprintf(param, "%s", fileName);
-    }
-    else
-    {
-        sprintf(param, "%s\\%s", sSavePath, fileName);
-    }
-    fio->_DeleteFile(param);
+    const std::string param = sSavePath == nullptr ? std::string(fileName) : std::string(sSavePath) + "\\" + fileName;
+    fio->_DeleteFile(param.c_str());
 }
 
 uint32_t XINTERFACE_BASE::GetBlendColor(uint32_t minCol, uint32_t maxCol, float fBlendFactor)

@@ -3,6 +3,10 @@
 #include "string_compare.hpp"
 #include "platform/platform.hpp"
 #include "platform/checked_file_io.hpp"
+#include "fs.h"
+#include "save_trash.hpp"
+#include "platform/resource_index.hpp"
+#include "platform/path_fingerprint.hpp"
 
 #include <SDL2/SDL.h>
 #include <exception>
@@ -25,6 +29,28 @@ const char INI_VOIDSYMS[VOIDSYMS_NUM] = {0x20, 0x9};
 namespace
 {
 FILE_SERVICE file_service;
+
+// True for the save data root and everything below it: the engine's own save
+// folder, or a game-relative "save" folder on installations that use one.
+bool underSaveRoot(const std::filesystem::path &path)
+{
+    const auto normal = path.lexically_normal();
+    try
+    {
+        const auto relative = normal.lexically_relative(fs::GetSaveDataPath().lexically_normal());
+        if (!relative.empty() && *relative.begin() != "..")
+            return true;
+    }
+    catch (const std::exception &)
+    {
+        // Storage roots are not available yet (early startup): fall through.
+    }
+    if (normal.is_absolute() || normal.empty())
+        return false;
+    auto first = normal.begin()->string();
+    std::ranges::for_each(first, [](char &c) { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
+    return first == "save";
+}
 }
 
 extern VFILE_SERVICE *fio = &file_service;
@@ -86,6 +112,13 @@ void FILE_SERVICE::_SetFilePointer(std::fstream &fileS, std::streamoff off, std:
 bool FILE_SERVICE::_DeleteFile(const char *filename)
 {
     std::filesystem::path path = std::filesystem::u8path(ConvertPathResource(filename));
+    // Saves are not removed at once: the game overwrites a slot by deleting it
+    // and then writing a new save, and must not lose it if it dies in between.
+    // See save_trash.hpp for when the delete becomes final.
+    if (underSaveRoot(path) && !storm::save::isReservedName(path.filename().string()))
+    {
+        return storm::save::trash().discard(path);
+    }
     std::error_code error;
     const bool removed = std::filesystem::remove(path, error);
     if (error) spdlog::error("Cannot delete '{}': {}", path.string(), error.message());
@@ -207,16 +240,32 @@ std::vector<std::filesystem::path> FILE_SERVICE::_GetFsPathsByMask(const char *s
     }
 
     std::error_code ec;
+    std::vector<std::filesystem::path> result;
+    const bool saves = underSaveRoot(srcPath);
+    if (saves)
+    {
+        // Bring back saves whose deletion was interrupted by a process death.
+        if (const int restored = storm::save::trash().recover(srcPath); restored > 0)
+            spdlog::warn("Restored {} save(s) in '{}' whose overwrite did not complete", restored, srcPath.string());
+    }
     if (recursive)
     {
         auto it = std::filesystem::recursive_directory_iterator(srcPath, ec);
-        return iter_directory(it, ec, mask, getPaths, onlyDirs, onlyFiles);
+        result = iter_directory(it, ec, mask, getPaths, onlyDirs, onlyFiles);
     }
     else
     {
         auto it = std::filesystem::directory_iterator(srcPath, ec);
-        return iter_directory(it, ec, mask, getPaths, onlyDirs, onlyFiles);
+        result = iter_directory(it, ec, mask, getPaths, onlyDirs, onlyFiles);
     }
+    if (saves)
+    {
+        // Temporary, backup and deleted files of the atomic save machinery are not saves.
+        std::erase_if(result, [](const std::filesystem::path &entry) {
+            return storm::save::isReservedName(entry.filename().string());
+        });
+    }
+    return result;
 }
 
 std::time_t FILE_SERVICE::_ToTimeT(std::filesystem::file_time_type tp)
@@ -446,17 +495,6 @@ void terminate_with_char(std::string &buffer, const char chr)
     }
 }
 
-std::string get_dir_iterator_path(const std::filesystem::path &path)
-{
-    std::string path_str = path.string();
-    size_t pos = path_str.find(std::string(".") + PATH_SEP);
-    if (pos != std::string::npos && pos == 0)
-    {
-        path_str.erase(0, 2);
-    }
-    return path_str;
-}
-
 void string_replace(std::string &input, const char *find, const char *paste)
 {
     size_t pos = 0;
@@ -481,21 +519,6 @@ std::string convert_path(const char *path)
     return conv;
 }
 
-void FILE_SERVICE::AddEntryToResourcePaths(const std::filesystem::directory_entry &entry, std::string &CheckingPath)
-{
-    if (entry.is_regular_file() || entry.is_directory())
-    {
-        std::string path = get_dir_iterator_path(entry.path());
-        std::string path_lwr = convert_path(path.c_str());
-        std::ranges::for_each(path_lwr, [](char &c) { c = std::tolower(c); });
-        if (starts_with(path_lwr, CheckingPath + "program") || starts_with(path_lwr, CheckingPath + "resource") ||
-            starts_with(path_lwr, CheckingPath + "save") || ends_with(path_lwr, ".ini"))
-        {
-            ResourcePaths[path_lwr] = path;
-        }
-    }
-}
-
 void FILE_SERVICE::ScanResourcePaths()
 {
 #ifndef _WIN32
@@ -505,18 +528,9 @@ void FILE_SERVICE::ScanResourcePaths()
         ResourcePaths = std::unordered_map<std::string, std::string>();
     }
     ResourcePaths.clear();
-    std::string ExePath = "";
-    for (const auto &entry : std::filesystem::recursive_directory_iterator("."))
-    {
-        AddEntryToResourcePaths(entry, ExePath);
-    }
-    ExePath = fio->_GetExecutableDirectory();
-    auto it = std::filesystem::recursive_directory_iterator(ExePath);
-    std::ranges::for_each(ExePath, [](char &c) { c = std::tolower(c); });
-    for (const auto &entry : it)
-    {
-        AddEntryToResourcePaths(entry, ExePath);
-    }
+    // One walk when the working directory is the game directory (always on
+    // Android), two otherwise; see platform/resource_index.hpp.
+    storm::resource_index::scan(ResourcePaths, fio->_GetExecutableDirectory());
 #endif
 #ifdef __ANDROID__
     storm::android::indexUiOverlay(std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "mobile-ui/current",
@@ -599,28 +613,16 @@ std::string FILE_SERVICE::ConvertPathResource(const char *path)
 
 uint64_t FILE_SERVICE::GetPathFingerprint(const std::filesystem::path &path)
 {
-    uint64_t result = 0U;
+    // Hash of (relative path, size, mtime) per file; see platform/path_fingerprint.hpp.
+    uint64_t result = storm::fingerprint::tree(path);
 #ifdef __ANDROID__
-    if (storm::android::resourceKey(path.lexically_normal()) == "program")
-        result += GetPathFingerprint(std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "mobile-ui/current");
+    // Interface scripts shipped inside the APK override files of the program tree.
+    const auto normal = path.lexically_normal();
+    const auto leaf = normal.filename().empty() ? normal.parent_path().filename() : normal.filename();
+    if (storm::android::resourceKey(leaf) == "program")
+        result += storm::fingerprint::mix(
+            storm::fingerprint::tree(std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "mobile-ui/current"));
 #endif
-
-    if (exists(path))
-    {
-        if (is_directory(path))
-        {
-            for (const auto &entry : std::filesystem::directory_iterator(path))
-            {
-                result += GetPathFingerprint(entry);
-            }
-        }
-        else if (is_regular_file(path))
-        {
-            const auto timestamp = last_write_time(path).time_since_epoch().count();
-            result += timestamp;
-        }
-    }
-    
     return result;
 }
 

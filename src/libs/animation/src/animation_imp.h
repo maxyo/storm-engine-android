@@ -133,6 +133,8 @@ class AnimationImp final : public Animation
     bool isUserBlend;
     // Skeleton matrices
     CMatrix *matrix;
+    // Set by Execute(); the bone matrices are stale until GetAnimationMatrix() rebuilds them
+    mutable bool matricesDirty_ = false;
     // Internal event subscribers
     AnimationEventListener *ae_listeners[ae_numevents][ANIIMP_MAXLISTENERS];
     // Subscribers to external events

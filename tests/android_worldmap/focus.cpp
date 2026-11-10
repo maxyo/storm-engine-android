@@ -18,11 +18,18 @@ struct CoreBoundary {
     void *GetService(const char *){return &audio;}
 } core;
 auto *core_private=&core;
+// main.cpp routes focus through its audio gate; the harness keeps the property
+// under test: the (possibly blocking) audio fade happens after the focus event
+// has been observed.
+struct {
+    bool windowFocused=true,applied=true;
+    void apply(){if(applied!=windowFocused){applied=windowFocused;audio.SetActiveWithFade(windowFocused);}}
+} audioGate;
 #include "window_focus.inc"
 int main(){
     auto &modal=storm::android::worldMapHud.modal;
     for(auto delay:{500u,563u,1200u})for(bool appBlocks:{false,true}){
-        modal.owner({});now=100;bActive=true;
+        modal.owner({});now=100;bActive=true;audioGate.windowFocused=audioGate.applied=true;
         assert(modal.request({1,1,1,1},1,7,1,now));modal.presented({1,1,1,1},7,1,now);
         assert(modal.operate(1,1,1,1,1,1,now));
         now=150;appDelay=appBlocks?delay:0;audioDelay=appBlocks?0:delay;
@@ -30,6 +37,7 @@ int main(){
         assert(!bActive&&now==150+delay&&modal.hold(false,now)&&modal.receipt(now).failed==0);
         assert(modal.operate(1,1,1,1,1,4,now)); // normal Close remains available after the fade
     }
+    audioGate.windowFocused=audioGate.applied=true;
     modal.owner({});now=100;assert(modal.request({1,1,1,1},1,7,1,now));modal.presented({1,1,1,1},7,1,now);
     assert(modal.operate(1,1,1,1,1,1,now));now=600;appDelay=audioDelay=0;
     HandleWindowEvent(storm::OSWindow::FocusLost);

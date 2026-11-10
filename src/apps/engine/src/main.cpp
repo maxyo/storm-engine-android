@@ -1,6 +1,8 @@
 #ifdef STORM_ENABLE_BGFX
 #include "fog_preview.hpp"
 #endif
+#include <chrono>
+#include <string>
 #include <thread>
 
 #include <SDL2/SDL.h>
@@ -14,6 +16,7 @@
 #include "lifecycle_diagnostics_service.hpp"
 #include "logging.hpp"
 #include "os_window.hpp"
+#include "app_events.hpp"
 #include "steam_api.hpp"
 #include "v_sound_service.h"
 #include "fs.h"
@@ -60,6 +63,41 @@ bool bSoundInBackground = false;
 
 storm::diag::LifecycleDiagnosticsService lifecycleDiagnostics;
 
+// Single owner of "may sound play right now". Window focus, the Android
+// activity lifecycle and Android audio focus all used to call
+// SetActiveWithFade independently and could re-enable each other's pause.
+struct AudioGate
+{
+    bool windowFocused = true; // OSWindow focus
+    bool foreground = true;    // AppEvents lifecycle (Android pause/resume)
+    bool audioFocus = true;    // Android AudioManager focus, reported by the activity
+    float duck = 1.0f;         // transient "may duck" focus loss
+    bool applied = true;
+    float appliedDuck = 1.0f;
+
+    void apply()
+    {
+        if (!core_private || !core_private->initialized())
+            return;
+        const bool active = foreground && audioFocus && (windowFocused || bSoundInBackground);
+        if (active == applied && duck == appliedDuck)
+            return;
+        auto *soundService = static_cast<VSoundService *>(core.GetService("SoundService"));
+        if (!soundService)
+            return;
+        if (duck != appliedDuck)
+        {
+            soundService->SetDucking(duck);
+            appliedDuck = duck;
+        }
+        if (active != applied)
+        {
+            soundService->SetActiveWithFade(active);
+            applied = active;
+        }
+    }
+} audioGate;
+
 void RunFrame()
 {
     if (!core_private->Run())
@@ -89,6 +127,71 @@ void RunFrameWithOverflowCheck()
 #define RunFrameWithOverflowCheck RunFrame
 #endif
 
+// Sleep-based frame limiter. The previous one compared SDL_GetTicks() and
+// `continue`d, spinning the whole main loop (event pump, JNI polling) on one
+// core until the frame time had passed, with whole-millisecond periods
+// (max_fps=60 actually ran at 62.5).
+class FrameLimiter
+{
+  public:
+    using Clock = std::chrono::steady_clock;
+
+    void setLimit(uint32_t fps)
+    {
+        period_ = fps ? std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / fps))
+                      : Clock::duration::zero();
+        next_ = Clock::now();
+    }
+
+    // Blocks until the next frame is due.
+    void wait()
+    {
+        if (period_ == Clock::duration::zero())
+            return;
+        const auto now = Clock::now();
+        if (now < next_)
+        {
+            std::this_thread::sleep_until(next_);
+            next_ += period_;
+        }
+        else
+        {
+            // Late: schedule from now instead of bursting to catch up.
+            next_ = (now - next_ > period_) ? now + period_ : next_ + period_;
+        }
+    }
+
+  private:
+    Clock::duration period_ = Clock::duration::zero();
+    Clock::time_point next_{};
+};
+
+// Last line of defence for exceptions thrown out of a frame (about 490 `throw`
+// sites are reachable from the frame loop): log, flush, tell the player, and
+// let main() shut the engine down in order. Android already caught
+// std::exception here; this also covers other platforms and non-std throws.
+bool fatalError = false;
+
+void ReportFatalError(const char *what)
+{
+    fatalError = true;
+    isRunning = false;
+    spdlog::critical("Unhandled exception in the frame loop: {}", what);
+    if (auto logger = spdlog::default_logger())
+        logger->flush();
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Engine stopped: %s", what);
+    // SDL's Android bridge shows a Java dialog and waits for dismissal
+    // before SDL_main returns and the game Activity is finished.
+    // SDL's Android default TextView colors can be dark on a dark
+    // Activity theme, so explicitly style this fatal error message.
+    const SDL_MessageBoxColorScheme colors{{
+        {24, 24, 24}, {255, 255, 255}, {128, 128, 128}, {64, 64, 64}, {96, 96, 96}}};
+    const SDL_MessageBoxButtonData button{
+        SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "OK"};
+    const SDL_MessageBoxData dialog{SDL_MESSAGEBOX_ERROR, nullptr, "Game stopped", what, 1, &button, &colors};
+    SDL_ShowMessageBox(&dialog, nullptr);
+}
+
 void mimalloc_fun(const char *msg, void *arg)
 {
     static std::filesystem::path mimalloc_log_path;
@@ -114,6 +217,64 @@ void mimalloc_fun(const char *msg, void *arg)
 
 } // namespace
 
+// Engine-side reactions to application events. Other subsystems subscribe to
+// storm::AppEvents themselves; see src/libs/window/README.md.
+void SubscribeEngineToAppEvents()
+{
+    auto &events = storm::AppEvents::instance();
+    // Early: pause audio and tell scripts inside the SDL call that announces the
+    // pause, before anything else can run.
+    events.subscribe(
+        [](const storm::AppEvent &event) {
+            if (event.type == storm::AppEventType::WillEnterBackground ||
+                event.type == storm::AppEventType::Terminating)
+            {
+                // A backgrounded process can be killed without notice: do not lose buffered log lines.
+                spdlog::apply_all([](const std::shared_ptr<spdlog::logger> &logger) { logger->flush(); });
+            }
+            if (event.type == storm::AppEventType::WillEnterBackground)
+            {
+                audioGate.foreground = false;
+                audioGate.apply();
+                if (event.immediate && core_private && core_private->initialized())
+                {
+                    // Hook for scripts (e.g. autosave). Runs between frames on the game thread.
+                    core_private->Event("AppWillEnterBackground");
+                }
+            }
+        },
+        true);
+    events.subscribe([](const storm::AppEvent &event) {
+        const bool ready = core_private && core_private->initialized();
+        switch (event.type)
+        {
+        case storm::AppEventType::DidEnterForeground:
+            audioGate.foreground = true;
+            audioGate.apply();
+            if (ready)
+                core_private->Event("AppDidEnterForeground");
+            break;
+        case storm::AppEventType::LowMemory:
+            if (ready)
+            {
+                uint64_t released = 0;
+                if (auto *soundService = static_cast<VSoundService *>(core.GetService("SoundService")))
+                    released = soundService->TrimCaches();
+                spdlog::warn("Low memory: released {} KiB of cached audio", released / 1024);
+                core_private->Event("AppLowMemory");
+            }
+            break;
+        case storm::AppEventType::WindowResized:
+            spdlog::info("Window resized to {}x{}", event.width, event.height);
+            if (ready)
+                core_private->Event("AppWindowResized", "ll", event.width, event.height);
+            break;
+        default:
+            break;
+        }
+    });
+}
+
 void HandleWindowEvent(const storm::OSWindow::Event &event)
 {
     if (event == storm::OSWindow::Closed)
@@ -127,19 +288,17 @@ void HandleWindowEvent(const storm::OSWindow::Event &event)
     else if (event == storm::OSWindow::FocusGained)
     {
         bActive = true;
+        audioGate.windowFocused = true;
         if (core_private->initialized())
         {
             core_private->AppState(bActive);
-            if (const auto soundService = static_cast<VSoundService *>(core.GetService("SoundService"));
-                soundService && !bSoundInBackground)
-            {
-                soundService->SetActiveWithFade(true);
-            }
+            audioGate.apply();
         }
     }
     else if (event == storm::OSWindow::FocusLost)
     {
         bActive = false;
+        audioGate.windowFocused = false;
 #ifdef __ANDROID__
         // AppState/audio fading can block this thread beyond the opening grace.
         // Observe the real SDL focus event before those calls, at its actual time.
@@ -152,11 +311,7 @@ void HandleWindowEvent(const storm::OSWindow::Event &event)
         if (core_private->initialized())
         {
             core_private->AppState(bActive);
-            if (const auto soundService = static_cast<VSoundService *>(core.GetService("SoundService"));
-                soundService && !bSoundInBackground)
-            {
-                soundService->SetActiveWithFade(false);
-            }
+            audioGate.apply();
         }
     }
 }
@@ -199,7 +354,17 @@ int main(int argc, char *argv[])
     mi_option_set(mi_option_verbose, 4);
 #endif
 
+#ifdef __ANDROID__
+    // The manifest pins the activities to sensorLandscape, but SDL recomputes the
+    // requested orientation from the window it creates; without this hint a
+    // window that is not wider than tall (or a resizable one) unlocks portrait.
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
     SDL_InitSubSystem(SDL_INIT_EVENTS | SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER);
+
+    // Window/lifecycle event hub; must be installed on the game thread.
+    storm::AppEvents::instance().install();
+    SubscribeEngineToAppEvents();
 
     // Init diagnostics
     const auto lifecycleDiagnosticsGuard =
@@ -316,7 +481,8 @@ int main(int argc, char *argv[])
     core_private->InitBase();
 
     // Message loop
-    auto dwOldTime = SDL_GetTicks();
+    FrameLimiter frameLimiter;
+    frameLimiter.setLimit(dwMaxFPS);
 
 #ifdef __ANDROID__
     storm::android::Lifecycle androidLifecycle;
@@ -451,6 +617,14 @@ int main(int argc, char *argv[])
                 if (action == "New" || action == "Load" || action == "Options" || action == "Credits" || action == "Exit")
                     core_private->Event("backgroundcommand", "s", action.c_str());
             }
+            else if (command.starts_with("audiofocus:"))
+            {
+                // Reported by the activity's AudioManager focus listener.
+                const auto state = std::string_view(command).substr(11);
+                if (state == "gain") { audioGate.audioFocus = true; audioGate.duck = 1.0f; }
+                else if (state == "duck") { audioGate.audioFocus = true; audioGate.duck = 0.25f; }
+                else if (state == "loss") { audioGate.audioFocus = false; audioGate.duck = 1.0f; }
+            }
             else if (command == "back" && !storm::android::mobileScreen.empty())
                 core_private->Event("exitCancel");
             else if (command.starts_with("context:"))
@@ -493,8 +667,10 @@ int main(int argc, char *argv[])
 #endif
         SDL_PumpEvents();
         window->PumpEvents();
+        // Queued window/lifecycle events, delivered between frames on this thread.
+        storm::AppEvents::instance().dispatch();
+        audioGate.apply();
 #ifdef __ANDROID__
-        const bool wasRunning = androidLifecycle.canRun();
         SDL_Event appEvent;
         while (SDL_PeepEvents(&appEvent, 1, SDL_GETEVENT, SDL_APP_TERMINATING,
                               SDL_APP_DIDENTERFOREGROUND) > 0)
@@ -511,9 +687,7 @@ int main(int argc, char *argv[])
         }
         if (SDL_HasEvent(SDL_QUIT))
             androidLifecycle.consume(SDL_QUIT);
-        if (wasRunning != androidLifecycle.canRun() && core_private->initialized())
-            if (auto* audio = static_cast<VSoundService*>(core.GetService("SoundService")))
-                audio->SetActiveWithFade(androidLifecycle.canRun());
+        // Audio pause/resume for the lifecycle goes through AppEvents and audioGate.
         if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty())
             gameplayShortcuts.clear();
         if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty() || storm::android::loadingState != 0)
@@ -548,45 +722,35 @@ int main(int argc, char *argv[])
 #endif
         )
         {
-            if (dwMaxFPS)
-            {
-                const auto dwMS = 1000u / dwMaxFPS;
-                const auto dwNewTime = SDL_GetTicks();
-                if (dwNewTime - dwOldTime < dwMS)
-                    continue;
-                dwOldTime = dwNewTime;
-            }
+            frameLimiter.wait();
 
 #ifdef __ANDROID__
             // Activity changes revoke queued intents before any native Player
             // or Control Activation handler can consume the next frame.
             storm::android::publishCombatState();
+#endif
+            // Exceptions escaping a frame are reported and end the session in order
+            // instead of reaching std::terminate; see ReportFatalError.
             try
             {
+#ifdef __ANDROID__
                 storm::android::worldMapHud.beginDraw(SDL_GetTicks());
+#endif
                 RunFrameWithOverflowCheck();
             }
             catch (const std::exception &error)
             {
-                isRunning = false;
+                ReportFatalError(error.what());
+            }
+            catch (...)
+            {
+                ReportFatalError("unknown error");
+            }
+            if (fatalError)
+            {
                 exitCode = EXIT_FAILURE;
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Engine stopped: %s", error.what());
-                // SDL's Android bridge shows a Java dialog and waits for dismissal
-                // before SDL_main returns and the game Activity is finished.
-                // SDL's Android default TextView colors can be dark on a dark
-                // Activity theme, so explicitly style this fatal error message.
-                const SDL_MessageBoxColorScheme colors{{
-                    {24, 24, 24}, {255, 255, 255}, {128, 128, 128}, {64, 64, 64}, {96, 96, 96}}};
-                const SDL_MessageBoxButtonData button{
-                    SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "OK"};
-                const SDL_MessageBoxData dialog{
-                    SDL_MESSAGEBOX_ERROR, nullptr, "Game stopped", error.what(), 1, &button, &colors};
-                SDL_ShowMessageBox(&dialog, nullptr);
                 break;
             }
-#else
-            RunFrameWithOverflowCheck();
-#endif
 #ifdef STORM_ENABLE_BGFX
             static bool fogCaptureKeyDown = false;
             const bool fogCaptureKey = core.Controls && core.Controls->GetDebugAsyncKeyState(VK_F11) != 0;
@@ -725,10 +889,28 @@ int main(int argc, char *argv[])
     storm::android::shipTelemetry.update(gameplayState.revision(), {});
     storm::android::publishShipTelemetry();
 #endif
-    if (exitCode == EXIT_SUCCESS)
-        core_private->Event("ExitApplication");
-    core_private->CleanUp();
-    core_private->ReleaseBase();
+    storm::AppEvents::instance().uninstall();
+    // After a fatal error the engine state is unknown: still try to shut down in
+    // order (services flush files), but never let a second exception abort.
+    try
+    {
+        if (exitCode == EXIT_SUCCESS)
+            core_private->Event("ExitApplication");
+        core_private->CleanUp();
+        core_private->ReleaseBase();
+    }
+    catch (const std::exception &error)
+    {
+        spdlog::critical("Exception during shutdown: {}", error.what());
+        exitCode = EXIT_FAILURE;
+    }
+    catch (...)
+    {
+        spdlog::critical("Unknown exception during shutdown");
+        exitCode = EXIT_FAILURE;
+    }
+    if (auto logger = spdlog::default_logger())
+        logger->flush();
 #ifdef _WIN32 // FIX_LINUX Cursor
     ClipCursor(nullptr);
 #elif _DEBUG

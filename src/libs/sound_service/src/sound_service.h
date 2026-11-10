@@ -34,6 +34,10 @@ class SoundService : public VSoundService
 
 #ifdef STORM_OPEN_AUDIO
     std::unique_ptr<storm_audio::Mixer> audio;
+  public:
+    void SetDucking(float gain) override;
+    uint64_t TrimCaches() override;
+  private:
     storm_audio::Vec3 listenerPos{}, listenerForward{0,0,1}, listenerUp{0,1,0};
     void CreateEntityIfNeed();
 #else

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <platform/android_interface_presentation.hpp>
 #include <cassert>
 #include <cstring>
@@ -38,6 +39,7 @@ struct FONT_PRINT_OVERRIDES
     std::optional<uint32_t> color;
 };
 namespace utf8 { int Utf8StringLength(const char *s) { return std::strlen(s); } }
+constexpr size_t MAX_SYMBOLS = 512; // font.cpp's vertex buffer capacity; Print clamps to it
 struct FONT
 {
     DX9RENDER &renderService_;

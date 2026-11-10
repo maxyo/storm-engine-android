@@ -3,7 +3,9 @@
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 work=${STORM_CI_WORK:-"$repo/build/android-ci"}
-build_type=${STORM_NATIVE_BUILD_TYPE:-Debug}
+# Release (optimized, LTO, hidden visibility, debug info kept for symbol files) is
+# what gets packaged; set STORM_NATIVE_BUILD_TYPE=Debug or RelWithDebInfo for diagnostics.
+build_type=${STORM_NATIVE_BUILD_TYPE:-Release}
 build_dir=${STORM_NATIVE_BUILD_DIR:-"$work/engine"}
 case "$build_type" in
   Debug|Release|RelWithDebInfo|MinSizeRel) ;;

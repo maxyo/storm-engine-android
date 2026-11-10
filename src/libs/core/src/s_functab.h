@@ -3,6 +3,7 @@
 #include "s_import_func.h"
 #include "s_vartab.h"
 #include "string_compare.hpp"
+#include <deque>
 #include <unordered_map>
 #include <vector>
 
@@ -59,6 +60,27 @@ struct FuncInfo
     uint32_t extern_arguments;
 };
 
+// Per-call view of a function. The interpreter used to deep-copy FuncInfo
+// (two strings and the local variable vector) on every script call; a frame
+// only snapshots the scalar fields and points at the table entry, whose
+// address is stable for the lifetime of the table (see FuncTable::funcs_).
+struct FuncFrame
+{
+    FuncFrame() = default;
+    explicit FuncFrame(const FuncInfo &fi)
+        : info(&fi), segment_id(fi.segment_id), offset(fi.offset), stack_offset(fi.stack_offset),
+          arguments(fi.arguments), return_type(fi.return_type)
+    {
+    }
+
+    const FuncInfo *info{};
+    uint32_t segment_id{INVALID_SEGMENT_ID};
+    uint32_t offset{INVALID_FUNC_OFFSET};
+    uint32_t stack_offset{};
+    uint32_t arguments{};
+    S_TOKEN_TYPE return_type{TVOID};
+};
+
 class FuncTable
 {
   public:
@@ -75,6 +97,10 @@ class FuncTable
     bool GetFunc(FuncInfo &fi, size_t func_index) const;
     // get func by index, returns true if func is registered
     bool GetFuncX(FuncInfo &fi, size_t func_index) const;
+    // same validity rules as GetFunc, but without copying: returns the table entry
+    // or nullptr. The pointer stays valid until Release(); the entry itself may be
+    // updated when its segment is unloaded or reloaded.
+    const FuncInfo *GetFuncPtr(size_t func_index) const;
     // invalidate all segment's functions
     void InvalidateBySegmentID(uint32_t segment_id);
 
@@ -96,7 +122,9 @@ class FuncTable
     void Release(); // clear table
 
   private:
-    std::vector<FuncInfo> funcs_;
+    // deque: entries never move when functions are added, so FuncFrame::info and
+    // GetFuncPtr results survive runtime segment loading
+    std::deque<FuncInfo> funcs_;
     storm::iStrHasher hasher_;
     std::unordered_map<std::string, size_t, storm::iStrHasher, storm::iStrComparator> hash_table_;
 };

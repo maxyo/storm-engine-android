@@ -72,8 +72,14 @@ python3 tools/android/verify_engine.py --library build/android-engine/game/liben
 The source directory must also contain the pinned DXVK checkout.
 `ci_dependencies.sh` prepares tools/dependencies and runs regressions;
 `ci_engine.sh` builds and verifies only the native library.
-It defaults to `Debug`. For performance measurements with symbols retained, use
-an isolated optimized build directory:
+It defaults to `Release`: `-O2 -g -DNDEBUG` with ThinLTO, hidden symbol
+visibility and section garbage collection (`cmake/android.cmake`;
+`-DSTORM_ANDROID_RELEASE_LTO=OFF` disables only LTO). Only `SDL_main` and the JNI
+entry points remain exported. Debug info stays in the library so the
+application's release packaging can strip it and keep the symbol file.
+`STORM_NATIVE_BUILD_TYPE=Debug` gives an unoptimized diagnostic build. For
+measurements against the previous non-LTO configuration, use an isolated
+`RelWithDebInfo` build directory:
 
 ```sh
 STORM_NATIVE_BUILD_TYPE=RelWithDebInfo \
@@ -101,5 +107,46 @@ preferences override this key and `texture_degradation`, `vsync`, `screen_x`,
 and `screen_y` at renderer startup; unset preferences use the game INI values.
 Changes require restarting the game. Evaluate increased filtering on oblique
 ground/deck textures and measure its cost before choosing a device-specific default.
+
+## Host checks and CI
+
+`python3 tools/ci/run_host_tests.py` fetches the pinned open-source sources into
+`build/host-ci` and runs every `tests/*/run.py` in parallel with the arguments it
+needs (run it under `xvfb-run -a` without a display; the SDL input check opens a
+window). `.github/workflows/host.yml` runs it, plus the host build and unit test of
+`src/libs/ui`, on pushes and pull requests to `develop`. Android builds and device
+checks are not part of that workflow.
+
+## Compiled script cache (`[script] cache_mode`)
+
+The script compiler can store each compiled segment and reload it on the next
+start instead of recompiling the game scripts. It is **off by default**
+(`cache_mode = 0`) and that default was deliberately not changed:
+
+- `cache_mode = 2` loads from the cache and checks the scripts once per session;
+  `cache_mode = 1` re-checks on every segment load (walks the script tree each
+  time; only useful while editing scripts).
+- The cache lives in the application's private storage
+  (`files/storm/Cache`, next to saves and logs), never in the game folder.
+- It is discarded and rebuilt when anything it depends on changes. The key
+  covers every file of the resolved program directory and of the APK's
+  interface overlay (relative path, size and modification time), the engine
+  build (revision and compile time), the cache layout version and the absolute
+  game directory. Before this revision the key was the sum of modification
+  times of an unresolved `PROGRAM\` path, i.e. on Android it only saw the
+  overlay and never noticed changed game scripts.
+- Each cache file carries a size and hash header and is written through a
+  temporary file; a damaged or unparsable entry is deleted and the segment is
+  compiled from source.
+
+What is verified: key and file-integrity logic on the host
+(`tests/path_fingerprint`) and that the engine builds. What is not: a game
+session started from a warm cache on a device or emulator, and how much startup
+time it saves there. The cache replays compiler side effects (defines,
+variables, functions, script libraries, event handlers, relocations) from its
+own serialization, so a mismatch with a fresh compile would be a gameplay bug
+rather than a crash; enable it by default only after such a run compares
+equal. A file edited in place with unchanged size and modification time is not
+detected (contents are not hashed).
 
 APK packaging and releases belong to https://github.com/maxyo/corsairs-android.

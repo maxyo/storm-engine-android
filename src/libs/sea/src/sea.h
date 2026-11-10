@@ -7,6 +7,9 @@
 #include "c_vector4.h"
 #include "dx9render.h"
 #include "vma.hpp"
+#ifdef __ANDROID__
+#include "parallel_for.hpp"
+#endif
 
 
 class SEA : public SEA_BASE
@@ -117,6 +120,9 @@ class SEA : public SEA_BASE
     std::vector<uint32_t *> aNormals;
     std::vector<uint8_t *> aBumps;
     std::vector<SeaBlock> aBlocks;
+#ifdef __ANDROID__
+    storm::ParallelFor waveWorkers_; // per-block wave evaluation, see Realize()
+#endif
 
     CVECTOR4 v4SeaColor, v4SkyColor, v4SeaParameters;
 

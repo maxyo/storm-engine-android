@@ -31,6 +31,20 @@ class Color
     // Constructors
     // -----------------------------------------------------------
   public:
+    // Value conversions keep the packed r/g/b/a representation unchanged.
+    storm::math::GlmVec3 glmRgb() const { return {r, g, b}; }
+    storm::math::GlmVec4 glmRgba() const { return {r, g, b, a}; }
+    Color &setRgb(const storm::math::GlmVec3 &value)
+    {
+        r = value.x; g = value.y; b = value.z;
+        return *this;
+    }
+    Color &setRgba(const storm::math::GlmVec4 &value)
+    {
+        r = value.x; g = value.y; b = value.z; a = value.w;
+        return *this;
+    }
+
     // Empty constructor
     Color();
     // Fill with rgb number
@@ -277,11 +291,7 @@ inline Color Color::operator!() const
 inline Color Color::operator-() const
 {
     auto c(*this);
-    c.r = -c.r;
-    c.g = -c.g;
-    c.b = -c.b;
-    c.a = -c.a;
-    return c;
+    return c.setRgba(storm::math::negated(glmRgba()));
 }
 
 // Assign rgb
@@ -337,10 +347,7 @@ inline Color &Color::operator=(const Color &c)
 // per component addition with rgb assignment
 inline Color &Color::operator+=(float f)
 {
-    r += f;
-    g += f;
-    b += f;
-    return *this;
+    return setRgb(glmRgb() + f);
 }
 
 // Unpack and add
@@ -354,39 +361,25 @@ inline Color &Color::operator+=(uint32_t c)
 // per component addition with rgb assignment
 inline Color &Color::operator+=(const Vector &v)
 {
-    r += v.x;
-    g += v.y;
-    b += v.z;
-    return *this;
+    return setRgb(glmRgb() + v.glmValue());
 }
 
 // per component addition with assignment
 inline Color &Color::operator+=(const Vector4 &v)
 {
-    r += v.x;
-    g += v.y;
-    b += v.z;
-    a += v.w;
-    return *this;
+    return setRgba(glmRgba() + v.glmValue());
 }
 
 // per component addition with assignment
 inline Color &Color::operator+=(const Color &c)
 {
-    r += c.r;
-    g += c.g;
-    b += c.b;
-    a += c.a;
-    return *this;
+    return setRgba(glmRgba() + c.glmRgba());
 }
 
 // per component subtraction with rgb assignment
 inline Color &Color::operator-=(float f)
 {
-    r -= f;
-    g -= f;
-    b -= f;
-    return *this;
+    return setRgb(glmRgb() - f);
 }
 
 // Unpack and subtract
@@ -400,39 +393,25 @@ inline Color &Color::operator-=(uint32_t c)
 // per component subtraction with rgb assignment
 inline Color &Color::operator-=(const Vector &v)
 {
-    r -= v.x;
-    g -= v.y;
-    b -= v.z;
-    return *this;
+    return setRgb(glmRgb() - v.glmValue());
 }
 
 // per component subtraction with assignment
 inline Color &Color::operator-=(const Vector4 &v)
 {
-    r -= v.x;
-    g -= v.y;
-    b -= v.z;
-    a -= v.w;
-    return *this;
+    return setRgba(glmRgba() - v.glmValue());
 }
 
 // per component subtraction with assignment
 inline Color &Color::operator-=(const Color &c)
 {
-    r -= c.r;
-    g -= c.g;
-    b -= c.b;
-    a -= c.a;
-    return *this;
+    return setRgba(glmRgba() - c.glmRgba());
 }
 
 // per component multiplication with rgb assignment
 inline Color &Color::operator*=(float f)
 {
-    r *= f;
-    g *= f;
-    b *= f;
-    return *this;
+    return setRgb(glmRgb() * f);
 }
 
 // Unpack and multiply
@@ -446,40 +425,27 @@ inline Color &Color::operator*=(uint32_t c)
 // per component multiplication with rgb assignment
 inline Color &Color::operator*=(const Vector &v)
 {
-    r *= v.x;
-    g *= v.y;
-    b *= v.z;
-    return *this;
+    return setRgb(glmRgb() * v.glmValue());
 }
 
 // per component multiplication with assignment
 inline Color &Color::operator*=(const Vector4 &v)
 {
-    r *= v.x;
-    g *= v.y;
-    b *= v.z;
-    a *= v.w;
-    return *this;
+    return setRgba(glmRgba() * v.glmValue());
 }
 
 // per component multiplication with assignment
 inline Color &Color::operator*=(const Color &c)
 {
-    r *= c.r;
-    g *= c.g;
-    b *= c.b;
-    a *= c.a;
-    return *this;
+    return setRgba(glmRgba() * c.glmRgba());
 }
 
 // per component division with rgb assignment
 inline Color &Color::operator/=(float f)
 {
+    // Single-precision reciprocal, unlike Vector::operator/=.
     f = 1.0f / f;
-    r *= f;
-    g *= f;
-    b *= f;
-    return *this;
+    return setRgb(glmRgb() * f);
 }
 
 // Unpack and divide
@@ -493,36 +459,25 @@ inline Color &Color::operator/=(uint32_t c)
 // per component division with rgb assignment
 inline Color &Color::operator/=(const Vector &v)
 {
-    r /= v.x;
-    g /= v.y;
-    b /= v.z;
-    return *this;
+    return setRgb(glmRgb() / v.glmValue());
 }
 
 // per component division with assignment
 inline Color &Color::operator/=(const Vector4 &v)
 {
-    r /= v.x;
-    g /= v.y;
-    b /= v.z;
-    a /= v.w;
-    return *this;
+    return setRgba(glmRgba() / v.glmValue());
 }
 
 // per component division with assignment
 inline Color &Color::operator/=(const Color &c)
 {
-    r /= c.r;
-    g /= c.g;
-    b /= c.b;
-    a /= c.a;
-    return *this;
+    return setRgba(glmRgba() / c.glmRgba());
 }
 
 // Scalar rgb multiplication, the result is copied to all components
 inline Color &Color::operator|=(const Color &c)
 {
-    r = g = b = a = r * c.r + g * c.g + b * c.b;
+    r = g = b = a = glm::dot(glmRgb(), c.glmRgb());
     return *this;
 }
 
@@ -911,78 +866,31 @@ inline Color operator|(const Color &c1, const Color &c2)
 // Limit to range 0..1
 inline void Color::Clamp()
 {
-    if (r < 0.0f)
-        r = 0.0f;
-    if (r > 1.0f)
-        r = 1.0f;
-    if (g < 0.0f)
-        g = 0.0f;
-    if (g > 1.0f)
-        g = 1.0f;
-    if (b < 0.0f)
-        b = 0.0f;
-    if (b > 1.0f)
-        b = 1.0f;
-    if (a < 0.0f)
-        a = 0.0f;
-    if (a > 1.0f)
-        a = 1.0f;
+    setRgba(glm::clamp(glmRgba(), 0.0f, 1.0f));
 }
 
 // Limit to range
 inline void Color::Clamp(float min, float max)
 {
-    if (r < min)
-        r = min;
-    if (r > max)
-        r = max;
-    if (g < min)
-        g = min;
-    if (g > max)
-        g = max;
-    if (b < min)
-        b = min;
-    if (b > max)
-        b = max;
-    if (a < min)
-        a = min;
-    if (a > max)
-        a = max;
+    setRgba(glm::clamp(glmRgba(), min, max));
 }
 
 // Save minimal components
 inline void Color::Min(const Color &c)
 {
-    if (r > c.r)
-        r = c.r;
-    if (g > c.g)
-        g = c.g;
-    if (b > c.b)
-        b = c.b;
-    if (a > c.a)
-        a = c.a;
+    setRgba(glm::min(glmRgba(), c.glmRgba()));
 }
 
 // Save maximum components
 inline void Color::Max(const Color &c)
 {
-    if (r < c.r)
-        r = c.r;
-    if (g < c.g)
-        g = c.g;
-    if (b < c.b)
-        b = c.b;
-    if (a < c.a)
-        a = c.a;
+    setRgba(glm::max(glmRgba(), c.glmRgba()));
 }
 
 // Brightness -1..1
 inline void Color::Brightness(float br)
 {
-    if (br > 1.0f)
-        br = 1.0f;
-    if (br < -1.0f)
-        br = -1.0f;
+    br = glm::clamp(br, -1.0f, 1.0f);
     *this += br;
     Clamp();
 }
@@ -993,35 +901,24 @@ inline void Color::Gamma(float gm)
     Clamp();
     if (gm > 0.0f)
     {
-        if (gm > 1.0f)
-            gm = 1.0f;
+        gm = glm::min(gm, 1.0f);
         gm = 1.0f + gm * 9.0f;
-        r = powf(r, gm);
-        g = powf(g, gm);
-        b = powf(b, gm);
+        setRgb(glm::pow(glmRgb(), storm::math::GlmVec3(gm)));
     }
     else if (gm < 0.0f)
     {
-        if (gm < -1.0f)
-            gm = -1.0f;
+        gm = glm::max(gm, -1.0f);
         gm = 1.0f + gm * 0.9f;
-        r = powf(r, gm * 10.0f);
-        g = powf(g, gm * 10.0f);
-        b = powf(b, gm * 10.0f);
+        setRgb(glm::pow(glmRgb(), storm::math::GlmVec3(gm * 10.0f)));
     }
 }
 
 // Contrast -1..1
 inline void Color::Contrast(float cn)
 {
-    if (cn > 1.0f)
-        cn = 1.0f;
-    if (cn < -1.0f)
-        cn = -1.0f;
+    cn = glm::clamp(cn, -1.0f, 1.0f);
     cn *= 5.0f;
-    r = (r - 0.5f) * cn + 0.5f;
-    g = (g - 0.5f) * cn + 0.5f;
-    b = (b - 0.5f) * cn + 0.5f;
+    setRgb((glmRgb() - 0.5f) * cn + 0.5f);
     Clamp();
 }
 
@@ -1040,34 +937,21 @@ inline void Color::Processed(float br, float gm, float cn)
 // Get intensity
 inline float Color::GetIntensity() const
 {
-    return r * 0.299f + g * 0.587f + b * 0.114f;
+    return glm::dot(glmRgb(), storm::math::GlmVec3(0.299f, 0.587f, 0.114f));
 }
 
 // Normalize rgb
 inline Color &Color::Normalize()
 {
-    auto min = r;
-    auto max = r;
-    if (min > g)
-        min = g;
-    if (max < g)
-        max = g;
-    if (min > b)
-        min = b;
-    if (max < b)
-        max = b;
-    if (min > 0.0f)
-        min = 0.0f;
+    auto min = glm::min(glm::min(r, g), b);
+    const auto max = glm::max(glm::max(r, g), b);
+    min = glm::min(min, 0.0f);
     auto dlt = max - min;
-    r -= min;
-    g -= min;
-    b -= min;
+    setRgb(glmRgb() - min);
     if (dlt > 1.0f)
     {
         dlt = 1.0f / dlt;
-        r *= dlt;
-        g *= dlt;
-        b *= dlt;
+        setRgb(glmRgb() * dlt);
     }
     Clamp();
     return *this;
@@ -1082,38 +966,27 @@ inline float Color::GetDistance(const Color &c) const
 // Get the color distance between colors squared
 inline float Color::GetDistanceSqr(const Color &c) const
 {
-    const auto dr = (r - c.r) * 0.299f;
-    const auto dg = (g - c.g) * 0.587f;
-    const auto db = (b - c.b) * 0.114f;
-    return dr * dr + dg * dg + db * db;
+    const auto weighted = (glmRgb() - c.glmRgb()) * storm::math::GlmVec3(0.299f, 0.587f, 0.114f);
+    return glm::dot(weighted, weighted);
 }
 
 // Calculate linearly interpolated value
 inline Color &Color::Lerp(const Color &c1, const Color &c2, float kBlend)
 {
-    r = c1.r + (c2.r - c1.r) * kBlend;
-    g = c1.g + (c2.g - c1.g) * kBlend;
-    b = c1.b + (c2.b - c1.b) * kBlend;
-    return *this;
+    // Not glm::mix: it evaluates a * (1 - k) + b * k, which rounds differently.
+    return setRgb(c1.glmRgb() + (c2.glmRgb() - c1.glmRgb()) * kBlend);
 }
 
 // Calculate linearly interpolated value
 inline Color &Color::LerpA(const Color &c1, const Color &c2, float kBlend)
 {
-    r = c1.r + (c2.r - c1.r) * kBlend;
-    g = c1.g + (c2.g - c1.g) * kBlend;
-    b = c1.b + (c2.b - c1.b) * kBlend;
-    a = c1.a + (c2.a - c1.a) * kBlend;
-    return *this;
+    return setRgba(c1.glmRgba() + (c2.glmRgba() - c1.glmRgba()) * kBlend);
 }
 
 // Multiply color by number
 inline Color &Color::MulColor(float k)
 {
-    r *= k;
-    g *= k;
-    b *= k;
-    return *this;
+    return setRgb(glmRgb() * k);
 }
 
 // Multiply alpha by number

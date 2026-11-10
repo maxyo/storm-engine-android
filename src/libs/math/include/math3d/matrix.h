@@ -62,6 +62,12 @@ class Matrix
     // Constructors
     // -----------------------------------------------------------
   public:
+    // Column `column` (vx, vy, vz or pos) with its weight as a GLM value.
+    storm::math::GlmVec4 glmColumn(int column) const
+    {
+        return {m[column][0], m[column][1], m[column][2], m[column][3]};
+    }
+
     // Construct the identity matrix
     Matrix();
     // Construct matrix without filling
@@ -447,6 +453,8 @@ inline Matrix &Matrix::Build(float angX, float angY, float angZ, float x, float 
     const auto sinAz = sinf(angZ);
     const auto cosAz = cosf(angZ);
     // Create a matrix with rotation order rz * rx * ry
+    // The closed form is kept: glm::eulerAngleYXZ associates the triple products
+    // differently (last-bit differences) and loses the sign of zero terms.
     m[0][0] = cosAz * cosAy + sinAz * sinAx * sinAy;  // vx.x
     m[0][1] = sinAz * cosAx;                          // vx.y
     m[0][2] = cosAz * -sinAy + sinAz * sinAx * cosAy; // vx.z
@@ -498,6 +506,7 @@ inline Matrix &Matrix::BuildXYZ(float angX, float angY, float angZ, float x, flo
     const auto sinAz = sinf(angZ);
     const auto cosAz = cosf(angZ);
     // Create a matrix with rotation order rx * ry * rz
+    // Closed form kept for the same reason as Build().
     m[0][0] = cosAy * cosAz;
     m[0][1] = cosAy * sinAz;
     m[0][2] = -sinAy;
@@ -866,21 +875,19 @@ inline bool Matrix::BuildOriented(Vector position, Vector lookTo, Vector upVecto
 // Calculate matrix for mirroring geometry
 inline Matrix &Matrix::BuildMirror(float Nx, float Ny, float Nz, float D)
 {
-    m[0][0] = -Nx * 2.0f * Nx + 1.0f;
-    m[0][1] = -Ny * 2.0f * Nx;
-    m[0][2] = -Nz * 2.0f * Nx;
+    // Column c is ((-N) * 2) * N[c]; the unit diagonal is added afterwards so the
+    // off-diagonal terms keep their sign of zero.
+    const auto doubled = storm::math::GlmVec3(-Nx, -Ny, -Nz) * 2.0f;
+    v.vx = Vector::fromGlm(doubled * Nx);
+    v.vy = Vector::fromGlm(doubled * Ny);
+    v.vz = Vector::fromGlm(doubled * Nz);
+    v.pos = Vector::fromGlm(doubled * -D);
+    m[0][0] += 1.0f;
+    m[1][1] += 1.0f;
+    m[2][2] += 1.0f;
     m[0][3] = 0.0f;
-    m[1][0] = -Nx * 2.0f * Ny;
-    m[1][1] = -Ny * 2.0f * Ny + 1.0f;
-    m[1][2] = -Nz * 2.0f * Ny;
     m[1][3] = 0.0f;
-    m[2][0] = -Nx * 2.0f * Nz;
-    m[2][1] = -Ny * 2.0f * Nz;
-    m[2][2] = -Nz * 2.0f * Nz + 1.0f;
     m[2][3] = 0.0f;
-    m[3][0] = -Nx * 2.0f * -D;
-    m[3][1] = -Ny * 2.0f * -D;
-    m[3][2] = -Nz * 2.0f * -D;
     m[3][3] = 1.0f;
     return *this;
 }
@@ -937,18 +944,14 @@ inline Matrix &Matrix::Rotate(const Vector &ang)
 // Move
 inline Matrix &Matrix::Move(float dX, float dY, float dZ)
 {
-    v.pos.x += dX;
-    v.pos.y += dY;
-    v.pos.z += dZ;
+    v.pos = Vector::fromGlm(v.pos.glmValue() + storm::math::GlmVec3(dX, dY, dZ));
     return *this;
 }
 
 // Move
 inline Matrix &Matrix::Move(const Vector &pos)
 {
-    this->v.pos.x += pos.x;
-    this->v.pos.y += pos.y;
-    this->v.pos.z += pos.z;
+    this->v.pos = Vector::fromGlm(this->v.pos.glmValue() + pos.glmValue());
     return *this;
 }
 
@@ -969,33 +972,21 @@ inline Matrix &Matrix::Scale3x3(float scale)
 // Scale
 inline Matrix &Matrix::Scale(float scaleX, float scaleY, float scaleZ)
 {
-    m[0][0] *= scaleX;
-    m[1][0] *= scaleX;
-    m[2][0] *= scaleX;
-    m[3][0] *= scaleX;
-    m[0][1] *= scaleY;
-    m[1][1] *= scaleY;
-    m[2][1] *= scaleY;
-    m[3][1] *= scaleY;
-    m[0][2] *= scaleZ;
-    m[1][2] *= scaleZ;
-    m[2][2] *= scaleZ;
-    m[3][2] *= scaleZ;
+    const storm::math::GlmVec3 scale(scaleX, scaleY, scaleZ);
+    v.vx = Vector::fromGlm(v.vx.glmValue() * scale);
+    v.vy = Vector::fromGlm(v.vy.glmValue() * scale);
+    v.vz = Vector::fromGlm(v.vz.glmValue() * scale);
+    v.pos = Vector::fromGlm(v.pos.glmValue() * scale);
     return *this;
 }
 
 // Scale rotation matrix
 inline Matrix &Matrix::Scale3x3(float scaleX, float scaleY, float scaleZ)
 {
-    m[0][0] *= scaleX;
-    m[1][0] *= scaleX;
-    m[2][0] *= scaleX;
-    m[0][1] *= scaleY;
-    m[1][1] *= scaleY;
-    m[2][1] *= scaleY;
-    m[0][2] *= scaleZ;
-    m[1][2] *= scaleZ;
-    m[2][2] *= scaleZ;
+    const storm::math::GlmVec3 scale(scaleX, scaleY, scaleZ);
+    v.vx = Vector::fromGlm(v.vx.glmValue() * scale);
+    v.vy = Vector::fromGlm(v.vy.glmValue() * scale);
+    v.vz = Vector::fromGlm(v.vz.glmValue() * scale);
     return *this;
 }
 
@@ -1065,29 +1056,28 @@ inline Matrix &Matrix::Inverse(const Matrix &mtx)
 inline Matrix &Matrix::InverseWhithScale()
 {
     // Rotation matrix
-    double mtmp[3][3];
-    mtmp[0][0] = m[1][1] * m[2][2] - m[1][2] * m[2][1];
-    mtmp[0][1] = m[0][2] * m[2][1] - m[0][1] * m[2][2];
-    mtmp[0][2] = m[0][1] * m[1][2] - m[0][2] * m[1][1];
-    mtmp[1][0] = m[1][2] * m[2][0] - m[1][0] * m[2][2];
-    mtmp[1][1] = m[0][0] * m[2][2] - m[0][2] * m[2][0];
-    mtmp[1][2] = m[0][2] * m[1][0] - m[0][0] * m[1][2];
-    mtmp[2][0] = m[1][0] * m[2][1] - m[1][1] * m[2][0];
-    mtmp[2][1] = m[0][1] * m[2][0] - m[0][0] * m[2][1];
-    mtmp[2][2] = m[0][0] * m[1][1] - m[0][1] * m[1][0];
-    auto det = m[0][0] * mtmp[0][0] + m[0][1] * mtmp[1][0] + m[0][2] * mtmp[2][0];
+    // Not glm::inverse: the legacy code builds the cofactors in float (they are
+    // the cross products of the basis vectors), then switches to double for the
+    // determinant and the scaling. That precision mix is kept.
+    const auto vx = v.vx.glmValue();
+    const auto vy = v.vy.glmValue();
+    const auto vz = v.vz.glmValue();
+    const storm::math::GlmDVec3 cofactors[3] = {storm::math::GlmDVec3(glm::cross(vy, vz)),
+                                                 storm::math::GlmDVec3(glm::cross(vz, vx)),
+                                                 storm::math::GlmDVec3(glm::cross(vx, vy))};
+    auto det = glm::dot(storm::math::GlmDVec3(vx), cofactors[0]);
     if (fabs(det) > 1e-200)
     {
         det = 1.0 / det;
-        m[0][0] = static_cast<float>(det * mtmp[0][0]);
-        m[0][1] = static_cast<float>(det * mtmp[0][1]);
-        m[0][2] = static_cast<float>(det * mtmp[0][2]);
-        m[1][0] = static_cast<float>(det * mtmp[1][0]);
-        m[1][1] = static_cast<float>(det * mtmp[1][1]);
-        m[1][2] = static_cast<float>(det * mtmp[1][2]);
-        m[2][0] = static_cast<float>(det * mtmp[2][0]);
-        m[2][1] = static_cast<float>(det * mtmp[2][1]);
-        m[2][2] = static_cast<float>(det * mtmp[2][2]);
+        // The inverse basis is the transposed cofactor matrix.
+        for (int column = 0; column < 3; ++column)
+        {
+            const storm::math::GlmDVec3 row(cofactors[0][column], cofactors[1][column], cofactors[2][column]);
+            const auto scaled = storm::math::GlmVec3(row * det);
+            m[column][0] = scaled.x;
+            m[column][1] = scaled.y;
+            m[column][2] = scaled.z;
+        }
     }
     else
     {
@@ -1102,17 +1092,44 @@ inline Matrix &Matrix::InverseWhithScale()
 // Matrix Transposition
 inline Matrix &Matrix::Transposition()
 {
-    storm::math::storeGlmMatrix(matrix, glm::transpose(storm::math::loadGlmMatrix(matrix)));
+    // A transposition only permutes storage. Swapping in place is measurably
+    // faster than a round trip through a GLM matrix value.
+    float tmp;
+    tmp = matrix[1];
+    matrix[1] = matrix[4];
+    matrix[4] = tmp;
+    tmp = matrix[2];
+    matrix[2] = matrix[8];
+    matrix[8] = tmp;
+    tmp = matrix[3];
+    matrix[3] = matrix[12];
+    matrix[12] = tmp;
+    tmp = matrix[6];
+    matrix[6] = matrix[9];
+    matrix[9] = tmp;
+    tmp = matrix[7];
+    matrix[7] = matrix[13];
+    matrix[13] = tmp;
+    tmp = matrix[11];
+    matrix[11] = matrix[14];
+    matrix[14] = tmp;
     return *this;
 }
 
 // Rotation Matrix Transposition
 inline Matrix &Matrix::Transposition3X3()
 {
-    const auto basis = glm::transpose(storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix)));
-    for (int column = 0; column < 3; ++column)
-        for (int row = 0; row < 3; ++row)
-            m[column][row] = basis[column][row];
+    // Storage permutation, see Transposition().
+    float tmp;
+    tmp = matrix[1];
+    matrix[1] = matrix[4];
+    matrix[4] = tmp;
+    tmp = matrix[2];
+    matrix[2] = matrix[8];
+    matrix[8] = tmp;
+    tmp = matrix[6];
+    matrix[6] = matrix[9];
+    matrix[9] = tmp;
     return *this;
 }
 
@@ -1171,36 +1188,50 @@ inline Matrix &Matrix::EqMultiply(const Matrix &m1, const Matrix &m2)
 // Multiply matrices and place the result in the current m1 != this && m2 != this
 inline Matrix &Matrix::EqMultiplyFast(const Matrix &m1, const Matrix &m2)
 {
-    const auto product = storm::math::loadGlmMatrix(m2.matrix) * storm::math::loadGlmMatrix(m1.matrix);
-    storm::math::storeGlmMatrix(matrix, product);
+    // Same operation order as GLM(m2) * GLM(m1) (left-to-right accumulation),
+    // written per column on the stored elements: keeping whole GlmMat4 values
+    // alive costs about 20% here. As documented, m2 must not alias this.
+    for (int column = 0; column < 4; ++column)
+    {
+        const auto result = m2.glmColumn(0) * m1.m[column][0] + m2.glmColumn(1) * m1.m[column][1] +
+                            m2.glmColumn(2) * m1.m[column][2] + m2.glmColumn(3) * m1.m[column][3];
+        m[column][0] = result.x;
+        m[column][1] = result.y;
+        m[column][2] = result.z;
+        m[column][3] = result.w;
+    }
     return *this;
 }
 
 // Multiply vertex by matrix
 inline Vector Matrix::MulVertex(const Vector &v) const
 {
-    const auto point = storm::math::loadGlmMatrix(matrix) * storm::math::GlmVec4(v.glmValue(), 1.0f);
-    return Vector::fromGlm(storm::math::GlmVec3(point));
+    // Terms are accumulated left to right like the legacy scalar code. GLM's
+    // mat4 * vec4 pairs them as (a + b) + (c + d), which rounds differently.
+    return Vector::fromGlm(this->v.vx.glmValue() * v.x + this->v.vy.glmValue() * v.y + this->v.vz.glmValue() * v.z +
+                           this->v.pos.glmValue());
 }
 
 // Multiply normal by matrix
 inline Vector Matrix::MulNormal(const Vector &v) const
 {
-    return Vector::fromGlm(storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix)) * v.glmValue());
+    return Vector::fromGlm(this->v.vx.glmValue() * v.x + this->v.vy.glmValue() * v.y + this->v.vz.glmValue() * v.z);
 }
 
 // Multiply vertex by inverse matrix
 inline Vector Matrix::MulVertexByInverse(const Vector &v) const
 {
-    const auto basis = storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix));
-    return Vector::fromGlm(glm::transpose(basis) * (v.glmValue() - this->v.pos.glmValue()));
+    const auto local = v.glmValue() - this->v.pos.glmValue();
+    return Vector(glm::dot(this->v.vx.glmValue(), local), glm::dot(this->v.vy.glmValue(), local),
+                  glm::dot(this->v.vz.glmValue(), local));
 }
 
 // Multiply normal by inverse matrix
 inline Vector Matrix::MulNormalByInverse(const Vector &v) const
 {
-    const auto basis = storm::math::GlmMat3(storm::math::loadGlmMatrix(matrix));
-    return Vector::fromGlm(glm::transpose(basis) * v.glmValue());
+    const auto normal = v.glmValue();
+    return Vector(glm::dot(this->v.vx.glmValue(), normal), glm::dot(this->v.vy.glmValue(), normal),
+                  glm::dot(this->v.vz.glmValue(), normal));
 }
 
 // Get camera position from camera matrix
@@ -1266,7 +1297,9 @@ inline bool Matrix::IsScale() const
 // Project Vertex (for projection matrix)
 inline Vector4 Matrix::Projection(Vector vertex, float vphWidth05, float vphHeight05) const
 {
-    const auto clip = storm::math::loadGlmMatrix(matrix) * storm::math::GlmVec4(vertex.glmValue(), 1.0f);
+    // Left-to-right accumulation, see MulVertex.
+    const auto clip =
+        glmColumn(0) * vertex.x + glmColumn(1) * vertex.y + glmColumn(2) * vertex.z + glmColumn(3);
     const float reciprocalW = 1.0f / clip.w;
     Vector4 result;
     result.x = (1.0f + clip.x * reciprocalW) * vphWidth05;
@@ -1280,10 +1313,12 @@ inline Vector4 Matrix::Projection(Vector vertex, float vphWidth05, float vphHeig
 inline void Matrix::Projection(Vector4 *dstArray, Vector *srcArray, int32_t num, float vphWidth05, float vphHeight05,
                                int32_t srcSize, int32_t dstSize) const
 {
-    const auto transform = storm::math::loadGlmMatrix(matrix);
     for (; num > 0; --num)
     {
-        const auto clip = transform * storm::math::GlmVec4(srcArray->glmValue(), 1.0f);
+        // Left-to-right accumulation, see MulVertex. The columns are read at
+        // the point of use: hoisted GlmVec4 values made this loop 3x slower.
+        const auto clip =
+            glmColumn(0) * srcArray->x + glmColumn(1) * srcArray->y + glmColumn(2) * srcArray->z + glmColumn(3);
         const float reciprocalW = 1.0f / clip.w;
         dstArray->x = (1.0f + clip.x * reciprocalW) * vphWidth05;
         dstArray->y = (1.0f - clip.y * reciprocalW) * vphHeight05;

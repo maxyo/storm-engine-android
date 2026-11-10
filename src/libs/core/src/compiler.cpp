@@ -18,8 +18,11 @@
 #include "debug-trap.h"
 #include "fs.h"
 #include "logging.hpp"
+#include "platform/path_fingerprint.hpp"
+#include "save_file.hpp"
 #include "script_cache.h"
 #include "storm_assert.h"
+#include "watermark.hpp"
 
 #include <SDL_timer.h>
 #include <unordered_map>
@@ -81,6 +84,34 @@ bool ReadCacheFingerprint(uint64_t &fingerprint)
     fingerprint = cache_fingerprint;
     return true;
 }
+
+// Everything that can make cached bytecode stale besides the scripts
+// themselves: the engine build (token numbering, internal function table and
+// bytecode layout are not stable across builds), the cache layout, and which
+// game directory the scripts came from (the cache folder is shared).
+constexpr uint64_t kCacheFormatVersion = 2;
+
+uint64_t CalculateCacheKey(const char *program_directory)
+{
+    const std::string resolved = fio->ConvertPathResource(program_directory ? program_directory : "");
+    std::error_code ec;
+    const auto absolute = std::filesystem::absolute(std::filesystem::u8path(resolved), ec);
+    uint64_t key = storm::fingerprint::fnv1a(STORM_BUILD_WATERMARK_STRING " " __DATE__ " " __TIME__);
+    key = storm::fingerprint::fnv1a(kCacheFormatVersion, key);
+    key = storm::fingerprint::fnv1a(static_cast<uint64_t>(sizeof(size_t)), key);
+    key = storm::fingerprint::fnv1a(ec ? resolved : absolute.lexically_normal().generic_string(), key);
+    return storm::fingerprint::mix(key) + fio->GetPathFingerprint(std::filesystem::u8path(resolved));
+}
+
+// Segment cache file: header + payload. The payload hash turns a torn or
+// bit-rotted file into a cache miss instead of a half-applied segment.
+struct SegmentCacheHeader
+{
+    char magic[8];
+    uint64_t payload_size;
+    uint64_t payload_hash;
+};
+constexpr char kSegmentCacheMagic[8] = {'S', 'T', 'O', 'R', 'M', 'S', 'C', '2'};
 
 void WipeCache(const uint64_t fingerprint)
 {
@@ -966,11 +997,11 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
         if (!is_calculated)
         {
             is_calculated = true;
-            calculated_fingerprint = fio->GetPathFingerprint(ProgramDirectory);
+            calculated_fingerprint = CalculateCacheKey(ProgramDirectory);
         }
         else if (script_cache_mode_ == kCacheEnabled)
         {
-            calculated_fingerprint = fio->GetPathFingerprint(ProgramDirectory);
+            calculated_fingerprint = CalculateCacheKey(ProgramDirectory);
         }
 
         if (ReadCacheFingerprint(cache_fingerprint_) && cache_fingerprint_ == calculated_fingerprint)
@@ -1067,7 +1098,7 @@ bool COMPILER::ProcessDebugExpression0(const char *pExpression, DATA &Result)
 
     if (pRun_fi)
     {
-        CurrentFuncCode = FuncTab.FindFunc(pRun_fi->name);
+        CurrentFuncCode = FuncTab.FindFunc(pRun_fi->info->name);
     }
 
     try
@@ -1091,7 +1122,7 @@ bool COMPILER::ProcessDebugExpression0(const char *pExpression, DATA &Result)
     // save current pointers values
     const uint32_t mem_InstructionPointer = InstructionPointer;
     // mem_ip = ip;
-    FuncInfo *mem_pfi = pRun_fi;
+    FuncFrame *mem_pfi = pRun_fi;
     const char *mem_codebase = pRunCodeBase;
     // mem_CurrentFuncCode = CurrentFuncCode;
 
@@ -3689,10 +3720,10 @@ S_TOKEN_TYPE COMPILER::NextTokenType()
 
 bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult)
 {
-    FuncInfo call_fi;
+    // snapshot of the scalar fields the call needs after the callee has run
     uint32_t mem_ip;
     uint32_t mem_InstructionPointer;
-    FuncInfo *mem_pfi;
+    FuncFrame *mem_pfi;
     //    DATA * pV;
     const char *mem_codebase;
     uint32_t arguments;
@@ -3704,11 +3735,17 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
     CompilerStage = CS_RUNTIME;
 
     // get func info
-    if (!FuncTab.GetFunc(call_fi, func_code))
+    const FuncInfo *const call_pfi = FuncTab.GetFuncPtr(func_code);
+    if (call_pfi == nullptr)
     {
         SetError("Invalid function call");
         return false;
     }
+    // no deep copy: the table entry address is stable (see FuncTable::funcs_)
+    const FuncInfo &call_fi = *call_pfi;
+    const uint32_t call_segment_id = call_fi.segment_id;
+    const S_TOKEN_TYPE call_return_type = call_fi.return_type;
+    const SIMPORTFUNC call_imported_func = call_fi.imported_func;
 
     // TODO: only do if stack debug if enabled (should be runtime configurable)
     // push function details to call stack
@@ -3775,7 +3812,7 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
     nDebugEnterMode = CDebug->GetTraceMode();
 #endif
     uint64_t nTicks;
-    if (call_fi.segment_id == INTERNAL_SEGMENT_ID)
+    if (call_segment_id == INTERNAL_SEGMENT_ID)
     {
         if (bRuntimeLog)
         {
@@ -3795,14 +3832,14 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
             core_internal.Trace("Invalid func_code = %u for AddTime", func_code);
         }
     }
-    else if (call_fi.segment_id == IMPORTED_SEGMENT_ID)
+    else if (call_segment_id == IMPORTED_SEGMENT_ID)
     {
         pVResult = nullptr;
         RDTSC_B(nTicks);
-        const uint32_t nResult = call_fi.imported_func(&SStack);
+        const uint32_t nResult = call_imported_func(&SStack);
         if (nResult == IFUNCRESULT_OK)
         {
-            if (call_fi.return_type != TVOID)
+            if (call_return_type != TVOID)
             {
                 pVResult = SStack.Read();
             }
@@ -3888,7 +3925,11 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
     uint32_t bLeftOperandType;
     int32_t nLeftOperandIndex;
     S_TOKEN_TYPE Token_type;
-    FuncInfo fi;
+    // fi: stable table entry (or an empty one for debug expressions), never copied.
+    // frame: this invocation's scalar snapshot, including its own stack offset.
+    static const FuncInfo empty_fi;
+    const FuncInfo *pfi = &empty_fi;
+    FuncFrame frame(empty_fi);
     const VarInfo *real_var;
     DATA *pV;
     DATA *pVResult;
@@ -3930,34 +3971,39 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
 
     if (pDbgExpSource == nullptr)
     {
-        if (!FuncTab.GetFunc(fi, function_code))
+        if (const auto *table_fi = FuncTab.GetFuncPtr(function_code); table_fi != nullptr)
         {
-            SetError("Invalid function: %s", fi.name.c_str());
+            pfi = table_fi;
+            frame = FuncFrame(*table_fi);
+        }
+        else
+        {
+            SetError("Invalid function: %s", pfi->name.c_str());
             return false;
         }
 
-        if (fi.offset == INVALID_FUNC_OFFSET)
+        if (frame.offset == INVALID_FUNC_OFFSET)
         {
-            SetError("Function (%s) isnt loaded", fi.name.c_str());
+            SetError("Function (%s) isnt loaded", pfi->name.c_str());
             return false;
         }
 
-        if (fi.segment_id == INTERNAL_SEGMENT_ID)
+        if (frame.segment_id == INTERNAL_SEGMENT_ID)
         {
-            SetError("Function (%s) is internal", fi.name.c_str());
+            SetError("Function (%s) is internal", pfi->name.c_str());
             return false;
         }
 
-        if (fi.segment_id == IMPORTED_SEGMENT_ID)
+        if (frame.segment_id == IMPORTED_SEGMENT_ID)
         {
-            SetError("Function (%s) is imported", fi.name.c_str());
+            SetError("Function (%s) is imported", pfi->name.c_str());
             return false;
         }
 
-        segment_index = GetSegmentIndex(fi.segment_id);
+        segment_index = GetSegmentIndex(frame.segment_id);
         if (segment_index == INVALID_SEGMENT_INDEX)
         {
-            SetError("Function (%s) segment not loaded", fi.name.c_str());
+            SetError("Function (%s) segment not loaded", pfi->name.c_str());
             return false;
         }
         if (SegmentTable[segment_index].pCode == nullptr)
@@ -3967,18 +4013,18 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
         }
 
         // Trace("-----------------------------------------------------------------");
-        // Trace("Execute function: %s",fi.name);
+        // Trace("Execute function: %s",pfi->name);
 
-        RunningSegmentID = fi.segment_id;
-        fi.stack_offset = SStack.GetDataNum() - fi.arguments; // set stack offset
+        RunningSegmentID = frame.segment_id;
+        frame.stack_offset = SStack.GetDataNum() - frame.arguments; // set stack offset
 
         // check arguments types
-        for (n = 0; n < fi.arguments; n++)
+        for (n = 0; n < frame.arguments; n++)
         {
-            if (fi.local_vars[n].type == VAR_REFERENCE)
+            if (pfi->local_vars[n].type == VAR_REFERENCE)
                 continue;
-            pV = SStack.Read(fi.stack_offset, n);
-            if (pV->GetType() != fi.local_vars[n].type)
+            pV = SStack.Read(frame.stack_offset, n);
+            if (pV->GetType() != pfi->local_vars[n].type)
             {
                 pV = pV->GetVarPointer();
                 if (!pV)
@@ -3987,27 +4033,27 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                     return false;
                 }
 
-                if (fi.local_vars[n].type == VAR_AREFERENCE && pV->GetType() == VAR_OBJECT)
+                if (pfi->local_vars[n].type == VAR_AREFERENCE && pV->GetType() == VAR_OBJECT)
                     continue;
 
                 // TODO: remove and fix
-                if (false && pV->GetType() != fi.local_vars[n].type)
+                if (false && pV->GetType() != pfi->local_vars[n].type)
                 {
-                    SetWarning("wrong type of argument %d  %s(%s) <-- [%s]", n, fi.name.c_str(),
-                               Token.GetTypeName(fi.local_vars[n].type), Token.GetTypeName(pV->GetType()));
+                    SetWarning("wrong type of argument %d  %s(%s) <-- [%s]", n, pfi->name.c_str(),
+                               Token.GetTypeName(pfi->local_vars[n].type), Token.GetTypeName(pV->GetType()));
                 }
             }
         }
 
-        for (n = fi.arguments; n < fi.local_vars.size(); n++)
+        for (n = frame.arguments; n < pfi->local_vars.size(); n++)
         {
             pV = SStack.Push();
-            pV->SetType(fi.local_vars[n].type, fi.local_vars[n].elements);
+            pV->SetType(pfi->local_vars[n].type, pfi->local_vars[n].elements);
         }
 
-        pRun_fi = &fi; // set pointer to 'this' function info
+        pRun_fi = &frame; // set pointer to 'this' function info
 
-        InstructionPointer = fi.offset;
+        InstructionPointer = frame.offset;
 
         pCodeBase = SegmentTable[segment_index].pCode;
         pRunCodeBase = pCodeBase;
@@ -4401,7 +4447,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                     ShowWindow(CDebug->GetWindowHandle(), SW_NORMAL);
 
                     CDebug->SetTraceLine(nDebugTraceLineCode);
-                    CDebug->BreakOn(fi.decl_file_name.c_str(), nDebugTraceLineCode);
+                    CDebug->BreakOn(pfi->decl_file_name.c_str(), nDebugTraceLineCode);
                     CDebug->SetTraceMode(TMODE_WAIT);
                     while (CDebug->GetTraceMode() == TMODE_WAIT)
                     {
@@ -4415,7 +4461,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 else if (CDebug->Breaks.CanBreak())
                 {
                     // check for breakpoint
-                    if (CDebug->Breaks.Find(fi.decl_file_name.c_str(), nDebugTraceLineCode))
+                    if (CDebug->Breaks.Find(pfi->decl_file_name.c_str(), nDebugTraceLineCode))
                     {
                         if (!CDebug->IsDebug())
                             CDebug->OpenDebugWindow(core_internal.GetAppInstance());
@@ -4423,7 +4469,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                         ShowWindow(CDebug->GetWindowHandle(), SW_NORMAL);
                         // CDebug->OpenDebugWindow(core_impl.hInstance);
                         CDebug->SetTraceMode(TMODE_WAIT);
-                        CDebug->BreakOn(fi.decl_file_name.c_str(), nDebugTraceLineCode);
+                        CDebug->BreakOn(pfi->decl_file_name.c_str(), nDebugTraceLineCode);
 
                         while (CDebug->GetTraceMode() == TMODE_WAIT)
                         {
@@ -4517,17 +4563,17 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             // if(pVResult) SStack.Pop();
             break;
         case FUNCTION_RETURN_VOID:
-            if (fi.return_type != TVOID)
+            if (frame.return_type != TVOID)
             {
                 SetError("function must return value");
                 return false;
             }
             // for(n=0;n<fi.var_num;n++) SStack.Pop();
-            SStack.InvalidateFrom(fi.stack_offset);
+            SStack.InvalidateFrom(frame.stack_offset);
 
             return true;
         case FUNCTION_RETURN:
-            if (fi.return_type == TVOID)
+            if (frame.return_type == TVOID)
             {
                 SetError("void function return value");
 
@@ -4536,7 +4582,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             // at this moment result expression placed in EX register
 
             if (pDbgExpSource == nullptr) // skip stack unwind for dbg expression process    // ????????
-                SStack.InvalidateFrom(fi.stack_offset);
+                SStack.InvalidateFrom(frame.stack_offset);
 
             // copy result into stack
             pV = SStack.Push();
@@ -4545,15 +4591,15 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
 
             // check return type
             if (pDbgExpSource == nullptr) // skip test for dbg expression process
-                if (fi.return_type != pV->GetType())
+                if (frame.return_type != pV->GetType())
                 {
-                    if (fi.return_type == VAR_INTEGER && pV->GetType() == VAR_PTR)
+                    if (frame.return_type == VAR_INTEGER && pV->GetType() == VAR_PTR)
                     {
                         pV->Convert(VAR_INTEGER);
                         return true;
                     }
 
-                    SetError("%s function return %s value", Token.GetTypeName(fi.return_type),
+                    SetError("%s function return %s value", Token.GetTypeName(frame.return_type),
                              Token.GetTypeName(pV->GetType()));
                     return false;
                 }
@@ -4561,16 +4607,16 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             /*if(BC_ProcessExpression(&ExpressionResult))
             {
               if(pDbgExpSource == 0)    // skip stack unwind for dbg expression process
-                SStack.InvalidateFrom(fi.stack_offset);
+                SStack.InvalidateFrom(frame.stack_offset);
               pV = SStack.Push();
               pV->Copy(&ExpressionResult);
               pVReturnResult = pV;
 
               if(pDbgExpSource == 0)    // skip test for dbg expression process
-              if(fi.return_type != pV->GetType())
+              if(frame.return_type != pV->GetType())
               {
                 SetError("%s function return %s value",
-                  Token.GetTypeName(fi.return_type),
+                  Token.GetTypeName(frame.return_type),
                   Token.GetTypeName(pV->GetType()));
 
                 return false;
@@ -6660,7 +6706,7 @@ bool COMPILER::OnLoad()
     return true;
 }
 
-bool COMPILER::SaveState(std::fstream &fileS)
+bool COMPILER::SaveState(std::vector<char> &image)
 {
     uint32_t n;
     delete[] pBuffer;
@@ -6674,16 +6720,12 @@ bool COMPILER::SaveState(std::fstream &fileS)
     if (function_code != INVALID_FUNC_CODE)
         BC_Execute(function_code, pResult);
 
-    EXTDATA_HEADER edh;
+    // Serialize into memory only: the caller replaces the file atomically, so a
+    // failure or crash at any point leaves the previous save intact.
+    std::string save_info = "save";
     auto *pVDat = static_cast<VDATA *>(core_internal.GetScriptVariable("savefile_info"));
     if (pVDat && pVDat->GetString())
-        sprintf_s(edh.sFileInfo, sizeof(edh.sFileInfo), "%s", pVDat->GetString());
-    else
-        sprintf_s(edh.sFileInfo, sizeof(edh.sFileInfo), "save");
-    edh.dwExtDataOffset = 0;
-    edh.dwExtDataSize = 0;
-
-    fio->_WriteFile(fileS, &edh, sizeof(edh));
+        save_info = pVDat->GetString();
 
     // 1. Program Directory
     SaveString(ProgramDirectory);
@@ -6732,66 +6774,43 @@ bool COMPILER::SaveState(std::fstream &fileS)
         SaveVariable(real_var->value.get());
     }
 
-    uint64_t dw2;
-    if (dwCurPointer)
+    std::string error;
+    const bool built = storm::save::buildState(save_info.c_str(), pBuffer, dwCurPointer, image, error);
+    if (!built)
     {
-        char *pDst = new char[dwCurPointer * 2];
-        uLongf ulPackLen = dwCurPointer * 2;
-        RDTSC_B(dw2);
-        compress2((Bytef *)pDst, &ulPackLen, (Bytef *)pBuffer, dwCurPointer, Z_BEST_COMPRESSION);
-        RDTSC_E(dw2);
-        uint32_t uiPackLen = ulPackLen;
-
-        fio->_WriteFile(fileS, &dwCurPointer, sizeof(dwCurPointer));
-        fio->_WriteFile(fileS, &uiPackLen, sizeof(uiPackLen));
-        fio->_WriteFile(fileS, pDst, uiPackLen);
-
-        delete[] pDst;
+        spdlog::error("Cannot build save image: {}", error);
     }
 
     delete[] pBuffer;
     pBuffer = nullptr;
+    dwCurPointer = 0;
+    dwMaxSize = 0;
 
-    return true;
+    return built;
 }
 
-bool COMPILER::LoadState(std::fstream &fileS)
+// `raw` is the already validated, uncompressed script state (see save_file.hpp).
+// Validation happens before the caller erases the running game, so a corrupt
+// file can no longer destroy the current session.
+bool COMPILER::LoadState(const std::vector<char> &raw)
 {
     uint32_t n;
     char *pString;
 
     delete[] pBuffer;
     pBuffer = nullptr;
-
-    EXTDATA_HEADER exdh;
-    fio->_ReadFile(fileS, &exdh, sizeof(exdh));
-
-    uint32_t dwPackLen;
-    fio->_ReadFile(fileS, &dwMaxSize, sizeof(dwMaxSize));
-    fio->_ReadFile(fileS, &dwPackLen, sizeof(dwPackLen));
-    if (dwPackLen == 0 || dwPackLen > 0x8000000 || dwMaxSize == 0 || dwMaxSize > 0x8000000)
+    if (raw.empty())
     {
         return false;
     }
-    char *pCBuffer = new char[dwPackLen];
-    pBuffer = new char[dwMaxSize];
-    fio->_ReadFile(fileS, pCBuffer, dwPackLen);
-    uLongf ulMaxSize = dwMaxSize;
-    uncompress((Bytef *)pBuffer, &ulMaxSize, (Bytef *)pCBuffer, dwPackLen);
-    dwMaxSize = ulMaxSize;
-    delete[] pCBuffer;
+
+    pBuffer = new char[raw.size()];
+    memcpy(pBuffer, raw.data(), raw.size());
+    dwMaxSize = static_cast<uint32_t>(raw.size());
     dwCurPointer = 0;
 
     // Release all data
     Release();
-
-    // save specific data (name, time, etc)
-    // DWORD nSDataSize = ReadVDword();
-    // if(nSDataSize) Read(0,nSDataSize);
-
-    // skip ext data header
-    // EXTDATA_HEADER edh;
-    // Read(&edh, sizeof(edh));
 
     // 1. Program Directory
     ProgramDirectory = ReadString();
@@ -6922,246 +6941,75 @@ void COMPILER::AddPostEvent(S_EVENTMSG *pEM)
 
 bool COMPILER::SetSaveData(const char *file_name, void *save_data, int32_t data_size)
 {
-    EXTDATA_HEADER exdh;
-
-    auto fileS = fio->_CreateFile(file_name, std::ios::binary | std::ios::in | std::ios::out);
-    if (!fileS.is_open())
+    if (file_name == nullptr || save_data == nullptr || data_size <= 0)
     {
         return false;
     }
 
-    const uint32_t dwFileSize = fio->_GetFileSize(file_name);
+    // Read-modify-write through a temporary file: the save written by
+    // SaveState stays loadable if this step fails or the process dies.
+    const auto path = std::filesystem::u8path(fio->ConvertPathResource(file_name));
+    std::string error;
+    storm::save::Bytes image;
+    if (!storm::save::readFile(path, image, error))
+    {
+        spdlog::error("Cannot attach save data to '{}': {}", path.string(), error);
+        return false;
+    }
+
+    std::string save_info = "save";
     auto *pVDat = static_cast<VDATA *>(core_internal.GetScriptVariable("savefile_info"));
     if (pVDat && pVDat->GetString())
-        sprintf_s(exdh.sFileInfo, sizeof(exdh.sFileInfo), "%s", pVDat->GetString());
-    else
-        sprintf_s(exdh.sFileInfo, sizeof(exdh.sFileInfo), "save");
-    exdh.dwExtDataOffset = dwFileSize;
-    exdh.dwExtDataSize = data_size;
+        save_info = pVDat->GetString();
 
-    fio->_WriteFile(fileS, &exdh, sizeof(exdh));
-    fio->_SetFilePointer(fileS, dwFileSize, std::ios::beg);
-
-    char *pDst = new char[data_size * 2];
-    uLongf ulPackLen = data_size * 2;
-    compress2((Bytef *)pDst, &ulPackLen, static_cast<Bytef *>(save_data), data_size, Z_BEST_COMPRESSION);
-    uint32_t uiPackLen = ulPackLen;
-
-    fio->_WriteFile(fileS, &uiPackLen, sizeof(uiPackLen));
-    fio->_WriteFile(fileS, pDst, uiPackLen);
-    fio->_CloseFile(fileS);
-
-    delete[] pDst;
+    const auto validate = [](const storm::save::Bytes &stored, std::string &why) {
+        storm::save::Bytes scratch;
+        return storm::save::readState(stored, scratch, why) && storm::save::readExtData(stored, scratch, why);
+    };
+    if (!storm::save::appendExtData(image, save_info.c_str(), save_data, static_cast<uint32_t>(data_size), error) ||
+        !storm::save::writeAtomic(path, image, validate, error))
+    {
+        spdlog::error("Cannot attach save data to '{}': {}", path.string(), error);
+        return false;
+    }
 
     return true;
 }
 
-/*bool COMPILER::SetSaveData(char * file_name, void * save_data, int32_t data_size)
-                           //const char * file_name, const char * save_data)
-{
-    EXTDATA_HEADER exdh;
-    DWORD dwFileSize;
-    DWORD dwOrgDataSize;
-    char * pOrgData;
-
-    char sFileName[MAX_PATH];
-
-    if(file_name == 0)
-    {
-        SetError("invalid save file name");
-        return false;
-    }
-
-    strcpy_s(sFileName,file_name);
-
-    // open save file
-    fio->SetDrive(XBOXDRIVE_NONE);
-    HANDLE fh = fio->_CreateFile(sFileName,GENERIC_READ,FILE_SHARE_READ,OPEN_EXISTING);
-    fio->SetDrive();
-    if(fh == INVALID_HANDLE_VALUE) return false;
-
-    // get file size
-    dwFileSize = fio->_GetFileSize(fh,0);
-
-    // set global handle
-//    hSaveFileFileHandle = fh;
-
-    // read save header
-    Read(&exdh,sizeof(exdh));
-
-    // calc org data size
-    if(exdh.dwExtDataSize != 0)
-    {
-        dwOrgDataSize = dwFileSize - sizeof(exdh) - exdh.dwExtDataSize;
-    }
-    else
-    {
-        dwOrgDataSize = dwFileSize - sizeof(exdh);
-    }
-
-    // prepare org data buffer
-    pOrgData = new char[dwOrgDataSize];
-    if(pOrgData == 0)
-    {
-        SetError("no memory");
-        fio->_CloseHandle(fh);
-        return false;
-    }
-
-    // buffering org data
-    Read(pOrgData,dwOrgDataSize);
-
-    fio->_CloseHandle(fh);
-
-    // start flushing data to file
-    fio->SetDrive(XBOXDRIVE_NONE);
-    fh = fio->_CreateFile(sFileName,GENERIC_WRITE,FILE_SHARE_READ,OPEN_EXISTING);
-    fio->SetDrive();
-    if(fh == INVALID_HANDLE_VALUE)
-    {
-        if(pOrgData) delete pOrgData;
-        SetError("cant set save ext data");
-        return false;
-    }
-
-    exdh.dwExtDataOffset = sizeof(exdh) + dwOrgDataSize;
-    exdh.dwExtDataSize = data_size;
-
-    // save header
-    SaveData(&exdh,sizeof(exdh));
-    // save org data
-    SaveData(pOrgData,dwOrgDataSize);
-    // save ext data
-    SaveData(save_data,data_size);
-
-    // cleanup
-    fio->_CloseHandle(fh);
-    if(pOrgData) delete pOrgData;
-    return true;
-
-
-}*/
-
 void *COMPILER::GetSaveData(const char *file_name, int32_t &data_size)
 {
-    auto fileS = fio->_CreateFile(file_name, std::ios::binary | std::ios::in);
-    if (!fileS.is_open())
+    data_size = 0;
+    if (file_name == nullptr)
+    {
+        return nullptr;
+    }
+
+    const auto path = std::filesystem::u8path(fio->ConvertPathResource(file_name));
+    std::string error;
+    storm::save::Bytes image;
+    storm::save::Bytes data;
+    if (!storm::save::readFile(path, image, error))
     {
         SetError("cant open save file: %s", file_name);
         return nullptr;
     }
-
-    const auto file_size = fio->_GetFileSize(file_name);
-    if (file_size < sizeof(EXTDATA_HEADER) + sizeof(uint32_t))
+    // Corrupt or truncated extended data is reported as "no data" instead of
+    // handing the caller a buffer of uninitialized bytes.
+    if (!storm::save::readExtData(image, data, error))
     {
-        data_size = 0;
-        fio->_CloseFile(fileS);
+        spdlog::warn("Ignoring damaged save description in '{}': {}", path.string(), error);
+        return nullptr;
+    }
+    if (data.empty())
+    {
         return nullptr;
     }
 
-    uint64_t dw2;
-    RDTSC_B(dw2);
-    EXTDATA_HEADER exdh;
-    fio->_ReadFile(fileS, &exdh, sizeof(exdh));
-    if (exdh.dwExtDataSize <= 0 || file_size < exdh.dwExtDataOffset + sizeof(uint32_t))
-    {
-        data_size = 0;
-        fio->_CloseFile(fileS);
-        return nullptr;
-    }
-
-    uint32_t dwPackLen;
-    fio->_SetFilePointer(fileS, exdh.dwExtDataOffset, std::ios::beg);
-    fio->_ReadFile(fileS, &dwPackLen, sizeof(dwPackLen));
-    if (dwPackLen == 0 || file_size < exdh.dwExtDataOffset + sizeof(uint32_t) + dwPackLen)
-    {
-        data_size = 0;
-        fio->_CloseFile(fileS);
-        return nullptr;
-    }
-    char *pCBuffer = new char[dwPackLen];
-    fio->_ReadFile(fileS, pCBuffer, dwPackLen);
-    char *pBuffer = new char[exdh.dwExtDataSize];
-    uLongf ulDestLen = exdh.dwExtDataSize;
-    uncompress((Bytef *)pBuffer, &ulDestLen, (Bytef *)pCBuffer, dwPackLen);
-    fio->_CloseFile(fileS);
-    delete[] pCBuffer;
-    RDTSC_E(dw2);
-    // core_internal.Trace("GetSaveData = %d", dw2);
-
-    data_size = ulDestLen;
-    return pBuffer;
+    char *pResult = new char[data.size()];
+    memcpy(pResult, data.data(), data.size());
+    data_size = static_cast<int32_t>(data.size());
+    return pResult;
 }
-
-/*void * COMPILER::GetSaveData(char * file_name, int32_t & data_size)
-{
-    DWORD n;
-
-    EXTDATA_HEADER exdh;
-    char * pExtData;
-    if(file_name == 0)
-    {
-        SetError("invalid save file name");
-        return 0;
-    }
-
-    // open save file
-    fio->SetDrive(XBOXDRIVE_NONE);
-    HANDLE fh = fio->_CreateFile(file_name,GENERIC_READ,FILE_SHARE_READ,OPEN_EXISTING);
-    fio->SetDrive();
-    if(fh == INVALID_HANDLE_VALUE)
-    {
-        SetError("cant open save file: %s",file_name);
-        return 0;
-    }
-
-    // set global handle
-//    hSaveFileFileHandle = fh;
-
-    // read save header
-
-    memset(&exdh,0,sizeof(exdh));
-    if(!Read(&exdh,sizeof(exdh)))
-    {
-        fio->_CloseHandle(fh);
-        return 0;
-    }
-
-    int fsize = fio->_GetFileSize(fh,0);
-    if( fsize < exdh.dwExtDataOffset+exdh.dwExtDataSize )
-    { // extern data header is failed
-        fio->_CloseHandle(fh);
-        return 0;
-    }
-
-    // prepare ext data buffer
-    pExtData = new char[exdh.dwExtDataSize];
-    if(pExtData == 0)
-    {
-        SetError("no memory");
-        fio->_CloseHandle(fh);
-        return 0;
-    }
-
-
-    // move to ext data
-    DWORD dwRes = fio->_SetFilePointer(fh,exdh.dwExtDataOffset,0,FILE_BEGIN);
-    if(dwRes == 0xffffffff)
-    {
-        if(pExtData) delete pExtData; pExtData = 0;
-        SetError("invalid seek");
-        return 0;
-    }
-
-    // read ext data
-    Read(pExtData,exdh.dwExtDataSize);
-
-    // cleanup
-    fio->_CloseHandle(fh);
-
-    data_size = exdh.dwExtDataSize;
-    return pExtData;
-}*/
 
 void COMPILER::AddRuntimeEvent()
 {
@@ -7679,9 +7527,9 @@ void COMPILER::SaveByteCodeToCache(storm::script_cache::BufferWriter &writer, co
 void COMPILER::SaveSegmentToCache(const SEGMENT_DESC &segment)
 {
     const auto path = GetSegmentCachePath(segment);
-    create_directories(path.parent_path());
-    std::ofstream stream(path, std::ios::binary);
-    if (!stream)
+    std::error_code ec;
+    create_directories(path.parent_path(), ec);
+    if (ec)
     {
         return;
     }
@@ -7707,7 +7555,34 @@ void COMPILER::SaveSegmentToCache(const SEGMENT_DESC &segment)
     SaveByteCodeToCache(writer, segment);
 
     const auto data = writer.GetDataBuffer();
-    stream.write(std::data(data), std::size(data));
+    SegmentCacheHeader header{};
+    std::copy(std::begin(kSegmentCacheMagic), std::end(kSegmentCacheMagic), header.magic);
+    header.payload_size = std::size(data);
+    header.payload_hash = storm::fingerprint::fnv1a(data);
+
+    // Write beside the target and rename, so a reader never sees a partial file.
+    auto pending = path;
+    pending += ".tmp";
+    {
+        std::ofstream stream(pending, std::ios::binary | std::ios::trunc);
+        if (!stream)
+        {
+            return;
+        }
+        stream.write(reinterpret_cast<const char *>(&header), sizeof(header));
+        stream.write(std::data(data), static_cast<std::streamsize>(std::size(data)));
+        stream.close();
+        if (stream.fail())
+        {
+            std::filesystem::remove(pending, ec);
+            return;
+        }
+    }
+    std::filesystem::rename(pending, path, ec);
+    if (ec)
+    {
+        std::filesystem::remove(pending, ec);
+    }
 }
 
 void COMPILER::SaveDefinesToCache(storm::script_cache::BufferWriter &writer)
@@ -7737,13 +7612,14 @@ void COMPILER::SaveDefinesToCache(storm::script_cache::BufferWriter &writer)
 bool COMPILER::LoadSegmentFromCache(SEGMENT_DESC &segment)
 {
     const auto path = GetSegmentCachePath(segment);
-    if (auto ec = std::error_code(); !exists(path, ec) || ec)
+    std::error_code ec;
+    if (!exists(path, ec) || ec)
     {
         return false;
     }
 
-    const auto cache_size = file_size(path);
-    if (cache_size == 0)
+    const auto cache_size = file_size(path, ec);
+    if (ec || cache_size <= sizeof(SegmentCacheHeader))
     {
         return false;
     }
@@ -7754,28 +7630,60 @@ bool COMPILER::LoadSegmentFromCache(SEGMENT_DESC &segment)
         return false;
     }
 
-    std::vector<char> data(cache_size);
-    stream.read(std::data(data), cache_size);
+    SegmentCacheHeader header{};
+    std::vector<char> data(cache_size - sizeof(header));
+    if (!stream.read(reinterpret_cast<char *>(&header), sizeof(header)) ||
+        !stream.read(std::data(data), static_cast<std::streamsize>(std::size(data))))
+    {
+        return false;
+    }
+    if (!std::equal(std::begin(kSegmentCacheMagic), std::end(kSegmentCacheMagic), header.magic) ||
+        header.payload_size != std::size(data) ||
+        header.payload_hash != storm::fingerprint::fnv1a(std::string_view(std::data(data), std::size(data))))
+    {
+        spdlog::warn("Script cache entry '{}' is damaged; recompiling", path.string());
+        std::filesystem::remove(path, ec);
+        return false;
+    }
 
     storm::script_cache::BufferReader reader(std::move(data));
 
-    // defines (in case of new compiled code depending on defines from cache)
-    LoadDefinesFromCache(reader, segment);
+    try
+    {
+        // defines (in case of new compiled code depending on defines from cache)
+        LoadDefinesFromCache(reader, segment);
 
-    // variables with values
-    LoadVariablesFromCache(reader, segment);
+        // variables with values
+        LoadVariablesFromCache(reader, segment);
 
-    // functions
-    LoadFunctionsFromCache(reader, segment);
+        // functions
+        LoadFunctionsFromCache(reader, segment);
 
-    // script libraries
-    LoadScriptLibrariesFromCache(reader);
+        // script libraries
+        LoadScriptLibrariesFromCache(reader);
 
-    // event handlers
-    LoadEventHandlersFromCache(reader);
+        // event handlers
+        LoadEventHandlersFromCache(reader);
 
-    // bytecode
-    LoadByteCodeFromCache(reader, segment);
+        // bytecode
+        LoadByteCodeFromCache(reader, segment);
+    }
+    catch (const storm::script_cache::ReaderException &)
+    {
+        // Intact file that does not parse: a layout bug, not disk damage. Undo
+        // what was registered for this segment and compile from source.
+        spdlog::error("Script cache entry '{}' does not parse; recompiling", path.string());
+        std::filesystem::remove(path, ec);
+        delete[] segment.pCode;
+        segment.pCode = nullptr;
+        segment.BCode_Program_size = 0;
+        segment.BCode_Buffer_size = 0;
+        FuncTab.InvalidateBySegmentID(segment.id);
+        VarTab.InvalidateBySegmentID(segment.id);
+        EventTab.InvalidateBySegmentID(segment.id);
+        DefTab.InvalidateBySegmentID(segment.id);
+        return false;
+    }
 
     return true;
 }

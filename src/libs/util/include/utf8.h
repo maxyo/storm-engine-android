@@ -100,12 +100,16 @@ inline int CodepointToUtf8(char *out, uint32_t codepoint)
 // taken from http://www.zedwood.com/article/cpp-utf8-char-to-codepoint
 inline int Utf8ToCodepoint(const char *utf8)
 {
-    size_t l = strlen(utf8);
+    // Only the first four bytes matter. Measuring the whole remaining string
+    // here made every decode loop over a text quadratic.
+    size_t l = 0;
+    while (l < 4 && utf8[l] != 0)
+        ++l;
 
     if (l < 1)
         return -1;
     unsigned char u0 = utf8[0];
-    if (u0 >= 0 && u0 <= 0x7F)
+    if (u0 <= 0x7F)
         return u0;
 
     if (l < 2)
@@ -114,7 +118,9 @@ inline int Utf8ToCodepoint(const char *utf8)
     if (u0 >= 0xC0 && u0 <= 0xDF)
         return (u0 - 192) * 64 + (u1 - 128);
 
-    if (utf8[0] == 0xed && (utf8[1] & 0xa0) == 0xa0)
+    // Compare as unsigned: with a signed char, utf8[0] == 0xed was never true
+    // and encoded surrogates were decoded instead of rejected.
+    if (u0 == 0xED && (u1 & 0xA0) == 0xA0)
         return -1; // code points, 0xd800 to 0xdfff
 
     if (l < 3)

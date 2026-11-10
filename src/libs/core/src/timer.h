@@ -21,6 +21,7 @@ class TIMER
     uint32_t fps_count = 0;      // Running total of frames rendered in the last second, which resets to 0 every second.
     uint32_t fps_time = 0;       // A one-second timer which is used to update the FPS counter on the screen.
     TimePoint Current, Previous; // Timepoints of when each iteration of the timer has started and finished.
+    double Carry = 0.0;          // Milliseconds of real time not yet handed out through Delta_Time (may be negative).
     static constexpr Milliseconds kMaxDelta = Milliseconds{100}; // Maximum time delta per frame.
     static constexpr Milliseconds kFPSUpdateInterval =
         Milliseconds{1000}; // How often to raise the event to update the FPS counter
@@ -45,14 +46,49 @@ class TIMER
     uint32_t Run()
     {
         Current = Clock::now();
-        Delta_Time = (uint32_t)Duration(Current - Previous).count();
-        if (Delta_Time > (uint32_t)kMaxDelta.count())
+        const float elapsed = Duration(Current - Previous).count();
+        Previous = Current;
+        return Advance(elapsed);
+    }
+
+    // Account for `elapsed` milliseconds of real time (split out of Run() for tests).
+    //
+    // Delta_Time stays an integer number of milliseconds because every entity
+    // and script consumes it that way, but the fraction is no longer thrown
+    // away each frame: it is carried into the next one. Truncating 16.67 ms to
+    // 16 ms made game time run 4% slow at 60 and 120 fps and 14% slow at 144 fps,
+    // i.e. by an amount that changed with the frame rate. fDeltaTime is the exact
+    // elapsed time.
+    uint32_t Advance(float elapsed)
+    {
+        const auto maxDelta = static_cast<float>(kMaxDelta.count());
+        if (!(elapsed >= 0.0f)) // negative or NaN: clock trouble, treat as no time
         {
-            Delta_Time = (uint32_t)kMaxDelta.count();
+            elapsed = 0.0f;
+        }
+        if (elapsed > maxDelta)
+        {
+            // A long stall is clamped as before; do not pay the excess back later.
+            elapsed = maxDelta;
+            Carry = 0.0;
         }
 
+        Carry += elapsed;
+        Delta_Time = Carry > 0.0 ? static_cast<uint32_t>(Carry) : 0;
+        if (Delta_Time > static_cast<uint32_t>(kMaxDelta.count()))
+        {
+            Delta_Time = static_cast<uint32_t>(kMaxDelta.count());
+        }
+        if (Delta_Time == 0)
+        {
+            // Consumers divide by and iterate over the delta; never hand out zero.
+            // The borrowed millisecond is repaid by the following frames.
+            Delta_Time = 1;
+        }
+        Carry -= static_cast<double>(Delta_Time);
+
         rDelta_Time = Delta_Time;
-        fDeltaTime = (float)Delta_Time;
+        fDeltaTime = elapsed > 0.0f ? elapsed : 1.0f;
         fps_count++;
         fps_time += Delta_Time;
         if (fps_time >= kFPSUpdateInterval.count())
@@ -63,14 +99,6 @@ class TIMER
         {
             Ring = false;
         }
-
-        if (Delta_Time == 0)
-        {
-            rDelta_Time = Delta_Time = 1;
-            fDeltaTime = 1.0f;
-        }
-
-        Previous = Current;
 
         if (FixedDelta)
         {

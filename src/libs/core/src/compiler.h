@@ -48,13 +48,6 @@ struct OFFSET_INFO
     uint32_t segment_id;
 };
 
-struct EXTDATA_HEADER
-{
-    char sFileInfo[32];
-    uint32_t dwExtDataOffset;
-    uint32_t dwExtDataSize;
-};
-
 /*struct DEFINE_INFO
 {
     uint32_t deftype;
@@ -209,8 +202,8 @@ class COMPILER : public VIRTUAL_COMPILER
     bool CreateMessage(MESSAGE *pMs, uint32_t stack_offset, uint32_t vindex, bool s2s = false);
     void ProcessEvent(const char *event_name, MESSAGE *pMs);
 
-    bool SaveState(std::fstream &fileS);
-    bool LoadState(std::fstream &fileS);
+    bool SaveState(std::vector<char> &image);
+    bool LoadState(const std::vector<char> &raw);
     bool OnLoad();
     void SaveDataDebug(char *data_PTR, ...);
     void SaveData(const void *data_PTR, uint32_t data_size);
@@ -237,8 +230,6 @@ class COMPILER : public VIRTUAL_COMPILER
     void FormatDialog(const char *file_name);
     void FormatAllDialog(const char *directory_name);
 
-    // bool SetSaveData(const char * file_name, const char * save_data);
-    // bool GetSaveData(const char * file_name, DATA * pV);
 
     bool SetSaveData(const char *file_name, void *save_data, int32_t data_size);
     void *GetSaveData(const char *file_name, int32_t &data_size);
@@ -313,7 +304,7 @@ private:
     char *pDebExpBuffer;
     uint32_t nDebExpBufferSize;
 
-    FuncInfo *pRun_fi; // running function info
+    FuncFrame *pRun_fi; // running function frame (scalar snapshot + stable table entry)
     FuncTable FuncTab;
     VarTable VarTab;
     S_DEFTAB DefTab;

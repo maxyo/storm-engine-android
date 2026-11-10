@@ -6,6 +6,8 @@
 #include "compiler.h"
 #include "controls.h"
 #include "fs.h"
+#include "save_file.hpp"
+#include "save_trash.hpp"
 #include "steam_api.hpp"
 
 #include <fstream>
@@ -150,6 +152,7 @@ bool CoreImpl::Run()
         return false; // exit
 
     Timer.Run(); // calc delta time
+    storm::save::trash().tick(); // finalize save deletes whose grace period has passed
 
     auto *pVCTime = static_cast<VDATA *>(core_internal.GetScriptVariable("iRealDeltaTime"));
     if (pVCTime)
@@ -605,28 +608,66 @@ bool CoreImpl::SaveState(const char *file_name)
         throw std::logic_error("Bad file name of save");
     }
 
-    auto fileS = fio->_CreateFile(file_name, std::ios::binary | std::ios::out);
+    // Resolve the path first: file_name usually points into a script stack value,
+    // and serializing runs the script OnSave handler, which reuses that storage.
+    const std::string name = file_name;
+    const auto path = std::filesystem::u8path(fio->ConvertPathResource(name.c_str()));
 
-    if (!fileS.is_open())
+    // The state is serialized in memory and swapped in atomically
+    // (temporary file -> fsync -> verify -> rename); see save_file.hpp.
+    storm::save::Bytes image;
+    if (!Compiler->SaveState(image))
     {
+        storm::save::trash().rollback(); // nothing was written: undo the slot delete that preceded this save
         return false;
     }
 
-    Compiler->SaveState(fileS);
-    fio->_CloseFile(fileS);
+    const auto validate = [](const storm::save::Bytes &stored, std::string &why) {
+        storm::save::Bytes scratch;
+        return storm::save::readState(stored, scratch, why);
+    };
+    std::string error;
+    if (std::error_code ec; !path.parent_path().empty())
+    {
+        std::filesystem::create_directories(path.parent_path(), ec);
+    }
+    if (!storm::save::writeAtomic(path, image, validate, error))
+    {
+        spdlog::error("Cannot save '{}' (resolved '{}'): {}; the previous save, if any, is unchanged", name,
+                      path.string(), error);
+        storm::save::trash().rollback();
+        return false;
+    }
 
+    // The new save is durable: deletes made on the way to it (slot overwrite) are final.
+    storm::save::trash().commit();
     return true;
 }
 
 // force core to load state file at the start of next game loop, return false if no state file
 bool CoreImpl::InitiateStateLoading(const char *file_name)
 {
-    auto fileS = fio->_CreateFile(file_name, std::ios::binary | std::ios::in);
-    if (!fileS.is_open())
+    if (!file_name)
     {
         return false;
     }
-    fio->_CloseFile(fileS);
+
+    // Reject missing or damaged saves here, while the caller can still react,
+    // instead of discovering it after the running game has been torn down.
+    const auto path = std::filesystem::u8path(fio->ConvertPathResource(file_name));
+    storm::save::Bytes image, raw;
+    std::string error;
+    const auto source = storm::save::loadWithRecovery(path, image, raw, error);
+    if (source == storm::save::Source::None)
+    {
+        spdlog::error("Cannot load save '{}' (resolved '{}'): {}", file_name, path.string(), error);
+        return false;
+    }
+    if (source == storm::save::Source::Backup)
+    {
+        spdlog::warn("Save '{}': {}", file_name, error);
+    }
+
     delete[] State_file_name;
 
     const auto len = strlen(file_name) + 1;
@@ -642,16 +683,29 @@ void CoreImpl::ProcessStateLoading()
         return;
     }
 
+    // Read and validate before erasing anything: a save that became unreadable
+    // since InitiateStateLoading must not cost the player the current session.
+    const auto path = std::filesystem::u8path(fio->ConvertPathResource(State_file_name));
+    storm::save::Bytes image, raw;
+    std::string error;
+    const auto source = storm::save::loadWithRecovery(path, image, raw, error);
+    if (source == storm::save::Source::None)
+    {
+        spdlog::error("Save '{}' is unreadable, load cancelled: {}", State_file_name, error);
+        delete[] State_file_name;
+        State_file_name = nullptr;
+        State_loading = false;
+        return;
+    }
+    image = {};
+
     State_loading = true;
     EraseEntities();
 
-    auto fileS = fio->_CreateFile(State_file_name, std::ios::binary | std::ios::in);
-    if (!fileS.is_open())
+    if (!Compiler->LoadState(raw))
     {
-        return;
+        spdlog::error("Save '{}' could not be applied", State_file_name);
     }
-    Compiler->LoadState(fileS);
-    fio->_CloseFile(fileS);
 
     delete[] State_file_name;
     State_file_name = nullptr;

@@ -545,8 +545,8 @@ const char *S_DEBUG::ProcessExpression(const char *pExpression)
 uint32_t S_DEBUG::GetLineStatus(const char *_pFileName, uint32_t _linecode)
 {
     // nDebugTraceLineCode
-    if (core_internal.Compiler->pRun_fi && !core_internal.Compiler->pRun_fi->decl_file_name.empty())
-        if (storm::iEquals(core_internal.Compiler->pRun_fi->decl_file_name, _pFileName))
+    if (core_internal.Compiler->pRun_fi && !core_internal.Compiler->pRun_fi->info->decl_file_name.empty())
+        if (storm::iEquals(core_internal.Compiler->pRun_fi->info->decl_file_name, _pFileName))
         {
             if (_linecode == core_internal.Compiler->nDebugTraceLineCode)
                 return LST_CONTROL;

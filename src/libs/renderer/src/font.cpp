@@ -206,7 +206,7 @@ int32_t FONT::GetStringWidth(const std::string_view &text, std::optional<float> 
     {
         uint32_t Codepoint = utf8::Utf8ToCodepoint(text.data() + i);
 
-        if (Codepoint > USED_CODES) {
+        if (Codepoint >= USED_CODES) { // also catches -1 (invalid sequence) converted to unsigned
             core.Trace("Invalid codepoint: %d", Codepoint);
             if constexpr(storm::kIsDebug) {
                 throw std::runtime_error(fmt::format("Invalid codepoint: {}", Codepoint));
@@ -244,13 +244,13 @@ int32_t FONT::UpdateVertexBuffer(int32_t x, int32_t y, char *data_PTR, int utf8l
 
     xoffset = 0;
 
-    for (int i = 0, curLetter = 0; i < s_num; i += utf8::u8_inc(data_PTR + i), curLetter++)
+    // Never write past the glyphs locked above (callers clamp utf8length to the buffer).
+    for (int i = 0, curLetter = 0; i < s_num && curLetter < utf8length; i += utf8::u8_inc(data_PTR + i), curLetter++)
     {
-        Assert(curLetter < utf8length);
 
         int Codepoint = utf8::Utf8ToCodepoint(data_PTR + i);
 
-        if (Codepoint > USED_CODES) {
+        if (Codepoint < 0 || Codepoint >= static_cast<int>(USED_CODES)) {
             core.Trace("Invalid codepoint: %d", Codepoint);
             if constexpr(storm::kIsDebug) {
                 throw std::runtime_error(fmt::format("Invalid codepoint: {}", Codepoint));
@@ -328,6 +328,8 @@ int32_t FONT::Print(int32_t x, int32_t y, char *data_PTR, const FONT_PRINT_OVERR
     int32_t s_num = utf8::Utf8StringLength(data_PTR);
     if (s_num == 0)
         return 0;
+    // The vertex buffer holds MAX_SYMBOLS glyphs; longer text is truncated, not written out of bounds.
+    s_num = std::min<int32_t>(s_num, static_cast<int32_t>(MAX_SYMBOLS));
 
     const auto bDraw = renderService_.TechniqueExecuteStart(techniqueName_.c_str());
     if (!bDraw)
