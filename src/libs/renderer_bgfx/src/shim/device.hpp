@@ -29,6 +29,8 @@ class Context final : public render::FrameOwner
     bool ready() const { return initialised_ && surface_.valid; }
     bool initialised() const { return initialised_; }
     void resize(uint32_t width, uint32_t height);
+    // Re-applies the reset flags (graphics effects changed the anisotropy) without a size change.
+    void refresh_reset_flags();
     // Any thread: the display density changed; the game thread re-reads it at its next safe point.
     void request_density_refresh();
     // Any thread: Android handed over a surface; restore once SDL holds its native window.
@@ -259,6 +261,9 @@ struct Device final : Direct3DDevice9Stub
     void set_default_state();
     void bind_state_refs(const DeviceState &next);
     void create_backbuffer(uint32_t width, uint32_t height);
+    // The game picture's colour/depth stores for the current effects state (MSAA), kept inside the Surfaces the
+    // engine holds (GetBackBuffer / GetRenderTarget results stay valid).
+    void create_scene_stores(uint32_t width, uint32_t height);
     // Graphics effects (src/effects): the 3D scene of this frame is complete; runs the post chain on it and
     // makes its output the game picture the interface is drawn on. Once per presented frame.
     void scene_complete();

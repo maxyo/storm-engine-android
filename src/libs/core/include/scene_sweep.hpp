@@ -18,5 +18,10 @@ void framePresented(uint32_t drawCalls);
 // The sweep restarts the window at each event and appends it to each capture.
 void setRendererWindow(std::function<std::string()> window);
 
+// Set by the renderer: applies one entry of STORM_SCENE_SWEEP_VARIANTS (graphics options "name=value,..."), so
+// every scene is captured once per variant (run.py --variants).
+using VariantHook = void (*)(const char *options);
+void setVariantHook(VariantHook hook);
+
 } // namespace storm::scene_sweep
 #endif

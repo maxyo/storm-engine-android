@@ -300,6 +300,18 @@ void Context::resize(uint32_t width, uint32_t height)
         entry.client->OnSurfaceChanged(surface_);
 }
 
+void Context::refresh_reset_flags()
+{
+    if (!initialised_ || !surface_.valid)
+        return;
+    bgfx::SwapChain chain;
+    native_handles(window_, &chain.nwh, &chain.ndt);
+    chain.width = surface_.width_px;
+    chain.height = surface_.height_px;
+    chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
+    bgfx::reset(reset_flags(), &chain);
+}
+
 bool Context::read_density()
 {
     float dpi = 0.0f;

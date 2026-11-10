@@ -171,6 +171,7 @@ void Host::on_device_created()
     support_ = fx::DetectSupport(facts);
     device_ready_ = true;
     apply();
+    renderer_state_changed_ = false; // the scene target is created after this, with the constrained state
 }
 
 void Host::on_device_lost()
@@ -263,7 +264,11 @@ void Host::apply()
                                   "x requested: bgfx applies the device maximum level to world textures");
     const bool changed = !(next == settings_) || !device_ready_;
     settings_ = next;
-    renderer_state_ = fx::RendererStateFor(settings_);
+    const fx::RendererState state = fx::RendererStateFor(settings_);
+    renderer_state_changed_ = renderer_state_changed_ ||
+                              (device_ready_ && (state.msaa_samples != renderer_state_.msaa_samples ||
+                                                 state.max_anisotropy != renderer_state_.max_anisotropy));
+    renderer_state_ = state;
     report_.summary = describe(settings_);
     if (changed)
     {

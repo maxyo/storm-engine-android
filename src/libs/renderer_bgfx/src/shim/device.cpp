@@ -118,7 +118,6 @@ Device *Device::current = nullptr;
 Device::Device(SDL_Window *sdl_window, const D3DPRESENT_PARAMETERS &present) : window(sdl_window), params(present)
 {
     current = this;
-    world_anisotropy = effects::Host::instance().renderer_state().max_anisotropy > 1;
     byte_layout.begin().add(bgfx::Attrib::TexCoord7, 1, bgfx::AttribType::Uint8).end();
     lights.resize(kMaxLights);
     shaders.assign(embedded_shader_count(), BGFX_INVALID_HANDLE);
@@ -189,10 +188,26 @@ void Device::create_backbuffer(uint32_t width, uint32_t height)
         back_color->Release();
     if (back_depth)
         back_depth->Release();
-    // Effects: MSAA of the scene target (fx::RendererState, decided when the device was created). bgfx resolves the
-    // colour when the frame buffer is left; the composite and the post chain read the resolved texture.
-    const uint8_t samples = effects::Host::instance().renderer_state().msaa_samples;
-    const uint64_t msaa = samples >= 4 ? BGFX_TEXTURE_RT_MSAA_X4 : samples == 2 ? BGFX_TEXTURE_RT_MSAA_X2 : 0;
+    back_color = new Surface(nullptr, 0, 0);
+    back_depth = new Surface(nullptr, 0, 0);
+    create_scene_stores(width, height);
+    rt = back_color;
+    rt->AddRef();
+    ds = back_depth;
+    ds->AddRef();
+    s.viewport = {0, 0, width, height, 0.0f, 1.0f};
+    s.scissor = {0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    view_dirty = true;
+}
+
+void Device::create_scene_stores(uint32_t width, uint32_t height)
+{
+    // Effects: MSAA of the scene target (fx::RendererState). bgfx resolves colour and depth when the frame buffer
+    // is left; the composite and the post chain read the resolved textures.
+    const auto &state = effects::Host::instance().renderer_state();
+    const uint64_t msaa = state.msaa_samples >= 4 ? BGFX_TEXTURE_RT_MSAA_X4
+                          : state.msaa_samples == 2 ? BGFX_TEXTURE_RT_MSAA_X2
+                                                    : 0;
     const auto picture = [&] {
         auto store = make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
                                 D3DPOOL_DEFAULT);
@@ -200,23 +215,16 @@ void Device::create_backbuffer(uint32_t width, uint32_t height)
         store->target_flags = msaa;
         return store;
     };
-    auto color = picture();
-    auto depth = make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8,
-                            D3DPOOL_DEFAULT);
-    depth->backbuffer = true;
-    depth->target_flags = msaa;
+    back_color->store = picture();
+    back_depth->store = make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8,
+                                   D3DPOOL_DEFAULT);
+    back_depth->store->backbuffer = true;
+    back_depth->store->target_flags = msaa;
     post_color = effects::Host::instance().post_active() ? picture() : nullptr;
     single_depth = msaa ? make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8,
                                      D3DPOOL_DEFAULT)
                         : nullptr;
-    back_color = new Surface(color, 0, 0);
-    back_depth = new Surface(depth, 0, 0);
-    rt = back_color;
-    rt->AddRef();
-    ds = back_depth;
-    ds->AddRef();
-    s.viewport = {0, 0, width, height, 0.0f, 1.0f};
-    s.scissor = {0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    world_anisotropy = state.max_anisotropy > 1;
     view_dirty = true;
 }
 
@@ -355,7 +363,14 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
     context.set_game_target({back_color->store->handle.idx, back_depth->store->handle.idx, back_color->store->width,
                              back_color->store->height});
     context.present(back_color->store->handle, back_color->store->width, back_color->store->height);
-    effects::Host::instance().end_frame(scene_frame);
+    auto &effects = effects::Host::instance();
+    effects.end_frame(scene_frame);
+    if (effects.take_renderer_state_change())
+    {
+        // Between frames: the scene target follows the new MSAA setting, samplers the new anisotropy.
+        create_scene_stores(back_color->store->width, back_color->store->height);
+        context.refresh_reset_flags();
+    }
     views_used = 0;
     view_dirty = true;
     view_has_content = false;

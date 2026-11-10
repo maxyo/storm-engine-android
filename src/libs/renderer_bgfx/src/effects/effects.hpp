@@ -37,6 +37,13 @@ class Host
     const fx::Settings &settings() const { return settings_; }
     const fx::RendererState &renderer_state() const { return renderer_state_; }
     bool post_active() const { return device_ready_ && !settings_.PostIsIdentity(); }
+    // True once after the options changed MSAA or anisotropy on a live device (the shim rebuilds the scene target).
+    bool take_renderer_state_change()
+    {
+        const bool changed = renderer_state_changed_;
+        renderer_state_changed_ = false;
+        return changed;
+    }
 
     void set_weather(const render::EffectsWeather &weather);
 
@@ -67,6 +74,7 @@ class Host
     fx::RendererState renderer_state_{};
     fx::Support support_{};
     bool device_ready_ = false;
+    bool renderer_state_changed_ = false;
     render::EffectsReport report_{};
     render::EffectsWeather weather_{};
     bool weather_this_frame_ = false; // pushed since the last presented frame

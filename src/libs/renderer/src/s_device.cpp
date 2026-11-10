@@ -429,7 +429,43 @@ namespace
 {
 // Graphics effects (renderer_bgfx/fx): «fx_preset» 0 Оригинал / 1 Среднее / 2 Высокое and the individual fx_* options
 // (-1 = the preset's value), from engine.ini and, on Android, the app's graphics preferences, which win.
-// STORM_FX_OPTIONS="fx_preset=2,fx_bloom=0" overrides both (measurements, scene sweeps); it is logged.
+// STORM_FX_OPTIONS="fx_preset=2,fx_bloom=0" overrides both (measurements); it is logged.
+int effectsPreset = 0;
+std::vector<storm::render::EffectsOption> effectsOptions;
+
+// Applies "name=value,..." over `preset` / `options`.
+void ApplyEffectsOverrides(std::string_view list, int &preset, std::vector<storm::render::EffectsOption> &options)
+{
+    while (!list.empty())
+    {
+        const auto comma = list.find(',');
+        const std::string_view item = list.substr(0, comma);
+        list = comma == std::string_view::npos ? std::string_view() : list.substr(comma + 1);
+        const auto equals = item.find('=');
+        if (equals == std::string_view::npos)
+        {
+            spdlog::error("graphics effects: option '{}' is not name=value", item);
+            continue;
+        }
+        const std::string name(item.substr(0, equals));
+        const int value = std::atoi(std::string(item.substr(equals + 1)).c_str());
+        if (name == "fx_preset")
+            preset = value;
+        else
+        {
+            std::erase_if(options, [&](const auto &option) { return option.name == name; });
+            options.push_back({name, value});
+        }
+    }
+}
+
+void ApplyEffects(int preset, const std::vector<storm::render::EffectsOption> &options)
+{
+    const auto report = storm::render::ConfigureEffects(preset, options);
+    for (const auto &error : report.errors)
+        spdlog::error("graphics effects: {}", error);
+}
+
 void ConfigureGraphicsEffects(INIFILE *ini)
 {
     const auto read = [ini](const char *name, int fallback) {
@@ -439,46 +475,33 @@ void ConfigureGraphicsEffects(INIFILE *ini)
 #endif
         return value;
     };
-    int preset = read("fx_preset", 0);
+    effectsPreset = read("fx_preset", 0);
     // Anisotropic filtering stays the existing player setting «Filtering» (texture_anisotropy 1, 2, 4, 8, 16),
     // independent of the preset; fx_anisotropy, when given, wins.
-    std::vector<storm::render::EffectsOption> options{{"fx_anisotropy", std::clamp(read("texture_anisotropy", 1), 1, 16)}};
+    effectsOptions = {{"fx_anisotropy", std::clamp(read("texture_anisotropy", 1), 1, 16)}};
     for (const auto &info : storm::render::EffectsOptionNames())
         if (std::string_view(info.name) != "fx_preset")
             if (const int value = read(info.name, -1); value >= 0)
             {
-                std::erase_if(options, [&](const auto &option) { return option.name == info.name; });
-                options.push_back({info.name, value});
+                std::erase_if(effectsOptions, [&](const auto &option) { return option.name == info.name; });
+                effectsOptions.push_back({info.name, value});
             }
     if (const char *overrides = std::getenv("STORM_FX_OPTIONS"); overrides && *overrides)
     {
         spdlog::warn("graphics effects: STORM_FX_OPTIONS overrides the settings: {}", overrides);
-        std::string_view rest(overrides);
-        while (!rest.empty())
-        {
-            const auto comma = rest.find(',');
-            const std::string_view item = rest.substr(0, comma);
-            rest = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 1);
-            const auto equals = item.find('=');
-            if (equals == std::string_view::npos)
-            {
-                spdlog::error("graphics effects: STORM_FX_OPTIONS item '{}' is not name=value", item);
-                continue;
-            }
-            const std::string name(item.substr(0, equals));
-            const int value = std::atoi(std::string(item.substr(equals + 1)).c_str());
-            if (name == "fx_preset")
-                preset = value;
-            else
-            {
-                std::erase_if(options, [&](const auto &option) { return option.name == name; });
-                options.push_back({name, value});
-            }
-        }
+        ApplyEffectsOverrides(overrides, effectsPreset, effectsOptions);
     }
-    const auto report = storm::render::ConfigureEffects(preset, options);
-    for (const auto &error : report.errors)
-        spdlog::error("graphics effects: {}", error);
+    ApplyEffects(effectsPreset, effectsOptions);
+#ifdef STORM_SCENE_SWEEP
+    // A sweep variant is applied over the configured options.
+    storm::scene_sweep::setVariantHook([](const char *variant) {
+        int preset = effectsPreset;
+        auto options = effectsOptions;
+        ApplyEffectsOverrides(variant, preset, options);
+        spdlog::info("graphics effects: sweep variant '{}'", variant);
+        ApplyEffects(preset, options);
+    });
+#endif
 }
 } // namespace
 
