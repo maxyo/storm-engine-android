@@ -285,7 +285,12 @@ static void Store(const std::string &models)
     ExpectEqual(surface.props["extras"]["note"], "Членам купеческой гильдии — скидка 5 % до 1 декабря", "unknown text → parchment note");
     Expect(surface.props["extras"]["rows"].size() == 1 && surface.props["extras"]["rows"][0]["title"] == "Гильдейский счёт", "unknown button → «Прочее» row");
     Expect(surface.logs.size() == 1 && surface.logs[0] == "screen store extras=B_GUILD,GUILD_NOTE", "extras logged once");
-    router.SetInterface(Load(models, "store.json"));
+    InterfaceModel one_line = Load(models, "store.json");
+    for (Widget &widget : one_line.widgets)
+        if (widget.node == "CAPACITY")
+            widget.label = "Дедвейт: 189 / 700"; // as the game writes it
+    router.SetInterface(one_line);
+    Expect(surface.props["stats"][0]["label"] == "Дедвейт" && surface.props["stats"][0]["value"] == "189 / 700", "a one-line figure is split at its colon");
     Expect(surface.logs.size() == 1 && surface.errors.empty(), "the same node set is not logged again");
 
     router.OnEvent({"goods", "row", "1"});
@@ -315,7 +320,18 @@ static void Store(const std::string &models)
     broken.widgets.erase(std::remove_if(broken.widgets.begin(), broken.widgets.end(), [](const Widget &w) { return w.node == "TABLE_LIST"; }),
                          broken.widgets.end());
     broken.opening = 8;
+    surface.now = 10.0;
     router.SetInterface(broken);
+    Expect(surface.tag.empty() && surface.errors.empty(), "a fresh opening that is not complete yet waits, unreported");
+    InterfaceModel filled = Load(models, "store.json");
+    filled.opening = 8;
+    filled.revision = 2;
+    router.SetInterface(filled);
+    Expect(router.Using() == "store" && surface.errors.empty(), "the ported screen when the game has filled the interface");
+    broken.opening = 9;
+    router.SetInterface(broken);
+    surface.now += 1.0;
+    router.Tick();
     ExpectEqual(router.Using(), "generic", "store without TABLE_LIST → generic");
     ExpectEqual(router.Rejection(), "TABLE_LIST(choice)", "the rejection names the missing required node");
     Expect(surface.errors.size() == 1 &&
@@ -354,9 +370,12 @@ static void Commerce(const std::string &models)
     ExpectEqual(surface.props["list"]["rows"][0]["image"]["texture"], "atlas:GOODS/Sugar", "rows carry the game's picture reference");
     Expect(surface.props["stats"].size() == 2 && surface.props["stats"][1]["value"] == "2328 / 10000", "hold and storage figures in the header");
     surface.commands.clear();
+    const std::string zero = "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|0";
     router.OnEvent({"goods", "change", "80"});
     router.OnEvent({"goods", "change", "90"});
-    Expect(surface.commands.empty(), "steps wait for the amount to settle");
+    Expect(surface.commands.size() == 2 && surface.commands[0] == zero && surface.commands[1] == zero,
+           "each step only leaves giving at once; the amount waits for it to settle");
+    surface.commands.clear();
     surface.now += 0.5;
     router.Tick();
     Expect(surface.commands.size() == 2 && surface.commands[0] == "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|30" &&
@@ -365,11 +384,12 @@ static void Commerce(const std::string &models)
     surface.commands.clear();
     router.OnEvent({"goods", "commit", "10"});
     router.Tick();
-    Expect(surface.commands.size() == 2 && surface.commands[0] == "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|-50", "the end of a drag applies at once; less than we hold = give");
+    Expect(surface.commands.size() == 3 && surface.commands[0] == zero && surface.commands[1] == "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|-50",
+           "the end of a drag applies at once; less than we hold = give, after zero");
     surface.commands.clear();
     router.OnEvent({"goods", "commit", "60"});
     router.Tick();
-    Expect(surface.commands.size() == 1, "an unchanged amount confirms nothing");
+    Expect(surface.commands.size() == 2 && surface.Last() == zero, "an unchanged amount confirms nothing");
 
     // Chest / body: the game's category tabs, take all, remove body.
     router.SetInterface(Load(models, "itemsbox.json"));
@@ -462,6 +482,8 @@ static void Crew(const std::string &models)
                          broken.widgets.end());
     broken.opening = 9;
     router.SetInterface(broken);
+    surface.now += 1.0;
+    router.Tick();
     Expect(router.Using() == "generic" && router.Rejection() == "QTY_EDIT(edit)" && surface.errors.size() == 1, "without its edit box the crew screen is rejected loudly");
 }
 

@@ -133,16 +133,22 @@ std::string Spaced(int value)
     return value < 0 ? "-" + out : out;
 }
 
-// "Трюм:\n189 / 199" → {label, value}; a one-line text is no figure.
+// "Трюм:\n189 / 199" or "Дедвейт: 189 / 700" → {label, value}; a text without a
+// separated value ("Магазин") is no figure.
 Json Figure(const std::string &text)
 {
-    const size_t line = text.find('\n');
+    size_t line = text.find('\n');
     if (line == std::string::npos)
-        return Json();
+    {
+        line = text.find(':');
+        if (line == std::string::npos || text.find_first_of("0123456789", line) == std::string::npos)
+            return Json();
+    }
     std::string label = text.substr(0, line);
     while (!label.empty() && (label.back() == ':' || label.back() == ' '))
         label.pop_back();
-    return Json{{"label", label}, {"value", OneLine(text.substr(line + 1))}};
+    const size_t value = text.find_first_not_of(' ', line + 1);
+    return Json{{"label", label}, {"value", OneLine(text.substr(value == std::string::npos ? text.size() : value))}};
 }
 
 class CommerceScreen final : public Screen
@@ -267,18 +273,20 @@ class CommerceScreen final : public Screen
         });
         if (deal)
         {
-            // The game's edit box holds the amount to take; a negative number (or any
-            // number once it is giving) is the amount to give. Zero leaves giving.
-            const auto set = [this, &bindings, edit, ok, selected, ours, model_target, money](const Event &event) {
+            // The game's edit box holds the amount to take; a negative number is the
+            // amount to give.
+            const auto set = [this, &bindings, edit, ok, selected, ours, money](const Event &event) {
                 const int wanted = std::atoi(event.value.c_str());
                 const int delta = wanted - ours;
-                const bool giving = model_target < ours;
                 local_row_ = selected->row_id;
                 local_target_ = wanted;
                 local_at_ = bindings.Now();
-                if (delta > 0 && giving)
-                    bindings.Send(*edit, "edit", "0", selected->row_id);
-                const std::string amount = std::to_string(delta < 0 && giving ? -delta : delta);
+                // Once the game has turned a negative amount into giving it reads every
+                // later number as an amount to give, and the model may not show that yet
+                // (a second step sent before the first one is answered). Zero always
+                // leaves giving, so it goes first and the signed amount after it.
+                bindings.Send(*edit, "edit", "0", selected->row_id);
+                const std::string amount = std::to_string(delta);
                 if (money)
                 {
                     bindings.SendLatest(*edit, "edit", amount, selected->row_id);

@@ -43,6 +43,10 @@ namespace
 constexpr double kPendingSeconds = 1.5; // a press the engine never answers stops looking busy
 constexpr double kFlushSeconds = 0.12;  // drags reach the engine at most this often
 constexpr double kIdle = 3600.0;
+// The game publishes an interface while its script is still filling it (the store's first
+// revision has no goods yet). For this long after an opening a rejected model is not drawn
+// and not reported; a newer revision that passes admission shows the ported screen.
+constexpr double kSettle = 1.0;
 
 bool Contains(const std::string &text, const char *part)
 {
@@ -314,13 +318,14 @@ void Router::Emit(Action action)
 
 void Router::SetInterface(const InterfaceModel &model)
 {
-    const bool reopened = !screen_ || model.screen != model_.screen || model.opening != model_.opening;
+    const bool reopened = (!screen_ && settle_until_ == 0.0) || model.screen != model_.screen || model.opening != model_.opening;
     if (model.language != model_.language || !screen_)
         surface_.SetLanguage(model.language);
     const bool changed = model.revision != model_.revision;
     model_ = model;
     if (reopened)
     {
+        opened_at_ = surface_.Now();
         screen_.reset();
         extras_open_ = false;
         reading_title_.clear();
@@ -336,8 +341,9 @@ void Router::SetInterface(const InterfaceModel &model)
 
 void Router::CloseInterface()
 {
-    if (!screen_)
+    if (!screen_ && settle_until_ == 0.0)
         return;
+    settle_until_ = 0.0;
     screen_.reset();
     using_.clear();
     rejection_.clear();
@@ -387,8 +393,16 @@ void Router::Build()
         {
             rejection = admitted.missing;
             screen_.reset();
+            if (surface_.Now() - opened_at_ < kSettle)
+            {
+                settle_until_ = opened_at_ + kSettle; // Tick builds again then
+                using_.clear();
+                surface_.Hide();
+                return;
+            }
         }
     }
+    settle_until_ = 0.0;
     if (!ported || !rejection.empty())
     {
         if (using_ != "generic" || !screen_)
@@ -529,9 +543,15 @@ void Router::SubmitText(const std::string &token, const std::string &text, bool 
 
 double Router::Tick()
 {
+    const double now = surface_.Now();
+    if (settle_until_ > 0.0)
+    {
+        if (now < settle_until_)
+            return settle_until_ - now;
+        Build();
+    }
     if (!screen_)
         return kIdle;
-    const double now = surface_.Now();
     double next = kIdle;
     // In the order they were asked for: an edit goes out before the press that confirms it.
     for (size_t i = 0; i < waiting_.size();)

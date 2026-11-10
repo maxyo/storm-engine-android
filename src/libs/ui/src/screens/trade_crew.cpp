@@ -127,16 +127,16 @@ class CrewScreen final : public Screen
                             {"summary", result.empty() ? "-" : result},
                             {"steps", Json::array({1, 10})},
                             {"disabled", !edit->Offers("edit")}}}};
-        const auto set = [this, &bindings, edit, owner, crew, firing](const Event &event) {
+        const auto set = [this, &bindings, edit, owner, crew](const Event &event) {
             const int wanted = std::atoi(event.value.c_str());
             const int delta = wanted - crew;
             local_owner_ = owner;
             local_target_ = wanted;
             local_at_ = bindings.Now();
-            // As in the trade screens: a negative number fires, zero leaves firing.
-            if (delta > 0 && firing)
-                bindings.Send(*edit, "edit", "0", owner);
-            bindings.SendLatest(*edit, "edit", std::to_string(delta < 0 && firing ? -delta : delta), owner);
+            // As in the trade screens: a negative number fires; once firing the game reads
+            // every number as men to fire, so zero (which leaves firing) goes first.
+            bindings.Send(*edit, "edit", "0", owner);
+            bindings.SendLatest(*edit, "edit", std::to_string(delta), owner);
         };
         bindings.On("crew", "change", set);
         bindings.On("crew", "commit", set);

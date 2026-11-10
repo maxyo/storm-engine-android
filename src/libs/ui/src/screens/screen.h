@@ -248,6 +248,8 @@ class Router
     bool sent_in_event_ = false;
     bool rebuild_ = false;
     double last_flush_ = -1.0;
+    double opened_at_ = 0.0;    // when the open interface was opened
+    double settle_until_ = 0.0; // a rejected first model waits until then (kSettle)
 };
 
 } // namespace storm::ui::screens
