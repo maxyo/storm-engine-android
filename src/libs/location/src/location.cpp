@@ -537,7 +537,7 @@ int32_t Location::LoadStaticModel(const char *modelName, const char *tech, int32
         {
             auto &mtxx = *((glm::mat4 *)label.m);
             for (int32_t me = 0; me < 16; me++)
-                if (isnan(storm::math::data(mtxx)[me]))
+                if (std::isnan(storm::math::data(mtxx)[me]))
                 {
                     core.Trace("Location: locator %s::%s in position have NaN value, reset it!", label.group_name,
                                label.name);

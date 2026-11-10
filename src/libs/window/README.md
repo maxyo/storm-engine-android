@@ -54,8 +54,8 @@ hub after `SDL_InitSubSystem`, calls `dispatch()` once per loop iteration after
   handles it with a background autosave (`interface/android_background_save.c`
   in corsairs-android). The handlers run synchronously on the game thread and
   the time they took is logged (`AppWillEnterBackground handlers took N ms`);
-  the Android UI thread does not wait for them (the window is a Vulkan window,
-  so SDL's `surfaceDestroyed` does not hand off to this thread). A save made
+  the Android UI thread does not wait for them (its `surfaceDestroyed` waits only
+  for a bgfx frame that is executing, see renderer_bgfx). A save made
   there gets its thumbnail from the last rendered frame: `MSG_SCRSHOT_MAKE`
   takes the shot on demand when no frame has run since the screenshot entity
   was created.

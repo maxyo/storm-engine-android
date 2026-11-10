@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix='storm-window-') as d:
              '-I'+str(r/'src/libs/window/include'), '-I'+str(r/'src/libs/window/src')]
     source = r/'src/libs/window/src/sdl_window.cpp'
     binary = b/'check'
-    subprocess.run([os.environ.get('CXX', 'c++'), *flags, '-DSTORM_MESA_NINE',
+    subprocess.run([os.environ.get('CXX', 'c++'), *flags,
                     '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
                     str(Path(__file__).with_name('check.cpp')), str(source),
                     '-Wl,-l:'+a.sdl_library, '-o', str(binary)], check=True)

@@ -1,6 +1,3 @@
-#ifdef STORM_ENABLE_BGFX
-#include "fog_snapshot.hpp"
-#endif
 #include "sky.h"
 #include "sun_glow.h"
 #include "core.h"
@@ -81,9 +78,6 @@ void SKY::UpdateFogSphere(const bool initialize)
         return static_cast<uint32_t>(value->GetInt());
     }, initialize);
 
-#ifdef STORM_ENABLE_BGFX
-    storm::render::stageFogMesh(mesh, initialize);
-#endif
     fogMesh_->update(mesh.vertices, initialize ? std::span<const uint16_t>(mesh.indices) : std::span<const uint16_t>{});
 }
 
@@ -199,14 +193,6 @@ void SKY::Realize(uint32_t Delta_Time)
     pMatTranslate = storm::math::translation(vPos.x, vPos.y / 6.0f, vPos.z);
     pMatWorld = pMatTranslate * pMatWorld;
     // The colored-mesh backend consumes the transform explicitly.
-#ifdef STORM_ENABLE_BGFX
-    D3DMATRIX fogView{}, fogProjection{};
-    pRS->GetTransform(D3DTS_VIEW, &fogView);
-    pRS->GetTransform(D3DTS_PROJECTION, &fogProjection);
-    std::string captureResult;
-    if (storm::render::captureFogFrame(pMatWorld.matrix, &fogView.m[0][0], &fogProjection.m[0][0], captureResult))
-        core.Trace("bgfx fog capture: %s", captureResult.empty() ? "saved" : captureResult.c_str());
-#endif
     if (fogMesh_) fogMesh_->submit({std::span<const float,16>(storm::math::data(pMatWorld), 16), sTechSkyFog});
 }
 

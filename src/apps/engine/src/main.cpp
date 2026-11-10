@@ -1,6 +1,3 @@
-#ifdef STORM_ENABLE_BGFX
-#include "fog_preview.hpp"
-#endif
 #include <chrono>
 #include <string>
 #include <thread>
@@ -287,8 +284,10 @@ void SubscribeEngineToAppEvents()
                 if (event.immediate && core_private && core_private->initialized())
                 {
                     // Hook for scripts (the app's background autosave). Runs between frames on
-                    // the game thread; the Android UI thread does not wait for it (Vulkan
-                    // window: SDL's surfaceDestroyed takes no hand-off from this thread).
+                    // the game thread. This handler runs before the renderer's (early handlers are
+                    // called in subscription order), so the scripts, and the save thumbnail, still
+                    // see a live surface; the renderer stops presenting right after. The Android
+                    // UI thread waits in surfaceDestroyed only for a running bgfx frame.
                     const auto started = std::chrono::steady_clock::now();
                     core_private->Event("AppWillEnterBackground");
                     spdlog::info("AppWillEnterBackground handlers took {} ms",
@@ -497,35 +496,6 @@ int main(int argc, char *argv[])
         bSteam = ini->GetInt(nullptr, "Steam", 1) != 0;
     }
 
-#ifdef STORM_ENABLE_BGFX
-    // This mode branches before OSWindow/InitBase: DXVK never owns this surface.
-    char fogPreview[1024]{}, fogCapture[1024]{}, fogShaders[1024]{};
-    if (ini) {
-        ini->ReadString(nullptr, "bgfx_fog_preview_file", fogPreview, sizeof(fogPreview), "");
-        ini->ReadString(nullptr, "bgfx_fog_capture_file", fogCapture, sizeof(fogCapture), "");
-        ini->ReadString(nullptr, "bgfx_shader_directory", fogShaders, sizeof(fogShaders), "");
-    }
-    if (fogPreview[0]) {
-        storm::render::FogPreviewOptions options;
-        options.snapshotPath = fogPreview;
-        options.shaderDirectory = fogShaders;
-        options.width = std::max(320, width);
-        options.height = std::max(180, height);
-        options.vsync = ini->GetInt(nullptr, "vsync", 1) != 0;
-        options.fogEnabled = ini->GetInt(nullptr, "bgfx_preview_fog", 1) != 0;
-#ifdef __ANDROID__
-        options.width = std::max(320, storm::android::graphicsSetting("screen_x", options.width));
-        options.height = std::max(180, storm::android::graphicsSetting("screen_y", options.height));
-        options.vsync = storm::android::graphicsSetting("vsync", options.vsync) != 0;
-#endif
-        core_private->CleanUp();
-        core_private->ReleaseBase();
-        const int result = storm::render::runFogPreview(options);
-        SDL_Quit();
-        return result;
-    }
-    storm::render::configureFogCapture(fogCapture);
-#endif
 
     // initialize SteamApi through evaluating its singleton
     try
@@ -860,12 +830,6 @@ int main(int argc, char *argv[])
                 exitCode = EXIT_FAILURE;
                 break;
             }
-#ifdef STORM_ENABLE_BGFX
-            static bool fogCaptureKeyDown = false;
-            const bool fogCaptureKey = core.Controls && core.Controls->GetDebugAsyncKeyState(VK_F11) != 0;
-            if (fogCaptureKey && !fogCaptureKeyDown) storm::render::requestFogCapture();
-            fogCaptureKeyDown = fogCaptureKey;
-#endif
 #ifdef __ANDROID__
             const bool gameplayReady = isRunning && bActive && androidLifecycle.canRun() &&
                 core_private->initialized() && core.Controls && storm::android::loadingState == 0 &&

@@ -140,16 +140,6 @@ bool Grass::Init()
 
     // Constants
     static const auto pi2 = 2.0f * 3.141592653f;
-#ifdef _WIN32 // Effects
-    for (size_t i = 0; i < 16; i++)
-    {
-        // Angle table
-        aAngles[i] = {sinf(i * pi2 / 16.0f), cosf(i * pi2 / 16.0f), 0.0f};
-
-        // Uv table
-        aUV[i] = {static_cast<float>(i & 3) * (1.0f / 4.0f), static_cast<float>((i >> 2) & 3) * (1.0f / 4.0f)};
-    }
-#else
     for (size_t i = 0; i < 16; i++)
     {
         // Angle table
@@ -168,7 +158,6 @@ bool Grass::Init()
     consts[39] = VSConstant(0.9f, 1.0f, 0.245f, -0.245f);
     consts[40] = VSConstant(15.0f, -0.5f, 1.0f, 0.8f);
     consts[41] = VSConstant(0.3f * m_fMaxWidth, 0.4f * m_fMaxHeight, 0.7f * m_fMaxWidth, 0.6f * m_fMaxHeight);
-#endif
 
     return true;
 }
@@ -397,13 +386,8 @@ void Grass::Execute(uint32_t delta_time)
 
 void Grass::Realize(uint32_t delta_time)
 {
-#ifdef _WIN32 // Effects
-    if (quality == rq_off || fx_ == nullptr)
-        return;
-#else
     if (quality == rq_off)
         return;
-#endif
     rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
     // Remove textures
     rs->TextureSet(0, -1);
@@ -544,28 +528,17 @@ void Grass::Realize(uint32_t delta_time)
     // recalculate the parameters of the angles
     for (int32_t i = 0; i < 16; i++)
     {
-#ifdef _WIN32 // Effects
-        aAngles[i].z = fabsf(-aAngles[i].y * lDir.x + aAngles[i].x * lDir.z);
-        if (aAngles[i].z < 0.0f)
-            aAngles[i].z = 0.0f;
-        if (aAngles[i].z > 1.0f)
-            aAngles[i].z = 1.0f;
-#else
         consts[i].z = fabsf(-consts[i].y * lDir.x + consts[i].x * lDir.z);
         if (consts[i].z < 0.0f)
             consts[i].z = 0.0f;
         if (consts[i].z > 1.0f)
             consts[i].z = 1.0f;
-#endif
     }
 
     // matrix
     glm::mat4 view, prj;
     rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
     rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
-#ifdef _WIN32 // Effects
-    const glm::mat4 cmtx = prj * view;
-#else
     auto &cmtx = (glm::mat4 &)consts[32];
     cmtx = prj * view;
     // Source Options
@@ -580,7 +553,6 @@ void Grass::Realize(uint32_t delta_time)
     consts[38].z = lColor.z;
     consts[38].w = m_fDataScale; // 1.f;
     consts[39].y = kLitWF;
-#endif
 
     // Camera position
     glm::vec3 pos, ang;
@@ -606,19 +578,7 @@ void Grass::Realize(uint32_t delta_time)
     rs->TextureSet(0, texture);
     rs->TextureSet(1, texture);
     // set constants
-#ifdef _WIN32 // Effects
-    fx_->SetMatrix(hgVP_, cmtx);
-    fx_->SetValue(haAngles_, &aAngles[0], sizeof(D3DXVECTOR3) * 16);
-    fx_->SetValue(haUV_, &aUV[0], sizeof(D3DXVECTOR2) * 16);
-    fx_->SetValue(hlDir_, D3DXVECTOR2(lDir.x, lDir.z), sizeof(D3DXVECTOR2));
-    fx_->SetValue(haColor_, D3DXVECTOR3(aColor.x, aColor.y, aColor.z), sizeof(D3DXVECTOR3));
-    fx_->SetValue(hlColor_, D3DXVECTOR3(lColor.x, lColor.y, lColor.z), sizeof(D3DXVECTOR3));
-    fx_->SetFloat(hkLitWF_, kLitWF);
-    fx_->SetFloat(hfDataScale_, m_fDataScale);
-    fx_->SetValue(haSize_, D3DXVECTOR2(m_fMaxWidth, m_fMaxHeight), sizeof(D3DXVECTOR2));
-#else
     rs->SetVertexShaderConstantF(0, (const float *)consts, sizeof(consts) / sizeof(VSConstant));
-#endif
 
     // Camera position on the map
     int32_t camx = static_cast<int32_t>((pos.x / m_fDataScale - startX) / GRASS_BLK_DST);
@@ -708,9 +668,7 @@ uint64_t Grass::ProcessMessage(MESSAGE &message)
 
         m_fMaxWidth = message.Float();
         m_fMaxHeight = message.Float();
-#ifndef _WIN32 // Effects
         consts[41] = VSConstant(0.3f * m_fMaxWidth, 0.4f * m_fMaxHeight, 0.7f * m_fMaxWidth, 0.6f * m_fMaxHeight);
-#endif
 
         m_fMinVisibleDist = message.Float();
         m_fMaxVisibleDist = message.Float();
@@ -1042,19 +1000,4 @@ void Grass::CreateVertexDeclaration() const
         rs->CreateVertexDeclaration(VertexElements, &vertexDecl_);
     }
 
-#ifdef _WIN32 // Effects
-    fx_ = rs->GetEffectPointer("Grass");
-    if (fx_ != nullptr)
-    {
-        hgVP_ = fx_->GetParameterByName(nullptr, "gVP");
-        haAngles_ = fx_->GetParameterByName(nullptr, "aAngles");
-        haUV_ = fx_->GetParameterByName(nullptr, "aUV");
-        hlDir_ = fx_->GetParameterByName(nullptr, "lDir");
-        hkLitWF_ = fx_->GetParameterByName(nullptr, "kLitWF");
-        haColor_ = fx_->GetParameterByName(nullptr, "aColor");
-        hlColor_ = fx_->GetParameterByName(nullptr, "lColor");
-        hfDataScale_ = fx_->GetParameterByName(nullptr, "fDataScale");
-        haSize_ = fx_->GetParameterByName(nullptr, "aSize");
-    }
-#endif
 }

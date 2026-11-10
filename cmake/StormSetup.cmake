@@ -3,20 +3,6 @@ cmake_minimum_required(VERSION 3.19.0)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 # ##############################################################################
-# normalize specified booleans to be set to either True or False
-# ##############################################################################
-macro(normalize_booleans)
-set(argn "${ARGN}")
-foreach(arg IN LISTS argn)
-    if(${arg})
-	  set(${arg} True)
-	else()
-	  set(${arg} False)
-	endif()
-  endforeach()
-endmacro()
-
-# ##############################################################################
 # add all subdirs using add_subdirectory
 # ##############################################################################
 macro(_subdirlist out)
