@@ -1,4 +1,5 @@
 #include "device.hpp"
+#include "effects/effects.hpp"
 #include "perf.hpp"
 #include "ports.hpp"
 #include "util.hpp"
@@ -285,7 +286,7 @@ float material_source(DWORD source, bool color_vertex, const LayoutInfo &layout)
 }
 } // namespace
 
-void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_port)
+void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_port, const effects::FfDraw &fx)
 {
     const bgfx::Caps *caps = Context::instance().caps();
     const bool flip = Context::instance().flip_y();
@@ -397,9 +398,12 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
                 if (length > 0.0f)
                     d[0] /= length, d[1] /= length, d[2] /= length;
                 d[3] = l.Range;
-                memcpy(light_diffuse[light_count], &l.Diffuse, sizeof(float) * 4);
+                // Effects: terms the fragment shader evaluates per pixel leave the vertex sum.
+                if (!(fx.vertex_diffuse_off & (1u << light_count)))
+                    memcpy(light_diffuse[light_count], &l.Diffuse, sizeof(float) * 4);
                 memcpy(light_ambient[light_count], &l.Ambient, sizeof(float) * 4);
-                memcpy(light_specular[light_count], &l.Specular, sizeof(float) * 4);
+                if (!(fx.vertex_specular_off & (1u << light_count)))
+                    memcpy(light_specular[light_count], &l.Specular, sizeof(float) * 4);
                 light_att[light_count][0] = l.Attenuation0;
                 light_att[light_count][1] = l.Attenuation1;
                 light_att[light_count][2] = l.Attenuation2;
@@ -418,8 +422,9 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
             memcpy(material[2], &s.material.Specular, sizeof(float) * 4);
             memcpy(material[3], &s.material.Emissive, sizeof(float) * 4);
             set_uniform(U_MATERIAL, &material[0][0], 4);
-            float ambient[4];
-            color_to_float(rs[D3DRS_AMBIENT], ambient);
+            float ambient[4] = {};
+            if (!fx.vertex_ambient_off)
+                color_to_float(rs[D3DRS_AMBIENT], ambient);
             set_uniform(U_AMBIENT, ambient, 1);
         }
         const float vs[4][4] = {
@@ -853,8 +858,13 @@ HRESULT Device::draw(const DrawCall &call)
             fs_variant = stage + 1;
             break;
         }
-    const uint32_t vs_id = vs_port ? s.vs->port->shader_id() : id_vs_ff;
-    const uint32_t fs_id = ps_port ? s.ps->port->shader_id() : id_fs_ff[fs_variant];
+    // Effects: per-pixel lighting / alpha to coverage variant of a fixed-function draw (effects/lighting.hpp).
+    effects::Lighting &fx_lighting = effects::Host::instance().lighting();
+    effects::FfDraw fx_draw;
+    if (!vs_port && !ps_port && !fx_lighting.idle())
+        fx_lighting.prepare(*this, *layout, fs_variant, fx_draw);
+    const uint32_t vs_id = vs_port ? s.vs->port->shader_id() : fx_draw.active ? fx_draw.vs_id : id_vs_ff;
+    const uint32_t fs_id = ps_port ? s.ps->port->shader_id() : fx_draw.active ? fx_draw.fs_id : id_fs_ff[fs_variant];
     const bgfx::ProgramHandle handle = program(vs_id, fs_id);
     if (!bgfx::isValid(handle))
     {
@@ -1114,12 +1124,14 @@ HRESULT Device::draw(const DrawCall &call)
         }
     }
 
-    apply_ff_uniforms(*layout, vs_port, ps_port);
+    apply_ff_uniforms(*layout, vs_port, ps_port, fx_draw);
+    if (fx_draw.active)
+        fx_lighting.submit(fx_draw);
 
     bool stencil = false;
     uint32_t fstencil = 0;
     D3DPRIMITIVETYPE effective = fan ? D3DPT_TRIANGLELIST : call.type;
-    const uint64_t bits = render_state_bits(effective, &stencil, &fstencil);
+    const uint64_t bits = render_state_bits(effective, &stencil, &fstencil) | fx_draw.state;
     uint32_t factor = 0;
     if (s.rs[D3DRS_ALPHABLENDENABLE])
     {

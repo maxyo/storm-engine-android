@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -67,5 +68,21 @@ struct EffectsWeather
     float wind_speed = 5.0f;
 };
 void SetEffectsWeather(const EffectsWeather &weather);
+
+// The technique block CTechnique executes (lower case), nullptr when its passes are closed. The per-pixel lighting
+// picks the material from it (characters, sails, ...).
+void SetEffectsTechnique(const char *name);
+
+// Point lights of this frame that no baked vertex colours contain (lanterns carried by characters), world space,
+// D3DLIGHT9 attenuation. Static location geometry, drawn with its baked colours, is lit only by these. A frame
+// without the call has none.
+struct EffectsPointLight
+{
+    std::array<float, 3> position{};
+    std::array<float, 3> color{};
+    float range = 10.0f;
+    float att0 = 0.0f, att1 = 0.0f, att2 = 1.0f;
+};
+void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
 
 } // namespace storm::render

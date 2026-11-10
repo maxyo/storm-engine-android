@@ -10,6 +10,11 @@
 
 struct SDL_Window;
 
+namespace storm::effects
+{
+struct FfDraw;
+}
+
 namespace storm::shim
 {
 
@@ -255,7 +260,7 @@ struct Device final : Direct3DDevice9Stub
     uint16_t new_view();
     bgfx::FrameBufferHandle framebuffer(TexStore *color, uint32_t face, uint32_t level, TexStore *depth);
     void purge_framebuffers(bgfx::TextureHandle texture);
-    void apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_port);
+    void apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_port, const effects::FfDraw &fx);
     uint64_t render_state_bits(D3DPRIMITIVETYPE type, bool *stencil, uint32_t *fstencil);
     uint32_t sampler_flags(uint32_t stage, const TexStore &store) const;
     void set_default_state();

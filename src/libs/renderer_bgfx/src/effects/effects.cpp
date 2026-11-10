@@ -109,19 +109,22 @@ const Pending kPending[] = {
          s.water_refraction = false;
      },
      "fx_water fx_water_refraction", "the fx water is not wired into this renderer yet: the legacy sea draws"},
-    {[](const fx::Settings &s) { return s.lighting_flags != fx::kLightingNone; },
-     [](fx::Settings &s) { s.lighting_flags = fx::kLightingNone; },
-     "fx_light_per_pixel fx_light_hemisphere fx_light_specular fx_light_translucent fx_light_point fx_light_normal_map "
-     "fx_light_rim fx_light_linear fx_aerial fx_wind fx_point_lights",
-     "per-pixel lighting, point lights, normal maps, aerial perspective and wind are not wired into the "
-     "fixed-function emulator yet: switched off"},
+    {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingNormalMap) != 0; },
+     [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingNormalMap; }, "fx_light_normal_map",
+     "normal maps from the game's height textures are not derived yet (texture worker + disk cache pending): "
+     "switched off"},
+    {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingAerial) != 0; },
+     [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingAerial; }, "fx_aerial",
+     "aerial perspective needs the fx sky state (fx::Sky), which this renderer does not drive yet: the "
+     "fixed-function fog stays"},
+    {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingWind) != 0; },
+     [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingWind; }, "fx_wind",
+     "wind sway is not wired into the fixed-function emulator yet (needs per-technique vertex weights): switched off"},
     {[](const fx::Settings &s) { return s.shadows != fx::ShadowQuality::Off; },
      [](fx::Settings &s) { s.shadows = fx::ShadowQuality::Off; }, "fx_shadows",
      "sun shadows are not wired into this renderer yet: switched off"},
     {[](const fx::Settings &s) { return s.contact_shadows; }, [](fx::Settings &s) { s.contact_shadows = false; },
      "fx_contact_shadows", "contact shadows are not wired into this renderer yet: switched off"},
-    {[](const fx::Settings &s) { return s.alpha_to_coverage; }, [](fx::Settings &s) { s.alpha_to_coverage = false; },
-     "fx_alpha_to_coverage", "alpha to coverage needs the coverage variant of the emulator: switched off"},
 };
 
 std::string describe(const fx::Settings &s)
@@ -177,12 +180,14 @@ void Host::on_device_created()
 void Host::on_device_lost()
 {
     post_.OnDeviceLost();
+    lighting_.on_device_lost();
     device_ready_ = false;
 }
 
 void Host::shutdown()
 {
     post_.Shutdown();
+    lighting_.shutdown();
     device_ready_ = false;
 }
 
@@ -269,6 +274,7 @@ void Host::apply()
                               (device_ready_ && (state.msaa_samples != renderer_state_.msaa_samples ||
                                                  state.max_anisotropy != renderer_state_.max_anisotropy));
     renderer_state_ = state;
+    lighting_.configure(settings_, renderer_state_);
     report_.summary = describe(settings_);
     if (changed)
     {
@@ -283,6 +289,29 @@ void Host::set_weather(const render::EffectsWeather &weather)
 {
     weather_ = weather;
     weather_this_frame_ = true;
+    // The hemisphere ambient takes its tint from the sky dome.
+    if (settings_.lighting_flags & fx::kLightingHemisphere)
+        lighting_.set_sky(&sky_state());
+}
+
+const fx::SkyState &Host::sky_state()
+{
+    fx::WeatherInput input;
+    input.sun_dir = weather_.sun_dir;
+    input.sun_color = weather_.sun_color;
+    input.ambient_color = weather_.ambient;
+    input.fog_color = weather_.fog_color;
+    input.fog_density = weather_.fog_density;
+    input.overcast = weather_.overcast;
+    // ComputeSky costs ~2 ms on the host; the grade and the hemisphere need only the sun height and colours, so the
+    // sky state is rebuilt when they move (SkyNeedsRebuild), not every frame.
+    if (!grade_sky_valid_ || fx::SkyNeedsRebuild(grade_weather_, input))
+    {
+        grade_sky_ = fx::ComputeSky(input);
+        grade_weather_ = input;
+        grade_sky_valid_ = true;
+    }
+    return grade_sky_;
 }
 
 uint16_t Host::submit_post(const PostTargets &targets)
@@ -333,24 +362,7 @@ uint16_t Host::submit_post(const PostTargets &targets)
         frame.sun_color = weather_.sun_color;
     }
     if (settings_.scene_grading)
-    {
-        fx::WeatherInput input;
-        input.sun_dir = weather_.sun_dir;
-        input.sun_color = weather_.sun_color;
-        input.ambient_color = weather_.ambient;
-        input.fog_color = weather_.fog_color;
-        input.fog_density = weather_.fog_density;
-        input.overcast = weather_.overcast;
-        // ComputeSky costs ~2 ms on the host; the grade needs only the sun height and colours, so the sky state
-        // is rebuilt when they move (SkyNeedsRebuild), not every frame.
-        if (!grade_sky_valid_ || fx::SkyNeedsRebuild(grade_weather_, input))
-        {
-            grade_sky_ = fx::ComputeSky(input);
-            grade_weather_ = input;
-            grade_sky_valid_ = true;
-        }
-        frame.scene_grade = fx::SceneGrade(grade_sky_, weather_.overcast, weather ? 0.0f : 1.0f);
-    }
+        frame.scene_grade = fx::SceneGrade(sky_state(), weather_.overcast, weather ? 0.0f : 1.0f);
     frame.scene_cut = scene_cut_pending_;
     scene_cut_pending_ = false;
     const uint16_t used = post_.Submit(settings_, frame);
@@ -364,7 +376,10 @@ void Host::end_frame(bool scene_frame)
     if (!scene_frame)
         scene_cut_pending_ = true;
     weather_last_frame_ = weather_this_frame_;
+    if (!weather_this_frame_)
+        lighting_.set_sky(nullptr); // interiors: no sky tint on the hemisphere
     weather_this_frame_ = false;
+    lighting_.end_frame();
     times_ = {};
     if (!profile_)
     {
@@ -400,9 +415,11 @@ void Host::end_frame(bool scene_frame)
             if (profile_gpu_frames_ > 0)
                 snprintf(gpu, sizeof(gpu), "gpu_frame_ms=%.2f gpu_post_ms=%.2f", profile_sum_frame_ / profile_gpu_frames_,
                          profile_sum_post_ / profile_gpu_frames_);
-            shim::logf("effects profile: preset %d %s cpu_frame_ms=%.2f draws=%.0f post_views=%u", preset_, gpu,
-                       profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
-                       last_post_views_);
+            const Lighting::Counts counts = lighting_.last_frame();
+            shim::logf("effects profile: preset %d %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
+                       "baked_draws=%u coverage_draws=%u",
+                       preset_, gpu, profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
+                       last_post_views_, counts.lit, counts.baked, counts.coverage);
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_draws_ = 0;
@@ -436,6 +453,24 @@ void EffectsSceneComplete()
 {
     if (shim::Device *device = shim::Device::current)
         device->scene_complete();
+}
+
+void SetEffectsTechnique(const char *name)
+{
+    effects::Host::instance().lighting().set_technique(name);
+}
+
+void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)
+{
+    fx::PointLight converted[fx::kMaxPointLights * 4];
+    const size_t count = std::min(lights.size(), std::size(converted));
+    for (size_t i = 0; i < count; ++i)
+    {
+        const EffectsPointLight &l = lights[i];
+        converted[i] = {.position = l.position, .color = l.color, .range = l.range, .att0 = l.att0, .att1 = l.att1,
+                        .att2 = l.att2};
+    }
+    effects::Host::instance().lighting().set_dynamic_lights(std::span(converted, count));
 }
 
 EffectsReport CurrentEffects()

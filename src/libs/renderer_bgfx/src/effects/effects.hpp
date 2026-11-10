@@ -3,6 +3,7 @@
 // The shim asks it what to set up (RendererState) and calls it at the scene boundary.
 #pragma once
 
+#include "effects/lighting.hpp"
 #include "storm/fx/post_chain.hpp"
 #include "storm/fx/settings.hpp"
 #include "storm/fx/sky_model.hpp"
@@ -46,6 +47,8 @@ class Host
     }
 
     void set_weather(const render::EffectsWeather &weather);
+    // Per-pixel lighting and alpha to coverage of the fixed-function emulator (effects/lighting.hpp).
+    Lighting &lighting() { return lighting_; }
 
     // Runs the post chain on `scene` into `target` starting at `first_view`; returns the number of views used.
     struct PostTargets
@@ -66,6 +69,8 @@ class Host
 
   private:
     void apply();
+    // The sky behind the scene grade and the hemisphere ambient, from the last weather (rebuilt when it moves).
+    const fx::SkyState &sky_state();
 
     int preset_ = 0;
     std::vector<render::EffectsOption> options_;
@@ -81,6 +86,7 @@ class Host
     bool weather_last_frame_ = false;
     bool scene_cut_pending_ = true;
     fx::PostChain post_;
+    Lighting lighting_;
     fx::WeatherInput grade_weather_{}; // the sky state behind the scene grade, rebuilt when the weather moves
     fx::SkyState grade_sky_{};
     bool grade_sky_valid_ = false;

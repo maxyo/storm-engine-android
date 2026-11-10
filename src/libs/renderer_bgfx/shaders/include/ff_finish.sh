@@ -9,11 +9,25 @@
 // [2] fog start, fog end, fog density, alpha ref  [3] alpha func (0 = off, else D3DCMP), specular add, stage count, fog depth is in v_fog.z
 uniform vec4 u_ffFs[4];
 
+#ifdef FX_FF_COVERAGE
+#include "fx_coverage.sh"
+// Alpha to coverage (FX_FF_COVERAGE variants of fs_ff): xy: size of the stage-0 texture's top mip, z: on for
+// this draw (the lit variants carry it for every draw; the plain coverage variant is only used with it on).
+uniform vec4 u_fxCoverage;
+#endif
 
 vec4 ffFinish(vec4 color)
 {
     if (v_fog.y < 0.0) discard;
     float func = u_ffFs[3].x;
+#ifdef FX_FF_COVERAGE
+    // Only for GREATER / GREATEREQUAL tests against the stage-0 texture's alpha (the CPU checks it).
+    if (func > 0.5 && u_fxCoverage.z > 0.5)
+    {
+        color.a = fxCoverageAlpha(color.a, u_ffFs[2].w, v_texcoord0.xy, u_fxCoverage.xy);
+        func = 0.0;
+    }
+#endif
     if (func > 0.5)
     {
         float a = color.a;
