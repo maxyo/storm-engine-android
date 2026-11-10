@@ -118,6 +118,26 @@ parameter of every Android build script, default `arm64-v8a`:
   `<torrent work>/android-x86_64`; pass the archive build its own `--build-dir`.
 - The application packages one ABI per APK (`build_apk.py --abi`, under `lib/<abi>/`).
 
+## Fast emulator
+
+Emulator checks run close to device speed with an x86_64 build (above) and the emulator
+rendering on the host GPU. The default `-gpu host` under a plain Xvfb display gives Mesa
+llvmpipe, i.e. software GL on the CPU (1-2 fps in the game). With ANGLE in the guest the
+game's GLES runs on the guest's Vulkan, which the emulator's gfxstream runs on the host GPU:
+
+```sh
+export DISPLAY=:71   # any X display (Xvfb is fine); without one the emulator falls back to SwiftShader
+emulator -avd <avd> -port <port> -no-window -no-audio -no-boot-anim -no-snapshot \
+  -gpu host -accel on -feature GuestAngle,VulkanNativeSwapchain
+```
+
+Check it: `adb shell dumpsys SurfaceFlinger | grep GLES:` names ANGLE on the host GPU (e.g.
+"ANGLE (NVIDIA, Vulkan … RTX …)"), and the emulator log names the graphics adapter. Measured
+on one AVD (main menu fps / HUD menu tap): arm64 + llvmpipe 1.3 fps / 1.2-1.8 s, x86_64 +
+llvmpipe 2.3 / 0.7-1.0 s, arm64 + host GPU 13.3 / 0.2-0.4 s, x86_64 + host GPU 16.7 /
+0.3-0.6 s; with the host GPU the emulator's frame present (~50 ms) is the limit. Release and
+performance numbers still come from a real arm64 device.
+
 ## Host checks and CI
 
 `python3 tools/ci/run_host_tests.py` fetches the pinned open-source sources into
