@@ -57,6 +57,8 @@ class GEOM : public GEOS
     VERTEX_BUFFER *vbuff = nullptr;
 
     int32_t *atriangles = nullptr;
+    std::vector<const storm::render::PbrMaterial *> pbr_materials; // per object, empty without a sidecar
+    std::shared_ptr<void> pbr_owner;
     int32_t traceid;
     glm::dvec3 src, dst;
 
@@ -88,6 +90,7 @@ class GEOM : public GEOS
 
     virtual void GetInfo(INFO &i) const;
     virtual void Draw(const PLANE *pl, int32_t np, MATERIAL_FUNC mtf) const;
+    void AttachPbrMaterials(std::vector<const storm::render::PbrMaterial *> materials, std::shared_ptr<void> owner) override;
 
     virtual float Trace(VERTEX &src, VERTEX &dst);
     virtual bool Clip(const PLANE *planes, int32_t nplanes, const VERTEX &center, float radius, ADD_POLYGON_FUNC addpoly);

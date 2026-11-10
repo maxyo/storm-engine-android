@@ -12,6 +12,13 @@ Import library main header
 
 #include <cstdint>
 #include <fstream>
+#include <memory>
+#include <vector>
+
+namespace storm::render
+{
+struct PbrMaterial; // storm/render/pbr.hpp (Caribbean Legend sidecar materials)
+}
 
 class GEOS
 {
@@ -232,6 +239,10 @@ class GEOS
 
     virtual void Draw(const PLANE *pl, int32_t np, MATERIAL_FUNC mtf) const = 0;
 
+    // Caribbean Legend: the PBR material of every object (index = object, nullptr = legacy material), kept alive by
+    // `owner`. Draw() then passes each object's material to GEOM_SERVICE::SetPbrMaterial. Never called for TEHO.
+    virtual void AttachPbrMaterials(std::vector<const storm::render::PbrMaterial *> materials, std::shared_ptr<void> owner) = 0;
+
     //-----------------------------------------
     // collision, ray shooting
     //-----------------------------------------
@@ -303,6 +314,9 @@ class GEOM_SERVICE
     virtual void SetIndexBuffer(GEOS::ID ibuff) = 0;
     virtual void SetVertexBuffer(int32_t vsize, GEOS::ID vbuff) = 0;
     virtual void DrawIndexedPrimitive(int32_t minv, int32_t numv, int32_t vrtsize, int32_t startidx, int32_t numtrg) = 0;
+    // The PBR material of the following DrawIndexedPrimitive calls (nullptr: legacy). Only called by a GEOS with
+    // attached PBR materials (Caribbean Legend).
+    virtual void SetPbrMaterial(const storm::render::PbrMaterial *material) = 0;
 
     virtual GEOS::ID CreateLight(GEOS::LIGHT) = 0;
     virtual void ActivateLight(GEOS::ID n) = 0;
