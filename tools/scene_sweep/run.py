@@ -44,7 +44,6 @@ except ImportError:
     sys.exit('Pillow is required: python3 -m pip install Pillow')
 
 HERE = Path(__file__).resolve().parent
-REPOSITORY = HERE.parents[1]
 
 # Log lines that fail the scene they were written in. (log file pattern, line pattern, reason)
 LOG_RULES = [
@@ -74,8 +73,6 @@ def parse_arguments():
     parser.add_argument('--size', default='1280x720', help='window size (default 1280x720)')
     parser.add_argument('--timeout', type=int, default=240, help='seconds one scene may take before the engine is killed')
     parser.add_argument('--gl-threads', type=int, default=2, help='software rasteriser threads per engine')
-    parser.add_argument('--techniques', type=Path, default=REPOSITORY / 'src/techniques',
-                        help="the engine's techniques, laid over the game's as the APK build does")
     parser.add_argument('--keep-work', action='store_true', help='keep the per-engine game copies and logs')
     arguments = parser.parse_args()
     if not arguments.list and not (arguments.engine and arguments.out):
@@ -263,11 +260,7 @@ class Shard(threading.Thread):
             if not count:
                 settings = f'{key} = {value}\n' + settings
         (game / 'engine.ini').write_text(settings)
-        techniques = inventory.find_case_insensitive(game, 'RESOURCE/techniques')
-        shutil.rmtree(techniques)
-        shutil.copytree(self.arguments.techniques, techniques)
         shutil.copy(HERE / 'scene_sweep.c', game / 'PROGRAM' / 'scene_sweep.c')
-        os.link(self.context['engine'], game / 'engine')  # resources are looked up next to the executable
         control = run / 'control'
         control.mkdir()
         (control / 'scenes.txt').write_text(''.join(scene + '\n' for scene in self.queue))
@@ -285,7 +278,7 @@ class Shard(threading.Thread):
         stdout = run / 'stdout.log'
         with open(stdout, 'wb') as output:
             engine = subprocess.Popen(
-                [str(game / 'engine')], cwd=game, env=environment, stdout=output, stderr=subprocess.STDOUT,
+                [str(self.context['engine'])], cwd=game, env=environment, stdout=output, stderr=subprocess.STDOUT,
                 start_new_session=True, preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_CORE, (0, 0)))
         try:
             self.watch(engine, run, control, stdout)
@@ -526,9 +519,10 @@ def main():
     jobs = min(arguments.jobs or default_jobs(), len(chosen))
     shutil.rmtree(arguments.out / 'work', ignore_errors=True)
     (arguments.out / 'work').mkdir()
-    # One copy of the engine per sweep, hard-linked into every game copy: the build directory
-    # can be rebuilt incrementally while the sweep runs.
+    # One copy of the engine and its techniques (engine-shaders/, laid over the game's) per sweep,
+    # run in every game copy: the build directory can be rebuilt incrementally while the sweep runs.
     engine = shutil.copy(arguments.engine, arguments.out / 'work' / 'engine')
+    shutil.copytree(arguments.engine.parent / 'engine-shaders', arguments.out / 'work' / 'engine-shaders')
 
     done = collections.Counter()
     lock = threading.Lock()

@@ -1,9 +1,14 @@
 ﻿#include "lifecycle_diagnostics_service.hpp"
 
 #include <condition_variable>
+#include <iterator>
 #include <cstdio>
 #include <mutex>
 #include <thread>
+#ifndef _WIN32
+#include <csignal>
+#include <unistd.h>
+#endif
 
 #include <spdlog/spdlog.h>
 
@@ -104,8 +109,10 @@ class LoggingService final
 
             static auto terminate_handler = std::get_terminate();
             std::set_terminate([] {
+                spdlog::apply_all([](const std::shared_ptr<spdlog::logger> &l) { l->flush(); });
                 terminate_handler();
             });
+            installFatalSignalFlush();
 
             create_directories(fs::GetLogsPath());
 
@@ -143,6 +150,49 @@ class LoggingService final
     }
 
   private:
+#ifdef _WIN32
+    static void installFatalSignalFlush()
+    {
+    }
+#else
+    // Lines below the flush_on level (the script compile trace among them) wait in stdio
+    // buffers for the periodic flush. A crash would lose them, and without a crash
+    // reporter nothing else flushes them, so a fatal signal writes every stdio stream out
+    // and then lets the previous handler (the default action, or the platform's crash
+    // reporter) handle the signal. fflush is not async-signal-safe: if the crashing thread
+    // holds a stream lock this would hang, so an alarm ends the process after 3 seconds.
+    static constexpr int kFatalSignals[] = {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT};
+    static inline struct sigaction previousActions_[std::size(kFatalSignals)];
+
+    static void installFatalSignalFlush()
+    {
+        for (size_t i = 0; i < std::size(kFatalSignals); ++i)
+        {
+            struct sigaction action{};
+            action.sa_sigaction = onFatalSignal;
+            action.sa_flags = SA_SIGINFO | SA_ONSTACK;
+            sigemptyset(&action.sa_mask);
+            sigaction(kFatalSignals[i], &action, &previousActions_[i]);
+        }
+    }
+
+    static void onFatalSignal(const int signal, siginfo_t *info, void *)
+    {
+        size_t index = 0;
+        while (kFatalSignals[index] != signal)
+            ++index;
+        alarm(3);
+        std::fflush(nullptr);
+        alarm(0);
+        sigaction(signal, &previousActions_[index], nullptr);
+        // A fault re-executes the faulting instruction when this handler returns and
+        // reaches the restored handler with its original siginfo; a signal that was
+        // sent (abort, kill) has to be raised again.
+        if (info->si_code <= 0)
+            raise(signal);
+    }
+#endif
+
     std::mutex mtx_;
     std::condition_variable cv_;
     bool flushRequested_{false};

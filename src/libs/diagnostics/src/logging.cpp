@@ -35,12 +35,13 @@ logger_ptr getOrCreateLogger(const std::string &name, const spdlog::level::level
     logger->set_level(level);
 #ifdef __ANDROID__
     logger->sinks().push_back(std::make_shared<spdlog::sinks::android_sink_mt>("StormEngine"));
-    // Flushing on info wrote the file on every Trace() of the game thread.
-    // Warnings and errors are still flushed immediately; everything else is
-    // flushed periodically by LifecycleDiagnosticsService::notifyAfterRun, when
-    // the app goes to the background, on a fatal error and by the crash handler.
-    logger->flush_on(spdlog::level::warn);
 #endif
+    // Warnings and errors (script compile errors among them) reach the file at once.
+    // Flushing on info wrote the file on every Trace() of the game thread; lower levels
+    // are flushed periodically by LifecycleDiagnosticsService::notifyAfterRun, when the
+    // app goes to the background, at shutdown, and on a fatal signal or std::terminate
+    // (LoggingService in lifecycle_diagnostics_service.cpp).
+    logger->flush_on(spdlog::level::warn);
 
     return logger;
 }
