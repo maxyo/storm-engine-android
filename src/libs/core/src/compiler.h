@@ -440,7 +440,7 @@ private:
     char DebugSourceFileName[MAX_PATH];
     char gs[MAX_PATH];
     uint32_t DebugSourceLine;
-    char *pCompileTokenTempBuffer;
+
 
     // HANDLE hSaveFileFileHandle;
 
@@ -478,6 +478,8 @@ private:
     // see ConfigureCompileCheck
     std::vector<std::string> *diagnosticsSink_ = nullptr;
     bool compileCheck_ = false;
+    char *appendBuffer_ = nullptr; // AppendProgram's buffer and its capacity
+    uint32_t appendCapacity_ = 0;
     std::string scriptLanguage_; // see SetScriptLanguage
     uint32_t compileErrors_ = 0; // errors reported while compiling the current segment
     bool missingNativesAreErrors_ = true;
