@@ -435,6 +435,16 @@ void Device::scene_complete()
     view_dirty = true;
 }
 
+uint16_t Device::effects_view(bool fresh)
+{
+    if (fresh)
+        view_dirty = true;
+    const uint16_t id = ensure_view();
+    view_has_content = true; // a later Clear opens a new view instead of clearing the fx draws
+    invalidate_uniforms();
+    return id;
+}
+
 HRESULT Device::GetBackBuffer(UINT, UINT, D3DBACKBUFFER_TYPE, IDirect3DSurface9 **surface)
 {
     *surface = back_color;

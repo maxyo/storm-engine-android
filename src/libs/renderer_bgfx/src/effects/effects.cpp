@@ -100,22 +100,13 @@ struct Pending
 };
 
 const Pending kPending[] = {
-    {[](const fx::Settings &s) { return s.sky_atmosphere || s.sky_clouds; },
-     [](fx::Settings &s) { s.sky_atmosphere = s.sky_clouds = false; }, "fx_sky fx_clouds",
-     "the analytic sky is not wired into this renderer yet: switched off"},
-    {[](const fx::Settings &s) { return s.water != fx::WaterQuality::Legacy || s.water_refraction; },
-     [](fx::Settings &s) {
-         s.water = fx::WaterQuality::Legacy;
-         s.water_refraction = false;
-     },
-     "fx_water fx_water_refraction", "the fx water is not wired into this renderer yet: the legacy sea draws"},
     {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingNormalMap) != 0; },
      [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingNormalMap; }, "fx_light_normal_map",
      "normal maps from the game's height textures are not derived yet (texture worker + disk cache pending): "
      "switched off"},
     {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingAerial) != 0; },
      [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingAerial; }, "fx_aerial",
-     "aerial perspective needs the fx sky state (fx::Sky), which this renderer does not drive yet: the "
+     "aerial perspective is not bound in the emulator variants yet (fx::Sky::BindAerial): the "
      "fixed-function fog stays"},
     {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingWind) != 0; },
      [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingWind; }, "fx_wind",
@@ -123,8 +114,6 @@ const Pending kPending[] = {
     {[](const fx::Settings &s) { return s.shadows != fx::ShadowQuality::Off; },
      [](fx::Settings &s) { s.shadows = fx::ShadowQuality::Off; }, "fx_shadows",
      "sun shadows are not wired into this renderer yet: switched off"},
-    {[](const fx::Settings &s) { return s.contact_shadows; }, [](fx::Settings &s) { s.contact_shadows = false; },
-     "fx_contact_shadows", "contact shadows are not wired into this renderer yet: switched off"},
 };
 
 std::string describe(const fx::Settings &s)
@@ -181,6 +170,9 @@ void Host::on_device_lost()
 {
     post_.OnDeviceLost();
     lighting_.on_device_lost();
+    sky_.OnDeviceLost();
+    water_.OnDeviceLost();
+    contact_.OnDeviceLost();
     device_ready_ = false;
 }
 
@@ -188,6 +180,9 @@ void Host::shutdown()
 {
     post_.Shutdown();
     lighting_.shutdown();
+    sky_.Shutdown();
+    water_.Shutdown();
+    contact_.Shutdown();
     device_ready_ = false;
 }
 
@@ -296,22 +291,24 @@ void Host::set_weather(const render::EffectsWeather &weather)
 
 const fx::SkyState &Host::sky_state()
 {
+    // One sky state for the fx sky and water, the scene grade and the hemisphere ambient. ComputeSky costs ~2 ms on
+    // the host; Sky::Update rebuilds it only when the weather moves (SkyNeedsRebuild), not every frame.
+    update_sky(camera_height_);
+    return sky_.State();
+}
+
+fx::WeatherInput Host::weather_input() const
+{
     fx::WeatherInput input;
-    input.sun_dir = weather_.sun_dir;
+    input.sun_dir = weather_.sky_sun_dir;
     input.sun_color = weather_.sun_color;
     input.ambient_color = weather_.ambient;
     input.fog_color = weather_.fog_color;
     input.fog_density = weather_.fog_density;
     input.overcast = weather_.overcast;
-    // ComputeSky costs ~2 ms on the host; the grade and the hemisphere need only the sun height and colours, so the
-    // sky state is rebuilt when they move (SkyNeedsRebuild), not every frame.
-    if (!grade_sky_valid_ || fx::SkyNeedsRebuild(grade_weather_, input))
-    {
-        grade_sky_ = fx::ComputeSky(input);
-        grade_weather_ = input;
-        grade_sky_valid_ = true;
-    }
-    return grade_sky_;
+    input.wind = weather_.wind_dir;
+    input.wind_speed = weather_.wind_speed;
+    return input;
 }
 
 uint16_t Host::submit_post(const PostTargets &targets)
@@ -336,7 +333,7 @@ uint16_t Host::submit_post(const PostTargets &targets)
     frame.projection_scale = {p[0], p[5]};
 
     // A frame without weather has no sky (interiors).
-    const bool weather = weather_this_frame_ || weather_last_frame_;
+    const bool weather = has_weather();
     if (weather && weather_.sun_present)
     {
         // Sun on the screen (lens flare, shafts): the direction through the camera rotation and the projection.
@@ -380,6 +377,7 @@ void Host::end_frame(bool scene_frame)
         lighting_.set_sky(nullptr); // interiors: no sky tint on the hemisphere
     weather_this_frame_ = false;
     lighting_.end_frame();
+    transform_view_ = UINT16_MAX; // the shim's views start again next frame
     times_ = {};
     if (!profile_)
     {

@@ -272,6 +272,9 @@ struct Device final : Direct3DDevice9Stub
     // Graphics effects (src/effects): the 3D scene of this frame is complete; runs the post chain on it and
     // makes its output the game picture the interface is drawn on. Once per presented frame.
     void scene_complete();
+    // Graphics effects (src/effects/world.cpp): the view for an fx draw on the current render target, in submission
+    // order; `fresh` opens a new one. Marked as drawn into; the shim re-sends its sticky uniforms afterwards.
+    uint16_t effects_view(bool fresh);
     static Device *current; // the one device (effects hooks reach it through the public render API)
     bgfx::ProgramHandle program(uint32_t vs_id, uint32_t fs_id);
 

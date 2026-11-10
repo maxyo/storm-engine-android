@@ -4,9 +4,12 @@
 #pragma once
 
 #include "effects/lighting.hpp"
+#include "storm/fx/contact_shadows.hpp"
 #include "storm/fx/post_chain.hpp"
 #include "storm/fx/settings.hpp"
+#include "storm/fx/sky.hpp"
 #include "storm/fx/sky_model.hpp"
+#include "storm/fx/water.hpp"
 #include "storm/render/effects.hpp"
 
 #include <bgfx/bgfx.h>
@@ -67,10 +70,29 @@ class Host
     // (loading screen) makes the next scene a cut: its grade is applied at once, not blended in.
     void end_frame(bool scene_frame);
 
+    // World passes (world.cpp): drawn into the shim's current game view, in submission order.
+    render::EffectsWorld world() const;
+    bool sky_fog_color(std::array<float, 3> &rgb);
+    void draw_sky(const render::EffectsMatrix &view);
+    void draw_water(const render::EffectsWaterMesh &mesh, const render::EffectsMatrix &view);
+    void contact_shadow(const std::array<float, 3> &ground, const render::EffectsMatrix &view);
+
   private:
     void apply();
-    // The sky behind the scene grade and the hemisphere ambient, from the last weather (rebuilt when it moves).
+    // The sky behind the fx sky and water, the scene grade and the hemisphere ambient, from the last weather.
     const fx::SkyState &sky_state();
+    fx::WeatherInput weather_input() const;
+    bool has_weather() const { return weather_this_frame_ || weather_last_frame_; }
+    // The current render target's view with the current D3D camera as its bgfx view transform.
+    struct WorldPass
+    {
+        bgfx::ViewId view = 0;
+        std::array<float, 16> view_mtx{}, projection{}; // projection: backend clip space
+        fx::Vec3 camera{};
+        float near_plane = 0.1f, far_plane = 4000.0f;
+    };
+    bool begin_world_pass(WorldPass &pass, const render::EffectsMatrix &view, bool fresh = false);
+    void update_sky(float camera_height);
 
     int preset_ = 0;
     std::vector<render::EffectsOption> options_;
@@ -87,9 +109,16 @@ class Host
     bool scene_cut_pending_ = true;
     fx::PostChain post_;
     Lighting lighting_;
-    fx::WeatherInput grade_weather_{}; // the sky state behind the scene grade, rebuilt when the weather moves
-    fx::SkyState grade_sky_{};
-    bool grade_sky_valid_ = false;
+    fx::Sky sky_;
+    fx::Water water_;
+    fx::ContactShadows contact_;
+    float camera_height_ = 0.0f; // of the last world pass
+    bool sky_weather_logged_ = false;
+    bool water_buffers_logged_ = false;
+    bool water_capture_logged_ = false;
+    // The fx view transform last set on a shim view this frame: another camera in the same view needs a new view.
+    bgfx::ViewId transform_view_ = UINT16_MAX;
+    std::array<float, 32> transform_{};
     bgfx::ViewId last_post_first_ = 0;
     uint16_t last_post_views_ = 0;
     PassTimes times_{};

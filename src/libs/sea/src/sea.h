@@ -100,6 +100,7 @@ class SEA : public SEA_BASE
 
     SeaVertex *pVSea;
     uint16_t *pTriangles;
+    std::vector<uint16_t> fxIndices_; // the triangle list for the fx water (instead of the locked index buffer)
     uint32_t *pIndices;
     int32_t iVStart, iTStart, iIStart;
 

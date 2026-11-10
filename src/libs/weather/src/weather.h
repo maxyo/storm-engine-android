@@ -29,6 +29,7 @@ class WEATHER : public WEATHER_BASE
     float fSunEndTime;
     // moon moving data
     bool bMoonPresent;
+    bool bEffectsFogColor = false; // D3DRS_FOGCOLOR holds the fx sky's horizon (PushEffectsWeather)
     float fMoonHeight;
     float fMoonBegAngle;
     float fMoonBegTime;
@@ -37,6 +38,8 @@ class WEATHER : public WEATHER_BASE
 
     void SetBeginData();
     void UpdateSunMoonPos();
+    // The sun at `hour`: false (and straight down) outside the sun's day.
+    bool SunAt(float hour, float &height_angle, float &azimuth_angle, glm::vec3 &pos) const;
     void PushEffectsWeather();
 
     void SetCommonStates();

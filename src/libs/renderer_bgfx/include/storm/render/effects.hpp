@@ -59,6 +59,9 @@ struct EffectsWeather
 {
     std::array<float, 3> sun_dir{0.0f, 1.0f, 0.0f}; // towards the sun (or the moon at night), world, y up
     bool sun_present = false;                         // the sun, not the moon, is above the horizon
+    // Towards the sun also while it is below the horizon (straight down at night): the analytic sky and the scene
+    // grade take the day / night state from it, never from the moon.
+    std::array<float, 3> sky_sun_dir{0.0f, -1.0f, 0.0f};
     std::array<float, 3> sun_color{1.0f, 1.0f, 1.0f}; // 0..1
     std::array<float, 3> ambient{0.4f, 0.4f, 0.4f};
     std::array<float, 3> fog_color{0.5f, 0.6f, 0.7f};
@@ -84,5 +87,59 @@ struct EffectsPointLight
     float att0 = 0.0f, att1 = 0.0f, att2 = 1.0f;
 };
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
+
+// ---- World passes: fx sky, fx water, contact shadows ----
+// The consumer entities (SKY, SEA, shadow, SUNGLOW) ask which parts are on and then either call the fx pass below
+// or keep their legacy drawing. Constant between ConfigureEffects calls; everything false in «Оригинал».
+struct EffectsWorld
+{
+    bool sky = false;             // fx sky replaces the textured sky box and the fog sphere of SKY
+    bool water = false;           // fx water replaces the Sea2 / Sea3 passes of SEA (and its reflection renders)
+    bool contact_shadows = false; // a soft blob under each character
+    bool lens_flare = false;      // the post chain draws the lens flare: SUNGLOW leaves its flare sprites out
+};
+EffectsWorld CurrentEffectsWorld();
+
+// The fog colour that matches the fx sky's horizon (0..1, gamma-encoded) while the fx sky is on and the weather of
+// this frame is known; false otherwise (keep the game's fog colour).
+bool EffectsSkyFogColor(std::array<float, 3> &rgb);
+
+// The world passes below draw into the current render target with the current D3D projection, in submission
+// order. `view` is the world -> view matrix as the engine sees it (VDX9RENDER::GetTransform(D3DTS_VIEW)): the
+// device itself holds a camera-relative view, because DX9RENDER moves the camera translation into the world matrix.
+using EffectsMatrix = std::array<float, 16>;
+
+// Draws the analytic sky on the far plane (depth test only). Only while CurrentEffectsWorld().sky.
+void EffectsDrawSky(const EffectsMatrix &view);
+
+// The SEA entity's surface for the fx water: its CPU-displaced vertices (SEA::SeaVertex: position relative to
+// `world_offset`, normal, uv) and triangle list, and the look from its Sea2 attributes. Only while
+// CurrentEffectsWorld().water.
+struct EffectsWaterShading
+{
+    std::array<float, 3> water_color{0.04f, 0.22f, 0.39f}; // Sea2.WaterColor
+    std::array<float, 3> sky_color{1.0f, 1.0f, 1.0f};      // Sea2.SkyColor
+    float reflection = 0.7f;                               // Sea2.Reflection
+    float transparency = 0.6f;                             // Sea2.Transparency
+    float fresnel = 0.5f;                                  // Sea2.Frenel
+    float bump_speed = 1.0f;                               // Sea2.BumpSpeed
+    bool foam = false;                                     // Sea2.FoamEnable and the foam option
+    float foam_v = 3.0f, foam_k = 0.3f, foam_uv = 1.0f;    // Sea2.FoamV / FoamK / FoamUV
+};
+struct EffectsWaterMesh
+{
+    const void *vertices = nullptr; // vertex_count * 32 bytes (SEA::SeaVertex)
+    uint32_t vertex_count = 0;
+    const uint16_t *indices = nullptr;
+    uint32_t index_count = 0;
+    std::array<float, 2> world_offset{0.0f, 0.0f}; // SEA::vWorldOffset x, z
+    float crest_height = 4.0f;                     // Amp1 + Amp2
+    EffectsWaterShading shading;
+};
+void EffectsDrawWater(const EffectsWaterMesh &mesh, const EffectsMatrix &view);
+
+// A contact shadow on the floor at `ground` (a character's feet), drawn at once. Call it after the floor is drawn.
+// Only while CurrentEffectsWorld().contact_shadows.
+void EffectsContactShadow(const std::array<float, 3> &ground, const EffectsMatrix &view);
 
 } // namespace storm::render
