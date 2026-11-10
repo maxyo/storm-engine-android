@@ -18,6 +18,24 @@
    "cells": []
   },
   {
+   "node": "ANDROID_GAME",
+   "type": "text",
+   "label": "Герой Альфа · Порт Альфа",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "hero": "Герой Альфа",
+    "location": "Порт Альфа",
+    "gameDate": "1654-10-01",
+    "gameTime": "10:20"
+   }
+  },
+  {
    "node": "MB_OPTIONS",
    "type": "button",
    "label": "Настройки",

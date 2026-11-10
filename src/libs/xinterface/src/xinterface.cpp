@@ -18,6 +18,7 @@
 #include "mobile_image_bridge.hpp"
 #include "mobile_inventory.hpp"
 #include "mobile_save_list.hpp"
+#include "mobile_save_facts.hpp"
 #include "mobile_nation_relations.hpp"
 #include "mobile_owner_bridge.hpp"
 #include <chrono>
@@ -524,8 +525,18 @@ void XINTERFACE::Realize(uint32_t)
             widgets.erase(std::remove_if(widgets.begin(), widgets.end(), [](const auto &row) {
                 return row.type == "save";
             }), widgets.end());
-            storm::mobile::saveListCapability.collect(*saves, enabled, widgets);
+            const auto &state = *saves;
+            storm::mobile::saveListCapability.collect(state, enabled, widgets, [this, &state](size_t index) {
+                return storm::mobile::SaveRowContext(state, index, [this](const std::string &path) { return SaveDescription(path); });
+            });
         }
+        if (storm::android::mobileScreen == "mainmenu")
+            if (auto newest = storm::mobile::ContinueWidget(storm::android::mobileScreenRevision,
+                                                            [this](const std::string &path) { return SaveDescription(path); }))
+                widgets.push_back(std::move(*newest));
+        if (storm::android::mobileScreen == "game_menu")
+            if (auto game = storm::mobile::GameIdentityWidget(storm::android::mobileScreenRevision))
+                widgets.push_back(std::move(*game));
         if (storm::android::mobileScreen == "selectcharacter" && !storm::android::TutorialSkipSupported())
             storm::android::tutorialSkip.selected = false;
         if (storm::android::mobileScreen == "selectcharacter" && storm::android::TutorialSkipSupported())
@@ -3129,10 +3140,17 @@ uint32_t XINTERFACE::AttributeChanged(ATTRIBUTES *patr)
     return 0;
 }
 
-bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *saveData) const
+bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *gameSaveData) const
 {
-    if (saveName == nullptr || saveData == nullptr)
+    if (saveName == nullptr || gameSaveData == nullptr || !*gameSaveData)
         return false;
+    // The save list names a record "<hero> · <location>": the description gets the hero and
+    // the location of the game in progress (mobile_save_list.hpp SaveFacts). The game's own
+    // parser (save_load.c ParseSaveData) reads its five fields and ignores what follows.
+    std::string described = gameSaveData;
+    if (const auto identity = storm::mobile::CurrentSaveIdentity())
+        described += "@" + (*identity)[0] + "@" + (*identity)[1];
+    const char *saveData = described.c_str();
     const int32_t slen = strlen(saveData) + 1;
     if (slen <= 1)
         return false;
@@ -3180,6 +3198,12 @@ bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *saveData)
     return true;
 }
 
+std::string XINTERFACE::SaveDescription(const std::string &saveName)
+{
+    char description[512] = {};
+    return SFLB_GetSaveFileData(saveName.c_str(), sizeof(description), description) ? std::string(description) : std::string();
+}
+
 bool XINTERFACE::SFLB_GetSaveFileData(const char *saveName, int32_t bufSize, char *buf)
 {
     if (buf == nullptr || bufSize <= 0)
@@ -3204,7 +3228,7 @@ bool XINTERFACE::SFLB_GetSaveFileData(const char *saveName, int32_t bufSize, cha
     if (strSize > 0)
         memcpy(buf, stringData, strSize);
 
-    delete pdat;
+    delete[] pdat;
     return strSize > 0;
 }
 

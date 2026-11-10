@@ -80,7 +80,11 @@
      "imageRevision": 2,
      "width": 0,
      "height": 0,
-     "tintArgb": 4286611584
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "portrait",
+      "image": "1"
+     }
     }
    ],
    "actions": [
@@ -317,7 +321,7 @@
   {
    "node": "CHECK_HARDCORE",
    "type": "check",
-   "label": "Хардкор",
+   "label": "HardcoreGame",
    "value": "0",
    "index": 0,
    "enabled": true,

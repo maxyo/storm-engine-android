@@ -29,7 +29,7 @@ add_library(storm_inno STATIC ${INNO_SOURCES}
  "${I}/src/util/log.cpp" "${I}/src/util/time.cpp")
 target_include_directories(storm_inno PUBLIC "${I}/src" "${CMAKE_CURRENT_BINARY_DIR}" "${B}" "${P}/include")
 target_link_libraries(storm_inno PRIVATE storm_boost)
-add_library(storm_archive SHARED archive.cpp manifest.cpp memory.cpp libarchive_backend.cpp inno_backend.cpp)
+add_library(storm_archive SHARED archive.cpp discovery.cpp manifest.cpp memory.cpp libarchive_backend.cpp inno_backend.cpp)
 target_include_directories(storm_archive PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(storm_archive PRIVATE storm_inno storm_boost
  "${P}/lib/libarchive.a" "${P}/lib/liblzma.a" "${P}/lib/libbz2.a" "${P}/lib/libz.a")

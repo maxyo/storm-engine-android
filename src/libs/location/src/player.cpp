@@ -19,6 +19,7 @@
 #include <sys/system_properties.h>
 #include <platform/android_ui.hpp>
 #include <platform/android_movement.hpp>
+#include <platform/android_combat_input.hpp>
 #endif
 
 // ============================================================================================
@@ -172,6 +173,12 @@ void Player::Move(float dltTime)
         //------------------------------------
         Rotate(dltTime);
         //------------------------------------
+#ifdef __ANDROID__
+        // The HUD's dash button (combat action "dash", engine-only control "ChrRecoil"): the
+        // backstep of pulling the stick back.
+        if (IsFight() && storm::android::combatInput.merge("ChrRecoil", 0) == 3)
+            Recoil();
+#endif
         if (lastChange > 0.3f)
         {
             // lastChange = 0.0f;

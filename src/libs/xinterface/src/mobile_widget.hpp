@@ -1,5 +1,6 @@
 #pragma once
 #include "mobile_image_cache.hpp"
+#include <cctype>
 #include <string>
 #include <vector>
 #include <limits>
@@ -82,6 +83,18 @@ inline std::string MobileJsonString(const std::string &text)
     return result + '"';
 }
 
+// The face of a game portrait texture ("interfaces\\portraits\\256\\face_12.tga" → "12"), "" for
+// any other picture: the portable UI draws portraits by face, not by path.
+inline std::string MobilePortraitFace(const std::string &path)
+{
+    std::string lower;
+    for (const char c : path) lower += c == '\\' ? '/' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const size_t portraits = lower.find("portraits/"), face = lower.rfind("/face_");
+    if (portraits == std::string::npos || face == std::string::npos || face < portraits) return {};
+    std::string id;
+    for (size_t i = face + 6; i < lower.size() && std::isdigit(static_cast<unsigned char>(lower[i])); ++i) id += lower[i];
+    return id;
+}
 inline std::string MobileImageJson(const storm::mobile::ImageRef &image)
 {
     std::string json = "{\"handle\":" + std::to_string(image.handle) + ",\"imageRevision\":" + std::to_string(image.imageRevision) +
@@ -91,6 +104,8 @@ inline std::string MobileImageJson(const storm::mobile::ImageRef &image)
     if (source.kind == "atlas" && !source.group.empty() && !source.image.empty())
         json += ",\"source\":{\"kind\":\"atlas\",\"group\":" + MobileJsonString(source.group) +
                 ",\"image\":" + MobileJsonString(source.image) + '}';
+    else if (source.kind == "portrait" && !source.image.empty())
+        json += ",\"source\":{\"kind\":\"portrait\",\"image\":" + MobileJsonString(source.image) + '}';
     else if (source.kind == "battle_icon" && !source.mode.empty() && !source.atlas.empty() && source.pic >= 0)
         json += ",\"source\":{\"kind\":\"battle_icon\",\"mode\":" + MobileJsonString(source.mode) +
                 ",\"atlas\":" + MobileJsonString(source.atlas) + ",\"pic\":" + std::to_string(source.pic) + '}';

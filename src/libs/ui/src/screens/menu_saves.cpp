@@ -1,15 +1,17 @@
 // Saves (interface "save_load", mockups V2-Save-Load, -Save, -Empty, -ConfirmLoad,
-// -ConfirmDelete, -Overwrite): every record of the profile in one C-Table, the chosen
-// record in the detail column with its primary action and the bare trash glyph. Fills the
-// pack screen <s-saves>.
+// -ConfirmDelete, -Overwrite): every record in one C-Table, the chosen record in the detail
+// column with its primary action and the bare trash glyph. Fills the pack screen <s-saves>.
 //
-// The engine lists the records as ANDROID_SAVE_LIST rows (label = the name the game gave
-// the record, `delete` / `activate` verbs; the save slot of a new record has the reason
-// "new"). The game's own page of ten slots publishes SAVENOTES in triples per slot:
-// name, in-game "HH:MM  DD.MM.YYYY", created "HH:MM:SS DD.MM.YYYY"; SAVEINFO 1 is the
-// play time of the record the game has selected. The game asks its own questions
-// (CONFIRM_*): they become the C-Dialog. The game's name editor (CUSTOM_SAVE_*) is
-// accepted as it comes: records are named by the game, never by the player.
+// The engine lists the records as ANDROID_SAVE_LIST rows under the ANDROID_SAVES list
+// (value = number of records; label = the file name, `delete` / `activate` verbs; the save
+// slot of a new record has the reason "new"). Each row's context carries what the record
+// says about itself (xinterface mobile_save_list.hpp SaveFacts): hero, location, gameDate
+// (YYYY-MM-DD), gameTime, created (local YYYY-MM-DD HH:MM), playMinutes; the new record has
+// the hero, location and play time of the game in progress. Records are named
+// «<hero> · <location>» (no player profile, no naming); a record written before the engine
+// stored the hero shows its location alone. The game asks its own questions (CONFIRM_*):
+// they become the C-Dialog. The game's name editor (CUSTOM_SAVE_*) is accepted as it
+// comes: records are named by the game, never by the player.
 #include "controls.h"
 #include "menu.h"
 
@@ -25,10 +27,9 @@ namespace
 {
 
 constexpr NodeRule kNodes[] = {
-    {"ANDROID_SAVE_LIST", "save", true},
+    {"ANDROID_SAVES", "list", true},
+    {"ANDROID_SAVE_LIST", "save"},
     {"TITLE", "heading|text"},
-    {"SAVENOTES", "text"},
-    {"SAVEINFO", "text"},
     {"BTN_SAVELOAD", "button"},
     {"BTN_DELETE", "button"},
     {"BTN_EXIT", "button"},
@@ -39,9 +40,12 @@ constexpr NodeRule kNodes[] = {
     {"CUSTOM_SAVE_MSG", "text"},
     {"CUSTOM_SAVE_BTN_OK", "button"},
     {"CUSTOM_SAVE_BTN_CANCEL", "button"},
-    // Drawn by the game's page only: its slot pager (we list every record), the profile
-    // (there are no profiles in this port), the officers of the selected record.
+    // Drawn by the game's page only: its slot pager and notes (we list every record with
+    // the engine's facts), the profile (there are no profiles in this port), the officers
+    // of the selected record.
     {"SAVE_SELECTER", "stepper"},
+    {"SAVENOTES", "text"},
+    {"SAVEINFO", "text"},
     {"BTN_PROFILE", "button"},
     {"OFFICER*", "image|text"},
     {"MAIN_BACK", "image"},
@@ -62,20 +66,23 @@ struct Stamp
     }
 };
 
-// "12:20  01.10.1654" (in game) and "08:53:21 18.10.2026" (created).
-Stamp ParseStamp(const std::string &text)
+// "YYYY-MM-DD" and an optional clock "HH:MM".
+Stamp ParseStamp(const std::string &date, const std::string &clock)
 {
     Stamp stamp;
-    const size_t colon = text.find(':');
-    const size_t dot = text.find('.');
-    if (colon == std::string::npos || dot == std::string::npos || colon < 2 || dot < 2)
+    if (date.size() != 10 || date[4] != '-' || date[7] != '-' || (!clock.empty() && clock.size() != 5))
         return stamp;
-    stamp.clock = text.substr(colon - 2, 5);
-    stamp.day = std::atoi(text.c_str() + dot - 2);
-    stamp.month = std::atoi(text.c_str() + dot + 1);
-    const size_t second = text.find('.', dot + 1);
-    stamp.year = second == std::string::npos ? 0 : std::atoi(text.c_str() + second + 1);
+    stamp.year = std::atoi(date.c_str());
+    stamp.month = std::atoi(date.c_str() + 5);
+    stamp.day = std::atoi(date.c_str() + 8);
+    stamp.clock = clock;
     return stamp;
+}
+
+std::string Context(const Widget &row, const char *key)
+{
+    const auto found = row.context.find(key);
+    return found == row.context.end() ? std::string() : found->second;
 }
 
 std::string GameDate(const Bindings &bindings, const Stamp &stamp)
@@ -112,29 +119,17 @@ std::string CreatedDate(const Bindings &bindings, const Stamp &stamp)
     return day + ", " + stamp.clock;
 }
 
-// "<caption>: 6 hours 42 min." → {caption, "6 ч 42 мин"}
-std::pair<std::string, std::string> PlayTime(const Bindings &bindings, const std::string &text)
+// 402 → "6 ч 42 мин"
+std::string PlayTime(const Bindings &bindings, int minutes)
 {
-    const size_t colon = text.find(':');
-    if (colon == std::string::npos)
-        return {};
-    std::vector<int> numbers;
-    for (size_t i = colon; i < text.size(); ++i)
-        if (text[i] >= '0' && text[i] <= '9')
-        {
-            numbers.push_back(std::atoi(text.c_str() + i));
-            while (i < text.size() && text[i] >= '0' && text[i] <= '9')
-                ++i;
-        }
-    if (numbers.size() != 2)
-        return {};
-    std::string value = numbers[0] > 0 ? std::to_string(numbers[0]) + " " + bindings.Text("save.hours") + " " : std::string();
-    return {text.substr(0, colon), value + std::to_string(numbers[1]) + " " + bindings.Text("save.minutes")};
+    const std::string hours = minutes >= 60 ? std::to_string(minutes / 60) + " " + bindings.Text("save.hours") + " " : std::string();
+    return hours + std::to_string(minutes % 60) + " " + bindings.Text("save.minutes");
 }
 
 // The application's background autosaves, two rotating records the game lists like any
-// other (app PROGRAM/interface/android_background_save.c names them "Автосохранение 1|2";
-// the name is matching data, not UI text). Returns the slot number, 0 for other records.
+// other (app PROGRAM/interface/android_background_save.c names their files
+// "Автосохранение 1|2"; the name is matching data, not UI text). Returns the slot number,
+// 0 for other records. They are shown as their own pair and never deleted or overwritten.
 int AutosaveSlot(const std::string &label)
 {
     static const std::string prefix = "Автосохранение ";
@@ -149,7 +144,30 @@ struct Record
     const Widget *row = nullptr;
     bool fresh = false;
     int autosave = 0;
+    std::string hero, location;
     Stamp played, created;
+    int minutes = -1;
+
+    static Record Of(const Widget *row)
+    {
+        Record record{row, row->unavailable_reason == "new", 0};
+        record.autosave = record.fresh ? 0 : AutosaveSlot(row->label);
+        record.hero = Context(*row, "hero");
+        record.location = Context(*row, "location");
+        record.played = ParseStamp(Context(*row, "gameDate"), Context(*row, "gameTime"));
+        const std::string created = Context(*row, "created");
+        record.created = ParseStamp(created.substr(0, 10), created.size() > 11 ? created.substr(11) : std::string());
+        const std::string minutes = Context(*row, "playMinutes");
+        record.minutes = minutes.empty() ? -1 : std::atoi(minutes.c_str());
+        return record;
+    }
+    // «<hero> · <location>»; the location alone for a record written without the hero.
+    std::string Identity() const
+    {
+        if (location.empty())
+            return fresh ? std::string() : row->label;
+        return hero.empty() ? location : hero + " · " + location;
+    }
 };
 
 // What the player sees as the record's name.
@@ -159,7 +177,7 @@ std::string Name(const Bindings &bindings, const Record &record)
         return bindings.Text("save.new");
     if (record.autosave)
         return bindings.Text("save.autosave") + " " + std::to_string(record.autosave);
-    return record.row->label;
+    return record.Identity();
 }
 
 class SavesScreen final : public Screen
@@ -178,9 +196,8 @@ class SavesScreen final : public Screen
     {
         std::vector<Record> records;
         for (const Widget *row : admitted.All("ANDROID_SAVE_LIST"))
-            records.push_back({row, row->unavailable_reason == "new", AutosaveSlot(row->label)});
+            records.push_back(Record::Of(row));
         const bool saving = std::any_of(records.begin(), records.end(), [](const Record &r) { return r.fresh; });
-        Dates(admitted, records);
 
         // The game lists the records newest first: «Продолжить» takes the first.
         const Widget *newest = nullptr;
@@ -226,11 +243,15 @@ class SavesScreen final : public Screen
         Json rows = Json::array();
         for (const Record &record : records)
         {
-            Json cells = record.fresh      ? Json::array({Json{{"text", Name(bindings, record)}, {"icon", "plus"}, {"iconTone", "brass"}}, "", ""})
-                         : Json::array({record.autosave ? Json{{"text", Name(bindings, record)}, {"icon", "reload"}, {"iconTone", "brass"}}
-                                                        : Json(record.row->label),
-                                                     Json{{"text", record.played.Valid() ? GameDate(bindings, record.played) : ""}, {"tone", "dim"}},
-                                                     Json{{"text", record.created.Valid() ? CreatedDate(bindings, record.created) : ""}, {"tone", "dim"}}});
+            const Json dim = Json{{"tone", "dim"}};
+            Json cells = Json::array();
+            if (record.fresh)
+                cells = Json::array({Json{{"text", Name(bindings, record)}, {"sub", record.Identity()}, {"icon", "plus"}, {"iconTone", "brass"}}, "", "", ""});
+            else
+                cells = Json::array({record.autosave ? Json{{"text", Name(bindings, record)}, {"sub", record.Identity()}} : Json(Name(bindings, record)),
+                                     Json{{"text", record.played.Valid() ? GameDate(bindings, record.played) : ""}, {"tone", "dim"}},
+                                     Json{{"text", record.created.Valid() ? CreatedDate(bindings, record.created) : ""}, {"tone", "dim"}},
+                                     record.autosave ? Json{{"icon", "energy"}, {"iconTone", "gold"}, {"iconOnly", true}} : Json("")});
             rows.push_back(Json{{"cells", cells}, {"selected", &record == chosen}, {"disabled", !record.row->enabled}});
         }
         bindings.On("saves", "row", [this, &bindings, records](const Event &event) {
@@ -244,9 +265,10 @@ class SavesScreen final : public Screen
         view["title"] = bindings.Text(saving ? "save.title_save" : "save.title_load");
         view["columns"] = Json::array({Json{{"label", bindings.Text("save.record")}, {"w", "1"}},
                                        Json{{"label", bindings.Text("save.game_date")}, {"w", "104px"}, {"align", "right"}},
-                                       Json{{"label", bindings.Text("save.created")}, {"w", "132px"}, {"align", "right"}}});
+                                       Json{{"label", bindings.Text("save.created")}, {"w", "128px"}, {"align", "right"}},
+                                       Json{{"label", ""}, {"w", "24px"}, {"align", "center"}}});
         view["rows"] = rows;
-        view["detail"] = chosen ? Detail(admitted, bindings, *chosen, saving) : Json();
+        view["detail"] = chosen ? Detail(bindings, *chosen, saving) : Json();
         view["confirm"] = Confirm(admitted, bindings, records);
 
         // The game's name editor: the record keeps the name the game proposes.
@@ -269,61 +291,14 @@ class SavesScreen final : public Screen
     }
 
   private:
-    // Dates of the game's page of slots: the page shows ten consecutive records.
-    static void Dates(const Admission &admitted, std::vector<Record> &records)
-    {
-        std::vector<std::array<std::string, 3>> slots;
-        for (const Widget *note : admitted.All("SAVENOTES"))
-        {
-            if (note->index < 0)
-                continue;
-            const size_t slot = static_cast<size_t>(note->index) / 3;
-            if (slots.size() <= slot)
-                slots.resize(slot + 1);
-            slots[slot][static_cast<size_t>(note->index) % 3] = note->label;
-        }
-        if (slots.empty())
-            return;
-        // A slot without a valid in-game date is empty or not filled in yet (the game fills
-        // its page over a few frames).
-        const auto filled = [&slots](size_t s) { return ParseStamp(slots[s][1]).Valid(); };
-        // The page starts at the record where the most filled slots carry the record's name
-        // (a slot shows the name stored inside the file, which the player cannot change but
-        // a copied file can differ in); its slots then belong to the records by position.
-        size_t best = records.size(), best_matches = 0;
-        for (size_t first = 0; first < records.size(); ++first)
-        {
-            size_t matches = 0;
-            for (size_t s = 0; s < slots.size() && first + s < records.size(); ++s)
-                if (filled(s) && !records[first + s].fresh && slots[s][0] == records[first + s].row->label)
-                    ++matches;
-            if (matches > best_matches)
-            {
-                best = first;
-                best_matches = matches;
-            }
-        }
-        for (size_t s = 0; best < records.size() && s < slots.size() && best + s < records.size(); ++s)
-            if (filled(s) && !records[best + s].fresh)
-            {
-                records[best + s].played = ParseStamp(slots[s][1]);
-                records[best + s].created = ParseStamp(slots[s][2]);
-            }
-    }
-
-    Json Detail(const Admission &admitted, Bindings &bindings, const Record &record, bool saving)
+    Json Detail(Bindings &bindings, const Record &record, bool saving)
     {
         Json facts = Json::array();
         if (record.played.Valid())
-            facts.push_back(Json{{"k", bindings.Text("save.game_date")}, {"v", GameDate(bindings, record.played) + ", " + record.played.clock}});
-        if (record.row->value == "1")
-            for (const Widget *info : admitted.All("SAVEINFO"))
-                if (info->index == 1)
-                {
-                    const auto [label, value] = PlayTime(bindings, info->label);
-                    if (!value.empty())
-                        facts.push_back(Json{{"k", label}, {"v", value}});
-                }
+            facts.push_back(Json{{"k", bindings.Text("save.game_date")},
+                                 {"v", GameDate(bindings, record.played) + (record.played.clock.empty() ? "" : ", " + record.played.clock)}});
+        if (record.minutes >= 0)
+            facts.push_back(Json{{"k", bindings.Text("save.play_time")}, {"v", PlayTime(bindings, record.minutes)}});
         if (record.created.Valid())
             facts.push_back(Json{{"k", bindings.Text("save.created")}, {"v", CreatedDate(bindings, record.created)}});
 
@@ -344,8 +319,10 @@ class SavesScreen final : public Screen
             asked_name_ = name;
             bindings.Send(*row, "delete", row->row_id);
         });
-        return Json{{"title", Name(bindings, record)},
-                    {"sub", ""},
+        // V2-Save-*: the location as the title, the hero under it.
+        const bool located = !record.location.empty();
+        return Json{{"title", located ? record.location : Name(bindings, record)},
+                    {"sub", located ? (record.autosave ? Name(bindings, record) + (record.hero.empty() ? "" : " · " + record.hero) : record.hero) : ""},
                     {"facts", facts},
                     {"primary", primary},
                     {"disabled", !row->Offers("activate")},
@@ -388,7 +365,7 @@ class SavesScreen final : public Screen
         for (const auto &kind : kinds)
             if (asked_here && asked_ == kind.kind)
                 view = Json{{"preset", kind.preset},       {"title", bindings.Text(kind.title)},
-                            {"subject", asked_ == "save" ? "" : asked_name_}, {"text", text},
+                            {"subject", asked_ == "save" ? "" : asked_name_}, {"text", ""},
                             {"yes", bindings.Text(kind.title)}, {"no", no ? no->label : bindings.Text("common.cancel")}};
         bindings.Forward("confirm-confirm", *yes, "press");
         if (no)
