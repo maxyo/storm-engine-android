@@ -74,6 +74,9 @@ def parse_arguments():
     parser.add_argument('--size', default='1280x720', help='window size (default 1280x720)')
     parser.add_argument('--timeout', type=int, default=240, help='seconds one scene may take before the engine is killed')
     parser.add_argument('--gl-threads', type=int, default=2, help='software rasteriser threads per engine')
+    parser.add_argument('--settle', type=int, default=300,
+                        help='ms each scene renders after its fader before the capture; frame time and the renderer '
+                             'counters are means over this window (raise it for performance measurements)')
     parser.add_argument('--techniques', type=Path, default=REPOSITORY / 'src/techniques',
                         help="the engine's techniques, laid over the game's as the APK build does")
     parser.add_argument('--keep-work', action='store_true', help='keep the per-engine game copies and logs')
@@ -281,7 +284,8 @@ class Shard(threading.Thread):
         game, control = self.prepare(run)
         environment = dict(os.environ, DISPLAY=f':{self.display}', XDG_DATA_HOME=str(run / 'data'),
                            SDL_VIDEODRIVER='x11', SDL_AUDIODRIVER='dummy', LIBGL_ALWAYS_SOFTWARE='1',
-                           LP_NUM_THREADS=str(self.arguments.gl_threads), STORM_SCENE_SWEEP_DIR=str(control))
+                           LP_NUM_THREADS=str(self.arguments.gl_threads), STORM_SCENE_SWEEP_DIR=str(control),
+                           STORM_SCENE_SWEEP_SETTLE_MS=str(self.arguments.settle))
         stdout = run / 'stdout.log'
         with open(stdout, 'wb') as output:
             engine = subprocess.Popen(
@@ -332,6 +336,7 @@ class Shard(threading.Thread):
                     loaded = time.monotonic()
                     metrics['load_ms'] = round((loaded - begun) * 1000)
                 elif kind == 'capture':
+                    rest, _, renderer = rest.partition(' renderer: ')
                     values = dict(item.split('=') for item in rest.split())
                     pending += tail.collect()
                     image = read_frame(self.work / 'Xvfb_screen0', self.size)
@@ -344,6 +349,9 @@ class Shard(threading.Thread):
                     metrics.update(frame_ms=round(float(values['frame_ms']), 1), draws=int(values['draws']),
                                    rss_mb=int(re.search(r'VmRSS:\s+(\d+)', status)[1]) // 1024,
                                    shot=str(shot.with_suffix('.jpg')))
+                    # Per-frame means of the renderer counters (storm/render/perf_stats.hpp).
+                    metrics['renderer'] = {key: float(value) for key, value in
+                                           (item.split('=') for item in renderer.split())}
                     metrics['capture_reasons'] = reasons
                     (control / 'ack').touch()
                 elif kind == 'end':

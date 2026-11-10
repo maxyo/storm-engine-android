@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Watchdog: list every CMake build directory of the workspace that compiles without the
+Storm ccache launcher (tools/ccache/README.md). Exit code 1 when any is found.
+
+  tools/ccache/check-build-dirs [workspace]
+
+The workspace defaults to the directory holding all engine and application worktrees.
+"""
+import os
+from pathlib import Path
+import re
+import sys
+
+repo = Path(__file__).resolve().parents[2]
+workspace = repo.parent.parent if (repo.parent / '.gitmodules').is_file() else repo.parent
+if len(sys.argv) > 2 or sys.argv[1:2] in (['-h'], ['--help']):
+    sys.exit(__doc__)
+if len(sys.argv) == 2:
+    workspace = Path(sys.argv[1]).resolve()
+SKIP = {'.git', '_deps', 'CMakeFiles', 'node_modules', '.gradle'}
+MAX_DEPTH = 7
+
+bad, exception, good = [], [], 0
+for directory, subdirectories, files in os.walk(workspace):
+    depth = len(Path(directory).relative_to(workspace).parts)
+    subdirectories[:] = [] if depth >= MAX_DEPTH else [d for d in subdirectories if d not in SKIP]
+    if 'CMakeCache.txt' not in files:
+        continue
+    subdirectories[:] = []
+    text = (Path(directory) / 'CMakeCache.txt').read_text(errors='replace')
+    entries = dict(re.findall(r'^([A-Za-z_]+):[A-Z]+=(.*)$', text, re.M))
+    problems = []
+    for lang in ('C', 'CXX'):
+        if f'CMAKE_{lang}_FLAGS' not in entries:  # the language is enabled
+            continue
+        launcher = entries.get(f'CMAKE_{lang}_COMPILER_LAUNCHER', '')
+        if re.search(r'/tools/ccache/uncached(;|$)', launcher):
+            exception.append(f'{directory}: STORM_ALLOW_NO_CCACHE="{launcher.split(";", 1)[-1]}"')
+            break
+        if not re.search(r'/tools/ccache/launcher$', launcher):
+            problems.append(f'{lang}="{launcher}"')
+    if problems:
+        bad.append(f'{directory}: ' + ', '.join(problems))
+    elif not exception or not exception[-1].startswith(f'{directory}:'):
+        good += 1
+
+for line in exception:
+    print('EXCEPTION ' + line)
+for line in bad:
+    print('NO CCACHE ' + line)
+print(f'{good} build directories use tools/ccache/launcher, {len(exception)} allowed exceptions, '
+      f'{len(bad)} without it ({workspace})')
+sys.exit(1 if bad else 0)

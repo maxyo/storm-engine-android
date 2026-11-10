@@ -112,3 +112,12 @@ threshold, background decode (cursor hold, stop while decoding, destruction
 with queued decodes) and ducking; run with and without `--sanitize`.
 Not verified on a device: decode latency on phone storage and the audible
 effect of the default thresholds.
+
+## PCM streams (video soundtracks)
+
+`Mixer::stream()` returns a `PcmStream`: 48 kHz stereo float pushed by one producer thread
+(the video demuxer) through a one-second ring buffer and pulled by miniaudio as a non-spatial
+sound in the master group, so background suspension, fades and ducking apply while game sound
+slots (`stop(0)`, pitch, categories) do not touch it. `played()` counts frames handed to the mixer
+and is the video's master clock; underruns play silence and are not counted. `SoundService`
+exposes it as `VSoundService::CreatePcmStream()`. Covered by `tests/audio/service.cpp`.

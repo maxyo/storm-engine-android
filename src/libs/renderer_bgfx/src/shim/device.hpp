@@ -23,6 +23,8 @@ class Context final : public render::FrameOwner
     static Context &instance();
 
     bool init(SDL_Window *window, uint32_t width, uint32_t height, bool vsync);
+    // Host checks without a display (tests/renderer_bgfx): bgfx's Noop renderer, no window, no surface events.
+    bool init_headless(uint32_t width, uint32_t height);
     void shutdown();
     bool ready() const { return initialised_ && surface_.valid; }
     bool initialised() const { return initialised_; }
@@ -51,6 +53,8 @@ class Context final : public render::FrameOwner
     bool run_frame(uint32_t flags, uint32_t *frame_number = nullptr);
 
     uint64_t frame_index() const { return frame_.frame_index; }
+    // Counts bgfx::frame() calls (presents and read-backs): transient buffers live until the next one.
+    uint32_t submitted_frames() const { return submitted_frames_; }
     const bgfx::Caps *caps() const { return caps_; }
     bool flip_y() const { return flip_y_; }
     bgfx::UniformHandle sampler(uint32_t unit) const { return samplers_[unit]; }
@@ -89,6 +93,7 @@ class Context final : public render::FrameOwner
         uint32_t refs = 0;
         uint32_t token = 0;
     };
+    bool start(SDL_Window *window, uint32_t width, uint32_t height, bool vsync); // null window: headless
     void create_resources();
     void pace();
     void try_restore();
@@ -125,6 +130,7 @@ class Context final : public render::FrameOwner
     render::GamePictureProvider *picture_provider_ = nullptr;
     GameTarget game_target_;
     uint32_t frame_limit_ = 0;
+    uint32_t submitted_frames_ = 0;
     double last_present_ = 0.0;
 };
 
@@ -292,7 +298,6 @@ struct Device final : Direct3DDevice9Stub
     };
     enum UniformId
     {
-        U_WORLDVIEW,
         U_PROJ,
         U_VS,
         U_CLIP,
@@ -316,6 +321,39 @@ struct Device final : Direct3DDevice9Stub
     Uniform uniforms[U_COUNT];
     void set_uniform(UniformId id, const float *data, uint16_t count);
     void invalidate_uniforms();
+
+    // What the previous draw of the frame submitted, for the change counters (perf_stats.hpp).
+    struct LastDraw
+    {
+        uint16_t program = UINT16_MAX;
+        uint64_t state = UINT64_MAX;
+        uint32_t stencil = UINT32_MAX, factor = UINT32_MAX;
+        uint16_t texture[kSamplerUnits];
+        uint32_t sampler[kSamplerUnits];
+        LastDraw()
+        {
+            std::fill(std::begin(texture), std::end(texture), UINT16_MAX);
+            std::fill(std::begin(sampler), std::end(sampler), UINT32_MAX);
+        }
+    };
+    LastDraw last_draw;
+
+    // Vertex ranges of buffers written in this frame that are already in transient memory: later
+    // draws of the same (or a contained) range bind the copy instead of copying again. Valid until
+    // the next bgfx::frame(); a new Lock of the buffer (write_serial) or its release invalidates them.
+    struct TransientRange
+    {
+        uint32_t bgfx_frame;
+        const VertexBuffer *vb;
+        uint32_t serial;
+        uint16_t layout;
+        uint32_t stride;
+        size_t begin, bytes; // in the buffer's shadow copy
+        bgfx::TransientVertexBuffer tvb;
+    };
+    std::vector<TransientRange> transient_ranges;
+    void forget_transient(const VertexBuffer *vb);
+    bool uniforms_changed = false; // a uniform was set since the previous submit
 
 };
 
