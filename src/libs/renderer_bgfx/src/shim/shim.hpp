@@ -111,6 +111,7 @@ struct TexStore
     void destroy_sampled();
     bool create_transcoded();
     void finish_transcode();
+    void keep_interim(const char *reason);
 };
 using TexStorePtr = std::shared_ptr<TexStore>;
 TexStorePtr make_store(Device *device, TexKind kind, uint32_t width, uint32_t height, uint32_t depth, uint32_t levels,

@@ -197,8 +197,7 @@ TexStorePtr make_store(Device *device, TexKind kind, uint32_t width, uint32_t he
 
 TexStore::~TexStore()
 {
-    if (transcode_job)
-        transcode_job->cancelled = true;
+    texture::Service::instance().release(transcode_job);
     texture::Service::instance().add_fallback_bytes(-fallback_bytes);
     if (bgfx::isValid(handle) && Context::instance().initialised())
     {
@@ -240,7 +239,6 @@ void TexStore::unlock(uint32_t face, uint32_t level)
 
 void TexStore::create_gpu()
 {
-    const bgfx::Caps *caps = Context::instance().caps();
     const FormatInfo info = format_info(format);
     uint64_t flags = 0;
     if (depth_stencil)
@@ -262,7 +260,6 @@ void TexStore::create_gpu()
             flags |= BGFX_TEXTURE_RT;
     }
     const bool mips = levels > 1;
-    (void)caps;
     switch (kind)
     {
     case TexKind::Tex2D:
@@ -430,13 +427,18 @@ const bgfx::Memory *make_dds(const TexStore &store, bgfx::TextureFormat::Enum gp
                 memcpy(out, sub.data.data(), bytes);
             else if (block_source)
             {
-                // the decoder writes whole 4x4 blocks; keep the visible w x h part
+                // the decoder writes whole 4x4 blocks; keep the visible w x h part of every slice
                 const uint32_t aligned_w = texture::blocks_x(w) * 4;
+                const size_t slice_bytes = level_size(store.format, w, h);
                 decoded.resize(static_cast<size_t>(aligned_w) * texture::blocks_x(h) * 4 * 4);
-                texture::decode_level(layout_of(store).format, sub.data.data(), w, h, decoded.data());
-                for (uint32_t y = 0; y < h; ++y)
-                    memcpy(out + static_cast<size_t>(y) * w * 4, decoded.data() + static_cast<size_t>(y) * aligned_w * 4,
-                           static_cast<size_t>(w) * 4);
+                for (uint32_t z = 0; z < d; ++z)
+                {
+                    texture::decode_level(layout_of(store).format, sub.data.data() + z * slice_bytes, w, h, decoded.data());
+                    uint8_t *slice = out + static_cast<size_t>(z) * w * h * 4;
+                    for (uint32_t y = 0; y < h; ++y)
+                        memcpy(slice + static_cast<size_t>(y) * w * 4,
+                               decoded.data() + static_cast<size_t>(y) * aligned_w * 4, static_cast<size_t>(w) * 4);
+                }
             }
             else
             {
@@ -455,6 +457,12 @@ void submit_transcode(TexStore &store)
     texture::Service &service = texture::Service::instance();
     if (!service.has_room())
         return;
+    for (const TexStore::Sub &sub : store.subs)
+        if (sub.data.empty())
+        {
+            trap("ETC2 transcode requested without the texture's DXT data");
+            return;
+        }
     std::vector<uint8_t> input;
     size_t total = 0;
     for (const TexStore::Sub &sub : store.subs)
@@ -551,23 +559,51 @@ bool TexStore::create_transcoded()
     return true;
 }
 
+// The interim (DXT decoded, top level dropped when large) texture becomes final: reported, never silent.
+void TexStore::keep_interim(const char *reason)
+{
+    trap(reason);
+    texture::Service &service = texture::Service::instance();
+    service.release(transcode_job);
+    service.add_fallback_bytes(-fallback_bytes);
+    fallback_bytes = 0;
+}
+
 void TexStore::finish_transcode()
 {
     if (!fallback_bytes)
         return;
+    texture::Service &service = texture::Service::instance();
     if (!transcode_job)
     {
-        submit_transcode(*this); // the queue was full at creation
-        release_shadow();
+        // The queue was full at creation, or a job failed: (re)submit while the DXT data is still here.
+        if (shadow_released)
+        {
+            keep_interim("ETC2 transcode cannot be retried: the DXT data was already released");
+            return;
+        }
+        submit_transcode(*this);
+        release_shadow(); // only once a job holds a copy of the data
         return;
     }
-    if (transcode_job->state.load(std::memory_order_acquire) != texture::Job::Done)
+    const int state = transcode_job->state.load(std::memory_order_acquire);
+    if (state == texture::Job::Failed)
+    {
+        service.release(transcode_job);
+        if (shadow_released)
+            keep_interim("ETC2 transcode failed and the DXT data is gone; the texture keeps its interim copy");
+        return; // otherwise resubmitted on the next call
+    }
+    if (state != texture::Job::Done)
         return;
     const bgfx::TextureHandle etc = bgfx::createTexture(ref_blob(transcode_job->result));
     const bgfx::TextureFormat::Enum etc_gpu_format = etc_format(transcode_job->format);
-    transcode_job.reset();
     if (!bgfx::isValid(etc))
+    {
+        keep_interim("creating the transcoded ETC2 texture failed; the texture keeps its interim copy");
         return;
+    }
+    service.release(transcode_job);
     bgfx::destroy(handle);
     handle = etc;
     gpu_format = etc_gpu_format;
@@ -585,15 +621,9 @@ void TexStore::settle()
         finish_transcode();
         if (!fallback_bytes)
             break;
-        if ((transcode_job && transcode_job->state.load(std::memory_order_acquire) == texture::Job::Failed) ||
-            std::chrono::steady_clock::now() > deadline)
+        if (std::chrono::steady_clock::now() > deadline)
         {
-            trap("ETC2 transcode of a pinned texture did not finish; it keeps its temporary texture");
-            if (transcode_job)
-                transcode_job->cancelled = true;
-            transcode_job.reset();
-            texture::Service::instance().add_fallback_bytes(-fallback_bytes);
-            fallback_bytes = 0;
+            keep_interim("ETC2 transcode of a pinned texture did not finish; it keeps its interim copy");
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -602,9 +632,7 @@ void TexStore::settle()
 
 void TexStore::destroy_sampled()
 {
-    if (transcode_job)
-        transcode_job->cancelled = true;
-    transcode_job.reset();
+    texture::Service::instance().release(transcode_job);
     texture::Service::instance().add_fallback_bytes(-fallback_bytes);
     fallback_bytes = 0;
     transcoded = false;

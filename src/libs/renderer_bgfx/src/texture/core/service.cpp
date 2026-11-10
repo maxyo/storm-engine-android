@@ -85,8 +85,11 @@ std::shared_ptr<Job> Service::submit(const Layout &layout, uint64_t key, EtcForm
 {
     std::unique_lock lock(mutex_);
     if (auto it = in_flight_.find(key); it != in_flight_.end())
-        if (auto job = it->second.lock())
-            return job; // the same contents are already being transcoded
+        if (auto job = it->second.lock(); job && !job->cancelled)
+        {
+            ++job->holders; // the same contents are already being transcoded
+            return job;
+        }
     if (queue_.size() >= kMaxQueuedJobs || queued_bytes_ >= kMaxQueuedBytes)
         return nullptr;
     auto job = std::make_shared<Job>();
@@ -94,6 +97,7 @@ std::shared_ptr<Job> Service::submit(const Layout &layout, uint64_t key, EtcForm
     job->key = key;
     job->format = format;
     job->input = std::move(input);
+    job->holders = 1;
     queued_bytes_ += job->input.size();
     queue_.push_back(job);
     in_flight_[key] = job;
@@ -102,6 +106,18 @@ std::shared_ptr<Job> Service::submit(const Layout &layout, uint64_t key, EtcForm
     lock.unlock();
     wake_.notify_one();
     return job;
+}
+
+void Service::release(std::shared_ptr<Job> &job)
+{
+    if (!job)
+        return;
+    {
+        std::lock_guard lock(mutex_); // submit must not hand out a job that is being cancelled
+        if (--job->holders == 0)
+            job->cancelled = true;
+    }
+    job.reset();
 }
 
 void Service::start_workers()

@@ -381,10 +381,21 @@ void test_service(const fs::path &directory)
     cancelled_payload[0] ^= 1;
     service.shutdown();
     service.configure(config, nullptr);
+    // shared by two holders: one release keeps it, the last one cancels it
     auto job2 = service.submit(layout, key ^ 1, EtcFormat::Rgb8, cancelled_payload);
-    job2->cancelled = true;
+    auto job2_shared = service.submit(layout, key ^ 1, EtcFormat::Rgb8, cancelled_payload);
+    CHECK(job2_shared == job2);
+    auto observer = job2;
+    service.release(job2_shared);
+    CHECK(!job2_shared && !observer->cancelled);
+    service.release(job2);
+    CHECK(observer->cancelled);
+    // a cancelled job is never handed out again
+    auto job3 = service.submit(layout, key ^ 1, EtcFormat::Rgb8, cancelled_payload);
+    CHECK(job3 && job3 != observer && !job3->cancelled);
+    service.release(job3);
     service.shutdown();
-    CHECK(job2->state.load() == Job::Failed && !job2->result);
+    CHECK(observer->state.load() == Job::Failed && !observer->result);
 }
 } // namespace
 

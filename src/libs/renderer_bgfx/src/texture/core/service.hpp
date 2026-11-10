@@ -47,7 +47,10 @@ struct Job
     std::vector<uint8_t> input; // D3D payload, released once encoded
     std::shared_ptr<const Blob> result; // set before state becomes Done
     std::atomic<int> state{Queued};
+    // Set by the service only, when the last holder releases the job (see Service::release); a
+    // deduplicated job is shared by every texture with the same contents.
     std::atomic<bool> cancelled{false};
+    std::atomic<int> holders{0};
 };
 
 class Service
@@ -66,7 +69,10 @@ class Service
     // Main thread. Counts a hit or a miss.
     std::optional<Blob> lookup(uint64_t key, const Layout &layout);
     // Main thread. Returns nullptr when the queue is full (try again later).
+    // Returns a job the caller holds until it calls release(); identical contents share one job.
     std::shared_ptr<Job> submit(const Layout &layout, uint64_t key, EtcFormat format, std::vector<uint8_t> input);
+    // Drops the caller's hold and resets `job`; the job is cancelled when no holder is left.
+    void release(std::shared_ptr<Job> &job);
     bool has_room() const;
     // Bytes of temporary (pre-ETC2) textures alive on the GPU.
     void add_fallback_bytes(int64_t delta) { fallback_bytes_ += delta; }
