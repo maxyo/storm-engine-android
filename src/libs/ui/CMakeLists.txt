@@ -10,6 +10,10 @@ option(STORM_ENABLE_UI "Build the RmlUi based portable game UI runtime" OFF)
 if(NOT STORM_ENABLE_UI)
     return()
 endif()
+# bgfx render backend (drawn inside the engine frame through frame_owner.hpp). bgfx itself
+# is pinned only by src/libs/renderer_bgfx; a stand-alone build pulls that directory in
+# (shaders through its storm_bgfx_embed_shaders and the cached host shaderc).
+option(STORM_UI_BGFX "Build the bgfx render backend of the UI runtime" OFF)
 
 include(FetchContent)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -122,6 +126,23 @@ add_library(storm_ui STATIC
 target_compile_features(storm_ui PUBLIC cxx_std_20)
 target_include_directories(storm_ui PUBLIC include PRIVATE src "${storm_ui_rmlui_SOURCE_DIR}/Backends")
 target_link_libraries(storm_ui PUBLIC RmlUi::RmlUi nlohmann_json::nlohmann_json PRIVATE lunasvg::lunasvg plutovg::plutovg bimg)
+
+if(STORM_UI_BGFX)
+    set(storm_ui_renderer_bgfx "${CMAKE_CURRENT_SOURCE_DIR}/../renderer_bgfx")
+    if(NOT TARGET bgfx)
+        add_subdirectory("${storm_ui_renderer_bgfx}" "${CMAKE_CURRENT_BINARY_DIR}/renderer_bgfx" EXCLUDE_FROM_ALL)
+    endif()
+    file(GLOB storm_ui_shader_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.sc")
+    list(FILTER storm_ui_shader_sources EXCLUDE REGEX "varying\\.def\\.sc$")
+    storm_bgfx_embed_shaders(TARGET storm_ui_shaders NAMESPACE storm_ui_shaders
+        VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${storm_ui_shader_sources})
+    target_sources(storm_ui PRIVATE src/backend_bgfx.cpp)
+    # Only the frame owner's interface header is used (no symbols), so the stand-alone
+    # build does not need the engine's renderer library.
+    target_include_directories(storm_ui PUBLIC "${storm_ui_renderer_bgfx}/include")
+    target_link_libraries(storm_ui PUBLIC bgfx PRIVATE storm_ui_shaders)
+    target_compile_definitions(storm_ui PUBLIC STORM_UI_BGFX=1)
+endif()
 
 if(ANDROID)
     # RmlUi's GL3 renderer picks GLSL ES 3.20 on Android. Its WebGL 2 path is the same code
