@@ -27,14 +27,17 @@
 //                           start of the next dispatch(), before normal
 //                           subscribers. Each event reaches a handler once.
 //
-// Early delivery exists for Android pause: SDL raises WillEnterBackground and
-// DidEnterBackground on the game thread from inside SDL_PumpEvents() and then
-// blocks that thread until the activity resumes. A normal subscriber therefore
-// sees both only after the app is back in the foreground. Anything that must
-// happen before the app is suspended (release the swapchain/surface, pause
-// audio, flush a save) has to be an early subscriber. Early handlers must be
-// quick (Android may kill a paused process) and must tolerate being called
-// from inside an SDL function on the game thread.
+// Android pause, precisely (SDL 2.0.18, SDL_androidevents.c): SDL raises
+// WindowMinimized, WillEnterBackground and DidEnterBackground on the game
+// thread from inside SDL_PumpEvents(), returns, and blocks that thread in a
+// later SDL_PumpEvents() once DidEnterBackground has left SDL's queue. With
+// the engine's main loop (pump, dispatch(), flush) a normal subscriber
+// therefore still runs before the thread is suspended, one dispatch() later
+// than an early one. Use an early subscriber when the work must be finished
+// before control returns to SDL at all (releasing a surface/swapchain that the
+// OS is about to destroy), and keep it quick: Android may kill a paused
+// process. Early handlers must tolerate being called from inside an SDL
+// function on the game thread.
 //
 // Event order on Android
 // ----------------------

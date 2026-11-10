@@ -26,8 +26,10 @@ const int id = storm::AppEvents::instance().subscribe([](const storm::AppEvent &
     if (e.type == storm::AppEventType::WindowResized) resize(e.width, e.height);
 });
 
-// Early subscriber: needed for work that must finish before Android suspends
-// the game thread (it runs inside SDL_PumpEvents when SDL raises the event there).
+// Early subscriber: runs inside the SDL call that raised the event when that
+// happens on the game thread (Android pause/resume), i.e. before SDL gets
+// control back. Normal subscribers run one dispatch() later, which with the
+// engine's main loop is still before Android suspends the game thread.
 storm::AppEvents::instance().subscribe([](const storm::AppEvent &e) {
     if (e.type == storm::AppEventType::WillEnterBackground) releaseSurface();
 }, true);

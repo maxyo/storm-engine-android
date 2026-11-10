@@ -196,8 +196,8 @@ void HandleWindowEvent(const storm::OSWindow::Event &event)
 void SubscribeEngineToAppEvents()
 {
     auto &events = storm::AppEvents::instance();
-    // Early: on Android the game thread is suspended right after these, so
-    // audio must be paused and scripts told now, not after the app returns.
+    // Early: pause audio and tell scripts inside the SDL call that announces the
+    // pause, before anything else can run.
     events.subscribe(
         [](const storm::AppEvent &event) {
             if (event.type == storm::AppEventType::WillEnterBackground)
@@ -614,8 +614,7 @@ int main(int argc, char *argv[])
         }
         if (SDL_HasEvent(SDL_QUIT))
             androidLifecycle.consume(SDL_QUIT);
-        // Audio pause/resume for the lifecycle is driven by AppEvents (early, before
-        // SDL suspends this thread) through audioGate, not from this late queue scan.
+        // Audio pause/resume for the lifecycle goes through AppEvents and audioGate.
         (void)wasRunning;
         if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty())
             gameplayShortcuts.clear();
