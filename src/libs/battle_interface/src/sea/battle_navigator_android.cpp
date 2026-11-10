@@ -21,7 +21,7 @@ struct Shapes {
     float x,y,unit;
     Point at(float a,float r)const {auto p=polar(a,r*unit);return {x+p.x,y+p.y};}
     void triangle(Point a,Point b,Point c,uint32_t color) {
-        for(auto p:{a,b,c})vertices.push_back({CVECTOR(p.x,p.y,1.f),.5f,color});
+        for(auto p:{a,b,c})vertices.push_back({glm::vec3(p.x,p.y,1.f),.5f,color});
     }
     void line(Point a,Point b,float width,uint32_t color) {
         const auto ink=nav::strokeQuad({a,b,width});if(!ink)return;
@@ -102,7 +102,7 @@ bool BATTLE_NAVIGATOR::DrawAndroid() const {
     Shapes mesh{{},cx,cy,radius/120.f};
     const auto ink=sea_nav::primitiveMetrics(*layout,*aperture);
     const float functional=ink.functionalStroke(),decorative=ink.decorativeStroke();
-    const CMatrix world;rs->SetTransform(D3DTS_WORLD,world);
+    const glm::mat4 world;rs->SetTransform(D3DTS_WORLD,storm::math::d3dMatrix(world));
     mesh.arc(0,2*pi,60,radius,0xff183b48);mesh.flush(rs);
     // Reuse the real island render target and exactly the original texture-space
     // center, world radius/scale, and heading. No island artwork is bundled.
@@ -110,9 +110,9 @@ bool BATTLE_NAVIGATOR::DrawAndroid() const {
         std::array<BI_ONETEXTURE_VERTEX,RADIAL_QUANTITY+2> map{};
         const float tx=.5f+(m_fXPos-m_fXIsland)/m_fIslandWidth,ty=.5f-(m_fYPos-m_fYIsland)/m_fIslandHeight;
         const float tr=m_fWorldRad*m_fCurScale/m_fIslandRadius;
-        map[0]={CVECTOR(cx,cy,1),.5f,tx,ty};
+        map[0]={glm::vec3(cx,cy,1),.5f,tx,ty};
         for(int i=0;i<=RADIAL_QUANTITY;++i){float a=2*pi*i/RADIAL_QUANTITY;
-            map[i+1]={CVECTOR(cx+std::sin(a)*radius*93/120,cy+std::cos(a)*radius*93/120,1),.5f,
+            map[i+1]={glm::vec3(cx+std::sin(a)*radius*93/120,cy+std::cos(a)*radius*93/120,1),.5f,
                 tx+tr*std::sin(a-m_fAngle),ty+tr*std::cos(a-m_fAngle)};}
         rs->SetSamplerState(0,D3DSAMP_ADDRESSU,D3DTADDRESS_CLAMP);rs->SetSamplerState(0,D3DSAMP_ADDRESSV,D3DTADDRESS_CLAMP);
         rs->SetTexture(0,m_pIslandTexture);

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Check full engine artifact identity, architecture, entry point and real audio."""
+"""Check full engine artifact identity, architecture, entry point, real audio and entity registrations."""
 import argparse
 from pathlib import Path
+import re
 import subprocess
 p=argparse.ArgumentParser();p.add_argument('--library',type=Path,required=True);p.add_argument('--ndk',type=Path,required=True);p.add_argument('--allocator-library',type=Path);a=p.parse_args()
 header=a.library.read_bytes()[:20]
@@ -26,6 +27,22 @@ for library in ['libSDL2.so','libdxvk_d3d9.so','libfmt.so','libmimalloc.so','lib
     if library not in deps:raise SystemExit('Missing runtime dependency: '+library)
 if 'fmod' in deps.lower():raise SystemExit('Unexpected FMOD dependency')
 print('PASS: full engine ARM64 linked, SDL_main and real SoundService/miniaudio symbols, no FMOD')
+
+# Entities, services and script libraries register only through the static
+# <name>vmaci objects of the CREATE_* macros (src/libs/core/include/vma.hpp);
+# nothing references them except their static constructor, so a module that
+# loses whole-archive linking, or a section/LTO discard, drops them silently and
+# the game only fails later when a script creates that class.
+macro=re.compile(r'^\s*CREATE_(?:CLASS|SERVICE|SCRIPTLIBRIARY)\((\w+)\)',re.M)
+declared={name for source in (Path(__file__).resolve().parents[2]/'src').rglob('*.cpp')
+          for name in macro.findall(source.read_text(errors='replace'))}
+if not declared:raise SystemExit('No CREATE_CLASS/CREATE_SERVICE/CREATE_SCRIPTLIBRIARY registrations found in src')
+if not local:raise SystemExit('Registration check needs the unstripped library (build output, not the packaged one)')
+# A registration inside a namespace demangles as ns::<name>vmaci.
+linked={line.split()[-1].rsplit('::',1)[-1][:-len('vmaci')] for line in local.splitlines() if line.endswith('vmaci')}
+missing=sorted(declared-linked)
+if missing:raise SystemExit('Registrations missing from libengine.so: '+', '.join(missing))
+print(f'PASS: all {len(declared)} source-declared entity/service/script-library registrations are linked')
 
 if a.allocator_library:
     exports=subprocess.check_output([str(bin/'llvm-nm'),'-D','--defined-only',str(a.allocator_library)],text=True)

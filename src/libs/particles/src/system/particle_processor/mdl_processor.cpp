@@ -61,8 +61,8 @@ void ModelProcessor::FreeParticle(MDL_ParticleData *pItem) const
     }
 }
 
-void ModelProcessor::AddParticle(ParticleSystem *pSystem, const Vector &velocity_dir, const Vector &pos,
-                                 const Matrix &matWorld, float EmitterTime, float EmitterLifeTime, FieldList *pFields,
+void ModelProcessor::AddParticle(ParticleSystem *pSystem, const glm::vec3 &velocity_dir, const glm::vec3 &pos,
+                                 const glm::mat4 &matWorld, float EmitterTime, float EmitterLifeTime, FieldList *pFields,
                                  uint32_t *pActiveCount, uint32_t dwGUID)
 {
     auto *pData = AllocParticle();
@@ -90,21 +90,21 @@ void ModelProcessor::AddParticle(ParticleSystem *pSystem, const Vector &velocity
     pData->Graph_TrackY = pFields->FindGraph(PARTICLE_TRACK_Y);
     pData->Graph_TrackZ = pFields->FindGraph(PARTICLE_TRACK_Z);
 
-    Vector PositionOffset;
+    glm::vec3 PositionOffset;
     PositionOffset.x = pData->Graph_TrackX->GetRandomValue(0.0f, 100.0f);
     PositionOffset.y = pData->Graph_TrackY->GetRandomValue(0.0f, 100.0f);
     PositionOffset.z = pData->Graph_TrackZ->GetRandomValue(0.0f, 100.0f);
 
     pData->EmitterGUID = dwGUID;
     pData->ActiveCount = pActiveCount;
-    pData->RenderPos = (pos + PositionOffset) * matWorld;
-    pData->Velocity = matWorld.MulNormal(velocity_dir);
+    pData->RenderPos = storm::math::transformPoint(matWorld, pos + PositionOffset);
+    pData->Velocity = glm::mat3(matWorld) * velocity_dir;
     pData->ElapsedTime = 0.0f;
     pData->matWorld = matWorld;
 
-    pData->Angle = Vector(0.0f);
-    pData->RenderAngle = Vector(0.0f);
-    pData->ExternalForce = Vector(0.0f, 0.0f, 0.0f);
+    pData->Angle = glm::vec3(0.0f);
+    pData->RenderAngle = glm::vec3(0.0f);
+    pData->ExternalForce = glm::vec3(0.0f, 0.0f, 0.0f);
     pData->PhysPos = pData->RenderPos;
 
     pData->OldRenderPos = pData->RenderPos;
@@ -195,10 +195,10 @@ void ModelProcessor::Process(float DeltaTime)
         AddGravityForce(Particles[n]->ExternalForce, Particles[n]->Mass, GravK);
         SolvePhysic(Particles[n]->PhysPos, Particles[n]->Velocity, Particles[n]->ExternalForce, Particles[n]->UMass,
                     Drag, DeltaTime);
-        Particles[n]->ExternalForce = Vector(0.0f);
+        Particles[n]->ExternalForce = glm::vec3(0.0f);
 
         // FIX ME !!!
-        Vector SpinDrag;
+        glm::vec3 SpinDrag;
         SpinDrag.x = Particles[n]->Graph_SpinDragX->GetValue(Time, LifeTime, Particles[n]->SpinDragK_X);
         SpinDrag.x = 1.0f - (SpinDrag.x * 0.01f);
         if (SpinDrag.x < 0.0f)
@@ -222,11 +222,11 @@ void ModelProcessor::Process(float DeltaTime)
 
         Particles[n]->Angle += (Particles[n]->Spin * SpinDrag) * DeltaTime;
 
-        Vector TrackPos;
+        glm::vec3 TrackPos;
         TrackPos.x = Particles[n]->Graph_TrackX->GetValue(Time, LifeTime, Particles[n]->KTrackX);
         TrackPos.y = Particles[n]->Graph_TrackY->GetValue(Time, LifeTime, Particles[n]->KTrackY);
         TrackPos.z = Particles[n]->Graph_TrackZ->GetValue(Time, LifeTime, Particles[n]->KTrackZ);
-        TrackPos = TrackPos * Particles[n]->matWorld;
+        TrackPos = storm::math::transformPoint(Particles[n]->matWorld, TrackPos);
 
         // FIX ME !!!
         auto BlendPhys = Particles[n]->Graph_PhysBlend->GetValue(Time, LifeTime, Particles[n]->KPhysBlend);
@@ -240,7 +240,7 @@ void ModelProcessor::Process(float DeltaTime)
         Particles[n]->OldRenderPos = Particles[n]->RenderPos;
         Particles[n]->OldRenderAngle = Particles[n]->RenderAngle;
 
-        Particles[n]->RenderPos.Lerp(TrackPos, Particles[n]->PhysPos, BlendPhys);
+        Particles[n]->RenderPos = storm::math::lerp(TrackPos, Particles[n]->PhysPos, BlendPhys);
         Particles[n]->PhysPos = Particles[n]->RenderPos;
 
         // Particles[n]->RenderPos    = Particles[n]->PhysPos;
@@ -255,8 +255,10 @@ void ModelProcessor::Process(float DeltaTime)
         {
             // core.Trace("%d, %3.2f, %3.2f, %3.2f", n, Particles[n]->RenderPos.x, Particles[n]->RenderPos.y,
             // Particles[n]->RenderPos.z); Particles[n]->AttachedEmitter->SaveTime();
-            Particles[n]->AttachedEmitter->Teleport(Matrix(Particles[n]->OldRenderAngle, Particles[n]->OldRenderPos));
-            Particles[n]->AttachedEmitter->SetTransform(Matrix(Particles[n]->RenderAngle, Particles[n]->RenderPos));
+            Particles[n]->AttachedEmitter->Teleport(
+                storm::math::eulerMatrix(Particles[n]->OldRenderAngle, Particles[n]->OldRenderPos));
+            Particles[n]->AttachedEmitter->SetTransform(
+                storm::math::eulerMatrix(Particles[n]->RenderAngle, Particles[n]->RenderPos));
             Particles[n]->AttachedEmitter->BornParticles(DeltaTime);
 
             // if (n < Particles.size()-1)  Particles[n]->AttachedEmitter->RestoreTime();
@@ -295,7 +297,8 @@ void ModelProcessor::Draw()
     {
         const auto pR = Particles[j];
 
-        pMasterManager->Render()->SetTransform(D3DTS_WORLD, Matrix(pR->RenderAngle, pR->RenderPos));
+        pMasterManager->Render()->SetTransform(
+            D3DTS_WORLD, storm::math::d3dMatrix(storm::math::eulerMatrix(pR->RenderAngle, pR->RenderPos)));
         pR->pScene->Draw(nullptr, 0, nullptr);
     }
 

@@ -37,11 +37,11 @@ class DECK_CAMERA : public COMMON_CAMERA
     float DEFAULT_HEIGHT;
     //--------------------------------------
 
-    CVECTOR g_gv0, g_gv1, g_gv2;
+    glm::vec3 g_gv0, g_gv1, g_gv2;
 
     MODEL *pModel;
     VDX9RENDER *RenderService;
-    CVECTOR camera_pos, camera_ang;
+    glm::vec3 camera_pos, camera_ang;
     float h_eye;
     RECT Screen_Rect;
     int32_t lock_x;
@@ -50,10 +50,10 @@ class DECK_CAMERA : public COMMON_CAMERA
     bool bLoad;
     NODE *pathNode;
     void SetStartPos();
-    bool GetCrossXZ(CVECTOR &spos, CVECTOR &dv, CVECTOR &p1, CVECTOR &p2, CVECTOR &res);
+    bool GetCrossXZ(glm::vec3 &spos, glm::vec3 &dv, glm::vec3 &p1, glm::vec3 &p2, glm::vec3 &res);
     bool FindPath();
-    void SetViewPoint(CVECTOR &cViewPoint);
-    float MultiTrace(const CVECTOR &cvBase, const CVECTOR &cvDown, float fHBase);
+    void SetViewPoint(glm::vec3 &cViewPoint);
+    float MultiTrace(const glm::vec3 &cvBase, const glm::vec3 &cvDown, float fHBase);
 
   public:
     DECK_CAMERA();

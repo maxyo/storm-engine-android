@@ -1,6 +1,6 @@
 #pragma once
 
-#include "math3d.h"
+#include "storm_glm.h"
 
 class DataGraph;
 class DataColor;
@@ -16,7 +16,7 @@ struct BB_ParticleData
     uint32_t *ActiveCount;
 
     // Physical position
-    Vector PhysPos;
+    glm::vec3 PhysPos;
 
     // Angle of rotation
     float Angle;
@@ -25,10 +25,10 @@ struct BB_ParticleData
     float Spin;
 
     // Direction and "strength" of speed (NOT Normalized)
-    Vector Velocity;
+    glm::vec3 Velocity;
 
     // External force (for applying it to a particle)
-    Vector ExternalForce;
+    glm::vec3 ExternalForce;
 
     // Lifetime
     float LifeTime;
@@ -37,7 +37,7 @@ struct BB_ParticleData
     float ElapsedTime;
 
     // Transformation matrix, at emission of a particle (for a track)
-    Matrix matWorld;
+    glm::mat4 matWorld;
 
     // Weight
     float Mass;
@@ -47,9 +47,9 @@ struct BB_ParticleData
 
     // ===========================================================================
     // Final position / angle for rendering
-    Vector RenderPos;
+    glm::vec3 RenderPos;
     float RenderAngle;
-    Vector OldRenderPos;
+    glm::vec3 OldRenderPos;
     float OldRenderAngle;
 
     // ===========================================================================
@@ -104,19 +104,19 @@ struct MDL_ParticleData
     uint32_t *ActiveCount;
 
     // Physical position
-    Vector PhysPos;
+    glm::vec3 PhysPos;
 
     // Angle of rotation
-    Vector Angle;
+    glm::vec3 Angle;
 
     // Twisting speed, radians per second.
-    Vector Spin;
+    glm::vec3 Spin;
 
     // Direction and "strength" of speed (NOT Normalized)
-    Vector Velocity;
+    glm::vec3 Velocity;
 
     // External force (for applying it to a particle)
-    Vector ExternalForce;
+    glm::vec3 ExternalForce;
 
     // Lifetime
     float LifeTime;
@@ -125,7 +125,7 @@ struct MDL_ParticleData
     float ElapsedTime;
 
     // Transformation matrix, at emission of a particle (for a track)
-    Matrix matWorld;
+    glm::mat4 matWorld;
 
     // Weight
     float Mass;
@@ -135,10 +135,10 @@ struct MDL_ParticleData
 
     // ===========================================================================
     // Final position / angle for rendering
-    Vector RenderPos;
-    Vector RenderAngle;
-    Vector OldRenderPos;
-    Vector OldRenderAngle;
+    glm::vec3 RenderPos;
+    glm::vec3 RenderAngle;
+    glm::vec3 OldRenderPos;
+    glm::vec3 OldRenderAngle;
 
     // ===========================================================================
     // Graphs

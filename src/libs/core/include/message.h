@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "c_vector.h"
+#include "storm_glm.h"
 #include "entity.h"
 
 class VDATA;
@@ -25,7 +25,7 @@ public:
 namespace storm
 {
 using MessageParam = std::variant<uint8_t, uint16_t, uint32_t, int32_t, float, double, ATTRIBUTES *, entid_t, VDATA *,
-                                  CVECTOR, std::string>;
+                                  glm::vec3, std::string>;
 
 namespace detail {
 
@@ -67,7 +67,7 @@ class MESSAGE final
     ATTRIBUTES *AttributePointer();
     entid_t EntityID();
     VDATA *ScriptVariablePointer();
-    CVECTOR CVector();
+    glm::vec3 CVector();
     const std::string &String();
 
     bool Set(int32_t value);

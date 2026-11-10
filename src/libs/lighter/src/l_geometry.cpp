@@ -206,12 +206,12 @@ bool LGeometry::Process(VDX9RENDER *rs, int32_t numLights)
             }
             for (int32_t v = 0; v < num; v++)
             {
-                auto *pos = (CVECTOR *)(pnt + v * stride);
+                auto *pos = (glm::vec3 *)(pnt + v * stride);
                 vrt[numVrt].p = *pos;
-                auto *nrm = (CVECTOR *)(pnt + v * stride + 3 * sizeof(float));
+                auto *nrm = (glm::vec3 *)(pnt + v * stride + 3 * sizeof(float));
                 vrt[numVrt].n = *nrm;
                 auto color = *(uint32_t *)(pnt + v * stride + 6 * sizeof(float));
-                auto l = ~vrt[numVrt].n;
+                auto l = storm::math::lengthSquared(vrt[numVrt].n);
                 if (l > 0.0f)
                 {
                     if (l != 1.0f)
@@ -222,9 +222,9 @@ bool LGeometry::Process(VDX9RENDER *rs, int32_t numLights)
                     core.Trace("Location lighter: model %s, vbID %i, vrt: %i : normal have zero length",
                                object[i].nameReal, vbID, v);
                 }
-                vrt[numVrt].c = 0.0f;
-                vrt[numVrt].bc = 0.0f;
-                vrt[numVrt].mc = 1.0f;
+                vrt[numVrt].c = glm::vec3(0.0f);
+                vrt[numVrt].bc = glm::vec3(0.0f);
+                vrt[numVrt].mc = glm::vec3(1.0f);
                 vrt[numVrt].alpha = 0xff000000;
                 vrt[numVrt].flags = Vertex::f_zero;
                 vrt[numVrt].vbid = vbID;
@@ -290,8 +290,8 @@ bool LGeometry::Process(VDX9RENDER *rs, int32_t numLights)
                 Assert(i1 >= 0 && i1 < numVrt);
                 Assert(i2 >= 0 && i2 < numVrt);
                 Assert(i3 >= 0 && i3 < numVrt);
-                auto nrm = ((vrt[i2].p - vrt[i1].p) ^ (vrt[i3].p - vrt[i1].p));
-                float sq = sqrtf(~nrm);
+                auto nrm = glm::cross(vrt[i2].p - vrt[i1].p, vrt[i3].p - vrt[i1].p);
+                float sq = sqrtf(storm::math::lengthSquared(nrm));
                 // skip the empty triangle
                 if (sq <= 0.0f)
                 {
@@ -313,7 +313,7 @@ bool LGeometry::Process(VDX9RENDER *rs, int32_t numLights)
                 for (int32_t nv = 0; nv < 3; nv++)
                 {
                     Vertex &vr = vrt[trg[numTrg].i[nv]];
-                    bool isInv = (trg[numTrg].n | vr.n) < 0.0f;
+                    bool isInv = glm::dot(trg[numTrg].n, vr.n) < 0.0f;
                     if (vr.flags & Vertex::f_set)
                     {
                         if (((vr.flags & Vertex::f_inv) != 0) != isInv)
@@ -367,7 +367,7 @@ bool LGeometry::Process(VDX9RENDER *rs, int32_t numLights)
             }
         }
     }
-    radius = sqrtf(~(max - min));
+    radius = sqrtf(storm::math::lengthSquared(max - min));
     return true;
 }
 
@@ -375,7 +375,7 @@ bool LGeometry::Process(VDX9RENDER *rs, int32_t numLights)
 void LGeometry::DrawNormals(VDX9RENDER *rs)
 {
     if (!drawbuf)
-        drawbuf = new CVECTOR[1024];
+        drawbuf = new glm::vec3[1024];
     rs->SetRenderState(D3DRS_TEXTUREFACTOR, 0xff00ff00);
     int32_t p = 0;
     for (int32_t i = 0; i < numVrt; i++)
@@ -385,13 +385,13 @@ void LGeometry::DrawNormals(VDX9RENDER *rs)
         p += 2;
         if (p >= 1024)
         {
-            rs->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ, 512, drawbuf, sizeof(CVECTOR), "DbgDrawLines");
+            rs->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ, 512, drawbuf, sizeof(glm::vec3), "DbgDrawLines");
             p = 0;
         }
     }
     if (p > 1)
     {
-        rs->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ, p / 2, drawbuf, sizeof(CVECTOR), "DbgDrawLines");
+        rs->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ, p / 2, drawbuf, sizeof(glm::vec3), "DbgDrawLines");
     }
 }
 
@@ -415,7 +415,7 @@ void LGeometry::UpdateColors(VDX9RENDER *rs)
             }
             lockedVB = vrt[i].vbid;
         }
-        CVECTOR c = vrt[i].c * vrt[i].mc * 255.0f;
+        glm::vec3 c = vrt[i].c * vrt[i].mc * 255.0f;
         if (c.x < 0.0f)
             c.x = 0.0f;
         if (c.x > 255.0f)
@@ -437,7 +437,7 @@ void LGeometry::UpdateColors(VDX9RENDER *rs)
 }
 
 // Trace the ray
-float LGeometry::Trace(const CVECTOR &src, const CVECTOR &dst)
+float LGeometry::Trace(const glm::vec3 &src, const glm::vec3 &dst)
 {
     for (int32_t i = 0; i < numObjects; i++)
     {
@@ -497,7 +497,7 @@ bool LGeometry::Save()
         int32_t sv = 0;
         for (int32_t j = 0, n = object[i].lBufSize; j < n; j++)
         {
-            CVECTOR c = vrt[pnt].c * vrt[pnt].mc * 255.0f;
+            glm::vec3 c = vrt[pnt].c * vrt[pnt].mc * 255.0f;
             pnt++;
             if (c.x < 0.0f)
                 c.x = 0.0f;

@@ -391,7 +391,7 @@ void BATTLE_INTERFACE::CheckSeaState()
         if (ps->isTransferableShip)
         {
             float curRad;
-            if ((curRad = ~(ps->pShip->GetPos() - main_sd->pShip->GetPos())) < sqrRadius)
+            if ((curRad = storm::math::lengthSquared(ps->pShip->GetPos() - main_sd->pShip->GetPos())) < sqrRadius)
             {
                 bReload = true;
                 if (curRad < minReloadRadius)
@@ -411,7 +411,7 @@ void BATTLE_INTERFACE::CheckSeaState()
                 {
                     bAttack = true;
                     float fdist;
-                    if ((fdist = ~(ps->pShip->GetPos() - main_sd->pShip->GetPos())) < sqrFreeDistance)
+                    if ((fdist = storm::math::lengthSquared(ps->pShip->GetPos() - main_sd->pShip->GetPos())) < sqrFreeDistance)
                         bMap = false;
                 }
             }

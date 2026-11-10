@@ -1,6 +1,6 @@
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "vma.hpp"
 
 struct Light
@@ -15,8 +15,8 @@ struct Light
         t_group,
     };
 
-    CVECTOR color; // Source color
-    CVECTOR p;     // Point source position or direction of directional source
+    glm::vec3 color; // Source color
+    glm::vec3 p;     // Point source position or direction of directional source
     float att0;    // Attenuation D^0
     float att1;    // Attenuation D^1
     float att2;    // Attenuation D^2
@@ -48,7 +48,7 @@ struct Shadow
     float dst;   // Distance to source
     float csatt; // Attenuation coefficient
     float shw;   // Shadow attenuation coefficient
-    CVECTOR c;   // Current source color
+    glm::vec3 c;   // Current source color
 };
 } // namespace lighter
 
@@ -66,11 +66,11 @@ struct Vertex
         // There was a mistake
     };
 
-    CVECTOR p;               // Position
-    CVECTOR n;               // Normal
-    CVECTOR c;               // Colour
-    CVECTOR bc;              // Anti-aliasing color
-    CVECTOR mc;              // Color mask
+    glm::vec3 p;               // Position
+    glm::vec3 n;               // Normal
+    glm::vec3 c;               // Colour
+    glm::vec3 bc;              // Anti-aliasing color
+    glm::vec3 mc;              // Color mask
     uint32_t alpha;          // vertex Alpha
     lighter::Shadow *shadow; // Shading values from each source
     int32_t flags;              // Flags
@@ -82,7 +82,7 @@ struct Vertex
 
 struct Triangle
 {
-    CVECTOR n; // Normal
+    glm::vec3 n; // Normal
     float sq;  // Area
     int32_t i[3]; // Vertex indices
 };

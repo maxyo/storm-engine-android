@@ -31,12 +31,12 @@ class Blots : public Entity
         float liveTime;    // Lifetime
         int32_t startIndex;   // Starting index in the array
         int32_t rnd;
-        CVECTOR pos, dir;
+        glm::vec3 pos, dir;
     };
 
     struct Vertex
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         int32_t c;
         float u, v;
     };
@@ -81,7 +81,7 @@ class Blots : public Entity
     // Register a hit
     void Hit(MESSAGE &message);
     // Add a blot
-    void AddBlot(int32_t i, int32_t rnd, const CVECTOR &pos, const CVECTOR &dir, float time);
+    void AddBlot(int32_t i, int32_t rnd, const glm::vec3 &pos, const glm::vec3 &dir, float time);
     //
     void SetNodesCollision(NODE *n, bool isSet);
     // Save blot parameters
@@ -102,8 +102,8 @@ class Blots : public Entity
 
     int32_t updateBlot;
 
-    static bool AddPolygon(const CVECTOR *v, int32_t nv);
-    static CVECTOR clipTriangles[3 * BLOTS_NTRGS];
+    static bool AddPolygon(const glm::vec3 *v, int32_t nv);
+    static glm::vec3 clipTriangles[3 * BLOTS_NTRGS];
     static int32_t numClipTriangles;
-    static CVECTOR dir, normal;
+    static glm::vec3 dir, normal;
 };

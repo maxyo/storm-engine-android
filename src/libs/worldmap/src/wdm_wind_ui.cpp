@@ -399,7 +399,7 @@ void WdmWindUI::LRender(VDX9RENDER *rs)
     // Player's wind parameters
     float x, y, ay;
     wdmObjects->playerShip->GetPosition(x, y, ay);
-    CVECTOR windDir;
+    glm::vec3 windDir;
     resizeRatio = wdmObjects->resizeRatio;
     const auto widForce = wdmObjects->GetWind(x, y, windDir);
     const auto ang = static_cast<float>(atan2(windDir.x, windDir.z));
@@ -454,11 +454,11 @@ void WdmWindUI::LRender(VDX9RENDER *rs)
 
     FillRectUV(buf, 0.0f, 0.0f, 1.0f, 1.0f);
     FillRectUV1(buf, -0.5f, 0.0f, 1.0f, 1.0f);
-    CMatrix rot(0.0f, 1.8f * (1.0f - widForce), 0.0f, 0.5f, 0.0f, 0.0f);
+    glm::mat4 rot = storm::math::eulerMatrix(0.0f, 1.8f * (1.0f - widForce), 0.0f, 0.5f, 0.0f, 0.0f);
     for (int32_t i = 0; i < 6; i++)
     {
-        CVECTOR v(buf[i].tu1, 0.0f, buf[i].tv1);
-        const auto vrot = rot * v;
+        glm::vec3 v(buf[i].tu1, 0.0f, buf[i].tv1);
+        const auto vrot = storm::math::transformPoint(rot, v);
         buf[i].tu1 = vrot.x;
         buf[i].tv1 = vrot.z;
     }

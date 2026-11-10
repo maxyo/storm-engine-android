@@ -48,9 +48,17 @@ hub after `SDL_InitSubSystem`, calls `dispatch()` once per loop iteration after
 - scripts receive `AppWillEnterBackground` (only when it can still run before
   suspension), `AppDidEnterForeground`, `AppLowMemory` and
   `AppWindowResized(width, height)` through the ordinary script event
-  mechanism. No script handles them yet: an autosave on background is a
-  one-line `SetEventHandler("AppWillEnterBackground", ...)` away, and is left
-  to the game scripts to decide.
+  mechanism. `AppWillEnterBackground` is raised whenever SDL suspends the game
+  thread: the activity leaving the foreground and the app's modal gameplay
+  dialogs (which pause through SDL as well). The app's interface overlay
+  handles it with a background autosave (`interface/android_background_save.c`
+  in corsairs-android). The handlers run synchronously on the game thread and
+  the time they took is logged (`AppWillEnterBackground handlers took N ms`);
+  the Android UI thread does not wait for them (the window is a Vulkan window,
+  so SDL's `surfaceDestroyed` does not hand off to this thread). A save made
+  there gets its thumbnail from the last rendered frame: `MSG_SCRSHOT_MAKE`
+  takes the shot on demand when no frame has run since the screenshot entity
+  was created.
 
 `OSWindow::Subscribe` (focus/close only) is unchanged and remains what
 `main.cpp` uses to stop the loop on close.

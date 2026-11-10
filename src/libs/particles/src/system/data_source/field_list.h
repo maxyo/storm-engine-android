@@ -3,7 +3,7 @@
 #include "../../i_common/mem_file.h"
 #include "../../i_common/types.h"
 #include "../data_desc/data_desc.h"
-#include "math3d.h"
+#include "storm_glm.h"
 #include <string>
 #include <vector>
 
@@ -45,7 +45,7 @@ class FieldList
     void CreateEmptyBoolField(const char *Name, bool def_value);
     void CreateEmptyFloatField(const char *Name, float def_value);
     void CreateEmptyGraphField(const char *Name, float def_value_min, float def_value_max);
-    void CreateEmptyPositionField(const char *Name, const Vector &def_value);
+    void CreateEmptyPositionField(const char *Name, const glm::vec3 &def_value);
     void CreateEmptyStringField(const char *Name, const char *def_value);
     void CreateEmptyUVField(const char *Name);
     void CreateEmptyColorField(const char *Name, uint32_t def_value);
@@ -84,7 +84,7 @@ class FieldList
     int GetFloatAsInt(const char *AttrName, int def_value = 0);
     bool GetBool(const char *AttrName, bool def_value = false);
     const char *GetString(const char *AttrName, const char *def_value = "");
-    const Vector &GetPosition(const char *AttrName, const Vector &def_value = Vector(0.0f));
+    const glm::vec3 &GetPosition(const char *AttrName, const glm::vec3 &def_value = glm::vec3(0.0f));
 
     float GetGraphVal(const char *AttrName, float Time, float LifeTime, float K_Rand, float def_value = 0.0f);
     float GetRandomGraphVal(const char *AttrName, float Time, float LifeTime, float def_value = 0.0f);

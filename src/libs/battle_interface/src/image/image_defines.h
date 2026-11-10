@@ -6,7 +6,7 @@
 
 struct BI_IMAGE_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float w;
     uint32_t col;
     float tu, tv;
@@ -34,7 +34,7 @@ class IBIImage
 
     virtual void SetColor(uint32_t color) = 0;
     virtual void SetPosition(int32_t nLeft, int32_t nTop, int32_t nRight, int32_t nBottom) = 0;
-    virtual void Set3DPosition(const CVECTOR &vPos, float fWidth, float fHeight) = 0;
+    virtual void Set3DPosition(const glm::vec3 &vPos, float fWidth, float fHeight) = 0;
     virtual void SetUV(const FRECT &uv) = 0;
 
     virtual void CutSide(float fleft, float fright, float ftop, float fbottom) = 0;

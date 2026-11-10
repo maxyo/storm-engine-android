@@ -17,9 +17,9 @@ LCOLL::~LCOLL()
 
 int32_t addedFaces;
 int32_t *sVrt = nullptr;
-CVECTOR *addVerts = nullptr;
+glm::vec3 *addVerts = nullptr;
 
-bool AddPolyColl(const CVECTOR *vr, int32_t nverts)
+bool AddPolyColl(const glm::vec3 *vr, int32_t nverts)
 {
     // start vertex of face, max faces is REALLOC_QUANT
     if ((addedFaces & (REALLOC_QUANT - 1)) == 0)
@@ -32,7 +32,7 @@ bool AddPolyColl(const CVECTOR *vr, int32_t nverts)
 
     // F0(v0,v1,v2), F1(v0,v1,v2,v3)...
     if (addedFaces == 0 || (sVrt[addedFaces - 1] & (REALLOC_QUANT - 1)) + nverts > REALLOC_QUANT)
-        addVerts = static_cast<CVECTOR *>(
+        addVerts = static_cast<glm::vec3 *>(
             realloc(addVerts, sizeof(int32_t) * (sVrt[addedFaces] / REALLOC_QUANT + REALLOC_QUANT)));
 
     for (int32_t v = 0; v < nverts; v++)
@@ -46,7 +46,7 @@ bool AddPolyColl(const CVECTOR *vr, int32_t nverts)
     return true;
 }
 
-int32_t LCOLL::SetBox(const CVECTOR &boxSize, const CMatrix &transform, bool testOnly)
+int32_t LCOLL::SetBox(const glm::vec3 &boxSize, const glm::mat4 &transform, bool testOnly)
 {
     // create box
     PLANE clip_p[6];
@@ -63,26 +63,26 @@ int32_t LCOLL::SetBox(const CVECTOR &boxSize, const CMatrix &transform, bool tes
     // transform planes
     for (int32_t p = 0; p < 6; p++)
     {
-        const auto x = clip_p[p].D * clip_p[p].Nx - transform.m[3][0];
-        const auto y = clip_p[p].D * clip_p[p].Ny - transform.m[3][1];
-        const auto z = clip_p[p].D * clip_p[p].Nz - transform.m[3][2];
+        const auto x = clip_p[p].D * clip_p[p].Nx - transform[3][0];
+        const auto y = clip_p[p].D * clip_p[p].Ny - transform[3][1];
+        const auto z = clip_p[p].D * clip_p[p].Nz - transform[3][2];
         const auto Nx =
-            transform.m[0][0] * clip_p[p].Nx + transform.m[0][1] * clip_p[p].Ny + transform.m[0][2] * clip_p[p].Nz;
+            transform[0][0] * clip_p[p].Nx + transform[0][1] * clip_p[p].Ny + transform[0][2] * clip_p[p].Nz;
         const auto Ny =
-            transform.m[1][0] * clip_p[p].Nx + transform.m[1][1] * clip_p[p].Ny + transform.m[1][2] * clip_p[p].Nz;
+            transform[1][0] * clip_p[p].Nx + transform[1][1] * clip_p[p].Ny + transform[1][2] * clip_p[p].Nz;
         const auto Nz =
-            transform.m[2][0] * clip_p[p].Nx + transform.m[2][1] * clip_p[p].Ny + transform.m[2][2] * clip_p[p].Nz;
-        const auto lx = transform.m[0][0] * x + transform.m[0][1] * y + transform.m[0][2] * z;
-        const auto ly = transform.m[1][0] * x + transform.m[1][1] * y + transform.m[1][2] * z;
-        const auto lz = transform.m[2][0] * x + transform.m[2][1] * y + transform.m[2][2] * z;
+            transform[2][0] * clip_p[p].Nx + transform[2][1] * clip_p[p].Ny + transform[2][2] * clip_p[p].Nz;
+        const auto lx = transform[0][0] * x + transform[0][1] * y + transform[0][2] * z;
+        const auto ly = transform[1][0] * x + transform[1][1] * y + transform[1][2] * z;
+        const auto lz = transform[2][0] * x + transform[2][1] * y + transform[2][2] * z;
         plane[p].Nx = Nx;
         plane[p].Ny = Ny;
         plane[p].Nz = Nz;
-        plane[p].D = (Nx * lx + Ny * ly + Nz * lz) * transform.m[3][3];
+        plane[p].D = (Nx * lx + Ny * ly + Nz * lz) * transform[3][3];
     }
 
-    boxCenter = transform.Pos();
-    boxRadius = sqrtf(~boxSize);
+    boxCenter = storm::math::pos(transform);
+    boxRadius = sqrtf(storm::math::lengthSquared(boxSize));
 
     // added faces
     addedFaces = 0;
@@ -96,13 +96,13 @@ int32_t LCOLL::SetBox(const CVECTOR &boxSize, const CMatrix &transform, bool tes
     return 0;
 }
 
-const CVECTOR *LCOLL::GetFace(int32_t &numVertices)
+const glm::vec3 *LCOLL::GetFace(int32_t &numVertices)
 {
     numVertices = 0;
     return nullptr;
 }
 
-float LCOLL::Trace(const CVECTOR &src, const CVECTOR &dst)
+float LCOLL::Trace(const glm::vec3 &src, const glm::vec3 &dst)
 {
     return 2.0f;
 }

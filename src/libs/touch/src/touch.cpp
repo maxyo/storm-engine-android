@@ -70,7 +70,7 @@ uint64_t TOUCH::ProcessMessage(MESSAGE &message)
 
 int32_t MaxDepth, CurDepth;
 uint64_t dwRdtsc;
-CVECTOR vGlobalRecoil;
+glm::vec3 vGlobalRecoil;
 
 void TOUCH::Realize(uint32_t DeltaTime)
 {
@@ -140,10 +140,10 @@ BOOL TOUCH::IsIntersectShipsRects(int32_t idx1, int32_t idx2)
     return (bRadiusIntersects);
 }
 
-CVECTOR TOUCH::GetPoint(float x, float y, float xx, float yy, float xscale, float yscale, float fCos, float fSin,
+glm::vec3 TOUCH::GetPoint(float x, float y, float xx, float yy, float xscale, float yscale, float fCos, float fSin,
                         POINT ss)
 {
-    CVECTOR vPos;
+    glm::vec3 vPos;
     vPos.x = xscale * xx;
     vPos.z = yscale * yy;
     RotateAroundY(vPos.x, vPos.z, fCos, fSin);
@@ -159,8 +159,8 @@ void TOUCH::DrawLine(std::vector<RS_LINE2D> &aLines, float x1, float y1, float x
     l2.rhw = 0.5f;
     l1.dwColor = dwColor;
     l2.dwColor = dwColor;
-    l1.vPos = CVECTOR(x1, y1, 1.0f);
-    l2.vPos = CVECTOR(x2, y2, 1.0f);
+    l1.vPos = glm::vec3(x1, y1, 1.0f);
+    l2.vPos = glm::vec3(x2, y2, 1.0f);
 
     aLines.emplace_back(l1);
     aLines.emplace_back(l2);
@@ -169,7 +169,7 @@ void TOUCH::DrawLine(std::vector<RS_LINE2D> &aLines, float x1, float y1, float x
 void TOUCH::DrawShips()
 {
     int32_t i, j;
-    CVECTOR p1, p2;
+    glm::vec3 p1, p2;
     POINT ss;
     std::vector<RS_LINE2D> aLines;
 
@@ -261,7 +261,7 @@ BOOL TOUCH::BuildContour(int32_t ship_idx)
     return true;
 }
 
-BOOL TOUCH::IsPointInContour(CVECTOR *vP, CVECTOR *vContourTemp, int32_t numvContourTemp)
+BOOL TOUCH::IsPointInContour(glm::vec3 *vP, glm::vec3 *vContourTemp, int32_t numvContourTemp)
 {
     auto xx = 1.0f;
     int32_t i;
@@ -286,16 +286,16 @@ BOOL TOUCH::IsPointInContour(CVECTOR *vP, CVECTOR *vContourTemp, int32_t numvCon
     return (xx <= 0.0f);
 }
 
-void TOUCH::GetLineABC(CVECTOR &v1, CVECTOR &v2, float &A, float &B, float &C)
+void TOUCH::GetLineABC(glm::vec3 &v1, glm::vec3 &v2, float &A, float &B, float &C)
 {
     A = (v2.z - v1.z);
     B = (v1.x - v2.x);
     C = -v1.x * v2.z + v1.z * v2.x;
 }
 
-CVECTOR TOUCH::GetLineIntersectPoint(CVECTOR &v1, CVECTOR &v2, CVECTOR &o1, CVECTOR &o2)
+glm::vec3 TOUCH::GetLineIntersectPoint(glm::vec3 &v1, glm::vec3 &v2, glm::vec3 &o1, glm::vec3 &o2)
 {
-    auto res = CVECTOR(10000.0f, 0.0f, 10000.0f);
+    auto res = glm::vec3(10000.0f, 0.0f, 10000.0f);
     float A1, B1, C1, A2, B2, C2;
     GetLineABC(v1, v2, A1, B1, C1);
     GetLineABC(o1, o2, A2, B2, C2);
@@ -308,7 +308,7 @@ CVECTOR TOUCH::GetLineIntersectPoint(CVECTOR &v1, CVECTOR &v2, CVECTOR &o1, CVEC
 }
 
 // calculate collision point
-BOOL TOUCH::IsIntersectShipsReal(int32_t idx, int32_t cidx, CVECTOR *vPos, CVECTOR *vAng, CVECTOR *vRecoil, float *fPower,
+BOOL TOUCH::IsIntersectShipsReal(int32_t idx, int32_t cidx, glm::vec3 *vPos, glm::vec3 *vAng, glm::vec3 *vRecoil, float *fPower,
                                  float *fSlide)
 {
     int32_t i, j;
@@ -335,12 +335,12 @@ BOOL TOUCH::IsIntersectShipsReal(int32_t idx, int32_t cidx, CVECTOR *vPos, CVECT
                 if (fRes < fCollisionDepth)
                     continue;
                 const auto v1 = &pS1->vContourTemp[0][i], v2 = &pS1->vContourTemp[1][i];
-                auto vTemp = !(*v2 - *v1);
-                *vRecoil = !(*v1 - pS1->TP[1].vPos);
+                auto vTemp = storm::math::normalizeOrZero(*v2 - *v1);
+                *vRecoil = storm::math::normalizeOrZero(*v1 - pS1->TP[1].vPos);
                 *fSlide = 0.0f;
                 //*vRecoil = !(*vRecoil + vTemp);
                 //*vRecoil = vTemp;//!(*v1-pS1->TP[1].vPos);
-                *fPower = METERS2KNOTS(sqrtf(~(*v2 - *v1))) * (1000.0f / static_cast<float>(iDeltaTime));
+                *fPower = METERS2KNOTS(sqrtf(storm::math::lengthSquared(*v2 - *v1))) * (1000.0f / static_cast<float>(iDeltaTime));
                 *vPos = pS1->vContourTemp[0][i];
                 vPos->y = 0.0f;
                 return true;
@@ -368,7 +368,7 @@ BOOL TOUCH::IsIntersectShipsReal(int32_t idx, int32_t cidx, CVECTOR *vPos, CVECT
         // FIX ME and pS2->vContourTemp[1][0]!!!
         {
             auto min_dist = 10000.0f;
-            CVECTOR vIP; // intersection point
+            glm::vec3 vIP; // intersection point
             const auto v1 = &pS1->vContourTemp[0][i], v2 = &pS1->vContourTemp[1][i];
             for (j = 0; j < pS2->iNumVContour; j++)
             {
@@ -398,25 +398,25 @@ BOOL TOUCH::IsIntersectShipsReal(int32_t idx, int32_t cidx, CVECTOR *vPos, CVECT
             *vPos = vIP;
             // blow direction
             auto vBlow = (*v2 - *v1);
-            if ((~vBlow) == 0.0f)
+            if ((storm::math::lengthSquared(vBlow)) == 0.0f)
                 continue;
-            *vAng = !vBlow;
+            *vAng = storm::math::normalizeOrZero(vBlow);
 
             // slide coefficient
-            *fSlide = *vAng | (!(pS2->vContourTemp[1][l_idx2] - pS2->vContourTemp[1][l_idx1]));
+            *fSlide = glm::dot(*vAng, storm::math::normalizeOrZero(pS2->vContourTemp[1][l_idx2] - pS2->vContourTemp[1][l_idx1]));
             // recoil direction
             *vRecoil = (pS2->vContourTemp[1][l_idx2] - pS2->vContourTemp[1][l_idx1]);
             Assert((~(*vRecoil)) != 0.0f);
-            *vRecoil = !(*vRecoil);
+            *vRecoil = storm::math::normalizeOrZero(*vRecoil);
             RotateAroundY(vRecoil->x, vRecoil->z, cosf(-PId2), sinf(-PId2));
             vRecoil->y = 0.0f;
             // power of blow
             const auto vSpeed2 = (pS2->vContourTemp[1][l_idx1] - pS2->vContourTemp[0][l_idx1]);
-            *fPower = METERS2KNOTS(sqrtf(~vBlow));
-            if ((~vSpeed2) != 0.0f)
+            *fPower = METERS2KNOTS(sqrtf(storm::math::lengthSquared(vBlow)));
+            if ((storm::math::lengthSquared(vSpeed2)) != 0.0f)
             {
-                const auto fTemp = (*vAng | (!vSpeed2));
-                *fPower -= METERS2KNOTS(fTemp * sqrtf(~vSpeed2));
+                const auto fTemp = glm::dot(*vAng, storm::math::normalizeOrZero(vSpeed2));
+                *fPower -= METERS2KNOTS(fTemp * sqrtf(storm::math::lengthSquared(vSpeed2)));
             }
             // fPower must multiplied by Weight of ships
             *fPower *= (1000.0f / static_cast<float>(iDeltaTime));
@@ -426,33 +426,33 @@ BOOL TOUCH::IsIntersectShipsReal(int32_t idx, int32_t cidx, CVECTOR *vPos, CVECT
     return false;
 }
 
-int32_t TOUCH::ProcessImpulse(int32_t iOurIdx, CVECTOR vPos, CVECTOR vDir, float fPowerApplied)
+int32_t TOUCH::ProcessImpulse(int32_t iOurIdx, glm::vec3 vPos, glm::vec3 vDir, float fPowerApplied)
 {
     STRENGTH strength{};
     strength.bInertia = false;
 
     auto *pS1 = pShips[iOurIdx];
 
-    const auto vSDirZ = CVECTOR(0.0f, 0.0f, 1.0f);
-    const auto vSDirX = CVECTOR(1.0f, 0.0f, 0.0f);
+    const auto vSDirZ = glm::vec3(0.0f, 0.0f, 1.0f);
+    const auto vSDirX = glm::vec3(1.0f, 0.0f, 0.0f);
 
     // calculate Z impulse
     auto fkZ = (0.1f + 1.0f - fabsf(vPos.x / (0.5f * pS1->pShip->State.vBoxSize.x)));
     fkZ = CLAMP(fkZ);
     // Assert(fkZ>=0.0f && fkZ<=1.0f)
-    const auto fZMove = (vDir | vSDirZ) * fPowerApplied * fkZ;
+    const auto fZMove = glm::dot(vDir, vSDirZ) * fPowerApplied * fkZ;
     strength.vSpeed.z = fZMove;
 
     // calculate X impulse
     auto fkX = (0.1f + 1.0f - fabsf(vPos.z / (0.5f * pS1->pShip->State.vBoxSize.z)));
     fkX = CLAMP(fkX);
     // Assert(fkX>=0.0f && fkX<=1.0f)
-    const auto fXMove = (vDir | vSDirX) * fPowerApplied * fkX;
+    const auto fXMove = glm::dot(vDir, vSDirX) * fPowerApplied * fkX;
     strength.vSpeed.x = fXMove;
 
     // calculate Y rotation impulse
-    const auto vSDirY = !(-vPos);
-    auto fkY = 0.1f + 1.0f - fabsf(vDir | vSDirY);
+    const auto vSDirY = storm::math::normalizeOrZero(-vPos);
+    auto fkY = 0.1f + 1.0f - fabsf(glm::dot(vDir, vSDirY));
     fkY = CLAMP(fkY);
     strength.vRotate.y = fkY * fPowerApplied * 0.02f;
     if (vPos.x * vPos.z >= 0.0f)
@@ -461,7 +461,7 @@ int32_t TOUCH::ProcessImpulse(int32_t iOurIdx, CVECTOR vPos, CVECTOR vDir, float
     return pS1->pShip->AddStrength(&strength);
 }
 
-int32_t TOUCH::GetTouchPoint(int32_t iIdx, const CVECTOR &vPos)
+int32_t TOUCH::GetTouchPoint(int32_t iIdx, const glm::vec3 &vPos)
 {
     return 1;
 }
@@ -472,9 +472,9 @@ int32_t TOUCH::GetTouchPoint(int32_t iIdx, const CVECTOR &vPos)
 // vRecoil - recoil vector
 // fPower - blow power (without mass dependence)
 // fSlide - blow slide coefficient
-float TOUCH::Touch(int32_t idx, int32_t skip_idx, CVECTOR *vPos, CVECTOR *vAng, float fPower, float fSlide)
+float TOUCH::Touch(int32_t idx, int32_t skip_idx, glm::vec3 *vPos, glm::vec3 *vAng, float fPower, float fSlide)
 {
-    CVECTOR vPos1, vAng1, vRecoil;
+    glm::vec3 vPos1, vAng1, vRecoil;
     float fPower1, fSlide1, fPowerReturn = 0.0f;
     int32_t i;
     SHIP_BASE *pOur, *pEnemy;
@@ -580,7 +580,7 @@ bool TOUCH::IsSinked(int32_t iIndex)
 
 BOOL TOUCH::FakeTouch()
 {
-    CVECTOR vPos1, vAng1, vRecoil;
+    glm::vec3 vPos1, vAng1, vRecoil;
     float fPower1, fSlide1, fPowerReturn = 0.0f;
     int32_t i, j;
     SHIP_BASE *pOur, *pEnemy;
@@ -606,7 +606,7 @@ BOOL TOUCH::FakeTouch()
                         auto fOurWeight = pOur->State.fWeight;
                         auto fEnemyWeight = pEnemy->State.fWeight;
                         const auto k = 0.5f + (fEnemyWeight - fOurWeight) / (2 * MAX(fOurWeight, fEnemyWeight));
-                        const auto vDV = !CVECTOR(pEnemy->State.vPos - pOur->State.vPos);
+                        const auto vDV = storm::math::normalizeOrZero(glm::vec3(pEnemy->State.vPos - pOur->State.vPos));
                         const auto fMul = 0.02f;
 
                         pOur->State.vPos.x -= (k * vDV.x * fMul);
@@ -618,7 +618,7 @@ BOOL TOUCH::FakeTouch()
                     {
                         // from island move out
                         pOur = static_cast<SHIP_BASE *>(pShips[i]->pShip);
-                        const auto vDV = !CVECTOR(vPos1 - pOur->State.vPos);
+                        const auto vDV = storm::math::normalizeOrZero(glm::vec3(vPos1 - pOur->State.vPos));
                         const auto fMul = 0.02f;
 
                         const auto fAngle = -PI - pOur->State.vAng.y;

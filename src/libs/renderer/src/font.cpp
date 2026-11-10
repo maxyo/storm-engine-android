@@ -17,7 +17,7 @@ constexpr auto FONT_CHAR_FVF = (D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1 | D
 
 struct FONT_CHAR_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float rhw;
     uint32_t color;
     float tu, tv;

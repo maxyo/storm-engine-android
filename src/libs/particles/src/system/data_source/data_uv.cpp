@@ -11,7 +11,7 @@ DataUV::~DataUV()
 }
 
 // Get the value [x, y = UV1; z, w = UV2]
-const Vector4 &DataUV::GetValue(uint32_t FrameNum)
+const glm::vec4 &DataUV::GetValue(uint32_t FrameNum)
 {
     const uint32_t TotalFrames = Frames.size();
     FrameNum = FrameNum % TotalFrames;
@@ -19,7 +19,7 @@ const Vector4 &DataUV::GetValue(uint32_t FrameNum)
 }
 
 // Set values
-void DataUV::SetValues(const Vector4 *_Frames, uint32_t FramesCount)
+void DataUV::SetValues(const glm::vec4 *_Frames, uint32_t FramesCount)
 {
     Frames.clear();
 
@@ -41,13 +41,13 @@ void DataUV::Load(MemFile *File)
     File->ReadType(ElementCount);
     for (uint32_t n = 0; n < ElementCount; n++)
     {
-        Vector4 rFrame;
+        glm::vec4 rFrame;
         File->ReadType(rFrame.x);
         File->ReadType(rFrame.y);
         File->ReadType(rFrame.z);
         File->ReadType(rFrame.w);
 
-        Vector4 newFrame;
+        glm::vec4 newFrame;
         newFrame = rFrame;
         newFrame.z += newFrame.x;
         newFrame.w += newFrame.y;

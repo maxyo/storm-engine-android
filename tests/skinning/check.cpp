@@ -4,13 +4,14 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <random>
 #include <vector>
 
 #ifdef STORM_SKINNING_LEGACY_GLM
-#include "glm_backend.h"
+#include "storm_glm.h"
 #endif
 
 using namespace storm::skinning;
@@ -65,7 +66,7 @@ static void fill(Source *src, size_t count, Bone *bones, size_t boneCount, unsig
 
 #ifdef STORM_SKINNING_LEGACY_GLM
 // The implementation this kernel replaced (model.cpp, non-Windows branch), verbatim,
-// with CMatrix::operator*(CVECTOR) spelled out (math/include/matrix.h pulls in d3d9.h).
+// with its matrix * vector spelled out: GLM's 4x4 product of the 16 floats and (v, 1).
 struct LegacyVector
 {
     float x, y, z;
@@ -75,8 +76,9 @@ struct LegacyMatrix
     float matrix[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     LegacyVector operator*(const LegacyVector &vector) const
     {
-        const auto result = storm::math::loadGlmMatrix(matrix) *
-                            storm::math::GlmVec4(storm::math::GlmVec3(vector.x, vector.y, vector.z), 1.0f);
+        glm::mat4 transform;
+        std::memcpy(&transform, matrix, sizeof(transform));
+        const auto result = transform * glm::vec4(vector.x, vector.y, vector.z, 1.0f);
         return {result.x, result.y, result.z};
     }
 };
@@ -212,7 +214,7 @@ int main(int argc, char **)
         };
         const double scalarNs = time(skinScalar);
 #ifdef STORM_SKINNING_LEGACY_GLM
-        std::printf("skinning timing: previous CMatrix/GLM code %.2f ns/vertex\n",
+        std::printf("skinning timing: previous GLM matrix code %.2f ns/vertex\n",
                     time([](const Source *s, Target *d, const Bone *b, size_t, size_t n) { skinLegacy(s, d, b, n); }));
 #endif
 #if defined(STORM_SKINNING_NEON) || defined(STORM_SKINNING_SSE2)

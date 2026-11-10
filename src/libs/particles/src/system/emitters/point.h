@@ -6,7 +6,7 @@ class PointEmitter : public BaseEmitter
 {
   protected:
     // Get a position for emission of new particles
-    Vector GetNewParticlePosition(float DeltaTime) override;
+    glm::vec3 GetNewParticlePosition(float DeltaTime) override;
 
   public:
     // Constructor / destructor

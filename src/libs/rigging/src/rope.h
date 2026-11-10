@@ -2,7 +2,7 @@
 
 #include "dx9render.h"
 #include "geos.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "sail_base.h"
 
 class NODE;
@@ -11,7 +11,7 @@ class NODE;
 
 struct ROPEVERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float tu, tv;
 };
 
@@ -79,7 +79,7 @@ class ROPE : public ROPE_BASE
     bool LoadState(ENTITY_STATE *state);
     uint64_t ProcessMessage(MESSAGE &message) override;
     // Service Function
-    void GetEndPoint(CVECTOR *cv, int ropenum, entid_t mdl_id) override;
+    void GetEndPoint(glm::vec3 *cv, int ropenum, entid_t mdl_id) override;
     bool IsAbsentRope(entid_t mdl_id, int ropenum) override;
     void DoDeleteUntie(entid_t mdl_id, NODE *rnod, int gNum) override;
 
@@ -93,21 +93,21 @@ class ROPE : public ROPE_BASE
         bool bDeleted;
         int HostGroup;
 
-        CVECTOR pBeg, pEnd, pOld;
+        glm::vec3 pBeg, pEnd, pOld;
 
         float len;
-        CVECTOR vDeep;
+        glm::vec3 vDeep;
         float angDeep, angRot;
 
         bool btie, etie;
         int bgnum, egnum;
-        CMatrix *bMatWorld, *eMatWorld;
+        glm::mat4 *bMatWorld, *eMatWorld;
 
         uint32_t sv, nv, st, nt;
 
         int ropeNum;
-        CVECTOR pos[ROPE_EDGE];
-        CVECTOR cv;
+        glm::vec3 pos[ROPE_EDGE];
+        glm::vec3 cv;
         uint16_t segnum;
         uint16_t segquant;
 
@@ -126,7 +126,7 @@ class ROPE : public ROPE_BASE
         int *ropeIdx;
         entid_t shipEI;
         entid_t modelEI;
-        CMatrix *pMatWorld;
+        glm::mat4 *pMatWorld;
         int32_t sv, nv;
         int32_t st, nt;
     };

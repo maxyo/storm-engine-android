@@ -38,7 +38,7 @@ bool AIShipTaskController::CheckCurrentTaskComplete()
     return false;
 }
 
-void AIShipTaskController::SetDestinationPoint(CVECTOR vDestPnt)
+void AIShipTaskController::SetDestinationPoint(glm::vec3 vDestPnt)
 {
     GetAIShip()->GetMoveController()->Move(vDestPnt);
 }
@@ -46,7 +46,7 @@ void AIShipTaskController::SetDestinationPoint(CVECTOR vDestPnt)
 void AIShipTaskController::DoAttackRotate()
 {
     const auto vFirePos = GetCurrentTaskAIObj()->GetPos();
-    const auto vOurDir = CVECTOR(sinf(GetAIShip()->GetAng().y), 0.0f, cosf(GetAIShip()->GetAng().y));
+    const auto vOurDir = glm::vec3(sinf(GetAIShip()->GetAng().y), 0.0f, cosf(GetAIShip()->GetAng().y));
 
     auto *pCC = GetAIShip()->GetCannonController();
 
@@ -54,7 +54,7 @@ void AIShipTaskController::DoAttackRotate()
     if (pCC->IsValid(bortIt))
     {
         const auto vBortDir = pCC->GetBortDirection(*bortIt);
-        const auto fRotate = ((vBortDir | vOurDir) > 0.0f) ? -1.2f : 1.2f;
+        const auto fRotate = (glm::dot(vBortDir, vOurDir) > 0.0f) ? -1.2f : 1.2f;
         GetAIShip()->GetRotateController()->AddRotate(fRotate);
         GetAIShip()->GetSpeedController()->AddSpeed(0.5f);
     }
@@ -62,7 +62,7 @@ void AIShipTaskController::DoAttackRotate()
 
 void AIShipTaskController::FindRunAwayPoint()
 {
-    CVECTOR vRAPoint = 0.0f;
+    glm::vec3 vRAPoint(0.0f);
     uint32_t iNumPoints = 0;
 
     const auto fShipK = 1.0f;  // impact factor from ships
@@ -77,8 +77,8 @@ void AIShipTaskController::FindRunAwayPoint()
             if (!Helper.isEnemy(i->GetACharacter(), GetAIShip()->GetACharacter()))
                 continue;
             auto vDir = i->GetPos() - GetAIShip()->GetPos();
-            const auto fDistance = sqrtf(~vDir);
-            vRAPoint += ((!vDir) * fShipK * Clamp(1.0f - fDistance / 1000.0f));
+            const auto fDistance = sqrtf(storm::math::lengthSquared(vDir));
+            vRAPoint += ((storm::math::normalizeOrZero(vDir)) * fShipK * Clamp(1.0f - fDistance / 1000.0f));
             iNumPoints++;
         }
     }
@@ -95,10 +95,10 @@ void AIShipTaskController::FindRunAwayPoint()
                 continue;
 
             auto vDir = pFort->GetPos() - GetAIShip()->GetPos();
-            const auto fDistance = sqrtf(~vDir);
+            const auto fDistance = sqrtf(storm::math::lengthSquared(vDir));
             if (fDistance > 2000.0f)
                 continue;
-            vRAPoint += ((!vDir) * fFortK * Clamp(1.0f - fDistance / 2000.0f));
+            vRAPoint += ((storm::math::normalizeOrZero(vDir)) * fFortK * Clamp(1.0f - fDistance / 2000.0f));
             iNumPoints++;
         }
     }
@@ -106,17 +106,17 @@ void AIShipTaskController::FindRunAwayPoint()
     if (iNumPoints)
         vRAPoint = vRAPoint / static_cast<float>(iNumPoints);
 
-    if ((~vRAPoint) && iNumPoints)
+    if ((storm::math::lengthSquared(vRAPoint)) && iNumPoints)
     {
         // Get wind direction
         auto fWindAngle = -PI;
         auto *pAWind = GetAIShip()->GetACharacter()->FindAClass(GetAIShip()->GetACharacter(), "SeaAI.WindAngle");
         if (pAWind)
             fWindAngle = pAWind->GetAttributeAsFloat();
-        const auto vWindDir = CVECTOR(cosf(fWindAngle), 0.0f, sinf(fWindAngle));
+        const auto vWindDir = glm::vec3(cosf(fWindAngle), 0.0f, sinf(fWindAngle));
         // core.Trace("fWindAngle = %.3f", fWindAngle);
 
-        vRAPoint = !((-vRAPoint) + (fWindK * vWindDir));
+        vRAPoint = storm::math::normalizeOrZero((-vRAPoint) + (fWindK * vWindDir));
         // set destination point
         SetDestinationPoint(GetAIShip()->GetPos() + 10000.0f * vRAPoint);
     }
@@ -203,7 +203,7 @@ void AIShipTaskController::Execute(float fDeltaTime)
     }
 }
 
-void AIShipTaskController::SetNewTask(uint32_t dwPriority, uint32_t _dwNewTaskType, CVECTOR &vPnt)
+void AIShipTaskController::SetNewTask(uint32_t dwPriority, uint32_t _dwNewTaskType, glm::vec3 &vPnt)
 {
     auto *pTask = GetTask(dwPriority);
 

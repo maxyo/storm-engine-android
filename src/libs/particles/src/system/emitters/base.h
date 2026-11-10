@@ -4,7 +4,6 @@
 #include "../../i_common/types.h"
 #include "../data_source/data_source.h"
 #include "../particle_system/particle_system.h"
-#include "math3d.h"
 
 class DataGraph;
 
@@ -38,7 +37,7 @@ class BaseEmitter : public IEmitter
     FieldList *pFields;
     bool IsAttachedFlag;
 
-    Vector Position;
+    glm::vec3 Position;
     EmitterType Type;
     float LifeTime;
     float ElapsedTime;
@@ -52,12 +51,12 @@ class BaseEmitter : public IEmitter
 
     uint32_t Unique_GUID;
 
-    Matrix matWorldTransform;
+    glm::mat4 matWorldTransform;
     bool OldMatrixNotInitialized;
-    Matrix matWorldTransformOld;
-    Matrix matWorldTransformNew;
+    glm::mat4 matWorldTransformOld;
+    glm::mat4 matWorldTransformNew;
 
-    void BlendMatrix(Matrix &result, const Matrix &mat1, const Matrix &mat2, float BlendK);
+    void BlendMatrix(glm::mat4 &result, const glm::mat4 &mat1, const glm::mat4 &mat2, float BlendK);
 
     void IncreaseTime(float DeltaTime);
 
@@ -71,7 +70,7 @@ class BaseEmitter : public IEmitter
     ~BaseEmitter() override;
 
     // Get a position for the emission of new particles
-    virtual Vector GetNewParticlePosition(float DeltaTime) = 0;
+    virtual glm::vec3 GetNewParticlePosition(float DeltaTime) = 0;
 
     // Emit new particles
     void BornParticles(float DeltaTime) override;
@@ -86,7 +85,7 @@ class BaseEmitter : public IEmitter
 
     ParticleSystem *GetMaster() const;
     ParticleManager *GetManager() const;
-    void GetEmissionDirection(Matrix &matWorld) const;
+    void GetEmissionDirection(glm::mat4 &matWorld) const;
 
     virtual void SetGUID(uint32_t GUID)
     {
@@ -103,8 +102,8 @@ class BaseEmitter : public IEmitter
     uint32_t GetParticleCount() override;
     bool IsStoped() override;
 
-    void SetTransform(const Matrix &matWorld) override;
-    void Teleport(const Matrix &matWorld) override;
+    void SetTransform(const glm::mat4 &matWorld) override;
+    void Teleport(const glm::mat4 &matWorld) override;
 
     const char *GetName() override;
 

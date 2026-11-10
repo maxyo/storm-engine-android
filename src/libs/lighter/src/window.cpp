@@ -181,7 +181,7 @@ void Window::InitList(LighterLights &ls)
             list[numElements].c = ls[i].color;
             list[numElements].st = 0.0f;
             list[numElements].color = &ls[i].color;
-            ls[i].color = 0.0f;
+            ls[i].color = glm::vec3(0.0f);
             list[numElements].cosine = &ls[i].cosine;
             list[numElements].shadow = &ls[i].shadow;
             list[numElements].bright = &ls[i].bright;
@@ -200,7 +200,7 @@ void Window::InitList(LighterLights &ls)
             list[numElements].c = ls[i].color;
             list[numElements].st = 0.0f;
             list[numElements].color = &ls[i].color;
-            ls[i].color = 0.0f;
+            ls[i].color = glm::vec3(0.0f);
             list[numElements].cosine = &ls[i].cosine;
             list[numElements].shadow = &ls[i].shadow;
             list[numElements].bright = &ls[i].bright;
@@ -219,7 +219,7 @@ void Window::InitList(LighterLights &ls)
             list[numElements].c = ls[i].color;
             list[numElements].st = 0.0f;
             list[numElements].color = &ls[i].color;
-            ls[i].color = 0.0f;
+            ls[i].color = glm::vec3(0.0f);
             list[numElements].cosine = &ls[i].cosine;
             list[numElements].shadow = &ls[i].shadow;
             list[numElements].bright = &ls[i].bright;
@@ -241,7 +241,7 @@ void Window::InitList(LighterLights &ls)
             list[numElements].c = ls[i].color;
             list[numElements].st = 0.0f;
             list[numElements].color = &ls[i].color;
-            ls[i].color = 0.0f;
+            ls[i].color = glm::vec3(0.0f);
             list[numElements].cosine = &ls[i].cosine;
             list[numElements].shadow = &ls[i].shadow;
             list[numElements].bright = &ls[i].bright;
@@ -842,7 +842,7 @@ bool Window::Slider(int32_t id, float y, const char *text, float &value, float m
     return isUpdate;
 }
 
-bool Window::ColorPicker(int32_t id, float y, CVECTOR &ref, float st, CVECTOR &res)
+bool Window::ColorPicker(int32_t id, float y, glm::vec3 &ref, float st, glm::vec3 &res)
 {
     bool isChange = false;
     // calculate the color

@@ -8,7 +8,7 @@ class FREE_CAMERA : public COMMON_CAMERA
 {
   private:
     VDX9RENDER *pRS;
-    CVECTOR vPos, vAng;
+    glm::vec3 vPos, vAng;
     float fFov;
     int32_t iLockX, iLockY;
 

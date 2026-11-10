@@ -6,7 +6,6 @@
 #include <iostream>
 #include <random>
 #include <stdexcept>
-#include "math3d.h"
 #include "math_inlines.h"
 
 static void require(bool ok, const char *message)
@@ -23,7 +22,6 @@ static void check_conversion(float value)
     require(fftoi(input) == _mm_cvtss_si32(vector), "fftoi wrapper");
     require(fftol(input) == _mm_cvttss_si32(vector), "fftol wrapper");
     require(ffloor(input) == _mm_cvtss_si32(_mm_add_ss(vector, _mm_set_ss(-.5f))), "legacy ffloor wrapper");
-    require(fceil(input) == _mm_cvtss_si32(_mm_add_ss(vector, _mm_set_ss(.5f))), "legacy fceil wrapper");
 }
 int main()
 {

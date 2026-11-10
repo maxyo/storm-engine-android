@@ -11,7 +11,7 @@
 #pragma once
 
 #include "entity.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "vma.hpp"
 
 class MESSAGE;
@@ -25,7 +25,7 @@ class LocationEffects : public Entity
 
     struct Vertex
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         uint32_t color;
         float u, v;
     };
@@ -34,7 +34,7 @@ class LocationEffects : public Entity
 
     struct Particle
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         float angle;
         float size;
         float alpha;
@@ -48,7 +48,7 @@ class LocationEffects : public Entity
 
     struct ParticleSplash : public Particle
     {
-        CVECTOR dir;
+        glm::vec3 dir;
         float dAng;
     };
 
@@ -56,7 +56,7 @@ class LocationEffects : public Entity
     {
         float time;
         float kTime;
-        CVECTOR pos;
+        glm::vec3 pos;
         ParticleSplash prt[64];
     };
 
@@ -69,7 +69,7 @@ class LocationEffects : public Entity
 
     struct LampFlys
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         float radius;
         int32_t start;
         int32_t num;
@@ -77,7 +77,7 @@ class LocationEffects : public Entity
 
     struct ParticleSG : public Particle
     {
-        CVECTOR spd;
+        glm::vec3 spd;
         float dang;
         float time;
         float ktime;
@@ -128,7 +128,7 @@ class LocationEffects : public Entity
     // ---------------------------------------------------
     // Ѕplashes from the character
     // ---------------------------------------------------
-    void CreateSplash(const CVECTOR &pos, float power);
+    void CreateSplash(const glm::vec3 &pos, float power);
     void ProcessedChrSplash(float dltTime);
 
     ChrSplash chrSplash[4];
@@ -139,7 +139,7 @@ class LocationEffects : public Entity
     // Flies near laterns
     // ---------------------------------------------------
 
-    void AddLampFlys(CVECTOR &pos);
+    void AddLampFlys(glm::vec3 &pos);
     void ProcessedFlys(float dltTime);
 
     std::vector<LampFlys> flys;
@@ -154,9 +154,9 @@ class LocationEffects : public Entity
     // ---------------------------------------------------
     void SGInited();
     void SGRelease();
-    void SGEnvPrt(const CVECTOR &pos, const CVECTOR &ndir);
-    void SGBldPrt(const CVECTOR &pos, const CVECTOR &ndir);
-    void SGFirePrt(const CVECTOR &pos, const CVECTOR &ndir);
+    void SGEnvPrt(const glm::vec3 &pos, const glm::vec3 &ndir);
+    void SGBldPrt(const glm::vec3 &pos, const glm::vec3 &ndir);
+    void SGFirePrt(const glm::vec3 &pos, const glm::vec3 &ndir);
     void ProcessedShotgun(float dltTime);
 
     ParticleSG smoke[64];

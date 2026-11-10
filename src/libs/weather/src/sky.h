@@ -36,7 +36,7 @@ class SKY : public Entity
         }
     }
 
-    float CalculateAlphaForSun(const CVECTOR &vSunPos, float fSunSize);
+    float CalculateAlphaForSun(const glm::vec3 &vSunPos, float fSunSize);
 
   private:
     enum

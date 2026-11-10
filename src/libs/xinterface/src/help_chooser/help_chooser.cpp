@@ -9,7 +9,7 @@
 
 struct HCHOOSER_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float w;
     float tu, tv;
 };

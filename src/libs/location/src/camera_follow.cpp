@@ -21,10 +21,10 @@
 // Radius search options
 float CameraFollow::fndRadius;
 float CameraFollow::fndMaxRadius;
-CVECTOR CameraFollow::fndCamDir;
-CVECTOR CameraFollow::fndCamDirXZ;
-CVECTOR CameraFollow::fndCamDirY;
-CVECTOR CameraFollow::fndCamPos;
+glm::vec3 CameraFollow::fndCamDir;
+glm::vec3 CameraFollow::fndCamDirXZ;
+glm::vec3 CameraFollow::fndCamDirY;
+glm::vec3 CameraFollow::fndCamPos;
 float CameraFollow::fndcsAx;
 float CameraFollow::fndkAx;
 float CameraFollow::fndcsAy;
@@ -61,7 +61,7 @@ void CameraFollow::Update(float dltTime)
 {
     auto oldPos(camPos);
     // If beyond the permitted area, reborn
-    if (~(lc->pos - oldPos) >= lc->teleport_dist * lc->teleport_dist)
+    if (storm::math::lengthSquared(lc->pos - oldPos) >= lc->teleport_dist * lc->teleport_dist)
         isBrn = true;
     // Calculating a new position
     if (!isBrn)
@@ -99,7 +99,7 @@ void CameraFollow::Update(float dltTime)
     {
       if(Trace(camPos, lookTo) <= 1.0f)
       {
-        CVECTOR dir = camPos - lookTo;
+        glm::vec3 dir = camPos - lookTo;
         float l = ~dir;
         if(l > 0.0f)
         {
@@ -110,7 +110,7 @@ void CameraFollow::Update(float dltTime)
       }
     }
     //
-    CVECTOR dir = camPos - lookTo; dir.y = 0.0f;
+    glm::vec3 dir = camPos - lookTo; dir.y = 0.0f;
     float r = sqrtf(~dir);
     lc->camPos = camPos;
     lc->lookTo = lookTo;
@@ -191,7 +191,7 @@ void CameraFollow::BornCamera()
 }
 
 // Calculate camera position for a given angle
-void CameraFollow::CalcPosition(float ang, float radius, float dax, CVECTOR &pos) const
+void CameraFollow::CalcPosition(float ang, float radius, float dax, glm::vec3 &pos) const
 {
     // Where are we looking from
     const auto ax = -lc->ax + dax;
@@ -202,22 +202,22 @@ void CameraFollow::CalcPosition(float ang, float radius, float dax, CVECTOR &pos
 
 #ifdef LFC_DEBUG
 
-CVECTOR fndv[4096 * 3];
+glm::vec3 fndv[4096 * 3];
 int32_t numTrg = 0;
 bool isFndTrg = false;
-CVECTOR fndvP1[4096];
+glm::vec3 fndvP1[4096];
 int32_t numP1 = 0;
-CVECTOR fndvP2[4096];
+glm::vec3 fndvP2[4096];
 int32_t numP2 = 0;
-CVECTOR fndvP3[4096 * 10];
+glm::vec3 fndvP3[4096 * 10];
 int32_t numP3 = 0;
 
-CVECTOR fndvN[4096 * 10];
+glm::vec3 fndvN[4096 * 10];
 int32_t numN = 0;
-CVECTOR fndvE[4096 * 10];
+glm::vec3 fndvE[4096 * 10];
 int32_t numE = 0;
 
-CVECTOR fndvU[4096 * 10];
+glm::vec3 fndvU[4096 * 10];
 int32_t numU = 0;
 
 int32_t numPoly1 = 0;
@@ -229,21 +229,21 @@ int camSteps = 0;
 void CameraFollow::DrawDebug()
 {
 #ifdef LFC_DEBUG
-    lc->location->GetRS()->SetTransform(D3DTS_WORLD, CMatrix());
+    lc->location->GetRS()->SetTransform(D3DTS_WORLD, glm::mat4());
     lc->location->GetRS()->SetRenderState(D3DRS_TEXTUREFACTOR, 0xff00ff00);
-    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_TRIANGLELIST, D3DFVF_XYZ, numTrg, fndv, sizeof(CVECTOR), "DebugTrs");
+    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_TRIANGLELIST, D3DFVF_XYZ, numTrg, fndv, sizeof(glm::vec3), "DebugTrs");
     lc->location->GetRS()->SetRenderState(D3DRS_TEXTUREFACTOR, 0xffffff00);
-    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_POINTLIST, D3DFVF_XYZ, numP1, fndvP1, sizeof(CVECTOR), "DebugTrs");
+    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_POINTLIST, D3DFVF_XYZ, numP1, fndvP1, sizeof(glm::vec3), "DebugTrs");
     lc->location->GetRS()->SetRenderState(D3DRS_TEXTUREFACTOR, 0xffffffff);
-    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_POINTLIST, D3DFVF_XYZ, numP2, fndvP2, sizeof(CVECTOR), "DebugTrs");
+    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_POINTLIST, D3DFVF_XYZ, numP2, fndvP2, sizeof(glm::vec3), "DebugTrs");
     lc->location->GetRS()->SetRenderState(D3DRS_TEXTUREFACTOR, 0xffff0000);
-    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ, numP3 / 2, fndvP3, sizeof(CVECTOR), "DebugTrs");
+    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ, numP3 / 2, fndvP3, sizeof(glm::vec3), "DebugTrs");
     lc->location->GetRS()->SetRenderState(D3DRS_TEXTUREFACTOR, 0xffff00ff);
-    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ, numN / 2, fndvN, sizeof(CVECTOR), "DebugTrs");
+    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ, numN / 2, fndvN, sizeof(glm::vec3), "DebugTrs");
     lc->location->GetRS()->SetRenderState(D3DRS_TEXTUREFACTOR, 0xff0000ff);
-    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ, numE / 2, fndvE, sizeof(CVECTOR), "DebugTrs");
+    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ, numE / 2, fndvE, sizeof(glm::vec3), "DebugTrs");
     lc->location->GetRS()->SetRenderState(D3DRS_TEXTUREFACTOR, 0xff00ffff);
-    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ, numU / 2, fndvU, sizeof(CVECTOR), "DebugTrs");
+    lc->location->GetRS()->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ, numU / 2, fndvU, sizeof(glm::vec3), "DebugTrs");
     lc->location->GetRS()->Print(10, 90, "NumEdges: %i, NumU %i", numE / 2, numU / 2);
 #endif
 }
@@ -258,7 +258,7 @@ float CameraFollow::FindRadius(float curAng) const
 #ifdef LFC_DEBUG
     struct Vrt
     {
-        CVECTOR p;
+        glm::vec3 p;
         float rhw;
     } vrt[64];
 
@@ -314,21 +314,21 @@ float CameraFollow::FindRadius(float curAng) const
 #endif
 
     // The point we are looking at
-    CVECTOR pos(lc->pos.x, lc->pos.y + lc->lheight, lc->pos.z);
+    glm::vec3 pos(lc->pos.x, lc->pos.y + lc->lheight, lc->pos.z);
     const auto ax = -lc->ax;
     // Search initial values
     fndRadius = lc->radius + LCF_RADIUS;
     fndMaxRadius = lc->radius + LCF_RADIUS;
-    fndCamDir = CVECTOR(-cosf(ax) * sinf(curAng), -sinf(ax), -cosf(ax) * cosf(curAng));
+    fndCamDir = glm::vec3(-cosf(ax) * sinf(curAng), -sinf(ax), -cosf(ax) * cosf(curAng));
     fndCamDirXZ = fndCamDir;
     fndCamDirXZ.y = 0.0f;
-    auto l = sqrtf(~fndCamDirXZ);
+    auto l = sqrtf(storm::math::lengthSquared(fndCamDirXZ));
     if (l > 0.0f)
         fndCamDirXZ *= 1.0f / l;
     fndCamDirY = fndCamDir;
     fndCamDirY.x = l;
     fndCamDirY.z = 0.0f;
-    l = ~fndCamDirY;
+    l = storm::math::lengthSquared(fndCamDirY);
     if (l > 0.0f)
         fndCamDirY *= 1.0f / sqrtf(l);
     fndCamPos = pos;
@@ -362,7 +362,7 @@ float CameraFollow::FindRadius(float curAng) const
     p[4].Nx = fndCamDir.x;
     p[4].Ny = fndCamDir.y;
     p[4].Nz = fndCamDir.z;
-    p[4].D = fndCamDir | (pos + fndCamDir * lc->radius);
+    p[4].D = glm::dot(fndCamDir, pos + fndCamDir * lc->radius);
 
 #ifdef LFC_DEBUG
     numPoly1 = 0;
@@ -395,18 +395,18 @@ float CameraFollow::FindRadius(float curAng) const
 
 #ifdef LFC_DEBUG
     /////////////////////
-    static CVECTOR ps(0.0f);
-    static CVECTOR vv[5];
+    static glm::vec3 ps(0.0f);
+    static glm::vec3 vv[5];
     if (core.Controls->GetDebugAsyncKeyState('8') < 0)
     {
         ps = pos;
-        CVECTOR vvv;
+        glm::vec3 vvv;
         CalcPosition(curAng, 2.0f, 0.0f, vvv);
 
-        vv[0] = ps + CVECTOR(p[0].Nx, p[0].Ny, p[0].Nz);
-        vv[1] = ps + CVECTOR(p[1].Nx, p[1].Ny, p[1].Nz);
-        vv[2] = ps + CVECTOR(p[2].Nx, p[2].Ny, p[2].Nz);
-        vv[3] = ps + CVECTOR(p[3].Nx, p[3].Ny, p[3].Nz);
+        vv[0] = ps + glm::vec3(p[0].Nx, p[0].Ny, p[0].Nz);
+        vv[1] = ps + glm::vec3(p[1].Nx, p[1].Ny, p[1].Nz);
+        vv[2] = ps + glm::vec3(p[2].Nx, p[2].Ny, p[2].Nz);
+        vv[3] = ps + glm::vec3(p[3].Nx, p[3].Ny, p[3].Nz);
         vv[4] = ps + (vvv - pos);
     }
 
@@ -428,7 +428,7 @@ float CameraFollow::FindRadius(float curAng) const
 }
 
 // Consider polygon in radius search
-bool CameraFollow::ApplyPoly(const CVECTOR *v, int32_t n)
+bool CameraFollow::ApplyPoly(const glm::vec3 *v, int32_t n)
 {
 #ifdef LFC_DEBUG
     numPoly1++;
@@ -436,15 +436,15 @@ bool CameraFollow::ApplyPoly(const CVECTOR *v, int32_t n)
     if (n < 3)
         return true;
     // Plane normal
-    auto norm = (v[0] - v[1]) ^ (v[0] - v[2]);
-    auto dist = ~norm;
+    auto norm = glm::cross(v[0] - v[1], v[0] - v[2]);
+    auto dist = storm::math::lengthSquared(norm);
     if (dist <= 1e-10f)
         return true;
     norm *= 1.0f / sqrtf(dist);
     // Distance
-    dist = v[0] | norm;
+    dist = glm::dot(v[0], norm);
     // Distance to the plane of the polygon
-    auto d = (fndCamPos | norm) - dist;
+    auto d = glm::dot(fndCamPos, norm) - dist;
     // If the plane is farther than the current radius, skip it
     if (fabs(d) >= fndRadius)
         return true;
@@ -459,20 +459,20 @@ bool CameraFollow::ApplyPoly(const CVECTOR *v, int32_t n)
         if (j >= n)
             j = 0;
         // Normal of a plane passing through an edge
-        edge[i].n = (v[i] - v[j]) ^ norm;
-        const auto d = ~edge[i].n;
+        edge[i].n = glm::cross(v[i] - v[j], norm);
+        const auto d = storm::math::lengthSquared(edge[i].n);
         if (d == 0.0f)
             continue;
         edge[i].n *= 1.0f / sqrtf(d);
         // Distance
-        edge[i].d = v[i] | edge[i].n;
+        edge[i].d = glm::dot(v[i], edge[i].n);
         edge[i].s = v[i];
         edge[i].e = v[j];
     }
     // looking for the closest point to the position where the camera is looking
     const auto pos1 = fndCamPos - norm * d;
     // looking for the closest point to the point of intersection of the ray direction to the camera
-    const auto cs = norm | fndCamDir;
+    const auto cs = glm::dot(norm, fndCamDir);
     if (cs != 0.0f)
     {
         d /= -cs;
@@ -480,7 +480,7 @@ bool CameraFollow::ApplyPoly(const CVECTOR *v, int32_t n)
         {
             const auto pos2 = fndCamPos + fndCamDir * d;
             const auto dlt = pos2 - pos1;
-            auto step = sqrtf(~dlt) * 3.0f;
+            auto step = sqrtf(storm::math::lengthSquared(dlt)) * 3.0f;
             if (step > 0.0f)
             {
                 if (step > 10.0f)
@@ -509,26 +509,26 @@ bool CameraFollow::ApplyPoly(const CVECTOR *v, int32_t n)
     return true;
 }
 
-void CameraFollow::ApplyPolyFindNearest(EdgeInfo *e, int32_t ne, const CVECTOR &pos)
+void CameraFollow::ApplyPolyFindNearest(EdgeInfo *e, int32_t ne, const glm::vec3 &pos)
 {
     // Testing with edges, determining the closest distance
-    CVECTOR pnt;
+    glm::vec3 pnt;
     auto minDist = -1.0f;
     for (int32_t i = 0; i < ne; i++)
     {
         // Distance to planes from points
-        auto d = (pos | e[i].n) - e[i].d;
+        auto d = glm::dot(pos, e[i].n) - e[i].d;
         if (d >= 0.0f)
             continue;
         // Point on a straight line
         auto p = pos - e[i].n * d;
         // Point on the edge
-        if (((e[i].s - e[i].e) | (e[i].s - p)) < 0.0f)
+        if (glm::dot(e[i].s - e[i].e, e[i].s - p) < 0.0f)
             p = e[i].s;
-        else if (((e[i].s - e[i].e) | (p - e[i].e)) < 0.0f)
+        else if (glm::dot(e[i].s - e[i].e, p - e[i].e) < 0.0f)
             p = e[i].e;
         // Distance
-        d = ~(p - pos);
+        d = storm::math::lengthSquared(p - pos);
         if (minDist >= 0.0f)
         {
             if (minDist > d)
@@ -549,7 +549,7 @@ void CameraFollow::ApplyPolyFindNearest(EdgeInfo *e, int32_t ne, const CVECTOR &
     else
         pnt = pnt - fndCamPos;
     // Length
-    auto dist = ~pnt;
+    auto dist = storm::math::lengthSquared(pnt);
     if (dist >= fndRadius * fndRadius)
         return;
     // Attenuation coefficient
@@ -558,7 +558,7 @@ void CameraFollow::ApplyPolyFindNearest(EdgeInfo *e, int32_t ne, const CVECTOR &
     auto kxz = 1.0f;
     if (d > 0.0f)
     {
-        kxz = (pnt | fndCamDirXZ) / d;
+        kxz = glm::dot(pnt, fndCamDirXZ) / d;
         kxz = (kxz - fndcsAy) * fndkAy;
         if (kxz <= 0.0f)
             return;
@@ -571,7 +571,7 @@ void CameraFollow::ApplyPolyFindNearest(EdgeInfo *e, int32_t ne, const CVECTOR &
     auto ky = 1.0f;
     if (d > 0.0f)
     {
-        ky = (pnt | fndCamDirY) / d;
+        ky = glm::dot(pnt, fndCamDirY) / d;
         ky = (ky - fndcsAx) * fndkAx;
         if (ky <= 0.0f)
             return;
@@ -617,11 +617,11 @@ void CameraFollow::FindRotAccelCam()
 }
 
 // Stretch the ray taking into account cull and camera size
-float CameraFollow::Trace(const CVECTOR &src, const CVECTOR &dst)
+float CameraFollow::Trace(const glm::vec3 &src, const glm::vec3 &dst)
 {
     // Direction to camera
     auto dir = dst - src;
-    auto dist = ~dir;
+    auto dist = storm::math::lengthSquared(dir);
     if (dist <= 0.0f)
         return 2.0f;
     dist = sqrtf(dist);
@@ -630,14 +630,14 @@ float CameraFollow::Trace(const CVECTOR &src, const CVECTOR &dst)
     float k[5];
     k[0] = SubTrace(src, src + dir);
     // Building a basis
-    auto left = dir ^ CVECTOR(0.0f, 1.0f, 0.0f);
-    const auto l = ~left;
+    auto left = glm::cross(dir, glm::vec3(0.0f, 1.0f, 0.0f));
+    const auto l = storm::math::lengthSquared(left);
     if (l <= 0.0f)
         return k[0];
     left *= 1.0f / sqrtf(l);
-    const auto up = dir ^ left;
+    const auto up = glm::cross(dir, left);
     // Looking for the nearest distance
-    CVECTOR s;
+    glm::vec3 s;
     s = src + left * LCF_RADIUS;
     k[1] = SubTrace(s, s + dir);
     s = src - left * LCF_RADIUS;
@@ -654,20 +654,20 @@ float CameraFollow::Trace(const CVECTOR &src, const CVECTOR &dst)
 }
 
 // Stretch a ray with cull
-inline float CameraFollow::SubTrace(const CVECTOR &src, const CVECTOR &dst) const
+inline float CameraFollow::SubTrace(const glm::vec3 &src, const glm::vec3 &dst) const
 {
     TRIANGLE trg;
     const auto k = lc->Trace(src, dst);
     if (k > 1.0f || !lc->GetCollideTriangle(trg))
         return 2.0f;
     // Determine the normal
-    auto n = (trg.vrt[0] - trg.vrt[1]) ^ (trg.vrt[1] - trg.vrt[2]);
-    const auto l = ~n;
+    auto n = glm::cross(trg.vrt[0] - trg.vrt[1], trg.vrt[1] - trg.vrt[2]);
+    const auto l = storm::math::lengthSquared(n);
     if (l > 0.0f)
     {
         // Determine which side we pass through the triangle
         n *= 1.0f / sqrtf(l);
-        if ((n | src) > (n | trg.vrt[0]))
+        if (glm::dot(n, src) > glm::dot(n, trg.vrt[0]))
             return k;
     }
     return 2.0f;

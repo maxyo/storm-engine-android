@@ -16,7 +16,7 @@ LOCAL_COLLIDE *COLL::CreateLocalCollide(layer_index_t idx)
 //----------------------------------------------------------------------------------
 // Ray tracing
 //----------------------------------------------------------------------------------
-float COLL::Trace(entid_t entity, const CVECTOR &src, const CVECTOR &dst)
+float COLL::Trace(entid_t entity, const glm::vec3 &src, const glm::vec3 &dst)
 {
     auto *cob = static_cast<COLLISION_OBJECT *>(core.GetEntityPointer(entity));
     if (static_cast<Entity *>(cob) == nullptr)
@@ -29,7 +29,7 @@ float COLL::Trace(entid_t entity, const CVECTOR &src, const CVECTOR &dst)
 //----------------------------------------------------------------------------------
 // with enclusion list
 //----------------------------------------------------------------------------------
-float COLL::Trace(entity_container_cref entities, const CVECTOR &src, const CVECTOR &dst,
+float COLL::Trace(entity_container_cref entities, const glm::vec3 &src, const glm::vec3 &dst,
                   const entid_t *exclude_list, int32_t exclude_num)
 {
     auto best_res = 2.0f;
@@ -61,7 +61,7 @@ float COLL::Trace(entity_container_cref entities, const CVECTOR &src, const CVEC
 //----------------------------------------------------------------------------------
 //
 //----------------------------------------------------------------------------------
-bool COLL::Clip(entity_container_cref entities, const PLANE *planes, int32_t nplanes, const CVECTOR &center,
+bool COLL::Clip(entity_container_cref entities, const PLANE *planes, int32_t nplanes, const glm::vec3 &center,
                 float radius, ADD_POLYGON_FUNC addpoly, const entid_t *exclude_list, int32_t exclude_num)
 {
     auto retval = false;

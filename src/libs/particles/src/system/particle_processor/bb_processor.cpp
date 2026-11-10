@@ -111,8 +111,8 @@ void BillBoardProcessor::FreeParticle(BB_ParticleData *pItem) const
     }
 }
 
-void BillBoardProcessor::AddParticle(ParticleSystem *pSystem, const Vector &velocity_dir, const Vector &pos,
-                                     const Matrix &matWorld, float EmitterTime, float EmitterLifeTime,
+void BillBoardProcessor::AddParticle(ParticleSystem *pSystem, const glm::vec3 &velocity_dir, const glm::vec3 &pos,
+                                     const glm::mat4 &matWorld, float EmitterTime, float EmitterLifeTime,
                                      FieldList *pFields, uint32_t *pActiveCount, uint32_t dwGUID)
 {
     auto *pData = AllocParticle();
@@ -128,7 +128,7 @@ void BillBoardProcessor::AddParticle(ParticleSystem *pSystem, const Vector &velo
     pData->Graph_TrackY = pFields->FindGraph(PARTICLE_TRACK_Y);
     pData->Graph_TrackZ = pFields->FindGraph(PARTICLE_TRACK_Z);
 
-    Vector PositionOffset;
+    glm::vec3 PositionOffset;
     PositionOffset.x = pData->Graph_TrackX->GetRandomValue(0.0f, 100.0f);
     PositionOffset.y = pData->Graph_TrackY->GetRandomValue(0.0f, 100.0f);
     PositionOffset.z = pData->Graph_TrackZ->GetRandomValue(0.0f, 100.0f);
@@ -136,14 +136,14 @@ void BillBoardProcessor::AddParticle(ParticleSystem *pSystem, const Vector &velo
     pData->SpeedOriented = pFields->GetBool(PARTICLE_DIR_ORIENT, false);
     pData->EmitterGUID = dwGUID;
     pData->ActiveCount = pActiveCount;
-    pData->RenderPos = (pos + PositionOffset) * matWorld;
-    pData->Velocity = matWorld.MulNormal(velocity_dir);
+    pData->RenderPos = storm::math::transformPoint(matWorld, pos + PositionOffset);
+    pData->Velocity = glm::mat3(matWorld) * velocity_dir;
     pData->ElapsedTime = 0.0f;
     pData->matWorld = matWorld;
 
     pData->Angle = 0.0f;
     pData->RenderAngle = 0.0f;
-    pData->ExternalForce = Vector(0.0f, 0.0f, 0.0f);
+    pData->ExternalForce = glm::vec3(0.0f, 0.0f, 0.0f);
     pData->PhysPos = pData->RenderPos;
 
     pData->OldRenderPos = pData->RenderPos;
@@ -237,7 +237,7 @@ void BillBoardProcessor::Process(float DeltaTime)
         AddGravityForce(Particles[n]->ExternalForce, Particles[n]->Mass, GravK);
         SolvePhysic(Particles[n]->PhysPos, Particles[n]->Velocity, Particles[n]->ExternalForce, Particles[n]->UMass,
                     Drag, DeltaTime);
-        Particles[n]->ExternalForce = Vector(0.0f);
+        Particles[n]->ExternalForce = glm::vec3(0.0f);
 
         // FIX ME !!!
         auto SpinDrag = Particles[n]->Graph_SpinDrag->GetValue(Time, LifeTime, Particles[n]->SpinDragK);
@@ -248,11 +248,11 @@ void BillBoardProcessor::Process(float DeltaTime)
             SpinDrag = 1.0f;
         Particles[n]->Angle += (Particles[n]->Spin * SpinDrag) * DeltaTime;
 
-        Vector TrackPos;
+        glm::vec3 TrackPos;
         TrackPos.x = Particles[n]->Graph_TrackX->GetValue(Time, LifeTime, Particles[n]->KTrackX);
         TrackPos.y = Particles[n]->Graph_TrackY->GetValue(Time, LifeTime, Particles[n]->KTrackY);
         TrackPos.z = Particles[n]->Graph_TrackZ->GetValue(Time, LifeTime, Particles[n]->KTrackZ);
-        TrackPos = TrackPos * Particles[n]->matWorld;
+        TrackPos = storm::math::transformPoint(Particles[n]->matWorld, TrackPos);
 
         // FIX ME !!!
         auto BlendPhys = Particles[n]->Graph_PhysBlend->GetValue(Time, LifeTime, Particles[n]->KPhysBlend);
@@ -266,7 +266,7 @@ void BillBoardProcessor::Process(float DeltaTime)
         Particles[n]->OldRenderPos = Particles[n]->RenderPos;
         // Particles[n]->OldRenderAngle = Particles[n]->RenderAngle;
 
-        Particles[n]->RenderPos.Lerp(TrackPos, Particles[n]->PhysPos, BlendPhys);
+        Particles[n]->RenderPos = storm::math::lerp(TrackPos, Particles[n]->PhysPos, BlendPhys);
         Particles[n]->PhysPos = Particles[n]->RenderPos;
 
         // Particles[n]->RenderPos    = Particles[n]->PhysPos;
@@ -281,8 +281,10 @@ void BillBoardProcessor::Process(float DeltaTime)
         {
             //            core.Trace("%d, %3.2f, %3.2f, %3.2f", n, Particles[n]->RenderPos.x, Particles[n]->RenderPos.y,
             // Particles[n]->RenderPos.z);             Particles[n]->AttachedEmitter->SaveTime();
-            Particles[n]->AttachedEmitter->Teleport(Matrix(Particles[n]->OldRenderAngle, Particles[n]->OldRenderPos));
-            Particles[n]->AttachedEmitter->SetTransform(Matrix(Particles[n]->RenderAngle, Particles[n]->RenderPos));
+            Particles[n]->AttachedEmitter->Teleport(
+                storm::math::eulerMatrix(glm::vec3(Particles[n]->OldRenderAngle), Particles[n]->OldRenderPos));
+            Particles[n]->AttachedEmitter->SetTransform(
+                storm::math::eulerMatrix(glm::vec3(Particles[n]->RenderAngle), Particles[n]->RenderPos));
             Particles[n]->AttachedEmitter->BornParticles(DeltaTime);
 
             // if (n < Particles.size()-1)    Particles[n]->AttachedEmitter->RestoreTime();
@@ -297,11 +299,11 @@ void BillBoardProcessor::Process(float DeltaTime)
 uint32_t BillBoardProcessor::CalcDistanceToCamera()
 {
     uint32_t VisParticles = 0;
-    const Matrix mView;
-    pRS->GetTransform(D3DTS_VIEW, mView);
+    glm::mat4 mView;
+    pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mView));
     for (uint32_t j = 0; j < Particles.size(); j++)
     {
-        Particles[j]->CamDistance = Vector(Particles[j]->RenderPos * mView).z;
+        Particles[j]->CamDistance = storm::math::transformPoint(mView, Particles[j]->RenderPos).z;
 
         //        _mm_prefetch ((const char *)Particles[j+1], _MM_HINT_T0);
 
@@ -355,7 +357,7 @@ void BillBoardProcessor::Draw()
 
         auto fAngle = pR->RenderAngle;
         auto vPos = pR->RenderPos;
-        uint32_t dwColor = pR->Graph_Color->GetValue(pR->ElapsedTime, pR->LifeTime, pR->ColorK);
+        auto dwColor = storm::math::colorToARGB(pR->Graph_Color->GetValue(pR->ElapsedTime, pR->LifeTime, pR->ColorK));
 
         auto Alpha = pR->Graph_Transparency->GetValue(pR->ElapsedTime, pR->LifeTime, pR->AlphaK);
         Alpha = Alpha * 0.01f;
@@ -397,12 +399,12 @@ void BillBoardProcessor::Draw()
 
         if (SpeedOriented)
         {
-            Matrix matView;
-            pRS->GetTransform(D3DTS_VIEW, matView);
+            glm::mat4 matView;
+            pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(matView));
             auto SpeedVector = pR->Velocity;
             // pR->RenderPos - pR->OldRenderPos;
-            SpeedVector = matView.MulNormal(SpeedVector);
-            SpeedVector.Normalize();
+            SpeedVector = glm::mat3(matView) * SpeedVector;
+            storm::math::normalizeInPlace(SpeedVector);
             ScaleF = 1.0f - fabsf(SpeedVector.z);
 
             if (ScaleF < 0.3f)
@@ -410,7 +412,7 @@ void BillBoardProcessor::Draw()
             Alpha *= ScaleF;
 
             SpeedVector.z = SpeedVector.y;
-            DirAngle = SpeedVector.GetAY(pR->OldRenderAngle);
+            DirAngle = storm::math::angleY(SpeedVector, pR->OldRenderAngle);
 
             pR->OldRenderAngle = DirAngle;
         }
@@ -421,12 +423,12 @@ void BillBoardProcessor::Draw()
 
         // if (j == 0)    core.Trace("fAngle[0]: %3.2f", fAngle);
 
-        pV[0].vRelativePos = Vector(-fSize, -fSize, 0.0f);
+        pV[0].vRelativePos = glm::vec3(-fSize, -fSize, 0.0f);
         pV[0].dwColor = dwColor;
-        pV[0].tu1 = UV_WH1.v4[UV_TX1];
-        pV[0].tv1 = UV_WH1.v4[UV_TY1];
-        pV[0].tu2 = UV_WH2.v4[UV_TX1];
-        pV[0].tv2 = UV_WH2.v4[UV_TY1];
+        pV[0].tu1 = UV_WH1[UV_TX1];
+        pV[0].tv1 = UV_WH1[UV_TY1];
+        pV[0].tu2 = UV_WH2[UV_TX1];
+        pV[0].tv2 = UV_WH2[UV_TY1];
         pV[0].angle = fAngle;
         pV[0].BlendK = FrameBlendK;
         pV[0].vParticlePos = vPos;
@@ -440,12 +442,12 @@ void BillBoardProcessor::Draw()
             pV[0].vRelativePos.y *= ScaleF;
         }
 
-        pV[1].vRelativePos = Vector(-fSize, fSize, 0.0f);
+        pV[1].vRelativePos = glm::vec3(-fSize, fSize, 0.0f);
         pV[1].dwColor = dwColor;
-        pV[1].tu1 = UV_WH1.v4[UV_TX1];
-        pV[1].tv1 = UV_WH1.v4[UV_TY2];
-        pV[1].tu2 = UV_WH2.v4[UV_TX1];
-        pV[1].tv2 = UV_WH2.v4[UV_TY2];
+        pV[1].tu1 = UV_WH1[UV_TX1];
+        pV[1].tv1 = UV_WH1[UV_TY2];
+        pV[1].tu2 = UV_WH2[UV_TX1];
+        pV[1].tv2 = UV_WH2[UV_TY2];
         pV[1].angle = fAngle;
         pV[1].BlendK = FrameBlendK;
         pV[1].vParticlePos = vPos;
@@ -458,12 +460,12 @@ void BillBoardProcessor::Draw()
             pV[1].vRelativePos.y *= ScaleF;
         }
 
-        pV[2].vRelativePos = Vector(fSize, fSize, 0.0f);
+        pV[2].vRelativePos = glm::vec3(fSize, fSize, 0.0f);
         pV[2].dwColor = dwColor;
-        pV[2].tu1 = UV_WH1.v4[UV_TX2];
-        pV[2].tv1 = UV_WH1.v4[UV_TY2];
-        pV[2].tu2 = UV_WH2.v4[UV_TX2];
-        pV[2].tv2 = UV_WH2.v4[UV_TY2];
+        pV[2].tu1 = UV_WH1[UV_TX2];
+        pV[2].tv1 = UV_WH1[UV_TY2];
+        pV[2].tu2 = UV_WH2[UV_TX2];
+        pV[2].tv2 = UV_WH2[UV_TY2];
         pV[2].angle = fAngle;
         pV[2].BlendK = FrameBlendK;
         pV[2].vParticlePos = vPos;
@@ -476,12 +478,12 @@ void BillBoardProcessor::Draw()
             pV[2].vRelativePos.y *= ScaleF;
         }
 
-        pV[3].vRelativePos = Vector(fSize, -fSize, 0.0f);
+        pV[3].vRelativePos = glm::vec3(fSize, -fSize, 0.0f);
         pV[3].dwColor = dwColor;
-        pV[3].tu1 = UV_WH1.v4[UV_TX2];
-        pV[3].tv1 = UV_WH1.v4[UV_TY1];
-        pV[3].tu2 = UV_WH2.v4[UV_TX2];
-        pV[3].tv2 = UV_WH2.v4[UV_TY1];
+        pV[3].tu1 = UV_WH1[UV_TX2];
+        pV[3].tv1 = UV_WH1[UV_TY1];
+        pV[3].tu2 = UV_WH2[UV_TX2];
+        pV[3].tv2 = UV_WH2[UV_TY1];
         pV[3].angle = fAngle;
         pV[3].BlendK = FrameBlendK;
         pV[3].vParticlePos = vPos;
@@ -499,36 +501,36 @@ void BillBoardProcessor::Draw()
 
     pRS->UnLockVertexBuffer(pVBuffer);
 
-    Vector4 const1(0.0416666f, 1.0f, 0.0f, -0.5f);
-    Vector4 const2(0.159155f, 0.5f, 0.25f, 6.28319f);
-    Vector4 const3(-3.14159f, 0.0000247609f, -0.00138884f, -0.000000252399f);
+    glm::vec4 const1(0.0416666f, 1.0f, 0.0f, -0.5f);
+    glm::vec4 const2(0.159155f, 0.5f, 0.25f, 6.28319f);
+    glm::vec4 const3(-3.14159f, 0.0000247609f, -0.00138884f, -0.000000252399f);
 
-    Vector4 cGlobal(0.0f, 1.0f, 0.5f, 0.0f);
+    glm::vec4 cGlobal(0.0f, 1.0f, 0.5f, 0.0f);
 
     pRS->SetVertexDeclaration(vertexDecl_);
 
-    pRS->SetVertexShaderConstantF(0, static_cast<const float *>(const1.v4), 1);
-    pRS->SetVertexShaderConstantF(1, static_cast<const float *>(const2.v4), 1);
-    pRS->SetVertexShaderConstantF(2, static_cast<const float *>(const3.v4), 1);
-    pRS->SetVertexShaderConstantF(13, static_cast<const float *>(cGlobal.v4), 1);
+    pRS->SetVertexShaderConstantF(0, &const1.x, 1);
+    pRS->SetVertexShaderConstantF(1, &const2.x, 1);
+    pRS->SetVertexShaderConstantF(2, &const3.x, 1);
+    pRS->SetVertexShaderConstantF(13, &cGlobal.x, 1);
 
-    Matrix matOldView, matView, matProjection;
-    pRS->GetTransform(D3DTS_VIEW, matView);
-    pRS->GetTransform(D3DTS_PROJECTION, matProjection);
+    glm::mat4 matOldView, matView, matProjection;
+    pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(matView));
+    pRS->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(matProjection));
 
     matOldView = matView;
-    matView.Transposition();
-    matProjection.Transposition();
+    matView = glm::transpose(matView);
+    matProjection = glm::transpose(matProjection);
 
-    pRS->SetVertexShaderConstantF(3, static_cast<const float *>(matView.matrix), 4);
-    pRS->SetVertexShaderConstantF(7, static_cast<const float *>(matProjection.matrix), 4);
+    pRS->SetVertexShaderConstantF(3, storm::math::data(matView), 4);
+    pRS->SetVertexShaderConstantF(7, storm::math::data(matProjection), 4);
 
-    pRS->SetTransform(D3DTS_VIEW, Matrix());
-    pRS->SetTransform(D3DTS_WORLD, Matrix());
+    pRS->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(glm::mat4()));
+    pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
     pRS->DrawBuffer(pVBuffer, sizeof(RECT_VERTEX), pIBuffer, 0, ParticlesCount * 4, 0, ParticlesCount * 2,
                     "AdvancedParticles");
 
-    pRS->SetTransform(D3DTS_VIEW, matOldView);
+    pRS->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(matOldView));
 
     // pRS->Print(20, 20, "PSYS 2.0 : Draw %d billboard particles", ParticlesCount);
 }

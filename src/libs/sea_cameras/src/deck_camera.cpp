@@ -103,25 +103,25 @@ void DECK_CAMERA::Move(uint32_t DeltaTime)
         camera_ang.y -= PIm2;
 
     // determine the real angle of rotation of the camera
-    CMatrix glbRotMtx;
-    glbRotMtx.BuildMatrix(camera_ang);
-    CMatrix rotMtx;
-    pathNode->glob_mtx.Get3X3(&rotMtx);
-    glbRotMtx *= rotMtx;
+    glm::mat4 glbRotMtx;
+    glbRotMtx = storm::math::eulerMatrix(camera_ang);
+    glm::mat4 rotMtx;
+    storm::math::copy3x3(*&rotMtx, pathNode->glob_mtx);
+    glbRotMtx = rotMtx * glbRotMtx;
     auto cx = cosf(camera_ang.x);
     auto sx = sinf(camera_ang.x);
     auto cy = cosf(camera_ang.y);
     auto sy = sinf(camera_ang.y);
     float xAng, yAng, zAng;
-    auto v = glbRotMtx * CVECTOR(0, 0, 1.f);
+    auto v = storm::math::transformPoint(glbRotMtx, glm::vec3(0, 0, 1.f));
     yAng = atan2f(v.x, v.z);
-    glbRotMtx.RotateY(-yAng);
-    v = glbRotMtx * CVECTOR(0, 0, 1.f);
+    glbRotMtx = storm::math::rotationY(-yAng) * glbRotMtx;
+    v = storm::math::transformPoint(glbRotMtx, glm::vec3(0, 0, 1.f));
     xAng = atan2f(-v.y, v.z);
-    glbRotMtx.RotateX(-xAng);
-    v = glbRotMtx * CVECTOR(0, 1.f, 0);
+    glbRotMtx = storm::math::rotationX(-xAng) * glbRotMtx;
+    v = storm::math::transformPoint(glbRotMtx, glm::vec3(0, 1.f, 0));
     zAng = atan2f(-v.x, v.y);
-    CVECTOR s_ang;
+    glm::vec3 s_ang;
     s_ang.x = xAng + (camera_ang.x - xAng) * (1.0f - fRockingX);
     s_ang.y = yAng;
     s_ang.z = zAng * fRockingZ;
@@ -130,23 +130,23 @@ void DECK_CAMERA::Move(uint32_t DeltaTime)
     auto prev_pos = camera_pos;
     auto speed0 = DeltaTime * fSensivityDistance;
     auto speed = 0.f;
-    CVECTOR vShift;
+    glm::vec3 vShift;
     vShift.x = cx * sy;
     vShift.y = 0.f;
     vShift.z = cx * cy;
 
-    /*CVECTOR strafeV = CVECTOR(0.f,0.f,0.f);
+    /*glm::vec3 strafeV = glm::vec3(0.f,0.f,0.f);
     core.Controls->GetControlState("DeckCamera_Left",cs);
     if(cs.state == CST_ACTIVE)
     {
-      strafeV = !(CVECTOR(0.f, -1.f, 0.f)^vShift);
+      strafeV = !(glm::vec3(0.f, -1.f, 0.f)^vShift);
       speed=speed0;
     }
 
     core.Controls->GetControlState("DeckCamera_Right",cs);
     if(cs.state == CST_ACTIVE)
     {
-      strafeV = !(CVECTOR(0.f, 1.f, 0.f)^vShift);
+      strafeV = !(glm::vec3(0.f, 1.f, 0.f)^vShift);
       speed=speed0;
     }*/
 
@@ -166,7 +166,7 @@ void DECK_CAMERA::Move(uint32_t DeltaTime)
 
     if (speed != 0.f)
     {
-        CVECTOR src, dst;
+        glm::vec3 src, dst;
         src.y = 500.f;
         dst.y = -500.f;
         auto bNoFinded = true;
@@ -174,7 +174,7 @@ void DECK_CAMERA::Move(uint32_t DeltaTime)
         auto step = MEN_STEP_MIN;
         float len;
         auto prev_res = vRes;
-        CVECTOR p1, p2;
+        glm::vec3 p1, p2;
         int32_t trgNum = -1;
         while (true)
         {
@@ -191,7 +191,7 @@ void DECK_CAMERA::Move(uint32_t DeltaTime)
                             // no intersection with the sides of the triangle
                             break;
 
-                len = sqrtf(~(vRes - prev_res));
+                len = sqrtf(storm::math::lengthSquared(vRes - prev_res));
                 if (len > speed)
                 {
                     vRes = prev_res + vShift * speed;
@@ -229,9 +229,9 @@ void DECK_CAMERA::Move(uint32_t DeltaTime)
                 if (bNoFinded)
                     break; // standing where there is no floor
 
-                CVECTOR ep;
-                CVECTOR dp;
-                if (((p2 - p1) | vShift) < 0.f)
+                glm::vec3 ep;
+                glm::vec3 dp;
+                if (glm::dot(p2 - p1, vShift) < 0.f)
                 {
                     ep = p1;
                     dp = p1 - p2;
@@ -246,7 +246,7 @@ void DECK_CAMERA::Move(uint32_t DeltaTime)
                 if (len > 0.f)
                     if (speed >= len)
                     {
-                        vRes = ep + (!dp) * MEN_STEP_MIN;
+                        vRes = ep + (storm::math::normalizeOrZero(dp)) * MEN_STEP_MIN;
                         src.x = dst.x = vRes.x;
                         src.z = dst.z = vRes.z;
                         speed -= len;
@@ -294,8 +294,8 @@ void DECK_CAMERA::Move(uint32_t DeltaTime)
     }
 
     // calculate camera position
-    CVECTOR s_pos;
-    s_pos = pathNode->glob_mtx * (camera_pos + CVECTOR(0.f, h_eye, 0.f));
+    glm::vec3 s_pos;
+    s_pos = storm::math::transformPoint(pathNode->glob_mtx, camera_pos + glm::vec3(0.f, h_eye, 0.f));
 
     // set camera
     RenderService->SetCamera(s_pos, s_ang, GetPerspective());
@@ -329,7 +329,7 @@ uint64_t DECK_CAMERA::ProcessMessage(MESSAGE &message)
     switch (message.Long())
     {
     case MSG_DECK_CAMERA_SET_VIEWPOINT: {
-        CVECTOR cv;
+        glm::vec3 cv;
         cv.x = message.Float();
         cv.y = message.Float();
         cv.z = message.Float();
@@ -380,7 +380,7 @@ void DECK_CAMERA::SetStartPos()
             }
             if (j < gi.nlabels)
             {
-                pathNode->glob_mtx.MulToInv(root->glob_mtx * camera_pos, camera_pos);
+                camera_pos = storm::math::inverseTransformPoint(pathNode->glob_mtx, storm::math::transformPoint(root->glob_mtx, camera_pos));
                 break;
             }
         }
@@ -410,7 +410,7 @@ void DECK_CAMERA::SetStartPos()
     }
 }
 
-bool DECK_CAMERA::GetCrossXZ(CVECTOR &spos, CVECTOR &dv, CVECTOR &p1, CVECTOR &p2, CVECTOR &res)
+bool DECK_CAMERA::GetCrossXZ(glm::vec3 &spos, glm::vec3 &dv, glm::vec3 &p1, glm::vec3 &p2, glm::vec3 &res)
 {
     auto bNoCross = false;
 
@@ -592,35 +592,35 @@ uint32_t DECK_CAMERA::AttributeChanged(ATTRIBUTES *pAttr)
     return 0;
 }
 
-void DECK_CAMERA::SetViewPoint(CVECTOR &cViewPoint)
+void DECK_CAMERA::SetViewPoint(glm::vec3 &cViewPoint)
 {
     if (pathNode == nullptr)
         return;
 
     /*calculate camera position
-    CVECTOR s_pos;
-    s_pos = pathNode->glob_mtx*(camera_pos+CVECTOR(0.f,h_eye,0.f));
+    glm::vec3 s_pos;
+    s_pos = pathNode->glob_mtx*(camera_pos+glm::vec3(0.f,h_eye,0.f));
 
-    CMatrix glbRotMtx;
-    glbRotMtx.BuildViewMatrix(s_pos,cViewPoint,CVECTOR(0.f,1.f,0.f));
+    glm::mat4 glbRotMtx;
+    glbRotMtx.BuildViewMatrix(s_pos,cViewPoint,glm::vec3(0.f,1.f,0.f));
     glbRotMtx.SetPosition(0.f,0.f,0.f);
 
-    CMatrix invRotMtx;
+    glm::mat4 invRotMtx;
     pathNode->glob_mtx.Get3X3(invRotMtx);
     invRotMtx.Transposition3X3();
 
     glbRotMtx *= invRotMtx;
 
-    CVECTOR v = glbRotMtx*CVECTOR(0,0,1.f);
+    glm::vec3 v = glbRotMtx*glm::vec3(0,0,1.f);
     float yAng = atan2f(v.x,v.z);
     glbRotMtx.RotateY(-yAng);
 
-    v = glbRotMtx*CVECTOR(0,0,1.f);
+    v = glbRotMtx*glm::vec3(0,0,1.f);
     float xAng = atan2f(-v.y,v.z);*/
 
     // Viewpoint in local coordinates
-    CVECTOR e_pos;
-    pathNode->glob_mtx.MulToInv(cViewPoint, e_pos);
+    glm::vec3 e_pos;
+    e_pos = storm::math::inverseTransformPoint(pathNode->glob_mtx, cViewPoint);
 
     e_pos -= camera_pos;
 
@@ -628,7 +628,7 @@ void DECK_CAMERA::SetViewPoint(CVECTOR &cViewPoint)
     camera_ang.y = atan2f(e_pos.x, e_pos.z);
 }
 
-float DECK_CAMERA::MultiTrace(const CVECTOR &cvUp, const CVECTOR &cvDown, float fHBase)
+float DECK_CAMERA::MultiTrace(const glm::vec3 &cvUp, const glm::vec3 &cvDown, float fHBase)
 {
     if (pathNode == nullptr)
         return 2.f;

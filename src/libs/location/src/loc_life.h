@@ -46,7 +46,7 @@ class LocLife : public AnimationEventListener
 
   private:
     int32_t FindPos();
-    int32_t FindRandomPos(CVECTOR &pos) const;
+    int32_t FindRandomPos(glm::vec3 &pos) const;
 
     //--------------------------------------------------------------------------------------------
   protected:
@@ -58,6 +58,6 @@ class LocLife : public AnimationEventListener
     entid_t model;
     int32_t node;
     float ay;
-    CVECTOR pos;
-    CVECTOR npos;
+    glm::vec3 pos;
+    glm::vec3 npos;
 };

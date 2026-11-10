@@ -4,7 +4,7 @@
 // constructor / destructor
 DataPosition::DataPosition()
 {
-    Value = Vector(0, 0, 0);
+    Value = glm::vec3(0, 0, 0);
 }
 
 DataPosition::~DataPosition()
@@ -12,20 +12,20 @@ DataPosition::~DataPosition()
 }
 
 // Get value (Current time, Random factor [0..1])
-const Vector &DataPosition::GetValue() const
+const glm::vec3 &DataPosition::GetValue() const
 {
     return Value;
 }
 
 // Set value
-void DataPosition::SetValue(const Vector &val)
+void DataPosition::SetValue(const glm::vec3 &val)
 {
     Value = val;
 }
 
 void DataPosition::Load(MemFile *File)
 {
-    Vector vValue;
+    glm::vec3 vValue;
     File->ReadType(vValue.x);
     File->ReadType(vValue.y);
     File->ReadType(vValue.z);

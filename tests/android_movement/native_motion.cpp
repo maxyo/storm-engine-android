@@ -1,19 +1,12 @@
 #include "platform/android_movement.hpp"
+#include "storm_glm.h"
 #include <cassert>
 #include <iostream>
 using namespace storm::android;
-struct CVECTOR
-{
-    float x=0,y=0,z=0;
-    CVECTOR(float a=0,float b=0,float c=0):x(a),y(b),z(c){}
-    CVECTOR operator*(float k) const { return {x*k,y*k,z*k}; }
-    CVECTOR operator-() const { return {-x,-y,-z}; }
-    CVECTOR operator+(CVECTOR v) const { return {x+v.x,y+v.y,z+v.z}; }
-    CVECTOR &operator*=(float k) { x*=k;y*=k;z*=k;return *this; }
-    CVECTOR &operator+=(CVECTOR v) { x+=v.x;y+=v.y;z+=v.z;return *this; }
-};
+// The production fragments compute with GLM vectors directly.
+using Vec3 = glm::vec3;
 bool near(float a,float b) { return std::fabs(a-b)<.00001f; }
-void same(CVECTOR a,CVECTOR b) { assert(near(a.x,b.x)&&near(a.y,b.y)&&near(a.z,b.z)); }
+void same(Vec3 a,Vec3 b) { assert(near(a.x,b.x)&&near(a.y,b.y)&&near(a.z,b.z)); }
 constexpr int fgt_none=0,npct_none=0,aicmd_none=0,UCT_ControlTree=1,UNASSIGNED_CONTROL=-1;
 struct USER_CONTROL { const char *name; bool bLocked=false,bSystemLocked=false; int control_type=0,system_code=0; };
 struct CONTROL_STATE { int lValue=0; };
@@ -31,12 +24,8 @@ MovementPermission permissions(const GameplaySnapshot &current)
 {
 #include "permissions.inc"
 }
-struct CMatrix { CVECTOR Vz(){return {0,0,1};} void Transposition3X3(){} };
-struct Camera { bool thirdPerson=true; CVECTOR forward{0,0,1};
-    CVECTOR MovementViewDirection()const{return forward;} bool IsThirdPersonFollow()const{return thirdPerson;} } camera;
-constexpr int D3DTS_VIEW=0;
-struct Renderer { void GetTransform(int,CMatrix&){} } renderer;
-struct Location { Renderer *GetRS(){return &renderer;} } location;
+struct Camera { bool thirdPerson=true; Vec3 forward{0,0,1};
+    Vec3 MovementViewDirection()const{return forward;} bool IsThirdPersonFollow()const{return thirdPerson;} } camera;
 struct Motion
 {
     bool fight=false,isTurnLock=false,androidCameraRelative=false;
@@ -50,7 +39,7 @@ struct Motion
     struct Action {float speed=2;} walk,stsUp,stsDown,stsUpBack,stsDownBack;
     Action backwalk{-2},run{5},backrun{-5},fightwalk{2},fightrun{5};
     Action *curMove=&walk;
-    CVECTOR androidMotionDirection{1,0,0},curPos,impulse;
+    Vec3 androidMotionDirection{1,0,0},curPos,impulse;
     void step()
     {
 #include "motion.inc"
@@ -78,7 +67,6 @@ struct Player:Motion
     void StrafeWhenMove(float);
     void StrafeWhenStop(float);
     void Recoil(){++recoils;if(allowDodge)fgtSetType=1;}
-    Location *GetLocation(){return &location;}
     void StopAndroidMovement();
     void analog(MovementAxes sample)
     {
@@ -140,8 +128,8 @@ int main()
     physical.nativeForward=true;physical.physical();assert(!physical.androidMotionStop);
     physical.androidMotionStop=true;physical.nativeForward=false;physical.nativeBack=true;
     physical.physical();assert(!physical.androidMotionStop);physical.step();
-    CVECTOR expected(sinf(physical.ay)*.2f,0,cosf(physical.ay)*.2f);
-    expected+=CVECTOR(cosf(physical.ay),0,-sinf(physical.ay))*.045f;
+    Vec3 expected(sinf(physical.ay)*.2f,0,cosf(physical.ay)*.2f);
+    expected+=Vec3(cosf(physical.ay),0,-sinf(physical.ay))*.045f;
     same(physical.curPos,expected);
     for(bool left : {false,true})
     {

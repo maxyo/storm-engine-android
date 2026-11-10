@@ -2,7 +2,6 @@
 #include "../../i_common/names.h"
 #include "../data_source/data_graph.h"
 #include "../data_source/data_string.h"
-#include "math3d/quaternion.h"
 
 #define INTERPOLATION_STEPS 32.0f
 
@@ -18,7 +17,7 @@ BaseEmitter::BaseEmitter(ParticleSystem *pSystem)
     LifeTime = 0.0f;
     pMaster = pSystem;
     ElapsedTime = 0.0f;
-    Position = Vector(0.0f);
+    Position = glm::vec3(0.0f);
     EmissionDirX = nullptr;
     EmissionDirY = nullptr;
     EmissionDirZ = nullptr;
@@ -38,7 +37,7 @@ void BaseEmitter::BornParticles(float DeltaTime)
     const auto SavedTime = ElapsedTime;
     if (!Visible)
         return;
-    Matrix matTransform;
+    glm::mat4 matTransform;
 
     auto MatrixBlend = 0.0f;
     const auto MatrixBlendInc = 1.0f / INTERPOLATION_STEPS;
@@ -47,8 +46,8 @@ void BaseEmitter::BornParticles(float DeltaTime)
     {
         BlendMatrix(matWorldTransform, matWorldTransformOld, matWorldTransformNew, MatrixBlend);
 
-        const auto TransformPos = Position * matWorldTransform;
-        matWorldTransform.v.pos = TransformPos;
+        const auto TransformPos = storm::math::transformPoint(matWorldTransform, Position);
+        storm::math::pos(matWorldTransform) = TransformPos;
         MatrixBlend += MatrixBlendInc;
 
         const auto DeltaTimeDiv = DeltaTime / INTERPOLATION_STEPS;
@@ -82,7 +81,7 @@ void BaseEmitter::BornParticles(float DeltaTime)
                 {
                     auto ParticlePos = GetNewParticlePosition(DeltaTime);
                     GetEmissionDirection(matTransform);
-                    auto VelDir = matTransform.v.vy;
+                    auto VelDir = storm::math::vy(matTransform);
                     switch (ParticleTypes[n].Type)
                     {
                     case BILLBOARD_PARTICLE:
@@ -219,16 +218,16 @@ ParticleManager *BaseEmitter::GetManager() const
     return pMaster->GetMaster();
 }
 
-void BaseEmitter::GetEmissionDirection(Matrix &matWorld) const
+void BaseEmitter::GetEmissionDirection(glm::mat4 &matWorld) const
 {
-    Vector DirAngles;
+    glm::vec3 DirAngles;
     DirAngles.x = EmissionDirX->GetRandomValue(ElapsedTime, LifeTime);
     DirAngles.y = EmissionDirY->GetRandomValue(ElapsedTime, LifeTime);
     DirAngles.z = EmissionDirZ->GetRandomValue(ElapsedTime, LifeTime);
 
     DirAngles *= MUL_DEGTORAD;
 
-    matWorld = Matrix(DirAngles, Vector(0.0f));
+    matWorld = storm::math::eulerMatrix(DirAngles);
 }
 
 void BaseEmitter::Restart()
@@ -256,7 +255,7 @@ bool BaseEmitter::IsStoped()
     return Stoped;
 }
 
-void BaseEmitter::SetTransform(const Matrix &matWorld)
+void BaseEmitter::SetTransform(const glm::mat4 &matWorld)
 {
     if (OldMatrixNotInitialized)
     {
@@ -268,27 +267,19 @@ void BaseEmitter::SetTransform(const Matrix &matWorld)
     // matWorldTransform = matWorld;
 }
 
-void BaseEmitter::Teleport(const Matrix &matWorld)
+void BaseEmitter::Teleport(const glm::mat4 &matWorld)
 {
     matWorldTransformOld = matWorld;
     matWorldTransformNew = matWorld;
 }
 
-void BaseEmitter::BlendMatrix(Matrix &result, const Matrix &mat1, const Matrix &mat2, float BlendK)
+void BaseEmitter::BlendMatrix(glm::mat4 &result, const glm::mat4 &mat1, const glm::mat4 &mat2, float BlendK)
 {
-    const Quaternion qRot1(mat1);
-    const Quaternion qRot2(mat2);
-    const auto vPos1 = mat1.v.pos;
-    const auto vPos2 = mat2.v.pos;
+    const auto qRot1 = storm::math::quatFromMatrix(mat1);
+    const auto qRot2 = storm::math::quatFromMatrix(mat2);
 
-    Quaternion qBlend;
-    qBlend.SLerp(qRot1, qRot2, BlendK);
-
-    Vector vBlend;
-    vBlend.Lerp(vPos1, vPos2, BlendK);
-
-    qBlend.GetMatrix(result);
-    result.v.pos = vBlend;
+    result = glm::mat4_cast(storm::math::slerp(qRot1, qRot2, BlendK));
+    storm::math::pos(result) = storm::math::lerp(storm::math::pos(mat1), storm::math::pos(mat2), BlendK);
 }
 
 const char *BaseEmitter::GetName()

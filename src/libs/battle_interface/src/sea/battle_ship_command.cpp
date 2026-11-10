@@ -3,6 +3,7 @@
 #include "core.h"
 
 #include "island_descr.h"
+#include "math_inlines.h"
 #include "shared/battle_interface/msg_control.h"
 #include "ships_list.h"
 #ifdef __ANDROID__

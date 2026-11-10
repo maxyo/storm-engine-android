@@ -44,7 +44,7 @@ bool LocEagle::Init()
     auto *location = static_cast<Location *>(core.GetEntityPointer(loc));
     if (!location)
         return false;
-    cnt = location->GetPtcData().middle + CVECTOR(0.0f, 30.0f, 0.0f);
+    cnt = location->GetPtcData().middle + glm::vec3(0.0f, 30.0f, 0.0f);
     // Path for textures
     auto *gs = static_cast<VGEOMETRY *>(core.GetService("geometry"));
     if (!gs)
@@ -123,8 +123,8 @@ void LocEagle::Execute(uint32_t delta_time)
     ay += dltTime * kAy * 0.1f / kRad;
     y += dltY * kTime * dltTime;
     // Set position
-    m->mtx.BuildMatrix(0.0f, ay + 1.57f, 0.0f);
-    m->mtx.Pos().x = cnt.x + kRad * 20.0f * sinf(ay);
-    m->mtx.Pos().y = cnt.y + y;
-    m->mtx.Pos().z = cnt.z + kRad * 20.0f * cosf(ay);
+    m->mtx = storm::math::eulerMatrix(0.0f, ay + 1.57f, 0.0f);
+    storm::math::pos(m->mtx).x = cnt.x + kRad * 20.0f * sinf(ay);
+    storm::math::pos(m->mtx).y = cnt.y + y;
+    storm::math::pos(m->mtx).z = cnt.z + kRad * 20.0f * cosf(ay);
 }

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../system/data_source/field_list.h"
-#include "math3d/matrix.h"
+#include "storm_glm.h"
 
 class IParticleSystem;
 
@@ -25,8 +25,8 @@ class IEmitter
 
     virtual bool IsStoped() = 0;
 
-    virtual void SetTransform(const Matrix &matWorld) = 0;
-    virtual void Teleport(const Matrix &matWorld) = 0;
+    virtual void SetTransform(const glm::mat4 &matWorld) = 0;
+    virtual void Teleport(const glm::mat4 &matWorld) = 0;
 
     virtual const char *GetName() = 0;
 

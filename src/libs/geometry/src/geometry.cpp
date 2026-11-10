@@ -445,21 +445,21 @@ void GEOM_SERVICE_R::DrawIndexedPrimitive(int32_t minv, int32_t numv, int32_t vr
 
     if (bCaustic)
     {
-        CMatrix mWorld, mView, mProjection;
-        RenderService->GetTransform(D3DTS_WORLD, mWorld);
-        RenderService->GetTransform(D3DTS_PROJECTION, mProjection);
-        RenderService->GetTransform(D3DTS_VIEW, mView);
+        glm::mat4 mWorld, mView, mProjection;
+        RenderService->GetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mWorld));
+        RenderService->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(mProjection));
+        RenderService->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mView));
 
-        auto mWVP = (mWorld * mView) * mProjection;
+        auto mWVP = mProjection * (mView * mWorld);
 
-        mWVP.Transposition4x4();
+        mWVP = glm::transpose(mWVP);
 
         // constants
         // 0 - World * View * Projection
         // 4 - World
 
-        RenderService->SetVertexShaderConstantF(0, mWVP, 4);
-        RenderService->SetVertexShaderConstantF(4, mWorld, 4);
+        RenderService->SetVertexShaderConstantF(0, storm::math::data(mWVP), 4);
+        RenderService->SetVertexShaderConstantF(4, storm::math::data(mWorld), 4);
 
         RenderService->SetVertexDeclaration(vertexDecl_);
 

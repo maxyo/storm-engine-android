@@ -24,7 +24,7 @@ class SHIP_CAMERA : public COMMON_CAMERA
     float fSensivityDistance, fSensivityAzimuthAngle, fSensivityHeightAngle;
     float fSensivityHeightAngleOnShip;
     float fInvertMouseX, fInvertMouseY;
-    CVECTOR vCenter, vAng = {};
+    glm::vec3 vCenter, vAng = {};
     float fModelAy;
 
     // camera ellipsoid parameters
@@ -62,8 +62,8 @@ class SHIP_CAMERA : public COMMON_CAMERA
     void SetCharacter(ATTRIBUTES *_pACharacter) override;
 
     uint32_t AttributeChanged(ATTRIBUTES *) override;
-    void ShipsCollision(CVECTOR &pos);
-    bool IslandCollision(CVECTOR &pos);
+    void ShipsCollision(glm::vec3 &pos);
+    bool IslandCollision(glm::vec3 &pos);
 
   public:
     SHIP_CAMERA();

@@ -146,11 +146,11 @@ class DX9RENDER : public VDX9RENDER
     void SetTransform(int32_t type, D3DMATRIX *mtx) override;
     void GetTransform(int32_t type, D3DMATRIX *mtx) override;
 
-    bool SetCamera(const CVECTOR &pos, const CVECTOR &ang, float perspective) override;
-    bool SetCamera(const CVECTOR &pos, const CVECTOR &ang) override;
-    bool SetCamera(CVECTOR lookFrom, CVECTOR lookTo, CVECTOR up) override;
+    bool SetCamera(const glm::vec3 &pos, const glm::vec3 &ang, float perspective) override;
+    bool SetCamera(const glm::vec3 &pos, const glm::vec3 &ang) override;
+    bool SetCamera(glm::vec3 lookFrom, glm::vec3 lookTo, glm::vec3 up) override;
     bool SetPerspective(float perspective, float fAspectRatio = -1.0f) override;
-    void GetCamera(CVECTOR &pos, CVECTOR &ang, float &perspective) override;
+    void GetCamera(glm::vec3 &pos, glm::vec3 &ang, float &perspective) override;
 
     bool SetCurrentMatrix(D3DMATRIX *mtx) override;
 
@@ -342,7 +342,7 @@ class DX9RENDER : public VDX9RENDER
     bool LoadState(ENTITY_STATE *state) override;
     bool CreateState(ENTITY_STATE_GEN *state_gen) override;
 
-    void ProcessScriptPosAng(const CVECTOR &vPos, const CVECTOR &vAng);
+    void ProcessScriptPosAng(const glm::vec3 &vPos, const glm::vec3 &vAng);
     void FindPlanes(IDirect3DDevice9 *d3dDevice);
 
     void SetCommonStates();
@@ -385,10 +385,10 @@ class DX9RENDER : public VDX9RENDER
 
     D3DPRESENT_PARAMETERS d3dpp;
 
-    CMatrix mView, mWorld, mProjection;
+    glm::mat4 mView, mWorld, mProjection;
 
-    CVECTOR vWordRelationPos;
-    CVECTOR vViewRelationPos;
+    glm::vec3 vWordRelationPos;
+    glm::vec3 vViewRelationPos;
 
     bool bUseLargeBackBuffer;
 
@@ -402,8 +402,8 @@ class DX9RENDER : public VDX9RENDER
     char *GetTipsImage() override;
 
     void SetColorParameters(float fGamma, float fBrightness, float fContrast) override;
-    void DrawSphere(const CVECTOR &vPos, float fRadius, uint32_t dwColor) override;
-    void DrawEllipsoid(const CVECTOR &vPos, float a, float b, float c, float ay, uint32_t dwColor) override;
+    void DrawSphere(const glm::vec3 &vPos, float fRadius, uint32_t dwColor) override;
+    void DrawEllipsoid(const glm::vec3 &vPos, float a, float b, float c, float ay, uint32_t dwColor) override;
 
     void GetNearFarPlane(float &fNear, float &fFar) override;
     void SetNearFarPlane(float fNear, float fFar) override;
@@ -411,9 +411,9 @@ class DX9RENDER : public VDX9RENDER
     void SetLoadTextureEnable(bool bEnable = true) override;
     bool ResetDevice();
 
-    void MakeDrawVector(RS_LINE *pLines, uint32_t dwNumSubLines, const CMatrix &mMatrix, CVECTOR vUp, CVECTOR v1,
-                        CVECTOR v2, float fScale, uint32_t dwColor);
-    void DrawVector(const CVECTOR &v1, const CVECTOR &v2, uint32_t dwColor,
+    void MakeDrawVector(RS_LINE *pLines, uint32_t dwNumSubLines, const glm::mat4 &mMatrix, glm::vec3 vUp, glm::vec3 v1,
+                        glm::vec3 v2, float fScale, uint32_t dwColor);
+    void DrawVector(const glm::vec3 &v1, const glm::vec3 &v2, uint32_t dwColor,
                     const char *pTechniqueName = "DXVector") override;
     IDirect3DBaseTexture9 *GetBaseTexture(int32_t iTexture) override;
 
@@ -421,12 +421,12 @@ class DX9RENDER : public VDX9RENDER
     bool PopRenderTarget() override;
     bool SetRenderTarget(IDirect3DCubeTexture9 *pCubeTex, uint32_t dwFaceType, uint32_t dwLevel,
                          IDirect3DSurface9 *pNewZStencil) override;
-    void SetView(const CMatrix &mView) override;
-    void SetWorld(const CMatrix &mView) override;
-    void SetProjection(const CMatrix &mView) override;
-    const CMatrix &GetView() override;
-    const CMatrix &GetWorld() override;
-    const CMatrix &GetProjection() override;
+    void SetView(const glm::mat4 &mView) override;
+    void SetWorld(const glm::mat4 &mView) override;
+    void SetProjection(const glm::mat4 &mView) override;
+    const glm::mat4 &GetView() override;
+    const glm::mat4 &GetWorld() override;
+    const glm::mat4 &GetProjection() override;
 
     IDirect3DVolumeTexture9 *CreateVolumeTexture(uint32_t Width, uint32_t Height, uint32_t Depth, uint32_t Levels,
                                                  uint32_t Usage, D3DFORMAT Format, D3DPOOL Pool) override;
@@ -447,7 +447,7 @@ class DX9RENDER : public VDX9RENDER
 private:
     struct RECT_VERTEX
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         uint32_t color;
         float u, v;
     };
@@ -463,7 +463,7 @@ private:
     IDirect3D9 *d3d;
     HWND hwnd;
 
-    CVECTOR Pos, Ang;
+    glm::vec3 Pos, Ang;
     float Fov;
 
     float FovMultiplier{ 1.0f };
@@ -511,7 +511,7 @@ private:
 
     struct QuadVertex
     {
-        Vector4 vPos;
+        glm::vec4 vPos;
 
         float u0;
         float v0;

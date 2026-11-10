@@ -24,13 +24,13 @@ class AIFort : public VAI_OBJBASE
             TmpVAI_OBJBASE()
                 : pFort(nullptr)
             {
-                mTmp.SetIdentity();
+                mTmp = glm::mat4(1.0f);
             }
 
-            CMatrix mTmp;
+            glm::mat4 mTmp;
             AI_FORT *pFort;
 
-            CMatrix *GetMatrix() override
+            glm::mat4 *GetMatrix() override
             {
                 return &GetModel()->mtx;
             };
@@ -49,19 +49,19 @@ class AIFort : public VAI_OBJBASE
 
             void Load(CSaveLoad *pSL) override{};
 
-            void Fire(const CVECTOR &vPos) override{};
+            void Fire(const glm::vec3 &vPos) override{};
 
-            float Cannon_Trace(int32_t iBallOwner, const CVECTOR &src, const CVECTOR &dst) override
+            float Cannon_Trace(int32_t iBallOwner, const glm::vec3 &src, const glm::vec3 &dst) override
             {
                 return 2.0f;
             };
 
-            float Trace(const CVECTOR &vSrc, const CVECTOR &vDst) override
+            float Trace(const glm::vec3 &vSrc, const glm::vec3 &vDst) override
             {
                 return 2.0f;
             };
 
-            bool Clip(const PLANE *planes, int32_t nplanes, const CVECTOR &vCenter, float radius,
+            bool Clip(const PLANE *planes, int32_t nplanes, const glm::vec3 &vCenter, float radius,
                       ADD_POLYGON_FUNC addpoly) override
             {
                 return false;
@@ -86,21 +86,21 @@ class AIFort : public VAI_OBJBASE
                 return false;
             }
 
-            void SetPos(const CVECTOR &vNewPos) override
+            void SetPos(const glm::vec3 &vNewPos) override
             {
             }
 
-            CVECTOR GetPos() const override
-            {
-                return {};
-            }
-
-            CVECTOR GetAng() const override
+            glm::vec3 GetPos() const override
             {
                 return {};
             }
 
-            CVECTOR GetBoxsize() const override
+            glm::vec3 GetAng() const override
+            {
+                return {};
+            }
+
+            glm::vec3 GetBoxsize() const override
             {
                 return {};
             }
@@ -110,8 +110,8 @@ class AIFort : public VAI_OBJBASE
         entid_t eidBlot;
 
       public:
-        CMatrix mOldMatrix;
-        CVECTOR vPos;
+        glm::mat4 mOldMatrix;
+        glm::vec3 vPos;
         ATTRIBUTES *pFortLabelAP;
         TmpVAI_OBJBASE tmpObject;
 
@@ -207,20 +207,20 @@ class AIFort : public VAI_OBJBASE
             vPos.z = pFortLabelAP->GetAttributeAsFloat("z");
         }
 
-        CVECTOR GetPos() const override
+        glm::vec3 GetPos() const override
         {
             return vPos;
         };
-        CVECTOR GetAttackPoint(VAI_INNEROBJ *) override;
+        glm::vec3 GetAttackPoint(VAI_INNEROBJ *) override;
 
-        CVECTOR GetFollowPoint(VAI_INNEROBJ *) override
+        glm::vec3 GetFollowPoint(VAI_INNEROBJ *) override
         {
-            return 0.0f;
+            return glm::vec3(0.0f);
         };
 
-        CVECTOR GetAbordagePoint(VAI_INNEROBJ *) override
+        glm::vec3 GetAbordagePoint(VAI_INNEROBJ *) override
         {
-            return 0.0f;
+            return glm::vec3(0.0f);
         };
 
         float GetMaxFireDistance() override
@@ -236,17 +236,17 @@ class AIFort : public VAI_OBJBASE
         void Save(CSaveLoad *pSL);
         void Load(CSaveLoad *pSL, entid_t eid);
 
-        CVECTOR GetAng() const override
+        glm::vec3 GetAng() const override
         {
             return {};
         }
 
-        CVECTOR GetBoxsize() const override
+        glm::vec3 GetBoxsize() const override
         {
             return {};
         }
 
-        void SetPos(const CVECTOR &vNewPos) override{};
+        void SetPos(const glm::vec3 &vNewPos) override{};
 
         void SetAngleY(float fAngleY) override{};
     };
@@ -265,7 +265,7 @@ class AIFort : public VAI_OBJBASE
     }
 
   private:
-    CMatrix mtxFort;
+    glm::mat4 mtxFort;
 
     DTimer dtFiredTimer;
     AI_FORT *pLastTraceFort;
@@ -276,7 +276,7 @@ class AIFort : public VAI_OBJBASE
     // Ships lights
     IShipLights *pShipsLights;
 
-    void AddFortHit(int32_t iCharacterIndex, CVECTOR &vHitPos);
+    void AddFortHit(int32_t iCharacterIndex, glm::vec3 &vHitPos);
     float GetSpeedV0(uint32_t dwFortIndex);
     bool ScanFortForCannons(AI_FORT *pFort, const char *pModelsDir, const char *pLocatorsName) const;
     bool AddFort(ATTRIBUTES *pIslandAP, ATTRIBUTES *pFortAP, ATTRIBUTES *pFortCharacter, entid_t eidModel,
@@ -326,9 +326,9 @@ class AIFort : public VAI_OBJBASE
     uint32_t AttributeChanged(ATTRIBUTES *pAttribute) override;
 
     // inherit functions COLLISION_OBJECT
-    float Trace(const CVECTOR &vSrc, const CVECTOR &vDst) override;
+    float Trace(const glm::vec3 &vSrc, const glm::vec3 &vDst) override;
 
-    bool Clip(const PLANE *planes, int32_t nplanes, const CVECTOR &vCenter, float radius,
+    bool Clip(const PLANE *planes, int32_t nplanes, const glm::vec3 &vCenter, float radius,
               ADD_POLYGON_FUNC addpoly) override
     {
         return false;
@@ -345,12 +345,12 @@ class AIFort : public VAI_OBJBASE
     };
 
     // inherit functions CANNON_TRACE_BASE
-    float Cannon_Trace(int32_t iBallOwner, const CVECTOR &vSrc, const CVECTOR &vDst) override;
+    float Cannon_Trace(int32_t iBallOwner, const glm::vec3 &vSrc, const glm::vec3 &vDst) override;
 
     // inherit functions VAI_OBJBASE
     ATTRIBUTES *GetACharacter() override;
 
-    CMatrix *GetMatrix() override
+    glm::mat4 *GetMatrix() override
     {
         return &mtxFort;
     };
@@ -365,14 +365,14 @@ class AIFort : public VAI_OBJBASE
         return {};
     };
 
-    CVECTOR GetPos() const override
+    glm::vec3 GetPos() const override
     {
-        return CVECTOR(0.0f, 0.0f, 0.0f);
+        return glm::vec3(0.0f, 0.0f, 0.0f);
     };
 
-    CVECTOR GetAng() const override
+    glm::vec3 GetAng() const override
     {
-        return CVECTOR(0.0f, 0.0f, 0.0f);
+        return glm::vec3(0.0f, 0.0f, 0.0f);
     };
 
     bool Mount(ATTRIBUTES *pAttribute) override;
@@ -380,11 +380,11 @@ class AIFort : public VAI_OBJBASE
     void Save(CSaveLoad *pSL) override;
     void Load(CSaveLoad *pSL) override;
 
-    void Fire(const CVECTOR &vPos) override;
+    void Fire(const glm::vec3 &vPos) override;
 
-    void SetPos(const CVECTOR &vNewPos) override{};
+    void SetPos(const glm::vec3 &vNewPos) override{};
 
-    CVECTOR GetBoxsize() const override
+    glm::vec3 GetBoxsize() const override
     {
         return {};
     }

@@ -25,7 +25,7 @@ class WdmClouds : public WdmRenderObject
     {
         struct Cld
         {
-            CVECTOR pos;    // Position
+            glm::vec3 pos;    // Position
             float angle;    // Angle of rotation
             float size;     // The size
             float alpha;    // Transparency
@@ -33,8 +33,8 @@ class WdmClouds : public WdmRenderObject
             uint16_t pict;  // Image index
             uint16_t index; // Pulled-up particle index
             float aspd;     // Swing speed
-            CVECTOR dir;    // Current Motion Adjustment Vector
-            CVECTOR rdr;    // Additional vector of random gravitation
+            glm::vec3 dir;    // Current Motion Adjustment Vector
+            glm::vec3 rdr;    // Additional vector of random gravitation
         };
 
         Cloud();
@@ -46,7 +46,7 @@ class WdmClouds : public WdmRenderObject
         // Fill an array of rectangles
         int32_t FillRects(RS_RECT *rects, int32_t cnt, float galpha);
         // Get sphere center and radius
-        float GetBound(CVECTOR &_center) const;
+        float GetBound(glm::vec3 &_center) const;
         // Run the cloud removal mechanism if there is an intersection
         void Kill(const Cloud &cld);
 
@@ -55,7 +55,7 @@ class WdmClouds : public WdmRenderObject
         int32_t count;              // amount
         float alpha;             // Overall transparency
         float lifeTime;          // Lifetime
-        CVECTOR center;          // Cloud center
+        glm::vec3 center;          // Cloud center
         float radius;            // Cloud radius
     };
 

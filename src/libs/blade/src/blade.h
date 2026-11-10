@@ -21,7 +21,7 @@ class BLADE : public Entity
 
     struct VERTEX
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         uint32_t diffuse;
     };
 

@@ -95,10 +95,10 @@ void SINKEFFECT::Execute(uint32_t _dTime)
       {
         if (renderer && sea)
         {
-          static CVECTOR pos, ang, nose, head;
-          static CMatrix view;
-          //CVECTOR dir(randCentered(2.0f), -1.0f, randCentered(2.0f));
-          CVECTOR dir(0.0f, -1.0f, 0.0f);
+          static glm::vec3 pos, ang, nose, head;
+          static glm::mat4 view;
+          //glm::vec3 dir(randCentered(2.0f), -1.0f, randCentered(2.0f));
+          glm::vec3 dir(0.0f, -1.0f, 0.0f);
 
           renderer->GetTransform(D3DTS_VIEW, view);
           view.Transposition();
@@ -131,7 +131,7 @@ void SINKEFFECT::InitializeSinks()
 }
 
 //--------------------------------------------------------------------
-TSink *SINKEFFECT::TryToAddSink(const CVECTOR &_pos, float _r)
+TSink *SINKEFFECT::TryToAddSink(const glm::vec3 &_pos, float _r)
 {
     for (auto i = 0; i < sink_effect::MAX_SINKS; ++i)
     {

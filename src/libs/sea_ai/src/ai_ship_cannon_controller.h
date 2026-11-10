@@ -21,7 +21,7 @@ class AIShipCannonController
     bool bNotEnoughBalls; // if we haven't enough balls
 
     bool debugDrawToggle{false};
-    std::vector<std::tuple<CVECTOR, uint32_t, float>> debugFirePositions;
+    std::vector<std::tuple<glm::vec3, uint32_t, float>> debugFirePositions;
 
   private:
     struct AISHIP_BORT
@@ -39,8 +39,8 @@ class AIShipCannonController
         // each frame parameters
         float fSpeedV0;         // current fire speed
         float fMaxFireDistance; // maximum fire distance
-        // CVECTOR                vAngleVectors[2];        // fire cone (2d(x,z))
-        CVECTOR vDirection;
+        // glm::vec3                vAngleVectors[2];        // fire cone (2d(x,z))
+        glm::vec3 vDirection;
 
         std::vector<AICannon> aCannons; // cannons container for this bort
 
@@ -80,7 +80,7 @@ class AIShipCannonController
 
     bool ScanShipForCannons();
 
-    bool Fire2Position(AISHIP_BORT &bort, const CVECTOR &vFirePos, float fFireHeight);
+    bool Fire2Position(AISHIP_BORT &bort, const glm::vec3 &vFirePos, float fFireHeight);
 
     [[nodiscard]] float GetSpeedV0() const;
 
@@ -90,42 +90,42 @@ class AIShipCannonController
     [[nodiscard]] float GetFireDistance(bool bMaxFireDistance) const;
 
     // bort section
-    [[nodiscard]] decltype(aShipBorts)::iterator GetFirstFireBort(const CVECTOR &vFirePos,
+    [[nodiscard]] decltype(aShipBorts)::iterator GetFirstFireBort(const glm::vec3 &vFirePos,
                                                                   float *pfZapasDistance = nullptr);
     [[nodiscard]] decltype(aShipBorts)::iterator GetNextFireBort(decltype(aShipBorts)::iterator bortIt,
-                                                                 const CVECTOR &vFirePos,
+                                                                 const glm::vec3 &vFirePos,
                                                    float *pfZapasDistance = nullptr);
     [[nodiscard]] bool IsValid(decltype(aShipBorts)::const_iterator bortIt) const;
 
     [[nodiscard]] float GetBortHeightAngle(const AISHIP_BORT &bort) const;
-    [[nodiscard]] bool isCanFireBort(const AISHIP_BORT &bort, const CVECTOR &vFirePos,
+    [[nodiscard]] bool isCanFireBort(const AISHIP_BORT &bort, const glm::vec3 &vFirePos,
                                      float *pfZapasDistance = nullptr) const;
     [[nodiscard]] bool isHaveEnoughBallsForBort(const AISHIP_BORT &bort) const;
 
-    [[nodiscard]] CVECTOR GetBortDirection(const AISHIP_BORT &bort) const;
-    [[nodiscard]] decltype(aShipBorts)::iterator GetBestFireBortOnlyDistance(CVECTOR vFirePos,
+    [[nodiscard]] glm::vec3 GetBortDirection(const AISHIP_BORT &bort) const;
+    [[nodiscard]] decltype(aShipBorts)::iterator GetBestFireBortOnlyDistance(glm::vec3 vFirePos,
                                                                              float fZapasDistance);
-    CVECTOR GetFirePos(const CVECTOR &vFireDir);
-    CVECTOR GetFirePos(const CVECTOR &vFireDir, float fDistance);
+    glm::vec3 GetFirePos(const glm::vec3 &vFireDir);
+    glm::vec3 GetFirePos(const glm::vec3 &vFireDir, float fDistance);
     [[nodiscard]] uint32_t GetBortIntactCannonsNum(const AISHIP_BORT &bort) const;
     [[nodiscard]] uint32_t GetBortDisabledCannonsNum(const AISHIP_BORT &bort) const;
 
     // fire test
-    bool isCanFirePos(const CVECTOR &vFirePos);                 // is we can fire to position
+    bool isCanFirePos(const glm::vec3 &vFirePos);                 // is we can fire to position
     bool isCanFire(AIShip *pEnemy);                             // is we can fire to enemy ship
-    [[nodiscard]] bool isCanFire(const CVECTOR &vCamDir) const; // is we can fire to camera direction
+    [[nodiscard]] bool isCanFire(const glm::vec3 &vCamDir) const; // is we can fire to camera direction
 
     // fire section
-    bool Fire(const CVECTOR &vFirePos);                             // fire to position
+    bool Fire(const glm::vec3 &vFirePos);                             // fire to position
     bool Fire(AIShip *pEnemy);                                      // fire to ship
-    bool Fire(const CVECTOR &vFireCamPos, const CVECTOR &vFireDir); // manual fire
+    bool Fire(const glm::vec3 &vFireCamPos, const glm::vec3 &vFireDir); // manual fire
 
     // reload section
     void Unload(); // unload cannons
     void Reload(); // set flag to reload
     
     // Cannon boom check
-    void CheckCannonsBoom(float fTmpCannonDamage, const CVECTOR &vPnt);
+    void CheckCannonsBoom(float fTmpCannonDamage, const glm::vec3 &vPnt);
     void ResearchCannons(); // boal 08.08.06 method of recalculating guns on a ship
 
     // execute/realize section

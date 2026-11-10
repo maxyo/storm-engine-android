@@ -1,6 +1,6 @@
 #pragma once
 
-#include "c_vector.h"
+#include "storm_glm.h"
 #include "sink_splash_defines.h"
 #include "t_sink.h"
 #include "dx9render.h"
@@ -41,7 +41,7 @@ class SINKEFFECT : public Entity
 
   private:
     void InitializeSinks();
-    TSink *TryToAddSink(const CVECTOR &_pos, float _r);
+    TSink *TryToAddSink(const glm::vec3 &_pos, float _r);
 
     TSink sinks[sink_effect::MAX_SINKS];
     VDX9RENDER *renderer;

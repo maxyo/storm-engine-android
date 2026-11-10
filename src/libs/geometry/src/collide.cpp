@@ -19,11 +19,11 @@ float GEOM::Trace(VERTEX &start, VERTEX &finish)
 {
     if (!(rhead.flags & FLAGS_BSP_PRESENT))
         return 2.0f;
-    src = DVECTOR(start.x, start.y, start.z);
-    dst = DVECTOR(finish.x, finish.y, finish.z);
+    src = glm::dvec3(start.x, start.y, start.z);
+    dst = glm::dvec3(finish.x, finish.y, finish.z);
 
     double diss, dise, ssrc, sdst, dist;
-    DVECTOR dirvec, tp, V, AV;
+    glm::dvec3 dirvec, tp, V, AV;
     BSP_NODE *second;
     BSP_NODE *node;
     SAVAGE *stack;
@@ -38,8 +38,8 @@ float GEOM::Trace(VERTEX &start, VERTEX &finish)
 
 rec_loop:;
 
-    ssrc = (src | node->norm) - node->pd;
-    sdst = (dst | node->norm) - node->pd;
+    ssrc = glm::dot(src, glm::dvec3(node->norm)) - node->pd;
+    sdst = glm::dot(dst, glm::dvec3(node->norm)) - node->pd;
 
     // dist = ssrc/(ssrc - sdst);
     const auto d = ssrc - sdst;
@@ -135,14 +135,14 @@ rec_return:;
 
         // Tomas Moller and Ben Trumbore algorithm
 
-        DVECTOR a = vrt[vindex[1]] - vrt[vindex[0]];
-        DVECTOR b = vrt[vindex[2]] - vrt[vindex[0]];
-        auto pvec = dirvec ^ b;
-        const auto det = a | pvec;
+        glm::dvec3 a = vrt[vindex[1]] - vrt[vindex[0]];
+        glm::dvec3 b = vrt[vindex[2]] - vrt[vindex[0]];
+        auto pvec = glm::cross(dirvec, b);
+        const auto det = glm::dot(a, pvec);
 
-        auto c = src - vrt[vindex[0]];
-        const double U = c | pvec;
-        const double V = dirvec | (c ^ a);
+        auto c = src - glm::dvec3(vrt[vindex[0]]);
+        const double U = glm::dot(c, pvec);
+        const double V = glm::dot(dirvec, glm::cross(c, a));
 
         if (det < 0.0)
         {
@@ -193,12 +193,12 @@ rec_return:;
 //--------------------------------------------------------------------------------------------
 //
 //--------------------------------------------------------------------------------------------
-static CVECTOR poly[256];
+static glm::vec3 poly[256];
 
 int32_t ClipByPlane(const GEOS::PLANE &plane, int32_t n)
 {
     int32_t inside = 0;
-    CVECTOR cr0, cr1;
+    glm::vec3 cr0, cr1;
     int32_t i;
     for (i = 0; i < n; i++)
         if (plane.nrm.x * poly[i].x + plane.nrm.y * poly[i].y + plane.nrm.z * poly[i].z - plane.d < 0.0)
@@ -287,7 +287,7 @@ bool GEOM::Clip(const PLANE *planes, int32_t nplanes, const VERTEX &center, floa
 {
     if (!(rhead.flags & FLAGS_BSP_PRESENT))
         return false;
-    const DVECTOR src(center.x, center.y, center.z);
+    const glm::dvec3 src(center.x, center.y, center.z);
 
     attempt++;
     if (attempt == 0)
@@ -301,7 +301,7 @@ bool GEOM::Clip(const PLANE *planes, int32_t nplanes, const VERTEX &center, floa
 
 rec_loop:;
 
-    const double ssrc = (src | node->norm) - node->pd;
+    const double ssrc = glm::dot(src, glm::dvec3(node->norm)) - node->pd;
 
     // trace all faces
     if (ssrc * ssrc < radius * radius)
@@ -328,7 +328,7 @@ rec_loop:;
                 {
                     const int32_t vindex = (btrg[face].vindex[v][0] << 0) | (btrg[face].vindex[v][1] << 8) |
                                         (btrg[face].vindex[v][2] << 16);
-                    memcpy(&poly[v], &vrt[vindex], sizeof(CVECTOR));
+                    memcpy(&poly[v], &vrt[vindex], sizeof(glm::vec3));
                 }
 
                 // clip polygon by planes

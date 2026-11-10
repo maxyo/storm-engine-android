@@ -9,10 +9,10 @@
 #include <string_view>
 
 #include "entity.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "service.h"
 #include "storm_assert.h"
-#include "types3d.h"
+#include "plane.h"
 #include "utf8.h"
 
 #define FONT_DEFAULT 0
@@ -40,7 +40,7 @@ struct FVF_VERTEX
 
 struct RS_RECT
 {
-    CVECTOR vPos;
+    glm::vec3 vPos;
     float fSize;
     float fAngle;
     uint32_t dwColor;
@@ -49,13 +49,13 @@ struct RS_RECT
 
 struct RS_LINE
 {
-    CVECTOR vPos;
+    glm::vec3 vPos;
     uint32_t dwColor;
 };
 
 struct RS_SPRITE
 {
-    CVECTOR vPos;
+    glm::vec3 vPos;
     float rhw;
     uint32_t dwColor;
     float tu, tv;
@@ -75,7 +75,7 @@ inline void FillSpriteVertex(RS_SPRITE &pV, float x, float y, float z = 1.0f, ui
 
 struct RS_LINE2D
 {
-    CVECTOR vPos;
+    glm::vec3 vPos;
     float rhw;
     uint32_t dwColor;
 };
@@ -118,10 +118,7 @@ struct FRECT
 
 
 //TODO: remove
-#define COLOR2VECTOR(a) CVECTOR(float((a & 0xFF0000) >> 0x10), float((a & 0xFF00) >> 0x8), float(a & 0xFF));
-#define COLOR2VECTOR4(a)                                                                                               \
-    CVECTOR4(float((a & 0xFF0000) >> 0x10) / 255.0f, float((a & 0xFF00) >> 0x8) / 255.0f, float(a & 0xFF) / 255.0f,    \
-             float((a & 0xFF000000) >> 0x18) / 255.0f);
+#define COLOR2VECTOR(a) glm::vec3(float((a & 0xFF0000) >> 0x10), float((a & 0xFF00) >> 0x8), float(a & 0xFF));
 #define ARGB(a, r, g, b) (uint32_t(b) | (uint32_t(g) << 8L) | (uint32_t(r) << 16L) | (uint32_t(a) << 24L))
 constexpr auto makeRGB(uint32_t r, uint32_t g, uint32_t b)
 {
@@ -211,11 +208,11 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
     virtual void SetTransform(int32_t type, D3DMATRIX *mtx) = 0;
     virtual void GetTransform(int32_t type, D3DMATRIX *mtx) = 0;
 
-    virtual bool SetCamera(const CVECTOR &pos, const CVECTOR &ang, float perspective) = 0;
-    virtual bool SetCamera(const CVECTOR &pos, const CVECTOR &ang) = 0;
-    virtual bool SetCamera(CVECTOR lookFrom, CVECTOR lookTo, CVECTOR up) = 0;
+    virtual bool SetCamera(const glm::vec3 &pos, const glm::vec3 &ang, float perspective) = 0;
+    virtual bool SetCamera(const glm::vec3 &pos, const glm::vec3 &ang) = 0;
+    virtual bool SetCamera(glm::vec3 lookFrom, glm::vec3 lookTo, glm::vec3 up) = 0;
     virtual bool SetPerspective(float perspective, float fAspectRatio = -1.0f) = 0;
-    virtual void GetCamera(CVECTOR &pos, CVECTOR &ang, float &perspective) = 0;
+    virtual void GetCamera(glm::vec3 &pos, glm::vec3 &ang, float &perspective) = 0;
 
     virtual bool SetCurrentMatrix(D3DMATRIX *mtx) = 0;
 
@@ -256,7 +253,7 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
                            float fScaleY = 1.0f) = 0;
     virtual void DrawSprites(RS_SPRITE *pRSS, uint32_t dwSpritesNum, const char *cBlockName = nullptr) = 0;
     virtual void DrawLines(RS_LINE *pRSL, uint32_t dwLinesNum, const char *cBlockName = nullptr) = 0;
-    virtual void DrawVector(const CVECTOR &v1, const CVECTOR &v2, uint32_t dwColor,
+    virtual void DrawVector(const glm::vec3 &v1, const glm::vec3 &v2, uint32_t dwColor,
                             const char *pTechniqueName = "DXVector") = 0;
     virtual void DrawLines2D(RS_LINE2D *pRSL2D, size_t dwLinesNum, const char *cBlockName = nullptr) = 0;
 
@@ -399,8 +396,8 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
     virtual char *GetTipsImage() = 0;
     virtual void SetColorParameters(float fGamma, float fBrightness, float fContrast) = 0;
 
-    virtual void DrawSphere(const CVECTOR &vPos, float fRadius, uint32_t dwColor) = 0;
-    virtual void DrawEllipsoid(const CVECTOR &vPos, float a, float b, float c, float ay, uint32_t dwColor) = 0;
+    virtual void DrawSphere(const glm::vec3 &vPos, float fRadius, uint32_t dwColor) = 0;
+    virtual void DrawEllipsoid(const glm::vec3 &vPos, float a, float b, float c, float ay, uint32_t dwColor) = 0;
 
     virtual void GetNearFarPlane(float &fNear, float &fFar) = 0;
     virtual void SetNearFarPlane(float fNear, float fFar) = 0;
@@ -412,12 +409,12 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
     virtual bool PopRenderTarget() = 0;
     virtual bool SetRenderTarget(IDirect3DCubeTexture9 *pCubeTex, uint32_t dwFaceType, uint32_t dwLevel,
                                  IDirect3DSurface9 *pNewZStencil) = 0;
-    virtual void SetView(const CMatrix &mView) = 0;
-    virtual void SetWorld(const CMatrix &mView) = 0;
-    virtual void SetProjection(const CMatrix &mView) = 0;
-    virtual const CMatrix &GetView() = 0;
-    virtual const CMatrix &GetWorld() = 0;
-    virtual const CMatrix &GetProjection() = 0;
+    virtual void SetView(const glm::mat4 &mView) = 0;
+    virtual void SetWorld(const glm::mat4 &mView) = 0;
+    virtual void SetProjection(const glm::mat4 &mView) = 0;
+    virtual const glm::mat4 &GetView() = 0;
+    virtual const glm::mat4 &GetWorld() = 0;
+    virtual const glm::mat4 &GetProjection() = 0;
 
     virtual IDirect3DVolumeTexture9 *CreateVolumeTexture(uint32_t Width, uint32_t Height, uint32_t Depth,
                                                          uint32_t Levels, uint32_t Usage, D3DFORMAT Format,

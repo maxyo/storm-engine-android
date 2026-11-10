@@ -17,11 +17,10 @@
 #include "grass.h"
 #include "lights.h"
 
-#include "c_vector4.h"
 #include "shared/messages.h"
 
 float fCausticScale, fCausticDelta, fFogDensity, fCausticDistance;
-CVECTOR4 v4CausticColor;
+glm::vec4 v4CausticColor;
 bool bCausticEnable = false;
 float fCausticFrame = 0.0f;
 int32_t iCausticTex[32];
@@ -436,7 +435,7 @@ uint64_t Location::ProcessMessage(MESSAGE &message)
         u0 = message.Float();
         v0 = message.Float();
         u1 = message.Float();
-        lights->AddLight(i, CVECTOR(u0, v0, u1));
+        lights->AddLight(i, glm::vec3(u0, v0, u1));
         return true;
     }
     case MSG_LOCATION_EX_MSG: {
@@ -536,20 +535,20 @@ int32_t Location::LoadStaticModel(const char *modelName, const char *tech, int32
         const auto locIndex = locators[j]->FindByName(label.name);
         if (locIndex < 0)
         {
-            auto &mtxx = *((CMatrix *)label.m);
+            auto &mtxx = *((glm::mat4 *)label.m);
             for (int32_t me = 0; me < 16; me++)
-                if (isnan(mtxx.matrix[me]))
+                if (isnan(storm::math::data(mtxx)[me]))
                 {
                     core.Trace("Location: locator %s::%s in position have NaN value, reset it!", label.group_name,
                                label.name);
-                    mtxx.SetIdentity();
+                    mtxx = glm::mat4(1.0f);
                     break;
                 }
             locators[j]->AddLocator(mtxx, label.name);
         }
         else
         {
-            locators[j]->SetNewMatrix(locIndex, *((CMatrix *)label.m));
+            locators[j]->SetNewMatrix(locIndex, *((glm::mat4 *)label.m));
         }
     }
 
@@ -684,7 +683,7 @@ bool Location::MessageEx(const char *name, MESSAGE &message)
             core.AddToLayer(EXECUTE, blood, 65540);
             core.AddToLayer(REALIZE, blood, 65540);
         }
-        CVECTOR vPos;
+        glm::vec3 vPos;
         vPos.x = message.Float();
         vPos.y = message.Float();
         vPos.z = message.Float();
@@ -745,7 +744,7 @@ bool Location::MessageEx(const char *name, MESSAGE &message)
 
 void Location::UpdateLocators()
 {
-    CMatrix mtx;
+    glm::mat4 mtx;
     if (!AttributesPointer)
         return;
     ATTRIBUTES *atr = AttributesPointer->FindAClass(AttributesPointer, "locators");
@@ -775,17 +774,17 @@ void Location::UpdateLocators()
                         // Matrix
                         locators[i]->GetLocatorPos(j, mtx);
                         // Pos
-                        a->SetAttributeUseFloat("x", mtx.Pos().x);
-                        a->SetAttributeUseFloat("y", mtx.Pos().y);
-                        a->SetAttributeUseFloat("z", mtx.Pos().z);
+                        a->SetAttributeUseFloat("x", storm::math::pos(mtx).x);
+                        a->SetAttributeUseFloat("y", storm::math::pos(mtx).y);
+                        a->SetAttributeUseFloat("z", storm::math::pos(mtx).z);
                         // vz
                         a->CreateSubAClass(a, "vz");
                         ATTRIBUTES *v = a->FindAClass(a, "vz");
                         if (v)
                         {
-                            v->SetAttributeUseFloat("x", mtx.Vz().x);
-                            v->SetAttributeUseFloat("y", mtx.Vz().y);
-                            v->SetAttributeUseFloat("z", mtx.Vz().z);
+                            v->SetAttributeUseFloat("x", storm::math::vz(mtx).x);
+                            v->SetAttributeUseFloat("y", storm::math::vz(mtx).y);
+                            v->SetAttributeUseFloat("z", storm::math::vz(mtx).z);
                         }
                         else
                         {
@@ -797,9 +796,9 @@ void Location::UpdateLocators()
                         v = a->FindAClass(a, "vy");
                         if (v)
                         {
-                            v->SetAttributeUseFloat("x", mtx.Vy().x);
-                            v->SetAttributeUseFloat("y", mtx.Vy().y);
-                            v->SetAttributeUseFloat("z", mtx.Vy().z);
+                            v->SetAttributeUseFloat("x", storm::math::vy(mtx).x);
+                            v->SetAttributeUseFloat("y", storm::math::vy(mtx).y);
+                            v->SetAttributeUseFloat("z", storm::math::vy(mtx).z);
                         }
                         else
                         {
@@ -811,9 +810,9 @@ void Location::UpdateLocators()
                         v = a->FindAClass(a, "vx");
                         if (v)
                         {
-                            v->SetAttributeUseFloat("x", mtx.Vx().x);
-                            v->SetAttributeUseFloat("y", mtx.Vx().y);
-                            v->SetAttributeUseFloat("z", mtx.Vx().z);
+                            v->SetAttributeUseFloat("x", storm::math::vx(mtx).x);
+                            v->SetAttributeUseFloat("y", storm::math::vx(mtx).y);
+                            v->SetAttributeUseFloat("z", storm::math::vx(mtx).z);
                         }
                         else
                         {
@@ -847,7 +846,7 @@ void Location::DrawLocators(LocatorArray *la)
         // States
         if (!sphereNumTrgs)
             CreateSphere();
-        CMatrix mPos;
+        glm::mat4 mPos;
         // Remove textures
         rs->TextureSet(0, -1);
         rs->TextureSet(1, -1);
@@ -862,16 +861,16 @@ void Location::DrawLocators(LocatorArray *la)
             const float rad = la->GetLocatorRadius(i) * la->kViewRadius;
             if (rad <= 0.0f)
                 continue;
-            mPos.m[0][0] *= rad;
-            mPos.m[0][1] *= rad;
-            mPos.m[0][2] *= rad;
-            mPos.m[1][0] *= rad;
-            mPos.m[1][1] *= rad;
-            mPos.m[1][2] *= rad;
-            mPos.m[2][0] *= rad;
-            mPos.m[2][1] *= rad;
-            mPos.m[2][2] *= rad;
-            rs->SetTransform(D3DTS_WORLD, mPos);
+            mPos[0][0] *= rad;
+            mPos[0][1] *= rad;
+            mPos[0][2] *= rad;
+            mPos[1][0] *= rad;
+            mPos[1][1] *= rad;
+            mPos[1][2] *= rad;
+            mPos[2][0] *= rad;
+            mPos[2][1] *= rad;
+            mPos[2][2] *= rad;
+            rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mPos));
             rs->DrawPrimitiveUP(D3DPT_TRIANGLELIST, D3DFVF_XYZ | D3DFVF_DIFFUSE, sphereNumTrgs, sphereVertex,
                                 sizeof(SphVertex), nullptr);
         }
@@ -881,21 +880,21 @@ void Location::DrawLocators(LocatorArray *la)
             }
     }
     // sign
-    static CMatrix mtx, view, prj;
-    rs->GetTransform(D3DTS_VIEW, view);
-    rs->GetTransform(D3DTS_PROJECTION, prj);
-    mtx.EqMultiply(view, prj);
+    static glm::mat4 mtx, view, prj;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
+    mtx = prj * view;
     // Get the current vp sizes
     static D3DVIEWPORT9 vp;
     rs->GetViewport(&vp);
     const float w = vp.Width * 0.5f;
     const float h = vp.Height * 0.5f;
-    CVECTOR lvrt;
-    MTX_PRJ_VECTOR vrt;
+    glm::vec3 lvrt;
+    storm::math::ProjectedPoint vrt;
     const int32_t fh = rs->CharHeight(FONT_DEFAULT);
     const int32_t gw = rs->StringWidth(la->GetGroupName()) / 2;
-    view.Transposition();
-    const float d = view.Vz() | view.Pos();
+    storm::math::invertRigid(view);
+    const float d = glm::dot(storm::math::vz(view), storm::math::pos(view));
     const float viewDst = la->viewDist * la->viewDist;
     // Draw
     for (int32_t i = 0; i < la->Num(); i++)
@@ -907,27 +906,27 @@ void Location::DrawLocators(LocatorArray *la)
             lbh = 1.5f;
         // writing a text
         la->GetLocatorPos(i, lvrt.x, lvrt.y, lvrt.z);
-        if ((lvrt | view.Vz()) < d)
+        if (glm::dot(lvrt, storm::math::vz(view)) < d)
             continue;
-        if (~(lvrt - view.Pos()) > viewDst)
+        if (storm::math::lengthSquared(lvrt - storm::math::pos(view)) > viewDst)
             continue;
         lvrt.y += lbh;
-        mtx.Projection(&lvrt, &vrt, 1, w, h, sizeof(CVECTOR), sizeof(MTX_PRJ_VECTOR));
+        storm::math::projectPoints(mtx, &lvrt, &vrt, 1, w, h, sizeof(glm::vec3), sizeof(storm::math::ProjectedPoint));
         rs->Print(static_cast<int32_t>(vrt.x - gw), static_cast<int32_t>(vrt.y - fh), la->GetGroupName());
         const int32_t lw = rs->StringWidth((char *)la->LocatorName(i)) / 2;
         rs->Print(static_cast<int32_t>(vrt.x - lw), static_cast<int32_t>(vrt.y), (char *)la->LocatorName(i));
     }
-    rs->SetTransform(D3DTS_WORLD, CMatrix());
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
 }
 
-void Location::DrawLine(const CVECTOR &s, uint32_t cs, const CVECTOR &d, uint32_t cd, bool useZ) const
+void Location::DrawLine(const glm::vec3 &s, uint32_t cs, const glm::vec3 &d, uint32_t cd, bool useZ) const
 {
     SphVertex lineVertex[2];
     lineVertex[0].v = s;
     lineVertex[0].c = cs;
     lineVertex[1].v = d;
     lineVertex[1].c = cd;
-    rs->SetTransform(D3DTS_WORLD, CMatrix());
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
     // Remove textures
     rs->TextureSet(0, -1);
     rs->TextureSet(1, -1);
@@ -946,8 +945,8 @@ void Location::CreateSphere()
 {
 #define CalcKColor(ind)                                                                                                \
     {                                                                                                                  \
-        kColor = light | !CVECTOR(sphereVertex[t * 3 + ind].v.x, sphereVertex[t * 3 + ind].v.y,                        \
-                                  sphereVertex[t * 3 + ind].v.z);                                                      \
+        kColor = glm::dot(light, storm::math::normalizeOrZero(glm::vec3(sphereVertex[t * 3 + ind].v.x,                  \
+                    sphereVertex[t * 3 + ind].v.y, sphereVertex[t * 3 + ind].v.z)));                                  \
         if (kColor < 0.0f)                                                                                             \
             kColor = 0.0f;                                                                                             \
     }
@@ -966,7 +965,7 @@ void Location::CreateSphere()
     sphereNumTrgs = a1 * a2 * 2;
     sphereVertex = new SphVertex[sphereNumTrgs * 6];
 
-    const CVECTOR light = !CVECTOR(0.0f, 0.0f, 1.0f);
+    const glm::vec3 light = storm::math::normalizeOrZero(glm::vec3(0.0f, 0.0f, 1.0f));
     float kColor;
     // Filling the vertices
     int32_t t = 0;
@@ -1028,7 +1027,7 @@ bool Location::IsDebugView()
 }
 
 // Write text
-void Location::Print(const CVECTOR &pos3D, float rad, int32_t line, float alpha, uint32_t color, float scale,
+void Location::Print(const glm::vec3 &pos3D, float rad, int32_t line, float alpha, uint32_t color, float scale,
                      const char *format, ...) const
 {
     static char buf[256];
@@ -1040,22 +1039,21 @@ void Location::Print(const CVECTOR &pos3D, float rad, int32_t line, float alpha,
     va_end(args);
     buf[sizeof(buf) - 1] = 0;
     // Find a position of a point on the screen
-    static CMatrix mtx, view, prj;
+    static glm::mat4 mtx, view, prj;
     static D3DVIEWPORT9 vp;
-    MTX_PRJ_VECTOR vrt;
-    rs->GetTransform(D3DTS_VIEW, view);
-    rs->GetTransform(D3DTS_PROJECTION, prj);
-    mtx.EqMultiply(view, prj);
-    view.Transposition();
-    float dist = ~(pos3D - view.Pos());
+    storm::math::ProjectedPoint vrt;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
+    mtx = prj * view;
+    storm::math::invertRigid(view);
+    float dist = storm::math::lengthSquared(pos3D - storm::math::pos(view));
     if (dist >= rad * rad)
         return;
-    const float d = view.Vz() | view.Pos();
-    if ((pos3D | view.Vz()) < d)
+    const float d = glm::dot(storm::math::vz(view), storm::math::pos(view));
+    if (glm::dot(pos3D, storm::math::vz(view)) < d)
         return;
     rs->GetViewport(&vp);
-    mtx.Projection((CVECTOR *)&pos3D, &vrt, 1, vp.Width * 0.5f, vp.Height * 0.5f, sizeof(CVECTOR),
-                   sizeof(MTX_PRJ_VECTOR));
+    storm::math::projectPoints(mtx, (glm::vec3 *)&pos3D, &vrt, 1, vp.Width * 0.5f, vp.Height * 0.5f, sizeof(glm::vec3), sizeof(storm::math::ProjectedPoint));
     // Find a position
     const float fh = rs->CharHeight(FONT_DEFAULT) * 0.8f;
     vrt.y -= (line + 0.5f) * fh * scale;
@@ -1079,7 +1077,7 @@ void Location::Print(const CVECTOR &pos3D, float rad, int32_t line, float alpha,
 }
 
 // Add a damage message
-void Location::AddDamageMessage(const CVECTOR &pos3D, float hit, float curhp, float maxhp)
+void Location::AddDamageMessage(const glm::vec3 &pos3D, float hit, float curhp, float maxhp)
 {
     curMessage++;
     if (curMessage >= sizeof(message) / sizeof(DmgMessage))
@@ -1105,7 +1103,7 @@ void Location::AddDamageMessage(const CVECTOR &pos3D, float hit, float curhp, fl
 }
 
 // Draw bars above the enemy in this frame
-void Location::DrawEnemyBars(const CVECTOR &pos, float hp, float energy, float alpha)
+void Location::DrawEnemyBars(const glm::vec3 &pos, float hp, float energy, float alpha)
 {
     if (enemyBarsCount >= sizeof(enemyBar) / sizeof(enemyBar[0]))
     {
@@ -1145,7 +1143,7 @@ void Location::TestLocatorsInPatch(MESSAGE &message)
         core.Event("LocatorsEventTrace", "lsss", 0, buf, la->GetGroupName(), "");
         return;
     }
-    CVECTOR pos;
+    glm::vec3 pos;
     for (int32_t i = 0; i < num; i++)
     {
         la->GetLocatorPos(i, pos.x, pos.y, pos.z);
@@ -1177,36 +1175,35 @@ void Location::DrawEnemyBars()
     const float maxViewDist = 12.0f;
     const float alphaThresholdRelativeDist = 0.8f;
     // Current scene parameters
-    static CMatrix mtx, view, prj;
+    static glm::mat4 mtx, view, prj;
     static D3DVIEWPORT9 vp;
     struct SortElement
     {
-        MTX_PRJ_VECTOR vrt;
+        storm::math::ProjectedPoint vrt;
         uint32_t color;
         float hp;
         float energy;
     } sort[sizeof(enemyBar) / sizeof(enemyBar[0])];
     SortElement *selements[sizeof(enemyBar) / sizeof(enemyBar[0])];
     int32_t sortCount = 0;
-    rs->GetTransform(D3DTS_VIEW, view);
-    rs->GetTransform(D3DTS_PROJECTION, prj);
-    mtx.EqMultiply(view, prj);
-    view.Transposition();
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
+    mtx = prj * view;
+    storm::math::invertRigid(view);
     rs->GetViewport(&vp);
     // Looping through all entries
     for (int32_t i = 0; i < enemyBarsCount; i++)
     {
         // Find a position of a point on the screen
-        CVECTOR &pos3D = enemyBar[i].p;
-        const float dist = ~(pos3D - view.Pos());
+        glm::vec3 &pos3D = enemyBar[i].p;
+        const float dist = storm::math::lengthSquared(pos3D - storm::math::pos(view));
         if (dist >= maxViewDist * maxViewDist)
             continue;
-        const float d = view.Vz() | view.Pos();
-        if ((pos3D | view.Vz()) < d)
+        const float d = glm::dot(storm::math::vz(view), storm::math::pos(view));
+        if (glm::dot(pos3D, storm::math::vz(view)) < d)
             continue;
-        MTX_PRJ_VECTOR vrt;
-        mtx.Projection(static_cast<CVECTOR *>(&pos3D), &vrt, 1, vp.Width * 0.5f, vp.Height * 0.5f, sizeof(CVECTOR),
-                       sizeof(MTX_PRJ_VECTOR));
+        storm::math::ProjectedPoint vrt;
+        storm::math::projectPoints(mtx, static_cast<glm::vec3 *>(&pos3D), &vrt, 1, vp.Width * 0.5f, vp.Height * 0.5f, sizeof(glm::vec3), sizeof(storm::math::ProjectedPoint));
         // Calculating transparency
         float k = sqrtf(dist) / maxViewDist;
         if (k > alphaThresholdRelativeDist)
@@ -1245,7 +1242,7 @@ void Location::DrawEnemyBars()
     // Rendering
     for (int32_t i = 0; i < sortCount; i++)
     {
-        MTX_PRJ_VECTOR &vrt = selements[i]->vrt;
+        storm::math::ProjectedPoint &vrt = selements[i]->vrt;
         uint32_t &color = selements[i]->color;
         static BarVertex bar[18];
         float width = (256.0f * vrt.rhw) * 0.5f;
@@ -1372,7 +1369,7 @@ void Location::LoadCaustic() const
     fCausticScale = pC->GetAttributeAsFloat("scale");
     fFogDensity = pC->GetAttributeAsFloat("fogdensity");
     fCausticDistance = pC->GetAttributeAsFloat("distance");
-    v4CausticColor = COLOR2VECTOR4(pC->GetAttributeAsDword("color"));
+    v4CausticColor = storm::math::colorFromARGB(pC->GetAttributeAsDword("color"));
     fCausticSpeed = pC->GetAttributeAsFloat("speed");
 
     char tex[256];

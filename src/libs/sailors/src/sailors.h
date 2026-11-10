@@ -61,7 +61,7 @@ class ShipMan
     void FindNextPoint(SailorsPoints &sailorsPoints, ShipState &shipState);
     int FindRandomPoint(SailorsPoints &sailorsPoints, ShipState &shipState);
     int FindRandomPointWithoutType(const SailorsPoints &sailorsPoints) const;
-    void ApplyTargetPoint(CVECTOR pt, bool randomWalk);
+    void ApplyTargetPoint(glm::vec3 pt, bool randomWalk);
 
     void UpdatePos(uint32_t &dltTime, SailorsPoints &sailorsPoints, ShipState &shipState);
     // Update animation and speed 
@@ -79,10 +79,10 @@ class ShipMan
     
     entid_t modelID{};
 
-    CVECTOR pos{}, ang{}; // current position
-    CVECTOR ptTo{}, angTo{}, dir{};
+    glm::vec3 pos{}, ang{}; // current position
+    glm::vec3 ptTo{}, angTo{}, dir{};
 
-    CVECTOR spos{}; // Bypassing each other
+    glm::vec3 spos{}; // Bypassing each other
     // float sang; // Bypass each other
 
     float dieTime{};
@@ -110,7 +110,7 @@ class ShipWalk
     bool Init(entid_t _shipID, int editorMode, const char *shipType, std::vector<std::string> &&shipManModels);
     void CheckPosition(const uint32_t &dltTime);
     void SetMastBroken(int iMastIndex);
-    void OnHullHit(const CVECTOR &v);
+    void OnHullHit(const glm::vec3 &v);
 
     SHIP_BASE *ship;
     MODEL *shipModel;

@@ -5,7 +5,9 @@
 
 #include "float_to_int.h"
 
-#include "c_vector.h"
+#include <cstdlib>
+
+#include "storm_glm.h"
 
 #define SQR(a) ((a) * (a))
 #define FRAND(x) ((x) * (float)rand() / (float)RAND_MAX)
@@ -97,14 +99,14 @@ inline float NormalizeAngle(float fAngle)
     return fAngle;
 }
 
-inline void GetLineABC(const CVECTOR &v1, const CVECTOR &v2, float &A, float &B, float &C)
+inline void GetLineABC(const glm::vec3 &v1, const glm::vec3 &v2, float &A, float &B, float &C)
 {
     A = (v2.z - v1.z);
     B = (v1.x - v2.x);
     C = -v1.x * v2.z + v1.z * v2.x;
 }
 
-inline bool IntersectLines2D(const CVECTOR &v1, const CVECTOR &v2, const CVECTOR &v3, const CVECTOR &v4, CVECTOR &vRes)
+inline bool IntersectLines2D(const glm::vec3 &v1, const glm::vec3 &v2, const glm::vec3 &v3, const glm::vec3 &v4, glm::vec3 &vRes)
 {
     float a1, b1, c1, a2, b2, c2;
     GetLineABC(v1, v2, a1, b1, c1);
@@ -137,4 +139,44 @@ inline bool IntersectLines2D(const CVECTOR &v1, const CVECTOR &v2, const CVECTOR
 inline int ftoi(float f)
 {
     return storm::math::round_to_int(f);
+}
+
+// Fast conversion of a floating point number to an integer with discarding of the fractional part
+inline int32_t fftol(float f)
+{
+    return storm::math::truncate_to_int(f);
+}
+
+// Fast conversion of a floating point number to an integer with rounding to the nearest
+inline int32_t fftoi(float f)
+{
+    return storm::math::round_to_int(f);
+}
+
+// Fast floor
+inline int32_t ffloor(float f)
+{
+    return storm::math::round_to_int(f - 0.5f);
+}
+
+// Random number
+inline float Rnd(float max = 1.0f)
+{
+    return rand() * (max * (1.0f / RAND_MAX));
+}
+
+// Random number
+inline float RRnd(float min, float max)
+{
+    return min + rand() * ((max - min) * (1.0f / RAND_MAX));
+}
+
+// Limit float
+inline float Clampf(float v, float min = 0.0f, float max = 1.0f)
+{
+    if (v < min)
+        v = min;
+    if (v > max)
+        v = max;
+    return v;
 }

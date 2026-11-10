@@ -216,10 +216,10 @@ void Player::Move(float dltTime)
                     strafeMove = cameraRelative ? 0.0f : axes.x;
                     // Combat stays relative to the fighter, like native
                     // recoil/strafe. Camera inertia cannot reverse its forward gait.
-                    const CVECTOR forward = cameraRelative && locCam ? locCam->MovementViewDirection() :
-                        CVECTOR(sinf(ay), 0.0f, cosf(ay));
+                    const glm::vec3 forward = cameraRelative && locCam ? locCam->MovementViewDirection() :
+                        glm::vec3(sinf(ay), 0.0f, cosf(ay));
                     const auto direction = storm::android::movementDirection(axes, forward.x, forward.z, ay);
-                    androidMotionDirection = CVECTOR(direction.x, 0.0f, direction.z);
+                    androidMotionDirection = glm::vec3(direction.x, 0.0f, direction.z);
                     androidMotionSpeed = pace.speed;
                     androidMotionWalkSpeed = std::fabs(walking);
                     androidMotion = true;
@@ -574,17 +574,17 @@ void Player::Rotate(float dltTime)
             if (dx * dx + dz * dz > 0.1f)
             {
                 // Rotate the vector relative to the camera
-                CMatrix mtx;
+                glm::mat4 mtx;
                 auto *const location = GetLocation();
-                location->GetRS()->GetTransform(D3DTS_VIEW, mtx);
-                mtx.Transposition3X3();
-                mtx.Vy() = CVECTOR(0.0f, 1.0f, 0.0f);
-                mtx.Vx().y = 0.0f;
-                mtx.Vz().y = 0.0f;
-                mtx.Vx() = !CVECTOR(mtx.Vx());
-                mtx.Vz() = !CVECTOR(mtx.Vz());
-                mtx.Pos() = 0.0f;
-                const auto res = mtx * CVECTOR(dx, 0.0f, dz);
+                location->GetRS()->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mtx));
+                storm::math::transpose3x3(mtx);
+                storm::math::vy(mtx) = glm::vec3(0.0f, 1.0f, 0.0f);
+                storm::math::vx(mtx).y = 0.0f;
+                storm::math::vz(mtx).y = 0.0f;
+                storm::math::vx(mtx) = storm::math::normalizeOrZero(glm::vec3(storm::math::vx(mtx)));
+                storm::math::vz(mtx) = storm::math::normalizeOrZero(glm::vec3(storm::math::vz(mtx)));
+                storm::math::pos(mtx) = glm::vec3(0.0f);
+                const auto res = storm::math::transformPoint(mtx, glm::vec3(dx, 0.0f, dz));
                 Turn(res.x, res.z);
             }
         }
@@ -957,13 +957,13 @@ void Player::FireFromShootgun()
     // Get the position from where to shoot
     auto dx = sinf(ay);
     auto dz = cosf(ay);
-    CMatrix mtx;
+    glm::mat4 mtx;
     auto *const location = GetLocation();
-    location->GetRS()->GetTransform(D3DTS_VIEW, mtx);
-    mtx.Transposition();
-    const auto src = mtx.Pos() + mtx.Vz() * 0.7f;
-    core.Send_Message(effects, "sffffff", "SGFireParticles", src.x, src.y - 0.35f, src.z, mtx.Vz().x, mtx.Vz().y,
-                      mtx.Vz().z);
+    location->GetRS()->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mtx));
+    storm::math::invertRigid(mtx);
+    const auto src = storm::math::pos(mtx) + storm::math::vz(mtx) * 0.7f;
+    core.Send_Message(effects, "sffffff", "SGFireParticles", src.x, src.y - 0.35f, src.z, storm::math::vz(mtx).x, storm::math::vz(mtx).y,
+                      storm::math::vz(mtx).z);
 
     auto *collide = static_cast<COLLIDE *>(core.GetService("COLL"));
     if (!collide)
@@ -984,14 +984,14 @@ void Player::FireFromShootgun()
         // Get the position where the buckshot will fall
         const auto r = rand() * 3.0f / RAND_MAX;
         const auto a = rand() * 6.283185307f / (RAND_MAX + 1);
-        auto dst = mtx * CVECTOR(r * sinf(a), r * cosf(a), 25.0f);
+        auto dst = storm::math::transformPoint(mtx, glm::vec3(r * sinf(a), r * cosf(a), 25.0f));
         if (collide)
         {
             auto id = GetId();
             const auto dist = collide->Trace(ids, src, dst, &id, 0);
             if (dist <= 1.0f && dist > (0.2f / 25.0f))
             {
-                auto dir = !(src - dst);
+                auto dir = storm::math::normalizeOrZero(src - dst);
                 dst = src + (dst - src) * dist;
                 // Got somewhere
                 auto *const e = core.GetEntityPointer(collide->GetObjectID());

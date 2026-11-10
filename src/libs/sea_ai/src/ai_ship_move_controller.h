@@ -18,8 +18,8 @@ class AIShipMoveController
     AIShip *pOurAIShip; // our AI ship pointer
 
     bool bStopped;      // if ship stopped
-    CVECTOR vDestPoint; // destination point
-    CVECTOR vRetardForce, vDeflectForce;
+    glm::vec3 vDestPoint; // destination point
+    glm::vec3 vRetardForce, vDeflectForce;
 
     float fMoveTime;
 
@@ -34,15 +34,15 @@ class AIShipMoveController
     virtual void Realize(float);
 
     // move to point (major function!!!)
-    virtual void Move(CVECTOR);
+    virtual void Move(glm::vec3);
     // stop moving/rotating
     virtual void Stop(bool _bStopped = true)
     {
         bStopped = _bStopped;
     };
 
-    virtual void AddDeflectForce(CVECTOR _vDeflectForce);
-    virtual void AddRetardForce(CVECTOR _vRetardForce);
+    virtual void AddDeflectForce(glm::vec3 _vDeflectForce);
+    virtual void AddRetardForce(glm::vec3 _vRetardForce);
 
     virtual bool isStopped()
     {

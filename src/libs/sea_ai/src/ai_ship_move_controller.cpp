@@ -8,8 +8,8 @@ AIShipMoveController::AIShipMoveController(AIShip *pShip)
     // core.AddToLayer("sea_realize",eidSphere,10000);
     fMoveTime = FRAND(2.0f);
     dwCurPnt = 0;
-    vDeflectForce = 0.0f;
-    vRetardForce = 0.0f;
+    vDeflectForce = glm::vec3(0.0f);
+    vRetardForce = glm::vec3(0.0f);
     SetAIShip(pShip);
     Stop(true);
 }
@@ -48,11 +48,11 @@ void AIShipMoveController::Execute(float fDeltaTime)
     vDeflectForce.z = 1.0f; // FRAND(2.0f) - 1.0f;
     // vDeflectForce.z = FRAND(2.0f) - 1.0f;
 
-    const auto vCurDir = CVECTOR(sinf(vCurAng.y), 0.0f, cosf(vCurAng.y));
-    const auto vDestDir = !(vMovePoint - vCurPos);
+    const auto vCurDir = glm::vec3(sinf(vCurAng.y), 0.0f, cosf(vCurAng.y));
+    const auto vDestDir = storm::math::normalizeOrZero(vMovePoint - vCurPos);
 
     auto fTime = 0.0f;
-    const auto fDist = sqrtf(~(vCurPos - vMovePoint));
+    const auto fDist = sqrtf(storm::math::lengthSquared(vCurPos - vMovePoint));
     const auto fBrakingDistance = pShip->GetBrakingDistance(&fTime);
 
     auto fSpeed = 1.0f;
@@ -69,15 +69,15 @@ void AIShipMoveController::Execute(float fDeltaTime)
 
     const auto fRotationAngle = pShip->GetRotationAngle(&fTime);
 
-    auto fTemp = ~vDeflectForce;
-    if (~vDeflectForce > 0.00001f)
+    auto fTemp = storm::math::lengthSquared(vDeflectForce);
+    if (storm::math::lengthSquared(vDeflectForce) > 0.00001f)
     {
-        auto vRotDir = !vDeflectForce;
+        auto vRotDir = storm::math::normalizeOrZero(vDeflectForce);
 
-        const auto fDot = vCurDir | vDestDir;
+        const auto fDot = glm::dot(vCurDir, vDestDir);
         const auto fRotAng = fabsf(acosf(Clamp(fDot)));
 
-        const auto vProd = vCurDir ^ vDestDir;
+        const auto vProd = glm::cross(vCurDir, vDestDir);
         const auto fSignRot = ((vProd.y > 0.0f) ? 1.0f : -1.0f);
         // check fSignRot with can Rotate in these direction
         // float fBestRotate = GetAIShip()->GetTouchController()->GetBestRotateDirection();
@@ -93,7 +93,7 @@ void AIShipMoveController::Execute(float fDeltaTime)
     }
 
     // vDeflectForce = 0.0f;
-    vRetardForce = 0.0f;
+    vRetardForce = glm::vec3(0.0f);
 }
 
 void AIShipMoveController::Realize(float fDeltaTime)
@@ -118,16 +118,16 @@ void AIShipMoveController::Realize(float fDeltaTime)
         pRL->dwColor = 0xFFFFFF;
         pRL->vPos = vDestPoint;
       }
-      CMatrix m;
+      glm::mat4 m;
       AIHelper::pRS->SetTransform(D3DTS_WORLD, m);
       if (aLines.size() >= 2) AIHelper::pRS->DrawLines(&aLines[0], aLines.size()/2, "Line");
     }
     */
 }
 
-void AIShipMoveController::Move(CVECTOR vMovePoint)
+void AIShipMoveController::Move(glm::vec3 vMovePoint)
 {
-    auto fDist = sqrtf(~(vMovePoint - vDestPoint));
+    auto fDist = sqrtf(storm::math::lengthSquared(vMovePoint - vDestPoint));
     if (fMoveTime > 0.0f)
         return;
     fMoveTime = 2.0f;
@@ -135,7 +135,7 @@ void AIShipMoveController::Move(CVECTOR vMovePoint)
 
     if (AIHelper::pIsland)
     {
-        CVECTOR vRealMovePoint;
+        glm::vec3 vRealMovePoint;
         auto vOurPos = GetAIShip()->GetPos();
         vOurPos.y = vMovePoint.y = 0.0f;
         const auto b = AIHelper::pIsland->GetMovePoint(vOurPos, vMovePoint, vRealMovePoint);
@@ -148,12 +148,12 @@ void AIShipMoveController::Move(CVECTOR vMovePoint)
     vDestPoint = vMovePoint;
 }
 
-void AIShipMoveController::AddRetardForce(CVECTOR _vRetardForce)
+void AIShipMoveController::AddRetardForce(glm::vec3 _vRetardForce)
 {
     vRetardForce += _vRetardForce;
 }
 
-void AIShipMoveController::AddDeflectForce(CVECTOR _vDeflectForce)
+void AIShipMoveController::AddDeflectForce(glm::vec3 _vDeflectForce)
 {
     vDeflectForce += _vDeflectForce;
 }

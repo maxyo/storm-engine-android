@@ -545,8 +545,8 @@ bool AnimationServiceImp::LoadAN(const char *fname, AnimationInfo *info)
         }
         delete[] prntIndeces;
         // Starting positions of bones
-        auto *vrt = new CVECTOR[header.nJoints];
-        if (!fio->_ReadFile(fileS, vrt, header.nJoints * sizeof(CVECTOR)))
+        auto *vrt = new glm::vec3[header.nJoints];
+        if (!fio->_ReadFile(fileS, vrt, header.nJoints * sizeof(glm::vec3)))
         {
             core.Trace("Incorrect start joints position block block in animation file: %s", fname);
             delete[] vrt;
@@ -560,8 +560,8 @@ bool AnimationServiceImp::LoadAN(const char *fname, AnimationInfo *info)
         delete[] vrt;
 
         // Root bone positions
-        vrt = new CVECTOR[header.nFrames];
-        if (!fio->_ReadFile(fileS, vrt, header.nFrames * sizeof(CVECTOR)))
+        vrt = new glm::vec3[header.nFrames];
+        if (!fio->_ReadFile(fileS, vrt, header.nFrames * sizeof(glm::vec3)))
         {
             core.Trace("Incorrect root joint position block block in animation file: %s", fname);
             delete[] vrt;
@@ -572,7 +572,7 @@ bool AnimationServiceImp::LoadAN(const char *fname, AnimationInfo *info)
         delete[] vrt;
 
         // Angles
-        auto *ang = new Quaternion[header.nFrames];
+        auto *ang = new glm::quat[header.nFrames];
         for (int32_t i = 0; i < header.nJoints; i++)
         {
             if (!fio->_ReadFile(fileS, ang, header.nFrames * sizeof(*ang)))
@@ -592,7 +592,7 @@ bool AnimationServiceImp::LoadAN(const char *fname, AnimationInfo *info)
         }
         for (int32_t i = 0; i < header.nJoints; i++)
         {
-            info->GetBone(i).start.Transposition();
+            storm::math::invertRigid(info->GetBone(i).start);
         }
         //-----------------------------------------------
 

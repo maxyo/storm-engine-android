@@ -2,7 +2,7 @@
 
 #include "dx9render.h"
 #include "geos.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "model.h"
 
 #include <filesystem>
@@ -11,7 +11,7 @@
 
 struct FLAGLXVERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float tu, tv;
 };
 
@@ -101,11 +101,11 @@ class FLAG : public Entity
         bool isSpecialFlag;
         bool isShip;
 
-        CVECTOR spos;      // start flags position
-        CVECTOR dv;        // delta flags start position to along
-        CVECTOR dhv, ddhv; // delta from position to flag top&bottom and delta for this value
+        glm::vec3 spos;      // start flags position
+        glm::vec3 dv;        // delta flags start position to along
+        glm::vec3 dhv, ddhv; // delta from position to flag top&bottom and delta for this value
 
-        CVECTOR curpos, dHV;
+        glm::vec3 curpos, dHV;
         int lineNum;
         int windIdx, curIdx;
         bool bDecreaze;
@@ -116,7 +116,7 @@ class FLAG : public Entity
         int flagNum; // number of flag
         int grNum;   // number of flag group
         NODE *nod;
-        CMatrix *pMatWorld;
+        glm::mat4 *pMatWorld;
 
         int texNumC;
         int texNumR;
@@ -163,7 +163,7 @@ class FLAG : public Entity
     FLAGLXVERTEX *vertBuf;
     uint16_t *indxBuf;
 
-    CMatrix rootMatrix;
+    glm::mat4 rootMatrix;
 
     int32_t vBuf, iBuf;
     uint32_t nVert, nIndx;

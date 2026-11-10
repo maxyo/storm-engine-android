@@ -13,7 +13,7 @@
 #include "wdm_objects.h"
 #include "wdm_render_object.h"
 
-#include "matrix.h"
+#include "storm_glm.h"
 
 class GEOS;
 class VGEOMETRY;
@@ -37,7 +37,7 @@ class WdmRenderModel : public WdmRenderObject
     int32_t GetTexture(int32_t stage) const;
     void SetTexture(int32_t stage, int32_t id) const;
 
-    CMatrix mtx;
+    glm::mat4 mtx;
     float alpha;
 
   public:
@@ -48,7 +48,7 @@ class WdmRenderModel : public WdmRenderObject
     const char *techa;
 
     // Positioned circle
-    CVECTOR center;
+    glm::vec3 center;
     float radius;
 
     bool drawCircle;

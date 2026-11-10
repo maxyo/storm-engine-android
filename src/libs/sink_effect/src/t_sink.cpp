@@ -52,7 +52,7 @@ void TSink::Release()
 }
 
 //--------------------------------------------------------------------
-void TSink::Start(const CVECTOR &_pos, float _radius)
+void TSink::Start(const glm::vec3 &_pos, float _radius)
 {
     if (enabled)
         return;
@@ -160,10 +160,10 @@ void TSink::Realize(uint32_t _dTime)
     if (!enabled)
         return;
 
-    const CMatrix m;
+    const glm::mat4 m;
     uint32_t ambient;
 
-    renderer->SetTransform(D3DTS_WORLD, static_cast<D3DMATRIX *>(m));
+    renderer->SetTransform(D3DTS_WORLD, static_cast<D3DMATRIX *>(storm::math::d3dMatrix(m)));
     renderer->TextureSet(0, texture);
 
     renderer->GetRenderState(D3DRS_AMBIENT, &ambient);
