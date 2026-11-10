@@ -1,4 +1,5 @@
 #include "device.hpp"
+#include "storm/render/d3d_interop.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_syswm.h>
@@ -72,6 +73,24 @@ FrameOwner *FrameOwner::Get()
 {
     auto &context = shim::Context::instance();
     return context.initialised() ? &context : nullptr;
+}
+
+uint16_t BgfxTextureOf(IDirect3DBaseTexture9 *texture, uint16_t *width, uint16_t *height)
+{
+    shim::TexStore *store = shim::store_of(texture);
+    if (!store || !shim::Context::instance().initialised())
+        return UINT16_MAX;
+    store->sync();
+    if (width)
+        *width = static_cast<uint16_t>(store->width);
+    if (height)
+        *height = static_cast<uint16_t>(store->height);
+    return store->handle.idx;
+}
+
+void SetGamePictureProvider(GamePictureProvider *provider)
+{
+    shim::Context::instance().set_picture_provider(provider);
 }
 
 void NotifySurfaceLost()
@@ -184,6 +203,7 @@ void Context::shutdown()
     initialised_ = false;
     surface_.valid = false;
     pictures_.clear();
+    picture_provider_ = nullptr;
 }
 
 void Context::resize(uint32_t width, uint32_t height)
@@ -432,26 +452,58 @@ uint16_t Context::BgfxTexture(render::TextureId id) const
     return id == 0 ? UINT16_MAX : static_cast<uint16_t>(id - 1);
 }
 
+namespace
+{
+std::string picture_key(std::string_view path)
+{
+    std::string key(path);
+    for (char &c : key)
+        c = c == '\\' ? '/' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return key;
+}
+} // namespace
+
+void Context::set_picture_provider(render::GamePictureProvider *provider)
+{
+    picture_provider_ = provider;
+    if (!provider)
+        pictures_.clear();
+}
+
 render::GamePicture Context::AcquireGamePicture(std::string_view path)
 {
-    auto &entry = pictures_[std::string(path)];
-    ++entry.refs;
-    return entry.picture;
+    const std::string key = picture_key(path);
+    auto it = pictures_.find(key);
+    if (it == pictures_.end())
+    {
+        Picture entry;
+        render::GamePictureProvider::Loaded loaded;
+        if (!initialised_ || !picture_provider_ || !picture_provider_->Load(path, loaded))
+            return render::GamePicture{};
+        entry.token = loaded.token;
+        entry.picture.state = render::GamePicture::State::Ready;
+        entry.picture.texture = static_cast<render::TextureId>(loaded.bgfx_texture) + 1;
+        entry.picture.width = loaded.width;
+        entry.picture.height = loaded.height;
+        it = pictures_.emplace(key, entry).first;
+    }
+    ++it->second.refs;
+    return it->second.picture;
 }
 
 render::GamePicture Context::QueryGamePicture(std::string_view path)
 {
-    const auto it = pictures_.find(std::string(path));
+    const auto it = pictures_.find(picture_key(path));
     return it == pictures_.end() ? render::GamePicture{} : it->second.picture;
 }
 
 void Context::ReleaseGamePicture(std::string_view path)
 {
-    const auto it = pictures_.find(std::string(path));
+    const auto it = pictures_.find(picture_key(path));
     if (it == pictures_.end() || --it->second.refs != 0)
         return;
-    if (initialised_ && it->second.picture.texture != 0)
-        DestroyTexture(it->second.picture.texture);
+    if (picture_provider_)
+        picture_provider_->Unload(it->second.token);
     pictures_.erase(it);
 }
 

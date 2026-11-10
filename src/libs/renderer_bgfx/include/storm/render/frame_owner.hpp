@@ -134,7 +134,7 @@ struct GamePicture
         Failed, // file missing or unsupported
     };
     State state = State::Failed;
-    TextureId texture = 0; // valid when Ready
+    TextureId texture = 0; // valid when Ready; owned by the frame owner: never pass it to DestroyTexture
     uint16_t width = 0;    // size of the top mip actually on the GPU
     uint16_t height = 0;
     // Game .tx pictures use STRAIGHT (non-premultiplied) alpha.
@@ -187,6 +187,24 @@ class FrameOwner
   protected:
     virtual ~FrameOwner() = default;
 };
+
+// Implemented by the renderer service, which owns the .tx loader and its reference counts.
+class GamePictureProvider
+{
+  public:
+    struct Loaded
+    {
+        uint32_t token = 0;            // provider handle passed back to Unload()
+        uint16_t bgfx_texture = 0xffff; // bgfx::TextureHandle::idx
+        uint16_t width = 0, height = 0;
+    };
+    virtual ~GamePictureProvider() = default;
+    // `path` as in FrameOwner::AcquireGamePicture. Returns false when the picture does not exist.
+    virtual bool Load(std::string_view path, Loaded &out) = 0;
+    virtual void Unload(uint32_t token) = 0;
+};
+// nullptr detaches (pictures acquired afterwards fail; live ones are forgotten, not unloaded).
+void SetGamePictureProvider(GamePictureProvider *provider);
 
 // Platform surface lifecycle, reported by the application loop (Android pause/resume).
 // Between Lost and Restored nothing is presented and FrameClient::OnUiRender is not called.

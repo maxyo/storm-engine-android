@@ -59,6 +59,7 @@ class Context final : public render::FrameOwner
     render::GamePicture QueryGamePicture(std::string_view path) override;
     void ReleaseGamePicture(std::string_view path) override;
     void SetFrameRateLimit(uint32_t fps) override { frame_limit_ = fps; }
+    void set_picture_provider(render::GamePictureProvider *provider);
 
   private:
     struct Client
@@ -70,6 +71,7 @@ class Context final : public render::FrameOwner
     {
         render::GamePicture picture;
         uint32_t refs = 0;
+        uint32_t token = 0;
     };
     void create_resources();
     void pace();
@@ -87,6 +89,7 @@ class Context final : public render::FrameOwner
     bgfx::UniformHandle samplers_[kSamplerUnits] = {};
     bgfx::VertexLayout blit_layout_;
     std::unordered_map<std::string, Picture> pictures_;
+    render::GamePictureProvider *picture_provider_ = nullptr;
     uint32_t frame_limit_ = 0;
     double last_present_ = 0.0;
 };
