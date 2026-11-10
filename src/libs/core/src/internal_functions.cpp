@@ -476,7 +476,11 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
                                         callStack_,
                                         pRun_fi && pRun_fi->info ? std::string_view(pRun_fi->info->name) : std::string_view{},
                                         InstructionPointer,
-                                        arguments};
+                                        arguments,
+                                        FuncTab,
+                                        VarTab,
+                                        DefTab,
+                                        [this](uint32_t function, DATA *&result) { return BC_Execute(function, result); }};
         return storm::natives::callNativeExt(func_code - FUNC_NATIVE_EXT_BASE, call, pVResult);
     }
 

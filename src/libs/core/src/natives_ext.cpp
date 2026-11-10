@@ -10,6 +10,7 @@
 
 #include "compiler.h"
 #include "core_impl.h"
+#include "natives_dlg.h"
 #include "natives_logic.hpp"
 #include "script_stub.hpp"
 #include "string_compare.hpp"
@@ -680,6 +681,18 @@ DATA *callNativeExt(uint32_t index, NativeCall &call, DATA *&result)
             appendAttributes(a, b);
         return nullptr;
     }
+    case FUNC_X_DLGO:
+        return dlg::callDlgNative(dlg::DlgNative::Dlgo, call, result);
+    case FUNC_X_DLG_CONVERT:
+        return dlg::callDlgNative(dlg::DlgNative::Convert, call, result);
+    case FUNC_X_DLG_CONVERT_E:
+        return dlg::callDlgNative(dlg::DlgNative::ConvertE, call, result);
+    case FUNC_X_DLG_REPLACE_ALL_MATCHES:
+        return dlg::callDlgNative(dlg::DlgNative::ReplaceAllMatches, call, result);
+    case FUNC_X_STRING_FROM_KEY:
+        return dlg::callDlgNative(dlg::DlgNative::StringFromKey, call, result);
+    case FUNC_X_REFRESH_LOCALIZATION:
+        return dlg::callDlgNative(dlg::DlgNative::RefreshLocalization, call, result);
     case FUNC_X_RDTSC_B:
         return pushInt(call, result, ticks());
     case FUNC_X_RDTSC_E: {

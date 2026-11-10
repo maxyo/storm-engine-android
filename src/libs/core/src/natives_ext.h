@@ -5,6 +5,7 @@
 // the VM state the functions need (the members are private to COMPILER).
 
 #include <cstdint>
+#include <functional>
 #include <string_view>
 #include <tuple>
 
@@ -14,6 +15,9 @@ class COMPILER;
 class DATA;
 class S_STACK;
 class POSTEVENTS_LIST;
+class FuncTable;
+class VarTable;
+class S_DEFTAB;
 
 namespace storm::natives
 {
@@ -28,6 +32,12 @@ struct NativeCall
     std::string_view caller; // name of the script function that called the native
     uint32_t instruction;    // code offset of the call, identifies the call site in `caller`
     uint32_t arguments;
+    // for natives that read globals and defines or call script functions (natives_dlg.cpp)
+    const FuncTable &functions;
+    const VarTable &variables;
+    S_DEFTAB &defines;
+    // COMPILER::BC_Execute: runs a script function whose arguments are on `stack`
+    std::function<bool(uint32_t function, DATA *&result)> execute;
 };
 
 // `index` = function code - FUNC_NATIVE_EXT_BASE. Consumes the arguments; returns the pushed
