@@ -152,9 +152,8 @@ inline bool isPatchTargetPath(const fs::path &relative)
         const auto slash = key.find('/', dialogs.size());
         return slash != std::string::npos && slash > dialogs.size();
     }
-    // battle_interface: the location loader's flag and HUD scripts.
     for (const std::string_view directory : {"program/quests/", "program/sea_ai/", "program/loc_ai/",
-                                             "program/weather/", "program/battle_interface/"})
+                                             "program/weather/"})
         if (key.starts_with(directory))
             return true;
     return false;
