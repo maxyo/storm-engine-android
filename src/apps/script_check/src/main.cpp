@@ -1,8 +1,9 @@
 // script_check: compile a game's whole script tree on the host and report every diagnostic.
 //
 //   script_check check <game dir> [--program <dir>] [--main <file>] [--dump <dir>] [--warnings]
-//                [--language <name>]   (for %language% in include paths, default english)
-//   script_check test <script>...
+//                [--language <name>]   (for %language% in include paths; default: as the engine,
+//                                        language.ini's defaultLanguage)
+//   script_check test [--cache] <script>...
 //
 // check: compiles the main segment (seadogs.c) and then every other .c file under the program
 // directory that no script includes, each as its own segment the way LoadSegment loads it, and
@@ -24,6 +25,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <unistd.h>
 #include <cstring>
 #include <cstdio>
 #include <filesystem>
@@ -104,7 +106,7 @@ bool isError(const std::string &line)
 int usage()
 {
     std::fprintf(stderr, "usage: script_check check <game dir> [--program <dir>] [--main <file>] [--dump <dir>] "
-                         "[--warnings] [--language <name>]\n       script_check test <script>...\n");
+                         "[--warnings] [--language <name>]\n       script_check test [--cache] <script>...\n");
     return 2;
 }
 
@@ -116,7 +118,7 @@ int check(int argc, char **argv)
     std::string program_name, main_name = "seadogs.c";
     fs::path dump;
     bool warnings = false;
-    std::string language = "english"; // %language% in include paths (CL)
+    std::string language; // %language% in include paths (CL): language.ini's default unless given
     for (int i = 1; i < argc; ++i)
     {
         const std::string arg = argv[i];
@@ -181,7 +183,8 @@ int check(int argc, char **argv)
     COMPILER compiler;
     core_internal.Compiler = &compiler;
     compiler.ConfigureCompileCheck(&diagnostics, false);
-    compiler.SetScriptLanguage(language);
+    if (!language.empty())
+        compiler.SetScriptLanguage(language);
     compiler.SetProgramDirectory(program_name.c_str());
 
     const auto started = std::chrono::steady_clock::now();
@@ -322,6 +325,15 @@ int test(int argc, char **argv)
 {
     if (argc < 1)
         return usage();
+    // --cache: compile each script into a fresh script cache, then run its tests on a second compiler
+    // that loads the segment from that cache
+    fs::path cache;
+    if (std::string(argv[0]) == "--cache")
+    {
+        cache = fs::temp_directory_path() / ("script_check_cache_" + std::to_string(getpid()));
+        ++argv;
+        --argc;
+    }
     int failures = 0;
     for (int i = 0; i < argc; ++i)
     {
@@ -338,14 +350,33 @@ int test(int argc, char **argv)
         std::vector<std::string> diagnostics;
         // the language cases exercise Caribbean Legend's script dialect
         storm::setGameProfile(storm::GameProfile::CaribbeanLegend);
+        fs::current_path(script.parent_path());
+        fio->ScanResourcePaths(false); // scripts only, no engine-shaders overlay
+        const auto name = script.filename().string();
+        if (!cache.empty() && expected.empty())
+        {
+            // first compiler: compiles and stores the segment in the cache
+            fs::remove_all(cache);
+            COMPILER writer;
+            core_internal.Compiler = &writer;
+            writer.ConfigureCompileCheck(&diagnostics, true);
+            writer.UseScriptCache(cache);
+            writer.SetProgramDirectory(".");
+            writer.BC_LoadSegment(name.c_str());
+            writer.Release();
+        }
         COMPILER compiler;
         core_internal.Compiler = &compiler;
         compiler.ConfigureCompileCheck(&diagnostics, true);
-        fs::current_path(script.parent_path());
-        fio->ScanResourcePaths(false); // scripts only, no engine-shaders overlay
+        if (!cache.empty() && expected.empty())
+            compiler.UseScriptCache(cache);
         compiler.SetProgramDirectory(".");
-        const auto name = script.filename().string();
         const bool compiled = compiler.BC_LoadSegment(name.c_str());
+        if (!cache.empty() && expected.empty() && compiled && !compiler.LastSegmentFromCache())
+        {
+            ++failures;
+            std::printf("FAIL %s: not loaded from the script cache\n", name.c_str());
+        }
 
         auto dump = [&] {
             for (const auto &line : diagnostics)
@@ -400,7 +431,9 @@ int test(int argc, char **argv)
         compiler.Release();
         core_internal.Compiler = nullptr;
     }
-    std::printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
+    if (!cache.empty())
+        fs::remove_all(cache);
+    std::printf("%s: %d failure(s)%s\n", failures ? "FAIL" : "PASS", failures, cache.empty() ? "" : " (from the script cache)");
     std::fflush(stdout);
     return failures ? 1 : 0;
 }

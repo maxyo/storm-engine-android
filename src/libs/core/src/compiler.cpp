@@ -99,7 +99,7 @@ COMPILER::COMPILER()
       InstructionPointer(0), pBuffer(nullptr), ProgramDirectory(nullptr), bCompleted(false), bEntityUpdate(true),
       pDebExpBuffer(nullptr), nDebExpBufferSize(0), pRun_fi(nullptr), bRuntimeLog(false),
       nRuntimeLogEventsBufferSize(0), nRuntimeLogEventsNum(0), nRuntimeTicks(0), bFirstRun(true), bWriteCodeFile(false),
-      bDebugInfo(false), DebugSourceLine(0), pCompileTokenTempBuffer(nullptr), bDebugExpressionRun(false),
+      bDebugInfo(false), DebugSourceLine(0), bDebugExpressionRun(false),
       bTraceMode(true), nDebugTraceLineCode(0), nIOBufferSize(0), pIOBuffer(nullptr), rAP(nullptr),
       script_cache_mode_(kCacheDisabled)
 
@@ -163,8 +163,7 @@ void COMPILER::Release()
     delete[] ProgramDirectory;
     ProgramDirectory = nullptr;
     RunningSegmentID = INVALID_SEGMENT_INDEX;
-    delete[] pCompileTokenTempBuffer;
-    pCompileTokenTempBuffer = nullptr;
+
 
     FuncTab.Release();
     VarTab.Release();
@@ -335,38 +334,36 @@ Append_program_size, int32_t& new_program_size)
 bool COMPILER::AppendProgram(char *&pBase_program, uint32_t &Base_program_size, const char *pAppend_program,
                              uint32_t &Append_program_size, bool bAddLinefeed)
 {
-    const auto offset = Base_program_size;
+    // appends a file and a separator ("\r\n" between files, ';' after a #file marker) so that
+    // their tokens cannot merge; the buffer grows geometrically (a segment appends hundreds of files)
     if (pAppend_program == nullptr)
         return false;
-    if (bAddLinefeed)
+    const uint32_t offset = Base_program_size;
+    const uint32_t separator = bAddLinefeed ? 2 : 1;
+    const uint32_t needed = Base_program_size + Append_program_size + separator + 1; // + terminating zero
+    if (pBase_program == nullptr || pBase_program != appendBuffer_ || needed > appendCapacity_)
     {
-        // pBase_program = (char *)RESIZE(pBase_program,Base_program_size + Append_program_size + 3); // +1 for
-        // terminating zero, +1 for 0xd +1 for 0xa
-        auto *const newPtr = new char[Base_program_size + Append_program_size + 3];
-        memcpy(newPtr, pBase_program, Base_program_size);
+        const uint32_t capacity = std::max(needed, pBase_program == appendBuffer_ ? appendCapacity_ * 2 : needed);
+        auto *const newPtr = new char[capacity];
+        if (pBase_program)
+            memcpy(newPtr, pBase_program, Base_program_size);
         delete[] pBase_program;
         pBase_program = newPtr;
-        Base_program_size = Base_program_size + Append_program_size + 2;
-        memcpy(&pBase_program[offset], pAppend_program, Append_program_size);
-        pBase_program[Base_program_size - 2] = 0xd; // code blocks separator to prevent data merging
-        pBase_program[Base_program_size - 1] = 0xa; // code blocks separator to prevent data merging
-        pBase_program[Base_program_size] = 0;       // terminating zero
-        delete[] pAppend_program;
-        Append_program_size += 2;
-        return true;
+        appendBuffer_ = newPtr;
+        appendCapacity_ = capacity;
     }
-    // pBase_program = (char *)RESIZE(pBase_program,Base_program_size + Append_program_size + 2); // +1 for terminating
-    // zero, +1 for ';'
-    auto *const newPtr = new char[Base_program_size + Append_program_size + 2];
-    memcpy(newPtr, pBase_program, Base_program_size);
-    delete[] pBase_program;
-    pBase_program = newPtr;
-    Base_program_size = Base_program_size + Append_program_size + 1;
     memcpy(&pBase_program[offset], pAppend_program, Append_program_size);
-    pBase_program[Base_program_size - 1] = ';'; // code blocks separator to prevent data merging
-    pBase_program[Base_program_size] = 0;       // terminating zero
+    Base_program_size += Append_program_size + separator;
+    if (bAddLinefeed)
+    {
+        pBase_program[Base_program_size - 2] = 0xd;
+        pBase_program[Base_program_size - 1] = 0xa;
+    }
+    else
+        pBase_program[Base_program_size - 1] = ';';
+    pBase_program[Base_program_size] = 0;
     delete[] pAppend_program;
-    Append_program_size += 1;
+    Append_program_size += separator;
     return true;
 }
 
@@ -435,6 +432,46 @@ void COMPILER::SetWarning(const char *data_PTR, ...)
     logTrace_->warn(ErrorBuffer);
     if (diagnosticsSink_)
         diagnosticsSink_->emplace_back(ErrorBuffer);
+}
+
+std::string COMPILER::ScriptLanguageDirectory()
+{
+    // %language% in include paths: the directory of the game language, as the string service
+    // takes it from RESOURCE\INI\TEXTS\language.ini ([COMMON] defaultLanguage, [DIRECTORY])
+    // unless SetScriptLanguage chose another language
+    constexpr const char *language_ini = "resource\\ini\\texts\\language.ini";
+    auto ini = fio->OpenIniFile(language_ini);
+    if (!ini)
+    {
+        SetError("%%language%% in an include: %s not found", language_ini);
+        return {};
+    }
+    char language[256]{};
+    if (!scriptLanguage_.empty())
+        strcpy_s(language, scriptLanguage_.c_str());
+    else if (!ini->ReadString("COMMON", "defaultLanguage", language, sizeof(language) - 1, ""))
+    {
+        SetError("%%language%% in an include: %s has no [COMMON] defaultLanguage", language_ini);
+        return {};
+    }
+    char directory[256]{};
+    if (!ini->ReadString("DIRECTORY", language, directory, sizeof(directory) - 1, "") || directory[0] == 0)
+    {
+        SetError("%%language%% in an include: %s has no [DIRECTORY] entry for '%s'", language_ini, language);
+        return {};
+    }
+    return directory;
+}
+
+std::filesystem::path COMPILER::CacheFolder() const
+{
+    return cacheFolder_.empty() ? GetCacheFolder() : cacheFolder_;
+}
+
+void COMPILER::UseScriptCache(std::filesystem::path folder)
+{
+    cacheFolder_ = std::move(folder);
+    script_cache_mode_ = kCacheEnabled;
 }
 
 void COMPILER::ConfigureCompileCheck(std::vector<std::string> *sink, bool missing_natives_are_errors)
@@ -1055,7 +1092,7 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
 
         using storm::script_cache::StateFile;
         uint64_t stored_fingerprint = 0;
-        const auto state = storm::script_cache::readState(GetCacheFolder(), stored_fingerprint);
+        const auto state = storm::script_cache::readState(CacheFolder(), stored_fingerprint);
         if (state == StateFile::Read && stored_fingerprint == calculated_fingerprint)
         {
             // attempt to load from cache first
@@ -1065,13 +1102,13 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
         {
             // Every outcome is logged: a rebuild costs a full compile at startup.
             if (state == StateFile::Missing)
-                spdlog::info("Script cache: none in '{}'; compiling and storing scripts", GetCacheFolder().string());
+                spdlog::info("Script cache: none in '{}'; compiling and storing scripts", CacheFolder().string());
             else if (state == StateFile::Damaged)
-                spdlog::warn("Script cache: state file in '{}' is damaged; rebuilding", GetCacheFolder().string());
+                spdlog::warn("Script cache: state file in '{}' is damaged; rebuilding", CacheFolder().string());
             else
                 spdlog::info("Script cache: scripts or engine build changed (key {:016x} -> {:016x}); rebuilding",
                              stored_fingerprint, calculated_fingerprint);
-            if (const auto error = storm::script_cache::resetFolder(GetCacheFolder(), calculated_fingerprint);
+            if (const auto error = storm::script_cache::resetFolder(CacheFolder(), calculated_fingerprint);
                 !error.empty())
             {
                 spdlog::error("Script cache: {}; disabled for this session, scripts are compiled from source", error);
@@ -1084,6 +1121,7 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
     {
         result = Compile(SegmentTable[index]);
     }
+    lastSegmentFromCache_ = result && from_cache;
     if (result)
     {
         spdlog::info("Script segment '{}' {} in {} ms", file_name, from_cache ? "loaded from cache" : "compiled",
@@ -1290,25 +1328,25 @@ void COMPILER::ProcessFrame(uint32_t DeltaTime)
 
 void COMPILER::ResizeBCodeBuffer(SEGMENT_DESC &Segment, uint32_t add_size)
 {
-    int64_t needed_memory = static_cast<int64_t>(Segment.BCode_Program_size) + add_size - Segment.BCode_Buffer_size;
-    if (needed_memory >= 0)
-    {
-        const auto needed_blocks = (needed_memory - 1) / BCODE_BUFFER_BLOCKSIZE + 1;
-        Segment.BCode_Buffer_size += needed_blocks * BCODE_BUFFER_BLOCKSIZE;
-        // Segment.pCode = (char *)RESIZE(Segment.pCode,Segment.BCode_Buffer_size);
-        auto *const newPtr = new char[Segment.BCode_Buffer_size];
+    // geometric growth: segments compile to megabytes of bytecode
+    const uint64_t needed = static_cast<uint64_t>(Segment.BCode_Program_size) + add_size;
+    if (needed <= Segment.BCode_Buffer_size)
+        return;
+    uint64_t capacity = std::max<uint64_t>(Segment.BCode_Buffer_size * 2ull, BCODE_BUFFER_BLOCKSIZE);
+    while (capacity < needed)
+        capacity *= 2;
+    auto *const newPtr = new char[capacity];
+    if (Segment.pCode)
         memcpy(newPtr, Segment.pCode, Segment.BCode_Program_size);
-        delete[] Segment.pCode;
-        Segment.pCode = newPtr;
-    }
+    delete[] Segment.pCode;
+    Segment.pCode = newPtr;
+    Segment.BCode_Buffer_size = static_cast<uint32_t>(capacity);
 }
 
 void COMPILER::CompileToken(SEGMENT_DESC &Segment, S_TOKEN_TYPE Token_type, uint32_t data_blocks_num, ...)
 {
-    uint32_t data_size;
     uint32_t n;
     va_list args;
-    char *data_ptr;
 
     // DTrace("token: %s : %s",Token.GetTypeName(Token_type),Token.GetData());
 
@@ -1329,23 +1367,18 @@ void COMPILER::CompileToken(SEGMENT_DESC &Segment, S_TOKEN_TYPE Token_type, uint
         return;
     }
 
-    // pCompileTokenTempBuffer = (char *)RESIZE(pCompileTokenTempBuffer,data_blocks_num * (sizeof(char *) +
-    // sizeof(uint32_t)));
-    auto *const newPtr = new char[data_blocks_num * (sizeof(char *) + sizeof(uint32_t))];
-    delete[] pCompileTokenTempBuffer;
-    pCompileTokenTempBuffer = newPtr;
-
     // gather data blocks information and count total data size ----------------
+    constexpr uint32_t kMaxBlocks = 8;
+    const char *block_data[kMaxBlocks];
+    uint32_t block_size[kMaxBlocks];
+    Assert(data_blocks_num <= kMaxBlocks);
     va_start(args, data_blocks_num);
     write_size = 0;
     for (n = 0; n < data_blocks_num; n++)
     {
-        data_ptr = va_arg(args, char *);
-        data_size = va_arg(args, uint32_t);
-        memcpy(pCompileTokenTempBuffer + n * (sizeof(char *) + sizeof(uint32_t)), &data_ptr, sizeof(char *));
-        memcpy(pCompileTokenTempBuffer + n * (sizeof(char *) + sizeof(uint32_t)) + sizeof(char *), &data_size,
-               sizeof(uint32_t));
-        write_size += data_size;
+        block_data[n] = va_arg(args, char *);
+        block_size[n] = va_arg(args, uint32_t);
+        write_size += block_size[n];
     }
     va_end(args);
     //--------------------------------------------------------------------------
@@ -1373,11 +1406,8 @@ void COMPILER::CompileToken(SEGMENT_DESC &Segment, S_TOKEN_TYPE Token_type, uint
     ResizeBCodeBuffer(Segment, write_size);
     for (n = 0; n < data_blocks_num; n++)
     {
-        memcpy(&data_ptr, pCompileTokenTempBuffer + n * (sizeof(char *) + sizeof(uint32_t)), sizeof(char *));
-        memcpy(&data_size, pCompileTokenTempBuffer + n * (sizeof(char *) + sizeof(uint32_t)) + sizeof(char *),
-               sizeof(uint32_t));
-        memcpy(&Segment.pCode[Segment.BCode_Program_size], data_ptr, data_size);
-        Segment.BCode_Program_size += data_size;
+        memcpy(&Segment.pCode[Segment.BCode_Program_size], block_data[n], block_size[n]);
+        Segment.BCode_Program_size += block_size[n];
     }
 }
 
@@ -1522,6 +1552,8 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
     std::unordered_map<std::string, uint32_t> declaredLocals; // pass 1: declarations per name
     bool resumed = false;                                    // see SkipInitializer
     LabelTable.Release(); // labels belong to a function of this segment
+    appendBuffer_ = nullptr; // AppendProgram starts a new buffer
+    appendCapacity_ = 0;
     compileErrors_ = 0;   // some compile paths report an error and carry on
     missingNatives_.clear();
     do
@@ -1555,9 +1587,13 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     hidden.type = loop_type == VAR_AREFERENCE ? VAR_AREFERENCE : VAR_REFERENCE;
                     hidden.name = LocalSlotName(kRangeContainer, declaredLocals[kRangeContainer]++);
                     FuncTab.AddFuncVar(func_code, hidden);
+                    if (script_cache_mode_ != kCacheDisabled)
+                        script_cache_.functions.back().local_variables.emplace_back(hidden);
                     hidden.type = VAR_INTEGER;
                     hidden.name = LocalSlotName(kRangePosition, declaredLocals[kRangePosition]++);
                     FuncTab.AddFuncVar(func_code, hidden);
+                    if (script_cache_mode_ != kCacheDisabled)
+                        script_cache_.functions.back().local_variables.emplace_back(hidden);
                 }
             }
             break;
@@ -1673,13 +1709,13 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
             std::string include_name = Token.GetData();
             if (const auto at = include_name.find("%language%"); at != std::string::npos)
             {
-                if (scriptLanguage_.empty())
+                const std::string language = ScriptLanguageDirectory();
+                if (language.empty())
                 {
-                    SetError("include '%s': no game language is set", include_name.c_str());
                     bPass1Ok = false;
                     break;
                 }
-                include_name.replace(at, strlen("%language%"), scriptLanguage_);
+                include_name.replace(at, strlen("%language%"), language);
             }
             if (Segment.Files_list->AddUnicalString(include_name.c_str()))
             {
@@ -9404,7 +9440,7 @@ void COMPILER::LoadByteCodeFromCache(storm::script_cache::BufferReader &reader, 
 
 std::filesystem::path COMPILER::GetSegmentCachePath(const SEGMENT_DESC &segment) const
 {
-    auto path = GetCacheFolder() / segment.name;
+    auto path = CacheFolder() / segment.name;
     path.replace_extension(".b");
     return path;
 }
