@@ -33,6 +33,19 @@ std::string Trim(std::string text)
     return text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1);
 }
 
+std::string OneLine(const std::string &text)
+{
+    std::string out;
+    for (char c : text)
+    {
+        if (c == '\r' || c == '\n' || c == '\t')
+            c = ' ';
+        if (c != ' ' || (!out.empty() && out.back() != ' '))
+            out += c;
+    }
+    return Trim(out);
+}
+
 // Lower case for the game's upper-case words ("ОТЛИЧНОЕ"): ASCII, Latin-1 and Cyrillic.
 std::string LowerText(const std::string &text)
 {
@@ -69,6 +82,17 @@ std::string Field(const Widget *fact, const char *key)
         return {};
     const auto it = fact->context.find(key);
     return it == fact->context.end() ? std::string() : it->second;
+}
+
+std::string Decimal(const std::string &text, const std::string &language)
+{
+    if (language == "english")
+        return text;
+    std::string out = text;
+    for (size_t i = 1; i + 1 < out.size(); ++i)
+        if (out[i] == '.' && out[i - 1] >= '0' && out[i - 1] <= '9' && out[i + 1] >= '0' && out[i + 1] <= '9')
+            out[i] = ',';
+    return out;
 }
 
 Json Portrait(const std::string &face)

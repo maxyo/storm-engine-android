@@ -111,6 +111,7 @@ class RAIN : public Entity
 
     void SetDevice();
     bool Init() override;
+    uint32_t NumDrops() const { return dwNumDrops; }
     void Realize(uint32_t Delta_Time);
     void Execute(uint32_t Delta_Time);
     bool CreateState(ENTITY_STATE_GEN *state_gen);

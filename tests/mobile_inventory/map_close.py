@@ -38,7 +38,7 @@ int main() {
  button.m_bLockedNode=true;assert(collect().empty());button.m_bLockedNode=false;
  button.m_bLockStatus=true;assert(collect().empty());button.m_bLockStatus=false;
  button.click=false;assert(collect().empty());button.activate=true;assert(collect().size()==1);
- storm::android::mobileScreen="ship";assert(collect().empty());
+ storm::android::mobileScreen="questbook";assert(collect().empty());
  storm::android::mobileScreen="items";button.m_nodeName="UNLABELED_OTHER";assert(collect().empty());
  Strings strings;button.pStringService=&strings;button.m_nodeName="I_SHIP";
  widgets=collect();assert(widgets.size()==1 && widgets[0].label=="Ship");

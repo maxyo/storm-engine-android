@@ -63,6 +63,10 @@ python3 tools/scene_sweep/run.py --game <game dir> --engine <build>/engine --out
 - `--smoke` one scene of every category (about 45): a few minutes, the quick check after
   an engine change before a full sweep.
 - `--fail-fast` stops at the first failing scene.
+- `--variants 'fx_preset=0;fx_preset=2,fx_bloom=0'` captures every scene once per set of graphics
+  options (applied at run time through the renderer, `STORM_SCENE_SWEEP_VARIANTS`): shots
+  `<scene>@v<i>.jpg`, frame time and draws per variant in the report (`variants`), measured over
+  12 frames after a 4-frame warm-up; the boot scenes are captured once. Used for the per-effect cost of the fx presets.
 - `--failed` reruns the failures of the previous report in `--out`; `--changed` runs only
   scenes whose scripts or model folders changed since it, plus its failures (everything
   when the engine binary or `scene_sweep.c` changed: use `--smoke` or `--failed` then).

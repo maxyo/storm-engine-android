@@ -13,6 +13,7 @@
 #include "shared/sea_ai/script_defines.h"
 #include "tga.h"
 #include "v_file_service.h"
+#include "storm/render/effects.hpp"
 
 CREATE_CLASS(SEA)
 
@@ -1372,12 +1373,16 @@ void SEA::Realize(uint32_t dwDeltaTime)
     if (!bUnderSea)
         bUnderSeaStarted = false;
 
-    if (bSimpleSea)
+    // The fx water (renderer_bgfx/fx) shades the surface itself: no reflection / sun road renders, no bump map
+    // targets and no legacy vertex / index buffers; the CPU-displaced vertices go to the renderer as they are.
+    const bool fxWater = storm::render::CurrentEffectsWorld().water;
+
+    if (!fxWater && bSimpleSea)
     {
         EnvMap_Render2();
         SunRoad_Render2();
     }
-    else
+    else if (!fxWater)
     {
         EnvMap_Render();
         SunRoad_Render();
@@ -1394,7 +1399,7 @@ void SEA::Realize(uint32_t dwDeltaTime)
     iTStart = 0;
     iIStart = 0;
 
-    if (!pVolumeTexture && aBumpMaps.size())
+    if (!fxWater && !pVolumeTexture && aBumpMaps.size())
     {
         IDirect3DSurface9 *pFace;
 
@@ -1466,8 +1471,17 @@ void SEA::Realize(uint32_t dwDeltaTime)
         }
     }
 
-    auto pVSea2 = static_cast<SeaVertex *>(rs->LockVertexBuffer(iVSeaBuffer, D3DLOCK_DISCARD | D3DLOCK_NOSYSLOCK));
-    pTriangles = static_cast<uint16_t *>(rs->LockIndexBuffer(iISeaBuffer, D3DLOCK_DISCARD | D3DLOCK_NOSYSLOCK));
+    SeaVertex *pVSea2 = nullptr;
+    if (fxWater)
+    {
+        fxIndices_.resize(NUM_INDICES * 3);
+        pTriangles = fxIndices_.data();
+    }
+    else
+    {
+        pVSea2 = static_cast<SeaVertex *>(rs->LockVertexBuffer(iVSeaBuffer, D3DLOCK_DISCARD | D3DLOCK_NOSYSLOCK));
+        pTriangles = static_cast<uint16_t *>(rs->LockIndexBuffer(iISeaBuffer, D3DLOCK_DISCARD | D3DLOCK_NOSYSLOCK));
+    }
 
     for (i = 0; i < aBlocks.size(); i++) {
         PrepareIndicesForBlock(i);
@@ -1485,13 +1499,43 @@ void SEA::Realize(uint32_t dwDeltaTime)
                   [this](auto &i) { SSE_WaveXZBlock(i); });
 #endif
 
-    if (iVStart && iTStart)
-        memcpy(pVSea2, pVSea, iVStart * sizeof(SeaVertex));
+    if (fxWater)
+    {
+        if (iVStart && iTStart)
+        {
+            storm::render::EffectsWaterMesh mesh;
+            mesh.vertices = pVSea;
+            mesh.vertex_count = static_cast<uint32_t>(iVStart);
+            mesh.indices = fxIndices_.data();
+            mesh.index_count = static_cast<uint32_t>(iTStart) * 3;
+            mesh.world_offset = {vWorldOffset.x, vWorldOffset.z};
+            mesh.crest_height = fAmp1 + fAmp2;
+            auto &shading = mesh.shading;
+            shading.water_color = {v4SeaColor.x, v4SeaColor.y, v4SeaColor.z};
+            shading.sky_color = {v4SkyColor.x, v4SkyColor.y, v4SkyColor.z};
+            shading.reflection = v4SeaParameters.y;
+            shading.transparency = v4SeaParameters.z;
+            shading.fresnel = fFrenel;
+            shading.bump_speed = fBumpSpeed;
+            shading.foam = fFoamK > 0.0f && bFoamEnable && bIniFoamEnable;
+            shading.foam_v = fFoamV;
+            shading.foam_k = fFoamK;
+            shading.foam_uv = fFoamUV;
+            storm::render::EffectsMatrix view;
+            rs->GetTransform(D3DTS_VIEW, reinterpret_cast<D3DMATRIX *>(view.data()));
+            storm::render::EffectsDrawWater(mesh, view);
+        }
+    }
+    else
+    {
+        if (iVStart && iTStart)
+            memcpy(pVSea2, pVSea, iVStart * sizeof(SeaVertex));
 
-    rs->UnLockVertexBuffer(iVSeaBuffer);
-    rs->UnLockIndexBuffer(iISeaBuffer);
+        rs->UnLockVertexBuffer(iVSeaBuffer);
+        rs->UnLockIndexBuffer(iISeaBuffer);
+    }
 
-    if (iVStart && iTStart)
+    if (!fxWater && iVStart && iTStart)
     {
         glm::mat4 mWorldView, mWorldViewProj;
 

@@ -16,11 +16,14 @@ struct ImageRef
 {
     uint64_t handle = 0, imageRevision = 0;
     uint32_t width = 0, height = 0, tintArgb = 0xffffffff;
-    // Optional public source identity. Never contains filesystem paths or cache handles.
+    // Optional public source identity. Never contains filesystem paths or cache handles; a
+    // "texture" source names a file of the game's texture namespace ("interfaces/maps/kayman")
+    // and the rectangle of it the picture shows (uv: left, top, right, bottom).
     struct Source
     {
         std::string kind, group, image, mode, atlas;
         int pic = -1;
+        float uv[4] = {0.f, 0.f, 1.f, 1.f};
     } source;
 };
 // Game-thread-only registry and LRU. Workers receive copies/immutable shared pixels.

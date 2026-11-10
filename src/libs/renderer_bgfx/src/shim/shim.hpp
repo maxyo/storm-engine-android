@@ -71,6 +71,7 @@ struct TexStore
     bool depth_stencil = false;
     bool system_memory = false; // never uploaded (offscreen plain surfaces)
     bool backbuffer = false;    // the game's offscreen backbuffer colour/depth
+    uint64_t target_flags = 0;  // extra bgfx texture flags of a render target (MSAA of the scene target)
 
     bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
     bgfx::TextureFormat::Enum gpu_format = bgfx::TextureFormat::Unknown;
