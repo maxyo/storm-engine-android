@@ -579,16 +579,18 @@ bool DX9RENDER::Init()
         // stencil_format = D3DFMT_D24S8;
         if (!InitDevice(bWindow, static_cast<HWND>(core.GetWindow()->OSHandle()), screen_size.x, screen_size.y))
 #ifdef __ANDROID__
-            throw std::runtime_error("Cannot initialize renderer: Vulkan/DXVK could not create a graphics device. "
+            throw std::runtime_error("Cannot initialize renderer: OpenGL ES 3.0 could not create a graphics device. "
                                      "The game cannot start with this graphics driver.");
 #else
-            throw std::runtime_error("Cannot initialize renderer: could not create a Direct3D 9 device");
+            throw std::runtime_error("Cannot initialize renderer: could not create an OpenGL ES 3.0 device");
 #endif
 
 #ifdef _WIN32 // Effects
         RecompileEffects();
 #else
-        pTechnique = std::make_unique<CTechnique>(this);
+gamePictures_ = std::make_unique<storm::GamePictures>(*this);
+        storm::render::SetGamePictureProvider(gamePictures_.get());
+                pTechnique = std::make_unique<CTechnique>(this);
         pTechnique->DecodeFiles();
 #endif
 
@@ -973,6 +975,8 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
 //################################################################################
 bool DX9RENDER::ReleaseDevice()
 {
+    storm::render::SetGamePictureProvider(nullptr);
+    gamePictures_.reset();
     if (aniVBuffer)
         aniVBuffer->Release();
     aniVBuffer = nullptr;
