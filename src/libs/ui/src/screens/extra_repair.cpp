@@ -183,10 +183,15 @@ class RepairScreen final : public Screen
             if (state.send >= 0 && bindings.Now() >= state.send_at && less && more)
             {
                 const int wanted = state.send;
+                // While the game still shows the number earlier presses started from, they
+                // are on their way: count from where they lead.
+                const int from = shown == state.base && state.expected >= 0 ? state.expected : shown;
                 state.send = -1;
-                const int presses = part.masts ? (wanted != shown ? 1 : 0) : std::abs(wanted - shown);
+                state.base = shown;
+                state.expected = wanted;
+                const int presses = part.masts ? (wanted != from ? 1 : 0) : std::abs(wanted - from);
                 for (int i = 0; i < presses; ++i)
-                    bindings.Send(wanted > shown ? *more : *less, "press");
+                    bindings.Send(wanted > from ? *more : *less, "press");
             }
             else if (state.send >= 0)
                 bindings.RebuildAfter(state.send_at - bindings.Now());
@@ -267,6 +272,7 @@ class RepairScreen final : public Screen
         int target = -1;    // shown for a second after sending, until the game's number catches up
         int send = -1;      // waiting to be sent when the drag or the steps settle
         double send_at = 0.0;
+        int base = -1, expected = -1; // presses already sent from the game's `base` towards `expected`
     };
     State state_[3];
 };

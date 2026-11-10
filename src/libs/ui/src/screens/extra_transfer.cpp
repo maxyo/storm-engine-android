@@ -369,9 +369,11 @@ class TransferScreen final : public Screen
             bindings.RebuildAfter(cargo_.send_at + 1.0 - bindings.Now());
         if (selected && cargo_.send >= 0 && bindings.Now() >= cargo_.send_at && take && give)
         {
-            const int delta = cargo_.send - own;
-            cargo_.send = -1;
+            const int from = cargo_.From(own);
+            const int delta = cargo_.send - from;
+            cargo_.Sent(own);
             const int presses = (std::abs(delta) + pack - 1) / pack;
+            cargo_.expected = from + (delta > 0 ? presses : -presses) * pack; // whole packs
             for (int i = 0; i < presses; ++i)
                 bindings.Send(delta > 0 ? *take : *give, "press");
         }
@@ -417,9 +419,10 @@ class TransferScreen final : public Screen
         if (crew_.send >= 0 && bindings.Now() >= crew_.send_at && take && give)
         {
             const int wanted = crew_.send;
-            crew_.send = -1;
-            for (int i = 0; i < std::abs(wanted - our); ++i)
-                bindings.Send(wanted > our ? *take : *give, "press");
+            const int from = crew_.From(our);
+            crew_.Sent(our);
+            for (int i = 0; i < std::abs(wanted - from); ++i)
+                bindings.Send(wanted > from ? *take : *give, "press");
         }
         else if (crew_.send >= 0)
             bindings.RebuildAfter(crew_.send_at - bindings.Now());
@@ -467,9 +470,10 @@ class TransferScreen final : public Screen
         if (hire_.send >= 0 && bindings.Now() >= hire_.send_at && more && less)
         {
             const int wanted = hire_.send;
-            hire_.send = -1;
-            for (int i = 0; i < std::abs(wanted - hired); ++i)
-                bindings.Send(wanted > hired ? *more : *less, "press");
+            const int from = hire_.From(hired);
+            hire_.Sent(hired);
+            for (int i = 0; i < std::abs(wanted - from); ++i)
+                bindings.Send(wanted > from ? *more : *less, "press");
         }
         else if (hire_.send >= 0)
             bindings.RebuildAfter(hire_.send_at - bindings.Now());
@@ -541,6 +545,20 @@ class TransferScreen final : public Screen
         int target = -1;  // shown for a second after sending, until the game's number catches up
         int send = -1;    // waiting to be sent when the drag or the steps settle
         double send_at = 0.0;
+        int base = -1, expected = -1; // presses already sent from the game's `base` towards `expected`
+
+        // Where new presses count from: while the game still shows the number the last
+        // presses started from, they are on their way and count as done.
+        int From(int model) const
+        {
+            return model == base && expected >= 0 ? expected : model;
+        }
+        void Sent(int model)
+        {
+            base = model;
+            expected = send;
+            send = -1;
+        }
     };
     std::unique_ptr<Screen> goods_;
     Amount crew_, hire_, cargo_;

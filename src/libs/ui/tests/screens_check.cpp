@@ -538,7 +538,8 @@ static void Repair(const std::string &models)
     Expect(surface.commands.empty(), "a drag waits until it settles");
     surface.now += 0.5;
     router.Tick();
-    Expect(surface.commands.size() == 5 && surface.commands[0] == prefix + "REPAIR_LEFT_H\t-1\tpress", "then 75 → 70 = five presses left");
+    Expect(surface.commands.size() == 8 && surface.commands[0] == prefix + "REPAIR_LEFT_H\t-1\tpress",
+           "then 70 before the game answered: counted from the 78 the presses lead to, eight left");
     surface.commands.clear();
     router.OnEvent({"masts", "commit", "3"});
     Expect(surface.commands.size() == 1 && surface.commands[0] == prefix + "REPAIR_RIGHT_M\t-1\tpress", "masts move all at once: one press");
@@ -583,7 +584,8 @@ static void Transfer(const std::string &models)
     Expect(surface.commands.size() == 3 && surface.commands[0] == prefix + "B_LEFT\t-1\tpress", "+45 = three packs taken (the game moves whole packs)");
     surface.commands.clear();
     router.OnEvent({"goods", "commit", "0"});
-    Expect(surface.commands.size() == 5 && surface.commands[0] == prefix + "B_RIGHT\t-1\tpress", "all 100 given = five packs");
+    Expect(surface.commands.size() == 8 && surface.commands[0] == prefix + "B_RIGHT\t-1\tpress",
+           "all given before the game answered the three packs: counted from 160, eight packs");
 
     router.SetInterface(Load(models, "transfer-hire.json"));
     const Json &hire = surface.props["modal"];
