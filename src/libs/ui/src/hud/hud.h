@@ -170,6 +170,12 @@ class Scene
     virtual void Suspended(const States &)
     {
     }
+    // The engine reports no gameplay mode ("unknown") while something of this scene is
+    // still open (the land menu blocks gameplay): true keeps the scene until it closes.
+    virtual bool Holds(const States &) const
+    {
+        return false;
+    }
     // The back key; true when the scene used it (an open sheet).
     virtual bool Back(const States &)
     {
@@ -290,6 +296,8 @@ class Hud
         double until = 0.0;
     };
     void Refresh();
+    void Conceal();
+    void Present(bool visible);
 
     Mount &mount_;
     std::span<const SceneEntry> scenes_;

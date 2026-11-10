@@ -114,6 +114,16 @@ bool Hud::OnEvent(const Event &event)
     return true;
 }
 
+// The platform host hears when the HUD appears and disappears: what it draws itself over a
+// game without a HUD (a pause button) depends on it.
+void Hud::Present(bool visible)
+{
+    if (visible == visible_)
+        return;
+    visible_ = visible;
+    Send("presence", visible ? "shown" : "hidden");
+}
+
 void Hud::Refresh()
 {
     changed_ = false;
@@ -122,6 +132,8 @@ void Hud::Refresh()
         for (const char *mode : candidate.modes)
             if (states_.gameplay.mode == mode)
                 entry = &candidate;
+    if (!entry && scene_ && states_.gameplay.mode == "unknown" && scene_->Holds(states_))
+        entry = entry_;
     if (entry != entry_)
     {
         if (scene_)
@@ -147,18 +159,7 @@ void Hud::Refresh()
     const bool visible = scene_ && shown.known && shown.screen.empty() && !shown.loading && !shown.cinematic && !shown.dialogue && !interface_;
     if (!visible)
     {
-        if (visible_)
-        {
-            if (scene_)
-                scene_->Released(states_);
-            mount_.HideHud();
-        }
-        visible_ = false;
-        input_.handlers_.clear();
-        lines_.clear();
-        view_ = View();
-        if (scene_)
-            scene_->Hidden(states_);
+        Conceal();
         return;
     }
 
@@ -169,20 +170,32 @@ void Hud::Refresh()
     }
     View view;
     Input input;
-    visible_ = true; // Build may read LogLines and send input
+    Present(true); // Build may read LogLines and send input
     scene_->Build(states_, view, input);
     input_ = std::move(input);
     if (!mount_.ShowHud(view))
     {
         // The pack cannot draw this view: reported by the mount; nothing half-drawn stays.
-        mount_.HideHud();
-        visible_ = false;
-        input_.handlers_.clear();
-        view_ = View();
-        scene_->Hidden(states_);
+        Conceal();
         return;
     }
     view_ = std::move(view);
+}
+
+void Hud::Conceal()
+{
+    if (visible_)
+    {
+        if (scene_)
+            scene_->Released(states_);
+        mount_.HideHud();
+    }
+    Present(false);
+    input_.handlers_.clear();
+    lines_.clear();
+    view_ = View();
+    if (scene_)
+        scene_->Hidden(states_);
 }
 
 double Hud::Tick()

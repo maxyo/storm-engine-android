@@ -230,6 +230,11 @@ class LandScene final : public Scene
         choice_.clear();
     }
 
+    bool Holds(const States &states) const override
+    {
+        return states.land_commands.known && states.land_commands.active; // the open menu blocks gameplay
+    }
+
     bool Back(const States &states) override
     {
         const LandCommands &commands = states.land_commands;

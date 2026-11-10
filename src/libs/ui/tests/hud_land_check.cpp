@@ -416,6 +416,15 @@ static void CheckSheet()
     bench.Frame(0.2);
     Expect(mount.commands.size() == 3 && mount.Last() == "landcommands:1\t4\t11\t2\tack\t1", "the coverage is repeated while the sheet stays (750 ms watchdog)");
 
+    // the engine reports no gameplay mode while its menu is open: the sheet stays, nothing is closed
+    Json blocked = State("gameplay-explore");
+    blocked["mode"] = "unknown";
+    blocked["revision"] = 20;
+    const size_t open = mount.commands.size();
+    bench.Set("gameplay", blocked);
+    Expect(mount.visible && mount.shown.modal && mount.commands.size() == open, "gameplay blocked by the open menu: the sheet stays as it is");
+    bench.Feed("gameplay", "gameplay-explore");
+
     // a tap acts at once: select, then activate against the revision that reports the selection
     bench.Press("item-c3");
     ExpectEqual(mount.Last(), "landcommands:1\t4\t11\t2\tselectItem\tc3", "a tap selects the row …");
@@ -479,6 +488,13 @@ static void CheckSheet()
     bench.Feed("presentation", "presentation-menu");
     ExpectEqual(mount.Last(), "landcommands:1\t4\t11\t2\tack\t0", "hidden: not covered");
     bench.Feed("presentation", "presentation-game");
+
+    // the menu closed while gameplay is still blocked: the scene has nothing to hold on to
+    bench.Set("gameplay", blocked);
+    bench.Set("landCommands", Json(nullptr));
+    Expect(!mount.visible && mount.Last() == "presence:hidden", "no menu and no mode: the HUD goes and tells the platform host");
+    bench.Feed("gameplay", "gameplay-explore");
+    Expect(mount.visible && mount.Last() == "presence:shown", "explore again: the HUD is back and says so");
 
     // a menu only the engine can draw stays the engine's: no sheet, no coverage, an error
     bench.Set("landCommands", Json(nullptr));

@@ -37,7 +37,9 @@ struct InterfaceModel; // interface_model.h
 // "landcommands", "context", "shortcut") and `value` is its payload, so that the engine
 // command is "<verb>:<value>". A non-empty `node` then names a latest-value slot (the stick
 // position, a coverage acknowledgement): a host that queues actions keeps only the newest
-// action of a slot.
+// action of a slot. Two verbs are for the platform host itself, not for the engine queue:
+// "shortcut" (value "mainmenu" | "character": open that game menu through the host's
+// shortcut path) and "presence" (value "shown" | "hidden": the HUD appeared or went away).
 struct Action
 {
     std::string node;
