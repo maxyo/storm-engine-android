@@ -14,6 +14,8 @@
 #include "storm_assert.h"
 #include "vma.hpp"
 
+#include <cstring>
+
 // ============================================================================================
 // Construction, destruction
 // ============================================================================================
@@ -187,7 +189,16 @@ void Bone::BlendFrame(int32_t frame, float kBlend, Quaternion &res)
     }
     Quaternion q0, q1;
     GetFrame(f0, q0);
+#ifdef ANI_COMPRESS_ENABLE
+    // Identical packed keys decode identically within this call. Reuse only
+    // the decoding; SLerp still applies its original rounding and sign rules.
+    if (std::memcmp(&ang[f0], &ang[f1], sizeof(ang[0])) == 0)
+        q1 = q0;
+    else
+        GetFrame(f1, q1);
+#else
     GetFrame(f1, q1);
+#endif
     if (kBlend < 0.0f)
         kBlend = 0.0f;
     if (kBlend > 1.0f)
