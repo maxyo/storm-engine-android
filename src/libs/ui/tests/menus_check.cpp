@@ -319,6 +319,65 @@ static void Title(const std::string &models)
     SetFromTitle(false);
 }
 
+static void NewGame(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "new-game.json"));
+    ExpectEqual(router.Using(), "selectcharacter", "new game is a ported screen");
+    ExpectEqual(surface.tag, "s-new-game", "new game mounted");
+    Expect(surface.errors.empty() && surface.props["extras"]["rows"].empty() && surface.props["extras"]["note"] == "",
+           "every node is known; the profile is not offered");
+    const Json rows = surface.props["rows"];
+    Expect(rows.size() == 2 && rows[0]["kind"] == "stepper" && rows[0]["text"] == "Средняя" && rows[1]["kind"] == "segment" &&
+               rows[1]["label"] == "Морской бой",
+           "difficulty selector and the sea battle segment");
+    Expect(surface.props["toggles"].size() == 6 && surface.props["toggles"][0]["id"] == "tutorial", "six option toggles, the port's own first");
+    Expect(surface.props["hero"]["name"] == "Герой Альфа" && surface.props["hero"]["nation"] == "<menu.nation_france>", "hero and nation");
+    Expect(surface.props["setup"]["text"] == "фехтование" && surface.props["setup"]["note"] == "Описание занятия героя.", "occupation and its text");
+    Expect(surface.props["stats"].size() == 3 && surface.props["stats"][2]["v"] == "7", "starting attributes");
+    const std::string prefix = "widget:selectcharacter\t";
+    router.OnEvent({"difficulty-right", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "RIGHTCHANGE_COMPLEX\t-1\tpress", "difficulty ›");
+    router.OnEvent({"setup-left", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "LEFTCHANGE_SETUP\t-1\tpress", "occupation ‹");
+    router.OnEvent({"battle", "change", "1"});
+    ExpectEqual(surface.Last(), prefix + "CHECK_ARCADESAIL\t1\t1", "sea battle type chosen");
+    router.OnEvent({"tutorial", "change", "1"});
+    ExpectEqual(surface.Last(), prefix + "ANDROID_TUTORIAL_SKIP\t0\t1@4", "tutorial skip carries its row identity");
+    router.OnEvent({surface.props["toggles"][1]["id"], "change", "1"});
+    ExpectEqual(surface.Last(), prefix + "CHECK_HARDCORE\t0\t1", "option toggle");
+    router.OnEvent({"bio", "click", ""});
+    Expect(surface.props["extras"]["reading"] == true && surface.props["extras"]["readingText"] == "Короткая биография героя.", "ⓘ reads the biography");
+    router.OnEvent({"start", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "OK_BUTTON\t-1\tpress", "«Начать игру»");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "CANCEL_BUTTON\t-1\tpress", "← cancels");
+
+    InterfaceModel window = Load(models, "new-game.json");
+    Widget text;
+    text.node = "CONFIRM_WINDOW_STRINGS";
+    text.type = "text";
+    text.label = "Начать заново?";
+    Widget yes;
+    yes.node = "CONFIRM_WINDOW_MB_YES";
+    yes.type = "button";
+    yes.label = "Да";
+    window.widgets.push_back(text);
+    window.widgets.push_back(yes);
+    window.revision = 2;
+    router.SetInterface(window);
+    Expect(surface.props["modal"]["title"] == "Начать заново?" && surface.props["modal"]["actions"].size() == 1, "the game's window as a dialog");
+    router.OnEvent({"modal-0", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "CONFIRM_WINDOW_MB_YES\t-1\tpress", "its button presses the game's button");
+
+    InterfaceModel broken = Load(models, "new-game.json");
+    Without(broken, "OK_BUTTON");
+    broken.opening = 66;
+    router.SetInterface(broken);
+    Expect(router.Using() == "generic" && router.Rejection() == "OK_BUTTON(button)", "without «Ок» the new game screen is rejected loudly");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
@@ -326,6 +385,7 @@ int main(int argc, char **argv)
     Saves(models);
     Settings(models);
     Title(models);
+    NewGame(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else

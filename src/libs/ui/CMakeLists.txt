@@ -62,6 +62,7 @@ add_library(storm_ui STATIC
     src/screens/trade_crew.cpp
     src/screens/dialogue.cpp
     src/screens/menu_game.cpp
+    src/screens/menu_new_game.cpp
     src/screens/menu_saves.cpp
     src/screens/menu_settings.cpp
     src/screens/menu_title.cpp
