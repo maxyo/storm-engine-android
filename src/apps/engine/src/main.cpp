@@ -1,6 +1,8 @@
 #ifdef STORM_ENABLE_BGFX
 #include "fog_preview.hpp"
 #endif
+#include <chrono>
+#include <string>
 #include <thread>
 
 #include <SDL2/SDL.h>
@@ -125,6 +127,71 @@ void RunFrameWithOverflowCheck()
 #define RunFrameWithOverflowCheck RunFrame
 #endif
 
+// Sleep-based frame limiter. The previous one compared SDL_GetTicks() and
+// `continue`d, spinning the whole main loop (event pump, JNI polling) on one
+// core until the frame time had passed, with whole-millisecond periods
+// (max_fps=60 actually ran at 62.5).
+class FrameLimiter
+{
+  public:
+    using Clock = std::chrono::steady_clock;
+
+    void setLimit(uint32_t fps)
+    {
+        period_ = fps ? std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / fps))
+                      : Clock::duration::zero();
+        next_ = Clock::now();
+    }
+
+    // Blocks until the next frame is due.
+    void wait()
+    {
+        if (period_ == Clock::duration::zero())
+            return;
+        const auto now = Clock::now();
+        if (now < next_)
+        {
+            std::this_thread::sleep_until(next_);
+            next_ += period_;
+        }
+        else
+        {
+            // Late: schedule from now instead of bursting to catch up.
+            next_ = (now - next_ > period_) ? now + period_ : next_ + period_;
+        }
+    }
+
+  private:
+    Clock::duration period_ = Clock::duration::zero();
+    Clock::time_point next_{};
+};
+
+// Last line of defence for exceptions thrown out of a frame (about 490 `throw`
+// sites are reachable from the frame loop): log, flush, tell the player, and
+// let main() shut the engine down in order. Android already caught
+// std::exception here; this also covers other platforms and non-std throws.
+bool fatalError = false;
+
+void ReportFatalError(const char *what)
+{
+    fatalError = true;
+    isRunning = false;
+    spdlog::critical("Unhandled exception in the frame loop: {}", what);
+    if (auto logger = spdlog::default_logger())
+        logger->flush();
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Engine stopped: %s", what);
+    // SDL's Android bridge shows a Java dialog and waits for dismissal
+    // before SDL_main returns and the game Activity is finished.
+    // SDL's Android default TextView colors can be dark on a dark
+    // Activity theme, so explicitly style this fatal error message.
+    const SDL_MessageBoxColorScheme colors{{
+        {24, 24, 24}, {255, 255, 255}, {128, 128, 128}, {64, 64, 64}, {96, 96, 96}}};
+    const SDL_MessageBoxButtonData button{
+        SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "OK"};
+    const SDL_MessageBoxData dialog{SDL_MESSAGEBOX_ERROR, nullptr, "Game stopped", what, 1, &button, &colors};
+    SDL_ShowMessageBox(&dialog, nullptr);
+}
+
 void mimalloc_fun(const char *msg, void *arg)
 {
     static std::filesystem::path mimalloc_log_path;
@@ -200,6 +267,12 @@ void SubscribeEngineToAppEvents()
     // pause, before anything else can run.
     events.subscribe(
         [](const storm::AppEvent &event) {
+            if (event.type == storm::AppEventType::WillEnterBackground ||
+                event.type == storm::AppEventType::Terminating)
+            {
+                // A backgrounded process can be killed without notice: do not lose buffered log lines.
+                spdlog::apply_all([](const std::shared_ptr<spdlog::logger> &logger) { logger->flush(); });
+            }
             if (event.type == storm::AppEventType::WillEnterBackground)
             {
                 audioGate.foreground = false;
@@ -408,7 +481,8 @@ int main(int argc, char *argv[])
     core_private->InitBase();
 
     // Message loop
-    auto dwOldTime = SDL_GetTicks();
+    FrameLimiter frameLimiter;
+    frameLimiter.setLimit(dwMaxFPS);
 
 #ifdef __ANDROID__
     storm::android::Lifecycle androidLifecycle;
@@ -650,45 +724,35 @@ int main(int argc, char *argv[])
 #endif
         )
         {
-            if (dwMaxFPS)
-            {
-                const auto dwMS = 1000u / dwMaxFPS;
-                const auto dwNewTime = SDL_GetTicks();
-                if (dwNewTime - dwOldTime < dwMS)
-                    continue;
-                dwOldTime = dwNewTime;
-            }
+            frameLimiter.wait();
 
 #ifdef __ANDROID__
             // Activity changes revoke queued intents before any native Player
             // or Control Activation handler can consume the next frame.
             storm::android::publishCombatState();
+#endif
+            // Exceptions escaping a frame are reported and end the session in order
+            // instead of reaching std::terminate; see ReportFatalError.
             try
             {
+#ifdef __ANDROID__
                 storm::android::worldMapHud.beginDraw(SDL_GetTicks());
+#endif
                 RunFrameWithOverflowCheck();
             }
             catch (const std::exception &error)
             {
-                isRunning = false;
+                ReportFatalError(error.what());
+            }
+            catch (...)
+            {
+                ReportFatalError("unknown error");
+            }
+            if (fatalError)
+            {
                 exitCode = EXIT_FAILURE;
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Engine stopped: %s", error.what());
-                // SDL's Android bridge shows a Java dialog and waits for dismissal
-                // before SDL_main returns and the game Activity is finished.
-                // SDL's Android default TextView colors can be dark on a dark
-                // Activity theme, so explicitly style this fatal error message.
-                const SDL_MessageBoxColorScheme colors{{
-                    {24, 24, 24}, {255, 255, 255}, {128, 128, 128}, {64, 64, 64}, {96, 96, 96}}};
-                const SDL_MessageBoxButtonData button{
-                    SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "OK"};
-                const SDL_MessageBoxData dialog{
-                    SDL_MESSAGEBOX_ERROR, nullptr, "Game stopped", error.what(), 1, &button, &colors};
-                SDL_ShowMessageBox(&dialog, nullptr);
                 break;
             }
-#else
-            RunFrameWithOverflowCheck();
-#endif
 #ifdef STORM_ENABLE_BGFX
             static bool fogCaptureKeyDown = false;
             const bool fogCaptureKey = core.Controls && core.Controls->GetDebugAsyncKeyState(VK_F11) != 0;
@@ -828,10 +892,27 @@ int main(int argc, char *argv[])
     storm::android::publishShipTelemetry();
 #endif
     storm::AppEvents::instance().uninstall();
-    if (exitCode == EXIT_SUCCESS)
-        core_private->Event("ExitApplication");
-    core_private->CleanUp();
-    core_private->ReleaseBase();
+    // After a fatal error the engine state is unknown: still try to shut down in
+    // order (services flush files), but never let a second exception abort.
+    try
+    {
+        if (exitCode == EXIT_SUCCESS)
+            core_private->Event("ExitApplication");
+        core_private->CleanUp();
+        core_private->ReleaseBase();
+    }
+    catch (const std::exception &error)
+    {
+        spdlog::critical("Exception during shutdown: {}", error.what());
+        exitCode = EXIT_FAILURE;
+    }
+    catch (...)
+    {
+        spdlog::critical("Unknown exception during shutdown");
+        exitCode = EXIT_FAILURE;
+    }
+    if (auto logger = spdlog::default_logger())
+        logger->flush();
 #ifdef _WIN32 // FIX_LINUX Cursor
     ClipCursor(nullptr);
 #elif _DEBUG
