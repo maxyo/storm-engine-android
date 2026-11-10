@@ -507,6 +507,7 @@ class ShipConsumer final : public HudConsumer
             return "unknown ammo '" + out.ammo + "'";
         out.ammo_count = Amount(state, "ammoCount");
         out.ammo_low = Flag(state, "navigatorAmmoWarning").value_or(false);
+        out.powder_out = Flag(state, "navigatorPowderWarning").value_or(false);
         const auto counts = state.find("ammoCounts");
         if (counts != state.end() && counts->is_object())
         {

@@ -154,16 +154,16 @@ static void CheckSailing()
     Expect(mount.errors.empty(), "sailing: no errors");
 
     // nothing is acknowledged, and nothing can be activated, before a frame is drawn
-    Expect(!Sent(mount, "shiphud:9\t1919\t3") && !Sent(mount, "seaquick:1\t5\t31\tack\t1"), "a built view is not a drawn one");
+    Expect(!Sent(mount, "shiphud:9\t2047\t3") && !Sent(mount, "seaquick:1\t5\t31\tack\t1"), "a built view is not a drawn one");
     bench.Press("context");
     Expect(!Sent(mount, "seaquick:1\t5\t31\tactivate\tMoor"), "a quick action that was not drawn yet cannot be tapped");
     bench.Frame();
-    Expect(Sent(mount, "shiphud:9\t1919\t3"), "the drawn elements replace the engine's indicators: hull, crew, sails, ammunition, fleet, speed, wind, date, place");
+    Expect(Sent(mount, "shiphud:9\t2047\t3"), "the drawn elements replace the engine's indicators: hull, crew, sails, ammunition, fleet, speed, wind, date, place");
     Expect(mount.slots.back() == "seaquick-ack" && mount.Last() == "seaquick:1\t5\t31\tack\t1", "the drawn quick action is acknowledged: " + mount.Last());
     bench.Frame(0.1);
-    Expect(Count(mount, "shiphud:9\t1919\t3") == 1 && Count(mount, "seaquick:1\t5\t31\tack\t1") == 1, "nothing is repeated before its time");
+    Expect(Count(mount, "shiphud:9\t2047\t3") == 1 && Count(mount, "seaquick:1\t5\t31\tack\t1") == 1, "nothing is repeated before its time");
     bench.Frame(0.2);
-    Expect(Count(mount, "shiphud:9\t1919\t3") == 1 && Count(mount, "seaquick:1\t5\t31\tack\t1") == 2, "the quick action lease is renewed, the indicator mask is said once");
+    Expect(Count(mount, "shiphud:9\t2047\t3") == 1 && Count(mount, "seaquick:1\t5\t31\tack\t1") == 2, "the quick action lease is renewed, the indicator mask is said once");
 
     // shortcuts and tap controls
     bench.Press("hero");
@@ -287,7 +287,7 @@ static void CheckSailing()
     mount.commands.clear();
     bench.Feed("presentation", "presentation-game");
     bench.Frame();
-    Expect(Sent(mount, "shiphud:9\t1919\t3") && Sent(mount, "seaquick:1\t5\t34\tack\t1"), "back in the game they are drawn and acknowledged again");
+    Expect(Sent(mount, "shiphud:9\t2047\t3") && Sent(mount, "seaquick:1\t5\t34\tack\t1"), "back in the game they are drawn and acknowledged again");
     bench.Press("helm", "change", "100");
     mount.commands.clear();
     bench.Feed("presentation", "presentation-background");
@@ -362,7 +362,7 @@ static void CheckOrders()
     bench.Feed("ship", "ship-orders");
     const Json &props = mount.shown.sheet_props;
     Expect(mount.visible && mount.shown.layout == "sea-battle" && mount.shown.sheet == "s-hud-orders" && mount.shown.modal, "the orders panel is a modal sheet over the sea");
-    Expect(mount.Has("vitals") && !mount.Has("helm") && !mount.Has("fire") && !mount.Has("minimap"), "under the panel only the bars stay");
+    Expect(mount.Has("vitals") && !mount.Has("helm") && !mount.Has("fire") && mount.Has("minimap") && mount.shown.elements["minimap"]["readout"] == false, "under the panel the bars and the radar stay");
     Expect(props["title"] == "hud.orders.title" && props["back"] == false && props["crumb"] == "" && props["recipients"].size() == 4 && props["tiles"].size() == 5 &&
                props["rows"].size() == 1,
            "first stage: ships, order tiles, ability rows: " + props.dump());
@@ -375,7 +375,7 @@ static void CheckOrders()
     Expect(!Sent(mount, "orders:1\t6\t15\t2\tack\t1"), "a built panel is not acknowledged");
     bench.Frame();
     Expect(mount.Last() == "orders:1\t6\t15\t2\tack\t1" && mount.slots.back() == "orders-ack", "the drawn panel is acknowledged: " + mount.Last());
-    Expect(Sent(mount, "shiphud:11\t19\t3"), "under the panel only the bars replace the engine's");
+    Expect(Sent(mount, "shiphud:11\t51\t3"), "under the panel the bars and the fleet (the panel lists it) replace the engine's");
 
     // a tap acts at once: select, then activate against the revision that confirms the selection
     bench.Press("item-i1");
@@ -467,7 +467,7 @@ static void CheckTouches(const std::string &pack)
     Expect(!host.WantsTouch(400, 200) && !host.WantsTouch(100, 30) && !host.WantsTouch(300, 341) && !host.WantsTouch(700, 150),
            "the open sea, the bars and the minimap readouts are the game's");
     Expect(run.Sent("navigator:9\t3\t4\tprepare\t1\t800\t400\t704\t84\t50\t1000\t1"), "the aperture is the disc as it is laid out");
-    Expect(run.Sent("shiphud:9\t1919\t3") && run.Sent("seaquick:1\t5\t31\tack\t1"), "the first drawn frame acknowledges what it shows");
+    Expect(run.Sent("shiphud:9\t2047\t3") && run.Sent("seaquick:1\t5\t31\tack\t1"), "the first drawn frame acknowledges what it shows");
 
     // the helm under one finger, the camera free, the guns under another
     host.Touch(TouchPhase::Down, 1, 120, 341);

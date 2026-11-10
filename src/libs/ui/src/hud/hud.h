@@ -110,6 +110,7 @@ struct Ship
     std::string ammo;        // balls, grapes, knippels, bombs; "" = unknown
     double ammo_count = -1.0;
     bool ammo_low = false;   // the engine's own "not enough shot" warning
+    bool powder_out = false; // … and its "no powder" warning
     double ammo_counts[4] = {-1.0, -1.0, -1.0, -1.0}; // by kind, in the order above
     double sail_state = -1.0; // 0, 0.5, 1
     bool can_set_sails = false;

@@ -43,6 +43,7 @@ enum Indicator : unsigned
     kSailIntegrity = 16,
     kFleet = 32,
     kSpeed = 64,
+    kPowder = 128,
     kDateTime = 256,
     kLocation = 512,
     kWind = 1024,
@@ -74,7 +75,7 @@ const Named kOrders[] = {
     {"bi_sailaway", "sail-away", ""}, {"bi_heavetodrift", "drift", ""}, {"bi_attack", "swords", ""},     {"bi_defend", "shield", ""},
     {"bi_reload", "exchange", ""},    {"bi_charge", "ammo", ""},       {"bi_speed", "speed", ""},        {"bi_ccommand", "follow", ""},
     {"bi_ability", "energy", ""},     {"bi_speak", "talk", ""},        {"bi_sneak", "sneak", ""},        {"bi_immediatedeath", "skull", ""},
-    {"bi_cabin", "cabin", ""},        {"bi_boat", "boat", ""},         {"bi_brander", "brander", ""},
+    {"bi_cabin", "cabin", ""},        {"bi_boat", "boat", ""},         {"bi_brander", "brander", ""},    {"bi_bomb", "bomb", ""},
 };
 
 // Ship tokens by a word of the engine's ship model name (lower case).
@@ -154,6 +155,8 @@ class SeaScene final : public Scene
             fan_open_ = false;
             if (orders.complete)
             {
+                if (ship)
+                    BuildMinimap(*ship, view, input); // the radar stays beside the panel, as in V2-Sea-Orders
                 BuildOrders(states, view, input);
                 return;
             }
@@ -375,9 +378,16 @@ class SeaScene final : public Scene
 
     void BuildMinimap(const Ship &ship, View &view, Input &input)
     {
-        if (!ship.captions)
-            return; // the engine hides its own readouts now (a command menu): so do we
+        if (!ship.captions && !ship.navigator)
+            return;
         Json minimap = {{"native", ship.navigator}};
+        if (!ship.captions) // the engine hides its text readouts now (a command menu): so do we, the radar stays
+        {
+            minimap["readout"] = false;
+            view.elements["minimap"] = std::move(minimap);
+            input.On("minimap", "zoom", [this](const Event &) { Zoom(); });
+            return;
+        }
         if (!ship.location.empty())
             minimap["place"] = ship.location;
         if (!ship.date_time.empty())
@@ -447,7 +457,8 @@ class SeaScene final : public Scene
         if (ship->ammo_count >= 0.0)
         {
             ammo["badge"] = Count(ship->ammo_count);
-            ammo["badgeTone"] = ship->ammo_low ? "danger" : "gold";
+            // No powder fires nothing either: the badge warns for both, the engine's powder line steps aside.
+            ammo["badgeTone"] = ship->ammo_low || ship->powder_out ? "danger" : "gold";
         }
         view.elements["ammo"] = std::move(ammo);
         if (others == 0)
@@ -662,9 +673,10 @@ class SeaScene final : public Scene
             mask |= has("hull") ? kHull : 0;
             mask |= has("crew") ? kCrew : 0;
             mask |= has("sails") ? kSailIntegrity : 0;
-            mask |= prop("ammo", "badge") ? kAmmoCount : 0;
+            mask |= prop("ammo", "badge") ? kAmmoCount | kPowder : 0;
             mask |= has("sail") ? kSailPosition : 0;
-            mask |= has("vitals") && (ship->fleet.empty() || has("fleet")) ? kFleet : 0;
+            // the orders panel lists the fleet itself
+            mask |= has("vitals") && (ship->fleet.empty() || has("fleet") || shown.sheet == "s-hud-orders") ? kFleet : 0;
             mask |= prop("minimap", "speed") ? kSpeed | kWind : 0;
             mask |= prop("minimap", "time") ? kDateTime : 0;
             mask |= prop("minimap", "place") ? kLocation : 0;
