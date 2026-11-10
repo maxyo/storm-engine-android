@@ -1,1 +1,1 @@
-{"texture_anisotropy": 1, "texture_degradation": 0, "vsync": 1, "character_shadows": 0, "sea_foam": 1}
+{"texture_anisotropy": 1, "texture_degradation": 0, "vsync": 1, "character_shadows": 0, "sea_foam": 1, "fx_preset": 0, "fx_bloom": -1, "fx_msaa": -1, "fx_water": -1}
