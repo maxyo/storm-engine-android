@@ -8,6 +8,8 @@ SOURCES = {
     'fast_float': ('https://github.com/fastfloat/fast_float.git', 'b7f9d6ca3980de0f47251921f307e88c894f6daa'),
     'mimalloc': ('https://github.com/microsoft/mimalloc.git', 'f412df7a2b64421e1f1d61fde6055a6ea288e8f5'),
     'catch2': ('https://github.com/catchorg/Catch2.git', 'c4e3767e265808590986d5db6ca1b5532a7f3d13'),
+    # FFmpeg n8.1.3 (LGPL-2.1+ build only; see tools/ffmpeg/README.md).
+    'ffmpeg': ('https://github.com/FFmpeg/FFmpeg.git', '1041abdc962f4cc4f394aa8de9dc5236c0c3b9e7'),
 }
 p=argparse.ArgumentParser();p.add_argument('--directory',type=Path,required=True);a=p.parse_args()
 for name,(url,revision) in SOURCES.items():

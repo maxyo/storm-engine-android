@@ -103,6 +103,23 @@ int main(int argc,char**argv) try {
         for(const char* f:{"tone.wav","tone.mp3","tone.ogg","tone441.wav"}) racing.play(dir+"/"+f,fx);
         if(i%2) render(racing,256);
     }
+    {   // PCM stream (video soundtracks): played-frame clock, underrun silence, pause, stop(0) immunity.
+        Mixer mixer(true,2);auto stream=mixer.stream(4800);
+        std::vector<float> tone(2400*2);
+        for(size_t i=0;i<tone.size();i+=2)tone[i]=tone[i+1]=0.5f*std::sin(i*0.02f);
+        require(stream->write(tone.data(),2400)==2400 && stream->write(tone.data(),2400)==2400,"stream accepts its capacity");
+        require(stream->write(tone.data(),2400)==0,"full stream refuses more");
+        require(render(mixer,2400)>1 && stream->played()==2400,"stream plays and counts frames");
+        mixer.stop(0);require(render(mixer,2400)>1 && stream->played()==4800,"stop(0) leaves the stream alone");
+        // The engine has already pulled the next block from the stream: only that short tail sounds.
+        require(render(mixer,1024)<2 && stream->played()==4800,"underrun is silent and not counted");
+        stream->write(tone.data(),2400);stream->pause(true);
+        require(render(mixer,1024)==0 && stream->played()==4800,"paused stream holds its clock");
+        stream->pause(false);require(render(mixer,1024)>0 && stream->played()==5824,"resumed stream continues");
+        mixer.active(false,0);require(render(mixer,512)==0 && stream->played()==5824,"background suspends the stream");
+        mixer.active(true,0);stream->volume(0);render(mixer,512);require(render(mixer,512)==0,"stream volume");
+    }
+    std::cout<<"service: PCM stream clock/underrun/pause/background PASS\n";
     std::cout<<"service: LRU cache/streamed long samples/background decode/ducking PASS\n";
     std::cout<<"service: priority/virtualization/stale IDs/categories/lifecycle/cache/two streams/overflow PASS\n";
 } catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
