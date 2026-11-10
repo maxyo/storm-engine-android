@@ -235,19 +235,17 @@ struct VertexDeclaration final : Direct3DVertexDeclaration9Stub
 };
 
 // ---------------------------------------------------------------------------
-// programmable shaders: D3D9 bytecode identified by hash, mapped to hand-ported bgfx shaders
+// programmable shaders: technique shader keys mapped to hand-ported bgfx shaders (ports.hpp)
 struct ShaderPort;
 struct VertexShader final : Direct3DVertexShader9Stub
 {
     std::vector<DWORD> bytecode;
-    uint64_t hash = 0;
     const ShaderPort *port = nullptr;
     HRESULT GetFunction(void *data, UINT *size) override;
 };
 struct PixelShader final : Direct3DPixelShader9Stub
 {
     std::vector<DWORD> bytecode;
-    uint64_t hash = 0;
     const ShaderPort *port = nullptr;
     HRESULT GetFunction(void *data, UINT *size) override;
 };

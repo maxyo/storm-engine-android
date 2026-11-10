@@ -1,5 +1,5 @@
 $input v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v_texcoord4, v_fog
-// Port of src/techniques/weather/sea_sea2_pixel_shader.pso (ps_1_1, FNV-1a 2c35e14750a293fd).
+// Port of the technique shader sea_sea2_pixel_shader (ps_1_1) of src/techniques/weather/sea.fx.
 // Stage 0: animated bump volume texture, stage 3: environment cube map.
 #include "port_ps.sh"
 SAMPLER3D(s_vol0, 8);

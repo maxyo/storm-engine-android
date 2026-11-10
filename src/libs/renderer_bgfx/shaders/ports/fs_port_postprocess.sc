@@ -1,5 +1,5 @@
 $input v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v_texcoord4, v_fog
-// Port of src/techniques/postprocess/postprocess_shader.pso (ps_1_1, FNV-1a d2b0fc22df71061b).
+// Port of the technique shader postprocess_shader (ps_1_1) of src/techniques/postprocess/postprocess.fx.
 // Stages 0..3: the same 2D render target sampled with four offset coordinate sets (blur).
 #include "port_ps.sh"
 SAMPLER2D(s_tex0, 0);

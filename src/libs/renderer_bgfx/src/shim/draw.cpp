@@ -618,18 +618,18 @@ uint32_t Device::sampler_flags(uint32_t stage, const TexStore &store) const
 // programmable shaders
 namespace
 {
-uint64_t hash_bytecode(const DWORD *function, size_t *words)
+// CTechnique passes a reference blob (see ports.hpp) instead of D3D9 bytecode; returns its key
+// (empty for anything else) and the blob length in DWORDs including the 0x0000FFFF end token.
+std::string_view shader_key(const DWORD *function, size_t *words)
 {
-    // D3D9 bytecode ends with the 0x0000FFFF token.
     size_t count = 0;
     while (function[count] != 0x0000FFFF && count < 65536)
         ++count;
-    ++count;
-    uint64_t hash = 1469598103934665603ull;
-    for (size_t i = 0; i < count * sizeof(DWORD); ++i)
-        hash = (hash ^ reinterpret_cast<const uint8_t *>(function)[i]) * 1099511628211ull;
-    *words = count;
-    return hash;
+    *words = count + 1;
+    if (count == 0 || function[0] != kShaderRefMagic)
+        return {};
+    std::string_view key(reinterpret_cast<const char *>(function + 1), (count - 1) * sizeof(DWORD));
+    return key.substr(0, key.find('\0'));
 }
 } // namespace
 
@@ -637,12 +637,11 @@ HRESULT Device::CreateVertexShader(const DWORD *function, IDirect3DVertexShader9
 {
     auto *result = new VertexShader();
     size_t words = 0;
-    result->hash = hash_bytecode(function, &words);
+    const std::string_view key = shader_key(function, &words);
     result->bytecode.assign(function, function + words);
-    result->port = find_port(result->hash, true);
+    result->port = find_port(key, true);
     if (!result->port)
-        logf("vertex shader %016llx has no bgfx port; its draws are skipped",
-             static_cast<unsigned long long>(result->hash));
+        logf("vertex shader '%.*s' has no bgfx port; its draws are skipped", static_cast<int>(key.size()), key.data());
     *shader = result;
     return D3D_OK;
 }
@@ -651,12 +650,11 @@ HRESULT Device::CreatePixelShader(const DWORD *function, IDirect3DPixelShader9 *
 {
     auto *result = new PixelShader();
     size_t words = 0;
-    result->hash = hash_bytecode(function, &words);
+    const std::string_view key = shader_key(function, &words);
     result->bytecode.assign(function, function + words);
-    result->port = find_port(result->hash, false);
+    result->port = find_port(key, false);
     if (!result->port)
-        logf("pixel shader %016llx has no bgfx port; its draws are skipped",
-             static_cast<unsigned long long>(result->hash));
+        logf("pixel shader '%.*s' has no bgfx port; its draws are skipped", static_cast<int>(key.size()), key.data());
     *shader = result;
     return D3D_OK;
 }

@@ -1,5 +1,5 @@
 $input v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v_texcoord4, v_fog
-// Port of src/techniques/particles/particles_pixel_shader.pso (ps_1_1, FNV-1a be0238d886253bb2).
+// Port of the technique shader particles_pixel_shader (ps_1_1) of src/techniques/particles/particles.fx.
 // Stages 0 and 1: particle atlas (two animation frames), stage 3: atlas normal map; all 2D.
 #include "port_ps.sh"
 SAMPLER2D(s_tex0, 0);

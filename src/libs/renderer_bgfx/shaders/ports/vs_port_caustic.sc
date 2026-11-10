@@ -1,6 +1,6 @@
 $input a_position, a_texcoord0, a_color0, a_texcoord1
 $output v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v_texcoord4, v_fog
-// Port of src/techniques/weather/caustic_vertex_shader.vso (vs_1_1, FNV-1a abfb8325bc32d5e2), one bytecode instruction per line.
+// Port of the technique shader caustic_vertex_shader (vs_1_1) of src/techniques/weather/caustic.fx, one D3D9 instruction per line.
 #include "port_vs.sh"
 
 void main()

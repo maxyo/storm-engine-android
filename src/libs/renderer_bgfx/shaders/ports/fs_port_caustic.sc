@@ -1,5 +1,5 @@
 $input v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v_texcoord4, v_fog
-// Port of src/techniques/weather/caustic_pixel_shader.pso (ps_1_1, FNV-1a f1f78a40cf8ffd66).
+// Port of the technique shader caustic_pixel_shader (ps_1_1) of src/techniques/weather/caustic.fx.
 // Stages 0, 1, 2: 2D textures (model texture alpha, two caustic frames).
 #include "port_ps.sh"
 SAMPLER2D(s_tex0, 0);

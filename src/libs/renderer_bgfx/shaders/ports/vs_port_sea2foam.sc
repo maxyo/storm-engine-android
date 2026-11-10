@@ -1,6 +1,6 @@
 $input a_position, a_normal, a_texcoord0
 $output v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v_texcoord4, v_fog
-// Port of src/techniques/weather/sea_sea2foam_vertex_shader.vso (vs_1_1, FNV-1a 50724131f31f9df8), one bytecode instruction per line.
+// Port of the technique shader sea_sea2foam_vertex_shader (vs_1_1) of src/techniques/weather/sea.fx, one D3D9 instruction per line.
 #include "port_vs.sh"
 
 void main()

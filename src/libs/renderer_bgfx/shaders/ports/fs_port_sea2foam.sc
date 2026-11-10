@@ -1,5 +1,5 @@
 $input v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v_texcoord4, v_fog
-// Port of src/techniques/weather/sea_sea2foam_pixel_shader.pso (ps_1_4, FNV-1a 62cad3c5d353e242).
+// Port of the technique shader sea_sea2foam_pixel_shader (ps_1_4) of src/techniques/weather/sea.fx.
 // Stage 0: foam texture (2D), stage 4: animated bump volume texture.
 #include "port_ps.sh"
 SAMPLER2D(s_tex0, 0);

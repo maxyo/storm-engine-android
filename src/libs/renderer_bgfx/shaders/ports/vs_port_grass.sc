@@ -1,6 +1,6 @@
 $input a_position, a_color0, a_color1, a_texcoord0
 $output v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v_texcoord4, v_fog
-// Port of src/techniques/effects/grass_main.vso (vs_1_1, FNV-1a 7e4096e4a06244bd), one bytecode instruction per line.
+// Port of the technique shader grass_main (vs_1_1) of src/techniques/effects/grass.fx, one D3D9 instruction per line.
 #include "port_vs.sh"
 
 void main()
