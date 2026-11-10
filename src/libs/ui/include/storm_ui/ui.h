@@ -122,6 +122,7 @@ struct FrameStats
     int cached_layers = 0;  // of those, filtered layers drawn from the runtime's cache (no backend layer)
     int textures = 0;       // textures created (uploads)
     size_t texture_bytes = 0;
+    int textures_shared = 0; // textures saved from a layer (box shadows) handed out again instead of made
     // With Config::verify_unchanged: this frame was predicted unchanged by Prepare but drew
     // other commands than the frame shown (also an error in the log).
     bool mispredicted = false;

@@ -15,6 +15,9 @@
 //     came; layers inside the layer are part of its content. Clip masks inside the layer are replayed on a hit (the stencil is shared by
 //     every layer) and, with the stencil the layer is drawn against, part of the key.
 //     A cache entry not used in a frame is released at its end.
+//   * shares textures saved from a layer (RmlUi's box shadows): the same drawing relative
+//     to its region gives the texture made before, held by reference until RmlUi releases
+//     it everywhere and a few seconds after.
 #pragma once
 
 #include <RmlUi/Core/RenderInterface.h>
@@ -171,6 +174,15 @@ class FrameRenderer final : public Rml::RenderInterface
 
     std::unordered_map<uint64_t, std::vector<Entry>> cache_; // key hash → entries
     std::unordered_map<uint64_t, uint64_t> candidates_;       // key hash → the last frame it was composited uncached
+    struct Saved // a texture saved from a layer (box shadow), shared by the elements that drew the same
+    {
+        std::vector<uint64_t> key;
+        Rml::TextureHandle texture = 0;
+        int refs = 0;       // RmlUi's holders
+        uint64_t used = 0;  // frame of the last hand-out or release
+    };
+    std::unordered_map<uint64_t, Saved> saved_;                    // key hash → texture
+    std::unordered_map<Rml::TextureHandle, uint64_t> saved_textures_; // texture → key hash
     std::vector<Rml::CompiledGeometryHandle> deferred_geometry_; // released after the frame (a buffered layer may still need them)
     std::vector<Rml::TextureHandle> deferred_textures_;
     std::vector<Rml::CompiledFilterHandle> deferred_filters_;

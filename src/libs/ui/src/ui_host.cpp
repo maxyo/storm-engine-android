@@ -579,9 +579,10 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         if (counters_.mispredicted)
             Error("UI frame predicted unchanged drew something else: a change that does not ask for a frame; " + renderer_->Difference());
         shown_hash_ = renderer_->FrameHash();
-        // Textures made while drawing (a font atlas that grew for new glyphs) make RmlUi
-        // re-encode other meshes in the next frame: that frame is drawn too.
-        changed_ = counters_.textures > 0;
+        // Textures made or handed out while drawing (a font atlas that grew for new glyphs, a
+        // box shadow made again) make RmlUi re-encode meshes and re-apply its clip state in
+        // the next frame: that frame is drawn too.
+        changed_ = counters_.textures > 0 || counters_.textures_shared > 0;
         drawn_ = true;
         counters_.render_ms = Milliseconds(updated, std::chrono::steady_clock::now());
         last_frame_ = counters_;
