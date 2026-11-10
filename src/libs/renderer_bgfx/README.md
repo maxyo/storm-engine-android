@@ -24,6 +24,11 @@ on Android and on the Linux development host alike.
   GPUs without S3TC. The tier (bc / etc2 / rgba8) is fixed per GPU at startup and logged once;
   `texture_compression` and `texture_cache_mb` in engine.ini override it. Tests and the benchmark build with
   `-DSTORM_BGFX_BUILD_TESTS=ON` (`storm_texture_tests`, `storm_texture_bench`).
+- `src/texture/formats/` — texture files other than `.tx` (API: `include/storm/render/texture_file.hpp`):
+  DDS through bimg (FourCC and DX10 headers, sRGB, cube maps) and Caribbean Legend `.txx` particle atlases,
+  plus the texture name → file rule with its logged alternates (`x.tga` → `x.dds`, ...). BC1-3 stay DXT and
+  take the ETC2 path above; other formats are decoded to BGRA8 and logged. `storm_texture_format_tests`;
+  `STORM_TEXTURE_CORPUS=<game>/Resource storm_texture_format_tests` checks every DDS/TXX of an install.
 - `patches/` — fixes applied to the pinned bgfx at configure time (currently: re-attach to a new
   Android native window after the activity returns from background). The same fix is upstream as bgfx
   99b7977f ("Android: restore main-window EGL surface recreation", the commit right after the pinned
