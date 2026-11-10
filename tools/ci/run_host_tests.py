@@ -49,7 +49,7 @@ def prepare_sources():
     subprocess.run([sys.executable, str(root / 'tools/android/engine_sources.py'), '--directory', str(sources)],
                    check=True, stdout=subprocess.DEVNULL)
     pipeline = (root / 'tools/android/ci_dependencies.sh').read_text()
-    for name in ('SDL', 'fmt', 'dxvk'):
+    for name in ('SDL', 'fmt'):
         match = re.search(rf'^checkout_source {name} (\S+) ([0-9a-f]{{40}})$', pipeline, re.M)
         if not match:
             sys.exit(f'{name} revision not found in tools/android/ci_dependencies.sh')
@@ -70,7 +70,6 @@ glm_source = prepare_sources()
 os.environ.setdefault('STORM_GLM_SOURCE', str(glm_source))  # checks that locate GLM themselves
 values = {
     '--sdl-source': sources / 'SDL',
-    '--dxvk-source': sources / 'dxvk',
     '--fmt-source': sources / 'fmt',
     '--dependency-sources': sources,
     '--glm-source': glm_source,

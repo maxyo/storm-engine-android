@@ -1,4 +1,3 @@
-#ifndef _WIN32
 
 #include "platform/d3dx9.hpp"
 
@@ -688,7 +687,7 @@ void point_filter_argb_pixels(const BYTE *src, UINT src_row_pitch, UINT src_slic
  *   negative values for pSrcRect are allowed as we're only looking at the width and height anyway.
  *
  */
-HRESULT D3DXLoadSurfaceFromMemory(IDirect3DSurface9 *dst_surface,
+static HRESULT D3DXLoadSurfaceFromMemory(IDirect3DSurface9 *dst_surface,
                                          const PALETTEENTRY *dst_palette, const RECT *dst_rect, const void *src_memory,
                                          D3DFORMAT src_format, UINT src_pitch, const PALETTEENTRY *src_palette, const RECT *src_rect,
                                          DWORD filter, D3DCOLOR color_key)
@@ -991,4 +990,3 @@ HRESULT D3DXLoadSurfaceFromSurface(IDirect3DSurface9 *dst_surface,
     return hr;
 }
 
-#endif

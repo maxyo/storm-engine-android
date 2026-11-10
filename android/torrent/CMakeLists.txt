@@ -53,4 +53,10 @@ else()
     ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/torrent/run_jvm.py
     --library $<TARGET_FILE:storm_torrent>
     --java ${Java_JAVA_EXECUTABLE} --javac ${Java_JAVAC_EXECUTABLE})
+  add_test(NAME torrent_metadata_discovery COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/torrent/test_discovery.py --inspect $<TARGET_FILE:torrent_tests>)
+  add_executable(torrent_json_faults ../../tests/torrent/test_json_faults.cpp)
+  target_link_libraries(torrent_json_faults PRIVATE storm_torrent)
+  add_test(NAME torrent_json_allocation_failures COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/torrent/run_json_faults.py --test $<TARGET_FILE:torrent_json_faults>)
 endif()

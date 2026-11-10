@@ -1,4 +1,7 @@
 #include "file_service.h"
+
+#include <cctype>
+
 #include "core_impl.h"
 #include "string_compare.hpp"
 #include "platform/platform.hpp"
@@ -13,6 +16,7 @@
 #ifdef __ANDROID__
 #include "platform/android_runtime.hpp"
 #include "platform/resource_overlay.hpp"
+#include "platform/script_patches.hpp"
 #include "platform/android_writable_storage.hpp"
 #endif
 #include <string>
@@ -535,10 +539,12 @@ void FILE_SERVICE::ScanResourcePaths()
     storm::resource_index::scan(ResourcePaths, fio->_GetExecutableDirectory());
 #endif
 #ifdef __ANDROID__
-    storm::android::indexUiOverlay(std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "mobile-ui/current",
-                                  ResourcePaths);
-    storm::android::indexUiOverlay(std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "engine-shaders/current",
-                                  ResourcePaths, true);
+    const std::filesystem::path internal(SDL_AndroidGetInternalStoragePath());
+    storm::android::indexUiOverlay(internal / "mobile-ui/current", ResourcePaths);
+    storm::android::indexUiOverlay(internal / "engine-shaders/current", ResourcePaths, true);
+    // Fixes to the player's own scripts; throws LayerError if the layer is damaged.
+    storm::script_patches::lastReport() = storm::script_patches::applyLayer(
+        internal / "script-patches/current", internal / "script-patches/derived", ResourcePaths);
 #endif
     ResourcePathsFirstScan = false;
 }
@@ -585,7 +591,7 @@ std::string FILE_SERVICE::ConvertPathResource(const char *path)
     }
     std::string conv = convert_path(path);
     std::string path_lwr = conv; // save original string if we will need to create new file in existing folder
-    std::ranges::for_each(path_lwr, [](char &c) { c = std::tolower(c); });
+    std::ranges::for_each(path_lwr, [](char &c) { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
     std::filesystem::path tmp_path = std::filesystem::u8path(path_lwr).lexically_normal(); // remove relative paths
     path_lwr = tmp_path.string();
     std::string result = ResourcePaths[path_lwr];
@@ -618,12 +624,13 @@ uint64_t FILE_SERVICE::GetPathFingerprint(const std::filesystem::path &path)
     // Hash of (relative path, size, mtime) per file; see platform/path_fingerprint.hpp.
     uint64_t result = storm::fingerprint::tree(path);
 #ifdef __ANDROID__
-    // Interface scripts shipped inside the APK override files of the program tree.
+    // Interface scripts shipped inside the APK override files of the program tree,
+    // and the script patch layer changes others.
     const auto normal = path.lexically_normal();
     const auto leaf = normal.filename().empty() ? normal.parent_path().filename() : normal.filename();
     if (storm::android::resourceKey(leaf) == "program")
-        result += storm::fingerprint::mix(
-            storm::fingerprint::tree(std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "mobile-ui/current"));
+        for (const auto &layer : storm::android::programLayers(SDL_AndroidGetInternalStoragePath()))
+            result += storm::fingerprint::mix(storm::fingerprint::tree(layer));
 #endif
     return result;
 }

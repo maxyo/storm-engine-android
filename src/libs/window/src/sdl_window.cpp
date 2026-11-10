@@ -11,9 +11,9 @@ SDLWindow::SDLWindow(int width, int height, int preferred_display, bool fullscre
     : fullscreen_(fullscreen)
 {
     uint32_t flags = (fullscreen ? SDL_WINDOW_FULLSCREEN : 0) | SDL_WINDOW_HIDDEN;
-#if !defined(_WIN32) && !defined(STORM_MESA_NINE) // DXVK-Native
-    flags |= SDL_WINDOW_VULKAN;
-#endif
+    // bgfx creates its own EGL surface on the native window. Without this hint SDL forces
+    // SDL_WINDOW_OPENGL on Android and connects its own surface first.
+    SDL_SetHint(SDL_HINT_VIDEO_EXTERNAL_CONTEXT, "1");
     window_ = std::unique_ptr<SDL_Window, std::function<void(SDL_Window *)>>(
         SDL_CreateWindow("", SDL_WINDOWPOS_CENTERED_DISPLAY(preferred_display),
                          SDL_WINDOWPOS_CENTERED_DISPLAY(preferred_display), width, height, flags),
@@ -146,7 +146,7 @@ void *SDLWindow::OSHandle()
     SDL_GetWindowWMInfo(window_.get(), &info);
     return info.info.win.window;
 #else
-    // dxvk-native uses HWND as SDL2 window handle, so this is allowed
+    // The renderer (renderer_bgfx) receives the SDL window as its HWND
     return window_.get();
 #endif
 }

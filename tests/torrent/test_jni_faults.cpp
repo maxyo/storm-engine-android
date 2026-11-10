@@ -31,6 +31,7 @@ struct Fake {
     JNIEnv env{&table};
     bool pending=false,violation=false,throw_after_chars=false;
     int calls=0,fail_at=0,refs=0,releases=0,acquires=0,throws=0;
+    jsize array_size=1;
     bool live[64]{};
     int next_ref=1;
     static Fake* current;
@@ -63,7 +64,7 @@ struct Fake {
         return chars;
     }
     static void release_chars(JNIEnv*,jstring,jchar const*){++current->releases;}
-    static jsize array_length(JNIEnv*,jarray){if(current->pending)current->violation=true;return 1;}
+    static jsize array_length(JNIEnv*,jarray){if(current->pending)current->violation=true;return current->array_size;}
     static void get_ints(JNIEnv*,jintArray,jsize,jsize,jint* out){if(current->step())*out=0;}
     Fake(){
         current=this;table.ExceptionCheck=check;table.DeleteLocalRef=remove;
@@ -102,8 +103,11 @@ int main(){
         sessions.emplace(42,std::make_unique<storm::torrent::Session>("",""));
         {Fake f;f.fail_at=1;const int before=starts;Java_org_stormengine_port_NativeTorrents_start(&f.env,nullptr,42,reinterpret_cast<jintArray>(1));require(f.pending&&starts==before,"GetIntArrayRegion failure must not dispatch Session.start");clean(f);}
         {Fake f;const int before=starts;Java_org_stormengine_port_NativeTorrents_start(&f.env,nullptr,42,reinterpret_cast<jintArray>(1));require(!f.pending&&starts==before+1,"Successful selection must dispatch Session.start");clean(f);}
+        for(jsize size:{0,100001,std::numeric_limits<jsize>::max()}){Fake f;f.array_size=size;const int before=starts;
+            Java_org_stormengine_port_NativeTorrents_start(&f.env,nullptr,42,reinterpret_cast<jintArray>(1));
+            require(f.pending&&f.throws==1&&starts==before,"Out-of-range selection length must throw before any native copy or dispatch");clean(f);}
         sessions.clear();
-        std::cout<<"PASS production JNI: 15 result/exception fault positions, pending preservation, local-reference cleanup, both input strings, native bad_alloc/character release, persistent OOM during error reporting, fallback VM failures, selection-copy dispatch guard\n";
+        std::cout<<"PASS production JNI: 15 result/exception fault positions, pending preservation, local-reference cleanup, both input strings, native bad_alloc/character release, persistent OOM during error reporting, fallback VM failures, selection-copy dispatch guard, selection length bounds\n";
         return 0;
     }catch(std::exception const& e){std::cerr<<e.what()<<'\n';return 1;}
 }

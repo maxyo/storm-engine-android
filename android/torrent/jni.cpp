@@ -92,7 +92,14 @@ extern "C" JNIEXPORT jstring JNICALL Java_org_stormengine_port_NativeTorrents_po
 }
 extern "C" JNIEXPORT void JNICALL Java_org_stormengine_port_NativeTorrents_start(JNIEnv* env,jclass,jlong id,jintArray files) {
     std::lock_guard<std::mutex> guard(lock);
-    try{if(!files)throw std::runtime_error("Missing file selection");std::vector<int> ids(env->GetArrayLength(files));env->GetIntArrayRegion(files,0,ids.size(),ids.data());if(!env->ExceptionCheck())get(id).start(ids);}
+    try {
+        if(!files)throw std::runtime_error("Missing file selection");
+        auto size=env->GetArrayLength(files);
+        // The session caps files at 100000; never size a native copy by an unchecked length.
+        if(size<1||size>100000)throw std::runtime_error("Select between 1 and 100000 files");
+        std::vector<int> ids(size);env->GetIntArrayRegion(files,0,size,ids.data());
+        if(!env->ExceptionCheck())get(id).start(ids);
+    }
     catch(std::exception const& e){fail(env,e);}
 }
 extern "C" JNIEXPORT void JNICALL Java_org_stormengine_port_NativeTorrents_pause(JNIEnv* env,jclass,jlong id) {

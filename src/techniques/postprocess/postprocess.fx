@@ -1,5 +1,3 @@
-#include "postprocess_shader.h"
-
 technique PostProcess
 {
     pass p0

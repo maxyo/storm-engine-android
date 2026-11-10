@@ -105,6 +105,8 @@ inline std::string MobileTextureName(const std::string &path)
     if (name.compare(0, prefix.size(), prefix) != 0)
         return {};
     name.erase(0, prefix.size());
+    if (name.rfind("textures/", 0) == 0) // a path given from the resource root ("Textures\\…")
+        name.erase(0, 9);
     for (const char *extension : {".tx", ".tga"})
     {
         const size_t length = std::char_traits<char>::length(extension);

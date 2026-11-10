@@ -39,16 +39,19 @@ class TFishSchools : public TDynamicSystem
 
   private:
     void LoadSettings();
+    // Creates the schools and their model once a sea exists; false while there is no sea.
+    bool CreateSchools();
 
     VDX9RENDER *renderService;
     entid_t fishSchoolModel;
     TFishSchool *fishSchools[FISHSCHOOL_COUNT];
     int32_t shipsCount;
-    int32_t fishSchoolsCount;
+    int32_t fishSchoolsCount = 0; // schools to create (settings), at most FISHSCHOOL_COUNT
+    bool created = false;         // fishSchools[0..fishSchoolsCount) and fishSchoolModel exist
     TDynamicObject cameraObject;
 
     float maxDistance;
 
-    bool enabled;
+    bool enabled; // only ever true while `created`
     SEA_BASE *sea;
 };

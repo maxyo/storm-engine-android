@@ -43,6 +43,8 @@ struct SeaOrderItem
     std::string identity;
     bool enabled = true;
     double cooldown = 1;
+    // The script command behind the item ("BI_Moor"): what a touch UI picks its icon by.
+    std::string source;
     bool operator==(const SeaOrderItem &) const = default;
 };
 struct SeaOrdersFrame
@@ -102,7 +104,12 @@ public:
         };
         checkText(frame.language, 32); checkText(frame.pendingLabel, 1024);
         for (auto &recipient : frame.recipients) checkText(recipient.name, 512, true);
-        for (auto &item : frame.items) checkText(item.label, 1024, true);
+        for (auto &item : frame.items)
+        {
+            checkText(item.label, 1024, true);
+            if (!seaOrdersTextValid(item.source, 128)) item.source.clear();
+            textBytes += item.source.size();
+        }
         if (frame.items.size() > 256 || frame.recipients.size() > 32 || textBytes > 24000)
         {
             frame.items.clear(); frame.selectedItemId.clear(); frame.complete = false;
@@ -214,7 +221,7 @@ public:
         {
             const auto &item = frame.items[i]; if (i) out += ',';
             out += "{\"id\":" + quote(item.id) + ",\"kind\":" + quote(item.kind) + ",\"label\":" + quote(item.label) +
-                ",\"enabled\":" + (item.enabled ? "true" : "false") + ",\"cooldown\":" +
+                ",\"source\":" + quote(item.source) + ",\"enabled\":" + (item.enabled ? "true" : "false") + ",\"cooldown\":" +
                 std::to_string(std::isfinite(item.cooldown) ? std::clamp(item.cooldown, 0.0, 1.0) : 0.0) + "}";
         }
         return out + "]}";

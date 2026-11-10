@@ -1,4 +1,3 @@
-#ifndef _WIN32 // Effects
 #pragma once
 
 #include <unordered_map>
@@ -109,7 +108,6 @@ class CTechnique
     char sCurrentBlockName[256]; // current block name
     char sCurrentFileName[256];  // current block name
     char sCurrentDir[256];       // current directory
-    char sDelimTable[256];
 
     // saved states section
 
@@ -125,13 +123,10 @@ class CTechnique
     uint32_t ProcessVertexShader(char *pFile, uint32_t dwSize, char **pStr);
     uint32_t ProcessVertexDeclaration(shader_t *pS, char *pFile, uint32_t dwSize, char **pStr);
     uint32_t ProcessPixelShader(char *pFile, uint32_t dwSize, char **pStr);
-    uint32_t ProcessShaderAsm(shader_t *pS, char *pFile, uint32_t dwSize, char **pStr, uint32_t dwShaderType,
-                              bool HLSL = false);
-    void GetShaderBinPath(char *pShaderStr, uint32_t dwShaderType, char *dest);
-    uint32_t ProcessShaderBin(shader_t *pS, char *pFile, uint32_t dwShaderType);
+    void GetShaderKey(char *pShaderStr, char *dest);
+    uint32_t CreateShader(shader_t *pS, const char *pKey, uint32_t dwShaderType);
 
     uint32_t AddShader(char *pShaderName);
-    char *Preprocessor(char *pBuffer, uint32_t &dwSize);
 
     uint32_t GetPassParameter(uint32_t dwParam, uint32_t dwFlags);
 
@@ -150,7 +145,6 @@ class CTechnique
     uint32_t GetSAMPIndex(char *pStr);
     uint32_t GetIndex(char *pStr, SRSPARAM *pParam, uint32_t dwNumParam, bool bCanBeNumber);
 
-    char *GetToken(char *pToken, char *pResult, bool &bToken);
     void InnerDecodeFiles(char *sub_dir = nullptr);
 
     void ClearSRS_STSS_bUse();
@@ -169,4 +163,3 @@ class CTechnique
     ~CTechnique();
 };
 
-#endif // _WIN32

@@ -15,8 +15,10 @@ python3 tools/android/build_torrent.py --work /tmp/storm-torrent --jobs 4 \
   --ndk /absolute/path/to/android-ndk-r30
 ```
 
-The first command builds and runs a synthetic loopback-only BitTorrent fixture,
-production JNI allocation-fault tests, and a real JVM `-Xcheck:jni` Unicode test.
+The first command builds and runs a synthetic loopback-only BitTorrent fixture
+(transfer, resume repair, invalid magnets, stall time, free-space check), metadata
+discovery fixtures, JSON builders under allocation failure, production JNI
+allocation-fault tests, and a real JVM `-Xcheck:jni` Unicode test.
 The second builds JNI; it does not build the engine, install an APK or access a
 device. Build dependencies: Python 3.12+, CMake 3.20+, Ninja, C++17, Perl, make
 and JDK 17 (required for host JNI regression tests).
@@ -39,29 +41,66 @@ void close(long session);
 
 Each persistent library set has its own app-private directory. Copy a SAF torrent
 document to a bounded private file before `inspect/open`. `open` downloads only
-magnet metadata. It never enables payload automatically, including on resume.
-`start` downloads the exact supported file selection. `poll` returns JSON:
+magnet metadata; a magnet without a well-formed info-hash fails with
+`Invalid magnet link: …`. It never enables payload automatically, including on
+resume. `start` downloads any explicitly selected selectable (non-padding) files,
+at most 100000; it checks free space first (`Not enough free storage for selected
+payload`). `poll` returns JSON:
 
 ```json
-{"state":"awaiting-selection","downloadedBytes":0,"wantedBytes":0,
- "bytesPerSecond":0,"peers":0,"checkpointPending":false,"error":"",
- "payloadDirectory":"/private/library/set-id/payload",
- "metadata":{"name":"Example","totalBytes":123,"pieceBytes":16384,
- "candidate":true,"verifiedGame":false,"kind":"installer-candidate",
- "files":[{"index":0,"path":"Example/setup.exe","bytes":123,"recommended":true}]}}
+{"state":"downloading","downloadedBytes":0,"wantedBytes":123,"bytesPerSecond":0,
+ "peers":0,"seeds":0,"stalledSeconds":95,"networkError":"Tracker udp://…: timed out",
+ "checkpointPending":false,"error":"","errorKind":"",
+ "payloadDirectory":"/private/library/set-id/payload","metadata":{…}}
 ```
 
 States are `metadata`, `awaiting-selection`, `downloading`, `paused`, `complete`,
-and `error`. Metadata kinds are `loose-game-candidate`, `installer-candidate`,
-`archive-candidate`, `unknown`. Metadata file names **never establish game identity**.
+and `error`. Nothing fails silently:
 
-For Inno installers first select only `setup.exe`, download it, and use the archive
-library to inspect its embedded installation manifest before selecting sibling
-`setup-*.bin` files. The exe remains inert data. Do not automatically extract or
-publish arbitrary content based on the torrent title. After all necessary pieces
-complete, extract into a different per-set directory, then run the application's
-strong final game-content validator. Only that completed set can be made playable.
-Never merge one set into another or into a running game's directory.
+* `error` carries the first fatal cause and `errorKind`: `storage-full` (no space
+  for payload or checkpoint), `storage` (other disk errors), `transfer` (other
+  torrent errors) or `metadata` (invalid metadata). The transfer pauses; `start`
+  again clears the error and retries.
+* `stalledSeconds` counts seconds without new verified bytes (or metadata) while
+  in `metadata` or `downloading`; the application decides when that is a stall.
+  `networkError` is the latest non-fatal tracker or listen-socket failure.
+* Allocation failure makes a call throw; it never yields truncated JSON or a
+  changed metadata snapshot (`tests/torrent/test_json_faults.cpp`).
+
+## Metadata, version 2
+
+Metadata is built once per session and cached. Every candidate is found from
+file names alone (`evidence:"filenames-only"`, `verifiedGame:false`) and they are
+never combined:
+
+```json
+{"metadataVersion":2,"name":"bundle","totalBytes":30,"pieceBytes":16384,
+ "candidate":true,"verifiedGame":false,"evidence":"filenames-only",
+ "kind":"installer-candidate","candidates":[
+  {"id":"installer:0","kind":"installer-candidate","root":"bundle","rootKey":"bundle",
+   "indices":[0],"companionIndices":[1],"companionHintsTruncated":false,"relativePaths":[]}],
+ "files":[{"index":0,"path":"bundle/setup.exe","bytes":10,"recommended":true,"selectable":true},
+          {"index":1,"path":"bundle/setup-1.bin","bytes":20,"recommended":true,"selectable":true}]}
+```
+
+* `loose-game-candidate`: `PROGRAM` and `RESOURCE` directly below the same
+  parent, at any wrapper depth (plus that parent's `engine.ini`); separate roots
+  are never joined. `relativePaths` canonicalizes `PROGRAM`, `RESOURCE` and
+  `engine.ini` below the root. Executables and archives inside a game root
+  belong to it and are not candidates of their own.
+* `installer-candidate`: every other `.exe` (inert data, never run). Same-directory
+  BIN, DAT, CAB, PAK, ARC, PCK and numeric-extension files are `companionIndices`
+  hints, at most 64 (`companionHintsTruncated`).
+* `archive-candidate`: ZIP, 7z, RAR, ISO, TAR and compressed TAR, CAB, ARC, and the
+  volume families `.partNN.rar`, `.NNN`, `.rNN`/`.zNN` and `.partNN` of one
+  directory and base name, ordered by part.
+
+`kind` is the single candidate kind, `mixed-candidates` or `unknown`.
+`recommended` marks the files of a single candidate and its hints only. Paths
+keep their case; files or directories differing only in ASCII case, a file
+shadowing a directory, and colliding `path`/`path.utf-8`/v2 file-tree spellings
+are rejected. A finished selection is imported by the application from the
+payload directory, which discovers the actual content; names prove nothing.
 
 ## Lifecycle and storage
 

@@ -318,7 +318,35 @@ bool SHIP_CAMERA::IslandCollision(glm::vec3 &pos)
     }
     if (kRes < 1.0f)
         pos = vCenter + (pos - vCenter) * kRes - dir * camRadius;
-    return kRes < 1.0f;
+
+    // Island meshes are single-sided surfaces. Under an overhanging cliff the ship -> camera ray crosses no
+    // face, yet the camera ends up below the island surface and sees through the unmodelled underside. Pull
+    // the camera toward the ship until nothing of the island is above it.
+    const auto underIsland = [mdl](const glm::vec3 &p) {
+        constexpr auto skyCheckHeight = 3000.0f;
+        return mdl->Trace(p, p + glm::vec3(0.0f, skyCheckHeight, 0.0f)) <= 1.0f;
+    };
+    if (!underIsland(pos))
+        return kRes < 1.0f;
+    // The ship itself is under the overhang: no point of the segment has a clear sky, keep the camera
+    // where the segment trace put it rather than collapsing it onto the ship (eye == target).
+    if (underIsland(vCenter))
+        return kRes < 1.0f;
+    // vCenter is clear, pos is not: bisect for the clear point nearest to pos (3 traces, 1/8 resolution).
+    auto clear = 0.0f, covered = 1.0f;
+    const auto camOffset = pos - vCenter;
+    for (auto i = 0; i < 3; i++)
+    {
+        const auto mid = (clear + covered) * 0.5f;
+        if (underIsland(vCenter + camOffset * mid))
+            covered = mid;
+        else
+            clear = mid;
+    }
+    if (clear == 0.0f)
+        return kRes < 1.0f; // the overhang starts right at the ship: no usable clear point, see above
+    pos = vCenter + camOffset * clear;
+    return true;
 }
 
 void SHIP_CAMERA::Save(CSaveLoad *pSL)

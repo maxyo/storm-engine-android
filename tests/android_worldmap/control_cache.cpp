@@ -2,6 +2,7 @@
 // boundary. No SDL query occurs in that boundary: this reproduces Realize-before-Update.
 #include <platform/android_worldmap.hpp>
 #include <platform/android_combat_input.hpp>
+#include <platform/android_held_controls.hpp>
 #include <controls.h>
 #include <cassert>
 #include <iostream>

@@ -15,8 +15,10 @@
 #include <string>
 #include <vector>
 #include "android_ship_telemetry.hpp"
+#include "android_spyglass.hpp"
 #include "android_sea_navigator.hpp"
 #include "android_sea_orders.hpp"
+#include "android_sea_quick_action.hpp"
 #include "android_land_commands.hpp"
 #include "android_worldmap.hpp"
 #include "android_interface_presentation.hpp"
@@ -237,6 +239,47 @@ inline void publishSeaOrders()
     if (env->ExceptionCheck()) env->ExceptionClear();
     env->DeleteLocalRef(activity);
 }
+// The sea quick action (U1). A new Activity gets a new activity generation: nothing drawn or
+// tapped by the old one counts.
+inline jweak seaQuickActionActivity = nullptr;
+inline jmethodID seaQuickActionMethod = nullptr;
+inline bool seaQuickActionMethodKnown = false;
+inline std::string lastSeaQuickAction;
+inline void publishSeaQuickAction()
+{
+    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return;
+    if (!seaQuickActionActivity || !env->IsSameObject(seaQuickActionActivity, activity))
+    {
+        if (seaQuickActionActivity) env->DeleteWeakGlobalRef(seaQuickActionActivity);
+        seaQuickActionActivity = env->NewWeakGlobalRef(activity);
+        seaQuickActionMethod = nullptr; seaQuickActionMethodKnown = false; lastSeaQuickAction.clear();
+        seaQuickAction.resetActivity();
+    }
+    if (!seaQuickActionMethodKnown && !env->ExceptionCheck())
+    {
+        auto type = env->GetObjectClass(activity);
+        if (type)
+        {
+            seaQuickActionMethod = env->GetMethodID(type, "showSeaQuickAction", "([B)V");
+            env->DeleteLocalRef(type); seaQuickActionMethodKnown = true;
+        }
+        if (env->ExceptionCheck()) env->ExceptionClear(); // an application without the touch control keeps the native icon
+    }
+    const auto json = seaQuickAction.json();
+    if (seaQuickActionMethod && json != lastSeaQuickAction && !env->ExceptionCheck())
+    {
+        auto bytes = env->NewByteArray(static_cast<jsize>(json.size()));
+        if (bytes && !env->ExceptionCheck())
+            env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(json.size()), reinterpret_cast<const jbyte *>(json.data()));
+        if (bytes && !env->ExceptionCheck()) env->CallVoidMethod(activity, seaQuickActionMethod, bytes);
+        if (bytes && !env->ExceptionCheck()) lastSeaQuickAction = json;
+        if (bytes) env->DeleteLocalRef(bytes);
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(activity);
+}
 inline jweak landCommandsActivity = nullptr;
 inline jmethodID landCommandsMethod = nullptr;
 inline bool landCommandsMethodKnown = false;
@@ -398,6 +441,14 @@ inline void publishUiState(const char *channel, const std::string &json) {
     if (name) env->DeleteLocalRef(name);
     if (type) env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);
+}
+// Channel "spyglass" (android_spyglass.hpp): sent through the generic state channel when it changes.
+inline std::string lastSpyglass;
+inline void publishSpyglass() {
+    const std::string json=spyglass.json();
+    if(lastSpyglass==json)return;
+    lastSpyglass=json;
+    publishUiState("spyglass",json);
 }
 inline void publishCinematic(bool active) {
     if (cinematicState == static_cast<int>(active)) return;

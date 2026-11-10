@@ -26,6 +26,14 @@ for start in methods:
     offset = source.index(start)
     parts.append(source[offset:source.index('\n}', offset) + 2].replace('COMPILER::', 'SaveReader::'))
 
+# Script DeleteEntity runs COMPILER::DeleteScriptEntity, also extracted unchanged.
+functions = (r/'src/libs/core/src/internal_functions.cpp').read_text()
+start = functions.index('case FUNC_DELETE_Entity:')
+case = functions[start:functions.index('case FUNC_', start + 1)]
+assert 'DeleteScriptEntity(*pV);' in case, 'DeleteEntity no longer runs DeleteScriptEntity'
+offset = functions.index('void COMPILER::DeleteScriptEntity(')
+parts.append(functions[offset:functions.index('\n}', offset) + 2].replace('COMPILER::', 'SaveReader::'))
+
 with tempfile.TemporaryDirectory(prefix='storm-loaded-object-') as directory:
     b = Path(directory)
     (b/'reader.inc').write_text('\n'.join(parts))
@@ -36,8 +44,8 @@ with tempfile.TemporaryDirectory(prefix='storm-loaded-object-') as directory:
     (b/'SDL2').symlink_to(deps/'SDL/include', target_is_directory=True)
     includes = list((r/'src/libs').glob('*/include')) + [r/'src/libs/core/src', b,
         deps/'fmt/include', deps/'spdlog/include', deps/'mimalloc/include',
-        deps/'fast_float/include', deps/'dxvk/include/native/directx',
-        deps/'dxvk/include/native/windows', a.glm_source.resolve()]
+        deps/'fast_float/include', r/'third_party/d3d9-headers/directx', r/'third_party/d3d9-headers/windows',
+        a.glm_source.resolve()]
     flags = ['-std=c++20', '-DFMT_HEADER_ONLY', '-DSPDLOG_FMT_EXTERNAL', '-g',
              '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
              '-fno-sanitize-recover=all'] + ['-I'+str(i) for i in includes]

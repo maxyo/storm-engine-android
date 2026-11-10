@@ -59,8 +59,11 @@ public:
         revision_=revision;hud_=hud;source_=source;tick_=tick;
         layout_=next;result_="prepared";return true;
     }
-    const SeaNavigatorLayout *layout(uint32_t tick,uint64_t revision,uint64_t hud,uint64_t source)const {
-        return layout_&&tick-tick_<=750&&revision==revision_&&hud==hud_&&source==source_?&*layout_:nullptr;
+    // The lease is 750 ms. `window` lets the drawing side keep the touch HUD's place for longer
+    // (graceMs) when a heartbeat is late, instead of flashing the native compass over the HUD.
+    static constexpr uint32_t graceMs=2000;
+    const SeaNavigatorLayout *layout(uint32_t tick,uint64_t revision,uint64_t hud,uint64_t source,uint32_t window=750)const {
+        return layout_&&tick-tick_<=window&&revision==revision_&&hud==hud_&&source==source_?&*layout_:nullptr;
     }
     void didDraw(uint64_t id) { nativeDrawnId_=layout_&&layout_->id==id?id:0; }
     bool presented(uint32_t tick,uint64_t revision,uint64_t hud,uint64_t source,uint64_t id) const {

@@ -3,7 +3,6 @@
 #include "istring.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <string>
 
 namespace storm
@@ -14,7 +13,7 @@ struct is_iequal
 {
     template <typename T1, typename T2 = T1> bool operator()(const T1 &first, const T2 &second) const
     {
-        return std::toupper(first) == std::toupper(second);
+        return FoldCase(first) == FoldCase(second);
     }
 };
 
@@ -147,7 +146,7 @@ inline int wildicmp(const char *wild, const char *string)
 
     while ((*string) && (*wild != '*'))
     {
-        if ((tolower(*wild) != tolower(*string)) && (*wild != '?'))
+        if ((FoldCase(*wild) != FoldCase(*string)) && (*wild != '?'))
         {
             return 0;
         }
@@ -166,7 +165,7 @@ inline int wildicmp(const char *wild, const char *string)
             mp = wild;
             cp = string + 1;
         }
-        else if ((tolower(*wild) == tolower(*string)) || (*wild == '?'))
+        else if ((FoldCase(*wild) == FoldCase(*string)) || (*wild == '?'))
         {
             wild++;
             string++;
@@ -199,9 +198,9 @@ class iStrHasher
   public:
     size_t operator()(const std::string &key) const
     {
-        std::string lower_copy = key;
-        std::transform(lower_copy.begin(), lower_copy.end(), lower_copy.begin(), ::tolower);
-        return inner_hasher_(lower_copy);
+        std::string folded = key;
+        std::ranges::transform(folded, folded.begin(), [](char c) { return static_cast<char>(FoldCase(c)); });
+        return inner_hasher_(folded);
     }
 
   private:

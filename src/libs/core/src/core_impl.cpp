@@ -207,7 +207,14 @@ bool CoreImpl::Run()
         return true;
     }
 
+    // ExitProgram() runs the script's ExitMain, which tears the world down (weather, its event
+    // handlers...), and only then requests the exit. The rest of that frame must not run: entities
+    // would execute and render against the torn-down world.
+    if (Exit_flag)
+        return false;
     ProcessExecute(); // transfer control to objects via Execute() function
+    if (Exit_flag)
+        return false;
     ProcessRealize(); // transfer control to objects via Realize() function
 
     steamapi::SteamApi::getInstance().RunCallbacks();

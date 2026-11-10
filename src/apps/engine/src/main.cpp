@@ -1,6 +1,3 @@
-#ifdef STORM_ENABLE_BGFX
-#include "fog_preview.hpp"
-#endif
 #include <chrono>
 #include <string>
 #include <thread>
@@ -24,6 +21,8 @@
 #include "watermark.hpp"
 #ifdef __ANDROID__
 #include "platform/android_ui.hpp"
+#include "platform/android_held_controls.hpp"
+#include "platform/script_patches.hpp"
 #include "platform/android_shortcuts.hpp"
 #include "android_gameplay_state.hpp"
 #include "android_combat_state.hpp"
@@ -199,6 +198,50 @@ void ReportFatalError(const char *what)
     SDL_ShowMessageBox(&dialog, nullptr);
 }
 
+#ifdef __ANDROID__
+// Logs what the script patch layer did during the resource scan (which runs
+// before logging is ready) and, once per distinct set of unapplied fixes, tells
+// the player which fixes their game files did not allow.
+void AnnounceScriptPatches()
+{
+    const auto &report = storm::script_patches::lastReport();
+    for (const auto &line : report.info)
+        spdlog::info("{}", line);
+    for (const auto &line : report.errors)
+        spdlog::error("{}", line);
+    const auto key = report.noticeKey();
+    if (key.empty())
+        return;
+    const auto stamp = std::filesystem::path(SDL_AndroidGetInternalStoragePath()) / "script-patches/notice-shown";
+    std::string shown;
+    if (std::ifstream file(stamp); file)
+        std::getline(file, shown);
+    if (shown == key)
+        return;
+    bool russian = false;
+    if (SDL_Locale *locales = SDL_GetPreferredLocales())
+    {
+        russian = locales[0].language && std::string_view(locales[0].language) == "ru";
+        SDL_free(locales);
+    }
+    const auto text = storm::script_patches::noticeText(report, russian);
+    const SDL_MessageBoxButtonData button{
+        SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "OK"};
+    const SDL_MessageBoxData dialog{SDL_MESSAGEBOX_WARNING, nullptr,
+                                    russian ? "Исправления не применены" : "Fixes not applied", text.c_str(), 1,
+                                    &button, nullptr};
+    if (SDL_ShowMessageBox(&dialog, nullptr) != 0)
+    {
+        spdlog::error("Cannot show the script patch notice: {}", SDL_GetError());
+        return; // shown again next start
+    }
+    std::ofstream file(stamp, std::ios::trunc);
+    file << key << '\n';
+    if (!file)
+        spdlog::error("Cannot record the script patch notice in {}", stamp.string());
+}
+#endif
+
 void mimalloc_fun(const char *msg, void *arg)
 {
     static std::filesystem::path mimalloc_log_path;
@@ -240,8 +283,10 @@ void SubscribeEngineToAppEvents()
                 if (event.immediate && core_private && core_private->initialized())
                 {
                     // Hook for scripts (the app's background autosave). Runs between frames on
-                    // the game thread; the Android UI thread does not wait for it (Vulkan
-                    // window: SDL's surfaceDestroyed takes no hand-off from this thread).
+                    // the game thread. This handler runs before the renderer's (early handlers are
+                    // called in subscription order), so the scripts, and the save thumbnail, still
+                    // see a live surface; the renderer stops presenting right after. The Android
+                    // UI thread waits in surfaceDestroyed only for a running bgfx frame.
                     const auto started = std::chrono::steady_clock::now();
                     core_private->Event("AppWillEnterBackground");
                     spdlog::info("AppWillEnterBackground handlers took {} ms",
@@ -347,6 +392,11 @@ int main(int argc, char *argv[])
         // Build the resource index only after JNI and the game directory are ready.
         fio->ScanResourcePaths();
     }
+    catch (const storm::script_patches::LayerError &error)
+    {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Damaged script fixes", error.what(), nullptr);
+        return EXIT_FAILURE;
+    }
     catch (const std::exception &error)
     {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game data required", error.what(), nullptr);
@@ -402,6 +452,9 @@ int main(int argc, char *argv[])
     spdlog::set_default_logger(storm::logging::getOrCreateLogger(defaultLoggerName));
     spdlog::info("Logging system initialized. Running on {}", STORM_BUILD_WATERMARK_STRING);
     spdlog::info("mimalloc-redirect status: {}", mi_is_redirected());
+#ifdef __ANDROID__
+    AnnounceScriptPatches();
+#endif
 
     // Init core
     core_private = static_cast<CorePrivate *>(&core);
@@ -442,35 +495,6 @@ int main(int argc, char *argv[])
         bSteam = ini->GetInt(nullptr, "Steam", 1) != 0;
     }
 
-#ifdef STORM_ENABLE_BGFX
-    // This mode branches before OSWindow/InitBase: DXVK never owns this surface.
-    char fogPreview[1024]{}, fogCapture[1024]{}, fogShaders[1024]{};
-    if (ini) {
-        ini->ReadString(nullptr, "bgfx_fog_preview_file", fogPreview, sizeof(fogPreview), "");
-        ini->ReadString(nullptr, "bgfx_fog_capture_file", fogCapture, sizeof(fogCapture), "");
-        ini->ReadString(nullptr, "bgfx_shader_directory", fogShaders, sizeof(fogShaders), "");
-    }
-    if (fogPreview[0]) {
-        storm::render::FogPreviewOptions options;
-        options.snapshotPath = fogPreview;
-        options.shaderDirectory = fogShaders;
-        options.width = std::max(320, width);
-        options.height = std::max(180, height);
-        options.vsync = ini->GetInt(nullptr, "vsync", 1) != 0;
-        options.fogEnabled = ini->GetInt(nullptr, "bgfx_preview_fog", 1) != 0;
-#ifdef __ANDROID__
-        options.width = std::max(320, storm::android::graphicsSetting("screen_x", options.width));
-        options.height = std::max(180, storm::android::graphicsSetting("screen_y", options.height));
-        options.vsync = storm::android::graphicsSetting("vsync", options.vsync) != 0;
-#endif
-        core_private->CleanUp();
-        core_private->ReleaseBase();
-        const int result = storm::render::runFogPreview(options);
-        SDL_Quit();
-        return result;
-    }
-    storm::render::configureFogCapture(fogCapture);
-#endif
 
     // initialize SteamApi through evaluating its singleton
     try
@@ -539,6 +563,11 @@ int main(int argc, char *argv[])
         }
         return permissions;
     };
+    // A held HUD control acts only while the gameplay that binds it is live.
+    storm::android::heldControls.guard = [&](std::string_view control) {
+        return isRunning && bActive && androidLifecycle.canRun() && core_private->initialized() && core.Controls &&
+            storm::android::loadingState == 0 && storm::android::mobileScreen.empty() && gameplayState.allows(control);
+    };
     storm::android::updateCombatState(gameplayState);
     storm::android::publishCombatState();
     storm::android::publishGameplayState(gameplayState.json());
@@ -546,6 +575,7 @@ int main(int argc, char *argv[])
     storm::android::publishWorldMapHud();
     storm::android::shipTelemetry.update(gameplayState.revision(), {});
     storm::android::publishShipTelemetry();
+    storm::android::publishSeaQuickAction();
     unsigned shortcutLogBudget = 64;
 #endif
     int exitCode = EXIT_SUCCESS;
@@ -562,7 +592,8 @@ int main(int argc, char *argv[])
         {
             if(storm::android::worldMapHud.modal.ownsInput(SDL_GetTicks()) &&
                 (command.starts_with("gameplay:") || command.starts_with("shortcut:") || command.starts_with("context:") ||
-                 command.starts_with("move:") || command.starts_with("combat:") || command.starts_with("sails:")))continue;
+                 command.starts_with("move:") || command.starts_with("combat:") || command.starts_with("sails:") ||
+                 command.starts_with("hold:") || command.starts_with("seaquick:")))continue;
             if (command.starts_with("combat:"))
             {
                 storm::android::combatInput.offer(std::string_view(command).substr(7), SDL_GetTicks(), combatDrainEpoch);
@@ -574,6 +605,20 @@ int main(int argc, char *argv[])
             else if (command.starts_with("landcommands:"))
             {
                 storm::android::landCommands.offer(std::string_view(command).substr(13), SDL_GetTicks());
+            }
+            else if (command.starts_with("spyglass:"))
+            {
+                storm::android::spyglass.acknowledge(std::string_view(command).substr(9), SDL_GetTicks());
+            }
+            else if (command.starts_with("hold:"))
+            {
+                storm::android::heldControls.offer(std::string_view(command).substr(5), SDL_GetTicks(), combatDrainEpoch);
+            }
+            else if (command.starts_with("seaquick:"))
+            {
+                const bool accepted = storm::android::seaQuickAction.offer(std::string_view(command).substr(9), SDL_GetTicks());
+                if (command.find("\tactivate\t") != std::string::npos)
+                    storm::android::traceContextAction("sea-quick-mailbox", accepted ? "accepted" : "rejected", command);
             }
             else if (command.starts_with("orders:"))
             {
@@ -706,6 +751,7 @@ int main(int argc, char *argv[])
                 storm::android::closeSeaOrders();
                 storm::android::closeLandCommands();
                 storm::android::publishLandCommands();
+                storm::android::seaQuickLifecycleReady = false;
             }
         }
         if (SDL_HasEvent(SDL_QUIT))
@@ -721,6 +767,7 @@ int main(int argc, char *argv[])
             storm::android::publishSeaOrders();
             storm::android::movementInput.updateOwner({});
             gameplayState.update({});
+            storm::android::heldControls.update(gameplayState.revision());
             storm::android::updateCombatState(gameplayState);
             storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
@@ -728,6 +775,9 @@ int main(int argc, char *argv[])
             storm::android::publishWorldMapHud();
             storm::android::shipTelemetry.update(gameplayState.revision(), {});
             storm::android::publishShipTelemetry();
+            storm::android::seaQuickLifecycleReady = false;
+            storm::android::seaQuickAction.update({});
+            storm::android::publishSeaQuickAction();
         }
         if (androidLifecycle.terminating())
             isRunning = false;
@@ -776,12 +826,6 @@ int main(int argc, char *argv[])
                 exitCode = EXIT_FAILURE;
                 break;
             }
-#ifdef STORM_ENABLE_BGFX
-            static bool fogCaptureKeyDown = false;
-            const bool fogCaptureKey = core.Controls && core.Controls->GetDebugAsyncKeyState(VK_F11) != 0;
-            if (fogCaptureKey && !fogCaptureKeyDown) storm::render::requestFogCapture();
-            fogCaptureKeyDown = fogCaptureKey;
-#endif
 #ifdef __ANDROID__
             const bool gameplayReady = isRunning && bActive && androidLifecycle.canRun() &&
                 core_private->initialized() && core.Controls && storm::android::loadingState == 0 &&
@@ -807,6 +851,9 @@ int main(int argc, char *argv[])
             gameplaySnapshot.analogMovement = !gameplaySnapshot.inputOwner.empty();
             gameplaySnapshot.movementGeneration = gameplaySnapshot.analogMovement ? storm::android::movementInput.generation() : 0;
             gameplayState.update(std::move(gameplaySnapshot));
+            storm::android::heldControls.update(gameplayState.revision());
+            storm::android::seaQuickLifecycleReady = gameplayReady;
+            storm::android::publishSeaQuickAction();
             storm::android::updateCombatState(gameplayState);
             storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
@@ -902,6 +949,7 @@ int main(int argc, char *argv[])
     storm::android::combatInput.clear();
     storm::android::combatInput.guard = {};
     storm::android::movementInput.guard = {};
+    storm::android::heldControls.guard = {};
     storm::android::closeSeaOrders();
     storm::android::closeLandCommands();
     storm::android::publishLandCommands();

@@ -80,7 +80,8 @@ int main() {
     w=read();assert(w.images.front().source.group=="PERK_ENABLE" && w.images.front().source.image=="BasicDefense");
     assert(MobileImageJson(w.images.front()).find("\"image\":\"BasicDefense\"")!=std::string::npos);
     picture.SetNewPicture(false,"portraits/player.tga");
-    w=read();assert(w.images.front().source.kind.empty() && picture.m_mobilePictureName.empty());
+    w=read();assert(w.images.front().source.kind=="texture" && w.images.front().source.image=="portraits/player" && picture.m_mobilePictureName.empty());
+    assert(MobileImageJson(w.images.front()).find("\"kind\":\"texture\",\"image\":\"portraits/player\"")!=std::string::npos);
     picture.SetNewPictureByGroup("PERK_ENABLE","Alchemy");
     assert(read().images.front().source.image=="Alchemy");
     FXYRECT custom;picture.ChangeUV(custom);assert(read().images.front().source.kind.empty());

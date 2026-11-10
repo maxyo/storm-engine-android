@@ -1,5 +1,3 @@
-#include "particles_shaders.h"
-
 technique particles
 {
     pass p0
