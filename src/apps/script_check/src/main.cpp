@@ -12,7 +12,8 @@
 // used to prove that a compiler change leaves an existing game's bytecode unchanged.
 //
 // test: compiles each script as the main segment and runs every function whose name starts with
-// "test_"; it must return 1 (int) without a runtime error. A script whose first line is
+// "test_"; it must return 1 (int) without a runtime error. A "fail_" function must stop with a
+// runtime error within 5 s (the script call time limit is 1 s here). A script whose first line is
 // "// expect-error: <text>" must instead fail to compile with an error containing <text>.
 #include "compiler.h"
 #include "core_impl.h"
@@ -48,6 +49,14 @@ uint32_t ScriptCheckAddOne(VS_STACK *stack)
     return IFUNCRESULT_OK;
 }
 
+uint32_t ScriptCheckHalf(VS_STACK *stack)
+{
+    auto *value = static_cast<VDATA *>(stack->Pop());
+    const float result = value->GetFloat() / 2.0f;
+    static_cast<VDATA *>(stack->Push())->Set(result);
+    return IFUNCRESULT_OK;
+}
+
 uint32_t ScriptCheckUnused(VS_STACK *stack)
 {
     static_cast<VDATA *>(stack->Push())->Set(int32_t{0});
@@ -66,6 +75,12 @@ class script_check_test_library : public SCRIPT_LIBRIARY
         info.pFuncAddress = ScriptCheckAddOne;
         info.nArguments = 1;
         core.SetScriptFunction(&info);
+        info.pFuncName = "ScriptCheckHalf";
+        info.pReturnValueName = "float";
+        info.pFuncAddress = ScriptCheckHalf;
+        info.nArguments = 1;
+        core.SetScriptFunction(&info);
+        info.pReturnValueName = "int";
         info.pFuncName = "ScriptCheckUnused";
         info.pFuncAddress = ScriptCheckUnused;
         info.nArguments = 0;
@@ -365,6 +380,7 @@ int test(int argc, char **argv)
         COMPILER compiler;
         core_internal.Compiler = &compiler;
         compiler.ConfigureCompileCheck(&diagnostics, true);
+        compiler.SetScriptCallTimeLimit(1000); // fail_* cases loop forever
         if (!cache.empty() && expected.empty())
             compiler.UseScriptCache(cache);
         compiler.SetProgramDirectory(".");
@@ -414,6 +430,26 @@ int test(int argc, char **argv)
                 {
                     ++failures;
                     std::printf("FAIL %s: %s returned '%s'\n", name.c_str(), function.c_str(), value.c_str());
+                    dump();
+                }
+            }
+            // fail_*: must stop with a runtime error (e.g. the endless loop guard) within a few seconds
+            const std::regex fail_function(R"(^\s*int\s+(fail_\w+)\s*\(\s*\))", std::regex::multiline);
+            for (std::sregex_iterator it(text.begin(), text.end(), fail_function), end; it != end; ++it)
+            {
+                const auto function = (*it)[1].str();
+                diagnostics.clear();
+                std::string value;
+                const auto started = std::chrono::steady_clock::now();
+                const bool ran = compiler.RunScriptFunction(function.c_str(), value);
+                const auto seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+                const bool errors = std::ranges::any_of(diagnostics, isError);
+                ++count;
+                if ((ran && value == "1") || !errors || seconds > 5.0)
+                {
+                    ++failures;
+                    std::printf("FAIL %s: %s did not stop with an error (%.1f s)\n", name.c_str(), function.c_str(),
+                                seconds);
                     dump();
                 }
             }

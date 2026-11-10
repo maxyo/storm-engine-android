@@ -2966,7 +2966,19 @@ void DATA::BadIndex(uint32_t index, uint32_t array_size)
 
 int32_t DATA::GetInt()
 {
-    return lValue;
+    // natives read arguments through these getters: convert numbers and text by the value's type
+    // (CL passes ints where floats are declared, e.g. Degree2Radian(14))
+    switch (Data_type)
+    {
+    case VAR_FLOAT:
+        return static_cast<int32_t>(fValue);
+    case VAR_STRING:
+        return static_cast<int32_t>(strtoll(sValue.c_str(), nullptr, 10));
+    case VAR_REFERENCE:
+        return pReference ? pReference->GetInt() : lValue;
+    default:
+        return lValue;
+    }
 }
 
 uintptr_t DATA::GetPtr()
@@ -2976,7 +2988,17 @@ uintptr_t DATA::GetPtr()
 
 float DATA::GetFloat()
 {
-    return fValue;
+    switch (Data_type)
+    {
+    case VAR_INTEGER:
+        return static_cast<float>(lValue);
+    case VAR_STRING:
+        return static_cast<float>(atof(sValue.c_str()));
+    case VAR_REFERENCE:
+        return pReference ? pReference->GetFloat() : fValue;
+    default:
+        return fValue;
+    }
 }
 
 const char *DATA::GetString()

@@ -578,6 +578,9 @@ void COMPILER::LoadPreprocess()
         else
             bWriteCodeFile = true;
 
+        // seconds one call from the engine into the scripts may run (0: no limit)
+        scriptCallTimeLimitMs_ = static_cast<uint32_t>(engine_ini->GetInt("script", "call_time_limit", 60)) * 1000;
+
         if (engine_ini->GetInt("script", "runtimelog", 0) == 0)
             bRuntimeLog = false;
         else
@@ -5544,10 +5547,32 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
     bLeftOperandType = 0xffffffff;
     pLeftOperandAClass = nullptr;
 
+    // a call from the engine (outermost BC_Execute) gets a time limit: an endless script loop stops
+    // with an error and the script stack instead of hanging the engine
+    struct CallDepth
+    {
+        COMPILER &compiler;
+        explicit CallDepth(COMPILER &c) : compiler(c)
+        {
+            if (compiler.scriptCallDepth_++ == 0)
+            {
+                compiler.scriptCallStart_ = std::chrono::steady_clock::now();
+                compiler.scriptCallAborted_ = false;
+            }
+        }
+        ~CallDepth()
+        {
+            compiler.scriptCallDepth_--;
+        }
+    } call_depth(*this);
+
     // S_TOKEN_TYPE oldToken_type;
     do
     {
-        dwNumberScriptCommandsExecuted++;
+        // the clock is read every 2^20 instructions; after a stop every frame of the call returns
+        if (scriptCallAborted_ || ((++dwNumberScriptCommandsExecuted & 0xFFFFF) == 0 && scriptCallTimeLimitMs_ != 0 &&
+                                   !ScriptCallInTime()))
+            return false;
         // oldToken_type = Token_type;
         Token_type = BC_TokenGet(ip, token_data_size);
 
@@ -9169,6 +9194,19 @@ DATA *COMPILER::GetOperand(const char *pCodeBase, uint32_t &ip, S_TOKEN_TYPE *pT
         return nullptr;
     }
     return nullptr;
+}
+
+bool COMPILER::ScriptCallInTime()
+{
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                              scriptCallStart_).count();
+    if (elapsed <= scriptCallTimeLimitMs_)
+        return true;
+    SetError("script call stopped after %lld ms (limit %u ms, engine.ini [script] call_time_limit): an endless loop?",
+             static_cast<long long>(elapsed), scriptCallTimeLimitMs_);
+    CollectCallStack();
+    scriptCallAborted_ = true;
+    return false;
 }
 
 void COMPILER::CollectCallStack() const
