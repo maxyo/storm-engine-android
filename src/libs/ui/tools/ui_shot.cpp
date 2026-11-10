@@ -13,6 +13,7 @@
 //
 // Sizes and script coordinates are in dp. The clock is simulated (60 frames a second),
 // so captures are repeatable. Reported actions go to stdout as "action id verb value".
+#include "storm_ui/render_backend.h"
 #include "storm_ui/ui.h"
 
 #include <plutovg.h>
@@ -188,8 +189,17 @@ int main(int argc, char **argv)
 
     double clock = 0.0;
     const auto files = storm::ui::DirectoryFiles(pack);
+    std::string error;
+    const auto backend = storm::ui::CreateGl3Backend(&error);
+    if (!backend)
+    {
+        std::fprintf(stderr, "GL backend: %s\n", error.c_str());
+        return 4;
+    }
     storm::ui::Config config;
     config.files = files.get();
+    config.backend = backend.get();
+    config.show_errors = true;
     config.width = width;
     config.height = height;
     config.density = density;
@@ -206,7 +216,6 @@ int main(int argc, char **argv)
         std::printf("text-request \"%s\" \"%s\" at %.0f,%.0f %.0fx%.0f\n", request.title.c_str(), request.text.c_str(), request.x, request.y,
                     request.width, request.height);
     };
-    std::string error;
     auto host = storm::ui::Host::Create(config, &error);
     if (!host)
     {

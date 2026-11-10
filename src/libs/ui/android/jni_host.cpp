@@ -3,6 +3,7 @@
 // Actions are queued and handed to Java in batches after a frame, so no native code
 // ever calls back into the VM.
 #include "asset_files.h"
+#include "storm_ui/render_backend.h"
 #include "storm_ui/ui.h"
 
 #include <android/asset_manager_jni.h>
@@ -18,6 +19,7 @@ namespace
 struct Session
 {
     std::unique_ptr<storm::ui::FileSource> files;
+    std::unique_ptr<storm::ui::RenderBackend> backend; // the bundled GL backend on the host's GLES 3 context
     std::unique_ptr<storm::ui::Host> host;
     std::vector<storm::ui::Action> actions;
     std::vector<storm::ui::TextRequest> text_requests;
@@ -46,7 +48,7 @@ extern "C"
 {
 
 JNIEXPORT jlong JNICALL Java_org_stormengine_port_StormUi_nativeCreate(JNIEnv *env, jclass, jobject assets, jstring directory, jint width,
-                                                                        jint height, jfloat density, jstring game_root)
+                                                                        jint height, jfloat density, jstring game_root, jboolean show_errors)
 {
     auto session = std::make_unique<Session>();
     session->assets_reference = env->NewGlobalRef(assets);
@@ -60,8 +62,12 @@ JNIEXPORT jlong JNICALL Java_org_stormengine_port_StormUi_nativeCreate(JNIEnv *e
     Session *raw = session.get();
     config.on_action = [raw](const storm::ui::Action &action) { raw->actions.push_back(action); };
     config.on_text_request = [raw](const storm::ui::TextRequest &request) { raw->text_requests.push_back(request); };
+    config.show_errors = show_errors == JNI_TRUE;
     std::string error;
-    session->host = storm::ui::Host::Create(config, &error);
+    session->backend = storm::ui::CreateGl3Backend(&error);
+    config.backend = session->backend.get();
+    if (session->backend)
+        session->host = storm::ui::Host::Create(config, &error);
     if (!session->host)
     {
         __android_log_print(ANDROID_LOG_ERROR, "StormUi", "UI host failed: %s", error.c_str());
@@ -77,6 +83,7 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeDestroy(JNIEnv *e
     if (!session)
         return;
     session->host.reset();
+    session->backend.reset();
     env->DeleteGlobalRef(session->assets_reference);
 }
 

@@ -43,6 +43,7 @@ struct Admission
 {
     const InterfaceModel *model = nullptr;
     bool accepted = false;               // every REQUIRED node is present with its type
+    std::string missing;                 // REQUIRED nodes that are absent or mistyped: "TABLE_LIST(choice), …"
     std::vector<const Widget *> known;   // KNOWN node with the expected type
     std::vector<const Widget *> extras;  // everything else that is not hidden
 
@@ -62,6 +63,9 @@ class Bindings
 
     // Runs `handler` for events of the element `id`; an empty verb takes every verb.
     void On(const std::string &id, const std::string &verb, Handler handler);
+    // Events of `id` with this verb are expected and need no action (drag progress, …).
+    // An event that is neither bound nor ignored is reported as an error.
+    void Ignore(const std::string &id, const std::string &verb);
     // An event of `id` sends this verb of the widget to the engine.
     void Forward(const std::string &id, const Widget &widget, const std::string &verb);
 
@@ -146,6 +150,9 @@ class Surface
     virtual void RequestText(TextRequest request, const std::string &anchor) = 0;
     virtual void Toast(const std::string &text) = 0;
     virtual void Log(const std::string &line) = 0;
+    // Something is wrong with the data or the pack: an error log line, and in debug hosts
+    // a visible notice. Never a quiet drop.
+    virtual void Error(const std::string &line) = 0;
     virtual double Now() const = 0;
 };
 
@@ -172,6 +179,12 @@ class Router
     const std::string &Using() const
     {
         return using_;
+    }
+    // Why the ported screen of this interface id was not used (its REQUIRED nodes that are
+    // missing or mistyped); empty when the screen in use is the intended one.
+    const std::string &Rejection() const
+    {
+        return rejection_;
     }
 
   private:
@@ -201,7 +214,8 @@ class Router
     std::vector<std::unique_ptr<StateConsumer>> consumers_;
     std::vector<PendingMark> pending_;
     std::vector<Waiting> waiting_;
-    std::set<std::string> logged_extras_;
+    std::set<std::string> logged_; // once per (screen, node set): extras, generic use, rejections
+    std::string rejection_;
     // Shared «Прочее» sheet and reading sheet.
     bool extras_open_ = false;
     std::string reading_title_, reading_text_;

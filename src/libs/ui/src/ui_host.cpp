@@ -190,7 +190,6 @@ class HostImpl final : public Host, public Services, public screens::Surface
         if (initialised_)
             Rml::Shutdown();
         registry_.reset();
-        owned_backend_.reset();
     }
 
     bool Start(const Config &config, std::string *error)
@@ -206,10 +205,9 @@ class HostImpl final : public Host, public Services, public screens::Surface
         backend_ = config.backend;
         if (!backend_)
         {
-            owned_backend_ = CreateGl3Backend(error);
-            backend_ = owned_backend_.get();
-            if (!backend_)
-                return false;
+            if (error)
+                *error = "no render backend given";
+            return false;
         }
         files_ = std::make_unique<PackFiles>(*config.files);
         Rml::SetSystemInterface(&system_);
@@ -503,7 +501,7 @@ class HostImpl final : public Host, public Services, public screens::Surface
         std::string error;
         if (!ParseInterfaceModel(json, model, &error))
         {
-            Rml::Log::Message(Rml::Log::LT_ERROR, "%s", error.c_str());
+            Error(error);
             return false;
         }
         SetInterface(model);
@@ -524,14 +522,17 @@ class HostImpl final : public Host, public Services, public screens::Surface
     {
         const Json state = Json::parse(json, nullptr, false);
         if (state.is_discarded())
+        {
+            Error("state channel " + channel + ": malformed JSON");
             return false;
+        }
         try
         {
             router_->SetState(channel, state);
         }
         catch (const Json::exception &error)
         {
-            Rml::Log::Message(Rml::Log::LT_ERROR, "State %s: %s", channel.c_str(), error.what());
+            Error("state channel " + channel + ": " + error.what());
             return false;
         }
         return true;
@@ -553,7 +554,7 @@ class HostImpl final : public Host, public Services, public screens::Surface
     {
         if (!screen_root_ && (screen_path_.empty() || !OpenDocument(screen_path_)))
         {
-            Rml::Log::Message(Rml::Log::LT_ERROR, "UI pack has no screen document");
+            Error("UI pack has no screen document");
             return;
         }
         screen_root_ = document_;
@@ -569,7 +570,7 @@ class HostImpl final : public Host, public Services, public screens::Surface
         if (auto *component = dynamic_cast<ComponentElement *>(mounted))
             component->SetProps(props);
         else
-            Rml::Log::Message(Rml::Log::LT_ERROR, "UI pack has no screen %s", tag.c_str());
+            Error("UI pack has no screen " + tag);
     }
 
     void Hide() override
@@ -614,6 +615,13 @@ class HostImpl final : public Host, public Services, public screens::Surface
     void Log(const std::string &line) override
     {
         Rml::Log::Message(Rml::Log::LT_INFO, "%s", line.c_str());
+    }
+
+    void Error(const std::string &line) override
+    {
+        Rml::Log::Message(Rml::Log::LT_ERROR, "%s", line.c_str());
+        if (config_.show_errors)
+            Toast(line, "danger");
     }
 
     // --- Services -----------------------------------------------------------------
@@ -729,7 +737,6 @@ class HostImpl final : public Host, public Services, public screens::Surface
     Config config_;
     System system_;
     std::unique_ptr<PackFiles> files_;
-    std::unique_ptr<RenderBackend> owned_backend_;
     RenderBackend *backend_ = nullptr;
     std::unique_ptr<ComponentRegistry> registry_;
     Rml::Context *context_ = nullptr;

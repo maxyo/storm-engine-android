@@ -160,7 +160,10 @@ Admission Admit(const InterfaceModel &model, std::span<const NodeRule> rules)
     out.accepted = true;
     for (size_t i = 0; i < rules.size(); ++i)
         if (rules[i].required && !met[i])
+        {
             out.accepted = false;
+            out.missing += (out.missing.empty() ? "" : ", ") + std::string(rules[i].node) + "(" + rules[i].type + ")";
+        }
     return out;
 }
 
@@ -169,6 +172,11 @@ Admission Admit(const InterfaceModel &model, std::span<const NodeRule> rules)
 void Bindings::On(const std::string &id, const std::string &verb, Handler handler)
 {
     handlers_[id + '\x1f' + verb] = std::move(handler);
+}
+
+void Bindings::Ignore(const std::string &id, const std::string &verb)
+{
+    On(id, verb, [](const Event &) {});
 }
 
 void Bindings::Forward(const std::string &id, const Widget &widget, const std::string &verb)
@@ -311,6 +319,7 @@ void Router::CloseInterface()
         return;
     screen_.reset();
     using_.clear();
+    rejection_.clear();
     bindings_.handlers_.clear();
     pending_.clear();
     waiting_.clear();
@@ -321,41 +330,65 @@ void Router::CloseInterface()
 
 void Router::SetState(const std::string &channel, const Json &state)
 {
+    bool consumed = false;
     for (const auto &consumer : consumers_)
         if (channel == consumer->Channel())
+        {
             consumer->OnState(state, *this);
+            consumed = true;
+        }
+    if (!consumed)
+        surface_.Error("state channel " + channel + " has no consumer");
 }
 
 void Router::Build()
 {
     rebuild_ = false;
     bindings_.handlers_.clear();
-    // A screen instance is kept while it still admits the model; a ported screen that
-    // stops fitting (a mod changed the interface mid-way) gives way to the generic layout.
+    // The ported screen registered for the id draws it when the model passes its admission.
+    // If its REQUIRED nodes are missing or mistyped the interface is still drawn, by the
+    // generic layout, and that is reported as an error (never a quiet switch).
+    const ScreenEntry *ported = nullptr;
+    for (const ScreenEntry &entry : PortedScreens())
+        if (model_.screen == entry.id)
+            ported = &entry;
     Admission admitted;
-    for (int attempt = 0; attempt < 2; ++attempt)
+    std::string rejection;
+    if (ported)
     {
-        if (!screen_)
+        if (using_ != ported->id || !screen_)
         {
-            for (const ScreenEntry &entry : PortedScreens())
-                if (attempt == 0 && model_.screen == entry.id)
-                {
-                    screen_ = entry.create();
-                    using_ = entry.id;
-                }
-            if (!screen_)
-            {
-                screen_ = CreateGenericScreen();
-                using_ = "generic";
-            }
+            screen_ = ported->create();
+            using_ = ported->id;
         }
         admitted = Admit(model_, screen_->Nodes());
-        if (admitted.accepted)
-            break;
-        screen_.reset();
-        if (using_ == "generic")
-            attempt = 0; // cannot happen: the generic layout requires nothing
+        if (!admitted.accepted)
+        {
+            rejection = admitted.missing;
+            screen_.reset();
+        }
     }
+    if (!ported || !rejection.empty())
+    {
+        if (using_ != "generic" || !screen_)
+        {
+            screen_ = CreateGenericScreen();
+            using_ = "generic";
+        }
+        admitted = Admit(model_, screen_->Nodes());
+    }
+    rejection_ = rejection;
+    std::string nodes;
+    for (const Widget &widget : model_.widgets)
+        if (nodes.find("," + widget.node + ",") == std::string::npos)
+            nodes += (nodes.empty() ? "," : "") + widget.node + ",";
+    if (!rejection.empty())
+    {
+        if (logged_.insert("rejected:" + model_.screen + ":" + nodes).second)
+            surface_.Error("screen " + model_.screen + ": required nodes missing or mistyped: " + rejection + "; drawn by the generic layout");
+    }
+    else if (!ported && logged_.insert("generic:" + model_.screen + ":" + nodes).second)
+        surface_.Log("screen " + model_.screen + ": no ported screen, generic layout; nodes=" + nodes.substr(1, nodes.size() - 2));
     Json view = screen_->Build(admitted, bindings_);
     // The generic layout places every widget itself and hands over only its overflow rows.
     Json rows = view.contains("more") ? view["more"] : Json::array();
@@ -394,7 +427,7 @@ Json Router::ExtrasView(const Admission &admitted, Json rows)
             rows.push_back(ActionRow(bindings_, *widget, "extra-a" + std::to_string(rows.size())));
     }
     flush();
-    if (!nodes.empty() && logged_extras_.insert(model_.screen + ":" + nodes).second)
+    if (!nodes.empty() && logged_.insert("extras:" + model_.screen + ":" + nodes).second)
         surface_.Log("screen " + model_.screen + " extras=" + nodes);
 
     Json view = Json::object();
@@ -411,6 +444,10 @@ Json Router::ExtrasView(const Admission &admitted, Json rows)
     });
     bindings_.On("extras", "close", [this](const Event &) {
         extras_open_ = false;
+        reading_text_.clear();
+        rebuild_ = true;
+    });
+    bindings_.On("extras", "dismiss", [this](const Event &) {
         reading_text_.clear();
         rebuild_ = true;
     });
@@ -434,7 +471,10 @@ bool Router::OnEvent(const Event &event)
     if (found == bindings_.handlers_.end())
         found = bindings_.handlers_.find(event.id + '\x1f');
     if (found == bindings_.handlers_.end())
+    {
+        surface_.Error("screen " + using_ + ": no mapping for event " + event.id + " " + event.verb + " " + event.value);
         return false;
+    }
     const Bindings::Handler handler = found->second; // a rebuild replaces the table
     current_ = &event;
     sent_in_event_ = false;

@@ -68,8 +68,9 @@ struct Picture
 struct Config
 {
     FileSource *files = nullptr; // must outlive the host
-    // Renderer seam. Null selects the bundled GL backend (a GL context must be current).
-    // The engine passes its own backend here once the UI is drawn inside its frame.
+    // Renderer seam, chosen by the host and required: CreateGl3Backend() of
+    // render_backend.h (its GL context must be current) or the engine's own backend once
+    // the UI is drawn inside its frame. There is no default and nothing else is tried.
     RenderBackend *backend = nullptr; // must outlive the host
     int width = 0;               // physical pixels
     int height = 0;
@@ -83,6 +84,9 @@ struct Config
     std::function<bool(const std::string &texture, Picture &out)> game_picture_loader;
     std::function<void(const Action &)> on_action;
     std::function<void(const TextRequest &)> on_text_request;
+    // Debug hosts: data and pack errors (malformed model, missing screen, unmapped event,
+    // rejected ported screen) are also shown as a toast, not only logged.
+    bool show_errors = false;
     // Optional clock in seconds, for deterministic captures.
     std::function<double()> clock;
 };

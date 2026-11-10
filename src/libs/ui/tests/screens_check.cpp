@@ -36,6 +36,7 @@ struct FakeSurface final : Surface
     Json props;
     std::vector<std::string> commands;
     std::vector<std::string> logs;
+    std::vector<std::string> errors;
     TextRequest text;
     double now = 0.0;
 
@@ -62,6 +63,10 @@ struct FakeSurface final : Surface
     void Log(const std::string &line) override
     {
         logs.push_back(line);
+    }
+    void Error(const std::string &line) override
+    {
+        errors.push_back(line);
     }
     double Now() const override
     {
@@ -165,6 +170,15 @@ static void Generic(const std::string &models)
     Router router(surface);
     router.SetInterface(Load(models, "generic-split.json"));
     ExpectEqual(router.Using(), "generic", "unknown interface → generic layout");
+    Expect(router.Rejection().empty() && surface.errors.empty(), "an unknown interface in the generic layout is no error");
+    Expect(surface.logs.size() == 1 && surface.logs[0].rfind("screen mod_bounty: no ported screen, generic layout; nodes=TITLE,TABLE_TARGETS", 0) == 0,
+           "generic use is logged once with the node set");
+    router.SetInterface(Load(models, "generic-split.json"));
+    Expect(surface.logs.size() == 1, "the same node set is not logged again");
+    Expect(!router.OnEvent({"nobody", "click", ""}) && surface.errors.size() == 1 &&
+               surface.errors[0] == "screen generic: no mapping for event nobody click ",
+           "an event without a mapping is an error");
+    surface.errors.clear();
     ExpectEqual(surface.tag, "s-generic", "generic screen mounted");
     ExpectEqual(surface.props.value("layout", ""), "split", "table + long text → Split");
     ExpectEqual(surface.props.value("title", ""), "Доска розыска", "heading → title");
@@ -251,7 +265,7 @@ static void Store(const std::string &models)
     Expect(surface.props["extras"]["rows"].size() == 1 && surface.props["extras"]["rows"][0]["title"] == "Гильдейский счёт", "unknown button → «Прочее» row");
     Expect(surface.logs.size() == 1 && surface.logs[0] == "screen store extras=B_GUILD,GUILD_NOTE", "extras logged once");
     router.SetInterface(Load(models, "store.json"));
-    Expect(surface.logs.size() == 1, "the same node set is not logged again");
+    Expect(surface.logs.size() == 1 && surface.errors.empty(), "the same node set is not logged again");
 
     router.OnEvent({"goods", "row", "1"});
     ExpectEqual(surface.Last(), "widget:store\tTABLE_LIST\t1\tactivate@7:goods:1:ship:0", "row tap opens the deal for that row");
@@ -282,6 +296,18 @@ static void Store(const std::string &models)
     broken.opening = 8;
     router.SetInterface(broken);
     ExpectEqual(router.Using(), "generic", "store without TABLE_LIST → generic");
+    ExpectEqual(router.Rejection(), "TABLE_LIST(choice)", "the rejection names the missing required node");
+    Expect(surface.errors.size() == 1 &&
+               surface.errors[0] == "screen store: required nodes missing or mistyped: TABLE_LIST(choice); drawn by the generic layout",
+           "a ported screen that cannot be used is an error");
+    broken.revision = 99;
+    router.SetInterface(broken);
+    Expect(surface.errors.size() == 1, "reported once per node set");
+    broken.widgets.pop_back();
+    router.SetInterface(broken);
+    Expect(surface.errors.size() == 2, "and again when the node set changes");
+    router.SetInterface(Load(models, "store.json"));
+    Expect(router.Using() == "store" && router.Rejection().empty(), "the ported screen returns when its nodes are back");
 
     Expect(HostOwned("ship") && !HostOwned("store") && !HostOwned("mod_bounty"), "host keeps only the listed interfaces");
 }
@@ -300,7 +326,8 @@ static void Dialogue(const std::string &models)
     router.SetState("dialogue", Json{{"active", false}});
     Expect(surface.tag.empty(), "inactive dialogue unmounts");
     router.SetState("vitals", Json::object());
-    Expect(surface.tag.empty(), "a channel without a consumer is ignored");
+    Expect(surface.tag.empty() && surface.errors.size() == 1 && surface.errors[0] == "state channel vitals has no consumer",
+           "a channel without a consumer is an error");
 }
 
 int main(int argc, char **argv)

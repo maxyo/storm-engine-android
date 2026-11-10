@@ -234,6 +234,7 @@ void ControlRows(Bindings &bindings, std::span<const Widget *const> widgets, con
             const int span = std::max(1, widget->max - widget->min);
             const int position = std::atoi(widget->value.c_str());
             const int percent = static_cast<int>(std::lround(100.0 * (position - widget->min) / span));
+            bindings.Ignore(id, "change"); // drag progress: the position goes out on release
             bindings.On(id, "commit", [&bindings, widget, span](const Event &event) {
                 const int step = std::max(1, widget->step);
                 const double wanted = widget->min + std::atof(event.value.c_str()) * span / 100.0;
