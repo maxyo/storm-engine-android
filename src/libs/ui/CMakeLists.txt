@@ -61,6 +61,7 @@ add_library(storm_ui STATIC
     src/screens/trade_commerce.cpp
     src/screens/trade_crew.cpp
     src/screens/dialogue.cpp
+    src/screens/menu_game.cpp
     src/template.cpp
     src/components.cpp
     src/behaviors.cpp
@@ -102,4 +103,7 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     add_executable(storm_ui_screens_unit tests/screens_check.cpp)
     target_link_libraries(storm_ui_screens_unit PRIVATE storm_ui)
     add_test(NAME ui_screens COMMAND storm_ui_screens_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/models")
+    add_executable(storm_ui_menus_unit tests/menus_check.cpp)
+    target_link_libraries(storm_ui_menus_unit PRIVATE storm_ui)
+    add_test(NAME ui_menus COMMAND storm_ui_menus_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/models")
 endif()

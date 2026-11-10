@@ -14,6 +14,7 @@ std::unique_ptr<Screen> CreateItemsBoxScreen();
 std::unique_ptr<Screen> CreateCrewScreen();
 std::unique_ptr<Screen> CreateDialogueScreen();
 std::unique_ptr<StateConsumer> CreateDialogueConsumer();
+std::unique_ptr<Screen> CreateGameMenuScreen();
 
 namespace
 {
@@ -27,12 +28,13 @@ const ScreenEntry kPorted[] = {
     {"itemsbox", CreateItemsBoxScreen},
     {"hirecrew", CreateCrewScreen},
     {"dialogue", CreateDialogueScreen},
+    {"game_menu", CreateGameMenuScreen},
 };
 
 // Interfaces the platform host still draws with its own forms. Anything not listed here
 // and not ported above gets the generic layout.
 const char *const kHostOwned[] = {
-    "mainmenu",       "option_screen", "game_menu", "save_load", "selectcharacter",           // menus, saves, settings
+    "mainmenu",       "option_screen", "save_load", "selectcharacter",                         // menus
     "character",      "lscchar_all",   "items",     "ship",      "questbook", "nationrelation", // hero sections
     "shipyard",                                                                                // trade zone
     "map",            "dirsailenc",    "leavebattle", "salary",  "about", "boal_frame", "quick_save", // reading menus
