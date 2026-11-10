@@ -1,7 +1,6 @@
 #pragma once
 #include "mobile_widget.hpp"
 #include "v_data.h"
-#include "platform/android_ui.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
@@ -18,28 +17,10 @@ struct SaveListSnapshot
     int selected = -1;
     bool saving = false;
 };
-inline std::optional<SaveListSnapshot> ReadSaveList()
-{
-    if (storm::android::mobileScreen != "save_load") return {};
-    const auto number = [](const char *name, int32_t &value) {
-        auto *v = static_cast<VDATA *>(core.GetScriptVariable(name)); return v && v->Get(value);
-    };
-    auto *profile = static_cast<VDATA *>(core.GetScriptVariable("currentProfile"));
-    auto *container = static_cast<VDATA *>(core.GetScriptVariable("g_oSaveContainer"));
-    const char *name = nullptr; int32_t count, selected, saving;
-    if (!profile || !profile->Get(name) || !name || !container || !container->GetAClass() ||
-        !number("g_nSaveQuantity", count) || !number("g_nCurrentSaveIndex", selected) ||
-        !number("bThisSave", saving) || count < 0 || count > 10000) return {};
-    SaveListSnapshot result{storm::android::mobileScreenRevision, name, {}, selected, saving != 0};
-    for (int i = 0; i < count; ++i)
-    {
-        auto *entry = container->GetAClass()->GetAttributeClass(("s" + std::to_string(i)).c_str());
-        const char *file = entry ? entry->GetAttribute("savename") : nullptr;
-        if (!file || !*file) return {};
-        result.files.emplace_back(file);
-    }
-    return result;
-}
+// The save list of the open save_load interface, read from the game script. The platform
+// host defines it, because only the host knows which interface is on screen and its
+// revision (Android: xinterface.cpp); portable code here only parses and validates.
+std::optional<SaveListSnapshot> ReadSaveList();
 // What the save list shows of a record. The game stores a description in every save
 // (interface.c GetSaveDataString: "label@faces@HH:MM  DD.MM.YYYY@play time@language");
 // SFLB_DoSaveFileData appends "@hero@location" of the game in progress (mobile_save_facts). A record written

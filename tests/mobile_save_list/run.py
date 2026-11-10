@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess,tempfile,os
 root=Path(__file__).resolve().parents[2]
 source=(root/'src/libs/xinterface/src/mobile_save_list.hpp').read_text()
-state=source[source.index('struct SaveListSnapshot'):source.index('inline std::optional<SaveListSnapshot> ReadSaveList')]
+state=source[source.index('struct SaveListSnapshot'):source.index('// The save list of the open save_load interface')]
 facts=source[source.index('// What the save list shows of a record'):source.index('// Identity is bound to the complete current list')]
 cap=source[source.index('class SaveListCapability'):source.index('inline SaveListCapability saveListCapability')]
 select=source[source.index('inline bool SelectSaveTarget'):source.index('\n}\nnamespace storm::mobile')]

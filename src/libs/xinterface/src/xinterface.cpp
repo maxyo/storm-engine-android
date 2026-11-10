@@ -14,11 +14,12 @@
 #include "string_service/str_service.h"
 #include "xservice.h"
 #include <cstdio>
+// Save facts (the hero and location in each save's description) are game data on every platform.
+#include "mobile_save_facts.hpp"
 #ifdef __ANDROID__
 #include "mobile_image_bridge.hpp"
 #include "mobile_inventory.hpp"
 #include "mobile_save_list.hpp"
-#include "mobile_save_facts.hpp"
 #include "mobile_nation_relations.hpp"
 #include "mobile_owner_bridge.hpp"
 #include <chrono>
@@ -27,6 +28,31 @@ static std::chrono::steady_clock::time_point deferredSaveDeadline;
 #include "android_newgame.hpp"
 #include "platform/android_ui.hpp"
 static storm::mobile::InventoryEquipCapability inventoryEquipCapability;
+#endif
+#ifdef __ANDROID__
+// The Android host knows the interface on screen (mobile_save_list.hpp declares this).
+std::optional<storm::mobile::SaveListSnapshot> storm::mobile::ReadSaveList()
+{
+    if (storm::android::mobileScreen != "save_load") return {};
+    const auto number = [](const char *name, int32_t &value) {
+        auto *v = static_cast<VDATA *>(core.GetScriptVariable(name)); return v && v->Get(value);
+    };
+    auto *profile = static_cast<VDATA *>(core.GetScriptVariable("currentProfile"));
+    auto *container = static_cast<VDATA *>(core.GetScriptVariable("g_oSaveContainer"));
+    const char *name = nullptr; int32_t count, selected, saving;
+    if (!profile || !profile->Get(name) || !name || !container || !container->GetAClass() ||
+        !number("g_nSaveQuantity", count) || !number("g_nCurrentSaveIndex", selected) ||
+        !number("bThisSave", saving) || count < 0 || count > 10000) return {};
+    storm::mobile::SaveListSnapshot result{storm::android::mobileScreenRevision, name, {}, selected, saving != 0};
+    for (int i = 0; i < count; ++i)
+    {
+        auto *entry = container->GetAClass()->GetAttributeClass(("s" + std::to_string(i)).c_str());
+        const char *file = entry ? entry->GetAttribute("savename") : nullptr;
+        if (!file || !*file) return {};
+        result.files.emplace_back(file);
+    }
+    return result;
+}
 #endif
 
 #define CHECK_FILE_NAME "PiratesReadme.txt"
