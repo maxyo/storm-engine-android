@@ -11,6 +11,7 @@
 #include "shared/sea_ai/script_defines.h"
 #include "shared/sound.h"
 #include "ship_lights.h"
+#include "ship_script_protocol.hpp"
 #include "track.h"
 
 CREATE_CLASS(SHIP)
@@ -1339,7 +1340,26 @@ uint64_t SHIP::ProcessMessage(MESSAGE &message)
         break;
     }
     case MSG_SHIP_LIGHTSRESET: {
-        const auto bLight = message.Long() != 0;
+        bool bLight;
+        if (const auto flag = storm::ship::ReadLightsResetFlag(message))
+        {
+            bLight = *flag;
+        }
+        else
+        {
+            // Compatibility with the vanilla 1.7.3 scripts: they send only the message code, after
+            // Ship_SetLightsAndFlares has copied the weather's sea.lights into the character's
+            // ship.lights, so the light state is taken from there, as Mount does.
+            static bool reported = false;
+            if (!reported)
+            {
+                reported = true;
+                spdlog::info("MSG_SHIP_LIGHTSRESET without a light flag (vanilla 1.7.3 scripts): "
+                             "using the character's ship.lights");
+            }
+            const ATTRIBUTES *pALights = GetACharacter()->FindAClass(GetACharacter(), "ship.lights");
+            bLight = pALights && pALights->GetAttributeAsDword() != 0;
+        }
         if (const auto pShipsLights = static_cast<IShipLights *>(core.GetEntityPointer(shipLights)))
             pShipsLights->ResetLights(this, bLight);
         break;
