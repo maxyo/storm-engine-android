@@ -157,6 +157,32 @@ struct SeaQuick
     std::string action, label; // Map, Moor, Board, LandTroops, Reload; the engine's caption
 };
 
+// Channel "worldMap": the world map's instruments, fleet and commands. Absent numbers are
+// negative / empty; angles are radians as the engine measures them.
+struct WorldMap
+{
+    struct Vessel
+    {
+        std::string id, name, type;
+        double hull = -1.0; // 0…100
+    };
+    struct Command
+    {
+        std::string id, label; // EnterToSea, EnterToIsland, EnterToShip, EnterToStorm, EnterToAttack, EnterToEnemy
+    };
+    bool known = false, available = false;
+    uint64_t revision = 0, activity = 0, gameplay_revision = 0;
+    unsigned mask = 0; // what the engine lets a touch HUD replace (instruments 1, ships 2, commands 4)
+    bool instruments = false, ships_visible = false, commands_ready = false;
+    std::string date, coordinates;
+    double hour = -1.0, wind_force = -1.0, morale = -1.0, speed = -1.0;
+    double wind_angle = 0.0, heading = 0.0;
+    bool angles = false; // wind_angle and heading are known
+    int food_days = -1, rum_days = -1, flag = -1, storm = -1;
+    std::vector<Vessel> fleet;
+    std::vector<Command> commands;
+};
+
 // Channel "presentation": what the platform host shows over the game and whether the
 // player can act at all. Published by the host, not by the engine.
 struct Presentation
@@ -178,6 +204,7 @@ struct States
     Ship ship;
     SeaOrders sea_orders;
     SeaQuick sea_quick;
+    WorldMap world_map;
     Presentation presentation;
 };
 
@@ -406,6 +433,9 @@ class Hud
 
 // ASCII lower case: engine identifiers are matched without regard to case.
 std::string Lower(std::string text);
+
+// The fleet token of a ship by a word of the engine's ship model name ("Lugger" → ship-lugger).
+const char *ShipIcon(const std::string &type);
 
 // Consumers of the HUD channels, added to the router's list (screens/registry.cpp).
 void AddStateConsumers(std::vector<std::unique_ptr<screens::StateConsumer>> &consumers);

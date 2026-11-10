@@ -25,7 +25,7 @@ namespace
 
 constexpr double kIdle = 3600.0;
 constexpr double kHoldHeartbeat = 0.1;   // the engine lets go of a held control after 350 ms of silence
-constexpr double kLeaseHeartbeat = 0.25; // … and of the navigator aperture and the quick action coverage after 750 ms
+constexpr double kLeaseHeartbeat = 0.25; // … of the navigator aperture after 750 ms (it keeps the place 2 s), of the quick action coverage after 1.5 s
 constexpr double kChoiceSeconds = 1.5;   // a tapped order waits this long for the engine to select it
 constexpr double kSailSeconds = 1.5;     // the lever shows the position asked for until the sails follow
 constexpr double kFanSeconds = 6.0;      // an untouched ammunition fan folds by itself
@@ -107,6 +107,8 @@ std::string Count(double value)
     return text;
 }
 
+} // namespace
+
 const char *ShipIcon(const std::string &type)
 {
     const std::string name = Lower(type);
@@ -115,6 +117,9 @@ const char *ShipIcon(const std::string &type)
             return ship.icon;
     return "ship"; // a model without a token of its own: the generic ship
 }
+
+namespace
+{
 
 // The engine's date line ends with the time of day ("12 мая 1665 11:42"): the minimap shows
 // the time only; a line without a time is shown as it is.
@@ -267,7 +272,10 @@ class SeaScene final : public Scene
         FollowFleet(shown);
         CoverShip(states, ship, shown);
         CoverNavigator(ship, shown);
-        CoverQuick(states.sea_quick, live && shown.elements.contains("context"));
+        // The ammunition fan takes the quick action's place for a few seconds: the offer stays
+        // the HUD's, so the engine's own icon does not flash up over the top buttons meanwhile.
+        // Under the orders panel the offer waits for the panel to close; it stays the HUD's too.
+        CoverQuick(states.sea_quick, live && (shown.elements.contains("context") || fan_open_ || shown.sheet == "s-hud-orders"));
         CoverOrders(states.sea_orders, live && shown.modal);
     }
 
@@ -615,7 +623,7 @@ class SeaScene final : public Scene
     }
 
     // The engine draws its radar into the disc of the minimap. It needs the place of the disc
-    // (a lease it keeps for 750 ms) and, once it has drawn there, the word that our readouts
+    // (a lease of 750 ms) and, once it has drawn there, the word that our readouts
     // around it are on the screen: only then does it drop its own.
     void CoverNavigator(const Ship *ship, const View &shown)
     {
