@@ -23,6 +23,10 @@ std::unique_ptr<Screen> CreateSettingsScreen();
 std::unique_ptr<StateConsumer> CreateAppSettingsConsumer();
 std::unique_ptr<Screen> CreateTitleScreen();
 std::unique_ptr<Screen> CreateNewGameScreen();
+std::unique_ptr<Screen> CreateLauncherScreen();
+std::unique_ptr<Screen> CreateDownloadsScreen();
+std::unique_ptr<Screen> CreateAboutScreen();
+std::unique_ptr<StateConsumer> CreateLauncherConsumer();
 
 namespace
 {
@@ -42,6 +46,10 @@ const ScreenEntry kPorted[] = {
     {"option_screen", CreateSettingsScreen},
     {"mainmenu", CreateTitleScreen},
     {"selectcharacter", CreateNewGameScreen},
+    // The application's own screens, routed from the platform host's "launcher" channel.
+    {"launcher", CreateLauncherScreen},
+    {"downloads", CreateDownloadsScreen},
+    {"about", CreateAboutScreen},
 };
 
 // Interfaces the platform host still draws with its own forms. Anything not listed here
@@ -71,6 +79,7 @@ std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()
     std::vector<std::unique_ptr<StateConsumer>> consumers;
     consumers.push_back(CreateDialogueConsumer());
     consumers.push_back(CreateAppSettingsConsumer());
+    consumers.push_back(CreateLauncherConsumer());
     hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, presentation
     return consumers;
 }

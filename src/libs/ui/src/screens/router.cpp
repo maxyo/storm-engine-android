@@ -261,13 +261,14 @@ void Bindings::Back(const Widget *exit_button)
     router_.Emit(std::move(action));
 }
 
-void Bindings::EditText(const Event &event, const Widget &widget, const std::string &title, bool numeric)
+void Bindings::EditText(const Event &event, const Widget &widget, const std::string &title, bool numeric, bool secret)
 {
     TextRequest request;
     request.token = std::to_string(++router_.edit_serial_);
     request.text = widget.value;
     request.title = title;
     request.numeric = numeric;
+    request.secret = secret;
     router_.edit_token_ = request.token;
     router_.edit_action_ = router_.Make(widget, "edit", {}, {});
     router_.surface_.RequestText(std::move(request), event.id);

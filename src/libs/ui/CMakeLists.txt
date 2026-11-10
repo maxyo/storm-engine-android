@@ -67,6 +67,7 @@ add_library(storm_ui STATIC
     src/screens/menu_saves.cpp
     src/screens/menu_settings.cpp
     src/screens/menu_title.cpp
+    src/screens/launcher.cpp
     src/hud/hud.cpp
     src/hud/states.cpp
     src/hud/land.cpp

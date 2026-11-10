@@ -63,6 +63,7 @@ struct TextRequest
     std::string text;
     std::string title;
     bool numeric = false;
+    bool secret = false; // a password: the editor masks what is typed
     float x = 0, y = 0, width = 0, height = 0;
 };
 
@@ -115,7 +116,12 @@ class Host
   public:
     // With the GL backend its context must be current on the calling thread, here and for
     // every other call. Landscape only: width is the long side.
-    // One host at a time. After the context is lost, destroy the host and create a new one.
+    // ONE HOST PER PROCESS (documented constraint): RmlUi's state is process-global
+    // (Rml::Initialise / Shutdown, the system, file and render interfaces, the component
+    // instancers bound to the host that registered them), so a second live host would be torn
+    // down under the first. Create fails with an error while another host lives in the process;
+    // platforms put every UI-hosting screen that can coexist into its own process. After the
+    // context is lost, destroy the host and create a new one.
     static std::unique_ptr<Host> Create(const Config &config, std::string *error = nullptr);
     virtual ~Host() = default;
 

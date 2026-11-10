@@ -97,7 +97,7 @@ class Bindings
     // The player's way out: the screen's exit button when it has one, else the global back.
     void Back(const Widget *exit_button);
     // Opens the native text editor over the field; the accepted text is sent as `edit`.
-    void EditText(const Event &event, const Widget &widget, const std::string &title, bool numeric);
+    void EditText(const Event &event, const Widget &widget, const std::string &title, bool numeric, bool secret = false);
     // Shows a long text on a parchment sheet over the screen.
     void Read(const std::string &title, const std::string &text);
     void Toast(const std::string &text);

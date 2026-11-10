@@ -36,6 +36,7 @@ struct FakeSurface final : Surface
     std::string tag;
     Json props;
     std::vector<std::string> commands;
+    std::vector<Action> actions;
     std::vector<std::string> logs;
     std::vector<std::string> errors;
     std::string language;
@@ -54,6 +55,7 @@ struct FakeSurface final : Surface
     void Send(const Action &action) override
     {
         commands.push_back(EngineCommand(action));
+        actions.push_back(action);
     }
     void RequestText(TextRequest request, const std::string &) override
     {
@@ -757,6 +759,123 @@ static void Dialogue(const std::string &models)
            "a channel without a consumer is an error");
 }
 
+// The application's own screens on the "launcher" channel: views, texts by key, verbs back.
+static void Launcher()
+{
+    FakeSurface surface;
+    Router router(surface);
+    const auto verb = [&surface] {
+        return surface.actions.empty() ? std::string() : surface.actions.back().node + " " + surface.actions.back().verb + " " + surface.actions.back().value;
+    };
+    const auto launcher = [](Json data) { return Json{{"screen", "launcher"}, {"language", "english"}, {"launcher", std::move(data)}}; };
+
+    router.SetState("launcher", launcher({{"phase", "setup"}, {"library", false}, {"hasGame", false}, {"problem", "no_game"}}));
+    ExpectEqual(surface.tag, "s-launcher", "launcher channel mounts the launcher");
+    ExpectEqual(surface.language, "english", "launcher language follows the host");
+    ExpectEqual(surface.props["view"].get<std::string>(), "setup", "no game: setup");
+    Expect(surface.props["notices"].empty(), "no game is not an error notice");
+    ExpectEqual(surface.props["setup"]["library"].get<std::string>(), "", "play flavor: no downloads link");
+    router.OnEvent({"folder", "click", ""});
+    ExpectEqual(verb(), "APP folder ", "folder row asks the host for the picker");
+    router.OnEvent({"archive", "click", ""});
+    ExpectEqual(verb(), "APP archive ", "archive row asks for the documents picker");
+    router.OnEvent({"help", "click", ""});
+    Expect(surface.props["extras"]["reading"].get<bool>(), "help opens the reading sheet");
+    router.Back();
+    Expect(!surface.props["extras"]["reading"].get<bool>(), "back closes the reading sheet first");
+
+    router.SetState("launcher", launcher({{"phase", "setup"}, {"library", true}, {"hasGame", true}, {"files", true},
+                                          {"result", {{"key", "import_archive_volumes"}, {"args", {"setup-2.bin"}}}}}));
+    const Json notice = surface.props["notices"][0];
+    ExpectEqual(notice["tone"].get<std::string>(), "danger", "failed import is a danger notice");
+    ExpectEqual(notice["text"].get<std::string>(), "<launcher.result.import_archive_volumes> setup-2.bin <launcher.kept>",
+                "failure names the files and keeps the old game");
+    Expect(surface.props["back"].get<bool>(), "changing files of a ready game has ←");
+    router.Back();
+    ExpectEqual(verb(), "APP files-close ", "← returns to the ready launcher");
+
+    router.SetState("launcher", launcher({{"phase", "ready"}, {"library", true}, {"hasGame", true},
+                                          {"exit", {{"reason", "anr"}, {"when", "today"}}}}));
+    ExpectEqual(surface.props["view"].get<std::string>(), "ready", "ready view");
+    ExpectEqual(surface.props["notices"][0]["text"].get<std::string>(), "<launcher.exit_previous>", "previous exit noticed");
+    router.OnEvent({"play", "click", ""});
+    ExpectEqual(verb(), "APP play ", "play");
+    router.OnEvent({"about", "click", ""});
+    ExpectEqual(verb(), "APP about ", "about from the header");
+
+    surface.now = 10;
+    router.SetState("launcher", launcher({{"phase", "busy"}, {"hasGame", false},
+                                          {"import", {{"stage", "copying"}, {"bytes", 0}, {"total", 2147483648.0}, {"canCancel", true}}}}));
+    surface.now = 70;
+    router.SetState("launcher", launcher({{"phase", "busy"}, {"hasGame", false},
+                                          {"import", {{"stage", "copying"}, {"bytes", 1073741824.0}, {"total", 2147483648.0}, {"canCancel", true}}}}));
+    ExpectEqual(surface.props["busy"]["title"].get<std::string>(), "<launcher.stage.copying>", "stage title");
+    Expect(surface.props["busy"]["percent"].get<double>() == 50, "percent of the stage");
+    Expect(surface.props["busy"]["status"].get<std::string>().find("<launcher.left>") != std::string::npos, "time left once the rate is known");
+    router.OnEvent({"cancel", "click", ""});
+    ExpectEqual(verb(), "APP cancel ", "cancel import");
+
+    router.SetState("launcher", launcher({{"phase", "busy"}, {"hasGame", false},
+                                          {"import", {{"stage", "choosing"}, {"canCancel", true},
+                                                      {"choices", {{{"id", "a"}, {"name", "A"}, {"missing", {"a-2.bin"}}},
+                                                                   {{"id", "b"}, {"name", "B"}, {"missing", Json::array()}}}}}}}));
+    ExpectEqual(surface.props["view"].get<std::string>(), "choose", "several copies: the picker");
+    Expect(surface.props["choose"]["rows"][0]["disabled"].get<bool>() && surface.props["choose"]["rows"][1]["selected"].get<bool>(),
+           "a copy without its volumes cannot be chosen; the ready one is preselected");
+    router.OnEvent({"roots", "click", ""});
+    ExpectEqual(verb(), "APP choose b", "use the chosen copy");
+
+    router.SetState("launcher", launcher({{"phase", "busy"}, {"hasGame", false},
+                                          {"import", {{"stage", "reading"}, {"canCancel", true}, {"password", {{"for", "x.zip"}, {"retry", true}}}}}}));
+    ExpectEqual(surface.props["password"]["title"].get<std::string>(), "<launcher.password_wrong>", "wrong password asks again");
+    router.OnEvent({"password-field", "press", ""});
+    Expect(surface.text.secret && !surface.text.token.empty(), "password field opens a masked editor");
+    router.SubmitText(surface.text.token, "secret", true);
+    ExpectEqual(verb(), "PASSWORD edit secret", "the typed password goes to the host");
+
+    // Download library.
+    const Json sets = Json::array({Json{{"id", "1"}, {"kind", "torrent"}, {"name", "Full"}, {"state", "downloading"}, {"downloaded", 50.0}, {"wanted", 100.0},
+                                        {"rate", 10.0}, {"main", "pause"}, {"menu", {"details", "delete"}}},
+                                   Json{{"id", "2"}, {"kind", "archive"}, {"name", "a.zip"}, {"state", "archive-ready"}, {"main", "install"}, {"menu", {"delete"}}}});
+    router.SetState("launcher", Json{{"screen", "downloads"}, {"language", "english"}, {"downloads", {{"sets", sets}}}});
+    ExpectEqual(surface.tag, "s-downloads", "downloads screen");
+    ExpectEqual(surface.props["sets"][0]["action"].get<std::string>(), "pause", "an active set pauses inline");
+    Expect(surface.props["sets"][0]["progress"].get<double>() == 50, "download progress");
+    ExpectEqual(surface.props["sets"][1]["button"]["id"].get<std::string>(), "btn-2", "install is an inline button");
+    router.OnEvent({"set-1", "action", "pause"});
+    ExpectEqual(verb(), "APP pause 1", "pause glyph");
+    router.OnEvent({"btn-2", "click", ""});
+    ExpectEqual(verb(), "APP install 2", "install button");
+    router.OnEvent({"set-1", "menu", ""});
+    Expect(surface.props["sheet"]["actions"].size() == 2 && surface.props["sheet"]["actions"][1]["hold"].get<bool>(),
+           "«⋯» lists the rare verbs; delete is held");
+    router.OnEvent({"menu-delete", "click", ""});
+    ExpectEqual(verb(), "APP delete 1", "held delete");
+    router.SetState("launcher", Json{{"screen", "downloads"}, {"language", "english"},
+                                     {"downloads", {{"sets", sets}, {"dialog", {{"kind", "files"}, {"id", "1"}, {"probe", false},
+                                                    {"files", {{{"index", 4}, {"path", "a"}, {"bytes", 10}}, {{"index", 7}, {"path", "b"}, {"bytes", 20}}}}}}}}});
+    router.OnEvent({"file-0", "change", ""});
+    router.OnEvent({"dialog-download", "click", ""});
+    ExpectEqual(verb(), "APP download 1:7", "unchecked files stay out of the download");
+
+    router.SetState("launcher", Json{{"screen", "about"}, {"language", "english"},
+                                     {"about", {{"app", {{"appSource", "https://example.org/app/tree/1"}, {"engineSource", "https://example.org/engine/tree/2"}}},
+                                                {"notices", {"ui-RmlUi-MIT.txt", "storm-GPLv3.txt", "fmt-LICENSE.rst"}}}}});
+    ExpectEqual(surface.tag, "s-about", "about screen");
+    ExpectEqual(surface.props["notices"][0]["title"].get<std::string>(), "Storm Engine", "the engine's licence first");
+    ExpectEqual(surface.props["notices"][1]["title"].get<std::string>(), "fmt", "LICENSE suffix dropped; then by name");
+    ExpectEqual(surface.props["notices"][2]["title"].get<std::string>() + "|" + surface.props["notices"][2]["value"].get<std::string>(), "RmlUi|MIT",
+                "notice named by its file");
+    router.OnEvent({"notice-2", "click", ""});
+    ExpectEqual(verb(), "APP license ui-RmlUi-MIT.txt", "a notice opens");
+    router.OnEvent({"source-app", "click", ""});
+    ExpectEqual(verb(), "APP open-url https://example.org/app/tree/1", "source link");
+
+    const size_t errors = surface.errors.size();
+    router.SetState("launcher", Json{{"screen", "nowhere"}});
+    Expect(surface.errors.size() == errors + 1, "an unknown application screen is an error");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
@@ -770,6 +889,7 @@ int main(int argc, char **argv)
     Shipyard(models);
     Atlas();
     Dialogue(models);
+    Launcher();
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else

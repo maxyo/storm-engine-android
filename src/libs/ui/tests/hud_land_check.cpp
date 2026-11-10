@@ -773,6 +773,25 @@ static void CheckTouches(const std::string &pack)
     Expect(!host.SetState("vitals", "{broken"), "malformed JSON is refused");
 }
 
+// One host per process (RmlUi state is process-global): a second one is refused aloud, and
+// the slot is free again once the first is gone.
+static void CheckOneHostPerProcess(const std::string &pack)
+{
+    {
+        Runtime first(pack);
+        Config config;
+        config.files = first.files.get();
+        config.backend = &first.backend;
+        config.width = 800;
+        config.height = 400;
+        std::string error;
+        Expect(Host::Create(config, &error) == nullptr && error.find("one host per process") != std::string::npos,
+               "a second host in the same process is refused with an error");
+    }
+    Runtime again(pack);
+    Expect(again.host != nullptr, "after the first host is gone a new one starts");
+}
+
 int main(int argc, char **argv)
 {
     states_directory = argc > 1 ? argv[1] : "tests/states";
@@ -782,6 +801,7 @@ int main(int argc, char **argv)
     CheckCombat();
     CheckSheet();
     CheckTouches(pack);
+    CheckOneHostPerProcess(pack);
     if (failures)
         std::fprintf(stderr, "%d land HUD check(s) failed\n", failures);
     else
