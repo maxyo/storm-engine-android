@@ -1,9 +1,12 @@
 # Graphics effects package for the bgfx renderer
 
-Optional upgrades on top of the legacy look: post-processing (ambient occlusion, tone curve, colour grade,
-bloom, sun shafts, FXAA, sharpening / dynamic-resolution upscale), a sea surface, an analytic sky with
-matching fog, and per-pixel lighting for the fixed-function emulator: sun, point and spot lights, flash
-lights for shots and explosions, and sun shadows. `QualityPreset::Original` switches everything off
+Optional upgrades on top of the legacy look: post-processing (ambient occlusion, tone curve, colour grades
+by place and hour, bloom, sun shafts, lens flare, dither, optional vignette and grain, FXAA, sharpening /
+dynamic-resolution upscale), a sea surface, an analytic sky with matching fog, contact shadows, and
+per-pixel lighting for the fixed-function emulator: sun, point and spot lights, flash lights for shots and
+explosions, sun shadows, rim light, linear-light sums, relief from derived normal maps, aerial perspective
+and wind sway. MSAA, alpha to coverage and anisotropic filtering are renderer state: fx decides them
+(`RendererStateFor`), the renderer applies them. `QualityPreset::Original` switches everything off
 and leaves the legacy image untouched.
 
 The package is self-contained: it depends on bgfx only, takes plain structs instead of engine types, and
@@ -19,7 +22,10 @@ generates every texture it needs. It is not part of the engine build until the r
 | `include/storm/fx/sky.hpp` | `Sky`: sky pass and the atmosphere state shared with water and fog |
 | `include/storm/fx/lighting.hpp`, `shaders/include/fx_lighting.sh` | lighting flags and uniforms for the fixed-function emulator |
 | `include/storm/fx/light_set.hpp` | point / spot lights: selection per draw call, flash lights |
+| `include/storm/fx/normal_map.hpp` | normal maps derived from the game's height ("bump") textures; the rule that finds those textures |
 | `include/storm/fx/shadows.hpp` | `Shadows`: sun shadow map |
+| `include/storm/fx/contact_shadows.hpp` | `ContactShadows`: soft blobs under characters and objects |
+| `shaders/include/fx_aerial.sh`, `fx_wind.sh`, `fx_coverage.sh` | aerial perspective, wind sway, alpha to coverage for the emulator |
 | `include/storm/fx/capabilities.hpp`, `log.hpp` | what the device supports; error reporting |
 | `include/storm/fx/{color_lut,noise_bake,wave_model,water_grid,sky_model,lighting_model,shadow_model}.hpp` | CPU side, no GPU needed (`storm_bgfx_fx_core`) |
 | `shaders/` | bgfx shader sources; `shaders.cmake` lists every compiled variant |
@@ -47,28 +53,32 @@ Stand-alone (host preview, unit checks, all shader profiles): see `tools/fx-prev
 
 ```cpp
 // Once, and whenever the player changes an option: what the device cannot do is taken out explicitly.
-const fx::Support support = fx::DetectSupport(scene_depth_is_sampleable);   // logged once
+const fx::Support support = fx::DetectSupport({.scene_depth = ..., .msaa_depth = ..., .anisotropy = ...}); // logged once
 std::vector<std::string> changes;
 fx::Settings settings = fx::ConstrainSettings(fx::Settings::FromPreset(fx::QualityPreset::Medium), support, changes);
 for (const auto &line : changes) log(line);      // and grey the options out on the settings screen
 settings.grade = fx::GradePreset::Caribbean;
+const fx::RendererState state = fx::RendererStateFor(settings); // MSAA, alpha to coverage, anisotropy
 
 // Per frame.
 if (shadows.Begin(settings, shadow_frame))       // then submit casters with shadows.CasterProgram()
     ...
 
-sky.Update(weather, time);                       // every frame, also when only the water uses it
+sky.Update(weather, time, camera_height);        // every frame, also when only the water uses it
 if (settings.sky_atmosphere) sky.Submit(scene_view, settings, view, proj);
 if (settings.water == fx::WaterQuality::High)
     water.CaptureScene(capture_view, scene_color, scene_depth, w, h, near, far);
 water.UpdateField(field);                        // or PrepareMesh() with the engine's own vertex buffer
 water.SubmitField(settings, water_frame, shading, sky, sea_state);
+contact_shadows.Submit(scene_view, settings);    // after Add() for each character / object
+post_frame.scene_grade = fx::SceneGrade(sky.State(), overcast, interior);
 post.Submit(settings, post_frame);               // scene colour (+ depth for occlusion) -> back buffer
 
 // Per lit draw call of the fixed-function emulator (variant compiled with fx::LightingDefines(settings)):
 lighting.Apply(fx::ComputeLighting(input, fx::LightingMaterial::Hull(), &sky.State()));
 lighting.Apply(fx::PackPointLights(fx::SelectLights(lights, center, radius, fx::PointLightBudget(settings)), view));
 shadows.Bind();
+sky.BindAerial(view); sky.BindWind();            // FX_AERIAL / FX_WIND variants
 ```
 
 ## No silent fallbacks
@@ -84,4 +94,7 @@ shadows fading out as the sun reaches the horizon.
 All colour targets are gamma-encoded RGBA8, like the legacy pipeline; no float render targets are required.
 After a lost context call `OnDeviceLost()` on each object; resources are re-created on the next use.
 Sampler stages 5 and 6 belong to `fx_atmosphere.sh`, stages 8 and 9 (vertex shader) to the sea height field,
-stage 10 to the shadow map.
+stage 13 to the shadow map, stage 14 to the derived normal map (above the fixed-function emulator's units).
+
+Normal maps are derived on the device from the player's own textures (`DeriveNormalMap`, deterministic, RG8
+with mips). Cache them on the device; never ship or commit them.

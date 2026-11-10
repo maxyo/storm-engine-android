@@ -30,6 +30,8 @@ void Sky::Shutdown()
     Destroy(s_lut_);
     Destroy(s_clouds_);
     Destroy(u_sky_);
+    Destroy(u_aerial_);
+    Destroy(u_wind_);
     resources_ = false;
     lut_dirty_ = true;
 }
@@ -43,13 +45,16 @@ void Sky::OnDeviceLost()
     s_lut_ = BGFX_INVALID_HANDLE;
     s_clouds_ = BGFX_INVALID_HANDLE;
     u_sky_ = BGFX_INVALID_HANDLE;
+    u_aerial_ = BGFX_INVALID_HANDLE;
+    u_wind_ = BGFX_INVALID_HANDLE;
     resources_ = false;
     lut_dirty_ = true;
 }
 
-void Sky::Update(const WeatherInput &weather, float time_seconds)
+void Sky::Update(const WeatherInput &weather, float time_seconds, float camera_height)
 {
     time_ = time_seconds;
+    camera_height_ = camera_height;
     if (!state_valid_ || SkyNeedsRebuild(weather_, weather))
     {
         weather_ = weather;
@@ -73,6 +78,8 @@ void Sky::EnsureResources()
         s_lut_ = bgfx::createUniform("s_fxSkyLut", bgfx::UniformType::Sampler);
         s_clouds_ = bgfx::createUniform("s_fxCloudNoise", bgfx::UniformType::Sampler);
         u_sky_ = bgfx::createUniform("u_fxSky", bgfx::UniformType::Vec4, 6);
+        u_aerial_ = bgfx::createUniform("u_fxAerial", bgfx::UniformType::Vec4, 3);
+        u_wind_ = bgfx::createUniform("u_fxWind", bgfx::UniformType::Vec4, 2);
         lut_ = bgfx::createTexture2D(kSkyLutWidth, kSkyLutHeight, false, 1, bgfx::TextureFormat::RGBA8, kClampLinear);
         const BakedTexture noise = BakeCloudNoise();
         clouds_ = bgfx::createTexture2D(static_cast<uint16_t>(noise.size), static_cast<uint16_t>(noise.size), true, 1,
@@ -99,15 +106,29 @@ void Sky::Bind(const Settings &settings)
     const float drift = time_ * weather_.wind_speed * 0.00006f;
     const float uniforms[6][4] = {
         {s.sun_dir[0], s.sun_dir[1], s.sun_dir[2], kSunDiscCos},
-        {sx, sz, s.fog_density, settings.sky_clouds ? s.cloud_cover : 0.0f},
+        // With aerial perspective the sea also lies under the haze layer.
+        {sx, sz, (settings.lighting_flags & kLightingAerial) ? SeaFogDensity(s, camera_height_) : s.fog_density,
+         settings.sky_clouds ? s.cloud_cover : 0.0f},
         {s.glow[0], s.glow[1], s.glow[2], kCloudScale},
-        {s.sun_disc[0], s.sun_disc[1], s.sun_disc[2], 0.0f},
+        {s.sun_disc[0], s.sun_disc[1], s.sun_disc[2], settings.dither ? 1.0f / 255.0f : 0.0f},
         {s.cloud_lit[0], s.cloud_lit[1], s.cloud_lit[2], -weather_.wind[0] * drift},
         {s.cloud_shade[0], s.cloud_shade[1], s.cloud_shade[2], -weather_.wind[1] * drift},
     };
     bgfx::setUniform(u_sky_, uniforms, 6);
     bgfx::setTexture(5, s_lut_, lut_, kClampLinear);
     bgfx::setTexture(6, s_clouds_, clouds_, BGFX_SAMPLER_NONE);
+}
+
+void Sky::BindAerial(const std::array<float, 16> &view)
+{
+    EnsureResources();
+    bgfx::setUniform(u_aerial_, ComputeAerial(state_, camera_height_, view).u_fxAerial.data(), 3);
+}
+
+void Sky::BindWind()
+{
+    EnsureResources();
+    bgfx::setUniform(u_wind_, ComputeWind(weather_, time_).u_fxWind.data(), 2);
 }
 
 void Sky::Submit(bgfx::ViewId view, const Settings &settings, const float *view_matrix, const float *projection)

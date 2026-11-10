@@ -19,6 +19,7 @@ void Lighting::Shutdown()
     detail::Destroy(u_light_);
     detail::Destroy(u_point_);
     detail::Destroy(u_point_count_);
+    detail::Destroy(s_normal_map_);
 }
 
 void Lighting::OnDeviceLost()
@@ -26,13 +27,14 @@ void Lighting::OnDeviceLost()
     u_light_ = BGFX_INVALID_HANDLE;
     u_point_ = BGFX_INVALID_HANDLE;
     u_point_count_ = BGFX_INVALID_HANDLE;
+    s_normal_map_ = BGFX_INVALID_HANDLE;
 }
 
 void Lighting::Apply(const LightingUniforms &uniforms)
 {
     if (!bgfx::isValid(u_light_))
-        u_light_ = bgfx::createUniform("u_fxLight", bgfx::UniformType::Vec4, 5);
-    bgfx::setUniform(u_light_, uniforms.u_fxLight.data(), 5);
+        u_light_ = bgfx::createUniform("u_fxLight", bgfx::UniformType::Vec4, 6);
+    bgfx::setUniform(u_light_, uniforms.u_fxLight.data(), 6);
 }
 
 void Lighting::Apply(const PointLightUniforms &uniforms)
@@ -56,6 +58,26 @@ void Lighting::Apply(const PointLightUniforms &uniforms)
     if (count > 0)
         bgfx::setUniform(u_point_, uniforms.u_fxPoint.data(), static_cast<uint16_t>(count * 4));
     bgfx::setUniform(u_point_count_, uniforms.u_fxPointCount.data());
+}
+
+bgfx::TextureHandle Lighting::CreateNormalMap(const NormalMap &map)
+{
+    if (!detail::SupportsNormalMap())
+    {
+        STORM_FX_ERROR_ONCE(normal_map_reported_, "Lighting::CreateNormalMap(): no RG8 textures on this device (Support::normal_map)");
+        return BGFX_INVALID_HANDLE;
+    }
+    if (map.rg.empty())
+        return BGFX_INVALID_HANDLE;
+    return bgfx::createTexture2D(static_cast<uint16_t>(map.width), static_cast<uint16_t>(map.height), map.mip_count > 1, 1,
+                                 bgfx::TextureFormat::RG8, BGFX_SAMPLER_NONE, bgfx::copy(map.rg.data(), static_cast<uint32_t>(map.rg.size())));
+}
+
+void Lighting::BindNormalMap(bgfx::TextureHandle normal_map, uint32_t sampler_flags)
+{
+    if (!bgfx::isValid(s_normal_map_))
+        s_normal_map_ = bgfx::createUniform("s_fxNormalMap", bgfx::UniformType::Sampler);
+    bgfx::setTexture(kNormalMapStage, s_normal_map_, normal_map, sampler_flags);
 }
 
 int Lighting::TakeDroppedLights()

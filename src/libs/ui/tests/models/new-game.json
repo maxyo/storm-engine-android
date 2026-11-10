@@ -1,0 +1,418 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 1,
+ "screenRevision": 5,
+ "screen": "selectcharacter",
+ "widgets": [
+  {
+   "node": "MAIN_BACK",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_TUTORIAL_SKIP",
+   "type": "check",
+   "label": "Без обучения",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "4",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "exclusive": false
+  },
+  {
+   "node": "TITLE",
+   "type": "heading",
+   "label": "  Настройки  ",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_FRAME_CAPTION",
+   "type": "text",
+   "label": "  Справка  ",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "HERO_NAME",
+   "type": "text",
+   "label": "Герой Альфа",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "FACEPICT",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 2,
+     "imageRevision": 2,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "NATIONS_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 3,
+     "imageRevision": 3,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "France"
+     }
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "Короткая биография героя.",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "STATE_FRAME_CAPTION",
+   "type": "text",
+   "label": "Сложность",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SETUP_FRAME_CAPTION",
+   "type": "text",
+   "label": "фехтование",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "LEFTCHANGE_SETUP",
+   "type": "button",
+   "label": "‹",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "RIGHTCHANGE_SETUP",
+   "type": "button",
+   "label": "›",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_SMALLSKILL",
+   "type": "choice",
+   "label": "P\tI\tR",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABLE_SMALLSKILL",
+   "type": "choice",
+   "label": "5\t6\t7",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "COMPLEX_TYPE",
+   "type": "text",
+   "label": "Средняя",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "LEFTCHANGE_COMPLEX",
+   "type": "button",
+   "label": "‹",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "RIGHTCHANGE_COMPLEX",
+   "type": "button",
+   "label": "›",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CHECK_ARCADESAIL_NAME",
+   "type": "text",
+   "label": "Морской бой",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CHECK_ARCADESAIL",
+   "type": "check",
+   "label": "Быстрый",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "exclusive": true
+  },
+  {
+   "node": "CHECK_ARCADESAIL",
+   "type": "check",
+   "label": "Медленный",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "exclusive": true
+  },
+  {
+   "node": "SETUP_TEXT",
+   "type": "text",
+   "label": "Описание занятия героя.",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CHECK_OTHER_NAME",
+   "type": "text",
+   "label": "Прочее",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CHECK_PISTOL",
+   "type": "check",
+   "label": "Пистоли",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "exclusive": false
+  },
+  {
+   "node": "CHECK_HARDCORE",
+   "type": "check",
+   "label": "Хардкор",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "exclusive": false
+  },
+  {
+   "node": "CHECK_PARTITION",
+   "type": "check",
+   "label": "Добыча",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "exclusive": false
+  },
+  {
+   "node": "CHECK_SEABATTLESAVE",
+   "type": "check",
+   "label": "Запись в бою",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "exclusive": false
+  },
+  {
+   "node": "PROFILE_NAME",
+   "type": "edit",
+   "label": "",
+   "value": "P",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "OK_BUTTON",
+   "type": "button",
+   "label": "Ок",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CANCEL_BUTTON",
+   "type": "button",
+   "label": "Отмена",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "PROFILE_STR",
+   "type": "text",
+   "label": "Профиль",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CHECK_RAINS",
+   "type": "check",
+   "label": "Дожди",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "exclusive": false
+  }
+ ]
+}

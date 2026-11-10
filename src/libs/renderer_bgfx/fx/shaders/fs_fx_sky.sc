@@ -11,5 +11,6 @@ void main()
 #ifdef FX_SKY_CLOUDS
     c = fxClouds(d, c);
 #endif
-    gl_FragColor = vec4(fxEncode(c), 1.0);
+    // Gradients this smooth band in 8 bits; half a step of ordered noise hides it.
+    gl_FragColor = vec4(fxEncode(c) + vec3_splat((fxNoise(gl_FragCoord.xy) - 0.5) * u_fxSky[3].w), 1.0);
 }

@@ -15,6 +15,10 @@ build/fx-preview/fx_preview <output directory> [name filter]
   `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<checkout>`.
 - Needs EGL and GLES development packages. Without a display use Mesa's software renderer:
   `EGL_PLATFORM=surfaceless LIBGL_ALWAYS_SOFTWARE=1 build/fx-preview/fx_preview out`.
+- `--height-maps=<folder>` replaces the procedural height textures of the normal-map scene with
+  `bump_houses.pgm`, `rockBump.pgm`, `woodBump.pgm` and `sailBumpU1.pgm` (binary 8-bit PGM) converted from
+  your own copy of the game, for local look-dev; those shots get the suffix `_game`. Never commit such
+  files or the images made from them.
 - Write the images outside the repository (or into an ignored directory); they are review evidence, not sources.
 
 Scenes: open sea with a ship and an island in four weathers × the three quality presets; colour grades; tone
@@ -22,7 +26,11 @@ curve and bloom alone; a night harbour (bloom); the shore (water quality levels,
 the three sea geometry sources, with the GPU height field compared against the CPU mesh; a quay with a ship and
 a figure (sun lighting flags, sun shadows, ambient occlusion); a night harbour with torches and lanterns (town
 with baked vertex lighting, figure and ship lit dynamically: point lights, bloom); a broadside at dusk (flash
-lights); an aliasing chart (FXAA, sharpening, 75 % render scale). CPU products (baked
+lights); a wall, a boulder, a plank deck and a sail with height textures (derived normal maps under the sun
+from two sides and under a torch); before / after pairs for the cheap upgrades (anisotropic filtering, MSAA and
+alpha to coverage on palms, a hedge and rigging, wind sway at two moments, linear-light sums, rim light, aerial
+perspective, contact shadows, scene grades by hour, weather and interior, lens flare, dither, the optional
+vignette and grain); an aliasing chart (FXAA, sharpening, MSAA, 75 % render scale). CPU products (baked
 textures, sky panoramas, grading tables) are written as images too.
 
 The run fails (exit code 1) if the package reports an error or if `ConstrainSettings()` has to change a

@@ -7,7 +7,8 @@
 //           Without a marked part the whole component is the button (verb "click") unless
 //           the spec sets constants.pressRoot to false.
 //   range   data-range="prop" on the track (props min, max, step)
-//   stick   data-stick="x|xy" on the travel area, data-knob on the knob
+//   stick   data-stick="x|xy" on the travel area, data-knob on the knob; prop `floating`:
+//           the component's box is the zone, the travel area goes under the finger (atX, atY)
 //   lever   data-lever="steps|continuous" on the rail (prop value / dir)
 //   columns data-col="i" on the head and row cells of column i: every cell of a column gets
 //           the width of its widest content (the cells are laid out shrink-to-fit first,
@@ -422,6 +423,8 @@ class RangeBehavior final : public Behavior
 };
 
 // Helm capsule (x only) and movement stick (x and y). Springs back on release.
+// With the prop `floating` the component's box is a zone: the stick appears under the
+// finger that lands anywhere in it and returns to its place of rest on release.
 class StickBehavior final : public Behavior
 {
   public:
@@ -442,6 +445,14 @@ class StickBehavior final : public Behavior
         const float knob = area->GetAttribute<float>("data-knob-size", 52.0f) * self.Host().Density();
         centre_ = box.Center();
         reach_ = {std::max(1.0f, (box.Width() - knob) * 0.5f), std::max(1.0f, (box.Height() - knob) * 0.5f)};
+        if (self.Flag("floating"))
+        {
+            // The base comes to the finger and stays there for this gesture; the template
+            // places it by `atX` / `atY`, dp from the top left corner of the zone.
+            centre_ = pointer.position;
+            const Rml::Vector2f corner = (centre_ - box.Size() * 0.5f - BorderBox(&self).TopLeft()) / self.Host().Density();
+            self.SetProps(Json{{"atX", std::round(corner.x)}, {"atY", std::round(corner.y)}});
+        }
         Apply(self, pointer.position);
         return true;
     }
@@ -463,7 +474,10 @@ class StickBehavior final : public Behavior
 
     void Regions(ComponentElement &self, std::vector<Rml::Element *> &out) const override
     {
-        AllWith(&self, "data-stick", out);
+        if (self.Flag("floating")) // the whole box of the component is the zone the stick appears in
+            out.push_back(&self);
+        else
+            AllWith(&self, "data-stick", out);
     }
 
   private:

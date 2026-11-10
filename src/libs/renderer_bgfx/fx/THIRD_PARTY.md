@@ -14,6 +14,8 @@ Everything else is original work under the engine's licence, including:
   source code from FXAA 3.11 is used.
 - Bloom: the dual-filter (Kawase) down/up kernels are a published technique (Marius Bjørge, ARM, SIGGRAPH 2015);
   own code.
+- Normal mapping without mesh tangents: the screen-space cotangent frame is a published technique
+  (Christian Schüler, 2013); own code.
 - Sky: single scattering with the usual Rayleigh / Mie coefficients; own code.
 - All textures (water detail normals and foam, cloud noise, grading look-up tables, sky panorama) are generated
   procedurally at run time. No look-up tables, images or other assets are bundled.

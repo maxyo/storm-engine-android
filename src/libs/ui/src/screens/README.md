@@ -20,6 +20,7 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `controls.*` | shared view builders: buttons and their roles, action rows, control rows (toggle, segment, slider, stepper, field) |
 | `generic.cpp` | the generic auto-layout for interfaces without a ported screen |
 | `trade_crew.cpp` | crew hire: the trade layout with one always-open row |
+| `trade_shipyard.cpp` | shipyard: catalogue, ship card, the game's windows as sheets; sends the engine's `yard@` capability tokens, one per model revision |
 | `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout, a column table per interface |
 | `dialogue.cpp` | state channel `dialogue`: speech paged by `<ui-pages>` (pure rules in `../text_pages.h`), replies in two columns, the answer editor (text through the IME bridge, or an amount on the number panel), the menu button (`pause` to the platform host) |
 
@@ -45,9 +46,11 @@ verbs, §8 admission and extras) and the V2 mockups of the design canvas.
      `bindings.Forward(id, widget, "press")`, `bindings.On(id, verb, handler)` and inside a
      handler `bindings.Send(widget, verb, value)`, `SendLatest` (drags), `Back(exit)`,
      `EditText` / `AskText` (the screen gets the typed text), `Read`, `Rebuild()` for local
-     state kept in members, `Platform(verb)` for a request to the platform host (`pause`).
-     A screen with a modal of its own returns true from `OwnsBack()` and closes it in `Back()`:
-     the back key then belongs to the UI (`Host::WantsBack`). Mark events that are
+     state kept in members, `Platform(verb)` for a request to the platform host (`pause`),
+     `SendHost(node, value)` for a setting of the application itself (an `Action` without a
+     screen that the platform host keeps; `app-settings` = the renderer options). A screen
+     with a modal of its own returns true from `OwnsBack()` and closes it in `Back()`: the
+     back key then goes there first (`Host::WantsBack`). Mark events that are
      expected but need nothing with `bindings.Ignore(id, verb)`.
    Add the file to `CMakeLists.txt`.
 3. **Registry.** Add `{"<interface id>", Create…}` to `kPorted` in `registry.cpp` and
@@ -124,7 +127,8 @@ a game root the neutral placeholder stays.
 `Host::SetState(channel, json)` carries the state of the game outside interfaces. A zone
 implements `StateConsumer` (`Channel()`, `OnState(json, router)`) and registers it in
 `CreateStateConsumers()`. `dialogue.cpp` turns its state into an `InterfaceModel` of its
-own and lets a ported screen draw it. The HUD channels are consumed in `../hud`.
+own and lets a ported screen draw it. The HUD channels are consumed in `../hud`; the
+platform host's `appSettings` (its renderer options) is read by the settings screen.
 
 ## The HUD
 
@@ -180,7 +184,11 @@ Touches over the game are decided per pointer at pointer-down: `Host::WantsTouch
 true on an interactive HUD element (what the behaviours report as `Regions`), anywhere
 while a modal sheet, an interface or a plain document is shown, and false elsewhere, so the
 game keeps the rest (camera look). It is answered from the layout of the last frame and is
-thread-safe. A layout element may add a behaviour: `"behavior": "hold"` (reports `down` /
+thread-safe. The land move stick floats: its layout element is the zone (anchor and size in
+`hud-layout.json`, drawn under every other element), the stick rests at `restLeft` /
+`restBottom` and appears under the thumb that lands anywhere in the zone where no other
+control is hit; plates that only show are `pointer-events: none`, so they do not shield
+it. A layout element may add a behaviour: `"behavior": "hold"` (reports `down` /
 `up`) or `"swipe"` (a drag picks a move; `data` → `data-swipe-*`).
 
 Remaining fallbacks, each logged and tested: a context action name the land table lacks

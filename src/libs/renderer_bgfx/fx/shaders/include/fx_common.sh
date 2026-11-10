@@ -21,4 +21,10 @@ float fxLuma(vec3 c)
 {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
+
+// Screen-space noise in 0..1 without a texture (interleaved gradient noise), for dithering.
+float fxNoise(vec2 pixel)
+{
+    return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
+}
 #endif

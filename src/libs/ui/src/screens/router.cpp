@@ -13,9 +13,12 @@ std::string EngineCommand(const Action &action)
         return {};
     if (action.screen == "hud") // HUD input: the verb names the engine entry point
         return action.verb + ":" + action.value;
-    if (action.screen == "dialogue") // reply: "<generation>:<index>"; edit: the typed reply text
-        return action.verb == "edit" ? "dialogue:" + std::to_string(action.opening) + ":" + std::to_string(action.index) + ":" + action.value
+    if (action.screen == "dialogue") // reply: "<generation>:<index>"; edit: the typed reply text; no back
+        return action.verb == "back" ? std::string()
+             : action.verb == "edit" ? "dialogue:" + std::to_string(action.opening) + ":" + std::to_string(action.index) + ":" + action.value
                                      : "dialogue:" + action.value;
+    if (action.screen == "mainmenu") // the title screen's commands: "main:New", "main:Load", …
+        return action.verb == "back" ? "back" : "main:" + action.node;
     if (action.node.empty())
         return action.verb == "back" ? "back" : std::string();
     const std::string stamp = "@" + std::to_string(action.opening) + ":";
@@ -236,6 +239,15 @@ void Bindings::SendAfter(double seconds, const Widget &widget, const std::string
     router_.waiting_.push_back({std::move(action), due});
 }
 
+void Bindings::SendHost(const std::string &node, const std::string &value)
+{
+    Action action;
+    action.node = node;
+    action.verb = "set";
+    action.value = value;
+    router_.Emit(std::move(action));
+}
+
 void Bindings::Back(const Widget *exit_button)
 {
     if (exit_button && exit_button->Offers("press"))
@@ -298,6 +310,11 @@ void Bindings::Read(const std::string &title, const std::string &text)
 void Bindings::Toast(const std::string &text)
 {
     router_.surface_.Toast(text);
+}
+
+void Bindings::Error(const std::string &text)
+{
+    router_.surface_.Error("screen " + router_.using_ + ": " + text);
 }
 
 void Bindings::Rebuild()
@@ -579,6 +596,39 @@ bool Router::OnEvent(const Event &event)
     return true;
 }
 
+void Router::Back()
+{
+    Action engine_back;
+    engine_back.screen = model_.screen;
+    engine_back.opening = model_.opening;
+    engine_back.verb = "back";
+    if (!screen_)
+    {
+        surface_.Send(engine_back);
+        return;
+    }
+    if (WantsBack())
+    {
+        screen_->Back(bindings_);
+        if (rebuild_ && screen_)
+            Build();
+        return;
+    }
+    if (!reading_text_.empty() || extras_open_)
+    {
+        reading_text_.clear();
+        extras_open_ = false;
+        Build();
+        return;
+    }
+    if (bindings_.handlers_.count(std::string("header-back") + '\x1f'))
+    {
+        OnEvent({"header-back", "click", ""});
+        return;
+    }
+    surface_.Send(engine_back);
+}
+
 void Router::SubmitText(const std::string &token, const std::string &text, bool accepted)
 {
     if (token.empty() || token != edit_token_)
@@ -605,14 +655,6 @@ bool Router::WantsBack() const
     return screen_ && screen_->OwnsBack();
 }
 
-void Router::Back()
-{
-    if (!WantsBack())
-        return;
-    screen_->Back(bindings_);
-    if (rebuild_ && screen_)
-        Build();
-}
 
 double Router::Tick()
 {
