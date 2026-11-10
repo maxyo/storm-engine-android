@@ -1,4 +1,5 @@
 #include "s_device.h"
+#include "cl_graphics_natives.hpp"
 #include <platform/android_ui.hpp>
 #include <platform/android_interface_presentation.hpp>
 #ifdef __ANDROID__
@@ -194,6 +195,7 @@ bool DX9RENDER_SCRIPT_LIBRIARY::Init()
     sIFuncInfo.pFuncAddress = slReleaseTexture;
     core.SetScriptFunction(&sIFuncInfo);
 
+    registerClGraphicsNatives();
     return true;
 }
 

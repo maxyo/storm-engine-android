@@ -2,6 +2,8 @@
 #include "shared/messages.h"
 
 #include "sound.h"
+#include "colliding_message_ids.hpp"
+#include <spdlog/spdlog.h>
 
 #include "core.h"
 #include "vma.hpp"
@@ -103,6 +105,14 @@ uint64_t SOUND::ProcessMessage(MESSAGE &message)
         const std::string &tempString = message.String(); // filename
 
         temp = message.Long(); // type
+        // 3 is SOUND_FMOD_EVENT in Caribbean Legend (colliding_message_ids.hpp): no FMOD here
+        if (storm::collidingIdMeaning(storm::gameProfile(), storm::CollidingIdDomain::SoundPlayType, temp) ==
+            storm::CollidingIdMeaning::SoundTypeFmodEvent)
+        {
+            spdlog::error("MSG_SOUND_PLAY '{}': SOUND_FMOD_EVENT sounds are not supported (no FMOD); not played",
+                          tempString);
+            break;
+        }
         // defaults
         vt = static_cast<int>(VOLUME_FX); // volume type
         temp2 = 0;
@@ -214,9 +224,19 @@ uint64_t SOUND::ProcessMessage(MESSAGE &message)
         id = message.Long();
         soundService->SoundRestart(id);
         break;
-    case MSG_SOUND_RESUME:
+    case MSG_SOUND_RESUME: // 77012, MSG_SOUND_PAUSE in Caribbean Legend (colliding_message_ids.hpp)
         id = message.Long();
         temp = message.Long();
+        if (storm::collidingIdMeaning(storm::gameProfile(), storm::CollidingIdDomain::Message, code) ==
+            storm::CollidingIdMeaning::SoundPause)
+        {
+            // CL: (id, paused). The sound service can resume but not pause.
+            if (temp == 0)
+                soundService->SoundResume(id, 0);
+            else
+                spdlog::error("MSG_SOUND_PAUSE: pausing sound {} is not supported by the sound service; it keeps playing", id);
+            break;
+        }
         soundService->SoundResume(id, temp);
         break;
     case MSG_SOUND_SCHEME_RESET:

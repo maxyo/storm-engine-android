@@ -1,6 +1,8 @@
 #include "lightning.h"
 
 #include "core.h"
+#include "colliding_message_ids.hpp"
+#include <spdlog/spdlog.h>
 
 LIGHTNING::LIGHTNING()
 {
@@ -123,6 +125,13 @@ uint64_t LIGHTNING::ProcessMessage(MESSAGE &message)
         Realize(0);
         break;
     case MSG_WHR_LIGHTNING_ADD: {
+        // 54000 is MSG_WHR_UPDATE_STATE in Caribbean Legend (colliding_message_ids.hpp), a weather message
+        if (storm::collidingIdMeaning(storm::gameProfile(), storm::CollidingIdDomain::Message, MSG_WHR_LIGHTNING_ADD) !=
+            storm::CollidingIdMeaning::WhrLightningAdd)
+        {
+            spdlog::error("lightning: message 54000 is MSG_WHR_UPDATE_STATE in this game; lightning does not handle it");
+            break;
+        }
         // add new lightning
         aLightnings.push_back(lightning_t{});
         // lightning_t * pL = &aLightnings[aLightnings.Add()];

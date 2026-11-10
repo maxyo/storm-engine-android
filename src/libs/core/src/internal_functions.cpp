@@ -1,6 +1,7 @@
 #include "compiler.h"
 #include "core_impl.h"
 #include "debug-trap.h"
+#include "natives_ext.h"
 
 #include <execution>
 #include <fmt/format.h>
@@ -116,6 +117,13 @@ enum FUNCTION_CODE
     FUNC_SORT,
     FUNC_GET_ARG,
     FUNC_GET_ARG_COUNT,
+    // Caribbean Legend 2.0 additions (natives_ext_list.h); keep them last
+    FUNC_NATIVE_EXT_BASE,
+    FUNC_NATIVE_EXT_BASE_PREV_ = FUNC_NATIVE_EXT_BASE - 1, // the first addition takes the base value
+#define STORM_NATIVE(id, name, arguments, return_type, varargs) id,
+#include "natives_ext_list.h"
+#undef STORM_NATIVE
+    FUNC_COUNT_
 };
 
 INTFUNCDESC IntFuncTable[] = {
@@ -150,7 +158,13 @@ INTFUNCDESC IntFuncTable[] = {
     TVOID, 1, "TestRef", VAR_INTEGER, 1, "SetTimeScale", TVOID, 1, "CheckFunction", VAR_INTEGER, 0, "GetEngineVersion",
     VAR_INTEGER, 1, "sort", TVOID,
     // arguments of the running script function, also those passed to its "..."
-    1, "GetArg", VAR_REFERENCE, 0, "GetArgCount", VAR_INTEGER};
+    1, "GetArg", VAR_REFERENCE, 0, "GetArgCount", VAR_INTEGER,
+    // Caribbean Legend 2.0 additions; keep them last
+#define STORM_NATIVE(id, name, arguments, return_type, varargs) arguments, name, return_type,
+#include "natives_ext_list.h"
+#undef STORM_NATIVE
+};
+static_assert(sizeof(IntFuncTable) / sizeof(INTFUNCDESC) == FUNC_COUNT_, "IntFuncTable must list every FUNCTION_CODE in order");
 
 /*
 char * FuncNameTable[]=
@@ -367,6 +381,8 @@ uint32_t COMPILER::GetIntFunctionsNum()
 bool COMPILER::IsIntFuncVarArgsNum(uint32_t code)
 {
     // if(code == FUNC_SEND_MESSAGE) return true;
+    if (code >= FUNC_NATIVE_EXT_BASE)
+        return storm::natives::isNativeExtVarArgs(code - FUNC_NATIVE_EXT_BASE);
     switch (code)
     {
     case FUNC_SEND_MESSAGE:
@@ -455,6 +471,22 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
     int32_t slen, slen2;
     char sVarName[64];
     std::string utf8_character;
+
+    if (func_code >= FUNC_NATIVE_EXT_BASE)
+    {
+        storm::natives::NativeCall call{*this,
+                                        SStack,
+                                        EventMsg,
+                                        callStack_,
+                                        pRun_fi && pRun_fi->info ? std::string_view(pRun_fi->info->name) : std::string_view{},
+                                        InstructionPointer,
+                                        arguments,
+                                        FuncTab,
+                                        VarTab,
+                                        DefTab,
+                                        [this](uint32_t function, DATA *&result) { return BC_Execute(function, result); }};
+        return storm::natives::callNativeExt(func_code - FUNC_NATIVE_EXT_BASE, call, pVResult);
+    }
 
     switch (func_code)
     {

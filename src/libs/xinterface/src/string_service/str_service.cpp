@@ -1,4 +1,6 @@
 #include "str_service.h"
+#include "cl_string_natives.h"
+#include "dlg_text_hooks.hpp"
 
 #include "core.h"
 #include "string_compare.hpp"
@@ -101,6 +103,7 @@ STRSERVICE::STRSERVICE()
 
 STRSERVICE::~STRSERVICE()
 {
+    storm::dlg::setTextHooks({});
     int i;
 
     CloseUsersStringFile(m_nDialogSourceFile);
@@ -157,6 +160,12 @@ bool STRSERVICE::Init()
 {
     // GUARD(bool STRSERVICE::Init())
     LoadIni();
+    // The localisation natives in core (DLG_Convert, ...) read CL's text files of this language.
+    storm::dlg::setTextHooks({[this] { return std::string(m_sLanguageDir ? m_sLanguageDir : ""); },
+                              [this](std::string_view key) -> std::optional<std::string> {
+                                  const char *value = GetString(std::string(key).c_str());
+                                  return value ? std::optional<std::string>(value) : std::nullopt;
+                              }});
     // UNGUARD
     return true;
 }
@@ -1749,8 +1758,17 @@ bool SCRIPT_INTERFACE_FUNCTIONS::Init()
     sIFuncInfo.pFuncAddress = _AddControlTreeNode;
     core.SetScriptFunction(&sIFuncInfo);
 
+    registerClStringNatives();
     return true;
 }
 
 //===============================================================
 //===============================================================
+
+int32_t STRSERVICE::GetUsersStringsQuantity(int32_t id) const
+{
+    for (const UsersStringBlock *block = m_pUsersBlocks; block != nullptr; block = block->next)
+        if (block->blockID == id)
+            return block->nStringsQuantity;
+    return -1;
+}
