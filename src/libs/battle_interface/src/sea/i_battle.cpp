@@ -331,8 +331,14 @@ uint64_t BATTLE_INTERFACE::ProcessMessage(MESSAGE &message)
     }
     break;
     case BI_SET_VISIBLE: // "ll"
-        m_bVisible = (0 != message.Long());
+    {
+        const bool visible = 0 != message.Long();
+#ifdef __ANDROID__
+        if (visible != m_bVisible) storm::android::shipTelemetry.nativeVisibilityChanged();
+#endif
+        m_bVisible = visible;
         break;
+    }
     case BI_SET_ISLAND_LOCATORS: // "la"
         g_IslandDescr.SetIsland(message.AttributePointer());
         break;

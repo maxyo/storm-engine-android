@@ -298,6 +298,17 @@ public:
         if (hudPresenters.sea && frame_.valid && answered_ != hudRevision_) return frame_.availableMask();
         return acknowledged_ & frame_.availableMask();
     }
+    // The native sea interface was shown or hidden by the game (BI_SET_VISIBLE: the telescope
+    // going down, a script). What the UI said about the old state does not cover the new one,
+    // so this is a new HUD revision: while a presenting UI has not answered it, the native parts
+    // stay off (mask() and the navigator's pending owner), with no frame of the native compass,
+    // date and readouts over the touch HUD. Called before the frame that would draw them.
+    void nativeVisibilityChanged()
+    {
+        ++hudRevision_;
+        acknowledged_ = 0;
+        forcePublish_ = true;
+    }
     void resetActivity()
     {
         ++hudRevision_;
