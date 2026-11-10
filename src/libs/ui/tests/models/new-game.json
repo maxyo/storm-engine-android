@@ -417,6 +417,18 @@
    "actions": [],
    "cells": [],
    "exclusive": false
+  },
+  {
+   "node": "ANDROID_HERO_TYPE",
+   "type": "text",
+   "label": "HeroType_1",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
   }
  ]
 }

@@ -314,6 +314,14 @@ class VitalsConsumer final : public HudConsumer
                 return "dash: expected a number";
             next.dash = Ratio(state, "dash");
         }
+        if (const auto opponent = state.find("opponent"); opponent != state.end())
+        {
+            if (!opponent->is_object() || !opponent->contains("name") || !(*opponent)["name"].is_string() ||
+                (*opponent)["name"].get<std::string>().empty() || !opponent->contains("health") || !(*opponent)["health"].is_number())
+                return "opponent: expected {name, health}";
+            next.opponent = (*opponent)["name"].get<std::string>();
+            next.opponent_health = Ratio(*opponent, "health");
+        }
         return {};
     }
 };

@@ -4,8 +4,10 @@ The engine's only GPU backend: [bgfx](https://github.com/bkaradzic/bgfx) on Open
 on Android and on the Linux development host alike.
 
 - `cmake/bgfx_pin.cmake` — the single pin of bgfx.cmake (bgfx/bx/bimg as its submodules).
-  Other libraries link the `storm_bgfx` target and never fetch bgfx themselves. Offline
-  builds pass `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<pinned checkout>`.
+  `cmake/bgfx_upstream.cmake` adds those targets (patched, see `patches/`). Engine libraries link
+  `storm_bgfx` (or just `bimg` for CPU image decoding) and never fetch bgfx themselves; the
+  standalone UI runtime (src/libs/ui) and the `tests/mobile_images` check include
+  `bgfx_upstream.cmake` for bimg. Offline builds pass `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<pinned checkout>`.
   Licences: `third_party/licenses/{bgfx,bx,bimg}-BSD-2-Clause.txt`.
 - `src/shim/` — the D3D9-shaped shim. `DX9RENDER` (src/libs/renderer) and its consumers still
   call `IDirect3DDevice9` and friends, declared by the vendored type headers in

@@ -94,6 +94,11 @@ class SpyglassState
     {
         return on_;
     }
+    // A target is being shown (the telescope is up and found one).
+    bool shows() const
+    {
+        return on_ && known_;
+    }
     uint64_t generation() const
     {
         return generation_;
