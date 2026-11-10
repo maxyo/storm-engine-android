@@ -553,6 +553,64 @@ static void Repair(const std::string &models)
     ExpectEqual(surface.Last(), prefix + "REPAIR_CANCEL\t-1\tpress", "back cancels");
 }
 
+static void Transfer(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    const std::string prefix = "widget:transfer_main\t";
+    router.SetInterface(Load(models, "transfer-loot.json"));
+    Expect(router.Using() == "transfer_main" && surface.tag == "s-transfer" && surface.errors.empty(), "loot is drawn by the transfer screen");
+    Expect(surface.props["tabs"].size() == 2 && surface.props["tabs"][0]["selected"] == true, "cargo and crew tabs, cargo open");
+    Expect(surface.props["stats"][1]["value"] == "<transfer.no_captain>", "the captured ship has no captain");
+    Expect(surface.props["list"]["cols"][0]["label"] == "Корабль 1" && surface.props["list"]["rows"].size() > 5, "goods columns named by the ships");
+    ExpectEqual(surface.props["primary"]["label"], "<transfer.take_all>", "take all the cargo");
+    router.OnEvent({"primary", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "TAKE_GOODS\t-1\tpress", "take all = the game's take goods");
+    router.OnEvent({"header", "tab", "1"});
+    ExpectEqual(surface.Last(), prefix + "CREW_BUTTON\t-1\tpress", "crew tab opens the crew window");
+    router.OnEvent({"action-CAPTAN_BUTTON", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "CAPTAN_BUTTON\t-1\tpress", "captain button");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "EXIT_BTN\t-1\tpress", "back leaves through the game's exit (it asks about the ship)");
+
+    router.SetInterface(Load(models, "transfer-hire.json"));
+    const Json &hire = surface.props["modal"];
+    Expect(hire["step"] == "1/2" && hire["q"]["value"] == 8 && hire["q"]["max"] == 8, "defectors: all 8 willing are taken by default");
+    ExpectEqual(hire["actions"][1]["label"], "<transfer.take> 8", "take 8");
+    surface.commands.clear();
+    router.OnEvent({"hire", "commit", "5"});
+    Expect(surface.commands.size() == 3 && surface.commands[0] == prefix + "HIRE_QTY_REMOVE_BUTTON\t-1\tpress", "8 → 5 = three presses down");
+    router.OnEvent({"hire-ok", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "HIRE_QTY_OK_BUTTON\t-1\tpress", "accept the defectors");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "HIRE_QTY_CANCEL_BUTTON\t-1\tpress", "back refuses them");
+
+    router.SetInterface(Load(models, "transfer-crew-capture.json"));
+    const Json &fate = surface.props["modal"];
+    Expect(fate["step"] == "2/2" && fate["actions"].size() == 3 && fate["actions"][0]["hold"] == true && fate["actions"][0]["variant"] == "danger",
+           "crew fate after the defectors: overboard is held, never asked");
+    router.OnEvent({"fate-kill", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "CAPTURE_CREW_KILL\t-1\tpress", "overboard once the hold completes");
+
+    router.SetInterface(Load(models, "transfer-fate.json"));
+    const Json &ship = surface.props["modal"];
+    Expect(ship["actions"].size() == 2 && ship["actions"][0]["label"] == "<transfer.sink>" && ship["actions"][0]["hold"] == true, "a ship without a captain: sink (held) or keep");
+    router.OnEvent({"fate-ship", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "REMOVE_ACCEPT_OFFICER\t-1\tpress", "sink = the game's yes");
+    router.OnEvent({"fate-keep", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "REMOVE_CANCEL_OFFICER\t-1\tpress", "keep = back to appoint a captain");
+
+    router.SetInterface(Load(models, "transfer-crew.json"));
+    Expect(surface.props["crew"]["rows"][0]["q"]["value"] == 96 && surface.props["crew"]["rows"][0]["q"]["max"] == 154 &&
+               surface.props["tabs"][1]["selected"] == true && surface.props["primary"].is_null(),
+           "crew window: our 96 of both crews, crew tab open");
+    surface.commands.clear();
+    router.OnEvent({"crew", "commit", "100"});
+    Expect(surface.commands.size() == 4 && surface.commands[0] == prefix + "CREW_LEFT\t-1\tpress", "4 more men = four takes");
+    router.OnEvent({"header", "tab", "0"});
+    ExpectEqual(surface.Last(), prefix + "CREW_EXIT_BTN\t-1\tpress", "cargo tab closes the crew window");
+}
+
 // The capability token a widget of the model offers for `verb` ("yard@7:2:press").
 static std::string Yard(const InterfaceModel &model, const char *node, int index, const char *type, const std::string &verb)
 {
@@ -932,6 +990,7 @@ int main(int argc, char **argv)
     Dialogue(models);
     Games(models);
     Repair(models);
+    Transfer(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else

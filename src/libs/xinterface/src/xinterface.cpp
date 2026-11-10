@@ -507,6 +507,39 @@ void XINTERFACE::Realize(uint32_t)
                     if (storm::iEquals(widget.node, "OUR_GOLD"))
                         widget.context["currency"] = "doubloons";
         }
+        if (storm::android::mobileScreen == "transfer_main")
+        {
+            // The loot / exchange screen asks every question in one window (REMOVE_OFFICER_WINDOW)
+            // and tells them apart only by its script mode (sink the ship, let the captain go,
+            // remove the captain, a plain message); whether the other captain is still alive
+            // decides what leaving means. Missing script state is reported, never guessed.
+            MobileWidget marker{"ANDROID_TRANSFER", "transfer", "", "", -1, 0, false};
+            const char *mode = nullptr;
+            auto *modeVar = static_cast<VDATA *>(core.GetScriptVariable("sMessageMode"));
+            int32_t transfer = 0;
+            auto *transferVar = static_cast<VDATA *>(core.GetScriptVariable("bTransferMode"));
+            auto *other = static_cast<VDATA *>(core.GetScriptVariable("xi_refCharacter"));
+            ATTRIBUTES *captain = other ? other->GetAClass() : nullptr;
+            std::string missing;
+            if (modeVar && modeVar->Get(mode))
+                marker.context["mode"] = mode ? mode : "";
+            else
+                missing += " sMessageMode";
+            if (transferVar && transferVar->Get(transfer))
+                marker.context["exchange"] = transfer ? "1" : "0";
+            else
+                missing += " bTransferMode";
+            if (captain)
+            {
+                const ATTRIBUTES *ai = captain->GetAttributeClass("chr_ai");
+                marker.context["captainAlive"] = ai && ai->GetAttributeAsFloat("hp", 0.0f) > 0.0f ? "1" : "0";
+            }
+            else
+                missing += " xi_refCharacter";
+            if (!missing.empty())
+                marker.unavailableReason = "transfer:missing=" + missing.substr(1);
+            widgets.push_back(std::move(marker));
+        }
         std::stable_sort(widgets.begin(), widgets.end(), [](const auto &a, const auto &b) {return a.order < b.order;});
         if (storm::android::mobileScreen == "items")
             inventoryEquipCapability.published(storm::android::mobileScreenRevision, widgets);

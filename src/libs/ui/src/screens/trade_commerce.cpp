@@ -37,6 +37,8 @@ constexpr Layout kCannons{StringKey("trade.cannons"), 0, 5, 3, 2, 4, -1, "SHIPS_
 constexpr Layout kItemsTrade{StringKey("trade.items"), 0, 5, 3, 2, 4, -1, "CHARACTERS_SCROLL", true};
 constexpr Layout kStorage{StringKey("trade.storage"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL"};
 constexpr Layout kItemsBox{StringKey("trade.chest"), 0, 4, 2, -1, -1, -1, "CHARACTERS_SCROLL", true};
+// The goods of the loot / exchange screen (transfer_main): ours, weight, name, theirs, weight.
+constexpr Layout kTransfer{StringKey("transfer.title"), 0, 3, 2, -1, -1, -1, "", false};
 
 constexpr NodeRule kNodes[] = {
     {"TABLE_LIST", "choice", true},
@@ -503,6 +505,11 @@ std::unique_ptr<Screen> CreateItemsTradeScreen()
 std::unique_ptr<Screen> CreateStorageScreen()
 {
     return std::make_unique<CommerceScreen>(kStorage);
+}
+// Used inside the loot / exchange screen (extra_transfer.cpp), which adds its windows.
+std::unique_ptr<Screen> CreateTransferGoods()
+{
+    return std::make_unique<CommerceScreen>(kTransfer);
 }
 std::unique_ptr<Screen> CreateItemsBoxScreen()
 {
