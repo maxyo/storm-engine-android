@@ -52,7 +52,13 @@ else()
         add_link_options(-v)
     endif()
 
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS} -O3")
+    if(ANDROID)
+        # Same optimization level as the RelWithDebInfo builds that were tested on
+        # devices; cmake/android.cmake adds LTO and hidden visibility for Release.
+        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS} -O2 -g -DNDEBUG")
+    else()
+        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS} -O3")
+    endif()
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -g")
 
     # Add _DEBUG flag

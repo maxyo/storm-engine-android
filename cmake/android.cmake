@@ -40,6 +40,24 @@ set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
 set(MI_OVERRIDE OFF CACHE BOOL "" FORCE)
 add_subdirectory("${STORM_ANDROID_SOURCES}/mimalloc" "${CMAKE_BINARY_DIR}/mimalloc")
 set_target_properties(mimalloc PROPERTIES OUTPUT_NAME mimalloc VERSION "" SOVERSION "" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/runtime")
+# Release = the RelWithDebInfo flags (-O2 -g -DNDEBUG, set in src/CMakeLists.txt)
+# plus hidden visibility, section GC and ThinLTO for the engine's own targets
+# (declared after this point; mimalloc above keeps its exported C API).
+# Hidden visibility drops ~11.5k C++ symbols from .dynsym, which shortens
+# load-time symbol resolution and lets the linker discard and inline across
+# modules. What must stay exported is marked in the sources: SDL_main
+# (SDLMAIN_DECLSPEC) and the JNI entry points (JNIEXPORT). Debug info is kept
+# so the application's release packaging can split symbols from the stripped
+# library. -DSTORM_ANDROID_RELEASE_LTO=OFF keeps everything but LTO.
+option(STORM_ANDROID_RELEASE_LTO "ThinLTO for Android Release builds" ON)
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_compile_options(-fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections)
+    add_link_options(-Wl,--gc-sections)
+    if(STORM_ANDROID_RELEASE_LTO)
+        add_compile_options(-flto=thin)
+        add_link_options(-flto=thin)
+    endif()
+endif()
 # NDK exposes the Android platform zlib ABI. Do not package a competing libz.so.
 add_library(zlib INTERFACE)
 target_link_libraries(zlib INTERFACE z)
