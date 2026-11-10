@@ -8,11 +8,12 @@ configure time (`cmake/ffmpeg.cmake`); `tests/video/run.py` runs it for the host
 
 A build is stored under `<cache>/<target>-<key>/` (`include/`, `lib/`, `configure.txt`,
 `COPYING.LGPLv2.1`). The key hashes the source revision, the configure flags, the compiler's
-`--version` and `build.py` itself; any change builds a new prefix, an unchanged one is reused
+`--version` and `BUILD_FORMAT` in `build.py`; any change builds a new prefix, an unchanged one is reused
 by every build directory and worktree pointing at the same cache. The default cache is
 `<prepared sources>/../ffmpeg-cache` (e.g. `build/android-ci/ffmpeg-cache`); override with
-`-DSTORM_FFMPEG_CACHE=`. A lock file serialises concurrent builds of one target. A cold build
-takes about two minutes per target on the development host.
+`-DSTORM_FFMPEG_CACHE=`. A lock file serialises concurrent builds of one target. Compiles go
+through `ccache` when it is installed (the launcher is printed and is not part of the key). A
+cold build takes about two minutes per target on the development host.
 
 ## Licence
 

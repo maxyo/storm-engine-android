@@ -19,6 +19,8 @@ import shutil
 import subprocess
 import sys
 
+# Bump when the way the prefix is produced changes (the flags are hashed separately).
+BUILD_FORMAT = 1
 LIBRARIES = ('avutil', 'swresample', 'swscale', 'avcodec', 'avformat')
 
 # Only what the game videos need. LGPL-2.1+: never --enable-gpl, --enable-version3 or --enable-nonfree.
@@ -45,15 +47,24 @@ TARGETS = {
 }
 
 
+def launcher():
+    # ccache in front of the compiler (owner rule: never compile cold). It does not change the
+    # output, so it is not part of the cache key.
+    ccache = shutil.which('ccache')
+    print(f'FFmpeg: compiler launcher: {ccache or "none (ccache not installed)"}', file=sys.stderr, flush=True)
+    return f'{ccache} ' if ccache else ''
+
+
 def compiler(args):
     if args.target == 'host':
         cc = os.environ.get('CC', 'cc')
-        return [f'--cc={cc}'], cc
+        return [f'--cc={launcher()}{cc}'], cc
     tools = args.ndk.resolve() / 'toolchains/llvm/prebuilt/linux-x86_64/bin'
     cc = tools / 'aarch64-linux-android24-clang'
     if not cc.exists():
         sys.exit(f'NDK compiler not found: {cc}')
-    return [f'--cc={cc}', f'--cxx={tools / "aarch64-linux-android24-clang++"}', f'--ar={tools / "llvm-ar"}',
+    prefix = launcher()
+    return [f'--cc={prefix}{cc}', f'--cxx={prefix}{tools / "aarch64-linux-android24-clang++"}', f'--ar={tools / "llvm-ar"}',
             f'--nm={tools / "llvm-nm"}', f'--ranlib={tools / "llvm-ranlib"}', f'--strip={tools / "llvm-strip"}'], str(cc)
 
 
@@ -80,7 +91,7 @@ def main():
     tool_flags, cc = compiler(args)
     flags = COMMON + TARGETS[args.target]
     version = subprocess.run([cc, '--version'], capture_output=True, text=True, check=True).stdout
-    key = hashlib.sha256(json.dumps([revision(source), flags, version, Path(__file__).read_bytes().hex()]).encode()).hexdigest()[:16]
+    key = hashlib.sha256(json.dumps([revision(source), flags, version, BUILD_FORMAT]).encode()).hexdigest()[:16]
     cache = args.cache.resolve()
     prefix = cache / f'{args.target}-{key}'
     cache.mkdir(parents=True, exist_ok=True)

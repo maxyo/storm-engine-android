@@ -34,6 +34,10 @@ namespace
 using Clock = std::chrono::steady_clock;
 
 std::atomic<LogSink> logSink{nullptr};
+#ifdef __ANDROID__
+// MediaCodec is used only through the Java codec list, which skips software-only codecs.
+bool javaVmReady = false;
+#endif
 
 void log(LogLevel level, const std::string &message)
 {
@@ -81,7 +85,8 @@ void initialiseOnce()
         // MediaCodec decoders look up hardware codecs through the Java MediaCodecList.
         JavaVM *vm = nullptr;
         auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-        if (!env || env->GetJavaVM(&vm) != JNI_OK || av_jni_set_java_vm(vm, nullptr) < 0)
+        javaVmReady = env && env->GetJavaVM(&vm) == JNI_OK && av_jni_set_java_vm(vm, nullptr) >= 0;
+        if (!javaVmReady)
             log(LogLevel::Error, "no Java VM for MediaCodec: hardware VP8/VP9 decoding is unavailable");
 #endif
     });
@@ -333,19 +338,35 @@ class PlayerImpl final : public Player
         std::lock_guard lock(framesMutex_);
         // Show the newest decoded frame that is due; earlier ones are dropped (late decoder or
         // a slow game frame). The very first frame is shown as soon as it exists.
+        bool replaced = false;
         while (!ready_.empty() && (ready_.front().pts <= now || !shown_))
         {
+            dropped_ += replaced;
+            replaced = true;
             if (shown_)
                 spare_.push_back(std::move(current_));
+            else
+                started_ = Clock::now();
             current_ = std::move(ready_.front());
             ready_.pop_front();
             shown_ = true;
             *changed = true;
             framesSpace_.notify_one();
         }
+        shownCount_ += replaced;
         if (!finished_ && (videoEnded_ && ready_.empty()) &&
             (!audioActive_ || audioDrained_) && now >= lastPts_ + frameDuration_)
+        {
             finished_ = true;
+            log(LogLevel::Info, format("%s: ended at %.2f s after %.2f s, %d frames shown, %d late frames dropped, %d jumps to a key frame",
+                                       name_.c_str(), now,
+                                       std::chrono::duration<double>(Clock::now() - started_).count() - pausedTotal_,
+                                       shownCount_, dropped_ + lateSkipped_, resyncs_.load()));
+            if (audio_)
+                log(LogLevel::Info, format("%s: sound %.2f s written, %.2f s played", name_.c_str(),
+                                           static_cast<double>(written_) / kAudioRate,
+                                           static_cast<double>(audio_->playedFrames()) / kAudioRate));
+        }
         return shown_ ? &current_ : nullptr;
     }
 
@@ -368,8 +389,11 @@ class PlayerImpl final : public Player
         paused_ = paused;
         if (audio_)
             audio_->setPaused(paused);
-        if (!paused)
+        if (paused)
+            pausedAt_ = Clock::now();
+        else
         {
+            pausedTotal_ += std::chrono::duration<double>(Clock::now() - pausedAt_).count();
             wallClock_ = pausedClock_;
             wallAt_ = Clock::now();
         }
@@ -417,7 +441,10 @@ class PlayerImpl final : public Player
 #ifdef __ANDROID__
         if (policy->hardware)
         {
-            videoCodec_ = openDecoder(stream, policy->hardware, 1, &error);
+            if (javaVmReady)
+                videoCodec_ = openDecoder(stream, policy->hardware, 1, &error);
+            else
+                error = "no Java VM";
             if (videoCodec_)
                 info_.videoDecoding = Decoding::Hardware;
             else
@@ -582,6 +609,12 @@ class PlayerImpl final : public Player
         while (ok && !stop_ && packets_.pop(&packet))
         {
             const bool end = packet == nullptr;
+            if (!end && !resynchronise(packet))
+            {
+                av_packet_free(&packet);
+                continue;
+            }
+            adaptSkipping();
             int result = avcodec_send_packet(videoCodec_.get(), packet);
             av_packet_free(&packet);
             if (result < 0 && result != AVERROR(EAGAIN) && result != AVERROR_EOF)
@@ -606,9 +639,65 @@ class PlayerImpl final : public Player
         av_frame_free(&frame);
     }
 
+    // A decoder slower than real time first stops decoding non-reference frames, then
+    // everything but key frames, until it has caught up with the clock. Reported once per
+    // video; hardware decoders ignore it.
+    void adaptSkipping()
+    {
+        const double late = sharedClock_ - decodedPts_;
+        const AVDiscard wanted = late > 0.5    ? AVDISCARD_NONKEY
+                                 : late > 0.15 ? AVDISCARD_NONREF
+                                 : late < 0.05 ? AVDISCARD_DEFAULT
+                                               : videoCodec_->skip_frame;
+        if (wanted == videoCodec_->skip_frame)
+            return;
+        if (wanted != AVDISCARD_DEFAULT && !skipReported_)
+        {
+            skipReported_ = true;
+            log(LogLevel::Warning, format("%s: video decoding is %.2f s behind; skipping %s frames to keep up",
+                                          name_.c_str(), late, wanted == AVDISCARD_NONKEY ? "all but key" : "non-reference"));
+        }
+        videoCodec_->skip_frame = wanted;
+    }
+
+    // More than a second behind (also for hardware decoders, which ignore skip_frame): drop
+    // packets up to the next key frame and restart the decoder there. False drops the packet.
+    bool resynchronise(const AVPacket *packet)
+    {
+        const bool key = packet->flags & AV_PKT_FLAG_KEY;
+        if (!resyncing_ && !key && sharedClock_ - decodedPts_ > 1.0)
+        {
+            resyncing_ = true;
+            ++resyncs_;
+        }
+        if (!resyncing_)
+            return true;
+        if (!key)
+        {
+            ++lateSkipped_;
+            return false;
+        }
+        avcodec_flush_buffers(videoCodec_.get());
+        resyncing_ = false;
+        decodedPts_ = std::max(decodedPts_, seconds(packet->pts, videoBase_));
+        return true;
+    }
+
     // Converts a decoded picture into a free RGBA frame and queues it.
     bool present(const AVFrame *picture)
     {
+        double pts = seconds(picture->best_effort_timestamp, videoBase_);
+        if (pts < 0)
+            pts = lastPts_ + frameDuration_;
+        decodedPts_ = pts;
+        // Already late (slow decoder): skip the conversion, but keep the picture moving at
+        // least five times a second.
+        if (pts + frameDuration_ < sharedClock_ && pts - lastQueuedPts_ < 0.2)
+        {
+            ++lateSkipped_;
+            return true;
+        }
+        lastQueuedPts_ = pts;
         Frame target;
         {
             std::unique_lock lock(framesMutex_);
@@ -640,9 +729,6 @@ class PlayerImpl final : public Player
         uint8_t *planes[4] = {target.rgba.data(), nullptr, nullptr, nullptr};
         int strides[4] = {target.width * 4, 0, 0, 0};
         sws_scale(sws_, picture->data, picture->linesize, 0, picture->height, planes, strides);
-        double pts = seconds(picture->best_effort_timestamp, videoBase_);
-        if (pts < 0)
-            pts = lastPts_ + frameDuration_;
         target.pts = pts;
         std::lock_guard lock(framesMutex_);
         lastPts_ = std::max(lastPts_.load(), pts);
@@ -661,7 +747,7 @@ class PlayerImpl final : public Player
     double advanceClock()
     {
         if (paused_)
-            return clock_ = pausedClock_;
+            return sharedClock_ = clock_ = pausedClock_;
         const auto now = Clock::now();
         if (audioActive_)
         {
@@ -674,9 +760,9 @@ class PlayerImpl final : public Player
                 wallClock_ = t;
                 wallAt_ = now;
             }
-            return clock_ = t;
+            return sharedClock_ = clock_ = t;
         }
-        return clock_ = wallClock_ + std::chrono::duration<double>(now - wallAt_).count();
+        return sharedClock_ = clock_ = wallClock_ + std::chrono::duration<double>(now - wallAt_).count();
     }
 
     static constexpr size_t kQueuedFrames = 3;
@@ -699,6 +785,12 @@ class PlayerImpl final : public Player
     std::atomic<bool> stop_{false}, failed_{false}, audioEnded_{false}, audioStarted_{false};
     std::atomic<double> audioStart_{0.0}, lastPts_{0.0};
     std::atomic<uint64_t> written_{0};
+    std::atomic<double> sharedClock_{0.0}; // the game thread's clock, for the video thread
+    std::atomic<int> lateSkipped_{0};
+    // Video thread only.
+    double decodedPts_ = 0.0, lastQueuedPts_ = -1.0;
+    bool skipReported_ = false, resyncing_ = false;
+    std::atomic<int> resyncs_{0};
 
     std::mutex framesMutex_;
     std::condition_variable framesSpace_;
@@ -709,8 +801,9 @@ class PlayerImpl final : public Player
     // Game thread only.
     Frame current_;
     bool shown_ = false, finished_ = false, paused_ = false, audioActive_ = false, audioDrained_ = false;
-    double clock_ = 0.0, pausedClock_ = 0.0, wallClock_ = 0.0;
-    Clock::time_point wallAt_;
+    double clock_ = 0.0, pausedClock_ = 0.0, wallClock_ = 0.0, pausedTotal_ = 0.0;
+    Clock::time_point wallAt_, started_, pausedAt_;
+    int shownCount_ = 0, dropped_ = 0;
 };
 } // namespace
 
