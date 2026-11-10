@@ -2,26 +2,17 @@ cmake_minimum_required(VERSION 3.18)
 project(storm-engine)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-set(STORM_HOST_SOURCES "" CACHE PATH "Pinned dependency sources for the Conan-free Linux host build")
+set(STORM_HOST_SOURCES "" CACHE PATH "Pinned dependency sources for the Linux host build")
 if(NOT ANDROID AND NOT STORM_HOST_SOURCES)
-    include(conan)
+    message(FATAL_ERROR "Supported configurations:\n"
+        "  Android: -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/android-arm64.cmake (see cmake/android.cmake, tools/android/README.md)\n"
+        "  Linux host: -DSTORM_HOST_SOURCES=<prepared sources> -DSTORM_AUDIO_SOURCES=<miniaudio sources> (see cmake/host.cmake)")
 endif()
 include(StormSetup)
 
-option(STORM_OPEN_AUDIO "Use the miniaudio audio backend" ${ANDROID})
-if(STORM_HOST_SOURCES)
-    set(STORM_OPEN_AUDIO ON CACHE BOOL "" FORCE)
-endif()
-if(STORM_OPEN_AUDIO AND NOT ANDROID AND NOT STORM_HOST_SOURCES)
-    message(FATAL_ERROR "Full-engine open audio is currently integrated for Android. Desktop retains FMOD; use tests/audio/run.py for host open-audio checks.")
-endif()
 option(STORM_ENABLE_CRASH_REPORTS "Enable automatic crash reports" OFF)
 option(STORM_ENABLE_STEAM "Enable Steam integration" OFF)
 option(STORM_ENABLE_SAFE_MODE "Enable additional runtime checks" OFF)
-option(STORM_USE_CONAN_SDL "Use sdl from conan" ON)
-if (NOT WIN32)
-    option(STORM_MESA_NINE "Use Gallium Nine from Mesa for native D3D9 API" OFF)
-endif()
 
 ### Set up output paths
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
@@ -32,40 +23,8 @@ set(STORM_WATERMARK_FILE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/watermark.hpp CACHE F
 
 if(ANDROID)
     include(android)
-elseif(STORM_HOST_SOURCES)
+else()
     include(host)
-else()
-if (WIN32)
-    set(SDL2_LIBRARIES "sdl")
-else()
-    include(linux)
-endif()
-
-### Set up third-party dependencies
-set(ENV{CONAN_REVISIONS_ENABLED} 1)
-conan_add_remote(NAME storm
-    URL https://storm.jfrog.io/artifactory/api/conan/conan-remote
-    VERIFY_SSL True
-)
-normalize_booleans(STORM_ENABLE_CRASH_REPORTS STORM_ENABLE_STEAM STORM_USE_CONAN_SDL)
-conan_cmake_run(CONANFILE conanfile.py
-    BASIC_SETUP CMAKE_TARGETS
-    BUILD missing
-    OPTIONS
-        output_directory=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
-        watermark_file=${STORM_WATERMARK_FILE}
-        crash_reports=${STORM_ENABLE_CRASH_REPORTS}
-        steam=${STORM_ENABLE_STEAM}
-        conan_sdl=${STORM_USE_CONAN_SDL}
-)
-
-### Define library ALIASes for use without CONAN_PKG:: prefix
-foreach (conan_target ${CONAN_TARGETS})
-    string(REPLACE "CONAN_PKG::" "" unprefixed_target ${conan_target})
-	add_library(${unprefixed_target} ALIAS ${conan_target})
-endforeach()
-###
-
 endif()
 
 ### Set up build scripts
