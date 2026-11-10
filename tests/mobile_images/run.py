@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 """Sanitizer tests of the production decoder/cache, linked with bimg from the renderer's bgfx pin.
+Compiles through the Storm ccache launcher (tools/ccache/README.md) in the kept build directory.
 Optional local TX checks never copy user assets into source. Offline: set
-FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM to a pinned bgfx.cmake checkout."""
-import argparse, hashlib, os, pathlib, shutil, struct, subprocess, tempfile
+FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM to a pinned, patched bgfx.cmake checkout."""
+import argparse, hashlib, os, pathlib, struct, subprocess, tempfile
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--build-dir',type=pathlib.Path,required=True)
 p.add_argument('--no-sanitize',action='store_true',help='Explicitly disable sanitizers for toolchains without runtimes')
 p.add_argument('--compiler',default=os.environ.get('CXX','c++'))
 p.add_argument('--local-texture',action='append',type=pathlib.Path,default=[])
 a=p.parse_args(); here=pathlib.Path(__file__).resolve().parent
-# One build directory per compiler and sanitizer choice: a compiler cannot change in a configured tree.
-build=a.build_dir.resolve()/(pathlib.Path(a.compiler).name+('-nosan' if a.no_sanitize else ''))
+if pathlib.Path(a.compiler).match('tools/ccache/cxx'): a.compiler=os.environ.get('STORM_CCACHE_CXX','c++')  # CMake adds the launcher
+# A configured tree keeps its compiler: use another --build-dir for another compiler.
+build=a.build_dir.resolve()
 configure=['cmake','-S',str(here),'-B',str(build),'-G','Ninja','-DCMAKE_BUILD_TYPE=Release',
            f'-DCMAKE_CXX_COMPILER={a.compiler}',f'-DSTORM_SANITIZE={"OFF" if a.no_sanitize else "ON"}']
-if shutil.which('ccache'): configure+=['-DCMAKE_C_COMPILER_LAUNCHER=ccache','-DCMAKE_CXX_COMPILER_LAUNCHER=ccache']
 if os.environ.get('FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM'):
     configure.append('-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM='+os.environ['FETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM'])
 subprocess.run(configure,check=True,stdout=subprocess.DEVNULL)
+warmth=here.parents[1]/'tools/ccache/warmth'
+subprocess.run([str(warmth),'begin',str(build)],check=True)
 subprocess.run(['cmake','--build',str(build),'--target','mobile_images_check'],check=True)
+subprocess.run([str(warmth),'end',str(build)],check=True)
 binary=build/'mobile_images_check'
 subprocess.run([str(binary)],check=True)
 with tempfile.TemporaryDirectory(prefix='storm-mobile-images-') as tmp:

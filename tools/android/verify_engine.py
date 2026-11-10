@@ -23,7 +23,9 @@ if missing:
     if b'Open audio: miniaudio' not in a.library.read_bytes():
         raise SystemExit('Missing real engine/audio symbol: '+', '.join(missing))
 deps=subprocess.check_output([str(bin/'llvm-readelf'),'-d',str(a.library)],text=True)
-for library in ['libSDL2.so','libEGL.so','libGLESv3.so','libfmt.so','libmimalloc.so','libc++_shared.so']:
+# FFmpeg (in-game video) ships beside libengine.so; see tools/ffmpeg/README.md.
+for library in ['libSDL2.so','libEGL.so','libGLESv3.so','libfmt.so','libmimalloc.so','libc++_shared.so',
+                'libavformat.so','libavcodec.so','libswscale.so','libswresample.so','libavutil.so']:
     if library not in deps:raise SystemExit('Missing runtime dependency: '+library)
 if 'fmod' in deps.lower():raise SystemExit('Unexpected FMOD dependency')
 print('PASS: full engine ARM64 linked, SDL_main and real SoundService/miniaudio symbols, no FMOD')

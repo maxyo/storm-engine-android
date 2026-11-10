@@ -3,7 +3,8 @@ $output v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, 
 // Fixed-function vertex pipeline emulation, driven entirely by uniforms.
 #include "storm_common.sh"
 
-uniform mat4 u_ffWorldView;
+// World * view comes through bgfx's per-draw transform (u_model[0], bgfx::setTransform): changing it
+// does not re-upload the uniforms below, which the GL backend does for any other uniform change.
 uniform mat4 u_ffProj; // projection (or screen matrix for XYZRHW) with the D3D->backend clip fix-up
 // [0] x: rhw  y: lighting  z: has diffuse  w: has specular
 // [1] x: normalize normals  y: light count  z: range fog  w: has normal
@@ -60,12 +61,12 @@ void main()
     }
     else
     {
-        vec4 viewPos = mul(u_ffWorldView, vec4(a_position.xyz, 1.0));
+        vec4 viewPos = mul(u_model[0], vec4(a_position.xyz, 1.0));
         P = viewPos.xyz;
         gl_Position = mul(u_ffProj, viewPos);
         if (u_ffVs[1].w > 0.5)
         {
-            N = mul(u_ffWorldView, vec4(a_normal, 0.0)).xyz;
+            N = mul(u_model[0], vec4(a_normal, 0.0)).xyz;
             if (u_ffVs[1].x > 0.5) N = normalize(N);
         }
         float fogDepth = u_ffVs[1].z > 0.5 ? length(P) : abs(P.z);

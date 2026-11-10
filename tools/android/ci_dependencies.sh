@@ -37,16 +37,19 @@ if [[ -n "${JAVA_HOME_17_X64:-}" ]]; then
 fi
 ndk="$work/tools/ndk/android-ndk-r30"
 python3 "$repo/tools/android/build_dependencies.py" --ndk "$ndk" --sdl-source "$work/sources/SDL" --fmt-source "$work/sources/fmt" --build-dir "$work/dependencies" --prefix "$work/prefix" --jobs 2
+# Checks that run the compiler themselves compile through the Storm ccache launcher.
+cxx="$repo/tools/ccache/cxx"
+ndk_cxx="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
 python3 "$repo/tools/android/test_sdl_surface_lifecycle.py" --sdl-source "$work/sources/SDL"
 # The audio experiment is independently tested; it is not part of the probe APK.
-python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-host"
-python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-sanitized" --sanitize
-python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-android" --cxx "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++" --compile-only
+python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-host" --cxx "$cxx"
+python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-sanitized" --sanitize --cxx "$cxx"
+STORM_CCACHE_CXX="$ndk_cxx" python3 "$repo/tests/audio/run.py" --build-dir "$work/audio-android" --cxx "$cxx" --compile-only
 python3 "$repo/tests/cmake/cross_compile/run.py"
 python3 "$repo/tests/portability/run.py"
 python3 "$repo/tests/portability/check_toolchain.py"
-python3 "$repo/tests/android_runtime/run.py" --sdl-source "$work/sources/SDL"
-CXX="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++" python3 "$repo/tests/android_runtime/run.py" --sdl-source "$work/sources/SDL" --compile-only
-python3 "$repo/tests/host_hooks/run.py"
-CXX="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++" python3 "$repo/tests/host_hooks/run.py" --sdl-source "$work/sources/SDL"
+CXX="$cxx" python3 "$repo/tests/android_runtime/run.py" --sdl-source "$work/sources/SDL"
+CXX="$cxx" STORM_CCACHE_CXX="$ndk_cxx" python3 "$repo/tests/android_runtime/run.py" --sdl-source "$work/sources/SDL" --compile-only
+CXX="$cxx" python3 "$repo/tests/host_hooks/run.py"
+CXX="$cxx" STORM_CCACHE_CXX="$ndk_cxx" python3 "$repo/tests/host_hooks/run.py" --sdl-source "$work/sources/SDL"
 python3 "$repo/tests/diagnostics/check_fmt.py" --fmt-source "$work/sources/fmt"

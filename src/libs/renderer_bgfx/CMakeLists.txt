@@ -18,13 +18,10 @@ set(BGFX_CONFIG_MAX_INDEX_BUFFERS 8192 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_FRAME_BUFFERS 256 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_TRANSIENT_VERTEX_BUFFER_SIZE 33554432 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_TRANSIENT_INDEX_BUFFER_SIZE 8388608 CACHE STRING "" FORCE)
-# A prebuilt host shaderc (STORM_SHADERC, from host-tools/) is required for cross builds and
-# optional on the host, where CI caches it instead of rebuilding bgfx's tools on every run.
-set(STORM_SHADERC "" CACHE FILEPATH "Host bgfx shaderc built from the pinned sources (host-tools/)")
-if(CMAKE_CROSSCOMPILING OR STORM_SHADERC)
-    set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-endif()
-# The pinned bgfx/bx/bimg with the local patches (also used by the standalone UI runtime).
+# Shaders compile with a host shaderc built once per machine and pin (cmake/storm_shaderc.cmake),
+# never with bgfx's tools inside this build.
+set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+# The pinned bgfx/bx/bimg (also used by the standalone UI runtime for bimg).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/bgfx_upstream.cmake")
 # Android and the Linux development host both run the GLES 3.0 backend so the
 # same ESSL shader blobs and code paths are exercised. Selecting one renderer
@@ -39,7 +36,7 @@ endif()
 # etcpak: ETC2 encoder for the DXT -> ETC2 texture transcode (src/texture).
 # Only the block compressors are built; no application, image I/O or threading code.
 # Offline: -DFETCHCONTENT_SOURCE_DIR_STORM_ETCPAK=/path/to/pinned/checkout
-FetchContent_Declare(storm_etcpak
+storm_fetch_declare(storm_etcpak
     GIT_REPOSITORY https://github.com/wolfpld/etcpak
     GIT_TAG 3d716e1550023dc5ff8b602636af8b76584e0b66)
 FetchContent_GetProperties(storm_etcpak)
@@ -61,18 +58,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
 endif()
 set_target_properties(storm_etcpak PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Host shader compiler. Cross builds must supply one built for the host:
-#   cmake -S src/libs/renderer_bgfx/host-tools -B build/bgfx-host-tools && cmake --build build/bgfx-host-tools
-if(CMAKE_CROSSCOMPILING OR STORM_SHADERC)
-    if(NOT EXISTS "${STORM_SHADERC}")
-        message(FATAL_ERROR "Set STORM_SHADERC to a host shaderc built from the pinned bgfx (see src/libs/renderer_bgfx/README.md)")
-    endif()
-    set(STORM_SHADERC_COMMAND "${STORM_SHADERC}" CACHE INTERNAL "")
-    set(STORM_SHADERC_DEPENDS "${STORM_SHADERC}" CACHE INTERNAL "")
-else()
-    set(STORM_SHADERC_COMMAND "$<TARGET_FILE:shaderc>" CACHE INTERNAL "")
-    set(STORM_SHADERC_DEPENDS shaderc CACHE INTERNAL "")
-endif()
+include(cmake/storm_shaderc.cmake)
 set(STORM_BGFX_SHADER_PROFILE "300_es" CACHE STRING "shaderc profile for embedded shader blobs")
 set(STORM_BGFX_SHADER_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/shaders/include" CACHE INTERNAL "")
 include(cmake/storm_shaders.cmake)
@@ -98,7 +84,7 @@ file(GLOB texture_core_sources CONFIGURE_DEPENDS src/texture/core/*.cpp src/text
 add_library(storm_texture_core STATIC ${texture_core_sources})
 target_compile_features(storm_texture_core PUBLIC cxx_std_20)
 target_include_directories(storm_texture_core PUBLIC src/texture/core)
-target_link_libraries(storm_texture_core PRIVATE storm_etcpak)
+target_link_libraries(storm_texture_core PRIVATE storm_etcpak bimg bx)
 find_package(Threads REQUIRED)
 target_link_libraries(storm_texture_core PUBLIC Threads::Threads)
 set_target_properties(storm_texture_core PROPERTIES POSITION_INDEPENDENT_CODE ON)

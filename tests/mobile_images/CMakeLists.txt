@@ -2,7 +2,7 @@
 # bgfx pin. Configured by run.py next to this file.
 cmake_minimum_required(VERSION 3.21)
 project(storm_mobile_images_check LANGUAGES C CXX)
-include(FetchContent)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/StormBuildCache.cmake")
 set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 include("${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/cmake/bgfx_upstream.cmake")
 option(STORM_SANITIZE "Build the check with ASan/UBSan" ON)

@@ -96,9 +96,17 @@ def command_for(script):
     return command
 
 
+# Checks that run the compiler themselves compile through the Storm ccache launcher
+# (tools/ccache/cxx); CMake-based checks get it from cmake/StormBuildCache.cmake.
+direct_environment = dict(os.environ, CXX=str(root / 'tools/ccache/cxx'),
+                          STORM_CCACHE_CXX=os.environ.get('CXX', 'c++'))
+
+
 def run(script):
     started = time.monotonic()
-    result = subprocess.run(command_for(script), cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    environment = None if (script.parent / 'CMakeLists.txt').exists() else direct_environment
+    result = subprocess.run(command_for(script), cwd=root, env=environment,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     return script.parent.name, result, time.monotonic() - started
 
 

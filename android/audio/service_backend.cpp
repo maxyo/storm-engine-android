@@ -1,4 +1,5 @@
 #include "service_backend.hpp"
+#include <algorithm>
 #include <cmath>
 #include <chrono>
 #include <thread>
@@ -10,6 +11,58 @@ float nonnegative(float x) { return std::isfinite(x) ? std::max(0.0f,x) : 0.0f; 
 float seconds(float x) { return std::min(nonnegative(x),60.0f); }
 const ma_uint32 decodeFlags=MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE;
 }
+PcmStream::PcmStream(Backend& backend,ma_sound_group* group,unsigned capacityFrames) {
+    check(ma_pcm_rb_init(ma_format_f32,2,std::max(capacityFrames,1024u),nullptr,nullptr,&ring));
+    // onRead, onSeek, onGetDataFormat, onGetCursor, onGetLength, onSetLooping, flags
+    static const ma_data_source_vtable vtable{&PcmStream::read,nullptr,&PcmStream::format,nullptr,nullptr,nullptr,0};
+    auto config=ma_data_source_config_init();
+    config.vtable=&vtable;
+    source.owner=this;
+    ma_result result=ma_data_source_init(&config,&source.base);
+    if(result==MA_SUCCESS) {
+        result=ma_sound_init_from_data_source(&backend.engine,&source.base,MA_SOUND_FLAG_NO_SPATIALIZATION,group,&sound);
+        if(result!=MA_SUCCESS)ma_data_source_uninit(&source.base);
+    }
+    if(result==MA_SUCCESS && (result=ma_sound_start(&sound))!=MA_SUCCESS) {ma_sound_uninit(&sound);ma_data_source_uninit(&source.base);}
+    if(result!=MA_SUCCESS) {ma_pcm_rb_uninit(&ring);check(result);}
+}
+PcmStream::~PcmStream() {ma_sound_uninit(&sound);ma_data_source_uninit(&source.base);ma_pcm_rb_uninit(&ring);}
+unsigned PcmStream::write(const float* pcm,unsigned frames) {
+    unsigned done=0;
+    while(done<frames) { // two passes at most: up to the end of the ring, then from its start
+        ma_uint32 count=frames-done;void* target=nullptr;
+        if(ma_pcm_rb_acquire_write(&ring,&count,&target)!=MA_SUCCESS || !count)break;
+        std::copy_n(pcm+size_t(done)*2,size_t(count)*2,static_cast<float*>(target));
+        check(ma_pcm_rb_commit_write(&ring,count));
+        done+=count;
+    }
+    return done;
+}
+ma_result PcmStream::read(ma_data_source* source,void* out,ma_uint64 frames,ma_uint64* read) {
+    auto* self=reinterpret_cast<Source*>(source)->owner;
+    auto* pcm=static_cast<float*>(out);
+    ma_uint64 done=0;
+    while(done<frames) {
+        ma_uint32 count=ma_uint32(std::min<ma_uint64>(frames-done,0xFFFFFFFFu));void* data=nullptr;
+        if(ma_pcm_rb_acquire_read(&self->ring,&count,&data)!=MA_SUCCESS || !count)break;
+        std::copy_n(static_cast<const float*>(data),size_t(count)*2,pcm+done*2);
+        ma_pcm_rb_commit_read(&self->ring,count);
+        done+=count;
+    }
+    self->consumed.fetch_add(done,std::memory_order_release);
+    // Underrun: silence, and the sound keeps running (a short read would end it).
+    std::fill(pcm+done*2,pcm+frames*2,0.0f);
+    *read=frames;
+    return MA_SUCCESS;
+}
+ma_result PcmStream::format(ma_data_source*,ma_format* format,ma_uint32* channels,ma_uint32* rate,ma_channel* map,size_t mapCapacity) {
+    *format=ma_format_f32;*channels=2;*rate=48000;
+    if(map)ma_channel_map_init_standard(ma_standard_channel_map_default,map,mapCapacity,2);
+    return MA_SUCCESS;
+}
+void PcmStream::pause(bool paused) {check(paused ? ma_sound_stop(&sound):ma_sound_start(&sound));}
+void PcmStream::volume(float gain) {ma_sound_set_volume(&sound,std::clamp(nonnegative(gain),0.0f,1.0f));}
+std::unique_ptr<PcmStream> Mixer::stream(unsigned capacityFrames) {return std::make_unique<PcmStream>(backend,&master,capacityFrames);}
 Mixer::Mixer(bool off,unsigned limit,Limits policy):backend(off),budget(std::clamp(limit,2u,capacity)),offline(off),limits(policy) {
     check(ma_sound_group_init(&backend.engine,0,nullptr,&master));
     lastFrame=ma_engine_get_time_in_pcm_frames(&backend.engine);

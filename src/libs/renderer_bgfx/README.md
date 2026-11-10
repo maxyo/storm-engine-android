@@ -4,7 +4,7 @@ The engine's only GPU backend: [bgfx](https://github.com/bkaradzic/bgfx) on Open
 on Android and on the Linux development host alike.
 
 - `cmake/bgfx_pin.cmake` — the single pin of bgfx.cmake (bgfx/bx/bimg as its submodules).
-  `cmake/bgfx_upstream.cmake` adds those targets with the local `patches/`. Engine libraries link
+  `cmake/bgfx_upstream.cmake` adds those targets (patched, see `patches/`). Engine libraries link
   `storm_bgfx` (or just `bimg` for CPU image decoding) and never fetch bgfx themselves; the
   standalone UI runtime (src/libs/ui) and the `tests/mobile_images` check include
   `bgfx_upstream.cmake` for bimg. Offline builds pass `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<pinned checkout>`.
@@ -21,40 +21,40 @@ on Android and on the Linux development host alike.
   their draws skipped.
 - `include/storm/render/frame_owner.hpp` — the frame owner contract (bgfx context, surface,
   view order, client views for the UI). The header is the documentation.
-- `host-tools/` — builds only the host `shaderc` from the same pin, for cross builds.
+- `host-tools/` — builds only the host `shaderc` from the same pin (`cmake/storm_shaderc.cmake` builds it
+  once per machine and pin for every host and cross build).
 - `src/texture/` — DXT → ETC2 transcode (etcpak, pinned in this CMakeLists) with an on-device cache for
   GPUs without S3TC. The tier (bc / etc2 / rgba8) is fixed per GPU at startup and logged once;
   `texture_compression` and `texture_cache_mb` in engine.ini override it. Tests and the benchmark build with
   `-DSTORM_BGFX_BUILD_TESTS=ON` (`storm_texture_tests`, `storm_texture_bench`).
-- `patches/` — fixes applied to the pinned bgfx at configure time (currently: re-attach to a new
+- `patches/` — fixes applied to the pinned bgfx when its shared source copy is fetched (`bgfx_pin.cmake`) (currently: re-attach to a new
   Android native window after the activity returns from background). The same fix is upstream as bgfx
   99b7977f ("Android: restore main-window EGL surface recreation", the commit right after the pinned
   fd541f05). It is not taken yet because every bgfx.cmake revision that carries it (5730f7a and later)
   replaces the bgfx/bx/bimg submodules with FetchContent, which changes how this pin, host-tools/ and
-  the offline Android sources work. Drop the patch and the configure-time apply with that pin bump.
+  the offline Android sources work. Drop the patch with that pin bump.
 - `fx/` — optional effects package (not wired into the frame yet; see its README).
 
 ## Building
 
-Host (builds its own `shaderc`):
+Host and Android builds compile the embedded shaders with the host `shaderc` of the pin, which the
+configure step builds once per machine into `~/.cache/storm-deps/shaderc-<digest>`
+(`cmake/storm_shaderc.cmake`; `-DSTORM_SHADERC=<binary>` overrides it). Host:
 
 ```sh
 cmake -S . -B build/host -G Ninja -DSTORM_HOST_SOURCES=<prepared sources> -DSTORM_AUDIO_SOURCES=<audio sources>
 ninja -C build/host engine
 ```
 
-Android (needs a host `shaderc` from the same pin):
+Android:
 
 ```sh
-cmake -S src/libs/renderer_bgfx/host-tools -B build/bgfx-host-tools -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build/bgfx-host-tools
 cmake -S . -B build/android -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/toolchains/android-arm64.cmake \
-  -DSTORM_ANDROID_NDK=... -DSTORM_ANDROID_DEPS=... -DSTORM_ANDROID_SOURCES=... -DSTORM_AUDIO_SOURCES=... \
-  -DSTORM_SHADERC=$PWD/build/bgfx-host-tools/shaderc
+  -DSTORM_ANDROID_NDK=... -DSTORM_ANDROID_DEPS=... -DSTORM_ANDROID_SOURCES=... -DSTORM_AUDIO_SOURCES=...
 ninja -C build/android engine
 ```
 
-`tools/android/ci_engine.sh` does both steps.
+`tools/android/ci_engine.sh` does this.
 
 ## Shaders
 
