@@ -52,9 +52,10 @@ uint32_t ScriptCheckAddOne(VS_STACK *stack)
 
 uint32_t ScriptCheckHalf(VS_STACK *stack)
 {
+    // as the engine's natives do: push the result slot first, read the argument afterwards
     auto *value = static_cast<VDATA *>(stack->Pop());
-    const float result = value->GetFloat() / 2.0f;
-    static_cast<VDATA *>(stack->Push())->Set(result);
+    auto *result = static_cast<VDATA *>(stack->Push());
+    result->Set(value->GetFloat() / 2.0f);
     return IFUNCRESULT_OK;
 }
 

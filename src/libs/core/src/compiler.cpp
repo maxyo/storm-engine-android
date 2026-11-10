@@ -5284,6 +5284,19 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
     }
     else if (call_segment_id == IMPORTED_SEGMENT_ID)
     {
+        // a native reads its arguments after it pushes its result into the same stack slot (the
+        // value's type is reset by then): give numbers and text the declared parameter types now
+        // (CL passes ints to float parameters, e.g. Degree2Radian(14))
+        const uint32_t first = SStack.GetDataNum() - arguments;
+        for (uint32_t n = 0; n < arguments && n < call_fi.local_vars.size(); n++)
+        {
+            const S_TOKEN_TYPE declared = call_fi.local_vars[n].type;
+            DATA *argument = SStack.Read(first, n);
+            const S_TOKEN_TYPE type = argument->GetType();
+            auto scalar = [](S_TOKEN_TYPE t) { return t == VAR_INTEGER || t == VAR_FLOAT || t == VAR_STRING; };
+            if (type != declared && scalar(type) && scalar(declared) && !argument->IsArray())
+                argument->Convert(declared);
+        }
         pVResult = nullptr;
         RDTSC_B(nTicks);
         const uint32_t nResult = call_imported_func(&SStack);
