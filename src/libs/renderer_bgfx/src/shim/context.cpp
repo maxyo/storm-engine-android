@@ -257,9 +257,7 @@ void Context::create_resources()
     static const char *names[kSamplerUnits] = {"s_tex0", "s_tex1", "s_tex2", "s_tex3", "s_tex4", "s_cube0",
                                                 "s_cube1", "s_cube2", "s_vol0", "s_vol1", "s_vol2",
                                                 // pixel-port extras: cube at stage 3, volume at stage 4 (sea)
-                                                "s_cube3", "s_vol4",
-                                                // skinned fixed-function draws (ff_vertex.sh FF_SKIN)
-                                                "s_bones"};
+                                                "s_cube3", "s_vol4"};
     for (uint32_t i = 0; i < kSamplerUnits; ++i)
         samplers_[i] = bgfx::createUniform(names[i], bgfx::UniformType::Sampler);
     blit_program_ = bgfx::createProgram(create_embedded_shader(shader_id_by_name("vs_blit")),
@@ -351,8 +349,8 @@ void Context::request_surface_restore()
 uint32_t Context::reset_flags() const
 {
     // Flip right after rendering: no swap of a previous frame is ever pending when the surface changes.
-    // Effects: anisotropic filtering of world textures needs the backend's maximum level (fx::RendererState; before
-    // the device exists this is the request, without the extension the backend ignores the flag).
+    // Effects: anisotropic filtering of world textures at the level of fx::RendererState (before the device exists this
+    // is the request; without the extension the backend ignores the flag).
     const bool anisotropy = effects::Host::instance().renderer_state().max_anisotropy > 1;
     return (vsync_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) | BGFX_RESET_FLIP_AFTER_RENDER |
            (anisotropy ? BGFX_RESET_MAXANISOTROPY : BGFX_RESET_NONE) |

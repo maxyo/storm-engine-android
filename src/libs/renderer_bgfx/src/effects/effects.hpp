@@ -102,6 +102,7 @@ class Host
     fx::Support support_{};
     bool device_ready_ = false;
     bool renderer_state_changed_ = false;
+    float device_max_anisotropy_ = 0.0f; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
     render::EffectsReport report_{};
     render::EffectsWeather weather_{};
     bool weather_this_frame_ = false; // pushed since the last presented frame

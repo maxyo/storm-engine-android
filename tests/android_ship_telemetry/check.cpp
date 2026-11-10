@@ -147,6 +147,16 @@ int main()
         assert(presented.acknowledge(std::to_string(epoch) + "\t0\t" + std::to_string(presented.hudRevision())) && presented.mask() == 0);
         presented.resetActivity();
         assert(presented.mask() == presented.frame().availableMask());
+        // The UI declined while the telescope hid the native interface (mask 0); the telescope goes
+        // down (BI_SET_VISIBLE 1): that answer covers nothing of the shown interface, the native
+        // parts stay off until the UI answers the new revision.
+        assert(presented.acknowledge(std::to_string(epoch) + "\t0\t" + std::to_string(presented.hudRevision())) && presented.mask() == 0);
+        const auto beforeVisible = presented.hudRevision();
+        presented.nativeVisibilityChanged();
+        assert(presented.hudRevision() != beforeVisible && presented.awaiting() && presented.mask() == presented.frame().availableMask());
+        assert(!presented.acknowledge(std::to_string(epoch) + "\t0\t" + std::to_string(beforeVisible))); // the old word is stale
+        assert(presented.acknowledge(std::to_string(epoch) + "\t2047\t" + std::to_string(presented.hudRevision())) &&
+               presented.mask() == (2047u & presented.frame().availableMask()));
         hudPresenters.seaSceneStarted(); // a new scene before its first answer: every native indicator off
         assert(presented.mask() == ShipAll);
         assert(presented.acknowledge(std::to_string(epoch) + "\t1\t" + std::to_string(presented.hudRevision())) && presented.mask() == 1);

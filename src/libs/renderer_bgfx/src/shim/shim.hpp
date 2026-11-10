@@ -23,6 +23,10 @@ namespace storm::texture
 {
 struct Job;
 }
+namespace storm::effects
+{
+struct NormalMapEntry;
+}
 
 namespace storm::shim
 {
@@ -96,6 +100,8 @@ struct TexStore
     uint64_t transcode_key = 0;
     int64_t fallback_bytes = 0;       // size of the temporary texture, 0 once ETC2 is in place
     std::shared_ptr<texture::Job> transcode_job;
+    // Effects: the normal map derived from this height texture (src/effects/normal_maps.hpp), null for others.
+    std::shared_ptr<effects::NormalMapEntry> normal_map;
 
     ~TexStore();
     uint32_t faces() const { return kind == TexKind::Cube ? 6 : 1; }
@@ -232,7 +238,6 @@ struct LayoutInfo
     uint16_t stride[kMaxStreams] = {};
     uint8_t stream_count = 0;
     bool rhw = false, has_normal = false, has_color0 = false, has_color1 = false;
-    bool skinned = false; // XYZB2 | LASTBETA_UBYTE4: one blend weight + bone indices (GPU skinning)
     uint8_t texcoord_size[8] = {};
     uint8_t texcoord_count = 0;
 };
@@ -285,7 +290,6 @@ struct DeviceState
     DWORD fvf = 0;
     // non-owning in the struct; the Device keeps the matching references
     IDirect3DBaseTexture9 *textures[kMaxStages] = {};
-    IDirect3DBaseTexture9 *vertex_texture = nullptr; // D3DVERTEXTEXTURESAMPLER0: the bone palette of skinned draws
     VertexBuffer *stream[kMaxStreams] = {};
     UINT stream_offset[kMaxStreams] = {}, stream_stride[kMaxStreams] = {};
     IndexBuffer *indices = nullptr;

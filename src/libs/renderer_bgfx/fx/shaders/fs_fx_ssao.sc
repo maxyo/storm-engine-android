@@ -68,5 +68,8 @@ void main()
         occlusion += max(dot(N, v) * inversesqrt(d2 + 1e-6) - 0.08, 0.0) / (1.0 + d2 / (radius * radius));
     }
     float ao = clamp(1.0 - occlusion * (u_fxAo[1].z / 8.0) * 4.5, 0.0, 1.0);
+    // Far away a half-resolution texel covers metres of alpha-tested foliage: the depth is noise there and so would
+    // the occlusion be (a coarse mosaic over distant hills). It fades out between 30 and 90 m.
+    ao = mix(ao, 1.0, smoothstep(30.0, 90.0, z));
     gl_FragColor = vec4(ao, enc, 1.0);
 }

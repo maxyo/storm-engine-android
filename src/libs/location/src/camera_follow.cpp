@@ -131,14 +131,30 @@ void CameraFollow::MoveCamera(float dltTime)
 {
     if (dltTime <= 0.0f)
         return;
+#ifdef __ANDROID__
+    // Mobile camera mode (owner decision 2026-11-11). The native follow camera swings behind
+    // the hero (likeCamay = chay below) and eases towards that heading with rotInertia; a
+    // touch port added (c665430f, 2026-10-18) an orbit for a held stick that eased towards
+    // camay + this frame's drag, so only dltTime * rotInertia of each frame's drag was applied
+    // and the rest was thrown away: about 1/24 at 60 fps, the camera "almost not responding"
+    // while running, while a fight (native turn) responded fully. On mobile, out of a fight,
+    // the camera turns only from the player's drag, by all of it, and never re-centres behind
+    // the hero; the radius still follows obstacles (FindRadius). The hero turns only with the
+    // stick (Player::Rotate ignores the drag here), so the camera and the travel vector never
+    // fight each other.
+    if (lc->character->MobileCameraOrbit() && !lc->isSpecialMode)
+    {
+        camay += lc->dragAy;
+        lookTo = lc->pos;
+        lookTo.y += lc->lheight;
+        ChangeRadius(dltTime, FindRadius(camay));
+        CalcPosition(camay, camradius, 0.0f, camPos);
+        return;
+    }
+#endif
     // Where are we looking
     auto likeCamay = lc->chay;
-#ifdef __ANDROID__
-    const bool touchCamera = lc->character->UsesTouchCamera();
-#else
-    constexpr bool touchCamera = false;
-#endif
-    if (lc->isSpecialMode || touchCamera)
+    if (lc->isSpecialMode)
     {
         likeCamay = camay + lc->dAy;
     }
@@ -165,7 +181,7 @@ void CameraFollow::MoveCamera(float dltTime)
         if (k > 1.0f)
             k = 1.0f;
         camay = cay + dAng * k;
-        if (!touchCamera) lc->character->LockRotate(true);
+        lc->character->LockRotate(true);
     }
     ChangeRadius(dltTime, FindRadius(camay));
     CalcPosition(camay, camradius, 0.0f, camPos);
