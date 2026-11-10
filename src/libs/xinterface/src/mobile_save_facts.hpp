@@ -31,9 +31,13 @@ std::map<std::string, std::string> SaveRowContext(const SaveListSnapshot &state,
 // once per opening of the menu.
 std::optional<MobileWidget> GameIdentityWidget(uint64_t opening);
 
-// The record «Продолжить» loads on the title screen (V2-Menu-Title): the newest file of the
-// profile's save folder ("SAVE\\" + PlayerProfile.name, as save_load.c opens it), as the
-// ANDROID_CONTINUE text «<hero> · <location>» with the record's facts as context. Scanned
-// once per opening of the screen.
+// Every profile's records (SAVE\\<profile>\\<file>, the game's profile folders without
+// "netsave"), newest first: the rows of the save list when loading.
+std::vector<SaveRecord> SaveRecordsOfAllProfiles();
+
+// The record «Продолжить» loads on the title screen (V2-Menu-Title): the newest record of
+// any profile, as the ANDROID_CONTINUE text «<hero> · <location>» (its file name when the
+// description cannot be read) with the record's facts as context; nothing without records.
+// Scanned once per opening of the screen.
 std::optional<MobileWidget> ContinueWidget(uint64_t opening, const SaveDescriptionReader &read);
 } // namespace storm::mobile
