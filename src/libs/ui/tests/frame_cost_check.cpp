@@ -272,6 +272,11 @@ void TapLatency(const std::string &pack)
     Expect(runtime.host->Prepare(delay), "the model asks for a frame at once");
     runtime.Frame();
     Expect(runtime.host->InterfaceActive(), "the next frame shows the screen");
+    // A new screen: its document, the clamped text re-cut for the widths it got, the HUD hidden.
+    Expect(runtime.host->LastFrameStats().layout_passes <= 3, "a new screen costs at most three layout passes");
+    runtime.host->SetInterface(model); // the same revision again
+    runtime.Frame();
+    Expect(runtime.host->LastFrameStats().layout_passes == 0, "a model that changed nothing lays nothing out");
     Expect(!runtime.host->Prepare(delay), "the screen is complete in that one frame");
 }
 

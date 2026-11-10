@@ -190,6 +190,7 @@ class CountedDocument final : public Rml::ElementDocument
     {
         Rml::ElementDocument::OnLayout();
         ++stats_.laid_out;
+        ++stats_.layout_passes;
     }
 
   private:

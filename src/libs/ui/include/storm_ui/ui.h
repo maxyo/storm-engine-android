@@ -115,6 +115,7 @@ struct FrameStats
     double render_ms = 0.0; // CPU: Context::Render and the backend's frame (command submission, not GPU time)
     int rebuilds = 0;       // components re-rendered from their template (an unchanged output patches nothing)
     int laid_out = 0;       // component boxes formatted (0 = no layout ran)
+    int layout_passes = 0;  // documents formatted (RmlUi lays out a whole document at a time)
     int geometry = 0;       // meshes compiled
     int draws = 0;          // draw calls (geometry, shaders)
     int masks = 0;          // clip-mask (stencil) draws: rounded or transformed clipping
