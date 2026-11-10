@@ -176,8 +176,7 @@ class CrewScreen final : public Screen
         }
         view["stats"] = stats;
         view["list"] = Json{{"label", ""},
-                            {"cols", Json::array({Json{{"label", "На корабле"}, {"w", 96}}, Json{{"label", "В таверне"}, {"w", 96}},
-                                                  Json{{"label", "Цена"}, {"w", 88}}})},
+                            {"cols", Json::array({Json{{"label", "На корабле"}}, Json{{"label", "В таверне"}}, Json{{"label", "Цена"}}})},
                             {"rows", Json::array({row})}};
         view["ship"] = Facts(admitted, "TABLE_CREW", "CREW_MORALE_TEXT");
         view["tavern"] = Facts(admitted, "TABLE_CREW2", "CREW_MORALE_TEXT2");

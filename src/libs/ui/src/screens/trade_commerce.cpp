@@ -301,14 +301,9 @@ class CommerceScreen final : public Screen
         }
         view["stats"] = stats;
 
-        // Numeric columns are as wide as their caption needs (13 dp text), within limits.
-        const auto width = [](const std::string &caption, int least) {
-            return std::clamp(static_cast<int>(Length(caption)) * 8 + 12, least, 176);
-        };
-        Json cols = Json::array({Json{{"label", header(columns.own)}, {"w", width(header(columns.own), 72)}},
-                                 Json{{"label", header(columns.other)}, {"w", width(header(columns.other), 88)}}});
+        Json cols = Json::array({Json{{"label", header(columns.own)}}, Json{{"label", header(columns.other)}}});
         if (money)
-            cols.push_back(Json{{"label", header(columns.buy)}, {"w", width(header(columns.sell) + " 0000", 104)}});
+            cols.push_back(Json{{"label", header(columns.buy)}});
         view["list"] = Json{{"label", header(columns.name)}, {"cols", cols}, {"rows", rows}};
 
         // The game's own category tabs (chests) replace our filters.
