@@ -1,6 +1,9 @@
 #include "ship.h"
 
 #include <chrono>
+#include <stdexcept>
+
+#include <fmt/format.h>
 
 #include "ai_flow_graph.h"
 #include "character.h"
@@ -1794,6 +1797,18 @@ float SHIP::Trace(const glm::vec3 &src, const glm::vec3 &dst)
     return pModel->Trace(src, dst);
 };
 
+ATTRIBUTES *SHIP::BallOwnerCharacter(int32_t iBallOwner)
+{
+    // Every ball carries the index of the character that fired it (AIBalls.CharacterIndex).
+    auto *pVCharacters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
+    const bool bIndexValid = pVCharacters && iBallOwner >= 0 &&
+                             static_cast<uint32_t>(iBallOwner) < pVCharacters->GetElementsNum();
+    ATTRIBUTES *pAOwner = bIndexValid ? pVCharacters->GetAClass(iBallOwner) : nullptr;
+    if (!pAOwner)
+        throw std::runtime_error(fmt::format("ball owner {} is not a character", iBallOwner));
+    return pAOwner;
+}
+
 float SHIP::Cannon_Trace(int32_t iBallOwner, const glm::vec3 &vSrc, const glm::vec3 &vDst)
 {
     MODEL *pModel = GetModel();
@@ -1831,8 +1846,11 @@ float SHIP::Cannon_Trace(int32_t iBallOwner, const glm::vec3 &vSrc, const glm::v
                 {
                     const glm::vec3 v1 = vSrc + fRes * (vDst - vSrc);
 
-                    VDATA *pV = core.Event(SHIP_HULL_DAMAGE, "llffffas", SHIP_HULL_TOUCH_BALL, pM->iHullNum, v1.x, v1.y,
-                                           v1.z, pM->fDamage, GetACharacter(), pM->pNode->GetName());
+                    MESSAGE event;
+                    storm::ship::ResetHullDamageEvent(event, pM->iHullNum, v1.x, v1.y, v1.z, pM->fDamage,
+                                                      GetACharacter(), BallOwnerCharacter(iBallOwner),
+                                                      pM->pNode->GetName());
+                    VDATA *pV = core.Event(SHIP_HULL_DAMAGE, event);
                     if (pV)
                     {
                         pM->fDamage = Clamp(pV->GetFloat());
