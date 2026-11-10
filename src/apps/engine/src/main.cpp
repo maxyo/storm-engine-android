@@ -671,7 +671,6 @@ int main(int argc, char *argv[])
         storm::AppEvents::instance().dispatch();
         audioGate.apply();
 #ifdef __ANDROID__
-        const bool wasRunning = androidLifecycle.canRun();
         SDL_Event appEvent;
         while (SDL_PeepEvents(&appEvent, 1, SDL_GETEVENT, SDL_APP_TERMINATING,
                               SDL_APP_DIDENTERFOREGROUND) > 0)
@@ -689,7 +688,6 @@ int main(int argc, char *argv[])
         if (SDL_HasEvent(SDL_QUIT))
             androidLifecycle.consume(SDL_QUIT);
         // Audio pause/resume for the lifecycle goes through AppEvents and audioGate.
-        (void)wasRunning;
         if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty())
             gameplayShortcuts.clear();
         if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty() || storm::android::loadingState != 0)

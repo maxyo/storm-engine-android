@@ -48,13 +48,6 @@ struct OFFSET_INFO
     uint32_t segment_id;
 };
 
-struct EXTDATA_HEADER
-{
-    char sFileInfo[32];
-    uint32_t dwExtDataOffset;
-    uint32_t dwExtDataSize;
-};
-
 /*struct DEFINE_INFO
 {
     uint32_t deftype;
@@ -237,8 +230,6 @@ class COMPILER : public VIRTUAL_COMPILER
     void FormatDialog(const char *file_name);
     void FormatAllDialog(const char *directory_name);
 
-    // bool SetSaveData(const char * file_name, const char * save_data);
-    // bool GetSaveData(const char * file_name, DATA * pV);
 
     bool SetSaveData(const char *file_name, void *save_data, int32_t data_size);
     void *GetSaveData(const char *file_name, int32_t &data_size);

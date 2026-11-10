@@ -6812,14 +6812,6 @@ bool COMPILER::LoadState(const std::vector<char> &raw)
     // Release all data
     Release();
 
-    // save specific data (name, time, etc)
-    // DWORD nSDataSize = ReadVDword();
-    // if(nSDataSize) Read(0,nSDataSize);
-
-    // skip ext data header
-    // EXTDATA_HEADER edh;
-    // Read(&edh, sizeof(edh));
-
     // 1. Program Directory
     ProgramDirectory = ReadString();
 
@@ -6984,92 +6976,6 @@ bool COMPILER::SetSaveData(const char *file_name, void *save_data, int32_t data_
     return true;
 }
 
-/*bool COMPILER::SetSaveData(char * file_name, void * save_data, int32_t data_size)
-                           //const char * file_name, const char * save_data)
-{
-    EXTDATA_HEADER exdh;
-    DWORD dwFileSize;
-    DWORD dwOrgDataSize;
-    char * pOrgData;
-
-    char sFileName[MAX_PATH];
-
-    if(file_name == 0)
-    {
-        SetError("invalid save file name");
-        return false;
-    }
-
-    strcpy_s(sFileName,file_name);
-
-    // open save file
-    fio->SetDrive(XBOXDRIVE_NONE);
-    HANDLE fh = fio->_CreateFile(sFileName,GENERIC_READ,FILE_SHARE_READ,OPEN_EXISTING);
-    fio->SetDrive();
-    if(fh == INVALID_HANDLE_VALUE) return false;
-
-    // get file size
-    dwFileSize = fio->_GetFileSize(fh,0);
-
-    // set global handle
-//    hSaveFileFileHandle = fh;
-
-    // read save header
-    Read(&exdh,sizeof(exdh));
-
-    // calc org data size
-    if(exdh.dwExtDataSize != 0)
-    {
-        dwOrgDataSize = dwFileSize - sizeof(exdh) - exdh.dwExtDataSize;
-    }
-    else
-    {
-        dwOrgDataSize = dwFileSize - sizeof(exdh);
-    }
-
-    // prepare org data buffer
-    pOrgData = new char[dwOrgDataSize];
-    if(pOrgData == 0)
-    {
-        SetError("no memory");
-        fio->_CloseHandle(fh);
-        return false;
-    }
-
-    // buffering org data
-    Read(pOrgData,dwOrgDataSize);
-
-    fio->_CloseHandle(fh);
-
-    // start flushing data to file
-    fio->SetDrive(XBOXDRIVE_NONE);
-    fh = fio->_CreateFile(sFileName,GENERIC_WRITE,FILE_SHARE_READ,OPEN_EXISTING);
-    fio->SetDrive();
-    if(fh == INVALID_HANDLE_VALUE)
-    {
-        if(pOrgData) delete pOrgData;
-        SetError("cant set save ext data");
-        return false;
-    }
-
-    exdh.dwExtDataOffset = sizeof(exdh) + dwOrgDataSize;
-    exdh.dwExtDataSize = data_size;
-
-    // save header
-    SaveData(&exdh,sizeof(exdh));
-    // save org data
-    SaveData(pOrgData,dwOrgDataSize);
-    // save ext data
-    SaveData(save_data,data_size);
-
-    // cleanup
-    fio->_CloseHandle(fh);
-    if(pOrgData) delete pOrgData;
-    return true;
-
-
-}*/
-
 void *COMPILER::GetSaveData(const char *file_name, int32_t &data_size)
 {
     data_size = 0;
@@ -7104,76 +7010,6 @@ void *COMPILER::GetSaveData(const char *file_name, int32_t &data_size)
     data_size = static_cast<int32_t>(data.size());
     return pResult;
 }
-
-/*void * COMPILER::GetSaveData(char * file_name, int32_t & data_size)
-{
-    DWORD n;
-
-    EXTDATA_HEADER exdh;
-    char * pExtData;
-    if(file_name == 0)
-    {
-        SetError("invalid save file name");
-        return 0;
-    }
-
-    // open save file
-    fio->SetDrive(XBOXDRIVE_NONE);
-    HANDLE fh = fio->_CreateFile(file_name,GENERIC_READ,FILE_SHARE_READ,OPEN_EXISTING);
-    fio->SetDrive();
-    if(fh == INVALID_HANDLE_VALUE)
-    {
-        SetError("cant open save file: %s",file_name);
-        return 0;
-    }
-
-    // set global handle
-//    hSaveFileFileHandle = fh;
-
-    // read save header
-
-    memset(&exdh,0,sizeof(exdh));
-    if(!Read(&exdh,sizeof(exdh)))
-    {
-        fio->_CloseHandle(fh);
-        return 0;
-    }
-
-    int fsize = fio->_GetFileSize(fh,0);
-    if( fsize < exdh.dwExtDataOffset+exdh.dwExtDataSize )
-    { // extern data header is failed
-        fio->_CloseHandle(fh);
-        return 0;
-    }
-
-    // prepare ext data buffer
-    pExtData = new char[exdh.dwExtDataSize];
-    if(pExtData == 0)
-    {
-        SetError("no memory");
-        fio->_CloseHandle(fh);
-        return 0;
-    }
-
-
-    // move to ext data
-    DWORD dwRes = fio->_SetFilePointer(fh,exdh.dwExtDataOffset,0,FILE_BEGIN);
-    if(dwRes == 0xffffffff)
-    {
-        if(pExtData) delete pExtData; pExtData = 0;
-        SetError("invalid seek");
-        return 0;
-    }
-
-    // read ext data
-    Read(pExtData,exdh.dwExtDataSize);
-
-    // cleanup
-    fio->_CloseHandle(fh);
-
-    data_size = exdh.dwExtDataSize;
-    return pExtData;
-}*/
 
 void COMPILER::AddRuntimeEvent()
 {
