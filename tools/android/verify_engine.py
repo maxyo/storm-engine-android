@@ -4,9 +4,11 @@ import argparse
 from pathlib import Path
 import re
 import subprocess
-p=argparse.ArgumentParser();p.add_argument('--library',type=Path,required=True);p.add_argument('--ndk',type=Path,required=True);p.add_argument('--allocator-library',type=Path);a=p.parse_args()
-header=a.library.read_bytes()[:20]
-if header[:6]!=b'\x7fELF\x02\x01' or int.from_bytes(header[18:20],'little')!=183:raise SystemExit('Not ARM64 ELF')
+import android_abi
+p=argparse.ArgumentParser();p.add_argument('--library',type=Path,required=True);p.add_argument('--ndk',type=Path,required=True);p.add_argument('--allocator-library',type=Path)
+p.add_argument('--abi',choices=sorted(android_abi.ABIS),default=android_abi.DEFAULT);a=p.parse_args()
+try:android_abi.check_elf(a.library,a.abi)
+except RuntimeError as error:raise SystemExit(str(error))
 bin=a.ndk/'toolchains/llvm/prebuilt/linux-x86_64/bin'
 exported=subprocess.check_output([str(bin/'llvm-nm'),'-D','--defined-only','--demangle',str(a.library)],text=True)
 # Release builds use hidden visibility: only the entry points stay in .dynsym,
@@ -28,7 +30,7 @@ for library in ['libSDL2.so','libEGL.so','libGLESv3.so','libfmt.so','libmimalloc
                 'libavformat.so','libavcodec.so','libswscale.so','libswresample.so','libavutil.so']:
     if library not in deps:raise SystemExit('Missing runtime dependency: '+library)
 if 'fmod' in deps.lower():raise SystemExit('Unexpected FMOD dependency')
-print('PASS: full engine ARM64 linked, SDL_main and real SoundService/miniaudio symbols, no FMOD')
+print(f'PASS: full engine {a.abi} linked, SDL_main and real SoundService/miniaudio symbols, no FMOD')
 
 # Entities, services and script libraries register only through the static
 # <name>vmaci objects of the CREATE_* macros (src/libs/core/include/vma.hpp);

@@ -9,6 +9,7 @@ import hashlib
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import urllib.request
 
@@ -22,6 +23,8 @@ DEPS = [
 ]
 ROOT=Path(__file__).resolve().parent
 STORM=ROOT.parents[1]
+sys.path.insert(0,str(STORM/'tools/android'))
+import android_abi
 
 def run(args):
  print('+', ' '.join(map(str,args)),flush=True)
@@ -78,6 +81,8 @@ def main():
  p.add_argument('--sources',type=Path)
  p.add_argument('--ndk',type=Path)
  p.add_argument('--jobs',type=int,default=4)
+ # Android ABI with --ndk: arm64-v8a (default, releases) or x86_64 (emulator debug builds).
+ p.add_argument('--abi',choices=sorted(android_abi.ABIS),default=android_abi.DEFAULT)
  a=p.parse_args();build=a.build_dir.resolve();src=(a.sources or build/'sources').resolve();src.mkdir(parents=True,exist_ok=True)
  for name,url,sha in DEPS:
   archive=src/url.rsplit('/',1)[1]
@@ -90,7 +95,7 @@ def main():
  patch_libarchive(src/'libarchive-3.8.10')
  prefix=build/'prefix';prefix.mkdir(parents=True,exist_ok=True)
  common=[f'-DCMAKE_{lang}_COMPILER_LAUNCHER={STORM/"tools/ccache/launcher"}' for lang in ('C','CXX')]+['-G','Ninja','-DCMAKE_BUILD_TYPE=Release','-DCMAKE_POSITION_INDEPENDENT_CODE=ON','-DBUILD_SHARED_LIBS=OFF',f'-DCMAKE_INSTALL_PREFIX={prefix}']
- if a.ndk:common += [f'-DCMAKE_TOOLCHAIN_FILE={a.ndk.resolve()}/build/cmake/android.toolchain.cmake','-DANDROID_ABI=arm64-v8a','-DANDROID_PLATFORM=android-24','-DANDROID_STL=c++_shared']
+ if a.ndk:common += [f'-DCMAKE_TOOLCHAIN_FILE={a.ndk.resolve()}/build/cmake/android.toolchain.cmake',f'-DANDROID_ABI={a.abi}','-DANDROID_PLATFORM=android-24','-DANDROID_STL=c++_shared']
  def cmake(name,source,extra=(),target=None):
   dest=build/name
   run(['cmake','-S',source,'-B',dest,*common,*extra]);run([STORM/'tools/ccache/warmth','begin',dest])
@@ -110,5 +115,6 @@ def main():
  shutil.copyfile(build/'reader/libstorm_archive.so',output/'libstorm_archive.so')
  if a.ndk:
   run([a.ndk.resolve()/'toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip','--strip-unneeded',output/'libstorm_archive.so'])
+  android_abi.check_elf(output/'libstorm_archive.so',a.abi)
  print('Archive library:',output/'libstorm_archive.so')
 if __name__=='__main__':main()

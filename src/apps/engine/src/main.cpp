@@ -682,6 +682,10 @@ int main(int argc, char *argv[])
             {
                 storm::android::shipTelemetry.acknowledge(std::string_view(command).substr(8));
             }
+            else if (command == "graphics:reload")
+            {
+                storm::android::graphicsSettingsChanged = true;
+            }
             else if (command.starts_with("interface:"))
             {
                 storm::android::interfacePresentation.offer(std::string_view(command).substr(10));
