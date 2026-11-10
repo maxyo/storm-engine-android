@@ -25,6 +25,8 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `dialogue.cpp` | reference state channel: `dialogue` |
 | `extra_games.cpp` | tavern dice and cards (`boal_dice`, `boal_cards`): the felt from the script images and facts the engine exports (`ANDROID_TABLE_GAME`) |
 | `extra_goods.cpp` | the treasurer's purchase list (`goodstransfer`): rows the engine exports (`ANDROID_GOODS_ORDER`), a standing order saved as the amount settles (`order` action) |
+| `extra_repair.cpp` | self repair (`repair`): hull, masts, sails as amounts sent as the game's arrow presses, materials per amount |
+| `extra_transfer.cpp` | loot and exchange (`transfer_main`): cargo by pack arrows, crew tab, the game's windows as modals / a sheet; the question window's script mode from `ANDROID_TRANSFER`; dangerous answers held |
 | `extra_sails.cpp` | sail emblems (`sailsgerald`): the emblem ribbon (`SCROLL_GERALD` rows with texture paths) and one contextual primary |
 
 The design rules are GENERIC-LAYOUT (pipeline, type → component, button roles, templates,
