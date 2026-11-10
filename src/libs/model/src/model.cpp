@@ -3,6 +3,7 @@
 #include "modelr.h"
 #include "shared/messages.h"
 #include "legacy_dynamic_vertex_stream.hpp"
+#include "skinning.hpp"
 
 #ifdef _WIN32 // FIX_LINUX DirectXMath
 #include <DirectXMath.h>
@@ -64,8 +65,22 @@ storm::render::VertexBufferId MODELR::VBTransform(void *context, const void *vb,
         [&] {return storm::render::makeLegacyDynamicVertexStream(*model.rs);},
         [&](GEOS::VERTEX0* dst) {
 #ifndef _WIN32 // FIX_LINUX DirectXMath
-    CMatrix mtx;
-#endif
+    // NEON on arm64 (SSE2 on x86-64, scalar elsewhere); see skinning.hpp.
+    static_assert(sizeof(GEOS::AVERTEX0) == sizeof(storm::skinning::Source) &&
+                  offsetof(GEOS::AVERTEX0, weight) == offsetof(storm::skinning::Source, weight) &&
+                  offsetof(GEOS::AVERTEX0, boneid) == offsetof(storm::skinning::Source, boneid) &&
+                  offsetof(GEOS::AVERTEX0, nrm) == offsetof(storm::skinning::Source, nrm) &&
+                  offsetof(GEOS::AVERTEX0, color) == offsetof(storm::skinning::Source, color) &&
+                  offsetof(GEOS::AVERTEX0, tu0) == offsetof(storm::skinning::Source, tu0));
+    static_assert(sizeof(GEOS::VERTEX0) == sizeof(storm::skinning::Target) &&
+                  offsetof(GEOS::VERTEX0, nrm) == offsetof(storm::skinning::Target, nrm) &&
+                  offsetof(GEOS::VERTEX0, color) == offsetof(storm::skinning::Target, color) &&
+                  offsetof(GEOS::VERTEX0, tu) == offsetof(storm::skinning::Target, tu));
+    static_assert(offsetof(CMatrix, matrix) == 0);
+    storm::skinning::skin(reinterpret_cast<const storm::skinning::Source *>(src),
+                          reinterpret_cast<storm::skinning::Target *>(dst), bones, sizeof(CMatrix),
+                          static_cast<size_t>(totVerts));
+#else
     for (int32_t v = 0; v < totVerts; v++)
     {
         // Vertex
@@ -116,25 +131,6 @@ storm::render::VertexBufferId MODELR::VBTransform(void *context, const void *vb,
         // Normal
         XMStoreFloat3(reinterpret_cast<DirectX::XMFLOAT3 *>(&dstVrt.nrm),
             XMVector3Transform(XMLoadFloat3(reinterpret_cast<DirectX::XMFLOAT3 *>(&vrt.nrm)), xmmtx));
-#else
-        mtx.matrix[0] = -(m1.matrix[0] * vrt.weight + m2.matrix[0] * wNeg);
-        mtx.matrix[1] = m1.matrix[1] * vrt.weight + m2.matrix[1] * wNeg;
-        mtx.matrix[2] = m1.matrix[2] * vrt.weight + m2.matrix[2] * wNeg;
-        mtx.matrix[4] = -(m1.matrix[4] * vrt.weight + m2.matrix[4] * wNeg);
-        mtx.matrix[5] = m1.matrix[5] * vrt.weight + m2.matrix[5] * wNeg;
-        mtx.matrix[6] = m1.matrix[6] * vrt.weight + m2.matrix[6] * wNeg;
-        mtx.matrix[8] = -(m1.matrix[8] * vrt.weight + m2.matrix[8] * wNeg);
-        mtx.matrix[9] = m1.matrix[9] * vrt.weight + m2.matrix[9] * wNeg;
-        mtx.matrix[10] = m1.matrix[10] * vrt.weight + m2.matrix[10] * wNeg;
-        mtx.matrix[12] = -(m1.matrix[12] * vrt.weight + m2.matrix[12] * wNeg);
-        mtx.matrix[13] = m1.matrix[13] * vrt.weight + m2.matrix[13] * wNeg;
-        mtx.matrix[14] = m1.matrix[14] * vrt.weight + m2.matrix[14] * wNeg;
-
-        // Position
-        ((CVECTOR &)dstVrt.pos) = mtx * (CVECTOR &)vrt.pos;
-
-        // Normal
-        ((CVECTOR &)dstVrt.nrm) = mtx * (CVECTOR &)vrt.nrm;
 #endif // _WIN32 DirectXMath
 
         // Rest
@@ -142,6 +138,7 @@ storm::render::VertexBufferId MODELR::VBTransform(void *context, const void *vb,
         dstVrt.tu = vrt.tu0;
         dstVrt.tv = vrt.tv0;
     }
+#endif // _WIN32 skinning loop
 
         });
 }
