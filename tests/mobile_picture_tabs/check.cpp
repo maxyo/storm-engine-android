@@ -11,7 +11,7 @@
 namespace storm {
 bool iEquals(const char *a,const char *b) {return strcasecmp(a,b)==0;}
 namespace android { bool imagePoll=true,imageReply=true; std::string mobileScreen="questbook"; }
-namespace mobile { ImageRef Reference(Descriptor,uint32_t) {return {1,1,64,64};} std::string TexturePath(std::string path) {return path;} }
+namespace mobile { ImageRef Reference(Descriptor,uint32_t) {return {1,1,64,64};} }
 }
 struct FXYRECT {float left=0,top=0,right=.5f,bottom=.5f;};
 struct PictureService {
@@ -84,7 +84,10 @@ int main() {
     assert(MobileImageJson(w.images.front()).find("\"kind\":\"texture\",\"image\":\"portraits/player\"")!=std::string::npos);
     picture.SetNewPictureByGroup("PERK_ENABLE","Alchemy");
     assert(read().images.front().source.image=="Alchemy");
-    FXYRECT custom;picture.ChangeUV(custom);assert(read().images.front().source.kind.empty());
+    // An atlas picture with edited UVs is no longer that atlas entry: it is the texture and the
+    // rectangle shown.
+    FXYRECT custom;picture.ChangeUV(custom);w=read();
+    assert(w.images.front().source.kind=="texture" && w.images.front().source.uv[2]==.5f && w.images.front().source.uv[3]==.5f);
     picture.SetNewPictureByGroup("PERK_ENABLE","BasicDefense");
     picture.SetNewPicture(true,"video");assert(picture.m_mobilePictureName.empty());
     std::vector<MobileWidget> hidden;picture.MobileCollect(hidden);assert(hidden.empty());

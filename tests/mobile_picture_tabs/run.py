@@ -18,5 +18,5 @@ with tempfile.TemporaryDirectory(prefix="storm-picture-tabs-") as tmp:
         'void CXI_PICTURE::SetNewPicture(', 'void CXI_PICTURE::SetNewPictureByGroup(',
         'void CXI_PICTURE::ChangeUV(', 'void CXI_PICTURE::ReleasePicture(']))
     exe=build/"check"
-    subprocess.run([os.environ.get("CXX","c++"),"-std=c++17","-O1","-g","-fsanitize=address,undefined","-fno-omit-frame-pointer","-I"+str(source),"-I"+tmp,str(here/"check.cpp"),"-o",str(exe)],check=True)
+    subprocess.run([os.environ.get("CXX","c++"),"-std=c++17","-O1","-g","-fsanitize=address,undefined","-fno-omit-frame-pointer","-I"+str(source),"-I"+tmp,str(here/"check.cpp"),str(source/"mobile_image_cache.cpp"),"-o",str(exe)],check=True)
     subprocess.run([str(exe)],check=True)
