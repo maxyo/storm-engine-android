@@ -1,5 +1,6 @@
 #pragma once
 #include "android_gameplay.hpp"
+#include "android_hud_presenter.hpp"
 #include <array>
 
 namespace storm::android
@@ -20,16 +21,18 @@ inline bool knownSeaQuickAction(std::string_view action)
 // Game-thread owned.
 //
 // Requests "1\t<activity>\t<revision>\t<verb>\t<value>":
-//   ack       value 1: the touch control showing exactly this revision is on the screen (repeat
-//             within 1500 ms while it stays); value 0: it went away. Only a covered action
-//             hides the native icon.
+//   ack       value 1: the touch control showing exactly this revision is on the screen;
+//             value 0: it is not (any more). Said once per revision; the word lasts until the
+//             revision changes or the other word comes (android_hud_presenter.hpp). A covered
+//             action, or one the presenting UI has not answered yet, hides the native icon.
 //   activate  value = the action id. Accepted once per revision, for the covered action only.
 class SeaQuickActionState
 {
     inline static std::atomic<uint64_t> nextActivity_{0};
     SeaQuickActionFrame frame_;
     uint64_t activity_ = nextActivity_.fetch_add(1, std::memory_order_relaxed) + 1, revision_ = 1;
-    uint32_t coveredAt_ = 0, pendingAt_ = 0;
+    uint64_t answered_ = 0; // the last revision the UI answered
+    uint32_t pendingAt_ = 0;
     bool covered_ = false, pending_ = false;
     static bool number(std::string_view text, uint64_t &out)
     {
@@ -37,7 +40,7 @@ class SeaQuickActionState
         return !text.empty() && parsed.ec == std::errc() && parsed.ptr == text.data() + text.size();
     }
 public:
-    static constexpr uint32_t coverMs = 1500, activateMs = 1500;
+    static constexpr uint32_t activateMs = 1500; // a tap's age from the mailbox to the game frame
     const SeaQuickActionFrame &frame() const { return frame_; }
     uint64_t activity() const { return activity_; }
     uint64_t revision() const { return revision_; }
@@ -77,21 +80,25 @@ public:
         {
             if (fields[4] != "0" && fields[4] != "1") return false;
             covered_ = fields[4] == "1" && valid();
-            coveredAt_ = tick;
+            answered_ = revision_;
+            hudPresenters.seaAnswered();
             if (!covered_) pending_ = false;
             return fields[4] == "0" || covered_;
         }
-        if (fields[3] != "activate" || !valid() || fields[4] != frame_.action || pending_ || !covered_ || tick - coveredAt_ > coverMs)
+        if (fields[3] != "activate" || !valid() || fields[4] != frame_.action || pending_ || !covered_)
             return false;
         pending_ = true;
         pendingAt_ = tick;
         return true;
     }
-    // The native icon is hidden only under a touch control that is drawn right now.
-    bool covered(uint64_t host, uint32_t tick) const
+    // The native icon is hidden under a touch control drawn for this revision, and while the
+    // presenting UI has not answered it yet, however slow its frame.
+    bool covered(uint64_t host) const
     {
-        return covered_ && valid() && frame_.host == host && tick - coveredAt_ <= coverMs;
+        return valid() && frame_.host == host && (covered_ || (hudPresenters.sea && (hudPresenters.seaFresh || answered_ != revision_)));
     }
+    // A valid offer the UI has not answered yet (for HudPresenters::watch).
+    bool awaiting() const { return valid() && answered_ != revision_; }
     std::optional<std::string> consume(uint32_t tick)
     {
         if (!pending_) return {};

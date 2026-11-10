@@ -25,7 +25,6 @@ namespace
 
 constexpr double kIdle = 3600.0;
 constexpr double kHoldHeartbeat = 0.1;   // the engine lets go of a held control after 350 ms of silence
-constexpr double kLeaseHeartbeat = 0.25; // … of the navigator aperture after 750 ms (it keeps the place 2 s), of the quick action coverage after 1.5 s
 constexpr double kChoiceSeconds = 1.5;   // a tapped order waits this long for the engine to select it
 constexpr double kSailSeconds = 1.5;     // the lever shows the position asked for until the sails follow
 constexpr double kFanSeconds = 6.0;      // an untouched ammunition fan folds by itself
@@ -259,8 +258,6 @@ class SeaScene final : public Scene
         expire(!choice_.empty(), choice_until_, [this] { choice_.clear(); });
         expire(sail_target_ >= 0, sail_until_, [this] { sail_target_ = -1; });
         expire(fan_open_, fan_until_, [this] { fan_open_ = false; });
-        if (quick_covered_ || navigator_prepared_)
-            next = std::min(next, kLeaseHeartbeat); // Drawn renews the leases
         return next;
     }
 
@@ -271,7 +268,7 @@ class SeaScene final : public Scene
         const Ship *ship = live ? Current(states) : nullptr;
         FollowFleet(shown);
         CoverShip(states, ship, shown);
-        CoverNavigator(ship, shown);
+        CoverNavigator(states, ship, shown);
         // The ammunition fan takes the quick action's place for a few seconds: the offer stays
         // the HUD's, so the engine's own icon does not flash up over the top buttons meanwhile.
         // Under the orders panel the offer waits for the panel to close; it stays the HUD's too.
@@ -533,27 +530,26 @@ class SeaScene final : public Scene
         });
     }
 
+    // Every offer is answered once: drawn (1) or not (0). The engine keeps the word until the
+    // offer changes and hides its own icon until the first one (android_hud_presenter.hpp).
     void CoverQuick(const SeaQuick &quick, bool drawn)
     {
-        const double now = hud_.Now();
-        if (drawn && quick.known && quick.available)
+        if (!quick.known || !quick.available)
         {
-            const std::string owner = Owner(quick);
-            if (quick_covered_ && owner == quick_covered_owner_ && now - quick_covered_at_ < kLeaseHeartbeat)
-                return;
-            quick_covered_ = true;
-            quick_covered_owner_ = owner;
-            quick_covered_at_ = now;
-            hud_.Send("seaquick", owner + "\tack\t1", "seaquick-ack");
+            quick_covered_ = false;
+            quick_covered_owner_.clear();
+            quick_answer_.clear();
             return;
         }
-        if (!quick_covered_)
+        const std::string owner = Owner(quick);
+        const bool covered = drawn;
+        const std::string answer = owner + "\tack\t" + (covered ? "1" : "0");
+        quick_covered_ = covered;
+        quick_covered_owner_ = covered ? owner : std::string();
+        if (answer == quick_answer_)
             return;
-        quick_covered_ = false;
-        // An offer the engine has replaced needs no word: its coverage ended with it.
-        if (quick.known && Owner(quick) == quick_covered_owner_)
-            hud_.Send("seaquick", quick_covered_owner_ + "\tack\t0", "seaquick-ack");
-        quick_covered_owner_.clear();
+        quick_answer_ = answer;
+        hud_.Send("seaquick", answer, "seaquick-ack");
     }
 
     // --- helm, sails, held buttons ---
@@ -622,15 +618,17 @@ class SeaScene final : public Scene
         hud_.Send("navigator", navigator_owner_ + "\t" + (zoom_in_ ? "in" : "out"));
     }
 
-    // The engine draws its radar into the disc of the minimap. It needs the place of the disc
-    // (a lease of 750 ms) and, once it has drawn there, the word that our readouts
-    // around it are on the screen: only then does it drop its own.
-    void CoverNavigator(const Ship *ship, const View &shown)
+    // The engine draws its radar into the disc of the minimap. It needs the place of the disc,
+    // once per owner and geometry, and, once it has drawn there, the word that our readouts
+    // around it are on the screen: only then does it drop its own. An owner the HUD does not
+    // draw the disc for is cleared, also one never prepared: the engine keeps its compass off
+    // until it hears either (android_hud_presenter.hpp).
+    void CoverNavigator(const States &states, const Ship *ship, const View &shown)
     {
         Placement disc;
         if (!ship || !ship->navigator || !shown.elements.contains("minimap") || !hud_.Measure("minimap", ".mm-disc", disc))
         {
-            ClearNavigator();
+            ClearNavigator(states);
             return;
         }
         const std::string owner = Owner(*ship);
@@ -639,32 +637,32 @@ class SeaScene final : public Scene
         const std::string geometry = std::to_string(width) + "\t" + std::to_string(height) + "\t" + std::to_string(std::lround(disc.x + disc.width * 0.5f)) +
                                      "\t" + std::to_string(std::lround(disc.y + disc.height * 0.5f)) + "\t" + std::to_string(radius) + "\t" +
                                      std::to_string(std::lround(disc.density * 1000.0f)) + "\t" + (hud_.Current().gameplay.language == "russian" ? "1" : "0");
-        const double now = hud_.Now();
-        if (owner != navigator_owner_ || geometry != navigator_geometry_)
+        if (!navigator_prepared_ || owner != navigator_owner_ || geometry != navigator_geometry_)
         {
-            if (navigator_prepared_ && owner != navigator_owner_)
-                navigator_prepared_ = false; // the old owner's lease ended with it
+            navigator_prepared_ = true;
             navigator_owner_ = owner;
             navigator_geometry_ = geometry;
+            navigator_cleared_.clear();
+            navigator_visible_ = 0;
             ++navigator_layout_;
-            navigator_sent_ = -1.0;
+            hud_.Send("navigator", owner + "\tprepare\t" + std::to_string(navigator_layout_) + "\t" + geometry, "navigator-prepare");
         }
-        if (navigator_sent_ >= 0.0 && now - navigator_sent_ < kLeaseHeartbeat)
-            return;
-        navigator_sent_ = now;
-        navigator_prepared_ = true;
-        hud_.Send("navigator", owner + "\tprepare\t" + std::to_string(navigator_layout_) + "\t" + geometry, "navigator-prepare");
-        if (ship->navigator_layout == navigator_layout_) // the engine has drawn into this very aperture
+        // the engine has drawn into this very aperture: our readouts around it are up
+        if (ship->navigator_layout == navigator_layout_ && navigator_visible_ != navigator_layout_)
+        {
+            navigator_visible_ = navigator_layout_;
             hud_.Send("navigator", owner + "\tvisible\t" + std::to_string(navigator_layout_), "navigator-visible");
+        }
     }
 
-    void ClearNavigator()
+    void ClearNavigator(const States &states)
     {
-        if (!navigator_prepared_)
-            return;
         navigator_prepared_ = false;
-        navigator_sent_ = -1.0;
-        hud_.Send("navigator", navigator_owner_ + "\tclear", "navigator-prepare");
+        const Ship *ship = Current(states);
+        if (!ship || navigator_cleared_ == Owner(*ship))
+            return;
+        navigator_cleared_ = Owner(*ship);
+        hud_.Send("navigator", navigator_cleared_ + "\tclear", "navigator-prepare");
     }
 
     // --- the engine's own indicators ---
@@ -695,10 +693,12 @@ class SeaScene final : public Scene
             ship_covered_.clear(); // the engine dropped every acknowledgement with the scene
             return;
         }
+        // Every HUD revision is answered, also with nothing covered: until then the engine
+        // keeps its indicators off (android_hud_presenter.hpp).
         const std::string word = std::to_string(current.gameplay_revision) + "\t" + std::to_string(mask) + "\t" + std::to_string(current.hud_revision);
-        if (word == ship_covered_ || (mask == 0 && ship_covered_.empty()))
+        if (word == ship_covered_)
             return;
-        ship_covered_ = mask ? word : std::string();
+        ship_covered_ = word;
         hud_.Send("shiphud", word, "shiphud");
     }
 
@@ -706,7 +706,7 @@ class SeaScene final : public Scene
     void Uncover(const States &states)
     {
         CoverShip(states, nullptr, View());
-        ClearNavigator();
+        ClearNavigator(states);
         CoverQuick(states.sea_quick, false);
         CoverOrders(states.sea_orders, false);
     }
@@ -884,13 +884,14 @@ class SeaScene final : public Scene
     // quick action
     bool quick_covered_ = false;
     std::string quick_covered_owner_, quick_tapped_;
-    double quick_covered_at_ = 0.0;
+    std::string quick_answer_; // the last word said about the offer
+
     // minimap
     bool zoom_in_ = true;
     bool navigator_prepared_ = false;
     std::string navigator_owner_, navigator_geometry_;
-    uint64_t navigator_layout_ = 0;
-    double navigator_sent_ = -1.0;
+    std::string navigator_cleared_; // owner told that the HUD does not draw its disc
+    uint64_t navigator_layout_ = 0, navigator_visible_ = 0;
     // the engine's indicators
     std::string ship_covered_;
     // orders panel

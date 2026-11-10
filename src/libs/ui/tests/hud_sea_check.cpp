@@ -159,11 +159,13 @@ static void CheckSailing()
     Expect(!Sent(mount, "seaquick:1\t5\t31\tactivate\tMoor"), "a quick action that was not drawn yet cannot be tapped");
     bench.Frame();
     Expect(Sent(mount, "shiphud:9\t2047\t3"), "the drawn elements replace the engine's indicators: hull, crew, sails, ammunition, fleet, speed, wind, date, place");
+    Expect(Count(mount, "hudowner:sea") == 1 && Count(mount, "hudowner:worldmap") == 1 && !Sent(mount, "hudowner:land"),
+           "the HUD declares once which engine HUDs it presents (the engine then keeps their unanswered revisions native-free)");
     Expect(mount.slots.back() == "seaquick-ack" && mount.Last() == "seaquick:1\t5\t31\tack\t1", "the drawn quick action is acknowledged: " + mount.Last());
     bench.Frame(0.1);
-    Expect(Count(mount, "shiphud:9\t2047\t3") == 1 && Count(mount, "seaquick:1\t5\t31\tack\t1") == 1, "nothing is repeated before its time");
-    bench.Frame(0.2);
-    Expect(Count(mount, "shiphud:9\t2047\t3") == 1 && Count(mount, "seaquick:1\t5\t31\tack\t1") == 2, "the quick action lease is renewed, the indicator mask is said once");
+    bench.Frame(5.0);
+    Expect(Count(mount, "shiphud:9\t2047\t3") == 1 && Count(mount, "seaquick:1\t5\t31\tack\t1") == 1,
+           "the indicator mask and the quick action are said once per revision, however far apart frames are");
 
     // shortcuts and tap controls
     bench.Press("hero");
@@ -253,9 +255,9 @@ static void CheckSailing()
     bench.Frame();
     Expect(mount.Last() == "navigator:9\t3\t4\tprepare\t1\t800\t400\t704\t84\t50\t1000\t1" && mount.slots.back() == "navigator-prepare",
            "the aperture of the drawn disc: " + mount.Last());
-    bench.Frame(0.3);
-    Expect(Count(mount, "navigator:9\t3\t4\tprepare\t1\t800\t400\t704\t84\t50\t1000\t1") == 2 && !Sent(mount, "navigator:9\t3\t4\tvisible\t1"),
-           "the lease is renewed; nothing is called visible before the engine drew there");
+    bench.Frame(5.0);
+    Expect(Count(mount, "navigator:9\t3\t4\tprepare\t1\t800\t400\t704\t84\t50\t1000\t1") == 1 && !Sent(mount, "navigator:9\t3\t4\tvisible\t1"),
+           "the aperture is said once per owner and place; nothing is called visible before the engine drew there");
     Json drawn = State("ship");
     drawn["sequence"] = 22;
     drawn["navigatorLayoutId"] = 1;
