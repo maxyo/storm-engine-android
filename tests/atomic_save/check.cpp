@@ -187,6 +187,32 @@ static void corruptionChecks()
     REQUIRE(readState(cut, raw, error) && !readExtData(cut, data, error));
 }
 
+// The description of a file on disk is read without the state, with the same validation.
+static void fileDescriptionChecks(const fs::path &dir)
+{
+    const auto state = pseudoState(200000, 6);
+    const auto ext = pseudoState(5000, 7);
+    std::string error;
+    Bytes image, data;
+    REQUIRE(buildState("s", state.data(), static_cast<uint32_t>(state.size()), image, error));
+    const auto file = dir / "description";
+    put(file, image);
+    REQUIRE(readExtDataFromFile(file, data, error) && data.empty());
+    REQUIRE(appendExtData(image, "s", ext.data(), static_cast<uint32_t>(ext.size()), error));
+    put(file, image);
+    REQUIRE(readExtDataFromFile(file, data, error) && data == ext);
+    put(file, Bytes(image.begin(), image.end() - 10));
+    REQUIRE(!readExtDataFromFile(file, data, error) && data.empty());
+    auto damaged = image;
+    const uint32_t bogus = 0xffffffffu;
+    std::memcpy(damaged.data() + 32, &bogus, 4);
+    put(file, damaged);
+    REQUIRE(!readExtDataFromFile(file, data, error));
+    put(file, Bytes(20, 'x'));
+    REQUIRE(!readExtDataFromFile(file, data, error));
+    REQUIRE(!readExtDataFromFile(dir / "missing", data, error));
+}
+
 static void noLeftovers(const fs::path &target)
 {
     REQUIRE(!fs::exists(withSuffix(target, kTempSuffix)));
@@ -303,6 +329,7 @@ int main(int argc, char **argv)
     formatChecks();
     corruptionChecks();
     atomicChecks(dir);
+    fileDescriptionChecks(dir);
     timing(pseudoState(5 * 1024 * 1024, 42), dir, "synthetic 5 MiB state");
     if (argc >= 3)
     {

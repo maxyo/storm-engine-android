@@ -27,6 +27,7 @@
 //           ids, clockwise from the positive x axis, y down), data-swipe-centre="id" inside
 //           data-swipe-dead dp
 #include "components.h"
+#include "elements.h"
 
 #include <RmlUi/Core/EventListener.h>
 
@@ -248,7 +249,13 @@ class PressBehavior final : public Behavior
             return part_->HasAttribute("data-hold") ? Hold::Confirm : Hold::None;
         if (!self.Flag("hold"))
             return Hold::None;
-        return self.Spec().constants.value("holdMode", std::string("confirm")) == "tooltip" ? Hold::Tooltip : Hold::Confirm;
+        if (self.Spec().constants.value("holdMode", std::string("confirm")) != "tooltip")
+            return Hold::Confirm;
+        // A tooltip repeats the title only when the title was cut to fit (an explicit tip
+        // always opens); otherwise a long press is a plain press.
+        if (ToText(self.Prop("tip")).empty() && ClampedTextIn(&self) == 0)
+            return Hold::None;
+        return Hold::Tooltip;
     }
 
     bool Disabled(ComponentElement &self) const

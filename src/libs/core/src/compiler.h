@@ -264,6 +264,9 @@ private:
     void ResetAndroidUiAdapter();
     void LoadAndroidUiAdapter();
 #endif
+#ifdef STORM_SCENE_SWEEP
+    void LoadSceneSweep(); // scene_sweep.cpp
+#endif
     [[nodiscard]] std::filesystem::path GetSegmentCachePath(const SEGMENT_DESC &segment) const;
 
     bool LoadSegmentFromCache(SEGMENT_DESC &segment);

@@ -1,4 +1,4 @@
-// Commerce: store, contraband, cannons, items trade, storage and chests / bodies — one
+// Commerce: store, contraband, cannons, items trade, storage, colony loot and chests / bodies — one
 // buy / sell / transfer layout (pack screen <s-trade>, mockups V2-Trade-*). Goods are one
 // C-TradeList; the row whose quantity window the game has open expands into C-Quantity,
 // which shows the amount on our side after the deal. Money deals are confirmed by the
@@ -36,6 +36,8 @@ constexpr Layout kContraband{StringKey("trade.contraband"), 0, 5, 3, 2, 4, 6, "S
 constexpr Layout kCannons{StringKey("trade.cannons"), 0, 5, 3, 2, 4, -1, "SHIPS_SCROLL", true, {7, 8, 9}};
 constexpr Layout kItemsTrade{StringKey("trade.items"), 0, 5, 3, 2, 4, -1, "CHARACTERS_SCROLL", true};
 constexpr Layout kStorage{StringKey("trade.storage"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL"};
+// Looting a captured colony (ColonyCapture.c): the hold, the town's stores, a free transfer.
+constexpr Layout kColonyCapture{StringKey("trade.loot"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL"};
 constexpr Layout kItemsBox{StringKey("trade.chest"), 0, 4, 2, -1, -1, -1, "CHARACTERS_SCROLL", true};
 // The goods of the loot / exchange screen (transfer_main): ours, weight, name, theirs, weight.
 constexpr Layout kTransfer{StringKey("transfer.title"), 0, 3, 2, -1, -1, -1, "", false};
@@ -195,6 +197,8 @@ class CommerceScreen final : public Screen
             own_caption = bindings.Text("trade.yours");
             other_caption = bindings.Text("trade.theirs");
         }
+        else if (other_caption.rfind(own_caption, 0) == 0) // "Предметов" / "Предметов торговца"
+            own_caption = bindings.Text("trade.yours");
 
         // The quantity control shows the amount on our side after the deal.
         const int ours = selected ? Number(selected->CellText(columns.own)) : 0;
@@ -260,6 +264,16 @@ class CommerceScreen final : public Screen
             rows.push_back(std::move(view));
         }
 
+        // After a free transfer the row stays open, as the quantity control was: the game
+        // closed its window, so it is opened again once.
+        if (!deal && !reopen_row_.empty())
+        {
+            for (const Widget *row : goods)
+                if (row->row_id == reopen_row_ && row->Offers("activate"))
+                    bindings.Send(*row, "activate", row->row_id);
+            reopen_row_.clear();
+        }
+
         bindings.On("goods", "row", [this, &bindings, goods, selected, deal, cancel](const Event &event) {
             const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
             if (index >= goods.size())
@@ -267,6 +281,7 @@ class CommerceScreen final : public Screen
             const Widget *row = goods[index];
             if (deal && cancel && cancel->Offers("press"))
                 bindings.Send(*cancel, "press", {}, selected->row_id);
+            reopen_row_.clear();
             if (deal && row == selected)
                 return; // a tap on the open row closes it
             local_row_.clear();
@@ -301,7 +316,10 @@ class CommerceScreen final : public Screen
                 const double wait = event.verb == "commit" ? 0.0 : 0.4;
                 bindings.SendAfter(wait, *edit, "edit", amount, selected->row_id);
                 if (ok && delta != 0)
+                {
                     bindings.SendAfter(wait, *ok, "press", {}, selected->row_id);
+                    reopen_row_ = selected->row_id; // the game closes its window on a transfer
+                }
             };
             // The quantity control sits inside the list and reports under its id.
             bindings.On("goods", "change", set);
@@ -361,6 +379,15 @@ class CommerceScreen final : public Screen
             }
             stats.push_back(std::move(figure));
         }
+        // The storage writes its load as a sentence ("Общая загруженность склада : 0 / 50000 ц.")
+        // and names the place in STORE_CAPACITY ("Склад").
+        if (Json load = Figure(admitted.Label("STORAGE_INFO")); !load.is_null() && stats.size() < 2)
+        {
+            const std::string place = OneLine(admitted.Label("STORE_CAPACITY"));
+            if (!place.empty() && Figure(place).is_null())
+                load["label"] = place;
+            stats.push_back(std::move(load));
+        }
         const Widget *balance = admitted.One("OUR_GOLD");
         const std::string gold = balance ? balance->label : std::string();
         if (const size_t digit = gold.find_first_of("0123456789"); digit != std::string::npos)
@@ -397,11 +424,13 @@ class CommerceScreen final : public Screen
         for (int i = 1; i <= 8; ++i)
         {
             const Widget *button = admitted.One("TABBTN_" + std::to_string(i));
-            const std::string label = admitted.Label("TABSTR_" + std::to_string(i));
-            if (!button || label.empty())
+            const Widget *caption = admitted.One("TABSTR_" + std::to_string(i));
+            if (!button || !caption || caption->label.empty())
                 continue;
-            tabs.push_back(Json{{"label", label}, {"selected", button->value == "1"}, {"disabled", !button->Offers("press")}});
-            tab_buttons.push_back(button);
+            // The script reads the click on the caption over the picture where it has one.
+            const Widget *target = caption->Offers("press") ? caption : button;
+            tabs.push_back(Json{{"label", caption->label}, {"selected", button->value == "1"}, {"disabled", !target->Offers("press")}});
+            tab_buttons.push_back(target);
         }
         if (!tabs.empty())
         {
@@ -465,7 +494,8 @@ class CommerceScreen final : public Screen
         view["actions"] = actions;
 
         const Widget *exit = admitted.One("EXIT_BTN");
-        bindings.On("header-back", "", [&bindings, exit, cancel, deal, selected](const Event &) {
+        bindings.On("header-back", "", [this, &bindings, exit, cancel, deal, selected](const Event &) {
+            reopen_row_.clear();
             if (deal && cancel && cancel->Offers("press"))
                 bindings.Send(*cancel, "press", {}, selected->row_id);
             else
@@ -477,6 +507,7 @@ class CommerceScreen final : public Screen
   private:
     const Layout &layout_;
     std::string hold_before_; // the hold figure before the amount of the open deal was set
+    std::string reopen_row_;  // the row whose window the game closed after a free transfer
     int filter_ = 0; // 0 all, 1 on our side, 2 profitable (export goods) / on the other side
     // The amount the player set last: shown until the game's own number catches up.
     std::string local_row_;
@@ -510,6 +541,10 @@ std::unique_ptr<Screen> CreateStorageScreen()
 std::unique_ptr<Screen> CreateTransferGoods()
 {
     return std::make_unique<CommerceScreen>(kTransfer);
+}
+std::unique_ptr<Screen> CreateColonyCaptureScreen()
+{
+    return std::make_unique<CommerceScreen>(kColonyCapture);
 }
 std::unique_ptr<Screen> CreateItemsBoxScreen()
 {

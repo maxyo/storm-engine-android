@@ -1,0 +1,14 @@
+{
+ "health": 0.57,
+ "energy": 0.31,
+ "loaded": 1,
+ "capacity": 2,
+ "reload": 1,
+ "effects": ["poison", "healing"],
+ "potions": 3,
+ "officers": [
+  {"id": 31, "name": "Офицер Альфа", "face": "205", "health": 0.84},
+  {"id": 32, "name": "Офицер Бета", "face": "", "health": 0.12}
+ ],
+ "dash": 0.4
+}

@@ -150,9 +150,24 @@ ButtonRole RoleOf(const Widget &button)
 
 Json PictureOf(const ImageRef *image)
 {
+    if (image && image->kind == "portrait" && !image->image.empty())
+        return Json{{"kind", "portrait"}, {"texture", "INTERFACES/PORTRAITS/128/face_" + image->image}};
     if (!image || image->kind != "atlas" || image->group.empty() || image->image.empty())
         return Json();
     return Json{{"kind", "item"}, {"texture", "atlas:" + image->group + "/" + image->image}};
+}
+
+std::string NationOf(const ImageRef *image)
+{
+    if (!image || image->kind != "atlas" || Upper(image->group) != "NATIONS")
+        return {};
+    static const char *const nations[][2] = {
+        {"ENGLAND", "england"}, {"FRANCE", "france"}, {"SPAIN", "spain"}, {"HOLLAND", "holland"}, {"PIRATE", "pirates"}};
+    const std::string name = Upper(image->image);
+    for (const auto &[game, flag] : nations)
+        if (name == game)
+            return flag;
+    return {};
 }
 
 Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id, const char *variant)

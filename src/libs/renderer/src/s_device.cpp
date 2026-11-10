@@ -3,6 +3,7 @@
 #include <platform/android_interface_presentation.hpp>
 
 #include "core.h"
+#include "scene_sweep.hpp"
 
 #include "entity.h"
 #include "math_inlines.h"
@@ -1318,6 +1319,9 @@ bool DX9RENDER::DX9EndScene()
     const HRESULT hRes = d3d9->Present(nullptr, nullptr, nullptr, nullptr);
 #ifdef __ANDROID__
     storm::android::worldMapHud.presented(hRes==D3D_OK);
+#endif
+#ifdef STORM_SCENE_SWEEP
+    storm::scene_sweep::framePresented(dwNumDrawPrimitive);
 #endif
     if (renderMetricsEnabled)
     {

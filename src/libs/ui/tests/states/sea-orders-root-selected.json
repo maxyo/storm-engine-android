@@ -1,0 +1,105 @@
+{
+ "schemaVersion": 1,
+ "sceneEpoch": 6,
+ "revision": 16,
+ "activityGeneration": 2,
+ "available": true,
+ "active": true,
+ "complete": true,
+ "language": "russian",
+ "stage": "commands",
+ "mode": 1,
+ "recipientId": "r501_1",
+ "pendingLabel": "",
+ "selectedItemId": "i1",
+ "canBack": true,
+ "canClose": true,
+ "recipients": [
+  {
+   "id": "r501_1",
+   "name": "Аделина",
+   "entityId": "501",
+   "characterIndex": 1,
+   "main": true
+  },
+  {
+   "id": "r502_7",
+   "name": "Сокол",
+   "entityId": "502",
+   "characterIndex": 7,
+   "main": false
+  },
+  {
+   "id": "r503_8",
+   "name": "Ласточка",
+   "entityId": "503",
+   "characterIndex": 8,
+   "main": false
+  },
+  {
+   "id": "r504_9",
+   "name": "Мария",
+   "entityId": "504",
+   "characterIndex": 9,
+   "main": false
+  }
+ ],
+ "items": [
+  {
+   "id": "i0",
+   "kind": "command",
+   "label": "Доплыть",
+   "source": "BI_SailTo",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "i1",
+   "kind": "command",
+   "label": "Карта",
+   "source": "BI_Map",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "i2",
+   "kind": "command",
+   "label": "Выслать шлюпку",
+   "source": "BI_Boat",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "i3",
+   "kind": "command",
+   "label": "Каюта",
+   "source": "BI_Cabin",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "i4",
+   "kind": "command",
+   "label": "Манёвренный разворот",
+   "source": "BI_Speed",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "i5",
+   "kind": "ability",
+   "label": "Неотложный ремонт",
+   "source": "BI_Ability",
+   "enabled": false,
+   "cooldown": 0.4
+  },
+  {
+   "id": "i6",
+   "kind": "cancel",
+   "label": "Отмена",
+   "source": "Cancel",
+   "enabled": true,
+   "cooldown": 1.0
+  }
+ ]
+}

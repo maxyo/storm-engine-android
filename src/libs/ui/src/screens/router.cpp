@@ -13,8 +13,9 @@ std::string EngineCommand(const Action &action)
         return {};
     if (action.screen == "hud") // HUD input: the verb names the engine entry point
         return action.verb + ":" + action.value;
-    if (action.screen == "dialogue") // reply: "<generation>:<index>"; edit: the typed reply text
-        return action.verb == "edit" ? "dialogue:" + std::to_string(action.opening) + ":" + std::to_string(action.index) + ":" + action.value
+    if (action.screen == "dialogue") // reply: "<generation>:<index>"; edit: the typed reply text; no back
+        return action.verb == "back" ? std::string()
+             : action.verb == "edit" ? "dialogue:" + std::to_string(action.opening) + ":" + std::to_string(action.index) + ":" + action.value
                                      : "dialogue:" + action.value;
     if (action.screen == "mainmenu") // the title screen's commands: "main:New", "main:Load", …
         return action.verb == "back" ? "back" : "main:" + action.node;
@@ -261,16 +262,43 @@ void Bindings::Back(const Widget *exit_button)
     router_.Emit(std::move(action));
 }
 
-void Bindings::EditText(const Event &event, const Widget &widget, const std::string &title, bool numeric)
+void Bindings::EditText(const Event &event, const Widget &widget, const std::string &title, bool numeric, bool secret)
 {
     TextRequest request;
     request.token = std::to_string(++router_.edit_serial_);
     request.text = widget.value;
     request.title = title;
     request.numeric = numeric;
+    request.secret = secret;
     router_.edit_token_ = request.token;
     router_.edit_action_ = router_.Make(widget, "edit", {}, {});
+    router_.edit_handler_ = nullptr;
     router_.surface_.RequestText(std::move(request), event.id);
+}
+
+void Bindings::AskText(const Event &event, const std::string &text, const std::string &title, bool numeric,
+                       std::function<void(const std::string &)> accepted)
+{
+    TextRequest request;
+    request.token = std::to_string(++router_.edit_serial_);
+    request.text = text;
+    request.title = title;
+    request.numeric = numeric;
+    router_.edit_token_ = request.token;
+    router_.edit_action_ = Action();
+    router_.edit_action_.screen = router_.model_.screen;
+    router_.edit_action_.opening = router_.model_.opening;
+    router_.edit_handler_ = std::move(accepted);
+    router_.surface_.RequestText(std::move(request), event.id);
+}
+
+void Bindings::Platform(const std::string &verb, const std::string &value)
+{
+    Action action;
+    action.screen = "hud";
+    action.verb = verb;
+    action.value = value;
+    router_.Emit(std::move(action));
 }
 
 void Bindings::Read(const std::string &title, const std::string &text)
@@ -365,6 +393,7 @@ void Router::SetInterface(const InterfaceModel &model)
         pending_.clear();
         waiting_.clear();
         edit_token_.clear();
+        edit_handler_ = nullptr;
     }
     else if (changed)
         pending_.clear();
@@ -383,6 +412,7 @@ void Router::CloseInterface()
     pending_.clear();
     waiting_.clear();
     edit_token_.clear();
+    edit_handler_ = nullptr;
     model_ = InterfaceModel();
     surface_.Hide();
 }
@@ -461,7 +491,7 @@ void Router::Build()
             surface_.Error("screen " + model_.screen + ": required nodes missing or mistyped: " + rejection + "; drawn by the generic layout");
     }
     else if (!ported && logged_.insert("generic:" + model_.screen + ":" + nodes).second)
-        surface_.Log("screen " + model_.screen + ": no ported screen, generic layout; nodes=" + nodes.substr(1, nodes.size() - 2));
+        surface_.Log("screen " + model_.screen + ": no ported screen, generic layout; nodes=" + (nodes.empty() ? std::string("none") : nodes.substr(1, nodes.size() - 2)));
     Json view = screen_->Build(admitted, bindings_);
     // The generic layout places every widget itself and hands over only its overflow rows.
     Json rows = view.contains("more") ? view["more"] : Json::array();
@@ -578,6 +608,13 @@ void Router::Back()
         surface_.Send(engine_back);
         return;
     }
+    if (WantsBack())
+    {
+        screen_->Back(bindings_);
+        if (rebuild_ && screen_)
+            Build();
+        return;
+    }
     if (!reading_text_.empty() || extras_open_)
     {
         reading_text_.clear();
@@ -598,12 +635,27 @@ void Router::SubmitText(const std::string &token, const std::string &text, bool 
     if (token.empty() || token != edit_token_)
         return;
     edit_token_.clear();
+    auto handler = std::move(edit_handler_);
+    edit_handler_ = nullptr;
     if (!accepted || !screen_ || edit_action_.screen != model_.screen || edit_action_.opening != model_.opening)
         return;
+    if (handler)
+    {
+        handler(text);
+        if (rebuild_ && screen_)
+            Build();
+        return;
+    }
     Action action = edit_action_;
     action.value = text;
     surface_.Send(action);
 }
+
+bool Router::WantsBack() const
+{
+    return screen_ && screen_->OwnsBack();
+}
+
 
 double Router::Tick()
 {

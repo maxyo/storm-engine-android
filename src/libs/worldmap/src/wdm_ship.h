@@ -9,6 +9,7 @@
 //============================================================================================
 
 #pragma once
+#include <algorithm>
 
 #include "wdm_render_model.h"
 
@@ -71,6 +72,12 @@ class WdmShip : public WdmRenderModel
     virtual void Collide(){};
 
   public:
+    // How fast the ship sails, as a share of its current maximum (0…1): a touch sail lever shows it.
+    float SpeedShare() const
+    {
+        const float top = WDM_SHIP_MAX_SPEED * kMaxSpeed;
+        return top > 0.0f ? std::clamp(speed / top, 0.0f, 1.0f) : 0.0f;
+    }
     // Model sizes relative to 0
     float modelL05;     // Half the length of the model relative to 0
     float modelW05;     // Half the width of the model relative to 0

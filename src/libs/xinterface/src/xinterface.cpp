@@ -1,3 +1,4 @@
+#include <cctype>
 #include <memory>
 #include "options_parser.hpp"
 
@@ -13,6 +14,8 @@
 #include "string_service/str_service.h"
 #include "xservice.h"
 #include <cstdio>
+// Save facts (the hero and location in each save's description) are game data on every platform.
+#include "mobile_save_facts.hpp"
 #ifdef __ANDROID__
 #include "mobile_image_bridge.hpp"
 #include "mobile_inventory.hpp"
@@ -30,6 +33,31 @@ static std::chrono::steady_clock::time_point deferredSaveDeadline;
 #include "android_newgame.hpp"
 #include "platform/android_ui.hpp"
 static storm::mobile::InventoryEquipCapability inventoryEquipCapability;
+#endif
+#ifdef __ANDROID__
+// The Android host knows the interface on screen (mobile_save_list.hpp declares this).
+std::optional<storm::mobile::SaveListSnapshot> storm::mobile::ReadSaveList()
+{
+    if (storm::android::mobileScreen != "save_load") return {};
+    const auto number = [](const char *name, int32_t &value) {
+        auto *v = static_cast<VDATA *>(core.GetScriptVariable(name)); return v && v->Get(value);
+    };
+    auto *profile = static_cast<VDATA *>(core.GetScriptVariable("currentProfile"));
+    auto *container = static_cast<VDATA *>(core.GetScriptVariable("g_oSaveContainer"));
+    const char *name = nullptr; int32_t count, selected, saving;
+    if (!profile || !profile->Get(name) || !name || !container || !container->GetAClass() ||
+        !number("g_nSaveQuantity", count) || !number("g_nCurrentSaveIndex", selected) ||
+        !number("bThisSave", saving) || count < 0 || count > 10000) return {};
+    storm::mobile::SaveListSnapshot result{storm::android::mobileScreenRevision, name, {}, selected, saving != 0};
+    for (int i = 0; i < count; ++i)
+    {
+        auto *entry = container->GetAClass()->GetAttributeClass(("s" + std::to_string(i)).c_str());
+        const char *file = entry ? entry->GetAttribute("savename") : nullptr;
+        if (!file || !*file) return {};
+        result.files.emplace_back(file);
+    }
+    return result;
+}
 #endif
 
 #define CHECK_FILE_NAME "PiratesReadme.txt"
@@ -342,6 +370,39 @@ void XINTERFACE::Execute(uint32_t)
 }
 
 #ifdef __ANDROID__
+// The hero's reputation with a nation as RPGUtilite.c computes it (ChangeCharacterNationReputation):
+// reputation.<nation>hunter negated, -5 when unset; -100 … 100. Empty without a hero.
+std::string XINTERFACE::MobileNationScore(const std::string &nation) const
+{
+    auto *index=static_cast<VDATA *>(core.GetScriptVariable("nMainCharacterIndex"));
+    auto *characters=static_cast<VDATA *>(core.GetScriptVariable("Characters"));
+    auto *hero=index&&characters&&index->GetInt()>=0?characters->GetAClass(index->GetInt()):nullptr;
+    if(!hero)return {};
+    std::string key="reputation."+nation+"hunter";
+    for(auto &c:key)c=static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    auto *score=hero->FindAClass(hero,key.c_str());
+    const char *value=score?score->GetThisAttr():nullptr;
+    return std::to_string(-(value&&*value?std::atoi(value):-5));
+}
+
+// The flags the ship may raise now, "England=1,France=0,…", from the interface adapter
+// android_nation_flags.c (event AndroidNationFlags); empty when the adapter is not loaded.
+std::string XINTERFACE::MobileNationFlags() const
+{
+    core.Event("AndroidNationFlags");
+    auto *flags=core.Entity_GetAttributeClass(g_idInterface,"AndroidFlags");
+    std::string out;
+    for(size_t i=0;flags&&i<flags->GetAttributesNum();++i)
+        if(auto *flag=flags->GetAttributeClass(i))
+            out+=(out.empty()?"":",")+std::string(flag->GetThisName())+"="+(flag->GetThisAttr()?flag->GetThisAttr():"0");
+    return out;
+}
+
+void XINTERFACE::MobileNationPickFailed(const std::string &target) const
+{
+    core.Trace("nationrelation: the flag %s was not reached by cycling the candidate", target.c_str());
+}
+
 void XINTERFACE::MobileCollectWidgets(std::vector<MobileWidget> &widgets)
 {
     const auto collect = [&](const auto &self, CINODE *node) -> void {
@@ -392,13 +453,19 @@ void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
                 (text(r.caption).empty()?":caption-missing":"");continue;
         }
         MobileWidget row{"ANDROID_NATION_REPUTATION","nation_reputation",text(r.caption),w->label,-1,0,false};
-        row.rowId=p->image.source.image;row.images.push_back(p->image);widgets.push_back(std::move(row));
+        row.rowId=p->image.source.image;row.images.push_back(p->image);
+        // The number behind the word (RPGUtilite.c ChangeCharacterNationReputation): the hero's
+        // reputation.<nation>hunter negated, -5 when unset, so -100 … 100; ≤ -10 is a bounty.
+        const std::string score=MobileNationScore(r.image);
+        if(!score.empty())row.context["score"]=score;
+        widgets.push_back(std::move(row));
     }
     bool candidateSeen=false;
     for(auto &w:widgets)if(storm::iEquals(w.node,"FlagPic")) {
         candidateSeen=true;
         if(w.images.size()!=1) {complete=false;failure+=" candidate:image-count="+std::to_string(w.images.size());continue;}
         w.label=caption(w.images.front().source.image.c_str());
+        if(w.type=="image")w.context["flags"]=MobileNationFlags();
         if(w.label.empty()){complete=false;failure+=" candidate:caption-missing source="+w.images.front().source.image;}
     }
     complete=complete&&candidateSeen;
@@ -431,8 +498,10 @@ void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
         if(w.type=="button"||w.type=="nation_help"||w.type=="nation_help_close") {
             w.enabled=w.enabled&&(w.type=="nation_help_close"||node->m_bSelected)&&!node->m_bLockedNode&&!node->m_bLockStatus&&node->m_nDoDelay==0;
             w.actions.clear();
-            if(w.enabled)w.actions.push_back("nation@"+std::to_string(storm::android::mobileScreenRevision)+":"+
-                std::to_string(m_mobileNationGeneration)+":"+(w.type=="nation_help"?"help":w.type=="nation_help_close"?"close":"press"));
+            const std::string stamp="nation@"+std::to_string(storm::android::mobileScreenRevision)+":"+std::to_string(m_mobileNationGeneration)+":";
+            if(w.enabled)w.actions.push_back(stamp+(w.type=="nation_help"?"help":w.type=="nation_help_close"?"close":"press"));
+            // One player action picks a flag directly: "<stamp>pick=<NATIONS picture>" (see MobileApplyActions).
+            if(w.enabled&&storm::iEquals(w.node,"RIGHTCHANGE_NATION"))w.actions.push_back(stamp+"pick");
         }
     }
 }
@@ -495,8 +564,18 @@ void XINTERFACE::Realize(uint32_t)
             widgets.erase(std::remove_if(widgets.begin(), widgets.end(), [](const auto &row) {
                 return row.type == "save";
             }), widgets.end());
-            storm::mobile::saveListCapability.collect(*saves, enabled, widgets);
+            const auto &state = *saves;
+            storm::mobile::saveListCapability.collect(state, enabled, widgets, [this, &state](size_t index) {
+                return storm::mobile::SaveRowContext(state, index, [this](const std::string &path) { return SaveDescription(path); });
+            });
         }
+        if (storm::android::mobileScreen == "mainmenu")
+            if (auto newest = storm::mobile::ContinueWidget(storm::android::mobileScreenRevision,
+                                                            [this](const std::string &path) { return SaveDescription(path); }))
+                widgets.push_back(std::move(*newest));
+        if (storm::android::mobileScreen == "game_menu")
+            if (auto game = storm::mobile::GameIdentityWidget(storm::android::mobileScreenRevision))
+                widgets.push_back(std::move(*game));
         if (storm::android::mobileScreen == "selectcharacter" && !storm::android::TutorialSkipSupported())
             storm::android::tutorialSkip.selected = false;
         if (storm::android::mobileScreen == "selectcharacter" && storm::android::TutorialSkipSupported())
@@ -2319,13 +2398,32 @@ void XINTERFACE::DoControl()
             continue;
         }
         if(action.screen=="nationrelation" && action.value.rfind("nation@",0)==0) {
+            // "…:pick=<picture>" carries the flag the player tapped; the capability is "…:pick".
+            const auto pick=action.value.find(":pick=");
+            const std::string token=pick==std::string::npos?action.value:action.value.substr(0,pick+5);
+            const std::string target=pick==std::string::npos?std::string():action.value.substr(pick+6);
             std::vector<MobileWidget> live;MobileCollectWidgets(live);
             const auto granted=std::find_if(live.begin(),live.end(),[&](const auto &w){
                 return w.node==action.node&&w.index==action.index&&w.enabled&&
-                    std::find(w.actions.begin(),w.actions.end(),action.value)!=w.actions.end();
+                    std::find(w.actions.begin(),w.actions.end(),token)!=w.actions.end();
             });
             if(granted==live.end()||node->m_bLockStatus||node->m_nDoDelay>0)continue;
             ++m_mobileNationGeneration; // Consume this frame capability before callbacks or delayed native events.
+            if(pick!=std::string::npos) {
+                // The script cycles the candidate one nation per press (NationRelation.c SetNewNation):
+                // press › until the candidate is the tapped flag, within one frame, at most once round.
+                const auto candidate=[this]{
+                    std::vector<MobileWidget> now;MobileCollectWidgets(now);
+                    for(const auto &w:now)if(storm::iEquals(w.node,"FlagPic")&&w.type=="image"&&w.images.size()==1)return w.images.front().source.image;
+                    return std::string();
+                };
+                const int code=node->CheckCommandUsed(ACTION_MOUSECLICK)?ACTION_MOUSECLICK:ACTION_ACTIVATE;
+                for(int step=0;step<8&&!target.empty()&&!storm::iEquals(candidate(),target)&&node->m_bUse&&node->CheckCommandUsed(code);++step) {
+                    SetCurNode(node);bool stop=false;node->DoAction(code,stop,step==0);
+                }
+                if(!storm::iEquals(candidate(),target))MobileNationPickFailed(target);
+                continue;
+            }
             if(granted->type=="nation_help_close") {core.Event("MouseRClickUP");continue;}
             if(!node->m_bSelected)continue;
             const int code=granted->type=="nation_help"?ACTION_MOUSERCLICK:
@@ -3120,10 +3218,17 @@ uint32_t XINTERFACE::AttributeChanged(ATTRIBUTES *patr)
     return 0;
 }
 
-bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *saveData) const
+bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *gameSaveData) const
 {
-    if (saveName == nullptr || saveData == nullptr)
+    if (saveName == nullptr || gameSaveData == nullptr || !*gameSaveData)
         return false;
+    // The save list names a record "<hero> · <location>": the description gets the hero and
+    // the location of the game in progress (mobile_save_list.hpp SaveFacts). The game's own
+    // parser (save_load.c ParseSaveData) reads its five fields and ignores what follows.
+    std::string described = gameSaveData;
+    if (const auto identity = storm::mobile::CurrentSaveIdentity())
+        described += "@" + (*identity)[0] + "@" + (*identity)[1];
+    const char *saveData = described.c_str();
     const int32_t slen = strlen(saveData) + 1;
     if (slen <= 1)
         return false;
@@ -3171,6 +3276,12 @@ bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *saveData)
     return true;
 }
 
+std::string XINTERFACE::SaveDescription(const std::string &saveName)
+{
+    char description[512] = {};
+    return SFLB_GetSaveFileData(saveName.c_str(), sizeof(description), description) ? std::string(description) : std::string();
+}
+
 bool XINTERFACE::SFLB_GetSaveFileData(const char *saveName, int32_t bufSize, char *buf)
 {
     if (buf == nullptr || bufSize <= 0)
@@ -3195,7 +3306,7 @@ bool XINTERFACE::SFLB_GetSaveFileData(const char *saveName, int32_t bufSize, cha
     if (strSize > 0)
         memcpy(buf, stringData, strSize);
 
-    delete pdat;
+    delete[] pdat;
     return strSize > 0;
 }
 

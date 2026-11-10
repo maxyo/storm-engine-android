@@ -1,0 +1,43 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 1,
+ "screenRevision": 3,
+ "screen": "boal_frame",
+ "widgets": [
+  {
+   "node": "BACKSCROLLPICT",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 11,
+     "imageRevision": 11,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "Прошёл один час…",
+   "value": "",
+   "index": -1,
+   "order": 2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}

@@ -61,6 +61,7 @@ add_library(storm_ui STATIC
     src/screens/trade_commerce.cpp
     src/screens/trade_crew.cpp
     src/screens/trade_shipyard.cpp
+    src/screens/hero_nations.cpp
     src/screens/dialogue.cpp
     src/screens/menu_game.cpp
     src/screens/menu_new_game.cpp
@@ -73,9 +74,16 @@ add_library(storm_ui STATIC
     src/screens/extra_alchemy.cpp
     src/screens/extra_goods.cpp
     src/screens/extra_sails.cpp
+    src/screens/menu_game_over.cpp
+    src/screens/reading.cpp
+    src/screens/rest.cpp
+    src/screens/hero_tradebook.cpp
+    src/screens/launcher.cpp
     src/hud/hud.cpp
     src/hud/states.cpp
     src/hud/land.cpp
+    src/hud/sea.cpp
+    src/hud/world_map.cpp
     src/hud/spyglass.cpp
     src/template.cpp
     src/components.cpp
@@ -121,13 +129,26 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     add_executable(storm_ui_menus_unit tests/menus_check.cpp)
     target_link_libraries(storm_ui_menus_unit PRIVATE storm_ui)
     add_test(NAME ui_menus COMMAND storm_ui_menus_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/models")
+    add_executable(storm_ui_rare_unit tests/rare_check.cpp)
+    target_link_libraries(storm_ui_rare_unit PRIVATE storm_ui)
+    add_test(NAME ui_rare COMMAND storm_ui_rare_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/models")
     add_executable(storm_ui_hud_unit tests/hud_check.cpp)
     target_link_libraries(storm_ui_hud_unit PRIVATE storm_ui)
     add_test(NAME ui_hud COMMAND storm_ui_hud_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states")
     add_executable(storm_ui_hud_spyglass_unit tests/hud_spyglass_check.cpp)
     target_link_libraries(storm_ui_hud_spyglass_unit PRIVATE storm_ui)
     add_test(NAME ui_hud_spyglass COMMAND storm_ui_hud_spyglass_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states")
+    add_executable(storm_ui_press_unit tests/press_check.cpp)
+    target_link_libraries(storm_ui_press_unit PRIVATE storm_ui)
+    add_test(NAME ui_press COMMAND storm_ui_press_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack"
+        "${storm_ui_rmlui_SOURCE_DIR}/Samples/assets/LatoLatin-Regular.ttf")
     add_executable(storm_ui_hud_land_unit tests/hud_land_check.cpp)
     target_link_libraries(storm_ui_hud_land_unit PRIVATE storm_ui)
     add_test(NAME ui_hud_land COMMAND storm_ui_hud_land_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
+    add_executable(storm_ui_hud_sea_unit tests/hud_sea_check.cpp)
+    target_link_libraries(storm_ui_hud_sea_unit PRIVATE storm_ui)
+    add_executable(storm_ui_hud_worldmap_unit tests/hud_worldmap_check.cpp)
+    target_link_libraries(storm_ui_hud_worldmap_unit PRIVATE storm_ui)
+    add_test(NAME ui_hud_worldmap COMMAND storm_ui_hud_worldmap_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states")
+    add_test(NAME ui_hud_sea COMMAND storm_ui_hud_sea_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
 endif()

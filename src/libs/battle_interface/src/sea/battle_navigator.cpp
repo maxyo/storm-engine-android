@@ -71,6 +71,11 @@ void BATTLE_NAVIGATOR::Draw() const
     const glm::mat4 matw;
     rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(matw));
 #ifdef __ANDROID__
+    // The touch HUD holds the navigator's place (a current aperture lease) but this frame could
+    // not draw into it (the island map re-renders after a zoom, a source value is missing for a
+    // moment): draw nothing rather than flashing the native compass over the HUD.
+    if (!m_androidDrawn && storm::android::seaNavigator.layout(SDL_GetTicks(), storm::android::shipTelemetry.revision(),
+            storm::android::shipTelemetry.hudRevision(), m_navigatorGeneration, storm::android::SeaNavigatorBridge::graceMs)) return;
     if (m_androidDrawn) {
         const auto required=storm::android::ShipCaptions|storm::android::ShipAmmo;
         if(AndroidPresented()||(mobileMask&required)==required)return;
@@ -241,13 +246,16 @@ void BATTLE_NAVIGATOR::Update()
         const int zoom=storm::android::seaNavigator.takeZoom(SDL_GetTicks(),telemetry.revision(),telemetry.hudRevision(),m_navigatorGeneration);
         if(zoom){
             const float before=m_fCurScale;
-            if(zoom<0)DecrementScale();else IncrementScale();
+            // A tap is one of four clear scales across the range, not one keyboard step.
+            const int steps=std::max(1,int(std::lround((m_fMaxScale-m_fMinScale)/m_fScaleStep/4.f)));
+            for(int i=0;i<steps;++i){if(zoom<0)DecrementScale();else IncrementScale();}
             storm::android::traceContextAction("navigator-zoom",zoom<0?"in":"out",
                 "scale="+std::to_string(before)+"->"+std::to_string(m_fCurScale)+
                 " min="+std::to_string(m_fMinScale)+" max="+std::to_string(m_fMaxScale)+
                 " generation="+std::to_string(m_navigatorGeneration));
         }
-    } else storm::android::seaNavigator.clear();
+    } // otherwise the lease runs out by itself; clearing it here would hand a momentarily
+      // unavailable frame back to the native compass
 #endif
 
     // change compass buffer
@@ -1676,5 +1684,11 @@ void BATTLE_NAVIGATOR::ReadAndroidSpeeds(storm::android::ShipTelemetryFrame &fra
     }
     if (m_windSpeedAvailable)
         frame.windSpeed = storm::android::shipDisplayedSpeed(m_fWindStrength);
+    float charge = 0.f;
+    int sides = 0;
+    for (const auto &side : m_androidBorts)
+        if (side.present && storm::android::sea_nav::valid(side)) { charge += side.charge; ++sides; }
+    // Two decimals: the fill of the fire button, not a reason to publish every frame.
+    if (sides && m_speedShipId == mainShipId) frame.cannonCharge = std::round(charge / sides * 100.f) / 100.f;
 }
 #endif

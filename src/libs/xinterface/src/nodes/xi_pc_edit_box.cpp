@@ -508,15 +508,27 @@ void CXI_PCEDITBOX::MobileCollect(std::vector<MobileWidget> &widgets) const
 bool CXI_PCEDITBOX::MobileApply(int index, const std::string &value)
 {
     if(index!=-1 || !m_bUse || m_bLockedNode || m_bLockStatus || value.size()>4096 ||
-       (m_nMaxSize>=0 && utf8::Utf8StringLength(value.c_str())>m_nMaxSize))return false;
-    for(size_t offset=0;offset<value.size();) {
+       (m_nMaxSize>=0 && utf8::Utf8StringLength(value.c_str())>m_nMaxSize))
+    {
+        core.Trace("Interface: %s refused the text '%s' (locked, hidden or longer than %d)", m_nodeName, value.c_str(), m_nMaxSize);
+        return false;
+    }
+    // excludechars filter what a keyboard types. A signed whole number is what the trade
+    // scripts write to their amount fields themselves (-N = give N), also where the ini
+    // keeps '-' from the keyboard (itemsbox, itemstrade), so it always passes.
+    const bool amount=value.size()>1&&value[0]=='-'&&value.find_first_not_of("0123456789",1)==std::string::npos;
+    for(size_t offset=amount?1:0;offset<value.size();) {
         const auto lead=static_cast<unsigned char>(value[offset]);
         utf8::u8_char chr;
         chr.l=lead<0x80?1:lead>=0xc2&&lead<=0xdf?2:lead>=0xe0&&lead<=0xef?3:lead>=0xf0&&lead<=0xf4?4:0;
         if(!chr.l || lead<32 || lead==127 || offset+chr.l>value.size())return false;
         for(int i=1;i<chr.l;++i)if((static_cast<unsigned char>(value[offset+i])&0xc0)!=0x80)return false;
         std::memcpy(chr.b,value.data()+offset,chr.l);
-        if(IsExcludeChar(chr))return false;
+        if(IsExcludeChar(chr))
+        {
+            core.Trace("Interface: %s refused the text '%s' (excluded character)", m_nodeName, value.c_str());
+            return false;
+        }
         offset+=chr.l;
     }
     auto *attributes=core.Entity_GetAttributeClass(g_idInterface,m_nodeName);

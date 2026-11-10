@@ -1,0 +1,1190 @@
+{
+ "schemaVersion": 2,
+ "language": "english",
+ "revision": 9,
+ "screenRevision": 6,
+ "screen": "nationrelation",
+ "widgets": [
+  {
+   "node": "MAIN_BACK",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 56,
+     "imageRevision": 56,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_NATION_COLUMNS",
+   "type": "nation_columns",
+   "label": "",
+   "value": "1",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "England",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 61,
+       "imageRevision": 61,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "NATIONS",
+        "image": "England"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "France",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 60,
+       "imageRevision": 60,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "NATIONS",
+        "image": "France"
+       }
+      }
+     ]
+    },
+    {
+     "column": 2,
+     "text": "Spain",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 59,
+       "imageRevision": 59,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "NATIONS",
+        "image": "Spain"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "Holland",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 58,
+       "imageRevision": 58,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "NATIONS",
+        "image": "Holland"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "Pirates",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 65,
+       "imageRevision": 65,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "NATIONS",
+        "image": "Pirate"
+       }
+      }
+     ]
+    }
+   ],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_NATION_ROW",
+   "type": "nation_row",
+   "label": "England",
+   "value": "",
+   "index": 0,
+   "enabled": false,
+   "rowId": "England",
+   "images": [
+    {
+     "handle": 61,
+     "imageRevision": 61,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "England"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "self",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Neutral",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 63,
+       "imageRevision": 63,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Neutral"
+       }
+      }
+     ]
+    },
+    {
+     "column": 2,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "node": "ANDROID_NATION_ROW",
+   "type": "nation_row",
+   "label": "France",
+   "value": "",
+   "index": 1,
+   "enabled": false,
+   "rowId": "France",
+   "images": [
+    {
+     "handle": 60,
+     "imageRevision": 60,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "France"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Neutral",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 63,
+       "imageRevision": 63,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Neutral"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "self",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "Friend",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 64,
+       "imageRevision": 64,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Friend"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "node": "ANDROID_NATION_ROW",
+   "type": "nation_row",
+   "label": "Spain",
+   "value": "",
+   "index": 2,
+   "enabled": false,
+   "rowId": "Spain",
+   "images": [
+    {
+     "handle": 59,
+     "imageRevision": 59,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "Spain"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    },
+    {
+     "column": 2,
+     "text": "self",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Neutral",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 63,
+       "imageRevision": 63,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Neutral"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "node": "ANDROID_NATION_ROW",
+   "type": "nation_row",
+   "label": "Holland",
+   "value": "",
+   "index": 3,
+   "enabled": false,
+   "rowId": "Holland",
+   "images": [
+    {
+     "handle": 58,
+     "imageRevision": 58,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "Holland"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Friend",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 64,
+       "imageRevision": 64,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Friend"
+       }
+      }
+     ]
+    },
+    {
+     "column": 2,
+     "text": "Neutral",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 63,
+       "imageRevision": 63,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Neutral"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "self",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "node": "ANDROID_NATION_ROW",
+   "type": "nation_row",
+   "label": "Pirates",
+   "value": "",
+   "index": 4,
+   "enabled": false,
+   "rowId": "Pirate",
+   "images": [
+    {
+     "handle": 65,
+     "imageRevision": 65,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "Pirate"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    },
+    {
+     "column": 2,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "Enemy",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "relations",
+        "image": "Enemy"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "self",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "ANDROID_NATION_REPUTATION",
+   "type": "nation_reputation",
+   "label": "England",
+   "value": "Neutral",
+   "index": -1,
+   "enabled": false,
+   "rowId": "ENGLAND",
+   "images": [
+    {
+     "handle": 61,
+     "imageRevision": 61,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "ENGLAND"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "score": "5"
+   }
+  },
+  {
+   "node": "ANDROID_NATION_REPUTATION",
+   "type": "nation_reputation",
+   "label": "France",
+   "value": "Neutral",
+   "index": -1,
+   "enabled": false,
+   "rowId": "FRANCE",
+   "images": [
+    {
+     "handle": 60,
+     "imageRevision": 60,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "FRANCE"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "score": "35"
+   }
+  },
+  {
+   "node": "ANDROID_NATION_REPUTATION",
+   "type": "nation_reputation",
+   "label": "Spain",
+   "value": "Neutral",
+   "index": -1,
+   "enabled": false,
+   "rowId": "SPAIN",
+   "images": [
+    {
+     "handle": 59,
+     "imageRevision": 59,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "SPAIN"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "score": "-40"
+   }
+  },
+  {
+   "node": "ANDROID_NATION_REPUTATION",
+   "type": "nation_reputation",
+   "label": "Holland",
+   "value": "Neutral",
+   "index": -1,
+   "enabled": false,
+   "rowId": "HOLLAND",
+   "images": [
+    {
+     "handle": 58,
+     "imageRevision": 58,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "HOLLAND"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "score": "5"
+   }
+  },
+  {
+   "node": "FlagPic",
+   "type": "nation_help",
+   "label": "FlagPic",
+   "value": "",
+   "index": -2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:help"
+   ],
+   "cells": []
+  },
+  {
+   "node": "INFO_CLICK",
+   "type": "nation_help",
+   "label": "INFO_CLICK",
+   "value": "",
+   "index": -2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:help"
+   ],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_NATION_RELATIONS",
+   "type": "nation_relations",
+   "label": "Reputation with the nations",
+   "value": "1",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_CHARACTER",
+   "type": "button",
+   "label": "Characters",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "I_CHARACTER_2",
+   "type": "button",
+   "label": "Characters",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "I_SHIP",
+   "type": "button",
+   "label": "Ships",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "I_SHIP_2",
+   "type": "button",
+   "label": "Ships",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "I_QUESTBOOK",
+   "type": "button",
+   "label": "Journal",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "I_QUESTBOOK_2",
+   "type": "button",
+   "label": "Journal",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "I_TRADEBOOK",
+   "type": "button",
+   "label": "Trade",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "I_TRADEBOOK_2",
+   "type": "button",
+   "label": "Trade",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "I_ITEMS",
+   "type": "button",
+   "label": "Items",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "I_ITEMS_2",
+   "type": "button",
+   "label": "Items",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "STR_BUTTONS",
+   "type": "text",
+   "label": "Characters",
+   "value": "",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "STR_BUTTONS",
+   "type": "text",
+   "label": "Ships",
+   "value": "",
+   "index": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "STR_BUTTONS",
+   "type": "text",
+   "label": "Journal",
+   "value": "",
+   "index": 2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "STR_BUTTONS",
+   "type": "text",
+   "label": "Trade",
+   "value": "",
+   "index": 3,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "STR_BUTTONS",
+   "type": "text",
+   "label": "Items",
+   "value": "",
+   "index": 4,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TITLE",
+   "type": "heading",
+   "label": "  Relations  ",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "ENG_Text",
+   "type": "text",
+   "label": "Neutral",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "FRA_Text",
+   "type": "text",
+   "label": "Neutral",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SPA_Text",
+   "type": "text",
+   "label": "Neutral",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "HOL_Text",
+   "type": "text",
+   "label": "Neutral",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "FlagPic",
+   "type": "image",
+   "label": "France",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 57,
+     "imageRevision": 57,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "France"
+     }
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": [],
+   "context": {
+    "flags": "England=0,France=1,Spain=0,Holland=0,Pirate=1"
+   }
+  },
+  {
+   "node": "LEFTCHANGE_NATION",
+   "type": "button",
+   "label": "‹",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "RIGHTCHANGE_NATION",
+   "type": "button",
+   "label": "›",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "nation@6:3:press",
+    "nation@6:3:pick"
+   ],
+   "cells": []
+  },
+  {
+   "node": "FLAGS",
+   "type": "button",
+   "label": "Change flag",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TOOLTIP_TEXT1",
+   "type": "heading",
+   "label": "Ship flag",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "actions": []
+  },
+  {
+   "node": "TOOLTIP_TEXT2",
+   "type": "text",
+   "label": "The flag your ship flies.\n~\nForts fire at enemies.",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "actions": []
+  },
+  {
+   "node": "tooltip_fader",
+   "type": "nation_help_close",
+   "label": "",
+   "value": "",
+   "index": -3,
+   "enabled": true,
+   "actions": [
+    "nation@6:3:close"
+   ]
+  }
+ ]
+}

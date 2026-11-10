@@ -186,6 +186,264 @@
      "props": {}
     }
    ]
+  },
+  "sea": {
+   "elements": [
+    {
+     "id": "vitals",
+     "component": "c-box",
+     "rcss": "position: absolute; left: 10dp; top: 10dp; width: 200dp; height: 40dp;",
+     "props": {},
+     "children": [
+      {
+       "id": "hull",
+       "component": "c-box",
+       "rcss": "",
+       "props": {}
+      },
+      {
+       "id": "crew",
+       "component": "c-box",
+       "rcss": "",
+       "props": {}
+      },
+      {
+       "id": "sails",
+       "component": "c-box",
+       "rcss": "",
+       "props": {}
+      }
+     ]
+    },
+    {
+     "id": "fleet",
+     "component": "c-fleet",
+     "rcss": "position: absolute; left: 10dp; top: 60dp; width: 56dp; height: 240dp;",
+     "props": {}
+    },
+    {
+     "id": "hero",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 310dp; top: 10dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "pause",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 250dp; top: 10dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "orders",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 190dp; top: 10dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "minimap",
+     "component": "c-minimap",
+     "rcss": "position: absolute; right: 10dp; top: 10dp; width: 172dp; height: 150dp;",
+     "props": {}
+    },
+    {
+     "id": "sail",
+     "component": "c-lever",
+     "rcss": "position: absolute; right: 12dp; bottom: 102dp; width: 56dp; height: 144dp;",
+     "props": {
+      "mode": "steps"
+     }
+    },
+    {
+     "id": "helm",
+     "component": "c-helm",
+     "rcss": "position: absolute; left: 20dp; bottom: 27dp; width: 200dp; height: 64dp;",
+     "props": {}
+    },
+    {
+     "id": "log",
+     "component": "c-box",
+     "rcss": "position: absolute; left: 300dp; top: 10dp; width: 100dp; height: 30dp;",
+     "props": {}
+    },
+    {
+     "id": "context",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 96dp; bottom: 110dp; width: 64dp; height: 64dp;",
+     "props": {}
+    },
+    {
+     "id": "camera",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 216dp; bottom: 16dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "spyglass",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 160dp; bottom: 16dp; width: 48dp; height: 48dp;",
+     "props": {},
+     "behavior": "hold"
+    },
+    {
+     "id": "ammo",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 100dp; bottom: 16dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "ammo-1",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 207dp; bottom: 51dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "ammo-2",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 159dp; bottom: 111dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "ammo-3",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 84dp; bottom: 127dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "fire",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 16dp; bottom: 16dp; width: 76dp; height: 76dp;",
+     "props": {}
+    }
+   ]
+  },
+  "sea-battle": {
+   "elements": [
+    {
+     "id": "vitals",
+     "component": "c-box",
+     "rcss": "position: absolute; left: 10dp; top: 10dp; width: 200dp; height: 40dp;",
+     "props": {},
+     "children": [
+      {
+       "id": "hull",
+       "component": "c-box",
+       "rcss": "",
+       "props": {}
+      },
+      {
+       "id": "crew",
+       "component": "c-box",
+       "rcss": "",
+       "props": {}
+      },
+      {
+       "id": "sails",
+       "component": "c-box",
+       "rcss": "",
+       "props": {}
+      }
+     ]
+    },
+    {
+     "id": "fleet",
+     "component": "c-fleet",
+     "rcss": "position: absolute; left: 10dp; top: 60dp; width: 56dp; height: 240dp;",
+     "props": {}
+    },
+    {
+     "id": "hero",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 310dp; top: 10dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "pause",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 250dp; top: 10dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "orders",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 190dp; top: 10dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "minimap",
+     "component": "c-minimap",
+     "rcss": "position: absolute; right: 10dp; top: 10dp; width: 172dp; height: 150dp;",
+     "props": {}
+    },
+    {
+     "id": "sail",
+     "component": "c-lever",
+     "rcss": "position: absolute; right: 12dp; bottom: 102dp; width: 56dp; height: 144dp;",
+     "props": {
+      "mode": "steps"
+     }
+    },
+    {
+     "id": "helm",
+     "component": "c-helm",
+     "rcss": "position: absolute; left: 20dp; bottom: 27dp; width: 200dp; height: 64dp;",
+     "props": {}
+    },
+    {
+     "id": "log",
+     "component": "c-box",
+     "rcss": "position: absolute; left: 300dp; top: 10dp; width: 100dp; height: 30dp;",
+     "props": {}
+    },
+    {
+     "id": "context",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 96dp; bottom: 110dp; width: 64dp; height: 64dp;",
+     "props": {}
+    },
+    {
+     "id": "camera",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 216dp; bottom: 16dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "spyglass",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 160dp; bottom: 16dp; width: 48dp; height: 48dp;",
+     "props": {},
+     "behavior": "hold"
+    },
+    {
+     "id": "ammo",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 100dp; bottom: 16dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "ammo-1",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 207dp; bottom: 51dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "ammo-2",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 159dp; bottom: 111dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "ammo-3",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 84dp; bottom: 127dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "fire",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 16dp; bottom: 16dp; width: 76dp; height: 76dp;",
+     "props": {}
+    }
+   ]
   }
  }
 }

@@ -668,6 +668,7 @@ void BICommandList::ReadAndroidOrders(storm::android::SeaOrdersFrame &frame) con
         item.id = "i" + std::to_string(i);
         item.kind = command.sKind;
         item.label = command.sNote;
+        item.source = command.sCommandName;
         item.cooldown = command.fCooldownFactor;
         item.enabled = command.nCooldownPictureIndex < 0 || command.fCooldownFactor >= 1.f;
         // Include target entity identity so a reused character slot cannot

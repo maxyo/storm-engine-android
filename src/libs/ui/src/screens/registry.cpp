@@ -30,6 +30,24 @@ std::unique_ptr<Screen> CreateTransferScreen();
 std::unique_ptr<Screen> CreateAlchemyScreen();
 std::unique_ptr<Screen> CreateGoodsOrderScreen();
 std::unique_ptr<Screen> CreateSailEmblemScreen();
+std::unique_ptr<Screen> CreateGameOverScreen();
+std::unique_ptr<StateConsumer> CreateGameOverConsumer();
+std::unique_ptr<Screen> CreateNationsScreen();
+std::unique_ptr<Screen> CreateMapEncounterScreen();
+std::unique_ptr<Screen> CreateDirSailScreen();
+std::unique_ptr<Screen> CreateLeaveBattleScreen();
+std::unique_ptr<Screen> CreateSalaryScreen();
+std::unique_ptr<Screen> CreateFrameScreen();
+std::unique_ptr<Screen> CreateColonyNewsScreen();
+std::unique_ptr<Screen> CreateNationNewsScreen();
+std::unique_ptr<Screen> CreateRestScreen();
+std::unique_ptr<Screen> CreateTradeBookScreen();
+std::unique_ptr<Screen> CreateColonyCaptureScreen();
+std::unique_ptr<Screen> CreateFortCaptureScreen();
+std::unique_ptr<Screen> CreateLauncherScreen();
+std::unique_ptr<Screen> CreateDownloadsScreen();
+std::unique_ptr<Screen> CreateAboutScreen();
+std::unique_ptr<StateConsumer> CreateLauncherConsumer();
 
 namespace
 {
@@ -56,13 +74,30 @@ const ScreenEntry kPorted[] = {
     {"repair", CreateRepairScreen},
     {"transfer_main", CreateTransferScreen},
     {"alchemy", CreateAlchemyScreen},
+    {"game_over", CreateGameOverScreen}, // state channel gameOver, not a game interface
+    {"nationrelation", CreateNationsScreen},
+    {"map", CreateMapEncounterScreen},
+    {"dirsailenc", CreateDirSailScreen},
+    {"leavebattle", CreateLeaveBattleScreen},
+    {"salary", CreateSalaryScreen},
+    {"boal_frame", CreateFrameScreen},
+    {"colonyinfo", CreateColonyNewsScreen},
+    {"nationlegend", CreateNationNewsScreen},
+    {"tavernwait", CreateRestScreen},
+    {"tradebook", CreateTradeBookScreen},
+    {"colonycapture", CreateColonyCaptureScreen},
+    {"fortcapture", CreateFortCaptureScreen},
+    // The application's own screens, routed from the platform host's "launcher" channel; the
+    // "app:" prefix keeps them apart from game interfaces (ids are ini stems, e.g. "about").
+    {"app:launcher", CreateLauncherScreen},
+    {"app:downloads", CreateDownloadsScreen},
+    {"app:about", CreateAboutScreen},
 };
 
 // Interfaces the platform host still draws with its own forms. Anything not listed here
 // and not ported above gets the generic layout.
 const char *const kHostOwned[] = {
-    "character",      "lscchar_all",   "items",     "ship",      "questbook", "nationrelation", // hero sections
-    "map",            "dirsailenc",    "leavebattle", "salary", "boal_frame", // reading menus
+    "character", "lscchar_all", "items", "ship", "questbook", // hero sections
 };
 
 } // namespace
@@ -85,7 +120,9 @@ std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()
     std::vector<std::unique_ptr<StateConsumer>> consumers;
     consumers.push_back(CreateDialogueConsumer());
     consumers.push_back(CreateAppSettingsConsumer());
-    hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, presentation, spyglass
+    consumers.push_back(CreateGameOverConsumer());
+    consumers.push_back(CreateLauncherConsumer());
+    hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, ship, seaOrders, seaQuickAction, presentation, spyglass
     return consumers;
 }
 

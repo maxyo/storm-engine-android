@@ -259,6 +259,7 @@ class XINTERFACE : public XINTERFACE_BASE
     // save load functions
     bool SFLB_DoSaveFileData(const char *saveName, const char *saveData) const;
     bool SFLB_GetSaveFileData(const char *saveName, int32_t bufSize, char *buf);
+    std::string SaveDescription(const std::string &saveName); // the description stored in a save, "" without
     char *SaveFileFind(int32_t saveNum, char *buffer, size_t bufSize, int32_t &fileSize);
     bool NewSaveFileName(const char *fileName) const;
     void DeleteSaveFile(const char *fileName);
@@ -333,6 +334,9 @@ class XINTERFACE : public XINTERFACE_BASE
 
 #ifdef __ANDROID__
     void MobileCollectWidgets(std::vector<MobileWidget> &widgets);
+    std::string MobileNationScore(const std::string &nation) const;
+    void MobileNationPickFailed(const std::string &target) const;
+    std::string MobileNationFlags() const;
     void MobileCollectNations(std::vector<MobileWidget> &widgets);
     void MobileCollectShipyard(std::vector<MobileWidget> &widgets);
     void MobileCollectTableGame(std::vector<MobileWidget> &widgets);

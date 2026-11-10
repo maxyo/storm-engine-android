@@ -16,6 +16,7 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -174,9 +175,14 @@ bool ReadJson(FileSource &files, const std::string &path, Json &out, std::string
     return true;
 }
 
+// The one live host of this process (Host::Create).
+std::atomic<bool> g_host_alive{false};
+
 class HostImpl final : public Host, public Services, public screens::Surface, public hud::Mount
 {
   public:
+    bool owns_process_slot = false;
+
     ~HostImpl() override
     {
         captures_.clear();
@@ -194,6 +200,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         if (initialised_)
             Rml::Shutdown();
         registry_.reset();
+        if (owns_process_slot)
+            g_host_alive = false;
     }
 
     bool Start(const Config &config, std::string *error)
@@ -619,7 +627,9 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             const std::lock_guard<std::mutex> lock(touch_mutex_);
             hud_sheet = touch_map_.back;
         }
-        if (hud_sheet || !router_->Active())
+        if (router_->WantsBack()) // a screen's own modal (the dialogue's answer editor)
+            router_->Back();
+        else if (hud_sheet || !router_->Active())
             hud_->Back();
         else
             router_->Back();
@@ -759,6 +769,23 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         return complete;
     }
 
+    bool Measure(const std::string &id, const std::string &selector, hud::Placement &out) const override
+    {
+        Rml::Element *element = hud_document_ && hud_document_->IsVisible() ? hud_document_->GetElementById(id) : nullptr;
+        if (element && !selector.empty())
+            element = element->QuerySelector(selector);
+        if (!element || !element->IsVisible(true))
+            return false;
+        const Rml::Vector2f origin = element->GetAbsoluteOffset(Rml::BoxArea::Border), size = element->GetBox().GetSize(Rml::BoxArea::Border);
+        if (size.x <= 0.0f || size.y <= 0.0f)
+            return false;
+        auto *root = dynamic_cast<ComponentElement *>(hud_document_->GetElementById("hud"));
+        Rml::Element *layer = root ? ComponentSlot(*root) : nullptr;
+        const Rml::Vector2f corner = layer ? layer->GetAbsoluteOffset(Rml::BoxArea::Border) : Rml::Vector2f(0.0f, 0.0f);
+        out = {origin.x, origin.y, size.x, size.y, corner.x, corner.y, static_cast<float>(config_.width), static_cast<float>(config_.height), config_.density};
+        return true;
+    }
+
     void HideHud() override
     {
         if (!hud_document_)
@@ -818,6 +845,10 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         if (Rml::Element *element = document_ ? document_->GetElementById(anchor) : nullptr)
         {
+            // A field marks the box the text sits in (c-field: data-action="focus"); the
+            // editor goes exactly over it, not over the label and error lines.
+            if (Rml::Element *box = element->QuerySelector("[data-action=focus]"))
+                element = box;
             const Rml::Vector2f origin = element->GetAbsoluteOffset(Rml::BoxArea::Border);
             const Rml::Vector2f size = element->GetBox().GetSize(Rml::BoxArea::Border);
             request.x = origin.x;
@@ -1074,7 +1105,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         TouchMap map;
         const bool hud = hud_->Interactive();
-        map.back = hud && hud_->Shown().modal;
+        map.back = (hud && hud_->Shown().modal) || router_->WantsBack(); // a modal HUD sheet or a screen's own modal
         map.everywhere = document_ != nullptr || map.back; // a document or an interface screen, or a modal HUD sheet
         if (hud && !map.everywhere && hud_document_)
             CollectRegions(hud_document_, map.regions);
@@ -1179,7 +1210,16 @@ std::unique_ptr<FileSource> DirectoryFiles(std::string root)
 
 std::unique_ptr<Host> Host::Create(const Config &config, std::string *error)
 {
+    if (g_host_alive.exchange(true))
+    {
+        const std::string why = "a UI host already lives in this process: one host per process (RmlUi state is process-global)";
+        Rml::Log::Message(Rml::Log::LT_ERROR, "%s", why.c_str());
+        if (error)
+            *error = why;
+        return nullptr;
+    }
     auto host = std::make_unique<HostImpl>();
+    host->owns_process_slot = true;
     if (!host->Start(config, error))
         return nullptr;
     return host;

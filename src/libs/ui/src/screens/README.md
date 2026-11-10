@@ -22,13 +22,15 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `trade_crew.cpp` | crew hire: the trade layout with one always-open row |
 | `trade_shipyard.cpp` | shipyard: catalogue, ship card, the game's windows as sheets; sends the engine's `yard@` capability tokens, one per model revision |
 | `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout, a column table per interface |
-| `dialogue.cpp` | reference state channel: `dialogue` |
 | `extra_games.cpp` | tavern dice and cards (`boal_dice`, `boal_cards`): the felt from the script images and facts the engine exports (`ANDROID_TABLE_GAME`) |
 | `extra_goods.cpp` | the treasurer's purchase list (`goodstransfer`): rows the engine exports (`ANDROID_GOODS_ORDER`), a standing order saved as the amount settles (`order` action) |
 | `extra_repair.cpp` | self repair (`repair`): hull, masts, sails as amounts sent as the game's arrow presses, materials per amount |
 | `extra_transfer.cpp` | loot and exchange (`transfer_main`): cargo by pack arrows, crew tab, the game's windows as modals / a sheet; the question window's script mode from `ANDROID_TRANSFER`; dangerous answers held |
 | `extra_sails.cpp` | sail emblems (`sailsgerald`): the emblem ribbon (`SCROLL_GERALD` rows with texture paths) and one contextual primary |
 | `extra_alchemy.cpp` | alchemy (`alchemy`): recipe rows the engine exports (`ANDROID_ALCHEMY_RECIPE`, `choose`), the components and N batches crafted by one guarded `craft` action (`ANDROID_ALCHEMY`) |
+| `dialogue.cpp` | state channel `dialogue`: speech paged by `<ui-pages>` (pure rules in `../text_pages.h`), replies in two columns, the answer editor (text through the IME bridge, or an amount on the number panel), the menu button (`pause` to the platform host) |
+| `menu_game_over.cpp` | state channel `gameOver` (`{kind: sea\|land\|defeat, language}` or `null`, engine xinterface `info_handler.cpp`): the game-over screen |
+| `launcher.cpp` | the application's own screens (launcher, download library, about) from the platform host's `launcher` channel; the contract is at the top of the file |
 
 The design rules are GENERIC-LAYOUT (pipeline, type → component, button roles, templates,
 verbs, §8 admission and extras) and the V2 mockups of the design canvas.
@@ -51,9 +53,12 @@ verbs, §8 admission and extras) and the V2 mockups of the design canvas.
      `admitted.One/All/Label`; bind every interactive element by its element id:
      `bindings.Forward(id, widget, "press")`, `bindings.On(id, verb, handler)` and inside a
      handler `bindings.Send(widget, verb, value)`, `SendLatest` (drags), `Back(exit)`,
-     `EditText`, `Read`, `Rebuild()` for local state kept in members, `SendHost(node,
-     value)` for a setting of the application itself (an `Action` without a screen that the
-     platform host keeps; `app-settings` = the renderer options). Mark events that are
+     `EditText` / `AskText` (the screen gets the typed text), `Read`, `Rebuild()` for local
+     state kept in members, `Platform(verb)` for a request to the platform host (`pause`),
+     `SendHost(node, value)` for a setting of the application itself (an `Action` without a
+     screen that the platform host keeps; `app-settings` = the renderer options). A screen
+     with a modal of its own returns true from `OwnsBack()` and closes it in `Back()`: the
+     back key then goes there first (`Host::WantsBack`). Mark events that are
      expected but need nothing with `bindings.Ignore(id, verb)`.
    Add the file to `CMakeLists.txt`.
 3. **Registry.** Add `{"<interface id>", Create…}` to `kPorted` in `registry.cpp` and
@@ -149,6 +154,8 @@ engine ◀──"<verb>:<value>" (Action, screen "hud")── Hud::Send ◀─�
 | `states.cpp` | one consumer per channel: the engine's JSON checked once, kept typed; bad data is rejected aloud |
 | `land.cpp` | the land scene: explore and combat sets, the action sheet, the sword-move wheel |
 | `spyglass.cpp` | the spyglass card (`<s-hud-spyglass>`): laid by the Hud as the view's `overlay` over any scene, and alone where no scene owns the mode; acknowledged per drawn frame (`spyglass:<generation>`) so the engine hides its own info |
+| `world_map.cpp` | the world-map scene: fleet, compass (a tap shows the details beside it), helm slider, sail lever (held SailUp/SailDown), camera, menu, the map's commands |
+| `sea.cpp` | the sea scene: sailing and naval battle, fleet, minimap (the engine's radar in its disc), sail lever, helm slider, guns and ammunition fan, quick action, orders sheet |
 
 Channels (JSON as the engine publishes it unless noted):
 
@@ -156,11 +163,15 @@ Channels (JSON as the engine publishes it unless noted):
 |---|---|---|
 | `gameplay` | `{schemaVersion: 1, revision, mode: explore\|melee\|sailing\|naval\|worldmap\|unknown, language, inputOwner, analogMovement, movementGeneration, capabilities: […]}` | `Gameplay` |
 | `combat` | `{schemaVersion: 1, gameplayRevision, activityGeneration, playerId, mode, actions: […], interactKind, pistol: {state, progress 0…20}}` | `Combat` |
-| `vitals` | `{health, energy, reload: 0…1, loaded, capacity}` or `null` | `Vitals` |
+| `vitals` | `{health, energy, reload: 0…1, loaded, capacity, effects: [poison\|drunk\|healing], potions, officers: [{id, name, face, health}], dash?: 0…1}` or `null` | `Vitals` |
 | `worldInfo` | a JSON string: the engine's location lines, `\n` between them | `States::world_info` |
 | `contextAction` | a JSON string: the script's quick action name, `""` = none | `States::context_action` |
 | `landCommands` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage, pendingLabel, selectedItemId, canBack, canClose, items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `LandCommands` |
 | `spyglass` | `{schemaVersion: 1, revision, on, generation, target: null \| {kind: ship\|fort, name, type, class, hull, sails, crew, cannons, cannonsMax, charge, nation, sail, speed, distance, captain, cannonType, portrait, skills: {…}}}`, fields the telescope cannot show left out | `Spyglass` |
+| `ship` | the engine's ship telemetry (`android_ship_telemetry.hpp`): `{schemaVersion: 1, gameplayRevision, sequence, hudRevision, valid, …own ship, fleet: […], navigator…, shipSpeedKnots, windSpeed, cannonCharge, ammo, ammoCount, ammoCounts, sailState, canSetSails, dateTimeText, locationText}` | `Ship` |
+| `seaOrders` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage: commands\|options\|targets, recipientId, selectedItemId, pendingLabel, canBack, canClose, recipients: […], items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `SeaOrders` |
+| `seaQuickAction` | `{schemaVersion: 1, activity, revision, available, action: Map\|Moor\|Board\|LandTroops\|Reload, label}` | `SeaQuick` |
+| `worldMap` | the engine's world-map frame (`android_worldmap.hpp`): `{schemaVersion: 1, revision, activity, gameplayRevision, available, mask, commandsReady, shipsVisible, instrumentsVisible, date, hour, windForce, windAngle, heading, speed, morale, foodDays, rumDays, coordinates, flag, stormState, ships: […], commands: [{id, label}]}` | `WorldMap` |
 | `presentation` | written by the platform host: `{screen, loading, cinematic, dialogue, live}` | `Presentation` |
 
 The HUD is visible when a scene draws the gameplay mode, `presentation` reports a free game
@@ -178,10 +189,12 @@ a layout scene or element the pack lacks, and a channel carrying something else 
 contract are errors (log, toast in debug hosts), never quiet drops.
 
 Input goes out with `Hud::Send(verb, value, slot)`: the engine command is `<verb>:<value>`
-(`move`, `combat`, `landcommands`, `context`); a `slot` marks a latest-value input (stick
-position, coverage acknowledgement) of which a queueing host keeps only the newest. Two
-verbs are for the platform host: `shortcut` (`mainmenu`, `character`) and `presence`
-(`shown` / `hidden`). Sequences, owners and revisions are formed here; the platform adds
+(`move`, `combat`, `landcommands`, `context`; at sea `hold` (held controls: helm, spyglass),
+`sails`, `gameplay`, `seaquick`, `orders`, `shiphud`, `navigator`; on the world map `hold` and `worldmap`); a `slot` marks a latest-value input (stick
+position, coverage acknowledgement) of which a queueing host keeps only the newest. Three
+verbs are for the platform host: `shortcut` (`mainmenu`, `character`), `presence`
+(`shown` / `hidden`) and `pause` (its pause menu; the dialogue's menu button, through
+`Bindings::Platform`). Sequences, owners and revisions are formed here; the platform adds
 nothing.
 
 Touches over the game are decided per pointer at pointer-down: `Host::WantsTouch(x, y)` is

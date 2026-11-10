@@ -37,6 +37,10 @@ struct FakeMount final : Mount
     bool visible = false;
     std::vector<std::string> commands, slots, errors;
     double now = 0.0;
+    bool Measure(const std::string &, const std::string &, Placement &) const override
+    {
+        return false;
+    }
     bool ShowHud(const View &view) override
     {
         shown = view;

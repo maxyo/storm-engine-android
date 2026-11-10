@@ -1,6 +1,7 @@
 #pragma once
 #ifdef __ANDROID__
 #include "platform/android_ship_telemetry.hpp"
+#include "platform/android_sea_orders.hpp"
 #include "core.h"
 #include "v_data.h"
 #include "ship_base.h"
@@ -86,7 +87,9 @@ inline ShipTelemetryFrame readShipTelemetry(const GameplayState &gameplay)
 {
     ShipTelemetryFrame out;
     const auto &mode = gameplay.snapshot().mode;
-    if (mode != "sailing" && mode != "naval") return out;
+    // The open sea command menu blocks gameplay (mode "unknown") but the ship is still at sea:
+    // a touch HUD keeps its bars under the orders panel and covers the engine's own.
+    if (mode != "sailing" && mode != "naval" && !seaOrders.frame().active) return out;
     try
     {
         auto *character = shipMainCharacter();
