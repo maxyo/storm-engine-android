@@ -21,6 +21,7 @@
 #include "platform/path_fingerprint.hpp"
 #include "save_file.hpp"
 #include "script_cache.h"
+#include "script_cache_files.hpp"
 #include "storm_assert.h"
 #include "watermark.hpp"
 
@@ -60,30 +61,6 @@ auto GetCacheFolder()
     static std::filesystem::path cache_folder = fs::GetStashPath() / "Cache";
     return cache_folder;
 }
-constexpr auto kCacheStateFile = "state";
-
-bool ReadCacheFingerprint(uint64_t &fingerprint)
-{
-    std::ifstream cache_state(GetCacheFolder() / kCacheStateFile, std::ifstream::binary);
-    if (!cache_state)
-    {
-        return false;
-    }
-    cache_state.exceptions(std::ifstream::badbit | std::ifstream::eofbit);
-
-    uint64_t cache_fingerprint;
-    try
-    {
-        cache_state.read(reinterpret_cast<char *>(&cache_fingerprint), sizeof(cache_fingerprint));
-    }
-    catch (...)
-    {
-        return false;
-    }
-
-    fingerprint = cache_fingerprint;
-    return true;
-}
 
 // Everything that can make cached bytecode stale besides the scripts
 // themselves: the engine build (token numbering, internal function table and
@@ -101,27 +78,6 @@ uint64_t CalculateCacheKey(const char *program_directory)
     key = storm::fingerprint::fnv1a(static_cast<uint64_t>(sizeof(size_t)), key);
     key = storm::fingerprint::fnv1a(ec ? resolved : absolute.lexically_normal().generic_string(), key);
     return storm::fingerprint::mix(key) + fio->GetPathFingerprint(std::filesystem::u8path(resolved));
-}
-
-// Segment cache file: header + payload. The payload hash turns a torn or
-// bit-rotted file into a cache miss instead of a half-applied segment.
-struct SegmentCacheHeader
-{
-    char magic[8];
-    uint64_t payload_size;
-    uint64_t payload_hash;
-};
-constexpr char kSegmentCacheMagic[8] = {'S', 'T', 'O', 'R', 'M', 'S', 'C', '2'};
-
-void WipeCache(const uint64_t fingerprint)
-{
-    remove_all(GetCacheFolder());
-    create_directory(GetCacheFolder());
-    std::ofstream cache_state(GetCacheFolder() / kCacheStateFile, std::ofstream::binary);
-    if (cache_state)
-    {
-        cache_state.write(reinterpret_cast<const char *>(&fingerprint), sizeof(fingerprint));
-    }
 }
 
 } // namespace
@@ -989,7 +945,9 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
 
     SegmentTable[index].Files_list = new STRINGS_LIST;
     SegmentTable[index].Files_list->SetStringDataSize(sizeof(OFFSET_INFO));
+    const auto load_started = std::chrono::steady_clock::now();
     bool result = false;
+    bool from_cache = false;
     if (script_cache_mode_ != kCacheDisabled)
     {
         static bool is_calculated;
@@ -1004,20 +962,41 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
             calculated_fingerprint = CalculateCacheKey(ProgramDirectory);
         }
 
-        if (ReadCacheFingerprint(cache_fingerprint_) && cache_fingerprint_ == calculated_fingerprint)
+        using storm::script_cache::StateFile;
+        uint64_t stored_fingerprint = 0;
+        const auto state = storm::script_cache::readState(GetCacheFolder(), stored_fingerprint);
+        if (state == StateFile::Read && stored_fingerprint == calculated_fingerprint)
         {
             // attempt to load from cache first
-            result = LoadSegmentFromCache(SegmentTable[index]);
+            result = from_cache = LoadSegmentFromCache(SegmentTable[index]);
         }
         else
         {
-            WipeCache(calculated_fingerprint);
+            // Every outcome is logged: a rebuild costs a full compile at startup.
+            if (state == StateFile::Missing)
+                spdlog::info("Script cache: none in '{}'; compiling and storing scripts", GetCacheFolder().string());
+            else if (state == StateFile::Damaged)
+                spdlog::warn("Script cache: state file in '{}' is damaged; rebuilding", GetCacheFolder().string());
+            else
+                spdlog::info("Script cache: scripts or engine build changed (key {:016x} -> {:016x}); rebuilding",
+                             stored_fingerprint, calculated_fingerprint);
+            if (const auto error = storm::script_cache::resetFolder(GetCacheFolder(), calculated_fingerprint);
+                !error.empty())
+            {
+                spdlog::error("Script cache: {}; disabled for this session, scripts are compiled from source", error);
+                script_cache_mode_ = kCacheDisabled;
+            }
         }
     }
 
     if (!result)
     {
         result = Compile(SegmentTable[index]);
+    }
+    if (result)
+    {
+        spdlog::info("Script segment '{}' {} in {} ms", file_name, from_cache ? "loaded from cache" : "compiled",
+                     duration_cast<milliseconds>(std::chrono::steady_clock::now() - load_started).count());
     }
 
     if (!result)
@@ -7224,6 +7203,12 @@ void COMPILER::LoadVariablesFromCache(storm::script_cache::BufferReader &reader,
         vi.elements = reader.Read<decltype(vi.elements)>();
 
         const auto var_code = VarTab.AddVar(vi);
+        if (var_code == INVALID_VAR_CODE)
+        {
+            // Name taken by a segment loaded since the entry was written; the
+            // compiler reports it as a duplicate with file and line.
+            throw storm::script_cache::ReaderException();
+        }
         const auto real_var = VarTab.GetVarX(var_code);
 
         if (vi.elements == 1)
@@ -7526,14 +7511,6 @@ void COMPILER::SaveByteCodeToCache(storm::script_cache::BufferWriter &writer, co
 
 void COMPILER::SaveSegmentToCache(const SEGMENT_DESC &segment)
 {
-    const auto path = GetSegmentCachePath(segment);
-    std::error_code ec;
-    create_directories(path.parent_path(), ec);
-    if (ec)
-    {
-        return;
-    }
-
     storm::script_cache::BufferWriter writer;
 
     // defines (in case of new compiled code depending on defines from cache)
@@ -7555,33 +7532,11 @@ void COMPILER::SaveSegmentToCache(const SEGMENT_DESC &segment)
     SaveByteCodeToCache(writer, segment);
 
     const auto data = writer.GetDataBuffer();
-    SegmentCacheHeader header{};
-    std::copy(std::begin(kSegmentCacheMagic), std::end(kSegmentCacheMagic), header.magic);
-    header.payload_size = std::size(data);
-    header.payload_hash = storm::fingerprint::fnv1a(data);
-
-    // Write beside the target and rename, so a reader never sees a partial file.
-    auto pending = path;
-    pending += ".tmp";
+    if (const auto error = storm::script_cache::writeEntry(GetSegmentCachePath(segment),
+                                                           std::string_view(std::data(data), std::size(data)));
+        !error.empty())
     {
-        std::ofstream stream(pending, std::ios::binary | std::ios::trunc);
-        if (!stream)
-        {
-            return;
-        }
-        stream.write(reinterpret_cast<const char *>(&header), sizeof(header));
-        stream.write(std::data(data), static_cast<std::streamsize>(std::size(data)));
-        stream.close();
-        if (stream.fail())
-        {
-            std::filesystem::remove(pending, ec);
-            return;
-        }
-    }
-    std::filesystem::rename(pending, path, ec);
-    if (ec)
-    {
-        std::filesystem::remove(pending, ec);
+        spdlog::warn("Script cache: {}; the segment is compiled again next start", error);
     }
 }
 
@@ -7612,38 +7567,19 @@ void COMPILER::SaveDefinesToCache(storm::script_cache::BufferWriter &writer)
 bool COMPILER::LoadSegmentFromCache(SEGMENT_DESC &segment)
 {
     const auto path = GetSegmentCachePath(segment);
-    std::error_code ec;
-    if (!exists(path, ec) || ec)
+    std::vector<char> data;
+    switch (storm::script_cache::readEntry(path, data))
     {
+    case storm::script_cache::Entry::Missing:
         return false;
-    }
-
-    const auto cache_size = file_size(path, ec);
-    if (ec || cache_size <= sizeof(SegmentCacheHeader))
-    {
-        return false;
-    }
-
-    std::ifstream stream(path, std::ios::binary);
-    if (!stream)
-    {
-        return false;
-    }
-
-    SegmentCacheHeader header{};
-    std::vector<char> data(cache_size - sizeof(header));
-    if (!stream.read(reinterpret_cast<char *>(&header), sizeof(header)) ||
-        !stream.read(std::data(data), static_cast<std::streamsize>(std::size(data))))
-    {
-        return false;
-    }
-    if (!std::equal(std::begin(kSegmentCacheMagic), std::end(kSegmentCacheMagic), header.magic) ||
-        header.payload_size != std::size(data) ||
-        header.payload_hash != storm::fingerprint::fnv1a(std::string_view(std::data(data), std::size(data))))
-    {
+    case storm::script_cache::Entry::Damaged: {
         spdlog::warn("Script cache entry '{}' is damaged; recompiling", path.string());
+        std::error_code ec;
         std::filesystem::remove(path, ec);
         return false;
+    }
+    case storm::script_cache::Entry::Read:
+        break;
     }
 
     storm::script_cache::BufferReader reader(std::move(data));
@@ -7670,9 +7606,10 @@ bool COMPILER::LoadSegmentFromCache(SEGMENT_DESC &segment)
     }
     catch (const storm::script_cache::ReaderException &)
     {
-        // Intact file that does not parse: a layout bug, not disk damage. Undo
-        // what was registered for this segment and compile from source.
-        spdlog::error("Script cache entry '{}' does not parse; recompiling", path.string());
+        // Intact file that does not parse or apply: a layout bug or a name clash,
+        // not disk damage. Undo what was registered for this segment and compile from source.
+        spdlog::error("Script cache entry '{}' cannot be applied; recompiling", path.string());
+        std::error_code ec;
         std::filesystem::remove(path, ec);
         delete[] segment.pCode;
         segment.pCode = nullptr;
