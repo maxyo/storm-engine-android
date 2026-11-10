@@ -30,6 +30,10 @@
     "caption": {
      "type": "text",
      "default": ""
+    },
+    "safeLeft": {
+     "type": "number",
+     "default": 0
     }
    },
    "template": "<div slot=\"1\"></div>"
@@ -70,6 +74,10 @@
      "default": 0
     },
     "variant": {
+     "type": "text",
+     "default": ""
+    },
+    "badgeTone": {
      "type": "text",
      "default": ""
     }
@@ -148,6 +156,140 @@
    "tag": "s-hud",
    "props": {},
    "template": "<div slot=\"1\" style=\"position: absolute; left: {{safe.left}}dp; top: {{safe.top}}dp; right: {{safe.right}}dp; bottom: {{safe.bottom}}dp;\"></div>"
+  },
+  {
+   "tag": "c-fleet",
+   "props": {
+    "ships": {
+     "type": "json",
+     "default": []
+    }
+   },
+   "behaviors": [
+    "press"
+   ],
+   "constants": {
+    "pressRoot": false
+   },
+   "template": "<t-for each=\"ships\" as=\"o\"><div class=\"item ship\" data-action=\"ship\" data-value=\"{{o_i}}\" style=\"position: absolute; left: {{ int(o_i / 4) * 60 }}dp; top: {{ (o_i - int(o_i / 4) * 4) * 60 }}dp; width: 52dp; height: 52dp;\"></div></t-for>"
+  },
+  {
+   "tag": "c-minimap",
+   "props": {
+    "place": {
+     "type": "text",
+     "default": ""
+    },
+    "time": {
+     "type": "text",
+     "default": ""
+    },
+    "speed": {
+     "type": "text",
+     "default": ""
+    },
+    "wind": {
+     "type": "text",
+     "default": ""
+    },
+    "native": {
+     "type": "bool",
+     "default": false
+    },
+    "readout": {
+     "type": "bool",
+     "default": true
+    }
+   },
+   "behaviors": [
+    "press"
+   ],
+   "constants": {
+    "pressRoot": false
+   },
+   "template": "<div class=\"mm-disc\" data-action=\"zoom\" style=\"position: absolute; left: 36dp; top: 24dp; width: 100dp; height: 100dp;\"></div>"
+  },
+  {
+   "tag": "c-lever",
+   "props": {
+    "mode": {
+     "type": "text",
+     "default": "steps"
+    },
+    "value": {
+     "type": "number",
+     "default": 2
+    },
+    "active": {
+     "type": "bool",
+     "default": false
+    },
+    "dir": {
+     "type": "text",
+     "default": ""
+    }
+   },
+   "behaviors": [
+    "lever"
+   ],
+   "template": "<div data-lever=\"{{mode}}\" data-steps=\"3\" data-knob-size=\"48\" style=\"position: absolute; left: 0; top: 0; right: 0; bottom: 0;\"></div>"
+  },
+  {
+   "tag": "c-helm",
+   "props": {
+    "value": {
+     "type": "number",
+     "default": 0
+    },
+    "valueY": {
+     "type": "number",
+     "default": 0
+    },
+    "active": {
+     "type": "bool",
+     "default": false
+    }
+   },
+   "behaviors": [
+    "stick"
+   ],
+   "template": "<div data-stick=\"x\" data-knob-size=\"68\" style=\"width: 200dp; height: 64dp;\"></div>"
+  },
+  {
+   "tag": "s-hud-orders",
+   "props": {
+    "title": {
+     "type": "text",
+     "default": ""
+    },
+    "back": {
+     "type": "bool",
+     "default": false
+    },
+    "crumb": {
+     "type": "text",
+     "default": ""
+    },
+    "recipients": {
+     "type": "json",
+     "default": []
+    },
+    "tiles": {
+     "type": "json",
+     "default": []
+    },
+    "rows": {
+     "type": "json",
+     "default": []
+    }
+   },
+   "behaviors": [
+    "press"
+   ],
+   "constants": {
+    "pressRoot": false
+   },
+   "template": "<div data-action=\"close\" style=\"position: absolute; left: 0; top: 0; right: 0; bottom: 0;\"></div><c-button id=\"sheet-{{ back ? 'back' : 'close' }}\" style=\"position: absolute; left: 300dp; top: 0; width: 100dp; height: 40dp;\"/><t-for each=\"recipients\" as=\"r\"><c-button id=\"{{r.id}}\" label=\"{{r.title}}\" style=\"position: absolute; left: 0; top: {{ r_i * 50 }}dp; width: 200dp; height: 40dp;\"/></t-for><t-for each=\"tiles\" as=\"o\"><c-button id=\"{{o.id}}\" label=\"{{o.title}}\" disabled=\"{{ o.disabled ? 1 : 0 }}\" style=\"position: absolute; right: 0; top: {{ o_i * 50 }}dp; width: 200dp; height: 40dp;\"/></t-for><t-for each=\"rows\" as=\"o\"><c-button id=\"{{o.id}}\" label=\"{{o.title}}\" disabled=\"{{ o.disabled ? 1 : 0 }}\" style=\"position: absolute; right: 0; top: {{ (len(tiles) + o_i) * 50 }}dp; width: 200dp; height: 40dp;\"/></t-for>"
   }
  ]
 }

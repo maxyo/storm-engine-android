@@ -1,0 +1,18 @@
+{
+ "schemaVersion": 1,
+ "revision": 9,
+ "mode": "worldmap",
+ "language": "russian",
+ "inputOwner": "",
+ "analogMovement": false,
+ "movementGeneration": 0,
+ "capabilities": [
+  "WMapShipSailUp",
+  "WMapShipSailDown",
+  "WMapShipTurnLeft",
+  "WMapShipTurnRight",
+  "WMapCancel",
+  "WMapCameraSwitch",
+  "WMapCameraRotate"
+ ]
+}

@@ -24,6 +24,7 @@
 #include "watermark.hpp"
 #ifdef __ANDROID__
 #include "platform/android_ui.hpp"
+#include "platform/android_held_controls.hpp"
 #include "platform/android_shortcuts.hpp"
 #include "android_gameplay_state.hpp"
 #include "android_combat_state.hpp"
@@ -539,6 +540,11 @@ int main(int argc, char *argv[])
         }
         return permissions;
     };
+    // A held HUD control acts only while the gameplay that binds it is live.
+    storm::android::heldControls.guard = [&](std::string_view control) {
+        return isRunning && bActive && androidLifecycle.canRun() && core_private->initialized() && core.Controls &&
+            storm::android::loadingState == 0 && storm::android::mobileScreen.empty() && gameplayState.allows(control);
+    };
     storm::android::updateCombatState(gameplayState);
     storm::android::publishCombatState();
     storm::android::publishGameplayState(gameplayState.json());
@@ -546,6 +552,7 @@ int main(int argc, char *argv[])
     storm::android::publishWorldMapHud();
     storm::android::shipTelemetry.update(gameplayState.revision(), {});
     storm::android::publishShipTelemetry();
+    storm::android::publishSeaQuickAction();
     unsigned shortcutLogBudget = 64;
 #endif
     int exitCode = EXIT_SUCCESS;
@@ -562,7 +569,8 @@ int main(int argc, char *argv[])
         {
             if(storm::android::worldMapHud.modal.ownsInput(SDL_GetTicks()) &&
                 (command.starts_with("gameplay:") || command.starts_with("shortcut:") || command.starts_with("context:") ||
-                 command.starts_with("move:") || command.starts_with("combat:") || command.starts_with("sails:")))continue;
+                 command.starts_with("move:") || command.starts_with("combat:") || command.starts_with("sails:") ||
+                 command.starts_with("hold:") || command.starts_with("seaquick:")))continue;
             if (command.starts_with("combat:"))
             {
                 storm::android::combatInput.offer(std::string_view(command).substr(7), SDL_GetTicks(), combatDrainEpoch);
@@ -574,6 +582,16 @@ int main(int argc, char *argv[])
             else if (command.starts_with("landcommands:"))
             {
                 storm::android::landCommands.offer(std::string_view(command).substr(13), SDL_GetTicks());
+            }
+            else if (command.starts_with("hold:"))
+            {
+                storm::android::heldControls.offer(std::string_view(command).substr(5), SDL_GetTicks(), combatDrainEpoch);
+            }
+            else if (command.starts_with("seaquick:"))
+            {
+                const bool accepted = storm::android::seaQuickAction.offer(std::string_view(command).substr(9), SDL_GetTicks());
+                if (command.find("\tactivate\t") != std::string::npos)
+                    storm::android::traceContextAction("sea-quick-mailbox", accepted ? "accepted" : "rejected", command);
             }
             else if (command.starts_with("orders:"))
             {
@@ -699,6 +717,7 @@ int main(int argc, char *argv[])
                 storm::android::closeSeaOrders();
                 storm::android::closeLandCommands();
                 storm::android::publishLandCommands();
+                storm::android::seaQuickLifecycleReady = false;
             }
         }
         if (SDL_HasEvent(SDL_QUIT))
@@ -714,6 +733,7 @@ int main(int argc, char *argv[])
             storm::android::publishSeaOrders();
             storm::android::movementInput.updateOwner({});
             gameplayState.update({});
+            storm::android::heldControls.update(gameplayState.revision());
             storm::android::updateCombatState(gameplayState);
             storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
@@ -721,6 +741,9 @@ int main(int argc, char *argv[])
             storm::android::publishWorldMapHud();
             storm::android::shipTelemetry.update(gameplayState.revision(), {});
             storm::android::publishShipTelemetry();
+            storm::android::seaQuickLifecycleReady = false;
+            storm::android::seaQuickAction.update({});
+            storm::android::publishSeaQuickAction();
         }
         if (androidLifecycle.terminating())
             isRunning = false;
@@ -800,6 +823,9 @@ int main(int argc, char *argv[])
             gameplaySnapshot.analogMovement = !gameplaySnapshot.inputOwner.empty();
             gameplaySnapshot.movementGeneration = gameplaySnapshot.analogMovement ? storm::android::movementInput.generation() : 0;
             gameplayState.update(std::move(gameplaySnapshot));
+            storm::android::heldControls.update(gameplayState.revision());
+            storm::android::seaQuickLifecycleReady = gameplayReady;
+            storm::android::publishSeaQuickAction();
             storm::android::updateCombatState(gameplayState);
             storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
@@ -895,6 +921,7 @@ int main(int argc, char *argv[])
     storm::android::combatInput.clear();
     storm::android::combatInput.guard = {};
     storm::android::movementInput.guard = {};
+    storm::android::heldControls.guard = {};
     storm::android::closeSeaOrders();
     storm::android::closeLandCommands();
     storm::android::publishLandCommands();
