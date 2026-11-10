@@ -306,31 +306,60 @@ const bgfx::Memory *ref_blob(std::shared_ptr<const texture::Blob> blob)
 
 enum class Tier
 {
-    Direct,    // DXT as BC (bgfx decodes it to RGBA8 itself without S3TC)
+    Direct,    // DXT uploaded as BC (GPU supports S3TC)
     Transcode, // ETC2 from the cache or the transcode workers
     Rgba,      // decoded to RGBA8 here
 };
+
+const char *tier_name(Tier tier)
+{
+    return tier == Tier::Direct ? "bc" : tier == Tier::Transcode ? "etc2" : "rgba8";
+}
+
+// The tier for DXT payloads is fixed per texture kind when the first texture is created:
+// it depends only on the GPU capabilities and the `texture_compression` setting, and it is
+// logged once. A request the GPU cannot honour is reported as an error, never applied quietly.
+Tier resolve_tier(uint16_t need, const char *kind)
+{
+    const bgfx::Caps *caps = Context::instance().caps();
+    const bool bc = (caps->formats[bgfx::TextureFormat::BC1] & need) && (caps->formats[bgfx::TextureFormat::BC2] & need) &&
+                    (caps->formats[bgfx::TextureFormat::BC3] & need);
+    const bool etc2 = (caps->formats[bgfx::TextureFormat::ETC2] & need) && (caps->formats[bgfx::TextureFormat::ETC2A] & need);
+    const Tier best = bc ? Tier::Direct : etc2 ? Tier::Transcode : Tier::Rgba;
+    Tier tier = best;
+    const char *requested = "auto";
+    switch (texture::Service::instance().mode())
+    {
+    case texture::Mode::Bc:
+        requested = "bc";
+        tier = bc ? Tier::Direct : best;
+        break;
+    case texture::Mode::Etc2:
+        requested = "etc2";
+        tier = etc2 ? Tier::Transcode : best;
+        break;
+    case texture::Mode::Rgba:
+        requested = "rgba";
+        tier = Tier::Rgba;
+        break;
+    case texture::Mode::Auto:
+        break;
+    }
+    if (texture::Service::instance().mode() != texture::Mode::Auto && tier == best && tier != Tier::Rgba &&
+        strcmp(requested, tier_name(tier)) != 0)
+        logf("ERROR: texture_compression=%s is not supported by this GPU for %s textures; using %s", requested, kind,
+             tier_name(tier));
+    logf("texture tier for DXT %s textures: %s (requested %s, S3TC=%d, ETC2=%d)", kind, tier_name(tier), requested, bc, etc2);
+    return tier;
+}
 
 Tier select_tier(const TexStore &store)
 {
     if (!format_info(store.format).block_bytes)
         return Tier::Direct;
-    const bgfx::Caps *caps = Context::instance().caps();
-    const uint16_t need = store.kind == TexKind::Cube ? BGFX_CAPS_FORMAT_TEXTURE_CUBE : BGFX_CAPS_FORMAT_TEXTURE_2D;
-    const bool bc = (caps->formats[bc_format(store.format)] & need) != 0;
-    const bool etc2 = (caps->formats[bgfx::TextureFormat::ETC2] & need) && (caps->formats[bgfx::TextureFormat::ETC2A] & need);
-    switch (texture::Service::instance().mode())
-    {
-    case texture::Mode::Bc:
-        return Tier::Direct;
-    case texture::Mode::Rgba:
-        return Tier::Rgba;
-    case texture::Mode::Etc2:
-        return etc2 ? Tier::Transcode : Tier::Direct;
-    case texture::Mode::Auto:
-        break;
-    }
-    return bc || !etc2 ? Tier::Direct : Tier::Transcode;
+    static const Tier tier_2d = resolve_tier(BGFX_CAPS_FORMAT_TEXTURE_2D, "2D");
+    static const Tier tier_cube = resolve_tier(BGFX_CAPS_FORMAT_TEXTURE_CUBE, "cube");
+    return store.kind == TexKind::Cube ? tier_cube : tier_2d;
 }
 
 // bgfx can only restrict the mip range of a texture created from an image container;

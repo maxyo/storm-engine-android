@@ -205,6 +205,7 @@ struct Device final : Direct3DDevice9Stub
         uint32_t up_vertex_count = 0;
     };
     HRESULT draw(const DrawCall &call);
+    void skip_draw(const char *reason);
     const LayoutInfo *current_layout();
     const LayoutInfo *fvf_layout(DWORD fvf, uint32_t stride);
     bool build_decl_layout(VertexDeclaration &decl);

@@ -755,6 +755,13 @@ HRESULT Device::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE type, UINT min_index, UI
     return draw(call);
 }
 
+// A draw that cannot be issued is never dropped quietly: it is counted and its reason logged once.
+void Device::skip_draw(const char *reason)
+{
+    ++stats.skipped;
+    trap(reason);
+}
+
 HRESULT Device::draw(const DrawCall &call)
 {
     if (call.primitive_count == 0)
@@ -783,7 +790,7 @@ HRESULT Device::draw(const DrawCall &call)
         layout = current_layout();
     if (!layout || layout->stream_count == 0)
     {
-        ++stats.skipped;
+        skip_draw("no vertex layout");
         return D3D_OK;
     }
 
@@ -791,7 +798,7 @@ HRESULT Device::draw(const DrawCall &call)
     const bool vs_port = s.vs != nullptr, ps_port = s.ps != nullptr;
     if ((vs_port && !s.vs->port) || (ps_port && !s.ps->port))
     {
-        ++stats.skipped;
+        skip_draw("shader without bgfx port");
         return D3D_OK;
     }
     static const uint32_t id_vs_ff = shader_id_by_name("vs_ff");
@@ -809,7 +816,7 @@ HRESULT Device::draw(const DrawCall &call)
     const bgfx::ProgramHandle handle = program(vs_id, fs_id);
     if (!bgfx::isValid(handle))
     {
-        ++stats.skipped;
+        skip_draw("program creation failed");
         return D3D_OK;
     }
 
@@ -869,14 +876,14 @@ HRESULT Device::draw(const DrawCall &call)
             ib = s.indices;
             if (!ib)
             {
-                ++stats.skipped;
+                skip_draw("no index buffer bound");
                 return D3D_OK;
             }
             index32 = ib->index32;
             const size_t offset = static_cast<size_t>(call.start_index) * (index32 ? 4 : 2);
             if (offset + static_cast<size_t>(element_count) * (index32 ? 4 : 2) > ib->shadow.size())
             {
-                ++stats.skipped;
+                skip_draw("index range outside the buffer");
                 return D3D_OK;
             }
             index_source = ib->shadow.data() + offset;
@@ -895,7 +902,7 @@ HRESULT Device::draw(const DrawCall &call)
             VertexBuffer *vb = s.stream[i];
             if (!vb)
             {
-                ++stats.skipped;
+                skip_draw("no vertex buffer bound");
                 return D3D_OK;
             }
             if (vb->write_frame == frame || (s.stream_offset[i] % layout->stride[i]) != 0)
@@ -948,7 +955,7 @@ HRESULT Device::draw(const DrawCall &call)
             const size_t bytes = static_cast<size_t>(vertex_count) * stride;
             if (begin + bytes > available || bgfx::getAvailTransientVertexBuffer(vertex_count, layout->layout[i]) < vertex_count)
             {
-                ++stats.skipped;
+                skip_draw("vertex range outside the buffer or transient vertex budget exhausted");
                 return D3D_OK;
             }
             bgfx::TransientVertexBuffer tvb;
@@ -993,7 +1000,7 @@ HRESULT Device::draw(const DrawCall &call)
         if (bgfx::getAvailTransientIndexBuffer(out_count, out32) < out_count)
         {
             bgfx::discard();
-            ++stats.skipped;
+            skip_draw("transient index budget exhausted");
             return D3D_OK;
         }
         bgfx::TransientIndexBuffer tib;

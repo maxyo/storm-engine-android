@@ -48,7 +48,7 @@ HRESULT trap(const char *method)
 {
     std::lock_guard lock(trap_mutex);
     if (++trap_counts[method] == 1)
-        logf("TRAP: unported D3D9 entry point %s", method);
+        logf("TRAP: %s", method);
     return D3DERR_INVALIDCALL;
 }
 
