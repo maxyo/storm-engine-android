@@ -2,14 +2,11 @@
 #include "mobile_widget.hpp"
 #include "v_data.h"
 #include "platform/android_ui.hpp"
-#include "v_file_service.h"
-#include <array>
+#include <cstdio>
 #include <cstdlib>
-#include <ctime>
-#include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
-#include <spdlog/spdlog.h>
 
 namespace storm::mobile
 {
@@ -45,7 +42,7 @@ inline std::optional<SaveListSnapshot> ReadSaveList()
 }
 // What the save list shows of a record. The game stores a description in every save
 // (interface.c GetSaveDataString: "label@faces@HH:MM  DD.MM.YYYY@play time@language");
-// SFLB_DoSaveFileData appends "@hero@location" of the game in progress. A record written
+// SFLB_DoSaveFileData appends "@hero@location" of the game in progress (mobile_save_facts). A record written
 // before that has no hero; its label (the name the game gave it: the location) stands for
 // the location. Published as the row's context: hero, location, gameDate (YYYY-MM-DD),
 // gameTime (HH:MM), created (local YYYY-MM-DD HH:MM of the file), playMinutes.
@@ -105,7 +102,7 @@ inline void SaveStamp(const std::string &stamp, SaveFacts &facts)
         const int year = std::atoi(stamp.c_str() + stamp.find('.', dot + 1) + 1);
         if (day >= 1 && day <= 31 && month >= 1 && month <= 12 && year > 0 && hour >= 0 && hour < 24 && minute >= 0 && minute < 60)
         {
-            char date[16], clock[8];
+            char date[24], clock[16];
             std::snprintf(date, sizeof(date), "%04d-%02d-%02d", year, month, day);
             std::snprintf(clock, sizeof(clock), "%02d:%02d", hour, minute);
             facts.gameDate = date;
@@ -114,74 +111,12 @@ inline void SaveStamp(const std::string &stamp, SaveFacts &facts)
     }
 }
 
-// "<hero>@<location>@<play time>@<HH:MM  DD.MM.YYYY>" of the game in progress, from the app
-// script's handler (mobile-ui/PROGRAM/interface/android_save_identity.c); nothing without a
-// game or handler.
-inline std::optional<std::array<std::string, 4>> CurrentSaveIdentity()
-{
-    VDATA *result = core.Event("AndroidSaveIdentity");
-    const char *text = nullptr;
-    if (!result || !result->Get(text) || !text)
-    {
-        static bool reported = false;
-        if (!std::exchange(reported, true))
-            spdlog::error("save list: no AndroidSaveIdentity handler answered; records lose hero and location");
-        return {};
-    }
-    const auto fields = SplitSaveDescription(text);
-    if (fields.size() != 4 || fields[0].empty()) return {};
-    return std::array<std::string, 4>{fields[0], fields[1], fields[2], fields[3]};
-}
-
-// The pause menu's line «<hero> · <location> · <date>» (V2-Menu-Game): the game in
-// progress as the ANDROID_GAME text, its parts as context (hero, location, gameDate,
-// gameTime). Asked once per opening of the menu.
-inline std::optional<MobileWidget> GameIdentityWidget(uint64_t opening)
-{
-    static std::pair<uint64_t, std::optional<std::array<std::string, 4>>> cached{~0ull, {}};
-    if (cached.first != opening) cached = {opening, CurrentSaveIdentity()};
-    if (!cached.second) return {};
-    const auto &identity = *cached.second;
-    MobileWidget widget{"ANDROID_GAME", "text", identity[0] + " · " + identity[1], "", -1, -1, true};
-    SaveFacts facts;
-    SaveStamp(identity[3], facts);
-    widget.context = {{"hero", identity[0]}, {"location", identity[1]}};
-    if (!facts.gameDate.empty()) widget.context["gameDate"] = facts.gameDate, widget.context["gameTime"] = facts.gameTime;
-    return widget;
-}
-
-// The description of a record file, read once per file time.
-class SaveFactsCache
-{
-    struct Entry { std::time_t written = 0; SaveFacts facts; };
-    std::map<std::string, Entry> entries_;
-public:
-    template <typename Read> const SaveFacts &get(const std::string &path, Read &&readDescription)
-    {
-        const std::time_t written = fio->_FileOrDirectoryExists(path.c_str()) ? fio->_ToTimeT(fio->_GetLastWriteTime(path.c_str())) : 0;
-        auto found = entries_.find(path);
-        if (found != entries_.end() && found->second.written == written) return found->second.facts;
-        Entry entry{written, ParseSaveDescription(readDescription(path))};
-        if (written)
-        {
-            std::tm local{};
-            localtime_r(&written, &local);
-            char created[24];
-            std::strftime(created, sizeof(created), "%Y-%m-%d %H:%M", &local);
-            entry.facts.created = created;
-        }
-        return entries_[path] = std::move(entry), entries_[path].facts;
-    }
-};
-
 // Identity is bound to the complete current list, not to a reusable visual slot.
 class SaveListCapability
 {
     SaveListSnapshot published_;
     std::vector<std::string> ids_;
     uint64_t next_ = 0;
-    SaveFactsCache facts_;
-    std::pair<uint64_t, std::optional<std::array<std::string, 4>>> identity_{~0ull, {}};
 public:
     struct Target { SaveListSnapshot owner; int index; std::string verb; };
     std::optional<Target> pending;
@@ -190,10 +125,10 @@ public:
         return published_.revision == state.revision && published_.profile == state.profile &&
             published_.saving == state.saving && published_.files == state.files;
     }
-    // Fills a row's context from the record's description (see SaveFacts); `read` returns
-    // the description stored in a file.
-    template <typename Read>
-    void collect(const SaveListSnapshot &state, bool enabled, std::vector<MobileWidget> &widgets, Read &&read)
+    // `context(i)` gives row i its facts (mobile_save_facts.hpp SaveRowContext; i ==
+    // files.size() is the new record).
+    void collect(const SaveListSnapshot &state, bool enabled, std::vector<MobileWidget> &widgets,
+                 const std::function<std::map<std::string, std::string>(size_t)> &context)
     {
         if (!sameList(state))
         {
@@ -211,30 +146,10 @@ public:
             row.rowId = ids_[i];
             if (enabled) { row.actions.push_back("activate"); if (!fresh) row.actions.push_back("delete"); }
             if (fresh) row.unavailableReason = "new";
-            if (fresh)
-            {
-                // The record about to be written: the game in progress, no dates yet.
-                if (identity_.first != state.revision) identity_ = {state.revision, CurrentSaveIdentity()};
-                if (const auto &identity = identity_.second)
-                {
-                    row.context["hero"] = (*identity)[0];
-                    row.context["location"] = (*identity)[1];
-                    if (const int minutes = SavePlayMinutes((*identity)[2]); minutes >= 0)
-                        row.context["playMinutes"] = std::to_string(minutes);
-                }
-            }
-            else
-            {
-                const SaveFacts &facts = facts_.get("SAVE\\" + state.profile + "\\" + state.files[i], read);
-                for (const auto &[key, value] : {std::pair<const char *, const std::string &>{"hero", facts.hero}, {"location", facts.location},
-                                                 {"gameDate", facts.gameDate}, {"gameTime", facts.gameTime}, {"created", facts.created}})
-                    if (!value.empty()) row.context[key] = value;
-                if (facts.playMinutes >= 0) row.context["playMinutes"] = std::to_string(facts.playMinutes);
-            }
+            row.context = context(i);
             widgets.push_back(std::move(row));
         }
     }
-    template <typename Read> const SaveFacts &facts(const std::string &path, Read &&read) { return facts_.get(path, read); }
     std::optional<Target> accept(const SaveListSnapshot &state, int index, const std::string &value) const
     {
         if (!sameList(state) || index < 0 || static_cast<size_t>(index) >= ids_.size()) return {};
@@ -252,46 +167,6 @@ public:
     }
 };
 inline SaveListCapability saveListCapability;
-
-// The record «Продолжить» loads on the title screen (V2-Menu-Title): the newest file of the
-// profile's save folder ("SAVE\\" + PlayerProfile.name, as save_load.c opens it), as the
-// ANDROID_CONTINUE text «<hero> · <location>» with the record's facts as context. Scanned
-// once per opening of the screen.
-template <typename Read>
-std::optional<MobileWidget> ContinueWidget(uint64_t opening, Read &&read)
-{
-    static std::pair<uint64_t, std::string> newest{~0ull, {}};
-    if (newest.first != opening)
-    {
-        auto *profile = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
-        const char *profileName = profile && profile->GetAClass() ? profile->GetAClass()->GetAttribute("name") : nullptr;
-        if (!profileName || !*profileName) return {};
-        newest = {opening, {}};
-        const std::string folder = std::string("SAVE\\") + profileName;
-        const char *savePath = folder.c_str();
-        std::filesystem::file_time_type best{};
-        for (const auto &path : fio->_GetFsPathsByMask(savePath, nullptr, true))
-        {
-            const auto utf8 = path.filename().u8string();
-            const std::string name(utf8.begin(), utf8.end());
-            std::error_code error;
-            const auto written = std::filesystem::last_write_time(path, error);
-            const auto ends = [&name](const std::string &suffix) {
-                return name.size() >= suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0;
-            };
-            if (error || ends(".storm-tmp") || ends(".storm-bak") || (!newest.second.empty() && written <= best)) continue;
-            best = written;
-            newest.second = std::string(savePath) + "\\" + name;
-        }
-    }
-    if (newest.second.empty()) return {};
-    const SaveFacts &facts = saveListCapability.facts(newest.second, read);
-    if (facts.location.empty()) return {};
-    MobileWidget widget{"ANDROID_CONTINUE", "text", facts.hero.empty() ? facts.location : facts.hero + " · " + facts.location, "", -1, -1, true};
-    widget.context = {{"location", facts.location}};
-    if (!facts.hero.empty()) widget.context["hero"] = facts.hero;
-    return widget;
-}
 
 // Select through the original script so its ten-slot cache and delete shifting
 // stay consistent, even when Android displays a row far beyond the native page.

@@ -17,6 +17,7 @@
 #include "mobile_image_bridge.hpp"
 #include "mobile_inventory.hpp"
 #include "mobile_save_list.hpp"
+#include "mobile_save_facts.hpp"
 #include "mobile_nation_relations.hpp"
 #include "mobile_owner_bridge.hpp"
 #include <chrono>
@@ -482,16 +483,14 @@ void XINTERFACE::Realize(uint32_t)
             widgets.erase(std::remove_if(widgets.begin(), widgets.end(), [](const auto &row) {
                 return row.type == "save";
             }), widgets.end());
-            storm::mobile::saveListCapability.collect(*saves, enabled, widgets, [this](const std::string &path) {
-                char description[512] = {};
-                return SFLB_GetSaveFileData(path.c_str(), sizeof(description), description) ? std::string(description) : std::string();
+            const auto &state = *saves;
+            storm::mobile::saveListCapability.collect(state, enabled, widgets, [this, &state](size_t index) {
+                return storm::mobile::SaveRowContext(state, index, [this](const std::string &path) { return SaveDescription(path); });
             });
         }
         if (storm::android::mobileScreen == "mainmenu")
-            if (auto newest = storm::mobile::ContinueWidget(storm::android::mobileScreenRevision, [this](const std::string &path) {
-                        char description[512] = {};
-                        return SFLB_GetSaveFileData(path.c_str(), sizeof(description), description) ? std::string(description) : std::string();
-                    }))
+            if (auto newest = storm::mobile::ContinueWidget(storm::android::mobileScreenRevision,
+                                                            [this](const std::string &path) { return SaveDescription(path); }))
                 widgets.push_back(std::move(*newest));
         if (storm::android::mobileScreen == "game_menu")
             if (auto game = storm::mobile::GameIdentityWidget(storm::android::mobileScreenRevision))
@@ -3136,6 +3135,12 @@ bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *gameSaveD
     core.SetSaveData(saveName, pdat, sizeof(SAVE_DATA_HANDLE) + slen + ssize);
     free(pdat);
     return true;
+}
+
+std::string XINTERFACE::SaveDescription(const std::string &saveName)
+{
+    char description[512] = {};
+    return SFLB_GetSaveFileData(saveName.c_str(), sizeof(description), description) ? std::string(description) : std::string();
 }
 
 bool XINTERFACE::SFLB_GetSaveFileData(const char *saveName, int32_t bufSize, char *buf)
