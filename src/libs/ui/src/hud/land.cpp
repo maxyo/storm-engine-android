@@ -3,7 +3,8 @@
 // Layout scenes `land` (explore) and `land-combat` (melee) of hud-layout.json. Input goes
 // back through the engine's existing entry points:
 //   move:1\t<inputOwner>\t<movementGeneration>\t<sequence>\t<active>\t<x>\t<forward>   (±1000)
-//   combat:1\t<gameplayRevision>\t<activityGeneration>\t<sequence>\t<action>\t<tap|down|up|cancel>
+//   combat:2\t<activityGeneration>\t<actionGeneration>\t<sequence>\t<action>\t<tap|down|up|cancel>
+//     (the action's generation from the combat state; 0 for "all\tcancel")
 //   landcommands:1\t<sceneEpoch>\t<revision>\t<activityGeneration>\t<verb>\t<id>
 //   context:<action name>          shortcut:<mainmenu|character>
 #include "hud.h"
@@ -437,7 +438,9 @@ class LandScene final : public Scene
             combat_activity_ = combat.activity;
             combat_sequence_ = 0;
         }
-        hud_.Send("combat", "1\t" + std::to_string(combat.gameplay_revision) + "\t" + std::to_string(combat.activity) + "\t" +
+        const auto offered = combat.actions.find(action);
+        const uint64_t generation = offered == combat.actions.end() ? 0 : offered->second;
+        hud_.Send("combat", "2\t" + std::to_string(combat.activity) + "\t" + std::to_string(generation) + "\t" +
                                 std::to_string(++combat_sequence_) + "\t" + action + "\t" + phase);
     }
 

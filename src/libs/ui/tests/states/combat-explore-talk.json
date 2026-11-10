@@ -1,15 +1,15 @@
 {
- "schemaVersion": 1,
+ "schemaVersion": 2,
  "gameplayRevision": 7,
  "activityGeneration": 5,
  "playerId": "42",
  "mode": "explore",
- "actions": [
-  "weapon",
-  "potion",
-  "interact",
-  "freelook"
- ],
+ "actions": {
+  "weapon": 11,
+  "potion": 12,
+  "interact": 14,
+  "freelook": 13
+ },
  "interactKind": "dialog",
  "pistol": {
   "state": "loaded",

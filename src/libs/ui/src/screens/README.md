@@ -153,7 +153,7 @@ Channels (JSON as the engine publishes it unless noted):
 | channel | shape | state |
 |---|---|---|
 | `gameplay` | `{schemaVersion: 1, revision, mode: explore\|melee\|sailing\|naval\|worldmap\|unknown, language, inputOwner, analogMovement, movementGeneration, capabilities: […]}` | `Gameplay` |
-| `combat` | `{schemaVersion: 1, gameplayRevision, activityGeneration, playerId, mode, actions: […], interactKind, pistol: {state, progress 0…20}}` | `Combat` |
+| `combat` | `{schemaVersion: 2, gameplayRevision, activityGeneration, playerId, mode, actions: {name: generation}, interactKind, pistol: {state, progress 0…20}}`; a command carries the activity and the action's own generation, so an action appearing or going away (`interact` as people walk past) fences only itself | `Combat` |
 | `vitals` | `{health, energy, reload: 0…1, loaded, capacity, effects: [poison\|drunk\|healing], potions, officers: [{id, name, face, health}], dash?: 0…1}` or `null` | `Vitals` |
 | `worldInfo` | a JSON string: the engine's location lines, `\n` between them | `States::world_info` |
 | `contextAction` | a JSON string: the script's quick action name, `""` = none | `States::context_action` |
