@@ -300,6 +300,9 @@ void InterfaceBackScene::Realize(uint32_t Delta_Time)
         RestoreLight();
     }
 
+    // The 3D scene ends here: the menu items are interface, drawn on the processed picture (graphics effects).
+    m_pRS->MakePostProcess();
+
     // rendering of menu items
     for (n = 0; n < m_aMenuDescr.size(); n++)
     {
