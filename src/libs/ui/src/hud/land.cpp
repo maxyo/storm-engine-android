@@ -108,13 +108,9 @@ class LandScene final : public Scene
         }
         choice_.clear();
 
-        if (!states.world_info.empty())
-        {
-            std::string line = states.world_info;
-            for (size_t at = line.find('\n'); at != std::string::npos; at = line.find('\n', at))
-                line.replace(at, 1, " · ");
-            view.elements["location"] = Json{{"text", line}};
-        }
+        const std::string place = Place(states.world_info);
+        if (!place.empty())
+            view.elements["location"] = Json{{"text", place}};
         view.log = true;
         const Json lines = hud_.LogLines();
         if (!lines.empty())
@@ -248,6 +244,28 @@ class LandScene final : public Scene
     static bool Ready(const States &states)
     {
         return states.combat.known && states.combat.gameplay_revision == states.gameplay.revision && states.combat.mode == states.gameplay.mode;
+    }
+
+    // The location line names the place only: town · place. The engine's text lists island,
+    // town and place and then the date and the time, one per line, without saying which is
+    // which; the calendar lines are the ones with digits, and the last two names are the
+    // most local ones.
+    static std::string Place(const std::string &lines)
+    {
+        std::vector<std::string> names;
+        for (size_t at = 0; at <= lines.size();)
+        {
+            size_t end = lines.find('\n', at);
+            if (end == std::string::npos)
+                end = lines.size();
+            const std::string line = lines.substr(at, end - at);
+            if (!line.empty() && line.find_first_of("0123456789") == std::string::npos)
+                names.push_back(line);
+            at = end + 1;
+        }
+        if (names.empty())
+            return {};
+        return names.size() == 1 ? names.back() : names[names.size() - 2] + " · " + names.back();
     }
 
     static std::string Owner(const LandCommands &commands)

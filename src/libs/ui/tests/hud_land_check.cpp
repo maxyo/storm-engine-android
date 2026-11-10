@@ -199,7 +199,12 @@ static void CheckExplore()
     bench.Explore();
     ExpectEqual(mount.shown.layout, "land", "explore uses the land layout");
     Expect(mount.shown.elements["health"]["value"] == 84 && mount.shown.elements["energy"]["value"] == 62 && mount.Has("vitals"), "vitals in percent");
-    ExpectEqual(mount.shown.elements["location"]["text"].get<std::string>(), "Сен-Пьер, улицы · 11:15", "the location lines on one line");
+    ExpectEqual(mount.shown.elements["location"]["text"].get<std::string>(), "Сен-Пьер · улицы", "the location line is town · place, without island, date or time");
+    bench.Set("worldInfo", Json("Открытое море\n7 окт. 1654\n12:31"));
+    ExpectEqual(mount.shown.elements["location"]["text"].get<std::string>(), "Открытое море", "a single name stands alone");
+    bench.Set("worldInfo", Json("1 октября 1654 11:15"));
+    Expect(!mount.Has("location"), "a date alone is no location");
+    bench.Feed("worldInfo", "world-info");
     Expect(mount.Has("hero") && mount.shown.elements["hero"]["disabled"] == false && mount.Has("pause") && mount.Has("move") && mount.Has("actions") &&
                mount.Has("potion") && mount.Has("weapon") && !mount.Has("context") && !mount.Has("strike") && !mount.shown.modal,
            "the peace set; no context without an action");

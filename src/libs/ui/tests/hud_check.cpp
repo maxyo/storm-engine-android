@@ -285,7 +285,7 @@ static void CheckConsumers()
 
     // worldInfo, contextAction
     bench.Feed("worldInfo", State("world-info"));
-    ExpectEqual(states.world_info, "Сен-Пьер, улицы\n11:15", "worldInfo: the engine's lines");
+    ExpectEqual(states.world_info, "Мартиника\nСен-Пьер\nулицы\n1 октября 1654 11:15", "worldInfo: the engine's lines");
     bench.Feed("worldInfo", Json{{"text", "x"}});
     Expect(states.world_info.empty() && bench.LastErrorHas("state channel worldInfo"), "worldInfo: only a string");
     bench.Feed("contextAction", State("context-door"));
