@@ -223,6 +223,15 @@ void Bindings::SendAfter(double seconds, const Widget &widget, const std::string
     router_.waiting_.push_back({std::move(action), due});
 }
 
+void Bindings::SendHost(const std::string &node, const std::string &value)
+{
+    Action action;
+    action.node = node;
+    action.verb = "set";
+    action.value = value;
+    router_.Emit(std::move(action));
+}
+
 void Bindings::Back(const Widget *exit_button)
 {
     if (exit_button && exit_button->Offers("press"))

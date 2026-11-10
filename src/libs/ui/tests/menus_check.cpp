@@ -50,7 +50,7 @@ struct FakeSurface final : Surface
     }
     void Send(const Action &action) override
     {
-        commands.push_back(EngineCommand(action));
+        commands.push_back(action.screen.empty() ? "host " + action.node + " " + action.value : EngineCommand(action));
     }
     void RequestText(TextRequest, const std::string &) override
     {
@@ -225,11 +225,76 @@ static void Saves(const std::string &models)
            "without the engine's record list the saves screen is rejected loudly");
 }
 
+static void Settings(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    std::ifstream state(models + "/app-settings.json", std::ios::binary);
+    router.SetState("appSettings", Json::parse(state));
+    router.SetInterface(Load(models, "settings.json"));
+    ExpectEqual(router.Using(), "option_screen", "settings is a ported screen");
+    ExpectEqual(surface.tag, "s-settings", "settings mounted");
+    Expect(surface.errors.empty(), "no errors");
+    const Json extras = surface.props["extras"];
+    Expect(extras["rows"].size() == 1 && extras["rows"][0]["title"] == "По умолчанию" && extras["note"] == "",
+           "keyboard nodes and colour correction are not offered; the defaults button goes under «⋯»");
+    Expect(surface.props["tabs"].size() == 4 && surface.props["tabs"][0]["selected"] == true, "four pages, the first open");
+    Json columns = surface.props["sections"][0]["columns"];
+    Expect(columns[0]["title"] == "<settings.volume>" && columns[0]["rows"].size() == 3 && columns[0]["rows"][0]["label"] == "<settings.music>" &&
+               columns[0]["rows"][0]["value"] == 70,
+           "volume sliders with our labels");
+    Expect(columns[1]["rows"].size() == 3 && columns[1]["rows"][0]["label"] == "Автозапись", "game toggles keep the game's labels");
+
+    const std::string prefix = "widget:option_screen\t";
+    router.OnEvent({columns[0]["rows"][0]["id"], "change", "40"});
+    Expect(surface.commands.empty(), "slider drag progress sends nothing");
+    router.OnEvent({columns[0]["rows"][0]["id"], "commit", "40"});
+    ExpectEqual(surface.Last(), prefix + "MUSIC_SLIDE\t-1\tset@12:40", "slider release sets the position");
+    router.OnEvent({columns[1]["rows"][2]["id"], "change", "1"});
+    ExpectEqual(surface.Last(), prefix + "ENHANCEDSAILING_CHECKBOX\t0\t1", "toggle on");
+
+    router.OnEvent({"tabs", "select", "2"});
+    Json image = surface.props["sections"];
+    Expect(image.size() == 2 && image[0]["title"] == "<settings.graphics>", "image page: the renderer options first");
+    const Json filtering = image[0]["columns"][0]["rows"][0];
+    Expect(filtering["kind"] == "segment" && filtering["selected"] == 0 && filtering["restart"] == true && filtering["disabled"] == false,
+           "texture filtering from the host, marked as needing a restart");
+    const Json grass = image[1]["columns"][0]["rows"][3];
+    Expect(grass["kind"] == "segment" && grass["selected"] == 2 && grass["label"] == "<settings.grass>", "grass radio group as one segment");
+    router.OnEvent({grass["id"], "change", "3"});
+    ExpectEqual(surface.Last(), prefix + "HERB_CHECKBOX\t3\t1", "grass option chosen");
+    surface.commands.clear();
+    router.OnEvent({filtering["id"], "change", "3"});
+    Expect(surface.commands.empty() && surface.props["sections"][0]["columns"][0]["rows"][0]["selected"] == 3, "renderer options are a draft");
+    router.OnEvent({"app-sea_foam", "change", "0"});
+    router.OnEvent({"done", "click", ""});
+    Expect(surface.commands.size() == 2 &&
+               surface.commands[0] == "host app-settings {\"character_shadows\":0,\"sea_foam\":0,\"texture_anisotropy\":8,\"texture_degradation\":0,\"vsync\":1}" &&
+               surface.commands[1] == prefix + "BTN_OK\t-1\tpress",
+           "«Готово» hands the renderer options to the host and confirms the game's settings");
+    surface.commands.clear();
+    router.OnEvent({"done", "click", ""});
+    Expect(surface.commands.size() == 1, "unchanged renderer options are not sent again");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "BTN_CANCEL\t-1\tpress", "← drops the game's changes");
+
+    router.OnEvent({"tabs", "select", "3"});
+    Expect(surface.props["sections"][0]["columns"][0]["rows"][0]["display"] == "×1.2", "HUD scale shows the game's factor");
+
+    InterfaceModel broken = Load(models, "settings.json");
+    Without(broken, "BTN_OK");
+    broken.opening = 77;
+    router.SetInterface(broken);
+    Expect(router.Using() == "generic" && router.Rejection() == "BTN_OK(button)" && surface.errors.size() == 1,
+           "without «Ок» the settings screen is rejected loudly");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
     GameMenu(models);
     Saves(models);
+    Settings(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else

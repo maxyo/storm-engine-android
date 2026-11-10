@@ -7,7 +7,7 @@
 //
 // A game interface instead of a document: --interface model.json renders a recorded
 // interface model through the screen routing (--state dialogue=state.json feeds a state
-// channel). Extra script commands: interface <model.json> (a newer revision),
+// channel; with --interface too it is fed first). Extra script commands: interface <model.json> (a newer revision),
 // text <answer> (accepts the pending text editor request). Engine actions are printed as
 // "command <engine queue line>".
 //
@@ -227,6 +227,12 @@ int main(int argc, char **argv)
         const size_t equals = pair.find('=');
         return equals != std::string::npos && host->SetState(pair.substr(0, equals), ReadFile(pair.substr(equals + 1)));
     };
+    // With --interface, a --state goes first: the screen reads the channel when it opens.
+    if (!interface.empty() && !state.empty() && !feed_state(state))
+    {
+        std::fprintf(stderr, "cannot load %s\n", state.c_str());
+        return 5;
+    }
     if (!doc.empty() ? !host->LoadDocument(doc) : !interface.empty() ? !host->SetInterface(ReadFile(interface)) : !feed_state(state))
     {
         std::fprintf(stderr, "cannot load %s\n", (doc + interface + state).c_str());
