@@ -96,8 +96,32 @@ struct Config
     // Debug hosts: data and pack errors (malformed model, missing screen, unmapped event,
     // rejected ported screen) are also shown as a toast, not only logged.
     bool show_errors = false;
+    // Checks every prediction of Prepare: a frame it called unchanged that draws other
+    // commands than the frame shown is an error (host checks and captures turn this on).
+    bool verify_unchanged = false;
     // Optional clock in seconds, for deterministic captures.
     std::function<double()> clock;
+};
+
+// What one Host::Frame did. A steady frame (nothing changed) rebuilds, lays out, compiles
+// and uploads nothing; the host checks hold that (tests/frame_cost_check.cpp) and the
+// platform hosts log these numbers to measure the UI on a device.
+struct FrameStats
+{
+    double update_ms = 0.0; // CPU: timers, routing, Context::Update (styles, rebuilds, layout)
+    double render_ms = 0.0; // CPU: Context::Render and the backend's frame (command submission, not GPU time)
+    int rebuilds = 0;       // components re-rendered from their template
+    int laid_out = 0;       // component boxes formatted (0 = no layout ran)
+    int geometry = 0;       // meshes compiled
+    int draws = 0;          // draw calls (geometry, shaders)
+    int masks = 0;          // clip-mask (stencil) draws: rounded or transformed clipping
+    int layers = 0;         // offscreen layers composited (filters, masks), as RmlUi asked for them
+    int cached_layers = 0;  // of those, filtered layers drawn from the runtime's cache (no backend layer)
+    int textures = 0;       // textures created (uploads)
+    size_t texture_bytes = 0;
+    // With Config::verify_unchanged: this frame was predicted unchanged by Prepare but drew
+    // other commands than the frame shown (also an error in the log).
+    bool mispredicted = false;
 };
 
 enum class TouchPhase
@@ -129,9 +153,17 @@ class Host
     // keep their content inside; templates read them as `safe.left` … `safe.bottom`.
     virtual void SetSafeArea(float left, float top, float right, float bottom) = 0;
     virtual void Touch(TouchPhase phase, int pointer, float x, float y) = 0;
-    // Updates and draws one frame over a transparent background. Returns the time in
-    // seconds until another frame is needed: 0 while something animates.
+    // Settles timers, routing and the documents without drawing. True when the frame on
+    // the screen is out of date: the host then asks for a Frame. False when it still shows
+    // everything (a state that changed nothing visible): the host draws nothing, and
+    // acknowledgements that wait for a drawn frame are given for the frame shown. `delay`
+    // is the time in seconds until Prepare should run again (0 while something animates).
+    virtual bool Prepare(double &delay) = 0;
+    // Updates and draws one frame over a transparent background (Prepare included). Returns
+    // the time in seconds until another frame is needed: 0 while something animates.
     virtual double Frame() = 0;
+    // What the last Frame did (see FrameStats).
+    virtual FrameStats LastFrameStats() const = 0;
     virtual void Toast(const std::string &text, const std::string &tone) = 0;
     // Replaces the props of the component with this element id (JSON object).
     virtual bool SetProps(const std::string &element_id, const std::string &json) = 0;

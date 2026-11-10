@@ -1,5 +1,6 @@
 #include "platform/android_spyglass.hpp"
 #include <cassert>
+#include <string>
 
 int main()
 {
@@ -11,7 +12,7 @@ int main()
 
     SpyglassState s;
     assert(s.json() == "{\"schemaVersion\":1,\"revision\":0,\"on\":false,\"generation\":0,\"target\":null}");
-    assert(!s.acknowledge("0", 10)); // nothing to cover while the telescope is down
+    assert(!s.acknowledge("0\t1")); // nothing to cover while the telescope is down
     s.turn(true);
     assert(s.on() && s.generation() == 1 && s.json().find("\"target\":null") != std::string::npos);
     SpyglassTarget t;
@@ -27,13 +28,22 @@ int main()
     s.target(t);
     assert(s.json() == before); // the same target is no new revision
 
-    // Coverage: only the current generation, only while fresh, gone when the telescope drops.
-    assert(!s.acknowledge("0", 100) && !s.acknowledge("x", 100) && !s.covered(100));
-    assert(s.acknowledge("1", 100) && s.covered(100) && s.covered(1100) && !s.covered(1101));
+    // Coverage: the UI's word for the current raise, kept for the raise (no lease), gone when the
+    // telescope drops.
+    assert(!s.acknowledge("0\t1") && !s.acknowledge("x\t1") && !s.acknowledge("1") && !s.acknowledge("1\t2") && !s.covered());
+    assert(s.acknowledge("1\t1") && s.covered() && !s.awaiting());
+    assert(s.acknowledge("1\t0") && !s.covered()); // the overlay went away: native info back
     s.turn(false);
-    assert(!s.covered(150) && s.json().find("\"on\":false") != std::string::npos);
+    assert(!s.covered() && s.json().find("\"on\":false") != std::string::npos);
     s.turn(true);
-    assert(s.generation() == 3 && !s.covered(200) && !s.acknowledge("1", 200));
+    assert(s.generation() == 3 && !s.covered() && s.awaiting() && !s.acknowledge("1\t1"));
+    // A presenting UI: an unanswered raise keeps the native info off; a silent UI is withdrawn
+    // loudly after HudPresenters::kSilentMs of engine time and the native info comes back.
+    assert(hudPresenters.declare("spyglass") && s.covered());
+    assert(!hudPresenters.watch("spyglass", s.awaiting(), 500));
+    const auto line = hudPresenters.watch("spyglass", s.awaiting(), 500 + HudPresenters::kSilentMs);
+    assert(line && line->find("HUD presenter spyglass withdrawn") != std::string::npos && !s.covered());
+    assert(s.acknowledge("3\t1") && s.covered()); // a late answer still covers
     s.clear();
     t.fort = true;
     s.target(t);

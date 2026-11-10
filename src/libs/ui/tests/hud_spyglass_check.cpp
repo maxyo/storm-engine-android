@@ -222,22 +222,19 @@ static void CheckOverlay()
                mount.shown.overlay_props["name"] == "Санта-Каталина",
            "the card alone over the sea, no scene elements");
     hud.Drawn();
-    Expect(!mount.commands.empty() && mount.commands.back() == "spyglass:2" && mount.slots.back() == "spyglass-ack",
-           "a drawn card acknowledges this raise of the telescope (latest-value slot)");
+    Expect(!mount.commands.empty() && mount.commands.back() == "spyglass:2\t1" && mount.slots.back() == "spyglass-ack",
+           "a drawn card answers this raise of the telescope (latest-value slot)");
+    Expect(std::count(mount.commands.begin(), mount.commands.end(), "hudowner:spyglass") == 1, "the HUD declares that it presents the spyglass");
     const size_t sent = mount.commands.size();
     hud.Drawn();
-    Expect(mount.commands.size() == sent, "not every frame");
-    const double next = hud.Tick();
-    Expect(next <= 0.3 + 1e-9, "the HUD wakes up for the heartbeat");
-    mount.now += 0.3;
+    mount.now += 5.0;
     hud.Drawn();
-    Expect(mount.commands.size() == sent + 1, "the heartbeat repeats the acknowledgement");
+    Expect(mount.commands.size() == sent && hud.Tick() > 5.0, "said once per raise: no heartbeat, however far apart frames are");
 
     bench.Feed("presentation", State("presentation-menu"));
     hud.Tick();
-    mount.now += 1.0;
     hud.Drawn();
-    Expect(!hud.Visible() && mount.commands.back() == "presence:hidden", "under a menu: hidden, no acknowledgement (the engine draws its own)");
+    Expect(!hud.Visible() && mount.commands.back() == "spyglass:2\t0", "under a menu: hidden, and the engine hears it does not cover (it draws its own)");
     bench.Feed("presentation", State("presentation-game"));
     bench.Feed("spyglass", State("spyglass-down"));
     hud.Tick();

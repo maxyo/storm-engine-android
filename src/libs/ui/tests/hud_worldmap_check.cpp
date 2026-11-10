@@ -66,9 +66,8 @@ static void CheckScene()
     Expect(mount.Last() == "worldmap:41\t2\tack\t7" && mount.slots.back() == "worldmap-ack", "the drawn instruments, fleet and command are acknowledged: " + mount.Last());
     const size_t acked = mount.commands.size();
     bench.Frame(0.1);
-    Expect(mount.commands.size() == acked, "nothing is repeated before its time");
-    bench.Frame(0.2);
-    Expect(mount.commands.size() == acked + 1 && mount.Last() == "worldmap:41\t2\tack\t7", "the coverage lease is renewed");
+    bench.Frame(5.0);
+    Expect(mount.commands.size() == acked, "coverage is said once per revision, however far apart frames are");
 
     // the compass shows the details beside it
     bench.Press("compass", "toggle", "1");

@@ -152,7 +152,7 @@ void BIManSign::Draw()
 #endif
     if (m_pCommandList
 #ifdef __ANDROID__
-        && !(IsActive() && storm::android::landCommands.suppressStock(SDL_GetTicks()))
+        && !(IsActive() && storm::android::landCommands.suppressStock())
 #endif
     ) m_pCommandList->Draw();
 }

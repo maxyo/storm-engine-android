@@ -28,9 +28,9 @@ static void CheckExplore()
     bench.Press("pause");
     ExpectEqual(mount.Last(), "shortcut:mainmenu", "Меню opens the menu");
     bench.Press("weapon");
-    ExpectEqual(mount.Last(), "combat:1\t7\t5\t1\tweapon\ttap", "the weapon tap carries the revision, the activity and a sequence");
+    ExpectEqual(mount.Last(), "combat:2\t5\t11\t1\tweapon\ttap", "the weapon tap carries the activity, the action's generation and a sequence");
     bench.Press("potion");
-    ExpectEqual(mount.Last(), "combat:1\t7\t5\t2\tpotion\ttap", "the sequence grows");
+    ExpectEqual(mount.Last(), "combat:2\t5\t12\t2\tpotion\ttap", "the sequence grows");
     bench.Press("actions");
     ExpectEqual(mount.Last(), "landcommands:1\t4\t10\t2\topen\t", "Действия asks the engine to open its menu");
 
@@ -56,7 +56,9 @@ static void CheckExplore()
     Expect(mount.Has("context") && mount.shown.elements["context"]["icon"] == "talk" && mount.shown.elements["context"]["label"] == "hud.context.talk",
            "somebody to talk to: the talk button takes the slot");
     bench.Press("context");
-    ExpectEqual(mount.Last(), "combat:1\t7\t5\t3\tinteract\ttap", "talk is the engine's interact action");
+    ExpectEqual(mount.Last(), "combat:2\t5\t14\t3\tinteract\ttap", "talk is the engine's interact action");
+    bench.Press("weapon");
+    ExpectEqual(mount.Last(), "combat:2\t5\t11\t4\tweapon\ttap", "a passer-by changes neither the activity nor the weapon's generation");
     const size_t sent = mount.commands.size();
     bench.router.SetState("combat", State("combat-explore")); // the target is lost; the tap arrives before the next build
     bench.hud.OnEvent({"context", "click", ""});
@@ -121,7 +123,7 @@ static void CheckMovement()
     bench.Press("move", "change", "100,0");
     bench.hud.Released();
     Expect(mount.commands.size() >= 2 && mount.commands[mount.commands.size() - 2] == "move:1\ttown:42\t3\t7\t0\t0\t0", "cancelled input stops the hero");
-    ExpectEqual(mount.Last(), "combat:1\t8\t6\t1\tall\tcancel", "… and cancels every combat hold");
+    ExpectEqual(mount.Last(), "combat:2\t6\t0\t1\tall\tcancel", "… and cancels every combat hold");
 
     // in the background nothing moves
     bench.Feed("presentation", "presentation-background");
@@ -156,11 +158,11 @@ static void CheckCombat()
 
     mount.commands.clear();
     bench.Press("shot");
-    ExpectEqual(mount.Last(), "combat:1\t8\t6\t1\tpistol\ttap", "the shot");
+    ExpectEqual(mount.Last(), "combat:2\t6\t21\t1\tpistol\ttap", "the shot");
     bench.Press("block", "down");
-    ExpectEqual(mount.Last(), "combat:1\t8\t6\t2\tblock\tdown", "block is held …");
+    ExpectEqual(mount.Last(), "combat:2\t6\t22\t2\tblock\tdown", "block is held …");
     bench.Press("block", "up");
-    ExpectEqual(mount.Last(), "combat:1\t8\t6\t3\tblock\tup", "… and let go");
+    ExpectEqual(mount.Last(), "combat:2\t6\t22\t3\tblock\tup", "… and let go");
     const size_t count = mount.commands.size();
     bench.Press("block", "click");
     bench.Press("strike", "click");
@@ -175,15 +177,15 @@ static void CheckCombat()
     bench.Press("strike", "preview", "break");
     Expect(mount.shown.elements["moves"]["selected"] == "2" && mount.shown.elements["moves"]["caption"] == "hud.move.break", "a drag picks a sector and names the move");
     bench.Press("strike", "commit", "break");
-    ExpectEqual(mount.Last(), "combat:1\t8\t6\t4\tbreak\ttap", "the release commits the move");
+    ExpectEqual(mount.Last(), "combat:2\t6\t17\t4\tbreak\ttap", "the release commits the move");
     Expect(!mount.Has("moves") && mount.shown.dimmed.empty(), "the wheel closes");
     bench.Press("strike", "open", "fast");
     bench.Press("strike", "cancel");
-    Expect(!mount.Has("moves") && mount.Last() == "combat:1\t8\t6\t4\tbreak\ttap", "a cancelled gesture commits nothing");
+    Expect(!mount.Has("moves") && mount.Last() == "combat:2\t6\t17\t4\tbreak\ttap", "a cancelled gesture commits nothing");
 
     // a move the engine does not offer is drawn dim and cannot be committed
     Json fewer = State("combat-melee");
-    fewer["actions"] = Json::array({"weapon", "fast", "force", "block"});
+    fewer["actions"] = Json{{"weapon", 11}, {"fast", 16}, {"force", 15}, {"block", 22}};
     bench.Set("combat", fewer);
     bench.Press("strike", "open", "fast");
     Expect(mount.shown.elements["moves"]["moves"][0]["disabled"] == true && mount.shown.elements["moves"]["moves"][4]["disabled"] == false, "unavailable moves are marked");
@@ -209,7 +211,7 @@ static void CheckCombat()
     next["activityGeneration"] = 9;
     bench.Set("combat", next);
     bench.Press("weapon");
-    ExpectEqual(mount.Last(), "combat:1\t8\t9\t1\tweapon\ttap", "a new activity generation counts from one");
+    ExpectEqual(mount.Last(), "combat:2\t9\t11\t1\tweapon\ttap", "a new activity generation counts from one");
 }
 
 // The hero's status from the vitals channel: effects row, potion count, officers, dash.
@@ -227,7 +229,7 @@ static void CheckStatus()
     Expect(!mount.Has("officers") && !mount.Has("dash"), "explore: no officers column, no dash");
 
     Json combat = State("combat-melee");
-    combat["actions"].push_back("dash");
+    combat["actions"]["dash"] = 23;
     bench.Feed("gameplay", "gameplay-melee");
     bench.Set("combat", combat);
     const Json officers = mount.shown.elements["officers"]["officers"];
@@ -243,7 +245,7 @@ static void CheckStatus()
     Expect(mount.shown.elements["dash"]["disabled"] == false && !mount.shown.elements["dash"].contains("fill"), "dash ready");
     mount.commands.clear();
     bench.Press("dash");
-    ExpectEqual(mount.Last(), "combat:1\t8\t6\t1\tdash\ttap", "the dash is a combat action");
+    ExpectEqual(mount.Last(), "combat:2\t6\t23\t1\tdash\ttap", "the dash is a combat action");
     ready.erase("dash");
     bench.Set("vitals", ready);
     Expect(!mount.Has("dash"), "no dash outside fight mode");
@@ -272,9 +274,9 @@ static void CheckSheet()
     ExpectEqual(mount.Last(), "landcommands:1\t4\t11\t2\tack\t1", "a drawn sheet covers the engine's menu");
     Expect(mount.slots.back() == "landcommands-ack", "acknowledgements use their latest-value slot");
     bench.Frame(0.1);
-    Expect(mount.commands.size() == 2, "no repeat before 250 ms");
-    bench.Frame(0.2);
-    Expect(mount.commands.size() == 3 && mount.Last() == "landcommands:1\t4\t11\t2\tack\t1", "the coverage is repeated while the sheet stays (750 ms watchdog)");
+    bench.Frame(5.0);
+    Expect(mount.commands.size() == 2, "coverage is said once per revision: no heartbeat, however far apart frames are");
+    Expect(bench.hud.Tick() > 5.0, "… and the sheet asks for no frames to repeat it");
 
     // the engine reports no gameplay mode while its menu is open: the sheet stays, nothing is closed
     Json blocked = State("gameplay-explore");
@@ -333,6 +335,21 @@ static void CheckSheet()
     bench.Press("sheet-close");
     ExpectEqual(mount.Last(), "landcommands:1\t4\t11\t2\tclose\t", "✕ closes");
 
+    // a revision the sheet will not draw is still answered, once: the engine keeps its menu hidden until then
+    mount.commands.clear();
+    bench.Feed("presentation", "presentation-menu");
+    Json moved = State("land-commands-root");
+    moved["revision"] = 30;
+    bench.Set("landCommands", moved);
+    bench.Frame();
+    bench.Frame();
+    Expect(std::count(mount.commands.begin(), mount.commands.end(), "landcommands:1\t4\t30\t2\tack\t0") == 1,
+           "a hidden sheet declines the new revision once: " + mount.Last());
+    bench.Feed("presentation", "presentation-game");
+    bench.Set("landCommands", Json(nullptr));
+    bench.Feed("landCommands", "land-commands-root");
+    bench.Frame();
+
     // losing the screen: no coverage, the menu is closed
     mount.commands.clear();
     bench.Feed("presentation", "presentation-background");
@@ -362,9 +379,10 @@ static void CheckSheet()
     mount.commands.clear();
     bench.Feed("landCommands", "land-commands-unknown-kind");
     bench.Frame();
-    Expect(mount.shown.sheet.empty() && !mount.shown.modal && !mount.Has("move") && mount.commands.empty() && !mount.errors.empty() &&
+    Expect(mount.shown.sheet.empty() && !mount.shown.modal && !mount.Has("move") && mount.commands.size() == 1 &&
+               mount.Last() == "landcommands:1\t4\t15\t2\tack\t0" && !mount.errors.empty() &&
                mount.errors.back().find("not drawable here") != std::string::npos && !bench.hud.Back(),
-           "an undrawable menu: nothing is claimed, the engine's own menu stays, and that is reported");
+           "an undrawable menu: declined once so the engine draws its own at once, and that is reported");
 }
 
 static void CheckTouches(const std::string &pack)
@@ -427,7 +445,7 @@ static void CheckTouches(const std::string &pack)
     Expect(host.WantsTouch(750, 360) && !host.WantsTouch(400, 200), "a held stick changes nothing for the other pointers");
     host.Touch(TouchPhase::Down, 2, 750, 360);
     host.Touch(TouchPhase::Up, 2, 750, 360);
-    Expect(run.Sent("combat:1\t7\t5\t1\tweapon\ttap"), "a second finger taps the weapon while the stick is held");
+    Expect(run.Sent("combat:2\t5\t11\t1\tweapon\ttap"), "a second finger taps the weapon while the stick is held");
     run.Frame(0.12);
     Expect(run.Last() == "move:1\ttown:42\t3\t8\t1\t0\t1000", "the stick is still held (heartbeat): " + run.Last());
 
@@ -447,19 +465,19 @@ static void CheckTouches(const std::string &pack)
     Expect(host.WantsTouch(672, 282) && host.WantsTouch(756, 198), "strike and block are the UI's");
     run.commands.clear();
     host.Touch(TouchPhase::Down, 1, 756, 198);
-    Expect(run.Last() == "combat:1\t8\t6\t1\tblock\tdown", "block goes down with the finger: " + run.Last());
+    Expect(run.Last() == "combat:2\t6\t22\t1\tblock\tdown", "block goes down with the finger: " + run.Last());
     host.Touch(TouchPhase::Move, 1, 700, 150); // far beyond a tap's slop: still held
     host.Touch(TouchPhase::Down, 2, 672, 282);
     host.Touch(TouchPhase::Move, 2, 720, 290); // right of the start: the thrust sector
     run.Frame();
     host.Touch(TouchPhase::Up, 2, 720, 290);
-    Expect(run.Last() == "combat:1\t8\t6\t2\tbreak\ttap", "a swipe from the strike picks the move: " + run.Last());
+    Expect(run.Last() == "combat:2\t6\t17\t2\tbreak\ttap", "a swipe from the strike picks the move: " + run.Last());
     host.Touch(TouchPhase::Up, 1, 700, 150);
-    Expect(run.Last() == "combat:1\t8\t6\t3\tblock\tup", "block is let go with its finger: " + run.Last());
+    Expect(run.Last() == "combat:2\t6\t22\t3\tblock\tup", "block is let go with its finger: " + run.Last());
     run.Frame();
     host.Touch(TouchPhase::Down, 2, 672, 282);
     host.Touch(TouchPhase::Up, 2, 672, 282);
-    Expect(run.Last() == "combat:1\t8\t6\t4\tfast\ttap", "a plain tap on the strike is the fast attack: " + run.Last());
+    Expect(run.Last() == "combat:2\t6\t16\t4\tfast\ttap", "a plain tap on the strike is the fast attack: " + run.Last());
 
     // a stick held through the stance change keeps working (the element is not remounted)
     host.Touch(TouchPhase::Down, 3, 90, 320);

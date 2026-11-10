@@ -52,7 +52,7 @@ void modalChecks()
     assert(operation(h,17,2,1,120));assert(!h.offer(packet(h,"ack","0:1"),121)); // old polled zero cannot undo a newer UI proof
     assert(h.offer(packet(h,"ack","7:2"),122));assert(h.modal.hold(false,123));
     assert(h.modal.hold(false,5000)); // real paused modal, including run_in_background
-    h.clock(5000);assert(!h.covered(7,19)); // coverage expiry was not disabled while paused
+    h.clock(5000);assert(h.covered(7,19)); // coverage is the UI's word for this revision, not a lease: a pause does not end it
     assert(operation(h,17,2,4,5001));
     assert(h.offer(packet(h,"ack","7:2"),5002));assert(!operation(h,17,2,2,5002)); // queued pre-click draw cannot close
     assert(operation(h,17,3,2,5003));assert(h.modal.hold(false,5004));
@@ -136,7 +136,7 @@ int main()
     assert(h.offer(request("activate","EnterToIsland"),14));assert(!h.offer(request("activate","EnterToIsland"),14));
     assert(h.take(15)=="EnterToIsland");assert(!h.take(15));
     auto rev=h.revision();f.instruments.hour=14;h.update(f,20);assert(h.revision()==rev); // Numeric telemetry keeps held controls stable.
-    assert(h.offer(request("ack","7"),20));h.update(f,1021);assert(!h.covered(7,19));
+    assert(h.offer(request("ack","7"),20));h.update(f,1021);assert(h.covered(7,19)); // no lease: the word lasts while the revision does
     assert(h.offer(request("ack","7"),1021));assert(h.covered(7,19));assert(h.offer(request("ack","0"),1022));assert(!h.covered(1,19));
     f.instruments.foodDays.reset();h.update(f,1030);assert(h.frame().availableMask()==6);
     assert(h.offer(request("ack","7"),1030));assert(!h.covered(1,19)&&h.covered(6,19));
@@ -146,11 +146,23 @@ int main()
     f.identity="other profile";h.update(f,2054);assert(!h.covered(7,19));
     h.update({},2055);assert(!h.offer(staleActivity,2055));assert(!h.take(2055));
     h.update(complete(),UINT32_MAX-500);assert(h.offer(std::to_string(h.revision())+"\t2\tack\t7",UINT32_MAX-500));
-    h.update(complete(),10);assert(h.covered(7,19));h.update(complete(),501);assert(!h.covered(7,19));
+    h.update(complete(),10);assert(h.covered(7,19));h.update(complete(),501);assert(h.covered(7,19));
     auto before=h.revision();auto changed=complete();changed.instruments.flag.reset();h.update(changed,510);assert(h.revision()!=before&&!h.covered(1,19));
     changed.instruments.rumDays.reset();changed.instruments.coordinates.clear();h.update(changed,511);assert(h.frame().availableMask()==7);
     changed.shipsComplete=false;h.update(changed,512);assert(h.frame().availableMask()==5);
     h.update(complete(),513);
     auto json=h.json();assert(json.find("\"foodDays\":17")!=std::string::npos);assert(json.find("Adelina")!=std::string::npos);
-    std::cout<<"PASS map leases, command identity, one-shot dispatch, quest lock, coverage expiry/release, activity and tick rollover\n";
+    {
+        // A UI presenting the world map HUD: a revision it has not answered keeps the native
+        // instruments, fleet and command icon off, however slow its first frame; its word decides.
+        hudPresenters.worldMap=true;
+        WorldMapHud p;p.update(complete(),10);p.resetActivity();
+        auto word=[&](std::string mask){return std::to_string(p.revision())+"\t1\tack\t"+mask;};
+        assert(p.covered(7,19)&&!p.covered(7,20));
+        assert(p.offer(word("2"),60000)&&!p.covered(1,19)&&p.covered(2,19));
+        auto next=complete();next.instruments.flag.reset();p.update(next,60001);assert(p.covered(7,19)); // new revision: pending again
+        assert(p.offer(word("0"),60002)&&!p.covered(1,19));
+        hudPresenters.worldMap=false;
+    }
+    std::cout<<"PASS map coverage without a lease, presenter pending, command identity, one-shot dispatch, quest lock, release, activity and tick rollover\n";
 }
