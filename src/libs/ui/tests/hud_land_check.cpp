@@ -23,6 +23,31 @@ static void CheckExplore()
            "the peace set; no context without an action");
     ExpectEqual(mount.shown.elements["weapon"]["label"].get<std::string>(), "hud.weapon.draw", "the weapon button names what it will do");
 
+    // A game message repeated while its toast is up: one toast with a count, kept longer.
+    Expect(bench.hud.Notice("Недостаточно денег", "info") && bench.hud.Notice("Взято: ром", "info"), "event lines go to the HUD's log");
+    bench.Frame(2.0);
+    Expect(bench.hud.Notice("Недостаточно денег", "info"), "the repeat is taken");
+    bench.Frame();
+    {
+        const Json lines = mount.shown.elements["log"]["lines"];
+        Expect(lines.size() == 2 && lines[1]["text"] == "Недостаточно денег \u00D72" && lines[0]["text"] == "Взято: ром",
+               "no second copy: the shown line counts «×2»: " + lines.dump());
+    }
+    bench.Frame(1.0); // 3 s after the first: the other line is gone, the repeated one lives on
+    {
+        const Json lines = mount.shown.elements["log"]["lines"];
+        Expect(lines.size() == 1 && lines[0]["text"] == "Недостаточно денег \u00D72", "the repeat extends its toast: " + lines.dump());
+    }
+    bench.hud.Notice("Недостаточно денег", "info");
+    bench.Frame();
+    ExpectEqual(mount.shown.elements["log"]["lines"][0]["text"].get<std::string>(), "Недостаточно денег \u00D73", "and counts on");
+    bench.Frame(3.0);
+    Expect(!mount.Has("log"), "then it goes");
+    bench.hud.Notice("Недостаточно денег", "info");
+    bench.Frame();
+    ExpectEqual(mount.shown.elements["log"]["lines"][0]["text"].get<std::string>(), "Недостаточно денег", "after it went, the same message starts afresh");
+    bench.Frame(3.0);
+
     bench.Press("hero");
     ExpectEqual(mount.Last(), "shortcut:character", "Персонаж opens the character");
     bench.Press("pause");
