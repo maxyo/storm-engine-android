@@ -2,9 +2,14 @@
 #include "astronomy.h"
 #include "core.h"
 #include "lightning.h"
+#include "rain.h"
 #include "sun_glow.h"
 #include "water_flare.h"
 #include "math_inlines.h"
+#include "storm/render/effects.hpp"
+
+#include <algorithm>
+#include <cmath>
 
 CREATE_CLASS(WEATHER)
 
@@ -108,34 +113,83 @@ void WEATHER::Execute(uint32_t Delta_Time)
         // updating date in scripts
         // if( fFloats[whf_time_counter] fOldTimer
     }
+    PushEffectsWeather();
+
+}
+
+// The graphics effects (renderer_bgfx/fx) read the weather through the renderer, once per frame.
+void WEATHER::PushEffectsWeather()
+{
+    storm::render::EffectsWeather out;
+    glm::vec3 sun = vVectors[whv_sun_pos];
+    if (const float length = glm::length(sun); length > 0.0f)
+        sun /= length;
+    out.sun_dir = {sun.x, sun.y, sun.z};
+    out.sun_present = bSunPresent && !bMoonPresent;
+    // The sun from the time of day, also below the horizon, for the sky's day / night state.
+    float height, azimuth;
+    glm::vec3 sky_sun;
+    SunAt(fFloats[whf_time_counter], height, azimuth, sky_sun);
+    sky_sun = glm::normalize(sky_sun);
+    out.sky_sun_dir = {sky_sun.x, sky_sun.y, sky_sun.z};
+    glm::vec3 color;
+    GetColor(whc_sun_color, &color);
+    out.sun_color = {color.x, color.y, color.z};
+    GetColor(whc_sun_ambient, &color);
+    out.ambient = {color.x, color.y, color.z};
+    GetColor(whc_fog_color, &color);
+    out.fog_color = {color.x, color.y, color.z};
+    out.fog_density = fFloats[whf_fog_density];
+    // Overcast from the RAIN entity's drop count (the scripts give a storm 3500..5000 drops): WEATHER itself keeps
+    // no rain or lightning state (its whi_rain_drops_num / whi_lightning_enable slots are never written).
+    out.overcast = 0.0f;
+    if (const auto rain_id = core.GetEntityId("rain"))
+        if (const auto *rain = static_cast<RAIN *>(core.GetEntityPointer(rain_id)))
+            out.overcast = std::min(static_cast<float>(rain->NumDrops()) / 5000.0f, 1.0f);
+    out.wind_dir = {std::cos(fFloats[whf_wind_angle]), std::sin(fFloats[whf_wind_angle])};
+    out.wind_speed = fFloats[whf_wind_speed];
+    storm::render::SetEffectsWeather(out);
+
+    // With the fx sky the fog takes its horizon colour (SKY draws no fog sphere then), so far geometry meets the sky.
+    std::array<float, 3> fog;
+    if (storm::render::EffectsSkyFogColor(fog))
+    {
+        pRS->SetRenderState(D3DRS_FOGCOLOR, ARGB(255, static_cast<uint32_t>(fog[0] * 255.0f + 0.5f),
+                                                 static_cast<uint32_t>(fog[1] * 255.0f + 0.5f),
+                                                 static_cast<uint32_t>(fog[2] * 255.0f + 0.5f)));
+        bEffectsFogColor = true;
+    }
+    else if (bEffectsFogColor)
+    {
+        pRS->SetRenderState(D3DRS_FOGCOLOR, GetColor(whc_fog_color));
+        bEffectsFogColor = false;
+    }
+}
+
+bool WEATHER::SunAt(float hour, float &height_angle, float &azimuth_angle, glm::vec3 &pos) const
+{
+    const auto fK = (hour - fSunBegTime) / (fSunEndTime - fSunBegTime);
+    if (fK < 0.f || fK > 1.f)
+    {
+        height_angle = -PId2;
+        azimuth_angle = 0.f;
+        pos = glm::vec3(0, -5000.f, 0);
+        return false;
+    }
+    height_angle = (fSunHeight + 0.2f) * sinf(fK * PI) - 0.2f;
+    azimuth_angle = fSunBegAngle + fK * (fSunEndAngle - fSunBegAngle);
+    pos = glm::vec3(5000.0f, 0.0f, 0.0f);
+    RotateAroundY(pos.x, pos.y, cosf(-height_angle), sinf(-height_angle));
+    RotateAroundY(pos.x, pos.z, cosf(azimuth_angle), sinf(azimuth_angle));
+    return true;
 }
 
 void WEATHER::UpdateSunMoonPos()
 {
     // sun
-    auto fK = (fFloats[whf_time_counter] - fSunBegTime) / (fSunEndTime - fSunBegTime);
-    if (fK < 0.f || fK > 1.f)
-    {
-        bSunPresent = false;
-        fFloats[whf_sun_height_angle] = -PId2;
-        fFloats[whf_sun_azimuth_angle] = 0.f;
-
-        vVectors[whv_sun_pos] = glm::vec3(0, -5000.f, 0);
-    }
-    else
-    {
-        bSunPresent = true;
-        fFloats[whf_sun_height_angle] = (fSunHeight + 0.2f) * sinf(fK * PI) - 0.2f;
-        fFloats[whf_sun_azimuth_angle] = fSunBegAngle + fK * (fSunEndAngle - fSunBegAngle);
-
-        glm::vec3 vSun;
-        vSun.x = 5000.0f;
-        vSun.y = 0.0f;
-        vSun.z = 0.0f;
-        RotateAroundY(vSun.x, vSun.y, cosf(-fFloats[whf_sun_height_angle]), sinf(-fFloats[whf_sun_height_angle]));
-        RotateAroundY(vSun.x, vSun.z, cosf(fFloats[whf_sun_azimuth_angle]), sinf(fFloats[whf_sun_azimuth_angle]));
-        vVectors[whv_sun_pos] = vSun;
-    }
+    bSunPresent = SunAt(fFloats[whf_time_counter], fFloats[whf_sun_height_angle], fFloats[whf_sun_azimuth_angle],
+                        vVectors[whv_sun_pos]);
+    float fK;
 
     // moon
     if (fMoonBegTime < fMoonEndTime)

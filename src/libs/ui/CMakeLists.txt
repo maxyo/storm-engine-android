@@ -74,6 +74,7 @@ add_library(storm_ui STATIC
     src/screens/hero.cpp
     src/screens/hero_character.cpp
     src/screens/hero_items.cpp
+    src/screens/hero_ship.cpp
     src/screens/hero_journal.cpp
     src/screens/hero_nations.cpp
     src/screens/dialogue.cpp
@@ -89,6 +90,7 @@ add_library(storm_ui STATIC
     src/screens/extra_goods.cpp
     src/screens/extra_sails.cpp
     src/screens/menu_game_over.cpp
+    src/screens/maps.cpp
     src/screens/reading.cpp
     src/screens/rest.cpp
     src/screens/hero_tradebook.cpp
@@ -125,6 +127,8 @@ if(ANDROID)
     target_link_libraries(storm_ui_android PRIVATE storm_ui android log GLESv3)
     target_link_options(storm_ui_android PRIVATE -Wl,--no-undefined -Wl,-z,max-page-size=16384)
     set_target_properties(storm_ui_android PROPERTIES OUTPUT_NAME storm_ui)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/build_stamp.cmake")
+    storm_build_stamp(storm_ui_android)
     # The APK ships the stripped copy; the unstripped one stays for symbolication.
     add_custom_command(TARGET storm_ui_android POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/package"

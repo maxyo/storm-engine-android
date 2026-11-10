@@ -23,6 +23,8 @@ native string SceneSweepNext();
 native void SceneSweepEvent(string text);
 native void SceneSweepCapture();
 native int SceneSweepSettleMs();
+native int SceneSweepVariants();
+native void SceneSweepVariant(int index);
 #libriary "SceneSweepLibrary"
 
 #event_handler("frame", "SceneSweep_Frame");
@@ -34,8 +36,10 @@ native int SceneSweepSettleMs();
 #define SS_DONE		4	// leaving the game
 
 #define SS_SETTLE_FRAMES	5	// after the fader is gone; scene loading is synchronous
+#define SS_VARIANT_WARM	4	// --variants: frames after a settings change before the measured window
+#define SS_VARIANT_FRAMES	12	// --variants: frames in the measured window
 #define SS_FADE_TIMEOUT_MS	30000
-#define SS_LOAD_TIMEOUT_MS	120000
+#define SS_LOAD_TIMEOUT_MS	360000
 #define SS_ENEMY_GROUP		"SceneSweepEnemy"
 #define SS_ENEMY_CAPTAIN	"SceneSweepCaptain"
 
@@ -45,6 +49,7 @@ int ssTime = 0;
 int ssStep = 0;
 int ssSettleTime = 0;
 bool ssSteady = false;		// the fader is gone: the measured window has started
+int ssVariant = 0;		// graphics settings variant of the next capture (--variants)
 bool ssViaHome = false;
 string ssHome = "";
 string ssHomeGroup = "";
@@ -110,6 +115,13 @@ void SceneSweep_Quit()
 	ExitProgram();
 }
 
+// Graphics variants (--variants) apply to game scenes; the boot scenes (main menu, new game) are captured once.
+bool SceneSweep_HasVariants()
+{
+	if(ssKind == "menu" || ssKind == "newgame") return false;
+	return SceneSweepVariants() > 0;
+}
+
 void SceneSweep_Frame()
 {
 	aref fader;
@@ -128,6 +140,8 @@ void SceneSweep_Frame()
 		{
 			SceneSweepEvent("loaded " + ssScene);
 			SceneSweep_SetState(SS_SETTLE);
+			ssVariant = 0;
+			if(SceneSweep_HasVariants()) SceneSweepVariant(0);
 			ssSettleTime = 0;
 			ssSteady = false;
 			break;
@@ -150,6 +164,7 @@ void SceneSweep_Frame()
 		}
 		if(!ssSteady)
 		{
+			if(SceneSweep_HasVariants() && ssFrames < SS_VARIANT_WARM) break; // target rebuilds, shader loads
 			// Restarts the runner's frame and renderer counters: the capture reports the scene alone.
 			SceneSweepEvent("steady " + ssScene);
 			ssSteady = true;
@@ -158,8 +173,19 @@ void SceneSweep_Frame()
 			break;
 		}
 		if(ssFrames < SS_SETTLE_FRAMES) break;
+		if(SceneSweep_HasVariants() && ssFrames < SS_VARIANT_FRAMES) break;
 		if(ssTime < SceneSweepSettleMs()) break;
 		SceneSweepCapture();
+		if(SceneSweep_HasVariants() && ssVariant + 1 < SceneSweepVariants())
+		{
+			// The same scene again with the next graphics settings (they apply from the next frame).
+			ssVariant++;
+			SceneSweepVariant(ssVariant);
+			ssSteady = false;
+			ssFrames = 0;
+			ssTime = 0;
+			break;
+		}
 		SceneSweepEvent("end " + ssScene);
 		SceneSweep_Finish();
 		break;

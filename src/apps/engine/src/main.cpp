@@ -694,6 +694,13 @@ int main(int argc, char *argv[])
             {
                 gameplayState.offer(std::string_view(command).substr(9), SDL_GetTicks());
             }
+            else if (command == "shortcut:mainmenu" && storm::android::mobileScreen.empty() &&
+                     (core.GetEntityId("CAviPlayer") != invalid_entity || core.GetEntityId("WMVideoPlay") != invalid_entity))
+            {
+                // Back during a game video skips it, the way the game's Cancel does (interface.c
+                // IVideoBreak: ICancel always ends the video).
+                core_private->Event("ievntEndVideo");
+            }
             else if (command.starts_with("shortcut:"))
             {
                 if (storm::android::mobileScreen.empty())
@@ -823,6 +830,51 @@ int main(int argc, char *argv[])
             // Activity changes revoke queued intents before any native Player
             // or Control Activation handler can consume the next frame.
             storm::android::publishCombatState();
+            // HUD input reaches the script at the top of the frame, before RunFrame, so that
+            // what it opens or changes is drawn and published (xinterface Realize) in this same
+            // frame. Taken after RunFrame, it waited for the next frame to show anything.
+            if (const auto action = gameplayState.take(SDL_GetTicks()))
+            {
+                // A battle ability goes through the command list, as the native menu launches it.
+                if (action->starts_with("BI_"))
+                    storm::android::launchShipAbility(*action);
+                else
+                    core_private->Event("Control Activation", "s", action->c_str());
+            }
+            // Commands run at a game-frame boundary, outside Android dialog callbacks: no
+            // timed key pulse or held bit can be lost between two slow native frames.
+            if (!storm::android::mobileScreen.empty()) gameplayShortcuts.clear();
+            const bool shortcutReady = isRunning && bActive && androidLifecycle.canRun() &&
+                core_private->initialized() && core.Controls && storm::android::loadingState == 0 &&
+                storm::android::mobileScreen.empty();
+            if (const auto shortcut = gameplayShortcuts.take(SDL_GetTicks(), shortcutReady))
+            {
+                const auto *control = storm::android::shortcutControl(*shortcut);
+                if (shortcutLogBudget > 0)
+                {
+                    --shortcutLogBudget;
+                    std::string dialogRun = "<missing>", launched = "<missing>", resume = "<missing>";
+                    try
+                    {
+                        if (auto *value = static_cast<VDATA *>(core.GetScriptVariable("dialogRun")))
+                            dialogRun = std::to_string(value->GetInt());
+                        auto *state = static_cast<VDATA *>(core.GetScriptVariable("InterfaceStates"));
+                        auto *attributes = state ? state->GetAClass() : nullptr;
+                        const auto read = [attributes](const char *path) -> std::string {
+                            auto *attribute = attributes ? attributes->FindAClass(attributes, path) : nullptr;
+                            return attribute && attribute->HasValue() ? attribute->GetValue().substr(0, 32) : "<missing>";
+                        };
+                        launched = read("Launched");
+                        resume = read("buttons.resume.enable");
+                    }
+                    catch (...) { /* Diagnostics must never alter command delivery or guards. */ }
+                    spdlog::info("Android shortcut Control Activation: {} dialogRun={} InterfaceStates.Launched={} resume.enable={}",
+                                 control, dialogRun, launched, resume);
+                }
+                // Use exactly the ordinary control event. Script guards (dialogRun,
+                // resume.enable, fight mode, etc.) still decide whether to act.
+                core_private->Event("Control Activation", "s", control);
+            }
 #endif
             // Exceptions escaping a frame are reported and end the session in order
             // instead of reaching std::terminate; see ReportFatalError.
@@ -911,49 +963,6 @@ int main(int argc, char *argv[])
                     storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, SDL_GetTicks(), storm::android::seaOrders.frame().active));
                     storm::android::publishShipTelemetry();
                 }
-            if (const auto action = gameplayState.take(SDL_GetTicks()))
-            {
-                // A battle ability goes through the command list, as the native menu launches it.
-                if (action->starts_with("BI_"))
-                    storm::android::launchShipAbility(*action);
-                else
-                    core_private->Event("Control Activation", "s", action->c_str());
-            }
-            // Execute commands at a completed game-frame boundary, after control
-            // polling and outside Android dialog callbacks. No timed key pulse
-            // or held bit can be lost between two slow native frames.
-            if (!storm::android::mobileScreen.empty()) gameplayShortcuts.clear();
-            const bool shortcutReady = isRunning && bActive && androidLifecycle.canRun() &&
-                core_private->initialized() && core.Controls && storm::android::loadingState == 0 &&
-                storm::android::mobileScreen.empty();
-            if (const auto shortcut = gameplayShortcuts.take(SDL_GetTicks(), shortcutReady))
-            {
-                const auto *control = storm::android::shortcutControl(*shortcut);
-                if (shortcutLogBudget > 0)
-                {
-                    --shortcutLogBudget;
-                    std::string dialogRun = "<missing>", launched = "<missing>", resume = "<missing>";
-                    try
-                    {
-                        if (auto *value = static_cast<VDATA *>(core.GetScriptVariable("dialogRun")))
-                            dialogRun = std::to_string(value->GetInt());
-                        auto *state = static_cast<VDATA *>(core.GetScriptVariable("InterfaceStates"));
-                        auto *attributes = state ? state->GetAClass() : nullptr;
-                        const auto read = [attributes](const char *path) -> std::string {
-                            auto *attribute = attributes ? attributes->FindAClass(attributes, path) : nullptr;
-                            return attribute && attribute->HasValue() ? attribute->GetValue().substr(0, 32) : "<missing>";
-                        };
-                        launched = read("Launched");
-                        resume = read("buttons.resume.enable");
-                    }
-                    catch (...) { /* Diagnostics must never alter command delivery or guards. */ }
-                    spdlog::info("Android shortcut Control Activation: {} dialogRun={} InterfaceStates.Launched={} resume.enable={}",
-                                 control, dialogRun, launched, resume);
-                }
-                // Use exactly the ordinary control event. Script guards (dialogRun,
-                // resume.enable, fight mode, etc.) still decide whether to act.
-                core_private->Event("Control Activation", "s", control);
-            }
             static uint32_t lastMobileState = 0;
             if (core_private->initialized() && SDL_GetTicks() - lastMobileState >= 200) {
                 lastMobileState = SDL_GetTicks();

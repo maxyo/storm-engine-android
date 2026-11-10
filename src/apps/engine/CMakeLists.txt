@@ -43,6 +43,8 @@ STORM_SETUP(
 
 if(ANDROID)
     set_target_properties(engine PROPERTIES VERSION "" SOVERSION "" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/game")
+    include(build_stamp)
+    storm_build_stamp(engine)
 endif()
 
 

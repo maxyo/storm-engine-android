@@ -53,6 +53,10 @@ std::vector<ImageRef> Images(const Json &object)
             image.mode = Text(*source, "mode");
             image.atlas = Text(*source, "atlas");
             image.pic = Num<int>(*source, "pic", -1);
+            const auto uv = source->find("uv");
+            if (uv != source->end() && uv->is_array() && uv->size() == 4)
+                for (size_t i = 0; i < 4; ++i)
+                    image.uv[i] = (*uv)[i].is_number() ? (*uv)[i].get<float>() : image.uv[i];
         }
         out.push_back(std::move(image));
     }

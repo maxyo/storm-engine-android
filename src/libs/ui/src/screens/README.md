@@ -15,7 +15,7 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | File | Role |
 |---|---|
 | `screen.h` | the contracts: `Screen`, `NodeRule`, `Admission`, `Bindings`, `Router`, `StateConsumer`, `Surface` |
-| `registry.cpp` | **the migration switch**: ported screens by interface id, ids the platform host still draws, state consumers |
+| `registry.cpp` | ported screens by interface id (every other interface gets the generic layout), state consumers |
 | `router.cpp` | admission, shared extras («Прочее» sheet, note, reading sheet), event dispatch, busy marks, throttled sends, `EngineCommand` |
 | `controls.*` | shared view builders: buttons and their roles, action rows, control rows (toggle, segment, slider, stepper, field) |
 | `generic.cpp` | the generic auto-layout for interfaces without a ported screen |
@@ -28,8 +28,10 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `extra_transfer.cpp` | loot and exchange (`transfer_main`): cargo by pack arrows, crew tab, the game's windows as modals / a sheet; the question window's script mode from `ANDROID_TRANSFER`; dangerous answers held |
 | `extra_sails.cpp` | sail emblems (`sailsgerald`): the emblem ribbon (`SCROLL_GERALD` rows with texture paths) and one contextual primary |
 | `extra_alchemy.cpp` | alchemy (`alchemy`): recipe rows the engine exports (`ANDROID_ALCHEMY_RECIPE`, `choose`), the components and N batches crafted by one guarded `craft` action (`ANDROID_ALCHEMY`) |
+| `hero_ship.cpp` | the ship (`ship`): overview, crew, hold over the one stock screen; the game's windows (drop overboard, cannons by side, shares, the morale and exchange questions) as our controls; facts from the adapter `android_hero.c` (`ANDROID_SHIP`, `ANDROID_SHARES`) |
 | `dialogue.cpp` | state channel `dialogue`: speech paged by `<ui-pages>` (pure rules in `../text_pages.h`), replies in two columns, the answer editor (text through the IME bridge, or an amount on the number panel), the menu button (`pause` to the platform host) |
 | `menu_game_over.cpp` | state channel `gameOver` (`{kind: sea\|land\|defeat, language}` or `null`, engine xinterface `info_handler.cpp`): the game-over screen |
+| `maps.cpp` | the game's maps (`mapview`, `mapbest`, `papermap`): c-map-view (pan, pinch, zoom; the game's markers), a tap is `point` in the picture's base units, the colony sheet from the game's colony window, `release` closes it |
 | `launcher.cpp` | the application's own screens (launcher, download library, about) from the platform host's `launcher` channel; the contract is at the top of the file |
 
 The design rules are GENERIC-LAYOUT (pipeline, type → component, button roles, templates,
@@ -61,8 +63,8 @@ verbs, §8 admission and extras) and the V2 mockups of the design canvas.
      back key then goes there first (`Host::WantsBack`). Mark events that are
      expected but need nothing with `bindings.Ignore(id, verb)`.
    Add the file to `CMakeLists.txt`.
-3. **Registry.** Add `{"<interface id>", Create…}` to `kPorted` in `registry.cpp` and
-   remove the id from `kHostOwned`; delete the old host form in the application.
+3. **Registry.** Add `{"<interface id>", Create…}` to `kPorted` in `registry.cpp`. Until
+   then the generic layout draws the interface; the platform host draws none.
 4. **Tests.** Record a model (below), add it to `tests/models/`, extend
    `tests/screens_check.cpp` (admission, the props that matter, every action mapping).
 
@@ -129,6 +131,11 @@ the row image `{kind: "item", texture: "atlas:GROUP/Picture"}`; `<ui-game-image>
 it at run time through `<game root>/RESOURCE/INI/interfaces/pictures.ini`
 (`picture_atlas.h`) to the texture and rectangle. Nothing of the game is bundled; without
 a game root the neutral placeholder stays.
+
+A picture the engine names by file (a map, an interlude picture, a map item) comes as
+`ImageRef{kind "texture", image "interfaces/maps/kayman", uv}`; `TextureOf(image)` (controls.h)
+gives `{texture, uv}` for `<ui-game-image texture uv [fit="contain|cover"]>`, and `MapViewOf`
+the props of `c-map-view` for a scrolled picture (`map` widget and its `map_marker` rows).
 
 ## State channels
 

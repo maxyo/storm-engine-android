@@ -1,1 +1,1 @@
-{"fonts": [], "components": "components.json", "icons": "icons.json", "hud": "hud.rml", "hudLayout": "hud-layout.json", "strings": {"en": "strings-en.json", "ru": "strings-ru.json"}, "settings": {}}
+{"fonts": [], "components": "components.json", "icons": "icons.json", "hud": "hud.rml", "screen": "screen.rml", "hudLayout": "hud-layout.json", "strings": {"en": "strings-en.json", "ru": "strings-ru.json"}, "settings": {}}

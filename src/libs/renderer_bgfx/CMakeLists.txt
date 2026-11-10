@@ -87,8 +87,27 @@ include(cmake/storm_shaders.cmake)
 
 file(GLOB shader_sources CONFIGURE_DEPENDS shaders/*.sc shaders/ports/*.sc)
 list(FILTER shader_sources EXCLUDE REGEX "varying\\.def\\.sc$")
+# Graphics effects variants of the fixed-function emulator (src/effects/lighting.cpp picks them by name):
+# s = FX_LIGHT_SPECULAR, l = FX_LIGHT_LINEAR. The base sources fs_ff_lit.sc and fs_ff_baked.sc are the
+# variants without a suffix.
+set(ff_fx_variants)
+foreach(suffix _l _s _sl)
+    set(defines)
+    if(suffix MATCHES "s")
+        list(APPEND defines FX_LIGHT_SPECULAR)
+    endif()
+    if(suffix MATCHES "l")
+        list(APPEND defines FX_LIGHT_LINEAR)
+    endif()
+    list(JOIN defines "," defines)
+    list(APPEND ff_fx_variants "fs_ff_lit${suffix}|${CMAKE_CURRENT_SOURCE_DIR}/shaders/fs_ff_lit.sc|${defines}")
+    if(NOT suffix MATCHES "s")
+        list(APPEND ff_fx_variants "fs_ff_baked${suffix}|${CMAKE_CURRENT_SOURCE_DIR}/shaders/fs_ff_baked.sc|${defines}")
+    endif()
+endforeach()
 storm_bgfx_embed_shaders(TARGET storm_bgfx_shaders NAMESPACE storm_shaders
-    VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${shader_sources})
+    VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${shader_sources}
+    INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/fx/shaders/include" VARIANTS ${ff_fx_variants})
 
 # Effekseer runtime + the vendored efkbgfx renderer and its shaders (effekseer/README.md).
 add_subdirectory(effekseer)
@@ -124,6 +143,13 @@ target_include_directories(storm_texture_formats PUBLIC include)
 target_link_libraries(storm_texture_formats PRIVATE bimg bx)
 set_target_properties(storm_texture_formats PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(storm_bgfx PUBLIC storm_texture_formats)
+
+# Graphics effects package (fx/README.md): presets «Оригинал / Среднее / Высокое», driven by src/effects.
+set(STORM_FX_SHADERC_COMMAND "${STORM_SHADERC_COMMAND}")
+set(STORM_FX_SHADERC_DEPENDS "${STORM_SHADERC_DEPENDS}")
+set(STORM_FX_BGFX_SHADER_INCLUDE "${STORM_BGFX_SOURCE_DIR}/bgfx/src")
+add_subdirectory(fx)
+target_link_libraries(storm_bgfx PUBLIC storm_bgfx_fx)
 
 # Texture transcode tests and benchmark: only on request, so projects that merely consume
 # storm_bgfx (e.g. the standalone UI build) do not build them.

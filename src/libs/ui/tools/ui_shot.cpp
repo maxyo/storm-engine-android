@@ -2,7 +2,8 @@
 //
 //   storm_ui_shot --pack DIR --doc gallery/buttons.rml --size 915x412 --density 2 --out shot.png
 //                 [--game-root DIR] [--safe L,T,R,B] [--script "down 1 120 80; wait 0.5; shot held.png; up 1 120 80"]
-//   script commands: down|move|up <pointer> <x> <y>, wait <s>, shot <png>, toast <text>,
+//   script commands: down|move|up <pointer> <x> <y>, wait <s>, shot <png>, toast <text>, timed (print what
+//                    each later command costs up to its finished frame),
 //                    props <element id> <json>, scroll <element id>
 //
 // A game interface instead of a document: --interface model.json renders a recorded
@@ -287,12 +288,36 @@ int main(int argc, char **argv)
     int status = 0;
     std::stringstream commands(script);
     std::string command;
+    bool timed = false;
+    const auto gl_finish = reinterpret_cast<void (*)()>(egl.GetProcAddress("glFinish"));
     while (std::getline(commands, command, ';'))
     {
         std::stringstream words(command);
         std::string verb;
         words >> verb;
-        if (verb == "down" || verb == "move" || verb == "up")
+        const auto command_started = std::chrono::steady_clock::now();
+        struct Timing // `timed`: what each later command cost, its input and the frame after it, GPU finished
+        {
+            bool on;
+            std::string text;
+            std::chrono::steady_clock::time_point started;
+            void (*finish)();
+            storm::ui::Host *host;
+            ~Timing()
+            {
+                if (!on || text.empty())
+                    return;
+                finish();
+                const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+                const storm::ui::FrameStats stats = host->LastFrameStats();
+                std::printf("timed %s: %.2f ms to a finished frame (update %.2f, render %.2f, rebuilds %d)\n", text.c_str(), ms, stats.update_ms,
+                            stats.render_ms, stats.rebuilds);
+            }
+        } timing{timed && verb != "timed", command.substr(command.find_first_not_of(' ') == std::string::npos ? 0 : command.find_first_not_of(' ')),
+                 command_started, gl_finish, host.get()};
+        if (verb == "timed")
+            timed = true;
+        else if (verb == "down" || verb == "move" || verb == "up")
         {
             int pointer = 0;
             float x = 0, y = 0;

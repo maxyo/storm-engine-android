@@ -7,7 +7,9 @@
 // texture="atlas:GOODS/Balls" names a picture the way interface models do: a group and a
 // picture of the game's own RESOURCE/INI/interfaces/pictures.ini, read at run time from
 // the game root (picture_atlas.h). It resolves to a texture and a rectangle; `cell` is
-// then ignored.
+// then ignored. uv="left,top,right,bottom" (0…1) shows that rectangle of a texture file
+// instead of a cell (pictures the engine names by file: maps, interlude pictures).
+// fit="contain|cover" keeps the picture's proportions (see OnRender).
 // Exactly one source is used: the configured loader if there is one, else the .tx files
 // under the game root. With neither (gallery on the build host, the design canvas) the
 // pictures are "unavailable": the neutral placeholder stays and one line is logged.
@@ -15,7 +17,9 @@
 #include "picture_atlas.h"
 
 #include <atomic>
+#include <cmath>
 #include <condition_variable>
+#include <cstdio>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -277,6 +281,23 @@ class Store
     int generation_ = 0;
 };
 
+// "left,top,right,bottom" in 0…1 with a non-empty rectangle; false for anything else.
+bool ParseUv(const std::string &text, float uv[4])
+{
+    if (text.empty())
+        return false;
+    float parsed[4];
+    if (std::sscanf(text.c_str(), "%f,%f,%f,%f", &parsed[0], &parsed[1], &parsed[2], &parsed[3]) != 4)
+        return false;
+    for (const float v : parsed)
+        if (!(v >= 0.0f && v <= 1.0f))
+            return false;
+    if (parsed[0] == parsed[2] || parsed[1] == parsed[3])
+        return false;
+    std::copy(std::begin(parsed), std::end(parsed), uv);
+    return true;
+}
+
 class GameImageElement final : public Rml::Element
 {
   public:
@@ -311,12 +332,15 @@ class GameImageElement final : public Rml::Element
             entry_ = Store::Get().Request(texture);
         const State state = entry_ ? entry_->state.load() : by_atlas && !Store::Get().HasSource() ? State::Unavailable : State::Loading;
         std::string reason;
+        float scratch_uv[4];
         if (!atlas_reason_.empty())
             reason = atlas_reason_;
         else if (by_atlas)
             reason = state == State::Missing ? entry_->reason : std::string();
         else if (state == State::Missing)
             reason = entry_->reason;
+        else if (state == State::Ready && !GetAttribute<Rml::String>("uv", "").empty() && !ParseUv(GetAttribute<Rml::String>("uv", ""), scratch_uv))
+            reason = "uv \"" + GetAttribute<Rml::String>("uv", "") + "\" is not left,top,right,bottom in 0..1";
         else if (state == State::Ready && !AtlasCell(GetAttribute<int>("cell", 0), GetAttribute<int>("grid", 4), nullptr))
             reason = "cell outside the " + std::to_string(GetAttribute<int>("grid", 4)) + "x" + std::to_string(GetAttribute<int>("grid", 4)) + " atlas";
         else if (state == State::Unavailable && !unavailable_logged_)
@@ -367,13 +391,33 @@ class GameImageElement final : public Rml::Element
         if (size != built_size_ || opacity != built_opacity_)
         {
             float uv[4];
-            if (atlas_.texture.empty())
-                AtlasCell(GetAttribute<int>("cell", 0), GetAttribute<int>("grid", 4), uv);
-            else
+            if (!atlas_.texture.empty())
                 std::copy(std::begin(atlas_.uv), std::end(atlas_.uv), uv);
-            const Rml::Vector2f uv0 = {uv[0], uv[1]}, uv1 = {uv[2], uv[3]};
+            else if (!ParseUv(GetAttribute<Rml::String>("uv", ""), uv))
+                AtlasCell(GetAttribute<int>("cell", 0), GetAttribute<int>("grid", 4), uv);
+            Rml::Vector2f uv0 = {uv[0], uv[1]}, uv1 = {uv[2], uv[3]};
+            Rml::Vector2f origin = {0, 0}, extent = size;
+            // fit="contain" keeps the picture's proportions inside the box, "cover" fills the
+            // box and crops the picture's middle; without it the picture is stretched.
+            const std::string fit = GetAttribute<Rml::String>("fit", "");
+            const float picture = entry_->image.height && uv1.y != uv0.y
+                                      ? (entry_->image.width * std::abs(uv1.x - uv0.x)) / (entry_->image.height * std::abs(uv1.y - uv0.y))
+                                      : 0.0f;
+            const float box = size.x / size.y;
+            if (fit == "contain" && picture > 0.0f)
+            {
+                extent = picture > box ? Rml::Vector2f{size.x, size.x / picture} : Rml::Vector2f{size.y * picture, size.y};
+                origin = (size - extent) * 0.5f;
+            }
+            else if (fit == "cover" && picture > 0.0f)
+            {
+                const Rml::Vector2f span = uv1 - uv0;
+                const Rml::Vector2f keep = picture > box ? Rml::Vector2f{box / picture, 1.0f} : Rml::Vector2f{1.0f, picture / box};
+                uv0 = uv0 + span * (Rml::Vector2f{1.0f, 1.0f} - keep) * 0.5f;
+                uv1 = uv0 + span * keep;
+            }
             Rml::Mesh mesh = geometry_.Release(Rml::Geometry::ReleaseMode::ClearMesh);
-            Rml::MeshUtilities::GenerateQuad(mesh, {0, 0}, size, Rml::Colourb(255, 255, 255, 255).ToPremultiplied(opacity), uv0, uv1);
+            Rml::MeshUtilities::GenerateQuad(mesh, origin, extent, Rml::Colourb(255, 255, 255, 255).ToPremultiplied(opacity), uv0, uv1);
             geometry_ = manager->MakeGeometry(std::move(mesh));
             built_size_ = size;
             built_opacity_ = opacity;

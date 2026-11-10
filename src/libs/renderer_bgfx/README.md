@@ -12,7 +12,10 @@ on Android and on the Linux development host alike.
   `third_party/d3d9-headers/`; the objects behind those interfaces are implemented here on bgfx
   handles. `d3d9_stubs.gen.hpp` makes every unimplemented method log a `[storm-bgfx] TRAP`.
 - `shaders/` — fixed-function emulation (`vs_ff`, `fs_ff*`), the blit used for compositing,
-  and `include/` with the shared conventions (`storm_common.sh`).
+  and `include/` with the shared conventions (`storm_common.sh`). The graphics effects add
+  `vs_ff_lit`, `fs_ff_lit*`, `fs_ff_baked*` and `fs_ff_coverage` (per-pixel lighting, point lights,
+  alpha to coverage; variant list in `CMakeLists.txt`, selection in
+  `src/effects/lighting.hpp`); the «Оригинал» preset never uses them.
 - `shaders/ports/` + `src/shim/ports.cpp` — hand ports of the 15 vs_1_1/ps_1_x shaders used by
   `src/techniques`. `CTechnique` passes the shim a reference blob with the technique shader key
   (`<fx base name>_<shader name>`, e.g. `sea_sea2_vertex_shader`); unknown keys are logged and
@@ -36,7 +39,8 @@ on Android and on the Linux development host alike.
   fd541f05). It is not taken yet because every bgfx.cmake revision that carries it (5730f7a and later)
   replaces the bgfx/bx/bimg submodules with FetchContent, which changes how this pin, host-tools/ and
   the offline Android sources work. Drop the patch with that pin bump.
-- `fx/` — optional effects package (not wired into the frame yet; see its README).
+- `fx/` — optional effects package (see its README), driven by `src/effects/` (presets, post chain,
+  lighting and alpha to coverage of the fixed-function emulator).
 
 ## Building
 
