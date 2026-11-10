@@ -17,6 +17,7 @@ uniform mat4 u_ffProj; // projection (or screen matrix for XYZRHW) with the D3D-
 // [3] x: specular enable  y: material power  z: fog passthrough (0 = eye depth)  w: point size
 uniform vec4 u_ffVs[4];
 uniform vec4 u_ffClipPlane;   // view-space plane, all zero when disabled
+uniform vec4 u_fxAerialUp;     // world up in view space: v_fog.w = height above the eye (effects' aerial fog, mode 5)
 #ifndef FF_UNLIT
 uniform vec4 u_ffMaterial[4]; // diffuse, ambient, specular, emissive
 uniform vec4 u_ffAmbient;
@@ -116,7 +117,7 @@ void main()
         if (u_ffVs[3].z > 0.5) fogDepth = specular.a; // fog enabled without a mode: the factor comes with the vertex
         float clipDist = dot(u_ffClipPlane.xyz, P) + u_ffClipPlane.w;
         if (dot(u_ffClipPlane, u_ffClipPlane) == 0.0) clipDist = 1.0;
-        v_fog = vec4(fogDepth, clipDist, 0.0, 0.0);
+        v_fog = vec4(fogDepth, clipDist, 0.0, dot(P, u_fxAerialUp.xyz));
 #ifdef FX_FF_LIT
         v_normal = vec4(N, 0.0);
         v_position = vec4(P, 1.0);

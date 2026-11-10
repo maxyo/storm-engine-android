@@ -318,6 +318,28 @@ void Lighting::submit(const FfDraw &draw)
         fx_.BindNormalMap(draw.normal_map, draw.normal_map_flags);
 }
 
+bool Lighting::aerial_fog(const D3DMATRIX &view, bool vs_port, std::array<float, 2> &haze)
+{
+    if (!(flags_ & fx::kLightingAerial) || !sky_)
+        return false;
+    if (vs_port)
+    {
+        if (!aerial_port_reported_)
+            shim::logf("effects: aerial perspective: draws with a ported vertex shader keep the fixed-function fog");
+        aerial_port_reported_ = true;
+        return false;
+    }
+    if (!bgfx::isValid(u_aerial_up_))
+        u_aerial_up_ = bgfx::createUniform("u_fxAerialUp", bgfx::UniformType::Vec4);
+    // World up in view space is the second row of the row-vector view matrix; the eye's height -t * R^T.
+    const float up[4] = {view.m[1][0], view.m[1][1], view.m[1][2], 0.0f};
+    const float eye_height = -(view.m[3][0] * view.m[1][0] + view.m[3][1] * view.m[1][1] + view.m[3][2] * view.m[1][2]);
+    haze = fx::ComputeAerialFogHaze(eye_height);
+    bgfx::setUniform(u_aerial_up_, up);
+    ++frame_.aerial;
+    return true;
+}
+
 void Lighting::end_frame()
 {
     last_frame_ = frame_;
@@ -330,18 +352,18 @@ void Lighting::end_frame()
 void Lighting::shutdown()
 {
     fx_.Shutdown();
-    if (bgfx::isValid(u_coverage_))
+    for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_aerial_up_})
     {
-        bgfx::destroy(u_coverage_);
-        bgfx::destroy(u_ff_);
+        if (bgfx::isValid(*u))
+            bgfx::destroy(*u);
+        *u = BGFX_INVALID_HANDLE;
     }
-    u_coverage_ = u_ff_ = BGFX_INVALID_HANDLE;
 }
 
 void Lighting::on_device_lost()
 {
     fx_.OnDeviceLost();
-    u_coverage_ = u_ff_ = BGFX_INVALID_HANDLE;
+    u_coverage_ = u_ff_ = u_aerial_up_ = BGFX_INVALID_HANDLE;
 }
 
 } // namespace storm::effects
