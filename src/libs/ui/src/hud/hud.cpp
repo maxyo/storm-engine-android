@@ -162,6 +162,11 @@ void Hud::Refresh()
         return;
     }
 
+    if (states_.gameplay.language != language_)
+    {
+        language_ = states_.gameplay.language;
+        mount_.SetLanguage(language_);
+    }
     View view;
     Input input;
     visible_ = true; // Build may read LogLines and send input

@@ -218,6 +218,20 @@ void Bindings::SendLatest(const Widget &widget, const std::string &verb, const s
     router_.waiting_.push_back({std::move(action), router_.last_flush_ + kFlushSeconds});
 }
 
+void Bindings::SendAfter(double seconds, const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard)
+{
+    Action action = router_.Make(widget, verb, value, guard);
+    const double due = router_.surface_.Now() + seconds;
+    for (Router::Waiting &waiting : router_.waiting_)
+        if (waiting.action.node == action.node && waiting.action.index == action.index && waiting.action.verb == action.verb)
+        {
+            waiting.action = std::move(action);
+            waiting.due = due;
+            return;
+        }
+    router_.waiting_.push_back({std::move(action), due});
+}
+
 void Bindings::Back(const Widget *exit_button)
 {
     if (exit_button && exit_button->Offers("press"))
@@ -259,6 +273,11 @@ void Bindings::Toast(const std::string &text)
 void Bindings::Rebuild()
 {
     router_.rebuild_ = true;
+}
+
+std::string Bindings::Text(const std::string &key) const
+{
+    return router_.surface_.Text(key);
 }
 
 bool Bindings::Pending(const std::string &id, const std::string &value) const
@@ -305,6 +324,8 @@ void Router::Emit(Action action)
 void Router::SetInterface(const InterfaceModel &model)
 {
     const bool reopened = !screen_ || model.screen != model_.screen || model.opening != model_.opening;
+    if (model.language != model_.language || !screen_)
+        surface_.SetLanguage(model.language);
     const bool changed = model.revision != model_.revision;
     model_ = model;
     if (reopened)
@@ -447,7 +468,8 @@ Json Router::ExtrasView(const Admission &admitted, Json rows)
     Json view = Json::object();
     view["rows"] = rows;
     view["open"] = extras_open_ && !rows.empty();
-    view["actions"] = rows.empty() ? Json::array() : Json::array({{{"id", "extras-more"}, {"icon", "more"}, {"label", "Прочее"}}});
+    view["actions"] = rows.empty() ? Json::array() : Json::array({{{"id", "extras-more"}, {"icon", "more"}, {"label", surface_.Text("common.other")}}});
+    view["title"] = surface_.Text("common.other");
     view["note"] = note;
     view["reading"] = !reading_text_.empty();
     view["readingTitle"] = reading_title_;
@@ -525,7 +547,8 @@ double Router::Tick()
         return kIdle;
     const double now = surface_.Now();
     double next = kIdle;
-    for (size_t i = waiting_.size(); i-- > 0;)
+    // In the order they were asked for: an edit goes out before the press that confirms it.
+    for (size_t i = 0; i < waiting_.size();)
     {
         if (now >= waiting_[i].due)
         {
@@ -534,7 +557,10 @@ double Router::Tick()
             waiting_.erase(waiting_.begin() + static_cast<long>(i));
         }
         else
+        {
             next = std::min(next, waiting_[i].due - now);
+            ++i;
+        }
     }
     const size_t before = pending_.size();
     pending_.erase(std::remove_if(pending_.begin(), pending_.end(), [&](const PendingMark &mark) { return now >= mark.until; }),

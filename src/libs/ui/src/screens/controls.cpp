@@ -120,6 +120,13 @@ ButtonRole RoleOf(const Widget &button)
     return ButtonRole::Other;
 }
 
+Json PictureOf(const ImageRef *image)
+{
+    if (!image || image->kind != "atlas" || image->group.empty() || image->image.empty())
+        return Json();
+    return Json{{"kind", "item"}, {"texture", "atlas:" + image->group + "/" + image->image}};
+}
+
 Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id, const char *variant)
 {
     bindings.Forward(id, button, "press");

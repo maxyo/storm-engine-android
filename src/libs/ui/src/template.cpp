@@ -9,6 +9,20 @@
 namespace storm::ui
 {
 
+namespace
+{
+std::function<std::string(const std::string &)> &Strings()
+{
+    static std::function<std::string(const std::string &)> lookup;
+    return lookup;
+}
+} // namespace
+
+void SetTemplateStrings(std::function<std::string(const std::string &key)> lookup)
+{
+    Strings() = std::move(lookup);
+}
+
 bool Truthy(const Json &value)
 {
     switch (value.type())
@@ -501,6 +515,12 @@ class Parser
         }
         if (name == "json") // for passing a structure on to a nested component attribute
             return arg(0).dump();
+        if (name == "tr") // tr('trade.price'): the UI string of the current language
+        {
+            if (!Strings())
+                Fail("tr() without a string table");
+            return Strings()(ToText(arg(0)));
+        }
         if (name == "image_kind") // image_kind(image, icon): the lead of a row (one row-image API)
         {
             // image = {kind: icon|token|item|portrait|emblem, icon, enamel, texture, cell}; a bare

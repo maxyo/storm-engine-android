@@ -1,0 +1,423 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 3,
+ "screenRevision": 7,
+ "screen": "hirecrew",
+ "widgets": [
+  {
+   "node": "STORECAPTION1",
+   "type": "text",
+   "label": "Таверна",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Аделина",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "ship:0",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Морской конь",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "ship:1",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "OUR_GOLD",
+   "type": "text",
+   "label": "Наши деньги 500 песо",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_SHIP",
+   "type": "text",
+   "label": "Люггер, класс 6, команда: мин. 9, макс. 75",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MONEY_SHIP",
+   "type": "text",
+   "label": "Содержание корабля:\n160 песо",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TAVERN_PRICE",
+   "type": "text",
+   "label": "Стоимость найма одного матроса 23 песо",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CREW_QTY",
+   "type": "text",
+   "label": "40",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CREW_MORALE_TEXT",
+   "type": "text",
+   "label": "Мораль: Хорошая",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_CREW",
+   "type": "choice",
+   "label": "\tМатросы\tопытные",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Матросы",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "опытные",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_CREW",
+   "type": "choice",
+   "label": "\tКанониры\tсалаги",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Канониры",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "салаги",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_CREW",
+   "type": "choice",
+   "label": "\tСолдаты\tнеопытные",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Солдаты",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "неопытные",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "CREW_QTY2",
+   "type": "text",
+   "label": "25",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CREW_MORALE_TEXT2",
+   "type": "text",
+   "label": "Мораль: Хорошая",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_CREW2",
+   "type": "choice",
+   "label": "\tМатросы\tнеопытные",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Матросы",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "неопытные",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_CREW2",
+   "type": "choice",
+   "label": "\tКанониры\tсалаги",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Канониры",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "салаги",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_CREW2",
+   "type": "choice",
+   "label": "\tСолдаты\tнеопытные",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Солдаты",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "неопытные",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "QTY_TypeOperation",
+   "type": "text",
+   "label": "Уволить",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_Result",
+   "type": "text",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_EDIT",
+   "type": "edit",
+   "label": "",
+   "value": "5",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_ADD_BUTTON",
+   "type": "button",
+   "label": ">",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "QTY_REMOVE_BUTTON",
+   "type": "button",
+   "label": "<",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "QTY_OK_BUTTON",
+   "type": "button",
+   "label": "Ok",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "QTY_CANCEL_BUTTON",
+   "type": "button",
+   "label": "Отмена",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  }
+ ]
+}

@@ -23,6 +23,9 @@ constexpr double kMoveHeartbeat = 0.1;    // the engine drops a stick it has not
 constexpr double kCoverageHeartbeat = 0.25; // … and a coverage acknowledgement after 750 ms
 constexpr double kChoiceSeconds = 1.5;    // a tapped row waits this long for the engine to select it
 
+using screens::StringKey;
+
+// `label` is a key of the pack's string table ("" = the engine supplies the text).
 struct Named
 {
     const char *key, *icon, *label;
@@ -31,18 +34,18 @@ struct Named
 // Sword moves: the wheel sectors clockwise from the top left, then the centre. The strike
 // button's swipe reports these keys (hud-layout.json: data swipe-ids, swipe-centre).
 const Named kMoves[] = {
-    {"feint", "feint", "Финт"},
-    {"round", "attack-round", "Круговой удар"},
-    {"break", "attack-pierce", "Пробивающий удар"},
-    {"parry", "parry", "Парирование"},
-    {"force", "attack-heavy", "Тяжёлый удар"},
-    {"fast", "attack-fast", "Быстрый удар"},
+    {"feint", "feint", StringKey("hud.move.feint")},
+    {"round", "attack-round", StringKey("hud.move.round")},
+    {"break", "attack-pierce", StringKey("hud.move.break")},
+    {"parry", "parry", StringKey("hud.move.parry")},
+    {"force", "attack-heavy", StringKey("hud.move.force")},
+    {"fast", "attack-fast", StringKey("hud.move.fast")},
 };
 
 // The script's quick action (BattleInterface "Log_SetActiveAction") in the context slot.
 const Named kContext[] = {
-    {"reload", "door", "Войти"},      {"pick", "hand", "Взять"},          {"openbox", "chest", "Открыть"},
-    {"entertosea", "boat", "В море"}, {"entertoship", "boat", "На корабль"}, {"action", "hand", "Действие"},
+    {"reload", "door", StringKey("hud.context.enter")},      {"pick", "hand", StringKey("hud.context.take")},          {"openbox", "chest", StringKey("hud.context.open")},
+    {"entertosea", "boat", StringKey("hud.context.toSea")}, {"entertoship", "boat", StringKey("hud.context.toShip")}, {"action", "hand", StringKey("hud.context.action")},
 };
 
 // Rows of the action sheet by the script command behind them.
@@ -142,7 +145,7 @@ class LandScene final : public Scene
         }
         if (combat.Has("weapon"))
         {
-            view.elements["weapon"] = Json{{"disabled", !ready}, {"label", melee ? "Убрать оружие" : "Достать оружие"}};
+            view.elements["weapon"] = Json{{"disabled", !ready}, {"label", melee ? hud_.Text("hud.weapon.sheathe") : hud_.Text("hud.weapon.draw")}};
             input.On("weapon", "click", [this](const Event &) { Strike("weapon", "tap"); });
         }
 
@@ -257,7 +260,7 @@ class LandScene final : public Scene
         {
             // The engine's own target query: somebody to talk to stands in front of the hero.
             const bool talk = states.combat.interact_kind == "dialog";
-            view.elements["context"] = Json{{"icon", talk ? "talk" : "hand"}, {"label", talk ? "Говорить" : "Действие"}};
+            view.elements["context"] = Json{{"icon", talk ? "talk" : "hand"}, {"label", talk ? hud_.Text("hud.context.talk") : hud_.Text("hud.context.action")}};
             input.On("context", "click", [this](const Event &) { Strike("interact", "tap"); });
             return;
         }
@@ -276,7 +279,7 @@ class LandScene final : public Scene
             hud_.Log("land HUD: context action '" + states.context_action + "' has no icon of its own");
             known = &kContext[std::size(kContext) - 1];
         }
-        view.elements["context"] = Json{{"icon", known->icon}, {"label", known->label}};
+        view.elements["context"] = Json{{"icon", known->icon}, {"label", hud_.Text(known->label)}};
         input.On("context", "click", [this, name = states.context_action](const Event &) { hud_.Send("context", name); });
     }
 
@@ -299,7 +302,7 @@ class LandScene final : public Scene
             if (move_ == move.key)
             {
                 chosen = sector;
-                caption = move.label;
+                caption = hud_.Text(move.label);
             }
         }
         if (any)
@@ -498,14 +501,14 @@ class LandScene final : public Scene
             if (!root && !travel && item.kind != group)
             {
                 group = item.kind;
-                row["heading"] = item.kind == "potion" ? "Зелья" : item.kind == "ability" ? "Способности" : "";
+                row["heading"] = item.kind == "potion" ? hud_.Text("hud.sheet.potions") : hud_.Text("hud.sheet.abilities");
             }
             rows.push_back(std::move(row));
             input.On(element, "click", [this, id = item.id](const Event &) { Choose(id); });
         }
         view.sheet = "s-hud-sheet";
         view.modal = true;
-        view.sheet_props = Json{{"title", commands.title.empty() ? "Действия" : commands.title},
+        view.sheet_props = Json{{"title", commands.title.empty() ? hud_.Text("hud.sheet.actions") : commands.title},
                                 {"back", !root && commands.can_back},
                                 {"layout", travel ? "tiles" : root ? "rows" : "dense"},
                                 {"rows", rows}};

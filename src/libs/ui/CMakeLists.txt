@@ -58,7 +58,8 @@ add_library(storm_ui STATIC
     src/screens/controls.cpp
     src/screens/registry.cpp
     src/screens/generic.cpp
-    src/screens/trade_store.cpp
+    src/screens/trade_commerce.cpp
+    src/screens/trade_crew.cpp
     src/screens/dialogue.cpp
     src/hud/hud.cpp
     src/hud/states.cpp
@@ -70,6 +71,7 @@ add_library(storm_ui STATIC
     src/icons.cpp
     src/tx_texture.cpp
     src/game_image.cpp
+    src/picture_atlas.cpp
     src/backend_gl3.cpp
     "${storm_ui_rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp")
 target_compile_features(storm_ui PUBLIC cxx_std_20)

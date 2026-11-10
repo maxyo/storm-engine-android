@@ -21,6 +21,7 @@
 #include <cstring>
 #include <fstream>
 #include <mutex>
+#include <set>
 #include <unordered_map>
 
 namespace storm::ui
@@ -258,6 +259,16 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             return false;
         }
         context_->SetDensityIndependentPixelRatio(config.density);
+        // UI strings: one table per shipped language, chosen by the game language.
+        const Json string_files = pack.value("strings", Json::object());
+        for (const auto &entry : string_files.items())
+        {
+            Json table;
+            if (!ReadJson(*config.files, entry.value().get<std::string>(), table, error))
+                return false;
+            strings_[entry.key()] = std::move(table);
+        }
+        SetTemplateStrings([this](const std::string &key) { return Text(key); });
         screen_path_ = pack.value("screen", std::string());
         // The HUD: its document and where the elements of every scene sit. A pack that
         // names a layout must hold a readable one; a pack without a HUD (none shipped
@@ -791,6 +802,39 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         Toast(text, "info");
     }
 
+    void SetLanguage(const std::string &game_language) override
+    {
+        static const char *const codes[][2] = {{"russian", "ru"}, {"english", "en"}, {"german", "de"},
+                                               {"french", "fr"},  {"spanish", "es"}, {"italian", "it"}};
+        std::string code;
+        for (const auto &pair : codes)
+            if (SameNode(game_language, pair[0]))
+                code = pair[1];
+        if (!strings_.count(code))
+        {
+            // A game language the pack has no strings for (a mod, an empty name): English,
+            // and said so once per language.
+            if (unknown_languages_.insert(game_language).second)
+                Error("no UI strings for the game language '" + game_language + "'; using en");
+            code = "en";
+        }
+        language_ = code;
+    }
+
+    std::string Text(const std::string &key) override
+    {
+        const auto table = strings_.find(language_);
+        if (table != strings_.end())
+        {
+            const auto found = table->second.find(key);
+            if (found != table->second.end() && found->is_string())
+                return found->get<std::string>();
+        }
+        if (missing_strings_.insert(language_ + ":" + key).second)
+            Error("UI string '" + key + "' is missing for language '" + language_ + "'");
+        return key;
+    }
+
     void Log(const std::string &line) override
     {
         Rml::Log::Message(Rml::Log::LT_INFO, "%s", line.c_str());
@@ -1035,6 +1079,9 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     Rml::ElementDocument *overlay_ = nullptr;
     std::string overlay_path_;
     std::string screen_path_;
+    std::unordered_map<std::string, Json> strings_; // language code → {key: text}
+    std::string language_ = "en";
+    std::set<std::string> unknown_languages_, missing_strings_;
     std::unique_ptr<screens::Router> router_;
     Rml::ElementDocument *screen_root_ = nullptr; // the screen document while a game interface is mounted
     // HUD

@@ -198,6 +198,9 @@ class Mount
     virtual bool ShowHud(const View &view) = 0;
     virtual void HideHud() = 0;
     virtual void Send(const Action &action) = 0;
+    // The game language of the HUD ("russian"): tr() in templates and Text() follow it.
+    virtual void SetLanguage(const std::string &game_language) = 0;
+    virtual std::string Text(const std::string &key) = 0;
     virtual void Log(const std::string &line) = 0;
     virtual void Error(const std::string &line) = 0;
     virtual double Now() const = 0;
@@ -238,9 +241,17 @@ class Hud
     {
         return mount_.Now();
     }
+    // Logged once per distinct text.
     void Log(const std::string &line)
     {
-        mount_.Log(line);
+        if (reported_.insert(line).second)
+            mount_.Log(line);
+    }
+    // A string of the pack's table in the game language of the gameplay state. Every text
+    // of the HUD that the game does not send comes from here.
+    std::string Text(const std::string &key)
+    {
+        return mount_.Text(key);
     }
     // Reported once per distinct text.
     void Error(const std::string &line);
@@ -289,6 +300,7 @@ class Hud
     View view_;
     std::vector<Line> lines_;
     std::set<std::string> reported_;
+    std::string language_; // game language last given to the mount
     bool changed_ = true;
     bool visible_ = false;
     bool live_ = false;

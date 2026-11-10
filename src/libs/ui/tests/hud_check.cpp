@@ -49,6 +49,7 @@ struct FakeMount final : Mount
     bool interface = false;
     int shows = 0;
     std::vector<std::string> commands, slots, logs, errors;
+    std::string language;
     double now = 0.0;
 
     bool ShowHud(const View &view) override
@@ -68,6 +69,14 @@ struct FakeMount final : Mount
     {
         commands.push_back(EngineCommand(action));
         slots.push_back(action.node);
+    }
+    void SetLanguage(const std::string &game_language) override
+    {
+        language = game_language;
+    }
+    std::string Text(const std::string &key) override
+    {
+        return "<" + key + ">";
     }
     void Log(const std::string &line) override
     {
@@ -161,6 +170,13 @@ struct QuietSurface final : screens::Surface
     }
     void Toast(const std::string &) override
     {
+    }
+    void SetLanguage(const std::string &) override
+    {
+    }
+    std::string Text(const std::string &key) override
+    {
+        return key;
     }
     void Log(const std::string &) override
     {

@@ -19,7 +19,8 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `router.cpp` | admission, shared extras («Прочее» sheet, note, reading sheet), event dispatch, busy marks, throttled sends, `EngineCommand` |
 | `controls.*` | shared view builders: buttons and their roles, action rows, control rows (toggle, segment, slider, stepper, field) |
 | `generic.cpp` | the generic auto-layout for interfaces without a ported screen |
-| `trade_store.cpp` | reference ported screen: the store |
+| `trade_crew.cpp` | crew hire: the trade layout with one always-open row |
+| `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout, a column table per interface |
 | `dialogue.cpp` | reference state channel: `dialogue` |
 
 The design rules are GENERIC-LAYOUT (pipeline, type → component, button roles, templates,
@@ -84,6 +85,33 @@ Verbs and what the engine receives (`EngineCommand`, today's queue line
 - **Nothing is dropped quietly.** Malformed models, a missing pack screen, an event
   without a binding and a state channel without a consumer are error log lines and, with
   `Config::show_errors`, toasts.
+
+## UI strings
+
+Screens never contain text for the player. Texts the game sends (captions, names,
+prices) pass through; everything else is a key of the pack's string table
+(`mobile-ui/design/strings/<lang>.json`, one table per shipped language):
+
+- C++: `bindings.Text("trade.price")`; a key kept in a table goes through
+  `StringKey("trade.store")` so the pack build still sees it;
+- templates: `{{ tr('common.next') }}`.
+
+The table of the interface's game language is used (`InterfaceModel::language`). To add a
+string: add the key to every `strings/<lang>.json` (the design build fails if one
+language lacks it or if a used key is undefined), keep the zone prefix (`trade.`,
+`crew.`, `common.` for shared words). A language without tables and a key missing at run
+time are errors in the log (and toasts in debug hosts); English or the key itself is
+shown, never nothing. The word lists in `controls.cpp` that recognise button roles are
+matching data, not UI text.
+
+## Game pictures in rows
+
+Widgets name pictures by group and picture of the game's `pictures.ini`
+(`ImageRef{kind "atlas", group, image}`). `PictureOf(image)` (controls.h) turns that into
+the row image `{kind: "item", texture: "atlas:GROUP/Picture"}`; `<ui-game-image>` resolves
+it at run time through `<game root>/RESOURCE/INI/interfaces/pictures.ini`
+(`picture_atlas.h`) to the texture and rectangle. Nothing of the game is bundled; without
+a game root the neutral placeholder stays.
 
 ## State channels
 

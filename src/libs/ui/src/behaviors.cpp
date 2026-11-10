@@ -9,6 +9,10 @@
 //   range   data-range="prop" on the track (props min, max, step)
 //   stick   data-stick="x|xy" on the travel area, data-knob on the knob
 //   lever   data-lever="steps|continuous" on the rail (prop value / dir)
+//   columns data-col="i" on the head and row cells of column i: every cell of a column gets
+//           the width of its widest content (the cells are laid out shrink-to-fit first,
+//           then given a common min-width), so numeric columns line up without the
+//           screen guessing widths
 //   sticky  data-sticky on rows inside a scrolling element (which must be positioned, so
 //           it is their offset parent): a row scrolled above the top edge stays pinned
 //           there (CSS position: sticky; top: 0, which RmlUi lacks)
@@ -28,6 +32,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <unordered_map>
 
 namespace storm::ui
 {
@@ -776,6 +781,56 @@ class StickyBehavior final : public Behavior, public Rml::EventListener
     std::vector<Rml::ObserverPtr<Rml::Element>> rows_;
 };
 
+// Columns sized by their content. The cells must be flex columns that do not stretch
+// their children (align-items other than stretch), so each child keeps its natural width.
+class ColumnsBehavior final : public Behavior
+{
+  public:
+    void Rebuilt(ComponentElement &self) override
+    {
+        attempts_ = 4; // layout happens after this call: measure on the following frames
+        self.Host().RequestTicks(self, true);
+    }
+
+    void Tick(ComponentElement &self, double) override
+    {
+        if (attempts_ <= 0)
+            return;
+        Rml::ElementList cells;
+        self.QuerySelectorAll(cells, "[data-col]");
+        std::unordered_map<int, float> widest;
+        bool laid_out = !cells.empty();
+        for (Rml::Element *cell : cells)
+        {
+            float natural = 0.0f;
+            for (int i = 0; i < cell->GetNumChildren(); ++i)
+                natural = std::max(natural, cell->GetChild(i)->GetBox().GetSize(Rml::BoxArea::Border).x);
+            if (cell->GetNumChildren() > 0 && natural <= 0.0f)
+                laid_out = false;
+            float &width = widest[cell->GetAttribute<int>("data-col", 0)];
+            width = std::max(width, natural);
+        }
+        if (laid_out)
+        {
+            for (Rml::Element *cell : cells)
+            {
+                const float width = std::ceil(widest[cell->GetAttribute<int>("data-col", 0)]);
+                const Rml::Property *current = cell->GetLocalProperty(Rml::PropertyId::MinWidth);
+                if (!current || std::fabs(current->Get<float>() - width) > 0.5f)
+                    cell->SetProperty(Rml::PropertyId::MinWidth, Rml::Property(width, Rml::Unit::PX));
+            }
+            attempts_ = 0;
+        }
+        else
+            --attempts_;
+        if (attempts_ <= 0)
+            self.Host().RequestTicks(self, false);
+    }
+
+  private:
+    int attempts_ = 0;
+};
+
 void RegisterBuiltinBehaviors()
 {
     RegisterBehavior("press", &Make<PressBehavior>);
@@ -783,6 +838,7 @@ void RegisterBuiltinBehaviors()
     RegisterBehavior("stick", &Make<StickBehavior>);
     RegisterBehavior("lever", &Make<LeverBehavior>);
     RegisterBehavior("sticky", &Make<StickyBehavior>);
+    RegisterBehavior("columns", &Make<ColumnsBehavior>);
     RegisterBehavior("hold", &Make<HoldBehavior>);
     RegisterBehavior("swipe", &Make<SwipeBehavior>);
 }

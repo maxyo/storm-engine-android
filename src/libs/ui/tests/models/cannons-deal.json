@@ -1,0 +1,488 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 2,
+ "screenRevision": 7,
+ "screen": "cannons",
+ "widgets": [
+  {
+   "node": "STORECAPTION1",
+   "type": "text",
+   "label": "Орудия",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "6\t12\t120\tПушки 3 фунта\t80\t0\t2\t350\tx1.0\t9",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "row:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "6",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "12",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "120",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Пушки 3 фунта",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Cannon_3"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "80",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "2",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 7,
+     "text": "350",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 8,
+     "text": "x1.0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 9,
+     "text": "9",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "На борту",
+    "Вес",
+    "Цена покупки",
+    "Орудие",
+    "Цена продажи",
+    "На верфи",
+    "Вес шт.",
+    "Дист.",
+    "Урон",
+    "Время"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "0\t0\t290\tПушки 6 фунтов\t210\t18\t6\t450\tx1.5\t11",
+   "value": "1",
+   "index": 1,
+   "enabled": true,
+   "rowId": "row:1",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "290",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Пушки 6 фунтов",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 2,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Cannon_6"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "210",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "18",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "6",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 7,
+     "text": "450",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 8,
+     "text": "x1.5",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 9,
+     "text": "11",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "На борту",
+    "Вес",
+    "Цена покупки",
+    "Орудие",
+    "Цена продажи",
+    "На верфи",
+    "Вес шт.",
+    "Дист.",
+    "Урон",
+    "Время"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "0\t0\t780\tПушки 12 фунтов\t560\t8\t12\t550\tx2.0\t14",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "row:2",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "780",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Пушки 12 фунтов",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 3,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Cannon_12"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "560",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "8",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "12",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 7,
+     "text": "550",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 8,
+     "text": "x2.0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 9,
+     "text": "14",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "На борту",
+    "Вес",
+    "Цена покупки",
+    "Орудие",
+    "Цена продажи",
+    "На верфи",
+    "Вес шт.",
+    "Дист.",
+    "Урон",
+    "Время"
+   ]
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Аделина",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "ship:0",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Морской конь",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "ship:1",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "CAPACITY",
+   "type": "text",
+   "label": "Трюм:\n189 / 225",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "OUR_GOLD",
+   "type": "text",
+   "label": "Наши деньги 1 500 песо",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_CAPTION",
+   "type": "text",
+   "label": "Пушки 6 фунтов",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_TypeOperation",
+   "type": "text",
+   "label": "Купить",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_Result",
+   "type": "text",
+   "label": "Деньги 1740, вес 36 ц",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_INFO_SHIP_QTY",
+   "type": "text",
+   "label": "6",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_INFO_STORE_QTY",
+   "type": "text",
+   "label": "12",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_GOODS_INFO",
+   "type": "text",
+   "label": "Шестифунтовые пушки.",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_EDIT",
+   "type": "edit",
+   "label": "",
+   "value": "6",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_OK_BUTTON",
+   "type": "button",
+   "label": "Ok",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "QTY_CANCEL_BUTTON",
+   "type": "button",
+   "label": "Отмена",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  }
+ ]
+}

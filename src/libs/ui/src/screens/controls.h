@@ -23,6 +23,9 @@ ButtonRole RoleOf(const Widget &button);
 // Header section a navigation button opens ("hero", "ship", …), or empty.
 std::string SectionOf(const Widget &button);
 
+// The unified row image {kind:"item", texture:"atlas:GROUP/Picture"} for a picture the
+// engine names by its pictures.ini group; null when the widget carries no such reference.
+Json PictureOf(const ImageRef *image);
 // {id, label, variant, disabled, reason, busy} of a c-button; a tap presses the widget.
 Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id, const char *variant);
 // {kind:"action", id, title, disabled, reason, selected, busy}: a button or choice as a list row.
