@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Launcher of the documented exception STORM_ALLOW_NO_CCACHE="<reason>" (README.md here):
+# every compile runs without the cache and says so. Usage: uncached <reason> <compiler> <args>
+reason=$1
+shift
+echo "STORM ALARM: UNCACHED COMPILE, STORM_ALLOW_NO_CCACHE=\"$reason\"" >&2
+exec "$@"

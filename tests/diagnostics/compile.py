@@ -21,13 +21,13 @@ root = Path(__file__).resolve().parents[2]
 with tempfile.TemporaryDirectory(prefix="storm-diagnostics-") as directory:
     build = Path(directory)
     (build / "SDL2").symlink_to(args.sdl_source.resolve() / "include", target_is_directory=True)
-    watermark = build / "generated_revision.hpp"
+    watermark = build / "storm_build_watermark.hpp"
     watermark.write_text("#pragma once\n#define STORM_BUILD_WATERMARK diagnostics_compile_check\n")
     for enabled in (False, True):
         output = build / ("enabled.o" if enabled else "disabled.o")
         command = [os.environ.get("CXX", "c++"), "-std=c++20", "-pthread", "-c",
                    str(root / "src/libs/diagnostics/src/lifecycle_diagnostics_service.cpp"),
-                   "-o", str(output), f'-DSTORM_WATERMARK_FILE="{watermark}"',
+                   "-o", str(output),
                    "-I" + str(build), "-I" + str(args.spdlog_source.resolve() / "include")]
         if args.fmt_source:
             command += ["-DSPDLOG_FMT_EXTERNAL", "-DFMT_HEADER_ONLY",

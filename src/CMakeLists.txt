@@ -10,9 +10,9 @@ if(STORM_ENABLE_CRASH_REPORTS)
 	add_definitions(-DSTORM_ENABLE_CRASH_REPORTS=1)
 endif()
 
-if(STORM_WATERMARK_FILE)
-  add_definitions(-DSTORM_WATERMARK_FILE="${STORM_WATERMARK_FILE}")
-endif()
+# watermark.hpp includes the generated storm_build_watermark.hpp by name.
+get_filename_component(storm_watermark_dir "${STORM_WATERMARK_FILE}" DIRECTORY)
+include_directories("${storm_watermark_dir}")
 
 if(STORM_ENABLE_SAFE_MODE)
   add_definitions(-DSTORM_ENABLE_SAFE_MODE=1)

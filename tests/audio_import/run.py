@@ -40,8 +40,6 @@ def configure_and_build():
     command = ['cmake', '-S', str(Path(__file__).parent), '-B', str(build), '-DCMAKE_BUILD_TYPE=Release']
     if shutil.which('ninja'):
         command += ['-G', 'Ninja']
-    if shutil.which('ccache'):
-        command += ['-DCMAKE_C_COMPILER_LAUNCHER=ccache', '-DCMAKE_CXX_COMPILER_LAUNCHER=ccache']
     if not (build / 'CMakeCache.txt').exists():
         subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
     result = subprocess.run(['cmake', '--build', str(build), '--parallel', str(os.cpu_count())],

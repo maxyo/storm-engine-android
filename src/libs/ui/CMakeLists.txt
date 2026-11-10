@@ -3,6 +3,7 @@
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     cmake_minimum_required(VERSION 3.21)
     project(storm-ui LANGUAGES C CXX)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/StormBuildCache.cmake")
     set(STORM_ENABLE_UI ON)
 endif()
 option(STORM_ENABLE_UI "Build the RmlUi based portable game UI runtime" OFF)
@@ -18,13 +19,13 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Pinned release archives. Update the version and the hash together.
-FetchContent_Declare(storm_ui_freetype
+storm_fetch_declare(storm_ui_freetype
     URL https://github.com/freetype/freetype/archive/refs/tags/VER-2-14-3.tar.gz
     URL_HASH SHA256=dc49de6b01a266eef4876a4dd34d9842c475d3e28ff2eff63bd2fb760ab56261)
-FetchContent_Declare(storm_ui_lunasvg
+storm_fetch_declare(storm_ui_lunasvg
     URL https://github.com/sammycage/lunasvg/archive/refs/tags/v3.5.0.tar.gz
     URL_HASH SHA256=1abf1472ee6c4d19797916e8cc3c2e4b628e0d81178ffac60bdb0d457e32c690)
-FetchContent_Declare(storm_ui_rmlui
+storm_fetch_declare(storm_ui_rmlui
     URL https://github.com/mikke89/RmlUi/archive/refs/tags/6.3.tar.gz
     URL_HASH SHA256=d977298bb6147610e5984d5db85ddf284020d655a8713913f6982074f1dbdede)
 
@@ -47,6 +48,18 @@ set(RMLUI_SAMPLES OFF CACHE BOOL "" FORCE)
 set(RMLUI_FONT_ENGINE freetype CACHE STRING "" FORCE)
 set(RMLUI_PRECOMPILED_HEADERS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(storm_ui_rmlui)
+# Licence texts of the pinned dependencies, packaged next to libstorm_ui.so.
+foreach(notice
+        "${storm_ui_rmlui_SOURCE_DIR}/LICENSE.txt|RmlUi-MIT.txt"
+        "${storm_ui_freetype_SOURCE_DIR}/docs/FTL.TXT|FreeType-FTL.txt"
+        "${storm_ui_lunasvg_SOURCE_DIR}/LICENSE|lunasvg-MIT.txt"
+        "${storm_ui_lunasvg_SOURCE_DIR}/plutovg/LICENSE|plutovg-MIT.txt"
+        "${storm_json_SOURCE_DIR}/LICENSE.MIT|nlohmann-json-MIT.txt")
+    string(REPLACE "|" ";" notice "${notice}")
+    list(GET notice 0 from)
+    list(GET notice 1 to)
+    configure_file("${from}" "${CMAKE_BINARY_DIR}/licenses/${to}" COPYONLY)
+endforeach()
 
 add_library(storm_ui STATIC
     src/ui_host.cpp

@@ -27,31 +27,13 @@ set(BGFX_CONFIG_MAX_INDEX_BUFFERS 8192 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_FRAME_BUFFERS 256 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_TRANSIENT_VERTEX_BUFFER_SIZE 33554432 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_TRANSIENT_INDEX_BUFFER_SIZE 8388608 CACHE STRING "" FORCE)
-# A prebuilt host shaderc (STORM_SHADERC, from host-tools/) is required for cross builds and
-# optional on the host, where CI caches it instead of rebuilding bgfx's tools on every run.
-set(STORM_SHADERC "" CACHE FILEPATH "Host bgfx shaderc built from the pinned sources (host-tools/)")
-if(CMAKE_CROSSCOMPILING OR STORM_SHADERC)
-    set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-endif()
+# Shaders compile with a host shaderc built once per machine and pin (cmake/storm_shaderc.cmake),
+# never with bgfx's tools inside this build.
+set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/bgfx_pin.cmake")
 FetchContent_GetProperties(storm_bgfx_upstream)
 if(NOT storm_bgfx_upstream_POPULATED)
     FetchContent_Populate(storm_bgfx_upstream)
-    # Local fixes on top of the pinned bgfx (see patches/). Applied once; a tree that already
-    # carries a patch is left alone, anything else is a hard error.
-    file(GLOB bgfx_patches "${CMAKE_CURRENT_SOURCE_DIR}/patches/bgfx-*.patch")
-    foreach(patch ${bgfx_patches})
-        execute_process(COMMAND git apply --reverse --check "${patch}"
-            WORKING_DIRECTORY "${storm_bgfx_upstream_SOURCE_DIR}/bgfx" RESULT_VARIABLE already_applied
-            OUTPUT_QUIET ERROR_QUIET)
-        if(NOT already_applied EQUAL 0)
-            execute_process(COMMAND git apply "${patch}"
-                WORKING_DIRECTORY "${storm_bgfx_upstream_SOURCE_DIR}/bgfx" RESULT_VARIABLE patch_result)
-            if(NOT patch_result EQUAL 0)
-                message(FATAL_ERROR "Cannot apply ${patch} to the pinned bgfx")
-            endif()
-        endif()
-    endforeach()
     # Upstream warning flags and tools must not inherit the engine's global
     # definitions (UNICODE etc.); EXCLUDE_FROM_ALL keeps unused tools unbuilt.
     add_subdirectory("${storm_bgfx_upstream_SOURCE_DIR}" "${storm_bgfx_upstream_BINARY_DIR}" EXCLUDE_FROM_ALL)
@@ -76,7 +58,7 @@ endforeach()
 # etcpak: ETC2 encoder for the DXT -> ETC2 texture transcode (src/texture).
 # Only the block compressors are built; no application, image I/O or threading code.
 # Offline: -DFETCHCONTENT_SOURCE_DIR_STORM_ETCPAK=/path/to/pinned/checkout
-FetchContent_Declare(storm_etcpak
+storm_fetch_declare(storm_etcpak
     GIT_REPOSITORY https://github.com/wolfpld/etcpak
     GIT_TAG 3d716e1550023dc5ff8b602636af8b76584e0b66)
 FetchContent_GetProperties(storm_etcpak)
@@ -98,18 +80,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
 endif()
 set_target_properties(storm_etcpak PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Host shader compiler. Cross builds must supply one built for the host:
-#   cmake -S src/libs/renderer_bgfx/host-tools -B build/bgfx-host-tools && cmake --build build/bgfx-host-tools
-if(CMAKE_CROSSCOMPILING OR STORM_SHADERC)
-    if(NOT EXISTS "${STORM_SHADERC}")
-        message(FATAL_ERROR "Set STORM_SHADERC to a host shaderc built from the pinned bgfx (see src/libs/renderer_bgfx/README.md)")
-    endif()
-    set(STORM_SHADERC_COMMAND "${STORM_SHADERC}" CACHE INTERNAL "")
-    set(STORM_SHADERC_DEPENDS "${STORM_SHADERC}" CACHE INTERNAL "")
-else()
-    set(STORM_SHADERC_COMMAND "$<TARGET_FILE:shaderc>" CACHE INTERNAL "")
-    set(STORM_SHADERC_DEPENDS shaderc CACHE INTERNAL "")
-endif()
+include(cmake/storm_shaderc.cmake)
 set(STORM_BGFX_SHADER_PROFILE "300_es" CACHE STRING "shaderc profile for embedded shader blobs")
 set(STORM_BGFX_SHADER_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/shaders/include" CACHE INTERNAL "")
 include(cmake/storm_shaders.cmake)

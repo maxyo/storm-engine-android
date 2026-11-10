@@ -12,8 +12,8 @@ A build is stored under `<cache>/<target>-<key>/` (`include/`, `lib/`, `configur
 by every build directory and worktree pointing at the same cache. The default cache is
 `<prepared sources>/../ffmpeg-cache` (e.g. `build/android-ci/ffmpeg-cache`); override with
 `-DSTORM_FFMPEG_CACHE=`. A lock file serialises concurrent builds of one target. Compiles go
-through `ccache` when it is installed (the launcher is printed and is not part of the key). A
-cold build takes about two minutes per target on the development host.
+through `tools/ccache/launcher` (not part of the key; a missing ccache fails the build, see
+`tools/ccache/README.md`). A cold build takes about two minutes per target on the development host.
 
 ## Licence
 

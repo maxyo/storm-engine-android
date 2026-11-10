@@ -8,7 +8,6 @@ the counts. Offline: set FETCHCONTENT_SOURCE_DIR_STORM_JSON to an extracted nloh
 import argparse
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import time
 
@@ -20,8 +19,6 @@ here = Path(__file__).resolve().parent
 build = a.build_dir.resolve()
 started = time.monotonic()
 configure = ['cmake', '-S', str(here), '-B', str(build), '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release']
-if shutil.which('ccache'):
-    configure += ['-DCMAKE_CXX_COMPILER_LAUNCHER=ccache']
 if os.environ.get('FETCHCONTENT_SOURCE_DIR_STORM_JSON'):
     configure.append(f'-DFETCHCONTENT_SOURCE_DIR_STORM_JSON={os.environ["FETCHCONTENT_SOURCE_DIR_STORM_JSON"]}')
 subprocess.run(configure, check=True, stdout=subprocess.DEVNULL)
