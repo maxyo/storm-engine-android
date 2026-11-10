@@ -55,7 +55,9 @@ class VFILE_SERVICE
     virtual std::unique_ptr<INIFILE> OpenIniFile(const char *file_name) = 0;
 
     // Resource paths
-    virtual void ScanResourcePaths() = 0;
+    // engineShaders = false: index only the game (tools that do not render, e.g. script_check);
+    // the Linux host engine requires the engine's techniques staged next to its binary
+    virtual void ScanResourcePaths(bool engineShaders = true) = 0;
     virtual std::string ConvertPathResource(const char *path) = 0;
 
     virtual uint64_t GetPathFingerprint(const std::filesystem::path& path) = 0;

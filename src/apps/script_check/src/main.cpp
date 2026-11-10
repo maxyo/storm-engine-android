@@ -123,7 +123,9 @@ int check(int argc, char **argv)
             segments.push_back(relative);
 
     fs::current_path(game);
-    fio->ScanResourcePaths(); // the file service indexed the start directory
+    std::printf("script_check: indexing %s without the engine-shaders overlay (scripts only)\n",
+                fs::current_path().string().c_str());
+    fio->ScanResourcePaths(false);
     std::vector<std::string> diagnostics;
     COMPILER compiler;
     core_internal.Compiler = &compiler;
@@ -200,7 +202,7 @@ int test(int argc, char **argv)
         core_internal.Compiler = &compiler;
         compiler.ConfigureCompileCheck(&diagnostics);
         fs::current_path(script.parent_path());
-        fio->ScanResourcePaths();
+        fio->ScanResourcePaths(false); // scripts only, no engine-shaders overlay
         compiler.SetProgramDirectory(".");
         const auto name = script.filename().string();
         const bool compiled = compiler.BC_LoadSegment(name.c_str());

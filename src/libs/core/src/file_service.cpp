@@ -529,7 +529,7 @@ std::string convert_path(const char *path)
     return conv;
 }
 
-void FILE_SERVICE::ScanResourcePaths()
+void FILE_SERVICE::ScanResourcePaths(bool engineShaders)
 {
 #ifndef _WIN32
     if (ResourcePathsFirstScan)
@@ -552,14 +552,17 @@ void FILE_SERVICE::ScanResourcePaths()
 #if !defined(_WIN32) && !defined(__ANDROID__)
     // The engine's techniques laid over the game's, as the APK does with its engine-shaders
     // layer: staged next to the binary by the engine target (src/apps/engine/CMakeLists.txt).
-    char *base = SDL_GetBasePath();
-    if (!base)
-        throw std::runtime_error(SDL_GetError());
-    const auto engineShaders = std::filesystem::path(base) / "engine-shaders";
-    SDL_free(base);
-    if (!std::filesystem::is_directory(engineShaders))
-        throw std::runtime_error("The engine's techniques are missing: " + engineShaders.string());
-    storm::android::indexUiOverlay(engineShaders, ResourcePaths, true);
+    if (engineShaders)
+    {
+        char *base = SDL_GetBasePath();
+        if (!base)
+            throw std::runtime_error(SDL_GetError());
+        const auto staged = std::filesystem::path(base) / "engine-shaders";
+        SDL_free(base);
+        if (!std::filesystem::is_directory(staged))
+            throw std::runtime_error("The engine's techniques are missing: " + staged.string());
+        storm::android::indexUiOverlay(staged, ResourcePaths, true);
+    }
 #endif
     ResourcePathsFirstScan = false;
 }
