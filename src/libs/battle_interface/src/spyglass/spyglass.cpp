@@ -13,6 +13,12 @@
 
 #ifdef __ANDROID__
 #include "platform/android_ui.hpp"
+
+namespace
+{
+// How long a shown target may go without the UI's card before that is reported.
+constexpr uint32_t kAndroidCardWaitMs = 1500;
+} // namespace
 #include <tuple>
 #endif
 
@@ -181,6 +187,21 @@ void ISPYGLASS::Execute(uint32_t delta_time)
     {
         m_bAndroidCovered = covered;
         ApplyInfoColors();
+    }
+    // A target shown without the UI's card is no quiet fallback: once per raise of the
+    // telescope it is said aloud that the engine's own info stays on the screen.
+    const uint32_t now = SDL_GetTicks();
+    if (!storm::android::spyglass.shows())
+        m_dwAndroidShownSince = 0;
+    else if (m_dwAndroidShownSince == 0)
+        m_dwAndroidShownSince = now ? now : 1;
+    else if (!m_bAndroidCovered && now - m_dwAndroidShownSince >= kAndroidCardWaitMs &&
+             m_nAndroidWarnedGeneration != storm::android::spyglass.generation())
+    {
+        m_nAndroidWarnedGeneration = storm::android::spyglass.generation();
+        spdlog::warn("Spyglass: a target has been shown for {} ms but the portable UI drew no card for it ({}); the "
+                     "engine's own info stays on the screen",
+                     kAndroidCardWaitMs, storm::android::spyglass.awaiting() ? "no answer on the spyglass channel" : "it answered without the overlay");
     }
 #endif
     if (m_bIsOn)

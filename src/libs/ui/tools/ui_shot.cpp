@@ -604,7 +604,7 @@ int main(int argc, char **argv)
             bool on;
             std::string text;
             std::chrono::steady_clock::time_point started;
-            Capture *capture;
+            Capture *capture; // the GPU work of the frame is finished through the backend
             storm::ui::Host *host;
             ~Timing()
             {

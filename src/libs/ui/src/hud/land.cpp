@@ -394,6 +394,12 @@ class LandScene final : public Scene
                                         {"hp", std::lround(officer.health * 100.0)}});
             view.elements["officers"] = Json{{"officers", officers}};
         }
+        // The enemy captain of a boarding cabin fight (V2-Land-Boarding-Cabin): name and health.
+        if (states.vitals.known && !states.vitals.opponent.empty())
+        {
+            view.elements["opponent"] = Json{{"title", hud_.Text("hud.captain") + " " + states.vitals.opponent}};
+            view.elements["opponent-hp"] = Json{{"value", std::lround(states.vitals.opponent_health * 100.0)}};
+        }
         // Elements of a dimmed cluster that are not shown now cannot be dimmed.
         view.dimmed.erase(std::remove_if(view.dimmed.begin(), view.dimmed.end(), [&view](const std::string &id) { return !view.elements.contains(id); }),
                           view.dimmed.end());

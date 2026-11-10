@@ -68,6 +68,10 @@ foreach(notice
     configure_file("${from}" "${CMAKE_BINARY_DIR}/licenses/${to}" COPYONLY)
 endforeach()
 
+# bimg decodes the game's .tx textures, from the renderer's bgfx pin (no bgfx library is built).
+set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+include("${CMAKE_CURRENT_SOURCE_DIR}/../renderer_bgfx/cmake/bgfx_upstream.cmake")
+
 add_library(storm_ui STATIC
     src/ui_host.cpp
     src/interface_model.cpp
@@ -121,7 +125,7 @@ add_library(storm_ui STATIC
     "${storm_ui_rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp")
 target_compile_features(storm_ui PUBLIC cxx_std_20)
 target_include_directories(storm_ui PUBLIC include PRIVATE src "${storm_ui_rmlui_SOURCE_DIR}/Backends")
-target_link_libraries(storm_ui PUBLIC RmlUi::RmlUi nlohmann_json::nlohmann_json PRIVATE lunasvg::lunasvg plutovg::plutovg)
+target_link_libraries(storm_ui PUBLIC RmlUi::RmlUi nlohmann_json::nlohmann_json PRIVATE lunasvg::lunasvg plutovg::plutovg bimg)
 
 if(STORM_UI_BGFX)
     set(storm_ui_renderer_bgfx "${CMAKE_CURRENT_SOURCE_DIR}/../renderer_bgfx")

@@ -409,6 +409,10 @@ class Parser
                 if (!Eat(")"))
                     Fail("expected ')'");
             }
+            // A branch that is not taken is parsed, never evaluated: no call (tr() of an
+            // empty key in `c.key ? tr(c.key) : c.label` would report a missing string).
+            if (!live)
+                return Json();
             return Call(name, arguments);
         }
         return Member(scope_, name);
