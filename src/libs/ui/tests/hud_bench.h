@@ -208,9 +208,10 @@ struct Bench
 class NoRenderer final : public Rml::RenderInterface
 {
   public:
+    // Distinct handles, as a real renderer gives (the runtime identifies meshes by handle).
     Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex>, Rml::Span<const int>) override
     {
-        return 1;
+        return ++next_;
     }
     void RenderGeometry(Rml::CompiledGeometryHandle, Rml::Vector2f, Rml::TextureHandle) override
     {
@@ -224,14 +225,14 @@ class NoRenderer final : public Rml::RenderInterface
     }
     Rml::TextureHandle GenerateTexture(Rml::Span<const Rml::byte>, Rml::Vector2i) override
     {
-        return 1;
+        return ++next_;
     }
     void ReleaseTexture(Rml::TextureHandle) override
     {
     }
     Rml::TextureHandle SaveLayerAsTexture() override
     {
-        return 1;
+        return ++next_;
     }
     void EnableScissorRegion(bool) override
     {
@@ -239,6 +240,9 @@ class NoRenderer final : public Rml::RenderInterface
     void SetScissorRegion(Rml::Rectanglei) override
     {
     }
+
+  private:
+    uintptr_t next_ = 0;
 };
 
 class NoBackend final : public RenderBackend

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Build real SDL2/fmt native ARM64 libraries from pinned local sources.
+"""Build real SDL2/fmt native Android libraries (--abi, default arm64-v8a) from pinned local sources.
 
 Does not download tools, accept licenses, build the engine, or package an APK.
 """
 import argparse
 from pathlib import Path
 import subprocess
+
+import android_abi
 
 ROOT = Path(__file__).resolve().parents[2]
 SDL_REVISION = "2e9821423a237a1206e3c09020778faacfe430be"
@@ -38,12 +40,14 @@ def main():
     for name in ("ndk", "sdl-source", "fmt-source", "build-dir", "prefix"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--abi", choices=sorted(android_abi.ABIS), default=android_abi.DEFAULT)
     args = parser.parse_args()
     ndk, sdl = args.ndk.resolve(), args.sdl_source.resolve()
     build, prefix = args.build_dir.resolve(), args.prefix.resolve()
     compiler = ndk / "toolchains/llvm/prebuilt/linux-x86_64/bin"
-    if not (compiler / "aarch64-linux-android24-clang++").is_file():
-        raise RuntimeError("Expected a Linux-host Android NDK with API 24 ARM64 compiler")
+    if not (compiler / f"{android_abi.triple(args.abi)}24-clang++").is_file():
+        raise RuntimeError(f"Expected a Linux-host Android NDK with API 24 {args.abi} compiler")
+    toolchain = android_abi.toolchain(ROOT, args.abi)
     fmt = args.fmt_source.resolve()
     check_source(fmt, FMT_REVISION)
     check_source(sdl, SDL_REVISION)
@@ -57,22 +61,21 @@ def main():
             run(["git", "-C", source, "apply", patch])
     build.mkdir(parents=True, exist_ok=True)
     run(["cmake", "-S", sdl, "-B", build / "sdl", "-G", "Ninja",
-         "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_TOOLCHAIN_FILE={ROOT / 'cmake/toolchains/android-arm64.cmake'}",
+         "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_TOOLCHAIN_FILE={toolchain}",
          f"-DSTORM_ANDROID_NDK={ndk}", f"-DCMAKE_INSTALL_PREFIX={prefix}",
-         "-DSDL_SHARED=ON", "-DSDL_STATIC=OFF", "-DSDL_TEST=OFF", *LAUNCHER])
+         "-DSDL_SHARED=ON", "-DSDL_STATIC=OFF", "-DSDL_TEST=OFF", *LAUNCHER,
+         f"-DCMAKE_PROJECT_INCLUDE={ROOT / 'tools/android/sdl-ndk-cpufeatures.cmake'}"])
     build_cached(build / "sdl", args.jobs)
     run(["cmake", "--install", build / "sdl"])
     run(["cmake", "-S", fmt, "-B", build / "fmt", "-G", "Ninja",
-         "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_TOOLCHAIN_FILE={ROOT / 'cmake/toolchains/android-arm64.cmake'}",
+         "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_TOOLCHAIN_FILE={toolchain}",
          f"-DSTORM_ANDROID_NDK={ndk}", f"-DCMAKE_INSTALL_PREFIX={prefix}",
          "-DBUILD_SHARED_LIBS=ON", "-DFMT_TEST=OFF", "-DFMT_DOC=OFF", "-DCMAKE_CXX_STANDARD=20", *LAUNCHER])
     build_cached(build / "fmt", args.jobs)
     run(["cmake", "--install", build / "fmt"])
     for library in (prefix / "lib/libSDL2.so", prefix / "lib/libfmt.so"):
-        header = library.read_bytes()[:20]
-        if header[:6] != b"\x7fELF\x02\x01" or int.from_bytes(header[18:20], "little") != 183:
-            raise RuntimeError(f"Not an ELF64 little-endian AArch64 library: {library}")
-        print(f"Verified AArch64 ELF: {library}")
+        android_abi.check_elf(library, args.abi)
+        print(f"Verified {args.abi} ELF: {library}")
     print("Built dependency libraries only; full engine/APK and device validation remain outstanding.")
 
 if __name__ == "__main__":

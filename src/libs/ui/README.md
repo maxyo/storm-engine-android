@@ -53,7 +53,7 @@ produces `<build>/package/libstorm_ui.so` (stripped, 16 KiB pages) and
 | `src/backend_gl3.cpp` | GL backend: RmlUi's stock GL3 renderer (GLES 3.0 / GL 3.3) |
 | `include/storm_ui/backend_bgfx.h`, `src/backend_bgfx.cpp`, `shaders/` | bgfx backend and frame client (build option `STORM_UI_BGFX`) |
 | `src/components.*`, `src/template.*` | `<c-…>` elements rendered from spec + template + props |
-| `src/behaviors.cpp` | press, hold-to-confirm, long-press tooltip, range, stick, lever, sticky rows |
+| `src/behaviors.cpp` | press, hold-to-confirm, long-press tooltip, range, stick, lever, table columns |
 | `src/draw_elements.cpp` | `<ui-ring>` (hold progress), `<ui-paper>` (aged parchment), `<ui-clamp>` (text cut to N lines with an ellipsis) |
 | `src/icons.cpp` | `<ui-icon>`: SVG symbols rasterised per size and colour |
 | `src/picture_atlas.*` | the game's `pictures.ini` (group + picture → texture + rectangle), read from the game root at run time |

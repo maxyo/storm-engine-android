@@ -4,7 +4,12 @@
 #define PORT_VS_SH
 #include "storm_common.sh"
 
-uniform vec4 u_vsc[96]; // c0..c95 as set through SetVertexShaderConstantF
+// Each port declares the registers it reads (PORT_VSC_COUNT, c0..c[count-1]): bgfx's GL backend re-uploads
+// the whole declared array with every uniform change, and the shim sends just that many (ports.cpp).
+#ifndef PORT_VSC_COUNT
+#error define PORT_VSC_COUNT before including port_vs.sh
+#endif
+uniform vec4 u_vsc[PORT_VSC_COUNT]; // c0.. as set through SetVertexShaderConstantF
 uniform mat4 u_ffProj;  // D3D clip space -> backend clip space fix-up
 
 #define PORT_FLT_MAX 3.402823466e+38

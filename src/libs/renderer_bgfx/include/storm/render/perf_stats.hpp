@@ -27,6 +27,8 @@ struct PerfCounters
     uint64_t uniform_bytes = 0;
     uint64_t uniform_draws = 0;    // draws with at least one uniform update (the GL backend then
                                    // re-uploads every uniform of the program)
+    uint64_t uniform_commit_bytes = 0; // bytes the GL backend re-uploads: all uniforms of the program
+                                       // for every draw with a uniform update or a program change
     uint64_t texture_binds = 0;    // bgfx::setTexture calls
     uint64_t texture_changes = 0;  // binds of a different texture or sampler state than the unit had
     uint64_t transient_vb_bytes = 0;
@@ -44,12 +46,19 @@ struct PerfCounters
     // Current values (not totals) as of the last presented frame.
     uint64_t texture_memory = 0;       // bytes of textures (bgfx::Stats::textureMemoryUsed)
     uint64_t render_target_memory = 0; // bytes of render targets (bgfx::Stats::rtMemoryUsed)
+    // Current CPU/GPU memory held by the shim (bytes, live values).
+    uint64_t texture_shadow_bytes = 0; // CPU copies of texture levels (D3D formats)
+    uint64_t buffer_shadow_bytes = 0;  // CPU copies of vertex/index buffers
+    uint64_t buffer_gpu_bytes = 0;     // bgfx static vertex/index buffer snapshots
+    uint64_t transient_vb_frame_max = 0; // largest transient vertex bytes of one frame since start-up
+    uint64_t transient_ib_frame_max = 0; // (sizes BGFX_CONFIG_MAX_TRANSIENT_*_BUFFER_SIZE)
 
     // The totals of this window minus those of `start`; current values are this window's.
     PerfCounters Since(const PerfCounters &start) const;
     // Per-frame means of a window as space-separated key=value pairs (empty without frames):
-    // draws skipped views programs states uniforms uniform_kb uniform_draws tex_binds tex_changes
-    // tvb_kb tib_kb fans buf_uploads buf_kb tex_uploads tex_kb shim_ms backend_ms gpu_ms tex_mb rt_mb.
+    // draws skipped views programs states uniforms uniform_kb uniform_draws commit_kb tex_binds tex_changes
+    // tvb_kb tib_kb fans buf_uploads buf_kb tex_uploads tex_kb shim_ms backend_ms gpu_ms tex_mb rt_mb
+    // tex_shadow_mb buf_shadow_mb buf_gpu_mb tvb_max_kb tib_max_kb.
     std::string Summary() const;
 };
 

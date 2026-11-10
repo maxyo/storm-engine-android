@@ -7,6 +7,8 @@
 //                   specular with FX_LIGHT_SPECULAR); features the settings leave off arrive with zero strength.
 //   FX_FF_BAKED     geometry with baked vertex colours (lighting off, vs_ff_lit): only dynamic point lights are
 //                   added, as texture * light.
+//   FX_LIGHT_NORMALMAP  with FX_FF_LIT / FX_FF_BAKED: relief from the normal map derived from stage 1's height texture
+//                   (stage 14, stage 1's coordinates): lit draws perturb the normal, baked ones scale their colour.
 //   FX_FF_COVERAGE  alpha to coverage instead of the alpha-test discard (fx_coverage.sh); in the FX_FF_LIT /
 //                   FX_FF_BAKED variants it is switched per draw by u_fxCoverage.z.
 #include "ff_finish.sh"
@@ -139,6 +141,12 @@ void main()
         if (dot(face, V) < 0.0) face = -face;
         if (dot(N, face) < 0.0) N = -N;
     }
+#endif
+    vec3 Ng = N;
+#ifdef FX_LIGHT_NORMALMAP
+    N = fxPerturbNormal(Ng, P, v_texcoord1.xy);
+#endif
+#ifdef FX_FF_LIT
     ffDiffuse = vec4(clamp(fxLit(v_color0.rgb, v_matDiffuse.rgb, fxSunDiffuse(N, V) + fxPointDiffuse(N, P),
                                  v_matAmbient.rgb, fxAmbient(N)), 0.0, 1.0), v_color0.a);
 #else
@@ -159,7 +167,16 @@ void main()
     current.rgb = fxAddSpecular(current.rgb, fxSunSpecular(N, V) + fxPointSpecular(N, P, V) + fxRim(N, V));
 #endif
 #ifdef FX_FF_BAKED
+#ifdef FX_LIGHT_NORMALMAP
+    current.rgb *= fxBakedRelief(Ng, N, V);
+#endif
     current.rgb = fxLit(current.rgb, tex0.rgb, fxPointDiffuse(N, P), vec3_splat(0.0), vec3_splat(0.0));
 #endif
     gl_FragColor = ffFinish(current);
+#if STORM_SLOPE_BIAS
+    // D3D9: depth + SlopeScaleDepthBias * max(|dz/dx|, |dz/dy|); the constant D3DRS_DEPTHBIAS part is
+    // already in the projection. Window depth is [0, 1] like D3D's.
+    float slope = max(abs(dFdx(gl_FragCoord.z)), abs(dFdy(gl_FragCoord.z)));
+    gl_FragDepth = clamp(gl_FragCoord.z + u_ffDepthBias.x * slope, 0.0, 1.0);
+#endif
 }

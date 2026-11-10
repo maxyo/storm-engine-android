@@ -333,7 +333,7 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
     {
         // vs_1_1 programs output D3D clip space; they apply the fix-up matrix themselves.
         set_uniform(U_PROJ, &fix.m[0][0], 1);
-        set_uniform(U_VSC, &s.vs_const[0][0], kVsConstants);
+        set_uniform(U_VSC, &s.vs_const[0][0], s.vs->port->vsc_count); // the registers the port declares
     }
     if (ps_port)
     {
@@ -737,6 +737,28 @@ bgfx::ProgramHandle Device::program(uint32_t vs_id, uint32_t fs_id)
             if (!bgfx::isValid(shaders[id]))
                 shaders[id] = create_embedded_shader(id);
         handle = bgfx::createProgram(shaders[vs_id], shaders[fs_id], false);
+        if (bgfx::isValid(handle))
+        {
+            uint32_t bytes = 0;
+            for (const uint32_t id : {vs_id, fs_id})
+            {
+                bgfx::UniformHandle list[64];
+                const uint16_t count = bgfx::getShaderUniforms(shaders[id], list, 64);
+                for (uint16_t i = 0; i < std::min<uint16_t>(count, 64); ++i)
+                {
+                    bgfx::UniformInfo info;
+                    bgfx::getUniformInfo(list[i], info);
+                    const uint32_t size = info.type == bgfx::UniformType::Vec4   ? 16
+                                          : info.type == bgfx::UniformType::Mat3 ? 48
+                                          : info.type == bgfx::UniformType::Mat4 ? 64
+                                                                                 : 0; // samplers
+                    // u_vsc is created for 96 registers; a port program declares (and uploads) fewer.
+                    const uint32_t vsc = list[i].idx == uniforms[U_VSC].handle.idx ? port_vsc_count(id) : 0;
+                    bytes += size * (vsc ? vsc : info.num);
+                }
+            }
+            program_uniform_bytes[handle.idx] = bytes;
+        }
     }
     if (!bgfx::isValid(handle))
         logf("program creation failed (vs=%u fs=%u)", vs_id, fs_id);
@@ -808,6 +830,14 @@ HRESULT Device::draw(const DrawCall &call)
     Context::instance().poll_surface();
     if (!Context::instance().ready())
         return D3D_OK;
+    // Before any state of this draw is set: clearing uses views of its own.
+    for (uint32_t stage = 0; stage < kFfStages; ++stage)
+        if (TexStore *store = store_of(s.textures[stage]); store && store->needs_clear)
+        {
+            store->sync();
+            clear_if_new(store);
+            view_dirty = true; // this draw goes into a view after the clear
+        }
     const uint32_t element_count = vertex_count_for(call.type, call.primitive_count);
     if (element_count == 0)
         return D3DERR_INVALIDCALL;
@@ -849,8 +879,9 @@ HRESULT Device::draw(const DrawCall &call)
         return D3D_OK;
     }
     static const uint32_t id_vs_ff = shader_id_by_name("vs_ff");
-    static const uint32_t id_fs_ff[4] = {shader_id_by_name("fs_ff"), shader_id_by_name("fs_ff_cube0"),
-                                         shader_id_by_name("fs_ff_cube1"), shader_id_by_name("fs_ff_cube2")};
+    static const uint32_t id_fs_ff[5] = {shader_id_by_name("fs_ff"), shader_id_by_name("fs_ff_cube0"),
+                                         shader_id_by_name("fs_ff_cube1"), shader_id_by_name("fs_ff_cube2"),
+                                         shader_id_by_name("fs_ff_slopebias")};
     uint32_t fs_variant = 0;
     for (uint32_t stage = 0; stage < 3 && !ps_port; ++stage)
         if (const TexStore *store = store_of(s.textures[stage]); store && store->kind == TexKind::Cube)
@@ -858,10 +889,23 @@ HRESULT Device::draw(const DrawCall &call)
             fs_variant = stage + 1;
             break;
         }
+    const float slope_bias = as_float(s.rs[D3DRS_SLOPESCALEDEPTHBIAS]);
+    if (slope_bias != 0.0f)
+    {
+        if (ps_port || fs_variant != 0)
+            trap("slope-scale depth bias with a pixel shader or a cube stage is not implemented (no bias applied)");
+        else
+        {
+            fs_variant = 4;
+            const float bias[4] = {slope_bias, 0.0f, 0.0f, 0.0f};
+            set_uniform(U_DEPTHBIAS, bias, 1);
+        }
+    }
     // Effects: per-pixel lighting / alpha to coverage variant of a fixed-function draw (effects/lighting.hpp).
+    // Slope-biased draws (projected shadows: unlit decals) keep the depth-writing fixed-function variant.
     effects::Lighting &fx_lighting = effects::Host::instance().lighting();
     effects::FfDraw fx_draw;
-    if (!vs_port && !ps_port && !fx_lighting.idle())
+    if (!vs_port && !ps_port && fs_variant != 4 && !fx_lighting.idle())
         fx_lighting.prepare(*this, *layout, fs_variant, fx_draw);
     const uint32_t vs_id = vs_port ? s.vs->port->shader_id() : fx_draw.active ? fx_draw.vs_id : id_vs_ff;
     const uint32_t fs_id = ps_port ? s.ps->port->shader_id() : fx_draw.active ? fx_draw.fs_id : id_fs_ff[fs_variant];
@@ -1021,6 +1065,8 @@ HRESULT Device::draw(const DrawCall &call)
                     bgfx::copy(vb->shadow.data(), static_cast<uint32_t>(vb->shadow.size())), byte_layout);
                 ++perf().buffer_uploads;
                 perf().buffer_upload_bytes += vb->shadow.size();
+                perf_resize(&render::PerfCounters::buffer_gpu_bytes, vb->gpu_bytes, vb->shadow.size());
+                vb->gpu_bytes = vb->shadow.size();
                 vb->dirty_begin = UINT32_MAX;
                 vb->dirty_end = 0;
             }
@@ -1078,6 +1124,8 @@ HRESULT Device::draw(const DrawCall &call)
                                                  index32 ? BGFX_BUFFER_INDEX32 : BGFX_BUFFER_NONE);
             ++perf().buffer_uploads;
             perf().buffer_upload_bytes += ib->shadow.size();
+            perf_resize(&render::PerfCounters::buffer_gpu_bytes, ib->gpu_bytes, ib->shadow.size());
+            ib->gpu_bytes = ib->shadow.size();
             ib->dirty_begin = UINT32_MAX;
             ib->dirty_end = 0;
         }
@@ -1154,8 +1202,11 @@ HRESULT Device::draw(const DrawCall &call)
     view_has_content = true;
     render::PerfCounters &counters = perf();
     ++counters.draws;
-    if (last_draw.program != handle.idx)
+    const bool program_changed = last_draw.program != handle.idx;
+    if (program_changed)
         ++counters.program_changes, last_draw.program = handle.idx;
+    if (uniforms_changed || program_changed)
+        counters.uniform_commit_bytes += program_uniform_bytes[handle.idx];
     const uint32_t stencil_bits = stencil ? fstencil : 0;
     if (last_draw.state != bits || last_draw.stencil != stencil_bits || last_draw.factor != factor)
     {

@@ -46,7 +46,11 @@ instead of a cold compile.
 - Pinned FetchContent sources (bgfx with its patches, etcpak, glm, RmlUi, FreeType, lunasvg,
   json) are fetched once per machine into `~/.cache/storm-deps/fetchcontent/<name>-<digest>`
   (`storm_fetch_declare` in `cmake/StormBuildCache.cmake`, `STORM_DEPS_CACHE` overrides the
-  root) and shared read-only by all build directories. Their absolute paths are the same for
+  root) and shared read-only by all build directories. The digest covers the pin and the contents of
+  its patches: adding or editing a patch reconfigures existing build directories on their next build
+  (the patches are configure dependencies), which move to the matching copy with a CMake warning;
+  `FETCHCONTENT_SOURCE_DIR_<NAME>` values inside the shared cache are this mechanism's own choice and
+  are recomputed, an explicit override elsewhere must carry every patch or configuration fails. Their absolute paths are the same for
   every build, which also keeps their objects shareable across any build directory depth.
 - The host `shaderc` of the bgfx pin is built once per machine and pin into
   `~/.cache/storm-deps/shaderc-<digest>` by the first configure that needs it, under a lock

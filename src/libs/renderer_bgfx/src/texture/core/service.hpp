@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -74,6 +75,11 @@ class Service
     // Drops the caller's hold and resets `job`; the job is cancelled when no holder is left.
     void release(std::shared_ptr<Job> &job);
     bool has_room() const;
+    // Main thread. Other CPU work for the workers (normal maps derived from height textures,
+    // src/effects/normal_maps.cpp): runs when no transcode is queued. Dropped unrun at shutdown.
+    void post(std::function<void()> task);
+    // The on-disk cache directory (empty: no disk cache). Fixed between configure() calls.
+    const std::filesystem::path &cache_directory() const { return config_.directory; }
     // Bytes of temporary (pre-ETC2) textures alive on the GPU.
     void add_fallback_bytes(int64_t delta) { fallback_bytes_ += delta; }
 
@@ -87,6 +93,7 @@ class Service
     mutable std::mutex mutex_;
     std::condition_variable wake_;
     std::deque<std::shared_ptr<Job>> queue_;
+    std::deque<std::function<void()>> tasks_;
     std::unordered_map<uint64_t, std::weak_ptr<Job>> in_flight_;
     size_t queued_bytes_ = 0;
     std::vector<std::thread> workers_;
