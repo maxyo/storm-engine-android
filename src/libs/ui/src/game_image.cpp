@@ -115,6 +115,7 @@ class Store
         if (!entry)
         {
             entry = std::make_shared<Entry>();
+            all_.push_back(entry);
             if (root_.empty() && !loader_)
                 entry->state = State::Missing;
             else
@@ -145,6 +146,11 @@ class Store
         if (worker_.joinable())
             worker_.join();
         stop_ = false;
+        // Elements may still hold entries: give their textures back before RmlUi shuts down.
+        for (const std::weak_ptr<Entry> &weak : all_)
+            if (const std::shared_ptr<Entry> entry = weak.lock())
+                entry->source.reset();
+        all_.clear();
     }
 
   private:
@@ -192,6 +198,7 @@ class Store
     std::condition_variable wake_;
     std::deque<Job> queue_;
     std::unordered_map<std::string, std::shared_ptr<Entry>> entries_;
+    std::vector<std::weak_ptr<Entry>> all_;
     std::string root_;
     std::function<bool(const std::string &, Picture &)> loader_;
     std::thread worker_;
