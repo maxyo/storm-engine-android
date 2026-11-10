@@ -627,7 +627,11 @@ int main(int argc, char *argv[])
             else if (command.starts_with("hudowner:"))
             {
                 // The portable UI presents this HUD: its unanswered revisions keep native drawing off.
-                if (!storm::android::hudPresenters.declare(std::string_view(command).substr(9)))
+                if (command == "hudowner:lost") {
+                    if (const auto line = storm::android::hudPresenters.lost(); !line.empty())
+                        __android_log_print(ANDROID_LOG_ERROR, "StormInput", "%s", line.c_str());
+                }
+                else if (!storm::android::hudPresenters.declare(std::string_view(command).substr(9)))
                     __android_log_print(ANDROID_LOG_ERROR, "StormInput", "unknown HUD presenter declaration '%s'", command.c_str());
             }
             else if (command.starts_with("shiphud:"))
@@ -841,6 +845,17 @@ int main(int argc, char *argv[])
                 storm::android::traceWorldMapModal("presented",storm::android::worldMapHud.modal.debug());
             }
             storm::android::publishWorldMapHud(storm::android::worldMapHud.modal.receipt(SDL_GetTicks()).token!=0);
+            {
+                // A presenting UI answers each revision within one of its frames; one that stays
+                // silent is withdrawn loudly and the native HUD parts come back (android_hud_presenter.hpp).
+                using namespace storm::android;
+                const auto &telemetry = shipTelemetry;
+                const bool seaWaiting = gameplayReady && (seaQuickAction.awaiting() || telemetry.awaiting() ||
+                    (telemetry.frame().valid && seaNavigator.pending(telemetry.revision(), telemetry.hudRevision(), telemetry.frame().navigatorGeneration)));
+                for (const auto &line : {hudPresenters.watch("sea", seaWaiting, SDL_GetTicks()),
+                                         hudPresenters.watch("worldmap", gameplayReady && worldMapHud.awaiting(), SDL_GetTicks())})
+                    if (line) __android_log_print(ANDROID_LOG_ERROR, "StormInput", "%s", line->c_str());
+            }
             if(storm::android::worldMapHud.modal.hold(bActive,SDL_GetTicks()))continue;
             if(const auto command=storm::android::worldMapHud.take(SDL_GetTicks()))
             {

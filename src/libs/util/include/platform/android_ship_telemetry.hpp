@@ -279,6 +279,7 @@ public:
     // The native indicators the touch HUD replaces. While the presenting UI has not answered
     // this HUD revision yet (after a load, a new fleet), every available one stays off rather
     // than flashing up until its slow first frame; the answer then returns what it leaves.
+    bool awaiting() const { return frame_.valid && answered_ != hudRevision_; }
     uint32_t mask() const
     {
         if (hudPresenters.sea && frame_.valid && answered_ != hudRevision_) return frame_.availableMask();

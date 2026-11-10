@@ -11,6 +11,8 @@ action, label}` (state channel `seaQuickAction`) and takes
 The native icon is hidden while the touch control of exactly this revision says it is
 drawn, and, when the UI declared itself the sea HUD presenter, until it has answered the
 revision at all. The word is said once per revision and lasts until the revision changes
-(no lease). A tap is accepted once
+(no lease). A UI that leaves a revision unanswered for 10 s of engine time, or whose
+runtime failure the platform host reports (`hudowner:lost`), is withdrawn as presenter
+with an error line, and the native parts come back. A tap is accepted once
 per revision, for the covered action only; another target, owner or Activity makes a new
 revision, so duplicate and stale taps do nothing.

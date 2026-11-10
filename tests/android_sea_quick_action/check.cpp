@@ -64,6 +64,31 @@ int main()
     assert(state.offer(request(state, "ack", "1"), 60000) && state.covered(19) && state.offer(request(state, "activate", "Board"), 60001));
     hudPresenters.sea = false;
 
+    // The UI never answers (a hung or broken runtime): the native icon must not stay hidden
+    // forever. The engine loop watches the unanswered revision and withdraws the presenter
+    // loudly; answers that still come keep working.
+    {
+        SeaQuickActionState silent;
+        assert(hudPresenters.declare("sea"));
+        silent.update(frame("Moor"));
+        assert(silent.awaiting() && silent.covered(19));
+        assert(!hudPresenters.watch("sea", silent.awaiting(), 1000));
+        assert(!hudPresenters.watch("sea", silent.awaiting(), 1000 + HudPresenters::kSilentMs - 1) && silent.covered(19));
+        const auto line = hudPresenters.watch("sea", silent.awaiting(), 1000 + HudPresenters::kSilentMs);
+        assert(line && line->find("HUD presenter sea withdrawn") != std::string::npos && line->find("native parts are back") != std::string::npos);
+        assert(!hudPresenters.sea && !silent.covered(19)); // native back
+        assert(!hudPresenters.watch("sea", silent.awaiting(), 60000)); // said once
+        assert(silent.offer(request(silent, "ack", "1"), 60001) && silent.covered(19)); // a late answer still covers
+
+        // Answers in time reset the watch; a UI runtime failure reported by the host withdraws at once.
+        assert(hudPresenters.declare("sea"));
+        silent.update(frame("Board"));
+        assert(!hudPresenters.watch("sea", true, 100) && !hudPresenters.watch("sea", false, 9000) && !hudPresenters.watch("sea", true, 9500));
+        assert(!hudPresenters.watch("sea", true, 9500 + HudPresenters::kSilentMs - 1));
+        assert(hudPresenters.lost().find("UI runtime failed") != std::string::npos && !hudPresenters.sea && silent.awaiting() && !silent.covered(19));
+        assert(hudPresenters.lost().empty()); // nothing left to lose: no second line
+    }
+
     for (const auto *id : {"Map", "Moor", "Board", "LandTroops", "Reload"})
     {
         SeaQuickActionState one;
@@ -89,5 +114,5 @@ int main()
     SeaQuickActionState wrap; // SDL ticks wrap around
     wrap.update(frame());
     assert(wrap.offer(request(wrap, "ack", "1"), UINT32_MAX - 300) && wrap.offer(request(wrap, "activate", "Map"), 100) && wrap.consume(200) == "Map");
-    std::cout << "sea quick action: coverage until answered otherwise, presenter pending, exact single activation, stale target and tap, activity, unknown actions PASS\n";
+    std::cout << "sea quick action: coverage until answered otherwise, presenter pending, silent UI withdrawn loudly (native back), host-reported UI loss, exact single activation, stale target and tap, activity, unknown actions PASS\n";
 }

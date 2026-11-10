@@ -96,6 +96,8 @@ public:
     {
         return valid() && frame_.host == host && (covered_ || (hudPresenters.sea && answered_ != revision_));
     }
+    // A valid offer the UI has not answered yet (for HudPresenters::watch).
+    bool awaiting() const { return valid() && answered_ != revision_; }
     std::optional<std::string> consume(uint32_t tick)
     {
         if (!pending_) return {};

@@ -106,6 +106,7 @@ public:
     }
     void resetActivity() { ++activity_; covered_ = 0; answered_ = 0; pending_.clear();ackProof_=0;modal.owner(owner()); } // revision_ >= 1 once available
     const WorldMapFrame &frame() const { return frame_; }
+    bool awaiting() const { return frame_.available && answered_ != revision_; }
     uint64_t revision() const { return revision_; }
     bool covered(uint32_t mask, uint64_t owner) const
     {
