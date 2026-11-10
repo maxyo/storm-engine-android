@@ -1,6 +1,7 @@
 #include "sailors.h"
 
 #include <algorithm>
+#include <stdexcept>
 
 #include "animation.h"
 #include "core.h"
@@ -50,6 +51,7 @@ ShipMan & ShipMan::operator=(ShipMan &&other) noexcept
 {
     if (this == &other)
         return *this;
+    core.EraseEntity(modelID); // the model this sailor owned until now
     modelID = other.modelID;
     pos = std::move(other.pos);
     ang = std::move(other.ang);
@@ -76,13 +78,29 @@ ShipMan & ShipMan::operator=(ShipMan &&other) noexcept
     return *this;
 }
 
-ShipMan::ShipMan()
+ShipMan::ShipMan(const std::string &modelName) : modelID(core.CreateEntity("MODELR"))
 {
     pos = glm::vec3(0.0f, 11.0f, 30.0f);
     manSpeed = 0.1f;
     rotSpeed = 0.5f;
     mode = MAN_WALK;
     lastMode = MAN_OFF;
+
+    // A failed geometry load erases the model itself.
+    if (!core.Send_Message(modelID, "ls", MSG_MODEL_LOAD_GEO, modelName.c_str()))
+    {
+        throw std::runtime_error("cannot load sailor model '" + modelName + "'");
+    }
+    if (!core.Send_Message(modelID, "ls", MSG_MODEL_LOAD_ANI, "Lo_Man"))
+    {
+        core.EraseEntity(modelID);
+        throw std::runtime_error("cannot load animation 'Lo_Man'");
+    }
+}
+
+MODEL *ShipMan::Model() const
+{
+    return static_cast<MODEL *>(core.GetEntityPointer(modelID));
 }
 
 ShipMan::~ShipMan()
@@ -92,7 +110,7 @@ ShipMan::~ShipMan()
 
 void ShipMan::SetPos(MODEL *ship, SHIP_BASE *ship_base, uint32_t &dltTime, ShipState &shipState)
 {
-    if (auto model = static_cast<MODEL *>(core.GetEntityPointer(modelID)))
+    if (auto model = Model())
     {
         if (ship_base && (shipState.dead || jumpSpeedY))
         {
@@ -360,7 +378,7 @@ void ShipMan::ApplyTargetPoint(glm::vec3 pt, bool randomWalk)
 
 bool ShipMan::MoveToPosition(uint32_t &dltTime, SailorsPoints &sailorsPoints, ShipState &shipState)
 {
-    if (const auto model = static_cast<MODEL *>(core.GetEntityPointer(modelID)))
+    if (const auto model = Model())
     {
         const auto dNow = SQR(pos.x - ptTo.x) + SQR(pos.y - ptTo.y) + SQR(pos.z - ptTo.z);
 
@@ -445,7 +463,7 @@ bool ShipMan::Swim(uint32_t &dltTime, SailorsPoints &sailorsPoints, ShipState &s
 
 bool ShipMan::Stay(uint32_t &dltTime, SailorsPoints &sailorsPoints) const
 {
-    if (const auto model = static_cast<MODEL *>(core.GetEntityPointer(modelID)))
+    if (const auto model = Model())
     {
         return (!model->GetAnimation()->Player(0).IsPlaying());
     }
@@ -476,9 +494,9 @@ bool ShipMan::Jump(uint32_t &dltTime, SailorsPoints &sailorsPoints, ShipState &s
 
 void ShipMan::SetAnimation(uint32_t dltTime, ShipState &shipState)
 {
-    if (const auto model = static_cast<MODEL *>(core.GetEntityPointer(modelID)))
+    if (const auto model = Model())
     {
-        if (const auto ani = model->GetAnimation(); mode == lastMode && ani && ani->Player(0).IsPlaying())
+        if (mode == lastMode && model->GetAnimation()->Player(0).IsPlaying())
             return;
 
         switch (mode)
@@ -714,16 +732,7 @@ void ShipWalk::CreateNewMan(SailorsPoints &sailorsPoints)
         return;
     }
 
-    auto & man = shipMan.emplace_back();
-    man.modelID = core.CreateEntity("MODELR");
-    int modelIdx = rand() % std::size(shipManModels_);
-    core.Send_Message(man.modelID, "ls", MSG_MODEL_LOAD_GEO, shipManModels_[modelIdx].c_str());
-
-    if (!core.Send_Message(man.modelID, "ls", MSG_MODEL_LOAD_ANI, "Lo_Man"))
-    {
-        throw std::runtime_error("cannot load animation 'Lo_Man'");
-    }
-
+    auto &man = shipMan.emplace_back(shipManModels_[rand() % std::size(shipManModels_)]);
     man.SetAnimation(0, shipState);
 
     if (sailorsPoints.points.count > 0)
@@ -996,7 +1005,7 @@ void Sailors::Realize(uint32_t dltTime)
 
             if (!walk->bHide)
             {
-                if (const auto model = static_cast<MODEL *>(core.GetEntityPointer(man.modelID)))
+                if (const auto model = man.Model())
                 {
                     model->ProcessStage(Entity::Stage::realize, dltTime);
                 }

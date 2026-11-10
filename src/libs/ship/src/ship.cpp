@@ -1,6 +1,9 @@
 #include "ship.h"
 
 #include <chrono>
+#include <stdexcept>
+
+#include <fmt/format.h>
 
 #include "ai_flow_graph.h"
 #include "character.h"
@@ -11,6 +14,7 @@
 #include "shared/sea_ai/script_defines.h"
 #include "shared/sound.h"
 #include "ship_lights.h"
+#include "ship_script_protocol.hpp"
 #include "track.h"
 
 CREATE_CLASS(SHIP)
@@ -1339,7 +1343,26 @@ uint64_t SHIP::ProcessMessage(MESSAGE &message)
         break;
     }
     case MSG_SHIP_LIGHTSRESET: {
-        const auto bLight = message.Long() != 0;
+        bool bLight;
+        if (const auto flag = storm::ship::ReadLightsResetFlag(message))
+        {
+            bLight = *flag;
+        }
+        else
+        {
+            // Compatibility with the vanilla 1.7.3 scripts: they send only the message code, after
+            // Ship_SetLightsAndFlares has copied the weather's sea.lights into the character's
+            // ship.lights, so the light state is taken from there, as Mount does.
+            static bool reported = false;
+            if (!reported)
+            {
+                reported = true;
+                spdlog::info("MSG_SHIP_LIGHTSRESET without a light flag (vanilla 1.7.3 scripts): "
+                             "using the character's ship.lights");
+            }
+            const ATTRIBUTES *pALights = GetACharacter()->FindAClass(GetACharacter(), "ship.lights");
+            bLight = pALights && pALights->GetAttributeAsDword() != 0;
+        }
         if (const auto pShipsLights = static_cast<IShipLights *>(core.GetEntityPointer(shipLights)))
             pShipsLights->ResetLights(this, bLight);
         break;
@@ -1774,6 +1797,18 @@ float SHIP::Trace(const glm::vec3 &src, const glm::vec3 &dst)
     return pModel->Trace(src, dst);
 };
 
+ATTRIBUTES *SHIP::BallOwnerCharacter(int32_t iBallOwner)
+{
+    // Every ball carries the index of the character that fired it (AIBalls.CharacterIndex).
+    auto *pVCharacters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
+    const bool bIndexValid = pVCharacters && iBallOwner >= 0 &&
+                             static_cast<uint32_t>(iBallOwner) < pVCharacters->GetElementsNum();
+    ATTRIBUTES *pAOwner = bIndexValid ? pVCharacters->GetAClass(iBallOwner) : nullptr;
+    if (!pAOwner)
+        throw std::runtime_error(fmt::format("ball owner {} is not a character", iBallOwner));
+    return pAOwner;
+}
+
 float SHIP::Cannon_Trace(int32_t iBallOwner, const glm::vec3 &vSrc, const glm::vec3 &vDst)
 {
     MODEL *pModel = GetModel();
@@ -1811,8 +1846,11 @@ float SHIP::Cannon_Trace(int32_t iBallOwner, const glm::vec3 &vSrc, const glm::v
                 {
                     const glm::vec3 v1 = vSrc + fRes * (vDst - vSrc);
 
-                    VDATA *pV = core.Event(SHIP_HULL_DAMAGE, "llffffas", SHIP_HULL_TOUCH_BALL, pM->iHullNum, v1.x, v1.y,
-                                           v1.z, pM->fDamage, GetACharacter(), pM->pNode->GetName());
+                    MESSAGE event;
+                    storm::ship::ResetHullDamageEvent(event, pM->iHullNum, v1.x, v1.y, v1.z, pM->fDamage,
+                                                      GetACharacter(), BallOwnerCharacter(iBallOwner),
+                                                      pM->pNode->GetName());
+                    VDATA *pV = core.Event(SHIP_HULL_DAMAGE, event);
                     if (pV)
                     {
                         pM->fDamage = Clamp(pV->GetFloat());

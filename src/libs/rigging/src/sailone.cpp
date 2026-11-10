@@ -2067,6 +2067,6 @@ float SAILONE::GetDistanceFromPointTo3Point(const glm::vec3 &v, const glm::vec3 
     const glm::vec3 vN = storm::math::normalizeOrZero(glm::cross(vB1 - vB2, vB3 - vB2));
     const float fD = -glm::dot(vN, vB2);
 
-    const float f = glm::dot(v, vN + fD);
+    const float f = glm::dot(v, vN) + fD;
     return f;
 }
