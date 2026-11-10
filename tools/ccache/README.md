@@ -84,5 +84,12 @@ the reason). Configuration warns loudly, and every compile prints
 A `-D` value stays in the build directory's cache: end the exception with
 `cmake -U STORM_ALLOW_NO_CCACHE <build dir>`.
 
-Single-step compile-and-link checks in `tests/*/run.py` (`$CXX check.cpp -o check`) are not
-cacheable by ccache; they are small.
+## Scripts that run the compiler directly
+
+Checks in `tests/*/run.py` and `tools/android/test_*.py` that call `$CXX` themselves get
+`CXX=<repo>/tools/ccache/cxx` from `tools/ci/run_host_tests.py` and
+`tools/android/ci_dependencies.sh`; it runs `$STORM_CCACHE_CXX` (the real compiler, default
+`c++`) through the launcher. Running such a check by hand:
+`CXX=tools/ccache/cxx STORM_CCACHE_CXX=clang++ python3 tests/<name>/run.py`. Their `-c` compiles
+are cached; single-step compile-and-link commands (`$CXX check.cpp -o check`) are not cacheable
+by ccache, and are small.

@@ -2,6 +2,7 @@
 """Isolated synthetic audio checks; no game data, SDK download or terms acceptance."""
 import argparse
 import hashlib
+import os
 import pathlib
 import shutil
 import subprocess
@@ -10,7 +11,7 @@ import urllib.request
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser()
 p.add_argument('--build-dir', type=pathlib.Path, default=ROOT/'build/audio')
-p.add_argument('--cxx', default='g++')
+p.add_argument('--cxx', default=os.environ.get('CXX', 'g++'))
 p.add_argument('--compile-only', action='store_true')
 p.add_argument('--sanitize', action='store_true')
 a = p.parse_args()
