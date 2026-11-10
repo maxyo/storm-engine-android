@@ -50,6 +50,34 @@ struct AlchemySource
     std::vector<std::string> missing;
 };
 
+// The hero's free items and the pot of each component as the table shows them (column 1 and 5 of
+// the exported TABLE_LIST rows, in the order AddToTable lists the components). Returns why they
+// cannot be read ("" when they all were).
+inline std::string AlchemyFillCounts(const std::vector<MobileWidget> &widgets, std::vector<AlchemyComponent> &components)
+{
+    std::vector<const MobileWidget *> rows;
+    for (const auto &w : widgets)
+        if (w.node == "TABLE_LIST" && w.type == "choice")
+            rows.push_back(&w);
+    if (rows.size() != components.size())
+        return "table-pending:rows=" + std::to_string(rows.size()) + "/" + std::to_string(components.size());
+    const auto cell = [](const MobileWidget &row, int column) -> std::optional<int> {
+        for (const auto &c : row.cells)
+            if (c.column == column && !c.text.empty() && c.text.size() < 9 && c.text.find_first_not_of("0123456789") == std::string::npos)
+                return std::stoi(c.text);
+        return std::nullopt;
+    };
+    for (size_t i = 0; i < rows.size(); ++i)
+    {
+        const auto hero = cell(*rows[i], 0), pot = cell(*rows[i], 4);
+        if (!hero || !pot)
+            return "table-pending:cells#" + std::to_string(i + 1);
+        components[i].hero = *hero;
+        components[i].pot = *pot;
+    }
+    return {};
+}
+
 // Batches the hero's items and the pot allow together (alchemy.c CheckAlchemy over hero + pot).
 inline int AlchemyBatches(const std::vector<AlchemyComponent> &components)
 {

@@ -44,5 +44,30 @@ int main()
     assert(!ParseAlchemyAction("craft@7:cartridge=-1", "craft", 7, true) && !ParseAlchemyAction("craft@7:=1", "craft", 7, true));
     const auto choose = ParseAlchemyAction("choose@7:potion1", "choose", 7, false);
     assert(choose && choose->item == "potion1" && !ParseAlchemyAction("choose@7:", "choose", 7, false));
+    // Device state (cartridge, the hero holds 22 bullets and 28 powder, an empty pot): the counts come
+    // from the exported table rows as shown, so the screen is ready with 22 batches.
+    std::vector<MobileWidget> device{{"TABLE_LIST", "choice", "22\tКомпонент\tСвинцовые пули\t1\t0", "1", 0, 1, true},
+                                     {"TABLE_LIST", "choice", "28\tКомпонент\tГранулированный порох\t1\t0", "0", 1, 2, true}};
+    for (auto &row : device)
+    {
+        size_t start = 0;
+        for (int column = 0; column < 5; ++column)
+        {
+            const size_t tab = row.label.find('\t', start);
+            row.cells.push_back({column, row.label.substr(start, tab - start)});
+            start = tab + 1;
+        }
+    }
+    AlchemySource live;
+    live.recipes = {{"cartridge", "Бумажный патрон", "ammo", "ITEMS_18", "itm8", 0, 1}};
+    live.current = "cartridge";
+    live.components = {{"bullet", false, 1}, {"gunpowder", false, 1}};
+    live.busy = AlchemyFillCounts(device, live.components);
+    assert(live.busy.empty() && live.components[0].hero == 22 && live.components[1].hero == 28 && live.components[1].pot == 0);
+    CollectAlchemy(live, device);
+    assert(device.back().context.at("batches") == "22" && device.back().context.at("ready") == "1" && device.back().enabled);
+    // A table that does not list the recipe's components yet is not read.
+    std::vector<AlchemyComponent> three{{"a", false, 1}, {"b", false, 1}, {"c", false, 1}};
+    assert(AlchemyFillCounts(device, three) == "table-pending:rows=2/3");
     std::cout << MobileWidgetJson("alchemy", widgets, 7) << "\n";
 }
