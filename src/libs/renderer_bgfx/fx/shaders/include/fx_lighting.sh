@@ -10,6 +10,8 @@
 //   FX_LIGHT_POINT        the enabled D3D point / spot lights evaluated per pixel;
 //                         FX_LIGHT_POINT_MAX = 4 or 8 lights per draw call
 //   FX_LIGHT_SHADOW       sun shadow map; FX_LIGHT_SHADOW_SOFT = four taps instead of one
+//   FX_LIGHT_NORMALMAP    relief from a normal map derived from the game's height ("bump") texture
+//                         of texture stage 1; no mesh tangents needed
 //
 // Contract with the emulator's vertex shader when FX_LIGHT_PER_PIXEL is on:
 //   * pass the view-space normal and position to the fragment shader;
@@ -26,6 +28,14 @@
 // formulas, so a surface keeps its fixed-function brightness; only the
 // interpolation changes (per pixel instead of per vertex).
 //
+// FX_LIGHT_NORMALMAP (only for draw calls whose stage 1 texture has a derived normal map, bound with
+// fx::Lighting::BindNormalMap): replace the interpolated normal before any of the calls above,
+//   N = fxPerturbNormal(N, P, stage 1 texture coordinates);
+// The stage itself stays as it is (the 2x multiply detail layer of the original look). Cost per pixel:
+// one RG8 fetch, four screen-space derivatives, two cross products and two normalisations.
+// For baked geometry, which has no run-time sun term, multiply the baked colour instead:
+//   current.rgb *= fxBakedRelief(Ngeometry, N);
+//
 // Geometry drawn with D3DRS_LIGHTING off and baked vertex colours (static
 // location models, see src/libs/lighter) already contains the location's
 // lights. For it use FX_LIGHT_POINT alone, select lights with
@@ -40,7 +50,8 @@
 // [2] xyz: world up in VIEW space, w: translucency 0..1
 // [3] rgb: ambient from the sky, w: wrap 0..1 (softens the terminator)
 // [4] rgb: ambient from the ground / sea
-uniform vec4 u_fxLight[5];
+// [5] x: normal map strength for this material (0 = flat)
+uniform vec4 u_fxLight[6];
 
 #ifdef FX_LIGHT_PER_PIXEL
 // N: unit view-space normal facing the viewer side, V: unit vector to the eye.
@@ -78,6 +89,37 @@ vec3 fxSunSpecular(vec3 N, vec3 V)
 #endif
 }
 #endif // FX_LIGHT_PER_PIXEL
+
+#ifdef FX_LIGHT_NORMALMAP
+// Sampler stage 11 is reserved for the derived normal map (RG8: x, y of the tangent-space normal).
+SAMPLER2D(s_fxNormalMap, 11);
+
+// N: unit interpolated normal, P: position (both view space), uv: the height texture's coordinates.
+// The tangent frame comes from screen-space derivatives of P and uv (a cotangent frame), so meshes need no
+// tangents and mirrored or rotated texture mappings are handled by construction.
+vec3 fxPerturbNormal(vec3 N, vec3 P, vec2 uv)
+{
+    vec3 dpx = dFdx(P);
+    vec3 dpy = dFdy(P);
+    vec2 dux = dFdx(uv);
+    vec2 duy = dFdy(uv);
+    vec3 px = cross(dpy, N);
+    vec3 py = cross(N, dpx);
+    vec3 T = px * dux.x + py * duy.x; // direction of growing u on the surface
+    vec3 B = px * dux.y + py * duy.y; // direction of growing v
+    float scale = inversesqrt(max(max(dot(T, T), dot(B, B)), 1e-20));
+    vec2 n = (texture2D(s_fxNormalMap, uv).rg * 2.0 - vec2_splat(1.0)) * u_fxLight[5].x;
+    float nz = sqrt(max(1.0 - dot(n, n), 0.0));
+    return normalize(T * (scale * n.x) + B * (scale * n.y) + N * nz);
+}
+
+// Baked geometry: how much brighter or darker the relief makes a surface that was baked with normal Ng,
+// judged by the sun. Averages to 1 over a texture, so the baked brightness is kept.
+float fxBakedRelief(vec3 Ng, vec3 N)
+{
+    return clamp(1.0 + 1.6 * (dot(N, u_fxLight[0].xyz) - dot(Ng, u_fxLight[0].xyz)), 0.55, 1.5);
+}
+#endif // FX_LIGHT_NORMALMAP
 
 #ifdef FX_LIGHT_POINT
 #ifndef FX_LIGHT_POINT_MAX

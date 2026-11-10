@@ -6,6 +6,7 @@
 
 #include "storm/fx/light_set.hpp"
 #include "storm/fx/lighting_model.hpp"
+#include "storm/fx/normal_map.hpp"
 
 #include <bgfx/bgfx.h>
 
@@ -25,6 +26,13 @@ class Lighting
     // Sets u_fxPoint / u_fxPointCount for the next draw call of a FX_LIGHT_POINT variant.
     void Apply(const PointLightUniforms &uniforms);
 
+    // FX_LIGHT_NORMALMAP variants. CreateNormalMap() uploads a derived map (RG8 with mips; the caller owns
+    // and destroys the texture). BindNormalMap() binds it to sampler stage 11 for the next draw call with
+    // the sampler flags of the height texture's stage (wrap mode, anisotropy). A draw call whose stage 1
+    // holds no height map must use a variant without FX_LIGHT_NORMALMAP.
+    bgfx::TextureHandle CreateNormalMap(const NormalMap &map);
+    void BindNormalMap(bgfx::TextureHandle normal_map, uint32_t sampler_flags = BGFX_SAMPLER_NONE);
+
     // Most lights any single draw call had to leave out since the last TakeDroppedLights() because they did
     // not fit into the per-draw budget (Settings::point_lights). The first occurrence is also logged. Show
     // it in the debug overlay: a steady non-zero value means the budget is too small for the scene.
@@ -39,6 +47,8 @@ class Lighting
     bgfx::UniformHandle u_point_count_ = BGFX_INVALID_HANDLE;
     int dropped_ = 0;
     bool dropped_reported_ = false;
+    bgfx::UniformHandle s_normal_map_ = BGFX_INVALID_HANDLE;
+    bool normal_map_reported_ = false;
 };
 
 } // namespace storm::fx

@@ -20,6 +20,7 @@ struct Vertex
     float normal[3];
     uint32_t abgr;               // surface colour: the role the texture plays in the game
     uint32_t baked = 0xffffffffu; // lighting baked into the vertex colours of static geometry (white = none)
+    float uv[2] = {0.0f, 0.0f};   // coordinates of the detail / height texture (the game's second UV set)
 };
 
 struct Mesh
@@ -55,6 +56,19 @@ Harbour MakeHarbour();
 void BakeLighting(Mesh &mesh, const std::vector<storm::fx::PointLight> &lights, Color ambient);
 // Thin slanted bars, fan lines and a fine checker: content that aliases badly.
 Mesh MakeAliasingPattern();
+
+// Surfaces that carry a height ("bump") texture in the game, each with texture coordinates: a house wall,
+// a boulder, a plank deck and a sail.
+enum class Relief
+{
+    Wall,
+    Rock,
+    Deck,
+    Sail
+};
+Mesh MakeReliefMesh(Relief kind);
+// Procedural stand-in for the game's height texture of that surface: size * size grey values.
+std::vector<uint8_t> MakeHeightMap(Relief kind, int size);
 
 // Sea state resembling a fresh breeze in the game (two layers, values in the range of the Sea2 weather tables).
 storm::fx::EngineSeaState MakeSeaState(float time);

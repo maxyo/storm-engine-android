@@ -46,7 +46,8 @@ enum LightingFlags : uint32_t
     kLightingSpecular = 1u << 2,   // FX_LIGHT_SPECULAR: Blinn-Phong highlight
     kLightingTranslucent = 1u << 3, // FX_LIGHT_TRANSLUCENT: back-lit thin surfaces (sails, flags)
     kLightingPoint = 1u << 4,       // FX_LIGHT_POINT: point and spot lights evaluated per pixel
-    kLightingAll = 0x1f,
+    kLightingNormalMap = 1u << 5,   // FX_LIGHT_NORMALMAP: relief from normal maps derived from the game's bump textures
+    kLightingAll = 0x3f,
 };
 
 enum class ShadowQuality : uint8_t
@@ -86,6 +87,7 @@ struct Settings
     bool sky_clouds = false;
     uint32_t lighting_flags = kLightingNone;
     uint8_t point_lights = 4;      // per draw call with kLightingPoint: 4 or 8
+    float normal_map_strength = 1.0f; // with kLightingNormalMap: scales every material's relief (0..1)
     ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
 
     static Settings FromPreset(QualityPreset preset);
@@ -107,6 +109,7 @@ struct Support
     bool scene_snapshot = false; // two colour attachments: WaterQuality::High
     bool wave_field = false;    // RGBA16F texture readable in the vertex shader: Water::SubmitField
     bool scene_depth = false;   // the scene's depth attachment can be sampled: Settings::ssao, WaterQuality::High
+    bool normal_map = false;    // RG8 textures: kLightingNormalMap
 
     std::string Describe() const;
 };

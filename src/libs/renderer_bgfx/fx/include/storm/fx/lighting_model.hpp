@@ -28,7 +28,9 @@ struct LightingMaterial
     float specular_strength = 0.0f; // 0 disables the highlight
     float translucency = 0.0f;      // sails, flags: 0.4 .. 0.7
     float wrap = 0.0f;              // 0 = hard N·L like the legacy pipeline; skin / cloth: 0.15 .. 0.3
+    float relief = 0.0f;            // strength of the derived normal map: stone 1, wood 0.6, canvas 0.35
 
+    static LightingMaterial Stone();     // walls, rock, ground
     static LightingMaterial Hull();      // wet painted wood
     static LightingMaterial Sail();      // canvas
     static LightingMaterial Character(); // skin and cloth
@@ -36,11 +38,12 @@ struct LightingMaterial
 
 struct LightingUniforms
 {
-    std::array<std::array<float, 4>, 5> u_fxLight; // layout documented in fx_lighting.sh
+    std::array<std::array<float, 4>, 6> u_fxLight; // layout documented in fx_lighting.sh
 };
 
 // `sky` may be null: the hemisphere then has no colour tint.
-LightingUniforms ComputeLighting(const LightingInput &input, const LightingMaterial &material, const SkyState *sky);
+LightingUniforms ComputeLighting(const LightingInput &input, const LightingMaterial &material, const SkyState *sky,
+                                 const Settings &settings);
 
 // shaderc --define value for the lighting variant these settings ask for, e.g.
 // "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4". Empty = legacy path.

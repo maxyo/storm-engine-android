@@ -19,6 +19,7 @@ generates every texture it needs. It is not part of the engine build until the r
 | `include/storm/fx/sky.hpp` | `Sky`: sky pass and the atmosphere state shared with water and fog |
 | `include/storm/fx/lighting.hpp`, `shaders/include/fx_lighting.sh` | lighting flags and uniforms for the fixed-function emulator |
 | `include/storm/fx/light_set.hpp` | point / spot lights: selection per draw call, flash lights |
+| `include/storm/fx/normal_map.hpp` | normal maps derived from the game's height ("bump") textures; the rule that finds those textures |
 | `include/storm/fx/shadows.hpp` | `Shadows`: sun shadow map |
 | `include/storm/fx/capabilities.hpp`, `log.hpp` | what the device supports; error reporting |
 | `include/storm/fx/{color_lut,noise_bake,wave_model,water_grid,sky_model,lighting_model,shadow_model}.hpp` | CPU side, no GPU needed (`storm_bgfx_fx_core`) |
@@ -84,4 +85,7 @@ shadows fading out as the sun reaches the horizon.
 All colour targets are gamma-encoded RGBA8, like the legacy pipeline; no float render targets are required.
 After a lost context call `OnDeviceLost()` on each object; resources are re-created on the next use.
 Sampler stages 5 and 6 belong to `fx_atmosphere.sh`, stages 8 and 9 (vertex shader) to the sea height field,
-stage 10 to the shadow map.
+stage 10 to the shadow map, stage 11 to the derived normal map.
+
+Normal maps are derived on the device from the player's own textures (`DeriveNormalMap`, deterministic, RG8
+with mips). Cache them on the device; never ship or commit them.

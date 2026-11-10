@@ -33,6 +33,7 @@ bool SupportsLut3d();
 bool SupportsShadowMap();
 bool SupportsSceneSnapshot();
 bool SupportsWaveField();
+bool SupportsNormalMap();
 
 inline constexpr uint32_t kClampLinear = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_W_CLAMP;
 inline constexpr uint32_t kClampPoint = kClampLinear | BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT | BGFX_SAMPLER_MIP_POINT;

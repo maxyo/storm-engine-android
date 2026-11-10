@@ -19,7 +19,7 @@ include(shaders/shaders.cmake)
 
 add_library(storm_bgfx_fx_core STATIC
     src/color_lut.cpp src/noise_bake.cpp src/wave_model.cpp src/water_grid.cpp src/sky_model.cpp
-    src/lighting_model.cpp src/light_set.cpp src/shadow_model.cpp src/settings.cpp src/log.cpp)
+    src/lighting_model.cpp src/light_set.cpp src/shadow_model.cpp src/normal_map.cpp src/settings.cpp src/log.cpp)
 target_compile_features(storm_bgfx_fx_core PUBLIC cxx_std_20)
 target_include_directories(storm_bgfx_fx_core PUBLIC include)
 set_target_properties(storm_bgfx_fx_core PROPERTIES POSITION_INDEPENDENT_CODE ON)

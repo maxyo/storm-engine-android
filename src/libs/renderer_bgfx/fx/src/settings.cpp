@@ -20,8 +20,9 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.bloom_levels = 3;
         s.bloom_intensity = 0.30f;
         s.water = WaterQuality::Medium;
-        s.lighting_flags = kLightingPerPixel | kLightingHemisphere | kLightingPoint;
+        s.lighting_flags = kLightingPerPixel | kLightingHemisphere | kLightingPoint | kLightingNormalMap;
         s.point_lights = 4;
+        s.normal_map_strength = 0.6f;
         s.shadows = ShadowQuality::Low;
         return s;
     }
@@ -58,6 +59,8 @@ std::string Support::Describe() const
     text += word(wave_field);
     text += ", sampleable scene depth: ";
     text += word(scene_depth);
+    text += ", RG8 normal maps: ";
+    text += word(normal_map);
     return text;
 }
 
@@ -101,6 +104,13 @@ constexpr Rule kRules[] = {
      [](Settings &s) { s.shadows = ShadowQuality::Off; }, "sun shadows need per-pixel lighting: switched off"},
     {[](const Settings &s, const Support &c) { return s.shadows != ShadowQuality::Off && !c.shadow_map; },
      [](Settings &s) { s.shadows = ShadowQuality::Off; }, "sun shadows need a D16 depth render target: switched off"},
+    {[](const Settings &s, const Support &c) { return (s.lighting_flags & kLightingNormalMap) && !c.normal_map; },
+     [](Settings &s) { s.lighting_flags &= ~static_cast<uint32_t>(kLightingNormalMap); }, "normal maps need RG8 textures: switched off"},
+    {[](const Settings &s, const Support &) {
+         return (s.lighting_flags & kLightingNormalMap) && !(s.lighting_flags & (kLightingPerPixel | kLightingPoint));
+     },
+     [](Settings &s) { s.lighting_flags &= ~static_cast<uint32_t>(kLightingNormalMap); },
+     "normal maps need per-pixel lighting or per-pixel point lights: switched off"},
     {[](const Settings &s, const Support &) { return (s.lighting_flags & kLightingPoint) && s.point_lights != 4 && s.point_lights != 8; },
      [](Settings &s) { s.point_lights = s.point_lights > 4 ? 8 : 4; }, "point lights per draw call must be 4 or 8: rounded"},
 };

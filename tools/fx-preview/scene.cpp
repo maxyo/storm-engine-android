@@ -45,7 +45,7 @@ template <typename Surface> Mesh MakeSurface(int nu, int nv, Surface &&surface, 
                                    surface(std::min(u + e, 1.0f), v) - surface(std::max(u - e, 0.0f), v)));
             if (flip)
                 n = n * -1.0f;
-            mesh.vertices.push_back({{p.x, p.y, p.z}, {n.x, n.y, n.z}, Pack(color)});
+            mesh.vertices.push_back({{p.x, p.y, p.z}, {n.x, n.y, n.z}, Pack(color), 0xffffffffu, {u, v}});
         }
     for (int j = 0; j < nv; ++j)
         for (int i = 0; i < nu; ++i)
@@ -84,6 +84,97 @@ void Transform(Mesh &mesh, std::array<float, 3> origin, float heading)
     }
 }
 } // namespace
+
+Mesh MakeReliefMesh(Relief kind)
+{
+    Mesh mesh;
+    float tile_u = 1.0f, tile_v = 1.0f;
+    switch (kind)
+    {
+    case Relief::Wall: // 7 x 4.5 m plastered stone wall
+        mesh = MakeSurface(
+            2, 2, [](float u, float v) { return V3{-8.5f + 7.0f * u, 4.5f * v, 6.0f - 1.2f * u}; }, {0.74f, 0.68f, 0.58f}, true);
+        tile_u = 2.4f, tile_v = 1.5f;
+        break;
+    case Relief::Rock: // boulder
+        mesh = MakeSurface(
+            48, 24,
+            [](float u, float v) {
+                const float a = u * 2.0f * kPi, b = (v - 0.5f) * kPi;
+                const float r = 1.5f * (1.0f + 0.22f * storm::fx::PeriodicFbm(u, 0.5f * v, 3, 3, 21u));
+                return V3{0.6f + r * std::cos(b) * std::cos(a), 0.9f + 0.75f * r * std::sin(b), 4.2f + r * std::cos(b) * std::sin(a)};
+            },
+            {0.52f, 0.50f, 0.47f});
+        tile_u = 3.0f, tile_v = 1.5f;
+        break;
+    case Relief::Deck: // planks
+        mesh = MakeSurface(
+            2, 2, [](float u, float v) { return V3{-9.0f + 18.0f * u, 0.0f, -2.0f + 9.0f * v}; }, {0.58f, 0.44f, 0.29f}, true);
+        tile_u = 6.0f, tile_v = 3.0f;
+        break;
+    case Relief::Sail:
+        mesh = MakeSurface(
+            24, 20,
+            [](float u, float v) {
+                const float s = u * 2.0f - 1.0f;
+                return V3{6.0f + 2.3f * s, 0.6f + 4.6f * v, 5.2f + 0.9f * (1.0f - s * s) * std::sin(v * kPi) + 0.5f * s};
+            },
+            {0.88f, 0.84f, 0.72f}, true);
+        tile_u = 2.0f, tile_v = 4.0f;
+        break;
+    }
+    for (Vertex &v : mesh.vertices)
+    {
+        v.uv[0] *= tile_u;
+        v.uv[1] *= tile_v;
+    }
+    return mesh;
+}
+
+std::vector<uint8_t> MakeHeightMap(Relief kind, int size)
+{
+    std::vector<uint8_t> height(static_cast<size_t>(size) * size);
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x)
+        {
+            const float u = (x + 0.5f) / size, v = (y + 0.5f) / size;
+            float h = 0.5f;
+            const float grain = storm::fx::PeriodicFbm(u, v, 16, 3, 7u + static_cast<uint32_t>(kind));
+            switch (kind)
+            {
+            case Relief::Wall:
+            {
+                // Coursed stone: four rows, every other row shifted by half a block, mortar joints recessed.
+                const float row = v * 4.0f, column = u * 3.0f + (static_cast<int>(row) % 2 ? 0.5f : 0.0f);
+                const float jr = std::fabs(row - std::floor(row) - 0.5f), jc = std::fabs(column - std::floor(column) - 0.5f);
+                const float joint = std::min(1.0f, std::min(0.5f - jr, 0.5f - jc) * 14.0f);
+                h = 0.25f + 0.5f * joint + 0.12f * grain + 0.08f * storm::fx::PeriodicFbm(u, v, 4, 2, 3u);
+                break;
+            }
+            case Relief::Rock:
+            {
+                const float ridges = 1.0f - std::fabs(storm::fx::PeriodicFbm(u, v, 4, 4, 11u));
+                h = 0.15f + 0.6f * ridges * ridges + 0.15f * grain;
+                break;
+            }
+            case Relief::Deck:
+            {
+                // Eight planks across v with narrow seams, wood grain along u.
+                const float plank = v * 8.0f, seam = std::fabs(plank - std::floor(plank) - 0.5f);
+                h = 0.3f + 0.4f * std::min(1.0f, (0.5f - seam) * 12.0f) + 0.10f * storm::fx::PeriodicFbm(u * 0.25f, v, 32, 2, 5u) +
+                    0.05f * grain;
+                break;
+            }
+            case Relief::Sail:
+                // Canvas weave with seams between the cloths.
+                h = 0.5f + 0.10f * std::sin(u * 2.0f * kPi * 48.0f) * std::sin(v * 2.0f * kPi * 48.0f) +
+                    0.22f * std::pow(std::fabs(std::sin(u * kPi * 4.0f)), 24.0f) + 0.05f * grain;
+                break;
+            }
+            height[static_cast<size_t>(y) * size + x] = static_cast<uint8_t>(std::lround(std::clamp(h, 0.0f, 1.0f) * 255.0f));
+        }
+    return height;
+}
 
 Harbour MakeHarbour()
 {

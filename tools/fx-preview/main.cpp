@@ -24,7 +24,10 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <array>
+#include <cstdlib>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "preview_shaders/includes.inc"
@@ -64,6 +67,9 @@ struct GpuMesh
     bgfx::IndexBufferHandle indices = BGFX_INVALID_HANDLE;
     fx::Vec3 center{0.0f, 0.0f, 0.0f}; // bounding sphere, for light selection
     float radius = 0.0f;
+    // Stage 1 of the game's materials: the height texture as a detail layer, and the normal map derived from it.
+    bgfx::TextureHandle detail = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE;
 
     void Set(const preview::Mesh &mesh)
     {
@@ -76,6 +82,7 @@ struct GpuMesh
             .add(bgfx::Attrib::Normal, 3, bgfx::AttribType::Float)
             .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
             .add(bgfx::Attrib::Color1, 4, bgfx::AttribType::Uint8, true)
+            .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
             .end();
         fx::Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
         for (const preview::Vertex &v : mesh.vertices)
@@ -109,6 +116,7 @@ enum class Content
     Deck,     // ship and a figure close up: lighting, shadows, ambient occlusion
     Harbour,  // night quay with torches, lanterns, a figure and a moored ship: point lights, bloom
     Broadside, // a ship firing its guns at dusk: flash lights
+    Materials, // wall, boulder, plank deck and sail with height textures: derived normal maps
     Pattern,  // aliasing test chart
 };
 
@@ -128,6 +136,7 @@ struct Shot
     float render_scale = 1.0f;
     WaterSource source = WaterSource::Field;
     bool env_cube = false;
+    float sun_turn = 0.0f; // rotates the sun around the vertical axis, degrees
 };
 
 // Vertex + fragment pair of the fixed-function stand-in per lighting variant, keyed by fx::LightingDefines().
@@ -145,16 +154,43 @@ constexpr MeshVariant kMeshVariants[] = {
 #undef PREVIEW_VARIANT
 };
 
+// Binary PGM (P5, 8 bit), the simplest container for a grey height map.
+std::vector<uint8_t> ReadPgm(const std::string &path, int &width, int &height)
+{
+    std::vector<uint8_t> pixels;
+    if (FILE *file = std::fopen(path.c_str(), "rb"))
+    {
+        int max_value = 0;
+        if (std::fscanf(file, "P5 %d %d %d", &width, &height, &max_value) == 3 && max_value == 255 && width > 0 && height > 0)
+        {
+            std::fgetc(file);
+            pixels.resize(static_cast<size_t>(width) * height);
+            if (std::fread(pixels.data(), 1, pixels.size(), file) != pixels.size())
+                pixels.clear();
+        }
+        std::fclose(file);
+    }
+    if (pixels.empty())
+    {
+        std::printf("cannot read height map %s (binary 8-bit PGM expected)\n", path.c_str());
+        std::exit(1);
+    }
+    return pixels;
+}
+
 class Preview
 {
   public:
-    explicit Preview(std::string out_dir) : out_dir_(std::move(out_dir))
+    // `height_map_dir`: optional folder with bump_houses.pgm, rockBump.pgm, woodBump.pgm and sailBumpU1.pgm
+    // (binary PGM) converted from the player's game for local look-dev; empty = procedural stand-ins.
+    Preview(std::string out_dir, const std::string &height_map_dir) : out_dir_(std::move(out_dir))
     {
         for (const MeshVariant &variant : kMeshVariants)
             programs_.push_back(bgfx::createProgram(bgfx::createShader(bgfx::makeRef(variant.vs, variant.vs_size)),
                                                     bgfx::createShader(bgfx::makeRef(variant.fs, variant.fs_size)), true));
         u_point_ = bgfx::createUniform("u_previewPoint", bgfx::UniformType::Vec4, fx::kMaxPointLights * 4);
         u_point_count_ = bgfx::createUniform("u_previewPointCount", bgfx::UniformType::Vec4);
+        s_detail_ = bgfx::createUniform("s_previewDetail", bgfx::UniformType::Sampler);
         u_light_ = bgfx::createUniform("u_previewLight", bgfx::UniformType::Vec4, 3);
         // bgfx without a window has no back buffer: the final image goes to a frame buffer and is read back.
         output_fb_ = bgfx::createFrameBuffer(kWidth, kHeight, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
@@ -208,6 +244,29 @@ class Preview
         }
         muzzle_fire_.Set(fire);
         pattern_.Set(preview::MakeAliasingPattern());
+
+        // Height textures and the normal maps derived from them.
+        const uint8_t neutral = 128; // 2x multiply by 0.5 changes nothing
+        neutral_detail_ = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::R8, BGFX_SAMPLER_NONE, bgfx::copy(&neutral, 1));
+        flat_normal_map_ = lighting_.CreateNormalMap(fx::DeriveNormalMap({&neutral, 1}, 1, 1));
+        const std::pair<preview::Relief, const char *> reliefs[] = {{preview::Relief::Wall, "bump_houses"},
+                                                                    {preview::Relief::Rock, "rockBump"},
+                                                                    {preview::Relief::Deck, "woodBump"},
+                                                                    {preview::Relief::Sail, "sailBumpU1"}};
+        for (size_t i = 0; i < 4; ++i)
+        {
+            int width = 256, height = 256;
+            std::vector<uint8_t> pixels;
+            if (height_map_dir.empty())
+                pixels = preview::MakeHeightMap(reliefs[i].first, width);
+            else
+                pixels = ReadPgm(height_map_dir + "/" + reliefs[i].second + ".pgm", width, height);
+            relief_cpu_[i] = preview::MakeReliefMesh(reliefs[i].first);
+            relief_detail_[i] = bgfx::createTexture2D(static_cast<uint16_t>(width), static_cast<uint16_t>(height), false, 1,
+                                                      bgfx::TextureFormat::R8, BGFX_SAMPLER_NONE,
+                                                      bgfx::copy(pixels.data(), static_cast<uint32_t>(pixels.size())));
+            relief_normal_[i] = lighting_.CreateNormalMap(fx::DeriveNormalMap(pixels, width, height));
+        }
     }
 
     ~Preview()
@@ -221,6 +280,15 @@ class Preview
         bgfx::destroy(u_light_);
         bgfx::destroy(u_point_);
         bgfx::destroy(u_point_count_);
+        bgfx::destroy(s_detail_);
+        bgfx::destroy(neutral_detail_);
+        bgfx::destroy(flat_normal_map_);
+        for (bgfx::TextureHandle texture : relief_detail_)
+            bgfx::destroy(texture);
+        for (bgfx::TextureHandle texture : relief_normal_)
+            bgfx::destroy(texture);
+        for (GpuMesh &mesh : relief_)
+            mesh.Reset();
         bgfx::destroy(output_fb_);
         bgfx::destroy(readback_);
         if (bgfx::isValid(scene_fb_))
@@ -241,8 +309,7 @@ class Preview
         const auto scene_h = static_cast<uint16_t>(std::lround(kHeight * shot.render_scale));
         EnsureSceneTarget(scene_w, scene_h);
 
-        // The lighting scene is lit from behind the camera's left shoulder; the sea scenes look towards the sun.
-        const fx::WeatherInput weather = preview::MakeWeather(shot.weather, shot.content == Content::Deck ? 215.0f : 0.0f);
+        const fx::WeatherInput weather = preview::MakeWeather(shot.weather, shot.sun_turn);
         sky_.Update(weather, kTime);
         const fx::SkyState &sky_state = sky_.State();
 
@@ -269,6 +336,11 @@ class Preview
             eye = {-7.0f, 4.6f, 24.0f};
             at = {4.0f, 6.0f, 46.0f};
             fov = 62.0f;
+            break;
+        case Content::Materials:
+            eye = {-0.5f, 2.6f, -6.0f};
+            at = {-0.5f, 1.9f, 5.0f};
+            fov = 60.0f;
             break;
         case Content::Pattern:
             eye = {0.0f, 0.0f, -11.0f};
@@ -310,6 +382,17 @@ class Preview
             lights = town_lights_;
         if (shot.content == Content::Broadside)
             flashes_.AppendTo(lights);
+        if (shot.content == Content::Materials && night)
+        {
+            fx::PointLight torch; // a torch held between the wall and the boulder
+            torch.position = {-2.6f, 2.3f, 3.6f};
+            torch.color = {1.3f, 0.8f, 0.36f};
+            torch.range = 14.0f;
+            torch.att0 = 0.35f;
+            torch.att1 = 0.10f;
+            torch.att2 = 0.035f;
+            lights.push_back(torch);
+        }
 
         // Lighting variant of the fixed-function stand-in for these settings.
         const std::string defines = fx::LightingDefines(settings);
@@ -332,11 +415,32 @@ class Preview
             casters = {&quay_, &figure_, &moored_hull_, &moored_sails_}, focus = {2.0f, 3.0f, 16.0f};
         else if (shot.content == Content::Broadside)
             casters = {&firing_hull_, &firing_sails_}, focus = firing_hull_.center;
+        else if (shot.content == Content::Materials)
+        {
+            // The wall is static location geometry: its sun and ambient light are baked into the vertex colours.
+            preview::Mesh wall = relief_cpu_[0];
+            for (preview::Vertex &v : wall.vertices)
+            {
+                const float ndl = std::max(v.normal[0] * light_dir[0] + v.normal[1] * light_dir[1] + v.normal[2] * light_dir[2], 0.0f);
+                uint32_t packed = 0xff000000u;
+                for (int c = 0; c < 3; ++c)
+                    packed |= static_cast<uint32_t>(std::lround(std::clamp(weather.ambient_color[c] + weather.sun_color[c] * ndl, 0.0f, 1.0f) * 255.0f)) << (8 * c);
+                v.baked = packed;
+            }
+            for (size_t i = 0; i < 4; ++i)
+            {
+                relief_[i].Set(i == 0 ? wall : relief_cpu_[i]);
+                relief_[i].detail = relief_detail_[i];
+                relief_[i].normal_map = relief_normal_[i];
+            }
+            casters = {&relief_[1], &relief_[3]};
+            focus = {0.0f, 1.0f, 3.0f};
+        }
         fx::ShadowFrame shadow_frame;
         shadow_frame.view = kShadowView;
         shadow_frame.sun_dir = light_dir;
         shadow_frame.focus = focus;
-        shadow_frame.radius = shot.content == Content::Deck ? 34.0f : 60.0f;
+        shadow_frame.radius = shot.content == Content::Deck ? 34.0f : shot.content == Content::Materials ? 16.0f : 60.0f;
         std::copy_n(view, 16, shadow_frame.camera_view.begin());
         if (shadows_.Begin(settings, shadow_frame))
             for (const GpuMesh *mesh : casters)
@@ -351,7 +455,9 @@ class Preview
         const auto draw = [&](const GpuMesh &mesh, const fx::LightingMaterial *material) {
             if (!bgfx::isValid(mesh.vertices))
                 return;
-            const fx::LightingUniforms uniforms = fx::ComputeLighting(lighting, material ? *material : fx::LightingMaterial{}, &sky_state);
+            // Baked geometry has no material of its own; its relief strength is that of stone.
+            const fx::LightingUniforms uniforms =
+                fx::ComputeLighting(lighting, material ? *material : fx::LightingMaterial::Stone(), &sky_state, settings);
             const float light[3][4] = {
                 {uniforms.u_fxLight[0][0], uniforms.u_fxLight[0][1], uniforms.u_fxLight[0][2], material ? 1.0f : 0.0f},
                 {lighting.sun_diffuse[0], lighting.sun_diffuse[1], lighting.sun_diffuse[2], 0.0f},
@@ -376,15 +482,20 @@ class Preview
             }
             if (settings.shadows != fx::ShadowQuality::Off && (settings.lighting_flags & fx::kLightingPerPixel))
                 shadows_.Bind();
+            bgfx::setTexture(1, s_detail_, bgfx::isValid(mesh.detail) ? mesh.detail : neutral_detail_);
+            // The game selects a normal-mapped variant only for materials with a height texture; this tool has
+            // one variant per shot and gives the other meshes a flat map instead.
+            if (settings.lighting_flags & fx::kLightingNormalMap)
+                lighting_.BindNormalMap(bgfx::isValid(mesh.normal_map) ? mesh.normal_map : flat_normal_map_);
             bgfx::setVertexBuffer(0, mesh.vertices);
             bgfx::setIndexBuffer(mesh.indices);
             bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS);
             bgfx::submit(kSceneView, programs_[variant]);
         };
         const fx::LightingMaterial hull = fx::LightingMaterial::Hull(), sail = fx::LightingMaterial::Sail(),
-                                   character = fx::LightingMaterial::Character(), matte{};
+                                   character = fx::LightingMaterial::Character(), stone = fx::LightingMaterial::Stone(), matte{};
 
-        const bool has_sea = shot.content != Content::Pattern;
+        const bool has_sea = shot.content != Content::Pattern && shot.content != Content::Materials;
         if (shot.content == Content::Ocean || shot.content == Content::Shore)
         {
             draw(island_, &matte);
@@ -405,6 +516,13 @@ class Preview
             draw(harbour_figure_, &character);
             draw(harbour_hull_, &hull);
             draw(harbour_sails_, &sail);
+        }
+        else if (shot.content == Content::Materials)
+        {
+            draw(relief_[0], nullptr);
+            draw(relief_[1], &stone);
+            draw(relief_[2], &hull);
+            draw(relief_[3], &sail);
         }
         else if (shot.content == Content::Broadside)
         {
@@ -671,7 +789,11 @@ class Preview
     fx::EngineWaveField field_;
     fx::EngineSeaState sea_;
     std::vector<bgfx::ProgramHandle> programs_; // parallel to kMeshVariants
-    bgfx::UniformHandle u_light_, u_point_, u_point_count_;
+    bgfx::UniformHandle u_light_, u_point_, u_point_count_, s_detail_;
+    bgfx::TextureHandle neutral_detail_ = BGFX_INVALID_HANDLE, flat_normal_map_ = BGFX_INVALID_HANDLE;
+    std::array<preview::Mesh, 4> relief_cpu_;
+    std::array<GpuMesh, 4> relief_;
+    std::array<bgfx::TextureHandle, 4> relief_detail_{}, relief_normal_{};
     bgfx::FrameBufferHandle scene_fb_ = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle output_fb_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle readback_ = BGFX_INVALID_HANDLE;
@@ -766,7 +888,7 @@ void WriteCpuImages(const std::string &dir)
                 detail_ms, cloud_ms, sky_ms, lut_ms, pack_ms);
 }
 
-std::vector<Shot> AllShots()
+std::vector<Shot> AllShots(bool game_height_maps)
 {
     using fx::QualityPreset;
     const fx::Settings original = fx::Settings::FromPreset(QualityPreset::Original);
@@ -775,6 +897,8 @@ std::vector<Shot> AllShots()
     std::vector<Shot> shots;
     const auto add = [&](std::string name, Content content, fx::Settings settings, preview::Weather weather = preview::Weather::Day) -> Shot & {
         shots.push_back({std::move(name), content, settings, weather});
+        // The quay is lit from behind the camera's left shoulder; the sea scenes look towards the sun.
+        shots.back().sun_turn = content == Content::Deck ? 215.0f : 0.0f;
         return shots.back();
     };
 
@@ -875,6 +999,19 @@ std::vector<Shot> AllShots()
     add("ssao_0_off", Content::Deck, shadowed);
     add("ssao_1_on", Content::Deck, high);
 
+    // Normal maps derived from height textures: the sun in two positions, then a torch at night.
+    fx::Settings flat = high;
+    flat.lighting_flags &= ~static_cast<uint32_t>(fx::kLightingNormalMap);
+    const std::string suffix = game_height_maps ? "_game" : "";
+    const std::tuple<const char *, preview::Weather, float> relief_lights[] = {
+        {"sun_left", preview::Weather::Day, 240.0f}, {"sun_right", preview::Weather::Day, 130.0f}, {"torch", preview::Weather::Night, 0.0f}};
+    for (const auto &[light, weather, turn] : relief_lights)
+    {
+        add(std::string("normalmap_") + light + "_0_off" + suffix, Content::Materials, flat, weather).sun_turn = turn;
+        add(std::string("normalmap_") + light + "_1_medium" + suffix, Content::Materials, medium, weather).sun_turn = turn;
+        add(std::string("normalmap_") + light + "_2_high" + suffix, Content::Materials, high, weather).sun_turn = turn;
+    }
+
     // Anti-aliasing, sharpening and dynamic resolution on the test chart.
     add("aa_0_off", Content::Pattern, original);
     fx::Settings aa = original;
@@ -893,11 +1030,19 @@ int main(int argc, char **argv)
 {
     if (argc < 2)
     {
-        std::printf("usage: fx_preview <output directory> [name filter]\n");
+        std::printf("usage: fx_preview <output directory> [name filter] [--height-maps=<folder with .pgm files>]\n");
         return 2;
     }
     const std::string out_dir = argv[1];
-    const std::string filter = argc > 2 ? argv[2] : "";
+    std::string filter, height_map_dir;
+    for (int i = 2; i < argc; ++i)
+    {
+        const std::string argument = argv[i];
+        if (argument.rfind("--height-maps=", 0) == 0)
+            height_map_dir = argument.substr(14);
+        else
+            filter = argument;
+    }
     std::filesystem::create_directories(out_dir);
 
     bgfx::Init init;
@@ -921,9 +1066,9 @@ int main(int argc, char **argv)
     if (filter.empty())
         WriteCpuImages(out_dir);
     {
-        Preview preview(out_dir);
+        Preview preview(out_dir, height_map_dir);
         std::vector<uint8_t> field, mesh;
-        for (Shot shot : AllShots())
+        for (Shot shot : AllShots(!height_map_dir.empty()))
         {
             if (!filter.empty() && shot.name.find(filter) == std::string::npos)
                 continue;

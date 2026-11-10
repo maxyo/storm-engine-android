@@ -5,7 +5,9 @@
 #include "storm/fx/color_lut.hpp"
 #include "storm/fx/light_set.hpp"
 #include "storm/fx/lighting_model.hpp"
+#include "storm/fx/log.hpp"
 #include "storm/fx/noise_bake.hpp"
+#include "storm/fx/normal_map.hpp"
 #include "storm/fx/settings.hpp"
 #include "storm/fx/shadow_model.hpp"
 #include "storm/fx/sky_model.hpp"
@@ -454,7 +456,7 @@ void CheckLighting()
     input.sun_diffuse = {0.9f, 0.8f, 0.7f};
     input.ambient = {0.4f, 0.4f, 0.4f};
     input.view = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-    const LightingUniforms plain = ComputeLighting(input, LightingMaterial::Hull(), nullptr);
+    const LightingUniforms plain = ComputeLighting(input, LightingMaterial::Hull(), nullptr, Settings{});
     CHECK(Near(plain.u_fxLight[0][0], 0.6f, 1e-6f) && Near(plain.u_fxLight[0][1], 0.8f, 1e-6f));
     CHECK(Near(plain.u_fxLight[2][1], 1.0f, 1e-6f));
     // Sky and ground ambient average to the flat ambient the legacy pipeline used.
@@ -465,14 +467,20 @@ void CheckLighting()
 
     // A rotated camera rotates the vectors, not their length.
     input.view = {0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, 0, 5, 6, 7, 1};
-    const LightingUniforms rotated = ComputeLighting(input, LightingMaterial::Sail(), nullptr);
+    const LightingUniforms rotated = ComputeLighting(input, LightingMaterial::Sail(), nullptr, Settings{});
     CHECK(Near(rotated.u_fxLight[0][2], 0.6f, 1e-6f) && Near(rotated.u_fxLight[0][1], 0.8f, 1e-6f));
     CHECK(rotated.u_fxLight[2][3] == LightingMaterial::Sail().translucency);
 
     // With a sky the upper hemisphere takes its hue (bluer than the lower one).
     SkyState sky;
     sky.dome = {0.2f, 0.4f, 0.8f};
-    const LightingUniforms tinted = ComputeLighting(input, LightingMaterial::Character(), &sky);
+    const LightingUniforms tinted = ComputeLighting(input, LightingMaterial::Character(), &sky, Settings{});
+    // Relief strength: per material, scaled by the preset; stone > wood > canvas, none on characters.
+    Settings half;
+    half.normal_map_strength = 0.5f;
+    CHECK(Near(ComputeLighting(input, LightingMaterial::Stone(), nullptr, half).u_fxLight[5][0], 0.5f, 1e-6f));
+    CHECK(LightingMaterial::Stone().relief > LightingMaterial::Hull().relief && LightingMaterial::Hull().relief > LightingMaterial::Sail().relief);
+    CHECK(tinted.u_fxLight[5][0] == 0.0f);
     CHECK(tinted.u_fxLight[3][2] > tinted.u_fxLight[3][0]);
     CHECK(tinted.u_fxLight[4][0] > tinted.u_fxLight[4][2]);
 
@@ -483,10 +491,10 @@ void CheckLighting()
     s.lighting_flags = kLightingPoint; // baked geometry: dynamic point lights only
     CHECK(LightingDefines(s) == "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4" && PointLightBudget(s) == 4);
     CHECK(LightingDefines(Settings::FromPreset(QualityPreset::Medium)) ==
-          "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_SHADOW;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4");
+          "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_SHADOW;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4;FX_LIGHT_NORMALMAP");
     CHECK(LightingDefines(Settings::FromPreset(QualityPreset::High)) ==
           "FX_LIGHT_PER_PIXEL;FX_LIGHT_HEMISPHERE;FX_LIGHT_SPECULAR;FX_LIGHT_TRANSLUCENT;FX_LIGHT_SHADOW;FX_LIGHT_SHADOW_SOFT;"
-          "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=8");
+          "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=8;FX_LIGHT_NORMALMAP");
     CHECK(PointLightBudget(Settings::FromPreset(QualityPreset::High)) == 8);
 }
 
@@ -494,7 +502,7 @@ void CheckLighting()
 void CheckSupport()
 {
     Support all;
-    all.lut_3d = all.shadow_map = all.scene_snapshot = all.wave_field = all.scene_depth = true;
+    all.lut_3d = all.shadow_map = all.scene_snapshot = all.wave_field = all.scene_depth = all.normal_map = true;
     for (QualityPreset preset : {QualityPreset::Original, QualityPreset::Medium, QualityPreset::High})
     {
         const Settings settings = Settings::FromPreset(preset);
@@ -533,6 +541,15 @@ void CheckSupport()
     constrained = ConstrainSettings(high, no_lut, changes);
     CHECK(!constrained.tonemap && !constrained.bloom && !constrained.sun_shafts && !constrained.ssao && constrained.fxaa);
     CHECK(ValidateSettings(constrained, no_lut).empty());
+
+    // No RG8 textures: normal maps go, and so does the shader define.
+    Support no_rg = all;
+    no_rg.normal_map = false;
+    changes.clear();
+    constrained = ConstrainSettings(high, no_rg, changes);
+    CHECK(changes.size() == 1 && !(constrained.lighting_flags & kLightingNormalMap));
+    CHECK(LightingDefines(constrained).find("NORMALMAP") == std::string::npos);
+    CHECK(Settings::FromPreset(QualityPreset::Medium).normal_map_strength < high.normal_map_strength);
 
     // Inconsistent requests are reported as well.
     Settings odd;
@@ -662,6 +679,161 @@ void CheckShadows()
     const ShadowSetup zenith = ComputeShadowSetup({0.0f, 1.0f, 0.0f}, focus, 50.0f, 120.0f, 1024);
     CHECK(Near(ShadowCoord(zenith, focus)[0], 0.5f, 1.0f / 1024.0f));
 }
+// Decodes texel (x, y) of mip `mip` into a unit normal.
+std::array<float, 3> NormalAt(const NormalMap &map, int mip, int x, int y)
+{
+    size_t offset = 0;
+    int w = map.width, h = map.height;
+    for (int m = 0; m < mip; ++m)
+    {
+        offset += static_cast<size_t>(w) * h * 2;
+        w = std::max(w / 2, 1);
+        h = std::max(h / 2, 1);
+    }
+    const float nx = map.rg[offset + (static_cast<size_t>(y) * w + x) * 2] / 255.0f * 2.0f - 1.0f;
+    const float ny = map.rg[offset + (static_cast<size_t>(y) * w + x) * 2 + 1] / 255.0f * 2.0f - 1.0f;
+    return {nx, ny, std::sqrt(std::max(1.0f - nx * nx - ny * ny, 0.0f))};
+}
+
+void CheckNormalMaps()
+{
+    const int n = 64;
+    NormalMapOptions options;
+    options.strength = 4.0f;
+    options.pre_blur = false;
+
+    // A flat height field: every normal points straight out, at every mip.
+    const std::vector<uint8_t> flat(n * n, 77);
+    const NormalMap level = DeriveNormalMap(flat, n, n, options);
+    CHECK(level.width == n && level.height == n && level.mip_count == 7);
+    size_t texels = 0;
+    for (int s = n; s >= 1; s /= 2)
+        texels += static_cast<size_t>(s) * s;
+    CHECK(level.rg.size() == texels * 2);
+    CHECK(std::all_of(level.rg.begin(), level.rg.end(), [](uint8_t v) { return v == 128; }));
+
+    // A ramp along u: slope = strength / width per texel, the normal leans against the slope, y stays 0.
+    std::vector<uint8_t> ramp(n * n);
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x)
+            ramp[y * n + x] = static_cast<uint8_t>(x * 255 / (n - 1));
+    options.wrap = false;
+    const NormalMap slope = DeriveNormalMap(ramp, n, n, options);
+    const float expected = 4.0f / (n - 1); // dh/du in texels, times strength
+    const auto mid = NormalAt(slope, 0, n / 2, n / 2);
+    CHECK(Near(mid[0] / mid[2], -expected, 0.012f) && Near(mid[1], 0.0f, 0.01f));
+    // Mips keep the world-space slope: two levels down the lean is the same.
+    const auto coarse = NormalAt(slope, 2, n / 8, n / 8);
+    CHECK(Near(coarse[0] / coarse[2], -expected, 0.012f) && Near(coarse[1], 0.0f, 0.01f));
+    // Rotated ramp: the lean follows v instead.
+    std::vector<uint8_t> ramp_v(n * n);
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x)
+            ramp_v[y * n + x] = ramp[x * n + y];
+    const auto mid_v = NormalAt(DeriveNormalMap(ramp_v, n, n, options), 0, n / 2, n / 2);
+    CHECK(Near(mid_v[1] / mid_v[2], -expected, 0.012f) && Near(mid_v[0], 0.0f, 0.01f));
+
+    // A cone: normals point away from the apex, with equal lean all around.
+    std::vector<uint8_t> cone(n * n);
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x)
+            cone[y * n + x] = static_cast<uint8_t>(std::clamp(255.0f - 6.0f * std::hypot(x - 31.5f, y - 31.5f), 0.0f, 255.0f));
+    const NormalMap hill = DeriveNormalMap(cone, n, n, options);
+    for (int i = 0; i < 16; ++i)
+    {
+        const float angle = 0.3927f * i;
+        const int x = static_cast<int>(std::lround(31.5f + 14.0f * std::cos(angle))), y = static_cast<int>(std::lround(31.5f + 14.0f * std::sin(angle)));
+        const auto normal = NormalAt(hill, 0, x, y);
+        const float lean = std::hypot(normal[0], normal[1]) / normal[2];
+        CHECK(Near(lean, 4.0f * 6.0f / 255.0f, 0.02f));
+        CHECK(normal[0] * std::cos(angle) + normal[1] * std::sin(angle) > 0.9f * std::hypot(normal[0], normal[1]));
+    }
+
+    // A sine that tiles: analytic slope everywhere, and the wrap seam is as smooth as the inside.
+    std::vector<uint8_t> wave(n * n);
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x)
+            wave[y * n + x] = static_cast<uint8_t>(std::lround(127.5f + 100.0f * std::sin(6.2831853f * 2.0f * (x + 0.5f) / n)));
+    options.wrap = true;
+    const NormalMap tiled = DeriveNormalMap(wave, n, n, options);
+    for (int x = 0; x < n; ++x)
+    {
+        const float slope_here = 4.0f * (100.0f / 255.0f) * (6.2831853f * 2.0f / n) * std::cos(6.2831853f * 2.0f * (x + 0.5f) / n);
+        const auto normal = NormalAt(tiled, 0, x, 5);
+        CHECK(Near(normal[0] / normal[2], -slope_here, 0.012f));
+    }
+    CHECK(std::abs(tiled.rg[0] - tiled.rg[(n - 1) * 2]) <= std::abs(tiled.rg[2 * 10] - tiled.rg[2 * 11]) + 1);
+    // Without wrapping the same texture has an edge: the border normal differs from the wrapped one.
+    options.wrap = false;
+    CHECK(DeriveNormalMap(wave, n, n, options).rg[0] != tiled.rg[0]);
+    options.wrap = true;
+
+    // The pre-blur softens DXT block noise: the steps between 4x4 blocks give smaller peak slopes.
+    std::vector<uint8_t> blocky(n * n);
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x)
+            blocky[y * n + x] = static_cast<uint8_t>(128 + 6 * ((((x / 4) * 7 + (y / 4) * 13) % 5) - 2));
+    const auto peak = [&](bool blur) {
+        NormalMapOptions o = options;
+        o.strength = 8.0f;
+        o.pre_blur = blur;
+        const NormalMap map = DeriveNormalMap(blocky, n, n, o);
+        int worst = 0;
+        for (int i = 0; i < n * n * 2; ++i)
+            worst = std::max(worst, std::abs(map.rg[i] - 128));
+        return worst;
+    };
+    CHECK(peak(false) > 8 && peak(true) * 10 <= peak(false) * 8);
+
+    // Deterministic and cacheable: same input, same bytes; the key changes with every option.
+    CHECK(DeriveNormalMap(cone, n, n, options).rg == DeriveNormalMap(cone, n, n, options).rg);
+    NormalMapOptions other = options;
+    other.strength = 2.0f;
+    CHECK(NormalMapCacheKey(options) == NormalMapCacheKey(options) && NormalMapCacheKey(options) != NormalMapCacheKey(other));
+    other = options;
+    other.pre_blur = !options.pre_blur;
+    CHECK(NormalMapCacheKey(options) != NormalMapCacheKey(other));
+    // Non-square textures and bad input.
+    const NormalMap strip = DeriveNormalMap(std::vector<uint8_t>(256 * 64, 10), 256, 64, options);
+    CHECK(strip.mip_count == 9 && strip.rg.size() == 2u * (256 * 64 + 128 * 32 + 64 * 16 + 32 * 8 + 16 * 4 + 8 * 2 + 4 + 2 + 1));
+    CHECK(DeriveNormalMap(flat, n, n + 1, options).rg.empty());
+}
+
+int g_log_lines = 0;
+
+void CheckHeightMapRules()
+{
+    CHECK(NormalizeTexturePath("Locations\\Bump_City.tga.tx") == "locations/bump_city");
+    CHECK(NameSuggestsHeightMap("bump_houses") && NameSuggestsHeightMap("ships/sailbumpu1") && NameSuggestsHeightMap("sph2_bump2"));
+    CHECK(!NameSuggestsHeightMap("bumpy_folder/wall") && !NameSuggestsHeightMap("deckplanksu2"));
+
+    // Grey with the channel error of DXT compression is grey; a tinted texture is not.
+    std::vector<uint8_t> grey, tinted;
+    for (int i = 0; i < 1024; ++i)
+    {
+        const uint8_t v = static_cast<uint8_t>(i % 251);
+        grey.insert(grey.end(), {v, static_cast<uint8_t>(std::min(v + (i % 5), 255)), static_cast<uint8_t>(std::max(v - (i % 7), 0)), 255});
+        tinted.insert(tinted.end(), {v, static_cast<uint8_t>(v / 2), static_cast<uint8_t>(v / 3), 255});
+    }
+    CHECK(IsGrayscale(grey) && !IsGrayscale(tinted) && !IsGrayscale({}));
+
+    const HeightMapManifest manifest = HeightMapManifest::Parse("# overrides\n+Detail\\DetailWoodU1.tga\n-bump_land  # looks wrong\n\nnonsense\n");
+    CHECK(manifest.include.size() == 1 && manifest.include[0] == "detail/detailwoodu1");
+    CHECK(manifest.exclude.size() == 1 && manifest.exclude[0] == "bump_land");
+
+    SetLogSink([](LogLevel, const char *) { ++g_log_lines; });
+    HeightMapClassifier classifier(manifest);
+    const auto verdict = [&](const char *path, const std::vector<uint8_t> &pixels) { return classifier.Classify(path, pixels); };
+    CHECK(verdict("bump_city.tga.tx", grey).is_height_map && verdict("bump_city.tga.tx", grey).reason == HeightMapReason::NameAndGrayscale);
+    CHECK(!verdict("Bump3.tga", tinted).is_height_map && verdict("Bump3.tga", tinted).reason == HeightMapReason::NotGrayscale);
+    CHECK(verdict("WEATHER\\SEA\\BUMP_G2MX\\seabump0017.tga.tx", grey).reason == HeightMapReason::ExcludedFolder);
+    CHECK(verdict("deckPlanksU2.tga", grey).reason == HeightMapReason::NameNoMatch);
+    CHECK(verdict("bump_land.tga", grey).reason == HeightMapReason::ManifestExclude && !verdict("bump_land.tga", grey).is_height_map);
+    CHECK(verdict("detail/DetailWoodU1.tga", tinted).is_height_map); // the manifest wins over both rules
+    // One log line per decided texture, none for ordinary textures, none for repeats.
+    CHECK(g_log_lines == 5);
+    SetLogSink(nullptr);
+}
 } // namespace
 
 int main()
@@ -678,6 +850,8 @@ int main()
     CheckSupport();
     CheckLights();
     CheckShadows();
+    CheckNormalMaps();
+    CheckHeightMapRules();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);
