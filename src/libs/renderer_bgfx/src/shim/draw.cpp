@@ -215,8 +215,7 @@ void Device::set_uniform(UniformId id, const float *data, uint16_t count)
     Uniform &uniform = uniforms[id];
     const size_t per = (id == U_WORLDVIEW || id == U_PROJ || id == U_TEXMTX) ? 16 : 4;
     const size_t floats = per * count;
-    static const bool no_cache = getenv("STORM_BGFX_NO_UNIFORM_CACHE") != nullptr;
-    if (!no_cache && uniform.sent && uniform.last.size() == floats && memcmp(uniform.last.data(), data, floats * sizeof(float)) == 0)
+    if (uniform.sent && uniform.last.size() == floats && memcmp(uniform.last.data(), data, floats * sizeof(float)) == 0)
         return;
     uniform.last.assign(data, data + floats);
     uniform.sent = true;
@@ -295,8 +294,11 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
     fix.m[3][1] = -fy / vh;
     if (caps->homogeneousDepth)
     {
-        fix.m[2][2] = 2.0f;
-        fix.m[3][2] = -1.0f + 2.0f * bias;
+        // D3D keeps z == 0 and z == w; after the remap to [-1, 1] rounding would clip them,
+        // so the range is shrunk by a few depth-buffer steps.
+        const float keep = 1.0f - 2e-6f;
+        fix.m[2][2] = 2.0f * keep;
+        fix.m[3][2] = (-1.0f + 2.0f * bias) * keep;
     }
     else
         fix.m[3][2] = bias;
@@ -535,7 +537,8 @@ uint64_t Device::render_state_bits(D3DPRIMITIVETYPE type, bool *stencil, uint32_
             break;
         }
     }
-    static const bool swap_cull = getenv("STORM_BGFX_CULL_SWAP") != nullptr;
+    // Rendering upside down into GL render targets mirrors the winding.
+    const bool swap_cull = Context::instance().flip_y();
     if (type >= D3DPT_TRIANGLELIST)
     {
         const DWORD cull = rs[D3DRS_CULLMODE];
@@ -818,6 +821,28 @@ HRESULT Device::draw(const DrawCall &call)
              s.rs[D3DRS_CULLMODE], static_cast<void *>(s.textures[0]), s.tss[0][D3DTSS_COLOROP], p ? p[0] : 0, p ? p[1] : 0,
              p ? p[2] : 0, s.world.m[3][0], s.world.m[3][1], s.world.m[3][2], s.view.m[3][0], s.view.m[3][1], s.view.m[3][2],
              s.proj.m[0][0], s.proj.m[1][1], s.proj.m[2][2], s.proj.m[3][2]);
+        if (const TexStore *t0 = store_of(s.textures[0]))
+            logf("  .. tex0 fmt=%u %ux%u levels=%u rt=%d valid=%d | v0 color=%08x light0: type=%d dir=(%g %g %g) diff=(%g %g %g) amb=(%g %g %g)",
+                 static_cast<uint32_t>(t0->format), t0->width, t0->height, t0->levels, t0->render_target,
+                 bgfx::isValid(t0->handle), p && layout->has_color0 ? reinterpret_cast<const uint32_t *>(p)[layout->has_normal ? 6 : 3] : 0,
+                 lights.empty() ? 0 : lights[0].light.Type, lights[0].light.Direction.x, lights[0].light.Direction.y,
+                 lights[0].light.Direction.z, lights[0].light.Diffuse.r, lights[0].light.Diffuse.g, lights[0].light.Diffuse.b,
+                 lights[0].light.Ambient.r, lights[0].light.Ambient.g, lights[0].light.Ambient.b);
+        uint32_t enabled = 0;
+        for (const Light &l : lights)
+            enabled += l.enabled;
+        logf("  .. fog=%u vm=%u tm=%u start=%g end=%g dens=%g col=%08x | atest=%u func=%u ref=%u | amb=%08x mat.d=(%g %g %g %g) mat.a=(%g %g %g) mat.e=(%g %g %g) lights=%u cv=%u dsrc=%u asrc=%u | s0=(%u %x %x / %u %x %x) s1=(%u %x %x / %u %x %x tex=%p) s2=(%u tex=%p) tf=%08x zf=%u sb=%u db=%u",
+             s.rs[D3DRS_FOGENABLE], s.rs[D3DRS_FOGVERTEXMODE], s.rs[D3DRS_FOGTABLEMODE], as_float(s.rs[D3DRS_FOGSTART]),
+             as_float(s.rs[D3DRS_FOGEND]), as_float(s.rs[D3DRS_FOGDENSITY]), s.rs[D3DRS_FOGCOLOR], s.rs[D3DRS_ALPHATESTENABLE],
+             s.rs[D3DRS_ALPHAFUNC], s.rs[D3DRS_ALPHAREF], s.rs[D3DRS_AMBIENT], s.material.Diffuse.r, s.material.Diffuse.g,
+             s.material.Diffuse.b, s.material.Diffuse.a, s.material.Ambient.r, s.material.Ambient.g, s.material.Ambient.b,
+             s.material.Emissive.r, s.material.Emissive.g, s.material.Emissive.b, enabled, s.rs[D3DRS_COLORVERTEX],
+             s.rs[D3DRS_DIFFUSEMATERIALSOURCE], s.rs[D3DRS_AMBIENTMATERIALSOURCE], s.tss[0][D3DTSS_COLOROP],
+             s.tss[0][D3DTSS_COLORARG1], s.tss[0][D3DTSS_COLORARG2], s.tss[0][D3DTSS_ALPHAOP], s.tss[0][D3DTSS_ALPHAARG1],
+             s.tss[0][D3DTSS_ALPHAARG2], s.tss[1][D3DTSS_COLOROP], s.tss[1][D3DTSS_COLORARG1], s.tss[1][D3DTSS_COLORARG2],
+             s.tss[1][D3DTSS_ALPHAOP], s.tss[1][D3DTSS_ALPHAARG1], s.tss[1][D3DTSS_ALPHAARG2],
+             static_cast<void *>(s.textures[1]), s.tss[2][D3DTSS_COLOROP], static_cast<void *>(s.textures[2]),
+             s.rs[D3DRS_TEXTUREFACTOR], s.rs[D3DRS_ZFUNC], s.rs[D3DRS_SRCBLEND], s.rs[D3DRS_DESTBLEND]);
     }
 
     // ---- index source ----
@@ -855,8 +880,7 @@ HRESULT Device::draw(const DrawCall &call)
     };
 
     // ---- vertex streams ----
-    static const bool force_transient = getenv("STORM_BGFX_FORCE_TRANSIENT") != nullptr;
-    bool transient_vertices = call.up_vertices != nullptr || force_transient;
+    bool transient_vertices = call.up_vertices != nullptr;
     if (!call.up_vertices)
         for (uint32_t i = 0; i < layout->stream_count; ++i)
         {
@@ -953,7 +977,7 @@ HRESULT Device::draw(const DrawCall &call)
     // ---- indices ----
     const bool fan = call.type == D3DPT_TRIANGLEFAN;
     const bool transient_indices =
-        fan || (call.indexed && (force_transient || call.up_indices || index_bias != 0 || (ib && ib->write_frame == frame)));
+        fan || (call.indexed && (call.up_indices || index_bias != 0 || (ib && ib->write_frame == frame)));
     if (transient_indices)
     {
         const uint32_t out_count = fan ? call.primitive_count * 3 : element_count;

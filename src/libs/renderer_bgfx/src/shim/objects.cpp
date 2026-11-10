@@ -267,25 +267,87 @@ void TexStore::create_gpu()
              static_cast<uint32_t>(format));
 }
 
+namespace
+{
+// bgfx can only restrict the mip range of a texture created from an image container;
+// D3D textures with a partial mip chain (very common in .tx files) need that.
+const bgfx::Memory *make_dds(const TexStore &store, bgfx::TextureFormat::Enum gpu_format, bool compressed)
+{
+    const uint32_t dxgi = gpu_format == bgfx::TextureFormat::BC1   ? 71
+                          : gpu_format == bgfx::TextureFormat::BC2 ? 74
+                          : gpu_format == bgfx::TextureFormat::BC3 ? 77
+                                                                   : 28; // R8G8B8A8_UNORM
+    size_t payload = 0;
+    for (uint32_t level = 0; level < store.levels; ++level)
+    {
+        const uint32_t w = store.level_width(level), h = store.level_height(level);
+        payload += compressed ? level_size(store.format, w, h) : static_cast<size_t>(w) * h * 4;
+    }
+    payload *= store.faces();
+    const bgfx::Memory *memory = bgfx::alloc(static_cast<uint32_t>(4 + 124 + 20 + payload));
+    uint32_t *header = reinterpret_cast<uint32_t *>(memory->data);
+    memset(header, 0, 4 + 124 + 20);
+    const bool cube = store.kind == TexKind::Cube;
+    header[0] = 0x20534444; // "DDS "
+    header[1] = 124;
+    header[2] = 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000;
+    header[3] = store.height;
+    header[4] = store.width;
+    header[7] = store.levels;
+    header[19] = 32;         // pixel format size
+    header[20] = 0x4;        // DDPF_FOURCC
+    header[21] = 0x30315844; // "DX10"
+    header[27] = 0x1000 | (store.levels > 1 ? 0x400008 : 0) | (cube ? 0x8 : 0);
+    header[28] = cube ? 0xFE00 : 0;
+    header[32] = dxgi;
+    header[33] = 3; // D3D10_RESOURCE_DIMENSION_TEXTURE2D
+    header[34] = cube ? 4 : 0;
+    header[35] = 1;
+    uint8_t *out = memory->data + 4 + 124 + 20;
+    for (uint32_t face = 0; face < store.faces(); ++face)
+        for (uint32_t level = 0; level < store.levels; ++level)
+        {
+            const TexStore::Sub &sub = store.subs[face * store.levels + level];
+            const uint32_t w = store.level_width(level), h = store.level_height(level);
+            const size_t bytes = compressed ? level_size(store.format, w, h) : static_cast<size_t>(w) * h * 4;
+            if (sub.data.empty())
+                memset(out, 0, bytes);
+            else if (compressed)
+                memcpy(out, sub.data.data(), bytes);
+            else
+                convert_to_rgba8(store.format, sub.data.data(), level_pitch(store.format, w), w, h, out);
+            out += bytes;
+        }
+    return memory;
+}
+} // namespace
+
 void TexStore::sync()
 {
     if (system_memory)
         return;
     if (!bgfx::isValid(handle))
     {
+        if (!render_target && !depth_stencil && kind != TexKind::Volume)
+        {
+            const FormatInfo info = format_info(format);
+            gpu_compressed = info.block_bytes != 0;
+            gpu_format = !gpu_compressed ? bgfx::TextureFormat::RGBA8
+                         : info.block_bytes == 8 ? bgfx::TextureFormat::BC1
+                         : (format == D3DFMT_DXT2 || format == D3DFMT_DXT3) ? bgfx::TextureFormat::BC2
+                                                                             : bgfx::TextureFormat::BC3;
+            handle = bgfx::createTexture(make_dds(*this, gpu_format, gpu_compressed));
+            if (!bgfx::isValid(handle))
+                logf("texture creation failed: %ux%u levels=%u d3dformat=%u", width, height, levels,
+                     static_cast<uint32_t>(format));
+            for (Sub &s : subs)
+                s.dirty = false;
+            any_dirty = false;
+            return;
+        }
         create_gpu();
         if (!bgfx::isValid(handle))
             return;
-        // A mipped texture whose lower levels were never written would sample undefined memory.
-        if (!render_target && !depth_stencil)
-            for (uint32_t face = 0; face < faces(); ++face)
-                for (uint32_t level = 0; level < levels; ++level)
-                    if (sub(face, level).data.empty())
-                    {
-                        lock(face, level, nullptr, nullptr);
-                        sub(face, level).dirty = true;
-                        any_dirty = true;
-                    }
     }
     if (!any_dirty || render_target || depth_stencil)
     {
