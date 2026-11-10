@@ -27,7 +27,10 @@ class Context final : public render::FrameOwner
     bool ready() const { return initialised_ && surface_.valid; }
     bool initialised() const { return initialised_; }
     void resize(uint32_t width, uint32_t height);
-    void set_density(float density);
+    // Any thread: the display density changed; the game thread re-reads it at its next safe point.
+    void request_density_refresh();
+    // Any thread: Android handed over a surface; restore once SDL holds its native window.
+    void request_surface_restore();
     // Surface lifecycle (Android): pause stops presenting, resume re-attaches the native window.
     void surface_lost();
     // Marks the surface for re-attachment; the actual bgfx reset happens once SDL holds a native window.
@@ -41,8 +44,6 @@ class Context final : public render::FrameOwner
     void begin_frame_if_needed();
     // Composites `game_color` to the surface, runs client UI hooks and presents.
     void present(bgfx::TextureHandle game_color, uint32_t game_width, uint32_t game_height);
-    // Executes queued commands without presenting (synchronous read-backs).
-    void flush();
     // The only place the game thread calls bgfx::frame(). Returns false without calling it when the
     // surface is about to be destroyed; presentation is then suspended.
     bool run_frame(uint32_t flags, uint32_t *frame_number = nullptr);
@@ -50,7 +51,6 @@ class Context final : public render::FrameOwner
     uint64_t frame_index() const { return frame_.frame_index; }
     const bgfx::Caps *caps() const { return caps_; }
     bool flip_y() const { return flip_y_; }
-    bgfx::ProgramHandle blit_program() const { return blit_program_; }
     bgfx::UniformHandle sampler(uint32_t unit) const { return samplers_[unit]; }
     void draw_fullscreen(uint16_t view, bgfx::TextureHandle texture, uint32_t sampler_flags, uint64_t state,
                          float u0 = 0, float v0 = 0, float u1 = 1, float v1 = 1);
@@ -90,12 +90,15 @@ class Context final : public render::FrameOwner
     void create_resources();
     void pace();
     void try_restore();
+    bool read_density(); // true when it changed
     uint32_t reset_flags() const;
 
     SDL_Window *window_ = nullptr;
     bool initialised_ = false;
     bool frame_open_ = false;
     bool restore_pending_ = false;
+    std::atomic<bool> restore_requested_{false};
+    std::atomic<bool> density_refresh_requested_{false};
     bool surface_epoch_flag_ = false;
     bool restore_wait_logged_ = false;
     bool frame_aborted_ = false; // draws of an unfinished frame are still queued in bgfx
@@ -113,6 +116,8 @@ class Context final : public render::FrameOwner
     bgfx::ProgramHandle blit_program_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle samplers_[kSamplerUnits] = {};
     bgfx::VertexLayout blit_layout_;
+    bgfx::VertexBufferHandle blit_vertices_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle blit_uv_ = BGFX_INVALID_HANDLE;
     std::unordered_map<std::string, Picture> pictures_;
     render::GamePictureProvider *picture_provider_ = nullptr;
     GameTarget game_target_;

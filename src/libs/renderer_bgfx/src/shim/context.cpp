@@ -105,6 +105,20 @@ extern "C" JNIEXPORT void JNICALL Java_org_stormengine_port_GameActivity_nativeS
     storm::shim::Context::instance().request_surface_release();
 }
 
+// Called by the activity on the UI thread when Android hands over a (new) surface: a surface that
+// was destroyed while the app stayed in the foreground is restored without a background cycle.
+extern "C" JNIEXPORT void JNICALL Java_org_stormengine_port_GameActivity_nativeSurfaceChanged(JNIEnv *, jclass)
+{
+    storm::shim::Context::instance().request_surface_restore();
+}
+
+// Called by the activity on the UI thread when the display density changes (wm density, display
+// size setting, foldables) without a necessary change of the surface size.
+extern "C" JNIEXPORT void JNICALL Java_org_stormengine_port_GameActivity_nativeDensityChanged(JNIEnv *, jclass)
+{
+    storm::shim::Context::instance().request_density_refresh();
+}
+
 namespace storm::render
 {
 #endif
@@ -177,9 +191,7 @@ bool Context::init(SDL_Window *window, uint32_t width, uint32_t height, bool vsy
     surface_.height_px = height;
     surface_.valid = true;
     surface_in_use_ = true;
-    float dpi = 0.0f;
-    if (SDL_GetDisplayDPI(SDL_GetWindowDisplayIndex(window), &dpi, nullptr, nullptr) == 0 && dpi > 0.0f)
-        surface_.density = dpi / 160.0f;
+    read_density();
     ++surface_.generation;
     logf("bgfx renderer=%s %ux%u originBottomLeft=%d homogeneousDepth=%d maxTextureSize=%u BC1=%d BC3=%d ETC2=%d BGRA8=%d",
          bgfx::getRendererName(bgfx::getRendererType()), width, height, caps_->originBottomLeft,
@@ -211,6 +223,11 @@ void Context::create_resources()
         .add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
         .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
         .end();
+    // One oversized triangle in a static buffer (the composite runs after the scene has used the
+    // transient budget); texcoord holds the corner factor, u_blitUv maps it to the requested range.
+    static const float vertices[12] = {-1.0f, 1.0f, 0.0f, 0.0f, 3.0f, 1.0f, 2.0f, 0.0f, -1.0f, -3.0f, 0.0f, 2.0f};
+    blit_vertices_ = bgfx::createVertexBuffer(bgfx::makeRef(vertices, sizeof(vertices)), blit_layout_);
+    blit_uv_ = bgfx::createUniform("u_blitUv", bgfx::UniformType::Vec4);
 }
 
 void Context::shutdown()
@@ -243,22 +260,34 @@ void Context::resize(uint32_t width, uint32_t height)
     chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
     bgfx::reset(reset_flags(), &chain);
     // A display change (fold, split screen, wm size/density) usually changes the density as well.
-    float dpi = 0.0f;
-    if (SDL_GetDisplayDPI(SDL_GetWindowDisplayIndex(window_), &dpi, nullptr, nullptr) == 0 && dpi > 0.0f)
-        surface_.density = dpi / 160.0f;
+    read_density();
     logf("surface resized to %ux%u, density %.2f", width, height, surface_.density);
     for (auto &entry : clients_)
         entry.client->OnSurfaceChanged(surface_);
 }
 
-void Context::set_density(float density)
+bool Context::read_density()
 {
-    if (density <= 0.0f || density == surface_.density)
-        return;
-    surface_.density = density;
-    ++surface_.generation;
-    for (auto &entry : clients_)
-        entry.client->OnSurfaceChanged(surface_);
+    float dpi = 0.0f;
+    if (SDL_GetDisplayDPI(SDL_GetWindowDisplayIndex(window_), &dpi, nullptr, nullptr) != 0 || dpi <= 0.0f)
+    {
+        logf("display density unknown to SDL (%s); keeping %.2f", SDL_GetError(), surface_.density);
+        return false;
+    }
+    if (dpi / 160.0f == surface_.density)
+        return false;
+    surface_.density = dpi / 160.0f;
+    return true;
+}
+
+void Context::request_density_refresh()
+{
+    density_refresh_requested_ = true;
+}
+
+void Context::request_surface_restore()
+{
+    restore_requested_ = true;
 }
 
 uint32_t Context::reset_flags() const
@@ -301,7 +330,8 @@ bool Context::run_frame(uint32_t flags, uint32_t *frame_number)
 {
     {
         std::lock_guard lock(release_mutex_);
-        in_frame_ = !release_requested_;
+        // Never on a surface that is gone or going (background, surfaceDestroyed, read-backs in between).
+        in_frame_ = surface_in_use_ && !release_requested_;
     }
     if (!in_frame_)
     {
@@ -323,8 +353,17 @@ void Context::poll_surface()
 {
     if (release_requested_.load(std::memory_order_relaxed))
         surface_lost();
+    if (restore_requested_.exchange(false) && initialised_ && !surface_.valid)
+        restore_pending_ = true;
     if (restore_pending_)
         try_restore();
+    if (density_refresh_requested_.exchange(false) && surface_.valid && read_density())
+    {
+        ++surface_.generation;
+        logf("display density %.2f", surface_.density);
+        for (auto &entry : clients_)
+            entry.client->OnSurfaceChanged(surface_);
+    }
 }
 
 void Context::surface_restored()
@@ -398,15 +437,10 @@ void Context::begin_frame_if_needed()
 void Context::draw_fullscreen(uint16_t view, bgfx::TextureHandle texture, uint32_t sampler_flags, uint64_t state,
                               float u0, float v0, float u1, float v1)
 {
-    if (bgfx::getAvailTransientVertexBuffer(3, blit_layout_) < 3)
-        return;
-    bgfx::TransientVertexBuffer tvb;
-    bgfx::allocTransientVertexBuffer(&tvb, 3, blit_layout_);
-    // One oversized triangle; (u0,v0) is the corner at clip (-1,+1).
-    const float du = u1 - u0, dv = v1 - v0;
-    const float vertices[12] = {-1.0f, 1.0f, u0, v0, 3.0f, 1.0f, u0 + 2.0f * du, v0, -1.0f, -3.0f, u0, v0 + 2.0f * dv};
-    memcpy(tvb.data, vertices, sizeof(vertices));
-    bgfx::setVertexBuffer(0, &tvb);
+    // (u0,v0) is the texture coordinate at clip (-1,+1), (u1,v1) at (+1,-1).
+    const float uv[4] = {u0, v0, u1 - u0, v1 - v0};
+    bgfx::setUniform(blit_uv_, uv);
+    bgfx::setVertexBuffer(0, blit_vertices_);
     bgfx::setTexture(0, samplers_[0], texture, sampler_flags);
     bgfx::setState(state);
     bgfx::submit(view, blit_program_);
@@ -484,12 +518,6 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
     previous = now;
     ++frame_.frame_index;
     frame_open_ = false;
-}
-
-void Context::flush()
-{
-    if (initialised_)
-        run_frame(BGFX_FRAME_FLUSH);
 }
 
 void Context::AddClient(render::FrameClient *client, int order)
