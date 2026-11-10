@@ -384,6 +384,8 @@ void XINTERFACE::MobileCollectWidgets(std::vector<MobileWidget> &widgets)
     };
     if(storm::android::mobileScreen!="mainmenu")collect(collect,m_pNodes);
     if(storm::android::mobileScreen=="nationrelation")MobileCollectNations(widgets);
+    if(storm::android::mobileScreen=="lscchar_all"||storm::android::mobileScreen=="character")MobileCollectHero(widgets);
+    if(storm::android::mobileScreen!="mainmenu")MobileCollectFacts(widgets);
     if(storm::android::mobileScreen=="shipyard")MobileCollectShipyard(widgets);
 }
 
@@ -474,6 +476,7 @@ void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
 
 #ifdef __ANDROID__
 #include "mobile_shipyard.inc"
+#include "mobile_facts.inc"
 #endif
 
 void XINTERFACE::Realize(uint32_t)

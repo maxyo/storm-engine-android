@@ -21,7 +21,7 @@ struct XINTERFACE {
  IMAGE_Entity *m_imgLists=nullptr;CINODE *m_pNodes=nullptr;Service *pPictureService=&service,*pStringService=&service;
  std::string m_mobileNationSignature;uint64_t m_mobileNationGeneration=0;
  CINODE *FindNode(const char *name,void*){for(auto *n=m_pNodes;n;n=n->m_next)if(storm::iEquals(n->name,name))return n;return nullptr;}
- void MobileCollectShipyard(std::vector<MobileWidget>&){}
+ void MobileCollectShipyard(std::vector<MobileWidget>&){}void MobileCollectHero(std::vector<MobileWidget>&){}void MobileCollectFacts(std::vector<MobileWidget>&){}
  std::string MobileNationScore(const std::string &n) const{return n=="Spa"?"-40":"5";}int pickFailed=0;std::string MobileNationFlags() const{return "England=0,France=1,Spain=1,Holland=0,Pirate=1";}void MobileNationPickFailed(const std::string&){++pickFailed;}
  void SetCurNode(CINODE*){}void MobileCollectWidgets(std::vector<MobileWidget>&);void MobileCollectNations(std::vector<MobileWidget>&);
  struct Action {std::string screen="nationrelation",node,value;int index=-1;};
