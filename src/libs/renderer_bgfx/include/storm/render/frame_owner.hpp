@@ -29,7 +29,7 @@
 namespace storm::render
 {
 
-inline constexpr uint32_t kFrameOwnerApiVersion = 3;
+inline constexpr uint32_t kFrameOwnerApiVersion = 4;
 
 // bgfx::ViewId values. Compile-time constants so clients can size tables.
 inline constexpr uint16_t kPreGameViewBegin = 0; // passes that must run before the scene (e.g. a shadow map)
@@ -226,10 +226,20 @@ void SetGamePictureProvider(GamePictureProvider *provider);
 void NotifySurfaceLost();
 void NotifySurfaceRestored();
 
+// Where the game picture is shown on the surface, as fractions of the surface size. The game target
+// keeps its size when the window changes and is fitted with its own aspect ratio (letterbox), so
+// touches given relative to the whole view must be mapped through this rectangle.
+struct PictureRect
+{
+    float x = 0.0f, y = 0.0f, w = 1.0f, h = 1.0f;
+};
+PictureRect GamePictureRect();
+
 } // namespace storm::render
 
 // Version history
 //   1  initial: view range, hooks, surface metrics, texture helpers, game pictures.
+//   4  GamePictureRect(): the letterboxed game picture on the surface.
 //   3  view ranges reserved before the scene and for post-processing (game views are 8..223,
 //      composite 248); CurrentGameTarget().
 //   2  UI views moved to 256..319 (64 views); density reported from the display; game picture

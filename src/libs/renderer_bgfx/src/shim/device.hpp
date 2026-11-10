@@ -31,6 +31,8 @@ class Context final : public render::FrameOwner
     void request_density_refresh();
     // Any thread: Android handed over a surface; restore once SDL holds its native window.
     void request_surface_restore();
+    // The game picture on the surface as of the last composite (game thread).
+    render::PictureRect picture_rect() const { return picture_rect_; }
     // Surface lifecycle (Android): pause stops presenting, resume re-attaches the native window.
     void surface_lost();
     // Marks the surface for re-attachment; the actual bgfx reset happens once SDL holds a native window.
@@ -97,6 +99,7 @@ class Context final : public render::FrameOwner
     bool initialised_ = false;
     bool frame_open_ = false;
     bool restore_pending_ = false;
+    render::PictureRect picture_rect_;
     std::atomic<bool> restore_requested_{false};
     std::atomic<bool> density_refresh_requested_{false};
     bool surface_epoch_flag_ = false;

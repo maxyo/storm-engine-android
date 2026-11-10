@@ -132,6 +132,11 @@ void NotifySurfaceRestored()
 {
     shim::Context::instance().surface_restored();
 }
+
+PictureRect GamePictureRect()
+{
+    return shim::Context::instance().picture_rect();
+}
 } // namespace storm::render
 
 namespace storm::shim
@@ -489,6 +494,8 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
             const uint16_t fx = static_cast<uint16_t>((w - fw) / 2), fy = static_cast<uint16_t>((h - fh) / 2);
             // Texture coordinates at the clip-space edges so that [0, 1] covers exactly the fitted rectangle.
             const float sx = static_cast<float>(w) / fw, sy = static_cast<float>(h) / fh;
+            picture_rect_ = {static_cast<float>(fx) / w, static_cast<float>(fy) / h, static_cast<float>(fw) / w,
+                             static_cast<float>(fh) / h};
             bgfx::setScissor(fx, fy, fw, fh);
             draw_fullscreen(render::kCompositeView, game_color, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
                             BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A, 0.5f - 0.5f * sx, 0.5f - 0.5f * sy,
