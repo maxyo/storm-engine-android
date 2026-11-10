@@ -475,7 +475,10 @@ bool DX9RENDER::Init()
 
         storm::render::TextureCacheConfig textureCache;
         ini->ReadString(nullptr, "texture_compression", str, sizeof(str), "auto");
-        textureCache.mode = storm::render::ParseTextureCompression(str).value_or(storm::render::TextureCompression::Auto);
+        if (const auto mode = storm::render::ParseTextureCompression(str))
+            textureCache.mode = *mode;
+        else
+            spdlog::error("engine.ini texture_compression = '{}' is not auto, bc, etc2 or rgba; using auto", str);
 #ifdef __ANDROID__
         textureCache.mode = static_cast<storm::render::TextureCompression>(
             std::clamp(storm::android::graphicsSetting("texture_compression", static_cast<int>(textureCache.mode)), 0, 3));
