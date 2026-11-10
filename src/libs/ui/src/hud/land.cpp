@@ -515,23 +515,25 @@ class LandScene final : public Scene
         input.On("sheet-back", "click", [this](const Event &) { Commands("back", {}); });
         input.On("sheet-close", "click", [this](const Event &) { Commands("close", {}); });
         input.On("sheet", "close", [this](const Event &) { Commands("close", {}); });
-        if (covered_ != Owner(commands) && announced_ != Owner(commands))
+        if (hud_.Interactive() && covered_ != Owner(commands) && announced_ != Owner(commands))
         {
             announced_ = Owner(commands);
             hud_.Send("landcommands", announced_ + "\tack\t2", "landcommands-ack"); // this revision is on its way to the screen
         }
     }
 
-    // The sheet does not cover the engine's menu (any more): say so once.
+    // The sheet does not cover the engine's menu (any more): say so once. A menu revision
+    // the engine has replaced since needs no word: its coverage ended with it.
     void Uncover(const States &states)
     {
         if (covered_.empty() && announced_.empty())
             return;
+        const std::string owner = covered_.empty() ? announced_ : covered_;
         covered_.clear();
         announced_.clear();
         const LandCommands &commands = states.land_commands;
-        if (commands.known)
-            hud_.Send("landcommands", Owner(commands) + "\tack\t0", "landcommands-ack");
+        if (commands.known && Owner(commands) == owner)
+            hud_.Send("landcommands", owner + "\tack\t0", "landcommands-ack");
     }
 
     Hud &hud_;

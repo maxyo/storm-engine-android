@@ -145,7 +145,8 @@ class Host
     // writes itself: {"screen": "<interface id open in the game, or empty>", "loading",
     // "cinematic", "dialogue", "live": <the game is in front and running>}. The HUD scene
     // of the gameplay mode is drawn from these while nothing else covers the game.
-    // False (and an error) for malformed JSON or a channel without a consumer.
+    // False (and an error) for malformed JSON; a channel without a consumer and data that
+    // does not fit its channel are errors too (logged, shown in debug hosts).
     virtual bool SetState(const std::string &channel, const std::string &json) = 0;
     // Answer to Config::on_text_request; `accepted` false = the editor was dismissed.
     virtual void SubmitText(const std::string &token, const std::string &text, bool accepted) = 0;

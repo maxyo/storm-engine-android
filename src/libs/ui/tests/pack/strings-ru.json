@@ -1,0 +1,20 @@
+{
+ "hud.context.action": "hud.context.action",
+ "hud.context.enter": "hud.context.enter",
+ "hud.context.open": "hud.context.open",
+ "hud.context.take": "hud.context.take",
+ "hud.context.talk": "hud.context.talk",
+ "hud.context.toSea": "hud.context.toSea",
+ "hud.context.toShip": "hud.context.toShip",
+ "hud.move.break": "hud.move.break",
+ "hud.move.fast": "hud.move.fast",
+ "hud.move.feint": "hud.move.feint",
+ "hud.move.force": "hud.move.force",
+ "hud.move.parry": "hud.move.parry",
+ "hud.move.round": "hud.move.round",
+ "hud.sheet.abilities": "hud.sheet.abilities",
+ "hud.sheet.actions": "hud.sheet.actions",
+ "hud.sheet.potions": "hud.sheet.potions",
+ "hud.weapon.draw": "hud.weapon.draw",
+ "hud.weapon.sheathe": "hud.weapon.sheathe"
+}

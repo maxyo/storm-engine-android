@@ -1,0 +1,137 @@
+{
+ "components": [
+  {
+   "tag": "c-box",
+   "props": {
+    "value": {
+     "type": "number",
+     "default": 0
+    },
+    "text": {
+     "type": "text",
+     "default": ""
+    },
+    "lines": {
+     "type": "json",
+     "default": []
+    },
+    "states": {
+     "type": "json",
+     "default": []
+    },
+    "moves": {
+     "type": "json",
+     "default": []
+    },
+    "selected": {
+     "type": "text",
+     "default": ""
+    },
+    "caption": {
+     "type": "text",
+     "default": ""
+    }
+   },
+   "template": "<div slot=\"1\"></div>"
+  },
+  {
+   "tag": "c-button",
+   "props": {
+    "icon": {
+     "type": "text",
+     "default": ""
+    },
+    "label": {
+     "type": "text",
+     "default": ""
+    },
+    "disabled": {
+     "type": "bool",
+     "default": false
+    },
+    "badge": {
+     "type": "text",
+     "default": ""
+    },
+    "fill": {
+     "type": "number",
+     "default": 0
+    },
+    "fillTone": {
+     "type": "text",
+     "default": ""
+    },
+    "reloading": {
+     "type": "bool",
+     "default": false
+    },
+    "size": {
+     "type": "number",
+     "default": 0
+    },
+    "variant": {
+     "type": "text",
+     "default": ""
+    }
+   },
+   "behaviors": [
+    "press"
+   ],
+   "template": "<div></div>"
+  },
+  {
+   "tag": "c-stick",
+   "props": {
+    "value": {
+     "type": "number",
+     "default": 0
+    },
+    "valueY": {
+     "type": "number",
+     "default": 0
+    },
+    "active": {
+     "type": "bool",
+     "default": false
+    }
+   },
+   "behaviors": [
+    "stick"
+   ],
+   "template": "<div data-stick=\"xy\" data-knob-size=\"20\" style=\"width: 100dp; height: 100dp;\"></div>"
+  },
+  {
+   "tag": "s-hud-sheet",
+   "props": {
+    "title": {
+     "type": "text",
+     "default": ""
+    },
+    "back": {
+     "type": "bool",
+     "default": false
+    },
+    "layout": {
+     "type": "text",
+     "default": ""
+    },
+    "rows": {
+     "type": "json",
+     "default": []
+    }
+   },
+   "behaviors": [
+    "press"
+   ],
+   "constants": {
+    "pressRoot": false
+   },
+   "template": "<div data-action=\"close\" style=\"position: absolute; left: 0; top: 0; right: 0; bottom: 0;\"></div><t-for each=\"rows\" as=\"r\"><c-button id=\"{{r.id}}\" label=\"{{r.title}}\" style=\"position: absolute; right: 0; top: {{ r_i * 50 }}dp; width: 200dp; height: 40dp;\"/></t-for>"
+  },
+  {
+   "tag": "s-hud",
+   "props": {},
+   "template": "<div slot=\"1\" style=\"position: absolute; left: {{safe.left}}dp; top: {{safe.top}}dp; right: {{safe.right}}dp; bottom: {{safe.bottom}}dp;\"></div>"
+  }
+ ]
+}
