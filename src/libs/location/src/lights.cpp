@@ -11,6 +11,7 @@
 #include "lights.h"
 
 #include "core.h"
+#include "storm/render/effects.hpp"
 #include "string_compare.hpp"
 
 // ============================================================================================
@@ -229,6 +230,26 @@ void Lights::Realize(uint32_t delta_time)
             lights[*i].intensity = 0;
         }
     }
+
+    // Graphics effects: carried lanterns are the only location lights not baked into the static models' colours
+    // (src/libs/lighter); the per-pixel lighting adds them to that geometry.
+    std::vector<storm::render::EffectsPointLight> dynamic;
+    dynamic.reserve(aMovingLight.size());
+    for (const MovingLight &moving : aMovingLight)
+    {
+        if (moving.light < 0 || moving.light >= numLights)
+            continue;
+        const Light &l = lights[moving.light];
+        const D3DLIGHT9 &type = types[l.type].dxLight;
+        const float k = static_cast<float>(l.intensity) / 255.0f;
+        dynamic.push_back({{l.pos.x, l.pos.y, l.pos.z},
+                           {l.color.r * k, l.color.g * k, l.color.b * k},
+                           type.Range,
+                           type.Attenuation0,
+                           type.Attenuation1,
+                           type.Attenuation2});
+    }
+    storm::render::SetEffectsDynamicLights(dynamic);
 
     ////////////////
     // Draw coronas

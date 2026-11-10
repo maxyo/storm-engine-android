@@ -478,8 +478,6 @@ private:
     VideoTextureEntity *pVTL;
 
     int32_t nTextureDegradation;
-    int32_t requestedTextureAnisotropy = 0;
-    uint32_t textureAnisotropy = 0; // 0 preserves technique-defined filtering.
     float aspectRatio;
     float m_fHeightDeformator;
 

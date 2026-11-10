@@ -1,5 +1,5 @@
-// Which implementation draws which game interface. This table is the migration switch:
-// porting a zone = adding its screens to kPorted and removing their ids from kHostOwned.
+// Which implementation draws which game interface: a ported screen by interface id, the
+// generic layout for every other one.
 #include "screen.h"
 
 #include "../hud/hud.h"
@@ -36,6 +36,7 @@ std::unique_ptr<Screen> CreateNationsScreen();
 std::unique_ptr<Screen> CreateHeroScreen();
 std::unique_ptr<Screen> CreateItemsScreen();
 std::unique_ptr<Screen> CreateJournalScreen();
+std::unique_ptr<Screen> CreateShipScreen();
 std::unique_ptr<Screen> CreateMapEncounterScreen();
 std::unique_ptr<Screen> CreateDirSailScreen();
 std::unique_ptr<Screen> CreateLeaveBattleScreen();
@@ -47,6 +48,7 @@ std::unique_ptr<Screen> CreateRestScreen();
 std::unique_ptr<Screen> CreateTradeBookScreen();
 std::unique_ptr<Screen> CreateColonyCaptureScreen();
 std::unique_ptr<Screen> CreateFortCaptureScreen();
+std::unique_ptr<Screen> CreateMapScreen();
 std::unique_ptr<Screen> CreateLauncherScreen();
 std::unique_ptr<Screen> CreateDownloadsScreen();
 std::unique_ptr<Screen> CreateAboutScreen();
@@ -83,6 +85,7 @@ const ScreenEntry kPorted[] = {
     {"character", CreateHeroScreen},
     {"items", CreateItemsScreen},
     {"questbook", CreateJournalScreen},
+    {"ship", CreateShipScreen},
     {"map", CreateMapEncounterScreen},
     {"dirsailenc", CreateDirSailScreen},
     {"leavebattle", CreateLeaveBattleScreen},
@@ -94,6 +97,9 @@ const ScreenEntry kPorted[] = {
     {"tradebook", CreateTradeBookScreen},
     {"colonycapture", CreateColonyCaptureScreen},
     {"fortcapture", CreateFortCaptureScreen},
+    {"mapview", CreateMapScreen},
+    {"mapbest", CreateMapScreen},
+    {"papermap", CreateMapScreen},
     // The application's own screens, routed from the platform host's "launcher" channel; the
     // "app:" prefix keeps them apart from game interfaces (ids are ini stems, e.g. "about").
     {"app:launcher", CreateLauncherScreen},
@@ -101,25 +107,11 @@ const ScreenEntry kPorted[] = {
     {"app:about", CreateAboutScreen},
 };
 
-// Interfaces the platform host still draws with its own forms. Anything not listed here
-// and not ported above gets the generic layout.
-const char *const kHostOwned[] = {
-    "ship", // hero section
-};
-
 } // namespace
 
 std::span<const ScreenEntry> PortedScreens()
 {
     return kPorted;
-}
-
-bool HostOwned(std::string_view screen)
-{
-    for (const char *id : kHostOwned)
-        if (screen == id)
-            return true;
-    return false;
 }
 
 std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()

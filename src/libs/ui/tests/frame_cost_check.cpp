@@ -7,6 +7,8 @@
 //     steady HUD needs no frame (Prepare false) and a drawn steady frame rebuilds, lays out,
 //     compiles and uploads nothing; a state that changes nothing visible needs no frame; one
 //     that does is drawn. Every frame Prepare calls unchanged is verified (Runtime::Frame).
+//   * The tap budget: press in the next frame, action in the touch call, the answer's
+//     screen in the next frame after the model.
 #include "../src/frame_renderer.h"
 #include "hud_bench.h"
 
@@ -198,6 +200,35 @@ void SteadyRuntime(const std::string &pack)
     Expect(!runtime.host->Prepare(delay), "then the HUD is steady again");
 }
 
+// The tap budget, in frames: the press shows in the next drawn frame, the action leaves in
+// the touch call itself, and the engine's answer (the interface model) shows in the next
+// drawn frame after it arrives. Nothing in the UI waits a further frame, a timer or a reply.
+void TapLatency(const std::string &pack)
+{
+    Runtime runtime(pack);
+    runtime.Explore();
+    double delay = 0.0;
+    Expect(!runtime.host->Prepare(delay), "the HUD is steady before the tap");
+
+    runtime.host->Touch(TouchPhase::Down, 1, 766, 34); // the pause (menu) button
+    Expect(runtime.host->Prepare(delay), "a touch-down asks for a frame at once (the press)");
+    runtime.Frame();
+    Expect(!runtime.host->Prepare(delay), "the press is complete in that one frame: no second frame needed");
+
+    const size_t before = runtime.commands.size();
+    runtime.host->Touch(TouchPhase::Up, 1, 766, 34);
+    Expect(runtime.commands.size() > before && runtime.Sent("shortcut:mainmenu"), "the action leaves in the touch-up call, before any frame");
+
+    runtime.Feed("presentation", "presentation-menu");
+    std::ifstream file(states_directory + "/../models/game-menu.json", std::ios::binary);
+    const std::string model{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    Expect(runtime.host->SetInterface(model), "the engine's answer (the game menu model) is accepted");
+    Expect(runtime.host->Prepare(delay), "the model asks for a frame at once");
+    runtime.Frame();
+    Expect(runtime.host->InterfaceActive(), "the next frame shows the screen");
+    Expect(!runtime.host->Prepare(delay), "the screen is complete in that one frame");
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -210,6 +241,7 @@ int main(int argc, char **argv)
     states_directory = argv[1];
     FilterCache();
     SteadyRuntime(argv[2]);
+    TapLatency(argv[2]);
     if (failures)
         std::fprintf(stderr, "%d frame cost check(s) failed\n", failures);
     else

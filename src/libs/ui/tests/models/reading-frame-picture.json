@@ -1,0 +1,84 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 5,
+ "screenRevision": 7,
+ "screen": "boal_frame",
+ "widgets": [
+  {
+   "node": "BACKSCROLLPICT",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 1,
+     "imageRevision": 1,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "texture",
+      "image": "loading/imgback",
+      "uv": [
+       0,
+       0,
+       1,
+       1
+      ]
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SCROLLPICT",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 2,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 1,
+     "imageRevision": 1,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "texture",
+      "image": "loading/inside/kiss",
+      "uv": [
+       0,
+       0,
+       1,
+       1
+      ]
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "Прошло несколько часов...",
+   "value": "1",
+   "index": 0,
+   "order": 3,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}

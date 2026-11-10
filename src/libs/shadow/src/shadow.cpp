@@ -8,6 +8,7 @@ Comments:
 dynamic shadow cpp file
 ******************************************************************************/
 #include "shadow.h"
+#include "storm/render/effects.hpp"
 #ifdef __ANDROID__
 #include "platform/android_graphics_effects.hpp"
 #endif
@@ -142,14 +143,22 @@ bool AddPoly(const glm::vec3 *vr, int32_t nverts)
 //------------------------------------------------------------------------------------
 void Shadow::Realize(uint32_t Delta_Time)
 {
+    auto *obj = static_cast<MODEL *>(core.GetEntityPointer(entity));
+    if (!obj)
+        return;
+    // fx contact shadow (renderer_bgfx/fx): a soft blob on the floor at the character's feet, besides this shadow.
+    if (storm::render::CurrentEffectsWorld().contact_shadows)
+    {
+        const glm::vec3 feet = storm::math::pos(obj->mtx);
+        storm::render::EffectsMatrix view;
+        rs->GetTransform(D3DTS_VIEW, reinterpret_cast<D3DMATRIX *>(view.data()));
+        storm::render::EffectsContactShadow({feet.x, feet.y, feet.z}, view);
+    }
 #ifdef __ANDROID__
     // Skip shadow rendering, blur AND projection together, before touching render state.
     // No other pass consumes the retained private shadow textures.
     if (!storm::android::CharacterShadowsEnabled()) return;
 #endif
-    auto *obj = static_cast<MODEL *>(core.GetEntityPointer(entity));
-    if (!obj)
-        return;
 
     auto *pV = core.Event("EWhr_GetShadowDensity");
     HEAD_DENSITY = ((VDATA *)pV->GetArrayElement(0))->GetInt();

@@ -8,6 +8,7 @@
 #include <fstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 
@@ -36,6 +37,9 @@ Clock::time_point windowStart = started;
 uint32_t windowFrames = 0;
 uint32_t lastDrawCalls = 0;
 std::function<std::string()> rendererWindow;
+std::vector<std::string> variants; // STORM_SCENE_SWEEP_VARIANTS split at ';'
+int currentVariant = -1;
+storm::scene_sweep::VariantHook variantHook = nullptr;
 
 void writeEvent(const std::string &text)
 {
@@ -79,6 +83,7 @@ uint32_t capture(VS_STACK *)
     const double ms = std::chrono::duration<double, std::milli>(Clock::now() - windowStart).count();
     writeEvent("capture frames=" + std::to_string(windowFrames) + " frame_ms=" +
                std::to_string(windowFrames ? ms / windowFrames : 0.0) + " draws=" + std::to_string(lastDrawCalls) +
+               (currentVariant >= 0 ? " variant=" + std::to_string(currentVariant) : std::string()) +
                (rendererWindow ? " renderer: " + rendererWindow() : std::string()));
     const auto ack = directory / "ack";
     const auto deadline = Clock::now() + std::chrono::seconds(60);
@@ -99,6 +104,34 @@ uint32_t capture(VS_STACK *)
 }
 
 // Milliseconds a scene renders after its fader is gone before the capture (run.py --settle).
+uint32_t variantCount(VS_STACK *stack)
+{
+    auto *result = static_cast<VDATA *>(stack->Push());
+    if (!result)
+        return IFUNCRESULT_FAILED;
+    result->Set(static_cast<int32_t>(variants.size()));
+    return IFUNCRESULT_OK;
+}
+
+uint32_t variant(VS_STACK *stack)
+{
+    auto *index = static_cast<VDATA *>(stack->Pop());
+    if (!index)
+        return IFUNCRESULT_FAILED;
+    int32_t value = 0;
+    index->Get(value);
+    if (value < 0 || static_cast<size_t>(value) >= variants.size() || !variantHook)
+    {
+        spdlog::critical("Scene sweep: variant {} of {} cannot be applied (renderer hook set: {})", value,
+                         variants.size(), variantHook != nullptr);
+        spdlog::apply_all([](const std::shared_ptr<spdlog::logger> &logger) { logger->flush(); });
+        std::_Exit(EXIT_FAILURE);
+    }
+    currentVariant = value;
+    variantHook(variants[value].c_str());
+    return IFUNCRESULT_OK;
+}
+
 uint32_t settleMs(VS_STACK *stack)
 {
     static const int value = [] {
@@ -140,6 +173,20 @@ class SceneSweepLibrary : public SCRIPT_LIBRIARY
         registerFunction("SceneSweepEvent", "void", 1, event);
         registerFunction("SceneSweepCapture", "void", 0, capture);
         registerFunction("SceneSweepSettleMs", "int", 0, settleMs);
+        registerFunction("SceneSweepVariants", "int", 0, variantCount);
+        registerFunction("SceneSweepVariant", "void", 1, variant);
+        if (const char *list = std::getenv("STORM_SCENE_SWEEP_VARIANTS"); list && *list)
+        {
+            const std::string text = list;
+            for (size_t start = 0, end; start <= text.size(); start = end + 1)
+            {
+                end = text.find(';', start);
+                if (end == std::string::npos)
+                    end = text.size();
+                if (end > start)
+                    variants.push_back(text.substr(start, end - start));
+            }
+        }
         return true;
     }
 };
@@ -152,6 +199,11 @@ void storm::scene_sweep::framePresented(uint32_t drawCalls)
 {
     ++windowFrames;
     lastDrawCalls = drawCalls;
+}
+
+void storm::scene_sweep::setVariantHook(VariantHook hook)
+{
+    variantHook = hook;
 }
 
 void storm::scene_sweep::setRendererWindow(std::function<std::string()> window)

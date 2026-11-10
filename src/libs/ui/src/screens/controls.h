@@ -28,6 +28,13 @@ std::string SectionOf(const Widget &button);
 // 128/face_N"} for a game portrait, {kind:"item", texture:"<name under RESOURCE/Textures>"} for any
 // other game texture; null when the widget carries no such reference.
 Json PictureOf(const ImageRef *image);
+// {texture, uv} for <ui-game-image> (c-map-view, backdrops): a texture file of the game with
+// the rectangle shown ("interfaces/maps/kayman", "0,0,1,1") or an atlas picture ("atlas:GROUP/
+// Picture", ""); null for any other picture.
+Json TextureOf(const ImageRef *image);
+// The props of c-map-view for a "map" widget (a scrolled picture) and its "map_marker" rows;
+// "base" is empty when the engine's context lacks it (the screen reports that).
+Json MapViewOf(const Widget &map, std::span<const Widget *const> markers);
 // The nation a picture of the game's NATIONS group shows, as our flag name ("england",
 // "france", "spain", "holland", "pirates"), or empty.
 std::string NationOf(const ImageRef *image);

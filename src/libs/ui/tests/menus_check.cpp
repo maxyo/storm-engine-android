@@ -452,8 +452,6 @@ int main(int argc, char **argv)
     Settings(models);
     Title(models);
     NewGame(models);
-    for (const char *id : {"mainmenu", "selectcharacter", "game_menu", "save_load", "option_screen", "about", "quick_save"})
-        Expect(!HostOwned(id), std::string(id) + " is not drawn by the platform host");
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else

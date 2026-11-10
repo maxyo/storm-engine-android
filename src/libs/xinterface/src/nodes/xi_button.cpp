@@ -41,11 +41,11 @@ void CXI_BUTTON::MobileCollect(std::vector<MobileWidget> &widgets) const
     }
     // Screens ported to the portable UI that work through icon buttons without text: the
     // tavern mini-games (cup, deck, dice, pass), repair (amount arrows), the loot / exchange
-    // screen (ship and crew arrows, quantity arrows), sail emblems, purchase list and
-    // alchemy (scroll and quantity arrows). Export them by node name; the UI draws its own
-    // words for them.
+    // screen (ship and crew arrows, quantity arrows), sail emblems, purchase list,
+    // alchemy (scroll and quantity arrows) and the ship screen (guns per side arrows of its
+    // cannons window). Export them by node name; the UI draws its own words for them.
     static constexpr const char *iconScreens[] = {"boal_dice", "boal_cards", "repair", "transfer_main",
-                                                  "sailsgerald", "goodstransfer", "alchemy"};
+                                                  "sailsgerald", "goodstransfer", "alchemy", "ship"};
     for (const char *id : iconScreens)
         if ((!label || !*label) && storm::android::mobileScreen == id)
             label = m_nodeName;
