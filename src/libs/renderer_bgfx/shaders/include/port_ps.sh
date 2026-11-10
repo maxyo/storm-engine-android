@@ -8,10 +8,15 @@
 uniform vec4 u_psc[8];  // c0..c7 as set through SetPixelShaderConstantF
 uniform vec4 u_psBem[5]; // per stage D3DTSS_BUMPENVMAT00, 01, 10, 11 (texbem)
 
-// Register range: ps_1_1..1_3 hold [-1, 1] (PixelShader1xMaxValue = 1), ps_1_4 [-8, 8].
-// This is the one place to change if the reference turns out not to clamp.
-#define PS11(x) clamp(x, -1.0, 1.0)
-#define PS14(x) clamp(x, -8.0, 8.0)
+// Register range. The D3D9 reference (DXVK, like every SM2+ GPU, which reports an
+// unbounded PixelShader1xMaxValue) does not clamp ps_1_x temporaries; only the
+// constants are clamped to [-1, 1]. Every arithmetic result still goes through
+// PS11()/PS14(), so a DX8-class [-1, 1] / [-8, 8] register range is a one-line change:
+//   #define PS11(x) clamp(x, -1.0, 1.0)
+//   #define PS14(x) clamp(x, -8.0, 8.0)
+#define PS11(x) (x)
+#define PS14(x) (x)
+#define PS_CONST(c) clamp(c, -1.0, 1.0)
 // Source modifiers.
 #define PS_BX2(x) (2.0 * ((x) - 0.5))
 // Final colour: oC0 = saturate(r0), then D3D alpha test and fog.

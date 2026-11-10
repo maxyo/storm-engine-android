@@ -7,7 +7,7 @@ SAMPLER3D(s_vol4, 12);
 
 void main()
 {
-    vec4 c0 = u_psc[0];
+    vec4 c0 = PS_CONST(u_psc[0]);
     vec4 r0 = vec4_splat(0.0);
     vec4 r1 = vec4_splat(0.0);
     vec4 r2 = vec4_splat(0.0);
