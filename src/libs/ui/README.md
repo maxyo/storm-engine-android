@@ -22,7 +22,9 @@ build/ui-host/storm_ui_shot --pack <pack dir> --doc gallery/button.rml --out sho
 
 `storm_ui_shot` renders a document off-screen (EGL pbuffer, software GL 3.3, simulated
 clock) and can replay touches: `--script "down 1 660 88; wait 0.5; shot held.png; up 1 660 88"`.
-Reported component actions are printed as `action <id> <verb> <value>`.
+Reported component actions are printed as `action <id> <verb> <value>`; `--safe L,T,R,B`
+applies safe-area insets in dp (what `Host::SetSafeArea` receives from the platform:
+display cutout and system bars). Component templates read them as `safe.left` … `safe.bottom`.
 
 ## Android
 
@@ -38,7 +40,7 @@ produces `<build>/package/libstorm_ui.so` (stripped, 16 KiB pages) and
 
 | File | Role |
 |---|---|
-| `include/storm_ui/ui.h` | `Host`: load a document, touches in, frames out, actions out |
+| `include/storm_ui/ui.h` | `Host`: load a document, touches in, frames out, actions out, safe-area insets |
 | `include/storm_ui/render_backend.h` | the only renderer-specific seam |
 | `src/backend_gl3.cpp` | GL backend: RmlUi's stock GL3 renderer (GLES 3.0 / GL 3.3) |
 | `src/components.*`, `src/template.*` | `<c-…>` elements rendered from spec + template + props |

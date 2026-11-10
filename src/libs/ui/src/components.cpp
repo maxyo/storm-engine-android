@@ -349,6 +349,7 @@ void ComponentElement::RebuildNow()
     scope["spec"] = spec_.constants;
     scope["children"] = has_children;
     scope["dp"] = services_.Density();
+    scope["safe"] = services_.SafeArea();
     for (const auto &rule : spec_.class_rules)
     {
         try

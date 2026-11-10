@@ -293,6 +293,27 @@ class HostImpl final : public Host, public Services
         context_->SetDensityIndependentPixelRatio(density);
     }
 
+    void SetSafeArea(float left, float top, float right, float bottom) override
+    {
+        const Json safe = {{"left", left}, {"top", top}, {"right", right}, {"bottom", bottom}};
+        if (safe == safe_)
+            return;
+        safe_ = safe;
+        // Rebuild every component: the insets reach the templates through their scope.
+        std::vector<Rml::Element *> pending = {document_, overlay_};
+        while (!pending.empty())
+        {
+            Rml::Element *element = pending.back();
+            pending.pop_back();
+            if (!element)
+                continue;
+            if (auto *component = dynamic_cast<ComponentElement *>(element))
+                component->SetProps(Json::object());
+            for (int i = 0; i < element->GetNumChildren(); ++i)
+                pending.push_back(element->GetChild(i));
+        }
+    }
+
     void SetGameRoot(const std::string &game_root) override
     {
         config_.game_root = game_root;
@@ -453,6 +474,10 @@ class HostImpl final : public Host, public Services
     {
         return config_.density;
     }
+    Json SafeArea() const override
+    {
+        return safe_;
+    }
     double Setting(const std::string &name, double fallback) const override
     {
         const auto found = settings_.find(name);
@@ -552,6 +577,7 @@ class HostImpl final : public Host, public Services
     Rml::ElementDocument *overlay_ = nullptr;
     std::string overlay_path_;
     Json settings_ = Json::object();
+    Json safe_ = {{"left", 0}, {"top", 0}, {"right", 0}, {"bottom", 0}};
     std::unordered_map<int, Capture> captures_;
     std::vector<Rml::ObserverPtr<Rml::Element>> ticking_;
     std::vector<Toast_> toasts_;

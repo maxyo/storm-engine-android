@@ -79,6 +79,9 @@ class Host
     virtual bool LoadDocument(const std::string &path) = 0;
     virtual void Resize(int width, int height, float density) = 0;
     virtual void SetGameRoot(const std::string &game_root) = 0;
+    // Safe-area insets in dp (display cutout and system bars). HUD scenes and menu screens
+    // keep their content inside; templates read them as `safe.left` … `safe.bottom`.
+    virtual void SetSafeArea(float left, float top, float right, float bottom) = 0;
     virtual void Touch(TouchPhase phase, int pointer, float x, float y) = 0;
     // Updates and draws one frame over a transparent background. Returns the time in
     // seconds until another frame is needed: 0 while something animates.
