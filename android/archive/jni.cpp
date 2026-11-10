@@ -75,25 +75,6 @@ template<class F> jobjectArray boundary(JNIEnv *env,F f) {
  return nullptr;
 }
 }
-extern "C" JNIEXPORT jobjectArray JNICALL
-Java_org_stormengine_port_NativeArchives_inspect(JNIEnv *env,jclass,jstring input) {
- return boundary(env,[&]()->jobjectArray{
-  Text path(env,input);if(env->ExceptionCheck())return nullptr;
-  char format[64]{},error[2048]{};int code=storm_archive_inspect(path.data(),format,sizeof(format),error,sizeof(error));
-  return result(env,code,format,error);
- });
-}
-extern "C" JNIEXPORT jobjectArray JNICALL
-Java_org_stormengine_port_NativeArchives_manifest(JNIEnv *env,jclass,jstring input) {
- return boundary(env,[&]()->jobjectArray{
-  Text path(env,input);if(env->ExceptionCheck())return nullptr;
-  char format[64]{},error[2048]{};char *raw=nullptr;
-  int code=storm_archive_manifest(path.data(),&raw,error,sizeof(error));
-  std::unique_ptr<char,decltype(&storm_archive_free)> json(raw,storm_archive_free);
-  char ignored[2048]{};storm_archive_inspect(path.data(),format,sizeof(format),ignored,sizeof(ignored));
-  return result(env,code,format,error,json?json.get():"");
- });
-}
 // Results are [status, "", error, json]; json is the discovery document or a
 // failure description (encrypted / no space), or empty.
 extern "C" JNIEXPORT jobjectArray JNICALL

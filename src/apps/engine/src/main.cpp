@@ -26,6 +26,7 @@
 #include "platform/script_patches.hpp"
 #include "platform/android_shortcuts.hpp"
 #include "android_gameplay_state.hpp"
+#include "android_ship_abilities.hpp"
 #include "android_combat_state.hpp"
 #include "android_sea_orders_state.hpp"
 #include "android_land_commands_state.hpp"
@@ -624,7 +625,7 @@ int main(int argc, char *argv[])
             }
             else if (command.starts_with("spyglass:"))
             {
-                storm::android::spyglass.acknowledge(std::string_view(command).substr(9), SDL_GetTicks());
+                storm::android::spyglass.acknowledge(std::string_view(command).substr(9));
             }
             else if (command.starts_with("hold:"))
             {
@@ -656,7 +657,7 @@ int main(int argc, char *argv[])
             else if (command.starts_with("navigator:"))
             {
                 const bool accepted=storm::android::mobileScreen.empty() &&
-                    storm::android::seaNavigator.offer(std::string_view(command).substr(10), SDL_GetTicks(),
+                    storm::android::seaNavigator.offer(std::string_view(command).substr(10),
                         storm::android::shipTelemetry.revision(), storm::android::shipTelemetry.hudRevision(),
                         storm::android::shipTelemetry.frame().navigatorGeneration);
                 static std::string lastNavigatorPrepared,lastNavigatorVisible,lastNavigatorOther;
@@ -666,6 +667,16 @@ int main(int argc, char *argv[])
                     std::to_string(storm::android::shipTelemetry.revision())+"/"+std::to_string(storm::android::shipTelemetry.hudRevision())+"/"+
                     std::to_string(storm::android::shipTelemetry.frame().navigatorGeneration);
                 if(detail!=lastNavigatorRequest){lastNavigatorRequest=detail;storm::android::traceContextAction("navigator-mailbox","receive",detail);}
+            }
+            else if (command.starts_with("hudowner:"))
+            {
+                // The portable UI presents this HUD: its unanswered revisions keep native drawing off.
+                if (command == "hudowner:lost") {
+                    if (const auto line = storm::android::hudPresenters.lost(); !line.empty())
+                        __android_log_print(ANDROID_LOG_ERROR, "StormInput", "%s", line.c_str());
+                }
+                else if (!storm::android::hudPresenters.declare(std::string_view(command).substr(9)))
+                    __android_log_print(ANDROID_LOG_ERROR, "StormInput", "unknown HUD presenter declaration '%s'", command.c_str());
             }
             else if (command.starts_with("shiphud:"))
             {
@@ -872,6 +883,18 @@ int main(int argc, char *argv[])
                 storm::android::traceWorldMapModal("presented",storm::android::worldMapHud.modal.debug());
             }
             storm::android::publishWorldMapHud(storm::android::worldMapHud.modal.receipt(SDL_GetTicks()).token!=0);
+            {
+                // A presenting UI answers each revision within one of its frames; one that stays
+                // silent is withdrawn loudly and the native HUD parts come back (android_hud_presenter.hpp).
+                using namespace storm::android;
+                const auto &telemetry = shipTelemetry;
+                const bool seaWaiting = gameplayReady && (hudPresenters.seaFresh || seaQuickAction.awaiting() || telemetry.awaiting() ||
+                    (telemetry.frame().valid && seaNavigator.pending(telemetry.revision(), telemetry.hudRevision(), telemetry.frame().navigatorGeneration)));
+                for (const auto &line : {hudPresenters.watch("sea", seaWaiting, SDL_GetTicks()),
+                                         hudPresenters.watch("worldmap", gameplayReady && worldMapHud.awaiting(), SDL_GetTicks()),
+                                         hudPresenters.watch("spyglass", gameplayReady && spyglass.awaiting(), SDL_GetTicks())})
+                    if (line) __android_log_print(ANDROID_LOG_ERROR, "StormInput", "%s", line->c_str());
+            }
             if(storm::android::worldMapHud.modal.hold(bActive,SDL_GetTicks()))continue;
             if(const auto command=storm::android::worldMapHud.take(SDL_GetTicks()))
             {
@@ -879,17 +902,23 @@ int main(int argc, char *argv[])
                 storm::android::worldMapHud.update(storm::android::readWorldMapFrame(gameplayState,gameplayReady),SDL_GetTicks());
                 storm::android::publishWorldMapHud();
             }
-            storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipTelemetry(gameplayState));
+            storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, SDL_GetTicks(), storm::android::seaOrders.frame().active));
             // Activity recreation revokes pending targets/ready ACKs before dispatch.
             storm::android::publishShipTelemetry();
             if (const auto detent = storm::android::shipTelemetry.takeSails(SDL_GetTicks()))
                 if (storm::android::applyShipSailTarget(gameplayState, *detent))
                 {
-                    storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipTelemetry(gameplayState));
+                    storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, SDL_GetTicks(), storm::android::seaOrders.frame().active));
                     storm::android::publishShipTelemetry();
                 }
             if (const auto action = gameplayState.take(SDL_GetTicks()))
-                core_private->Event("Control Activation", "s", action->c_str());
+            {
+                // A battle ability goes through the command list, as the native menu launches it.
+                if (action->starts_with("BI_"))
+                    storm::android::launchShipAbility(*action);
+                else
+                    core_private->Event("Control Activation", "s", action->c_str());
+            }
             // Execute commands at a completed game-frame boundary, after control
             // polling and outside Android dialog callbacks. No timed key pulse
             // or held bit can be lost between two slow native frames.

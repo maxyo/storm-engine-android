@@ -6,6 +6,7 @@ All source/build/cache paths are under --work; no engine or APK build is perform
 import argparse
 import hashlib
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -94,7 +95,11 @@ def main():
         if args.ndk:
             command += ["-D__ANDROID_API__=24"]
         run(command, cwd=ssl_build, env=env)
-        run(["make", f"-j{args.jobs}"], cwd=ssl_build, env=env)
+        # Compile through the Storm ccache launcher with the compiler Configure chose.
+        compiler = re.search(r"^CC=(.+)$", (ssl_build / "Makefile").read_text(), re.M)[1].strip()
+        run([ROOT / "tools/ccache/warmth", "begin", ssl_build, "--make"])
+        run(["make", f"-j{args.jobs}", f"CC={ROOT / 'tools/ccache/launcher'} {compiler}"], cwd=ssl_build, env=env)
+        run([ROOT / "tools/ccache/warmth", "end", ssl_build])
         run(["make", "install_sw"], cwd=ssl_build, env=env)
     command = ["cmake", "-S", ROOT / "android/torrent", "-B", build, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
                f"-DSTORM_LIBTORRENT_SOURCE={torrent}", f"-DBOOST_ROOT={boost}", f"-DBoost_INCLUDE_DIR={boost}", f"-DOPENSSL_ROOT_DIR={ssl_prefix}",
@@ -107,7 +112,9 @@ def main():
     cmake_env["PKG_CONFIG_LIBDIR"] = str(ssl_prefix / "lib/pkgconfig")
     cmake_env["PKG_CONFIG_PATH"] = str(ssl_prefix / "lib/pkgconfig")
     run(command, env=cmake_env)
+    run([ROOT / "tools/ccache/warmth", "begin", build])
     run(["cmake", "--build", build, "--parallel", args.jobs])
+    run([ROOT / "tools/ccache/warmth", "end", build])
     if not args.ndk:
         run(["ctest", "--test-dir", build, "--output-on-failure"])
     else:

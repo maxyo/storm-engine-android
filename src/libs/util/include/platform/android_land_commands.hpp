@@ -62,17 +62,22 @@ class LandCommandsState
     LandCommandsFrame frame_;
     std::string sceneKey_;
     uint64_t scene_ = 0, revision_ = 1, activity_ = 0;
+    // The Android sheet answers every active revision it is given, as events, never as a
+    // lease renewed per frame: ack 2 "taking it", ack 1 "drawn", ack 0 "not covering".
+    // A UI frame may take seconds on a slow device; nothing here measures its frame rate.
+    // covered_: the UI drew exactly this revision and has not released it.
     bool covered_ = false;
-    uint32_t coveredAt_ = 0;
-    // Visual continuity only. Never turns an old draw ACK into current coverage
-    // or authorizes an action; exact revision checks below remain unchanged.
+    // Visual continuity only: after a known transition (open/select/activate/back) or a
+    // change of a covered menu, stock drawing stays off until the UI answers the new
+    // revision. Never turns an old draw ACK into current coverage or authorizes an
+    // action; exact revision checks below remain unchanged.
     bool handoff_ = false;
-    uint32_t handoffAt_ = 0;
+    uint32_t handoffAt_ = 0; // diagnostics only (handoffWaiting)
     uint64_t handoffScene_ = 0, handoffActivity_ = 0;
     std::string handoffOwner_;
     void beginHandoff(uint32_t tick)
     {
-        if (handoff_) return; // Repeated known revisions cannot postpone the deadline.
+        if (handoff_) return;
         handoff_ = true; handoffAt_ = tick; handoffScene_ = scene_;
         handoffActivity_ = activity_; handoffOwner_ = frame_.ownerIdentity;
     }
@@ -87,24 +92,16 @@ public:
     uint64_t sceneEpoch() const { return scene_; }
     uint64_t revision() const { return revision_; }
     uint64_t activityGeneration() const { return activity_; }
-    bool covered(uint32_t tick) const { return covered_ && frame_.active && frame_.complete && tick - coveredAt_ <= 750; }
+    bool covered() const { return covered_ && frame_.active && frame_.complete; }
     bool holdingPresentation() const
     {
         return handoff_ && frame_.available && frame_.active && frame_.complete &&
             handoffScene_ == scene_ && handoffActivity_ == activity_ && handoffOwner_ == frame_.ownerIdentity;
     }
-    bool handoffExpired(uint32_t tick) const { return holdingPresentation() && tick - handoffAt_ >= 1000; }
-    bool suppressStock(uint32_t tick) const
-    {
-        // An expired known handoff remains visually quiet until the game thread
-        // closes it. Never paint a stock frame between expiry and native Close.
-        return covered(tick) || holdingPresentation();
-    }
-    bool expireHandoff(uint32_t tick)
-    {
-        if (!handoffExpired(tick)) return false;
-        invalidate(); return true;
-    }
+    // How long the current hold has waited for the UI's answer (0 when none). Only for
+    // reporting a UI that stopped answering; it never ends the hold.
+    uint32_t handoffWaiting(uint32_t tick) const { return holdingPresentation() ? tick - handoffAt_ : 0; }
+    bool suppressStock() const { return covered() || holdingPresentation(); }
     void finishAndroidOperation(const LandCommandsRequest &request, bool executed, uint32_t tick)
     {
         const bool sameOwner = request.scene == scene_ && request.activity == activity_ && request.revision == revision_;
@@ -167,7 +164,7 @@ public:
         auto old = frame_;
         for (auto &item : old.items) item.cooldown = item.enabled ? 1 : 0;
         if (stable != old) {
-            if (canContinue && covered(tick)) beginHandoff(tick);
+            if (canContinue && covered()) beginHandoff(tick);
             invalidate(canContinue);
         }
         frame_ = std::move(frame);
@@ -203,17 +200,15 @@ public:
         if (fields[0] != "1" || !number(fields[1], request.scene) || !number(fields[2], request.revision) ||
             !number(fields[3], request.activity) || request.scene != scene_ || request.revision != revision_ ||
             request.activity != activity_ || !activity_ || !frame_.available) return false;
-        if (handoffExpired(tick)) return false; // Native timeout closes this owner; no late ACK/action can revive it.
         request.verb = fields[4]; request.id = fields[5]; request.tick = tick;
         if (request.verb == "ack")
         {
             if (request.id != "0" && request.id != "1" && request.id != "2") return false;
-            // 2 means the live Android owner is drawing this known snapshot.
-            // It may bridge already drawn coverage, but cannot initiate an
-            // unacknowledged takeover or extend an existing deadline.
-            if (request.id == "2" && covered(tick)) beginHandoff(tick);
+            // 2: the live Android owner is taking this known snapshot to the screen. It
+            // may bridge already drawn coverage, but cannot initiate an unacknowledged
+            // takeover. 1: drawn. 0: not covering it; stock drawing returns at once.
+            if (request.id == "2" && covered()) beginHandoff(tick);
             covered_ = request.id == "1" && frame_.active && frame_.complete;
-            coveredAt_ = tick;
             if (request.id == "1") handoff_ = false;
             if (request.id == "0") { pending_.clear(); handoff_ = false; }
             return true;
@@ -237,7 +232,6 @@ public:
     }
     std::optional<LandCommandsRequest> take(uint32_t tick)
     {
-        if (handoffExpired(tick)) { pending_.clear(); return {}; }
         while (!pending_.empty())
         {
             auto request = std::move(pending_.front()); pending_.pop_front();

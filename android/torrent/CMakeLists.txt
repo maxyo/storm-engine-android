@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(storm_torrent LANGUAGES CXX)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/StormBuildCache.cmake")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 if(NOT STORM_LIBTORRENT_SOURCE OR NOT BOOST_ROOT)

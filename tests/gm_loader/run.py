@@ -9,7 +9,6 @@ import argparse
 import os
 from pathlib import Path
 import subprocess
-import shutil
 import time
 
 p = argparse.ArgumentParser(description=__doc__)
@@ -22,7 +21,7 @@ root = Path(__file__).resolve().parents[2]
 geometry = root / 'src/libs/geometry'
 build = a.build_dir.resolve()
 build.mkdir(parents=True, exist_ok=True)
-compiler = ([shutil.which('ccache')] if shutil.which('ccache') else []) + [os.environ.get('CXX', 'c++')]
+compiler = [os.environ.get('CXX', 'c++')]  # run_host_tests.py sets CXX=tools/ccache/cxx
 flags = ['-std=c++20', '-O1', '-DFMT_HEADER_ONLY', '-I' + str(geometry / 'src'), '-I' + str(geometry / 'include'),
          '-I' + str(root / 'src/libs/math/include'), '-I' + str(root / 'src/libs/core/include'),
          '-I' + str(a.glm_source), '-I' + str(a.fmt_source / 'include')]

@@ -22,6 +22,7 @@
 native string SceneSweepNext();
 native void SceneSweepEvent(string text);
 native void SceneSweepCapture();
+native int SceneSweepSettleMs();
 #libriary "SceneSweepLibrary"
 
 #event_handler("frame", "SceneSweep_Frame");
@@ -33,7 +34,6 @@ native void SceneSweepCapture();
 #define SS_DONE		4	// leaving the game
 
 #define SS_SETTLE_FRAMES	5	// after the fader is gone; scene loading is synchronous
-#define SS_SETTLE_MS		300
 #define SS_FADE_TIMEOUT_MS	30000
 #define SS_LOAD_TIMEOUT_MS	120000
 #define SS_ENEMY_GROUP		"SceneSweepEnemy"
@@ -44,6 +44,7 @@ int ssFrames = 0;
 int ssTime = 0;
 int ssStep = 0;
 int ssSettleTime = 0;
+bool ssSteady = false;		// the fader is gone: the measured window has started
 bool ssViaHome = false;
 string ssHome = "";
 string ssHomeGroup = "";
@@ -128,6 +129,7 @@ void SceneSweep_Frame()
 			SceneSweepEvent("loaded " + ssScene);
 			SceneSweep_SetState(SS_SETTLE);
 			ssSettleTime = 0;
+			ssSteady = false;
 			break;
 		}
 		if(ssTime > SS_LOAD_TIMEOUT_MS) SceneSweep_Fail("not loaded after " + ssTime + " ms, step " + ssStep);
@@ -146,8 +148,17 @@ void SceneSweep_Frame()
 			ssTime = 0;
 			break;
 		}
+		if(!ssSteady)
+		{
+			// Restarts the runner's frame and renderer counters: the capture reports the scene alone.
+			SceneSweepEvent("steady " + ssScene);
+			ssSteady = true;
+			ssFrames = 0;
+			ssTime = 0;
+			break;
+		}
 		if(ssFrames < SS_SETTLE_FRAMES) break;
-		if(ssTime < SS_SETTLE_MS) break;
+		if(ssTime < SceneSweepSettleMs()) break;
 		SceneSweepCapture();
 		SceneSweepEvent("end " + ssScene);
 		SceneSweep_Finish();

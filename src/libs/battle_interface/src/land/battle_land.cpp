@@ -292,11 +292,14 @@ void refreshLandCommands(bool ready)
     traceLandAdapter(2, "ready owner=" + std::to_string(battle->GetId()) + " active=" + (frame.active ? "1" : "0") +
         " complete=" + (frame.complete ? "1" : "0") + " items=" + std::to_string(frame.items.size()));
     landCommands.update(ownerKey, std::move(frame), tick);
-    // Inspect fresh support before timeout: a vanished adapter restores native
-    // fallback, whereas a still-known pending transition closes quietly.
-    if (landCommands.expireHandoff(tick)) {
-        battle->CloseAndroidLand();
-        refreshLandCommands(ready);
+    // The hold ends with the UI's answer, however slow its frames are. A UI that has
+    // not answered for seconds is broken, not slow: say so loudly, once per hold.
+    static uint64_t reportedRevision = 0;
+    if (landCommands.handoffWaiting(tick) >= 5000 && reportedRevision != landCommands.revision()) {
+        reportedRevision = landCommands.revision();
+        __android_log_print(ANDROID_LOG_ERROR, "StormInput",
+            "land commands: the UI has not answered revision %llu for %u ms; the native menu stays hidden",
+            static_cast<unsigned long long>(landCommands.revision()), landCommands.handoffWaiting(tick));
     }
 }
 bool executeLandCommand(const LandCommandsRequest &request)

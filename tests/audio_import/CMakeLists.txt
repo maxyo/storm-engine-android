@@ -1,6 +1,7 @@
 # Synthetic checks for src/libs/audio_import; driven by run.py.
 cmake_minimum_required(VERSION 3.21)
 project(storm_audio_import_check LANGUAGES C CXX)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/StormBuildCache.cmake")
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../src/libs/audio_import" audio_import)
 include(FetchContent)
 # Same stb_vorbis revision as tests/audio/run.py and the sound backend.

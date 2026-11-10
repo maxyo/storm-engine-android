@@ -193,26 +193,26 @@ class CombatConsumer final : public HudConsumer
   private:
     static std::string Parse(const Json &state, Combat &out)
     {
-        if (!state.is_object() || Whole(state, "schemaVersion") != uint64_t{1})
-            return "expected {schemaVersion: 1, …}";
+        if (!state.is_object() || Whole(state, "schemaVersion") != uint64_t{2})
+            return "expected {schemaVersion: 2, …}";
         const auto revision = Whole(state, "gameplayRevision"), activity = Whole(state, "activityGeneration");
         const auto player = Text(state, "playerId"), mode = Text(state, "mode");
         const auto actions = state.find("actions");
-        if (!revision || !activity || !player || !mode || actions == state.end() || !actions->is_array())
+        if (!revision || !activity || !player || !mode || actions == state.end() || !actions->is_object())
             return "lacks gameplayRevision, activityGeneration, playerId, mode or actions";
         if (player->size() > 64 || !Token(*player, true) || !OneOf(*mode, {"unknown", "explore", "melee"}))
             return "bad playerId or mode";
         if (actions->size() > 12)
             return "too many actions";
-        for (const Json &action : *actions)
+        for (const auto &entry : actions->items())
         {
-            if (!action.is_string())
-                return "an action is not a name";
-            const std::string name = action.get<std::string>();
+            const std::string &name = entry.key();
             if (!OneOf(name, {"weapon", "potion", "force", "fast", "break", "parry", "feint", "round", "pistol", "block", "freelook", "interact", "dash"}))
                 return "unknown action '" + name + "'";
-            if (!out.actions.insert(name).second)
-                return "action '" + name + "' is listed twice";
+            const auto generation = Whole(*actions, name.c_str());
+            if (!generation || *generation == 0)
+                return "action '" + name + "' lacks its generation";
+            out.actions[name] = *generation;
             if (*mode == "explore" && !OneOf(name, {"weapon", "potion", "freelook", "interact"}))
                 return "action '" + name + "' does not belong to explore";
             if (*mode != "explore" && name == "interact")
@@ -546,6 +546,23 @@ class ShipConsumer final : public HudConsumer
         out.speed = speed != state.end() && speed->is_number() && std::isfinite(speed->get<double>()) ? std::abs(speed->get<double>()) : -1.0;
         out.wind = Amount(state, "windSpeed");
         out.cannon_charge = Amount(state, "cannonCharge") < 0.0 ? -1.0 : std::min(1.0, Amount(state, "cannonCharge"));
+        out.time_scale = Amount(state, "timeScale");
+        const auto abilities = state.find("abilities");
+        if (abilities != state.end())
+        {
+            if (!abilities->is_array() || abilities->size() > 4)
+                return "abilities is not a short list";
+            for (const Json &source : *abilities)
+            {
+                Ship::Ability ability;
+                ability.id = source.is_object() ? Text(source, "id").value_or("") : "";
+                ability.state = source.is_object() ? Text(source, "state").value_or("") : "";
+                ability.fill = source.is_object() ? Ratio(source, "fill") : 0.0;
+                if (!OneOf(ability.id, {"InstantRepair", "ImmediateReload"}) || !OneOf(ability.state, {"ready", "active", "recovery", "blocked"}))
+                    return "an unknown ability or ability state";
+                out.abilities.push_back(std::move(ability));
+            }
+        }
         out.date_time = Text(state, "dateTimeText").value_or("");
         out.location = Text(state, "locationText").value_or("");
         if (!Printable(out.date_time, 160, true) || !Printable(out.location, 160, true))

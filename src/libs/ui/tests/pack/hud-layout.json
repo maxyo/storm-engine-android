@@ -313,6 +313,24 @@
      "component": "c-button",
      "rcss": "position: absolute; right: 16dp; bottom: 16dp; width: 76dp; height: 76dp;",
      "props": {}
+    },
+    {
+     "id": "time-slower",
+     "component": "c-button",
+     "rcss": "position: absolute; left: 50%; margin-left: -74dp; bottom: 18dp; width: 44dp; height: 44dp;",
+     "props": {}
+    },
+    {
+     "id": "time",
+     "component": "c-button",
+     "rcss": "position: absolute; left: 50%; margin-left: -24dp; bottom: 16dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "time-faster",
+     "component": "c-button",
+     "rcss": "position: absolute; left: 50%; margin-left: 30dp; bottom: 18dp; width: 44dp; height: 44dp;",
+     "props": {}
     }
    ]
   },
@@ -441,6 +459,36 @@
      "id": "fire",
      "component": "c-button",
      "rcss": "position: absolute; right: 16dp; bottom: 16dp; width: 76dp; height: 76dp;",
+     "props": {}
+    },
+    {
+     "id": "time-slower",
+     "component": "c-button",
+     "rcss": "position: absolute; left: 50%; margin-left: -74dp; bottom: 18dp; width: 44dp; height: 44dp;",
+     "props": {}
+    },
+    {
+     "id": "time",
+     "component": "c-button",
+     "rcss": "position: absolute; left: 50%; margin-left: -24dp; bottom: 16dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "time-faster",
+     "component": "c-button",
+     "rcss": "position: absolute; left: 50%; margin-left: 30dp; bottom: 18dp; width: 44dp; height: 44dp;",
+     "props": {}
+    },
+    {
+     "id": "effect-0",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 220dp; bottom: 78dp; width: 44dp; height: 44dp;",
+     "props": {}
+    },
+    {
+     "id": "effect-1",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 168dp; bottom: 78dp; width: 44dp; height: 44dp;",
      "props": {}
     }
    ]

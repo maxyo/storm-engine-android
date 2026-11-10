@@ -49,7 +49,8 @@ produces `<build>/package/libstorm_ui.so` (stripped, 16 KiB pages) and
 | `src/icons.cpp` | `<ui-icon>`: SVG symbols rasterised per size and colour |
 | `src/picture_atlas.*` | the game's `pictures.ini` (group + picture → texture + rectangle), read from the game root at run time |
 | `src/tx_texture.cpp`, `src/game_image.cpp` | `<ui-game-image>`: pictures decoded from the player's `.tx` files (or by the host's `game_picture_loader`, never both) on a worker thread; the loading placeholder shows until then, a picture that cannot be had is logged with texture, cell and reason and marked `image-missing` |
-| `src/ui_host.cpp` | RmlUi set-up, pointer routing, toasts, tooltip, the HUD mount and the touch map |
+| `src/ui_host.cpp` | RmlUi set-up, pointer routing, toasts, tooltip, the HUD mount, the touch map, Prepare/Frame |
+| `src/frame_renderer.*` | between RmlUi and the backend: frame counters, the filter-result cache, the frame hash (see "Frame cost") |
 | `src/hud/` | the in-game HUD: state consumers, scenes by gameplay mode, engine input (see `src/screens/README.md`, "The HUD") |
 
 Errors are loud, not defaults: an unknown `<c-…>` tag, an attribute a component does not
@@ -74,6 +75,43 @@ bgfx. The bgfx backend will implement the same interface next to the bgfx render
 draw inside the engine frame as its last view; `Config::backend` takes it. The host always names its backend (`CreateGl3Backend()` or its own): there is no default and no second choice when it fails. The
 application's ARCHITECTURE.md describes that plug-in point (view id, order, texture
 handles for `.tx` pictures).
+
+## Frame cost
+
+The platform host draws only when something changed: it calls `Host::Prepare` after every
+call into the UI (a state, a touch, a timer) and asks for a `Frame` only when Prepare says
+the frame on the screen is out of date. A state the engine publishes again, or one that
+changes nothing visible, costs a Prepare (timers, routing, `Context::Update`) and no
+drawing. What counts as a change: host calls that alter the documents (touches, toasts,
+props, documents, the HUD mount's own edits), rebuilt or re-laid-out components, ticking
+behaviours, RmlUi animations and transitions, game pictures that arrived, re-cut text,
+and a texture made in the last frame. `Config::verify_unchanged` (host checks and
+`storm_ui_shot`) draws every frame anyway and reports a frame Prepare called unchanged that
+draws other commands (`FrameStats::mispredicted`, an error line).
+
+`src/frame_renderer.*` sits between RmlUi and the backend's `Rml::RenderInterface`, so every
+backend gets the same savings without code of its own:
+
+- it counts the frame (`Host::LastFrameStats`: CPU of update and render, rebuilds, boxes
+  laid out, meshes compiled, draws, clip masks, layers, cached layers, texture uploads);
+- it caches filter results: an element with `filter:` (drop-shadow, grayscale, brightness,
+  opacity) costs a backend an offscreen layer, a filter pass and a composite every frame.
+  The runtime buffers the layer's commands and, when they match a frame before (meshes by
+  content, textures, positions, scissor, transform, stencil, filters), draws the saved
+  result as one textured quad. A layer composited into an empty region (an element
+  scrolled out of a list) is dropped. The look is unchanged: captures before and after are
+  pixel-identical (`storm_ui_shot` on every bench scene);
+- it hashes the drawing commands of each frame (the verification above).
+
+A backend must implement layers and `SaveLayerAsTexture` (RmlUi's box shadows need them
+too); without it a filtered element is not drawn and an error says so.
+
+`storm_ui_shot … --script "wait 1; bench 300 [<channel> <a.json> <b.json>]"` measures
+frames as a platform host makes them (GPU finished per frame) and prints the costs; with a
+channel the two states alternate every frame. `tests/frame_cost_check.cpp` holds the rules:
+a steady HUD needs no frame, a drawn steady frame rebuilds, lays out, compiles and uploads
+nothing, an unchanged filtered layer costs the backend no layer. Debuggable Android builds
+log the frame costs every 5 s (logcat tag `StormUiFrames`).
 
 ## Licence boundary
 
