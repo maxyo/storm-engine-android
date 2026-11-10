@@ -23,6 +23,7 @@ std::unique_ptr<Screen> CreateSettingsScreen();
 std::unique_ptr<StateConsumer> CreateAppSettingsConsumer();
 std::unique_ptr<Screen> CreateTitleScreen();
 std::unique_ptr<Screen> CreateNewGameScreen();
+std::unique_ptr<Screen> CreateNationsScreen();
 std::unique_ptr<Screen> CreateLauncherScreen();
 std::unique_ptr<Screen> CreateDownloadsScreen();
 std::unique_ptr<Screen> CreateAboutScreen();
@@ -46,6 +47,7 @@ const ScreenEntry kPorted[] = {
     {"option_screen", CreateSettingsScreen},
     {"mainmenu", CreateTitleScreen},
     {"selectcharacter", CreateNewGameScreen},
+    {"nationrelation", CreateNationsScreen},
     // The application's own screens, routed from the platform host's "launcher" channel.
     {"launcher", CreateLauncherScreen},
     {"downloads", CreateDownloadsScreen},
@@ -55,7 +57,7 @@ const ScreenEntry kPorted[] = {
 // Interfaces the platform host still draws with its own forms. Anything not listed here
 // and not ported above gets the generic layout.
 const char *const kHostOwned[] = {
-    "character",      "lscchar_all",   "items",     "ship",      "questbook", "nationrelation", // hero sections
+    "character",      "lscchar_all",   "items",     "ship",      "questbook",                  // hero sections
     "map",            "dirsailenc",    "leavebattle", "salary", "boal_frame", // reading menus
 };
 

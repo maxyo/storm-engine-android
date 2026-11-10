@@ -487,7 +487,7 @@ struct Session {
   std::vector<std::string> spilled;
   explicit ReadVisitor(Session &s):session(s){}
   bool entry(const std::string &raw,uint64_t declared)override {
-   current=normal(path_parts(raw));size=declared;written=0;head.clear();session.budget.stage=STORM_ARCHIVE_STAGE_READING;
+   current=normal(path_parts(raw));size=declared;written=0;head.clear();
    reading_metadata=metadata.count(current)&&declared<=kMetadataBytes;
    sniffing=nested.count(current)!=0;
    if(sniffing)remaining-=std::min(remaining,declared);

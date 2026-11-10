@@ -15,6 +15,8 @@ namespace storm::ui
 void RegisterDrawElements();
 // True once after a <ui-clamp> changed its text during layout: lay out again before drawing.
 bool TextClampsChanged();
+// Whether <ui-clamp> text inside `root` was cut to fit: 1 cut, 0 all of it shown, -1 none there.
+int ClampedTextIn(Rml::Element *root);
 void ReleaseDrawTextures();
 
 // icons.json of the UI pack: shared defs plus one SVG symbol per icon id.

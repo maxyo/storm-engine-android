@@ -4,6 +4,10 @@
 
 using namespace storm::android;
 
+// Fixtures for the game data the snapshot reads (dialog.cpp reads the script and string service).
+std::optional<int64_t> storm::android::dialogueHeroMoney() { return 1500; }
+const char *storm::android::gameLanguage() { return "russian"; }
+
 int main() {
     for (const auto malformed : {"", "1", ":1", "1:", "-1:0", "1:-1", "1:+2", "1:0x", "1 :0",
                                 "18446744073709551616:1", "1:4294967296"})
@@ -44,6 +48,8 @@ int main() {
     const auto fits = [](std::string_view) { return true; };
     assert(publishDialogue(owner, &attrs, "Fixture speaker"));
     assert(publications.back().find("\"editable\":true,\"maxCodePoints\":256") != std::string::npos);
+    assert(publications.back().find("\"language\":\"russian\"") != std::string::npos);
+    assert(publications.back().find("\"money\":1500") != std::string::npos);
     auto submit = [&](std::string text, auto width) {
         dialogueActions.push_back(std::to_string(dialogueGeneration) + ":0:" + text);
         return takeDialogueChoice(owner, &attrs, width);
