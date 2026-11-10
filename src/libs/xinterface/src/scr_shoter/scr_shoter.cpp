@@ -243,8 +243,14 @@ uint64_t SCRSHOTER::ProcessMessage(MESSAGE &message)
     switch (message.Long())
     {
     case MSG_SCRSHOT_MAKE:
+        // Normally Realize has taken the shot already. A save made outside the
+        // frame loop (autosave when the app goes to background) asks before
+        // any Realize ran: take it now from the last rendered back buffer.
+        if (texture_ == nullptr && !MakeScreenShot())
+        {
+            core.Trace("ERROR!!! screen shot create error");
+        }
         return textureIndex_;
-        break;
     case MSG_SCRSHOT_READ: {
         VDATA *pvdat;
 

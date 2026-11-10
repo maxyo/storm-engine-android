@@ -226,21 +226,27 @@ void SubscribeEngineToAppEvents()
     // pause, before anything else can run.
     events.subscribe(
         [](const storm::AppEvent &event) {
-            if (event.type == storm::AppEventType::WillEnterBackground ||
-                event.type == storm::AppEventType::Terminating)
-            {
-                // A backgrounded process can be killed without notice: do not lose buffered log lines.
-                spdlog::apply_all([](const std::shared_ptr<spdlog::logger> &logger) { logger->flush(); });
-            }
             if (event.type == storm::AppEventType::WillEnterBackground)
             {
                 audioGate.foreground = false;
                 audioGate.apply();
                 if (event.immediate && core_private && core_private->initialized())
                 {
-                    // Hook for scripts (e.g. autosave). Runs between frames on the game thread.
+                    // Hook for scripts (the app's background autosave). Runs between frames on
+                    // the game thread; the Android UI thread does not wait for it (Vulkan
+                    // window: SDL's surfaceDestroyed takes no hand-off from this thread).
+                    const auto started = std::chrono::steady_clock::now();
                     core_private->Event("AppWillEnterBackground");
+                    spdlog::info("AppWillEnterBackground handlers took {} ms",
+                                 std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::steady_clock::now() - started).count());
                 }
+            }
+            if (event.type == storm::AppEventType::WillEnterBackground ||
+                event.type == storm::AppEventType::Terminating)
+            {
+                // A backgrounded process can be killed without notice: do not lose buffered log lines.
+                spdlog::apply_all([](const std::shared_ptr<spdlog::logger> &logger) { logger->flush(); });
             }
         },
         true);
