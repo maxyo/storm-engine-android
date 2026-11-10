@@ -14,6 +14,7 @@
 #include "lifecycle_diagnostics_service.hpp"
 #include "logging.hpp"
 #include "os_window.hpp"
+#include "app_events.hpp"
 #include "steam_api.hpp"
 #include "v_sound_service.h"
 #include "fs.h"
@@ -59,6 +60,41 @@ bool bActive = true;
 bool bSoundInBackground = false;
 
 storm::diag::LifecycleDiagnosticsService lifecycleDiagnostics;
+
+// Single owner of "may sound play right now". Window focus, the Android
+// activity lifecycle and Android audio focus all used to call
+// SetActiveWithFade independently and could re-enable each other's pause.
+struct AudioGate
+{
+    bool windowFocused = true; // OSWindow focus
+    bool foreground = true;    // AppEvents lifecycle (Android pause/resume)
+    bool audioFocus = true;    // Android AudioManager focus, reported by the activity
+    float duck = 1.0f;         // transient "may duck" focus loss
+    bool applied = true;
+    float appliedDuck = 1.0f;
+
+    void apply()
+    {
+        if (!core_private || !core_private->initialized())
+            return;
+        const bool active = foreground && audioFocus && (windowFocused || bSoundInBackground);
+        if (active == applied && duck == appliedDuck)
+            return;
+        auto *soundService = static_cast<VSoundService *>(core.GetService("SoundService"));
+        if (!soundService)
+            return;
+        if (duck != appliedDuck)
+        {
+            soundService->SetDucking(duck);
+            appliedDuck = duck;
+        }
+        if (active != applied)
+        {
+            soundService->SetActiveWithFade(active);
+            applied = active;
+        }
+    }
+} audioGate;
 
 void RunFrame()
 {
@@ -127,19 +163,17 @@ void HandleWindowEvent(const storm::OSWindow::Event &event)
     else if (event == storm::OSWindow::FocusGained)
     {
         bActive = true;
+        audioGate.windowFocused = true;
         if (core_private->initialized())
         {
             core_private->AppState(bActive);
-            if (const auto soundService = static_cast<VSoundService *>(core.GetService("SoundService"));
-                soundService && !bSoundInBackground)
-            {
-                soundService->SetActiveWithFade(true);
-            }
+            audioGate.apply();
         }
     }
     else if (event == storm::OSWindow::FocusLost)
     {
         bActive = false;
+        audioGate.windowFocused = false;
 #ifdef __ANDROID__
         // AppState/audio fading can block this thread beyond the opening grace.
         // Observe the real SDL focus event before those calls, at its actual time.
@@ -152,13 +186,61 @@ void HandleWindowEvent(const storm::OSWindow::Event &event)
         if (core_private->initialized())
         {
             core_private->AppState(bActive);
-            if (const auto soundService = static_cast<VSoundService *>(core.GetService("SoundService"));
-                soundService && !bSoundInBackground)
-            {
-                soundService->SetActiveWithFade(false);
-            }
+            audioGate.apply();
         }
     }
+}
+
+// Engine-side reactions to application events. Other subsystems subscribe to
+// storm::AppEvents themselves; see src/libs/window/README.md.
+void SubscribeEngineToAppEvents()
+{
+    auto &events = storm::AppEvents::instance();
+    // Early: on Android the game thread is suspended right after these, so
+    // audio must be paused and scripts told now, not after the app returns.
+    events.subscribe(
+        [](const storm::AppEvent &event) {
+            if (event.type == storm::AppEventType::WillEnterBackground)
+            {
+                audioGate.foreground = false;
+                audioGate.apply();
+                if (event.immediate && core_private && core_private->initialized())
+                {
+                    // Hook for scripts (e.g. autosave). Runs between frames on the game thread.
+                    core_private->Event("AppWillEnterBackground");
+                }
+            }
+        },
+        true);
+    events.subscribe([](const storm::AppEvent &event) {
+        const bool ready = core_private && core_private->initialized();
+        switch (event.type)
+        {
+        case storm::AppEventType::DidEnterForeground:
+            audioGate.foreground = true;
+            audioGate.apply();
+            if (ready)
+                core_private->Event("AppDidEnterForeground");
+            break;
+        case storm::AppEventType::LowMemory:
+            if (ready)
+            {
+                uint64_t released = 0;
+                if (auto *soundService = static_cast<VSoundService *>(core.GetService("SoundService")))
+                    released = soundService->TrimCaches();
+                spdlog::warn("Low memory: released {} KiB of cached audio", released / 1024);
+                core_private->Event("AppLowMemory");
+            }
+            break;
+        case storm::AppEventType::WindowResized:
+            spdlog::info("Window resized to {}x{}", event.width, event.height);
+            if (ready)
+                core_private->Event("AppWindowResized", "ll", event.width, event.height);
+            break;
+        default:
+            break;
+        }
+    });
 }
 
 int main(int argc, char *argv[])
@@ -199,7 +281,17 @@ int main(int argc, char *argv[])
     mi_option_set(mi_option_verbose, 4);
 #endif
 
+#ifdef __ANDROID__
+    // The manifest pins the activities to sensorLandscape, but SDL recomputes the
+    // requested orientation from the window it creates; without this hint a
+    // window that is not wider than tall (or a resizable one) unlocks portrait.
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
     SDL_InitSubSystem(SDL_INIT_EVENTS | SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER);
+
+    // Window/lifecycle event hub; must be installed on the game thread.
+    storm::AppEvents::instance().install();
+    SubscribeEngineToAppEvents();
 
     // Init diagnostics
     const auto lifecycleDiagnosticsGuard =
@@ -451,6 +543,14 @@ int main(int argc, char *argv[])
                 if (action == "New" || action == "Load" || action == "Options" || action == "Credits" || action == "Exit")
                     core_private->Event("backgroundcommand", "s", action.c_str());
             }
+            else if (command.starts_with("audiofocus:"))
+            {
+                // Reported by the activity's AudioManager focus listener.
+                const auto state = std::string_view(command).substr(11);
+                if (state == "gain") { audioGate.audioFocus = true; audioGate.duck = 1.0f; }
+                else if (state == "duck") { audioGate.audioFocus = true; audioGate.duck = 0.25f; }
+                else if (state == "loss") { audioGate.audioFocus = false; audioGate.duck = 1.0f; }
+            }
             else if (command == "back" && !storm::android::mobileScreen.empty())
                 core_private->Event("exitCancel");
             else if (command.starts_with("context:"))
@@ -493,6 +593,9 @@ int main(int argc, char *argv[])
 #endif
         SDL_PumpEvents();
         window->PumpEvents();
+        // Queued window/lifecycle events, delivered between frames on this thread.
+        storm::AppEvents::instance().dispatch();
+        audioGate.apply();
 #ifdef __ANDROID__
         const bool wasRunning = androidLifecycle.canRun();
         SDL_Event appEvent;
@@ -511,9 +614,9 @@ int main(int argc, char *argv[])
         }
         if (SDL_HasEvent(SDL_QUIT))
             androidLifecycle.consume(SDL_QUIT);
-        if (wasRunning != androidLifecycle.canRun() && core_private->initialized())
-            if (auto* audio = static_cast<VSoundService*>(core.GetService("SoundService")))
-                audio->SetActiveWithFade(androidLifecycle.canRun());
+        // Audio pause/resume for the lifecycle is driven by AppEvents (early, before
+        // SDL suspends this thread) through audioGate, not from this late queue scan.
+        (void)wasRunning;
         if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty())
             gameplayShortcuts.clear();
         if (!androidLifecycle.canRun() || !storm::android::mobileScreen.empty() || storm::android::loadingState != 0)
@@ -725,6 +828,7 @@ int main(int argc, char *argv[])
     storm::android::shipTelemetry.update(gameplayState.revision(), {});
     storm::android::publishShipTelemetry();
 #endif
+    storm::AppEvents::instance().uninstall();
     if (exitCode == EXIT_SUCCESS)
         core_private->Event("ExitApplication");
     core_private->CleanUp();
