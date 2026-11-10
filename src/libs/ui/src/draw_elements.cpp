@@ -1,6 +1,7 @@
 // <ui-ring>: hold-to-confirm progress frame (rectangle or circle).
 // <ui-paper>: aged parchment sheet with a torn deckle edge, fibres, foxing and a fold.
 // <ui-clamp>: text cut to a number of lines with an ellipsis.
+// <ui-wheel>: a disc cut into sectors around a centre disc (the sword-move wheel).
 // Colours come from RCSS properties registered here, so the tokens stay the only source.
 #include "elements.h"
 
@@ -8,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 
@@ -20,6 +22,7 @@ namespace
 constexpr float kPi = 3.14159265358979f;
 
 Rml::PropertyId ring_fill, ring_fill_end, ring_track, paper_top, paper_bottom, paper_edge, paper_line, paper_shadow, paper_fibre;
+Rml::PropertyId wheel_fill, wheel_selected, wheel_line, wheel_edge, wheel_centre;
 
 Rml::Colourb ColourOf(Rml::Element &element, Rml::PropertyId id)
 {
@@ -192,6 +195,120 @@ class RingElement final : public DrawElement
             Quad(mesh, v0, v1, v2, v3);
         }
     }
+};
+
+// size="dp" (the box), inner="dp" (radius of the centre disc), bounds="deg,deg,…" (sector
+// edges clockwise from the positive x axis with y down, one more than sectors),
+// selected="<sector index>|centre". Children marked data-sector="<index>|centre" with
+// data-size="dp" are centred in their sector by the element.
+class WheelElement final : public DrawElement
+{
+  public:
+    using DrawElement::DrawElement;
+
+  protected:
+    void OnAttributeChange(const Rml::ElementAttributes &changed) override
+    {
+        DrawElement::OnAttributeChange(changed);
+        placed_ = false;
+    }
+    void OnChildAdd(Rml::Element *child) override
+    {
+        DrawElement::OnChildAdd(child);
+        placed_ = false;
+    }
+
+    void OnUpdate() override
+    {
+        DrawElement::OnUpdate();
+        if (placed_)
+            return;
+        placed_ = true;
+        const std::vector<float> bounds = Bounds();
+        const float size = GetAttribute<float>("size", 0.0f), inner = GetAttribute<float>("inner", 0.0f);
+        const float radius = (inner + size * 0.5f - kRim) * 0.5f;
+        for (int i = 0; i < GetNumChildren(); ++i)
+        {
+            Rml::Element *child = GetChild(i);
+            const Rml::String sector = child->GetAttribute<Rml::String>("data-sector", "");
+            if (sector.empty())
+                continue;
+            Rml::Vector2f centre = {size * 0.5f, size * 0.5f};
+            const int index = std::atoi(sector.c_str());
+            if (sector != "centre" && index >= 0 && static_cast<size_t>(index) + 1 < bounds.size())
+            {
+                const float angle = (bounds[static_cast<size_t>(index)] + bounds[static_cast<size_t>(index) + 1]) * 0.5f * kPi / 180.0f;
+                centre += Rml::Vector2f(std::cos(angle), std::sin(angle)) * radius;
+            }
+            const float half = child->GetAttribute<float>("data-size", 0.0f) * 0.5f;
+            child->SetProperty(Rml::PropertyId::Position, Rml::Property(Rml::Style::Position::Absolute));
+            child->SetProperty(Rml::PropertyId::Left, Rml::Property(centre.x - half, Rml::Unit::DP));
+            child->SetProperty(Rml::PropertyId::Top, Rml::Property(centre.y - half, Rml::Unit::DP));
+        }
+    }
+
+    void Build(Rml::Mesh &mesh, Rml::Mesh &, Rml::Vector2f size, float dp) override
+    {
+        const std::vector<float> bounds = Bounds();
+        if (bounds.size() < 2)
+            return;
+        const float opacity = GetComputedValues().opacity();
+        const Rml::Colourb fill = ColourOf(*this, wheel_fill), selected = ColourOf(*this, wheel_selected), line = ColourOf(*this, wheel_line),
+                           edge = ColourOf(*this, wheel_edge), middle = ColourOf(*this, wheel_centre);
+        const Rml::String chosen = GetAttribute<Rml::String>("selected", "");
+        const Rml::Vector2f centre = size * 0.5f;
+        const float outer = std::min(centre.x, centre.y) - kRim * dp, inner = GetAttribute<float>("inner", 0.0f) * dp;
+        const auto point = [&](float degrees, float radius) {
+            const float angle = degrees * kPi / 180.0f;
+            return centre + Rml::Vector2f(std::cos(angle), std::sin(angle)) * radius;
+        };
+        const auto band = [&](float from, float to, float near, float far, Rml::Colourb colour) {
+            const int steps = std::max(1, static_cast<int>(std::ceil((to - from) / 3.0f)));
+            const Rml::ColourbPremultiplied paint = colour.ToPremultiplied(opacity);
+            for (int i = 0; i < steps; ++i)
+            {
+                const float a = from + (to - from) * static_cast<float>(i) / static_cast<float>(steps);
+                const float b = from + (to - from) * static_cast<float>(i + 1) / static_cast<float>(steps);
+                Quad(mesh, Push(mesh, point(a, far), paint), Push(mesh, point(b, far), paint), Push(mesh, point(b, near), paint),
+                     Push(mesh, point(a, near), paint));
+            }
+        };
+        for (size_t i = 0; i + 1 < bounds.size(); ++i)
+            band(bounds[i], bounds[i + 1], inner, outer, chosen == std::to_string(i) ? selected : fill);
+        band(0.0f, 360.0f, 0.0f, inner, chosen == "centre" ? selected : middle);
+        // Sector edges, then the rims on top.
+        const float hair = 0.5f * dp;
+        for (size_t i = 0; i + 1 < bounds.size(); ++i)
+        {
+            const float angle = bounds[i] * kPi / 180.0f;
+            const Rml::Vector2f across = Rml::Vector2f(-std::sin(angle), std::cos(angle)) * hair;
+            const Rml::ColourbPremultiplied paint = line.ToPremultiplied(opacity);
+            Quad(mesh, Push(mesh, point(bounds[i], inner) - across, paint), Push(mesh, point(bounds[i], outer) - across, paint),
+                 Push(mesh, point(bounds[i], outer) + across, paint), Push(mesh, point(bounds[i], inner) + across, paint));
+        }
+        band(0.0f, 360.0f, outer - 1.5f * dp, outer, edge);
+        band(0.0f, 360.0f, inner - 1.5f * dp, inner, edge);
+    }
+
+  private:
+    static constexpr float kRim = 4.0f; // dp between the box and the outer rim (room for the shadow)
+
+    std::vector<float> Bounds() const
+    {
+        std::vector<float> bounds;
+        const Rml::String text = GetAttribute<Rml::String>("bounds", "");
+        for (size_t at = 0; at < text.size();)
+        {
+            size_t end = text.find(',', at);
+            if (end == Rml::String::npos)
+                end = text.size();
+            bounds.push_back(std::strtof(text.substr(at, end - at).c_str(), nullptr));
+            at = end + 1;
+        }
+        return bounds;
+    }
+
+    bool placed_ = false;
 };
 
 class PaperElement final : public DrawElement
@@ -537,11 +654,18 @@ void RegisterDrawElements()
     paper_line = colour("paper-line", "rgba(120,76,34,128)");
     paper_shadow = colour("paper-shadow", "rgba(0,0,0,140)");
     paper_fibre = colour("paper-fibre", "rgba(115,82,46,41)");
+    wheel_fill = colour("wheel-fill", "rgba(14,27,32,230)");
+    wheel_selected = colour("wheel-selected", "rgba(118,94,50,247)");
+    wheel_line = colour("wheel-line", "rgba(203,177,116,115)");
+    wheel_edge = colour("wheel-edge", "#d8bd7a");
+    wheel_centre = colour("wheel-centre", "rgba(60,18,14,242)");
 
     static Rml::ElementInstancerGeneric<RingElement> ring;
     static Rml::ElementInstancerGeneric<PaperElement> paper;
     Rml::Factory::RegisterElementInstancer("ui-ring", &ring);
     Rml::Factory::RegisterElementInstancer("ui-paper", &paper);
+    static Rml::ElementInstancerGeneric<WheelElement> wheel;
+    Rml::Factory::RegisterElementInstancer("ui-wheel", &wheel);
     static Rml::ElementInstancerGeneric<ClampElement> clamp;
     Rml::Factory::RegisterElementInstancer("ui-clamp", &clamp);
 }

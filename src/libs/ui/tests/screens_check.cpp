@@ -336,8 +336,8 @@ static void Dialogue(const std::string &models)
     ExpectEqual(surface.Last(), "dialogue:4:1", "reply goes back with its generation");
     router.SetState("dialogue", Json{{"active", false}});
     Expect(surface.tag.empty(), "inactive dialogue unmounts");
-    router.SetState("vitals", Json::object());
-    Expect(surface.tag.empty() && surface.errors.size() == 1 && surface.errors[0] == "state channel vitals has no consumer",
+    router.SetState("weather", Json::object());
+    Expect(surface.tag.empty() && surface.errors.size() == 1 && surface.errors[0] == "state channel weather has no consumer",
            "a channel without a consumer is an error");
 }
 

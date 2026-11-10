@@ -1,0 +1,12 @@
+{
+ "schemaVersion": 1,
+ "revision": 9,
+ "mode": "sailing",
+ "language": "russian",
+ "inputOwner": "",
+ "analogMovement": false,
+ "movementGeneration": 0,
+ "capabilities": [
+  "Ship_Fire"
+ ]
+}

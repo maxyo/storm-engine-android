@@ -1,0 +1,7 @@
+{
+ "screen": "game_menu",
+ "loading": false,
+ "cinematic": false,
+ "dialogue": false,
+ "live": true
+}

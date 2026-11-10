@@ -1,0 +1,90 @@
+{
+ "schemaVersion": 1,
+ "sceneEpoch": 4,
+ "activityGeneration": 2,
+ "language": "russian",
+ "mode": 0,
+ "revision": 13,
+ "available": true,
+ "active": true,
+ "complete": true,
+ "stage": "travel",
+ "pendingLabel": "Переход",
+ "selectedItemId": "",
+ "canBack": true,
+ "canClose": true,
+ "items": [
+  {
+   "id": "t1",
+   "kind": "travel",
+   "label": "Таверна",
+   "source": "tavern",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "t2",
+   "kind": "travel",
+   "label": "Магазин",
+   "source": "store",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "t3",
+   "kind": "travel",
+   "label": "Верфь",
+   "source": "shipyard",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "t4",
+   "kind": "travel",
+   "label": "Резиденция",
+   "source": "townhall",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "t5",
+   "kind": "travel",
+   "label": "Порт",
+   "source": "port",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "t6",
+   "kind": "travel",
+   "label": "Ростовщик",
+   "source": "bank",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "t7",
+   "kind": "travel",
+   "label": "Церковь",
+   "source": "church",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "t8",
+   "kind": "travel",
+   "label": "Бордель",
+   "source": "brothel",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "x",
+   "kind": "cancel",
+   "label": "Отмена",
+   "source": "",
+   "enabled": true,
+   "cooldown": 1.0
+  }
+ ]
+}

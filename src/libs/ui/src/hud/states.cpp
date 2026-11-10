@@ -1,0 +1,443 @@
+// Consumers of the HUD state channels: the engine's JSON is checked here, once, and kept
+// as typed state for the scenes. Anything that does not fit its channel is rejected aloud
+// and leaves that channel without data (its controls disappear), never half-read.
+#include "hud.h"
+
+#include <cmath>
+#include <optional>
+
+namespace storm::ui::hud
+{
+
+namespace
+{
+
+using screens::Router;
+using screens::StateConsumer;
+
+constexpr double kMaxInteger = 9007199254740992.0; // 2^53: whole numbers a double keeps exactly
+
+std::optional<uint64_t> Whole(const Json &object, const char *key)
+{
+    const auto found = object.find(key);
+    if (found == object.end() || !found->is_number())
+        return std::nullopt;
+    const double number = found->get<double>();
+    if (!std::isfinite(number) || number < 0.0 || number > kMaxInteger || number != std::floor(number))
+        return std::nullopt;
+    return static_cast<uint64_t>(number);
+}
+
+std::optional<std::string> Text(const Json &object, const char *key)
+{
+    const auto found = object.find(key);
+    if (found == object.end() || !found->is_string())
+        return std::nullopt;
+    return found->get<std::string>();
+}
+
+std::optional<bool> Flag(const Json &object, const char *key)
+{
+    const auto found = object.find(key);
+    if (found == object.end() || !found->is_boolean())
+        return std::nullopt;
+    return found->get<bool>();
+}
+
+// Identifiers the engine mints (players, items): never free text.
+bool Token(const std::string &text, bool may_be_empty)
+{
+    if (text.empty())
+        return may_be_empty;
+    if (text.size() > 128)
+        return false;
+    for (const char c : text)
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '.' || c == ':' || c == '-'))
+            return false;
+    return true;
+}
+
+bool OneOf(const std::string &text, std::initializer_list<const char *> options)
+{
+    for (const char *option : options)
+        if (text == option)
+            return true;
+    return false;
+}
+
+double Ratio(const Json &object, const char *key)
+{
+    const auto found = object.find(key);
+    const double number = found != object.end() && found->is_number() ? found->get<double>() : 0.0;
+    return std::isfinite(number) ? std::clamp(number, 0.0, 1.0) : 0.0;
+}
+
+class HudConsumer : public StateConsumer
+{
+  public:
+    void OnState(const Json &state, Router &router) final
+    {
+        Hud *hud = router.Hud();
+        if (!hud)
+        {
+            router.ReportError(std::string("state channel ") + Channel() + ": this host has no HUD");
+            return;
+        }
+        const std::string problem = Read(state, *hud);
+        if (!problem.empty())
+            hud->Reject(Channel(), problem);
+    }
+
+  protected:
+    // Updates the HUD states; returns what is wrong with `state`, or nothing.
+    virtual std::string Read(const Json &state, Hud &hud) = 0;
+};
+
+class GameplayConsumer final : public HudConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "gameplay";
+    }
+
+  protected:
+    std::string Read(const Json &state, Hud &hud) override
+    {
+        Gameplay next;
+        const auto revision = state.is_object() ? Whole(state, "revision") : std::nullopt;
+        const auto mode = state.is_object() ? Text(state, "mode") : std::nullopt;
+        if (!state.is_object() || Whole(state, "schemaVersion") != uint64_t{1} || !revision || *revision == 0 || !mode)
+        {
+            hud.Edit().gameplay = next;
+            return "expected {schemaVersion: 1, revision > 0, mode}";
+        }
+        next.revision = *revision;
+        next.language = Text(state, "language").value_or("");
+        // A mode this runtime does not know is no gameplay it can draw: the host keeps it.
+        if (OneOf(*mode, {"explore", "melee", "sailing", "naval", "worldmap"}))
+        {
+            next.mode = *mode;
+            const auto capabilities = state.find("capabilities");
+            if (capabilities != state.end() && capabilities->is_array())
+                for (const Json &name : *capabilities)
+                    if (name.is_string() && next.capabilities.size() < 128)
+                        next.capabilities.insert(name.get<std::string>());
+        }
+        std::string problem;
+        if (next.mode != *mode && *mode != "unknown")
+            problem = "unknown gameplay mode '" + *mode + "'";
+        if (next.mode == "explore" || next.mode == "melee")
+        {
+            next.input_owner = Text(state, "inputOwner").value_or("");
+            const auto generation = Whole(state, "movementGeneration");
+            next.analog_movement = Flag(state, "analogMovement").value_or(false) && !next.input_owner.empty() && generation && *generation > 0;
+            next.movement_generation = next.analog_movement ? *generation : 0;
+        }
+        hud.Edit().gameplay = std::move(next);
+        return problem;
+    }
+};
+
+class CombatConsumer final : public HudConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "combat";
+    }
+
+  protected:
+    std::string Read(const Json &state, Hud &hud) override
+    {
+        Combat next;
+        const std::string problem = Parse(state, next);
+        if (!problem.empty())
+        {
+            hud.Edit().combat = Combat();
+            return problem;
+        }
+        // The engine restarts its activity generation with a new activity; within one,
+        // an older gameplay revision arriving late is not news.
+        const Combat &current = hud.Current().combat;
+        if (current.known && (next.activity < current.activity || (next.activity == current.activity && next.gameplay_revision < current.gameplay_revision)))
+            return {};
+        hud.Edit().combat = std::move(next);
+        return {};
+    }
+
+  private:
+    static std::string Parse(const Json &state, Combat &out)
+    {
+        if (!state.is_object() || Whole(state, "schemaVersion") != uint64_t{1})
+            return "expected {schemaVersion: 1, …}";
+        const auto revision = Whole(state, "gameplayRevision"), activity = Whole(state, "activityGeneration");
+        const auto player = Text(state, "playerId"), mode = Text(state, "mode");
+        const auto actions = state.find("actions");
+        if (!revision || !activity || !player || !mode || actions == state.end() || !actions->is_array())
+            return "lacks gameplayRevision, activityGeneration, playerId, mode or actions";
+        if (player->size() > 64 || !Token(*player, true) || !OneOf(*mode, {"unknown", "explore", "melee"}))
+            return "bad playerId or mode";
+        if (actions->size() > 12)
+            return "too many actions";
+        for (const Json &action : *actions)
+        {
+            if (!action.is_string())
+                return "an action is not a name";
+            const std::string name = action.get<std::string>();
+            if (!OneOf(name, {"weapon", "potion", "force", "fast", "break", "parry", "feint", "round", "pistol", "block", "freelook", "interact"}))
+                return "unknown action '" + name + "'";
+            if (!out.actions.insert(name).second)
+                return "action '" + name + "' is listed twice";
+            if (*mode == "explore" && !OneOf(name, {"weapon", "potion", "freelook", "interact"}))
+                return "action '" + name + "' does not belong to explore";
+            if (*mode != "explore" && name == "interact")
+                return "interact outside explore";
+        }
+        if (*mode != "unknown" ? (player->empty() || *activity == 0) : !out.actions.empty())
+            return "mode and owner do not agree";
+        const auto pistol = state.find("pistol");
+        if (pistol != state.end())
+        {
+            const auto kind = pistol->is_object() ? Text(*pistol, "state") : std::nullopt;
+            const auto progress = pistol->is_object() ? Whole(*pistol, "progress") : std::nullopt;
+            if (!kind || !progress || !OneOf(*kind, {"unknown", "no_weapon", "unloaded", "loaded"}) || *progress > 20)
+                return "bad pistol";
+            if ((*kind == "loaded" && *progress != 20) || (*kind == "unloaded" && *progress >= 20) ||
+                ((*kind == "unknown" || *kind == "no_weapon") && *progress != 0))
+                return "pistol state and progress do not agree";
+            out.pistol = *kind;
+            out.pistol_progress = static_cast<int>(*progress);
+        }
+        out.known = true;
+        out.gameplay_revision = *revision;
+        out.activity = *activity;
+        out.player = *player;
+        out.mode = *mode;
+        out.interact_kind = Text(state, "interactKind").value_or("") == "dialog" ? "dialog" : "interact";
+        return {};
+    }
+};
+
+// null = the engine draws no land hero bars now.
+class VitalsConsumer final : public HudConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "vitals";
+    }
+
+  protected:
+    std::string Read(const Json &state, Hud &hud) override
+    {
+        Vitals next;
+        if (state.is_object())
+        {
+            next.known = true;
+            next.health = Ratio(state, "health");
+            next.energy = Ratio(state, "energy");
+            next.reload = Ratio(state, "reload");
+            next.capacity = static_cast<int>(std::min<uint64_t>(Whole(state, "capacity").value_or(0), 100000));
+            next.loaded = std::min(static_cast<int>(std::min<uint64_t>(Whole(state, "loaded").value_or(0), 100000)), next.capacity);
+        }
+        hud.Edit().vitals = next;
+        return state.is_object() || state.is_null() ? std::string() : "expected an object or null";
+    }
+};
+
+// A JSON string: the lines the engine prints as the location text ("\n" between them).
+class WorldInfoConsumer final : public HudConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "worldInfo";
+    }
+
+  protected:
+    std::string Read(const Json &state, Hud &hud) override
+    {
+        hud.Edit().world_info = state.is_string() ? state.get<std::string>() : std::string();
+        return state.is_string() ? std::string() : "expected a string";
+    }
+};
+
+// A JSON string: the name of the script's quick action ("" = none).
+class ContextActionConsumer final : public HudConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "contextAction";
+    }
+
+  protected:
+    std::string Read(const Json &state, Hud &hud) override
+    {
+        const bool valid = state.is_string() && state.get<std::string>().size() <= 64;
+        hud.Edit().context_action = valid ? state.get<std::string>() : std::string();
+        return valid ? std::string() : "expected a short string";
+    }
+};
+
+class LandCommandsConsumer final : public HudConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "landCommands";
+    }
+
+  protected:
+    std::string Read(const Json &state, Hud &hud) override
+    {
+        if (state.is_null()) // the engine has no land menu now
+        {
+            hud.Edit().land_commands = LandCommands();
+            return {};
+        }
+        LandCommands next;
+        const std::string problem = Parse(state, next);
+        if (!problem.empty())
+        {
+            hud.Edit().land_commands = LandCommands();
+            return problem;
+        }
+        const LandCommands &current = hud.Current().land_commands;
+        if (current.known && (next.activity < current.activity ||
+                              (next.activity == current.activity &&
+                               (next.scene < current.scene || (next.scene == current.scene && next.revision < current.revision)))))
+            return {}; // late news of an older menu
+        hud.Edit().land_commands = std::move(next);
+        return {};
+    }
+
+  private:
+    static bool Printable(const std::string &text, size_t limit, bool may_be_blank)
+    {
+        if (text.size() > limit)
+            return false;
+        bool blank = true;
+        for (const unsigned char c : text)
+        {
+            if (c < 32 || c == 127)
+                return false;
+            blank = blank && c == ' ';
+        }
+        return may_be_blank || !blank;
+    }
+
+    static std::string Parse(const Json &state, LandCommands &out)
+    {
+        if (!state.is_object() || Whole(state, "schemaVersion") != uint64_t{1})
+            return "expected {schemaVersion: 1, …}";
+        const auto scene = Whole(state, "sceneEpoch"), revision = Whole(state, "revision"), activity = Whole(state, "activityGeneration");
+        const auto active = Flag(state, "active"), available = Flag(state, "available"), back = Flag(state, "canBack"),
+                   close = Flag(state, "canClose");
+        const auto stage = Text(state, "stage"), selected = Text(state, "selectedItemId"), title = Text(state, "pendingLabel");
+        const auto items = state.find("items");
+        if (!scene || !revision || !activity || !active || !available || !back || !close || !stage || !selected || !title || !Whole(state, "mode") ||
+            !Text(state, "language") || items == state.end() || !items->is_array())
+            return "a required field is missing or mistyped";
+        if (!OneOf(*stage, {"commands", "travel", "potions", "abilities"}))
+            return "unknown stage '" + *stage + "'";
+        if (!Token(*selected, true) || !Printable(*title, 1024, true) || items->size() > 256)
+            return "bad selectedItemId, pendingLabel or item count";
+        bool drawable = true;
+        int cancels = 0;
+        std::set<std::string> ids;
+        for (const Json &source : *items)
+        {
+            LandCommands::Item item;
+            const auto id = source.is_object() ? Text(source, "id") : std::nullopt;
+            const auto kind = source.is_object() ? Text(source, "kind") : std::nullopt;
+            const auto label = source.is_object() ? Text(source, "label") : std::nullopt;
+            const auto origin = source.is_object() ? Text(source, "source") : std::nullopt;
+            const auto enabled = source.is_object() ? Flag(source, "enabled") : std::nullopt;
+            const auto cooldown = source.is_object() ? source.find("cooldown") : Json::const_iterator();
+            if (!id || !kind || !label || !origin || !enabled || cooldown == source.end() || !cooldown->is_number())
+                return "an item lacks id, kind, label, source, enabled or cooldown";
+            item.cooldown = cooldown->get<double>();
+            if (!Token(*id, false) || !Token(*kind, false) || !Printable(*label, 1024, false) || !Printable(*origin, 512, true) ||
+                !std::isfinite(item.cooldown) || item.cooldown < 0.0 || item.cooldown > 1.0)
+                return "an item has a bad id, kind, label, source or cooldown";
+            if (!ids.insert(*id).second)
+                return "item id '" + *id + "' is listed twice";
+            item.id = *id;
+            item.kind = *kind;
+            item.label = *label;
+            item.source = *origin;
+            item.enabled = *enabled;
+            const bool cancel = item.kind == "cancel";
+            cancels += cancel ? 1 : 0;
+            // A kind this runtime does not know, or a command without its script source,
+            // cannot be drawn truthfully: the menu is then left to the engine as a whole.
+            drawable = drawable && OneOf(item.kind, {"command", "ability", "travel", "potion", "cancel"}) &&
+                       (cancel || item.source.find_first_not_of(' ') != std::string::npos);
+            out.items.push_back(std::move(item));
+        }
+        if (!selected->empty() && !ids.count(*selected))
+            return "selectedItemId names no item";
+        out.known = true;
+        out.scene = *scene;
+        out.revision = *revision;
+        out.activity = *activity;
+        out.active = *active;
+        out.available = *available;
+        out.can_back = *back;
+        out.can_close = *close;
+        out.stage = *stage;
+        out.title = *title;
+        out.selected = *selected;
+        out.complete = drawable && Flag(state, "complete").value_or(false) && (!out.active || (out.can_back && out.can_close && cancels == 1));
+        return {};
+    }
+};
+
+class PresentationConsumer final : public HudConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "presentation";
+    }
+
+  protected:
+    std::string Read(const Json &state, Hud &hud) override
+    {
+        Presentation next;
+        const auto screen = state.is_object() ? Text(state, "screen") : std::nullopt;
+        const auto loading = state.is_object() ? Flag(state, "loading") : std::nullopt;
+        const auto cinematic = state.is_object() ? Flag(state, "cinematic") : std::nullopt;
+        const auto dialogue = state.is_object() ? Flag(state, "dialogue") : std::nullopt;
+        const auto live = state.is_object() ? Flag(state, "live") : std::nullopt;
+        const bool valid = screen && loading && cinematic && dialogue && live;
+        if (valid)
+        {
+            next.known = true;
+            next.screen = *screen;
+            next.loading = *loading;
+            next.cinematic = *cinematic;
+            next.dialogue = *dialogue;
+            next.live = *live;
+        }
+        hud.Edit().presentation = next;
+        return valid ? std::string() : "expected {screen, loading, cinematic, dialogue, live}";
+    }
+};
+
+} // namespace
+
+void AddStateConsumers(std::vector<std::unique_ptr<screens::StateConsumer>> &consumers)
+{
+    consumers.push_back(std::make_unique<GameplayConsumer>());
+    consumers.push_back(std::make_unique<CombatConsumer>());
+    consumers.push_back(std::make_unique<VitalsConsumer>());
+    consumers.push_back(std::make_unique<WorldInfoConsumer>());
+    consumers.push_back(std::make_unique<ContextActionConsumer>());
+    consumers.push_back(std::make_unique<LandCommandsConsumer>());
+    consumers.push_back(std::make_unique<PresentationConsumer>());
+}
+
+} // namespace storm::ui::hud

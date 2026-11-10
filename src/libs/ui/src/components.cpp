@@ -58,6 +58,18 @@ Json ParseAttribute(const PropSpec &prop, const Rml::Variant &variant)
     }
 }
 
+Rml::Element *FindSlot(Rml::Element *root);
+
+} // namespace
+
+Rml::Element *ComponentSlot(ComponentElement &component)
+{
+    return FindSlot(&component);
+}
+
+namespace
+{
+
 // The slot of a component is the first descendant marked with the `slot` attribute that
 // does not belong to a nested component.
 Rml::Element *FindSlot(Rml::Element *root)
@@ -182,8 +194,8 @@ void SyncElement(Rml::Element *live, Rml::Element *fresh)
     }
     if (live->HasAttribute("slot"))
         return; // the component's own children live here
-    if (live->GetTagName().rfind("ui-", 0) == 0)
-        return; // code-drawn elements own their children (ui-clamp keeps its cut text)
+    if (live->GetTagName().rfind("ui-", 0) == 0 && live->GetTagName() != "ui-wheel")
+        return; // code-drawn elements own their children (ui-clamp keeps its cut text); the wheel only places the template's
     if (auto *component = dynamic_cast<ComponentElement *>(live))
     {
         // A nested component rebuilds itself from its attributes; only content passed
@@ -355,6 +367,19 @@ void ComponentElement::OnAttributeChange(const Rml::ElementAttributes &changed)
                 ReportError("props is not a JSON object");
             continue;
         }
+        if (entry.first == "data-behavior") // one more behaviour for this element (HUD layout: hold, swipe)
+        {
+            const std::string name = entry.second.Get<Rml::String>();
+            const auto factory = Factories().find(name);
+            if (factory == Factories().end())
+                ReportError("unknown behaviour '" + name + "'");
+            else if (std::find(spec_.behaviors.begin(), spec_.behaviors.end(), name) == spec_.behaviors.end() && extra_behavior_ != name)
+            {
+                extra_behavior_ = name;
+                behaviors_.push_back(factory->second());
+            }
+            continue;
+        }
         if (const PropSpec *prop = spec_.FindAttribute(entry.first))
         {
             props_[prop->name] = ParseAttribute(*prop, entry.second);
@@ -501,6 +526,12 @@ void ComponentElement::PointerUp(const Pointer &pointer, bool cancelled)
         behavior->Up(*this, pointer, cancelled);
 }
 
+void ComponentElement::TouchRegions(std::vector<Rml::Element *> &out)
+{
+    for (const auto &behavior : behaviors_)
+        behavior->Regions(*this, out);
+}
+
 void ComponentElement::Tick(double now)
 {
     for (const auto &behavior : behaviors_)
@@ -583,13 +614,19 @@ const ComponentSpec *ComponentRegistry::Find(const std::string &tag) const
     return found == specs_.end() ? nullptr : found->second.get();
 }
 
-ComponentElement *InteractiveComponentAt(Rml::Element *element)
+ComponentElement *InteractiveComponentAt(Rml::Element *element, const Pointer &pointer)
 {
+    ComponentElement *closest = nullptr;
     for (; element; element = element->GetParentNode())
         if (auto *component = dynamic_cast<ComponentElement *>(element))
             if (component->HasBehaviors())
-                return component;
-    return nullptr;
+            {
+                if (component->PointerExclusive(pointer))
+                    return component;
+                if (!closest)
+                    closest = component;
+            }
+    return closest;
 }
 
 } // namespace storm::ui

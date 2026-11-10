@@ -23,12 +23,21 @@ std::unique_ptr<FileSource> DirectoryFiles(std::string root);
 // Migration switch, as data: true while the platform host still draws this interface id
 // with its own form (the zone is not ported yet). Every other id goes to SetInterface.
 bool HostOwnsInterface(const std::string &screen);
+// The same switch for the in-game HUD, by gameplay mode of the "gameplay" state channel
+// ("explore", "melee", "sailing", "naval", "worldmap"): true while the platform host still
+// draws that mode's HUD itself. For every other mode the HUD is drawn here.
+bool HostOwnsHud(const std::string &mode);
 
 struct InterfaceModel; // interface_model.h
 
 // The one path out of the UI. For a game interface: the widget (`node`, `index`) of the
 // open `screen`, the verb the player chose and its value. For a document loaded with
 // LoadDocument (gallery): `node` is the element id, `screen` is empty.
+// HUD input has `screen` "hud": `verb` names the engine entry point ("move", "combat",
+// "landcommands", "context", "shortcut") and `value` is its payload, so that the engine
+// command is "<verb>:<value>". A non-empty `node` then names a latest-value slot (the stick
+// position, a coverage acknowledgement): a host that queues actions keeps only the newest
+// action of a slot.
 struct Action
 {
     std::string node;
@@ -130,14 +139,35 @@ class Host
     virtual bool SetInterface(const std::string &json) = 0;
     virtual void SetInterface(const InterfaceModel &model) = 0;
     virtual void CloseInterface() = 0;
-    // A named state channel of the game ("dialogue", "gameplay", "combat", "ship",
-    // "worldmap", "landCommands", "seaOrders", "vitals", "worldInfo"): JSON as the engine
-    // publishes it. Channels without a consumer are ignored.
+    // A named state channel of the game: JSON as the engine publishes it ("dialogue",
+    // "gameplay", "combat", "vitals", "landCommands"; "worldInfo" and "contextAction" are
+    // the engine's text as a JSON string), plus "presentation", which the platform host
+    // writes itself: {"screen": "<interface id open in the game, or empty>", "loading",
+    // "cinematic", "dialogue", "live": <the game is in front and running>}. The HUD scene
+    // of the gameplay mode is drawn from these while nothing else covers the game.
+    // False (and an error) for malformed JSON or a channel without a consumer.
     virtual bool SetState(const std::string &channel, const std::string &json) = 0;
     // Answer to Config::on_text_request; `accepted` false = the editor was dismissed.
     virtual void SubmitText(const std::string &token, const std::string &text, bool accepted) = 0;
-    // True while a game interface is mounted (the host then gives the UI every touch).
+    // True while a game interface or a plain document covers the game.
     virtual bool InterfaceActive() const = 0;
+
+    // --- touch routing over the game ------------------------------------------------
+    // The UI is a layer over the game: a pointer belongs to it only when it goes down on
+    // something of the UI. Ask at pointer-down, per pointer; when true, deliver that
+    // pointer's whole gesture through Touch, otherwise give it to the game (camera look).
+    // True on an interactive HUD element, anywhere while an interface, a modal sheet or a
+    // plain document is shown. Coordinates in physical pixels.
+    // Thread-safe: answered from the layout of the last frame, so the thread that receives
+    // touches does not wait for the UI thread.
+    virtual bool WantsTouch(float x, float y) const = 0;
+    // The platform took the gestures away (focus lost, a menu opened): every pointer the
+    // UI holds is cancelled and every held HUD control is released.
+    virtual void CancelInput() = 0;
+    // Thread-safe: the back key belongs to the UI now (an open HUD sheet).
+    virtual bool WantsBack() const = 0;
+    // The back key, after WantsBack said so.
+    virtual void Back() = 0;
 };
 
 } // namespace storm::ui

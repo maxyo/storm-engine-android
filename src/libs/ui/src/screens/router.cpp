@@ -1,5 +1,7 @@
 #include "controls.h"
 
+#include "../hud/hud.h"
+
 #include <algorithm>
 
 namespace storm::ui
@@ -9,6 +11,8 @@ std::string EngineCommand(const Action &action)
 {
     if (action.screen.empty())
         return {};
+    if (action.screen == "hud") // HUD input: the verb names the engine entry point
+        return action.verb + ":" + action.value;
     if (action.screen == "dialogue") // reply: "<generation>:<index>"; edit: the typed reply text
         return action.verb == "edit" ? "dialogue:" + std::to_string(action.opening) + ":" + std::to_string(action.index) + ":" + action.value
                                      : "dialogue:" + action.value;
@@ -30,6 +34,11 @@ std::string EngineCommand(const Action &action)
 bool HostOwnsInterface(const std::string &screen)
 {
     return screens::HostOwned(screen);
+}
+
+bool HostOwnsHud(const std::string &mode)
+{
+    return !hud::Ported(mode);
 }
 
 } // namespace storm::ui
@@ -339,6 +348,11 @@ void Router::SetState(const std::string &channel, const Json &state)
         }
     if (!consumed)
         surface_.Error("state channel " + channel + " has no consumer");
+}
+
+void Router::ReportError(const std::string &line)
+{
+    surface_.Error(line);
 }
 
 void Router::Build()
