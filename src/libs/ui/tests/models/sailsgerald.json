@@ -1,0 +1,244 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 1,
+ "screenRevision": 5,
+ "screen": "sailsgerald",
+ "widgets": [
+  {
+   "node": "INFO_CAPTION",
+   "type": "text",
+   "label": "Выбрать символику на парус",
+   "value": "",
+   "index": -1,
+   "order": 10,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "EXIT_BTN",
+   "type": "button",
+   "label": "EXIT_BTN",
+   "value": "",
+   "index": -1,
+   "order": 11,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SAILS_GERALD_LEFT_BUTTON",
+   "type": "button",
+   "label": "SAILS_GERALD_LEFT_BUTTON",
+   "value": "",
+   "index": -1,
+   "order": 20,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SAILS_GERALD_RIGHT_BUTTON",
+   "type": "button",
+   "label": "SAILS_GERALD_RIGHT_BUTTON",
+   "value": "",
+   "index": -1,
+   "order": 21,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SCROLL_GERALD",
+   "type": "choice",
+   "label": "emblem_01",
+   "value": "0",
+   "index": 0,
+   "order": 15,
+   "enabled": true,
+   "rowId": "emblem_01.tga.tx",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [],
+   "context": {
+    "texture": "ships/gerald/emblem_01"
+   }
+  },
+  {
+   "node": "SCROLL_GERALD",
+   "type": "choice",
+   "label": "emblem_02",
+   "value": "0",
+   "index": 1,
+   "order": 15,
+   "enabled": true,
+   "rowId": "emblem_02.tga.tx",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [],
+   "context": {
+    "texture": "ships/gerald/emblem_02"
+   }
+  },
+  {
+   "node": "SCROLL_GERALD",
+   "type": "choice",
+   "label": "emblem_03",
+   "value": "1",
+   "index": 2,
+   "order": 15,
+   "enabled": true,
+   "rowId": "emblem_03.tga.tx",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [],
+   "context": {
+    "texture": "ships/gerald/emblem_03"
+   }
+  },
+  {
+   "node": "SCROLL_GERALD",
+   "type": "choice",
+   "label": "emblem_04",
+   "value": "0",
+   "index": 3,
+   "order": 15,
+   "enabled": true,
+   "rowId": "emblem_04.tga.tx",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [],
+   "context": {
+    "texture": "ships/gerald/emblem_04"
+   }
+  },
+  {
+   "node": "SCROLL_GERALD",
+   "type": "choice",
+   "label": "emblem_05",
+   "value": "0",
+   "index": 4,
+   "order": 15,
+   "enabled": true,
+   "rowId": "emblem_05.tga.tx",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [],
+   "context": {
+    "texture": "ships/gerald/emblem_05"
+   }
+  },
+  {
+   "node": "SCROLL_GERALD",
+   "type": "choice",
+   "label": "emblem_06",
+   "value": "0",
+   "index": 5,
+   "order": 15,
+   "enabled": true,
+   "rowId": "emblem_06.tga.tx",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [],
+   "context": {
+    "texture": "ships/gerald/emblem_06"
+   }
+  },
+  {
+   "node": "SCROLL_GERALD",
+   "type": "choice",
+   "label": "emblem_07",
+   "value": "0",
+   "index": 6,
+   "order": 15,
+   "enabled": true,
+   "rowId": "emblem_07.tga.tx",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [],
+   "context": {
+    "texture": "ships/gerald/emblem_07"
+   }
+  },
+  {
+   "node": "B_OK",
+   "type": "button",
+   "label": "Выбрать",
+   "value": "",
+   "index": -1,
+   "order": 30,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_REMOVE",
+   "type": "button",
+   "label": "Убрать",
+   "value": "",
+   "index": -1,
+   "order": 31,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_CANCEL",
+   "type": "button",
+   "label": "Отмена",
+   "value": "",
+   "index": -1,
+   "order": 32,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_SAILS_GERALD",
+   "type": "sails_gerald",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "price": "1250",
+    "money": "12480",
+    "applied": "emblem_01.tga.tx"
+   }
+  }
+ ]
+}

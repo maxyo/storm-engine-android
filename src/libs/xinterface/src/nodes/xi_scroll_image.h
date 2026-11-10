@@ -51,6 +51,8 @@ class CXI_SCROLLIMAGE : public CINODE
     std::optional<std::string> MobileHireCrewQuantity(const std::string &node, const std::string &value) const;
 private:
     bool MobileOwnerRows(storm::mobile::OfficerListIdentity &state, std::vector<MobileWidget> &rows) const;
+    // Sail emblem files of sailsgerald's SCROLL_GERALD (mobile_sails_gerald.hpp); empty elsewhere.
+    std::vector<std::string> MobileEmblemFiles() const;
     mutable storm::mobile::OfficerSelection m_mobileOwners;
 public:
 #endif

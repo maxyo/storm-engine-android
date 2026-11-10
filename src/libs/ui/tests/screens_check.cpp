@@ -975,6 +975,94 @@ static void Games(const std::string &models)
     Expect(cards.props["buttons"][1]["id"] == "again" && cards.props["buttons"][1]["disabled"] == false, "another round");
 }
 
+static void GoodsOrder(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    InterfaceModel list = Load(models, "goodstransfer.json");
+    router.SetInterface(list);
+    Expect(router.Using() == "goodstransfer" && surface.tag == "s-goods-order" && router.Rejection().empty() && surface.errors.empty(),
+           "goodstransfer is drawn by the purchase list");
+    Expect(surface.props["extras"]["rows"].empty(), "every exported node is known");
+    const Json rows = surface.props["list"]["rows"];
+    Expect(rows.size() == 6 && rows[0]["name"] == "Ядра" && rows[0]["image"]["texture"] == "atlas:GOODS/Balls" &&
+               rows[0]["cells"][0] == "400" && rows[0]["cells"][1] == "600" && rows[4]["cells"][0] == "—",
+           "one row per good: picture, in the hold, the order");
+    Expect(rows[0].count("q") == 0, "no quantity until a good is opened");
+    Expect(surface.props["subject"]["label"] == "Люггер 'Ласточка'" && surface.props["subject"]["sub"] == "1 <common.of> 2" &&
+               surface.props["subject"]["prev"] == false && surface.props["subject"]["next"] == true,
+           "the ship the list is for, 1 of 2");
+    Expect(surface.props["contraband"]["label"] == "Закупать контрабанду" && surface.props["contraband"]["on"] == false, "contraband switch");
+
+    router.OnEvent({"goods", "row", "3"});
+    const Json open = surface.props["list"]["rows"][3];
+    Expect(open["selected"] == true && open["q"]["value"] == 400 && open["q"]["min"] == 0 && open["q"]["max"] == 1000 &&
+               open["q"]["label"] == "<goods.order>" && open["q"]["all"] == false,
+           "a tap opens the good's order as a quantity");
+    Expect(surface.commands.empty(), "opening a row sends nothing");
+    router.OnEvent({"goods", "change", "500"});
+    Expect(surface.props["list"]["rows"][3]["cells"][1] == "500", "the amount shows at once");
+    Expect(surface.commands.empty(), "a step waits for the amount to settle");
+    surface.now += 0.5;
+    router.Tick();
+    ExpectEqual(surface.Last(), "widget:goodstransfer\tANDROID_GOODS_ORDER\t3\torder@5:Powder=500",
+                "the standing order is saved by itself, through one engine action");
+    router.OnEvent({"goods", "commit", "520"});
+    router.Tick();
+    ExpectEqual(surface.Last(), "widget:goodstransfer\tANDROID_GOODS_ORDER\t3\torder@5:Powder=520", "the end of a drag saves at once");
+    router.OnEvent({"contraband", "change", "1"});
+    ExpectEqual(surface.Last(), "widget:goodstransfer\tCHECK_BUYCONTRABAND\t0\t1", "the contraband switch");
+    router.OnEvent({"header", "subject-next", ""});
+    ExpectEqual(surface.Last(), "widget:goodstransfer\tBTN_CHOOSESHIP_RIGHT\t-1\tpress", "the next ship through the game's arrow");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), "widget:goodstransfer\tEXIT_BTN\t-1\tpress", "← leaves");
+
+    // The game's own amount window: that good is open, the list takes no orders, ← closes the window.
+    FakeSurface surface2;
+    Router window(surface2);
+    window.SetInterface(Load(models, "goodstransfer-window.json"));
+    const Json powder = surface2.props["list"]["rows"][3];
+    Expect(window.Using() == "goodstransfer" && powder["selected"] == true && powder["q"]["disabled"] == true &&
+               surface2.props["list"]["rows"][0]["disabled"] == true,
+           "the game's window marks its good and locks the list");
+    window.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface2.Last(), "widget:goodstransfer\tTG_CANCEL_BUTTON\t-1\tpress", "← closes the game's amount window first");
+}
+
+static void SailEmblem(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "sailsgerald.json"));
+    Expect(router.Using() == "sailsgerald" && surface.tag == "s-sail-emblem" && router.Rejection().empty() && surface.errors.empty(),
+           "sailsgerald is drawn by the sail emblem screen");
+    Expect(surface.props["extras"]["rows"].empty(), "every exported node is known");
+    const Json emblems = surface.props["emblems"];
+    Expect(emblems.size() == 7 && emblems[2]["selected"] == true && emblems[0]["applied"] == true && emblems[2]["texture"] == "ships/gerald/emblem_03",
+           "emblems with their textures, the chosen one and the one on the sails");
+    Expect(surface.props["title"] == "Выбрать символику на парус" && surface.props["stats"][0]["value"] == "12 480",
+           "the game's caption and the hero's money");
+    Expect(surface.props["primary"]["label"] == "<sails.apply>" && surface.props["primary"]["sub"] == "1 250" && surface.props["primary"]["disabled"] == false,
+           "another emblem chosen: paint it for the price");
+    router.OnEvent({"primary", "click", ""});
+    ExpectEqual(surface.Last(), "widget:sailsgerald\tB_OK\t-1\tpress", "paint");
+    router.OnEvent({"emblems", "emblem", "5"});
+    ExpectEqual(surface.Last(), "widget:sailsgerald\tSCROLL_GERALD\t5\tselect@5:emblem_06.tga.tx", "a tap chooses that emblem in the game");
+    router.OnEvent({"emblem-prev", "click", ""});
+    ExpectEqual(surface.Last(), "widget:sailsgerald\tSCROLL_GERALD\t1\tselect@5:emblem_02.tga.tx", "‹ chooses the previous one");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), "widget:sailsgerald\tEXIT_BTN\t-1\tpress", "← leaves");
+
+    // The emblem on the sails chosen, and not enough money: take it off, disabled with the shortfall.
+    router.SetInterface(Load(models, "sailsgerald-applied.json"));
+    Expect(surface.props["primary"]["label"] == "<sails.remove>" && surface.props["primary"]["disabled"] == true &&
+               surface.props["primary"]["reason"] == "<sails.short> 350" && surface.props["prev"] == false,
+           "the current emblem: take it off; short of money: disabled with the shortfall");
+    const size_t sent = surface.commands.size();
+    router.OnEvent({"primary", "click", ""});
+    Expect(surface.commands.size() == sent, "a disabled primary sends nothing");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
@@ -991,6 +1079,8 @@ int main(int argc, char **argv)
     Games(models);
     Repair(models);
     Transfer(models);
+    GoodsOrder(models);
+    SailEmblem(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else

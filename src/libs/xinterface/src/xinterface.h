@@ -333,6 +333,9 @@ class XINTERFACE : public XINTERFACE_BASE
     void MobileCollectNations(std::vector<MobileWidget> &widgets);
     void MobileCollectShipyard(std::vector<MobileWidget> &widgets);
     void MobileCollectTableGame(std::vector<MobileWidget> &widgets);
+    void MobileCollectGoodsTransfer(std::vector<MobileWidget> &widgets);
+    bool MobileApplyGoodsTransfer(const std::string &value);
+    void MobileCollectSailsGerald(std::vector<MobileWidget> &widgets);
     bool MobileApplyShipyard(const std::string &node,int index,const std::string &value);
     std::string m_mobileShipyardSignature;
     uint64_t m_mobileShipyardGeneration=0;
