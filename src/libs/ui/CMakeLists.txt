@@ -53,6 +53,13 @@ FetchContent_MakeAvailable(storm_ui_rmlui)
 
 add_library(storm_ui STATIC
     src/ui_host.cpp
+    src/interface_model.cpp
+    src/screens/router.cpp
+    src/screens/controls.cpp
+    src/screens/registry.cpp
+    src/screens/generic.cpp
+    src/screens/trade_store.cpp
+    src/screens/dialogue.cpp
     src/template.cpp
     src/components.cpp
     src/behaviors.cpp
@@ -90,4 +97,7 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     target_link_libraries(storm_ui_unit PRIVATE storm_ui)
     enable_testing()
     add_test(NAME ui_unit COMMAND storm_ui_unit)
+    add_executable(storm_ui_screens_unit tests/screens_check.cpp)
+    target_link_libraries(storm_ui_screens_unit PRIVATE storm_ui)
+    add_test(NAME ui_screens COMMAND storm_ui_screens_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/models")
 endif()

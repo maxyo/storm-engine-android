@@ -20,12 +20,39 @@ class FileSource
 };
 std::unique_ptr<FileSource> DirectoryFiles(std::string root);
 
-// What a component reports to the game: the widget id, a verb and an optional value.
+// Migration switch, as data: true while the platform host still draws this interface id
+// with its own form (the zone is not ported yet). Every other id goes to SetInterface.
+bool HostOwnsInterface(const std::string &screen);
+
+struct InterfaceModel; // interface_model.h
+
+// The one path out of the UI. For a game interface: the widget (`node`, `index`) of the
+// open `screen`, the verb the player chose and its value. For a document loaded with
+// LoadDocument (gallery): `node` is the element id, `screen` is empty.
 struct Action
 {
-    std::string id;
-    std::string verb;
-    std::string value;
+    std::string node;
+    std::string verb;  // press, select, activate, open, toggle, edit, set, left, right, back, …
+    std::string value; // row identity for select/activate/open; new value for toggle/edit/set
+    std::string screen;
+    uint64_t opening = 0; // InterfaceModel::opening the action belongs to
+    int index = -1;
+    std::string guard; // row the action must still apply to (commerce quantities); may be empty
+};
+// The line today's engine queue expects for an action ("widget:store\tTABLE_LIST\t3\tselect@7:id",
+// "back"). Platform hosts forward it unchanged; an engine that hosts the UI itself reads
+// the Action and does not need it.
+std::string EngineCommand(const Action &action);
+
+// A text field asks for the platform editor (IME bridge). The host shows a native editor
+// over `x, y, width, height` (physical pixels) and answers with Host::SubmitText.
+struct TextRequest
+{
+    std::string token;
+    std::string text;
+    std::string title;
+    bool numeric = false;
+    float x = 0, y = 0, width = 0, height = 0;
 };
 
 class RenderBackend; // render_backend.h
@@ -55,6 +82,7 @@ struct Config
     // the engine's texture module plugs in, so that pictures are decoded in one place.
     std::function<bool(const std::string &texture, Picture &out)> game_picture_loader;
     std::function<void(const Action &)> on_action;
+    std::function<void(const TextRequest &)> on_text_request;
     // Optional clock in seconds, for deterministic captures.
     std::function<double()> clock;
 };
@@ -87,6 +115,24 @@ class Host
     // Replaces the props of the component with this element id (JSON object).
     virtual bool SetProps(const std::string &element_id, const std::string &json) = 0;
     virtual void ScrollTo(const std::string &element_id) = 0;
+
+    // --- game interfaces -----------------------------------------------------------
+    // Routes a game interface to its screen: the ported screen registered for the id when
+    // the model passes its admission, the generic layout otherwise. The JSON overload
+    // takes the engine's wire format. Call again for every model revision.
+    virtual bool SetInterface(const std::string &json) = 0;
+    virtual void SetInterface(const InterfaceModel &model) = 0;
+    virtual void CloseInterface() = 0;
+    // A named state channel of the game ("dialogue", "gameplay", "combat", "ship",
+    // "worldmap", "landCommands", "seaOrders", "vitals", "worldInfo"): JSON as the engine
+    // publishes it. Channels without a consumer are ignored.
+    virtual bool SetState(const std::string &channel, const std::string &json) = 0;
+    // Answer to Config::on_text_request; `accepted` false = the editor was dismissed.
+    virtual void SubmitText(const std::string &token, const std::string &text, bool accepted) = 0;
+    // Display-cutout insets in physical pixels; screens keep their content inside.
+    virtual void SetSafeArea(int left, int top, int right, int bottom) = 0;
+    // True while a game interface is mounted (the host then gives the UI every touch).
+    virtual bool InterfaceActive() const = 0;
 };
 
 } // namespace storm::ui

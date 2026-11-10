@@ -1,0 +1,947 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 2,
+ "screenRevision": 7,
+ "screen": "store",
+ "widgets": [
+  {
+   "node": "STORECAPTION1",
+   "type": "text",
+   "label": "Мартиника: магазин",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "200\t10\t5\tЯдра\t3\t1840\t20\t1",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "goods:0:ship:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "200",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "5",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Ядра",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Balls"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "3",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "1840",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 7,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "В трюме",
+    "Вес",
+    "Цена покупки",
+    "Товар",
+    "Цена продажи",
+    "В магазине",
+    "Пачка",
+    "Вес пачки"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "100\t5\t6\tКартечь\t4\t1260\t20\t1",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "goods:1:ship:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "100",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "5",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "6",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Картечь",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 2,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Grapes"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "4",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "1260",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 7,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "В трюме",
+    "Вес",
+    "Цена покупки",
+    "Товар",
+    "Цена продажи",
+    "В магазине",
+    "Пачка",
+    "Вес пачки"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "60\t3\t8\tКниппели\t5\t940\t20\t1",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "goods:2:ship:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "60",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "3",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "8",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Книппели",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 3,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Knippels"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "5",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "940",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 7,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "В трюме",
+    "Вес",
+    "Цена покупки",
+    "Товар",
+    "Цена продажи",
+    "В магазине",
+    "Пачка",
+    "Вес пачки"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "0\t0\t14\tБомбы\t9\t520\t20\t1",
+   "value": "0",
+   "index": 3,
+   "enabled": true,
+   "rowId": "goods:3:ship:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "14",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Бомбы",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 4,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Bombs"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "9",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "520",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 7,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "В трюме",
+    "Вес",
+    "Цена покупки",
+    "Товар",
+    "Цена продажи",
+    "В магазине",
+    "Пачка",
+    "Вес пачки"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "0\t0\t31\tПарусина\t22\t380\t10\t1",
+   "value": "0",
+   "index": 4,
+   "enabled": true,
+   "rowId": "goods:4:ship:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "31",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Парусина",
+     "colorArgb": 4291085567,
+     "images": [
+      {
+       "handle": 5,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Sailcloth"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "22",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "380",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 7,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "В трюме",
+    "Вес",
+    "Цена покупки",
+    "Товар",
+    "Цена продажи",
+    "В магазине",
+    "Пачка",
+    "Вес пачки"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "40\t4\t12\tДоски\t8\t700\t10\t1",
+   "value": "0",
+   "index": 5,
+   "enabled": true,
+   "rowId": "goods:5:ship:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "40",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "4",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "12",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Доски",
+     "colorArgb": 4291100612,
+     "images": [
+      {
+       "handle": 6,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Planks"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "8",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "700",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 7,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "В трюме",
+    "Вес",
+    "Цена покупки",
+    "Товар",
+    "Цена продажи",
+    "В магазине",
+    "Пачка",
+    "Вес пачки"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "15\t15\t40\tРом\t28\t300\t1\t1",
+   "value": "0",
+   "index": 6,
+   "enabled": true,
+   "rowId": "goods:6:ship:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "15",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "15",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "40",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Ром",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 7,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Rum"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "28",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "300",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 7,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "В трюме",
+    "Вес",
+    "Цена покупки",
+    "Товар",
+    "Цена продажи",
+    "В магазине",
+    "Пачка",
+    "Вес пачки"
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "320\t32\t3\tПровиант\t2\t2100\t10\t1",
+   "value": "0",
+   "index": 7,
+   "enabled": true,
+   "rowId": "goods:7:ship:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "320",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "32",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "3",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Провиант",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 8,
+       "imageRevision": 1,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Food"
+       }
+      }
+     ]
+    },
+    {
+     "column": 4,
+     "text": "2",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "2100",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 7,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "В трюме",
+    "Вес",
+    "Цена покупки",
+    "Товар",
+    "Цена продажи",
+    "В магазине",
+    "Пачка",
+    "Вес пачки"
+   ]
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Аделина",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "ship:0",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Морской конь",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "ship:1",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "CAPACITY",
+   "type": "text",
+   "label": "Трюм:\n189 / 199",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "OUR_GOLD",
+   "type": "text",
+   "label": "Наши деньги 1 500 песо",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "Товары колонии.",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_GUILD",
+   "type": "button",
+   "label": "Гильдейский счёт",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "GUILD_NOTE",
+   "type": "text",
+   "label": "Членам купеческой гильдии — скидка 5 % до 1 декабря",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_CAPTION",
+   "type": "text",
+   "label": "Ядра",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_TypeOperation",
+   "type": "text",
+   "label": "Купить",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_Result",
+   "type": "text",
+   "label": "Деньги 25, вес 5 ц",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_INFO_SHIP_QTY",
+   "type": "text",
+   "label": "300",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_INFO_STORE_QTY",
+   "type": "text",
+   "label": "1740",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_GOODS_INFO",
+   "type": "text",
+   "label": "Чугунные ядра для корабельных орудий.\nВес 1 ц, пачка 20 шт.",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_EDIT",
+   "type": "edit",
+   "label": "",
+   "value": "100",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_ADD_BUTTON",
+   "type": "button",
+   "label": ">",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "QTY_REMOVE_BUTTON",
+   "type": "button",
+   "label": "<",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "QTY_OK_BUTTON",
+   "type": "button",
+   "label": "Ok",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "QTY_CANCEL_BUTTON",
+   "type": "button",
+   "label": "Отмена",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  }
+ ]
+}

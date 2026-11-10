@@ -20,6 +20,7 @@ struct Session
     std::unique_ptr<storm::ui::FileSource> files;
     std::unique_ptr<storm::ui::Host> host;
     std::vector<storm::ui::Action> actions;
+    std::vector<storm::ui::TextRequest> text_requests;
     jobject assets_reference = nullptr; // keeps the Java AssetManager alive
 };
 
@@ -58,6 +59,7 @@ JNIEXPORT jlong JNICALL Java_org_stormengine_port_StormUi_nativeCreate(JNIEnv *e
     config.game_root = Text(env, game_root);
     Session *raw = session.get();
     config.on_action = [raw](const storm::ui::Action &action) { raw->actions.push_back(action); };
+    config.on_text_request = [raw](const storm::ui::TextRequest &request) { raw->text_requests.push_back(request); };
     std::string error;
     session->host = storm::ui::Host::Create(config, &error);
     if (!session->host)
@@ -121,22 +123,82 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeScrollTo(JNIEnv *
     From(handle)->host->ScrollTo(Text(env, element_id));
 }
 
-// Returns the queued actions as a flat array {id, verb, value, id, verb, value, …}, or null.
+JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeHostOwnsInterface(JNIEnv *env, jclass, jstring screen)
+{
+    return storm::ui::HostOwnsInterface(Text(env, screen)) ? JNI_TRUE : JNI_FALSE;
+}
+
+// The engine's interface snapshot, forwarded as it arrived.
+JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeSetInterface(JNIEnv *env, jclass, jlong handle, jbyteArray json)
+{
+    const jsize size = env->GetArrayLength(json);
+    std::string text(static_cast<size_t>(size), '\0');
+    env->GetByteArrayRegion(json, 0, size, reinterpret_cast<jbyte *>(text.data()));
+    return From(handle)->host->SetInterface(text) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeCloseInterface(JNIEnv *, jclass, jlong handle)
+{
+    From(handle)->host->CloseInterface();
+}
+
+JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeSetState(JNIEnv *env, jclass, jlong handle, jstring channel, jstring json)
+{
+    return From(handle)->host->SetState(Text(env, channel), Text(env, json)) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeSubmitText(JNIEnv *env, jclass, jlong handle, jstring token, jstring text,
+                                                                         jboolean accepted)
+{
+    From(handle)->host->SubmitText(Text(env, token), Text(env, text), accepted == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeSetSafeArea(JNIEnv *, jclass, jlong handle, jint left, jint top, jint right,
+                                                                          jint bottom)
+{
+    From(handle)->host->SetSafeArea(left, top, right, bottom);
+}
+
+// The oldest pending editor request as {token, text, title, numeric, x, y, width, height}, or null.
+JNIEXPORT jobjectArray JNICALL Java_org_stormengine_port_StormUi_nativeTakeTextRequest(JNIEnv *env, jclass, jlong handle)
+{
+    Session *session = From(handle);
+    if (session->text_requests.empty())
+        return nullptr;
+    const storm::ui::TextRequest request = session->text_requests.front();
+    session->text_requests.erase(session->text_requests.begin());
+    const std::string parts[] = {request.token,           request.text,           request.title,              request.numeric ? "1" : "0",
+                                 std::to_string(request.x), std::to_string(request.y), std::to_string(request.width), std::to_string(request.height)};
+    jobjectArray result = env->NewObjectArray(8, env->FindClass("java/lang/String"), nullptr);
+    for (jsize i = 0; i < 8; ++i)
+    {
+        jstring value = env->NewStringUTF(parts[i].c_str());
+        env->SetObjectArrayElement(result, i, value);
+        env->DeleteLocalRef(value);
+    }
+    return result;
+}
+
+// Returns the queued actions as a flat array {node, verb, value, engine command, …}, or null.
+// The engine command is empty for actions of a plain document (gallery).
 JNIEXPORT jobjectArray JNICALL Java_org_stormengine_port_StormUi_nativeTakeActions(JNIEnv *env, jclass, jlong handle)
 {
     Session *session = From(handle);
     if (session->actions.empty())
         return nullptr;
     const jclass string_class = env->FindClass("java/lang/String");
-    jobjectArray result = env->NewObjectArray(static_cast<jsize>(session->actions.size() * 3), string_class, nullptr);
+    jobjectArray result = env->NewObjectArray(static_cast<jsize>(session->actions.size() * 4), string_class, nullptr);
     jsize index = 0;
     for (const storm::ui::Action &action : session->actions)
-        for (const std::string *part : {&action.id, &action.verb, &action.value})
+    {
+        const std::string command = storm::ui::EngineCommand(action);
+        for (const std::string *part : {&action.node, &action.verb, &action.value, &command})
         {
             jstring value = env->NewStringUTF(part->c_str());
             env->SetObjectArrayElement(result, index++, value);
             env->DeleteLocalRef(value);
         }
+    }
     session->actions.clear();
     return result;
 }

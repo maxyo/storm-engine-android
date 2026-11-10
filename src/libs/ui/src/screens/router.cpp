@@ -1,0 +1,495 @@
+#include "controls.h"
+
+#include <algorithm>
+
+namespace storm::ui
+{
+
+std::string EngineCommand(const Action &action)
+{
+    if (action.screen.empty())
+        return {};
+    if (action.screen == "dialogue") // reply: "<generation>:<index>"; edit: the typed reply text
+        return action.verb == "edit" ? "dialogue:" + std::to_string(action.opening) + ":" + std::to_string(action.index) + ":" + action.value
+                                     : "dialogue:" + action.value;
+    if (action.node.empty())
+        return action.verb == "back" ? "back" : std::string();
+    const std::string stamp = "@" + std::to_string(action.opening) + ":";
+    std::string wire;
+    if (action.verb == "toggle" || action.verb == "edit")
+        wire = action.value;
+    else if (action.verb == "set" || !action.value.empty())
+        wire = action.verb + stamp + action.value;
+    else
+        wire = action.verb;
+    if (!action.guard.empty())
+        wire = "guard" + stamp + action.guard + "|" + wire;
+    return "widget:" + action.screen + "\t" + action.node + "\t" + std::to_string(action.index) + "\t" + wire;
+}
+
+bool HostOwnsInterface(const std::string &screen)
+{
+    return screens::HostOwned(screen);
+}
+
+} // namespace storm::ui
+
+namespace storm::ui::screens
+{
+
+namespace
+{
+
+constexpr double kPendingSeconds = 1.5; // a press the engine never answers stops looking busy
+constexpr double kFlushSeconds = 0.12;  // drags reach the engine at most this often
+constexpr double kIdle = 3600.0;
+
+bool Contains(const std::string &text, const char *part)
+{
+    return text.find(part) != std::string::npos;
+}
+
+bool Matches(const NodeRule &rule, const Widget &widget)
+{
+    const std::string_view pattern = rule.node;
+    const bool prefix = !pattern.empty() && pattern.back() == '*';
+    const std::string_view name = prefix ? pattern.substr(0, pattern.size() - 1) : pattern;
+    if (prefix ? !(widget.node.size() >= name.size() && SameNode(std::string_view(widget.node).substr(0, name.size()), name))
+               : !SameNode(widget.node, name))
+        return false;
+    return true;
+}
+
+bool TypeFits(const NodeRule &rule, const Widget &widget)
+{
+    std::string_view types = rule.type;
+    while (!types.empty())
+    {
+        const size_t bar = types.find('|');
+        const std::string_view one = types.substr(0, bar);
+        if (one == "*" || one == widget.type)
+            return true;
+        types = bar == std::string_view::npos ? std::string_view() : types.substr(bar + 1);
+    }
+    return false;
+}
+
+} // namespace
+
+bool Hidden(const Widget &widget)
+{
+    const std::string node = Upper(widget.node);
+    const bool has_verbs = !widget.actions.empty();
+    if (node.rfind("DEBUG", 0) == 0 || (node.size() > 4 && node.compare(node.size() - 4, 4, "_DBG") == 0))
+        return true;
+    if (Contains(node, "SCROLL") && !has_verbs && widget.type != "choice" && widget.type != "text")
+        return true;
+    if (widget.type == "image")
+        return widget.label.empty() || !widget.Offers("press"); // pictures are drawn only by screens that know them
+    if (widget.type == "edit" || widget.type == "slider" || widget.type == "stepper")
+        return false;
+    if (widget.type == "choice" && (!widget.cells.empty() || !widget.images.empty()))
+        return false;
+    if (widget.label.empty() && widget.images.empty())
+        return true;
+    if (widget.type == "button" && !widget.enabled && widget.unavailable_reason.empty() && !has_verbs && widget.label.empty())
+        return true;
+    // Form-specific types mean something only to their form; elsewhere they need a verb.
+    if (widget.type == "save" || widget.type.rfind("nation_help", 0) == 0)
+        return !has_verbs;
+    return false;
+}
+
+const Widget *Admission::One(std::string_view node) const
+{
+    for (const Widget *widget : known)
+        if (SameNode(widget->node, node))
+            return widget;
+    return nullptr;
+}
+
+std::vector<const Widget *> Admission::All(std::string_view node) const
+{
+    std::vector<const Widget *> out;
+    for (const Widget *widget : known)
+        if (SameNode(widget->node, node))
+            out.push_back(widget);
+    return out;
+}
+
+std::string Admission::Label(std::string_view node) const
+{
+    const Widget *widget = One(node);
+    return widget ? widget->label : std::string();
+}
+
+Admission Admit(const InterfaceModel &model, std::span<const NodeRule> rules)
+{
+    Admission out;
+    out.model = &model;
+    std::vector<bool> met(rules.size(), false);
+    for (const Widget &widget : model.widgets)
+    {
+        bool known = false, named = false;
+        for (size_t i = 0; i < rules.size(); ++i)
+        {
+            if (!Matches(rules[i], widget))
+                continue;
+            named = true;
+            if (TypeFits(rules[i], widget))
+            {
+                known = true;
+                met[i] = true;
+                break;
+            }
+        }
+        if (known)
+            out.known.push_back(&widget);
+        else if (!Hidden(widget))
+        {
+            // An alias ("NAME_2") of a node the screen draws is not an extra.
+            const std::string node = Upper(widget.node);
+            const bool alias = named || (node.size() > 2 && node.compare(node.size() - 2, 2, "_2") == 0 &&
+                                         std::any_of(rules.begin(), rules.end(), [&](const NodeRule &rule) {
+                                             return SameNode(rule.node, std::string_view(node).substr(0, node.size() - 2));
+                                         }));
+            if (!alias || named)
+                out.extras.push_back(&widget);
+        }
+    }
+    out.accepted = true;
+    for (size_t i = 0; i < rules.size(); ++i)
+        if (rules[i].required && !met[i])
+            out.accepted = false;
+    return out;
+}
+
+// --- Bindings ---------------------------------------------------------------------------
+
+void Bindings::On(const std::string &id, const std::string &verb, Handler handler)
+{
+    handlers_[id + '\x1f' + verb] = std::move(handler);
+}
+
+void Bindings::Forward(const std::string &id, const Widget &widget, const std::string &verb)
+{
+    const Widget *target = &widget;
+    On(id, "", [this, target, verb](const Event &) { Send(*target, verb); });
+}
+
+void Bindings::Send(const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard)
+{
+    router_.Emit(router_.Make(widget, verb, value, guard));
+}
+
+void Bindings::SendLatest(const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard)
+{
+    Action action = router_.Make(widget, verb, value, guard);
+    for (Router::Waiting &waiting : router_.waiting_)
+        if (waiting.action.node == action.node && waiting.action.index == action.index && waiting.action.verb == action.verb)
+        {
+            waiting.action = std::move(action);
+            return;
+        }
+    const double now = router_.surface_.Now();
+    if (now - router_.last_flush_ >= kFlushSeconds)
+    {
+        router_.last_flush_ = now;
+        router_.Emit(std::move(action));
+        return;
+    }
+    router_.waiting_.push_back({std::move(action), router_.last_flush_ + kFlushSeconds});
+}
+
+void Bindings::Back(const Widget *exit_button)
+{
+    if (exit_button && exit_button->Offers("press"))
+    {
+        Send(*exit_button, "press");
+        return;
+    }
+    Action action;
+    action.screen = router_.model_.screen;
+    action.opening = router_.model_.opening;
+    action.verb = "back";
+    router_.Emit(std::move(action));
+}
+
+void Bindings::EditText(const Event &event, const Widget &widget, const std::string &title, bool numeric)
+{
+    TextRequest request;
+    request.token = std::to_string(++router_.edit_serial_);
+    request.text = widget.value;
+    request.title = title;
+    request.numeric = numeric;
+    router_.edit_token_ = request.token;
+    router_.edit_action_ = router_.Make(widget, "edit", {}, {});
+    router_.surface_.RequestText(std::move(request), event.id);
+}
+
+void Bindings::Read(const std::string &title, const std::string &text)
+{
+    router_.reading_title_ = title;
+    router_.reading_text_ = text;
+    router_.rebuild_ = true;
+}
+
+void Bindings::Toast(const std::string &text)
+{
+    router_.surface_.Toast(text);
+}
+
+void Bindings::Rebuild()
+{
+    router_.rebuild_ = true;
+}
+
+bool Bindings::Pending(const std::string &id, const std::string &value) const
+{
+    for (const Router::PendingMark &mark : router_.pending_)
+        if (mark.id == id && mark.value == value)
+            return true;
+    return false;
+}
+
+double Bindings::Now() const
+{
+    return router_.surface_.Now();
+}
+
+// --- Router -----------------------------------------------------------------------------
+
+Router::Router(Surface &surface) : surface_(surface), bindings_(*this), consumers_(CreateStateConsumers())
+{
+}
+
+Router::~Router() = default;
+
+Action Router::Make(const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard) const
+{
+    Action action;
+    action.screen = model_.screen;
+    action.opening = model_.opening;
+    action.node = widget.node;
+    action.index = widget.index;
+    action.verb = verb;
+    action.value = value;
+    action.guard = guard;
+    return action;
+}
+
+void Router::Emit(Action action)
+{
+    if (current_)
+        sent_in_event_ = true;
+    surface_.Send(action);
+}
+
+void Router::SetInterface(const InterfaceModel &model)
+{
+    const bool reopened = !screen_ || model.screen != model_.screen || model.opening != model_.opening;
+    const bool changed = model.revision != model_.revision;
+    model_ = model;
+    if (reopened)
+    {
+        screen_.reset();
+        extras_open_ = false;
+        reading_title_.clear();
+        reading_text_.clear();
+        pending_.clear();
+        waiting_.clear();
+        edit_token_.clear();
+    }
+    else if (changed)
+        pending_.clear();
+    Build();
+}
+
+void Router::CloseInterface()
+{
+    if (!screen_)
+        return;
+    screen_.reset();
+    using_.clear();
+    bindings_.handlers_.clear();
+    pending_.clear();
+    waiting_.clear();
+    edit_token_.clear();
+    model_ = InterfaceModel();
+    surface_.Hide();
+}
+
+void Router::SetState(const std::string &channel, const Json &state)
+{
+    for (const auto &consumer : consumers_)
+        if (channel == consumer->Channel())
+            consumer->OnState(state, *this);
+}
+
+void Router::Build()
+{
+    rebuild_ = false;
+    bindings_.handlers_.clear();
+    // A screen instance is kept while it still admits the model; a ported screen that
+    // stops fitting (a mod changed the interface mid-way) gives way to the generic layout.
+    Admission admitted;
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        if (!screen_)
+        {
+            for (const ScreenEntry &entry : PortedScreens())
+                if (attempt == 0 && model_.screen == entry.id)
+                {
+                    screen_ = entry.create();
+                    using_ = entry.id;
+                }
+            if (!screen_)
+            {
+                screen_ = CreateGenericScreen();
+                using_ = "generic";
+            }
+        }
+        admitted = Admit(model_, screen_->Nodes());
+        if (admitted.accepted)
+            break;
+        screen_.reset();
+        if (using_ == "generic")
+            attempt = 0; // cannot happen: the generic layout requires nothing
+    }
+    Json view = screen_->Build(admitted, bindings_);
+    // The generic layout places every widget itself and hands over only its overflow rows.
+    Json rows = view.contains("more") ? view["more"] : Json::array();
+    view.erase("more");
+    view["extras"] = ExtrasView(admitted, std::move(rows));
+    surface_.Show(screen_->Component(), view);
+}
+
+Json Router::ExtrasView(const Admission &admitted, Json rows)
+{
+    std::string note, nodes;
+    std::vector<const Widget *> controls;
+    const auto flush = [&] {
+        if (!controls.empty())
+            ControlRows(bindings_, controls, "extra-c" + std::to_string(rows.size()) + "-", std::vector<std::string>(), rows);
+        controls.clear();
+    };
+    const bool generic = screen_->Nodes().empty();
+    for (const Widget *widget : admitted.extras)
+    {
+        if (generic)
+            break;
+        nodes += (nodes.empty() ? "" : ",") + widget->node;
+        if (widget->type == "text" || widget->type == "heading")
+        {
+            note += (note.empty() ? "" : "\n") + widget->label;
+            continue;
+        }
+        if (widget->type == "check" || widget->type == "edit" || widget->type == "slider" || widget->type == "stepper")
+        {
+            controls.push_back(widget);
+            continue;
+        }
+        flush();
+        if (widget->type == "button" || widget->type == "choice" || widget->type == "image")
+            rows.push_back(ActionRow(bindings_, *widget, "extra-a" + std::to_string(rows.size())));
+    }
+    flush();
+    if (!nodes.empty() && logged_extras_.insert(model_.screen + ":" + nodes).second)
+        surface_.Log("screen " + model_.screen + " extras=" + nodes);
+
+    Json view = Json::object();
+    view["rows"] = rows;
+    view["open"] = extras_open_ && !rows.empty();
+    view["actions"] = rows.empty() ? Json::array() : Json::array({{{"id", "extras-more"}, {"icon", "more"}, {"label", "Прочее"}}});
+    view["note"] = note;
+    view["reading"] = !reading_text_.empty();
+    view["readingTitle"] = reading_title_;
+    view["readingText"] = reading_text_;
+    bindings_.On("extras-more", "", [this](const Event &) {
+        extras_open_ = !extras_open_;
+        rebuild_ = true;
+    });
+    bindings_.On("extras", "close", [this](const Event &) {
+        extras_open_ = false;
+        reading_text_.clear();
+        rebuild_ = true;
+    });
+    bindings_.On("extras-reading-close", "", [this](const Event &) {
+        reading_text_.clear();
+        rebuild_ = true;
+    });
+    bindings_.On("extras-note", "", [this, note](const Event &) {
+        reading_title_.clear();
+        reading_text_ = note;
+        rebuild_ = true;
+    });
+    return view;
+}
+
+bool Router::OnEvent(const Event &event)
+{
+    if (!screen_)
+        return false;
+    auto found = bindings_.handlers_.find(event.id + '\x1f' + event.verb);
+    if (found == bindings_.handlers_.end())
+        found = bindings_.handlers_.find(event.id + '\x1f');
+    if (found == bindings_.handlers_.end())
+        return false;
+    const Bindings::Handler handler = found->second; // a rebuild replaces the table
+    current_ = &event;
+    sent_in_event_ = false;
+    handler(event);
+    current_ = nullptr;
+    if (sent_in_event_)
+    {
+        // An action row of the «Прочее» sheet closes it, as a menu does.
+        if (event.id.rfind("extra-a", 0) == 0)
+            extras_open_ = false;
+        pending_.push_back({event.id, event.value, model_.revision, surface_.Now() + kPendingSeconds});
+        rebuild_ = true;
+    }
+    if (rebuild_ && screen_)
+        Build();
+    return true;
+}
+
+void Router::SubmitText(const std::string &token, const std::string &text, bool accepted)
+{
+    if (token.empty() || token != edit_token_)
+        return;
+    edit_token_.clear();
+    if (!accepted || !screen_ || edit_action_.screen != model_.screen || edit_action_.opening != model_.opening)
+        return;
+    Action action = edit_action_;
+    action.value = text;
+    surface_.Send(action);
+}
+
+double Router::Tick()
+{
+    if (!screen_)
+        return kIdle;
+    const double now = surface_.Now();
+    double next = kIdle;
+    for (size_t i = waiting_.size(); i-- > 0;)
+    {
+        if (now >= waiting_[i].due)
+        {
+            last_flush_ = now;
+            surface_.Send(waiting_[i].action);
+            waiting_.erase(waiting_.begin() + static_cast<long>(i));
+        }
+        else
+            next = std::min(next, waiting_[i].due - now);
+    }
+    const size_t before = pending_.size();
+    pending_.erase(std::remove_if(pending_.begin(), pending_.end(), [&](const PendingMark &mark) { return now >= mark.until; }),
+                   pending_.end());
+    for (const PendingMark &mark : pending_)
+        next = std::min(next, mark.until - now);
+    if (pending_.size() != before)
+        Build();
+    return next;
+}
+
+} // namespace storm::ui::screens

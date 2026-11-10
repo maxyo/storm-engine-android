@@ -4,6 +4,8 @@
 
 #include "components.h"
 #include "elements.h"
+#include "screens/screen.h"
+#include "storm_ui/interface_model.h"
 
 #include <RmlUi/Core.h>
 #include <plutovg.h>
@@ -169,13 +171,14 @@ bool ReadJson(FileSource &files, const std::string &path, Json &out, std::string
     return true;
 }
 
-class HostImpl final : public Host, public Services
+class HostImpl final : public Host, public Services, public screens::Surface
 {
   public:
     ~HostImpl() override
     {
         captures_.clear();
         ticking_.clear();
+        router_.reset();
         if (context_)
         {
             context_->UnloadAllDocuments();
@@ -254,6 +257,8 @@ class HostImpl final : public Host, public Services
             return false;
         }
         context_->SetDensityIndependentPixelRatio(config.density);
+        screen_path_ = pack.value("screen", std::string());
+        router_ = std::make_unique<screens::Router>(*this);
         overlay_path_ = pack.value("overlay", std::string());
         if (!overlay_path_.empty())
         {
@@ -268,7 +273,14 @@ class HostImpl final : public Host, public Services
 
     bool LoadDocument(const std::string &path) override
     {
+        router_->CloseInterface();
+        return OpenDocument(path);
+    }
+
+    bool OpenDocument(const std::string &path)
+    {
         captures_.clear();
+        screen_root_ = nullptr;
         if (document_)
         {
             document_->Close();
@@ -389,6 +401,7 @@ class HostImpl final : public Host, public Services
                 component->Tick(now);
         ExpireToasts(now);
         const bool images = GameImagesChanged();
+        const double routing = router_->Tick();
 
         context_->Update();
         backend_->BeginFrame(true);
@@ -398,6 +411,7 @@ class HostImpl final : public Host, public Services
         double delay = context_->GetNextUpdateDelay();
         if (!ticking_.empty() || images)
             delay = 0.0;
+        delay = std::min(delay, routing);
         for (const Toast_ &toast : toasts_)
             delay = std::min(delay, std::max(0.0, toast.until - now));
         return delay;
@@ -443,6 +457,140 @@ class HostImpl final : public Host, public Services
             element->ScrollIntoView(Rml::ScrollIntoViewOptions(Rml::ScrollAlignment::Start));
     }
 
+    // --- game interfaces -----------------------------------------------------------
+
+    bool SetInterface(const std::string &json) override
+    {
+        InterfaceModel model;
+        std::string error;
+        if (!ParseInterfaceModel(json, model, &error))
+        {
+            Rml::Log::Message(Rml::Log::LT_ERROR, "%s", error.c_str());
+            return false;
+        }
+        SetInterface(model);
+        return true;
+    }
+
+    void SetInterface(const InterfaceModel &model) override
+    {
+        router_->SetInterface(model);
+    }
+
+    void CloseInterface() override
+    {
+        router_->CloseInterface();
+    }
+
+    bool SetState(const std::string &channel, const std::string &json) override
+    {
+        const Json state = Json::parse(json, nullptr, false);
+        if (state.is_discarded())
+            return false;
+        try
+        {
+            router_->SetState(channel, state);
+        }
+        catch (const Json::exception &error)
+        {
+            Rml::Log::Message(Rml::Log::LT_ERROR, "State %s: %s", channel.c_str(), error.what());
+            return false;
+        }
+        return true;
+    }
+
+    void SubmitText(const std::string &token, const std::string &text, bool accepted) override
+    {
+        router_->SubmitText(token, text, accepted);
+    }
+
+    void SetSafeArea(int left, int top, int right, int bottom) override
+    {
+        safe_[0] = left;
+        safe_[1] = top;
+        safe_[2] = right;
+        safe_[3] = bottom;
+        ApplySafeArea();
+    }
+
+    bool InterfaceActive() const override
+    {
+        return router_->Active();
+    }
+
+    // --- screens::Surface ---------------------------------------------------------
+
+    void Show(const std::string &tag, const Json &props) override
+    {
+        if (!screen_root_ && (screen_path_.empty() || !OpenDocument(screen_path_)))
+        {
+            Rml::Log::Message(Rml::Log::LT_ERROR, "UI pack has no screen document");
+            return;
+        }
+        screen_root_ = document_;
+        Rml::Element *mounted = document_->GetElementById("screen");
+        if (!mounted || mounted->GetTagName() != tag)
+        {
+            if (mounted)
+                document_->RemoveChild(mounted);
+            Rml::ElementPtr created = document_->CreateElement(tag);
+            created->SetId("screen");
+            mounted = document_->AppendChild(std::move(created));
+            // A screen that leaves the game visible (dialogue) says so in its spec.
+            const ComponentSpec *spec = registry_->Find(tag);
+            document_->SetClass("over-game", spec && Truthy(spec->constants.value("overGame", Json(false))));
+            ApplySafeArea();
+        }
+        if (auto *component = dynamic_cast<ComponentElement *>(mounted))
+            component->SetProps(props);
+        else
+            Rml::Log::Message(Rml::Log::LT_ERROR, "UI pack has no screen %s", tag.c_str());
+    }
+
+    void Hide() override
+    {
+        captures_.clear();
+        if (screen_root_ && document_)
+        {
+            document_->Close();
+            document_ = nullptr;
+        }
+        screen_root_ = nullptr;
+    }
+
+    void Send(const Action &action) override
+    {
+        if (config_.on_action)
+            config_.on_action(action);
+    }
+
+    void RequestText(TextRequest request, const std::string &anchor) override
+    {
+        if (Rml::Element *element = document_ ? document_->GetElementById(anchor) : nullptr)
+        {
+            const Rml::Vector2f origin = element->GetAbsoluteOffset(Rml::BoxArea::Border);
+            const Rml::Vector2f size = element->GetBox().GetSize(Rml::BoxArea::Border);
+            request.x = origin.x;
+            request.y = origin.y;
+            request.width = size.x;
+            request.height = size.y;
+        }
+        if (config_.on_text_request)
+            config_.on_text_request(request);
+        else
+            router_->SubmitText(request.token, {}, false);
+    }
+
+    void Toast(const std::string &text) override
+    {
+        Toast(text, "info");
+    }
+
+    void Log(const std::string &line) override
+    {
+        Rml::Log::Message(Rml::Log::LT_INFO, "%s", line.c_str());
+    }
+
     // --- Services -----------------------------------------------------------------
 
     double Now() const override
@@ -460,11 +608,19 @@ class HostImpl final : public Host, public Services
     }
     void Emit(ComponentElement &source, const std::string &verb, const std::string &value) override
     {
+        std::string id;
+        for (Rml::Element *element = &source; element && id.empty(); element = element->GetParentNode())
+            id = element->GetId();
+        if (screen_root_)
+        {
+            // A game interface: its screen maps the event to engine actions.
+            router_->OnEvent({id, verb, value});
+            return;
+        }
         if (!config_.on_action)
             return;
         Action action;
-        for (Rml::Element *element = &source; element && action.id.empty(); element = element->GetParentNode())
-            action.id = element->GetId();
+        action.node = id;
         action.verb = verb;
         action.value = value;
         config_.on_action(action);
@@ -526,6 +682,16 @@ class HostImpl final : public Host, public Services
         double until = 0.0;
     };
 
+    void ApplySafeArea()
+    {
+        if (!screen_root_ || !document_)
+            return;
+        static const Rml::PropertyId sides[] = {Rml::PropertyId::PaddingLeft, Rml::PropertyId::PaddingTop, Rml::PropertyId::PaddingRight,
+                                                Rml::PropertyId::PaddingBottom};
+        for (int i = 0; i < 4; ++i)
+            document_->SetProperty(sides[i], Rml::Property(static_cast<float>(safe_[i]), Rml::Unit::PX));
+    }
+
     void RemoveToast(size_t index)
     {
         if (Rml::Element *element = toasts_[index].element.get())
@@ -551,6 +717,10 @@ class HostImpl final : public Host, public Services
     Rml::ElementDocument *document_ = nullptr;
     Rml::ElementDocument *overlay_ = nullptr;
     std::string overlay_path_;
+    std::string screen_path_;
+    std::unique_ptr<screens::Router> router_;
+    Rml::ElementDocument *screen_root_ = nullptr; // the screen document while a game interface is mounted
+    int safe_[4] = {0, 0, 0, 0};
     Json settings_ = Json::object();
     std::unordered_map<int, Capture> captures_;
     std::vector<Rml::ObserverPtr<Rml::Element>> ticking_;

@@ -5,6 +5,12 @@
 //   script commands: down|move|up <pointer> <x> <y>, wait <s>, shot <png>, toast <text>,
 //                    props <element id> <json>, scroll <element id>
 //
+// A game interface instead of a document: --interface model.json renders a recorded
+// interface model through the screen routing (--state dialogue=state.json feeds a state
+// channel). Extra script commands: interface <model.json> (a newer revision),
+// text <answer> (accepts the pending text editor request). Engine actions are printed as
+// "command <engine queue line>".
+//
 // Sizes and script coordinates are in dp. The clock is simulated (60 frames a second),
 // so captures are repeatable. Reported actions go to stdout as "action id verb value".
 #include "storm_ui/ui.h"
@@ -16,6 +22,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
+#include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -118,11 +126,19 @@ bool SavePng(const Egl &egl, int width, int height, const std::string &path)
     return ok;
 }
 
+std::string ReadFile(const std::string &path)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file)
+        std::fprintf(stderr, "cannot read %s\n", path.c_str());
+    return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+}
+
 } // namespace
 
 int main(int argc, char **argv)
 {
-    std::string pack, doc, out = "shot.png", game_root, script;
+    std::string pack, doc, out = "shot.png", game_root, script, interface, state, text_token;
     int width_dp = 915, height_dp = 412;
     float density = 2.0f;
     for (int i = 1; i + 1 < argc; i += 2)
@@ -138,6 +154,10 @@ int main(int argc, char **argv)
             game_root = value;
         else if (key == "--script")
             script = value;
+        else if (key == "--interface")
+            interface = value;
+        else if (key == "--state")
+            state = value;
         else if (key == "--density")
             density = std::strtof(value.c_str(), nullptr);
         else if (key == "--size" && std::sscanf(value.c_str(), "%dx%d", &width_dp, &height_dp) == 2)
@@ -148,9 +168,9 @@ int main(int argc, char **argv)
             return 2;
         }
     }
-    if (pack.empty() || doc.empty())
+    if (pack.empty() || (doc.empty() && interface.empty() && state.empty()))
     {
-        std::fprintf(stderr, "usage: storm_ui_shot --pack DIR --doc FILE [--size WxH] [--density D] [--out PNG] [--game-root DIR] [--script S]\n");
+        std::fprintf(stderr, "usage: storm_ui_shot --pack DIR (--doc FILE | --interface JSON | --state CHANNEL=JSON) [--size WxH] [--density D] [--out PNG] [--game-root DIR] [--script S]\n");
         return 2;
     }
     const int width = static_cast<int>(static_cast<float>(width_dp) * density), height = static_cast<int>(static_cast<float>(height_dp) * density);
@@ -173,7 +193,15 @@ int main(int argc, char **argv)
     config.game_root = game_root;
     config.clock = [&clock] { return clock; };
     config.on_action = [](const storm::ui::Action &action) {
-        std::printf("action %s %s %s\n", action.id.c_str(), action.verb.c_str(), action.value.c_str());
+        if (action.screen.empty())
+            std::printf("action %s %s %s\n", action.node.c_str(), action.verb.c_str(), action.value.c_str());
+        else
+            std::printf("command %s\n", storm::ui::EngineCommand(action).c_str());
+    };
+    config.on_text_request = [&text_token](const storm::ui::TextRequest &request) {
+        text_token = request.token;
+        std::printf("text-request \"%s\" \"%s\" at %.0f,%.0f %.0fx%.0f\n", request.title.c_str(), request.text.c_str(), request.x, request.y,
+                    request.width, request.height);
     };
     std::string error;
     auto host = storm::ui::Host::Create(config, &error);
@@ -182,9 +210,13 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "UI host: %s\n", error.c_str());
         return 4;
     }
-    if (!host->LoadDocument(doc))
+    const auto feed_state = [&host](const std::string &pair) {
+        const size_t equals = pair.find('=');
+        return equals != std::string::npos && host->SetState(pair.substr(0, equals), ReadFile(pair.substr(equals + 1)));
+    };
+    if (!doc.empty() ? !host->LoadDocument(doc) : !interface.empty() ? !host->SetInterface(ReadFile(interface)) : !feed_state(state))
     {
-        std::fprintf(stderr, "cannot load %s\n", doc.c_str());
+        std::fprintf(stderr, "cannot load %s\n", (doc + interface + state).c_str());
         return 5;
     }
     const auto run = [&](double seconds) {
@@ -251,6 +283,21 @@ int main(int argc, char **argv)
             std::getline(words, json);
             if (!host->SetProps(id, json))
                 std::fprintf(stderr, "props: no component '%s' or bad JSON\n", id.c_str());
+            run(1.0 / 60.0);
+        }
+        else if (verb == "interface") // interface <model.json>: the next model revision
+        {
+            std::string path;
+            words >> path;
+            if (!host->SetInterface(ReadFile(path)))
+                status = 5;
+            run(1.0 / 60.0);
+        }
+        else if (verb == "text") // text <answer>: what the player typed into the editor
+        {
+            std::string text;
+            std::getline(words, text);
+            host->SubmitText(text_token, text.substr(std::min(text.size(), text.find_first_not_of(' '))), true);
             run(1.0 / 60.0);
         }
         else if (verb == "scroll")

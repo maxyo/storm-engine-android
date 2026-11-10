@@ -1,0 +1,273 @@
+#include "controls.h"
+
+#include <algorithm>
+#include <cmath>
+
+namespace storm::ui::screens
+{
+
+namespace
+{
+
+// Lower case for ASCII and Cyrillic, enough to compare button captions.
+std::string Lower(std::string_view text)
+{
+    std::string out;
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        const auto c = static_cast<unsigned char>(text[i]);
+        if (c >= 'A' && c <= 'Z')
+            out += static_cast<char>(c - 'A' + 'a');
+        else if (c == 0xD0 && i + 1 < text.size())
+        {
+            const auto d = static_cast<unsigned char>(text[i + 1]);
+            if (d >= 0x90 && d <= 0x9F) // А–П → а–п
+                out += {static_cast<char>(0xD0), static_cast<char>(d + 0x20)};
+            else if (d >= 0xA0 && d <= 0xAF) // Р–Я → р–я
+                out += {static_cast<char>(0xD1), static_cast<char>(d - 0x20)};
+            else
+                out += {static_cast<char>(c), static_cast<char>(d)};
+            ++i;
+        }
+        else
+            out += static_cast<char>(c);
+    }
+    return out;
+}
+
+bool Starts(const std::string &text, std::string_view prefix)
+{
+    return text.compare(0, prefix.size(), prefix) == 0;
+}
+
+bool Ends(const std::string &text, std::string_view suffix)
+{
+    return text.size() >= suffix.size() && text.compare(text.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+template <size_t N> bool OneOf(const std::string &text, const char *const (&list)[N])
+{
+    return std::find(std::begin(list), std::end(list), text) != std::end(list);
+}
+
+} // namespace
+
+std::string Upper(std::string_view text)
+{
+    std::string out(text);
+    for (char &c : out)
+        if (c >= 'a' && c <= 'z')
+            c = static_cast<char>(c - 'a' + 'A');
+    return out;
+}
+
+size_t Length(const std::string &text)
+{
+    size_t count = 0;
+    for (const char c : text)
+        if ((static_cast<unsigned char>(c) & 0xC0) != 0x80)
+            ++count;
+    return count;
+}
+
+bool Short(const std::string &text, size_t chars)
+{
+    return !text.empty() && text.find('\n') == std::string::npos && Length(text) <= chars;
+}
+
+std::string SectionOf(const Widget &button)
+{
+    static const char *const pairs[][2] = {{"I_CHARACTER", "hero"}, {"I_SHIP", "ship"},       {"I_QUESTBOOK", "journal"},
+                                           {"I_TRADEBOOK", "tradebook"}, {"I_NATIONS", "nations"}, {"I_ITEMS", "items"}};
+    std::string node = Upper(button.node);
+    if (Ends(node, "_2"))
+        node.resize(node.size() - 2);
+    for (const auto &pair : pairs)
+        if (node == pair[0])
+            return pair[1];
+    return {};
+}
+
+ButtonRole RoleOf(const Widget &button)
+{
+    static const char *const exit_labels[] = {"назад", "отмена", "выход", "уйти", "закрыть", "cancel", "back", "exit", "close", "×"};
+    static const char *const confirm_labels[] = {"ок",        "ok",          "oк",     "да",    "готово", "принять",
+                                                 "применить", "подтвердить", "начать", "взять", "купить", "забрать"};
+    static const char *const danger_words[] = {"delete", "удалить", "сжечь", "kill", "казнить"};
+    const std::string node = Upper(button.node);
+    const std::string label = Lower(button.label);
+    if (!SectionOf(button).empty())
+        return ButtonRole::Section;
+    for (const char *prefix : {"EXIT", "CANCEL", "CLOSE", "BACK"})
+        if (Starts(node, prefix))
+            return ButtonRole::Exit;
+    for (const char *suffix : {"_EXIT", "_CANCEL", "_CLOSE"})
+        if (Ends(node, suffix))
+            return ButtonRole::Exit;
+    if (OneOf(label, exit_labels))
+        return ButtonRole::Exit;
+    for (const char *word : danger_words)
+        if (label.find(word) != std::string::npos || Lower(button.node).find(word) != std::string::npos)
+            return ButtonRole::Danger;
+    for (const char *prefix : {"OK", "ACCEPT", "YES", "CONFIRM", "DONE", "APPLY", "START"})
+        if (Starts(node, prefix))
+            return ButtonRole::Confirm;
+    for (const char *suffix : {"_OK", "_ACCEPT", "_YES"})
+        if (Ends(node, suffix))
+            return ButtonRole::Confirm;
+    if (OneOf(label, confirm_labels))
+        return ButtonRole::Confirm;
+    return ButtonRole::Other;
+}
+
+Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id, const char *variant)
+{
+    bindings.Forward(id, button, "press");
+    return Json{{"id", id},
+                {"label", button.label},
+                {"variant", variant},
+                {"disabled", !button.Offers("press")},
+                {"reason", button.unavailable_reason},
+                {"busy", bindings.Pending(id)}};
+}
+
+void TapChoice(Bindings &bindings, const Widget &choice)
+{
+    const char *verb = choice.value == "1" && choice.Offers("activate") ? "activate"
+                       : choice.Offers("select")                        ? "select"
+                       : choice.Offers("open")                          ? "open"
+                       : choice.Offers("activate")                      ? "activate"
+                                                                        : nullptr;
+    if (!verb)
+        return;
+    // Verbs the engine lists are bound to the row identity; the legacy plain select is not.
+    const bool listed = std::find(choice.actions.begin(), choice.actions.end(), verb) != choice.actions.end();
+    bindings.Send(choice, verb, listed ? choice.row_id : std::string());
+}
+
+Json ActionRow(Bindings &bindings, const Widget &widget, const std::string &id)
+{
+    const bool choice = widget.type == "choice";
+    const bool usable = choice ? widget.Offers("select") || widget.Offers("activate") || widget.Offers("open") : widget.Offers("press");
+    const Widget *target = &widget;
+    if (choice)
+        bindings.On(id, "", [&bindings, target](const Event &) { TapChoice(bindings, *target); });
+    else
+        bindings.Forward(id, widget, "press");
+    std::string title = widget.label;
+    std::replace(title.begin(), title.end(), '\t', ' ');
+    return Json{{"kind", "action"},
+                {"id", id},
+                {"title", title},
+                {"disabled", !usable},
+                {"reason", widget.unavailable_reason},
+                {"selected", choice && widget.value == "1"},
+                {"busy", bindings.Pending(id)}};
+}
+
+void ControlRows(Bindings &bindings, std::span<const Widget *const> widgets, const std::string &id_prefix,
+                 const std::vector<std::string> &labels, Json &rows)
+{
+    for (size_t i = 0; i < widgets.size(); ++i)
+    {
+        const Widget *widget = widgets[i];
+        const std::string label = i < labels.size() ? labels[i] : std::string();
+        const std::string id = id_prefix + std::to_string(i);
+        if (widget->type == "check" && widget->exclusive)
+        {
+            // One radio group: the following options of the same node.
+            size_t end = i;
+            while (end < widgets.size() && widgets[end]->type == "check" && widgets[end]->exclusive &&
+                   SameNode(widgets[end]->node, widget->node))
+                ++end;
+            const std::vector<const Widget *> group(widgets.begin() + static_cast<long>(i), widgets.begin() + static_cast<long>(end));
+            const bool segment = group.size() <= 4 &&
+                                 std::all_of(group.begin(), group.end(), [](const Widget *w) { return Short(w->label, 12); });
+            if (segment)
+            {
+                Json options = Json::array();
+                int selected = -1;
+                bool usable = false;
+                for (size_t k = 0; k < group.size(); ++k)
+                {
+                    options.push_back(group[k]->label);
+                    if (group[k]->value == "1")
+                        selected = static_cast<int>(k);
+                    usable = usable || group[k]->Offers("toggle");
+                }
+                bindings.On(id, "change", [&bindings, group](const Event &event) {
+                    const size_t chosen = static_cast<size_t>(std::atoi(event.value.c_str()));
+                    if (chosen < group.size() && group[chosen]->Offers("toggle"))
+                        bindings.Send(*group[chosen], "toggle", "1");
+                });
+                rows.push_back(Json{{"kind", "segment"},  {"id", id},          {"label", label},
+                                    {"options", options}, {"selected", selected}, {"disabled", !usable},
+                                    {"reason", widget->unavailable_reason}});
+            }
+            else
+                for (size_t k = 0; k < group.size(); ++k)
+                {
+                    const std::string row_id = id_prefix + std::to_string(i + k);
+                    const Widget *option = group[k];
+                    bindings.On(row_id, "change", [&bindings, option](const Event &) { bindings.Send(*option, "toggle", "1"); });
+                    rows.push_back(Json{{"kind", "radio"},
+                                        {"id", row_id},
+                                        {"label", option->label},
+                                        {"on", option->value == "1"},
+                                        {"disabled", !option->Offers("toggle")},
+                                        {"reason", option->unavailable_reason}});
+                }
+            i = end - 1;
+        }
+        else if (widget->type == "check")
+        {
+            bindings.On(id, "change", [&bindings, widget](const Event &event) { bindings.Send(*widget, "toggle", event.value == "1" ? "1" : "0"); });
+            rows.push_back(Json{{"kind", "toggle"},
+                                {"id", id},
+                                {"label", widget->label},
+                                {"on", widget->value == "1"},
+                                {"disabled", !widget->Offers("toggle")},
+                                {"reason", widget->unavailable_reason}});
+        }
+        else if (widget->type == "slider")
+        {
+            const int span = std::max(1, widget->max - widget->min);
+            const int position = std::atoi(widget->value.c_str());
+            const int percent = static_cast<int>(std::lround(100.0 * (position - widget->min) / span));
+            bindings.On(id, "commit", [&bindings, widget, span](const Event &event) {
+                const int step = std::max(1, widget->step);
+                const double wanted = widget->min + std::atof(event.value.c_str()) * span / 100.0;
+                const int snapped = widget->min + static_cast<int>(std::lround((wanted - widget->min) / step)) * step;
+                bindings.Send(*widget, "set", std::to_string(std::clamp(snapped, widget->min, widget->max)));
+            });
+            rows.push_back(Json{{"kind", "slider"},
+                                {"id", id},
+                                {"label", label.empty() ? widget->label : label},
+                                {"value", std::clamp(percent, 0, 100)},
+                                {"disabled", !widget->Offers("set")},
+                                {"reason", widget->unavailable_reason}});
+        }
+        else if (widget->type == "stepper")
+        {
+            bindings.On(id + "-left", "", [&bindings, widget](const Event &) { bindings.Send(*widget, "left"); });
+            bindings.On(id + "-right", "", [&bindings, widget](const Event &) { bindings.Send(*widget, "right"); });
+            rows.push_back(Json{{"kind", "stepper"},
+                                {"id", id},
+                                {"label", label},
+                                {"text", widget->value.empty() ? widget->label : widget->value},
+                                {"left", widget->Offers("left")},
+                                {"right", widget->Offers("right")}});
+        }
+        else if (widget->type == "edit")
+        {
+            const std::string title = label;
+            bindings.On(id, "edit", [&bindings, widget, title](const Event &event) {
+                if (widget->Offers("edit"))
+                    bindings.EditText(event, *widget, title, false);
+            });
+            rows.push_back(Json{{"kind", "field"}, {"id", id}, {"label", label}, {"value", widget->value}});
+        }
+    }
+}
+
+} // namespace storm::ui::screens

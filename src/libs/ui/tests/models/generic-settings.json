@@ -1,0 +1,230 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 1,
+ "screenRevision": 7,
+ "screen": "mod_options",
+ "widgets": [
+  {
+   "node": "TITLE",
+   "type": "heading",
+   "label": "Настройки мода",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CHECK_OPTIONS",
+   "type": "check",
+   "label": "Показывать подсказки",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "toggle"
+   ],
+   "cells": [],
+   "exclusive": false
+  },
+  {
+   "node": "CHECK_OPTIONS",
+   "type": "check",
+   "label": "Быстрые бои",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "toggle"
+   ],
+   "cells": [],
+   "exclusive": false
+  },
+  {
+   "node": "STR_DIFF",
+   "type": "text",
+   "label": "Сложность",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CHECK_DIFF",
+   "type": "check",
+   "label": "Юнга",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "toggle"
+   ],
+   "cells": [],
+   "exclusive": true
+  },
+  {
+   "node": "CHECK_DIFF",
+   "type": "check",
+   "label": "Капитан",
+   "value": "1",
+   "index": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "toggle"
+   ],
+   "cells": [],
+   "exclusive": true
+  },
+  {
+   "node": "CHECK_DIFF",
+   "type": "check",
+   "label": "Адмирал",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "toggle"
+   ],
+   "cells": [],
+   "exclusive": true
+  },
+  {
+   "node": "STR_VOL",
+   "type": "text",
+   "label": "Громкость колокола",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SLIDE_VOL",
+   "type": "slider",
+   "label": "",
+   "value": "30",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "set"
+   ],
+   "cells": [],
+   "min": 0,
+   "max": 50,
+   "step": 5
+  },
+  {
+   "node": "STR_NAME",
+   "type": "text",
+   "label": "Имя корабля",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "EDIT_NAME",
+   "type": "edit",
+   "label": "",
+   "value": "Аделина",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "STR_FLAG",
+   "type": "text",
+   "label": "Флаг",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "FLAG_CHANGER",
+   "type": "stepper",
+   "label": "",
+   "value": "Англия",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "left",
+    "right"
+   ],
+   "cells": []
+  },
+  {
+   "node": "B_DELETE",
+   "type": "button",
+   "label": "Удалить настройки",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "B_OK",
+   "type": "button",
+   "label": "Готово",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "B_CANCEL",
+   "type": "button",
+   "label": "Отмена",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  }
+ ]
+}

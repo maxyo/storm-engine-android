@@ -1,0 +1,288 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 1,
+ "screenRevision": 7,
+ "screen": "mod_bounty",
+ "widgets": [
+  {
+   "node": "TITLE",
+   "type": "heading",
+   "label": "Доска розыска",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_TARGETS",
+   "type": "choice",
+   "label": "Жак Малыш\tТортуга\t4000",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "t0",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Жак Малыш",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Тортуга",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "4000",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Цель",
+    "Где видели",
+    "Награда"
+   ]
+  },
+  {
+   "node": "TABLE_TARGETS",
+   "type": "choice",
+   "label": "Эль Гато\tМаракайбо\t2500",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "t1",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Эль Гато",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Маракайбо",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "2500",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Цель",
+    "Где видели",
+    "Награда"
+   ]
+  },
+  {
+   "node": "TABLE_TARGETS",
+   "type": "choice",
+   "label": "Капитан Блад\tБарбадос\t6000",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "t2",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Капитан Блад",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Барбадос",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "6000",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Цель",
+    "Где видели",
+    "Награда"
+   ]
+  },
+  {
+   "node": "TABLE_TARGETS",
+   "type": "choice",
+   "label": "Одноглазый Пит\tБелиз\t1200",
+   "value": "0",
+   "index": 3,
+   "enabled": true,
+   "rowId": "t3",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Одноглазый Пит",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Белиз",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "1200",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Цель",
+    "Где видели",
+    "Награда"
+   ]
+  },
+  {
+   "node": "TABLE_TARGETS",
+   "type": "choice",
+   "label": "Братья Кордова\tКартахена\t3800",
+   "value": "0",
+   "index": 4,
+   "enabled": false,
+   "rowId": "t4",
+   "images": [],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Братья Кордова",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Картахена",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "3800",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "columnHeaders": [
+    "Цель",
+    "Где видели",
+    "Награда"
+   ],
+   "unavailableReason": "Контракт уже взят"
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "Губернатор Тортуги платит за головы тех, кто грабит его торговые суда. Награда выдаётся в резиденции.\nЖивыми — вдвое дороже. Контракт действует тридцать дней; одновременно можно держать не больше двух.",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_MORE",
+   "type": "button",
+   "label": "Подробнее",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "B_TAKE",
+   "type": "button",
+   "label": "Взять",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "EXIT_BTN",
+   "type": "button",
+   "label": "Выход",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "SCROLL_TARGETS",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MAIN_BACK",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}
