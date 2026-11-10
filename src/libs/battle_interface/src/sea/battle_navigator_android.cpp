@@ -75,7 +75,7 @@ bool BATTLE_NAVIGATOR::AndroidAvailable() const {
 
 bool BATTLE_NAVIGATOR::AndroidPresented() const {
     using namespace storm::android;
-    return m_androidDrawn && seaNavigator.presented(SDL_GetTicks(),shipTelemetry.revision(),shipTelemetry.hudRevision(),
+    return m_androidDrawn && seaNavigator.presented(shipTelemetry.revision(),shipTelemetry.hudRevision(),
         m_navigatorGeneration,m_androidLayoutId);
 }
 
@@ -83,20 +83,20 @@ bool BATTLE_NAVIGATOR::DrawAndroid() const {
     using namespace storm::android;
     m_androidLayoutId=0;
     const auto *owner=static_cast<const BATTLE_INTERFACE *>(m_pOwnerEI);
-    const auto *layout=seaNavigator.layout(SDL_GetTicks(),shipTelemetry.revision(),shipTelemetry.hudRevision(),m_navigatorGeneration,SeaNavigatorBridge::graceMs);
+    const auto *layout=seaNavigator.layout(shipTelemetry.revision(),shipTelemetry.hudRevision(),m_navigatorGeneration);
     D3DVIEWPORT9 viewport;rs->GetViewport(&viewport);
     const auto aperture=layout?sea_nav::aperture(*layout,viewport.X,viewport.Y,viewport.Width,viewport.Height):std::nullopt;
     const auto window=core.GetWindow()?core.GetWindow()->GetWindowSize():storm::WindowSize{};
     const auto screen=rs->GetScreenSize();
     const char *reason=!owner?"owner":owner->AndroidCommandActive()?"commands":!AndroidAvailable()?"source":
-        !mobileScreen.empty()?"screen":loadingState==1?"loading":cinematicState==1?"cinematic":!layout?"layout-lease":
+        !mobileScreen.empty()?"screen":loadingState==1?"loading":cinematicState==1?"cinematic":!layout?"no-layout":
         !aperture?"viewport-aspect":"ready";
     static std::string lastReason;
     const std::string diagnostic=std::string(reason)+" revision="+std::to_string(shipTelemetry.revision())+" hud="+std::to_string(shipTelemetry.hudRevision())+
         " source="+std::to_string(m_navigatorGeneration)+" viewport="+std::to_string(viewport.Width)+"x"+std::to_string(viewport.Height)+
         " SDL="+std::to_string(window.width)+"x"+std::to_string(window.height)+" renderer="+std::to_string(screen.x)+"x"+std::to_string(screen.y)+
         " scale="+(aperture?std::to_string(aperture->scale):"unavailable")+" layout="+(layout?std::to_string(layout->id)+":"+std::to_string(layout->width)+"x"+std::to_string(layout->height):"absent")+
-        " presented="+std::to_string(layout&&seaNavigator.presented(SDL_GetTicks(),shipTelemetry.revision(),shipTelemetry.hudRevision(),m_navigatorGeneration,layout->id));
+        " presented="+std::to_string(layout&&seaNavigator.presented(shipTelemetry.revision(),shipTelemetry.hudRevision(),m_navigatorGeneration,layout->id));
     if(diagnostic!=lastReason){lastReason=diagnostic;traceContextAction("navigator-gate","draw",diagnostic+" mask="+std::to_string(mobileShipHudMask()));}
     if(std::string_view(reason)!="ready")return false;
     const float cx=aperture->x,cy=aperture->y,radius=aperture->radius;

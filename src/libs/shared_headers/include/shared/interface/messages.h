@@ -95,3 +95,17 @@
 #define MSG_SET_VIDEO_FLAGS 49002 //"l" flags (1<<0 - loop video)
 #define EVENT_END_VIDEO "EndVideoPlay"
 //============================================================================================
+
+//============================================================================================
+// Caribbean Legend 2.0: ids its scripts use (Resource/shared headers of the game). The values
+// are fixed by those scripts; an id here does not mean the engine handles it yet.
+//============================================================================================
+#define MSG_SCRSHOT_GET_SMALL                45062
+#define MSG_INTERFACE_GET_QUEST_NAME         45063
+#define MSG_INTERFACE_GET_QUEST_TEXT         45064
+#define MSG_INTERFACE_LOAD_PICTURES_INI_FILE 45400
+#define MSG_INTERFACE_LOAD_STRINGS_INI_FILE  45401
+#define MSG_INTERFACE_SAVE_STRINGS_TO_FILE   45402
+#define MSG_INTERFACE_READ_STRINGS_FROM_FILE 45403
+#define ACTION_CTRLRIGHT                     16
+#define ACTION_CTRLLEFT                      17

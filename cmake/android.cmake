@@ -61,6 +61,8 @@ target_link_libraries(zlib INTERFACE z)
 add_library(storm_open_audio STATIC "${CMAKE_SOURCE_DIR}/android/audio/implementation.cpp" "${CMAKE_SOURCE_DIR}/android/audio/service_backend.cpp")
 target_include_directories(storm_open_audio PUBLIC "${CMAKE_SOURCE_DIR}/android/audio" "${STORM_AUDIO_SOURCES}")
 target_link_libraries(storm_open_audio PUBLIC dl m)
+include(ffmpeg)
+storm_ffmpeg("${STORM_ANDROID_SOURCES}" android-arm64)
 execute_process(COMMAND git rev-parse --short=12 HEAD WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     OUTPUT_VARIABLE STORM_ANDROID_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE)
 file(WRITE "${STORM_WATERMARK_FILE}" "#pragma once\n#define STORM_BUILD_WATERMARK Android_ARM64_${STORM_ANDROID_REVISION}_open_audio\n")

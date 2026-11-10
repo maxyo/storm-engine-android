@@ -85,4 +85,21 @@
 #define MSG_ACTIVE_PERK_LIST_REFRESH 47000
 #define MSG_ACTIVE_PERK_ICON_REFRESH 47001
 
+//============================================================================================
+// Caribbean Legend 2.0: ids its scripts use (Resource/shared headers of the game). The values
+// are fixed by those scripts; an id here does not mean the engine handles it yet.
+//============================================================================================
+#define BI_MSG_SHOW_EXT_INFO           46015
+#define BI_MSG_SHOW_SHIP_STATES        46016
+#define BI_MSG_SET_QUEST_TRACKER       46051
+#define MSG_BATTLE_LAND_SHOW_EQUIPMENT 46106
+#define MSG_BATTLE_LAND_CROSSHAIR_SHOW 46107
+#define BI_MSG_TUTORIAL_SHOW           46108
+#define MSG_BATTLE_LAND_SET_CHARACTER  46109
+#define MSG_ISG_SET_LENSTEX            46205
+#define UI_GROUP_REGISTER              46400
+#define UI_GROUP_REFRESH               46401
+#define UI_GROUP_REMOVE                46402
+#define UI_GROUP_EXISTS                46403
+
 #endif

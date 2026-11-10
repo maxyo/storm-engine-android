@@ -107,7 +107,9 @@ public:
         // Locomotion and melee controls are polled/held and must use normal input.
         if (control != "Ship_Fire" && control != "Sea_CameraSwitch" &&
             control != "hk_charge1" && control != "hk_charge2" &&
-            control != "hk_charge3" && control != "hk_charge4") return false;
+            control != "hk_charge3" && control != "hk_charge4" &&
+            control != "TimeScale" && control != "TimeScaleFaster" && control != "TimeScaleSlower" &&
+            control != "BI_InstantRepair" && control != "BI_ImmediateReload") return false;
         if (!allows(control)) return false;
         pending_.push_back({revision, std::string(control), tick});
         return true;

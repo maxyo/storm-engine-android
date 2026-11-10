@@ -377,4 +377,95 @@
 #define MSG_DECK_CAMERA_SET_VIEWPOINT 41800 //"fff"        point.x, point.y, point.z
 //============================================================================================
 
+//============================================================================================
+// Caribbean Legend 2.0: ids its scripts use (Resource/shared headers of the game). The values
+// are fixed by those scripts; an id here does not mean the engine handles it yet.
+//============================================================================================
+#define MSG_MODEL_LOAD_GEO2                       20520
+#define MSG_MODEL_GET_LOCATORS                    20602
+#define MSG_MODEL_PROCESS_SHADOWS                 20700
+#define MSG_MUSKET_HAND                           21013
+#define MSG_MUSKET_BELT                           21014
+#define MSG_MUS_SET                               21015
+#define MSG_BLADE_GET_GUNFIRE_LOCATOR             21016
+#define MSG_BLADE_ITEM_ADD                        21017
+#define MSG_BLADE_ITEM_REMOVE                     21018
+#define MSG_BLADE_ITEMS_REMOVE_ALL                21019
+#define MSG_BLADE_ITEMS_ALPHA                     21020
+#define MSG_BLADE_GET_GUN_LOCATOR_MATRIX          21021
+#define MSG_SHIP_BIND_SOUND                       50404
+#define MSG_WHR_UPDATE_STATE                      54000 // TEHO uses 54000 for MSG_WHR_LIGHTNING_ADD: the receiver must branch on storm::gameProfile()
+#define MSG_WHR_GET_PARAM                         54001
+#define MSG_WHR_RAIN_LIGHTNING_FLASH              54100
+#define MSG_WHR_RAIN_SHOW                         54101
+#define MSG_LOCATION_ADD_OBJECT_CONTAINER         30102
+#define MSG_LOCATION_DELETE_OBJECT_CONTAINER      30103
+#define MSG_LOCATION_SETQUESTPOINTER              30182
+#define MSG_LOCATION_HIDEQUESTPOINTER             30183
+#define MSG_CHARACTER_ISACTIONPLAYING             30351
+#define MSG_CHARACTER_STOPACTION                  30352
+#define MSG_CHARACTER_SETACTIONLOOP               30353
+#define MSG_CHARACTER_ISRUN                       30374
+#define MSG_CHARACTER_SETMUS                      30375
+#define MSG_CHARACTER_MUSHAND                     30376
+#define MSG_CHARACTER_GETCURANIMATION             30384
+#define MSG_CHARACTER_STOPSTRAFE                  30385
+#define MSG_CHARACTER_VIEWSTRPOS                  30386
+#define MSG_CHARACTER_SMOOTHDMG                   30387
+#define MSG_CHARACTER_ACTIVEHEAL                  30388
+#define MSG_NPCHARACTER_FIGHTPROBABILITIES_UPDATE 30404
+#define MSG_CAMERA_SPECIALMODE                    30531
+#define MSG_CAMERA_GET_AY                         30532
+#define MSG_CAMERA_SHOOTING_FX                    30533
+#define MSG_WORLDMAP_IS_ENEMY                     31154
+#define MSG_GET_PLAYERSHIP_IDX                    31155
+#define MSG_WORLDMAP_SET_SPEED                    31156
+#define MSG_WORLDMAP_INTERFACE_UPDATE             31157
+#define MSG_WORLDMAP_SET_ICON                     31158
+#define MSG_WORLDMAP_SET_WIND                     31159
+#define FADER_LOAD_PROCESS                        33005
+#define PS_DELETE_AT_POS                          10015
+#define MSG_SOUND_PAUSE                           77012 // TEHO uses 77012 for MSG_SOUND_RESUME: the receiver must branch on storm::gameProfile()
+#define MSG_SOUND_EVENT_PLAY                      77018
+#define MSG_SOUND_EVENT_STOP                      77019
+#define MSG_SOUND_EVENT_SET_VOLUME                77020
+#define MSG_SOUND_EVENT_PAUSE                     77026
+#define MSG_SOUND_BANK_ADD                        77023
+#define MSG_SOUND_UPDATE_POS                      77024
+#define MSG_SOUND_EVENT_SET_PARAM                 77025
+#define MSG_SOUND_EVENT_RELEASE                   77027
+#define MSG_SOUND_EVENT_FIND                      77028
+#define MSG_SHIP_CAMERA_GET_AY                    41900
+#define MSG_SHIP_CAMERA_SET_AY                    41901
+#define MSG_DECK_CAMERA_GET_AY                    41910
+#define MSG_FIRE_CAMERA_SET_AIM_PITCH             41911
+#define MSG_FIRE_CAMERA_SET_CAMERA_AY_LIMITS      41912
+#define MSG_FIRE_CAMERA_GET_CAMERA_POS_AND_ANG    41913
+#define MSG_FIRE_CAMERA_SET_RETICLE               41916
+#define MSG_FIRE_CAMERA_SET_TARGET                41917
+#define MSG_FIRE_CAMERA_GET_TARGET_LOCK           41914
+#define MSG_FIRE_CAMERA_GET_FOCUS_STATE           41915
+#define MSG_EFFECT_PLAY                           80001
+#define MSG_EFFECT_UPDATE_POS                     80002
+#define MSG_EFFECT_UPDATE_ROT                     80003
+#define MSG_EFFECT_SET_TARGET_POS                 80004
+#define MSG_EFFECT_GET_POS                        80005
+#define MSG_EFFECT_SET_PARAMETER                  80006
+#define MSG_EFFECT_GET_PARAMETER                  80007
+#define MSG_EFFECT_SEND_TRIGGER                   80008
+#define MSG_EFFECT_DELETE                         80009
+#define MSG_EFFECT_DELETE_ALL                     80010
+#define MSG_EFFECT_STOP_ROOT                      80011
+#define MSG_EFFECT_SET_SCALE                      80012
+#define MSG_EFFECT_IS_PLAYING                     80013
+#define MSG_EFFECT_PAUSE                          80014
+#define MSG_EFFECT_SET_SPEED                      80015
+#define MSG_EFFECT_GET_SPEED                      80016
+#define MSG_EFFECT_SET_COLOR                      80017
+#define MSG_EFFECT_ADD_SHIFT                      80018
+#define MSG_EFFECT_PAUSE_ALL                      80019
+#define MSG_EFFECT_SET_CAPTURE                    80020
+#define MSG_EFFECT_STOP_CAPTURED                  80021
+#define MSG_EFFECT_PLAY_FILE                      80022
+
 #endif

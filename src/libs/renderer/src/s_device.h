@@ -9,6 +9,7 @@
 #include "platform/platform.hpp"
 
 #include "d3d9types.h"
+#include "storm/render/perf_stats.hpp"
 #include "script_libriary.h"
 
 #include <stack>
@@ -490,6 +491,7 @@ private:
     double metricsPresentTime = 0.0;
     uint64_t metricsDrawCalls = 0;
     std::vector<double> metricsFrameTimes;
+    storm::render::PerfCounters metricsPerfStart; // shim counters at the start of the metrics window
     bool bInsideScene;
 
     PLANE viewplane[4];
@@ -599,5 +601,15 @@ private:
 
     std::string screenshotExt;
 
-    bool TextureLoad(int32_t texid);
+    // Primary: the file the texture name points at; Alternates: other containers of the same stem,
+    // tried only after every texture path failed with the primary file (storm/render/texture_file.hpp).
+    enum class TextureLookup
+    {
+        Primary,
+        Alternates,
+    };
+    bool TextureLoad(int32_t texid, TextureLookup lookup = TextureLookup::Primary);
+    // DDS / TXX files; `bytes` is the whole file.
+    bool TextureLoadFile(int32_t texid, const char *path, std::vector<uint8_t> bytes, bool dds);
+    void LogTextureLoad(int32_t texid, uint32_t width, uint32_t height);
 };

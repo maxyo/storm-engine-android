@@ -3,17 +3,13 @@
 // is measured): a long press on a row whose title was cut to fit opens the tooltip with
 // the full text and sends nothing; on a row whose title fits it is a plain press.
 // No GL context, no game data.
-#include "storm_ui/render_backend.h"
+#include "runtime_stub.h"
 #include "storm_ui/ui.h"
 
 #include <nlohmann/json.hpp>
 
-#include <RmlUi/Core/RenderInterface.h>
-
 #include <cstdio>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <unistd.h>
 
 using namespace storm::ui;
@@ -29,70 +25,6 @@ static void Expect(bool ok, const std::string &what)
         std::fprintf(stderr, "FAIL: %s\n", what.c_str());
         ++failures;
     }
-}
-
-class NoRenderer final : public Rml::RenderInterface
-{
-  public:
-    Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex>, Rml::Span<const int>) override
-    {
-        return 1;
-    }
-    void RenderGeometry(Rml::CompiledGeometryHandle, Rml::Vector2f, Rml::TextureHandle) override
-    {
-    }
-    void ReleaseGeometry(Rml::CompiledGeometryHandle) override
-    {
-    }
-    Rml::TextureHandle LoadTexture(Rml::Vector2i &, const Rml::String &) override
-    {
-        return 0;
-    }
-    Rml::TextureHandle GenerateTexture(Rml::Span<const Rml::byte>, Rml::Vector2i) override
-    {
-        return 1;
-    }
-    void ReleaseTexture(Rml::TextureHandle) override
-    {
-    }
-    void EnableScissorRegion(bool) override
-    {
-    }
-    void SetScissorRegion(Rml::Rectanglei) override
-    {
-    }
-};
-
-class NoBackend final : public RenderBackend
-{
-  public:
-    Rml::RenderInterface &Interface() override
-    {
-        return renderer_;
-    }
-    void SetViewport(int, int) override
-    {
-    }
-    void BeginFrame(bool) override
-    {
-    }
-    void EndFrame() override
-    {
-    }
-
-  private:
-    NoRenderer renderer_;
-};
-
-static std::string Read(const fs::path &path)
-{
-    std::ifstream file(path, std::ios::binary);
-    return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-}
-
-static void Write(const fs::path &path, const std::string &text)
-{
-    std::ofstream(path, std::ios::binary) << text;
 }
 
 // The test pack with one more component: a row like C-ListRow (title cut to two lines,

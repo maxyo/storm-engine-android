@@ -10,8 +10,11 @@ is not a draw ACK: the native renderer echoes that id only after drawing the rea
 map; only then can Android expose the opaque panel and acknowledge visible text.
 Matching-aspect internal render scales use a measured uniform conversion. The mailbox
 binds that layout to gameplay revision, HUD/Activity revision and native
-island/resource generation, with a 750 ms lease. Hidden/detached Android views
-clear it. A zoom request requires the same current lease and uses the original
+island/resource generation; it lasts until that owner changes or Android clears it
+(no lease: the UI says it once per owner and place, however slow its frames).
+Hidden/detached Android views clear it. While a UI that declared itself the sea HUD
+presenter has not prepared or cleared the current owner, the native compass stays
+off. A zoom request requires the same current layout and uses the original
 native scale bounds. A new viewport must match the measured render size.
 
 Native keeps the actual island render target, ship list and ship-relative world

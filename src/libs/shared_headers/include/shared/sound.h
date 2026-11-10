@@ -19,4 +19,10 @@
 #define SOUND_PARAM_MIN_DISTANCE 2
 #define SOUND_PARAM_POSITION 3
 
+//============================================================================================
+// Caribbean Legend 2.0: ids its scripts use (Resource/shared headers of the game). The values
+// are fixed by those scripts; an id here does not mean the engine handles it yet.
+//============================================================================================
+#define SOUND_FMOD_EVENT 3 // TEHO uses 3 for SOUND_MP3_3D: the receiver must branch on storm::gameProfile()
+
 #endif

@@ -176,4 +176,26 @@
 #define AI_CAMERAS_ADD_CAMERA 55000
 #define AI_CAMERAS_SET_CAMERA 55001
 
+//============================================================================================
+// Caribbean Legend 2.0: ids its scripts use (Resource/shared headers of the game). The values
+// are fixed by those scripts; an id here does not mean the engine handles it yet.
+//============================================================================================
+#define WS_CLOUD_HEIGHT                0
+#define WS_CLOUD_DETAIL                1
+#define WS_CLOUD_DENSITY               2
+#define WS_PRESET_NAME                 3
+#define WS_RAIN_INTENSITY              4
+#define WS_RAIN_ENABLE                 5
+#define WS_STORM_ENABLE                6
+#define WS_TORNADO_ENABLE              7
+#define WS_RAINBOW_ENABLE              8
+#define WS_LIGHTNING_ENABLE            9
+#define WS_PARAM_QTY                   10
+#define FORT_HOLD_FIRE                 3
+#define AI_MESSAGE_CANNONS_RANGE       51046
+#define AI_MESSAGE_FIRE_CAMERA_RESET   51047
+#define AI_MESSAGE_FIRE_CAMERA_EXIT    51048
+#define AI_MESSAGE_FORT_SET_FIREMODE   51049
+#define AI_MESSAGE_SET_CANNON_RECHARGE 51051
+
 #endif

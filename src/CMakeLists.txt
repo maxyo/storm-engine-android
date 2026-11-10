@@ -10,9 +10,9 @@ if(STORM_ENABLE_CRASH_REPORTS)
 	add_definitions(-DSTORM_ENABLE_CRASH_REPORTS=1)
 endif()
 
-if(STORM_WATERMARK_FILE)
-  add_definitions(-DSTORM_WATERMARK_FILE="${STORM_WATERMARK_FILE}")
-endif()
+# watermark.hpp includes the generated storm_build_watermark.hpp by name.
+get_filename_component(storm_watermark_dir "${STORM_WATERMARK_FILE}" DIRECTORY)
+include_directories("${storm_watermark_dir}")
 
 if(STORM_ENABLE_SAFE_MODE)
   add_definitions(-DSTORM_ENABLE_SAFE_MODE=1)
@@ -49,7 +49,7 @@ if (MSVC)
     add_link_options("$<$<CONFIG:Release>:/OPT:ICF>") # Perform identical COMDAT folding, needs to be explicitly specified with /DEBUG
     add_link_options("$<$<CONFIG:Release>:/LTCG>") # Enable link-time code generation
 else()
-    add_compile_options(-std=c++20)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-std=c++20>) # C sources (libogg/libvorbis) must not get it
     # Matrices, vertex data and D3D structures are viewed through differently
     # typed pointers throughout the engine (storm_glm.h accessors, vertex locks).
     add_compile_options(-fno-strict-aliasing)

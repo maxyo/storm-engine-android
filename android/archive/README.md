@@ -38,8 +38,6 @@ Class: `org.stormengine.port.NativeArchives`.
 Load: `System.loadLibrary("storm_archive")`.
 
 ```java
-static native String[] inspect(String localInputPath);
-static native String[] manifest(String localInputPath);
 static native String[] discover(String source, String emptyScratch, String passwordOrNull,
                                 long[] limits, Progress callbackOrNull);
 static native String[] extractRoot(String source, String scratch, String passwordOrNull,
@@ -56,12 +54,12 @@ skipping compressed data, including with an empty path. `filesCreated` counts
 opened output files, not completed/checksummed files. Successful completion is
 only status 0 from `extractRoot`.
 
-Results are `[decimalStatus, format, error]`; `manifest`, `discover` and
-`extractRoot` add a fourth JSON string. Inspect only identifies the container;
-**manifest** previews one installer without its volumes (the torrent library
-uses it to fetch `setup.exe` first). Imports use **discover** and
-**extractRoot** (below). C consumers use `storm_archive.h`; the single-container
-C call `storm_archive_extract` remains for C users and the regression tests.
+Results are `[decimalStatus, format, error, json]`. Imports use **discover** and
+**extractRoot** (below); the download library runs **discover** alone on a
+finished set to say whether it holds the game. C consumers use
+`storm_archive.h`; the single-container C calls (`storm_archive_inspect`,
+`storm_archive_manifest`, `storm_archive_extract`) remain for C users and the
+regression tests and have no JNI export.
 
 | Status | Meaning |
 |---|---|
@@ -82,7 +80,7 @@ Defaults are 32 GiB, 4 GiB, 200000, and 3600. JNI converts ordinary UTF-8 to/fro
 UTF-16, including supplementary characters; it does not pass UTF-8 filenames to
 JNI Modified UTF-8 functions.
 
-Manifest JSON contains:
+Manifest JSON (C `storm_archive_manifest`) contains:
 
 ```json
 {
@@ -107,9 +105,7 @@ successful extraction verifies the selected file bytes. A large manifest should
 be summarized for the UI rather than rendered as thousands of rows immediately.
 
 For a standard multipart Inno installer, the complete `setup.exe` is enough for
-this preview. No `.bin` content is read by `manifest`. A torrent client can fetch
-that executable first, validate the manifest, and then fetch the exact
-`required_volumes`. For extraction all those volumes must be fully downloaded
+this preview. No `.bin` content is read by `manifest`. For extraction all those volumes must be fully downloaded
 alongside `setup.exe`, with the exact names, in app-private input storage. A
 single SAF file descriptor cannot represent this multipart set; copy the user-
 selected source documents first. Keep each source set in its own directory.

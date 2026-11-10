@@ -1,4 +1,5 @@
 #include "device.hpp"
+#include "perf.hpp"
 
 #include <chrono>
 #include <thread>
@@ -207,7 +208,7 @@ TexStore::~TexStore()
     }
 }
 
-uint8_t *TexStore::lock(uint32_t face, uint32_t level, uint32_t *pitch, uint32_t *slice_pitch)
+uint8_t *TexStore::lock(uint32_t face, uint32_t level, uint32_t *pitch, uint32_t *slice_pitch, bool read_only)
 {
     if (face >= faces() || level >= levels)
         return nullptr;
@@ -222,6 +223,7 @@ uint8_t *TexStore::lock(uint32_t face, uint32_t level, uint32_t *pitch, uint32_t
         s.data.assign(total, 0);
     }
     ++s.lock_count;
+    s.written |= !read_only;
     if (pitch)
         *pitch = level_pitch(format, w);
     if (slice_pitch)
@@ -233,7 +235,11 @@ void TexStore::unlock(uint32_t face, uint32_t level)
 {
     if (face >= faces() || level >= levels)
         return;
-    sub(face, level).dirty = true;
+    Sub &s = sub(face, level);
+    if (!s.written)
+        return;
+    s.written = false;
+    s.dirty = true;
     any_dirty = true;
 }
 
@@ -505,7 +511,7 @@ void TexStore::create_sampled()
     }
     gpu_compressed = format_info(format).block_bytes != 0 && tier != Tier::Rgba;
     gpu_format = gpu_compressed ? bc_format(format) : bgfx::TextureFormat::RGBA8;
-    handle = bgfx::createTexture(make_dds(*this, gpu_format, gpu_compressed));
+    handle = bgfx::createTexture(counted_texture_upload(make_dds(*this, gpu_format, gpu_compressed)));
     if (!bgfx::isValid(handle))
         logf("texture creation failed: %ux%u levels=%u d3dformat=%u", width, height, levels,
              static_cast<uint32_t>(format));
@@ -532,7 +538,7 @@ bool TexStore::create_transcoded()
     if (auto blob = service.lookup(transcode_key, layout))
     {
         const uint32_t internal_format = blob->data[28] | blob->data[29] << 8;
-        handle = bgfx::createTexture(ref_blob(std::make_shared<const texture::Blob>(std::move(*blob))));
+        handle = bgfx::createTexture(counted_texture_upload(ref_blob(std::make_shared<const texture::Blob>(std::move(*blob)))));
         gpu_format = internal_format == 0x9274 ? bgfx::TextureFormat::ETC2 : bgfx::TextureFormat::ETC2A;
         gpu_compressed = true;
         transcoded = bgfx::isValid(handle);
@@ -544,7 +550,7 @@ bool TexStore::create_transcoded()
     const uint32_t first_level = levels > 1 && std::max(width, height) >= 1024 ? 1 : 0;
     gpu_compressed = true;
     gpu_format = bc_format(format);
-    handle = bgfx::createTexture(make_dds(*this, gpu_format, true, first_level));
+    handle = bgfx::createTexture(counted_texture_upload(make_dds(*this, gpu_format, true, first_level)));
     if (!bgfx::isValid(handle))
         return false;
     transcoded = true;
@@ -596,7 +602,7 @@ void TexStore::finish_transcode()
     }
     if (state != texture::Job::Done)
         return;
-    const bgfx::TextureHandle etc = bgfx::createTexture(ref_blob(transcode_job->result));
+    const bgfx::TextureHandle etc = bgfx::createTexture(counted_texture_upload(ref_blob(transcode_job->result)));
     const bgfx::TextureFormat::Enum etc_gpu_format = etc_format(transcode_job->format);
     if (!bgfx::isValid(etc))
     {
@@ -694,6 +700,7 @@ void TexStore::sync()
                     convert_to_rgba8(format, s.data.data() + static_cast<size_t>(z) * pitch * h, pitch, w, h,
                                      memory->data + static_cast<size_t>(z) * w * h * 4);
             }
+            counted_texture_upload(memory);
             switch (kind)
             {
             case TexKind::Tex2D:
@@ -744,12 +751,13 @@ void fill_desc(const TexStore &store, uint32_t level, D3DSURFACE_DESC *desc)
     desc->Height = store.level_height(level);
 }
 
-HRESULT lock_rect(TexStore &store, uint32_t face, uint32_t level, D3DLOCKED_RECT *locked, const RECT *rect)
+HRESULT lock_rect(TexStore &store, uint32_t face, uint32_t level, D3DLOCKED_RECT *locked, const RECT *rect,
+                  DWORD flags)
 {
     if (!locked)
         return D3DERR_INVALIDCALL;
     uint32_t pitch = 0;
-    uint8_t *data = store.lock(face, level, &pitch, nullptr);
+    uint8_t *data = store.lock(face, level, &pitch, nullptr, (flags & D3DLOCK_READONLY) != 0);
     if (!data)
         return D3DERR_INVALIDCALL;
     locked->Pitch = static_cast<INT>(pitch);
@@ -771,9 +779,9 @@ HRESULT Surface::GetDesc(D3DSURFACE_DESC *desc)
     fill_desc(*store, level, desc);
     return D3D_OK;
 }
-HRESULT Surface::LockRect(D3DLOCKED_RECT *locked, const RECT *rect, DWORD)
+HRESULT Surface::LockRect(D3DLOCKED_RECT *locked, const RECT *rect, DWORD flags)
 {
-    return lock_rect(*store, face, level, locked, rect);
+    return lock_rect(*store, face, level, locked, rect, flags);
 }
 HRESULT Surface::UnlockRect()
 {
@@ -801,9 +809,9 @@ HRESULT Texture2D::GetSurfaceLevel(UINT level, IDirect3DSurface9 **surface)
     *surface = new Surface(store, 0, level);
     return D3D_OK;
 }
-HRESULT Texture2D::LockRect(UINT level, D3DLOCKED_RECT *locked, const RECT *rect, DWORD)
+HRESULT Texture2D::LockRect(UINT level, D3DLOCKED_RECT *locked, const RECT *rect, DWORD flags)
 {
-    return lock_rect(*store, 0, level, locked, rect);
+    return lock_rect(*store, 0, level, locked, rect, flags);
 }
 HRESULT Texture2D::UnlockRect(UINT level)
 {
@@ -831,9 +839,10 @@ HRESULT CubeTexture::GetCubeMapSurface(D3DCUBEMAP_FACES face, UINT level, IDirec
     *surface = new Surface(store, static_cast<uint32_t>(face), level);
     return D3D_OK;
 }
-HRESULT CubeTexture::LockRect(D3DCUBEMAP_FACES face, UINT level, D3DLOCKED_RECT *locked, const RECT *rect, DWORD)
+HRESULT CubeTexture::LockRect(D3DCUBEMAP_FACES face, UINT level, D3DLOCKED_RECT *locked, const RECT *rect,
+                                DWORD flags)
 {
-    return lock_rect(*store, static_cast<uint32_t>(face), level, locked, rect);
+    return lock_rect(*store, static_cast<uint32_t>(face), level, locked, rect, flags);
 }
 HRESULT CubeTexture::UnlockRect(D3DCUBEMAP_FACES face, UINT level)
 {
@@ -855,10 +864,10 @@ HRESULT VolumeTexture::GetLevelDesc(UINT level, D3DVOLUME_DESC *desc)
     desc->Depth = store->level_depth(level);
     return D3D_OK;
 }
-HRESULT VolumeTexture::LockBox(UINT level, D3DLOCKED_BOX *locked, const D3DBOX *box, DWORD)
+HRESULT VolumeTexture::LockBox(UINT level, D3DLOCKED_BOX *locked, const D3DBOX *box, DWORD flags)
 {
     uint32_t pitch = 0, slice = 0;
-    uint8_t *data = store->lock(0, level, &pitch, &slice);
+    uint8_t *data = store->lock(0, level, &pitch, &slice, (flags & D3DLOCK_READONLY) != 0);
     if (!data || !locked)
         return D3DERR_INVALIDCALL;
     locked->RowPitch = static_cast<INT>(pitch);
@@ -882,10 +891,13 @@ void BufferBase::mark(uint32_t offset, uint32_t size)
     dirty_begin = std::min(dirty_begin, offset);
     dirty_end = std::max(dirty_end, offset + size);
     write_frame = Context::instance().frame_index();
+    ++write_serial;
 }
 
 VertexBuffer::~VertexBuffer()
 {
+    if (device && Context::instance().initialised()) // the device is gone once the context is shut down
+        device->forget_transient(this);
     if (bgfx::isValid(handle) && Context::instance().initialised())
         bgfx::destroy(handle);
 }
