@@ -68,6 +68,7 @@ struct TexStore
     DWORD usage = 0;
     D3DPOOL pool = D3DPOOL_DEFAULT;
     bool render_target = false;
+    bool needs_clear = false; // a render target whose GPU memory was never written (see Device::clear_if_new)
     bool depth_stencil = false;
     bool system_memory = false; // never uploaded (offscreen plain surfaces)
     bool backbuffer = false;    // the game's offscreen backbuffer colour/depth

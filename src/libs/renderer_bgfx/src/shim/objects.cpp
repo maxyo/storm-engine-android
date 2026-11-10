@@ -284,6 +284,8 @@ void TexStore::create_gpu()
     if (!bgfx::isValid(handle))
         logf("texture creation failed: %ux%ux%u levels=%u d3dformat=%u", width, height, depth, levels,
              static_cast<uint32_t>(format));
+    else if (render_target)
+        needs_clear = true;
 }
 
 namespace
