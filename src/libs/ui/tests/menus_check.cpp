@@ -136,10 +136,100 @@ static void GameMenu(const std::string &models)
            "without «Продолжить» the pause menu is rejected loudly");
 }
 
+static void Saves(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "saves-load.json"));
+    ExpectEqual(router.Using(), "save_load", "saves is a ported screen");
+    ExpectEqual(surface.tag, "s-saves", "saves mounted");
+    Expect(surface.errors.empty() && surface.props["extras"]["rows"].empty() && surface.props["extras"]["note"] == "",
+           "every node of the saves screen is known");
+    ExpectEqual(surface.props["title"], "<save.title_load>", "load title");
+    const Json rows = surface.props["rows"];
+    Expect(rows.size() == 3 && rows[1]["selected"] == true, "records listed, the game's selection chosen");
+    ExpectEqual(rows[0]["cells"][1]["text"], "1 <common.month_10> 1654", "in-game date of the record");
+    ExpectEqual(rows[0]["cells"][2]["text"], "10 <common.month_3> 2001, 08:50", "creation date of the record");
+    const Json detail = surface.props["detail"];
+    Expect(detail["title"] == "Бухта Бета" && detail["delete"] == true && detail["primary"] == "<save.load>", "detail of the chosen record");
+    Expect(detail["facts"].size() == 3 && detail["facts"][1]["v"] == "6 <save.hours> 42 <save.minutes>", "in-game date, play time, created");
+
+    router.OnEvent({"saves", "row", "2"});
+    ExpectEqual(surface.props["detail"]["title"], "Остров Гамма", "a row tap chooses the record locally");
+    Expect(surface.commands.empty() && surface.props["detail"]["facts"].size() == 2, "nothing sent; play time belongs to the game's selection");
+    router.OnEvent({"primary", "click", ""});
+    ExpectEqual(surface.Last(), "widget:save_load\tANDROID_SAVE_LIST\t2\tactivate@9:3", "«Загрузить» activates the record");
+    router.OnEvent({"delete", "click", ""});
+    ExpectEqual(surface.Last(), "widget:save_load\tANDROID_SAVE_LIST\t2\tdelete@9:3", "the trash glyph deletes the record");
+
+    InterfaceModel question = Load(models, "saves-confirm.json");
+    router.SetInterface(question);
+    Json confirm = surface.props["confirm"];
+    Expect(confirm["preset"] == "danger" && confirm["title"] == "<save.delete>" && confirm["subject"] == "Остров Гамма" &&
+               confirm["text"] == "Удалить эту запись?",
+           "delete question: danger dialog naming the record, game text kept");
+    router.OnEvent({"confirm-confirm", "click", ""});
+    ExpectEqual(surface.Last(), "widget:save_load\tCONFIRM_YES\t-1\tpress", "confirm answers yes");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), "widget:save_load\tCONFIRM_NO\t-1\tpress", "← during a question answers no");
+
+    // From the title screen a load needs no question.
+    router.SetInterface(Load(models, "saves-load.json"));
+    router.OnEvent({"primary", "click", ""});
+    SetFromTitle(true);
+    surface.commands.clear();
+    question.revision = 3;
+    router.SetInterface(question);
+    Expect(surface.commands.size() == 1 && surface.Last() == "widget:save_load\tCONFIRM_YES\t-1\tpress" && surface.props["confirm"].is_null(),
+           "load from the title screen: the question is answered at once");
+    router.SetInterface(question);
+    Expect(surface.commands.size() == 1, "and only once per revision");
+    SetFromTitle(false);
+
+    router.SetInterface(Load(models, "saves-save.json"));
+    ExpectEqual(surface.props["title"], "<save.title_save>", "save title");
+    Expect(surface.props["rows"][0]["cells"][0]["text"] == "<save.new>" && surface.props["rows"][0]["selected"] == true &&
+               surface.props["rows"][0]["cells"][1] == "",
+           "«Новая запись» leads, chosen, without dates");
+    ExpectEqual(surface.props["detail"]["primary"], "<save.save>", "new record: «Сохранить»");
+    router.OnEvent({"primary", "click", ""});
+    ExpectEqual(surface.Last(), "widget:save_load\tANDROID_SAVE_LIST\t3\tactivate@10:4", "saving activates the new slot");
+    router.OnEvent({"saves", "row", "1"});
+    ExpectEqual(surface.props["detail"]["primary"], "<save.overwrite>", "an existing record when saving: «Перезаписать»");
+
+    // The game's name editor is accepted as proposed.
+    InterfaceModel naming = Load(models, "saves-save.json");
+    Widget ok;
+    ok.node = "CUSTOM_SAVE_BTN_OK";
+    ok.type = "button";
+    ok.label = "Ok";
+    Widget name;
+    name.node = "CUSTOM_SAVE_NAME";
+    name.type = "edit";
+    name.value = "Порт Альфа";
+    naming.widgets.push_back(name);
+    naming.widgets.push_back(ok);
+    naming.revision = 5;
+    surface.commands.clear();
+    router.SetInterface(naming);
+    Expect(surface.commands.size() == 1 && surface.Last() == "widget:save_load\tCUSTOM_SAVE_BTN_OK\t-1\tpress", "name editor: accepted at once");
+    router.SetInterface(naming);
+    Expect(surface.commands.size() == 1, "once per revision");
+
+    InterfaceModel empty = Load(models, "saves-load.json");
+    Without(empty, "ANDROID_SAVE_LIST");
+    empty.opening = 50;
+    surface.errors.clear();
+    router.SetInterface(empty);
+    Expect(router.Using() == "generic" && router.Rejection() == "ANDROID_SAVE_LIST(save)" && surface.errors.size() == 1,
+           "without the engine's record list the saves screen is rejected loudly");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
     GameMenu(models);
+    Saves(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else
