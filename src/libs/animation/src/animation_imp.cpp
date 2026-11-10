@@ -120,6 +120,14 @@ int32_t AnimationImp::GetNumBones() const
 CMatrix &AnimationImp::GetAnimationMatrix(int32_t iBone) const
 {
     Assert(iBone >= 0 && iBone < aniInfo->NumBones());
+    // Matrices are built on first use after a time step, not on every step:
+    // animations that nothing reads this frame (characters that are not drawn)
+    // cost no matrix work, and a long frame split into several steps builds once.
+    if (matricesDirty_)
+    {
+        matricesDirty_ = false;
+        const_cast<AnimationImp *>(this)->BuildAnimationMatrices();
+    }
     return matrix[iBone];
 }
 
@@ -214,8 +222,8 @@ void AnimationImp::Execute(int32_t dltTime)
     // execute the timers
     for (int32_t i = 0; i < ANI_MAX_ACTIONS; i++)
         timer[i].Execute(dltTime);
-    // Calculate animation matrices
-    BuildAnimationMatrices();
+    // Animation matrices are rebuilt lazily, see GetAnimationMatrix()
+    matricesDirty_ = true;
 }
 
 // Calculate animation matrices
