@@ -16,15 +16,14 @@ int main()
 {
     SeaQuickActionState state;
     state.update(frame());
-    assert(state.valid() && !state.covered(19, 10));
+    assert(state.valid() && !state.covered(19));
     assert(state.json().find("\"available\":true,\"action\":\"Map\",\"label\":\"Native caption\"") != std::string::npos);
 
     // nothing is activated, and nothing native is hidden, before the control is drawn
     assert(!state.offer(request(state, "activate", "Map"), 10));
     assert(state.offer(request(state, "ack", "1"), 20));
-    assert(state.covered(19, 20) && !state.covered(20, 20));
-    assert(!state.covered(19, 20 + SeaQuickActionState::coverMs + 1)); // the lease is not renewed by itself
-    assert(state.offer(request(state, "ack", "1"), 700) && state.covered(19, 1400));
+    assert(state.covered(19) && !state.covered(20));
+    assert(state.offer(request(state, "ack", "1"), 700) && state.covered(19)); // no lease: the word lasts
 
     // exactly the offered action, once
     assert(!state.offer(request(state, "activate", "Moor"), 701));
@@ -34,25 +33,36 @@ int main()
     assert(state.revision() == revision);
     assert(state.offer(tap, 702) && !state.offer(tap, 703));
     assert(state.consume(704) == "Map" && !state.consume(705));
-    assert(!state.offer(tap, 706) && !state.covered(19, 706)); // the tap's echo is stale; the control must be drawn again
+    assert(!state.offer(tap, 706) && !state.covered(19)); // the tap's echo is stale; the control must be drawn again
     assert(state.offer(request(state, "ack", "1"), 707) && state.offer(request(state, "activate", "Map"), 708));
 
     // another target under the same name: the queued tap must not fire, the native icon returns
     state.update(frame("Map", "another target"));
-    assert(!state.consume(709) && !state.covered(19, 709));
+    assert(!state.consume(709) && !state.covered(19));
     assert(!state.offer(tap, 710));
 
     // a tap that waited too long, and a control that went away
     assert(state.offer(request(state, "ack", "1"), 800) && state.offer(request(state, "activate", "Map"), 801));
     assert(!state.consume(801 + SeaQuickActionState::activateMs + 1));
     assert(state.offer(request(state, "ack", "1"), 3000) && state.offer(request(state, "activate", "Map"), 3001));
-    assert(state.offer(request(state, "ack", "0"), 3002) && !state.covered(19, 3002) && !state.consume(3003));
+    assert(state.offer(request(state, "ack", "0"), 3002) && !state.covered(19) && !state.consume(3003));
 
     // a new Activity owns nothing of the old one
     assert(state.offer(request(state, "ack", "1"), 4000));
     const auto old = request(state, "ack", "1");
     state.resetActivity();
-    assert(!state.covered(19, 4001) && !state.offer(old, 4001));
+    assert(!state.covered(19) && !state.offer(old, 4001));
+
+    // A UI that presents the sea HUD: an offer it has not answered keeps the native icon off,
+    // however slow its first frame (no flash after a load); its answer decides.
+    hudPresenters.sea = true;
+    state.update(frame("Moor"));
+    assert(state.covered(19) && !state.covered(20));
+    assert(state.offer(request(state, "ack", "0"), 4100) && !state.covered(19)); // not drawn: native icon back
+    state.update(frame("Board"));
+    assert(state.covered(19) && !state.offer(request(state, "activate", "Board"), 4101)); // pending is not drawn: no tap
+    assert(state.offer(request(state, "ack", "1"), 60000) && state.covered(19) && state.offer(request(state, "activate", "Board"), 60001));
+    hudPresenters.sea = false;
 
     for (const auto *id : {"Map", "Moor", "Board", "LandTroops", "Reload"})
     {
@@ -64,7 +74,7 @@ int main()
     {
         SeaQuickActionState one;
         one.update(frame(id));
-        assert(!one.valid() && !one.offer(request(one, "ack", "1"), 1) && !one.covered(19, 1));
+        assert(!one.valid() && !one.offer(request(one, "ack", "1"), 1) && !one.covered(19));
         assert(one.json().find("\"available\":false,\"action\":\"\"") != std::string::npos);
     }
     {
@@ -78,6 +88,6 @@ int main()
         assert(!state.offer(bad, 5000));
     SeaQuickActionState wrap; // SDL ticks wrap around
     wrap.update(frame());
-    assert(wrap.offer(request(wrap, "ack", "1"), UINT32_MAX - 300) && wrap.covered(19, 100) && !wrap.covered(19, 1300));
-    std::cout << "sea quick action: coverage lease, exact single activation, stale target and tap, activity, unknown actions PASS\n";
+    assert(wrap.offer(request(wrap, "ack", "1"), UINT32_MAX - 300) && wrap.offer(request(wrap, "activate", "Map"), 100) && wrap.consume(200) == "Map");
+    std::cout << "sea quick action: coverage until answered otherwise, presenter pending, exact single activation, stale target and tap, activity, unknown actions PASS\n";
 }

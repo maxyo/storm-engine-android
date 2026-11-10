@@ -613,7 +613,7 @@ int main(int argc, char *argv[])
             else if (command.starts_with("navigator:"))
             {
                 const bool accepted=storm::android::mobileScreen.empty() &&
-                    storm::android::seaNavigator.offer(std::string_view(command).substr(10), SDL_GetTicks(),
+                    storm::android::seaNavigator.offer(std::string_view(command).substr(10),
                         storm::android::shipTelemetry.revision(), storm::android::shipTelemetry.hudRevision(),
                         storm::android::shipTelemetry.frame().navigatorGeneration);
                 static std::string lastNavigatorPrepared,lastNavigatorVisible,lastNavigatorOther;
@@ -623,6 +623,12 @@ int main(int argc, char *argv[])
                     std::to_string(storm::android::shipTelemetry.revision())+"/"+std::to_string(storm::android::shipTelemetry.hudRevision())+"/"+
                     std::to_string(storm::android::shipTelemetry.frame().navigatorGeneration);
                 if(detail!=lastNavigatorRequest){lastNavigatorRequest=detail;storm::android::traceContextAction("navigator-mailbox","receive",detail);}
+            }
+            else if (command.starts_with("hudowner:"))
+            {
+                // The portable UI presents this HUD: its unanswered revisions keep native drawing off.
+                if (!storm::android::hudPresenters.declare(std::string_view(command).substr(9)))
+                    __android_log_print(ANDROID_LOG_ERROR, "StormInput", "unknown HUD presenter declaration '%s'", command.c_str());
             }
             else if (command.starts_with("shiphud:"))
             {

@@ -1,5 +1,6 @@
 #pragma once
 #include "android_ship_telemetry.hpp"
+#include "android_hud_presenter.hpp"
 #include "android_worldmap_modal.hpp"
 #include <array>
 
@@ -57,7 +58,10 @@ class WorldMapHud
 {
     WorldMapFrame frame_;
     uint64_t revision_ = 0, activity_ = 0;
-    uint32_t covered_ = 0, acknowledgedAt_ = 0, tick_ = 0;
+    // Coverage of the instruments, fleet and command icon: said once per revision, kept until
+    // the revision changes (android_hud_presenter.hpp); answered_ is the revision it answers.
+    uint32_t covered_ = 0, tick_ = 0;
+    uint64_t answered_ = 0;
     std::string pending_;
     uint32_t pendingAt_ = 0;
     uint64_t ackProof_=0;
@@ -76,7 +80,7 @@ public:
         const auto proof=modal.resumeAck();
         if(!proof.proof||proof.owner!=owner()||!frame_.available||(proof.mask&frame_.availableMask())!=proof.mask)return;
         if(proof.proof>=ackProof_ && tick-proof.at<=1000){
-            ackProof_=proof.proof;covered_=proof.mask;acknowledgedAt_=proof.at;
+            ackProof_=proof.proof;covered_=proof.mask;answered_=revision_;
         }
         if(ackProof_>=proof.proof&&covered(proof.mask,frame_.owner))modal.resumed(owner(),ackProof_);
     }
@@ -100,13 +104,14 @@ public:
         if (!frame_.available) { covered_ = 0; pending_.clear(); }
         modal.owner(frame_.available?owner():WorldMapModal::Owner{});
     }
-    void resetActivity() { ++activity_; covered_ = 0; pending_.clear();ackProof_=0;modal.owner(owner()); }
+    void resetActivity() { ++activity_; covered_ = 0; answered_ = 0; pending_.clear();ackProof_=0;modal.owner(owner()); } // revision_ >= 1 once available
     const WorldMapFrame &frame() const { return frame_; }
     uint64_t revision() const { return revision_; }
     bool covered(uint32_t mask, uint64_t owner) const
     {
-        const bool result=frame_.available && owner == frame_.owner && tick_ - acknowledgedAt_ <= 1000 &&
-            (covered_ & frame_.availableMask() & mask) == mask;
+        // Not answered yet by the presenting UI: the native parts stay off until it is.
+        const uint32_t replaced = hudPresenters.worldMap && answered_ != revision_ ? frame_.availableMask() : covered_;
+        const bool result=frame_.available && owner == frame_.owner && (replaced & frame_.availableMask() & mask) == mask;
         if(result&&drawing_&&drawnOwner_==this->owner())drawnMask_|=mask;
         return result;
     }
@@ -135,7 +140,7 @@ public:
             if(proof&&proof<ackProof_)return false;
             mask&=frame_.availableMask();
             if(!modal.ack(owner(),static_cast<uint32_t>(mask),proof,tick))return false;
-            covered_=static_cast<uint32_t>(mask);acknowledgedAt_=tick;if(proof)ackProof_=proof;return true;
+            covered_=static_cast<uint32_t>(mask);answered_=revision_;if(proof)ackProof_=proof;return true;
         }
         if(fields[2]=="prepare")
         {

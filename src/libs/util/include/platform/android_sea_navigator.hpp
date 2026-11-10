@@ -1,4 +1,5 @@
 #pragma once
+#include "android_hud_presenter.hpp"
 #include <array>
 #include <charconv>
 #include <cmath>
@@ -9,14 +10,18 @@
 
 namespace storm::android {
 // Native owns map, projection and gameplay. Android supplies only the measured
-// aperture and a short lease for its fully drawn captions and touch controls.
+// aperture of its drawn disc ("prepare"), the word that its captions are on the
+// screen once native has drawn there ("visible"), or "clear". Each lasts until the
+// owner (telemetry revision, HUD revision, navigator generation) changes or the UI
+// says otherwise: no lease (see android_hud_presenter.hpp).
 struct SeaNavigatorLayout {
     uint64_t id{}; int width{}, height{}, x{}, y{}, radius{}, densityMilli{}, russian{};
     bool operator==(const SeaNavigatorLayout &) const = default;
 };
 class SeaNavigatorBridge {
     uint64_t revision_{}, hud_{}, source_{};
-    uint32_t tick_{}, presentedTick_{};
+    struct Owner { uint64_t revision{}, hud{}, source{}; bool operator==(const Owner &) const = default; };
+    Owner answered_; // the last owner the UI prepared or cleared
     uint64_t nativeDrawnId_{}, presentedId_{};
     std::optional<SeaNavigatorLayout> layout_;
     int zoom_{};
@@ -24,7 +29,7 @@ class SeaNavigatorBridge {
 public:
     const char *result() const { return result_; }
     void clear() { layout_.reset(); zoom_=0; nativeDrawnId_=presentedId_=0; }
-    bool offer(std::string_view request, uint32_t tick, uint64_t revision, uint64_t hud, uint64_t source) {
+    bool offer(std::string_view request, uint64_t revision, uint64_t hud, uint64_t source) {
         const auto reject=[&](const char *why){result_=why;return false;};
         if(request.size()>160)return reject("oversize");
         std::array<std::string_view,12> parts{};size_t n=0;
@@ -37,15 +42,15 @@ public:
         auto a=number(parts[0]),b=number(parts[1]),c=number(parts[2]);
         if(!a||!b||!c)return reject("owner-format");
         if(*a!=revision||*b!=hud||*c!=source)return reject("owner-generation");
-        if(parts[3]=="clear"&&n==4){clear();result_="cleared";return true;}
+        if(parts[3]=="clear"&&n==4){clear();answered_={revision,hud,source};result_="cleared";return true;}
         if(parts[3]=="visible") {
             const auto id=n==5?number(parts[4]):std::nullopt;
-            const auto *current=layout(tick,revision,hud,source);
+            const auto *current=layout(revision,hud,source);
             if(!id||!current||current->id!=*id||nativeDrawnId_!=*id)return reject("visible-without-native-draw");
-            presentedId_=*id;presentedTick_=tick;result_="presented";return true;
+            presentedId_=*id;result_="presented";return true;
         }
         if(parts[3]=="in"||parts[3]=="out") {
-            if(n!=4||!layout(tick,revision,hud,source))return reject("zoom-without-lease");
+            if(n!=4||!layout(revision,hud,source))return reject("zoom-without-layout");
             zoom_=parts[3]=="in"?-1:1;result_="zoom";return true;
         }
         if(parts[3]!="prepare"||n!=12)return reject("prepare-format");
@@ -55,23 +60,25 @@ public:
         const SeaNavigatorLayout next{*id,v[0],v[1],v[2],v[3],v[4],v[5],v[6]};
         const bool sameOwner=revision_==revision&&hud_==hud&&source_==source;
         if(sameOwner&&layout_&&layout_->id==*id&&*layout_!=next)return reject("layout-id-reused");
-        if(!layout(tick,revision,hud,source)||layout_->id!=*id)nativeDrawnId_=presentedId_=0;
-        revision_=revision;hud_=hud;source_=source;tick_=tick;
+        if(!layout(revision,hud,source)||layout_->id!=*id)nativeDrawnId_=presentedId_=0;
+        revision_=revision;hud_=hud;source_=source;answered_={revision,hud,source};
         layout_=next;result_="prepared";return true;
     }
-    // The lease is 750 ms. `window` lets the drawing side keep the touch HUD's place for longer
-    // (graceMs) when a heartbeat is late, instead of flashing the native compass over the HUD.
-    static constexpr uint32_t graceMs=2000;
-    const SeaNavigatorLayout *layout(uint32_t tick,uint64_t revision,uint64_t hud,uint64_t source,uint32_t window=750)const {
-        return layout_&&tick-tick_<=window&&revision==revision_&&hud==hud_&&source==source_?&*layout_:nullptr;
+    const SeaNavigatorLayout *layout(uint64_t revision,uint64_t hud,uint64_t source)const {
+        return layout_&&revision==revision_&&hud==hud_&&source==source_?&*layout_:nullptr;
+    }
+    // The UI presents the sea HUD and has not answered this owner yet: the native compass
+    // stays off until it does, however long its first frame takes.
+    bool pending(uint64_t revision,uint64_t hud,uint64_t source)const {
+        return hudPresenters.sea&&!(answered_==Owner{revision,hud,source});
     }
     void didDraw(uint64_t id) { nativeDrawnId_=layout_&&layout_->id==id?id:0; }
-    bool presented(uint32_t tick,uint64_t revision,uint64_t hud,uint64_t source,uint64_t id) const {
-        const auto *current=layout(tick,revision,hud,source);
-        return current&&current->id==id&&nativeDrawnId_==id&&presentedId_==id&&tick-presentedTick_<=750;
+    bool presented(uint64_t revision,uint64_t hud,uint64_t source,uint64_t id) const {
+        const auto *current=layout(revision,hud,source);
+        return current&&current->id==id&&nativeDrawnId_==id&&presentedId_==id;
     }
-    int takeZoom(uint32_t tick,uint64_t revision,uint64_t hud,uint64_t source) {
-        int z=layout(tick,revision,hud,source)?zoom_:0;zoom_=0;return z;
+    int takeZoom(uint64_t revision,uint64_t hud,uint64_t source) {
+        int z=layout(revision,hud,source)?zoom_:0;zoom_=0;return z;
     }
 };
 inline SeaNavigatorBridge seaNavigator;

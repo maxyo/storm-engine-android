@@ -26,8 +26,8 @@ const char *const kWorldMapModes[] = {"worldmap"};
 // platform host stops drawing that mode's HUD because HostOwnsHud turns false for it.
 const SceneEntry kScenes[] = {
     {"land", kLandModes, CreateLandScene},
-    {"sea", kSeaModes, CreateSeaScene},
-    {"world-map", kWorldMapModes, CreateWorldMapScene},
+    {"sea", kSeaModes, CreateSeaScene, "sea"},
+    {"world-map", kWorldMapModes, CreateWorldMapScene, "worldmap"},
 };
 
 } // namespace
@@ -215,6 +215,13 @@ void Hud::Conceal()
 
 double Hud::Tick()
 {
+    if (!declared_)
+    {
+        declared_ = true;
+        for (const SceneEntry &entry : scenes_)
+            if (entry.presents)
+                Send("hudowner", entry.presents);
+    }
     const double now = mount_.Now();
     const bool interface = mount_.InterfaceActive();
     if (interface != interface_)

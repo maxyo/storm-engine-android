@@ -1,5 +1,6 @@
 #pragma once
 #include "android_gameplay.hpp"
+#include "android_hud_presenter.hpp"
 #include <cmath>
 #include <array>
 #include <cstdlib>
@@ -195,6 +196,7 @@ class ShipTelemetryState
 {
     ShipTelemetryFrame frame_;
     uint64_t revision_ = 0, sequence_ = 0, hudRevision_ = 0;
+    uint64_t answered_ = 0; // the last HUD revision the UI answered with its mask
     uint32_t acknowledged_ = 0, lastPublishedTick_ = 0;
     bool published_ = false, forcePublish_ = true;
     std::string lastPublished_;
@@ -274,7 +276,14 @@ public:
     const ShipTelemetryFrame &frame() const { return frame_; }
     uint64_t revision() const { return revision_; }
     uint64_t hudRevision() const { return hudRevision_; }
-    uint32_t mask() const { return acknowledged_ & frame_.availableMask(); }
+    // The native indicators the touch HUD replaces. While the presenting UI has not answered
+    // this HUD revision yet (after a load, a new fleet), every available one stays off rather
+    // than flashing up until its slow first frame; the answer then returns what it leaves.
+    uint32_t mask() const
+    {
+        if (hudPresenters.sea && frame_.valid && answered_ != hudRevision_) return frame_.availableMask();
+        return acknowledged_ & frame_.availableMask();
+    }
     void resetActivity()
     {
         ++hudRevision_;
@@ -294,6 +303,7 @@ public:
         if (!parsed || generation.ec != std::errc() || generation.ptr != request.data() + request.size() ||
             hudRevision != hudRevision_ || parsed->first != revision_ || parsed->second > ShipAll || !frame_.valid) return false;
         acknowledged_ = parsed->second & frame_.availableMask();
+        answered_ = hudRevision_;
         return true;
     }
     bool offerSails(std::string_view request, uint32_t tick)

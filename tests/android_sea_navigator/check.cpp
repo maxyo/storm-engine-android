@@ -107,50 +107,53 @@ int main(){
     checkReadability();
     SeaNavigatorBridge bridge;
     const char *layout="4\t8\t2\tprepare\t9\t1280\t720\t1124\t228\t132\t2000\t1";
-    assert(!bridge.offer("4\t8\t2\tin",10,4,8,2));
-    assert(bridge.offer(layout,100,4,8,2));
-    assert(bridge.layout(850,4,8,2)->id==9);assert(!bridge.layout(851,4,8,2));
-    const auto *physical=bridge.layout(100,4,8,2);
+    assert(!bridge.offer("4\t8\t2\tin",4,8,2));
+    assert(bridge.offer(layout,4,8,2));
+    assert(bridge.layout(4,8,2)->id==9); // no lease: the aperture lasts for the owner
+    const auto *physical=bridge.layout(4,8,2);
     auto half=aperture(*physical,0,0,640,360);assert(half&&near(half->x,562)&&near(half->y,114)&&near(half->radius,66));
     auto full=aperture(*physical,0,0,1280,720);assert(full&&near(full->x,1124)&&near(full->radius,132));
     assert(!aperture(*physical,0,0,640,480));assert(!aperture(*physical,0,0,0,0));
-    assert(!bridge.layout(100,5,8,2));assert(!bridge.layout(100,4,9,2));assert(!bridge.layout(100,4,8,3));
-    assert(!bridge.offer(layout,100,5,8,2));
-    assert(!bridge.offer("4\t8\t2\tprepare\t9\t1280\t720\t1200\t228\t132\t2000\t1",100,4,8,2));
-    assert(!bridge.offer("4\t8\t2\tprepare\t9\t1280\t720\t1124\t228\tNaN\t2000\t1",100,4,8,2));
-    assert(!bridge.offer("4\t8\t2\tprepare\t9\t1280\t720\t1124\t228\t132\t2000\t1\textra",100,4,8,2));
-    assert(!bridge.offer("4\t8\t2\tprepare\t9\t1280\t720\t1124\t228\t132",100,4,8,2));
-    assert(!bridge.offer(std::string(200,'0'),100,4,8,2));
-    assert(bridge.offer("4\t8\t2\tin",101,4,8,2));assert(bridge.takeZoom(101,4,8,2)==-1);assert(bridge.takeZoom(101,4,8,2)==0);
-    assert(bridge.offer("4\t8\t2\tout",101,4,8,2));assert(bridge.takeZoom(101,4,9,2)==0);
-    assert(bridge.offer("4\t8\t2\tin",101,4,8,2));assert(bridge.offer("4\t8\t2\tclear",102,4,8,2));assert(bridge.takeZoom(102,4,8,2)==0);
-    assert(bridge.offer(layout,UINT32_MAX-50,4,8,2));assert(bridge.layout(100,4,8,2));assert(!bridge.layout(800,4,8,2));
+    assert(!bridge.layout(5,8,2));assert(!bridge.layout(4,9,2));assert(!bridge.layout(4,8,3));
+    assert(!bridge.offer(layout,5,8,2));
+    assert(!bridge.offer("4\t8\t2\tprepare\t9\t1280\t720\t1200\t228\t132\t2000\t1",4,8,2));
+    assert(!bridge.offer("4\t8\t2\tprepare\t9\t1280\t720\t1124\t228\tNaN\t2000\t1",4,8,2));
+    assert(!bridge.offer("4\t8\t2\tprepare\t9\t1280\t720\t1124\t228\t132\t2000\t1\textra",4,8,2));
+    assert(!bridge.offer("4\t8\t2\tprepare\t9\t1280\t720\t1124\t228\t132",4,8,2));
+    assert(!bridge.offer(std::string(200,'0'),4,8,2));
+    assert(bridge.offer("4\t8\t2\tin",4,8,2));assert(bridge.takeZoom(4,8,2)==-1);assert(bridge.takeZoom(4,8,2)==0);
+    assert(bridge.offer("4\t8\t2\tout",4,8,2));assert(bridge.takeZoom(4,9,2)==0);
+    assert(bridge.offer("4\t8\t2\tin",4,8,2));assert(bridge.offer("4\t8\t2\tclear",4,8,2));assert(bridge.takeZoom(4,8,2)==0);
     SeaNavigatorBridge ownership;
-    assert(ownership.offer(layout,100,4,8,2));
-    assert(!ownership.offer("4\t8\t2\tvisible\t9",100,4,8,2)); // preparing geometry is not actual native draw
+    assert(ownership.offer(layout,4,8,2));
+    assert(!ownership.offer("4\t8\t2\tvisible\t9",4,8,2)); // preparing geometry is not actual native draw
     ownership.didDraw(9);
-    assert(ownership.offer("4\t8\t2\tvisible\t9",101,4,8,2));
-    assert(ownership.presented(200,4,8,2,9));
-    assert(ownership.offer(layout,300,4,8,2)); // ordinary heartbeat cannot revoke the visible owner
-    assert(ownership.presented(301,4,8,2,9));
-    assert(!ownership.offer("4\t8\t2\tprepare\t9\t1280\t720\t1120\t228\t132\t2000\t1",301,4,8,2));
+    assert(ownership.offer("4\t8\t2\tvisible\t9",4,8,2));
+    assert(ownership.presented(4,8,2,9));
+    assert(ownership.offer(layout,4,8,2)); // the same aperture again does not revoke the visible owner
+    assert(ownership.presented(4,8,2,9));
+    assert(!ownership.offer("4\t8\t2\tprepare\t9\t1280\t720\t1120\t228\t132\t2000\t1",4,8,2));
     assert(std::string_view(ownership.result())=="layout-id-reused");
-    assert(ownership.offer(layout,800,4,8,2));
-    assert(!ownership.presented(852,4,8,2,9)); // geometry heartbeat alone cannot renew visible-pixel lease
-    assert(ownership.offer("4\t8\t2\tvisible\t9",853,4,8,2));
-    assert(ownership.presented(854,4,8,2,9));
-    assert(!ownership.presented(854,4,9,2,9));assert(!ownership.presented(854,5,8,2,9));assert(!ownership.presented(854,4,8,3,9));
-    assert(ownership.offer("4\t8\t2\tprepare\t10\t1280\t720\t1124\t228\t132\t2000\t1",855,4,8,2));
-    assert(!ownership.presented(855,4,8,2,9));assert(!ownership.offer("4\t8\t2\tvisible\t10",855,4,8,2));
-    ownership.didDraw(10);assert(ownership.offer("4\t8\t2\tvisible\t10",856,4,8,2));
-    ownership.clear();assert(!ownership.presented(856,4,8,2,10));
-    assert(ownership.offer(layout,1000,4,8,2));ownership.didDraw(9);
-    assert(ownership.offer("4\t8\t2\tvisible\t9",1700,4,8,2));
-    assert(ownership.offer(layout,1751,4,8,2)); // expired geometry requires a fresh native draw even with same id
-    assert(!ownership.presented(1751,4,8,2,9));
-    assert(!ownership.offer("4\t8\t2\tvisible\t9",1751,4,8,2));
-    ownership.didDraw(9);assert(ownership.offer("4\t8\t2\tvisible\t9",1752,4,8,2));
-    assert(ownership.presented(1753,4,8,2,9));
+    assert(ownership.offer(layout,4,8,2));
+    assert(ownership.presented(4,8,2,9)); // no lease: visible stays visible however long
+    assert(ownership.offer("4\t8\t2\tvisible\t9",4,8,2));
+    assert(ownership.presented(4,8,2,9));
+    assert(!ownership.presented(4,9,2,9));assert(!ownership.presented(5,8,2,9));assert(!ownership.presented(4,8,3,9));
+    assert(ownership.offer("4\t8\t2\tprepare\t10\t1280\t720\t1124\t228\t132\t2000\t1",4,8,2));
+    assert(!ownership.presented(4,8,2,9));assert(!ownership.offer("4\t8\t2\tvisible\t10",4,8,2));
+    ownership.didDraw(10);assert(ownership.offer("4\t8\t2\tvisible\t10",4,8,2));
+    ownership.clear();assert(!ownership.presented(4,8,2,10));
+    assert(ownership.offer(layout,4,8,2));ownership.didDraw(9);
+    assert(ownership.offer("4\t8\t2\tvisible\t9",4,8,2));
+    assert(ownership.presented(4,8,2,9));
+    // A UI presenting the sea HUD: an owner it has not prepared or cleared is pending (the native
+    // compass stays off however slow its first frame); either answer ends that.
+    assert(!ownership.pending(4,8,2)); // no presenter declared: native drawing is unaffected
+    hudPresenters.sea=true;
+    assert(!ownership.pending(4,8,2)&&ownership.pending(4,9,2)&&ownership.pending(5,8,2)&&ownership.pending(4,8,3));
+    assert(ownership.offer("4\t9\t2\tclear",4,9,2)&&!ownership.pending(4,9,2)&&!ownership.layout(4,9,2));
+    assert(ownership.offer("5\t8\t2\tprepare\t11\t1280\t720\t1124\t228\t132\t2000\t1",5,8,2)&&!ownership.pending(5,8,2));
+    hudPresenters.sea=false;
     // Reproduce runtime 2015 -> 991/1951 caption ACK churn while the same
     // complete navigator remains visible. Freshness is not ownership.
     ShipTelemetryFrame live;live.valid=true;live.ship.entityId=42;
@@ -161,16 +164,16 @@ int main(){
     const auto hud=liveState.hudRevision();
     const auto owner="4\t"+std::to_string(hud)+"\t2\t";
     SeaNavigatorBridge liveBridge;
-    assert(liveBridge.offer(owner+"prepare\t1\t960\t540\t844\t171\t99\t1500\t1",10,4,hud,2));
-    liveBridge.didDraw(1);assert(liveBridge.offer(owner+"visible\t1",11,4,hud,2));
+    assert(liveBridge.offer(owner+"prepare\t1\t960\t540\t844\t171\t99\t1500\t1",4,hud,2));
+    liveBridge.didDraw(1);assert(liveBridge.offer(owner+"visible\t1",4,hud,2));
     for(auto mask:{2015,991,1951,2015}){
         live.windSpeed=*live.windSpeed+.1;live.shipSpeedKnots=*live.shipSpeedKnots+.1;liveState.update(4,live);
         assert(liveState.acknowledge("4\t"+std::to_string(mask)+"\t"+std::to_string(hud)));
         assert(liveState.mask()==uint32_t(mask));
-        assert(liveBridge.presented(20,liveState.revision(),liveState.hudRevision(),2,1));
+        assert(liveBridge.presented(liveState.revision(),liveState.hudRevision(),2,1));
     }
     live.windSpeed.reset();liveState.update(4,live);
-    assert(!liveBridge.presented(21,liveState.revision(),liveState.hudRevision(),2,1)); // real source loss revokes
+    assert(!liveBridge.presented(liveState.revision(),liveState.hudRevision(),2,1)); // real source loss revokes
     auto north=project(0,100,0,400,1,80);assert(north&&near(north->x,0)&&near(north->y,-20));
     auto turn=project(0,100,pi/2,400,1,80);assert(turn&&near(turn->x,-20)&&near(turn->y,0));
     auto east=project(100,0,pi/2,400,1,80);assert(east&&near(east->x,0)&&near(east->y,-20));
@@ -185,5 +188,5 @@ int main(){
     ShipTelemetryState telemetry;telemetry.update(1,frame);auto json=telemetry.json();
     assert(json.find("\"navigatorPowderWarning\":false")!=json.npos);assert(json.find("\"navigatorWindState\":61")!=json.npos);assert(json.find("\"navigatorLayoutId\":9")!=json.npos);
     frame.navigatorPowderWarning.reset();telemetry.update(1,frame);assert(telemetry.json().find("navigatorPowderWarning")==json.npos);
-    std::cout<<"PASS production vector ink minima at 96dp across viewport/density/heading transforms, independent presentation/geometry lease, native-draw proof, expiry and structural invalidation, navigator owner/source/viewport lease, malformed/oversize requests, zoom cancel/guards, native projection and bort damage composition, absent versus false warning\n";
+    std::cout<<"PASS production vector ink minima at 96dp across viewport/density/heading transforms, presentation and geometry kept per owner without a lease, presenter pending, native-draw proof and structural invalidation, navigator owner/source/viewport, malformed/oversize requests, zoom cancel/guards, native projection and bort damage composition, absent versus false warning\n";
 }

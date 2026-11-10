@@ -301,6 +301,10 @@ struct SceneEntry
     const char *name;
     std::span<const char *const> modes; // gameplay modes it draws
     std::unique_ptr<Scene> (*create)(Hud &);
+    // The engine's name for this HUD in "hudowner:<name>", said once when the HUD starts: the
+    // engine then keeps the native parts it replaces off while a revision is unanswered.
+    // nullptr: the scene only answers revisions it was asked about (the land sheet).
+    const char *presents = nullptr;
 };
 // The migration switch of the HUD (scenes.cpp): gameplay modes whose HUD is drawn here.
 // Every other mode still belongs to the platform host.
@@ -442,6 +446,7 @@ class Hud
     bool visible_ = false;
     bool live_ = false;
     bool interface_ = false;
+    bool declared_ = false; // the "hudowner" declarations were sent
 };
 
 // ASCII lower case: engine identifiers are matched without regard to case.

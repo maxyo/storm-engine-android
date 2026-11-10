@@ -8,7 +8,9 @@ its target; `SeaQuickActionState` publishes `{schemaVersion, activity, revision,
 action, label}` (state channel `seaQuickAction`) and takes
 `seaquick:1\t<activity>\t<revision>\tack\t<0|1>` and `…\tactivate\t<action>`.
 
-The native icon is hidden only while the touch control of exactly this revision says it is
-drawn (a 750 ms lease, renewed by repeating the acknowledgement). A tap is accepted once
+The native icon is hidden while the touch control of exactly this revision says it is
+drawn, and, when the UI declared itself the sea HUD presenter, until it has answered the
+revision at all. The word is said once per revision and lasts until the revision changes
+(no lease). A tap is accepted once
 per revision, for the covered action only; another target, owner or Activity makes a new
 revision, so duplicate and stale taps do nothing.

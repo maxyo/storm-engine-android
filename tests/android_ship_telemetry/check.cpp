@@ -136,6 +136,19 @@ int main()
     assert(!state.acknowledge(ack(2048)));
     assert(!state.acknowledge("0\t63"));
     assert(!state.acknowledge(ack(1) + "junk"));
+    {
+        // A UI that presents the sea HUD: a HUD revision it has not answered keeps every available
+        // native indicator off (no flash after a load, however slow its first frame); its word,
+        // also "nothing", decides.
+        hudPresenters.sea = true;
+        ShipTelemetryState presented;
+        presented.update(epoch, frame);
+        assert(presented.mask() == presented.frame().availableMask());
+        assert(presented.acknowledge(std::to_string(epoch) + "\t0\t" + std::to_string(presented.hudRevision())) && presented.mask() == 0);
+        presented.resetActivity();
+        assert(presented.mask() == presented.frame().availableMask());
+        hudPresenters.sea = false;
+    }
     const auto first = state.publication(0);
     assert(first && first->find("\"ammoCount\":0") != std::string::npos);
     assert(first->find("\"entityId\":\"123456789\"") != std::string::npos);

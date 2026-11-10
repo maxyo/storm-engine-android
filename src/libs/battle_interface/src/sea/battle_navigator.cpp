@@ -71,11 +71,16 @@ void BATTLE_NAVIGATOR::Draw() const
     const glm::mat4 matw;
     rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(matw));
 #ifdef __ANDROID__
-    // The touch HUD holds the navigator's place (a current aperture lease) but this frame could
+    // The touch HUD holds the navigator's place (its aperture for this owner) but this frame could
     // not draw into it (the island map re-renders after a zoom, a source value is missing for a
-    // moment): draw nothing rather than flashing the native compass over the HUD.
-    if (!m_androidDrawn && storm::android::seaNavigator.layout(SDL_GetTicks(), storm::android::shipTelemetry.revision(),
-            storm::android::shipTelemetry.hudRevision(), m_navigatorGeneration, storm::android::SeaNavigatorBridge::graceMs)) return;
+    // moment), or the HUD has not answered this owner yet (after a load, a new fleet): draw
+    // nothing rather than flashing the native compass over the HUD.
+    if (!m_androidDrawn) {
+        const auto &telemetry = storm::android::shipTelemetry;
+        if (storm::android::seaNavigator.layout(telemetry.revision(), telemetry.hudRevision(), m_navigatorGeneration) ||
+            (telemetry.frame().valid && storm::android::seaNavigator.pending(telemetry.revision(), telemetry.hudRevision(), m_navigatorGeneration)))
+            return;
+    }
     if (m_androidDrawn) {
         const auto required=storm::android::ShipCaptions|storm::android::ShipAmmo;
         if(AndroidPresented()||(mobileMask&required)==required)return;
@@ -243,7 +248,7 @@ void BATTLE_NAVIGATOR::Update()
     const auto *owner = static_cast<const BATTLE_INTERFACE *>(m_pOwnerEI);
     if (owner && !owner->AndroidCommandActive() && storm::android::mobileScreen.empty() && AndroidAvailable()) {
         const auto &telemetry=storm::android::shipTelemetry;
-        const int zoom=storm::android::seaNavigator.takeZoom(SDL_GetTicks(),telemetry.revision(),telemetry.hudRevision(),m_navigatorGeneration);
+        const int zoom=storm::android::seaNavigator.takeZoom(telemetry.revision(),telemetry.hudRevision(),m_navigatorGeneration);
         if(zoom){
             const float before=m_fCurScale;
             // A tap is one of four clear scales across the range, not one keyboard step.
@@ -254,7 +259,7 @@ void BATTLE_NAVIGATOR::Update()
                 " min="+std::to_string(m_fMinScale)+" max="+std::to_string(m_fMaxScale)+
                 " generation="+std::to_string(m_navigatorGeneration));
         }
-    } // otherwise the lease runs out by itself; clearing it here would hand a momentarily
+    } // otherwise the aperture stays: clearing it here would hand a momentarily
       // unavailable frame back to the native compass
 #endif
 
@@ -1672,7 +1677,7 @@ void BATTLE_NAVIGATOR::ReadAndroidSpeeds(storm::android::ShipTelemetryFrame &fra
     if (m_shipSpeedAvailable && m_speedShipId == mainShipId)
         frame.shipSpeedKnots = storm::android::shipDisplayedSpeed(m_fShipSpeed);
     frame.navigatorGeneration=m_navigatorGeneration;
-    const auto *layout=storm::android::seaNavigator.layout(SDL_GetTicks(),storm::android::shipTelemetry.revision(),
+    const auto *layout=storm::android::seaNavigator.layout(storm::android::shipTelemetry.revision(),
         storm::android::shipTelemetry.hudRevision(),m_navigatorGeneration);
     frame.navigatorLayoutId=m_androidDrawn&&layout&&layout->id==m_androidLayoutId?m_androidLayoutId:0;
     frame.navigatorAvailable=AndroidAvailable() && m_speedShipId==mainShipId;
