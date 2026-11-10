@@ -1,19 +1,6 @@
 #pragma once
 
 #include "../base_video.h"
-#ifdef _WIN32 // FIX_LINUX ddraw.h and amstream.h
-#include <amstream.h>
-#include <ddraw.h>
-#endif
-
-#define XI_AVIVIDEO_FVF (D3DFVF_XYZRHW | D3DFVF_TEX1 | D3DFVF_TEXTUREFORMAT2)
-
-struct XI_AVIVIDEO_VERTEX
-{
-    glm::vec3 pos;
-    float w;
-    float tu, tv;
-};
 
 class CAviPlayer : public xiBaseVideo
 {
@@ -52,38 +39,16 @@ class CAviPlayer : public xiBaseVideo
 
     IDirect3DTexture9 *GetCurrentVideoTexture() override
     {
-        return pTex;
+        return nullptr;
     }
 
   protected:
     bool m_bContinue;
 
-#ifdef _WIN32 // FIX_LINUX ddraw.h and amstream.h
-    IDirectDraw *pDD;
-    IDirectDrawSurface *pPrimarySurface;
-    IDirectDrawSurface *pVideoSurface;
-
-    IAMMultiMediaStream *pAMStream;
-    IMediaStream *pPrimaryVidStream;
-    IDirectDrawMediaStream *pDDStream;
-    IDirectDrawStreamSample *pSample;
-#endif
-
-    POINT dstPnt;
-    RECT lockRect;
-
-    XI_AVIVIDEO_VERTEX v[4];
-
-    IDirect3DSurface9 *pTmpRenderTarget;
-    IDirect3DTexture9 *pTex;
-
     void ReleaseAll();
     bool PlayMedia(const char *fileName);
     bool GetInterfaces();
     void CleanupInterfaces();
-
-    bool m_bFirstDraw;
-    bool m_bMakeUninitializeDD;
 
     std::string filename;
     bool bLoop{false};

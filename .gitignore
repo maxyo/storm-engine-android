@@ -16,3 +16,5 @@
 /docs/*-report*.md
 /docs/*-notes*.md
 /docs/*-plan*.md
+__pycache__/
+*.pyc

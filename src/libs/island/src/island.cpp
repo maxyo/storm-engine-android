@@ -673,7 +673,7 @@ bool ISLAND::CreateHeightMap(const std::string_view &pDir, const std::string_vie
             vSrc += vBoxCenter;
             vDst += vBoxCenter;
             float fRes = Trace(vSrc, vDst);
-            Assert(isnan(fRes) == false);
+            Assert(std::isnan(fRes) == false);
             if (fRes <= 1.0f) // island ocean floor exist
             {
                 float fHeight = sqrtf(storm::math::lengthSquared(fRes * (vDst - vSrc)));

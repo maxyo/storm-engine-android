@@ -35,7 +35,7 @@ inline bool isEngineShaderOverlayPath(const std::filesystem::path &relative)
     const auto key = resourceKey(relative);
     const auto extension = resourceKey(relative.extension());
     return key.starts_with("resource/techniques/") &&
-        (extension == ".vso" || extension == ".pso" || extension == ".fx" || extension == ".h" || extension == ".sha");
+        (extension == ".fx" || extension == ".h" || extension == ".sha");
 }
 
 // APK layers that change the scripts of the program tree; part of the compiled
