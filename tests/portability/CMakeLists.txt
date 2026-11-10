@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 project(storm-portability-host LANGUAGES CXX)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/StormBuildCache.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/glm.cmake")
 enable_testing()
 foreach(variant sse scalar)

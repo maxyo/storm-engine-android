@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# CXX for scripts that run the C++ compiler directly (tests/*/run.py, tools/android/test_*.py):
+# compiles with $STORM_CCACHE_CXX (default c++) through tools/ccache/launcher. Set by
+# tools/ci/run_host_tests.py and tools/android/ci_dependencies.sh; never for CMake projects,
+# which get the launcher from cmake/StormBuildCache.cmake.
+exec "${BASH_SOURCE[0]%/*}/launcher" "${STORM_CCACHE_CXX:-c++}" "$@"

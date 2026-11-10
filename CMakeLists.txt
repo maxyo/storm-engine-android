@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 project(storm-engine)
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/StormBuildCache.cmake")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(STORM_HOST_SOURCES "" CACHE PATH "Pinned dependency sources for the Linux host build")
@@ -19,7 +20,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Release)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Debug)
 
-set(STORM_WATERMARK_FILE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/watermark.hpp CACHE FILEPATH "Include file containing build revision, etc." FORCE)
+set(STORM_WATERMARK_FILE ${CMAKE_BINARY_DIR}/generated/storm_build_watermark.hpp CACHE FILEPATH "Include file containing build revision, etc." FORCE)
 
 if(ANDROID)
     include(android)

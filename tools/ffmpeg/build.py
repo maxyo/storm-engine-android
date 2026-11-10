@@ -48,11 +48,16 @@ TARGETS = {
 
 
 def launcher():
-    # ccache in front of the compiler (owner rule: never compile cold). It does not change the
-    # output, so it is not part of the cache key.
-    ccache = shutil.which('ccache')
-    print(f'FFmpeg: compiler launcher: {ccache or "none (ccache not installed)"}', file=sys.stderr, flush=True)
-    return f'{ccache} ' if ccache else ''
+    # The Storm ccache launcher in front of the compiler (tools/ccache/README.md). It does not
+    # change the output, so it is not part of the cache key.
+    reason = os.environ.get('STORM_ALLOW_NO_CCACHE', '').strip()
+    if reason:
+        print(f'STORM ALARM: FFmpeg compiles WITHOUT CCACHE, STORM_ALLOW_NO_CCACHE="{reason}"', file=sys.stderr, flush=True)
+        return ''
+    if not shutil.which('ccache'):
+        sys.exit('STORM ALARM: ccache is not installed; FFmpeg compiles through tools/ccache/launcher '
+                 '(exception: STORM_ALLOW_NO_CCACHE="<reason>", tools/ccache/README.md)')
+    return f'{Path(__file__).resolve().parents[2] / "tools/ccache/launcher"} '
 
 
 def compiler(args):

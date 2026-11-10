@@ -21,6 +21,7 @@ DEPS = [
  ('zlib-1.3.2', 'https://zlib.net/fossils/zlib-1.3.2.tar.gz', 'bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16'),
 ]
 ROOT=Path(__file__).resolve().parent
+STORM=ROOT.parents[1]
 
 def run(args):
  print('+', ' '.join(map(str,args)),flush=True)
@@ -88,11 +89,12 @@ def main():
  patch_inno(src/'innoextract-1.9')
  patch_libarchive(src/'libarchive-3.8.10')
  prefix=build/'prefix';prefix.mkdir(parents=True,exist_ok=True)
- common=['-G','Ninja','-DCMAKE_BUILD_TYPE=Release','-DCMAKE_POSITION_INDEPENDENT_CODE=ON','-DBUILD_SHARED_LIBS=OFF',f'-DCMAKE_INSTALL_PREFIX={prefix}']
+ common=[f'-DCMAKE_{lang}_COMPILER_LAUNCHER={STORM/"tools/ccache/launcher"}' for lang in ('C','CXX')]+['-G','Ninja','-DCMAKE_BUILD_TYPE=Release','-DCMAKE_POSITION_INDEPENDENT_CODE=ON','-DBUILD_SHARED_LIBS=OFF',f'-DCMAKE_INSTALL_PREFIX={prefix}']
  if a.ndk:common += [f'-DCMAKE_TOOLCHAIN_FILE={a.ndk.resolve()}/build/cmake/android.toolchain.cmake','-DANDROID_ABI=arm64-v8a','-DANDROID_PLATFORM=android-24','-DANDROID_STL=c++_shared']
  def cmake(name,source,extra=(),target=None):
   dest=build/name
-  run(['cmake','-S',source,'-B',dest,*common,*extra]);run(['cmake','--build',dest,'--parallel',a.jobs,*(['--target',target] if target else [])]);return dest
+  run(['cmake','-S',source,'-B',dest,*common,*extra]);run([STORM/'tools/ccache/warmth','begin',dest])
+  run(['cmake','--build',dest,'--parallel',a.jobs,*(['--target',target] if target else [])]);run([STORM/'tools/ccache/warmth','end',dest]);return dest
  cmake('zlib',src/'zlib-1.3.2',['-DZLIB_BUILD_TESTING=OFF','-DZLIB_BUILD_SHARED=OFF','-DZLIB_BUILD_STATIC=ON'],'install')
  cmake('xz',src/'xz-5.8.4',['-DXZ_TOOL_XZ=OFF','-DXZ_TOOL_XZDEC=OFF','-DXZ_TOOL_LZMADEC=OFF','-DXZ_TOOL_LZMAINFO=OFF','-DXZ_TOOL_SCRIPTS=OFF','-DXZ_NLS=OFF','-DBUILD_TESTING=OFF'],'install')
  bz=build/'bzip-source';bz.mkdir(parents=True,exist_ok=True)
