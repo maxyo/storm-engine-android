@@ -1799,7 +1799,14 @@ float SHIP::Trace(const glm::vec3 &src, const glm::vec3 &dst)
 
 ATTRIBUTES *SHIP::BallOwnerCharacter(int32_t iBallOwner)
 {
-    // Every ball carries the index of the character that fired it (AIBalls.CharacterIndex).
+    // A ball carries the slot of the character that fired it in the script's fixed-size Characters
+    // array: Ball_AddBall sets AIBalls.CharacterIndex = aCharacter.Index for ships and forts alike
+    // (fort commanders are characters too), and FireBallFromCamera uses the main character. Slots are
+    // never removed, so the index stays in range while the ball flies: after the owner sinks or
+    // despawns, after the slot is reused for another character, and across save/load (BALL_PARAMS
+    // saves the index, the save restores the array). A reused slot names its current character;
+    // vanilla 1.7.3 Ship_HullDamage only stores aCharacter and never reads it. An index outside the
+    // array therefore means a corrupt ball, never legitimate play, and is reported as an error.
     auto *pVCharacters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
     const bool bIndexValid = pVCharacters && iBallOwner >= 0 &&
                              static_cast<uint32_t>(iBallOwner) < pVCharacters->GetElementsNum();
