@@ -9,25 +9,29 @@ import argparse
 import os
 from pathlib import Path
 import subprocess
-import tempfile
+import shutil
 import time
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--glm-source', type=Path, required=True)
 p.add_argument('--fmt-source', type=Path, required=True)
+p.add_argument('--build-dir', type=Path, required=True)
 p.add_argument('--game-dir', type=Path)
 a = p.parse_args()
 root = Path(__file__).resolve().parents[2]
 geometry = root / 'src/libs/geometry'
-with tempfile.TemporaryDirectory(prefix='storm-gm-loader-') as directory:
-    binary = Path(directory) / 'check'
-    started = time.monotonic()
-    subprocess.run([
-        os.environ.get('CXX', 'c++'), '-std=c++20', '-O1', '-DFMT_HEADER_ONLY',
-        '-I' + str(geometry / 'src'), '-I' + str(geometry / 'include'), '-I' + str(root / 'src/libs/math/include'),
-        '-I' + str(root / 'src/libs/core/include'), '-I' + str(a.glm_source), '-I' + str(a.fmt_source / 'include'),
-        str(Path(__file__).with_name('check.cpp')), str(geometry / 'src/geom_static.cpp'),
-        str(geometry / 'src/collide.cpp'), '-o', str(binary),
-    ], check=True)
-    print(f'built in {time.monotonic() - started:.1f}s', flush=True)
-    subprocess.run([str(binary)] + ([str(a.game_dir.resolve())] if a.game_dir else []), check=True)
+build = a.build_dir.resolve()
+build.mkdir(parents=True, exist_ok=True)
+compiler = ([shutil.which('ccache')] if shutil.which('ccache') else []) + [os.environ.get('CXX', 'c++')]
+flags = ['-std=c++20', '-O1', '-DFMT_HEADER_ONLY', '-I' + str(geometry / 'src'), '-I' + str(geometry / 'include'),
+         '-I' + str(root / 'src/libs/math/include'), '-I' + str(root / 'src/libs/core/include'),
+         '-I' + str(a.glm_source), '-I' + str(a.fmt_source / 'include')]
+started = time.monotonic()
+objects = []
+for source in (Path(__file__).with_name('check.cpp'), geometry / 'src/geom_static.cpp', geometry / 'src/collide.cpp'):
+    objects.append(build / (source.stem + '.o'))
+    subprocess.run(compiler + flags + ['-c', str(source), '-o', str(objects[-1])], check=True)
+binary = build / 'check'
+subprocess.run([os.environ.get('CXX', 'c++')] + [str(o) for o in objects] + ['-o', str(binary)], check=True)
+print(f'built in {time.monotonic() - started:.1f}s', flush=True)
+subprocess.run([str(binary)] + ([str(a.game_dir.resolve())] if a.game_dir else []), check=True)
