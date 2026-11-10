@@ -294,18 +294,30 @@ class PaperElement final : public DrawElement
         const Rml::Vector2f c0 = {band, band}, c1 = {w - band, h - band};
         const auto clamp_in = [&](Rml::Vector2f p) { return Rml::Vector2f(std::clamp(p.x, c0.x, c1.x), std::clamp(p.y, c0.y, c1.y)); };
         const size_t count = outline.size();
-        std::vector<int> outer(count), inner(count);
-        for (size_t i = 0; i < count; ++i)
+        // Three rings approximate the soft falloff of the edge stain: full at the torn
+        // edge, a third of it a little way in, none at the centre block.
+        const float ring_at[3] = {0.0f, 0.4f, 1.0f};
+        const float ring_stain[3] = {1.0f, 0.34f, 0.0f};
+        std::vector<int> rings[3];
+        for (int ring = 0; ring < 3; ++ring)
         {
-            const Rml::Vector2f p = outline[i], q = clamp_in(p);
-            outer[i] = Push(mesh, p, Over(Over(paper(p.y), edge), line).ToPremultiplied(opacity));
-            inner[i] = Push(mesh, q, paper(q.y).ToPremultiplied(opacity));
+            rings[ring].resize(count);
+            for (size_t i = 0; i < count; ++i)
+            {
+                const Rml::Vector2f p = outline[i], q = clamp_in(p);
+                const Rml::Vector2f at = p + (q - p) * ring_at[ring];
+                Rml::Colourb colour = Over(paper(at.y), edge, ring_stain[ring]);
+                if (ring == 0)
+                    colour = Over(colour, line);
+                rings[ring][i] = Push(mesh, at, colour.ToPremultiplied(opacity));
+            }
         }
-        for (size_t i = 0; i < count; ++i)
-        {
-            const size_t next = (i + 1) % count;
-            Quad(mesh, outer[i], outer[next], inner[next], inner[i]);
-        }
+        for (int ring = 0; ring < 2; ++ring)
+            for (size_t i = 0; i < count; ++i)
+            {
+                const size_t next = (i + 1) % count;
+                Quad(mesh, rings[ring][i], rings[ring][next], rings[ring + 1][next], rings[ring + 1][i]);
+            }
         {
             const int a = Push(mesh, c0, paper(c0.y).ToPremultiplied(opacity));
             const int b = Push(mesh, {c1.x, c0.y}, paper(c0.y).ToPremultiplied(opacity));
