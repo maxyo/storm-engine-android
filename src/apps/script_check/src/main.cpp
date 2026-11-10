@@ -1,7 +1,8 @@
 // script_check: compile a game's whole script tree on the host and report every diagnostic.
 //
 //   script_check check <game dir> [--program <dir>] [--main <file>] [--dump <dir>] [--warnings]
-//                [--language <name>]   (for %language% in include paths, default english)
+//                [--language <name>]   (for %language% in include paths; default: as the engine,
+//                                        language.ini's defaultLanguage)
 //   script_check test [--cache] <script>...
 //
 // check: compiles the main segment (seadogs.c) and then every other .c file under the program
@@ -116,7 +117,7 @@ int check(int argc, char **argv)
     std::string program_name, main_name = "seadogs.c";
     fs::path dump;
     bool warnings = false;
-    std::string language = "english"; // %language% in include paths (CL)
+    std::string language; // %language% in include paths (CL): language.ini's default unless given
     for (int i = 1; i < argc; ++i)
     {
         const std::string arg = argv[i];
@@ -181,7 +182,8 @@ int check(int argc, char **argv)
     COMPILER compiler;
     core_internal.Compiler = &compiler;
     compiler.ConfigureCompileCheck(&diagnostics, false);
-    compiler.SetScriptLanguage(language);
+    if (!language.empty())
+        compiler.SetScriptLanguage(language);
     compiler.SetProgramDirectory(program_name.c_str());
 
     const auto started = std::chrono::steady_clock::now();

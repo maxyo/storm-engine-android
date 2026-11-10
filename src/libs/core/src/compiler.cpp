@@ -434,6 +434,35 @@ void COMPILER::SetWarning(const char *data_PTR, ...)
         diagnosticsSink_->emplace_back(ErrorBuffer);
 }
 
+std::string COMPILER::ScriptLanguageDirectory()
+{
+    // %language% in include paths: the directory of the game language, as the string service
+    // takes it from RESOURCE\INI\TEXTS\language.ini ([COMMON] defaultLanguage, [DIRECTORY])
+    // unless SetScriptLanguage chose another language
+    constexpr const char *language_ini = "resource\\ini\\texts\\language.ini";
+    auto ini = fio->OpenIniFile(language_ini);
+    if (!ini)
+    {
+        SetError("%%language%% in an include: %s not found", language_ini);
+        return {};
+    }
+    char language[256]{};
+    if (!scriptLanguage_.empty())
+        strcpy_s(language, scriptLanguage_.c_str());
+    else if (!ini->ReadString("COMMON", "defaultLanguage", language, sizeof(language) - 1, ""))
+    {
+        SetError("%%language%% in an include: %s has no [COMMON] defaultLanguage", language_ini);
+        return {};
+    }
+    char directory[256]{};
+    if (!ini->ReadString("DIRECTORY", language, directory, sizeof(directory) - 1, "") || directory[0] == 0)
+    {
+        SetError("%%language%% in an include: %s has no [DIRECTORY] entry for '%s'", language_ini, language);
+        return {};
+    }
+    return directory;
+}
+
 std::filesystem::path COMPILER::CacheFolder() const
 {
     return cacheFolder_.empty() ? GetCacheFolder() : cacheFolder_;
@@ -1680,13 +1709,13 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
             std::string include_name = Token.GetData();
             if (const auto at = include_name.find("%language%"); at != std::string::npos)
             {
-                if (scriptLanguage_.empty())
+                const std::string language = ScriptLanguageDirectory();
+                if (language.empty())
                 {
-                    SetError("include '%s': no game language is set", include_name.c_str());
                     bPass1Ok = false;
                     break;
                 }
-                include_name.replace(at, strlen("%language%"), scriptLanguage_);
+                include_name.replace(at, strlen("%language%"), language);
             }
             if (Segment.Files_list->AddUnicalString(include_name.c_str()))
             {

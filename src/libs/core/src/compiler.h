@@ -357,7 +357,8 @@ class COMPILER : public VIRTUAL_COMPILER
     {
         return lastSegmentFromCache_;
     }
-    // the game language substituted for %language% in include paths (CL)
+    // the game language for %language% in include paths (CL); by default language.ini's default
+    // language, the one the string service starts with
     void SetScriptLanguage(std::string language)
     {
         scriptLanguage_ = std::move(language);
@@ -488,6 +489,7 @@ private:
     std::filesystem::path cacheFolder_; // UseScriptCache; empty: the stash folder
     bool lastSegmentFromCache_ = false;
     [[nodiscard]] std::filesystem::path CacheFolder() const;
+    std::string ScriptLanguageDirectory();
     char *appendBuffer_ = nullptr; // AppendProgram's buffer and its capacity
     uint32_t appendCapacity_ = 0;
     std::string scriptLanguage_; // see SetScriptLanguage
