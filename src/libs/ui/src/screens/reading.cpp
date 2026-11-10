@@ -8,6 +8,8 @@
 // The picture is the game's painting of the watch; the card shows the icon of the situation.
 #include "controls.h"
 
+#include <cctype>
+
 namespace storm::ui::screens
 {
 
@@ -152,6 +154,93 @@ class FrameScreen final : public Screen
     }
 };
 
+// News of the colonies and of the nations (interfaces "colonyinfo", "nationlegend"): a
+// parchment notice with the nations' flags; the game's only answer is its OK, which the close
+// cross and a tap beside the notice press as well.
+constexpr NodeRule kNoticeNodes[] = {
+    {"B_OK", "button", true},
+    {"INFO_TEXT", "text"},
+    {"INFO_TEXT_QUESTION", "text"},
+    {"INFO_CAPTION", "text|heading"},
+    {"Nat1", "image"},
+    {"Nat2", "image"},
+    {"RelNat", "image"},
+};
+
+// The game's picture of a nation (pictures.ini group NATIONS) as our flag icon.
+std::string FlagOf(const Widget *picture)
+{
+    const ImageRef *image = picture ? picture->FirstImage() : nullptr;
+    if (!image || image->image.empty())
+        return {};
+    static const char *const flags[][2] = {
+        {"england", "nation-england"}, {"france", "nation-france"}, {"spain", "nation-spain"},
+        {"holland", "nation-holland"}, {"pirate", "nation-pirates"}, {"pirates", "nation-pirates"}};
+    std::string name = image->image;
+    for (char &c : name)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (const auto &[game, icon] : flags)
+        if (name == game)
+            return icon;
+    return {};
+}
+
+class NoticeScreen final : public Screen
+{
+  public:
+    explicit NoticeScreen(const char *title_key) : title_key_(title_key)
+    {
+    }
+    const char *Component() const override
+    {
+        return "s-reading";
+    }
+    std::span<const NodeRule> Nodes() const override
+    {
+        return kNoticeNodes;
+    }
+
+    Json Build(const Admission &admitted, Bindings &bindings) override
+    {
+        const Widget *ok = admitted.One("B_OK");
+        std::string title = admitted.Label("INFO_CAPTION");
+        Json flags = Json::array();
+        for (const char *node : {"Nat1", "Nat2"})
+            if (const std::string flag = FlagOf(admitted.One(node)); !flag.empty())
+                flags.push_back(Json{{"icon", flag}});
+        if (flags.size() == 2)
+        {
+            // The relation between them, from the game's relations picture.
+            const ImageRef *relation = admitted.One("RelNat") ? admitted.One("RelNat")->FirstImage() : nullptr;
+            const std::string name = relation ? relation->image : std::string();
+            const char *icon = name == "Enemy" ? "rel-war" : name == "Friend" ? "rel-ally" : "rel-neutral";
+            const char *key = name == "Enemy" ? StringKey("reading.war") : name == "Friend" ? StringKey("reading.alliance") : StringKey("reading.peace");
+            flags.insert(flags.begin() + 1, Json{{"icon", icon}, {"word", bindings.Text(key)}, {"tone", name == "Enemy" ? "war" : ""}});
+        }
+        std::vector<const Widget *> lines = admitted.All("INFO_TEXT");
+        for (const Widget *question : admitted.All("INFO_TEXT_QUESTION"))
+            lines.push_back(question);
+        Json view{{"mode", "notice"},
+                  {"title", title.empty() ? bindings.Text(title_key_) : title},
+                  {"text", Joined(lines, " ")},
+                  {"flags", flags},
+                  {"icon", ""}};
+        Json actions = Json::array();
+        // A notice with several flags is a short news line: the cross is enough.
+        if (flags.size() < 2)
+            actions.push_back(ButtonView(bindings, *ok, "ok", "secondary"));
+        else
+            bindings.Forward("ok", *ok, "press");
+        view["actions"] = actions;
+        bindings.Forward("card-close", *ok, "press");
+        bindings.Forward("card", *ok, "press");
+        return view;
+    }
+
+  private:
+    const char *title_key_;
+};
+
 const CardKind &Kind(const char *screen)
 {
     for (const CardKind &kind : kKinds)
@@ -177,6 +266,14 @@ std::unique_ptr<Screen> CreateLeaveBattleScreen()
 std::unique_ptr<Screen> CreateSalaryScreen()
 {
     return std::make_unique<CardScreen>(Kind("salary"));
+}
+std::unique_ptr<Screen> CreateColonyNewsScreen()
+{
+    return std::make_unique<NoticeScreen>(StringKey("reading.colony_news"));
+}
+std::unique_ptr<Screen> CreateNationNewsScreen()
+{
+    return std::make_unique<NoticeScreen>(StringKey("reading.nation_news"));
 }
 std::unique_ptr<Screen> CreateFrameScreen()
 {

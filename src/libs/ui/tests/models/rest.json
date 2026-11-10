@@ -1,0 +1,66 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 4,
+ "screenRevision": 5,
+ "screen": "tavernwait",
+ "widgets": [
+  {
+   "node": "HOURS_SLIDE",
+   "type": "slider",
+   "label": "",
+   "value": "50",
+   "index": -1,
+   "order": 1,
+   "enabled": true,
+   "min": 0,
+   "max": 100,
+   "step": 1,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "set"
+   ],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "Полдня",
+   "value": "",
+   "index": -1,
+   "order": 2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "OK_BTN",
+   "type": "button",
+   "label": "Ок",
+   "value": "",
+   "index": -1,
+   "order": 3,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CANCEL_BTN",
+   "type": "button",
+   "label": "Отмена",
+   "value": "",
+   "index": -1,
+   "order": 4,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}
