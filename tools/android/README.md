@@ -108,6 +108,15 @@ and `screen_y` at renderer startup; unset preferences use the game INI values.
 Changes require restarting the game. Evaluate increased filtering on oblique
 ground/deck textures and measure its cost before choosing a device-specific default.
 
+## Host checks and CI
+
+`python3 tools/ci/run_host_tests.py` fetches the pinned open-source sources into
+`build/host-ci` and runs every `tests/*/run.py` in parallel with the arguments it
+needs (run it under `xvfb-run -a` without a display; the SDL input check opens a
+window). `.github/workflows/host.yml` runs it, plus the host build and unit test of
+`src/libs/ui`, on pushes and pull requests to `develop`. Android builds and device
+checks are not part of that workflow.
+
 ## Compiled script cache (`[script] cache_mode`)
 
 The script compiler can store each compiled segment and reload it on the next
