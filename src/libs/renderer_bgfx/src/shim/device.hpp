@@ -10,6 +10,11 @@
 
 struct SDL_Window;
 
+namespace storm::effects
+{
+struct FfDraw;
+}
+
 namespace storm::shim
 {
 
@@ -29,6 +34,8 @@ class Context final : public render::FrameOwner
     bool ready() const { return initialised_ && surface_.valid; }
     bool initialised() const { return initialised_; }
     void resize(uint32_t width, uint32_t height);
+    // Re-applies the reset flags (graphics effects changed the anisotropy) without a size change.
+    void refresh_reset_flags();
     // Any thread: the display density changed; the game thread re-reads it at its next safe point.
     void request_density_refresh();
     // Any thread: Android handed over a surface; restore once SDL holds its native window.
@@ -253,12 +260,22 @@ struct Device final : Direct3DDevice9Stub
     uint16_t new_view();
     bgfx::FrameBufferHandle framebuffer(TexStore *color, uint32_t face, uint32_t level, TexStore *depth);
     void purge_framebuffers(bgfx::TextureHandle texture);
-    void apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_port);
+    void apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_port, const effects::FfDraw &fx);
     uint64_t render_state_bits(D3DPRIMITIVETYPE type, bool *stencil, uint32_t *fstencil);
     uint32_t sampler_flags(uint32_t stage, const TexStore &store) const;
     void set_default_state();
     void bind_state_refs(const DeviceState &next);
     void create_backbuffer(uint32_t width, uint32_t height);
+    // The game picture's colour/depth stores for the current effects state (MSAA), kept inside the Surfaces the
+    // engine holds (GetBackBuffer / GetRenderTarget results stay valid).
+    void create_scene_stores(uint32_t width, uint32_t height);
+    // Graphics effects (src/effects): the 3D scene of this frame is complete; runs the post chain on it and
+    // makes its output the game picture the interface is drawn on. Once per presented frame.
+    void scene_complete();
+    // Graphics effects (src/effects/world.cpp): the view for an fx draw on the current render target, in submission
+    // order; `fresh` opens a new one. Marked as drawn into; the shim re-sends its sticky uniforms afterwards.
+    uint16_t effects_view(bool fresh);
+    static Device *current; // the one device (effects hooks reach it through the public render API)
     bgfx::ProgramHandle program(uint32_t vs_id, uint32_t fs_id);
 
     SDL_Window *window = nullptr;
@@ -267,6 +284,16 @@ struct Device final : Direct3DDevice9Stub
     std::vector<Light> lights;
     Surface *back_color = nullptr, *back_depth = nullptr; // owned references
     Surface *rt = nullptr, *ds = nullptr;                  // owned references
+    // Effects: the second game picture the post chain writes (swapped with back_color's store at the scene
+    // boundary), and a single-sample depth for other render targets while the scene target is multisampled.
+    TexStorePtr post_color, single_depth;
+    bool scene_done = false;  // the post chain ran (or was not needed) in this presented frame
+    bool scene_drawn = false; // a perspective draw reached the game picture in this presented frame
+    bool interface_drawn = false; // an interface announced itself (MakePostProcess) in this presented frame
+    bool post_view_logged = false;
+    bool interface_first_logged = false;
+    bool world_anisotropy = false; // fx::RendererState::max_anisotropy > 1, fixed when the device is created
+    D3DMATRIX scene_view{}, scene_proj{}; // camera of the last perspective draw into the game picture
     uint16_t view = 0;
     uint16_t views_used = 0;
     bool view_dirty = true;

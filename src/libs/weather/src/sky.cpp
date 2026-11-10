@@ -7,6 +7,7 @@
 #include "legacy_colored_mesh.hpp"
 #include "legacy_textured_mesh.hpp"
 #include "sky_mesh.hpp"
+#include "storm/render/effects.hpp"
 #include <algorithm>
 #include <cmath>
 #ifdef __ANDROID__
@@ -115,9 +116,42 @@ bool SKY::LoadState(ENTITY_STATE *state)
     return true;
 }
 
+bool SKY::DrawSkyObjects(uint32_t Delta_Time, bool sun_sprite)
+{
+    entid_t eid;
+
+    if (!pAstronomy)
+        if (eid = core.GetEntityId("Astronomy"))
+            pAstronomy = static_cast<Entity *>(core.GetEntityPointer(eid));
+
+    if (!pSunGlow)
+        if (eid = core.GetEntityId("SUNGLOW"))
+            pSunGlow = static_cast<Entity *>(core.GetEntityPointer(eid));
+
+    if (!pAstronomy && !pSunGlow)
+        return false;
+    if (pAstronomy)
+        pAstronomy->ProcessStage(Stage::realize, Delta_Time);
+    if (pSunGlow)
+        static_cast<SUNGLOW *>(pSunGlow)->DrawSunMoon(sun_sprite);
+    return true;
+}
+
 void SKY::Realize(uint32_t Delta_Time)
 {
     fAngleY += static_cast<float>(Delta_Time) * 0.001f * fSkySpeedRotate;
+
+    if (storm::render::CurrentEffectsWorld().sky)
+    {
+        // The analytic sky (renderer_bgfx/fx) replaces the textured sky box and the fog sphere; the fog takes its
+        // horizon colour (WEATHER). Stars, planets and the moon are drawn on top; it draws its own sun disc.
+        storm::render::EffectsMatrix view;
+        pRS->GetTransform(D3DTS_VIEW, reinterpret_cast<D3DMATRIX *>(view.data()));
+        storm::render::EffectsDrawSky(view);
+        if (Delta_Time != 0)
+            DrawSkyObjects(Delta_Time, false);
+        return;
+    }
 
     float fFov;
     glm::vec3 vPos, vAng;
@@ -158,28 +192,10 @@ void SKY::Realize(uint32_t Delta_Time)
 
         drawSky(sTechSkyBlend, dwColor, true);
 
-        if (Delta_Time != 0)
+        if (Delta_Time != 0 && DrawSkyObjects(Delta_Time, true))
         {
-            entid_t eid;
-
-            if (!pAstronomy)
-                if (eid = core.GetEntityId("Astronomy"))
-                    pAstronomy = static_cast<Entity *>(core.GetEntityPointer(eid));
-
-            if (!pSunGlow)
-                if (eid = core.GetEntityId("SUNGLOW"))
-                    pSunGlow = static_cast<Entity *>(core.GetEntityPointer(eid));
-
-            if (pAstronomy || pSunGlow)
-            {
-                if (pAstronomy)
-                    pAstronomy->ProcessStage(Stage::realize, Delta_Time);
-                if (pSunGlow)
-                    static_cast<SUNGLOW *>(pSunGlow)->DrawSunMoon();
-
-                pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(pMatWorld));
-                drawSky(sTechSkyBlendAlpha, dwColor, true);
-            }
+            pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(pMatWorld));
+            drawSky(sTechSkyBlendAlpha, dwColor, true);
         }
     }
     else
