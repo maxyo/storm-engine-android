@@ -268,6 +268,48 @@ inline bool readFile(const fs::path &path, Bytes &data, std::string &error)
     return true;
 }
 
+// Extended data of a save on disk without reading the script state: the header and the
+// section at its offset only (save lists read the descriptions of every record).
+inline bool readExtDataFromFile(const fs::path &path, Bytes &data, std::string &error)
+{
+    data.clear();
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file)
+    {
+        error = "cannot open file";
+        return false;
+    }
+    const auto size = static_cast<uint64_t>(static_cast<std::streamoff>(file.tellg()));
+    Header header;
+    if (size < sizeof(Header) + sizeof(uint32_t) || !file.seekg(0) ||
+        !file.read(reinterpret_cast<char *>(&header), sizeof(header)))
+    {
+        error = "file is shorter than a save header";
+        return false;
+    }
+    if (header.dwExtDataSize == 0)
+        return true;
+    uint32_t packedSize = 0;
+    if (header.dwExtDataOffset < sizeof(Header) || header.dwExtDataOffset > size - sizeof(uint32_t) ||
+        !file.seekg(header.dwExtDataOffset) || !file.read(reinterpret_cast<char *>(&packedSize), sizeof(packedSize)))
+    {
+        error = "extended data offset is outside the file";
+        return false;
+    }
+    if (packedSize > size - header.dwExtDataOffset - sizeof(uint32_t) || packedSize > kMaxSectionSize)
+    {
+        error = "extended data is truncated";
+        return false;
+    }
+    Bytes packed(packedSize);
+    if (packedSize > 0 && !file.read(packed.data(), packedSize))
+    {
+        error = "cannot read file";
+        return false;
+    }
+    return unpack(packed.data(), packedSize, header.dwExtDataSize, data, error);
+}
+
 namespace detail
 {
 inline std::string lastError(const char *what)
