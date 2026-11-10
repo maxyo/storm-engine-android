@@ -80,27 +80,57 @@ int Number(const std::string &text)
     return digits.empty() || digits == "-" ? 0 : std::atoi(digits.c_str());
 }
 
+// The first whole number in a text ("Деньги 500, вес 10 ц" → 500); 0 when there is none.
+int FirstNumber(const std::string &text)
+{
+    const size_t first = text.find_first_of("0123456789");
+    if (first == std::string::npos)
+        return 0;
+    const size_t end = text.find_first_not_of("0123456789", first);
+    return std::atoi(text.substr(first, end == std::string::npos ? std::string::npos : end - first).c_str());
+}
+
 std::string OneLine(std::string text)
 {
     std::replace(text.begin(), text.end(), '\n', ' ');
     return text;
 }
 
-// The trade type as the game colours the goods name.
-const char *MetaTone(uint32_t argb)
+// The trade type, which the game tells only by the colour of the goods name: the tone of
+// the row's second line and the string key of its word.
+struct TradeType
+{
+    const char *tone = "";
+    const char *word = nullptr;
+};
+TradeType TradeTypeOf(uint32_t argb)
 {
     switch (argb & 0xffffff)
     {
     case 0xc4ffc4:
-        return "ok"; // export
+        return {"ok", StringKey("trade.export")};
     case 0xc4c4ff:
+        return {"gold", StringKey("trade.import")};
     case 0xffc462:
-        return "gold"; // import, high demand
+        return {"gold", StringKey("trade.demand")};
     case 0xffc4c4:
-        return "danger"; // contraband
+        return {"danger", StringKey("trade.contraband_goods")};
     default:
-        return "";
+        return {};
     }
+}
+
+// 1500 → "1 500".
+std::string Spaced(int value)
+{
+    std::string digits = std::to_string(std::abs(value)), out;
+    for (size_t i = 0; i < digits.size(); ++i)
+    {
+        if (i && (digits.size() - i) % 3 == 0)
+            out += ' ';
+        out += digits[i];
+    }
+    return value < 0 ? "-" + out : out;
 }
 
 // "Трюм:\n189 / 199" → {label, value}; a one-line text is no figure.
@@ -176,13 +206,14 @@ class CommerceScreen final : public Screen
             for (const Cell &cell : row->cells)
                 if (cell.column == columns.name)
                     name = &cell;
-            const char *tone = name ? MetaTone(name->color_argb) : "";
+            const TradeType type = name ? TradeTypeOf(name->color_argb) : TradeType();
+            const char *tone = type.tone;
             if (filter_ == 2 && (money ? std::string(tone) != "ok" : Number(row->CellText(columns.other)) == 0))
                 continue;
-            std::string meta;
+            std::string meta = type.word ? bindings.Text(type.word) : std::string();
             const std::string pack = columns.pack >= 0 ? row->CellText(columns.pack) : std::string();
             if (!pack.empty() && pack != "1")
-                meta = header(columns.pack) + " " + pack;
+                meta += (meta.empty() ? "" : " · ") + header(columns.pack) + " " + pack;
             for (const int detail : columns.details)
                 if (detail >= 0 && !row->CellText(detail).empty())
                     meta += (meta.empty() ? "" : " · ") + header(detail) + " " + row->CellText(detail);
@@ -293,20 +324,53 @@ class CommerceScreen final : public Screen
         else
             view["subject"] = Json();
 
+        // Header figures. While a deal is being set they show what it changes: the game
+        // already counts the deal into the hold figure, so the figure from before is kept;
+        // the balance changes only on confirmation, so its outcome is computed from the
+        // game's own result line.
+        const int amount_now = std::abs(model_target - ours);
         Json stats = Json::array();
         for (const char *node : {"CAPACITY", "STORE_CAPACITY"})
-            if (Json figure = Figure(admitted.Label(node)); !figure.is_null() && stats.size() < 2)
-                stats.push_back(std::move(figure));
-        const std::string gold = admitted.Label("OUR_GOLD");
+        {
+            Json figure = Figure(admitted.Label(node));
+            if (figure.is_null() || stats.size() == 2)
+                continue;
+            if (std::string(node) == "CAPACITY")
+            {
+                const std::string now = figure["value"];
+                if (amount_now == 0)
+                    hold_before_ = now;
+                else if (!hold_before_.empty() && hold_before_ != now)
+                {
+                    figure["value"] = hold_before_.substr(0, hold_before_.find(" /"));
+                    figure["preview"] = now.substr(0, now.find(" /"));
+                    figure["previewTone"] = "neutral";
+                }
+            }
+            stats.push_back(std::move(figure));
+        }
+        const Widget *balance = admitted.One("OUR_GOLD");
+        const std::string gold = balance ? balance->label : std::string();
         if (const size_t digit = gold.find_first_of("0123456789"); digit != std::string::npos)
         {
             const size_t end = gold.find_first_not_of("0123456789 ", digit);
             std::string amount = gold.substr(digit, end == std::string::npos ? std::string::npos : end - digit);
             while (!amount.empty() && amount.back() == ' ')
                 amount.pop_back();
+            // Some merchants trade for doubloons; the engine marks the balance then.
+            const auto currency = balance->context.find("currency");
+            Json figure = currency != balance->context.end() && currency->second == "doubloons"
+                              ? Json{{"label", bindings.Text("trade.doubloons")}, {"value", amount}, {"tone", "gold"}}
+                              : Json{{"icon", "money"}, {"value", amount}, {"tone", "gold"}};
+            const std::string result = admitted.Label("QTY_Result");
+            if (deal && money && amount_now > 0 && FirstNumber(result) > 0)
+            {
+                const int price = FirstNumber(result);
+                figure["preview"] = Spaced(Number(amount) + (model_target > ours ? -price : price));
+            }
             if (stats.size() == 2)
                 stats.erase(1);
-            stats.push_back(Json{{"icon", "money"}, {"value", amount}, {"tone", "gold"}});
+            stats.push_back(std::move(figure));
         }
         view["stats"] = stats;
 
@@ -400,6 +464,7 @@ class CommerceScreen final : public Screen
 
   private:
     const Layout &layout_;
+    std::string hold_before_; // the hold figure before the amount of the open deal was set
     int filter_ = 0; // 0 all, 1 on our side, 2 profitable (export goods) / on the other side
     // The amount the player set last: shown until the game's own number catches up.
     std::string local_row_;

@@ -493,6 +493,17 @@ void XINTERFACE::Realize(uint32_t)
             option.rowId = std::to_string(storm::android::mobileScreenRevision);
             widgets.push_back(std::move(option));
         }
+        if (storm::android::mobileScreen == "itemstrade")
+        {
+            // The items trade runs in coins or, for some merchants, in doubloons (script
+            // TradeMode 1). The balance text alone does not say which in every language.
+            auto *mode = static_cast<VDATA *>(core.GetScriptVariable("TradeMode"));
+            int32_t value = 0;
+            if (mode && mode->Get(value) && value == 1)
+                for (auto &widget : widgets)
+                    if (storm::iEquals(widget.node, "OUR_GOLD"))
+                        widget.context["currency"] = "doubloons";
+        }
         std::stable_sort(widgets.begin(), widgets.end(), [](const auto &a, const auto &b) {return a.order < b.order;});
         if (storm::android::mobileScreen == "items")
             inventoryEquipCapability.published(storm::android::mobileScreenRevision, widgets);

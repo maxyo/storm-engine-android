@@ -388,6 +388,25 @@ static void Commerce(const std::string &models)
     router.SetInterface(Load(models, "itemsbox-deal.json"));
     Expect(surface.props["list"]["rows"][0]["q"]["steps"].size() == 2 && surface.props["list"]["rows"][0]["q"]["max"] == 26, "single items: steps 1 and 10, up to both sides");
 
+    // While a deal is set, the header shows what it changes.
+    router.SetInterface(Load(models, "store.json"));
+    InterfaceModel buying = Load(models, "store-deal.json");
+    for (Widget &widget : buying.widgets)
+        if (widget.node == "CAPACITY")
+            widget.label = "Трюм:\n194 / 199"; // the game counts the deal into the hold figure
+    router.SetInterface(buying);
+    Expect(surface.props["stats"][0]["value"] == "189" && surface.props["stats"][0]["preview"] == "194", "hold: before → with the deal");
+    Expect(surface.props["stats"][1]["value"] == "1 500" && surface.props["stats"][1]["preview"] == "1 475", "balance: now → after buying for 25");
+    ExpectEqual(surface.props["list"]["rows"][5]["meta"], "<trade.export> · Пачка 10", "the trade type the colour tells is named from the string table");
+    InterfaceModel doubloons = Load(models, "itemstrade-deal.json");
+    for (Widget &widget : doubloons.widgets)
+        if (widget.node == "OUR_GOLD")
+            widget.context["currency"] = "doubloons";
+    router.SetInterface(doubloons);
+    Expect(surface.props["stats"][1]["label"] == "<trade.doubloons>" && !surface.props["stats"][1].contains("icon") &&
+               surface.props["stats"][1]["preview"] == "750",
+           "a doubloon merchant: the balance is named, not drawn as coins");
+
     // Money trades: explicit primary with the price.
     router.SetInterface(Load(models, "cannons-deal.json"));
     ExpectEqual(surface.props["primary"]["label"], "Купить 6", "cannons: the primary names the deal");
