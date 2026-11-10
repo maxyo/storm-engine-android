@@ -117,6 +117,8 @@ class DATA : public VDATA
     };
     uint32_t GetElementsNum() override;
     void SetElementsNum(uint32_t asize) override;
+    // makes this an array of `size` elements of its type (also 0 or 1 element)
+    void SetArraySize(uint32_t size);
 
     bool IsArray() override
     {

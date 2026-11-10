@@ -76,6 +76,19 @@ const FuncInfo *FuncTable::GetFuncPtr(size_t func_index) const
     return func.offset != INVALID_FUNC_OFFSET ? &func : nullptr;
 }
 
+const FuncInfo *FuncTable::GetFuncInfo(size_t func_index) const
+{
+    return func_index < funcs_.size() ? &funcs_[func_index] : nullptr;
+}
+
+void FuncTable::SetFuncSignature(size_t func_index, std::vector<DefaultArgument> default_args, bool varargs)
+{
+    if (func_index >= funcs_.size())
+        return;
+    funcs_[func_index].default_args = std::move(default_args);
+    funcs_[func_index].varargs = varargs;
+}
+
 bool FuncTable::GetFunc(FuncInfo &fi, size_t func_index) const
 {
     const auto *func = GetFuncPtr(func_index);

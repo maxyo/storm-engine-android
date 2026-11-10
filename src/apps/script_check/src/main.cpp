@@ -14,9 +14,14 @@
 // "// expect-error: <text>" must instead fail to compile with an error containing <text>.
 #include "compiler.h"
 #include "core_impl.h"
+#include "s_import_func.h"
+#include "script_libriary.h"
+#include "v_s_stack.h"
+#include "vma.hpp"
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -27,6 +32,45 @@
 #include <vector>
 
 namespace fs = std::filesystem;
+
+// "script_check_test_library" for the script tests: one native the tests declare and one they do not
+namespace
+{
+uint32_t ScriptCheckAddOne(VS_STACK *stack)
+{
+    auto *value = static_cast<VDATA *>(stack->Pop());
+    const int32_t result = value->GetInt() + 1;
+    static_cast<VDATA *>(stack->Push())->Set(result);
+    return IFUNCRESULT_OK;
+}
+
+uint32_t ScriptCheckUnused(VS_STACK *stack)
+{
+    static_cast<VDATA *>(stack->Push())->Set(int32_t{0});
+    return IFUNCRESULT_OK;
+}
+} // namespace
+
+class script_check_test_library : public SCRIPT_LIBRIARY
+{
+  public:
+    bool Init() override
+    {
+        IFUNCINFO info;
+        info.pFuncName = "ScriptCheckAddOne";
+        info.pReturnValueName = "int";
+        info.pFuncAddress = ScriptCheckAddOne;
+        info.nArguments = 1;
+        core.SetScriptFunction(&info);
+        info.pFuncName = "ScriptCheckUnused";
+        info.pFuncAddress = ScriptCheckUnused;
+        info.nArguments = 0;
+        core.SetScriptFunction(&info);
+        return true;
+    }
+};
+
+CREATE_SCRIPTLIBRIARY(script_check_test_library)
 
 namespace
 {
@@ -129,7 +173,7 @@ int check(int argc, char **argv)
     std::vector<std::string> diagnostics;
     COMPILER compiler;
     core_internal.Compiler = &compiler;
-    compiler.ConfigureCompileCheck(&diagnostics);
+    compiler.ConfigureCompileCheck(&diagnostics, false);
     compiler.SetProgramDirectory(program_name.c_str());
 
     const auto started = std::chrono::steady_clock::now();
@@ -157,6 +201,28 @@ int check(int argc, char **argv)
                 std::ranges::replace(name, '\\', '_');
                 fs::create_directories(dump);
                 std::ofstream(dump / (lower(name) + ".b"), std::ios::binary).write(code, size);
+                // attribute and function names of the ACCESS_WORD_CODE and CALL_FUNCTION tokens, in
+                // order: their codes depend on the order of compilation
+                std::ofstream words(dump / (lower(name) + ".aw"));
+                for (uint32_t ip = 0; ip < size;)
+                {
+                    const auto type = static_cast<uint8_t>(code[ip++]);
+                    uint32_t data_size = static_cast<uint8_t>(code[ip++]);
+                    if (data_size == 0xff)
+                    {
+                        std::memcpy(&data_size, code + ip, sizeof(uint32_t));
+                        ip += sizeof(uint32_t);
+                    }
+                    if ((type == ACCESS_WORD_CODE || type == CALL_FUNCTION) && data_size == sizeof(uint32_t))
+                    {
+                        uint32_t word;
+                        std::memcpy(&word, code + ip, sizeof(uint32_t));
+                        words << (type == ACCESS_WORD_CODE ? compiler.GetAccessWord(word)
+                                                           : compiler.GetFunctionName(word))
+                              << '\n';
+                    }
+                    ip += data_size;
+                }
             }
         }
     };
@@ -200,7 +266,7 @@ int test(int argc, char **argv)
         std::vector<std::string> diagnostics;
         COMPILER compiler;
         core_internal.Compiler = &compiler;
-        compiler.ConfigureCompileCheck(&diagnostics);
+        compiler.ConfigureCompileCheck(&diagnostics, true);
         fs::current_path(script.parent_path());
         fio->ScanResourcePaths(false); // scripts only, no engine-shaders overlay
         compiler.SetProgramDirectory(".");
@@ -270,6 +336,8 @@ int main(int argc, char **argv)
 {
     if (argc < 2)
         return usage();
+    for (auto *c : __STORM_CLASSES_REGISTRY) // as CoreImpl::Init: FindVMA looks classes up by hash
+        c->SetHash(MakeHashValue(c->GetName()));
     const std::string mode = argv[1];
     if (mode == "check")
         return check(argc - 2, argv + 2);

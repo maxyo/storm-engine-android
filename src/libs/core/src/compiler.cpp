@@ -27,6 +27,7 @@
 
 #include <SDL_timer.h>
 #include <unordered_map>
+#include <fmt/ranges.h>
 
 #define SKIP_COMMENT_TRACING
 #define TRACE_OFF
@@ -66,7 +67,7 @@ auto GetCacheFolder()
 // themselves: the engine build (token numbering, internal function table and
 // bytecode layout are not stable across builds), the cache layout, and which
 // game directory the scripts came from (the cache folder is shared).
-constexpr uint64_t kCacheFormatVersion = 2;
+constexpr uint64_t kCacheFormatVersion = 3; // 3: CL script extensions (functions keep defaults, "...", native)
 
 uint64_t CalculateCacheKey(const char *program_directory)
 {
@@ -173,6 +174,7 @@ void COMPILER::Release()
     EventMsg.Release();
     SCodec.Release();
     LibriaryFuncs.clear();
+    pendingNatives_.clear();
 
     delete[] pDebExpBuffer;
     pDebExpBuffer = nullptr;
@@ -387,6 +389,7 @@ void COMPILER::SetError(const char *data_PTR, ...)
         sprintf_s(ErrorBuffer, "ERROR in %s(%d): %s", DebugSourceFileName, DebugSourceLine + 1, LogBuffer);
         break;
     case CS_COMPILATION:
+        compileErrors_++;
         sprintf_s(ErrorBuffer, "COMPILE ERROR in %s(%d): %s", DebugSourceFileName, DebugSourceLine + 1, LogBuffer);
         break;
     case CS_RUNTIME:
@@ -430,9 +433,10 @@ void COMPILER::SetWarning(const char *data_PTR, ...)
         diagnosticsSink_->emplace_back(ErrorBuffer);
 }
 
-void COMPILER::ConfigureCompileCheck(std::vector<std::string> *sink)
+void COMPILER::ConfigureCompileCheck(std::vector<std::string> *sink, bool missing_natives_are_errors)
 {
     diagnosticsSink_ = sink;
+    missingNativesAreErrors_ = missing_natives_are_errors;
     compileCheck_ = true;
     bDebugInfo = true;
     script_cache_mode_ = kCacheDisabled;
@@ -656,7 +660,7 @@ void COMPILER::FindErrorSource()
     char *pCodeBase = SegmentTable[segment_index].pCode;
     do
     {
-        Token_type = static_cast<S_TOKEN_TYPE>(pCodeBase[ip]);
+        Token_type = static_cast<S_TOKEN_TYPE>(static_cast<uint8_t>(pCodeBase[ip]));
         ip++;
         if (static_cast<uint8_t>(pCodeBase[ip]) < 0xff)
         {
@@ -1472,6 +1476,15 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
     bImport = false;
     bool bDotFlag;
     bDotFlag = false;
+    // label detection: the two significant tokens before ':' and '?' still waiting for their ':'
+    S_TOKEN_TYPE prevToken = SEPARATOR, prevToken2 = SEPARATOR;
+    std::string prevText;
+    uint32_t pendingQuestions = 0;
+    std::unordered_map<std::string, uint32_t> declaredLocals; // pass 1: declarations per name
+    bool resumed = false;                                    // see SkipInitializer
+    LabelTable.Release(); // labels belong to a function of this segment
+    compileErrors_ = 0;   // some compile paths report an error and carry on
+    missingNatives_.clear();
     do
     {
         Token_type = Token.Get();
@@ -1486,22 +1499,50 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
         case COMMENT:
             DebugSourceLine += Token.TokenLines();
             break;
+        case OP_QUESTION:
+            pendingQuestions++;
+            break;
         case LABEL:
-            Token.StepBack();
-            Token.StepBack();
-            Token.Get(); // label name
-
-            if (!LabelTable.AddUnicalString(Token.GetData()))
-                SetError("duplicate label: %s", Token.GetData());
-            Token.Get();
+            if (pendingQuestions > 0)
+            {
+                pendingQuestions--; // ':' of a conditional expression
+                break;
+            }
+            // "name:" starting a statement; "default:" belongs to a switch
+            if (inout > 0 && prevToken == UNKNOWN && !storm::iEquals(prevText, "default") &&
+                (prevToken2 == SEPARATOR || prevToken2 == BLOCK_IN || prevToken2 == BLOCK_OUT ||
+                 prevToken2 == LABEL))
+            {
+                if (!LabelTable.AddUnicalString(LabelKey(func_name, prevText.c_str()).c_str()))
+                {
+                    SetError("duplicate label: %s", prevText.c_str());
+                    bPass1Ok = false;
+                }
+            }
             break;
         case CASE_COMMAND:
-            Token.Get(); // condition value
-            if (Token.Get() != LABEL)
+            // the value is an expression up to its ':'
+            for (uint32_t depth = 0;;)
             {
-                SetError("invalid case syntax");
-                return false;
+                const S_TOKEN_TYPE t = Token.Get();
+                if (t == END_OF_PROGRAMM)
+                    break;
+                if (t == DEBUG_LINEFEED)
+                    DebugSourceLine++;
+                else if (t == OPEN_BRACKET)
+                    depth++;
+                else if (t == CLOSE_BRACKET && depth > 0)
+                    depth--;
+                else if (t == OP_QUESTION)
+                    pendingQuestions++;
+                else if (t == LABEL && depth == 0)
+                {
+                    if (pendingQuestions == 0)
+                        break;
+                    pendingQuestions--;
+                }
             }
+            Token_type = LABEL;
             break;
         case SEPARATOR:
             if (bFunctionBlock && bExtern)
@@ -1546,7 +1587,16 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
 
             pLib = static_cast<SCRIPT_LIBRIARY *>(pClass->CreateClass());
             if (pLib)
+            {
+                std::vector<std::string> undeclared;
+                undeclaredNatives_ = &undeclared;
                 pLib->Init();
+                undeclaredNatives_ = nullptr;
+                if (!undeclared.empty())
+                    spdlog::info("Script library '{}': {} natives not declared before it is loaded (bound if "
+                                 "declared later): {}",
+                                 Token.GetData(), undeclared.size(), fmt::join(undeclared, ", "));
+            }
 
             LibriaryFuncs.emplace_back(pLib, Token.GetData());
             if (script_cache_mode_ != kCacheDisabled)
@@ -1608,7 +1658,7 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                 switch (Token.GetType())
                 {
                 case NUMBER:
-                    lvalue = static_cast<int32_t>(atoll(Token.GetData()));
+                    lvalue = ParseIntLiteral(Token.GetData());
                     if (bMinus)
                         lvalue = -lvalue;
                     memcpy(&di.data4b, &lvalue, sizeof(int32_t));
@@ -1711,20 +1761,73 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                         fi.decl_file_name = DebugSourceFileName;
                         fi.decl_line = DebugSourceLine;
                         fi.imported_func = nullptr;
+                        declaredLocals.clear();
+                        fi.native = bImport;
+                        fi.varargs = false;
+                        fi.default_args.clear();
                         func_code = FuncTab.AddFunc(fi);
 
                         if (func_code == INVALID_FUNC_CODE)
                         {
-                            FuncTab.GetFunc(fi, FuncTab.FindFunc(fi.name));
+                            const auto existing = FuncTab.FindFunc(fi.name);
+                            const S_TOKEN_TYPE declared_return = fi.return_type;
+                            const std::string declared_name = fi.name;
+                            FuncTab.GetFuncX(fi, existing);
+                            if (bImport && fi.segment_id == INTERNAL_SEGMENT_ID)
+                            {
+                                if (!ReturnTypesMatch(declared_return, fi.return_type))
+                                {
+                                    SetError("native declaration of built-in function '%s' returns %s, the engine's "
+                                             "returns %s",
+                                             declared_name.c_str(), Token.GetTypeName(declared_return),
+                                             Token.GetTypeName(fi.return_type));
+                                    bPass1Ok = false;
+                                }
+                                // a script may declare a built-in function as native (CL: Program\internal.c)
+                                FuncInfo declared;
+                                if (!ScanParameterList(INVALID_FUNC_CODE, false, declared))
+                                    bPass1Ok = false;
+                                else if (!IsIntFuncVarArgsNum(existing) &&
+                                         (declared.arguments != fi.arguments || declared.varargs))
+                                {
+                                    SetError("native declaration of built-in function '%s' takes %u arguments, the "
+                                             "engine's takes %u",
+                                             declared_name.c_str(), declared.arguments, fi.arguments);
+                                    bPass1Ok = false;
+                                }
+                                break;
+                            }
                             SetError("Function [%s] already declared in: %s line %d", fi.name.c_str(),
                                      fi.decl_file_name.c_str(), fi.decl_line);
                             bPass1Ok = false; // its arguments and locals go nowhere (invalid func_code)
+                            FuncInfo ignored;
+                            ScanParameterList(INVALID_FUNC_CODE, false, ignored);
                             break;
                         }
                         if (script_cache_mode_ != kCacheDisabled)
                         {
                             script_cache_.functions.emplace_back(storm::script_cache::Function{
                                 fi, std::vector<storm::script_cache::FunctionLocalVariable>{}});
+                        }
+                        FuncInfo declared;
+                        if (!ScanParameterList(func_code, bExtern, declared))
+                            bPass1Ok = false;
+                        if (script_cache_mode_ != kCacheDisabled)
+                        {
+                            script_cache_.functions.back().info.default_args = declared.default_args;
+                            script_cache_.functions.back().info.varargs = declared.varargs;
+                        }
+                        FuncTab.SetFuncSignature(func_code, std::move(declared.default_args), declared.varargs);
+                        if (bImport)
+                        {
+                            // a library loaded earlier registered it before this declaration
+                            if (auto pending = pendingNatives_.find(LowerName(fi.name)); pending != pendingNatives_.end())
+                            {
+                                IFUNCINFO info = pending->second;
+                                pendingNatives_.erase(pending);
+                                if (SetScriptFunction(&info) == INVALID_FUNCHANDLE)
+                                    bPass1Ok = false;
+                            }
                         }
                         break;
                     }
@@ -1771,7 +1874,7 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                                 }
                             }
                             else
-                                lvalue = static_cast<int32_t>(atoll(Token.GetData()));
+                                lvalue = ParseIntLiteral(Token.GetData());
                             vi.elements = lvalue;
                             Token.Get(); // SQUARE_CLOSE_BRACKET
                             Token.Get();
@@ -1848,9 +1951,9 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                                             return false;
                                         }
                                         if (bNeg)
-                                            real_var->value->Set(-atoi(Token.GetData()), aindex);
+                                            real_var->value->Set(-ParseIntLiteral(Token.GetData()), aindex);
                                         else
-                                            real_var->value->Set(static_cast<int32_t>(atoll(Token.GetData())), aindex);
+                                            real_var->value->Set(ParseIntLiteral(Token.GetData()), aindex);
                                         aindex++;
                                         break;
                                     case FLOAT_NUMBER:
@@ -1919,9 +2022,9 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                                     if (vi.type != VAR_INTEGER)
                                         break;
                                     if (bNeg)
-                                        real_var->value->Set(-atoi(Token.GetData()));
+                                        real_var->value->Set(-ParseIntLiteral(Token.GetData()));
                                     else
-                                        real_var->value->Set(static_cast<int32_t>(atoll(Token.GetData())));
+                                        real_var->value->Set(ParseIntLiteral(Token.GetData()));
                                     break;
                                 case FLOAT_NUMBER:
                                     if (vi.type != VAR_FLOAT)
@@ -1956,79 +2059,47 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     Token.StepBack();
                     break;
                 }
-                // function argument list
-                // compute number of arguments
-                // if(bImport || !bExtern)
-                {
-                    lvi.type = Token_type;
-                    lvi.name = Token.GetData();
-                    lvi.elements = 1;
-                    if (bExtern)
-                        FuncTab.AddFuncArg(func_code, lvi, true);
-                    else
-                        FuncTab.AddFuncArg(func_code, lvi);
-
-                    if (script_cache_mode_ != kCacheDisabled)
-                    {
-                        script_cache_.functions.back().arguments.emplace_back(
-                            storm::script_cache::FunctionLocalVariable{lvi, bExtern});
-                    }
-                }
+                // ScanParameterList consumed the parameter list after the function name
+                SetError("Invalid function declaration");
+                bPass1Ok = false;
             }
             else
             {
-                // local variables
-                // compute number of local vars
+                // local variables: a name declared again (sibling blocks, two for loops) gets its own
+                // slot, pass 2 binds each declaration to it in the same order
+                if (!IsIdentifier(Token.GetData()))
+                    break; // a type used as a function-style cast, e.g. int(x)
                 lvi.type = Token_type;
                 Token.StepBack();
+                resumed = false;
                 do
                 {
                     Token.Get();
-                    if (Token.GetData() == nullptr)
+                    if (!IsIdentifier(Token.GetData()))
                     {
                         SetError("Invalid variable name");
-                        return false;
+                        bPass1Ok = false;
+                        break;
                     }
                     lvi.name = Token.GetData();
                     lvi.elements = 1;
                     Token.Get();
                     if (Token.GetType() == SQUARE_OPEN_BRACKET)
+                        lvi.elements = ScanLocalArraySize();
+                    if (Token.GetType() == OP_EQUAL)
                     {
-                        Token.Get();
-                        if (Token.GetType() != NUMBER)
-                        {
-                            def_code = DefTab.FindDef(Token.GetData());
-                            if (def_code != INVALID_DEF_CODE)
-                            {
-                                DefTab.GetDef(di, def_code);
-                                if (di.deftype == NUMBER)
-                                {
-                                    lvalue = di.data4b;
-                                }
-                                else
-                                {
-                                    SetError("Invalid array (%s) size", lvi.name.c_str());
-                                    return false;
-                                }
-                            }
-                            else
-                            {
-                                SetError("Invalid array (%s) size", lvi.name.c_str());
-                                return false;
-                            }
-                        }
-                        else
-                            lvalue = static_cast<int32_t>(atoll(Token.GetData()));
-                        lvi.elements = lvalue;
-                        Token.Get(); // SQUARE_CLOSE_BRACKET
-                        Token.Get();
+                        const uint32_t items = SkipInitializer(resumed);
+                        if (lvi.elements == 0)
+                            lvi.elements = items;
                     }
-
-                    if (lvi.name.empty())
+                    if (lvi.elements == 0)
                     {
-                        SetWarning("Empty variable name");
+                        SetError("array '%s' needs a size or an initializer", lvi.name.c_str());
+                        bPass1Ok = false;
+                        lvi.elements = 1;
                     }
-                    else if (!FuncTab.AddFuncVar(func_code, lvi) && func_code != INVALID_FUNC_CODE)
+                    lvi.name = LocalSlotName(lvi.name, declaredLocals[LowerName(lvi.name)]++);
+                    if (func_code != INVALID_FUNC_CODE && !FuncTab.AddFuncVar(func_code, lvi))
                     {
                         SetError("Duplicate variable name: %s", lvi.name.c_str());
                         bPass1Ok = false;
@@ -2038,8 +2109,9 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     {
                         script_cache_.functions.back().local_variables.emplace_back(lvi);
                     }
-                } while (Token.GetType() == COMMA);
-                Token.StepBack();
+                } while (!resumed && Token.GetType() == COMMA);
+                if (!resumed)
+                    Token.StepBack();
             }
             break;
 
@@ -2052,6 +2124,20 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                 bFunctionBlock = false; // sign if we are out of function
             break;
         default:
+            break;
+        }
+        switch (Token_type)
+        {
+        case DEBUG_LINEFEED:
+        case COMMENT:
+        case DEBUG_FILE_NAME:
+        case INCLIDE_FILE:
+            break;
+        default:
+            prevToken2 = prevToken;
+            prevToken = Token_type;
+            if (Token_type == UNKNOWN)
+                prevText = Token.GetData() ? Token.GetData() : "";
             break;
         }
     } while (Token_type != END_OF_PROGRAMM);
@@ -2099,7 +2185,7 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
         inout = 0;
         BreakUpdateTable.Release();
     }
-    if (!compiled)
+    if (!compiled || compileErrors_ != 0)
         return false;
     DOUBLE_DWORD ddw;
     uint32_t label_offset;
@@ -2134,6 +2220,619 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
         SaveSegmentToCache(Segment);
     }
     return true;
+}
+
+bool COMPILER::IsIdentifier(const char *text)
+{
+    return text != nullptr && (std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_');
+}
+
+std::string COMPILER::LowerName(const std::string &name)
+{
+    std::string lower(name);
+    for (auto &c : lower)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return lower;
+}
+
+std::string COMPILER::LocalSlotName(const std::string &name, uint32_t occurrence)
+{
+    // the first declaration keeps the plain name (arguments, legacy function-wide lookups)
+    return occurrence == 0 ? name : name + "#" + std::to_string(occurrence);
+}
+
+std::string COMPILER::LabelKey(const std::string &func_name, const char *label)
+{
+    return func_name + ":" + label;
+}
+
+uint32_t COMPILER::ScanLocalArraySize()
+{
+    // pass 1, on '[': a constant size, 0 for "[]" (sized by its initializer) or
+    // kRuntimeArraySize for a size computed at run time; leaves Token after ']'
+    uint32_t size = kRuntimeArraySize;
+    S_TOKEN_TYPE t = Token.Get();
+    if (t == SQUARE_CLOSE_BRACKET)
+    {
+        Token.Get();
+        return 0;
+    }
+    if (const auto constant = ConstantArraySize(); constant != 0)
+    {
+        if (Token.Get() == SQUARE_CLOSE_BRACKET)
+        {
+            Token.Get();
+            return constant;
+        }
+    }
+    for (uint32_t depth = 0; t != END_OF_PROGRAMM; t = Token.Get())
+    {
+        if (t == DEBUG_LINEFEED)
+            DebugSourceLine++;
+        else if (t == SQUARE_OPEN_BRACKET)
+            depth++;
+        else if (t == SQUARE_CLOSE_BRACKET && depth-- == 0)
+            break;
+    }
+    Token.Get();
+    return size;
+}
+
+uint32_t COMPILER::ConstantArraySize()
+{
+    // the current token as an array size: a number or a numeric #define; 0 otherwise
+    if (Token.GetType() == NUMBER)
+        return static_cast<uint32_t>(ParseIntLiteral(Token.GetData()));
+    if (Token.GetType() == UNKNOWN && Token.GetData())
+    {
+        if (const auto def_code = DefTab.FindDef(Token.GetData()); def_code != INVALID_DEF_CODE)
+        {
+            DEFINFO di;
+            DefTab.GetDef(di, def_code);
+            if (di.deftype == NUMBER)
+                return static_cast<uint32_t>(di.data4b);
+        }
+    }
+    return 0;
+}
+
+uint32_t COMPILER::SkipInitializer(bool &resumed)
+{
+    resumed = false;
+    // pass 1, on '=' of a declaration. A {...} list is skipped and its items counted; a plain
+    // expression is skipped only up to the ',' of a following declarator. Otherwise (';', or a
+    // missing ';' before the next statement, which old scripts have) the scan resumes right
+    // after '=' as it always did.
+    char *const start = Token.GetProgramControl();
+    const uint32_t start_line = DebugSourceLine;
+    uint32_t depth = 0, items = 0;
+    bool empty = true;
+    S_TOKEN_TYPE t = Token.Get();
+    while (t == DEBUG_LINEFEED || t == COMMENT)
+    {
+        DebugSourceLine += t == DEBUG_LINEFEED ? 1 : Token.TokenLines();
+        t = Token.Get();
+    }
+    const bool list = t == BLOCK_IN;
+    if (!list)
+        depth = 0;
+    for (;; t = Token.Get())
+    {
+        switch (t)
+        {
+        case END_OF_PROGRAMM:
+            return items;
+        case DEBUG_LINEFEED:
+            DebugSourceLine++;
+            continue;
+        case COMMENT:
+            DebugSourceLine += Token.TokenLines();
+            continue;
+        case BLOCK_IN:
+        case OPEN_BRACKET:
+        case SQUARE_OPEN_BRACKET:
+            if (list && depth == 1 && empty)
+            {
+                items++;
+                empty = false;
+            }
+            if (t == BLOCK_IN && !list)
+                break; // a block: the ';' is missing
+            depth++;
+            continue;
+        case BLOCK_OUT:
+        case CLOSE_BRACKET:
+        case SQUARE_CLOSE_BRACKET:
+            if (depth == 0)
+                break;
+            depth--;
+            if (list && depth == 0)
+            {
+                Token.Get(); // the ',' or ';' after the list
+                return items;
+            }
+            continue;
+        case COMMA:
+            if (depth == 0)
+                return items; // next declarator
+            if (depth == 1 && list)
+                empty = true;
+            continue;
+        case IF_BLOCK:
+        case ELSE_BLOCK:
+        case FOR_BLOCK:
+        case WHILE_BLOCK:
+        case SWITCH_COMMAND:
+        case FUNCTION_RETURN:
+        case SEPARATOR:
+            if (depth == 0 && !list)
+                break;
+            continue;
+        default:
+            if (list && depth == 1 && empty)
+            {
+                items++;
+                empty = false;
+            }
+            continue;
+        }
+        // not a list and no following declarator: resume after '='
+        Token.SetProgramControl(start);
+        DebugSourceLine = start_line;
+        resumed = true;
+        return 0;
+    }
+}
+
+bool COMPILER::BindPassedArguments(const FuncInfo &fi, FuncFrame &frame, uint32_t passed_args)
+{
+    // fewer arguments: the declared defaults fill the rest; more: the extra ones of a "..." function
+    // move off the stack into the frame, where GetArg finds them
+    if (passed_args < frame.arguments)
+    {
+        const auto defaults = static_cast<uint32_t>(fi.default_args.size());
+        if (frame.arguments - passed_args > defaults)
+        {
+            SetError("function '%s' called with %u arguments, needs at least %u", fi.name.c_str(), passed_args,
+                     frame.arguments - defaults);
+            return false;
+        }
+        for (uint32_t n = passed_args; n < frame.arguments; n++)
+        {
+            const auto &value = fi.default_args[n - (frame.arguments - defaults)];
+            DATA *pV = SStack.Push();
+            switch (value.type)
+            {
+            case NUMBER:
+                pV->Set(value.int_value);
+                break;
+            case FLOAT_NUMBER:
+                pV->Set(value.float_value);
+                break;
+            case STRING:
+                pV->Set(value.string_value);
+                break;
+            default: // nullptr for a ref or aref parameter
+                pV->SetType(fi.local_vars[n].type);
+                break;
+            }
+        }
+        return true;
+    }
+    if (!fi.varargs)
+    {
+        SetError("function '%s' called with %u arguments, takes %u", fi.name.c_str(), passed_args, frame.arguments);
+        return false;
+    }
+    const uint32_t extra = passed_args - frame.arguments;
+    const uint32_t first = SStack.GetDataNum() - extra;
+    frame.varargs.resize(extra);
+    for (uint32_t n = 0; n < extra; n++)
+    {
+        frame.varargs[n].SetVCompiler(this);
+        frame.varargs[n].Copy(SStack.Read(first, n));
+    }
+    for (uint32_t n = 0; n < extra; n++)
+        SStack.Pop();
+    return true;
+}
+
+const std::string &COMPILER::CurrentFunctionName() const
+{
+    static const std::string none;
+    const auto *fi = FuncTab.GetFuncInfo(CurrentFuncCode);
+    return fi ? fi->name : none;
+}
+
+bool COMPILER::ReturnTypesMatch(S_TOKEN_TYPE declared, S_TOKEN_TYPE engine)
+{
+    // engine UNKNOWN: returns values of several types (GetEventData); ptr and int are one value
+    auto same = [](S_TOKEN_TYPE t) { return t == VAR_PTR ? VAR_INTEGER : t; };
+    return engine == UNKNOWN || same(declared) == same(engine);
+}
+
+uint32_t COMPILER::FindLocal(const char *name) const
+{
+    for (auto it = localScopes_.rbegin(); it != localScopes_.rend(); ++it)
+        if (storm::iEquals(it->name, name))
+            return it->slot;
+    // arguments, and a local used after the block that declared it (function-wide, as before)
+    return FuncTab.FindVar(CurrentFuncCode, name);
+}
+
+uint32_t COMPILER::BindLocal(const char *name, uint32_t depth)
+{
+    const auto slot = FuncTab.FindVar(CurrentFuncCode, LocalSlotName(name, localDeclarations_[LowerName(name)]++));
+    if (slot != INVALID_VAR_CODE)
+        localScopes_.push_back({name, slot, depth});
+    return slot;
+}
+
+void COMPILER::CloseLocalScopes(uint32_t depth)
+{
+    while (!localScopes_.empty() && localScopes_.back().depth > depth)
+        localScopes_.pop_back();
+}
+
+bool COMPILER::CompileLocalDeclarator(SEGMENT_DESC &Segment, uint32_t depth, bool first)
+{
+    // pass 2, on the name of a local declaration ("int a" or the "b" of "int a, b"). Plain
+    // declarations compile exactly as before; arrays sized at run time and array initializers
+    // compile here.
+    const char *name = Token.GetData();
+    if (!IsIdentifier(name))
+    {
+        SetError("variable name expected after type");
+        return false;
+    }
+    const std::string var_name = name;
+    const uint32_t slot = BindLocal(name, depth);
+    if (slot == INVALID_VAR_CODE)
+    {
+        SetError("Undeclared identifier: %s", var_name.c_str());
+        return false;
+    }
+    declListActive_ = true;
+    char *const after_name = Token.GetProgramControl();
+    S_TOKEN_TYPE next = Token.Get();
+    bool array = false;
+    if (next == SQUARE_OPEN_BRACKET)
+    {
+        char *const after_open = Token.GetProgramControl();
+        next = Token.Get();
+        if (next == SQUARE_CLOSE_BRACKET)
+            array = true; // sized by its initializer (pass 1)
+        else if (ConstantArraySize() != 0 && Token.Get() == SQUARE_CLOSE_BRACKET)
+        {
+            array = true;
+            char *const after_close = Token.GetProgramControl();
+            const bool initializer = Token.Get() == OP_EQUAL && Token.Get() == BLOCK_IN;
+            Token.SetProgramControl(initializer ? after_close : after_name);
+            if (!initializer)
+            {
+                // as before: the size compiles as a meaningless index expression
+                if (!first)
+                    CompileToken(Segment, LOCAL_VARIABLE, 1, &slot, sizeof(uint32_t));
+                return true;
+            }
+        }
+        else
+        {
+            // sized at run time
+            Token.SetProgramControl(after_open);
+            if (!CompileExpression(Segment))
+                return false;
+            if (Token.GetType() != SQUARE_CLOSE_BRACKET)
+            {
+                SetError("missing ']'");
+                return false;
+            }
+            CompileToken(Segment, STACK_POP);
+            CompileToken(Segment, BX);
+            CompileToken(Segment, SET_ARRAY_SIZE);
+            CompileToken(Segment, LOCAL_VARIABLE, 1, &slot, sizeof(uint32_t));
+            array = true;
+        }
+        char *const after_array = Token.GetProgramControl();
+        next = Token.Get();
+        if (next == OP_EQUAL && Token.Get() == BLOCK_IN)
+            return CompileArrayInitializer(Segment, LOCAL_VARIABLE, slot);
+        Token.SetProgramControl(after_array);
+        return true;
+    }
+    if (next == OP_EQUAL || !first)
+        CompileToken(Segment, LOCAL_VARIABLE, 1, &slot, sizeof(uint32_t));
+    Token.StepBack();
+    (void)array;
+    return true;
+}
+
+bool COMPILER::CompileArrayInitializer(SEGMENT_DESC &Segment, S_TOKEN_TYPE var_type, uint32_t var_code)
+{
+    // after "= {": element i = i-th expression
+    for (uint32_t index = 0;; index++)
+    {
+        if (Token.Get() == BLOCK_OUT)
+            return true; // empty list or trailing comma
+        Token.StepBack();
+        CompileToken(Segment, var_type, 1, &var_code, sizeof(uint32_t));
+        CompileToken(Segment, STACK_PUSH);
+        CompileToken(Segment, NUMBER, 1, &index, sizeof(uint32_t));
+        CompileToken(Segment, STACK_POP);
+        CompileToken(Segment, LEFTOP_INDEX);
+        if (!CompileExpression(Segment))
+            return false;
+        CompileToken(Segment, MOVE);
+        CompileToken(Segment, LEFT_OPERAND);
+        CompileToken(Segment, STACK_TOP);
+        CompileToken(Segment, STACK_POP_VOID);
+        if (Token.GetType() == BLOCK_OUT)
+            return true;
+        if (Token.GetType() != COMMA)
+        {
+            SetError("',' or '}' expected in array initializer");
+            return false;
+        }
+    }
+}
+
+bool COMPILER::ScanParameterList(uint32_t func_code, bool bExtern, FuncInfo &declared)
+{
+    // pass 1, after the name in a function header: registers the arguments up to the matching ')'.
+    // declared receives the count, the values of defaulted trailing arguments and "...".
+    declared.arguments = 0;
+    declared.varargs = false;
+    declared.default_args.clear();
+    LocalVarInfo lvi;
+    if (Token.Get() != OPEN_BRACKET)
+    {
+        SetError("Invalid function declaration: '(' expected");
+        return false;
+    }
+    for (;;)
+    {
+        S_TOKEN_TYPE type = Token.Get();
+        switch (type)
+        {
+        case DEBUG_LINEFEED:
+            DebugSourceLine++;
+            continue;
+        case COMMENT:
+            DebugSourceLine += Token.TokenLines();
+            continue;
+        case COMMA:
+            continue;
+        case CLOSE_BRACKET:
+            return true;
+        case DOT:
+            if (Token.Get() != DOT || Token.Get() != DOT || declared.varargs)
+            {
+                SetError("Invalid function declaration: '...' expected");
+                return false;
+            }
+            declared.varargs = true;
+            continue;
+        case VAR_INTEGER:
+        case VAR_PTR:
+        case VAR_FLOAT:
+        case VAR_STRING:
+        case VAR_OBJECT:
+        case VAR_REFERENCE:
+        case VAR_AREFERENCE:
+        case VAR_FREF:
+            break;
+        default:
+            SetError("Invalid function declaration: '%s'", Token.GetData() ? Token.GetData() : "");
+            return false;
+        }
+        if (declared.varargs)
+        {
+            SetError("Invalid function declaration: '...' must be the last parameter");
+            return false;
+        }
+        const char *name = Token.GetData();
+        if (name == nullptr || name[0] == 0 || !(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_'))
+        {
+            SetError("Invalid function declaration: parameter name expected");
+            return false;
+        }
+        lvi.type = type;
+        lvi.name = name;
+        lvi.elements = 1;
+        declared.arguments++;
+        if (func_code != INVALID_FUNC_CODE)
+        {
+            FuncTab.AddFuncArg(func_code, lvi, bExtern);
+            if (script_cache_mode_ != kCacheDisabled)
+                script_cache_.functions.back().arguments.emplace_back(
+                    storm::script_cache::FunctionLocalVariable{lvi, bExtern});
+        }
+        Token.Get();
+        if (Token.GetType() == OP_EQUAL)
+        {
+            DefaultArgument value;
+            if (!ScanDefaultArgument(type, value))
+                return false;
+            declared.default_args.push_back(std::move(value));
+            Token.Get();
+        }
+        else if (!declared.default_args.empty())
+        {
+            SetError("Invalid function declaration: '%s' follows a parameter with a default value", lvi.name.c_str());
+            return false;
+        }
+        if (Token.GetType() == CLOSE_BRACKET)
+            return true;
+        if (Token.GetType() != COMMA)
+        {
+            SetError("Invalid function declaration: ',' or ')' expected after '%s'", lvi.name.c_str());
+            return false;
+        }
+    }
+}
+
+bool COMPILER::ScanDefaultArgument(S_TOKEN_TYPE param_type, DefaultArgument &value)
+{
+    // a constant: [-]number, string, true/false, a #define, or nullptr for ref/aref parameters
+    bool negative = false;
+    S_TOKEN_TYPE type = Token.Get();
+    if (type == OP_MINUS)
+    {
+        negative = true;
+        type = Token.Get();
+    }
+    const char *text = Token.GetData() ? Token.GetData() : "";
+    DEFINFO di;
+    switch (type)
+    {
+    case NUMBER:
+        value.type = NUMBER;
+        value.int_value = ParseIntLiteral(text);
+        break;
+    case FLOAT_NUMBER:
+        value.type = FLOAT_NUMBER;
+        value.float_value = static_cast<float>(atof(text));
+        break;
+    case STRING:
+        value.type = STRING;
+        value.string_value = text;
+        break;
+    case TRUE_CONST:
+    case FALSE_CONST:
+        value.type = NUMBER;
+        value.int_value = type == TRUE_CONST;
+        break;
+    case UNKNOWN:
+        if (storm::iEquals(text, "nullptr") && !negative &&
+            (param_type == VAR_REFERENCE || param_type == VAR_AREFERENCE))
+        {
+            value.type = VAR_REFERENCE;
+            return true;
+        }
+        if (const auto def_code = DefTab.FindDef(text); def_code != INVALID_DEF_CODE)
+        {
+            DefTab.GetDef(di, def_code);
+            value.type = static_cast<S_TOKEN_TYPE>(di.deftype);
+            if (di.deftype == NUMBER)
+                std::memcpy(&value.int_value, &di.data4b, sizeof(int32_t));
+            else if (di.deftype == FLOAT_NUMBER)
+                std::memcpy(&value.float_value, &di.data4b, sizeof(float));
+            else if (di.deftype == STRING && !negative)
+                value.string_value = reinterpret_cast<const char *>(di.data4b);
+            else
+                break;
+            break;
+        }
+        [[fallthrough]];
+    default:
+        SetError("unsupported default value '%s%s'", negative ? "-" : "", text);
+        return false;
+    }
+    if (negative)
+    {
+        if (value.type == NUMBER)
+            value.int_value = -value.int_value;
+        else if (value.type == FLOAT_NUMBER)
+            value.float_value = -value.float_value;
+        else
+        {
+            SetError("unsupported default value '-%s'", text);
+            return false;
+        }
+    }
+    return true;
+}
+
+int32_t COMPILER::ParseIntLiteral(const char *text)
+{
+    // decimal (a leading 0 is not octal) or 0x hexadecimal; an optional u suffix; wraps to 32 bits
+    if (text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
+        return static_cast<int32_t>(static_cast<uint32_t>(strtoull(text + 2, nullptr, 16)));
+    return static_cast<int32_t>(atoll(text));
+}
+
+bool COMPILER::CompileCallArguments(SEGMENT_DESC &Segment, uint32_t &func_args)
+{
+    // after the '(' of a call: each argument leaves its value on the stack; stops on ')'
+    func_args = 0;
+    if (Token.Get() == CLOSE_BRACKET)
+        return true;
+    Token.StepBack();
+    for (;;)
+    {
+        if (!CompileExpression(Segment))
+        {
+            SetError("invalid function argument");
+            return false;
+        }
+        func_args++;
+        if (Token.GetType() == CLOSE_BRACKET)
+            return true;
+        if (Token.GetType() != COMMA)
+        {
+            SetError("invalid function argument");
+            return false;
+        }
+    }
+}
+
+bool COMPILER::CheckCallArguments(uint32_t func_code, uint32_t func_args, bool in_expression)
+{
+    const FuncInfo *fi = FuncTab.GetFuncInfo(func_code);
+    if (fi == nullptr)
+    {
+        SetError("function not found");
+        return false;
+    }
+    if (fi->segment_id == IMPORTED_SEGMENT_ID)
+        return true; // provided by an engine library
+    if (fi->segment_id == INTERNAL_SEGMENT_ID)
+    {
+        if (fi->arguments == func_args || IsIntFuncVarArgsNum(func_code))
+            return true;
+        if (in_expression)
+        {
+            SetWarning("function '%s(args:%d)' called with %d arguments", fi->name.c_str(), fi->arguments, func_args);
+            return true;
+        }
+        SetError("function '%s(args:%d)' doesnt accept %d arguments", fi->name.c_str(), fi->arguments, func_args);
+        return false;
+    }
+    uint32_t expected = fi->arguments;
+    if (fi->native)
+    {
+        if (!ReportMissingNative(fi->name))
+            return false;
+    }
+    else if (fi->offset == INVALID_FUNC_OFFSET)
+        expected = fi->extern_arguments; // external function declared but not compiled yet
+    const auto defaults = static_cast<uint32_t>(fi->default_args.size());
+    const uint32_t required = expected > defaults ? expected - defaults : 0;
+    if (func_args >= required && (fi->varargs || func_args <= expected))
+        return true;
+    if (in_expression)
+    {
+        SetWarning("function %s(args:%d) called with %d arguments", fi->name.c_str(), expected, func_args);
+        return true;
+    }
+    SetError("function %s(args:%d) doesnt accept %d arguments", fi->name.c_str(), expected, func_args);
+    return false;
+}
+
+bool COMPILER::ReportMissingNative(const std::string &name)
+{
+    if (!missingNativesAreErrors_ && !missingNatives_.insert(name).second)
+        return true;
+    if (!missingNativesAreErrors_)
+    {
+        // the host check links no engine library: listed separately, not a script error
+        if (diagnosticsSink_)
+            diagnosticsSink_->emplace_back("MISSING NATIVE in " + std::string(DebugSourceFileName) + "(" +
+                                           std::to_string(DebugSourceLine + 1) + "): " + name);
+        return true;
+    }
+    SetError("native function '%s' is not implemented by the engine", name.c_str());
+    return false;
 }
 
 bool COMPILER::SkipToTopLevel(uint32_t depth)
@@ -2428,7 +3127,12 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             // LabelUpdateTable
             Token.Get(); // label name
             DOUBLE_DWORD ddw;
-            ddw.dw1 = LabelTable.GetStringCode(Token.GetData());
+            ddw.dw1 = LabelTable.GetStringCode(LabelKey(CurrentFunctionName(), Token.GetData()).c_str());
+            if (ddw.dw1 == INVALID_ORDINAL_NUMBER)
+            {
+                SetError("goto: no label '%s' in this function", Token.GetData());
+                return false;
+            }
             n = LabelUpdateTable.GetStringsCount();
             LabelUpdateTable.AddString("j");
             ddw.dw2 = Segment.BCode_Program_size + 2;
@@ -2469,6 +3173,7 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             break;
         case SEPARATOR:
             CompileToken(Segment, Token_type);
+            declListActive_ = declExpectName_ = false;
             if (bound_type == SEPARATOR)
             {
                 return true;
@@ -2501,6 +3206,8 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                 return false;
             }
             inout--;
+            CloseLocalScopes(inout);
+            declListActive_ = declExpectName_ = false;
 
             if (balance_block == 0)
             {
@@ -3027,35 +3734,8 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                 SetError("missing '('");
                 return false;
             }
-            if (Token.Get() == CLOSE_BRACKET)
-            {
-                // function w/o arguments
-                func_args = 0;
-            }
-            else
-            {
-                // function with arguments
-                bool bNext;
-                bNext = true;
-                func_args = 1;
-                Token.StepBack();
-                do
-                {
-                    CompileExpression(Segment);
-                    switch (Token.GetType())
-                    {
-                    case CLOSE_BRACKET:
-                        bNext = false;
-                        break;
-                    case COMMA:
-                        func_args++;
-                        break;
-                    default:
-                        SetError("invalid syntax");
-                        return false;
-                    }
-                } while (bNext);
-            }
+            if (!CompileCallArguments(Segment, func_args))
+                return false;
             // CompileToken(Segment,CALL_FUNCTION,1,(char *)&func_code,sizeof(uint32_t));
             // CompileToken(Segment,ARGS_NUM,1,(char *)&func_args,sizeof(DWORD));
             // if(fi.return_type!=TVOID) CompileToken(Segment,STACK_POP_VOID);
@@ -3071,7 +3751,37 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
         case UNKNOWN: {
             uint32_t func_code;
             uint32_t func_args;
-            FuncInfo fi;
+            if (declExpectName_)
+            {
+                declExpectName_ = false;
+                if (!CompileLocalDeclarator(Segment, inout, false))
+                    return false;
+                break;
+            }
+            if (Token.Get() == LABEL)
+            {
+                // "name:" starts a statement: a goto label (registered by pass 1) or a switch's "default:"
+                // (the cases before it jump past it when one matched)
+                Token.StepBack();
+                Token.StepBack();
+                Token.Get();
+                if (!storm::iEquals(Token.GetData(), "default"))
+                {
+                    const auto lab_code =
+                        LabelTable.GetStringCode(LabelKey(CurrentFunctionName(), Token.GetData()).c_str());
+                    if (lab_code == INVALID_ORDINAL_NUMBER)
+                    {
+                        SetError("misplaced label '%s'", Token.GetData());
+                        return false;
+                    }
+                    LabelTable.SetStringData(lab_code, &Segment.BCode_Program_size);
+                }
+                Token.Get(); // ':'
+                break;
+            }
+            Token.StepBack(); // back to the identifier (restores its data)
+            Token.StepBack();
+            Token.Get();
 
             if (DetectUnknown(func_code) == CALL_FUNCTION)
             {
@@ -3080,91 +3790,12 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                     SetError("missing '('");
                     return false;
                 }
-                if (Token.Get() == CLOSE_BRACKET)
-                {
-                    // function w/o arguments
-                    func_args = 0;
-                }
-                else
-                {
-                    // function with arguments
-                    bool bNext;
-                    bNext = true;
-                    func_args = 1;
-                    Token.StepBack();
-                    do
-                    {
-                        CompileExpression(Segment);
-                        switch (Token.GetType())
-                        {
-                        case CLOSE_BRACKET:
-                            bNext = false;
-                            break;
-                        case COMMA:
-                            func_args++;
-                            break;
-                        default:
-                            SetError("invalid syntax");
-                            return false;
-                        }
-                    } while (bNext);
-                }
-
-                if (!FuncTab.GetFuncX(fi, func_code))
-                {
-                    SetError("function not found");
+                if (!CompileCallArguments(Segment, func_args) || !CheckCallArguments(func_code, func_args))
                     return false;
-                }
-
-                if (fi.offset == INVALID_FUNC_OFFSET)
-                {
-                    // external function declared but not compiled yet
-                    fi.arguments = fi.extern_arguments;
-                }
-
-                // off for debug needs
-
-                if (fi.arguments != func_args)
-                {
-                    switch (fi.segment_id)
-                    {
-                    case INTERNAL_SEGMENT_ID:
-                        if (!IsIntFuncVarArgsNum(func_code))
-                        {
-                            SetError("function '%s(args:%d)' doesnt accept %d arguments", fi.name.c_str(), fi.arguments,
-                                     func_args);
-                            return false;
-                        }
-                        break;
-                    case IMPORTED_SEGMENT_ID:
-                        // skip imported funcs checking for now
-                        break;
-                    default:
-                        SetError("function %s(args:%d) doesnt accept %d arguments", fi.name.c_str(), fi.arguments,
-                                 func_args);
-                        return false;
-                    }
-
-                    /*if(fi.segment_id != INTERNAL_SEGMENT_ID)
-                    {
-                      // not internal function cant accept different arguments number
-                      SetError("function %s(args:%d) doesnt accept %d arguments",fi.name,fi.arguments,func_args);
-                      return false;
-                    }
-                    else
-                    {
-                      if(!IsIntFuncVarArgsNum(func_code))
-                      {
-                        SetError("function '%s(args:%d)' doesnt accept %d arguments",fi.name,fi.arguments,func_args);
-                        return false;
-                      }
-
-                    }*/
-                } //*/
 
                 CompileToken(Segment, CALL_FUNCTION, 1, (char *)&func_code, sizeof(uint32_t));
                 CompileToken(Segment, ARGS_NUM, 1, (char *)&func_args, sizeof(uint32_t));
-                if (fi.return_type != TVOID)
+                if (FuncTab.GetFuncInfo(func_code)->return_type != TVOID)
                     CompileToken(Segment, STACK_POP_VOID);
             }
             else if (!CompileUnknown(Segment))
@@ -3189,7 +3820,13 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
         case VAR_STRING:
         case VAR_OBJECT:
         case TVOID:
-            // DWORD unk_code;
+            if (inout > 0)
+            {
+                // local variable declaration
+                if (!CompileLocalDeclarator(Segment, inout, true))
+                    return false;
+                break;
+            }
             Token_type = DetectUnknown(unk_code);
             if (Token_type == CALL_FUNCTION)
             {
@@ -3198,6 +3835,8 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                 bFunctionBlock = true;
 
                 CurrentFuncCode = FuncTab.FindFunc(Token.GetData());
+                localScopes_.clear();
+                localDeclarations_.clear();
                 if (!bExtern)
                     if (!bImport)
                     {
@@ -3224,41 +3863,19 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                     return false;
                 }
 
-                do
+                // pass 1 checked the parameter list (ScanParameterList)
+                for (uint32_t depth = 0;;)
                 {
                     Token_type = Token.Get();
-                    switch (Token_type)
-                    {
-                    case VAR_INTEGER:
-                    case VAR_PTR:
-                    case VAR_STRING:
-                    case VAR_FLOAT:
-                    case VAR_OBJECT:
-                    case VAR_REFERENCE:
-                    case VAR_AREFERENCE:
-                    case UNKNOWN:
-                    case COMMA:
-                    case CLOSE_BRACKET:
-                    case DEBUG_LINEFEED:
+                    if (Token_type == END_OF_PROGRAMM)
                         break;
-                    default:
-                        SetError("Invalid function declaration");
-                        return false;
-                    }
-                } while (Token_type != CLOSE_BRACKET);
-            }
-            else
-            {
-                if (Token_type == LOCAL_VARIABLE)
-                {
-                    if (Token.Get() == OP_EQUAL)
-                    {
-                        // initialization
-                        CompileToken(Segment, Token_type, 1, (char *)&unk_code, sizeof(uint32_t));
-                    }
-                    Token.StepBack();
+                    if (Token_type == OPEN_BRACKET)
+                        depth++;
+                    else if (Token_type == CLOSE_BRACKET && depth-- == 0)
+                        break;
                 }
             }
+
             // ... skip var or func declaration
             break;
 
@@ -3310,6 +3927,8 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
         case AND:
         case END_OF_PROGRAMM:
             CompileToken(Segment, Token_type);
+            if (Token_type == COMMA && declListActive_)
+                declExpectName_ = true; // the next declarator of "int a, b"
             break;
 
             //=============================================================================
@@ -3656,7 +4275,7 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                 // access word inside variable
                 Token.Get(); // variable name
                 // check for valid local variable
-                var_code = FuncTab.FindVar(CurrentFuncCode, Token.GetData());
+                var_code = FindLocal(Token.GetData());
                 if (var_code != INVALID_VAR_CODE)
                 {
                     Token.Get();
@@ -3759,7 +4378,7 @@ S_TOKEN_TYPE COMPILER::BC_TokenGet(uint32_t &ip, uint32_t &token_data_size)
     // function read token type and data size, advance InstructionPointer to next token
     // set ip to token data
     // set token data size value and return token type
-    TokenLastReadResult = static_cast<S_TOKEN_TYPE>(pRunCodeBase[InstructionPointer]);
+    TokenLastReadResult = static_cast<S_TOKEN_TYPE>(static_cast<uint8_t>(pRunCodeBase[InstructionPointer]));
     // Trace("Token: %s", Token.GetTypeName(TokenLastReadResult));
     InstructionPointer++;
     if (static_cast<uint8_t>(pRunCodeBase[InstructionPointer]) < 0xff)
@@ -3783,7 +4402,7 @@ S_TOKEN_TYPE COMPILER::BC_TokenGet()
 {
     // short version of function for calls what doesnt need to work with token data
     uint32_t token_data_size;
-    TokenLastReadResult = static_cast<S_TOKEN_TYPE>(pRunCodeBase[InstructionPointer]);
+    TokenLastReadResult = static_cast<S_TOKEN_TYPE>(static_cast<uint8_t>(pRunCodeBase[InstructionPointer]));
     // Trace("Token: %s", Token.GetTypeName(TokenLastReadResult));
     InstructionPointer++;
     if (static_cast<uint8_t>(pRunCodeBase[InstructionPointer]) < 0xff)
@@ -3804,7 +4423,7 @@ S_TOKEN_TYPE COMPILER::BC_TokenGet()
 
 S_TOKEN_TYPE COMPILER::NextTokenType()
 {
-    return static_cast<S_TOKEN_TYPE>(pRunCodeBase[InstructionPointer]);
+    return static_cast<S_TOKEN_TYPE>(static_cast<uint8_t>(pRunCodeBase[InstructionPointer]));
 }
 
 bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult)
@@ -3943,7 +4562,7 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
     {
         // BC_Execute(func_code,pVResult);
         RDTSC_B(nTicks);
-        BC_Execute(func_code, pVResult);
+        BC_Execute(func_code, pVResult, nullptr, arguments);
         RDTSC_E(nTicks);
         if (!FuncTab.AddTime(func_code, nTicks))
         {
@@ -4010,7 +4629,8 @@ void COMPILER::StoreDynamicCallStatus(bool returned_value)
     ExpressionResult.Set(static_cast<int32_t>(returned_value ? 1 : 0));
 }
 
-bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const char *pDbgExpSource)
+bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const char *pDbgExpSource,
+                          uint32_t passed_args)
 {
     // GUARD(BC_Execute)
     uint32_t inout;
@@ -4115,6 +4735,9 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
         // Trace("Execute function: %s",pfi->name);
 
         RunningSegmentID = frame.segment_id;
+        if (passed_args != kArgsAsDeclared && passed_args != frame.arguments &&
+            !BindPassedArguments(*pfi, frame, passed_args))
+            return false;
         frame.stack_offset = SStack.GetDataNum() - frame.arguments; // set stack offset
 
         // check arguments types
@@ -5749,6 +6372,19 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             }
             break;
 
+        case SET_ARRAY_SIZE: // array local sized at run time: BX elements
+            pV = GetOperand(pCodeBase, ip);
+            if (!pV)
+                return false;
+            rBX.Convert(VAR_INTEGER);
+            rBX.Get(lvalue);
+            if (lvalue < 0)
+            {
+                SetError("negative array size %d", lvalue);
+                return false;
+            }
+            pV->SetArraySize(static_cast<uint32_t>(lvalue));
+            break;
         case OP_BOOL_CONVERT:
             pV = GetOperand(pCodeBase, ip);
             if (!pV)
@@ -5992,7 +6628,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
 void COMPILER::CompileNumber(SEGMENT_DESC &Segment)
 {
     int32_t lvalue;
-    lvalue = static_cast<int32_t>(atoll(Token.GetData()));
+    lvalue = ParseIntLiteral(Token.GetData());
     CompileToken(Segment, NUMBER, 1, (char *)&lvalue, sizeof(int32_t));
 }
 
@@ -6036,7 +6672,7 @@ bool COMPILER::CompileUnknown(SEGMENT_DESC &Segment)
     }
 
     // check for valid local variable
-    var_code = FuncTab.FindVar(CurrentFuncCode, Token.GetData());
+    var_code = FindLocal(Token.GetData());
     if (var_code != INVALID_VAR_CODE)
     {
         CompileToken(Segment, LOCAL_VARIABLE, 1, (char *)&var_code, sizeof(uint32_t));
@@ -6077,12 +6713,6 @@ bool COMPILER::CompileUnknown(SEGMENT_DESC &Segment)
         return true;
     }
 
-    const uint32_t lab_code = LabelTable.GetStringCode(Token.GetData());
-    if (lab_code != INVALID_ORDINAL_NUMBER)
-    {
-        LabelTable.SetStringData(lab_code, &Segment.BCode_Program_size);
-        return true;
-    }
 
     SetError("Undeclared identifier: %s", Token.GetData());
     return false;
@@ -6101,7 +6731,7 @@ S_TOKEN_TYPE COMPILER::DetectUnknown(uint32_t &code)
     }
 
     // check for valid local variable
-    uint32_t var_code = FuncTab.FindVar(CurrentFuncCode, Token.GetData());
+    uint32_t var_code = FindLocal(Token.GetData());
     if (var_code != INVALID_VAR_CODE)
     {
         code = var_code;
@@ -7143,7 +7773,13 @@ uint32_t COMPILER::SetScriptFunction(IFUNCINFO *pFuncInfo)
     }
     else
     {
-        SetError("native function '%s' not declared", pFuncInfo->pFuncName);
+        // not declared (yet): bound when a later declaration appears (ScanParameterList's caller);
+        // scripts that never declare it (another game's) cannot call it, so it is not an error
+        pendingNatives_[LowerName(pFuncInfo->pFuncName)] = *pFuncInfo;
+        if (undeclaredNatives_)
+            undeclaredNatives_->emplace_back(pFuncInfo->pFuncName);
+        else
+            spdlog::info("Script native '{}' is registered but not declared by the scripts", pFuncInfo->pFuncName);
         return INVALID_FUNCHANDLE;
     }
 
@@ -7351,6 +7987,16 @@ void COMPILER::LoadFunctionsFromCache(storm::script_cache::BufferReader &reader,
         fi.return_type = reader.Read<decltype(fi.return_type)>();
         fi.decl_file_name = reader.ReadArray();
         fi.decl_line = reader.Read<decltype(fi.decl_line)>();
+        fi.native = reader.Read<bool>();
+        fi.varargs = reader.Read<bool>();
+        fi.default_args.resize(reader.Read<size_t>());
+        for (auto &value : fi.default_args)
+        {
+            value.type = reader.Read<S_TOKEN_TYPE>();
+            value.int_value = reader.Read<int32_t>();
+            value.float_value = reader.Read<float>();
+            value.string_value = reader.ReadArray();
+        }
 
         auto func_code = FuncTab.AddFunc(fi);
 
@@ -7526,6 +8172,16 @@ void COMPILER::SaveFunctionsToCache(storm::script_cache::BufferWriter &writer)
         writer.WriteData(fi.return_type);
         writer.WriteArray(fi.decl_file_name);
         writer.WriteData(fi.decl_line);
+        writer.WriteData(fi.native);
+        writer.WriteData(fi.varargs);
+        writer.WriteData(fi.default_args.size());
+        for (const auto &value : fi.default_args)
+        {
+            writer.WriteData(value.type);
+            writer.WriteData(value.int_value);
+            writer.WriteData(value.float_value);
+            writer.WriteArray(value.string_value);
+        }
 
         writer.WriteData(arguments.size());
         for (auto &[lvi, is_extern] : arguments)

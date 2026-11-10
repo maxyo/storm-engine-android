@@ -13,7 +13,7 @@
             pTokenData[0] = 0;                                                                                         \
     }
 #define INVALID_ARG_DCHARS 32
-const char *TokenTypeName[] = {
+const char *TokenTypeName[] = { // in S_TOKEN_TYPE order
     "END_OF_PROGRAMM",
     "INVALID_TOKEN",
     "UNKNOWN",
@@ -21,12 +21,12 @@ const char *TokenTypeName[] = {
     "COMMENT",
     "INCLIDE_FILE",
     "integer",
-    "pointer",
     "float",
     "string",
     "object",
     "reference",
     "attribute reference",
+    "pointer",
     "BLOCK_IN",
     "BLOCK_OUT",
     "NUMBER",
@@ -119,8 +119,6 @@ const char *TokenTypeName[] = {
     "OP_DECADD",
     "OP_MULTIPLYEQ",
     "OP_DIVIDEEQ",
-    "CLASS_DECL",
-    "CLASS_OBJECT",
     "IMPORT",
     "INCLUDE_LIBRIARY",
     "CALL",
@@ -142,8 +140,24 @@ const char *TokenTypeName[] = {
     "LEFTOP_INDEX",
     "PUSH_OBJID",
     "PUSH_OBJID_BXINDEX",
+    "OP_QUESTION",
+    "OP_BIT_OR",
+    "OP_BIT_AND",
+    "OP_BIT_NOT",
+    "OP_SHL",
+    "OP_SHR",
+    "OP_OREQ",
+    "OP_ANDEQ",
+    "OP_ARROW",
+    "OP_COLON_EQUAL",
+    "OP_SIZEOF",
+    "OP_DOLLAR",
+    "function reference",
+    "SET_ARRAY_SIZE",
 
 };
+
+static_assert(sizeof(TokenTypeName) / sizeof(TokenTypeName[0]) == TOKEN_TYPES_COUNT);
 
 struct S_KEYWORD
 {
@@ -289,7 +303,34 @@ S_KEYWORD Keywords[] = {
     "native",
     CALL,
     "call",
-
+    OP_QUESTION,
+    "?",
+    OP_BIT_OR,
+    "|",
+    OP_OREQ,
+    "|=",
+    OP_ANDEQ,
+    "&=",
+    OP_BIT_NOT,
+    "~",
+    OP_SHL,
+    "<<",
+    OP_SHR,
+    ">>",
+    OP_ARROW,
+    "->",
+    OP_COLON_EQUAL,
+    ":=",
+    OP_SIZEOF,
+    "@",
+    OP_DOLLAR,
+    "$",
+    VAR_INTEGER,
+    "uint",
+    VAR_STRING,
+    "kstring",
+    VAR_FREF,
+    "fref",
 };
 
 TOKEN::TOKEN()
@@ -740,8 +781,15 @@ int32_t TOKEN::StopArgument(const char *pointer, bool bKeepControlSymbols)
           }
         }*/
 
+        if (sym == ':' && pointer[1] == '=')
+        {
+            if (size == 0)
+                return 2;
+            return size;
+        }
         if (sym == '{' || sym == '}' || sym == ':' || sym == '(' || sym == ')' || sym == '[' || sym == ']' ||
-            /*sym == '*' || */ sym == '^' || sym == '%' || sym == ',')
+            /*sym == '*' || */ sym == '^' || sym == '%' || sym == ',' || sym == '?' || sym == '~' || sym == '@' ||
+            sym == '$')
         {
             if (size == 0)
                 return 1;
@@ -780,6 +828,12 @@ int32_t TOKEN::StopArgument(const char *pointer, bool bKeepControlSymbols)
         if (sym == '>' || sym == '<')
         {
             pointer++;
+            if (*pointer == sym) // << >>
+            {
+                if (size == 0)
+                    return 2;
+                return size;
+            }
             sym = *pointer;
             if (sym != '=')
             {
@@ -820,11 +874,25 @@ int32_t TOKEN::StopArgument(const char *pointer, bool bKeepControlSymbols)
                 return 2;
             return size;
         }
+        if (sym == '|')
+        {
+            pointer++;
+            sym = *pointer;
+            if (sym != '|' && sym != '=')
+            {
+                if (size == 0)
+                    return 1;
+                return size;
+            }
+            if (size == 0)
+                return 2;
+            return size;
+        }
         if (sym == '&')
         {
             pointer++;
             sym = *pointer;
-            if (sym != '&')
+            if (sym != '&' && sym != '=')
             {
                 if (size == 0)
                     return 1;
@@ -859,6 +927,7 @@ int32_t TOKEN::StopArgument(const char *pointer, bool bKeepControlSymbols)
             {
             case '=':
             case '-':
+            case '>':
                 if (size == 0)
                     return 2;
                 return size;
@@ -928,6 +997,21 @@ bool TOKEN::IsNumber(const char *pointer)
 {
     if (pointer == nullptr)
         return false;
+    if (pointer[0] == '0' && (pointer[1] == 'x' || pointer[1] == 'X') && std::isxdigit(static_cast<unsigned char>(pointer[2])))
+    {
+        size_t n = 2;
+        while (std::isxdigit(static_cast<unsigned char>(pointer[n])))
+            n++;
+        return pointer[n] == 0 || ((pointer[n] == 'u' || pointer[n] == 'U') && pointer[n + 1] == 0);
+    }
+    if (pointer[0] >= '0' && pointer[0] <= '9')
+    {
+        size_t n = 1;
+        while (pointer[n] >= '0' && pointer[n] <= '9')
+            n++;
+        if ((pointer[n] == 'u' || pointer[n] == 'U') && pointer[n + 1] == 0)
+            return true; // unsigned literal, e.g. 2u
+    }
     for (uint32_t n = 0; pointer[n]; n++)
     {
         if (pointer[n] < 0x20 && pointer[n] > 0)
@@ -1196,6 +1280,11 @@ S_TOKEN_TYPE TOKEN::ProcessToken(char *&pointer, bool bKeepData)
             break;
 
         StartArgument(pointer);
+        if (*pointer == '(') // function-style cast, e.g. int(x): no name follows the type
+        {
+            DISCARD_DATABUFFER
+            break;
+        }
         pointer += SetTokenData(pointer);
         break;
     }
