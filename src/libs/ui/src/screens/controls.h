@@ -4,6 +4,8 @@
 
 #include "screen.h"
 
+#include <functional>
+
 namespace storm::ui::screens
 {
 
@@ -49,5 +51,32 @@ void TapChoice(Bindings &bindings, const Widget &choice);
 // `labels` (empty, or one per widget) holds the short text that preceded a control and names it.
 void ControlRows(Bindings &bindings, std::span<const Widget *const> widgets, const std::string &id_prefix,
                  const std::vector<std::string> &labels, Json &rows);
+
+// The header's subject switch of c-screen (key "header"): ‹ name k of n ›, and a tap on the name
+// opens the list of every choice (c-screen's subject sheet, a c-dialog of c-list-rows: ids
+// header-subjects, header-subject-<i>). ‹, › and a picked row call `choose` with the choice's
+// index. The list is offered from two choices on; the view is null without choices. A screen
+// keeps one switch for its lifetime and lets Android back close the open list (Open, Close).
+class SubjectSwitch
+{
+  public:
+    struct Choice
+    {
+        std::string label;
+        std::string meta;
+        Json image;       // row image (Portrait, PictureOf) or null
+        std::string icon; // row icon without an image
+    };
+    Json View(Bindings &bindings, const std::vector<Choice> &choices, size_t current, const std::string &title,
+              std::function<void(size_t)> choose);
+    bool Open() const
+    {
+        return open_;
+    }
+    void Close(Bindings &bindings);
+
+  private:
+    bool open_ = false;
+};
 
 } // namespace storm::ui::screens

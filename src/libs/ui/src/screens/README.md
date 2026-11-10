@@ -71,7 +71,9 @@ verbs, §8 admission and extras) and the V2 mockups of the design canvas.
 Element ids: an event carries the id of the nearest ancestor that has one. Components
 inside lists report under the list's id with their own verb (`goods row 3`,
 `goods change 150`); header parts report under `header` (`section ship`,
-`subject-next`), its buttons as `header-back`, `header-close`.
+`subject-next`), its buttons as `header-back`, `header-close`. A subject switch with a list is
+`SubjectSwitch` (controls.h): `subject-list` opens c-screen's subject sheet, whose rows report
+as `header-subject-<i>`.
 
 Verbs and what the engine receives (`EngineCommand`, today's queue line
 `widget:<screen>\t<node>\t<index>\t<wire>`):

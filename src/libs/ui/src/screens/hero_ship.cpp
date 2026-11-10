@@ -190,13 +190,15 @@ class ShipScreen final : public Screen
         return view;
     }
 
-    // Android back closes the game's window first.
+    // Android back closes the subject list or the game's window first.
     bool OwnsBack() const override
     {
-        return window_ != Window::None;
+        return subjects_.Open() || window_ != Window::None;
     }
     void Back(Bindings &bindings) override
     {
+        if (subjects_.Open())
+            return subjects_.Close(bindings);
         sent_revision_ = 0;
         CloseWindow(bindings);
     }
@@ -250,6 +252,7 @@ class ShipScreen final : public Screen
     uint64_t revision_ = 0;
     uint64_t sent_revision_ = 0;
     uint64_t checked_opening_ = 0;
+    SubjectSwitch subjects_;
     Tab tab_ = Tab::Overview;
     Window window_ = Window::None;
     Question question_ = Question::None;
@@ -424,32 +427,27 @@ class ShipScreen final : public Screen
         });
     }
 
-    // ‹ ship k of n › over SHIPS_SCROLL; null with a single ship.
+    // The subject switch over SHIPS_SCROLL, the ships of the squadron, with their list; null with a
+    // single ship.
     Json SubjectView(Bindings &bindings)
     {
         const std::vector<const Widget *> rows = a_->All("SHIPS_SCROLL");
-        bindings.Ignore("header", "subject-list");
-        if (rows.size() < 2)
-            return nullptr;
         size_t current = 0;
-        for (size_t i = 0; i < rows.size(); ++i)
+        std::vector<SubjectSwitch::Choice> choices;
+        for (size_t i = 0; rows.size() > 1 && i < rows.size(); ++i)
+        {
             if (rows[i]->value == "1")
                 current = i;
-        const auto choose = [this, &bindings, rows](size_t index) {
-            if (index >= rows.size() || !rows[index]->Offers("select"))
+            choices.push_back({rows[i]->label, {}, nullptr, "ship"});
+        }
+        return subjects_.View(bindings, choices, current, bindings.Text("ship.squadron"), [this, &bindings, rows](size_t index) {
+            if (!rows[index]->Offers("select"))
                 return;
             sent_revision_ = 0;
             if (window_ != Window::None)
                 return CloseWindow(bindings);
             Step(bindings, rows[index], "select", rows[index]->row_id);
-        };
-        bindings.On("header", "subject-prev", [choose, current](const Event &) { choose(current - 1); });
-        bindings.On("header", "subject-next", [choose, current](const Event &) { choose(current + 1); });
-        return Json{{"label", rows[current]->label},
-                    {"sub", std::to_string(current + 1) + " " + bindings.Text("common.of") + " " + std::to_string(rows.size())},
-                    {"prev", current > 0},
-                    {"next", current + 1 < rows.size()},
-                    {"list", false}};
+        });
     }
 
     // ---- «Обзор» ----
