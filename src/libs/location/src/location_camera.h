@@ -133,6 +133,9 @@ class LocationCamera : public Entity
     bool lockAx;
 
     float dAx, dAy;
+#ifdef __ANDROID__
+    float dragAy = 0.0f; // this frame's camera drag as a yaw angle (mobile camera mode)
+#endif
 
     glm::vec3 camPos, lookTo;    // Current camera parameters
     glm::vec3 oldPos, oldLookTo; // Last camera position in the previous mode

@@ -29,10 +29,9 @@ jobs:
           sudo apt-get update
           # libx11-dev, libgl-dev: bgfx.cmake configures the bgfx runtime (needed by the renderer check,
           # tests/renderer_bgfx, and by the shaderc project that shares it) with X11 and OpenGL on Linux;
-          # libegl-dev, libgles-dev: the host renderer runs the GLES 3.0 backend through EGL;
-          # libegl-mesa0: Mesa's EGL (llvmpipe) for tests/renderer_bgfx/skinning_check (draws in xvfb).
+          # libegl-dev, libgles-dev: the host renderer runs the GLES 3.0 backend through EGL.
           sudo apt-get install -y --no-install-recommends libsdl2-2.0-0 xvfb ninja-build ffmpeg clang-18 libclang-rt-18-dev ccache \
-            libx11-dev libgl-dev libegl-dev libgles-dev libegl-mesa0
+            libx11-dev libgl-dev libegl-dev libgles-dev
       - name: Cache pinned dependency sources
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:

@@ -224,7 +224,18 @@ class NewGameScreen final : public Screen
         const Widget *cancel = admitted.One("CANCEL_BUTTON");
         bindings.On("header-back", "", [&bindings, cancel](const Event &) { bindings.Back(cancel); });
 
-        view["modal"] = Modal(admitted, bindings);
+        // «Начать игру» with the game's default profile name asks whether to use the existing
+        // profile folder (selectCharacter.c exitOk → ShowConfirmWindow; «да» keeps its saves and
+        // starts). There are no profiles in this port: the question is answered for the player.
+        const Widget *profile_yes = admitted.One("CONFIRM_WINDOW_MB_YES");
+        if (profile_yes && profile_yes->Offers("press") && answered_ != admitted.model->revision)
+        {
+            answered_ = admitted.model->revision;
+            bindings.Send(*profile_yes, "press");
+            view["modal"] = Json();
+        }
+        else
+            view["modal"] = Modal(admitted, bindings);
         return view;
     }
 
@@ -259,6 +270,7 @@ class NewGameScreen final : public Screen
 
     uint64_t reported_portrait_ = ~0ull; // opening whose missing portrait was reported
     std::string reported_occupation_;   // occupation without a title, reported once
+    uint64_t answered_ = 0;             // model revision whose profile question was answered
 };
 
 } // namespace

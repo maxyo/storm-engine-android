@@ -334,6 +334,7 @@ class XINTERFACE : public XINTERFACE_BASE
 
 #ifdef __ANDROID__
     void MobileCollectWidgets(std::vector<MobileWidget> &widgets);
+    void MobileKeepSaveProfile();
     std::string MobileNationScore(const std::string &nation) const;
     void MobileNationPickFailed(const std::string &target) const;
     std::string MobileNationFlags() const;

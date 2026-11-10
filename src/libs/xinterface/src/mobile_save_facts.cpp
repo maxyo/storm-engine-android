@@ -8,6 +8,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <cctype>
 #include <ctime>
 #include <filesystem>
 #include <utility>
@@ -75,7 +77,7 @@ SaveFactsCache saveFacts;
 std::map<std::string, std::string> SaveRowContext(const SaveListSnapshot &state, size_t index, const SaveDescriptionReader &read)
 {
     std::map<std::string, std::string> context;
-    if (index >= state.files.size())
+    if (index >= state.records.size())
     {
         // The record about to be written: the game in progress, no dates yet.
         static std::pair<uint64_t, std::optional<std::array<std::string, 4>>> identity{~0ull, {}};
@@ -88,7 +90,7 @@ std::map<std::string, std::string> SaveRowContext(const SaveListSnapshot &state,
         }
         return context;
     }
-    const SaveFacts &facts = saveFacts.get("SAVE\\" + state.profile + "\\" + state.files[index], read);
+    const SaveFacts &facts = saveFacts.get("SAVE\\" + state.records[index].profile + "\\" + state.records[index].file, read);
     for (const auto &[key, value] : {std::pair<const char *, const std::string &>{"hero", facts.hero}, {"location", facts.location},
                                      {"gameDate", facts.gameDate}, {"gameTime", facts.gameTime}, {"created", facts.created}})
         if (!value.empty()) context[key] = value;
@@ -96,37 +98,56 @@ std::map<std::string, std::string> SaveRowContext(const SaveListSnapshot &state,
     return context;
 }
 
-std::optional<MobileWidget> ContinueWidget(uint64_t opening, const SaveDescriptionReader &read)
+std::vector<SaveRecord> SaveRecordsOfAllProfiles()
 {
-    static std::pair<uint64_t, std::string> newest{~0ull, {}};
-    if (newest.first != opening)
+    struct Found
     {
-        auto *profile = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
-        const char *profileName = profile && profile->GetAClass() ? profile->GetAClass()->GetAttribute("name") : nullptr;
-        if (!profileName || !*profileName) return {};
-        newest = {opening, {}};
-        const std::string folder = std::string("SAVE\\") + profileName;
-        const char *savePath = folder.c_str();
-        std::filesystem::file_time_type best{};
-        for (const auto &path : fio->_GetFsPathsByMask(savePath, nullptr, true))
+        SaveRecord record;
+        std::filesystem::file_time_type written;
+    };
+    std::vector<Found> found;
+    for (const auto &folder : fio->_GetFsPathsByMask("SAVE", nullptr, true, true, false))
+    {
+        const auto folderUtf8 = folder.filename().u8string();
+        const std::string profile(folderUtf8.begin(), folderUtf8.end());
+        // The game's profile list leaves the network save folder out (XI_FindFoldersWithoutNetsave).
+        std::string lower = profile;
+        for (char &c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (profile.empty() || lower == "netsave") continue;
+        for (const auto &path : fio->_GetFsPathsByMask(("SAVE\\" + profile).c_str(), nullptr, true))
         {
             const auto utf8 = path.filename().u8string();
             const std::string name(utf8.begin(), utf8.end());
-            std::error_code error;
-            const auto written = std::filesystem::last_write_time(path, error);
             const auto ends = [&name](const std::string &suffix) {
                 return name.size() >= suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0;
             };
-            if (error || ends(".storm-tmp") || ends(".storm-bak") || (!newest.second.empty() && written <= best)) continue;
-            best = written;
-            newest.second = std::string(savePath) + "\\" + name;
+            std::error_code error;
+            const auto written = std::filesystem::last_write_time(path, error);
+            if (error || ends(".storm-tmp") || ends(".storm-bak")) continue;
+            found.push_back({{profile, name}, written});
         }
     }
-    if (newest.second.empty()) return {};
-    const SaveFacts &facts = saveFacts.get(newest.second, read);
-    if (facts.location.empty()) return {};
-    MobileWidget widget{"ANDROID_CONTINUE", "text", facts.hero.empty() ? facts.location : facts.hero + " · " + facts.location, "", -1, -1, true};
-    widget.context = {{"location", facts.location}};
+    std::stable_sort(found.begin(), found.end(), [](const Found &a, const Found &b) { return a.written > b.written; });
+    std::vector<SaveRecord> records;
+    for (Found &entry : found)
+        records.push_back(std::move(entry.record));
+    return records;
+}
+
+std::optional<MobileWidget> ContinueWidget(uint64_t opening, const SaveDescriptionReader &read)
+{
+    static std::pair<uint64_t, std::optional<SaveRecord>> newest{~0ull, {}};
+    if (newest.first != opening)
+    {
+        const auto records = SaveRecordsOfAllProfiles();
+        newest = {opening, records.empty() ? std::nullopt : std::optional<SaveRecord>(records.front())};
+    }
+    if (!newest.second) return {};
+    const SaveFacts &facts = saveFacts.get("SAVE\\" + newest.second->profile + "\\" + newest.second->file, read);
+    // A record whose description cannot be read is still the one «Продолжить» loads: its file name names it.
+    const std::string label = facts.location.empty() ? newest.second->file : facts.hero.empty() ? facts.location : facts.hero + " · " + facts.location;
+    MobileWidget widget{"ANDROID_CONTINUE", "text", label, "", -1, -1, true};
+    if (!facts.location.empty()) widget.context["location"] = facts.location;
     if (!facts.hero.empty()) widget.context["hero"] = facts.hero;
     return widget;
 }
