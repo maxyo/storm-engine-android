@@ -1,0 +1,74 @@
+{
+ "schemaVersion": 1,
+ "sceneEpoch": 4,
+ "activityGeneration": 2,
+ "language": "russian",
+ "mode": 0,
+ "revision": 12,
+ "available": true,
+ "active": true,
+ "complete": true,
+ "stage": "commands",
+ "pendingLabel": "",
+ "selectedItemId": "c3",
+ "canBack": true,
+ "canClose": true,
+ "items": [
+  {
+   "id": "c1",
+   "kind": "command",
+   "label": "Переход",
+   "source": "BI_FastReload",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "c2",
+   "kind": "command",
+   "label": "Использовать",
+   "source": "BI_ItemsUse",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "c3",
+   "kind": "command",
+   "label": "Мысли вслух",
+   "source": "BI_TalkSelf",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "c4",
+   "kind": "command",
+   "label": "Обмен с офицером",
+   "source": "BI_ItemsChange",
+   "enabled": false,
+   "cooldown": 1.0
+  },
+  {
+   "id": "c5",
+   "kind": "command",
+   "label": "Алхимия",
+   "source": "BI_Alchemy",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "c6",
+   "kind": "command",
+   "label": "Картографический атлас",
+   "source": "BI_MapAtlas",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "x",
+   "kind": "cancel",
+   "label": "Отмена",
+   "source": "",
+   "enabled": true,
+   "cooldown": 1.0
+  }
+ ]
+}

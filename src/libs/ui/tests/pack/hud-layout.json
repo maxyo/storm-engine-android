@@ -1,0 +1,187 @@
+{
+ "version": 2,
+ "scenes": {
+  "land": {
+   "elements": [
+    {
+     "id": "vitals",
+     "component": "c-box",
+     "rcss": "position: absolute; left: 10dp; top: 10dp; width: 200dp; height: 40dp;",
+     "props": {},
+     "children": [
+      {
+       "id": "health",
+       "component": "c-box",
+       "rcss": "",
+       "props": {}
+      },
+      {
+       "id": "energy",
+       "component": "c-box",
+       "rcss": "",
+       "props": {}
+      }
+     ]
+    },
+    {
+     "id": "log",
+     "component": "c-box",
+     "rcss": "position: absolute; left: 300dp; top: 10dp; width: 200dp; height: 30dp;",
+     "props": {}
+    },
+    {
+     "id": "location",
+     "component": "c-box",
+     "rcss": "position: absolute; right: 130dp; top: 10dp; width: 200dp; height: 30dp;",
+     "props": {}
+    },
+    {
+     "id": "hero",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 70dp; top: 10dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "pause",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 10dp; top: 10dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "move",
+     "component": "c-stick",
+     "rcss": "position: absolute; left: 40dp; bottom: 30dp; width: 100dp; height: 100dp;",
+     "props": {}
+    },
+    {
+     "id": "context",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 20dp; bottom: 80dp; width: 64dp; height: 64dp;",
+     "props": {}
+    },
+    {
+     "id": "actions",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 150dp; bottom: 10dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "potion",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 85dp; bottom: 10dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "weapon",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 20dp; bottom: 10dp; width: 52dp; height: 52dp;",
+     "props": {}
+    }
+   ]
+  },
+  "land-combat": {
+   "elements": [
+    {
+     "id": "vitals",
+     "component": "c-box",
+     "rcss": "position: absolute; left: 10dp; top: 10dp; width: 200dp; height: 40dp;",
+     "props": {},
+     "children": [
+      {
+       "id": "health",
+       "component": "c-box",
+       "rcss": "",
+       "props": {}
+      },
+      {
+       "id": "energy",
+       "component": "c-box",
+       "rcss": "",
+       "props": {}
+      }
+     ]
+    },
+    {
+     "id": "log",
+     "component": "c-box",
+     "rcss": "position: absolute; left: 300dp; top: 10dp; width: 200dp; height: 30dp;",
+     "props": {}
+    },
+    {
+     "id": "location",
+     "component": "c-box",
+     "rcss": "position: absolute; right: 130dp; top: 10dp; width: 200dp; height: 30dp;",
+     "props": {}
+    },
+    {
+     "id": "hero",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 70dp; top: 10dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "pause",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 10dp; top: 10dp; width: 48dp; height: 48dp;",
+     "props": {}
+    },
+    {
+     "id": "move",
+     "component": "c-stick",
+     "rcss": "position: absolute; left: 40dp; bottom: 30dp; width: 100dp; height: 100dp;",
+     "props": {}
+    },
+    {
+     "id": "strike",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 86dp; bottom: 76dp; width: 84dp; height: 84dp;",
+     "props": {},
+     "behavior": "swipe",
+     "data": {
+      "swipe-ids": "feint,round,break,parry,force",
+      "swipe-bounds": "-135,-67.5,-22.5,45,135,225",
+      "swipe-centre": "fast",
+      "swipe-dead": 20
+     }
+    },
+    {
+     "id": "block",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 12dp; bottom: 170dp; width: 64dp; height: 64dp;",
+     "props": {},
+     "behavior": "hold"
+    },
+    {
+     "id": "shot",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 16dp; bottom: 84dp; width: 56dp; height: 56dp;",
+     "props": {}
+    },
+    {
+     "id": "actions",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 320dp; bottom: 10dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "potion",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 260dp; bottom: 10dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "weapon",
+     "component": "c-button",
+     "rcss": "position: absolute; right: 200dp; bottom: 10dp; width: 52dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "moves",
+     "component": "c-box",
+     "rcss": "position: absolute; right: 14dp; bottom: 4dp; width: 228dp; height: 228dp; pointer-events: none;",
+     "props": {}
+    }
+   ]
+  }
+ }
+}

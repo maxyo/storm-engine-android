@@ -1,0 +1,17 @@
+{
+ "schemaVersion": 1,
+ "sceneEpoch": 4,
+ "activityGeneration": 2,
+ "language": "russian",
+ "mode": 0,
+ "revision": 10,
+ "available": true,
+ "active": false,
+ "complete": true,
+ "stage": "commands",
+ "pendingLabel": "",
+ "selectedItemId": "",
+ "canBack": false,
+ "canClose": false,
+ "items": []
+}

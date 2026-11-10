@@ -2,6 +2,8 @@
 // porting a zone = adding its screens to kPorted and removing their ids from kHostOwned.
 #include "screen.h"
 
+#include "../hud/hud.h"
+
 namespace storm::ui::screens
 {
 
@@ -57,6 +59,7 @@ std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()
 {
     std::vector<std::unique_ptr<StateConsumer>> consumers;
     consumers.push_back(CreateDialogueConsumer());
+    hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, presentation
     return consumers;
 }
 

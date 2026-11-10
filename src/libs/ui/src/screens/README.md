@@ -118,11 +118,94 @@ a game root the neutral placeholder stays.
 
 ## State channels
 
-`Host::SetState(channel, json)` carries the HUD and telemetry state of the game:
-`dialogue`, `gameplay`, `combat`, `ship`, `worldmap`, `landCommands`, `seaOrders`,
-`vitals`, `worldInfo`. A zone implements `StateConsumer` (`Channel()`, `OnState(json,
-router)`) and registers it in `CreateStateConsumers()`. `dialogue.cpp` is the pattern: it
-turns the state into an `InterfaceModel` of its own and lets a ported screen draw it.
+`Host::SetState(channel, json)` carries the state of the game outside interfaces. A zone
+implements `StateConsumer` (`Channel()`, `OnState(json, router)`) and registers it in
+`CreateStateConsumers()`. `dialogue.cpp` turns its state into an `InterfaceModel` of its
+own and lets a ported screen draw it. The HUD channels are consumed in `../hud`.
+
+## The HUD
+
+`src/hud` draws the in-game HUD under game interfaces, from state channels:
+
+```
+engine ──state JSON──▶ consumer (states.cpp) ──typed States──▶ Scene::Build ──View──▶ mount (ui_host.cpp)
+engine ◀──"<verb>:<value>" (Action, screen "hud")── Hud::Send ◀── Input handlers ◀── component events
+```
+
+| File | Role |
+|---|---|
+| `hud.h` | the contracts: `States`, `View`, `Input`, `Scene`, `SceneEntry`, `Mount`, `Hud`, the layout |
+| `hud.cpp` | **the migration switch** `kScenes` (gameplay mode → scene), visibility, event dispatch, the event log |
+| `states.cpp` | one consumer per channel: the engine's JSON checked once, kept typed; bad data is rejected aloud |
+| `land.cpp` | the land scene: explore and combat sets, the action sheet, the sword-move wheel |
+
+Channels (JSON as the engine publishes it unless noted):
+
+| channel | shape | state |
+|---|---|---|
+| `gameplay` | `{schemaVersion: 1, revision, mode: explore\|melee\|sailing\|naval\|worldmap\|unknown, language, inputOwner, analogMovement, movementGeneration, capabilities: […]}` | `Gameplay` |
+| `combat` | `{schemaVersion: 1, gameplayRevision, activityGeneration, playerId, mode, actions: […], interactKind, pistol: {state, progress 0…20}}` | `Combat` |
+| `vitals` | `{health, energy, reload: 0…1, loaded, capacity}` or `null` | `Vitals` |
+| `worldInfo` | a JSON string: the engine's location lines, `\n` between them | `States::world_info` |
+| `contextAction` | a JSON string: the script's quick action name, `""` = none | `States::context_action` |
+| `landCommands` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage, pendingLabel, selectedItemId, canBack, canClose, items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `LandCommands` |
+| `presentation` | written by the platform host: `{screen, loading, cinematic, dialogue, live}` | `Presentation` |
+
+The HUD is visible when a scene draws the gameplay mode, `presentation` reports a free game
+(no screen, loading, cutscene or dialogue of the platform host) and no interface of the UI
+is mounted. While `live` is false it is drawn but takes no input, and the scene gives up
+what it holds (`Released`, `Suspended`).
+
+A scene builds a `View`: the layout scene of the pack's `hud-layout.json`, the live props of
+its elements by id (an element left out is not mounted), an optional sheet (a pack part,
+modal or not), elements to dim. The mount patches elements in place, so an element that the
+old and the new view share keeps its pointer (the stick survives explore ↔ combat). Layout
+props come first, the scene's props on top; a prop the scene stops giving returns to its
+default. `Input::On(id, verb, handler)` binds component events; an event without a binding,
+a layout scene or element the pack lacks, and a channel carrying something else than its
+contract are errors (log, toast in debug hosts), never quiet drops.
+
+Input goes out with `Hud::Send(verb, value, slot)`: the engine command is `<verb>:<value>`
+(`move`, `combat`, `landcommands`, `context`); a `slot` marks a latest-value input (stick
+position, coverage acknowledgement) of which a queueing host keeps only the newest. Two
+verbs are for the platform host: `shortcut` (`mainmenu`, `character`) and `presence`
+(`shown` / `hidden`). Sequences, owners and revisions are formed here; the platform adds
+nothing.
+
+Touches over the game are decided per pointer at pointer-down: `Host::WantsTouch(x, y)` is
+true on an interactive HUD element (what the behaviours report as `Regions`), anywhere
+while a modal sheet, an interface or a plain document is shown, and false elsewhere, so the
+game keeps the rest (camera look). It is answered from the layout of the last frame and is
+thread-safe. A layout element may add a behaviour: `"behavior": "hold"` (reports `down` /
+`up`) or `"swipe"` (a drag picks a move; `data` → `data-swipe-*`).
+
+Remaining fallbacks, each logged and tested: a context action name the land table lacks
+keeps its button with the generic icon (info line, once); a land menu the engine marks as
+not drawable, or with a kind this runtime does not know, stays the engine's own menu (error
+line, no coverage acknowledged); `storm_ui_shot` without a `presentation` state uses an
+idle game in front and says so.
+
+### Porting a scene (sea, world map)
+
+1. Add the channel structs to `States` and a consumer per channel to `states.cpp`
+   (`AddStateConsumers`): parse strictly, `hud.Reject(...)`-style errors for bad data.
+2. Write `Scene` in `src/hud/<zone>.cpp`: `Build` sets `view.layout` (`sea`, `sea-battle`,
+   `world-map`), the props of the elements and the bindings; timed work in `Tick`, coverage
+   acknowledgements in `Drawn` (only a drawn frame may hide the engine's own indicators),
+   `Released` / `Suspended` for cancelled input and a lost screen, `Holds` when the engine
+   reports no mode while something of the scene is open.
+3. Add `{"<name>", modes, Create…}` to `kScenes`. From then on `HostOwnsHud(mode)` is false
+   and the platform host must not draw that mode's HUD; delete its code there.
+4. Pack: elements and their offsets are already in `hud-layout.json`; add `behavior` /
+   `data` where a control is held or swiped, and sheets as `screens/hud-…` parts.
+5. Tests: synthetic states in `tests/states`, a scene check like `tests/hud_land_check.cpp`
+   (recording mount for the scene, the runtime with `tests/pack` for touches).
+
+```sh
+build/ui-host/storm_ui_shot --pack <app>/build/ui-pack --size 915x412 --density 2 --out land.png \
+    --state gameplay=tests/states/gameplay-explore.json --state combat=tests/states/combat-explore.json \
+    --state vitals=tests/states/vitals.json --script "wants 96 329; down 1 96 329; move 1 96 280; wait 0.3"
+```
 
 ## Trying a screen on the build host
 

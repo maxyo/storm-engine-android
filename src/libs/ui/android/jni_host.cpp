@@ -1,5 +1,6 @@
 // JNI surface of the UI runtime for the Android host (org.stormengine.port.StormUi).
-// Every call arrives on the GL thread of the host view, with its context current.
+// Every call arrives on the GL thread of the host view, with its context current; only
+// nativeWantsTouch and nativeWantsBack come from the thread that receives input.
 // Actions are queued and handed to Java in batches after a frame, so no native code
 // ever calls back into the VM.
 #include "asset_files.h"
@@ -25,6 +26,14 @@ struct Session
     std::vector<storm::ui::TextRequest> text_requests;
     jobject assets_reference = nullptr; // keeps the Java AssetManager alive
 };
+
+std::string Bytes(JNIEnv *env, jbyteArray value)
+{
+    const jsize size = env->GetArrayLength(value);
+    std::string text(static_cast<size_t>(size), '\0');
+    env->GetByteArrayRegion(value, 0, size, reinterpret_cast<jbyte *>(text.data()));
+    return text;
+}
 
 std::string Text(JNIEnv *env, jstring value)
 {
@@ -135,13 +144,15 @@ JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeHostOwnsInter
     return storm::ui::HostOwnsInterface(Text(env, screen)) ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeHostOwnsHud(JNIEnv *env, jclass, jstring mode)
+{
+    return storm::ui::HostOwnsHud(Text(env, mode)) ? JNI_TRUE : JNI_FALSE;
+}
+
 // The engine's interface snapshot, forwarded as it arrived.
 JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeSetInterface(JNIEnv *env, jclass, jlong handle, jbyteArray json)
 {
-    const jsize size = env->GetArrayLength(json);
-    std::string text(static_cast<size_t>(size), '\0');
-    env->GetByteArrayRegion(json, 0, size, reinterpret_cast<jbyte *>(text.data()));
-    return From(handle)->host->SetInterface(text) ? JNI_TRUE : JNI_FALSE;
+    return From(handle)->host->SetInterface(Bytes(env, json)) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeCloseInterface(JNIEnv *, jclass, jlong handle)
@@ -149,9 +160,32 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeCloseInterface(JN
     From(handle)->host->CloseInterface();
 }
 
-JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeSetState(JNIEnv *env, jclass, jlong handle, jstring channel, jstring json)
+// A state channel of the game: the engine's JSON bytes, forwarded as they arrived.
+JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeSetState(JNIEnv *env, jclass, jlong handle, jstring channel, jbyteArray json)
 {
-    return From(handle)->host->SetState(Text(env, channel), Text(env, json)) ? JNI_TRUE : JNI_FALSE;
+    return From(handle)->host->SetState(Text(env, channel), Bytes(env, json)) ? JNI_TRUE : JNI_FALSE;
+}
+
+// Input thread, at pointer-down: does this pointer belong to the UI? (physical pixels)
+JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeWantsTouch(JNIEnv *, jclass, jlong handle, jfloat x, jfloat y)
+{
+    return From(handle)->host->WantsTouch(x, y) ? JNI_TRUE : JNI_FALSE;
+}
+
+// Input thread: the back key belongs to the UI (an open HUD sheet).
+JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeWantsBack(JNIEnv *, jclass, jlong handle)
+{
+    return From(handle)->host->WantsBack() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeBack(JNIEnv *, jclass, jlong handle)
+{
+    From(handle)->host->Back();
+}
+
+JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeCancelInput(JNIEnv *, jclass, jlong handle)
+{
+    From(handle)->host->CancelInput();
 }
 
 JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeSubmitText(JNIEnv *env, jclass, jlong handle, jstring token, jstring text,
@@ -186,20 +220,21 @@ JNIEXPORT jobjectArray JNICALL Java_org_stormengine_port_StormUi_nativeTakeTextR
     return result;
 }
 
-// Returns the queued actions as a flat array {node, verb, value, engine command, …}, or null.
-// The engine command is empty for actions of a plain document (gallery).
+// Returns the queued actions as a flat array {screen, node, verb, value, engine command, …},
+// or null. The engine command is empty for actions of a plain document (gallery). HUD input
+// has the screen "hud"; its node names a latest-value slot (see storm::ui::Action).
 JNIEXPORT jobjectArray JNICALL Java_org_stormengine_port_StormUi_nativeTakeActions(JNIEnv *env, jclass, jlong handle)
 {
     Session *session = From(handle);
     if (session->actions.empty())
         return nullptr;
     const jclass string_class = env->FindClass("java/lang/String");
-    jobjectArray result = env->NewObjectArray(static_cast<jsize>(session->actions.size() * 4), string_class, nullptr);
+    jobjectArray result = env->NewObjectArray(static_cast<jsize>(session->actions.size() * 5), string_class, nullptr);
     jsize index = 0;
     for (const storm::ui::Action &action : session->actions)
     {
         const std::string command = storm::ui::EngineCommand(action);
-        for (const std::string *part : {&action.node, &action.verb, &action.value, &command})
+        for (const std::string *part : {&action.screen, &action.node, &action.verb, &action.value, &command})
         {
             jstring value = env->NewStringUTF(part->c_str());
             env->SetObjectArrayElement(result, index++, value);

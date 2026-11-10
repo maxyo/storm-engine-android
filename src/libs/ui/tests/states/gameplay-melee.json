@@ -1,0 +1,22 @@
+{
+ "schemaVersion": 1,
+ "revision": 8,
+ "mode": "melee",
+ "language": "russian",
+ "inputOwner": "town:42",
+ "analogMovement": true,
+ "movementGeneration": 3,
+ "capabilities": [
+  "ChrForward",
+  "ChrBackward",
+  "ChrStrafeLeft",
+  "ChrStrafeRight",
+  "ChrRun",
+  "ChrFightMode",
+  "BOAL_UsePotion",
+  "ChrAction",
+  "ChrAttackBase",
+  "ChrBlock",
+  "ChrFire"
+ ]
+}

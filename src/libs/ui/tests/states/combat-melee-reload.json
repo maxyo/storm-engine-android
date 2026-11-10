@@ -1,0 +1,25 @@
+{
+ "schemaVersion": 1,
+ "gameplayRevision": 8,
+ "activityGeneration": 6,
+ "playerId": "42",
+ "mode": "melee",
+ "actions": [
+  "weapon",
+  "potion",
+  "freelook",
+  "force",
+  "fast",
+  "break",
+  "parry",
+  "feint",
+  "round",
+  "pistol",
+  "block"
+ ],
+ "interactKind": "dialog",
+ "pistol": {
+  "state": "unloaded",
+  "progress": 8
+ }
+}

@@ -1,0 +1,18 @@
+{
+ "schemaVersion": 1,
+ "gameplayRevision": 7,
+ "activityGeneration": 5,
+ "playerId": "42",
+ "mode": "explore",
+ "actions": [
+  "weapon",
+  "potion",
+  "interact",
+  "freelook"
+ ],
+ "interactKind": "dialog",
+ "pistol": {
+  "state": "loaded",
+  "progress": 20
+ }
+}

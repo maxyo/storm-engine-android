@@ -16,12 +16,22 @@
 //   sticky  data-sticky on rows inside a scrolling element (which must be positioned, so
 //           it is their offset parent): a row scrolled above the top edge stays pinned
 //           there (CSS position: sticky; top: 0, which RmlUi lacks)
+//
+// Two more are given to single elements with data-behavior="…" (HUD layout), on top of
+// what their component has:
+//   hold    reports `down` and `up`: a control that acts for as long as it is held
+//   swipe   a drag from the element picks one of several moves by direction and reports
+//           `open <id>`, `preview <id>`, then `commit <id>` or `cancel`:
+//           data-swipe-ids="a,b,…" with data-swipe-bounds="deg,deg,…" (one more bound than
+//           ids, clockwise from the positive x axis, y down), data-swipe-centre="id" inside
+//           data-swipe-dead dp
 #include "components.h"
 
 #include <RmlUi/Core/EventListener.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <unordered_map>
 
 namespace storm::ui
@@ -83,6 +93,28 @@ bool Inside(Rml::Element *element, Rml::Vector2f point, float slop)
 double Number(const Json &value, double fallback = 0.0)
 {
     return value.is_number() ? value.get<double>() : fallback;
+}
+
+void AllWith(Rml::Element *root, const char *attribute, std::vector<Rml::Element *> &out)
+{
+    Rml::ElementList found;
+    root->QuerySelectorAll(found, Rml::String("[") + attribute + "]");
+    out.insert(out.end(), found.begin(), found.end());
+}
+
+std::vector<std::string> Split(const std::string &text)
+{
+    std::vector<std::string> parts;
+    size_t at = 0;
+    while (at <= text.size())
+    {
+        size_t end = text.find(',', at);
+        if (end == std::string::npos)
+            end = text.size();
+        parts.push_back(text.substr(at, end - at));
+        at = end + 1;
+    }
+    return parts;
 }
 
 class PressBehavior final : public Behavior
@@ -176,6 +208,14 @@ class PressBehavior final : public Behavior
                 text = ToText(self.Prop("title"));
             self.Host().Tooltip(&self, text, ToText(self.Prop("tipPlace")) == "below");
         }
+    }
+
+    void Regions(ComponentElement &self, std::vector<Rml::Element *> &out) const override
+    {
+        const size_t before = out.size();
+        AllWith(&self, "data-action", out);
+        if (out.size() == before && Truthy(self.Spec().constants.value("pressRoot", Json(true))))
+            out.push_back(&self);
     }
 
     void Rebuilt(ComponentElement &self) override
@@ -354,6 +394,11 @@ class RangeBehavior final : public Behavior
         self.Emit("commit", ToText(self.Prop(prop_)));
     }
 
+    void Regions(ComponentElement &self, std::vector<Rml::Element *> &out) const override
+    {
+        AllWith(&self, "data-range", out);
+    }
+
   private:
     void Apply(ComponentElement &self, float x, bool active)
     {
@@ -414,6 +459,11 @@ class StickBehavior final : public Behavior
         active_ = false;
         self.SetProps(Json{{"value", 0}, {"valueY", 0}, {"active", false}});
         self.Emit("change", both_ ? "0,0" : "0");
+    }
+
+    void Regions(ComponentElement &self, std::vector<Rml::Element *> &out) const override
+    {
+        AllWith(&self, "data-stick", out);
     }
 
   private:
@@ -490,6 +540,11 @@ class LeverBehavior final : public Behavior
             self.SetProps(Json{{"active", false}});
     }
 
+    void Regions(ComponentElement &self, std::vector<Rml::Element *> &out) const override
+    {
+        AllWith(&self, "data-lever", out);
+    }
+
   private:
     void Apply(ComponentElement &self, const Pointer &pointer)
     {
@@ -522,6 +577,127 @@ class LeverBehavior final : public Behavior
     int steps_ = 3;
     float top_ = 0.0f;
     float travel_ = 1.0f;
+};
+
+// A control that acts while it is held (block): `down` on the press, `up` on the release
+// or when the gesture is taken away. The finger may wander; it never becomes a scroll.
+class HoldBehavior final : public Behavior
+{
+  public:
+    bool Exclusive(const Pointer &) const override
+    {
+        return true;
+    }
+
+    bool Down(ComponentElement &self, const Pointer &pointer) override
+    {
+        if (held_ || self.Flag("disabled"))
+            return !held_;
+        held_ = true;
+        pointer_ = pointer.id;
+        self.Emit("down");
+        return true;
+    }
+
+    void Up(ComponentElement &self, const Pointer &pointer, bool) override
+    {
+        if (!held_ || pointer.id != pointer_)
+            return;
+        held_ = false;
+        self.Emit("up");
+    }
+
+    void Regions(ComponentElement &self, std::vector<Rml::Element *> &out) const override
+    {
+        out.push_back(&self);
+    }
+
+  private:
+    bool held_ = false;
+    int pointer_ = -1;
+};
+
+// One finger picks one of several moves: the direction of the drag from where it went
+// down selects a sector, staying near that point selects the centre. Only the release
+// commits; a cancelled gesture commits nothing.
+class SwipeBehavior final : public Behavior
+{
+  public:
+    bool Exclusive(const Pointer &) const override
+    {
+        return true;
+    }
+
+    bool Down(ComponentElement &self, const Pointer &pointer) override
+    {
+        if (active_ || self.Flag("disabled"))
+            return !active_;
+        ids_ = Split(Attr(&self, "data-swipe-ids"));
+        bounds_.clear();
+        for (const std::string &bound : Split(Attr(&self, "data-swipe-bounds")))
+            bounds_.push_back(std::strtof(bound.c_str(), nullptr));
+        centre_ = Attr(&self, "data-swipe-centre");
+        if (ids_.empty() || bounds_.size() != ids_.size() + 1 || centre_.empty())
+        {
+            Rml::Log::Message(Rml::Log::LT_ERROR, "Behaviour swipe on %s: data-swipe-ids, -bounds (one more than ids) and -centre are required",
+                              self.GetAddress().c_str());
+            return true;
+        }
+        dead_ = self.GetAttribute<float>("data-swipe-dead", 20.0f) * self.Host().Density();
+        active_ = true;
+        pointer_ = pointer.id;
+        selected_ = centre_;
+        self.Emit("open", selected_);
+        return true;
+    }
+
+    void Move(ComponentElement &self, const Pointer &pointer) override
+    {
+        if (!active_ || pointer.id != pointer_)
+            return;
+        const std::string selected = Selection(pointer.position - pointer.start);
+        if (selected == selected_)
+            return;
+        selected_ = selected;
+        self.Emit("preview", selected_);
+    }
+
+    void Up(ComponentElement &self, const Pointer &pointer, bool cancelled) override
+    {
+        if (!active_ || pointer.id != pointer_)
+            return;
+        active_ = false;
+        if (cancelled)
+            self.Emit("cancel");
+        else
+            self.Emit("commit", Selection(pointer.position - pointer.start));
+    }
+
+    void Regions(ComponentElement &self, std::vector<Rml::Element *> &out) const override
+    {
+        out.push_back(&self);
+    }
+
+  private:
+    std::string Selection(Rml::Vector2f drag) const
+    {
+        if (drag.Magnitude() < dead_)
+            return centre_;
+        float angle = std::atan2(drag.y, drag.x) * 180.0f / 3.14159265f;
+        while (angle < bounds_.front())
+            angle += 360.0f;
+        for (size_t i = 0; i < ids_.size(); ++i)
+            if (angle >= bounds_[i] && angle < bounds_[i + 1])
+                return ids_[i];
+        return centre_;
+    }
+
+    bool active_ = false;
+    int pointer_ = -1;
+    float dead_ = 0.0f;
+    std::string centre_, selected_;
+    std::vector<std::string> ids_;
+    std::vector<float> bounds_;
 };
 
 template <typename T> std::unique_ptr<Behavior> Make()
@@ -663,6 +839,8 @@ void RegisterBuiltinBehaviors()
     RegisterBehavior("lever", &Make<LeverBehavior>);
     RegisterBehavior("sticky", &Make<StickyBehavior>);
     RegisterBehavior("columns", &Make<ColumnsBehavior>);
+    RegisterBehavior("hold", &Make<HoldBehavior>);
+    RegisterBehavior("swipe", &Make<SwipeBehavior>);
 }
 
 } // namespace storm::ui
