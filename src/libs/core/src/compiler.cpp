@@ -992,7 +992,7 @@ void COMPILER::UnloadSegment(const char *segment_name)
 
     for (uint32_t n = 0; n < SegmentsNum; n++)
     {
-        if (strcmp(SegmentTable[n].name.c_str(), segment_name) == 0)
+        if (strcmp(SegmentTable[n].name.c_str(), segment_name) == 0 && !SegmentTable[n].bUnload)
         {
             const uint32_t segment_id = SegmentTable[n].id;
             SegmentTable[n].bUnload = true;
@@ -1018,7 +1018,7 @@ bool COMPILER::BC_SegmentIsLoaded(const char *file_name)
     }
     for (uint32_t n = 0; n < SegmentsNum; n++)
     {
-        if (strcmp(SegmentTable[n].name.c_str(), file_name) == 0)
+        if (strcmp(SegmentTable[n].name.c_str(), file_name) == 0 && !SegmentTable[n].bUnload)
             return true;
     }
     return false;
@@ -1038,10 +1038,11 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
 
     // Trace("Loading segment: %s", file_name);
 
-    // check for already loaded
+    // check for already loaded (a segment unloaded in this frame waits for ProcessFrame to free its
+    // code, but its functions are gone: loading it again compiles a new copy)
     for (n = 0; n < SegmentsNum; n++)
     {
-        if (strcmp(SegmentTable[n].name.c_str(), file_name) == 0)
+        if (strcmp(SegmentTable[n].name.c_str(), file_name) == 0 && !SegmentTable[n].bUnload)
         {
             SetWarning("Segment already loaded: %s", file_name);
             return true;
@@ -7357,9 +7358,10 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 count = static_cast<int32_t>(target->GetElementsNum());
             else if (ATTRIBUTES *attributes = AttributesOf(pV))
                 count = static_cast<int32_t>(attributes->GetAttributesNum());
-            else if (!target || pV->IsNull())
+            else if (!(target == nullptr || pV->IsNull() || (target && target->IsNull())))
             {
-                SetError("'@' of a null reference");
+                // a null reference has no attributes: 0 (CL: x = a.b$aref; @x when b is missing)
+                SetError("'@' of a %s value", Token.GetTypeName(target->GetType()));
                 return false;
             }
             pV->ClearType();
