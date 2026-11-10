@@ -271,6 +271,8 @@ void ILogAndActions::Realize(uint32_t delta_time)
         && !storm::android::worldMapHud.covered(storm::android::MapCommands,core.GetEntityId("WorldMap"),SDL_GetTicks())
         // the touch control of exactly this action is on the screen: its native icon steps aside
         && !storm::android::seaQuickAction.covered(GetId(), SDL_GetTicks())
+        // … and nothing of it while the touch orders panel covers the command menu
+        && !storm::android::seaOrders.covered()
 #endif
        )
     {
