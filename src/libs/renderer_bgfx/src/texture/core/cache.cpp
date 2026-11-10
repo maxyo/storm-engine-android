@@ -184,19 +184,20 @@ bool header_valid(const FileHeader &header, uint64_t key, const Layout &layout)
     return header.payload_size == ktx_size(EtcFormat(header.etc_format), layout);
 }
 
-uint64_t write_cache_file(const fs::path &directory, uint64_t key, const Layout &layout, EtcFormat format,
-                          const Blob &ktx)
+namespace
+{
+// Header + payload, atomically (temporary file + rename). Returns bytes written or 0.
+uint64_t write_file(const fs::path &directory, uint64_t key, const FileHeader &header, const uint8_t *data, size_t size)
 {
     std::error_code ec;
     fs::create_directories(directory, ec);
     const fs::path target = cache_file_path(directory, key);
     fs::path temp = target;
     temp += "." + std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id()) & 0xffff) + ".tmp";
-    const FileHeader header = make_header(key, layout, format, ktx);
     FILE *file = fopen(temp.c_str(), "wb");
     if (!file)
         return 0;
-    bool ok = fwrite(&header, sizeof(header), 1, file) == 1 && fwrite(ktx.data.get(), 1, ktx.size, file) == ktx.size;
+    bool ok = fwrite(&header, sizeof(header), 1, file) == 1 && fwrite(data, 1, size, file) == size;
     ok = fclose(file) == 0 && ok;
     if (ok)
         fs::rename(temp, target, ec);
@@ -205,10 +206,13 @@ uint64_t write_cache_file(const fs::path &directory, uint64_t key, const Layout 
         fs::remove(temp, ec);
         return 0;
     }
-    return sizeof(header) + ktx.size;
+    return sizeof(header) + size;
 }
 
-std::optional<Blob> read_cache_file(const fs::path &directory, uint64_t key, const Layout &layout)
+// The payload of the file for `key` when `valid(header)` accepts its header and the checksum matches; a mismatching
+// or damaged file is deleted, a good one gets a fresh LRU stamp.
+template <typename Valid>
+std::optional<Blob> read_file(const fs::path &directory, uint64_t key, Valid &&valid)
 {
     const fs::path path = cache_file_path(directory, key);
     FILE *file = fopen(path.c_str(), "rb");
@@ -216,7 +220,7 @@ std::optional<Blob> read_cache_file(const fs::path &directory, uint64_t key, con
         return std::nullopt;
     FileHeader header{};
     Blob blob;
-    bool ok = fread(&header, sizeof(header), 1, file) == 1 && header_valid(header, key, layout);
+    bool ok = fread(&header, sizeof(header), 1, file) == 1 && valid(header);
     if (ok)
     {
         blob.size = header.payload_size;
@@ -233,6 +237,44 @@ std::optional<Blob> read_cache_file(const fs::path &directory, uint64_t key, con
     }
     fs::last_write_time(path, fs::file_time_type::clock::now(), ec); // LRU stamp
     return blob;
+}
+} // namespace
+
+uint64_t write_cache_file(const fs::path &directory, uint64_t key, const Layout &layout, EtcFormat format,
+                          const Blob &ktx)
+{
+    return write_file(directory, key, make_header(key, layout, format, ktx), ktx.data.get(), ktx.size);
+}
+
+std::optional<Blob> read_cache_file(const fs::path &directory, uint64_t key, const Layout &layout)
+{
+    return read_file(directory, key, [&](const FileHeader &header) { return header_valid(header, key, layout); });
+}
+
+uint64_t write_derived_file(const fs::path &directory, uint64_t key, const DerivedShape &shape, const uint8_t *data,
+                            size_t size)
+{
+    FileHeader header{};
+    memcpy(header.magic, shape.magic, sizeof(header.magic));
+    header.version = shape.version;
+    header.width = shape.width;
+    header.height = shape.height;
+    header.levels = shape.levels;
+    header.faces = 1;
+    header.key = key;
+    header.payload_size = size;
+    header.checksum = hash64(data, size, key);
+    return write_file(directory, key, header, data, size);
+}
+
+std::optional<Blob> read_derived_file(const fs::path &directory, uint64_t key, const DerivedShape &shape,
+                                      size_t max_size)
+{
+    return read_file(directory, key, [&](const FileHeader &header) {
+        return memcmp(header.magic, shape.magic, sizeof(header.magic)) == 0 && header.version == shape.version &&
+               header.key == key && header.width == shape.width && header.height == shape.height &&
+               header.levels == shape.levels && header.faces == 1 && header.payload_size <= max_size;
+    });
 }
 
 uint64_t scan_cache(const fs::path &directory)

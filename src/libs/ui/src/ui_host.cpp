@@ -176,6 +176,45 @@ bool ReadJson(FileSource &files, const std::string &path, Json &out, std::string
     return true;
 }
 
+// Every document of the context: counts its layout passes (FrameStats::laid_out), so that a
+// re-layout of plain elements (not only of components) makes Prepare draw a frame.
+class CountedDocument final : public Rml::ElementDocument
+{
+  public:
+    CountedDocument(const Rml::String &tag, FrameStats &stats) : Rml::ElementDocument(tag), stats_(stats)
+    {
+    }
+
+  protected:
+    void OnLayout() override
+    {
+        Rml::ElementDocument::OnLayout();
+        ++stats_.laid_out;
+    }
+
+  private:
+    FrameStats &stats_;
+};
+
+class CountedDocumentInstancer final : public Rml::ElementInstancer
+{
+  public:
+    explicit CountedDocumentInstancer(FrameStats &stats) : stats_(stats)
+    {
+    }
+    Rml::ElementPtr InstanceElement(Rml::Element *, const Rml::String &tag, const Rml::XMLAttributes &) override
+    {
+        return Rml::ElementPtr(new CountedDocument(tag, stats_));
+    }
+    void ReleaseElement(Rml::Element *element) override
+    {
+        delete element;
+    }
+
+  private:
+    FrameStats &stats_;
+};
+
 double Milliseconds(std::chrono::steady_clock::time_point from, std::chrono::steady_clock::time_point to)
 {
     return std::chrono::duration<double, std::milli>(to - from).count();
@@ -241,6 +280,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             return false;
         }
         initialised_ = true;
+        document_instancer_ = std::make_unique<CountedDocumentInstancer>(counters_);
+        Rml::Factory::RegisterElementInstancer("body", document_instancer_.get());
 
         Json pack, components, icons;
         if (!ReadJson(*config.files, "pack.json", pack, error) ||
@@ -1271,6 +1312,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     std::unique_ptr<PackFiles> files_;
     RenderBackend *backend_ = nullptr;
     std::unique_ptr<FrameRenderer> renderer_;
+    std::unique_ptr<CountedDocumentInstancer> document_instancer_; // registered for "body" until Rml::Shutdown
     FrameStats counters_;   // the frame being made, including the work done since the last one
     FrameStats last_frame_; // what the last Frame did
     bool video_ = false;    // a full-screen game video plays (channel "video")

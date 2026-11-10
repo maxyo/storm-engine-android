@@ -9,18 +9,32 @@
 
 namespace storm::mobile
 {
+// One record: the game keeps saves per profile folder (SAVE\<profile>\<file>). This port has
+// no profiles (owner decision): the list shows the records of every profile together.
+struct SaveRecord
+{
+    std::string profile, file;
+    bool operator==(const SaveRecord &) const = default;
+};
 struct SaveListSnapshot
 {
     uint64_t revision = 0;
-    std::string profile;
-    std::vector<std::string> files;
-    int selected = -1;
+    std::string profile;            // the game's current profile (its save list below)
+    std::vector<std::string> files; // the current profile's records in the game's order
+    int selected = -1;              // index into files
     bool saving = false;
+    // The rows: when loading every profile's records, newest first; when saving the current
+    // profile's (a save goes to the profile of the game in progress).
+    std::vector<SaveRecord> records;
 };
 // The save list of the open save_load interface, read from the game script. The platform
 // host defines it, because only the host knows which interface is on screen and its
 // revision (Android: xinterface.cpp); portable code here only parses and validates.
 std::optional<SaveListSnapshot> ReadSaveList();
+// Makes `profile` the game's current profile through its own chooser (save_load.c
+// ProcChooseProfile: SetCurrentProfile and the chooser closed); true when it is current.
+// Defined by the platform host with ReadSaveList.
+bool ChooseSaveProfile(const std::string &profile);
 // What the save list shows of a record. The game stores a description in every save
 // (interface.c GetSaveDataString: "label@faces@HH:MM  DD.MM.YYYY@play time@language");
 // SFLB_DoSaveFileData appends "@hero@location" of the game in progress (mobile_save_facts). A record written
@@ -101,29 +115,33 @@ class SaveListCapability
 public:
     struct Target { SaveListSnapshot owner; int index; std::string verb; };
     std::optional<Target> pending;
+    // The rows' identity is the record list, not the game's current profile (choosing a
+    // record of another profile switches it).
     bool sameList(const SaveListSnapshot &state) const
     {
-        return published_.revision == state.revision && published_.profile == state.profile &&
-            published_.saving == state.saving && published_.files == state.files;
+        return published_.revision == state.revision && published_.saving == state.saving && published_.records == state.records;
     }
     // `context(i)` gives row i its facts (mobile_save_facts.hpp SaveRowContext; i ==
-    // files.size() is the new record).
+    // records.size() is the new record).
     void collect(const SaveListSnapshot &state, bool enabled, std::vector<MobileWidget> &widgets,
                  const std::function<std::map<std::string, std::string>(size_t)> &context)
     {
         if (!sameList(state))
         {
             published_ = state; ids_.clear();
-            for (size_t i = 0; i < state.files.size() + (state.saving ? 1 : 0); ++i)
+            for (size_t i = 0; i < state.records.size() + (state.saving ? 1 : 0); ++i)
                 ids_.push_back(std::to_string(++next_));
         }
         // The list itself, also when there is no record (V2-Save-Empty): value = record count.
-        widgets.push_back(MobileWidget{"ANDROID_SAVES", "list", "", std::to_string(state.files.size()), -1, -1, enabled});
+        widgets.push_back(MobileWidget{"ANDROID_SAVES", "list", "", std::to_string(state.records.size()), -1, -1, enabled});
+        const SaveRecord chosen = state.selected >= 0 && static_cast<size_t>(state.selected) < state.files.size()
+                                      ? SaveRecord{state.profile, state.files[static_cast<size_t>(state.selected)]}
+                                      : SaveRecord{};
         for (size_t i = 0; i < ids_.size(); ++i)
         {
-            const bool fresh = i == state.files.size();
-            MobileWidget row{"ANDROID_SAVE_LIST", "save", fresh ? "" : state.files[i],
-                state.selected == static_cast<int>(i) ? "1" : "0", static_cast<int>(i), static_cast<int>(i), enabled};
+            const bool fresh = i == state.records.size();
+            MobileWidget row{"ANDROID_SAVE_LIST", "save", fresh ? "" : state.records[i].file,
+                !fresh && state.records[i] == chosen ? "1" : "0", static_cast<int>(i), static_cast<int>(i), enabled};
             row.rowId = ids_[i];
             if (enabled) { row.actions.push_back("activate"); if (!fresh) row.actions.push_back("delete"); }
             if (fresh) row.unavailableReason = "new";
@@ -136,15 +154,28 @@ public:
         if (!sameList(state) || index < 0 || static_cast<size_t>(index) >= ids_.size()) return {};
         for (const auto *verb : {"activate", "delete"})
             if (value == std::string(verb) + "@" + std::to_string(state.revision) + ":" + ids_[index] &&
-                (std::string(verb) != "delete" || static_cast<size_t>(index) < state.files.size()))
+                (std::string(verb) != "delete" || static_cast<size_t>(index) < state.records.size()))
                 return Target{state, index, verb};
         return {};
     }
     static bool current(const Target &target, const SaveListSnapshot &state)
     {
-        return target.owner.revision == state.revision && target.owner.profile == state.profile &&
-            target.owner.saving == state.saving && target.owner.files == state.files &&
-            target.index >= 0 && static_cast<size_t>(target.index) <= state.files.size();
+        return target.owner.revision == state.revision && target.owner.saving == state.saving &&
+            target.owner.records == state.records && target.index >= 0 && static_cast<size_t>(target.index) <= state.records.size();
+    }
+    // The target's place in the game's list of the current profile: its record's index, the
+    // new slot (files.size()) for the new record; -1 when the record is not in that list
+    // (another profile is current).
+    static int slot(const Target &target, const SaveListSnapshot &state)
+    {
+        const auto index = static_cast<size_t>(target.index);
+        if (index == target.owner.records.size())
+            return state.saving ? static_cast<int>(state.files.size()) : -1;
+        const SaveRecord &record = target.owner.records[index];
+        if (record.profile != state.profile) return -1;
+        for (size_t i = 0; i < state.files.size(); ++i)
+            if (state.files[i] == record.file) return static_cast<int>(i);
+        return -1;
     }
 };
 inline SaveListCapability saveListCapability;
@@ -154,10 +185,19 @@ inline SaveListCapability saveListCapability;
 inline bool SelectSaveTarget(const SaveListCapability::Target &target)
 {
     auto state = ReadSaveList(); if (!state || !SaveListCapability::current(target, *state)) return false;
+    // A record of another profile: that profile becomes the game's current one first.
+    if (static_cast<size_t>(target.index) < target.owner.records.size() &&
+        target.owner.records[static_cast<size_t>(target.index)].profile != state->profile)
+    {
+        if (!ChooseSaveProfile(target.owner.records[static_cast<size_t>(target.index)].profile)) return false;
+        state = ReadSaveList(); if (!state) return false;
+    }
+    const int index = SaveListCapability::slot(target, *state);
+    if (index < 0) return false;
     auto *first = static_cast<VDATA *>(core.GetScriptVariable("g_nFirstSaveIndex"));
     auto *selected = static_cast<VDATA *>(core.GetScriptVariable("g_nCurrentSaveIndex"));
     int32_t page = -1; if (!first || !first->Get(page) || !selected) return false;
-    const int wanted = (target.index / 5) * 5;
+    const int wanted = (index / 5) * 5;
     if (page != wanted)
     {
         const int lines = static_cast<int>(state->files.size()) / 5;
@@ -167,10 +207,10 @@ inline bool SelectSaveTarget(const SaveListCapability::Target &target)
     }
     // The delayed initial-selection event may have changed only this index.
     // Restoring it before dispatch prevents confirmation from targeting another save.
-    const std::string node = "SAVEIMG" + std::to_string(target.index - page + 1);
+    const std::string node = "SAVEIMG" + std::to_string(index - page + 1);
     core.Event("eventSaveClick", "ls", ACTION_MOUSECLICK, node.c_str());
     int32_t actual = -1;
-    return selected->Get(actual) && actual == target.index;
+    return selected->Get(actual) && actual == index;
 }
 }
 namespace storm::mobile
@@ -179,11 +219,12 @@ inline bool RestoreSaveTarget(const SaveListCapability::Target &target)
 {
     auto state = ReadSaveList();
     if (!state || !SaveListCapability::current(target, *state)) return false;
+    const int index = SaveListCapability::slot(target, *state);
     auto *selected = static_cast<VDATA *>(core.GetScriptVariable("g_nCurrentSaveIndex"));
     auto *first = static_cast<VDATA *>(core.GetScriptVariable("g_nFirstSaveIndex"));
     int32_t page = -1;
-    if (!selected || !first || !first->Get(page) || target.index < page || target.index >= page + 10) return false;
-    selected->Set(static_cast<int32_t>(target.index));
+    if (index < 0 || !selected || !first || !first->Get(page) || index < page || index >= page + 10) return false;
+    selected->Set(static_cast<int32_t>(index));
     return true;
 }
 }

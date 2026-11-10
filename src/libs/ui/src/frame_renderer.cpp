@@ -126,6 +126,8 @@ void FrameRenderer::EndFrame()
             }
         bucket = entries.empty() ? cache_.erase(bucket) : std::next(bucket);
     }
+    for (auto candidate = candidates_.begin(); candidate != candidates_.end();)
+        candidate = candidate->second + 1 < frame_ ? candidates_.erase(candidate) : std::next(candidate);
     for (Rml::CompiledGeometryHandle geometry : deferred_geometry_)
         target_.ReleaseGeometry(geometry);
     for (Rml::TextureHandle texture : deferred_textures_)
@@ -453,13 +455,21 @@ std::vector<uint64_t> FrameRenderer::Key(Rml::Span<const Rml::CompiledFilterHand
                 key.push_back(FloatBits(matrix.data()[i]));
     };
     const auto layer = [this](uintptr_t handle) { return static_cast<uint64_t>(handle - outer_layer_); }; // stable across frames
+    // Positions count relative to the region the result is composited in: content that only
+    // moved (a scrolled list) has the same result, drawn at the new place.
+    const int ox = scissor_.Left(), oy = scissor_.Top();
+    const auto x = [ox](float value) { return FloatBits(value - static_cast<float>(ox)); };
+    const auto y = [oy](float value) { return FloatBits(value - static_cast<float>(oy)); };
+    const auto region = [&key, ox, oy](Rml::Rectanglei r) {
+        key.push_back(static_cast<uint32_t>(r.Left() - ox));
+        key.push_back(static_cast<uint32_t>(r.Top() - oy));
+        key.push_back(static_cast<uint32_t>(r.Width()));
+        key.push_back(static_cast<uint32_t>(r.Height()));
+    };
     key.push_back(buffer_scissor_enabled_);
     if (buffer_scissor_enabled_) // a region left over from earlier does not count while off
     {
-        key.push_back(static_cast<uint32_t>(buffer_scissor_.Left()));
-        key.push_back(static_cast<uint32_t>(buffer_scissor_.Top()));
-        key.push_back(static_cast<uint32_t>(buffer_scissor_.Width()));
-        key.push_back(static_cast<uint32_t>(buffer_scissor_.Height()));
+        region(buffer_scissor_);
     }
     matrix(buffer_identity_, buffer_transform_);
     key.push_back(buffer_clip_); // the stencil the layer's content is drawn against
@@ -471,25 +481,22 @@ std::vector<uint64_t> FrameRenderer::Key(Rml::Span<const Rml::CompiledFilterHand
         case Command::Kind::Geometry:
             key.push_back(Serial(geometry_serials_, command.a));
             key.push_back(Serial(texture_serials_, command.b));
-            key.push_back(FloatBits(command.translation.x));
-            key.push_back(FloatBits(command.translation.y));
+            key.push_back(x(command.translation.x));
+            key.push_back(y(command.translation.y));
             break;
         case Command::Kind::Shader:
             key.push_back(Serial(shader_serials_, command.a));
             key.push_back(Serial(geometry_serials_, command.b));
             key.push_back(Serial(texture_serials_, command.c));
-            key.push_back(FloatBits(command.translation.x));
-            key.push_back(FloatBits(command.translation.y));
+            key.push_back(x(command.translation.x));
+            key.push_back(y(command.translation.y));
             break;
         case Command::Kind::Scissor:
         case Command::Kind::ClipEnable:
             key.push_back(command.flag);
             break;
         case Command::Kind::ScissorRegion:
-            key.push_back(static_cast<uint32_t>(command.region.Left()));
-            key.push_back(static_cast<uint32_t>(command.region.Top()));
-            key.push_back(static_cast<uint32_t>(command.region.Width()));
-            key.push_back(static_cast<uint32_t>(command.region.Height()));
+            region(command.region);
             break;
         case Command::Kind::Transform:
             matrix(command.identity, command.matrix);
@@ -497,8 +504,8 @@ std::vector<uint64_t> FrameRenderer::Key(Rml::Span<const Rml::CompiledFilterHand
         case Command::Kind::ClipMask:
             key.push_back(static_cast<uint64_t>(command.operation));
             key.push_back(Serial(geometry_serials_, command.a));
-            key.push_back(FloatBits(command.translation.x));
-            key.push_back(FloatBits(command.translation.y));
+            key.push_back(x(command.translation.x));
+            key.push_back(y(command.translation.y));
             break;
         case Command::Kind::Push:
             key.push_back(layer(command.a));
@@ -518,8 +525,6 @@ std::vector<uint64_t> FrameRenderer::Key(Rml::Span<const Rml::CompiledFilterHand
     for (Rml::CompiledFilterHandle filter : filters)
         key.push_back(Serial(filter_serials_, filter));
     key.push_back(clip_enabled_ ? Mix(1, clip_hash_) : 0); // the stencil the result is composited through
-    key.push_back(static_cast<uint32_t>(scissor_.Left()));
-    key.push_back(static_cast<uint32_t>(scissor_.Top()));
     key.push_back(static_cast<uint32_t>(scissor_.Width()));
     key.push_back(static_cast<uint32_t>(scissor_.Height()));
     return key;
@@ -532,9 +537,11 @@ void FrameRenderer::ApplyTransform(bool identity, const Rml::Matrix4f &matrix)
 
 void FrameRenderer::DrawEntry(const Entry &entry)
 {
-    // The saved result lies in screen space: drawn without the element's transform.
+    // The saved result lies in screen space: drawn without the element's transform, where the
+    // region is now.
     target_.SetTransform(nullptr);
-    target_.RenderGeometry(entry.quad, {0, 0}, entry.texture);
+    target_.RenderGeometry(entry.quad, {static_cast<float>(scissor_.Left() - entry.origin_x), static_cast<float>(scissor_.Top() - entry.origin_y)},
+                           entry.texture);
     ApplyTransform(transform_identity_, transform_);
 }
 
@@ -595,8 +602,20 @@ void FrameRenderer::CompositeLayers(Rml::LayerHandle source, Rml::LayerHandle de
             return;
         }
 
-    // First time: the backend draws the layer, filters it into a second layer and keeps
-    // the result as a texture, which is then drawn where the composite would have gone.
+    // Content seen for the first time is composited as it came: saving it costs a second
+    // layer and a texture, worth it only for content that stays (a result changing every
+    // frame, an animation, is never saved). Seen unchanged in the frame before: the backend
+    // filters it into a second layer and keeps the result as a texture, drawn where the
+    // composite would have gone.
+    auto &seen = candidates_[hash];
+    const bool stays = seen + 1 >= frame_ && seen != 0;
+    seen = frame_;
+    if (!stays)
+    {
+        Flush();
+        target_.CompositeLayers(Real(source), Real(destination), blend_mode, filters);
+        return;
+    }
     Flush();
     const Rml::LayerHandle filtered = target_.PushLayer();
     target_.CompositeLayers(Real(outer_layer_), filtered, Rml::BlendMode::Replace, filters);
@@ -619,6 +638,8 @@ void FrameRenderer::CompositeLayers(Rml::LayerHandle source, Rml::LayerHandle de
     const Rml::Vector2f size(static_cast<float>(scissor_.Width()), static_cast<float>(scissor_.Height()));
     Rml::MeshUtilities::GenerateQuad(mesh, origin, size, Rml::ColourbPremultiplied(255, 255, 255, 255), {0, 0}, {1, 1});
     entry.quad = target_.CompileGeometry(mesh.vertices, mesh.indices);
+    entry.origin_x = scissor_.Left();
+    entry.origin_y = scissor_.Top();
     DrawEntry(entry);
     bucket.push_back(std::move(entry));
 }

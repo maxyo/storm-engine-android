@@ -62,7 +62,12 @@ function(storm_fetch_declare name)
     cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "STORM_PATCHES")
     set(fetch ${arg_UNPARSED_ARGUMENTS})
     string(TOUPPER "${name}" upper)
-    if(NOT FETCHCONTENT_SOURCE_DIR_${upper})
+    # FetchContent keeps FETCHCONTENT_SOURCE_DIR_<NAME> in the cache. A value inside our own shared copies is the
+    # one this function chose at an earlier configure, not an explicit override: it is recomputed, so a changed
+    # pin or patch set moves a warm build directory to the matching copy.
+    set(shared_prefix "${STORM_DEPS_CACHE}/fetchcontent/${name}-")
+    string(FIND "${FETCHCONTENT_SOURCE_DIR_${upper}}" "${shared_prefix}" shared_at)
+    if(NOT FETCHCONTENT_SOURCE_DIR_${upper} OR shared_at EQUAL 0)
         set(key "${fetch}")
         set(patches ${arg_STORM_PATCHES})
         if(patches)
@@ -96,7 +101,30 @@ function(storm_fetch_declare name)
                 file(WRITE "${source}/.storm-complete" "${key}\n")
             endif()
         endif()
+        if(DEFINED CACHE{FETCHCONTENT_SOURCE_DIR_${upper}} AND NOT "$CACHE{FETCHCONTENT_SOURCE_DIR_${upper}}" STREQUAL ""
+           AND NOT "$CACHE{FETCHCONTENT_SOURCE_DIR_${upper}}" STREQUAL "${source}")
+            message(WARNING "${name}: the pin or its patches changed; this build directory moves from "
+                "$CACHE{FETCHCONTENT_SOURCE_DIR_${upper}} to ${source} (sources recompile once)")
+            set(FETCHCONTENT_SOURCE_DIR_${upper} "${source}" CACHE PATH
+                "Shared source copy chosen by storm_fetch_declare (cmake/StormBuildCache.cmake)" FORCE)
+        endif()
         set(FETCHCONTENT_SOURCE_DIR_${upper} "${source}" PARENT_SCOPE)
+    else()
+        # An explicit override (offline sources) must carry the same patches: refuse a tree that lacks one.
+        set(patches ${arg_STORM_PATCHES})
+        if(patches)
+            list(POP_FRONT patches patch_dir)
+            foreach(patch ${patches})
+                execute_process(COMMAND git apply --reverse --check "${patch}"
+                    WORKING_DIRECTORY "${FETCHCONTENT_SOURCE_DIR_${upper}}/${patch_dir}"
+                    RESULT_VARIABLE applied OUTPUT_QUIET ERROR_QUIET)
+                if(NOT applied EQUAL 0)
+                    message(FATAL_ERROR "FETCHCONTENT_SOURCE_DIR_${upper}=${FETCHCONTENT_SOURCE_DIR_${upper}} does not "
+                        "carry ${patch}. Drop the override (cmake -U FETCHCONTENT_SOURCE_DIR_${upper} <build dir>: the "
+                        "shared patched copy is used) or apply the patch to that tree.")
+                endif()
+            endforeach()
+        endif()
     endif()
     FetchContent_Declare(${name} ${fetch})
 endfunction()

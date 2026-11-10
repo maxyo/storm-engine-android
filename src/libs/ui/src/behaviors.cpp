@@ -14,9 +14,6 @@
 //           the width of its widest content (the cells are laid out shrink-to-fit first,
 //           then given a common min-width), so numeric columns line up without the
 //           screen guessing widths
-//   sticky  data-sticky on rows inside a scrolling element (which must be positioned, so
-//           it is their offset parent): a row scrolled above the top edge stays pinned
-//           there (CSS position: sticky; top: 0, which RmlUi lacks)
 //
 //   panzoom data-panzoom on the viewport (clips), data-plane on the picture plane inside it;
 //           props base [w, h] and view [x0, y0, x1, y1] (the part shown first) in the units the
@@ -946,79 +943,6 @@ template <typename T> std::unique_ptr<Behavior> Make()
 
 } // namespace
 
-class StickyBehavior final : public Behavior, public Rml::EventListener
-{
-  public:
-    ~StickyBehavior() override
-    {
-        if (Rml::Element *self = self_.get())
-            self->RemoveEventListener(Rml::EventId::Scroll, this);
-    }
-
-    void Rebuilt(ComponentElement &self) override
-    {
-        if (!self_)
-        {
-            // Scroll events bubble: one listener on the component hears its lists.
-            self_ = self.GetObserverPtr();
-            self.AddEventListener(Rml::EventId::Scroll, this);
-        }
-        rows_.clear();
-        Collect(&self);
-        Place();
-    }
-
-    void ProcessEvent(Rml::Event &) override
-    {
-        Place();
-    }
-
-  private:
-    void Collect(Rml::Element *element)
-    {
-        for (int i = 0; i < element->GetNumChildren(); ++i)
-        {
-            Rml::Element *child = element->GetChild(i);
-            if (child->HasAttribute("data-sticky"))
-            {
-                rows_.push_back(child->GetObserverPtr());
-                child->SetProperty(Rml::PropertyId::ZIndex, Rml::Property(1, Rml::Unit::NUMBER));
-            }
-            else if (!dynamic_cast<ComponentElement *>(child))
-                Collect(child);
-        }
-    }
-
-    void Place()
-    {
-        for (const auto &entry : rows_)
-        {
-            Rml::Element *row = entry.get();
-            if (!row)
-                continue;
-            // The nearest scrolling ancestor; it must be positioned so that it ends the
-            // chain of offset parents (offsets ignore scroll and transforms).
-            Rml::Element *scroller = row->GetParentNode();
-            for (; scroller; scroller = scroller->GetParentNode())
-            {
-                const auto overflow = scroller->GetComputedValues().overflow_y();
-                if (overflow == Rml::Style::Overflow::Auto || overflow == Rml::Style::Overflow::Scroll)
-                    break;
-            }
-            float top = 0.0f;
-            Rml::Element *at = row;
-            for (; at && at != scroller; at = at->GetOffsetParent())
-                top += at->GetOffsetTop();
-            if (!scroller || !at)
-                continue;
-            const float shift = std::max(0.0f, scroller->GetScrollTop() - top);
-            row->SetProperty("transform", "translateY(" + std::to_string(shift) + "px)");
-        }
-    }
-
-    Rml::ObserverPtr<Rml::Element> self_;
-    std::vector<Rml::ObserverPtr<Rml::Element>> rows_;
-};
 
 // Columns sized by their content. The cells must be flex columns that do not stretch
 // their children (align-items other than stretch), so each child keeps its natural width.
@@ -1076,7 +1000,6 @@ void RegisterBuiltinBehaviors()
     RegisterBehavior("range", &Make<RangeBehavior>);
     RegisterBehavior("stick", &Make<StickBehavior>);
     RegisterBehavior("lever", &Make<LeverBehavior>);
-    RegisterBehavior("sticky", &Make<StickyBehavior>);
     RegisterBehavior("columns", &Make<ColumnsBehavior>);
     RegisterBehavior("hold", &Make<HoldBehavior>);
     RegisterBehavior("swipe", &Make<SwipeBehavior>);

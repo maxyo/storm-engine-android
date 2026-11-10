@@ -14,6 +14,8 @@
 #include <string_view>
 #include <vector>
 
+struct IDirect3DBaseTexture9;
+
 namespace storm::render
 {
 
@@ -87,6 +89,10 @@ struct EffectsPointLight
     float att0 = 0.0f, att1 = 0.0f, att2 = 1.0f;
 };
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
+
+// The game file a texture was loaded from (DX9RENDER::TextureLoad, after its levels are filled). Grey height
+// ("bump") textures get a normal map for the per-pixel lighting's relief (fx_light_normal_map).
+void SetEffectsTextureSource(IDirect3DBaseTexture9 *texture, const char *path);
 
 // ---- World passes: fx sky, fx water, contact shadows ----
 // The consumer entities (SKY, SEA, shadow, SUNGLOW) ask which parts are on and then either call the fx pass below

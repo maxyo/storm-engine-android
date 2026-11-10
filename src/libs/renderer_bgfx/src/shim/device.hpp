@@ -259,6 +259,8 @@ struct Device final : Direct3DDevice9Stub
     uint16_t ensure_view();
     uint16_t new_view();
     bgfx::FrameBufferHandle framebuffer(TexStore *color, uint32_t face, uint32_t level, TexStore *depth);
+    // Clears a render target that has never been written, before its first use.
+    void clear_if_new(TexStore *store);
     void purge_framebuffers(bgfx::TextureHandle texture);
     void apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_port, const effects::FfDraw &fx);
     uint64_t render_state_bits(D3DPRIMITIVETYPE type, bool *stencil, uint32_t *fstencil);
@@ -312,6 +314,7 @@ struct Device final : Direct3DDevice9Stub
     std::map<FbKey, bgfx::FrameBufferHandle> framebuffers;
     std::unordered_map<uint64_t, std::unique_ptr<LayoutInfo>> fvf_layouts;
     std::map<std::pair<uint32_t, uint32_t>, bgfx::ProgramHandle> programs;
+    std::unordered_map<uint16_t, uint32_t> program_uniform_bytes; // by program handle: user uniforms of both shaders
     std::vector<bgfx::ShaderHandle> shaders; // index = shader id
     bgfx::VertexLayout byte_layout;
 
@@ -343,6 +346,7 @@ struct Device final : Direct3DDevice9Stub
         U_VSC,
         U_PSC,
         U_BEM,
+        U_DEPTHBIAS,
         U_COUNT
     };
     Uniform uniforms[U_COUNT];

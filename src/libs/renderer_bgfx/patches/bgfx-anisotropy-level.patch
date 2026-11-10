@@ -1,0 +1,24 @@
+--- a/src/renderer_gl.cpp
++++ b/src/renderer_gl.cpp
+@@ -14,6 +14,9 @@
+ 
+ namespace bgfx { namespace gl
+ {
++	// storm: anisotropy level cap applied at the next reset (see updateResolution).
++	float g_stormMaxAnisotropy = 0.0f;
++
+ 	struct PrimInfo
+ 	{
+ 		GLenum m_type;
+@@ -4049,8 +4052,10 @@
+ 
+ 		void updateResolution(const SwapChain& _swapChain, uint32_t _reset)
+ 		{
++			// storm: the level is capped by g_stormMaxAnisotropy (0 = the device maximum), so presets can ask
++			// for 4x / 8x; bgfx itself has one level for every sampler.
+ 			float maxAnisotropy = !!(_reset & BGFX_RESET_MAXANISOTROPY)
+-				? m_maxAnisotropyDefault
++				? (0.0f < g_stormMaxAnisotropy ? bx::min(m_maxAnisotropyDefault, g_stormMaxAnisotropy) : m_maxAnisotropyDefault)
+ 				: 0.0f
+ 				;
+ 
