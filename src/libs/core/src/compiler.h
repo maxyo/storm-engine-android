@@ -350,6 +350,13 @@ class COMPILER : public VIRTUAL_COMPILER
     // missing_natives_are_errors: false for a game check (no engine library is linked), true for
     // script tests (as in the game)
     void ConfigureCompileCheck(std::vector<std::string> *sink, bool missing_natives_are_errors);
+    // script tests: store and load the script cache in this folder (also checks its integrity)
+    void UseScriptCache(std::filesystem::path folder);
+    // whether the last BC_LoadSegment took the segment from the script cache
+    bool LastSegmentFromCache() const
+    {
+        return lastSegmentFromCache_;
+    }
     // the game language substituted for %language% in include paths (CL)
     void SetScriptLanguage(std::string language)
     {
@@ -478,6 +485,9 @@ private:
     // see ConfigureCompileCheck
     std::vector<std::string> *diagnosticsSink_ = nullptr;
     bool compileCheck_ = false;
+    std::filesystem::path cacheFolder_; // UseScriptCache; empty: the stash folder
+    bool lastSegmentFromCache_ = false;
+    [[nodiscard]] std::filesystem::path CacheFolder() const;
     char *appendBuffer_ = nullptr; // AppendProgram's buffer and its capacity
     uint32_t appendCapacity_ = 0;
     std::string scriptLanguage_; // see SetScriptLanguage

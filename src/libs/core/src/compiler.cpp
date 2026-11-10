@@ -434,6 +434,17 @@ void COMPILER::SetWarning(const char *data_PTR, ...)
         diagnosticsSink_->emplace_back(ErrorBuffer);
 }
 
+std::filesystem::path COMPILER::CacheFolder() const
+{
+    return cacheFolder_.empty() ? GetCacheFolder() : cacheFolder_;
+}
+
+void COMPILER::UseScriptCache(std::filesystem::path folder)
+{
+    cacheFolder_ = std::move(folder);
+    script_cache_mode_ = kCacheEnabled;
+}
+
 void COMPILER::ConfigureCompileCheck(std::vector<std::string> *sink, bool missing_natives_are_errors)
 {
     diagnosticsSink_ = sink;
@@ -1052,7 +1063,7 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
 
         using storm::script_cache::StateFile;
         uint64_t stored_fingerprint = 0;
-        const auto state = storm::script_cache::readState(GetCacheFolder(), stored_fingerprint);
+        const auto state = storm::script_cache::readState(CacheFolder(), stored_fingerprint);
         if (state == StateFile::Read && stored_fingerprint == calculated_fingerprint)
         {
             // attempt to load from cache first
@@ -1062,13 +1073,13 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
         {
             // Every outcome is logged: a rebuild costs a full compile at startup.
             if (state == StateFile::Missing)
-                spdlog::info("Script cache: none in '{}'; compiling and storing scripts", GetCacheFolder().string());
+                spdlog::info("Script cache: none in '{}'; compiling and storing scripts", CacheFolder().string());
             else if (state == StateFile::Damaged)
-                spdlog::warn("Script cache: state file in '{}' is damaged; rebuilding", GetCacheFolder().string());
+                spdlog::warn("Script cache: state file in '{}' is damaged; rebuilding", CacheFolder().string());
             else
                 spdlog::info("Script cache: scripts or engine build changed (key {:016x} -> {:016x}); rebuilding",
                              stored_fingerprint, calculated_fingerprint);
-            if (const auto error = storm::script_cache::resetFolder(GetCacheFolder(), calculated_fingerprint);
+            if (const auto error = storm::script_cache::resetFolder(CacheFolder(), calculated_fingerprint);
                 !error.empty())
             {
                 spdlog::error("Script cache: {}; disabled for this session, scripts are compiled from source", error);
@@ -1081,6 +1092,7 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
     {
         result = Compile(SegmentTable[index]);
     }
+    lastSegmentFromCache_ = result && from_cache;
     if (result)
     {
         spdlog::info("Script segment '{}' {} in {} ms", file_name, from_cache ? "loaded from cache" : "compiled",
@@ -1546,9 +1558,13 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     hidden.type = loop_type == VAR_AREFERENCE ? VAR_AREFERENCE : VAR_REFERENCE;
                     hidden.name = LocalSlotName(kRangeContainer, declaredLocals[kRangeContainer]++);
                     FuncTab.AddFuncVar(func_code, hidden);
+                    if (script_cache_mode_ != kCacheDisabled)
+                        script_cache_.functions.back().local_variables.emplace_back(hidden);
                     hidden.type = VAR_INTEGER;
                     hidden.name = LocalSlotName(kRangePosition, declaredLocals[kRangePosition]++);
                     FuncTab.AddFuncVar(func_code, hidden);
+                    if (script_cache_mode_ != kCacheDisabled)
+                        script_cache_.functions.back().local_variables.emplace_back(hidden);
                 }
             }
             break;
@@ -9395,7 +9411,7 @@ void COMPILER::LoadByteCodeFromCache(storm::script_cache::BufferReader &reader, 
 
 std::filesystem::path COMPILER::GetSegmentCachePath(const SEGMENT_DESC &segment) const
 {
-    auto path = GetCacheFolder() / segment.name;
+    auto path = CacheFolder() / segment.name;
     path.replace_extension(".b");
     return path;
 }
