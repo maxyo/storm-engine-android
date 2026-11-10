@@ -35,6 +35,7 @@ namespace
 {
 
 constexpr NodeRule kNodes[] = {{"APP", "state"}};
+constexpr const char *kAppScreenPrefix = "app:";
 
 // The last state the host published, read by the screen that it routed to.
 Json &HostState()
@@ -1032,7 +1033,9 @@ class LauncherConsumer final : public StateConsumer
             ++opening_;
         }
         InterfaceModel model;
-        model.screen = screen;
+        // The application's screens live in their own id space: game interface ids are ini
+        // file stems (the game's credits are "about"), which can never contain ':'.
+        model.screen = kAppScreenPrefix + screen;
         model.language = Str(state, "language");
         model.opening = opening_;
         model.revision = ++revision_;

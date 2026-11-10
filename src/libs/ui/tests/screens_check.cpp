@@ -1103,6 +1103,18 @@ static void Launcher()
     router.SetState("launcher", Json{{"screen", "nowhere"}});
     Expect(surface.errors.size() == errors + 1, "an unknown application screen is an error");
 
+    // Game interface ids are ini stems: the game's credits (about.ini) are "about" and must
+    // never reach the application's about screen.
+    for (const auto &entry : PortedScreens())
+        Expect(std::string_view(entry.id).find(':') == std::string_view::npos ||
+                   std::string_view(entry.id).starts_with("app:"),
+               std::string("only application screens use a ':' id: ") + entry.id);
+    InterfaceModel game;
+    game.screen = "about";
+    game.opening = 1;
+    game.revision = 1;
+    router.SetInterface(game);
+    Expect(router.Using() == "generic", "the game's about interface is not the application's about screen");
 }
 
 int main(int argc, char **argv)

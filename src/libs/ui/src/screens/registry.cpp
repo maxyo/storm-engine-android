@@ -73,10 +73,11 @@ const ScreenEntry kPorted[] = {
     {"tradebook", CreateTradeBookScreen},
     {"colonycapture", CreateColonyCaptureScreen},
     {"fortcapture", CreateFortCaptureScreen},
-    // The application's own screens, routed from the platform host's "launcher" channel.
-    {"launcher", CreateLauncherScreen},
-    {"downloads", CreateDownloadsScreen},
-    {"about", CreateAboutScreen},
+    // The application's own screens, routed from the platform host's "launcher" channel; the
+    // "app:" prefix keeps them apart from game interfaces (ids are ini stems, e.g. "about").
+    {"app:launcher", CreateLauncherScreen},
+    {"app:downloads", CreateDownloadsScreen},
+    {"app:about", CreateAboutScreen},
 };
 
 // Interfaces the platform host still draws with its own forms. Anything not listed here
