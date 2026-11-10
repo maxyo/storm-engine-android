@@ -55,6 +55,8 @@ class Core
     virtual storm::OSWindow *GetWindow() = 0;
     // set time scale; affect on std entity functions DeltaTime parameter
     virtual void SetTimeScale(float _scale) = 0;
+    // the time scale the scripts set last (x1 = 1; 0 while a dialogue pauses the world)
+    virtual float GetTimeScale() const = 0;
     // write message to system log file
     virtual void Trace(const char *Format, ...) = 0;
     // return service object pointer;

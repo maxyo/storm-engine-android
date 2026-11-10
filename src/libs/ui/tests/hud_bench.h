@@ -229,6 +229,10 @@ class NoRenderer final : public Rml::RenderInterface
     void ReleaseTexture(Rml::TextureHandle) override
     {
     }
+    Rml::TextureHandle SaveLayerAsTexture() override
+    {
+        return 1;
+    }
     void EnableScissorRegion(bool) override
     {
     }
@@ -275,6 +279,7 @@ struct Runtime
         config.width = 800; // density 1: pixels are dp
         config.height = 400;
         config.clock = [this] { return clock; };
+        config.verify_unchanged = true; // Frame reports a frame Prepare wrongly called unchanged (FrameStats::mispredicted)
         config.on_action = [this](const Action &action) { commands.push_back(EngineCommand(action)); };
         std::string error;
         host = Host::Create(config, &error);
@@ -288,6 +293,7 @@ struct Runtime
     {
         clock += seconds;
         host->Frame();
+        Expect(!host->LastFrameStats().mispredicted, "a frame Prepare called unchanged draws the same as the frame shown");
     }
     void Explore()
     {

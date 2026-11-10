@@ -45,8 +45,8 @@ int main()
     combatInput.guard = [] { return current; };
     const auto refresh = [&] { updateCombatState(gameplay); };
     const auto packet = [&](int sequence, const char *phase = "tap") {
-        return "1\t" + std::to_string(combatInput.revision()) + "\t" +
-            std::to_string(combatInput.generation()) + "\t" + std::to_string(sequence) + "\tinteract\t" + phase;
+        return "2\t" + std::to_string(combatInput.generation()) + "\t" +
+            std::to_string(combatInput.actionGeneration("interact")) + "\t" + std::to_string(sequence) + "\tinteract\t" + phase;
     };
     refresh();
     assert(combatInput.json().find("\"interact\"") != std::string::npos);
@@ -66,18 +66,29 @@ int main()
     // Walking away revokes both the visible capability and already queued taps.
     auto stale = packet(2);
     assert(combatInput.offer(stale, 14));
+    const auto inFlight = packet(3);
+    const auto activity = combatInput.generation();
     dialogAvailable = false; refresh();
     assert(combatInput.json().find("\"interact\"") == std::string::npos);
+    assert(combatInput.generation() == activity); // The session survives; only interact is fenced.
     combatInput.advance(15);
     assert(combatInput.merge("ChrAction", 0) != 3);
-    assert(!combatInput.offer(stale, 16));
+    assert(!combatInput.offer(inFlight, 16));
     dialogAvailable = true; refresh();
-    assert(!combatInput.offer(stale, 17)); // New capability generation fences stale UI.
-    stale = packet(2);
+    assert(!combatInput.offer(inFlight, 17)); // A new target is a new availability: taps aimed at the old one never fire.
+    assert(combatInput.offer(packet(3), 18)); // A tap on the new target does.
+    combatInput.advance(19);
+    assert(combatInput.merge("ChrAction", 0) == 3);
+    combatInput.advance(20); combatInput.advance(21);
+    assert(combatInput.offer(packet(4), 21)); // Queued, then the target leaves and another walks in before the frame.
+    dialogAvailable = false; refresh(); dialogAvailable = true; refresh();
+    combatInput.advance(21);
+    assert(combatInput.merge("ChrAction", 0) != 3);
+    stale = packet(5);
     state.mode = "melee";
     gameplay.update(state); refresh();
     assert(combatInput.json().find("\"interact\"") == std::string::npos);
-    assert(!combatInput.offer(stale, 20) && !combatInput.offer(packet(1), 20));
+    assert(!combatInput.offer(stale, 22) && !combatInput.offer(packet(1), 22));
     state.mode = "explore";
     gameplay.update(state); refresh();
     for (auto *locked : {&controls.entries[0].bLocked, &controls.entries[0].bSystemLocked})

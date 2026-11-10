@@ -49,6 +49,11 @@ jobs:
             ~/.cache/ccache-storm
           key: host-storm-${{ hashFiles('src/libs/renderer_bgfx/cmake/bgfx_pin.cmake', 'src/libs/renderer_bgfx/patches/*', 'src/libs/renderer_bgfx/host-tools/CMakeLists.txt', 'cmake/glm.cmake') }}-${{ github.sha }}
           restore-keys: host-storm-${{ hashFiles('src/libs/renderer_bgfx/cmake/bgfx_pin.cmake', 'src/libs/renderer_bgfx/patches/*', 'src/libs/renderer_bgfx/host-tools/CMakeLists.txt', 'cmake/glm.cmake') }}-
+      - name: Cache the FFmpeg build (tools/ffmpeg/build.py)
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: build/host-ci/ffmpeg-cache
+          key: host-ffmpeg-${{ hashFiles('tools/ffmpeg/build.py', 'tools/android/engine_sources.py') }}
       - name: Run host checks
         # Clang, like the NDK that builds the shipped engine.
         env:

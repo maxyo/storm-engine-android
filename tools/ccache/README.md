@@ -14,7 +14,8 @@ instead of a cold compile.
   when ccache is missing or a different launcher is set.
 - Build scripts pass `-DCMAKE_C/CXX_COMPILER_LAUNCHER=<repo>/tools/ccache/launcher` to the
   third-party CMake projects they configure (SDL, fmt, zlib, xz, bzip2, libarchive) and
-  `CC="<repo>/tools/ccache/launcher <compiler>"` to make builds (OpenSSL; FFmpeg likewise).
+  `CC="<repo>/tools/ccache/launcher <compiler>"` to make builds (OpenSSL in
+  `tools/android/build_torrent.py`, FFmpeg in `tools/ffmpeg/build.py`).
 - `tools/ccache/launcher` sets these defaults unless already set in the environment, then runs
   ccache. Setting `CCACHE_DIR` also makes ccache ignore `~/.config/ccache/ccache.conf`, which
   belongs to another project: do not edit it, its cache, or run `ccache -C/-z` on it.

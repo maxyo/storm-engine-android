@@ -1,5 +1,6 @@
 #pragma once
 #include "android_gameplay.hpp"
+#include "android_hud_presenter.hpp"
 #include <cmath>
 #include <array>
 #include <cstdlib>
@@ -143,6 +144,15 @@ inline std::optional<int64_t> shipAmmoCount(std::string_view text)
     if (!value || *value >= 0x1p63 || std::floor(*value) != *value) return {};
     return static_cast<int64_t>(*value);
 }
+// A battle ability of the ship's people as a touch HUD shows it (android_ship_abilities.hpp).
+struct ShipAbility
+{
+    enum State { Ready, Active, Recovery, Blocked };
+    std::string id; // InstantRepair, ImmediateReload
+    State state = Blocked;
+    double fill = 0.0; // Active: what is left of the effect; Recovery: how far it has recovered
+    bool operator==(const ShipAbility &) const = default;
+};
 struct ShipTelemetryFrame
 {
     bool valid = false;
@@ -163,6 +173,9 @@ struct ShipTelemetryFrame
     std::optional<double> shipSpeedKnots, windSpeed;
     // How far the guns are loaded: the mean charge of the cannon sides the ship has, 0…1.
     std::optional<double> cannonCharge;
+    // The world's time scale the scripts set (the game's acceleration, x1 = 1).
+    std::optional<double> timeScale;
+    std::vector<ShipAbility> abilities;
     std::optional<int32_t> powderCount;
     std::string dateTimeText, locationText, navigatorAmmoText;
     bool operator==(const ShipTelemetryFrame &) const = default;
@@ -195,6 +208,7 @@ class ShipTelemetryState
 {
     ShipTelemetryFrame frame_;
     uint64_t revision_ = 0, sequence_ = 0, hudRevision_ = 0;
+    uint64_t answered_ = 0; // the last HUD revision the UI answered with its mask
     uint32_t acknowledged_ = 0, lastPublishedTick_ = 0;
     bool published_ = false, forcePublish_ = true;
     std::string lastPublished_;
@@ -274,7 +288,16 @@ public:
     const ShipTelemetryFrame &frame() const { return frame_; }
     uint64_t revision() const { return revision_; }
     uint64_t hudRevision() const { return hudRevision_; }
-    uint32_t mask() const { return acknowledged_ & frame_.availableMask(); }
+    // The native indicators the touch HUD replaces. While the presenting UI has not answered
+    // this HUD revision yet (after a load, a new fleet), every available one stays off rather
+    // than flashing up until its slow first frame; the answer then returns what it leaves.
+    bool awaiting() const { return frame_.valid && answered_ != hudRevision_; }
+    uint32_t mask() const
+    {
+        if (hudPresenters.sea && hudPresenters.seaFresh) return ShipAll; // a new scene, before any owner: all of it
+        if (hudPresenters.sea && frame_.valid && answered_ != hudRevision_) return frame_.availableMask();
+        return acknowledged_ & frame_.availableMask();
+    }
     void resetActivity()
     {
         ++hudRevision_;
@@ -294,6 +317,8 @@ public:
         if (!parsed || generation.ec != std::errc() || generation.ptr != request.data() + request.size() ||
             hudRevision != hudRevision_ || parsed->first != revision_ || parsed->second > ShipAll || !frame_.valid) return false;
         acknowledged_ = parsed->second & frame_.availableMask();
+        answered_ = hudRevision_;
+        hudPresenters.seaAnswered();
         return true;
     }
     bool offerSails(std::string_view request, uint32_t tick)
@@ -331,6 +356,19 @@ public:
             if (frame_.shipSpeedKnots) result += ",\"shipSpeedKnots\":" + std::to_string(*frame_.shipSpeedKnots);
             if (frame_.windSpeed) result += ",\"windSpeed\":" + std::to_string(*frame_.windSpeed);
             if (frame_.cannonCharge) result += ",\"cannonCharge\":" + std::to_string(*frame_.cannonCharge);
+            if (frame_.timeScale) result += ",\"timeScale\":" + std::to_string(*frame_.timeScale);
+            if (!frame_.abilities.empty())
+            {
+                static constexpr const char *states[] = {"ready", "active", "recovery", "blocked"};
+                result += ",\"abilities\":[";
+                for (size_t i = 0; i < frame_.abilities.size(); ++i)
+                {
+                    const auto &ability = frame_.abilities[i];
+                    result += std::string(i ? "," : "") + "{\"id\":" + gameplayJsonString(ability.id) + ",\"state\":\"" + states[ability.state] +
+                              "\",\"fill\":" + std::to_string(ability.fill) + "}";
+                }
+                result += "]";
+            }
             if (frame_.powderCount) result += ",\"powderCount\":" + std::to_string(*frame_.powderCount);
             if (!frame_.dateTimeText.empty()) result += ",\"dateTimeText\":" + gameplayJsonString(frame_.dateTimeText);
             if (!frame_.locationText.empty()) result += ",\"locationText\":" + gameplayJsonString(frame_.locationText);
