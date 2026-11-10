@@ -27,19 +27,19 @@
 namespace storm::render
 {
 
-inline constexpr uint32_t kFrameOwnerApiVersion = 1;
+inline constexpr uint32_t kFrameOwnerApiVersion = 2;
 
 // bgfx::ViewId values. Compile-time constants so clients can size tables.
 inline constexpr uint16_t kGameViewEnd = 224;
 inline constexpr uint16_t kCompositeView = 224;
-inline constexpr uint16_t kUiViewBegin = 232;
-inline constexpr uint16_t kUiViewCount = 16;
+inline constexpr uint16_t kUiViewBegin = 256;
+inline constexpr uint16_t kUiViewCount = 64;
 
 struct SurfaceMetrics
 {
     uint32_t width_px = 0;  // native surface size (landscape)
     uint32_t height_px = 0;
-    float density = 1.0f;   // px per dp (Android DisplayMetrics.density; 1.0 on the host unless overridden)
+    float density = 1.0f;   // px per dp: display DPI / 160 as reported by SDL (1.0 when unknown)
     uint32_t generation = 0; // increments on every size/density change and surface re-creation
     bool valid = false;      // false while the app is in background / the surface is lost
 };
@@ -215,3 +215,5 @@ void NotifySurfaceRestored();
 
 // Version history
 //   1  initial: view range, hooks, surface metrics, texture helpers, game pictures.
+//   2  UI views moved to 256..319 (64 views); density reported from the display; game picture
+//      provider; surface lost/restored notifications.

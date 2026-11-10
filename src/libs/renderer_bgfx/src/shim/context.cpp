@@ -160,6 +160,9 @@ bool Context::init(SDL_Window *window, uint32_t width, uint32_t height, bool vsy
     surface_.width_px = width;
     surface_.height_px = height;
     surface_.valid = true;
+    float dpi = 0.0f;
+    if (SDL_GetDisplayDPI(SDL_GetWindowDisplayIndex(window), &dpi, nullptr, nullptr) == 0 && dpi > 0.0f)
+        surface_.density = dpi / 160.0f;
     ++surface_.generation;
     logf("bgfx renderer=%s %ux%u originBottomLeft=%d homogeneousDepth=%d maxTextureSize=%u BC1=%d BC3=%d ETC2=%d BGRA8=%d",
          bgfx::getRendererName(bgfx::getRendererType()), width, height, caps_->originBottomLeft,
