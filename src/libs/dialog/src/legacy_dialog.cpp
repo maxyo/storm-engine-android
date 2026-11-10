@@ -1,6 +1,9 @@
 #include "android_dialog.hpp"
 #include "legacy_dialog.hpp"
 
+#include <algorithm>
+#include <cctype>
+
 #include "dialog.hpp"
 #include <dialog/dialog_utils.hpp>
 
@@ -310,7 +313,7 @@ uint64_t LegacyDialog::ProcessMessage(MESSAGE &msg)
         const std::string_view name = name_attr ? name_attr : "";
         const std::string_view last_name = last_name_attr ? last_name_attr : "";
         characterName_ = fmt::format("{} {}", name, last_name);
-        std::transform(characterName_.begin(), characterName_.end(), characterName_.begin(), ::toupper);
+        std::ranges::for_each(characterName_, [](char &c) { c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); });
         break;
     }
     }
