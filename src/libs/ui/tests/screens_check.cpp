@@ -390,6 +390,12 @@ static void Commerce(const std::string &models)
     }
     Expect(surface.errors.empty(), "no errors on the commerce models");
 
+    // The game's own storage figures: the hold on one line, the load of the storage in a sentence.
+    router.SetInterface(Load(models, "storage.json"));
+    Expect(surface.props["stats"].size() == 2 && surface.props["stats"][0]["value"] == "189 / 700" &&
+               surface.props["stats"][1]["label"] == "Склад" && surface.props["stats"][1]["value"] == "0 / 50000 ц.",
+           "storage: hold and storage load in the header");
+
     // Storage: a free transfer applies when the amount settles; no primary button.
     router.SetInterface(Load(models, "storage-deal.json"));
     Expect(surface.props["primary"].is_null() && surface.props["list"]["cols"].size() == 2, "storage: two amount columns, no deal button");
@@ -416,6 +422,12 @@ static void Commerce(const std::string &models)
     router.OnEvent({"goods", "commit", "60"});
     router.Tick();
     Expect(surface.commands.size() == 2 && surface.Last() == zero, "an unchanged amount confirms nothing");
+    surface.commands.clear();
+    router.SetInterface(Load(models, "storage.json")); // the game closed its window after the transfer
+    Expect(surface.commands.size() == 1 && surface.Last().rfind("widget:storage\tTABLE_LIST\t0\tactivate@", 0) == 0,
+           "the transferred row is opened again: " + surface.Last());
+    router.SetInterface(Load(models, "storage.json"));
+    Expect(surface.commands.size() == 1, "only once");
 
     // Chest / body: the game's category tabs, take all, remove body.
     router.SetInterface(Load(models, "itemsbox.json"));
@@ -486,6 +498,8 @@ static void Crew(const std::string &models)
     router.SetInterface(Load(models, "hirecrew-hire.json"));
     row = surface.props["list"]["rows"][0];
     Expect(row["q"]["value"] == 50 && surface.props["stats"][0]["preview"] == "50", "hiring 10 shows 50 on the ship");
+    Expect(row["cells"][0] == "40" && row["cells"][1] == "25" && surface.props["stats"][0]["value"] == "40" && row["q"]["max"] == 65,
+           "the game's figures already count the deal; the row shows the crews before it");
     ExpectEqual(surface.props["primary"]["label"], "Нанять 10", "primary names the deal");
     ExpectEqual(surface.props["primary"]["sub"], "Стоимость найма 230", "with its cost");
     router.OnEvent({"primary", "click", ""});
