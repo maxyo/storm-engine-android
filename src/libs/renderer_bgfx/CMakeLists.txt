@@ -40,6 +40,21 @@ FetchContent_Declare(storm_bgfx_upstream
 FetchContent_GetProperties(storm_bgfx_upstream)
 if(NOT storm_bgfx_upstream_POPULATED)
     FetchContent_Populate(storm_bgfx_upstream)
+    # Local fixes on top of the pinned bgfx (see patches/). Applied once; a tree that already
+    # carries a patch is left alone, anything else is a hard error.
+    file(GLOB bgfx_patches "${CMAKE_CURRENT_SOURCE_DIR}/patches/bgfx-*.patch")
+    foreach(patch ${bgfx_patches})
+        execute_process(COMMAND git apply --reverse --check "${patch}"
+            WORKING_DIRECTORY "${storm_bgfx_upstream_SOURCE_DIR}/bgfx" RESULT_VARIABLE already_applied
+            OUTPUT_QUIET ERROR_QUIET)
+        if(NOT already_applied EQUAL 0)
+            execute_process(COMMAND git apply "${patch}"
+                WORKING_DIRECTORY "${storm_bgfx_upstream_SOURCE_DIR}/bgfx" RESULT_VARIABLE patch_result)
+            if(NOT patch_result EQUAL 0)
+                message(FATAL_ERROR "Cannot apply ${patch} to the pinned bgfx")
+            endif()
+        endif()
+    endforeach()
     # Upstream warning flags and tools must not inherit the engine's global
     # definitions (UNICODE etc.); EXCLUDE_FROM_ALL keeps unused tools unbuilt.
     add_subdirectory("${storm_bgfx_upstream_SOURCE_DIR}" "${storm_bgfx_upstream_BINARY_DIR}" EXCLUDE_FROM_ALL)
