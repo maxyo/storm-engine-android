@@ -25,10 +25,16 @@ namespace EffekseerRendererBGFX {
 		void (*log)(const char *message);	// errors (missing shaders, unsupported texture formats)
 	};
 
-	// Shaders and textures come from the storm build: embedded shader blobs (shaders.h) and
-	// Effekseer's own texture loader (CreateTextureLoader). Materials (.efkmat) are not supported.
+	// Shaders come from the storm build (embedded blobs, shaders.h); textures from the host's
+	// loader, which wraps its bgfx textures with CreateTextureFromHandle. Materials (.efkmat) are
+	// not supported; CreateTextureLoader() returns nullptr.
 	EFXBGFX_API EffekseerRenderer::RendererRef CreateRenderer(struct InitArgs *init);
 	EFXBGFX_API Effekseer::ModelRendererRef CreateModelRenderer(EffekseerRenderer::RendererRef renderer, struct InitArgs *init);
+	// Takes ownership of `handle` (destroyed with the texture).
+	EFXBGFX_API Effekseer::Backend::TextureRef CreateTextureFromHandle(const EffekseerRenderer::RendererRef &renderer,
+		bgfx_texture_handle_t handle, int width, int height, int levels);
+	// Swaps the texture's bgfx handle (e.g. RGBA8 -> ETC2 once transcoded); destroys the old one.
+	EFXBGFX_API void ReplaceTextureHandle(const Effekseer::Backend::TextureRef &texture, bgfx_texture_handle_t handle);
 	// The bgfx view the next BeginRendering() .. EndRendering() submits to.
 	EFXBGFX_API void SetViewId(const EffekseerRenderer::RendererRef &renderer, bgfx_view_id_t viewid);
 }
