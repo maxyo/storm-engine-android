@@ -473,10 +473,10 @@ void GEOM_SERVICE_R::DrawIndexedPrimitive(int32_t minv, int32_t numv, int32_t vr
     {
         auto *cavb = &avb[CurentVertexBuffer - SHIFT_VALUE];
 
-        const auto transformed = transform_func(transform_context,cavb->buff,cavb->lifetime,minv,numv,cavb->nvertices,!bCaustic);
+        const auto transformed = transform_func(transform_context,cavb->buff,cavb->lifetime,minv,numv,cavb->nvertices);
         if (!transformed) return;
         if (!bCaustic)
-            RenderService->DrawBuffer(transformed.value,sizeof(GEOS::AVERTEX0),CurentIndexBuffer,minv,numv,startidx,numtrg,technique);
+            RenderService->DrawBuffer(transformed.value,cavb->stride,CurentIndexBuffer,minv,numv,startidx,numtrg,technique);
         else
             RenderService->DrawIndexedPrimitiveNoVShader(D3DPT_TRIANGLELIST,transformed.value,cavb->stride,
                 CurentIndexBuffer,minv,numv,startidx,numtrg,"caustic");

@@ -257,9 +257,7 @@ void Context::create_resources()
     static const char *names[kSamplerUnits] = {"s_tex0", "s_tex1", "s_tex2", "s_tex3", "s_tex4", "s_cube0",
                                                 "s_cube1", "s_cube2", "s_vol0", "s_vol1", "s_vol2",
                                                 // pixel-port extras: cube at stage 3, volume at stage 4 (sea)
-                                                "s_cube3", "s_vol4",
-                                                // skinned fixed-function draws (ff_vertex.sh FF_SKIN)
-                                                "s_bones"};
+                                                "s_cube3", "s_vol4"};
     for (uint32_t i = 0; i < kSamplerUnits; ++i)
         samplers_[i] = bgfx::createUniform(names[i], bgfx::UniformType::Sampler);
     blit_program_ = bgfx::createProgram(create_embedded_shader(shader_id_by_name("vs_blit")),
