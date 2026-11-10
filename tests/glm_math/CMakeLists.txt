@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 project(storm-glm-regression LANGUAGES CXX)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/StormBuildCache.cmake")
 enable_testing()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

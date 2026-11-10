@@ -21,6 +21,7 @@
 // Protocol with tools/scene_sweep/run.py, all inside $STORM_SCENE_SWEEP_DIR:
 //   scenes.txt  one scene per line, read by SceneSweepNext()
 //   events.log  "<ms since start> <text>" lines appended by SceneSweepEvent()/SceneSweepCapture()
+//   STORM_SCENE_SWEEP_SETTLE_MS  rendering time per scene before its capture (default 300)
 //   ack         created by the runner once it has taken the screenshot and read the logs
 namespace
 {
@@ -34,6 +35,7 @@ const Clock::time_point started = Clock::now();
 Clock::time_point windowStart = started;
 uint32_t windowFrames = 0;
 uint32_t lastDrawCalls = 0;
+std::function<std::string()> rendererWindow;
 
 void writeEvent(const std::string &text)
 {
@@ -65,6 +67,8 @@ uint32_t event(VS_STACK *stack)
     writeEvent(text->GetString());
     windowStart = Clock::now();
     windowFrames = 0;
+    if (rendererWindow)
+        rendererWindow();
     return IFUNCRESULT_OK;
 }
 
@@ -74,7 +78,8 @@ uint32_t capture(VS_STACK *)
 {
     const double ms = std::chrono::duration<double, std::milli>(Clock::now() - windowStart).count();
     writeEvent("capture frames=" + std::to_string(windowFrames) + " frame_ms=" +
-               std::to_string(windowFrames ? ms / windowFrames : 0.0) + " draws=" + std::to_string(lastDrawCalls));
+               std::to_string(windowFrames ? ms / windowFrames : 0.0) + " draws=" + std::to_string(lastDrawCalls) +
+               (rendererWindow ? " renderer: " + rendererWindow() : std::string()));
     const auto ack = directory / "ack";
     const auto deadline = Clock::now() + std::chrono::seconds(60);
     std::error_code error;
@@ -90,6 +95,20 @@ uint32_t capture(VS_STACK *)
     }
     windowStart = Clock::now();
     windowFrames = 0;
+    return IFUNCRESULT_OK;
+}
+
+// Milliseconds a scene renders after its fader is gone before the capture (run.py --settle).
+uint32_t settleMs(VS_STACK *stack)
+{
+    static const int value = [] {
+        const char *text = std::getenv("STORM_SCENE_SWEEP_SETTLE_MS");
+        return text && *text ? std::atoi(text) : 300;
+    }();
+    auto *result = static_cast<VDATA *>(stack->Push());
+    if (!result)
+        return IFUNCRESULT_FAILED;
+    result->Set(static_cast<int32_t>(value));
     return IFUNCRESULT_OK;
 }
 
@@ -120,6 +139,7 @@ class SceneSweepLibrary : public SCRIPT_LIBRIARY
         registerFunction("SceneSweepNext", "string", 0, next);
         registerFunction("SceneSweepEvent", "void", 1, event);
         registerFunction("SceneSweepCapture", "void", 0, capture);
+        registerFunction("SceneSweepSettleMs", "int", 0, settleMs);
         return true;
     }
 };
@@ -132,6 +152,11 @@ void storm::scene_sweep::framePresented(uint32_t drawCalls)
 {
     ++windowFrames;
     lastDrawCalls = drawCalls;
+}
+
+void storm::scene_sweep::setRendererWindow(std::function<std::string()> window)
+{
+    rendererWindow = std::move(window);
 }
 
 void COMPILER::LoadSceneSweep()

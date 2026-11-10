@@ -37,6 +37,7 @@ class SoundService : public VSoundService
   public:
     void SetDucking(float gain) override;
     uint64_t TrimCaches() override;
+    std::unique_ptr<VSoundStream> CreatePcmStream() override;
   private:
     storm_audio::Vec3 listenerPos{}, listenerForward{0,0,1}, listenerUp{0,1,0};
     void CreateEntityIfNeed();

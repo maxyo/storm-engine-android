@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.19)
 project(storm-cross-compile-regression LANGUAGES CXX)
+include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/StormBuildCache.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/StormSetup.cmake")
 set(SRC_DIRS src)
 set(PUBLIC_INCLUDE_DIRS include)

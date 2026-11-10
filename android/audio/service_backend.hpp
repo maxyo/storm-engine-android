@@ -35,6 +35,32 @@ struct Limits {
     // -1: on for a real device, off for the offline (test/PCM pump) mixer.
     int asyncDecode=-1;
 };
+// Interleaved stereo float PCM at the engine rate (48 kHz), pushed by one producer thread
+// (a media decoder) and pulled by the mixer as a non-spatial sound in the master group, so
+// background fades, suspension and ducking apply to it. It is not a Voice: stop(0), pitch and
+// category gains leave it alone; its owner sets the volume. Must not outlive its Mixer.
+class PcmStream {
+public:
+    PcmStream(Backend&, ma_sound_group* group, unsigned capacityFrames);
+    ~PcmStream();
+    PcmStream(const PcmStream&) = delete;
+    PcmStream& operator=(const PcmStream&) = delete;
+    // Producer thread. Frames accepted; fewer than offered when the buffer is full.
+    unsigned write(const float* pcm, unsigned frames);
+    // Frames handed to the mixer so far (any thread). Buffer underruns play silence and are
+    // not counted, so this is a clock of the stream's own audio.
+    uint64_t played() const { return consumed.load(std::memory_order_acquire); }
+    void pause(bool paused);
+    void volume(float gain);
+private:
+    struct Source { ma_data_source_base base; PcmStream* owner; };
+    static ma_result read(ma_data_source*, void*, ma_uint64, ma_uint64*);
+    static ma_result format(ma_data_source*, ma_format*, ma_uint32*, ma_uint32*, ma_channel*, size_t);
+    Source source{};
+    ma_pcm_rb ring{};
+    ma_sound sound{};
+    std::atomic<uint64_t> consumed{0};
+};
 // Game-thread owned. The only other threads touching miniaudio are its mixer,
 // its resource-manager job thread and this class's decoder thread, which only
 // calls the thread-safe resource manager and never creates sounds or nodes.
@@ -67,6 +93,8 @@ public:
     explicit Mixer(bool offline=false, unsigned budget=64, Limits limits={});
     ~Mixer();
     uint32_t play(const std::string&, const Play&);
+    // A PCM input for decoded media (video soundtracks); started immediately.
+    std::unique_ptr<PcmStream> stream(unsigned capacityFrames=48000);
     void stop(uint32_t, float fade=0);
     void resume(uint32_t);
     void volume(uint32_t,float);
