@@ -1,7 +1,7 @@
 if (WIN32)
 set(SYSTEM_DEPS "legacy_stdio_definitions")
 else()
-set(SYSTEM_DEPS "${NATIVE_D3D9_LIBS}")
+set(SYSTEM_DEPS storm_bgfx)
 endif()
 
 STORM_SETUP(

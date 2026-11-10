@@ -1,134 +1,94 @@
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    cmake_minimum_required(VERSION 3.21)
-    project(storm-bgfx-stage1 LANGUAGES C CXX)
-    set(STORM_ENABLE_BGFX ON)
-endif()
-option(STORM_ENABLE_BGFX "Build experimental bgfx world passes (not a complete game renderer)" OFF)
-if(NOT STORM_ENABLE_BGFX)
-    return()
-endif()
-if(CMAKE_VERSION VERSION_LESS 3.21)
-    message(FATAL_ERROR "The experimental bgfx target requires CMake 3.21 or newer")
-endif()
-
+# bgfx is the engine's only GPU backend. This directory owns the pinned
+# bgfx/bx/bimg dependency, the offline shader build and the D3D9-shaped shim
+# (see README.md). Other libraries link `storm_bgfx` and never fetch bgfx.
+cmake_minimum_required(VERSION 3.21)
 include(FetchContent)
+# Third-party code must not inherit the engine's global flags (UNICODE, the
+# Windows type headers, -std=c++20 for C sources ...).
+set_directory_properties(PROPERTIES INCLUDE_DIRECTORIES "" COMPILE_DEFINITIONS "" COMPILE_OPTIONS "")
 set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BGFX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
+set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
 set(BGFX_WITH_WAYLAND OFF CACHE BOOL "" FORCE)
 set(BGFX_BUILD_TOOLS_GEOMETRY OFF CACHE BOOL "" FORCE)
 set(BGFX_BUILD_TOOLS_TEXTURE OFF CACHE BOOL "" FORCE)
 set(BGFX_BUILD_TOOLS_BIN2C OFF CACHE BOOL "" FORCE)
 set(BGFX_CONFIG_VIDEO OFF CACHE BOOL "" FORCE)
+# The engine renders from its main thread; bgfx::frame() executes the backend
+# inline, so the EGL context lives on the thread that owns the SDL window.
+set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
+set(BGFX_CONFIG_MAX_TEXTURES 8192 CACHE STRING "" FORCE)
+set(BGFX_CONFIG_MAX_VERTEX_LAYOUTS 256 CACHE STRING "" FORCE)
+set(BGFX_CONFIG_MAX_DYNAMIC_VERTEX_BUFFERS 8192 CACHE STRING "" FORCE)
+set(BGFX_CONFIG_MAX_DYNAMIC_INDEX_BUFFERS 8192 CACHE STRING "" FORCE)
+set(BGFX_CONFIG_MAX_VERTEX_BUFFERS 8192 CACHE STRING "" FORCE)
+set(BGFX_CONFIG_MAX_INDEX_BUFFERS 8192 CACHE STRING "" FORCE)
+set(BGFX_CONFIG_MAX_FRAME_BUFFERS 256 CACHE STRING "" FORCE)
+set(BGFX_CONFIG_MAX_TRANSIENT_VERTEX_BUFFER_SIZE 33554432 CACHE STRING "" FORCE)
+set(BGFX_CONFIG_MAX_TRANSIENT_INDEX_BUFFER_SIZE 8388608 CACHE STRING "" FORCE)
 if(CMAKE_CROSSCOMPILING)
     set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 endif()
-# This upstream commit pins bgfx, bx and bimg as gitlinks. Do not track master.
+# bgfx.cmake pins bgfx/bx/bimg as gitlinks (see README.md). Never track master.
+# Offline: -DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=/path/to/pinned/checkout
 FetchContent_Declare(storm_bgfx_upstream
     GIT_REPOSITORY https://github.com/bkaradzic/bgfx.cmake.git
     GIT_TAG 8d950d6dc3df1d763e7d3655987c89009767a07e
     GIT_SUBMODULES bgfx bx bimg
     GIT_SUBMODULES_RECURSE TRUE)
-FetchContent_MakeAvailable(storm_bgfx_upstream)
-
-add_library(storm_bgfx_world STATIC src/fog_pass.cpp src/fog_snapshot.cpp src/fog_frame_owner.cpp src/rgba_texture.cpp src/sky_pass.cpp src/dynamic_vertex_stream_bgfx.cpp)
-target_compile_features(storm_bgfx_world PUBLIC cxx_std_20)
-target_include_directories(storm_bgfx_world PUBLIC include ../weather/include ../renderer/include)
-target_link_libraries(storm_bgfx_world PUBLIC bgfx)
-set_target_properties(storm_bgfx_world PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
+FetchContent_GetProperties(storm_bgfx_upstream)
+if(NOT storm_bgfx_upstream_POPULATED)
+    FetchContent_Populate(storm_bgfx_upstream)
+    # Upstream warning flags and tools must not inherit the engine's global
+    # definitions (UNICODE etc.); EXCLUDE_FROM_ALL keeps unused tools unbuilt.
+    add_subdirectory("${storm_bgfx_upstream_SOURCE_DIR}" "${storm_bgfx_upstream_BINARY_DIR}" EXCLUDE_FROM_ALL)
+endif()
+set(STORM_BGFX_SOURCE_DIR "${storm_bgfx_upstream_SOURCE_DIR}" CACHE INTERNAL "")
+# Android and the Linux development host both run the GLES 3.0 backend so the
+# same ESSL shader blobs and code paths are exercised. Selecting one renderer
+# explicitly disables all the others (bgfx/src/config.h).
+target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_RENDERER_OPENGLES=30)
 if(ANDROID)
-    target_link_libraries(storm_bgfx_world PUBLIC android log EGL GLESv3)
-    # Force a final ARM64 link, not merely an archive with unresolved symbols.
-    # This probe is never packaged into the stable APK.
-    add_library(storm_bgfx_link_check SHARED tests/android_link_check.cpp)
-    target_link_libraries(storm_bgfx_link_check PRIVATE storm_bgfx_world)
-    target_link_options(storm_bgfx_link_check PRIVATE -Wl,--no-undefined)
-elseif(NOT CMAKE_CROSSCOMPILING)
-    set(shader_outputs)
-    foreach(pass fog sky)
-        foreach(stage vs fs)
-            if(stage STREQUAL vs)
-                set(shader_type vertex)
-            else()
-                set(shader_type fragment)
-            endif()
-            set(output "${CMAKE_CURRENT_BINARY_DIR}/${stage}_${pass}.bin")
-            add_custom_command(OUTPUT "${output}"
-                COMMAND shaderc -f "${CMAKE_CURRENT_SOURCE_DIR}/shaders/${stage}_${pass}.sc"
-                    -o "${output}" --type ${shader_type} --platform linux -p spirv
-                    --varyingdef "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc"
-                    -i "${storm_bgfx_upstream_SOURCE_DIR}/bgfx/src"
-                DEPENDS shaderc shaders/${stage}_${pass}.sc shaders/varying.def.sc
-                VERBATIM)
-            list(APPEND shader_outputs "${output}")
-        endforeach()
-    endforeach()
-    add_custom_target(storm_bgfx_shaders DEPENDS ${shader_outputs})
-    add_executable(storm_bgfx_fog_check tests/fog_check.cpp)
-    target_link_libraries(storm_bgfx_fog_check PRIVATE storm_bgfx_world bx)
-    add_dependencies(storm_bgfx_fog_check storm_bgfx_shaders)
-    enable_testing()
-    add_test(NAME bgfx_fog_pixels COMMAND storm_bgfx_fog_check
-        "${CMAKE_CURRENT_BINARY_DIR}/vs_fog.bin" "${CMAKE_CURRENT_BINARY_DIR}/fs_fog.bin")
+    target_link_libraries(bgfx PUBLIC android log EGL GLESv3)
+else()
+    target_link_libraries(bgfx PUBLIC EGL GLESv2)
 endif()
+foreach(target bgfx bx bimg bimg_decode)
+    if(TARGET ${target})
+        set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+        target_compile_options(${target} PRIVATE -w)
+    endif()
+endforeach()
 
-option(STORM_BGFX_BUILD_SDL_PREVIEW "Build exclusive SDL bgfx fog preview" OFF)
-if(STORM_BGFX_BUILD_SDL_PREVIEW OR NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    if(NOT SDL2_LIBRARIES)
-        find_package(SDL2 REQUIRED)
+# Host shader compiler. Cross builds must supply one built for the host:
+#   cmake -S src/libs/renderer_bgfx/tools-host -B build/bgfx-host-tools && cmake --build ... --target shaderc
+if(CMAKE_CROSSCOMPILING)
+    set(STORM_SHADERC "" CACHE FILEPATH "Host bgfx shaderc built from the pinned sources")
+    if(NOT EXISTS "${STORM_SHADERC}")
+        message(FATAL_ERROR "Set STORM_SHADERC to a host shaderc built from the pinned bgfx (see src/libs/renderer_bgfx/README.md)")
     endif()
-    add_library(storm_bgfx_preview STATIC src/preview_sdl.cpp)
-    target_link_libraries(storm_bgfx_preview PUBLIC storm_bgfx_world ${SDL2_LIBRARIES})
-    target_include_directories(storm_bgfx_preview PRIVATE ${SDL2_INCLUDE_DIRS})
-    set_target_properties(storm_bgfx_preview PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    if(ANDROID)
-        target_link_libraries(storm_bgfx_link_check PRIVATE storm_bgfx_preview)
-        target_compile_definitions(storm_bgfx_link_check PRIVATE STORM_BGFX_LINK_PREVIEW=1)
-    endif()
+    set(STORM_SHADERC_COMMAND "${STORM_SHADERC}" CACHE INTERNAL "")
+    set(STORM_SHADERC_DEPENDS "${STORM_SHADERC}" CACHE INTERNAL "")
+else()
+    set(STORM_SHADERC_COMMAND "$<TARGET_FILE:shaderc>" CACHE INTERNAL "")
+    set(STORM_SHADERC_DEPENDS shaderc CACHE INTERNAL "")
 endif()
-if(NOT CMAKE_CROSSCOMPILING)
-    add_executable(storm_fog_snapshot_check tests/snapshot_check.cpp)
-    target_link_libraries(storm_fog_snapshot_check PRIVATE storm_bgfx_world)
-    add_test(NAME fog_snapshot_contract COMMAND storm_fog_snapshot_check)
-endif()
-if(STORM_BGFX_BUILD_SDL_PREVIEW AND NOT CMAKE_CROSSCOMPILING)
-    add_executable(storm_bgfx_preview_check tests/preview_check.cpp)
-    target_link_libraries(storm_bgfx_preview_check PRIVATE storm_bgfx_preview bx)
-    target_include_directories(storm_bgfx_preview_check PRIVATE ${SDL2_INCLUDE_DIRS})
-    add_dependencies(storm_bgfx_preview_check storm_bgfx_shaders)
-    # Needs an actual X11 display (xvfb-run is sufficient); kept out of headless CTest.
-endif()
-if(NOT CMAKE_CROSSCOMPILING)
-    add_executable(storm_resource_contract_check tests/resource_contract_check.cpp)
-    target_compile_features(storm_resource_contract_check PRIVATE cxx_std_20)
-    target_include_directories(storm_resource_contract_check PRIVATE ../renderer/include)
-    add_test(NAME renderer_resource_contract COMMAND storm_resource_contract_check)
-endif()
-if(NOT CMAKE_CROSSCOMPILING)
-    add_executable(storm_bgfx_sky_check tests/sky_check.cpp)
-    target_link_libraries(storm_bgfx_sky_check PRIVATE storm_bgfx_world bx)
-    add_dependencies(storm_bgfx_sky_check storm_bgfx_shaders)
-    add_test(NAME bgfx_sky_pixels COMMAND storm_bgfx_sky_check
-        "${CMAKE_CURRENT_BINARY_DIR}/vs_sky.bin" "${CMAKE_CURRENT_BINARY_DIR}/fs_sky.bin")
-endif()
-if(NOT CMAKE_CROSSCOMPILING)
-    add_executable(storm_skinning_cache_check tests/skinning_cache_check.cpp)
-    target_compile_features(storm_skinning_cache_check PRIVATE cxx_std_20)
-    target_include_directories(storm_skinning_cache_check PRIVATE ../renderer/include ../model/include)
-    add_test(NAME skinning_stream_cache COMMAND storm_skinning_cache_check)
-endif()
-if(NOT CMAKE_CROSSCOMPILING)
-    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/vs_dynamic_probe.bin"
-        COMMAND shaderc -f "${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders/vs_dynamic_probe.sc"
-            -o "${CMAKE_CURRENT_BINARY_DIR}/vs_dynamic_probe.bin" --type vertex --platform linux -p spirv
-            --varyingdef "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc"
-            -i "${storm_bgfx_upstream_SOURCE_DIR}/bgfx/src"
-        DEPENDS shaderc tests/shaders/vs_dynamic_probe.sc shaders/varying.def.sc VERBATIM)
-    add_custom_target(storm_bgfx_dynamic_probe_shader DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/vs_dynamic_probe.bin")
-    add_executable(storm_dynamic_stream_check tests/dynamic_stream_check.cpp)
-    target_link_libraries(storm_dynamic_stream_check PRIVATE storm_bgfx_world)
-    add_dependencies(storm_dynamic_stream_check storm_bgfx_shaders storm_bgfx_dynamic_probe_shader)
-    add_test(NAME bgfx_dynamic_stream_pixels COMMAND storm_dynamic_stream_check
-        "${CMAKE_CURRENT_BINARY_DIR}/vs_dynamic_probe.bin" "${CMAKE_CURRENT_BINARY_DIR}/fs_fog.bin")
-endif()
+set(STORM_BGFX_SHADER_PROFILE "300_es" CACHE STRING "shaderc profile for embedded shader blobs")
+set(STORM_BGFX_SHADER_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/shaders/include" CACHE INTERNAL "")
+include(cmake/storm_shaders.cmake)
+
+file(GLOB shader_sources CONFIGURE_DEPENDS shaders/*.sc)
+list(FILTER shader_sources EXCLUDE REGEX "varying\\.def\\.sc$")
+storm_bgfx_embed_shaders(TARGET storm_bgfx_shaders NAMESPACE storm_shaders
+    VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${shader_sources})
+
+file(GLOB_RECURSE shim_sources CONFIGURE_DEPENDS src/*.cpp src/*.hpp)
+add_library(storm_bgfx STATIC ${shim_sources})
+target_compile_features(storm_bgfx PUBLIC cxx_std_20)
+target_include_directories(storm_bgfx PUBLIC include "${CMAKE_SOURCE_DIR}/third_party/d3d9-headers/directx"
+    "${CMAKE_SOURCE_DIR}/third_party/d3d9-headers/windows" PRIVATE src)
+target_link_libraries(storm_bgfx PUBLIC bgfx bx bimg PRIVATE storm_bgfx_shaders ${SDL2_LIBRARIES})
+set_target_properties(storm_bgfx PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_options(storm_bgfx PRIVATE -fsigned-char)
+target_compile_definitions(storm_bgfx PRIVATE NOMINMAX)

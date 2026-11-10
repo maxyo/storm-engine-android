@@ -11,9 +11,7 @@ SDLWindow::SDLWindow(int width, int height, int preferred_display, bool fullscre
     : fullscreen_(fullscreen)
 {
     uint32_t flags = (fullscreen ? SDL_WINDOW_FULLSCREEN : 0) | SDL_WINDOW_HIDDEN;
-#if !defined(_WIN32) && !defined(STORM_MESA_NINE) // DXVK-Native
-    flags |= SDL_WINDOW_VULKAN;
-#endif
+    // No SDL_WINDOW_OPENGL/VULKAN: bgfx creates its own EGL surface on the native window.
     window_ = std::unique_ptr<SDL_Window, std::function<void(SDL_Window *)>>(
         SDL_CreateWindow("", SDL_WINDOWPOS_CENTERED_DISPLAY(preferred_display),
                          SDL_WINDOWPOS_CENTERED_DISPLAY(preferred_display), width, height, flags),
