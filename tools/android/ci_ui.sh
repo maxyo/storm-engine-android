@@ -9,6 +9,7 @@ build_dir=${STORM_UI_BUILD_DIR:-"$work/ui"}
 ndk=${STORM_ANDROID_NDK:-"$work/tools/ndk/android-ndk-r30"}
 if [[ -d "$work/python/bin" ]]; then export PATH="$work/python/bin:$PATH"; fi
 cmake -S "$repo/src/libs/ui" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_TOOLCHAIN_FILE="$repo/cmake/toolchains/android-arm64.cmake" -DSTORM_ANDROID_NDK="$ndk"
 cmake --build "$build_dir" --target storm_ui_android --parallel "${STORM_BUILD_JOBS:-2}"
 mkdir -p "$build_dir/licenses"
