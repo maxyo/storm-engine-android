@@ -214,9 +214,7 @@ char *COMPILER::LoadFile(const char *file_name, uint32_t &file_size, bool bFullP
         std::string EngineDir = "storm-engine\\";
         if (strncmp(file_name, EngineDir.c_str(), EngineDir.length()) == 0)
         {
-            // the compile check runs in the game directory, which ships these headers
-            std::string ExePath = compileCheck_ ? std::string("resource\\shared\\")
-                                                      : fio->_GetExecutableDirectory() + "resource\\shared\\";
+            std::string ExePath = fio->_GetExecutableDirectory() + "resource\\shared\\";
             strcpy_s(buffer, ExePath.c_str());
             strcat_s(buffer, file_name + EngineDir.length());
         }
