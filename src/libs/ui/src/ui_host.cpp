@@ -493,8 +493,9 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         const double routing = std::min(router_->Tick(), hud_->Tick());
 
         context_->Update();
-        const bool clamps = TextClampsChanged();
-        if (clamps) // clamped text was re-cut for a new width
+        const bool edges = ScrollEdgesChanged(context_->GetRootElement());
+        const bool clamps = TextClampsChanged() || edges;
+        if (clamps) // clamped text was re-cut for a new width, or a scrolling edge changed
             context_->Update();
         delay = context_->GetNextUpdateDelay();
         // What makes the shown frame out of date: input and host calls (changed_), rebuilt

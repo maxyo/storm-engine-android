@@ -15,6 +15,11 @@ namespace storm::ui
 void RegisterDrawElements();
 // True once after a <ui-clamp> changed its text during layout: lay out again before drawing.
 bool TextClampsChanged();
+// Scroll edges: every element that scrolls (overflow-y auto or scroll) gets the class
+// scroll-below while content is hidden below its bottom edge, and a child div.scroll-fade
+// pinned to the bottom of its visible part, which the pack draws as a fade (base.rcss).
+// True when something changed (the layout needs another update).
+bool ScrollEdgesChanged(Rml::Element *root);
 // Whether <ui-clamp> text inside `root` was cut to fit: 1 cut, 0 all of it shown, -1 none there.
 int ClampedTextIn(Rml::Element *root);
 void ReleaseDrawTextures();
