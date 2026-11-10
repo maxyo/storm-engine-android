@@ -62,7 +62,12 @@ function(storm_fetch_declare name)
     cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "STORM_PATCHES")
     set(fetch ${arg_UNPARSED_ARGUMENTS})
     string(TOUPPER "${name}" upper)
-    if(NOT FETCHCONTENT_SOURCE_DIR_${upper})
+    # FetchContent keeps FETCHCONTENT_SOURCE_DIR_<NAME> in the cache. A value inside our own shared copies is the
+    # one this function chose at an earlier configure, not an explicit override: it is recomputed, so a changed
+    # pin or patch set moves a warm build directory to the matching copy.
+    set(shared_prefix "${STORM_DEPS_CACHE}/fetchcontent/${name}-")
+    string(FIND "${FETCHCONTENT_SOURCE_DIR_${upper}}" "${shared_prefix}" shared_at)
+    if(NOT FETCHCONTENT_SOURCE_DIR_${upper} OR shared_at EQUAL 0)
         set(key "${fetch}")
         set(patches ${arg_STORM_PATCHES})
         if(patches)
@@ -95,6 +100,13 @@ function(storm_fetch_declare name)
                 endforeach()
                 file(WRITE "${source}/.storm-complete" "${key}\n")
             endif()
+        endif()
+        if(DEFINED CACHE{FETCHCONTENT_SOURCE_DIR_${upper}} AND NOT "$CACHE{FETCHCONTENT_SOURCE_DIR_${upper}}" STREQUAL ""
+           AND NOT "$CACHE{FETCHCONTENT_SOURCE_DIR_${upper}}" STREQUAL "${source}")
+            message(WARNING "${name}: the pin or its patches changed; this build directory moves from "
+                "$CACHE{FETCHCONTENT_SOURCE_DIR_${upper}} to ${source} (sources recompile once)")
+            set(FETCHCONTENT_SOURCE_DIR_${upper} "${source}" CACHE PATH
+                "Shared source copy chosen by storm_fetch_declare (cmake/StormBuildCache.cmake)" FORCE)
         endif()
         set(FETCHCONTENT_SOURCE_DIR_${upper} "${source}" PARENT_SCOPE)
     endif()
