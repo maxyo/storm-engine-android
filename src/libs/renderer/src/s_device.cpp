@@ -18,6 +18,7 @@
 #include "debug-trap.h"
 #include "string_compare.hpp"
 #include "storm/render/texture_cache.hpp"
+#include "storm/render/texture_file.hpp"
 
 #include <algorithm>
 #include <SDL_timer.h>
@@ -1399,6 +1400,7 @@ int32_t DX9RENDER::TextureCreate(const char *fname)
     if (!bLoadTextureEnabled)
         return -1;
 
+    for (const TextureLookup lookup : {TextureLookup::Primary, TextureLookup::Alternates})
     for (int32_t i = 3; i >= -1; i--)
     {
         char _fname[256];
@@ -1454,7 +1456,7 @@ int32_t DX9RENDER::TextureCreate(const char *fname)
         Textures[t].isCubeMap = false;
         Textures[t].loaded = false;
         Textures[t].ref++;
-        if (TextureLoad(t))
+        if (TextureLoad(t, lookup))
             return t;
         Textures[t].ref--;
         STORM_DELETE(Textures[t].name);
@@ -1498,10 +1500,8 @@ bool DX9RENDER::TextureIncReference(int32_t texid)
     return true;
 }
 
-bool DX9RENDER::TextureLoad(int32_t t)
+bool DX9RENDER::TextureLoad(int32_t t, TextureLookup lookup)
 {
-    using namespace std::literals;
-
     ProgressView();
     // Form the path to the texture
     char fn[_MAX_FNAME];
@@ -1511,34 +1511,41 @@ bool DX9RENDER::TextureLoad(int32_t t)
         return false;
     }
 
-    auto lTexture = std::string(Textures[t].name);
-    std::transform(lTexture.begin(), lTexture.end(), lTexture.begin(), [](unsigned char c) { return std::tolower(c); });
-    auto has_resource_prefix = starts_with(lTexture, "resource\\textures\\");
-    auto has_tx_postfix = ends_with(lTexture, ".tx");
-
-    sprintf_s(fn, "%s%s%s", has_resource_prefix ? "" : "resource\\textures\\", Textures[t].name, has_tx_postfix ? "" : ".tx");
-
-    for (int32_t s = 0, d = 0; fn[d]; s++)
-    {
-        if (d > 0 && (fn[d - 1] == PATH_SEP || fn[d - 1] == WRONG_PATH_SEP) &&
-            (fn[s] == PATH_SEP || fn[s] == WRONG_PATH_SEP))
-        {
-            continue;
-        }
-        fn[d++] = fn[s];
-    }
+    const storm::render::TextureFileCandidates candidates = storm::render::GetTextureFileCandidates(Textures[t].name);
+    std::vector<const std::string *> paths;
+    if (lookup == TextureLookup::Primary)
+        paths.push_back(&candidates.primary);
+    else
+        for (const std::string &alternate : candidates.alternates)
+            paths.push_back(&alternate);
     // Opening the file
-    auto fileS = fio->_CreateFile(fn, std::ios::binary | std::ios::in);
-    if (!fileS.is_open())
+    std::fstream fileS;
+    const std::string *found = nullptr;
+    for (const std::string *path : paths)
     {
-        if (bTrace)
+        fileS = fio->_CreateFile(path->c_str(), std::ios::binary | std::ios::in);
+        if (fileS.is_open())
         {
-            core.Trace("Can't load texture %s", fn);
+            found = path;
+            break;
+        }
+    }
+    if (!found)
+    {
+        if (bTrace && lookup == TextureLookup::Alternates)
+        {
+            core.Trace("Can't load texture %s", candidates.primary.c_str());
         }
         delete Textures[t].name;
         Textures[t].name = nullptr;
         return false;
     }
+    if (lookup == TextureLookup::Alternates)
+    {
+        core.Trace("Texture %s: %s not found under any texture path, using %s", Textures[t].name,
+                   candidates.primary.c_str(), found->c_str());
+    }
+    strcpy_s(fn, found->c_str());
     // Reading the header
     TX_FILE_HEADER head;
     if (!fio->_ReadFile(fileS, &head, sizeof(head)))
@@ -1551,6 +1558,23 @@ bool DX9RENDER::TextureLoad(int32_t t)
         Textures[t].name = nullptr;
         fio->_CloseFile(fileS);
         return false;
+    }
+    const storm::render::TextureContainer container =
+        storm::render::DetectTextureContainer({reinterpret_cast<const uint8_t *>(&head), sizeof(head)});
+    if (container != storm::render::TextureContainer::Tx)
+    {
+        std::vector<uint8_t> bytes(fio->_GetFileSize(fn));
+        fio->_SetFilePointer(fileS, 0, std::ios::beg);
+        const bool read = fio->_ReadFile(fileS, bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        fio->_CloseFile(fileS);
+        if (!read)
+        {
+            core.Trace("Can't read texture %s", fn);
+            delete Textures[t].name;
+            Textures[t].name = nullptr;
+            return false;
+        }
+        return TextureLoadFile(t, fn, std::move(bytes), container == storm::render::TextureContainer::Dds);
     }
     // Analyzing the format
     D3DFORMAT d3dFormat = D3DFMT_UNKNOWN;
@@ -1813,6 +1837,16 @@ bool DX9RENDER::TextureLoad(int32_t t)
     //---------------------------------------------------------------
     // print statistics
     //---------------------------------------------------------------
+    LogTextureLoad(t, head.width, head.height);
+    //---------------------------------------------------------------
+    Textures[t].loaded = true;
+    // Close the file
+    fio->_CloseFile(fileS);
+    return true;
+}
+
+void DX9RENDER::LogTextureLoad(int32_t t, uint32_t width, uint32_t height)
+{
     if (texLog)
     {
         char s[256];
@@ -1822,17 +1856,122 @@ bool DX9RENDER::TextureLoad(int32_t t)
         }
         auto fileS2 = fio->_CreateFile("texLoad.txt", std::ios::binary | std::ios::out | std::ios::app);
         totSize += Textures[t].dwSize;
-        sprintf_s(s, "%.2f, size: %d, %d * %d, %s\n", totSize / 1024.0f / 1024.0f, Textures[t].dwSize, head.width,
-                  head.height, Textures[t].name);
+        sprintf_s(s, "%.2f, size: %d, %d * %d, %s\n", totSize / 1024.0f / 1024.0f, Textures[t].dwSize, width, height,
+                  Textures[t].name);
         fio->_WriteFile(fileS2, s, strlen(s));
         fio->_FlushFileBuffers(fileS2);
         fio->_CloseFile(fileS2);
     }
     dwTotalSize += Textures[t].dwSize;
-    //---------------------------------------------------------------
+}
+
+bool DX9RENDER::TextureLoadFile(int32_t t, const char *path, std::vector<uint8_t> bytes, bool dds)
+{
+    using storm::render::TextureFile;
+    using storm::render::TextureFileFormat;
+    const auto fail = [&](const std::string &reason) {
+        core.Trace("Texture %s is not loaded: %s", path, reason.c_str());
+        delete Textures[t].name;
+        Textures[t].name = nullptr;
+        return false;
+    };
+    TextureFile file;
+    const std::string error =
+        dds ? storm::render::ParseDdsTexture(std::move(bytes), file) : storm::render::ParseTxxTexture(std::move(bytes), file);
+    if (!error.empty())
+        return fail(error);
+    if (file.decoded)
+    {
+        core.Trace("Texture %s: %s has no DXT1/3/5 equivalent, decoded to A8R8G8B8 on the CPU (no ETC2 transcode)",
+                   path, file.source.c_str());
+    }
+    D3DFORMAT format = D3DFMT_A8R8G8B8;
+    switch (file.format)
+    {
+    case TextureFileFormat::Dxt1:
+        format = D3DFMT_DXT1;
+        break;
+    case TextureFileFormat::Dxt3:
+        format = D3DFMT_DXT3;
+        break;
+    case TextureFileFormat::Dxt5:
+        format = D3DFMT_DXT5;
+        break;
+    case TextureFileFormat::Bgra8:
+        break;
+    }
+    // Skipping mips, with the same limit as .tx textures
+    uint32_t first = 0;
+    for (int32_t nTD = nTextureDegradation; nTD > 0 && file.levels - first > 1; nTD--)
+    {
+        const TextureFile::Level &top = file.level(0, first);
+        if (top.width <= 32 || top.height <= 32)
+            break;
+        ++first;
+    }
+    const uint32_t levels = file.levels - first;
+    const TextureFile::Level &top = file.level(0, first);
+    const bool blocks = file.format != TextureFileFormat::Bgra8;
+    const auto upload = [&](IDirect3DSurface9 *surface, uint32_t face, uint32_t level) {
+        const TextureFile::Level &sub = file.level(face, level);
+        const std::span<const uint8_t> data = file.data(face, level);
+        D3DLOCKED_RECT lock;
+        if (CHECKD3DERR(surface->LockRect(&lock, nullptr, 0L)))
+            return false;
+        const uint32_t rows = blocks ? (sub.height + 3) / 4 : sub.height;
+        const size_t row_bytes = data.size() / rows;
+        for (uint32_t row = 0; row < rows; ++row)
+            memcpy(static_cast<uint8_t *>(lock.pBits) + static_cast<size_t>(row) * lock.Pitch,
+                   data.data() + row * row_bytes, row_bytes);
+        Textures[t].dwSize += static_cast<uint32_t>(data.size());
+        return !CHECKD3DERR(surface->UnlockRect());
+    };
+    if (file.faces == 1)
+    {
+        IDirect3DTexture9 *tex = nullptr;
+        if (CHECKD3DERR(d3d9->CreateTexture(top.width, top.height, levels, 0, format, D3DPOOL_MANAGED, &tex, NULL)) ||
+            !tex)
+            return fail("CreateTexture failed for " + file.source);
+        for (uint32_t level = 0; level < levels; ++level)
+        {
+            IDirect3DSurface9 *surface = nullptr;
+            const bool ok = !CHECKD3DERR(tex->GetSurfaceLevel(level, &surface)) && surface && upload(surface, 0, first + level);
+            if (surface)
+                surface->Release();
+            if (!ok)
+            {
+                tex->Release();
+                return fail("cannot fill level " + std::to_string(level));
+            }
+        }
+        Textures[t].d3dtex = tex;
+        Textures[t].isCubeMap = false;
+    }
+    else
+    {
+        IDirect3DCubeTexture9 *tex = nullptr;
+        if (CHECKD3DERR(d3d9->CreateCubeTexture(top.width, levels, 0, format, D3DPOOL_MANAGED, &tex, NULL)) || !tex)
+            return fail("CreateCubeTexture failed for " + file.source);
+        // DDS cube faces are stored in D3D face order: +X, -X, +Y, -Y, +Z, -Z.
+        for (uint32_t face = 0; face < 6; ++face)
+            for (uint32_t level = 0; level < levels; ++level)
+            {
+                IDirect3DSurface9 *surface = nullptr;
+                const bool ok = !CHECKD3DERR(tex->GetCubeMapSurface(static_cast<D3DCUBEMAP_FACES>(face), level, &surface)) &&
+                                surface && upload(surface, face, first + level);
+                if (surface)
+                    surface->Release();
+                if (!ok)
+                {
+                    tex->Release();
+                    return fail("cannot fill face " + std::to_string(face) + " level " + std::to_string(level));
+                }
+            }
+        Textures[t].d3dtex = tex;
+        Textures[t].isCubeMap = true;
+    }
+    LogTextureLoad(t, top.width, top.height);
     Textures[t].loaded = true;
-    // Close the file
-    fio->_CloseFile(fileS);
     return true;
 }
 
