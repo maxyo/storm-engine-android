@@ -108,6 +108,8 @@ inline ShipTelemetryFrame readShipTelemetry(const GameplayState &gameplay)
         const auto sailState = ship->GetSailState();
         if (std::isfinite(sailState) && sailState >= 0 && sailState <= 1) out.sailState = sailState;
         out.canSetSails = shipSailControlAllowed(ship, gameplay);
+        if (const float scale = core.GetTimeScale(); std::isfinite(scale) && scale >= 0.f && scale <= 100.f)
+            out.timeScale = std::round(scale * 100.0) / 100.0;
         for (size_t i = 0; i < ShipAmmoNames.size(); ++i)
         {
             const std::string path = std::string("Ship.Cargo.Goods.") + ShipAmmoNames[i];

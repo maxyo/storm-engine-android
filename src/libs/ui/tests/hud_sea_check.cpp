@@ -174,6 +174,14 @@ static void CheckSailing()
     Expect(mount.Last() == "gameplay:9\tSea_CameraSwitch", "camera: " + mount.Last());
     bench.Press("fire");
     Expect(mount.Last() == "gameplay:9\tShip_Fire", "fire: " + mount.Last());
+    Expect(mount.shown.elements["time"]["badge"] == "×1" && mount.shown.elements["time"]["variant"] == "normal" && mount.Has("time-slower") && mount.Has("time-faster"),
+           "the time scale the engine runs at: " + mount.shown.elements["time"].dump());
+    bench.Press("time");
+    Expect(mount.Last() == "gameplay:9\tTimeScale", "the time button is the game's R: " + mount.Last());
+    bench.Press("time-faster");
+    Expect(mount.Last() == "gameplay:9\tTimeScaleFaster", "faster: " + mount.Last());
+    bench.Press("time-slower");
+    Expect(mount.Last() == "gameplay:9\tTimeScaleSlower", "slower: " + mount.Last());
     bench.Press("orders");
     Expect(mount.Last() == "orders:1\t6\t14\t2\topen\t", "orders: " + mount.Last());
     bench.Press("fleet", "ship", "1");
@@ -334,6 +342,15 @@ static void CheckBattle()
     Expect(shown["ammo"]["badge"] == "12" && shown["ammo"]["badgeTone"] == "danger" && shown["hull"]["value"] == 27 && shown["sail"]["value"] == 1 &&
                shown["minimap"]["time"] == "11:42",
            "battle values");
+    Expect(shown["time"]["badge"] == "×1.5" && shown["time"]["variant"] == "active", "an accelerated world: " + shown["time"].dump());
+    Expect(shown["effect-0"]["icon"] == "perk-instantrepair" && !shown["effect-0"].contains("fill") && !shown["effect-0"].contains("disabled") &&
+               shown["effect-1"]["fill"] == 40 && shown["effect-1"]["fillTone"] == "cooldown",
+           "the battle abilities: " + shown["effect-0"].dump() + shown["effect-1"].dump());
+    bench.Press("effect-0");
+    Expect(mount.Last() == "gameplay:10\tBI_InstantRepair", "a ready ability is launched: " + mount.Last());
+    const size_t launched = mount.commands.size();
+    bench.Press("effect-1");
+    Expect(mount.commands.size() == launched, "a recovering ability does nothing");
     bench.Press("spyglass", "down");
     Expect(mount.Last() == "hold:10\tTelescopeIn\t1", "the spyglass is held: " + mount.Last());
     bench.Press("spyglass", "up");

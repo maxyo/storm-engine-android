@@ -138,5 +138,18 @@
    "sailIntegrity": 40,
    "sailIntegrityMax": 100
   }
+ ],
+ "timeScale": 1.5,
+ "abilities": [
+  {
+   "id": "InstantRepair",
+   "state": "ready",
+   "fill": 0
+  },
+  {
+   "id": "ImmediateReload",
+   "state": "recovery",
+   "fill": 0.4
+  }
  ]
 }

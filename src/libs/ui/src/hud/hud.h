@@ -117,6 +117,15 @@ struct Ship
     bool navigator = false, zoom_in = false, zoom_out = false;
     uint64_t navigator_generation = 0, navigator_layout = 0; // layout = the aperture the engine drew last
     double speed = -1.0, wind = -1.0, cannon_charge = -1.0;
+    double time_scale = -1.0; // the world's time scale the scripts set (x1 = 1)
+    // Battle abilities (instant repair, immediate reload) the ship's people can use.
+    struct Ability
+    {
+        std::string id;          // InstantRepair, ImmediateReload
+        std::string state;       // ready, active, recovery, blocked
+        double fill = 0.0;       // active: what is left of the effect; recovery: how far it recovered
+    };
+    std::vector<Ability> abilities;
     std::string date_time, location;
     std::string ammo;        // balls, grapes, knippels, bombs; "" = unknown
     double ammo_count = -1.0;

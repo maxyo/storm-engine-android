@@ -27,6 +27,7 @@
 #include "platform/android_held_controls.hpp"
 #include "platform/android_shortcuts.hpp"
 #include "android_gameplay_state.hpp"
+#include "android_ship_abilities.hpp"
 #include "android_combat_state.hpp"
 #include "android_sea_orders_state.hpp"
 #include "android_land_commands_state.hpp"
@@ -842,17 +843,23 @@ int main(int argc, char *argv[])
                 storm::android::worldMapHud.update(storm::android::readWorldMapFrame(gameplayState,gameplayReady),SDL_GetTicks());
                 storm::android::publishWorldMapHud();
             }
-            storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipTelemetry(gameplayState));
+            storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, SDL_GetTicks(), storm::android::seaOrders.frame().active));
             // Activity recreation revokes pending targets/ready ACKs before dispatch.
             storm::android::publishShipTelemetry();
             if (const auto detent = storm::android::shipTelemetry.takeSails(SDL_GetTicks()))
                 if (storm::android::applyShipSailTarget(gameplayState, *detent))
                 {
-                    storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipTelemetry(gameplayState));
+                    storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, SDL_GetTicks(), storm::android::seaOrders.frame().active));
                     storm::android::publishShipTelemetry();
                 }
             if (const auto action = gameplayState.take(SDL_GetTicks()))
-                core_private->Event("Control Activation", "s", action->c_str());
+            {
+                // A battle ability goes through the command list, as the native menu launches it.
+                if (action->starts_with("BI_"))
+                    storm::android::launchShipAbility(*action);
+                else
+                    core_private->Event("Control Activation", "s", action->c_str());
+            }
             // Execute commands at a completed game-frame boundary, after control
             // polling and outside Android dialog callbacks. No timed key pulse
             // or held bit can be lost between two slow native frames.
