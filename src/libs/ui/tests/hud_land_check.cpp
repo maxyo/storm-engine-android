@@ -442,8 +442,9 @@ static void CheckSheet()
     bench.Feed("landCommands", "land-commands-travel");
     Expect(mount.shown.sheet_props["layout"] == "tiles" && mount.shown.sheet_props["back"] == true && mount.shown.sheet_props["title"] == "Переход" &&
                mount.shown.sheet_props["rows"][0]["icon"] == "tavern" && mount.shown.sheet_props["rows"][5]["icon"] == "usurer" &&
+               mount.shown.sheet_props["rows"][4]["icon"] == "compass" &&
                mount.shown.sheet_props["rows"][0]["pressed"] == false,
-           "travel: tiles, ←, place icons, the engine's title; the old tap is over");
+           "travel: tiles, ←, place icons by fast-travel slot (the travel icon outside the table), the engine's title; the old tap is over");
     bench.Frame();
     bench.Press("sheet-back");
     ExpectEqual(mount.Last(), "landcommands:1\t4\t13\t2\tback\t", "← goes back a stage");

@@ -56,11 +56,11 @@ const Named kCommands[] = {
     {"BI_MapAtlas", "map", ""},       {"BI_ActivateRush", "energy", ""}, {"BI_Exit_Deck", "boat", ""},
 };
 
-// Places of the travel stage by a word of their script source.
+// Places of the travel stage. The engine names a place only by its slot in the game's
+// fast-travel table ("fr_<n>"), the same in every town; the label carries the local name.
 const Named kPlaces[] = {
-    {"portoffice", "portoffice", ""}, {"tavern", "tavern", ""}, {"store", "store", ""},    {"shipyard", "shipyard", ""}, {"townhall", "residence", ""},
-    {"residence", "residence", ""},   {"bank", "usurer", ""},   {"usurer", "usurer", ""},  {"church", "church", ""},     {"brothel", "lantern", ""},
-    {"prison", "prison", ""},         {"fort", "fort", ""},     {"port", "port", ""},
+    {"fr_1", "store", ""},  {"fr_2", "shipyard", ""}, {"fr_3", "tavern", ""},  {"fr_4", "residence", ""}, {"fr_5", "usurer", ""},
+    {"fr_6", "church", ""}, {"fr_7", "lantern", ""},  {"fr_8", "portoffice", ""}, {"fr_9", "prison", ""},
 };
 
 std::string Lower(std::string text)
@@ -472,11 +472,10 @@ class LandScene final : public Scene
             return "energy";
         if (item.kind == "travel")
         {
-            const std::string source = Lower(item.source);
             for (const Named &place : kPlaces)
-                if (source.find(place.key) != std::string::npos)
+                if (item.source == place.key)
                     return place.icon;
-            return "compass";
+            return "compass"; // a slot outside the table: the travel icon
         }
         for (const Named &command : kCommands)
             if (item.source == command.key)

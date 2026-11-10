@@ -18,7 +18,7 @@
    "id": "t1",
    "kind": "travel",
    "label": "Таверна",
-   "source": "tavern",
+   "source": "fr_3",
    "enabled": true,
    "cooldown": 1.0
   },
@@ -26,7 +26,7 @@
    "id": "t2",
    "kind": "travel",
    "label": "Магазин",
-   "source": "store",
+   "source": "fr_1",
    "enabled": true,
    "cooldown": 1.0
   },
@@ -34,7 +34,7 @@
    "id": "t3",
    "kind": "travel",
    "label": "Верфь",
-   "source": "shipyard",
+   "source": "fr_2",
    "enabled": true,
    "cooldown": 1.0
   },
@@ -42,7 +42,7 @@
    "id": "t4",
    "kind": "travel",
    "label": "Резиденция",
-   "source": "townhall",
+   "source": "fr_4",
    "enabled": true,
    "cooldown": 1.0
   },
@@ -50,7 +50,7 @@
    "id": "t5",
    "kind": "travel",
    "label": "Порт",
-   "source": "port",
+   "source": "fr_10",
    "enabled": true,
    "cooldown": 1.0
   },
@@ -58,7 +58,7 @@
    "id": "t6",
    "kind": "travel",
    "label": "Ростовщик",
-   "source": "bank",
+   "source": "fr_5",
    "enabled": true,
    "cooldown": 1.0
   },
@@ -66,7 +66,7 @@
    "id": "t7",
    "kind": "travel",
    "label": "Церковь",
-   "source": "church",
+   "source": "fr_6",
    "enabled": true,
    "cooldown": 1.0
   },
@@ -74,7 +74,7 @@
    "id": "t8",
    "kind": "travel",
    "label": "Бордель",
-   "source": "brothel",
+   "source": "fr_7",
    "enabled": true,
    "cooldown": 1.0
   },
