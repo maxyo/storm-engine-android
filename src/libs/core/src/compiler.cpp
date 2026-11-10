@@ -1067,7 +1067,7 @@ bool COMPILER::ProcessDebugExpression0(const char *pExpression, DATA &Result)
 
     if (pRun_fi)
     {
-        CurrentFuncCode = FuncTab.FindFunc(pRun_fi->name);
+        CurrentFuncCode = FuncTab.FindFunc(pRun_fi->info->name);
     }
 
     try
@@ -1091,7 +1091,7 @@ bool COMPILER::ProcessDebugExpression0(const char *pExpression, DATA &Result)
     // save current pointers values
     const uint32_t mem_InstructionPointer = InstructionPointer;
     // mem_ip = ip;
-    FuncInfo *mem_pfi = pRun_fi;
+    FuncFrame *mem_pfi = pRun_fi;
     const char *mem_codebase = pRunCodeBase;
     // mem_CurrentFuncCode = CurrentFuncCode;
 
@@ -3689,10 +3689,10 @@ S_TOKEN_TYPE COMPILER::NextTokenType()
 
 bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult)
 {
-    FuncInfo call_fi;
+    // snapshot of the scalar fields the call needs after the callee has run
     uint32_t mem_ip;
     uint32_t mem_InstructionPointer;
-    FuncInfo *mem_pfi;
+    FuncFrame *mem_pfi;
     //    DATA * pV;
     const char *mem_codebase;
     uint32_t arguments;
@@ -3704,11 +3704,17 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
     CompilerStage = CS_RUNTIME;
 
     // get func info
-    if (!FuncTab.GetFunc(call_fi, func_code))
+    const FuncInfo *const call_pfi = FuncTab.GetFuncPtr(func_code);
+    if (call_pfi == nullptr)
     {
         SetError("Invalid function call");
         return false;
     }
+    // no deep copy: the table entry address is stable (see FuncTable::funcs_)
+    const FuncInfo &call_fi = *call_pfi;
+    const uint32_t call_segment_id = call_fi.segment_id;
+    const S_TOKEN_TYPE call_return_type = call_fi.return_type;
+    const SIMPORTFUNC call_imported_func = call_fi.imported_func;
 
     // TODO: only do if stack debug if enabled (should be runtime configurable)
     // push function details to call stack
@@ -3775,7 +3781,7 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
     nDebugEnterMode = CDebug->GetTraceMode();
 #endif
     uint64_t nTicks;
-    if (call_fi.segment_id == INTERNAL_SEGMENT_ID)
+    if (call_segment_id == INTERNAL_SEGMENT_ID)
     {
         if (bRuntimeLog)
         {
@@ -3795,14 +3801,14 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
             core_internal.Trace("Invalid func_code = %u for AddTime", func_code);
         }
     }
-    else if (call_fi.segment_id == IMPORTED_SEGMENT_ID)
+    else if (call_segment_id == IMPORTED_SEGMENT_ID)
     {
         pVResult = nullptr;
         RDTSC_B(nTicks);
-        const uint32_t nResult = call_fi.imported_func(&SStack);
+        const uint32_t nResult = call_imported_func(&SStack);
         if (nResult == IFUNCRESULT_OK)
         {
-            if (call_fi.return_type != TVOID)
+            if (call_return_type != TVOID)
             {
                 pVResult = SStack.Read();
             }
@@ -3888,7 +3894,11 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
     uint32_t bLeftOperandType;
     int32_t nLeftOperandIndex;
     S_TOKEN_TYPE Token_type;
-    FuncInfo fi;
+    // fi: stable table entry (or an empty one for debug expressions), never copied.
+    // frame: this invocation's scalar snapshot, including its own stack offset.
+    static const FuncInfo empty_fi;
+    const FuncInfo *pfi = &empty_fi;
+    FuncFrame frame(empty_fi);
     const VarInfo *real_var;
     DATA *pV;
     DATA *pVResult;
@@ -3930,34 +3940,39 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
 
     if (pDbgExpSource == nullptr)
     {
-        if (!FuncTab.GetFunc(fi, function_code))
+        if (const auto *table_fi = FuncTab.GetFuncPtr(function_code); table_fi != nullptr)
         {
-            SetError("Invalid function: %s", fi.name.c_str());
+            pfi = table_fi;
+            frame = FuncFrame(*table_fi);
+        }
+        else
+        {
+            SetError("Invalid function: %s", pfi->name.c_str());
             return false;
         }
 
-        if (fi.offset == INVALID_FUNC_OFFSET)
+        if (frame.offset == INVALID_FUNC_OFFSET)
         {
-            SetError("Function (%s) isnt loaded", fi.name.c_str());
+            SetError("Function (%s) isnt loaded", pfi->name.c_str());
             return false;
         }
 
-        if (fi.segment_id == INTERNAL_SEGMENT_ID)
+        if (frame.segment_id == INTERNAL_SEGMENT_ID)
         {
-            SetError("Function (%s) is internal", fi.name.c_str());
+            SetError("Function (%s) is internal", pfi->name.c_str());
             return false;
         }
 
-        if (fi.segment_id == IMPORTED_SEGMENT_ID)
+        if (frame.segment_id == IMPORTED_SEGMENT_ID)
         {
-            SetError("Function (%s) is imported", fi.name.c_str());
+            SetError("Function (%s) is imported", pfi->name.c_str());
             return false;
         }
 
-        segment_index = GetSegmentIndex(fi.segment_id);
+        segment_index = GetSegmentIndex(frame.segment_id);
         if (segment_index == INVALID_SEGMENT_INDEX)
         {
-            SetError("Function (%s) segment not loaded", fi.name.c_str());
+            SetError("Function (%s) segment not loaded", pfi->name.c_str());
             return false;
         }
         if (SegmentTable[segment_index].pCode == nullptr)
@@ -3967,18 +3982,18 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
         }
 
         // Trace("-----------------------------------------------------------------");
-        // Trace("Execute function: %s",fi.name);
+        // Trace("Execute function: %s",pfi->name);
 
-        RunningSegmentID = fi.segment_id;
-        fi.stack_offset = SStack.GetDataNum() - fi.arguments; // set stack offset
+        RunningSegmentID = frame.segment_id;
+        frame.stack_offset = SStack.GetDataNum() - frame.arguments; // set stack offset
 
         // check arguments types
-        for (n = 0; n < fi.arguments; n++)
+        for (n = 0; n < frame.arguments; n++)
         {
-            if (fi.local_vars[n].type == VAR_REFERENCE)
+            if (pfi->local_vars[n].type == VAR_REFERENCE)
                 continue;
-            pV = SStack.Read(fi.stack_offset, n);
-            if (pV->GetType() != fi.local_vars[n].type)
+            pV = SStack.Read(frame.stack_offset, n);
+            if (pV->GetType() != pfi->local_vars[n].type)
             {
                 pV = pV->GetVarPointer();
                 if (!pV)
@@ -3987,27 +4002,27 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                     return false;
                 }
 
-                if (fi.local_vars[n].type == VAR_AREFERENCE && pV->GetType() == VAR_OBJECT)
+                if (pfi->local_vars[n].type == VAR_AREFERENCE && pV->GetType() == VAR_OBJECT)
                     continue;
 
                 // TODO: remove and fix
-                if (false && pV->GetType() != fi.local_vars[n].type)
+                if (false && pV->GetType() != pfi->local_vars[n].type)
                 {
-                    SetWarning("wrong type of argument %d  %s(%s) <-- [%s]", n, fi.name.c_str(),
-                               Token.GetTypeName(fi.local_vars[n].type), Token.GetTypeName(pV->GetType()));
+                    SetWarning("wrong type of argument %d  %s(%s) <-- [%s]", n, pfi->name.c_str(),
+                               Token.GetTypeName(pfi->local_vars[n].type), Token.GetTypeName(pV->GetType()));
                 }
             }
         }
 
-        for (n = fi.arguments; n < fi.local_vars.size(); n++)
+        for (n = frame.arguments; n < pfi->local_vars.size(); n++)
         {
             pV = SStack.Push();
-            pV->SetType(fi.local_vars[n].type, fi.local_vars[n].elements);
+            pV->SetType(pfi->local_vars[n].type, pfi->local_vars[n].elements);
         }
 
-        pRun_fi = &fi; // set pointer to 'this' function info
+        pRun_fi = &frame; // set pointer to 'this' function info
 
-        InstructionPointer = fi.offset;
+        InstructionPointer = frame.offset;
 
         pCodeBase = SegmentTable[segment_index].pCode;
         pRunCodeBase = pCodeBase;
@@ -4401,7 +4416,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                     ShowWindow(CDebug->GetWindowHandle(), SW_NORMAL);
 
                     CDebug->SetTraceLine(nDebugTraceLineCode);
-                    CDebug->BreakOn(fi.decl_file_name.c_str(), nDebugTraceLineCode);
+                    CDebug->BreakOn(pfi->decl_file_name.c_str(), nDebugTraceLineCode);
                     CDebug->SetTraceMode(TMODE_WAIT);
                     while (CDebug->GetTraceMode() == TMODE_WAIT)
                     {
@@ -4415,7 +4430,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 else if (CDebug->Breaks.CanBreak())
                 {
                     // check for breakpoint
-                    if (CDebug->Breaks.Find(fi.decl_file_name.c_str(), nDebugTraceLineCode))
+                    if (CDebug->Breaks.Find(pfi->decl_file_name.c_str(), nDebugTraceLineCode))
                     {
                         if (!CDebug->IsDebug())
                             CDebug->OpenDebugWindow(core_internal.GetAppInstance());
@@ -4423,7 +4438,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                         ShowWindow(CDebug->GetWindowHandle(), SW_NORMAL);
                         // CDebug->OpenDebugWindow(core_impl.hInstance);
                         CDebug->SetTraceMode(TMODE_WAIT);
-                        CDebug->BreakOn(fi.decl_file_name.c_str(), nDebugTraceLineCode);
+                        CDebug->BreakOn(pfi->decl_file_name.c_str(), nDebugTraceLineCode);
 
                         while (CDebug->GetTraceMode() == TMODE_WAIT)
                         {
@@ -4517,17 +4532,17 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             // if(pVResult) SStack.Pop();
             break;
         case FUNCTION_RETURN_VOID:
-            if (fi.return_type != TVOID)
+            if (frame.return_type != TVOID)
             {
                 SetError("function must return value");
                 return false;
             }
             // for(n=0;n<fi.var_num;n++) SStack.Pop();
-            SStack.InvalidateFrom(fi.stack_offset);
+            SStack.InvalidateFrom(frame.stack_offset);
 
             return true;
         case FUNCTION_RETURN:
-            if (fi.return_type == TVOID)
+            if (frame.return_type == TVOID)
             {
                 SetError("void function return value");
 
@@ -4536,7 +4551,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             // at this moment result expression placed in EX register
 
             if (pDbgExpSource == nullptr) // skip stack unwind for dbg expression process    // ????????
-                SStack.InvalidateFrom(fi.stack_offset);
+                SStack.InvalidateFrom(frame.stack_offset);
 
             // copy result into stack
             pV = SStack.Push();
@@ -4545,15 +4560,15 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
 
             // check return type
             if (pDbgExpSource == nullptr) // skip test for dbg expression process
-                if (fi.return_type != pV->GetType())
+                if (frame.return_type != pV->GetType())
                 {
-                    if (fi.return_type == VAR_INTEGER && pV->GetType() == VAR_PTR)
+                    if (frame.return_type == VAR_INTEGER && pV->GetType() == VAR_PTR)
                     {
                         pV->Convert(VAR_INTEGER);
                         return true;
                     }
 
-                    SetError("%s function return %s value", Token.GetTypeName(fi.return_type),
+                    SetError("%s function return %s value", Token.GetTypeName(frame.return_type),
                              Token.GetTypeName(pV->GetType()));
                     return false;
                 }
@@ -4561,16 +4576,16 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             /*if(BC_ProcessExpression(&ExpressionResult))
             {
               if(pDbgExpSource == 0)    // skip stack unwind for dbg expression process
-                SStack.InvalidateFrom(fi.stack_offset);
+                SStack.InvalidateFrom(frame.stack_offset);
               pV = SStack.Push();
               pV->Copy(&ExpressionResult);
               pVReturnResult = pV;
 
               if(pDbgExpSource == 0)    // skip test for dbg expression process
-              if(fi.return_type != pV->GetType())
+              if(frame.return_type != pV->GetType())
               {
                 SetError("%s function return %s value",
-                  Token.GetTypeName(fi.return_type),
+                  Token.GetTypeName(frame.return_type),
                   Token.GetTypeName(pV->GetType()));
 
                 return false;

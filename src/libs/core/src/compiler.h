@@ -313,7 +313,7 @@ private:
     char *pDebExpBuffer;
     uint32_t nDebExpBufferSize;
 
-    FuncInfo *pRun_fi; // running function info
+    FuncFrame *pRun_fi; // running function frame (scalar snapshot + stable table entry)
     FuncTable FuncTab;
     VarTable VarTab;
     S_DEFTAB DefTab;

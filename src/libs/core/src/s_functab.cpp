@@ -60,30 +60,31 @@ size_t FuncTable::AddFunc(const FuncInfo &fi)
     return func_index;
 }
 
-bool FuncTable::GetFunc(FuncInfo &fi, size_t func_index) const
+const FuncInfo *FuncTable::GetFuncPtr(size_t func_index) const
 {
     if (func_index >= funcs_.size())
     {
+        return nullptr;
+    }
+
+    const auto &func = funcs_[func_index];
+    if (func.segment_id == IMPORTED_SEGMENT_ID)
+    {
+        return func.imported_func != nullptr ? &func : nullptr;
+    }
+
+    return func.offset != INVALID_FUNC_OFFSET ? &func : nullptr;
+}
+
+bool FuncTable::GetFunc(FuncInfo &fi, size_t func_index) const
+{
+    const auto *func = GetFuncPtr(func_index);
+    if (func == nullptr)
+    {
         return false;
     }
 
-    if (funcs_[func_index].segment_id == IMPORTED_SEGMENT_ID)
-    {
-        if (funcs_[func_index].imported_func == nullptr)
-        {
-            return false;
-        }
-
-        fi = funcs_[func_index]; // copy func info
-        return true;
-    }
-
-    if (funcs_[func_index].offset == INVALID_FUNC_OFFSET)
-    {
-        return false;
-    }
-
-    fi = funcs_[func_index]; // copy func info
+    fi = *func; // copy func info
     return true;
 }
 
