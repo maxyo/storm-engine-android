@@ -577,6 +577,7 @@ class ClampElement final : public Rml::Element
 
     std::string Fit(const std::string &text, float width)
     {
+        cut_ = false;
         const int lines = std::clamp(GetAttribute<int>("lines", 1), 1, 6);
         std::vector<std::string> words;
         for (size_t at = 0; at <= text.size();)
@@ -597,7 +598,10 @@ class ClampElement final : public Rml::Element
                 continue;
             }
             if (line_count == lines)
+            {
+                cut_ = true;
                 return done + Ellipsis(line, width);
+            }
             done += line + " ";
             line = words[i];
             ++line_count;
@@ -630,7 +634,15 @@ class ClampElement final : public Rml::Element
 
     float width_ = -1.0f;
     bool refit_ = false;
+    bool cut_ = false;
     std::string shown_;
+
+  public:
+    // The text did not fit and ends in "…" (as last laid out).
+    bool Cut() const
+    {
+        return cut_;
+    }
 };
 
 // <ui-pages text="…" page="n" mode="paged|speech|replies">: the text wrapped with the
@@ -785,6 +797,20 @@ class PagesElement final : public Rml::Element
 };
 
 } // namespace
+
+int ClampedTextIn(Rml::Element *root)
+{
+    if (!root)
+        return -1;
+    Rml::ElementList clamps;
+    root->GetElementsByTagName(clamps, "ui-clamp");
+    if (clamps.empty())
+        return -1;
+    for (Rml::Element *element : clamps)
+        if (auto *clamp = dynamic_cast<ClampElement *>(element); clamp && clamp->Cut())
+            return 1;
+    return 0;
+}
 
 bool TextClampsChanged()
 {
