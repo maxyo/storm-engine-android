@@ -71,6 +71,9 @@ struct Vitals
     int potions = 0;                  // health potions carried
     std::vector<Officer> officers;
     double dash = -1.0;               // backstep cooldown left 0…1; -1 outside fight mode
+    // The enemy captain of a boarding cabin fight while alive (V2-Land-Boarding-Cabin).
+    std::string opponent;             // name; empty = none
+    double opponent_health = 0.0;     // 0…1
 };
 
 // Channel "landCommands": the engine's land action menu.

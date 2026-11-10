@@ -10,6 +10,11 @@
 //                                                 (landinterface.c SetCharacterIconData)
 //   "dash":     0…1                               the backstep's remaining cooldown, only in
 //                                                 fight mode (Character "RecoilWait")
+//   "opponent": {"name", "health"}                the enemy captain of a boarding cabin fight
+//                                                 while alive: the fantom the boarding script
+//                                                 gives the captain's attributes and CaptanId
+//                                                 (Loc_ai/LAi_boarding.c LAi_SetBoardingActors),
+//                                                 health = chr_ai.hp / chr_ai.hp_max
 #pragma once
 #ifdef __ANDROID__
 #include "core.h"
@@ -100,6 +105,18 @@ inline std::string landStatusJson(ATTRIBUTES *icons)
         first = false;
     }
     json += "]";
+    for (const auto id : core.GetEntityIds("NPCharacter"))
+    {
+        auto *entity = core.GetEntityPointer(id);
+        ATTRIBUTES *captain = entity ? entity->AttributesPointer : nullptr;
+        if (!captain || !captain->GetAttribute("CaptanId")) continue;
+        const float hp = landNumber(captain, "chr_ai.hp"), max = landNumber(captain, "chr_ai.hp_max");
+        if (hp <= 0.f || max <= 0.f) continue;
+        const std::string name = landText(captain, "name"), last = landText(captain, "lastname");
+        json += ",\"opponent\":{\"name\":" + gameplayJsonString(last.empty() ? name : name + " " + last) +
+                ",\"health\":" + std::to_string(std::clamp(hp / max, 0.f, 1.f)) + "}";
+        break;
+    }
     const auto player = core.GetEntityId("Player");
     if (player != invalid_entity && core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "IsFightMode"))
     {
