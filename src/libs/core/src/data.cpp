@@ -1038,6 +1038,24 @@ bool DATA::Convert(S_TOKEN_TYPE type)
         return false;
     } // yet
     char buffer[128];
+    if (Data_type == VAR_FREF || type == VAR_FREF)
+    {
+        // a function reference is the function's name
+        if (Data_type == type)
+            return true;
+        if (Data_type == VAR_FREF && type == VAR_STRING)
+        {
+            Data_type = VAR_STRING;
+            return true;
+        }
+        if (Data_type == VAR_STRING && type == VAR_FREF)
+        {
+            Data_type = VAR_FREF;
+            return true;
+        }
+        Error(INVALID_CONVERSATION);
+        return false;
+    }
     switch (Data_type)
     {
     case VAR_INTEGER:
@@ -1172,6 +1190,63 @@ bool DATA::Convert(S_TOKEN_TYPE type)
         }
     }
     return false;
+}
+
+void DATA::SetFref(std::string name)
+{
+    if (Data_type == VAR_REFERENCE)
+    {
+        if (pReference)
+        {
+            pReference->SetFref(std::move(name));
+            return;
+        }
+        Error(UNINIT_REF);
+        return;
+    }
+    Data_type = VAR_FREF;
+    sValue = std::move(name);
+}
+
+bool DATA::IsNull()
+{
+    switch (Data_type)
+    {
+    case VAR_REFERENCE:
+        return pReference == nullptr || pReference->IsNull();
+    case VAR_AREFERENCE:
+        return AttributesClass == nullptr;
+    case VAR_FREF:
+        return sValue.empty();
+    default:
+        return false;
+    }
+}
+
+bool DATA::Truth()
+{
+    switch (Data_type)
+    {
+    case VAR_REFERENCE:
+        return pReference != nullptr && pReference->Truth();
+    case VAR_INTEGER:
+        return lValue != 0;
+    case VAR_PTR:
+        return pValue != 0;
+    case VAR_FLOAT:
+        return fValue != 0.0f;
+    case VAR_STRING:
+        // attribute values are strings: "0", "" and "false" are false
+        return !sValue.empty() && sValue != "0" && !storm::iEquals(sValue, "false");
+    case VAR_AREFERENCE:
+        return AttributesClass != nullptr;
+    case VAR_FREF:
+        return !sValue.empty();
+    case VAR_OBJECT:
+        return true;
+    default:
+        return false;
+    }
 }
 
 void DATA::SetArraySize(uint32_t size)
@@ -2091,6 +2166,9 @@ bool DATA::Copy(DATA *pV)
     case VAR_STRING:
         Set(pV->sValue);
         break;
+    case VAR_FREF:
+        SetFref(pV->sValue);
+        break;
     case VAR_OBJECT:
         Set(pV->object_id);
         // Attributes.Copy(&pV->Attributes);
@@ -2479,6 +2557,22 @@ bool DATA::CompareAndSetResult(DATA *pV, S_TOKEN_TYPE op)
         return false;
     }
 
+    if (Data_type == VAR_FREF || pV->GetType() == VAR_FREF)
+    {
+        // function references compare by function name
+        const bool equal = (Data_type == VAR_FREF || Data_type == VAR_STRING) &&
+                           (pV->GetType() == VAR_FREF || pV->GetType() == VAR_STRING) &&
+                           storm::iEquals(sValue, pV->sValue);
+        if (op != OP_BOOL_EQUAL && op != OP_NOT_EQUAL)
+        {
+            Error("function references can only be compared with == and !=");
+            Set(0);
+            return false;
+        }
+        ClearType();
+        Set(static_cast<int32_t>(op == OP_BOOL_EQUAL ? equal : !equal));
+        return true;
+    }
     if (Data_type == VAR_STRING && pV->GetType() == VAR_INTEGER)
     {
         if (!Convert(VAR_INTEGER))

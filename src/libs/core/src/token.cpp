@@ -154,6 +154,20 @@ const char *TokenTypeName[] = { // in S_TOKEN_TYPE order
     "OP_DOLLAR",
     "function reference",
     "SET_ARRAY_SIZE",
+    "OP_CAST",
+    "PUSH_NULL",
+    "OP_IS_NULL",
+    "OP_TYPEID",
+    "PUSH_AP",
+    "ATTR_DEFAULT",
+    "ADVANCE_AP_QUIET",
+    "OP_IN",
+    "OP_SIZEOF_REF",
+    "RESIZE_ARRAY",
+    "CALL_METHOD",
+    "OBJ_NEW",
+    "OBJ_SET",
+    "RANGE_NEXT",
 
 };
 
@@ -372,6 +386,7 @@ void TOKEN::SetProgram(char *pProgramBase, char *pProgramControl)
 void TOKEN::SetProgramControl(char *pProgramControl)
 {
     Program = pProgramControl;
+    ProgramStepsNum = 0; // the cached steps lie elsewhere: StepBack must not use them
 }
 
 char *TOKEN::GetProgramControl()
@@ -1133,6 +1148,7 @@ bool TOKEN::StepBack()
 
 S_TOKEN_TYPE TOKEN::ProcessToken(char *&pointer, bool bKeepData)
 {
+    bTypeCast = false;
     char sym;
     // int32_t keywords_num;
     // int32_t n;
@@ -1211,6 +1227,17 @@ S_TOKEN_TYPE TOKEN::ProcessToken(char *&pointer, bool bKeepData)
         } while (sym != 0);
         SetNTokenData(pBase, Program - pBase);
         break;
+    case OP_QUESTION:
+    case OP_BIT_OR:
+    case OP_OREQ:
+    case OP_ANDEQ:
+    case OP_BIT_NOT:
+    case OP_SHL:
+    case OP_SHR:
+    case OP_ARROW:
+    case OP_COLON_EQUAL:
+    case OP_SIZEOF:
+    case OP_DOLLAR:
     case CALL:
     case IMPORT:
     case EXTERN:
@@ -1280,9 +1307,9 @@ S_TOKEN_TYPE TOKEN::ProcessToken(char *&pointer, bool bKeepData)
             break;
 
         StartArgument(pointer);
-        if (*pointer == '(') // function-style cast, e.g. int(x): no name follows the type
+        if (*pointer == '(') // function-style cast, e.g. int(x): the data stays the type keyword
         {
-            DISCARD_DATABUFFER
+            bTypeCast = true;
             break;
         }
         pointer += SetTokenData(pointer);
