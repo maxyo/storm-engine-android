@@ -27,7 +27,10 @@ set(BGFX_CONFIG_MAX_INDEX_BUFFERS 8192 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_FRAME_BUFFERS 256 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_TRANSIENT_VERTEX_BUFFER_SIZE 33554432 CACHE STRING "" FORCE)
 set(BGFX_CONFIG_MAX_TRANSIENT_INDEX_BUFFER_SIZE 8388608 CACHE STRING "" FORCE)
-if(CMAKE_CROSSCOMPILING)
+# A prebuilt host shaderc (STORM_SHADERC, from host-tools/) is required for cross builds and
+# optional on the host, where CI caches it instead of rebuilding bgfx's tools on every run.
+set(STORM_SHADERC "" CACHE FILEPATH "Host bgfx shaderc built from the pinned sources (host-tools/)")
+if(CMAKE_CROSSCOMPILING OR STORM_SHADERC)
     set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/bgfx_pin.cmake")
@@ -97,8 +100,7 @@ set_target_properties(storm_etcpak PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Host shader compiler. Cross builds must supply one built for the host:
 #   cmake -S src/libs/renderer_bgfx/host-tools -B build/bgfx-host-tools && cmake --build build/bgfx-host-tools
-if(CMAKE_CROSSCOMPILING)
-    set(STORM_SHADERC "" CACHE FILEPATH "Host bgfx shaderc built from the pinned sources")
+if(CMAKE_CROSSCOMPILING OR STORM_SHADERC)
     if(NOT EXISTS "${STORM_SHADERC}")
         message(FATAL_ERROR "Set STORM_SHADERC to a host shaderc built from the pinned bgfx (see src/libs/renderer_bgfx/README.md)")
     endif()
