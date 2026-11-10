@@ -1,0 +1,20 @@
+{
+ "active": true,
+ "generation": 11,
+ "language": "russian",
+ "speaker": "Завсегдатай таверны",
+ "text": "Тогда давай определимся со ставкой (введите ставку).",
+ "money": 12500,
+ "choices": [
+  {
+   "index": 0,
+   "text": "100",
+   "editable": true,
+   "maxCodePoints": 256
+  },
+  {
+   "index": 2,
+   "text": "Пожалуй, мне пора."
+  }
+ ]
+}

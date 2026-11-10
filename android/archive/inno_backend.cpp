@@ -66,6 +66,7 @@ void inno_extract(const std::string &input,Context &ctx) {
  }
  auto slash=input.rfind('/');std::string directory=slash==input.npos?".":input.substr(0,slash);
  std::string basename=input.substr(slash==input.npos?0:slash+1);auto dot=basename.rfind('.');if(dot!=basename.npos)basename.resize(dot);
+ uint64_t input_bytes=0;{struct stat st{};if(stat(input.c_str(),&st)==0)input_bytes=static_cast<uint64_t>(st.st_size);}
  std::unique_ptr<stream::slice_reader> slices;
  if(offsets.data_offset)slices.reset(new stream::slice_reader(&is,offsets.data_offset));
  else {
@@ -82,9 +83,11 @@ void inno_extract(const std::string &input,Context &ctx) {
    Fd fd(open(path.c_str(),O_RDONLY|O_NOFOLLOW|O_CLOEXEC));struct stat st{};
    if(fd.value<0)throw Failure(STORM_ARCHIVE_MISSING_VOLUME,"Missing installer volume: "+path);
    if(fstat(fd.value,&st)<0||!S_ISREG(st.st_mode))throw Failure(STORM_ARCHIVE_INVALID,"Installer volume is not a regular file");
+   input_bytes+=static_cast<uint64_t>(st.st_size);
   }
   slices.reset(new stream::slice_reader(directory,basename,"",info.header.slices_per_disk));
  }
+ ctx.begin_container(input_bytes);
  char buffer[65536];
  for(const auto &item:chunks) {
   ctx.check();auto chunk=stream::chunk_reader::get(*slices,item.first,"");uint64_t offset=0;
@@ -118,6 +121,38 @@ void inno_extract(const std::string &input,Context &ctx) {
   }
  }
 }
+static std::vector<std::string> volume_names(const std::string &input,const std::set<uint32_t> &slices,int per_disk) {
+ auto slash=input.rfind('/');auto base=input.substr(slash==input.npos?0:slash+1);auto dot=base.rfind('.');if(dot!=base.npos)base.resize(dot);
+ std::vector<std::string> names;
+ for(auto index:slices)names.push_back(stream::slice_reader::slice_filename(base,index,per_disk));
+ return names;
+}
+Manifest inno_listing(const std::string &input) {
+ std::lock_guard<std::mutex> lock(inno_mutex);
+ metadata_bytes=0;
+ Manifest result;result.format="inno";
+ std::ifstream is(input,std::ios::binary);is.exceptions(std::ios::badbit|std::ios::failbit);
+ loader::offsets offsets;offsets.load(is);is.seekg(offsets.header_offset);
+ setup::info info;info.load(is,setup::info::Files|setup::info::DataEntries|setup::info::NoUnknownVersion,0);
+ if(!info.version.is_unicode())throw Failure(STORM_ARCHIVE_UNSUPPORTED,"ANSI Inno installers are not supported");
+ if(info.header.slices_per_disk<1||info.header.slices_per_disk>26)throw Failure(STORM_ARCHIVE_INVALID,"Invalid Inno volume count");
+ for(const auto &d:info.data_entries)
+  if(d.chunk.encryption!=stream::Plaintext)throw Failure(STORM_ARCHIVE_ENCRYPTED,"Encrypted Inno installers are not supported");
+ result.title=info.header.app_name;result.version=info.header.app_version;
+ std::set<uint32_t> slices;
+ for(const auto &file:info.files) {
+  // Mirrors inno_extract: literal {app} user files only; constants are never evaluated.
+  std::string raw=file.destination;std::replace(raw.begin(),raw.end(),'\\','/');
+  if(raw.rfind("{app}/",0)!=0||file.type!=setup::file_entry::UserFile)continue;
+  if(file.location>=info.data_entries.size()||!file.additional_locations.empty())throw Failure(STORM_ARCHIVE_UNSUPPORTED,"Unsupported external or multipart Inno file");
+  const auto &data=info.data_entries[file.location];
+  result.files.emplace_back(raw.substr(6),data.uncompressed_size);result.unpacked_bytes+=data.uncompressed_size;
+  if(data.chunk.last_slice<data.chunk.first_slice||data.chunk.last_slice>4096)throw Failure(STORM_ARCHIVE_LIMIT,"Invalid Inno slice range");
+  if(!offsets.data_offset)for(uint32_t i=data.chunk.first_slice;i<=data.chunk.last_slice;++i)slices.insert(i);
+ }
+ result.volumes=volume_names(input,slices,info.header.slices_per_disk);
+ return result;
+}
 Manifest inno_manifest(const std::string &input) {
  std::lock_guard<std::mutex> lock(inno_mutex);
  metadata_bytes=0;
@@ -148,8 +183,7 @@ Manifest inno_manifest(const std::string &input) {
   if(chunk.last_slice<chunk.first_slice||chunk.last_slice>4096)throw Failure(STORM_ARCHIVE_LIMIT,"Invalid Inno slice range");
   if(!offsets.data_offset)for(uint32_t i=chunk.first_slice;i<=chunk.last_slice;++i)slices.insert(i);
  }
- auto slash=input.rfind('/');auto base=input.substr(slash==input.npos?0:slash+1);auto dot=base.rfind('.');if(dot!=base.npos)base.resize(dot);
- for(auto index:slices)result.volumes.push_back(stream::slice_reader::slice_filename(base,index,info.header.slices_per_disk));
+ result.volumes=volume_names(input,slices,info.header.slices_per_disk);
  return result;
 }
 

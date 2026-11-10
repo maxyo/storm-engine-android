@@ -4,7 +4,7 @@
 #include <cstring>
 #include <sstream>
 namespace storm_archive {
-static std::string quote(const std::string &s) {
+std::string json_quote(const std::string &s) {
  std::string out="\"";
  for(unsigned char c:s) {
   if(c=='"'||c=='\\'){out+='\\';out+=c;}
@@ -21,14 +21,14 @@ void Manifest::add(const std::string &path,uint64_t size) {
  unpacked_bytes+=size;files.emplace_back(path,size);
 }
 std::string Manifest::json() const {
- std::ostringstream out;out.exceptions(std::ios::badbit|std::ios::failbit);out<<"{\"format\":"<<quote(format)<<",\"installer_version\":"<<quote(version)
+ std::ostringstream out;out.exceptions(std::ios::badbit|std::ios::failbit);out<<"{\"format\":"<<json_quote(format)<<",\"installer_version\":"<<json_quote(version)
   <<",\"metadata_only\":true,\"compatible_structure\":"<<(has_resources&&has_program&&has_engine_ini?"true":"false")
   <<",\"has_resource\":"<<(has_resources?"true":"false")<<",\"has_program\":"<<(has_program?"true":"false")
   <<",\"has_engine_ini\":"<<(has_engine_ini?"true":"false")<<",\"unpacked_bytes\":"<<unpacked_bytes
   <<",\"file_count\":"<<files.size()<<",\"required_volumes\":[";
- for(size_t i=0;i<volumes.size();++i){if(i)out<<',';out<<quote(volumes[i]);}
+ for(size_t i=0;i<volumes.size();++i){if(i)out<<',';out<<json_quote(volumes[i]);}
  out<<"],\"files\":[";
- for(size_t i=0;i<files.size();++i){if(i)out<<',';out<<"{\"path\":"<<quote(files[i].first)<<",\"size\":"<<files[i].second<<'}';}
+ for(size_t i=0;i<files.size();++i){if(i)out<<',';out<<"{\"path\":"<<json_quote(files[i].first)<<",\"size\":"<<files[i].second<<'}';}
  out<<"]}";return out.str();
 }
 }
