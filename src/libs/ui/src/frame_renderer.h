@@ -8,7 +8,9 @@
 //     the backend an offscreen layer, a filter pass and a composite every frame. Here the
 //     layer's commands are buffered; when they are the same as in an earlier frame (same
 //     meshes, textures, positions, scissor, transform and filters), the filtered result is
-//     drawn from a texture made the first time, as one textured quad. Anything else (a
+//     drawn from a texture saved the second time it was seen (content seen once, such as
+//     an animation, is composited as it came), as one textured quad. Positions count relative
+//     to the composite region, so content that only moved (a scrolled list) stays cached. Anything else (a
 //     mask image, a saved texture, another blend mode) is passed through as it
 //     came; layers inside the layer are part of its content. Clip masks inside the layer are replayed on a hit (the stencil is shared by
 //     every layer) and, with the stencil the layer is drawn against, part of the key.
@@ -109,6 +111,7 @@ class FrameRenderer final : public Rml::RenderInterface
         Rml::TextureHandle texture = 0;
         Rml::CompiledGeometryHandle quad = 0;
         uint64_t used = 0; // frame number
+        int origin_x = 0, origin_y = 0; // where the region was when the result was saved
     };
 
     void Fold(uint64_t value);
@@ -167,6 +170,7 @@ class FrameRenderer final : public Rml::RenderInterface
     int depth_ = 0; // layers pushed through to the backend while not buffering
 
     std::unordered_map<uint64_t, std::vector<Entry>> cache_; // key hash → entries
+    std::unordered_map<uint64_t, uint64_t> candidates_;       // key hash → the last frame it was composited uncached
     std::vector<Rml::CompiledGeometryHandle> deferred_geometry_; // released after the frame (a buffered layer may still need them)
     std::vector<Rml::TextureHandle> deferred_textures_;
     std::vector<Rml::CompiledFilterHandle> deferred_filters_;

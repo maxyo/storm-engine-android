@@ -107,12 +107,12 @@ Rml::CompiledGeometryHandle Mesh(FrameRenderer &renderer, float x)
 // What RmlUi does for an element with `filter:` (ElementEffects): a layer at Enter, the
 // element's draws, the filter region as scissor at Exit, the composite, the pop.
 void FilteredElement(FrameRenderer &renderer, Rml::CompiledGeometryHandle geometry, Rml::CompiledFilterHandle filter, Rml::Rectanglei region,
-                     bool nested = false, Rml::CompiledGeometryHandle mask = 0)
+                     bool nested = false, Rml::CompiledGeometryHandle mask = 0, float scrolled = 0)
 {
     const Rml::LayerHandle layer = renderer.PushLayer();
     if (mask)
         renderer.RenderToClipMask(Rml::ClipMaskOperation::Set, mask, {0, 0});
-    renderer.RenderGeometry(geometry, {5, 5}, 0);
+    renderer.RenderGeometry(geometry, {5, 5 - scrolled}, 0);
     if (nested)
     {
         const Rml::LayerHandle inner = renderer.PushLayer();
@@ -147,9 +147,13 @@ void FilterCache()
     };
 
     frame([&] { FilteredElement(renderer, geometry, filter, region); });
-    Expect(backend.Count("push") == 2 && backend.Count("save") == 1, "a new filtered layer: drawn, filtered into a second layer, saved");
-    Expect(stats.cached_layers == 0, "the first frame has nothing cached");
+    Expect(backend.Count("push") == 1 && backend.Count("composite") == 1 && backend.Count("save") == 0,
+           "content seen once is composited as it came: no extra layer or texture");
     const uint64_t first = renderer.FrameHash();
+
+    frame([&] { FilteredElement(renderer, geometry, filter, region); });
+    Expect(backend.Count("push") == 2 && backend.Count("save") == 1, "seen unchanged again: filtered into a second layer and saved");
+    Expect(stats.cached_layers == 0, "nothing was cached before");
 
     frame([&] { FilteredElement(renderer, geometry, filter, region); });
     Expect(backend.Count("push") == 0 && backend.Count("composite") == 0 && backend.Count("save") == 0,
@@ -158,18 +162,28 @@ void FilterCache()
     Expect(stats.cached_layers == 1 && stats.layers == 1, "counted as a cached layer");
     Expect(renderer.FrameHash() == first, "the same frame hashes the same, cached or not");
 
+    // Scrolled: the content and its region moved together by 7 px.
+    const Rml::Rectanglei moved = Rml::Rectanglei::FromPositionSize({0, -7}, {40, 40});
+    frame([&] { FilteredElement(renderer, geometry, filter, moved, false, 0, 7); });
+    Expect(backend.Count("push") == 0 && backend.Count("draw") == 1, "content that only moved (a scrolled list) stays cached");
+    Expect(renderer.FrameHash() != first, "but the frame is another one");
+
     frame([&] { FilteredElement(renderer, other, filter, region); });
-    Expect(backend.Count("push") == 2 && backend.Count("save") == 1, "changed content is drawn and saved again");
+    Expect(backend.Count("push") == 1 && backend.Count("save") == 0, "changed content is composited as it came");
     Expect(backend.Count("release-texture") == 1, "the result no frame used any more is released");
-    Expect(renderer.FrameHash() != first, "other content hashes differently");
+
+    for (int i = 0; i < 3; ++i) // an animation: other content every frame is never saved
+        frame([&] { FilteredElement(renderer, geometry, filter, Rml::Rectanglei::FromPositionSize({i * 3, 0}, {40 + i, 40})); });
+    Expect(backend.Count("save") == 0, "content that changes every frame is never saved");
 
     frame([&] { FilteredElement(renderer, other, filter, region, true); });
-    Expect(backend.Count("push") == 3, "a layer inside the filtered one is part of its content (drawn on a miss)");
+    frame([&] { FilteredElement(renderer, other, filter, region, true); });
+    Expect(backend.Count("push") == 3, "a layer inside the filtered one is part of its content (drawn when saved)");
     frame([&] { FilteredElement(renderer, other, filter, region, true); });
     Expect(backend.Count("push") == 0 && backend.Count("draw") == 1, "and cached with it");
 
-    frame([&] { FilteredElement(renderer, geometry, filter, region, false, mask); });
-    frame([&] { FilteredElement(renderer, geometry, filter, region, false, mask); });
+    for (int i = 0; i < 3; ++i)
+        frame([&] { FilteredElement(renderer, geometry, filter, region, false, mask); });
     Expect(backend.Count("push") == 0 && backend.Count("mask") == 1, "a cached layer still sets the clip mask it sets (the stencil is shared)");
 
     frame([&] { FilteredElement(renderer, geometry, filter, Rml::Rectanglei::FromPositionSize({0, 0}, {40, 0})); });
@@ -229,6 +243,36 @@ void TapLatency(const std::string &pack)
     Expect(!runtime.host->Prepare(delay), "the screen is complete in that one frame");
 }
 
+// A fling: after the finger lifts, the list keeps moving (RmlUi's inertia) and every frame of
+// that motion is drawn, until it stops; then the runtime is idle again.
+void ScrollFling(const std::string &pack)
+{
+    Runtime runtime(pack);
+    Expect(runtime.host->LoadDocument("scroll.rml"), "the scroll test document loads");
+    for (int i = 0; i < 3; ++i)
+        runtime.Frame();
+    double delay = 0.0;
+    Expect(!runtime.host->Prepare(delay), "a still list needs no frame");
+    runtime.host->Touch(TouchPhase::Down, 1, 150, 280);
+    runtime.Frame();
+    for (int y = 260; y >= 60; y -= 40) // a quick upward swipe, one move per frame
+    {
+        runtime.host->Touch(TouchPhase::Move, 1, 150, static_cast<float>(y));
+        runtime.Frame();
+    }
+    runtime.host->Touch(TouchPhase::Up, 1, 150, 60);
+    int moving = 0;
+    for (int i = 0; i < 600 && runtime.host->Prepare(delay); ++i)
+    {
+        Expect(delay <= 0.0, "while the list moves the next frame is wanted at once");
+        runtime.Frame();
+        ++moving;
+    }
+    Expect(moving >= 5, "the motion after the finger lifts is drawn frame by frame (" + std::to_string(moving) + " frames)");
+    Expect(moving < 600, "and it settles");
+    Expect(!runtime.host->Prepare(delay), "then the list is idle");
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -242,6 +286,7 @@ int main(int argc, char **argv)
     FilterCache();
     SteadyRuntime(argv[2]);
     TapLatency(argv[2]);
+    ScrollFling(argv[2]);
     if (failures)
         std::fprintf(stderr, "%d frame cost check(s) failed\n", failures);
     else
