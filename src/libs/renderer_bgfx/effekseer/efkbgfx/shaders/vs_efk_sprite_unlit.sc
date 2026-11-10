@@ -26,7 +26,7 @@ struct VS_Output
 
 VS_Output _main(VS_Input Input)
 {
-    VS_Output Output = (VS_Output)0;
+    VS_Output Output;
     vec4 worldPos = vec4(Input.Pos.x, Input.Pos.y, Input.Pos.z, 1.0);
     Output.PosVS = mul(u_mCameraProj, worldPos);
     Output.Color = Input.Color;

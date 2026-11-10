@@ -4,9 +4,9 @@ $output v_Color v_UV v_PosP
 #include <bgfx_shader.sh>
 #include "defines.sh"
 uniform mat4 u_mCameraProj;
-uniform mat4 u_mModel_Inst[40];
-uniform vec4 u_fUV[40];
-uniform vec4 u_fModelColor[40];
+uniform mat4 u_mModel_Inst[10];
+uniform vec4 u_fUV[10];
+uniform vec4 u_fModelColor[10];
 uniform vec4 u_fLightDirection;
 uniform vec4 u_fLightColor;
 uniform vec4 u_fLightAmbient;
@@ -38,7 +38,7 @@ VS_Output _main(VS_Input Input)
     mat4 mModel = u_mModel_Inst[index];
     vec4 uv = u_fUV[index];
     vec4 modelColor = u_fModelColor[index] * Input.Color;
-    VS_Output Output = (VS_Output)0;
+    VS_Output Output;
     vec4 localPos = vec4(Input.Pos.x, Input.Pos.y, Input.Pos.z, 1.0);
     vec4 worldPos = mul(mModel, localPos);
     Output.PosVS = mul(u_mCameraProj, worldPos);

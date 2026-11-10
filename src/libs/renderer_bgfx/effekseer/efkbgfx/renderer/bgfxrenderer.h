@@ -15,34 +15,22 @@
 #	define EFXBGFX_API
 #endif //_MSC_VER
 
-#define TEXTURE_BACKGROUND 0
-#define TEXTURE_DEPTH 1
-
 namespace EffekseerRendererBGFX {
-	struct DepthReconstructionParameter	{
-		float DepthBufferScale;
-		float DepthBufferOffset;
-		float ProjectionMatrix33;
-		float ProjectionMatrix34;
-		float ProjectionMatrix43;
-		float ProjectionMatrix44;
-	};
-
 	struct InitArgs {
 		int squareMaxCount;
-		bgfx_view_id_t viewid;
 		bgfx_interface_vtbl_t *bgfx;
-		bgfx_shader_handle_t (*shader_load)(const char *mat, const char *name, const char *type, void *ud);
-		bgfx_texture_handle_t (*texture_get)(int texture_type, void *parm, void *ud);	// background or depth (with param)
-		int (*texture_load)(const char *name, int srgb, void *ud);
-		void (*texture_unload)(int id, void *ud);
-		bgfx_texture_handle_t (*texture_handle)(int id, void *ud);	// translate id to handle
-		void * ud;
-		bool invz;
+		// Render targets with a bottom-left origin are drawn upside down (the projection flips Y),
+		// which mirrors the triangle winding: culling swaps CW/CCW.
+		bool mirror_winding;
+		void (*log)(const char *message);	// errors (missing shaders, unsupported texture formats)
 	};
 
+	// Shaders and textures come from the storm build: embedded shader blobs (shaders.h) and
+	// Effekseer's own texture loader (CreateTextureLoader). Materials (.efkmat) are not supported.
 	EFXBGFX_API EffekseerRenderer::RendererRef CreateRenderer(struct InitArgs *init);
 	EFXBGFX_API Effekseer::ModelRendererRef CreateModelRenderer(EffekseerRenderer::RendererRef renderer, struct InitArgs *init);
+	// The bgfx view the next BeginRendering() .. EndRendering() submits to.
+	EFXBGFX_API void SetViewId(const EffekseerRenderer::RendererRef &renderer, bgfx_view_id_t viewid);
 }
 
 #endif

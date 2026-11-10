@@ -10,19 +10,24 @@
 #include <EffekseerRendererCommon/EffekseerRenderer.TrackRendererBase.h>
 #include <EffekseerRendererCommon/EffekseerRenderer.ModelRendererBase.h>
 #include <EffekseerRendererCommon/ModelLoader.h>
+#include <EffekseerRendererCommon/TextureLoader.h>
 #include "bgfxrenderer.h"
+#include "shaders.h"
+
+#include <bimg/bimg.h>
+#include <vector>
 
 #define BGFX(api) m_bgfx->api
 
 #define MAX_PATH 2048
-#define MaxInstanced 20
+// Effekseer's GL renderer uses 10 on GLES; the shader uniform arrays are sized to match.
+#define MaxInstanced 10
 
 #define LAYOUT_LIGHTING 0
 #define LAYOUT_SIMPLE 1
 #define LAYOUT_ADVLIGHTING 2
 #define LAYOUT_ADVSIMPLE 3
-#define LAYOUT_MATERIAL 4
-#define LAYOUT_COUNT 5
+#define LAYOUT_COUNT 4
 
 namespace EffekseerRendererBGFX {
 
@@ -56,19 +61,9 @@ class Texture : public Effekseer::Backend::Texture {
 private:
 	const RendererImplemented *m_render;
 	bgfx_texture_handle_t m_handle;
-	int m_id;
 public:
-	Texture(const RendererImplemented *render, bgfx_texture_handle_t handle) : m_render(render), m_handle(handle), m_id(-1) {}
-	Texture(const RendererImplemented *render, int id) : m_render(render), m_id(id) { m_handle.idx = UINT16_MAX; }
+	Texture(const RendererImplemented *render, bgfx_texture_handle_t handle) : m_render(render), m_handle(handle) {}
 	~Texture() override;
-	int GetId() const {
-		return m_id;
-	}
-	int RemoveId() {
-		int ret = m_id;
-		m_id = -1;
-		return ret;
-	}
 	bgfx_texture_handle_t GetInterface() const {
 		return m_handle;
 	}
@@ -76,9 +71,6 @@ public:
 		bgfx_texture_handle_t ret = m_handle;
 		m_handle.idx = UINT16_MAX;
 		return ret;
-	}
-	void ReplaceInterface(bgfx_texture_handle_t handle) {
-		m_handle = handle;
 	}
 };
 
@@ -109,43 +101,11 @@ public:
 class RenderState : public EffekseerRenderer::RenderStateBase {
 private:
 	RendererImplemented* m_renderer;
-	bool m_invz;
+	bool m_mirror;
 public:
-	RenderState(RendererImplemented* renderer, bool invz) : m_renderer(renderer), m_invz(invz) {}
+	RenderState(RendererImplemented* renderer, bool mirror) : m_renderer(renderer), m_mirror(mirror) {}
 	virtual ~RenderState() override = default;
 	void Update(bool forced);
-};
-
-class TextureLoader : public Effekseer::TextureLoader {
-private:
-	const RendererImplemented *m_render;
-	void *m_ud;
-	int (*m_loader)(const char *name, int srgb, void *ud);
-	void (*m_unloader)(int id, void *ud);
-public:
-	TextureLoader(const RendererImplemented *render, InitArgs *init) : m_render(render) {
-		m_ud = init->ud;
-		m_loader = init->texture_load;
-		m_unloader = init->texture_unload;
-	}
-	virtual ~TextureLoader() = default;
-	Effekseer::TextureRef Load(const char16_t* path, Effekseer::TextureType textureType) override {
-		char buffer[MAX_PATH];
-		Effekseer::ConvertUtf16ToUtf8(buffer, MAX_PATH, path);
-		// always create gamma space texture, Effekseer will convert color in shader with MiscFlag set to convert
-		const int srgb = 0; //textureType == Effekseer::TextureType::Color;
-		int id = m_loader(buffer, srgb, m_ud);
-		if (id < 0)
-			return nullptr;
-
-		auto texture = Effekseer::MakeRefPtr<Effekseer::Texture>();
-		texture->SetBackend(Effekseer::MakeRefPtr<Texture>(m_render, id));
-		return texture;
-	}
-	void Unload(Effekseer::TextureRef texture) override {
-		int id = texture->GetBackend().DownCast<Texture>()->RemoveId();
-		m_unloader(id, m_ud);
-	}
 };
 
 class Renderer : public EffekseerRenderer::Renderer {
@@ -217,184 +177,6 @@ private:
 		}
 		bool isValid() const {
 			return m_render != nullptr;
-		}
-	};
-	class MaterialLoader : public Effekseer::MaterialLoader {
-	private:
-		RendererImplemented *m_render;
-		Effekseer::FileInterfaceRef m_file;
-		
-		void SetUniforms(Shader *shader, Effekseer::MaterialFile &materialFile, bool isModel, int st, int instancing) {
-			auto generator = EffekseerRenderer::MaterialShaderParameterGenerator(materialFile, isModel, st, instancing);
-			shader->SetVertexConstantBufferSize(generator.VertexShaderUniformBufferSize);
-			shader->SetPixelConstantBufferSize(generator.PixelShaderUniformBufferSize);
-#define UNIFORM(uname, offset) m_render->AddUniform(shader, uname, Shader::UniformType::Vertex, offset);
-				UNIFORM("uMatCamera", generator.VertexCameraMatrixOffset)
-				UNIFORM("uMatProjection", generator.VertexProjectionMatrixOffset)
-				UNIFORM("mUVInversed", generator.VertexInversedFlagOffset)
-				UNIFORM("predefined_uniform", generator.VertexPredefinedOffset)
-				UNIFORM("cameraPosition", generator.VertexCameraPositionOffset)
-				UNIFORM("customData1", generator.VertexModelCustomData1Offset)
-				UNIFORM("customData2", generator.VertexModelCustomData2Offset)
-#undef UNIFORM
-			for (int32_t ui = 0; ui < materialFile.GetUniformCount(); ui++)	{
-				m_render->AddUniform(shader, materialFile.GetUniformName(ui), Shader::UniformType::Vertex, generator.VertexUserUniformOffset + sizeof(float) * 4 * ui);
-			}
-#define UNIFORM(uname, offset) m_render->AddUniform(shader, uname, Shader::UniformType::Pixel, offset);
-				UNIFORM("mUVInversedBack", generator.PixelInversedFlagOffset)
-				UNIFORM("predefined_uniform", generator.PixelPredefinedOffset)
-				UNIFORM("cameraPosition", generator.PixelCameraPositionOffset)
-				UNIFORM("reconstructionParam1", generator.PixelReconstructionParam1Offset)
-				UNIFORM("reconstructionParam2", generator.PixelReconstructionParam2Offset)
-				// shiding model
-				if (materialFile.GetShadingModel() == Effekseer::ShadingModelType::Lit) {
-					UNIFORM("lightDirection", generator.PixelLightDirectionOffset)
-					UNIFORM("lightColor", generator.PixelLightColorOffset)
-					UNIFORM("lightAmbientColor", generator.PixelLightAmbientColorOffset)
-				}
-				if (materialFile.GetHasRefraction() && st == 1)
-					UNIFORM("cameraMat", generator.PixelCameraMatrixOffset)
-#undef UNIFORM
-			for (int32_t ui = 0; ui < materialFile.GetUniformCount(); ui++)	{
-				m_render->AddUniform(shader, materialFile.GetUniformName(ui), Shader::UniformType::Vertex, generator.PixelUserUniformOffset + sizeof(float) * 4 * ui);
-			}
-
-			int maxid = 0;
-			for (int32_t ti = 0; ti < materialFile.GetTextureCount(); ti++)	{
-				int id = materialFile.GetTextureIndex(ti);
-				m_render->AddUniform(shader, materialFile.GetTextureName(ti), Shader::UniformType::Texture, id);
-				if (id > maxid)
-					maxid = id;
-			}
-			m_render->AddUniform(shader, "efk_background", Shader::UniformType::Texture, maxid+1);
-			m_render->AddUniform(shader, "efk_depth", Shader::UniformType::Texture, maxid+2);
-		}
-	public:
-		MaterialLoader(RendererImplemented *render, Effekseer::FileInterfaceRef f)
-			: m_render(render)
-			, m_file(f) {
-			if (f == nullptr) {
-				m_file = Effekseer::MakeRefPtr<Effekseer::DefaultFileInterface>();
-			}
-		}
-		virtual ~MaterialLoader() override = default;
-		
-		Effekseer::MaterialRef Load(const char16_t* path) override {
-			// todo: load mat callback
-			auto reader = m_file->OpenRead(path);
-			if (reader == nullptr)
-				return nullptr;
-
-			size_t size = reader->GetLength();
-			std::vector<char> data;
-			data.resize(size);
-			reader->Read(data.data(), size);
-
-			char matpath[MAX_PATH];
-			Effekseer::ConvertUtf16ToUtf8(matpath, MAX_PATH, path);
-
-			Effekseer::MaterialFile materialFile;
-			if (!materialFile.Load((const uint8_t*)data.data(), (uint32_t)size))	{
-				// Invalid material
-				return nullptr;
-			}
-			auto material = Effekseer::MakeRefPtr<::Effekseer::Material>();
-			material->IsSimpleVertex = materialFile.GetIsSimpleVertex();
-			material->IsRefractionRequired = materialFile.GetHasRefraction();
-
-			std::array<Effekseer::MaterialShaderType, 2> shaderTypes;
-			std::array<Effekseer::MaterialShaderType, 2> shaderTypesModel;
-
-			shaderTypes[0] = Effekseer::MaterialShaderType::Standard;
-			shaderTypes[1] = Effekseer::MaterialShaderType::Refraction;
-			shaderTypesModel[0] = Effekseer::MaterialShaderType::Model;
-			shaderTypesModel[1] = Effekseer::MaterialShaderType::RefractionModel;
-			int32_t shaderTypeCount = 1;
-
-			if (materialFile.GetHasRefraction())
-				shaderTypeCount = 2;
-
-			const char *shadername[2] = {
-				"sprite",
-				"sprite_refraction",
-			};
-
-			// Create sprite shader
-			for (int32_t st = 0; st < shaderTypeCount; st++) {
-				bgfx_vertex_layout_handle_t layout;
-				if (material->IsSimpleVertex) {
-					layout = m_render->CreateMaterialSimple();
-				} else {
-					layout = m_render->CreateMaterialComplex(materialFile.GetCustomData1Count(), materialFile.GetCustomData2Count());
-				}
-
-				Shader *shader = new Shader(m_render);
-				m_render->InitShader(shader,
-					m_render->LoadShader(matpath, shadername[st], "vs"),
-					m_render->LoadShader(matpath, shadername[st], "fs"));
-				if (!shader->isValid())
-					return nullptr;
-				SetUniforms(shader, materialFile, false, st, 1);
-
-				material->TextureCount = std::min(materialFile.GetTextureCount(), Effekseer::UserTextureSlotMax);
-				material->UniformCount = materialFile.GetUniformCount();
-
-				if (st == 0) {
-					material->UserPtr = shader;
-				} else {
-					material->RefractionUserPtr = shader;
-				}
-			}
-			const char *shadername_model[2] = {
-				"model",
-				"model_refraction",
-			};
-
-			// Create model shader
-			for (int32_t st = 0; st < shaderTypeCount; st++) {
-				bgfx_vertex_layout_handle_t layout = m_render->CreateMaterialModel();
-				Shader *shader =  new Shader(m_render);
-				m_render->InitShader(shader,
-					m_render->LoadShader(matpath, shadername_model[st], "vs"),
-					m_render->LoadShader(matpath, shadername_model[st], "fs"));
-				if (!shader->isValid())
-					return nullptr;
-				SetUniforms(shader, materialFile, true, st, MaxInstanced);
-				if (st == 0) {
-					material->ModelUserPtr = shader;
-				} else {
-					material->RefractionModelUserPtr = shader;
-				}
-			}
-
-			material->CustomData1 = materialFile.GetCustomData1Count();
-			material->CustomData2 = materialFile.GetCustomData2Count();
-			material->TextureCount = std::min(materialFile.GetTextureCount(), Effekseer::UserTextureSlotMax);
-			material->UniformCount = materialFile.GetUniformCount();
-			material->ShadingModel = materialFile.GetShadingModel();
-
-			for (int32_t i = 0; i < material->TextureCount; i++) {
-				material->TextureWrapTypes.at(i) = materialFile.GetTextureWrap(i);
-			}
-			return material;
-		}
-		void Unload(Effekseer::MaterialRef data) override {
-			if (data == nullptr)
-				return;
-			auto shader = reinterpret_cast<Shader*>(data->UserPtr);
-			auto modelShader = reinterpret_cast<Shader*>(data->ModelUserPtr);
-			auto refractionShader = reinterpret_cast<Shader*>(data->RefractionUserPtr);
-			auto refractionModelShader = reinterpret_cast<Shader*>(data->RefractionModelUserPtr);
-
-			ES_SAFE_DELETE(shader);
-			ES_SAFE_DELETE(modelShader);
-			ES_SAFE_DELETE(refractionShader);
-			ES_SAFE_DELETE(refractionModelShader);
-
-			data->UserPtr = nullptr;
-			data->ModelUserPtr = nullptr;
-			data->RefractionUserPtr = nullptr;
-			data->RefractionModelUserPtr = nullptr;
 		}
 	};
 	class StaticIndexBuffer : public Effekseer::Backend::IndexBuffer {
@@ -544,9 +326,7 @@ public:
 					assert(false);
 					break;
 				}
-				if (!m_render->InitShader(s,
-					m_render->LoadShader(NULL, shadername, "vs"),
-					m_render->LoadShader(NULL, shadername, "fs"))){
+				if (!m_render->InitShader(s, shadername)){
 					return false;
 				}
 			}
@@ -635,11 +415,10 @@ private:
 	EffekseerRenderer::DistortingCallback* m_distortingCallback = nullptr;
 	StaticIndexBuffer* m_indexBuffer = nullptr;
 	Shader* m_currentShader = nullptr;
-	Effekseer::Backend::TextureRef m_background = nullptr;
-	Effekseer::Backend::TextureRef m_depth = nullptr;
 	int32_t m_squareMaxCount = 0;
 	int32_t m_indexBufferStride = 2;
 	bgfx_view_id_t m_viewid = 0;
+	Effekseer::Backend::TextureRef m_noTexture = nullptr;
 	bgfx_vertex_layout_t m_modellayout;
 
 	struct VertexLayoutInfo {
@@ -654,13 +433,6 @@ private:
 	InitArgs m_initArgs;
 	bgfx_encoder_t *m_encoder = nullptr;
 
-	const Effekseer::Backend::TextureRef & GetExternalTexture(Effekseer::Backend::TextureRef &t, int type, void *param) const {
-		if (t == nullptr)
-			return t;
-		bgfx_texture_handle_t h = m_initArgs.texture_get(type, param, m_initArgs.ud);
-		t.DownCast<Texture>()->ReplaceInterface(h);
-		return t;
-	}
 	//! because gleDrawElements has only index offset
 	int32_t GetIndexSpriteCount() const {
 		int vsSize = EffekseerRenderer::GetMaximumVertexSizeInAllTypes() * m_squareMaxCount * 4;
@@ -783,6 +555,7 @@ private:
 			BGFX(vertex_layout_add)(layout, BGFX_ATTRIB_BITANGENT, 3, BGFX_ATTRIB_TYPE_FLOAT, false, false);
 			BGFX(vertex_layout_add)(layout, BGFX_ATTRIB_TANGENT, 3, BGFX_ATTRIB_TYPE_FLOAT, false, false);
 			BGFX(vertex_layout_add)(layout, BGFX_ATTRIB_TEXCOORD0, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+			BGFX(vertex_layout_add)(layout, BGFX_ATTRIB_TEXCOORD1, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);	// Model::Vertex::UV2 (1.80)
 			BGFX(vertex_layout_add)(layout, BGFX_ATTRIB_COLOR0, 4, BGFX_ATTRIB_TYPE_UINT8, true, false);
 		BGFX(vertex_layout_end)(layout);
 		
@@ -791,7 +564,6 @@ private:
 		GenVertexLayout(&m_layouts[LAYOUT_ADVLIGHTING].layout, 	EffekseerRenderer::RendererShaderType::AdvancedLit);
 		GenVertexLayout(&m_layouts[LAYOUT_ADVSIMPLE].layout, 	EffekseerRenderer::RendererShaderType::AdvancedUnlit);
 
-// todo : materials
 	}
 	void SetPixelConstantBuffer(Shader *shaders[]) const {
 		for (auto t: {
@@ -916,9 +688,7 @@ private:
 				assert(false);
 				break;
 			}
-			if (!InitShader(s,
-				LoadShader(NULL, shadername, "vs"),
-				LoadShader(NULL, shadername, "fs"))){
+			if (!InitShader(s, shadername)){
 				return false;
 			}
 			s->SetVertexConstantBufferSize(sizeof(EffekseerRenderer::StandardRendererVertexBuffer));
@@ -941,13 +711,6 @@ private:
 		GetImpl()->ShaderAdDistortion = std::unique_ptr<EffekseerRenderer::ShaderBase>(shaders[(int)EffekseerRenderer::RendererShaderType::AdvancedBackDistortion]);
 		return true;
 	}
-	void InitTextures(struct InitArgs *init) {
-		if (init->texture_get == nullptr)
-			return;
-		bgfx_texture_handle_t invalid = BGFX_INVALID_HANDLE;
-		m_background = Effekseer::MakeRefPtr<Texture>(this, invalid);
-		m_depth = Effekseer::MakeRefPtr<Texture>(this, invalid);
-	}
 public:
 	RendererImplemented() {
 		m_device = Effekseer::MakeRefPtr<GraphicsDevice>(this);
@@ -969,19 +732,19 @@ public:
 		if (!InitShaders(init)) {
 			return false;
 		}
-		InitTextures(init);
 		InitVertexLayout();
-		m_viewid = init->viewid;
 		m_squareMaxCount = init->squareMaxCount;
 		if (GetIndexSpriteCount() * 4 > 65536) {
 			m_indexBufferStride = 4;
 		}
 		InitIndexBuffer();
-		m_renderState = new RenderState(this, init->invz);
+		m_renderState = new RenderState(this, init->mirror_winding);
 		
 		m_standardRenderer = new BGFXStandardRenderer(this);
 
-		GetImpl()->isSoftParticleEnabled = true;
+		// No scene depth copy is provided: soft particles are drawn hard, and distortion nodes
+		// (which need the background) are skipped by StandardRenderer (GetBackground() is null).
+		GetImpl()->isSoftParticleEnabled = false;
 		GetImpl()->CreateProxyTextures(this);
 		return true;
 	}
@@ -1041,15 +804,14 @@ public:
 	Effekseer::TrackRendererRef CreateTrackRenderer() override {
 		return Effekseer::TrackRendererRef(new EffekseerRenderer::TrackRendererBase<RendererImplemented, false>(this));
 	}
-	Effekseer::TextureLoaderRef CreateTextureLoader(Effekseer::FileInterfaceRef fileInterface = nullptr) {
-		return Effekseer::MakeRefPtr<TextureLoader>(this, &m_initArgs);
+	Effekseer::TextureLoaderRef CreateTextureLoader(Effekseer::FileInterfaceRef fileInterface = nullptr) override {
+		return EffekseerRenderer::CreateTextureLoader(m_device, fileInterface);
 	}
-	Effekseer::ModelLoaderRef CreateModelLoader(::Effekseer::FileInterfaceRef fileInterface = nullptr) {
-		// todo: add our model loader (model loader callback in InitArgs)
+	Effekseer::ModelLoaderRef CreateModelLoader(::Effekseer::FileInterfaceRef fileInterface = nullptr) override {
 		return Effekseer::MakeRefPtr<EffekseerRenderer::ModelLoader>(m_device, fileInterface);
 	}
-	Effekseer::MaterialLoaderRef CreateMaterialLoader(::Effekseer::FileInterfaceRef fileInterface = nullptr) {
-		return Effekseer::MakeRefPtr<MaterialLoader>(this, fileInterface);
+	Effekseer::MaterialLoaderRef CreateMaterialLoader(::Effekseer::FileInterfaceRef fileInterface = nullptr) override {
+		return nullptr;	// no material shader generator for bgfx; the caller installs a reporting loader
 	}
 	EffekseerRenderer::DistortingCallback* GetDistortingCallback() override {
 		return m_distortingCallback;
@@ -1059,11 +821,14 @@ public:
 		m_distortingCallback = callback;
 	}
 	const Effekseer::Backend::TextureRef& GetBackground() override {
-		return GetExternalTexture(m_background, TEXTURE_BACKGROUND, nullptr);
+		return m_noTexture;
 	}
 
 	void GetDepth(Effekseer::Backend::TextureRef& texture, EffekseerRenderer::DepthReconstructionParameter& reconstructionParam) override {
-		texture = GetExternalTexture(m_depth, TEXTURE_DEPTH, (void *)&reconstructionParam);
+		texture = nullptr;
+	}
+	void SetViewId(bgfx_view_id_t viewid) {
+		m_viewid = viewid;
 	}
 
 	BGFXStandardRenderer* GetStandardRenderer() {
@@ -1108,8 +873,7 @@ public:
 			m_current_layout = LAYOUT_ADVSIMPLE;
 			break;
 		default:
-			// todo:
-			m_current_layout = LAYOUT_MATERIAL;
+			assert(false);	// Material: CreateMaterialLoader() never yields a material
 			return;
 		}
 		if (m_layouts[m_current_layout].cap == 0) {
@@ -1118,12 +882,6 @@ public:
 		}
 	}
 	bool AppendSprites(int count, int& stride, void*& data) {
-		if (m_current_layout == LAYOUT_MATERIAL) {
-			stride = 0;
-			data = nullptr;
-			return true;	// todo
-		}
-
 		auto& layout = m_layouts[m_current_layout];
 		assert(layout.cap > 0);
 		stride = layout.tvb.stride;
@@ -1155,6 +913,8 @@ public:
 		const uint32_t indexCount = count / 4 * 6;
 		BGFX(encoder_set_index_buffer)(m_encoder, m_indexBuffer->GetInterface(), 0, indexCount);
 		BGFX(encoder_submit)(m_encoder, m_viewid, m_currentShader->m_program, 0, BGFX_DISCARD_ALL);
+		GetImpl()->drawcallCount++;
+		GetImpl()->drawvertexCount += count;
 	}
 	void DrawPolygon(int32_t vertexCount, int32_t indexCount) {
 		// todo:
@@ -1162,6 +922,8 @@ public:
 	void DrawPolygonInstanced(int32_t vertexCount, int32_t indexCount, int32_t instanceCount) {
 		BGFX(encoder_set_instance_count)(m_encoder, instanceCount);
 		BGFX(encoder_submit)(m_encoder, m_viewid, m_currentShader->m_program, 0, BGFX_DISCARD_ALL);
+		GetImpl()->drawcallCount++;
+		GetImpl()->drawvertexCount += vertexCount * instanceCount;
 	}
 	void BeginShader(Shader* shader) {
 		assert(m_currentShader == nullptr);
@@ -1194,14 +956,7 @@ public:
 				if (state.TextureWrapTypes[ii] == Effekseer::TextureWrapType::Clamp){
 					flags |= BGFX_SAMPLER_U_CLAMP|BGFX_SAMPLER_V_CLAMP;
 				}
-				int tex_id = tex->GetId();
-				bgfx_texture_handle_t handle;
-				if (tex_id < 0) {
-					handle = tex->GetInterface();
-				} else {
-					handle = m_initArgs.texture_handle(tex_id, m_initArgs.ud);
-				}
-				BGFX(encoder_set_texture)(m_encoder, ii, sampler, handle, flags);
+				BGFX(encoder_set_texture)(m_encoder, ii, sampler, tex->GetInterface(), flags);
 			}
 		}
 	}
@@ -1219,20 +974,26 @@ public:
 	virtual int AddRef() override { return Effekseer::ReferenceObject::AddRef(); }
 	virtual int Release() override { return Effekseer::ReferenceObject::Release(); }
 
-	bgfx_shader_handle_t LoadShader(const char *mat, const char *name, const char *type) const {
-		return m_initArgs.shader_load(mat, name, type, m_initArgs.ud);
-	}
 	Shader * CreateShader() const {
 		return new Shader(this);
 	}
 	// Shader API
-	bool InitShader(Shader *s, bgfx_shader_handle_t vs, bgfx_shader_handle_t fs) const {
+	bool InitShader(Shader *s, const char *name) const {
+		const bgfx_shader_handle_t vs = LoadShader(name, true);
+		const bgfx_shader_handle_t fs = LoadShader(name, false);
 		if (!(BGFX_HANDLE_IS_VALID(vs) && BGFX_HANDLE_IS_VALID(fs))){
+			Log("missing embedded shader", name);
+			if (BGFX_HANDLE_IS_VALID(vs))
+				BGFX(destroy_shader)(vs);
+			if (BGFX_HANDLE_IS_VALID(fs))
+				BGFX(destroy_shader)(fs);
 			s->m_render = nullptr;
 			return false;
 		}
-		s->m_program = BGFX(create_program)(vs, fs, false);
+		// The program owns the shaders (destroyShaders = true).
+		s->m_program = BGFX(create_program)(vs, fs, true);
 		if (s->m_program.idx == UINT16_MAX) {
+			Log("cannot link program", name);
 			s->m_render = nullptr;
 			return false;
 		}
@@ -1324,15 +1085,44 @@ public:
 		return i;
 	}
 
+	void Log(const char *what, const char *name) const {
+		char message[256];
+		snprintf(message, sizeof(message), "ERROR: %s %s", what, name);
+		m_initArgs.log(message);
+	}
+	// Proxy textures and Effekseer's texture loader (PNG/TGA decode to RGBA8). MipLevelCount 0
+	// asks for a full chain, built here with a box filter. Other formats (BC* from DDS) are not
+	// available on every GLES device and are refused.
 	Effekseer::Backend::TextureRef CreateTexture(const Effekseer::Backend::TextureParameter& param, const Effekseer::CustomVector<uint8_t>& initialData) const {
-		// Only for CreateProxyTexture, See EffekseerRendererCommon/EffekseerRenderer.Renderer.cpp
-		assert(param.Format == Effekseer::Backend::TextureFormatType::R8G8B8A8_UNORM);
-		assert(param.Dimension == 2);
-
-		const bgfx_memory_t *mem = BGFX(copy)(initialData.data(), (uint32_t)initialData.size());
-		bgfx_texture_handle_t handle = BGFX(create_texture_2d)(param.Size[0], param.Size[1], false, 1, BGFX_TEXTURE_FORMAT_RGBA8,
-			BGFX_TEXTURE_NONE | BGFX_SAMPLER_NONE, mem);
-
+		const int width = param.Size[0];
+		const int height = param.Size[1];
+		if (param.Dimension != 2 || param.Format != Effekseer::Backend::TextureFormatType::R8G8B8A8_UNORM
+			|| width <= 0 || height <= 0 || initialData.size() < size_t(width) * height * 4) {
+			char message[160];
+			snprintf(message, sizeof(message), "ERROR: unsupported Effekseer texture (format %d, dimension %d, %dx%d)",
+				int(param.Format), param.Dimension, width, height);
+			m_initArgs.log(message);
+			return nullptr;
+		}
+		const bool mips = param.MipLevelCount != 1;
+		std::vector<uint8_t> chain(initialData.begin(), initialData.begin() + size_t(width) * height * 4);
+		if (mips) {
+			size_t offset = 0;
+			for (int w = width, h = height; w > 1 || h > 1;) {
+				const int nw = w > 1 ? w / 2 : 1;
+				const int nh = h > 1 ? h / 2 : 1;
+				const size_t next = offset + size_t(w) * h * 4;
+				chain.resize(next + size_t(nw) * nh * 4);
+				bimg::imageRgba8Downsample2x2(chain.data() + next, uint32_t(w), uint32_t(h), 1, uint32_t(w * 4),
+					uint32_t(nw * 4), chain.data() + offset);
+				offset = next;
+				w = nw;
+				h = nh;
+			}
+		}
+		const bgfx_memory_t *mem = BGFX(copy)(chain.data(), (uint32_t)chain.size());
+		bgfx_texture_handle_t handle = BGFX(create_texture_2d)(uint16_t(width), uint16_t(height), mips, 1, BGFX_TEXTURE_FORMAT_RGBA8,
+			BGFX_TEXTURE_NONE | BGFX_SAMPLER_NONE, mem, 0);
 		return Effekseer::MakeRefPtr<Texture>(this, handle);
 	}
 	void ReleaseTexture(Texture *t) const {
@@ -1366,43 +1156,6 @@ public:
 			return false;
 		return true;
 	}
-	bgfx_vertex_layout_handle_t CreateMaterialSimple() const {
-		bgfx_vertex_layout_t layout;
-		BGFX(vertex_layout_begin)(&layout, BGFX_RENDERER_TYPE_NOOP);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_POSITION, 3, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_COLOR0, 4, BGFX_ATTRIB_TYPE_UINT8, true, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TEXCOORD0, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-		BGFX(vertex_layout_end)(&layout);
-		return BGFX(create_vertex_layout)(&layout);
-	}
-	bgfx_vertex_layout_handle_t CreateMaterialComplex(int cd1, int cd2) const {
-		bgfx_vertex_layout_t layout;
-		BGFX(vertex_layout_begin)(&layout, BGFX_RENDERER_TYPE_NOOP);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_POSITION, 3, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_COLOR0, 4, BGFX_ATTRIB_TYPE_UINT8, true, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_NORMAL, 4, BGFX_ATTRIB_TYPE_UINT8, true, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TANGENT, 4, BGFX_ATTRIB_TYPE_UINT8, true, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TEXCOORD0, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TEXCOORD1, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TEXCOORD2, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TEXCOORD3, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TEXCOORD4, cd1, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TEXCOORD4, cd2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-		BGFX(vertex_layout_end)(&layout);
-		return BGFX(create_vertex_layout)(&layout);
-	}
-	bgfx_vertex_layout_handle_t CreateMaterialModel() const {
-		bgfx_vertex_layout_t layout;
-		BGFX(vertex_layout_begin)(&layout, BGFX_RENDERER_TYPE_NOOP);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_POSITION, 3, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_NORMAL, 3, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_BITANGENT, 3, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TANGENT, 3, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TEXCOORD0, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_COLOR0, 4, BGFX_ATTRIB_TYPE_UINT8, true, false);
-		BGFX(vertex_layout_end)(&layout);
-		return BGFX(create_vertex_layout)(&layout);
-	}
 };
 
 void RenderState::Update(bool forced) {
@@ -1413,43 +1166,43 @@ void RenderState::Update(bool forced) {
 		| BGFX_STATE_FRONT_CCW
 		| BGFX_STATE_MSAA;
 
-	if (m_next.DepthTest) {
-		state |= m_invz ? BGFX_STATE_DEPTH_TEST_GEQUAL : BGFX_STATE_DEPTH_TEST_LEQUAL;
+	if (next_.DepthTest) {
+		state |= BGFX_STATE_DEPTH_TEST_LEQUAL;
 	} else {
 		state |= BGFX_STATE_DEPTH_TEST_ALWAYS;
 	}
 
-	if (m_next.DepthWrite) {
+	if (next_.DepthWrite) {
 		state |= BGFX_STATE_WRITE_Z;
 	}
 
 	// isCCW
-	if (m_next.CullingType == Effekseer::CullingType::Front) {
-		state |= BGFX_STATE_CULL_CW;
+	if (next_.CullingType == Effekseer::CullingType::Front) {
+		state |= m_mirror ? BGFX_STATE_CULL_CCW : BGFX_STATE_CULL_CW;
 	}
-	else if (m_next.CullingType == Effekseer::CullingType::Back) {
-		state |= BGFX_STATE_CULL_CCW;
+	else if (next_.CullingType == Effekseer::CullingType::Back) {
+		state |= m_mirror ? BGFX_STATE_CULL_CW : BGFX_STATE_CULL_CCW;
 	}
-	if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Opacity ||
+	if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Opacity ||
 		m_renderer->GetRenderMode() == ::Effekseer::RenderMode::Wireframe) {
 			state |= BGFX_STATE_BLEND_EQUATION_SEPARATE(BGFX_STATE_BLEND_EQUATION_ADD, BGFX_STATE_BLEND_EQUATION_MAX);
 			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE);
 		}
-	else if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Sub)	{
+	else if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Sub)	{
 		state |= BGFX_STATE_BLEND_EQUATION_SEPARATE(BGFX_STATE_BLEND_EQUATION_REVSUB, BGFX_STATE_BLEND_EQUATION_ADD);
 		state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_ONE);
 	} else {
 		state |= BGFX_STATE_BLEND_EQUATION_SEPARATE(BGFX_STATE_BLEND_EQUATION_ADD, BGFX_STATE_BLEND_EQUATION_ADD);
-		if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Blend) {
+		if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Blend) {
 			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE);
-		} else if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Add) {
+		} else if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Add) {
 			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE);
-		} else if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Mul) {
+		} else if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Mul) {
 			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_SRC_COLOR, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_ONE);
 		}
 	}
 	m_renderer->SetCurrentState(state);
-	m_active = m_next;
+	active_ = next_;
 }
 
 Effekseer::Backend::TextureRef GraphicsDevice::CreateTexture(const Effekseer::Backend::TextureParameter& param, const Effekseer::CustomVector<uint8_t>& initialData) {
@@ -1482,6 +1235,10 @@ EffekseerRenderer::RendererRef CreateRenderer(struct InitArgs *init) {
 Effekseer::ModelRendererRef CreateModelRenderer(EffekseerRenderer::RendererRef renderer, struct InitArgs *init){
 	auto modelRenderer = renderer->CreateModelRenderer();
 	return modelRenderer.DownCast<RendererImplemented::ModelRenderer>()->Initialize(init) ? modelRenderer : nullptr;
+}
+
+void SetViewId(const EffekseerRenderer::RendererRef &renderer, bgfx_view_id_t viewid) {
+	renderer.DownCast<RendererImplemented>()->SetViewId(viewid);
 }
 
 }

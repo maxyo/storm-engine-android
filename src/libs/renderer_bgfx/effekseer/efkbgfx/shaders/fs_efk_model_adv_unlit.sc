@@ -94,7 +94,7 @@ vec4 ConvertFromSRGBTexture(vec4 c, bool isValid)
     return LinearToSRGB(param);
 }
 
-vec2 UVDistortionOffset(vec2 uv, vec2 uvInversed, bool convertFromSRGB, struct BgfxSampler2D SPIRV_Cross_Combinedts)
+vec2 UVDistortionOffset(vec2 uv, vec2 uvInversed, bool convertFromSRGB, sampler2D SPIRV_Cross_Combinedts)
 {
     vec4 sampledColor = texture2D(SPIRV_Cross_Combinedts, uv);
     if (convertFromSRGB)
@@ -109,7 +109,7 @@ vec2 UVDistortionOffset(vec2 uv, vec2 uvInversed, bool convertFromSRGB, struct B
     return UVOffset;
 }
 
-void ApplyFlipbook(inout vec4 dst, vec4 flipbookParameter, vec4 vcolor, vec2 nextUV, float flipbookRate, bool convertFromSRGB, struct BgfxSampler2D SPIRV_Cross_Combinedts)
+void ApplyFlipbook(inout vec4 dst, vec4 flipbookParameter, vec4 vcolor, vec2 nextUV, float flipbookRate, bool convertFromSRGB, sampler2D SPIRV_Cross_Combinedts)
 {
     if (flipbookParameter.x > 0.0)
     {

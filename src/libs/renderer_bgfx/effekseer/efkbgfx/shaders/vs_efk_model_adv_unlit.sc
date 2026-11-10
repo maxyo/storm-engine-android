@@ -4,18 +4,18 @@ $output v_Color v_UV_Others v_WorldN v_Alpha_Dist_UV v_Blend_Alpha_Dist_UV v_Ble
 #include <bgfx_shader.sh>
 #include "defines.sh"
 uniform mat4 u_mCameraProj;
-uniform mat4 u_mModel_Inst[40];
-uniform vec4 u_fUV[40];
-uniform vec4 u_fAlphaUV[40];
-uniform vec4 u_fUVDistortionUV[40];
-uniform vec4 u_fBlendUV[40];
-uniform vec4 u_fBlendAlphaUV[40];
-uniform vec4 u_fBlendUVDistortionUV[40];
+uniform mat4 u_mModel_Inst[10];
+uniform vec4 u_fUV[10];
+uniform vec4 u_fAlphaUV[10];
+uniform vec4 u_fUVDistortionUV[10];
+uniform vec4 u_fBlendUV[10];
+uniform vec4 u_fBlendAlphaUV[10];
+uniform vec4 u_fBlendUVDistortionUV[10];
 uniform vec4 u_flipbookParameter1;
 uniform vec4 u_flipbookParameter2;
-uniform vec4 u_fFlipbookIndexAndNextRate[40];
-uniform vec4 u_fModelAlphaThreshold[40];
-uniform vec4 u_fModelColor[40];
+uniform vec4 u_fFlipbookIndexAndNextRate[10];
+uniform vec4 u_fModelAlphaThreshold[10];
+uniform vec4 u_fModelColor[10];
 uniform vec4 u_fLightDirection;
 uniform vec4 u_fLightColor;
 uniform vec4 u_fLightAmbient;
@@ -177,7 +177,7 @@ VS_Output _main(VS_Input Input)
     vec4 modelColor = u_fModelColor[index] * Input.Color;
     float flipbookIndexAndNextRate = u_fFlipbookIndexAndNextRate[index].x;
     float modelAlphaThreshold = u_fModelAlphaThreshold[index].x;
-    VS_Output Output = (VS_Output)0;
+    VS_Output Output;
     vec4 localPosition = vec4(Input.Pos.x, Input.Pos.y, Input.Pos.z, 1.0);
     vec4 worldPos = mul(mModel, localPosition);
     Output.PosVS = mul(u_mCameraProj, worldPos);

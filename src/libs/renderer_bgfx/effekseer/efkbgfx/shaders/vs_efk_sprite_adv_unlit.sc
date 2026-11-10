@@ -149,7 +149,7 @@ void CalculateAndStoreAdvancedParameter(VS_Input vsinput, inout VS_Output vsoutp
 
 VS_Output _main(VS_Input Input)
 {
-    VS_Output Output = (VS_Output)0;
+    VS_Output Output;
     vec2 uv1 = Input.UV;
     uv1.y = u_mUVInversed.x + (u_mUVInversed.y * uv1.y);
     Output.UV_Others.x = uv1.x;

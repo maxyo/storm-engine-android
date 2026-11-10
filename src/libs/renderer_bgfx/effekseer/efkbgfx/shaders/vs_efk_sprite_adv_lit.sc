@@ -154,10 +154,11 @@ void CalculateAndStoreAdvancedParameter(VS_Input vsinput, inout VS_Output vsoutp
 
 VS_Output _main(VS_Input Input)
 {
-    VS_Output Output = (VS_Output)0;
+    VS_Output Output;
     vec4 worldNormal = vec4((Input.Normal.xyz - vec3_splat(0.5)) * 2.0, 0.0);
     vec4 worldTangent = vec4((Input.Tangent.xyz - vec3_splat(0.5)) * 2.0, 0.0);
-    vec4 worldBinormal = vec4(cross(worldNormal.xyz, worldTangent.xyz), 0.0);
+    float tangentHandedness = (Input.Tangent.w * 2.0) - 1.0;
+    vec4 worldBinormal = vec4(cross(worldNormal.xyz, worldTangent.xyz) * tangentHandedness, 0.0);
     vec2 uv1 = Input.UV1;
     uv1.y = u_mUVInversed.x + (u_mUVInversed.y * uv1.y);
     Output.UV_Others.x = uv1.x;
