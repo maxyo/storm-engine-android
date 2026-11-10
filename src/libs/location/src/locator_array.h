@@ -12,14 +12,14 @@
 
 #include <vector>
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "storm_assert.h"
 
 class LocatorArray
 {
     struct LocatorInfro
     {
-        CMatrix mtx;
+        glm::mat4 mtx;
         int32_t name;
         int32_t hash;
         float radius;
@@ -37,9 +37,9 @@ class LocatorArray
     // --------------------------------------------------------------------------------------------
   public:
     // Add locator
-    void AddLocator(CMatrix &mtx, const char *name = nullptr);
+    void AddLocator(glm::mat4 &mtx, const char *name = nullptr);
     // Change locator matrix
-    void SetNewMatrix(int32_t locIndex, CMatrix &mtx);
+    void SetNewMatrix(int32_t locIndex, glm::mat4 &mtx);
     // Find the nearest locator by ball
     float FindNearesLocator(float x, float y, float z, int32_t *locIndex = nullptr);
     // Find the nearest locator by cylinder
@@ -51,7 +51,7 @@ class LocatorArray
     // Get locator coordinates
     bool GetLocatorPos(int32_t locIndex, float &x, float &y, float &z);
     // Get locator matrix
-    bool GetLocatorPos(int32_t locIndex, CMatrix &mtx);
+    bool GetLocatorPos(int32_t locIndex, glm::mat4 &mtx);
     // Check the index for correctness
     bool IsValidateIndex(int32_t locIndex) const;
     // Number of locators
@@ -108,14 +108,14 @@ inline bool LocatorArray::GetLocatorPos(int32_t locIndex, float &x, float &y, fl
 {
     if (locIndex < 0 || locIndex >= numLocators)
         return false;
-    x = locator[locIndex].mtx.Pos().x;
-    y = locator[locIndex].mtx.Pos().y;
-    z = locator[locIndex].mtx.Pos().z;
+    x = storm::math::pos(locator[locIndex].mtx).x;
+    y = storm::math::pos(locator[locIndex].mtx).y;
+    z = storm::math::pos(locator[locIndex].mtx).z;
     return true;
 }
 
 // Get locator matrix
-inline bool LocatorArray::GetLocatorPos(int32_t locIndex, CMatrix &mtx)
+inline bool LocatorArray::GetLocatorPos(int32_t locIndex, glm::mat4 &mtx)
 {
     if (locIndex < 0 || locIndex >= numLocators)
         return false;

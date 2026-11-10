@@ -12,7 +12,7 @@ CREATE_CLASS(SEA_OPERATOR)
 
 char dbgs[1024];
 static const float MIN_TIME_DELTA = 0.05f;
-CVECTOR lastCP;
+glm::vec3 lastCP;
 
 SEA_OPERATOR::SEA_OPERATOR()
     : enabled(false), active(false), sea(nullptr), renderer(nullptr), myShip(nullptr), enemyShip(nullptr),
@@ -66,7 +66,7 @@ uint64_t SEA_OPERATOR::ProcessMessage(MESSAGE &message)
             break;
 
         const std::string &bortName = message.String();
-        CVECTOR direction, destination;
+        glm::vec3 direction, destination;
         direction.x = message.Float();
         direction.y = message.Float();
         direction.z = message.Float();
@@ -129,7 +129,7 @@ void SEA_OPERATOR::Realize(uint32_t dTime)
     if (!enabled)
         return;
 
-    static CVECTOR upVector(0.0f, 1.0f, 0.0f);
+    static glm::vec3 upVector(0.0f, 1.0f, 0.0f);
     if (active)
     {
         renderer->SetCamera(cameraPos, cameraTargetPos, upVector);
@@ -259,8 +259,8 @@ void SEA_OPERATOR::HandleShipIdle()
     actionBuffer.push(action);
 }
 
-void SEA_OPERATOR::HandleShipFire(entid_t _shipID, const char *_bortName, const CVECTOR &_destination,
-                                  const CVECTOR &_direction)
+void SEA_OPERATOR::HandleShipFire(entid_t _shipID, const char *_bortName, const glm::vec3 &_destination,
+                                  const glm::vec3 &_direction)
 {
     using std::chrono::duration_cast;
     using std::chrono::milliseconds;
@@ -281,8 +281,8 @@ void SEA_OPERATOR::HandleShipFire(entid_t _shipID, const char *_bortName, const 
     tAction action;
 
     auto shipPosition = ship->GetPos();
-    const auto shipDirection = CVECTOR(sinf(ship->GetAng().y), 0.0f, cosf(ship->GetAng().y));
-    auto shipDirectionPerp = CVECTOR(shipDirection.z, 0.0f, -1.0f * shipDirection.x);
+    const auto shipDirection = glm::vec3(sinf(ship->GetAng().y), 0.0f, cosf(ship->GetAng().y));
+    auto shipDirectionPerp = glm::vec3(shipDirection.z, 0.0f, -1.0f * shipDirection.x);
     float chosenK;
 
     srand(duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
@@ -321,9 +321,9 @@ void SEA_OPERATOR::ShowAttackerBort(tAction *_action)
     const auto addY = 0.5f * _action->attackerShip->GetBoxsize().y;
     const auto timeDistance = static_cast<float>(_action->timePassed) / 7e2f;
     const auto shipDirection =
-        CVECTOR(sinf(_action->attackerShip->GetAng().y), 0.0f, cosf(_action->attackerShip->GetAng().y));
-    auto shipDirectionPerp = CVECTOR(shipDirection.z, 0.0f, -1.0f * shipDirection.x);
-    const auto directionPerp = CVECTOR(_action->direction.z, 0.0f, -1.0f * _action->direction.x);
+        glm::vec3(sinf(_action->attackerShip->GetAng().y), 0.0f, cosf(_action->attackerShip->GetAng().y));
+    auto shipDirectionPerp = glm::vec3(shipDirection.z, 0.0f, -1.0f * shipDirection.x);
+    const auto directionPerp = glm::vec3(_action->direction.z, 0.0f, -1.0f * _action->direction.x);
 
     cameraTargetPos = shipPosition;
     cameraTargetPos.y += addY;
@@ -355,9 +355,9 @@ void SEA_OPERATOR::ShowAroundPoint(tAction *_action)
     const auto timeScale = MIN_TIME_DELTA + (1.0f - MIN_TIME_DELTA) * powf(timeK, 0.37f);
     auto radius = 15.0f;
 
-    if (~(cameraPos - cameraTargetPos) < 40.0f)
+    if (storm::math::lengthSquared(cameraPos - cameraTargetPos) < 40.0f)
         cameraPos =
-            lastCP + (20.0f + static_cast<float>(_action->timePassed) / 1000.0f) * !(lastCP - finalBallPosition);
+            lastCP + (20.0f + static_cast<float>(_action->timePassed) / 1000.0f) * storm::math::normalizeOrZero(lastCP - finalBallPosition);
 
     core.SetTimeScale(timeScale);
 }
@@ -366,7 +366,7 @@ void SEA_OPERATOR::ShowBallAtMyShip(tAction *_action)
 {
     cameraTargetPos = myShip->GetPos();
     const auto timeK = (static_cast<float>(_action->timePassed) / _action->actionTime);
-    cameraPos = ballPosition + (0.5f + 0.5f * timeK) * myShip->GetBoxsize().z * !(ballPosition - myShip->GetPos());
+    cameraPos = ballPosition + (0.5f + 0.5f * timeK) * myShip->GetBoxsize().z * storm::math::normalizeOrZero(ballPosition - myShip->GetPos());
     const auto minY = 1.0f + sea->WaveXZ(cameraPos.x, cameraPos.z);
     const auto timeScale = MIN_TIME_DELTA + (1.0f - MIN_TIME_DELTA) * powf(timeK, 0.37f);
     if (cameraPos.y < minY)

@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "pillar.h"
 #include "dx9render.h"
 
@@ -29,7 +29,7 @@ class NoiseCloud
 
     struct Vertex
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         uint32_t color;
         float u, v;
     };

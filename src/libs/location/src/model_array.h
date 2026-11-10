@@ -117,11 +117,11 @@ class ModelArray
     void UpdateShadowPath();
 
     // Check the visibility of two points
-    bool VisibleTest(const CVECTOR &p1, const CVECTOR &p2);
+    bool VisibleTest(const glm::vec3 &p1, const glm::vec3 &p2);
     // Trace the ray through the location
-    float Trace(const CVECTOR &src, const CVECTOR &dst);
+    float Trace(const glm::vec3 &src, const glm::vec3 &dst);
     bool GetCollideTriangle(TRIANGLE &trg) const;
-    void Clip(PLANE *p, int32_t numPlanes, CVECTOR &cnt, float rad, bool (*fnc)(const CVECTOR *vtx, int32_t num));
+    void Clip(PLANE *p, int32_t numPlanes, glm::vec3 &cnt, float rad, bool (*fnc)(const glm::vec3 *vtx, int32_t num));
 
     // --------------------------------------------------------------------------------------------
     // Encapsulation

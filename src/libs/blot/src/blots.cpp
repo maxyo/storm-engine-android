@@ -21,9 +21,9 @@ CREATE_CLASS(Blots)
 
 //============================================================================================
 
-CVECTOR Blots::clipTriangles[3 * 32];
+glm::vec3 Blots::clipTriangles[3 * 32];
 int32_t Blots::numClipTriangles;
-CVECTOR Blots::dir, Blots::normal;
+glm::vec3 Blots::dir, Blots::normal;
 
 // ============================================================================================
 // Construction, destruction
@@ -97,19 +97,19 @@ void Blots::Hit(MESSAGE &message)
     if (!m)
         return;
     // Position
-    CVECTOR pos;
+    glm::vec3 pos;
     pos.x = message.Float();
     pos.y = message.Float();
     pos.z = message.Float();
     // Looking for a free blot and proximity to others
-    CVECTOR lpos;
-    m->mtx.MulToInv(pos, lpos);
+    glm::vec3 lpos;
+    lpos = storm::math::inverseTransformPoint(m->mtx, pos);
     int32_t i, j = -1;
     for (i = 0; i < BLOTS_MAX; i++)
     {
         if (blot[i].isUsed)
         {
-            if (~(lpos - blot[i].pos) < 3.0f * 3.0f * BLOTS_RADIUS * BLOTS_RADIUS)
+            if (storm::math::lengthSquared(lpos - blot[i].pos) < 3.0f * 3.0f * BLOTS_RADIUS * BLOTS_RADIUS)
                 return;
         }
         else
@@ -125,21 +125,21 @@ void Blots::Hit(MESSAGE &message)
     dir.x = message.Float();
     dir.y = message.Float();
     dir.z = message.Float();
-    CVECTOR ldir;
-    m->mtx.MulToInvNorm(dir, ldir);
+    glm::vec3 ldir;
+    ldir = storm::math::inverseTransformNormal(m->mtx, dir);
     AddBlot(i, rand(), lpos, ldir, 0.0f);
 }
 
 // Add blot
-void Blots::AddBlot(int32_t i, int32_t rnd, const CVECTOR &lpos, const CVECTOR &dir, float time)
+void Blots::AddBlot(int32_t i, int32_t rnd, const glm::vec3 &lpos, const glm::vec3 &dir, float time)
 {
     // Model of a ship
     auto *m = static_cast<MODEL *>(core.GetEntityPointer(model));
     if (!m)
         return;
     blot[i].isUsed = false;
-    auto pos = m->mtx * CVECTOR(lpos);
-    this->dir = m->mtx * CVECTOR(dir) - m->mtx.Pos();
+    auto pos = storm::math::transformPoint(m->mtx, glm::vec3(lpos));
+    this->dir = storm::math::transformPoint(m->mtx, glm::vec3(dir)) - storm::math::pos(m->mtx);
     // bounding box
     static PLANE p[6];
     p[0].Nx = 0.0f;
@@ -177,12 +177,12 @@ void Blots::AddBlot(int32_t i, int32_t rnd, const CVECTOR &lpos, const CVECTOR &
     if (numClipTriangles <= 0)
         return;
     // transformation matrix to the local coordinate system of the hole
-    CMatrix uvmtx;
-    if (!uvmtx.BuildViewMatrix(pos, pos + normal * 1.0f, CVECTOR(0.0f, 1.0f, 0.0f)))
+    glm::mat4 uvmtx;
+    if (!storm::math::viewMatrix(uvmtx, pos, pos + normal * 1.0f, glm::vec3(0.0f, 1.0f, 0.0f)))
     {
-        if (!uvmtx.BuildViewMatrix(pos, pos + normal * 1.0f, CVECTOR(0.0f, 0.0f, 1.0f)))
+        if (!storm::math::viewMatrix(uvmtx, pos, pos + normal * 1.0f, glm::vec3(0.0f, 0.0f, 1.0f)))
         {
-            if (!uvmtx.BuildViewMatrix(pos, pos + normal * 1.0f, CVECTOR(1.0f, 0.0f, 0.0f)))
+            if (!storm::math::viewMatrix(uvmtx, pos, pos + normal * 1.0f, glm::vec3(1.0f, 0.0f, 0.0f)))
                 return;
         }
     }
@@ -199,7 +199,7 @@ void Blots::AddBlot(int32_t i, int32_t rnd, const CVECTOR &lpos, const CVECTOR &
     Assert(useVrt < sizeof(vrt) / sizeof(Vertex));
     // Convert triangles to the local coordinate system of the ship
     auto mtx(m->mtx);
-    mtx.Transposition();
+    storm::math::invertRigid(mtx);
     auto *v = vrt + blot[i].startIndex;
     numClipTriangles *= 3;
     auto baseU = 0.0f;
@@ -210,9 +210,9 @@ void Blots::AddBlot(int32_t i, int32_t rnd, const CVECTOR &lpos, const CVECTOR &
         baseV += 0.5f;
     for (int32_t n = 0; n < numClipTriangles; n++)
     {
-        v[n].pos = mtx * clipTriangles[n];
+        v[n].pos = storm::math::transformPoint(mtx, clipTriangles[n]);
         v[n].c = 0xffffffff;
-        auto uv = uvmtx * clipTriangles[n];
+        auto uv = storm::math::transformPoint(uvmtx, clipTriangles[n]);
         uv.x = (0.5f + uv.x * 0.5f / BLOTS_RADIUS);
         uv.y = (0.5f + uv.y * 0.5f / BLOTS_RADIUS);
         if (uv.x < 0.0f)
@@ -348,7 +348,7 @@ void Blots::LoadBlot(int32_t i)
         const auto vy = blt->GetAttributeAsFloat("vy");
         const auto vz = blt->GetAttributeAsFloat("vz");
         const auto time = blt->GetAttributeAsFloat("time");
-        AddBlot(i, rnd, CVECTOR(x, y, z), CVECTOR(vx, vy, vz), time);
+        AddBlot(i, rnd, glm::vec3(x, y, z), glm::vec3(vx, vy, vz), time);
     }
 }
 
@@ -366,9 +366,9 @@ void Blots::Realize(uint32_t delta_time)
     if (!m)
         return;
     // Distance from camera
-    CVECTOR pos, ang;
+    glm::vec3 pos, ang;
     rs->GetCamera(pos, ang, ang.x);
-    auto dist = ~(pos - m->mtx.Pos());
+    auto dist = storm::math::lengthSquared(pos - storm::math::pos(m->mtx));
     if (dist >= BLOTS_DIST * BLOTS_DIST)
         return;
     // Transparency according to the distance to the ship
@@ -379,7 +379,7 @@ void Blots::Realize(uint32_t delta_time)
     auto color = static_cast<int32_t>(dist);
     rs->SetRenderState(D3DRS_TEXTUREFACTOR, (color << 24) | (color << 16) | (color << 8) | color);
     // Settings
-    rs->SetTransform(D3DTS_WORLD, m->mtx);
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(m->mtx));
     rs->TextureSet(0, textureID);
     // Draw all the added blots
     for (int32_t i = 0; i < BLOTS_MAX; i++)
@@ -490,15 +490,15 @@ void Blots::Realize(uint32_t delta_time)
                             sizeof(Vertex), "Blot");
 }
 
-bool Blots::AddPolygon(const CVECTOR *v, int32_t nv)
+bool Blots::AddPolygon(const glm::vec3 *v, int32_t nv)
 {
     if (numClipTriangles >= BLOTS_NTRGS)
         return false;
     if (nv < 3)
         return true;
     // Normal
-    const auto norm = (v[0] - v[1]) ^ (v[0] - v[2]);
-    if ((norm | dir) >= 0.0f)
+    const auto norm = glm::cross(v[0] - v[1], v[0] - v[2]);
+    if (glm::dot(norm, dir) >= 0.0f)
         return true;
     normal += 100.0f * norm;
     // Add

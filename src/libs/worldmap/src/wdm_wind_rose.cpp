@@ -17,11 +17,11 @@
 WdmWindRose::WdmWindRose()
 {
     shadowTexture = -1;
-    CMatrix mscale, mrot(0.0f, 3.1415926536f, 0.0f);
-    mscale.m[0][0] = 0.028f;
-    mscale.m[1][1] = 0.028f;
-    mscale.m[2][2] = 0.028f;
-    mtx.EqMultiply(mrot, mscale);
+    glm::mat4 mscale, mrot = storm::math::eulerMatrix(0.0f, 3.1415926536f, 0.0f);
+    mscale[0][0] = 0.028f;
+    mscale[1][1] = 0.028f;
+    mscale[2][2] = 0.028f;
+    mtx = mscale * mrot;
     shadowTexture = wdmObjects->rs->TextureCreate("WorldMap\\Geometry\\compass_shadow.tga");
 }
 
@@ -38,19 +38,19 @@ void WdmWindRose::Update(float dltTime)
 
 void WdmWindRose::LRender(VDX9RENDER *rs)
 {
-    static CMatrix view, prj, oldView, oldPrj;
-    rs->GetTransform(D3DTS_VIEW, view);
+    static glm::mat4 view, prj, oldView, oldPrj;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
     oldView = view;
-    rs->GetTransform(D3DTS_PROJECTION, oldPrj);
-    view.Transposition();
+    rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(oldPrj));
+    storm::math::invertRigid(view);
     const auto kDef = rs->GetHeightDeformator();
-    mtx.SetPosition(view * CVECTOR(0.34f, -0.247f * kDef, 10.0f));
+    storm::math::pos(mtx) = storm::math::transformPoint(view, glm::vec3(0.34f, -0.247f * kDef, 10.0f));
 
     float scrw, scrh;
     wdmObjects->GetVPSize(scrw, scrh);
     // prj.BuildProjectionMatrix(0.1f, scrw, scrh, 0.5f, 50.0f);
-    prj.BuildProjectionMatrix(0.1f, 4.0f, 3.0f, 0.5f, 50.0f);
-    rs->SetTransform(D3DTS_PROJECTION, prj);
+    prj = storm::math::projectionMatrix(0.1f, 4.0f, 3.0f, 0.5f, 50.0f);
+    rs->SetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
     WdmRenderModel::LRender(rs);
     Vertex v[4];
     const auto size = 5.5f;
@@ -78,6 +78,6 @@ void WdmWindRose::LRender(VDX9RENDER *rs)
     rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1, 2, v, sizeof(Vertex),
                         "WdmCompasShadow");
 
-    rs->SetTransform(D3DTS_PROJECTION, oldPrj);
-    rs->SetTransform(D3DTS_VIEW, oldView);
+    rs->SetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(oldPrj));
+    rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(oldView));
 }

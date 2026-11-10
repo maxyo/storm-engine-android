@@ -12,7 +12,7 @@ static const char *INI_FILENAME = "resource\\ini\\TextureSequence.ini";
 
 struct TS_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float w;
     float tu1, tv1;
     float tu2, tv2;
@@ -147,7 +147,7 @@ void TextureSequence::ToTextureRender(float blendValue) const
             m_pRS->GetDepthStencilSurface(&pStencil);
             if (m_pRS->SetRenderTarget(pRenderTarg, nullptr) == S_OK)
             {
-                CMatrix matw;
+                glm::mat4 matw;
                 m_pRS->SetTransform(D3DTS_WORLD, (D3DMATRIX *)&matw);
                 m_pRS->TextureSet(0, m_AllTex);
                 m_pRS->TextureSet(1, m_AllTex);

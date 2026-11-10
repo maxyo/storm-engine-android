@@ -11,7 +11,7 @@ int32_t NODER::depth = -1;
 int32_t NODER::node;
 extern int32_t clip_nps;
 extern const PLANE *clip_p;
-extern const CVECTOR *clip_c;
+extern const glm::vec3 *clip_c;
 extern float clip_r;
 extern GEOS::ADD_POLYGON_FUNC clip_geosap;
 extern ADD_POLYGON_FUNC clip_ap;
@@ -26,14 +26,14 @@ GEOS *sphere = 0;
 //-------------------------------------------------------------------
 //
 //-------------------------------------------------------------------
-CMatrix *backtrans;
-CVECTOR clip_v[256];
+glm::mat4 *backtrans;
+glm::vec3 clip_v[256];
 
 bool AddPolygon(const GEOS::VERTEX *vr, int32_t nv)
 {
     //!!! must be transformed
     for (int32_t p = 0; p < nv; p++)
-        clip_v[p] = *backtrans * CVECTOR(vr[p].x, vr[p].y, vr[p].z);
+        clip_v[p] = storm::math::transformPoint(*backtrans, glm::vec3(vr[p].x, vr[p].y, vr[p].z));
     return clip_ap(clip_v, nv);
 }
 
@@ -46,7 +46,7 @@ bool NODER::Clip()
         return false;
 
     // check for bounding spheres intersection
-    const auto sph_dist = ~(*clip_c - glob_mtx * center);
+    const auto sph_dist = storm::math::lengthSquared(*clip_c - storm::math::transformPoint(glob_mtx, center));
     if (sph_dist > (radius + clip_r) * (radius + clip_r))
         return false;
 
@@ -57,26 +57,26 @@ bool NODER::Clip()
         backtrans = &glob_mtx;
         for (int32_t p = 0; p < clip_nps; p++)
         {
-            const auto x = clip_p[p].D * clip_p[p].Nx - glob_mtx.m[3][0];
-            const auto y = clip_p[p].D * clip_p[p].Ny - glob_mtx.m[3][1];
-            const auto z = clip_p[p].D * clip_p[p].Nz - glob_mtx.m[3][2];
+            const auto x = clip_p[p].D * clip_p[p].Nx - glob_mtx[3][0];
+            const auto y = clip_p[p].D * clip_p[p].Ny - glob_mtx[3][1];
+            const auto z = clip_p[p].D * clip_p[p].Nz - glob_mtx[3][2];
             const auto Nx =
-                glob_mtx.m[0][0] * clip_p[p].Nx + glob_mtx.m[0][1] * clip_p[p].Ny + glob_mtx.m[0][2] * clip_p[p].Nz;
+                glob_mtx[0][0] * clip_p[p].Nx + glob_mtx[0][1] * clip_p[p].Ny + glob_mtx[0][2] * clip_p[p].Nz;
             const auto Ny =
-                glob_mtx.m[1][0] * clip_p[p].Nx + glob_mtx.m[1][1] * clip_p[p].Ny + glob_mtx.m[1][2] * clip_p[p].Nz;
+                glob_mtx[1][0] * clip_p[p].Nx + glob_mtx[1][1] * clip_p[p].Ny + glob_mtx[1][2] * clip_p[p].Nz;
             const auto Nz =
-                glob_mtx.m[2][0] * clip_p[p].Nx + glob_mtx.m[2][1] * clip_p[p].Ny + glob_mtx.m[2][2] * clip_p[p].Nz;
-            const auto lx = glob_mtx.m[0][0] * x + glob_mtx.m[0][1] * y + glob_mtx.m[0][2] * z;
-            const auto ly = glob_mtx.m[1][0] * x + glob_mtx.m[1][1] * y + glob_mtx.m[1][2] * z;
-            const auto lz = glob_mtx.m[2][0] * x + glob_mtx.m[2][1] * y + glob_mtx.m[2][2] * z;
+                glob_mtx[2][0] * clip_p[p].Nx + glob_mtx[2][1] * clip_p[p].Ny + glob_mtx[2][2] * clip_p[p].Nz;
+            const auto lx = glob_mtx[0][0] * x + glob_mtx[0][1] * y + glob_mtx[0][2] * z;
+            const auto ly = glob_mtx[1][0] * x + glob_mtx[1][1] * y + glob_mtx[1][2] * z;
+            const auto lz = glob_mtx[2][0] * x + glob_mtx[2][1] * y + glob_mtx[2][2] * z;
             clip_gp[p].nrm.x = Nx;
             clip_gp[p].nrm.y = Ny;
             clip_gp[p].nrm.z = Nz;
-            clip_gp[p].d = (Nx * lx + Ny * ly + Nz * lz) * glob_mtx.m[3][3];
+            clip_gp[p].d = (Nx * lx + Ny * ly + Nz * lz) * glob_mtx[3][3];
         }
         GEOS::VERTEX gc;
-        CVECTOR cnt;
-        glob_mtx.MulToInv(*clip_c, cnt);
+        glm::vec3 cnt;
+        cnt = storm::math::inverseTransformPoint(glob_mtx, *clip_c);
         gc.x = cnt.x;
         gc.y = cnt.y;
         gc.z = cnt.z;
@@ -95,9 +95,9 @@ bool NODER::Clip()
 //-------------------------------------------------------------------
 //
 //-------------------------------------------------------------------
-float NODER::Update(CMatrix &mtx, CVECTOR &cnt)
+float NODER::Update(glm::mat4 &mtx, glm::vec3 &cnt)
 {
-    glob_mtx.EqMultiply(loc_mtx, mtx);
+    glob_mtx = mtx * loc_mtx;
 
     center = geo_center;
     radius = geo_radius;
@@ -105,28 +105,28 @@ float NODER::Update(CMatrix &mtx, CVECTOR &cnt)
     for (int32_t l = 0; l < next.size(); l++)
         if (next[l] != nullptr)
         {
-            CVECTOR cnt; // TODO: huh? ~!~
+            glm::vec3 cnt; // TODO: huh? ~!~
             const auto r = static_cast<NODER *>(next[l])->Update(glob_mtx, cnt);
-            const auto rad = sqrtf(~(cnt - center)) + r;
+            const auto rad = sqrtf(storm::math::lengthSquared(cnt - center)) + r;
             if (rad > radius)
                 radius = rad;
         }
 
-    cnt = loc_mtx * center;
+    cnt = storm::math::transformPoint(loc_mtx, center);
     return radius;
 }
 
 //----------------------------------------------------------
 // NODE trace
 //----------------------------------------------------------
-float NODER::Trace(const CVECTOR &src, const CVECTOR &dst)
+float NODER::Trace(const glm::vec3 &src, const glm::vec3 &dst)
 {
     if (isReleased)
         return 2.0f;
     // check for bounding spheres intersection
     const auto lmn = dst - src;
-    const auto dist2ray2 = ~((glob_mtx * center - src) ^ lmn);
-    const auto dlmn = ~(lmn);
+    const auto dist2ray2 = storm::math::lengthSquared(glm::cross(storm::math::transformPoint(glob_mtx, center) - src, lmn));
+    const auto dlmn = storm::math::lengthSquared(lmn);
     // hierarchy test
     if (dist2ray2 > dlmn * radius * radius)
         return 2.0f;
@@ -148,9 +148,9 @@ float NODER::Trace(const CVECTOR &src, const CVECTOR &dst)
 
     if (flags & TRACE_ENABLE && dist2ray2 < dlmn * geo_radius * geo_radius)
     {
-        CVECTOR _src, _dst;
-        glob_mtx.MulToInv(src, _src);
-        glob_mtx.MulToInv(dst, _dst);
+        glm::vec3 _src, _dst;
+        _src = storm::math::inverseTransformPoint(glob_mtx, src);
+        _dst = storm::math::inverseTransformPoint(glob_mtx, dst);
         const auto ds = geo->Trace((GEOS::VERTEX &)_src, (GEOS::VERTEX &)_dst);
         if (ds < best_dist)
         {
@@ -175,7 +175,7 @@ NODER::NODER()
     max_view_dist = 0.f;
 }
 
-bool NODER::Init(const char *lightPath, const char *pname, const char *oname, const CMatrix &m, const CMatrix &globm,
+bool NODER::Init(const char *lightPath, const char *pname, const char *oname, const glm::mat4 &m, const glm::mat4 &globm,
                  NODER *par, const char *lmPath)
 {
     isReleased = false;
@@ -185,7 +185,7 @@ bool NODER::Init(const char *lightPath, const char *pname, const char *oname, co
     flags = VISIBLE | VISIBLE_TREE | CLIP_ENABLE | CLIP_ENABLE_TREE | TRACE_ENABLE | TRACE_ENABLE_TREE;
 
     loc_mtx = m;
-    glob_mtx.EqMultiply(loc_mtx, globm);
+    glob_mtx = globm * loc_mtx;
 
     if (pname == nullptr)
     {
@@ -216,7 +216,7 @@ bool NODER::Init(const char *lightPath, const char *pname, const char *oname, co
     GEOS::INFO gi;
     geo->GetInfo(gi);
     geo_radius = gi.radius;
-    geo_center = CVECTOR(gi.boxcenter.x, gi.boxcenter.y, gi.boxcenter.z);
+    geo_center = glm::vec3(gi.boxcenter.x, gi.boxcenter.y, gi.boxcenter.z);
 
     parent = par;
     if (parent == nullptr)
@@ -237,12 +237,12 @@ bool NODER::Init(const char *lightPath, const char *pname, const char *oname, co
         {
             GEOS::LABEL lb;
             geo->GetLabel(sti, lb);
-            CMatrix mt;
+            glm::mat4 mt;
             // memcpy(mt.m, lb.m, sizeof(lb.m));
-            mt.Vx() = CVECTOR(lb.m[0][0], lb.m[0][1], lb.m[0][2]);
-            mt.Vy() = CVECTOR(lb.m[1][0], lb.m[1][1], lb.m[1][2]);
-            mt.Vz() = CVECTOR(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
-            mt.Pos() = CVECTOR(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
+            storm::math::vx(mt) = glm::vec3(lb.m[0][0], lb.m[0][1], lb.m[0][2]);
+            storm::math::vy(mt) = glm::vec3(lb.m[1][0], lb.m[1][1], lb.m[1][2]);
+            storm::math::vz(mt) = glm::vec3(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
+            storm::math::pos(mt) = glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
 
             next[l] = new NODER();
 
@@ -330,7 +330,7 @@ void NODER::Draw()
     if (isReleased)
         return;
 
-    const auto cnt = glob_mtx * center;
+    const auto cnt = storm::math::transformPoint(glob_mtx, center);
 
     // visibility check
     int32_t p;
@@ -345,10 +345,10 @@ void NODER::Draw()
         return;
     if (max_view_dist > 0.f)
     {
-        CVECTOR cpos, cang;
+        glm::vec3 cpos, cang;
         float cpersp;
         rs->GetCamera(cpos, cang, cpersp);
-        const float fdist = ~(cpos - cnt);
+        const float fdist = storm::math::lengthSquared(cpos - cnt);
         const float fmindist = (max_view_dist + radius) * (max_view_dist + radius);
         const float fmaxdist = (max_view_dist * 1.3f + radius) * (max_view_dist * 1.3f + radius);
         if (fdist > fmaxdist)
@@ -370,10 +370,10 @@ void NODER::Draw()
     }
     if (core.Controls->GetDebugAsyncKeyState(SHOW_SPHERES) < 0)
     {
-        CMatrix sm(0.0f, 0.0f, 0.0f, cnt.x, cnt.y, cnt.z);
-        CMatrix sc;
+        glm::mat4 sm(0.0f, 0.0f, 0.0f, cnt.x, cnt.y, cnt.z);
+        glm::mat4 sc;
         sc.m[0][0] = sc.m[1][1] = sc.m[2][2] = radius;
-        CMatrix rm = sc * sm;
+        glm::mat4 rm = sc * sm;
         rs->SetTransform(D3DTS_WORLD, (D3DMATRIX *)&rm);
         sphere->Draw(0, 0, 0);
     }
@@ -405,22 +405,22 @@ void NODER::Draw()
             // transform viewplanes
             for (p = 0; p < 4; p++)
             {
-                const float x = ViewPlane[p].d * ViewPlane[p].nrm.x - glob_mtx.m[3][0];
-                const float y = ViewPlane[p].d * ViewPlane[p].nrm.y - glob_mtx.m[3][1];
-                const float z = ViewPlane[p].d * ViewPlane[p].nrm.z - glob_mtx.m[3][2];
-                const float Nx = glob_mtx.m[0][0] * ViewPlane[p].nrm.x + glob_mtx.m[0][1] * ViewPlane[p].nrm.y +
-                                 glob_mtx.m[0][2] * ViewPlane[p].nrm.z;
-                const float Ny = glob_mtx.m[1][0] * ViewPlane[p].nrm.x + glob_mtx.m[1][1] * ViewPlane[p].nrm.y +
-                                 glob_mtx.m[1][2] * ViewPlane[p].nrm.z;
-                const float Nz = glob_mtx.m[2][0] * ViewPlane[p].nrm.x + glob_mtx.m[2][1] * ViewPlane[p].nrm.y +
-                                 glob_mtx.m[2][2] * ViewPlane[p].nrm.z;
-                const float lx = glob_mtx.m[0][0] * x + glob_mtx.m[0][1] * y + glob_mtx.m[0][2] * z;
-                const float ly = glob_mtx.m[1][0] * x + glob_mtx.m[1][1] * y + glob_mtx.m[1][2] * z;
-                const float lz = glob_mtx.m[2][0] * x + glob_mtx.m[2][1] * y + glob_mtx.m[2][2] * z;
+                const float x = ViewPlane[p].d * ViewPlane[p].nrm.x - glob_mtx[3][0];
+                const float y = ViewPlane[p].d * ViewPlane[p].nrm.y - glob_mtx[3][1];
+                const float z = ViewPlane[p].d * ViewPlane[p].nrm.z - glob_mtx[3][2];
+                const float Nx = glob_mtx[0][0] * ViewPlane[p].nrm.x + glob_mtx[0][1] * ViewPlane[p].nrm.y +
+                                 glob_mtx[0][2] * ViewPlane[p].nrm.z;
+                const float Ny = glob_mtx[1][0] * ViewPlane[p].nrm.x + glob_mtx[1][1] * ViewPlane[p].nrm.y +
+                                 glob_mtx[1][2] * ViewPlane[p].nrm.z;
+                const float Nz = glob_mtx[2][0] * ViewPlane[p].nrm.x + glob_mtx[2][1] * ViewPlane[p].nrm.y +
+                                 glob_mtx[2][2] * ViewPlane[p].nrm.z;
+                const float lx = glob_mtx[0][0] * x + glob_mtx[0][1] * y + glob_mtx[0][2] * z;
+                const float ly = glob_mtx[1][0] * x + glob_mtx[1][1] * y + glob_mtx[1][2] * z;
+                const float lz = glob_mtx[2][0] * x + glob_mtx[2][1] * y + glob_mtx[2][2] * z;
                 TViewPlane[p].nrm.x = Nx;
                 TViewPlane[p].nrm.y = Ny;
                 TViewPlane[p].nrm.z = Nz;
-                TViewPlane[p].d = (Nx * lx + Ny * ly + Nz * lz) * glob_mtx.m[3][3];
+                TViewPlane[p].d = (Nx * lx + Ny * ly + Nz * lz) * glob_mtx[3][3];
             }
 
             // draw geos
@@ -549,7 +549,7 @@ void NODER::Link(entid_t id, bool transform)
     // modify loc_mtx of node
     if (transform)
     {
-        CMatrix glob_parent = next.back()->glob_mtx;
+        glm::mat4 glob_parent = next.back()->glob_mtx;
         // glob_parent.Transposition();
         // next[nnext-1]->loc_mtx = mdl->mtx * glob_parent;
     }

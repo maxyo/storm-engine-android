@@ -2,11 +2,11 @@
 
 // ANIMATION_HEADER
 // int32_t parentIndex[nJoints]
-// CVECTOR jointPos[nJoints]
+// glm::vec3 jointPos[nJoints]
 
 // Frames:
-// CVECTOR rootPos[nFrames]
-// CVECTOR jointAngle[nJoints][nFrames]
+// glm::vec3 rootPos[nFrames]
+// glm::vec3 jointAngle[nJoints][nFrames]
 
 #pragma pack(push, 1)
 

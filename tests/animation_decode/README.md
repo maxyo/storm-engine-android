@@ -1,7 +1,7 @@
 # Packed animation endpoint decoding
 
 `Bone::BlendFrame` may reuse a decoded quaternion when the two packed keys
-are identical. It must still run the original SLerp: equal endpoints do not
+are identical. It must still run the original slerp: equal endpoints do not
 justify replacing floating-point blend operations with a direct return.
 
 Run the synthetic differential test with the same GLM source used by CMake:
@@ -12,7 +12,7 @@ CXX=g++ python3 tests/animation_decode/run.py --glm-source /path/to/glm --saniti
 ```
 
 The fixture extracts production `GetFrame` and `BlendFrame` method bodies,
-uses production Quaternion/SLerp/GetMatrix, and compares against the previous
+uses the production `storm::math::slerp` and `glm::mat4_cast`, and compares against the previous
 BlendFrame implementation. Core, resource services and the Bone allocator are
 not involved. It compares quaternion/local-matrix bytes and FP exception flags
 under four rounding modes. Synthetic inputs cover every signed 16-bit packed

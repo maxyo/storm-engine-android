@@ -1,6 +1,6 @@
 #pragma once
 
-#include "c_vector.h"
+#include "storm_glm.h"
 #include "iv_buffer_manager.h"
 #include "t_flotsam.h"
 #include "t_sink_splash.h"
@@ -18,7 +18,7 @@ class TSink
 
     void Initialize(INIFILE *_ini, IDirect3DDevice9 *_device, SEA_BASE *sea, VDX9RENDER *_renderer);
     void Release();
-    void Start(const CVECTOR &_pos, float _radius);
+    void Start(const glm::vec3 &_pos, float _radius);
     void Process(uint32_t dTime);
     void Realize(uint32_t dTime);
     bool Enabled();
@@ -39,5 +39,5 @@ class TSink
     TFlotsam flotsams[sink_effect::MAX_FLOTSAMS];
     float distortDivider;
     float radius;
-    CVECTOR center;
+    glm::vec3 center;
 };

@@ -11,7 +11,7 @@
 #pragma once
 
 #include "dx9render.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "pillar.h"
 #include "sea_base.h"
 
@@ -19,7 +19,7 @@ class TornadoParticles
 {
     struct Particle
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         float angle;
         float size;
         float alpha;
@@ -43,7 +43,7 @@ class TornadoParticles
 
     struct Vertex
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         uint32_t color;
         float u, v;
     };
@@ -76,7 +76,7 @@ class TornadoParticles
     Pillar &pillar;
     entid_t seaID;
     float galpha;
-    CMatrix camMtx;
+    glm::mat4 camMtx;
     GroundParticle groundPrt[128];
     PillarParticle pillarPrt[1024];
     Vertex buffer[256 * 6];

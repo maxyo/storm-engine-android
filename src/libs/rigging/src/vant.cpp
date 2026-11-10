@@ -119,17 +119,17 @@ void VANT_BASE::Realize(uint32_t Delta_Time)
             return;
 
         // draw nature vants
-        CVECTOR cp, ca;
+        glm::vec3 cp, ca;
         float pr;
         RenderService->GetCamera(cp, ca, pr);
         pr = tanf(pr * .5f);
         for (auto gn = 0; gn < groupQuantity; gn++)
-            if (gdata[gn].nIndx && nVert && (~(gdata[gn].pMatWorld->Pos() - cp)) * pr < fVantMaxDist)
+            if (gdata[gn].nIndx && nVert && (storm::math::lengthSquared(storm::math::pos(*gdata[gn].pMatWorld) - cp)) * pr < fVantMaxDist)
             {
                 static_cast<SHIP_BASE *>(core.GetEntityPointer(gdata[gn].shipEI))->SetLightAndFog(true);
                 static_cast<SHIP_BASE *>(core.GetEntityPointer(gdata[gn].shipEI))->SetLights();
 
-                RenderService->SetTransform(D3DTS_WORLD, *gdata[gn].pMatWorld);
+                RenderService->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(*gdata[gn].pMatWorld));
                 RenderService->DrawBuffer(vBuf, sizeof(VANTVERTEX), iBuf, 0, nVert, gdata[gn].sIndx, gdata[gn].nIndx);
 
                 static_cast<SHIP_BASE *>(core.GetEntityPointer(gdata[gn].shipEI))->UnSetLights();
@@ -384,7 +384,7 @@ void VANT_BASE::SetVertexes() const
 {
     int j, i;
     uint32_t iv;
-    CVECTOR uPos, lPos, rPos;
+    glm::vec3 uPos, lPos, rPos;
 
     auto *pv = static_cast<VANTVERTEX *>(RenderService->LockVertexBuffer(vBuf));
     if (pv)
@@ -395,16 +395,16 @@ void VANT_BASE::SetVertexes() const
                 continue;
             iv = vlist[vn]->sv;
 
-            gdata[vlist[vn]->HostGroup].pMatWorld->MulToInv((*vlist[vn]->pUpMatWorld) * vlist[vn]->pUp, uPos);
-            gdata[vlist[vn]->HostGroup].pMatWorld->MulToInv((*vlist[vn]->pDownMatWorld) * vlist[vn]->pLeft, lPos);
-            gdata[vlist[vn]->HostGroup].pMatWorld->MulToInv((*vlist[vn]->pDownMatWorld) * vlist[vn]->pRight, rPos);
+            uPos = storm::math::inverseTransformPoint(*gdata[vlist[vn]->HostGroup].pMatWorld, storm::math::transformPoint(*vlist[vn]->pUpMatWorld, vlist[vn]->pUp));
+            lPos = storm::math::inverseTransformPoint(*gdata[vlist[vn]->HostGroup].pMatWorld, storm::math::transformPoint(*vlist[vn]->pDownMatWorld, vlist[vn]->pLeft));
+            rPos = storm::math::inverseTransformPoint(*gdata[vlist[vn]->HostGroup].pMatWorld, storm::math::transformPoint(*vlist[vn]->pDownMatWorld, vlist[vn]->pRight));
 
             // Set last parameters
             vlist[vn]->pLeftStart = vlist[vn]->pLeftOld = lPos;
             vlist[vn]->pUpStart = vlist[vn]->pUpOld = uPos;
 
-            CVECTOR horzDirect = !(rPos - lPos);
-            CVECTOR vertDirect = !((rPos + lPos) * .5f - uPos);
+            glm::vec3 horzDirect = storm::math::normalizeOrZero(rPos - lPos);
+            glm::vec3 vertDirect = storm::math::normalizeOrZero((rPos + lPos) * .5f - uPos);
             // Set angles point
             pv[iv].pos = uPos;
             pv[iv + 3].pos = pv[iv + 1].pos =
@@ -421,7 +421,7 @@ void VANT_BASE::SetVertexes() const
             pv[iv + 2].tu = treangXr;
             pv[iv + 2].tv = treangYd;
             //
-            const float fh = sqrtf(~((rPos + lPos) * .5f - uPos));
+            const float fh = sqrtf(storm::math::lengthSquared((rPos + lPos) * .5f - uPos));
             auto ftmp = static_cast<float>(static_cast<int>(fh / hRopeHeight + .5f));
             pv[iv + 3].tu = ropeXl;
             pv[iv + 3].tv = 0.f;
@@ -434,7 +434,7 @@ void VANT_BASE::SetVertexes() const
             iv += 7;
 
             // set beam points
-            CVECTOR tvec = uPos - horzDirect * (upWidth * .5f) + vertDirect * upHeight;
+            glm::vec3 tvec = uPos - horzDirect * (upWidth * .5f) + vertDirect * upHeight;
             pv[iv].pos = tvec - vertDirect * upHeight * fBalkHeight;
             pv[iv + 1].pos = tvec + vlist[vn]->pos[0] * fBalkWidth;
             pv[iv + 2].pos = tvec + vlist[vn]->pos[VANT_EDGE / 2] * fBalkWidth;
@@ -450,8 +450,8 @@ void VANT_BASE::SetVertexes() const
             iv += 6;
 
             // Set up ropes points
-            CVECTOR sp = uPos - horzDirect * (.5f * upWidth) + vertDirect * upHeight;
-            CVECTOR dp = horzDirect * (upWidth / static_cast<float>(ROPE_QUANT - 1));
+            glm::vec3 sp = uPos - horzDirect * (.5f * upWidth) + vertDirect * upHeight;
+            glm::vec3 dp = horzDirect * (upWidth / static_cast<float>(ROPE_QUANT - 1));
             const float dtmp = (vRopeXr - vRopeXl) / static_cast<float>(VANT_EDGE);
             for (i = 0; i < ROPE_QUANT; i++)
             {
@@ -540,25 +540,25 @@ void VANT_BASE::AddLabel(GEOS::LABEL &lbl, NODE *nod)
     switch (lbl.name[5])
     {
     case 'u': // up edge of vant
-        vd->pUp = CVECTOR(lbl.m[3][0], lbl.m[3][1], lbl.m[3][2]) - gdata[groupQuantity - 1].pMatWorld->Pos();
+        vd->pUp = glm::vec3(lbl.m[3][0], lbl.m[3][1], lbl.m[3][2]) - storm::math::pos(*gdata[groupQuantity - 1].pMatWorld);
         // + nod->glob_mtx.Pos();
         vd->pUpMatWorld = &nod->glob_mtx; // get host matrix
         break;
     case 'l': // left edge of vant
-        vd->pLeft = CVECTOR(lbl.m[3][0], lbl.m[3][1], lbl.m[3][2]) - gdata[groupQuantity - 1].pMatWorld->Pos();
+        vd->pLeft = glm::vec3(lbl.m[3][0], lbl.m[3][1], lbl.m[3][2]) - storm::math::pos(*gdata[groupQuantity - 1].pMatWorld);
         // + nod->glob_mtx.Pos();
         if (vd->pDownMatWorld == nullptr)
             vd->pDownMatWorld = &nod->glob_mtx; // get host matrix
         else if (vd->pDownMatWorld != &nod->glob_mtx)
-            vd->pDownMatWorld->MulToInv(nod->glob_mtx * vd->pLeft, vd->pLeft);
+            vd->pLeft = storm::math::inverseTransformPoint(*vd->pDownMatWorld, storm::math::transformPoint(nod->glob_mtx, vd->pLeft));
         break;
     case 'r': // right edge of vant
-        vd->pRight = CVECTOR(lbl.m[3][0], lbl.m[3][1], lbl.m[3][2]) - gdata[groupQuantity - 1].pMatWorld->Pos();
+        vd->pRight = glm::vec3(lbl.m[3][0], lbl.m[3][1], lbl.m[3][2]) - storm::math::pos(*gdata[groupQuantity - 1].pMatWorld);
         // + nod->glob_mtx.Pos();
         if (vd->pDownMatWorld == nullptr)
             vd->pDownMatWorld = &nod->glob_mtx; // get host matrix
         else if (vd->pDownMatWorld != &nod->glob_mtx)
-            vd->pDownMatWorld->MulToInv(nod->glob_mtx * vd->pLeft, vd->pLeft);
+            vd->pLeft = storm::math::inverseTransformPoint(*vd->pDownMatWorld, storm::math::transformPoint(nod->glob_mtx, vd->pLeft));
         break;
     }
 }
@@ -603,15 +603,15 @@ void VANT_BASE::SetAll()
             break;
 
         // Set normals with length equal the rope width
-        CMatrix tmat;
-        tmat.BuildViewMatrix(.5f * (vlist[vn]->pLeft + vlist[vn]->pRight), vlist[vn]->pUp, CVECTOR(0.f, 0.f, 1.f));
+        glm::mat4 tmat;
+        storm::math::viewMatrix(tmat, .5f * (vlist[vn]->pLeft + vlist[vn]->pRight), vlist[vn]->pUp, glm::vec3(0.f, 0.f, 1.f));
         float ca, sa;
         for (int i = 0; i < VANT_EDGE; i++)
         {
             ca = cosf(static_cast<float>(i) / static_cast<float>(VANT_EDGE) * 2.f * PI);
             sa = sinf(static_cast<float>(i) / static_cast<float>(VANT_EDGE) * 2.f * PI);
-            // tmat.MulToInvNorm(CVECTOR(ROPE_WIDTH/2.f*ca,ROPE_WIDTH/2.f*sa,0.f),vlist[vn]->pos[i]);
-            vlist[vn]->pos[i] = CVECTOR(ROPE_WIDTH / 2.f * ca, 0.f, ROPE_WIDTH / 2.f * sa);
+            // tmat.MulToInvNorm(glm::vec3(ROPE_WIDTH/2.f*ca,ROPE_WIDTH/2.f*sa,0.f),vlist[vn]->pos[i]);
+            vlist[vn]->pos[i] = glm::vec3(ROPE_WIDTH / 2.f * ca, 0.f, ROPE_WIDTH / 2.f * sa);
         }
 
         vlist[vn]->nv = (VANT_EDGE + 1) * ROPE_QUANT * 2 + 7 + 6;
@@ -866,7 +866,7 @@ void VANT_BASE::doMove()
 {
     int j, i;
     uint32_t iv;
-    CVECTOR uPos, lPos, rPos;
+    glm::vec3 uPos, lPos, rPos;
 
     auto *pv = static_cast<VANTVERTEX *>(RenderService->LockVertexBuffer(vBuf));
     if (pv)
@@ -878,10 +878,10 @@ void VANT_BASE::doMove()
                 bYesDeleted = true;
                 continue;
             }
-            CVECTOR vtmp, htmp;
-            gdata[vlist[vn]->HostGroup].pMatWorld->MulToInv(*vlist[vn]->pUpMatWorld * vlist[vn]->pUp, uPos);
-            gdata[vlist[vn]->HostGroup].pMatWorld->MulToInv(*vlist[vn]->pDownMatWorld * vlist[vn]->pLeft, lPos);
-            gdata[vlist[vn]->HostGroup].pMatWorld->MulToInv(*vlist[vn]->pDownMatWorld * vlist[vn]->pRight, rPos);
+            glm::vec3 vtmp, htmp;
+            uPos = storm::math::inverseTransformPoint(*gdata[vlist[vn]->HostGroup].pMatWorld, storm::math::transformPoint(*vlist[vn]->pUpMatWorld, vlist[vn]->pUp));
+            lPos = storm::math::inverseTransformPoint(*gdata[vlist[vn]->HostGroup].pMatWorld, storm::math::transformPoint(*vlist[vn]->pDownMatWorld, vlist[vn]->pLeft));
+            rPos = storm::math::inverseTransformPoint(*gdata[vlist[vn]->HostGroup].pMatWorld, storm::math::transformPoint(*vlist[vn]->pDownMatWorld, vlist[vn]->pRight));
 
             if (!VectCmp(lPos, vlist[vn]->pLeftStart, MAXFALL_CMP_VAL) ||
                 !VectCmp(uPos, vlist[vn]->pUpStart, MAXFALL_CMP_VAL))
@@ -896,8 +896,8 @@ void VANT_BASE::doMove()
                 vlist[vn]->pLeftOld = lPos;
                 vlist[vn]->pUpOld = uPos;
 
-                CVECTOR horzDirect = !(rPos - lPos);
-                CVECTOR vertDirect = !((rPos + lPos) * .5f - uPos);
+                glm::vec3 horzDirect = storm::math::normalizeOrZero(rPos - lPos);
+                glm::vec3 vertDirect = storm::math::normalizeOrZero((rPos + lPos) * .5f - uPos);
 
                 iv = vlist[vn]->sv;
 
@@ -912,7 +912,7 @@ void VANT_BASE::doMove()
                 iv += 7;
 
                 // set beam points
-                CVECTOR tvec = uPos - htmp + vertDirect * upHeight;
+                glm::vec3 tvec = uPos - htmp + vertDirect * upHeight;
                 pv[iv].pos = uPos - htmp + vtmp;
                 pv[iv + 1].pos = tvec + vlist[vn]->pos[0] * fBalkWidth;
                 pv[iv + 2].pos = tvec + vlist[vn]->pos[VANT_EDGE / 2] * fBalkWidth;
@@ -923,8 +923,8 @@ void VANT_BASE::doMove()
                 iv += 6;
 
                 // Set up ropes points
-                CVECTOR sp = uPos - horzDirect * (.5f * upWidth) + vertDirect * upHeight;
-                CVECTOR dp = horzDirect * (upWidth / static_cast<float>(ROPE_QUANT - 1));
+                glm::vec3 sp = uPos - horzDirect * (.5f * upWidth) + vertDirect * upHeight;
+                glm::vec3 dp = horzDirect * (upWidth / static_cast<float>(ROPE_QUANT - 1));
                 for (i = 0; i < ROPE_QUANT; i++)
                 {
                     for (j = 0; j <= VANT_EDGE; j++)
@@ -960,9 +960,9 @@ void VANT_BASE::doMove()
     }
 }
 
-bool VANT_BASE::VectCmp(CVECTOR v1, CVECTOR v2, float minCmpVal) // return true if equal
+bool VANT_BASE::VectCmp(glm::vec3 v1, glm::vec3 v2, float minCmpVal) // return true if equal
 {
-    const CVECTOR dv = v1 - v2;
+    const glm::vec3 dv = v1 - v2;
 
     if (dv.x > minCmpVal || dv.x < -minCmpVal || dv.y > minCmpVal || dv.y < -minCmpVal || dv.z > minCmpVal ||
         dv.z < -minCmpVal)
@@ -1022,14 +1022,14 @@ void VANT_BASE::SetAdd(int firstNum)
             break;
 
         // Set normals with length equal the rope width
-        CMatrix tmat;
-        tmat.BuildViewMatrix(.5f * (vlist[vn]->pLeft + vlist[vn]->pRight), vlist[vn]->pUp, CVECTOR(0.f, 0.f, 1.f));
+        glm::mat4 tmat;
+        storm::math::viewMatrix(tmat, .5f * (vlist[vn]->pLeft + vlist[vn]->pRight), vlist[vn]->pUp, glm::vec3(0.f, 0.f, 1.f));
         float ca, sa;
         for (int i = 0; i < VANT_EDGE; i++)
         {
             ca = cosf(static_cast<float>(i) / static_cast<float>(VANT_EDGE) * 2.f * PI);
             sa = sinf(static_cast<float>(i) / static_cast<float>(VANT_EDGE) * 2.f * PI);
-            tmat.MulToInvNorm(CVECTOR(ROPE_WIDTH / 2.f * ca, ROPE_WIDTH / 2.f * sa, 0.f), vlist[vn]->pos[i]);
+            vlist[vn]->pos[i] = storm::math::inverseTransformNormal(tmat, glm::vec3(ROPE_WIDTH / 2.f * ca, ROPE_WIDTH / 2.f * sa, 0.f));
         }
 
         vlist[vn]->nv = (VANT_EDGE + 1) * ROPE_QUANT * 2 + 7 + 6;

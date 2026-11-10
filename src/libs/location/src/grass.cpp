@@ -52,7 +52,7 @@ Grass::Grass()
 
     lodSelect = GRASS_BLK_LOD;
     winForce = 0.3f;
-    winDir = !CVECTOR(0.0f, 0.0f, 1.0f);
+    winDir = storm::math::normalizeOrZero(glm::vec3(0.0f, 0.0f, 1.0f));
 
     strcpy_s(textureName, GRASS_DEFTEXTURE);
 
@@ -404,7 +404,7 @@ void Grass::Realize(uint32_t delta_time)
     if (quality == rq_off)
         return;
 #endif
-    rs->SetTransform(D3DTS_WORLD, CMatrix());
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
     // Remove textures
     rs->TextureSet(0, -1);
     rs->TextureSet(1, -1);
@@ -443,7 +443,7 @@ void Grass::Realize(uint32_t delta_time)
 
     struct SphVertex
     {
-        CVECTOR v;
+        glm::vec3 v;
         uint32_t c;
     };
 
@@ -478,11 +478,11 @@ void Grass::Realize(uint32_t delta_time)
         lDir.x = light.Direction.x;
         lDir.y = 0.0f;
         lDir.z = light.Direction.z;
-        float len = ~lDir;
+        float len = storm::math::lengthSquared(lDir);
         if (len > 0.0f)
             lDir *= 1.0f / sqrtf(len);
         else
-            lDir = !CVECTOR(0.9f, 0.0f, 0.5f);
+            lDir = storm::math::normalizeOrZero(glm::vec3(0.9f, 0.0f, 0.5f));
         // Direction color
         lColor.z = light.Diffuse.r;
         lColor.y = light.Diffuse.g;
@@ -536,9 +536,9 @@ void Grass::Realize(uint32_t delta_time)
         if (aColor.z > 1.0f)
             aColor.z = 1.0f;
         // Direction
-        lDir = !CVECTOR(0.9f, 0.0f, 0.5f);
+        lDir = storm::math::normalizeOrZero(glm::vec3(0.9f, 0.0f, 0.5f));
         // Direction color
-        lColor = 0.3f;
+        lColor = glm::vec3(0.3f);
     }
 
     // recalculate the parameters of the angles
@@ -560,15 +560,14 @@ void Grass::Realize(uint32_t delta_time)
     }
 
     // matrix
-    CMatrix view, prj;
-    rs->GetTransform(D3DTS_VIEW, view);
-    rs->GetTransform(D3DTS_PROJECTION, prj);
+    glm::mat4 view, prj;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
 #ifdef _WIN32 // Effects
-    CMatrix cmtx;
-    cmtx.EqMultiply(view, prj);
+    const glm::mat4 cmtx = prj * view;
 #else
-    auto &cmtx = (CMatrix &)consts[32];
-    cmtx.EqMultiply(view, prj);
+    auto &cmtx = (glm::mat4 &)consts[32];
+    cmtx = prj * view;
     // Source Options
     consts[36].x = lDir.x;
     consts[36].y = lDir.z;
@@ -584,7 +583,7 @@ void Grass::Realize(uint32_t delta_time)
 #endif
 
     // Camera position
-    CVECTOR pos, ang;
+    glm::vec3 pos, ang;
     float prs;
     rs->GetCamera(pos, ang, prs);
     // Clipping planes
@@ -651,7 +650,7 @@ void Grass::Realize(uint32_t delta_time)
         camz = miniZ - 1;
     // Preparing blocks for rendering
     numPoints = 0;
-    rs->SetTransform(D3DTS_WORLD, CMatrix());
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
     
     if (right != miniX - 1 || bottom != miniZ - 1)
     {
@@ -729,14 +728,14 @@ void Grass::RestoreRender()
 }
 
 // Draw a block with coordinates on the minimap
-void Grass::RenderBlock(const CVECTOR &camPos, const PLANE *plane, int32_t numPlanes, int32_t mx, int32_t mz)
+void Grass::RenderBlock(const glm::vec3 &camPos, const PLANE *plane, int32_t numPlanes, int32_t mx, int32_t mz)
 {
     // Draw a buffer if overflowed
     if (numPoints >= GRASS_MAX_POINTS - (GRASS_CNT_MIN + GRASS_CNT_DLT) * 3)
     {
         DrawBuffer();
     }
-    CVECTOR min, max;
+    glm::vec3 min, max;
     // The block we draw
     GRSMiniMapElement &mm = miniMap[mz * miniX + mx];
     // Distance from the center of the cluster (box) to the camera in 2D
@@ -785,7 +784,7 @@ void Grass::RenderBlock(const CVECTOR &camPos, const PLANE *plane, int32_t numPl
 }
 
 // Box visibility check
-inline bool Grass::VisibleTest(const PLANE *plane, int32_t numPlanes, const CVECTOR &min, const CVECTOR &max)
+inline bool Grass::VisibleTest(const PLANE *plane, int32_t numPlanes, const glm::vec3 &min, const glm::vec3 &max)
 {
     for (int32_t i = 0; i < numPlanes; i++)
     {
@@ -1009,7 +1008,7 @@ void Grass::DrawBuffer()
     }
 }
 
-int32_t Grass::GetColor(CVECTOR color)
+int32_t Grass::GetColor(glm::vec3 color)
 {
     if (color.x > 1.0f)
         color.x = 1.0f;

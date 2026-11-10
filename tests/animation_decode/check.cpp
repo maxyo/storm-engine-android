@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "math_inlines.h"
-#include "math3d/quaternion.h"
+#include "storm_glm.h"
 
 struct PackedQuaternion
 {
@@ -22,9 +22,9 @@ struct Track
 {
     std::vector<PackedQuaternion> ang;
     int32_t numFrames;
-    void GetFrame(int32_t frame, Quaternion &out);
-    void baseline(int32_t frame, float blend, Quaternion &out);
-    void candidate(int32_t frame, float blend, Quaternion &out);
+    void GetFrame(int32_t frame, glm::quat &out);
+    void baseline(int32_t frame, float blend, glm::quat &out);
+    void candidate(int32_t frame, float blend, glm::quat &out);
 };
 #include "functions.inc"
 
@@ -33,7 +33,8 @@ constexpr std::array coefficients{-0.25f, -0.0f, 0.0f, 0.375f, 1.0f, 1.25f};
 
 void compare(Track &track, int frame, float blend)
 {
-    Quaternion before(1, 2, 3, 4), after = before;
+    // glm::quat takes w first; the stored order is x, y, z, w.
+    glm::quat before(4, 1, 2, 3), after = before;
     feclearexcept(FE_ALL_EXCEPT);
     track.baseline(frame, blend, before);
     const auto flags = fetestexcept(FE_ALL_EXCEPT);
@@ -41,9 +42,8 @@ void compare(Track &track, int frame, float blend)
     track.candidate(frame, blend, after);
     if (memcmp(&before, &after, sizeof(before)) || flags != fetestexcept(FE_ALL_EXCEPT))
         throw std::runtime_error("quaternion or FP flags differ at frame " + std::to_string(frame));
-    Matrix beforeMatrix, afterMatrix;
-    before.GetMatrix(beforeMatrix);
-    after.GetMatrix(afterMatrix);
+    const glm::mat4 beforeMatrix = glm::mat4_cast(before);
+    const glm::mat4 afterMatrix = glm::mat4_cast(after);
     if (memcmp(&beforeMatrix, &afterMatrix, sizeof(beforeMatrix)))
         throw std::runtime_error("local matrix differs");
 }
@@ -126,7 +126,7 @@ void benchmark(std::vector<Track> &tracks, uint64_t pairs)
             for (auto &track : tracks)
                 for (int frame = 0; frame < track.numFrames - 1; ++frame)
                 {
-                    Quaternion result;
+                    glm::quat result;
                     if (candidate)
                         track.candidate(frame, .375f, result);
                     else

@@ -25,7 +25,7 @@ WdmRenderModel::WdmRenderModel()
     alpha = 1.0f;
     tech = WDM_MODEL_TECH;
     techa = WDM_MODEL_TECHA;
-    center = 0.0f;
+    center = glm::vec3(0.0f);
     radius = 0.0f;
 
     drawCircle = false;
@@ -42,7 +42,7 @@ bool WdmRenderModel::Load(const char *modelName)
     {
         GEOS::INFO ginfo;
         geo->GetInfo(ginfo);
-        center = CVECTOR(ginfo.boxcenter.x, ginfo.boxcenter.y, ginfo.boxcenter.z);
+        center = glm::vec3(ginfo.boxcenter.x, ginfo.boxcenter.y, ginfo.boxcenter.z);
         radius = sqrtf(ginfo.boxsize.x * ginfo.boxsize.x + ginfo.boxsize.z * ginfo.boxsize.z) * 0.51f;
         return true;
     }
@@ -57,23 +57,23 @@ void WdmRenderModel::PRender(VDX9RENDER *rs)
 void WdmRenderModel::MRender(VDX9RENDER *rs)
 {
     auto m(mtx);
-    m.m[0][1] = -m.m[0][1];
-    m.m[1][1] = -m.m[1][1];
-    m.m[2][1] = -m.m[2][1];
-    m.m[3][1] = -m.m[3][1];
-    rs->SetTransform(D3DTS_WORLD, m);
+    m[0][1] = -m[0][1];
+    m[1][1] = -m[1][1];
+    m[2][1] = -m[2][1];
+    m[3][1] = -m[3][1];
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(m));
     Render(rs);
 }
 
 void WdmRenderModel::LRender(VDX9RENDER *rs)
 {
-    rs->SetTransform(D3DTS_WORLD, mtx);
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mtx));
     Render(rs);
 
     /*
     if(drawCircle)
     {
-      CMatrix m(mtx);
+      glm::mat4 m(mtx);
       m.Pos() = m*center;
       wdmObjects->DrawCircle(m, radius, 0x2f0fffff);
       //wdmObjects->DrawCircle(mtx, modelRadius, 0x2fffff0f);
@@ -133,9 +133,9 @@ void WdmRenderModel::Render(VDX9RENDER *rs) const
     }
     // Check for visibility
     auto *const plane = rs->GetPlanes();
-    static CMatrix mtx;
-    rs->GetTransform(D3DTS_WORLD, mtx);
-    const auto v = mtx * center;
+    static glm::mat4 mtx;
+    rs->GetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mtx));
+    const auto v = storm::math::transformPoint(mtx, center);
     for (int32_t i = 0; i < 4; i++)
     {
         auto &p = plane[i];

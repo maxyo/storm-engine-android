@@ -449,7 +449,7 @@ void XINTERFACE::Realize(uint32_t)
 
     auto Delta_Time = core.GetRDeltaTime();
 
-    CMatrix moldv, moldp, moldw;
+    glm::mat4 moldv, moldp, moldw;
 
     uint32_t dwFogFlag;
     pRenderService->GetRenderState(D3DRS_FOGENABLE, &dwFogFlag);
@@ -458,12 +458,12 @@ void XINTERFACE::Realize(uint32_t)
             ;
 
     // Get old transformation
-    pRenderService->GetTransform(D3DTS_VIEW, moldv);
-    pRenderService->GetTransform(D3DTS_PROJECTION, moldp);
+    pRenderService->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(moldv));
+    pRenderService->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(moldp));
     // Set new transformation
-    pRenderService->SetTransform(D3DTS_WORLD, matw);
-    pRenderService->SetTransform(D3DTS_VIEW, matv);
-    pRenderService->SetTransform(D3DTS_PROJECTION, matp);
+    pRenderService->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(matw));
+    pRenderService->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(matv));
+    pRenderService->SetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(matp));
 
     DrawNode(m_pNodes, Delta_Time, 0, 80);
 
@@ -609,8 +609,8 @@ void XINTERFACE::Realize(uint32_t)
     pRenderService->SetRenderState(D3DRS_FOGENABLE, dwFogFlag);
 
     // Restore old transformation
-    pRenderService->SetTransform(D3DTS_VIEW, moldv);
-    pRenderService->SetTransform(D3DTS_PROJECTION, moldp);
+    pRenderService->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(moldv));
+    pRenderService->SetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(moldp));
 }
 
 int32_t oldCurNum = -1L;
@@ -1302,23 +1302,23 @@ void XINTERFACE::LoadIni()
     m_fpMouseOutZoneOffset.y = ini->GetFloat(section, "mouseOutZoneHeight", 0.f);
     m_nMouseLastClickTimeMax = ini->GetInt(section, "mouseDblClickInterval", 300);
 
-    CMatrix oldmatp;
+    glm::mat4 oldmatp;
     pRenderService->GetTransform(D3DTS_PROJECTION, (D3DMATRIX *)&oldmatp);
     GlobalRect.left = GlobalScreenRect.left;
     GlobalRect.top = GlobalScreenRect.top;
     GlobalRect.right = GlobalScreenRect.right;
     GlobalRect.bottom = GlobalScreenRect.bottom;
 
-    matp.m[0][0] = 2.f / dwScreenWidth * fScale;
-    matp.m[1][1] = -2.f / dwScreenHeight * fScale;
-    matp.m[2][2] = 1.0003f;
-    matp.m[2][3] = 1.f;
-    matp.m[3][2] = 0.f;
-    matp.m[3][3] = 0.f;
-    matp.m[3][2] = -1.f;
+    matp[0][0] = 2.f / dwScreenWidth * fScale;
+    matp[1][1] = -2.f / dwScreenHeight * fScale;
+    matp[2][2] = 1.0003f;
+    matp[2][3] = 1.f;
+    matp[3][2] = 0.f;
+    matp[3][3] = 0.f;
+    matp[3][2] = -1.f;
 
-    matv.m[3][0] = -(GlobalScreenRect.left + GlobalScreenRect.right) / 2.f;
-    matv.m[3][1] = -(GlobalScreenRect.top + GlobalScreenRect.bottom) / 2.f;
+    matv[3][0] = -(GlobalScreenRect.left + GlobalScreenRect.right) / 2.f;
+    matv[3][1] = -(GlobalScreenRect.top + GlobalScreenRect.bottom) / 2.f;
 
     // set key press data
     m_nMaxPressDelay = ini->GetInt(section, "RepeatDelay", 500);

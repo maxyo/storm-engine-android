@@ -12,7 +12,7 @@
 
 //============================================================================================
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "service.h"
 
 //============================================================================================
@@ -185,7 +185,7 @@ class Animation
     // Get the number of bones in a skeleton
     virtual int32_t GetNumBones() const = 0;
     // Get animation matrix for bone
-    virtual CMatrix &GetAnimationMatrix(int32_t iBone) const = 0;
+    virtual glm::mat4 &GetAnimationMatrix(int32_t iBone) const = 0;
     // miscellanea
     // Get custom data for animation
     virtual const char *GetData(const char *dataName) const = 0;

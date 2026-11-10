@@ -2,14 +2,14 @@
 
 #include "../../i_common/mem_file.h"
 
-#include "math3d.h"
+#include "storm_glm.h"
 #include <string>
 
 class DataPosition
 {
     std::string Name;
 
-    Vector Value;
+    glm::vec3 Value;
 
   public:
     // constructor / destructor
@@ -17,10 +17,10 @@ class DataPosition
     virtual ~DataPosition();
 
     // Get value (Current time, Random factor [0..1])
-    const Vector &GetValue() const;
+    const glm::vec3 &GetValue() const;
 
     // Set value
-    void SetValue(const Vector &val);
+    void SetValue(const glm::vec3 &val);
 
     void Load(MemFile *File);
     void Write(MemFile *File) const;

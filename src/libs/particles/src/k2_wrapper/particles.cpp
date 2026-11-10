@@ -38,7 +38,7 @@ uint64_t PARTICLES::ProcessMessage(MESSAGE &message)
 {
     const auto code = message.Long();
 
-    CVECTOR pos, angles;
+    glm::vec3 pos, angles;
     int32_t lifetime;
 
     switch (code)
@@ -131,15 +131,15 @@ uint64_t PARTICLES::ProcessMessage(MESSAGE &message)
         pos.y = message.Float();
         pos.z = message.Float();
 
-        Vector normal;
+        glm::vec3 normal;
         normal.x = message.Float();
         normal.y = message.Float();
         normal.z = message.Float();
-        const auto fLen = static_cast<double>(normal.Normalize());
+        const auto fLen = static_cast<double>(storm::math::normalizeInPlace(normal));
 
         if (fLen)
         {
-            angles.y = normal.GetAY();
+            angles.y = storm::math::angleY(normal);
             auto fDiv = -(normal.y / fLen);
             fDiv = Min(Max(fDiv, -1.0), 1.0);
             angles.x = static_cast<float>(asin(fDiv));

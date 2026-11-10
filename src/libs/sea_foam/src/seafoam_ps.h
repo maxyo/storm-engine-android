@@ -1,6 +1,6 @@
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "dx9render.h"
 #include "geometry.h"
 #include "v_file_service.h"
@@ -47,7 +47,7 @@
 
 struct PARTICLE_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     uint32_t color;
     float tu, tv;
 };
@@ -56,11 +56,11 @@ struct PARTICLE_VERTEX
 
 struct PARTICLE
 {
-    CVECTOR pos;
-    CVECTOR ang;
-    CVECTOR v;
-    CVECTOR chaos;
-    CVECTOR track_dest;
+    glm::vec3 pos;
+    glm::vec3 ang;
+    glm::vec3 v;
+    glm::vec3 chaos;
+    glm::vec3 track_dest;
 
     float size;
     float weight;
@@ -117,14 +117,14 @@ class SEAFOAM_PS : VPARTICLE_SYSTEM
 
     IDirect3DVertexBuffer9 *VBuffer;
 
-    CVECTOR Camera_EmitterPos;
-    CVECTOR Camera_EmitterPosA;
-    CVECTOR Emitter;
-    CVECTOR EmitterDirection;
+    glm::vec3 Camera_EmitterPos;
+    glm::vec3 Camera_EmitterPosA;
+    glm::vec3 Emitter;
+    glm::vec3 EmitterDirection;
     float DirectionDeviation;
     int32_t EmitterIniTime;
 
-    CVECTOR vWindDirection;
+    glm::vec3 vWindDirection;
     float fWindPower;
     float fWindEffect;
     float Gravity;
@@ -147,8 +147,8 @@ class SEAFOAM_PS : VPARTICLE_SYSTEM
     int32_t DeltaTimeSLE;  // SinceLastEmission
     bool EmitParticle();
     int32_t nSystemLifeTime;
-    // void  AddTrackPoint(CVECTOR pos);
-    CVECTOR *pFlowTrack;
+    // void  AddTrackPoint(glm::vec3 pos);
+    glm::vec3 *pFlowTrack;
     uint32_t nFlowTrackSize;
     bool bUseFlowTrack;
     void SetFlowTrack(uint32_t index);
@@ -165,11 +165,11 @@ class SEAFOAM_PS : VPARTICLE_SYSTEM
 
     //---------------------------------
 
-    CVECTOR CameraPos;
-    CVECTOR CameraAng;
+    glm::vec3 CameraPos;
+    glm::vec3 CameraAng;
     float Perspective;
 
-    CMatrix Matrix;
+    glm::mat4 Matrix;
 
     bool bComplete;
 
@@ -183,9 +183,9 @@ class SEAFOAM_PS : VPARTICLE_SYSTEM
     SEAFOAM_PS *r_PTR;
 
     entid_t LinkObject;
-    CVECTOR LinkPos;
-    CVECTOR LinkDir;
-    CVECTOR LinkDirPos;
+    glm::vec3 LinkPos;
+    glm::vec3 LinkDir;
+    glm::vec3 LinkDirPos;
 
     int32_t EmitIndex;
     int32_t EmitTimeDelta;
@@ -209,8 +209,8 @@ class SEAFOAM_PS : VPARTICLE_SYSTEM
 
     float GetTrackValue(TRACK_EVENT *Track, int32_t Time);
     bool BuildTrack(INIFILE *ini, TRACK_EVENT *Track, const char *psname, const char *key_name);
-    void SetEmitter(CVECTOR p, CVECTOR a) override;
-    void LinkToObject(entid_t id, CVECTOR _LinkPos) override;
+    void SetEmitter(glm::vec3 p, glm::vec3 a) override;
+    void LinkToObject(entid_t id, glm::vec3 _LinkPos) override;
     void SetDelay(int32_t _delay) override;
 
     void EnableEmit(bool _enableEmit)

@@ -52,11 +52,11 @@ void AIShipCameraController::Execute(float fDeltaTime)
     else
     {
         uint32_t i, j, iMax;
-        CMatrix m;
+        glm::mat4 m;
 
-        AIHelper::pRS->GetTransform(D3DTS_VIEW, m);
-        m.Transposition();
-        const auto vZ = m.Vz();
+        AIHelper::pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(m));
+        storm::math::invertRigid(m);
+        const auto vZ = storm::math::vz(m);
 
         auto bEnemy = false;
         if (GetAIShip()->GetCannonController()->isCanFire(vZ))
@@ -64,17 +64,17 @@ void AIShipCameraController::Execute(float fDeltaTime)
             auto fBestDistance = 1e8f;
             auto vFirePos = GetAIShip()->GetCannonController()->GetFirePos(vZ);
 
-            const auto vFireDir = !(vFirePos - vOurPos);
-            const auto fFireDist = sqrtf(~(vFirePos - vOurPos));
+            const auto vFireDir = storm::math::normalizeOrZero(vFirePos - vOurPos);
+            const auto fFireDist = sqrtf(storm::math::lengthSquared(vFirePos - vOurPos));
             vFirePos.y = 0.0f;
             // check Ships
             for (i = 0; i < AIShip::AIShips.size(); i++)
                 if (GetAIShip() != AIShip::AIShips[i])
                 {
-                    auto vFakeShipPos = AIShip::AIShips[i]->GetPos() + (!(AIShip::AIShips[i]->GetPos() - vOurPos)) *
+                    auto vFakeShipPos = AIShip::AIShips[i]->GetPos() + (storm::math::normalizeOrZero(AIShip::AIShips[i]->GetPos() - vOurPos)) *
                                                                            AIShip::AIShips[i]->GetBoxsize().z * 0.8f;
                     AIHelper::pRS->DrawSphere(vFakeShipPos, 2.0f, 0xFF00FF00);
-                    const auto fDistance = (vFakeShipPos - vFirePos).GetLength2D();
+                    const auto fDistance = storm::math::lengthXZ(vFakeShipPos - vFirePos);
                     // AIShip::AIShips[i]->GetDistance(vFirePos);
                     if (fDistance <= 0.8f * AIShip::AIShips[i]->GetBoxsize().z)
                     {
@@ -104,12 +104,12 @@ void AIShipCameraController::Execute(float fDeltaTime)
                             continue;
                         if (fDistance > fBestDistance)
                             continue;
-                        const auto fDot = vFireDir | (!(pC->GetPos() - vOurPos));
+                        const auto fDot = glm::dot(vFireDir, storm::math::normalizeOrZero(pC->GetPos() - vOurPos));
                         if (fDot < 0.0f)
                             continue;
 
                         auto vFire2CannonPos = GetAIShip()->GetCannonController()->GetFirePos(vZ, fDistance);
-                        const auto fRealDistance = ~(vFire2CannonPos - pC->GetPos());
+                        const auto fRealDistance = storm::math::lengthSquared(vFire2CannonPos - pC->GetPos());
                         if (fRealDistance > SQR(8.0f))
                             continue;
 
@@ -134,13 +134,13 @@ void AIShipCameraController::Execute(float fDeltaTime)
 
 bool AIShipCameraController::Fire()
 {
-    CMatrix m;
+    glm::mat4 m;
 
-    AIHelper::pRS->GetTransform(D3DTS_VIEW, m);
-    m.Transposition();
-    const auto vZ = m.Vz();
-    // CVECTOR vZ = m * CVECTOR(0.0f, 0.0f, 1.0f);
-    // vZ = !CVECTOR(vZ.x, 0.0f, vZ.z);
+    AIHelper::pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(m));
+    storm::math::invertRigid(m);
+    const auto vZ = storm::math::vz(m);
+    // glm::vec3 vZ = m * glm::vec3(0.0f, 0.0f, 1.0f);
+    // vZ = !glm::vec3(vZ.x, 0.0f, vZ.z);
     if (!GetAIShip()->GetCannonController()->isCanFire(vZ))
         return false;
 
@@ -151,7 +151,7 @@ bool AIShipCameraController::Fire()
     }
 
     // if (pTargetAPointer) AIGroup::GroupSetAttack(GetAIShip()->GetACharacter(), pTargetAPointer);
-    return GetAIShip()->GetCannonController()->Fire(m.Pos(), vZ);
+    return GetAIShip()->GetCannonController()->Fire(storm::math::pos(m), vZ);
 }
 
 void AIShipCameraController::Realize(float fDeltaTime)
@@ -159,25 +159,25 @@ void AIShipCameraController::Realize(float fDeltaTime)
     if (isCameraOutside())
         return;
 
-    CMatrix m;
+    glm::mat4 m;
     RS_RECT rCam;
 
-    // AIHelper::pRS->GetTransform(D3DTS_VIEW, m); m.Transposition();    CVECTOR vZ = m.Vz();
+    // AIHelper::pRS->GetTransform(D3DTS_VIEW, m); m.Transposition();    glm::vec3 vZ = m.Vz();
     const auto mOldView = m;
-    AIHelper::pRS->GetTransform(D3DTS_VIEW, mOldView);
+    AIHelper::pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mOldView));
     m = mOldView;
-    m.Transposition();
-    const auto vZ = m.Vz();
-    /*CVECTOR campos,camang;
+    storm::math::invertRigid(m);
+    const auto vZ = storm::math::vz(m);
+    /*glm::vec3 campos,camang;
     float campersp;
     AIHelper::pRS->GetCamera(campos,camang,campersp);
     m.BuildMatrix(camang);
-    CVECTOR vZ = m.Vz();*/
+    glm::vec3 vZ = m.Vz();*/
     if (!GetAIShip()->GetCannonController()->isCanFire(vZ))
         return;
 
-    m.SetIdentity();
-    AIHelper::pRS->SetTransform(D3DTS_VIEW, m);
+    m = glm::mat4(1.0f);
+    AIHelper::pRS->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(m));
 
     rCam.dwColor = Colors[dwTarget];
 
@@ -186,14 +186,14 @@ void AIShipCameraController::Realize(float fDeltaTime)
     rCam.fAngle = 0.0f;
     const auto fSizeMultiply = 0.9f + (0.2f * ((fDelta > 1.0f) ? fDelta : (2.0f - fDelta)));
     rCam.fSize = fSizeMultiply * pACrosshair->GetAttributeAsFloat("Size");
-    // rCam.vPos = campos + m * CVECTOR(0.0f,0.0f,1.0f);
-    rCam.vPos = m * CVECTOR(0.0f, 0.0f, 1.0f);
+    // rCam.vPos = campos + m * glm::vec3(0.0f,0.0f,1.0f);
+    rCam.vPos = storm::math::transformPoint(m, glm::vec3(0.0f, 0.0f, 1.0f));
     rCam.dwSubTexture = 0;
 
     AIHelper::pRS->TextureSet(0, iCrosshairTex);
     AIHelper::pRS->DrawRects(&rCam, 1, pACrosshair->GetAttribute("Technique"), dwSubTexturesX, dwSubTexturesY);
 
-    AIHelper::pRS->SetTransform(D3DTS_VIEW, mOldView);
+    AIHelper::pRS->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mOldView));
 }
 
 void AIShipCameraController::Save(CSaveLoad *pSL) const

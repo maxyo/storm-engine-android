@@ -43,7 +43,7 @@ class VAI_INNEROBJ : public AIAttributesHolder
     virtual ~VAI_INNEROBJ(){};
 
     // check for fire possibility
-    virtual bool isCanFire(const CVECTOR &vFirePos) const
+    virtual bool isCanFire(const glm::vec3 &vFirePos) const
     {
         return false;
     }
@@ -131,27 +131,27 @@ class VAI_INNEROBJ : public AIAttributesHolder
     };
 
     virtual void ReleasePoint(VAI_INNEROBJ *){};
-    virtual CVECTOR GetAttackPoint(VAI_INNEROBJ *) = 0;
-    virtual CVECTOR GetFollowPoint(VAI_INNEROBJ *) = 0;
-    virtual CVECTOR GetAbordagePoint(VAI_INNEROBJ *pOtherObj) = 0;
+    virtual glm::vec3 GetAttackPoint(VAI_INNEROBJ *) = 0;
+    virtual glm::vec3 GetFollowPoint(VAI_INNEROBJ *) = 0;
+    virtual glm::vec3 GetAbordagePoint(VAI_INNEROBJ *pOtherObj) = 0;
 
     virtual float GetMaxFireDistance() = 0;
     virtual float GetMinFireDistance() = 0;
 
     virtual float GetDistance(const VAI_INNEROBJ &OtherAIObj) const
     {
-        return sqrtf(~(GetPos() - OtherAIObj.GetPos()));
+        return sqrtf(storm::math::lengthSquared(GetPos() - OtherAIObj.GetPos()));
     };
 
-    virtual float GetDistance(const CVECTOR &vOtherPos) const
+    virtual float GetDistance(const glm::vec3 &vOtherPos) const
     {
-        return sqrtf(~(GetPos() - vOtherPos));
+        return sqrtf(storm::math::lengthSquared(GetPos() - vOtherPos));
     };
-    virtual CVECTOR GetBoxsize() const = 0;
-    virtual CVECTOR GetPos() const = 0;
-    virtual CVECTOR GetAng() const = 0;
+    virtual glm::vec3 GetBoxsize() const = 0;
+    virtual glm::vec3 GetPos() const = 0;
+    virtual glm::vec3 GetAng() const = 0;
 
-    virtual void SetPos(const CVECTOR &vNewPos) = 0;
+    virtual void SetPos(const glm::vec3 &vNewPos) = 0;
     virtual void SetAngleY(float fAngleY) = 0;
 };
 
@@ -230,7 +230,7 @@ class AIShip : public VAI_INNEROBJ
     static void ShipSetAttack(uint32_t dwPriority, ATTRIBUTES *pACharacter1, ATTRIBUTES *pACharacter2);
     static void ShipSetRunAway(uint32_t dwPriority, ATTRIBUTES *pACharacter1);
     static void ShipSetMove(uint32_t dwPriority, ATTRIBUTES *pACharacter1, ATTRIBUTES *pACharacter2);
-    static void ShipSetMove(uint32_t dwPriority, ATTRIBUTES *pACharacter1, CVECTOR &vPnt);
+    static void ShipSetMove(uint32_t dwPriority, ATTRIBUTES *pACharacter1, glm::vec3 &vPnt);
     static void ShipSetDrift(uint32_t dwPriority, ATTRIBUTES *pACharacter1);
     static void ShipSetDefend(uint32_t dwPriority, ATTRIBUTES *pACharacter1, ATTRIBUTES *pACharacter2);
     static void ShipSetBrander(uint32_t dwPriority, ATTRIBUTES *pACharacter1, ATTRIBUTES *pACharacter2);
@@ -260,7 +260,7 @@ class AIShip : public VAI_INNEROBJ
     float GetAttackHP(float fDistance);
     float GetDefendHP();
 
-    virtual void GetPrediction(float fTime, CVECTOR *vPos, CVECTOR *vAng);
+    virtual void GetPrediction(float fTime, glm::vec3 *vPos, glm::vec3 *vAng);
     //
 
     // controllers
@@ -306,9 +306,9 @@ class AIShip : public VAI_INNEROBJ
     void SetACharacter(ATTRIBUTES *pAP) override;
     void ReleasePoint(VAI_INNEROBJ *) override;
 
-    CVECTOR GetAttackPoint(VAI_INNEROBJ *) override;
-    CVECTOR GetFollowPoint(VAI_INNEROBJ *) override;
-    CVECTOR GetAbordagePoint(VAI_INNEROBJ *pOtherObj) override;
+    glm::vec3 GetAttackPoint(VAI_INNEROBJ *) override;
+    glm::vec3 GetFollowPoint(VAI_INNEROBJ *) override;
+    glm::vec3 GetAbordagePoint(VAI_INNEROBJ *pOtherObj) override;
 
     float GetMaxFireDistance() override
     {
@@ -342,7 +342,7 @@ class AIShip : public VAI_INNEROBJ
     };
 
     // inherit functions from VAI_OBJBASE
-    CMatrix *GetMatrix() const
+    glm::mat4 *GetMatrix() const
     {
         return GetAIObjShipPointer()->GetMatrix();
     };
@@ -357,22 +357,22 @@ class AIShip : public VAI_INNEROBJ
         return GetAIObjShipPointer()->GetModelEID();
     };
 
-    CVECTOR GetBoxsize() const override
+    glm::vec3 GetBoxsize() const override
     {
         return GetAIObjShipPointer()->GetBoxsize();
     };
 
-    CVECTOR GetPos() const override
+    glm::vec3 GetPos() const override
     {
         return GetAIObjShipPointer()->GetPos();
     };
 
-    CVECTOR GetAng() const override
+    glm::vec3 GetAng() const override
     {
         return GetAIObjShipPointer()->GetAng();
     };
 
-    void SetPos(const CVECTOR &vNewPos) override
+    void SetPos(const glm::vec3 &vNewPos) override
     {
         GetAIObjShipPointer()->SetPos(vNewPos);
     };
@@ -383,7 +383,7 @@ class AIShip : public VAI_INNEROBJ
     }
 
     // battle section
-    bool isCanFire(const CVECTOR &vFirePos) const override;
+    bool isCanFire(const glm::vec3 &vFirePos) const override;
     virtual bool Fire(bool bCameraOutside);
 
     // execute/realize section
@@ -395,9 +395,9 @@ class AIShip : public VAI_INNEROBJ
     ~AIShip() override;
 
     void Unload() const;
-    void CreateShip(entid_t _eidShip, ATTRIBUTES *_pACharacter, ATTRIBUTES *_pAShip, CVECTOR *vInitPos);
+    void CreateShip(entid_t _eidShip, ATTRIBUTES *_pACharacter, ATTRIBUTES *_pAShip, glm::vec3 *vInitPos);
     void CheckStartPosition() const;
-    bool isCanPlace(CVECTOR vNewPos) const;
+    bool isCanPlace(glm::vec3 vNewPos) const;
 
     void Save(CSaveLoad *pSL) const;
     void Load(CSaveLoad *pSL);

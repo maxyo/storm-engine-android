@@ -33,7 +33,7 @@ AnimationImp::AnimationImp(int32_t id, AnimationInfo *animationInfo)
         action[i].SetAnimation(this, i);
         timer[i].SetAnimation(this);
     }
-    matrix = new CMatrix[aniInfo->NumBones()];
+    matrix = new glm::mat4[aniInfo->NumBones()];
     memset(ae_listeners, 0, sizeof(ae_listeners));
     ae_listenersExt = nullptr;
     // Auto normalization
@@ -117,7 +117,7 @@ int32_t AnimationImp::GetNumBones() const
 }
 
 // Get animation matrix for bone
-CMatrix &AnimationImp::GetAnimationMatrix(int32_t iBone) const
+glm::mat4 &AnimationImp::GetAnimationMatrix(int32_t iBone) const
 {
     Assert(iBone >= 0 && iBone < aniInfo->NumBones());
     // Matrices are built on first use after a time step, not on every step:
@@ -275,31 +275,27 @@ void AnimationImp::BuildAnimationMatrices()
             for (int32_t j = 0; j < nbones; j++)
             {
                 auto &bn = aniInfo->GetBone(j);
-                Matrix tmpMtx;
-                CMatrix inmtx;
-                Quaternion qt0, qt1, qt;
+                glm::quat qt0, qt1;
                 bn.BlendFrame(f0, ki0, qt0);
                 bn.BlendFrame(f1, ki1, qt1);
-                qt.SLerp(qt0, qt1, kBlend);
-                qt.GetMatrix(tmpMtx);
-                inmtx = tmpMtx;
-                inmtx.Pos() = bn.pos0;
+                auto inmtx = glm::mat4_cast(storm::math::slerp(qt0, qt1, kBlend));
+                storm::math::pos(inmtx) = bn.pos0;
                 if (j == 0)
                 {
                     auto p0 = bn.pos[f0] + ki0 * (bn.pos[f0 + 1] - bn.pos[f0]);
                     auto p1 = bn.pos[f1] + ki1 * (bn.pos[f1 + 1] - bn.pos[f1]);
-                    inmtx.Pos() = p0 + kBlend * (p1 - p0);
+                    storm::math::pos(inmtx) = p0 + kBlend * (p1 - p0);
                 }
 
                 // Procedural head look
                 if (j == headBoneIndex && isControllableHead)
                 {
-                    inmtx.RotateX(customHeadAX);
-                    inmtx.RotateY(customHeadAY);
+                    inmtx = storm::math::rotationX(customHeadAX) * inmtx;
+                    inmtx = storm::math::rotationY(customHeadAY) * inmtx;
                 }
 
                 if (bn.parent)
-                    bn.matrix.EqMultiply(inmtx, CMatrix(bn.parent->matrix));
+                    bn.matrix = glm::mat4(bn.parent->matrix) * inmtx;
                 else
                     bn.matrix = inmtx;
             }
@@ -319,25 +315,22 @@ void AnimationImp::BuildAnimationMatrices()
             for (int32_t j = 0; j < nbones; j++)
             {
                 auto &bn = aniInfo->GetBone(j);
-                Matrix tmpMtx;
-                CMatrix inmtx;
-                Quaternion qt;
+                glm::quat qt;
                 bn.BlendFrame(f, ki, qt);
-                qt.GetMatrix(tmpMtx);
-                inmtx = tmpMtx;
-                inmtx.Pos() = bn.pos0;
+                auto inmtx = glm::mat4_cast(qt);
+                storm::math::pos(inmtx) = bn.pos0;
                 if (j == 0)
-                    inmtx.Pos() = bn.pos[f] + ki * (bn.pos[f + 1] - bn.pos[f]);
+                    storm::math::pos(inmtx) = bn.pos[f] + ki * (bn.pos[f + 1] - bn.pos[f]);
 
                 // Procedural head look
                 if (j == headBoneIndex && isControllableHead)
                 {
-                    inmtx.RotateX(customHeadAX);
-                    inmtx.RotateY(customHeadAY);
+                    inmtx = storm::math::rotationX(customHeadAX) * inmtx;
+                    inmtx = storm::math::rotationY(customHeadAY) * inmtx;
                 }
 
                 if (bn.parent)
-                    bn.matrix.EqMultiply(inmtx, CMatrix(bn.parent->matrix));
+                    bn.matrix = glm::mat4(bn.parent->matrix) * inmtx;
                 else
                     bn.matrix = inmtx;
             }
@@ -357,25 +350,22 @@ void AnimationImp::BuildAnimationMatrices()
             for (int32_t j = 0; j < nbones; j++)
             {
                 auto &bn = aniInfo->GetBone(j);
-                Matrix tmpMtx;
-                CMatrix inmtx;
-                Quaternion qt;
+                glm::quat qt;
                 bn.BlendFrame(f, ki, qt);
-                qt.GetMatrix(tmpMtx);
-                inmtx = tmpMtx;
-                inmtx.Pos() = bn.pos0;
+                auto inmtx = glm::mat4_cast(qt);
+                storm::math::pos(inmtx) = bn.pos0;
                 if (j == 0)
-                    inmtx.Pos() = bn.pos[f] + ki * (bn.pos[f + 1] - bn.pos[f]);
+                    storm::math::pos(inmtx) = bn.pos[f] + ki * (bn.pos[f + 1] - bn.pos[f]);
 
                 // Procedural head look
                 if (j == headBoneIndex && isControllableHead)
                 {
-                    inmtx.RotateX(customHeadAX);
-                    inmtx.RotateY(customHeadAY);
+                    inmtx = storm::math::rotationX(customHeadAX) * inmtx;
+                    inmtx = storm::math::rotationY(customHeadAY) * inmtx;
                 }
 
                 if (bn.parent)
-                    bn.matrix.EqMultiply(inmtx, CMatrix(bn.parent->matrix));
+                    bn.matrix = glm::mat4(bn.parent->matrix) * inmtx;
                 else
                     bn.matrix = inmtx;
             }
@@ -392,13 +382,13 @@ void AnimationImp::BuildAnimationMatrices()
     for (int32_t j = 0; j < nbones; j++)
     {
         auto &bn = aniInfo->GetBone(j);
-        matrix[j] = CMatrix(bn.start) * CMatrix(bn.matrix);
+        matrix[j] = glm::mat4(bn.matrix) * glm::mat4(bn.start);
 #ifdef _WIN32 // FIX_LINUX DirectXMath
         // inverse first column in advance
-        matrix[j].matrix[0] = -matrix[j].matrix[0];
-        matrix[j].matrix[4] = -matrix[j].matrix[4];
-        matrix[j].matrix[8] = -matrix[j].matrix[8];
-        matrix[j].matrix[12] = -matrix[j].matrix[12];
+        matrix[j][0][0] = -matrix[j][0][0];
+        matrix[j][1][0] = -matrix[j][1][0];
+        matrix[j][2][0] = -matrix[j][2][0];
+        matrix[j][3][0] = -matrix[j][3][0];
 #endif
     }
 }

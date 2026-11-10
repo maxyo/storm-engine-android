@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "model.h"
 
 class LocationCamera;
@@ -19,10 +19,10 @@ class CameraFollow
 {
     struct EdgeInfo
     {
-        CVECTOR n; // Normal to plane
+        glm::vec3 n; // Normal to plane
         float d;   // Distance to the plane
-        CVECTOR s; // Start of the edge
-        CVECTOR e; // End of the edge
+        glm::vec3 s; // Start of the edge
+        glm::vec3 e; // End of the edge
     };
 
     // --------------------------------------------------------------------------------------------
@@ -43,21 +43,21 @@ class CameraFollow
     // Reinitialize camera position
     void BornCamera();
     // Calculate camera position for a given angle
-    void CalcPosition(float ang, float radius, float dax, CVECTOR &pos) const;
+    void CalcPosition(float ang, float radius, float dax, glm::vec3 &pos) const;
     // Estimate the radius in the desired direction for 1 sec
     float FindRadius(float curAng) const;
     // Consider polygon in radius search
-    static bool ApplyPoly(const CVECTOR *v, int32_t n);
-    static void ApplyPolyFindNearest(EdgeInfo *e, int32_t ne, const CVECTOR &pos);
+    static bool ApplyPoly(const glm::vec3 *v, int32_t n);
+    static void ApplyPolyFindNearest(EdgeInfo *e, int32_t ne, const glm::vec3 &pos);
     // Change radius
     void ChangeRadius(float dltTime, float radius);
     // Find the acceleration of camera stop when corner collision with patch
     void FindRotAccelCam();
 
     // Trace the ray taking into account cull and camera size
-    float Trace(const CVECTOR &src, const CVECTOR &dst);
+    float Trace(const glm::vec3 &src, const glm::vec3 &dst);
     // Trace a ray with cull
-    float SubTrace(const CVECTOR &src, const CVECTOR &dst) const;
+    float SubTrace(const glm::vec3 &src, const glm::vec3 &dst) const;
 
     void DrawDebug();
 
@@ -65,7 +65,7 @@ class CameraFollow
   public:
     LocationCamera *lc;
 
-    CVECTOR camPos, lookTo;
+    glm::vec3 camPos, lookTo;
     // Camera following the character
     float camay;        // Current camera direction
     float camradius;    // Current radius
@@ -77,10 +77,10 @@ class CameraFollow
 
     static float fndRadius;     // Current radius when searching
     static float fndMaxRadius;  // Maximum search radius
-    static CVECTOR fndCamDir;   // Normalized camera heading
-    static CVECTOR fndCamDirXZ; // Normalized heading to camera in XZ
-    static CVECTOR fndCamDirY;  // Normalized camera direction in Y
-    static CVECTOR fndCamPos;   // Observation point
+    static glm::vec3 fndCamDir;   // Normalized camera heading
+    static glm::vec3 fndCamDirXZ; // Normalized heading to camera in XZ
+    static glm::vec3 fndCamDirY;  // Normalized camera direction in Y
+    static glm::vec3 fndCamPos;   // Observation point
     static float fndcsAx;       // Cosine of the bounding angle in x
     static float fndkAx;        // 1/(1 - cos(ax))
     static float fndcsAy;       // Cosine of the y bounding angle

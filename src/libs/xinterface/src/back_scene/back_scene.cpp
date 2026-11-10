@@ -3,7 +3,6 @@
 #include "animation.h"
 #include "../xinterface.h"
 #include "geometry.h"
-#include "math3d/matrix.h"
 #include "model.h"
 #include "shared/messages.h"
 #include "debug-trap.h"
@@ -56,7 +55,7 @@ void InterfaceBackScene::LightParam::UpdateParams(float fTime)
 
     auto vPos = vLightPos;
     if (pLightSrcNode)
-        vPos = pLightSrcNode->glob_mtx * vLightPos;
+        vPos = storm::math::transformPoint(pLightSrcNode->glob_mtx, vLightPos);
 
     lightSource.Position.x = vPos.x;
     lightSource.Position.y = vPos.y;
@@ -80,7 +79,7 @@ InterfaceBackScene::MenuDescr::~MenuDescr()
     pPassive = nullptr;
 }
 
-void InterfaceBackScene::MenuDescr::Set(CMatrix *pMtx, const char *pcActiveName, const char *pcPassiveName,
+void InterfaceBackScene::MenuDescr::Set(glm::mat4 *pMtx, const char *pcActiveName, const char *pcPassiveName,
                                         const char *pcEvent, const char *pcPathName, const char *pcTechniqueName)
 {
     if (!pcTechniqueName)
@@ -140,8 +139,8 @@ InterfaceBackScene::InterfaceBackScene()
     m_pModel = nullptr;
     m_pLocators = nullptr;
 
-    m_vCamPos = 0.f;
-    m_vCamAng = 0.f;
+    m_vCamPos = glm::vec3(0.f);
+    m_vCamAng = glm::vec3(0.f);
     m_fCamPerspective = 1.287f;
 
     m_nFlareTexture = -1;
@@ -223,10 +222,10 @@ void InterfaceBackScene::Execute(uint32_t Delta_Time)
 
     if (core.Controls->GetDebugAsyncKeyState(VK_CONTROL) < 0)
     {
-        CMatrix mtx;
-        mtx.BuildMatrix(m_vCamAng);
-        const auto vz = mtx * CVECTOR(0.f, 0.f, 1.f);
-        const auto vx = mtx * CVECTOR(1.f, 0.f, 0.f);
+        glm::mat4 mtx;
+        mtx = storm::math::eulerMatrix(m_vCamAng);
+        const auto vz = storm::math::transformPoint(mtx, glm::vec3(0.f, 0.f, 1.f));
+        const auto vx = storm::math::transformPoint(mtx, glm::vec3(1.f, 0.f, 0.f));
 
         auto fForwardSpeed = 0.01f * Delta_Time;
         if (core.Controls->GetDebugAsyncKeyState(VK_SHIFT) < 0)
@@ -436,11 +435,10 @@ void InterfaceBackScene::LoadModel(const char *pcModelName)
 void InterfaceBackScene::SetCameraPosition(const char *pcLocatorName)
 {
     // FindLocator( pcLocatorName, 0, &m_vCamPos, &m_vCamAng.y );
-    Matrix mtx;
-    FindLocator(pcLocatorName, (CMatrix *)&mtx, &m_vCamPos, nullptr);
-    Vector vAddZ;
-    mtx.GetAngles(m_vCamAng.x, m_vCamAng.y, m_vCamAng.z);
-    vAddZ = mtx.MulNormal(Vector(0.f, 0.f, 1.f));
+    glm::mat4 mtx;
+    FindLocator(pcLocatorName, &mtx, &m_vCamPos, nullptr);
+    m_vCamAng = storm::math::eulerAngles(mtx);
+    auto vAddZ = glm::mat3(mtx) * glm::vec3(0.f, 0.f, 1.f);
     vAddZ *= -0.1f;
     m_vCamPos.x += vAddZ.x;
     m_vCamPos.y += vAddZ.y;
@@ -463,7 +461,7 @@ void InterfaceBackScene::SetShipPosition(const char *pcLocName, ATTRIBUTES *pACh
         pAAng = pAChar->CreateSubAClass(pAChar, "Ship.Ang");
     Assert(pAAng);
 
-    CVECTOR pos;
+    glm::vec3 pos;
     float fYAng;
     if (FindLocator(pcLocName, nullptr, &pos, &fYAng))
     {
@@ -474,7 +472,7 @@ void InterfaceBackScene::SetShipPosition(const char *pcLocName, ATTRIBUTES *pACh
     }
 }
 
-bool InterfaceBackScene::FindLocator(const char *pcLocName, CMatrix *pMtx, CVECTOR *pPos, float *pYAng) const
+bool InterfaceBackScene::FindLocator(const char *pcLocName, glm::mat4 *pMtx, glm::vec3 *pPos, float *pYAng) const
 {
     if (!pcLocName || !m_pLocators)
         return false;
@@ -497,9 +495,9 @@ bool InterfaceBackScene::FindLocator(const char *pcLocName, CMatrix *pMtx, CVECT
                 }
                 if (pPos)
                 {
-                    pPos->x = lbl.m[3][0] + pNod->glob_mtx.matrix[3];
-                    pPos->y = lbl.m[3][1] + pNod->glob_mtx.matrix[7];
-                    pPos->z = lbl.m[3][2] + pNod->glob_mtx.matrix[11];
+                    pPos->x = lbl.m[3][0] + storm::math::data(pNod->glob_mtx)[3];
+                    pPos->y = lbl.m[3][1] + storm::math::data(pNod->glob_mtx)[7];
+                    pPos->z = lbl.m[3][2] + storm::math::data(pNod->glob_mtx)[11];
                 }
                 if (pYAng)
                 {
@@ -512,9 +510,9 @@ bool InterfaceBackScene::FindLocator(const char *pcLocName, CMatrix *pMtx, CVECT
     return false;
 }
 
-void InterfaceBackScene::SetLocatorPosition(MODEL *pModel, const char *pcLocName, CVECTOR &pos, NODE *&pNodPtr)
+void InterfaceBackScene::SetLocatorPosition(MODEL *pModel, const char *pcLocName, glm::vec3 &pos, NODE *&pNodPtr)
 {
-    pos = 0.f;
+    pos = glm::vec3(0.f);
     if (pModel && pcLocName)
     {
         for (int32_t n = 0; n < 100; n++)
@@ -556,7 +554,7 @@ void InterfaceBackScene::CreateMenuList(int32_t nStartIndex, ATTRIBUTES *pAMenu)
         return;
 
     ATTRIBUTES *pA;
-    CMatrix mtx;
+    glm::mat4 mtx;
     const int32_t q = pAMenu->GetAttributesNum();
     for (int32_t n = 0; n < q; n++)
     {
@@ -632,20 +630,20 @@ int32_t InterfaceBackScene::CheckMousePos(float fX, float fY)
     float fRelX = 2.f * fX / fW - 1.f;
     float fRelY = 2.f * fY / fH - 1.f;
 
-    CMatrix mtxProj;
-    m_pRS->GetTransform(D3DTS_PROJECTION, mtxProj);
-    CVECTOR v;
-    v.x = fRelX / mtxProj.m[0][0];
-    v.y = -fRelY / mtxProj.m[1][1];
+    glm::mat4 mtxProj;
+    m_pRS->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(mtxProj));
+    glm::vec3 v;
+    v.x = fRelX / mtxProj[0][0];
+    v.y = -fRelY / mtxProj[1][1];
     v.z = 1.0f;
 
-    CMatrix mtxView;
-    m_pRS->GetTransform(D3DTS_VIEW, mtxView);
-    CVECTOR vDir;
-    mtxView.MulToInvNorm(v, vDir);
-    mtxView.Transposition();
-    CVECTOR vStart = mtxView.Pos();
-    CVECTOR vEnd = vStart + vDir * 300.f;
+    glm::mat4 mtxView;
+    m_pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mtxView));
+    glm::vec3 vDir;
+    vDir = storm::math::inverseTransformNormal(mtxView, v);
+    storm::math::invertRigid(mtxView);
+    glm::vec3 vStart = storm::math::pos(mtxView);
+    glm::vec3 vEnd = vStart + vDir * 300.f;
 
     for (int32_t n = 0; n < m_aMenuDescr.size(); n++)
         if (m_aMenuDescr[n]->bSelectable && m_aMenuDescr[n]->pActive &&
@@ -697,9 +695,9 @@ void InterfaceBackScene::InitLight(ATTRIBUTES *pAParam)
     pLight->bUse = pAParam->GetAttributeAsDword("turnon", 0) != 0;
 
     // find transform from locator
-    CMatrix locMtx;
+    glm::mat4 locMtx;
     FindLocator(pAParam->GetAttribute("locator"), &locMtx, nullptr, nullptr);
-    pLight->vLightPos = locMtx.Pos();
+    pLight->vLightPos = storm::math::pos(locMtx);
 
     // load model
     const char *pcFonarModel = pAParam->GetAttribute("model");
@@ -724,10 +722,10 @@ void InterfaceBackScene::InitLight(ATTRIBUTES *pAParam)
                                pLight->pLightSrcNode);
             if (m_aLights.size() > 0 && m_aLights[0]->bUse)
             {
-                CVECTOR vFlarePos = pLight->vLightPos;
+                glm::vec3 vFlarePos = pLight->vLightPos;
                 SetLocatorPosition(pLight->pModel, pAParam->GetAttribute("flarelocator"), vFlarePos,
                                    pLight->pLightSrcNode);
-                m_vFlarePos = pLight->pLightSrcNode->glob_mtx * vFlarePos;
+                m_vFlarePos = storm::math::transformPoint(pLight->pLightSrcNode->glob_mtx, vFlarePos);
                 m_fFlareSize = pAParam->GetAttributeAsFloat("flaresize", 0.2f);
                 AddLampFlys(m_vFlarePos);
 
@@ -796,10 +794,10 @@ void InterfaceBackScene::RestoreLight()
 
 void InterfaceBackScene::FlareShow(int32_t idx)
 {
-    CVECTOR pos, ang;
+    glm::vec3 pos, ang;
     m_pRS->GetCamera(pos, ang, ang.x);
-    CMatrix camMtx;
-    m_pRS->GetTransform(D3DTS_VIEW, camMtx);
+    glm::mat4 camMtx;
+    m_pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
 
     float dx = m_vFlarePos.x - pos.x;
     float dy = m_vFlarePos.y - pos.y;
@@ -832,8 +830,8 @@ void InterfaceBackScene::FlareShow(int32_t idx)
     uint32_t c = uint32_t(alpha); c |= (c << 24) | (c << 16) | (c << 8);*/
     // Angle of rotation
     float cs, sn;
-    float _cs = (dx * camMtx.Vx().z + dz * camMtx.Vz().z);
-    float _sn = (dx * camMtx.Vz().z - dz * camMtx.Vx().z);
+    float _cs = (dx * storm::math::vx(camMtx).z + dz * storm::math::vz(camMtx).z);
+    float _sn = (dx * storm::math::vz(camMtx).z - dz * storm::math::vx(camMtx).z);
     float kn = _cs * _cs + _sn * _sn;
     if (kn > 0.0f)
     {
@@ -854,15 +852,15 @@ void InterfaceBackScene::FlareShow(int32_t idx)
 
     uint32_t c = m_aLights[idx]->dwFlareColor;
 
-    buffer[0].pos = pos + CVECTOR(m_fFlareSize * (-cs + sn), m_fFlareSize * (sn + cs), 0.0f);
+    buffer[0].pos = pos + glm::vec3(m_fFlareSize * (-cs + sn), m_fFlareSize * (sn + cs), 0.0f);
     buffer[0].color = c;
     buffer[0].u = 0.0f;
     buffer[0].v = 0.0f;
-    buffer[1].pos = pos + CVECTOR(m_fFlareSize * (-cs - sn), m_fFlareSize * (sn - cs), 0.0f);
+    buffer[1].pos = pos + glm::vec3(m_fFlareSize * (-cs - sn), m_fFlareSize * (sn - cs), 0.0f);
     buffer[1].color = c;
     buffer[1].u = 0.0f;
     buffer[1].v = 1.0f;
-    buffer[2].pos = pos + CVECTOR(m_fFlareSize * (cs + sn), m_fFlareSize * (-sn + cs), 0.0f);
+    buffer[2].pos = pos + glm::vec3(m_fFlareSize * (cs + sn), m_fFlareSize * (-sn + cs), 0.0f);
     buffer[2].color = c;
     buffer[2].u = 1.0f;
     buffer[2].v = 0.0f;
@@ -874,13 +872,13 @@ void InterfaceBackScene::FlareShow(int32_t idx)
     buffer[4].color = c;
     buffer[4].u = 0.0f;
     buffer[4].v = 1.0f;
-    buffer[5].pos = pos + CVECTOR(m_fFlareSize * (cs - sn), m_fFlareSize * (-sn - cs), 0.0f);
+    buffer[5].pos = pos + glm::vec3(m_fFlareSize * (cs - sn), m_fFlareSize * (-sn - cs), 0.0f);
     buffer[5].color = c;
     buffer[5].u = 1.0f;
     buffer[5].v = 1.0f;
     m_pRS->TextureSet(0, m_nFlareTexture);
-    CMatrix mtx;
-    mtx.SetIdentity();
+    glm::mat4 mtx;
+    mtx = glm::mat4(1.0f);
     m_pRS->SetWorld(mtx);
     m_pRS->DrawPrimitiveUP(D3DPT_TRIANGLELIST, D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1, 2, buffer, sizeof(Vertex),
                            "Coronas");
@@ -900,9 +898,9 @@ void InterfaceBackScene::InitAniModel(ATTRIBUTES *pAParam)
         return;
     }
 
-    CMatrix mtx;
+    glm::mat4 mtx;
     if (!FindLocator(pAParam->GetAttribute("locator"), &mtx, nullptr, nullptr))
-        mtx.SetIdentity();
+        mtx = glm::mat4(1.0f);
 
     auto *pObj = new AniModelDescr;
     Assert(pObj);
@@ -951,9 +949,9 @@ void InterfaceBackScene::InitStaticModel(ATTRIBUTES *pAParam)
         return;
     }
 
-    CMatrix mtx;
+    glm::mat4 mtx;
     if (!FindLocator(pAParam->GetAttribute("locator"), &mtx, nullptr, nullptr))
-        mtx.SetIdentity();
+        mtx = glm::mat4(1.0f);
 
     auto *pObj = new AniModelDescr;
     Assert(pObj);
@@ -993,7 +991,7 @@ void InterfaceBackScene::InitStaticModel(ATTRIBUTES *pAParam)
 // ---------------------------------------------------
 // Flies at the lamps
 // ---------------------------------------------------
-void InterfaceBackScene::AddLampFlys(CVECTOR &pos)
+void InterfaceBackScene::AddLampFlys(glm::vec3 &pos)
 {
     // resize the array
     if (numFlys >= maxFlys)
@@ -1035,10 +1033,10 @@ void InterfaceBackScene::AddLampFlys(CVECTOR &pos)
 
 void InterfaceBackScene::ProcessedFlys(float dltTime)
 {
-    CMatrix view;
-    m_pRS->GetTransform(D3DTS_VIEW, view);
-    view.Transposition();
-    const CVECTOR cam = view.Pos();
+    glm::mat4 view;
+    m_pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    storm::math::invertRigid(view);
+    const glm::vec3 cam = storm::math::pos(view);
     const float dax = dltTime * 1.3f;
     const float day = dltTime * 1.4f;
     const float da = dltTime * 5.6f;
@@ -1046,8 +1044,8 @@ void InterfaceBackScene::ProcessedFlys(float dltTime)
     for (int32_t i = 0; i < numFlys; i++)
     {
         // Coefficient of visibility
-        CVECTOR dir = cam - flys[i].pos;
-        float k = ~dir;
+        glm::vec3 dir = cam - flys[i].pos;
+        float k = storm::math::lengthSquared(dir);
         if (k > 400.0f)
             continue;
         k = sqrtf(k);
@@ -1076,11 +1074,11 @@ void InterfaceBackScene::ProcessedFlys(float dltTime)
             // Transparency
             f.alpha = k * 255.0f;
             // Colour
-            CVECTOR tmp = f.pos - flys[i].pos;
-            float dst = sqrtf(~tmp);
+            glm::vec3 tmp = f.pos - flys[i].pos;
+            float dst = sqrtf(storm::math::lengthSquared(tmp));
             if (dst > 0.0f)
                 tmp *= 1.0f / dst;
-            float cs = -(tmp | dir) + 0.4f;
+            float cs = -glm::dot(tmp, dir) + 0.4f;
             if (dst > flys[i].radius)
             {
                 dst = 3.0f * (dst - flys[i].radius) / flys[i].radius;
@@ -1109,17 +1107,17 @@ void InterfaceBackScene::ProcessedFlys(float dltTime)
 void InterfaceBackScene::DrawParticles(void *prts, int32_t num, int32_t size, int32_t texture, const char *tech, bool isEx,
                                        int32_t numU)
 {
-    CMatrix camMtx;
-    m_pRS->GetTransform(D3DTS_VIEW, camMtx);
-    m_pRS->SetTransform(D3DTS_VIEW, CMatrix());
-    m_pRS->SetTransform(D3DTS_WORLD, CMatrix());
+    glm::mat4 camMtx;
+    m_pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
+    m_pRS->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(glm::mat4()));
+    m_pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
     m_pRS->TextureSet(0, texture);
     int32_t n = 0;
     for (int32_t i = 0; i < num; i++)
     {
         auto *parts = static_cast<Particle *>(prts);
         prts = static_cast<char *>(prts) + size;
-        CVECTOR pos = camMtx * parts->pos;
+        glm::vec3 pos = storm::math::transformPoint(camMtx, parts->pos);
         const float size = parts->size * 0.5f;
         const float sn = sinf(parts->angle);
         const float cs = cosf(parts->angle);
@@ -1136,15 +1134,15 @@ void InterfaceBackScene::DrawParticles(void *prts, int32_t num, int32_t size, in
             u1 = static_cast<int32_t>(static_cast<ParticleEx *>(parts)->frame) * u2;
             u2 += u1;
         }
-        buffer[n * 6 + 0].pos = pos + CVECTOR(size * (-cs + sn), size * (sn + cs), 0.0f);
+        buffer[n * 6 + 0].pos = pos + glm::vec3(size * (-cs + sn), size * (sn + cs), 0.0f);
         buffer[n * 6 + 0].color = color;
         buffer[n * 6 + 0].u = u1;
         buffer[n * 6 + 0].v = 0.0f;
-        buffer[n * 6 + 1].pos = pos + CVECTOR(size * (-cs - sn), size * (sn - cs), 0.0f);
+        buffer[n * 6 + 1].pos = pos + glm::vec3(size * (-cs - sn), size * (sn - cs), 0.0f);
         buffer[n * 6 + 1].color = color;
         buffer[n * 6 + 1].u = u1;
         buffer[n * 6 + 1].v = 1.0f;
-        buffer[n * 6 + 2].pos = pos + CVECTOR(size * (cs + sn), size * (-sn + cs), 0.0f);
+        buffer[n * 6 + 2].pos = pos + glm::vec3(size * (cs + sn), size * (-sn + cs), 0.0f);
         buffer[n * 6 + 2].color = color;
         buffer[n * 6 + 2].u = u2;
         buffer[n * 6 + 2].v = 0.0f;
@@ -1156,7 +1154,7 @@ void InterfaceBackScene::DrawParticles(void *prts, int32_t num, int32_t size, in
         buffer[n * 6 + 4].color = color;
         buffer[n * 6 + 4].u = u1;
         buffer[n * 6 + 4].v = 1.0f;
-        buffer[n * 6 + 5].pos = pos + CVECTOR(size * (cs - sn), size * (-sn - cs), 0.0f);
+        buffer[n * 6 + 5].pos = pos + glm::vec3(size * (cs - sn), size * (-sn - cs), 0.0f);
         buffer[n * 6 + 5].color = color;
         buffer[n * 6 + 5].u = u2;
         buffer[n * 6 + 5].v = 1.0f;
@@ -1173,5 +1171,5 @@ void InterfaceBackScene::DrawParticles(void *prts, int32_t num, int32_t size, in
         m_pRS->DrawPrimitiveUP(D3DPT_TRIANGLELIST, D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1, n * 2, buffer,
                                sizeof(Vertex), (char *)tech);
     }
-    m_pRS->SetTransform(D3DTS_VIEW, camMtx);
+    m_pRS->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
 }

@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "pillar.h"
 #include "v_sound_service.h"
 #include "model.h"
@@ -24,7 +24,7 @@ class Debris
         float alpha;
         float scale;
         float maxSpeed;
-        CVECTOR ang;
+        glm::vec3 ang;
         MODEL *mdl;
     };
 

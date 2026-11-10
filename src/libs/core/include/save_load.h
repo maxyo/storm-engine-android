@@ -133,7 +133,7 @@ class CSaveLoad
         }
     }
 
-    void SaveVector(const CVECTOR &vVector)
+    void SaveVector(const glm::vec3 &vVector)
     {
         Write((void *)&vVector, sizeof(vVector));
     }
@@ -201,9 +201,9 @@ class CSaveLoad
         return str;
     }
 
-    CVECTOR LoadVector()
+    glm::vec3 LoadVector()
     {
-        CVECTOR v;
+        glm::vec3 v;
         Read(&v, sizeof(v));
         return v;
     }
@@ -219,7 +219,7 @@ class CSaveLoad
     template <typename T> constexpr void Load2Buffer(T *pBuffer)
     {
         // protection against fools
-        static_assert(std::is_trivial_v<T>, "Load2Buffer is only available for trivial types.");
+        static_assert(std::is_trivially_copyable_v<T>, "Load2Buffer is only available for trivially copyable types.");
         uint32_t dwSize;
         Read(&dwSize, sizeof(dwSize));
         Read(reinterpret_cast<char *>(pBuffer), dwSize);

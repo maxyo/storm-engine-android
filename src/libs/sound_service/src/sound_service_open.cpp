@@ -1,7 +1,7 @@
 #ifdef STORM_OPEN_AUDIO
 #include "sound_service.h"
 #include "core.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "v_file_service.h"
 #include <thread>
 
@@ -34,8 +34,8 @@ bool SoundService::Init() {
 }
 void SoundService::RunStart() {
     if(!audio)return;
-    CMatrix view;rs->GetTransform(D3DTS_VIEW,view);view.Transposition();
-    SetCameraPosition(view.Pos());SetCameraOrientation(view.Vz(),view.Vy());
+    glm::mat4 view;rs->GetTransform(D3DTS_VIEW,storm::math::d3dMatrix(view));storm::math::invertRigid(view);
+    SetCameraPosition(storm::math::pos(view));SetCameraOrientation(storm::math::vz(view),storm::math::vy(view));
     try {
         audio->update();
         for(unsigned slot:audio->takeEnded())core.Event("SoundEnded","l",slot+2); // Preserve legacy event payload.
@@ -44,7 +44,7 @@ void SoundService::RunStart() {
     } catch(const std::exception& e) {core.Trace("Audio update failed: %s",e.what());}
 }
 void SoundService::RunEnd() { if(audio) {try {audio->update();} catch(const std::exception& e){core.Trace("Audio update failed: %s",e.what());}} }
-TSD_ID SoundService::SoundPlay(const char* name,eSoundType type,eVolumeType category,bool simpleCache,bool looped,bool cached,int32_t time,const CVECTOR* pos,float minDistance,float maxDistance,int32_t loopPause,float volume,int32_t priority) {
+TSD_ID SoundService::SoundPlay(const char* name,eSoundType type,eVolumeType category,bool simpleCache,bool looped,bool cached,int32_t time,const glm::vec3* pos,float minDistance,float maxDistance,int32_t loopPause,float volume,int32_t priority) {
     if(!audio || !name)return 0;
     std::string file=name;
     if(!strchr(name,'\\')) {
@@ -83,9 +83,9 @@ void SoundService::SetMasterVolume(float fx,float music,float speech) {
 void SoundService::GetMasterVolume(float* fx,float* music,float* speech) {*fx=fFXVolume;*music=fMusicVolume;*speech=fSpeechVolume;}
 void SoundService::SetPitch(float value) {fPitch=std::max(0.f,value);if(audio)audio->pitch(fPitch);}
 float SoundService::GetPitch() {return fPitch;}
-void SoundService::SetCameraPosition(const CVECTOR& p) {listenerPos={p.x,p.y,p.z};if(audio)audio->listener(listenerPos,listenerForward,listenerUp);}
-void SoundService::SetCameraOrientation(const CVECTOR& nose,const CVECTOR& head) {
-    auto f=!nose;auto u=!head;listenerForward={f.x,f.y,f.z};listenerUp={u.x,u.y,u.z};
+void SoundService::SetCameraPosition(const glm::vec3& p) {listenerPos={p.x,p.y,p.z};if(audio)audio->listener(listenerPos,listenerForward,listenerUp);}
+void SoundService::SetCameraOrientation(const glm::vec3& nose,const glm::vec3& head) {
+    auto f=storm::math::normalizeOrZero(nose);auto u=storm::math::normalizeOrZero(head);listenerForward={f.x,f.y,f.z};listenerUp={u.x,u.y,u.z};
     if(audio)audio->listener(listenerPos,listenerForward,listenerUp);
 }
 void SoundService::SetActiveWithFade(bool active) {if(audio)audio->active(active,fadeTimeInSeconds);}

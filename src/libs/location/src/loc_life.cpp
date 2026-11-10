@@ -97,8 +97,8 @@ void LocLife::Update(float dltTime)
         return;
     if (location->IsExDebugView())
     {
-        location->DrawLine(pos, 0xff00ffff, pos + CVECTOR(0.0f, 1.0f, 0.0f), 0xff00ffff);
-        location->DrawLine(pos, 0xff00ff00, pos + CVECTOR(sinf(ay), 0.0f, cosf(ay)) * 0.5f, 0xff00ff00);
+        location->DrawLine(pos, 0xff00ffff, pos + glm::vec3(0.0f, 1.0f, 0.0f), 0xff00ffff);
+        location->DrawLine(pos, 0xff00ff00, pos + glm::vec3(sinf(ay), 0.0f, cosf(ay)) * 0.5f, 0xff00ff00);
     }
     // Model and location information
     auto *m = static_cast<MODEL *>(core.GetEntityPointer(model));
@@ -135,9 +135,9 @@ void LocLife::Update(float dltTime)
             return;
         }
         if (location->IsExDebugView())
-            location->DrawLine(dir, 0xff00ff00, dir + CVECTOR(0.0f, 1.0f, 0.0f), 0xffff0000);
+            location->DrawLine(dir, 0xff00ff00, dir + glm::vec3(0.0f, 1.0f, 0.0f), 0xffff0000);
         dir -= pos;
-        double dirl = ~dir;
+        double dirl = storm::math::lengthSquared(dir);
         const double vx = dir.x;
         double vz = dir.z;
         const auto l = vx * vx + vz * vz;
@@ -165,7 +165,7 @@ int32_t LocLife::FindPos()
         return -1;
     auto &ptc = location->GetPtcData();
     // Direction
-    const CVECTOR dir(sinf(ay), 0.0f, cosf(ay));
+    const glm::vec3 dir(sinf(ay), 0.0f, cosf(ay));
     // Heights
     float yf, yc, yb;
     const auto curnode = ptc.FindNode(pos, yc);
@@ -183,15 +183,15 @@ int32_t LocLife::FindPos()
     if (ptc.FindNode(p2, yb) < 0)
         yb = yc;
     pos.y = std::max(yf, std::max(yc, yb));
-    yc = location->Trace(pos + CVECTOR(0.0f, 0.2f, 0.0f), pos - CVECTOR(0.0f, 0.2f, 0.0f));
+    yc = location->Trace(pos + glm::vec3(0.0f, 0.2f, 0.0f), pos - glm::vec3(0.0f, 0.2f, 0.0f));
     if (yc <= 1.0f)
         pos.y += 0.2f - 0.4f * yc;
     pos.y += 0.05f;
     p1.y = yf;
     p2.y = yb;
-    CMatrix mtx;
-    mtx.BuildViewMatrix(pos + (p2 - p1), pos, CVECTOR(0.0f, 1.0f, 0.0f));
-    mtx.Transposition();
+    glm::mat4 mtx;
+    storm::math::viewMatrix(mtx, pos + (p2 - p1), pos, glm::vec3(0.0f, 1.0f, 0.0f));
+    storm::math::invertRigid(mtx);
     m->mtx = mtx;
     return curnode;
 }
@@ -227,17 +227,17 @@ bool LocLife::IsNearPlayer(float radius) const
 {
     if (location->supervisor.player)
     {
-        CVECTOR playerPos;
+        glm::vec3 playerPos;
         location->supervisor.player->GetPosition(playerPos);
         playerPos -= pos;
         playerPos.y = 0.0f;
-        if (~playerPos < radius * radius)
+        if (storm::math::lengthSquared(playerPos) < radius * radius)
             return true;
     }
     return false;
 }
 
-int32_t LocLife::FindRandomPos(CVECTOR &pos) const
+int32_t LocLife::FindRandomPos(glm::vec3 &pos) const
 {
     auto &ptc = location->GetPtcData();
     if (!ptc.numTriangles)

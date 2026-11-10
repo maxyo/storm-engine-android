@@ -63,7 +63,7 @@ class Lights : public Entity
 
     struct Vertex
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         uint32_t color;
         float u, v;
     };
@@ -109,21 +109,21 @@ class Lights : public Entity
     // Find source index
     int32_t FindLight(const char *name);
     // Add source to location
-    void AddLight(int32_t index, const CVECTOR &pos);
+    void AddLight(int32_t index, const glm::vec3 &pos);
     // Add lantern model
     bool AddLampModel(entid_t lampModel);
     //
     void DelAllLights();
 
     // Add portable source
-    int32_t AddMovingLight(const char *type, const CVECTOR &pos);
+    int32_t AddMovingLight(const char *type, const glm::vec3 &pos);
     // Put portable source in new position
-    void UpdateMovingLight(int32_t id, const CVECTOR &pos);
+    void UpdateMovingLight(int32_t id, const glm::vec3 &pos);
     // Remove portable source
     void DelMovingLight(int32_t id);
 
     // Set lights at pos
-    void SetLightsAt(const CVECTOR &pos);
+    void SetLightsAt(const glm::vec3 &pos);
     void UnsetLights();
 
     // Update source types
@@ -134,7 +134,7 @@ class Lights : public Entity
     // --------------------------------------------------------------------------------------------
   private:
 
-    auto GetLightsAt(const CVECTOR &pos)
+    auto GetLightsAt(const glm::vec3 &pos)
     {
         const auto dist = [&pos](const auto &light) {
             const auto dx = (pos.x - light.pos.x);

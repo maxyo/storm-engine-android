@@ -178,7 +178,7 @@ bool SCRSHOTER::MakeScreenShot()
             const uint32_t BI_SCRSHOTER_VERTEX_FORMAT = (D3DFVF_XYZRHW | D3DFVF_TEX1 | D3DFVF_TEXTUREFORMAT2);
             struct BI_SCRSHOTER_VERTEX
             {
-                CVECTOR pos;
+                glm::vec3 pos;
                 float w;
                 float tu, tv;
             } vert[4];

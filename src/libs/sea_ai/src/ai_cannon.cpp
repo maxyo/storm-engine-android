@@ -50,11 +50,11 @@ void AICannon::Execute(float fDeltaTime)
     }
 }
 
-float AICannon::CalcHeightFireAngle(float _fSpeedV0, const CVECTOR &vOur, const CVECTOR &vEnemy) const
+float AICannon::CalcHeightFireAngle(float _fSpeedV0, const glm::vec3 &vOur, const glm::vec3 &vEnemy) const
 {
     auto vTemp = vOur - vEnemy;
     vTemp.y = 0.0f;
-    const double fDistance = sqrtf(~vTemp);
+    const double fDistance = sqrtf(storm::math::lengthSquared(vTemp));
     const auto g = static_cast<double>(AIHelper::fGravity);
     const double fHeight = (vEnemy.y - vOur.y);
     const double a = SQR(g) / 4.0f;
@@ -87,48 +87,48 @@ VAI_OBJBASE *AICannon::GetAIObjPointer() const
 
 float AICannon::GetDirY() const
 {
-    CMatrix mRot;
+    glm::mat4 mRot;
     auto *pAIObj = GetAIObjPointer();
 
-    (*pAIObj->GetMatrix()).Get3X3(mRot);
+    storm::math::copy3x3(mRot, (*pAIObj->GetMatrix()));
 
-    const auto vDirTemp = mRot * vDir;
+    const auto vDirTemp = storm::math::transformPoint(mRot, vDir);
     return NormalizeAngle(atan2f(vDirTemp.x, vDirTemp.z));
 }
 
-CVECTOR AICannon::GetDir() const
+glm::vec3 AICannon::GetDir() const
 {
-    CMatrix mRot;
+    glm::mat4 mRot;
     auto *pAIObj = GetAIObjPointer();
-    (*pAIObj->GetMatrix()).Get3X3(mRot);
-    return mRot * vDir;
+    storm::math::copy3x3(mRot, (*pAIObj->GetMatrix()));
+    return storm::math::transformPoint(mRot, vDir);
 }
 
-CVECTOR AICannon::GetPos() const
+glm::vec3 AICannon::GetPos() const
 {
-    return *GetAIObjPointer()->GetMatrix() * vPos;
+    return storm::math::transformPoint(*GetAIObjPointer()->GetMatrix(), vPos);
 }
 
 void AICannon::RealFire()
 {
-    CMatrix mRot;
+    glm::mat4 mRot;
     // calculate real world cannon position and direction,
     // calculate fire height and azimuth angle, and call script
     auto *pAIObj = GetAIObjPointer();
-    const auto vPosTemp = *pAIObj->GetMatrix() * vPos;
-    (*pAIObj->GetMatrix()).Get3X3(mRot);
+    const auto vPosTemp = storm::math::transformPoint(*pAIObj->GetMatrix(), vPos);
+    storm::math::copy3x3(mRot, (*pAIObj->GetMatrix()));
 
-    const auto vEnemyDir = !(vEnemyPos - vPosTemp);
+    const auto vEnemyDir = storm::math::normalizeOrZero(vEnemyPos - vPosTemp);
     const auto fFireDirection = NormalizeAngle(atan2f(vEnemyDir.x, vEnemyDir.z));
     const auto fFireHeightAngle = CalcHeightFireAngle(fSpeedV0, vPosTemp, vEnemyPos);
 
-    const auto vDirTemp = mRot * vDir;
+    const auto vDirTemp = storm::math::transformPoint(mRot, vDir);
     const auto fDirY = NormalizeAngle(atan2f(vDirTemp.x, vDirTemp.z));
 
     // raw angle
-    const CVECTOR vFlatEnemyDir = !(CVECTOR(vEnemyPos.x, vPosTemp.y, vEnemyPos.z) - vPosTemp);
+    const glm::vec3 vFlatEnemyDir = storm::math::normalizeOrZero(glm::vec3(vEnemyPos.x, vPosTemp.y, vEnemyPos.z) - vPosTemp);
     float fAngle;
-    const float dp = vFlatEnemyDir | vEnemyDir;
+    const float dp = glm::dot(vFlatEnemyDir, vEnemyDir);
     if (dp >= 1.0f)
     {
         fAngle = 0.0f;
@@ -149,26 +149,26 @@ void AICannon::RealFire()
     core.Event(CANNON_FIRE, "afffffffff", pAHolder->GetACharacter(), vPosTemp.x, vPosTemp.y, vPosTemp.z, fSpeedV0,
                fFireDirection, fFireHeightAngle, fDirY, fMaxFireDistance, fAngle);
 
-    pAIObj->Fire(*pAIObj->GetMatrix() * (vPos + vDir));
+    pAIObj->Fire(storm::math::transformPoint(*pAIObj->GetMatrix(), vPos + vDir));
 
     bFired = false;
     bEmpty = true;
     Recharge();
 }
 
-bool AICannon::Fire(float _fSpeedV0, const CVECTOR &_vFirePos)
+bool AICannon::Fire(float _fSpeedV0, const glm::vec3 &_vFirePos)
 {
     if (isFired() || isRecharged() || isDamaged() || isEmpty())
         return false;
 
     auto *pAIObj = GetAIObjPointer();
-    const auto vPosTemp = *pAIObj->GetMatrix() * vPos;
-    CMatrix mRot;
-    (*pAIObj->GetMatrix()).Get3X3(mRot);
+    const auto vPosTemp = storm::math::transformPoint(*pAIObj->GetMatrix(), vPos);
+    glm::mat4 mRot;
+    storm::math::copy3x3(mRot, (*pAIObj->GetMatrix()));
 
-    const auto vFireDir = !(_vFirePos - vPosTemp);
-    const auto vDirTemp = mRot * vDir;
-    const auto fDot = (vFireDir | vDirTemp);
+    const auto vFireDir = storm::math::normalizeOrZero(_vFirePos - vPosTemp);
+    const auto vDirTemp = storm::math::transformPoint(mRot, vDir);
+    const auto fDot = glm::dot(vFireDir, vDirTemp);
     if (fDot < 0.3f)
         return false;
 
@@ -253,11 +253,11 @@ void AICannon::Init(AIAttributesHolder *_pAHolder, const entid_t eid, GEOS::LABE
     pAHolder = _pAHolder;
     eidParent = eid;
 
-    CMatrix m;
-    memcpy(&m.m[0][0], &lbl.m[0][0], sizeof(m));
+    glm::mat4 m;
+    memcpy(&m[0][0], &lbl.m[0][0], sizeof(m));
 
-    vPos = m.Pos();
-    vDir = CVECTOR(m.Vz().x, 0.0f, m.Vz().z);
+    vPos = storm::math::pos(m);
+    vDir = glm::vec3(storm::math::vz(m).x, 0.0f, storm::math::vz(m).z);
     // vDir = atan2f(m.Vz().x,m.Vz().z);
 }
 

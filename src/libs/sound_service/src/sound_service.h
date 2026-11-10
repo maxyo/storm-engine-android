@@ -3,7 +3,7 @@
 #include <stack>
 #include <string>
 
-#include "c_vector.h"
+#include "storm_glm.h"
 #include "dx9render.h"
 #include "probability_table.hpp"
 #include "sound_defines.h"
@@ -197,7 +197,7 @@ class SoundService : public VSoundService
 
     TSD_ID SoundPlay(const char *_name, eSoundType _type, eVolumeType _volumeType, bool _simpleCache = false,
                      bool _looped = false, bool _cached = false, int32_t _time = 0,
-                     const CVECTOR *_startPosition = nullptr, float _minDistance = -1.0f, float _maxDistance = -1.0f,
+                     const glm::vec3 *_startPosition = nullptr, float _minDistance = -1.0f, float _maxDistance = -1.0f,
                      int32_t _loopPauseTime = 0, float _volume = 1.0f, int32_t _prior = 128) override;
 
     TSD_ID SoundDuplicate(TSD_ID _sourceID) override;
@@ -215,8 +215,8 @@ class SoundService : public VSoundService
     void GetMasterVolume(float *_fxVolume, float *_musicVolume, float *_speechVolume) override;
     void SetPitch(float _pitch) override;
     float GetPitch() override;
-    void SetCameraPosition(const CVECTOR &_cameraPosition) override;
-    void SetCameraOrientation(const CVECTOR &_nose, const CVECTOR &_head) override;
+    void SetCameraPosition(const glm::vec3 &_cameraPosition) override;
+    void SetCameraOrientation(const glm::vec3 &_nose, const glm::vec3 &_head) override;
 
     // Schemes routines
     void ResetScheme() override;
@@ -227,9 +227,9 @@ class SoundService : public VSoundService
     void SetActiveWithFade(bool active) override;
 
     void DebugDraw();
-    void DebugPrint3D(const CVECTOR &pos3D, float rad, int32_t line, float alpha, uint32_t color, float scale,
+    void DebugPrint3D(const glm::vec3 &pos3D, float rad, int32_t line, float alpha, uint32_t color, float scale,
                       const char *format, ...) const;
-    void Draw2DCircle(const CVECTOR &center, uint32_t dwColor, float fRadius, uint32_t dwColor2, float fRadius2) const;
+    void Draw2DCircle(const glm::vec3 &center, uint32_t dwColor, float fRadius, uint32_t dwColor2, float fRadius2) const;
 
     void ProcessFader(uint16_t idx);
 

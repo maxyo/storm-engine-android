@@ -49,7 +49,7 @@ LocatorArray::~LocatorArray()
 // ============================================================================================
 
 // Add locator
-void LocatorArray::AddLocator(CMatrix &mtx, const char *name)
+void LocatorArray::AddLocator(glm::mat4 &mtx, const char *name)
 {
     locator.resize(numLocators + 1);
     locator[numLocators].mtx = mtx;
@@ -70,7 +70,7 @@ void LocatorArray::AddLocator(CMatrix &mtx, const char *name)
 }
 
 // Change locator matrix
-void LocatorArray::SetNewMatrix(int32_t locIndex, CMatrix &mtx)
+void LocatorArray::SetNewMatrix(int32_t locIndex, glm::mat4 &mtx)
 {
     if (locIndex < 0 || locIndex >= numLocators)
         return;
@@ -83,10 +83,10 @@ float LocatorArray::FindNearesLocator(float x, float y, float z, int32_t *locInd
     if (locIndex)
         *locIndex = -1;
     auto dist = 1000000000.0f;
-    const CVECTOR v(x, y, z);
+    const glm::vec3 v(x, y, z);
     for (int32_t i = 0; i < numLocators; i++)
     {
-        const auto d = ~(locator[i].mtx.Pos() - v);
+        const auto d = storm::math::lengthSquared(storm::math::pos(locator[i].mtx) - v);
         if (dist > d)
         {
             if (locIndex)
@@ -106,13 +106,13 @@ int32_t LocatorArray::FindNearesLocatorCl(float x, float y, float z, float heigh
         // if(fabsf(y - locator[i].mtx.Pos().y) > height2) continue;
         const auto r = GetLocatorRadius(i);
 
-        if (fabsf(y - locator[i].mtx.Pos().y) > r)
+        if (fabsf(y - storm::math::pos(locator[i].mtx).y) > r)
             continue;
 
         if (r <= 0.0f)
             continue;
-        const auto vx = locator[i].mtx.Pos().x - x;
-        const auto vz = locator[i].mtx.Pos().z - z;
+        const auto vx = storm::math::pos(locator[i].mtx).x - x;
+        const auto vz = storm::math::pos(locator[i].mtx).z - z;
         const auto d = vx * vx + vz * vz;
         if (r * r <= d)
             continue;

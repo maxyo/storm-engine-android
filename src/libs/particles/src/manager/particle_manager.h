@@ -27,7 +27,7 @@ class ParticleManager : public IParticleManager
     {
         std::string Name;
         bool AutoDeleted;
-        Matrix matWorld;
+        glm::mat4 matWorld;
     };
 
     bool ShowStat;

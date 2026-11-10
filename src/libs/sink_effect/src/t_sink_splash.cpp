@@ -34,7 +34,7 @@ void TSinkSplash::Release()
 }
 
 //--------------------------------------------------------------------
-void TSinkSplash::Start(const CVECTOR &_pos, uint16_t *_indexes, SINK_VERTEX *_vertexes, int32_t vOffset)
+void TSinkSplash::Start(const glm::vec3 &_pos, uint16_t *_indexes, SINK_VERTEX *_vertexes, int32_t vOffset)
 {
     time = 0;
     center = _pos;
@@ -97,8 +97,8 @@ void TSinkSplash::Process(uint32_t _dTime, uint16_t *_indexes, SINK_VERTEX *_ver
     const auto alpha = rand(PI * 2);
     auto rho = randUpper(sink_effect::MAX_RHO);
     const auto r = sink_effect::SPLASH_RADIUS;
-    static CVECTOR pos;
-    static CVECTOR localDir;
+    static glm::vec3 pos;
+    static glm::vec3 localDir;
     pos = center;
     pos.x += r * cos(alpha);
     pos.z += r * sin(alpha);
@@ -119,14 +119,14 @@ void TSinkSplash::Process(uint32_t _dTime, uint16_t *_indexes, SINK_VERTEX *_ver
     const auto midY = sea->WaveXZ(center.x, center.z) + sink_effect::SPLASH_MOVE_Y;
     const auto stepSize = static_cast<float>(sink_effect::GRID_LENGTH) / static_cast<float>(sink_effect::GRID_STEPS);
     const auto halfSize = sink_effect::GRID_LENGTH / 2.0f;
-    CVECTOR curPos;
+    glm::vec3 curPos;
     int x, z;
     float localHeight, prolongK;
 
     for (z = 0; z < sink_effect::GRID_STEPS; ++z)
         for (x = 0; x < sink_effect::GRID_STEPS; ++x)
         {
-            const auto curPosNormed = !CVECTOR(stepSize * x - halfSize, 0.0f, stepSize * z - halfSize);
+            const auto curPosNormed = storm::math::normalizeOrZero(glm::vec3(stepSize * x - halfSize, 0.0f, stepSize * z - halfSize));
             prolongK = curPosNormed.x * this->dir.x + curPosNormed.z * this->dir.z;
             curPos.x = (center.x + stepSize * x) - halfSize;
             curPos.z = (center.z + stepSize * z) - halfSize;

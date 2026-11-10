@@ -45,7 +45,7 @@
 
 struct BI_ONETEXTURE_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float w;
     float tu, tv;
 };
@@ -108,7 +108,7 @@ struct BIFPOINT
 
 struct BI_COLOR_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float w;
     uint32_t col;
     float tu, tv;
@@ -118,7 +118,7 @@ struct BI_COLOR_VERTEX
 
 struct BI_NOTEXTURE_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float w;
 };
 
@@ -126,7 +126,7 @@ struct BI_NOTEXTURE_VERTEX
 
 struct BI_COLORONLY_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float w;
     uint32_t col;
 };
@@ -135,7 +135,7 @@ struct BI_COLORONLY_VERTEX
 
 struct BI_3D_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float tu, tv;
 };
 

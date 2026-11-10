@@ -11,7 +11,7 @@
 #include "wdm_sea.h"
 
 #include "math_inlines.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "wdm_ship.h"
 #include "storm_assert.h"
 #include "platform/platform.hpp"
@@ -316,22 +316,22 @@ void WdmSea::LRender(VDX9RENDER *rs)
     rs->TextureSet(0, aniTextures[curFrame]);
     rs->TextureSet(1, aniTextures[nextFrame]);
     // Matrix for textures
-    CMatrix mtx;
-    mtx.m[0][0] = aniTiling;
-    mtx.m[1][1] = aniTiling;
-    mtx.m[2][2] = aniTiling;
-    mtx.Pos() = 0.0f;
-    rs->SetTransform(D3DTS_TEXTURE0, mtx);
-    rs->SetTransform(D3DTS_TEXTURE1, mtx);
+    glm::mat4 mtx;
+    mtx[0][0] = aniTiling;
+    mtx[1][1] = aniTiling;
+    mtx[2][2] = aniTiling;
+    storm::math::pos(mtx) = glm::vec3(0.0f);
+    rs->SetTransform(D3DTS_TEXTURE0, storm::math::d3dMatrix(mtx));
+    rs->SetTransform(D3DTS_TEXTURE1, storm::math::d3dMatrix(mtx));
     rs->SetRenderState(D3DRS_TEXTUREFACTOR, WDM_SEA_CLR(WDM_SEA_ANIALPHA, k));
     Render(rs, "WdmSeaDraw3");
     // draw flares
     if (flareCount > 0)
     {
-        CMatrix view;
-        rs->GetTransform(D3DTS_VIEW, view);
-        view.Transposition();
-        auto y = view.Pos().y;
+        glm::mat4 view;
+        rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+        storm::math::invertRigid(view);
+        auto y = storm::math::pos(view).y;
         const auto maxy = 130.0f;
         const auto miny = 80.0f;
         if (y < maxy)
@@ -350,10 +350,10 @@ void WdmSea::LRender(VDX9RENDER *rs)
 
 void WdmSea::Render(VDX9RENDER *rs, const char *tech) const
 {
-    static CMatrix identity;
+    static glm::mat4 identity;
     if (vb < 0 || ib < 0)
         return;
-    rs->SetTransform(D3DTS_WORLD, identity);
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(identity));
     rs->DrawBuffer(vb, sizeof(Vertex), ib, 0, WDM_SEA_NV, 0, WDM_SEA_NT, (char *)tech);
 }
 
@@ -361,10 +361,10 @@ void WdmSea::Render(VDX9RENDER *rs, const char *tech) const
 void WdmSea::PresetMain(VDX9RENDER *rs) const
 {
     // Matrix for textures
-    CMatrix mtx;
-    mtx.m[0][0] = seaSizeX / wdmObjects->worldSizeX;
-    mtx.m[1][1] = mtx.m[0][0];
-    mtx.m[2][0] = (1.0f - mtx.m[0][0]) * 0.5f;
-    mtx.m[2][1] = (1.0f - mtx.m[0][0]) * 0.5f;
-    rs->SetTransform(D3DTS_TEXTURE0, mtx);
+    glm::mat4 mtx;
+    mtx[0][0] = seaSizeX / wdmObjects->worldSizeX;
+    mtx[1][1] = mtx[0][0];
+    mtx[2][0] = (1.0f - mtx[0][0]) * 0.5f;
+    mtx[2][1] = (1.0f - mtx[0][0]) * 0.5f;
+    rs->SetTransform(D3DTS_TEXTURE0, storm::math::d3dMatrix(mtx));
 }

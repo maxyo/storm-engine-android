@@ -1,6 +1,6 @@
 #pragma once
 
-#include "c_vector.h"
+#include "storm_glm.h"
 #include "v_sound_service.h"
 #include "dx9render.h"
 #include "sea_base.h"
@@ -11,7 +11,7 @@
 ///////////////////////////////////////////////////////////////////
 struct SINK_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     uint32_t color;
     float tu, tv;
 };
@@ -24,7 +24,7 @@ class TSinkSplash
 
     void Initialize(INIFILE *_ini, SEA_BASE *sea);
     void Release();
-    void Start(const CVECTOR &_pos, uint16_t *_indexes, SINK_VERTEX *_vertexes, int32_t vOffset);
+    void Start(const glm::vec3 &_pos, uint16_t *_indexes, SINK_VERTEX *_vertexes, int32_t vOffset);
     void Process(uint32_t dTime, uint16_t *_indexes, SINK_VERTEX *_vertexes);
     bool Enabled();
     void Reset(uint16_t *_indexes, SINK_VERTEX *_vertexes);
@@ -39,6 +39,6 @@ class TSinkSplash
     uint32_t time;
 
     float distortDivider;
-    CVECTOR center, dir;
+    glm::vec3 center, dir;
     float growK;
 };

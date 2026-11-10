@@ -41,7 +41,7 @@ class WdmMerchantShip : public WdmEnemyShip
     // Encapsulation
     // --------------------------------------------------------------------------------------------
   private:
-    CVECTOR gotoPos;
+    glm::vec3 gotoPos;
     float gotoRad;
     bool isEnableSetDir;
 };

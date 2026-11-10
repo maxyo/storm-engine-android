@@ -10,7 +10,7 @@
 
 struct XI_AVIVIDEO_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float w;
     float tu, tv;
 };

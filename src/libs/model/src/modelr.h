@@ -23,7 +23,7 @@ class NODER : public NODE
 
     // local radius and center of geometry
     float geo_radius;
-    CVECTOR geo_center;
+    glm::vec3 geo_center;
 
     float max_view_dist;
     float distance_blend;
@@ -31,20 +31,20 @@ class NODER : public NODE
   public:
     // local radius and center of whole node with children
     float radius;
-    CVECTOR center;
+    glm::vec3 center;
 
     static VGEOMETRY *gs;
     static VDX9RENDER *rs;
 
-    bool Init(const char *lightPath, const char *pname, const char *oname, const CMatrix &m, const CMatrix &globm,
+    bool Init(const char *lightPath, const char *pname, const char *oname, const glm::mat4 &m, const glm::mat4 &globm,
               NODER *par, const char *lmPath) override;
     NODER();
     ~NODER() override;
     void Draw();
-    float Trace(const CVECTOR &src, const CVECTOR &dst) override;
+    float Trace(const glm::vec3 &src, const glm::vec3 &dst) override;
     NODER *GetNode(int32_t n);
     NODER *FindNode(const char *cNodeName);
-    float Update(CMatrix &mtx, CVECTOR &cnt);
+    float Update(glm::mat4 &mtx, glm::vec3 &cnt);
     const char *GetName() override;
     bool Clip();
 
@@ -98,7 +98,7 @@ class MODELR : public MODEL
     ANIBUFFER aniVerts[MODEL_ANI_MAXBUFFERS];
     void AniRender();
     NODE *colideNode;
-    void FindPlanes(const CMatrix &view, const CMatrix &proj);
+    void FindPlanes(const glm::mat4 &view, const glm::mat4 &proj);
 
     unsigned short *idxBuff;
 
@@ -136,10 +136,10 @@ class MODELR : public MODEL
     void Update() override;
     Animation *GetAnimation() override;
 
-    float Trace(const CVECTOR &src, const CVECTOR &dst) override;
+    float Trace(const glm::vec3 &src, const glm::vec3 &dst) override;
     const char *GetCollideMaterialName() override;
     bool GetCollideTriangle(TRIANGLE &triangle) override;
-    bool Clip(const PLANE *planes, int32_t nplanes, const CVECTOR &center, float radius,
+    bool Clip(const PLANE *planes, int32_t nplanes, const glm::vec3 &center, float radius,
               ADD_POLYGON_FUNC addpoly) override;
 
     NODE *GetCollideNode() override;

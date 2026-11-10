@@ -20,7 +20,7 @@ TornadoParticles::TornadoParticles(Pillar &_pillar) : pillar(_pillar)
 {
     for (int32_t i = 0; i < sizeof(groundPrt) / sizeof(GroundParticle); i++)
     {
-        groundPrt[i].pos = 0.0f;
+        groundPrt[i].pos = glm::vec3(0.0f);
         groundPrt[i].size = GetRand(25.0f, 0.3f);
         groundPrt[i].alpha = 0.7f;
         groundPrt[i].angle = rand() * 2.0f * TRND_PI / RAND_MAX;
@@ -137,16 +137,16 @@ void TornadoParticles::Update(float dltTime)
 
 void TornadoParticles::Draw(VDX9RENDER *rs)
 {
-    rs->GetTransform(D3DTS_VIEW, camMtx);
-    rs->SetTransform(D3DTS_VIEW, CMatrix());
-    rs->SetTransform(D3DTS_WORLD, CMatrix());
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
+    rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(glm::mat4()));
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
     rs->TextureSet(0, txtPillarPrts);
     DrawParticles(rs, pillarPrt, sizeof(pillarPrt) / sizeof(PillarParticle), sizeof(PillarParticle), -1,
                   "TornadoPillarParticles");
     rs->TextureSet(0, txtGroundPrts);
     DrawParticles(rs, groundPrt, sizeof(groundPrt) / sizeof(GroundParticle), sizeof(GroundParticle), -1,
                   "TornadoGroundParticles");
-    rs->SetTransform(D3DTS_VIEW, camMtx);
+    rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
 }
 
 inline void TornadoParticles::DrawParticles(VDX9RENDER *rs, void *prts, int32_t num, int32_t size, int32_t texture,
@@ -157,20 +157,20 @@ inline void TornadoParticles::DrawParticles(VDX9RENDER *rs, void *prts, int32_t 
     {
         auto *parts = static_cast<Particle *>(prts);
         prts = static_cast<char *>(prts) + size;
-        auto pos = camMtx * parts->pos;
+        auto pos = storm::math::transformPoint(camMtx, parts->pos);
         const auto size = parts->size * 0.5f;
         const auto sn = sinf(parts->angle);
         const auto cs = cosf(parts->angle);
         const auto color = (static_cast<int32_t>(parts->alpha * galpha) << 24) | 0x00ffffff;
-        buffer[n * 6 + 0].pos = pos + CVECTOR(size * (-cs + sn), size * (sn + cs), 0.0f);
+        buffer[n * 6 + 0].pos = pos + glm::vec3(size * (-cs + sn), size * (sn + cs), 0.0f);
         buffer[n * 6 + 0].color = color;
         buffer[n * 6 + 0].u = 0.0f;
         buffer[n * 6 + 0].v = 0.0f;
-        buffer[n * 6 + 1].pos = pos + CVECTOR(size * (-cs - sn), size * (sn - cs), 0.0f);
+        buffer[n * 6 + 1].pos = pos + glm::vec3(size * (-cs - sn), size * (sn - cs), 0.0f);
         buffer[n * 6 + 1].color = color;
         buffer[n * 6 + 1].u = 0.0f;
         buffer[n * 6 + 1].v = 1.0f;
-        buffer[n * 6 + 2].pos = pos + CVECTOR(size * (cs + sn), size * (-sn + cs), 0.0f);
+        buffer[n * 6 + 2].pos = pos + glm::vec3(size * (cs + sn), size * (-sn + cs), 0.0f);
         buffer[n * 6 + 2].color = color;
         buffer[n * 6 + 2].u = 1.0f;
         buffer[n * 6 + 2].v = 0.0f;
@@ -182,7 +182,7 @@ inline void TornadoParticles::DrawParticles(VDX9RENDER *rs, void *prts, int32_t 
         buffer[n * 6 + 4].color = color;
         buffer[n * 6 + 4].u = 0.0f;
         buffer[n * 6 + 4].v = 1.0f;
-        buffer[n * 6 + 5].pos = pos + CVECTOR(size * (cs - sn), size * (-sn - cs), 0.0f);
+        buffer[n * 6 + 5].pos = pos + glm::vec3(size * (cs - sn), size * (-sn - cs), 0.0f);
         buffer[n * 6 + 5].color = color;
         buffer[n * 6 + 5].u = 1.0f;
         buffer[n * 6 + 5].v = 1.0f;

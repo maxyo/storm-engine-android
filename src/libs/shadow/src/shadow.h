@@ -9,7 +9,7 @@ class Shadow : public Entity
 {
     VDX9RENDER *rs;
     COLLIDE *col;
-    void FindPlanes(const CMatrix &view, const CMatrix &proj);
+    void FindPlanes(const glm::mat4 &view, const glm::mat4 &proj);
     PLANE planes[6];
     entid_t entity;
     void Smooth();
@@ -21,7 +21,7 @@ class Shadow : public Entity
 
     struct SHADOW_VERTEX
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         float tu, tv;
     };
 

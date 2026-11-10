@@ -12,7 +12,7 @@
 
 #include <chrono>
 
-#include "c_vector.h"
+#include "storm_glm.h"
 #include "storm_assert.h"
 
 //============================================================================================
@@ -199,7 +199,7 @@ float Pillar::GetZ(float y)
            1.2f * sinf(20.0f * kH - phaseZ2);
 }
 
-float Pillar::RandomPos(CVECTOR &pos)
+float Pillar::RandomPos(glm::vec3 &pos)
 {
     pos.y = rand() * TRND_HEIGHT / RAND_MAX;
     const auto ang = rand() * 2.0f * TRND_PI / (RAND_MAX + 1);

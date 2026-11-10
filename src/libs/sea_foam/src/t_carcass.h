@@ -1,7 +1,7 @@
 #pragma once
 
-#include "c_vector.h"
-#include "matrix.h"
+#include "storm_glm.h"
+#include "storm_glm.h"
 #include "dx9render.h"
 #include "geometry.h"
 
@@ -16,7 +16,7 @@
 //--------------------------------------------------------------------
 struct tCarcassVertex
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     uint32_t color;
     float u, v;
 };
@@ -40,7 +40,7 @@ class TCarcass
     void InitCircleMeasure(float _d, float _kx, float _ky);
     bool Initialize();
     void Uninitialize();
-    void Execute(uint32_t dTime, CMatrix &_mtx, const CVECTOR *_starts);
+    void Execute(uint32_t dTime, glm::mat4 &_mtx, const glm::vec3 *_starts);
     void Realize(const char *_technique);
 
     void SetSpeed(float _uSpeed, float _vSpeed, float _speedA);
@@ -51,9 +51,9 @@ class TCarcass
 
     bool normalsInverted;
     tMeasure measure;
-    CVECTOR levelStarts[MAX_LEVELS];
+    glm::vec3 levelStarts[MAX_LEVELS];
     int levelsCount;
-    CMatrix sceneMatrix;
+    glm::mat4 sceneMatrix;
     int32_t ivElementIndex;
     bool indexesCreated;
     uint32_t time;

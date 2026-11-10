@@ -35,15 +35,15 @@ class WdmIslands : public WdmRenderObject
         WdmRenderModel *area;  // Island area model
         WdmRenderModel *palms; // Model with palm trees
         WdmIslandWaves *waves; // Model with foam
-        CMatrix toLocal;       // Conversion to the local island system
+        glm::mat4 toLocal;       // Conversion to the local island system
         std::string modelName; // Island Model Name
-        CVECTOR worldPosition; // The position of the island in the world
+        glm::vec3 worldPosition; // The position of the island in the world
     };
 
     struct Label
     {
         std::string text;        // Label text
-        CVECTOR pos;             // Label position
+        glm::vec3 pos;             // Label position
         float l, t, r, b;        // Rectangle describing the label in screen coordinates
         float dl, dt, dr, db;    // Offsets to get a rectangle at a known point on the screen
         float textX, textY;      // Relative text position
@@ -80,7 +80,7 @@ class WdmIslands : public WdmRenderObject
 
     struct Quest
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         std::string name;
     };
 
@@ -94,7 +94,7 @@ class WdmIslands : public WdmRenderObject
     ~WdmIslands() override;
 
     // Check for possible collision
-    bool CollisionTest(CMatrix &objMtx, float length, float width, bool heighTest = true);
+    bool CollisionTest(glm::mat4 &objMtx, float length, float width, bool heighTest = true);
     // Check for the presence of triangles in this place
     bool ObstacleTest(float x, float z, float radius);
 
@@ -102,13 +102,13 @@ class WdmIslands : public WdmRenderObject
     void SetIslandsData(ATTRIBUTES *apnt, bool isChange);
 
     // Find the direction to arrive at a given destination from the current
-    void FindDirection(const CVECTOR &position, const CVECTOR &destination, CVECTOR &direction) const;
+    void FindDirection(const glm::vec3 &position, const glm::vec3 &destination, glm::vec3 &direction) const;
     // Find the repulsive force
-    void FindReaction(const CVECTOR &position, CVECTOR &reaction) const;
+    void FindReaction(const glm::vec3 &position, glm::vec3 &reaction) const;
     // Find a random point for a merchant
-    bool GetRandomMerchantPoint(CVECTOR &p);
+    bool GetRandomMerchantPoint(glm::vec3 &p);
     // Get the coordinates of the quest locator
-    bool GetQuestLocator(const char *locName, CVECTOR &p);
+    bool GetQuestLocator(const char *locName, glm::vec3 &p);
 
     // Check if the boat is in the island zone
     bool CheckIslandArea(const char *islandName, float x, float z);
@@ -122,15 +122,15 @@ class WdmIslands : public WdmRenderObject
     // Encapsulation
     // --------------------------------------------------------------------------------------------
   private:
-    bool IsShipInArea(int32_t islIndex, const CVECTOR &pos);
+    bool IsShipInArea(int32_t islIndex, const glm::vec3 &pos);
     static bool AddEdges(const GEOS::VERTEX *vrt, int32_t numVrt);
     static bool FindNearPoint(const GEOS::VERTEX *vrt, int32_t numVrt);
     void LabelsReadIconParams(ATTRIBUTES *apnt);
     int32_t LabelsFind(const char *id, uint32_t hash);
-    bool LabelsFindLocator(const char *name, CVECTOR &pos) const;
+    bool LabelsFindLocator(const char *name, glm::vec3 &pos) const;
     int32_t LabelsAddFont(const char *name);
     void LabelsRelease();
-    static CVECTOR Norm2D(const CVECTOR &ret);
+    static glm::vec3 Norm2D(const glm::vec3 &ret);
 
   private:
     // Model containing all locators
@@ -148,23 +148,23 @@ class WdmIslands : public WdmRenderObject
     // Labels registered for rendering
     std::vector<int32_t> labelSort;
     // Merchant destinations
-    std::vector<CVECTOR> merchants;
+    std::vector<glm::vec3> merchants;
     // Destination Points of Quest Encounters
     std::vector<Quest> quests;
 
     // Input table for finding labels
     int32_t labelsEntry[1024];
 
-    static CMatrix curMatrix, locMatrix;
+    static glm::mat4 curMatrix, locMatrix;
     static int32_t numEdges;
-    static CVECTOR curPos;
+    static glm::vec3 curPos;
     static bool checkMode;
 
   public:
-    static CVECTOR centPos;
+    static glm::vec3 centPos;
 };
 
-inline CVECTOR WdmIslands::Norm2D(const CVECTOR &v)
+inline glm::vec3 WdmIslands::Norm2D(const glm::vec3 &v)
 {
     auto ret = v;
     ret.y = 0.0f;
@@ -177,7 +177,7 @@ inline CVECTOR WdmIslands::Norm2D(const CVECTOR &v)
     }
     else
     {
-        ret = 0.0f;
+        ret = glm::vec3(0.0f);
     }
     return ret;
 }

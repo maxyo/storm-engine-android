@@ -126,16 +126,16 @@ void SKY::Realize(uint32_t Delta_Time)
     fAngleY += static_cast<float>(Delta_Time) * 0.001f * fSkySpeedRotate;
 
     float fFov;
-    CVECTOR vPos, vAng;
-    CMatrix pMatWorld, pMatTranslate, pMatRotate;
+    glm::vec3 vPos, vAng;
+    glm::mat4 pMatWorld, pMatTranslate, pMatRotate;
 
     pRS->GetCamera(vPos, vAng, fFov);
 
-    pMatTranslate.BuildPosition(vPos.x, vPos.y / 6.0f, vPos.z);
-    pMatWorld = pMatWorld * pMatTranslate;
-    pMatRotate.BuildRotateY(fAngleY + fSkyAngle);
-    pMatWorld = pMatRotate * pMatWorld;
-    pRS->SetTransform(D3DTS_WORLD, pMatWorld);
+    pMatTranslate = storm::math::translation(vPos.x, vPos.y / 6.0f, vPos.z);
+    pMatWorld = pMatTranslate * pMatWorld;
+    pMatRotate = storm::math::rotationY(fAngleY + fSkyAngle);
+    pMatWorld = pMatWorld * pMatRotate;
+    pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(pMatWorld));
 
     const auto drawSky = [&](const std::string& material,uint32_t factor,bool transition) {
         if (!skyMesh_ || loadedSkySetCount_ == 0) return;
@@ -145,7 +145,7 @@ void SKY::Realize(uint32_t Delta_Time)
             ranges[count++]={i*6,6,TexturesID[i],transition?TexturesNextID[i]:-1};
             if (Delta_Time==0) ranges[count++]={30+i*6,6,TexturesID[i],transition?TexturesNextID[i]:-1};
         }
-        skyMesh_->submit({std::span<const float,16>(pMatWorld.matrix),{ranges.data(),count},material,factor});
+        skyMesh_->submit({std::span<const float,16>(storm::math::data(pMatWorld), 16),{ranges.data(),count},material,factor});
     };
 
     if (aSkyDirArray.size() > 1)
@@ -183,7 +183,7 @@ void SKY::Realize(uint32_t Delta_Time)
                 if (pSunGlow)
                     static_cast<SUNGLOW *>(pSunGlow)->DrawSunMoon();
 
-                pRS->SetTransform(D3DTS_WORLD, pMatWorld);
+                pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(pMatWorld));
                 drawSky(sTechSkyBlendAlpha, dwColor, true);
             }
         }
@@ -195,9 +195,9 @@ void SKY::Realize(uint32_t Delta_Time)
         drawSky(sTechSky, dwSkyColor, false);
     }
 
-    pMatWorld.SetIdentity();
-    pMatTranslate.BuildPosition(vPos.x, vPos.y / 6.0f, vPos.z);
-    pMatWorld = pMatWorld * pMatTranslate;
+    pMatWorld = glm::mat4(1.0f);
+    pMatTranslate = storm::math::translation(vPos.x, vPos.y / 6.0f, vPos.z);
+    pMatWorld = pMatTranslate * pMatWorld;
     // The colored-mesh backend consumes the transform explicitly.
 #ifdef STORM_ENABLE_BGFX
     D3DMATRIX fogView{}, fogProjection{};
@@ -207,7 +207,7 @@ void SKY::Realize(uint32_t Delta_Time)
     if (storm::render::captureFogFrame(pMatWorld.matrix, &fogView.m[0][0], &fogProjection.m[0][0], captureResult))
         core.Trace("bgfx fog capture: %s", captureResult.empty() ? "saved" : captureResult.c_str());
 #endif
-    if (fogMesh_) fogMesh_->submit({std::span<const float,16>(pMatWorld.matrix), sTechSkyFog});
+    if (fogMesh_) fogMesh_->submit({std::span<const float,16>(storm::math::data(pMatWorld), 16), sTechSkyFog});
 }
 
 uint32_t SKY::AttributeChanged(ATTRIBUTES *pAttribute)
@@ -431,19 +431,19 @@ void SKY::UpdateTimeFactor()
     }
 }
 
-float SKY::CalculateAlphaForSun(const CVECTOR &vSunPos, float fSunSize)
+float SKY::CalculateAlphaForSun(const glm::vec3 &vSunPos, float fSunSize)
 {
     // get Sky
     float fFov;
-    CVECTOR vPos, vAng;
+    glm::vec3 vPos, vAng;
     pRS->GetCamera(vPos, vAng, fFov);
 
-    CMatrix mtxWorld;
-    mtxWorld.BuildRotateY(fAngleY + fSkyAngle);
-    mtxWorld.Move(vPos.x, vPos.y / 6.0f, vPos.z);
+    glm::mat4 mtxWorld;
+    mtxWorld = storm::math::rotationY(fAngleY + fSkyAngle);
+    storm::math::pos(mtxWorld) += glm::vec3(vPos.x, vPos.y / 6.0f, vPos.z);
 
-    CVECTOR vLocalSunPos;
-    mtxWorld.MulToInv(vSunPos, vLocalSunPos);
+    glm::vec3 vLocalSunPos;
+    vLocalSunPos = storm::math::inverseTransformPoint(mtxWorld, vSunPos);
 
     if (vLocalSunPos.y < 0.f)
         vLocalSunPos.y = 0.f;

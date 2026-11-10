@@ -45,6 +45,9 @@ if (MSVC)
     add_link_options("$<$<CONFIG:Release>:/LTCG>") # Enable link-time code generation
 else()
     add_compile_options(-std=c++20)
+    # Matrices, vertex data and D3D structures are viewed through differently
+    # typed pointers throughout the engine (storm_glm.h accessors, vertex locks).
+    add_compile_options(-fno-strict-aliasing)
 
     # Verbose output
     if(NOT ANDROID)

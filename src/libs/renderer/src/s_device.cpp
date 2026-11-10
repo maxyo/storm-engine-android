@@ -253,7 +253,7 @@ char splashbuffer[256];
 
 struct DX9SphVertex
 {
-    CVECTOR v;
+    glm::vec3 v;
     uint32_t c;
 };
 
@@ -264,8 +264,8 @@ void CreateSphere()
 {
 #define CalcKColor(ind)                                                                                                \
     {                                                                                                                  \
-        kColor = light | !CVECTOR(DX9sphereVertex[t * 3 + ind].v.x, DX9sphereVertex[t * 3 + ind].v.y,                  \
-                                  DX9sphereVertex[t * 3 + ind].v.z);                                                   \
+        kColor = glm::dot(light, storm::math::normalizeOrZero(glm::vec3(DX9sphereVertex[t * 3 + ind].v.x,              \
+                    DX9sphereVertex[t * 3 + ind].v.y, DX9sphereVertex[t * 3 + ind].v.z)));                            \
         if (kColor < 0.0f)                                                                                             \
             kColor = 0.0f;                                                                                             \
     }
@@ -284,7 +284,7 @@ void CreateSphere()
     DX9sphereNumTrgs = a1 * a2 * 2;
     DX9sphereVertex = new DX9SphVertex[DX9sphereNumTrgs * 6];
 
-    const CVECTOR light = !CVECTOR(0.0f, 0.0f, 1.0f);
+    const glm::vec3 light = storm::math::normalizeOrZero(glm::vec3(0.0f, 0.0f, 1.0f));
     float kColor;
     // fill in the vertices
     for (int32_t i = 0, t = 0; i < a2; i++)
@@ -464,7 +464,7 @@ DX9RENDER::DX9RENDER()
     progressFramesCountX = 8;
     progressFramesCountY = 8;
 
-    vViewRelationPos = CVECTOR(0.f, 0.f, 0.f);
+    vViewRelationPos = glm::vec3(0.f, 0.f, 0.f);
     vWordRelationPos = -vViewRelationPos;
     bUseLargeBackBuffer = false;
 }
@@ -646,7 +646,7 @@ bool DX9RENDER::Init()
 
     pDropConveyorVBuffer = nullptr;
     rectsVBuffer = nullptr;
-    d3d9->CreateVertexBuffer(2 * sizeof(CVECTOR), D3DUSAGE_WRITEONLY, D3DFVF_XYZ, D3DPOOL_MANAGED,
+    d3d9->CreateVertexBuffer(2 * sizeof(glm::vec3), D3DUSAGE_WRITEONLY, D3DFVF_XYZ, D3DPOOL_MANAGED,
                              &pDropConveyorVBuffer, nullptr);
     d3d9->CreateVertexBuffer(rectsVBuffer_SizeInRects * 6 * sizeof(RECT_VERTEX), D3DUSAGE_WRITEONLY | D3DUSAGE_DYNAMIC,
                              RS_RECT_VERTEX_FORMAT, D3DPOOL_DEFAULT, &rectsVBuffer, nullptr); // D3DPOOL_MANAGED
@@ -945,7 +945,7 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
     // texture op for lightmaps
     // SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_ADDSIGNED);
 
-    SetCamera(CVECTOR(0.0f, 0.0f, 0.0f), CVECTOR(0.0f, 0.0f, 0.0f), 1.0f);
+    SetCamera(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f);
 
     D3DLIGHT9 l{};
     l.Type = D3DLIGHT_POINT;
@@ -1028,10 +1028,10 @@ void DX9RENDER::CreateRenderQuad(float fWidth, float fHeight, float fSrcWidth, f
     const float StartY = -0.5f;
     fWidth -= 0.5f;
     fHeight -= 0.5f;
-    PostProcessQuad[0].vPos = Vector4(StartX, fHeight, 0.0f, 1.0f);
-    PostProcessQuad[1].vPos = Vector4(StartX, StartY, 0.0f, 1.0f);
-    PostProcessQuad[2].vPos = Vector4(fWidth, fHeight, 0.0f, 1.0f);
-    PostProcessQuad[3].vPos = Vector4(fWidth, StartY, 0.0f, 1.0f);
+    PostProcessQuad[0].vPos = glm::vec4(StartX, fHeight, 0.0f, 1.0f);
+    PostProcessQuad[1].vPos = glm::vec4(StartX, StartY, 0.0f, 1.0f);
+    PostProcessQuad[2].vPos = glm::vec4(fWidth, fHeight, 0.0f, 1.0f);
+    PostProcessQuad[3].vPos = glm::vec4(fWidth, StartY, 0.0f, 1.0f);
 
     const float fTexelU = 1.0f / fSrcWidth;
     const float fTexelV = 1.0f / fSrcHeight;
@@ -1122,10 +1122,10 @@ void DX9RENDER::CopyGlowToScreen()
     const auto sx = static_cast<float>(screen_size.x);
     const auto sy = static_cast<float>(screen_size.y);
     // Render to screen
-    PostProcessQuad[0].vPos = Vector4(0, sy, 0.0f, 1.0f);
-    PostProcessQuad[1].vPos = Vector4(0, 0, 0.0f, 1.0f);
-    PostProcessQuad[2].vPos = Vector4(sx, sy, 0.0f, 1.0f);
-    PostProcessQuad[3].vPos = Vector4(sx, 0, 0.0f, 1.0f);
+    PostProcessQuad[0].vPos = glm::vec4(0, sy, 0.0f, 1.0f);
+    PostProcessQuad[1].vPos = glm::vec4(0, 0, 0.0f, 1.0f);
+    PostProcessQuad[2].vPos = glm::vec4(sx, sy, 0.0f, 1.0f);
+    PostProcessQuad[3].vPos = glm::vec4(sx, 0, 0.0f, 1.0f);
 
     PostProcessQuad[0].v0 = 1.0f;
     PostProcessQuad[0].u0 = 0.0f;
@@ -1160,10 +1160,10 @@ void DX9RENDER::CopyPostProcessToScreen()
 {
     const auto sx = static_cast<float>(screen_size.x);
     const auto sy = static_cast<float>(screen_size.y);
-    PostProcessQuad[0].vPos = Vector4(0, sy, 0.0f, 1.0f);
-    PostProcessQuad[1].vPos = Vector4(0, 0, 0.0f, 1.0f);
-    PostProcessQuad[2].vPos = Vector4(sx, sy, 0.0f, 1.0f);
-    PostProcessQuad[3].vPos = Vector4(sx, 0, 0.0f, 1.0f);
+    PostProcessQuad[0].vPos = glm::vec4(0, sy, 0.0f, 1.0f);
+    PostProcessQuad[1].vPos = glm::vec4(0, 0, 0.0f, 1.0f);
+    PostProcessQuad[2].vPos = glm::vec4(sx, sy, 0.0f, 1.0f);
+    PostProcessQuad[3].vPos = glm::vec4(sx, 0, 0.0f, 1.0f);
 
     PostProcessQuad[0].v0 = 1.0f;
     PostProcessQuad[0].u0 = 0.0f;
@@ -1279,10 +1279,10 @@ bool DX9RENDER::DX9EndScene()
             }
         }
 
-        CMatrix mView;
-        GetTransform(D3DTS_VIEW, mView);
-        mView.Transposition();
-        Print(80, 50, "Cam: %.3f, %.3f, %.3f", mView.Pos().x, mView.Pos().y, mView.Pos().z);
+        glm::mat4 mView;
+        GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mView));
+        storm::math::invertRigid(mView);
+        Print(80, 50, "Cam: %.3f, %.3f, %.3f", storm::math::pos(mView).x, storm::math::pos(mView).y, storm::math::pos(mView).z);
         Print(80, 70, "t : %d, %.3f Mb", dwTotalTexNum, float(dwTotalTexSize) / (1024.0f * 1024.0f));
         Print(80, 90, "v : %d, %.3f Mb", dwTotalVB, float(dwTotalVBSize) / (1024.0f * 1024.0f));
         Print(80, 110, "i : %d, %.3f Mb", dwTotalIB, float(dwTotalIBSize) / (1024.0f * 1024.0f));
@@ -1293,12 +1293,12 @@ bool DX9RENDER::DX9EndScene()
     // Try to drop video conveyor
     if (bDropVideoConveyor && pDropConveyorVBuffer)
     {
-        CVECTOR *pV;
+        glm::vec3 *pV;
         pDropConveyorVBuffer->Lock(0, 0, (void **)&pV, 0);
         for (int32_t i = 0; i < 2; i++)
-            pV[i] = CVECTOR(1e6f, 1e6f, 1e6f);
+            pV[i] = glm::vec3(1e6f, 1e6f, 1e6f);
         pDropConveyorVBuffer->Unlock();
-        d3d9->SetStreamSource(0, pDropConveyorVBuffer, 0, sizeof(CVECTOR));
+        d3d9->SetStreamSource(0, pDropConveyorVBuffer, 0, sizeof(glm::vec3));
         SetFVF(D3DFVF_XYZ);
         DrawPrimitive(D3DPT_LINELIST, 0, 1);
     }
@@ -2085,7 +2085,7 @@ bool DX9RENDER::TextureRelease(int32_t texid)
 }
 
 //################################################################################
-bool DX9RENDER::SetCamera(const CVECTOR &pos, const CVECTOR &ang, float fov)
+bool DX9RENDER::SetCamera(const glm::vec3 &pos, const glm::vec3 &ang, float fov)
 {
     if (!SetCamera(pos, ang))
         return false;
@@ -2096,10 +2096,10 @@ bool DX9RENDER::SetCamera(const CVECTOR &pos, const CVECTOR &ang, float fov)
     return true;
 }
 
-bool DX9RENDER::SetCamera(const CVECTOR &pos, const CVECTOR &ang)
+bool DX9RENDER::SetCamera(const glm::vec3 &pos, const glm::vec3 &ang)
 {
-    CMatrix mtx;
-    const CVECTOR vOldWordRelationPos = vWordRelationPos;
+    glm::mat4 mtx;
+    const glm::vec3 vOldWordRelationPos = vWordRelationPos;
     /*if (!pos || !ang)
     {
       if (!pos && !ang) return true;
@@ -2113,7 +2113,7 @@ bool DX9RENDER::SetCamera(const CVECTOR &pos, const CVECTOR &ang)
       }
       else
       {
-        //CVECTOR p;
+        //glm::vec3 p;
         //mtx.MulToInvNorm(mtx.Pos(), p);
         mtx.BuildMatrix(*ang);
         mtx.Transposition3X3();
@@ -2123,8 +2123,8 @@ bool DX9RENDER::SetCamera(const CVECTOR &pos, const CVECTOR &ang)
     }
     else*/
     {
-        mtx.BuildMatrix(ang);
-        mtx.Transposition3X3();
+        mtx = storm::math::eulerMatrix(ang);
+        storm::math::transpose3x3(mtx);
         // mtx.SetInversePosition(pos->x, pos->y, pos->z);
         Pos = pos;
         Ang = ang;
@@ -2132,29 +2132,29 @@ bool DX9RENDER::SetCamera(const CVECTOR &pos, const CVECTOR &ang)
     }
     // if(CHECKD3DERR(SetTransform(D3DTS_VIEW, mtx))==true)    return false;
 
-    d3d9->SetTransform(D3DTS_VIEW, mtx);
-    vViewRelationPos = -(mtx * vWordRelationPos);
-    d3d9->GetTransform(D3DTS_WORLD, mtx);
-    mtx.Pos() += vWordRelationPos - vOldWordRelationPos;
-    d3d9->SetTransform(D3DTS_WORLD, mtx);
+    d3d9->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mtx));
+    vViewRelationPos = -(storm::math::transformPoint(mtx, vWordRelationPos));
+    d3d9->GetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mtx));
+    storm::math::pos(mtx) += vWordRelationPos - vOldWordRelationPos;
+    d3d9->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mtx));
 
     FindPlanes(d3d9);
     ProcessScriptPosAng(pos, ang);
     return true;
 }
 
-bool DX9RENDER::SetCamera(CVECTOR lookFrom, CVECTOR lookTo, CVECTOR up)
+bool DX9RENDER::SetCamera(glm::vec3 lookFrom, glm::vec3 lookTo, glm::vec3 up)
 {
-    CMatrix mtx;
-    if (!mtx.BuildViewMatrix(lookFrom, lookTo, up))
+    glm::mat4 mtx;
+    if (!storm::math::viewMatrix(mtx, lookFrom, lookTo, up))
         return false;
     // if(CHECKD3DERR(SetTransform(D3DTS_VIEW, mtx))==true)    return false;
-    SetTransform(D3DTS_VIEW, mtx);
+    SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mtx));
     Pos = lookFrom;
 
     // calculate the angle of the camera
     // Ang = 0.0f;
-    const CVECTOR vNorm = !(lookTo - lookFrom);
+    const glm::vec3 vNorm = storm::math::normalizeOrZero(lookTo - lookFrom);
     Ang.y = atan2f(vNorm.x, vNorm.z);
     Ang.x = atan2f(-vNorm.y, sqrtf(vNorm.x * vNorm.x + vNorm.z * vNorm.z));
     Ang.z = 0.f;
@@ -2164,7 +2164,7 @@ bool DX9RENDER::SetCamera(CVECTOR lookFrom, CVECTOR lookTo, CVECTOR up)
     return true;
 }
 
-void DX9RENDER::ProcessScriptPosAng(const CVECTOR &vPos, const CVECTOR &vAng)
+void DX9RENDER::ProcessScriptPosAng(const glm::vec3 &vPos, const glm::vec3 &vAng)
 {
     core.Event("CameraPosAng", "ffffff", vPos.x, vPos.y, vPos.z, vAng.x, vAng.y, vAng.z);
 }
@@ -2567,26 +2567,26 @@ void DX9RENDER::ReleaseIndexBuffer(int32_t id)
 
 void DX9RENDER::SetTransform(int32_t type, D3DMATRIX *mtx)
 {
-    CMatrix m = *(CMatrix *)mtx;
+    glm::mat4 m = *(glm::mat4 *)mtx;
     if (type == D3DTS_VIEW)
     {
         vViewRelationPos.x = -mtx->_41;
         vViewRelationPos.y = -mtx->_42;
         vViewRelationPos.z = -mtx->_43;
 
-        CVECTOR vDeltaWorld = vWordRelationPos;
-        m.MulToInvNorm(-vViewRelationPos, vWordRelationPos);
+        glm::vec3 vDeltaWorld = vWordRelationPos;
+        vWordRelationPos = storm::math::inverseTransformNormal(m, -vViewRelationPos);
         vDeltaWorld -= vWordRelationPos;
-        CMatrix mw;
+        glm::mat4 mw;
         d3d9->GetTransform(D3DTS_WORLD, (D3DMATRIX *)&mw);
-        mw.Pos() -= vDeltaWorld;
-        d3d9->SetTransform(D3DTS_WORLD, mw);
+        storm::math::pos(mw) -= vDeltaWorld;
+        d3d9->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mw));
 
-        m.Pos() += vViewRelationPos;
+        storm::math::pos(m) += vViewRelationPos;
     }
     else if (type == D3DTS_WORLD)
     {
-        m.Pos() += vWordRelationPos;
+        storm::math::pos(m) += vWordRelationPos;
     }
 
     CHECKD3DERR(d3d9->SetTransform(static_cast<D3DTRANSFORMSTATETYPE>(type), (D3DMATRIX *)&m));
@@ -2822,7 +2822,7 @@ void DX9RENDER::RunStart()
             for (int32_t x = 0; x < 32; x++)
             {
                 qv[x + y * 32].vPos =
-                    Vector4(sx * static_cast<float>(x) / 31.0f, sy * static_cast<float>(y) / 31.0f, 0.0f, 1.0f);
+                    glm::vec4(sx * static_cast<float>(x) / 31.0f, sy * static_cast<float>(y) / 31.0f, 0.0f, 1.0f);
 
                 qv[x + y * 32].u0 = (sx * static_cast<float>(x) / 31.0f +
                                      sinf(fSin + static_cast<float>(x) / 31.0f * PI * 16.0f) * fDX + fDX) /
@@ -3342,7 +3342,7 @@ uint32_t DX9RENDER::GetTextureStageState(uint32_t Stage, uint32_t Type, uint32_t
     return CHECKD3DERR(d3d9->GetTextureStageState(Stage, static_cast<D3DTEXTURESTAGESTATETYPE>(Type), (DWORD *)pValue));
 }
 
-void DX9RENDER::GetCamera(CVECTOR &pos, CVECTOR &ang, float &perspective)
+void DX9RENDER::GetCamera(glm::vec3 &pos, glm::vec3 &ang, float &perspective)
 {
     pos = Pos;
     ang = Ang;
@@ -3423,7 +3423,7 @@ PLANE *DX9RENDER::GetPlanes()
 void DX9RENDER::FindPlanes(IDirect3DDevice9 *d3dDevice)
 {
     D3DMATRIX m;
-    CVECTOR v[4];
+    glm::vec3 v[4];
     GetTransform(D3DTS_PROJECTION, static_cast<D3DMATRIX *>(&m));
     // left
     v[0].x = m.m[0][0];
@@ -3441,13 +3441,13 @@ void DX9RENDER::FindPlanes(IDirect3DDevice9 *d3dDevice)
     v[3].x = 0.0f;
     v[3].y = m.m[1][1];
     v[3].z = 1.0f;
-    v[0] = !v[0];
-    v[1] = !v[1];
-    v[2] = !v[2];
-    v[3] = !v[3];
+    v[0] = storm::math::normalizeOrZero(v[0]);
+    v[1] = storm::math::normalizeOrZero(v[1]);
+    v[2] = storm::math::normalizeOrZero(v[2]);
+    v[3] = storm::math::normalizeOrZero(v[3]);
 
     GetTransform(D3DTS_VIEW, static_cast<D3DMATRIX *>(&m));
-    CVECTOR pos;
+    glm::vec3 pos;
 
     pos.x = -m._41 * m._11 - m._42 * m._12 - m._43 * m._13;
     pos.y = -m._41 * m._21 - m._42 * m._22 - m._43 * m._23;
@@ -3509,9 +3509,9 @@ void DX9RENDER::DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlock
 
     bool bDraw = true;
 
-    static CMatrix camMtx, oldWorldMatrix, IMatrix;
-    d3d9->GetTransform(D3DTS_VIEW, camMtx);
-    d3d9->GetTransform(D3DTS_WORLD, oldWorldMatrix);
+    static glm::mat4 camMtx, oldWorldMatrix, IMatrix;
+    d3d9->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
+    d3d9->GetTransform(D3DTS_WORLD, storm::math::d3dMatrix(oldWorldMatrix));
 
     fScaleY *= GetHeightDeformator();
 
@@ -3538,8 +3538,8 @@ void DX9RENDER::DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlock
         dv = 1.0f;
     }
 
-    d3d9->SetTransform(D3DTS_VIEW, IMatrix);
-    d3d9->SetTransform(D3DTS_WORLD, IMatrix);
+    d3d9->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(IMatrix));
+    d3d9->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(IMatrix));
 
     for (uint32_t cnt = 0; cnt < dwRectsNum;)
     {
@@ -3551,16 +3551,16 @@ void DX9RENDER::DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlock
         RECT_VERTEX *data = nullptr;
         if (rectsVBuffer->Lock(0, drawCount * 6 * sizeof(RECT_VERTEX), (void **)&data, D3DLOCK_DISCARD) != D3D_OK)
         {
-            d3d9->SetTransform(D3DTS_VIEW, camMtx);
-            d3d9->SetTransform(D3DTS_WORLD, oldWorldMatrix);
+            d3d9->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
+            d3d9->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(oldWorldMatrix));
             return;
         }
         if (!data)
         {
             // Lock succeeded: balance it even if the driver supplied no data.
             rectsVBuffer->Unlock();
-            d3d9->SetTransform(D3DTS_VIEW, camMtx);
-            d3d9->SetTransform(D3DTS_WORLD, oldWorldMatrix);
+            d3d9->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
+            d3d9->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(oldWorldMatrix));
             return;
         }
         // Filling the buffer
@@ -3569,7 +3569,7 @@ void DX9RENDER::DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlock
             // Local array of a particle
             RECT_VERTEX *buffer = &data[i * 6];
             RS_RECT &rect = pRSR[cnt++];
-            CVECTOR pos = camMtx * (rect.vPos + vWordRelationPos);
+            glm::vec3 pos = storm::math::transformPoint(camMtx, rect.vPos + vWordRelationPos);
             const float sizex = rect.fSize * fScaleX;
             const float sizey = rect.fSize * fScaleY;
             const float sn = sinf(rect.fAngle);
@@ -3589,15 +3589,15 @@ void DX9RENDER::DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlock
                 v2 = v1 + dv;
             }
             // Filling the particle buffer
-            buffer[0].pos = pos + CVECTOR(sizex * (-cs - sn), sizey * (sn - cs), 0.0f);
+            buffer[0].pos = pos + glm::vec3(sizex * (-cs - sn), sizey * (sn - cs), 0.0f);
             buffer[0].color = color;
             buffer[0].u = u1;
             buffer[0].v = v2;
-            buffer[1].pos = pos + CVECTOR(sizex * (-cs + sn), sizey * (sn + cs), 0.0f);
+            buffer[1].pos = pos + glm::vec3(sizex * (-cs + sn), sizey * (sn + cs), 0.0f);
             buffer[1].color = color;
             buffer[1].u = u1;
             buffer[1].v = v1;
-            buffer[2].pos = pos + CVECTOR(sizex * (cs + sn), sizey * (-sn + cs), 0.0f);
+            buffer[2].pos = pos + glm::vec3(sizex * (cs + sn), sizey * (-sn + cs), 0.0f);
             buffer[2].color = color;
             buffer[2].u = u2;
             buffer[2].v = v1;
@@ -3609,7 +3609,7 @@ void DX9RENDER::DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlock
             buffer[4].color = color;
             buffer[4].u = u2;
             buffer[4].v = v1;
-            buffer[5].pos = pos + CVECTOR(sizex * (cs - sn), sizey * (-sn - cs), 0.0f);
+            buffer[5].pos = pos + glm::vec3(sizex * (cs - sn), sizey * (-sn - cs), 0.0f);
             buffer[5].color = color;
             buffer[5].u = u2;
             buffer[5].v = v2;
@@ -3627,8 +3627,8 @@ void DX9RENDER::DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlock
             } while (cBlockName && TechniqueExecuteNext());
     }
 
-    d3d9->SetTransform(D3DTS_VIEW, camMtx);
-    d3d9->SetTransform(D3DTS_WORLD, oldWorldMatrix);
+    d3d9->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
+    d3d9->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(oldWorldMatrix));
 }
 
 void DX9RENDER::DrawSprites(RS_SPRITE *pRSS, uint32_t dwSpritesNum, const char *cBlockName)
@@ -4453,9 +4453,9 @@ void DX9RENDER::ProgressView()
     // Animated object
     m_fHeightDeformator = ((float)vp.Height * 4.0f) / ((float)vp.Width * 3.0f);
     // core.Trace(" size_x %f", (vp.Width - dx * 2.0f)*progressFramesWidth);
-    CVECTOR pos((vp.Width - dx * 2.0f) * progressFramesPosX + dx, (vp.Height - dy * 2.0f) * progressFramesPosY + dy,
+    glm::vec3 pos((vp.Width - dx * 2.0f) * progressFramesPosX + dx, (vp.Height - dy * 2.0f) * progressFramesPosY + dy,
                 0.0f);
-    CVECTOR size((vp.Width - dx * 2.0f) * progressFramesWidth,
+    glm::vec3 size((vp.Width - dx * 2.0f) * progressFramesWidth,
                  (vp.Height - dy * 2.0f) * progressFramesHeight * 4.0f / 3.0f, 0.0f);
     v[0].x = pos.x;
     v[0].y = pos.y;
@@ -4537,8 +4537,8 @@ void DX9RENDER::SetColorParameters(float fGamma, float fBrightness, float fContr
     core.GetWindow()->SetGamma(rgb, rgb, rgb);
 }
 
-void DX9RENDER::MakeDrawVector(RS_LINE *pLines, uint32_t dwNumSubLines, const CMatrix &mMatrix, CVECTOR vUp, CVECTOR v1,
-                               CVECTOR v2, float fScale, uint32_t dwColor)
+void DX9RENDER::MakeDrawVector(RS_LINE *pLines, uint32_t dwNumSubLines, const glm::mat4 &mMatrix, glm::vec3 vUp, glm::vec3 v1,
+                               glm::vec3 v2, float fScale, uint32_t dwColor)
 {
     uint32_t i;
     uint32_t k;
@@ -4553,7 +4553,7 @@ void DX9RENDER::MakeDrawVector(RS_LINE *pLines, uint32_t dwNumSubLines, const CM
     pLines[1].vPos = v1 + (fScale * v2);
 
     const float fRadius = 0.03f * fScale;
-    const float fDist = 0.85f * fScale * sqrtf(~v2);
+    const float fDist = 0.85f * fScale * sqrtf(storm::math::lengthSquared(v2));
 
     for (i = 0; i < dwNumSubLines; i++)
     {
@@ -4562,64 +4562,64 @@ void DX9RENDER::MakeDrawVector(RS_LINE *pLines, uint32_t dwNumSubLines, const CM
         const float x = fRadius * sinf(fAng);
         const float z = fRadius * cosf(fAng);
 
-        CVECTOR vRes;
+        glm::vec3 vRes;
 
         if (fabsf(vUp.x) < 1e-5f)
-            vRes = CVECTOR(fDist, x, z);
+            vRes = glm::vec3(fDist, x, z);
         if (fabsf(vUp.y) < 1e-5f)
-            vRes = CVECTOR(x, fDist, z);
+            vRes = glm::vec3(x, fDist, z);
         if (fabsf(vUp.z) < 1e-5f)
-            vRes = CVECTOR(x, z, fDist);
-        vRes = (CMatrix &)mMatrix * vRes;
+            vRes = glm::vec3(x, z, fDist);
+        vRes = storm::math::transformPoint((glm::mat4 &)mMatrix, vRes);
         pLines[2 + i * 2 + 0].vPos = vRes;
         pLines[2 + i * 2 + 1].vPos = pLines[1].vPos;
     }
 }
 
-void DX9RENDER::DrawVector(const CVECTOR &v1, const CVECTOR &v2, uint32_t dwColor, const char *pTechniqueName)
+void DX9RENDER::DrawVector(const glm::vec3 &v1, const glm::vec3 &v2, uint32_t dwColor, const char *pTechniqueName)
 {
     RS_LINE lines[51 * 2];
-    CMatrix mView;
+    glm::mat4 mView;
 
-    const float fScale = sqrtf(~(v2 - v1));
-    if (!mView.BuildViewMatrix(v1, v2, CVECTOR(0.0f, 1.0f, 0.0f)))
-        if (!mView.BuildViewMatrix(v1, v2, CVECTOR(1.0f, 0.0f, 0.0f)))
+    const float fScale = sqrtf(storm::math::lengthSquared(v2 - v1));
+    if (!storm::math::viewMatrix(mView, v1, v2, glm::vec3(0.0f, 1.0f, 0.0f)))
+        if (!storm::math::viewMatrix(mView, v1, v2, glm::vec3(1.0f, 0.0f, 0.0f)))
             return;
 
-    mView.Transposition();
+    storm::math::invertRigid(mView);
 
-    MakeDrawVector(&lines[0], 50, mView, CVECTOR(1.0f, 1.0f, 0.0f), mView.Pos(), mView.Vz(), fScale, dwColor);
+    MakeDrawVector(&lines[0], 50, mView, glm::vec3(1.0f, 1.0f, 0.0f), storm::math::pos(mView), storm::math::vz(mView), fScale, dwColor);
 
-    const CMatrix mWorldSave;
-    GetTransform(D3DTS_WORLD, mWorldSave);
-    SetTransform(D3DTS_WORLD, CMatrix());
+    const glm::mat4 mWorldSave;
+    GetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mWorldSave));
+    SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
     DrawLines(lines, 51, pTechniqueName);
-    SetTransform(D3DTS_WORLD, mWorldSave);
+    SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mWorldSave));
 }
 
-void DX9RENDER::DrawSphere(const CVECTOR &vPos, float fRadius, uint32_t dwColor)
+void DX9RENDER::DrawSphere(const glm::vec3 &vPos, float fRadius, uint32_t dwColor)
 {
-    CMatrix m;
-    m.BuildPosition(vPos.x, vPos.y, vPos.z);
-    m.m[0][0] = fRadius;
-    m.m[1][1] = fRadius;
-    m.m[2][2] = fRadius;
+    glm::mat4 m;
+    m = storm::math::translation(vPos.x, vPos.y, vPos.z);
+    m[0][0] = fRadius;
+    m[1][1] = fRadius;
+    m[2][2] = fRadius;
 
     SetRenderState(D3DRS_TEXTUREFACTOR, dwColor);
-    SetTransform(D3DTS_WORLD, m);
+    SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(m));
     DrawPrimitiveUP(D3DPT_TRIANGLELIST, D3DFVF_XYZ | D3DFVF_DIFFUSE, DX9sphereNumTrgs, DX9sphereVertex,
                     sizeof(DX9SphVertex), "DXSphere");
 }
 
 
-void DX9RENDER::DrawEllipsoid(const CVECTOR &vPos, float a, float b, float c, float ay, uint32_t dwColor)
+void DX9RENDER::DrawEllipsoid(const glm::vec3 &vPos, float a, float b, float c, float ay, uint32_t dwColor)
 {
-    CMatrix trans, scale, rot;
-    trans.BuildPosition(vPos.x, vPos.y, vPos.z);
-    scale.BuildScale(a, b, c);
-    rot.BuildRotateY(ay);
+    glm::mat4 trans, scale, rot;
+    trans = storm::math::translation(vPos.x, vPos.y, vPos.z);
+    scale = storm::math::scaling(a, b, c);
+    rot = storm::math::rotationY(ay);
 
-    SetTransform(D3DTS_WORLD, scale * rot * trans);
+    SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(trans * (rot * scale)));
     SetRenderState(D3DRS_TEXTUREFACTOR, dwColor);
     DrawPrimitiveUP(D3DPT_TRIANGLELIST, D3DFVF_XYZ | D3DFVF_DIFFUSE, DX9sphereNumTrgs, DX9sphereVertex,
                     sizeof(DX9SphVertex), "DXEllipsoid");
@@ -4675,36 +4675,36 @@ bool DX9RENDER::SetRenderTarget(IDirect3DCubeTexture9 *pRenderTarget, uint32_t F
            !CHECKD3DERR(SetRenderTarget(pSurface, pZStencil)) && Release(pSurface) == D3D_OK;
 }
 
-void DX9RENDER::SetView(const CMatrix &mView)
+void DX9RENDER::SetView(const glm::mat4 &mView)
 {
-    SetTransform(D3DTS_VIEW, mView);
+    SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mView));
 }
 
-void DX9RENDER::SetWorld(const CMatrix &mWorld)
+void DX9RENDER::SetWorld(const glm::mat4 &mWorld)
 {
-    SetTransform(D3DTS_WORLD, mWorld);
+    SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mWorld));
 }
 
-void DX9RENDER::SetProjection(const CMatrix &mProjection)
+void DX9RENDER::SetProjection(const glm::mat4 &mProjection)
 {
-    SetTransform(D3DTS_PROJECTION, mProjection);
+    SetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(mProjection));
 }
 
-const CMatrix &DX9RENDER::GetView()
+const glm::mat4 &DX9RENDER::GetView()
 {
-    GetTransform(D3DTS_VIEW, mView);
+    GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mView));
     return mView;
 }
 
-const CMatrix &DX9RENDER::GetWorld()
+const glm::mat4 &DX9RENDER::GetWorld()
 {
-    GetTransform(D3DTS_WORLD, mWorld);
+    GetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mWorld));
     return mWorld;
 }
 
-const CMatrix &DX9RENDER::GetProjection()
+const glm::mat4 &DX9RENDER::GetProjection()
 {
-    GetTransform(D3DTS_PROJECTION, mProjection);
+    GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(mProjection));
     return mProjection;
 }
 

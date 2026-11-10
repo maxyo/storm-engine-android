@@ -133,7 +133,7 @@ void FLAG::Realize(uint32_t Delta_Time)
         uint32_t ambient;
         RenderService->GetRenderState(D3DRS_AMBIENT, &ambient);
         RenderService->SetRenderState(D3DRS_TEXTUREFACTOR, ambient);
-        RenderService->SetTransform(D3DTS_WORLD, rootMatrix);
+        RenderService->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(rootMatrix));
 
         // draw nature flag
         if (nVert != 0 && nIndx != 0)
@@ -364,8 +364,8 @@ void FLAG::DoMove(FLAGDATA *pr, float delta_time) const
 {
     if (pr == nullptr || pr->bDisabled)
         return;
-    CVECTOR cPos;
-    cPos = *pr->pMatWorld * pr->spos;
+    glm::vec3 cPos;
+    cPos = storm::math::transformPoint(*pr->pMatWorld, pr->spos);
 
     auto xMul = globalWind.ang.x;
     auto zMul = globalWind.ang.z;
@@ -383,12 +383,12 @@ void FLAG::DoMove(FLAGDATA *pr, float delta_time) const
     auto sBeta = sinf(Beta);
     auto cBeta = cosf(Beta);
 
-    CVECTOR dhVect;
-    dhVect = *pr->pMatWorld * pr->dhv - pr->pMatWorld->Pos();
+    glm::vec3 dhVect;
+    dhVect = storm::math::transformPoint(*pr->pMatWorld, pr->dhv) - storm::math::pos(*pr->pMatWorld);
 
     int32_t sIdx = pr->sv;
-    CVECTOR dopVect;
-    CVECTOR incrVect;
+    glm::vec3 dopVect;
+    glm::vec3 incrVect;
     incrVect.x = FLAGVECTORLEN * xMul;
     incrVect.z = FLAGVECTORLEN * zMul;
     incrVect.y = -DOWNVAL;
@@ -445,7 +445,7 @@ void FLAG::DoMove(FLAGDATA *pr, float delta_time) const
             dhVect.x = tmp * zMul;
             dhVect.z = tmp * xMul;
         }
-        dhVect = *pr->pMatWorld * dhVect - pr->pMatWorld->Pos();
+        dhVect = storm::math::transformPoint(*pr->pMatWorld, dhVect) - storm::math::pos(*pr->pMatWorld);
 
         cPos += incrVect;
     }
@@ -511,10 +511,10 @@ void FLAG::AddLabel(GEOS::LABEL &gl, NODE *nod, bool isSpecialFlag, bool isShip,
         flist[flagQuantity - 1] = fd;
     }
 
-    CVECTOR cv;
-    cv.x = gl.m[3][0] + nod->loc_mtx.matrix[3];
-    cv.y = gl.m[3][1] + nod->loc_mtx.matrix[7];
-    cv.z = gl.m[3][2] + nod->loc_mtx.matrix[11];
+    glm::vec3 cv;
+    cv.x = gl.m[3][0] + storm::math::data(nod->loc_mtx)[3];
+    cv.y = gl.m[3][1] + storm::math::data(nod->loc_mtx)[7];
+    cv.z = gl.m[3][2] + storm::math::data(nod->loc_mtx)[11];
     /*cv.x = gl.m[3][0];
     cv.y = gl.m[3][1];
     cv.z = gl.m[3][2];*/
@@ -667,7 +667,7 @@ void FLAG::FirstRun()
     {
         SetAll();
 
-        rootMatrix.SetIdentity();
+        rootMatrix = glm::mat4(1.0f);
     }
 
     if (nVert)
@@ -808,7 +808,7 @@ void FLAG::SetAdd(int flagNum)
     {
         if (flist[fn] == nullptr)
             continue;
-        CVECTOR bmpos, empos;
+        glm::vec3 bmpos, empos;
         float len;
 
         auto p0 = flist[fn]->spos;
@@ -822,7 +822,7 @@ void FLAG::SetAdd(int flagNum)
         else
             empos = (p2 + p3) * .5f;
         flist[fn]->dhv = p0 - bmpos;
-        len = sqrtf(~(empos - bmpos)); // flag length
+        len = sqrtf(storm::math::lengthSquared(empos - bmpos)); // flag length
         if (len < FLAGVECTORLEN)
         {
             delete flist[fn];

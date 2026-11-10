@@ -42,7 +42,7 @@ class Astronomy : public Entity
         struct Planet
         {
             GEOS *pGeo;
-            CVECTOR vPos;
+            glm::vec3 vPos;
             int32_t iTexture;
             float fDistance, fRealDistance;
             float fSpeed;
@@ -106,7 +106,7 @@ class Astronomy : public Entity
             char cSpectr[2];
             uint32_t dwColor;
             float fAlpha;
-            CVECTOR vPos;
+            glm::vec3 vPos;
         };
 
         uint32_t Spectr[256]{};

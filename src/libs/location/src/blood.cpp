@@ -10,7 +10,7 @@
 
 Blood::ClipTriangle Blood::clipT[MAX_CLIPPING_TRIANGLES];
 int32_t Blood::nClipTQ;
-CVECTOR Blood::normal;
+glm::vec3 Blood::normal;
 
 Blood::Blood()
     : pRS(nullptr), pCol(nullptr), pvBloodT{}
@@ -97,8 +97,8 @@ void Blood::Realize(uint32_t delta_time)
         pRS->SetRenderState(D3DRS_TEXTUREFACTOR, dwAmbient);
 
         pRS->TextureSet(0, texID);
-        CMatrix mtx;
-        mtx.SetIdentity();
+        glm::mat4 mtx;
+        mtx = glm::mat4(1.0f);
         pRS->SetWorld(mtx);
 
         if (nStartT + nUsedTQ <= MAX_BLOOD_TRIANGLES)
@@ -123,7 +123,7 @@ void Blood::Realize(uint32_t delta_time)
 uint64_t Blood::ProcessMessage(MESSAGE &message)
 {
     entid_t eid;
-    CVECTOR cv;
+    glm::vec3 cv;
 
     switch (message.Long())
     {
@@ -142,7 +142,7 @@ uint64_t Blood::ProcessMessage(MESSAGE &message)
     return 0;
 }
 
-bool Blood::AddClipPoligon(const CVECTOR *v, int32_t nv)
+bool Blood::AddClipPoligon(const glm::vec3 *v, int32_t nv)
 {
     if (nClipTQ >= MAX_CLIPPING_TRIANGLES)
         return false;
@@ -160,10 +160,10 @@ bool Blood::AddClipPoligon(const CVECTOR *v, int32_t nv)
     return true;
 }
 
-void Blood::AddBlood(const CVECTOR &pos)
+void Blood::AddBlood(const glm::vec3 &pos)
 {
     nClipTQ = 0;
-    normal = CVECTOR(0.f, 1.f, 0.f);
+    normal = glm::vec3(0.f, 1.f, 0.f);
 
     auto cpos = pos;
 
@@ -251,7 +251,7 @@ void Blood::AddBlood(const CVECTOR &pos)
     BuildBloodDataByCollision(cpos);
 }
 
-void Blood::BuildBloodDataByCollision(const CVECTOR &cpos)
+void Blood::BuildBloodDataByCollision(const glm::vec3 &cpos)
 {
     if (nClipTQ <= 0)
         return;
@@ -323,7 +323,7 @@ void Blood::BuildBloodDataByCollision(const CVECTOR &cpos)
     }
 }
 
-void Blood::SetVertexByPos(BloodVertex &v, const CVECTOR &pos, const CVECTOR &vc, float fU0, float fV0)
+void Blood::SetVertexByPos(BloodVertex &v, const glm::vec3 &pos, const glm::vec3 &vc, float fU0, float fV0)
 {
     v.pos = pos;
     v.pos.y += 0.01f;
@@ -344,13 +344,13 @@ void Blood::SetVertexByPos(BloodVertex &v, const CVECTOR &pos, const CVECTOR &vc
     v.v += fV0;
 }
 
-int32_t Blood::CheckBloodQuantityInRadius(const CVECTOR &cpos, float fDist, int32_t nLimitQ)
+int32_t Blood::CheckBloodQuantityInRadius(const glm::vec3 &cpos, float fDist, int32_t nLimitQ)
 {
     const auto fDistPow2 = fDist * fDist;
     int32_t nCurQ = 0;
     for (int32_t n = 0; n < aBlood.size(); n++)
     {
-        if ((~(aBlood[n].cpos - cpos)) > fDistPow2)
+        if ((storm::math::lengthSquared(aBlood[n].cpos - cpos)) > fDistPow2)
             continue;
         nCurQ++;
         if (nCurQ >= nLimitQ)

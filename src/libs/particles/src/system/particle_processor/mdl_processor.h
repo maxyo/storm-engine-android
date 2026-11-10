@@ -8,7 +8,6 @@
 #pragma once
 
 #include "dx9render.h"
-#include "math3d/matrix.h"
 
 #include "../../i_common/particle.h"
 #include "../data_source/field_list.h"
@@ -46,7 +45,7 @@ class ModelProcessor
     ModelProcessor(ParticleManager *pManager);
     ~ModelProcessor();
 
-    void AddParticle(ParticleSystem *pSystem, const Vector &velocity_dir, const Vector &pos, const Matrix &matWorld,
+    void AddParticle(ParticleSystem *pSystem, const glm::vec3 &velocity_dir, const glm::vec3 &pos, const glm::mat4 &matWorld,
                      float EmitterTime, float EmitterLifeTime, FieldList *pFields, uint32_t *pActiveCount,
                      uint32_t dwGUID);
 

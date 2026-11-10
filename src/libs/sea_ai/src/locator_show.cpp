@@ -35,9 +35,9 @@ bool SeaLocatorShow::isLocator(ATTRIBUTES *pA)
     return pA->FindAClass(pA, "z") != nullptr;
 }
 
-CVECTOR SeaLocatorShow::GetLocatorPos(ATTRIBUTES *pA)
+glm::vec3 SeaLocatorShow::GetLocatorPos(ATTRIBUTES *pA)
 {
-    CVECTOR v;
+    glm::vec3 v;
     v.x = pA->GetAttributeAsFloat("x");
     v.y = pA->GetAttributeAsFloat("y");
     v.z = pA->GetAttributeAsFloat("z");
@@ -76,34 +76,34 @@ float SeaLocatorShow::GetLocatorAng(ATTRIBUTES *pA)
 
 void SeaLocatorShow::PrintLocator(ATTRIBUTES *pA)
 {
-    MTX_PRJ_VECTOR vrt;
+    storm::math::ProjectedPoint vrt;
 
     if (!sphereNumTrgs)
         CreateSphere();
-    CMatrix mPos;
+    glm::mat4 mPos;
 
-    auto d = view.Vz() | view.Pos();
+    auto d = glm::dot(storm::math::vz(view), storm::math::pos(view));
 
     auto fh = static_cast<int32_t>(AIHelper::pRS->CharHeight(FONT_DEFAULT) * fScale);
 
     auto vPos = GetLocatorPos(pA);
     auto fAng = GetLocatorAng(pA);
-    if ((vPos | view.Vz()) < d)
+    if (glm::dot(vPos, storm::math::vz(view)) < d)
         return;
 
     vPos.y += 1.0f;
 
-    CMatrix m;
-    m.BuildRotateY(fAng);
-    m.SetPosition(vPos);
+    glm::mat4 m;
+    m = storm::math::rotationY(fAng);
+    storm::math::pos(m) = vPos;
     // m.BuildPosition(vPos.x,vPos.y,vPos.z);
-    AIHelper::pRS->SetTransform(D3DTS_WORLD, m);
+    AIHelper::pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(m));
 
     AIHelper::pRS->DrawPrimitiveUP(D3DPT_TRIANGLELIST, D3DFVF_XYZ | D3DFVF_DIFFUSE, sphereNumTrgs, sphereVertex,
                                    sizeof(SphVertex), "SeaLocatorsShow");
 
-    mtx.Projection(&vPos, &vrt, 1, fWidth, fHeight, sizeof(CVECTOR), sizeof(MTX_PRJ_VECTOR));
-    vPos = CVECTOR(vrt.x, vrt.y, vrt.z);
+    storm::math::projectPoints(mtx, &vPos, &vrt, 1, fWidth, fHeight, sizeof(glm::vec3), sizeof(storm::math::ProjectedPoint));
+    vPos = glm::vec3(vrt.x, vrt.y, vrt.z);
 
     const char *pName, *pGName;
 
@@ -117,7 +117,7 @@ void SeaLocatorShow::PrintLocator(ATTRIBUTES *pA)
     {
         std::vector<SphVertex> Vrts;
         auto vPos1 = GetLocatorPos(pA);
-        auto vCenter = CVECTOR(vPos1.x, 2.0f, vPos1.z);
+        auto vCenter = glm::vec3(vPos1.x, 2.0f, vPos1.z);
 
         // SphVertex* pVrt = &Vrts[Vrts.Add()];
         // pVrt->v = vCenter;
@@ -127,14 +127,14 @@ void SeaLocatorShow::PrintLocator(ATTRIBUTES *pA)
         {
             auto fAngle = static_cast<float>(i) / 31.0f * PIm2;
             // pVrt = &Vrts[Vrts.Add()];
-            // pVrt->v = vCenter + CVECTOR(sinf(fAngle) * fRadius, 0.0f, cosf(fAngle) * fRadius);
+            // pVrt->v = vCenter + glm::vec3(sinf(fAngle) * fRadius, 0.0f, cosf(fAngle) * fRadius);
             // pVrt->c = 0x0F00FF00
             Vrts.push_back(
-                SphVertex{vCenter + CVECTOR(sinf(fAngle) * fRadius, 0.0f, cosf(fAngle) * fRadius), 0x0F00FF00});
+                SphVertex{vCenter + glm::vec3(sinf(fAngle) * fRadius, 0.0f, cosf(fAngle) * fRadius), 0x0F00FF00});
         }
-        CMatrix m_ident;
-        m_ident.SetIdentity();
-        AIHelper::pRS->SetTransform(D3DTS_WORLD, m_ident);
+        glm::mat4 m_ident;
+        m_ident = glm::mat4(1.0f);
+        AIHelper::pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(m_ident));
         AIHelper::pRS->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, D3DFVF_XYZ | D3DFVF_DIFFUSE, Vrts.size() - 2, &Vrts[0],
                                        sizeof(SphVertex), "SeaLocatorsShow");
     }
@@ -163,17 +163,17 @@ void SeaLocatorShow::Realize(uint32_t Delta_Time)
     }
     if (!bShow || !pALocators)
         return;
-    const CMatrix prj;
-    AIHelper::pRS->GetTransform(D3DTS_VIEW, view);
-    AIHelper::pRS->GetTransform(D3DTS_PROJECTION, prj);
-    mtx.EqMultiply(view, prj);
+    const glm::mat4 prj;
+    AIHelper::pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    AIHelper::pRS->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
+    mtx = prj * view;
 
     D3DVIEWPORT9 vp;
 
     AIHelper::pRS->GetViewport(&vp);
     fWidth = vp.Width * 0.5f;
     fHeight = vp.Height * 0.5f;
-    view.Transposition();
+    storm::math::invertRigid(view);
     // Draw
 
     // Remove textures
@@ -218,8 +218,8 @@ void SeaLocatorShow::CreateSphere()
 {
 #define CalcKColor(ind)                                                                                                \
     {                                                                                                                  \
-        kColor = light | !CVECTOR(sphereVertex[t * 3 + ind].v.x, sphereVertex[t * 3 + ind].v.y,                        \
-                                  sphereVertex[t * 3 + ind].v.z);                                                      \
+        kColor = glm::dot(light, storm::math::normalizeOrZero(glm::vec3(sphereVertex[t * 3 + ind].v.x,                  \
+                    sphereVertex[t * 3 + ind].v.y, sphereVertex[t * 3 + ind].v.z)));                                  \
         if (kColor < 0.0f)                                                                                             \
             kColor = 0.0f;                                                                                             \
     }
@@ -238,7 +238,7 @@ void SeaLocatorShow::CreateSphere()
     sphereNumTrgs = a1 * a2 * 2;
     sphereVertex = new SphVertex[sphereNumTrgs * 6];
 
-    const auto light = !CVECTOR(0.0f, 0.0f, 1.0f);
+    const auto light = storm::math::normalizeOrZero(glm::vec3(0.0f, 0.0f, 1.0f));
     float kColor;
     // Filling the vertices
     for (int32_t i = 0, t = 0; i < a2; i++)

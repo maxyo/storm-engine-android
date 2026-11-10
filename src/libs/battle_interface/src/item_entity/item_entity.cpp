@@ -66,18 +66,18 @@ uint64_t ItemEntity::ProcessMessage(MESSAGE &message)
         break;
 
     case 4: // replace item to other position
-        m_mtxpos.Pos().x = message.Float();
-        m_mtxpos.Pos().y = message.Float();
-        m_mtxpos.Pos().z = message.Float();
-        m_mtxpos.Vx().x = message.Float();
-        m_mtxpos.Vx().y = message.Float();
-        m_mtxpos.Vx().z = message.Float();
-        m_mtxpos.Vy().x = message.Float();
-        m_mtxpos.Vy().y = message.Float();
-        m_mtxpos.Vy().z = message.Float();
-        m_mtxpos.Vz().x = message.Float();
-        m_mtxpos.Vz().y = message.Float();
-        m_mtxpos.Vz().z = message.Float();
+        storm::math::pos(m_mtxpos).x = message.Float();
+        storm::math::pos(m_mtxpos).y = message.Float();
+        storm::math::pos(m_mtxpos).z = message.Float();
+        storm::math::vx(m_mtxpos).x = message.Float();
+        storm::math::vx(m_mtxpos).y = message.Float();
+        storm::math::vx(m_mtxpos).z = message.Float();
+        storm::math::vy(m_mtxpos).x = message.Float();
+        storm::math::vy(m_mtxpos).y = message.Float();
+        storm::math::vy(m_mtxpos).z = message.Float();
+        storm::math::vz(m_mtxpos).x = message.Float();
+        storm::math::vz(m_mtxpos).y = message.Float();
+        storm::math::vz(m_mtxpos).z = message.Float();
         SetModelToPosition(m_mtxpos);
         DeleteParticle();
         CreateParticle();
@@ -99,10 +99,10 @@ uint64_t ItemEntity::ProcessMessage(MESSAGE &message)
 
 bool ItemEntity::ReadAndCreate()
 {
-    BIUtils::ReadVectorFormAttr(AttributesPointer, "pos", m_mtxpos.Pos(), CVECTOR(0.f));
-    BIUtils::ReadVectorFormAttr(AttributesPointer, "pos.vx", m_mtxpos.Vx(), CVECTOR(0.f));
-    BIUtils::ReadVectorFormAttr(AttributesPointer, "pos.vy", m_mtxpos.Vy(), CVECTOR(0.f));
-    BIUtils::ReadVectorFormAttr(AttributesPointer, "pos.vz", m_mtxpos.Vz(), CVECTOR(0.f));
+    BIUtils::ReadVectorFormAttr(AttributesPointer, "pos", storm::math::pos(m_mtxpos), glm::vec3(0.f));
+    BIUtils::ReadVectorFormAttr(AttributesPointer, "pos.vx", storm::math::vx(m_mtxpos), glm::vec3(0.f));
+    BIUtils::ReadVectorFormAttr(AttributesPointer, "pos.vy", storm::math::vy(m_mtxpos), glm::vec3(0.f));
+    BIUtils::ReadVectorFormAttr(AttributesPointer, "pos.vz", storm::math::vz(m_mtxpos), glm::vec3(0.f));
     auto *const pcModelName = BIUtils::GetStringFromAttr(AttributesPointer, "model", "");
     auto *const pcTechnique = BIUtils::GetStringFromAttr(AttributesPointer, "technique", "");
     if (pcModelName)
@@ -139,13 +139,13 @@ void ItemEntity::Release()
     DeleteParticle();
 }
 
-void ItemEntity::SetModelToPosition(const CMatrix &mtx) const
+void ItemEntity::SetModelToPosition(const glm::mat4 &mtx) const
 {
     if (m_pModel)
     {
-        core.Send_Message(m_eidModel, "lffffffffffff", MSG_MODEL_SET_POSITION, m_mtxpos.Pos().x, m_mtxpos.Pos().y,
-                          m_mtxpos.Pos().z, m_mtxpos.Vx().x, m_mtxpos.Vx().y, m_mtxpos.Vx().z, m_mtxpos.Vy().x,
-                          m_mtxpos.Vy().y, m_mtxpos.Vy().z, m_mtxpos.Vz().x, m_mtxpos.Vz().y, m_mtxpos.Vz().z);
+        core.Send_Message(m_eidModel, "lffffffffffff", MSG_MODEL_SET_POSITION, storm::math::pos(m_mtxpos).x, storm::math::pos(m_mtxpos).y,
+                          storm::math::pos(m_mtxpos).z, storm::math::vx(m_mtxpos).x, storm::math::vx(m_mtxpos).y, storm::math::vx(m_mtxpos).z, storm::math::vy(m_mtxpos).x,
+                          storm::math::vy(m_mtxpos).y, storm::math::vy(m_mtxpos).z, storm::math::vz(m_mtxpos).x, storm::math::vz(m_mtxpos).y, storm::math::vz(m_mtxpos).z);
     }
 }
 
@@ -205,7 +205,7 @@ void ItemEntity::DrawIntoLocator()
         return;
     }
 
-    CMatrix perMtx;
+    glm::mat4 perMtx;
     int32_t sti;
     if (m_pModel)
     {
@@ -219,25 +219,25 @@ void ItemEntity::DrawIntoLocator()
 
             GEOS::LABEL lb;
             m_pMdlNode->geo->GetLabel(sti, lb);
-            CMatrix mt;
-            mt.Vx() = CVECTOR(lb.m[0][0], lb.m[0][1], lb.m[0][2]);
-            mt.Vy() = CVECTOR(lb.m[1][0], lb.m[1][1], lb.m[1][2]);
-            mt.Vz() = CVECTOR(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
-            mt.Pos() = CVECTOR(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
+            glm::mat4 mt;
+            storm::math::vx(mt) = glm::vec3(lb.m[0][0], lb.m[0][1], lb.m[0][2]);
+            storm::math::vy(mt) = glm::vec3(lb.m[1][0], lb.m[1][1], lb.m[1][2]);
+            storm::math::vz(mt) = glm::vec3(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
+            storm::math::pos(mt) = glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
 
-            auto mbn = mt * bones[lb.bones[0]];
-            mbn.Pos().x *= -1.0f;
-            mbn.Vx().x *= -1.0f;
-            mbn.Vy().x *= -1.0f;
-            mbn.Vz().x *= -1.0f;
+            auto mbn = bones[lb.bones[0]] * mt;
+            storm::math::pos(mbn).x *= -1.0f;
+            storm::math::vx(mbn).x *= -1.0f;
+            storm::math::vy(mbn).x *= -1.0f;
+            storm::math::vz(mbn).x *= -1.0f;
 
-            CMatrix scl;
-            scl.Vx().x = -1.0f;
-            scl.Vy().y = 1.0f;
-            scl.Vz().z = 1.0f;
-            mbn.EqMultiply(scl, CMatrix(mbn));
+            glm::mat4 scl;
+            storm::math::vx(scl).x = -1.0f;
+            storm::math::vy(scl).y = 1.0f;
+            storm::math::vz(scl).z = 1.0f;
+            mbn = glm::mat4(mbn) * scl;
 
-            perMtx = mbn * pMdl->mtx;
+            perMtx = pMdl->mtx * mbn;
         }
 
         m_pModel->mtx = perMtx;
@@ -310,7 +310,7 @@ bool ItemEntity::CreateParticle()
             const auto eidParticle = core.GetEntityId("particles");
             if (eidParticle)
             {
-                const auto vPos = m_mtxpos.Pos();
+                const auto vPos = storm::math::pos(m_mtxpos);
                 m_pParticle =
                     (VPARTICLE_SYSTEM *)core.Send_Message(eidParticle, "lsffffffl", PS_CREATE_RIC, pcParticleName,
                                                           vPos.x, vPos.y, vPos.z, 0.0f, 1.0f, 0.0f, 0);

@@ -1,7 +1,6 @@
 #include "track.h"
 #include "entity.h"
 #include "core.h"
-#include "math3d.h"
 #include "math_inlines.h"
 
 VDX9RENDER *ShipTracks::ShipTrack::pRS = nullptr;
@@ -274,9 +273,9 @@ void ShipTracks::ShipTrack::Execute(float fDeltaTime)
     }
 
     float fFov;
-    CVECTOR vCamPos, vCamAng;
+    glm::vec3 vCamPos, vCamAng;
     pRS->GetCamera(vCamPos, vCamAng, fFov);
-    const auto fCamDist = Clamp(sqrtf(~vCamPos) / 10000.0f);
+    const auto fCamDist = Clamp(sqrtf(storm::math::lengthSquared(vCamPos)) / 10000.0f);
     const auto fWaveUP = fUP1 + fCamDist * (fUP2 - fUP1);
 
     const auto vCurPos = pShip->GetPos();
@@ -286,7 +285,7 @@ void ShipTracks::ShipTrack::Execute(float fDeltaTime)
 
     auto vDist = vCurPos - vLastPos;
     vDist.y = 0.0;
-    auto fCurrentDistance = sqrtf(~vDist);
+    auto fCurrentDistance = sqrtf(storm::math::lengthSquared(vDist));
     if (fCurrentDistance > 100.0f)
     {
         fCurrentDistance = 0.0f;
@@ -306,7 +305,7 @@ void ShipTracks::ShipTrack::Execute(float fDeltaTime)
             aTrack1.insert(aTrack1.begin(), Track{});
             auto vDir = (vCurPos - vLastPos);
             vDir.y = 0.0f;
-            vDir = !vDir;
+            vDir = storm::math::normalizeOrZero(vDir);
             aTrack1[0].vPos = vLastPos + vDir * (vBoxSize.z * fZStart1 + fDistance);
             aTrack1[0].fCos = cosf(vCurAng.y);
             aTrack1[0].fSin = sinf(vCurAng.y);
@@ -363,7 +362,7 @@ void ShipTracks::ShipTrack::Execute(float fDeltaTime)
                     RotateAroundY(x, z, T.fCos, T.fSin);
                     x += T.vPos.x;
                     z += T.vPos.z;
-                    auto vPos = CVECTOR(x, fWaveUP * (1.4f - fabsf((k * 2.0f) - 1.0f)) + pSea->WaveXZ(x, z), z);
+                    auto vPos = glm::vec3(x, fWaveUP * (1.4f - fabsf((k * 2.0f) - 1.0f)) + pSea->WaveXZ(x, z), z);
                     pV[i * dwTrackStep1 + xxx].vPos = vPos - vCurPos;
                     pV[i * dwTrackStep1 + xxx].tu = xx / (fTrackStep1 - 1.0f);
                     pV[i * dwTrackStep1 + xxx].tv = T.fTV;
@@ -405,7 +404,7 @@ void ShipTracks::ShipTrack::Execute(float fDeltaTime)
                     RotateAroundY(x, z, T.fCos, T.fSin);
                     x += T.vPos.x;
                     z += T.vPos.z;
-                    auto vPos = CVECTOR(x, fWaveUP + pSea->WaveXZ(x, z), z);
+                    auto vPos = glm::vec3(x, fWaveUP + pSea->WaveXZ(x, z), z);
                     pV[i * dwTrackStep2 + xxx].vPos = vPos - vCurPos;
                     pV[i * dwTrackStep2 + xxx].tu = static_cast<float>(xx) / (fTrackStep2 - 1.0f);
                     pV[i * dwTrackStep2 + xxx].tv = T.fTV * 6.0f;
@@ -442,10 +441,10 @@ void ShipTracks::ShipTrack::Realize(float fDeltaTime)
     if (!pShip || !pSea)
         return;
 
-    // pRS->SetTransform(D3DTS_WORLD, CMatrix());
-    const CMatrix m;
-    m.Pos() = pShip->GetPos();
-    pRS->SetTransform(D3DTS_WORLD, m);
+    // pRS->SetTransform(D3DTS_WORLD, glm::mat4());
+    glm::mat4 m;
+    storm::math::pos(m) = pShip->GetPos();
+    pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(m));
 
     if (aTrack1.size() > 1)
     {

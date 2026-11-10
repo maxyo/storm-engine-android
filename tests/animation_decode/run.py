@@ -3,7 +3,7 @@
 
 Optional: --animations /path/to/RESOURCE/animation [--mode stats|diff|bench].
 Only the two Bone methods are extracted to avoid loading core/filesystem/D3D.
-The actual production Quaternion/SLerp/GetMatrix headers are used unchanged.
+The production storm_glm.h (slerp, glm::mat4_cast) is used unchanged.
 """
 import argparse
 import os
