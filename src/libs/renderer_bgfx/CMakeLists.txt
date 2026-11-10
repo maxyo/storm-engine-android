@@ -78,7 +78,7 @@ set(STORM_BGFX_SHADER_PROFILE "300_es" CACHE STRING "shaderc profile for embedde
 set(STORM_BGFX_SHADER_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/shaders/include" CACHE INTERNAL "")
 include(cmake/storm_shaders.cmake)
 
-file(GLOB shader_sources CONFIGURE_DEPENDS shaders/*.sc)
+file(GLOB shader_sources CONFIGURE_DEPENDS shaders/*.sc shaders/ports/*.sc)
 list(FILTER shader_sources EXCLUDE REGEX "varying\\.def\\.sc$")
 storm_bgfx_embed_shaders(TARGET storm_bgfx_shaders NAMESPACE storm_shaders
     VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${shader_sources})

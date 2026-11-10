@@ -10,6 +10,9 @@ struct SDL_Window;
 namespace storm::shim
 {
 
+// Texture units: 0..4 2D stage N, 5..7 cube of stage 0..2, 8..10 volume of stage 0..2.
+inline constexpr uint32_t kSamplerUnits = 11;
+
 // Owns bgfx::init/shutdown, the surface and the frame-owner contract.
 class Context final : public render::FrameOwner
 {
@@ -81,7 +84,7 @@ class Context final : public render::FrameOwner
     render::FrameContext frame_;
     std::vector<Client> clients_;
     bgfx::ProgramHandle blit_program_ = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle samplers_[8] = {};
+    bgfx::UniformHandle samplers_[kSamplerUnits] = {};
     bgfx::VertexLayout blit_layout_;
     std::unordered_map<std::string, Picture> pictures_;
     uint32_t frame_limit_ = 0;

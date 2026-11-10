@@ -1,14 +1,10 @@
 // Fixed-function texture-stage combiner. Included by fs_ff*.sc; STAGEn_SAMPLE
 // macros select the sampler type of each stage (2D unless overridden).
-#include "storm_common.sh"
+#include "ff_finish.sh"
 
 // per stage i: [3i] colour op, arg1, arg2, arg0   [3i+1] alpha op, arg1, arg2, arg0
 //              [3i+2] x: result goes to TEMP  y: projected  z: texture bound
 uniform vec4 u_ffStage[15];
-// [0] texture factor  [1] fog colour rgb, fog mode (0 off, 1 exp, 2 exp2, 3 linear, 4 factor passthrough)
-// [2] fog start, fog end, fog density, alpha ref  [3] alpha func (0 = off, else D3DCMP), specular add, stage count, unused
-uniform vec4 u_ffFs[4];
-
 SAMPLER2D(s_tex0, 0);
 SAMPLER2D(s_tex1, 1);
 SAMPLER2D(s_tex2, 2);
@@ -99,39 +95,6 @@ vec4 ffCombine(float op, vec4 a1, vec4 a2, vec4 a0, vec4 current, vec4 tex)
 #endif
 #define STAGE3_SAMPLE texture2D(s_tex3, FF_UV(v_texcoord3, ms))
 #define STAGE4_SAMPLE texture2D(s_tex4, FF_UV(v_texcoord4, ms))
-
-vec4 ffFinish(vec4 color)
-{
-    if (v_fog.y < 0.0) discard;
-    float func = u_ffFs[3].x;
-    if (func > 0.5)
-    {
-        float a = color.a;
-        float ref = u_ffFs[2].w;
-        bool pass = true;
-        if (func < 1.5) pass = false;
-        else if (func < 2.5) pass = a < ref;
-        else if (func < 3.5) pass = a == ref;
-        else if (func < 4.5) pass = a <= ref;
-        else if (func < 5.5) pass = a > ref;
-        else if (func < 6.5) pass = a != ref;
-        else if (func < 7.5) pass = a >= ref;
-        if (!pass) discard;
-    }
-    if (u_ffFs[3].y > 0.5) color.rgb += v_color1.rgb;
-    float mode = u_ffFs[1].w;
-    if (mode > 0.5)
-    {
-        float f;
-        float d = v_fog.x;
-        if (mode < 1.5) f = exp(-u_ffFs[2].z * d);
-        else if (mode < 2.5) f = exp(-(u_ffFs[2].z * d) * (u_ffFs[2].z * d));
-        else if (mode < 3.5) f = (u_ffFs[2].y - d) / max(u_ffFs[2].y - u_ffFs[2].x, 1e-6);
-        else f = d;
-        color.rgb = mix(u_ffFs[1].rgb, color.rgb, clamp(f, 0.0, 1.0));
-    }
-    return color;
-}
 
 void main()
 {

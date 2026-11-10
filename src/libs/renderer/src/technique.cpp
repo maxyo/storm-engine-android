@@ -2122,25 +2122,25 @@ bool CTechnique::ExecutePass(bool bStart)
             switch (dwCode)
             {
             case SUBCODE_SVSCONST_WORLDVIEWPROJ: {
-#ifdef _WIN32 // replace D3DXMATRIX
-                D3DXMATRIX matTemp, matWorldViewProj;
-
-                D3DXMATRIX matWorld;
-                pRS->GetTransform(D3DTS_WORLD, &matWorld);
-                D3DXMATRIX matProj;
-                pRS->GetTransform(D3DTS_PROJECTION, &matProj);
-                D3DXMATRIX matView;
-                pRS->GetTransform(D3DTS_VIEW, &matView);
-
-                D3DXMatrixMultiply(&matTemp, &matWorld, &matView);
-                D3DXMatrixMultiply(&matWorldViewProj, &matTemp, &matProj);
-
-                // Projection to clip space
-                D3DXMatrixTranspose(&matWorldViewProj, &matWorldViewProj);
-                pRS->SetVertexShaderConstantF(dwShaderConstIndex, &matWorldViewProj(0, 0), 4);
-#else
-                throw std::runtime_error("replace D3DXMATRIX in technique.cpp");
-#endif
+                D3DMATRIX world, view, proj;
+                pRS->GetTransform(D3DTS_WORLD, &world);
+                pRS->GetTransform(D3DTS_VIEW, &view);
+                pRS->GetTransform(D3DTS_PROJECTION, &proj);
+                const auto multiply = [](const D3DMATRIX &a, const D3DMATRIX &b) {
+                    D3DMATRIX r;
+                    for (int i = 0; i < 4; ++i)
+                        for (int j = 0; j < 4; ++j)
+                            r.m[i][j] = a.m[i][0] * b.m[0][j] + a.m[i][1] * b.m[1][j] + a.m[i][2] * b.m[2][j] +
+                                        a.m[i][3] * b.m[3][j];
+                    return r;
+                };
+                const D3DMATRIX wvp = multiply(multiply(world, view), proj);
+                // Projection to clip space: vs_1_1 m4x4 expects the transposed (column) form.
+                float transposed[16];
+                for (int i = 0; i < 4; ++i)
+                    for (int j = 0; j < 4; ++j)
+                        transposed[i * 4 + j] = wvp.m[j][i];
+                pRS->SetVertexShaderConstantF(dwShaderConstIndex, transposed, 4);
             }
             break;
             }

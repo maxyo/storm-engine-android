@@ -483,7 +483,7 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
     fs[2][3] = static_cast<float>(rs[D3DRS_ALPHAREF] & 255) / 255.0f;
     fs[3][0] = rs[D3DRS_ALPHATESTENABLE] && rs[D3DRS_ALPHAFUNC] != D3DCMP_ALWAYS ? static_cast<float>(rs[D3DRS_ALPHAFUNC])
                                                                                : 0.0f;
-    fs[3][1] = rs[D3DRS_SPECULARENABLE] ? 1.0f : 0.0f;
+    fs[3][1] = rs[D3DRS_SPECULARENABLE] && !ps_port ? 1.0f : 0.0f;
     fs[3][2] = static_cast<float>(stage_count);
     set_uniform(U_FS, &fs[0][0], 4);
 }
@@ -1018,7 +1018,7 @@ HRESULT Device::draw(const DrawCall &call)
         {
             if (stage >= 3)
                 continue;
-            unit = 5 + stage;
+            unit = (store->kind == TexKind::Cube ? 5 : 8) + stage;
         }
         bgfx::setTexture(static_cast<uint8_t>(unit), Context::instance().sampler(unit), store->handle,
                          sampler_flags(stage, *store));
