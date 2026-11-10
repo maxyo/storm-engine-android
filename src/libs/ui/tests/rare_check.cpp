@@ -316,6 +316,68 @@ static void TradeBook(const std::string &models)
     ExpectEqual(surface.Last(), "widget:tradebook\tEXIT_BTN\t-1\tpress", "← is the exit button");
 }
 
+// The structure the game really sends (recorded on a device, texts replaced): no exit button,
+// the section buttons twice, a padded title, the first town's prices with no row selected and
+// "hour date" in the date column; an unvisited book sends both tables empty.
+static void TradeBookAsSent(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "tradebook-first.json"));
+    Expect(router.Using() == "tradebook" && surface.tag == "s-tradebook" && surface.errors.empty() &&
+               surface.props["extras"]["rows"].empty(),
+           "the trade book as the game sends it is admitted without extras");
+    ExpectEqual(surface.props["title"], "Книга цен", "the game's padded title is trimmed");
+    const Json &town = surface.props["towns"][0];
+    Expect(town["selected"] == true && surface.props["columns"][0]["label"] == "Городок",
+           "before a choice the first town is the one shown and named over the prices");
+    Expect(town["cells"][1]["text"] == "01.10.1654" && town["cells"][1]["sub"] == "13:00", "the date in the column, the hour under it");
+    Expect(surface.props["prices"].size() == 2 && surface.props["prices"][1]["cells"][3] == "374", "the shown town's prices");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), "back", "without an exit button ← is the global back");
+
+    router.SetInterface(Load(models, "tradebook-unvisited.json"));
+    Expect(router.Using() == "tradebook" && router.Rejection().empty() && surface.errors.empty(),
+           "an unvisited trade book (both tables empty) is the trade book, not a rejection");
+    Expect(surface.props["towns"].empty() && surface.props["prices"].empty() && surface.props["columns"][0]["label"] == "",
+           "empty book: no towns, no prices (the list shows its empty text)");
+
+    InterfaceModel stale = Load(models, "tradebook-unvisited.json");
+    stale.widgets.erase(std::remove_if(stale.widgets.begin(), stale.widgets.end(), [](const Widget &w) { return w.type == "table"; }),
+                        stale.widgets.end());
+    stale.opening = 30;
+    router.SetInterface(stale);
+    surface.now += 1.0;
+    router.Tick();
+    ExpectEqual(router.Rejection(), "TABLE_CITY(choice|table)", "without the table at all the screen still refuses loudly");
+}
+
+// The same contract for the commerce screens: an empty chest is a chest, not a rejection.
+static void EmptyChest(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    InterfaceModel chest = Load(models, "itemsbox.json");
+    Widget table;
+    for (const Widget &row : chest.widgets)
+        if (row.node == "TABLE_LIST")
+        {
+            table = row;
+            break;
+        }
+    chest.widgets.erase(std::remove_if(chest.widgets.begin(), chest.widgets.end(), [](const Widget &w) { return w.node == "TABLE_LIST"; }),
+                        chest.widgets.end());
+    table.type = "table";
+    table.index = -1;
+    table.label.clear();
+    table.cells.clear();
+    table.actions.clear();
+    chest.widgets.push_back(table);
+    router.SetInterface(chest);
+    Expect(router.Using() == "itemsbox" && surface.errors.empty() && surface.props["extras"]["rows"].empty(),
+           "an empty chest (TABLE_LIST as one table widget) opens the chest screen");
+}
+
 static void ColonyLoot(const std::string &models)
 {
     FakeSurface surface;
@@ -337,6 +399,8 @@ int main(int argc, char **argv)
     Rest(models);
     Notices(models);
     TradeBook(models);
+    TradeBookAsSent(models);
+    EmptyChest(models);
     ColonyLoot(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);

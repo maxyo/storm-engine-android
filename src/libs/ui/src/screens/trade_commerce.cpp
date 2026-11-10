@@ -44,7 +44,7 @@ constexpr Layout kItemsBox{StringKey("trade.chest"), 0, 4, 2, -1, -1, -1, "CHARA
 constexpr Layout kTransfer{StringKey("transfer.title"), 0, 3, 2, -1, -1, -1, "", false};
 
 constexpr NodeRule kNodes[] = {
-    {"TABLE_LIST", "choice", true},
+    {"TABLE_LIST", "choice|table", true},
     {"EXIT_BTN", "button"},
     {"STORECAPTION1", "text"},
     {"TITLE", "heading|text"},
@@ -175,7 +175,7 @@ class CommerceScreen final : public Screen
     {
         const Layout &columns = layout_;
         const bool money = columns.buy >= 0;
-        const std::vector<const Widget *> goods = admitted.All("TABLE_LIST");
+        const std::vector<const Widget *> goods = admitted.Rows("TABLE_LIST");
         const Widget *ok = admitted.One("QTY_OK_BUTTON");
         const Widget *cancel = admitted.One("QTY_CANCEL_BUTTON");
         const Widget *edit = admitted.One("QTY_EDIT") ? admitted.One("QTY_EDIT") : admitted.One("QTY_EDITBOX");

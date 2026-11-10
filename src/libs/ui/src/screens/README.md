@@ -50,9 +50,12 @@ verbs, §8 admission and extras) and the V2 mockups of the design canvas.
 2. **C++.** A class derived from `Screen` in `src/screens/<zone>_<name>.cpp`:
    - `Component()` → `"s-<name>"`;
    - `Nodes()` → the KNOWN list: every node the design draws with the type it expects
-     (`"a|b"` alternatives, `NAME*` prefix); `required = true` marks REQUIRED;
+     (`"a|b"` alternatives, `NAME*` prefix); `required = true` marks REQUIRED. REQUIRED
+     names only what the game always sends: a game table comes as its rows (`choice`) and,
+     with no rows, as one `table` widget (headers, no verbs), so a table is required as
+     `"choice|table"` and its rows are read with `admitted.Rows(node)`;
    - `Build(admitted, bindings)` → the props (JSON) for the pack screen. Read widgets with
-     `admitted.One/All/Label`; bind every interactive element by its element id:
+     `admitted.One/All/Rows/Label`; bind every interactive element by its element id:
      `bindings.Forward(id, widget, "press")`, `bindings.On(id, verb, handler)` and inside a
      handler `bindings.Send(widget, verb, value)`, `SendLatest` (drags), `Back(exit)`,
      `EditText` / `AskText` (the screen gets the typed text), `Read`, `Rebuild()` for local

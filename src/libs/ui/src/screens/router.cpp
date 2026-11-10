@@ -128,6 +128,15 @@ std::vector<const Widget *> Admission::All(std::string_view node) const
     return out;
 }
 
+std::vector<const Widget *> Admission::Rows(std::string_view node) const
+{
+    std::vector<const Widget *> out;
+    for (const Widget *widget : known)
+        if (SameNode(widget->node, node) && widget->type == "choice")
+            out.push_back(widget);
+    return out;
+}
+
 std::string Admission::Label(std::string_view node) const
 {
     const Widget *widget = One(node);

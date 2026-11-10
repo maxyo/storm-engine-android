@@ -404,9 +404,9 @@ static void Store(const std::string &models)
     surface.now += 1.0;
     router.Tick();
     ExpectEqual(router.Using(), "generic", "store without TABLE_LIST → generic");
-    ExpectEqual(router.Rejection(), "TABLE_LIST(choice)", "the rejection names the missing required node");
+    ExpectEqual(router.Rejection(), "TABLE_LIST(choice|table)", "the rejection names the missing required node");
     Expect(surface.errors.size() == 1 &&
-               surface.errors[0] == "screen store: required nodes missing or mistyped: TABLE_LIST(choice); drawn by the generic layout",
+               surface.errors[0] == "screen store: required nodes missing or mistyped: TABLE_LIST(choice|table); drawn by the generic layout",
            "a ported screen that cannot be used is an error");
     broken.revision = 99;
     router.SetInterface(broken);

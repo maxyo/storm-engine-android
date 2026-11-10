@@ -19,11 +19,6 @@ constexpr const char *kFragmentNames[] = {"fs_fx_water_low", "fs_fx_water_med", 
                                           "fs_fx_water_high_cube"};
 constexpr float kBaseStep = 0.5f; // metres per cell of the finest grid level
 
-Vec3 Decode(Vec3 c)
-{
-    return {c[0] * c[0], c[1] * c[1], c[2] * c[2]};
-}
-
 int GridCells(WaterQuality quality)
 {
     switch (quality)
@@ -112,7 +107,7 @@ void Water::EnsureResources()
     s_layer1_ = bgfx::createUniform("s_fxLayer1", bgfx::UniformType::Sampler);
     s_scene_ = bgfx::createUniform("s_fxScene", bgfx::UniformType::Sampler);
     s_scene_depth_ = bgfx::createUniform("s_fxSceneDepth", bgfx::UniformType::Sampler);
-    u_water_ = bgfx::createUniform("u_fxWater", bgfx::UniformType::Vec4, 9);
+    u_water_ = bgfx::createUniform("u_fxWater", bgfx::UniformType::Vec4, 10);
     u_water_vs_ = bgfx::createUniform("u_fxWaterVs", bgfx::UniformType::Vec4);
     u_wave_ = bgfx::createUniform("u_fxWave", bgfx::UniformType::Vec4, 13);
     u_capture_ = bgfx::createUniform("u_fxCapture", bgfx::UniformType::Vec4);
@@ -201,23 +196,25 @@ bgfx::ProgramHandle Water::Bind(Source source, const Settings &settings, const W
         program = LoadProgram(kVertexNames[static_cast<int>(source)], kFragmentNames[fragment]);
 
     const SkyState &state = sky.State();
-    const Vec3 deep = Decode(shading.water_color);
-    const Vec3 tint = Decode(shading.sky_color);
-    // Light scattered back out of a crest: the body colour pulled towards turquoise.
-    const Vec3 scatter{0.4f * deep[0] + 0.03f, 0.5f * deep[1] + 0.22f, 0.5f * deep[2] + 0.20f};
-    const float transparency = std::clamp(shading.transparency, 0.0f, 1.0f);
-    const float uniforms[9][4] = {
+    const Vec3 &sea = shading.water_color;
+    const Vec3 &tint = shading.sky_color;
+    // Sea2.Attenuation is the absorption of a layer of fixed depth; with the real depth (High) that layer counts
+    // as this many metres.
+    constexpr float kAttenuationDepth = 8.0f;
+    const float uniforms[10][4] = {
         {frame.camera[0], frame.camera[1], frame.camera[2], frame.time * shading.bump_speed},
         {state.sun_light[0], state.sun_light[1], state.sun_light[2], 260.0f},
-        {deep[0], deep[1], deep[2], std::clamp(shading.reflection, 0.0f, 1.0f) * 1.25f},
-        {scatter[0], scatter[1], scatter[2], 0.02f + 0.05f * std::clamp(shading.fresnel, 0.0f, 1.0f)},
+        {sea[0], sea[1], sea[2], std::max(shading.reflection, 0.0f)},
+        {tint[0], tint[1], tint[2], shading.fresnel},
         {0.5f, 1.0f / 350.0f, 1.8f * shading.sun_road, std::max(frame.crest_height, 0.5f)},
         {shading.foam_v, shading.foam ? shading.foam_k : 0.0f, 0.35f * shading.foam_uv, 0.6f},
-        {tint[0], tint[1], tint[2], frame.far_plane},
-        {0.035f, 0.42f - 0.36f * transparency, settings.water_refraction ? 1.0f : 0.0f, 0.0f},
+        {std::max(shading.attenuation, 0.0f), std::clamp(shading.transparency, 0.0f, 1.0f), frame.far_plane,
+         settings.water_refraction ? 1.0f : 0.0f},
+        {0.035f, 1.0f / kAttenuationDepth, 0.0f, 0.0f},
         {state.dome[0], state.dome[1], state.dome[2], 0.0f},
+        {shading.fog_color[0], shading.fog_color[1], shading.fog_color[2], std::max(shading.fog_density, 0.0f)},
     };
-    bgfx::setUniform(u_water_, uniforms, 9);
+    bgfx::setUniform(u_water_, uniforms, 10);
     // The detail texture is seen at grazing angles almost everywhere: anisotropic filtering when it is on.
     bgfx::setTexture(0, s_detail_, detail_, settings.anisotropy > 1 ? BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC : BGFX_SAMPLER_NONE);
     if (cube)
@@ -225,10 +222,14 @@ bgfx::ProgramHandle Water::Bind(Source source, const Settings &settings, const W
     uint64_t state_flags = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS;
     if (quality == WaterQuality::High)
     {
+        // The shader composes the snapshot of the scene behind the surface itself.
         bgfx::setTexture(2, s_behind_color_, bgfx::getTexture(behind_, 0), kClampLinear);
         bgfx::setTexture(3, s_behind_depth_, bgfx::getTexture(behind_, 1), kClampPoint);
-        // Soft shore line: the surface fades out where it meets the ground.
-        state_flags |= BGFX_STATE_BLEND_ALPHA;
+    }
+    else
+    {
+        // Sea2's blend: colour + behind * alpha.
+        state_flags |= BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_SRC_ALPHA);
     }
     sky.Bind(settings);
     bgfx::setState(state_flags);

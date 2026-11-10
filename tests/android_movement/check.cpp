@@ -17,50 +17,49 @@ int main()
     auto wire = [&](uint64_t seq, std::string suffix="1\t0\t1000") {
         return "1\t"+state.inputOwner+"\t"+std::to_string(input.generation())+"\t"+std::to_string(seq)+"\t"+suffix;
     };
-    assert(!input.read(0)); // legacy keyboard remains the default
-    assert(input.offer(wire(1),0));
-    auto axes=input.read(1); assert(axes && near(axes->y,1) && near(axes->magnitude,1));
+    assert(!input.read()); // legacy keyboard remains the default
+    assert(input.offer(wire(1)));
+    auto axes=input.read(); assert(axes && near(axes->y,1) && near(axes->magnitude,1));
     const auto generation=input.generation();
     state.mode="melee"; input.updateOwner(state.inputOwner);
-    assert(input.generation()==generation && input.read(100)); // stance retains gesture
-    assert(!input.offer(wire(1),100)); // replay
+    assert(input.generation()==generation && input.read()); // stance retains gesture
+    assert(!input.offer(wire(1))); // replay
     for (const auto *bad : {"1\t1001\t0", "1\t0\t-1001", "1\t2147483648\t0", "1\t0x\t0",
                             "1\t+1\t0", "1\t1.5\t0", "0\t1\t0", "2\t0\t0", "1\t0\t0\textra"})
-        assert(!input.offer(wire(2,bad),100));
-    assert(!input.offer("1\twrong\t"+std::to_string(generation)+"\t2\t1\t0\t1",100));
-    assert(!input.offer("1\tscene:player\t18446744073709551616\t2\t1\t0\t1",100));
-    assert(input.offer(wire(2,"1\t1000\t1000"),100)); // circular clamp, no diagonal boost
-    axes=input.read(100); assert(axes && near(std::hypot(axes->x,axes->y),1) && near(axes->magnitude,1));
+        assert(!input.offer(wire(2,bad)));
+    assert(!input.offer("1\twrong\t"+std::to_string(generation)+"\t2\t1\t0\t1"));
+    assert(!input.offer("1\tscene:player\t18446744073709551616\t2\t1\t0\t1"));
+    assert(input.offer(wire(2,"1\t1000\t1000"))); // circular clamp, no diagonal boost
+    axes=input.read(); assert(axes && near(std::hypot(axes->x,axes->y),1) && near(axes->magnitude,1));
     permission.right=false;
-    axes=input.read(101); assert(axes && axes->x==0 && axes->y==1); // live lock
+    axes=input.read(); assert(axes && axes->x==0 && axes->y==1); // live lock
     permission.forward=false;
-    axes=input.read(102); assert(axes && axes->magnitude==0);
+    axes=input.read(); assert(axes && axes->magnitude==0);
     permission={true,true,true,true,true};
-    assert(input.offer(wire(3,"0\t0\t0"),110)); assert(!input.read(110));
-    assert(input.offer(wire(4),120));
+    assert(input.offer(wire(3,"0\t0\t0"))); assert(!input.read());
+    assert(input.offer(wire(4)));
     auto stale=wire(5);
     cancelAndroidCombatInput();
-    assert(!input.read(121) && input.generation()!=generation);
-    assert(!input.offer(stale,121)); // hard cancellation cannot revive from Java queue
-    assert(input.offer(wire(1),130));
+    assert(!input.read() && input.generation()!=generation);
+    assert(!input.offer(stale)); // hard cancellation cannot revive from Java queue
+    assert(input.offer(wire(1)));
     auto epoch=combatCancelEpoch.load(); auto drained=wire(2);
     cancelAndroidCombatInput();
-    assert(!input.offer(drained,131,epoch)); // JNI drain raced cancellation
-    assert(input.offer(wire(1),200)); stale=wire(2);
-    assert(input.read(550)); assert(!input.read(551));
-    assert(!input.offer(stale,552)); // expired lease rotates generation
-    assert(input.offer(wire(1),600)); stale=wire(2);
-    assert(!input.offer(stale,951)); // late heartbeat cannot bypass expiry by arriving before read
-    assert(input.offer(wire(1),1000)); stale=wire(2);
-    ready=false; assert(!input.read(1001)); ready=true;
-    input.updateOwner(state.inputOwner); assert(!input.offer(stale,1002));
-    assert(input.offer(wire(1),1100)); stale=wire(2);
+    assert(!input.offer(drained,epoch)); // JNI drain raced cancellation
+    // Event model: a held stick stays held however long the UI is silent (slow frames, seconds
+    // apart); only its release, a cancellation, a new owner or the guard end it.
+    assert(input.offer(wire(1)));
+    for (int frame=0; frame<1000; ++frame) { axes=input.read(); assert(axes && near(axes->magnitude,1)); }
+    assert(input.offer(wire(2))); // the next change, seconds later, still belongs to the same gesture
+    assert(input.offer(wire(3,"0\t0\t0")) && !input.read());
+    assert(input.offer(wire(4))); stale=wire(5);
+    ready=false; assert(!input.read()); ready=true;
+    input.updateOwner(state.inputOwner); assert(!input.offer(stale));
+    assert(input.offer(wire(1))); stale=wire(2);
     state.inputOwner="scene:newplayer"; input.updateOwner(state.inputOwner);
-    assert(!input.offer(stale,1101)); assert(!input.read(1101));
-    assert(input.offer(wire(1),1200)); stale=wire(2); input.resetActivity();
-    assert(!input.offer(stale,1201));
-    assert(input.offer(wire(1),std::numeric_limits<uint32_t>::max()-100));
-    assert(input.read(200)); assert(!input.read(251)); // tick rollover
+    assert(!input.offer(stale)); assert(!input.read());
+    assert(input.offer(wire(1))); stale=wire(2); input.resetActivity();
+    assert(!input.offer(stale));
     for (const auto *mode : {"unknown","sailing","naval"}) { state.mode=mode; assert(!movementOwnerCurrent(state.inputOwner,state)); }
     state.mode="explore"; assert(movementOwnerCurrent(state.inputOwner,state));
     assert(!movementOwnerCurrent("",state));
@@ -111,13 +110,13 @@ int main()
     const auto vertical=movementDirection({0,1,.5f,true},0,0,1.2f);
     assert(near(vertical.x,std::sin(1.2f))&&near(vertical.z,std::cos(1.2f)));
     input.resetActivity();
-    assert(input.offer(wire(1,"1\t0\t200"),2000)); assert(input.read(2000)->magnitude>0);
-    assert(input.offer(wire(2,"1\t0\t140"),2010)); assert(input.read(2010)->magnitude>0);
-    assert(input.offer(wire(3,"1\t0\t120"),2020)); assert(input.read(2020)->magnitude==0);
-    assert(input.offer(wire(4,"1\t0\t140"),2030)); assert(input.read(2030)->magnitude==0);
-    assert(input.offer(wire(5,"1\t0\t200"),2040)); assert(input.read(2040)->magnitude>0);
-    assert(input.offer(wire(6,"0\t0\t0"),2050)); assert(!input.read(2050));
-    assert(input.offer(wire(7,"1\t0\t140"),2060)); assert(input.read(2060)->magnitude==0);
+    assert(input.offer(wire(1,"1\t0\t200"))); assert(input.read()->magnitude>0);
+    assert(input.offer(wire(2,"1\t0\t140"))); assert(input.read()->magnitude>0);
+    assert(input.offer(wire(3,"1\t0\t120"))); assert(input.read()->magnitude==0);
+    assert(input.offer(wire(4,"1\t0\t140"))); assert(input.read()->magnitude==0);
+    assert(input.offer(wire(5,"1\t0\t200"))); assert(input.read()->magnitude>0);
+    assert(input.offer(wire(6,"0\t0\t0"))); assert(!input.read());
+    assert(input.offer(wire(7,"1\t0\t140"))); assert(input.read()->magnitude==0);
     GameplayState json; state.analogMovement=true; state.movementGeneration=123;
     json.update(state); assert(json.json().find("\"analogMovement\":true")!=std::string::npos);
     assert(json.json().find("\"movementGeneration\":123")!=std::string::npos);

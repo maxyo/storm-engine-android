@@ -62,6 +62,10 @@ struct Admission
 
     const Widget *One(std::string_view node) const;
     std::vector<const Widget *> All(std::string_view node) const;
+    // The rows of a game table. The engine exports a table as its rows, and an empty table as
+    // one "table" widget (no rows, the headers), so a screen can require the table either way:
+    // NodeRule {"TABLE_LIST", "choice|table", true}.
+    std::vector<const Widget *> Rows(std::string_view node) const;
     std::string Label(std::string_view node) const;
 };
 Admission Admit(const InterfaceModel &model, std::span<const NodeRule> rules);

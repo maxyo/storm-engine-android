@@ -127,19 +127,24 @@ static void CheckMovement()
     bench.Press("move", "change", "50,50");
     ExpectEqual(mount.Last(), "move:1\ttown:42\t3\t2\t1\t500\t-500", "right and back");
     const size_t count = mount.commands.size();
-    bench.Frame(0.05);
-    Expect(mount.commands.size() == count, "no heartbeat before 100 ms");
-    bench.Frame(0.06);
-    ExpectEqual(mount.Last(), "move:1\ttown:42\t3\t3\t1\t500\t-500", "a held stick repeats itself for the engine's 350 ms watchdog");
-    Expect(bench.hud.Tick() <= 0.11, "… and asks for the frame of the next heartbeat");
+    bench.Frame(0.5);
+    bench.Frame(5.0);
+    Expect(mount.commands.size() == count && bench.hud.Tick() > 5.0,
+           "a held stick is said once (the engine holds it until its release): no heartbeat, however far apart frames are");
 
-    // explore → melee keeps the stick: the next heartbeat goes on under the same owner
+    // explore → melee keeps the stick: same owner and generation, nothing to say
     bench.Melee();
     bench.Frame(0.11);
-    ExpectEqual(mount.Last(), "move:1\ttown:42\t3\t4\t1\t500\t-500", "the stick survives the stance change");
+    Expect(mount.commands.size() == count, "the stick survives the stance change without a word");
+    // a new movement session (the engine's generation moved on) while the stick is held: said again in it
+    Json renewed = State("gameplay-melee");
+    renewed["movementGeneration"] = 4;
+    bench.Set("gameplay", renewed);
+    bench.Frame();
+    ExpectEqual(mount.Last(), "move:1\ttown:42\t4\t3\t1\t500\t-500", "the held stick goes on in the new generation");
 
     bench.Press("move", "change", "0,0");
-    ExpectEqual(mount.Last(), "move:1\ttown:42\t3\t5\t0\t0\t0", "release stops the hero");
+    ExpectEqual(mount.Last(), "move:1\ttown:42\t4\t4\t0\t0\t0", "release stops the hero");
     const size_t stopped = mount.commands.size();
     bench.Frame(0.5);
     Expect(mount.commands.size() == stopped, "no heartbeat after the release");
@@ -147,7 +152,7 @@ static void CheckMovement()
     // the platform cancels input while the stick is held
     bench.Press("move", "change", "100,0");
     bench.hud.Released();
-    Expect(mount.commands.size() >= 2 && mount.commands[mount.commands.size() - 2] == "move:1\ttown:42\t3\t7\t0\t0\t0", "cancelled input stops the hero");
+    Expect(mount.commands.size() >= 2 && mount.commands[mount.commands.size() - 2] == "move:1\ttown:42\t4\t6\t0\t0\t0", "cancelled input stops the hero");
     ExpectEqual(mount.Last(), "combat:2\t6\t0\t1\tall\tcancel", "… and cancels every combat hold");
 
     // in the background nothing moves
@@ -481,12 +486,13 @@ static void CheckTouches(const std::string &pack)
     host.Touch(TouchPhase::Down, 2, 750, 360);
     host.Touch(TouchPhase::Up, 2, 750, 360);
     Expect(run.Sent("combat:2\t5\t11\t1\tweapon\ttap"), "a second finger taps the weapon while the stick is held");
-    run.Frame(0.12);
-    Expect(run.Last() == "move:1\ttown:42\t3\t8\t1\t0\t1000", "the stick is still held (heartbeat): " + run.Last());
+    const size_t held = run.commands.size();
+    run.Frame(3.0);
+    Expect(run.commands.size() == held && !run.Sent("move:1\ttown:42\t3\t8\t0\t0\t0"), "the stick stays held through a slow frame, without a heartbeat");
 
     // the platform takes the gestures away
     host.CancelInput();
-    Expect(run.Sent("move:1\ttown:42\t3\t9\t0\t0\t0"), "cancelled input releases the stick");
+    Expect(run.Sent("move:1\ttown:42\t3\t8\t0\t0\t0"), "cancelled input releases the stick");
     const size_t count = run.commands.size();
     host.Touch(TouchPhase::Move, 1, 90, 300);
     host.Touch(TouchPhase::Up, 1, 90, 300);

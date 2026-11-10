@@ -4,8 +4,11 @@
 #ifndef FF_FINISH_SH
 #define FF_FINISH_SH
 #include "storm_common.sh"
+#include "fx_aerial.sh"
 
-// [0] texture factor  [1] fog colour rgb, fog mode (0 off, 1 exp, 2 exp2, 3 linear, 4 factor passthrough)
+// [0] texture factor  [1] fog colour rgb, fog mode (0 off, 1 exp, 2 exp2, 3 linear, 4 factor passthrough,
+//     5 exp with the effects' aerial perspective: fx_aerial.sh fxAerialFog, height above the eye in v_fog.w)
+//     (mode 5: fog start, fog end hold the haze, see Lighting::aerial_fog)
 // [2] fog start, fog end, fog density, alpha ref  [3] alpha func (0 = off, else D3DCMP), specular add, stage count, fog depth is in v_fog.z
 uniform vec4 u_ffFs[4];
 uniform vec4 u_ffDepthBias; // x: D3DRS_SLOPESCALEDEPTHBIAS (fs_ff_slopebias only)
@@ -45,7 +48,9 @@ vec4 ffFinish(vec4 color)
     }
     if (u_ffFs[3].y > 0.5) color.rgb += v_color1.rgb;
     float mode = u_ffFs[1].w;
-    if (mode > 0.5)
+    if (mode > 4.5)
+        color.rgb = fxAerialFog(color.rgb, u_ffFs[1].rgb, u_ffFs[2].z, v_fog.x, v_fog.w, u_ffFs[2].xy);
+    else if (mode > 0.5)
     {
         float f;
         float d = u_ffFs[3].w > 0.5 ? v_fog.z : v_fog.x;
