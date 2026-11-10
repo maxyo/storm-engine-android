@@ -13,6 +13,8 @@ import subprocess
 import tarfile
 import urllib.request
 
+import android_abi
+
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = (
     ("libtorrent", "libtorrent-1eb18faeae156d8dbbab42935c082f8b81f50989", "https://codeload.github.com/arvidn/libtorrent/tar.gz/1eb18faeae156d8dbbab42935c082f8b81f50989", "192fedf8a8d8bf88d097a7956612d0890e2f01a622ca3a00918ef0835c67a257"),
@@ -46,6 +48,8 @@ def main():
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--ndk", type=Path, help="Omit to build and run host tests")
     parser.add_argument("--jobs", type=int, default=2)
+    parser.add_argument("--abi", choices=sorted(android_abi.ABIS), default=android_abi.DEFAULT,
+                        help="Android ABI with --ndk: arm64-v8a (releases) or x86_64 (emulator debug builds)")
     args = parser.parse_args()
     work = args.work.resolve(); work.mkdir(parents=True, exist_ok=True)
     torrent, boost, signal, openssl = [source(work, spec) for spec in SOURCES]
@@ -79,15 +83,16 @@ def main():
         patched = '#ifdef __ANDROID__\n#include <dirent.h>\n#endif\n' + original.replace(needle, patch)
         if session_source.read_text() != patched:
             session_source.write_text(patched)
-    build = work / ("android" if args.ndk else "host")
-    ssl_build = work / ("openssl-android" if args.ndk else "openssl-host")
+    sfx = android_abi.suffix(args.abi)
+    build = work / ("android" + sfx if args.ndk else "host")
+    ssl_build = work / ("openssl-android" + sfx if args.ndk else "openssl-host")
     ssl_prefix = ssl_build / "prefix"
     ssl_build.mkdir(parents=True, exist_ok=True)
     if not (ssl_prefix / "lib/libssl.a").exists():
         env = os.environ.copy()
         target = "linux-x86_64"
         if args.ndk:
-            target = "android-arm64"
+            target = android_abi.openssl_target(args.abi)
             env["ANDROID_NDK_ROOT"] = str(args.ndk.resolve())
             env["PATH"] = str(args.ndk.resolve() / "toolchains/llvm/prebuilt/linux-x86_64/bin") + os.pathsep + env["PATH"]
         command = ["perl", openssl / "Configure", target, "no-shared", "no-tests", "no-apps", "no-docs", "no-module",
@@ -107,7 +112,7 @@ def main():
                f"-DOPENSSL_CRYPTO_LIBRARY={ssl_prefix}/lib/libcrypto.a"]
     if args.ndk:
         command += [f"-DCMAKE_TOOLCHAIN_FILE={args.ndk.resolve()}/build/cmake/android.toolchain.cmake",
-                    "-DANDROID_ABI=arm64-v8a", "-DANDROID_PLATFORM=android-24", "-DANDROID_STL=c++_shared"]
+                    f"-DANDROID_ABI={args.abi}", "-DANDROID_PLATFORM=android-24", "-DANDROID_STL=c++_shared"]
     cmake_env = os.environ.copy()
     cmake_env["PKG_CONFIG_LIBDIR"] = str(ssl_prefix / "lib/pkgconfig")
     cmake_env["PKG_CONFIG_PATH"] = str(ssl_prefix / "lib/pkgconfig")
@@ -119,6 +124,7 @@ def main():
         run(["ctest", "--test-dir", build, "--output-on-failure"])
     else:
         run([args.ndk.resolve() / "toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip", "--strip-unneeded", build / "libstorm_torrent.so"])
+        android_abi.check_elf(build / "libstorm_torrent.so", args.abi)
     print(build / "libstorm_torrent.so")
 
 if __name__ == "__main__":

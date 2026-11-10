@@ -8,6 +8,7 @@ change to any of them builds a new prefix. Flags and their reasons: tools/ffmpeg
 
   python3 tools/ffmpeg/build.py --source <ffmpeg checkout> --cache <dir> --target host
   python3 tools/ffmpeg/build.py --source <ffmpeg checkout> --cache <dir> --target android-arm64 --ndk <ndk>
+  (android-x86_64: the same for emulator debug builds)
 """
 import argparse
 import fcntl
@@ -44,7 +45,16 @@ TARGETS = {
         # Same 16 KiB page alignment the APK requires of every library.
         '--extra-ldflags=-Wl,-z,max-page-size=16384',
     ],
+    # Emulator debug builds only (release APKs are arm64). Same features as android-arm64; no nasm
+    # on the development hosts, so the x86 SIMD paths are off (plain C decoders).
+    'android-x86_64': [
+        '--enable-cross-compile', '--target-os=android', '--arch=x86_64', '--disable-x86asm',
+        '--enable-jni', '--enable-mediacodec', '--enable-decoder=vp8_mediacodec,vp9_mediacodec',
+        '--extra-ldflags=-Wl,-z,max-page-size=16384',
+    ],
 }
+# NDK compiler triple of each Android target.
+TRIPLES = {'android-arm64': 'aarch64-linux-android24', 'android-x86_64': 'x86_64-linux-android24'}
 
 
 def launcher():
@@ -65,11 +75,12 @@ def compiler(args):
         cc = os.environ.get('CC', 'cc')
         return [f'--cc={launcher()}{cc}'], cc
     tools = args.ndk.resolve() / 'toolchains/llvm/prebuilt/linux-x86_64/bin'
-    cc = tools / 'aarch64-linux-android24-clang'
+    triple = TRIPLES[args.target]
+    cc = tools / f'{triple}-clang'
     if not cc.exists():
         sys.exit(f'NDK compiler not found: {cc}')
     prefix = launcher()
-    return [f'--cc={prefix}{cc}', f'--cxx={prefix}{tools / "aarch64-linux-android24-clang++"}', f'--ar={tools / "llvm-ar"}',
+    return [f'--cc={prefix}{cc}', f'--cxx={prefix}{tools / (triple + "-clang++")}', f'--ar={tools / "llvm-ar"}',
             f'--nm={tools / "llvm-nm"}', f'--ranlib={tools / "llvm-ranlib"}', f'--strip={tools / "llvm-strip"}'], str(cc)
 
 

@@ -340,7 +340,7 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
     {
         // vs_1_1 programs output D3D clip space; they apply the fix-up matrix themselves.
         set_uniform(U_PROJ, &fix.m[0][0], 1);
-        set_uniform(U_VSC, &s.vs_const[0][0], kVsConstants);
+        set_uniform(U_VSC, &s.vs_const[0][0], s.vs->port->vsc_count); // the registers the port declares
     }
     if (ps_port)
     {
@@ -759,7 +759,9 @@ bgfx::ProgramHandle Device::program(uint32_t vs_id, uint32_t fs_id)
                                           : info.type == bgfx::UniformType::Mat3 ? 48
                                           : info.type == bgfx::UniformType::Mat4 ? 64
                                                                                  : 0; // samplers
-                    bytes += size * info.num;
+                    // u_vsc is created for 96 registers; a port program declares (and uploads) fewer.
+                    const uint32_t vsc = list[i].idx == uniforms[U_VSC].handle.idx ? port_vsc_count(id) : 0;
+                    bytes += size * (vsc ? vsc : info.num);
                 }
             }
             program_uniform_bytes[handle.idx] = bytes;
