@@ -555,13 +555,29 @@ void XINTERFACE::Realize(uint32_t)
     DrawNode(m_pNodes, Delta_Time, 0, 80);
 
 #ifdef __ANDROID__
-    static uint32_t lastMobileSnapshotTime = 0;
-    if (SDL_GetTicks() - lastMobileSnapshotTime >= 200)
+    // The interface model goes out in the frame it changes (publishMobileWidgets sends only a
+    // changed snapshot). A timer here made every change wait up to its period. The save screen's
+    // model is complete only once the script has filled its save list (ReadSaveList: an empty
+    // list is readable, a list not yet filled is not); before that nothing is sent, so the UI never
+    // gets a save screen without its saves.
+    const auto saves = storm::mobile::ReadSaveList();
+    if (!saves && storm::android::mobileScreen == "save_load")
     {
-        lastMobileSnapshotTime = SDL_GetTicks();
+        static uint64_t waitingRevision = 0;
+        static uint32_t waitingSince = 0;
+        if (waitingRevision != storm::android::mobileScreenRevision)
+            waitingRevision = storm::android::mobileScreenRevision, waitingSince = SDL_GetTicks();
+        else if (waitingSince && SDL_GetTicks() - waitingSince >= 2000)
+        {
+            core.Trace("ERROR save_load: the script's save list is still unreadable after 2 s; the screen has no model");
+            waitingSince = 0; // said once per opening
+        }
+    }
+    else
+    {
         std::vector<MobileWidget> widgets;
         MobileCollectWidgets(widgets);
-        if (const auto saves = storm::mobile::ReadSaveList())
+        if (saves)
         {
             auto *window = FindNode("MAIN_WINDOW", nullptr);
             const bool enabled = window && window->m_nNodeType == NODETYPE_WINDOW &&
@@ -644,13 +660,15 @@ void XINTERFACE::Realize(uint32_t)
         const char *gameLanguage = pStringService ? pStringService->GetLanguage() : nullptr;
         const std::string language = gameLanguage ? gameLanguage : "";
         auto payload = MobileWidgetJson(storm::android::mobileScreen, widgets, storm::android::mobileScreenRevision, 0, language);
-        if (payload != previousPayload)
+        const bool changed = payload != previousPayload;
+        if (changed)
         {
             previousPayload = std::move(payload);
             ++snapshotRevision;
         }
-        storm::android::publishMobileWidgets(MobileWidgetJson(storm::android::mobileScreen, widgets,
-                                                              storm::android::mobileScreenRevision, snapshotRevision, language));
+        if (changed || storm::android::lastWidgetSnapshot.empty()) // nothing new: nothing to build or send
+            storm::android::publishMobileWidgets(MobileWidgetJson(storm::android::mobileScreen, widgets,
+                                                                  storm::android::mobileScreenRevision, snapshotRevision, language));
     }
 #endif
 
