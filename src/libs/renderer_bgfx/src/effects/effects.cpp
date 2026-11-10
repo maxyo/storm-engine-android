@@ -105,10 +105,6 @@ struct Pending
 };
 
 const Pending kPending[] = {
-    {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingNormalMap) != 0; },
-     [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingNormalMap; }, "fx_light_normal_map",
-     "normal maps from the game's height textures are not derived yet (texture worker + disk cache pending): "
-     "switched off"},
     {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingAerial) != 0; },
      [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingAerial; }, "fx_aerial",
      "aerial perspective is not bound in the emulator variants yet (fx::Sky::BindAerial): the "
@@ -426,9 +422,9 @@ void Host::end_frame(bool scene_frame)
                          profile_sum_post_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u",
                        preset_, gpu, profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
-                       last_post_views_, counts.lit, counts.baked, counts.coverage);
+                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief);
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_draws_ = 0;
@@ -480,6 +476,12 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)
                         .att2 = l.att2};
     }
     effects::Host::instance().lighting().set_dynamic_lights(std::span(converted, count));
+}
+
+void SetEffectsTextureSource(IDirect3DBaseTexture9 *texture, const char *path)
+{
+    if (shim::TexStore *store = shim::store_of(texture))
+        effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path);
 }
 
 EffectsReport CurrentEffects()

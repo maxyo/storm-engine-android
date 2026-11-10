@@ -13,11 +13,15 @@
 //   * material: from the technique the renderer executes (SetEffectsTechnique): Animation* = character,
 //     ShipSail* / ShipFlag = sail (two-sided, translucent), DLightModel = stone; lit draws without a technique
 //     are the ship hulls, masts and deck objects = hull.
+//   * relief (kLightingNormalMap): a lit or baked draw whose stage 1 holds a height texture with a derived normal map
+//     (effects/normal_maps.hpp) uses the FX_LIGHT_NORMALMAP variant with the map at stage 14 and stage 1's sampler
+//     flags; lit draws perturb the normal, baked ones scale their colour by fxBakedRelief. Characters have none.
 //   * alpha to coverage (RendererState::alpha_to_coverage): alpha-tested (GREATER / GREATEREQUAL), non-blended draws
 //     into a multisampled target: BGFX_STATE_BLEND_ALPHA_TO_COVERAGE and fxCoverageAlpha() instead of the discard.
 // Cube-mapped draws (fs_ff_cube*) have no lighting or coverage variant: they keep the legacy path, reported once.
 #pragma once
 
+#include "effects/normal_maps.hpp"
 #include "storm/fx/lighting.hpp"
 #include "storm/fx/settings.hpp"
 #include "storm/fx/sky_model.hpp"
@@ -53,6 +57,8 @@ struct FfDraw
     fx::PointLightUniforms points{};
     std::array<float, 4> ff{};
     std::array<float, 4> coverage{};
+    bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE; // FX_LIGHT_NORMALMAP variant: bound at stage 14
+    uint32_t normal_map_flags = 0;
 };
 
 class Lighting
@@ -74,11 +80,12 @@ class Lighting
         dynamic_lights_this_frame_ = true;
     }
     void set_sky(const fx::SkyState *sky) { sky_ = sky; }
+    NormalMaps &normal_maps() { return normal_maps_; }
     void end_frame();
     // Draws of the last presented frame that used a lit / baked / coverage variant (effects profile).
     struct Counts
     {
-        uint32_t lit = 0, baked = 0, coverage = 0;
+        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0;
     };
     Counts last_frame() const { return last_frame_; }
 
@@ -105,8 +112,9 @@ class Lighting
     bool dynamic_lights_this_frame_ = false;
     const fx::SkyState *sky_ = nullptr;
     uint32_t vs_ff_ = 0, vs_lit_ = 0, fs_coverage_ = 0;
-    uint32_t fs_lit_[2][2] = {}; // [specular][linear]
-    uint32_t fs_baked_[2] = {};  // [linear]
+    uint32_t fs_lit_[2][2][2] = {}; // [specular][normal map][linear]
+    uint32_t fs_baked_[2][2] = {};  // [normal map][linear]
+    NormalMaps normal_maps_;
     bool cube_reported_ = false;
     fx::Lighting fx_;
     bgfx::UniformHandle u_ff_ = BGFX_INVALID_HANDLE;
