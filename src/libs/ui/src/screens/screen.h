@@ -167,9 +167,6 @@ struct ScreenEntry
 // Screens ported to C++, keyed by interface id (registry.cpp).
 std::span<const ScreenEntry> PortedScreens();
 std::unique_ptr<Screen> CreateGenericScreen();
-// Interface ids that the platform host still draws itself while their zone is not ported
-// (registry.cpp). Everything else comes here: a ported screen or the generic layout.
-bool HostOwned(std::string_view screen);
 
 // A named state channel of the game (gameplay, combat, dialogue, …): consumers get the
 // engine's JSON for it. Zone authors register one consumer per channel in registry.cpp.

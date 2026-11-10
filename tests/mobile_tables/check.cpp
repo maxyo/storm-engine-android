@@ -26,7 +26,7 @@ public:
 // Only engine service boundaries are stubbed; collection and ATTRIBUTES are real.
 namespace storm::android {
 bool imagePoll = true, imageReply = true;
-std::string mobileScreen = "ship";
+std::string mobileScreen = "test_screen";
 uint64_t mobileScreenRevision = 9;
 struct Action {std::string screen, node, value; int index;};
 std::deque<Action> uiWidgetActions;
@@ -126,7 +126,7 @@ int main()
             assert(widgets[row].rowId == "cargo:" + std::to_string(row + 1));
             assert(widgets[row].actions == std::vector<std::string>({"select", "activate"}));
         }
-        std::cout << MobileWidgetJson("ship", widgets, 9, 1) << '\n';
+        std::cout << MobileWidgetJson("test_screen", widgets, 9, 1) << '\n';
         return widgets;
     };
     assert(collect()[0].columnHeaders.empty());
@@ -325,6 +325,14 @@ int main()
     cityData->SetAttribute("CityID",std::string(129,'x'));assert(storm::mobile::InterfaceTableRowId("tradebook","TABLE_CITY",city,&reference).empty());
     cityData->SetAttribute("ID","Food");assert(storm::mobile::InterfaceTableRowId("tradebook","TABLE_GOODS",city,&reference)=="Food");
     assert(!storm::mobile::LeasedTableIdentityRequired("other","TABLE_CITY"));
+    // The ship's hold: the good of the ship shown (SHIPS_SCROLL character), never a bare index.
+    ATTRIBUTES hold(codec);
+    auto *holdShips=hold.CreateAttribute("SHIPS_SCROLL",nullptr);holdShips->SetAttribute("current","1");
+    holdShips->CreateAttribute("pic2",nullptr)->SetAttribute("character","31");
+    auto *holdGood=hold.CreateAttribute("TABLE_LIST",nullptr)->CreateAttribute("tr1",nullptr);holdGood->SetAttribute("index","4");
+    assert(storm::mobile::LeasedTableIdentityRequired("ship","TABLE_LIST"));
+    assert(storm::mobile::InterfaceTableRowId("ship","TABLE_LIST",holdGood,&hold)=="ship:good:4:owner:31");
+    holdShips->SetAttribute("current","0");assert(storm::mobile::InterfaceTableRowId("ship","TABLE_LIST",holdGood,&hold).empty());
     // A selection focuses its table like a mouse click (scripts check the current node).
     assert(!core.focusedNodes.empty() && core.focusedNodes.back() == "TABLE_CITY");
 

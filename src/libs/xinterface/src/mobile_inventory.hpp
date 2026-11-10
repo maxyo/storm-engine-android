@@ -53,9 +53,16 @@ inline bool CommerceTable(std::string_view screen, std::string_view node)
          screen == "cannons" || screen == "itemstrade" || screen == "itemsbox");
 }
 
+// The ship screen's hold (ship.c FillGoodsTable): a row opens the drop-overboard window of its
+// good, so it is the good (`index`) of the ship whose hold it is (SHIPS_SCROLL character).
+inline bool ShipHoldTable(std::string_view screen, std::string_view node)
+{
+    return screen == "ship" && node == "TABLE_LIST";
+}
+
 inline bool LeasedTableIdentityRequired(std::string_view screen, std::string_view node)
 {
-    return CommerceTable(screen, node) || (screen == "tradebook" && node == "TABLE_CITY") ||
+    return CommerceTable(screen, node) || ShipHoldTable(screen, node) || (screen == "tradebook" && node == "TABLE_CITY") ||
         (screen=="shipyard"&&(node=="TABLE_SHIPYARD"||node=="TABLE_OTHER"));
 }
 
@@ -77,6 +84,19 @@ inline std::string InterfaceTableRowId(std::string_view screen, std::string_view
         if (id.size() > 128) return {};
         for (const unsigned char c : id) if (c <= 32 || c == 127 || c == '|') return {};
         return "tradebook:city:" + id;
+    }
+    if (ShipHoldTable(screen, node))
+    {
+        auto *ships = interfaceRoot ? interfaceRoot->GetAttributeClass("SHIPS_SCROLL") : nullptr;
+        const auto good = InventoryNumber(row ? row->GetAttribute("index") : nullptr);
+        const auto current = InventoryNumber(ships ? ships->GetAttribute("current") : nullptr);
+        if (!good || !current || *current == UINT32_MAX)
+            return {};
+        auto *entry = ships->GetAttributeClass("pic" + std::to_string(uint64_t(*current) + 1));
+        const auto owner = InventoryNumber(entry ? entry->GetAttribute("character") : nullptr);
+        if (!owner)
+            return {};
+        return "ship:good:" + std::to_string(*good) + ":owner:" + std::to_string(*owner);
     }
     if (!CommerceTable(screen, node))
         return MobileTableRowId(node, row,

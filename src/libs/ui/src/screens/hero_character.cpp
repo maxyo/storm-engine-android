@@ -562,7 +562,10 @@ class HeroScreen final : public Screen
         {
             // TABLE_SKILL_n: icon, name, experience %, bonus, value; TABLE_SPECIAL: letter, name, bonus, value.
             const int value_col = special ? 3 : 4;
-            const std::string name = Trim(row->CellText(special ? 1 : 1));
+            // The game names blade and gun skills by pairs ("Рапиры/Шпаги"): the first word fits
+            // the column (mockup V2-Hero-Skills).
+            const std::string full = Trim(row->CellText(1));
+            const std::string name = special || full.find('/') == std::string::npos ? full : Trim(full.substr(0, full.find('/')));
             const std::string bonus = Trim(row->CellText(special ? 2 : 3));
             const std::string value = Trim(row->CellText(value_col));
             const std::string tone = bonus.find('-') != std::string::npos   ? "danger"

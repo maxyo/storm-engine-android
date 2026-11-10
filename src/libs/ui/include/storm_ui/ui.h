@@ -20,10 +20,7 @@ class FileSource
 };
 std::unique_ptr<FileSource> DirectoryFiles(std::string root);
 
-// Migration switch, as data: true while the platform host still draws this interface id
-// with its own form (the zone is not ported yet). Every other id goes to SetInterface.
-bool HostOwnsInterface(const std::string &screen);
-// The same switch for the in-game HUD, by gameplay mode of the "gameplay" state channel
+// Migration switch for the in-game HUD, by gameplay mode of the "gameplay" state channel
 // ("explore", "melee", "sailing", "naval", "worldmap"): true while the platform host still
 // draws that mode's HUD itself. For every other mode the HUD is drawn here.
 bool HostOwnsHud(const std::string &mode);
