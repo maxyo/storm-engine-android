@@ -161,6 +161,8 @@ class ISPYGLASS : public Entity
     bool m_bIsOn;
     bool m_bIsPresentShipInfo;
     bool m_bAndroidCovered = false; // the portable UI draws the info (Android): ours stays transparent
+    uint32_t m_dwAndroidShownSince = 0;      // when the current target appeared (0: none shown)
+    uint64_t m_nAndroidWarnedGeneration = 0; // the raise already reported for a missing card
     int32_t m_nInfoCharacterIndex;
 
     SpyGlassCameraParameters m_Camera{};

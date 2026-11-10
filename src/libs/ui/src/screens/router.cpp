@@ -34,11 +34,6 @@ std::string EngineCommand(const Action &action)
     return "widget:" + action.screen + "\t" + action.node + "\t" + std::to_string(action.index) + "\t" + wire;
 }
 
-bool HostOwnsInterface(const std::string &screen)
-{
-    return screens::HostOwned(screen);
-}
-
 bool HostOwnsHud(const std::string &mode)
 {
     return !hud::Ported(mode);
@@ -433,6 +428,11 @@ void Router::SetState(const std::string &channel, const Json &state)
 void Router::ReportError(const std::string &line)
 {
     surface_.Error(line);
+}
+
+void Router::Notify(const std::string &key, const std::string &subject)
+{
+    surface_.Toast(subject.empty() ? surface_.Text(key) : surface_.Text(key) + ": " + subject);
 }
 
 void Router::Build()

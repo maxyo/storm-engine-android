@@ -1,4 +1,5 @@
 #include "device.hpp"
+#include "effects/effects.hpp"
 #include "perf.hpp"
 #include "util.hpp"
 
@@ -112,8 +113,11 @@ HRESULT Direct3D::CreateDevice(UINT, D3DDEVTYPE, HWND window, DWORD, D3DPRESENT_
 
 // ---------------------------------------------------------------------------
 // Device lifetime
+Device *Device::current = nullptr;
+
 Device::Device(SDL_Window *sdl_window, const D3DPRESENT_PARAMETERS &present) : window(sdl_window), params(present)
 {
+    current = this;
     byte_layout.begin().add(bgfx::Attrib::TexCoord7, 1, bgfx::AttribType::Uint8).end();
     lights.resize(kMaxLights);
     shaders.assign(embedded_shader_count(), BGFX_INVALID_HANDLE);
@@ -143,6 +147,7 @@ Device::Device(SDL_Window *sdl_window, const D3DPRESENT_PARAMETERS &present) : w
         {U_VSC, "u_vsc", bgfx::UniformType::Vec4, kVsConstants},
         {U_PSC, "u_psc", bgfx::UniformType::Vec4, kPsConstants},
         {U_BEM, "u_psBem", bgfx::UniformType::Vec4, kFfStages},
+        {U_DEPTHBIAS, "u_ffDepthBias", bgfx::UniformType::Vec4, 1},
     };
     for (const auto &entry : table)
     {
@@ -168,6 +173,9 @@ Device::~Device()
     for (auto &[key, handle] : framebuffers)
         bgfx::destroy(handle);
     framebuffers.clear();
+    post_color.reset();
+    single_depth.reset();
+    current = nullptr;
     Context::instance().shutdown();
 }
 
@@ -181,20 +189,43 @@ void Device::create_backbuffer(uint32_t width, uint32_t height)
         back_color->Release();
     if (back_depth)
         back_depth->Release();
-    auto color = make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
-                            D3DPOOL_DEFAULT);
-    color->backbuffer = true;
-    auto depth = make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8,
-                            D3DPOOL_DEFAULT);
-    depth->backbuffer = true;
-    back_color = new Surface(color, 0, 0);
-    back_depth = new Surface(depth, 0, 0);
+    back_color = new Surface(nullptr, 0, 0);
+    back_depth = new Surface(nullptr, 0, 0);
+    create_scene_stores(width, height);
     rt = back_color;
     rt->AddRef();
     ds = back_depth;
     ds->AddRef();
     s.viewport = {0, 0, width, height, 0.0f, 1.0f};
     s.scissor = {0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    view_dirty = true;
+}
+
+void Device::create_scene_stores(uint32_t width, uint32_t height)
+{
+    // Effects: MSAA of the scene target (fx::RendererState). bgfx resolves colour and depth when the frame buffer
+    // is left; the composite and the post chain read the resolved textures.
+    const auto &state = effects::Host::instance().renderer_state();
+    const uint64_t msaa = state.msaa_samples >= 4 ? BGFX_TEXTURE_RT_MSAA_X4
+                          : state.msaa_samples == 2 ? BGFX_TEXTURE_RT_MSAA_X2
+                                                    : 0;
+    const auto picture = [&] {
+        auto store = make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
+                                D3DPOOL_DEFAULT);
+        store->backbuffer = true;
+        store->target_flags = msaa;
+        return store;
+    };
+    back_color->store = picture();
+    back_depth->store = make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8,
+                                   D3DPOOL_DEFAULT);
+    back_depth->store->backbuffer = true;
+    back_depth->store->target_flags = msaa;
+    post_color = effects::Host::instance().post_active() ? picture() : nullptr;
+    single_depth = msaa ? make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8,
+                                     D3DPOOL_DEFAULT)
+                        : nullptr;
+    world_anisotropy = state.max_anisotropy > 1;
     view_dirty = true;
 }
 
@@ -268,6 +299,7 @@ void Device::bind_state_refs(const DeviceState &next)
 {
     for (uint32_t i = 0; i < kMaxStages; ++i)
         assign_ref(s.textures[i], next.textures[i]);
+    assign_ref(s.vertex_texture, next.vertex_texture);
     for (uint32_t i = 0; i < kMaxStreams; ++i)
         assign_ref(s.stream[i], next.stream[i]);
     assign_ref(s.indices, next.indices);
@@ -325,9 +357,25 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
         back_color->store->sync();
         back_depth->store->sync();
     }
+    // No interface marked the end of the scene: the whole frame is the scene. A frame whose interface was drawn
+    // before any 3D cannot be split: it is presented as it is.
+    if (!scene_done && !interface_drawn)
+        scene_complete();
+    const bool scene_frame = scene_drawn;
+    scene_done = false;
+    scene_drawn = false;
+    interface_drawn = false;
     context.set_game_target({back_color->store->handle.idx, back_depth->store->handle.idx, back_color->store->width,
                              back_color->store->height});
     context.present(back_color->store->handle, back_color->store->width, back_color->store->height);
+    auto &effects = effects::Host::instance();
+    effects.end_frame(scene_frame);
+    if (effects.take_renderer_state_change())
+    {
+        // Between frames: the scene target follows the new MSAA setting, samplers the new anisotropy.
+        create_scene_stores(back_color->store->width, back_color->store->height);
+        context.refresh_reset_flags();
+    }
     views_used = 0;
     view_dirty = true;
     view_has_content = false;
@@ -337,11 +385,100 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
     return D3D_OK;
 }
 
+void Device::scene_complete()
+{
+    interface_drawn = true;
+    if (!scene_drawn)
+    {
+        // Nothing 3D in the game picture yet: the interface and the 3D drawn after it cannot be separated, so this
+        // frame is presented without the post chain.
+        if (!interface_first_logged && effects::Host::instance().post_active())
+            logf("effects: an interface was drawn before the 3D scene; such frames are presented without post effects");
+        interface_first_logged = true;
+        return;
+    }
+    scene_done = true;
+    auto &host = effects::Host::instance();
+    if (!host.post_active() || !Context::instance().ready())
+        return;
+    if (!post_color)
+    {
+        // The settings switched post-processing on after the device was created.
+        post_color = make_store(this, TexKind::Tex2D, back_color->store->width, back_color->store->height, 1, 1,
+                                D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT);
+        post_color->backbuffer = true;
+        post_color->target_flags = back_color->store->target_flags;
+    }
+    const uint16_t budget = render::kGameViewEnd - render::kGameViewBegin;
+    if (views_used + fx::PostChain::kMaxViews > budget)
+    {
+        if (!post_view_logged)
+            logf("ERROR: effects: %u game views used, no room for the post chain (%u): frame presented without it",
+                 views_used, fx::PostChain::kMaxViews);
+        post_view_logged = true;
+        return;
+    }
+    TexStore *scene = back_color->store.get();
+    scene->sync();
+    back_depth->store->sync();
+    effects::Host::PostTargets targets;
+    targets.scene_color = scene->handle;
+    // A multisampled depth is resolved into the texture with the colour (Host::on_device_created).
+    targets.scene_depth = back_depth->store->handle;
+    targets.width = static_cast<uint16_t>(scene->width);
+    targets.height = static_cast<uint16_t>(scene->height);
+    targets.target = framebuffer(post_color.get(), 0, 0, nullptr);
+    targets.first_view = static_cast<bgfx::ViewId>(render::kGameViewBegin + views_used);
+    memcpy(targets.view.data(), &scene_view.m[0][0], sizeof(float) * 16);
+    memcpy(targets.projection.data(), &scene_proj.m[0][0], sizeof(float) * 16);
+    views_used += host.submit_post(targets);
+    // The interface is drawn on the processed picture, which is then presented.
+    std::swap(back_color->store, post_color);
+    view_dirty = true;
+}
+
+uint16_t Device::effects_view(bool fresh)
+{
+    if (fresh)
+        view_dirty = true;
+    const uint16_t id = ensure_view();
+    view_has_content = true; // a later Clear opens a new view instead of clearing the fx draws
+    invalidate_uniforms();
+    return id;
+}
+
 HRESULT Device::GetBackBuffer(UINT, UINT, D3DBACKBUFFER_TYPE, IDirect3DSurface9 **surface)
 {
     *surface = back_color;
     back_color->AddRef();
     return D3D_OK;
+}
+
+// D3D9 leaves the contents of a new render target undefined, but the reference (desktop drivers,
+// DXVK) hands them out cleared, and the game relies on it: the sea environment cube map never
+// renders its -Y face above water, and on mobile GPUs that face showed uninitialised memory as
+// sparkling noise in the water. Every face and level starts at zero, like the reference.
+void Device::clear_if_new(TexStore *store)
+{
+    if (!store->needs_clear || !Context::instance().ready())
+        return;
+    store->needs_clear = false;
+    for (uint32_t face = 0; face < store->faces(); ++face)
+        for (uint32_t level = 0; level < store->levels; ++level)
+        {
+            if (views_used >= render::kGameViewEnd - render::kGameViewBegin)
+            {
+                trap("view budget exhausted: a new render target stays uncleared");
+                return;
+            }
+            const uint16_t id = render::kGameViewBegin + views_used++;
+            bgfx::setViewFrameBuffer(id, framebuffer(store, face, level, nullptr));
+            bgfx::setViewMode(id, bgfx::ViewMode::Sequential);
+            bgfx::setViewRect(id, 0, 0, static_cast<uint16_t>(store->level_width(level)),
+                              static_cast<uint16_t>(store->level_height(level)));
+            bgfx::setViewClear(id, BGFX_CLEAR_COLOR, 0x00000000, 1.0f, 0);
+            bgfx::touch(id);
+        }
 }
 
 bgfx::FrameBufferHandle Device::framebuffer(TexStore *color, uint32_t face, uint32_t level, TexStore *depth)
@@ -384,6 +521,9 @@ void Device::purge_framebuffers(bgfx::TextureHandle texture)
 
 uint16_t Device::new_view()
 {
+    // A never-written target is cleared in views ordered before the one that renders into it.
+    rt->store->sync();
+    clear_if_new(rt->store.get());
     if (views_used >= render::kGameViewEnd - render::kGameViewBegin)
     {
         if (!view_overflow_logged)
@@ -404,6 +544,18 @@ uint16_t Device::new_view()
     TexStore *depth = ds ? ds->store.get() : nullptr;
     if (depth && (depth->width < color->level_width(rt->level) || depth->height < color->level_height(rt->level)))
         depth = nullptr;
+    // Attachments must agree in sample count: other targets drawn with the multisampled scene depth get a
+    // single-sample depth of the same size.
+    if (depth && depth->target_flags != color->target_flags)
+    {
+        if (single_depth && depth == back_depth->store.get() && !color->target_flags)
+            depth = single_depth.get();
+        else
+        {
+            logf("ERROR: render target and depth differ in MSAA samples; drawn without depth");
+            depth = nullptr;
+        }
+    }
     bgfx::setViewFrameBuffer(view, framebuffer(color, rt->face, rt->level, depth));
     bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
     bgfx::setViewClear(view, BGFX_CLEAR_NONE);
@@ -539,6 +691,7 @@ HRESULT Device::CreateVertexBuffer(UINT length, DWORD usage, DWORD fvf, D3DPOOL,
     auto *vb = new VertexBuffer();
     vb->device = this;
     vb->shadow.assign(length, 0);
+    perf_resize(&render::PerfCounters::buffer_shadow_bytes, 0, length);
     vb->usage = usage;
     vb->fvf = fvf;
     *buffer = vb;
@@ -551,6 +704,7 @@ HRESULT Device::CreateIndexBuffer(UINT length, DWORD usage, D3DFORMAT format, D3
     auto *ib = new IndexBuffer();
     ib->device = this;
     ib->shadow.assign(length, 0);
+    perf_resize(&render::PerfCounters::buffer_shadow_bytes, 0, length);
     ib->usage = usage;
     ib->index32 = format == D3DFMT_INDEX32;
     *buffer = ib;
@@ -855,6 +1009,11 @@ HRESULT Device::GetTexture(DWORD stage, IDirect3DBaseTexture9 **texture)
 }
 HRESULT Device::SetTexture(DWORD stage, IDirect3DBaseTexture9 *texture)
 {
+    if (stage == D3DVERTEXTEXTURESAMPLER0)
+    {
+        assign_ref(s.vertex_texture, texture);
+        return D3D_OK;
+    }
     if (stage >= kMaxStages)
         return D3DERR_INVALIDCALL;
     assign_ref(s.textures[stage], texture);

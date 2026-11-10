@@ -1,6 +1,7 @@
 // Elements drawn by code: <ui-icon>, <ui-ring>, <ui-paper>, <ui-clamp>, <ui-wheel>, <ui-game-image>.
 #pragma once
 
+#include "storm_ui/render_backend.h"
 #include "storm_ui/ui.h"
 #include "template.h"
 
@@ -15,6 +16,11 @@ namespace storm::ui
 void RegisterDrawElements();
 // True once after a <ui-clamp> changed its text during layout: lay out again before drawing.
 bool TextClampsChanged();
+// Scroll edges: every element that scrolls (overflow-y auto or scroll) gets the class
+// scroll-below while content is hidden below its bottom edge, and a child div.scroll-fade
+// pinned to the bottom of its visible part, which the pack draws as a fade (base.rcss).
+// True when something changed (the layout needs another update).
+bool ScrollEdgesChanged(Rml::Element *root);
 // Whether <ui-clamp> text inside `root` was cut to fit: 1 cut, 0 all of it shown, -1 none there.
 int ClampedTextIn(Rml::Element *root);
 void ReleaseDrawTextures();
@@ -37,6 +43,8 @@ void RegisterGameImageElement();
 bool AtlasCell(int cell, int grid, float uv[4]);
 void SetGameImageRoot(const std::string &game_root);
 void SetGameImageLoader(std::function<bool(const std::string &, Picture &)> loader);
+// Renderer asked first for game pictures (RenderBackend::AcquireGamePicture); may be null.
+void SetGameImageRenderer(RenderBackend *renderer);
 // True once after a background decode finished: the host draws another frame.
 bool GameImagesChanged();
 // True while pictures are queued or decoding, or decoded but not yet taken: the host must keep

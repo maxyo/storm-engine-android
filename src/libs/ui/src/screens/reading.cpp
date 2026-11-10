@@ -1,7 +1,7 @@
 // Reading cards: the game's small decision windows over the running game, drawn as one
 // parchment C-Dialog (mockups V2-Reading-MapEncounter, -BattleAhead, -Wreck, -DirSail,
 // -LeaveBattle, -Salary), and the text interlude `boal_frame` (V2-Reading-Frame): one line on
-// a dark scene, a tap anywhere is the game's own way out. Fills the pack screen <s-reading>.
+// a dark scene over the interlude's picture, a tap anywhere is the game's own way out. Fills the pack screen <s-reading>.
 //
 // The card interfaces share one layout in the game (map.ini, DirSailEnc.ini, LeaveBattle.ini,
 // salary.ini): a caption, an info picture, one or more info texts and B_OK / B_CANCEL.
@@ -148,7 +148,19 @@ class FrameScreen final : public Screen
         // The interlude ends by itself (the game's timer); a tap ends it early the way the
         // game's Esc does. While the game locks Esc the global back is ignored there too.
         bindings.On("frame", "", [&bindings](const Event &) { bindings.Back(nullptr); });
-        return Json{{"mode", "frame"}, {"text", Joined(admitted.All("INFO_TEXT"), "\n")}, {"title", ""}, {"icon", ""}, {"actions", Json::array()}};
+        // The picture of the moment (a quest's FramePic: boal_frame.c sets it on SCROLLPICT)
+        // stands behind the line. Without one SCROLLPICT keeps boal_frame.ini's own texture, a
+        // frame ornament the design leaves out (V2-Reading-Frame).
+        const Widget *picture = admitted.One("SCROLLPICT");
+        Json shown = TextureOf(picture ? picture->FirstImage() : nullptr);
+        if (shown.is_object() && shown["texture"] == "interfaces/frameform")
+            shown = Json();
+        return Json{{"mode", "frame"},
+                    {"text", Joined(admitted.All("INFO_TEXT"), "\n")},
+                    {"picture", shown},
+                    {"title", ""},
+                    {"icon", ""},
+                    {"actions", Json::array()}};
     }
 };
 

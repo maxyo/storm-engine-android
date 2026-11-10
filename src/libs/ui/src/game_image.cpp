@@ -7,15 +7,22 @@
 // texture="atlas:GOODS/Balls" names a picture the way interface models do: a group and a
 // picture of the game's own RESOURCE/INI/interfaces/pictures.ini, read at run time from
 // the game root (picture_atlas.h). It resolves to a texture and a rectangle; `cell` is
-// then ignored.
-// Exactly one source is used: the configured loader if there is one, else the .tx files
+// then ignored. uv="left,top,right,bottom" (0…1) shows that rectangle of a texture file
+// instead of a cell (pictures the engine names by file: maps, interlude pictures).
+// fit="contain|cover" keeps the picture's proportions (see OnRender).
+// Exactly one source is used, chosen by the render backend (RenderBackend::AcquireGamePicture):
+// a backend inside the engine frame (bgfx) takes the picture from the engine's texture module;
+// a backend without a renderer behind it (GL) answers DecodeOnCpu and the picture is decoded
+// on a worker thread here, by the configured loader if there is one, else from the .tx files
 // under the game root. With neither (gallery on the build host, the design canvas) the
 // pictures are "unavailable": the neutral placeholder stays and one line is logged.
 #include "elements.h"
 #include "picture_atlas.h"
 
 #include <atomic>
+#include <cmath>
 #include <condition_variable>
+#include <cstdio>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -36,12 +43,14 @@ enum class State
     Loading,
     Ready,
     Missing,
-    Unavailable // no loader and no game root: documented fallback, logged once
+    Unavailable // no source (no frame owner, loader or game root): neutral placeholder, logged once
 };
 
 struct Entry
 {
     std::atomic<State> state{State::Loading};
+    bool polling = false;  // waiting for the renderer
+    bool renderer = false; // Ready through the renderer: draw GamePictureSource(texture)
     TxImage image; // written by the worker before `state` becomes Ready
     std::unique_ptr<Rml::CallbackTextureSource> source;
     std::string reason; // why it is Missing; written by the worker before `state`
@@ -151,6 +160,48 @@ class Store
         return !root_.empty() || loader_;
     }
 
+    void SetRenderer(RenderBackend *renderer)
+    {
+        renderer_ = renderer;
+    }
+
+    // Main thread, each update while the renderer reports the picture as pending.
+    void Poll(const std::string &texture, const std::shared_ptr<Entry> &shared)
+    {
+        Entry &entry = *shared;
+        if (!entry.polling)
+            return;
+        switch (renderer_ ? renderer_->AcquireGamePicture(texture) : RenderBackend::PictureState::DecodeOnCpu)
+        {
+        case RenderBackend::PictureState::Pending:
+            changed_ = true; // keep frames coming
+            return;
+        case RenderBackend::PictureState::Ready:
+            entry.polling = false;
+            entry.renderer = true;
+            entry.state = State::Ready;
+            changed_ = true;
+            return;
+        case RenderBackend::PictureState::Failed:
+            entry.polling = false;
+            entry.reason = "the renderer could not load " + texture;
+            entry.state = State::Missing;
+            changed_ = true;
+            return;
+        case RenderBackend::PictureState::Unavailable:
+            entry.polling = false;
+            entry.state = State::Unavailable;
+            changed_ = true;
+            return;
+        case RenderBackend::PictureState::DecodeOnCpu: {
+            entry.polling = false;
+            std::lock_guard lock(mutex_);
+            Queue(texture, shared);
+            return;
+        }
+        }
+    }
+
     void SetLoader(std::function<bool(const std::string &, Picture &)> loader)
     {
         std::lock_guard lock(mutex_);
@@ -165,16 +216,10 @@ class Store
         {
             entry = std::make_shared<Entry>();
             all_.push_back(entry);
-            if (root_.empty() && !loader_)
-                entry->state = State::Unavailable;
+            if (renderer_)
+                entry->polling = true;
             else
-            {
-                queue_.push_back({texture, entry, generation_});
-                ++pending_;
-                if (!worker_.joinable())
-                    worker_ = std::thread([this] { Work(); });
-                wake_.notify_one();
-            }
+                Queue(texture, entry);
         }
         return entry;
     }
@@ -212,6 +257,22 @@ class Store
     }
 
   private:
+    void Queue(const std::string &texture, const std::shared_ptr<Entry> &entry)
+    {
+        if (!entry)
+            return;
+        if (root_.empty() && !loader_)
+        {
+            entry->state = State::Unavailable;
+            return;
+        }
+        queue_.push_back({texture, entry, generation_});
+        ++pending_;
+        if (!worker_.joinable())
+            worker_ = std::thread([this] { Work(); });
+        wake_.notify_one();
+    }
+
     struct Job
     {
         std::string texture;
@@ -270,12 +331,30 @@ class Store
     std::vector<std::weak_ptr<Entry>> all_;
     std::string root_;
     std::function<bool(const std::string &, Picture &)> loader_;
+    RenderBackend *renderer_ = nullptr;
     std::thread worker_;
     std::atomic<bool> changed_{false};
     std::atomic<int> pending_{0}; // pictures queued or being decoded
     bool stop_ = false;
     int generation_ = 0;
 };
+
+// "left,top,right,bottom" in 0…1 with a non-empty rectangle; false for anything else.
+bool ParseUv(const std::string &text, float uv[4])
+{
+    if (text.empty())
+        return false;
+    float parsed[4];
+    if (std::sscanf(text.c_str(), "%f,%f,%f,%f", &parsed[0], &parsed[1], &parsed[2], &parsed[3]) != 4)
+        return false;
+    for (const float v : parsed)
+        if (!(v >= 0.0f && v <= 1.0f))
+            return false;
+    if (parsed[0] == parsed[2] || parsed[1] == parsed[3])
+        return false;
+    std::copy(std::begin(parsed), std::end(parsed), uv);
+    return true;
+}
 
 class GameImageElement final : public Rml::Element
 {
@@ -293,6 +372,7 @@ class GameImageElement final : public Rml::Element
             entry_.reset();
             atlas_reason_.clear();
             atlas_ = AtlasPicture();
+            renderer_texture_ = {};
         }
         built_size_ = {-1, -1};
     }
@@ -309,20 +389,25 @@ class GameImageElement final : public Rml::Element
         }
         else if (!entry_ && !by_atlas && !texture.empty())
             entry_ = Store::Get().Request(texture);
+        if (entry_)
+            Store::Get().Poll(by_atlas ? atlas_.texture : texture, entry_);
         const State state = entry_ ? entry_->state.load() : by_atlas && !Store::Get().HasSource() ? State::Unavailable : State::Loading;
         std::string reason;
+        float scratch_uv[4];
         if (!atlas_reason_.empty())
             reason = atlas_reason_;
         else if (by_atlas)
             reason = state == State::Missing ? entry_->reason : std::string();
         else if (state == State::Missing)
             reason = entry_->reason;
+        else if (state == State::Ready && !GetAttribute<Rml::String>("uv", "").empty() && !ParseUv(GetAttribute<Rml::String>("uv", ""), scratch_uv))
+            reason = "uv \"" + GetAttribute<Rml::String>("uv", "") + "\" is not left,top,right,bottom in 0..1";
         else if (state == State::Ready && !AtlasCell(GetAttribute<int>("cell", 0), GetAttribute<int>("grid", 4), nullptr))
             reason = "cell outside the " + std::to_string(GetAttribute<int>("grid", 4)) + "x" + std::to_string(GetAttribute<int>("grid", 4)) + " atlas";
         else if (state == State::Unavailable && !unavailable_logged_)
         {
             unavailable_logged_ = true; // once per process: the host gave no source at all
-            Rml::Log::Message(Rml::Log::LT_INFO, "Game pictures unavailable (no game root, no loader): placeholders stay");
+            Rml::Log::Message(Rml::Log::LT_INFO, "Game pictures unavailable (no frame owner, game root or loader): placeholders stay");
         }
         const bool ready = state == State::Ready && reason.empty();
         const bool missing = !reason.empty();
@@ -356,7 +441,12 @@ class GameImageElement final : public Rml::Element
         const Rml::Vector2f size = GetBox().GetSize(Rml::BoxArea::Content);
         if (size.x < 1.0f || size.y < 1.0f)
             return;
-        if (!entry_->source)
+        if (entry_->renderer)
+        {
+            if (!renderer_texture_)
+                renderer_texture_ = manager->LoadTexture(GamePictureSource(atlas_.texture.empty() ? GetAttribute<Rml::String>("texture", "") : atlas_.texture));
+        }
+        else if (!entry_->source)
         {
             std::shared_ptr<Entry> entry = entry_;
             entry_->source = std::make_unique<Rml::CallbackTextureSource>([entry](const Rml::CallbackTextureInterface &texture) {
@@ -367,24 +457,46 @@ class GameImageElement final : public Rml::Element
         if (size != built_size_ || opacity != built_opacity_)
         {
             float uv[4];
-            if (atlas_.texture.empty())
-                AtlasCell(GetAttribute<int>("cell", 0), GetAttribute<int>("grid", 4), uv);
-            else
+            if (!atlas_.texture.empty())
                 std::copy(std::begin(atlas_.uv), std::end(atlas_.uv), uv);
-            const Rml::Vector2f uv0 = {uv[0], uv[1]}, uv1 = {uv[2], uv[3]};
+            else if (!ParseUv(GetAttribute<Rml::String>("uv", ""), uv))
+                AtlasCell(GetAttribute<int>("cell", 0), GetAttribute<int>("grid", 4), uv);
+            Rml::Vector2f uv0 = {uv[0], uv[1]}, uv1 = {uv[2], uv[3]};
+            Rml::Vector2f origin = {0, 0}, extent = size;
+            // fit="contain" keeps the picture's proportions inside the box, "cover" fills the
+            // box and crops the picture's middle; without it the picture is stretched.
+            const std::string fit = GetAttribute<Rml::String>("fit", "");
+            const float picture = entry_->image.height && uv1.y != uv0.y
+                                      ? (entry_->image.width * std::abs(uv1.x - uv0.x)) / (entry_->image.height * std::abs(uv1.y - uv0.y))
+                                      : 0.0f;
+            const float box = size.x / size.y;
+            if (fit == "contain" && picture > 0.0f)
+            {
+                extent = picture > box ? Rml::Vector2f{size.x, size.x / picture} : Rml::Vector2f{size.y * picture, size.y};
+                origin = (size - extent) * 0.5f;
+            }
+            else if (fit == "cover" && picture > 0.0f)
+            {
+                const Rml::Vector2f span = uv1 - uv0;
+                const Rml::Vector2f keep = picture > box ? Rml::Vector2f{box / picture, 1.0f} : Rml::Vector2f{1.0f, picture / box};
+                uv0 = uv0 + span * (Rml::Vector2f{1.0f, 1.0f} - keep) * 0.5f;
+                uv1 = uv0 + span * keep;
+            }
             Rml::Mesh mesh = geometry_.Release(Rml::Geometry::ReleaseMode::ClearMesh);
-            Rml::MeshUtilities::GenerateQuad(mesh, {0, 0}, size, Rml::Colourb(255, 255, 255, 255).ToPremultiplied(opacity), uv0, uv1);
+            Rml::MeshUtilities::GenerateQuad(mesh, origin, extent, Rml::Colourb(255, 255, 255, 255).ToPremultiplied(opacity), uv0, uv1);
             geometry_ = manager->MakeGeometry(std::move(mesh));
             built_size_ = size;
             built_opacity_ = opacity;
         }
-        geometry_.Render(GetAbsoluteOffset(Rml::BoxArea::Content), entry_->source->GetTexture(*manager));
+        geometry_.Render(GetAbsoluteOffset(Rml::BoxArea::Content),
+                         entry_->renderer ? renderer_texture_ : entry_->source->GetTexture(*manager));
     }
 
   private:
     std::shared_ptr<Entry> entry_;
     AtlasPicture atlas_;       // set when the texture attribute is an atlas reference
     std::string atlas_reason_; // why the reference could not be resolved
+    Rml::Texture renderer_texture_;
     Rml::Geometry geometry_;
     Rml::Vector2f built_size_ = {-1, -1};
     float built_opacity_ = -1.0f;
@@ -422,6 +534,11 @@ void RegisterGameImageElement()
 void SetGameImageRoot(const std::string &game_root)
 {
     Store::Get().SetRoot(game_root);
+}
+
+void SetGameImageRenderer(RenderBackend *renderer)
+{
+    Store::Get().SetRenderer(renderer);
 }
 
 void SetGameImageLoader(std::function<bool(const std::string &, Picture &)> loader)

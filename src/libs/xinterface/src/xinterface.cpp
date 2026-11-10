@@ -599,6 +599,15 @@ void XINTERFACE::Realize(uint32_t)
                 widgets.push_back(std::move(*game));
         if (storm::android::mobileScreen == "selectcharacter" && !storm::android::TutorialSkipSupported())
             storm::android::tutorialSkip.selected = false;
+        if (storm::android::mobileScreen == "selectcharacter")
+        {
+            // The occupation's text key (HeroType_N): the game's caption for it is a fragment of
+            // a sentence ("гимнастику и искусство фехтования"); the UI names it by the key.
+            auto *hero = static_cast<VDATA *>(core.GetScriptVariable("NullCharacter"));
+            auto *type = hero && hero->GetAClass() ? hero->GetAClass()->FindAClass(hero->GetAClass(), "HeroParam.HeroType") : nullptr;
+            if (type && type->HasValue())
+                widgets.push_back(MobileWidget{"ANDROID_HERO_TYPE", "text", type->GetValue(), "", -1, -1, true});
+        }
         if (storm::android::mobileScreen == "selectcharacter" && storm::android::TutorialSkipSupported())
         {
             MobileWidget option{"ANDROID_TUTORIAL_SKIP", "check", "Пропустить вступительное обучение",
@@ -2379,6 +2388,11 @@ void XINTERFACE::DoControl()
             return nullptr;
         };
         auto *node = find(find, m_pNodes, action.node);
+        // A map's "release" ends the right-button hold while the window the hold opened has
+        // locked the map (CXI_SCROLLEDPICTURE::MobileApply).
+        if (!node && action.value == "release")
+            if (auto *map = FindNode(action.node.c_str(), nullptr); map && map->m_bUse && map->m_nNodeType == NODETYPE_SCROLLEDPICTURE)
+                node = map;
         if (!node) continue;
         if (action.value.rfind("guard@", 0) == 0)
         {

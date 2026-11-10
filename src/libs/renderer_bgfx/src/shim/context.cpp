@@ -1,4 +1,5 @@
 #include "device.hpp"
+#include "effects/effects.hpp"
 #include "perf.hpp"
 #include "storm/render/d3d_interop.hpp"
 
@@ -90,6 +91,16 @@ uint16_t BgfxTextureOf(IDirect3DBaseTexture9 *texture, uint16_t *width, uint16_t
     if (height)
         *height = static_cast<uint16_t>(store->height);
     return store->handle.idx;
+}
+
+void MarkTextureImmutable(IDirect3DBaseTexture9 *texture)
+{
+    shim::TexStore *store = shim::store_of(texture);
+    if (!store)
+        return;
+    store->immutable = true;
+    if (bgfx::isValid(store->handle) && !store->any_dirty)
+        store->release_shadow(); // already uploaded
 }
 
 void SetGamePictureProvider(GamePictureProvider *provider)
@@ -232,6 +243,7 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
          (caps_->formats[bgfx::TextureFormat::ETC2] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
          (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0);
     create_resources();
+    effects::Host::instance().on_device_created();
     for (auto &entry : clients_)
     {
         entry.client->OnDeviceRestored();
@@ -245,7 +257,9 @@ void Context::create_resources()
     static const char *names[kSamplerUnits] = {"s_tex0", "s_tex1", "s_tex2", "s_tex3", "s_tex4", "s_cube0",
                                                 "s_cube1", "s_cube2", "s_vol0", "s_vol1", "s_vol2",
                                                 // pixel-port extras: cube at stage 3, volume at stage 4 (sea)
-                                                "s_cube3", "s_vol4"};
+                                                "s_cube3", "s_vol4",
+                                                // skinned fixed-function draws (ff_vertex.sh FF_SKIN)
+                                                "s_bones"};
     for (uint32_t i = 0; i < kSamplerUnits; ++i)
         samplers_[i] = bgfx::createUniform(names[i], bgfx::UniformType::Sampler);
     blit_program_ = bgfx::createProgram(create_embedded_shader(shader_id_by_name("vs_blit")),
@@ -268,6 +282,7 @@ void Context::shutdown()
     for (auto &entry : clients_)
         entry.client->OnDeviceLost();
     dump_traps();
+    effects::Host::instance().shutdown();
     bgfx::shutdown();
     initialised_ = false;
     surface_.valid = false;
@@ -297,6 +312,18 @@ void Context::resize(uint32_t width, uint32_t height)
         entry.client->OnSurfaceChanged(surface_);
 }
 
+void Context::refresh_reset_flags()
+{
+    if (!initialised_ || !surface_.valid)
+        return;
+    bgfx::SwapChain chain;
+    native_handles(window_, &chain.nwh, &chain.ndt);
+    chain.width = surface_.width_px;
+    chain.height = surface_.height_px;
+    chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
+    bgfx::reset(reset_flags(), &chain);
+}
+
 bool Context::read_density()
 {
     float dpi = 0.0f;
@@ -324,7 +351,11 @@ void Context::request_surface_restore()
 uint32_t Context::reset_flags() const
 {
     // Flip right after rendering: no swap of a previous frame is ever pending when the surface changes.
+    // Effects: anisotropic filtering of world textures needs the backend's maximum level (fx::RendererState; before
+    // the device exists this is the request, without the extension the backend ignores the flag).
+    const bool anisotropy = effects::Host::instance().renderer_state().max_anisotropy > 1;
     return (vsync_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) | BGFX_RESET_FLIP_AFTER_RENDER |
+           (anisotropy ? BGFX_RESET_MAXANISOTROPY : BGFX_RESET_NONE) |
            (surface_epoch_flag_ ? BGFX_RESET_FLUSH_AFTER_RENDER : BGFX_RESET_NONE);
 }
 

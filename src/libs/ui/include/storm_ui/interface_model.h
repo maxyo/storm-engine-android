@@ -17,7 +17,8 @@
 namespace storm::ui
 {
 
-// A picture the engine refers to: an atlas cell of pictures.ini or a battle icon.
+// A picture the engine refers to: an atlas cell of pictures.ini, a battle icon, a portrait or
+// a texture file of the game ("interfaces/maps/kayman") with the rectangle of it shown.
 struct ImageRef
 {
     int64_t handle = 0;
@@ -27,7 +28,8 @@ struct ImageRef
     uint32_t tint_argb = 0xffffffff;
     std::string kind;  // "atlas", "battle_icon", "portrait", "texture" or empty
     std::string group; // atlas: picture group ("GOODS")
-    std::string image; // atlas: picture name ("Balls"); portrait: the face ("12"); texture: its name under RESOURCE/Textures
+    std::string image; // atlas: picture name ("Balls"); portrait: the face ("12"); texture: its name
+    float uv[4] = {0.0f, 0.0f, 1.0f, 1.0f}; // texture: left, top, right, bottom
     std::string mode;  // battle_icon
     std::string atlas; // battle_icon
     int pic = -1;      // battle_icon

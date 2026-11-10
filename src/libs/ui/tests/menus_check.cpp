@@ -357,7 +357,8 @@ static void NewGame(const std::string &models)
     Expect(surface.props["hero"]["name"] == "Герой Альфа" && surface.props["hero"]["nation"] == "<menu.nation_france>", "hero and nation");
     ExpectEqual(surface.props["hero"]["image"]["texture"], "INTERFACES/PORTRAITS/128/face_1", "the hero's game portrait by face");
     ExpectEqual(surface.props["toggles"][1]["label"], "<menu.hardcore>", "the untranslated «HardcoreGame» key gets our name");
-    Expect(surface.props["setup"]["text"] == "фехтование" && surface.props["setup"]["note"] == "Описание занятия героя.", "occupation and its text");
+    Expect(surface.props["setup"]["text"] == "<menu.hero_type_1>" && surface.props["setup"]["note"] == "Описание занятия героя.",
+           "occupation titled by its key, and its text");
     Expect(!surface.props.contains("stats"), "no attribute table (V2-Menu-NewGame)");
     const std::string prefix = "widget:selectcharacter\t";
     router.OnEvent({"difficulty-right", "click", ""});
@@ -451,8 +452,6 @@ int main(int argc, char **argv)
     Settings(models);
     Title(models);
     NewGame(models);
-    for (const char *id : {"mainmenu", "selectcharacter", "game_menu", "save_load", "option_screen", "about", "quick_save"})
-        Expect(!HostOwned(id), std::string(id) + " is not drawn by the platform host");
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else

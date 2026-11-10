@@ -450,6 +450,22 @@ inline void publishSpyglass() {
     lastSpyglass=json;
     publishUiState("spyglass",json);
 }
+// Channel "video": {"fullscreen": true} while a game video plays over the whole screen (the
+// scripts' StartVideo player), null when it ends. A player embedded in an interface node
+// (xi_video_rect, SetShowVideo(false)) never sets it: its screen stays. Back is then the
+// game's Cancel to the video (main.cpp).
+inline const void *fullscreenVideoOwner = nullptr;
+inline void publishFullscreenVideo(const void *owner, bool active) {
+    if (active) {
+        if (fullscreenVideoOwner == owner) return;
+        fullscreenVideoOwner = owner;
+        publishUiState("video", "{\"fullscreen\":true}");
+    } else if (fullscreenVideoOwner == owner) {
+        fullscreenVideoOwner = nullptr;
+        publishUiState("video", "null");
+    }
+}
+inline bool fullscreenVideo() { return fullscreenVideoOwner != nullptr; }
 inline void publishCinematic(bool active) {
     if (cinematicState == static_cast<int>(active)) return;
     cinematicState=active;
