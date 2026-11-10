@@ -336,8 +336,11 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
     SDL_GetWindowSize(window, &w, &h);
     if (w > 0 && h > 0)
         context.resize(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
-    back_color->store->sync();
-    back_depth->store->sync();
+    if (context.ready())
+    {
+        back_color->store->sync();
+        back_depth->store->sync();
+    }
     context.set_game_target({back_color->store->handle.idx, back_depth->store->handle.idx, back_color->store->width,
                              back_color->store->height});
     context.present(back_color->store->handle, back_color->store->width, back_color->store->height);
@@ -439,6 +442,8 @@ HRESULT Device::Clear(DWORD count, const D3DRECT *, DWORD flags, D3DCOLOR color,
 {
     if (count != 0)
         trap("IDirect3DDevice9::Clear(rects)");
+    if (!Context::instance().ready())
+        return D3D_OK;
     Context::instance().begin_frame_if_needed();
     // bgfx clears at the start of a view, so a clear after draws opens a new one.
     if (view_dirty || views_used == 0 || view_has_content)
@@ -626,6 +631,8 @@ HRESULT Device::StretchRect(IDirect3DSurface9 *src, const RECT *src_rect, IDirec
     auto *to = static_cast<Surface *>(dst);
     if (!from || !to)
         return D3DERR_INVALIDCALL;
+    if (!Context::instance().ready())
+        return D3D_OK;
     if (!from->store->render_target || to->store->system_memory || to->store->depth_stencil)
         return D3DERR_INVALIDCALL; // CPU-side copies go through the lock path of the caller
     if (!to->store->render_target)
@@ -696,6 +703,8 @@ HRESULT Device::GetRenderTargetData(IDirect3DSurface9 *target, IDirect3DSurface9
     auto *to = static_cast<Surface *>(dest);
     if (!from || !to || !from->store->render_target)
         return D3DERR_INVALIDCALL;
+    if (!Context::instance().ready())
+        return D3DERR_DEVICELOST; // no read-back without a surface (the caller keeps its previous data)
     from->store->sync();
     const uint32_t w = from->store->level_width(from->level), h = from->store->level_height(from->level);
     if (to->store->level_width(to->level) != w || to->store->level_height(to->level) != h)

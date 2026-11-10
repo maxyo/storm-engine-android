@@ -212,7 +212,8 @@ void Context::shutdown()
 
 void Context::resize(uint32_t width, uint32_t height)
 {
-    if (!initialised_ || (width == surface_.width_px && height == surface_.height_px))
+    // While the surface is gone the new size is picked up by surface_restored().
+    if (!initialised_ || !surface_.valid || (width == surface_.width_px && height == surface_.height_px))
         return;
     surface_.width_px = width;
     surface_.height_px = height;
@@ -345,8 +346,9 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t, uint32_t)
     }
     else
     {
-        // Background: drop everything submitted this frame without touching the surface.
-        bgfx::frame(BGFX_FRAME_DISCARD);
+        // No surface (background, also in the middle of a scene load whose progress view keeps
+        // calling Present): bgfx is not touched at all. Draws are refused while the surface is
+        // invalid, so nothing accumulates; the frame simply resumes after surface_restored().
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     for (auto &entry : clients_)
