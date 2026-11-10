@@ -142,6 +142,7 @@ class Scene
         const D3DMATRIX view = translation(0, 0, 10), proj = perspective();
         d_.SetTransform(D3DTS_VIEW, &view);
         d_.SetTransform(D3DTS_PROJECTION, &proj);
+        sample_texture();
         lit_models();
         skinned_meshes(index);
         rewritten_buffer(index);
@@ -209,6 +210,16 @@ class Scene
         d_.SetPixelShader(nullptr);
         d_.SetFVF(kMeshFvf);
         d_.SetIndices(ib_);
+    }
+
+    // The sun fade reads a sky pixel on the CPU every frame (DX9RENDER::sampleTextureArgb): a
+    // read-only lock must not re-upload the texture.
+    void sample_texture()
+    {
+        D3DLOCKED_RECT rect;
+        check(textures_[0]->LockRect(0, &rect, nullptr, D3DLOCK_READONLY), "LockRect(read-only)");
+        sampled_ += static_cast<const uint8_t *>(rect.pBits)[0];
+        textures_[0]->UnlockRect(0);
     }
 
     // 40 lit models, one world matrix each, 4 textures, a material change every other model.
@@ -351,6 +362,7 @@ class Scene
     IDirect3DIndexBuffer9 *ib_ = nullptr;
     std::vector<MeshVertex> source_;
     UINT mesh_vertices_ = 0, mesh_triangles_ = 0;
+    uint32_t sampled_ = 0;
 };
 
 struct Expected

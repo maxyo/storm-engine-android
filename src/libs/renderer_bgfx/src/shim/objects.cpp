@@ -208,7 +208,7 @@ TexStore::~TexStore()
     }
 }
 
-uint8_t *TexStore::lock(uint32_t face, uint32_t level, uint32_t *pitch, uint32_t *slice_pitch)
+uint8_t *TexStore::lock(uint32_t face, uint32_t level, uint32_t *pitch, uint32_t *slice_pitch, bool read_only)
 {
     if (face >= faces() || level >= levels)
         return nullptr;
@@ -223,6 +223,7 @@ uint8_t *TexStore::lock(uint32_t face, uint32_t level, uint32_t *pitch, uint32_t
         s.data.assign(total, 0);
     }
     ++s.lock_count;
+    s.written |= !read_only;
     if (pitch)
         *pitch = level_pitch(format, w);
     if (slice_pitch)
@@ -234,7 +235,11 @@ void TexStore::unlock(uint32_t face, uint32_t level)
 {
     if (face >= faces() || level >= levels)
         return;
-    sub(face, level).dirty = true;
+    Sub &s = sub(face, level);
+    if (!s.written)
+        return;
+    s.written = false;
+    s.dirty = true;
     any_dirty = true;
 }
 
@@ -746,12 +751,13 @@ void fill_desc(const TexStore &store, uint32_t level, D3DSURFACE_DESC *desc)
     desc->Height = store.level_height(level);
 }
 
-HRESULT lock_rect(TexStore &store, uint32_t face, uint32_t level, D3DLOCKED_RECT *locked, const RECT *rect)
+HRESULT lock_rect(TexStore &store, uint32_t face, uint32_t level, D3DLOCKED_RECT *locked, const RECT *rect,
+                  DWORD flags)
 {
     if (!locked)
         return D3DERR_INVALIDCALL;
     uint32_t pitch = 0;
-    uint8_t *data = store.lock(face, level, &pitch, nullptr);
+    uint8_t *data = store.lock(face, level, &pitch, nullptr, (flags & D3DLOCK_READONLY) != 0);
     if (!data)
         return D3DERR_INVALIDCALL;
     locked->Pitch = static_cast<INT>(pitch);
@@ -773,9 +779,9 @@ HRESULT Surface::GetDesc(D3DSURFACE_DESC *desc)
     fill_desc(*store, level, desc);
     return D3D_OK;
 }
-HRESULT Surface::LockRect(D3DLOCKED_RECT *locked, const RECT *rect, DWORD)
+HRESULT Surface::LockRect(D3DLOCKED_RECT *locked, const RECT *rect, DWORD flags)
 {
-    return lock_rect(*store, face, level, locked, rect);
+    return lock_rect(*store, face, level, locked, rect, flags);
 }
 HRESULT Surface::UnlockRect()
 {
@@ -803,9 +809,9 @@ HRESULT Texture2D::GetSurfaceLevel(UINT level, IDirect3DSurface9 **surface)
     *surface = new Surface(store, 0, level);
     return D3D_OK;
 }
-HRESULT Texture2D::LockRect(UINT level, D3DLOCKED_RECT *locked, const RECT *rect, DWORD)
+HRESULT Texture2D::LockRect(UINT level, D3DLOCKED_RECT *locked, const RECT *rect, DWORD flags)
 {
-    return lock_rect(*store, 0, level, locked, rect);
+    return lock_rect(*store, 0, level, locked, rect, flags);
 }
 HRESULT Texture2D::UnlockRect(UINT level)
 {
@@ -833,9 +839,10 @@ HRESULT CubeTexture::GetCubeMapSurface(D3DCUBEMAP_FACES face, UINT level, IDirec
     *surface = new Surface(store, static_cast<uint32_t>(face), level);
     return D3D_OK;
 }
-HRESULT CubeTexture::LockRect(D3DCUBEMAP_FACES face, UINT level, D3DLOCKED_RECT *locked, const RECT *rect, DWORD)
+HRESULT CubeTexture::LockRect(D3DCUBEMAP_FACES face, UINT level, D3DLOCKED_RECT *locked, const RECT *rect,
+                                DWORD flags)
 {
-    return lock_rect(*store, static_cast<uint32_t>(face), level, locked, rect);
+    return lock_rect(*store, static_cast<uint32_t>(face), level, locked, rect, flags);
 }
 HRESULT CubeTexture::UnlockRect(D3DCUBEMAP_FACES face, UINT level)
 {
@@ -857,10 +864,10 @@ HRESULT VolumeTexture::GetLevelDesc(UINT level, D3DVOLUME_DESC *desc)
     desc->Depth = store->level_depth(level);
     return D3D_OK;
 }
-HRESULT VolumeTexture::LockBox(UINT level, D3DLOCKED_BOX *locked, const D3DBOX *box, DWORD)
+HRESULT VolumeTexture::LockBox(UINT level, D3DLOCKED_BOX *locked, const D3DBOX *box, DWORD flags)
 {
     uint32_t pitch = 0, slice = 0;
-    uint8_t *data = store->lock(0, level, &pitch, &slice);
+    uint8_t *data = store->lock(0, level, &pitch, &slice, (flags & D3DLOCK_READONLY) != 0);
     if (!data || !locked)
         return D3DERR_INVALIDCALL;
     locked->RowPitch = static_cast<INT>(pitch);

@@ -590,8 +590,8 @@ HRESULT Device::UpdateSurface(IDirect3DSurface9 *src, const RECT *src_rect, IDir
         return trap("IDirect3DDevice9::UpdateSurface(format)");
     const uint32_t bpp = format_info(from->store->format).bytes_per_pixel;
     uint32_t src_pitch = 0, dst_pitch = 0;
-    const uint8_t *source = from->store->lock(from->face, from->level, &src_pitch, nullptr);
-    uint8_t *dest = to->store->lock(to->face, to->level, &dst_pitch, nullptr);
+    const uint8_t *source = from->store->lock(from->face, from->level, &src_pitch, nullptr, true);
+    uint8_t *dest = to->store->lock(to->face, to->level, &dst_pitch, nullptr, false);
     const uint32_t sw = from->store->level_width(from->level), sh = from->store->level_height(from->level);
     const uint32_t dw = to->store->level_width(to->level), dh = to->store->level_height(to->level);
     const uint32_t sx = src_rect ? src_rect->left : 0, sy = src_rect ? src_rect->top : 0;
@@ -723,7 +723,7 @@ HRESULT Device::GetRenderTargetData(IDirect3DSurface9 *target, IDirect3DSurface9
     invalidate_uniforms();
     bgfx::destroy(staging);
     uint32_t pitch = 0;
-    uint8_t *out = to->store->lock(to->face, to->level, &pitch, nullptr);
+    uint8_t *out = to->store->lock(to->face, to->level, &pitch, nullptr, false);
     const D3DFORMAT format = to->store->format;
     for (uint32_t y = 0; y < h; ++y)
     {

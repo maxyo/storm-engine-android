@@ -80,6 +80,7 @@ struct TexStore
     {
         std::vector<uint8_t> data; // D3D-format shadow copy; may be released after upload
         bool dirty = false;
+        bool written = false; // locked for writing since the last unlock (D3DLOCK_READONLY locks are not)
         uint32_t lock_count = 0;
     };
     std::vector<Sub> subs; // face * levels + level
@@ -99,7 +100,8 @@ struct TexStore
     uint32_t level_height(uint32_t level) const { return std::max(1u, height >> level); }
     uint32_t level_depth(uint32_t level) const { return kind == TexKind::Volume ? std::max(1u, depth >> level) : 1; }
     Sub &sub(uint32_t face, uint32_t level) { return subs[face * levels + level]; }
-    uint8_t *lock(uint32_t face, uint32_t level, uint32_t *pitch, uint32_t *slice_pitch);
+    // A read-only lock (D3DLOCK_READONLY) does not make the level dirty: its unlock uploads nothing.
+    uint8_t *lock(uint32_t face, uint32_t level, uint32_t *pitch, uint32_t *slice_pitch, bool read_only);
     void unlock(uint32_t face, uint32_t level);
     // Creates the bgfx texture if needed and uploads dirty levels.
     void sync();
