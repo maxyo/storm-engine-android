@@ -242,6 +242,11 @@ void Context::resize(uint32_t width, uint32_t height)
     chain.height = height;
     chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
     bgfx::reset(reset_flags(), &chain);
+    // A display change (fold, split screen, wm size/density) usually changes the density as well.
+    float dpi = 0.0f;
+    if (SDL_GetDisplayDPI(SDL_GetWindowDisplayIndex(window_), &dpi, nullptr, nullptr) == 0 && dpi > 0.0f)
+        surface_.density = dpi / 160.0f;
+    logf("surface resized to %ux%u, density %.2f", width, height, surface_.density);
     for (auto &entry : clients_)
         entry.client->OnSurfaceChanged(surface_);
 }
