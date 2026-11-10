@@ -66,6 +66,9 @@ inline void updateCombatState(const GameplayState &gameplay)
             add("round",false,{"ChrAttackRound","ChrAttackRound2"});
             add("pistol",false,{"ChrFire"});
             add("block",true,{"ChrBlock","ChrBlock2"});
+            // The HUD's dash: no script control exists (the stock PC layout leaves ChrRecoil
+            // out); Player polls this engine-only output and makes the native backstep.
+            bindings.push_back({"dash","ChrRecoil",false});
         }
     }
     combatInput.update(gameplay.revision(), std::move(player), std::move(mode), std::move(bindings));

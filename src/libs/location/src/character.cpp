@@ -3500,6 +3500,11 @@ uint32_t Character::zExMessage(MESSAGE &message)
         // be polled by the Android HUD merely to display equipment readiness.
         return isGunSet;
     }
+    if (storm::iEquals(msg, "RecoilWait"))
+    {
+        // Milliseconds until the next backstep (Recoil) is possible: the HUD's dash cooldown.
+        return static_cast<uint64_t>(std::max(recoilWait, 0.0f) * 1000.0f);
+    }
     if (storm::iEquals(msg, "IsSetBalde"))
     {
         return IsSetBlade();

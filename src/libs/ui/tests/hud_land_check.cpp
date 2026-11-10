@@ -394,6 +394,43 @@ static void CheckCombat()
     ExpectEqual(mount.Last(), "combat:1\t8\t9\t1\tweapon\ttap", "a new activity generation counts from one");
 }
 
+// The hero's status from the vitals channel: effects row, potion count, officers, dash.
+static void CheckStatus()
+{
+    Bench bench;
+    FakeMount &mount = bench.mount;
+    bench.Explore();
+    bench.Feed("vitals", "vitals-status");
+    const Json states = mount.shown.elements["vitals"]["states"];
+    Expect(states.size() == 2 && states[0]["icon"] == "skull" && states[0]["fillTone"] == "danger" && states[1]["icon"] == "potion" &&
+               states[1]["label"] == "hud.effect.healing",
+           "effects: one small icon each, in a fixed order");
+    Expect(mount.shown.elements["potion"]["badge"] == "3" && mount.shown.elements["potion"]["fillTone"] == "active", "potion: count and the healing fill");
+    Expect(!mount.Has("officers") && !mount.Has("dash"), "explore: no officers column, no dash");
+
+    Json combat = State("combat-melee");
+    combat["actions"].push_back("dash");
+    bench.Feed("gameplay", "gameplay-melee");
+    bench.Set("combat", combat);
+    const Json officers = mount.shown.elements["officers"]["officers"];
+    Expect(officers.size() == 2 && officers[0]["texture"] == "INTERFACES/PORTRAITS/128/face_205" && officers[0]["hp"] == 84 &&
+               officers[1]["texture"] == "" && officers[1]["name"] == "Офицер Бета",
+           "combat: the officers column with portraits and health");
+    Expect(mount.shown.elements["dash"]["fill"] == 40 && mount.shown.elements["dash"]["fillTone"] == "cooldown" &&
+               mount.shown.elements["dash"]["disabled"] == true,
+           "dash cooling down: filled and not pressable");
+    Json ready = State("vitals-status");
+    ready["dash"] = 0;
+    bench.Set("vitals", ready);
+    Expect(mount.shown.elements["dash"]["disabled"] == false && !mount.shown.elements["dash"].contains("fill"), "dash ready");
+    mount.commands.clear();
+    bench.Press("dash");
+    ExpectEqual(mount.Last(), "combat:1\t8\t6\t1\tdash\ttap", "the dash is a combat action");
+    ready.erase("dash");
+    bench.Set("vitals", ready);
+    Expect(!mount.Has("dash"), "no dash outside fight mode");
+}
+
 static void CheckSheet()
 {
     Bench bench;
@@ -780,6 +817,7 @@ int main(int argc, char **argv)
     CheckExplore();
     CheckMovement();
     CheckCombat();
+    CheckStatus();
     CheckSheet();
     CheckTouches(pack);
     if (failures)
