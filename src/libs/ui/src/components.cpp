@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <stdexcept>
 #include <unordered_map>
 
 namespace storm::ui
@@ -215,6 +216,43 @@ void MorphChildren(Rml::Element *live, Rml::Element *fresh)
 
 } // namespace
 
+bool IsGenericAttribute(const std::string &attribute)
+{
+    return attribute == "id" || attribute == "class" || attribute == "style" || attribute == "props" || attribute == "slot" ||
+           attribute.rfind("data-", 0) == 0;
+}
+
+std::string CheckPropValue(const PropSpec &prop, const Json &value)
+{
+    if (prop.type != PropSpec::Type::Enum || value.is_null() || prop.options.empty())
+        return {};
+    for (const Json &option : prop.options)
+        if (option == value || ToText(option) == ToText(value))
+            return {};
+    return "'" + ToText(value) + "' is not a value of " + prop.name;
+}
+
+int ReportUnknownComponents(Rml::Element *root)
+{
+    int found = 0;
+    for (int i = 0; root && i < root->GetNumChildren(); ++i)
+    {
+        Rml::Element *child = root->GetChild(i);
+        if (dynamic_cast<ComponentElement *>(child))
+            continue;
+        if (child->GetTagName().rfind("c-", 0) == 0)
+        {
+            Rml::Log::Message(Rml::Log::LT_ERROR, "Unknown component <%s> (%s): no spec in components.json", child->GetTagName().c_str(),
+                              child->GetAddress().c_str());
+            child->SetClass("ui-error", true);
+            child->SetClass("ui-unknown", true); // an unknown tag is inline and empty: give it a box
+            ++found;
+        }
+        found += ReportUnknownComponents(child);
+    }
+    return found;
+}
+
 void RegisterBehavior(const std::string &name, BehaviorFactory factory)
 {
     Factories()[name] = factory;
@@ -260,10 +298,25 @@ Json ComponentElement::Prop(const std::string &name) const
 void ComponentElement::SetProps(const Json &props)
 {
     if (!props.is_object())
+    {
+        ReportError("props must be a JSON object");
         return;
+    }
     for (const auto &item : props.items())
+    {
+        const bool known = std::any_of(spec_.props.begin(), spec_.props.end(), [&](const PropSpec &prop) { return prop.name == item.key(); });
+        if (!known)
+            ReportError("unknown prop '" + item.key() + "'");
         props_[item.key()] = item.value();
+    }
     dirty_ = true;
+}
+
+void ComponentElement::ReportError(const std::string &what)
+{
+    Rml::Log::Message(Rml::Log::LT_ERROR, "Component <%s> (%s): %s", GetTagName().c_str(), GetAddress().c_str(), what.c_str());
+    error_ = true;
+    ApplyClasses();
 }
 
 void ComponentElement::SetPropQuiet(const std::string &name, Json value)
@@ -298,6 +351,8 @@ void ComponentElement::OnAttributeChange(const Rml::ElementAttributes &changed)
             const Json parsed = Json::parse(entry.second.Get<Rml::String>(), nullptr, false);
             if (parsed.is_object())
                 SetProps(parsed);
+            else
+                ReportError("props is not a JSON object");
             continue;
         }
         if (const PropSpec *prop = spec_.FindAttribute(entry.first))
@@ -305,6 +360,8 @@ void ComponentElement::OnAttributeChange(const Rml::ElementAttributes &changed)
             props_[prop->name] = ParseAttribute(*prop, entry.second);
             dirty_ = true;
         }
+        else if (!IsGenericAttribute(entry.first))
+            ReportError("unknown attribute '" + entry.first + "'");
     }
 }
 
@@ -336,6 +393,9 @@ void ComponentElement::RebuildNow()
     for (const PropSpec &prop : spec_.props)
     {
         Json value = Prop(prop.name);
+        const std::string wrong = CheckPropValue(prop, value);
+        if (!wrong.empty())
+            ReportError(wrong);
         if (prop.as_class)
         {
             if (prop.type == PropSpec::Type::Bool)
@@ -361,7 +421,7 @@ void ComponentElement::RebuildNow()
         }
         catch (const std::exception &error)
         {
-            Rml::Log::Message(Rml::Log::LT_ERROR, "Component %s, class %s: %s", GetTagName().c_str(), rule.first.c_str(), error.what());
+            ReportError("class " + rule.first + ": " + error.what());
         }
     }
 
@@ -372,7 +432,7 @@ void ComponentElement::RebuildNow()
     }
     catch (const std::exception &error)
     {
-        Rml::Log::Message(Rml::Log::LT_ERROR, "Component %s: %s", GetTagName().c_str(), error.what());
+        ReportError(std::string("template: ") + error.what());
     }
     Rml::ElementDocument *document = GetOwnerDocument();
     if (!built_ || !document)
@@ -391,6 +451,7 @@ void ComponentElement::RebuildNow()
         MorphChildren(this, fresh.get());
     }
     built_ = true;
+    ReportUnknownComponents(this);
     ApplyClasses();
     for (const auto &behavior : behaviors_)
         behavior->Rebuilt(*this);
@@ -399,6 +460,8 @@ void ComponentElement::RebuildNow()
 void ComponentElement::ApplyClasses()
 {
     std::vector<std::string> wanted = prop_classes_;
+    if (error_)
+        wanted.push_back("ui-error");
     for (const std::string &name : live_classes_)
         if (std::find(wanted.begin(), wanted.end(), name) == wanted.end())
             wanted.push_back(name);
@@ -464,37 +527,49 @@ class ComponentRegistry::Instancer final : public Rml::ElementInstancer
     Services &services_;
 };
 
-void ComponentRegistry::Load(const Json &pack)
+std::unique_ptr<ComponentSpec> ParseComponentSpec(const Json &entry)
 {
     static const std::unordered_map<std::string, PropSpec::Type> types = {
         {"text", PropSpec::Type::Text}, {"bool", PropSpec::Type::Bool},     {"int", PropSpec::Type::Int},
         {"number", PropSpec::Type::Number}, {"enum", PropSpec::Type::Enum}, {"json", PropSpec::Type::Json}};
+    auto spec = std::make_unique<ComponentSpec>();
+    spec->tag = entry.at("tag").get<std::string>();
+    spec->body = entry.value("template", std::string());
+    spec->constants = entry.value("constants", Json::object());
+    // Named locals: a range-for over a temporary's items() would outlive the temporary.
+    const Json behaviors = entry.value("behaviors", Json::array());
+    const Json classes = entry.value("classes", Json::object());
+    const Json props = entry.value("props", Json::object());
+    for (const Json &name : behaviors)
+        spec->behaviors.push_back(name.get<std::string>());
+    for (const auto &rule : classes.items())
+        spec->class_rules.emplace_back(rule.key(), rule.value().get<std::string>());
+    for (const auto &item : props.items())
+    {
+        PropSpec prop;
+        prop.name = item.key();
+        prop.attribute = Kebab(prop.name);
+        const std::string type_name = item.value().value("type", std::string("text"));
+        const auto type = types.find(type_name);
+        if (type == types.end())
+            throw std::runtime_error(spec->tag + ": prop " + prop.name + " has unknown type " + type_name);
+        prop.type = type->second;
+        prop.fallback = item.value().value("default", Json());
+        prop.as_class =
+            item.value().value("class", prop.type == PropSpec::Type::Bool || prop.type == PropSpec::Type::Enum);
+        const Json options = item.value().value("options", Json::array());
+        for (const Json &option : options)
+            prop.options.push_back(option);
+        spec->props.push_back(std::move(prop));
+    }
+    return spec;
+}
+
+void ComponentRegistry::Load(const Json &pack)
+{
     for (const Json &entry : pack.at("components"))
     {
-        auto spec = std::make_unique<ComponentSpec>();
-        spec->tag = entry.at("tag").get<std::string>();
-        spec->body = entry.value("template", std::string());
-        spec->constants = entry.value("constants", Json::object());
-        // Named locals: a range-for over a temporary's items() would outlive the temporary.
-        const Json behaviors = entry.value("behaviors", Json::array());
-        const Json classes = entry.value("classes", Json::object());
-        const Json props = entry.value("props", Json::object());
-        for (const Json &name : behaviors)
-            spec->behaviors.push_back(name.get<std::string>());
-        for (const auto &rule : classes.items())
-            spec->class_rules.emplace_back(rule.key(), rule.value().get<std::string>());
-        for (const auto &item : props.items())
-        {
-            PropSpec prop;
-            prop.name = item.key();
-            prop.attribute = Kebab(prop.name);
-            const auto type = types.find(item.value().value("type", std::string("text")));
-            prop.type = type == types.end() ? PropSpec::Type::Text : type->second;
-            prop.fallback = item.value().value("default", Json());
-            prop.as_class =
-                item.value().value("class", prop.type == PropSpec::Type::Bool || prop.type == PropSpec::Type::Enum);
-            spec->props.push_back(std::move(prop));
-        }
+        std::unique_ptr<ComponentSpec> spec = ParseComponentSpec(entry);
         auto instancer = std::make_unique<Instancer>(*spec, services_);
         Rml::Factory::RegisterElementInstancer(spec->tag, instancer.get());
         instancers_.push_back(std::move(instancer));

@@ -1,5 +1,6 @@
 // Host checks for the parts of the UI runtime that need no GL context:
 // the template language and the .tx decoder (synthetic data only).
+#include "../src/components.h"
 #include "../src/elements.h"
 #include "../src/template.h"
 
@@ -118,6 +119,38 @@ int main()
         data = TxHeader(1, 1, 999);
         data.resize(40);
         Expect(!storm::ui::DecodeTx(data.data(), data.size(), image), "unknown format refused");
+    }
+
+    // No silent fallbacks: wrong specs, props, enum values, icons and expressions are errors.
+    {
+        const Json entry = Json::parse(R"({"tag":"c-x","props":{"variant":{"type":"enum","options":["a","b"],"default":"a"},
+            "size":{"type":"enum","options":[44,48]},"label":{"type":"text"}}})");
+        const auto spec = storm::ui::ParseComponentSpec(entry);
+        Expect(spec->props.size() == 3, "spec props parsed");
+        const auto &variant = *spec->FindAttribute("variant");
+        Expect(storm::ui::CheckPropValue(variant, "b").empty(), "enum value accepted");
+        Expect(!storm::ui::CheckPropValue(variant, "purple").empty(), "enum value outside options refused");
+        Expect(storm::ui::CheckPropValue(*spec->FindAttribute("size"), "48").empty(), "numeric enum from attribute text accepted");
+        Expect(storm::ui::CheckPropValue(*spec->FindAttribute("label"), "anything").empty(), "text prop takes anything");
+        bool threw = false;
+        try
+        {
+            storm::ui::ParseComponentSpec(Json::parse(R"({"tag":"c-y","props":{"p":{"type":"colour"}}})"));
+        }
+        catch (const std::exception &)
+        {
+            threw = true;
+        }
+        Expect(threw, "unknown prop type refused");
+        Expect(storm::ui::IsGenericAttribute("id") && storm::ui::IsGenericAttribute("data-action") && !storm::ui::IsGenericAttribute("colour"),
+               "generic attributes");
+        storm::ui::LoadIconPack(Json::parse(R"({"defs":"","symbols":{"i-ship":{"svg":"<symbol id=\"i-ship\"/>"},"c-rum":{"svg":"<symbol id=\"c-rum\"/>"}}})"));
+        Expect(storm::ui::HasIcon("ship") && storm::ui::HasIcon("c-rum") && !storm::ui::HasIcon("anchor"), "icon lookup");
+        float uv[4];
+        Expect(storm::ui::AtlasCell(0, 4, uv) && uv[2] == 1.0f, "cell 0 is the whole texture");
+        Expect(storm::ui::AtlasCell(6, 4, uv) && uv[0] == 0.25f && uv[1] == 0.25f && uv[2] == 0.5f, "atlas cell 6 of 4x4");
+        Expect(!storm::ui::AtlasCell(17, 4, nullptr) && !storm::ui::AtlasCell(-1, 4, nullptr), "cell outside the atlas refused");
+        ExpectText("{{ nosuchfunction(1) }}", scope, "<<template expression: unknown function nosuchfunction in ' nosuchfunction(1) '>>");
     }
 
     if (failures)

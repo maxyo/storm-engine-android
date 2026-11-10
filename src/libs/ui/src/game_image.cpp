@@ -1,7 +1,12 @@
 // <ui-game-image texture="INTERFACES/items6" cell="8">: a picture read from the player's
 // own game files (RESOURCE/Textures/<texture>.tga.tx). Nothing is drawn until the file
 // is decoded on a worker thread, so the placeholder under the element stays visible;
-// the parent then gets the class "has-image". Missing files simply keep the placeholder.
+// the parent then gets the class "has-image". A picture that cannot be had (file missing,
+// loader refused, decode error, bad atlas cell) is logged once with texture, cell and reason
+// and the parent gets "image-missing", drawn unlike the neutral loading placeholder.
+// Exactly one source is used: the configured loader if there is one, else the .tx files
+// under the game root. With neither (gallery on the build host, the design canvas) the
+// pictures are "unavailable": the neutral placeholder stays and one line is logged.
 #include "elements.h"
 
 #include <atomic>
@@ -25,7 +30,8 @@ enum class State
 {
     Loading,
     Ready,
-    Missing
+    Missing,
+    Unavailable // no loader and no game root: documented fallback, logged once
 };
 
 struct Entry
@@ -33,6 +39,7 @@ struct Entry
     std::atomic<State> state{State::Loading};
     TxImage image; // written by the worker before `state` becomes Ready
     std::unique_ptr<Rml::CallbackTextureSource> source;
+    std::string reason; // why it is Missing; written by the worker before `state`
 };
 
 bool SameName(const std::string &a, const std::string &b)
@@ -117,7 +124,7 @@ class Store
             entry = std::make_shared<Entry>();
             all_.push_back(entry);
             if (root_.empty() && !loader_)
-                entry->state = State::Missing;
+                entry->state = State::Unavailable;
             else
             {
                 queue_.push_back({texture, entry, generation_});
@@ -180,15 +187,23 @@ class Store
             }
             bool ok = false;
             std::filesystem::path path;
-            if (loader)
+            if (loader) // the one configured source; its failure is not retried elsewhere
+            {
                 ok = loader(job.texture, job.entry->image);
-            else if (ResolvePath(std::filesystem::path(root) / "RESOURCE" / "Textures", job.texture + ".tga.tx", path) ||
-                ResolvePath(std::filesystem::path(root), "RESOURCE/Textures/" + job.texture + ".tga.tx", path))
+                if (!ok)
+                    job.entry->reason = "the game picture loader refused it";
+            }
+            else if (ResolvePath(std::filesystem::path(root), "RESOURCE/Textures/" + job.texture + ".tga.tx", path)) // any case
             {
                 std::ifstream file(path, std::ios::binary);
                 const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-                ok = DecodeTx(bytes.data(), bytes.size(), job.entry->image);
+                std::string error;
+                ok = DecodeTx(bytes.data(), bytes.size(), job.entry->image, &error);
+                if (!ok)
+                    job.entry->reason = "cannot decode " + path.string() + ": " + error;
             }
+            else
+                job.entry->reason = "no file RESOURCE/Textures/" + job.texture + ".tga.tx under " + root;
             job.entry->state = ok ? State::Ready : State::Missing;
             changed_ = true;
         }
@@ -229,19 +244,41 @@ class GameImageElement final : public Rml::Element
         const std::string texture = GetAttribute<Rml::String>("texture", "");
         if (!entry_ && !texture.empty())
             entry_ = Store::Get().Request(texture);
-        const bool ready = entry_ && entry_->state == State::Ready;
-        if (ready != shown_)
+        const State state = entry_ ? entry_->state.load() : State::Loading;
+        std::string reason;
+        if (state == State::Missing)
+            reason = entry_->reason;
+        else if (state == State::Ready && !AtlasCell(GetAttribute<int>("cell", 0), GetAttribute<int>("grid", 4), nullptr))
+            reason = "cell outside the " + std::to_string(GetAttribute<int>("grid", 4)) + "x" + std::to_string(GetAttribute<int>("grid", 4)) + " atlas";
+        else if (state == State::Unavailable && !unavailable_logged_)
+        {
+            unavailable_logged_ = true; // once per process: the host gave no source at all
+            Rml::Log::Message(Rml::Log::LT_INFO, "Game pictures unavailable (no game root, no loader): placeholders stay");
+        }
+        const bool ready = state == State::Ready && reason.empty();
+        const bool missing = !reason.empty();
+        if (missing && !logged_)
+        {
+            logged_ = true;
+            Rml::Log::Message(Rml::Log::LT_ERROR, "Game picture %s#%d missing: %s", GetAttribute<Rml::String>("texture", "").c_str(),
+                              GetAttribute<int>("cell", 0), reason.c_str());
+        }
+        if (ready != shown_ || missing != missing_shown_)
         {
             shown_ = ready;
+            missing_shown_ = missing;
             if (Rml::Element *parent = GetParentNode())
+            {
                 parent->SetClass("has-image", ready);
+                parent->SetClass("image-missing", missing);
+            }
         }
     }
 
     void OnRender() override
     {
         Rml::RenderManager *manager = GetRenderManager();
-        if (!manager || !entry_ || entry_->state != State::Ready)
+        if (!manager || !entry_ || !shown_)
             return;
         const Rml::Vector2f size = GetBox().GetSize(Rml::BoxArea::Content);
         if (size.x < 1.0f || size.y < 1.0f)
@@ -256,16 +293,9 @@ class GameImageElement final : public Rml::Element
         const float opacity = GetComputedValues().opacity();
         if (size != built_size_ || opacity != built_opacity_)
         {
-            // Atlas cells are numbered 1…grid² by rows; 0 or no cell means the whole texture.
-            const int grid = std::max(1, GetAttribute<int>("grid", 4));
-            const int cell = GetAttribute<int>("cell", 0);
-            Rml::Vector2f uv0 = {0, 0}, uv1 = {1, 1};
-            if (cell >= 1 && cell <= grid * grid)
-            {
-                const float step = 1.0f / static_cast<float>(grid);
-                uv0 = {static_cast<float>((cell - 1) % grid) * step, static_cast<float>((cell - 1) / grid) * step};
-                uv1 = uv0 + Rml::Vector2f(step, step);
-            }
+            float uv[4];
+            AtlasCell(GetAttribute<int>("cell", 0), GetAttribute<int>("grid", 4), uv);
+            const Rml::Vector2f uv0 = {uv[0], uv[1]}, uv1 = {uv[2], uv[3]};
             Rml::Mesh mesh = geometry_.Release(Rml::Geometry::ReleaseMode::ClearMesh);
             Rml::MeshUtilities::GenerateQuad(mesh, {0, 0}, size, Rml::Colourb(255, 255, 255, 255).ToPremultiplied(opacity), uv0, uv1);
             geometry_ = manager->MakeGeometry(std::move(mesh));
@@ -281,9 +311,30 @@ class GameImageElement final : public Rml::Element
     Rml::Vector2f built_size_ = {-1, -1};
     float built_opacity_ = -1.0f;
     bool shown_ = false;
+    bool missing_shown_ = false;
+    bool logged_ = false;
+    static inline bool unavailable_logged_ = false;
 };
 
 } // namespace
+
+bool AtlasCell(int cell, int grid, float uv[4])
+{
+    // Cells are numbered 1…grid² by rows; 0 (no cell) means the whole texture.
+    if (grid < 1 || cell < 0 || cell > grid * grid)
+        return false;
+    if (uv)
+    {
+        uv[0] = uv[1] = 0.0f, uv[2] = uv[3] = 1.0f;
+        if (cell > 0)
+        {
+            const float step = 1.0f / static_cast<float>(grid);
+            uv[0] = static_cast<float>((cell - 1) % grid) * step, uv[1] = static_cast<float>((cell - 1) / grid) * step;
+            uv[2] = uv[0] + step, uv[3] = uv[1] + step;
+        }
+    }
+    return true;
+}
 
 void RegisterGameImageElement()
 {
