@@ -575,6 +575,10 @@ int main(int argc, char *argv[])
             {
                 storm::android::landCommands.offer(std::string_view(command).substr(13), SDL_GetTicks());
             }
+            else if (command.starts_with("spyglass:"))
+            {
+                storm::android::spyglass.acknowledge(std::string_view(command).substr(9), SDL_GetTicks());
+            }
             else if (command.starts_with("orders:"))
             {
                 storm::android::seaOrders.offer(std::string_view(command).substr(7), SDL_GetTicks());
