@@ -295,6 +295,14 @@ class COMPILER : public VIRTUAL_COMPILER
     S_TOKEN_TYPE DetectCallThrough();
     bool CompileCallThrough(SEGMENT_DESC &Segment, S_TOKEN_TYPE call_type);
     bool CompileObjectLiteral(SEGMENT_DESC &Segment);
+    bool IsAccessVariable();
+    bool IsIndexedChain();
+    static constexpr uint32_t kAccessRead = 0, kAccessQuiet = 1, kAccessCreate = 2; // ADVANCE_AP_EXPR modes
+    bool CompileAccessExpression(SEGMENT_DESC &Segment, uint32_t mode);
+    void QuietChainElement(SEGMENT_DESC &Segment, uint32_t offset);
+    bool CompileAttributeAddress(SEGMENT_DESC &Segment, S_TOKEN_TYPE var_type, uint32_t var_code, uint32_t mode);
+    static bool IsAttributeIntrinsic(const char *name);
+    bool CompileAttributeIntrinsic(SEGMENT_DESC &Segment);
     bool CompileArrayLiteral(SEGMENT_DESC &Segment);
     bool IsSlice();
     bool CompileSlice(SEGMENT_DESC &Segment, S_TOKEN_TYPE source, uint32_t source_code);

@@ -1357,6 +1357,17 @@ bool COMPILER::InitInternalFunctions()
 {
     FuncInfo fi;
 
+    // constants the engine defines for scripts (CL uses them)
+    for (const auto &[name, value] : {std::pair<const char *, int32_t>{"INT_MAX", INT32_MAX}, {"INT_MIN", INT32_MIN}})
+    {
+        DEFINFO di;
+        di.name = const_cast<char *>(name);
+        di.segment_id = INTERNAL_SEGMENT_ID;
+        di.deftype = NUMBER;
+        di.data4b = static_cast<uint32_t>(value);
+        DefTab.AddDef(di);
+    }
+
     // register internal functions ------------
 
     const uint32_t internal_functions_num = GetIntFunctionsNum();
@@ -1554,9 +1565,7 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
                     DebugSourceLine++;
                 else if (t == OPEN_BRACKET)
                     depth++;
-                else if ((t == CLOSE_BRACKET ||
-                          (Token.GetData() && strcmp(Token.GetData(), ")") == 0)) && // typeid(int): "int)" is one token
-                         depth > 0)
+                else if (t == CLOSE_BRACKET && depth > 0)
                     depth--;
                 else if (t == OP_QUESTION)
                     pendingQuestions++;
@@ -4254,6 +4263,14 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             Token.StepBack(); // back to the identifier (restores its data)
             Token.StepBack();
             Token.Get();
+            if (Token.GetData() && IsAttributeIntrinsic(Token.GetData()))
+            {
+                // deleteattr(&a.b); touchattr(a.b); as statements
+                if (!CompileAttributeIntrinsic(Segment))
+                    return false;
+                CompileToken(Segment, STACK_POP_VOID);
+                break;
+            }
             if (S_TOKEN_TYPE call_type = DetectCallThrough(); call_type != UNKNOWN)
             {
                 // object->Method(...) or fref_variable(...) as a statement
@@ -4785,6 +4802,19 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
 
         case DOT:
             Token_type = Token.Get();
+            if (Token_type == OPEN_BRACKET && !IsAccessVariable())
+            {
+                // .(expression) on the left side: the expression's text names the attribute
+                if (!CompileExpression(Segment))
+                    return false;
+                if (Token.GetType() != CLOSE_BRACKET)
+                {
+                    SetError("no mathcing ')'");
+                    return false;
+                }
+                CompileToken(Segment, ACCESS_EXPR);
+                break;
+            }
             if (Token_type == OPEN_BRACKET)
             {
                 // access word inside variable
@@ -7188,6 +7218,82 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             pV->SetArraySize(count);
             for (uint32_t n = 0; n < count; n++)
                 pV->GetArrayElement(n)->Copy(&items[n]);
+            break;
+        }
+        case ADVANCE_AP_EXPR: {
+            // stack: saved attribute reference, key -> rAP = its attribute named key
+            uint32_t mode;
+            memcpy(&mode, &pCodeBase[ip], sizeof(uint32_t));
+            ExpressionResult.ClearType();
+            ExpressionResult.Copy(SStack.Pop());
+            const char *key = nullptr;
+            if (!ExpressionResult.Convert(VAR_STRING) || !ExpressionResult.Get(key))
+            {
+                SetError("attribute name expression is not text");
+                return false;
+            }
+            pV = SStack.Pop();
+            rAP = pV->AttributesClass;
+            if (!rAP)
+            {
+                if (mode != kAccessQuiet)
+                    SetError("missed attribute before (%s)", key);
+                break;
+            }
+            ATTRIBUTES *base = rAP;
+            rAP = mode == kAccessCreate ? base->CreateSubAClass(base, key) : base->FindAClass(base, key);
+            if (!rAP && mode == kAccessRead)
+                SetError("missed attribute: %s", key);
+            break;
+        }
+        case ACCESS_EXPR: {
+            // left side: the attribute named by the text on the stack
+            if (nLeftOperandCode == INVALID_VAR_CODE)
+            {
+                SetError("no Lvalue");
+                return false;
+            }
+            ExpressionResult.ClearType();
+            ExpressionResult.Copy(SStack.Pop());
+            const char *key = nullptr;
+            if (!ExpressionResult.Convert(VAR_STRING) || !ExpressionResult.Get(key))
+            {
+                SetError("attribute name expression is not text");
+                return false;
+            }
+            if (pLeftOperandAClass == nullptr)
+            {
+                pV = bLeftOperandType == VARIABLE ? VarTab.GetVar(nLeftOperandCode)->value.get()
+                                                  : SStack.Read(pRun_fi->stack_offset, nLeftOperandCode);
+                pLeftOperandAClass =
+                    nLeftOperandIndex == INVALID_ARRAY_INDEX ? pV->GetAClass() : pV->GetAClass(nLeftOperandIndex);
+            }
+            if (pLeftOperandAClass == nullptr)
+            {
+                SetError("AClass ERROR n1");
+                return false;
+            }
+            pLeftOperandAClass = pLeftOperandAClass->CreateSubAClass(pLeftOperandAClass, key);
+            break;
+        }
+        case ATTR_PARENT: {
+            pV = SStack.Read();
+            ATTRIBUTES *attribute = AttributesOf(pV);
+            ATTRIBUTES *parent = attribute ? attribute->GetParent() : nullptr;
+            pV->ClearType();
+            pV->SetType(VAR_AREFERENCE);
+            pV->SetAReference(parent);
+            break;
+        }
+        case ATTR_DELETE: {
+            // leaves 0 for the statement form to drop
+            pV = SStack.Read();
+            ATTRIBUTES *attribute = AttributesOf(pV);
+            ATTRIBUTES *parent = attribute ? attribute->GetParent() : nullptr;
+            if (parent)
+                parent->DeleteAttributeClassX(attribute);
+            pV->ClearType();
+            pV->Set(int32_t{0});
             break;
         }
         case OBJ_NEW:

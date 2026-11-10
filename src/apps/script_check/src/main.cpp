@@ -15,6 +15,7 @@
 // "// expect-error: <text>" must instead fail to compile with an error containing <text>.
 #include "compiler.h"
 #include "core_impl.h"
+#include "game_profile.hpp"
 #include "s_import_func.h"
 #include "script_libriary.h"
 #include "v_s_stack.h"
@@ -174,6 +175,7 @@ int check(int argc, char **argv)
     std::printf("script_check: indexing %s without the engine-shaders overlay (scripts only)\n",
                 fs::current_path().string().c_str());
     fio->ScanResourcePaths(false);
+    storm::initGameProfile(); // built-in signatures differ between the games
     std::vector<std::string> diagnostics;
     COMPILER compiler;
     core_internal.Compiler = &compiler;
@@ -183,12 +185,15 @@ int check(int argc, char **argv)
 
     const auto started = std::chrono::steady_clock::now();
     size_t errors = 0, failed = 0;
+    std::set<std::string> missing_natives;
     auto report = [&](const std::string &segment, bool ok) {
         for (const auto &line : diagnostics)
         {
             if (isError(line))
                 ++errors;
-            if (warnings || isError(line))
+            if (line.starts_with("MISSING NATIVE"))
+                missing_natives.insert(line.substr(line.rfind(": ") + 2));
+            if (warnings || isError(line) || line.starts_with("MISSING NATIVE"))
                 std::printf("%s\n", line.c_str());
         }
         diagnostics.clear();
@@ -243,7 +248,10 @@ int check(int argc, char **argv)
     }
     const auto ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
-    std::printf("script_check: %zu segments, %zu failed, %zu errors, %lld ms\n", segments.size() + 1, failed, errors,
+    std::printf("script_check: %zu natives declared by the scripts are not implemented:", missing_natives.size());
+    for (const auto &name : missing_natives)
+        std::printf(" %s", name.c_str());
+    std::printf("\nscript_check: %zu segments, %zu failed, %zu errors, %lld ms\n", segments.size() + 1, failed, errors,
                 static_cast<long long>(ms));
     std::fflush(stdout);
     compiler.Release();

@@ -170,6 +170,10 @@ const char *TokenTypeName[] = { // in S_TOKEN_TYPE order
     "RANGE_NEXT",
     "OP_SLICE",
     "ARRAY_BUILD",
+    "ADVANCE_AP_EXPR",
+    "ACCESS_EXPR",
+    "ATTR_PARENT",
+    "ATTR_DELETE",
 
 };
 
@@ -1320,6 +1324,12 @@ S_TOKEN_TYPE TOKEN::ProcessToken(char *&pointer, bool bKeepData)
         if (*pointer == '(') // function-style cast, e.g. int(x): the data stays the type keyword
         {
             bTypeCast = true;
+            break;
+        }
+        if (*pointer == ')' || *pointer == ';' || *pointer == ',' || *pointer == ']')
+        {
+            // no name follows (typeid(int), x$aref;): the punctuation stays a token of its own
+            DISCARD_DATABUFFER
             break;
         }
         pointer += SetTokenData(pointer);

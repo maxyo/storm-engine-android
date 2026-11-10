@@ -163,6 +163,10 @@ enum S_TOKEN_TYPE
     RANGE_NEXT,
     OP_SLICE,
     ARRAY_BUILD,
+    ADVANCE_AP_EXPR,
+    ACCESS_EXPR,
+    ATTR_PARENT,
+    ATTR_DELETE,
     TOKEN_TYPES_COUNT
 };
 // bytecode stores the instruction in one byte (read as uint8_t)
