@@ -285,8 +285,32 @@ void Context::request_surface_release()
     if (!surface_in_use_)
         return;
     release_requested_ = true;
-    if (!release_done_.wait_for(lock, std::chrono::milliseconds(500), [this] { return !surface_in_use_.load(); }))
-        logf("ERROR: the game thread did not release the surface within 500 ms; it is destroyed while in use");
+    // Only bgfx::frame() touches the EGL surface. One frame can take a second on slow GPUs (the
+    // emulator), so the wait covers a whole frame; outside a frame this returns at once.
+    if (!release_done_.wait_for(lock, std::chrono::seconds(3), [this] { return !in_frame_; }))
+        logf("ERROR: a bgfx frame still runs 3 s after Android asked for the surface; it is destroyed while in use");
+}
+
+bool Context::run_frame(uint32_t flags, uint32_t *frame_number)
+{
+    {
+        std::lock_guard lock(release_mutex_);
+        in_frame_ = !release_requested_;
+    }
+    if (!in_frame_)
+    {
+        surface_lost();
+        return false;
+    }
+    const uint32_t number = bgfx::frame(flags);
+    {
+        std::lock_guard lock(release_mutex_);
+        in_frame_ = false;
+    }
+    release_done_.notify_all();
+    if (frame_number)
+        *frame_number = number;
+    return true;
 }
 
 void Context::poll_surface()
@@ -332,16 +356,18 @@ void Context::try_restore()
     // A new ANativeWindow can reuse the old address; alternating this otherwise harmless flag makes
     // bgfx re-create the EGL surface on every restore.
     surface_epoch_flag_ = !surface_epoch_flag_;
+    {
+        // From here on a new surfaceDestroyed waits for our frames.
+        std::lock_guard lock(release_mutex_);
+        surface_in_use_ = true;
+    }
     bgfx::reset(reset_flags(), &chain);
     if (frame_aborted_)
     {
         // Draws submitted before the surface went away belong to a frame that was never finished.
-        bgfx::frame(BGFX_FRAME_DISCARD);
+        if (!run_frame(BGFX_FRAME_DISCARD))
+            return; // the new surface is already going away again
         frame_aborted_ = false;
-    }
-    {
-        std::lock_guard lock(release_mutex_);
-        surface_in_use_ = true;
     }
     surface_.valid = true;
     ++surface_.generation;
@@ -423,7 +449,7 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t, uint32_t)
         for (auto &entry : clients_)
             entry.client->OnUiRender(frame_);
         pace();
-        bgfx::frame();
+        run_frame(BGFX_FRAME_NONE);
     }
     else
     {
@@ -445,7 +471,7 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t, uint32_t)
 void Context::flush()
 {
     if (initialised_)
-        bgfx::frame(BGFX_FRAME_FLUSH);
+        run_frame(BGFX_FRAME_FLUSH);
 }
 
 void Context::AddClient(render::FrameClient *client, int order)

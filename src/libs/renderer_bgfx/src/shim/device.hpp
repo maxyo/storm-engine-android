@@ -32,8 +32,8 @@ class Context final : public render::FrameOwner
     void surface_lost();
     // Marks the surface for re-attachment; the actual bgfx reset happens once SDL holds a native window.
     void surface_restored();
-    // Any thread (Android UI thread, before it destroys the surface): blocks until the game thread
-    // has stopped using the surface, or the timeout expires.
+    // Any thread (Android UI thread, before it destroys the surface): stops further bgfx frames and
+    // blocks while one is executing (bgfx renders and swaps inside bgfx::frame()), or the timeout expires.
     void request_surface_release();
     // Game thread, at safe points: honours a pending release request and retries a pending restore.
     void poll_surface();
@@ -43,6 +43,9 @@ class Context final : public render::FrameOwner
     void present(bgfx::TextureHandle game_color, uint32_t game_width, uint32_t game_height);
     // Executes queued commands without presenting (synchronous read-backs).
     void flush();
+    // The only place the game thread calls bgfx::frame(). Returns false without calling it when the
+    // surface is about to be destroyed; presentation is then suspended.
+    bool run_frame(uint32_t flags, uint32_t *frame_number = nullptr);
 
     uint64_t frame_index() const { return frame_.frame_index; }
     const bgfx::Caps *caps() const { return caps_; }
@@ -98,6 +101,7 @@ class Context final : public render::FrameOwner
     bool frame_aborted_ = false; // draws of an unfinished frame are still queued in bgfx
     std::atomic<bool> release_requested_{false};
     std::atomic<bool> surface_in_use_{false};
+    bool in_frame_ = false; // guarded by release_mutex_
     std::mutex release_mutex_;
     std::condition_variable release_done_;
     bool flip_y_ = false;

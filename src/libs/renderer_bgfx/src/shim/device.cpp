@@ -713,7 +713,8 @@ HRESULT Device::GetRenderTargetData(IDirect3DSurface9 *target, IDirect3DSurface9
     const uint32_t ready_frame = bgfx::read(read_region, pixels.data());
     uint32_t current = 0;
     for (int i = 0; i < 4 && current < ready_frame; ++i)
-        current = bgfx::frame(BGFX_FRAME_FLUSH);
+        if (!Context::instance().run_frame(BGFX_FRAME_FLUSH, &current))
+            break; // the surface is going away: the copy keeps whatever was read so far
     // A flush ends the bgfx frame: views and sticky uniforms start over.
     views_used = 0;
     view_has_content = false;
