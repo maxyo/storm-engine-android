@@ -51,6 +51,13 @@ struct TraceOnly
 } core_internal;
 }
 
+// The engine core as DeleteScriptEntity uses it, backed by a real EntityManager.
+struct EntityCore
+{
+    EntityManager *entities{};
+    void EraseEntity(entid_t id) { entities->EraseEntity(id); }
+} core;
+
 // A bounded compiler fixture: the reader methods below come verbatim from the
 // selected production compiler.cpp, including recursive objects/arrays/refs.
 class SaveReader final : public VIRTUAL_COMPILER
@@ -69,6 +76,7 @@ public:
     char *ReadString();
     bool ReadVariable(char *, bool = false, uint32_t = 0);
     void ReadAttributesData(ATTRIBUTES *, ATTRIBUTES *);
+    void DeleteScriptEntity(DATA &object);
     DATA &add(const char *name, S_TOKEN_TYPE type, uint32_t count = 1)
     {
         VarInfo info;
@@ -218,6 +226,33 @@ void collisionAndRebind()
     newProcess.EraseAll();
 }
 
+void deletedEntity()
+{
+    EntityManager manager;
+    core.entities = &manager;
+    SaveReader compiler;
+    DATA &object = compiler.add("object", VAR_OBJECT);
+    DATA &ref = compiler.add("objectRef", VAR_REFERENCE);
+    ref.SetReference(&object);
+    const entid_t deleted = manager.CreateEntity("UnrelatedModel");
+    object.Set(deleted);
+
+    compiler.DeleteScriptEntity(ref); // DeleteEntity(&object)
+    entid_t held;
+    object.Get(held);
+    require(held == invalid_entity, "DeleteEntity left the erased entity's handle in the variable");
+    require(!manager.IsEntityValid(deleted), "DeleteEntity did not erase the entity");
+
+    // The erased slot is reused under a new stamp; the variable names neither entity.
+    manager.NewLifecycle();
+    const entid_t reused = manager.CreateEntity("UnrelatedModel");
+    require(reused != deleted && !manager.IsEntityValid(deleted), "a stale handle resolves to the reused slot");
+    object.Get(held);
+    require(held == invalid_entity, "variable picked up the reused entity");
+    manager.EraseAll();
+    core.entities = nullptr;
+}
+
 void arrays()
 {
     SaveReader compiler;
@@ -242,6 +277,8 @@ int main()
     UnrelatedModelvmaci.SetHash(MakeHashValue("UnrelatedModel"));
     RestoredGroupsvmaci.SetHash(MakeHashValue("RestoredGroups"));
     collisionAndRebind();
+    deletedEntity();
     arrays();
-    std::cout << "PASS: actual save reader rejects cross-process handles, retains attrs/refs/arrays and permits explicit entity recreation\n";
+    std::cout << "PASS: actual save reader rejects cross-process handles, retains attrs/refs/arrays and permits explicit entity recreation; "
+                 "DeleteEntity clears the variable's handle\n";
 }

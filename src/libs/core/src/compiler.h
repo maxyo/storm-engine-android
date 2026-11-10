@@ -132,6 +132,7 @@ class COMPILER : public VIRTUAL_COMPILER
     void ClearEvents();
 
     uint32_t GetIntFunctionCode(const char *func_name);
+    void DeleteScriptEntity(DATA &object);
     DATA *BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t arguments);
 
     uint32_t GetIntFunctionsNum();
