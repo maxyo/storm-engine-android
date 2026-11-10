@@ -355,8 +355,10 @@ static void NewGame(const std::string &models)
            "difficulty selector and the sea battle segment");
     Expect(surface.props["toggles"].size() == 6 && surface.props["toggles"][0]["id"] == "tutorial", "six option toggles, the port's own first");
     Expect(surface.props["hero"]["name"] == "Герой Альфа" && surface.props["hero"]["nation"] == "<menu.nation_france>", "hero and nation");
+    ExpectEqual(surface.props["hero"]["image"]["texture"], "INTERFACES/PORTRAITS/128/face_1", "the hero's game portrait by face");
+    ExpectEqual(surface.props["toggles"][1]["label"], "<menu.hardcore>", "the untranslated «HardcoreGame» key gets our name");
     Expect(surface.props["setup"]["text"] == "фехтование" && surface.props["setup"]["note"] == "Описание занятия героя.", "occupation and its text");
-    Expect(surface.props["stats"].size() == 3 && surface.props["stats"][2]["v"] == "7", "starting attributes");
+    Expect(!surface.props.contains("stats"), "no attribute table (V2-Menu-NewGame)");
     const std::string prefix = "widget:selectcharacter\t";
     router.OnEvent({"difficulty-right", "click", ""});
     ExpectEqual(surface.Last(), prefix + "RIGHTCHANGE_COMPLEX\t-1\tpress", "difficulty ›");
@@ -424,10 +426,26 @@ static void Autosaves(const std::string &models)
     Expect(!listed && surface.props["rows"].size() == 4, "autosaves are never an overwrite target");
 }
 
+static void GameOver()
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetState("gameOver", Json{{"kind", "sea"}, {"language", "russian"}});
+    Expect(router.Using() == "game_over" && surface.tag == "s-game-over" && surface.props["title"] == "<menu.game_over_sea>",
+           "game over: the defeat's title over the death picture");
+    router.Back();
+    Expect(surface.commands.empty() && router.Using() == "game_over", "nothing to press, back does nothing: the game ends it");
+    router.SetState("gameOver", nullptr);
+    Expect(!router.Active(), "null closes it");
+    router.SetState("gameOver", Json{{"kind", "victory"}});
+    Expect(!router.Active() && surface.errors.size() == 1, "an unknown kind is an error");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
     GameMenu(models);
+    GameOver();
     Saves(models);
     Autosaves(models);
     Settings(models);

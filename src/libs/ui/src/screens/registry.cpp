@@ -23,6 +23,8 @@ std::unique_ptr<Screen> CreateSettingsScreen();
 std::unique_ptr<StateConsumer> CreateAppSettingsConsumer();
 std::unique_ptr<Screen> CreateTitleScreen();
 std::unique_ptr<Screen> CreateNewGameScreen();
+std::unique_ptr<Screen> CreateGameOverScreen();
+std::unique_ptr<StateConsumer> CreateGameOverConsumer();
 
 namespace
 {
@@ -42,6 +44,7 @@ const ScreenEntry kPorted[] = {
     {"option_screen", CreateSettingsScreen},
     {"mainmenu", CreateTitleScreen},
     {"selectcharacter", CreateNewGameScreen},
+    {"game_over", CreateGameOverScreen}, // state channel gameOver, not a game interface
 };
 
 // Interfaces the platform host still draws with its own forms. Anything not listed here
@@ -71,6 +74,7 @@ std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()
     std::vector<std::unique_ptr<StateConsumer>> consumers;
     consumers.push_back(CreateDialogueConsumer());
     consumers.push_back(CreateAppSettingsConsumer());
+    consumers.push_back(CreateGameOverConsumer());
     hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, presentation
     return consumers;
 }
