@@ -16,5 +16,11 @@
  "hud.sheet.actions": "hud.sheet.actions",
  "hud.sheet.potions": "hud.sheet.potions",
  "hud.weapon.draw": "hud.weapon.draw",
- "hud.weapon.sheathe": "hud.weapon.sheathe"
+ "hud.weapon.sheathe": "hud.weapon.sheathe",
+ "hud.orders.title": "hud.orders.title",
+ "hud.orders.flagship": "hud.orders.flagship",
+ "hud.sea.ammo.balls": "hud.sea.ammo.balls",
+ "hud.sea.ammo.grapes": "hud.sea.ammo.grapes",
+ "hud.sea.ammo.knippels": "hud.sea.ammo.knippels",
+ "hud.sea.ammo.bombs": "hud.sea.ammo.bombs"
 }

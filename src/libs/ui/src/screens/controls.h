@@ -28,6 +28,9 @@ std::string SectionOf(const Widget &button);
 // 128/face_N"} for a game portrait, {kind:"item", texture:"<name under RESOURCE/Textures>"} for any
 // other game texture; null when the widget carries no such reference.
 Json PictureOf(const ImageRef *image);
+// The nation a picture of the game's NATIONS group shows, as our flag name ("england",
+// "france", "spain", "holland", "pirates"), or empty.
+std::string NationOf(const ImageRef *image);
 // {id, label, variant, disabled, reason, busy} of a c-button; a tap presses the widget.
 Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id, const char *variant);
 // {kind:"action", id, title, disabled, reason, selected, busy}: a button or choice as a list row.

@@ -200,7 +200,7 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeSetSafeArea(JNIEn
     From(handle)->host->SetSafeArea(left, top, right, bottom);
 }
 
-// The oldest pending editor request as {token, text, title, numeric, x, y, width, height}, or null.
+// The oldest pending editor request as {token, text, title, numeric, x, y, width, height, secret}, or null.
 JNIEXPORT jobjectArray JNICALL Java_org_stormengine_port_StormUi_nativeTakeTextRequest(JNIEnv *env, jclass, jlong handle)
 {
     Session *session = From(handle);
@@ -209,9 +209,9 @@ JNIEXPORT jobjectArray JNICALL Java_org_stormengine_port_StormUi_nativeTakeTextR
     const storm::ui::TextRequest request = session->text_requests.front();
     session->text_requests.erase(session->text_requests.begin());
     const std::string parts[] = {request.token,           request.text,           request.title,              request.numeric ? "1" : "0",
-                                 std::to_string(request.x), std::to_string(request.y), std::to_string(request.width), std::to_string(request.height)};
-    jobjectArray result = env->NewObjectArray(8, env->FindClass("java/lang/String"), nullptr);
-    for (jsize i = 0; i < 8; ++i)
+                                 std::to_string(request.x), std::to_string(request.y), std::to_string(request.width), std::to_string(request.height), request.secret ? "1" : "0"};
+    jobjectArray result = env->NewObjectArray(9, env->FindClass("java/lang/String"), nullptr);
+    for (jsize i = 0; i < 9; ++i)
     {
         jstring value = env->NewStringUTF(parts[i].c_str());
         env->SetObjectArrayElement(result, i, value);

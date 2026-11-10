@@ -1,0 +1,480 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 10,
+ "screenRevision": 11,
+ "screen": "alchemy",
+ "widgets": [
+  {
+   "node": "STORECAPTION1",
+   "type": "text",
+   "label": "  Алхимия  ",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "EXIT_BTN",
+   "type": "button",
+   "label": "EXIT_BTN",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MAIN_CHARACTER_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 16,
+     "imageRevision": 16,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "OTHER_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 17,
+     "imageRevision": 17,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "LEFTSCROLLBUTTON",
+   "type": "button",
+   "label": "LEFTSCROLLBUTTON",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "RIGHTSCROLLBUTTON",
+   "type": "button",
+   "label": "RIGHTSCROLLBUTTON",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "22\tКомпонент\tСвинцовые пули\t1\t0",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Предметов",
+    "Назначение",
+    "Наименование предметов",
+    "Необходимо",
+    "Предметов"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Предметов",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Назначение",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Наименование предметов",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Необходимо",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Предметов",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "22",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Компонент",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Свинцовые пули",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 14,
+       "imageRevision": 14,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ITEMS_18",
+        "image": "itm2"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "context": {
+    "itemId": "bullet",
+    "use": "component"
+   }
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "28\tКомпонент\tГранулированный порох\t1\t0",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Предметов",
+    "Назначение",
+    "Наименование предметов",
+    "Необходимо",
+    "Предметов"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Предметов",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Назначение",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Наименование предметов",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Необходимо",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Предметов",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "28",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Компонент",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Гранулированный порох",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 15,
+       "imageRevision": 15,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ITEMS_18",
+        "image": "itm1"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "context": {
+    "itemId": "gunpowder",
+    "use": "component"
+   }
+  },
+  {
+   "node": "TABLE_ADD_ALL_BUTTON",
+   "type": "button",
+   "label": "TABLE_ADD_ALL_BUTTON",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_REMOVE_ALL_BUTTON",
+   "type": "button",
+   "label": "TABLE_REMOVE_ALL_BUTTON",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "GETALL_BUTTON",
+   "type": "button",
+   "label": "Результат",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_ALCHEMY_RECIPE",
+   "type": "choice",
+   "label": "Бумажный патрон",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "cartridge",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "ITEMS_18",
+      "image": "itm8"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "group": "ammo",
+    "yield": "3"
+   }
+  },
+  {
+   "node": "ANDROID_ALCHEMY_RECIPE",
+   "type": "choice",
+   "label": "Лечебное зелье",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "potion1",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "ITEMS_1",
+      "image": "itm3"
+     }
+    }
+   ],
+   "actions": [
+    "choose"
+   ],
+   "cells": [],
+   "context": {
+    "group": "",
+    "yield": "1"
+   }
+  },
+  {
+   "node": "ANDROID_ALCHEMY_RECIPE",
+   "type": "choice",
+   "label": "Ручная граната",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "grenade",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "ITEMS_18",
+      "image": "itm9"
+     }
+    }
+   ],
+   "actions": [
+    "choose"
+   ],
+   "cells": [],
+   "context": {
+    "group": "ammo",
+    "yield": "1"
+   }
+  },
+  {
+   "node": "ANDROID_ALCHEMY_RECIPE",
+   "type": "choice",
+   "label": "Противоядие",
+   "value": "0",
+   "index": 3,
+   "enabled": true,
+   "rowId": "potion3",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "ITEMS_1",
+      "image": "itm5"
+     }
+    }
+   ],
+   "actions": [
+    "choose"
+   ],
+   "cells": [],
+   "context": {
+    "group": "",
+    "yield": "1"
+   }
+  },
+  {
+   "node": "ANDROID_ALCHEMY",
+   "type": "alchemy",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "craft"
+   ],
+   "cells": [],
+   "context": {
+    "recipe": "cartridge",
+    "yield": "3",
+    "description": "Бумажный патрон: пуля и порох в одной гильзе.",
+    "batches": "22",
+    "ready": "1"
+   }
+  }
+ ]
+}

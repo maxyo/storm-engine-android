@@ -4,6 +4,7 @@
 #endif
 #include <platform/android_ui.hpp>
 #include "log_and_action.h"
+#include "sea_quick_action_source.hpp"
 #include "controls.h"
 #include "core.h"
 #include "message.h"
@@ -72,9 +73,18 @@ void ILogAndActions::Execute(uint32_t delta_time)
     }
     storm::android::worldMapHud.contextActionOwner=core.GetEntityId("WorldMap");
     storm::android::worldMapHud.contextAction=available?m_sActionName:"";
-    storm::android::publishContextAction(available ? m_sActionName : "");
+    // At sea the action goes out typed, with its target fenced by a revision (seaQuickAction);
+    // the plain context action channel is for the land and the world map.
+    auto quick = storm::android::readSeaQuickAction(GetId(), AttributesPointer, m_sActionName, available);
+    const bool sea = quick.sea;
+    storm::android::seaQuickAction.update(std::move(quick));
+    if (const auto action = storm::android::seaQuickAction.consume(SDL_GetTicks())) {
+        storm::android::traceContextAction("sea-quick-dispatch", *action, "current=" + std::string(m_sActionName));
+        core.Event("BI_FastCommand", "s", action->c_str()); return;
+    }
+    storm::android::publishContextAction(available && !sea ? m_sActionName : "");
     if (!storm::android::requestedContextAction.empty()) {
-        const bool accepted = available && storm::android::requestedContextAction == m_sActionName;
+        const bool accepted = !sea && available && storm::android::requestedContextAction == m_sActionName;
         storm::android::traceContextAction(accepted ? "dispatch" : "reject", storm::android::requestedContextAction,
             "current=" + std::string(m_sActionName));
         storm::android::requestedContextAction.clear();
@@ -259,6 +269,10 @@ void ILogAndActions::Realize(uint32_t delta_time)
     if (m_bShowActiveCommand
 #ifdef __ANDROID__
         && !storm::android::worldMapHud.covered(storm::android::MapCommands,core.GetEntityId("WorldMap"),SDL_GetTicks())
+        // the touch control of exactly this action is on the screen: its native icon steps aside
+        && !storm::android::seaQuickAction.covered(GetId(), SDL_GetTicks())
+        // … and nothing of it while the touch orders panel covers the command menu
+        && !storm::android::seaOrders.covered()
 #endif
        )
     {
@@ -460,6 +474,7 @@ void ILogAndActions::Release()
 {
 #ifdef __ANDROID__
     storm::android::publishContextAction("");
+    if (storm::android::seaQuickAction.frame().host == GetId()) storm::android::seaQuickAction.update({});
 #endif
     TEXTURE_RELEASE(rs, m_idIconTexture);
 
@@ -480,6 +495,14 @@ void ILogAndActions::SetString(const char *str, bool immortal)
 {
     if (str == nullptr)
         return;
+#ifdef __ANDROID__
+    // Passing lines are the portable UI's toasts; only lasting lines stay drawn here.
+    if (!immortal)
+    {
+        storm::android::publishGameMessage(str);
+        return;
+    }
+#endif
 
     // find the last element of the list
     STRING_DESCR *last = m_sRoot;

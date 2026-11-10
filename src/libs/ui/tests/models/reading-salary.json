@@ -1,0 +1,95 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 1,
+ "screenRevision": 3,
+ "screen": "salary",
+ "widgets": [
+  {
+   "node": "MAIN_WINDOW_CAPTION",
+   "type": "text",
+   "label": "Жалованье",
+   "value": "",
+   "index": -1,
+   "order": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 2,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 11,
+     "imageRevision": 11,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT1",
+   "type": "text",
+   "label": "Команда ждёт жалованье.",
+   "value": "",
+   "index": -1,
+   "order": 3,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT3",
+   "type": "text",
+   "label": "1 860 песо",
+   "value": "",
+   "index": -1,
+   "order": 4,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_OK",
+   "type": "button",
+   "label": "Да",
+   "value": "",
+   "index": -1,
+   "order": 5,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_CANCEL",
+   "type": "button",
+   "label": "Нет",
+   "value": "",
+   "index": -1,
+   "order": 6,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}

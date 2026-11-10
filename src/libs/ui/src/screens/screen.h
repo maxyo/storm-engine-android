@@ -97,7 +97,7 @@ class Bindings
     // The player's way out: the screen's exit button when it has one, else the global back.
     void Back(const Widget *exit_button);
     // Opens the native text editor over the field; the accepted text is sent as `edit`.
-    void EditText(const Event &event, const Widget &widget, const std::string &title, bool numeric);
+    void EditText(const Event &event, const Widget &widget, const std::string &title, bool numeric, bool secret = false);
     // The same editor, but the accepted text goes to `accepted` (the screen checks it, keeps
     // a draft, sends it itself); nothing happens when the player cancels.
     void AskText(const Event &event, const std::string &text, const std::string &title, bool numeric,

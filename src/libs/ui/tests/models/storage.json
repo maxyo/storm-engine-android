@@ -340,7 +340,7 @@
   {
    "node": "CAPACITY",
    "type": "text",
-   "label": "Трюм:\n201 / 700",
+   "label": "Дедвейт: 189 / 700",
    "value": "",
    "index": -1,
    "enabled": true,
@@ -352,7 +352,7 @@
   {
    "node": "STORE_CAPACITY",
    "type": "text",
-   "label": "Склад:\n2328 / 10000",
+   "label": "Склад",
    "value": "",
    "index": -1,
    "enabled": true,
@@ -364,7 +364,7 @@
   {
    "node": "STORAGE_INFO",
    "type": "text",
-   "label": "Аренда оплачена до 1 ноября.",
+   "label": "Общая загруженность склада : 0 / 50000 ц.",
    "value": "",
    "index": -1,
    "enabled": true,

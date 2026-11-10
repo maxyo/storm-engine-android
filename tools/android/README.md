@@ -69,6 +69,10 @@ python3 tools/android/verify_engine.py --library build/android-engine/game/liben
   --ndk /path/to/android-ndk-r30
 ```
 
+`verify_engine.py` expects every `CREATE_*` registration in `src` whose `#ifdef` guards hold
+for the options in the build's `CMakeCache.txt` (found above `--library`), and fails when an
+option-gated one (e.g. `SceneSweepLibrary`, `STORM_SCENE_SWEEP`) is linked with its option off.
+
 The source directory must also contain the pinned DXVK checkout.
 `ci_dependencies.sh` prepares tools/dependencies and runs regressions;
 `ci_engine.sh` builds and verifies only the native library.

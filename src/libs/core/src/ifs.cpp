@@ -1,4 +1,7 @@
 #include "ifs.h"
+
+#include <cctype>
+
 #include "core_impl.h"
 #include "vma.hpp"
 
@@ -205,7 +208,7 @@ KEY_NODE *SECTION::FindFirstKey(const char *key_name)
     const auto fold = [](const char *text) {
         std::string key(text);
         for (char &c : key)
-            c = static_cast<char>(std::toupper(c));
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
         return key;
     };
     if (!indexValid_)

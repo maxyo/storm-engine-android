@@ -14,12 +14,18 @@
 #include "string_service/str_service.h"
 #include "xservice.h"
 #include <cstdio>
+// Save facts (the hero and location in each save's description) are game data on every platform.
+#include "mobile_save_facts.hpp"
 #ifdef __ANDROID__
 #include "mobile_image_bridge.hpp"
 #include "mobile_inventory.hpp"
 #include "mobile_save_list.hpp"
-#include "mobile_save_facts.hpp"
 #include "mobile_nation_relations.hpp"
+#include "mobile_table_game.hpp"
+#include "mobile_goods_transfer.hpp"
+#include "mobile_sails_gerald.hpp"
+#include "mobile_alchemy.hpp"
+#include <set>
 #include "mobile_owner_bridge.hpp"
 #include <chrono>
 static std::optional<storm::mobile::SaveListCapability::Target> deferredSaveAction;
@@ -27,6 +33,31 @@ static std::chrono::steady_clock::time_point deferredSaveDeadline;
 #include "android_newgame.hpp"
 #include "platform/android_ui.hpp"
 static storm::mobile::InventoryEquipCapability inventoryEquipCapability;
+#endif
+#ifdef __ANDROID__
+// The Android host knows the interface on screen (mobile_save_list.hpp declares this).
+std::optional<storm::mobile::SaveListSnapshot> storm::mobile::ReadSaveList()
+{
+    if (storm::android::mobileScreen != "save_load") return {};
+    const auto number = [](const char *name, int32_t &value) {
+        auto *v = static_cast<VDATA *>(core.GetScriptVariable(name)); return v && v->Get(value);
+    };
+    auto *profile = static_cast<VDATA *>(core.GetScriptVariable("currentProfile"));
+    auto *container = static_cast<VDATA *>(core.GetScriptVariable("g_oSaveContainer"));
+    const char *name = nullptr; int32_t count, selected, saving;
+    if (!profile || !profile->Get(name) || !name || !container || !container->GetAClass() ||
+        !number("g_nSaveQuantity", count) || !number("g_nCurrentSaveIndex", selected) ||
+        !number("bThisSave", saving) || count < 0 || count > 10000) return {};
+    storm::mobile::SaveListSnapshot result{storm::android::mobileScreenRevision, name, {}, selected, saving != 0};
+    for (int i = 0; i < count; ++i)
+    {
+        auto *entry = container->GetAClass()->GetAttributeClass(("s" + std::to_string(i)).c_str());
+        const char *file = entry ? entry->GetAttribute("savename") : nullptr;
+        if (!file || !*file) return {};
+        result.files.emplace_back(file);
+    }
+    return result;
+}
 #endif
 
 #define CHECK_FILE_NAME "PiratesReadme.txt"
@@ -387,6 +418,10 @@ void XINTERFACE::MobileCollectWidgets(std::vector<MobileWidget> &widgets)
     if(storm::android::mobileScreen=="lscchar_all"||storm::android::mobileScreen=="character")MobileCollectHero(widgets);
     if(storm::android::mobileScreen!="mainmenu")MobileCollectFacts(widgets);
     if(storm::android::mobileScreen=="shipyard")MobileCollectShipyard(widgets);
+    if(storm::android::mobileScreen=="boal_dice"||storm::android::mobileScreen=="boal_cards")MobileCollectTableGame(widgets);
+    if(storm::android::mobileScreen=="goodstransfer")MobileCollectGoodsTransfer(widgets);
+    if(storm::android::mobileScreen=="sailsgerald")MobileCollectSailsGerald(widgets);
+    if(storm::android::mobileScreen=="alchemy")MobileCollectAlchemy(widgets);
 }
 
 void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
@@ -477,6 +512,10 @@ void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
 #ifdef __ANDROID__
 #include "mobile_shipyard.inc"
 #include "mobile_facts.inc"
+#include "mobile_table_game.inc"
+#include "mobile_goods_transfer.inc"
+#include "mobile_sails_gerald.inc"
+#include "mobile_alchemy.inc"
 #endif
 
 void XINTERFACE::Realize(uint32_t)
@@ -559,6 +598,39 @@ void XINTERFACE::Realize(uint32_t)
                 for (auto &widget : widgets)
                     if (storm::iEquals(widget.node, "OUR_GOLD"))
                         widget.context["currency"] = "doubloons";
+        }
+        if (storm::android::mobileScreen == "transfer_main")
+        {
+            // The loot / exchange screen asks every question in one window (REMOVE_OFFICER_WINDOW)
+            // and tells them apart only by its script mode (sink the ship, let the captain go,
+            // remove the captain, a plain message); whether the other captain is still alive
+            // decides what leaving means. Missing script state is reported, never guessed.
+            MobileWidget marker{"ANDROID_TRANSFER", "transfer", "", "", -1, 0, false};
+            const char *mode = nullptr;
+            auto *modeVar = static_cast<VDATA *>(core.GetScriptVariable("sMessageMode"));
+            int32_t transfer = 0;
+            auto *transferVar = static_cast<VDATA *>(core.GetScriptVariable("bTransferMode"));
+            auto *other = static_cast<VDATA *>(core.GetScriptVariable("xi_refCharacter"));
+            ATTRIBUTES *captain = other ? other->GetAClass() : nullptr;
+            std::string missing;
+            if (modeVar && modeVar->Get(mode))
+                marker.context["mode"] = mode ? mode : "";
+            else
+                missing += " sMessageMode";
+            if (transferVar && transferVar->Get(transfer))
+                marker.context["exchange"] = transfer ? "1" : "0";
+            else
+                missing += " bTransferMode";
+            if (captain)
+            {
+                const ATTRIBUTES *ai = captain->GetAttributeClass("chr_ai");
+                marker.context["captainAlive"] = ai && ai->GetAttributeAsFloat("hp", 0.0f) > 0.0f ? "1" : "0";
+            }
+            else
+                missing += " xi_refCharacter";
+            if (!missing.empty())
+                marker.unavailableReason = "transfer:missing=" + missing.substr(1);
+            widgets.push_back(std::move(marker));
         }
         std::stable_sort(widgets.begin(), widgets.end(), [](const auto &a, const auto &b) {return a.order < b.order;});
         if (storm::android::mobileScreen == "items")
@@ -2218,6 +2290,12 @@ void XINTERFACE::DoControl()
         auto action = storm::android::uiWidgetActions.front();
         storm::android::uiWidgetActions.pop_front();
         if (action.screen != storm::android::mobileScreen) continue;
+        if(action.screen=="goodstransfer"&&action.node=="ANDROID_GOODS_ORDER"){
+            storm::android::lastWidgetSnapshot.clear();MobileApplyGoodsTransfer(action.value);continue;
+        }
+        if(action.screen=="alchemy"&&(action.node=="ANDROID_ALCHEMY"||action.node=="ANDROID_ALCHEMY_RECIPE")){
+            storm::android::lastWidgetSnapshot.clear();MobileApplyAlchemy(action.node,action.value);continue;
+        }
         if(action.screen=="shipyard"&&action.value.rfind("yard@",0)==0){
             MobileApplyShipyard(action.node,action.index,action.value);continue;
         }

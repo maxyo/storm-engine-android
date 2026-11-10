@@ -1,0 +1,627 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 11,
+ "screenRevision": 13,
+ "screen": "repair",
+ "widgets": [
+  {
+   "node": "EXIT_BTN",
+   "type": "button",
+   "label": "EXIT_BTN",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_WINDOW_CAPTION",
+   "type": "text",
+   "label": "  Решение по самостоятельному ремонту  ",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MAIN_CHARACTER_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 18,
+     "imageRevision": 18,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MAIN_CHARACTER_BORDER",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 19,
+     "imageRevision": 19,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "NAME_STR",
+   "type": "text",
+   "label": "Капитан",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Корабль 1",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "1:0",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Корабль 2",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "ship:1",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "LOCATION_STR",
+   "type": "text",
+   "label": "Город",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "OTHER_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 20,
+     "imageRevision": 20,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "OTHER_BORDER",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 19,
+     "imageRevision": 19,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "LEFTSCROLLBUTTON",
+   "type": "button",
+   "label": "LEFTSCROLLBUTTON",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "RIGHTSCROLLBUTTON",
+   "type": "button",
+   "label": "RIGHTSCROLLBUTTON",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_SHIP_NAME",
+   "type": "text",
+   "label": "Корабль 1",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_STATUS_HULL_STR",
+   "type": "text",
+   "label": " Состояние:  62%  Текущий предел  восстановления:  67% ",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_QTY_HULL_STR",
+   "type": "text",
+   "label": " Доступно всего:  23/40 шт.  Необходимо для  полного ремонта:  50 шт. ",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_HULL_CAPTION",
+   "type": "text",
+   "label": "Корпус судна",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_Hull_PIC",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 21,
+     "imageRevision": 21,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "REPAIR_STATE_ICONS",
+      "image": "Hull"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_HULL_P_PIC",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 24,
+     "imageRevision": 24,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "Planks"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_LEFT_H",
+   "type": "button",
+   "label": "REPAIR_LEFT_H",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_RIGHT_H",
+   "type": "button",
+   "label": "REPAIR_RIGHT_H",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_QTY_H",
+   "type": "text",
+   "label": "75%",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_STATUS_MAST_STR",
+   "type": "text",
+   "label": " Состояние:  2/3 Текущий предел  восстановления:  3/3 ",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_QTY_MAST_STR",
+   "type": "text",
+   "label": " Доступно всего:  40/40 шт.  Необходимо для  полного ремонта:  12 шт. ",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_MAST_CAPTION",
+   "type": "text",
+   "label": "Мачты и рангоут",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_Mast_PIC",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 23,
+     "imageRevision": 23,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "REPAIR_STATE_ICONS",
+      "image": "Mast"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_MAST_P_PIC",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 24,
+     "imageRevision": 24,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "Planks"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_LEFT_M",
+   "type": "button",
+   "label": "REPAIR_LEFT_M",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_RIGHT_M",
+   "type": "button",
+   "label": "REPAIR_RIGHT_M",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_QTY_M",
+   "type": "text",
+   "label": "2/3",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_STATUS_SAIL_STR",
+   "type": "text",
+   "label": " Состояние:  48%  Текущий предел  восстановления:  48% ",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_QTY_SAIL_STR",
+   "type": "text",
+   "label": " Доступно всего:  0/0 шт.  Необходимо для  полного ремонта:  21 шт. ",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_SAIL_CAPTION",
+   "type": "text",
+   "label": "Паруса и такелаж",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_Sail_PIC",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 22,
+     "imageRevision": 22,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "REPAIR_STATE_ICONS",
+      "image": "Sail"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_SAIL_S_PIC",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 25,
+     "imageRevision": 25,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "GOODS",
+      "image": "SailCloth"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_LEFT_S",
+   "type": "button",
+   "label": "REPAIR_LEFT_S",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_RIGHT_S",
+   "type": "button",
+   "label": "REPAIR_RIGHT_S",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_QTY_S",
+   "type": "text",
+   "label": "48%",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TIME_STR",
+   "type": "text",
+   "label": " Длительность работ : 6 час. ",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_ALL_SQUADRON",
+   "type": "button",
+   "label": "Все корабли!",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_ALL_SHIP",
+   "type": "button",
+   "label": "Это судно",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_OK",
+   "type": "button",
+   "label": "Oк",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "REPAIR_CANCEL",
+   "type": "button",
+   "label": "Отмена",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}

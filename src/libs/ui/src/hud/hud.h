@@ -98,6 +98,102 @@ struct LandCommands
     }
 };
 
+// Channel "ship": the player's ship at sea, its companions and what the engine's own sea
+// indicators read. Ratios are 0…1, negative = the engine does not know the value.
+struct Ship
+{
+    struct Vessel
+    {
+        int character = -1;
+        std::string entity, name, type;
+        int ship_class = 0;
+        double hull = -1.0, crew = -1.0, sails = -1.0;
+    };
+    bool known = false; // a valid frame of the current sea scene
+    uint64_t gameplay_revision = 0, sequence = 0, hud_revision = 0;
+    Vessel own;
+    std::vector<Vessel> fleet; // companions, the flagship is `own`
+    bool captions = false;     // the engine draws its text readouts now: ours may replace them
+    bool navigator = false, zoom_in = false, zoom_out = false;
+    uint64_t navigator_generation = 0, navigator_layout = 0; // layout = the aperture the engine drew last
+    double speed = -1.0, wind = -1.0, cannon_charge = -1.0;
+    std::string date_time, location;
+    std::string ammo;        // balls, grapes, knippels, bombs; "" = unknown
+    double ammo_count = -1.0;
+    bool ammo_low = false;   // the engine's own "not enough shot" warning
+    bool powder_out = false; // … and its "no powder" warning
+    double ammo_counts[4] = {-1.0, -1.0, -1.0, -1.0}; // by kind, in the order above
+    double sail_state = -1.0; // 0, 0.5, 1
+    bool can_set_sails = false;
+};
+
+// Channel "seaOrders": the engine's sea command menu (orders to the own ship and companions).
+struct SeaOrders
+{
+    struct Recipient
+    {
+        std::string id, name, entity;
+        int character = -1;
+        bool main = false;
+    };
+    struct Item
+    {
+        std::string id, kind, label, source;
+        bool enabled = false;
+        double cooldown = 0.0;
+    };
+    bool known = false;
+    uint64_t scene = 0, revision = 0, activity = 0;
+    bool available = false, active = false, can_back = false, can_close = false;
+    bool complete = false; // drawable here as a whole; otherwise the engine keeps its own menu
+    std::string stage = "commands", recipient, title, selected; // stage: commands, options, targets
+    std::vector<Recipient> recipients;
+    std::vector<Item> items;
+
+    const Item *Find(const std::string &id) const
+    {
+        for (const Item &item : items)
+            if (item.id == id)
+                return &item;
+        return nullptr;
+    }
+};
+
+// Channel "seaQuickAction": the one quick action the engine offers at sea.
+struct SeaQuick
+{
+    bool known = false;
+    uint64_t activity = 0, revision = 0;
+    bool available = false;
+    std::string action, label; // Map, Moor, Board, LandTroops, Reload; the engine's caption
+};
+
+// Channel "worldMap": the world map's instruments, fleet and commands. Absent numbers are
+// negative / empty; angles are radians as the engine measures them.
+struct WorldMap
+{
+    struct Vessel
+    {
+        std::string id, name, type;
+        double hull = -1.0; // 0…100
+    };
+    struct Command
+    {
+        std::string id, label; // EnterToSea, EnterToIsland, EnterToShip, EnterToStorm, EnterToAttack, EnterToEnemy
+    };
+    bool known = false, available = false;
+    uint64_t revision = 0, activity = 0, gameplay_revision = 0;
+    unsigned mask = 0; // what the engine lets a touch HUD replace (instruments 1, ships 2, commands 4)
+    bool instruments = false, ships_visible = false, commands_ready = false;
+    std::string date, coordinates;
+    double hour = -1.0, wind_force = -1.0, morale = -1.0, speed = -1.0;
+    double wind_angle = 0.0, heading = 0.0;
+    bool angles = false; // wind_angle and heading are known
+    int food_days = -1, rum_days = -1, flag = -1, storm = -1;
+    std::vector<Vessel> fleet;
+    std::vector<Command> commands;
+};
+
 // Channel "presentation": what the platform host shows over the game and whether the
 // player can act at all. Published by the host, not by the engine.
 struct Presentation
@@ -108,6 +204,18 @@ struct Presentation
     bool live = false;     // the game is in front and running: input may be sent
 };
 
+// Channel "spyglass": the telescope and what it shows of its target (spyglass.cpp). A field
+// the telescope cannot show at its level is -1 / empty.
+struct Spyglass
+{
+    bool known = false, on = false, target = false;
+    uint64_t generation = 0;
+    std::string kind, name, type, captain, cannon_type, portrait; // kind: ship | fort
+    int ship_class = -1, hull = -1, sails = -1, crew = -1, cannons = -1, cannons_max = -1, charge = -1, nation = -1, sail = -1;
+    double speed = -1.0, distance = -1.0;
+    int skills[5] = {-1, -1, -1, -1, -1}; // fencing, cannons, accuracy, navigation, boarding
+};
+
 struct States
 {
     Gameplay gameplay;
@@ -116,7 +224,12 @@ struct States
     std::string world_info;     // channel "worldInfo": lines of the location text
     std::string context_action; // channel "contextAction": the script's quick action, "" = none
     LandCommands land_commands;
+    Ship ship;
+    SeaOrders sea_orders;
+    SeaQuick sea_quick;
+    WorldMap world_map;
     Presentation presentation;
+    Spyglass spyglass;
 };
 
 // --- view -----------------------------------------------------------------------------
@@ -132,6 +245,8 @@ struct View
     Json sheet_props = Json::object();
     bool modal = false;                   // the sheet takes every touch and the back key
     bool log = false;                     // event lines are shown now (Hud::LogLines in the `log` element)
+    std::string overlay;                  // pack part over the scene and under the sheet, takes no touches
+    Json overlay_props = Json::object();  // (the spyglass target card, laid by the Hud over any scene)
     bool operator==(const View &) const = default;
 };
 
@@ -205,11 +320,23 @@ struct SceneEntry
 std::span<const SceneEntry> Scenes();
 bool Ported(std::string_view mode);
 
+// Where a part of a mounted HUD element is on the screen, in physical pixels.
+struct Placement
+{
+    float x = 0.0f, y = 0.0f, width = 0.0f, height = 0.0f; // the box
+    float layer_x = 0.0f, layer_y = 0.0f;                  // the origin of the HUD layer (the safe area)
+    float screen_width = 0.0f, screen_height = 0.0f;
+    float density = 1.0f; // pixels per dp
+};
+
 // What the HUD needs from the host; unit tests give it a fake.
 class Mount
 {
   public:
     virtual ~Mount() = default;
+    // The box of the mounted element `id`, or of the part inside it that `selector` names,
+    // as the last frame laid it out. False while it is not on the screen.
+    virtual bool Measure(const std::string &id, const std::string &selector, Placement &out) const = 0;
     // Mounts the layout scene with these element props, patching what is already there.
     // False when the pack cannot draw it (unknown scene or element); the reason is reported.
     virtual bool ShowHud(const View &view) = 0;
@@ -257,6 +384,10 @@ class Hud
     double Now() const
     {
         return mount_.Now();
+    }
+    bool Measure(const std::string &id, const std::string &selector, Placement &out) const
+    {
+        return mount_.Measure(id, selector, out);
     }
     // Logged once per distinct text.
     void Log(const std::string &line)
@@ -321,10 +452,21 @@ class Hud
     std::set<std::string> reported_;
     std::string language_; // game language last given to the mount
     bool changed_ = true;
+    double spyglass_ack_at_ = -1.0;  // last coverage acknowledgement of the spyglass overlay
+    uint64_t spyglass_ack_generation_ = 0;
     bool visible_ = false;
     bool live_ = false;
     bool interface_ = false;
 };
+
+// The spyglass overlay (spyglass.cpp): its channel's consumer and the props of its part.
+std::unique_ptr<screens::StateConsumer> CreateSpyglassConsumer();
+Json SpyglassProps(const Spyglass &spyglass, Hud &hud);
+// ASCII lower case: engine identifiers are matched without regard to case.
+std::string Lower(std::string text);
+
+// The fleet token of a ship by a word of the engine's ship model name ("Lugger" → ship-lugger).
+const char *ShipIcon(const std::string &type);
 
 // Consumers of the HUD channels, added to the router's list (screens/registry.cpp).
 void AddStateConsumers(std::vector<std::unique_ptr<screens::StateConsumer>> &consumers);

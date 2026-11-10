@@ -566,6 +566,9 @@ bool COMPILER::Run()
 #else
     (void)executed;
 #endif
+#ifdef STORM_SCENE_SWEEP
+    LoadSceneSweep();
+#endif
 
     // DATA Result;
     // Result.SetVCompiler(this);
@@ -3894,6 +3897,16 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
     return true;
 }
 
+// `call name()` leaves 1 (the callee returned a value) or 0 in the expression register. The
+// callee may have left a reference there (`ref r = CharacterFromID(...)` does), and DATA::Set
+// writes through a reference, which would overwrite the referenced object with the status; the
+// register's previous type is therefore dropped first.
+void COMPILER::StoreDynamicCallStatus(bool returned_value)
+{
+    ExpressionResult.ClearType();
+    ExpressionResult.Set(static_cast<int32_t>(returned_value ? 1 : 0));
+}
+
 bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const char *pDbgExpSource)
 {
     // GUARD(BC_Execute)
@@ -4530,13 +4543,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             pVResult = nullptr;
             if (!BC_CallFunction(func_code, ip, pVResult))
                 return false;
-            if (pVResult)
-            {
-                ExpressionResult.Set(1);
-                // SStack.Pop();
-            }
-            else
-                ExpressionResult.Set(0);
+            StoreDynamicCallStatus(pVResult != nullptr);
             break;
         case CALL_FUNCTION:
             memcpy(&func_code, &pCodeBase[ip], sizeof(uint32_t));

@@ -166,6 +166,9 @@ class SHIP : public SHIP_BASE
 
     void InitSailState();
 
+    // The character that fired a ball, by the index the ball carries; throws if there is none.
+    static ATTRIBUTES *BallOwnerCharacter(int32_t iBallOwner);
+
   public:
     ~SHIP() override;
     SHIP();

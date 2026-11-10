@@ -23,17 +23,41 @@ std::unique_ptr<Screen> CreateSettingsScreen();
 std::unique_ptr<StateConsumer> CreateAppSettingsConsumer();
 std::unique_ptr<Screen> CreateTitleScreen();
 std::unique_ptr<Screen> CreateNewGameScreen();
+std::unique_ptr<Screen> CreateDiceScreen();
+std::unique_ptr<Screen> CreateCardsScreen();
+std::unique_ptr<Screen> CreateRepairScreen();
+std::unique_ptr<Screen> CreateTransferScreen();
+std::unique_ptr<Screen> CreateAlchemyScreen();
+std::unique_ptr<Screen> CreateGoodsOrderScreen();
+std::unique_ptr<Screen> CreateSailEmblemScreen();
 std::unique_ptr<Screen> CreateGameOverScreen();
 std::unique_ptr<StateConsumer> CreateGameOverConsumer();
 std::unique_ptr<Screen> CreateNationsScreen();
 std::unique_ptr<Screen> CreateHeroScreen();
 std::unique_ptr<Screen> CreateItemsScreen();
 std::unique_ptr<Screen> CreateJournalScreen();
+std::unique_ptr<Screen> CreateMapEncounterScreen();
+std::unique_ptr<Screen> CreateDirSailScreen();
+std::unique_ptr<Screen> CreateLeaveBattleScreen();
+std::unique_ptr<Screen> CreateSalaryScreen();
+std::unique_ptr<Screen> CreateFrameScreen();
+std::unique_ptr<Screen> CreateColonyNewsScreen();
+std::unique_ptr<Screen> CreateNationNewsScreen();
+std::unique_ptr<Screen> CreateRestScreen();
+std::unique_ptr<Screen> CreateTradeBookScreen();
+std::unique_ptr<Screen> CreateColonyCaptureScreen();
+std::unique_ptr<Screen> CreateFortCaptureScreen();
+std::unique_ptr<Screen> CreateLauncherScreen();
+std::unique_ptr<Screen> CreateDownloadsScreen();
+std::unique_ptr<Screen> CreateAboutScreen();
+std::unique_ptr<StateConsumer> CreateLauncherConsumer();
 
 namespace
 {
 
 const ScreenEntry kPorted[] = {
+    {"goodstransfer", CreateGoodsOrderScreen},
+    {"sailsgerald", CreateSailEmblemScreen},
     {"store", CreateStoreScreen},
     {"storage", CreateStorageScreen},
     {"contraband", CreateContrabandScreen},
@@ -48,19 +72,39 @@ const ScreenEntry kPorted[] = {
     {"option_screen", CreateSettingsScreen},
     {"mainmenu", CreateTitleScreen},
     {"selectcharacter", CreateNewGameScreen},
+    {"boal_dice", CreateDiceScreen},
+    {"boal_cards", CreateCardsScreen},
+    {"repair", CreateRepairScreen},
+    {"transfer_main", CreateTransferScreen},
+    {"alchemy", CreateAlchemyScreen},
     {"game_over", CreateGameOverScreen}, // state channel gameOver, not a game interface
     {"nationrelation", CreateNationsScreen},
     {"lscchar_all", CreateHeroScreen},
     {"character", CreateHeroScreen},
     {"items", CreateItemsScreen},
     {"questbook", CreateJournalScreen},
+    {"map", CreateMapEncounterScreen},
+    {"dirsailenc", CreateDirSailScreen},
+    {"leavebattle", CreateLeaveBattleScreen},
+    {"salary", CreateSalaryScreen},
+    {"boal_frame", CreateFrameScreen},
+    {"colonyinfo", CreateColonyNewsScreen},
+    {"nationlegend", CreateNationNewsScreen},
+    {"tavernwait", CreateRestScreen},
+    {"tradebook", CreateTradeBookScreen},
+    {"colonycapture", CreateColonyCaptureScreen},
+    {"fortcapture", CreateFortCaptureScreen},
+    // The application's own screens, routed from the platform host's "launcher" channel; the
+    // "app:" prefix keeps them apart from game interfaces (ids are ini stems, e.g. "about").
+    {"app:launcher", CreateLauncherScreen},
+    {"app:downloads", CreateDownloadsScreen},
+    {"app:about", CreateAboutScreen},
 };
 
 // Interfaces the platform host still draws with its own forms. Anything not listed here
 // and not ported above gets the generic layout.
 const char *const kHostOwned[] = {
-    "ship",                                                                // hero sections
-    "map",            "dirsailenc",    "leavebattle", "salary", "boal_frame", // reading menus
+    "ship", // hero section
 };
 
 } // namespace
@@ -84,7 +128,8 @@ std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()
     consumers.push_back(CreateDialogueConsumer());
     consumers.push_back(CreateAppSettingsConsumer());
     consumers.push_back(CreateGameOverConsumer());
-    hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, presentation
+    consumers.push_back(CreateLauncherConsumer());
+    hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, ship, seaOrders, seaQuickAction, presentation, spyglass
     return consumers;
 }
 

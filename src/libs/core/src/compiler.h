@@ -132,6 +132,7 @@ class COMPILER : public VIRTUAL_COMPILER
     void ClearEvents();
 
     uint32_t GetIntFunctionCode(const char *func_name);
+    void DeleteScriptEntity(DATA &object);
     DATA *BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t arguments);
 
     uint32_t GetIntFunctionsNum();
@@ -147,6 +148,7 @@ class COMPILER : public VIRTUAL_COMPILER
     bool BC_SegmentIsLoaded(const char *file_name);
     bool BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const char *pDbgExpSource = nullptr);
     bool BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult);
+    void StoreDynamicCallStatus(bool returned_value);
     void FindErrorSource();
     S_TOKEN_TYPE BC_TokenGet(uint32_t &ip, uint32_t &token_data_size);
     S_TOKEN_TYPE BC_TokenGet();
@@ -263,6 +265,9 @@ private:
     bool androidUiAdapterAttempted_ = false;
     void ResetAndroidUiAdapter();
     void LoadAndroidUiAdapter();
+#endif
+#ifdef STORM_SCENE_SWEEP
+    void LoadSceneSweep(); // scene_sweep.cpp
 #endif
     [[nodiscard]] std::filesystem::path GetSegmentCachePath(const SEGMENT_DESC &segment) const;
 

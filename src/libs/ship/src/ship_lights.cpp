@@ -1,6 +1,7 @@
 #include "ship_lights.h"
 
 #include <algorithm>
+#include <cctype>
 
 #include "math_inlines.h"
 #include "shared/messages.h"
@@ -197,7 +198,7 @@ void ShipLights::AddFlare(VAI_OBJBASE *pObject, bool bLight, MODEL *pModel, cons
     if (!label.name)
         return;
     strcpy_s(str, label.name);
-    std::ranges::for_each(str, [](char &c) { c = std::tolower(c); });
+    std::ranges::for_each(str, [](char &c) { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
 
     aLights.push_back(ShipLight{});
     ShipLight *pL = &aLights.back();

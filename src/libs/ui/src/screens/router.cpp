@@ -262,13 +262,14 @@ void Bindings::Back(const Widget *exit_button)
     router_.Emit(std::move(action));
 }
 
-void Bindings::EditText(const Event &event, const Widget &widget, const std::string &title, bool numeric)
+void Bindings::EditText(const Event &event, const Widget &widget, const std::string &title, bool numeric, bool secret)
 {
     TextRequest request;
     request.token = std::to_string(++router_.edit_serial_);
     request.text = widget.value;
     request.title = title;
     request.numeric = numeric;
+    request.secret = secret;
     router_.edit_token_ = request.token;
     router_.edit_action_ = router_.Make(widget, "edit", {}, {});
     router_.edit_handler_ = nullptr;
@@ -490,7 +491,7 @@ void Router::Build()
             surface_.Error("screen " + model_.screen + ": required nodes missing or mistyped: " + rejection + "; drawn by the generic layout");
     }
     else if (!ported && logged_.insert("generic:" + model_.screen + ":" + nodes).second)
-        surface_.Log("screen " + model_.screen + ": no ported screen, generic layout; nodes=" + nodes.substr(1, nodes.size() - 2));
+        surface_.Log("screen " + model_.screen + ": no ported screen, generic layout; nodes=" + (nodes.empty() ? std::string("none") : nodes.substr(1, nodes.size() - 2)));
     Json view = screen_->Build(admitted, bindings_);
     // The generic layout places every widget itself and hands over only its overflow rows.
     Json rows = view.contains("more") ? view["more"] : Json::array();

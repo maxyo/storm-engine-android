@@ -16,6 +16,7 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -174,9 +175,14 @@ bool ReadJson(FileSource &files, const std::string &path, Json &out, std::string
     return true;
 }
 
+// The one live host of this process (Host::Create).
+std::atomic<bool> g_host_alive{false};
+
 class HostImpl final : public Host, public Services, public screens::Surface, public hud::Mount
 {
   public:
+    bool owns_process_slot = false;
+
     ~HostImpl() override
     {
         captures_.clear();
@@ -194,6 +200,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         if (initialised_)
             Rml::Shutdown();
         registry_.reset();
+        if (owns_process_slot)
+            g_host_alive = false;
     }
 
     bool Start(const Config &config, std::string *error)
@@ -677,12 +685,14 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         {
             Rml::Element *mounted = layer->GetChild(i);
             const auto keep = wanted.find(mounted->GetId());
-            if (mounted->GetId() == "sheet" || (keep != wanted.end() && hud_made_[mounted->GetId()] == keep->second))
+            if (mounted->GetId() == "sheet" || mounted->GetId() == "overlay" || (keep != wanted.end() && hud_made_[mounted->GetId()] == keep->second))
                 continue;
             RemoveHudElement(layer, mounted);
         }
         bool complete = true;
-        Rml::Element *before = layer->GetElementById("sheet"); // layout order: later elements are drawn on top
+        Rml::Element *before = layer->GetElementById("overlay"); // layout order: later elements are drawn on top
+        if (!before)
+            before = layer->GetElementById("sheet");
         for (size_t i = elements.size(); i-- > 0;)
         {
             const hud::LayoutElement &element = elements[i];
@@ -711,6 +721,30 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
                     complete = SetHudProps(child, view) && complete;
             mounted->SetClass("dim", std::find(view.dimmed.begin(), view.dimmed.end(), element.id) != view.dimmed.end());
         }
+        // The overlay (the spyglass card) lies over the scene's elements and under the sheet.
+        Rml::Element *overlay = hud_document_->GetElementById("overlay");
+        if (overlay && overlay->GetTagName() != view.overlay)
+        {
+            RemoveHudElement(layer, overlay);
+            overlay = nullptr;
+        }
+        if (!view.overlay.empty())
+        {
+            if (!overlay)
+            {
+                Rml::ElementPtr created = hud_document_->CreateElement(view.overlay);
+                created->SetId("overlay");
+                Rml::Element *above = layer->GetElementById("sheet");
+                overlay = above ? layer->InsertBefore(std::move(created), above) : layer->AppendChild(std::move(created));
+            }
+            if (auto *component = dynamic_cast<ComponentElement *>(overlay))
+                component->SetProps(view.overlay_props);
+            else
+            {
+                Error("UI pack has no HUD overlay " + view.overlay);
+                complete = false;
+            }
+        }
         // The sheet lies over everything else of the scene.
         Rml::Element *sheet = hud_document_->GetElementById("sheet");
         if (sheet && sheet->GetTagName() != view.sheet)
@@ -735,6 +769,23 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             }
         }
         return complete;
+    }
+
+    bool Measure(const std::string &id, const std::string &selector, hud::Placement &out) const override
+    {
+        Rml::Element *element = hud_document_ && hud_document_->IsVisible() ? hud_document_->GetElementById(id) : nullptr;
+        if (element && !selector.empty())
+            element = element->QuerySelector(selector);
+        if (!element || !element->IsVisible(true))
+            return false;
+        const Rml::Vector2f origin = element->GetAbsoluteOffset(Rml::BoxArea::Border), size = element->GetBox().GetSize(Rml::BoxArea::Border);
+        if (size.x <= 0.0f || size.y <= 0.0f)
+            return false;
+        auto *root = dynamic_cast<ComponentElement *>(hud_document_->GetElementById("hud"));
+        Rml::Element *layer = root ? ComponentSlot(*root) : nullptr;
+        const Rml::Vector2f corner = layer ? layer->GetAbsoluteOffset(Rml::BoxArea::Border) : Rml::Vector2f(0.0f, 0.0f);
+        out = {origin.x, origin.y, size.x, size.y, corner.x, corner.y, static_cast<float>(config_.width), static_cast<float>(config_.height), config_.density};
+        return true;
     }
 
     void HideHud() override
@@ -1161,7 +1212,16 @@ std::unique_ptr<FileSource> DirectoryFiles(std::string root)
 
 std::unique_ptr<Host> Host::Create(const Config &config, std::string *error)
 {
+    if (g_host_alive.exchange(true))
+    {
+        const std::string why = "a UI host already lives in this process: one host per process (RmlUi state is process-global)";
+        Rml::Log::Message(Rml::Log::LT_ERROR, "%s", why.c_str());
+        if (error)
+            *error = why;
+        return nullptr;
+    }
     auto host = std::make_unique<HostImpl>();
+    host->owns_process_slot = true;
     if (!host->Start(config, error))
         return nullptr;
     return host;

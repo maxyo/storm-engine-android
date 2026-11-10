@@ -1654,11 +1654,16 @@ void CXI_FORMATEDTEXT::MobileCollect(std::vector<MobileWidget> &widgets) const
     int group = -1;
     uint32_t color=0xffffffff;
     const bool styled=storm::android::mobileScreen=="shipyard"&&storm::iEquals(std::string(m_nodeName).substr(0,8),"tooltip_");
+    // A caption the script reads clicks on (the chest's category tabs: their events name
+    // the TABSTR node, not the picture under it).
+    const bool pressable = !m_bSelectableCursor && m_bUse && m_bClickable && !m_bLockedNode && !m_bLockStatus &&
+                           CheckCommandUsed(ACTION_MOUSECLICK);
     auto append = [&]() {
         if (!text.empty()) {
             MobileWidget widget{m_nodeName, m_bSelectableCursor ? "choice" : "text", text,
                 group == m_nCurGroupNum ? "1" : "0", group, m_rect.top * 8192 + m_rect.left + std::max(group, 0)};
             if(styled)widget.textColorArgb=color;
+            if (pressable) widget.actions.push_back("press");
             widgets.push_back(std::move(widget));
         }
         text.clear();
@@ -1673,6 +1678,14 @@ void CXI_FORMATEDTEXT::MobileCollect(std::vector<MobileWidget> &widgets) const
 }
 bool CXI_FORMATEDTEXT::MobileApply(int index, const std::string &value)
 {
+    if (value == "press")
+    {
+        if (m_bSelectableCursor || !m_bUse || !m_bClickable || m_bLockedNode || m_bLockStatus ||
+            !CheckCommandUsed(ACTION_MOUSECLICK)) return false;
+        bool stop = false;
+        DoAction(ACTION_MOUSECLICK, stop, true);
+        return true;
+    }
     if (!m_bSelectableCursor || value != "select") return false;
     bool found = false;
     for (auto *line = m_listRoot; line; line = line->next) if (line->strGroup == index) { found = true; break; }
