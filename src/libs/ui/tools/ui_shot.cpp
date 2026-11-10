@@ -2,6 +2,8 @@
 //
 //   storm_ui_shot --pack DIR --doc gallery/buttons.rml --size 915x412 --density 2 --out shot.png
 //                 [--game-root DIR] [--script "down 1 120 80; wait 0.5; shot held.png; up 1 120 80"]
+//   script commands: down|move|up <pointer> <x> <y>, wait <s>, shot <png>, toast <text>,
+//                    props <element id> <json>, scroll <element id>
 //
 // Sizes and script coordinates are in dp. The clock is simulated (60 frames a second),
 // so captures are repeatable. Reported actions go to stdout as "action id verb value".
@@ -240,6 +242,15 @@ int main(int argc, char **argv)
             std::string text;
             std::getline(words, text);
             host->Toast(text.substr(text.find_first_not_of(' ') == std::string::npos ? 0 : text.find_first_not_of(' ')), "info");
+            run(1.0 / 60.0);
+        }
+        else if (verb == "props") // props <element id> <json object>
+        {
+            std::string id, json;
+            words >> id;
+            std::getline(words, json);
+            if (!host->SetProps(id, json))
+                std::fprintf(stderr, "props: no component '%s' or bad JSON\n", id.c_str());
             run(1.0 / 60.0);
         }
         else if (verb == "scroll")

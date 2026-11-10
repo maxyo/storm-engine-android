@@ -1,7 +1,10 @@
 #include "components.h"
 
+#include <RmlUi/Core/ElementText.h>
+
 #include <algorithm>
 #include <cstdlib>
+#include <unordered_map>
 
 namespace storm::ui
 {
@@ -69,6 +72,143 @@ Rml::Element *FindSlot(Rml::Element *root)
             return found;
     }
     return nullptr;
+}
+
+// "height: 35%; left: 12dp" → {height: "35%", left: "12dp"}
+std::unordered_map<std::string, std::string> ParseStyle(const std::string &style)
+{
+    std::unordered_map<std::string, std::string> out;
+    size_t at = 0;
+    while (at < style.size())
+    {
+        size_t end = style.find(';', at);
+        if (end == std::string::npos)
+            end = style.size();
+        const size_t colon = style.find(':', at);
+        if (colon != std::string::npos && colon < end)
+        {
+            const auto trim = [](std::string text) {
+                const size_t first = text.find_first_not_of(" \t\n"), last = text.find_last_not_of(" \t\n");
+                return first == std::string::npos ? std::string() : text.substr(first, last - first + 1);
+            };
+            out[trim(style.substr(at, colon - at))] = trim(style.substr(colon + 1, end - colon - 1));
+        }
+        at = end + 1;
+    }
+    return out;
+}
+
+bool ParseLength(const std::string &text, Rml::Property &out)
+{
+    char *end = nullptr;
+    const float number = std::strtof(text.c_str(), &end);
+    if (end == text.c_str())
+        return false;
+    const std::string unit = end;
+    if (unit == "%")
+        out = Rml::Property(number, Rml::Unit::PERCENT);
+    else if (unit == "dp")
+        out = Rml::Property(number, Rml::Unit::DP);
+    else if (unit == "px")
+        out = Rml::Property(number, Rml::Unit::PX);
+    else
+        return false;
+    return true;
+}
+
+// An element marked data-tween="seconds" glides to changed inline lengths (fill levels,
+// knob positions) instead of jumping.
+void TweenStyle(Rml::Element *element, const std::string &before, const std::string &after)
+{
+    const float seconds = element->GetAttribute<float>("data-tween", 0.0f);
+    if (seconds <= 0.0f)
+        return;
+    const auto old_values = ParseStyle(before);
+    for (const auto &entry : ParseStyle(after))
+    {
+        const auto old_value = old_values.find(entry.first);
+        Rml::Property from, to;
+        if (old_value == old_values.end() || old_value->second == entry.second || !ParseLength(old_value->second, from) ||
+            !ParseLength(entry.second, to) || from.unit != to.unit)
+            continue;
+        element->Animate(entry.first, to, seconds, Rml::Tween(Rml::Tween::Cubic, Rml::Tween::Out), 1, true, 0.0f, &from);
+    }
+}
+
+void MorphChildren(Rml::Element *live, Rml::Element *fresh);
+
+// Makes `live` equal to the freshly rendered `fresh` while keeping the element itself,
+// so that running animations, pressed parts and scroll positions survive a prop change.
+void SyncElement(Rml::Element *live, Rml::Element *fresh)
+{
+    if (auto *text = rmlui_dynamic_cast<Rml::ElementText *>(live))
+    {
+        auto *fresh_text = rmlui_dynamic_cast<Rml::ElementText *>(fresh);
+        if (fresh_text && text->GetText() != fresh_text->GetText())
+            text->SetText(fresh_text->GetText());
+        return;
+    }
+    std::vector<std::string> stale;
+    for (const auto &entry : live->GetAttributes())
+        if (!fresh->HasAttribute(entry.first))
+            stale.push_back(entry.first);
+    for (const std::string &name : stale)
+    {
+        if (name == "style")
+            for (const auto &old : ParseStyle(live->GetAttribute<Rml::String>("style", "")))
+                live->RemoveProperty(old.first);
+        live->RemoveAttribute(name);
+    }
+    const Rml::ElementAttributes wanted = fresh->GetAttributes();
+    for (const auto &entry : wanted)
+    {
+        const Rml::String value = entry.second.Get<Rml::String>();
+        const bool had = live->HasAttribute(entry.first);
+        const Rml::String current = live->GetAttribute<Rml::String>(entry.first, "");
+        if (had && current == value)
+            continue;
+        if (entry.first == "style" && had)
+        {
+            // The attribute only adds properties: drop the ones the new text no longer has.
+            const auto kept = ParseStyle(value);
+            for (const auto &old : ParseStyle(current))
+                if (!kept.count(old.first))
+                    live->RemoveProperty(old.first);
+        }
+        live->SetAttribute(entry.first, value);
+        if (entry.first == "style" && had)
+            TweenStyle(live, current, value);
+    }
+    if (live->HasAttribute("slot"))
+        return; // the component's own children live here
+    if (auto *component = dynamic_cast<ComponentElement *>(live))
+    {
+        // A nested component rebuilds itself from its attributes; only content passed
+        // into its slot comes from this template.
+        if (Rml::Element *slot = FindSlot(component))
+            MorphChildren(slot, fresh);
+        return;
+    }
+    MorphChildren(live, fresh);
+}
+
+void MorphChildren(Rml::Element *live, Rml::Element *fresh)
+{
+    std::vector<Rml::ElementPtr> wanted;
+    while (fresh->GetNumChildren() > 0)
+        wanted.push_back(fresh->RemoveChild(fresh->GetFirstChild()));
+    for (size_t i = 0; i < wanted.size(); ++i)
+    {
+        Rml::Element *current = static_cast<int>(i) < live->GetNumChildren() ? live->GetChild(static_cast<int>(i)) : nullptr;
+        if (current && current->GetTagName() == wanted[i]->GetTagName())
+            SyncElement(current, wanted[i].get());
+        else if (current)
+            live->ReplaceChild(std::move(wanted[i]), current);
+        else
+            live->AppendChild(std::move(wanted[i]));
+    }
+    while (live->GetNumChildren() > static_cast<int>(wanted.size()))
+        live->RemoveChild(live->GetLastChild());
 }
 
 } // namespace
@@ -177,10 +317,17 @@ void ComponentElement::RebuildNow()
 {
     dirty_ = false;
 
+    // First build: the element's own children are the content for the slot.
     std::vector<Rml::ElementPtr> kept;
-    if (Rml::Element *slot = built_ ? FindSlot(this) : this)
-        while (slot->GetNumChildren() > 0)
-            kept.push_back(slot->RemoveChild(slot->GetFirstChild()));
+    bool has_children = false;
+    if (!built_)
+    {
+        while (GetNumChildren() > 0)
+            kept.push_back(RemoveChild(GetFirstChild()));
+        has_children = !kept.empty();
+    }
+    else if (Rml::Element *slot = FindSlot(this))
+        has_children = slot->GetNumChildren() > 0;
 
     Json scope = Json::object();
     prop_classes_.clear();
@@ -200,7 +347,7 @@ void ComponentElement::RebuildNow()
         scope[prop.name] = std::move(value);
     }
     scope["spec"] = spec_.constants;
-    scope["children"] = !kept.empty();
+    scope["children"] = has_children;
     scope["dp"] = services_.Density();
     for (const auto &rule : spec_.class_rules)
     {
@@ -215,23 +362,32 @@ void ComponentElement::RebuildNow()
         }
     }
 
+    std::string rml;
     try
     {
-        SetInnerRML(RenderTemplate(spec_.body, scope));
+        rml = RenderTemplate(spec_.body, scope);
     }
     catch (const std::exception &error)
     {
         Rml::Log::Message(Rml::Log::LT_ERROR, "Component %s: %s", GetTagName().c_str(), error.what());
-        SetInnerRML("");
+    }
+    Rml::ElementDocument *document = GetOwnerDocument();
+    if (!built_ || !document)
+    {
+        SetInnerRML(rml);
+        if (!kept.empty())
+            if (Rml::Element *slot = FindSlot(this))
+                for (Rml::ElementPtr &child : kept)
+                    slot->AppendChild(std::move(child));
+    }
+    else
+    {
+        // Later builds patch the existing tree in place.
+        Rml::ElementPtr fresh = document->CreateElement("div");
+        fresh->SetInnerRML(rml);
+        MorphChildren(this, fresh.get());
     }
     built_ = true;
-
-    if (!kept.empty())
-    {
-        if (Rml::Element *slot = FindSlot(this))
-            for (Rml::ElementPtr &child : kept)
-                slot->AppendChild(std::move(child));
-    }
     ApplyClasses();
     for (const auto &behavior : behaviors_)
         behavior->Rebuilt(*this);

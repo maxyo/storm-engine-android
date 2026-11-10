@@ -233,6 +233,7 @@ class HostImpl final : public Host, public Services
         LoadIconPack(icons);
         registry_ = std::make_unique<ComponentRegistry>(*this);
         registry_->Load(components);
+        SetGameImageLoader(config.game_picture_loader);
         SetGameImageRoot(config.game_root);
 
         bool fallback = true;

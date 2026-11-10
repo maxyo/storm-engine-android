@@ -9,6 +9,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -101,6 +102,12 @@ class Store
         queue_.clear();
     }
 
+    void SetLoader(std::function<bool(const std::string &, Picture &)> loader)
+    {
+        std::lock_guard lock(mutex_);
+        loader_ = std::move(loader);
+    }
+
     std::shared_ptr<Entry> Request(const std::string &texture)
     {
         std::lock_guard lock(mutex_);
@@ -108,7 +115,7 @@ class Store
         if (!entry)
         {
             entry = std::make_shared<Entry>();
-            if (root_.empty())
+            if (root_.empty() && !loader_)
                 entry->state = State::Missing;
             else
             {
@@ -154,6 +161,7 @@ class Store
         {
             Job job;
             std::string root;
+            std::function<bool(const std::string &, Picture &)> loader;
             {
                 std::unique_lock lock(mutex_);
                 wake_.wait(lock, [this] { return stop_ || !queue_.empty(); });
@@ -162,10 +170,13 @@ class Store
                 job = std::move(queue_.front());
                 queue_.pop_front();
                 root = root_;
+                loader = loader_;
             }
             bool ok = false;
             std::filesystem::path path;
-            if (ResolvePath(std::filesystem::path(root) / "RESOURCE" / "Textures", job.texture + ".tga.tx", path) ||
+            if (loader)
+                ok = loader(job.texture, job.entry->image);
+            else if (ResolvePath(std::filesystem::path(root) / "RESOURCE" / "Textures", job.texture + ".tga.tx", path) ||
                 ResolvePath(std::filesystem::path(root), "RESOURCE/Textures/" + job.texture + ".tga.tx", path))
             {
                 std::ifstream file(path, std::ios::binary);
@@ -182,6 +193,7 @@ class Store
     std::deque<Job> queue_;
     std::unordered_map<std::string, std::shared_ptr<Entry>> entries_;
     std::string root_;
+    std::function<bool(const std::string &, Picture &)> loader_;
     std::thread worker_;
     std::atomic<bool> changed_{false};
     bool stop_ = false;
@@ -275,6 +287,11 @@ void RegisterGameImageElement()
 void SetGameImageRoot(const std::string &game_root)
 {
     Store::Get().SetRoot(game_root);
+}
+
+void SetGameImageLoader(std::function<bool(const std::string &, Picture &)> loader)
+{
+    Store::Get().SetLoader(std::move(loader));
 }
 
 bool GameImagesChanged()

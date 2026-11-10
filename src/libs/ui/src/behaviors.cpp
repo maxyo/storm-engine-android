@@ -90,6 +90,7 @@ class PressBehavior final : public Behavior
             part = &self;
         }
         part_ = part;
+        part_alive_ = part->GetObserverPtr();
         pointer_ = pointer.id;
         if (self.Flag("busy"))
             return true;
@@ -169,8 +170,9 @@ class PressBehavior final : public Behavior
 
     void Rebuilt(ComponentElement &self) override
     {
-        // The inner tree was replaced: a part of it under the finger no longer exists.
-        if (part_ && part_ != &self)
+        // The inner tree is patched in place; a pressed part usually survives. If it was
+        // replaced, the press is over.
+        if (part_ && part_ != &self && !part_alive_)
         {
             part_ = nullptr;
             holding_ = false;
@@ -284,6 +286,7 @@ class PressBehavior final : public Behavior
     }
 
     Rml::Element *part_ = nullptr;
+    Rml::ObserverPtr<Rml::Element> part_alive_;
     int pointer_ = -1;
     double down_at_ = 0.0;
     double done_until_ = 0.0;

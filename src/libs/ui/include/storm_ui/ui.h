@@ -30,6 +30,14 @@ struct Action
 
 class RenderBackend; // render_backend.h
 
+// A decoded game picture: premultiplied RGBA8, top row first.
+struct Picture
+{
+    int width = 0;
+    int height = 0;
+    std::vector<uint8_t> rgba;
+};
+
 struct Config
 {
     FileSource *files = nullptr; // must outlive the host
@@ -42,6 +50,10 @@ struct Config
     // Directory with the player's game files (the one holding RESOURCE/). Game pictures
     // are decoded from there at run time; nothing of them ships with the application.
     std::string game_root;
+    // Optional replacement for the built-in .tx reader: called on a worker thread with
+    // the texture name ("INTERFACES/items6"); false keeps the placeholder. This is where
+    // the engine's texture module plugs in, so that pictures are decoded in one place.
+    std::function<bool(const std::string &texture, Picture &out)> game_picture_loader;
     std::function<void(const Action &)> on_action;
     // Optional clock in seconds, for deterministic captures.
     std::function<double()> clock;
