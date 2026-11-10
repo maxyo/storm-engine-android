@@ -328,18 +328,24 @@ bool SHIP_CAMERA::IslandCollision(glm::vec3 &pos)
     };
     if (!underIsland(pos))
         return kRes < 1.0f;
+    // The ship itself is under the overhang: no point of the segment has a clear sky, keep the camera
+    // where the segment trace put it rather than collapsing it onto the ship (eye == target).
+    if (underIsland(vCenter))
+        return kRes < 1.0f;
+    // vCenter is clear, pos is not: bisect for the clear point nearest to pos (3 traces, 1/8 resolution).
+    auto clear = 0.0f, covered = 1.0f;
     const auto camOffset = pos - vCenter;
-    constexpr auto steps = 8;
-    pos = vCenter;
-    for (auto i = steps - 1; i > 0; i--)
+    for (auto i = 0; i < 3; i++)
     {
-        const auto candidate = vCenter + camOffset * (static_cast<float>(i) / steps);
-        if (!underIsland(candidate))
-        {
-            pos = candidate;
-            break;
-        }
+        const auto mid = (clear + covered) * 0.5f;
+        if (underIsland(vCenter + camOffset * mid))
+            covered = mid;
+        else
+            clear = mid;
     }
+    if (clear == 0.0f)
+        return kRes < 1.0f; // the overhang starts right at the ship: no usable clear point, see above
+    pos = vCenter + camOffset * clear;
     return true;
 }
 
