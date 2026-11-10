@@ -7,6 +7,12 @@
  "analogMovement": false,
  "movementGeneration": 0,
  "capabilities": [
-  "WMapShipSailUp"
+  "WMapShipSailUp",
+  "WMapShipSailDown",
+  "WMapShipTurnLeft",
+  "WMapShipTurnRight",
+  "WMapCancel",
+  "WMapCameraSwitch",
+  "WMapCameraRotate"
  ]
 }

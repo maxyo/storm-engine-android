@@ -458,10 +458,11 @@ static void CheckTouches(const std::string &pack)
     run.Frame();
     Expect(host.WantsTouch(90, 320), "live again");
 
-    // a mode of the platform host
-    run.Feed("gameplay", "gameplay-worldmap");
+    // a mode without a scene (every gameplay mode has one now: land, sea, world map)
+    run.Feed("gameplay", "gameplay-orders");
     run.Frame();
-    Expect(!host.WantsTouch(90, 320) && HostOwnsHud("worldmap") && !HostOwnsHud("explore") && !HostOwnsHud("melee"), "on the world map the platform host draws the HUD");
+    Expect(!host.WantsTouch(90, 320) && HostOwnsHud("unknown") && !HostOwnsHud("worldmap") && !HostOwnsHud("explore") && !HostOwnsHud("melee"),
+           "a mode without a scene takes the land HUD away");
 
     // safe area: the layer moves in, and the claimed places with it
     run.Feed("gameplay", "gameplay-explore");

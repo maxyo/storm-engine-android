@@ -6,14 +6,14 @@
 namespace storm::android
 {
 // Controls a touch HUD holds by name: the helm of the ship at sea and on the world map, the
-// spyglass and the world-map sail lever. The engine polls them like keys, so a hold is a virtual state
+// spyglass, the world-map sail lever and its camera button. The engine polls them like keys, so a hold is a virtual state
 // merged into Controls::GetControlState. Game-thread owned.
 //
 // Request "<gameplayRevision>\t<control>\t<0|1>". A hold belongs to the gameplay revision
 // it was made in and must be repeated at least every 350 ms; a new revision, a cancelled
 // input (cancelAndroidCombatInput) and silence release it.
-inline constexpr std::array<std::string_view, 7> HeldControlNames{"Ship_TurnLeft", "Ship_TurnRight", "TelescopeIn", "WMapShipSailUp",
-                                                                 "WMapShipSailDown", "WMapShipTurnLeft", "WMapShipTurnRight"};
+inline constexpr std::array<std::string_view, 8> HeldControlNames{"Ship_TurnLeft", "Ship_TurnRight", "TelescopeIn", "WMapShipSailUp",
+                                                                 "WMapShipSailDown", "WMapShipTurnLeft", "WMapShipTurnRight", "WMapCameraSwitch"};
 class HeldControls
 {
     struct Held

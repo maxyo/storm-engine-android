@@ -9,6 +9,7 @@ namespace storm::ui::hud
 
 std::unique_ptr<Scene> CreateLandScene(Hud &hud);
 std::unique_ptr<Scene> CreateSeaScene(Hud &hud);
+std::unique_ptr<Scene> CreateWorldMapScene(Hud &hud);
 
 namespace
 {
@@ -19,12 +20,14 @@ constexpr size_t kLines = 3;
 
 const char *const kLandModes[] = {"explore", "melee"};
 const char *const kSeaModes[] = {"sailing", "naval"};
+const char *const kWorldMapModes[] = {"worldmap"};
 
 // Ported HUD scenes by gameplay mode. Porting a zone = adding its scene here; the
 // platform host stops drawing that mode's HUD because HostOwnsHud turns false for it.
 const SceneEntry kScenes[] = {
     {"land", kLandModes, CreateLandScene},
     {"sea", kSeaModes, CreateSeaScene},
+    {"world-map", kWorldMapModes, CreateWorldMapScene},
 };
 
 } // namespace

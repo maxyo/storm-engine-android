@@ -413,6 +413,7 @@ void WdmWindUI::LRender(VDX9RENDER *rs)
     const auto finite = [](double value)->std::optional<double>{return std::isfinite(value)?std::optional<double>(value):std::nullopt;};
     source.hour = finite(wdmObjects->wm->hour);
     source.windForce = finite(widForce); source.windAngle = finite(ang); source.heading = finite(ay);
+    source.speed = finite(std::round(wdmObjects->playerShip->SpeedShare() * 100.0) / 100.0);
     if (androidMoraleValid) source.morale = (morale + 1.0) * 50.0;
     if (androidFoodValid) source.foodDays = food;
     source.rumDays = rum;
