@@ -5,6 +5,7 @@
 #include <core.h>
 #include <string_compare.hpp>
 #include <v_data.h>
+#include "../../xinterface/src/string_service.h"
 
 #include <cstdlib>
 #include <optional>
@@ -81,7 +82,10 @@ inline bool publishDialogue(const void *owner, ATTRIBUTES *attrs, const char *sp
     // Hidden routing metadata participates in generation changes, even if all
     // displayed text is identical. It is never accepted from the Android UI.
     std::string identity = dialogueIdentityField(attrs->GetAttribute("CurrentNode"));
-    std::string body = "\"speaker\":" + dialogueJsonString(speaker) + ",\"text\":" + dialogueJsonString(attrs->GetAttribute("Text")) + ",\"choices\":[";
+    // The game's language: the UI picks its own strings (buttons, editor) by it.
+    const char *language = nullptr;
+    if (auto *strings = static_cast<VSTRSERVICE *>(core.GetService("STRSERVICE"))) language = strings->GetLanguage();
+    std::string body = "\"language\":" + dialogueJsonString(language) + ",\"speaker\":" + dialogueJsonString(speaker) + ",\"text\":" + dialogueJsonString(attrs->GetAttribute("Text")) + ",\"choices\":[";
     bool first = true;
     if (links) for (size_t i=0; i<links->GetAttributesNum(); ++i) {
         auto *link = links->GetAttributeClass(i);

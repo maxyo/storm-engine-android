@@ -268,9 +268,6 @@ class DialogueConsumer final : public StateConsumer
         model.screen = "dialogue";
         model.opening = state.value("generation", uint64_t{0});
         model.revision = ++revision_;
-        // The dialogue speaks the game's language: the one the gameplay state names.
-        if (router.Hud())
-            model.language = router.Hud()->Current().gameplay.language;
         // The game's texts may carry escaped line breaks ("\n" as two characters).
         const auto text = [](const Json &object, const char *key) {
             const auto found = object.find(key);
@@ -286,6 +283,11 @@ class DialogueConsumer final : public StateConsumer
             }
             return out;
         };
+        // The game's language as the engine sends it with the dialogue (the gameplay state
+        // reports none while a dialogue holds the game).
+        model.language = text(state, "language");
+        if (model.language.empty() && router.Hud())
+            model.language = router.Hud()->Current().gameplay.language;
         Widget speaker;
         speaker.node = "SPEAKER";
         speaker.type = "heading";
