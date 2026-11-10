@@ -1,5 +1,6 @@
 #pragma once
 
+#include <set>
 #include <string_view>
 #include <tuple>
 
@@ -146,7 +147,11 @@ class COMPILER : public VIRTUAL_COMPILER
     void ResizeBCodeBuffer(SEGMENT_DESC &Segment, uint32_t add_size);
     bool BC_LoadSegment(const char *file_name);
     bool BC_SegmentIsLoaded(const char *file_name);
-    bool BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const char *pDbgExpSource = nullptr);
+    // passed_args: number of arguments the caller pushed (kArgsAsDeclared: as many as declared)
+    static constexpr uint32_t kArgsAsDeclared = 0xffffffff;
+    bool BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const char *pDbgExpSource = nullptr,
+                    uint32_t passed_args = kArgsAsDeclared);
+    bool BindPassedArguments(const FuncInfo &fi, FuncFrame &frame, uint32_t passed_args);
     bool BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult);
     void StoreDynamicCallStatus(bool returned_value);
     void FindErrorSource();
@@ -165,6 +170,37 @@ class COMPILER : public VIRTUAL_COMPILER
 
     S_TOKEN_TYPE NextTokenType();
     S_TOKEN_TYPE SkipAuxiliaryTokens();
+    bool SkipToTopLevel(uint32_t depth);
+    static bool IsIdentifier(const char *text);
+    static std::string LowerName(const std::string &name);
+    static std::string LocalSlotName(const std::string &name, uint32_t occurrence);
+    static std::string LabelKey(const std::string &func_name, const char *label);
+    static constexpr uint32_t kRuntimeArraySize = 2; // slot of an array sized at run time: an array until then
+    uint32_t ScanLocalArraySize();
+    uint32_t ConstantArraySize();
+    uint32_t SkipInitializer(bool &resumed);
+    // pass 2: block scoped locals
+    uint32_t FindLocal(const char *name) const;
+    static bool ReturnTypesMatch(S_TOKEN_TYPE declared, S_TOKEN_TYPE engine);
+    const std::string &CurrentFunctionName() const;
+    // script function name of a CALL_FUNCTION code (codes depend on the order functions were seen)
+    const char *GetFunctionName(uint32_t code) const
+    {
+        const auto *fi = FuncTab.GetFuncInfo(code);
+        return fi ? fi->name.c_str() : "?";
+    }
+    uint32_t BindLocal(const char *name, uint32_t depth);
+    bool CompileLocalDeclarator(SEGMENT_DESC &Segment, uint32_t depth, bool first);
+    bool CompileArrayInitializer(SEGMENT_DESC &Segment, S_TOKEN_TYPE var_type, uint32_t var_code);
+    void CloseLocalScopes(uint32_t depth);
+    bool ScanParameterList(uint32_t func_code, bool bExtern, FuncInfo &declared);
+    bool ScanDefaultArgument(S_TOKEN_TYPE param_type, DefaultArgument &value);
+    static int32_t ParseIntLiteral(const char *text);
+    bool CompileCallArguments(SEGMENT_DESC &Segment, uint32_t &func_args);
+    // in_expression: a count mismatch only warns, as calls inside expressions were never checked
+    // (TEHO has a few) and still compile as before
+    bool CheckCallArguments(uint32_t func_code, uint32_t func_args, bool in_expression = false);
+    bool ReportMissingNative(const std::string &name);
 
     bool BC_ProcessExpression(DATA *value);
     void BC_ProcessExpression_L0(DATA *value);
@@ -259,6 +295,22 @@ class COMPILER : public VIRTUAL_COMPILER
 
     // printout script functions usage
     void PrintoutUsage();
+
+    // Host compile check (src/apps/script_check): every compile diagnostic is also appended to
+    // `sink`; source line tracking is on, the script cache is off and a segment that fails to
+    // compile keeps its declarations, so the segments compiled after it are checked against them.
+    // missing_natives_are_errors: false for a game check (no engine library is linked), true for
+    // script tests (as in the game)
+    void ConfigureCompileCheck(std::vector<std::string> *sink, bool missing_natives_are_errors);
+    // bytecode of a loaded segment, nullptr if it is not loaded
+    const char *GetSegmentCode(const char *segment_name, uint32_t &size) const;
+    // runs a script function that takes no arguments; `value` receives its result as text
+    bool RunScriptFunction(const char *func_name, std::string &value);
+    // attribute name of an ACCESS_WORD_CODE (codes depend on the order names were first seen)
+    const char *GetAccessWord(uint32_t code)
+    {
+        return SCodec.Convert(code);
+    }
 
 private:
 #ifdef __ANDROID__
@@ -366,5 +418,25 @@ private:
 
     // attempt to read/write script cache?
     int script_cache_mode_;
+
+    // see ConfigureCompileCheck
+    std::vector<std::string> *diagnosticsSink_ = nullptr;
+    bool compileCheck_ = false;
+    uint32_t compileErrors_ = 0; // errors reported while compiling the current segment
+    bool missingNativesAreErrors_ = true;
+    std::set<std::string> missingNatives_; // reported once per segment
+    // pass 2: locals visible at the current point, innermost last
+    struct LocalBinding
+    {
+        std::string name;
+        uint32_t slot;
+        uint32_t depth;
+    };
+    std::vector<LocalBinding> localScopes_;
+    std::unordered_map<std::string, uint32_t> localDeclarations_; // declarations so far per name
+    bool declListActive_ = false; // inside "int a, b;"
+    bool declExpectName_ = false; // a ',' of that list was just compiled
+    std::vector<std::string> *undeclaredNatives_ = nullptr; // SetScriptFunction during a library's Init
+    std::unordered_map<std::string, IFUNCINFO> pendingNatives_; // registered, not declared yet (lowercase)
     storm::ScriptCache script_cache_;
 };

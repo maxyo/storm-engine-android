@@ -1174,6 +1174,16 @@ bool DATA::Convert(S_TOKEN_TYPE type)
     return false;
 }
 
+void DATA::SetArraySize(uint32_t size)
+{
+    SetType(Data_type, size > 1 ? size : 2);
+    if (size < 2)
+    {
+        ArrayPTR.resize(size);
+        Number_of_elements = size;
+    }
+}
+
 void DATA::SetElementsNum(uint32_t _asize)
 {
     if (Data_type == VAR_REFERENCE)

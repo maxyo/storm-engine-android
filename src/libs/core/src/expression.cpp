@@ -1389,39 +1389,10 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
             // if(fi.return_type == TVOID){ SetError("void function in expression: %s",fi.name); return false; }
 
             uint32_t func_args;
-            func_args = 0;
-
-            if (fi.arguments == 0 && !IsIntFuncVarArgsNum(dwRCode) && sttFuncCallType != CALL)
-            {
-                // function without parameters
-                if (Token.Get() != CLOSE_BRACKET)
-                {
-                    SetError("missing ')'");
-                    return false;
-                }
-            }
-            else
-            {
-                // proceed with parameters list
-                do
-                {
-                    // compile expression leave in stack top expression result
-                    if (!CompileExpression(Segment))
-                    {
-                        SetError("invalid function argument");
-                        return false;
-                    }
-                    if (Token.GetType() != COMMA)
-                    {
-                        if (Token.GetType() != CLOSE_BRACKET)
-                        {
-                            SetError("invalid function argument");
-                            return false;
-                        }
-                    }
-                    func_args++;
-                } while (Token.GetType() == COMMA);
-            }
+            if (!CompileCallArguments(Segment, func_args))
+                return false;
+            if (sttFuncCallType == CALL_FUNCTION && !CheckCallArguments(dwRCode, func_args, true))
+                return false;
 
             /*
             // off for debug needs

@@ -114,6 +114,8 @@ enum FUNCTION_CODE
     FUNC_CHECKFUNCTION,
     FUNC_GETENGINEVERSION,
     FUNC_SORT,
+    FUNC_GET_ARG,
+    FUNC_GET_ARG_COUNT,
 };
 
 INTFUNCDESC IntFuncTable[] = {
@@ -146,7 +148,9 @@ INTFUNCDESC IntFuncTable[] = {
     VAR_INTEGER, 1, "FindEntityNext", VAR_INTEGER, 2, "GetSymbol", VAR_STRING, 2, "IsDigit", VAR_INTEGER, 2,
     "SaveVariable", VAR_INTEGER, 2, "LoadVariable", VAR_INTEGER, 2, "SetControlTreshold", TVOID, 2, "LockControl",
     TVOID, 1, "TestRef", VAR_INTEGER, 1, "SetTimeScale", TVOID, 1, "CheckFunction", VAR_INTEGER, 0, "GetEngineVersion",
-    VAR_INTEGER, 1, "sort", TVOID};
+    VAR_INTEGER, 1, "sort", TVOID,
+    // arguments of the running script function, also those passed to its "..."
+    1, "GetArg", VAR_REFERENCE, 0, "GetArgCount", VAR_INTEGER};
 
 /*
 char * FuncNameTable[]=
@@ -2581,6 +2585,41 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         pV->Get(pChar);
         core_internal.InitiateStateLoading(pChar);
         break;
+    case FUNC_GET_ARG: {
+        pV = SStack.Pop();
+        pV = pV ? pV->GetVarPointer() : nullptr;
+        if (!pV || !pRun_fi)
+        {
+            SetError(INVALID_FA);
+            break;
+        }
+        pV->Convert(VAR_INTEGER);
+        pV->Get(TempLong1);
+        const auto passed = pRun_fi->arguments + static_cast<uint32_t>(pRun_fi->varargs.size());
+        if (TempLong1 < 0 || static_cast<uint32_t>(TempLong1) >= passed)
+        {
+            SetError("GetArg(%d): '%s' was passed %u arguments", TempLong1, pRun_fi->info->name.c_str(), passed);
+            break;
+        }
+        const auto index = static_cast<uint32_t>(TempLong1);
+        pV = index < pRun_fi->arguments ? SStack.Read(pRun_fi->stack_offset, index)
+                                         : &pRun_fi->varargs[index - pRun_fi->arguments];
+        pResult = SStack.Push();
+        pResult->SetType(VAR_REFERENCE);
+        pResult->SetReference(pV->GetVarPointer());
+        pVResult = pResult;
+        return pResult;
+    }
+    case FUNC_GET_ARG_COUNT:
+        if (!pRun_fi)
+        {
+            SetError("GetArgCount outside a script function");
+            break;
+        }
+        pResult = SStack.Push();
+        pResult->Set(static_cast<int32_t>(pRun_fi->arguments + pRun_fi->varargs.size()));
+        pVResult = pResult;
+        return pResult;
     case FUNC_SORT:
         pV = SStack.Pop();
         if (!pV || pV->GetType() != VAR_AREFERENCE)

@@ -124,7 +124,7 @@ class FILE_SERVICE : public VFILE_SERVICE
     void FlushIniFiles();
 
     // Resource paths
-    void ScanResourcePaths() override;
+    void ScanResourcePaths(bool engineShaders = true) override;
     std::string ConvertPathResource(const char *path) override;
 
     uint64_t GetPathFingerprint(const std::filesystem::path &path) override;

@@ -32,6 +32,16 @@ struct LocalVarInfo
     size_t elements;
 };
 
+// value of a defaulted trailing parameter: NUMBER (int), FLOAT_NUMBER, STRING or, for a ref/aref
+// parameter declared "= nullptr", VAR_REFERENCE (null reference)
+struct DefaultArgument
+{
+    S_TOKEN_TYPE type;
+    int32_t int_value{};
+    float float_value{};
+    std::string string_value;
+};
+
 struct FuncInfo
 {
     FuncInfo();
@@ -58,6 +68,14 @@ struct FuncInfo
     // imported func info
     SIMPORTFUNC imported_func;
     uint32_t extern_arguments;
+
+    // values of the last default_args.size() arguments, filled in when a call passes fewer
+    std::vector<DefaultArgument> default_args;
+    // declared with "..." after its named arguments: GetArg/GetArgCount read the extra ones
+    bool varargs{};
+    // declared "native": implemented by an engine library (segment_id becomes IMPORTED_SEGMENT_ID
+    // when a library provides it)
+    bool native{};
 };
 
 // Per-call view of a function. The interpreter used to deep-copy FuncInfo
@@ -79,6 +97,8 @@ struct FuncFrame
     uint32_t stack_offset{};
     uint32_t arguments{};
     S_TOKEN_TYPE return_type{TVOID};
+    // arguments passed after the declared ones to a function declared with "..." (GetArg)
+    std::vector<DATA> varargs;
 };
 
 class FuncTable
@@ -101,6 +121,10 @@ class FuncTable
     // or nullptr. The pointer stays valid until Release(); the entry itself may be
     // updated when its segment is unloaded or reloaded.
     const FuncInfo *GetFuncPtr(size_t func_index) const;
+    // the table entry whether loaded or not, nullptr for an invalid index (compiler checks)
+    const FuncInfo *GetFuncInfo(size_t func_index) const;
+    // defaults of the trailing arguments and "..." from the declaration
+    void SetFuncSignature(size_t func_index, std::vector<DefaultArgument> default_args, bool varargs);
     // invalidate all segment's functions
     void InvalidateBySegmentID(uint32_t segment_id);
 
