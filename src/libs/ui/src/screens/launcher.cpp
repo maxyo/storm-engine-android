@@ -109,10 +109,12 @@ std::string Decimal(const Bindings &bindings, double value)
     return text;
 }
 
-std::string Size(const Bindings &bindings, double bytes)
+// A size in GB from a tenth of a GB, else in MB; `scale` (when given) picks the unit, so
+// that "done of total" share one.
+std::string Size(const Bindings &bindings, double bytes, double scale = -1)
 {
     constexpr double kMiB = 1048576.0, kGiB = 1073741824.0;
-    if (bytes >= kGiB / 10)
+    if ((scale < 0 ? bytes : scale) >= kGiB / 10)
         return Fill(bindings.Text("launcher.gb"), {Decimal(bindings, bytes / kGiB)});
     return Fill(bindings.Text("launcher.mb"), {Decimal(bindings, bytes / kMiB)});
 }
@@ -328,7 +330,7 @@ class LauncherScreen final : public Screen
                 {
                     percent = std::min(100.0, std::floor(bytes * 100 / total));
                     status = Fill(bindings.Text("launcher.progress_of"),
-                                  {std::to_string(static_cast<int>(percent)), Size(bindings, bytes), Size(bindings, total)});
+                                  {std::to_string(static_cast<int>(percent)), Size(bindings, bytes, total), Size(bindings, total)});
                     const std::string left = TimeLeft(bindings, rate_.SecondsLeft(stage, bindings.Now(), bytes, total));
                     if (!left.empty())
                         status += " · " + left;
