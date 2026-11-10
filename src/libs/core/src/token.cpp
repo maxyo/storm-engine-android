@@ -179,6 +179,7 @@ const char *TokenTypeName[] = { // in S_TOKEN_TYPE order
     "NEW_ARRAY",
     "STACK_INDEX",
     "LEFTOP_SUBINDEX",
+    "AP_FROM_STACK",
 
 };
 
@@ -326,6 +327,8 @@ S_KEYWORD Keywords[] = {
     "!",
     IMPORT,
     "native",
+    IMPORT,
+    "lua", // CL: functions implemented in Lua, called like natives
     CALL,
     "call",
     OP_QUESTION,
@@ -549,12 +552,14 @@ S_TOKEN_TYPE TOKEN::Get(bool bKeepData)
         eTokenType = INVALID_TOKEN;
         return eTokenType;
     case '"':
+    case '`': { // CL also quotes strings with backticks
+        const char quote = sym;
         Program += utf8::u8_inc(Program);
         pBase = Program;
         do
         {
             sym = *Program;
-            if (sym == '"')
+            if (sym == quote)
             {
                 SetNTokenData(pBase, Program - pBase);
                 eTokenType = STRING;
@@ -569,6 +574,7 @@ S_TOKEN_TYPE TOKEN::Get(bool bKeepData)
         SetNTokenData(pBase, counter);
         eTokenType = INVALID_TOKEN;
         return eTokenType;
+    }
     }
     const auto stt = ProcessToken(Program, bKeepData);
     if (stt == HOLD_COMPILATION)

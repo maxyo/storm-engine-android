@@ -1044,6 +1044,14 @@ bool DATA::Convert(S_TOKEN_TYPE type)
         return false;
     } // yet
     char buffer[128];
+    if (Data_type == VAR_AREFERENCE && (type == VAR_STRING || type == VAR_INTEGER || type == VAR_FLOAT))
+    {
+        // the attribute's value (CL passes attribute references where values are expected)
+        const std::string text = AttributesClass ? to_string(AttributesClass->GetThisAttr()) : std::string();
+        ClearType();
+        Set(text);
+        return Convert(type);
+    }
     if (Data_type == VAR_FREF || type == VAR_FREF)
     {
         // a function reference is the function's name

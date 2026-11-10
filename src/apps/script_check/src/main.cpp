@@ -186,6 +186,7 @@ int check(int argc, char **argv)
     const auto started = std::chrono::steady_clock::now();
     size_t errors = 0, failed = 0;
     std::set<std::string> missing_natives;
+    bool dumping = true; // segments are dumped while they are loaded
     auto report = [&](const std::string &segment, bool ok) {
         for (const auto &line : diagnostics)
         {
@@ -202,7 +203,7 @@ int check(int argc, char **argv)
             ++failed;
             std::printf("FAILED segment %s\n", segment.c_str());
         }
-        if (!dump.empty() && ok)
+        if (!dump.empty() && ok && dumping)
         {
             uint32_t size = 0;
             if (const char *code = compiler.GetSegmentCode(segment.c_str(), size))
@@ -239,12 +240,69 @@ int check(int argc, char **argv)
 
     const bool main_ok = compiler.BC_LoadSegment(main_name.c_str());
     report(main_name, main_ok);
+
+    // Every other segment on its own (the game loads and unloads them); its diagnostics are held
+    // back while a retry may still explain them.
+    std::map<std::string, std::string> provider; // lowercase symbol -> segment defining it
+    std::map<std::string, std::vector<std::string>> held;
+    std::vector<std::string> failed_segments;
     for (const auto &segment : segments)
     {
+        diagnostics.clear();
         const bool ok = compiler.BC_LoadSegment(segment.c_str());
-        report(segment, ok);
+        if (ok && !dump.empty())
+        {
+            auto pending = diagnostics; // report() dumps and clears; keep the diagnostics for later
+            diagnostics.clear();
+            report(segment, true);
+            diagnostics = std::move(pending);
+        }
+        for (const auto &name : compiler.GetSegmentSymbols(segment.c_str()))
+            provider.emplace(lower(name), segment);
         compiler.UnloadSegment(segment.c_str());
         compiler.ProcessFrame(0);
+        held[segment] = diagnostics;
+        if (!ok)
+            failed_segments.push_back(segment);
+    }
+    // A segment using names of another segment (loaded together in the game, e.g. the story frame
+    // interface and its nodes) is compiled again with those segments loaded first.
+    const std::regex unknown_name(R"re((?:Undeclared identifier: |unexpected ')([A-Za-z_]\w*))re");
+    for (const auto &segment : failed_segments)
+    {
+        std::set<std::string> needed;
+        for (const auto &line : held[segment])
+            for (std::sregex_iterator it(line.begin(), line.end(), unknown_name), end; it != end; ++it)
+                if (auto found = provider.find(lower((*it)[1].str())); found != provider.end() && found->second != segment)
+                    needed.insert(found->second);
+        if (needed.empty())
+            continue;
+        diagnostics.clear();
+        for (const auto &with : needed)
+            compiler.BC_LoadSegment(with.c_str());
+        diagnostics.clear();
+        compiler.BC_LoadSegment(segment.c_str());
+        auto retried = diagnostics;
+        compiler.UnloadSegment(segment.c_str());
+        for (const auto &with : needed)
+            compiler.UnloadSegment(with.c_str());
+        compiler.ProcessFrame(0);
+        std::string list;
+        for (const auto &with : needed)
+            list += (list.empty() ? "" : ", ") + with;
+        retried.insert(retried.begin(), "NOTE: " + segment + " compiled with " + list + " loaded");
+        held[segment] = std::move(retried);
+    }
+    dumping = false;
+    for (const auto &segment : segments)
+    {
+        diagnostics = held[segment];
+        const bool ok = !std::ranges::any_of(diagnostics, isError);
+        if (warnings)
+            for (const auto &line : diagnostics)
+                if (line.starts_with("NOTE: "))
+                    std::printf("%s\n", line.c_str());
+        report(segment, ok);
     }
     const auto ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();

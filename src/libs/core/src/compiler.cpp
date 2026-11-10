@@ -274,6 +274,9 @@ char *COMPILER::LoadFile(const char *file_name, uint32_t &file_size, bool bFullP
     fio->_CloseFile(fileS);
     file_size = fsize;
     pData[fsize] = 0;
+    if (fsize >= 3 && static_cast<uint8_t>(pData[0]) == 0xEF && static_cast<uint8_t>(pData[1]) == 0xBB &&
+        static_cast<uint8_t>(pData[2]) == 0xBF)
+        pData[0] = pData[1] = pData[2] = ' '; // UTF-8 byte order mark
     return pData;
 }
 
@@ -455,6 +458,30 @@ const char *COMPILER::GetSegmentCode(const char *segment_name, uint32_t &size) c
     }
     size = 0;
     return nullptr;
+}
+
+std::vector<std::string> COMPILER::GetSegmentSymbols(const char *segment_name)
+{
+    std::vector<std::string> names;
+    uint32_t id = INVALID_SEGMENT_ID;
+    for (uint32_t n = 0; n < SegmentsNum; n++)
+        if (SegmentTable[n].name == segment_name)
+            id = SegmentTable[n].id;
+    if (id == INVALID_SEGMENT_ID)
+        return names;
+    for (size_t n = 0; n < FuncTab.GetFuncNum(); n++)
+        if (const auto *fi = FuncTab.GetFuncInfo(n); fi && fi->segment_id == id && fi->offset != INVALID_FUNC_OFFSET)
+            names.push_back(fi->name);
+    for (size_t n = 0; n < VarTab.GetVarNum(); n++)
+        if (const auto *vi = VarTab.GetVarX(n); vi && vi->segment_id == id)
+            names.push_back(vi->name);
+    for (uint32_t n = 0; n < DefTab.GetDefNum(); n++)
+    {
+        DEFINFO di;
+        if (DefTab.GetDefX(di, n) && di.segment_id == id && di.name)
+            names.emplace_back(di.name);
+    }
+    return names;
 }
 
 bool COMPILER::RunScriptFunction(const char *func_name, std::string &value)
@@ -2504,6 +2531,10 @@ bool COMPILER::BindPassedArguments(const FuncInfo &fi, FuncFrame &frame, uint32_
             case STRING:
                 pV->Set(value.string_value);
                 break;
+            case VAR_FREF:
+                pV->ClearType();
+                pV->SetFref(value.string_value);
+                break;
             default: // nullptr for a ref or aref parameter
                 pV->SetType(fi.local_vars[n].type);
                 break;
@@ -2882,19 +2913,16 @@ bool COMPILER::CompileRangeFor(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint
     }
     else
     {
-        if (var_type == VARIABLE || var_type == LOCAL_VARIABLE)
+        if ((var_type == VARIABLE || var_type == LOCAL_VARIABLE) && IsPlainAttributePath())
         {
             if (!CompileAttributeRoot(Segment))
                 return false;
         }
         else
         {
-            if (address)
-            {
-                SetError("range-for: '&' needs a variable");
-                return false;
-            }
             Token.StepBack();
+            if (address)
+                Token.StepBack();
             if (!CompileExpression(Segment))
                 return false;
         }
@@ -3213,11 +3241,27 @@ bool COMPILER::ScanDefaultArgument(S_TOKEN_TYPE param_type, DefaultArgument &val
         value.type = NUMBER;
         value.int_value = type == TRUE_CONST;
         break;
+    case VAR_FREF: // fref(nullptr)
+        if (Token.TypeCast() && Token.Get() == OPEN_BRACKET && Token.Get() == UNKNOWN &&
+            storm::iEquals(Token.GetData(), "nullptr") && Token.Get() == CLOSE_BRACKET && param_type == VAR_FREF)
+        {
+            value.type = VAR_FREF;
+            return true;
+        }
+        break;
+    case AND: // &Function
+        if (Token.Get() == UNKNOWN && Token.GetData() && param_type == VAR_FREF)
+        {
+            value.type = VAR_FREF;
+            value.string_value = Token.GetData();
+            return true;
+        }
+        break;
     case UNKNOWN:
         if (storm::iEquals(text, "nullptr") && !negative &&
-            (param_type == VAR_REFERENCE || param_type == VAR_AREFERENCE))
+            (param_type == VAR_REFERENCE || param_type == VAR_AREFERENCE || param_type == VAR_FREF))
         {
-            value.type = VAR_REFERENCE;
+            value.type = param_type == VAR_FREF ? VAR_FREF : VAR_REFERENCE;
             return true;
         }
         if (const auto def_code = DefTab.FindDef(text); def_code != INVALID_DEF_CODE)
@@ -4331,6 +4375,8 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                     return false;
                 break;
             }
+            if (inout == 0 && Token.GetData() && storm::iEquals(Token.GetData(), "nullptr"))
+                break; // "ref g = nullptr;": global initializers are not code
             if (Token.Get() == LABEL)
             {
                 // "name:" starts a statement: a goto label (registered by pass 1) or a switch's "default:"
@@ -7516,6 +7562,12 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             }
             break;
         }
+        case AP_FROM_STACK: // rAP = the attributes of the value on the stack (popped)
+            pV = SStack.Pop();
+            rAP = pV ? AttributesOf(pV) : nullptr;
+            if (!rAP)
+                SetError("attribute of a call result that has no attributes");
+            break;
         case AP_CHILD: // rAP = its BX-th attribute (aref[i])
             rBX.Convert(VAR_INTEGER);
             rBX.Get(lvalue);

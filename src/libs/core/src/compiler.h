@@ -297,6 +297,7 @@ class COMPILER : public VIRTUAL_COMPILER
     bool CompileCallThrough(SEGMENT_DESC &Segment, S_TOKEN_TYPE call_type);
     bool CompileObjectLiteral(SEGMENT_DESC &Segment);
     bool IsAccessVariable();
+    bool IsPlainAttributePath();
     bool IsTextVariable(S_TOKEN_TYPE var_type, uint32_t var_code);
     bool CompileNewArray(SEGMENT_DESC &Segment);
     std::deque<DATA> newArrays_; // arrays made by "new type[n]" (scripts keep references to them)
@@ -356,6 +357,9 @@ class COMPILER : public VIRTUAL_COMPILER
     }
     // bytecode of a loaded segment, nullptr if it is not loaded
     const char *GetSegmentCode(const char *segment_name, uint32_t &size) const;
+    // names a loaded segment defines (functions, globals, defines): script_check retries a segment
+    // that uses them with that segment loaded, as the game loads segments together
+    std::vector<std::string> GetSegmentSymbols(const char *segment_name);
     // runs a script function that takes no arguments; `value` receives its result as text
     bool RunScriptFunction(const char *func_name, std::string &value);
     // attribute name of an ACCESS_WORD_CODE (codes depend on the order names were first seen)

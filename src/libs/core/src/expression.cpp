@@ -1609,7 +1609,13 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
 
             // ...
             // proceed to next token
-            CompileAuxiliaryTokens(Segment);
+            if (CompileAuxiliaryTokens(Segment) == DOT)
+            {
+                // f(x).name: an attribute of the object or attribute reference the call returned
+                CompileToken(Segment, AP_FROM_STACK);
+                CompileToken(Segment, STACK_ALLOC);
+                return CompileChainTail(Segment);
+            }
 
             return true;
         case LOCAL_VARIABLE:
@@ -1780,13 +1786,12 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
 
             return CompileChainTail(Segment);
         default:
-            // ???
-            SetError(ERR_INVALID_EXPRESSION);
+            SetError("unexpected '%s' in expression", Token.GetData() ? Token.GetData() : "");
             return false;
         }
         return true;
     }
-    SetError(ERR_INVALID_EXPRESSION);
+    SetError("unexpected '%s' in expression", Token.GetData() ? Token.GetData() : Token.GetTypeName());
     return false;
 }
 
@@ -2415,10 +2420,11 @@ bool COMPILER::IsArefVariable(S_TOKEN_TYPE var_type, uint32_t var_code)
     if (var_type == VARIABLE)
     {
         const auto *var = VarTab.GetVarX(var_code);
-        return var && var->type == VAR_AREFERENCE && !var->IsArray();
+        return var && (var->type == VAR_AREFERENCE || var->type == VAR_OBJECT) && !var->IsArray();
     }
     LocalVarInfo lvi;
-    return FuncTab.GetVar(lvi, CurrentFuncCode, var_code) && lvi.type == VAR_AREFERENCE && !lvi.IsArray();
+    return FuncTab.GetVar(lvi, CurrentFuncCode, var_code) &&
+           (lvi.type == VAR_AREFERENCE || lvi.type == VAR_OBJECT) && !lvi.IsArray();
 }
 
 // after the root of an attribute chain (rAP set, a value slot allocated, current token '.'):
@@ -2502,7 +2508,12 @@ bool COMPILER::CompileChainTail(SEGMENT_DESC &Segment)
             return false;
         CompileToken(Segment, CALL_NAMED);
         CompileToken(Segment, ARGS_NUM, 1, &func_args, sizeof(uint32_t));
-        CompileAuxiliaryTokens(Segment);
+        if (CompileAuxiliaryTokens(Segment) == DOT)
+        {
+            CompileToken(Segment, AP_FROM_STACK); // a.f(x).name
+            CompileToken(Segment, STACK_ALLOC);
+            return CompileChainTail(Segment);
+        }
         return true;
     }
 
@@ -2612,4 +2623,39 @@ bool COMPILER::CompileNewArray(SEGMENT_DESC &Segment)
     CompileToken(Segment, NEW_ARRAY, 1, &element_type, sizeof(uint32_t));
     CompileAuxiliaryTokens(Segment);
     return true;
+}
+
+// on a variable (current token): is "name[i].chain" all there is up to the closing ')' of a
+// range-for, without a call or $? The position and the current token are kept.
+bool COMPILER::IsPlainAttributePath()
+{
+    char *const at = Token.GetProgramControl();
+    const std::string name = Token.GetData();
+    bool plain = true;
+    S_TOKEN_TYPE previous = UNKNOWN;
+    for (uint32_t depth = 0; plain;)
+    {
+        const S_TOKEN_TYPE t = Token.Get();
+        if (t == END_OF_PROGRAMM || t == SEPARATOR || t == BLOCK_IN || t == OP_DOLLAR)
+            plain = false;
+        else if (t == OPEN_BRACKET)
+        {
+            if (previous != DOT)
+                plain = false; // a.f(...): a call
+            depth++;
+        }
+        else if (t == SQUARE_OPEN_BRACKET)
+            depth++;
+        else if (t == CLOSE_BRACKET || t == SQUARE_CLOSE_BRACKET)
+        {
+            if (depth == 0)
+                break;
+            depth--;
+        }
+        if (t != DEBUG_LINEFEED && t != COMMENT)
+            previous = t;
+    }
+    Token.SetProgramControl(at - name.size());
+    Token.Get();
+    return plain;
 }
