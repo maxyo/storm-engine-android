@@ -5,6 +5,7 @@
 #include "android_render_resolution.hpp"
 #endif
 
+#include "app_events.hpp"
 #include "core.h"
 #include "scene_sweep.hpp"
 
@@ -560,6 +561,16 @@ bool DX9RENDER::Init()
 
         gamePictures_ = std::make_unique<storm::GamePictures>(*this);
         storm::render::SetGamePictureProvider(gamePictures_.get());
+        // The Android surface is destroyed in background: stop presenting before control returns
+        // to SDL (early subscriber) and re-attach to the new native window on return.
+        appEventsSubscription_ = storm::AppEvents::instance().subscribe(
+            [](const storm::AppEvent &event) {
+                if (event.type == storm::AppEventType::WillEnterBackground)
+                    storm::render::NotifySurfaceLost();
+                else if (event.type == storm::AppEventType::DidEnterForeground)
+                    storm::render::NotifySurfaceRestored();
+            },
+            true);
         pTechnique = std::make_unique<CTechnique>(this);
         pTechnique->DecodeFiles();
 
@@ -942,6 +953,9 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
 //################################################################################
 bool DX9RENDER::ReleaseDevice()
 {
+    if (appEventsSubscription_ >= 0)
+        storm::AppEvents::instance().unsubscribe(appEventsSubscription_);
+    appEventsSubscription_ = -1;
     storm::render::SetGamePictureProvider(nullptr);
     gamePictures_.reset();
     if (aniVBuffer)

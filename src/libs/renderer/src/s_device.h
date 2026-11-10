@@ -432,6 +432,7 @@ class DX9RENDER : public VDX9RENDER
 
   private:
     std::unique_ptr<storm::GamePictures> gamePictures_;
+    int appEventsSubscription_ = -1;
 
   public:
     bool sampleTextureArgb(int32_t texture,float u,float v,uint32_t& result) override;
