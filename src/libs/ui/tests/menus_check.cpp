@@ -332,6 +332,16 @@ static void Title(const std::string &models)
     Expect(surface.errors.empty() && FromTitle(), "no errors; the menus now run from the title screen");
     Expect(surface.props["primary"]["label"] == "<menu.continue>" && surface.props["buttons"].size() == 4, "«Продолжить» and four buttons");
     ExpectEqual(surface.props["primary"]["sub"], "Герой Альфа · Порт Альфа", "«Продолжить» names the newest record");
+    Expect(surface.props["primary"]["disabled"] == false, "«Продолжить» with a record");
+    {
+        InterfaceModel none = Load(models, "title.json");
+        Without(none, "ANDROID_CONTINUE");
+        none.revision = 7;
+        router.SetInterface(none);
+        Expect(surface.props["primary"]["disabled"] == true && surface.props["primary"]["reason"] == "<menu.no_saves>",
+               "no record: «Продолжить» disabled, the reason on a tap");
+        router.SetInterface(Load(models, "title.json"));
+    }
     const char *const commands[][2] = {{"new", "New"}, {"load", "Load"}, {"options", "Options"}, {"credits", "Credits"}, {"exit", "Exit"}};
     for (const auto &[id, command] : commands)
     {
@@ -404,9 +414,11 @@ static void NewGame(const std::string &models)
     window.widgets.push_back(yes);
     window.revision = 2;
     router.SetInterface(window);
-    Expect(surface.props["modal"]["title"] == "Начать заново?" && surface.props["modal"]["actions"].size() == 1, "the game's window as a dialog");
-    router.OnEvent({"modal-0", "click", ""});
-    ExpectEqual(surface.Last(), prefix + "CONFIRM_WINDOW_MB_YES\t-1\tpress", "its button presses the game's button");
+    Expect(surface.props["modal"].is_null() && surface.Last() == prefix + "CONFIRM_WINDOW_MB_YES\t-1\tpress",
+           "the game's question about its existing profile folder is answered for the player (no profiles)");
+    const size_t sent = surface.commands.size();
+    router.SetInterface(window);
+    Expect(surface.commands.size() == sent, "once per revision");
 
     InterfaceModel broken = Load(models, "new-game.json");
     Without(broken, "OK_BUTTON");

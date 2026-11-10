@@ -2,8 +2,8 @@
 // game's animated menu scene. The engine publishes no widgets for this interface; it takes
 // five commands instead (`main:New|Load|Options|Credits|Exit`, see EngineCommand), which
 // the screen sends through command widgets of its own. «Продолжить» opens the saves and
-// loads the newest record there (menu.h) and names it under its label (the engine's
-// ANDROID_CONTINUE text «<hero> · <location>»); «О программе» asks the platform host for
+// loads the newest record of any profile there (menu.h) and names it under its label (the
+// engine's ANDROID_CONTINUE text «<hero> · <location>»; disabled without a record); «О программе» asks the platform host for
 // its about and licences page. Fills the pack screen <s-title>.
 #include "controls.h"
 #include "menu.h"
@@ -52,7 +52,12 @@ class TitleScreen final : public Screen
         };
         Json view = Json::object();
         view["primary"] = button("continue", "menu.continue", load_, [] { SetContinueRequested(true); });
+        // Without a record there is nothing to continue: the button stays, disabled, and a tap
+        // says why (the engine sends ANDROID_CONTINUE only when a record exists).
+        const bool any = admitted.One("ANDROID_CONTINUE") != nullptr;
         view["primary"]["sub"] = admitted.Label("ANDROID_CONTINUE");
+        view["primary"]["disabled"] = !any;
+        view["primary"]["reason"] = any ? std::string() : bindings.Text("menu.no_saves");
         view["buttons"] = Json::array({button("new", "menu.new_game", new_), button("load", "menu.load", load_),
                                        button("options", "menu.settings", options_), button("credits", "menu.credits", credits_)});
         view["exit"] = button("exit", "menu.exit", exit_);
