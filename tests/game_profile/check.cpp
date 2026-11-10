@@ -1,4 +1,5 @@
 #include "game_profile.hpp"
+#include "script_version.hpp"
 
 #include <cassert>
 #include <iostream>
@@ -45,5 +46,9 @@ int main()
     assert(error(base).find("Unknown game") != std::string::npos);
     assert(error({"program", "resource"}) == "Not a game directory: missing engine.ini");
     assert(error({}) == "Not a game directory: missing engine.ini, program, resource");
-    std::cout << "game profile: TEHO, CL, incomplete CL, unknown and missing layouts PASS\n";
+
+    // The iScriptVersion each game's scripts declare (TEHO: 54128, CL: 2230981).
+    static_assert(storm::engineScriptVersion(GameProfile::TEHO) == 54128);
+    static_assert(storm::engineScriptVersion(GameProfile::CaribbeanLegend) == 2230981);
+    std::cout << "game profile: TEHO, CL, incomplete CL, unknown and missing layouts, script versions PASS\n";
 }
