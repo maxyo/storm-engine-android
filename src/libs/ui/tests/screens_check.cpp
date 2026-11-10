@@ -1078,27 +1078,43 @@ static void Launcher()
     // Download library.
     const Json sets = Json::array({Json{{"id", "1"}, {"kind", "torrent"}, {"name", "Full"}, {"state", "downloading"}, {"downloaded", 50.0}, {"wanted", 100.0},
                                         {"rate", 10.0}, {"main", "pause"}, {"menu", {"details", "delete"}}},
-                                   Json{{"id", "2"}, {"kind", "archive"}, {"name", "a.zip"}, {"state", "archive-ready"}, {"main", "install"}, {"menu", {"delete"}}}});
+                                   Json{{"id", "2"}, {"kind", "archive"}, {"name", "a.zip"}, {"state", "complete"}, {"main", "import"}, {"menu", {"delete"}}},
+                                   Json{{"id", "3"}, {"kind", "magnet"}, {"name", "Quiet"}, {"state", "metadata"}, {"stalled", true}, {"peers", 0.0},
+                                        {"networkError", "Tracker x: 404"}, {"main", "pause"}},
+                                   Json{{"id", "4"}, {"kind", "magnet"}, {"name", "Full disk"}, {"state", "error"}, {"errorKind", "storage-full"},
+                                        {"error", "No space left on device"}, {"main", "resume"}, {"menu", {"delete"}}}});
     router.SetState("launcher", Json{{"screen", "downloads"}, {"language", "english"}, {"downloads", {{"sets", sets}}}});
     ExpectEqual(surface.tag, "s-downloads", "downloads screen");
     ExpectEqual(surface.props["sets"][0]["action"].get<std::string>(), "pause", "an active set pauses inline");
     Expect(surface.props["sets"][0]["progress"].get<double>() == 50, "download progress");
-    ExpectEqual(surface.props["sets"][1]["button"]["id"].get<std::string>(), "btn-2", "install is an inline button");
+    ExpectEqual(surface.props["sets"][1]["button"]["id"].get<std::string>(), "btn-2", "import is an inline button");
+    Expect(surface.props["sets"][2]["meta"].get<std::string>().find("<downloads.stalled_no_peers>: Tracker x: 404") != std::string::npos &&
+               surface.props["sets"][2]["metaTone"].get<std::string>() == "danger",
+           "a stalled set says why");
+    Expect(surface.props["sets"][3]["meta"].get<std::string>().find("<downloads.storage_full> — No space left on device") != std::string::npos,
+           "a full disk is named");
     router.OnEvent({"set-1", "action", "pause"});
     ExpectEqual(verb(), "APP pause 1", "pause glyph");
     router.OnEvent({"btn-2", "click", ""});
-    ExpectEqual(verb(), "APP install 2", "install button");
+    ExpectEqual(verb(), "APP import 2", "import button");
     router.OnEvent({"set-1", "menu", ""});
     Expect(surface.props["sheet"]["actions"].size() == 2 && surface.props["sheet"]["actions"][1]["hold"].get<bool>(),
            "«⋯» lists the rare verbs; delete is held");
     router.OnEvent({"menu-delete", "click", ""});
     ExpectEqual(verb(), "APP delete 1", "held delete");
     router.SetState("launcher", Json{{"screen", "downloads"}, {"language", "english"},
-                                     {"downloads", {{"sets", sets}, {"dialog", {{"kind", "files"}, {"id", "1"}, {"probe", false},
-                                                    {"files", {{{"index", 4}, {"path", "a"}, {"bytes", 10}}, {{"index", 7}, {"path", "b"}, {"bytes", 20}}}}}}}}});
-    router.OnEvent({"file-0", "change", ""});
-    router.OnEvent({"dialog-download", "click", ""});
-    ExpectEqual(verb(), "APP download 1:7", "unchecked files stay out of the download");
+                                     {"downloads", {{"sets", sets}, {"dialog", {{"kind", "candidates"}, {"id", "1"},
+                                                    {"candidates", {{{"label", "Game"}, {"kind", "loose-game-candidate"}, {"files", 3}, {"bytes", 10}},
+                                                                    {{"label", "setup.exe"}, {"kind", "installer-candidate"}, {"files", 2}, {"bytes", 20}}}},
+                                                    {"all", {{"files", 9}, {"bytes", 40}}}}}}}});
+    ExpectEqual(surface.props["dialog"]["kind"].get<std::string>(), "pick", "candidates are picked one at a time");
+    Expect(surface.props["dialog"]["rows"].size() == 3 && surface.props["dialog"]["rows"][1]["title"].get<std::string>() ==
+                                                              "setup.exe · <downloads.kind.installer-candidate>",
+           "every candidate and all files");
+    router.OnEvent({"candidate-1", "click", ""});
+    ExpectEqual(verb(), "APP download 1:1", "one candidate");
+    router.OnEvent({"candidate-all", "click", ""});
+    ExpectEqual(verb(), "APP download 1:-1", "every file");
 
     router.SetState("launcher", Json{{"screen", "about"}, {"language", "english"},
                                      {"about", {{"app", {{"appSource", "https://example.org/app/tree/1"}, {"engineSource", "https://example.org/engine/tree/2"}}},
