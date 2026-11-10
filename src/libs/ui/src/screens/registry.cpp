@@ -42,6 +42,7 @@ std::unique_ptr<Screen> CreateLauncherScreen();
 std::unique_ptr<Screen> CreateDownloadsScreen();
 std::unique_ptr<Screen> CreateAboutScreen();
 std::unique_ptr<StateConsumer> CreateLauncherConsumer();
+std::unique_ptr<StateConsumer> CreateEngineNoticeConsumer();
 
 namespace
 {
@@ -112,6 +113,7 @@ std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()
     consumers.push_back(CreateAppSettingsConsumer());
     consumers.push_back(CreateGameOverConsumer());
     consumers.push_back(CreateLauncherConsumer());
+    consumers.push_back(CreateEngineNoticeConsumer());
     hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, presentation
     return consumers;
 }

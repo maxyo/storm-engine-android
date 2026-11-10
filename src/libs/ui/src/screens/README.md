@@ -24,6 +24,8 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout, a column table per interface |
 | `dialogue.cpp` | state channel `dialogue`: speech paged by `<ui-pages>` (pure rules in `../text_pages.h`), replies in two columns, the answer editor (text through the IME bridge, or an amount on the number panel), the menu button (`pause` to the platform host) |
 | `menu_game_over.cpp` | state channel `gameOver` (`{kind: sea\|land\|defeat, language}` or `null`, engine xinterface `info_handler.cpp`): the game-over screen |
+| `maps.cpp` | the game's maps (`mapview`, `mapbest`, `papermap`): c-map-view (pan, pinch, zoom; the game's markers), a tap is `point` in the picture's base units, the colony sheet from the game's colony window, `release` closes it |
+| `engine_notice.cpp` | state channel `engineNotice` (`{kind, subject}`): what the engine could not do, told as a toast (`video_unavailable`: no video decoder on this platform yet) |
 | `launcher.cpp` | the application's own screens (launcher, download library, about) from the platform host's `launcher` channel; the contract is at the top of the file |
 
 The design rules are GENERIC-LAYOUT (pipeline, type → component, button roles, templates,
@@ -123,6 +125,11 @@ the row image `{kind: "item", texture: "atlas:GROUP/Picture"}`; `<ui-game-image>
 it at run time through `<game root>/RESOURCE/INI/interfaces/pictures.ini`
 (`picture_atlas.h`) to the texture and rectangle. Nothing of the game is bundled; without
 a game root the neutral placeholder stays.
+
+A picture the engine names by file (a map, an interlude picture, a map item) comes as
+`ImageRef{kind "texture", image "interfaces/maps/kayman", uv}`; `TextureOf(image)` (controls.h)
+gives `{texture, uv}` for `<ui-game-image texture uv [fit="contain|cover"]>`, and `MapViewOf`
+the props of `c-map-view` for a scrolled picture (`map` widget and its `map_marker` rows).
 
 ## State channels
 

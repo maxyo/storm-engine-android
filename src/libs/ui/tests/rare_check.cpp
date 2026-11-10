@@ -54,9 +54,11 @@ struct FakeSurface final : Surface
     void RequestText(TextRequest, const std::string &) override
     {
     }
-    void Toast(const std::string &) override
+    void Toast(const std::string &text) override
     {
+        toasts.push_back(text);
     }
+    std::vector<std::string> toasts;
     void SetLanguage(const std::string &) override
     {
     }
@@ -226,6 +228,17 @@ static void Maps(const std::string &models)
     ExpectEqual(surface.Last(), "widget:mapbest\tMAP\t-1\trelease", "so does the back key");
 }
 
+static void EngineNotice()
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetState("engineNotice", Json{{"kind", "video_unavailable"}, {"subject", "Credits_ru.wmv"}});
+    Expect(surface.toasts.size() == 1 && surface.toasts[0] == "<notice.video_unavailable>: Credits_ru.wmv" && surface.errors.empty(),
+           "a video the engine cannot play is told to the player");
+    router.SetState("engineNotice", Json{{"kind", "other"}});
+    Expect(surface.toasts.size() == 1 && surface.errors.size() == 1, "an unknown notice is an error, not a toast");
+}
+
 static void Notices(const std::string &models)
 {
     FakeSurface surface;
@@ -330,6 +343,7 @@ int main(int argc, char **argv)
     Frame(models);
     FramePicture(models);
     Maps(models);
+    EngineNotice();
     Rest(models);
     Notices(models);
     TradeBook(models);

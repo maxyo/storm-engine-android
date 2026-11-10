@@ -6,6 +6,13 @@
 #include "entity.h"
 #include "shared/interface/messages.h"
 
+#include <spdlog/spdlog.h>
+#include <string>
+#ifdef __ANDROID__
+#include <platform/android_gameplay.hpp>
+#include <platform/android_ui.hpp>
+#endif
+
 #define IRELEASE(i)                                                                                                    \
     {                                                                                                                  \
         if (i)                                                                                                         \
@@ -307,6 +314,15 @@ bool CAviPlayer::PlayMedia(const char *fileName)
 
     return true;
 #else
+    // No video decoder is built for this platform yet (the game's videos are WMV3 + WMA2).
+    // The script then ends the video at once (ievntEndVideo); the player is told, never left
+    // with a silent skip.
+    const std::string name = std::string(fileName).substr(std::string(fileName).find_last_of("\\/") + 1);
+    spdlog::error("Video {}: not played, no video decoder on this platform", fileName);
+#ifdef __ANDROID__
+    storm::android::publishUiState("engineNotice", "{\"kind\":\"video_unavailable\",\"subject\":" +
+                                                       storm::android::gameplayJsonString(name) + "}");
+#endif
     return false;
 #endif
 }
