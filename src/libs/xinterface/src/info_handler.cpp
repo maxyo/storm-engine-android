@@ -143,7 +143,7 @@ bool InfoHandler::DoPreOut()
     const uint32_t TMP_VERTEX_FORMAT = (D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1 | D3DFVF_TEXTUREFORMAT2);
     struct TMP_VERTEX
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         float w;
         uint32_t col;
         float tu, tv;

@@ -262,8 +262,8 @@ void ILogAndActions::Realize(uint32_t delta_time)
 #endif
        )
     {
-        CMatrix matw;
-        rs->SetTransform(D3DTS_WORLD, matw);
+        glm::mat4 matw;
+        rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(matw));
         // show icon
         if ((m_idIconTexture != -1L) && m_bThatRealAction)
         {

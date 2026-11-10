@@ -197,7 +197,7 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
         sroot = std::vector<BSP_NODE>(bhead.nnodes);
         srv.ReadFile(file, sroot.data(), sroot.size() * sizeof(BSP_NODE));
 
-        vrt = std::vector<CVECTOR>(bhead.nvertices);
+        vrt = std::vector<glm::vec3>(bhead.nvertices);
         srv.ReadFile(file, vrt.data(), vrt.size() * sizeof(RDF_BSPVERTEX));
 
         btrg = std::vector<RDF_BSPTRIANGLE>(bhead.ntriangles);
@@ -317,19 +317,19 @@ bool GEOM::GetCollisionDetails(TRACE_INFO &ti) const
         (btrg[traceid].vindex[2][0] << 0) | (btrg[traceid].vindex[2][1] << 8) | (btrg[traceid].vindex[2][2] << 16);
 
     const auto ve = dst - src;
-    const DVECTOR a = vrt[vindex[1]] - vrt[vindex[0]];
-    const DVECTOR b = vrt[vindex[2]] - vrt[vindex[0]];
-    const auto pvec = ve ^ b;
-    const double det = a | pvec;
+    const glm::dvec3 a = vrt[vindex[1]] - vrt[vindex[0]];
+    const glm::dvec3 b = vrt[vindex[2]] - vrt[vindex[0]];
+    const auto pvec = glm::cross(ve, b);
+    const double det = glm::dot(a, pvec);
     const double invdet = 1.0 / det;
-    const DVECTOR c = src - vrt[vindex[0]];
+    const glm::dvec3 c = src - glm::dvec3(vrt[vindex[0]]);
 
-    ti.a = static_cast<float>((c | pvec) * invdet);
-    ti.b = static_cast<float>((ve | (c ^ a)) * invdet);
+    ti.a = static_cast<float>(glm::dot(c, pvec) * invdet);
+    ti.b = static_cast<float>(glm::dot(ve, glm::cross(c, a)) * invdet);
 
     // plane info
-    const DVECTOR nrm = !(a ^ b);
-    const double pldist = nrm | vrt[vindex[0]];
+    const glm::dvec3 nrm = glm::normalize(glm::cross(a, b));
+    const double pldist = glm::dot(nrm, glm::dvec3(vrt[vindex[0]]));
     ti.plane.nrm.x = static_cast<float>(nrm.x);
     ti.plane.nrm.y = static_cast<float>(nrm.y);
     ti.plane.nrm.z = static_cast<float>(nrm.z);

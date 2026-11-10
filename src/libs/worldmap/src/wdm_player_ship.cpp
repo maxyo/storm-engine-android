@@ -50,15 +50,15 @@ void WdmPlayerShip::PushOutFromIsland()
     const auto areaRad =
         0.1f * 0.707f *
         sqrtf(wdmObjects->worldSizeX * wdmObjects->worldSizeX + wdmObjects->worldSizeZ * wdmObjects->worldSizeZ);
-    const auto x = mtx.Pos().x;
-    const auto z = mtx.Pos().z;
+    const auto x = storm::math::pos(mtx).x;
+    const auto z = storm::math::pos(mtx).z;
     for (auto r = 0.0f; r < areaRad; r += modelRadius * 0.2f, ang += angStep)
     {
         if (ang > 2.0f * PI)
             ang -= 2.0f * PI;
         const auto _x = x + r * sinf(ang);
         const auto _z = z + r * cosf(ang);
-        CMatrix m(0.0f, ay, 0.0f, _x, 0.0f, _z);
+        glm::mat4 m = storm::math::eulerMatrix(0.0f, ay, 0.0f, _x, 0.0f, _z);
         if (!wdmObjects->islands->CollisionTest(m, modelL05, modelW05, false))
         {
             Teleport(_x, _z, ay);
@@ -70,7 +70,7 @@ void WdmPlayerShip::PushOutFromIsland()
     {
         const auto _x = x + areaRad * rand() * 1.0f / RAND_MAX;
         const auto _z = z + areaRad * rand() * 1.0f / RAND_MAX;
-        CMatrix m(0.0f, ay, 0.0f, _x, 0.0f, _z);
+        glm::mat4 m = storm::math::eulerMatrix(0.0f, ay, 0.0f, _x, 0.0f, _z);
         if (!wdmObjects->islands->CollisionTest(m, modelL05, modelW05, false))
         {
             Teleport(_x, _z, ay);
@@ -103,7 +103,7 @@ void WdmPlayerShip::Update(float dltTime)
         if (stormEventTime <= 0.0f)
         {
             stormEventTime = 0.5f;
-            core.Event("WorldMap_PlayerInStorm", "fffl", mtx.Pos().x, mtx.Pos().z, ay, i);
+            core.Event("WorldMap_PlayerInStorm", "fffl", storm::math::pos(mtx).x, storm::math::pos(mtx).z, ay, i);
         }
     }
     wdmObjects->playarInStorm = (i == -2);
@@ -123,7 +123,7 @@ void WdmPlayerShip::Update(float dltTime)
             continue;
         }
         // Distance to the ship
-        const auto r = ~(es->mtx.Pos() - mtx.Pos());
+        const auto r = storm::math::lengthSquared(storm::math::pos(es->mtx) - storm::math::pos(mtx));
         // Determine the testing radius
         if (es->isEnemy)
         {
@@ -136,7 +136,7 @@ void WdmPlayerShip::Update(float dltTime)
                     wdmObjects->ships[i]->isSelect = true;
                     if (es->attack)
                         es->attack->isSelect = true;
-                    core.Event("WorldMap_ShipEncounter", "fffl", mtx.Pos().x, mtx.Pos().z, ay, i);
+                    core.Event("WorldMap_ShipEncounter", "fffl", storm::math::pos(mtx).x, storm::math::pos(mtx).z, ay, i);
                 }
                 else
                 {
@@ -187,8 +187,8 @@ void WdmPlayerShip::Update(float dltTime)
     }
     if (wdmObjects->wm && wdmObjects->wm->AttributesPointer)
     {
-        wdmObjects->wm->AttributesPointer->SetAttributeUseFloat("playerShipX", mtx.Pos().x);
-        wdmObjects->wm->AttributesPointer->SetAttributeUseFloat("playerShipZ", mtx.Pos().z);
+        wdmObjects->wm->AttributesPointer->SetAttributeUseFloat("playerShipX", storm::math::pos(mtx).x);
+        wdmObjects->wm->AttributesPointer->SetAttributeUseFloat("playerShipZ", storm::math::pos(mtx).z);
         wdmObjects->wm->AttributesPointer->SetAttributeUseFloat("playerShipAY", ay);
     }
 
@@ -246,7 +246,7 @@ void WdmPlayerShip::LRender(VDX9RENDER *rs)
     WdmShip::LRender(rs);
     if (wdmObjects->isDebug)
     {
-        CMatrix mtx(CVECTOR(0.0f), mtx.Pos());
+        glm::mat4 mtx = storm::math::eulerMatrix(glm::vec3(0.0f), storm::math::pos(mtx));
         wdmObjects->DrawCircle(mtx, actionRadius, 0x4f0000ff);
     }
 }
@@ -276,7 +276,7 @@ bool WdmPlayerShip::ExitFromMap()
         return false;
     if (wdmObjects->enemyShip->attack)
         wdmObjects->enemyShip->attack->isSelect = true;
-    core.Event("WorldMap_ShipEncounter", "fffl", mtx.Pos().x, mtx.Pos().z, ay, found);
+    core.Event("WorldMap_ShipEncounter", "fffl", storm::math::pos(mtx).x, storm::math::pos(mtx).z, ay, found);
     return true;
 }
 
@@ -288,7 +288,7 @@ int32_t WdmPlayerShip::TestInStorm() const
     {
         if (wdmObjects->storms[i]->killMe)
             continue;
-        if (wdmObjects->storms[i]->CheckIntersection(mtx.Pos().x, mtx.Pos().z, actionRadius))
+        if (wdmObjects->storms[i]->CheckIntersection(storm::math::pos(mtx).x, storm::math::pos(mtx).z, actionRadius))
         {
             wdmObjects->wm->AttributesPointer->SetAttribute("playerInStorm", "1");
             if (wdmObjects->storms[i]->isTornado)
@@ -304,7 +304,7 @@ int32_t WdmPlayerShip::TestInStorm() const
         }
         float x, z;
         wdmObjects->storms[i]->GetPosition(x, z);
-        const auto d = (mtx.Pos().x - x) * (mtx.Pos().x - x) + (mtx.Pos().z - z) * (mtx.Pos().z - z);
+        const auto d = (storm::math::pos(mtx).x - x) * (storm::math::pos(mtx).x - x) + (storm::math::pos(mtx).z - z) * (storm::math::pos(mtx).z - z);
         if (d < wdmObjects->stormZone * wdmObjects->stormZone)
         {
             if (wdmObjects->storms[i]->IsActive())

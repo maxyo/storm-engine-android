@@ -45,9 +45,9 @@ void SHIP_CAMERA::Execute(uint32_t dwDeltaTime)
     const auto *pModel = GetModelPointer();
     Assert(pModel);
     const auto * mtx = &pModel->mtx;
-    vCenter = mtx->Pos();
+    vCenter = storm::math::pos(*mtx);
 
-    fModelAy = atan2(mtx->Vz().x, mtx->Vz().z);
+    fModelAy = atan2(storm::math::vz(*mtx).x, storm::math::vz(*mtx).z);
 
     Move(fDeltaTime);
 }
@@ -125,8 +125,8 @@ void SHIP_CAMERA::Move(float fDeltaTime)
     const auto *modelMtx = GetAIObj()->GetMatrix();
     auto boxSize = GetAIObj()->GetBoxsize();
     // Recalculate box size: (box size + immersion) * hand-fitted scale
-    boxSize.y += modelMtx->v.pos.y;
-    boxSize *= CVECTOR(SCMR_BOXSCALE_X * 0.5f, SCMR_BOXSCALE_Y * 0.5f, SCMR_BOXSCALE_Z * 0.5f);
+    boxSize.y += storm::math::pos(*modelMtx).y;
+    boxSize *= glm::vec3(SCMR_BOXSCALE_X * 0.5f, SCMR_BOXSCALE_Y * 0.5f, SCMR_BOXSCALE_Z * 0.5f);
     // Project real height (with masts)
     const auto realBoxSize = GetAIObj()->GetRealBoxsize();
     boxSize.x += realBoxSize.y;
@@ -139,7 +139,7 @@ void SHIP_CAMERA::Move(float fDeltaTime)
     c = boxSize.z * 1.2f + fDistance * (maxRad - boxSize.z * 1.2f); // z
     // Find the position of the camera on the ellipsoid
     vCenter.y += 0.5f * boxSize.y;
-    CVECTOR vPos;
+    glm::vec3 vPos;
     if (vAng.x <= 0.0f)
     {
         // Above 0 driving on an ellipsoid
@@ -154,7 +154,7 @@ void SHIP_CAMERA::Move(float fDeltaTime)
         vPos.y = 0.0f;
         vPos.z = c * cosf(vAng.y);
     }
-    vPos = CMatrix(CVECTOR(0.0f, fModelAy, 0.0f), vCenter) * vPos;
+    vPos = storm::math::transformPoint(storm::math::eulerMatrix(glm::vec3(0.0f, fModelAy, 0.0f), vCenter), vPos);
     vCenter.y += fDistance * 2.0f * boxSize.y;
     vCenter.y = std::min(vCenter.y, boxSize.y);
     if (vAng.x > 0.0f)
@@ -175,7 +175,7 @@ void SHIP_CAMERA::Move(float fDeltaTime)
     if (vPos.y > oldPosY)
         vCenter.y += vPos.y - oldPosY;
     // Set new camera
-    pRS->SetCamera(vPos, vCenter, CVECTOR(0.0f, 1.0f, 0.0f));
+    pRS->SetCamera(vPos, vCenter, glm::vec3(0.0f, 1.0f, 0.0f));
     pRS->SetPerspective(GetPerspective());
 }
 
@@ -216,7 +216,7 @@ uint32_t SHIP_CAMERA::AttributeChanged(ATTRIBUTES *pAttr)
     return 0;
 }
 
-void SHIP_CAMERA::ShipsCollision(CVECTOR &pos)
+void SHIP_CAMERA::ShipsCollision(glm::vec3 &pos)
 {
     auto &&entities = core.GetEntityIds("ship");
     for (const auto ent : entities)
@@ -229,10 +229,10 @@ void SHIP_CAMERA::ShipsCollision(CVECTOR &pos)
             continue;
         // Camera position in the ship system
         Assert(ship->GetMatrix());
-        CVECTOR p;
-        ship->GetMatrix()->MulToInv(pos, p);
+        glm::vec3 p;
+        p = storm::math::inverseTransformPoint(*ship->GetMatrix(), pos);
         // Check if hitting the box
-        auto s = ship->GetBoxsize() * CVECTOR(SCMR_BOXSCALE_X * 0.5f, SCMR_BOXSCALE_Y * 0.5f, SCMR_BOXSCALE_Z * 0.5f);
+        auto s = ship->GetBoxsize() * glm::vec3(SCMR_BOXSCALE_X * 0.5f, SCMR_BOXSCALE_Y * 0.5f, SCMR_BOXSCALE_Z * 0.5f);
         if (s.x <= 0.0f || s.y <= 0.0f || s.z <= 0.0f)
             continue;
         // Building an ellipsoid
@@ -253,13 +253,13 @@ void SHIP_CAMERA::ShipsCollision(CVECTOR &pos)
             h = s.y * (1.0f + 0.1f * (h - s.y) / (c - s.y));
         if (p.y < h)
             p.y = h;
-        s = ship->GetMatrix()[0] * p;
+        s = storm::math::transformPoint(ship->GetMatrix()[0], p);
         if (pos.y < s.y)
             pos.y = s.y;
     }
 }
 
-bool SHIP_CAMERA::IslandCollision(CVECTOR &pos)
+bool SHIP_CAMERA::IslandCollision(glm::vec3 &pos)
 {
     constexpr auto camRadius = 0.4f;
     // Island
@@ -282,7 +282,7 @@ bool SHIP_CAMERA::IslandCollision(CVECTOR &pos)
         return false;
     // Find direction, distance
     auto dir = pos - vCenter;
-    auto dist = ~dir;
+    auto dist = storm::math::lengthSquared(dir);
     if (dist <= 0.0f)
         return false;
     dist = sqrtf(dist);
@@ -292,8 +292,8 @@ bool SHIP_CAMERA::IslandCollision(CVECTOR &pos)
     float kArr[5];
     kArr[0] = mdl->Trace(vCenter, vCenter + dr);
     // Basis
-    auto left = dir ^ CVECTOR(0.0f, 1.0f, 0.0f);
-    const auto l = ~left;
+    auto left = glm::cross(dir, glm::vec3(0.0f, 1.0f, 0.0f));
+    const auto l = storm::math::lengthSquared(left);
     if (l <= 0.0f)
     {
         if (kArr[0] < 1.0f)
@@ -301,8 +301,8 @@ bool SHIP_CAMERA::IslandCollision(CVECTOR &pos)
         return kArr[0] < 1.0f;
     }
     left *= 1.0f / sqrtf(l);
-    const auto up = dir ^ left;
-    CVECTOR src = vCenter + left * camRadius;
+    const auto up = glm::cross(dir, left);
+    glm::vec3 src = vCenter + left * camRadius;
     kArr[1] = mdl->Trace(src, src + dr);
     src = vCenter - left * camRadius;
     kArr[2] = mdl->Trace(src, src + dr);

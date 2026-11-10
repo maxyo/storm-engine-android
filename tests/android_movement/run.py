@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 """Portable production mailbox, axis/pace and ordinary-motion guard regression."""
+import argparse
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 root = Path(__file__).resolve().parents[2]
+sys.dont_write_bytecode = True  # keep the source tree clean
+sys.path.insert(0, str(root / "tests/glm_math"))
+from glm_source import ENVIRONMENT, glm_source, math_include_flags
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--glm-source", type=Path, help="Offline extracted pinned GLM source")
+args = parser.parse_args()
+# The production fragments compute with glm::vec3; camera.py inherits the location.
+os.environ[ENVIRONMENT] = str(glm_source(args.glm_source))
 with tempfile.TemporaryDirectory(prefix="storm-movement-") as d:
     binary = Path(d)/"check"
     subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", "-O1", "-g",
@@ -44,7 +54,8 @@ with tempfile.TemporaryDirectory(prefix="storm-movement-") as d:
     native = Path(d)/"native-motion"
     subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", "-O1", "-g", "-D__ANDROID__",
                     "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-I"+d,
-                    "-I"+str(root/"src/libs/util/include"), str(Path(__file__).with_name("native_motion.cpp")),
+                    "-I"+str(root/"src/libs/util/include"), *math_include_flags(),
+                    str(Path(__file__).with_name("native_motion.cpp")),
                     "-o", str(native)], check=True)
     subprocess.run([str(native)], check=True)
 subprocess.run([os.environ.get("PYTHON", "python3"), str(Path(__file__).with_name("camera.py"))], check=True)

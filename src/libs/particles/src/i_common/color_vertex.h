@@ -1,10 +1,10 @@
 #pragma once
 
-#include "math3d/color.h"
+#include "storm_glm.h"
 
 struct ColorVertex
 {
     float Time;
-    Color MaxValue;
-    Color MinValue;
+    glm::vec4 MaxValue;
+    glm::vec4 MinValue;
 };

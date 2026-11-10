@@ -3,7 +3,7 @@
 
 #include <thread>
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "rands.h"
 #include "v_file_service.h"
 #include "vma.hpp"
@@ -13,7 +13,6 @@
 #include "core.h"
 
 #include "debug_entity.h"
-#include "math3d/color.h"
 #include "math_inlines.h"
 
 
@@ -186,14 +185,14 @@ void SoundService::RunStart()
 
     if (rs)
     {
-        static CVECTOR pos, ang, nose, head;
-        static CMatrix view;
+        static glm::vec3 pos, ang, nose, head;
+        static glm::mat4 view;
 
-        rs->GetTransform(D3DTS_VIEW, view);
-        view.Transposition();
-        nose = view.Vz();
-        head = view.Vy();
-        pos = view.Pos();
+        rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+        storm::math::invertRigid(view);
+        nose = storm::math::vz(view);
+        head = storm::math::vy(view);
+        pos = storm::math::pos(view);
 
         SetCameraPosition(pos);
         SetCameraOrientation(nose, head);
@@ -281,7 +280,7 @@ bool SoundService::AllocateSound(TSD_ID &id)
 
 TSD_ID SoundService::SoundPlay(const char *_name, eSoundType _type, eVolumeType _volumeType,
                                bool _simpleCache /* = false*/, bool _looped /* = false*/, bool _cached /* = false*/,
-                               int32_t _time /* = 0*/, const CVECTOR *_startPosition /* = 0*/,
+                               int32_t _time /* = 0*/, const glm::vec3 *_startPosition /* = 0*/,
                                float _minDistance /* = -1.0f*/, float _maxDistance /* = -1.0f*/,
                                int32_t _loopPauseTime /* = 0*/, float _volume, /* = 1.0f*/
                                int32_t _prior)
@@ -510,7 +509,7 @@ void SoundService::SoundSet3DParam(TSD_ID _id, eSoundMessage _message, const voi
     if (_id.stamp() != sound.stamp)
         return;
 
-    auto vVelocity = CVECTOR(0.0f, 0.0f, 0.0f);
+    auto vVelocity = glm::vec3(0.0f, 0.0f, 0.0f);
 
     switch (_message)
     {
@@ -682,7 +681,7 @@ float SoundService::SoundGetPosition(TSD_ID _id)
     return 0;
 }
 
-void SoundService::SetCameraPosition(const CVECTOR &_cameraPosition)
+void SoundService::SetCameraPosition(const glm::vec3 &_cameraPosition)
 {
     vListenerPos.x = _cameraPosition.x;
     vListenerPos.y = _cameraPosition.y;
@@ -691,7 +690,7 @@ void SoundService::SetCameraPosition(const CVECTOR &_cameraPosition)
     CHECKFMODERR(system->set3DListenerAttributes(0, &vListenerPos, nullptr, nullptr, nullptr));
 }
 
-void SoundService::SetCameraOrientation(const CVECTOR &_nose, const CVECTOR &_head)
+void SoundService::SetCameraOrientation(const glm::vec3 &_nose, const glm::vec3 &_head)
 {
     const auto nose = !_nose;
     const auto head = !_head;
@@ -1031,7 +1030,7 @@ void SoundService::DebugDraw()
     FMOD_VECTOR lpos, lvel, lforward, lup;
     system->get3DListenerAttributes(0, &lpos, &lvel, &lforward, &lup);
 
-    auto vListener = CVECTOR(lpos.x, lpos.y, lpos.z);
+    auto vListener = glm::vec3(lpos.x, lpos.y, lpos.z);
 
     FMOD_CPU_USAGE usage;
     system->getCPUUsage(&usage);
@@ -1040,7 +1039,7 @@ void SoundService::DebugDraw()
     int CurrentAlloc, PeakAlloc;
     FMOD::Memory_GetStats(&CurrentAlloc, &PeakAlloc);
 
-    CVECTOR list_pos;
+    glm::vec3 list_pos;
     list_pos.x = lpos.x;
     list_pos.y = lpos.y;
     list_pos.z = lpos.z;
@@ -1051,8 +1050,7 @@ void SoundService::DebugDraw()
     rs->Print(0, 16, "position  %3.2f, %3.2f, %3.2f, forward %3.2f, %3.2f, %3.2f, up %3.2f, %3.2f, %3.2f", lpos.x,
               lpos.y, lpos.z, lforward.x, lforward.y, lforward.z, lup.x, lup.y, lup.z);
 
-    CMatrix ind;
-    ind.SetIdentity();
+    const glm::mat4 ind;
     rs->SetWorld(ind);
 
     for (uint16_t i = 0; i < numActiveSounds; i++)
@@ -1103,33 +1101,33 @@ void SoundService::DebugDraw()
             // 0xFFFF0000 not playing
             // 0xFF00FF00 is playing
 
-            auto drawColor = Color(0xFFFF0000);
+            auto drawColor = storm::math::colorFromARGB(0xFFFF0000);
 
             if (!bVirtual)
             {
                 // morph between yellow audib 0 and green audib 1 colors
-                auto Zero = Color(0xFFFFFF00);
-                auto Full = Color(0xFF00FF00);
-                drawColor.Lerp(Zero, Full, audib);
+                const auto Zero = storm::math::colorFromARGB(0xFFFFFF00);
+                const auto Full = storm::math::colorFromARGB(0xFF00FF00);
+                drawColor = glm::vec4(storm::math::lerp(glm::vec3(Zero), glm::vec3(Full), audib), drawColor.a);
             }
 
-            CVECTOR vec_pos;
+            glm::vec3 vec_pos;
             vec_pos.x = pos.x;
             vec_pos.y = pos.y;
             vec_pos.z = pos.z;
-            rs->DrawSphere(vec_pos, 0.2f, drawColor.GetDword());
+            rs->DrawSphere(vec_pos, 0.2f, storm::math::colorToARGB(drawColor));
 
             if (bShowDistances && audib > 0.001f)
             {
                 rs->SetWorld(ind);
-                Draw2DCircle(vec_pos, drawColor.GetDword(), fMin, drawColor.GetDword(), fMax);
+                Draw2DCircle(vec_pos, storm::math::colorToARGB(drawColor), fMin, storm::math::colorToARGB(drawColor), fMax);
             }
 
-            float fDistance = CVECTOR(vListener - vec_pos).GetLength();
+            float fDistance = glm::length(vListener - vec_pos);
 
-            DebugPrint3D(vec_pos, 30.0f, 2, 1.0f, drawColor.GetDword(), 1.0f, "%s", PlayingSounds[i].Name.c_str());
-            DebugPrint3D(vec_pos, 30.0f, 0, 1.0f, drawColor.GetDword(), 1.0f, "%3.2f m", fDistance);
-            DebugPrint3D(vec_pos, 30.0f, 4, 1.0f, drawColor.GetDword(), 1.0f, "prior: %d", prior);
+            DebugPrint3D(vec_pos, 30.0f, 2, 1.0f, storm::math::colorToARGB(drawColor), 1.0f, "%s", PlayingSounds[i].Name.c_str());
+            DebugPrint3D(vec_pos, 30.0f, 0, 1.0f, storm::math::colorToARGB(drawColor), 1.0f, "%3.2f m", fDistance);
+            DebugPrint3D(vec_pos, 30.0f, 4, 1.0f, storm::math::colorToARGB(drawColor), 1.0f, "prior: %d", prior);
         }
         else
         {

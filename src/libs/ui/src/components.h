@@ -111,6 +111,11 @@ class Behavior
     virtual void Rebuilt(ComponentElement &)
     {
     }
+    // The elements a pointer may go down on for this behaviour to take it. A layer over
+    // the game claims touches only there (Host::WantsTouch).
+    virtual void Regions(ComponentElement &, std::vector<Rml::Element *> &) const
+    {
+    }
 };
 
 using BehaviorFactory = std::unique_ptr<Behavior> (*)();
@@ -152,6 +157,8 @@ class ComponentElement final : public Rml::Element
     {
         return !behaviors_.empty();
     }
+    // Elements of this component that take a pointer (see Behavior::Regions).
+    void TouchRegions(std::vector<Rml::Element *> &out);
 
     // Pointer routing (called by the host).
     bool PointerExclusive(const Pointer &pointer) const;
@@ -178,6 +185,7 @@ class ComponentElement final : public Rml::Element
     std::vector<std::string> prop_classes_;
     std::vector<std::string> live_classes_;
     std::vector<std::string> applied_classes_;
+    std::string extra_behavior_; // added by data-behavior
     bool dirty_ = true;
     bool built_ = false;
     bool error_ = false; // ReportError happened since the last rebuild
@@ -200,7 +208,12 @@ class ComponentRegistry
     std::vector<std::unique_ptr<Rml::ElementInstancer>> instancers_;
 };
 
-// Closest ancestor-or-self that is a component with behaviours.
-ComponentElement *InteractiveComponentAt(Rml::Element *element);
+// The element that holds the component's children, once it is built; null without a slot.
+Rml::Element *ComponentSlot(ComponentElement &component);
+
+// The component that takes a pointer going down on `element`: the closest ancestor-or-self
+// with a behaviour that keeps the pointer for itself (drags, holds), else the closest one
+// with any behaviour.
+ComponentElement *InteractiveComponentAt(Rml::Element *element, const Pointer &pointer);
 
 } // namespace storm::ui

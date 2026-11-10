@@ -1,7 +1,7 @@
 #pragma once
 
-#include "c_vector.h"
-#include "matrix.h"
+#include "storm_glm.h"
+#include "storm_glm.h"
 #include "vma.hpp"
 #include <v_particle_system.h>
 
@@ -17,8 +17,8 @@ class PARTICLE_SYSTEM : public VPARTICLE_SYSTEM
     PARTICLE_SYSTEM(IParticleSystem *_pSystem);
     ~PARTICLE_SYSTEM() override;
     void Stop() override;
-    void SetEmitter(CVECTOR p, CVECTOR a) override;
-    void LinkToObject(entid_t id, CVECTOR _LinkPos) override;
+    void SetEmitter(glm::vec3 p, glm::vec3 a) override;
+    void LinkToObject(entid_t id, glm::vec3 _LinkPos) override;
     void SetDelay(int32_t _delay) override;
     void SetLifeTime(uint32_t time) override;
     void StopEmitter() override;

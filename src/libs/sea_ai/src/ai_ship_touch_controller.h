@@ -20,7 +20,7 @@ class AIShipTouchController
     float fLeftRaysFree, fRightRaysFree; //
     float fRaySize;                      // ray size
     float fSpeedFactor, fRotateFactor;
-    CVECTOR vBox[5];
+    glm::vec3 vBox[5];
 
   public:
     virtual void TestCollision(AIShip *pOtherShip);
@@ -32,8 +32,8 @@ class AIShipTouchController
 
     //
     float GetBestRotateDirection();
-    CVECTOR *GetPentagonBox();
-    bool isCollision2D(const CVECTOR &vSrc, const CVECTOR &vDst);
+    glm::vec3 *GetPentagonBox();
+    bool isCollision2D(const glm::vec3 &vSrc, const glm::vec3 &vDst);
 
     // get/set our ship pointer
     void SetAIShip(AIShip *pShip)

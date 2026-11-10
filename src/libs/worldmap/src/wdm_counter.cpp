@@ -31,10 +31,10 @@ WdmCounter::WdmCounter()
 
     Assert(wdmObjects->rs);
     const auto kDef = wdmObjects->rs->GetHeightDeformator();
-    mtx.BuildMatrix(-0.1f, 0.0f, 0.0f, 1.4f, 0.9f * kDef, 40.0f);
-    mtx.Vx() *= -0.25f;
-    mtx.Vy() *= 0.25f;
-    mtx.Vz() *= -0.25f;
+    mtx = storm::math::eulerMatrix(-0.1f, 0.0f, 0.0f, 1.4f, 0.9f * kDef, 40.0f);
+    storm::math::vx(mtx) *= -0.25f;
+    storm::math::vy(mtx) *= 0.25f;
+    storm::math::vz(mtx) *= -0.25f;
 
     for (int32_t i = 0; i < WMD_NUM_SKYS; i++)
         skytx[i] = -1;
@@ -123,15 +123,15 @@ void WdmCounter::Update(float dltTime)
 void WdmCounter::LRender(VDX9RENDER *rs)
 {
     // Camera matrix
-    static CMatrix view, prj, oldPrj;
-    rs->GetTransform(D3DTS_VIEW, view);
-    rs->GetTransform(D3DTS_PROJECTION, oldPrj);
+    static glm::mat4 view, prj, oldPrj;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(oldPrj));
     float scrw, scrh;
     wdmObjects->GetVPSize(scrw, scrh);
     // prj.BuildProjectionMatrix(0.1f, scrw, scrh, 10.0f, 100.0f);
-    prj.BuildProjectionMatrix(0.1f, 4.0f, 3.0f, 10.0f, 100.0f);
-    rs->SetTransform(D3DTS_PROJECTION, prj);
-    rs->SetTransform(D3DTS_VIEW, CMatrix());
+    prj = storm::math::projectionMatrix(0.1f, 4.0f, 3.0f, 10.0f, 100.0f);
+    rs->SetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
+    rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(glm::mat4()));
     // Sky
     const int32_t numSkys = sizeof(skyseq) / sizeof(int32_t);
     if (dayCounter < 0)
@@ -266,8 +266,8 @@ void WdmCounter::LRender(VDX9RENDER *rs)
         kMove = 0.0f;
     low = static_cast<float>((year / 1000) % 10);
     DrawNum(rs, y[0], 0.0f, (low + kMove) * 0.1f);
-    rs->SetTransform(D3DTS_PROJECTION, oldPrj);
-    rs->SetTransform(D3DTS_VIEW, view);
+    rs->SetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(oldPrj));
+    rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
 }
 
 bool WdmCounter::LoadModel(WdmRenderModel *&pnt, const char *name, const char *tech) const
@@ -282,16 +282,16 @@ bool WdmCounter::LoadModel(WdmRenderModel *&pnt, const char *name, const char *t
 
 void WdmCounter::DrawNum(VDX9RENDER *rs, WdmRenderModel *m, float u, float v)
 {
-    CMatrix mtx;
-    mtx.m[0][0] = 0.25f;
-    mtx.m[2][0] = u;
-    mtx.m[2][1] = v;
-    rs->SetTransform(D3DTS_TEXTURE0, mtx);
+    glm::mat4 mtx;
+    mtx[0][0] = 0.25f;
+    mtx[2][0] = u;
+    mtx[2][1] = v;
+    rs->SetTransform(D3DTS_TEXTURE0, storm::math::d3dMatrix(mtx));
     rs->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
     m->LRender(rs);
-    mtx.m[0][0] = 1.0f;
-    mtx.m[2][0] = 0.0f;
-    mtx.m[2][1] = 0.0f;
-    rs->SetTransform(D3DTS_TEXTURE0, mtx);
+    mtx[0][0] = 1.0f;
+    mtx[2][0] = 0.0f;
+    mtx[2][1] = 0.0f;
+    rs->SetTransform(D3DTS_TEXTURE0, storm::math::d3dMatrix(mtx));
     rs->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
 }

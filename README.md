@@ -32,7 +32,6 @@ Since our development team is small, we want to reduce the amount of code we hav
 For this reason, we decided to rely on the C++ standard library or third-party libraries if possible.
 
 Some things that we are going to do:
-- Replace a custom math library with a third-party one, e.g. [glm](https://github.com/g-truc/glm).
 - Replace custom rendering code with a [bgfx](https://github.com/bkaradzic/bgfx) library.
 - Replace custom input handling code with a third-party library (see the [discussion](https://github.com/storm-devs/storm-engine/discussions/19)).
 - Replace custom data structures with C++ standard types.

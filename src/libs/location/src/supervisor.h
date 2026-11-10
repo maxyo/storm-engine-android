@@ -12,9 +12,10 @@
 #include <cstdint>
 #include <vector>
 
+#include "storm_glm.h"
+
 class Character;
 class LocatorArray;
-struct CVECTOR;
 
 class Supervisor
 {
@@ -66,7 +67,7 @@ class Supervisor
     void DelSavePositions(bool isTeleport) const;
 
     // Find the best locator to continue walking the character
-    int32_t FindForvardLocator(LocatorArray *la, const CVECTOR &pos, const CVECTOR &norm, bool lookChr = false) const;
+    int32_t FindForvardLocator(LocatorArray *la, const glm::vec3 &pos, const glm::vec3 &norm, bool lookChr = false) const;
 
     // --------------------------------------------------------------------------------------------
     // Encapsulation

@@ -53,7 +53,7 @@ void BLADE::BLADE_INFO::DrawBlade(VDX9RENDER *rs, unsigned int blendValue, MODEL
     auto *obj = static_cast<MODEL *>(core.GetEntityPointer(eid));
     if (obj != nullptr)
     {
-        CMatrix perMtx;
+        glm::mat4 perMtx;
 
         auto *bladeNode = obj->GetNode(0);
         if ((blendValue & 0xff000000) == 0xff000000)
@@ -74,33 +74,33 @@ void BLADE::BLADE_INFO::DrawBlade(VDX9RENDER *rs, unsigned int blendValue, MODEL
 
             GEOS::LABEL lb;
             manNode->geo->GetLabel(sti, lb);
-            CMatrix mt;
-            mt.Vx() = CVECTOR(lb.m[0][0], lb.m[0][1], lb.m[0][2]);
-            mt.Vy() = CVECTOR(lb.m[1][0], lb.m[1][1], lb.m[1][2]);
-            mt.Vz() = CVECTOR(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
-            mt.Pos() = CVECTOR(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
+            glm::mat4 mt;
+            storm::math::vx(mt) = glm::vec3(lb.m[0][0], lb.m[0][1], lb.m[0][2]);
+            storm::math::vy(mt) = glm::vec3(lb.m[1][0], lb.m[1][1], lb.m[1][2]);
+            storm::math::vz(mt) = glm::vec3(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
+            storm::math::pos(mt) = glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
 
-            auto mbn = mt * bones[lb.bones[0]];
+            auto mbn = bones[lb.bones[0]] * mt;
 #ifndef _WIN32 // FIX_LINUX DirectXMath
-            mbn.Pos().x *= -1.0f;
-            mbn.Vx().x *= -1.0f;
-            mbn.Vy().x *= -1.0f;
-            mbn.Vz().x *= -1.0f;
+            storm::math::pos(mbn).x *= -1.0f;
+            storm::math::vx(mbn).x *= -1.0f;
+            storm::math::vy(mbn).x *= -1.0f;
+            storm::math::vz(mbn).x *= -1.0f;
 #endif
-            CMatrix scl;
-            scl.Vx().x = -1.0f;
-            scl.Vy().y = 1.0f;
-            scl.Vz().z = 1.0f;
-            mbn.EqMultiply(scl, CMatrix(mbn));
+            glm::mat4 scl;
+            storm::math::vx(scl).x = -1.0f;
+            storm::math::vy(scl).y = 1.0f;
+            storm::math::vz(scl).z = 1.0f;
+            mbn = glm::mat4(mbn) * scl;
 
-            perMtx = mbn * mdl->mtx;
+            perMtx = mdl->mtx * mbn;
         }
         obj->mtx = perMtx;
         obj->ProcessStage(Stage::realize, 0);
 
         //--------------------------------------------------------------------------
         rs->SetTexture(0, nullptr);
-        rs->SetTransform(D3DTS_WORLD, CMatrix());
+        rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
 
         // move to the beginning
         int32_t first = 0; // end vertex 2 draw
@@ -142,13 +142,13 @@ void BLADE::BLADE_INFO::DrawBlade(VDX9RENDER *rs, unsigned int blendValue, MODEL
         if (sti >= 0)
         {
             bladeNode->geo->GetLabel(sti, lb);
-            vrt[0].pos = perMtx * CVECTOR(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
+            vrt[0].pos = storm::math::transformPoint(perMtx, glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]));
             vrt[0].diffuse = color[0];
             sti = bladeNode->geo->FindLabelN(0, bladeNode->geo->FindName(bladeEnd));
             if (sti >= 0)
             {
                 bladeNode->geo->GetLabel(sti, lb);
-                vrt[1].pos = perMtx * CVECTOR(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
+                vrt[1].pos = storm::math::transformPoint(perMtx, glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]));
                 vrt[1].diffuse = color[0];
                 vrtTime[0] = time;
 
@@ -260,16 +260,16 @@ void BLADE::Realize(uint32_t Delta_Time)
     rs->TextureSet(2, -1);
     rs->TextureSet(3, -1);
 
-    CMatrix mtx;
-    rs->GetTransform(D3DTS_VIEW, mtx);
-    mtx.Transposition();
-    mtx.Pos() = 0.0f;
-    rs->SetTransform(D3DTS_TEXTURE1, mtx);
+    glm::mat4 mtx;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mtx));
+    storm::math::invertRigid(mtx);
+    storm::math::pos(mtx) = glm::vec3(0.0f);
+    rs->SetTransform(D3DTS_TEXTURE1, storm::math::d3dMatrix(mtx));
     rs->SetRenderState(D3DRS_TEXTUREFACTOR, blendValue);
 
     //------------------------------------------------------
     // draw gun
-    CMatrix perMtx;
+    glm::mat4 perMtx;
     int32_t sti;
     auto *obj = static_cast<MODEL *>(core.GetEntityPointer(gun));
     if (obj != nullptr)
@@ -293,26 +293,26 @@ void BLADE::Realize(uint32_t Delta_Time)
 
             GEOS::LABEL lb;
             manNode->geo->GetLabel(sti, lb);
-            CMatrix mt;
-            mt.Vx() = CVECTOR(lb.m[0][0], lb.m[0][1], lb.m[0][2]);
-            mt.Vy() = CVECTOR(lb.m[1][0], lb.m[1][1], lb.m[1][2]);
-            mt.Vz() = CVECTOR(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
-            mt.Pos() = CVECTOR(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
+            glm::mat4 mt;
+            storm::math::vx(mt) = glm::vec3(lb.m[0][0], lb.m[0][1], lb.m[0][2]);
+            storm::math::vy(mt) = glm::vec3(lb.m[1][0], lb.m[1][1], lb.m[1][2]);
+            storm::math::vz(mt) = glm::vec3(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
+            storm::math::pos(mt) = glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
 
-            auto mbn = mt * bones[lb.bones[0]];
+            auto mbn = bones[lb.bones[0]] * mt;
 #ifndef _WIN32 // FIX_LINUX DirectXMath
-            mbn.Pos().x *= -1.0f;
-            mbn.Vx().x *= -1.0f;
-            mbn.Vy().x *= -1.0f;
-            mbn.Vz().x *= -1.0f;
+            storm::math::pos(mbn).x *= -1.0f;
+            storm::math::vx(mbn).x *= -1.0f;
+            storm::math::vy(mbn).x *= -1.0f;
+            storm::math::vz(mbn).x *= -1.0f;
 #endif
-            CMatrix scl;
-            scl.Vx().x = -1.0f;
-            scl.Vy().y = 1.0f;
-            scl.Vz().z = 1.0f;
-            mbn.EqMultiply(scl, CMatrix(mbn));
+            glm::mat4 scl;
+            storm::math::vx(scl).x = -1.0f;
+            storm::math::vy(scl).y = 1.0f;
+            storm::math::vz(scl).z = 1.0f;
+            mbn = glm::mat4(mbn) * scl;
 
-            perMtx = mbn * mdl->mtx;
+            perMtx = mdl->mtx * mbn;
         }
         obj->mtx = perMtx;
 
@@ -330,8 +330,8 @@ void BLADE::Realize(uint32_t Delta_Time)
         if (items[n].nItemIndex != -1)
             items[n].DrawItem(rs, blendValue, mdl, manNode);
 
-    mtx.SetIdentity();
-    rs->SetTransform(D3DTS_TEXTURE1, mtx);
+    mtx = glm::mat4(1.0f);
+    rs->SetTransform(D3DTS_TEXTURE1, storm::math::d3dMatrix(mtx));
 }
 
 bool BLADE::LoadBladeModel(MESSAGE &message)
@@ -390,7 +390,7 @@ void BLADE::GunFire()
 
     //------------------------------------------------------
     // search gunfire
-    CMatrix perMtx;
+    glm::mat4 perMtx;
     int32_t sti;
 
     const char *currentGunLocName = gunLocName;
@@ -415,20 +415,20 @@ void BLADE::GunFire()
 
             GEOS::LABEL lb;
             manNode->geo->GetLabel(sti, lb);
-            CMatrix mt;
-            mt.Vx() = CVECTOR(lb.m[0][0], lb.m[0][1], lb.m[0][2]);
-            mt.Vy() = CVECTOR(lb.m[1][0], lb.m[1][1], lb.m[1][2]);
-            mt.Vz() = CVECTOR(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
-            mt.Pos() = CVECTOR(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
+            glm::mat4 mt;
+            storm::math::vx(mt) = glm::vec3(lb.m[0][0], lb.m[0][1], lb.m[0][2]);
+            storm::math::vy(mt) = glm::vec3(lb.m[1][0], lb.m[1][1], lb.m[1][2]);
+            storm::math::vz(mt) = glm::vec3(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
+            storm::math::pos(mt) = glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
 
-            auto mbn = mt * bones[lb.bones[0]];
+            auto mbn = bones[lb.bones[0]] * mt;
 #ifndef _WIN32 // FIX_LINUX DirectXMath
-            mbn.Pos().x *= -1.0f;
-            mbn.Vx().x *= -1.0f;
-            mbn.Vy().x *= -1.0f;
-            mbn.Vz().x *= -1.0f;
+            storm::math::pos(mbn).x *= -1.0f;
+            storm::math::vx(mbn).x *= -1.0f;
+            storm::math::vy(mbn).x *= -1.0f;
+            storm::math::vz(mbn).x *= -1.0f;
 #endif
-            perMtx = mbn * mdl->mtx;
+            perMtx = mdl->mtx * mbn;
         }
 
         // search for start
@@ -437,12 +437,12 @@ void BLADE::GunFire()
         {
             GEOS::LABEL lb;
             gunNode->geo->GetLabel(sti, lb);
-            CMatrix resm;
-            resm.EqMultiply(perMtx, *(CMatrix *)&lb.m);
-            auto rp = perMtx * CVECTOR(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
+            glm::mat4 resm;
+            resm = (*(glm::mat4 *)&lb.m) * perMtx;
+            auto rp = storm::math::transformPoint(perMtx, glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]));
 
             core.Send_Message(core.GetEntityId("particles"), "lsffffffl", PS_CREATEX, "gunfire", rp.x, rp.y,
-                              rp.z, resm.Vz().x, resm.Vz().y, resm.Vz().z, 0);
+                              rp.z, storm::math::vz(resm).x, storm::math::vz(resm).y, storm::math::vz(resm).z, 0);
         }
         else
             core.Trace("MSG_BLADE_GUNFIRE Can't find gun_fire locator");
@@ -618,7 +618,7 @@ void BLADE::TIEITEM_INFO::DrawItem(VDX9RENDER *rs, unsigned int blendValue, MODE
     auto *obj = static_cast<MODEL *>(core.GetEntityPointer(eid));
     if (obj != nullptr)
     {
-        CMatrix perMtx;
+        glm::mat4 perMtx;
 
         NODE *mdlNode = obj->GetNode(0);
         if ((blendValue & 0xff000000) == 0xff000000)
@@ -635,30 +635,30 @@ void BLADE::TIEITEM_INFO::DrawItem(VDX9RENDER *rs, unsigned int blendValue, MODE
         if ((sti = manNode->geo->FindLabelN(sti + 1, idLoc)) > -1)
         {
             Animation *ani = mdl->GetAnimation();
-            CMatrix *bones = &ani->GetAnimationMatrix(0);
+            glm::mat4 *bones = &ani->GetAnimationMatrix(0);
 
             GEOS::LABEL lb;
             manNode->geo->GetLabel(sti, lb);
-            CMatrix mt;
-            mt.Vx() = CVECTOR(lb.m[0][0], lb.m[0][1], lb.m[0][2]);
-            mt.Vy() = CVECTOR(lb.m[1][0], lb.m[1][1], lb.m[1][2]);
-            mt.Vz() = CVECTOR(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
-            mt.Pos() = CVECTOR(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
+            glm::mat4 mt;
+            storm::math::vx(mt) = glm::vec3(lb.m[0][0], lb.m[0][1], lb.m[0][2]);
+            storm::math::vy(mt) = glm::vec3(lb.m[1][0], lb.m[1][1], lb.m[1][2]);
+            storm::math::vz(mt) = glm::vec3(lb.m[2][0], lb.m[2][1], lb.m[2][2]);
+            storm::math::pos(mt) = glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
 
-            CMatrix mbn = mt * bones[lb.bones[0]];
+            glm::mat4 mbn = bones[lb.bones[0]] * mt;
 #ifndef _WIN32 // FIX_LINUX DirectXMath
-            mbn.Pos().x *= -1.0f;
-            mbn.Vx().x *= -1.0f;
-            mbn.Vy().x *= -1.0f;
-            mbn.Vz().x *= -1.0f;
+            storm::math::pos(mbn).x *= -1.0f;
+            storm::math::vx(mbn).x *= -1.0f;
+            storm::math::vy(mbn).x *= -1.0f;
+            storm::math::vz(mbn).x *= -1.0f;
 #endif
-            CMatrix scl;
-            scl.Vx().x = -1.0f;
-            scl.Vy().y = 1.0f;
-            scl.Vz().z = 1.0f;
-            mbn.EqMultiply(scl, CMatrix(mbn));
+            glm::mat4 scl;
+            storm::math::vx(scl).x = -1.0f;
+            storm::math::vy(scl).y = 1.0f;
+            storm::math::vz(scl).z = 1.0f;
+            mbn = glm::mat4(mbn) * scl;
 
-            perMtx = mbn * mdl->mtx;
+            perMtx = mdl->mtx * mbn;
         }
         obj->mtx = perMtx;
         obj->ProcessStage(Stage::realize, 0);

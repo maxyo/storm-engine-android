@@ -43,11 +43,11 @@ AICharacter::~AICharacter()
 void AICharacter::Move(float dltTime)
 {
     // zero the forces
-    force = 0.0f;
-    goForce = 0.0f;
-    separation = 0.0f;
-    alignment = 0.0f;
-    around = 0.0f;
+    force = glm::vec3(0.0f);
+    goForce = glm::vec3(0.0f);
+    separation = glm::vec3(0.0f);
+    alignment = glm::vec3(0.0f);
+    around = glm::vec3(0.0f);
     // process the command
     switch (command.cmd)
     {
@@ -70,16 +70,16 @@ void AICharacter::Calculate(float dltTime)
 {
     auto *const location = GetLocation();
     CalcRepulsionForces();
-    CVECTOR slideForce;
+    glm::vec3 slideForce;
     location->GetPtcData().FindForce(currentNode, slideForce);
     // restrict the vector
-    auto l = ~separation;
+    auto l = storm::math::lengthSquared(separation);
     if (l > 1.0f)
         separation *= 1.0f / sqrtf(l);
-    l = ~alignment;
+    l = storm::math::lengthSquared(alignment);
     if (l > 1.0f)
         alignment *= 1.0f / sqrtf(l);
-    l = ~around;
+    l = storm::math::lengthSquared(around);
     if (l > 1.0f)
         around *= 1.0f / sqrtf(l);
     separation *= IsFight() ? 0.5f : 1.1f;
@@ -100,17 +100,17 @@ void AICharacter::Calculate(float dltTime)
 
     if (location->IsDebugView())
     {
-        location->DrawLine(curPos + CVECTOR(0, 0.01f, 0), 0xff0000ff, curPos + goForce + CVECTOR(0, 0.01f, 0),
+        location->DrawLine(curPos + glm::vec3(0, 0.01f, 0), 0xff0000ff, curPos + goForce + glm::vec3(0, 0.01f, 0),
                            0xff0000ff, false);
-        location->DrawLine(curPos + CVECTOR(0, 0.02f, 0), 0xffff0000, curPos + separation + CVECTOR(0, 0.02f, 0),
+        location->DrawLine(curPos + glm::vec3(0, 0.02f, 0), 0xffff0000, curPos + separation + glm::vec3(0, 0.02f, 0),
                            0xffff0000, false);
-        location->DrawLine(curPos + CVECTOR(0, 0.03f, 0), 0xff00ff00, curPos + alignment + CVECTOR(0, 0.03f, 0),
+        location->DrawLine(curPos + glm::vec3(0, 0.03f, 0), 0xff00ff00, curPos + alignment + glm::vec3(0, 0.03f, 0),
                            0xff00ff00, false);
-        location->DrawLine(curPos + CVECTOR(0, 0.04f, 0), 0xffffff00, curPos + around + CVECTOR(0, 0.04f, 0),
+        location->DrawLine(curPos + glm::vec3(0, 0.04f, 0), 0xffffff00, curPos + around + glm::vec3(0, 0.04f, 0),
                            0xffffff00, false);
-        location->DrawLine(curPos + CVECTOR(0, 0.1f, 0), 0xffffffff, curPos + force + CVECTOR(0, 0.1f, 0), 0xffffffff,
+        location->DrawLine(curPos + glm::vec3(0, 0.1f, 0), 0xffffffff, curPos + force + glm::vec3(0, 0.1f, 0), 0xffffffff,
                            false);
-        location->DrawLine(curPos + CVECTOR(0, 0.1f, 0), 0xff00ffff, curPos + slideForce + CVECTOR(0, 0.1f, 0),
+        location->DrawLine(curPos + glm::vec3(0, 0.1f, 0), 0xff00ffff, curPos + slideForce + glm::vec3(0, 0.1f, 0),
                            0xffffffff, false);
     }
 
@@ -189,11 +189,11 @@ bool AICharacter::CmdGotoPoint(float x, float y, float z, float rad, int32_t nod
     if (currentNode < 0)
         return false;
     if (node < 0)
-        node = FindNodeIndex(CVECTOR(x, y, z), &y);
+        node = FindNodeIndex(glm::vec3(x, y, z), &y);
     if (node < 0)
         return false;
     command.cmd = aicmd_gotopoint;
-    command.pnt = CVECTOR(x, y, z);
+    command.pnt = glm::vec3(x, y, z);
     command.node = node;
     command.tpnt = curPos;
     command.tnode = currentNode;
@@ -213,7 +213,7 @@ bool AICharacter::CmdEscape(float x, float y, float z, float rad)
     if (bMusketer && bMusketerNoMove)
         return true;
     command.cmd = aicmd_escape;
-    command.pnt = CVECTOR(x, y, z);
+    command.pnt = glm::vec3(x, y, z);
     command.node = -1;
     command.radius = rad;
     command.waitTime = 0.0f;
@@ -251,14 +251,14 @@ void AICharacter::CmdProcessGotoPoint(float dltTime)
     goForce.x = command.tpnt.x - curPos.x;
     goForce.y = 0.0f;
     goForce.z = command.tpnt.z - curPos.z;
-    auto fl = sqrtf(~goForce);
+    auto fl = sqrtf(storm::math::lengthSquared(goForce));
     const auto sn = sinf(ay);
     const auto cs = cosf(ay);
     if (fl <= 0.0f)
     {
         goForce.x = command.pnt.x - curPos.x;
         goForce.z = command.pnt.z - curPos.z;
-        fl = sqrtf(~goForce);
+        fl = sqrtf(storm::math::lengthSquared(goForce));
     }
     if (fl > 0.0f)
     {
@@ -303,7 +303,7 @@ void AICharacter::CmdProcessGotoPoint(float dltTime)
         uint32_t color = static_cast<int32_t>(dist);
         color |= (255 - color) << 16;
         color |= 0xff00ff00;
-        location->DrawLine(command.pnt + CVECTOR(0, 0.01f, 0), color, command.pnt + CVECTOR(0, 3.01f, 0), color, false);
+        location->DrawLine(command.pnt + glm::vec3(0, 0.01f, 0), color, command.pnt + glm::vec3(0, 3.01f, 0), color, false);
     }
     // Slow down in front of the locator
     if (d < 1.5f * 1.5f)
@@ -346,7 +346,7 @@ void AICharacter::CmdProcessGotoPoint(float dltTime)
         }
     }
     if (location->IsDebugView())
-        location->DrawLine(command.tpnt, 0xffff0000, command.tpnt + CVECTOR(0.0f, 3.0f, 0.0f), 0xff00ff00, false);
+        location->DrawLine(command.tpnt, 0xffff0000, command.tpnt + glm::vec3(0.0f, 3.0f, 0.0f), 0xff00ff00, false);
 }
 
 void AICharacter::CmdUpdateGotoPoint(float dltTime)
@@ -424,7 +424,7 @@ void AICharacter::CmdProcessEscape(float dltTime)
     auto l = goForce.x * goForce.x + goForce.z * goForce.z;
     if (l >= command.radius * command.radius)
     {
-        goForce = 0.0f;
+        goForce = glm::vec3(0.0f);
         command.cmd = aicmd_none;
         StopMove();
         EndEscapeCommand();
@@ -460,7 +460,7 @@ void AICharacter::CmdUpdateEscape(float dltTime)
 //--------------------------------------------------------------------------------------------
 
 // Find the node index for a given coordinate
-int32_t AICharacter::FindNodeIndex(const CVECTOR &pos, float *hy)
+int32_t AICharacter::FindNodeIndex(const glm::vec3 &pos, float *hy)
 {
     auto *const location = GetLocation();
     float yy;
@@ -476,15 +476,15 @@ bool AICharacter::FindDirectional()
     if (command.tnode < 0 || command.node < 0)
         return false;
     auto *const location = GetLocation();
-    if (!location->GetPtcData().FindPathDir(command.tnode, CVECTOR(command.tpnt), command.node, command.pnt,
+    if (!location->GetPtcData().FindPathDir(command.tnode, glm::vec3(command.tpnt), command.node, command.pnt,
                                             command.tnode, command.tpnt))
         return false;
     if (location->IsDebugView())
     {
         for (int32_t i = 0; i < location->GetPtcData().numSteps; i++)
         {
-            location->DrawLine(location->GetPtcData().stepPos[i] + CVECTOR(0, 0.01f, 0), 0xffff00ff,
-                               location->GetPtcData().stepPos[i] + CVECTOR(0, 2.01f, 0), 0xff2f80ff, false);
+            location->DrawLine(location->GetPtcData().stepPos[i] + glm::vec3(0, 0.01f, 0), 0xffff00ff,
+                               location->GetPtcData().stepPos[i] + glm::vec3(0, 2.01f, 0), 0xff2f80ff, false);
         }
     }
     return true;
@@ -546,8 +546,8 @@ void AICharacter::CalcRepulsionForces()
 }
 
 // Calculate the point formed by the intersection and lying on the edge
-bool AICharacter::FindIntersection(const CVECTOR &s, const CVECTOR &e, const CVECTOR &cur, const CVECTOR &to,
-                                   CVECTOR &res)
+bool AICharacter::FindIntersection(const glm::vec3 &s, const glm::vec3 &e, const glm::vec3 &cur, const glm::vec3 &to,
+                                   glm::vec3 &res)
 {
     const auto deX = e.x - s.x;
     const auto deZ = e.z - s.z;

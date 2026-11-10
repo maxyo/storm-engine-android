@@ -14,7 +14,7 @@
 #include <chrono>
 
 #include "animation.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "model.h"
 #include "string_compare.hpp"
 #include "vma.hpp"
@@ -303,9 +303,9 @@ class Character : public Entity
     // Get character height
     float GetHeight() const;
     // Get character position
-    void GetPosition(CVECTOR &pos) const;
+    void GetPosition(glm::vec3 &pos) const;
     // Get character position
-    void GetGrassPosition(CVECTOR &pos, CVECTOR &gpos) const;
+    void GetGrassPosition(glm::vec3 &pos, glm::vec3 &gpos) const;
     // Set the flag of walking on the grass
     void SetGrassSound();
     // Get maximum character radius
@@ -396,7 +396,7 @@ class Character : public Entity
     int32_t startColCharacter;
     int32_t numColCharacter;
     bool isSlide;
-    CVECTOR slideDir;
+    glm::vec3 slideDir;
 
     // --------------------------------------------------------------------------------------------
     // Encapsulation
@@ -417,9 +417,9 @@ class Character : public Entity
     bool zDistByCharacter(MESSAGE &message, bool is2D);
     uint32_t zExMessage(MESSAGE &message);
     bool zPlaySound(MESSAGE &message);
-    bool TestJump(CVECTOR pos);
-    bool BuildJump(CVECTOR pos, float fAng);
-    bool TraceWithObstacle(const CVECTOR &src, const CVECTOR &dst);
+    bool TestJump(glm::vec3 pos);
+    bool BuildJump(glm::vec3 pos, float fAng);
+    bool TraceWithObstacle(const glm::vec3 &src, const glm::vec3 &dst);
     void UpdateActionsData();
     void UpdateActionMoveData(ActionMove &am, Animation *a);
     void UpdateActionCharacterData(ActionCharacter &ac, Animation *a);
@@ -438,7 +438,7 @@ class Character : public Entity
     // Refresh weapon state
     void UpdateWeapons();
     // Get direction towards the enemy to bounce on hit
-    CVECTOR GetEnemyDirForImpulse();
+    glm::vec3 GetEnemyDirForImpulse();
 
     bool PriorityActionIsJump() const;
 
@@ -462,7 +462,7 @@ class Character : public Entity
     // Character sizes
     float radius, radiusNrm, radiusFgt;
     // Current and previous positions
-    CVECTOR curPos, oldPos, colMove, grsPos, impulse;
+    glm::vec3 curPos, oldPos, colMove, grsPos, impulse;
     float strafeMove;
     float seaY;
 
@@ -526,7 +526,7 @@ class Character : public Entity
     // down. Physical movement and scripted ownership explicitly release it.
     bool androidMotionStop = false;
     bool androidMotionApplied = false; // Observation only, for bounded DEBUG telemetry.
-    CVECTOR androidMotionDirection = CVECTOR(0.0f, 0.0f, 0.0f);
+    glm::vec3 androidMotionDirection = glm::vec3(0.0f, 0.0f, 0.0f);
     float androidMotionSpeed = 0.0f;
     float androidMotionWalkSpeed = 0.0f;
 #endif
@@ -683,8 +683,8 @@ class Character : public Entity
     float ayStack[16];
     int32_t ayStackPointer;
 
-    CVECTOR jumpTrack[50];
-    CVECTOR osculationPoint;
+    glm::vec3 jumpTrack[50];
+    glm::vec3 osculationPoint;
     float jumpFallTime;
     float curJumpFallTime;
     int32_t jumpPoints;
@@ -694,7 +694,7 @@ class Character : public Entity
     //
     int32_t m_nHandLightID;
     const char *m_pcHandLightLocator;
-    CVECTOR GetHandLightPos();
+    glm::vec3 GetHandLightPos();
 
     bool CheckObstacle(float fx, float fz, float fzlen);
     int32_t GetRandomIndexByObstacle(ObstacleZone *pZone, int32_t num);
@@ -706,7 +706,7 @@ class Character : public Entity
     // Procedural head look
     HeadLookState curHeadLookState;
     entid_t headLookChrTarget;
-    CVECTOR headLookPointTarget;
+    glm::vec3 headLookPointTarget;
     float curHeadAX;
     float curHeadAY;
 
@@ -778,7 +778,7 @@ inline float Character::GetHeight() const
 }
 
 // Get character position
-inline void Character::GetPosition(CVECTOR &pos) const
+inline void Character::GetPosition(glm::vec3 &pos) const
 {
     pos = curPos;
     if (isSwim)
@@ -786,7 +786,7 @@ inline void Character::GetPosition(CVECTOR &pos) const
 }
 
 // Get character position
-inline void Character::GetGrassPosition(CVECTOR &pos, CVECTOR &gpos) const
+inline void Character::GetGrassPosition(glm::vec3 &pos, glm::vec3 &gpos) const
 {
     pos = curPos;
     gpos = grsPos;

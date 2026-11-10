@@ -68,7 +68,7 @@ void Supervisor::Update(float dltTime)
     for (size_t i = 0; i < character.size(); i++)
     {
         character[i].c->Move(dltTime);
-        character[i].c->colMove = 0.0f;
+        character[i].c->colMove = glm::vec3(0.0f);
         character[i].c->isCollision = false;
     }
     // calculate the distances, and determine the interacting characters
@@ -92,7 +92,7 @@ void Supervisor::Update(float dltTime)
             if (cj->liveValue < 0 || cj->deadName)
                 continue;
             // Distance between characters
-            auto d = ~(curPos - cj->curPos);
+            auto d = storm::math::lengthSquared(curPos - cj->curPos);
             // Character interaction distance
             auto r = radius + cj->radius;
             const auto rr = r * 4.0f;
@@ -131,12 +131,12 @@ void Supervisor::Update(float dltTime)
             ci->isCollision = true;
             cj->isCollision = true;
             auto moveI = ci->IsMove();
-            if ((~ci->impulse) > 0.0001f && !moveI)
+            if ((storm::math::lengthSquared(ci->impulse)) > 0.0001f && !moveI)
             {
                 moveI = ((ci->impulse.x * dx + ci->impulse.z * dz) < 0.0f);
             }
             auto moveJ = cj->IsMove();
-            if ((~cj->impulse) > 0.0001f && !moveJ)
+            if ((storm::math::lengthSquared(cj->impulse)) > 0.0001f && !moveJ)
             {
                 moveJ = ((cj->impulse.x * dx + cj->impulse.z * dz) > 0.0f);
             }
@@ -306,18 +306,18 @@ std::vector<Supervisor::FindCharacter> Supervisor::FindCharacters(Character *chr
     auto y = chr->curPos.y;
     auto z = chr->curPos.z;
     // Parameters for testing in the sector at x_z
-    CVECTOR N1, N2, N3;
+    glm::vec3 N1, N2, N3;
     float d1, d2, d3;
     if (angTest > 0.0f)
     {
-        CMatrix m(0.0f, chr->ay, 0.0f);
+        glm::mat4 m = storm::math::eulerMatrix(0.0f, chr->ay, 0.0f);
         auto ang = 0.5f * angTest * 3.141592654f / 180.0f;
-        N1 = m * CVECTOR(cosf(ang), 0.0f, sinf(ang));
-        d1 = N1 | chr->curPos;
-        N2 = m * CVECTOR(-cosf(-ang), 0.0f, -sinf(-ang));
-        d2 = N2 | chr->curPos;
-        N3 = m.Vz();
-        d3 = N3 | chr->curPos;
+        N1 = storm::math::transformPoint(m, glm::vec3(cosf(ang), 0.0f, sinf(ang)));
+        d1 = glm::dot(N1, chr->curPos);
+        N2 = storm::math::transformPoint(m, glm::vec3(-cosf(-ang), 0.0f, -sinf(-ang)));
+        d2 = glm::dot(N2, chr->curPos);
+        N3 = storm::math::vz(m);
+        d3 = glm::dot(N3, chr->curPos);
     }
     // Parameters for testing in the sector by y_dist
     if (ax > 0.0f)
@@ -362,13 +362,13 @@ std::vector<Supervisor::FindCharacter> Supervisor::FindCharacters(Character *chr
         {
             // Check the location
             auto rad = !lookCenter ? -character[i].c->radius : 0.0f;
-            dist1 = (N1 | character[i].c->curPos) - d1;
+            dist1 = glm::dot(N1, character[i].c->curPos) - d1;
             if (dist1 < rad)
                 continue;
-            dist2 = (N2 | character[i].c->curPos) - d2;
+            dist2 = glm::dot(N2, character[i].c->curPos) - d2;
             if (dist2 < rad)
                 continue;
-            dist3 = (N3 | character[i].c->curPos) - d3;
+            dist3 = glm::dot(N3, character[i].c->curPos) - d3;
             if (dist3 < nearPlane)
                 continue;
         }
@@ -388,12 +388,12 @@ std::vector<Supervisor::FindCharacter> Supervisor::FindCharacters(Character *chr
 }
 
 // Find the best locator to continue walking the character
-int32_t Supervisor::FindForvardLocator(LocatorArray *la, const CVECTOR &pos, const CVECTOR &norm, bool lookChr) const
+int32_t Supervisor::FindForvardLocator(LocatorArray *la, const glm::vec3 &pos, const glm::vec3 &norm, bool lookChr) const
 {
     if (!la)
         return -1;
     const auto num = la->Num();
-    CVECTOR lpos;
+    glm::vec3 lpos;
     float maxcs;
     int32_t l = -1;
     for (int32_t i = 0; i < num; i++)
@@ -411,7 +411,7 @@ int32_t Supervisor::FindForvardLocator(LocatorArray *la, const CVECTOR &pos, con
         if (cs <= 0.0f)
             continue;
         lpos *= 1.0f / sqrtf(cs);
-        cs = lpos | norm;
+        cs = glm::dot(lpos, norm);
         if (l > 0)
         {
             if (cs > maxcs)

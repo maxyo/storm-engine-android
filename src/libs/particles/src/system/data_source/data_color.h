@@ -9,7 +9,7 @@ class DataColor
 {
     std::string Name;
 
-    const Color ZeroColor;
+    const glm::vec4 ZeroColor;
 
     std::vector<ColorVertex> ColorGraph;
 
@@ -19,11 +19,11 @@ class DataColor
     virtual ~DataColor();
 
     // Get the value (Current time, Total lifetime, Random factor [0..1])
-    Color GetValue(float Time, float LifeTime, float K_rand);
+    glm::vec4 GetValue(float Time, float LifeTime, float K_rand);
 
     // Sets the "default"
     // two indices, Min = Max = Value
-    void SetDefaultValue(const Color &Value);
+    void SetDefaultValue(const glm::vec4 &Value);
 
     // Set values
     void SetValues(const ColorVertex *Values, uint32_t Count);
@@ -32,10 +32,10 @@ class DataColor
     uint32_t GetValuesCount() const;
 
     // Get min. value (by index)
-    const Color &GetMinValue(uint32_t Index);
+    const glm::vec4 &GetMinValue(uint32_t Index);
 
     // Get max. value (by index)
-    const Color &GetMaxValue(uint32_t Index);
+    const glm::vec4 &GetMaxValue(uint32_t Index);
 
     void Load(MemFile *File);
     void Write(MemFile *File);

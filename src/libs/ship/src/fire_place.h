@@ -14,20 +14,20 @@ class FirePlace
     FirePlace();
     ~FirePlace();
 
-    CVECTOR GetPos()
+    glm::vec3 GetPos()
     {
         Assert(GetShip());
-        return *GetShip()->GetMatrix() * vOrigPos;
+        return storm::math::transformPoint(*GetShip()->GetMatrix(), vOrigPos);
     };
 
-    void SetPos(CVECTOR &vPos)
+    void SetPos(glm::vec3 &vPos)
     {
         vOrigPos = vPos;
     };
 
-    float GetDistance(CVECTOR &vOtherPos)
+    float GetDistance(glm::vec3 &vOtherPos)
     {
-        return sqrtf(~(GetPos() - vOtherPos));
+        return sqrtf(storm::math::lengthSquared(GetPos() - vOtherPos));
     };
 
     void SetShip(SHIP_BASE *_pShip)
@@ -82,7 +82,7 @@ class FirePlace
     SEA_BASE *pSea;
     int32_t iSoundID;
     int32_t iBallCharacterIndex;
-    CVECTOR vOrigPos;
+    glm::vec3 vOrigPos;
     bool bActive;
     float fRunTime;
     std::string sParticleSmokeName, sParticleFireName, sSoundName;

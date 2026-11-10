@@ -11,10 +11,10 @@
 #pragma once
 
 #include "vma.hpp"
+#include "storm_glm.h"
 
 #define TRND_PI 3.141592654f
 
-struct CVECTOR;
 
 class Pillar
 {
@@ -62,7 +62,7 @@ class Pillar
     float X();
     float Z();
 
-    float RandomPos(CVECTOR &pos);
+    float RandomPos(glm::vec3 &pos);
 
     void SetGlobalAlpha(float a);
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "c_vector.h"
+#include "storm_glm.h"
 #include "quest_file_reader/quest_file_reader.h"
 #include "dx9render.h"
 #include "shared/interface/messages.h"
@@ -209,7 +209,7 @@ struct FXYRECT
 
 struct XI_NOTEX_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     uint32_t color;
 };
 
@@ -217,7 +217,7 @@ struct XI_NOTEX_VERTEX
 
 struct XI_ONLYONETEX_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float tu, tv;
 };
 
@@ -225,7 +225,7 @@ struct XI_ONLYONETEX_VERTEX
 
 struct XI_ONETEX_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     uint32_t color;
     float tu, tv;
 };
@@ -234,7 +234,7 @@ struct XI_ONETEX_VERTEX
 
 struct XI_TWOTEX_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     uint32_t color;
     float tu1, tv1;
     float tu2, tv2;
@@ -244,7 +244,7 @@ struct XI_TWOTEX_VERTEX
 
 struct XI_THREETEX_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     uint32_t color;
     float tu1, tv1;
     float tu2, tv2;

@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "c_vector.h"
+#include "storm_glm.h"
 #include "ptc.h"
 
 #define PTCDATA_MAXSTEPS 32
@@ -23,8 +23,8 @@ class PtcData
     struct Triangle
     {
         int32_t index;
-        CVECTOR v[3];
-        CVECTOR n;
+        glm::vec3 v[3];
+        glm::vec3 n;
     };
 
     struct DbgVertex
@@ -43,18 +43,18 @@ class PtcData
     // load the patch
     bool Load(const char *path);
     // Determine the current position
-    int32_t FindNode(const CVECTOR &pos, float &y);
+    int32_t FindNode(const glm::vec3 &pos, float &y);
     // Moves "pos" to "to", returns a new node
-    int32_t Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t depth = 0);
+    int32_t Move(int32_t curNode, const glm::vec3 &to, glm::vec3 &pos, int32_t depth = 0);
     // Get normal to a node
-    void GetNodeNormal(int32_t curNode, CVECTOR &n) const;
+    void GetNodeNormal(int32_t curNode, glm::vec3 &n) const;
     // Find the direction of the path
-    bool FindPathDir(int32_t curNode, const CVECTOR &cur, int32_t toNode, const CVECTOR &to, int32_t &node, CVECTOR &toPos);
+    bool FindPathDir(int32_t curNode, const glm::vec3 &cur, int32_t toNode, const glm::vec3 &to, int32_t &node, glm::vec3 &toPos);
     // Find patch intersection
-    float Trace(const CVECTOR &s, const CVECTOR &d) const;
+    float Trace(const glm::vec3 &s, const glm::vec3 &d) const;
     // Find the force pushing away from the edges
-    void FindForce(int32_t curNode, CVECTOR &force) const;
-    void FindForce(int32_t curNode, const CVECTOR &pos, float dist, CVECTOR &force) const;
+    void FindForce(int32_t curNode, glm::vec3 &force) const;
+    void FindForce(int32_t curNode, const glm::vec3 &pos, float dist, glm::vec3 &force) const;
     // Get node material
     const char *GetMaterial(int32_t curNode);
 
@@ -63,13 +63,13 @@ class PtcData
 
     // Last move results
     bool isSlide;     // Slided
-    CVECTOR slideDir; // Sliding direction
+    glm::vec3 slideDir; // Sliding direction
     bool isBearing;   // Fell on a bearing
 
-    CVECTOR stepPos[PTCDATA_MAXSTEPS];
+    glm::vec3 stepPos[PTCDATA_MAXSTEPS];
     int32_t numSteps;
 
-    CVECTOR middle;
+    glm::vec3 middle;
 
     // Debug rendering
     void DebugDraw(VDX9RENDER *rs, float dltTime);
@@ -84,12 +84,12 @@ class PtcData
     // Calculate the height of a point on the plane of a triangle
     float FindHeight(int32_t trgID, float x, float z);
     // Find the direction of the path
-    bool FindPathDir(int32_t step, int32_t curNode, const CVECTOR &cur, int32_t toNode, const CVECTOR &to, int32_t &node,
-                     CVECTOR &pos);
+    bool FindPathDir(int32_t step, int32_t curNode, const glm::vec3 &cur, int32_t toNode, const glm::vec3 &to, int32_t &node,
+                     glm::vec3 &pos);
     // Find a point on an edge
-    CVECTOR FindEdgePoint(const CVECTOR &vs, const CVECTOR &ve, const CVECTOR &cur, const CVECTOR &to);
+    glm::vec3 FindEdgePoint(const glm::vec3 &vs, const glm::vec3 &ve, const glm::vec3 &cur, const glm::vec3 &to);
     // Check the intersection of a triangle with a line segment
-    float Trace(PtcTriangle &trg, const CVECTOR &s, const CVECTOR &d) const;
+    float Trace(PtcTriangle &trg, const glm::vec3 &s, const glm::vec3 &d) const;
     // Add triangle to buffer
     // void AddClTriangle(int32_t i);
 
@@ -111,7 +111,7 @@ class PtcData
     PtcMaterials *materials; // Materials
 
     // Collision data
-    CVECTOR min, max; // What to fit into
+    glm::vec3 min, max; // What to fit into
 
     PtcMap *map;  // Quick search map
     int32_t l, w;    // Quick Search Map Size

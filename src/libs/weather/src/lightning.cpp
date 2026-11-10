@@ -153,14 +153,14 @@ uint64_t LIGHTNING::ProcessMessage(MESSAGE &message)
 
 void LIGHTNING::CalcFlashPower(lightning_t *pL) const
 {
-    CVECTOR vCamPos, vCamAng, vTrace[3];
+    glm::vec3 vCamPos, vCamAng, vTrace[3];
     float fFov;
 
     pRS->GetCamera(vCamPos, vCamAng, fFov);
 
-    vTrace[0] = CVECTOR(pL->vPos.x, pL->vPos.y + pL->fSize * 0.9f, pL->vPos.z);
+    vTrace[0] = glm::vec3(pL->vPos.x, pL->vPos.y + pL->fSize * 0.9f, pL->vPos.z);
     vTrace[1] = pL->vPos;
-    vTrace[2] = CVECTOR(pL->vPos.x, pL->vPos.y - pL->fSize * 0.9f, pL->vPos.z);
+    vTrace[2] = glm::vec3(pL->vPos.x, pL->vPos.y - pL->fSize * 0.9f, pL->vPos.z);
 
     auto fPower = 1.0f;
 

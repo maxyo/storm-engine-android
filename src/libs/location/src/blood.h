@@ -13,7 +13,7 @@ class Blood : public Entity
 {
     struct BloodVertex
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         uint32_t dwCol;
         float u, v;
     };
@@ -28,12 +28,12 @@ class Blood : public Entity
         int32_t nStartIdx;
         int32_t nIdxQ;
         float fLiveTime;
-        CVECTOR cpos;
+        glm::vec3 cpos;
     };
 
     struct ClipTriangle
     {
-        CVECTOR v[3];
+        glm::vec3 v[3];
     };
 
     // --------------------------------------------------------------------------------------------
@@ -68,7 +68,7 @@ class Blood : public Entity
         }
     }
 
-    static bool AddClipPoligon(const CVECTOR *v, int32_t nv);
+    static bool AddClipPoligon(const glm::vec3 *v, int32_t nv);
 
   protected:
     VDX9RENDER *pRS;
@@ -85,10 +85,10 @@ class Blood : public Entity
 
     static ClipTriangle clipT[MAX_CLIPPING_TRIANGLES];
     static int32_t nClipTQ;
-    static CVECTOR normal;
+    static glm::vec3 normal;
 
-    void AddBlood(const CVECTOR &pos);
-    void BuildBloodDataByCollision(const CVECTOR &cpos);
-    void SetVertexByPos(BloodVertex &v, const CVECTOR &pos, const CVECTOR &vc, float fU0, float fV0);
-    int32_t CheckBloodQuantityInRadius(const CVECTOR &cpos, float fDist, int32_t nLimitQ);
+    void AddBlood(const glm::vec3 &pos);
+    void BuildBloodDataByCollision(const glm::vec3 &cpos);
+    void SetVertexByPos(BloodVertex &v, const glm::vec3 &pos, const glm::vec3 &vc, float fU0, float fV0);
+    int32_t CheckBloodQuantityInRadius(const glm::vec3 &cpos, float fDist, int32_t nLimitQ);
 };

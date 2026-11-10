@@ -6,7 +6,6 @@
 #include "controls.h"
 #include "core.h"
 #include "entity.h"
-#include "math3d/sphere.h"
 #include "message.h"
 #include "shared/battle_interface/msg_control.h"
 #include "shared/events.h"
@@ -156,7 +155,7 @@ bool ISPYGLASS::Init()
     FillUVArrayFromAttributes(m_aChargeUV, GetAttr("chargeuvarray"));
     FillUVArrayFromAttributes(m_aSailUV, GetAttr("sailuvarray"));
 
-    CVECTOR pos, ang;
+    glm::vec3 pos, ang;
     rs->GetCamera(pos, ang, m_Camera.fOldPerspective);
 
     return true;
@@ -432,11 +431,11 @@ void ISPYGLASS::SetShipInfo(int32_t nCharIndex)
 void ISPYGLASS::FindNewTargetShip()
 {
     // get trace ray
-    CMatrix mtxv;
+    glm::mat4 mtxv;
     rs->GetTransform(D3DTS_VIEW, (D3DMATRIX *)&mtxv);
-    CVECTOR src, dst;
-    mtxv.MulToInv(CVECTOR(0.0f, 0.0f, 0.0f), src);
-    mtxv.MulToInv(CVECTOR(0.0f, 0.0f, 10000.f), dst);
+    glm::vec3 src, dst;
+    src = storm::math::inverseTransformPoint(mtxv, glm::vec3(0.0f, 0.0f, 0.0f));
+    dst = storm::math::inverseTransformPoint(mtxv, glm::vec3(0.0f, 0.0f, 10000.f));
 
     // find ships
     int32_t nFindedCharIndex = -1;
@@ -479,21 +478,13 @@ void ISPYGLASS::FindNewTargetShip()
         {
             // find by ship sphere
             fFindedDistance = -1.f;
-            Vector vsrc = *(Vector *)&src;
-            Vector vdst = *(Vector *)&dst;
             for (SHIP_DESCRIBE_LIST::SHIP_DESCR *pSD = g_ShipList.GetShipRoot(); pSD; pSD = pSD->next)
             {
                 if (pMainSD == pSD)
                     continue;
-                Sphere sph;
-                const auto &vec = pSD->pShip->GetPos();
-                sph.x = vec.x;
-                sph.y = vec.y;
-                sph.z = vec.z;
-                sph.r = 40.f;
-                if (sph.Intersection(vsrc, vdst))
+                if (storm::math::intersectSegmentSphere(src, dst, pSD->pShip->GetPos(), 40.f))
                 {
-                    float fTrace = ~(pSD->pShip->GetPos() - src);
+                    float fTrace = storm::math::lengthSquared(pSD->pShip->GetPos() - src);
                     if (fFindedDistance < 0.f || fTrace < fFindedDistance)
                     {
                         nFindedCharIndex = pSD->characterIndex;

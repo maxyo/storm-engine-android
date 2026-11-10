@@ -36,7 +36,7 @@ class SHIP : public SHIP_BASE
     struct mast_t
     {
         NODE *pNode;        // node pointer in model
-        CVECTOR vSrc, vDst; // src and dest vectors
+        glm::vec3 vSrc, vDst; // src and dest vectors
         int32_t iMastNum;   // mast number
         bool bBroken;       // if mast is broken then pNode = 0
         float fDamage;
@@ -45,7 +45,7 @@ class SHIP : public SHIP_BASE
     struct hull_t
     {
         NODE *pNode;        // node pointer in model
-        CVECTOR vSrc, vDst; // src and dest vectors
+        glm::vec3 vSrc, vDst; // src and dest vectors
         int32_t iHullNum;   // hull detail number
         bool bBroken;       // if hull detail is broken then pNode = 0
         float fDamage;
@@ -81,8 +81,8 @@ class SHIP : public SHIP_BASE
     static COLLIDE *pCollide;
     static VGEOMETRY *pGS;
 
-    CMatrix mRoot;
-    CVECTOR vSpeed, vSpeedsA;
+    glm::mat4 mRoot;
+    glm::vec3 vSpeed, vSpeedsA;
     float fMinusVolume;
     float fXOffset, fZOffset;
 
@@ -106,14 +106,14 @@ class SHIP : public SHIP_BASE
     std::array<std::array<ship_point_t, 16>, 16> ShipPoints;
 
     // executed parameters
-    CVECTOR vSpeedAccel;
+    glm::vec3 vSpeedAccel;
     ship_t SP;
-    CVECTOR vPos, vAng;
+    glm::vec3 vPos, vAng;
     float fSailState;
     float fWaterLine;
     bool bDead, bVisible;
-    CVECTOR vDeadDir, vCurDeadDir;
-    CVECTOR vKeelContour[MAX_KEEL_POINTS];
+    glm::vec3 vDeadDir, vCurDeadDir;
+    glm::vec3 vKeelContour[MAX_KEEL_POINTS];
     int32_t iNumMasts;
     int32_t iNumHulls;
     std::vector<mast_t> pMasts;
@@ -121,7 +121,7 @@ class SHIP : public SHIP_BASE
     bool bShip2Strand;
     bool bMounted;
     bool bKeelContour;
-    CVECTOR vOldAng, vOldPos;
+    glm::vec3 vOldAng, vOldPos;
     bool bSetFixed;
     float fFixedSpeed;
 
@@ -134,16 +134,16 @@ class SHIP : public SHIP_BASE
     DTimer dtMastTrace, dtUpdateParameters;
 
     // executed functions
-    CVECTOR ShipRocking(float fDeltaTime);
+    glm::vec3 ShipRocking(float fDeltaTime);
     BOOL ApplyStrength(float dtime, BOOL bCollision);
-    BOOL CalculateNewSpeedVector(CVECTOR *Speed, CVECTOR *Rotate);
+    BOOL CalculateNewSpeedVector(glm::vec3 *Speed, glm::vec3 *Rotate);
     void CalculateImmersion(); //
     void CheckShip2Strand(float fDeltaTime);
     void MastFall(mast_t *pM);
     void HullFall(hull_t *pM);
     void FakeFire(const char *sBort, float fRandTime);
 
-    CMatrix UpdateModelMatrix();
+    glm::mat4 UpdateModelMatrix();
     void RecalculateWorldOffset();
 
     // init section
@@ -176,7 +176,7 @@ class SHIP : public SHIP_BASE
     int32_t AddStrength(STRENGTH *strength) override;
     bool DelStrength(int32_t iIdx) override;
 
-    BOOL BuildContour(CVECTOR *vContour, int32_t &iNumVContour) override;
+    BOOL BuildContour(glm::vec3 *vContour, int32_t &iNumVContour) override;
     bool BuildMasts();
     bool BuildHulls();
     BOOL Move(uint32_t DeltaTime, BOOL bCollision);
@@ -205,14 +205,14 @@ class SHIP : public SHIP_BASE
 
     void SetLights() override;
     void UnSetLights() override;
-    void Fire(const CVECTOR &vPos) override;
+    void Fire(const glm::vec3 &vPos) override;
 
     void SetFixedSpeed(bool bSetFixed, float fFixedSpeed) override;
 
     // inherit functions COLLISION_OBJECT
-    float Trace(const CVECTOR &src, const CVECTOR &dst) override;
+    float Trace(const glm::vec3 &src, const glm::vec3 &dst) override;
 
-    bool Clip(const PLANE *planes, int32_t nplanes, const CVECTOR &center, float radius,
+    bool Clip(const PLANE *planes, int32_t nplanes, const glm::vec3 &center, float radius,
               ADD_POLYGON_FUNC addpoly) override
     {
         return false;
@@ -229,21 +229,21 @@ class SHIP : public SHIP_BASE
     };
 
     // inherit functions CANNON_TRACE_BASE
-    float Cannon_Trace(int32_t iBallOwner, const CVECTOR &src, const CVECTOR &dst) override;
+    float Cannon_Trace(int32_t iBallOwner, const glm::vec3 &src, const glm::vec3 &dst) override;
 
     // inherit functions VAI_OBJBASE
     void SetACharacter(ATTRIBUTES *pAP) override;
 
-    CMatrix *GetMatrix() override;
-    void SetMatrix(CMatrix &mtx);
+    glm::mat4 *GetMatrix() override;
+    void SetMatrix(glm::mat4 &mtx);
     MODEL *GetModel() const override;
     entid_t GetModelEID() const override;
-    CVECTOR GetPos() const override;
-    CVECTOR GetAng() const override;
-    CVECTOR GetBoxsize() const override;
-    CVECTOR GetRealBoxsize() const override;
+    glm::vec3 GetPos() const override;
+    glm::vec3 GetAng() const override;
+    glm::vec3 GetBoxsize() const override;
+    glm::vec3 GetRealBoxsize() const override;
 
-    void SetPos(const CVECTOR &vNewPos) override;
+    void SetPos(const glm::vec3 &vNewPos) override;
 
     bool Mount(ATTRIBUTES *) override;
 

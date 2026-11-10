@@ -543,10 +543,10 @@ bool CharactersGroups::MsgIsValidateTarget(MESSAGE &message)
     auto *en = static_cast<Character *>(core.GetEntityPointer(trg));
     if (!en)
         return false;
-    CVECTOR vP1, vP2;
+    glm::vec3 vP1, vP2;
     c->GetPosition(vP1);
     en->GetPosition(vP2);
-    const auto fDistance = sqrtf(~(vP1 - vP2));
+    const auto fDistance = sqrtf(storm::math::lengthSquared(vP1 - vP2));
     AttributesPointer->SetAttributeUseFloat("distance", fDistance);
     return RemoveInvalidTargets(c, en);
 }
@@ -566,7 +566,7 @@ bool CharactersGroups::MsgGetOptimalTarget(MESSAGE &message) const
     int32_t s = 0;
     if (c->numTargets > 1)
     {
-        CVECTOR pos, p;
+        glm::vec3 pos, p;
         c->GetPosition(pos);
         const auto numChr = location->supervisor.character.size();
         auto &cEx = location->supervisor.character;
@@ -592,7 +592,7 @@ bool CharactersGroups::MsgGetOptimalTarget(MESSAGE &message) const
             }
             // Find the distance
             nc->GetPosition(p);
-            auto v = ~(pos - p);
+            auto v = storm::math::lengthSquared(pos - p);
             // calculate the heuristic value
             v *= 0.5f + n * n * 0.5f;
             // take into account the presence of his weapon

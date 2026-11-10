@@ -1,0 +1,4 @@
+<rml>
+<head><link type="text/rcss" href="kit.rcss"/></head>
+<body><s-hud id="hud"/></body>
+</rml>

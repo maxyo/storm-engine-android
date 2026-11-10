@@ -15,6 +15,11 @@
 #include <unordered_map>
 #include <vector>
 
+namespace storm::ui::hud
+{
+class Hud; // ../hud/hud.h
+}
+
 namespace storm::ui::screens
 {
 
@@ -199,6 +204,17 @@ class Router
     // Flushes throttled sends and expired pending marks; returns seconds until it must be
     // called again (a large number when idle).
     double Tick();
+    // The HUD that the HUD channel consumers fill; null in a host without one.
+    void AttachHud(hud::Hud *hud)
+    {
+        hud_ = hud;
+    }
+    hud::Hud *Hud() const
+    {
+        return hud_;
+    }
+    // For consumers: something is wrong with the data of their channel.
+    void ReportError(const std::string &line);
     bool Active() const
     {
         return screen_ != nullptr;
@@ -235,6 +251,7 @@ class Router
     Action Make(const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard) const;
 
     Surface &surface_;
+    hud::Hud *hud_ = nullptr;
     InterfaceModel model_;
     std::unique_ptr<Screen> screen_;
     std::string using_;

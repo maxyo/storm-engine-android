@@ -5,21 +5,21 @@
 #define MAST_IDENTIFY "mast"
 #define MAST_FIRST 1
 
-BOOL SHIP::BuildContour(CVECTOR *vContour, int32_t &iNumVContour)
+BOOL SHIP::BuildContour(glm::vec3 *vContour, int32_t &iNumVContour)
 {
     iNumVContour = 0;
 
     auto *pEnt = GetModel();
     Assert(pEnt);
 
-    CVECTOR vSrc, vDst, vP, vP1, vP2;
+    glm::vec3 vSrc, vDst, vP, vP1, vP2;
     float fY, fRight, fLeft, fUp, fDown, fRes, fZMax, fZMin, fZStep, fZMinStep;
 
     auto bDefaultContour = false;
     bool bRes = core.GetEntityPointer(model_id);
     Assert(bRes);
 
-    CMatrix mTemp;
+    glm::mat4 mTemp;
     pEnt->mtx = mTemp;
     pEnt->Update();
 
@@ -31,8 +31,8 @@ BOOL SHIP::BuildContour(CVECTOR *vContour, int32_t &iNumVContour)
     fDown = -fUp;
 
     // up point trace
-    vSrc = CVECTOR(0.05f, fY, fUp);
-    vDst = CVECTOR(0.0f, fY, 0.0f);
+    vSrc = glm::vec3(0.05f, fY, fUp);
+    vDst = glm::vec3(0.0f, fY, 0.0f);
     fRes = pEnt->Trace(vSrc, vDst);
     if (fRes <= 1.0f)
     {
@@ -51,8 +51,8 @@ BOOL SHIP::BuildContour(CVECTOR *vContour, int32_t &iNumVContour)
     // Assert(fRes<=1.0f);
 
     // down point trace
-    vSrc = CVECTOR(0.01f, fY, fDown);
-    vDst = CVECTOR(0.0f, fY, 0.0f);
+    vSrc = glm::vec3(0.01f, fY, fDown);
+    vDst = glm::vec3(0.0f, fY, 0.0f);
     fRes = pEnt->Trace(vSrc, vDst);
     if (fRes <= 1.0f)
         vP2 = vSrc + fRes * (vDst - vSrc);
@@ -82,8 +82,8 @@ BOOL SHIP::BuildContour(CVECTOR *vContour, int32_t &iNumVContour)
             // left trace
             auto fZ = fZMax - static_cast<float>(i) * fZStep;
 
-            vSrc = CVECTOR(fLeft, fY, fZ);
-            vDst = CVECTOR(0.0f, fY, fZ);
+            vSrc = glm::vec3(fLeft, fY, fZ);
+            vDst = glm::vec3(0.0f, fY, fZ);
             // core.SetEntityScanLayer("balls_trace");
             fRes = pCollide->Trace(model_id, vSrc, vDst);
             Assert(fRes <= 1.0f);
@@ -104,11 +104,11 @@ BOOL SHIP::BuildContour(CVECTOR *vContour, int32_t &iNumVContour)
     {
         auto fDZ = State.vBoxSize.z / 2.0f;
         auto fDX = State.vBoxSize.x / 2.0f;
-        vContour[0] = CVECTOR(0.0f, 0.0f, fDZ);
-        vContour[1] = CVECTOR(fDX * 0.8f, 0.0f, fDZ * 0.6f);
-        vContour[2] = CVECTOR(fDX * 1.0f, 0.0f, 0.0f);
-        vContour[3] = CVECTOR(fDX * 0.8f, 0.0f, -fDZ * 0.6f);
-        vContour[4] = CVECTOR(fDX * 0.6f, 0.0f, -fDZ * 1.0f);
+        vContour[0] = glm::vec3(0.0f, 0.0f, fDZ);
+        vContour[1] = glm::vec3(fDX * 0.8f, 0.0f, fDZ * 0.6f);
+        vContour[2] = glm::vec3(fDX * 1.0f, 0.0f, 0.0f);
+        vContour[3] = glm::vec3(fDX * 0.8f, 0.0f, -fDZ * 0.6f);
+        vContour[4] = glm::vec3(fDX * 0.6f, 0.0f, -fDZ * 1.0f);
         iNumVContour = 4;
     }
 
@@ -135,8 +135,8 @@ BOOL SHIP::BuildContour(CVECTOR *vContour, int32_t &iNumVContour)
             if (i > iDZ)
                 fZ = fZMin / fDZ * static_cast<float>(i - iDZ);
 
-            vSrc = CVECTOR(0.0f, -100.0f, fZ);
-            vDst = CVECTOR(0.001f, 10.0f, fZ);
+            vSrc = glm::vec3(0.0f, -100.0f, fZ);
+            vDst = glm::vec3(0.001f, 10.0f, fZ);
             fRes = pCollide->Trace(model_id, vSrc, vDst);
             Assert(fRes <= 1.0f);
             vKeelContour[i] = vSrc + fRes * (vDst - vSrc);
@@ -176,7 +176,7 @@ bool SHIP::BuildMasts()
 
         if (storm::iEquals(cNodeName, MAST_IDENTIFY, std::size(MAST_IDENTIFY) - 1))
         {
-            CVECTOR vBSize, vBCenter, vUp, vDown, vTemp;
+            glm::vec3 vBSize, vBCenter, vUp, vDown, vTemp;
 
             auto *pAMasts = GetACharacter()->FindAClass(GetACharacter(), "Ship.Masts");
             if (!pAMasts)
@@ -194,23 +194,23 @@ bool SHIP::BuildMasts()
             GEOS::INFO ginfo;
             pNode->geo->GetInfo(ginfo);
 
-            vBSize = CVECTOR(ginfo.boxsize.x, ginfo.boxsize.y, ginfo.boxsize.z);
-            vBCenter = CVECTOR(ginfo.boxcenter.x, ginfo.boxcenter.y, ginfo.boxcenter.z);
+            vBSize = glm::vec3(ginfo.boxsize.x, ginfo.boxsize.y, ginfo.boxsize.z);
+            vBCenter = glm::vec3(ginfo.boxcenter.x, ginfo.boxcenter.y, ginfo.boxcenter.z);
 
-            vUp = pNode->glob_mtx * (vBCenter + vBSize / 2.0f);
-            vDown = pNode->glob_mtx * (vBCenter - vBSize / 2.0f);
+            vUp = storm::math::transformPoint(pNode->glob_mtx, vBCenter + vBSize / 2.0f);
+            vDown = storm::math::transformPoint(pNode->glob_mtx, vBCenter - vBSize / 2.0f);
 
             vTemp = (vUp + vDown) / 2.0f;
 
             if (iNum == MAST_FIRST) // x aligned mast
             {
-                pM->vSrc = CVECTOR(vTemp.x, vDown.y, vDown.z);
-                pM->vDst = CVECTOR(vTemp.x, vUp.y, vUp.z);
+                pM->vSrc = glm::vec3(vTemp.x, vDown.y, vDown.z);
+                pM->vDst = glm::vec3(vTemp.x, vUp.y, vUp.z);
             }
             else
             {
-                pM->vSrc = CVECTOR(vTemp.x, vDown.y, vTemp.z);
-                pM->vDst = CVECTOR(vTemp.x, vUp.y, vTemp.z);
+                pM->vSrc = glm::vec3(vTemp.x, vDown.y, vTemp.z);
+                pM->vDst = glm::vec3(vTemp.x, vUp.y, vTemp.z);
             }
 
             sprintf_s(str, "%s", pNode->GetName());
@@ -252,7 +252,7 @@ bool SHIP::BuildHulls()
         const auto *const cNodeName = pNode->GetName();
         if (storm::iEquals(cNodeName, HULL_IDENTIFY, std::size(HULL_IDENTIFY) - 1))
         {
-            CVECTOR vBSize, vBCenter, vUp, vDown, vTemp;
+            glm::vec3 vBSize, vBCenter, vUp, vDown, vTemp;
 
             auto *pAHulls = GetACharacter()->FindAClass(GetACharacter(), "Ship.Hulls");
             if (!pAHulls)
@@ -270,16 +270,16 @@ bool SHIP::BuildHulls()
             GEOS::INFO ginfo;
             pNode->geo->GetInfo(ginfo);
 
-            vBSize = CVECTOR(ginfo.boxsize.x, ginfo.boxsize.y, ginfo.boxsize.z);
-            vBCenter = CVECTOR(ginfo.boxcenter.x, ginfo.boxcenter.y, ginfo.boxcenter.z);
+            vBSize = glm::vec3(ginfo.boxsize.x, ginfo.boxsize.y, ginfo.boxsize.z);
+            vBCenter = glm::vec3(ginfo.boxcenter.x, ginfo.boxcenter.y, ginfo.boxcenter.z);
 
-            vUp = pNode->glob_mtx * (vBCenter + vBSize / 2.0f);
-            vDown = pNode->glob_mtx * (vBCenter - vBSize / 2.0f);
+            vUp = storm::math::transformPoint(pNode->glob_mtx, vBCenter + vBSize / 2.0f);
+            vDown = storm::math::transformPoint(pNode->glob_mtx, vBCenter - vBSize / 2.0f);
 
             vTemp = (vUp + vDown) / 2.0f;
 
-            pM->vSrc = CVECTOR(vTemp.x, vDown.y, vTemp.z);
-            pM->vDst = CVECTOR(vTemp.x, vUp.y, vTemp.z);
+            pM->vSrc = glm::vec3(vTemp.x, vDown.y, vTemp.z);
+            pM->vDst = glm::vec3(vTemp.x, vUp.y, vTemp.z);
 
             sprintf_s(str, "%s", pNode->GetName());
             auto *pAHull = pAHulls->FindAClass(pAHulls, str);

@@ -282,7 +282,7 @@ bool SEAFOAM_PS::Init(INIFILE *ini, const char *psname)
             Particle[n].ang.z =
                 EmitterDirection.z + DirectionDeviation * (0.5f - static_cast<float>(rand()) / RAND_MAX);
         }
-        Particle[n].ang = !Particle[n].ang;
+        Particle[n].ang = storm::math::normalizeOrZero(Particle[n].ang);
 
         Particle[n].chaos.x = ChaosVal * (0.5f - static_cast<float>(rand()) / RAND_MAX);
         Particle[n].chaos.y = ChaosVal * (0.5f - static_cast<float>(rand()) / RAND_MAX);
@@ -327,15 +327,15 @@ bool SEAFOAM_PS::Init(INIFILE *ini, const char *psname)
 
 void SEAFOAM_PS::UpdateVertexBuffer()
 {
-    CVECTOR ipos[4];
-    CVECTOR rpos[4];
-    CVECTOR pos;
-    CVECTOR local_pos;
+    glm::vec3 ipos[4];
+    glm::vec3 rpos[4];
+    glm::vec3 pos;
+    glm::vec3 local_pos;
     PARTICLE_VERTEX *pVertex;
     int32_t n, i;
     int32_t index;
     float halfsize;
-    CMatrix RMatrix;
+    glm::mat4 RMatrix;
 
     Camera_EmitterPosA.x = Camera_EmitterPosA.y = Camera_EmitterPosA.z = 0;
 
@@ -346,7 +346,7 @@ void SEAFOAM_PS::UpdateVertexBuffer()
         index = n * VERTEXS_ON_PARTICLE;
 
         // RenderService->GetTransform(D3DTS_VIEW,Matrix); set for lock particles in screen zero axis
-        local_pos = Matrix * Particle[n].pos;
+        local_pos = storm::math::transformPoint(Matrix, Particle[n].pos);
 
         Camera_EmitterPosA += local_pos;
 
@@ -368,12 +368,12 @@ void SEAFOAM_PS::UpdateVertexBuffer()
         ipos[3].y = halfsize;
         ipos[3].z = 0;
 
-        RMatrix.BuildRotateZ(Particle[n].angle);
+        RMatrix = storm::math::rotationZ(Particle[n].angle);
 
-        rpos[0] = RMatrix * ipos[0];
-        rpos[1] = RMatrix * ipos[1];
-        rpos[2] = RMatrix * ipos[2];
-        rpos[3] = RMatrix * ipos[3];
+        rpos[0] = storm::math::transformPoint(RMatrix, ipos[0]);
+        rpos[1] = storm::math::transformPoint(RMatrix, ipos[1]);
+        rpos[2] = storm::math::transformPoint(RMatrix, ipos[2]);
+        rpos[3] = storm::math::transformPoint(RMatrix, ipos[3]);
 
         /*rpos[0] = ipos[0];
         rpos[1] = ipos[1];
@@ -460,7 +460,7 @@ void SEAFOAM_PS::Execute(uint32_t DeltaTime)
 void SEAFOAM_PS::LayOnSurface(uint32_t index)
 {
     COLLISION_OBJECT *pLink;
-    CVECTOR from, to;
+    glm::vec3 from, to;
     float dist;
     pLink = static_cast<COLLISION_OBJECT *>(core.GetEntityPointer(SurfaceID));
     if (pLink == nullptr)
@@ -487,22 +487,22 @@ void SEAFOAM_PS::Realize(uint32_t DeltaTime)
         pLink = static_cast<COLLISION_OBJECT *>(core.GetEntityPointer(LinkObject));
         if (pLink)
         {
-            Emitter = pLink->mtx * LinkPos;
-            EmitterDirection = pLink->mtx * LinkDirPos;
+            Emitter = storm::math::transformPoint(pLink->mtx, LinkPos);
+            EmitterDirection = storm::math::transformPoint(pLink->mtx, LinkDirPos);
             EmitterDirection = EmitterDirection - Emitter;
-            EmitterDirection = !EmitterDirection;
+            EmitterDirection = storm::math::normalizeOrZero(EmitterDirection);
         }
     }
 
-    RenderService->GetTransform(D3DTS_VIEW, Matrix);
+    RenderService->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(Matrix));
 
     // Camera_EmitterPos = Matrix * Emitter;
 
     RenderService->GetCamera(CameraPos, CameraAng, Perspective);
 
-    const CMatrix IMatrix;
-    RenderService->SetTransform(D3DTS_VIEW, IMatrix);
-    RenderService->SetTransform(D3DTS_WORLD, IMatrix);
+    const glm::mat4 IMatrix;
+    RenderService->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(IMatrix));
+    RenderService->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(IMatrix));
     ProcessParticles(DeltaTime);
     SetParticlesTracks(DeltaTime);
     UpdateVertexBuffer();
@@ -526,7 +526,7 @@ void SEAFOAM_PS::Realize(uint32_t DeltaTime)
         }
     }
 
-    RenderService->SetTransform(D3DTS_VIEW, Matrix);
+    RenderService->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(Matrix));
 }
 
 bool SEAFOAM_PS::EmitParticle()
@@ -566,7 +566,7 @@ bool SEAFOAM_PS::EmitParticle()
             Particle[n].ang.z =
                 EmitterDirection.z + DirectionDeviation * (0.5f - static_cast<float>(rand()) / RAND_MAX);
         }
-        Particle[n].ang = !Particle[n].ang;
+        Particle[n].ang = storm::math::normalizeOrZero(Particle[n].ang);
         Particle[n].v = Particle[n].ang * Particle[n].speed;
         Particle[n].live = true;
         if (bLayOnSurface)
@@ -829,10 +829,10 @@ bool SEAFOAM_PS::BuildTrack(INIFILE *ini, TRACK_EVENT *Track, const char *psname
     return bFound;
 }
 
-void SEAFOAM_PS::SetEmitter(CVECTOR p, CVECTOR a)
+void SEAFOAM_PS::SetEmitter(glm::vec3 p, glm::vec3 a)
 {
     Emitter = p;
-    EmitterDirection = !a;
+    EmitterDirection = storm::math::normalizeOrZero(a);
     /*
     for(n=0;n<ParticlesNum;n++)
     {
@@ -843,7 +843,7 @@ void SEAFOAM_PS::SetEmitter(CVECTOR p, CVECTOR a)
     */
 }
 
-void SEAFOAM_PS::LinkToObject(entid_t id, CVECTOR _LinkPos)
+void SEAFOAM_PS::LinkToObject(entid_t id, glm::vec3 _LinkPos)
 {
     int32_t n;
     bLinkEmitter = true;
@@ -855,7 +855,7 @@ void SEAFOAM_PS::LinkToObject(entid_t id, CVECTOR _LinkPos)
     COLLISION_OBJECT *pLink;
     pLink = static_cast<COLLISION_OBJECT *>(core.GetEntityPointer(LinkObject));
     if (pLink)
-        Emitter = pLink->mtx * LinkPos;
+        Emitter = storm::math::transformPoint(pLink->mtx, LinkPos);
 
     for (n = 0; n < ParticlesNum; n++)
     {
@@ -872,23 +872,23 @@ bool SEAFOAM_PS::Complete()
 }
 
 /*
-void SEAFOAM_PS::AddTrackPoint(CVECTOR pos)
+void SEAFOAM_PS::AddTrackPoint(glm::vec3 pos)
 {
     bUseFlowTrack = true;
     nFlowTrackSize++;
-    pFlowTrack = (CVECTOR *)RESIZE(pFlowTrack,nFlowTrackSize*sizeof(CVECTOR));
+    pFlowTrack = (glm::vec3 *)RESIZE(pFlowTrack,nFlowTrackSize*sizeof(glm::vec3));
     pFlowTrack[nFlowTrackSize - 1] = pos;
 }*/
 
 void SEAFOAM_PS::SetFlowTrack(uint32_t index)
 {
-    CVECTOR dest;
+    glm::vec3 dest;
     if (Particle[index].flow_track_index >= nFlowTrackSize)
         return;
     dest = pFlowTrack[Particle[index].flow_track_index];
     dest = dest - Particle[index].pos;
-    Particle[index].ang = !dest;
-    const auto dist = ~dest;
+    Particle[index].ang = storm::math::normalizeOrZero(dest);
+    const auto dist = storm::math::lengthSquared(dest);
     if (dist < fTrackPointRadius)
     {
         Particle[index].flow_track_index++;

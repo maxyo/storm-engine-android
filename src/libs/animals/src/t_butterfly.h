@@ -1,6 +1,6 @@
 #pragma once
 
-#include "c_vector.h"
+#include "storm_glm.h"
 #include "iv_buffer_manager.h"
 #include "collide.h"
 #include "model.h"
@@ -30,7 +30,7 @@
 #pragma pack(push, 1)
 struct tButterflyVertex
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float tu, tv;
 };
 #pragma pack(pop)
@@ -41,21 +41,21 @@ class TButterfly
     TButterfly();
     virtual ~TButterfly();
 
-    void Initialize(const CVECTOR &_center, float _radius, int32_t _bufferIndex, int _tI, int _tJ);
+    void Initialize(const glm::vec3 &_center, float _radius, int32_t _bufferIndex, int _tI, int _tJ);
     void Calculate(int32_t _dTime, COLLIDE *_collide, entity_container_cref its);
-    void Effect(const CVECTOR &_position);
+    void Effect(const glm::vec3 &_position);
 
-    static void SetCenter(const CVECTOR &_center)
+    static void SetCenter(const glm::vec3 &_center)
     {
         center = _center;
     };
 
-    const CVECTOR GetDirection()
+    const glm::vec3 GetDirection()
     {
         return centerVelocity;
     }
 
-    const CVECTOR GetPosition()
+    const glm::vec3 GetPosition()
     {
         return centerPosition;
     }
@@ -71,14 +71,14 @@ class TButterfly
     void Draw(VDX9RENDER *_renderer, MODEL *_model);
 
   private:
-    CVECTOR centerPosition, centerVelocity, oldPos;
-    CVECTOR displaceVector;
+    glm::vec3 centerPosition, centerVelocity, oldPos;
+    glm::vec3 displaceVector;
     int32_t timeToNextDisplace;
     int32_t fullActiveTime, activeTime, waitTime;
     int32_t bufferIndex;
     bool active;
 
-    static CVECTOR center;
+    static glm::vec3 center;
     float minY, maxY;
     bool firstDraw;
     float time;

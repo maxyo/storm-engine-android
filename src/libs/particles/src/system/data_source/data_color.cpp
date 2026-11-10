@@ -5,7 +5,7 @@
 #include "vma.hpp"
 
 // constructor / destructor
-DataColor::DataColor() : ZeroColor(0xFFFFFFFF)
+DataColor::DataColor() : ZeroColor(storm::math::colorFromARGB(0xFFFFFFFF))
 {
 }
 
@@ -14,7 +14,7 @@ DataColor::~DataColor()
 }
 
 // Get the value (Current time, Total lifetime, Random factor [0..1])
-Color DataColor::GetValue(float Time, float LifeTime, float K_rand)
+glm::vec4 DataColor::GetValue(float Time, float LifeTime, float K_rand)
 {
     // The time for a color chart is always relative ...
     Time = (Time / LifeTime);
@@ -40,15 +40,11 @@ Color DataColor::GetValue(float Time, float LifeTime, float K_rand)
             auto ValueFirstMin = ColorGraph[n].MinValue;
             auto ValueSecondMin = ColorGraph[n + 1].MinValue;
 
-            Color MaxVal;
-            MaxVal.Lerp(ValueFirstMax, ValueSecondMax, blend_k);
-            Color MinVal;
-            MinVal.Lerp(ValueFirstMin, ValueSecondMin, blend_k);
+            // Only the colour is interpolated; the result is opaque.
+            const auto MaxVal = storm::math::lerp(glm::vec3(ValueFirstMax), glm::vec3(ValueSecondMax), blend_k);
+            const auto MinVal = storm::math::lerp(glm::vec3(ValueFirstMin), glm::vec3(ValueSecondMin), blend_k);
 
-            Color Result;
-            Result.Lerp(MinVal, MaxVal, K_rand);
-
-            return Result;
+            return glm::vec4(storm::math::lerp(MinVal, MaxVal, K_rand), 1.0f);
         }
     }
 
@@ -57,7 +53,7 @@ Color DataColor::GetValue(float Time, float LifeTime, float K_rand)
 
 // Sets the "default"
 // two indices, Min = Max = Value
-void DataColor::SetDefaultValue(const Color &Value)
+void DataColor::SetDefaultValue(const glm::vec4 &Value)
 {
     ColorGraph.clear();
 
@@ -91,13 +87,13 @@ uint32_t DataColor::GetValuesCount() const
 }
 
 // Get min. value (by index)
-const Color &DataColor::GetMinValue(uint32_t Index)
+const glm::vec4 &DataColor::GetMinValue(uint32_t Index)
 {
     return ColorGraph[Index].MinValue;
 }
 
 // Get max. value (by index)
-const Color &DataColor::GetMaxValue(uint32_t Index)
+const glm::vec4 &DataColor::GetMaxValue(uint32_t Index)
 {
     return ColorGraph[Index].MaxValue;
 }
@@ -112,10 +108,10 @@ void DataColor::Load(MemFile *File)
         auto Time = 0.0f;
         File->ReadType(Time);
 
-        Color clrMax;
+        glm::vec4 clrMax;
         File->ReadType(clrMax);
 
-        Color clrMin;
+        glm::vec4 clrMin;
         File->ReadType(clrMin);
 
         ColorVertex pColor;

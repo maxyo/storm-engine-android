@@ -49,9 +49,9 @@ uint16_t Sharks::Shark::indeces[] = {
 
 Sharks::Shark::Shark() : fforce(), spos(), angs(), vBase(0), model(0)
 {
-    pos = 0.0f;
-    vel = 0.0f;
-    force = 0.0f;
+    pos = glm::vec3(0.0f);
+    vel = glm::vec3(0.0f);
+    force = glm::vec3(0.0f);
     yDir = 0.0f;
     dirTime = 0.0f;
     turn = 0.0f;
@@ -60,7 +60,7 @@ Sharks::Shark::Shark() : fforce(), spos(), angs(), vBase(0), model(0)
     aniTime = 0.0f;
     jumpTime = 10.0f + rand() * 30.0f / RAND_MAX;
     accs = 0.007f + rand() * 0.008f / RAND_MAX;
-    rForce = 0.0f;
+    rForce = glm::vec3(0.0f);
     rTime = 0.0f;
     shipY = 0.0f;
     speedUp = false;
@@ -124,8 +124,8 @@ bool Sharks::Shark::Init(float vp_x, float vp_z, bool isLoadModel)
 
 inline void Sharks::Shark::Reset(float cam_x, float cam_z)
 {
-    force = 0.0f;
-    fforce = 0.0f;
+    force = glm::vec3(0.0f);
+    fforce = glm::vec3(0.0f);
     // If further away from the camera than allowed, then teleport
     const auto dx = cam_x - pos.x;
     const auto dz = cam_z - pos.z;
@@ -141,7 +141,7 @@ inline void Sharks::Shark::Reset(float cam_x, float cam_z)
 inline void Sharks::Shark::Repulsion(Shark &shr)
 {
     auto v = pos - shr.pos;
-    auto k = ~v;
+    auto k = storm::math::lengthSquared(v);
     if (k > 0.0f && k < SHARK_REPULSION_DIST * SHARK_REPULSION_DIST)
     {
         v *= SHARK_REPULSION / k;
@@ -149,7 +149,7 @@ inline void Sharks::Shark::Repulsion(Shark &shr)
         shr.force -= v;
     }
     v = spos - shr.spos;
-    k = ~v;
+    k = storm::math::lengthSquared(v);
     if (k > 0.0f && k < 15.0f * 15.0f)
     {
         v *= 5.0f / k;
@@ -183,7 +183,7 @@ inline void Sharks::Shark::Coordination(float cam_x, float cam_z, float dltTime,
     if (!mdl)
         return;
     // Repulsion force
-    auto l = ~force;
+    auto l = storm::math::lengthSquared(force);
     if (l > 1600.0f)
         force *= 40.0f / sqrtf(l);
     // Random force
@@ -230,7 +230,7 @@ inline void Sharks::Shark::Coordination(float cam_x, float cam_z, float dltTime,
     force.z += (0.5f - (rand() & 15) * 1.0f / 15.0f) * 0.001f;
     // Move speed
     vel += accs * force * dltTime;
-    l = ~vel;
+    l = storm::math::lengthSquared(vel);
     if (l > SHARK_MAX_RSPEED * SHARK_MAX_RSPEED)
         vel *= SHARK_MAX_RSPEED / sqrtf(l);
     // Position
@@ -250,11 +250,11 @@ inline void Sharks::Shark::Coordination(float cam_x, float cam_z, float dltTime,
     // Fish
     // Force of gravity
     auto fff = pos - spos;
-    l = ~fff;
+    l = storm::math::lengthSquared(fff);
     if (l > 1.0f)
         fff *= 1.0f / sqrtf(l);
     // The power of repulsion
-    l = ~fforce;
+    l = storm::math::lengthSquared(fforce);
     if (l > 100.0f)
         fforce *= 10.0f / sqrtf(l);
     fforce += fff;
@@ -329,7 +329,7 @@ inline void Sharks::Shark::Coordination(float cam_x, float cam_z, float dltTime,
     auto rpos = spos;
     if (sb)
     {
-        CVECTOR n;
+        glm::vec3 n;
         const auto seaY = sb->WaveXZ(spos.x, spos.z, &n);
         if (rpos.y > seaY)
             rpos.y = seaY;
@@ -353,14 +353,14 @@ inline void Sharks::Shark::Coordination(float cam_x, float cam_z, float dltTime,
     if (vBase > 1.0f)
         vBase -= 1.0f;
     // Matrix update
-    mdl->mtx.BuildMatrix(angs, rpos);
+    mdl->mtx = storm::math::eulerMatrix(angs, rpos);
     /*
     if(core.Controls->GetAsyncKeyState('Z') >= 0)
     {
       if(core.Controls->GetAsyncKeyState('X') < 0) rpos.y += 30.0f;
       mdl->mtx.BuildMatrix(angs, rpos);
     }else{
-      mdl->mtx.BuildMatrix(angs, pos + CVECTOR(0.0f, 30.0f, 0.0f));
+      mdl->mtx.BuildMatrix(angs, pos + glm::vec3(0.0f, 30.0f, 0.0f));
     }
     //*/
 }
@@ -379,7 +379,7 @@ inline void Sharks::Shark::IslandCollision(ISLAND_BASE *ib, int32_t numPnt, floa
         const auto z = cosf(i * step);
         const auto xp = spos.x + rad * x;
         const auto zp = spos.z + rad * z;
-        auto h = mdl->Trace(CVECTOR(xp, 100.0f, zp), CVECTOR(xp, -50.0f, zp));
+        auto h = mdl->Trace(glm::vec3(xp, 100.0f, zp), glm::vec3(xp, -50.0f, zp));
         if (h < 1.0f)
         {
             h -= 100.0f / 150.0f;
@@ -448,7 +448,7 @@ int32_t Sharks::Shark::GenerateTrack(uint16_t *inds, Vertex *vrt, uint16_t base,
     auto *mdl = static_cast<MODEL *>(core.GetEntityPointer(model));
     if (!mdl)
         return 0;
-    auto k = mdl->mtx.Pos().y;
+    auto k = storm::math::pos(mdl->mtx).y;
     if (k <= -1.2f)
         return 0;
     if (k > 0.0f)
@@ -462,10 +462,10 @@ int32_t Sharks::Shark::GenerateTrack(uint16_t *inds, Vertex *vrt, uint16_t base,
     for (int32_t i = 0; i < 30; i++)
         inds[i] = indeces[i] + base;
     // Vertices
-    const CVECTOR s(0.0f, 0.0f, 0.75f);
+    const glm::vec3 s(0.0f, 0.0f, 0.75f);
     vrt[0].pos = s;
-    vrt[7].pos = s + CVECTOR(-width, 0.0f, -length);
-    vrt[9].pos = s + CVECTOR(width, 0.0f, -length);
+    vrt[7].pos = s + glm::vec3(-width, 0.0f, -length);
+    vrt[9].pos = s + glm::vec3(width, 0.0f, -length);
     vrt[8].pos = (vrt[7].pos + vrt[9].pos) * 0.5f;
     vrt[1].pos = s + (vrt[7].pos - s) * 0.333f;
     vrt[2].pos = s + (vrt[8].pos - s) * 0.333f;
@@ -495,7 +495,7 @@ int32_t Sharks::Shark::GenerateTrack(uint16_t *inds, Vertex *vrt, uint16_t base,
     vrt[9].v = 1.0f;
     for (int32_t i = 0; i < 10; i++)
     {
-        vrt[i].pos = mdl->mtx * CVECTOR(vrt[i].pos);
+        vrt[i].pos = storm::math::transformPoint(mdl->mtx, glm::vec3(vrt[i].pos));
         vrt[i].pos.y = sb->WaveXZ(vrt[i].pos.x, vrt[i].pos.z) + 0.001f;
         vrt[i].color = 0x4fffffff;
         vrt[i].v -= vBase;
@@ -513,7 +513,7 @@ int32_t Sharks::Shark::GenerateTrack(uint16_t *inds, Vertex *vrt, uint16_t base,
 Sharks::Sharks() : sea(0), island(0), indeces{}, vrt{}
 {
     rs = nullptr;
-    camPos = 0.0f;
+    camPos = glm::vec3(0.0f);
     numShakes = 3 + (SDL_GetTicks() & 3);
     trackTx = -1;
     periscope.time = -1.0;
@@ -590,7 +590,7 @@ bool Sharks::Init()
 // Execution
 void Sharks::Execute(uint32_t delta_time)
 {
-    CVECTOR a;
+    glm::vec3 a;
     if (delta_time & 1)
         rand();
     rs->GetCamera(camPos, a, a.x);
@@ -613,7 +613,7 @@ void Sharks::Execute(uint32_t delta_time)
         if (!ship)
             break;
         // Ship position
-        const auto shipPos = ship->GetMatrix()->Pos();
+        const auto shipPos = storm::math::pos(*ship->GetMatrix());
         // Ship size
         const auto s = ship->GetBoxsize();
         const auto rd2 = (s.x * s.x + s.z * s.z) * 3.0f;
@@ -660,9 +660,9 @@ void Sharks::Execute(uint32_t delta_time)
             auto *mdl = static_cast<MODEL *>(core.GetEntityPointer(periscope.model));
             if (mdl)
             {
-                mdl->mtx.BuildMatrix(CVECTOR(0.0f, periscope.ay, 0.0f), periscope.pos + CVECTOR(0.0f, 1.0f, 0.0f));
-                periscope.pos.x += mdl->mtx.Vz().x * dltTime * 5.0f;
-                periscope.pos.z += mdl->mtx.Vz().z * dltTime * 5.0f;
+                mdl->mtx = storm::math::eulerMatrix(glm::vec3(0.0f, periscope.ay, 0.0f), periscope.pos + glm::vec3(0.0f, 1.0f, 0.0f));
+                periscope.pos.x += storm::math::vz(mdl->mtx).x * dltTime * 5.0f;
+                periscope.pos.z += storm::math::vz(mdl->mtx).z * dltTime * 5.0f;
             }
             if (periscope.time < 0.0f)
             {
@@ -677,12 +677,12 @@ void Sharks::Execute(uint32_t delta_time)
                 waitPTime -= dltTime;
                 if (waitPTime <= 0.0f)
                 {
-                    periscope.pos = 0.0f;
+                    periscope.pos = glm::vec3(0.0f);
                     periscope.ay = rand() * (6.14f / RAND_MAX);
                     if (LoadPeriscopeModel())
                     {
                         periscope.time = 30.0f + rand() * (20.0f / RAND_MAX);
-                        CVECTOR dummy;
+                        glm::vec3 dummy;
                         rs->GetCamera(periscope.pos, dummy, periscope.pos.y);
                     }
                     periscope.pos.y = -10.0f;
@@ -731,7 +731,7 @@ void Sharks::Realize(uint32_t delta_time)
     if (num)
     {
         rs->TextureSet(0, trackTx);
-        rs->SetTransform(D3DTS_WORLD, CMatrix());
+        rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
         rs->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1);
         rs->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, num, num, indeces, D3DFMT_INDEX16, vrt, sizeof(Vertex),
                                    "SharkTrack");

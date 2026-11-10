@@ -1,11 +1,10 @@
 #include "sound_service.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "rands.h"
 #include "v_file_service.h"
 #include "vma.hpp"
 #include "core.h"
 #include "debug_entity.h"
-#include "math3d/color.h"
 #include "math_inlines.h"
 CREATE_SERVICE(SoundService)
 CREATE_CLASS(SoundVisualisationEntity)
@@ -126,7 +125,7 @@ void SoundService::CreateEntityIfNeed()
     }
 }
 
-void SoundService::DebugPrint3D(const CVECTOR &pos3D, float rad, int32_t line, float alpha, uint32_t color, float scale,
+void SoundService::DebugPrint3D(const glm::vec3 &pos3D, float rad, int32_t line, float alpha, uint32_t color, float scale,
                                 const char *format, ...) const
 {
     static char buf[256];
@@ -137,22 +136,21 @@ void SoundService::DebugPrint3D(const CVECTOR &pos3D, float rad, int32_t line, f
     va_end(args);
     buf[sizeof(buf) - 1] = 0;
     // Looking for a point position on the screen
-    static CMatrix mtx, view, prj;
+    static glm::mat4 mtx, view, prj;
     static D3DVIEWPORT9 vp;
-    MTX_PRJ_VECTOR vrt;
-    rs->GetTransform(D3DTS_VIEW, view);
-    rs->GetTransform(D3DTS_PROJECTION, prj);
-    mtx.EqMultiply(view, prj);
-    view.Transposition();
-    float dist = ~(pos3D - view.Pos());
+    storm::math::ProjectedPoint vrt;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
+    mtx = prj * view;
+    storm::math::invertRigid(view);
+    float dist = storm::math::lengthSquared(pos3D - storm::math::pos(view));
     if (dist >= rad * rad)
         return;
-    const float d = view.Vz() | view.Pos();
-    if ((pos3D | view.Vz()) < d)
+    const float d = glm::dot(storm::math::vz(view), storm::math::pos(view));
+    if (glm::dot(pos3D, storm::math::vz(view)) < d)
         return;
     rs->GetViewport(&vp);
-    mtx.Projection((CVECTOR *)&pos3D, &vrt, 1, vp.Width * 0.5f, vp.Height * 0.5f, sizeof(CVECTOR),
-                   sizeof(MTX_PRJ_VECTOR));
+    storm::math::projectPoints(mtx, (glm::vec3 *)&pos3D, &vrt, 1, vp.Width * 0.5f, vp.Height * 0.5f, sizeof(glm::vec3), sizeof(storm::math::ProjectedPoint));
     // Looking for a position
     const int32_t fh = rs->CharHeight(FONT_DEFAULT) / 2;
     vrt.y -= (line + 0.5f) * fh;
@@ -175,20 +173,20 @@ void SoundService::DebugPrint3D(const CVECTOR &pos3D, float rad, int32_t line, f
                  static_cast<int32_t>(vrt.y), buf);
 }
 
-void SoundService::Draw2DCircle(const CVECTOR &center, uint32_t dwColor, float fRadius, uint32_t dwColor2,
+void SoundService::Draw2DCircle(const glm::vec3 &center, uint32_t dwColor, float fRadius, uint32_t dwColor2,
                                 float fRadius2) const
 {
     float fDelta = 0.2f;
     RS_LINE line[2];
-    CVECTOR vStart;
-    CVECTOR vEnd;
-    CVECTOR vStartPoint;
+    glm::vec3 vStart;
+    glm::vec3 vEnd;
+    glm::vec3 vStartPoint;
 
-    vStartPoint = CVECTOR(cosf(0) * fRadius, 0.0f, sinf(0) * fRadius);
+    vStartPoint = glm::vec3(cosf(0) * fRadius, 0.0f, sinf(0) * fRadius);
     vStartPoint += center;
     for (float Angle = fDelta; Angle <= (PI * 2); Angle += fDelta)
     {
-        auto vPoint = CVECTOR(cosf(Angle) * fRadius, 0.0f, sinf(Angle) * fRadius);
+        auto vPoint = glm::vec3(cosf(Angle) * fRadius, 0.0f, sinf(Angle) * fRadius);
         vPoint += center;
 
         vStart = vStartPoint;
@@ -204,7 +202,7 @@ void SoundService::Draw2DCircle(const CVECTOR &center, uint32_t dwColor, float f
     }
 
     vStart = vStartPoint;
-    vEnd = CVECTOR(cosf(0) * fRadius, 0.0f, sinf(0) * fRadius);
+    vEnd = glm::vec3(cosf(0) * fRadius, 0.0f, sinf(0) * fRadius);
     vEnd += center;
 
     line[0].vPos = vStart;
@@ -213,11 +211,11 @@ void SoundService::Draw2DCircle(const CVECTOR &center, uint32_t dwColor, float f
     line[1].dwColor = dwColor;
     rs->DrawLines(line, 1, "Line");
 
-    vStartPoint = CVECTOR(cosf(0) * fRadius2, 0.0f, sinf(0) * fRadius2);
+    vStartPoint = glm::vec3(cosf(0) * fRadius2, 0.0f, sinf(0) * fRadius2);
     vStartPoint += center;
     for (float Angle = fDelta; Angle <= (PI * 2); Angle += fDelta)
     {
-        auto vPoint = CVECTOR(cosf(Angle) * fRadius2, 0.0f, sinf(Angle) * fRadius2);
+        auto vPoint = glm::vec3(cosf(Angle) * fRadius2, 0.0f, sinf(Angle) * fRadius2);
         vPoint += center;
 
         vStart = vStartPoint;
@@ -233,7 +231,7 @@ void SoundService::Draw2DCircle(const CVECTOR &center, uint32_t dwColor, float f
     }
 
     vStart = vStartPoint;
-    vEnd = CVECTOR(cosf(0) * fRadius2, 0.0f, sinf(0) * fRadius2);
+    vEnd = glm::vec3(cosf(0) * fRadius2, 0.0f, sinf(0) * fRadius2);
     vEnd += center;
 
     line[0].vPos = vStart;
@@ -242,27 +240,27 @@ void SoundService::Draw2DCircle(const CVECTOR &center, uint32_t dwColor, float f
     line[1].dwColor = dwColor2;
     rs->DrawLines(line, 1, "Line");
 
-    line[0].vPos = CVECTOR(fRadius, 0.0f, 0.0f) + center;
+    line[0].vPos = glm::vec3(fRadius, 0.0f, 0.0f) + center;
     line[0].dwColor = dwColor;
-    line[1].vPos = CVECTOR(fRadius2, 0.0f, 0.0f) + center;
+    line[1].vPos = glm::vec3(fRadius2, 0.0f, 0.0f) + center;
     line[1].dwColor = dwColor;
     rs->DrawLines(line, 1, "Line");
 
-    line[0].vPos = CVECTOR(-fRadius, 0.0f, 0.0f) + center;
+    line[0].vPos = glm::vec3(-fRadius, 0.0f, 0.0f) + center;
     line[0].dwColor = dwColor;
-    line[1].vPos = CVECTOR(-fRadius2, 0.0f, 0.0f) + center;
+    line[1].vPos = glm::vec3(-fRadius2, 0.0f, 0.0f) + center;
     line[1].dwColor = dwColor;
     rs->DrawLines(line, 1, "Line");
 
-    line[0].vPos = CVECTOR(0.0f, 0.0f, fRadius) + center;
+    line[0].vPos = glm::vec3(0.0f, 0.0f, fRadius) + center;
     line[0].dwColor = dwColor;
-    line[1].vPos = CVECTOR(0.0f, 0.0f, fRadius2) + center;
+    line[1].vPos = glm::vec3(0.0f, 0.0f, fRadius2) + center;
     line[1].dwColor = dwColor;
     rs->DrawLines(line, 1, "Line");
 
-    line[0].vPos = CVECTOR(0.0f, 0.0f, -fRadius) + center;
+    line[0].vPos = glm::vec3(0.0f, 0.0f, -fRadius) + center;
     line[0].dwColor = dwColor;
-    line[1].vPos = CVECTOR(0.0f, 0.0f, -fRadius2) + center;
+    line[1].vPos = glm::vec3(0.0f, 0.0f, -fRadius2) + center;
     line[1].dwColor = dwColor;
     rs->DrawLines(line, 1, "Line");
 

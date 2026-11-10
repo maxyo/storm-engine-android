@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "vma.hpp"
 #include <cstdint>
 
@@ -26,13 +26,13 @@ class Location : public Entity
 {
     struct SphVertex
     {
-        CVECTOR v;
+        glm::vec3 v;
         uint32_t c;
     };
 
     struct BarVertex
     {
-        CVECTOR p;
+        glm::vec3 p;
         float rhw;
         uint32_t c;
         float u, v;
@@ -40,7 +40,7 @@ class Location : public Entity
 
     struct DmgMessage
     {
-        CVECTOR p;
+        glm::vec3 p;
         float alpha;
         float hit, hp;
         uint32_t c;
@@ -48,7 +48,7 @@ class Location : public Entity
 
     struct EnemyBar
     {
-        CVECTOR p;
+        glm::vec3 p;
         float hp;
         float energy;
         float alpha;
@@ -101,19 +101,19 @@ class Location : public Entity
     MODEL *JmpPatch();
 
     // Check the visibility of 2 points
-    bool VisibleTest(const CVECTOR &p1, const CVECTOR &p2);
+    bool VisibleTest(const glm::vec3 &p1, const glm::vec3 &p2);
 
     // Trace the ray through the location
-    float Trace(const CVECTOR &src, const CVECTOR &dst);
+    float Trace(const glm::vec3 &src, const glm::vec3 &dst);
     bool GetCollideTriangle(TRIANGLE &trg) const;
-    void Clip(PLANE *p, int32_t numPlanes, CVECTOR &cnt, float rad, bool (*fnc)(const CVECTOR *vtx, int32_t num));
+    void Clip(PLANE *p, int32_t numPlanes, glm::vec3 &cnt, float rad, bool (*fnc)(const glm::vec3 *vtx, int32_t num));
 
     Lights *GetLights() const;
 
     VDX9RENDER *GetRS() const;
-    void DrawLine(const CVECTOR &s, uint32_t cs, const CVECTOR &d, uint32_t cd, bool useZ = true) const;
+    void DrawLine(const glm::vec3 &s, uint32_t cs, const glm::vec3 &d, uint32_t cd, bool useZ = true) const;
     // Write text
-    void Print(const CVECTOR &pos3D, float rad, int32_t line, float alpha, uint32_t color, float scale, const char *format,
+    void Print(const glm::vec3 &pos3D, float rad, int32_t line, float alpha, uint32_t color, float scale, const char *format,
                ...) const;
 
     bool IsDebugView();
@@ -124,9 +124,9 @@ class Location : public Entity
     bool IsSwimming() const;
 
     // Add a damage message
-    void AddDamageMessage(const CVECTOR &pos3D, float hit, float curhp, float maxhp);
+    void AddDamageMessage(const glm::vec3 &pos3D, float hit, float curhp, float maxhp);
     // Draw bars above the enemy in this frame
-    void DrawEnemyBars(const CVECTOR &pos, float hp, float energy, float alpha);
+    void DrawEnemyBars(const glm::vec3 &pos, float hp, float energy, float alpha);
 
   public:
     // The object that controls the repulsion of characters
@@ -149,7 +149,7 @@ class Location : public Entity
     void TestLocatorsInPatch(MESSAGE &message);
     // Drawing bars over characters
     void DrawEnemyBars();
-    void DrawBar(const MTX_PRJ_VECTOR &vrt, uint32_t color, float hp, float energy);
+    void DrawBar(const storm::math::ProjectedPoint &vrt, uint32_t color, float hp, float energy);
     void CorrectBar(float v, float start, float end, BarVertex *vrt);
 
   private:
@@ -228,7 +228,7 @@ inline VDX9RENDER *Location::GetRS() const
 }
 
 // Check the visibility of 2 points
-inline bool Location::VisibleTest(const CVECTOR &p1, const CVECTOR &p2)
+inline bool Location::VisibleTest(const glm::vec3 &p1, const glm::vec3 &p2)
 {
     return model.VisibleTest(p1, p2);
 }
@@ -239,7 +239,7 @@ inline Lights *Location::GetLights() const
 }
 
 // Trace the ray through the location
-inline float Location::Trace(const CVECTOR &src, const CVECTOR &dst)
+inline float Location::Trace(const glm::vec3 &src, const glm::vec3 &dst)
 {
     return model.Trace(src, dst);
 }
@@ -249,7 +249,7 @@ inline bool Location::GetCollideTriangle(TRIANGLE &trg) const
     return model.GetCollideTriangle(trg);
 }
 
-inline void Location::Clip(PLANE *p, int32_t numPlanes, CVECTOR &cnt, float rad, bool (*fnc)(const CVECTOR *vtx, int32_t num))
+inline void Location::Clip(PLANE *p, int32_t numPlanes, glm::vec3 &cnt, float rad, bool (*fnc)(const glm::vec3 *vtx, int32_t num))
 {
     model.Clip(p, numPlanes, cnt, rad, fnc);
 }

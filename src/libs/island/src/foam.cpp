@@ -1,9 +1,7 @@
 #include "foam.h"
 #include "core.h"
 #include "math_inlines.h"
-#include "math3d/plane.h"
 #include "dx9render.h"
-#include "math3d.h"
 
 CoastFoam::CoastFoam()
 {
@@ -59,24 +57,24 @@ void CoastFoam::Execute(uint32_t Delta_Time)
     auto fDeltaTime = static_cast<float>(Delta_Time) * 0.001f;
 }
 
-void CoastFoam::ExtractRay(const D3DVIEWPORT9 &viewport, float fCursorX, float fCursorY, CVECTOR &raystart,
-                           CVECTOR &rayend)
+void CoastFoam::ExtractRay(const D3DVIEWPORT9 &viewport, float fCursorX, float fCursorY, glm::vec3 &raystart,
+                           glm::vec3 &rayend)
 {
-    auto matProj = rs->GetProjection();
-    CVECTOR v;
-    v.x = (((2.0f * fCursorX) / viewport.Width) - 1) / matProj.m[0][0];
-    v.y = -(((2.0f * fCursorY) / viewport.Height) - 1) / matProj.m[1][1];
+    const glm::mat4 matProj = rs->GetProjection();
+    glm::vec3 v;
+    v.x = (((2.0f * fCursorX) / viewport.Width) - 1) / matProj[0][0];
+    v.y = -(((2.0f * fCursorY) / viewport.Height) - 1) / matProj[1][1];
     v.z = 1.0f;
 
-    CMatrix mView3x3;
-    auto mView = rs->GetView();
-    mView.Transposition();
-    mView.Get3X3(&mView3x3);
+    glm::mat4 mView3x3;
+    glm::mat4 mView = rs->GetView();
+    storm::math::invertRigid(mView);
+    storm::math::copy3x3(*&mView3x3, mView);
 
-    CVECTOR raydir;
-    CVECTOR rayorig;
-    raydir = mView3x3 * v;
-    rayorig = mView.Pos();
+    glm::vec3 raydir;
+    glm::vec3 rayorig;
+    raydir = storm::math::transformPoint(mView3x3, v);
+    rayorig = storm::math::pos(mView);
 
     raystart = rayorig;
     rayend = (rayorig + (raydir * 5000.f));
@@ -97,14 +95,14 @@ void CoastFoam::Realize(uint32_t Delta_Time)
     D3DVIEWPORT9 vp;
     rs->GetViewport(&vp);
 
-    CMatrix mWorld;
-    mWorld.SetIdentity(); // rs->GetWorld();
-    auto mView = rs->GetView();
-    auto mProjection = rs->GetProjection();
+    glm::mat4 mWorld;
+    mWorld = glm::mat4(1.0f); // rs->GetWorld();
+    glm::mat4 mView = rs->GetView();
+    glm::mat4 mProjection = rs->GetProjection();
 
-    CMatrix mWV, mWVP;
-    mWV.EqMultiply(mWorld, mView);
-    mWVP.EqMultiply(mWV, mProjection);
+    glm::mat4 mWV, mWVP;
+    mWV = mView * mWorld;
+    mWVP = mProjection * mWV;
 
     uint64_t dw1;
     dwNumPenasExecuted = 0;
@@ -168,11 +166,9 @@ void CoastFoam::Realize(uint32_t Delta_Time)
                 {
                     auto v1 = pF->aFoamParts[j].v[0];
                     auto v2 = pF->aFoamParts[j].v[1];
-                    MTX_PRJ_VECTOR vP1, vP2;
-                    mWVP.Projection(&v1, &vP1, 1, static_cast<float>(vp.Width) * 0.5f,
-                                    static_cast<float>(vp.Height) * 0.5f, sizeof(CVECTOR), sizeof(MTX_PRJ_VECTOR));
-                    mWVP.Projection(&v2, &vP2, 1, static_cast<float>(vp.Width) * 0.5f,
-                                    static_cast<float>(vp.Height) * 0.5f, sizeof(CVECTOR), sizeof(MTX_PRJ_VECTOR));
+                    storm::math::ProjectedPoint vP1, vP2;
+                    storm::math::projectPoints(mWVP, &v1, &vP1, 1, static_cast<float>(vp.Width) * 0.5f, static_cast<float>(vp.Height) * 0.5f, sizeof(glm::vec3), sizeof(storm::math::ProjectedPoint));
+                    storm::math::projectPoints(mWVP, &v2, &vP2, 1, static_cast<float>(vp.Width) * 0.5f, static_cast<float>(vp.Height) * 0.5f, sizeof(glm::vec3), sizeof(storm::math::ProjectedPoint));
                     auto fR1 = 0.15f;
                     auto fR2 = 0.15f;
                     if (SQR(vP1.x - fCursorPosX) + SQR(vP1.y - fCursorPosY) < 100.0f)
@@ -198,8 +194,8 @@ void CoastFoam::Realize(uint32_t Delta_Time)
                 }
             }
 
-            CMatrix mI;
-            mI.SetIdentity();
+            glm::mat4 mI;
+            mI = glm::mat4(1.0f);
             rs->SetWorld(mI);
             if (bEditMode)
                 rs->DrawLines(aLines.data(), aLines.size() / 2, "Line");
@@ -231,11 +227,10 @@ void CoastFoam::Realize(uint32_t Delta_Time)
                 {
                     for (int32_t k = 0; k < 2; k++)
                     {
-                        MTX_PRJ_VECTOR vP;
+                        storm::math::ProjectedPoint vP;
                         auto v = pF->aFoamParts[j].v[k];
 
-                        mWVP.Projection(&v, &vP, 1, static_cast<float>(vp.Width) * 0.5f,
-                                        static_cast<float>(vp.Height) * 0.5f, sizeof(CVECTOR), sizeof(MTX_PRJ_VECTOR));
+                        storm::math::projectPoints(mWVP, &v, &vP, 1, static_cast<float>(vp.Width) * 0.5f, static_cast<float>(vp.Height) * 0.5f, sizeof(glm::vec3), sizeof(storm::math::ProjectedPoint));
                         auto fD = SQR(vP.x - fCursorPosX) + SQR(vP.y - fCursorPosY);
                         if (fD < 100.0f && fD < fMinDistance)
                         {
@@ -282,7 +277,7 @@ void CoastFoam::Realize(uint32_t Delta_Time)
         {
             bMoved = false;
         }
-        CVECTOR vStart, vEnd;
+        glm::vec3 vStart, vEnd;
         ExtractRay(vp, fCursorPosX, fCursorPosY, vStart, vEnd);
 
         if (bMoved && (csH.lValue || csV.lValue))
@@ -290,14 +285,11 @@ void CoastFoam::Realize(uint32_t Delta_Time)
             if (bSelected && (vStart.y > 0.0f && vStart.y > vEnd.y))
             {
                 auto *pFP = &aFoams[iEditFoam]->aFoamParts[iEditFoamPart];
-                Plane pln(Vector(0.0f, 1.0f, 0.0f), Vector(0.0f));
-                auto vS1 = Vector(vStart.x, vStart.y, vStart.z);
-                auto vE1 = Vector(vEnd.x, vEnd.y, vEnd.z);
-                Vector vR1;
-                if (pln.Intersection(vS1, vE1, vR1))
+                const auto pln = storm::math::planeFromPointNormal(glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f));
+                glm::vec3 vNewPos;
+                if (storm::math::intersectSegmentPlane(pln, vStart, vEnd, vNewPos))
                 {
                     auto vDiff = pFP->v[1] - pFP->v[0];
-                    auto vNewPos = CVECTOR(vR1.x, vR1.y, vR1.z);
                     auto vDir = vNewPos - pFP->v[iEditFoamVertex];
                     if (bMenu)
                     {
@@ -332,8 +324,8 @@ void CoastFoam::Realize(uint32_t Delta_Time)
 
             for (int32_t i = 0; i < pF->aFoamParts.size(); i++)
             {
-                pF->aFoamParts[i].v[0] += CVECTOR(10.0f, 0.0f, 10.0f);
-                pF->aFoamParts[i].v[1] += CVECTOR(10.0f, 0.0f, 10.0f);
+                pF->aFoamParts[i].v[0] += glm::vec3(10.0f, 0.0f, 10.0f);
+                pF->aFoamParts[i].v[1] += glm::vec3(10.0f, 0.0f, 10.0f);
             }
 
             // RecalculateFoam( aFoams.Add(pF) );
@@ -346,20 +338,20 @@ void CoastFoam::Realize(uint32_t Delta_Time)
             if (bShift)
             {
                 // insert new foam
-                auto mIView = rs->GetView();
-                mIView.Transposition();
+                glm::mat4 mIView = rs->GetView();
+                storm::math::invertRigid(mIView);
                 auto *pF = new Foam();
 
                 InitNewFoam(pF);
 
-                auto vPos = mIView.Pos();
+                auto vPos = storm::math::pos(mIView);
                 vPos.y = 0.0f;
-                auto vZ = mIView.Vz();
+                auto vZ = storm::math::vz(mIView);
                 vZ.y = 0.0;
-                vZ = !vZ;
-                auto vX = mIView.Vx();
+                vZ = storm::math::normalizeOrZero(vZ);
+                auto vX = storm::math::vx(mIView);
                 vX.y = 0.0;
-                vX = !vX;
+                vX = storm::math::normalizeOrZero(vX);
 
                 FoamPart foam1, foam2;
                 foam1.v[0] = vPos;
@@ -443,11 +435,11 @@ void CoastFoam::ExecuteFoamType2(Foam *pF, float fDeltaTime)
     if (!iLen)
         return;
 
-    CVECTOR vCamPos, vCamAng;
+    glm::vec3 vCamPos, vCamAng;
     float fPerspective;
     rs->GetCamera(vCamPos, vCamAng, fPerspective);
 
-    const auto fDistance = sqrtf(~(pF->aWorkParts[0].v[0] - vCamPos));
+    const auto fDistance = sqrtf(storm::math::lengthSquared(pF->aWorkParts[0].v[0] - vCamPos));
     if (fDistance > fMaxFoamDistance)
         return;
 
@@ -561,8 +553,8 @@ void CoastFoam::ExecuteFoamType2(Foam *pF, float fDeltaTime)
         rs->UnLockIndexBuffer(iIBuffer);
         rs->UnLockVertexBuffer(iVBuffer);
 
-        CMatrix mI;
-        mI.SetIdentity();
+        glm::mat4 mI;
+        mI = glm::mat4(1.0f);
         rs->SetWorld(mI);
         rs->TextureSet(0, pF->iTexture);
         rs->DrawBuffer(iVBuffer, sizeof(FoamVertex), iIBuffer, 0, iNumVertices, 0, 7 * 2 * (iLen - 1), "CoastFoam");
@@ -575,17 +567,17 @@ bool CoastFoam::IsClipped(Foam *pF)
         return true;
 
     float fPerspective;
-    CVECTOR vCamPos, vCamAng;
+    glm::vec3 vCamPos, vCamAng;
     rs->GetCamera(vCamPos, vCamAng, fPerspective);
 
-    CVECTOR vP[4];
+    glm::vec3 vP[4];
     uint32_t dwPlanesPoints[4];
     const uint32_t dwSize = pF->aFoamParts.size();
 
     for (uint32_t k = 0; k < 4; k++)
     {
         dwPlanesPoints[k] = 0;
-        vP[k] = CVECTOR(pFrustumPlanes[k].Nx, pFrustumPlanes[k].Ny, pFrustumPlanes[k].Nz);
+        vP[k] = glm::vec3(pFrustumPlanes[k].Nx, pFrustumPlanes[k].Ny, pFrustumPlanes[k].Nz);
     }
 
     for (uint32_t i = 0; i < dwSize; i++)
@@ -595,8 +587,8 @@ bool CoastFoam::IsClipped(Foam *pF)
 
         for (uint32_t j = 0; j < 4; j++)
         {
-            const auto fD1 = (v0 | vP[j]) - pFrustumPlanes[j].D;
-            const auto fD2 = (v1 | vP[j]) - pFrustumPlanes[j].D;
+            const auto fD1 = glm::dot(v0, vP[j]) - pFrustumPlanes[j].D;
+            const auto fD2 = glm::dot(v1, vP[j]) - pFrustumPlanes[j].D;
 
             if (fD1 < 0.0f)
                 dwPlanesPoints[j]++;
@@ -618,11 +610,11 @@ void CoastFoam::ExecuteFoamType1(Foam *pF, float fDeltaTime)
     if (!iLen)
         return;
 
-    CVECTOR vCamPos, vCamAng;
+    glm::vec3 vCamPos, vCamAng;
     float fPerspective;
     rs->GetCamera(vCamPos, vCamAng, fPerspective);
 
-    const auto fDistance = sqrtf(~(pF->aWorkParts[0].v[0] - vCamPos));
+    const auto fDistance = sqrtf(storm::math::lengthSquared(pF->aWorkParts[0].v[0] - vCamPos));
     if (fDistance > fMaxFoamDistance)
         return;
 
@@ -697,8 +689,8 @@ void CoastFoam::ExecuteFoamType1(Foam *pF, float fDeltaTime)
     rs->UnLockIndexBuffer(iIBuffer);
     rs->UnLockVertexBuffer(iVBuffer);
 
-    CMatrix mI;
-    mI.SetIdentity();
+    glm::mat4 mI;
+    mI = glm::mat4(1.0f);
     rs->SetWorld(mI);
     rs->TextureSet(0, pF->iTexture);
     rs->DrawBuffer(iVBuffer, sizeof(FoamVertex), iIBuffer, 0, iNumVertices, 0, 7 * 2 * (iLen - 1), "CoastFoam");
@@ -735,7 +727,7 @@ void CoastFoam::RecalculateFoam(int32_t iFoam)
             auto *pF1 = &pF->aFoamParts[i];
             auto *pF2 = &pF->aFoamParts[i + 1];
 
-            const auto dx = (pF1->v[0] - pF2->v[0]).GetLength() / static_cast<float>(iFoamDivides);
+            const auto dx = glm::length(pF1->v[0] - pF2->v[0]) / static_cast<float>(iFoamDivides);
             for (int32_t j = 0; j < iFoamDivides; j++)
             {
                 if (j == 0 && i != 0)
@@ -881,7 +873,7 @@ void CoastFoam::Load()
         for (int32_t j = 0; j < ((iNumParts) ? iNumParts : 100000); j++)
         {
             sprintf_s(cKey, "key_%d", j);
-            CVECTOR v1, v2;
+            glm::vec3 v1, v2;
             v1.y = v2.y = 0.0f;
             pI->ReadString(cSection, cKey, cTemp, sizeof(cTemp), "");
             if (!cTemp[0])

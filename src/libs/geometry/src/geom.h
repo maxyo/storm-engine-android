@@ -25,11 +25,11 @@ struct SAVAGE
 class GEOM : public GEOS
 {
     static SAVAGE _stack[256];
-    std::vector<CVECTOR> vrt{};
+    std::vector<glm::vec3> vrt{};
     std::vector<RDF_BSPTRIANGLE> btrg{};
     std::vector<BSP_NODE> sroot{};
 
-    CVECTOR res_norm;
+    glm::vec3 res_norm;
     float res_pldist;
     float res_dist;
 
@@ -58,7 +58,7 @@ class GEOM : public GEOS
 
     int32_t *atriangles = nullptr;
     int32_t traceid;
-    DVECTOR src, dst;
+    glm::dvec3 src, dst;
 
   public:
     GEOM(const char *fname, const char *lightname, GEOM_SERVICE &srv, int32_t flags);

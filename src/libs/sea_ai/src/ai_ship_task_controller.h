@@ -18,13 +18,13 @@ class AITask
     {
         dwTaskType = AITASK_NONE;
         pATaskCharacter = nullptr;
-        vTaskPnt = 0.0f;
+        vTaskPnt = glm::vec3(0.0f);
     };
 
     uint32_t dwTaskType;
 
     ATTRIBUTES *pATaskCharacter;
-    CVECTOR vTaskPnt;
+    glm::vec3 vTaskPnt;
 
     void SetActive(bool _bActive)
     {
@@ -85,7 +85,7 @@ class AIShipTaskController
     void DoAttackRotate();
     void DoTask(float fDeltaTime);
     bool CheckCurrentTaskComplete();
-    void SetDestinationPoint(CVECTOR vDestPnt);
+    void SetDestinationPoint(glm::vec3 vDestPnt);
     void FindRunAwayPoint();
 
   public:
@@ -101,7 +101,7 @@ class AIShipTaskController
         return (Secondary.isActive()) ? &Secondary : &Primary;
     };
 
-    void SetNewTask(uint32_t dwPriority, uint32_t dwNewTaskType, CVECTOR &vPnt);
+    void SetNewTask(uint32_t dwPriority, uint32_t dwNewTaskType, glm::vec3 &vPnt);
     void SetNewTask(uint32_t dwPriority, uint32_t dwNewTaskType, ATTRIBUTES *_pATaskCharacter);
 
     // controller execute

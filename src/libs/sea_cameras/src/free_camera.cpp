@@ -119,22 +119,22 @@ void FREE_CAMERA::Move(uint32_t DeltaTime)
 
     core.Controls->GetControlState("FreeCamera_Forward", cs);
     if (cs.state == CST_ACTIVE)
-        vPos += speed * CVECTOR(s0 * c1, -s1, c0 * c1);
+        vPos += speed * glm::vec3(s0 * c1, -s1, c0 * c1);
     core.Controls->GetControlState("FreeCamera_Backward", cs);
     if (cs.state == CST_ACTIVE)
-        vPos -= speed * CVECTOR(s0 * c1, -s1, c0 * c1);
+        vPos -= speed * glm::vec3(s0 * c1, -s1, c0 * c1);
 
-    /*if (core.Controls->GetAsyncKeyState(VK_LBUTTON))    vPos += speed*CVECTOR(s0*c1, -s1, c0*c1);
-    if (core.Controls->GetAsyncKeyState(VK_RBUTTON))    vPos -= speed*CVECTOR(s0*c1, -s1, c0*c1);
-    if(core.Controls->GetAsyncKeyState('I'))    vPos += speed*CVECTOR(0.0f, 0.1f , 0.0f);
-    if(core.Controls->GetAsyncKeyState('K'))    vPos += speed*CVECTOR(0.0f, -0.1f, 0.0f);*/
+    /*if (core.Controls->GetAsyncKeyState(VK_LBUTTON))    vPos += speed*glm::vec3(s0*c1, -s1, c0*c1);
+    if (core.Controls->GetAsyncKeyState(VK_RBUTTON))    vPos -= speed*glm::vec3(s0*c1, -s1, c0*c1);
+    if(core.Controls->GetAsyncKeyState('I'))    vPos += speed*glm::vec3(0.0f, 0.1f , 0.0f);
+    if(core.Controls->GetAsyncKeyState('K'))    vPos += speed*glm::vec3(0.0f, -0.1f, 0.0f);*/
 
-    // vPos = CVECTOR(0.0f, 20.0f, 0.0f);
+    // vPos = glm::vec3(0.0f, 20.0f, 0.0f);
 
     pRS->SetCamera(vPos, vAng, GetPerspective());
 
-    /*CVECTOR vRes;
-    CVECTOR vDst = vPos + 2000.0f*CVECTOR(s0*c1, -s1, c0*c1);
+    /*glm::vec3 vRes;
+    glm::vec3 vDst = vPos + 2000.0f*glm::vec3(s0*c1, -s1, c0*c1);
 
     walker_tpVW = core.LayerGetWalker("sun_trace");
     float fRes = pCollide->Trace(*pVW,vPos,vDst,nullptr,0);

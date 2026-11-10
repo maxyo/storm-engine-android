@@ -4,6 +4,7 @@
 
 #include "components.h"
 #include "elements.h"
+#include "hud/hud.h"
 #include "screens/screen.h"
 #include "storm_ui/interface_model.h"
 
@@ -19,6 +20,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <mutex>
 #include <set>
 #include <unordered_map>
 
@@ -172,7 +174,7 @@ bool ReadJson(FileSource &files, const std::string &path, Json &out, std::string
     return true;
 }
 
-class HostImpl final : public Host, public Services, public screens::Surface
+class HostImpl final : public Host, public Services, public screens::Surface, public hud::Mount
 {
   public:
     ~HostImpl() override
@@ -180,6 +182,7 @@ class HostImpl final : public Host, public Services, public screens::Surface
         captures_.clear();
         ticking_.clear();
         router_.reset();
+        hud_.reset();
         if (context_)
         {
             context_->UnloadAllDocuments();
@@ -267,7 +270,20 @@ class HostImpl final : public Host, public Services, public screens::Surface
         }
         SetTemplateStrings([this](const std::string &key) { return Text(key); });
         screen_path_ = pack.value("screen", std::string());
+        // The HUD: its document and where the elements of every scene sit. A pack that
+        // names a layout must hold a readable one; a pack without a HUD (none shipped
+        // today) answers every HUD state with an error.
+        hud_path_ = pack.value("hud", std::string());
+        const std::string layout_path = pack.value("hudLayout", std::string());
+        if (!layout_path.empty())
+        {
+            Json layout;
+            if (!ReadJson(*config.files, layout_path, layout, error) || !hud::ParseLayout(layout, layout_, error))
+                return false;
+        }
+        hud_ = std::make_unique<hud::Hud>(*this);
         router_ = std::make_unique<screens::Router>(*this);
+        router_->AttachHud(hud_.get());
         overlay_path_ = pack.value("overlay", std::string());
         if (!overlay_path_.empty())
         {
@@ -283,7 +299,9 @@ class HostImpl final : public Host, public Services, public screens::Surface
     bool LoadDocument(const std::string &path) override
     {
         router_->CloseInterface();
-        return OpenDocument(path);
+        const bool opened = OpenDocument(path);
+        PublishTouchMap();
+        return opened;
     }
 
     bool OpenDocument(const std::string &path)
@@ -322,7 +340,7 @@ class HostImpl final : public Host, public Services, public screens::Surface
             return;
         safe_ = safe;
         // Rebuild every component: the insets reach the templates through their scope.
-        std::vector<Rml::Element *> pending = {document_, overlay_};
+        std::vector<Rml::Element *> pending = {document_, overlay_, hud_document_};
         while (!pending.empty())
         {
             Rml::Element *element = pending.back();
@@ -366,7 +384,10 @@ class HostImpl final : public Host, public Services, public screens::Surface
             capture.pointer.id = pointer;
             capture.pointer.position = capture.pointer.start = at;
             capture.pointer.target = context_->GetElementAtPoint(at);
-            ComponentElement *component = InteractiveComponentAt(capture.pointer.target);
+            // The HUD takes input only while the player can act (Presentation::live).
+            if (capture.pointer.target && capture.pointer.target->GetOwnerDocument() == hud_document_ && !hud_->Interactive())
+                return;
+            ComponentElement *component = InteractiveComponentAt(capture.pointer.target, capture.pointer);
             if (component && component->PointerExclusive(capture.pointer))
             {
                 capture.exclusive = true;
@@ -447,7 +468,7 @@ class HostImpl final : public Host, public Services, public screens::Surface
                 component->Tick(now);
         ExpireToasts(now);
         const bool images = GameImagesChanged();
-        const double routing = router_->Tick();
+        const double routing = std::min(router_->Tick(), hud_->Tick());
 
         context_->Update();
         if (TextClampsChanged()) // clamped text was re-cut for a new width
@@ -455,6 +476,8 @@ class HostImpl final : public Host, public Services, public screens::Surface
         backend_->BeginFrame(true);
         context_->Render();
         backend_->EndFrame();
+        hud_->Drawn();
+        PublishTouchMap();
 
         double delay = context_->GetNextUpdateDelay();
         if (!ticking_.empty() || images)
@@ -467,6 +490,8 @@ class HostImpl final : public Host, public Services, public screens::Surface
 
     void Toast(const std::string &text, const std::string &tone) override
     {
+        if (hud_->Notice(text, tone)) // over the game, events go to the HUD's top-centre log
+            return;
         if (!overlay_ || text.empty())
             return;
         const bool top = document_ && document_->GetAttribute<Rml::String>("data-toast", "bottom") == "top";
@@ -557,12 +582,166 @@ class HostImpl final : public Host, public Services, public screens::Surface
 
     bool InterfaceActive() const override
     {
-        return router_->Active();
+        return router_->Active() || document_ != nullptr; // hud::Mount too: a plain document covers the game as well
+    }
+
+    bool WantsTouch(float x, float y) const override
+    {
+        const std::lock_guard<std::mutex> lock(touch_mutex_);
+        if (touch_map_.everywhere)
+            return true;
+        for (const Rml::Rectanglef &region : touch_map_.regions)
+            if (region.Contains({x, y}))
+                return true;
+        return false;
+    }
+
+    void CancelInput() override
+    {
+        std::vector<std::pair<int, Rml::Vector2f>> held;
+        for (const auto &capture : captures_)
+            held.emplace_back(capture.first, capture.second.pointer.position);
+        for (const auto &pointer : held)
+            Touch(TouchPhase::Cancel, pointer.first, pointer.second.x, pointer.second.y);
+        hud_->Released();
+    }
+
+    bool WantsBack() const override
+    {
+        const std::lock_guard<std::mutex> lock(touch_mutex_);
+        return touch_map_.back;
     }
 
     void Back() override
     {
-        router_->Back();
+        bool hud_sheet = false;
+        {
+            const std::lock_guard<std::mutex> lock(touch_mutex_);
+            hud_sheet = touch_map_.back;
+        }
+        if (hud_sheet || !router_->Active())
+            hud_->Back();
+        else
+            router_->Back();
+    }
+
+    // --- hud::Mount ---------------------------------------------------------------
+
+    bool ShowHud(const hud::View &view) override
+    {
+        const std::string problem = hud::CheckView(layout_, view);
+        if (!problem.empty())
+        {
+            Error(problem);
+            return false;
+        }
+        if (!hud_document_)
+        {
+            hud_document_ = hud_path_.empty() ? nullptr : context_->LoadDocument(hud_path_);
+            if (!hud_document_)
+            {
+                Error("UI pack has no HUD document");
+                return false;
+            }
+            if (overlay_)
+                overlay_->PullToFront();
+        }
+        auto *root = dynamic_cast<ComponentElement *>(hud_document_->GetElementById("hud"));
+        if (root && !ComponentSlot(*root))
+            root->RebuildNow();
+        Rml::Element *layer = root ? ComponentSlot(*root) : nullptr;
+        if (!layer)
+        {
+            Error("UI pack: the HUD document has no <s-hud id=\"hud\"> layer");
+            return false;
+        }
+        hud_document_->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
+        // Elements are patched in place: one that both the old and the new view have stays
+        // mounted (a held stick survives explore ↔ combat), only its place and props follow.
+        const std::vector<hud::LayoutElement> &elements = layout_.at(view.layout);
+        std::unordered_map<std::string, std::string> wanted; // id → what it must have been created as
+        for (const hud::LayoutElement &element : elements)
+            if (view.elements.contains(element.id))
+            {
+                std::string made = element.component + "\n" + element.behavior + "\n" + element.data.dump();
+                for (const hud::LayoutElement &child : element.children)
+                    if (view.elements.contains(child.id))
+                        made += "\n" + child.id + " " + child.component;
+                wanted[element.id] = std::move(made);
+            }
+        for (int i = layer->GetNumChildren(); i-- > 0;)
+        {
+            Rml::Element *mounted = layer->GetChild(i);
+            const auto keep = wanted.find(mounted->GetId());
+            if (mounted->GetId() == "sheet" || (keep != wanted.end() && hud_made_[mounted->GetId()] == keep->second))
+                continue;
+            RemoveHudElement(layer, mounted);
+        }
+        bool complete = true;
+        Rml::Element *before = layer->GetElementById("sheet"); // layout order: later elements are drawn on top
+        for (size_t i = elements.size(); i-- > 0;)
+        {
+            const hud::LayoutElement &element = elements[i];
+            if (!wanted.count(element.id))
+                continue;
+            Rml::Element *mounted = hud_document_->GetElementById(element.id);
+            if (!mounted)
+            {
+                Rml::ElementPtr created = CreateHudElement(element);
+                for (const hud::LayoutElement &child : element.children)
+                    if (view.elements.contains(child.id))
+                    {
+                        Rml::ElementPtr inner = CreateHudElement(child);
+                        inner->SetAttribute("style", "width: 100%;");
+                        created->AppendChild(std::move(inner));
+                    }
+                mounted = before ? layer->InsertBefore(std::move(created), before) : layer->AppendChild(std::move(created));
+                hud_made_[element.id] = wanted[element.id];
+            }
+            before = mounted;
+            if (mounted->GetAttribute<Rml::String>("style", "") != element.rcss)
+                mounted->SetAttribute("style", element.rcss);
+            complete = SetHudProps(element, view) && complete;
+            for (const hud::LayoutElement &child : element.children)
+                if (view.elements.contains(child.id))
+                    complete = SetHudProps(child, view) && complete;
+            mounted->SetClass("dim", std::find(view.dimmed.begin(), view.dimmed.end(), element.id) != view.dimmed.end());
+        }
+        // The sheet lies over everything else of the scene.
+        Rml::Element *sheet = hud_document_->GetElementById("sheet");
+        if (sheet && sheet->GetTagName() != view.sheet)
+        {
+            RemoveHudElement(layer, sheet);
+            sheet = nullptr;
+        }
+        if (!view.sheet.empty())
+        {
+            if (!sheet)
+            {
+                Rml::ElementPtr created = hud_document_->CreateElement(view.sheet);
+                created->SetId("sheet");
+                sheet = layer->AppendChild(std::move(created));
+            }
+            if (auto *component = dynamic_cast<ComponentElement *>(sheet))
+                component->SetProps(view.sheet_props);
+            else
+            {
+                Error("UI pack has no HUD sheet " + view.sheet);
+                complete = false;
+            }
+        }
+        return complete;
+    }
+
+    void HideHud() override
+    {
+        if (!hud_document_)
+            return;
+        auto *root = dynamic_cast<ComponentElement *>(hud_document_->GetElementById("hud"));
+        if (Rml::Element *layer = root ? ComponentSlot(*root) : nullptr)
+            while (layer->GetNumChildren() > 0)
+                RemoveHudElement(layer, layer->GetLastChild());
+        hud_document_->Hide();
     }
 
     // --- screens::Surface ---------------------------------------------------------
@@ -588,6 +767,7 @@ class HostImpl final : public Host, public Services, public screens::Surface
             component->SetProps(props);
         else
             Error("UI pack has no screen " + tag);
+        PublishTouchMap();
     }
 
     void Hide() override
@@ -599,6 +779,7 @@ class HostImpl final : public Host, public Services, public screens::Surface
             document_ = nullptr;
         }
         screen_root_ = nullptr;
+        PublishTouchMap();
     }
 
     void Send(const Action &action) override
@@ -698,6 +879,12 @@ class HostImpl final : public Host, public Services, public screens::Surface
         std::string id;
         for (Rml::Element *element = &source; element && id.empty(); element = element->GetParentNode())
             id = element->GetId();
+        if (hud_document_ && source.GetOwnerDocument() == hud_document_)
+        {
+            // The HUD: its scene maps the event to engine input.
+            hud_->OnEvent({id, verb, value});
+            return;
+        }
         if (screen_root_)
         {
             // A game interface: its screen maps the event to engine actions.
@@ -763,6 +950,112 @@ class HostImpl final : public Host, public Services, public screens::Surface
         Rml::ObserverPtr<Rml::Element> component;
         bool exclusive = false;
     };
+    // Where a pointer going down belongs to the UI; read by the thread that gets touches.
+    struct TouchMap
+    {
+        bool everywhere = false;
+        bool back = false;
+        std::vector<Rml::Rectanglef> regions; // physical pixels
+    };
+
+    // --- HUD mount ---
+
+    Rml::ElementPtr CreateHudElement(const hud::LayoutElement &element)
+    {
+        Rml::ElementPtr created = hud_document_->CreateElement(element.component);
+        created->SetId(element.id);
+        if (!element.behavior.empty())
+            created->SetAttribute("data-behavior", element.behavior);
+        for (const auto &item : element.data.items())
+            created->SetAttribute("data-" + item.key(), ToText(item.value()));
+        return created;
+    }
+
+    // Layout props with the scene's live ones on top; a rebuild only when they changed.
+    bool SetHudProps(const hud::LayoutElement &element, const hud::View &view)
+    {
+        auto *component = dynamic_cast<ComponentElement *>(hud_document_->GetElementById(element.id));
+        if (!component)
+        {
+            Error("UI pack has no component <" + element.component + "> for HUD element " + element.id);
+            return false;
+        }
+        Json props = element.props;
+        props.update(view.elements[element.id]);
+        Json &shown = hud_props_[element.id];
+        if (shown != props)
+        {
+            Json change = props;
+            if (shown.is_object()) // a prop the scene no longer gives goes back to its default
+                for (const auto &item : shown.items())
+                    if (!props.contains(item.key()))
+                        change[item.key()] = nullptr;
+            component->SetProps(change);
+            shown = std::move(props);
+        }
+        return true;
+    }
+
+    // Takes a HUD element off the screen. A pointer held on it ends first, so that its
+    // control reports the release (a stick stops, a held button lets go).
+    void RemoveHudElement(Rml::Element *layer, Rml::Element *mounted)
+    {
+        std::vector<std::pair<int, Rml::Vector2f>> held;
+        for (const auto &capture : captures_)
+            for (Rml::Element *at = capture.second.component.get(); at; at = at->GetParentNode())
+                if (at == mounted)
+                {
+                    held.emplace_back(capture.first, capture.second.pointer.position);
+                    break;
+                }
+        for (const auto &pointer : held)
+            Touch(TouchPhase::Cancel, pointer.first, pointer.second.x, pointer.second.y);
+        std::vector<Rml::Element *> inside = {mounted};
+        while (!inside.empty())
+        {
+            Rml::Element *element = inside.back();
+            inside.pop_back();
+            hud_props_.erase(element->GetId());
+            for (int i = 0; i < element->GetNumChildren(); ++i)
+                inside.push_back(element->GetChild(i));
+        }
+        hud_made_.erase(mounted->GetId());
+        layer->RemoveChild(mounted);
+    }
+
+    void CollectRegions(Rml::Element *element, std::vector<Rml::Rectanglef> &out) const
+    {
+        if (!element->IsVisible(true))
+            return;
+        if (auto *component = dynamic_cast<ComponentElement *>(element))
+        {
+            std::vector<Rml::Element *> parts;
+            component->TouchRegions(parts);
+            for (Rml::Element *part : parts)
+            {
+                const Rml::Vector2f size = part->GetBox().GetSize(Rml::BoxArea::Border);
+                if (size.x > 0.0f && size.y > 0.0f && part->IsVisible(true))
+                    out.push_back(Rml::Rectanglef::FromPositionSize(part->GetAbsoluteOffset(Rml::BoxArea::Border), size));
+            }
+        }
+        for (int i = 0; i < element->GetNumChildren(); ++i)
+            CollectRegions(element->GetChild(i), out);
+    }
+
+    // Called after everything that changes what a touch would hit (a frame, a document,
+    // an interface): the answer of WantsTouch never waits for this thread.
+    void PublishTouchMap()
+    {
+        TouchMap map;
+        const bool hud = hud_->Interactive();
+        map.back = hud && hud_->Shown().modal;
+        map.everywhere = document_ != nullptr || map.back; // a document or an interface screen, or a modal HUD sheet
+        if (hud && !map.everywhere && hud_document_)
+            CollectRegions(hud_document_, map.regions);
+        const std::lock_guard<std::mutex> lock(touch_mutex_);
+        touch_map_ = std::move(map);
+    }
+
     struct Toast_
     {
         Rml::ObserverPtr<Rml::Element> element;
@@ -799,6 +1092,15 @@ class HostImpl final : public Host, public Services, public screens::Surface
     std::set<std::string> unknown_languages_, missing_strings_;
     std::unique_ptr<screens::Router> router_;
     Rml::ElementDocument *screen_root_ = nullptr; // the screen document while a game interface is mounted
+    // HUD
+    std::unique_ptr<hud::Hud> hud_;
+    hud::Layout layout_;
+    std::string hud_path_;
+    Rml::ElementDocument *hud_document_ = nullptr;
+    std::unordered_map<std::string, Json> hud_props_;       // props last given to each mounted element
+    std::unordered_map<std::string, std::string> hud_made_; // what each mounted element was created as
+    mutable std::mutex touch_mutex_;
+    TouchMap touch_map_;
     Json settings_ = Json::object();
     Json safe_ = {{"left", 0}, {"top", 0}, {"right", 0}, {"bottom", 0}};
     std::unordered_map<int, Capture> captures_;

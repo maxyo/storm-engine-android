@@ -103,7 +103,7 @@ void TCarcass::RebuildLevels(tCarcassVertex *_vBuffer, bool _firstDraw, uint32_t
     float lengthK;
 
     if (_firstDraw)
-        lengthK = 0.2f * sqrtf(~(levelStarts[(levelsCount - 1) /**measure.pointsCount*/] - levelStarts[0]));
+        lengthK = 0.2f * sqrtf(storm::math::lengthSquared(levelStarts[(levelsCount - 1) /**measure.pointsCount*/] - levelStarts[0]));
 
     for (auto level = 0; level < (levelsCount); level++)
     {
@@ -116,11 +116,11 @@ void TCarcass::RebuildLevels(tCarcassVertex *_vBuffer, bool _firstDraw, uint32_t
                 heightK = 1.f + 1.35f * static_cast<float>(level) / FRONT_FADE_LEVEL;
             else
                 heightK = 1.f + (1.f - levelK);
-            // tempVertex->pos = sceneMatrix * (levelStarts[level] + CVECTOR((1.f +
+            // tempVertex->pos = sceneMatrix * (levelStarts[level] + glm::vec3((1.f +
             // WIDEN_K*levelK)*measure.deltaPointX[measurePoint],
             // heightK*measure.deltaPointY[measurePoint], 0.f));
             tempVertex->pos =
-                (levelStarts[level] + CVECTOR((1.f + WIDEN_K * levelK) * measure.deltaPointX[measurePoint],
+                (levelStarts[level] + glm::vec3((1.f + WIDEN_K * levelK) * measure.deltaPointX[measurePoint],
                                               heightK * measure.deltaPointY[measurePoint], 0.f));
             tempVertex->pos.y += .01f;
 
@@ -172,7 +172,7 @@ void TCarcass::Uninitialize()
 }
 
 //--------------------------------------------------------------------
-void TCarcass::Execute(uint32_t _dTime, CMatrix &_mtx, const CVECTOR *_starts)
+void TCarcass::Execute(uint32_t _dTime, glm::mat4 &_mtx, const glm::vec3 *_starts)
 {
     sceneMatrix = _mtx;
     for (auto level = 0; level < levelsCount; level++)
@@ -198,7 +198,7 @@ void TCarcass::Execute(uint32_t _dTime, CMatrix &_mtx, const CVECTOR *_starts)
 //--------------------------------------------------------------------
 void TCarcass::Realize(const char *_technique)
 {
-    renderer->SetTransform(D3DTS_WORLD, sceneMatrix);
+    renderer->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(sceneMatrix));
     renderer->DrawBuffer(vBuffer, sizeof(tCarcassVertex), iBuffer, 0, MEASURE_POINTS * (TRACE_STEPS_Z + 1), 0,
                          2 * (MEASURE_POINTS - 1) * (TRACE_STEPS_Z - 1), const_cast<char *>(_technique));
 }

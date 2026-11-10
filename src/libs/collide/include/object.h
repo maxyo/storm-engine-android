@@ -1,11 +1,15 @@
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "entity.h"
-#include "triangle.h"
-#include "types3d.h"
+#include "plane.h"
 
-using ADD_POLYGON_FUNC = bool (*)(const CVECTOR *v, int32_t nv);
+struct TRIANGLE
+{
+    glm::vec3 vrt[3];
+};
+
+using ADD_POLYGON_FUNC = bool (*)(const glm::vec3 *v, int32_t nv);
 
 class COLLISION_OBJECT : public Entity
 {
@@ -16,10 +20,10 @@ class COLLISION_OBJECT : public Entity
     }
 
     ~COLLISION_OBJECT() override{};
-    CMatrix mtx;
+    glm::mat4 mtx;
 
-    virtual float Trace(const CVECTOR &src, const CVECTOR &dst) = 0;
-    virtual bool Clip(const PLANE *planes, int32_t nplanes, const CVECTOR &center, float radius,
+    virtual float Trace(const glm::vec3 &src, const glm::vec3 &dst) = 0;
+    virtual bool Clip(const PLANE *planes, int32_t nplanes, const glm::vec3 &center, float radius,
                       ADD_POLYGON_FUNC addpoly) = 0;
 
     virtual const char *GetCollideMaterialName() = 0;

@@ -1,0 +1,34 @@
+{
+ "schemaVersion": 1,
+ "sceneEpoch": 4,
+ "activityGeneration": 2,
+ "language": "russian",
+ "mode": 0,
+ "revision": 15,
+ "available": true,
+ "active": true,
+ "complete": true,
+ "stage": "commands",
+ "pendingLabel": "",
+ "selectedItemId": "",
+ "canBack": true,
+ "canClose": true,
+ "items": [
+  {
+   "id": "c1",
+   "kind": "ritual",
+   "label": "Обряд",
+   "source": "BI_Ritual",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "x",
+   "kind": "cancel",
+   "label": "Отмена",
+   "source": "",
+   "enabled": true,
+   "cooldown": 1.0
+  }
+ ]
+}

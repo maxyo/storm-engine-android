@@ -56,7 +56,7 @@ class ISLAND : public ISLAND_BASE
     bool bDrawReflections;
     float fStepDX, fStepDZ, fStep1divDX, fStep1divDZ;
     float fShadowMapSize, fShadowMapStep;
-    CVECTOR vBoxSize, vBoxCenter, vRealBoxSize;
+    glm::vec3 vBoxSize, vBoxCenter, vRealBoxSize;
     uint32_t iDMapSize, iDMapSizeShift;
     entid_t model_id, seabed_id;
 
@@ -76,7 +76,7 @@ class ISLAND : public ISLAND_BASE
     VGEOMETRY *pGS;
     COLLIDE *pCollide;
 
-    CMatrix mIslandOld, mSeaBedOld;
+    glm::mat4 mIslandOld, mSeaBedOld;
     float fImmersionDepth, fImmersionDistance;
     float fCurrentImmersion;
 
@@ -89,14 +89,14 @@ class ISLAND : public ISLAND_BASE
 
     // depth map section
     bool CreateHeightMap(const std::string_view &pDir, const std::string_view &pName);
-    bool ActivateCamomileTrace(CVECTOR &vSrc);
+    bool ActivateCamomileTrace(glm::vec3 &vSrc);
     inline float GetDepthCheck(uint32_t iX, uint32_t iZ);
     inline float GetDepthNoCheck(uint32_t iX, uint32_t iZ);
 
     bool Mount(const std::string_view &fname, const std::string_view &fdir, entid_t *eID);
     void Uninit();
 
-    void CalcBoxParameters(CVECTOR &vBoxCenter, CVECTOR &vBoxSize);
+    void CalcBoxParameters(glm::vec3 &vBoxCenter, glm::vec3 &vBoxSize);
 
     void SetName(const std::string_view &pIslandName)
     {
@@ -143,9 +143,9 @@ class ISLAND : public ISLAND_BASE
     void SetDevice();
 
     // inherit functions COLLISION_OBJECT
-    float Trace(const CVECTOR &src, const CVECTOR &dst);
+    float Trace(const glm::vec3 &src, const glm::vec3 &dst);
 
-    bool Clip(const PLANE *planes, int32_t nplanes, const CVECTOR &center, float radius, ADD_POLYGON_FUNC addpoly)
+    bool Clip(const PLANE *planes, int32_t nplanes, const glm::vec3 &center, float radius, ADD_POLYGON_FUNC addpoly)
     {
         return false;
     };
@@ -161,10 +161,10 @@ class ISLAND : public ISLAND_BASE
     };
 
     // inherit functions CANNON_TRACE_BASE
-    float Cannon_Trace(int32_t iBallOwner, const CVECTOR &src, const CVECTOR &dst);
+    float Cannon_Trace(int32_t iBallOwner, const glm::vec3 &src, const glm::vec3 &dst);
 
     // inherit functions ISLAND_BASE
-    bool GetMovePoint(CVECTOR &vSrc, CVECTOR &vDst, CVECTOR &vRes);
+    bool GetMovePoint(glm::vec3 &vSrc, glm::vec3 &vDst, glm::vec3 &vRes);
 
     entid_t GetModelEID()
     {
@@ -176,7 +176,7 @@ class ISLAND : public ISLAND_BASE
         return seabed_id;
     };
 
-    bool Check2DBoxDepth(CVECTOR vPos, CVECTOR vSize, float fAngY, float fMinDepth);
+    bool Check2DBoxDepth(glm::vec3 vPos, glm::vec3 vSize, float fAngY, float fMinDepth);
     bool GetDepth(float x, float z, float *fRes = nullptr);
     bool GetDepthFast(float x, float z, float *fRes = nullptr);
     bool GetDepth(FRECT *pRect, float *fMinH, float *fMaxH);

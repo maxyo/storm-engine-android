@@ -120,7 +120,7 @@ void WEATHER::UpdateSunMoonPos()
         fFloats[whf_sun_height_angle] = -PId2;
         fFloats[whf_sun_azimuth_angle] = 0.f;
 
-        vVectors[whv_sun_pos] = CVECTOR(0, -5000.f, 0);
+        vVectors[whv_sun_pos] = glm::vec3(0, -5000.f, 0);
     }
     else
     {
@@ -128,7 +128,7 @@ void WEATHER::UpdateSunMoonPos()
         fFloats[whf_sun_height_angle] = (fSunHeight + 0.2f) * sinf(fK * PI) - 0.2f;
         fFloats[whf_sun_azimuth_angle] = fSunBegAngle + fK * (fSunEndAngle - fSunBegAngle);
 
-        CVECTOR vSun;
+        glm::vec3 vSun;
         vSun.x = 5000.0f;
         vSun.y = 0.0f;
         vSun.z = 0.0f;
@@ -153,7 +153,7 @@ void WEATHER::UpdateSunMoonPos()
         /*fFloats[whf_sun_height_angle] = -PId2;
         fFloats[whf_sun_azimuth_angle] = 0.f;
 
-        vVectors[whv_sun_pos] = CVECTOR(0,-5000.f,0);*/
+        vVectors[whv_sun_pos] = glm::vec3(0,-5000.f,0);*/
     }
     else
     {
@@ -161,7 +161,7 @@ void WEATHER::UpdateSunMoonPos()
         fFloats[whf_sun_height_angle] = (fK < 0.5f) ? (fMoonHeight * fK * 2.f) : (fMoonHeight * (1.f - fK) * 2.f);
         fFloats[whf_sun_azimuth_angle] = fMoonBegAngle + fK * (fMoonEndAngle - fMoonBegAngle);
 
-        CVECTOR vMoon;
+        glm::vec3 vMoon;
         vMoon.x = 5000.0f;
         vMoon.y = 0.0f;
         RotateAroundY(vMoon.x, vMoon.y, cosf(-fFloats[whf_sun_height_angle]), sinf(-fFloats[whf_sun_height_angle]));
@@ -283,7 +283,7 @@ void WEATHER::SetCommonStates()
     // setup sun light
     const auto fSunHeightAngle = GetFloat(whf_sun_height_angle);
     const auto fSunAzimuthAngle = GetFloat(whf_sun_azimuth_angle);
-    CVECTOR vSun, vSunColor, vSunLight;
+    glm::vec3 vSun, vSunColor, vSunLight;
     D3DLIGHT9 sun;
 
     if (fFloats[whf_time_speed] == 0.f)
@@ -315,7 +315,7 @@ void WEATHER::SetCommonStates()
     sun.Specular.b = vSunColor.z;
     sun.Specular.a = 1.0f;
     sun.Ambient.r = sun.Ambient.g = sun.Ambient.b = sun.Ambient.a = 0.0f;
-    vSunLight = -(!(CVECTOR(vSun.x, vSun.y, vSun.z)));
+    vSunLight = -(storm::math::normalizeOrZero(glm::vec3(vSun.x, vSun.y, vSun.z)));
     sun.Direction.x = vSunLight.x;
     sun.Direction.y = vSunLight.y;
     sun.Direction.z = vSunLight.z;
@@ -354,7 +354,7 @@ int32_t WEATHER::GetInt(uint32_t dwCode)
     return iLongs[dwCode];
 }
 
-uint32_t WEATHER::GetColor(uint32_t dwCode, CVECTOR *vOut)
+uint32_t WEATHER::GetColor(uint32_t dwCode, glm::vec3 *vOut)
 {
     vOut->x = static_cast<float>((dwColors[dwCode] >> 0x10) & 0xFF) / 255.0f;
     vOut->y = static_cast<float>((dwColors[dwCode] >> 0x8) & 0xFF) / 255.0f;
@@ -372,7 +372,7 @@ float WEATHER::GetFloat(uint32_t dwCode)
     return fFloats[dwCode];
 }
 
-void WEATHER::GetVector(uint32_t dwCode, CVECTOR *vOut)
+void WEATHER::GetVector(uint32_t dwCode, glm::vec3 *vOut)
 {
     *vOut = vVectors[dwCode];
 }

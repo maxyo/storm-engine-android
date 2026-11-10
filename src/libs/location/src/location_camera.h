@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "path_tracks.h"
 #include "dx9render.h"
 #include "vma.hpp"
@@ -76,7 +76,7 @@ class LocationCamera : public Entity
     float GetAx() const;
 #ifdef __ANDROID__
     // Use the actual camera, not a renderer view temporarily changed by UI/shadow draws.
-    CVECTOR MovementViewDirection() const { return lookTo - camPos; }
+    glm::vec3 MovementViewDirection() const { return lookTo - camPos; }
     bool IsThirdPersonFollow() const { return wmode == cwm_follow && !isLookMode && !isLockFPMode; }
 #endif
 
@@ -98,12 +98,12 @@ class LocationCamera : public Entity
     void ExecuteFree(float dltTime);
 
     // Moving a camera from a given position to a new one
-    bool MoveFollow(CVECTOR &pos, const CVECTOR &cpos, const CVECTOR &to);
+    bool MoveFollow(glm::vec3 &pos, const glm::vec3 &cpos, const glm::vec3 &to);
 
     // Trace the ray through the location
-    float Trace(const CVECTOR &src, const CVECTOR &dst) const;
+    float Trace(const glm::vec3 &src, const glm::vec3 &dst) const;
     bool GetCollideTriangle(TRIANGLE &trg) const;
-    void Clip(PLANE *p, int32_t numPlanes, CVECTOR &cnt, float rad, bool (*fnc)(const CVECTOR *vtx, int32_t num)) const;
+    void Clip(PLANE *p, int32_t numPlanes, glm::vec3 &cnt, float rad, bool (*fnc)(const glm::vec3 *vtx, int32_t num)) const;
 
   private:
     VDX9RENDER *rs;
@@ -134,8 +134,8 @@ class LocationCamera : public Entity
 
     float dAx, dAy;
 
-    CVECTOR camPos, lookTo;    // Current camera parameters
-    CVECTOR oldPos, oldLookTo; // Last camera position in the previous mode
+    glm::vec3 camPos, lookTo;    // Current camera parameters
+    glm::vec3 oldPos, oldLookTo; // Last camera position in the previous mode
     float kMorph;              // Current morph ratio
 
     // Models
@@ -145,7 +145,7 @@ class LocationCamera : public Entity
     CameraFollow cf; // Camera following the character
 
     float obstructTime; // Character obstruction time
-    CVECTOR obstruct;   // After
+    glm::vec3 obstruct;   // After
 
     float freeAx, freeAy; // Free camera angles
 
@@ -153,11 +153,11 @@ class LocationCamera : public Entity
     bool isTeleport;
 
     // Camera observing the character from a point
-    CVECTOR fromLook;
+    glm::vec3 fromLook;
 
     // Temporary values at the time of execution
     Character *character; // Character pointer
-    CVECTOR pos;          // Character position
+    glm::vec3 pos;          // Character position
     float chay;           // Character direction
     float lheight;        // Height where to look
     float height;         // Character height
@@ -183,7 +183,7 @@ class LocationCamera : public Entity
 
     void TurnOnDynamicFov(float fSpeed, float fTime, float fRelationMin, float fRelationMax, float fAngSpeed,
                           float fAngMax);
-    void ProcessDynamicFov(float fDeltaTime, const CVECTOR &vFrom, const CVECTOR &vTo, CVECTOR &vUp);
+    void ProcessDynamicFov(float fDeltaTime, const glm::vec3 &vFrom, const glm::vec3 &vTo, glm::vec3 &vUp);
     void StoreRestoreDynamicFov(bool bStore);
 
     // track mode section

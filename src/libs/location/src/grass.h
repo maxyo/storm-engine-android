@@ -105,8 +105,8 @@ class Grass : public Entity
   public:
     struct CharacterPos
     {
-        CVECTOR pos;     // Current position
-        CVECTOR lastPos; // Inertial position
+        glm::vec3 pos;     // Current position
+        glm::vec3 lastPos; // Inertial position
         Character *chr;  // Character pointer
         int32_t useCounter; // Grass Influence Counter
     };
@@ -156,15 +156,15 @@ class Grass : public Entity
     // --------------------------------------------------------------------------------------------
   private:
     // Render block
-    void RenderBlock(const CVECTOR &camPos, const PLANE *plane, int32_t numPlanes, int32_t mx, int32_t mz);
+    void RenderBlock(const glm::vec3 &camPos, const PLANE *plane, int32_t numPlanes, int32_t mx, int32_t mz);
     // Box visibility check
-    bool VisibleTest(const PLANE *plane, int32_t numPlanes, const CVECTOR &min, const CVECTOR &max);
+    bool VisibleTest(const PLANE *plane, int32_t numPlanes, const glm::vec3 &min, const glm::vec3 &max);
     // Render block
     void RenderBlock(GRSMiniMapElement &mme, float kLod);
     // Draw the contents of the buffer
     void DrawBuffer();
     // Get the color
-    static int32_t GetColor(CVECTOR color);
+    static int32_t GetColor(glm::vec3 color);
     // Vertex declaration
     void CreateVertexDeclaration() const;
 
@@ -193,15 +193,15 @@ class Grass : public Entity
     // Current swing phases
     float phase[7];
     // Current light source options
-    CVECTOR lDir;   // Direction of the source
-    CVECTOR lColor; // Source color
-    CVECTOR aColor; // Ambient light color
+    glm::vec3 lDir;   // Direction of the source
+    glm::vec3 lColor; // Source color
+    glm::vec3 aColor; // Ambient light color
 
     std::vector<int32_t> blockChrs; // Indexes of characters processed by the block
 
     float lodSelect; // Lod selection range factor (kLod = kLod^lodSelect)
     float winForce;  // Wind speed coefficient 0..1
-    CVECTOR winDir;  // Normalized wind direction
+    glm::vec3 winDir;  // Normalized wind direction
 
     Vertex *vbuffer; // Locked buffer
 

@@ -4,7 +4,6 @@
 #pragma once
 
 #include "sea_base.h"
-#include "c_vector4.h"
 #include "dx9render.h"
 #include "vma.hpp"
 #ifdef __ANDROID__
@@ -24,8 +23,8 @@ class SEA : public SEA_BASE
 
     struct SeaVertex
     {
-        CVECTOR vPos;
-        CVECTOR vNormal;
+        glm::vec3 vPos;
+        glm::vec3 vNormal;
         float tu, tv;
     };
 
@@ -55,8 +54,8 @@ class SEA : public SEA_BASE
 
     struct SeaTrash
     {
-        CVECTOR vPos;
-        CVECTOR vSpeed;
+        glm::vec3 vPos;
+        glm::vec3 vSpeed;
         uint32_t dwSubTexture;
         float fTime;
         float fSize;
@@ -64,8 +63,8 @@ class SEA : public SEA_BASE
 
     struct SeaLight
     {
-        CVECTOR vPos;
-        CVECTOR vSpeed;
+        glm::vec3 vPos;
+        glm::vec3 vSpeed;
         uint32_t dwSubTexture;
         float fTime;
     };
@@ -79,9 +78,9 @@ class SEA : public SEA_BASE
     float fGridStep;
     float fLodScale;
     float fBumpScale, fBumpSpeed;
-    CVECTOR vMoveSpeed1, vMoveSpeed2;
+    glm::vec3 vMoveSpeed1, vMoveSpeed2;
 
-    CVECTOR vCamPos, vSeaCenterPos, vWorldOffset;
+    glm::vec3 vCamPos, vSeaCenterPos, vWorldOffset;
 
     bool bStarted;
     bool bUnderSea;
@@ -124,14 +123,14 @@ class SEA : public SEA_BASE
     storm::ParallelFor waveWorkers_; // per-block wave evaluation, see Realize()
 #endif
 
-    CVECTOR4 v4SeaColor, v4SkyColor, v4SeaParameters;
+    glm::vec4 v4SeaColor, v4SkyColor, v4SeaParameters;
 
     std::vector<IDirect3DTexture9 *> aBumpMaps;
     IDirect3DTexture9 *pRenderTargetBumpMap;
 
     float *pSeaFrame1, *pSeaFrame2, *pSeaNormalsFrame1, *pSeaNormalsFrame2;
 
-    CVECTOR vMove1, vMove2;
+    glm::vec3 vMove1, vMove2;
     float fFrame1, fFrame2;
     float fScale1, fScale2;
     float fAmp1, fAmp2;
@@ -143,7 +142,7 @@ class SEA : public SEA_BASE
     bool bStop;
 
     float fFogSeaDensity, fFogStartDistance;
-    CVECTOR vFogColor;
+    glm::vec3 vFogColor;
     bool bFogEnable;
 
     bool bTempFullMode;
@@ -153,24 +152,24 @@ class SEA : public SEA_BASE
     float fFoamV, fFoamK, fFoamUV, fFoamTextureDisturb;
     int32_t iFoamTexture;
 
-    CMatrix mTexProjection;
+    glm::mat4 mTexProjection;
 
     void SSE_WaveXZ(SeaVertex **pArray);
-    float WaveXZ(float x, float z, CVECTOR *pNormal = nullptr) override;
+    float WaveXZ(float x, float z, glm::vec3 *pNormal = nullptr) override;
 
     void AddBlock(int32_t iTX, int32_t iTY, int32_t iSize, int32_t iLOD);
     void BuildTree(int32_t iTX, int32_t iTY, int32_t iLev);
     void SetBlock(uint32_t dwBlockIndex);
 
-    bool isVisibleBBox(const CVECTOR &vCenter, const CVECTOR &v1, const CVECTOR &v2);
-    void CalculateLOD(const CVECTOR &v1, const CVECTOR &v2, int32_t &iMaxLOD, int32_t &iMinLOD);
+    bool isVisibleBBox(const glm::vec3 &vCenter, const glm::vec3 &v1, const glm::vec3 &v2);
+    void CalculateLOD(const glm::vec3 &v1, const glm::vec3 &v2, int32_t &iMaxLOD, int32_t &iMinLOD);
     inline float CalcLod(const float &x, const float &y, const float &z);
     [[deprecated]] void WaveXZBlock(SeaBlock &pB);
     void SSE_WaveXZBlock(SeaBlock &pB);
     SeaBlock *GetUndoneBlock();
     void PrepareIndicesForBlock(uint32_t dwBlockIndex);
 
-    int32_t VisCode(const CVECTOR &vP);
+    int32_t VisCode(const glm::vec3 &vP);
 
     void CalculateHeightMap(float fFrame, float fAmplitude, float *pfOut, std::vector<uint8_t *> &aFrames);
     void CalculateNormalMap(float fFrame, float fAmplitude, float *pfOut, std::vector<uint32_t *> &aFrames);
@@ -179,7 +178,7 @@ class SEA : public SEA_BASE
     bool EnvMap_Render2();
     bool SunRoad_Render();
     bool EnvMap_Render();
-    void EnvMap_GetSideMatrix(D3DCUBEMAP_FACES Face, CMatrix &mView);
+    void EnvMap_GetSideMatrix(D3DCUBEMAP_FACES Face, glm::mat4 &mView);
 
     void SFLB_CreateBuffers();
     void CreateVertexDeclaration();
@@ -192,10 +191,10 @@ class SEA : public SEA_BASE
     void BuildVolumeTexture();
     void Realize(uint32_t dwDeltaTime);
 
-    float Trace(const CVECTOR &vSrc, const CVECTOR &vDst) override;
-    float Cannon_Trace(int32_t iBallOwner, const CVECTOR &src, const CVECTOR &dst) override;
+    float Trace(const glm::vec3 &vSrc, const glm::vec3 &vDst) override;
+    float Cannon_Trace(int32_t iBallOwner, const glm::vec3 &src, const glm::vec3 &dst) override;
 
-    bool Clip(const PLANE *planes, int32_t nplanes, const CVECTOR &center, float radius, ADD_POLYGON_FUNC addpoly) override
+    bool Clip(const PLANE *planes, int32_t nplanes, const glm::vec3 &center, float radius, ADD_POLYGON_FUNC addpoly) override
     {
         return false;
     }

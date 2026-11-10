@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core.h"
-#include "c_vector.h"
+#include "storm_glm.h"
 #include "storm_assert.h"
 #include "v_file_service.h"
 #include "math_inlines.h"
@@ -59,7 +59,7 @@ class AIFlowGraph
 
     struct point_t
     {
-        CVECTOR vPos;
+        glm::vec3 vPos;
         uint32_t dwFlags;
         std::vector<std::size_t> aEdges;
 
@@ -68,7 +68,7 @@ class AIFlowGraph
         {
         }
 
-        point_t(CVECTOR _vPos)
+        point_t(glm::vec3 _vPos)
             : dwFlags(0)
         {
             vPos = _vPos;
@@ -76,14 +76,14 @@ class AIFlowGraph
 
         inline bool operator==(const point_t &p) const
         {
-            return ((~(p.vPos - vPos)) < 1e-5f);
+            return ((storm::math::lengthSquared(p.vPos - vPos)) < 1e-5f);
         }
     };
 
     class VectorPath
     {
       public:
-        std::vector<CVECTOR> aPoints;
+        std::vector<glm::vec3> aPoints;
 
         VectorPath()
         {
@@ -93,7 +93,7 @@ class AIFlowGraph
         {
         }
 
-        void AddPoint(CVECTOR vPos)
+        void AddPoint(glm::vec3 vPos)
         {
             aPoints.push_back(vPos);
         }
@@ -219,7 +219,7 @@ class AIFlowGraph
         return aEdges.size();
     }
 
-    CVECTOR GetPointPos(size_t dwPnt)
+    glm::vec3 GetPointPos(size_t dwPnt)
     {
         Assert(dwPnt < aPoints.size());
         return aPoints[dwPnt].vPos;
@@ -232,9 +232,9 @@ class AIFlowGraph
     float GetPathDistance(size_t dwP1, size_t dwP2);
     float GetDistance(size_t dwP1, size_t dwP2);
     size_t GetOtherEdgePoint(size_t dwEdgeIdx, size_t dwPnt);
-    std::vector<npoint_t> *GetNearestPoints(CVECTOR &vP);
+    std::vector<npoint_t> *GetNearestPoints(glm::vec3 &vP);
 
-    decltype(aPoints)::difference_type AddPoint(CVECTOR vPos);
+    decltype(aPoints)::difference_type AddPoint(glm::vec3 vPos);
     decltype(aEdges)::difference_type AddEdge(size_t dwEdgePnt1, size_t dwEdgePnt2);
     size_t AddEdge2Point(size_t dwPnt, size_t dwEdgePnt1, size_t dwEdgePnt2);
 
@@ -324,7 +324,7 @@ inline bool AIFlowGraph::Load(INIFILE &pIni)
     return false;
 }
 
-inline decltype(AIFlowGraph::aPoints)::difference_type AIFlowGraph::AddPoint(CVECTOR vPos)
+inline decltype(AIFlowGraph::aPoints)::difference_type AIFlowGraph::AddPoint(glm::vec3 vPos)
 {
     const point_t p(vPos);
 
@@ -340,7 +340,7 @@ inline decltype(AIFlowGraph::aEdges)::difference_type AIFlowGraph::AddEdge(size_
 {
     Assert(dwEdgePnt1 < aPoints.size() && dwEdgePnt2 < aPoints.size());
 
-    const edge_t e(dwEdgePnt1, dwEdgePnt2, sqrtf(~(GetPointPos(dwEdgePnt1) - GetPointPos(dwEdgePnt2))));
+    const edge_t e(dwEdgePnt1, dwEdgePnt2, sqrtf(storm::math::lengthSquared(GetPointPos(dwEdgePnt1) - GetPointPos(dwEdgePnt2))));
 
     const auto it = std::find(aEdges.begin(), aEdges.end(), e);
     if (it != aEdges.end())
@@ -434,7 +434,7 @@ inline void AIFlowGraph::BuildTable()
 
 inline float AIFlowGraph::GetDistance(size_t dwP1, size_t dwP2)
 {
-    return sqrtf(~(GetPointPos(dwP2) - GetPointPos(dwP1)));
+    return sqrtf(storm::math::lengthSquared(GetPointPos(dwP2) - GetPointPos(dwP1)));
 }
 
 inline float AIFlowGraph::GetPathDistance(size_t dwP1, size_t dwP2)
@@ -487,7 +487,7 @@ inline AIFlowGraph::Path *AIFlowGraph::GetPath(size_t dwP1, size_t dwP2)
     return pP;
 }
 
-inline std::vector<AIFlowGraph::npoint_t> *AIFlowGraph::GetNearestPoints(CVECTOR &vP)
+inline std::vector<AIFlowGraph::npoint_t> *AIFlowGraph::GetNearestPoints(glm::vec3 &vP)
 {
     auto aNearestPoints = new std::vector<npoint_t>(aPoints.size());
     for (uint32_t i = 0; i < aPoints.size(); i++)
@@ -495,7 +495,7 @@ inline std::vector<AIFlowGraph::npoint_t> *AIFlowGraph::GetNearestPoints(CVECTOR
         // npoint_t * pN = &(*aNearestPoints)[(*aNearestPoints).Add()];
         // pN->fDistance = sqrtf(~(vP - aPoints[i].vPos));
         // pN->dwPnt = i;
-        (*aNearestPoints)[i].fDistance = sqrtf(~(vP - aPoints[i].vPos));
+        (*aNearestPoints)[i].fDistance = sqrtf(storm::math::lengthSquared(vP - aPoints[i].vPos));
         (*aNearestPoints)[i].dwPnt = i;
     }
     //(*aNearestPoints).Sort();

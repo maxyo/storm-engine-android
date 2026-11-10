@@ -1,7 +1,7 @@
 #pragma once
 
-#include "c_vector.h"
-#include "matrix.h"
+#include "storm_glm.h"
+#include "storm_glm.h"
 #include "model.h"
 #include "cannon_trace.h"
 
@@ -27,13 +27,13 @@ class VAI_OBJBASE : public CANNON_TRACE_BASE
 
     virtual bool Mount(ATTRIBUTES *) = 0;
 
-    virtual void SetPos(const CVECTOR &vNewPos) = 0;
+    virtual void SetPos(const glm::vec3 &vNewPos) = 0;
 
-    virtual CVECTOR GetPos() const = 0;
-    virtual CVECTOR GetAng() const = 0;
-    virtual CMatrix *GetMatrix() = 0;
-    virtual CVECTOR GetBoxsize() const = 0;
-    virtual CVECTOR GetRealBoxsize() const
+    virtual glm::vec3 GetPos() const = 0;
+    virtual glm::vec3 GetAng() const = 0;
+    virtual glm::mat4 *GetMatrix() = 0;
+    virtual glm::vec3 GetBoxsize() const = 0;
+    virtual glm::vec3 GetRealBoxsize() const
     {
         return GetBoxsize();
     }
@@ -44,5 +44,5 @@ class VAI_OBJBASE : public CANNON_TRACE_BASE
     virtual void Save(CSaveLoad *pSL) = 0;
     virtual void Load(CSaveLoad *pSL) = 0;
 
-    virtual void Fire(const CVECTOR &vPos) = 0;
+    virtual void Fire(const glm::vec3 &vPos) = 0;
 };

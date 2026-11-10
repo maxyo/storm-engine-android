@@ -71,10 +71,10 @@ VDATA * MESSAGE::ScriptVariablePointer()
     return get<VDATA *>(params_[index - 1]);
 }
 
-CVECTOR MESSAGE::CVector()
+glm::vec3 MESSAGE::CVector()
 {
     ValidateFormat('c');
-    return get<CVECTOR>(params_[index - 1]);
+    return get<glm::vec3>(params_[index - 1]);
 }
 
 const std::string & MESSAGE::String()
@@ -208,7 +208,16 @@ storm::MessageParam MESSAGE::GetParamValue(const char c, va_list&args)
     case 'e':
         return va_arg(args, VDATA *);
     case 'c':
-        return va_arg(args, CVECTOR);
+    {
+        // Read the three floats as a plain aggregate: variadic extraction
+        // needs a POD type, and the caller's vector has the same layout.
+        struct PlainVector
+        {
+            float x, y, z;
+        };
+        const auto value = va_arg(args, PlainVector);
+        return glm::vec3(value.x, value.y, value.z);
+    }
     case 's': {
         char *ptr = va_arg(args, char *);
         return std::string(ptr);

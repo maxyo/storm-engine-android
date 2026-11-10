@@ -68,7 +68,7 @@ void RAIN::Release()
     iVBSeaDrops = -1;
 }
 
-void RAIN::GenerateRandomDrop(CVECTOR *vPos) const
+void RAIN::GenerateRandomDrop(glm::vec3 *vPos) const
 {
     const auto fDist = 1.5f + FRAND(fRainRadius);
     const auto fAngle = FRAND(PIm2);
@@ -117,10 +117,10 @@ void RAIN::GenerateRain()
 
     pRainBlocks = new rainblock_t[dwNumRainBlocks];
 
-    pRainBlocks[0].vPos = CVECTOR(0.0f, 0.0f, 0.0f);
-    pRainBlocks[1].vPos = CVECTOR(0.0f, fRainHeight, 0.0f);
-    pRainBlocks[2].vPos = CVECTOR(0.0f, fRainHeight / 2.0f, 0.0f);
-    pRainBlocks[3].vPos = CVECTOR(0.0f, fRainHeight + fRainHeight / 2.0f, 0.0f);
+    pRainBlocks[0].vPos = glm::vec3(0.0f, 0.0f, 0.0f);
+    pRainBlocks[1].vPos = glm::vec3(0.0f, fRainHeight, 0.0f);
+    pRainBlocks[2].vPos = glm::vec3(0.0f, fRainHeight / 2.0f, 0.0f);
+    pRainBlocks[3].vPos = glm::vec3(0.0f, fRainHeight + fRainHeight / 2.0f, 0.0f);
 
     for (i = 0; i < dwNumRainBlocks; i++)
     {
@@ -225,14 +225,14 @@ void RAIN::RealizeDrops(uint32_t Delta_Time)
 
     static auto dwShipName = MakeHashValue("SHIP");
 
-    CMatrix mView;
-    rs->GetTransform(D3DTS_VIEW, mView);
-    mView.Transposition();
+    glm::mat4 mView;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mView));
+    storm::math::invertRigid(mView);
 
     float fFov;
     rs->GetCamera(vCamPos, vCamAng, fFov);
 
-    vCamPos = mView.Pos();
+    vCamPos = storm::math::pos(mView);
 
     entid_t sea_id;
     SEA_BASE *pSea = nullptr;
@@ -254,7 +254,7 @@ void RAIN::RealizeDrops(uint32_t Delta_Time)
         {
             SHIP_BASE *pShip = nullptr;
             float fA, fS, fR;
-            CVECTOR vSrc, vDst;
+            glm::vec3 vSrc, vDst;
 
             fS = 0.0f;
             fR = fDropsNearRadius;
@@ -267,8 +267,8 @@ void RAIN::RealizeDrops(uint32_t Delta_Time)
             fA = FRAND(PIm2);
             fR = fS + FRAND(fR);
 
-            vSrc = CVECTOR(vCamPos.x + fR * sinf(fA), vCamPos.y + 75.0f, vCamPos.z + fR * cosf(fA));
-            vDst = CVECTOR(vSrc.x, vCamPos.y - 75.0f, vSrc.z);
+            vSrc = glm::vec3(vCamPos.x + fR * sinf(fA), vCamPos.y + 75.0f, vCamPos.z + fR * cosf(fA));
+            vDst = glm::vec3(vSrc.x, vCamPos.y - 75.0f, vSrc.z);
 
             auto fTest1 = cs->Trace(entities, vSrc, vDst, nullptr, 0);
             auto fTest2 = 2.0f;
@@ -322,10 +322,10 @@ void RAIN::RealizeDrops(uint32_t Delta_Time)
                         // ship.pShip = pShip;
                         aShips.push_back(ship_t{pShip->GetId(), pShip});
                     }
-                    CMatrix mShip = *pShip->GetMatrix();
-                    mShip.Transposition();
+                    glm::mat4 mShip = *pShip->GetMatrix();
+                    storm::math::invertRigid(mShip);
                     drop.iShip = k;
-                    drop.vPos = mShip * drop.vPos;
+                    drop.vPos = storm::math::transformPoint(mShip, drop.vPos);
                 }
             }
         }
@@ -358,7 +358,7 @@ void RAIN::RealizeDrops(uint32_t Delta_Time)
         // RS_RECT & r = aRects[aRects.Add()];
         RS_RECT r;
         if (drop.iShip >= 0)
-            r.vPos = (*aShips[drop.iShip].pShip->GetMatrix()) * drop.vPos;
+            r.vPos = storm::math::transformPoint(*aShips[drop.iShip].pShip->GetMatrix(), drop.vPos);
         else
             r.vPos = drop.vPos;
 
@@ -379,8 +379,8 @@ void RAIN::RealizeDrops(uint32_t Delta_Time)
     rs->DrawRects(aRects.data(), aRects.size(), "rain_drops", 8, 1);
 
     // draw circles on the water
-    CMatrix IMatrix;
-    IMatrix.SetIdentity();
+    glm::mat4 IMatrix;
+    IMatrix = glm::mat4(1.0f);
     rs->SetWorld(IMatrix);
     rs->TextureSet(0, iSeaDropTex);
 
@@ -400,7 +400,7 @@ void RAIN::RealizeDrops(uint32_t Delta_Time)
             continue;
         }
 
-        CVECTOR v = drop.vPos;
+        glm::vec3 v = drop.vPos;
         v.y = pSea->WaveXZ(v.x, v.z) + 0.015f;
 
         // Acquire only for a nonempty batch. Full batches leave no lock
@@ -418,22 +418,22 @@ void RAIN::RealizeDrops(uint32_t Delta_Time)
         float du = 1.0f / 8.0f;
         float u = static_cast<float>(frame) * du;
 
-        pV[0].vPos = v + CVECTOR(-fSize, 0.0f, -fSize);
+        pV[0].vPos = v + glm::vec3(-fSize, 0.0f, -fSize);
         pV[0].dwColor = 0xFFFFFFFF;
         pV[0].tu = u;
         pV[0].tv = 0.0f;
 
-        pV[1].vPos = v + CVECTOR(fSize, 0.0f, -fSize);
+        pV[1].vPos = v + glm::vec3(fSize, 0.0f, -fSize);
         pV[1].dwColor = 0xFFFFFFFF;
         pV[1].tu = u + du;
         pV[1].tv = 0.0f;
 
-        pV[2].vPos = v + CVECTOR(fSize, 0.0f, fSize);
+        pV[2].vPos = v + glm::vec3(fSize, 0.0f, fSize);
         pV[2].dwColor = 0xFFFFFFFF;
         pV[2].tu = u + du;
         pV[2].tv = 1.0f;
 
-        pV[3].vPos = v + CVECTOR(-fSize, 0.0f, fSize);
+        pV[3].vPos = v + glm::vec3(-fSize, 0.0f, fSize);
         pV[3].dwColor = 0xFFFFFFFF;
         pV[3].tu = u;
         pV[3].tv = 1.0f;
@@ -481,16 +481,15 @@ void RAIN::Realize(uint32_t Delta_Time)
                 uint32_t dwColor = ARGB(dwAlpha, dwRainR, dwRainG, dwRainB);
                 rs->SetRenderState(D3DRS_TEXTUREFACTOR, dwColor);
 
-                CMatrix mY1, mX, mY2, mWorld;
+                glm::mat4 mY1, mX, mY2, mWorld;
 
-                mWorld.BuildPosition(vCamPos.x + pRainBlocks[i].vPos.x, pRainBlocks[i].vPos.y,
-                                     vCamPos.z + pRainBlocks[i].vPos.z);
+                mWorld = storm::math::translation(vCamPos.x + pRainBlocks[i].vPos.x, pRainBlocks[i].vPos.y, vCamPos.z + pRainBlocks[i].vPos.z);
 
-                mY1.BuildRotateY(pRainBlocks[i].vAng.y);
-                mX.BuildRotateX(fWindPower + pRainBlocks[i].fWindSpeedJitter);
-                mY2.BuildRotateY(PI + fWindAngle);
+                mY1 = storm::math::rotationY(pRainBlocks[i].vAng.y);
+                mX = storm::math::rotationX(fWindPower + pRainBlocks[i].fWindSpeedJitter);
+                mY2 = storm::math::rotationY(PI + fWindAngle);
 
-                mWorld = mY1 * mX * mY2 * mWorld;
+                mWorld = mWorld * (mY2 * (mX * mY1));
 
                 pRainBlocks[i].vPos.y -= fRainSpeed * 0.2f * static_cast<float>(Delta_Time) / 60.0f;
                 pRainBlocks[i].fWindFlaw += FRAND(fRainJitter) - fRainJitter / 2.0f;
@@ -508,7 +507,7 @@ void RAIN::Realize(uint32_t Delta_Time)
                     pRainBlocks[i].dwTime = 0;
                 }
 
-                rs->SetTransform(D3DTS_WORLD, mWorld);
+                rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mWorld));
 
                 rs->DrawPrimitive(D3DPT_LINELIST, iVertexBuffer, sizeof(RAINVERTEX), 0, dwNumDrops);
             }
@@ -523,7 +522,7 @@ void RAIN::Realize(uint32_t Delta_Time)
     if (bRainbowEnable)
     {
         RS_RECT rs_rect;
-        CVECTOR vPos = vCamPos + CVECTOR(0.32f, 0.0f, 0.72f) * 1900.0f;
+        glm::vec3 vPos = vCamPos + glm::vec3(0.32f, 0.0f, 0.72f) * 1900.0f;
         vPos.y = 350.0f;
         rs_rect.dwColor = 0x0F0F0F;
         rs_rect.vPos = vPos;

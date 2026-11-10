@@ -42,7 +42,7 @@ class NPCharacter : public AICharacter
     struct Task
     {
         NPCTask task;
-        CVECTOR to;
+        glm::vec3 to;
         entid_t target;
 
         union {

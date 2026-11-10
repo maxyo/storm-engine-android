@@ -1,6 +1,6 @@
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "dx9render.h"
 #include "math_inlines.h"
 
@@ -149,18 +149,18 @@ class SailorsPoints
 
 //-------------------------------------------------------------------------------------
 
-inline float Dest(const CVECTOR &_v1, const CVECTOR &_v2)
+inline float Dest(const glm::vec3 &_v1, const glm::vec3 &_v2)
 {
     return sqrt((_v2.x - _v1.x) * (_v2.x - _v1.x) + (_v2.y - _v1.y) * (_v2.y - _v1.y) +
                 (_v2.z - _v1.z) * (_v2.z - _v1.z));
 };
 
-inline bool Dest(const CVECTOR &_v1, const CVECTOR &_v2, float d)
+inline bool Dest(const glm::vec3 &_v1, const glm::vec3 &_v2, float d)
 {
     return (fabs(_v2.x - _v1.x) < d && fabs(_v2.y - _v1.y) < d && fabs(_v2.z - _v1.z) < d);
 };
 
-inline float Vector2Angle(const CVECTOR &_v)
+inline float Vector2Angle(const glm::vec3 &_v)
 {
     auto result = atan2(_v.x, _v.z);
 

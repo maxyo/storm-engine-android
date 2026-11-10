@@ -114,7 +114,7 @@ void Lighter::PreparingData()
     // Scattered
     auto amb = 0xff404040;
     rs->GetRenderState(D3DRS_AMBIENT, &amb);
-    CVECTOR clr;
+    glm::vec3 clr;
     clr.x = ((amb >> 16) & 0xff) / 255.0f;
     clr.y = ((amb >> 8) & 0xff) / 255.0f;
     clr.z = ((amb >> 0) & 0xff) / 255.0f;
@@ -123,7 +123,7 @@ void Lighter::PreparingData()
     if (mx > 0.0f)
         clr *= 1.0f / mx;
     else
-        clr = 1.0f;
+        clr = glm::vec3(1.0f);
     lights.AddAmbient(clr);
     // The sun
     auto isLight = FALSE;
@@ -131,7 +131,7 @@ void Lighter::PreparingData()
     D3DLIGHT9 lit;
     if (isLight && rs->GetLight(0, &lit))
     {
-        CVECTOR clr, dir = !CVECTOR(1.0f, 1.0f, 1.0f);
+        glm::vec3 clr, dir = storm::math::normalizeOrZero(glm::vec3(1.0f, 1.0f, 1.0f));
         clr.x = lit.Diffuse.r;
         clr.y = lit.Diffuse.g;
         clr.z = lit.Diffuse.b;
@@ -146,7 +146,7 @@ void Lighter::PreparingData()
         if (mx > 0.0f)
             dir *= 1.0f / mx;
         else
-            dir = 1.0f;
+            dir = glm::vec3(1.0f);
         lights.AddWeaterLights(clr, dir);
     }
     lights.PostInit();
@@ -234,7 +234,7 @@ void Lighter::MsgLightPath(MESSAGE &message)
 
 void Lighter::MsgAddLight(MESSAGE &message)
 {
-    CVECTOR pos, clr;
+    glm::vec3 pos, clr;
     // Position
     pos.x = message.Float();
     pos.y = message.Float();

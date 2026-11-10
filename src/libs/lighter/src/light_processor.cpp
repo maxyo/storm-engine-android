@@ -153,7 +153,7 @@ void LightProcessor::Process()
         auto *const vrt = geometry->vrt.data();
         const auto numVrt = geometry->numVrt;
         for (int32_t i = 0; i < numVrt; i++)
-            vrt[i].bc = 0.0f;
+            vrt[i].bc = glm::vec3(0.0f);
         window->isResetBlurLight = false;
         CalcLights();
     }
@@ -176,7 +176,7 @@ void LightProcessor::UpdateLightsParam()
     auto &ls = *lights;
     float cs, att;
     float dst;
-    CVECTOR nrm;
+    glm::vec3 nrm;
     for (int32_t i = 0; i < numVrt; i++)
     {
         auto &v = vrt[i];
@@ -191,7 +191,7 @@ void LightProcessor::UpdateLightsParam()
                 swh.att = 1.0f;
                 break;
             case Light::t_sun:
-                cs = lt.p | v.n;
+                cs = glm::dot(lt.p, v.n);
                 if (cs < 0.0f)
                     cs = 0.0f;
                 swh.cs = cs;
@@ -207,11 +207,11 @@ void LightProcessor::UpdateLightsParam()
             case Light::t_point:
                 // Cosine of an angle
                 nrm = lt.p - v.p;
-                dst = sqrtf(~nrm);
+                dst = sqrtf(storm::math::lengthSquared(nrm));
                 if (dst > 0.0f)
                 {
                     nrm *= 1.0f / dst;
-                    cs = nrm | v.n;
+                    cs = glm::dot(nrm, v.n);
                 }
                 else
                     cs = 1.0f;
@@ -273,7 +273,7 @@ void LightProcessor::ApplyTriangleShadows(Triangle &t)
         {
         case Light::t_sun:
             // Sun lighting
-            if ((ls[i].p | t.n) >= 0.0f)
+            if (glm::dot(ls[i].p, t.n) >= 0.0f)
             {
                 if (geometry->Trace(pnt, pnt + ls[i].p * geometry->radius) > 1.0f)
                 {
@@ -290,15 +290,15 @@ void LightProcessor::ApplyTriangleShadows(Triangle &t)
                 float sky = 0.0;
                 const auto rad = geometry->radius;
                 const auto rdx = geometry->radius * 0.2f;
-                if (geometry->Trace(pnt, pnt + CVECTOR(0.0f, rad, 0.0f)) > 1.0f)
+                if (geometry->Trace(pnt, pnt + glm::vec3(0.0f, rad, 0.0f)) > 1.0f)
                     sky += 1.0f / 5.0f;
-                if (geometry->Trace(pnt, pnt + CVECTOR(rdx, rad, 0.0f)) > 1.0f)
+                if (geometry->Trace(pnt, pnt + glm::vec3(rdx, rad, 0.0f)) > 1.0f)
                     sky += 1.0f / 5.0f;
-                if (geometry->Trace(pnt, pnt + CVECTOR(-rdx, rad, 0.0f)) > 1.0f)
+                if (geometry->Trace(pnt, pnt + glm::vec3(-rdx, rad, 0.0f)) > 1.0f)
                     sky += 1.0f / 5.0f;
-                if (geometry->Trace(pnt, pnt + CVECTOR(0.0f, rad, rdx)) > 1.0f)
+                if (geometry->Trace(pnt, pnt + glm::vec3(0.0f, rad, rdx)) > 1.0f)
                     sky += 1.0f / 5.0f;
-                if (geometry->Trace(pnt, pnt + CVECTOR(0.0f, rad, -rdx)) > 1.0f)
+                if (geometry->Trace(pnt, pnt + glm::vec3(0.0f, rad, -rdx)) > 1.0f)
                     sky += 1.0f / 5.0f;
                 sky *= t.sq;
                 vrt[t.i[0]].shadow[i].v += sky;
@@ -308,7 +308,7 @@ void LightProcessor::ApplyTriangleShadows(Triangle &t)
             break;
         case Light::t_point:
             // Sun lighting
-            if (((ls[i].p - pnt) | t.n) >= 0.0f)
+            if (glm::dot(ls[i].p - pnt, t.n) >= 0.0f)
             {
                 if (geometry->Trace(pnt, ls[i].p) > 1.0f)
                 {
@@ -379,7 +379,7 @@ void LightProcessor::SmoothShadows()
             // All the vertices
             for (int32_t j = 0; j < numVerts; j++)
             {
-                if (lookNorm && (v.n | verts[j].v->n) <= 0.6f)
+                if (lookNorm && glm::dot(v.n, verts[j].v->n) <= 0.6f)
                     continue;
                 double k = sqrt(verts[j].r2) * kSmoothRad;
                 if (k < 0.0)
@@ -435,13 +435,13 @@ void LightProcessor::BlurLight()
             if (vs.c.x + vs.c.y + vs.c.z <= 0.0f)
                 continue;
             auto n = vs.p - v.p;
-            double css = -(n | vs.n);
+            double css = -glm::dot(n, vs.n);
             if (css <= 0.0)
                 continue;
-            double csd = n | v.n;
+            double csd = glm::dot(n, v.n);
             if (csd <= 0.0)
                 continue;
-            double dst = sqrt(~n);
+            double dst = sqrt(storm::math::lengthSquared(n));
             if (dst <= 0.0)
                 continue;
             auto k = dst * kBlurRad;
@@ -499,7 +499,7 @@ void LightProcessor::CalcLights(int32_t lit, bool isCos, bool isAtt, bool isSdw)
     const auto num = ls.Num();
     auto *const vrt = geometry->vrt.data();
     const auto kBlur = window->kBlur;
-    CVECTOR c;
+    glm::vec3 c;
     for (int32_t i = 0; i < num; i++)
     {
         if (!ls[i].isOn)

@@ -1,6 +1,8 @@
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
+
+#include <d3d9.h>
 
 #include <optional>
 #include <string>

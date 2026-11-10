@@ -19,7 +19,7 @@ WdmMerchantShip::WdmMerchantShip()
     : isEnableSetDir(false)
 {
     shipType = wdmest_merchant;
-    gotoPos = 0.0f;
+    gotoPos = glm::vec3(0.0f);
     gotoRad = wdmObjects->worldSizeX * wdmObjects->worldSizeX + wdmObjects->worldSizeZ * wdmObjects->worldSizeZ;
     isLookOnPlayer = true;
 }
@@ -60,8 +60,8 @@ void WdmMerchantShip::Goto(float x, float z, float rad)
     // Determine the direction
     if (isEnableSetDir)
     {
-        const double sn = x - mtx.Pos().x;
-        double cs = z - mtx.Pos().z;
+        const double sn = x - storm::math::pos(mtx).x;
+        double cs = z - storm::math::pos(mtx).z;
         const auto l = sn * sn + cs * cs;
         if (l > 0.0)
             cs /= sqrt(l);
@@ -80,17 +80,17 @@ void WdmMerchantShip::Goto(float x, float z, float rad)
 void WdmMerchantShip::FindMoveForce()
 {
     isEnableSetDir = false;
-    CVECTOR dir;
+    glm::vec3 dir;
     if (wdmObjects->islands)
     {
-        wdmObjects->islands->FindDirection(mtx.Pos(), gotoPos, dir);
+        wdmObjects->islands->FindDirection(storm::math::pos(mtx), gotoPos, dir);
         // wdmObjects->rs->DrawVector(mtx.Pos(), gotoPos, 0xFFFFFFFF);
         // wdmObjects->rs->DrawVector(mtx.Pos(), mtx.Pos()+dir*100.f, 0xFFFF0000);
     }
     else
     {
-        dir.x = gotoPos.x - mtx.Pos().x;
-        dir.z = gotoPos.z - mtx.Pos().z;
+        dir.x = gotoPos.x - storm::math::pos(mtx).x;
+        dir.z = gotoPos.z - storm::math::pos(mtx).z;
         auto dl = dir.x * dir.x + dz * dz;
         if (dl > 1.0f)
         {
@@ -106,8 +106,8 @@ void WdmMerchantShip::FindMoveForce()
 // Completion check
 bool WdmMerchantShip::KillTest()
 {
-    const auto dx = gotoPos.x - mtx.Pos().x;
-    const auto dz = gotoPos.z - mtx.Pos().z;
+    const auto dx = gotoPos.x - storm::math::pos(mtx).x;
+    const auto dz = gotoPos.z - storm::math::pos(mtx).z;
     const auto dl = dx * dx + dz * dz;
     return dl <= gotoRad * gotoRad;
 }

@@ -44,8 +44,8 @@ class WdmCamera
     //
     //--------------------------------------------------------------------------------------------
   public:
-    CVECTOR pos;
-    CVECTOR ang;
+    glm::vec3 pos;
+    glm::vec3 ang;
     float realHeight;
     float hgh;
 
@@ -62,7 +62,7 @@ class WdmCamera
 
     bool isFreeMode;
     float lastAng;
-    CVECTOR bndPos;
+    glm::vec3 bndPos;
     float kBlendPos;
 
     bool isInit;

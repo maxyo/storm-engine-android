@@ -522,21 +522,21 @@ void LegacyDialog::UpdateHeadModel(const std::string &headModelPath)
 
         const auto model = dynamic_cast<MODEL *>(core.GetEntityPointer(headModel_));
 
-        static CMatrix mtx;
-        mtx.BuildPosition(0.f, 0.025f, 0.f);
+        static glm::mat4 mtx;
+        mtx = storm::math::translation(0.f, 0.025f, 0.f);
 
-        static CMatrix mtx2;
-        mtx2.m[0][0] = 1.0f;
-        mtx2.m[1][1] = 1.0f;
-        mtx2.m[2][2] = 1.0f;
+        static glm::mat4 mtx2;
+        mtx2[0][0] = 1.0f;
+        mtx2[1][1] = 1.0f;
+        mtx2[2][2] = 1.0f;
 
-        static CMatrix mtx3;
-        mtx3.BuildMatrix(0.1f, PI - 0.1f, 0.0f);
+        static glm::mat4 mtx3;
+        mtx3 = storm::math::eulerMatrix(0.1f, PI - 0.1f, 0.0f);
 
-        static CMatrix mtx4;
-        mtx4.BuildPosition(0.f, 0.f, 4.f);
+        static glm::mat4 mtx4;
+        mtx4 = storm::math::translation(0.f, 0.f, 4.f);
 
-        model->mtx = mtx * mtx2 * mtx3 * mtx4;
+        model->mtx = mtx4 * (mtx3 * (mtx2 * mtx));
 
         SetAction("dialog_idle");
 
@@ -551,19 +551,19 @@ void LegacyDialog::DrawHeadModel(uint32_t deltaTime)
         D3DVIEWPORT9 viewport;
         RenderService->GetViewport(&viewport);
 
-        CMatrix mtx, view, prj;
+        glm::mat4 mtx, view, prj;
         uint32_t lightingState, zenableState;
         uint32_t zWriteState{};
-        RenderService->GetTransform(D3DTS_VIEW, view);
-        RenderService->GetTransform(D3DTS_PROJECTION, prj);
+        RenderService->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+        RenderService->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
         RenderService->GetRenderState(D3DRS_LIGHTING, &lightingState);
         RenderService->GetRenderState(D3DRS_ZENABLE, &zenableState);
         RenderService->GetRenderState(D3DRS_ZWRITEENABLE, &zWriteState);
 
-        mtx.BuildViewMatrix(CVECTOR(0.0f, 0.0f, 0.0f), CVECTOR(0.0f, 0.0f, 1.0f), CVECTOR(0.0f, 1.0f, 0.0f));
+        storm::math::viewMatrix(mtx, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         RenderService->SetTransform(D3DTS_VIEW, (D3DMATRIX *)&mtx);
 
-        mtx.BuildProjectionMatrix(PId2 - 1.49f, screenScale_.x * 116, screenScale_.y * 158, 1.0f, 10.0f);
+        mtx = storm::math::projectionMatrix(PId2 - 1.49f, screenScale_.x * 116, screenScale_.y * 158, 1.0f, 10.0f);
         RenderService->SetTransform(D3DTS_PROJECTION, (D3DMATRIX *)&mtx);
 
         D3DVIEWPORT9 headViewport{};

@@ -266,8 +266,6 @@ private:
 #endif
     [[nodiscard]] std::filesystem::path GetSegmentCachePath(const SEGMENT_DESC &segment) const;
 
-    uint64_t cache_fingerprint_{};
-    
     bool LoadSegmentFromCache(SEGMENT_DESC &segment);
     void LoadDefinesFromCache(storm::script_cache::BufferReader &reader, SEGMENT_DESC &segment);
     void LoadVariablesFromCache(storm::script_cache::BufferReader &reader, SEGMENT_DESC &segment);

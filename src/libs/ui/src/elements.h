@@ -1,4 +1,4 @@
-// Elements drawn by code: <ui-icon>, <ui-ring>, <ui-paper>, <ui-clamp>, <ui-game-image>.
+// Elements drawn by code: <ui-icon>, <ui-ring>, <ui-paper>, <ui-clamp>, <ui-wheel>, <ui-game-image>.
 #pragma once
 
 #include "storm_ui/ui.h"

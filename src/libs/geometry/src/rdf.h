@@ -14,7 +14,7 @@ geometry file format
 
 #include <cstdint>
 
-#include "c_vector.h"
+#include "storm_glm.h"
 
 /*
 
@@ -63,7 +63,7 @@ struct RDF_HEAD
     int32_t ntriangles;
     int32_t nvrtbuffs;
 
-    CVECTOR bbox_size, bbox_center;
+    glm::vec3 bbox_size, bbox_center;
     float radius;
 };
 
@@ -127,10 +127,10 @@ struct RDF_LIGHT
     int32_t name;
     float r, g, b;
     float range;
-    CVECTOR pos;
+    glm::vec3 pos;
     float atten[3];
     float inner, outer, falloff;
-    CVECTOR dir;
+    glm::vec3 dir;
 };
 
 //------------------------------------------------------------
@@ -179,7 +179,7 @@ struct RDF_OBJECT
     int32_t group_name;
     int32_t name;
     int32_t flags;
-    CVECTOR center;
+    glm::vec3 center;
     float radius;
     int32_t vertex_buff;
     int32_t ntriangles, striangle, nvertices, svertex;
@@ -211,16 +211,16 @@ struct RDF_VERTEXBUFF
 //------------------------------------------------------------
 struct RDF_VERTEX0
 {
-    CVECTOR pos;
-    CVECTOR norm;
+    glm::vec3 pos;
+    glm::vec3 norm;
     int32_t color;
     float tu0, tv0;
 };
 
 struct RDF_VERTEX1
 {
-    CVECTOR pos;
-    CVECTOR norm;
+    glm::vec3 pos;
+    glm::vec3 norm;
     int32_t color;
     float tu0, tv0;
     float tu1, tv1;
@@ -228,8 +228,8 @@ struct RDF_VERTEX1
 
 struct RDF_VERTEX2
 {
-    CVECTOR pos;
-    CVECTOR norm;
+    glm::vec3 pos;
+    glm::vec3 norm;
     int32_t color;
     float tu0, tv0;
     float tu1, tv1;
@@ -238,8 +238,8 @@ struct RDF_VERTEX2
 
 struct RDF_VERTEX3
 {
-    CVECTOR pos;
-    CVECTOR norm;
+    glm::vec3 pos;
+    glm::vec3 norm;
     int32_t color;
     float tu0, tv0;
     float tu1, tv1;
@@ -250,10 +250,10 @@ struct RDF_VERTEX3
 //-------------------animated vertex---------------
 struct RDF_AVERTEX0
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float weight;
     uint32_t boneid;
-    CVECTOR norm;
+    glm::vec3 norm;
     int32_t color;
     float tu0, tv0;
 };
@@ -277,11 +277,11 @@ struct RDF_BSPTRIANGLE
     }
 };
 
-#define RDF_BSPVERTEX CVECTOR
+#define RDF_BSPVERTEX glm::vec3
 
 struct BSP_NODE
 {
-    CVECTOR norm;
+    glm::vec3 norm;
     float pd;
     uint32_t node : 22, sign : 1, left : 1, nfaces : 4, right : 2, type : 2;
 

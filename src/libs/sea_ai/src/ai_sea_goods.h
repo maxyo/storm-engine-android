@@ -14,7 +14,7 @@ class AISeaGoods : public Entity
         char sGoodName[48];
         int32_t iCharIndex, iQuantity;
         float fTime;
-        CVECTOR vPos, vNormal;
+        glm::vec3 vPos, vNormal;
     };
 
     struct goods_t

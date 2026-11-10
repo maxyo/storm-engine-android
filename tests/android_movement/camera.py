@@ -11,13 +11,13 @@ code=r'''
 #include <cmath>
 #include <cstdint>
 #include <iostream>
-struct CVECTOR {float x=0,y=0,z=0;};
+struct Vec3 {float x=0,y=0,z=0;};
 struct Character {bool touch=true,locked=false;bool UsesTouchCamera()const{return touch;}void LockRotate(bool value){locked=value;}};
-struct LocationCamera {float chay=0,dAy=0,lheight=1,rotInertia=8;bool isSpecialMode=false;CVECTOR pos;Character *character;};
+struct LocationCamera {float chay=0,dAy=0,lheight=1,rotInertia=8;bool isSpecialMode=false;Vec3 pos;Character *character;};
 struct CameraFollow {
- LocationCamera *lc;float camay=0,camradius=3,kRadInert=0;CVECTOR lookTo,camPos;
+ LocationCamera *lc;float camay=0,camradius=3,kRadInert=0;Vec3 lookTo,camPos;
  void MoveCamera(float);float FindRadius(float){return 3;}void ChangeRadius(float,float){}
- void CalcPosition(float,float,float,CVECTOR&){}
+ void CalcPosition(float,float,float,Vec3&){}
 };
 ''' + s[start:end] + r'''
 int main(){

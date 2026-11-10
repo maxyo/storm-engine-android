@@ -40,7 +40,7 @@ class LocEagle : public Entity
     }
 
     entid_t mdl;
-    CVECTOR cnt;
+    glm::vec3 cnt;
     float kTime, time;
     float y, dltY;
     float kRad, dltRad;

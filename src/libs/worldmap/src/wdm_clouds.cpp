@@ -62,7 +62,7 @@ bool WdmClouds::Cloud::Reset(bool isFirstTime)
         cld.pict = rand() & 3;
         cld.index = 0;
         cld.aspd = (rand() * (1.0f / RAND_MAX) - 0.5f) * 0.3f;
-        cld.dir = 0.0f;
+        cld.dir = glm::vec3(0.0f);
         ang = rand() * (2.0f * PI / RAND_MAX);
         rad = rand() * (0.3f / RAND_MAX) + 0.01f;
         cld.rdr.x = rad * sinf(ang);
@@ -130,7 +130,7 @@ void WdmClouds::Cloud::Update(float dltTime)
             }
             else
             {
-                dir = 0.0f;
+                dir = glm::vec3(0.0f);
             }
         }
         else
@@ -239,11 +239,11 @@ int32_t WdmClouds::Cloud::FillRects(RS_RECT *rects, int32_t cnt, float galpha)
 }
 
 // Get sphere center and radius
-float WdmClouds::Cloud::GetBound(CVECTOR &_center) const
+float WdmClouds::Cloud::GetBound(glm::vec3 &_center) const
 {
     if (!count)
     {
-        _center = 0.0f;
+        _center = glm::vec3(0.0f);
         return 0.0f;
     }
     _center = center;
@@ -320,10 +320,10 @@ void WdmClouds::LRender(VDX9RENDER *rs)
     // Getting camera frustum
     auto *plane = rs->GetPlanes();
     // Determine the global alpha depending on the distance to the camera
-    CMatrix view;
-    rs->GetTransform(D3DTS_VIEW, view);
-    CVECTOR camPos;
-    view.MulToInv(CVECTOR(0.0f), camPos);
+    glm::mat4 view;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    glm::vec3 camPos;
+    camPos = storm::math::inverseTransformPoint(view, glm::vec3(0.0f));
     auto alpha = (camPos.y - WdmCloudsCloudHeight - 10.0f) * 1.0f / 80.0f;
     if (alpha <= 0.0f)
         return;
@@ -335,7 +335,7 @@ void WdmClouds::LRender(VDX9RENDER *rs)
     for (int32_t i = 0; i < sizeof(clouds) / sizeof(Cloud); i++)
     {
         // get the sphere
-        CVECTOR c;
+        glm::vec3 c;
         auto r = clouds[i].GetBound(c);
         // test for visibility
         int32_t j;
@@ -361,19 +361,19 @@ void WdmClouds::LRender(VDX9RENDER *rs)
         rs->TextureSet(0, texture);
         rs->TextureSet(1, light);
 
-        CMatrix prj;
-        rs->GetTransform(D3DTS_PROJECTION, prj);
-        view.Transposition();
-        rs->SetVertexShaderConstantF(0, prj, 4);
-        prj.matrix[0] = view.matrix[1];
-        prj.matrix[1] = view.matrix[5];
-        prj.matrix[2] = view.matrix[9];
-        prj.matrix[3] = view.matrix[13] - WdmCloudsCloudHeight;
-        prj.matrix[4] = WdmCloudsSizeMin * 1.4f;
-        prj.matrix[5] = 0.0f;
-        prj.matrix[6] = (WdmCloudsSizeMax - WdmCloudsSizeMin) * 1.4f;
-        prj.matrix[7] = 0.5f;
-        rs->SetVertexShaderConstantF(4, prj, 2);
+        glm::mat4 prj;
+        rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
+        storm::math::invertRigid(view);
+        rs->SetVertexShaderConstantF(0, storm::math::data(prj), 4);
+        storm::math::data(prj)[0] = storm::math::data(view)[1];
+        storm::math::data(prj)[1] = storm::math::data(view)[5];
+        storm::math::data(prj)[2] = storm::math::data(view)[9];
+        storm::math::data(prj)[3] = storm::math::data(view)[13] - WdmCloudsCloudHeight;
+        storm::math::data(prj)[4] = WdmCloudsSizeMin * 1.4f;
+        storm::math::data(prj)[5] = 0.0f;
+        storm::math::data(prj)[6] = (WdmCloudsSizeMax - WdmCloudsSizeMin) * 1.4f;
+        storm::math::data(prj)[7] = 0.5f;
+        rs->SetVertexShaderConstantF(4, storm::math::data(prj), 2);
         rs->DrawRects(rects, count, "WdmClouds", 2, 2);
     }
     // rs->Print(20, 200, "Visible clouds = %i, Visible particles = %i", cnt, count);

@@ -72,26 +72,26 @@ void AIBalls::FireBallFromCamera()
         return;
 
     /*AIHelper::pRS->GetTransform(D3DTS_VIEW, mView);
-    CMatrix mIView = mView;
+    glm::mat4 mIView = mView;
     mIView.Transposition3X3();
     float fY = atan2f(mIView.Vz().x, mIView.Vz().z);
-    float fX = SIGN(mIView.Vz().y) * acosf(mIView.Vz() | CVECTOR(mIView.Vz().x, 0.0f, mIView.Vz().z));*/
+    float fX = SIGN(mIView.Vz().y) * acosf(mIView.Vz() | glm::vec3(mIView.Vz().x, 0.0f, mIView.Vz().z));*/
 
-    CVECTOR vCamPos, vCamAng;
+    glm::vec3 vCamPos, vCamAng;
     float fFov;
     AIHelper::pRS->GetCamera(vCamPos, vCamAng, fFov);
 
-    CMatrix mView(vCamAng, vCamPos);
+    glm::mat4 mView = storm::math::eulerMatrix(vCamAng, vCamPos);
     auto mIView = mView;
     // mIView.Transposition3X3();
-    auto fY = atan2f(mIView.Vz().x, mIView.Vz().z);
-    auto fX = SIGN(mIView.Vz().y) * acosf(mIView.Vz() | CVECTOR(mIView.Vz().x, 0.0f, mIView.Vz().z));
+    auto fY = atan2f(storm::math::vz(mIView).x, storm::math::vz(mIView).z);
+    auto fX = SIGN(storm::math::vz(mIView).y) * acosf(glm::dot(storm::math::vz(mIView), glm::vec3(storm::math::vz(mIView).x, 0.0f, storm::math::vz(mIView).z)));
 
     pABall->SetAttribute("Type", "Balls");
     pABall->SetAttributeUseDword("CharacterIndex", static_cast<uint32_t>(iMainCharIndex));
-    pABall->SetAttributeUseFloat("x", mIView.Pos().x);
-    pABall->SetAttributeUseFloat("y", mIView.Pos().y);
-    pABall->SetAttributeUseFloat("z", mIView.Pos().z);
+    pABall->SetAttributeUseFloat("x", storm::math::pos(mIView).x);
+    pABall->SetAttributeUseFloat("y", storm::math::pos(mIView).y);
+    pABall->SetAttributeUseFloat("z", storm::math::pos(mIView).z);
     pABall->SetAttributeUseFloat("SpdV0", 100.0f);
     pABall->SetAttributeUseFloat("HeightMultiply", 1.0f);
     pABall->SetAttributeUseFloat("SizeMultiply", 1.0f);
@@ -127,7 +127,7 @@ void AIBalls::AddBall(ATTRIBUTES *pABall)
 
     pBall->fTime = 0.0f;
     pBall->vPos = pBall->vFirstPos =
-        CVECTOR(pABall->GetAttributeAsFloat("x"), pABall->GetAttributeAsFloat("y"), pABall->GetAttributeAsFloat("z"));
+        glm::vec3(pABall->GetAttributeAsFloat("x"), pABall->GetAttributeAsFloat("y"), pABall->GetAttributeAsFloat("z"));
     pBall->fSpeedV0 = pABall->GetAttributeAsFloat("SpdV0");
     pBall->fHeightMultiply = pABall->GetAttributeAsFloat("HeightMultiply");
     pBall->fSizeMultiply = pABall->GetAttributeAsFloat("SizeMultiply");
@@ -160,7 +160,7 @@ void AIBalls::AddBall(ATTRIBUTES *pABall)
 void AIBalls::Execute(uint32_t Delta_Time)
 {
     uint32_t i, j;
-    CVECTOR vSrc, vDst;
+    glm::vec3 vSrc, vDst;
     entid_t EID;
 
     if (!pIsland && (EID = core.GetEntityId("island")))
@@ -174,7 +174,7 @@ void AIBalls::Execute(uint32_t Delta_Time)
 
     // if (!pVWForts) pVWForts = (VIDWALKER*)core.LayerGetWalker("fort_cannon_trace");
 
-    auto mView = rs->GetView();
+    glm::mat4 mView = rs->GetView();
 
     auto fDeltaTime = 0.001f * static_cast<float>(Delta_Time);
 
@@ -191,7 +191,7 @@ void AIBalls::Execute(uint32_t Delta_Time)
             vSrc = pBall->vPos;
 
             AttributesPointer->SetAttributeUseDword("CurrentBallCannonType", pBall->dwCannonType);
-            AttributesPointer->SetAttributeUseFloat("CurrentBallDistance", sqrtf(~(pBall->vPos - pBall->vFirstPos)));
+            AttributesPointer->SetAttributeUseFloat("CurrentBallDistance", sqrtf(storm::math::lengthSquared(pBall->vPos - pBall->vFirstPos)));
             AttributesPointer->SetAttributeUseFloat("CurrentMaxBallDistance", pBall->fMaxFireDistance);
 
             // update ball time
@@ -210,7 +210,7 @@ void AIBalls::Execute(uint32_t Delta_Time)
             float fX = fProjX * fCosRaw - fProjY * fSinRaw;
             float fY = fProjX * fSinRaw + fProjY * fCosRaw;
 
-            pBall->vPos = CVECTOR(0.0f, fY, fX);
+            pBall->vPos = glm::vec3(0.0f, fY, fX);
             RotateAroundY(pBall->vPos.x, pBall->vPos.z, pBall->fDirX, pBall->fDirZ);
 
             pBall->vPos += pBall->vFirstPos;
@@ -224,14 +224,14 @@ void AIBalls::Execute(uint32_t Delta_Time)
 
             if (pBall->pParticle)
             {
-                CVECTOR vDir = !(vSrc - vDst);
+                glm::vec3 vDir = storm::math::normalizeOrZero(vSrc - vDst);
                 pBall->pParticle->SetEmitter(pBall->vPos, vDir);
             }
 
             float fRes = 2.0f;
 
-            CVECTOR v1 = mView * vSrc;
-            CVECTOR v2 = mView * vDst;
+            glm::vec3 v1 = storm::math::transformPoint(mView, vSrc);
+            glm::vec3 v2 = storm::math::transformPoint(mView, vDst);
 
             if (SIGN(v1.z) != SIGN(v2.z))
             {
@@ -241,8 +241,8 @@ void AIBalls::Execute(uint32_t Delta_Time)
 
                 if (Sqr(x) + Sqr(y) <= Sqr(fBallFlySoundDistance))
                 {
-                    CVECTOR vRes, v = fBallFlySoundStereoMultiplier * CVECTOR(x, y, 0.0f);
-                    mView.MulToInv(v, vRes);
+                    glm::vec3 vRes, v = fBallFlySoundStereoMultiplier * glm::vec3(x, y, 0.0f);
+                    vRes = storm::math::inverseTransformPoint(mView, v);
 
                     core.Event(BALL_FLY_NEAR_CAMERA, "fff", vRes.x, vRes.y, vRes.z);
                 }

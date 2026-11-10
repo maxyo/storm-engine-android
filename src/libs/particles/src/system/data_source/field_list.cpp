@@ -118,7 +118,7 @@ void FieldList::CreateEmptyGraphField(const char *Name, float def_value_min, flo
     Fields.push_back(pDesc);
 }
 
-void FieldList::CreateEmptyPositionField(const char *Name, const Vector &def_value)
+void FieldList::CreateEmptyPositionField(const char *Name, const glm::vec3 &def_value)
 {
     auto *Field = new DataPosition;
     Field->SetName(Name);
@@ -152,7 +152,7 @@ void FieldList::CreateEmptyUVField(const char *Name)
 {
     auto *Field = new DataUV;
     Field->SetName(Name);
-    const auto vec = Vector4(0.0f, 0.0f, 1.0f, 1.0f);
+    const auto vec = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
     Field->SetValues(&vec, 1);
 
     FieldDesc pDesc;
@@ -169,10 +169,10 @@ void FieldList::CreateEmptyColorField(const char *Name, uint32_t def_value)
     auto *Field = new DataColor;
     Field->SetName(Name);
     ColorVertex defVal[2];
-    defVal[0].MinValue = def_value;
-    defVal[0].MaxValue = def_value;
-    defVal[1].MinValue = def_value;
-    defVal[1].MaxValue = def_value;
+    defVal[0].MinValue = storm::math::colorFromARGB(def_value);
+    defVal[0].MaxValue = defVal[0].MinValue;
+    defVal[1].MinValue = defVal[0].MinValue;
+    defVal[1].MaxValue = defVal[0].MinValue;
     Field->SetValues(defVal, 2);
 
     FieldDesc pDesc;
@@ -482,7 +482,7 @@ const char *FieldList::GetString(const char *AttrName, const char *def_value)
     return pFind->GetValue();
 }
 
-const Vector &FieldList::GetPosition(const char *AttrName, const Vector &def_value)
+const glm::vec3 &FieldList::GetPosition(const char *AttrName, const glm::vec3 &def_value)
 {
     auto *const pFind = FindPosition(AttrName);
     if (!pFind)
@@ -559,7 +559,7 @@ void FieldList::Convert(DataDescripion *pDataDescriptor)
                 CreateEmptyGraphField(NeedFieldName, 0.0f, 0.0f);
                 break;
             case FIELD_POSITION:
-                CreateEmptyPositionField(NeedFieldName, Vector(0.0f));
+                CreateEmptyPositionField(NeedFieldName, glm::vec3(0.0f));
                 break;
             case FIELD_UV:
                 CreateEmptyUVField(NeedFieldName);

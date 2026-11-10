@@ -28,7 +28,7 @@ WdmCloud::WdmCloud()
     curMove = 0;
     globalAlpha = 1.0f;
     constAlpha = 0.5f;
-    dir = 0.0f;
+    dir = glm::vec3(0.0f);
     texture = -1;
     BuildCloud(4 + (rand() & 3));
     // Init
@@ -84,7 +84,7 @@ void WdmCloud::Update(float dltTime)
         if (rect[i].fAngle < -pi2)
             rect[i].fAngle += pi2;
         // Set the color
-        auto c = ~move[i].pos * 1.8f;
+        auto c = storm::math::lengthSquared(move[i].pos) * 1.8f;
         if (c > 255.0f)
             c = 255.0f;
         if (c < 40.0f)
@@ -102,7 +102,7 @@ void WdmCloud::Update(float dltTime)
     // Center impact
     dltTime = move[i].dTime;
     move[i].dTime = 0.0f;
-    auto d = ~move[i].pos;
+    auto d = storm::math::lengthSquared(move[i].pos);
     if (d < 100.0f)
     {
         move[i].v += (move[i].pos - move[i].cent) * (move[i].kSpd * dltTime);
@@ -127,7 +127,7 @@ void WdmCloud::Update(float dltTime)
         l = numRects - 1;
     auto v = move[i].pos - move[l].pos;
     v.y = 0.0f;
-    d = ~v;
+    d = storm::math::lengthSquared(v);
     if (d > 0.0000001f && d < 40.0f)
         move[i].v += v * (0.8f * move[i].kSpd * dltTime / d);
     l = i + 1;
@@ -135,7 +135,7 @@ void WdmCloud::Update(float dltTime)
         l = 0;
     v = move[i].pos - move[l].pos;
     v.y = 0.0f;
-    d = ~v;
+    d = storm::math::lengthSquared(v);
     if (d > 0.0000001f && d < 40.0f)
         move[i].v += v * (0.8f * move[i].kSpd * dltTime / d);
     // generate lightning
@@ -260,9 +260,9 @@ int32_t WdmCloud::FillRain(RS_RECT *rainRect, int32_t rcnt)
 void WdmCloud::Render(VDX9RENDER *rs)
 {
     // Inverse camera matrix
-    CMatrix view;
-    rs->GetTransform(D3DTS_VIEW, view);
-    view.Transposition();
+    glm::mat4 view;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    storm::math::invertRigid(view);
     // Draw lightning if needed
     Vertex lght[4];
     rs->TextureSet(0, lightning);
@@ -277,12 +277,12 @@ void WdmCloud::Render(VDX9RENDER *rs)
                 const auto kFrames = 1.0f / 4.0f;
                 const auto width = 10.0f;
                 const auto u = ((r.dwColor >> 8) & 3) * kFrames;
-                auto &vx = view.Vx();
-                lght[0].pos = r.vPos - vx * width - CVECTOR(0.0f, 3.0f, 0.0f);
+                auto &vx = storm::math::vx(view);
+                lght[0].pos = r.vPos - vx * width - glm::vec3(0.0f, 3.0f, 0.0f);
                 lght[0].c = lightningColor;
                 lght[0].u = u;
                 lght[0].v = 0.01f;
-                lght[1].pos = r.vPos + vx * width - CVECTOR(0.0f, 3.0f, 0.0f);
+                lght[1].pos = r.vPos + vx * width - glm::vec3(0.0f, 3.0f, 0.0f);
                 lght[1].c = lightningColor;
                 lght[1].u = u + kFrames;
                 lght[1].v = 0.01f;
@@ -310,22 +310,22 @@ void WdmCloud::Render(VDX9RENDER *rs)
     rs->TextureSet(0, texture);
     rs->TextureSet(1, light);
     // Constants
-    CMatrix prj;
-    rs->GetTransform(D3DTS_PROJECTION, prj);
-    rs->SetVertexShaderConstantF(0, prj, 4);
-    prj.matrix[0] = view.matrix[1];
-    prj.matrix[1] = view.matrix[5];
-    prj.matrix[2] = view.matrix[9];
-    prj.matrix[3] = view.matrix[13] - WdmStormCloudHeight;
-    prj.matrix[4] = WdmStormSizeMin * 1.4f;
-    prj.matrix[5] = 0.0f;
-    prj.matrix[6] = (WdmStormSizeMax - WdmStormSizeMin) * 1.4f;
-    prj.matrix[7] = 0.5f;
-    prj.matrix[8] = 0.8f;
-    prj.matrix[9] = 0.6f;
-    prj.matrix[10] = 1.0f;
-    prj.matrix[11] = 1.0f;
-    rs->SetVertexShaderConstantF(4, prj, 3);
+    glm::mat4 prj;
+    rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
+    rs->SetVertexShaderConstantF(0, storm::math::data(prj), 4);
+    storm::math::data(prj)[0] = storm::math::data(view)[1];
+    storm::math::data(prj)[1] = storm::math::data(view)[5];
+    storm::math::data(prj)[2] = storm::math::data(view)[9];
+    storm::math::data(prj)[3] = storm::math::data(view)[13] - WdmStormCloudHeight;
+    storm::math::data(prj)[4] = WdmStormSizeMin * 1.4f;
+    storm::math::data(prj)[5] = 0.0f;
+    storm::math::data(prj)[6] = (WdmStormSizeMax - WdmStormSizeMin) * 1.4f;
+    storm::math::data(prj)[7] = 0.5f;
+    storm::math::data(prj)[8] = 0.8f;
+    storm::math::data(prj)[9] = 0.6f;
+    storm::math::data(prj)[10] = 1.0f;
+    storm::math::data(prj)[11] = 1.0f;
+    rs->SetVertexShaderConstantF(4, storm::math::data(prj), 3);
     // Render
     rs->DrawRects(rect, numRects, "WdmClouds", 2, 2);
 }
@@ -344,7 +344,7 @@ void WdmCloud::BuildCloud(int32_t n)
         rect[i].fAngle = 0.0f;
         rect[i].dwSubTexture = rand() & 3;
         move[i].rotSpd = 0.8f * Rnd();
-        move[i].v = 0.0f;
+        move[i].v = glm::vec3(0.0f);
         move[i].kSpd = 5.0f * (0.01f + rand() * 0.4f / RAND_MAX);
         move[i].dx = 0.0001f * (0.1f + rand() * 1.0f / RAND_MAX);
         move[i].dz = 0.0001f * (0.1f + rand() * 1.0f / RAND_MAX);
@@ -355,11 +355,11 @@ void WdmCloud::BuildCloud(int32_t n)
             move[i].dz = -move[i].dz;
         move[i].dTime = 0.0f;
     }
-    pos = 0.0f;
-    dir = 0.0f;
+    pos = glm::vec3(0.0f);
+    dir = glm::vec3(0.0f);
 }
 
-void WdmCloud::FindPartPos(CVECTOR &v)
+void WdmCloud::FindPartPos(glm::vec3 &v)
 {
     v.x = 20.0f * Rnd();
     v.y = 5.0f * Rnd();
