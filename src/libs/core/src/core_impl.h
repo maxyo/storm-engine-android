@@ -61,6 +61,10 @@ class CoreImpl final : public CorePrivate
 #endif
     // set time scale; affect on std entity functions DeltaTime parameter
     void SetTimeScale(float _scale) override;
+    float GetTimeScale() const override
+    {
+        return fTimeScale;
+    }
     // write message to system log file
     void Trace(const char *Format, ...) override;
 

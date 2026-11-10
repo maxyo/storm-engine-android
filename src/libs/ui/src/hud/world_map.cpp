@@ -22,7 +22,6 @@ namespace
 
 constexpr double kIdle = 3600.0;
 constexpr double kHoldHeartbeat = 0.1;   // the engine lets go of a held control after 350 ms of silence
-constexpr double kLeaseHeartbeat = 0.25; // … and of the coverage of its instruments after 1 s
 constexpr double kTapSeconds = 1.5;      // a tapped command waits this long for the engine to act
 constexpr int kHelmDead = 22;            // of ±100: the helm turns the ship beyond this
 constexpr double kPi = 3.14159265358979323846;
@@ -167,8 +166,6 @@ class WorldMapScene final : public Scene
             else
                 next = std::min(next, tapped_until_ - now);
         }
-        if (covered_ != 0)
-            next = std::min(next, kLeaseHeartbeat); // Drawn renews the lease
         return next;
     }
 
@@ -314,21 +311,19 @@ class WorldMapScene final : public Scene
 
     void Cover(const WorldMap &map, unsigned mask)
     {
-        const double now = hud_.Now();
         if (!map.known || !map.available)
         {
             covered_ = 0; // the engine dropped every acknowledgement with the map
             covered_owner_.clear();
             return;
         }
+        // Every revision is answered once, also with nothing covered: the engine keeps the word
+        // until the revision changes and its own parts off until then (android_hud_presenter.hpp).
         const std::string owner = Owner(map);
-        if (owner != covered_owner_ && covered_ == 0 && mask == 0)
-            return;
-        if (owner == covered_owner_ && mask == covered_ && (mask == 0 || now - covered_at_ < kLeaseHeartbeat))
+        if (owner == covered_owner_ && mask == covered_)
             return;
         covered_ = mask;
         covered_owner_ = owner;
-        covered_at_ = now;
         hud_.Send("worldmap", owner + "\tack\t" + std::to_string(mask), "worldmap-ack");
         if (owner != tapped_owner_)
         {
@@ -396,7 +391,6 @@ class WorldMapScene final : public Scene
     bool details_ = false;
     unsigned covered_ = 0;
     std::string covered_owner_, tapped_owner_;
-    double covered_at_ = 0.0;
     std::string tapped_;
     double tapped_until_ = 0.0;
 };

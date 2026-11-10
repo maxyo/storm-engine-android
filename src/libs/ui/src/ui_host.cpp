@@ -4,6 +4,7 @@
 
 #include "components.h"
 #include "elements.h"
+#include "frame_renderer.h"
 #include "hud/hud.h"
 #include "screens/screen.h"
 #include "storm_ui/interface_model.h"
@@ -175,6 +176,11 @@ bool ReadJson(FileSource &files, const std::string &path, Json &out, std::string
     return true;
 }
 
+double Milliseconds(std::chrono::steady_clock::time_point from, std::chrono::steady_clock::time_point to)
+{
+    return std::chrono::duration<double, std::milli>(to - from).count();
+}
+
 // The one live host of this process (Host::Create).
 std::atomic<bool> g_host_alive{false};
 
@@ -224,7 +230,9 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         files_ = std::make_unique<PackFiles>(*config.files);
         Rml::SetSystemInterface(&system_);
         Rml::SetFileInterface(files_.get());
-        Rml::SetRenderInterface(&backend_->Interface());
+        renderer_ = std::make_unique<FrameRenderer>(backend_->Interface(), counters_);
+        renderer_->Record(config.verify_unchanged);
+        Rml::SetRenderInterface(renderer_.get());
         if (!Rml::Initialise())
         {
             if (error)
@@ -314,6 +322,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     bool OpenDocument(const std::string &path)
     {
+        changed_ = true;
         captures_.clear();
         screen_root_ = nullptr;
         if (document_)
@@ -333,6 +342,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void Resize(int width, int height, float density) override
     {
+        changed_ = true;
         config_.width = width;
         config_.height = height;
         config_.density = density;
@@ -347,6 +357,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         if (safe == safe_)
             return;
         safe_ = safe;
+        changed_ = true;
         // Rebuild every component: the insets reach the templates through their scope.
         std::vector<Rml::Element *> pending = {document_, overlay_, hud_document_};
         while (!pending.empty())
@@ -379,12 +390,14 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void SetGameRoot(const std::string &game_root) override
     {
+        changed_ = true;
         config_.game_root = game_root;
         SetGameImageRoot(game_root);
     }
 
     void Touch(TouchPhase phase, int pointer, float x, float y) override
     {
+        changed_ = true;
         const Rml::Vector2f at = {x, y};
         if (phase == TouchPhase::Down)
         {
@@ -467,8 +480,9 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             captures_.erase(found);
     }
 
-    double Frame() override
+    bool Prepare(double &delay) override
     {
+        const auto started = std::chrono::steady_clock::now();
         const double now = system_.GetElapsedTime();
         const std::vector<Rml::ObserverPtr<Rml::Element>> ticking = ticking_;
         for (const auto &entry : ticking)
@@ -479,23 +493,63 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         const double routing = std::min(router_->Tick(), hud_->Tick());
 
         context_->Update();
-        if (TextClampsChanged()) // clamped text was re-cut for a new width
+        const bool clamps = TextClampsChanged();
+        if (clamps) // clamped text was re-cut for a new width
             context_->Update();
-        backend_->BeginFrame(true);
-        context_->Render();
-        backend_->EndFrame();
-        hud_->Drawn();
-        PublishTouchMap();
-
-        double delay = context_->GetNextUpdateDelay();
-        if (!ticking_.empty() || images)
+        delay = context_->GetNextUpdateDelay();
+        // What makes the shown frame out of date: input and host calls (changed_), rebuilt
+        // or re-laid-out components, ticking behaviours, animations and transitions, game
+        // pictures that arrived, re-cut text.
+        if (images || clamps || !ticking_.empty() || delay <= 0.0 || counters_.rebuilds > 0 || counters_.laid_out > 0)
+            changed_ = true;
+        if (changed_)
             delay = 0.0;
         else if (GameImagesPending())
             delay = std::min(delay, 0.05); // a decoded picture is shown on the next frame
         delay = std::min(delay, routing);
         for (const Toast_ &toast : toasts_)
             delay = std::min(delay, std::max(0.0, toast.until - now));
+        counters_.update_ms += Milliseconds(started, std::chrono::steady_clock::now());
+        const bool draw = changed_ || !drawn_;
+        if (!draw)
+        {
+            // The frame on the screen still shows everything: acknowledgements that wait
+            // for a drawn frame are given for it.
+            hud_->Drawn();
+            PublishTouchMap();
+        }
+        return draw;
+    }
+
+    double Frame() override
+    {
+        double delay = 0.0;
+        const bool predicted = Prepare(delay);
+        const auto updated = std::chrono::steady_clock::now();
+        renderer_->BeginFrame();
+        backend_->BeginFrame(true);
+        context_->Render();
+        backend_->EndFrame();
+        renderer_->EndFrame();
+        counters_.mispredicted = !predicted && config_.verify_unchanged && renderer_->FrameHash() != shown_hash_;
+        if (counters_.mispredicted)
+            Error("UI frame predicted unchanged drew something else: a change that does not ask for a frame; " + renderer_->Difference());
+        shown_hash_ = renderer_->FrameHash();
+        // Textures made while drawing (a font atlas that grew for new glyphs) make RmlUi
+        // re-encode other meshes in the next frame: that frame is drawn too.
+        changed_ = counters_.textures > 0;
+        drawn_ = true;
+        counters_.render_ms = Milliseconds(updated, std::chrono::steady_clock::now());
+        last_frame_ = counters_;
+        counters_ = FrameStats(); // what happens until the next frame counts for it
+        hud_->Drawn();
+        PublishTouchMap();
         return delay;
+    }
+
+    FrameStats LastFrameStats() const override
+    {
+        return last_frame_;
     }
 
     void Toast(const std::string &text, const std::string &tone) override
@@ -517,6 +571,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         notice->SetAttribute("text", text);
         if (top)
             notice->SetAttribute("compact", "");
+        changed_ = true;
         Toast_ toast;
         toast.element = stack->AppendChild(std::move(notice))->GetObserverPtr();
         toast.until = system_.GetElapsedTime() + Setting("toastMs", 2600.0) / 1000.0;
@@ -525,6 +580,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     bool SetProps(const std::string &element_id, const std::string &json) override
     {
+        changed_ = true;
         Rml::Element *element = document_ ? document_->GetElementById(element_id) : nullptr;
         auto *component = dynamic_cast<ComponentElement *>(element);
         const Json props = Json::parse(json, nullptr, false);
@@ -536,6 +592,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void ScrollTo(const std::string &element_id) override
     {
+        changed_ = true;
         if (Rml::Element *element = document_ ? document_->GetElementById(element_id) : nullptr)
             element->ScrollIntoView(Rml::ScrollIntoViewOptions(Rml::ScrollAlignment::Start));
     }
@@ -587,6 +644,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void SubmitText(const std::string &token, const std::string &text, bool accepted) override
     {
+        changed_ = true;
         router_->SubmitText(token, text, accepted);
     }
 
@@ -608,6 +666,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void CancelInput() override
     {
+        changed_ = true;
         std::vector<std::pair<int, Rml::Vector2f>> held;
         for (const auto &capture : captures_)
             held.emplace_back(capture.first, capture.second.pointer.position);
@@ -624,6 +683,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void Back() override
     {
+        changed_ = true;
         bool hud_sheet = false;
         {
             const std::lock_guard<std::mutex> lock(touch_mutex_);
@@ -667,7 +727,11 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             Error("UI pack: the HUD document has no <s-hud id=\"hud\"> layer");
             return false;
         }
-        hud_document_->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
+        if (!hud_document_->IsVisible())
+        {
+            changed_ = true;
+            hud_document_->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
+        }
         // Elements are patched in place: one that both the old and the new view have stays
         // mounted (a held stick survives explore ↔ combat), only its place and props follow.
         const std::vector<hud::LayoutElement> &elements = layout_.at(view.layout);
@@ -714,12 +778,20 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             }
             before = mounted;
             if (mounted->GetAttribute<Rml::String>("style", "") != element.rcss)
+            {
+                changed_ = true;
                 mounted->SetAttribute("style", element.rcss);
+            }
             complete = SetHudProps(element, view) && complete;
             for (const hud::LayoutElement &child : element.children)
                 if (view.elements.contains(child.id))
                     complete = SetHudProps(child, view) && complete;
-            mounted->SetClass("dim", std::find(view.dimmed.begin(), view.dimmed.end(), element.id) != view.dimmed.end());
+            const bool dim = std::find(view.dimmed.begin(), view.dimmed.end(), element.id) != view.dimmed.end();
+            if (mounted->IsClassSet("dim") != dim)
+            {
+                changed_ = true;
+                mounted->SetClass("dim", dim);
+            }
         }
         // The overlay (the spyglass card) lies over the scene's elements and under the sheet.
         Rml::Element *overlay = hud_document_->GetElementById("overlay");
@@ -756,12 +828,20 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         {
             if (!sheet)
             {
+                changed_ = true;
                 Rml::ElementPtr created = hud_document_->CreateElement(view.sheet);
                 created->SetId("sheet");
                 sheet = layer->AppendChild(std::move(created));
             }
             if (auto *component = dynamic_cast<ComponentElement *>(sheet))
-                component->SetProps(view.sheet_props);
+            {
+                Json &shown = hud_props_["sheet"]; // forgotten with the sheet (RemoveHudElement)
+                if (shown != view.sheet_props)
+                {
+                    component->SetProps(view.sheet_props);
+                    shown = view.sheet_props;
+                }
+            }
             else
             {
                 Error("UI pack has no HUD sheet " + view.sheet);
@@ -792,6 +872,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         if (!hud_document_)
             return;
+        if (hud_document_->IsVisible())
+            changed_ = true;
         auto *root = dynamic_cast<ComponentElement *>(hud_document_->GetElementById("hud"));
         if (Rml::Element *layer = root ? ComponentSlot(*root) : nullptr)
             while (layer->GetNumChildren() > 0)
@@ -803,6 +885,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void Show(const std::string &tag, const Json &props) override
     {
+        changed_ = true;
         if (!screen_root_ && (screen_path_.empty() || !OpenDocument(screen_path_)))
         {
             Error("UI pack has no screen document");
@@ -827,6 +910,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void Hide() override
     {
+        changed_ = true;
         captures_.clear();
         if (screen_root_ && document_)
         {
@@ -960,6 +1044,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     }
     void Tooltip(Rml::Element *anchor, const std::string &text, bool below) override
     {
+        changed_ = true;
         Rml::Element *tip = overlay_ ? overlay_->GetElementById("tooltip") : nullptr;
         if (!tip)
             return;
@@ -996,6 +1081,10 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         else if (!enable && found != ticking_.end())
             ticking_.erase(found);
     }
+    FrameStats &Counters() override
+    {
+        return counters_;
+    }
     void Forget(ComponentElement &component) override
     {
         ticking_.erase(std::remove_if(ticking_.begin(), ticking_.end(), [&](const auto &entry) { return !entry || entry.get() == &component; }),
@@ -1021,6 +1110,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     Rml::ElementPtr CreateHudElement(const hud::LayoutElement &element)
     {
+        changed_ = true;
         Rml::ElementPtr created = hud_document_->CreateElement(element.component);
         created->SetId(element.id);
         if (!element.behavior.empty())
@@ -1059,6 +1149,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     // control reports the release (a stick stops, a held button lets go).
     void RemoveHudElement(Rml::Element *layer, Rml::Element *mounted)
     {
+        changed_ = true;
         std::vector<std::pair<int, Rml::Vector2f>> held;
         for (const auto &capture : captures_)
             for (Rml::Element *at = capture.second.component.get(); at; at = at->GetParentNode())
@@ -1123,6 +1214,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void RemoveToast(size_t index)
     {
+        changed_ = true;
         if (Rml::Element *element = toasts_[index].element.get())
             if (Rml::Element *parent = element->GetParentNode())
                 parent->RemoveChild(element);
@@ -1140,6 +1232,12 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     System system_;
     std::unique_ptr<PackFiles> files_;
     RenderBackend *backend_ = nullptr;
+    std::unique_ptr<FrameRenderer> renderer_;
+    FrameStats counters_;   // the frame being made, including the work done since the last one
+    FrameStats last_frame_; // what the last Frame did
+    bool changed_ = true;   // something since the last drawn frame may look different (Prepare)
+    bool drawn_ = false;
+    uint64_t shown_hash_ = 0; // drawing commands of the frame on the screen
     std::unique_ptr<ComponentRegistry> registry_;
     Rml::Context *context_ = nullptr;
     Rml::ElementDocument *document_ = nullptr;

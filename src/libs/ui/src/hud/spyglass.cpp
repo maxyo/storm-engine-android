@@ -1,7 +1,7 @@
 // The spyglass overlay (mockups V2-Sea-Spyglass, V2-Sea-Spyglass-Fort): while the telescope
 // is raised, the card of its target (ship or fort, its captain) lies over the HUD of any
 // scene as the pack part <s-hud-spyglass>; the lens and the zoom stay the engine's. The Hud
-// lays it (hud.cpp) and acknowledges each drawn frame, so the engine hides its own info.
+// lays it (hud.cpp) and answers each raise once (drawn or not), so the engine hides its own info.
 //
 // Channel "spyglass" (engine util/platform/android_spyglass.hpp):
 //   {schemaVersion: 1, revision, on, generation, target: null | {kind: ship|fort, name, type,

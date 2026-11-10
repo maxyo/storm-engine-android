@@ -86,5 +86,6 @@
    "sailIntegrity": 70,
    "sailIntegrityMax": 100
   }
- ]
+ ],
+ "timeScale": 1.0
 }
