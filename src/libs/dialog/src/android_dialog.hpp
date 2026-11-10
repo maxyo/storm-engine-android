@@ -5,7 +5,6 @@
 #include <core.h>
 #include <string_compare.hpp>
 #include <v_data.h>
-#include "../../xinterface/src/string_service.h"
 
 #include <cstdlib>
 #include <optional>
@@ -63,18 +62,9 @@ inline std::string dialogueIdentityField(const char *value) {
     const std::string_view text(value);
     return std::to_string(text.size()) + ':' + std::string(text);
 }
-inline std::optional<int64_t> dialogueHeroMoney() {
-    auto *index = static_cast<VDATA *>(core.GetScriptVariable("nMainCharacterIndex"));
-    auto *characters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
-    if (!index || !characters || index->GetInt() < 0) return std::nullopt;
-    auto *hero = characters->GetAClass(index->GetInt());
-    const char *money = hero ? hero->GetAttribute("Money") : nullptr;
-    if (!money || !*money) return std::nullopt;
-    char *end = nullptr;
-    const long long value = std::strtoll(money, &end, 10);
-    if (end == money || value < 0) return std::nullopt;
-    return value;
-}
+// Game data read by the dialogue snapshot; defined in dialog.cpp (the host checks supply fixtures).
+std::optional<int64_t> dialogueHeroMoney(); // the hero's money, if the script has it
+const char *gameLanguage();                 // the string service's language, or nullptr
 inline bool publishDialogue(const void *owner, ATTRIBUTES *attrs, const char *speaker) {
     if (!attrs) { closeDialogue(owner); return false; }
     auto *links = attrs->GetAttributeClass("Links");
@@ -83,8 +73,7 @@ inline bool publishDialogue(const void *owner, ATTRIBUTES *attrs, const char *sp
     // displayed text is identical. It is never accepted from the Android UI.
     std::string identity = dialogueIdentityField(attrs->GetAttribute("CurrentNode"));
     // The game's language: the UI picks its own strings (buttons, editor) by it.
-    const char *language = nullptr;
-    if (auto *strings = static_cast<VSTRSERVICE *>(core.GetService("STRSERVICE"))) language = strings->GetLanguage();
+    const char *language = gameLanguage();
     std::string body = "\"language\":" + dialogueJsonString(language) + ",\"speaker\":" + dialogueJsonString(speaker) + ",\"text\":" + dialogueJsonString(attrs->GetAttribute("Text")) + ",\"choices\":[";
     bool first = true;
     if (links) for (size_t i=0; i<links->GetAttributesNum(); ++i) {
