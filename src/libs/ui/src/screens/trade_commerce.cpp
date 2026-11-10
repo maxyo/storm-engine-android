@@ -1,4 +1,4 @@
-// Commerce: store, contraband, cannons, items trade, storage and chests / bodies — one
+// Commerce: store, contraband, cannons, items trade, storage, colony loot and chests / bodies — one
 // buy / sell / transfer layout (pack screen <s-trade>, mockups V2-Trade-*). Goods are one
 // C-TradeList; the row whose quantity window the game has open expands into C-Quantity,
 // which shows the amount on our side after the deal. Money deals are confirmed by the
@@ -36,6 +36,8 @@ constexpr Layout kContraband{StringKey("trade.contraband"), 0, 5, 3, 2, 4, 6, "S
 constexpr Layout kCannons{StringKey("trade.cannons"), 0, 5, 3, 2, 4, -1, "SHIPS_SCROLL", true, {7, 8, 9}};
 constexpr Layout kItemsTrade{StringKey("trade.items"), 0, 5, 3, 2, 4, -1, "CHARACTERS_SCROLL", true};
 constexpr Layout kStorage{StringKey("trade.storage"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL"};
+// Looting a captured colony (ColonyCapture.c): the hold, the town's stores, a free transfer.
+constexpr Layout kColonyCapture{StringKey("trade.loot"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL"};
 constexpr Layout kItemsBox{StringKey("trade.chest"), 0, 4, 2, -1, -1, -1, "CHARACTERS_SCROLL", true};
 
 constexpr NodeRule kNodes[] = {
@@ -503,6 +505,10 @@ std::unique_ptr<Screen> CreateItemsTradeScreen()
 std::unique_ptr<Screen> CreateStorageScreen()
 {
     return std::make_unique<CommerceScreen>(kStorage);
+}
+std::unique_ptr<Screen> CreateColonyCaptureScreen()
+{
+    return std::make_unique<CommerceScreen>(kColonyCapture);
 }
 std::unique_ptr<Screen> CreateItemsBoxScreen()
 {

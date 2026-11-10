@@ -239,6 +239,17 @@ static void TradeBook(const std::string &models)
     ExpectEqual(surface.Last(), "widget:tradebook\tEXIT_BTN\t-1\tpress", "← is the exit button");
 }
 
+static void ColonyLoot(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "colonycapture-deal.json"));
+    Expect(router.Using() == "colonycapture" && surface.tag == "s-trade", "colony loot uses the trade layout");
+    Expect(surface.errors.empty() && surface.props["extras"]["rows"].empty(), "every node of the colony loot is known");
+    ExpectEqual(surface.props["header"]["title"].is_string() ? surface.props["header"]["title"].get<std::string>() : surface.props["title"].get<std::string>(),
+                "Город: Грабёж", "the game's caption is the title");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
@@ -247,6 +258,7 @@ int main(int argc, char **argv)
     Rest(models);
     Notices(models);
     TradeBook(models);
+    ColonyLoot(models);
     for (const char *id : {"map", "dirsailenc", "leavebattle", "salary", "boal_frame", "tavernwait"})
         Expect(!HostOwned(id), std::string(id) + " is not drawn by the platform host");
     if (failures)
