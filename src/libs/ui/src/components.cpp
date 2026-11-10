@@ -215,7 +215,11 @@ void MorphChildren(Rml::Element *live, Rml::Element *fresh)
     for (size_t i = 0; i < wanted.size(); ++i)
     {
         Rml::Element *current = static_cast<int>(i) < live->GetNumChildren() ? live->GetChild(static_cast<int>(i)) : nullptr;
-        if (current && current->GetTagName() == wanted[i]->GetTagName())
+        // A component that takes another id is another component (a dialog with a body
+        // slot after one without): build it afresh, its slot content is set only then.
+        const bool same = current && current->GetTagName() == wanted[i]->GetTagName() &&
+                          (!dynamic_cast<ComponentElement *>(current) || current->GetId() == wanted[i]->GetAttribute<Rml::String>("id", ""));
+        if (same)
             SyncElement(current, wanted[i].get());
         else if (current)
             live->ReplaceChild(std::move(wanted[i]), current);
