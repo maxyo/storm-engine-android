@@ -614,7 +614,15 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void Back() override
     {
-        hud_->Back();
+        bool hud_sheet = false;
+        {
+            const std::lock_guard<std::mutex> lock(touch_mutex_);
+            hud_sheet = touch_map_.back;
+        }
+        if (hud_sheet || !router_->Active())
+            hud_->Back();
+        else
+            router_->Back();
     }
 
     // --- hud::Mount ---------------------------------------------------------------

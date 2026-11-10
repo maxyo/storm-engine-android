@@ -14,6 +14,7 @@ std::unique_ptr<Screen> CreateCannonsScreen();
 std::unique_ptr<Screen> CreateItemsTradeScreen();
 std::unique_ptr<Screen> CreateItemsBoxScreen();
 std::unique_ptr<Screen> CreateCrewScreen();
+std::unique_ptr<Screen> CreateShipyardScreen();
 std::unique_ptr<Screen> CreateDialogueScreen();
 std::unique_ptr<StateConsumer> CreateDialogueConsumer();
 std::unique_ptr<Screen> CreateGameMenuScreen();
@@ -34,6 +35,7 @@ const ScreenEntry kPorted[] = {
     {"itemstrade", CreateItemsTradeScreen},
     {"itemsbox", CreateItemsBoxScreen},
     {"hirecrew", CreateCrewScreen},
+    {"shipyard", CreateShipyardScreen},
     {"dialogue", CreateDialogueScreen},
     {"game_menu", CreateGameMenuScreen},
     {"save_load", CreateSavesScreen},
@@ -46,7 +48,6 @@ const ScreenEntry kPorted[] = {
 // and not ported above gets the generic layout.
 const char *const kHostOwned[] = {
     "character",      "lscchar_all",   "items",     "ship",      "questbook", "nationrelation", // hero sections
-    "shipyard",                                                                                // trade zone
     "map",            "dirsailenc",    "leavebattle", "salary", "boal_frame", // reading menus
 };
 

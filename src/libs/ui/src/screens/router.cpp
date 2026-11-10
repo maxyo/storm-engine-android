@@ -285,6 +285,11 @@ void Bindings::Toast(const std::string &text)
     router_.surface_.Toast(text);
 }
 
+void Bindings::Error(const std::string &text)
+{
+    router_.surface_.Error("screen " + router_.using_ + ": " + text);
+}
+
 void Bindings::Rebuild()
 {
     router_.rebuild_ = true;
@@ -560,6 +565,32 @@ bool Router::OnEvent(const Event &event)
     if (rebuild_ && screen_)
         Build();
     return true;
+}
+
+void Router::Back()
+{
+    Action engine_back;
+    engine_back.screen = model_.screen;
+    engine_back.opening = model_.opening;
+    engine_back.verb = "back";
+    if (!screen_)
+    {
+        surface_.Send(engine_back);
+        return;
+    }
+    if (!reading_text_.empty() || extras_open_)
+    {
+        reading_text_.clear();
+        extras_open_ = false;
+        Build();
+        return;
+    }
+    if (bindings_.handlers_.count(std::string("header-back") + '\x1f'))
+    {
+        OnEvent({"header-back", "click", ""});
+        return;
+    }
+    surface_.Send(engine_back);
 }
 
 void Router::SubmitText(const std::string &token, const std::string &text, bool accepted)

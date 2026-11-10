@@ -169,7 +169,9 @@ class Host
     virtual void CancelInput() = 0;
     // Thread-safe: the back key belongs to the UI now (an open HUD sheet).
     virtual bool WantsBack() const = 0;
-    // The back key, after WantsBack said so.
+    // The back key: an open HUD sheet when WantsBack said so; otherwise, while an interface
+    // is mounted, its screen closes its sheet or open part first, as its ← does, and sends the
+    // engine's own back when it has nothing to close.
     virtual void Back() = 0;
 };
 

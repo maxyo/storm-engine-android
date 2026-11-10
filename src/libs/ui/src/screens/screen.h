@@ -101,6 +101,8 @@ class Bindings
     // Shows a long text on a parchment sheet over the screen.
     void Read(const std::string &title, const std::string &text);
     void Toast(const std::string &text);
+    // Something the screen cannot do as designed: an error line (a toast in debug hosts).
+    void Error(const std::string &text);
     // Local state of the screen changed: build the view again from the same model.
     void Rebuild();
     // Builds the view again after `seconds` even if no new model comes (local state that
@@ -199,6 +201,9 @@ class Router
     // False when no screen is mounted or the event belongs to nothing bound.
     bool OnEvent(const Event &event);
     void SubmitText(const std::string &token, const std::string &text, bool accepted);
+    // The platform's back: the reading or «Прочее» sheet first, then what the screen's ← does,
+    // the engine's back when the screen binds no ←.
+    void Back();
     // Flushes throttled sends and expired pending marks; returns seconds until it must be
     // called again (a large number when idle).
     double Tick();
