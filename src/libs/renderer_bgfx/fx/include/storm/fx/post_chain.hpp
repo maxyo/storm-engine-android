@@ -1,5 +1,5 @@
-// Post-processing chain: ambient occlusion, bloom, sun shafts, tone curve, colour grade, FXAA,
-// sharpening / upscale. Reads the game's offscreen colour target and writes
+// Post-processing chain: ambient occlusion, bloom, sun shafts, tone curve, colour grades, dither, optional
+// vignette and grain, FXAA, sharpening / upscale, lens flare. Reads the game's offscreen colour target and writes
 // the final image into a frame buffer or the back buffer.
 //
 //   scene ─┬─────────────────────────────► composite ─► [FXAA] ─► [CAS] ─► target
@@ -11,11 +11,13 @@
 // settings.hpp lists them) are logged as errors, never quietly replaced. Everything runs in gamma-encoded RGBA8 targets.
 #pragma once
 
+#include "storm/fx/color_lut.hpp"
 #include "storm/fx/settings.hpp"
 
 #include <bgfx/bgfx.h>
 
 #include <array>
+#include <vector>
 
 namespace storm::fx
 {
@@ -24,7 +26,7 @@ class PostChain
 {
   public:
     // Views consumed at most by one Submit(): a contiguous range the caller reserves.
-    static constexpr uint16_t kMaxViews = 19;
+    static constexpr uint16_t kMaxViews = 20;
 
     struct Frame
     {
@@ -44,11 +46,21 @@ class PostChain
         float near_plane = 0.1f;
         float far_plane = 4000.0f;
         std::array<float, 2> projection_scale{1.0f, 1.0f};
-        // Sun shafts only: sun position in scene uv (0..1, origin top-left) and 0..1 visibility
-        // (0 when the sun is behind the camera or below the horizon).
+        // Sun shafts and lens flare: sun position in scene uv (0..1, origin top-left), 0..1 visibility (0 when
+        // the sun is behind the camera, below the horizon or hidden: the engine's sun glow already traces
+        // that) and the sun's colour (0..1, the game's).
+        std::array<float, 3> sun_color{1.0f, 0.9f, 0.7f};
         std::array<float, 2> sun_uv{0.5f, 0.5f};
         float sun_visibility = 0.0f;
+        // Settings::scene_grading: the grade of the place and hour, e.g. SceneGrade(sky.State(), overcast,
+        // interior). Once the drift shows in 8-bit output the table is rebuilt in the background,
+        // kLutSlicesPerFrame blue slices per frame, and swapped in when complete.
+        ColorGrade scene_grade{};
+        // A cut (location loaded, interior entered, the camera jumped): the scene grade is applied in this
+        // frame instead of being followed in the background.
+        bool scene_cut = false;
     };
+    static constexpr int kLutSlicesPerFrame = 2;
 
     PostChain() = default;
     ~PostChain();
@@ -72,7 +84,7 @@ class PostChain
         uint16_t height = 0;
     };
     void EnsureTarget(Target &target, uint16_t width, uint16_t height);
-    void EnsureLut(const Settings &settings);
+    void EnsureLut(const Settings &settings, const ColorGrade &scene_grade, bool scene_cut);
     bgfx::ProgramHandle Program(int index);
 
     static constexpr int kMaxBloomLevels = 6;
@@ -86,6 +98,13 @@ class PostChain
     bgfx::TextureHandle lut_ = BGFX_INVALID_HANDLE;
     GradePreset lut_grade_ = GradePreset::Original;
     float lut_strength_ = -1.0f;
+    ColorGrade lut_scene_{};
+    ColorGrade pending_scene_{}; // the scene grade being built into pending_texels_
+    std::vector<uint8_t> pending_texels_;
+    int pending_slice_ = -1; // next blue slice to build; -1: no rebuild in progress
+    uint32_t frame_counter_ = 0;
+    bgfx::ProgramHandle flare_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_finish_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_scene_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_bloom_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_lut_ = BGFX_INVALID_HANDLE;

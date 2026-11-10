@@ -119,7 +119,7 @@ void Shadows::Bind()
     }
     bgfx::setUniform(u_matrix_, view_to_shadow_.data());
     bgfx::setUniform(u_params_, params_.data());
-    bgfx::setTexture(10, s_map_, map_);
+    bgfx::setTexture(kShadowMapStage, s_map_, map_);
 }
 
 } // namespace storm::fx

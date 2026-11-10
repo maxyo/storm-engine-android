@@ -44,6 +44,9 @@ storm_fx_add_shader(fx_shaders fs_fx_water_high "${fx_sc}/fs_fx_water.sc" DEFINE
 storm_fx_add_shader(fx_shaders fs_fx_water_high_cube "${fx_sc}/fs_fx_water.sc" DEFINES FX_WATER_FOAM FX_WATER_ENVCUBE FX_WATER_DEPTH)
 storm_fx_add_shader(fx_shaders fs_fx_water_capture "${fx_sc}/fs_fx_water_capture.sc")
 
+storm_fx_add_shader(fx_shaders vs_fx_sprite "${fx_sc}/vs_fx_sprite.sc")
+storm_fx_add_shader(fx_shaders vs_fx_sprite_world "${fx_sc}/vs_fx_sprite.sc" DEFINES FX_SPRITE_WORLD)
+storm_fx_add_shader(fx_shaders fs_fx_sprite "${fx_sc}/fs_fx_sprite.sc")
 storm_fx_add_shader(fx_shaders vs_fx_shadow_caster "${fx_sc}/vs_fx_shadow_caster.sc")
 storm_fx_add_shader(fx_shaders fs_fx_shadow_caster "${fx_sc}/fs_fx_shadow_caster.sc")
 

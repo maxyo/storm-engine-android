@@ -6,22 +6,28 @@
 namespace storm::fx
 {
 
+LightingMaterial LightingMaterial::Stone()
+{
+    return {16.0f, 0.05f, 0.0f, 0.0f, 1.0f, 0.0f};
+}
+
 LightingMaterial LightingMaterial::Hull()
 {
-    return {32.0f, 0.22f, 0.0f, 0.0f};
+    return {32.0f, 0.22f, 0.0f, 0.0f, 0.6f, 0.3f};
 }
 
 LightingMaterial LightingMaterial::Sail()
 {
-    return {8.0f, 0.04f, 0.55f, 0.2f};
+    return {8.0f, 0.04f, 0.55f, 0.2f, 0.35f, 0.3f};
 }
 
 LightingMaterial LightingMaterial::Character()
 {
-    return {20.0f, 0.10f, 0.0f, 0.2f};
+    return {20.0f, 0.10f, 0.0f, 0.2f, 0.0f, 0.5f};
 }
 
-LightingUniforms ComputeLighting(const LightingInput &input, const LightingMaterial &material, const SkyState *sky)
+LightingUniforms ComputeLighting(const LightingInput &input, const LightingMaterial &material, const SkyState *sky,
+                                 const Settings &settings)
 {
     const auto to_view = [&](Vec3 v) {
         Vec3 r;
@@ -53,6 +59,7 @@ LightingUniforms ComputeLighting(const LightingInput &input, const LightingMater
         u.u_fxLight[4][i] = input.ambient[i] * (1.0f - kContrast) * (2.0f - hue[i]);
     }
     u.u_fxLight[3][3] = material.wrap;
+    u.u_fxLight[5] = {material.relief * std::clamp(settings.normal_map_strength, 0.0f, 1.0f), material.rim, 0.0f, 0.0f};
     return u;
 }
 
@@ -85,12 +92,22 @@ std::string LightingDefines(const Settings &settings)
             add("FX_LIGHT_SHADOW");
         if (settings.shadows == ShadowQuality::Soft)
             add("FX_LIGHT_SHADOW_SOFT");
+        if (flags & kLightingRim)
+            add("FX_LIGHT_RIM");
     }
     if (flags & kLightingPoint)
     {
         add("FX_LIGHT_POINT");
         add(PointLightBudget(settings) > 4 ? "FX_LIGHT_POINT_MAX=8" : "FX_LIGHT_POINT_MAX=4");
     }
+    if ((flags & kLightingNormalMap) && (flags & (kLightingPerPixel | kLightingPoint)))
+        add("FX_LIGHT_NORMALMAP");
+    if ((flags & kLightingLinear) && (flags & (kLightingPerPixel | kLightingPoint)))
+        add("FX_LIGHT_LINEAR");
+    if (flags & kLightingAerial)
+        add("FX_AERIAL");
+    if (flags & kLightingWind)
+        add("FX_WIND");
     return defines;
 }
 

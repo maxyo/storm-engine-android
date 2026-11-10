@@ -4,6 +4,10 @@
 #include <platform/android_dialogue_input.hpp>
 #include <core.h>
 #include <string_compare.hpp>
+#include <v_data.h>
+
+#include <cstdlib>
+#include <optional>
 
 namespace storm::android {
 // Runtime dialogue data only; neither dialogue strings nor game files are bundled.
@@ -58,6 +62,9 @@ inline std::string dialogueIdentityField(const char *value) {
     const std::string_view text(value);
     return std::to_string(text.size()) + ':' + std::string(text);
 }
+// Game data read by the dialogue snapshot; defined in dialog.cpp (the host checks supply fixtures).
+std::optional<int64_t> dialogueHeroMoney(); // the hero's money, if the script has it
+const char *gameLanguage();                 // the string service's language, or nullptr
 inline bool publishDialogue(const void *owner, ATTRIBUTES *attrs, const char *speaker) {
     if (!attrs) { closeDialogue(owner); return false; }
     auto *links = attrs->GetAttributeClass("Links");
@@ -65,7 +72,9 @@ inline bool publishDialogue(const void *owner, ATTRIBUTES *attrs, const char *sp
     // Hidden routing metadata participates in generation changes, even if all
     // displayed text is identical. It is never accepted from the Android UI.
     std::string identity = dialogueIdentityField(attrs->GetAttribute("CurrentNode"));
-    std::string body = "\"speaker\":" + dialogueJsonString(speaker) + ",\"text\":" + dialogueJsonString(attrs->GetAttribute("Text")) + ",\"choices\":[";
+    // The game's language: the UI picks its own strings (buttons, editor) by it.
+    const char *language = gameLanguage();
+    std::string body = "\"language\":" + dialogueJsonString(language) + ",\"speaker\":" + dialogueJsonString(speaker) + ",\"text\":" + dialogueJsonString(attrs->GetAttribute("Text")) + ",\"choices\":[";
     bool first = true;
     if (links) for (size_t i=0; i<links->GetAttributesNum(); ++i) {
         auto *link = links->GetAttributeClass(i);
@@ -80,6 +89,10 @@ inline bool publishDialogue(const void *owner, ATTRIBUTES *attrs, const char *sp
         body += '}';
     }
     body += ']';
+    // An answer the player types may be an amount (a bet, a deposit): the hero's money is
+    // the upper bound the number panel offers. Absent when the script data has none.
+    if (editIndex != size_t(-1))
+        if (const auto money = dialogueHeroMoney()) body += ",\"money\":" + std::to_string(*money);
     if (dialogueOwner == owner && dialogueSnapshot == body && dialogueIdentity == identity) return true;
     auto generation = dialogueGeneration + 1;
     if (!sendDialogue("{\"active\":true,\"generation\":" + std::to_string(generation) + ',' + body + '}')) return false;

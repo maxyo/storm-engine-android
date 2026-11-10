@@ -1,0 +1,1457 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 12,
+ "screenRevision": 7,
+ "screen": "shipyard",
+ "widgets": [
+  {
+   "node": "MAIN_BACK",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 24,
+     "imageRevision": 24,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_SHIPYARD_CATALOG",
+   "type": "shipyard_catalog",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Корабль",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Класс",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Орудия",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Дедвейт",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Цена",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "SHIP_BIG_PICTURE",
+   "type": "shipyard_control",
+   "label": "",
+   "value": "",
+   "index": -2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "yard@7:4:help"
+   ],
+   "cells": []
+  },
+  {
+   "node": "MAIN_CHARACTER_PICTURE",
+   "type": "shipyard_control",
+   "label": "",
+   "value": "",
+   "index": -2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "yard@7:4:help"
+   ],
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "shipyard_control",
+   "label": "",
+   "value": "",
+   "index": -2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "yard@7:4:help"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABLE_SHIPYARD",
+   "type": "shipyard_control",
+   "label": "",
+   "value": "",
+   "index": -2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "yard@7:4:help"
+   ],
+   "cells": []
+  },
+  {
+   "node": "EXIT_BTN",
+   "type": "shipyard_control",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "yard@7:4:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_SHIPYARD_STATE",
+   "type": "shipyard_state",
+   "label": "",
+   "value": "1",
+   "index": 1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "context": {
+    "curRow": "tr1",
+    "curTable": "TABLE_SHIPYARD",
+    "merchant": "test_shipyarder",
+    "messageMode": "",
+    "mode": "main",
+    "offer": "ship1",
+    "owner.captainName": "Жан Тестов",
+    "owner.class": "Класс 5",
+    "owner.owner": "1",
+    "owner.ownerKind": "OWNER_SHIP",
+    "owner.rank": "1",
+    "owner.saleQuote": "11 575",
+    "owner.shipName": "Марта",
+    "owner.slot": "0",
+    "owner.type": "Кеч",
+    "pendingOffer": "",
+    "previewKind": "yard",
+    "profile": "test_profile",
+    "ready": "1",
+    "window.CANNONS_WINDOW": "hidden:locked",
+    "window.MAIN_WINDOW": "shown:active",
+    "window.MSG_WINDOW": "hidden:locked",
+    "window.OFFICERS_WINDOW": "hidden:locked",
+    "window.REPAIR_WINDOW": "hidden:locked",
+    "window.RPG_WINDOW": "hidden:locked"
+   },
+   "cells": []
+  },
+  {
+   "node": "TITLE",
+   "type": "heading",
+   "label": "  Верфь  ",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIP_BIG_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 35,
+     "imageRevision": 35,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [
+    "yard@7:4:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABLE_SHIPYARD",
+   "type": "choice",
+   "label": "Шлюпка\\n\\nЧайка\t6\t0\t80\t2170",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "shipyard:offer:ship1",
+   "images": [],
+   "actions": [
+    "yard@7:4:select",
+    "yard@7:4:activate"
+   ],
+   "columnHeaders": [
+    "Корабль",
+    "Класс",
+    "Орудия",
+    "Дедвейт",
+    "Цена"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Корабль",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Класс",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Орудия",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Дедвейт",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Цена",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Шлюпка\\n\\nЧайка",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 35,
+       "imageRevision": 35,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "6",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "80",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "2170",
+     "colorArgb": 4294960208,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_SHIPYARD",
+   "type": "choice",
+   "label": "Тендер\\n\\nЛасточка\t6\t6\t272\t5607",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "shipyard:offer:ship2",
+   "images": [],
+   "actions": [
+    "yard@7:4:select",
+    "yard@7:4:activate"
+   ],
+   "columnHeaders": [
+    "Корабль",
+    "Класс",
+    "Орудия",
+    "Дедвейт",
+    "Цена"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Корабль",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Класс",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Орудия",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Дедвейт",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Цена",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Тендер\\n\\nЛасточка",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 36,
+       "imageRevision": 36,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "6",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "6",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "272",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "5607",
+     "colorArgb": 4294960208,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_SHIPYARD",
+   "type": "choice",
+   "label": "Кеч\\n\\nБуревестник\t5\t12\t804\t23824",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "shipyard:offer:ship4",
+   "images": [],
+   "actions": [
+    "yard@7:4:select",
+    "yard@7:4:activate"
+   ],
+   "columnHeaders": [
+    "Корабль",
+    "Класс",
+    "Орудия",
+    "Дедвейт",
+    "Цена"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Корабль",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Класс",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Орудия",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Дедвейт",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Цена",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Кеч\\n\\nБуревестник",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 25,
+       "imageRevision": 25,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "5",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "12",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "804",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "23824",
+     "colorArgb": 4294960208,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "MAIN_CHARACTER_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 37,
+     "imageRevision": 37,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [
+    "yard@7:4:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "HERO_RANK",
+   "type": "text",
+   "label": "1",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "HERO_NAME",
+   "type": "text",
+   "label": "Жан Тестов",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Марта",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "1:0",
+   "images": [
+    {
+     "handle": 25,
+     "imageRevision": 25,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "SHIPS_Lugger",
+      "image": "ship"
+     }
+    }
+   ],
+   "actions": [
+    "yard@7:4:select"
+   ],
+   "context": {
+    "captainName": "Жан Тестов",
+    "class": "Класс 5",
+    "owner": "1",
+    "ownerKind": "OWNER_SHIP",
+    "rank": "1",
+    "saleQuote": "11 575",
+    "shipName": "Марта",
+    "slot": "0",
+    "type": "Кеч"
+   },
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Нет корабля",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "1:1",
+   "images": [
+    {
+     "handle": 39,
+     "imageRevision": 39,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "BLANK_SHIP2",
+      "image": "Not Used2"
+     }
+    }
+   ],
+   "actions": [
+    "yard@7:4:select"
+   ],
+   "context": {
+    "captainName": "",
+    "class": "",
+    "owner": "-1",
+    "ownerKind": "EMPTY_SLOT",
+    "rank": "",
+    "saleQuote": "",
+    "shipName": "",
+    "slot": "1",
+    "type": ""
+   },
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Нет корабля",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "1:2",
+   "images": [
+    {
+     "handle": 39,
+     "imageRevision": 39,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "BLANK_SHIP2",
+      "image": "Not Used2"
+     }
+    }
+   ],
+   "actions": [
+    "yard@7:4:select"
+   ],
+   "context": {
+    "captainName": "",
+    "class": "",
+    "owner": "-1",
+    "ownerKind": "EMPTY_SLOT",
+    "rank": "",
+    "saleQuote": "",
+    "shipName": "",
+    "slot": "2",
+    "type": ""
+   },
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Нет корабля",
+   "value": "0",
+   "index": 3,
+   "enabled": true,
+   "rowId": "1:3",
+   "images": [
+    {
+     "handle": 39,
+     "imageRevision": 39,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "BLANK_SHIP2",
+      "image": "Not Used2"
+     }
+    }
+   ],
+   "actions": [
+    "yard@7:4:select"
+   ],
+   "context": {
+    "captainName": "",
+    "class": "",
+    "owner": "-1",
+    "ownerKind": "EMPTY_SLOT",
+    "rank": "",
+    "saleQuote": "",
+    "shipName": "",
+    "slot": "3",
+    "type": ""
+   },
+   "cells": []
+  },
+  {
+   "node": "SHIPS_SCROLL",
+   "type": "choice",
+   "label": "Нет корабля",
+   "value": "0",
+   "index": 4,
+   "enabled": true,
+   "rowId": "1:4",
+   "images": [
+    {
+     "handle": 39,
+     "imageRevision": 39,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "BLANK_SHIP2",
+      "image": "Not Used2"
+     }
+    }
+   ],
+   "actions": [
+    "yard@7:4:select"
+   ],
+   "context": {
+    "captainName": "",
+    "class": "",
+    "owner": "-1",
+    "ownerKind": "EMPTY_SLOT",
+    "rank": "",
+    "saleQuote": "",
+    "shipName": "",
+    "slot": "4",
+    "type": ""
+   },
+   "cells": []
+  },
+  {
+   "node": "SHIP_RANK",
+   "type": "text",
+   "label": "6",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "EDIT_BOX",
+   "type": "edit",
+   "label": "",
+   "value": "Чайка",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tКорпус\t151 / 151\t",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "Hull",
+   "images": [],
+   "actions": [
+    "yard@7:4:select",
+    "yard@7:4:help"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 26,
+       "imageRevision": 26,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Hull"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Корпус",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "151 / 151",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tПаруса\t100 / 100\t",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "Sails",
+   "images": [],
+   "actions": [
+    "yard@7:4:select",
+    "yard@7:4:help"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 27,
+       "imageRevision": 27,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Sails"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Паруса",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "100 / 100",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tСкорость\t7.56\t",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "Speed",
+   "images": [],
+   "actions": [
+    "yard@7:4:select",
+    "yard@7:4:help"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 28,
+       "imageRevision": 28,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Speed"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Скорость",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "7.56",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tМанёвренность\t70.50\t",
+   "value": "0",
+   "index": 3,
+   "enabled": true,
+   "rowId": "Maneuver",
+   "images": [],
+   "actions": [
+    "yard@7:4:select",
+    "yard@7:4:help"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 29,
+       "imageRevision": 29,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Maneuver"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Манёвренность",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "70.50",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tКурсовой угол\t91 / 88\t",
+   "value": "0",
+   "index": 4,
+   "enabled": true,
+   "rowId": "AgainstWind",
+   "images": [],
+   "actions": [
+    "yard@7:4:select",
+    "yard@7:4:help"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 30,
+       "imageRevision": 30,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "AgainstWind"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Курсовой угол",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "91 / 88",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tДедвейт\t0 / 80\t",
+   "value": "0",
+   "index": 5,
+   "enabled": true,
+   "rowId": "Capacity",
+   "images": [],
+   "actions": [
+    "yard@7:4:select",
+    "yard@7:4:help"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 31,
+       "imageRevision": 31,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Capacity"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Дедвейт",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "0 / 80",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tКоманда\t0 : 1 / 11\t",
+   "value": "0",
+   "index": 6,
+   "enabled": true,
+   "rowId": "Crew",
+   "images": [],
+   "actions": [
+    "yard@7:4:select",
+    "yard@7:4:help"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 32,
+       "imageRevision": 32,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Crew"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Команда",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "0 : 1 / 11",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tВооружение\t3 фунт / 0\t",
+   "value": "0",
+   "index": 7,
+   "enabled": true,
+   "rowId": "sCannons",
+   "images": [],
+   "actions": [
+    "yard@7:4:select",
+    "yard@7:4:help"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 33,
+       "imageRevision": 33,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Caliber"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Вооружение",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "3 фунт / 0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tПушки\t0\t",
+   "value": "0",
+   "index": 8,
+   "enabled": true,
+   "rowId": "CannonType",
+   "images": [],
+   "actions": [
+    "yard@7:4:select",
+    "yard@7:4:activate",
+    "yard@7:4:help"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 34,
+       "imageRevision": 34,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Cannons"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Пушки",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "0",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "FRAME_INFO_CAPTION",
+   "type": "text",
+   "label": "Шлюпка",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "Небольшое судно для проверки экрана: быстрое, лёгкое и дешёвое.",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "BUTTON_SELL",
+   "type": "button",
+   "label": "Продать",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "BUTTON_REPAIR",
+   "type": "button",
+   "label": "Ремонт",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "BUTTON_BUY",
+   "type": "button",
+   "label": "Купить",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "yard@7:4:press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "Money_PIC",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 38,
+     "imageRevision": 38,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "ICONS_CHAR",
+      "image": "Money"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Money_TEXT",
+   "type": "text",
+   "label": "91",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}

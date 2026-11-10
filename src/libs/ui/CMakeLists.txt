@@ -60,7 +60,13 @@ add_library(storm_ui STATIC
     src/screens/generic.cpp
     src/screens/trade_commerce.cpp
     src/screens/trade_crew.cpp
+    src/screens/trade_shipyard.cpp
     src/screens/dialogue.cpp
+    src/screens/menu_game.cpp
+    src/screens/menu_new_game.cpp
+    src/screens/menu_saves.cpp
+    src/screens/menu_settings.cpp
+    src/screens/menu_title.cpp
     src/hud/hud.cpp
     src/hud/states.cpp
     src/hud/land.cpp
@@ -106,9 +112,16 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     add_executable(storm_ui_screens_unit tests/screens_check.cpp)
     target_link_libraries(storm_ui_screens_unit PRIVATE storm_ui)
     add_test(NAME ui_screens COMMAND storm_ui_screens_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/models")
+    add_executable(storm_ui_menus_unit tests/menus_check.cpp)
+    target_link_libraries(storm_ui_menus_unit PRIVATE storm_ui)
+    add_test(NAME ui_menus COMMAND storm_ui_menus_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/models")
     add_executable(storm_ui_hud_unit tests/hud_check.cpp)
     target_link_libraries(storm_ui_hud_unit PRIVATE storm_ui)
     add_test(NAME ui_hud COMMAND storm_ui_hud_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states")
+    add_executable(storm_ui_press_unit tests/press_check.cpp)
+    target_link_libraries(storm_ui_press_unit PRIVATE storm_ui)
+    add_test(NAME ui_press COMMAND storm_ui_press_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack"
+        "${storm_ui_rmlui_SOURCE_DIR}/Samples/assets/LatoLatin-Regular.ttf")
     add_executable(storm_ui_hud_land_unit tests/hud_land_check.cpp)
     target_link_libraries(storm_ui_hud_land_unit PRIVATE storm_ui)
     add_test(NAME ui_hud_land COMMAND storm_ui_hud_land_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
