@@ -153,7 +153,7 @@ class Scene
         check(d_.Present(nullptr, nullptr, nullptr, nullptr), "Present");
     }
 
-    UINT draws_per_frame() const { return 40 + 8 + 2 + 3 + 6 + 36; }
+    UINT draws_per_frame() const { return 40 + 10 + 2 + 3 + 6 + 36; }
 
   private:
     IDirect3DTexture9 *make_texture(UINT size)
@@ -240,7 +240,7 @@ class Scene
         }
     }
 
-    // A character: skinned on the CPU into a dynamic buffer every frame, 8 subsets.
+    // A character: skinned on the CPU into a dynamic buffer every frame.
     void skinned_meshes(uint32_t index)
     {
         void *data = nullptr;
@@ -255,11 +255,14 @@ class Scene
         d_.SetStreamSource(0, skinned_vb_, 0, sizeof(MeshVertex));
         const D3DMATRIX world = translation(-3, 0, 2);
         d_.SetTransform(D3DTS_WORLD, &world);
+        // A whole-mesh pass (shadow/reflection), the 8 subsets, then the whole mesh again.
+        check(d_.DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, mesh_vertices_, 0, mesh_triangles_), "draw skinned pass");
         for (uint32_t subset = 0; subset < 8; ++subset)
         {
             d_.SetTexture(0, textures_[subset % 2]);
             check(d_.DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, mesh_vertices_, subset * 9, 3), "draw skinned");
         }
+        check(d_.DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, mesh_vertices_, 0, mesh_triangles_), "draw skinned pass");
     }
 
     // A managed buffer the game rewrites now and then (every other frame here), drawn twice.
@@ -374,7 +377,7 @@ struct Expected
 
 // Counters of frames 3 and 4 together. Lower them when an optimisation lands.
 const Expected kExpected[] = {
-    {"draws", &render::PerfCounters::draws, 190},
+    {"draws", &render::PerfCounters::draws, 194},
     {"skipped_draws", &render::PerfCounters::skipped_draws, 0},
     {"views", &render::PerfCounters::views, 6},
     {"program_changes", &render::PerfCounters::program_changes, 2},
@@ -382,9 +385,9 @@ const Expected kExpected[] = {
     {"uniform_updates", &render::PerfCounters::uniform_updates, 82},
     {"uniform_bytes", &render::PerfCounters::uniform_bytes, 6784},
     {"uniform_draws", &render::PerfCounters::uniform_draws, 46},
-    {"texture_binds", &render::PerfCounters::texture_binds, 178},
+    {"texture_binds", &render::PerfCounters::texture_binds, 182},
     {"texture_changes", &render::PerfCounters::texture_changes, 122},
-    {"transient_vb_bytes", &render::PerfCounters::transient_vb_bytes, 144704},
+    {"transient_vb_bytes", &render::PerfCounters::transient_vb_bytes, 144192},
     {"transient_ib_bytes", &render::PerfCounters::transient_ib_bytes, 828},
     {"fan_draws", &render::PerfCounters::fan_draws, 12},
     {"buffer_uploads", &render::PerfCounters::buffer_uploads, 1},

@@ -370,6 +370,7 @@ bool Context::run_frame(uint32_t flags, uint32_t *frame_number)
         return false;
     }
     const uint32_t number = bgfx::frame(flags);
+    ++submitted_frames_;
     {
         std::lock_guard lock(release_mutex_);
         in_frame_ = false;

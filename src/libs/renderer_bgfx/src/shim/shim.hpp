@@ -189,6 +189,7 @@ struct BufferBase
     std::vector<uint8_t> shadow;
     uint32_t dirty_begin = UINT32_MAX, dirty_end = 0; // bytes not yet sent to the GPU copy
     uint64_t write_frame = UINT64_MAX;                // frame of the last Unlock
+    uint32_t write_serial = 0;                        // incremented by every writing Lock
     uint32_t lock_count = 0;
     DWORD usage = 0;
     void mark(uint32_t offset, uint32_t size);

@@ -225,6 +225,11 @@ void Device::set_uniform(UniformId id, const float *data, uint16_t count)
     uniforms_changed = true;
 }
 
+void Device::forget_transient(const VertexBuffer *vb)
+{
+    std::erase_if(transient_ranges, [vb](const TransientRange &r) { return r.vb == vb; });
+}
+
 void Device::invalidate_uniforms()
 {
     for (auto &uniform : uniforms)
@@ -946,6 +951,24 @@ HRESULT Device::draw(const DrawCall &call)
                 skip_draw("vertex range outside the vertex buffer");
                 return D3D_OK;
             }
+            const VertexBuffer *vb = call.up_vertices ? nullptr : s.stream[i];
+            if (vb)
+            {
+                // The same range (passes over one dynamic buffer, several subsets) is copied once per frame.
+                const size_t shadow_begin = s.stream_offset[i] + begin;
+                const uint32_t bgfx_frame = Context::instance().submitted_frames();
+                const auto reuse = std::find_if(transient_ranges.begin(), transient_ranges.end(), [&](const TransientRange &r) {
+                    return r.bgfx_frame == bgfx_frame && r.vb == vb && r.serial == vb->write_serial && r.layout == layout->handle[i].idx &&
+                           r.stride == stride && r.begin <= shadow_begin && shadow_begin + bytes <= r.begin + r.bytes &&
+                           (shadow_begin - r.begin) % stride == 0;
+                });
+                if (reuse != transient_ranges.end())
+                {
+                    bgfx::setVertexBuffer(static_cast<uint8_t>(i), &reuse->tvb,
+                                          static_cast<uint32_t>((shadow_begin - reuse->begin) / stride), vertex_count);
+                    continue;
+                }
+            }
             if (bgfx::getAvailTransientVertexBuffer(vertex_count, layout->layout[i]) < vertex_count)
             {
                 skip_draw("transient vertex budget exhausted");
@@ -955,6 +978,9 @@ HRESULT Device::draw(const DrawCall &call)
             bgfx::allocTransientVertexBuffer(&tvb, vertex_count, layout->layout[i]);
             memcpy(tvb.data, source + begin, bytes);
             perf().transient_vb_bytes += bytes;
+            if (vb)
+                transient_ranges.push_back({Context::instance().submitted_frames(), vb, vb->write_serial, layout->handle[i].idx, stride,
+                                            s.stream_offset[i] + begin, bytes, tvb});
             bgfx::setVertexBuffer(static_cast<uint8_t>(i), &tvb, 0, vertex_count);
         }
     }

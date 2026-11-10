@@ -891,10 +891,13 @@ void BufferBase::mark(uint32_t offset, uint32_t size)
     dirty_begin = std::min(dirty_begin, offset);
     dirty_end = std::max(dirty_end, offset + size);
     write_frame = Context::instance().frame_index();
+    ++write_serial;
 }
 
 VertexBuffer::~VertexBuffer()
 {
+    if (device && Context::instance().initialised()) // the device is gone once the context is shut down
+        device->forget_transient(this);
     if (bgfx::isValid(handle) && Context::instance().initialised())
         bgfx::destroy(handle);
 }

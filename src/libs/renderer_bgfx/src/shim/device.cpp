@@ -333,6 +333,7 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
     view_has_content = false;
     invalidate_uniforms();
     last_draw = LastDraw{};
+    transient_ranges.clear();
     return D3D_OK;
 }
 

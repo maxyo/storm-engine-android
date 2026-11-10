@@ -53,6 +53,8 @@ class Context final : public render::FrameOwner
     bool run_frame(uint32_t flags, uint32_t *frame_number = nullptr);
 
     uint64_t frame_index() const { return frame_.frame_index; }
+    // Counts bgfx::frame() calls (presents and read-backs): transient buffers live until the next one.
+    uint32_t submitted_frames() const { return submitted_frames_; }
     const bgfx::Caps *caps() const { return caps_; }
     bool flip_y() const { return flip_y_; }
     bgfx::UniformHandle sampler(uint32_t unit) const { return samplers_[unit]; }
@@ -128,6 +130,7 @@ class Context final : public render::FrameOwner
     render::GamePictureProvider *picture_provider_ = nullptr;
     GameTarget game_target_;
     uint32_t frame_limit_ = 0;
+    uint32_t submitted_frames_ = 0;
     double last_present_ = 0.0;
 };
 
@@ -334,6 +337,22 @@ struct Device final : Direct3DDevice9Stub
         }
     };
     LastDraw last_draw;
+
+    // Vertex ranges of buffers written in this frame that are already in transient memory: later
+    // draws of the same (or a contained) range bind the copy instead of copying again. Valid until
+    // the next bgfx::frame(); a new Lock of the buffer (write_serial) or its release invalidates them.
+    struct TransientRange
+    {
+        uint32_t bgfx_frame;
+        const VertexBuffer *vb;
+        uint32_t serial;
+        uint16_t layout;
+        uint32_t stride;
+        size_t begin, bytes; // in the buffer's shadow copy
+        bgfx::TransientVertexBuffer tvb;
+    };
+    std::vector<TransientRange> transient_ranges;
+    void forget_transient(const VertexBuffer *vb);
     bool uniforms_changed = false; // a uniform was set since the previous submit
 
 };
