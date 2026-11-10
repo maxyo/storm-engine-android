@@ -13,6 +13,7 @@
 
 #include "core_private.h"
 #include "data.h"
+#include "game_profile.hpp"
 #include "message.h"
 #include "shared/layers.h"
 #include "shared/messages.h"
@@ -303,6 +304,8 @@ int main(int argc, char **argv)
 {
     const auto started = std::chrono::steady_clock::now();
     std::setvbuf(stdout, nullptr, _IONBF, 0); // in order with the engine's log lines
+    // The core's natives read the game profile; the EFFECTS_LIBRARY contract checked here is Caribbean Legend's.
+    storm::setGameProfile(storm::GameProfile::CaribbeanLegend);
     if (argc > 1 && !fs::is_directory(argv[1]))
     {
         std::printf("SKIP: no game directory %s\n", argv[1]);
