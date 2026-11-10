@@ -1,9 +1,11 @@
 // <ui-ring>: hold-to-confirm progress frame (rectangle or circle).
 // <ui-paper>: aged parchment sheet with a torn deckle edge, fibres, foxing and a fold.
 // <ui-clamp>: text cut to a number of lines with an ellipsis.
+// <ui-pages>: a long text shown a page at a time, before a reserved part (dialogue replies).
 // <ui-wheel>: a disc cut into sectors around a centre disc (the sword-move wheel).
 // Colours come from RCSS properties registered here, so the tokens stay the only source.
 #include "elements.h"
+#include "text_pages.h"
 
 #include <RmlUi/Core/ElementUtilities.h>
 
@@ -631,6 +633,157 @@ class ClampElement final : public Rml::Element
     std::string shown_;
 };
 
+// <ui-pages text="…" page="n" mode="paged|speech|replies">: the text wrapped with the
+// element's own font into lines of its content width, shown one page (as many lines as
+// its height holds) at a time. `page` counts how often the player asked for the next page;
+// the element advances from where the shown page starts, so a new width or height reflows
+// the rest of the text without skipping any. The final page must leave room for the
+// sibling marked data-reserve (the replies), whose height it measures. The element gets
+// the class `more` while pages remain and `last` on the final page; the template shows
+// the «next» control or the replies with sibling selectors (`ui-pages.more ~ …`). `mode`
+// speech / replies forces one of the two states (the design canvas shows them so).
+class PagesElement final : public Rml::Element
+{
+  public:
+    using Rml::Element::Element;
+
+  protected:
+    void OnAttributeChange(const Rml::ElementAttributes &changed) override
+    {
+        Rml::Element::OnAttributeChange(changed);
+        if (changed.count("text"))
+        {
+            const std::string text = GetAttribute<Rml::String>("text", "");
+            if (text != text_)
+            {
+                text_ = text;
+                offset_ = 0;
+                applied_ = GetAttribute<int>("page", 0);
+            }
+            dirty_ = true;
+        }
+        if (changed.count("page"))
+        {
+            const int page = GetAttribute<int>("page", 0);
+            if (page < applied_) // the screen started over
+            {
+                offset_ = 0;
+                applied_ = 0;
+            }
+            dirty_ = true;
+        }
+        if (changed.count("mode"))
+            dirty_ = true;
+        if (changed.count("class")) // the template patch rewrote the classes: keep the state
+            ShowState();
+    }
+
+    void OnLayout() override
+    {
+        Rml::Element::OnLayout();
+        const Rml::Vector2f size = GetBox().GetSize(Rml::BoxArea::Content);
+        const float reserve = Reserve();
+        if (std::fabs(size.x - width_) >= 0.5f || std::fabs(size.y - height_) >= 0.5f || std::fabs(reserve - reserve_) >= 0.5f)
+        {
+            width_ = size.x;
+            height_ = size.y;
+            reserve_ = reserve;
+            dirty_ = true;
+        }
+        if (dirty_)
+            clamps_changed = true; // refit in the next update, then lay out again
+    }
+
+    void OnUpdate() override
+    {
+        Rml::Element::OnUpdate();
+        if (!dirty_ || width_ <= 0.0f || height_ <= 0.0f)
+            return;
+        dirty_ = false;
+        Refit();
+    }
+
+  private:
+    float Reserve()
+    {
+        Rml::Element *parent = GetParentNode();
+        for (int i = 0; parent && i < parent->GetNumChildren(); ++i)
+        {
+            Rml::Element *child = parent->GetChild(i);
+            if (child != this && child->HasAttribute("data-reserve") && child->GetNumChildren() > 0)
+                return child->GetBox().GetSize(Rml::BoxArea::Border).y + child->GetBox().GetEdge(Rml::BoxArea::Margin, Rml::BoxEdge::Top);
+        }
+        return 0.0f;
+    }
+
+    float LineHeight()
+    {
+        const float line = GetComputedValues().line_height().value;
+        return line > 0.0f ? line : std::max(1.0f, GetComputedValues().font_size() * 1.2f);
+    }
+
+    PageBreak Page(size_t offset, std::vector<size_t> &starts)
+    {
+        const std::string rest = text_.substr(std::min(offset, text_.size()));
+        starts = WrapLines(rest, width_, [this](const std::string &line) { return static_cast<float>(Rml::ElementUtilities::GetStringWidth(this, line)); });
+        const float line = LineHeight();
+        std::vector<float> bottoms;
+        for (size_t i = 0; i + 1 < starts.size(); ++i)
+            bottoms.push_back(line * static_cast<float>(i + 1));
+        const float total = bottoms.empty() ? 0.0f : bottoms.back();
+        // Rounding of the box must not cost a line that fits.
+        const float slack = 0.5f;
+        return ChoosePage(text_, offset, starts, bottoms, total, height_ + slack, height_ - reserve_ + slack);
+    }
+
+    void Refit()
+    {
+        const std::string mode = GetAttribute<Rml::String>("mode", "paged");
+        const int page = GetAttribute<int>("page", 0);
+        std::vector<size_t> starts;
+        PageBreak shown = Page(offset_, starts);
+        while (mode == "paged" && applied_ < page && shown.more)
+        {
+            offset_ = shown.next;
+            ++applied_;
+            shown = Page(offset_, starts);
+        }
+        applied_ = std::max(applied_, page);
+        more_ = mode == "speech" || (mode == "paged" && shown.more);
+        // Lines of this page, each exactly as measured (the element does not wrap again).
+        std::string rml;
+        const size_t end = mode == "replies" ? text_.size() : shown.display;
+        for (size_t i = 0; i + 1 < starts.size() && offset_ + starts[i] < end; ++i)
+        {
+            std::string line = text_.substr(offset_ + starts[i], starts[i + 1] - starts[i]);
+            while (!line.empty() && (line.back() == '\n' || line.back() == ' '))
+                line.pop_back();
+            rml += (i ? "<br/>" : "") + EscapeRml(line);
+        }
+        if (rml != shown_)
+        {
+            shown_ = rml;
+            SetInnerRML(rml);
+        }
+        ShowState();
+    }
+
+    void ShowState()
+    {
+        if (IsClassSet("more") != more_)
+            SetClass("more", more_);
+        if (IsClassSet("last") == more_)
+            SetClass("last", !more_);
+    }
+
+    std::string text_, shown_;
+    size_t offset_ = 0; // start of the page shown
+    int applied_ = 0;   // `page` requests already turned into offsets
+    float width_ = -1.0f, height_ = -1.0f, reserve_ = -1.0f;
+    bool dirty_ = true;
+    bool more_ = false;
+};
+
 } // namespace
 
 bool TextClampsChanged()
@@ -668,6 +821,8 @@ void RegisterDrawElements()
     Rml::Factory::RegisterElementInstancer("ui-wheel", &wheel);
     static Rml::ElementInstancerGeneric<ClampElement> clamp;
     Rml::Factory::RegisterElementInstancer("ui-clamp", &clamp);
+    static Rml::ElementInstancerGeneric<PagesElement> pages;
+    Rml::Factory::RegisterElementInstancer("ui-pages", &pages);
 }
 
 } // namespace storm::ui

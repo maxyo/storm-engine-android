@@ -4,6 +4,10 @@
 #include <platform/android_dialogue_input.hpp>
 #include <core.h>
 #include <string_compare.hpp>
+#include <v_data.h>
+
+#include <cstdlib>
+#include <optional>
 
 namespace storm::android {
 // Runtime dialogue data only; neither dialogue strings nor game files are bundled.
@@ -58,6 +62,18 @@ inline std::string dialogueIdentityField(const char *value) {
     const std::string_view text(value);
     return std::to_string(text.size()) + ':' + std::string(text);
 }
+inline std::optional<int64_t> dialogueHeroMoney() {
+    auto *index = static_cast<VDATA *>(core.GetScriptVariable("nMainCharacterIndex"));
+    auto *characters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
+    if (!index || !characters || index->GetInt() < 0) return std::nullopt;
+    auto *hero = characters->GetAClass(index->GetInt());
+    const char *money = hero ? hero->GetAttribute("Money") : nullptr;
+    if (!money || !*money) return std::nullopt;
+    char *end = nullptr;
+    const long long value = std::strtoll(money, &end, 10);
+    if (end == money || value < 0) return std::nullopt;
+    return value;
+}
 inline bool publishDialogue(const void *owner, ATTRIBUTES *attrs, const char *speaker) {
     if (!attrs) { closeDialogue(owner); return false; }
     auto *links = attrs->GetAttributeClass("Links");
@@ -80,6 +96,10 @@ inline bool publishDialogue(const void *owner, ATTRIBUTES *attrs, const char *sp
         body += '}';
     }
     body += ']';
+    // An answer the player types may be an amount (a bet, a deposit): the hero's money is
+    // the upper bound the number panel offers. Absent when the script data has none.
+    if (editIndex != size_t(-1))
+        if (const auto money = dialogueHeroMoney()) body += ",\"money\":" + std::to_string(*money);
     if (dialogueOwner == owner && dialogueSnapshot == body && dialogueIdentity == identity) return true;
     auto generation = dialogueGeneration + 1;
     if (!sendDialogue("{\"active\":true,\"generation\":" + std::to_string(generation) + ',' + body + '}')) return false;

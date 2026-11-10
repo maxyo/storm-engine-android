@@ -21,7 +21,7 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `generic.cpp` | the generic auto-layout for interfaces without a ported screen |
 | `trade_crew.cpp` | crew hire: the trade layout with one always-open row |
 | `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout, a column table per interface |
-| `dialogue.cpp` | reference state channel: `dialogue` |
+| `dialogue.cpp` | state channel `dialogue`: speech paged by `<ui-pages>` (pure rules in `../text_pages.h`), replies in two columns, the answer editor (text through the IME bridge, or an amount on the number panel), the menu button (`pause` to the platform host) |
 
 The design rules are GENERIC-LAYOUT (pipeline, type → component, button roles, templates,
 verbs, §8 admission and extras) and the V2 mockups of the design canvas.
@@ -44,7 +44,10 @@ verbs, §8 admission and extras) and the V2 mockups of the design canvas.
      `admitted.One/All/Label`; bind every interactive element by its element id:
      `bindings.Forward(id, widget, "press")`, `bindings.On(id, verb, handler)` and inside a
      handler `bindings.Send(widget, verb, value)`, `SendLatest` (drags), `Back(exit)`,
-     `EditText`, `Read`, `Rebuild()` for local state kept in members. Mark events that are
+     `EditText` / `AskText` (the screen gets the typed text), `Read`, `Rebuild()` for local
+     state kept in members, `Platform(verb)` for a request to the platform host (`pause`).
+     A screen with a modal of its own returns true from `OwnsBack()` and closes it in `Back()`:
+     the back key then belongs to the UI (`Host::WantsBack`). Mark events that are
      expected but need nothing with `bindings.Ignore(id, verb)`.
    Add the file to `CMakeLists.txt`.
 3. **Registry.** Add `{"<interface id>", Create…}` to `kPorted` in `registry.cpp` and
@@ -167,9 +170,10 @@ contract are errors (log, toast in debug hosts), never quiet drops.
 
 Input goes out with `Hud::Send(verb, value, slot)`: the engine command is `<verb>:<value>`
 (`move`, `combat`, `landcommands`, `context`); a `slot` marks a latest-value input (stick
-position, coverage acknowledgement) of which a queueing host keeps only the newest. Two
-verbs are for the platform host: `shortcut` (`mainmenu`, `character`) and `presence`
-(`shown` / `hidden`). Sequences, owners and revisions are formed here; the platform adds
+position, coverage acknowledgement) of which a queueing host keeps only the newest. Three
+verbs are for the platform host: `shortcut` (`mainmenu`, `character`), `presence`
+(`shown` / `hidden`) and `pause` (its pause menu; the dialogue's menu button, through
+`Bindings::Platform`). Sequences, owners and revisions are formed here; the platform adds
 nothing.
 
 Touches over the game are decided per pointer at pointer-down: `Host::WantsTouch(x, y)` is

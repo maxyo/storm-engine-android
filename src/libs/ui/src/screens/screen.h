@@ -95,6 +95,13 @@ class Bindings
     void Back(const Widget *exit_button);
     // Opens the native text editor over the field; the accepted text is sent as `edit`.
     void EditText(const Event &event, const Widget &widget, const std::string &title, bool numeric);
+    // The same editor, but the accepted text goes to `accepted` (the screen checks it, keeps
+    // a draft, sends it itself); nothing happens when the player cancels.
+    void AskText(const Event &event, const std::string &text, const std::string &title, bool numeric,
+                 std::function<void(const std::string &)> accepted);
+    // A request for the platform host, not the engine (Action screen "hud", like the HUD's
+    // `shortcut`): `pause` opens the host's pause menu.
+    void Platform(const std::string &verb, const std::string &value = {});
     // Shows a long text on a parchment sheet over the screen.
     void Read(const std::string &title, const std::string &text);
     void Toast(const std::string &text);
@@ -136,6 +143,15 @@ class Screen
     // Called for every model revision and after Bindings::Rebuild(); the instance lives
     // while the same screen stays open, so members hold local state (filters, open sheets).
     virtual Json Build(const Admission &admitted, Bindings &bindings) = 0;
+    // True while the screen shows something of its own that the back key closes (a local
+    // modal); Back is then called instead of the engine's back.
+    virtual bool OwnsBack() const
+    {
+        return false;
+    }
+    virtual void Back(Bindings &)
+    {
+    }
 };
 
 struct ScreenEntry
@@ -196,6 +212,9 @@ class Router
     // False when no screen is mounted or the event belongs to nothing bound.
     bool OnEvent(const Event &event);
     void SubmitText(const std::string &token, const std::string &text, bool accepted);
+    // The back key belongs to the screen now (Screen::OwnsBack); Back gives it to it.
+    bool WantsBack() const;
+    void Back();
     // Flushes throttled sends and expired pending marks; returns seconds until it must be
     // called again (a large number when idle).
     double Tick();
@@ -262,6 +281,7 @@ class Router
     // Text editor in flight.
     std::string edit_token_;
     Action edit_action_;
+    std::function<void(const std::string &)> edit_handler_; // Bindings::AskText
     int edit_serial_ = 0;
     // Event being handled: sends made by its handler mark it pending.
     const Event *current_ = nullptr;

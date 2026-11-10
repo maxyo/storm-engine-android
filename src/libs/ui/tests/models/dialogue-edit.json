@@ -1,0 +1,18 @@
+{
+ "active": true,
+ "generation": 9,
+ "speaker": "Хозяин верфи",
+ "text": "Как назовёте корабль?",
+ "choices": [
+  {
+   "index": 0,
+   "text": "Аделина",
+   "editable": true,
+   "maxCodePoints": 256
+  },
+  {
+   "index": 1,
+   "text": "Пожалуй, позже."
+  }
+ ]
+}

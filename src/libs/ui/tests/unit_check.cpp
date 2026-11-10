@@ -3,6 +3,7 @@
 #include "../src/components.h"
 #include "../src/elements.h"
 #include "../src/template.h"
+#include "../src/text_pages.h"
 
 #include <cstdio>
 #include <cstring>
@@ -46,8 +47,37 @@ static std::vector<uint8_t> TxHeader(uint32_t width, uint32_t height, uint32_t f
     return data;
 }
 
+// The page rules of the dialogue speech (formerly DialoguePanel.PageBreak on Android):
+// intermediate capacity, the final page reserving room for the replies, exact fit, a
+// newline at the boundary, and reflow anchored at the page start.
+static void Pages()
+{
+    using storm::ui::ChoosePage;
+    const auto check = [](const std::string &text, size_t offset, std::vector<size_t> starts, std::vector<float> bottoms, float total,
+                          float middle, float last, size_t next, size_t display, bool more, const char *what) {
+        const storm::ui::PageBreak page = ChoosePage(text, offset, starts, bottoms, total, middle, last);
+        Expect(page.next == next && page.display == display && page.more == more, what);
+    };
+    check("1111222233334444", 0, {0, 4, 8, 12, 16}, {10, 20, 30, 40}, 40, 30, 10, 12, 12, true, "pages: an intermediate page fills its height");
+    check("11112222", 0, {0, 4, 8}, {10, 20}, 20, 30, 10, 4, 4, true, "pages: the last line is kept for the final page");
+    check("11112222", 4, {0, 4}, {10}, 10, 30, 10, 8, 8, false, "pages: the final page fits beside the replies");
+    check("111122223333", 0, {0, 4, 8, 12}, {10, 20, 30}, 30, 30, 30, 12, 12, false, "pages: an exact fit is one page");
+    check("11112222", 0, {0, 4, 8}, {10, 20}, 20, 30, 20, 8, 8, false, "pages: all of it fits on the final page");
+    check("aaa\nbbb\nccc", 0, {0, 4, 8, 11}, {10, 20, 30}, 30, 20, 10, 8, 7, true, "pages: a newline at the boundary shows no empty line");
+    check("1111222233334444", 4, {0, 2, 4, 6, 8, 10, 12}, {10, 20, 30, 40, 50, 60}, 60, 30, 10, 10, 10, true, "pages: narrow reflow from the page start");
+    check("1111222233334444", 4, {0, 6, 12}, {10, 20}, 20, 30, 10, 10, 10, true, "pages: wide reflow from the page start");
+
+    const auto width = [](const std::string &line) { return static_cast<float>(line.size()); };
+    const auto starts = storm::ui::WrapLines("aaa bb cccc\ndd", 6.0f, width);
+    Expect(starts == std::vector<size_t>({0, 7, 12, 14}), "wrap: at spaces up to the width and at newlines");
+    Expect(storm::ui::WrapLines("toolongword x", 4.0f, width) == std::vector<size_t>({0, 12, 13}), "wrap: a word wider than the line stays whole");
+    Expect(storm::ui::WrapLines("a\n\nb", 9.0f, width) == std::vector<size_t>({0, 2, 3, 4}), "wrap: an empty line between two newlines");
+    Expect(storm::ui::WrapLines("", 9.0f, width) == std::vector<size_t>({0}), "wrap: no text, no lines");
+}
+
 int main()
 {
+    Pages();
     const Json scope = Json::parse(R"({"label":"Купить <1>","n":1250000,"small":1250,"on":true,"off":false,"variant":"primary",
         "items":[{"label":"a","count":2},{"label":"b"}],"empty":[],"size":"md","spec":{"h":{"sm":40,"md":44}}})");
 
