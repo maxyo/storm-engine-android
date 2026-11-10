@@ -490,6 +490,7 @@ class LandScene final : public Scene
         const bool travel = commands.stage == "travel";
         Json rows = Json::array();
         std::string group;
+        int headings = 0;
         for (const LandCommands::Item &item : commands.items)
         {
             if (item.kind == "cancel")
@@ -506,6 +507,7 @@ class LandScene final : public Scene
             if (!root && !travel && item.kind != group)
             {
                 group = item.kind;
+                ++headings;
                 row["heading"] = item.kind == "potion" ? hud_.Text("hud.sheet.potions") : hud_.Text("hud.sheet.abilities");
             }
             rows.push_back(std::move(row));
@@ -516,6 +518,7 @@ class LandScene final : public Scene
         view.sheet_props = Json{{"title", commands.title.empty() ? hud_.Text("hud.sheet.actions") : commands.title},
                                 {"back", !root && commands.can_back},
                                 {"layout", travel ? "tiles" : root ? "rows" : "dense"},
+                                {"headings", headings},
                                 {"rows", rows}};
         input.On("sheet-back", "click", [this](const Event &) { Commands("back", {}); });
         input.On("sheet-close", "click", [this](const Event &) { Commands("close", {}); });

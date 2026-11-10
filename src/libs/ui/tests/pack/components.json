@@ -118,6 +118,10 @@
     "rows": {
      "type": "json",
      "default": []
+    },
+    "headings": {
+     "type": "number",
+     "default": 0
     }
    },
    "behaviors": [
