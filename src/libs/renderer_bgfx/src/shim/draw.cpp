@@ -338,9 +338,29 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
     const bool lighting = rs[D3DRS_LIGHTING] != 0 && !layout.rhw;
     const bool color_vertex = rs[D3DRS_COLORVERTEX] != 0;
     const bool fog = rs[D3DRS_FOGENABLE] != 0 && !layout.rhw;
-    DWORD fog_mode = D3DFOG_NONE;
+    // D3D9 fog: a table (pixel) mode wins and is evaluated from depth; otherwise the fixed-function
+    // vertex mode is used, and with no mode at all the factor comes from the vertex (the vertex
+    // shader's oFog, or the specular alpha of fixed-function vertices).
+    enum : uint32_t { kFogOff = 0, kFogFactor = 4 };
+    uint32_t fog_mode = kFogOff;
+    bool fog_from_clip_depth = false, fog_from_specular = false;
     if (fog)
-        fog_mode = rs[D3DRS_FOGTABLEMODE] != D3DFOG_NONE ? rs[D3DRS_FOGTABLEMODE] : rs[D3DRS_FOGVERTEXMODE];
+    {
+        if (rs[D3DRS_FOGTABLEMODE] != D3DFOG_NONE)
+        {
+            fog_mode = rs[D3DRS_FOGTABLEMODE];
+            fog_from_clip_depth = vs_port;
+        }
+        else if (vs_port)
+            fog_mode = kFogFactor;
+        else if (rs[D3DRS_FOGVERTEXMODE] != D3DFOG_NONE)
+            fog_mode = rs[D3DRS_FOGVERTEXMODE];
+        else
+        {
+            fog_mode = kFogFactor;
+            fog_from_specular = true;
+        }
+    }
 
     if (!vs_port)
     {
@@ -401,7 +421,8 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
              material_source(rs[D3DRS_AMBIENTMATERIALSOURCE], color_vertex, layout),
              material_source(rs[D3DRS_EMISSIVEMATERIALSOURCE], color_vertex, layout),
              material_source(rs[D3DRS_SPECULARMATERIALSOURCE], color_vertex, layout)},
-            {rs[D3DRS_SPECULARENABLE] ? 1.0f : 0.0f, s.material.Power, 0.0f, as_float(rs[D3DRS_POINTSIZE])},
+            {rs[D3DRS_SPECULARENABLE] ? 1.0f : 0.0f, s.material.Power, fog_from_specular ? 1.0f : 0.0f,
+             as_float(rs[D3DRS_POINTSIZE])},
         };
         set_uniform(U_VS, &vs[0][0], 4);
 
@@ -484,8 +505,7 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
     color_to_float(rs[D3DRS_TEXTUREFACTOR], fs[0]);
     color_to_float(rs[D3DRS_FOGCOLOR], fs[1]);
     fs[1][3] = static_cast<float>(fog_mode);
-    if (fog_mode != D3DFOG_NONE && vs_port)
-        fs[1][3] = 4.0f;
+    fs[3][3] = fog_from_clip_depth ? 1.0f : 0.0f;
     fs[2][0] = as_float(rs[D3DRS_FOGSTART]);
     fs[2][1] = as_float(rs[D3DRS_FOGEND]);
     fs[2][2] = as_float(rs[D3DRS_FOGDENSITY]);
@@ -755,7 +775,7 @@ HRESULT Device::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE type, UINT min_index, UI
 // A draw that cannot be issued is never dropped quietly: it is counted and its reason logged once.
 void Device::skip_draw(const char *reason)
 {
-    ++stats.skipped;
+    bgfx::discard(); // buffers or textures may already be bound for this draw
     trap(reason);
 }
 
@@ -763,6 +783,7 @@ HRESULT Device::draw(const DrawCall &call)
 {
     if (call.primitive_count == 0)
         return D3D_OK;
+    Context::instance().poll_surface();
     if (!Context::instance().ready())
         return D3D_OK;
     const uint32_t element_count = vertex_count_for(call.type, call.primitive_count);
@@ -921,9 +942,6 @@ HRESULT Device::draw(const DrawCall &call)
             bgfx::allocTransientVertexBuffer(&tvb, vertex_count, layout->layout[i]);
             memcpy(tvb.data, source + begin, bytes);
             bgfx::setVertexBuffer(static_cast<uint8_t>(i), &tvb, 0, vertex_count);
-            stats.transient_vertex_bytes += static_cast<uint32_t>(bytes);
-            if (call.up_vertices)
-                stats.up_bytes += static_cast<uint32_t>(bytes);
         }
     }
     else
@@ -958,7 +976,6 @@ HRESULT Device::draw(const DrawCall &call)
         const bool out32 = call.indexed ? index32 : vertex_count > 65535;
         if (bgfx::getAvailTransientIndexBuffer(out_count, out32) < out_count)
         {
-            bgfx::discard();
             skip_draw("transient index budget exhausted");
             return D3D_OK;
         }
@@ -1011,6 +1028,9 @@ HRESULT Device::draw(const DrawCall &call)
         store->sync();
         if (!bgfx::isValid(store->handle))
             continue;
+        if (store->render_target && store->levels > 1 && (std::max(store->width, store->height) >> store->levels) != 0)
+            // bgfx allocates the full chain for render targets; the levels below the D3D ones are never written.
+            trap("sampling a mipped render target with a partial mip chain (lower levels undefined)");
         uint32_t unit = stage;
         if (store->kind != TexKind::Tex2D)
         {
@@ -1055,7 +1075,6 @@ HRESULT Device::draw(const DrawCall &call)
     }
     bgfx::submit(view_id, handle);
     view_has_content = true;
-    ++stats.draws;
     return D3D_OK;
 }
 

@@ -69,6 +69,7 @@ void main()
             if (u_ffVs[1].x > 0.5) N = normalize(N);
         }
         float fogDepth = u_ffVs[1].z > 0.5 ? length(P) : abs(P.z);
+        if (u_ffVs[3].z > 0.5) fogDepth = specular.a; // fog enabled without a mode: the factor comes with the vertex
         float clipDist = dot(u_ffClipPlane.xyz, P) + u_ffClipPlane.w;
         if (dot(u_ffClipPlane, u_ffClipPlane) == 0.0) clipDist = 1.0;
         v_fog = vec4(fogDepth, clipDist, 0.0, 0.0);

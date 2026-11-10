@@ -38,7 +38,7 @@ int portAddr(float x)
     v_texcoord2 = oT2; \
     v_texcoord3 = oT3; \
     v_texcoord4 = oT4; \
-    v_fog = vec4(oFog, 1.0, 0.0, 0.0); \
+    v_fog = vec4(oFog, 1.0, oPos.z, 0.0); \
     gl_Position = mul(u_ffProj, oPos)
 
 #endif

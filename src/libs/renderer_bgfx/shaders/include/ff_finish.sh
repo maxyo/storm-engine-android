@@ -6,7 +6,7 @@
 #include "storm_common.sh"
 
 // [0] texture factor  [1] fog colour rgb, fog mode (0 off, 1 exp, 2 exp2, 3 linear, 4 factor passthrough)
-// [2] fog start, fog end, fog density, alpha ref  [3] alpha func (0 = off, else D3DCMP), specular add, stage count, unused
+// [2] fog start, fog end, fog density, alpha ref  [3] alpha func (0 = off, else D3DCMP), specular add, stage count, fog depth is in v_fog.z
 uniform vec4 u_ffFs[4];
 
 
@@ -33,7 +33,7 @@ vec4 ffFinish(vec4 color)
     if (mode > 0.5)
     {
         float f;
-        float d = v_fog.x;
+        float d = u_ffFs[3].w > 0.5 ? v_fog.z : v_fog.x;
         if (mode < 1.5) f = exp(-u_ffFs[2].z * d);
         else if (mode < 2.5) f = exp(-(u_ffFs[2].z * d) * (u_ffFs[2].z * d));
         else if (mode < 3.5) f = (u_ffFs[2].y - d) / max(u_ffFs[2].y - u_ffFs[2].x, 1e-6);
