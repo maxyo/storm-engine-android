@@ -311,6 +311,29 @@ inline void publishWorldInfo(const std::string &text) {
     if (type) env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);
 }
+// A passing line of the game's event log (Log_Info and alike): the portable UI shows it as
+// a toast (the HUD's top-centre log over a free game). The same text again within the
+// engine log's own line life is one line, as the engine's list keeps it.
+inline std::string lastGameMessage;
+inline uint32_t lastGameMessageAt = 0;
+inline void publishGameMessage(const std::string &text) {
+    const uint32_t now=SDL_GetTicks();
+    if (text.empty() || (text == lastGameMessage && now - lastGameMessageAt < 5000)) return;
+    lastGameMessage=text; lastGameMessageAt=now;
+    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return;
+    auto type=env->GetObjectClass(activity);
+    auto method=type ? env->GetMethodID(type,"showGameMessage","([B)V") : nullptr;
+    if (!method) __android_log_print(ANDROID_LOG_ERROR,"StormUi","game message dropped: the activity has no showGameMessage(byte[])");
+    auto bytes=env->NewByteArray(static_cast<jsize>(text.size()));
+    if (bytes) env->SetByteArrayRegion(bytes,0,static_cast<jsize>(text.size()),reinterpret_cast<const jbyte *>(text.data()));
+    if (method && bytes) env->CallVoidMethod(activity,method,bytes);
+    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
+    if (bytes) env->DeleteLocalRef(bytes);
+    if (type) env->DeleteLocalRef(type);
+    env->DeleteLocalRef(activity);
+}
 inline int graphicsSetting(const char *key, int fallback) {
     auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
     auto activity=static_cast<jobject>(SDL_AndroidGetActivity());

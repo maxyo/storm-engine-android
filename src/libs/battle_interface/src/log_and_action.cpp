@@ -480,6 +480,14 @@ void ILogAndActions::SetString(const char *str, bool immortal)
 {
     if (str == nullptr)
         return;
+#ifdef __ANDROID__
+    // Passing lines are the portable UI's toasts; only lasting lines stay drawn here.
+    if (!immortal)
+    {
+        storm::android::publishGameMessage(str);
+        return;
+    }
+#endif
 
     // find the last element of the list
     STRING_DESCR *last = m_sRoot;
