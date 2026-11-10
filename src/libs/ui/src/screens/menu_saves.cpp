@@ -94,7 +94,7 @@ std::string GameDate(const Bindings &bindings, const Stamp &stamp)
     return std::to_string(stamp.day) + " " + bindings.Text(kMonths[stamp.month - 1]) + " " + std::to_string(stamp.year);
 }
 
-// "сегодня, 22:14", "вчера, 23:05", "7 нояб., 20:12", "18 окт. 2025, 08:53"
+// "сегодня, 22:14", "вчера, 23:05", "7 нояб., 20:12", "18 окт. 2025"
 std::string CreatedDate(const Bindings &bindings, const Stamp &stamp)
 {
     const std::time_t now = std::time(nullptr);
@@ -117,8 +117,9 @@ std::string CreatedDate(const Bindings &bindings, const Stamp &stamp)
     else
     {
         day = std::to_string(stamp.day) + " " + bindings.Text(kMonths[stamp.month - 1]);
+        // A record of another year needs its year more than its time (and the column stays narrow).
         if (stamp.year != today.tm_year + 1900)
-            day += " " + std::to_string(stamp.year);
+            return day + " " + std::to_string(stamp.year);
     }
     return day + ", " + stamp.clock;
 }
@@ -269,7 +270,7 @@ class SavesScreen final : public Screen
         view["title"] = bindings.Text(saving ? "save.title_save" : "save.title_load");
         view["columns"] = Json::array({Json{{"label", bindings.Text("save.record")}, {"w", "1"}},
                                        Json{{"label", bindings.Text("save.game_date")}, {"w", "104px"}, {"align", "right"}},
-                                       Json{{"label", bindings.Text("save.created")}, {"w", "150px"}, {"align", "right"}}, // «18 окт. 2025, 08:53» whole at 915 dp
+                                       Json{{"label", bindings.Text("save.created")}, {"w", "128px"}, {"align", "right"}},
                                        Json{{"label", ""}, {"w", "24px"}, {"align", "center"}}});
         view["rows"] = rows;
         view["detail"] = chosen ? Detail(bindings, *chosen, saving) : Json();

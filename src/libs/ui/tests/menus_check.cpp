@@ -154,11 +154,11 @@ static void Saves(const std::string &models)
     ExpectEqual(rows[0]["cells"][0], "Герой Альфа · Порт Альфа", "a record is named «<hero> · <location>»");
     ExpectEqual(rows[2]["cells"][0], "Остров Гамма", "a record written without the hero: its location");
     ExpectEqual(rows[0]["cells"][1]["text"], "1 <common.month_10> 1654", "in-game date of the record");
-    ExpectEqual(rows[0]["cells"][2]["text"], "10 <common.month_3> 2001, 08:50", "creation date of the record");
+    ExpectEqual(rows[0]["cells"][2]["text"], "10 <common.month_3> 2001", "creation date of the record (another year: the year instead of the time)");
     const Json detail = surface.props["detail"];
     Expect(detail["title"] == "Бухта Бета" && detail["sub"] == "Герой Альфа" && detail["delete"] == true && detail["primary"] == "<save.load>", "detail of the chosen record");
     Expect(detail["facts"].size() == 3 && detail["facts"][0]["v"] == "2 <common.month_10> 1654, 11:20" &&
-               detail["facts"][1]["v"] == "6 <save.hours> 42 <save.minutes>" && detail["facts"][2]["v"] == "11 <common.month_3> 2001, 08:51",
+               detail["facts"][1]["v"] == "6 <save.hours> 42 <save.minutes>" && detail["facts"][2]["v"] == "11 <common.month_3> 2001",
            "in-game date, play time, created");
 
     router.OnEvent({"saves", "row", "2"});
