@@ -382,7 +382,12 @@ void ComponentElement::OnAttributeChange(const Rml::ElementAttributes &changed)
         }
         if (const PropSpec *prop = spec_.FindAttribute(entry.first))
         {
-            props_[prop->name] = ParseAttribute(*prop, entry.second);
+            // A removed attribute (a patched element whose new render no longer sets it, see
+            // SyncElement) returns the prop to its default instead of an empty value.
+            if (HasAttribute(entry.first))
+                props_[prop->name] = ParseAttribute(*prop, entry.second);
+            else
+                props_.erase(prop->name);
             dirty_ = true;
         }
         else if (!IsGenericAttribute(entry.first))
