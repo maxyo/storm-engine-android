@@ -47,11 +47,25 @@ jobjectArray result(JNIEnv *e,int code,const char *format,const char *error,cons
  return array;
 }
 struct Callback {JNIEnv *env;jobject target;jmethodID method;};
-int progress(void *data,const char *path,uint64_t bytes,uint64_t files) {
- auto &c=*static_cast<Callback*>(data);if(c.env->ExceptionCheck())return 1;
+int progress(void *data,int stage,const char *path,uint64_t bytes,uint64_t total,uint64_t files) {
+ auto &c=*static_cast<Callback*>(data);if(!c.target)return 0;if(c.env->ExceptionCheck())return 1;
  auto text=java_string(c.env,path);if(!text)return 1;
- bool cancel=c.env->CallBooleanMethod(c.target,c.method,text,static_cast<jlong>(bytes),static_cast<jlong>(files));
+ bool cancel=c.env->CallBooleanMethod(c.target,c.method,static_cast<jint>(stage),text,static_cast<jlong>(bytes),static_cast<jlong>(total),static_cast<jlong>(files));
  bool exception=c.env->ExceptionCheck();c.env->DeleteLocalRef(text);return cancel||exception;
+}
+// [totalBytes,fileBytes,entries,seconds,scratchBytes,depth,ratio,reserveBytes]
+bool source_limits(JNIEnv *env,jlongArray bounds,storm_archive_source_limits &limits) {
+ if(env->GetArrayLength(bounds)!=8)return false;
+ jlong v[8];env->GetLongArrayRegion(bounds,0,8,v);if(env->ExceptionCheck())return false;
+ for(auto x:v)if(x<=0)return false;
+ limits={uint64_t(v[0]),uint64_t(v[1]),uint64_t(v[2]),uint64_t(v[3]),uint64_t(v[4]),uint64_t(v[5]),uint64_t(v[6]),uint64_t(v[7])};
+ return true;
+}
+bool callback(JNIEnv *env,jobject cb,Callback &out) {
+ out={env,cb,nullptr};if(!cb)return true;
+ auto cls=env->GetObjectClass(cb);if(!cls)return false;
+ out.method=env->GetMethodID(cls,"onProgress","(ILjava/lang/String;JJJ)Z");env->DeleteLocalRef(cls);
+ return out.method!=nullptr;
 }
 template<class F> jobjectArray boundary(JNIEnv *env,F f) {
  try{return f();}
@@ -70,28 +84,6 @@ Java_org_stormengine_port_NativeArchives_inspect(JNIEnv *env,jclass,jstring inpu
  });
 }
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_org_stormengine_port_NativeArchives_extract(JNIEnv *env,jclass,jstring input,jstring staging,jlongArray bounds,jobject cb) {
- return boundary(env,[&]()->jobjectArray{
-  Text path(env,input),output(env,staging);if(env->ExceptionCheck())return nullptr;
-  storm_archive_limits limits{32ULL<<30,4ULL<<30,200000,3600};
-  if(bounds) {
-   if(env->GetArrayLength(bounds)!=4)return result(env,STORM_ARCHIVE_LIMIT,"","Expected four positive extraction limits");
-   jlong values[4];env->GetLongArrayRegion(bounds,0,4,values);if(env->ExceptionCheck())return nullptr;
-   for(auto value:values)if(value<=0)return result(env,STORM_ARCHIVE_LIMIT,"","Extraction limits must be positive");
-   limits={static_cast<uint64_t>(values[0]),static_cast<uint64_t>(values[1]),static_cast<uint64_t>(values[2]),static_cast<uint64_t>(values[3])};
-  }
-  Callback callback{env,cb,nullptr};
-  if(cb) {
-   auto cls=env->GetObjectClass(cb);if(!cls)return nullptr;
-   callback.method=env->GetMethodID(cls,"onProgress","(Ljava/lang/String;JJ)Z");env->DeleteLocalRef(cls);
-   if(!callback.method)return nullptr;
-  }
-  char error[2048]{};int code=storm_archive_extract(path.data(),output.data(),&limits,cb?progress:nullptr,&callback,error,sizeof(error));
-  if(env->ExceptionCheck())return nullptr;
-  return result(env,code,"",error);
- });
-}
-extern "C" JNIEXPORT jobjectArray JNICALL
 Java_org_stormengine_port_NativeArchives_manifest(JNIEnv *env,jclass,jstring input) {
  return boundary(env,[&]()->jobjectArray{
   Text path(env,input);if(env->ExceptionCheck())return nullptr;
@@ -100,5 +92,37 @@ Java_org_stormengine_port_NativeArchives_manifest(JNIEnv *env,jclass,jstring inp
   std::unique_ptr<char,decltype(&storm_archive_free)> json(raw,storm_archive_free);
   char ignored[2048]{};storm_archive_inspect(path.data(),format,sizeof(format),ignored,sizeof(ignored));
   return result(env,code,format,error,json?json.get():"");
+ });
+}
+// Results are [status, "", error, json]; json is the discovery document or a
+// failure description (encrypted / no space), or empty.
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_org_stormengine_port_NativeArchives_discover(JNIEnv *env,jclass,jstring source,jstring scratch,jstring password,jlongArray bounds,jobject cb) {
+ return boundary(env,[&]()->jobjectArray{
+  Text src(env,source),tmp(env,scratch);if(env->ExceptionCheck())return nullptr;
+  std::unique_ptr<Text> secret(password?new Text(env,password):nullptr);if(env->ExceptionCheck())return nullptr;
+  storm_archive_source_limits limits{};
+  if(!bounds||!source_limits(env,bounds,limits))return env->ExceptionCheck()?nullptr:result(env,STORM_ARCHIVE_LIMIT,"","Expected eight positive source limits","");
+  Callback progress_callback;if(!callback(env,cb,progress_callback))return nullptr;
+  char error[2048]{};char *raw=nullptr;
+  int code=storm_archive_discover(src.data(),tmp.data(),secret?secret->data():nullptr,&limits,progress,&progress_callback,&raw,error,sizeof(error));
+  std::unique_ptr<char,decltype(&storm_archive_free)> json(raw,storm_archive_free);
+  if(env->ExceptionCheck())return nullptr;
+  return result(env,code,"",error,json?json.get():"");
+ });
+}
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_org_stormengine_port_NativeArchives_extractRoot(JNIEnv *env,jclass,jstring source,jstring scratch,jstring password,jstring id,jstring staging,jlongArray bounds,jobject cb) {
+ return boundary(env,[&]()->jobjectArray{
+  Text src(env,source),tmp(env,scratch),root(env,id),out(env,staging);if(env->ExceptionCheck())return nullptr;
+  std::unique_ptr<Text> secret(password?new Text(env,password):nullptr);if(env->ExceptionCheck())return nullptr;
+  storm_archive_source_limits limits{};
+  if(!bounds||!source_limits(env,bounds,limits))return env->ExceptionCheck()?nullptr:result(env,STORM_ARCHIVE_LIMIT,"","Expected eight positive source limits","");
+  Callback progress_callback;if(!callback(env,cb,progress_callback))return nullptr;
+  char error[2048]{};char *raw=nullptr;
+  int code=storm_archive_extract_root(src.data(),tmp.data(),secret?secret->data():nullptr,root.data(),out.data(),&limits,progress,&progress_callback,&raw,error,sizeof(error));
+  std::unique_ptr<char,decltype(&storm_archive_free)> json(raw,storm_archive_free);
+  if(env->ExceptionCheck())return nullptr;
+  return result(env,code,"",error,json?json.get():"");
  });
 }
