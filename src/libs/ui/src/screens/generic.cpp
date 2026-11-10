@@ -110,10 +110,14 @@ class GenericScreen final : public Screen
         for (const Widget *widget : admitted.extras)
             if (!title && TitleNode(*widget) && (widget->type == "heading" || widget->type == "text"))
                 title = widget;
+        const bool navigation = std::any_of(admitted.extras.begin(), admitted.extras.end(),
+                                            [](const Widget *w) { return w->type == "button" && !SectionOf(*w).empty(); });
         for (const Widget *widget : admitted.extras)
         {
             if (widget == title)
                 continue;
+            if (navigation && SameNode(widget->node, "STR_BUTTONS"))
+                continue; // captions of the section buttons: the header icons replace them
             if (title && (widget->type == "text" || widget->type == "heading") && widget->label == title->label)
                 continue; // the title repeated in the content
             const std::string node = Upper(widget->node);

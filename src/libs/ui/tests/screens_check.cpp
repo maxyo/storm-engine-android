@@ -249,6 +249,17 @@ static void Generic(const std::string &models)
     router.OnEvent({"header-back", "click", ""});
     ExpectEqual(surface.Last(), "back", "no exit button → global back");
 
+    // Section navigation of the hero screens goes to the header.
+    InterfaceModel book;
+    book.screen = "tradebook";
+    book.opening = 5;
+    book.widgets = {Make("TITLE", "heading", "Журнал торговли"), Make("I_SHIP", "button", "Корабли", {"press"}),
+                    Make("I_SHIP_2", "button", "Корабли", {"press"}), Make("STR_BUTTONS", "text", "Корабли")};
+    router.SetInterface(book);
+    Expect(surface.props["sections"] == "tradebook" && surface.props["left"].empty(), "section buttons and their captions leave the content");
+    router.OnEvent({"header", "section", "ship"});
+    ExpectEqual(surface.Last(), "widget:tradebook\tI_SHIP\t-1\tpress", "a header section presses its button");
+
     router.CloseInterface();
     Expect(surface.tag.empty() && !router.Active(), "closing unmounts the screen");
 }
