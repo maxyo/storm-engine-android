@@ -67,6 +67,7 @@ def prepare_sources():
 
 
 glm_source = prepare_sources()
+os.environ.setdefault('STORM_GLM_SOURCE', str(glm_source))  # checks that locate GLM themselves
 values = {
     '--sdl-source': sources / 'SDL',
     '--dxvk-source': sources / 'dxvk',
@@ -77,16 +78,20 @@ values = {
 checks = sorted(root.glob('tests/*/run.py'))
 if args.only:
     checks = [path for path in checks if path.parent.name in args.only]
+# Options a check declares, with either quote style.
+OPTION = r'''add_argument\(\s*['"](--[a-z-]+)['"]'''
+
+
 def command_for(script):
     name = script.parent.name
     command = [sys.executable, str(script)]
     text = script.read_text()
-    for option in re.findall(r"add_argument\(\s*'(--[a-z-]+)'", text):
+    for option in re.findall(OPTION, text):
         if option == '--build-dir':
             command += [option, str(work / 'build' / name)]
         elif option in values:
             command += [option, str(values[option])]
-    for option in re.findall(r"add_argument\(\s*'(--[a-z-]+)'[^)]*required\s*=\s*True", text):
+    for option in re.findall(OPTION + r'[^)]*required\s*=\s*True', text):
         if option not in command:
             sys.exit(f'{script.relative_to(root)}: no host value for required option {option}')
     return command
