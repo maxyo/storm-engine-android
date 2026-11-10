@@ -169,6 +169,9 @@ enum S_TOKEN_TYPE
     ATTR_DELETE,
     AP_CHILD,
     CALL_NAMED,
+    NEW_ARRAY,
+    STACK_INDEX,
+    LEFTOP_SUBINDEX,
     TOKEN_TYPES_COUNT
 };
 // bytecode stores the instruction in one byte (read as uint8_t)

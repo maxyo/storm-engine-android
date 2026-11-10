@@ -175,6 +175,7 @@ void COMPILER::Release()
     SCodec.Release();
     LibriaryFuncs.clear();
     pendingNatives_.clear();
+    newArrays_.clear();
 
     delete[] pDebExpBuffer;
     pDebExpBuffer = nullptr;
@@ -2939,6 +2940,28 @@ bool COMPILER::CompileRangeFor(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint
     return true;
 }
 
+bool COMPILER::AssignValue(DATA *destination, DATA *value)
+{
+    // destination = value, converting the value to the destination's type as MOVE does
+    if (!destination)
+    {
+        SetError("assignment through a null reference");
+        return false;
+    }
+    DATA *source = value->GetVarPointer();
+    if (source && source->GetType() != destination->GetType())
+    {
+        ExpressionResult.ClearType();
+        ExpressionResult.Copy(value);
+        if (ExpressionResult.IsReference())
+            ExpressionResult.RefConvert();
+        if (!ExpressionResult.Convert(destination->GetType()))
+            return false;
+        source = ExpressionResult.GetVarPointer();
+    }
+    return destination->Copy(source);
+}
+
 uint32_t COMPILER::FindLocal(const char *name) const
 {
     for (auto it = localScopes_.rbegin(); it != localScopes_.rend(); ++it)
@@ -4587,6 +4610,16 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
             }
             CompileToken(Segment, STACK_POP);
             CompileToken(Segment, LEFTOP_INDEX);
+            // a[i][j] = ...: an element of the array a[i] refers to
+            while (Token.Get() == SQUARE_OPEN_BRACKET)
+            {
+                if (!CompileExpression(Segment))
+                    return false;
+                CompileToken(Segment, STACK_POP);
+                CompileToken(Segment, BX);
+                CompileToken(Segment, LEFTOP_SUBINDEX);
+            }
+            Token.StepBack();
 
             break;
         case SQUARE_CLOSE_BRACKET:
@@ -5290,6 +5323,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
     entid_t eid;
     //    ATTRIBUTES * pRoot;
     ATTRIBUTES *pLeftOperandAClass;
+    DATA *pLeftOperandElement = nullptr; // a[i][j] = ...: the element itself
     bool bDebugWaitForThisFunc;
     DATA *pVDst;
     DATA *pVSrc;
@@ -5488,12 +5522,14 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             break;
         case LOCAL_VARIABLE:
             pLeftOperandAClass = nullptr;            // reset attribute
+            pLeftOperandElement = nullptr;
             nLeftOperandIndex = INVALID_ARRAY_INDEX; // reset index
             nLeftOperandCode = *((int32_t *)&pRunCodeBase[TLR_DataOffset]);
             bLeftOperandType = LOCAL_VARIABLE;
             break;
         case VARIABLE:
             pLeftOperandAClass = nullptr;            // reset attribute
+            pLeftOperandElement = nullptr;
             nLeftOperandIndex = INVALID_ARRAY_INDEX; // reset index
             nLeftOperandCode = *((int32_t *)&pRunCodeBase[TLR_DataOffset]);
             bLeftOperandType = VARIABLE;
@@ -6660,6 +6696,22 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
 
             pVDst = nullptr;
             pVSrc = nullptr;
+            if (pLeftOperandElement)
+            {
+                // a[i][j] = value
+                BC_TokenGet(ip, token_data_size); // LEFT_OPERAND
+                if (BC_TokenGet(ip, token_data_size) != STACK_TOP)
+                {
+                    SetError("incorrect SRC");
+                    return false;
+                }
+                pVSrc = SStack.Read();
+                if (pVSrc->GetType() == VAR_REFERENCE && pLeftOperandElement->GetType() == VAR_REFERENCE)
+                    pLeftOperandElement->SetReference(pVSrc->GetReference());
+                else
+                    AssignValue(pLeftOperandElement->GetVarPointer(), pVSrc);
+                break;
+            }
             // find destination
             Token_type = BC_TokenGet(ip, token_data_size);
             switch (Token_type)
@@ -6768,6 +6820,19 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 break;
             }
 
+            if (pVSrc->GetType() == VAR_REFERENCE && nLeftOperandIndex != INVALID_ARRAY_INDEX)
+            {
+                // refs[i] = reference: an element of an array of references (directly or through
+                // a reference to it) refers to the value
+                DATA *container = pVDst->IsArray() ? pVDst : pVDst->GetVarPointer();
+                DATA *element = container && container->IsArray() ? container->GetArrayElement(nLeftOperandIndex)
+                                                                  : nullptr;
+                if (element && element->GetType() == VAR_REFERENCE)
+                {
+                    element->SetReference(pVSrc->GetReference());
+                    break;
+                }
+            }
             // test for references operations
             if (pVSrc->GetType() == VAR_REFERENCE && pVDst->GetType() == VAR_REFERENCE)
             {
@@ -6860,7 +6925,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 pVV = real_var->value.get();
                 // pVV = pVV->GetVarPointer();
                 // if(!pVV) { SetError("invalid ref"); break; }
-                if (pVV->IsReference())
+                if (pVV->IsReference() && !pVV->IsArray()) // an array of references indexes as any array
                 {
                     if (bUseIndex)
                     {
@@ -6904,7 +6969,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                     SetError("Local variable not found");
                     return false;
                 }
-                if (pVar->IsReference())
+                if (pVar->IsReference() && !pVar->IsArray()) // an array of references indexes as any array
                 {
                     if (bUseIndex)
                     {
@@ -7253,6 +7318,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 end = IntValue(SStack.Pop());
             if (flags & 1)
                 start = IntValue(SStack.Pop());
+            const bool character = flags & 4; // text[i]
             pVV = GetOperand(pCodeBase, ip);
             pV = SStack.Read();
             if (!pVV || !pV)
@@ -7269,7 +7335,7 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             const auto length = static_cast<int32_t>(strlen(chars));
             auto clamp = [length](int32_t i) { return std::clamp(i < 0 ? length + i : i, 0, length); };
             start = clamp(start);
-            end = clamp(end);
+            end = character ? std::min(start + 1, length) : clamp(end);
             const std::string slice = start < end ? std::string(chars + start, end - start) : std::string();
             pV->ClearType();
             pV->Set(slice);
@@ -7388,6 +7454,66 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             }
             SStack.Pop();
             StoreDynamicCallStatus(pVResult != nullptr);
+            break;
+        }
+        case NEW_ARRAY: {
+            // stack: size -> a reference to a new array of the type
+            uint32_t type;
+            memcpy(&type, &pCodeBase[ip], sizeof(uint32_t));
+            pV = SStack.Read();
+            const int32_t size = IntValue(pV);
+            if (size < 0)
+            {
+                SetError("new array of %d elements", size);
+                return false;
+            }
+            DATA &array = newArrays_.emplace_back();
+            array.SetVCompiler(this);
+            array.SetType(static_cast<S_TOKEN_TYPE>(type));
+            array.SetArraySize(static_cast<uint32_t>(size));
+            pV->ClearType();
+            pV->SetType(VAR_REFERENCE);
+            pV->SetReference(&array);
+            break;
+        }
+        case STACK_INDEX: {
+            // the stack top (an array or a reference to one) becomes a reference to its element BX
+            pV = SStack.Read();
+            DATA *array = Deref(pV);
+            rBX.Convert(VAR_INTEGER);
+            rBX.Get(lvalue);
+            DATA *element = array && array->IsArray() ? array->GetArrayElement(lvalue) : nullptr;
+            if (!element)
+            {
+                SetError("[%d]: not an array element", lvalue);
+                return false;
+            }
+            pV->ClearType();
+            pV->SetType(VAR_REFERENCE);
+            pV->SetReference(element);
+            break;
+        }
+        case LEFTOP_SUBINDEX: {
+            // left side a[i][j]: from the element a[i] (an array or a reference to one) to its element BX
+            DATA *base = pLeftOperandElement;
+            if (!base)
+            {
+                base = bLeftOperandType == VARIABLE ? VarTab.GetVar(nLeftOperandCode)->value.get()
+                                                    : SStack.Read(pRun_fi->stack_offset, nLeftOperandCode);
+                DATA *container = base->IsArray() ? base : base->GetVarPointer();
+                base = container && nLeftOperandIndex != INVALID_ARRAY_INDEX && container->IsArray()
+                           ? container->GetArrayElement(nLeftOperandIndex)
+                           : nullptr;
+            }
+            DATA *array = base ? Deref(base) : nullptr;
+            rBX.Convert(VAR_INTEGER);
+            rBX.Get(lvalue);
+            pLeftOperandElement = array && array->IsArray() ? array->GetArrayElement(lvalue) : nullptr;
+            if (!pLeftOperandElement)
+            {
+                SetError("[%d]: not an array element", lvalue);
+                return false;
+            }
             break;
         }
         case AP_CHILD: // rAP = its BX-th attribute (aref[i])

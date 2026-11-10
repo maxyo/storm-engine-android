@@ -1267,7 +1267,7 @@ void DATA::SetArraySize(uint32_t size)
 
 void DATA::SetElementsNum(uint32_t _asize)
 {
-    if (Data_type == VAR_REFERENCE)
+    if (Data_type == VAR_REFERENCE && !bArray) // an array of references has its own elements
     {
         if (pReference)
         {
@@ -1316,7 +1316,7 @@ void DATA::SetElementsNum(uint32_t _asize)
 uint32_t DATA::GetElementsNum()
 {
     // if(bRef)
-    if (Data_type == VAR_REFERENCE)
+    if (Data_type == VAR_REFERENCE && !bArray) // an array of references has its own elements
     {
         if (pReference)
         {
@@ -2536,7 +2536,7 @@ void DATA::SetVCompiler(VIRTUAL_COMPILER *pVC)
 DATA *DATA::GetVarPointer()
 {
     // if(!bRef) return this;
-    if (Data_type != VAR_REFERENCE)
+    if (Data_type != VAR_REFERENCE || bArray) // an array of references is a variable of its own
         return this;
     if (pReference == this) {
         Error("ref points to itself");

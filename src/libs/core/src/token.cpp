@@ -176,6 +176,9 @@ const char *TokenTypeName[] = { // in S_TOKEN_TYPE order
     "ATTR_DELETE",
     "AP_CHILD",
     "CALL_NAMED",
+    "NEW_ARRAY",
+    "STACK_INDEX",
+    "LEFTOP_SUBINDEX",
 
 };
 

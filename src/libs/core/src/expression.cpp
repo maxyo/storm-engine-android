@@ -1322,7 +1322,8 @@ bool COMPILER::CompileExpression_L5(SEGMENT_DESC &Segment)
         }
         uint32_t target = VAR_STRING;
         CompileToken(Segment, OP_CAST, 1, &target, sizeof(uint32_t));
-        CompileAuxiliaryTokens(Segment);
+        if (CompileAuxiliaryTokens(Segment) == SQUARE_OPEN_BRACKET)
+            return CompileSlice(Segment, STACK_TOP, 0);
         return true;
     }
     if (sttOpType == OP_SIZEOF)
@@ -1338,7 +1339,10 @@ bool COMPILER::CompileExpression_L5(SEGMENT_DESC &Segment)
     if (sttOpType == OP_PLUS || sttOpType == OP_MINUS || sttOpType == OP_BOOL_NEG || sttOpType == OP_BIT_NOT)
         CompileAuxiliaryTokens(Segment);
 
-    if (!CompileExpression_L6(Segment))
+    const bool prefixed = sttOpType == OP_PLUS || sttOpType == OP_MINUS || sttOpType == OP_BOOL_NEG ||
+                          sttOpType == OP_BIT_NOT;
+    // the operand of a prefix operator may have one too (!@a, -~b)
+    if (!(prefixed ? CompileExpression_L5(Segment) : CompileExpression_L6(Segment)))
         return false; // the failing operand reported the error
 
     switch (sttOpType)
@@ -1448,6 +1452,8 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
         }
         if (!bDynamicCall && Token.GetData() && storm::iEquals(Token.GetData(), "typeid"))
             return CompileTypeid(Segment);
+        if (!bDynamicCall && Token.GetData() && storm::iEquals(Token.GetData(), "new"))
+            return CompileNewArray(Segment);
         if (!bDynamicCall && Token.GetData() && IsAttributeIntrinsic(Token.GetData()))
             return CompileAttributeIntrinsic(Segment);
         if (!bDynamicCall)
@@ -1619,8 +1625,8 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
             CompileToken(Segment, STACK_ALLOC);
 
             sttResult = Token.Get();
-            if (sttResult == SQUARE_OPEN_BRACKET && IsSlice())
-                return CompileSlice(Segment, sttVariableField, dwVarCode); // text[a .. b]
+            if (sttResult == SQUARE_OPEN_BRACKET && (IsSlice() || IsTextVariable(sttVariableField, dwVarCode)))
+                return CompileSlice(Segment, sttVariableField, dwVarCode); // text[a .. b], text[i]
             if (sttResult == SQUARE_OPEN_BRACKET && IsArefVariable(sttVariableField, dwVarCode))
             {
                 // aref[i]: its i-th attribute
@@ -1709,6 +1715,22 @@ bool COMPILER::CompileExpression_L7(SEGMENT_DESC &Segment)
                     CompileToken(Segment, STACK_WRITE_BXINDEX);
                     CompileToken(Segment, sttVariableField, 1, (char *)&dwVarCode, sizeof(uint32_t));
 
+                    // a[i][j]: an element of the array a[i] refers to
+                    while (Token.GetType() == SQUARE_OPEN_BRACKET)
+                    {
+                        if (!CompileExpression(Segment))
+                            return false;
+                        if (Token.GetType() != SQUARE_CLOSE_BRACKET)
+                        {
+                            SetError("missing ']'");
+                            return false;
+                        }
+                        CompileToken(Segment, STACK_POP);
+                        CompileToken(Segment, BX);
+                        CompileToken(Segment, STACK_INDEX);
+                        CompileAuxiliaryTokens(Segment);
+                    }
+
                     // proceed to next token
                     // CompileAuxiliaryTokens(Segment);
 
@@ -1788,7 +1810,8 @@ bool COMPILER::CompileCast(SEGMENT_DESC &Segment)
         return false;
     }
     CompileToken(Segment, OP_CAST, 1, &target, sizeof(uint32_t));
-    CompileAuxiliaryTokens(Segment);
+    if (CompileAuxiliaryTokens(Segment) == SQUARE_OPEN_BRACKET && target == VAR_STRING)
+        return CompileSlice(Segment, STACK_TOP, 0); // string(x)[i]
     return true;
 }
 
@@ -2144,6 +2167,18 @@ bool COMPILER::CompileSlice(SEGMENT_DESC &Segment, S_TOKEN_TYPE source, uint32_t
         if (!CompileExpression(Segment))
             return false;
         flags |= 1;
+        if (Token.GetType() == SQUARE_CLOSE_BRACKET)
+        {
+            // text[i]: one character
+            flags |= 4;
+            CompileToken(Segment, OP_SLICE, 1, &flags, sizeof(uint32_t));
+            if (source == STACK_TOP)
+                CompileToken(Segment, STACK_TOP);
+            else
+                CompileToken(Segment, source, 1, &source_code, sizeof(uint32_t));
+            CompileAuxiliaryTokens(Segment);
+            return true;
+        }
     }
     if (Token.GetType() != DOT || Token.Get() != DOT)
     {
@@ -2537,4 +2572,44 @@ bool COMPILER::IsAttributeCall()
     Token.SetProgramControl(at - name.size()); // back on the identifier (current token again)
     Token.Get();
     return call;
+}
+
+bool COMPILER::IsTextVariable(S_TOKEN_TYPE var_type, uint32_t var_code)
+{
+    if (var_type == VARIABLE)
+    {
+        const auto *var = VarTab.GetVarX(var_code);
+        return var && var->type == VAR_STRING && !var->IsArray();
+    }
+    LocalVarInfo lvi;
+    return FuncTab.GetVar(lvi, CurrentFuncCode, var_code) && lvi.type == VAR_STRING && !lvi.IsArray();
+}
+
+// new type[size]: a reference to a new array (kept by the compiler until it is released)
+bool COMPILER::CompileNewArray(SEGMENT_DESC &Segment)
+{
+    const S_TOKEN_TYPE type = Token.Get();
+    if (!(type == VAR_INTEGER || type == VAR_FLOAT || type == VAR_STRING || type == VAR_OBJECT ||
+          type == VAR_REFERENCE || type == VAR_AREFERENCE))
+    {
+        SetError("type expected after 'new'");
+        return false;
+    }
+    // "string[16]": the lexer may have read '[' as the type's data
+    if (!(Token.GetData() && strcmp(Token.GetData(), "[") == 0) && Token.Get() != SQUARE_OPEN_BRACKET)
+    {
+        SetError("'[' expected after new type");
+        return false;
+    }
+    if (!CompileExpression(Segment))
+        return false;
+    if (Token.GetType() != SQUARE_CLOSE_BRACKET)
+    {
+        SetError("']' expected after new type[size");
+        return false;
+    }
+    const uint32_t element_type = type;
+    CompileToken(Segment, NEW_ARRAY, 1, &element_type, sizeof(uint32_t));
+    CompileAuxiliaryTokens(Segment);
+    return true;
 }

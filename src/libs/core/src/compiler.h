@@ -181,6 +181,7 @@ class COMPILER : public VIRTUAL_COMPILER
     uint32_t SkipInitializer(bool &resumed);
     // pass 2: block scoped locals
     uint32_t FindLocal(const char *name) const;
+    bool AssignValue(DATA *destination, DATA *value);
     int32_t IntValue(DATA *pV);
     static DATA *Deref(DATA *pV);
     static ATTRIBUTES *AttributesOf(DATA *pV);
@@ -296,6 +297,9 @@ class COMPILER : public VIRTUAL_COMPILER
     bool CompileCallThrough(SEGMENT_DESC &Segment, S_TOKEN_TYPE call_type);
     bool CompileObjectLiteral(SEGMENT_DESC &Segment);
     bool IsAccessVariable();
+    bool IsTextVariable(S_TOKEN_TYPE var_type, uint32_t var_code);
+    bool CompileNewArray(SEGMENT_DESC &Segment);
+    std::deque<DATA> newArrays_; // arrays made by "new type[n]" (scripts keep references to them)
     bool CompileChainTail(SEGMENT_DESC &Segment);
     bool IsAttributeCall();
     bool IsArefVariable(S_TOKEN_TYPE var_type, uint32_t var_code);
