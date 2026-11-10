@@ -1103,9 +1103,6 @@ bool DX9RENDER::DX9Clear(int32_t type)
 //################################################################################
 bool DX9RENDER::DX9BeginScene()
 {
-#ifdef __ANDROID__
-    ReconfigureGraphicsEffects();
-#endif
     //~!~
     return false;
 }
@@ -2828,6 +2825,9 @@ void DX9RENDER::SetGLOWParams(float _fBlurBrushSize, int32_t _GlowIntensity, int
 
 void DX9RENDER::RunStart()
 {
+#ifdef __ANDROID__
+    ReconfigureGraphicsEffects(); // the settings screen stored new preferences
+#endif
     auto *pScriptRender = static_cast<VDATA *>(core.GetScriptVariable("Render"));
     ATTRIBUTES *pARender = pScriptRender->GetAClass();
 

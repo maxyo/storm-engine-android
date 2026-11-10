@@ -203,7 +203,7 @@ class SettingsScreen final : public Screen
             Toggle(bindings, right, "character_shadows", "settings.shadows");
             sections.push_back({bindings.Text("settings.graphics"), {left, right}});
             // The graphics effects: the preset, and every override under «Подробнее».
-            Column preset{bindings.Text("settings.fx_quality")}, beside;
+            Column preset{bindings.Text("settings.fx_quality")};
             Segment(bindings, preset, "fx_preset", "settings.fx_quality", {0, 1, 2},
                     {bindings.Text("settings.fx_original"), bindings.Text("settings.fx_medium"), bindings.Text("settings.fx_high")}, false);
             preset.rows.back().erase("label");
@@ -213,7 +213,7 @@ class SettingsScreen final : public Screen
                 fx_open_ = !fx_open_;
                 bindings.Rebuild();
             });
-            sections.push_back({"", {preset, beside}});
+            sections.push_back({"", {preset}}); // one column: the preset's three names need the width
             if (fx_open_)
             {
                 Column first, second;
