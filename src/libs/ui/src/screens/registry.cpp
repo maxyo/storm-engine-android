@@ -25,11 +25,15 @@ std::unique_ptr<Screen> CreateTitleScreen();
 std::unique_ptr<Screen> CreateNewGameScreen();
 std::unique_ptr<Screen> CreateDiceScreen();
 std::unique_ptr<Screen> CreateCardsScreen();
+std::unique_ptr<Screen> CreateGoodsOrderScreen();
+std::unique_ptr<Screen> CreateSailEmblemScreen();
 
 namespace
 {
 
 const ScreenEntry kPorted[] = {
+    {"goodstransfer", CreateGoodsOrderScreen},
+    {"sailsgerald", CreateSailEmblemScreen},
     {"store", CreateStoreScreen},
     {"storage", CreateStorageScreen},
     {"contraband", CreateContrabandScreen},
