@@ -85,7 +85,8 @@ inline Sphere::Sphere(const Sphere &s)
 // Point in sphere
 inline bool Sphere::Intersection(const Vector &p)
 {
-    return ~Vector(x - p.x, y - p.y, z - p.z) <= r * r;
+    const auto delta = storm::math::GlmVec3(x, y, z) - p.glmValue();
+    return glm::dot(delta, delta) <= r * r;
 }
 
 // Check intersection of line and sphere
@@ -123,7 +124,8 @@ inline bool Sphere::Intersection(const Vector &orig, const Vector &normdir, floa
 // Check sphere and sphere intersection
 inline bool Sphere::Intersection(const Sphere &sph)
 {
-    return (~Vector(x - sph.x, y - sph.y, z - sph.z) <= (r + sph.r) * (r + sph.r));
+    const auto delta = storm::math::GlmVec3(x, y, z) - storm::math::GlmVec3(sph.x, sph.y, sph.z);
+    return glm::dot(delta, delta) <= (r + sph.r) * (r + sph.r);
 }
 
 // Set sphere in a point with 0 radius
@@ -139,10 +141,9 @@ inline void Sphere::Reset(const Vector &p)
 inline void Sphere::AddPoint(const Vector &p)
 {
     // Vector from point to center
-    const float dx = x - p.x;
-    const float dy = y - p.y;
-    const float dz = z - p.z;
-    float len = dx * dx + dy * dy + dz * dz;
+    const auto point = p.glmValue();
+    const auto delta = storm::math::GlmVec3(x, y, z) - point;
+    float len = glm::dot(delta, delta);
     if (len <= r * r)
         return;
     len = sqrtf(len);
@@ -150,9 +151,10 @@ inline void Sphere::AddPoint(const Vector &p)
     r = (len + r) * 0.5f;
     // New position
     len = r / len;
-    x = p.x + dx * len;
-    y = p.y + dy * len;
-    z = p.z + dz * len;
+    const auto center = point + delta * len;
+    x = center.x;
+    y = center.y;
+    z = center.z;
 }
 
 // Check ray and sphere intersection

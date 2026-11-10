@@ -11,6 +11,36 @@
 #include <math.h>
 #include <stdlib.h>
 #include "../glm_backend.h"
+#include <glm/common.hpp>
+#include <glm/exponential.hpp>
+#include <glm/vector_relational.hpp>
+
+namespace storm::math
+{
+// GLM 1.0.3 implements unary minus as 0 - v, which yields +0 for +0 where the
+// legacy code produced -0. Negate the components instead.
+inline GlmVec2 negated(const GlmVec2 &value)
+{
+    return {-value.x, -value.y};
+}
+inline GlmVec3 negated(const GlmVec3 &value)
+{
+    return {-value.x, -value.y, -value.z};
+}
+inline GlmVec4 negated(const GlmVec4 &value)
+{
+    return {-value.x, -value.y, -value.z, -value.w};
+}
+
+// glm::dot sums four products pairwise, (x + y) + (z + w). The legacy code sums
+// them left to right, which rounds differently.
+template <typename T, glm::qualifier Q>
+inline T sequentialDot(const glm::vec<4, T, Q> &a, const glm::vec<4, T, Q> &b)
+{
+    const auto products = a * b;
+    return products.x + products.y + products.z + products.w;
+}
+} // namespace storm::math
 #pragma pack(pop)
 
 #pragma pack(push, 1)
@@ -41,6 +71,8 @@ class Vector
     // Value conversions keep the packed x/y/z representation unchanged.
     storm::math::GlmVec3 glmValue() const { return {x, y, z}; }
     static Vector fromGlm(const storm::math::GlmVec3 &value) { return {value.x, value.y, value.z}; }
+    // Projection to the XZ plane used by the 2D helpers.
+    storm::math::GlmVec2 glmXZ() const { return {x, z}; }
 
     // Empty constructor
     Vector();
@@ -279,7 +311,7 @@ inline Vector Vector::operator!() const
 
 inline Vector Vector::operator-() const
 {
-    return fromGlm(-glmValue());
+    return fromGlm(storm::math::negated(glmValue()));
 }
 
 // Assign
@@ -628,9 +660,7 @@ Compare component by component
 */
 inline bool operator>(const Vector &v1, const Vector &v2)
 {
-    if (v1.x > v2.x && v1.y > v2.y && v1.z > v2.z)
-        return true;
-    return false;
+    return glm::all(glm::greaterThan(v1.glmValue(), v2.glmValue()));
 }
 
 /*!\relates Vector
@@ -638,9 +668,7 @@ Compare component by component
 */
 inline bool operator>=(const Vector &v1, const Vector &v2)
 {
-    if (v1.x >= v2.x && v1.y >= v2.y && v1.z >= v2.z)
-        return true;
-    return false;
+    return glm::all(glm::greaterThanEqual(v1.glmValue(), v2.glmValue()));
 }
 
 /*!\relates Vector
@@ -648,9 +676,7 @@ Compare component by component
 */
 inline bool operator<(const Vector &v1, const Vector &v2)
 {
-    if (v1.x < v2.x && v1.y < v2.y && v1.z < v2.z)
-        return true;
-    return false;
+    return glm::all(glm::lessThan(v1.glmValue(), v2.glmValue()));
 }
 
 /*!\relates Vector
@@ -658,9 +684,7 @@ Compare component by component
 */
 inline bool operator<=(const Vector &v1, const Vector &v2)
 {
-    if (v1.x <= v2.x && v1.y <= v2.y && v1.z <= v2.z)
-        return true;
-    return false;
+    return glm::all(glm::lessThanEqual(v1.glmValue(), v2.glmValue()));
 }
 
 /*!\relates Vector
@@ -668,9 +692,7 @@ Compare component by component
 */
 inline bool operator==(const Vector &v1, const Vector &v2)
 {
-    if (fabsf(v1.x - v2.x) < 1e-34f && fabsf(v1.y - v2.y) < 1e-34f && fabsf(v1.z - v2.z) < 1e-34f)
-        return true;
-    return false;
+    return glm::all(glm::lessThan(glm::abs(v1.glmValue() - v2.glmValue()), storm::math::GlmVec3(1e-34f)));
 }
 
 /*!\relates Vector
@@ -717,13 +739,12 @@ inline float Vector::ClampLength(float clampValue)
         x = y = z = 0.0f;
         return 0.0f;
     }
-    const double len = sqrt(x * x + y * y + z * z);
+    // The squared length is deliberately accumulated in float, as before.
+    const double len = sqrt(glm::dot(glmValue(), glmValue()));
     if (len > clampValue)
     {
         const auto k = clampValue / len;
-        x = static_cast<float>(x * k);
-        y = static_cast<float>(y * k);
-        z = static_cast<float>(z * k);
+        *this = fromGlm(storm::math::GlmVec3(storm::math::GlmDVec3(glmValue()) * k));
         return clampValue;
     }
     return static_cast<float>(len);
@@ -732,72 +753,42 @@ inline float Vector::ClampLength(float clampValue)
 // Limit X component to range
 inline Vector &Vector::ClampX(float min, float max)
 {
-    if (x < min)
-        x = min;
-    if (x > max)
-        x = max;
+    x = glm::clamp(x, min, max);
     return *this;
 }
 
 // Constrain Y component to range
 inline Vector &Vector::ClampY(float min, float max)
 {
-    if (y < min)
-        y = min;
-    if (y > max)
-        y = max;
+    y = glm::clamp(y, min, max);
     return *this;
 }
 
 // Constrain Z component to range
 inline Vector &Vector::ClampZ(float min, float max)
 {
-    if (z < min)
-        z = min;
-    if (z > max)
-        z = max;
+    z = glm::clamp(z, min, max);
     return *this;
 }
 
 // Limit components to a range
 inline Vector &Vector::Clamp(float min, float max)
 {
-    if (x < min)
-        x = min;
-    if (x > max)
-        x = max;
-    if (y < min)
-        y = min;
-    if (y > max)
-        y = max;
-    if (z < min)
-        z = min;
-    if (z > max)
-        z = max;
+    *this = fromGlm(glm::clamp(glmValue(), min, max));
     return *this;
 }
 
 // Keep vector minimal components
 inline Vector &Vector::Min(const Vector &v)
 {
-    if (x > v.x)
-        x = v.x;
-    if (y > v.y)
-        y = v.y;
-    if (z > v.z)
-        z = v.z;
+    *this = fromGlm(glm::min(glmValue(), v.glmValue()));
     return *this;
 }
 
 // Keep vector maximum components
 inline Vector &Vector::Max(const Vector &v)
 {
-    if (x < v.x)
-        x = v.x;
-    if (y < v.y)
-        y = v.y;
-    if (z < v.z)
-        z = v.z;
+    *this = fromGlm(glm::max(glmValue(), v.glmValue()));
     return *this;
 }
 
@@ -826,34 +817,28 @@ inline Vector &Vector::Set(const Vector &v)
 // Get the angle between vectors
 inline float Vector::GetAngle(const Vector &v) const
 {
-    auto len = static_cast<double>(x) * static_cast<double>(x) + static_cast<double>(y) * static_cast<double>(y) +
-               static_cast<double>(z) * static_cast<double>(z);
-    len *= static_cast<double>(x) * static_cast<double>(x) + static_cast<double>(y) * static_cast<double>(y) +
-           static_cast<double>(z) * static_cast<double>(z);
+    // Historical behaviour: the squared length of this vector is used twice
+    // (the length of v never enters the normalization).
+    const auto self = storm::math::GlmDVec3(glmValue());
+    auto len = glm::dot(self, self);
+    len *= glm::dot(self, self);
     if (len <= 0.0)
         return 0.0f;
-    auto cs = (x * v.x + y * v.y + z * v.z) / sqrt(len);
-    if (cs > 1.0)
-        cs = 1.0;
-    if (cs < -1.0)
-        cs = -1.0;
+    const auto cs = glm::clamp(glm::dot(glmValue(), v.glmValue()) / sqrt(len), -1.0, 1.0);
     return static_cast<float>(acos(cs));
 }
 
 // Get the sign angle between vectors in the XZ plane
 inline float Vector::GetAngle2D(const Vector &v) const
 {
-    auto len = static_cast<double>(x) * static_cast<double>(x) + static_cast<double>(z) * static_cast<double>(z);
-    len *= static_cast<double>(v.x) * static_cast<double>(v.x) + static_cast<double>(v.z) * static_cast<double>(v.z);
+    const auto self = storm::math::GlmDVec2(glmXZ());
+    const auto other = storm::math::GlmDVec2(v.glmXZ());
+    auto len = glm::dot(self, self);
+    len *= glm::dot(other, other);
     if (len <= 0.0)
         return 0.0f;
-    len = (x * v.x + z * v.z) / sqrt(len);
-    if (len > 1.0)
-        len = 1.0;
-    if (len < -1.0)
-        len = -1.0;
-    len = acos(len);
-    if (z * v.x - x * v.z < 0)
+    len = acos(glm::clamp(glm::dot(glmXZ(), v.glmXZ()) / sqrt(len), -1.0, 1.0));
+    if (Cross2D(v) < 0)
         len = -len;
     return static_cast<float>(len);
 }
@@ -861,16 +846,10 @@ inline float Vector::GetAngle2D(const Vector &v) const
 // Get the angle of rotation of a vector around the Y axis
 inline float Vector::GetAY(float defAngle) const
 {
-    auto len = static_cast<double>(x) * static_cast<double>(x) + static_cast<double>(z) * static_cast<double>(z);
+    const auto self = storm::math::GlmDVec2(glmXZ());
+    auto len = glm::dot(self, self);
     if (len > 0.00000000001)
-    {
-        len = z / sqrt(len);
-        if (len > 1.0)
-            len = 1.0;
-        if (len < -1.0)
-            len = -1.0;
-        len = acos(len);
-    }
+        len = acos(glm::clamp(z / sqrt(len), -1.0, 1.0));
     else
         return defAngle;
     if (x < 0)
@@ -881,22 +860,26 @@ inline float Vector::GetAY(float defAngle) const
 // Get sine between 2D vectors in XZ plane
 inline float Vector::Sin2D(const Vector &v) const
 {
-    auto len = static_cast<double>(x) * static_cast<double>(x) + static_cast<double>(z) * static_cast<double>(z);
-    len *= static_cast<double>(v.x) * static_cast<double>(v.x) + static_cast<double>(v.z) * static_cast<double>(v.z);
+    const auto self = storm::math::GlmDVec2(glmXZ());
+    const auto other = storm::math::GlmDVec2(v.glmXZ());
+    auto len = glm::dot(self, self);
+    len *= glm::dot(other, other);
     if (len <= 0.0)
         return 0.0f;
-    len = (z * v.x - x * v.z) / sqrt(len);
+    len = Cross2D(v) / sqrt(len);
     return static_cast<float>(len);
 }
 
 // Get cosine between 2D vectors in XZ plane
 inline float Vector::Cos2D(const Vector &v) const
 {
-    auto len = static_cast<double>(x) * static_cast<double>(x) + static_cast<double>(z) * static_cast<double>(z);
-    len *= static_cast<double>(v.x) * static_cast<double>(v.x) + static_cast<double>(v.z) * static_cast<double>(v.z);
+    const auto self = storm::math::GlmDVec2(glmXZ());
+    const auto other = storm::math::GlmDVec2(v.glmXZ());
+    auto len = glm::dot(self, self);
+    len *= glm::dot(other, other);
     if (len <= 0.0)
         return 1.0f;
-    len = (x * v.x + z * v.z) / sqrt(len);
+    len = glm::dot(glmXZ(), v.glmXZ()) / sqrt(len);
     return static_cast<float>(len);
 }
 
@@ -955,10 +938,10 @@ inline Vector &Vector::Rotate(float angle)
 // Rotate the vector in the XZ plane by an angle specified by cos, sin
 inline Vector &Vector::Rotate(float vcos, float vsin)
 {
-    const auto tx = x * vcos + z * vsin;
-    const auto tz = z * vcos - x * vsin;
-    x = tx;
-    z = tz;
+    // x' = x * cos + z * sin, z' = z * cos - x * sin
+    const auto rotated = glmXZ() * vcos + storm::math::GlmVec2(z, -x) * vsin;
+    x = rotated.x;
+    z = rotated.y;
     return *this;
 }
 
@@ -990,7 +973,10 @@ inline Vector &Vector::Lerp(const Vector &v1, const Vector &v2, float kBlend)
 // Calculate the reflected vector
 inline Vector &Vector::Reflection(const Vector &normal)
 {
-    *this = fromGlm(glm::reflect(glmValue(), normal.glmValue()));
+    // Not glm::reflect: it evaluates (N * dot) * 2, which rounds differently
+    // from the legacy N * (-2 * dot) when a product is subnormal or overflows.
+    const auto k = -2.0f * glm::dot(glmValue(), normal.glmValue());
+    *this = fromGlm(glmValue() + normal.glmValue() * k);
     return *this;
 }
 
@@ -1012,9 +998,12 @@ inline Vector &Vector::Rand2D()
 // Fill with random values in a given ABB
 inline Vector &Vector::Rand(const Vector &min, const Vector &max)
 {
-    x = min.x + rand() * ((max.x - min.x) * (1.0f / RAND_MAX));
-    y = min.y + rand() * ((max.y - min.y) * (1.0f / RAND_MAX));
-    z = min.z + rand() * ((max.z - min.z) * (1.0f / RAND_MAX));
+    // rand() is consumed in x, y, z order.
+    const auto rx = static_cast<float>(rand());
+    const auto ry = static_cast<float>(rand());
+    const auto rz = static_cast<float>(rand());
+    *this = fromGlm(min.glmValue() +
+                    storm::math::GlmVec3(rx, ry, rz) * ((max.glmValue() - min.glmValue()) * (1.0f / RAND_MAX)));
     return *this;
 }
 
@@ -1032,30 +1021,23 @@ inline bool Vector::MoveByStep(const Vector &to, float step)
     if (step <= 0.0f)
         return false;
     // Distance to point
-    const auto dx = to.x - x;
-    const auto dy = to.y - y;
-    const auto dz = to.z - z;
-    auto dist = dx * dx + dy * dy + dz * dz;
+    const auto target = to.glmValue();
+    const auto delta = target - glmValue();
+    auto dist = glm::dot(delta, delta);
     if (dist < 1e-20f)
     {
-        x = to.x;
-        y = to.y;
-        z = to.z;
+        *this = fromGlm(target);
         return false;
     }
     dist = sqrtf(dist);
     // Moving to a point
     if (step >= dist)
     {
-        x = to.x;
-        y = to.y;
-        z = to.z;
+        *this = fromGlm(target);
         return true;
     }
     step /= dist;
-    x += dx * step;
-    y += dy * step;
-    z += dz * step;
+    *this = fromGlm(glmValue() + delta * step);
     return true;
 }
 
@@ -1065,26 +1047,27 @@ inline bool Vector::MoveByStep2D(const Vector &to, float step)
     if (step <= 0.0f)
         return false;
     // Distance to point
-    const auto dx = to.x - x;
-    const auto dz = to.z - z;
-    auto dist = dx * dx + dz * dz;
+    const auto target = to.glmXZ();
+    const auto delta = target - glmXZ();
+    auto dist = glm::dot(delta, delta);
     if (dist < 1e-20f)
     {
-        x = to.x;
-        z = to.z;
+        x = target.x;
+        z = target.y;
         return false;
     }
     dist = sqrtf(dist);
     // Moving to a point
     if (step >= dist)
     {
-        x = to.x;
-        z = to.z;
+        x = target.x;
+        z = target.y;
         return true;
     }
     step /= dist;
-    x += dx * step;
-    z += dz * step;
+    const auto moved = glmXZ() + delta * step;
+    x = moved.x;
+    z = moved.y;
     return true;
 }
 
@@ -1103,9 +1086,10 @@ inline bool Vector::InBox(const Vector &min, const Vector &max) const
 // The point is in the sphere
 inline bool Vector::InSphere(const Vector &pos, float rad) const
 {
-    double d = (x - pos.x) * (x - pos.x);
-    d += (y - pos.y) * (y - pos.y);
-    d += (z - pos.z) * (z - pos.z);
+    // Float squares accumulated in double, as the legacy code did.
+    const auto delta = glmValue() - pos.glmValue();
+    const auto squares = storm::math::GlmDVec3(delta * delta);
+    const double d = squares.x + squares.y + squares.z;
     return d < static_cast<double>(rad) * static_cast<double>(rad);
 }
 

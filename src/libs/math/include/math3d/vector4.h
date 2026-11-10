@@ -38,6 +38,10 @@ struct Vector4
     // Constructors
     // -----------------------------------------------------------
   public:
+    // Value conversions keep the packed x/y/z/w representation unchanged.
+    storm::math::GlmVec4 glmValue() const { return {x, y, z, w}; }
+    static Vector4 fromGlm(const storm::math::GlmVec4 &value) { return {value.x, value.y, value.z, value.w}; }
+
     // Empty constructor
     Vector4();
     // Fill with number
@@ -169,18 +173,13 @@ inline Vector4::Vector4(const Vector4 &v)
 // Find the square of the length of a vector
 inline float Vector4::operator~() const
 {
-    return x * x + y * y + z * z + w * w;
+    return storm::math::sequentialDot(glmValue(), glmValue());
 }
 
 // Get negative vector
 inline Vector4 Vector4::operator-() const
 {
-    auto v(*this);
-    v.x = -v.x;
-    v.y = -v.y;
-    v.z = -v.z;
-    v.w = -v.w;
-    return v;
+    return fromGlm(storm::math::negated(glmValue()));
 }
 
 // Assign
@@ -231,9 +230,10 @@ inline Vector4 &Vector4::operator=(const Vector4 &v)
 inline void Vector4::Normalize()
 {
     const auto k = 1.0 / w;
-    x = static_cast<float>(k * x);
-    y = static_cast<float>(k * y);
-    z = static_cast<float>(k * z);
+    const auto scaled = storm::math::GlmVec3(storm::math::GlmDVec3(x, y, z) * k);
+    x = scaled.x;
+    y = scaled.y;
+    z = scaled.z;
     w = 1.0f;
 }
 
