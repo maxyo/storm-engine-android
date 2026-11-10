@@ -9,6 +9,9 @@
 //============================================================================================
 
 #include "location_camera.h"
+#ifdef __ANDROID__
+#include <platform/android_camera.hpp>
+#endif
 
 #include "core.h"
 
@@ -175,6 +178,10 @@ void LocationCamera::Realize(uint32_t delta_time)
         dAy = -1.0f;
     if (character->IsDead())
         dAy = 0.0f;
+#ifdef __ANDROID__
+    core.Controls->GetControlState("ChrTurnH", cs);
+    dragAy = character->IsDead() ? 0.0f : storm::android::mobileCameraYawStep(cs.fValue);
+#endif
 
     if (location->IsPaused())
         return;
