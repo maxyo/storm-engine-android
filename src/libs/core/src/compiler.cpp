@@ -457,9 +457,13 @@ void COMPILER::LoadPreprocess()
         else
             bRuntimeLog = true;
 
-        script_cache_mode_ = engine_ini->GetInt("script", "cache_mode", kCacheDisabled);
+        // On by default: game scripts do not change while the game runs (see
+        // tools/android/README.md, "Compiled script cache").
+        script_cache_mode_ = engine_ini->GetInt("script", "cache_mode", kCacheEnabledNoRuntimeCheck);
         if (script_cache_mode_ < kCacheDisabled || script_cache_mode_ > kCacheEnabledNoRuntimeCheck)
         {
+            spdlog::warn("engine.ini [script] cache_mode = {} is not 0, 1 or 2; the script cache is off",
+                         script_cache_mode_);
             script_cache_mode_ = kCacheDisabled;
         }
 
