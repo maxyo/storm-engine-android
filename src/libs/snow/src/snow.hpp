@@ -14,8 +14,7 @@
 
 #include "dx9render.h"
 #include "entity.h"
-
-#include <glm/vec3.hpp>
+#include "storm_glm.h" // GLM only through this header (its configuration and packing)
 
 #include <cstdint>
 #include <string>
