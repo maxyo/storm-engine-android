@@ -111,11 +111,11 @@ class TradeBookScreen final : public Screen
         Json view = Json::object();
         view["title"] = admitted.Label("TITLE");
         view["towns"] = cities;
-        view["townColumns"] = Json::array({Json{{"w", "1"}}, Json{{"w", "130px"}, {"align", "right"}}});
+        view["townColumns"] = Json::array({Json{{"w", "1"}}, Json{{"w", "112px"}, {"align", "right"}}});
         view["columns"] = Json::array({Json{{"label", chosen_town}, {"w", "1"}},
-                                       Json{{"label", header(2)}, {"w", "80px"}, {"align", "right"}},
-                                       Json{{"label", header(3)}, {"w", "80px"}, {"align", "right"}},
-                                       Json{{"label", header(4)}, {"w", "80px"}, {"align", "right"}}});
+                                       Json{{"label", header(2)}, {"w", "72px"}, {"align", "right"}},
+                                       Json{{"label", header(3)}, {"w", "72px"}, {"align", "right"}},
+                                       Json{{"label", header(4)}, {"w", "72px"}, {"align", "right"}}});
         view["prices"] = prices;
 
         // Hero sections in the header; the exit button is ←.
