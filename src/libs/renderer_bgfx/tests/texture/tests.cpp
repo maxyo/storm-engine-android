@@ -93,7 +93,7 @@ void test_decoder()
     uint8_t rgba[64];
     // red / blue, 4-colour mode: indices 0,1,2,3 in the first row
     const uint8_t bc1[8] = {0x00, 0xF8, 0x1F, 0x00, 0xE4, 0x00, 0x00, 0x00}; // texels 0..3 = 0,1,2,3
-    decode_bc1_block(bc1, rgba);
+    decode_level(DxtFormat::Bc1, bc1, 4, 4, rgba);
     CHECK(rgba[0] == 255 && rgba[1] == 0 && rgba[2] == 0 && rgba[3] == 255);
     CHECK(rgba[4] == 0 && rgba[6] == 255);
     CHECK(rgba[8] == 170 && rgba[10] == 85); // 2/3 red + 1/3 blue
@@ -103,8 +103,8 @@ void test_decoder()
 
     // 3-colour mode (c0 <= c1): index 2 = average, index 3 = transparent black
     const uint8_t bc1a[8] = {0x1F, 0x00, 0x00, 0xF8, 0xE4, 0x00, 0x00, 0x00};
-    decode_bc1_block(bc1a, rgba);
-    CHECK(rgba[8] == 128 && rgba[10] == 128 && rgba[11] == 255);
+    decode_level(DxtFormat::Bc1, bc1a, 4, 4, rgba);
+    CHECK(rgba[8] == 127 && rgba[10] == 127 && rgba[11] == 255); // bimg truncates
     CHECK(rgba[12] == 0 && rgba[13] == 0 && rgba[14] == 0 && rgba[15] == 0);
     CHECK(bc1_block_has_transparency(bc1a));
     const uint8_t bc1_three_opaque[8] = {0x1F, 0x00, 0x00, 0xF8, 0x24, 0x00, 0x00, 0x00}; // indices 0,1,2,0
@@ -112,7 +112,7 @@ void test_decoder()
     // the same colour block inside BC2/BC3 is always 4-colour
     uint8_t bc2[16] = {0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE};
     memcpy(bc2 + 8, bc1a, 8);
-    decode_bc2_block(bc2, rgba);
+    decode_level(DxtFormat::Bc2, bc2, 4, 4, rgba);
     CHECK(rgba[3] == 0x0 * 17 && rgba[7] == 0x1 * 17 && rgba[63] == 0xF * 17);
     CHECK(rgba[12] == 170 && rgba[14] == 85); // index 3 is a colour, not transparent
 
@@ -124,12 +124,12 @@ void test_decoder()
     for (int i = 0; i < 6; ++i)
         bc3[2 + i] = uint8_t(bits >> (8 * i));
     memcpy(bc3 + 8, bc1, 8);
-    decode_bc3_block(bc3, rgba);
-    const uint8_t expect8[8] = {255, 0, 219, 182, 146, 109, 73, 36};
+    decode_level(DxtFormat::Bc3, bc3, 4, 4, rgba);
+    const uint8_t expect8[8] = {255, 0, 218, 182, 145, 109, 72, 36}; // bimg truncates
     for (int t = 0; t < 8; ++t)
         CHECK(rgba[t * 4 + 3] == expect8[t]);
     bc3[0] = 0, bc3[1] = 255;
-    decode_bc3_block(bc3, rgba);
+    decode_level(DxtFormat::Bc3, bc3, 4, 4, rgba);
     const uint8_t expect6[8] = {0, 255, 51, 102, 153, 204, 0, 255};
     for (int t = 0; t < 8; ++t)
         CHECK(rgba[t * 4 + 3] == expect6[t]);

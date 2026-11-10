@@ -83,7 +83,7 @@ inline void encode_bc1_block(const uint8_t *texels, uint8_t *out, bool punch)
         uint8_t decoded[64];
         const uint32_t sel = k * 0x55555555u;
         memcpy(block + 4, &sel, 4);
-        decode_bc1_block(block, decoded);
+        decode_level(DxtFormat::Bc1, block, 4, 4, decoded);
         memcpy(palette[k], decoded, 4);
     }
     uint32_t indices = 0;

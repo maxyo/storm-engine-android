@@ -1,4 +1,4 @@
-// DXT (BC1-3) -> ETC2 transcode: formats, block decoding and ETC2 encoding.
+// DXT (BC1-3) -> ETC2 transcode: formats, block decoding (bimg) and ETC2 encoding.
 // Pure CPU code without bgfx; used by the shim (src/shim/objects.cpp) and the
 // worker threads of the transcode service.
 #pragma once
@@ -46,16 +46,13 @@ inline size_t etc_level_size(EtcFormat format, uint32_t w, uint32_t h)
 // Size of all levels and faces of the D3D payload.
 size_t dxt_payload_size(const Layout &layout);
 
-// Decodes one 4x4 block to 64 bytes RGBA8 (R first, rows of 4 texels).
-// BC1 blocks use the 3-colour + transparent mode when color0 <= color1.
-void decode_bc1_block(const uint8_t *block, uint8_t *rgba, bool four_colour_only = false);
-void decode_bc2_block(const uint8_t *block, uint8_t *rgba);
-void decode_bc3_block(const uint8_t *block, uint8_t *rgba);
 // True if a BC1 block contains a transparent texel.
 bool bc1_block_has_transparency(const uint8_t *block);
 bool bc1_has_transparency(const uint8_t *data, size_t size);
 
-// Decodes one level into a block-aligned image of blocks_x(w)*4 x blocks_x(h)*4 texels.
+// Decodes one level with bimg into a block-aligned RGBA8 image (R first) of
+// blocks_x(w)*4 x blocks_x(h)*4 texels. BC1 blocks use the 3-colour + transparent
+// mode when color0 <= color1; the colour part of BC2/BC3 is always 4-colour.
 void decode_level(DxtFormat format, const uint8_t *src, uint32_t width, uint32_t height, uint8_t *rgba);
 
 // ETC2 format chosen for a DXT payload (punch-through BC1 needs alpha: etcpak
