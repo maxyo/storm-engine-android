@@ -14,6 +14,7 @@
 
 #ifdef __ANDROID__
 #include <android/log.h>
+#include <jni.h>
 #endif
 
 namespace storm::shim
@@ -81,6 +82,7 @@ uint16_t BgfxTextureOf(IDirect3DBaseTexture9 *texture, uint16_t *width, uint16_t
     if (!store || !shim::Context::instance().initialised())
         return UINT16_MAX;
     store->sync();
+    store->settle();
     if (width)
         *width = static_cast<uint16_t>(store->width);
     if (height)
@@ -92,6 +94,19 @@ void SetGamePictureProvider(GamePictureProvider *provider)
 {
     shim::Context::instance().set_picture_provider(provider);
 }
+
+#ifdef __ANDROID__
+} // namespace storm::render
+
+// Called by the activity on the UI thread right before SDL destroys the surface.
+extern "C" JNIEXPORT void JNICALL Java_org_stormengine_port_GameActivity_nativeSurfaceDestroying(JNIEnv *, jclass)
+{
+    storm::shim::Context::instance().request_surface_release();
+}
+
+namespace storm::render
+{
+#endif
 
 void NotifySurfaceLost()
 {
@@ -147,7 +162,7 @@ bool Context::init(SDL_Window *window, uint32_t width, uint32_t height, bool vsy
     init.swapChain.width = width;
     init.swapChain.height = height;
     init.swapChain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
-    init.reset = vsync ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+    init.reset = reset_flags();
     init.fallback = false; // never continue on the Noop renderer
     if (!bgfx::init(init))
     {
@@ -160,6 +175,7 @@ bool Context::init(SDL_Window *window, uint32_t width, uint32_t height, bool vsy
     surface_.width_px = width;
     surface_.height_px = height;
     surface_.valid = true;
+    surface_in_use_ = true;
     float dpi = 0.0f;
     if (SDL_GetDisplayDPI(SDL_GetWindowDisplayIndex(window), &dpi, nullptr, nullptr) == 0 && dpi > 0.0f)
         surface_.density = dpi / 160.0f;
@@ -206,6 +222,7 @@ void Context::shutdown()
     bgfx::shutdown();
     initialised_ = false;
     surface_.valid = false;
+    surface_lost();
     pictures_.clear();
     picture_provider_ = nullptr;
 }
@@ -223,7 +240,7 @@ void Context::resize(uint32_t width, uint32_t height)
     chain.width = width;
     chain.height = height;
     chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
-    bgfx::reset(vsync_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE, &chain);
+    bgfx::reset(reset_flags(), &chain);
     for (auto &entry : clients_)
         entry.client->OnSurfaceChanged(surface_);
 }
@@ -238,22 +255,70 @@ void Context::set_density(float density)
         entry.client->OnSurfaceChanged(surface_);
 }
 
+uint32_t Context::reset_flags() const
+{
+    // Flip right after rendering: no swap of a previous frame is ever pending when the surface changes.
+    return (vsync_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) | BGFX_RESET_FLIP_AFTER_RENDER |
+           (surface_epoch_flag_ ? BGFX_RESET_FLUSH_AFTER_RENDER : BGFX_RESET_NONE);
+}
+
 void Context::surface_lost()
 {
-    if (!surface_.valid)
+    if (surface_.valid)
+    {
+        surface_.valid = false;
+        ++surface_.generation;
+        frame_aborted_ = frame_open_;
+        logf("surface lost: presentation suspended");
+    }
+    {
+        std::lock_guard lock(release_mutex_);
+        surface_in_use_ = false;
+        release_requested_ = false;
+    }
+    release_done_.notify_all();
+}
+
+void Context::request_surface_release()
+{
+    std::unique_lock lock(release_mutex_);
+    if (!surface_in_use_)
         return;
-    surface_.valid = false;
-    ++surface_.generation;
-    logf("surface lost: presentation suspended");
+    release_requested_ = true;
+    if (!release_done_.wait_for(lock, std::chrono::milliseconds(500), [this] { return !surface_in_use_.load(); }))
+        logf("ERROR: the game thread did not release the surface within 500 ms; it is destroyed while in use");
+}
+
+void Context::poll_surface()
+{
+    if (release_requested_.load(std::memory_order_relaxed))
+        surface_lost();
+    if (restore_pending_)
+        try_restore();
 }
 
 void Context::surface_restored()
 {
     if (!initialised_ || surface_.valid)
         return;
+    restore_pending_ = true;
+    try_restore();
+}
+
+void Context::try_restore()
+{
     bgfx::SwapChain chain;
+    // SDL drops its native window when Android destroys the surface and holds a new one only after
+    // surfaceCreated; until then there is nothing to attach to and the restore stays pending.
     if (!native_handles(window_, &chain.nwh, &chain.ndt))
+    {
+        if (!restore_wait_logged_)
+            logf("surface restore is waiting for the new native window");
+        restore_wait_logged_ = true;
         return;
+    }
+    restore_pending_ = false;
+    restore_wait_logged_ = false;
     int w = 0, h = 0;
     SDL_GetWindowSize(window_, &w, &h);
     if (w > 0 && h > 0)
@@ -264,7 +329,20 @@ void Context::surface_restored()
     chain.width = surface_.width_px;
     chain.height = surface_.height_px;
     chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
-    bgfx::reset(vsync_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE, &chain);
+    // A new ANativeWindow can reuse the old address; alternating this otherwise harmless flag makes
+    // bgfx re-create the EGL surface on every restore.
+    surface_epoch_flag_ = !surface_epoch_flag_;
+    bgfx::reset(reset_flags(), &chain);
+    if (frame_aborted_)
+    {
+        // Draws submitted before the surface went away belong to a frame that was never finished.
+        bgfx::frame(BGFX_FRAME_DISCARD);
+        frame_aborted_ = false;
+    }
+    {
+        std::lock_guard lock(release_mutex_);
+        surface_in_use_ = true;
+    }
     surface_.valid = true;
     ++surface_.generation;
     logf("surface restored %ux%u", surface_.width_px, surface_.height_px);
@@ -274,7 +352,10 @@ void Context::surface_restored()
 
 void Context::begin_frame_if_needed()
 {
-    if (frame_open_ || !initialised_)
+    if (!initialised_)
+        return;
+    poll_surface();
+    if (frame_open_)
         return;
     frame_open_ = true;
     frame_.surface = surface_;

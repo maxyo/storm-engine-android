@@ -3,7 +3,10 @@
 #include "shim.hpp"
 #include "storm/render/frame_owner.hpp"
 
+#include <atomic>
+#include <condition_variable>
 #include <map>
+#include <mutex>
 
 struct SDL_Window;
 
@@ -27,7 +30,13 @@ class Context final : public render::FrameOwner
     void set_density(float density);
     // Surface lifecycle (Android): pause stops presenting, resume re-attaches the native window.
     void surface_lost();
+    // Marks the surface for re-attachment; the actual bgfx reset happens once SDL holds a native window.
     void surface_restored();
+    // Any thread (Android UI thread, before it destroys the surface): blocks until the game thread
+    // has stopped using the surface, or the timeout expires.
+    void request_surface_release();
+    // Game thread, at safe points: honours a pending release request and retries a pending restore.
+    void poll_surface();
 
     void begin_frame_if_needed();
     // Composites `game_color` to the surface, runs client UI hooks and presents.
@@ -77,10 +86,20 @@ class Context final : public render::FrameOwner
     };
     void create_resources();
     void pace();
+    void try_restore();
+    uint32_t reset_flags() const;
 
     SDL_Window *window_ = nullptr;
     bool initialised_ = false;
     bool frame_open_ = false;
+    bool restore_pending_ = false;
+    bool surface_epoch_flag_ = false;
+    bool restore_wait_logged_ = false;
+    bool frame_aborted_ = false; // draws of an unfinished frame are still queued in bgfx
+    std::atomic<bool> release_requested_{false};
+    std::atomic<bool> surface_in_use_{false};
+    std::mutex release_mutex_;
+    std::condition_variable release_done_;
     bool flip_y_ = false;
     bool vsync_ = true;
     const bgfx::Caps *caps_ = nullptr;
@@ -223,7 +242,6 @@ struct Device final : Direct3DDevice9Stub
     void bind_state_refs(const DeviceState &next);
     void create_backbuffer(uint32_t width, uint32_t height);
     bgfx::ProgramHandle program(uint32_t vs_id, uint32_t fs_id);
-    void end_frame_stats();
 
     SDL_Window *window = nullptr;
     D3DPRESENT_PARAMETERS params{};
@@ -287,12 +305,6 @@ struct Device final : Direct3DDevice9Stub
     void set_uniform(UniformId id, const float *data, uint16_t count);
     void invalidate_uniforms();
 
-    // per-frame statistics (S3)
-    struct Stats
-    {
-        uint32_t draws = 0, up_bytes = 0, transient_vertex_bytes = 0, views = 0, clears = 0, skipped = 0;
-    } stats, stats_max;
-    uint64_t stats_frames = 0;
 };
 
 uint32_t shader_id_by_name(const char *name);

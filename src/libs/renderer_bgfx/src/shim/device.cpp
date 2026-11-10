@@ -168,8 +168,6 @@ Device::~Device()
     for (auto &[key, handle] : framebuffers)
         bgfx::destroy(handle);
     framebuffers.clear();
-    logf("device destroyed; max per frame: draws=%u views=%u up_bytes=%u transient_vertex_bytes=%u skipped=%u",
-         stats_max.draws, stats_max.views, stats_max.up_bytes, stats_max.transient_vertex_bytes, stats_max.skipped);
     Context::instance().shutdown();
 }
 
@@ -315,20 +313,6 @@ HRESULT Device::BeginScene()
     return D3D_OK;
 }
 
-void Device::end_frame_stats()
-{
-    stats.views = views_used;
-    stats_max.draws = std::max(stats_max.draws, stats.draws);
-    stats_max.views = std::max(stats_max.views, stats.views);
-    stats_max.up_bytes = std::max(stats_max.up_bytes, stats.up_bytes);
-    stats_max.transient_vertex_bytes = std::max(stats_max.transient_vertex_bytes, stats.transient_vertex_bytes);
-    stats_max.skipped = std::max(stats_max.skipped, stats.skipped);
-    if ((++stats_frames % 600) == 0)
-        logf("frame stats: draws=%u views=%u up_bytes=%u transient_vb=%u clears=%u skipped=%u", stats.draws,
-             stats.views, stats.up_bytes, stats.transient_vertex_bytes, stats.clears, stats.skipped);
-    stats = {};
-}
-
 HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
 {
     auto &context = Context::instance();
@@ -344,7 +328,6 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
     context.set_game_target({back_color->store->handle.idx, back_depth->store->handle.idx, back_color->store->width,
                              back_color->store->height});
     context.present(back_color->store->handle, back_color->store->width, back_color->store->height);
-    end_frame_stats();
     views_used = 0;
     view_dirty = true;
     view_has_content = false;
@@ -441,7 +424,7 @@ uint16_t Device::ensure_view()
 HRESULT Device::Clear(DWORD count, const D3DRECT *, DWORD flags, D3DCOLOR color, float z, DWORD stencil)
 {
     if (count != 0)
-        trap("IDirect3DDevice9::Clear(rects)");
+        return trap("IDirect3DDevice9::Clear with rectangles is not supported"); // nothing is cleared
     if (!Context::instance().ready())
         return D3D_OK;
     Context::instance().begin_frame_if_needed();
@@ -459,7 +442,6 @@ HRESULT Device::Clear(DWORD count, const D3DRECT *, DWORD flags, D3DCOLOR color,
     bgfx::setViewClear(view, bits, rgba, z, static_cast<uint8_t>(stencil));
     bgfx::touch(view);
     view_has_content = true;
-    ++stats.clears;
     return D3D_OK;
 }
 

@@ -105,6 +105,7 @@ struct TexStore
     void sync();
     void create_gpu();
     void release_shadow();
+    void settle();
     bool shadow_released = false;
     void create_sampled();
     void destroy_sampled();

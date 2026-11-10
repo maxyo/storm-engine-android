@@ -1,5 +1,8 @@
 #include "device.hpp"
 
+#include <chrono>
+#include <thread>
+
 #include "../texture/core/service.hpp"
 
 #include <algorithm>
@@ -56,7 +59,7 @@ FormatInfo format_info(D3DFORMAT format)
     case D3DFMT_D15S1:
         return {4, 0, true, false};
     default:
-        logf("unknown D3DFORMAT %u treated as 32-bit", static_cast<uint32_t>(format));
+        trap("unsupported D3DFORMAT (sized as 32-bit; see convert_to_rgba8)");
         return {4, 0, false, true};
     }
 }
@@ -156,7 +159,10 @@ void convert_to_rgba8(D3DFORMAT format, const uint8_t *src, uint32_t src_pitch, 
                 d[0] = s[0], d[1] = s[1], d[2] = 0, d[3] = 255;
             break;
         default:
-            memset(d, 255, static_cast<size_t>(width) * 4);
+            // Not a format the engine is known to use: report it and show magenta, never plausible pixels.
+            trap("texture upload in an unsupported D3DFORMAT");
+            for (uint32_t x = 0; x < width; ++x, d += 4)
+                d[0] = 255, d[1] = 0, d[2] = 255, d[3] = 255;
             break;
         }
     }
@@ -353,6 +359,9 @@ Tier resolve_tier(uint16_t need, const char *kind)
         strcmp(requested, tier_name(tier)) != 0)
         logf("ERROR: texture_compression=%s is not supported by this GPU for %s textures; using %s", requested, kind,
              tier_name(tier));
+    if (tier == Tier::Rgba && texture::Service::instance().mode() != texture::Mode::Rgba)
+        logf("ERROR: this GPU supports neither S3TC nor ETC2 for %s textures: DXT data is decoded to RGBA8 "
+             "(up to 8x the texture memory)", kind);
     logf("texture tier for DXT %s textures: %s (requested %s, S3TC=%d, ETC2=%d)", kind, tier_name(tier), requested, bc, etc2);
     return tier;
 }
@@ -381,26 +390,28 @@ const bgfx::Memory *make_dds(const TexStore &store, bgfx::TextureFormat::Enum gp
     for (uint32_t level = first_level; level < store.levels; ++level)
     {
         const uint32_t w = store.level_width(level), h = store.level_height(level);
-        payload += compressed ? level_size(store.format, w, h) : static_cast<size_t>(w) * h * 4;
+        payload += (compressed ? level_size(store.format, w, h) : static_cast<size_t>(w) * h * 4) * store.level_depth(level);
     }
     payload *= store.faces();
     const bgfx::Memory *memory = bgfx::alloc(static_cast<uint32_t>(4 + 124 + 20 + payload));
     uint32_t *header = reinterpret_cast<uint32_t *>(memory->data);
     memset(header, 0, 4 + 124 + 20);
     const bool cube = store.kind == TexKind::Cube;
+    const bool volume = store.kind == TexKind::Volume;
     header[0] = 0x20534444; // "DDS "
     header[1] = 124;
-    header[2] = 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000;
+    header[2] = 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000 | (volume ? 0x800000 : 0);
     header[3] = store.level_height(first_level);
     header[4] = store.level_width(first_level);
+    header[6] = volume ? store.level_depth(first_level) : 0;
     header[7] = levels;
     header[19] = 32;         // pixel format size
     header[20] = 0x4;        // DDPF_FOURCC
     header[21] = 0x30315844; // "DX10"
     header[27] = 0x1000 | (levels > 1 ? 0x400008 : 0) | (cube ? 0x8 : 0);
-    header[28] = cube ? 0xFE00 : 0;
+    header[28] = cube ? 0xFE00 : volume ? 0x200000 : 0;
     header[32] = dxgi;
-    header[33] = 3; // D3D10_RESOURCE_DIMENSION_TEXTURE2D
+    header[33] = volume ? 4 : 3; // D3D10_RESOURCE_DIMENSION_TEXTURE3D / TEXTURE2D
     header[34] = cube ? 4 : 0;
     header[35] = 1;
     const bool block_source = format_info(store.format).block_bytes != 0;
@@ -411,7 +422,8 @@ const bgfx::Memory *make_dds(const TexStore &store, bgfx::TextureFormat::Enum gp
         {
             const TexStore::Sub &sub = store.subs[face * store.levels + level];
             const uint32_t w = store.level_width(level), h = store.level_height(level);
-            const size_t bytes = compressed ? level_size(store.format, w, h) : static_cast<size_t>(w) * h * 4;
+            const uint32_t d = store.level_depth(level);
+            const size_t bytes = (compressed ? level_size(store.format, w, h) : static_cast<size_t>(w) * h * 4) * d;
             if (sub.data.empty())
                 memset(out, 0, bytes);
             else if (compressed)
@@ -427,7 +439,12 @@ const bgfx::Memory *make_dds(const TexStore &store, bgfx::TextureFormat::Enum gp
                            static_cast<size_t>(w) * 4);
             }
             else
-                convert_to_rgba8(store.format, sub.data.data(), level_pitch(store.format, w), w, h, out);
+            {
+                const uint32_t pitch = level_pitch(store.format, w);
+                for (uint32_t z = 0; z < d; ++z)
+                    convert_to_rgba8(store.format, sub.data.data() + static_cast<size_t>(z) * pitch * h, pitch, w, h,
+                                     out + static_cast<size_t>(z) * w * h * 4);
+            }
             out += bytes;
         }
     return memory;
@@ -558,6 +575,31 @@ void TexStore::finish_transcode()
     fallback_bytes = 0;
 }
 
+// For holders of the bgfx handle outside the shim (UI game pictures): the handle must not change
+// afterwards, so a pending ETC2 transcode is completed here instead of being swapped in later.
+void TexStore::settle()
+{
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (transcoded && fallback_bytes)
+    {
+        finish_transcode();
+        if (!fallback_bytes)
+            break;
+        if ((transcode_job && transcode_job->state.load(std::memory_order_acquire) == texture::Job::Failed) ||
+            std::chrono::steady_clock::now() > deadline)
+        {
+            trap("ETC2 transcode of a pinned texture did not finish; it keeps its temporary texture");
+            if (transcode_job)
+                transcode_job->cancelled = true;
+            transcode_job.reset();
+            texture::Service::instance().add_fallback_bytes(-fallback_bytes);
+            fallback_bytes = 0;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+}
+
 void TexStore::destroy_sampled()
 {
     if (transcode_job)
@@ -576,7 +618,7 @@ void TexStore::sync()
 {
     if (system_memory)
         return;
-    const bool sampled = !render_target && !depth_stencil && kind != TexKind::Volume;
+    const bool sampled = !render_target && !depth_stencil;
     if (transcoded)
     {
         if (!any_dirty)
