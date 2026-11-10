@@ -27,6 +27,7 @@ constexpr NodeRule kNodes[] = {
     {"LEFTCHANGE_COMPLEX", "button"},
     {"RIGHTCHANGE_COMPLEX", "button"},
     {"SETUP_FRAME_CAPTION", "text"},
+    {"ANDROID_HERO_TYPE", "text"}, // the occupation's key (HeroType_N), engine
     {"SETUP_TEXT", "text"},
     {"LEFTCHANGE_SETUP", "button"},
     {"RIGHTCHANGE_SETUP", "button"},
@@ -188,6 +189,26 @@ class NewGameScreen final : public Screen
                             {"bio", !bio.empty()}};
         bindings.On("bio", "", [&bindings, bio, bio_title](const Event &) { bindings.Read(bio_title, bio); });
         Json setup = stepper("setup", "", "SETUP_FRAME_CAPTION", "LEFTCHANGE_SETUP", "RIGHTCHANGE_SETUP");
+        // The game captions the occupation with a fragment of a sentence in the accusative
+        // ("гимнастику и искусство фехтования", common.ini HeroType_N, Russian only): the
+        // stock occupations get their title from our tables; another (a mod's) keeps the
+        // game's caption, and the log says so.
+        static const char *const kOccupations[][2] = {{"HeroType_1", StringKey("menu.hero_type_1")},
+                                                      {"HeroType_2", StringKey("menu.hero_type_2")},
+                                                      {"HeroType_3", StringKey("menu.hero_type_3")},
+                                                      {"HeroType_4", StringKey("menu.hero_type_4")}};
+        if (const Widget *type = admitted.One("ANDROID_HERO_TYPE"); type && !setup.is_null())
+        {
+            bool known = false;
+            for (const auto &[key, title] : kOccupations)
+                if (type->label == key)
+                    setup["text"] = bindings.Text(title), known = true;
+            if (!known && reported_occupation_ != type->label)
+            {
+                reported_occupation_ = type->label;
+                bindings.Error("new game: occupation '" + type->label + "' has no title of ours; the game's caption is shown");
+            }
+        }
         const std::string setup_text = admitted.Label("SETUP_TEXT");
         if (!setup.is_null())
             setup["note"] = setup_text;
@@ -237,6 +258,7 @@ class NewGameScreen final : public Screen
     }
 
     uint64_t reported_portrait_ = ~0ull; // opening whose missing portrait was reported
+    std::string reported_occupation_;   // occupation without a title, reported once
 };
 
 } // namespace

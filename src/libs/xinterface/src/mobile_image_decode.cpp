@@ -5,6 +5,9 @@
 #include <limits>
 #include <stdexcept>
 
+#include <bimg/bimg.h>
+#include <bx/allocator.h>
+
 namespace storm::mobile
 {
 namespace
@@ -39,65 +42,49 @@ Pixels allocate(uint32_t w, uint32_t h)
         throw std::runtime_error("image dimensions exceed budget");
     return {w, h, std::vector<uint8_t>(size_t(w) * h * 4)};
 }
-std::array<uint8_t, 4> rgb565(uint16_t v)
-{
-    return {uint8_t(((v >> 11) & 31) * 255 / 31), uint8_t(((v >> 5) & 63) * 255 / 63), uint8_t((v & 31) * 255 / 31),
-            255};
-}
 void put(Pixels &p, uint32_t x, uint32_t y, const std::array<uint8_t, 4> &c)
 {
     if (x < p.width && y < p.height)
         std::copy(c.begin(), c.end(), p.rgba.begin() + (size_t(y) * p.width + x) * 4);
 }
-// BC blocks are always complete 8/16-byte blocks, including non-multiple-of-4 edges.
-void blocks(const Reader &r, size_t offset, Pixels &p, int kind)
+// Size of one mip level, in whole 4×4 blocks for BC formats.
+size_t levelSize(bimg::TextureFormat::Enum format, uint32_t w, uint32_t h)
 {
-    const size_t bw = (p.width + 3) / 4, bh = (p.height + 3) / 4, stride = kind == 1 ? 8 : 16;
-    r.need(offset, bw * bh * stride);
-    for (size_t by = 0; by < bh; ++by)
-        for (size_t bx = 0; bx < bw; ++bx)
-        {
-            size_t pos = offset + (by * bw + bx) * stride, color = pos + (kind == 1 ? 0 : 8);
-            const auto a = r.u16(color), b = r.u16(color + 2);
-            std::array<std::array<uint8_t, 4>, 4> palette{rgb565(a), rgb565(b), {}, {}};
-            for (int c = 0; c < 3; ++c)
-            {
-                palette[2][c] = uint8_t(a > b || kind != 1 ? (2 * palette[0][c] + palette[1][c]) / 3
-                                                           : (palette[0][c] + palette[1][c]) / 2);
-                palette[3][c] = uint8_t(a > b || kind != 1 ? (palette[0][c] + 2 * palette[1][c]) / 3 : 0);
-            }
-            palette[2][3] = 255;
-            palette[3][3] = (a > b || kind != 1) ? 255 : 0;
-            std::array<uint8_t, 8> alpha{};
-            uint64_t alphaBits = 0;
-            if (kind == 5)
-            {
-                alpha[0] = r.u8(pos);
-                alpha[1] = r.u8(pos + 1);
-                if (alpha[0] > alpha[1])
-                    for (int n = 2; n < 8; ++n)
-                        alpha[n] = uint8_t(((8 - n) * alpha[0] + (n - 1) * alpha[1]) / 7);
-                else
-                {
-                    for (int n = 2; n < 6; ++n)
-                        alpha[n] = uint8_t(((6 - n) * alpha[0] + (n - 1) * alpha[1]) / 5);
-                    alpha[6] = 0;
-                    alpha[7] = 255;
-                }
-                for (int n = 0; n < 6; ++n)
-                    alphaBits |= uint64_t(r.u8(pos + 2 + n)) << (8 * n);
-            }
-            uint32_t indices = r.u32(color + 4);
-            for (unsigned i = 0; i < 16; ++i)
-            {
-                auto c = palette[(indices >> (2 * i)) & 3];
-                if (kind == 3)
-                    c[3] = uint8_t(((r.u8(pos + i / 2) >> (4 * (i % 2))) & 15) * 17);
-                if (kind == 5)
-                    c[3] = alpha[(alphaBits >> (3 * i)) & 7];
-                put(p, uint32_t(bx * 4 + i % 4), uint32_t(by * 4 + i / 4), c);
-            }
-        }
+    return size_t(bimg::imageGetSize(nullptr, w, h, 1, false, false, 1, format));
+}
+// Validates the complete declared mip chain, even though the preview decodes mip zero only.
+void mipChain(const Reader &r, size_t offset, const Pixels &p, uint32_t mips, bimg::TextureFormat::Enum format,
+              const char *excess)
+{
+    uint32_t w = p.width, h = p.height;
+    for (uint32_t m = 0; m < mips; ++m)
+    {
+        const size_t size = levelSize(format, w, h);
+        r.need(offset, size);
+        offset += size;
+        if (m + 1 < mips && w == 1 && h == 1)
+            throw std::runtime_error(excess);
+        w = std::max(1u, w / 2);
+        h = std::max(1u, h / 2);
+    }
+}
+// Mip zero by bimg (BC1/2/3 and the TX raw formats). bimg writes whole 4×4 blocks, so BC images
+// with edges that are not multiples of 4 decode into block-aligned rows and are then cropped.
+void decode(const Reader &r, size_t offset, Pixels &p, bimg::TextureFormat::Enum format)
+{
+    r.need(offset, levelSize(format, p.width, p.height));
+    const bool blocks = bimg::isCompressed(format);
+    const uint32_t w = blocks ? (p.width + 3) & ~3u : p.width, h = blocks ? (p.height + 3) & ~3u : p.height;
+    bx::DefaultAllocator allocator;
+    if (w == p.width && h == p.height)
+    {
+        bimg::imageDecodeToRgba8(&allocator, p.rgba.data(), r.b.data() + offset, w, h, w * 4, format);
+        return;
+    }
+    std::vector<uint8_t> full(size_t(w) * h * 4);
+    bimg::imageDecodeToRgba8(&allocator, full.data(), r.b.data() + offset, w, h, w * 4, format);
+    for (uint32_t y = 0; y < p.height; ++y)
+        std::copy_n(full.begin() + size_t(y) * w * 4, size_t(p.width) * 4, p.rgba.begin() + size_t(y) * p.width * 4);
 }
 uint8_t channel(uint32_t v, uint32_t mask, uint8_t fallback)
 {
@@ -113,8 +100,8 @@ uint8_t channel(uint32_t v, uint32_t mask, uint8_t fallback)
         throw std::runtime_error("non-contiguous pixel mask");
     return uint8_t((uint64_t((v >> shift) & mask) * 255) / mask);
 }
-void raw(const Reader &r, size_t offset, Pixels &p, unsigned bits, size_t pitch, std::array<uint32_t, 4> masks,
-         bool luminance = false)
+// Uncompressed DDS with arbitrary channel masks and an explicit row pitch.
+void raw(const Reader &r, size_t offset, Pixels &p, unsigned bits, size_t pitch, std::array<uint32_t, 4> masks)
 {
     if (bits != 8 && bits != 16 && bits != 24 && bits != 32)
         throw std::runtime_error("unsupported pixel depth");
@@ -129,15 +116,46 @@ void raw(const Reader &r, size_t offset, Pixels &p, unsigned bits, size_t pitch,
             uint32_t v = 0;
             for (unsigned n = 0; n < bits / 8; ++n)
                 v |= uint32_t(r.u8(pos + n)) << (8 * n);
-            if (luminance)
-                put(p, x, y, {uint8_t(v), uint8_t(v), uint8_t(v), 255});
-            else
-                put(p, x, y,
-                    {channel(v, masks[0], 0), channel(v, masks[1], 0), channel(v, masks[2], 0),
-                     channel(v, masks[3], 255)});
+            put(p, x, y,
+                {channel(v, masks[0], 0), channel(v, masks[1], 0), channel(v, masks[2], 0), channel(v, masks[3], 255)});
         }
 }
 constexpr uint32_t dxt1 = 0x31545844, dxt3 = 0x33545844, dxt5 = 0x35545844;
+bimg::TextureFormat::Enum bcFormat(uint32_t fourcc)
+{
+    switch (fourcc)
+    {
+    case dxt1:
+        return bimg::TextureFormat::BC1;
+    case dxt3:
+        return bimg::TextureFormat::BC2;
+    case dxt5:
+        return bimg::TextureFormat::BC3;
+    default:
+        return bimg::TextureFormat::Unknown;
+    }
+}
+// TX D3DFORMAT values as bimg formats. X8R8G8B8 and L8 are fixed up after decoding (opaque alpha;
+// bimg's R8 leaves green and blue zero).
+bimg::TextureFormat::Enum txFormat(uint32_t format)
+{
+    switch (format)
+    {
+    case 21: // A8R8G8B8
+    case 22: // X8R8G8B8
+        return bimg::TextureFormat::BGRA8;
+    case 23: // R5G6B5
+        return bimg::TextureFormat::B5G6R5;
+    case 25: // A1R5G5B5
+        return bimg::TextureFormat::BGR5A1;
+    case 26: // A4R4G4B4
+        return bimg::TextureFormat::BGRA4;
+    case 50: // L8
+        return bimg::TextureFormat::R8;
+    default:
+        return bcFormat(format);
+    }
+}
 Pixels tx(const Reader &r)
 {
     r.need(0, 24);
@@ -147,67 +165,18 @@ Pixels tx(const Reader &r)
     const auto mips = r.u32(12), format = r.u32(16), mipSize = r.u32(20);
     if (!mips || mips > 14)
         throw std::runtime_error("invalid TX mip count");
-    unsigned bits = 0;
-    std::array<uint32_t, 4> masks{};
-    int bc = 0;
-    switch (format)
-    {
-    case 21:
-        bits = 32;
-        masks = {0xff0000, 0xff00, 0xff, 0xff000000};
-        break;
-    case 22:
-        bits = 32;
-        masks = {0xff0000, 0xff00, 0xff, 0};
-        break;
-    case 23:
-        bits = 16;
-        masks = {0xf800, 0x7e0, 0x1f, 0};
-        break;
-    case 25:
-        bits = 16;
-        masks = {0x7c00, 0x3e0, 0x1f, 0x8000};
-        break;
-    case 26:
-        bits = 16;
-        masks = {0xf00, 0xf0, 0xf, 0xf000};
-        break;
-    case 50:
-        bits = 8;
-        break;
-    case dxt1:
-        bc = 1;
-        break;
-    case dxt3:
-        bc = 3;
-        break;
-    case dxt5:
-        bc = 5;
-        break;
-    default:
+    const auto source = txFormat(format);
+    if (source == bimg::TextureFormat::Unknown)
         throw std::runtime_error("unsupported TX format");
-    }
-    size_t expected = bc ? size_t((p.width + 3) / 4) * ((p.height + 3) / 4) * (bc == 1 ? 8 : 16)
-                         : size_t(p.width) * p.height * (bits / 8);
-    if (mipSize != expected)
+    if (mipSize != levelSize(source, p.width, p.height))
         throw std::runtime_error("invalid TX first mip size");
-    // Validate the complete declared chain, even though the preview decodes mip zero only.
-    size_t total = 24;
-    uint32_t w = p.width, h = p.height;
-    for (uint32_t m = 0; m < mips; ++m)
-    {
-        const size_t size = bc ? size_t((w + 3) / 4) * ((h + 3) / 4) * (bc == 1 ? 8 : 16) : size_t(w) * h * (bits / 8);
-        r.need(total, size);
-        total += size;
-        if (m + 1 < mips && w == 1 && h == 1)
-            throw std::runtime_error("excess TX mip levels");
-        w = std::max(1u, w / 2);
-        h = std::max(1u, h / 2);
-    }
-    if (bc)
-        blocks(r, 24, p, bc);
-    else
-        raw(r, 24, p, bits, size_t(p.width) * (bits / 8), masks, format == 50);
+    mipChain(r, 24, p, mips, source, "excess TX mip levels");
+    decode(r, 24, p, source);
+    for (size_t i = 0; i < p.rgba.size(); i += 4)
+        if (format == 22)
+            p.rgba[i + 3] = 255;
+        else if (format == 50)
+            p.rgba[i + 1] = p.rgba[i + 2] = p.rgba[i];
     return p;
 }
 Pixels dds(const Reader &r)
@@ -224,22 +193,11 @@ Pixels dds(const Reader &r)
         throw std::runtime_error("invalid DDS mip count");
     if (flags & 4)
     {
-        int bc = format == dxt1 ? 1 : format == dxt3 ? 3 : format == dxt5 ? 5 : 0;
-        if (!bc)
+        const auto source = bcFormat(format);
+        if (source == bimg::TextureFormat::Unknown)
             throw std::runtime_error("unsupported DDS compression");
-        size_t offset = 128;
-        uint32_t w = p.width, h = p.height;
-        for (uint32_t m = 0; m < mips; ++m)
-        {
-            const size_t size = size_t((w + 3) / 4) * ((h + 3) / 4) * (bc == 1 ? 8 : 16);
-            r.need(offset, size);
-            offset += size;
-            if (m + 1 < mips && w == 1 && h == 1)
-                throw std::runtime_error("excess DDS mip levels");
-            w = std::max(1u, w / 2);
-            h = std::max(1u, h / 2);
-        }
-        blocks(r, 128, p, bc);
+        mipChain(r, 128, p, mips, source, "excess DDS mip levels");
+        decode(r, 128, p, source);
     }
     else if (flags & 0x40)
     {
