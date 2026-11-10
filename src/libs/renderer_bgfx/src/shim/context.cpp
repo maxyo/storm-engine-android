@@ -148,6 +148,7 @@ bool Context::init(SDL_Window *window, uint32_t width, uint32_t height, bool vsy
     init.swapChain.height = height;
     init.swapChain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
     init.reset = vsync ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+    init.fallback = false; // never continue on the Noop renderer
     if (!bgfx::init(init))
     {
         logf("bgfx::init failed");
