@@ -1,5 +1,6 @@
 #include "sea_cameras.h"
 #include "deck_camera.h"
+#include "fire_camera.h"
 #include "free_camera.h"
 #include "ship_camera.h"
 #include "shared/sea_ai/script_defines.h"
@@ -11,6 +12,8 @@ CREATE_CLASS(FREE_CAMERA)
 CREATE_CLASS(SHIP_CAMERA)
 
 CREATE_CLASS(DECK_CAMERA)
+
+CREATE_CLASS(FIRE_CAMERA)
 
 SEA_CAMERAS::SEA_CAMERAS()
 {
