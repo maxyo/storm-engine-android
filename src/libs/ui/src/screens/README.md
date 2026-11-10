@@ -101,8 +101,11 @@ string: add the key to every `strings/<lang>.json` (the design build fails if on
 language lacks it or if a used key is undefined), keep the zone prefix (`trade.`,
 `crew.`, `common.` for shared words). A language without tables and a key missing at run
 time are errors in the log (and toasts in debug hosts); English or the key itself is
-shown, never nothing. The word lists in `controls.cpp` that recognise button roles are
-matching data, not UI text.
+shown, never nothing. The word lists in `controls.cpp` (`kExitLabels`,
+`kConfirmLabels`, `kDangerWords`) that recognise button roles are matching data, not UI
+text. They are a marked C++ table (not part of the pack) holding the words of all six
+languages (ru, en, de, es, fr, it); add a language's words there together with its string
+table. `Roles` in `tests/screens_check.cpp` has one case per language.
 
 ## Game pictures in rows
 
