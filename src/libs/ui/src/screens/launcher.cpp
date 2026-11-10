@@ -12,9 +12,11 @@
 //               import: {recovering, cancelling, canCancel, stage, bytes, total, files,
 //               choices: [{id, name, version, languages, defaultLanguage, bytes, files,
 //               patches, place, missing}], password: {for, retry}}}
-//   downloads: {sets: [{id, kind, name, state, downloaded, wanted, rate, error, verified,
-//               main: <verb>, menu: [<verb>], busy}], error, magnetDraft,
-//               dialog: {kind: files|sources|install|details|error, ...}}
+//   downloads: {sets: [{id, kind, name, state, downloaded, wanted, rate, peers, stalled,
+//               networkError, error, errorKind, discovered: ""|checking|game|none|undecided,
+//               main: <verb>, menu: [<verb>], busy}],
+//               error, magnetDraft, dialog: {kind: candidates|details|error, ...}}
+//               (the app's DownloadLibraryState defines states, verbs and candidates)
 //   about:     {app: {version, code, flavor, appCommit, engineCommit, appSource,
 //               engineSource}, notices: [<file>], open: {file, text, truncated}}
 // What the player does goes back as Action{node "APP", verb, value} (text fields:
@@ -170,8 +172,13 @@ const char *const kStages[] = {"copying", "reading", "nested", "choosing", "inst
 [[maybe_unused]] const char *const kStageKeys[] = {
     StringKey("launcher.stage.copying"),    StringKey("launcher.stage.reading"),   StringKey("launcher.stage.nested"),
     StringKey("launcher.stage.choosing"),   StringKey("launcher.stage.installing"), StringKey("launcher.stage.verifying"),
-    StringKey("launcher.stage.finishing"),  StringKey("downloads.verified_candidate"),
+    StringKey("launcher.stage.finishing"),
 };
+// What the import's discovery found in a finished set's files (the app's SetDiscovery; never
+// file names): "downloads.discovered." + result. "undecided" (password, missing volumes) says
+// nothing; the import explains it.
+const char *const kDiscovered[] = {StringKey("downloads.discovered.checking"), StringKey("downloads.discovered.game"),
+                                   StringKey("downloads.discovered.none")};
 
 // Short status for a finished import or a launcher message: {tone, lead, text}, null when none.
 Json ResultNotice(Bindings &bindings, const Json &result, bool has_game)
@@ -311,7 +318,9 @@ class LauncherScreen final : public Screen
             view["title"] = bindings.Text("launcher.title_busy");
             std::string title, status;
             double percent = -1;
-            if (import.is_object())
+            if (!import.is_object())
+                bindings.Error("launcher: busy without an import");
+            else
             {
                 const std::string stage = Str(import, "stage");
                 const double bytes = Num(import, "bytes"), total = Num(import, "total");
@@ -347,12 +356,6 @@ class LauncherScreen final : public Screen
                 const Json &password = Obj(import, "password");
                 if (password.is_object())
                     view["password"] = Password(password, bindings);
-            }
-            else
-            {
-                // The download library installs a set in its own process.
-                title = bindings.Text("launcher.installing");
-                view["cancel"] = nullptr;
             }
             view["busy"] = Json{{"title", title}, {"status", status}, {"percent", percent}};
             return view;
@@ -504,16 +507,15 @@ class LauncherScreen final : public Screen
 // --- download library ------------------------------------------------------------------
 
 const char *const kSetStates[] = {
-    StringKey("downloads.state.copying"),          StringKey("downloads.state.inspecting"),
-    StringKey("downloads.state.saved"),            StringKey("downloads.state.awaiting-selection"),
-    StringKey("downloads.state.archive-ready"),    StringKey("downloads.state.metadata"),
-    StringKey("downloads.state.probe"),            StringKey("downloads.state.probe-downloading"),
-    StringKey("downloads.state.downloading"),      StringKey("downloads.state.pausing"),
-    StringKey("downloads.state.paused"),           StringKey("downloads.state.installing"),
-    StringKey("downloads.state.committing"),       StringKey("downloads.state.installed"),
-    StringKey("downloads.state.install-cancelled"), StringKey("downloads.state.interrupted"),
-    StringKey("downloads.state.error"),            StringKey("downloads.state.complete"),
+    StringKey("downloads.state.copying"),     StringKey("downloads.state.inspecting"),
+    StringKey("downloads.state.metadata"),    StringKey("downloads.state.awaiting-selection"),
+    StringKey("downloads.state.downloading"), StringKey("downloads.state.pausing"),
+    StringKey("downloads.state.paused"),      StringKey("downloads.state.complete"),
+    StringKey("downloads.state.interrupted"), StringKey("downloads.state.error"),
 };
+// Kinds of the metadata's candidates (file names only, never a verified game).
+const char *const kCandidateKinds[] = {StringKey("downloads.kind.loose-game-candidate"), StringKey("downloads.kind.installer-candidate"),
+                                       StringKey("downloads.kind.archive-candidate")};
 
 // Verbs the host offers for a set: label key, and the icon when the verb is a bare glyph.
 struct Verb
@@ -524,13 +526,10 @@ struct Verb
     const char *variant;
 };
 const Verb kVerbs[] = {
-    {"install", StringKey("downloads.install"), nullptr, "primary"},
+    {"import", StringKey("downloads.import"), nullptr, "primary"},
     {"choose", StringKey("downloads.choose"), nullptr, "secondary"},
-    {"inspect", StringKey("downloads.inspect"), nullptr, "secondary"},
-    {"probe", StringKey("downloads.probe"), nullptr, "secondary"},
     {"pause", StringKey("downloads.pause"), "pause", nullptr},
     {"resume", StringKey("downloads.resume"), "play", nullptr},
-    {"cancel-install", StringKey("downloads.cancel_install"), "close", nullptr},
     {"details", StringKey("downloads.details"), nullptr, "secondary"},
     {"delete", StringKey("downloads.delete"), nullptr, "danger"},
 };
@@ -590,7 +589,7 @@ class DownloadsScreen final : public Screen
         if (!menu_found)
             menu_.clear();
         view["sets"] = rows;
-        // Questions of the host (file choice, install source, confirmation, details, error)
+        // Questions of the host (candidate choice, details, error)
         // come first; the add sheet and the magnet field are this screen's own.
         const Json &dialog = Obj(state, "dialog");
         if (dialog.is_object())
@@ -612,7 +611,6 @@ class DownloadsScreen final : public Screen
         if (dialog.is_object())
             bindings.Send(command_, "dialog-close");
         magnet_open_ = adding_ = false;
-        checked_.clear();
         bindings.Rebuild();
     }
 
@@ -649,10 +647,16 @@ class DownloadsScreen final : public Screen
             bindings.Error("downloads: unknown set state " + state);
         std::string meta = known ? bindings.Text(key) : state;
         const std::string error = Str(set, "error");
-        const std::string verified = Str(set, "verified");
-        if (verified == "structural" || verified == "candidate")
-            meta += " · " + bindings.Text("downloads.verified_" + verified);
-        if (state == "downloading" || state == "probe-downloading")
+        const std::string discovered = Str(set, "discovered");
+        if (!discovered.empty() && discovered != "undecided")
+        {
+            const std::string found = "downloads.discovered." + discovered;
+            if (std::find_if(std::begin(kDiscovered), std::end(kDiscovered), [&found](const char *k) { return found == k; }) != std::end(kDiscovered))
+                meta += " · " + bindings.Text(found);
+            else
+                bindings.Error("downloads: unknown discovery result " + discovered);
+        }
+        if (state == "downloading")
         {
             const std::string left = TimeLeft(bindings, rate > 0 && wanted > done ? (wanted - done) / rate : 0.0);
             if (!left.empty())
@@ -660,14 +664,22 @@ class DownloadsScreen final : public Screen
         }
         else if (wanted > 0 || done > 0)
             meta += " · " + Size(bindings, wanted > 0 ? wanted : done);
+        // Nothing moves: say why (no peers, or peers without data) and the latest network problem.
+        const bool stalled = Flag(set, "stalled");
+        if (stalled)
+        {
+            meta += " · " + bindings.Text(Num(set, "peers") > 0 ? "downloads.stalled_no_data" : "downloads.stalled_no_peers");
+            if (!Str(set, "networkError").empty())
+                meta += ": " + Str(set, "networkError");
+        }
         if (!error.empty())
-            meta += ": " + error;
+            meta += ": " + (Str(set, "errorKind") == "storage-full" ? bindings.Text("downloads.storage_full") + " — " : std::string()) + error;
         Json row = Json{{"id", id},
-                        {"icon", state == "installed" ? "check" : kind == "magnet" ? "magnet" : kind == "archive" ? "archive" : "download"},
+                        {"icon", state == "complete" ? "check" : kind == "magnet" ? "magnet" : kind == "archive" ? "archive" : "download"},
                         {"title", Str(set, "name")},
                         {"meta", meta},
-                        {"metaTone", error.empty() && state != "error" && state != "interrupted" ? "" : "danger"},
-                        {"progress", (state == "downloading" || state == "probe-downloading") && wanted > 0 ? std::max(1.0, std::floor(done * 100 / wanted)) : 0.0},
+                        {"metaTone", error.empty() && !stalled && state != "error" && state != "interrupted" ? "" : "danger"},
+                        {"progress", state == "downloading" && wanted > 0 ? std::max(1.0, std::floor(done * 100 / wanted)) : 0.0},
                         {"menu", !List(set, "menu").empty()},
                         {"busy", Flag(set, "busy") || bindings.Pending("set-" + id)},
                         {"action", ""},
@@ -759,89 +771,35 @@ class DownloadsScreen final : public Screen
     Json Dialog(const Json &dialog, Bindings &bindings)
     {
         const std::string kind = Str(dialog, "kind"), id = Str(dialog, "id");
-        if (kind == "files")
+        if (kind == "candidates")
         {
-            // Which files to download: the recommended ones, checked; the total on the button.
-            const Json &files = List(dialog, "files");
-            if (dialog_id_ != id + ":" + std::to_string(files.size()))
-            {
-                dialog_id_ = id + ":" + std::to_string(files.size());
-                checked_.assign(files.size(), !Flag(dialog, "probe"));
-                if (!checked_.empty() && Flag(dialog, "probe"))
-                    checked_[0] = true;
-            }
+            // One candidate of the metadata (with its volume hints), or every file: never combined.
             Json rows = Json::array();
-            double total = 0;
-            std::string selection;
-            for (size_t i = 0; i < files.size(); ++i)
+            const Json &candidates = List(dialog, "candidates");
+            const auto offer = [&](const std::string &element, const char *icon, const std::string &title, const Json &choice, int number) {
+                rows.push_back(Json{{"id", element}, {"icon", icon}, {"title", title},
+                                    {"meta", Fill(bindings.Text("downloads.details_total"),
+                                                  {std::to_string(static_cast<long long>(Num(choice, "files"))), Size(bindings, Num(choice, "bytes"))})}});
+                bindings.On(element, "", [this, &bindings, id, number](const Event &) { bindings.Send(command_, "download", id + ":" + std::to_string(number)); });
+            };
+            for (size_t i = 0; i < candidates.size(); ++i)
             {
-                rows.push_back(Json{{"id", "file-" + std::to_string(i)},
-                                    // More recommended files than a list can hold: one row for all of them.
-                                    {"label", Str(files[i], "path") == "*" ? Fill(bindings.Text("downloads.all_files"), {std::to_string(static_cast<long long>(Num(files[i], "count")))})
-                                                                       : Str(files[i], "path") + " · " + Size(bindings, Num(files[i], "bytes"))},
-                                    {"on", static_cast<bool>(checked_[i])},
-                                    {"line", i + 1 < files.size()}});
-                if (checked_[i])
-                {
-                    total += Num(files[i], "bytes");
-                    selection += (selection.empty() ? "" : ",") + std::to_string(static_cast<long long>(Num(files[i], "index")));
-                }
-                const bool probe = Flag(dialog, "probe");
-                bindings.On("file-" + std::to_string(i), "", [this, &bindings, i, probe](const Event &) {
-                    if (probe)
-                        std::fill(checked_.begin(), checked_.end(), false);
-                    checked_[i] = probe ? true : !checked_[i];
-                    bindings.Rebuild();
-                });
+                const std::string key = "downloads.kind." + Str(candidates[i], "kind");
+                const bool known = std::find_if(std::begin(kCandidateKinds), std::end(kCandidateKinds), [&key](const char *k) { return key == k; }) !=
+                                   std::end(kCandidateKinds);
+                if (!known)
+                    bindings.Error("downloads: unknown candidate kind " + Str(candidates[i], "kind"));
+                offer("candidate-" + std::to_string(i), Str(candidates[i], "kind") == "loose-game-candidate" ? "load" : "archive",
+                      Str(candidates[i], "label") + (known ? " · " + bindings.Text(key) : std::string()), candidates[i], static_cast<int>(i));
             }
-            bindings.On("dialog-download", "", [this, &bindings, id, selection](const Event &) {
-                if (selection.empty())
-                    return;
-                checked_.clear();
-                dialog_id_.clear();
-                bindings.Send(command_, "download", id + ":" + selection);
-            });
-            return Json{{"kind", "files"},
-                        {"title", bindings.Text(Flag(dialog, "probe") ? "downloads.probe_title" : "downloads.files_title")},
-                        {"text", Flag(dialog, "probe") ? bindings.Text("downloads.probe_note") : std::string()},
-                        {"files", rows},
-                        {"actions", Json::array({Json{{"id", "dialog-cancel"}, {"label", bindings.Text("common.cancel")}, {"variant", "quiet"}},
-                                                 Json{{"id", "dialog-download"},
-                                                      {"label", Fill(bindings.Text("downloads.download"), {Size(bindings, total)})},
-                                                      {"variant", "primary"},
-                                                      {"disabled", selection.empty()}}})}};
-        }
-        if (kind == "sources")
-        {
-            Json rows = Json::array();
-            const Json &sources = List(dialog, "sources");
-            for (size_t i = 0; i < sources.size(); ++i)
-            {
-                const std::string element = "install-source-" + std::to_string(i);
-                rows.push_back(Json{{"id", element},
-                                    {"icon", Flag(sources[i], "folder") ? "load" : "archive"},
-                                    {"title", Str(sources[i], "label")}});
-                bindings.On(element, "", [this, &bindings, i](const Event &) { bindings.Send(command_, "install-source", std::to_string(i)); });
-            }
-            return Json{{"kind", "pick"}, {"title", bindings.Text("downloads.install_source")}, {"rows", rows}, {"cancel", bindings.Text("common.cancel")}};
-        }
-        if (kind == "install")
-        {
-            bindings.On("dialog-confirm", "", [this, &bindings](const Event &) { bindings.Send(command_, "install-confirm"); });
-            return Json{{"kind", "confirm"},
-                        {"title", bindings.Text("downloads.install_question")},
-                        {"subject", Str(dialog, "label")},
-                        {"text", bindings.Text("downloads.install_note")},
-                        {"confirm", bindings.Text("downloads.install")},
-                        {"cancel", bindings.Text("common.cancel")}};
+            offer("candidate-all", "download", bindings.Text("downloads.all_files"), Obj(dialog, "all"), -1);
+            return Json{{"kind", "pick"}, {"title", bindings.Text("downloads.files_title")}, {"rows", rows}, {"cancel", bindings.Text("common.cancel")}};
         }
         if (kind == "details" || kind == "error")
         {
             std::string text;
             if (kind == "details")
             {
-                if (Flag(dialog, "structural"))
-                    text = bindings.Text("downloads.verified_structural") + "\n";
                 for (const Json &path : List(dialog, "files"))
                     if (path.is_string())
                         text += path.get<std::string>() + "\n";
@@ -865,8 +823,7 @@ class DownloadsScreen final : public Screen
         widget.type = "edit";
         return widget;
     }();
-    std::string menu_, dialog_id_;
-    std::vector<char> checked_;
+    std::string menu_;
     bool adding_ = false, magnet_open_ = false;
 };
 

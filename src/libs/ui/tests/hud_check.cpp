@@ -261,11 +261,15 @@ static void CheckConsumers()
     Expect(states.combat.activity == 6, "combat: an older activity is not news");
     const size_t quiet = bench.mount.errors.size();
     Json bad = State("combat-melee");
-    bad["actions"].push_back("teleport");
+    bad["actions"]["teleport"] = 30;
     bench.Feed("combat", bad);
     Expect(!states.combat.known && bench.LastErrorHas("unknown action 'teleport'") && bench.mount.errors.size() == quiet + 1, "combat: an unknown action rejects the state");
     bad = State("combat-explore");
-    bad["actions"].push_back("block");
+    bad["actions"]["weapon"] = 0;
+    bench.Feed("combat", bad);
+    Expect(!states.combat.known && bench.LastErrorHas("'weapon' lacks its generation"), "combat: an action without its generation is rejected");
+    bad = State("combat-explore");
+    bad["actions"]["block"] = 22;
     bench.Feed("combat", bad);
     Expect(!states.combat.known && bench.LastErrorHas("does not belong to explore"), "combat: a melee action in explore is rejected");
     bad = State("combat-melee");

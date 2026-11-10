@@ -1318,7 +1318,7 @@ void SOURCE_VIEW::FindNext()
         return;
 
     // sFindStr.Lower();
-    std::transform(sFindStr.begin(), sFindStr.end(), sFindStr.begin(), tolower);
+    std::ranges::for_each(sFindStr, [](char &c) { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
 
     const int nStartLine =
         (nActiveLine < nTopLine || nActiveLine > nTopLine + nClientLinesSize) ? nTopLine : nActiveLine;
@@ -1335,7 +1335,7 @@ void SOURCE_VIEW::FindNext()
         memcpy(str, pSourceFile + pLineOffset[iLine], nTextLen);
         str[nTextLen] = 0;
         std::string sTestStr = str;
-        std::transform(sTestStr.begin(), sTestStr.end(), sTestStr.begin(), tolower);
+        std::ranges::for_each(sTestStr, [](char &c) { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
         if (sTestStr.find(sFindStr) != std::string::npos)
         {
             SetActiveLine(iLine);

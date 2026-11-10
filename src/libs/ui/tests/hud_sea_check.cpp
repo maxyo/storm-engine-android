@@ -159,11 +159,13 @@ static void CheckSailing()
     Expect(!Sent(mount, "seaquick:1\t5\t31\tactivate\tMoor"), "a quick action that was not drawn yet cannot be tapped");
     bench.Frame();
     Expect(Sent(mount, "shiphud:9\t2047\t3"), "the drawn elements replace the engine's indicators: hull, crew, sails, ammunition, fleet, speed, wind, date, place");
+    Expect(Count(mount, "hudowner:sea") == 1 && Count(mount, "hudowner:worldmap") == 1 && !Sent(mount, "hudowner:land"),
+           "the HUD declares once which engine HUDs it presents (the engine then keeps their unanswered revisions native-free)");
     Expect(mount.slots.back() == "seaquick-ack" && mount.Last() == "seaquick:1\t5\t31\tack\t1", "the drawn quick action is acknowledged: " + mount.Last());
     bench.Frame(0.1);
-    Expect(Count(mount, "shiphud:9\t2047\t3") == 1 && Count(mount, "seaquick:1\t5\t31\tack\t1") == 1, "nothing is repeated before its time");
-    bench.Frame(0.2);
-    Expect(Count(mount, "shiphud:9\t2047\t3") == 1 && Count(mount, "seaquick:1\t5\t31\tack\t1") == 2, "the quick action lease is renewed, the indicator mask is said once");
+    bench.Frame(5.0);
+    Expect(Count(mount, "shiphud:9\t2047\t3") == 1 && Count(mount, "seaquick:1\t5\t31\tack\t1") == 1,
+           "the indicator mask and the quick action are said once per revision, however far apart frames are");
 
     // shortcuts and tap controls
     bench.Press("hero");
@@ -174,6 +176,14 @@ static void CheckSailing()
     Expect(mount.Last() == "gameplay:9\tSea_CameraSwitch", "camera: " + mount.Last());
     bench.Press("fire");
     Expect(mount.Last() == "gameplay:9\tShip_Fire", "fire: " + mount.Last());
+    Expect(mount.shown.elements["time"]["badge"] == "×1" && mount.shown.elements["time"]["variant"] == "normal" && mount.Has("time-slower") && mount.Has("time-faster"),
+           "the time scale the engine runs at: " + mount.shown.elements["time"].dump());
+    bench.Press("time");
+    Expect(mount.Last() == "gameplay:9\tTimeScale", "the time button is the game's R: " + mount.Last());
+    bench.Press("time-faster");
+    Expect(mount.Last() == "gameplay:9\tTimeScaleFaster", "faster: " + mount.Last());
+    bench.Press("time-slower");
+    Expect(mount.Last() == "gameplay:9\tTimeScaleSlower", "slower: " + mount.Last());
     bench.Press("orders");
     Expect(mount.Last() == "orders:1\t6\t14\t2\topen\t", "orders: " + mount.Last());
     bench.Press("fleet", "ship", "1");
@@ -253,9 +263,9 @@ static void CheckSailing()
     bench.Frame();
     Expect(mount.Last() == "navigator:9\t3\t4\tprepare\t1\t800\t400\t704\t84\t50\t1000\t1" && mount.slots.back() == "navigator-prepare",
            "the aperture of the drawn disc: " + mount.Last());
-    bench.Frame(0.3);
-    Expect(Count(mount, "navigator:9\t3\t4\tprepare\t1\t800\t400\t704\t84\t50\t1000\t1") == 2 && !Sent(mount, "navigator:9\t3\t4\tvisible\t1"),
-           "the lease is renewed; nothing is called visible before the engine drew there");
+    bench.Frame(5.0);
+    Expect(Count(mount, "navigator:9\t3\t4\tprepare\t1\t800\t400\t704\t84\t50\t1000\t1") == 1 && !Sent(mount, "navigator:9\t3\t4\tvisible\t1"),
+           "the aperture is said once per owner and place; nothing is called visible before the engine drew there");
     Json drawn = State("ship");
     drawn["sequence"] = 22;
     drawn["navigatorLayoutId"] = 1;
@@ -334,6 +344,15 @@ static void CheckBattle()
     Expect(shown["ammo"]["badge"] == "12" && shown["ammo"]["badgeTone"] == "danger" && shown["hull"]["value"] == 27 && shown["sail"]["value"] == 1 &&
                shown["minimap"]["time"] == "11:42",
            "battle values");
+    Expect(shown["time"]["badge"] == "×1.5" && shown["time"]["variant"] == "active", "an accelerated world: " + shown["time"].dump());
+    Expect(shown["effect-0"]["icon"] == "perk-instantrepair" && !shown["effect-0"].contains("fill") && !shown["effect-0"].contains("disabled") &&
+               shown["effect-1"]["fill"] == 40 && shown["effect-1"]["fillTone"] == "cooldown",
+           "the battle abilities: " + shown["effect-0"].dump() + shown["effect-1"].dump());
+    bench.Press("effect-0");
+    Expect(mount.Last() == "gameplay:10\tBI_InstantRepair", "a ready ability is launched: " + mount.Last());
+    const size_t launched = mount.commands.size();
+    bench.Press("effect-1");
+    Expect(mount.commands.size() == launched, "a recovering ability does nothing");
     bench.Press("spyglass", "down");
     Expect(mount.Last() == "hold:10\tTelescopeIn\t1", "the spyglass is held: " + mount.Last());
     bench.Press("spyglass", "up");

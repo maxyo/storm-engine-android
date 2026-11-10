@@ -22,6 +22,12 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `trade_crew.cpp` | crew hire: the trade layout with one always-open row |
 | `trade_shipyard.cpp` | shipyard: catalogue, ship card, the game's windows as sheets; sends the engine's `yard@` capability tokens, one per model revision |
 | `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout, a column table per interface |
+| `extra_games.cpp` | tavern dice and cards (`boal_dice`, `boal_cards`): the felt from the script images and facts the engine exports (`ANDROID_TABLE_GAME`) |
+| `extra_goods.cpp` | the treasurer's purchase list (`goodstransfer`): rows the engine exports (`ANDROID_GOODS_ORDER`), a standing order saved as the amount settles (`order` action) |
+| `extra_repair.cpp` | self repair (`repair`): hull, masts, sails as amounts sent as the game's arrow presses, materials per amount |
+| `extra_transfer.cpp` | loot and exchange (`transfer_main`): cargo by pack arrows, crew tab, the game's windows as modals / a sheet; the question window's script mode from `ANDROID_TRANSFER`; dangerous answers held |
+| `extra_sails.cpp` | sail emblems (`sailsgerald`): the emblem ribbon (`SCROLL_GERALD` rows with texture paths) and one contextual primary |
+| `extra_alchemy.cpp` | alchemy (`alchemy`): recipe rows the engine exports (`ANDROID_ALCHEMY_RECIPE`, `choose`), the components and N batches crafted by one guarded `craft` action (`ANDROID_ALCHEMY`) |
 | `dialogue.cpp` | state channel `dialogue`: speech paged by `<ui-pages>` (pure rules in `../text_pages.h`), replies in two columns, the answer editor (text through the IME bridge, or an amount on the number panel), the menu button (`pause` to the platform host) |
 | `menu_game_over.cpp` | state channel `gameOver` (`{kind: sea\|land\|defeat, language}` or `null`, engine xinterface `info_handler.cpp`): the game-over screen |
 | `launcher.cpp` | the application's own screens (launcher, download library, about) from the platform host's `launcher` channel; the contract is at the top of the file |
@@ -147,6 +153,7 @@ engine ◀──"<verb>:<value>" (Action, screen "hud")── Hud::Send ◀─�
 | `hud.cpp` | **the migration switch** `kScenes` (gameplay mode → scene), visibility, event dispatch, the event log |
 | `states.cpp` | one consumer per channel: the engine's JSON checked once, kept typed; bad data is rejected aloud |
 | `land.cpp` | the land scene: explore and combat sets, the action sheet, the sword-move wheel |
+| `spyglass.cpp` | the spyglass card (`<s-hud-spyglass>`): laid by the Hud as the view's `overlay` over any scene, and alone where no scene owns the mode; acknowledged per drawn frame (`spyglass:<generation>`) so the engine hides its own info |
 | `world_map.cpp` | the world-map scene: fleet, compass (a tap shows the details beside it), helm slider, sail lever (held SailUp/SailDown), camera, menu, the map's commands |
 | `sea.cpp` | the sea scene: sailing and naval battle, fleet, minimap (the engine's radar in its disc), sail lever, helm slider, guns and ammunition fan, quick action, orders sheet |
 
@@ -155,12 +162,13 @@ Channels (JSON as the engine publishes it unless noted):
 | channel | shape | state |
 |---|---|---|
 | `gameplay` | `{schemaVersion: 1, revision, mode: explore\|melee\|sailing\|naval\|worldmap\|unknown, language, inputOwner, analogMovement, movementGeneration, capabilities: […]}` | `Gameplay` |
-| `combat` | `{schemaVersion: 1, gameplayRevision, activityGeneration, playerId, mode, actions: […], interactKind, pistol: {state, progress 0…20}}` | `Combat` |
+| `combat` | `{schemaVersion: 2, gameplayRevision, activityGeneration, playerId, mode, actions: {name: generation}, interactKind, pistol: {state, progress 0…20}}`; a command carries the activity and the action's own generation, so an action appearing or going away (`interact` as people walk past) fences only itself | `Combat` |
 | `vitals` | `{health, energy, reload: 0…1, loaded, capacity, effects: [poison\|drunk\|healing], potions, officers: [{id, name, face, health}], dash?: 0…1}` or `null` | `Vitals` |
 | `worldInfo` | a JSON string: the engine's location lines, `\n` between them | `States::world_info` |
 | `contextAction` | a JSON string: the script's quick action name, `""` = none | `States::context_action` |
 | `landCommands` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage, pendingLabel, selectedItemId, canBack, canClose, items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `LandCommands` |
-| `ship` | the engine's ship telemetry (`android_ship_telemetry.hpp`): `{schemaVersion: 1, gameplayRevision, sequence, hudRevision, valid, …own ship, fleet: […], navigator…, shipSpeedKnots, windSpeed, cannonCharge, ammo, ammoCount, ammoCounts, sailState, canSetSails, dateTimeText, locationText}` | `Ship` |
+| `spyglass` | `{schemaVersion: 1, revision, on, generation, target: null \| {kind: ship\|fort, name, type, class, hull, sails, crew, cannons, cannonsMax, charge, nation, sail, speed, distance, captain, cannonType, portrait, skills: {…}}}`, fields the telescope cannot show left out | `Spyglass` |
+| `ship` | the engine's ship telemetry (`android_ship_telemetry.hpp`): `{schemaVersion: 1, gameplayRevision, sequence, hudRevision, valid, …own ship, fleet: […], navigator…, shipSpeedKnots, windSpeed, cannonCharge, timeScale, abilities: [{id, state: ready|active|recovery|blocked, fill}], ammo, ammoCount, ammoCounts, sailState, canSetSails, dateTimeText, locationText}` | `Ship` |
 | `seaOrders` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage: commands\|options\|targets, recipientId, selectedItemId, pendingLabel, canBack, canClose, recipients: […], items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `SeaOrders` |
 | `seaQuickAction` | `{schemaVersion: 1, activity, revision, available, action: Map\|Moor\|Board\|LandTroops\|Reload, label}` | `SeaQuick` |
 | `worldMap` | the engine's world-map frame (`android_worldmap.hpp`): `{schemaVersion: 1, revision, activity, gameplayRevision, available, mask, commandsReady, shipsVisible, instrumentsVisible, date, hour, windForce, windAngle, heading, speed, morale, foodDays, rumDays, coordinates, flag, stormState, ships: […], commands: [{id, label}]}` | `WorldMap` |

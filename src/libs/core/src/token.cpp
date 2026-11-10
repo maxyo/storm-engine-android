@@ -1,5 +1,6 @@
 #include "token.h"
 
+#include <cctype>
 #include <cstdio>
 
 #include "utf8.h"
@@ -366,7 +367,7 @@ void TOKEN::LowCase()
     char *c = pTokenData;
     while (*c != '\0')
     {
-        *c = std::tolower(*c);
+        *c = static_cast<char>(std::tolower(static_cast<unsigned char>(*c)));
         ++c;
     }
 }

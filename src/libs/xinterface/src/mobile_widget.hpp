@@ -95,6 +95,30 @@ inline std::string MobilePortraitFace(const std::string &path)
     for (size_t i = face + 6; i < lower.size() && std::isdigit(static_cast<unsigned char>(lower[i])); ++i) id += lower[i];
     return id;
 }
+// The game texture of any other picture ("interfaces\\maps\\map_1.tga" → "interfaces/maps/map_1"):
+// the name under RESOURCE/Textures without its extension, read by the portable UI from the
+// player's game files. Never a filesystem path.
+inline std::string MobileTextureName(const std::string &path)
+{
+    std::string name;
+    for (const char c : path) name += c == '\\' ? '/' : c;
+    std::string lower;
+    for (const char c : name) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (const char *prefix : {"resource/textures/", "textures/"})
+        if (lower.rfind(prefix, 0) == 0)
+        {
+            name.erase(0, std::char_traits<char>::length(prefix));
+            lower.erase(0, std::char_traits<char>::length(prefix));
+        }
+    for (const char *ext : {".tx", ".tga"})
+        if (lower.size() > std::char_traits<char>::length(ext) &&
+            lower.compare(lower.size() - std::char_traits<char>::length(ext), std::string::npos, ext) == 0)
+        {
+            name.resize(name.size() - std::char_traits<char>::length(ext));
+            lower.resize(lower.size() - std::char_traits<char>::length(ext));
+        }
+    return name.find("..") == std::string::npos && !name.empty() && name[0] != '/' ? name : std::string();
+}
 inline std::string MobileImageJson(const storm::mobile::ImageRef &image)
 {
     std::string json = "{\"handle\":" + std::to_string(image.handle) + ",\"imageRevision\":" + std::to_string(image.imageRevision) +
@@ -106,6 +130,8 @@ inline std::string MobileImageJson(const storm::mobile::ImageRef &image)
                 ",\"image\":" + MobileJsonString(source.image) + '}';
     else if (source.kind == "portrait" && !source.image.empty())
         json += ",\"source\":{\"kind\":\"portrait\",\"image\":" + MobileJsonString(source.image) + '}';
+    else if (source.kind == "texture" && !source.image.empty())
+        json += ",\"source\":{\"kind\":\"texture\",\"image\":" + MobileJsonString(source.image) + '}';
     else if (source.kind == "battle_icon" && !source.mode.empty() && !source.atlas.empty() && source.pic >= 0)
         json += ",\"source\":{\"kind\":\"battle_icon\",\"mode\":" + MobileJsonString(source.mode) +
                 ",\"atlas\":" + MobileJsonString(source.atlas) + ",\"pic\":" + std::to_string(source.pic) + '}';

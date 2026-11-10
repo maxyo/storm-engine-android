@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "collide.h"
 #include "dx9render.h"
 #include "model.h"
@@ -50,7 +52,9 @@ class ShipMan
     ShipMan(const ShipMan &other) = delete;
     ShipMan &operator=(const ShipMan &other) = delete;
 
-    ShipMan();
+    // Creates the sailor's model with its geometry and the "Lo_Man" animation; throws if either
+    // cannot be loaded, so no ShipMan exists without an animated model.
+    explicit ShipMan(const std::string &modelName);
     ~ShipMan();
 
     ShipMan(ShipMan &&other) noexcept;
@@ -77,7 +81,9 @@ class ShipMan
     void NewAction(SailorsPoints &sailorsPoints, ShipState &shipState, uint32_t &dltTime);
     int GetNearestEmptyCannon(SailorsPoints &sailorsPoints) const;
     
-    entid_t modelID{};
+    // The sailor's model, or nullptr once the engine has erased it. A model returned here always
+    // has its animation: the constructor loads it and nothing else sends MSG_MODEL_LOAD_ANI to it.
+    MODEL *Model() const;
 
     glm::vec3 pos{}, ang{}; // current position
     glm::vec3 ptTo{}, angTo{}, dir{};
@@ -98,6 +104,9 @@ class ShipMan
 
     float manSpeed;
     float rotSpeed;
+
+  private:
+    entid_t modelID{};
 };
 
 class ShipWalk

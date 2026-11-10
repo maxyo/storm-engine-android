@@ -1,0 +1,438 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 1,
+ "screenRevision": 3,
+ "screen": "boal_cards",
+ "widgets": [
+  {
+   "node": "EXIT_BTN",
+   "type": "button",
+   "label": "EXIT_BTN",
+   "value": "",
+   "index": -1,
+   "order": 777,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_PACK",
+   "type": "button",
+   "label": "B_PACK",
+   "value": "",
+   "index": -1,
+   "order": 655920,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "Твой ход, бери карту.",
+   "value": "",
+   "index": -1,
+   "order": 3260896,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_ICON_1",
+   "type": "button",
+   "label": "B_ICON_1",
+   "value": "",
+   "index": -1,
+   "order": 3211974,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_ICON_2",
+   "type": "button",
+   "label": "B_ICON_2",
+   "value": "",
+   "index": -1,
+   "order": 4096710,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Pack",
+   "type": "image",
+   "label": "pack",
+   "value": "",
+   "index": -1,
+   "order": 1663016,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "CARDS",
+      "image": "pack"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "BLANK",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "",
+      "image": ""
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Money_0",
+   "type": "image",
+   "label": "gold",
+   "value": "",
+   "index": -1,
+   "order": 2294040,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "CARDS",
+      "image": "gold"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Money_1",
+   "type": "image",
+   "label": "gold",
+   "value": "",
+   "index": -1,
+   "order": 2269467,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "CARDS",
+      "image": "gold"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Money_2",
+   "type": "image",
+   "label": "gold",
+   "value": "",
+   "index": -1,
+   "order": 2244894,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "CARDS",
+      "image": "gold"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Money_3",
+   "type": "image",
+   "label": "gold",
+   "value": "",
+   "index": -1,
+   "order": 2220321,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "CARDS",
+      "image": "gold"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Money_4",
+   "type": "image",
+   "label": "gold",
+   "value": "",
+   "index": -1,
+   "order": 2195748,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "CARDS",
+      "image": "gold"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "PCard0",
+   "type": "image",
+   "label": "spades_7",
+   "value": "",
+   "index": -1,
+   "order": 3227948,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "CARDS",
+      "image": "spades_7"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "PCard1",
+   "type": "image",
+   "label": "hearts_J",
+   "value": "",
+   "index": -1,
+   "order": 3228008,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "CARDS",
+      "image": "hearts_J"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "PCard2",
+   "type": "image",
+   "label": "diamonds_10",
+   "value": "",
+   "index": -1,
+   "order": 3228068,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "CARDS",
+      "image": "diamonds_10"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "PCard18",
+   "type": "image",
+   "label": "blank",
+   "value": "",
+   "index": -1,
+   "order": 295242,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "CARDS",
+      "image": "blank"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "PCard19",
+   "type": "image",
+   "label": "blank",
+   "value": "",
+   "index": -1,
+   "order": 295302,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "CARDS",
+      "image": "blank"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Money",
+   "type": "text",
+   "label": "9450",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MoneyInChest",
+   "type": "text",
+   "label": "2500",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_TABLE_GAME",
+   "type": "table_game",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "rate": "500",
+    "opponent": "Жак Дюбуа",
+    "opponentFace": "377",
+    "moneyHero": "9450",
+    "moneyOpponent": "8000",
+    "bank": "2500",
+    "open": "0",
+    "stage": "3",
+    "turn": "1",
+    "first": "1",
+    "cardMove": "0"
+   }
+  }
+ ]
+}

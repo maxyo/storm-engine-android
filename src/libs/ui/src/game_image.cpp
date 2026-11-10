@@ -111,6 +111,7 @@ class Store
         root_ = root;
         ++generation_;
         entries_.clear();
+        pending_ -= static_cast<int>(queue_.size());
         queue_.clear();
         atlas_.reset();
     }
@@ -169,6 +170,7 @@ class Store
             else
             {
                 queue_.push_back({texture, entry, generation_});
+                ++pending_;
                 if (!worker_.joinable())
                     worker_ = std::thread([this] { Work(); });
                 wake_.notify_one();
@@ -182,11 +184,19 @@ class Store
         return changed_.exchange(false);
     }
 
+    // Pictures queued or decoding, or decoded since the last TakeChanged (a decode that ends
+    // while a frame is being drawn must still get a frame of its own).
+    bool Pending() const
+    {
+        return pending_ > 0 || changed_;
+    }
+
     void Shutdown()
     {
         {
             std::lock_guard lock(mutex_);
             stop_ = true;
+            pending_ -= static_cast<int>(queue_.size());
             queue_.clear();
             entries_.clear();
         }
@@ -247,6 +257,7 @@ class Store
                 job.entry->reason = "no file RESOURCE/Textures/" + job.texture + ".tga.tx under " + root;
             job.entry->state = ok ? State::Ready : State::Missing;
             changed_ = true;
+            --pending_;
         }
     }
 
@@ -261,6 +272,7 @@ class Store
     std::function<bool(const std::string &, Picture &)> loader_;
     std::thread worker_;
     std::atomic<bool> changed_{false};
+    std::atomic<int> pending_{0}; // pictures queued or being decoded
     bool stop_ = false;
     int generation_ = 0;
 };
@@ -320,15 +332,19 @@ class GameImageElement final : public Rml::Element
             Rml::Log::Message(Rml::Log::LT_ERROR, "Game picture %s#%d missing: %s", GetAttribute<Rml::String>("texture", "").c_str(),
                               GetAttribute<int>("cell", 0), reason.c_str());
         }
-        if (ready != shown_ || missing != missing_shown_)
+        shown_ = ready;
+        // Checked on the parent itself every update: a template patch of the parent (a new
+        // model revision) rewrites its class attribute and drops these classes.
+        if (Rml::Element *parent = GetParentNode())
         {
-            shown_ = ready;
-            missing_shown_ = missing;
-            if (Rml::Element *parent = GetParentNode())
-            {
-                parent->SetClass("has-image", ready);
-                parent->SetClass("image-missing", missing);
-            }
+            const bool change = parent->IsClassSet("has-image") != ready || parent->IsClassSet("image-missing") != missing;
+            parent->SetClass("has-image", ready);
+            parent->SetClass("image-missing", missing);
+            // The parent was updated before this child in this pass: its new class takes
+            // effect in the next update, which an idle host would otherwise never run.
+            if (change)
+                if (Rml::Context *context = GetContext())
+                    context->RequestNextUpdate(0.0);
         }
     }
 
@@ -373,7 +389,6 @@ class GameImageElement final : public Rml::Element
     Rml::Vector2f built_size_ = {-1, -1};
     float built_opacity_ = -1.0f;
     bool shown_ = false;
-    bool missing_shown_ = false;
     bool logged_ = false;
     static inline bool unavailable_logged_ = false;
 };
@@ -417,6 +432,11 @@ void SetGameImageLoader(std::function<bool(const std::string &, Picture &)> load
 bool GameImagesChanged()
 {
     return Store::Get().TakeChanged();
+}
+
+bool GameImagesPending()
+{
+    return Store::Get().Pending();
 }
 
 void ShutdownGameImages()

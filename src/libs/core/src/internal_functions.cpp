@@ -388,6 +388,18 @@ uint32_t COMPILER::GetIntFunctionCode(const char *func_name)
     return INVALID_ORDINAL_NUMBER;
 }
 
+// DeleteEntity(&object): erase the object's entity and clear the handle the script variable
+// holds, so the variable stops naming the erased entity (IsEntity, saves, messages).
+void COMPILER::DeleteScriptEntity(DATA &object)
+{
+    entid_t ent = invalid_entity;
+    object.Get(ent); // a non-object reports a script error and keeps ent invalid
+    if (ent == invalid_entity)
+        return;
+    core.EraseEntity(ent);
+    object.Set(invalid_entity);
+}
+
 DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t arguments)
 {
     //    char Format_string[MAX_PATH];
@@ -1625,8 +1637,7 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
             SetError(INVALID_FA);
             break;
         }
-        pV->Get(ent);
-        core.EraseEntity(ent);
+        DeleteScriptEntity(*pV);
         break;
         //
     case FUNC_DEL_EVENT_HANDLER:

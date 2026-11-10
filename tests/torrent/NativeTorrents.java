@@ -37,6 +37,7 @@ public final class NativeTorrents {
         expectIOException(() -> poll(987654), "Torrent session is closed");
         expectIOException(() -> start(987654, new int[] {0}), "Torrent session is closed");
         expectIOException(() -> start(987654, null), "Missing file selection");
+        expectIOException(() -> start(987654, new int[0]), "Select between 1 and 100000 files");
         expectIOException(() -> pause(987654), "Torrent session is closed");
         close(987654);
         System.out.println("PASS actual production JNI under -Xcheck:jni: Unicode paths/JSON/errors, malformed UTF-16, nulls, closed handles");

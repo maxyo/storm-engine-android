@@ -504,6 +504,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             changed_ = true;
         if (changed_)
             delay = 0.0;
+        else if (GameImagesPending())
+            delay = std::min(delay, 0.05); // a decoded picture is shown on the next frame
         delay = std::min(delay, routing);
         for (const Toast_ &toast : toasts_)
             delay = std::min(delay, std::max(0.0, toast.until - now));
@@ -747,12 +749,14 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         {
             Rml::Element *mounted = layer->GetChild(i);
             const auto keep = wanted.find(mounted->GetId());
-            if (mounted->GetId() == "sheet" || (keep != wanted.end() && hud_made_[mounted->GetId()] == keep->second))
+            if (mounted->GetId() == "sheet" || mounted->GetId() == "overlay" || (keep != wanted.end() && hud_made_[mounted->GetId()] == keep->second))
                 continue;
             RemoveHudElement(layer, mounted);
         }
         bool complete = true;
-        Rml::Element *before = layer->GetElementById("sheet"); // layout order: later elements are drawn on top
+        Rml::Element *before = layer->GetElementById("overlay"); // layout order: later elements are drawn on top
+        if (!before)
+            before = layer->GetElementById("sheet");
         for (size_t i = elements.size(); i-- > 0;)
         {
             const hud::LayoutElement &element = elements[i];
@@ -787,6 +791,30 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             {
                 changed_ = true;
                 mounted->SetClass("dim", dim);
+            }
+        }
+        // The overlay (the spyglass card) lies over the scene's elements and under the sheet.
+        Rml::Element *overlay = hud_document_->GetElementById("overlay");
+        if (overlay && overlay->GetTagName() != view.overlay)
+        {
+            RemoveHudElement(layer, overlay);
+            overlay = nullptr;
+        }
+        if (!view.overlay.empty())
+        {
+            if (!overlay)
+            {
+                Rml::ElementPtr created = hud_document_->CreateElement(view.overlay);
+                created->SetId("overlay");
+                Rml::Element *above = layer->GetElementById("sheet");
+                overlay = above ? layer->InsertBefore(std::move(created), above) : layer->AppendChild(std::move(created));
+            }
+            if (auto *component = dynamic_cast<ComponentElement *>(overlay))
+                component->SetProps(view.overlay_props);
+            else
+            {
+                Error("UI pack has no HUD overlay " + view.overlay);
+                complete = false;
             }
         }
         // The sheet lies over everything else of the scene.

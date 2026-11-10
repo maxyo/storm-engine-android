@@ -152,7 +152,7 @@ void BIManSign::Draw()
 #endif
     if (m_pCommandList
 #ifdef __ANDROID__
-        && !(IsActive() && storm::android::landCommands.suppressStock(SDL_GetTicks()))
+        && !(IsActive() && storm::android::landCommands.suppressStock())
 #endif
     ) m_pCommandList->Draw();
 }
@@ -507,7 +507,9 @@ void BIManSign::UpdateBuffers(int32_t nShipQ)
     m_nGunChargeSquareQ = nShipQ * 2;
     m_nGunReloadSquareQ = nShipQ;
     const auto nManSquareQ = nShipQ;
-    const int32_t nAlarmSquareQ = (m_bIsAlarmOn && (nShipQ > 0)) ? 1 : 0;
+    // The alarm icon is switched on and off by CheckDataChange without a new buffer, so its square is
+    // always reserved; sizing it by the current alarm state made FillVertexBuffer write past the buffer.
+    const int32_t nAlarmSquareQ = nShipQ > 0 ? 1 : 0;
 
     const auto nMaxSquareQ =
         std::max({m_nBackSquareQ, m_nManStateSquareQ, m_nGunChargeSquareQ, m_nGunReloadSquareQ, nManSquareQ});

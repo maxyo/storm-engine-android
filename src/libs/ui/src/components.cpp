@@ -200,8 +200,7 @@ void SyncElement(Rml::Element *live, Rml::Element *fresh)
     {
         // A nested component rebuilds itself from its attributes; only content passed
         // into its slot comes from this template.
-        if (Rml::Element *slot = FindSlot(component))
-            MorphChildren(slot, fresh);
+        component->SyncSlot(fresh);
         return;
     }
     MorphChildren(live, fresh);
@@ -215,7 +214,14 @@ void MorphChildren(Rml::Element *live, Rml::Element *fresh)
     for (size_t i = 0; i < wanted.size(); ++i)
     {
         Rml::Element *current = static_cast<int>(i) < live->GetNumChildren() ? live->GetChild(static_cast<int>(i)) : nullptr;
-        if (current && current->GetTagName() == wanted[i]->GetTagName())
+        // A component that takes another id is another component (a dialog with a body
+        // slot after one without): build it afresh, its slot content is set only then.
+        // A slot holds the component's content and is never morphed from a plain element
+        // (or back): the old element's children must not end up in the slot.
+        const bool same = current && current->GetTagName() == wanted[i]->GetTagName() &&
+                          current->HasAttribute("slot") == wanted[i]->HasAttribute("slot") &&
+                          (!dynamic_cast<ComponentElement *>(current) || current->GetId() == wanted[i]->GetAttribute<Rml::String>("id", ""));
+        if (same)
             SyncElement(current, wanted[i].get());
         else if (current)
             live->ReplaceChild(std::move(wanted[i]), current);
@@ -422,6 +428,13 @@ void ComponentElement::RebuildNow()
             kept.push_back(RemoveChild(GetFirstChild()));
         has_children = !kept.empty();
     }
+    else if (pending_slot_)
+    {
+        kept = std::move(slot_content_);
+        slot_content_.clear();
+        pending_slot_ = false;
+        has_children = !kept.empty();
+    }
     else if (Rml::Element *slot = FindSlot(this))
         has_children = slot->GetNumChildren() > 0;
 
@@ -473,13 +486,7 @@ void ComponentElement::RebuildNow()
     }
     Rml::ElementDocument *document = GetOwnerDocument();
     if (!built_ || !document)
-    {
         SetInnerRML(rml);
-        if (!kept.empty())
-            if (Rml::Element *slot = FindSlot(this))
-                for (Rml::ElementPtr &child : kept)
-                    slot->AppendChild(std::move(child));
-    }
     else
     {
         // Later builds patch the existing tree in place.
@@ -487,11 +494,51 @@ void ComponentElement::RebuildNow()
         fresh->SetInnerRML(rml);
         MorphChildren(this, fresh.get());
     }
+    if (!kept.empty())
+    {
+        if (Rml::Element *slot = FindSlot(this))
+            for (Rml::ElementPtr &child : kept)
+                slot->AppendChild(std::move(child));
+        else
+            ReportError("content passed to a component whose template has no slot");
+    }
     built_ = true;
+    built_children_ = has_children;
     ReportUnknownComponents(this);
     ApplyClasses();
     for (const auto &behavior : behaviors_)
         behavior->Rebuilt(*this);
+}
+
+void ComponentElement::SyncSlot(Rml::Element *content)
+{
+    const bool wanted = content->GetNumChildren() > 0;
+    if (!built_)
+    {
+        // Not built yet: the element's own children are still the slot content of the first build.
+        while (GetNumChildren() > 0)
+            RemoveChild(GetFirstChild());
+        while (content->GetNumChildren() > 0)
+            AppendChild(content->RemoveChild(content->GetFirstChild()));
+        return;
+    }
+    Rml::Element *slot = FindSlot(this);
+    if (wanted == built_children_ && (slot || !wanted))
+    {
+        if (slot)
+            MorphChildren(slot, content);
+        return;
+    }
+    // Content appeared or disappeared: the template decides on `children` whether it has a
+    // slot at all, so rebuild with the new content, as the first build does.
+    if (slot)
+        while (slot->GetNumChildren() > 0)
+            slot->RemoveChild(slot->GetFirstChild());
+    slot_content_.clear();
+    while (content->GetNumChildren() > 0)
+        slot_content_.push_back(content->RemoveChild(content->GetFirstChild()));
+    pending_slot_ = true;
+    RebuildNow();
 }
 
 void ComponentElement::ApplyClasses()

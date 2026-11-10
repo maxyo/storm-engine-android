@@ -28,10 +28,11 @@ inline bool dialogTargetAvailable()
 inline void updateCombatState(const GameplayState &gameplay)
 {
     std::vector<CombatBinding> bindings;
-    std::string player, mode = "unknown";
+    std::string scene, player, mode = "unknown";
     if (combatContextCurrent(gameplay, core.Controls != nullptr))
     {
         mode = gameplay.snapshot().mode;
+        scene = gameplay.snapshot().scene;
         player = std::to_string(core.GetEntityId("Player"));
         std::vector<std::string> allowed;
         for (int32_t i=0; i<core.Controls->GetControlsNum(); ++i)
@@ -71,7 +72,7 @@ inline void updateCombatState(const GameplayState &gameplay)
             bindings.push_back({"dash","ChrRecoil",false});
         }
     }
-    combatInput.update(gameplay.revision(), std::move(player), std::move(mode), std::move(bindings));
+    combatInput.update(gameplay.revision(), std::move(scene), std::move(player), std::move(mode), std::move(bindings));
 }
 inline jweak combatActivity = nullptr;
 inline jmethodID combatMethod = nullptr;

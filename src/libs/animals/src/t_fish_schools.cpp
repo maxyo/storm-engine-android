@@ -1,4 +1,6 @@
 #include "t_fish_schools.h"
+
+#include <algorithm>
 #include "entity.h"
 #include "core.h"
 #include "math_inlines.h"
@@ -15,12 +17,10 @@ TFishSchools::TFishSchools() : enabled(false)
 //--------------------------------------------------------------------
 TFishSchools::~TFishSchools()
 {
+    if (!created)
+        return;
     for (auto i = 0; i < fishSchoolsCount; i++)
-    {
-        if (fishSchools[i])
-            delete fishSchools[i];
-    }
-
+        delete fishSchools[i];
     core.EraseEntity(fishSchoolModel);
 }
 
@@ -31,7 +31,8 @@ void TFishSchools::LoadSettings()
     if (!ini)
         return;
 
-    fishSchoolsCount = ini->GetInt(ANIMALS_FISHSCHOOLS_SECTION, "count", FISHSCHOOL_COUNT);
+    fishSchoolsCount = std::clamp(static_cast<int32_t>(ini->GetInt(ANIMALS_FISHSCHOOLS_SECTION, "count", FISHSCHOOL_COUNT)), 0,
+                                  static_cast<int32_t>(FISHSCHOOL_COUNT));
     maxDistance = ini->GetFloat(ANIMALS_FISHSCHOOLS_SECTION, "distance", FISHSCHOOL_DISTANCE);
 }
 
@@ -44,13 +45,17 @@ void TFishSchools::Init()
     if (!renderService)
         throw std::runtime_error("!FishSchools: No service 'dx9render'");
 
+    enabled = false;
+    CreateSchools();
+}
+//--------------------------------------------------------------------
+bool TFishSchools::CreateSchools()
+{
+    if (created)
+        return true;
     sea = static_cast<SEA_BASE *>(core.GetEntityPointer(core.GetEntityId("sea")));
     if (!sea)
-    {
-        enabled = false;
-        return;
-    }
-
+        return false;
     for (auto i = 0; i < fishSchoolsCount; i++)
     {
         fishSchools[i] = new TFishSchool();
@@ -66,6 +71,8 @@ void TFishSchools::Init()
 
     fishSchoolModel = core.CreateEntity("MODELR");
     core.Send_Message(fishSchoolModel, "ls", MSG_MODEL_LOAD_GEO, ANIMALS_FISHSCHOOL_FILENAME);
+    created = true;
+    return true;
 }
 
 //--------------------------------------------------------------------
@@ -76,7 +83,9 @@ uint64_t TFishSchools::ProcessMessage(int32_t _code, MESSAGE &message)
     switch (_code)
     {
     case MSG_ANIMALS_FISHSCHOOLS_SHOW:
-        enabled = true;
+        // Shown before any sea existed (e.g. a boarding started from land): the schools are created
+        // now, or stay hidden until a sea exists.
+        enabled = CreateSchools();
         break;
 
     case MSG_ANIMALS_FISHSCHOOLS_HIDE:

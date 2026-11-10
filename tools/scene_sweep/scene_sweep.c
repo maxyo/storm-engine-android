@@ -51,6 +51,8 @@ string ssHomeLocator = "";
 string ssScene = "";
 string ssKind = "";
 string ssId = "";
+string ssGroup = "";		// locator the hero enters the current location at
+string ssLocator = "";
 
 void SceneSweep_SetState(int state)
 {
@@ -320,10 +322,10 @@ bool SceneSweep_Loaded()
 		if(FindLoadedLocation() < 0) return false;
 		return DialogRun;
 		break;
-	case "loc":		return SceneSweep_InLocation(ssId);	break;
-	case "night":	return SceneSweep_InLocation(ssId);	break;
+	case "loc":		return SceneSweep_InLocationAtEntry();	break;
+	case "night":	return SceneSweep_InLocationAtEntry();	break;
 	case "combat":
-		if(!SceneSweep_InLocation(ssId)) return false;
+		if(!SceneSweep_InLocationAtEntry()) return false;
 		if(ssStep == 0)
 		{
 			ssStep = 1;
@@ -376,6 +378,20 @@ void SceneSweep_NextStep()
 	SceneSweep_Start();
 }
 
+// The location is loaded; the hero must stand at the entry locator. Locators come from
+// the location's model, so a missing one shows only now (the game merely traces it).
+bool SceneSweep_InLocationAtEntry()
+{
+	if(!SceneSweep_InLocation(ssId)) return false;
+	int loaded = FindLoadedLocation();
+	if(!CheckAttribute(&Locations[loaded], "locators." + ssGroup + "." + ssLocator))
+	{
+		SceneSweep_Fail("teleport failed: the location has no locator " + ssGroup + "::" + ssLocator);
+		return false;
+	}
+	return true;
+}
+
 void SceneSweep_StartLocation(int hour)
 {
 	int n = FindLocation(ssId);
@@ -384,23 +400,41 @@ void SceneSweep_StartLocation(int hour)
 		SceneSweep_Fail("no such location");
 		return;
 	}
-	// Enter through the location's first door, or its first walk point when it has none.
+	// Enter where the game itself puts the hero: boarding locations (decks, cabins) at
+	// their boarding.Loc.Hero locator in the "rld" group, as Cabin_LoadLocation and the
+	// teleport menu do; other locations through their first door, or the first walk point.
 	string group = "goto";
 	string locator = "goto1";
 	aref reloads;
-	if(CheckAttribute(&Locations[n], "reload"))
+	if(CheckAttribute(&Locations[n], "boarding.Loc.Hero"))
 	{
-		makearef(reloads, Locations[n].reload);
-		if(GetAttributesNum(reloads) > 0)
+		group = "rld";
+		locator = Locations[n].boarding.Loc.Hero;
+	}
+	else
+	{
+		if(CheckAttribute(&Locations[n], "reload"))
 		{
-			aref first = GetAttributeN(reloads, 0);
-			if(CheckAttribute(first, "name"))
+			makearef(reloads, Locations[n].reload);
+			if(GetAttributesNum(reloads) > 0)
 			{
-				group = "reload";
-				locator = first.name;
+				aref first = GetAttributeN(reloads, 0);
+				if(CheckAttribute(first, "name"))
+				{
+					group = "reload";
+					locator = first.name;
+				}
 			}
 		}
 	}
+	ssGroup = group;
+	ssLocator = locator;
+	// A day passes between locations, as it does for a player travelling between them:
+	// phantom NPCs (citizens, soldiers) are freed by EmptyAllFantomCharacter on the next
+	// reload only once their LifeDay is over. Hundreds of locations within one game day
+	// would fill the 1200 character slots (NPC_GeneratePhantomCharacter returns -1).
+	AddDataToCurrent(0, 0, 1);
+	SetCharacterGoods(pchar, GOOD_FOOD, 500);	// and the hero restocks, or the crew starves on the way
 	SetCurrentTime(hour, 0);
 	if(hour == 0) SetNextWeather("0 Hours");
 	else SetNextWeather("12 Hour");

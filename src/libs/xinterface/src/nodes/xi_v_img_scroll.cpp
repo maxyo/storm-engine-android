@@ -3,6 +3,8 @@
 #include "core.h"
 #include "string_compare.hpp"
 
+#include <algorithm>
+
 #define MAXIMAGEQUANTITY 100
 
 int32_t GetTexFromEvent(VDATA *vdat);
@@ -1764,7 +1766,8 @@ bool CXI_VIMAGESCROLL::MobileOfficerRows(storm::mobile::OfficerListIdentity &sta
             empty ? empty : "", state, rows);
     }
     // Other vertical image lists keep their existing behavior.
-    if (storm::android::mobileScreen != "lscchar_all" || !m_nodeName ||
+    // The hero's officer list of the character and items screens (character_all.h FillCharactersScroll).
+    if ((storm::android::mobileScreen != "lscchar_all" && storm::android::mobileScreen != "items") || !m_nodeName ||
         std::string(m_nodeName) != "CHARACTERS_SCROLL" || !m_bUse) return false;
     auto *profile = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
     auto *attrs = core.Entity_GetAttributeClass(g_idInterface, m_nodeName);
@@ -1809,6 +1812,9 @@ void CXI_VIMAGESCROLL::MobileCollect(std::vector<MobileWidget> &widgets) const
     {
         row.rowId = m_mobileOfficers.rowId(row.index);
         if (row.enabled) row.actions.push_back("select");
+        // The selected slot of the hero's officer list offers the stock activate command
+        // (character_all.c OfficerChange: the post chooser or the remove window).
+        if (row.enabled && row.value == "1" && CheckCommandUsed(ACTION_ACTIVATE)) row.actions.push_back("activate");
         widgets.push_back(std::move(row));
     }
 }
@@ -1818,9 +1824,18 @@ bool CXI_VIMAGESCROLL::MobileApply(int index, const std::string &value)
     if (!m_bUse || !m_bClickable || m_bLockedNode || m_bLockStatus || m_bDoMove) return false;
     storm::mobile::OfficerListIdentity state;
     std::vector<MobileWidget> rows;
-    if (!MobileOfficerRows(state, rows) || !m_mobileOfficers.accepts(state, index, value)) return false;
-    bool present = false; for (const auto &row : rows) if (row.index == index && row.enabled) present = true;
-    if (!present) return false;
+    if (!MobileOfficerRows(state, rows)) return false;
+    const auto row = std::find_if(rows.begin(), rows.end(), [index](const auto &r) { return r.index == index && r.enabled; });
+    if (row == rows.end()) return false;
+    if (m_mobileOfficers.accepts(state, index, value, "activate"))
+    {
+        // Only the slot the script already observed as current (ProcessFrame keeps nCurScrollNum).
+        if (row->value != "1" || !CheckCommandUsed(ACTION_ACTIVATE)) return false;
+        bool stop = false;
+        DoAction(ACTION_ACTIVATE, stop, true);
+        return true;
+    }
+    if (!m_mobileOfficers.accepts(state, index, value)) return false;
     core.Send_Message(g_idInterface, "ls", MSG_INTERFACE_NEW_CURRENT_NODE, m_nodeName);
     m_nCurImage = index;
     core.Entity_GetAttributeClass(g_idInterface, m_nodeName)->SetAttributeUseDword("current", index);

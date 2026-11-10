@@ -39,6 +39,9 @@ void SetGameImageRoot(const std::string &game_root);
 void SetGameImageLoader(std::function<bool(const std::string &, Picture &)> loader);
 // True once after a background decode finished: the host draws another frame.
 bool GameImagesChanged();
+// True while pictures are queued or decoding, or decoded but not yet taken: the host must keep
+// drawing frames to show them (nothing else wakes an idle host).
+bool GameImagesPending();
 void ShutdownGameImages();
 
 } // namespace storm::ui

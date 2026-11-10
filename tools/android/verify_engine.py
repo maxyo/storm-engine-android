@@ -23,7 +23,7 @@ if missing:
     if b'Open audio: miniaudio' not in a.library.read_bytes():
         raise SystemExit('Missing real engine/audio symbol: '+', '.join(missing))
 deps=subprocess.check_output([str(bin/'llvm-readelf'),'-d',str(a.library)],text=True)
-for library in ['libSDL2.so','libdxvk_d3d9.so','libfmt.so','libmimalloc.so','libc++_shared.so']:
+for library in ['libSDL2.so','libEGL.so','libGLESv3.so','libfmt.so','libmimalloc.so','libc++_shared.so']:
     if library not in deps:raise SystemExit('Missing runtime dependency: '+library)
 if 'fmod' in deps.lower():raise SystemExit('Unexpected FMOD dependency')
 print('PASS: full engine ARM64 linked, SDL_main and real SoundService/miniaudio symbols, no FMOD')
@@ -33,16 +33,38 @@ print('PASS: full engine ARM64 linked, SDL_main and real SoundService/miniaudio 
 # nothing references them except their static constructor, so a module that
 # loses whole-archive linking, or a section/LTO discard, drops them silently and
 # the game only fails later when a script creates that class.
-macro=re.compile(r'^\s*CREATE_(?:CLASS|SERVICE|SCRIPTLIBRIARY)\((\w+)\)',re.M)
-declared={name for source in (Path(__file__).resolve().parents[2]/'src').rglob('*.cpp')
-          for name in macro.findall(source.read_text(errors='replace'))}
+macro=re.compile(r'^\s*CREATE_(?:CLASS|SERVICE|SCRIPTLIBRIARY)\((\w+)\)')
+# Some registrations exist only with a build option (e.g. SceneSweepLibrary with
+# STORM_SCENE_SWEEP): their #ifdef guards are evaluated against the options of the build
+# that produced the library, read from its CMakeCache.txt.
+cache=next((d/'CMakeCache.txt' for d in a.library.resolve().parents if (d/'CMakeCache.txt').is_file()),None)
+if cache is None:raise SystemExit(f'No CMakeCache.txt above {a.library}: the registration check needs the build directory')
+options={m[0]:m[1].upper() in ('ON','1','TRUE','YES') for m in re.findall(r'^(STORM_\w+):BOOL=(\w+)$',cache.read_text(errors='replace'),re.M)}
+def guard_holds(line,source):
+    m=re.fullmatch(r'#\s*(ifdef|ifndef)\s+(\w+)',line) or re.fullmatch(r'#\s*(if)\s+defined\s*\(?\s*(\w+)\s*\)?',line)
+    if not m or m[2] not in options:
+        raise SystemExit(f'{source}: cannot evaluate the guard of a registration against the build options: {line}')
+    return options[m[2]] != (m[1]=='ifndef')
+declared,absent=set(),set()
+for source in (Path(__file__).resolve().parents[2]/'src').rglob('*.cpp'):
+    guards=[]
+    for line in source.read_text(errors='replace').splitlines():
+        directive=line.strip()
+        if re.match(r'#\s*if',directive):guards.append(directive)
+        elif re.match(r'#\s*endif',directive):guards.pop()
+        elif re.match(r'#\s*el',directive) and guards:guards[-1]=None  # #else/#elif: not evaluated
+        elif (name:=macro.match(line)):
+            if None in guards:raise SystemExit(f'{source}: registration {name[1]} in an #else/#elif branch is not supported')
+            (declared if all(guard_holds(g,source) for g in guards) else absent).add(name[1])
 if not declared:raise SystemExit('No CREATE_CLASS/CREATE_SERVICE/CREATE_SCRIPTLIBRIARY registrations found in src')
 if not local:raise SystemExit('Registration check needs the unstripped library (build output, not the packaged one)')
 # A registration inside a namespace demangles as ns::<name>vmaci.
 linked={line.split()[-1].rsplit('::',1)[-1][:-len('vmaci')] for line in local.splitlines() if line.endswith('vmaci')}
 missing=sorted(declared-linked)
 if missing:raise SystemExit('Registrations missing from libengine.so: '+', '.join(missing))
-print(f'PASS: all {len(declared)} source-declared entity/service/script-library registrations are linked')
+unexpected=sorted(absent&linked)
+if unexpected:raise SystemExit('Registrations linked although their build option is off: '+', '.join(unexpected))
+print(f'PASS: all {len(declared)} entity/service/script-library registrations of this configuration are linked'+(f', {len(absent)} option-gated ones absent' if absent else ''))
 
 if a.allocator_library:
     exports=subprocess.check_output([str(bin/'llvm-nm'),'-D','--defined-only',str(a.allocator_library)],text=True)

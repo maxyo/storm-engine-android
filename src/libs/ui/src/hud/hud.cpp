@@ -17,6 +17,9 @@ namespace
 constexpr double kIdle = 3600.0;
 constexpr double kLineSeconds = 2.6; // an event line stays this long (pack setting toastMs)
 constexpr size_t kLines = 3;
+// The layout scene under the spyglass when no ported scene owns the mode (the platform still
+// draws the sea HUD): the overlay alone, no elements.
+constexpr const char *kSpyglassLayout = "sea";
 
 const char *const kLandModes[] = {"explore", "melee"};
 const char *const kSeaModes[] = {"sailing", "naval"};
@@ -26,8 +29,8 @@ const char *const kWorldMapModes[] = {"worldmap"};
 // platform host stops drawing that mode's HUD because HostOwnsHud turns false for it.
 const SceneEntry kScenes[] = {
     {"land", kLandModes, CreateLandScene},
-    {"sea", kSeaModes, CreateSeaScene},
-    {"world-map", kWorldMapModes, CreateWorldMapScene},
+    {"sea", kSeaModes, CreateSeaScene, "sea"},
+    {"world-map", kWorldMapModes, CreateWorldMapScene, "worldmap"},
 };
 
 } // namespace
@@ -170,7 +173,9 @@ void Hud::Refresh()
     }
     live_ = live;
 
-    const bool visible = scene_ && shown.known && shown.screen.empty() && !shown.loading && !shown.cinematic && !shown.dialogue && !interface_;
+    // The raised telescope is drawn over any scene, and also where no scene is ported yet.
+    const bool spyglass = states_.spyglass.known && states_.spyglass.on;
+    const bool visible = (scene_ || spyglass) && shown.known && shown.screen.empty() && !shown.loading && !shown.cinematic && !shown.dialogue && !interface_;
     if (!visible)
     {
         Conceal();
@@ -186,7 +191,15 @@ void Hud::Refresh()
     View view;
     Input input;
     Present(true); // Build may read LogLines and send input
-    scene_->Build(states_, view, input);
+    if (scene_)
+        scene_->Build(states_, view, input);
+    else
+        view.layout = kSpyglassLayout;
+    if (spyglass)
+    {
+        view.overlay = "s-hud-spyglass";
+        view.overlay_props = SpyglassProps(states_.spyglass, *this);
+    }
     input_ = std::move(input);
     if (!mount_.ShowHud(view))
     {
@@ -215,6 +228,14 @@ void Hud::Conceal()
 
 double Hud::Tick()
 {
+    if (!declared_)
+    {
+        declared_ = true;
+        for (const SceneEntry &entry : scenes_)
+            if (entry.presents)
+                Send("hudowner", entry.presents);
+        Send("hudowner", "spyglass"); // the Hud lays the spyglass overlay over any scene
+    }
     const double now = mount_.Now();
     const bool interface = mount_.InterfaceActive();
     if (interface != interface_)
@@ -247,6 +268,22 @@ void Hud::Drawn()
 {
     if (visible_ && scene_ && !changed_)
         scene_->Drawn(states_);
+    // The spyglass overlay is on the screen, or not: said once per raise of the telescope (and
+    // again when that changes); the engine keeps the word for the raise (android_spyglass.hpp).
+    const Spyglass &spyglass = states_.spyglass;
+    if (!spyglass.known || !spyglass.on)
+    {
+        spyglass_answer_.clear();
+        return;
+    }
+    if (changed_)
+        return; // the view is not settled yet: answer for what is drawn
+    const bool covering = visible_ && !view_.overlay.empty();
+    const std::string answer = std::to_string(spyglass.generation) + "\t" + (covering ? "1" : "0");
+    if (answer == spyglass_answer_)
+        return;
+    spyglass_answer_ = answer;
+    Send("spyglass", answer, "spyglass-ack");
 }
 
 void Hud::Released()

@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <set>
 #include <span>
@@ -44,7 +45,8 @@ struct Combat
     bool known = false;
     uint64_t gameplay_revision = 0, activity = 0;
     std::string player, mode = "unknown", interact_kind = "interact";
-    std::set<std::string> actions;
+    // Offered action -> its availability generation, which a command for it carries.
+    std::map<std::string, uint64_t> actions;
     std::string pistol = "unknown"; // unknown, no_weapon, unloaded, loaded
     int pistol_progress = 0;        // 0…20 while unloaded
 
@@ -117,6 +119,15 @@ struct Ship
     bool navigator = false, zoom_in = false, zoom_out = false;
     uint64_t navigator_generation = 0, navigator_layout = 0; // layout = the aperture the engine drew last
     double speed = -1.0, wind = -1.0, cannon_charge = -1.0;
+    double time_scale = -1.0; // the world's time scale the scripts set (x1 = 1)
+    // Battle abilities (instant repair, immediate reload) the ship's people can use.
+    struct Ability
+    {
+        std::string id;          // InstantRepair, ImmediateReload
+        std::string state;       // ready, active, recovery, blocked
+        double fill = 0.0;       // active: what is left of the effect; recovery: how far it recovered
+    };
+    std::vector<Ability> abilities;
     std::string date_time, location;
     std::string ammo;        // balls, grapes, knippels, bombs; "" = unknown
     double ammo_count = -1.0;
@@ -204,6 +215,18 @@ struct Presentation
     bool live = false;     // the game is in front and running: input may be sent
 };
 
+// Channel "spyglass": the telescope and what it shows of its target (spyglass.cpp). A field
+// the telescope cannot show at its level is -1 / empty.
+struct Spyglass
+{
+    bool known = false, on = false, target = false;
+    uint64_t generation = 0;
+    std::string kind, name, type, captain, cannon_type, portrait; // kind: ship | fort
+    int ship_class = -1, hull = -1, sails = -1, crew = -1, cannons = -1, cannons_max = -1, charge = -1, nation = -1, sail = -1;
+    double speed = -1.0, distance = -1.0;
+    int skills[5] = {-1, -1, -1, -1, -1}; // fencing, cannons, accuracy, navigation, boarding
+};
+
 struct States
 {
     Gameplay gameplay;
@@ -217,6 +240,7 @@ struct States
     SeaQuick sea_quick;
     WorldMap world_map;
     Presentation presentation;
+    Spyglass spyglass;
 };
 
 // --- view -----------------------------------------------------------------------------
@@ -232,6 +256,8 @@ struct View
     Json sheet_props = Json::object();
     bool modal = false;                   // the sheet takes every touch and the back key
     bool log = false;                     // event lines are shown now (Hud::LogLines in the `log` element)
+    std::string overlay;                  // pack part over the scene and under the sheet, takes no touches
+    Json overlay_props = Json::object();  // (the spyglass target card, laid by the Hud over any scene)
     bool operator==(const View &) const = default;
 };
 
@@ -299,6 +325,10 @@ struct SceneEntry
     const char *name;
     std::span<const char *const> modes; // gameplay modes it draws
     std::unique_ptr<Scene> (*create)(Hud &);
+    // The engine's name for this HUD in "hudowner:<name>", said once when the HUD starts: the
+    // engine then keeps the native parts it replaces off while a revision is unanswered.
+    // nullptr: the scene only answers revisions it was asked about (the land sheet).
+    const char *presents = nullptr;
 };
 // The migration switch of the HUD (scenes.cpp): gameplay modes whose HUD is drawn here.
 // Every other mode still belongs to the platform host.
@@ -437,11 +467,16 @@ class Hud
     std::set<std::string> reported_;
     std::string language_; // game language last given to the mount
     bool changed_ = true;
+    std::string spyglass_answer_; // the last word said about the spyglass overlay
     bool visible_ = false;
     bool live_ = false;
     bool interface_ = false;
+    bool declared_ = false; // the "hudowner" declarations were sent
 };
 
+// The spyglass overlay (spyglass.cpp): its channel's consumer and the props of its part.
+std::unique_ptr<screens::StateConsumer> CreateSpyglassConsumer();
+Json SpyglassProps(const Spyglass &spyglass, Hud &hud);
 // ASCII lower case: engine identifiers are matched without regard to case.
 std::string Lower(std::string text);
 

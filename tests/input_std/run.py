@@ -12,7 +12,6 @@ import tempfile
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--sdl-source', type=Path, required=True)
-p.add_argument('--dxvk-source', type=Path, required=True)
 p.add_argument('--sdl-library', default='libSDL2-2.0.so.0')
 p.add_argument('--ndk', type=Path)
 p.add_argument('--dependency-sources', type=Path, help='Existing fmt/spdlog/mimalloc source parent, for real engine TU compilation')
@@ -22,8 +21,7 @@ with tempfile.TemporaryDirectory(prefix='storm-input-std-') as d:
     b = Path(d)
     (b / 'SDL2').symlink_to(a.sdl_source.resolve() / 'include', target_is_directory=True)
     includes = [b, a.sdl_source.resolve()/'include', r/'src/libs/input/include', r/'src/libs/input/src', r/'src/libs/core/src',
-                r/'src/libs/util/include', a.dxvk_source.resolve()/'include/native/directx',
-                a.dxvk_source.resolve()/'include/native/windows']
+                r/'src/libs/util/include', r/'third_party/d3d9-headers/directx', r/'third_party/d3d9-headers/windows']
     flags = ['-std=c++20', '-pthread'] + ['-I'+str(i) for i in includes]
     cxx = os.environ.get('CXX', 'c++')
     # Leak/UB checks cover repeated segment release and erase/append ownership.

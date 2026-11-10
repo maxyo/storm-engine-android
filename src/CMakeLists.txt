@@ -55,7 +55,7 @@ else()
     add_compile_options(-fno-strict-aliasing)
 
     # Verbose output
-    if(NOT ANDROID)
+    if(NOT ANDROID AND NOT STORM_HOST_SOURCES)
         add_compile_options(-v)
         add_link_options(-v)
     endif()

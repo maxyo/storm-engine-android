@@ -1,0 +1,2850 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 61,
+ "screenRevision": 23,
+ "screen": "transfer_main",
+ "widgets": [
+  {
+   "node": "MAIN_BACK",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 59,
+     "imageRevision": 59,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "QTY_EXIT_BTN",
+   "type": "button",
+   "label": "QTY_EXIT_BTN",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TITLE",
+   "type": "heading",
+   "label": "  Грабёж  ",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "EXIT_BTN",
+   "type": "button",
+   "label": "EXIT_BTN",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIP_TYPE",
+   "type": "text",
+   "label": "Люггер",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIP_TYPE2",
+   "type": "text",
+   "label": "Бриг",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "FOOD",
+   "type": "text",
+   "label": "Корабль 1",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CREW_BUTTON",
+   "type": "button",
+   "label": "Перемещение команды",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIP_BIG_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 60,
+     "imageRevision": 60,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "SHIP_BIG_PICTURE2",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 61,
+     "imageRevision": 61,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "MAIN_CHARACTER_PICTURE",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 82,
+     "imageRevision": 82,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "MAIN_CHARACTER_PICTURE2",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 83,
+     "imageRevision": 83,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "FOOD_SHIP",
+   "type": "text",
+   "label": "Провианта на корабле на 24 дня",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CAPTAN_BUTTON",
+   "type": "button",
+   "label": "Снять капитана",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MONEY_SHIP",
+   "type": "text",
+   "label": "Содержание корабля: \r 8 018 песо",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SWAP_BUTTON",
+   "type": "button",
+   "label": "Обменять корабль",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TAKE_GOODS",
+   "type": "button",
+   "label": "Перегрузить все товары",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Money_PIC",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 84,
+     "imageRevision": 84,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4286611584,
+     "source": {
+      "kind": "atlas",
+      "group": "ICONS_CHAR",
+      "image": "Money"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Money_TEXT",
+   "type": "text",
+   "label": "8 500",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "100\t10\tЯдра\t495\t50\t20 / 2",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Кол-во",
+    "Вес",
+    "Товары",
+    "Кол-во",
+    "Вес",
+    "Пачка\\n/Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Товары",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка\\n/Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "100",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Ядра",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 71,
+       "imageRevision": 71,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Balls"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "495",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "50",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "20 / 2",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "100\t5\tКартечь\t254\t13\t20 / 1",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Кол-во",
+    "Вес",
+    "Товары",
+    "Кол-во",
+    "Вес",
+    "Пачка\\n/Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Товары",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка\\n/Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "100",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "5",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Картечь",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 72,
+       "imageRevision": 72,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Grapes"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "254",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "13",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "20 / 1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "100\t10\tКниппели\t227\t24\t20 / 2",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Кол-во",
+    "Вес",
+    "Товары",
+    "Кол-во",
+    "Вес",
+    "Пачка\\n/Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Товары",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка\\n/Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "100",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Книппели",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 73,
+       "imageRevision": 73,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Knippels"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "227",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "24",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "20 / 2",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "100\t15\tБомбы\t293\t45\t20 / 3",
+   "value": "0",
+   "index": 3,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Кол-во",
+    "Вес",
+    "Товары",
+    "Кол-во",
+    "Вес",
+    "Пачка\\n/Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Товары",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка\\n/Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "100",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "15",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Бомбы",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 74,
+       "imageRevision": 74,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Bombs"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "293",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "45",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "20 / 3",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "100\t10\tПровиант\t324\t33\t10 / 1",
+   "value": "0",
+   "index": 4,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Кол-во",
+    "Вес",
+    "Товары",
+    "Кол-во",
+    "Вес",
+    "Пачка\\n/Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Товары",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка\\n/Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "100",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Провиант",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 75,
+       "imageRevision": 75,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Food"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "324",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "33",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "10 / 1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "4\t8\tПарусина\t11\t22\t1 / 2",
+   "value": "0",
+   "index": 5,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Кол-во",
+    "Вес",
+    "Товары",
+    "Кол-во",
+    "Вес",
+    "Пачка\\n/Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Товары",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка\\n/Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "4",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "8",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Парусина",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 76,
+       "imageRevision": 76,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Sailcloth"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "11",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "22",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "1 / 2",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "40\t120\tДоски\t46\t138\t1 / 3",
+   "value": "0",
+   "index": 6,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Кол-во",
+    "Вес",
+    "Товары",
+    "Кол-во",
+    "Вес",
+    "Пачка\\n/Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Товары",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка\\n/Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "40",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "120",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Доски",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 77,
+       "imageRevision": 77,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Planks"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "46",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "138",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "1 / 3",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "220\t11\tПорох\t1215\t61\t20 / 1",
+   "value": "0",
+   "index": 7,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Кол-во",
+    "Вес",
+    "Товары",
+    "Кол-во",
+    "Вес",
+    "Пачка\\n/Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Товары",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка\\n/Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "220",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "11",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Порох",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 78,
+       "imageRevision": 78,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Powder"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "1215",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "61",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "20 / 1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "50\t5\tОружие\t171\t18\t10 / 1",
+   "value": "0",
+   "index": 8,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Кол-во",
+    "Вес",
+    "Товары",
+    "Кол-во",
+    "Вес",
+    "Пачка\\n/Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Товары",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка\\n/Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "50",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "5",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Оружие",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 79,
+       "imageRevision": 79,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Weapon"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "171",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "18",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "10 / 1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "30\t1\tЛекарства\t104\t4\t30 / 1",
+   "value": "0",
+   "index": 9,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Кол-во",
+    "Вес",
+    "Товары",
+    "Кол-во",
+    "Вес",
+    "Пачка\\n/Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Товары",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка\\n/Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "30",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Лекарства",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 80,
+       "imageRevision": 80,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Medicament"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "104",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "4",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "30 / 1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_LIST",
+   "type": "choice",
+   "label": "10\t10\tРом\t8\t8\t1 / 1",
+   "value": "0",
+   "index": 10,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "Кол-во",
+    "Вес",
+    "Товары",
+    "Кол-во",
+    "Вес",
+    "Пачка\\n/Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Товары",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Кол-во",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка\\n/Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Ром",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 81,
+       "imageRevision": 81,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Rum"
+       }
+      }
+     ]
+    },
+    {
+     "column": 3,
+     "text": "8",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "8",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "1 / 1",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "SHIP_RANK",
+   "type": "text",
+   "label": "5",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIP_RANK2",
+   "type": "text",
+   "label": "4",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIP_NAME",
+   "type": "text",
+   "label": "Корабль 1",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "SHIP_NAME2",
+   "type": "text",
+   "label": "Корабль 2",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tКорпус\t378 / 610\t",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "Hull",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Hull"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Корпус",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "378 / 610",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tПаруса\t100 / 100\t",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "Sails",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 63,
+       "imageRevision": 63,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Sails"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Паруса",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "100 / 100",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tСкорость\t12.41 / 15.20\t",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "Speed",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 64,
+       "imageRevision": 64,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Speed"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Скорость",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "12.41 / 15.20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tМанёвренность\t29.00 / 58.80\t",
+   "value": "0",
+   "index": 3,
+   "enabled": true,
+   "rowId": "Maneuver",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 65,
+       "imageRevision": 65,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Maneuver"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Манёвренность",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "29.00 / 58.80",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tКурсовой угол\t65 / 114\t",
+   "value": "0",
+   "index": 4,
+   "enabled": true,
+   "rowId": "AgainstWind",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 66,
+       "imageRevision": 66,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "AgainstWind"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Курсовой угол",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "65 / 114",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tДедвейт\t317 / 700\t",
+   "value": "0",
+   "index": 5,
+   "enabled": true,
+   "rowId": "Capacity",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 67,
+       "imageRevision": 67,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Capacity"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Дедвейт",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "317 / 700",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tКоманда\t40 : 9 / 40\t",
+   "value": "0",
+   "index": 6,
+   "enabled": true,
+   "rowId": "Crew",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 68,
+       "imageRevision": 68,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Crew"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Команда",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "40 : 9 / 40",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tВооружение\t6 фунт / 12\t",
+   "value": "0",
+   "index": 7,
+   "enabled": true,
+   "rowId": "sCannons",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 69,
+       "imageRevision": 69,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Caliber"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Вооружение",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "6 фунт / 12",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER",
+   "type": "choice",
+   "label": "\tПушки\t6 фунт / 12\t",
+   "value": "0",
+   "index": 8,
+   "enabled": true,
+   "rowId": "CannonType",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 70,
+       "imageRevision": 70,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Cannons"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Пушки",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "6 фунт / 12",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER2",
+   "type": "choice",
+   "label": "\tКорпус\t2586 / 2586\t",
+   "value": "0",
+   "index": 0,
+   "enabled": true,
+   "rowId": "Hull",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 62,
+       "imageRevision": 62,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Hull"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Корпус",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "2586 / 2586",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER2",
+   "type": "choice",
+   "label": "\tПаруса\t100 / 100\t",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "Sails",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 63,
+       "imageRevision": 63,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Sails"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Паруса",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "100 / 100",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER2",
+   "type": "choice",
+   "label": "\tСкорость\t15.91\t",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "Speed",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 64,
+       "imageRevision": 64,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Speed"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Скорость",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "15.91",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER2",
+   "type": "choice",
+   "label": "\tМанёвренность\t47.41\t",
+   "value": "0",
+   "index": 3,
+   "enabled": true,
+   "rowId": "Maneuver",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 65,
+       "imageRevision": 65,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Maneuver"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Манёвренность",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "47.41",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER2",
+   "type": "choice",
+   "label": "\tКурсовой угол\t118 / 61\t",
+   "value": "0",
+   "index": 4,
+   "enabled": true,
+   "rowId": "AgainstWind",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 66,
+       "imageRevision": 66,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "AgainstWind"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Курсовой угол",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "118 / 61",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER2",
+   "type": "choice",
+   "label": "\tДедвейт\t735 / 1439\t",
+   "value": "0",
+   "index": 5,
+   "enabled": true,
+   "rowId": "Capacity",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 67,
+       "imageRevision": 67,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Capacity"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Дедвейт",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "735 / 1439",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER2",
+   "type": "choice",
+   "label": "\tКоманда\t165 : 21 / 132\t",
+   "value": "0",
+   "index": 6,
+   "enabled": true,
+   "rowId": "Crew",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 68,
+       "imageRevision": 68,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Crew"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Команда",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "165 : 21 / 132",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER2",
+   "type": "choice",
+   "label": "\tВооружение\t18 фунт / 14\t",
+   "value": "0",
+   "index": 7,
+   "enabled": true,
+   "rowId": "sCannons",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 69,
+       "imageRevision": 69,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Caliber"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Вооружение",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "18 фунт / 14",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_OTHER2",
+   "type": "choice",
+   "label": "\tПушки\t12 фунт / 14\t",
+   "value": "0",
+   "index": 8,
+   "enabled": true,
+   "rowId": "CannonType",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "columnHeaders": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 70,
+       "imageRevision": 70,
+       "width": 32,
+       "height": 32,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ICONS_CHAR",
+        "image": "Cannons"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Пушки",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "12 фунт / 14",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "CAPTURE_CREW_CAPTION",
+   "type": "text",
+   "label": "Пленные",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CAPTURE_TEXT_CREW",
+   "type": "text",
+   "label": "Участь 52 сдавшихся матросов",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CAPTURE_CREW_KILL",
+   "type": "button",
+   "label": "За борт",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CAPTURE_CREW_PRISON",
+   "type": "button",
+   "label": "В трюм рабами",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CAPTURE_CREW_FREE",
+   "type": "button",
+   "label": "На шлюпках",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_TRANSFER",
+   "type": "transfer",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "mode": "",
+    "exchange": "0",
+    "captainAlive": "0"
+   }
+  }
+ ]
+}
