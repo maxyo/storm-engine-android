@@ -395,9 +395,8 @@ void Device::scene_complete()
     back_depth->store->sync();
     effects::Host::PostTargets targets;
     targets.scene_color = scene->handle;
-    // A multisampled depth is not resolved by the backend (Host::on_device_created): SSAO is off then.
-    if (!scene->target_flags)
-        targets.scene_depth = back_depth->store->handle;
+    // A multisampled depth is resolved into the texture with the colour (Host::on_device_created).
+    targets.scene_depth = back_depth->store->handle;
     targets.width = static_cast<uint16_t>(scene->width);
     targets.height = static_cast<uint16_t>(scene->height);
     targets.target = framebuffer(post_color.get(), 0, 0, nullptr);

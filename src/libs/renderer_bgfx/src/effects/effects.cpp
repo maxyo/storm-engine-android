@@ -162,9 +162,10 @@ void Host::on_device_created()
     fx::SetLogSink(log_sink);
     fx::RendererFacts facts;
     // The game's offscreen depth is a D24S8 BGFX_TEXTURE_RT texture (TexStore::create_gpu): sampleable. With MSAA
-    // the pinned bgfx GL backend resolves colour only (FrameBufferGL::resolve), so the depth cannot be read then.
+    // the pinned bgfx GL backend blits the depth into that texture too when the frame buffer is resolved
+    // (FrameBufferGL::resolve, GL_DEPTH_BUFFER_BIT for readable depth attachments).
     facts.scene_depth = true;
-    facts.msaa_depth = false;
+    facts.msaa_depth = true;
     // bgfx has no capability bit for it; the GL backend applies it only with this extension.
     facts.anisotropy = has_extension("GL_EXT_texture_filter_anisotropic");
     support_ = fx::DetectSupport(facts);
@@ -411,7 +412,7 @@ const std::vector<EffectsOptionInfo> &EffectsOptionNames()
 {
     static const std::vector<EffectsOptionInfo> names = [] {
         std::vector<EffectsOptionInfo> list{{"fx_preset", "0 Оригинал, 1 Среднее, 2 Высокое"},
-                                            {"fx_gpu_profile", "1: log GPU timer averages every 120 frames (measurements)"}};
+                                            {"fx_gpu_profile", "1: log GPU timer averages every 30 frames (measurements)"}};
         for (const auto &option : effects::kOptions)
             list.push_back({option.name, option.values});
         return list;

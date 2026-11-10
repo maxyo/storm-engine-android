@@ -79,7 +79,7 @@ class Host
     bgfx::ViewId last_post_first_ = 0;
     uint16_t last_post_views_ = 0;
     PassTimes times_{};
-    static constexpr int kProfileFrames = 120;
+    static constexpr int kProfileFrames = 30;
     bool profile_ = false;
     bool profile_unsupported_logged_ = false;
     int profile_count_ = 0;

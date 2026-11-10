@@ -35,7 +35,7 @@ native int SceneSweepSettleMs();
 
 #define SS_SETTLE_FRAMES	5	// after the fader is gone; scene loading is synchronous
 #define SS_FADE_TIMEOUT_MS	30000
-#define SS_LOAD_TIMEOUT_MS	120000
+#define SS_LOAD_TIMEOUT_MS	360000
 #define SS_ENEMY_GROUP		"SceneSweepEnemy"
 #define SS_ENEMY_CAPTAIN	"SceneSweepCaptain"
 
