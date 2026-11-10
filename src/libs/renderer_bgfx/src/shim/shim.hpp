@@ -73,6 +73,7 @@ struct TexStore
     bool system_memory = false; // never uploaded (offscreen plain surfaces)
     bool backbuffer = false;    // the game's offscreen backbuffer colour/depth
     uint64_t target_flags = 0;  // extra bgfx texture flags of a render target (MSAA of the scene target)
+    bool immutable = false;     // MarkTextureImmutable: no CPU copy is kept after the upload
 
     bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
     bgfx::TextureFormat::Enum gpu_format = bgfx::TextureFormat::Unknown;
@@ -192,6 +193,7 @@ struct BufferBase
     uint32_t dirty_begin = UINT32_MAX, dirty_end = 0; // bytes not yet sent to the GPU copy
     uint64_t write_frame = UINT64_MAX;                // frame of the last Unlock
     uint32_t write_serial = 0;                        // incremented by every writing Lock
+    size_t gpu_bytes = 0;                             // size of the bgfx snapshot (perf accounting)
     uint32_t lock_count = 0;
     DWORD usage = 0;
     void mark(uint32_t offset, uint32_t size);
@@ -230,6 +232,7 @@ struct LayoutInfo
     uint16_t stride[kMaxStreams] = {};
     uint8_t stream_count = 0;
     bool rhw = false, has_normal = false, has_color0 = false, has_color1 = false;
+    bool skinned = false; // XYZB2 | LASTBETA_UBYTE4: one blend weight + bone indices (GPU skinning)
     uint8_t texcoord_size[8] = {};
     uint8_t texcoord_count = 0;
 };
@@ -282,6 +285,7 @@ struct DeviceState
     DWORD fvf = 0;
     // non-owning in the struct; the Device keeps the matching references
     IDirect3DBaseTexture9 *textures[kMaxStages] = {};
+    IDirect3DBaseTexture9 *vertex_texture = nullptr; // D3DVERTEXTEXTURESAMPLER0: the bone palette of skinned draws
     VertexBuffer *stream[kMaxStreams] = {};
     UINT stream_offset[kMaxStreams] = {}, stream_stride[kMaxStreams] = {};
     IndexBuffer *indices = nullptr;

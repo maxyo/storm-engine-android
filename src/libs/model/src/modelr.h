@@ -6,6 +6,7 @@
 #include "dx9render.h"
 #include "geometry.h"
 #include "model.h"
+#include "gpu_skinning.hpp"
 #include "skinning_stream_cache.hpp"
 
 class NODER : public NODE
@@ -92,8 +93,9 @@ class MODELR : public MODEL
     bool bFogEnable;
     float fFogDensity;
 
-    storm::model::SkinningStreamCache<GEOS::VERTEX0> skinnedStreams_;
-    static storm::render::VertexBufferId VBTransform(void*, const void*, const std::shared_ptr<storm::render::VertexSourceLifetime>&, int32_t, int32_t, int32_t);
+    storm::model::GpuSkinning gpuSkinning_;
+    storm::model::SkinningStreamCache<GEOS::VERTEX0> skinnedStreams_; // CPU skinning: the caustic pass only
+    static storm::render::VertexBufferId VBTransform(void*, const void*, const std::shared_ptr<storm::render::VertexSourceLifetime>&, int32_t, int32_t, int32_t, bool);
 
     ANIBUFFER aniVerts[MODEL_ANI_MAXBUFFERS];
     void AniRender();
