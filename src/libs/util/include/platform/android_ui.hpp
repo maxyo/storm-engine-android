@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include "android_ship_telemetry.hpp"
+#include "android_spyglass.hpp"
 #include "android_sea_navigator.hpp"
 #include "android_sea_orders.hpp"
 #include "android_sea_quick_action.hpp"
@@ -440,6 +441,14 @@ inline void publishUiState(const char *channel, const std::string &json) {
     if (name) env->DeleteLocalRef(name);
     if (type) env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);
+}
+// Channel "spyglass" (android_spyglass.hpp): sent through the generic state channel when it changes.
+inline std::string lastSpyglass;
+inline void publishSpyglass() {
+    const std::string json=spyglass.json();
+    if(lastSpyglass==json)return;
+    lastSpyglass=json;
+    publishUiState("spyglass",json);
 }
 inline void publishCinematic(bool active) {
     if (cinematicState == static_cast<int>(active)) return;

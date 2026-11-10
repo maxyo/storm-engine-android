@@ -1657,6 +1657,7 @@ int32_t CXI_SCROLLIMAGE::GetMousePointedPictureNum() const
 #ifdef __ANDROID__
 #include "../mobile_owner_bridge.hpp"
 #include "shared/interface/messages.h"
+#include "../mobile_sails_gerald.hpp"
 bool CXI_SCROLLIMAGE::MobileOwnerRows(storm::mobile::OfficerListIdentity &state,
                                      std::vector<MobileWidget> &rows) const
 {
@@ -1667,8 +1668,31 @@ bool CXI_SCROLLIMAGE::MobileOwnerRows(storm::mobile::OfficerListIdentity &state,
         m_bClickable && !m_bLockedNode && !m_bLockStatus && !m_bDoMove,
         m_rect.top * 8192 + m_rect.left, storm::mobile::OwnerLabel, "", state, rows);
 }
+std::vector<std::string> CXI_SCROLLIMAGE::MobileEmblemFiles() const
+{
+    std::vector<std::string> files;
+    if (storm::android::mobileScreen != "sailsgerald" || !m_nodeName || std::string_view(m_nodeName) != "SCROLL_GERALD")
+        return files;
+    auto *list = core.Entity_GetAttributeClass(g_idInterface, m_nodeName);
+    const int count = list ? static_cast<int>(list->GetAttributeAsDword("ListSize", 0)) : 0;
+    for (int i = 1; i <= count; ++i)
+    {
+        auto *pic = list->GetAttributeClass(("pic" + std::to_string(i)).c_str());
+        const char *file = pic ? pic->GetAttribute("FileName") : nullptr;
+        if (!file || !*file) break;
+        files.emplace_back(file);
+    }
+    return files;
+}
 void CXI_SCROLLIMAGE::MobileCollect(std::vector<MobileWidget> &widgets) const
 {
+    if (const auto files = MobileEmblemFiles(); !files.empty())
+    {
+        auto *list = core.Entity_GetAttributeClass(g_idInterface, m_nodeName);
+        storm::mobile::CollectSailEmblems(m_nodeName, files, static_cast<int>(list->GetAttributeAsDword("current", 0)),
+            m_bClickable && !m_bLockedNode && !m_bLockStatus && !m_bDoMove, m_rect.top * 8192 + m_rect.left, widgets);
+        return;
+    }
     storm::mobile::OfficerListIdentity state; std::vector<MobileWidget> rows;
     if (!MobileOwnerRows(state, rows)) return;
     m_mobileOwners.publish(state);
@@ -1691,10 +1715,23 @@ std::optional<std::string> CXI_SCROLLIMAGE::MobileHireCrewQuantity(const std::st
 bool CXI_SCROLLIMAGE::MobileApply(int index, const std::string &value)
 {
     if (!m_bUse || !m_bClickable || m_bLockedNode || m_bLockStatus || m_bDoMove) return false;
-    storm::mobile::OfficerListIdentity state; std::vector<MobileWidget> rows;
-    if (!MobileOwnerRows(state, rows) || !m_mobileOwners.accepts(state, index, value)) return false;
-    bool present = false; for (const auto &row : rows) if (row.index == index && row.enabled) present = true;
-    if (!present) return false;
+    if (const auto files = MobileEmblemFiles(); !files.empty())
+    {
+        if (!storm::mobile::AcceptSailEmblem(value, storm::android::mobileScreenRevision, files, index)) return false;
+    }
+    else
+    {
+        storm::mobile::OfficerListIdentity state; std::vector<MobileWidget> rows;
+        if (!MobileOwnerRows(state, rows) || !m_mobileOwners.accepts(state, index, value)) return false;
+        bool present = false; for (const auto &row : rows) if (row.index == index && row.enabled) present = true;
+        if (!present) return false;
+    }
+    MobileSelect(index);
+    return true;
+}
+
+void CXI_SCROLLIMAGE::MobileSelect(int index)
+{
     const std::string name = m_nodeName;
     core.Send_Message(g_idInterface, "ls", MSG_INTERFACE_NEW_CURRENT_NODE, name.c_str());
     m_nCurImage = index;
@@ -1703,6 +1740,5 @@ bool CXI_SCROLLIMAGE::MobileApply(int index, const std::string &value)
     // Same notification as normal horizontal image selection; no further node
     // access after script dispatch, since a callback may close the interface.
     core.Event("ChangeSelectScrollImage", "sl", name.c_str(), index);
-    return true;
 }
 #endif

@@ -1,0 +1,522 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 1,
+ "screenRevision": 3,
+ "screen": "boal_dice",
+ "widgets": [
+  {
+   "node": "EXIT_BTN",
+   "type": "button",
+   "label": "EXIT_BTN",
+   "value": "",
+   "index": -1,
+   "order": 777,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_PACK",
+   "type": "button",
+   "label": "B_PACK",
+   "value": "",
+   "index": -1,
+   "order": 655920,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "Денег на ставку больше нет, игра окончена.",
+   "value": "",
+   "index": -1,
+   "order": 3260896,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_ICON_1",
+   "type": "button",
+   "label": "B_ICON_1",
+   "value": "",
+   "index": -1,
+   "order": 3211974,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_ICON_2",
+   "type": "button",
+   "label": "B_ICON_2",
+   "value": "",
+   "index": -1,
+   "order": 4096710,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_HeroDice1",
+   "type": "button",
+   "label": "B_HeroDice1",
+   "value": "",
+   "index": -1,
+   "order": 4055115,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_HeroDice2",
+   "type": "button",
+   "label": "B_HeroDice2",
+   "value": "",
+   "index": -1,
+   "order": 4055195,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_HeroDice3",
+   "type": "button",
+   "label": "B_HeroDice3",
+   "value": "",
+   "index": -1,
+   "order": 4055275,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_HeroDice4",
+   "type": "button",
+   "label": "B_HeroDice4",
+   "value": "",
+   "index": -1,
+   "order": 4055355,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_HeroDice5",
+   "type": "button",
+   "label": "B_HeroDice5",
+   "value": "",
+   "index": -1,
+   "order": 4055435,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "DiceCup",
+   "type": "image",
+   "label": "cup",
+   "value": "",
+   "index": -1,
+   "order": 328140,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "DICE",
+      "image": "cup"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "GOLD",
+   "type": "image",
+   "label": "GOLD",
+   "value": "",
+   "index": -1,
+   "order": 3637730,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "GOLD",
+      "image": "GOLD"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "HeroDice1",
+   "type": "image",
+   "label": "dice_3_1",
+   "value": "",
+   "index": -1,
+   "order": 3981372,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "DICE",
+      "image": "dice_3_1"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "HeroDice2",
+   "type": "image",
+   "label": "dice_3_1",
+   "value": "",
+   "index": -1,
+   "order": 3981452,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "DICE",
+      "image": "dice_3_1"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "HeroDice3",
+   "type": "image",
+   "label": "dice_3_1",
+   "value": "",
+   "index": -1,
+   "order": 3981532,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "DICE",
+      "image": "dice_3_1"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "HeroDice4",
+   "type": "image",
+   "label": "dice_6_1",
+   "value": "",
+   "index": -1,
+   "order": 3981612,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "DICE",
+      "image": "dice_6_1"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "HeroDice5",
+   "type": "image",
+   "label": "dice_6_1",
+   "value": "",
+   "index": -1,
+   "order": 3981692,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "DICE",
+      "image": "dice_6_1"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CompDice1",
+   "type": "image",
+   "label": "dice_5_1",
+   "value": "",
+   "index": -1,
+   "order": 344124,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "DICE",
+      "image": "dice_5_1"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CompDice2",
+   "type": "image",
+   "label": "dice_5_1",
+   "value": "",
+   "index": -1,
+   "order": 344204,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "DICE",
+      "image": "dice_5_1"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CompDice3",
+   "type": "image",
+   "label": "dice_2_1",
+   "value": "",
+   "index": -1,
+   "order": 344284,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "DICE",
+      "image": "dice_2_1"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CompDice4",
+   "type": "image",
+   "label": "dice_2_1",
+   "value": "",
+   "index": -1,
+   "order": 344364,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "DICE",
+      "image": "dice_2_1"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CompDice5",
+   "type": "image",
+   "label": "dice_6_1",
+   "value": "",
+   "index": -1,
+   "order": 344444,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 0,
+     "imageRevision": 0,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "DICE",
+      "image": "dice_6_1"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Money",
+   "type": "text",
+   "label": "7 600",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "MoneyInChest",
+   "type": "text",
+   "label": "2 000",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Beta_TXT",
+   "type": "text",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_TABLE_GAME",
+   "type": "table_game",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "rate": "200",
+    "opponent": "Жак Дюбуа",
+    "opponentFace": "377",
+    "compDice": "5,5,2,2,6",
+    "compMix": "0,0,0,0,0",
+    "heroType": "4",
+    "compType": "6",
+    "moneyHero": "12400",
+    "moneyOpponent": "800",
+    "bank": "0",
+    "open": "1",
+    "stage": "4",
+    "turn": "-1",
+    "first": "1",
+    "locked": "1",
+    "heroDice": "3,3,3,6,6",
+    "heroMix": "0,0,0,0,0"
+   }
+  }
+ ]
+}

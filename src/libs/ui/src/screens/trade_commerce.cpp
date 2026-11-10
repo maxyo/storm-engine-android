@@ -39,6 +39,8 @@ constexpr Layout kStorage{StringKey("trade.storage"), 0, 3, 2, -1, -1, 4, "SHIPS
 // Looting a captured colony (ColonyCapture.c): the hold, the town's stores, a free transfer.
 constexpr Layout kColonyCapture{StringKey("trade.loot"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL"};
 constexpr Layout kItemsBox{StringKey("trade.chest"), 0, 4, 2, -1, -1, -1, "CHARACTERS_SCROLL", true};
+// The goods of the loot / exchange screen (transfer_main): ours, weight, name, theirs, weight.
+constexpr Layout kTransfer{StringKey("transfer.title"), 0, 3, 2, -1, -1, -1, "", false};
 
 constexpr NodeRule kNodes[] = {
     {"TABLE_LIST", "choice", true},
@@ -534,6 +536,11 @@ std::unique_ptr<Screen> CreateItemsTradeScreen()
 std::unique_ptr<Screen> CreateStorageScreen()
 {
     return std::make_unique<CommerceScreen>(kStorage);
+}
+// Used inside the loot / exchange screen (extra_transfer.cpp), which adds its windows.
+std::unique_ptr<Screen> CreateTransferGoods()
+{
+    return std::make_unique<CommerceScreen>(kTransfer);
 }
 std::unique_ptr<Screen> CreateColonyCaptureScreen()
 {

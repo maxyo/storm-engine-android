@@ -529,6 +529,152 @@ static void Crew(const std::string &models)
     Expect(router.Using() == "generic" && router.Rejection() == "QTY_EDIT(edit)" && surface.errors.size() == 1, "without its edit box the crew screen is rejected loudly");
 }
 
+static void Repair(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    const InterfaceModel model = Load(models, "repair.json");
+    router.SetInterface(model);
+    Expect(router.Using() == "repair" && surface.tag == "s-repair" && surface.errors.empty(), "repair is drawn by the repair screen");
+    const Json &parts = surface.props["parts"];
+    Expect(parts.size() == 3 && parts[0]["q"]["value"] == 75 && parts[0]["q"]["min"] == 62 && parts[0]["q"]["max"] == 80,
+           "hull: set 75 %, from 62 % now up to the 80 % the materials allow");
+    ExpectEqual(parts[0]["need"], "<repair.planks> 17", "the planks the set amount takes (linear in the full-repair need)");
+    Expect(parts[2]["short"] == true && parts[2]["disabled"] == true, "sails without sailcloth: the row is off and says why");
+    Expect(surface.props["stock"][0]["value"] == "40" && surface.props["stock"][1]["value"] == "0", "planks and sailcloth in stock");
+    ExpectEqual(surface.props["primary"]["sub"], "6 <save.hours> · <repair.planks> 17", "repair button: time and planks");
+    std::string prefix = "widget:repair\t";
+
+    surface.commands.clear();
+    router.OnEvent({"hull", "commit", "78"});
+    Expect(surface.commands.size() == 3 && surface.commands[0] == prefix + "REPAIR_RIGHT_H\t-1\tpress", "+3 % = three presses of the right arrow");
+    Expect(surface.props["parts"][0]["q"]["value"] == 78, "the amount set is shown until the game answers");
+    surface.commands.clear();
+    router.OnEvent({"hull", "change", "70"});
+    Expect(surface.commands.empty(), "a drag waits until it settles");
+    surface.now += 0.5;
+    router.Tick();
+    Expect(surface.commands.size() == 8 && surface.commands[0] == prefix + "REPAIR_LEFT_H\t-1\tpress",
+           "then 70 before the game answered: counted from the 78 the presses lead to, eight left");
+    surface.commands.clear();
+    router.OnEvent({"masts", "commit", "3"});
+    Expect(surface.commands.size() == 1 && surface.commands[0] == prefix + "REPAIR_RIGHT_M\t-1\tpress", "masts move all at once: one press");
+
+    router.OnEvent({"primary", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "REPAIR_OK\t-1\tpress", "repair");
+    router.OnEvent({"all-ships", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "REPAIR_ALL_SQUADRON\t-1\tpress", "all ships");
+    router.OnEvent({"header", "subject-next", ""});
+    ExpectEqual(surface.Last(), prefix + "SHIPS_SCROLL\t1\tselect@13:ship:1", "the next ship");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "REPAIR_CANCEL\t-1\tpress", "back cancels");
+}
+
+static void Transfer(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    const std::string prefix = "widget:transfer_main\t";
+    router.SetInterface(Load(models, "transfer-loot.json"));
+    Expect(router.Using() == "transfer_main" && surface.tag == "s-transfer" && surface.errors.empty(), "loot is drawn by the transfer screen");
+    Expect(surface.props["tabs"].size() == 2 && surface.props["tabs"][0]["selected"] == true, "cargo and crew tabs, cargo open");
+    Expect(surface.props["stats"][1]["value"] == "<transfer.no_captain>", "the captured ship has no captain");
+    Expect(surface.props["list"]["cols"][0]["label"] == "Корабль 1" && surface.props["list"]["rows"].size() > 5, "goods columns named by the ships");
+    ExpectEqual(surface.props["primary"]["label"], "<transfer.take_all>", "take all the cargo");
+    router.OnEvent({"primary", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "TAKE_GOODS\t-1\tpress", "take all = the game's take goods");
+    router.OnEvent({"header", "tab", "1"});
+    ExpectEqual(surface.Last(), prefix + "CREW_BUTTON\t-1\tpress", "crew tab opens the crew window");
+    router.OnEvent({"action-CAPTAN_BUTTON", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "CAPTAN_BUTTON\t-1\tpress", "captain button");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "EXIT_BTN\t-1\tpress", "back leaves through the game's exit (it asks about the ship)");
+
+    router.OnEvent({"goods", "row", "0"});
+    ExpectEqual(surface.Last(), prefix + "TABLE_LIST\t0\tselect", "a tap selects the cargo row (the game's rows carry no identity here)");
+    router.SetInterface(Load(models, "transfer-loot-row.json"));
+    const Json &shot = surface.props["list"]["rows"][0];
+    Expect(shot["q"]["value"] == 100 && shot["q"]["max"] == 595 && shot["q"]["steps"][0] == 20, "the selected row: ours of both, in packs of 20");
+    surface.commands.clear();
+    router.OnEvent({"goods", "commit", "145"});
+    Expect(surface.commands.size() == 3 && surface.commands[0] == prefix + "B_LEFT\t-1\tpress", "+45 = three packs taken (the game moves whole packs)");
+    surface.commands.clear();
+    router.OnEvent({"goods", "commit", "0"});
+    Expect(surface.commands.size() == 8 && surface.commands[0] == prefix + "B_RIGHT\t-1\tpress",
+           "all given before the game answered the three packs: counted from 160, eight packs");
+
+    router.SetInterface(Load(models, "transfer-hire.json"));
+    const Json &hire = surface.props["modal"];
+    Expect(hire["step"] == "1/2" && hire["q"]["value"] == 8 && hire["q"]["max"] == 8, "defectors: all 8 willing are taken by default");
+    ExpectEqual(hire["actions"][1]["label"], "<transfer.take> 8", "take 8");
+    surface.commands.clear();
+    router.OnEvent({"hire", "commit", "5"});
+    Expect(surface.commands.size() == 3 && surface.commands[0] == prefix + "HIRE_QTY_REMOVE_BUTTON\t-1\tpress", "8 → 5 = three presses down");
+    router.OnEvent({"hire-ok", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "HIRE_QTY_OK_BUTTON\t-1\tpress", "accept the defectors");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "HIRE_QTY_CANCEL_BUTTON\t-1\tpress", "back refuses them");
+
+    router.SetInterface(Load(models, "transfer-crew-capture.json"));
+    const Json &fate = surface.props["modal"];
+    Expect(fate["step"] == "2/2" && fate["actions"].size() == 3 && fate["actions"][0]["hold"] == true && fate["actions"][0]["variant"] == "danger",
+           "crew fate after the defectors: overboard is held, never asked");
+    router.OnEvent({"fate-kill", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "CAPTURE_CREW_KILL\t-1\tpress", "overboard once the hold completes");
+
+    router.SetInterface(Load(models, "transfer-fate.json"));
+    const Json &ship = surface.props["modal"];
+    Expect(ship["actions"].size() == 2 && ship["actions"][0]["label"] == "<transfer.sink>" && ship["actions"][0]["hold"] == true, "a ship without a captain: sink (held) or keep");
+    router.OnEvent({"fate-ship", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "REMOVE_ACCEPT_OFFICER\t-1\tpress", "sink = the game's yes");
+    router.OnEvent({"fate-keep", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "REMOVE_CANCEL_OFFICER\t-1\tpress", "keep = back to appoint a captain");
+
+    router.SetInterface(Load(models, "transfer-crew.json"));
+    Expect(surface.props["crew"]["rows"][0]["q"]["value"] == 96 && surface.props["crew"]["rows"][0]["q"]["max"] == 154 &&
+               surface.props["tabs"][1]["selected"] == true && surface.props["primary"].is_null(),
+           "crew window: our 96 of both crews, crew tab open");
+    surface.commands.clear();
+    router.OnEvent({"crew", "commit", "100"});
+    Expect(surface.commands.size() == 4 && surface.commands[0] == prefix + "CREW_LEFT\t-1\tpress", "4 more men = four takes");
+    router.OnEvent({"header", "tab", "0"});
+    ExpectEqual(surface.Last(), prefix + "CREW_EXIT_BTN\t-1\tpress", "cargo tab closes the crew window");
+}
+
+static void Alchemy(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    const std::string prefix = "widget:alchemy\t";
+    router.SetInterface(Load(models, "alchemy.json"));
+    Expect(router.Using() == "alchemy" && surface.tag == "s-alchemy" && surface.errors.empty(), "alchemy is drawn by the alchemy screen");
+    const Json &recipes = surface.props["recipes"]["rows"];
+    Expect(recipes.size() == 4 && recipes[0]["selected"] == true && recipes[0]["meta"] == "<alchemy.kind_ammo>" && recipes[1]["meta"] == "",
+           "the four real recipes, the shown one selected, the item group as its word");
+    const Json &parts = surface.props["parts"]["rows"];
+    Expect(parts.size() == 2 && parts[0]["cells"][0]["text"] == "<alchemy.none>" && parts[1]["cells"][0] == "28" && parts[1]["cells"][1] == "1",
+           "components: none of the bullets, 28 powder, one each per batch");
+    Expect(surface.props["q"]["value"] == 0 && surface.props["q"]["disabled"] == true && surface.props["primary"]["disabled"] == true,
+           "nothing to craft: no batches, the craft is off");
+    router.OnEvent({"recipes", "row", "potion1"});
+    ExpectEqual(surface.Last(), prefix + "ANDROID_ALCHEMY_RECIPE\t1\tchoose@11:potion1", "another recipe: the scroll's own tap, bound to the opening");
+    surface.commands.clear();
+    router.OnEvent({"recipes", "row", "cartridge"});
+    Expect(surface.commands.empty(), "the shown recipe is not chosen again");
+    router.OnEvent({"info", "click", ""});
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "EXIT_BTN\t-1\tpress", "back leaves through the game's exit");
+
+    router.SetInterface(Load(models, "alchemy-craft.json"));
+    Expect(surface.props["q"]["value"] == 1 && surface.props["q"]["max"] == 22, "bullets bought: one batch set, up to 22");
+    ExpectEqual(surface.props["primary"]["label"], "<alchemy.craft> ×3", "one batch makes three cartridges");
+    router.OnEvent({"batches", "commit", "2"});
+    ExpectEqual(surface.props["primary"]["label"], "<alchemy.craft> ×6", "two batches make six");
+    ExpectEqual(surface.props["primary"]["sub"], "20 <alchemy.minutes>", "15 minutes and 5 for the second batch");
+    router.OnEvent({"primary", "click", ""});
+    ExpectEqual(surface.Last(), prefix + "ANDROID_ALCHEMY\t-1\tcraft@11:cartridge=2", "craft two batches of the shown recipe");
+}
+
 // The capability token a widget of the model offers for `verb` ("yard@7:2:press").
 static std::string Yard(const InterfaceModel &model, const char *node, int index, const char *type, const std::string &verb)
 {
@@ -1147,6 +1293,214 @@ static void Launcher()
     Expect(router.Using() == "generic", "the game's about interface is not the application's about screen");
 }
 
+static void Games(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    // Dice, our reroll: two dice marked (already paid), the cup throws them.
+    InterfaceModel reroll = Load(models, "boal_dice-reroll.json");
+    router.SetInterface(reroll);
+    Expect(router.Using() == "boal_dice" && surface.tag == "s-table-game" && router.Rejection().empty() && surface.errors.empty(),
+           "boal_dice is drawn by the table-game screen");
+    Expect(surface.props["extras"]["rows"].empty() && surface.props["extras"]["note"] == "", "every exported node is known");
+    Expect(surface.props["kind"] == "dice" && surface.props["locked"] == true, "back is locked during a round");
+    Expect(surface.props["stats"][0]["value"] == "200" && surface.props["stats"][1]["value"] == "7 600", "stake and our money");
+    Expect(surface.props["table"]["opponent"] == "Жак Дюбуа" && surface.props["table"]["portrait"] == "INTERFACES/PORTRAITS/128/face_377" &&
+               surface.props["table"]["bank"] == "2 400" && surface.props["table"]["coins"] == "silver",
+           "opponent, portrait, bank and the coins the script lays");
+    const Json ours = surface.props["bottom"]["pieces"];
+    Expect(ours.size() == 5 && ours[0]["pips"].size() == 3 && ours[0]["action"] == "mark" && ours[0]["disabled"] == false,
+           "our dice: faces from the script pictures, tappable");
+    Expect(ours[3]["lift"] == true && ours[3]["pips"].size() == 6 && ours[3]["cost"] == "−200" && ours[3].count("action") == 0,
+           "a marked die keeps its face, rises, shows the stake and cannot be unmarked");
+    Expect(surface.props["bottom"]["label"] == "" && surface.props["top"]["label"] == "<games.combo_6>",
+           "the combination of a complete row");
+    Expect(surface.props["buttons"].size() == 1 && surface.props["buttons"][0]["label"] == "<games.roll>" &&
+               surface.props["buttons"][0]["sub"] == "2 <games.die_few>" && surface.props["buttons"][0]["disabled"] == false,
+           "throw the two marked dice");
+    router.OnEvent({"bottom", "mark", "2"});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tB_HeroDice2\t-1\tpress", "a tap on our die marks it in the script");
+    router.OnEvent({"throw", "click", ""});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tB_PACK\t-1\tpress", "the primary throws the cup");
+    router.OnEvent({"pack", "press", ""});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tB_PACK\t-1\tpress", "the cup itself throws too");
+    const size_t sent = surface.commands.size();
+    router.OnEvent({"header-back", "click", ""});
+    Expect(surface.commands.size() == sent, "no way out during a round");
+
+    // Nothing marked in our reroll: keep the dice (B_ICON_1).
+    InterfaceModel keep = reroll;
+    for (Widget &widget : keep.widgets)
+        if (widget.node == "ANDROID_TABLE_GAME")
+            widget.context["heroMix"] = "0,0,0,0,0";
+    keep.revision = 2;
+    router.SetInterface(keep);
+    Expect(surface.props["buttons"][0]["label"] == "<games.keep>", "nothing marked: keep the dice");
+    router.OnEvent({"throw", "click", ""});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tB_ICON_1\t-1\tpress", "keeping is the script's pass");
+
+    // The round ends with our win: the bank is ours, another round or leave.
+    InterfaceModel result = Load(models, "boal_dice-result.json");
+    result.revision = 3;
+    router.SetInterface(result);
+    Expect(surface.props["locked"] == false && surface.props["table"]["bankLabel"] == "<games.won>" &&
+               surface.props["table"]["bank"] == "+2 400" && surface.props["table"]["bankTone"] == "win",
+           "after the round: what we won");
+    Expect(surface.props["bottom"]["label"] == "<games.combo_4>" && surface.props["bottom"]["pieces"][0].count("action") == 0,
+           "our combination; dice are not tappable between rounds");
+    Expect(surface.props["buttons"][1]["id"] == "again" && surface.props["buttons"][1]["variant"] == "primary" &&
+               surface.props["buttons"][1]["sub"] == "<games.stake_short> 200",
+           "another round is the primary");
+    router.OnEvent({"again", "click", ""});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tB_PACK\t-1\tpress", "another round is B_PACK");
+    router.OnEvent({"leave", "click", ""});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tEXIT_BTN\t-1\tpress", "leave the table");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), "widget:boal_dice\tEXIT_BTN\t-1\tpress", "back leaves between rounds");
+
+    // The opponent has no money left: only leaving.
+    router.SetInterface(Load(models, "boal_dice-end.json"));
+    Expect(surface.props["buttons"][0]["id"] == "again" && surface.props["buttons"][0]["disabled"] == true &&
+               surface.props["buttons"][1]["id"] == "leave" && surface.props["buttons"][1]["variant"] == "primary",
+           "the opponent quits: leaving is the primary");
+
+    // A fact the script lacks is an error, never a guess.
+    InterfaceModel broken = Load(models, "boal_dice-reroll.json");
+    broken.widgets.back().unavailable_reason = "table-game:missing=heroDice";
+    surface.errors.clear();
+    router.SetInterface(broken);
+    Expect(surface.errors.size() == 1, "a missing script fact is reported");
+
+    // Cards, our turn.
+    FakeSurface cards;
+    Router table(cards);
+    table.SetInterface(Load(models, "boal_cards.json"));
+    Expect(table.Using() == "boal_cards" && cards.tag == "s-table-game" && cards.errors.empty() && cards.props["kind"] == "cards",
+           "boal_cards is drawn by the table-game screen");
+    Expect(cards.props["table"]["coins"] == "gold" && cards.props["pack"][0]["kind"] == "deck", "gold coins, the deck");
+    const Json hand = cards.props["bottom"]["pieces"];
+    Expect(hand.size() == 3 && hand[0]["rank"] == "7" && hand[0]["suit"] == "spades" && hand[0]["red"] == false &&
+               hand[1]["rank"] == "<games.rank_J>" && hand[1]["red"] == true,
+           "our cards: rank and suit from the picture names");
+    Expect(cards.props["bottom"]["label"] == "19 <games.point_many>", "our points (7 + J 2 + 10)");
+    Expect(cards.props["top"]["pieces"].size() == 2 && cards.props["top"]["pieces"][0]["kind"] == "back" && cards.props["top"]["label"] == "",
+           "the opponent's cards face down, no points");
+    Expect(cards.props["buttons"][0]["id"] == "stand" && cards.props["buttons"][1]["id"] == "take" &&
+               cards.props["buttons"][1]["sub"] == "−500" && cards.props["buttons"][1]["disabled"] == false,
+           "stand, or take a card for the stake");
+    table.OnEvent({"take", "click", ""});
+    ExpectEqual(cards.Last(), "widget:boal_cards\tB_PACK\t-1\tpress", "take a card is B_PACK");
+    table.OnEvent({"stand", "click", ""});
+    ExpectEqual(cards.Last(), "widget:boal_cards\tB_ICON_1\t-1\tpress", "stand is B_ICON_1");
+
+    // The opponent's turn: nothing to press.
+    InterfaceModel opponent = Load(models, "boal_cards-opponent.json");
+    opponent.revision = 2;
+    table.SetInterface(opponent);
+    Expect(cards.props["buttons"][0]["disabled"] == true && cards.props["buttons"][1]["disabled"] == true &&
+               cards.props["buttons"][1]["reason"] == "<games.wait>",
+           "the opponent plays: both buttons wait");
+
+    // Opened: he has 20, the bank is his.
+    InterfaceModel opened = Load(models, "boal_cards-result.json");
+    opened.revision = 3;
+    table.SetInterface(opened);
+    Expect(cards.props["top"]["label"] == "20 <games.point_many>" && cards.props["top"]["pieces"][0]["rank"] == "<games.rank_A>",
+           "the opponent's cards open with his points");
+    Expect(cards.props["table"]["bankLabel"] == "<games.taken> Жак" && cards.props["table"]["bank"] == "3 000" &&
+               cards.props["table"]["bankTone"] == "loss",
+           "the bank went to the opponent");
+    Expect(cards.props["buttons"][1]["id"] == "again" && cards.props["buttons"][1]["disabled"] == false, "another round");
+}
+
+static void GoodsOrder(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    InterfaceModel list = Load(models, "goodstransfer.json");
+    router.SetInterface(list);
+    Expect(router.Using() == "goodstransfer" && surface.tag == "s-goods-order" && router.Rejection().empty() && surface.errors.empty(),
+           "goodstransfer is drawn by the purchase list");
+    Expect(surface.props["extras"]["rows"].empty(), "every exported node is known");
+    const Json rows = surface.props["list"]["rows"];
+    Expect(rows.size() == 6 && rows[0]["name"] == "Ядра" && rows[0]["image"]["texture"] == "atlas:GOODS/Balls" &&
+               rows[0]["cells"][0] == "400" && rows[0]["cells"][1] == "600" && rows[4]["cells"][0] == "—",
+           "one row per good: picture, in the hold, the order");
+    Expect(rows[0].count("q") == 0, "no quantity until a good is opened");
+    Expect(surface.props["subject"]["label"] == "Люггер 'Ласточка'" && surface.props["subject"]["sub"] == "1 <common.of> 2" &&
+               surface.props["subject"]["prev"] == false && surface.props["subject"]["next"] == true,
+           "the ship the list is for, 1 of 2");
+    Expect(surface.props["contraband"]["label"] == "Закупать контрабанду" && surface.props["contraband"]["on"] == false, "contraband switch");
+
+    router.OnEvent({"goods", "row", "3"});
+    const Json open = surface.props["list"]["rows"][3];
+    Expect(open["selected"] == true && open["q"]["value"] == 400 && open["q"]["min"] == 0 && open["q"]["max"] == 1000 &&
+               open["q"]["label"] == "<goods.order>" && open["q"]["all"] == false,
+           "a tap opens the good's order as a quantity");
+    Expect(surface.commands.empty(), "opening a row sends nothing");
+    router.OnEvent({"goods", "change", "500"});
+    Expect(surface.props["list"]["rows"][3]["cells"][1] == "500", "the amount shows at once");
+    Expect(surface.commands.empty(), "a step waits for the amount to settle");
+    surface.now += 0.5;
+    router.Tick();
+    ExpectEqual(surface.Last(), "widget:goodstransfer\tANDROID_GOODS_ORDER\t3\torder@5:Powder=500",
+                "the standing order is saved by itself, through one engine action");
+    router.OnEvent({"goods", "commit", "520"});
+    router.Tick();
+    ExpectEqual(surface.Last(), "widget:goodstransfer\tANDROID_GOODS_ORDER\t3\torder@5:Powder=520", "the end of a drag saves at once");
+    router.OnEvent({"contraband", "change", "1"});
+    ExpectEqual(surface.Last(), "widget:goodstransfer\tCHECK_BUYCONTRABAND\t0\t1", "the contraband switch");
+    router.OnEvent({"header", "subject-next", ""});
+    ExpectEqual(surface.Last(), "widget:goodstransfer\tBTN_CHOOSESHIP_RIGHT\t-1\tpress", "the next ship through the game's arrow");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), "widget:goodstransfer\tEXIT_BTN\t-1\tpress", "← leaves");
+
+    // The game's own amount window: that good is open, the list takes no orders, ← closes the window.
+    FakeSurface surface2;
+    Router window(surface2);
+    window.SetInterface(Load(models, "goodstransfer-window.json"));
+    const Json powder = surface2.props["list"]["rows"][3];
+    Expect(window.Using() == "goodstransfer" && powder["selected"] == true && powder["q"]["disabled"] == true &&
+               surface2.props["list"]["rows"][0]["disabled"] == true,
+           "the game's window marks its good and locks the list");
+    window.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface2.Last(), "widget:goodstransfer\tTG_CANCEL_BUTTON\t-1\tpress", "← closes the game's amount window first");
+}
+
+static void SailEmblem(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "sailsgerald.json"));
+    Expect(router.Using() == "sailsgerald" && surface.tag == "s-sail-emblem" && router.Rejection().empty() && surface.errors.empty(),
+           "sailsgerald is drawn by the sail emblem screen");
+    Expect(surface.props["extras"]["rows"].empty(), "every exported node is known");
+    const Json emblems = surface.props["emblems"];
+    Expect(emblems.size() == 7 && emblems[2]["selected"] == true && emblems[0]["applied"] == true && emblems[2]["texture"] == "ships/gerald/emblem_03",
+           "emblems with their textures, the chosen one and the one on the sails");
+    Expect(surface.props["title"] == "Выбрать символику на парус" && surface.props["stats"][0]["value"] == "12 480",
+           "the game's caption and the hero's money");
+    Expect(surface.props["primary"]["label"] == "<sails.apply>" && surface.props["primary"]["sub"] == "1 250" && surface.props["primary"]["disabled"] == false,
+           "another emblem chosen: paint it for the price");
+    router.OnEvent({"primary", "click", ""});
+    ExpectEqual(surface.Last(), "widget:sailsgerald\tB_OK\t-1\tpress", "paint");
+    router.OnEvent({"emblems", "emblem", "5"});
+    ExpectEqual(surface.Last(), "widget:sailsgerald\tSCROLL_GERALD\t5\tselect@5:emblem_06.tga.tx", "a tap chooses that emblem in the game");
+    router.OnEvent({"emblem-prev", "click", ""});
+    ExpectEqual(surface.Last(), "widget:sailsgerald\tSCROLL_GERALD\t1\tselect@5:emblem_02.tga.tx", "‹ chooses the previous one");
+    router.OnEvent({"header-back", "click", ""});
+    ExpectEqual(surface.Last(), "widget:sailsgerald\tEXIT_BTN\t-1\tpress", "← leaves");
+
+    // The emblem on the sails chosen, and not enough money: take it off, disabled with the shortfall.
+    router.SetInterface(Load(models, "sailsgerald-applied.json"));
+    Expect(surface.props["primary"]["label"] == "<sails.remove>" && surface.props["primary"]["disabled"] == true &&
+               surface.props["primary"]["reason"] == "<sails.short> 350" && surface.props["prev"] == false,
+           "the current emblem: take it off; short of money: disabled with the shortfall");
+    const size_t sent = surface.commands.size();
+    router.OnEvent({"primary", "click", ""});
+    Expect(surface.commands.size() == sent, "a disabled primary sends nothing");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
@@ -1160,6 +1514,12 @@ int main(int argc, char **argv)
     Shipyard(models);
     Atlas();
     Dialogue(models);
+    Games(models);
+    Repair(models);
+    Transfer(models);
+    Alchemy(models);
+    GoodsOrder(models);
+    SailEmblem(models);
     DialogueText(models);
     DialogueNumber(models);
     Nations(models);

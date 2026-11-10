@@ -26,6 +26,14 @@ for start in methods:
     offset = source.index(start)
     parts.append(source[offset:source.index('\n}', offset) + 2].replace('COMPILER::', 'SaveReader::'))
 
+# Script DeleteEntity runs COMPILER::DeleteScriptEntity, also extracted unchanged.
+functions = (r/'src/libs/core/src/internal_functions.cpp').read_text()
+start = functions.index('case FUNC_DELETE_Entity:')
+case = functions[start:functions.index('case FUNC_', start + 1)]
+assert 'DeleteScriptEntity(*pV);' in case, 'DeleteEntity no longer runs DeleteScriptEntity'
+offset = functions.index('void COMPILER::DeleteScriptEntity(')
+parts.append(functions[offset:functions.index('\n}', offset) + 2].replace('COMPILER::', 'SaveReader::'))
+
 with tempfile.TemporaryDirectory(prefix='storm-loaded-object-') as directory:
     b = Path(directory)
     (b/'reader.inc').write_text('\n'.join(parts))

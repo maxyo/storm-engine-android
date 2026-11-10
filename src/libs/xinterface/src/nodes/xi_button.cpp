@@ -39,6 +39,16 @@ void CXI_BUTTON::MobileCollect(std::vector<MobileWidget> &widgets) const
         else if (name == "QTY_REMOVE_ALL_BUTTON") label = "− max";
         if (label && !m_bUse) return;
     }
+    // Screens ported to the portable UI that work through icon buttons without text: the
+    // tavern mini-games (cup, deck, dice, pass), repair (amount arrows), the loot / exchange
+    // screen (ship and crew arrows, quantity arrows), sail emblems, purchase list and
+    // alchemy (scroll and quantity arrows). Export them by node name; the UI draws its own
+    // words for them.
+    static constexpr const char *iconScreens[] = {"boal_dice", "boal_cards", "repair", "transfer_main",
+                                                  "sailsgerald", "goodstransfer", "alchemy"};
+    for (const char *id : iconScreens)
+        if ((!label || !*label) && storm::android::mobileScreen == id)
+            label = m_nodeName;
     // These icon/hit-area nodes deliberately keep text in STR_BUTTONS. Export
     // the actual command-bearing node, using the same localized resource key.
     if ((!label || !*label) && pStringService)

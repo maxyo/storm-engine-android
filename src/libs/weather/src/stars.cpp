@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cctype>
 
 #include "astronomy.h"
 #include "core.h"
@@ -74,10 +75,10 @@ void Astronomy::STARS::Init(ATTRIBUTES *pAP)
             char str[2];
             str[0] = pAS->GetThisName()[0];
             str[1] = 0;
-            std::ranges::for_each(str, [](char &c) { c = std::toupper(c); });
+            std::ranges::for_each(str, [](char &c) { c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); });
             Spectr[str[0]] = pAS->GetAttributeAsDword();
 
-            std::ranges::for_each(str, [](char &c) { c = std::tolower(c); });
+            std::ranges::for_each(str, [](char &c) { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
             Spectr[str[0]] = pAS->GetAttributeAsDword();
         }
     }

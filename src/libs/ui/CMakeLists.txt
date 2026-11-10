@@ -68,6 +68,12 @@ add_library(storm_ui STATIC
     src/screens/menu_saves.cpp
     src/screens/menu_settings.cpp
     src/screens/menu_title.cpp
+    src/screens/extra_games.cpp
+    src/screens/extra_repair.cpp
+    src/screens/extra_transfer.cpp
+    src/screens/extra_alchemy.cpp
+    src/screens/extra_goods.cpp
+    src/screens/extra_sails.cpp
     src/screens/menu_game_over.cpp
     src/screens/reading.cpp
     src/screens/rest.cpp
@@ -78,6 +84,7 @@ add_library(storm_ui STATIC
     src/hud/land.cpp
     src/hud/sea.cpp
     src/hud/world_map.cpp
+    src/hud/spyglass.cpp
     src/template.cpp
     src/components.cpp
     src/behaviors.cpp
@@ -128,6 +135,9 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     add_executable(storm_ui_hud_unit tests/hud_check.cpp)
     target_link_libraries(storm_ui_hud_unit PRIVATE storm_ui)
     add_test(NAME ui_hud COMMAND storm_ui_hud_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states")
+    add_executable(storm_ui_hud_spyglass_unit tests/hud_spyglass_check.cpp)
+    target_link_libraries(storm_ui_hud_spyglass_unit PRIVATE storm_ui)
+    add_test(NAME ui_hud_spyglass COMMAND storm_ui_hud_spyglass_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states")
     add_executable(storm_ui_press_unit tests/press_check.cpp)
     target_link_libraries(storm_ui_press_unit PRIVATE storm_ui)
     add_test(NAME ui_press COMMAND storm_ui_press_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack"

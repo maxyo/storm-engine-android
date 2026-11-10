@@ -905,6 +905,7 @@ void AddStateConsumers(std::vector<std::unique_ptr<screens::StateConsumer>> &con
     consumers.push_back(std::make_unique<SeaQuickConsumer>());
     consumers.push_back(std::make_unique<WorldMapConsumer>());
     consumers.push_back(std::make_unique<PresentationConsumer>());
+    consumers.push_back(CreateSpyglassConsumer()); // spyglass.cpp
 }
 
 } // namespace storm::ui::hud

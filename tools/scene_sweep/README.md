@@ -29,6 +29,9 @@ the sweep fails (`inventory:tables`) when they differ from what `inventory.py` p
   (`src/libs/core/src/scene_sweep.cpp`). The script starts a new game through the main menu
   and enters each scene with the functions the game uses itself (quest reload to a location,
   quest sea login, world map, storm, boarding), at noon with the noon weather (or midnight).
+  The hero enters a location where the game puts him: boarding decks and cabins at their
+  `boarding.Loc.Hero` locator, other locations through their first door. A game day passes
+  between locations so that phantom NPCs expire as in play.
 - For each scene it waits until the scene is loaded and the loading fader is gone, renders
   at least 5 frames and 0.3 s, then asks the runner to capture the frame. The runner saves
   the screenshot, frame time, draw calls and memory, and attributes the engine's log lines
@@ -39,7 +42,7 @@ the sweep fails (`inventory:tables`) when they differ from what `inventory.py` p
   and then loads its scenes back to back. A crashed or hung engine fails
   its current scene and the shard restarts with the remaining ones.
 
-A scene fails on: a crash or fatal engine error, a timeout, script errors (`error.log`),
+A scene fails on: a crash or fatal engine error, a timeout, a failed teleport to the entry locator, script errors (`error.log`),
 missing textures or models, engine/renderer errors in the logs, a fader that never goes,
 or a black, single-colour or unchanged frame.
 
