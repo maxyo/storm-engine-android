@@ -533,6 +533,7 @@ class TransferScreen final : public Screen
         view["sheet"] = Json{{"title", Trim(admitted.Label("OFFICERS_WINDOW_CAPTION"))},
                              {"subtitle", Trim(admitted.Label("OFFICER_NAME"))},
                              {"people", people},
+                             {"empty", people.empty() ? bindings.Text("yard.no_captains") : std::string()},
                              {"actions", acts}};
         const Widget *close = admitted.One("CANCEL_ADD_OFFICER") ? admitted.One("CANCEL_ADD_OFFICER") : admitted.One("OFFICER_EXIT_BTN");
         if (close)
