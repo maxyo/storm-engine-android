@@ -26,6 +26,17 @@ std::unique_ptr<Screen> CreateNewGameScreen();
 std::unique_ptr<Screen> CreateGameOverScreen();
 std::unique_ptr<StateConsumer> CreateGameOverConsumer();
 std::unique_ptr<Screen> CreateNationsScreen();
+std::unique_ptr<Screen> CreateMapEncounterScreen();
+std::unique_ptr<Screen> CreateDirSailScreen();
+std::unique_ptr<Screen> CreateLeaveBattleScreen();
+std::unique_ptr<Screen> CreateSalaryScreen();
+std::unique_ptr<Screen> CreateFrameScreen();
+std::unique_ptr<Screen> CreateColonyNewsScreen();
+std::unique_ptr<Screen> CreateNationNewsScreen();
+std::unique_ptr<Screen> CreateRestScreen();
+std::unique_ptr<Screen> CreateTradeBookScreen();
+std::unique_ptr<Screen> CreateColonyCaptureScreen();
+std::unique_ptr<Screen> CreateFortCaptureScreen();
 
 namespace
 {
@@ -47,13 +58,23 @@ const ScreenEntry kPorted[] = {
     {"selectcharacter", CreateNewGameScreen},
     {"game_over", CreateGameOverScreen}, // state channel gameOver, not a game interface
     {"nationrelation", CreateNationsScreen},
+    {"map", CreateMapEncounterScreen},
+    {"dirsailenc", CreateDirSailScreen},
+    {"leavebattle", CreateLeaveBattleScreen},
+    {"salary", CreateSalaryScreen},
+    {"boal_frame", CreateFrameScreen},
+    {"colonyinfo", CreateColonyNewsScreen},
+    {"nationlegend", CreateNationNewsScreen},
+    {"tavernwait", CreateRestScreen},
+    {"tradebook", CreateTradeBookScreen},
+    {"colonycapture", CreateColonyCaptureScreen},
+    {"fortcapture", CreateFortCaptureScreen},
 };
 
 // Interfaces the platform host still draws with its own forms. Anything not listed here
 // and not ported above gets the generic layout.
 const char *const kHostOwned[] = {
-    "character",      "lscchar_all",   "items",     "ship",      "questbook",                  // hero sections
-    "map",            "dirsailenc",    "leavebattle", "salary", "boal_frame", // reading menus
+    "character", "lscchar_all", "items", "ship", "questbook", // hero sections
 };
 
 } // namespace

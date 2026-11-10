@@ -69,6 +69,9 @@ add_library(storm_ui STATIC
     src/screens/menu_settings.cpp
     src/screens/menu_title.cpp
     src/screens/menu_game_over.cpp
+    src/screens/reading.cpp
+    src/screens/rest.cpp
+    src/screens/hero_tradebook.cpp
     src/hud/hud.cpp
     src/hud/states.cpp
     src/hud/land.cpp
@@ -116,6 +119,9 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     add_executable(storm_ui_menus_unit tests/menus_check.cpp)
     target_link_libraries(storm_ui_menus_unit PRIVATE storm_ui)
     add_test(NAME ui_menus COMMAND storm_ui_menus_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/models")
+    add_executable(storm_ui_rare_unit tests/rare_check.cpp)
+    target_link_libraries(storm_ui_rare_unit PRIVATE storm_ui)
+    add_test(NAME ui_rare COMMAND storm_ui_rare_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/models")
     add_executable(storm_ui_hud_unit tests/hud_check.cpp)
     target_link_libraries(storm_ui_hud_unit PRIVATE storm_ui)
     add_test(NAME ui_hud COMMAND storm_ui_hud_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states")

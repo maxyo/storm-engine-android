@@ -1,0 +1,126 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 2,
+ "screenRevision": 4,
+ "screen": "nationlegend",
+ "widgets": [
+  {
+   "node": "INFO_CAPTION",
+   "type": "text",
+   "label": "События",
+   "value": "",
+   "index": -1,
+   "order": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Nat1",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 2,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 5,
+     "imageRevision": 5,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "England"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "RelNat",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 3,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 5,
+     "imageRevision": 5,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "RELATIONS",
+      "image": "Enemy"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Nat2",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 4,
+   "enabled": false,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 5,
+     "imageRevision": 5,
+     "width": 128,
+     "height": 128,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "NATIONS",
+      "image": "Spain"
+     }
+    }
+   ],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "Две державы воюют.",
+   "value": "",
+   "index": -1,
+   "order": 5,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "B_OK",
+   "type": "button",
+   "label": "Ok",
+   "value": "",
+   "index": -1,
+   "order": 6,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}
