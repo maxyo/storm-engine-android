@@ -89,6 +89,15 @@ std::string Thousands(const std::string &digits)
     return (value < 0 ? "-" : "") + out;
 }
 
+void CheckAdapter(const Admission &admitted, Bindings &bindings, const char *fact, uint64_t &opening)
+{
+    if (opening == admitted.model->opening)
+        return;
+    opening = admitted.model->opening;
+    if (!admitted.One(fact))
+        bindings.Error(admitted.model->screen + ": no " + fact + " from the interface adapter (android_hero.c not loaded?)");
+}
+
 Json Subject(const Admission &admitted, Bindings &bindings, std::function<void(const Widget &)> select)
 {
     std::vector<int> filled;

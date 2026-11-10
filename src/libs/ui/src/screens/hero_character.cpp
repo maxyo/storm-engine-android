@@ -30,7 +30,7 @@ constexpr NodeRule kNodes[] = {
     {"HERO_NAME", "text", true},
     {"TABLE_SKILL_1", "choice", true},
     {"TABLE_SKILL_2", "choice", true},
-    {"ANDROID_SUBJECT", "fact", true}, // the adapter is part of the screen: without it the generic layout says so
+    {"ANDROID_SUBJECT", "fact"}, // the adapter's facts: CheckAdapter reports them missing
     {"ANDROID_POSTS", "fact"},
     {"ANDROID_PASSENGERS", "fact"},
     {"ANDROID_CANDIDATES", "fact"},
@@ -183,6 +183,7 @@ class HeroScreen final : public Screen
         admission_ = admitted;
         a_ = &admission_;
         revision_ = admitted.model->revision;
+        CheckAdapter(admitted, bindings, "ANDROID_SUBJECT", checked_opening_);
         const bool full = admitted.model->screen == "lscchar_all";
         const Widget *subject = admitted.One("ANDROID_SUBJECT");
         if (!full && tab_ == Tab::Officers)
@@ -289,6 +290,7 @@ class HeroScreen final : public Screen
     const Admission *a_ = nullptr;
     uint64_t revision_ = 0;
     uint64_t sent_revision_ = 0;
+    uint64_t checked_opening_ = 0;
     Tab tab_ = Tab::Skills;
     Window window_ = Window::None;
     Intent intent_;

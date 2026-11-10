@@ -21,6 +21,10 @@ std::string LowerText(const std::string &text);
 std::string Thousands(const std::string &digits);
 // The row image of a game portrait by face, null without one.
 Json Portrait(const std::string &face);
+// The interface adapter's facts are part of these screens, but a closing interface may publish a
+// last model without them (the script's subject is gone): a missing `fact` is an error only in
+// the first model of an opening. `opening` keeps the opening already checked.
+void CheckAdapter(const Admission &admitted, Bindings &bindings, const char *fact, uint64_t &opening);
 // ‹ name k of n › over the captain and the officers on posts (CHARACTERS_SCROLL rows, the
 // adapter's ANDROID_POSTS); `select` sends the selection of a row. Null without officers.
 Json Subject(const Admission &admitted, Bindings &bindings, std::function<void(const Widget &)> select);

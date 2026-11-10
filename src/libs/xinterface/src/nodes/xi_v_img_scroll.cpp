@@ -1766,7 +1766,8 @@ bool CXI_VIMAGESCROLL::MobileOfficerRows(storm::mobile::OfficerListIdentity &sta
             empty ? empty : "", state, rows);
     }
     // Other vertical image lists keep their existing behavior.
-    if (storm::android::mobileScreen != "lscchar_all" || !m_nodeName ||
+    // The hero's officer list of the character and items screens (character_all.h FillCharactersScroll).
+    if ((storm::android::mobileScreen != "lscchar_all" && storm::android::mobileScreen != "items") || !m_nodeName ||
         std::string(m_nodeName) != "CHARACTERS_SCROLL" || !m_bUse) return false;
     auto *profile = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
     auto *attrs = core.Entity_GetAttributeClass(g_idInterface, m_nodeName);

@@ -1124,10 +1124,75 @@ static void Hero(const std::string &models)
     bare.opening = 50;
     bare.widgets.erase(std::remove_if(bare.widgets.begin(), bare.widgets.end(), [](const Widget &w) { return w.type == "fact"; }),
                        bare.widgets.end());
+    const size_t errors = surface.errors.size();
     router.SetInterface(bare);
-    surface.now += 2.0;
-    router.Tick();
-    Expect(router.Using() == "generic" && router.Rejection() == "ANDROID_SUBJECT(fact)", "without the interface adapter the hero screen is rejected loudly");
+    Expect(router.Using() == "lscchar_all" && surface.errors.size() == errors + 1, "without the interface adapter's facts: drawn, and reported");
+    bare.revision += 1;
+    router.SetInterface(bare);
+    Expect(surface.errors.size() == errors + 1, "reported once per opening (a closing interface loses its facts)");
+}
+
+static void Items(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    InterfaceModel model = Load(models, "items.json");
+    router.SetInterface(model);
+    ExpectEqual(router.Using(), "items", "the items draw on the items screen");
+    ExpectEqual(surface.tag, "s-items", "s-items mounted");
+    Json view = surface.props;
+    Expect(view["slots"].size() == 10 && view["slots"][0]["label"] == "Rapier" && view["slots"][0]["image"]["texture"] == "atlas:ITEMS_1/itm1" &&
+               view["slots"][1]["empty"] == true,
+           "ten slots: what the hero wears, the empty ones dashed");
+    Expect(view["rows"].size() == 3 && view["rows"][0]["cells"][0]["badge"] == "check" && view["rows"][2]["cells"][1] == "\xC3\x97" "3",
+           "the list: worn mark, a count only above one");
+    Expect(view["stats"][0]["value"] == "4.6 / 140" && view["subject"]["label"] == "Anne Bonny" && view["tabs"].size() == 4,
+           "weight in the header, the officer switch, the game's tabs");
+    Expect(view["detail"]["title"] == "Rapier" && view["detail"]["text"] == "A light blade." && view["detail"]["action"]["label"] == "Take off" &&
+               view["detail"]["action"]["disabled"] == false,
+           "the selected item with the game's own action");
+    Expect(view["extras"]["rows"].empty(), "every widget is known: no extras");
+
+    router.OnEvent({"item-equip", "click", ""});
+    ExpectEqual(surface.Last(), "widget:items\tEQUIP_BUTTON\t-1\tpress@5:inventory:7:character:1:role:0", "the action is the game's guarded press");
+    router.OnEvent({"items", "row", "2"});
+    ExpectEqual(surface.Last(), "widget:items\tTABLE_ITEMS\t2\tselect@5:inventory:30:character:1:role:0", "a row is selected");
+
+    // A slot filters the list; a row of the filtered list is put on.
+    router.OnEvent({"slot-blade", "click", ""});
+    Expect(surface.props["rows"].size() == 2 && surface.props["slots"][0]["selected"] == true, "the blade slot lists the blades");
+    router.OnEvent({"items", "row", "1"});
+    ExpectEqual(surface.Last(), "widget:items\tTABLE_ITEMS\t1\tselect@5:inventory:9:character:1:role:0", "the dagger is selected");
+    model.revision += 1;
+    for (Widget &widget : model.widgets)
+        if (widget.node == "TABLE_ITEMS")
+            widget.value = widget.index == 1 ? "1" : "0";
+        else if (widget.node == "EQUIP_BUTTON")
+            widget.row_id = "inventory:9:character:1:role:0", widget.label = "Equip";
+    router.SetInterface(model);
+    ExpectEqual(surface.Last(), "widget:items\tEQUIP_BUTTON\t-1\tpress@5:inventory:9:character:1:role:0", "then put on");
+
+    router.OnEvent({"item-tabs", "select", "3"});
+    ExpectEqual(surface.Last(), "widget:items\tTABBTN_3\t-1\tpress", "a game tab");
+    router.OnEvent({"header", "subject-next", ""});
+    ExpectEqual(surface.Last(), "widget:items\tCHARACTERS_SCROLL\t1\tselect@5:1:1", "the next officer's items");
+
+    // The game's map window.
+    model.revision += 1;
+    model.widgets.push_back(Make("MAP_CAPTION", "text", "Treasure map"));
+    model.widgets.push_back(Make("MAP_TEXT", "text", "A cross on the south shore."));
+    model.widgets.push_back(Make("MAP_EXIT_BTN", "button", "", {"press"}));
+    Widget picture = Make("MAP_PICTURE", "image");
+    picture.images.push_back(ImageRef{});
+    picture.images.back().kind = "texture";
+    picture.images.back().image = "interfaces/maps/treasure";
+    model.widgets.push_back(picture);
+    router.SetInterface(model);
+    Expect(surface.props["map"]["title"] == "Treasure map" && surface.props["map"]["image"]["texture"] == "interfaces/maps/treasure",
+           "the map window: the game's picture by its texture name");
+    Expect(router.WantsBack(), "back closes the map first");
+    router.Back();
+    ExpectEqual(surface.Last(), "widget:items\tMAP_EXIT_BTN\t-1\tpress", "back is the map's close");
 }
 
 int main(int argc, char **argv)
@@ -1147,6 +1212,7 @@ int main(int argc, char **argv)
     DialogueNumber(models);
     Nations(models);
     Hero(models);
+    Items(models);
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else
