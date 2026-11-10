@@ -2,6 +2,8 @@
 
 #include "v_file_service.h"
 #include <stdexcept>
+#include <string>
+#include <unordered_map>
 
 #define KNF_KEY 0x1
 #define KNF_COMMENTARY 0x2
@@ -47,6 +49,11 @@ class SECTION
     SECTION *r_PTR;
 
     char *Name;
+
+    // Lazy name -> first key node index; invalidated by AddNode/DelNode.
+    std::unordered_map<std::string, KEY_NODE *> index_;
+    bool indexValid_ = false;
+    KEY_NODE *FindFirstKey(const char *key_name);
 
   public:
     SECTION();
