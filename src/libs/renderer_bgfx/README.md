@@ -25,7 +25,9 @@ on Android and on the Linux development host alike.
   `texture_compression` and `texture_cache_mb` in engine.ini override it. Tests and the benchmark build with
   `-DSTORM_BGFX_BUILD_TESTS=ON` (`storm_texture_tests`, `storm_texture_bench`).
 - `patches/` — fixes applied to the pinned bgfx at configure time (currently: re-attach to a new
-  Android native window after the activity returns from background).
+  Android native window after the activity returns from background). Upstream bgfx master has the same
+  fix (`GlContext::resize` re-creates the surface from `_swapChain.nwh`); drop the patch and the
+  configure-time apply at the next pin bump.
 - `fx/` — optional effects package (not wired into the frame yet; see its README).
 
 ## Building
