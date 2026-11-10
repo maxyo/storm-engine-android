@@ -113,7 +113,7 @@ class CrewScreen final : public Screen
         const int target = recent ? local_target_ : model_target;
 
         Json row{{"id", "0"},
-                 {"name", "Матросы"},
+                 {"name", bindings.Text("crew.sailors")},
                  {"image", {{"kind", "icon"}, {"icon", "crew"}}},
                  {"meta", OneLine(admitted.Label("INFO_SHIP"))},
                  {"cells", Json::array({std::to_string(crew), std::to_string(tavern),
@@ -122,7 +122,8 @@ class CrewScreen final : public Screen
                  {"q", Json{{"value", target},
                             {"min", 0},
                             {"max", crew + tavern},
-                            {"label", "На корабле"},
+                            {"label", bindings.Text("crew.on_ship")},
+                            {"allLabel", bindings.Text("common.all")},
                             {"summary", result.empty() ? "-" : result},
                             {"steps", Json::array({1, 10})},
                             {"disabled", !edit->Offers("edit")}}}};
@@ -143,12 +144,12 @@ class CrewScreen final : public Screen
 
         Json view = Json::object();
         const std::string caption = OneLine(admitted.Label("STORECAPTION1"));
-        view["title"] = !admitted.Label("TITLE").empty() ? admitted.Label("TITLE") : caption.empty() ? "Команда" : caption;
+        view["title"] = !admitted.Label("TITLE").empty() ? admitted.Label("TITLE") : caption.empty() ? bindings.Text("crew.title") : caption;
         view["subject"] = Json();
         if (ships.size() > 1)
         {
             view["subject"] = Json{{"label", ships[current]->label},
-                                   {"sub", std::to_string(current + 1) + " из " + std::to_string(ships.size())},
+                                   {"sub", std::to_string(current + 1) + " " + bindings.Text("common.of") + " " + std::to_string(ships.size())},
                                    {"prev", current > 0},
                                    {"next", current + 1 < ships.size()},
                                    {"list", false}};
@@ -176,8 +177,11 @@ class CrewScreen final : public Screen
         }
         view["stats"] = stats;
         view["list"] = Json{{"label", ""},
-                            {"cols", Json::array({Json{{"label", "На корабле"}}, Json{{"label", "В таверне"}}, Json{{"label", "Цена"}}})},
+                            {"cols", Json::array({Json{{"label", bindings.Text("crew.on_ship")}}, Json{{"label", bindings.Text("crew.in_tavern")}},
+                                                  Json{{"label", bindings.Text("trade.price")}}})},
                             {"rows", Json::array({row})}};
+        view["shipLabel"] = bindings.Text("crew.on_ship");
+        view["tavernLabel"] = bindings.Text("crew.in_tavern");
         view["ship"] = Facts(admitted, "TABLE_CREW", "CREW_MORALE_TEXT");
         view["tavern"] = Facts(admitted, "TABLE_CREW2", "CREW_MORALE_TEXT2");
         std::string notes;

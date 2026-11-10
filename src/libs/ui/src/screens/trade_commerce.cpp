@@ -19,7 +19,7 @@ namespace
 
 struct Layout
 {
-    const char *title;   // when the game sends no caption
+    const char *title;   // string key of the title when the game sends no caption
     int own;             // amount on our side (hold, character)
     int other;           // amount on the other side (store, storage, chest)
     int name;            // name and picture
@@ -31,12 +31,12 @@ struct Layout
     int details[3] = {-1, -1, -1}; // extra columns shown under the name (cannons: range, damage, reload)
 };
 
-constexpr Layout kStore{"Магазин", 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL"};
-constexpr Layout kContraband{"Контрабанда", 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL"};
-constexpr Layout kCannons{"Орудия", 0, 5, 3, 2, 4, -1, "SHIPS_SCROLL", true, {7, 8, 9}};
-constexpr Layout kItemsTrade{"Торговля", 0, 5, 3, 2, 4, -1, "CHARACTERS_SCROLL", true};
-constexpr Layout kStorage{"Склад", 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL"};
-constexpr Layout kItemsBox{"Предметы", 0, 4, 2, -1, -1, -1, "CHARACTERS_SCROLL", true};
+constexpr Layout kStore{StringKey("trade.store"), 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL"};
+constexpr Layout kContraband{StringKey("trade.contraband"), 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL"};
+constexpr Layout kCannons{StringKey("trade.cannons"), 0, 5, 3, 2, 4, -1, "SHIPS_SCROLL", true, {7, 8, 9}};
+constexpr Layout kItemsTrade{StringKey("trade.items"), 0, 5, 3, 2, 4, -1, "CHARACTERS_SCROLL", true};
+constexpr Layout kStorage{StringKey("trade.storage"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL"};
+constexpr Layout kItemsBox{StringKey("trade.chest"), 0, 4, 2, -1, -1, -1, "CHARACTERS_SCROLL", true};
 
 constexpr NodeRule kNodes[] = {
     {"TABLE_LIST", "choice", true},
@@ -150,6 +150,14 @@ class CommerceScreen final : public Screen
                        : std::string();
         };
 
+        // The two amount columns: the game's captions, unless it names both sides alike.
+        std::string own_caption = header(columns.own), other_caption = header(columns.other);
+        if (own_caption.empty() || own_caption == other_caption)
+        {
+            own_caption = bindings.Text("trade.yours");
+            other_caption = bindings.Text("trade.theirs");
+        }
+
         // The quantity control shows the amount on our side after the deal.
         const int ours = selected ? Number(selected->CellText(columns.own)) : 0;
         const int theirs = selected ? Number(selected->CellText(columns.other)) : 0;
@@ -200,7 +208,8 @@ class CommerceScreen final : public Screen
                 Json quantity{{"value", target},
                               {"min", can_give ? 0 : ours},
                               {"max", can_take ? ours + theirs : ours},
-                              {"label", header(columns.own)},
+                              {"label", own_caption},
+                              {"allLabel", bindings.Text("common.all")},
                               {"summary", result.empty() ? "-" : result},
                               {"disabled", !edit->Offers("edit")}};
                 if (columns.small)
@@ -258,7 +267,7 @@ class CommerceScreen final : public Screen
 
         Json view = Json::object();
         const std::string caption = OneLine(admitted.Label("STORECAPTION1"));
-        view["title"] = !admitted.Label("TITLE").empty() ? admitted.Label("TITLE") : caption.empty() ? columns.title : caption;
+        view["title"] = !admitted.Label("TITLE").empty() ? admitted.Label("TITLE") : caption.empty() ? bindings.Text(columns.title) : caption;
 
         // Whose side: the ship or character selector.
         const std::vector<const Widget *> owners = admitted.All(columns.owners);
@@ -269,7 +278,7 @@ class CommerceScreen final : public Screen
                 if (owners[i]->value == "1")
                     current = i;
             view["subject"] = Json{{"label", owners[current]->label},
-                                   {"sub", std::to_string(current + 1) + " из " + std::to_string(owners.size())},
+                                   {"sub", std::to_string(current + 1) + " " + bindings.Text("common.of") + " " + std::to_string(owners.size())},
                                    {"prev", current > 0 && !deal},
                                    {"next", current + 1 < owners.size() && !deal},
                                    {"list", false}};
@@ -301,7 +310,7 @@ class CommerceScreen final : public Screen
         }
         view["stats"] = stats;
 
-        Json cols = Json::array({Json{{"label", header(columns.own)}}, Json{{"label", header(columns.other)}}});
+        Json cols = Json::array({Json{{"label", own_caption}}, Json{{"label", other_caption}}});
         if (money)
             cols.push_back(Json{{"label", header(columns.buy)}});
         view["list"] = Json{{"label", header(columns.name)}, {"cols", cols}, {"rows", rows}};
@@ -329,9 +338,9 @@ class CommerceScreen final : public Screen
         }
         else
         {
-            Json filters = Json::array({Json{{"label", "Все"}, {"selected", filter_ == 0}}, Json{{"label", header(columns.own)}, {"selected", filter_ == 1}}});
+            Json filters = Json::array({Json{{"label", bindings.Text("common.all")}, {"selected", filter_ == 0}}, Json{{"label", own_caption}, {"selected", filter_ == 1}}});
             if (!columns.small)
-                filters.push_back(Json{{"label", money ? "Выгодно" : header(columns.other)}, {"selected", filter_ == 2}});
+                filters.push_back(Json{{"label", money ? bindings.Text("trade.profitable") : other_caption}, {"selected", filter_ == 2}});
             view["filters"] = filters;
             bindings.On("filters", "select", [this, &bindings](const Event &event) {
                 filter_ = std::clamp(std::atoi(event.value.c_str()), 0, 2);
@@ -344,6 +353,7 @@ class CommerceScreen final : public Screen
         if (!deal && !admitted.Label("STORAGE_INFO").empty())
             info += (info.empty() ? "" : "\n") + admitted.Label("STORAGE_INFO");
         view["info"] = !info.empty();
+        view["infoLabel"] = bindings.Text("common.description");
         const std::string info_title = deal ? admitted.Label("QTY_CAPTION") : std::string();
         bindings.On("info", "", [&bindings, info, info_title](const Event &) { bindings.Read(info_title, info); });
 

@@ -18,6 +18,13 @@
 namespace storm::ui::screens
 {
 
+// Marks a UI string key kept in a table and looked up later with Bindings::Text, so the
+// pack build (mobile-ui/design/build.py) can check that the key is defined.
+constexpr const char *StringKey(const char *key)
+{
+    return key;
+}
+
 // One entry of a screen's KNOWN list: a node it draws by design and the widget type it
 // expects there. `required` marks the REQUIRED subset. A node ending in '*' matches by prefix.
 struct NodeRule
@@ -89,6 +96,11 @@ class Bindings
     // Local state of the screen changed: build the view again from the same model.
     void Rebuild();
 
+    // The UI string `key` of the pack's string table (mobile-ui/design/strings) in the
+    // language of the open interface. Every text the player reads that the game does not
+    // send comes from there, never from a literal.
+    std::string Text(const std::string &key) const;
+
     // --- inside Build ---
     // True from the moment an event of `id` (and `value`, for rows) sent something to the
     // engine until the next model revision (R22).
@@ -153,6 +165,10 @@ class Surface
     // `anchor` is the id of the element the editor belongs to; the host fills the rectangle.
     virtual void RequestText(TextRequest request, const std::string &anchor) = 0;
     virtual void Toast(const std::string &text) = 0;
+    // The game language of the interface being shown ("russian"); tr() in templates and
+    // Text() follow it.
+    virtual void SetLanguage(const std::string &game_language) = 0;
+    virtual std::string Text(const std::string &key) = 0;
     virtual void Log(const std::string &line) = 0;
     // Something is wrong with the data or the pack: an error log line, and in debug hosts
     // a visible notice. Never a quiet drop.

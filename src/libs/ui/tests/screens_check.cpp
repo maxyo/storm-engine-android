@@ -38,6 +38,7 @@ struct FakeSurface final : Surface
     std::vector<std::string> commands;
     std::vector<std::string> logs;
     std::vector<std::string> errors;
+    std::string language;
     TextRequest text;
     double now = 0.0;
 
@@ -60,6 +61,14 @@ struct FakeSurface final : Surface
     }
     void Toast(const std::string &) override
     {
+    }
+    void SetLanguage(const std::string &game_language) override
+    {
+        language = game_language;
+    }
+    std::string Text(const std::string &key) override
+    {
+        return "<" + key + ">"; // the tables live in the pack; screens only name keys
     }
     void Log(const std::string &line) override
     {
@@ -365,6 +374,9 @@ static void Commerce(const std::string &models)
     // Chest / body: the game's category tabs, take all, remove body.
     router.SetInterface(Load(models, "itemsbox.json"));
     Expect(surface.props["filters"].size() == 4 && surface.props["filters"][0]["selected"] == true, "itemsbox: the game's tabs");
+    Expect(surface.props["list"]["cols"][0]["label"] == "<trade.yours>" && surface.props["list"]["cols"][1]["label"] == "<trade.theirs>",
+           "itemsbox: the game names both amount columns alike, so the string table names them");
+    ExpectEqual(surface.language, "russian", "the router passes the model's language on");
     ExpectEqual(surface.props["primary"]["label"], "Взять всё", "itemsbox: take all is the primary");
     Expect(surface.props["actions"].size() == 1 && surface.props["actions"][0]["label"] == "Убрать тело", "itemsbox: remove body beside it");
     router.OnEvent({"filters", "select", "2"});

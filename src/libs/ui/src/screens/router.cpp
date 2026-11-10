@@ -266,6 +266,11 @@ void Bindings::Rebuild()
     router_.rebuild_ = true;
 }
 
+std::string Bindings::Text(const std::string &key) const
+{
+    return router_.surface_.Text(key);
+}
+
 bool Bindings::Pending(const std::string &id, const std::string &value) const
 {
     for (const Router::PendingMark &mark : router_.pending_)
@@ -310,6 +315,8 @@ void Router::Emit(Action action)
 void Router::SetInterface(const InterfaceModel &model)
 {
     const bool reopened = !screen_ || model.screen != model_.screen || model.opening != model_.opening;
+    if (model.language != model_.language || !screen_)
+        surface_.SetLanguage(model.language);
     const bool changed = model.revision != model_.revision;
     model_ = model;
     if (reopened)
@@ -447,7 +454,8 @@ Json Router::ExtrasView(const Admission &admitted, Json rows)
     Json view = Json::object();
     view["rows"] = rows;
     view["open"] = extras_open_ && !rows.empty();
-    view["actions"] = rows.empty() ? Json::array() : Json::array({{{"id", "extras-more"}, {"icon", "more"}, {"label", "Прочее"}}});
+    view["actions"] = rows.empty() ? Json::array() : Json::array({{{"id", "extras-more"}, {"icon", "more"}, {"label", surface_.Text("common.other")}}});
+    view["title"] = surface_.Text("common.other");
     view["note"] = note;
     view["reading"] = !reading_text_.empty();
     view["readingTitle"] = reading_title_;

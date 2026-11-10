@@ -86,6 +86,24 @@ Verbs and what the engine receives (`EngineCommand`, today's queue line
   without a binding and a state channel without a consumer are error log lines and, with
   `Config::show_errors`, toasts.
 
+## UI strings
+
+Screens never contain text for the player. Texts the game sends (captions, names,
+prices) pass through; everything else is a key of the pack's string table
+(`mobile-ui/design/strings/<lang>.json`, one table per shipped language):
+
+- C++: `bindings.Text("trade.price")`; a key kept in a table goes through
+  `StringKey("trade.store")` so the pack build still sees it;
+- templates: `{{ tr('common.next') }}`.
+
+The table of the interface's game language is used (`InterfaceModel::language`). To add a
+string: add the key to every `strings/<lang>.json` (the design build fails if one
+language lacks it or if a used key is undefined), keep the zone prefix (`trade.`,
+`crew.`, `common.` for shared words). A language without tables and a key missing at run
+time are errors in the log (and toasts in debug hosts); English or the key itself is
+shown, never nothing. The word lists in `controls.cpp` that recognise button roles are
+matching data, not UI text.
+
 ## Game pictures in rows
 
 Widgets name pictures by group and picture of the game's `pictures.ini`
