@@ -49,7 +49,8 @@ produces `<build>/package/libstorm_ui.so` (stripped, 16 KiB pages) and
 | `src/icons.cpp` | `<ui-icon>`: SVG symbols rasterised per size and colour |
 | `src/picture_atlas.*` | the game's `pictures.ini` (group + picture → texture + rectangle), read from the game root at run time |
 | `src/tx_texture.cpp`, `src/game_image.cpp` | `<ui-game-image>`: pictures decoded from the player's `.tx` files (or by the host's `game_picture_loader`, never both) on a worker thread; the loading placeholder shows until then, a picture that cannot be had is logged with texture, cell and reason and marked `image-missing` |
-| `src/ui_host.cpp` | RmlUi set-up, pointer routing, toasts, tooltip |
+| `src/ui_host.cpp` | RmlUi set-up, pointer routing, toasts, tooltip, the HUD mount and the touch map |
+| `src/hud/` | the in-game HUD: state consumers, scenes by gameplay mode, engine input (see `src/screens/README.md`, "The HUD") |
 
 Errors are loud, not defaults: an unknown `<c-…>` tag, an attribute a component does not
 have, an enum value outside its options, a template or class expression error and an icon
@@ -58,7 +59,9 @@ missing from the pack are logged with the element (`[ui 1] Component <c-button>
 The one documented fallback: with no game root and no picture loader, game pictures are
 "unavailable" (one info line) and keep their neutral placeholder.
 
-Touch routing: each pointer is captured by the nearest interactive component under it.
+Over the game the platform asks `Host::WantsTouch` at pointer-down and gives the UI only
+the pointers that land on it; everything else stays the game's. Inside the UI each pointer
+is captured by the nearest interactive component under it.
 Drag behaviours (stick, lever, slider) keep their pointer exclusively, so several
 controls work at once; a tap that travels more than 10 dp is withdrawn and becomes a
 list scroll.

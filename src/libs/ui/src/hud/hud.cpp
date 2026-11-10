@@ -163,7 +163,8 @@ void Hud::Refresh()
         return;
     }
 
-    if (states_.gameplay.language != language_)
+    // A blocked game ("unknown" mode) names no language: the last one stays.
+    if (!states_.gameplay.language.empty() && states_.gameplay.language != language_)
     {
         language_ = states_.gameplay.language;
         mount_.SetLanguage(language_);
