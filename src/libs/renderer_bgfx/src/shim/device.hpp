@@ -48,6 +48,8 @@ class Context final : public render::FrameOwner
     void AddClient(render::FrameClient *client, int order) override;
     void RemoveClient(render::FrameClient *client) override;
     render::SurfaceMetrics Surface() const override { return surface_; }
+    GameTarget CurrentGameTarget() const override { return game_target_; }
+    void set_game_target(const GameTarget &target) { game_target_ = target; }
     bool DeviceReady() const override { return ready(); }
     render::TextureId CreateTexture(const render::TextureDesc &desc, std::span<const std::byte> pixels) override;
     bool UpdateTexture(render::TextureId id, uint16_t x, uint16_t y, uint16_t width, uint16_t height,
@@ -90,6 +92,7 @@ class Context final : public render::FrameOwner
     bgfx::VertexLayout blit_layout_;
     std::unordered_map<std::string, Picture> pictures_;
     render::GamePictureProvider *picture_provider_ = nullptr;
+    GameTarget game_target_;
     uint32_t frame_limit_ = 0;
     double last_present_ = 0.0;
 };

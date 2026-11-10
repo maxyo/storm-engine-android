@@ -337,6 +337,9 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
     if (w > 0 && h > 0)
         context.resize(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
     back_color->store->sync();
+    back_depth->store->sync();
+    context.set_game_target({back_color->store->handle.idx, back_depth->store->handle.idx, back_color->store->width,
+                             back_color->store->height});
     context.present(back_color->store->handle, back_color->store->width, back_color->store->height);
     end_frame_stats();
     views_used = 0;
@@ -393,17 +396,18 @@ void Device::purge_framebuffers(bgfx::TextureHandle texture)
 
 uint16_t Device::new_view()
 {
-    if (views_used >= render::kGameViewEnd)
+    if (views_used >= render::kGameViewEnd - render::kGameViewBegin)
     {
         if (!view_overflow_logged)
         {
-            logf("view budget exhausted (%u); later passes of this frame reuse the last view", render::kGameViewEnd);
+            logf("ERROR: view budget exhausted (%u); later passes of this frame reuse the last view",
+                 render::kGameViewEnd - render::kGameViewBegin);
             view_overflow_logged = true;
         }
         view_dirty = false;
         return view;
     }
-    view = views_used++;
+    view = render::kGameViewBegin + views_used++;
     view_dirty = false;
     view_has_content = false;
     TexStore *color = rt->store.get();

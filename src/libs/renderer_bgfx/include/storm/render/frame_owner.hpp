@@ -3,9 +3,11 @@
 // (first consumer: src/libs/ui). API version history is at the bottom.
 //
 // Frame layout (bgfx view ids, all ViewMode::Sequential):
-//   [0 .. kGameViewEnd)         game: D3D9-shaped shim. Renders into an offscreen
+//   [kPreGameViewBegin .. +kPreGameViewCount)  reserved for passes that precede the scene.
+//   [kGameViewBegin .. kGameViewEnd)  game: D3D9-shaped shim. Renders into an offscreen
 //                               "game backbuffer" (may be smaller than the surface:
 //                               dynamic resolution) and other render targets.
+//   [kPostViewBegin .. +kPostViewCount)  reserved for post-processing of the game target.
 //   kCompositeView              game backbuffer -> surface backbuffer (scaled blit).
 //   [kUiViewBegin .. +kUiViewCount)  client views, drawn LAST, at native surface
 //                               resolution, never scaled by dynamic resolution.
@@ -27,11 +29,16 @@
 namespace storm::render
 {
 
-inline constexpr uint32_t kFrameOwnerApiVersion = 2;
+inline constexpr uint32_t kFrameOwnerApiVersion = 3;
 
 // bgfx::ViewId values. Compile-time constants so clients can size tables.
+inline constexpr uint16_t kPreGameViewBegin = 0; // passes that must run before the scene (e.g. a shadow map)
+inline constexpr uint16_t kPreGameViewCount = 8;
+inline constexpr uint16_t kGameViewBegin = 8;
 inline constexpr uint16_t kGameViewEnd = 224;
-inline constexpr uint16_t kCompositeView = 224;
+inline constexpr uint16_t kPostViewBegin = 224; // post-processing of the game target, before the composite
+inline constexpr uint16_t kPostViewCount = 24;
+inline constexpr uint16_t kCompositeView = 248;
 inline constexpr uint16_t kUiViewBegin = 256;
 inline constexpr uint16_t kUiViewCount = 64;
 
@@ -155,6 +162,14 @@ class FrameOwner
     virtual void RemoveClient(FrameClient *client) = 0;
 
     virtual SurfaceMetrics Surface() const = 0;
+    // The game's offscreen target of the current frame: bgfx texture ids of its colour (RGBA8) and
+    // depth (D24S8, sampleable) attachments. Both are 0xffff before the first frame.
+    struct GameTarget
+    {
+        uint16_t color = 0xffff, depth = 0xffff;
+        uint32_t width = 0, height = 0;
+    };
+    virtual GameTarget CurrentGameTarget() const = 0;
     virtual bool DeviceReady() const = 0; // bgfx initialised and surface valid
 
     // ---- textures (helpers over bgfx; clients may also use bgfx directly) ----
@@ -215,5 +230,7 @@ void NotifySurfaceRestored();
 
 // Version history
 //   1  initial: view range, hooks, surface metrics, texture helpers, game pictures.
+//   3  view ranges reserved before the scene and for post-processing (game views are 8..223,
+//      composite 248); CurrentGameTarget().
 //   2  UI views moved to 256..319 (64 views); density reported from the display; game picture
 //      provider; surface lost/restored notifications.
