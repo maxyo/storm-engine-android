@@ -1373,16 +1373,21 @@ void SEA::Realize(uint32_t dwDeltaTime)
     if (!bUnderSea)
         bUnderSeaStarted = false;
 
-    // The fx water (renderer_bgfx/fx) shades the surface itself: no reflection / sun road renders, no bump map
-    // targets and no legacy vertex / index buffers; the CPU-displaced vertices go to the renderer as they are.
+    // The fx water (renderer_bgfx/fx) shades the surface itself: it reflects the environment cube but draws its
+    // own sun road; no bump map targets and no legacy vertex / index buffers; the CPU-displaced vertices go to the
+    // renderer as they are.
     const bool fxWater = storm::render::CurrentEffectsWorld().water;
 
-    if (!fxWater && bSimpleSea)
+    if (fxWater)
+    {
+        EnvMap_Render();
+    }
+    else if (bSimpleSea)
     {
         EnvMap_Render2();
         SunRoad_Render2();
     }
-    else if (!fxWater)
+    else
     {
         EnvMap_Render();
         SunRoad_Render();
@@ -1515,12 +1520,20 @@ void SEA::Realize(uint32_t dwDeltaTime)
             shading.sky_color = {v4SkyColor.x, v4SkyColor.y, v4SkyColor.z};
             shading.reflection = v4SeaParameters.y;
             shading.transparency = v4SeaParameters.z;
+            shading.attenuation = v4SeaParameters.x;
             shading.fresnel = fFrenel;
             shading.bump_speed = fBumpSpeed;
             shading.foam = fFoamK > 0.0f && bFoamEnable && bIniFoamEnable;
             shading.foam_v = fFoamV;
             shading.foam_k = fFoamK;
             shading.foam_uv = fFoamUV;
+            uint32_t fogColor = 0;
+            rs->GetRenderState(D3DRS_FOGCOLOR, &fogColor);
+            shading.fog_color = {static_cast<float>((fogColor >> 16) & 0xFF) / 255.0f,
+                                 static_cast<float>((fogColor >> 8) & 0xFF) / 255.0f,
+                                 static_cast<float>(fogColor & 0xFF) / 255.0f};
+            shading.fog_density = bFogEnable ? fFogSeaDensity : 0.0f;
+            mesh.env_map = pEnvMap;
             storm::render::EffectsMatrix view;
             rs->GetTransform(D3DTS_VIEW, reinterpret_cast<D3DMATRIX *>(view.data()));
             storm::render::EffectsDrawWater(mesh, view);

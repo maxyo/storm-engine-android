@@ -117,6 +117,7 @@ class Host
     bool sky_weather_logged_ = false;
     bool water_buffers_logged_ = false;
     bool water_capture_logged_ = false;
+    bool water_env_logged_ = false;
     // The fx view transform last set on a shim view this frame: another camera in the same view needs a new view.
     bgfx::ViewId transform_view_ = UINT16_MAX;
     std::array<float, 32> transform_{};

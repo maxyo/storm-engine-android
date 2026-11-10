@@ -7,9 +7,11 @@
 //   SubmitGerstner()  the same grid displaced by Gerstner waves derived from the Sea2 parameters, for
 //                     views without a SEA entity.
 //
-// Shading is shared: two scrolling detail normal layers, Fresnel reflection of the analytic sky (or of the
-// engine's environment cube), sun road, crest foam, and with WaterQuality::High depth colour, refraction,
-// shore foam and soft shore lines from a snapshot of the scene behind the water.
+// Shading is shared: the legacy Sea2 model per pixel with the weather's Sea2 palette (Fresnel reflection of the
+// engine's environment cube, or of the analytic sky without one; water colour; the scene behind the surface
+// showing through by Sea2.Transparency), two scrolling detail normal layers, sun road, crest foam. Medium
+// blends over the scene behind like Sea2 (colour + behind * alpha); WaterQuality::High reads that scene from a
+// snapshot instead: the real water depth, refraction, shore foam and soft shore lines.
 #pragma once
 
 #include "storm/fx/settings.hpp"
@@ -31,6 +33,7 @@ struct WaterShading
     Vec3 sky_color{1.0f, 1.0f, 1.0f};      // Sea2.SkyColor: tint of the reflection
     float reflection = 0.7f;               // Sea2.Reflection
     float transparency = 0.6f;             // Sea2.Transparency
+    float attenuation = 0.2f;              // Sea2.Attenuation
     float fresnel = 0.5f;                  // Sea2.Frenel
     float bump_speed = 1.0f;               // Sea2.BumpSpeed
     bool foam = false;                     // Sea2.FoamEnable
@@ -38,6 +41,8 @@ struct WaterShading
     float foam_k = 0.3f;                   // Sea2.FoamK: foam gain per metre above FoamV
     float foam_uv = 1.0f;                  // Sea2.FoamUV
     float sun_road = 1.0f;                 // whf_sun_road_multiply
+    Vec3 fog_color{0.5f, 0.6f, 0.7f};      // the game's fog colour (gamma)
+    float fog_density = 0.0f;              // Sea2 fog density per metre of view depth (0: no fog)
 };
 
 struct WaterFrame
