@@ -94,4 +94,33 @@ TEST_CASE("Case-insensitive string comparison", "[utils]")
             CHECK_FALSE(iLess(str_long, str_lowercase));
         }
     }
+
+    SECTION("Bytes outside ASCII (cp1251 and UTF-8 Cyrillic)")
+    {
+        const auto cp1251_upper = "\xCA\xEE\xF0\xF1\xE0\xF0"s; // "Корсар" in cp1251
+        const auto utf8 = "\xD0\x9A\xD0\xBE\xD1\x80\xD1\x81\xD0\xB0\xD1\x80"s; // "Корсар" in UTF-8
+
+        SECTION("Are compared byte for byte and never folded")
+        {
+            CHECK(iEquals(cp1251_upper, cp1251_upper));
+            CHECK(iEquals(utf8 + "_Id", utf8 + "_ID"));
+            CHECK_FALSE(iEquals("\xC0"s, "\xE0"s)); // cp1251 'А' and 'а' are different bytes
+            CHECK(FoldCase('\xE0') == 0xE0);
+            CHECK(wildicmp("*_ID", (utf8 + "_id").c_str()));
+        }
+
+        SECTION("Are ordered as unsigned char, after ASCII")
+        {
+            CHECK(iLess("z"s, "\xC0"s));
+            CHECK_FALSE(iLess("\xC0"s, "Z"s));
+            CHECK(iLess("\xC0"s, "\xE0"s));
+        }
+
+        SECTION("Hash with their ASCII case-insensitive equals")
+        {
+            const iStrHasher hasher;
+            CHECK(hasher(utf8 + "_Id") == hasher(utf8 + "_iD"));
+            CHECK(iStrComparator{}(utf8 + "_Id", utf8 + "_iD"));
+        }
+    }
 }
