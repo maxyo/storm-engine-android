@@ -4,6 +4,7 @@
 #include "service.h"
 #include "sound_defines.h"
 #include "v_sound_service.h"
+#include <memory>
 #include <vector>
 
 ///////////////////////////////////////////////////////////////////
@@ -59,6 +60,22 @@ using tSoundStatistics = struct
 {
     int32_t soundsCount, maxSoundsCount, bytesInBuffers, maxBytesInBuffers, bytesCached, maxBytesCached, totalMem,
         freeMem;
+};
+
+// Decoded PCM pushed by a media player (video soundtracks): interleaved stereo float at
+// 48 kHz. It plays outside the game's sound slots (MSG_SOUND_STOP and pitch do not affect it)
+// but follows the master fades, background suspension and ducking. Destroy before the service.
+class VSoundStream
+{
+  public:
+    static constexpr uint32_t kRate = 48000;
+    virtual ~VSoundStream() = default;
+    // Any single producer thread. Frames accepted; fewer when the buffer (one second) is full.
+    virtual uint32_t Write(const float *pcm, uint32_t frames) = 0;
+    // Frames played so far; the media player's clock. Any thread.
+    virtual uint64_t PlayedFrames() = 0;
+    virtual void SetPaused(bool paused) = 0;
+    virtual void SetVolume(float volume) = 0;
 };
 
 ///////////////////////////////////////////////////////////////////
@@ -127,6 +144,9 @@ class VSoundService : public SERVICE
     {
         return 0;
     }
+
+    // nullptr when the audio output failed to initialise (already logged by the service).
+    virtual std::unique_ptr<VSoundStream> CreatePcmStream() = 0;
 
     tSoundStatistics soundStatistics;
 };
