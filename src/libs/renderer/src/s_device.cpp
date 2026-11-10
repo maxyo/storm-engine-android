@@ -535,8 +535,10 @@ bool DX9RENDER::Init()
         const auto viewSize = core.GetWindow()->GetWindowSize();
         const auto startupSize = storm::android::chooseStartupRenderResolution(
             {viewSize.width, viewSize.height}, legacySize);
-        screen_size.x = startupSize.extent.width;
-        screen_size.y = startupSize.extent.height;
+        // The view size is the default; an explicit graphics preference (lower render resolution,
+        // scaled up by the composite pass) still wins.
+        screen_size.x = std::clamp(storm::android::graphicsSetting("screen_x", startupSize.extent.width), 320, 8192);
+        screen_size.y = std::clamp(storm::android::graphicsSetting("screen_y", startupSize.extent.height), 320, 8192);
         core.Trace("AndroidRenderResolution: legacy=%dx%d view=%dx%d chosen=%dx%d reason=%s",
                    legacySize.width, legacySize.height, viewSize.width, viewSize.height,
                    screen_size.x, screen_size.y, startupSize.reason);
