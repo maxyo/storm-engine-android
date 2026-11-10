@@ -46,14 +46,14 @@ class CoastFoam : public Entity
   private:
     struct FoamVertex
     {
-        CVECTOR vPos;
+        glm::vec3 vPos;
         uint32_t dwColor;
         float tu, tv;
     };
 
     struct FoamPart
     {
-        CVECTOR v[2];
+        glm::vec3 v[2];
     };
 
     struct SubPart
@@ -67,7 +67,7 @@ class CoastFoam : public Entity
     struct WorkPart
     {
         SubPart p[8];
-        CVECTOR v[2];
+        glm::vec3 v[2];
         float tu;
         // FOAMMODE    Mode;
     };
@@ -114,7 +114,7 @@ class CoastFoam : public Entity
 
     VDX9RENDER *rs;
 
-    void ExtractRay(const D3DVIEWPORT9 &viewport, float fCursorX, float fCursorY, CVECTOR &raystart, CVECTOR &rayend);
+    void ExtractRay(const D3DVIEWPORT9 &viewport, float fCursorX, float fCursorY, glm::vec3 &raystart, glm::vec3 &rayend);
 
     bool IsClipped(Foam *pF);
 

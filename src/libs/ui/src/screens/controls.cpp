@@ -9,7 +9,7 @@ namespace storm::ui::screens
 namespace
 {
 
-// Lower case for ASCII and Cyrillic, enough to compare button captions.
+// Lower case for ASCII, Cyrillic and the Latin-1 letters of de/es/fr/it, enough to compare button captions.
 std::string Lower(std::string_view text)
 {
     std::string out;
@@ -25,6 +25,15 @@ std::string Lower(std::string_view text)
                 out += {static_cast<char>(0xD0), static_cast<char>(d + 0x20)};
             else if (d >= 0xA0 && d <= 0xAF) // Р–Я → р–я
                 out += {static_cast<char>(0xD1), static_cast<char>(d - 0x20)};
+            else
+                out += {static_cast<char>(c), static_cast<char>(d)};
+            ++i;
+        }
+        else if (c == 0xC3 && i + 1 < text.size())
+        {
+            const auto d = static_cast<unsigned char>(text[i + 1]);
+            if (d >= 0x80 && d <= 0x9E && d != 0x97) // À–Þ → à–þ (Latin-1 letters: é, ü, ô …)
+                out += {static_cast<char>(c), static_cast<char>(d + 0x20)};
             else
                 out += {static_cast<char>(c), static_cast<char>(d)};
             ++i;
@@ -88,12 +97,31 @@ std::string SectionOf(const Widget &button)
     return {};
 }
 
+// Button-role matching data, NOT UI text: the captions a button of the game's own screens may carry
+// (lower case, compared whole) and the substrings that mark a destructive one, for every shipped
+// language (ru, en, de, es, fr, it) plus the glyph "×". Add a language here when its string table is added.
+const char *const kExitLabels[] = {
+    "назад", "отмена", "выход", "уйти", "закрыть",                  // ru
+    "cancel", "back", "exit", "close", "×",                         // en
+    "zurück", "abbrechen", "beenden", "verlassen", "schließen",     // de
+    "atrás", "cancelar", "salir", "cerrar", "volver",               // es
+    "retour", "annuler", "quitter", "fermer", "sortir",             // fr
+    "indietro", "annulla", "esci", "uscire", "chiudi"};             // it
+const char *const kConfirmLabels[] = {
+    "ок", "ok", "oк", "да", "готово", "принять", "применить", "подтвердить", "начать", "взять", "купить", "забрать", // ru (+en ok)
+    "ja", "fertig", "annehmen", "anwenden", "bestätigen", "starten", "nehmen", "kaufen",                           // de
+    "sí", "listo", "aceptar", "aplicar", "confirmar", "empezar", "comenzar", "tomar", "comprar", "recoger",       // es
+    "oui", "terminé", "accepter", "appliquer", "confirmer", "commencer", "prendre", "acheter",                    // fr
+    "sì", "fatto", "pronto", "accetta", "applica", "conferma", "inizia", "prendi", "compra"};                     // it
+const char *const kDangerWords[] = {
+    "delete", "удалить", "сжечь", "kill", "казнить",   // en, ru
+    "löschen", "verbrennen", "töten", "hinrichten",    // de
+    "eliminar", "borrar", "quemar", "matar",           // es
+    "supprimer", "effacer", "brûler", "tuer",          // fr
+    "elimina", "cancella", "brucia", "uccidi"};        // it
+
 ButtonRole RoleOf(const Widget &button)
 {
-    static const char *const exit_labels[] = {"назад", "отмена", "выход", "уйти", "закрыть", "cancel", "back", "exit", "close", "×"};
-    static const char *const confirm_labels[] = {"ок",        "ok",          "oк",     "да",    "готово", "принять",
-                                                 "применить", "подтвердить", "начать", "взять", "купить", "забрать"};
-    static const char *const danger_words[] = {"delete", "удалить", "сжечь", "kill", "казнить"};
     const std::string node = Upper(button.node);
     const std::string label = Lower(button.label);
     if (!SectionOf(button).empty())
@@ -104,9 +132,9 @@ ButtonRole RoleOf(const Widget &button)
     for (const char *suffix : {"_EXIT", "_CANCEL", "_CLOSE"})
         if (Ends(node, suffix))
             return ButtonRole::Exit;
-    if (OneOf(label, exit_labels))
+    if (OneOf(label, kExitLabels))
         return ButtonRole::Exit;
-    for (const char *word : danger_words)
+    for (const char *word : kDangerWords)
         if (label.find(word) != std::string::npos || Lower(button.node).find(word) != std::string::npos)
             return ButtonRole::Danger;
     for (const char *prefix : {"OK", "ACCEPT", "YES", "CONFIRM", "DONE", "APPLY", "START"})
@@ -115,7 +143,7 @@ ButtonRole RoleOf(const Widget &button)
     for (const char *suffix : {"_OK", "_ACCEPT", "_YES"})
         if (Ends(node, suffix))
             return ButtonRole::Confirm;
-    if (OneOf(label, confirm_labels))
+    if (OneOf(label, kConfirmLabels))
         return ButtonRole::Confirm;
     return ButtonRole::Other;
 }

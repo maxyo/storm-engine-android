@@ -86,7 +86,7 @@ void AISeaGoods::Execute(uint32_t dwDeltaTime)
                 {
                     auto *pACharacter = pS->GetACharacter();
                     const int iCharacterIndex = GetIndex(pS->GetACharacter());
-                    const auto fDistance = sqrtf(~(pS->State.vPos - pI->vPos));
+                    const auto fDistance = sqrtf(storm::math::lengthSquared(pS->State.vPos - pI->vPos));
                     if (fDistance <= pS->State.vBoxSize.z * fDistanceMultiply)
                     {
                         auto *pVData = core.Event(SHIP_EAT_SWIM_GOOD, "llsl", iCharacterIndex, pI->iCharIndex,
@@ -119,10 +119,10 @@ void AISeaGoods::Realize(uint32_t dwDeltaTime)
                 auto *const pI = &aGood->aItems[j];
 
                 // set world matrix for item
-                CMatrix m;
-                m.BuildPosition(pI->vPos.x, pI->vPos.y, pI->vPos.z);
+                glm::mat4 m;
+                m = storm::math::translation(pI->vPos.x, pI->vPos.y, pI->vPos.z);
 
-                AIHelper::pRS->SetTransform(D3DTS_WORLD, m);
+                AIHelper::pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(m));
                 aGood->pGeo->Draw((GEOS::PLANE *)AIHelper::pRS->GetPlanes(), 0, nullptr);
             }
 

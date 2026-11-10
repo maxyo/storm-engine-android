@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-#include "math3d.h"
+#include "math_inlines.h"
 #include "shared/messages.h"
 #include "ship.h"
 
@@ -126,7 +126,7 @@ ShipLights::LightType *ShipLights::FindLightType(std::string sLightType)
     return nullptr;
 }
 
-void ShipLights::AddDynamicLights(VAI_OBJBASE *pObject, const CVECTOR &vPos)
+void ShipLights::AddDynamicLights(VAI_OBJBASE *pObject, const glm::vec3 &vPos)
 {
     if (!bLoadLights && !LoadLights())
         return;
@@ -184,15 +184,15 @@ bool ShipLights::SetLabel(ShipLight *pL, MODEL *pModel, const char *pStr)
     if (!pL->pNode)
         return false;
 
-    CMatrix mNode = pL->pNode->glob_mtx;
-    mNode.Transposition();
-    pL->vPos = mNode * pL->vPos;
+    glm::mat4 mNode = pL->pNode->glob_mtx;
+    storm::math::invertRigid(mNode);
+    pL->vPos = storm::math::transformPoint(mNode, pL->vPos);
     return true;
 }
 
 void ShipLights::AddFlare(VAI_OBJBASE *pObject, bool bLight, MODEL *pModel, const GEOS::LABEL &label)
 {
-    CMatrix m;
+    glm::mat4 m;
     char str[256]{}, str2[256];
     if (!label.name)
         return;
@@ -201,10 +201,10 @@ void ShipLights::AddFlare(VAI_OBJBASE *pObject, bool bLight, MODEL *pModel, cons
 
     aLights.push_back(ShipLight{});
     ShipLight *pL = &aLights.back();
-    memcpy(m, label.m, sizeof(m));
+    memcpy(storm::math::d3dMatrix(m), label.m, sizeof(m));
 
     pL->pNode = nullptr;
-    pL->vPos = m.Pos();
+    pL->vPos = storm::math::pos(m);
 
     if (str[0] != 'f' && !bLight)
         return;
@@ -419,13 +419,13 @@ void ShipLights::SetLights(VAI_OBJBASE *pObject)
         {
             if (aLights[i].pNode)
             {
-                CVECTOR vPos = aLights[i].vPos;
-                aLights[i].vCurPos = aLights[i].pNode->glob_mtx * vPos;
+                glm::vec3 vPos = aLights[i].vPos;
+                aLights[i].vCurPos = storm::math::transformPoint(aLights[i].pNode->glob_mtx, vPos);
             }
             else
-                aLights[i].vCurPos = *(aLights[i].pObject->GetMatrix()) * aLights[i].vPos;
+                aLights[i].vCurPos = storm::math::transformPoint(*(aLights[i].pObject->GetMatrix()), aLights[i].vPos);
 
-            aLights[i].fCurDistance = sqrtf(~(pObject->GetPos() - aLights[i].vCurPos));
+            aLights[i].fCurDistance = sqrtf(storm::math::lengthSquared(pObject->GetPos() - aLights[i].vCurPos));
         }
         aLights[i].Light.Position.x = aLights[i].vCurPos.x;
         aLights[i].Light.Position.y = aLights[i].vCurPos.y;
@@ -467,7 +467,7 @@ void ShipLights::Execute(uint32_t dwDeltaTime)
     const float fDeltaTime = static_cast<float>(dwDeltaTime) * 0.001f;
 
     float fFov;
-    CVECTOR vCamPos, vCamAng;
+    glm::vec3 vCamPos, vCamAng;
     pRS->GetCamera(vCamPos, vCamAng, fFov);
 
     for (uint32_t i = 0; i < aLights.size(); i++)
@@ -480,9 +480,9 @@ void ShipLights::Execute(uint32_t dwDeltaTime)
         if (!L.bDynamicLight)
         {
             if (L.pNode)
-                L.vCurPos = L.pNode->glob_mtx * L.vPos;
+                L.vCurPos = storm::math::transformPoint(L.pNode->glob_mtx, L.vPos);
             else
-                L.vCurPos = *(L.pObject->GetMatrix()) * L.vPos;
+                L.vCurPos = storm::math::transformPoint(*(L.pObject->GetMatrix()), L.vPos);
         }
 
         if (!L.bOff && L.bDead && L.fTotalBrokenTime <= 0.0f && pSea &&
@@ -517,13 +517,13 @@ void ShipLights::Execute(uint32_t dwDeltaTime)
 
             const auto its = core.GetEntityIds(SUN_TRACE);
             fDistance = pCollide->Trace(its, L.vCurPos, vCamPos, nullptr, 0);
-            const float fLen = fDistance * sqrtf(~(vCamPos - L.vCurPos));
+            const float fLen = fDistance * sqrtf(storm::math::lengthSquared(vCamPos - L.vCurPos));
             L.bVisible = fDistance >= 1.0f || (fLen < 0.6f);
 
             if (!L.bOff && !L.bLightOff && L.bVisible)
             {
                 const float fDistance = pCollide->Trace(its, vCamPos, L.vCurPos, nullptr, 0);
-                const float fLen = (1.0f - fDistance) * sqrtf(~(vCamPos - L.vCurPos));
+                const float fLen = (1.0f - fDistance) * sqrtf(storm::math::lengthSquared(vCamPos - L.vCurPos));
 
                 L.bVisible = fLen < 0.6f;
             }
@@ -596,7 +596,7 @@ void ShipLights::Realize(uint32_t dwDeltaTime)
     float fDeltaTime = static_cast<float>(dwDeltaTime) * 0.001f;
 
     float fFov;
-    CVECTOR vCamPos, vCamAng;
+    glm::vec3 vCamPos, vCamAng;
     pRS->GetCamera(vCamPos, vCamAng, fFov);
 
     static std::vector<RS_RECT> aRects;
@@ -615,7 +615,7 @@ void ShipLights::Realize(uint32_t dwDeltaTime)
 
         if (bReflection)
         {
-            const float fDistance = sqrtf(~(L.vCurPos - vCamPos));
+            const float fDistance = sqrtf(storm::math::lengthSquared(L.vCurPos - vCamPos));
             fDistanceFade = 1.0f - Clamp(fDistance / L.pLT->fSunRoadFlareFadeDistance);
         }
 

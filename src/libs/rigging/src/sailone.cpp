@@ -453,9 +453,9 @@ void SAILONE::FillIndex(uint16_t *pt)
 void SAILONE::FillVertex(SAILVERTEX *pv)
 {
     uint16_t ix, iy, idx;
-    CVECTOR pcur, dV, ddV, dddV;
-    CVECTOR dnorm;
-    CVECTOR dStart;
+    glm::vec3 pcur, dV, ddV, dddV;
+    glm::vec3 dnorm;
+    glm::vec3 dStart;
 
     auto tmpCol = 1.f / static_cast<float>((SAIL_COL_MAX - 1));
     auto tmpRow = 1.f / static_cast<float>((SAIL_ROW_MAX - 1));
@@ -483,7 +483,7 @@ void SAILONE::FillVertex(SAILVERTEX *pv)
             {
                 // Writing coordinates to the vertex buffer
                 pv[idx].pos = pcur;
-                pv[idx].norm = !(pcur - dnorm);
+                pv[idx].norm = storm::math::normalizeOrZero(pcur - dnorm);
                 // Calculation of the next
                 pcur += dV;
             }
@@ -517,7 +517,7 @@ void SAILONE::FillVertex(SAILVERTEX *pv)
             {
                 // Writing coordinates to the vertex buffer
                 pv[idx].pos = pcur;
-                pv[idx].norm = !(pcur - dnorm);
+                pv[idx].norm = storm::math::normalizeOrZero(pcur - dnorm);
                 // Calculation of the next
                 ddV += dddV;
                 dV += ddV;
@@ -615,14 +615,14 @@ void SAILONE::ClearVertex(SAILVERTEX *pv, uint32_t maxIdx)
     {
         for (idx = 0; idx < maxIdx; idx++)
         {
-            pv[idx].norm = CVECTOR(0.f, 0.f, 1.f);
+            pv[idx].norm = glm::vec3(0.f, 0.f, 1.f);
             pv[idx].tu1 = 0;
             pv[idx].tv1 = 0;
             pv[idx].tu2 = 0;
             pv[idx].tv2 = 0;
             pv[idx].tu3 = 0;
             pv[idx].tv3 = 0;
-            pv[idx].pos = CVECTOR(0.f, 0.f, 0.f);
+            pv[idx].pos = glm::vec3(0.f, 0.f, 0.f);
         }
     }
 }
@@ -632,7 +632,7 @@ bool SAILONE::SetSail()
     int hpq;
 
     // there is no rope tension on the sail by default
-    sgeo.cv.dopV = CVECTOR(0.f, 0.f, 0.f);
+    sgeo.cv.dopV = glm::vec3(0.f, 0.f, 0.f);
 
     // Set sail turn and roll resolution
     ss.maxAngle = PI / 6.f; // the maximum sail turn angle is 30 degrees.
@@ -658,15 +658,15 @@ bool SAILONE::SetSail()
     // calculation of sail width and height
     if (ss.eSailType == SAIL_TREANGLE)
     {
-        sailWidth = sqrtf(~(ss.hardPoints[2] - ss.hardPoints[0]));
-        sailHeight = sqrtf(~(ss.hardPoints[1] - ss.hardPoints[2]));
+        sailWidth = sqrtf(storm::math::lengthSquared(ss.hardPoints[2] - ss.hardPoints[0]));
+        sailHeight = sqrtf(storm::math::lengthSquared(ss.hardPoints[1] - ss.hardPoints[2]));
 
         maxSpeed = sailWidth * sailHeight * .5f;
     }
     else
     {
-        sailWidth = .5f * sqrtf(~(ss.hardPoints[0] + ss.hardPoints[2] - ss.hardPoints[1] - ss.hardPoints[3]));
-        sailHeight = .5f * sqrtf(~(ss.hardPoints[0] + ss.hardPoints[1] - ss.hardPoints[2] - ss.hardPoints[3]));
+        sailWidth = .5f * sqrtf(storm::math::lengthSquared(ss.hardPoints[0] + ss.hardPoints[2] - ss.hardPoints[1] - ss.hardPoints[3]));
+        sailHeight = .5f * sqrtf(storm::math::lengthSquared(ss.hardPoints[0] + ss.hardPoints[1] - ss.hardPoints[2] - ss.hardPoints[3]));
 
         maxSpeed = sailWidth * sailHeight;
     }
@@ -767,7 +767,7 @@ void SAILONE::GoTWave(SAILVERTEX *pv)
     int iy, ix, idx;
 
     auto k = (sailWind.x * sgeo.cv.normL.x + sailWind.y * sgeo.cv.normL.y + sailWind.z * sgeo.cv.normL.z);
-    CVECTOR CenterFlex;
+    glm::vec3 CenterFlex;
     if (k < 0.f)
         CenterFlex = k * sgeo.cv.normL * ss.fDeepH;
     else
@@ -792,7 +792,7 @@ void SAILONE::GoTWave(SAILVERTEX *pv)
 
     auto svNum = 0;
 
-    CVECTOR WindAdd, pcur, dV, ddV;
+    glm::vec3 WindAdd, pcur, dV, ddV;
     for (ix = 0; ix < SAIL_ROW_MAX;)
     {
         pcur = pStart;
@@ -872,7 +872,7 @@ void SAILONE::GoTWave(SAILVERTEX *pv)
 void SAILONE::GoVWave(SAILVERTEX *pv)
 {
     uint16_t iy, ix, idx;
-    CVECTOR pcur, dV, ddV, dddV;
+    glm::vec3 pcur, dV, ddV, dddV;
     float k;
     auto trigger = false;
 
@@ -880,7 +880,7 @@ void SAILONE::GoVWave(SAILVERTEX *pv)
     if (fWindBase > 1.f)
         fWindBase = 1.f;
 
-    CVECTOR wind;
+    glm::vec3 wind;
     wind.y = 0;
     if (ss.eSailType == SAIL_TRAPECIDAL)
     {
@@ -909,7 +909,7 @@ void SAILONE::GoVWave(SAILVERTEX *pv)
         windFlex = .2f * (1.f - fWindBase * (1.f + sailWind.x) * .5f);
     if (sroll)
         windFlex *= sroll->delta;
-    CVECTOR SailDownVect;
+    glm::vec3 SailDownVect;
     SailDownVect.x = 0.f;
     SailDownVect.y = -windFlex;
     SailDownVect.z = -windFlex * (ss.fDeepZ + ss.fDeepH);
@@ -1017,8 +1017,8 @@ void SAILONE::GoVWave(SAILVERTEX *pv)
 
 void SAILONE::SetGeometry()
 {
-    CVECTOR p02, p13, p01, p23;
-    CVECTOR normLD;
+    glm::vec3 p02, p13, p01, p23;
+    glm::vec3 normLD;
 
     SAILGEOMETRY *pG;
     if (sroll != nullptr)
@@ -1037,7 +1037,7 @@ void SAILONE::SetGeometry()
         p01 = ss.hardPoints[1] - ss.hardPoints[0];
         p13 = ss.hardPoints[2] - ss.hardPoints[1];
 
-        pG->cv.normL = !(p13 ^ p01);
+        pG->cv.normL = storm::math::normalizeOrZero(glm::cross(p13, p01));
         pG->cv.dVv = p13 * tmpRow;
 
         pG->cv.dVh = p13 * (-ss.fDeepVh * tmpRow);
@@ -1053,13 +1053,13 @@ void SAILONE::SetGeometry()
         p01 = ss.hardPoints[1] - ss.hardPoints[0];
         p23 = ss.hardPoints[3] - ss.hardPoints[2];
 
-        pG->cv.normL = !(p02 ^ p01);
-        pG->cv.normR = !(p13 ^ p01);
-        normLD = !(p02 ^ p23);
+        pG->cv.normL = storm::math::normalizeOrZero(glm::cross(p02, p01));
+        pG->cv.normR = storm::math::normalizeOrZero(glm::cross(p13, p01));
+        normLD = storm::math::normalizeOrZero(glm::cross(p02, p23));
         pG->cv.dnormL = (normLD - pG->cv.normL) * tmpRow;
-        pG->cv.dnormR = (!(p13 ^ p23) - pG->cv.normR) * tmpRow;
+        pG->cv.dnormR = (storm::math::normalizeOrZero(glm::cross(p13, p23)) - pG->cv.normR) * tmpRow;
 
-        pG->cv.dddVv = CVECTOR(0.f, 0.f, 0.f);
+        pG->cv.dddVv = glm::vec3(0.f, 0.f, 0.f);
         pG->cv.dVv = pG->cv.normL * ss.fDeepZ * (1.f - ss.holeCount * pp->fSHoleFlexDepend) + pG->cv.dopV;
         pG->cv.ddVv = pG->cv.dVv * (-2.f / static_cast<float>(SAIL_ROW_MAX));
         pG->cv.dVv += p02 * tmpRow;
@@ -1070,7 +1070,7 @@ void SAILONE::SetGeometry()
         pG->cv.dVh += (p13 - p02) * tmpCol * tmpRow;
     }
     // Calculate sphere radius
-    ss.boundSphere.r = sqrtf(~(ss.hardPoints[0] - ss.boundSphere.c));
+    ss.boundSphere.r = sqrtf(storm::math::lengthSquared(ss.hardPoints[0] - ss.boundSphere.c));
 
     if (sroll != nullptr)
         sgeo.cv.dopV = sroll->oldgeo.cv.dopV;
@@ -1089,17 +1089,17 @@ void SAILONE::SetRolling(bool bRoll)
     bRolling = false;
     if (!bRoll) // make a forced turn of the sail in the wind
     {
-        const auto locPos = hostNode->loc_mtx.Pos();
-        hostNode->loc_mtx.SetPosition(0.f, 0.f, 0.f);
+        const auto locPos = storm::math::pos(hostNode->loc_mtx);
+        storm::math::pos(hostNode->loc_mtx) = glm::vec3(0.f, 0.f, 0.f);
         if (oldWindAngl < 0.f)
         {
             oldWindAngl += pp->TURNSTEPANGL;
             if (ss.eSailType == SAIL_TRAPECIDAL || ss.eSailType == SAIL_TREANGLE || ss.eSailType == SAIL_SPECIAL)
             {
-                hostNode->loc_mtx.RotateY(pp->TURNSTEPANGL);
+                hostNode->loc_mtx = storm::math::rotationY(pp->TURNSTEPANGL) * hostNode->loc_mtx;
             }
             else
-                hostNode->loc_mtx.RotateY(-pp->TURNSTEPANGL);
+                hostNode->loc_mtx = storm::math::rotationY(-pp->TURNSTEPANGL) * hostNode->loc_mtx;
             // hostNode->loc_mtx.RotateY(-pp->TURNSTEPANGL);
         }
         else
@@ -1107,13 +1107,13 @@ void SAILONE::SetRolling(bool bRoll)
             oldWindAngl -= pp->TURNSTEPANGL;
             if (ss.eSailType == SAIL_TRAPECIDAL || ss.eSailType == SAIL_TREANGLE || ss.eSailType == SAIL_SPECIAL)
             {
-                hostNode->loc_mtx.RotateY(-pp->TURNSTEPANGL);
+                hostNode->loc_mtx = storm::math::rotationY(-pp->TURNSTEPANGL) * hostNode->loc_mtx;
             }
             else
-                hostNode->loc_mtx.RotateY(pp->TURNSTEPANGL);
+                hostNode->loc_mtx = storm::math::rotationY(pp->TURNSTEPANGL) * hostNode->loc_mtx;
             // hostNode->loc_mtx.RotateY(pp->TURNSTEPANGL);
         }
-        hostNode->loc_mtx.SetPosition(locPos);
+        storm::math::pos(hostNode->loc_mtx) = locPos;
     }
 
     // create a new sail folding block
@@ -1198,20 +1198,20 @@ void SAILONE::TurnSail(float fTurnStep)
         if (windAng < -fTurnStep)
             windAng = -fTurnStep;
         oldWindAngl += windAng;
-        auto locPos = hostNode->loc_mtx.Pos();
-        hostNode->loc_mtx.SetPosition(0.f, 0.f, 0.f);
+        auto locPos = storm::math::pos(hostNode->loc_mtx);
+        storm::math::pos(hostNode->loc_mtx) = glm::vec3(0.f, 0.f, 0.f);
         // --> ugeen 26.11.10
         if (ss.eSailType == SAIL_TRAPECIDAL || ss.eSailType == SAIL_TREANGLE || ss.eSailType == SAIL_SPECIAL)
         {
-            hostNode->loc_mtx.RotateY(windAng);
+            hostNode->loc_mtx = storm::math::rotationY(windAng) * hostNode->loc_mtx;
         }
         else
-            hostNode->loc_mtx.RotateY(-windAng);
+            hostNode->loc_mtx = storm::math::rotationY(-windAng) * hostNode->loc_mtx;
         // <-- ugeen
-        hostNode->loc_mtx.SetPosition(locPos);
+        storm::math::pos(hostNode->loc_mtx) = locPos;
 
         // Get new global matrix
-        hostNode->glob_mtx.EqMultiply(hostNode->loc_mtx, mtx);
+        hostNode->glob_mtx = mtx * hostNode->loc_mtx;
 
         if (bRolling)
         {
@@ -1227,12 +1227,12 @@ void SAILONE::TurnSail(float fTurnStep)
                 if (sailtrope.rrs[i])
                 {
                     auto tieNum = sailtrope.rrs[i]->tiePoint;
-                    CVECTOR endVect;
+                    glm::vec3 endVect;
                     static_cast<ROPE_BASE *>(core.GetEntityPointer(ropeEI))
                         ->GetEndPoint(&endVect, sailtrope.rrs[i]->ropenum, pp->gdata[HostNum].modelEI);
-                    CVECTOR medVect;
+                    glm::vec3 medVect;
                     medVect = ss.hardPoints[tieNum];
-                    CVECTOR begVect;
+                    glm::vec3 begVect;
                     switch (tieNum)
                     {
                     case 1:
@@ -1402,9 +1402,9 @@ void SAILONE::CalculateMirrorSailIndex()
     }
 }
 
-bool SAILONE::GetGrid(CVECTOR &cam, float perspect)
+bool SAILONE::GetGrid(glm::vec3 &cam, float perspect)
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float distance;
     uint32_t dwCol, dwRow;
 
@@ -1420,7 +1420,7 @@ bool SAILONE::GetGrid(CVECTOR &cam, float perspect)
     }
     else
     {
-        pos = *pMatWorld * ss.boundSphere.c;
+        pos = storm::math::transformPoint(*pMatWorld, ss.boundSphere.c);
         ss.boundSphere.rc = pos;
         pos -= cam;
 
@@ -1459,10 +1459,10 @@ void SAILONE::DoSRollSail(SAILVERTEX *pv)
     const auto dy = pp->ROLL_Y_VAL * sailHeight;
 
     auto idx = 0;
-    CVECTOR dv1, dv2, dv3, dv4;
+    glm::vec3 dv1, dv2, dv3, dv4;
     dv1 = sgeo.cv.normL * (.5f * dz);
     dv1.y -= dy;
-    dv2 = CVECTOR(0.f, -dy * 1.2f, 0.f);
+    dv2 = glm::vec3(0.f, -dy * 1.2f, 0.f);
     dv3 = sgeo.cv.normL * (-1.f * dz);
     dv3.y -= dy;
     dv4 = sgeo.cv.normL * (-.5f * dz);
@@ -1503,10 +1503,10 @@ void SAILONE::DoTRollSail(SAILVERTEX *pv)
         dy *= pp->TR_FORM_MUL;
     }
 
-    CVECTOR dv1, dv2, dv3, dv4;
+    glm::vec3 dv1, dv2, dv3, dv4;
     dv1 = sgeo.cv.normL * (.5f * dx);
     dv1.y -= dy;
-    dv2 = CVECTOR(0.f, -dy * 1.2f, 0.f);
+    dv2 = glm::vec3(0.f, -dy * 1.2f, 0.f);
     dv3 = sgeo.cv.normL * (-1.f * dx);
     dv3.y -= dy;
     dv4 = sgeo.cv.normL * (-.5f * dx);
@@ -1543,15 +1543,15 @@ void SAILONE::DoTRollSail(SAILVERTEX *pv)
         *sailtrope.pPos[2] = ss.hardPoints[1];
 }
 
-float SAILONE::Trace(const CVECTOR &src, const CVECTOR &dst, bool bCannonTrace)
+float SAILONE::Trace(const glm::vec3 &src, const glm::vec3 &dst, bool bCannonTrace)
 {
     if (bRolling)
         return 2.f;
 
-    CVECTOR sv;
-    pMatWorld->MulToInv(src, sv);
-    CVECTOR dv;
-    pMatWorld->MulToInv(dst, dv);
+    glm::vec3 sv;
+    sv = storm::math::inverseTransformPoint(*pMatWorld, src);
+    glm::vec3 dv;
+    dv = storm::math::inverseTransformPoint(*pMatWorld, dst);
 
     const auto minp = ss.boxCenter - ss.boxSize;
     const auto maxp = ss.boxCenter + ss.boxSize;
@@ -1560,7 +1560,7 @@ float SAILONE::Trace(const CVECTOR &src, const CVECTOR &dst, bool bCannonTrace)
         !(dv.x <= maxp.x && dv.x >= minp.x && dv.y <= maxp.y && dv.y >= minp.y && dv.z <= maxp.z && dv.z >= minp.z))
     {
         auto bYesTrace = false;
-        CVECTOR vmed;
+        glm::vec3 vmed;
         // section by X:
         if (sv.x < minp.x)
         {
@@ -1617,7 +1617,7 @@ float SAILONE::Trace(const CVECTOR &src, const CVECTOR &dst, bool bCannonTrace)
 #define XQUANT 3
 #define YQUANT 4
 // Ray tracing through a rectangular sail
-float SAILONE::SSailTrace(CVECTOR &src, CVECTOR &dst, bool bCannonTrace)
+float SAILONE::SSailTrace(glm::vec3 &src, glm::vec3 &dst, bool bCannonTrace)
 {
     auto retVal = 2.f;
     float tmpVal;
@@ -1671,7 +1671,7 @@ float SAILONE::SSailTrace(CVECTOR &src, CVECTOR &dst, bool bCannonTrace)
 }
 
 // Ray tracing through a triangular sail
-float SAILONE::TSailTrace(CVECTOR &src, CVECTOR &dst, bool bCannonTrace)
+float SAILONE::TSailTrace(glm::vec3 &src, glm::vec3 &dst, bool bCannonTrace)
 {
     auto retVal = 2.f;
     float tmpVal;
@@ -1689,7 +1689,7 @@ float SAILONE::TSailTrace(CVECTOR &src, CVECTOR &dst, bool bCannonTrace)
             auto vA = SailPnt[i];
             auto vB = SailPnt[i + ix + 1];
             auto vC = SailPnt[i + ix + 2];
-            CVECTOR vD;
+            glm::vec3 vD;
             if (iy > 0)
                 vD = SailPnt[i - 1];
 
@@ -1732,7 +1732,7 @@ float SAILONE::TSailTrace(CVECTOR &src, CVECTOR &dst, bool bCannonTrace)
 void SAILONE::CalculateSailWind()
 {
     // translation of the wind vector into the sail coordinate system
-    pMatWorld->MulToInvNorm(*(CVECTOR *)&pp->globalWind.ang, sailWind);
+    sailWind = storm::math::inverseTransformNormal(*pMatWorld, *(glm::vec3 *)&pp->globalWind.ang);
 
     // Take into account holes in the sail
     curSpeed = GetSailSpeed(ss.holeCount, GetMaxHoleCount(), maxSpeed);
@@ -1774,7 +1774,7 @@ void SAILONE::CalculateSailWind()
     }
 }
 
-float SAILONE::CheckSailSquar(int i, CVECTOR &va, CVECTOR &vb, CVECTOR &vc, CVECTOR &vsrc, CVECTOR &vdst,
+float SAILONE::CheckSailSquar(int i, glm::vec3 &va, glm::vec3 &vb, glm::vec3 &vc, glm::vec3 &vsrc, glm::vec3 &vdst,
                               bool bCannonTrace)
 {
     auto retVal = 2.f;
@@ -1804,10 +1804,10 @@ float SAILONE::CheckSailSquar(int i, CVECTOR &va, CVECTOR &vb, CVECTOR &vc, CVEC
     // checking if the intersection point is in the triangle
     if (retVal <= 1.f)
     {
-        const CVECTOR cv = vsrc + (vdst - vsrc) * retVal;
-        const CVECTOR vab = vb - va;
-        const CVECTOR vbc = vc - vb;
-        const CVECTOR vca = va - vc;
+        const glm::vec3 cv = vsrc + (vdst - vsrc) * retVal;
+        const glm::vec3 vab = vb - va;
+        const glm::vec3 vbc = vc - vb;
+        const glm::vec3 vca = va - vc;
         float kA, kB, kD; // coefficients in the line on the plane equation x * kA + y * kB = kD
         float d1, d2;
         // ----------------------------------------------
@@ -1903,24 +1903,24 @@ float SAILONE::CheckSailSquar(int i, CVECTOR &va, CVECTOR &vb, CVECTOR &vc, CVEC
 
 void SAILONE::DoSFreeSail(SAILVERTEX *pv)
 {
-    CVECTOR dirV;
-    pMatWorld->MulToInvNorm(!(CVECTOR(0.f, -1.f, 0.f) + sailWind * pp->globalWind.base), dirV);
-    const CVECTOR dv = dirV * (sailHeight * .25f);
+    glm::vec3 dirV;
+    dirV = storm::math::inverseTransformNormal(*pMatWorld, storm::math::normalizeOrZero(glm::vec3(0.f, -1.f, 0.f) + sailWind * pp->globalWind.base));
+    const glm::vec3 dv = dirV * (sailHeight * .25f);
     int gidx = 0;
 
     for (int ix = 0; ix < 4; ix++)
     {
-        CVECTOR cpos = ss.hardPoints[0] + (ss.hardPoints[1] - ss.hardPoints[0]) * (static_cast<float>(ix) / 3.f);
+        glm::vec3 cpos = ss.hardPoints[0] + (ss.hardPoints[1] - ss.hardPoints[0]) * (static_cast<float>(ix) / 3.f);
         int idx = SAIL_ROW_MAX * ix * 4;
         for (int iy = 0; iy < 5; iy++)
         {
-            CVECTOR dvec = cpos - SailPnt[gidx];
+            glm::vec3 dvec = cpos - SailPnt[gidx];
 
             float mul;
             if (iy)
                 mul = (pp->FALL_SSAIL_ADD_MIN +
                        static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * pp->FALL_SSAIL_ADD_RAND) /
-                      sqrtf(~dvec);
+                      sqrtf(storm::math::lengthSquared(dvec));
             else
                 mul = 1.f;
             SailPnt[gidx] += dvec * mul;
@@ -1933,24 +1933,24 @@ void SAILONE::DoSFreeSail(SAILVERTEX *pv)
 
 void SAILONE::DoTFreeSail(SAILVERTEX *pv)
 {
-    CVECTOR dirV;
-    pMatWorld->MulToInvNorm(!(CVECTOR(0.f, -1.f, 0.f) + sailWind * pp->globalWind.base), dirV);
-    const CVECTOR dv = dirV * (sailHeight * .25f);
+    glm::vec3 dirV;
+    dirV = storm::math::inverseTransformNormal(*pMatWorld, storm::math::normalizeOrZero(glm::vec3(0.f, -1.f, 0.f) + sailWind * pp->globalWind.base));
+    const glm::vec3 dv = dirV * (sailHeight * .25f);
     int gidx = 0;
 
     for (int ix = 0; ix < 5; ix++)
     {
-        CVECTOR cpos = ss.hardPoints[0] + (ss.hardPoints[1] - ss.hardPoints[0]) * (static_cast<float>(ix) * .25f);
+        glm::vec3 cpos = ss.hardPoints[0] + (ss.hardPoints[1] - ss.hardPoints[0]) * (static_cast<float>(ix) * .25f);
         int idx = ix * (ix * 8 + 2);
         for (int iy = 0; iy <= ix; iy++)
         {
-            CVECTOR dvec = cpos - SailPnt[gidx];
+            glm::vec3 dvec = cpos - SailPnt[gidx];
 
             float mul;
             if (iy)
                 mul = (pp->FALL_TSAIL_ADD_MIN +
                        static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * pp->FALL_TSAIL_ADD_RAND) /
-                      sqrtf(~dvec);
+                      sqrtf(storm::math::lengthSquared(dvec));
             else
                 mul = 1.f;
             SailPnt[gidx] += dvec * mul;
@@ -1989,12 +1989,12 @@ void SAILONE::SetTurnLimits()
     if (prbase == nullptr)
         return;
 
-    CVECTOR cv1, cv0;
+    glm::vec3 cv1, cv0;
 
     GEOS::INFO inf;
     hostNode->parent->geo->GetInfo(inf);
-    // cv0 = CVECTOR(inf.boxsize.x,0.f,0.f);
-    cv0 = CVECTOR(0.f, 0.f, 0.f);
+    // cv0 = glm::vec3(inf.boxsize.x,0.f,0.f);
+    cv0 = glm::vec3(0.f, 0.f, 0.f);
 
     prbase->GetEndPoint(&cv1, sailtrope.rrs[0]->ropenum, pp->gdata[HostNum].modelEI);
 
@@ -2061,12 +2061,12 @@ void SAILONE::SetTurnLimits()
         m_fMaxAngle = maxA;
 }
 
-float SAILONE::GetDistanceFromPointTo3Point(const CVECTOR &v, const CVECTOR &vB1, const CVECTOR &vB2,
-                                            const CVECTOR &vB3)
+float SAILONE::GetDistanceFromPointTo3Point(const glm::vec3 &v, const glm::vec3 &vB1, const glm::vec3 &vB2,
+                                            const glm::vec3 &vB3)
 {
-    const CVECTOR vN = !((vB1 - vB2) ^ (vB3 - vB2));
-    const float fD = -(vN | vB2);
+    const glm::vec3 vN = storm::math::normalizeOrZero(glm::cross(vB1 - vB2, vB3 - vB2));
+    const float fD = -glm::dot(vN, vB2);
 
-    const float f = v | vN + fD;
+    const float f = glm::dot(v, vN + fD);
     return f;
 }

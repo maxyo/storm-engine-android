@@ -28,7 +28,7 @@ VGEOMETRY *SHIP::pGS = nullptr;
 SHIP::SHIP()
 {
     shipLights = invalid_entity;
-    vSpeedAccel = 0.0f;
+    vSpeedAccel = glm::vec3(0.0f);
     uniIDX = 0;
     bUse = false;
     bDead = false;
@@ -46,16 +46,16 @@ SHIP::SHIP()
     dtMastTrace.Setup(FRAND(0.5f), 0.5f);
     dtUpdateParameters.Setup(FRAND(1.0f), 1.0f);
 
-    vCurDeadDir = 0.0f;
+    vCurDeadDir = glm::vec3(0.0f);
 
-    State.vPos = 0.0f;
+    State.vPos = glm::vec3(0.0f);
     fXOffset = fZOffset = 0.f;
 
-    vSpeed = 0.0f;
-    vSpeedsA = 0.0f;
+    vSpeed = glm::vec3(0.0f);
+    vSpeedsA = glm::vec3(0.0f);
     fMinusVolume = 0.0f;
 
-    mRoot.SetIdentity();
+    mRoot = glm::mat4(1.0f);
 
     bVisible = true;
     bMounted = false;
@@ -128,8 +128,8 @@ bool SHIP::Init()
     fXOffset = fZOffset = 0.f;
 
     Strength[STRENGTH_MAIN].bInertia = true;
-    Strength[STRENGTH_MAIN].vSpeed = 0.0f;
-    Strength[STRENGTH_MAIN].vRotate = 0.0f;
+    Strength[STRENGTH_MAIN].vSpeed = glm::vec3(0.0f);
+    Strength[STRENGTH_MAIN].vRotate = glm::vec3(0.0f);
 
     srand(duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
 
@@ -181,9 +181,9 @@ void SHIP::LoadServices()
     FirePlace::eidSound = core.GetEntityId("sound");
 }
 
-CVECTOR SHIP::ShipRocking(float fDeltaTime)
+glm::vec3 SHIP::ShipRocking(float fDeltaTime)
 {
-    CMatrix mat;
+    glm::mat4 mat;
     mat = *GetMatrix();
 
     fDeltaTime = Min(fDeltaTime, 0.1f);
@@ -195,7 +195,7 @@ CVECTOR SHIP::ShipRocking(float fDeltaTime)
 
     auto vAng2 = State.vAng;
 
-    CVECTOR point, fang;
+    glm::vec3 point, fang;
     fang.x = 0.0f;
     fang.y = 0.0f;
     fang.z = 0.0f;
@@ -217,7 +217,7 @@ CVECTOR SHIP::ShipRocking(float fDeltaTime)
             auto xx = x, zz = z;
             RotateAroundY(xx, zz, fCos, fSin);
             point.x = xx + State.vPos.x + fXOffset;
-            point.y = mat.m[0][1] * x + mat.m[2][1] * z + State.vPos.y;
+            point.y = mat[0][1] * x + mat[2][1] * z + State.vPos.y;
             point.z = zz + State.vPos.z + fZOffset;
 
             auto wave_y = pSea->WaveXZ(point.x, point.z);
@@ -271,10 +271,10 @@ CVECTOR SHIP::ShipRocking(float fDeltaTime)
     return vAng + Min(fRockingAZ * fDelta, 1.0f) * (vAng2 - vAng);
 }
 
-BOOL SHIP::CalculateNewSpeedVector(CVECTOR *Speed, CVECTOR *Rotate)
+BOOL SHIP::CalculateNewSpeedVector(glm::vec3 *Speed, glm::vec3 *Rotate)
 {
     int32_t i;
-    CVECTOR result(0.0f, 0.0f, 0.0f);
+    glm::vec3 result(0.0f, 0.0f, 0.0f);
     for (i = 0; i < RESERVED_STRENGTH; i++)
     {
         *Speed += Strength[i].vSpeed;
@@ -315,7 +315,7 @@ BOOL SHIP::ApplyStrength(float dtime, BOOL bCollision)
     if (State.vRotate.y<-0.1f) State.vRotate.y = -0.1f; */
 
     // calculate new speed,rotate vector
-    auto new_speed = CVECTOR(0.0f, 0.0f, 0.0f), new_rotate = CVECTOR(0.0f, 0.0f, 0.0f);
+    auto new_speed = glm::vec3(0.0f, 0.0f, 0.0f), new_rotate = glm::vec3(0.0f, 0.0f, 0.0f);
 
     CalculateNewSpeedVector(&new_speed, &new_rotate);
     if (bPerkTurnActive)
@@ -329,39 +329,39 @@ BOOL SHIP::ApplyStrength(float dtime, BOOL bCollision)
         fK = dtime * State.fMassInertia;
         if (i == 0) // x moving
         {
-            const auto force = new_speed.v[i] - State.vSpeed.v[i];
-            if (SMALL_DELTA(new_speed.v[i]))
-                State.vSpeed.v[i] += fK * force * State.vInertiaAccel.x;
+            const auto force = new_speed[i] - State.vSpeed[i];
+            if (SMALL_DELTA(new_speed[i]))
+                State.vSpeed[i] += fK * force * State.vInertiaAccel.x;
             else
-                State.vSpeed.v[i] += fK * -(State.vSpeed.v[i]) * State.vInertiaBrake.x;
+                State.vSpeed[i] += fK * -(State.vSpeed[i]) * State.vInertiaBrake.x;
         }
         if (i == 2) // z moving
         {
-            vSpeedAccel.z = State.vSpeed.v[i];
+            vSpeedAccel.z = State.vSpeed[i];
 
-            const auto force = new_speed.v[i] - State.vSpeed.v[i];
-            if (SMALL_DELTA(new_speed.v[i]))
-                State.vSpeed.v[i] += fK * force * State.vInertiaAccel.z;
+            const auto force = new_speed[i] - State.vSpeed[i];
+            if (SMALL_DELTA(new_speed[i]))
+                State.vSpeed[i] += fK * force * State.vInertiaAccel.z;
             else
             {
-                State.vSpeed.v[i] += fK * -(State.vSpeed.v[i]) * State.vInertiaBrake.z;
+                State.vSpeed[i] += fK * -(State.vSpeed[i]) * State.vInertiaBrake.z;
             }
             // apply water resistance
 
             /*State.vSpeed.v[i] += dtime * State.fMassInertia * State.vWaterResis.x * force;*/
-            vSpeedAccel.z -= State.vSpeed.v[i];
+            vSpeedAccel.z -= State.vSpeed[i];
         }
 
-        sign = SIGNZ(new_rotate.v[i]);
+        sign = SIGNZ(new_rotate[i]);
         if (i == 1) // y rotating
         {
-            auto prev_rot = State.vRotate.v[i];
-            const auto force = new_rotate.v[i] - State.vRotate.v[i];
+            auto prev_rot = State.vRotate[i];
+            const auto force = new_rotate[i] - State.vRotate[i];
 
-            if (SMALL_DELTA(new_rotate.v[i]))
-                State.vRotate.v[i] += fK * force * State.vInertiaAccel.y;
+            if (SMALL_DELTA(new_rotate[i]))
+                State.vRotate[i] += fK * force * State.vInertiaAccel.y;
             else
-                State.vRotate.v[i] += fK * -State.vRotate.v[i] * State.vInertiaBrake.y;
+                State.vRotate[i] += fK * -State.vRotate[i] * State.vInertiaBrake.y;
         }
     }
 
@@ -496,7 +496,7 @@ void SHIP::CheckShip2Strand(float fDeltaTime)
     for (int32_t i = 0; i < MAX_KEEL_POINTS; i++)
     {
         float fRes;
-        const auto vTmp = pModel->mtx * vKeelContour[i];
+        const auto vTmp = storm::math::transformPoint(pModel->mtx, vKeelContour[i]);
         if (!pIsland->GetDepth(vTmp.x, vTmp.z, &fRes))
             continue;
         if (fRes < -10.0f && (fRes + 10.0f) >= vTmp.y)
@@ -540,7 +540,7 @@ void SHIP::SetDead()
         vDeadDir.y = pASinkSpeed->GetAttributeAsFloat("y");
         vDeadDir.z = pASinkSpeed->GetAttributeAsFloat("z");
 
-        vCurDeadDir = 0.0f;
+        vCurDeadDir = glm::vec3(0.0f);
 
         bDead = true;
         core.RemoveFromLayer(SEA_REFLECTION2, GetId());
@@ -576,9 +576,9 @@ void SHIP::Execute(uint32_t DeltaTime)
     // check for end of fast turn perk
     if (bPerkTurnActive)
     {
-        auto vCurDir = CVECTOR(sinf(State.vAng.y), 0.0f, cosf(State.vAng.y));
-        auto vResDir = CVECTOR(sinf(fResultPerkAngle), 0.0f, cosf(fResultPerkAngle));
-        if ((vResDir | vCurDir) >= 0.9f)
+        auto vCurDir = glm::vec3(sinf(State.vAng.y), 0.0f, cosf(State.vAng.y));
+        auto vResDir = glm::vec3(sinf(fResultPerkAngle), 0.0f, cosf(fResultPerkAngle));
+        if (glm::dot(vResDir, vCurDir) >= 0.9f)
         {
             bPerkTurnActive = false;
             pAPerks->SetAttributeUseDword("turn", -1);
@@ -609,7 +609,7 @@ void SHIP::Execute(uint32_t DeltaTime)
     auto *pAImpulse = GetACharacter()->FindAClass(GetACharacter(), "Ship.Impulse");
     if (pAImpulse && !isDead())
     {
-        CVECTOR vRotate = 0.0f, vXSpeed = 0.0f;
+        glm::vec3 vRotate(0.0f), vXSpeed(0.0f);
         auto *pARotate = pAImpulse->FindAClass(pAImpulse, "Rotate");
         auto *pASpeed = pAImpulse->FindAClass(pAImpulse, "Speed");
         if (pARotate)
@@ -669,7 +669,7 @@ void SHIP::Execute(uint32_t DeltaTime)
 
     /*if (isDead())
     {
-      CVECTOR vAng2 = ShipRocking(fDeltaTime);
+      glm::vec3 vAng2 = ShipRocking(fDeltaTime);
 
       float fScale = Bring2Range(8.0f, 22.0f, -5.0f, 0.0f, vPos.y);
       fMinusVolume += fScale * fDeltaTime * 0.5f;
@@ -782,8 +782,7 @@ void SHIP::Execute(uint32_t DeltaTime)
         CheckShip2Strand(fDeltaTime);
 
     RecalculateWorldOffset();
-    mRoot = CMatrix(vAng.x + vCurDeadDir.x, vAng.y, vAng.z + vCurDeadDir.z, vPos.x + fXOffset,
-                    vPos.y - State.fShipImmersion - SP.fWaterLine, vPos.z + fZOffset);
+    mRoot = storm::math::eulerMatrix(vAng.x + vCurDeadDir.x, vAng.y, vAng.z + vCurDeadDir.z, vPos.x + fXOffset, vPos.y - State.fShipImmersion - SP.fWaterLine, vPos.z + fZOffset);
     SetMatrix(mRoot);
 
     auto matrix = UpdateModelMatrix();
@@ -794,13 +793,13 @@ void SHIP::Execute(uint32_t DeltaTime)
         for (int32_t i = 0; i < iNumMasts; i++)
             if (!pMasts[i].bBroken)
             {
-                CVECTOR v1, v2;
+                glm::vec3 v1, v2;
                 VDATA *pV;
                 auto fShipRes = 2.0f, fIslRes = 2.0f;
 
                 auto *pM = &pMasts[i];
-                v1 = matrix * pM->vSrc;
-                v2 = matrix * pM->vDst;
+                v1 = storm::math::transformPoint(matrix, pM->vSrc);
+                v2 = storm::math::transformPoint(matrix, pM->vDst);
 
                 auto id = GetId();
                 fShipRes = pCollide->Trace(core.GetEntityIds(MAST_SHIP_TRACE), v1, v2, &id, 1);
@@ -877,8 +876,8 @@ void SHIP::Execute(uint32_t DeltaTime)
         auto *pATurnID = pASounds->GetAttributeClass("TurnID");
         auto *pASailsID = pASounds->GetAttributeClass("SailsID");
 
-        CMatrix mRotate;
-        mRoot.Get3X3(mRotate);
+        glm::mat4 mRotate;
+        storm::math::copy3x3(mRotate, mRoot);
         auto vBoxSize = State.vBoxSize / 2.0f;
 
         auto fWaterSpeed = pASounds->GetAttributeAsFloat("WaterSpeed", 40.0f);
@@ -888,7 +887,7 @@ void SHIP::Execute(uint32_t DeltaTime)
             auto x = pAWaterID->GetAttributeAsFloat("x", 0.0f);
             auto y = pAWaterID->GetAttributeAsFloat("y", 0.0f);
             auto z = pAWaterID->GetAttributeAsFloat("z", 0.0f);
-            auto vPos = State.vPos + (mRotate * CVECTOR(vBoxSize.x * x, vBoxSize.y * y, vBoxSize.z * z));
+            auto vPos = State.vPos + (storm::math::transformPoint(mRotate, glm::vec3(vBoxSize.x * x, vBoxSize.y * y, vBoxSize.z * z)));
             auto fWaterSoundVolume = Min(KNOTS2METERS(fabsf(State.vSpeed.z)), fWaterSpeed) / fWaterSpeed;
             core.Send_Message(FirePlace::eidSound, "llf", MSG_SOUND_SET_VOLUME, iWaterSound, fWaterSoundVolume);
             core.Send_Message(FirePlace::eidSound, "lllfff", MSG_SOUND_SET_3D_PARAM, iWaterSound, SOUND_PARAM_POSITION,
@@ -902,7 +901,7 @@ void SHIP::Execute(uint32_t DeltaTime)
             auto x = pATurnID->GetAttributeAsFloat("x", 0.0f);
             auto y = pATurnID->GetAttributeAsFloat("y", 0.0f);
             auto z = pATurnID->GetAttributeAsFloat("z", 0.0f);
-            auto vPos = State.vPos + (mRotate * CVECTOR(vBoxSize.x * x, vBoxSize.y * y, vBoxSize.z * z));
+            auto vPos = State.vPos + (storm::math::transformPoint(mRotate, glm::vec3(vBoxSize.x * x, vBoxSize.y * y, vBoxSize.z * z)));
             auto fTurnSoundVolume = Min(fabsf(State.vRotate.y), fTurnSpeed) / fTurnSpeed;
             core.Send_Message(FirePlace::eidSound, "llf", MSG_SOUND_SET_VOLUME, iTurnSound, fTurnSoundVolume);
             core.Send_Message(FirePlace::eidSound, "lllfff", MSG_SOUND_SET_3D_PARAM, iTurnSound, SOUND_PARAM_POSITION,
@@ -915,7 +914,7 @@ void SHIP::Execute(uint32_t DeltaTime)
             auto x = pASailsID->GetAttributeAsFloat("x", 0.0f);
             auto y = pASailsID->GetAttributeAsFloat("y", 0.0f);
             auto z = pASailsID->GetAttributeAsFloat("z", 0.0f);
-            auto vPos = State.vPos + (mRotate * CVECTOR(vBoxSize.x * x, vBoxSize.y * y, vBoxSize.z * z));
+            auto vPos = State.vPos + (storm::math::transformPoint(mRotate, glm::vec3(vBoxSize.x * x, vBoxSize.y * y, vBoxSize.z * z)));
             core.Send_Message(FirePlace::eidSound, "lllfff", MSG_SOUND_SET_3D_PARAM, iSailSound, SOUND_PARAM_POSITION,
                               vPos.x + fXOffset, vPos.y, vPos.z + fZOffset);
         }
@@ -1024,7 +1023,7 @@ void SHIP::MastFall(mast_t *pM)
     }
 }
 
-CMatrix SHIP::UpdateModelMatrix()
+glm::mat4 SHIP::UpdateModelMatrix()
 {
     auto *pModel = GetModel();
     Assert(pModel);
@@ -1063,7 +1062,7 @@ void SHIP::SetLightAndFog(bool bSetLight)
         // ambient
         const auto fScale = Bring2Range(0.0f, 1.0f, -35.0f, 0.0f, State.vPos.y);
         pRS->GetRenderState(D3DRS_AMBIENT, &dwSaveAmbient);
-        const CVECTOR vAmbient = fScale * COLOR2VECTOR(dwSaveAmbient);
+        const glm::vec3 vAmbient = fScale * COLOR2VECTOR(dwSaveAmbient);
         pRS->SetRenderState(D3DRS_AMBIENT, ARGB((dwSaveAmbient >> 24L), vAmbient.x, vAmbient.y, vAmbient.z));
 
         // light
@@ -1087,7 +1086,7 @@ void SHIP::SetLightAndFog(bool bSetLight)
         // fog
         const auto fFogScale = Bring2Range(0.0f, 1.0f, -30.0f, 0.0f, State.vPos.y);
         pRS->GetRenderState(D3DRS_FOGCOLOR, &dwSaveFogColor);
-        const CVECTOR vFogColor = fFogScale * COLOR2VECTOR(dwSaveFogColor);
+        const glm::vec3 vFogColor = fFogScale * COLOR2VECTOR(dwSaveFogColor);
         pRS->SetRenderState(D3DRS_FOGCOLOR, ARGB((dwSaveFogColor >> 24L), vFogColor.x, vFogColor.y, vFogColor.z));
     }
 }
@@ -1129,9 +1128,8 @@ void SHIP::Realize(uint32_t dtime)
     // draw model
     if (bModelUpperShip && pModelUpperShip)
     {
-        CMatrix m1;
-        m1.BuildMatrix(0.0f, fUpperShipAY, 0.0f, State.vPos.x + fXOffset, State.vPos.y + fUpperShipY,
-                       State.vPos.z + fZOffset);
+        glm::mat4 m1;
+        m1 = storm::math::eulerMatrix(0.0f, fUpperShipAY, 0.0f, State.vPos.x + fXOffset, State.vPos.y + fUpperShipY, State.vPos.z + fZOffset);
         pModelUpperShip->mtx = m1;
         pModelUpperShip->ProcessStage(Stage::realize, dtime);
     }
@@ -1159,7 +1157,7 @@ void SHIP::UnSetLights()
     }
 }
 
-void SHIP::Fire(const CVECTOR &vPos)
+void SHIP::Fire(const glm::vec3 &vPos)
 {
     if (const auto pShipsLights = static_cast<IShipLights *>(core.GetEntityPointer(shipLights)))
     {
@@ -1209,7 +1207,7 @@ int32_t SHIP::AddStrength(STRENGTH *strength)
 uint64_t SHIP::ProcessMessage(MESSAGE &message)
 {
     entid_t entity;
-    CVECTOR cpos, cang;
+    glm::vec3 cpos, cang;
     float fov;
     const auto code = message.Long();
 
@@ -1279,7 +1277,7 @@ uint64_t SHIP::ProcessMessage(MESSAGE &message)
 
         st.bInertia = message.Long() != 0;
 
-        CVECTOR vSpeed;
+        glm::vec3 vSpeed;
 
         vSpeed.x = message.Float();
         vSpeed.y = message.Float();
@@ -1389,19 +1387,19 @@ void SHIP::FakeFire(const char *sBort, float fRandTime)
             pNode->geo->GetLabel(i, label);
             if (strcmp(sBort, label.group_name) == 0)
             {
-                CVECTOR vPos, vCurPos, vDir;
-                CMatrix m;
-                CMatrix mNode = pNode->glob_mtx;
-                CMatrix mRot;
-                memcpy(m, label.m, sizeof(m));
+                glm::vec3 vPos, vCurPos, vDir;
+                glm::mat4 m;
+                glm::mat4 mNode = pNode->glob_mtx;
+                glm::mat4 mRot;
+                memcpy(storm::math::d3dMatrix(m), label.m, sizeof(m));
 
-                vPos = m.Pos();
-                vCurPos = mNode * vPos;
+                vPos = storm::math::pos(m);
+                vCurPos = storm::math::transformPoint(mNode, vPos);
 
-                GetMatrix()->Get3X3(mRot);
-                vDir = CVECTOR(m.Vz().x, 0.0f, m.Vz().z);
+                storm::math::copy3x3(mRot, *GetMatrix());
+                vDir = glm::vec3(storm::math::vz(m).x, 0.0f, storm::math::vz(m).z);
 
-                CVECTOR vDirTemp = mRot * vDir;
+                glm::vec3 vDirTemp = storm::math::transformPoint(mRot, vDir);
                 float fDir = NormalizeAngle(atan2f(vDirTemp.x, vDirTemp.z));
 
                 core.PostEvent("Ship_FakeFire", (uint32_t)(1000 * fRandTime * rand() / RAND_MAX), "ffff", vCurPos.x,
@@ -1465,7 +1463,7 @@ bool SHIP::Mount(ATTRIBUTES *_pAShip)
     if (uniIDX >= 900)
         uniIDX = uniIDX - 900 + 2;
 
-    State.vPos = 0.0f;
+    State.vPos = glm::vec3(0.0f);
     State.vPos.x = 10.0f + uniIDX * 20.0f;
     fXOffset = fZOffset = 0.f;
     RecalculateWorldOffset();
@@ -1523,7 +1521,7 @@ bool SHIP::Mount(ATTRIBUTES *_pAShip)
     const entid_t temp_id = GetId();
     core.Send_Message(touch_id, "li", MSG_SHIP_CREATE, temp_id);
     core.Send_Message(sea_id, "lic", MSG_SHIP_CREATE, temp_id,
-                      CVECTOR(State.vPos.x + fXOffset, State.vPos.y, State.vPos.z + fZOffset));
+                      glm::vec3(State.vPos.x + fXOffset, State.vPos.y, State.vPos.z + fZOffset));
 
     GEOS::INFO ginfo;
     MODEL *pModel = GetModel();
@@ -1684,9 +1682,9 @@ void SHIP::CalcRealBoxsize()
         if (!pN)
             break;
         pN->geo->GetInfo(ginfo);
-        CVECTOR vGlobPos = pN->glob_mtx.Pos();
-        const CVECTOR vBC = vGlobPos + CVECTOR(ginfo.boxcenter.x, ginfo.boxcenter.y, ginfo.boxcenter.z);
-        const CVECTOR vBS = CVECTOR(ginfo.boxsize.x, ginfo.boxsize.y, ginfo.boxsize.z) / 2.0f;
+        glm::vec3 vGlobPos = storm::math::pos(pN->glob_mtx);
+        const glm::vec3 vBC = vGlobPos + glm::vec3(ginfo.boxcenter.x, ginfo.boxcenter.y, ginfo.boxcenter.z);
+        const glm::vec3 vBS = glm::vec3(ginfo.boxsize.x, ginfo.boxsize.y, ginfo.boxsize.z) / 2.0f;
         if (vBC.x - vBS.x < x1)
             x1 = vBC.x - vBS.x;
         if (vBC.x + vBS.x > x2)
@@ -1701,7 +1699,7 @@ void SHIP::CalcRealBoxsize()
             z2 = vBC.z + vBS.z;
     }
 
-    State.vRealBoxSize = CVECTOR(x2 - x1, y2 - y1, z2 - z1);
+    State.vRealBoxSize = glm::vec3(x2 - x1, y2 - y1, z2 - z1);
 }
 
 void SHIP::ScanShipForFirePlaces()
@@ -1769,14 +1767,14 @@ BOOL SHIP::LoadShipParameters()
     return true;
 }
 
-float SHIP::Trace(const CVECTOR &src, const CVECTOR &dst)
+float SHIP::Trace(const glm::vec3 &src, const glm::vec3 &dst)
 {
     MODEL *pModel = GetModel();
     Assert(pModel);
     return pModel->Trace(src, dst);
 };
 
-float SHIP::Cannon_Trace(int32_t iBallOwner, const CVECTOR &vSrc, const CVECTOR &vDst)
+float SHIP::Cannon_Trace(int32_t iBallOwner, const glm::vec3 &vSrc, const glm::vec3 &vDst)
 {
     MODEL *pModel = GetModel();
     Assert(pModel);
@@ -1793,7 +1791,7 @@ float SHIP::Cannon_Trace(int32_t iBallOwner, const CVECTOR &vSrc, const CVECTOR 
 
             if (fRes <= 1.0f)
             {
-                const CVECTOR v1 = vSrc + fRes * (vDst - vSrc);
+                const glm::vec3 v1 = vSrc + fRes * (vDst - vSrc);
                 VDATA *pV = core.Event(SHIP_MAST_DAMAGE, "llffffal", SHIP_MAST_TOUCH_BALL, pM->iMastNum, v1.x, v1.y,
                                        v1.z, pM->fDamage, GetACharacter(), iBallOwner);
                 pM->fDamage = Clamp(pV->GetFloat());
@@ -1811,7 +1809,7 @@ float SHIP::Cannon_Trace(int32_t iBallOwner, const CVECTOR &vSrc, const CVECTOR 
 
                 if (fRes <= 1.0f)
                 {
-                    const CVECTOR v1 = vSrc + fRes * (vDst - vSrc);
+                    const glm::vec3 v1 = vSrc + fRes * (vDst - vSrc);
 
                     VDATA *pV = core.Event(SHIP_HULL_DAMAGE, "llffffas", SHIP_HULL_TOUCH_BALL, pM->iHullNum, v1.x, v1.y,
                                            v1.z, pM->fDamage, GetACharacter(), pM->pNode->GetName());
@@ -1831,8 +1829,8 @@ float SHIP::Cannon_Trace(int32_t iBallOwner, const CVECTOR &vSrc, const CVECTOR 
     float fRes = pModel->Trace(vSrc, vDst);
     if (fRes <= 1.0f)
     {
-        CVECTOR vDir = !(vDst - vSrc);
-        CVECTOR vTemp = vSrc + fRes * (vDst - vSrc);
+        glm::vec3 vDir = storm::math::normalizeOrZero(vDst - vSrc);
+        glm::vec3 vTemp = vSrc + fRes * (vDst - vSrc);
         // search nearest fire place
         float fMinDistance = 1e8f;
         int32_t iBestIndex = -1;
@@ -1858,12 +1856,12 @@ uint32_t SHIP::AttributeChanged(ATTRIBUTES *pAttribute)
     return 0;
 }
 
-CVECTOR SHIP::GetBoxsize() const
+glm::vec3 SHIP::GetBoxsize() const
 {
     return State.vBoxSize;
 }
 
-CVECTOR SHIP::GetRealBoxsize() const
+glm::vec3 SHIP::GetRealBoxsize() const
 {
     return State.vRealBoxSize;
 };
@@ -1878,27 +1876,27 @@ MODEL *SHIP::GetModel() const
     return static_cast<MODEL *>(core.GetEntityPointer(GetModelEID()));
 }
 
-CMatrix *SHIP::GetMatrix()
+glm::mat4 *SHIP::GetMatrix()
 {
     return &GetModel()->mtx;
 }
 
-void SHIP::SetMatrix(CMatrix &mtx)
+void SHIP::SetMatrix(glm::mat4 &mtx)
 {
     GetModel()->mtx = mtx;
 }
 
-CVECTOR SHIP::GetAng() const
+glm::vec3 SHIP::GetAng() const
 {
     return State.vAng;
 }
 
-CVECTOR SHIP::GetPos() const
+glm::vec3 SHIP::GetPos() const
 {
-    return CVECTOR(State.vPos.x + fXOffset, State.vPos.y, State.vPos.z + fZOffset);
+    return glm::vec3(State.vPos.x + fXOffset, State.vPos.y, State.vPos.z + fZOffset);
 }
 
-void SHIP::SetPos(const CVECTOR &vNewPos)
+void SHIP::SetPos(const glm::vec3 &vNewPos)
 {
     State.vPos = vNewPos;
     if (pSea)
@@ -1971,7 +1969,7 @@ void SHIP::Save(CSaveLoad *pSL)
     pSL->SaveBuffer((const char *)&ShipPoints[0][0], sizeof(ShipPoints));
     pSL->SaveVector(vSpeedAccel);
     pSL->SaveBuffer((const char *)&SP, sizeof(SP));
-    pSL->SaveVector(CVECTOR(vPos.x + fXOffset, vPos.y, vPos.z + fZOffset));
+    pSL->SaveVector(glm::vec3(vPos.x + fXOffset, vPos.y, vPos.z + fZOffset));
     pSL->SaveVector(vAng);
     pSL->SaveFloat(fWaterLine);
     pSL->SaveDword(bDead);

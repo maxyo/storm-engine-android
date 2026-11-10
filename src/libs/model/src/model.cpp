@@ -76,9 +76,9 @@ storm::render::VertexBufferId MODELR::VBTransform(void *context, const void *vb,
                   offsetof(GEOS::VERTEX0, nrm) == offsetof(storm::skinning::Target, nrm) &&
                   offsetof(GEOS::VERTEX0, color) == offsetof(storm::skinning::Target, color) &&
                   offsetof(GEOS::VERTEX0, tu) == offsetof(storm::skinning::Target, tu));
-    static_assert(offsetof(CMatrix, matrix) == 0);
+    static_assert(sizeof(glm::mat4) == 16 * sizeof(float));
     storm::skinning::skin(reinterpret_cast<const storm::skinning::Source *>(src),
-                          reinterpret_cast<storm::skinning::Target *>(dst), bones, sizeof(CMatrix),
+                          reinterpret_cast<storm::skinning::Target *>(dst), bones, sizeof(glm::mat4),
                           static_cast<size_t>(totVerts));
 #else
     for (int32_t v = 0; v < totVerts; v++)
@@ -99,10 +99,10 @@ storm::render::VertexBufferId MODELR::VBTransform(void *context, const void *vb,
         const auto ymm0 = _mm256_set1_ps(vrt.weight);
         const auto ymm1 = _mm256_set1_ps(wNeg);
 
-        const auto ymm2 = _mm256_add_ps(_mm256_mul_ps(_mm256_load_ps(&m1.matrix[0]), ymm0),
-                                        _mm256_mul_ps(_mm256_load_ps(&m2.matrix[0]), ymm1));
-        const auto ymm3 = _mm256_add_ps(_mm256_mul_ps(_mm256_load_ps(&m1.matrix[8]), ymm0),
-                                        _mm256_mul_ps(_mm256_load_ps(&m2.matrix[8]), ymm1));
+        const auto ymm2 = _mm256_add_ps(_mm256_mul_ps(_mm256_loadu_ps(storm::math::data(m1)), ymm0),
+                                        _mm256_mul_ps(_mm256_loadu_ps(storm::math::data(m2)), ymm1));
+        const auto ymm3 = _mm256_add_ps(_mm256_mul_ps(_mm256_loadu_ps(storm::math::data(m1) + 8), ymm0),
+                                        _mm256_mul_ps(_mm256_loadu_ps(storm::math::data(m2) + 8), ymm1));
 
         const DirectX::XMMATRIX xmmtx(_mm256_castps256_ps128(ymm2), _mm256_extractf128_ps(ymm2, 1),
                                       _mm256_castps256_ps128(ymm3), _mm256_extractf128_ps(ymm3, 1));
@@ -112,13 +112,13 @@ storm::render::VertexBufferId MODELR::VBTransform(void *context, const void *vb,
         const auto xmm1 = _mm_set1_ps(wNeg);
 
         const auto xmm2 =
-            _mm_add_ps(_mm_mul_ps(_mm_load_ps(&m1.matrix[0]), xmm0), _mm_mul_ps(_mm_load_ps(&m2.matrix[0]), xmm1));
+            _mm_add_ps(_mm_mul_ps(_mm_loadu_ps(storm::math::data(m1)), xmm0), _mm_mul_ps(_mm_loadu_ps(storm::math::data(m2)), xmm1));
         const auto xmm3 =
-            _mm_add_ps(_mm_mul_ps(_mm_load_ps(&m1.matrix[4]), xmm0), _mm_mul_ps(_mm_load_ps(&m2.matrix[4]), xmm1));
+            _mm_add_ps(_mm_mul_ps(_mm_loadu_ps(storm::math::data(m1) + 4), xmm0), _mm_mul_ps(_mm_loadu_ps(storm::math::data(m2) + 4), xmm1));
         const auto xmm4 =
-            _mm_add_ps(_mm_mul_ps(_mm_load_ps(&m1.matrix[8]), xmm0), _mm_mul_ps(_mm_load_ps(&m2.matrix[8]), xmm1));
+            _mm_add_ps(_mm_mul_ps(_mm_loadu_ps(storm::math::data(m1) + 8), xmm0), _mm_mul_ps(_mm_loadu_ps(storm::math::data(m2) + 8), xmm1));
         const auto xmm5 =
-            _mm_add_ps(_mm_mul_ps(_mm_load_ps(&m1.matrix[12]), xmm0), _mm_mul_ps(_mm_load_ps(&m2.matrix[12]), xmm1));
+            _mm_add_ps(_mm_mul_ps(_mm_loadu_ps(storm::math::data(m1) + 12), xmm0), _mm_mul_ps(_mm_loadu_ps(storm::math::data(m2) + 12), xmm1));
 
 
         const DirectX::XMMATRIX xmmtx(xmm2, xmm3, xmm4, xmm5);
@@ -202,12 +202,12 @@ void MODELR::Realize(uint32_t Delta_Time)
         }
     }
 
-    CMatrix view, proj;
-    rs->GetTransform(D3DTS_VIEW, view);
-    rs->GetTransform(D3DTS_PROJECTION, proj);
+    glm::mat4 view, proj;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(proj));
     FindPlanes(view, proj);
 
-    CVECTOR tmp;
+    glm::vec3 tmp;
     root->Update(mtx, tmp);
 
     // if have animation - special render
@@ -249,7 +249,7 @@ uint64_t MODELR::ProcessMessage(MESSAGE &message)
 {
     std::string str;
     const int32_t code = message.Long();
-    CVECTOR tmp;
+    glm::vec3 tmp;
     switch (code)
     {
     case MSG_SEA_REFLECTION_DRAW:
@@ -265,10 +265,10 @@ uint64_t MODELR::ProcessMessage(MESSAGE &message)
     break;
     case MSG_MODEL_SET_POSITION: {
         // Pos,vx,vy,vz
-        CVECTOR &vx = mtx.Vx();
-        CVECTOR &vy = mtx.Vy();
-        CVECTOR &vz = mtx.Vz();
-        CVECTOR &vpos = mtx.Pos();
+        glm::vec3 &vx = storm::math::vx(mtx);
+        glm::vec3 &vy = storm::math::vy(mtx);
+        glm::vec3 &vz = storm::math::vz(mtx);
+        glm::vec3 &vpos = storm::math::pos(mtx);
 
         vpos.x = message.Float();
         vpos.y = message.Float();
@@ -302,7 +302,7 @@ uint64_t MODELR::ProcessMessage(MESSAGE &message)
         NODER::gs = GeometyService;
         NODER::rs = rs;
         root = new NODER();
-        if (!root->Init(LightPath.c_str(), str.c_str(), "", CMatrix(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f), mtx, nullptr,
+        if (!root->Init(LightPath.c_str(), str.c_str(), "", storm::math::eulerMatrix(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f), mtx, nullptr,
                         lmPath.c_str()))
         {
             delete root;
@@ -310,7 +310,7 @@ uint64_t MODELR::ProcessMessage(MESSAGE &message)
             core.EraseEntity(GetId());
             return 0;
         }
-        // CVECTOR tmp;
+        // glm::vec3 tmp;
         root->Update(mtx, tmp);
         return 1;
         // UNGUARD
@@ -412,7 +412,7 @@ NODE *MODELR::FindNode(const char *cNodeName)
 
 void MODELR::Update()
 {
-    CVECTOR tmp;
+    glm::vec3 tmp;
     static_cast<NODER *>(root)->Update(mtx, tmp);
 }
 
@@ -420,7 +420,7 @@ void MODELR::Update()
 // clip functions
 //-------------------------------------------------------------------
 const PLANE *clip_p;
-const CVECTOR *clip_c;
+const glm::vec3 *clip_c;
 float clip_r;
 ADD_POLYGON_FUNC clip_ap;
 GEOS::ADD_POLYGON_FUNC clip_geosap;
@@ -428,7 +428,7 @@ int32_t clip_nps;
 
 bool AddPolygon(const GEOS::VERTEX *vr, int32_t nv);
 //-------------------------------------------------------------------
-bool MODELR::Clip(const PLANE *planes, int32_t nplanes, const CVECTOR &center, float radius, ADD_POLYGON_FUNC addpoly)
+bool MODELR::Clip(const PLANE *planes, int32_t nplanes, const glm::vec3 &center, float radius, ADD_POLYGON_FUNC addpoly)
 {
     clip_p = planes;
     clip_nps = nplanes;
@@ -462,24 +462,24 @@ bool MODELR::GetCollideTriangle(TRIANGLE &triangle)
     GEOS::TRACE_INFO ti;
     if (colideNode->geo->GetCollisionDetails(ti) == false)
         return false;
-    triangle.vrt[0] = colideNode->glob_mtx * CVECTOR(ti.vrt[0].x, ti.vrt[0].y, ti.vrt[0].z);
-    triangle.vrt[1] = colideNode->glob_mtx * CVECTOR(ti.vrt[1].x, ti.vrt[1].y, ti.vrt[1].z);
-    triangle.vrt[2] = colideNode->glob_mtx * CVECTOR(ti.vrt[2].x, ti.vrt[2].y, ti.vrt[2].z);
+    triangle.vrt[0] = storm::math::transformPoint(colideNode->glob_mtx, glm::vec3(ti.vrt[0].x, ti.vrt[0].y, ti.vrt[0].z));
+    triangle.vrt[1] = storm::math::transformPoint(colideNode->glob_mtx, glm::vec3(ti.vrt[1].x, ti.vrt[1].y, ti.vrt[1].z));
+    triangle.vrt[2] = storm::math::transformPoint(colideNode->glob_mtx, glm::vec3(ti.vrt[2].x, ti.vrt[2].y, ti.vrt[2].z));
     return true;
 }
 
 //-------------------------------------------------------------------
-CVECTOR cold[1024 * 1024];
+glm::vec3 cold[1024 * 1024];
 
-float MODELR::Trace(const CVECTOR &src, const CVECTOR &dst)
+float MODELR::Trace(const glm::vec3 &src, const glm::vec3 &dst)
 {
     // collision with skinned geometry
     if (ani)
     {
         // check for bounding spheres intersection
-        CVECTOR lmn = dst - src;
-        float dist2ray2 = ~((root->glob_mtx * root->center - src) ^ lmn);
-        float dlmn = ~(lmn);
+        glm::vec3 lmn = dst - src;
+        float dist2ray2 = storm::math::lengthSquared(glm::cross(storm::math::transformPoint(root->glob_mtx, root->center) - src, lmn));
+        float dlmn = storm::math::lengthSquared(lmn);
         // hierarchy test
         if (dist2ray2 > dlmn * root->radius * root->radius)
             return 2.0f;
@@ -489,10 +489,10 @@ float MODELR::Trace(const CVECTOR &src, const CVECTOR &dst)
         // get bones
         auto* bones = &ani->GetAnimationMatrix(0);
 
-        CVECTOR _src, _dst;
-        root->glob_mtx.MulToInv(src, _src);
-        root->glob_mtx.MulToInv(dst, _dst);
-        CVECTOR dirvec = _dst - _src;
+        glm::vec3 _src, _dst;
+        _src = storm::math::inverseTransformPoint(root->glob_mtx, src);
+        _dst = storm::math::inverseTransformPoint(root->glob_mtx, dst);
+        glm::vec3 dirvec = _dst - _src;
 
         float bd = 2.0f;
         GEOS::INFO gi;
@@ -563,13 +563,13 @@ float MODELR::Trace(const CVECTOR &src, const CVECTOR &dst)
             // transform vertices and trace
             for (int32_t v = 0; v < gavb.nvertices; v++)
             {
-                cold[v] = *(CVECTOR *)(&gsrc->pos);
-                CMatrix &m1 = bones[gsrc->boneid & 0xff];
-                CMatrix &m2 = bones[(gsrc->boneid >> 8) & 0xff];
+                cold[v] = *(glm::vec3 *)(&gsrc->pos);
+                glm::mat4 &m1 = bones[gsrc->boneid & 0xff];
+                glm::mat4 &m2 = bones[(gsrc->boneid >> 8) & 0xff];
 
-                CVECTOR pos(*(CVECTOR *)(&gsrc->pos));
-                CVECTOR v1 = m1 * pos;
-                CVECTOR v2 = m2 * pos;
+                glm::vec3 pos(*(glm::vec3 *)(&gsrc->pos));
+                glm::vec3 v1 = storm::math::transformPoint(m1, pos);
+                glm::vec3 v2 = storm::math::transformPoint(m2, pos);
                 cold[v].x = -(gsrc->weight * v1.x + (1.0f - gsrc->weight) * v2.x);
                 cold[v].y = gsrc->weight * v1.y + (1.0f - gsrc->weight) * v2.y;
                 cold[v].z = gsrc->weight * v1.z + (1.0f - gsrc->weight) * v2.z;
@@ -589,23 +589,23 @@ float MODELR::Trace(const CVECTOR &src, const CVECTOR &dst)
                 {
                     int32_t t = gt * 3 + go.striangle;
                     // Tomas Moller and Ben Trumbore algorithm
-                    CVECTOR a = cold[idxBuff[t + 1] + go.start_vertex] - cold[idxBuff[t + 0] + go.start_vertex];
-                    CVECTOR b = cold[idxBuff[t + 2] + go.start_vertex] - cold[idxBuff[t + 0] + go.start_vertex];
-                    CVECTOR pvec = dirvec ^ b;
-                    float det = a | pvec;
+                    glm::vec3 a = cold[idxBuff[t + 1] + go.start_vertex] - cold[idxBuff[t + 0] + go.start_vertex];
+                    glm::vec3 b = cold[idxBuff[t + 2] + go.start_vertex] - cold[idxBuff[t + 0] + go.start_vertex];
+                    glm::vec3 pvec = glm::cross(dirvec, b);
+                    float det = glm::dot(a, pvec);
                     float invdet = 1.0f / det;
 
-                    CVECTOR c = _src - cold[idxBuff[t + 0] + go.start_vertex];
-                    float U = (c | pvec) * invdet;
+                    glm::vec3 c = _src - cold[idxBuff[t + 0] + go.start_vertex];
+                    float U = glm::dot(c, pvec) * invdet;
                     if (U < 0.0f || U > 1.0)
                         continue;
 
-                    CVECTOR qvec = c ^ a;
-                    float V = (dirvec | qvec) * invdet;
+                    glm::vec3 qvec = glm::cross(c, a);
+                    float V = glm::dot(dirvec, qvec) * invdet;
                     if (V < 0.0f || U + V > 1.0)
                         continue;
 
-                    float d = (b | qvec) * invdet;
+                    float d = glm::dot(b, qvec) * invdet;
                     if (d >= 0.0f && d <= 1.0 && d < bd)
                     {
                         bd = d;
@@ -627,51 +627,51 @@ NODE *MODELR::GetCollideNode()
     return colideNode;
 }
 
-void MODELR::FindPlanes(const CMatrix &view, const CMatrix &proj)
+void MODELR::FindPlanes(const glm::mat4 &view, const glm::mat4 &proj)
 {
-    CVECTOR v[4];
+    glm::vec3 v[4];
     // left
-    v[0].x = proj.m[0][0];
+    v[0].x = proj[0][0];
     v[0].y = 0.0f;
     v[0].z = 1.0f;
     // right
-    v[1].x = -proj.m[0][0];
+    v[1].x = -proj[0][0];
     v[1].y = 0.0f;
     v[1].z = 1.0f;
     // top
     v[2].x = 0.0f;
-    v[2].y = -proj.m[1][1];
+    v[2].y = -proj[1][1];
     v[2].z = 1.0f;
     // bottom
     v[3].x = 0.0f;
-    v[3].y = proj.m[1][1];
+    v[3].y = proj[1][1];
     v[3].z = 1.0f;
-    v[0] = !v[0];
-    v[1] = !v[1];
-    v[2] = !v[2];
-    v[3] = !v[3];
+    v[0] = storm::math::normalizeOrZero(v[0]);
+    v[1] = storm::math::normalizeOrZero(v[1]);
+    v[2] = storm::math::normalizeOrZero(v[2]);
+    v[3] = storm::math::normalizeOrZero(v[3]);
 
-    CVECTOR pos;
+    glm::vec3 pos;
 
-    pos.x = -view.m[3][0] * view.m[0][0] - view.m[3][1] * view.m[0][1] - view.m[3][2] * view.m[0][2];
-    pos.y = -view.m[3][0] * view.m[1][0] - view.m[3][1] * view.m[1][1] - view.m[3][2] * view.m[1][2];
-    pos.z = -view.m[3][0] * view.m[2][0] - view.m[3][1] * view.m[2][1] - view.m[3][2] * view.m[2][2];
+    pos.x = -view[3][0] * view[0][0] - view[3][1] * view[0][1] - view[3][2] * view[0][2];
+    pos.y = -view[3][0] * view[1][0] - view[3][1] * view[1][1] - view[3][2] * view[1][2];
+    pos.z = -view[3][0] * view[2][0] - view[3][1] * view[2][1] - view[3][2] * view[2][2];
 
-    ViewPlane[0].nrm.x = v[0].x * view.m[0][0] + v[0].y * view.m[0][1] + v[0].z * view.m[0][2];
-    ViewPlane[0].nrm.y = v[0].x * view.m[1][0] + v[0].y * view.m[1][1] + v[0].z * view.m[1][2];
-    ViewPlane[0].nrm.z = v[0].x * view.m[2][0] + v[0].y * view.m[2][1] + v[0].z * view.m[2][2];
+    ViewPlane[0].nrm.x = v[0].x * view[0][0] + v[0].y * view[0][1] + v[0].z * view[0][2];
+    ViewPlane[0].nrm.y = v[0].x * view[1][0] + v[0].y * view[1][1] + v[0].z * view[1][2];
+    ViewPlane[0].nrm.z = v[0].x * view[2][0] + v[0].y * view[2][1] + v[0].z * view[2][2];
 
-    ViewPlane[1].nrm.x = v[1].x * view.m[0][0] + v[1].y * view.m[0][1] + v[1].z * view.m[0][2];
-    ViewPlane[1].nrm.y = v[1].x * view.m[1][0] + v[1].y * view.m[1][1] + v[1].z * view.m[1][2];
-    ViewPlane[1].nrm.z = v[1].x * view.m[2][0] + v[1].y * view.m[2][1] + v[1].z * view.m[2][2];
+    ViewPlane[1].nrm.x = v[1].x * view[0][0] + v[1].y * view[0][1] + v[1].z * view[0][2];
+    ViewPlane[1].nrm.y = v[1].x * view[1][0] + v[1].y * view[1][1] + v[1].z * view[1][2];
+    ViewPlane[1].nrm.z = v[1].x * view[2][0] + v[1].y * view[2][1] + v[1].z * view[2][2];
 
-    ViewPlane[2].nrm.x = v[2].x * view.m[0][0] + v[2].y * view.m[0][1] + v[2].z * view.m[0][2];
-    ViewPlane[2].nrm.y = v[2].x * view.m[1][0] + v[2].y * view.m[1][1] + v[2].z * view.m[1][2];
-    ViewPlane[2].nrm.z = v[2].x * view.m[2][0] + v[2].y * view.m[2][1] + v[2].z * view.m[2][2];
+    ViewPlane[2].nrm.x = v[2].x * view[0][0] + v[2].y * view[0][1] + v[2].z * view[0][2];
+    ViewPlane[2].nrm.y = v[2].x * view[1][0] + v[2].y * view[1][1] + v[2].z * view[1][2];
+    ViewPlane[2].nrm.z = v[2].x * view[2][0] + v[2].y * view[2][1] + v[2].z * view[2][2];
 
-    ViewPlane[3].nrm.x = v[3].x * view.m[0][0] + v[3].y * view.m[0][1] + v[3].z * view.m[0][2];
-    ViewPlane[3].nrm.y = v[3].x * view.m[1][0] + v[3].y * view.m[1][1] + v[3].z * view.m[1][2];
-    ViewPlane[3].nrm.z = v[3].x * view.m[2][0] + v[3].y * view.m[2][1] + v[3].z * view.m[2][2];
+    ViewPlane[3].nrm.x = v[3].x * view[0][0] + v[3].y * view[0][1] + v[3].z * view[0][2];
+    ViewPlane[3].nrm.y = v[3].x * view[1][0] + v[3].y * view[1][1] + v[3].z * view[1][2];
+    ViewPlane[3].nrm.z = v[3].x * view[2][0] + v[3].y * view[2][1] + v[3].z * view[2][2];
 
     ViewPlane[0].nrm.x = -ViewPlane[0].nrm.x;
     ViewPlane[0].nrm.y = -ViewPlane[0].nrm.y;

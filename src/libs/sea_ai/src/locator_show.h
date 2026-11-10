@@ -9,11 +9,11 @@ class SeaLocatorShow : public Entity
     float fScale;
 
     float fWidth, fHeight;
-    CMatrix view, mtx;
+    glm::mat4 view, mtx;
 
     struct SphVertex
     {
-        CVECTOR v;
+        glm::vec3 v;
         uint32_t c;
     };
 
@@ -23,7 +23,7 @@ class SeaLocatorShow : public Entity
     void CreateSphere();
 
     bool isLocator(ATTRIBUTES *pA);
-    CVECTOR GetLocatorPos(ATTRIBUTES *pA);
+    glm::vec3 GetLocatorPos(ATTRIBUTES *pA);
     float GetLocatorAng(ATTRIBUTES *pA);
     float GetLocatorRadius(ATTRIBUTES *pA);
     const char *GetRealLocatorName(ATTRIBUTES *pA);

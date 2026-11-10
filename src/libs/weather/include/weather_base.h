@@ -1,6 +1,6 @@
 #pragma once
 
-#include "c_vector.h"
+#include "storm_glm.h"
 #include "entity.h"
 
 #define MAX_FLOAT_PARAMS 128
@@ -89,8 +89,8 @@ class WEATHER_BASE : public Entity
     ~WEATHER_BASE() override{};
 
     virtual int32_t GetInt(uint32_t dwCode) = 0;
-    virtual uint32_t GetColor(uint32_t, CVECTOR *) = 0;
+    virtual uint32_t GetColor(uint32_t, glm::vec3 *) = 0;
     virtual uint32_t GetColor(uint32_t) = 0;
     virtual float GetFloat(uint32_t) = 0;
-    virtual void GetVector(uint32_t, CVECTOR *) = 0;
+    virtual void GetVector(uint32_t, glm::vec3 *) = 0;
 };

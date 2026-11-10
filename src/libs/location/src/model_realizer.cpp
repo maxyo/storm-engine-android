@@ -1,7 +1,6 @@
 #include "model_realizer.h"
 
 #include "core.h"
-#include "c_vector4.h"
 #include "lights.h"
 
 // ============================================================================================
@@ -9,7 +8,7 @@
 // ============================================================================================
 
 extern float fCausticScale, fCausticDelta, fFogDensity, fCausticDistance;
-extern CVECTOR4 v4CausticColor;
+extern glm::vec4 v4CausticColor;
 extern bool bCausticEnable;
 extern float fCausticFrame;
 extern int32_t iCausticTex[32];
@@ -48,7 +47,7 @@ void LocModelRealizer::Realize(uint32_t delta_time) const
         uint32_t dwLighting;
         if (lights)
         {
-            static CVECTOR camPos, camAng;
+            static glm::vec3 camPos, camAng;
             rs->GetCamera(camPos, camAng, camAng.x);
 
             rs->GetRenderState(D3DRS_LIGHTING, &dwLighting);
@@ -78,11 +77,11 @@ void LocModelRealizer::Realize(uint32_t delta_time) const
             // 13 - (0, 0, 0, 0)
 
             fCausticDelta = fCausticFrame - static_cast<int32_t>(fCausticFrame);
-            const auto vec1 = CVECTOR4(fCausticScale, fCausticDelta, 0.0f, 0.0f);
-            const auto vec2 = CVECTOR4(fFogDensity, 0.0f, 0.0f, 0.0f);
-            const auto vec3 = CVECTOR4(0.0f, 0.0f, 0.0f, 0.0f);
-            const auto vec4 = CVECTOR4(0.0f, 1.0f, 0.0f, 0.0f);
-            const auto vec5 = CVECTOR4(1.0f / fCausticDistance, 1.0f, 0.0f, 0.0f);
+            const auto vec1 = glm::vec4(fCausticScale, fCausticDelta, 0.0f, 0.0f);
+            const auto vec2 = glm::vec4(fFogDensity, 0.0f, 0.0f, 0.0f);
+            const auto vec3 = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+            const auto vec4 = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+            const auto vec5 = glm::vec4(1.0f / fCausticDistance, 1.0f, 0.0f, 0.0f);
             rs->SetVertexShaderConstantF(10, reinterpret_cast<const float *>(&vec1), 1);
             rs->SetVertexShaderConstantF(11, reinterpret_cast<const float *>(&v4CausticColor), 1);
             rs->SetVertexShaderConstantF(12, reinterpret_cast<const float *>(&vec2), 1);

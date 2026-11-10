@@ -77,17 +77,17 @@ void BLAST::AddGeometry(char *name, int32_t num)
     ItemsNum += num;
 }
 
-void BLAST::SetBlastCenter(CVECTOR pos, CVECTOR ang)
+void BLAST::SetBlastCenter(glm::vec3 pos, glm::vec3 ang)
 {
     uint32_t n;
-    CMatrix m;
+    glm::mat4 m;
     for (n = 0; n < ItemsNum; n++)
     {
         Item[n].bEffect = false;
         Item[n].pos = pos;
         Item[n].ang = ang;
-        m.BuildMatrix(ang);
-        Item[n].dir = m.Vz();
+        m = storm::math::eulerMatrix(ang);
+        Item[n].dir = storm::math::vz(m);
 
         Item[n].ang.x += AngleDeviation * rand() / RAND_MAX - AngleDeviation / 2.0f;
         Item[n].ang.y += AngleDeviation * rand() / RAND_MAX - AngleDeviation / 2.0f;
@@ -100,7 +100,7 @@ void BLAST::SetBlastCenter(CVECTOR pos, CVECTOR ang)
         Item[n].dir.x += AngleDeviation * rand() / RAND_MAX - AngleDeviation / 2.0f;
         Item[n].dir.y += AngleDeviation * rand() / RAND_MAX - AngleDeviation / 2.0f;
         Item[n].dir.z += AngleDeviation * rand() / RAND_MAX - AngleDeviation / 2.0f;
-        Item[n].dir = !Item[n].dir;
+        Item[n].dir = storm::math::normalizeOrZero(Item[n].dir);
         Item[n].speed = rand() * 0.025f / RAND_MAX + 0.005f;
     }
 }
@@ -123,7 +123,7 @@ void BLAST::ProcessTime(uint32_t DT)
         // if(Item[n].speed > 0) Item[n].speed -= 0.001f*Delta_Time;
         // else Item[n].speed = 0.0;
         // Item[n].pos += Item[n].speed*Item[n].dir*Delta_Time;
-        CVECTOR a;
+        glm::vec3 a;
         a = Item[n].pos;
         Item[n].pos.x += (Item[n].dir.x * Item[n].speed * Delta_Time);
         Item[n].pos.y += (Item[n].dir.y * Item[n].speed * Delta_Time);
@@ -174,8 +174,8 @@ void BLAST::ProcessTime(uint32_t DT)
 uint64_t BLAST::ProcessMessage(MESSAGE &message)
 {
     int32_t code;
-    CVECTOR ang;
-    CVECTOR pos;
+    glm::vec3 ang;
+    glm::vec3 pos;
     code = message.Long();
     switch (code)
     {
@@ -219,8 +219,8 @@ void BLAST::Realize(uint32_t Delta_Time)
     {
         if (Item[n].geo)
         {
-            Center.BuildMatrix(Item[n].ang, Item[n].pos);
-            rs->SetTransform(D3DTS_WORLD, Center);
+            Center = storm::math::eulerMatrix(Item[n].ang, Item[n].pos);
+            rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(Center));
             Item[n].geo->Draw((GEOS::PLANE *)rs->GetPlanes(), 0, nullptr);
         }
     }

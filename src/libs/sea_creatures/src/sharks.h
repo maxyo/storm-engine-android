@@ -12,7 +12,7 @@
 
 #include "animation.h"
 #include "island_base.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "dx9render.h"
 #include "sea_base.h"
 #include "ship_base.h"
@@ -21,7 +21,7 @@ class Sharks : public Entity
 {
     struct Vertex
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         uint32_t color;
         float u, v;
     };
@@ -45,18 +45,18 @@ class Sharks : public Entity
         int32_t GenerateTrack(uint16_t *inds, Vertex *vrt, uint16_t base, SEA_BASE *sb);
 
         // Waypoint
-        CVECTOR pos;    // Waypoint position
-        CVECTOR vel;    // Move direction
-        CVECTOR force;  // Directional force
+        glm::vec3 pos;    // Waypoint position
+        glm::vec3 vel;    // Move direction
+        glm::vec3 force;  // Directional force
         float yDir;     // The tendency to ascend or sink
         float dirTime;  // Time until next change
         float accs;     // Shark acceleration
-        CVECTOR rForce; // Accidental external force
+        glm::vec3 rForce; // Accidental external force
         float rTime;
         // Shark
-        CVECTOR fforce; // Directional force
-        CVECTOR spos;   // Model position
-        CVECTOR angs;   // Model angles
+        glm::vec3 fforce; // Directional force
+        glm::vec3 spos;   // Model position
+        glm::vec3 angs;   // Model angles
         float turn;     // Angle change rate
         float imspd;    // Dive speed
         float speed;    // Move speed
@@ -73,7 +73,7 @@ class Sharks : public Entity
 
     struct Periscope
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         float ay;
         float time;
         entid_t model;
@@ -121,7 +121,7 @@ class Sharks : public Entity
     int32_t numShakes;
     Periscope periscope;
     float waitPTime;
-    CVECTOR camPos;
+    glm::vec3 camPos;
     entid_t sea;
     entid_t island;
     int32_t trackTx;

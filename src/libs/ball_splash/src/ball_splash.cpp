@@ -49,7 +49,7 @@ uint64_t BALLSPLASH::ProcessMessage(MESSAGE &message)
     switch (code)
     {
     case MSG_BALLSPLASH_ADD: {
-        CVECTOR pos, dir;
+        glm::vec3 pos, dir;
         pos.x = message.Float();
         pos.y = message.Float();
         pos.z = message.Float();
@@ -152,9 +152,9 @@ void BALLSPLASH::InitializeSplashes()
 }
 
 //--------------------------------------------------------------------
-TSplash *BALLSPLASH::TryToAddSplash(const CVECTOR &_pos, const CVECTOR &_dir)
+TSplash *BALLSPLASH::TryToAddSplash(const glm::vec3 &_pos, const glm::vec3 &_dir)
 {
-    auto backDir = !_dir;
+    auto backDir = storm::math::normalizeOrZero(_dir);
     backDir.y = -backDir.y;
 
     for (auto i = 0; i < MAX_SPLASHES; ++i)

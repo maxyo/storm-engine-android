@@ -47,7 +47,7 @@ void AIGroup::AddShip(entid_t eidShip, ATTRIBUTES *pACharacter, ATTRIBUTES *pASh
         pShip = new AIShipWar();
     }
 
-    CVECTOR vShipPos{};
+    glm::vec3 vShipPos{};
 
     if (const char *event = GetCommanderACharacter()->GetAttribute("GroupShipPos_event"))
     {
@@ -59,9 +59,9 @@ void AIGroup::AddShip(entid_t eidShip, ATTRIBUTES *pACharacter, ATTRIBUTES *pASh
     }
     else
     {
-        vShipPos = CVECTOR(vInitGroupPos.x, vInitGroupPos.y, vInitGroupPos.z) -
+        vShipPos = glm::vec3(vInitGroupPos.x, vInitGroupPos.y, vInitGroupPos.z) -
                    (aGroupShips.size() * fDistanceBetweenGroupShips) *
-                       CVECTOR(sinf(vInitGroupPos.y), 0.0f, cosf(vInitGroupPos.y));
+                       glm::vec3(sinf(vInitGroupPos.y), 0.0f, cosf(vInitGroupPos.y));
     }
 
     pShip->CreateShip(eidShip, pACharacter, pAShip, &vShipPos);
@@ -106,7 +106,7 @@ void AIGroup::Execute(float fDeltaTime)
             if (pG)
             {
                 auto vNewGroupPos =
-                    pG->vInitGroupPos + ((100.0f + FRAND(200.0f)) * CVECTOR(sinf(fNewAng), 0.0f, cosf(fNewAng)));
+                    pG->vInitGroupPos + ((100.0f + FRAND(200.0f)) * glm::vec3(sinf(fNewAng), 0.0f, cosf(fNewAng)));
 
                 for (auto &aGroupShip : aGroupShips)
                 {
@@ -135,8 +135,8 @@ void AIGroup::Execute(float fDeltaTime)
       if (sCommand == "move")
         for (uint32_t i=0; i<aGroupShips.size(); i++) if (!aGroupShips[i]->isMainCharacter())
         {
-          CVECTOR vDir = CVECTOR(vInitGroupPos.x, 0.0f, vInitGroupPos.z) + 20000.0f *
-    CVECTOR(sinf(vInitGroupPos.y),0.0f,cosf(vInitGroupPos.y));
+          glm::vec3 vDir = glm::vec3(vInitGroupPos.x, 0.0f, vInitGroupPos.z) + 20000.0f *
+    glm::vec3(sinf(vInitGroupPos.y),0.0f,cosf(vInitGroupPos.y));
           aGroupShips[i]->GetTaskController()->SetNewTask(PRIMARY_TASK, AITASK_MOVE, vDir);
         }
 
@@ -229,7 +229,7 @@ AIGroup *AIGroup::FindMainGroup()
     return nullptr;
 }
 
-void AIGroup::SailMainGroup(CVECTOR vPos, float fAngle, ATTRIBUTES *pACharacter)
+void AIGroup::SailMainGroup(glm::vec3 vPos, float fAngle, ATTRIBUTES *pACharacter)
 {
     AIGroup *pMG = FindMainGroup();
     Assert(pMG);
@@ -272,7 +272,7 @@ AIGroup *AIGroup::FindOrCreateGroup(const char *pGroupName)
     return (pAIGroup) ? pAIGroup : CreateNewGroup(pGroupName);
 }
 
-void AIGroup::GroupSetMove(const char *pGroupName, CVECTOR &vMovePoint)
+void AIGroup::GroupSetMove(const char *pGroupName, glm::vec3 &vMovePoint)
 {
     AIGroup *pAIGroup = FindOrCreateGroup(pGroupName);
     pAIGroup->sCommand = "move";
@@ -309,7 +309,7 @@ void AIGroup::GroupSetAttack(const char *pGroupName, const char *pGroupAttacking
     pG->sCommandGroup = pGroupAttackingName;
 }
 
-void AIGroup::SetXYZ_AY(const char *pGroupName, CVECTOR vPos, float _fAY)
+void AIGroup::SetXYZ_AY(const char *pGroupName, glm::vec3 vPos, float _fAY)
 {
     AIGroup *pAIGroup = FindOrCreateGroup(pGroupName);
 

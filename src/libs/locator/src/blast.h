@@ -1,6 +1,6 @@
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "cannon_trace.h"
 #include "blast.h"
 #include "dx9render.h"
@@ -9,10 +9,10 @@
 
 using GEOPARTICLE = struct
 {
-    CVECTOR pos;
-    CVECTOR ang;
-    CVECTOR ang_speed;
-    CVECTOR dir;
+    glm::vec3 pos;
+    glm::vec3 ang;
+    glm::vec3 ang_speed;
+    glm::vec3 dir;
     GEOS *geo;
     float speed;
     bool bDouble;
@@ -28,7 +28,7 @@ class BLAST : public Entity
     entid_t sea_eid;
     float AngleDeviation;
     uint32_t ItemsNum;
-    CMatrix Center;
+    glm::mat4 Center;
     entid_t Splash;
 
   public:
@@ -39,7 +39,7 @@ class BLAST : public Entity
     uint32_t AttributeChanged(ATTRIBUTES *) override;
     void Realize(uint32_t Delta_Time);
     void ProcessTime(uint32_t Delta_Time);
-    void SetBlastCenter(CVECTOR pos, CVECTOR ang);
+    void SetBlastCenter(glm::vec3 pos, glm::vec3 ang);
     void AddGeometry(char *name, int32_t num);
 
     void ProcessStage(Stage stage, uint32_t delta) override

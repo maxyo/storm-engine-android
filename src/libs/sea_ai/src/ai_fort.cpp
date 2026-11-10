@@ -41,8 +41,8 @@ float AIFort::GetSpeedV0(uint32_t dwFortIndex)
 
 void AIFort::Execute(uint32_t Delta_Time)
 {
-    /*CVECTOR vSrc = CVECTOR(-10000.0f * sinf(fAngF), yyy, -10000.0f * cosf(fAngF));
-    CVECTOR vDst = -CVECTOR(vSrc.x, yyy, vSrc.z);
+    /*glm::vec3 vSrc = glm::vec3(-10000.0f * sinf(fAngF), yyy, -10000.0f * cosf(fAngF));
+    glm::vec3 vDst = -glm::vec3(vSrc.x, yyy, vSrc.z);
     vDst.y = yyy;
     Trace(vSrc, vDst);*/
     fMinCannonDamageDistance = AttributesPointer->GetAttributeAsFloat("MinCannonDamageDistance");
@@ -123,7 +123,7 @@ void AIFort::Realize(uint32_t Delta_Time)
 
     /*for (uint32_t k=0; k<aForts.size(); k++)
     {
-      CMatrix mTemp;
+      glm::mat4 mTemp;
       mTemp.BuildPosition(0.0f, -fCurrentImmersion, 0.0f);
       aForts[k]->GetModel()->mtx = aForts[k]->mOldMatrix * mTemp;
 
@@ -138,7 +138,7 @@ void AIFort::Realize(uint32_t Delta_Time)
   #ifndef XBOX
     if (core.Controls->GetDebugAsyncKeyState('X') < 0)
     {
-      CMatrix mI; mI.SetIdentity();
+      glm::mat4 mI; mI.SetIdentity();
       AIHelper::pRS->SetTransform(D3DTS_WORLD, mI);
 
       int32_t iNumCannons = 0;
@@ -148,9 +148,9 @@ void AIFort::Realize(uint32_t Delta_Time)
         for (uint32_t i=0; i<pF->GetAllCannonsNum(); i++)
         {
           AICannon * pC = pF->GetCannon(i);
-          CVECTOR vPos = pC->GetPos();
-          CMatrix mRot(0.0f, pC->GetDirY(), 0.0f);
-          AIHelper::pRS->DrawVector(vPos, vPos + mRot * CVECTOR(0.0f, 0.0f, 3.0f), 0xFFFFFFFF);
+          glm::vec3 vPos = pC->GetPos();
+          glm::mat4 mRot(0.0f, pC->GetDirY(), 0.0f);
+          AIHelper::pRS->DrawVector(vPos, vPos + mRot * glm::vec3(0.0f, 0.0f, 3.0f), 0xFFFFFFFF);
           AIHelper::pRS->DrawSphere(vPos, 0.3f, 0xFF00FF00);
           iNumCannons++;
         }
@@ -230,7 +230,7 @@ bool AIFort::AddFort(ATTRIBUTES *pIslandAP, ATTRIBUTES *pFortLabelAP, ATTRIBUTES
     return true;
 }
 
-void AIFort::AddFortHit(int32_t iCharacterIndex, CVECTOR &vHitPos)
+void AIFort::AddFortHit(int32_t iCharacterIndex, glm::vec3 &vHitPos)
 {
     uint32_t i, j, iMax;
     for (i = 0; i < aForts.size(); i++)
@@ -246,7 +246,7 @@ void AIFort::AddFortHit(int32_t iCharacterIndex, CVECTOR &vHitPos)
                 continue;
 
             auto vPos = pC->GetPos();
-            const auto fDistance = sqrtf(~(vPos - vHitPos));
+            const auto fDistance = sqrtf(storm::math::lengthSquared(vPos - vHitPos));
             if (fDistance > fMinCannonDamageDistance)
                 continue;
 
@@ -275,7 +275,7 @@ AIFort::AI_FORT *AIFort::FindFort(entid_t eidModel)
 
 uint64_t AIFort::ProcessMessage(MESSAGE &message)
 {
-    CVECTOR vHit;
+    glm::vec3 vHit;
     int32_t iCharacterIndex;
     entid_t eidFortModel, eidBlot;
     ATTRIBUTES *pFortAPLabel, *pCharacter, *pIslandAP;
@@ -406,7 +406,7 @@ ATTRIBUTES *AIFort::GetACharacter()
     return nullptr;
 }
 
-float AIFort::Trace(const CVECTOR &vSrc, const CVECTOR &vDst)
+float AIFort::Trace(const glm::vec3 &vSrc, const glm::vec3 &vDst)
 {
     pLastTraceFort = nullptr;
 
@@ -419,7 +419,7 @@ float AIFort::Trace(const CVECTOR &vSrc, const CVECTOR &vDst)
         const auto fRes = pModel->Trace(vSrc, vDst);
         if (fRes > 1.0f)
             continue;
-        const auto fDistance = fRes * sqrtf(~(vDst - vSrc));
+        const auto fDistance = fRes * sqrtf(storm::math::lengthSquared(vDst - vSrc));
         if (fDistance < fBestDistance)
         {
             pLastTraceFort = GetFort(i);
@@ -431,7 +431,7 @@ float AIFort::Trace(const CVECTOR &vSrc, const CVECTOR &vDst)
     return fBestRes;
 }
 
-float AIFort::Cannon_Trace(int32_t iBallOwner, const CVECTOR &vSrc, const CVECTOR &vDst)
+float AIFort::Cannon_Trace(int32_t iBallOwner, const glm::vec3 &vSrc, const glm::vec3 &vDst)
 {
     float fBestRes = 2.0;
     for (uint32_t i = 0; i < GetNumForts(); i++)
@@ -443,10 +443,10 @@ float AIFort::Cannon_Trace(int32_t iBallOwner, const CVECTOR &vSrc, const CVECTO
             fBestRes = fRes;
         if (fRes <= 1.0f)
         {
-            const CVECTOR vTemp = vSrc + (vDst - vSrc) * fRes;
+            const glm::vec3 vTemp = vSrc + (vDst - vSrc) * fRes;
             core.Event(BALL_FORT_HIT, "lfff", iBallOwner, vTemp.x, vTemp.y, vTemp.z);
 
-            const CVECTOR vDir = !(vDst - vSrc);
+            const glm::vec3 vDir = storm::math::normalizeOrZero(vDst - vSrc);
             core.Send_Message(GetFort(i)->GetBlotEID(), "lffffff", MSG_BLOTS_HIT, vTemp.x, vTemp.y, vTemp.z, vDir.x,
                               vDir.y, vDir.z);
         }
@@ -464,7 +464,7 @@ AIFort::AI_FORT *AIFort::FindFort(ATTRIBUTES *pACharacter)
     return nullptr;
 }
 
-CVECTOR AIFort::AI_FORT::GetAttackPoint(VAI_INNEROBJ *pObj)
+glm::vec3 AIFort::AI_FORT::GetAttackPoint(VAI_INNEROBJ *pObj)
 {
     const float fDistance = pObj->GetMaxFireDistance();
     const uint32_t iMax = GetAllCannonsNum(); // boal fix
@@ -474,10 +474,10 @@ CVECTOR AIFort::AI_FORT::GetAttackPoint(VAI_INNEROBJ *pObj)
         if (pC->isDamaged())
             continue;
 
-        const CVECTOR vCPos = pC->GetPos();
+        const glm::vec3 vCPos = pC->GetPos();
         const float fDirY = pC->GetDirY();
 
-        const CVECTOR vRes = vCPos + fDistance / 1.4f * CVECTOR(sinf(fDirY), 0.0f, cosf(fDirY));
+        const glm::vec3 vRes = vCPos + fDistance / 1.4f * glm::vec3(sinf(fDirY), 0.0f, cosf(fDirY));
 
         // check for ship can place here
         // pObj->
@@ -485,7 +485,7 @@ CVECTOR AIFort::AI_FORT::GetAttackPoint(VAI_INNEROBJ *pObj)
         return (vRes - GetPos());
     }
 
-    return 0.0f;
+    return glm::vec3(0.0f);
 }
 
 void AIFort::Save(CSaveLoad *pSL)
@@ -525,7 +525,7 @@ void AIFort::AI_FORT::Load(CSaveLoad *pSL, entid_t eid)
         aCannons[i].Load(pSL, this, eid);
         if (aCannons[i].isDamaged())
         {
-            const CVECTOR vPos = aCannons[i].GetPos();
+            const glm::vec3 vPos = aCannons[i].GetPos();
             core.Event(FORT_LOADDMGCANNON, "fff", vPos.x, vPos.y, vPos.z);
         }
     }
@@ -535,7 +535,7 @@ void AIFort::AI_FORT::Load(CSaveLoad *pSL, entid_t eid)
         aCulverins[i].Load(pSL, this, eid);
         if (aCulverins[i].isDamaged())
         {
-            const CVECTOR vPos = aCulverins[i].GetPos();
+            const glm::vec3 vPos = aCulverins[i].GetPos();
             core.Event(FORT_LOADDMGCANNON, "fff", vPos.x, vPos.y, vPos.z);
         }
     }
@@ -545,13 +545,13 @@ void AIFort::AI_FORT::Load(CSaveLoad *pSL, entid_t eid)
         aMortars[i].Load(pSL, this, eid);
         if (aMortars[i].isDamaged())
         {
-            const CVECTOR vPos = aMortars[i].GetPos();
+            const glm::vec3 vPos = aMortars[i].GetPos();
             core.Event(FORT_LOADDMGCANNON, "fff", vPos.x, vPos.y, vPos.z);
         }
     }
 }
 
-void AIFort::Fire(const CVECTOR &vPos)
+void AIFort::Fire(const glm::vec3 &vPos)
 {
     for (auto &aFort : aForts)
         pShipsLights->AddDynamicLights(&aFort->tmpObject, vPos);

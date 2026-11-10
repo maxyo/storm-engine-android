@@ -2,8 +2,9 @@
 
 #include <cstdint>
 
+#include "storm_glm.h"
+
 class IGMXEntity;
-class Matrix;
 
 class IParticleSystem
 {
@@ -31,10 +32,10 @@ class IParticleSystem
     // Find out whether it's an auto-delete system or not
     virtual bool IsAutoDeleted() = 0;
     // Set transformation matrix for the system
-    virtual void SetTransform(const Matrix &transform) = 0;
-    virtual void GetTransform(Matrix &_matWorld) = 0;
+    virtual void SetTransform(const glm::mat4 &transform) = 0;
+    virtual void GetTransform(glm::mat4 &_matWorld) = 0;
 
-    virtual void Teleport(const Matrix &transform) = 0;
+    virtual void Teleport(const glm::mat4 &transform) = 0;
 
     virtual bool IsAlive() = 0;
 

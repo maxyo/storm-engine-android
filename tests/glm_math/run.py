@@ -16,6 +16,9 @@ parser.add_argument('--glm-source', type=Path, help='Offline extracted pinned GL
 parser.add_argument('--baseline', help='Optional engine Git revision for differential checks')
 parser.add_argument('--sanitize', action='store_true')
 parser.add_argument('--aligned-defaults', action='store_true')
+parser.add_argument('--cxx-flags', default='',
+                    help='Extra compiler flags for every variant (e.g. -fno-strict-aliasing to tell a '
+                         'type-punning miscompile from a numeric difference)')
 parser.add_argument('--bench', action='store_true',
                     help='Also run the micro-benchmark of every built variant (never combined with --sanitize)')
 parser.add_argument('--details', action='store_true',
@@ -27,7 +30,7 @@ root = Path(__file__).resolve().parents[2]
 build = (args.build_dir or root / 'build/glm-tests').resolve()
 build.mkdir(parents=True, exist_ok=True)
 
-HARNESSES = ('check', 'packed_check', 'builders_check', 'math3d_check')
+HARNESSES = ('check', 'builders_check', 'helpers_check')
 
 def float_ordinal(value):
     """Position of the nearest float32 on the ordered float line (for ULP distances)."""
@@ -54,8 +57,11 @@ def run_variant(name, baseline_headers=None):
         command.append('-DFETCHCONTENT_SOURCE_DIR_STORM_GLM=' + str(args.glm_source.resolve()))
     if baseline_headers:
         command.append('-DSTORM_MATH_BASELINE_HEADERS=' + str(baseline_headers))
+    flags = args.cxx_flags.split()
     if args.aligned_defaults:
-        command.append('-DCMAKE_CXX_FLAGS=-DGLM_FORCE_DEFAULT_ALIGNED_GENTYPES -DGLM_FORCE_INTRINSICS')
+        flags += ['-DGLM_FORCE_DEFAULT_ALIGNED_GENTYPES', '-DGLM_FORCE_INTRINSICS']
+    # Always passed, so a later run without extra flags resets the cached value.
+    command.append('-DCMAKE_CXX_FLAGS=' + ' '.join(flags))
     subprocess.run(command, check=True)
     subprocess.run(['cmake', '--build', str(target), '--parallel', '2'], check=True)
     subprocess.run([str(target / 'packed_vector_include')], check=True)

@@ -3,7 +3,6 @@
 #include <cfenv>
 #include <cmath>
 #include <iostream>
-#include "math3d.h"
 #include "math_inlines.h"
 
 int main()

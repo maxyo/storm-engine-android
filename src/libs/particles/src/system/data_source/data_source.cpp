@@ -334,7 +334,7 @@ FieldList *DataSource::CreateBillBoardParticle(const char *ParticleName, const c
 
     auto *pColorG = pDesc->Fields.FindColor(PARTICLE_COLOR);
     if (pColorG)
-        pColorG->SetDefaultValue(Color(1.0f, 1.0f, 1.0f, 1.0f));
+        pColorG->SetDefaultValue(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
 
     auto *pGravityK = pDesc->Fields.FindGraph(PARTICLE_GRAVITATION_K);
     if (pGravityK)

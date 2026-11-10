@@ -6,6 +6,7 @@
 #include "compiler.h"
 #include "controls.h"
 #include "fs.h"
+#include "platform/host_hooks.hpp"
 #include "save_file.hpp"
 #include "save_trash.hpp"
 #include "steam_api.hpp"
@@ -607,6 +608,8 @@ bool CoreImpl::SaveState(const char *file_name)
     {
         throw std::logic_error("Bad file name of save");
     }
+    // Lets the Android host's bounded exit wait out this save; see host_hooks.hpp.
+    const storm::platform::SaveInProgress saving;
 
     // Resolve the path first: file_name usually points into a script stack value,
     // and serializing runs the script OnSave handler, which reuses that storage.

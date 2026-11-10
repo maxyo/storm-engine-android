@@ -96,12 +96,12 @@ class SAIL : public SAIL_BASE
     void SetDevice();
     // Collision func
     int LastTraceGroup;
-    float Trace(const CVECTOR &src, const CVECTOR &dst) override;
+    float Trace(const glm::vec3 &src, const glm::vec3 &dst) override;
     const char *GetCollideMaterialName() override;
     bool GetCollideTriangle(TRIANGLE &triangle) override;
-    bool Clip(const PLANE *planes, int32_t nplanes, const CVECTOR &center, float radius,
+    bool Clip(const PLANE *planes, int32_t nplanes, const glm::vec3 &center, float radius,
               ADD_POLYGON_FUNC addpoly) override;
-    float Cannon_Trace(int32_t iBallOwner, const CVECTOR &src, const CVECTOR &dst) override;
+    float Cannon_Trace(int32_t iBallOwner, const glm::vec3 &src, const glm::vec3 &dst) override;
 
     entid_t GetShipID() override
     {
@@ -154,7 +154,7 @@ class SAIL : public SAIL_BASE
         int sailQuantity;
         int *sailIdx;
         // restrictive box
-        CVECTOR boxCenter, boxSize;
+        glm::vec3 boxCenter, boxSize;
         float boxRadius;
         // Effect on ship speed
         float shipSpeed;

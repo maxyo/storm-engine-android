@@ -15,6 +15,11 @@
 #include <unordered_map>
 #include <vector>
 
+namespace storm::ui::hud
+{
+class Hud; // ../hud/hud.h
+}
+
 namespace storm::ui::screens
 {
 
@@ -98,6 +103,9 @@ class Bindings
     void Toast(const std::string &text);
     // Local state of the screen changed: build the view again from the same model.
     void Rebuild();
+    // Builds the view again after `seconds` even if no new model comes (local state that
+    // expires, such as the amount the player set being preferred over the game's for a moment).
+    void RebuildAfter(double seconds);
 
     // The UI string `key` of the pack's string table (mobile-ui/design/strings) in the
     // language of the open interface. Every text the player reads that the game does not
@@ -194,6 +202,17 @@ class Router
     // Flushes throttled sends and expired pending marks; returns seconds until it must be
     // called again (a large number when idle).
     double Tick();
+    // The HUD that the HUD channel consumers fill; null in a host without one.
+    void AttachHud(hud::Hud *hud)
+    {
+        hud_ = hud;
+    }
+    hud::Hud *Hud() const
+    {
+        return hud_;
+    }
+    // For consumers: something is wrong with the data of their channel.
+    void ReportError(const std::string &line);
     bool Active() const
     {
         return screen_ != nullptr;
@@ -230,6 +249,7 @@ class Router
     Action Make(const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard) const;
 
     Surface &surface_;
+    hud::Hud *hud_ = nullptr;
     InterfaceModel model_;
     std::unique_ptr<Screen> screen_;
     std::string using_;
@@ -251,6 +271,9 @@ class Router
     bool sent_in_event_ = false;
     bool rebuild_ = false;
     double last_flush_ = -1.0;
+    double rebuild_at_ = 0.0;   // Bindings::RebuildAfter
+    double opened_at_ = 0.0;    // when the open interface was opened
+    double settle_until_ = 0.0; // a rejected first model waits until then (kSettle)
 };
 
 } // namespace storm::ui::screens

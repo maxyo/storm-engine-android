@@ -15,8 +15,8 @@ class AIGroup
     std::string sGroupName;
     std::string sLocationNearOtherGroup;
     std::string sGroupType;
-    CVECTOR vInitGroupPos{};
-    CVECTOR vMovePoint{};
+    glm::vec3 vInitGroupPos{};
+    glm::vec3 vMovePoint{};
     bool bFirstExecute;
 
     ATTRIBUTES *pACommander;
@@ -41,8 +41,8 @@ class AIGroup
     static AIGroup *CreateNewGroup(const char *pGroupName);
     static AIGroup *FindMainGroup();
     static float GetAttackHP(const char *pGroupName, float fDistance);
-    static void SetXYZ_AY(const char *pGroupName, CVECTOR vPos, float _fAY);
-    static void GroupSetMove(const char *pGroupName, CVECTOR &vMovePoint);
+    static void SetXYZ_AY(const char *pGroupName, glm::vec3 vPos, float _fAY);
+    static void GroupSetMove(const char *pGroupName, glm::vec3 &vMovePoint);
     static void GroupSetAttack(const char *cGroupName, const char *cGroupAttackingName);
     static void GroupSetAttack(AIShip *pS1, AIShip *pS2);
     static void GroupSetRunAway(const char *pGroupName);
@@ -52,7 +52,7 @@ class AIGroup
     static void ShipChangeGroup(ATTRIBUTES *pACharacter, const char *pGroupName);
     static void SwapCharactersShips(ATTRIBUTES *pACharacter1, ATTRIBUTES *pACharacter2);
     static void SetOfficerCharacter2Ship(ATTRIBUTES *pOfficerCharacter, ATTRIBUTES *pReplacedACharacter);
-    static void SailMainGroup(CVECTOR vPos, float fAngleY, ATTRIBUTES *pACharacter);
+    static void SailMainGroup(glm::vec3 vPos, float fAngleY, ATTRIBUTES *pACharacter);
 
     static void GroupHelpMe(const char *pGroupName, AIShip *pMe, AIShip *pEnemy);
 

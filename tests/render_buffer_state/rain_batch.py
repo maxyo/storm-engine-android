@@ -1,9 +1,13 @@
 from pathlib import Path
 import subprocess,tempfile,sys
 ROOT = Path(__file__).resolve().parents[2]
+sys.dont_write_bytecode = True  # keep the source tree clean
+sys.path.insert(0, str(ROOT / 'tests/glm_math'))
+from glm_source import math_include_flags
 p = Path(sys.argv[1]) if len(sys.argv)>1 else ROOT / 'src/libs/weather/src/rain.cpp'
 s=p.read_text();a=s.index('    // draw circles on the water');b=s.index('\n}\n\nvoid RAIN::Realize(',a)
 code=r'''
+#include "storm_glm.h" // the production block computes with glm::vec3 / glm::mat4
 #include <vector>
 #include <array>
 #include <cassert>
@@ -11,16 +15,14 @@ code=r'''
 #include <cmath>
 #include <iostream>
 constexpr int NUM_SEA_DROPS=500,D3DLOCK_DISCARD=1;
-struct CVECTOR {float x,y,z;CVECTOR(float X=0,float Y=0,float Z=0):x(X),y(Y),z(Z){} CVECTOR operator+(CVECTOR v){return {x+v.x,y+v.y,z+v.z};}};
-struct CMatrix {void SetIdentity(){}};
-struct SEADROPVERTEX {CVECTOR vPos;uint32_t dwColor;float tu,tv;};
-struct seadrop_t {CVECTOR vPos;float fTime,fLifeTime;};
+struct SEADROPVERTEX {glm::vec3 vPos;uint32_t dwColor;float tu,tv;};
+struct seadrop_t {glm::vec3 vPos;float fTime,fLifeTime;};
 struct Sea {float WaveXZ(float,float){return 2.f;}};
 struct Renderer {
  std::array<SEADROPVERTEX,NUM_SEA_DROPS*4> data{};
  bool locked=false;int attempts=0,locks=0,unlocks=0,failAt=0;
  std::vector<int> batches;
- void SetWorld(CMatrix&){} void TextureSet(int,int){}
+ void SetWorld(const glm::mat4&){} void TextureSet(int,int){}
  void* LockVertexBuffer(int,int){assert(!locked);++attempts;if(attempts==failAt)return nullptr;locked=true;++locks;return data.data();}
  void UnLockVertexBuffer(int){assert(locked);locked=false;++unlocks;}
  void DrawBuffer(int,int stride,int,int,int vertices,int,int triangles,const char*){
@@ -56,5 +58,5 @@ int main(){
 '''
 with tempfile.TemporaryDirectory(prefix='rain-batch-') as d:
  c=Path(d)/'test.cpp';c.write_text(code);exe=Path(d)/'test'
- subprocess.run(['c++','-std=c++17','-fsanitize=address,undefined','-g',str(c),'-o',str(exe)],check=True)
+ subprocess.run(['c++','-std=c++17','-fsanitize=address,undefined','-g',*math_include_flags(),str(c),'-o',str(exe)],check=True)
  subprocess.run([str(exe)],check=True)

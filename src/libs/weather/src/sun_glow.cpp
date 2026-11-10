@@ -155,30 +155,30 @@ void SUNGLOW::Execute(uint32_t Delta_Time)
     }
 }
 
-float SUNGLOW::LayerTrace(CVECTOR &vSrc, entity_container_cref its) const
+float SUNGLOW::LayerTrace(glm::vec3 &vSrc, entity_container_cref its) const
 {
     if (its.empty())
         return 2.0f;
 
-    CVECTOR vDst;
+    glm::vec3 vDst;
     pWeather->GetVector(whv_sun_pos, &vDst);
-    vDst = vSrc + (!vDst) * 10000.0f;
+    vDst = vSrc + (storm::math::normalizeOrZero(vDst)) * 10000.0f;
     return pCollide->Trace(its, vSrc, vDst, nullptr, 0);
 }
 
 void SUNGLOW::Realize(uint32_t Delta_Time)
 {
-    CMatrix OldMatrix, IMatrix, View;
-    pRS->GetTransform(D3DTS_VIEW, OldMatrix);
-    pRS->GetTransform(D3DTS_VIEW, View);
+    glm::mat4 OldMatrix, IMatrix, View;
+    pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(OldMatrix));
+    pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(View));
 
     float fFov;
-    CVECTOR vSun, vSunPos, vSunDir;
-    CVECTOR vCamPos, vCamAng, vCamDir;
+    glm::vec3 vSun, vSunPos, vSunDir;
+    glm::vec3 vCamPos, vCamAng, vCamDir;
 
     pWeather->GetVector(whv_sun_pos, &vSunPos);
     pRS->GetCamera(vCamPos, vCamAng, fFov);
-    vSunDir = !vSunPos;
+    vSunDir = storm::math::normalizeOrZero(vSunPos);
     vSun = vCamPos + (vSunDir * Glow.fDist);
 
     auto bTempVisibleFlare = true;
@@ -187,8 +187,8 @@ void SUNGLOW::Realize(uint32_t Delta_Time)
     {
         for (int32_t i = 0; i < 4; i++)
         {
-            auto vpn = CVECTOR(pPlane[i].Nx, pPlane[i].Ny, pPlane[i].Nz);
-            if ((vpn | vSunPos) < 0.0f)
+            auto vpn = glm::vec3(pPlane[i].Nx, pPlane[i].Ny, pPlane[i].Nz);
+            if (glm::dot(vpn, vSunPos) < 0.0f)
             {
                 bTempVisibleFlare = false;
                 break;
@@ -228,8 +228,8 @@ void SUNGLOW::Realize(uint32_t Delta_Time)
 
     // calculate angle between camera dir.y and sun dir.y
     vSunDir.y = 0.0f;
-    vCamDir = CVECTOR(cosf(vCamAng.y), 0.0f, sinf(vCamAng.y));
-    auto fAngle = vSunDir | vCamDir;
+    vCamDir = glm::vec3(cosf(vCamAng.y), 0.0f, sinf(vCamAng.y));
+    auto fAngle = glm::dot(vSunDir, vCamDir);
 
     auto fSeaHeight = 0.f; // pWeather->GetFloat(whf_water_attenuation);//0.f;
     fBottomClip = fSeaHeight;
@@ -242,8 +242,8 @@ void SUNGLOW::Realize(uint32_t Delta_Time)
     {
         fFadeout = GetSunFadeoutFactor(vSun, Glow.fGlowSize);
 
-        // CVECTOR vSunColor = ((bMoon) ? fFadeout : (1.0f - fAlpha) * 0.5f*fFadeout) * COLOR2VECTOR(Glow.dwColor);
-        // CVECTOR vSunColor = fFadeout * COLOR2VECTOR(Glow.dwColor);
+        // glm::vec3 vSunColor = ((bMoon) ? fFadeout : (1.0f - fAlpha) * 0.5f*fFadeout) * COLOR2VECTOR(Glow.dwColor);
+        // glm::vec3 vSunColor = fFadeout * COLOR2VECTOR(Glow.dwColor);
 
         // if( bMoon ) pRS->TextureSet(0,iMoonTex);
         // else pRS->TextureSet(0,iSunTex);
@@ -257,23 +257,23 @@ void SUNGLOW::Realize(uint32_t Delta_Time)
             if (fGlowFadeout < 0.f)
                 fGlowFadeout = 0.f;
             pRS->TextureSet(0, iSunGlowTex);
-            CVECTOR vGlowColor = fAlpha * fGlowFadeout * COLOR2VECTOR(Glow.dwColor);
+            glm::vec3 vGlowColor = fAlpha * fGlowFadeout * COLOR2VECTOR(Glow.dwColor);
             uint32_t rgb = makeRGB(static_cast<uint32_t>(vGlowColor.x), static_cast<uint32_t>(vGlowColor.y),
                                    static_cast<uint32_t>(vGlowColor.z));
             DrawRect(rgb, vSun, Glow.fGlowSize, fAngle * 1.f, Glow.sTechniqueNoZ.c_str(), fSeaHeight);
         }
     }
 
-    View.Transposition();
-    auto vCamera = View.Vz();
-    auto fDot = vCamera | (!vSun);
+    storm::math::invertRigid(View);
+    auto vCamera = storm::math::vz(View);
+    auto fDot = glm::dot(vCamera, storm::math::normalizeOrZero(vSun));
 
     fMaxOverflowAlphaValue = (fDot > Overflow.fStart) ? (fDot - Overflow.fStart) / (1.0f - Overflow.fStart) : 0.0f;
     if (bHaveOverflow)
     {
         pRS->TextureSet(0, iOverflowTex);
 
-        CVECTOR vOverflowColor = fFadeout * fAlphaOverflow * COLOR2VECTOR(Overflow.dwColor);
+        glm::vec3 vOverflowColor = fFadeout * fAlphaOverflow * COLOR2VECTOR(Overflow.dwColor);
 
         rs_rect.dwColor = makeRGB(static_cast<uint32_t>(vOverflowColor.x), static_cast<uint32_t>(vOverflowColor.y),
                                   static_cast<uint32_t>(vOverflowColor.z));
@@ -289,11 +289,11 @@ void SUNGLOW::Realize(uint32_t Delta_Time)
     if (Delta_Time && Flares.aFlares.size() && bHaveFlare)
     {
         auto mCam = OldMatrix;
-        mCam.Transposition();
+        storm::math::invertRigid(mCam);
 
-        // CVECTOR vCenPos = CVECTOR(0.0f, 0.0f, Flares.fDist / 2.0f);
-        auto vCenPos = mCam.Vz() * Flares.fDist / 2.0f + mCam.Pos();
-        auto vDelta = Flares.fDist * !(vCenPos - vSun);
+        // glm::vec3 vCenPos = glm::vec3(0.0f, 0.0f, Flares.fDist / 2.0f);
+        auto vCenPos = storm::math::vz(mCam) * Flares.fDist / 2.0f + storm::math::pos(mCam);
+        auto vDelta = Flares.fDist * storm::math::normalizeOrZero(vCenPos - vSun);
         for (uint32_t i = 0; i < Flares.aFlares.size(); i++)
         {
             auto *pF = &Flares.aFlares[i];
@@ -323,17 +323,17 @@ void SUNGLOW::DrawSunMoon()
     const auto fGlowSize = bMoon ? Glow.fMoonSize : Glow.fSunSize;
 
     float fFov;
-    CVECTOR vCamPos, vCamAng;
-    CVECTOR vSun, vSunPos, vSunDir;
+    glm::vec3 vCamPos, vCamAng;
+    glm::vec3 vSun, vSunPos, vSunDir;
 
     pWeather->GetVector(whv_sun_pos, &vSunPos);
     pRS->GetCamera(vCamPos, vCamAng, fFov);
-    vSunDir = !vSunPos;
+    vSunDir = storm::math::normalizeOrZero(vSunPos);
     vSun = vCamPos + (vSunDir * Glow.fDist);
 
     if (bHaveGlow && vSun.y > fBottomClip - fGlowSize)
     {
-        const CVECTOR vGlowColor = COLOR2VECTOR(Glow.dwColor);
+        const glm::vec3 vGlowColor = COLOR2VECTOR(Glow.dwColor);
 
         if (bMoon)
             pRS->TextureSet(0, iMoonTex);
@@ -554,12 +554,12 @@ void SUNGLOW::DrawReflection() const
         return;
 
     float fFov;
-    CVECTOR vSun, vSunPos, vSunDir;
-    CVECTOR vCamPos, vCamAng;
+    glm::vec3 vSun, vSunPos, vSunDir;
+    glm::vec3 vCamPos, vCamAng;
 
     pWeather->GetVector(whv_sun_pos, &vSunPos);
     pRS->GetCamera(vCamPos, vCamAng, fFov);
-    vSunDir = !vSunPos;
+    vSunDir = storm::math::normalizeOrZero(vSunPos);
     vSun = vCamPos + (vSunDir * Reflection.fDist);
 
     RS_RECT r_spr;
@@ -593,19 +593,19 @@ uint64_t SUNGLOW::ProcessMessage(MESSAGE &message)
     return 0;
 }
 
-void SUNGLOW::DrawRect(uint32_t dwColor, const CVECTOR &pos, float fSize, float fAngle, const char *pcTechnique,
+void SUNGLOW::DrawRect(uint32_t dwColor, const glm::vec3 &pos, float fSize, float fAngle, const char *pcTechnique,
                        float fBClip) const
 {
     if (idRectBuf == -1)
         return;
 
-    static CMatrix camMtx;
-    pRS->GetTransform(D3DTS_VIEW, camMtx);
-    CVECTOR vx, vy, vp1, vp2, vp3, vp4;
+    static glm::mat4 camMtx;
+    pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
+    glm::vec3 vx, vy, vp1, vp2, vp3, vp4;
     const auto sn = sinf(fAngle);
     const auto cs = cosf(fAngle);
-    camMtx.MulToInvNorm(CVECTOR(fSize, 0, 0) * cs + CVECTOR(0, fSize, 0) * sn, vx);
-    camMtx.MulToInvNorm(CVECTOR(0, fSize, 0) * cs - CVECTOR(fSize, 0, 0) * sn, vy);
+    vx = storm::math::inverseTransformNormal(camMtx, glm::vec3(fSize, 0, 0) * cs + glm::vec3(0, fSize, 0) * sn);
+    vy = storm::math::inverseTransformNormal(camMtx, glm::vec3(0, fSize, 0) * cs - glm::vec3(fSize, 0, 0) * sn);
     vp1 = pos - vx + vy;
     vp2 = pos - vx - vy;
     vp3 = pos + vx - vy;
@@ -725,7 +725,7 @@ void SUNGLOW::DrawRect(uint32_t dwColor, const CVECTOR &pos, float fSize, float 
 
     if (nv > 2)
     {
-        pRS->SetTransform(D3DTS_WORLD, CMatrix());
+        pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
         pRS->DrawPrimitive(D3DPT_TRIANGLEFAN, idRectBuf, sizeof(SUNGLOWVERTEX), 0, nv - 2, pcTechnique);
     }
 
@@ -740,7 +740,7 @@ void SUNGLOW::DrawRect(uint32_t dwColor, const CVECTOR &pos, float fSize, float 
     pRS->DrawLines( lines, 4, "Line" );*/
 }
 
-float SUNGLOW::GetSunFadeoutFactor(const CVECTOR &vSunPos, float fSunSize)
+float SUNGLOW::GetSunFadeoutFactor(const glm::vec3 &vSunPos, float fSunSize)
 {
     // get a pointer to the sky
     if (!pSky)

@@ -75,14 +75,14 @@ void Debris::Update(float dltTime)
                 fly[flyCounter].y = 0.0f + (rand() & 7);
                 fly[flyCounter].a = rand() * 2.0f * TRND_PI / RAND_MAX;
                 fly[flyCounter].ay = rand() * (3.0f / RAND_MAX);
-                fly[flyCounter].ang = 0.0f;
+                fly[flyCounter].ang = glm::vec3(0.0f);
                 fly[flyCounter].scale = 1.0f + (rand() & 3) / 4.0f;
                 flyCounter++;
                 if (soundService)
                 {
                     if (lastPlayTime <= 0.0f)
                     {
-                        const auto pos = CVECTOR(pillar.GetX(0.0f), 0.0f, pillar.GetZ(0.0f));
+                        const auto pos = glm::vec3(pillar.GetX(0.0f), 0.0f, pillar.GetZ(0.0f));
                         soundService->SoundPlay("TornadoCrackSound", PCM_3D, VOLUME_FX, false, false, true, 0, &pos);
                         lastPlayTime = 0.2f + rand() * (0.2f / RAND_MAX);
                     }
@@ -141,14 +141,14 @@ void Debris::Draw(VDX9RENDER *rs)
     for (int32_t i = 0; i < flyCounter; i++)
     {
         // Model position
-        CVECTOR pos;
+        glm::vec3 pos;
         pos.x = pillar.GetX(fly[i].y) + fly[i].r * sinf(fly[i].a);
         pos.y = fly[i].y;
         pos.z = pillar.GetZ(fly[i].y) + fly[i].r * cosf(fly[i].a);
-        fly[i].mdl->mtx.BuildMatrix(fly[i].ang, pos);
+        fly[i].mdl->mtx = storm::math::eulerMatrix(fly[i].ang, pos);
         for (int32_t a = 0; a < 3; a++)
             for (int32_t b = 0; b < 3; b++)
-                fly[i].mdl->mtx.m[a][b] *= fly[i].scale;
+                fly[i].mdl->mtx[a][b] *= fly[i].scale;
         rs->SetRenderState(D3DRS_TEXTUREFACTOR, (static_cast<int32_t>(fly[i].alpha * galpha) << 24) | 0xffffff);
         fly[i].mdl->ProcessStage(Entity::Stage::realize, 10);
     }
@@ -221,8 +221,8 @@ MODEL *Debris::SelectModel(float &maxSpd)
 
 bool Debris::IsShip()
 {
-    const CVECTOR p(pillar.GetX(0.0f), 0.0f, pillar.GetZ(0.0f));
-    CVECTOR pos;
+    const glm::vec3 p(pillar.GetX(0.0f), 0.0f, pillar.GetZ(0.0f));
+    glm::vec3 pos;
     auto &&entities = core.GetEntityIds("ship");
     for (auto id : entities)
     {
@@ -232,7 +232,7 @@ bool Debris::IsShip()
             break;
         // Tornado position in the ship system
         Assert(ship->GetMatrix());
-        ship->GetMatrix()->MulToInv(p, pos);
+        pos = storm::math::inverseTransformPoint(*ship->GetMatrix(), p);
         // Check the box
         const auto s = ship->GetBoxsize();
         if (pos.x < -s.x - 6.0f || pos.x > s.x + 6.0f)

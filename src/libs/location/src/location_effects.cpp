@@ -105,7 +105,7 @@ void LocationEffects::Realize(uint32_t delta_time)
 uint64_t LocationEffects::ProcessMessage(MESSAGE &message)
 {
     const std::string &buf = message.String();
-    CVECTOR pos, dir;
+    glm::vec3 pos, dir;
     if (storm::iEquals(buf, "Splashes"))
     {
         pos.x = message.Float();
@@ -171,17 +171,17 @@ inline void LocationEffects::DrawParticles(void *prts, int32_t num, int32_t size
 {
     if (num <= 0)
         return;
-    CMatrix camMtx;
-    rs->GetTransform(D3DTS_VIEW, camMtx);
-    rs->SetTransform(D3DTS_VIEW, CMatrix());
-    rs->SetTransform(D3DTS_WORLD, CMatrix());
+    glm::mat4 camMtx;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
+    rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(glm::mat4()));
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
     rs->TextureSet(0, texture);
     int32_t n = 0;
     for (int32_t i = 0; i < num; i++)
     {
         auto *parts = static_cast<Particle *>(prts);
         prts = static_cast<char *>(prts) + size;
-        auto pos = camMtx * parts->pos;
+        auto pos = storm::math::transformPoint(camMtx, parts->pos);
         const auto size = parts->size * 0.5f;
         const auto sn = sinf(parts->angle);
         const auto cs = cosf(parts->angle);
@@ -198,15 +198,15 @@ inline void LocationEffects::DrawParticles(void *prts, int32_t num, int32_t size
             u1 = static_cast<int32_t>(static_cast<ParticleEx *>(parts)->frame) * u2;
             u2 += u1;
         }
-        buffer[n * 6 + 0].pos = pos + CVECTOR(size * (-cs + sn), size * (sn + cs), 0.0f);
+        buffer[n * 6 + 0].pos = pos + glm::vec3(size * (-cs + sn), size * (sn + cs), 0.0f);
         buffer[n * 6 + 0].color = color;
         buffer[n * 6 + 0].u = u1;
         buffer[n * 6 + 0].v = 0.0f;
-        buffer[n * 6 + 1].pos = pos + CVECTOR(size * (-cs - sn), size * (sn - cs), 0.0f);
+        buffer[n * 6 + 1].pos = pos + glm::vec3(size * (-cs - sn), size * (sn - cs), 0.0f);
         buffer[n * 6 + 1].color = color;
         buffer[n * 6 + 1].u = u1;
         buffer[n * 6 + 1].v = 1.0f;
-        buffer[n * 6 + 2].pos = pos + CVECTOR(size * (cs + sn), size * (-sn + cs), 0.0f);
+        buffer[n * 6 + 2].pos = pos + glm::vec3(size * (cs + sn), size * (-sn + cs), 0.0f);
         buffer[n * 6 + 2].color = color;
         buffer[n * 6 + 2].u = u2;
         buffer[n * 6 + 2].v = 0.0f;
@@ -218,7 +218,7 @@ inline void LocationEffects::DrawParticles(void *prts, int32_t num, int32_t size
         buffer[n * 6 + 4].color = color;
         buffer[n * 6 + 4].u = u1;
         buffer[n * 6 + 4].v = 1.0f;
-        buffer[n * 6 + 5].pos = pos + CVECTOR(size * (cs - sn), size * (-sn - cs), 0.0f);
+        buffer[n * 6 + 5].pos = pos + glm::vec3(size * (cs - sn), size * (-sn - cs), 0.0f);
         buffer[n * 6 + 5].color = color;
         buffer[n * 6 + 5].u = u2;
         buffer[n * 6 + 5].v = 1.0f;
@@ -235,10 +235,10 @@ inline void LocationEffects::DrawParticles(void *prts, int32_t num, int32_t size
         rs->DrawPrimitiveUP(D3DPT_TRIANGLELIST, D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1, n * 2, buffer,
                             sizeof(Vertex), (char *)tech);
     }
-    rs->SetTransform(D3DTS_VIEW, camMtx);
+    rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
 }
 
-void LocationEffects::CreateSplash(const CVECTOR &pos, float power)
+void LocationEffects::CreateSplash(const glm::vec3 &pos, float power)
 {
     // Select the freed block
     int32_t i;
@@ -260,8 +260,8 @@ void LocationEffects::CreateSplash(const CVECTOR &pos, float power)
         const auto ang = rand() * (LFX_PI * 2.0f / RAND_MAX);
         const auto r = rand() * (2.0f * LFX_SPLASHES_SRAD / static_cast<float>(RAND_MAX));
         const auto s = 1.0f + rand() * (3.0f / static_cast<float>(RAND_MAX));
-        spl.prt[i].dir = CVECTOR(0.3f * sinf(ang), s, 0.3f * cosf(ang));
-        spl.prt[i].pos = pos + CVECTOR(r * sinf(ang), 0.0f, r * cosf(ang));
+        spl.prt[i].dir = glm::vec3(0.3f * sinf(ang), s, 0.3f * cosf(ang));
+        spl.prt[i].pos = pos + glm::vec3(r * sinf(ang), 0.0f, r * cosf(ang));
         spl.prt[i].angle = 0.0f;
         spl.prt[i].alpha = 0.0f;
         spl.prt[i].dAng = ((rand() & 7) * (1.0f / 7.0f) - 0.5f) * 0.2f;
@@ -317,7 +317,7 @@ void LocationEffects::ProcessedChrSplash(float dltTime)
 // Flies near laterns
 // ---------------------------------------------------
 
-void LocationEffects::AddLampFlys(CVECTOR &pos)
+void LocationEffects::AddLampFlys(glm::vec3 &pos)
 {
     // occupy the array
     if (numFlys >= maxFlys)
@@ -359,10 +359,10 @@ void LocationEffects::AddLampFlys(CVECTOR &pos)
 
 void LocationEffects::ProcessedFlys(float dltTime)
 {
-    CMatrix view;
-    rs->GetTransform(D3DTS_VIEW, view);
-    view.Transposition();
-    const CVECTOR cam = view.Pos();
+    glm::mat4 view;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+    storm::math::invertRigid(view);
+    const glm::vec3 cam = storm::math::pos(view);
     const float dax = dltTime * 1.3f;
     const float day = dltTime * 1.4f;
     const float da = dltTime * 5.6f;
@@ -370,8 +370,8 @@ void LocationEffects::ProcessedFlys(float dltTime)
     for (int32_t i = 0; i < numFlys; i++)
     {
         // Coefficient of visibility
-        CVECTOR dir = cam - flys[i].pos;
-        float k = ~dir;
+        glm::vec3 dir = cam - flys[i].pos;
+        float k = storm::math::lengthSquared(dir);
         if (k > 400.0f)
             continue;
         k = sqrtf(k);
@@ -400,11 +400,11 @@ void LocationEffects::ProcessedFlys(float dltTime)
             // Transparency
             f.alpha = k * 255.0f;
             // Colour
-            CVECTOR tmp = f.pos - flys[i].pos;
-            float dst = sqrtf(~tmp);
+            glm::vec3 tmp = f.pos - flys[i].pos;
+            float dst = sqrtf(storm::math::lengthSquared(tmp));
             if (dst > 0.0f)
                 tmp *= 1.0f / dst;
-            float cs = -(tmp | dir) + 0.4f;
+            float cs = -glm::dot(tmp, dir) + 0.4f;
             if (dst > flys[i].radius)
             {
                 dst = 3.0f * (dst - flys[i].radius) / flys[i].radius;
@@ -461,7 +461,7 @@ void LocationEffects::SGRelease()
     texHor = -1;
 }
 
-void LocationEffects::SGEnvPrt(const CVECTOR &pos, const CVECTOR &ndir)
+void LocationEffects::SGEnvPrt(const glm::vec3 &pos, const glm::vec3 &ndir)
 {
     SGInited();
     const int32_t max = sizeof(flinders) / sizeof(flinders[0]);
@@ -495,7 +495,7 @@ void LocationEffects::SGEnvPrt(const CVECTOR &pos, const CVECTOR &ndir)
     }
 }
 
-void LocationEffects::SGBldPrt(const CVECTOR &pos, const CVECTOR &ndir)
+void LocationEffects::SGBldPrt(const glm::vec3 &pos, const glm::vec3 &ndir)
 {
     SGInited();
     const int32_t max = sizeof(blood) / sizeof(blood[0]);
@@ -529,7 +529,7 @@ void LocationEffects::SGBldPrt(const CVECTOR &pos, const CVECTOR &ndir)
     }
 }
 
-void LocationEffects::SGFirePrt(const CVECTOR &pos, const CVECTOR &ndir)
+void LocationEffects::SGFirePrt(const glm::vec3 &pos, const glm::vec3 &ndir)
 {
     SGInited();
     const int32_t max = sizeof(smoke) / sizeof(smoke[0]);
@@ -567,7 +567,7 @@ void LocationEffects::ProcessedShotgun(float dltTime)
 {
     if (!isShgInited)
         return;
-    CVECTOR winDir = 0.0f;
+    glm::vec3 winDir(0.0f);
     VDATA *param = core.Event("EWhr_GetWindAngle");
     if (param)
     {
@@ -687,11 +687,11 @@ void LocationEffects::ProcessedShotgun(float dltTime)
     {
         DrawParticles(smoke, numSmoke, sizeof(smoke[0]), texSmoke, "ShootParticles");
     }
-    CMatrix mtx;
-    rs->GetTransform(D3DTS_VIEW, mtx);
-    mtx.Transposition();
+    glm::mat4 mtx;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mtx));
+    storm::math::invertRigid(mtx);
     Particle prt;
-    prt.pos = mtx.Pos() + mtx.Vz() * 2.0f;
+    prt.pos = storm::math::pos(mtx) + storm::math::vz(mtx) * 2.0f;
     prt.angle = 0.0f;
     prt.size = 0.1f;
     prt.alpha = 255.0f;

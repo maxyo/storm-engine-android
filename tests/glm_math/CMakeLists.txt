@@ -12,17 +12,21 @@ set(RESOURCE_DIRS rsrc)
 set(SOURCE_FILE_EXTENSIONS "*.cpp")
 set(HEADER_FILE_EXTENSIONS "*.h" "*.hpp")
 add_subdirectory("${root}/src/libs/math" math)
-foreach(contract check packed_vector_include packed_check builders_check math3d_check bench)
+foreach(contract check packed_vector_include builders_check helpers_check bench)
     add_executable(${contract} ${contract}.cpp)
     target_link_libraries(${contract} PRIVATE math)
     target_include_directories(${contract} PRIVATE sdk_shape)
-    # The packing regression tests today's bridge even in the baseline build.
-    # The other harnesses exercise only public APIs of either header revision.
+    # The packing regression always tests today's storm_glm.h. The other
+    # harnesses reach the math API through legacy_api.h, which has one
+    # implementation per header generation.
     if(STORM_MATH_BASELINE_HEADERS AND NOT contract STREQUAL "packed_vector_include")
         target_include_directories(${contract} BEFORE PRIVATE "${STORM_MATH_BASELINE_HEADERS}")
+        # legacy_api.h then maps its neutral API onto the archived class API.
+        target_compile_definitions(${contract} PRIVATE STORM_MATH_TEST_BASELINE)
     endif()
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(${contract} PRIVATE -Wall -Wextra -ffp-contract=off)
+        # -fno-strict-aliasing mirrors the engine build (src/CMakeLists.txt).
+        target_compile_options(${contract} PRIVATE -Wall -Wextra -ffp-contract=off -fno-strict-aliasing)
         if(STORM_MATH_SANITIZE)
             target_compile_options(${contract} PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all)
             target_link_options(${contract} PRIVATE -fsanitize=address,undefined)
@@ -31,7 +35,6 @@ foreach(contract check packed_vector_include packed_check builders_check math3d_
 endforeach()
 add_test(NAME glm_math_contract COMMAND check)
 add_test(NAME packed_vector_include COMMAND packed_vector_include)
-add_test(NAME packed_math_contract COMMAND packed_check)
 add_test(NAME matrix_builder_contract COMMAND builders_check)
-add_test(NAME math3d_contract COMMAND math3d_check)
+add_test(NAME math_helpers_contract COMMAND helpers_check)
 # bench is a manual micro-benchmark (see run.py --bench); it is not a test.

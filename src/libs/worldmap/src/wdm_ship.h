@@ -83,7 +83,7 @@ class WdmShip : public WdmRenderModel
     float speed, turnspd;
     float baseV;
     float kMaxSpeed;
-    CVECTOR rspeed;
+    glm::vec3 rspeed;
     int32_t collisionCounter;
     float slope;
     int32_t wmtexture;

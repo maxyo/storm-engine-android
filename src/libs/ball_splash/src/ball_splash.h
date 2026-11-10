@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ball_splash_defines.h"
-#include "c_vector.h"
+#include "storm_glm.h"
 #include "t_splash.h"
 #include "dx9render.h"
 #include "geometry.h"
@@ -41,7 +41,7 @@ class BALLSPLASH : public Entity
 
   private:
     void InitializeSplashes();
-    TSplash *TryToAddSplash(const CVECTOR &_pos, const CVECTOR &_dir);
+    TSplash *TryToAddSplash(const glm::vec3 &_pos, const glm::vec3 &_dir);
 
     TSplash splashes[MAX_SPLASHES];
     VDX9RENDER *renderer;

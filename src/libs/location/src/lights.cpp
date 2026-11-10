@@ -196,7 +196,7 @@ void Lights::Execute(uint32_t delta_time)
 void Lights::Realize(uint32_t delta_time)
 {
     // Camera position
-    CVECTOR pos, ang;
+    glm::vec3 pos, ang;
     rs->GetCamera(pos, ang, ang.x);
 
     ///////////////////
@@ -232,11 +232,11 @@ void Lights::Realize(uint32_t delta_time)
 
     ////////////////
     // Draw coronas
-    CMatrix camMtx;
-    rs->GetTransform(D3DTS_VIEW, camMtx);
-    rs->SetTransform(D3DTS_VIEW, CMatrix());
-    rs->SetTransform(D3DTS_WORLD, CMatrix());
-    const auto camPDist = -(pos.x * camMtx.Vx().z + pos.y * camMtx.Vy().z + pos.z * camMtx.Vz().z);
+    glm::mat4 camMtx;
+    rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
+    rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(glm::mat4()));
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
+    const auto camPDist = -(pos.x * storm::math::vx(camMtx).z + pos.y * storm::math::vy(camMtx).z + pos.z * storm::math::vz(camMtx).z);
     for (int32_t i = 0, n = 0; i < numLights; i++)
     {
         // Source
@@ -245,7 +245,7 @@ void Lights::Realize(uint32_t delta_time)
         if (l.corona < 0)
             continue;
         // in the foreground
-        auto dist = ls.pos.x * camMtx.Vx().z + ls.pos.y * camMtx.Vy().z + ls.pos.z * camMtx.Vz().z + camPDist;
+        auto dist = ls.pos.x * storm::math::vx(camMtx).z + ls.pos.y * storm::math::vy(camMtx).z + ls.pos.z * storm::math::vz(camMtx).z + camPDist;
         if (dist < -2.0f * l.coronaSize)
             continue;
         // Distance
@@ -261,7 +261,7 @@ void Lights::Realize(uint32_t delta_time)
         if (collide)
         {
             const auto dist = collide->Trace(core.GetEntityIds(SUN_TRACE), pos,
-                                             CVECTOR(ls.pos.x, ls.pos.y, ls.pos.z), lampModels, numLampModels);
+                                             glm::vec3(ls.pos.x, ls.pos.y, ls.pos.z), lampModels, numLampModels);
             isVisible = dist > 1.0f;
         }
         ls.corona += isVisible ? 0.008f * delta_time : -0.008f * delta_time;
@@ -302,7 +302,7 @@ void Lights::Realize(uint32_t delta_time)
         if (alpha > 255.0f)
             alpha = 255.0f;
         // Position
-        auto pos = camMtx * CVECTOR(ls.pos.x, ls.pos.y, ls.pos.z);
+        auto pos = storm::math::transformPoint(camMtx, glm::vec3(ls.pos.x, ls.pos.y, ls.pos.z));
         // Colour
         auto c = static_cast<uint32_t>(alpha);
         c |= (c << 24) | (c << 16) | (c << 8);
@@ -310,8 +310,8 @@ void Lights::Realize(uint32_t delta_time)
         float cs, sn;
         if (dist > 0.0f)
         {
-            auto _cs = (dx * camMtx.Vx().z + dz * camMtx.Vz().z);
-            auto _sn = (dx * camMtx.Vz().z - dz * camMtx.Vx().z);
+            auto _cs = (dx * storm::math::vx(camMtx).z + dz * storm::math::vz(camMtx).z);
+            auto _sn = (dx * storm::math::vz(camMtx).z - dz * storm::math::vx(camMtx).z);
             auto kn = _cs * _cs + _sn * _sn;
             if (kn > 0.0f)
             {
@@ -333,15 +333,15 @@ void Lights::Realize(uint32_t delta_time)
             sn = 0.0f;
         }
         // fill in
-        buf[n * 6 + 0].pos = pos + CVECTOR(size * (-cs + sn), size * (sn + cs), 0.0f);
+        buf[n * 6 + 0].pos = pos + glm::vec3(size * (-cs + sn), size * (sn + cs), 0.0f);
         buf[n * 6 + 0].color = c;
         buf[n * 6 + 0].u = 0.0f;
         buf[n * 6 + 0].v = 0.0f;
-        buf[n * 6 + 1].pos = pos + CVECTOR(size * (-cs - sn), size * (sn - cs), 0.0f);
+        buf[n * 6 + 1].pos = pos + glm::vec3(size * (-cs - sn), size * (sn - cs), 0.0f);
         buf[n * 6 + 1].color = c;
         buf[n * 6 + 1].u = 0.0f;
         buf[n * 6 + 1].v = 1.0f;
-        buf[n * 6 + 2].pos = pos + CVECTOR(size * (cs + sn), size * (-sn + cs), 0.0f);
+        buf[n * 6 + 2].pos = pos + glm::vec3(size * (cs + sn), size * (-sn + cs), 0.0f);
         buf[n * 6 + 2].color = c;
         buf[n * 6 + 2].u = 1.0f;
         buf[n * 6 + 2].v = 0.0f;
@@ -353,7 +353,7 @@ void Lights::Realize(uint32_t delta_time)
         buf[n * 6 + 4].color = c;
         buf[n * 6 + 4].u = 0.0f;
         buf[n * 6 + 4].v = 1.0f;
-        buf[n * 6 + 5].pos = pos + CVECTOR(size * (cs - sn), size * (-sn - cs), 0.0f);
+        buf[n * 6 + 5].pos = pos + glm::vec3(size * (cs - sn), size * (-sn - cs), 0.0f);
         buf[n * 6 + 5].color = c;
         buf[n * 6 + 5].u = 1.0f;
         buf[n * 6 + 5].v = 1.0f;
@@ -363,7 +363,7 @@ void Lights::Realize(uint32_t delta_time)
                             "Coronas");
         n = 0;
     }
-    rs->SetTransform(D3DTS_VIEW, camMtx);
+    rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(camMtx));
 
     // Debug
     if (core.Controls->GetDebugAsyncKeyState(VK_SHIFT) < 0 && core.Controls->GetDebugAsyncKeyState(VK_SPACE) < 0)
@@ -384,7 +384,7 @@ int32_t Lights::FindLight(const char *name)
 }
 
 // Add source to location
-void Lights::AddLight(int32_t index, const CVECTOR &pos)
+void Lights::AddLight(int32_t index, const glm::vec3 &pos)
 {
     if (index == -1)
         return;
@@ -434,7 +434,7 @@ void Lights::DelAllLights()
 }
 
 // Add portable source
-int32_t Lights::AddMovingLight(const char *type, const CVECTOR &pos)
+int32_t Lights::AddMovingLight(const char *type, const glm::vec3 &pos)
 {
     int32_t idx;
     for (idx = 0; idx < 1000; idx++)
@@ -459,7 +459,7 @@ int32_t Lights::AddMovingLight(const char *type, const CVECTOR &pos)
 }
 
 // Put portable source in new position
-void Lights::UpdateMovingLight(int32_t id, const CVECTOR &pos)
+void Lights::UpdateMovingLight(int32_t id, const glm::vec3 &pos)
 {
     for (int32_t n = 0; n < aMovingLight.size(); n++)
     {
@@ -488,7 +488,7 @@ void Lights::DelMovingLight(int32_t id)
 }
 
 // Set light sources for the character
-void Lights::SetLightsAt(const CVECTOR &pos)
+void Lights::SetLightsAt(const glm::vec3 &pos)
 {
     // get lights at specified pos
     auto const lightsAtPos = GetLightsAt(pos);
@@ -595,32 +595,31 @@ void Lights::PrintDebugInfo()
 {
     for (uint32_t i = 0; i < numLights; ++i)
     {
-        auto lightPos = *(CVECTOR*)&lights[i].pos;
+        auto lightPos = *(glm::vec3*)&lights[i].pos;
         auto scale = 1.0f;
 
-        static CMatrix mtx, view, prj;
+        static glm::mat4 mtx, view, prj;
         static D3DVIEWPORT9 vp;
-        MTX_PRJ_VECTOR vrt;
-        rs->GetTransform(D3DTS_VIEW, view);
-        rs->GetTransform(D3DTS_PROJECTION, prj);
-        mtx.EqMultiply(view, prj);
-        view.Transposition();
+        storm::math::ProjectedPoint vrt;
+        rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
+        rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prj));
+        mtx = prj * view;
+        storm::math::invertRigid(view);
         rs->GetViewport(&vp);
-        mtx.Projection(&lightPos, &vrt, 1, vp.Width * 0.5f, vp.Height * 0.5f, sizeof(CVECTOR),
-                       sizeof(MTX_PRJ_VECTOR));
+        storm::math::projectPoints(mtx, &lightPos, &vrt, 1, vp.Width * 0.5f, vp.Height * 0.5f, sizeof(glm::vec3), sizeof(storm::math::ProjectedPoint));
         vrt.y -= rs->CharHeight(FONT_DEFAULT) / 2;
 
-        CVECTOR pos, ang;
+        glm::vec3 pos, ang;
         rs->GetCamera(pos, ang, ang.x);
         // visibility
-        const auto camPDist = -(pos.x * view.Vx().z + pos.y * view.Vy().z + pos.z * view.Vz().z);
+        const auto camPDist = -(pos.x * storm::math::vx(view).z + pos.y * storm::math::vy(view).z + pos.z * storm::math::vz(view).z);
 
         auto &ls = lights[i];
         auto &l = types[ls.type];
         if (l.corona < 0)
             continue;
         // in the foreground
-        auto dist = ls.pos.x * view.Vx().z + ls.pos.y * view.Vy().z + ls.pos.z * view.Vz().z + camPDist;
+        auto dist = ls.pos.x * storm::math::vx(view).z + ls.pos.y * storm::math::vy(view).z + ls.pos.z * storm::math::vz(view).z + camPDist;
         if (dist < -2.0f * l.coronaSize)
             continue;
         // Distance
@@ -632,8 +631,8 @@ void Lights::PrintDebugInfo()
         if (!isVisible)
             continue;
 
-        rs->SetTransform(D3DTS_VIEW, CMatrix());
-        rs->SetTransform(D3DTS_WORLD, CMatrix());
+        rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(glm::mat4()));
+        rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
 
         rs->ExtPrint(FONT_DEFAULT, D3DCOLOR_ARGB(255, 255, 255, 255), 0x00000000, PR_ALIGN_CENTER, 
             false, scale, 0, 0,
@@ -654,6 +653,6 @@ void Lights::PrintDebugInfo()
                      fmt::format("{}", i).c_str());
 
         
-        rs->SetTransform(D3DTS_VIEW, view);
+        rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));
     }
 }

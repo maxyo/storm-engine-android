@@ -1,6 +1,6 @@
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "dx9render.h"
 #include "geos.h"
 #include "vma.hpp"
@@ -15,7 +15,7 @@ class NODE;
 
 struct VANTVERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float tu, tv;
 };
 
@@ -90,14 +90,14 @@ class VANT_BASE : public Entity
     struct VANTDATA
     {
         bool bDeleted;
-        CVECTOR pUp, pLeft, pRight;
-        CMatrix *pUpMatWorld, *pDownMatWorld;
+        glm::vec3 pUp, pLeft, pRight;
+        glm::mat4 *pUpMatWorld, *pDownMatWorld;
         uint32_t sv, nv, st, nt;
 
         int vantNum;
-        CVECTOR pos[VANT_EDGE];
+        glm::vec3 pos[VANT_EDGE];
 
-        CVECTOR pUpOld, pLeftOld, pUpStart, pLeftStart;
+        glm::vec3 pUpOld, pLeftOld, pUpStart, pLeftStart;
         int HostGroup;
     };
 
@@ -112,7 +112,7 @@ class VANT_BASE : public Entity
         int32_t sVert, nVert;
         int32_t sIndx, nIndx;
 
-        CMatrix *pMatWorld;
+        glm::mat4 *pMatWorld;
         entid_t model_id;
         entid_t shipEI;
     };
@@ -126,7 +126,7 @@ class VANT_BASE : public Entity
     void SetAll();
     void SetAdd(int firstNum);
     void doMove();
-    bool VectCmp(CVECTOR v1, CVECTOR v2, float minCmpVal);
+    bool VectCmp(glm::vec3 v1, glm::vec3 v2, float minCmpVal);
     void FirstRun();
     void DoSTORM_DELETE();
 

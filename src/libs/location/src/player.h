@@ -66,7 +66,7 @@ class Player : public NPCharacter
     // --------------------------------------------------------------------------------------------
   private:
     void FireFromShootgun();
-    void ShootParticles(const CVECTOR &pos, const CVECTOR &ndir, float size, uint32_t color, int32_t num);
+    void ShootParticles(const glm::vec3 &pos, const glm::vec3 &ndir, float size, uint32_t color, int32_t num);
 
     float GetRotateH();
 
@@ -83,7 +83,7 @@ class Player : public NPCharacter
     unsigned androidTraceTail = 0;
     bool androidTraceHasPosition = false;
     bool androidTraceHasTick = false;
-    CVECTOR androidTracePosition = CVECTOR(0.0f, 0.0f, 0.0f);
+    glm::vec3 androidTracePosition = glm::vec3(0.0f, 0.0f, 0.0f);
 #endif
     float lastChange;
     bool activatedDialog;

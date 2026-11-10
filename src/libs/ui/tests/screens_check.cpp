@@ -140,6 +140,19 @@ static void Roles()
     Expect(RoleOf(Make("B3", "button", "Удалить запись")) == ButtonRole::Danger, "«Удалить» is dangerous");
     Expect(RoleOf(Make("I_SHIP_2", "button", "Корабль")) == ButtonRole::Section && SectionOf(Make("I_SHIP_2", "button")) == "ship", "section navigation");
     Expect(RoleOf(Make("B4", "button", "Подробнее")) == ButtonRole::Other, "anything else is secondary");
+    // One case per shipped language (en is covered by the checks of the shared words above).
+    Expect(RoleOf(Make("B5", "button", "Zurück")) == ButtonRole::Exit, "de: «Zurück» is the exit");
+    Expect(RoleOf(Make("B6", "button", "Bestätigen")) == ButtonRole::Confirm, "de: «Bestätigen» confirms");
+    Expect(RoleOf(Make("B7", "button", "Eintrag löschen")) == ButtonRole::Danger, "de: «löschen» is dangerous");
+    Expect(RoleOf(Make("B8", "button", "Cancelar")) == ButtonRole::Exit, "es: «Cancelar» is the exit");
+    Expect(RoleOf(Make("B9", "button", "Sí")) == ButtonRole::Confirm, "es: «Sí» confirms");
+    Expect(RoleOf(Make("B10", "button", "Eliminar partida")) == ButtonRole::Danger, "es: «Eliminar» is dangerous");
+    Expect(RoleOf(Make("B11", "button", "Annuler")) == ButtonRole::Exit, "fr: «Annuler» is the exit");
+    Expect(RoleOf(Make("B12", "button", "Terminé")) == ButtonRole::Confirm, "fr: «Terminé» confirms");
+    Expect(RoleOf(Make("B13", "button", "Supprimer la sauvegarde")) == ButtonRole::Danger, "fr: «Supprimer» is dangerous");
+    Expect(RoleOf(Make("B14", "button", "Indietro")) == ButtonRole::Exit, "it: «Indietro» is the exit");
+    Expect(RoleOf(Make("B15", "button", "Conferma")) == ButtonRole::Confirm, "it: «Conferma» confirms");
+    Expect(RoleOf(Make("B16", "button", "Elimina partita")) == ButtonRole::Danger, "it: «Elimina» is dangerous");
 }
 
 static void Commands()
@@ -285,7 +298,12 @@ static void Store(const std::string &models)
     ExpectEqual(surface.props["extras"]["note"], "Членам купеческой гильдии — скидка 5 % до 1 декабря", "unknown text → parchment note");
     Expect(surface.props["extras"]["rows"].size() == 1 && surface.props["extras"]["rows"][0]["title"] == "Гильдейский счёт", "unknown button → «Прочее» row");
     Expect(surface.logs.size() == 1 && surface.logs[0] == "screen store extras=B_GUILD,GUILD_NOTE", "extras logged once");
-    router.SetInterface(Load(models, "store.json"));
+    InterfaceModel one_line = Load(models, "store.json");
+    for (Widget &widget : one_line.widgets)
+        if (widget.node == "CAPACITY")
+            widget.label = "Дедвейт: 189 / 700"; // as the game writes it
+    router.SetInterface(one_line);
+    Expect(surface.props["stats"][0]["label"] == "Дедвейт" && surface.props["stats"][0]["value"] == "189 / 700", "a one-line figure is split at its colon");
     Expect(surface.logs.size() == 1 && surface.errors.empty(), "the same node set is not logged again");
 
     router.OnEvent({"goods", "row", "1"});
@@ -300,6 +318,12 @@ static void Store(const std::string &models)
     ExpectEqual(surface.Last(), "widget:store\tQTY_EDIT\t-1\tguard@7:goods:0:ship:0|-50", "below the hold = sell, guarded by the row");
     router.OnEvent({"primary", "click", ""});
     ExpectEqual(surface.Last(), "widget:store\tQTY_OK_BUTTON\t-1\tguard@7:goods:0:ship:0|press", "primary confirms");
+    surface.now += 0.3;
+    router.SetInterface(Load(models, "store-deal.json")); // the game answers with its own amount (a limit)
+    Expect(surface.props["list"]["rows"][0]["q"]["value"] == 150, "the amount just set is shown for a moment");
+    surface.now += 1.0;
+    router.Tick();
+    Expect(surface.props["list"]["rows"][0]["q"]["value"] == 300, "then the game's amount, without another model");
     surface.commands.clear();
     router.OnEvent({"goods", "row", "2"});
     Expect(surface.commands.size() == 2 && surface.commands[0] == "widget:store\tQTY_CANCEL_BUTTON\t-1\tguard@7:goods:0:ship:0|press" &&
@@ -315,7 +339,18 @@ static void Store(const std::string &models)
     broken.widgets.erase(std::remove_if(broken.widgets.begin(), broken.widgets.end(), [](const Widget &w) { return w.node == "TABLE_LIST"; }),
                          broken.widgets.end());
     broken.opening = 8;
+    surface.now = 10.0;
     router.SetInterface(broken);
+    Expect(surface.tag.empty() && surface.errors.empty(), "a fresh opening that is not complete yet waits, unreported");
+    InterfaceModel filled = Load(models, "store.json");
+    filled.opening = 8;
+    filled.revision = 2;
+    router.SetInterface(filled);
+    Expect(router.Using() == "store" && surface.errors.empty(), "the ported screen when the game has filled the interface");
+    broken.opening = 9;
+    router.SetInterface(broken);
+    surface.now += 1.0;
+    router.Tick();
     ExpectEqual(router.Using(), "generic", "store without TABLE_LIST → generic");
     ExpectEqual(router.Rejection(), "TABLE_LIST(choice)", "the rejection names the missing required node");
     Expect(surface.errors.size() == 1 &&
@@ -354,9 +389,12 @@ static void Commerce(const std::string &models)
     ExpectEqual(surface.props["list"]["rows"][0]["image"]["texture"], "atlas:GOODS/Sugar", "rows carry the game's picture reference");
     Expect(surface.props["stats"].size() == 2 && surface.props["stats"][1]["value"] == "2328 / 10000", "hold and storage figures in the header");
     surface.commands.clear();
+    const std::string zero = "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|0";
     router.OnEvent({"goods", "change", "80"});
     router.OnEvent({"goods", "change", "90"});
-    Expect(surface.commands.empty(), "steps wait for the amount to settle");
+    Expect(surface.commands.size() == 2 && surface.commands[0] == zero && surface.commands[1] == zero,
+           "each step only leaves giving at once; the amount waits for it to settle");
+    surface.commands.clear();
     surface.now += 0.5;
     router.Tick();
     Expect(surface.commands.size() == 2 && surface.commands[0] == "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|30" &&
@@ -365,11 +403,12 @@ static void Commerce(const std::string &models)
     surface.commands.clear();
     router.OnEvent({"goods", "commit", "10"});
     router.Tick();
-    Expect(surface.commands.size() == 2 && surface.commands[0] == "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|-50", "the end of a drag applies at once; less than we hold = give");
+    Expect(surface.commands.size() == 3 && surface.commands[0] == zero && surface.commands[1] == "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|-50",
+           "the end of a drag applies at once; less than we hold = give, after zero");
     surface.commands.clear();
     router.OnEvent({"goods", "commit", "60"});
     router.Tick();
-    Expect(surface.commands.size() == 1, "an unchanged amount confirms nothing");
+    Expect(surface.commands.size() == 2 && surface.Last() == zero, "an unchanged amount confirms nothing");
 
     // Chest / body: the game's category tabs, take all, remove body.
     router.SetInterface(Load(models, "itemsbox.json"));
@@ -462,6 +501,8 @@ static void Crew(const std::string &models)
                          broken.widgets.end());
     broken.opening = 9;
     router.SetInterface(broken);
+    surface.now += 1.0;
+    router.Tick();
     Expect(router.Using() == "generic" && router.Rejection() == "QTY_EDIT(edit)" && surface.errors.size() == 1, "without its edit box the crew screen is rejected loudly");
 }
 
@@ -493,8 +534,8 @@ static void Dialogue(const std::string &models)
     ExpectEqual(surface.Last(), "dialogue:4:1", "reply goes back with its generation");
     router.SetState("dialogue", Json{{"active", false}});
     Expect(surface.tag.empty(), "inactive dialogue unmounts");
-    router.SetState("vitals", Json::object());
-    Expect(surface.tag.empty() && surface.errors.size() == 1 && surface.errors[0] == "state channel vitals has no consumer",
+    router.SetState("weather", Json::object());
+    Expect(surface.tag.empty() && surface.errors.size() == 1 && surface.errors[0] == "state channel weather has no consumer",
            "a channel without a consumer is an error");
 }
 

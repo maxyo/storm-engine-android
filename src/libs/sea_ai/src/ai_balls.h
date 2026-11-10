@@ -9,7 +9,7 @@ struct BALL_PARAMS
     void Save(CSaveLoad *pSL);
     void Load(CSaveLoad *pSL);
 
-    CVECTOR vFirstPos, vPos; // first and current ball position
+    glm::vec3 vFirstPos, vPos; // first and current ball position
     VPARTICLE_SYSTEM *pParticle;
     std::string sBallEvent;
     int32_t iBallOwner;    // ball owner(character index)

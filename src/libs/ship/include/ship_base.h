@@ -1,16 +1,18 @@
 #pragma once
 
-#include "c_vector.h"
+#include "storm_glm.h"
+
+#include <d3d9.h>
 #include "vai_objbase.h"
 #include "vma.hpp"
 
 struct SHIP_STATE
 {
-    CVECTOR vPos, vAng;
-    CVECTOR vSpeed, vInert;
-    CVECTOR vRotate, vAngInert;
-    CVECTOR vBoxSize, vRealBoxSize;
-    CVECTOR vInertiaAccel, vInertiaBrake;
+    glm::vec3 vPos, vAng;
+    glm::vec3 vSpeed, vInert;
+    glm::vec3 vRotate, vAngInert;
+    glm::vec3 vBoxSize, vRealBoxSize;
+    glm::vec3 vInertiaAccel, vInertiaBrake;
 
     float fInertiaFactor, fMassInertia, fWaterResis;
     float fWeight; // current weight of ship in cwt
@@ -25,15 +27,15 @@ struct STRENGTH
 {
     BOOL bUse;       // true if use
     BOOL bInertia;   // inertia(true) or impulse(false)
-    CVECTOR vSpeed;  // speed power
-    CVECTOR vRotate; // rotate power
+    glm::vec3 vSpeed;  // speed power
+    glm::vec3 vRotate; // rotate power
 };
 
 struct TOUCH_PARAMS
 {
-    CVECTOR vSpeed;  // speed vector
-    CVECTOR vRotate; // rotate speed vector
-    CVECTOR vPos, vAng;
+    glm::vec3 vSpeed;  // speed vector
+    glm::vec3 vRotate; // rotate speed vector
+    glm::vec3 vPos, vAng;
 };
 
 class SHIP_BASE : public VAI_OBJBASE
@@ -51,7 +53,7 @@ class SHIP_BASE : public VAI_OBJBASE
         return pAShip;
     }
 
-    virtual BOOL BuildContour(CVECTOR *vContour, int32_t &iNumVContour) = 0;
+    virtual BOOL BuildContour(glm::vec3 *vContour, int32_t &iNumVContour) = 0;
 
     virtual BOOL TouchMove(uint32_t DeltaTime, TOUCH_PARAMS *pTPOld, TOUCH_PARAMS *pTPNew) = 0;
     virtual int32_t AddStrength(STRENGTH *strength) = 0;
@@ -81,7 +83,7 @@ class SHIP_BASE : public VAI_OBJBASE
     // set ship lights
     virtual void SetLights() = 0;
     virtual void UnSetLights() = 0;
-    void Fire(const CVECTOR &vPos) override = 0;
+    void Fire(const glm::vec3 &vPos) override = 0;
 
     virtual void SetFixedSpeed(bool bSetFixed, float fFixedSpeed) = 0;
 };

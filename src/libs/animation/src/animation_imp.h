@@ -50,7 +50,7 @@ class AnimationImp final : public Animation
     // Get the number of bones in a skeleton
     int32_t GetNumBones() const override;
     // Get animation matrix for bone
-    CMatrix &GetAnimationMatrix(int32_t iBone) const override;
+    glm::mat4 &GetAnimationMatrix(int32_t iBone) const override;
     // misc
     // Get custom data for animation
     const char *GetData(const char *dataName) const override;
@@ -132,7 +132,7 @@ class AnimationImp final : public Animation
     // Custom blending
     bool isUserBlend;
     // Skeleton matrices
-    CMatrix *matrix;
+    glm::mat4 *matrix;
     // Set by Execute(); the bone matrices are stale until GetAnimationMatrix() rebuilds them
     mutable bool matricesDirty_ = false;
     // Internal event subscribers

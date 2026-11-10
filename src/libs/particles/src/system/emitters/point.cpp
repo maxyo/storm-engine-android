@@ -10,8 +10,8 @@ PointEmitter::~PointEmitter()
 }
 
 // Get a position for the emission of new particles
-Vector PointEmitter::GetNewParticlePosition(float DeltaTime)
+glm::vec3 PointEmitter::GetNewParticlePosition(float DeltaTime)
 {
     // TODO: should emit at the starting position of the track ...
-    return Vector(0.0f);
+    return glm::vec3(0.0f);
 }

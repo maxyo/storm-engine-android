@@ -12,13 +12,13 @@ TDynamicObject::~TDynamicObject()
 }
 
 //--------------------------------------------------------------------
-void TDynamicObject::Initialize(const CVECTOR &_center, float _radius)
+void TDynamicObject::Initialize(const glm::vec3 &_center, float _radius)
 {
     pos.x = _center.x + randCentered(_radius);
     pos.y = 0.0f;
     pos.z = _center.z + randCentered(_radius);
     // ang = randCentered(PI*2.0);
-    velocity = !CVECTOR(randCentered(1.0f), 0.0f, randCentered(1.0f));
+    velocity = storm::math::normalizeOrZero(glm::vec3(randCentered(1.0f), 0.0f, randCentered(1.0f)));
 }
 
 //--------------------------------------------------------------------
@@ -26,8 +26,8 @@ void TDynamicObject::Calculate(TDynamicObject **a, int aCount, TDynamicObject **
 {
     // ang = fmod(ang, 2.0*PI);
 
-    CVECTOR aEffect(0.0f, 0.0f, 0.0f);
-    CVECTOR dEffect(0.0f, 0.0f, 0.0f);
+    glm::vec3 aEffect(0.0f, 0.0f, 0.0f);
+    glm::vec3 dEffect(0.0f, 0.0f, 0.0f);
     TDynamicObject **effectObject;
     int i;
 
@@ -44,15 +44,15 @@ void TDynamicObject::Calculate(TDynamicObject **a, int aCount, TDynamicObject **
         if (!(*effectObject) || (this == *effectObject))
             continue;
 
-        CVECTOR delta;
+        glm::vec3 delta;
         delta = (*effectObject)->pos - pos;
-        auto d = static_cast<float>(sqrt(~delta));
+        auto d = static_cast<float>(sqrt(storm::math::lengthSquared(delta)));
         if (d < 1e-10f)
             d = 1e-10f;
-        dEffect += DEFLECT_FACTOR * !delta / d;
+        dEffect += DEFLECT_FACTOR * storm::math::normalizeOrZero(delta) / d;
     }
 
-    velocity = !(velocity + MOVEMENT_FACTOR * !(aEffect - dEffect));
+    velocity = storm::math::normalizeOrZero(velocity + MOVEMENT_FACTOR * storm::math::normalizeOrZero(aEffect - dEffect));
     pos += _k * velocity;
 
     /*
@@ -126,7 +126,7 @@ void TDynamicObject::Draw(HDC _dc, DWORD _color)
 }
 */
 //--------------------------------------------------------------------
-void TDynamicObject::SetXYZ(const CVECTOR &_pos)
+void TDynamicObject::SetXYZ(const glm::vec3 &_pos)
 {
     pos = _pos;
 }

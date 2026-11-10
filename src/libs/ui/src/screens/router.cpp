@@ -1,5 +1,7 @@
 #include "controls.h"
 
+#include "../hud/hud.h"
+
 #include <algorithm>
 
 namespace storm::ui
@@ -9,6 +11,8 @@ std::string EngineCommand(const Action &action)
 {
     if (action.screen.empty())
         return {};
+    if (action.screen == "hud") // HUD input: the verb names the engine entry point
+        return action.verb + ":" + action.value;
     if (action.screen == "dialogue") // reply: "<generation>:<index>"; edit: the typed reply text
         return action.verb == "edit" ? "dialogue:" + std::to_string(action.opening) + ":" + std::to_string(action.index) + ":" + action.value
                                      : "dialogue:" + action.value;
@@ -34,6 +38,11 @@ bool HostOwnsInterface(const std::string &screen)
     return screens::HostOwned(screen);
 }
 
+bool HostOwnsHud(const std::string &mode)
+{
+    return !hud::Ported(mode);
+}
+
 } // namespace storm::ui
 
 namespace storm::ui::screens
@@ -45,6 +54,10 @@ namespace
 constexpr double kPendingSeconds = 1.5; // a press the engine never answers stops looking busy
 constexpr double kFlushSeconds = 0.12;  // drags reach the engine at most this often
 constexpr double kIdle = 3600.0;
+// The game publishes an interface while its script is still filling it (the store's first
+// revision has no goods yet). For this long after an opening a rejected model is not drawn
+// and not reported; a newer revision that passes admission shows the ported screen.
+constexpr double kSettle = 1.0;
 
 bool Contains(const std::string &text, const char *part)
 {
@@ -277,6 +290,13 @@ void Bindings::Rebuild()
     router_.rebuild_ = true;
 }
 
+void Bindings::RebuildAfter(double seconds)
+{
+    const double when = router_.surface_.Now() + std::max(0.0, seconds);
+    if (router_.rebuild_at_ == 0.0 || when < router_.rebuild_at_)
+        router_.rebuild_at_ = when;
+}
+
 std::string Bindings::Text(const std::string &key) const
 {
     return router_.surface_.Text(key);
@@ -325,13 +345,14 @@ void Router::Emit(Action action)
 
 void Router::SetInterface(const InterfaceModel &model)
 {
-    const bool reopened = !screen_ || model.screen != model_.screen || model.opening != model_.opening;
+    const bool reopened = (!screen_ && settle_until_ == 0.0) || model.screen != model_.screen || model.opening != model_.opening;
     if (model.language != model_.language || !screen_)
         surface_.SetLanguage(model.language);
     const bool changed = model.revision != model_.revision;
     model_ = model;
     if (reopened)
     {
+        opened_at_ = surface_.Now();
         screen_.reset();
         extras_open_ = false;
         reading_title_.clear();
@@ -347,8 +368,9 @@ void Router::SetInterface(const InterfaceModel &model)
 
 void Router::CloseInterface()
 {
-    if (!screen_)
+    if (!screen_ && settle_until_ == 0.0)
         return;
+    settle_until_ = 0.0;
     screen_.reset();
     using_.clear();
     rejection_.clear();
@@ -373,9 +395,15 @@ void Router::SetState(const std::string &channel, const Json &state)
         surface_.Error("state channel " + channel + " has no consumer");
 }
 
+void Router::ReportError(const std::string &line)
+{
+    surface_.Error(line);
+}
+
 void Router::Build()
 {
     rebuild_ = false;
+    rebuild_at_ = 0.0;
     bindings_.handlers_.clear();
     // The ported screen registered for the id draws it when the model passes its admission.
     // If its REQUIRED nodes are missing or mistyped the interface is still drawn, by the
@@ -398,8 +426,16 @@ void Router::Build()
         {
             rejection = admitted.missing;
             screen_.reset();
+            if (surface_.Now() - opened_at_ < kSettle)
+            {
+                settle_until_ = opened_at_ + kSettle; // Tick builds again then
+                using_.clear();
+                surface_.Hide();
+                return;
+            }
         }
     }
+    settle_until_ = 0.0;
     if (!ported || !rejection.empty())
     {
         if (using_ != "generic" || !screen_)
@@ -540,10 +576,18 @@ void Router::SubmitText(const std::string &token, const std::string &text, bool 
 
 double Router::Tick()
 {
+    const double now = surface_.Now();
+    if (settle_until_ > 0.0)
+    {
+        if (now < settle_until_)
+            return settle_until_ - now;
+        Build();
+    }
     if (!screen_)
         return kIdle;
-    const double now = surface_.Now();
-    double next = kIdle;
+    if (rebuild_at_ > 0.0 && now >= rebuild_at_)
+        Build();
+    double next = rebuild_at_ > 0.0 ? rebuild_at_ - now : kIdle;
     // In the order they were asked for: an edit goes out before the press that confirms it.
     for (size_t i = 0; i < waiting_.size();)
     {

@@ -10,8 +10,8 @@ class Menu
     int selected;
     int blocked;
     int count;
-    CVECTOR cameraAng;
-    CVECTOR cameraPos;
+    glm::vec3 cameraAng;
+    glm::vec3 cameraPos;
     uint32_t dltTime;
 
     bool keyPressed;

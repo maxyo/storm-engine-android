@@ -36,7 +36,7 @@ class ParticleSystem : public IParticleSystem
 
     ParticleManager *pMaster;
 
-    Matrix matWorld;
+    glm::mat4 matWorld;
 
   public:
     // Create / delete
@@ -61,8 +61,8 @@ class ParticleSystem : public IParticleSystem
     // Find out if auto-delete system or not
     bool IsAutoDeleted() override;
     // Set transformation matrix for system
-    void SetTransform(const Matrix &transform) override;
-    void GetTransform(Matrix &_matWorld) override;
+    void SetTransform(const glm::mat4 &transform) override;
+    void GetTransform(glm::mat4 &_matWorld) override;
 
     void CreateFromDataSource(DataSource *pDataSource);
 
@@ -71,7 +71,7 @@ class ParticleSystem : public IParticleSystem
     IEmitter *FindEmitter(const char *name);
     IEmitter *FindEmitterByData(FieldList *Data);
 
-    void Teleport(const Matrix &transform) override;
+    void Teleport(const glm::mat4 &transform) override;
 
     bool IsAlive() override;
 

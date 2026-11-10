@@ -166,7 +166,7 @@ int32_t BIUtils::GetFontIDFromAttr(ATTRIBUTES *pA, const char *name, VDX9RENDER 
     return -1;
 }
 
-bool BIUtils::ReadVectorFormAttr(ATTRIBUTES *pA, const char *name, CVECTOR &vOut, const CVECTOR &vDef)
+bool BIUtils::ReadVectorFormAttr(ATTRIBUTES *pA, const char *name, glm::vec3 &vOut, const glm::vec3 &vDef)
 {
     vOut = vDef;
     if (pA && name)

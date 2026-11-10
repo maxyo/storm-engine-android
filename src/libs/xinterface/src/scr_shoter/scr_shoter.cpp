@@ -178,7 +178,7 @@ bool SCRSHOTER::MakeScreenShot()
             const uint32_t BI_SCRSHOTER_VERTEX_FORMAT = (D3DFVF_XYZRHW | D3DFVF_TEX1 | D3DFVF_TEXTUREFORMAT2);
             struct BI_SCRSHOTER_VERTEX
             {
-                CVECTOR pos;
+                glm::vec3 pos;
                 float w;
                 float tu, tv;
             } vert[4];
@@ -243,8 +243,14 @@ uint64_t SCRSHOTER::ProcessMessage(MESSAGE &message)
     switch (message.Long())
     {
     case MSG_SCRSHOT_MAKE:
+        // Normally Realize has taken the shot already. A save made outside the
+        // frame loop (autosave when the app goes to background) asks before
+        // any Realize ran: take it now from the last rendered back buffer.
+        if (texture_ == nullptr && !MakeScreenShot())
+        {
+            core.Trace("ERROR!!! screen shot create error");
+        }
         return textureIndex_;
-        break;
     case MSG_SCRSHOT_READ: {
         VDATA *pvdat;
 

@@ -66,6 +66,9 @@ add_library(storm_ui STATIC
     src/screens/menu_saves.cpp
     src/screens/menu_settings.cpp
     src/screens/menu_title.cpp
+    src/hud/hud.cpp
+    src/hud/states.cpp
+    src/hud/land.cpp
     src/template.cpp
     src/components.cpp
     src/behaviors.cpp
@@ -110,4 +113,10 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     add_executable(storm_ui_menus_unit tests/menus_check.cpp)
     target_link_libraries(storm_ui_menus_unit PRIVATE storm_ui)
     add_test(NAME ui_menus COMMAND storm_ui_menus_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/models")
+    add_executable(storm_ui_hud_unit tests/hud_check.cpp)
+    target_link_libraries(storm_ui_hud_unit PRIVATE storm_ui)
+    add_test(NAME ui_hud COMMAND storm_ui_hud_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states")
+    add_executable(storm_ui_hud_land_unit tests/hud_land_check.cpp)
+    target_link_libraries(storm_ui_hud_land_unit PRIVATE storm_ui)
+    add_test(NAME ui_hud_land COMMAND storm_ui_hud_land_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
 endif()

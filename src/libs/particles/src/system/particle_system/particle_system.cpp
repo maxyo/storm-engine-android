@@ -153,7 +153,7 @@ bool ParticleSystem::IsAutoDeleted()
 }
 
 // Set transformation matrix for system
-void ParticleSystem::SetTransform(const Matrix &transform)
+void ParticleSystem::SetTransform(const glm::mat4 &transform)
 {
     matWorld = transform;
     for (uint32_t n = 0; n < Emitters.size(); n++)
@@ -162,7 +162,7 @@ void ParticleSystem::SetTransform(const Matrix &transform)
     }
 }
 
-void ParticleSystem::Teleport(const Matrix &transform)
+void ParticleSystem::Teleport(const glm::mat4 &transform)
 {
     matWorld = transform;
     for (uint32_t n = 0; n < Emitters.size(); n++)
@@ -171,7 +171,7 @@ void ParticleSystem::Teleport(const Matrix &transform)
     }
 }
 
-void ParticleSystem::GetTransform(Matrix &_matWorld)
+void ParticleSystem::GetTransform(glm::mat4 &_matWorld)
 {
     _matWorld = matWorld;
 }

@@ -119,34 +119,62 @@ checks are not part of that workflow.
 
 ## Compiled script cache (`[script] cache_mode`)
 
-The script compiler can store each compiled segment and reload it on the next
-start instead of recompiling the game scripts. It is **off by default**
-(`cache_mode = 0`) and that default was deliberately not changed:
+The script compiler stores each compiled segment and reloads it on the next
+start instead of recompiling the game scripts. It is **on by default**
+(`cache_mode = 2`); `cache_mode = 0` in the game's `engine.ini` turns it off,
+any other value is logged and also turns it off.
 
-- `cache_mode = 2` loads from the cache and checks the scripts once per session;
-  `cache_mode = 1` re-checks on every segment load (walks the script tree each
-  time; only useful while editing scripts).
-- The cache lives in the application's private storage
-  (`files/storm/Cache`, next to saves and logs), never in the game folder.
+- `cache_mode = 2` (default) checks the key once per session, at the first
+  segment load. `cache_mode = 1` recomputes it on every segment load, i.e. on
+  every interface or location script the game loads; that only helps while
+  editing scripts during a session, which does not happen on Android (game
+  files are imported, the overlay is inside the APK).
+- The cache lives in the application's private storage (`files/storm/Cache`,
+  next to saves and logs; about 13 MB for the test game), never in the game
+  folder.
 - It is discarded and rebuilt when anything it depends on changes. The key
   covers every file of the resolved program directory and of the APK's
   interface overlay (relative path, size and modification time), the engine
-  build (revision and compile time), the cache layout version and the absolute
-  game directory. Before this revision the key was the sum of modification
-  times of an unresolved `PROGRAM\` path, i.e. on Android it only saw the
-  overlay and never noticed changed game scripts.
-- Each cache file carries a size and hash header and is written through a
-  temporary file; a damaged or unparsable entry is deleted and the segment is
-  compiled from source.
+  build (watermark with the Git revision, and compile time of `compiler.cpp`),
+  the cache layout version and the absolute game directory.
+- Every outcome is logged: `Script cache: none ...` (first start),
+  `... scripts or engine build changed (key A -> B); rebuilding`,
+  `... state file ... is damaged; rebuilding`,
+  `Script cache entry '...' is damaged; recompiling` (torn, truncated or
+  bit-flipped entry: deleted, compiled from source and written again),
+  `... cannot be applied; recompiling` (intact entry that does not parse or
+  clashes with a loaded name). If the folder cannot be reset the cache is off
+  for the session with an error line. Each segment load logs
+  `Script segment '...' loaded from cache|compiled in N ms`.
+- Entries are written through a temporary file and renamed; each has a size and
+  FNV-1a header (`src/libs/core/src/script_cache_files.hpp`).
 
-What is verified: key and file-integrity logic on the host
-(`tests/path_fingerprint`) and that the engine builds. What is not: a game
-session started from a warm cache on a device or emulator, and how much startup
-time it saves there. The cache replays compiler side effects (defines,
-variables, functions, script libraries, event handlers, relocations) from its
-own serialization, so a mismatch with a fresh compile would be a gameplay bug
-rather than a crash; enable it by default only after such a run compares
-equal. A file edited in place with unchanged size and modification time is not
-detected (contents are not hashed).
+Verified on the emulator (API 35 x86_64 image running the arm64 engine,
+Release native build, test game, shared host) on 2026-11-10:
+
+| Start to main menu | script segments (63 loads) | Play tap to main menu |
+| --- | --- | --- |
+| cache off | 6.7 s (`seadogs.c` 5.4 s) | 23.4 s (one run) |
+| cold cache (compile and store) | 4.6-8.4 s | 13.0-25.5 s |
+| warm cache | 0.15-0.29 s (0.5 s at host load 66) | 9.1-14.3 s |
+
+The end-to-end column is noisy (UI polling, other emulators on the host); the
+segment column is the engine's own measurement. Invalidation was observed for:
+a touched game script (`PROGRAM/interface/quick_save.c`), a changed APK
+overlay script, a different engine build, a bit-flipped and a truncated entry,
+and a truncated state file; the session after each recompiled and then loaded
+everything from the cache again. A warm-cache session that loads a save and
+autosaves produced a state that differs from a fresh-compile session's only as
+much as two fresh-compile sessions differ from each other (NPC AI states,
+floating values advanced by time), with no script errors in either.
+
+Host test: `tests/script_cache_files/run.py` (state and entry files: missing,
+damaged, reset, round trip, torn/flipped/empty/old-layout entries) and
+`tests/path_fingerprint/run.py` (key over the script tree).
+
+Not detected: a script edited in place with unchanged size and modification
+time (contents are not hashed), and a local rebuild where only files other than
+`compiler.cpp` changed under the same Git revision; CI release builds are clean
+builds, and changes to tokens or bytecode layout recompile `compiler.cpp`.
 
 APK packaging and releases belong to https://github.com/maxyo/corsairs-android.

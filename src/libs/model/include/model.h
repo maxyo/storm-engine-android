@@ -1,6 +1,6 @@
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "geos.h"
 #include "object.h"
 
@@ -10,8 +10,8 @@ class NODER;
 class NODE
 {
   public:
-    CMatrix loc_mtx;
-    CMatrix glob_mtx;
+    glm::mat4 loc_mtx;
+    glm::mat4 glob_mtx;
 
     enum FLAGS
     {
@@ -47,10 +47,10 @@ class NODE
 
     virtual void SetTechnique(const char *name) = 0;
     virtual const char *GetTechnique() = 0;
-    virtual bool Init(const char *lightPath, const char *pname, const char *oname, const CMatrix &m,
-                      const CMatrix &globm, NODER *par, const char *lmPath) = 0;
+    virtual bool Init(const char *lightPath, const char *pname, const char *oname, const glm::mat4 &m,
+                      const glm::mat4 &globm, NODER *par, const char *lmPath) = 0;
 
-    virtual float Trace(const CVECTOR &src, const CVECTOR &dst) = 0;
+    virtual float Trace(const glm::vec3 &src, const glm::vec3 &dst) = 0;
 
     virtual void SubstituteGeometry(const std::string& new_model) = 0;
 };
@@ -104,8 +104,8 @@ class MODEL : public COLLISION_OBJECT
     virtual void Update() = 0;
     virtual Animation *GetAnimation() = 0;
 
-    float Trace(const CVECTOR &src, const CVECTOR &dst) override = 0;
-    bool Clip(const PLANE *planes, int32_t nplanes, const CVECTOR &center, float radius,
+    float Trace(const glm::vec3 &src, const glm::vec3 &dst) override = 0;
+    bool Clip(const PLANE *planes, int32_t nplanes, const glm::vec3 &center, float radius,
               ADD_POLYGON_FUNC addpoly) override = 0;
 
     const char *GetCollideMaterialName() override = 0;

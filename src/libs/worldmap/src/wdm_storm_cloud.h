@@ -52,6 +52,6 @@ class WdmStormCloud : public WdmCloud
     // Rain
     int32_t rainTexture;
     float curU, curV;
-    CVECTOR rainpos[2048];        // Particle position
+    glm::vec3 rainpos[2048];        // Particle position
     static RainVertex rain[4096]; // The current array to draw
 };

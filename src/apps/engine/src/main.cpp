@@ -20,6 +20,7 @@
 #include "steam_api.hpp"
 #include "v_sound_service.h"
 #include "fs.h"
+#include "platform/host_hooks.hpp"
 #include "watermark.hpp"
 #ifdef __ANDROID__
 #include "platform/android_ui.hpp"
@@ -48,6 +49,12 @@ Java_org_stormengine_port_GameActivity_nativeWorldMapModal(JNIEnv *env,jobject c
     storm::android::traceWorldMapModal(accepted?"accepted":"rejected",
         "op="+std::to_string(operation)+" requested="+std::to_string(token)+"/"+std::to_string(proof)+" "+storm::android::worldMapHud.modal.debug());
     return accepted?JNI_TRUE:JNI_FALSE;
+}
+
+// GameActivity's bounded exit wait polls this from the UI thread; see host_hooks.hpp.
+extern "C" JNIEXPORT jboolean JNICALL Java_org_stormengine_port_GameActivity_nativeSaveInProgress(JNIEnv *, jclass)
+{
+    return storm::platform::saveInProgress() ? JNI_TRUE : JNI_FALSE;
 }
 #endif
 
@@ -226,21 +233,27 @@ void SubscribeEngineToAppEvents()
     // pause, before anything else can run.
     events.subscribe(
         [](const storm::AppEvent &event) {
-            if (event.type == storm::AppEventType::WillEnterBackground ||
-                event.type == storm::AppEventType::Terminating)
-            {
-                // A backgrounded process can be killed without notice: do not lose buffered log lines.
-                spdlog::apply_all([](const std::shared_ptr<spdlog::logger> &logger) { logger->flush(); });
-            }
             if (event.type == storm::AppEventType::WillEnterBackground)
             {
                 audioGate.foreground = false;
                 audioGate.apply();
                 if (event.immediate && core_private && core_private->initialized())
                 {
-                    // Hook for scripts (e.g. autosave). Runs between frames on the game thread.
+                    // Hook for scripts (the app's background autosave). Runs between frames on
+                    // the game thread; the Android UI thread does not wait for it (Vulkan
+                    // window: SDL's surfaceDestroyed takes no hand-off from this thread).
+                    const auto started = std::chrono::steady_clock::now();
                     core_private->Event("AppWillEnterBackground");
+                    spdlog::info("AppWillEnterBackground handlers took {} ms",
+                                 std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::steady_clock::now() - started).count());
                 }
+            }
+            if (event.type == storm::AppEventType::WillEnterBackground ||
+                event.type == storm::AppEventType::Terminating)
+            {
+                // A backgrounded process can be killed without notice: do not lose buffered log lines.
+                spdlog::apply_all([](const std::shared_ptr<spdlog::logger> &logger) { logger->flush(); });
             }
         },
         true);
@@ -536,9 +549,12 @@ int main(int argc, char *argv[])
     unsigned shortcutLogBudget = 64;
 #endif
     int exitCode = EXIT_SUCCESS;
+    storm::platform::FrameWorkClock frameWork;
     isRunning = true;
     while (isRunning)
     {
+        if (const auto work = frameWork.lap(storm::platform::FrameWorkClock::Clock::now()))
+            storm::platform::reportFrameWork(std::chrono::duration_cast<std::chrono::nanoseconds>(*work));
 #ifdef __ANDROID__
         storm::android::worldMapHud.clock(SDL_GetTicks());
         const auto combatDrainEpoch = storm::android::combatCancelEpoch.load(std::memory_order_acquire);
@@ -722,7 +738,9 @@ int main(int argc, char *argv[])
 #endif
         )
         {
+            const auto limiterStart = storm::platform::FrameWorkClock::Clock::now();
             frameLimiter.wait();
+            frameWork.frame(storm::platform::FrameWorkClock::Clock::now() - limiterStart);
 
 #ifdef __ANDROID__
             // Activity changes revoke queued intents before any native Player

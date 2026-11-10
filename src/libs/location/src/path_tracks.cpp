@@ -97,7 +97,7 @@ void PathTracks::Draw(VDX9RENDER *render)
 }
 
 // Get track point
-bool PathTracks::GetPoint(float index, Vector &cp, Quaternion &cq) const
+bool PathTracks::GetPoint(float index, glm::vec3 &cp, glm::quat &cq) const
 {
     Assert(point);
     if (index < 0.0 || index >= 1.f)
@@ -109,7 +109,7 @@ bool PathTracks::GetPoint(float index, Vector &cp, Quaternion &cq) const
         i1 = numPoints - 1;
     if (i2 >= numPoints)
         i2 = numPoints - 1;
-    cp.Lerp(point[i1].p, point[i2].p, index - i1);
-    cq.SLerp(point[i1].q, point[i2].q, index - i1);
+    cp = storm::math::lerp(point[i1].p, point[i2].p, index - i1);
+    cq = storm::math::slerp(point[i1].q, point[i2].q, index - i1);
     return true;
 }

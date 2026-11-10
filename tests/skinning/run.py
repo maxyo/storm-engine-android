@@ -4,7 +4,7 @@
 Host: scalar vs SSE2 instantiation of the shared four-lane kernel, under
 ASan/UBSan, with exact-size buffers. With --glm-source (pinned GLM 1.0.3
 checkout, e.g. <build>/_deps/storm_glm-src) the scalar reference is also
-compared with the previous CMatrix/GLM implementation.
+compared with the previous GLM matrix-product implementation.
 With --ndk the NEON instantiation is compiled for arm64 (not executed: the
 host cannot run arm64 code; run the produced binary on a device to repeat the
 parity check there: `check` prints PASS and the timings).

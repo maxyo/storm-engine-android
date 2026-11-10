@@ -1,5 +1,4 @@
 #include "p_system.h"
-#include "math3d/matrix.h"
 #include "particles.h"
 #include "../particles.h"
 
@@ -22,22 +21,14 @@ void PARTICLE_SYSTEM::Stop()
 {
 }
 
-void PARTICLE_SYSTEM::SetEmitter(CVECTOR p, CVECTOR a)
+void PARTICLE_SYSTEM::SetEmitter(glm::vec3 p, glm::vec3 a)
 {
     // core.Trace("K2 Particles Wrapper: SetEmitter (%3.2f, %3.2f, %3.2f, %3.2f, %3.2f, %3.2f)", p.x, p.y, p.z, a.x,
     // a.y, a.z);
-    Vector pos, angles;
-    pos.x = p.x;
-    pos.y = p.y;
-    pos.z = p.z;
-    angles.x = a.x;
-    angles.y = a.y;
-    angles.z = a.z;
-    const Matrix mTransform(angles, pos);
-    pSystem->SetTransform(mTransform);
+    pSystem->SetTransform(storm::math::eulerMatrix(a, p));
 }
 
-void PARTICLE_SYSTEM::LinkToObject(entid_t id, CVECTOR _LinkPos)
+void PARTICLE_SYSTEM::LinkToObject(entid_t id, glm::vec3 _LinkPos)
 {
 }
 

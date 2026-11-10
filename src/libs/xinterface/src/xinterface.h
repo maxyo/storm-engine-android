@@ -1,6 +1,6 @@
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "nodes/xi_util.h"
 #include "quest_file_reader/quest_file_reader.h"
 #include "dx9render.h"
@@ -214,7 +214,7 @@ class XINTERFACE : public XINTERFACE_BASE
 
   protected:
     // WORLD,VIEW and PROJECTION matrixes
-    CMatrix matw, matv, matp;
+    glm::mat4 matw, matv, matp;
 
     CINODE *m_pCurNode;
     CINODE *m_pNodes;

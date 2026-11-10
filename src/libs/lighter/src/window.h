@@ -40,10 +40,10 @@ class Window
 
         char *name; // Name
         Type type;  // A type
-        CVECTOR c;  // Current selected color
+        glm::vec3 c;  // Current selected color
         float st;   // Color saturation
         // Modification data
-        CVECTOR *color; // Colour
+        glm::vec3 *color; // Colour
         float *cosine;  // Coefficient of cosine
         float *shadow;  // shadow Coefficient
         float *bright;  // Shadow brightness
@@ -112,7 +112,7 @@ class Window
 
     bool Slider(int32_t id, float y, const char *text, float &value, float min = 0.0f, float max = 1.0f,
                 bool drawVal = false);
-    bool ColorPicker(int32_t id, float y, CVECTOR &ref, float st, CVECTOR &res);
+    bool ColorPicker(int32_t id, float y, glm::vec3 &ref, float st, glm::vec3 &res);
     bool Button(float x, float y, float w, float h, const char *text, int32_t *act = nullptr, int32_t init = -1);
     void Checker(float x, float y, const char *text, bool &res);
     int32_t SelPreset();

@@ -3,7 +3,7 @@
 #include "animals_defines.h"
 #include "animation.h"
 #include "iv_buffer_manager.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "t_butterfly.h"
 #include "collide.h"
 #include "dx9render.h"

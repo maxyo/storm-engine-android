@@ -12,7 +12,7 @@
 
 struct SPV_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float tu, tv;
 };
 
@@ -90,8 +90,8 @@ void SHIPPOINTER::Realize(uint32_t delta_time) const
     if (!m_bVisible)
         return;
 
-    CMatrix matw;
-    rs->SetTransform(D3DTS_WORLD, matw);
+    glm::mat4 matw;
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(matw));
 
     if (m_bFriend)
         rs->TextureSet(0, m_idFriendTex);
@@ -140,17 +140,17 @@ void SHIPPOINTER::UpdateShipPointer() const
     auto *pv = static_cast<SPV_VERTEX *>(rs->LockVertexBuffer(m_idVBuf));
     if (pv != nullptr)
     {
-        CVECTOR campos, camang;
+        glm::vec3 campos, camang;
         float camper;
         rs->GetCamera(campos, camang, camper);
 
-        auto ourPos = m_pShip->GetPos() + CVECTOR(0.f, m_fShiftTop + m_fShiftAmp * sinf(m_fShiftVal), 0.f);
-        auto k = camper * .05f * sqrtf(~(campos - ourPos));
+        auto ourPos = m_pShip->GetPos() + glm::vec3(0.f, m_fShiftTop + m_fShiftAmp * sinf(m_fShiftVal), 0.f);
+        auto k = camper * .05f * sqrtf(storm::math::lengthSquared(campos - ourPos));
         if (k < 1.f)
             k = 1.f;
 
-        const auto cvhorz = k * .5f * !((campos - ourPos) ^ CVECTOR(0.f, 1.f, 0.f));
-        const CVECTOR cvvert = k * CVECTOR(0.f, 1.f, 0.f);
+        const auto cvhorz = k * .5f * storm::math::normalizeOrZero(glm::cross(campos - ourPos, glm::vec3(0.f, 1.f, 0.f)));
+        const glm::vec3 cvvert = k * glm::vec3(0.f, 1.f, 0.f);
 
         ourPos.y += k * 1.0f;
 

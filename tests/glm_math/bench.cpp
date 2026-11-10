@@ -1,12 +1,12 @@
 // Manual micro-benchmark of hot math operations (not a ctest).
-// Uses only the historical public API so it builds against any header revision.
+// Everything goes through legacy_api.h, so the same source measures the
+// current GLM spelling and (run.py --baseline) an archived class API: mt:: is
+// the CVECTOR/CMatrix generation, mt::m3:: the math3d one.
 // Usage: bench [repeats [name-substring]] -> "name ns/op checksum" lines.
 // The best of `repeats` short batches is reported (thread CPU time where
 // available), which stays usable on a busy host. The checksum is a parity aid
 // when comparing header revisions.
-#include "matrix.h"
-#include "math3d/quaternion.h"
-#include "math3d/color.h"
+#include "legacy_api.h"
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -77,19 +77,34 @@ template <typename Body> void measure(const char *name, int opsPerPass, Body bod
     std::printf("%-28s %9.3f ns/op  checksum=%.9g\n", name, best, checksum);
 }
 
-double sum(const CMatrix &m)
+double sum(const mt::Mat4 &m)
 {
     double total = 0;
     for (int i = 0; i < 16; ++i)
-        total += m.matrix[i];
+        total += mt::data(m)[i];
     return total;
 }
-double sum(const Matrix &m)
+double sum(const mt::Vec3 &v)
+{
+    return double(v.x) + v.y + v.z;
+}
+// mt::m3 types are the mt:: ones in the current generation and separate
+// classes in a baseline, hence the distinct names.
+namespace m3 = mt::m3;
+double sum3(const m3::Mat4 &m)
 {
     double total = 0;
     for (int i = 0; i < 16; ++i)
-        total += m.matrix[i];
+        total += m3::data(m)[i];
     return total;
+}
+double sum3(const m3::Vec3 &v)
+{
+    return double(v.x) + v.y + v.z;
+}
+double sum3(const m3::Quat &q)
+{
+    return double(q.x) + q.y + q.z + q.w;
 }
 } // namespace
 
@@ -102,233 +117,307 @@ int main(int argc, char **argv)
     std::mt19937 rng(0x42454e43u);
     std::uniform_real_distribution<float> values(-10.f, 10.f), angles(-3.f, 3.f), unit(-1.f, 1.f);
 
-    std::vector<CMatrix> ca(kCount), cb(kCount), cr(kCount);
-    std::vector<Matrix> ma(kCount), mb(kCount), mr(kCount);
-    std::vector<CVECTOR> cv(kCount), cw(kCount), cres(kCount);
-    std::vector<Vector> pv(kCount), pres(kCount);
-    std::vector<Vector4> pres4(kCount);
-    std::vector<MTX_PRJ_VECTOR> cproj(kCount);
-    std::vector<Quaternion> qa(kCount), qb(kCount), qr(kCount);
+    std::vector<mt::Mat4> ca(kCount), cb(kCount), cr(kCount);
+    std::vector<m3::Mat4> ma(kCount, m3::identity()), mb(kCount, m3::identity()), mr(kCount, m3::identity());
+    std::vector<mt::Vec3> cv(kCount), cw(kCount), cres(kCount);
+    const m3::Vec3 zero3 = m3::vec(0.f, 0.f, 0.f);
+    std::vector<m3::Vec3> pv(kCount, zero3), pw(kCount, zero3), pres(kCount, zero3);
+    std::vector<mt::ProjPoint> cproj(kCount);
+    const m3::Quat identityQuat = m3::quat(0.f, 0.f, 0.f, 1.f);
+    std::vector<m3::Quat> qa(kCount, identityQuat), qb(kCount, identityQuat), qr(kCount, identityQuat);
+    std::vector<int> hits(kCount);
     std::vector<float> blend(kCount), scalars(kCount);
     for (int i = 0; i < kCount; ++i)
     {
         float in[12];
         for (float &value : in)
             value = values(rng);
-        ca[i].BuildMatrix(in[0] * .3f, in[1] * .3f, in[2] * .3f, in[3], in[4], in[5]);
-        cb[i].BuildMatrix(in[6] * .3f, in[7] * .3f, in[8] * .3f, in[9], in[10], in[11]);
-        ma[i].Build(in[0] * .3f, in[1] * .3f, in[2] * .3f, in[3], in[4], in[5]);
-        mb[i].Build(in[6] * .3f, in[7] * .3f, in[8] * .3f, in[9], in[10], in[11]);
+        ca[i] = mt::eulerMatrix(in[0] * .3f, in[1] * .3f, in[2] * .3f, in[3], in[4], in[5]);
+        cb[i] = mt::eulerMatrix(in[6] * .3f, in[7] * .3f, in[8] * .3f, in[9], in[10], in[11]);
+        ma[i] = m3::eulerMatrix(m3::vec(in[0] * .3f, in[1] * .3f, in[2] * .3f), m3::vec(in[3], in[4], in[5]));
+        mb[i] = m3::eulerMatrix(m3::vec(in[6] * .3f, in[7] * .3f, in[8] * .3f), m3::vec(in[9], in[10], in[11]));
         const float x = values(rng), y = values(rng), z = values(rng);
-        cv[i] = CVECTOR(x, y, z);
-        pv[i] = Vector(x, y, z);
+        cv[i] = mt::Vec3(x, y, z);
+        pv[i] = m3::vec(x, y, z);
         const float wx = values(rng), wy = values(rng), wz = values(rng);
-        cw[i] = CVECTOR(wx, wy, wz);
-        qa[i] = Quaternion(ma[i]);
-        qb[i] = Quaternion(mb[i]);
+        cw[i] = mt::Vec3(wx, wy, wz);
+        pw[i] = m3::vec(wx, wy, wz);
+        qa[i] = m3::quatFromMatrix(ma[i]);
+        qb[i] = m3::quatFromMatrix(mb[i]);
         blend[i] = unit(rng) * .5f + .5f;
     }
-    std::vector<Color> colors(kCount), colorResults(kCount);
+    std::vector<m3::Color> colors(kCount, m3::color(0.f, 0.f, 0.f, 0.f));
+    std::vector<uint32_t> packed(kCount);
     for (int i = 0; i < kCount; ++i)
     {
         const float r = unit(rng), g = unit(rng), b = unit(rng), a = unit(rng);
-        colors[i] = Color(r * 1.5f, g * 1.5f, b * 1.5f, a * 1.5f);
+        colors[i] = m3::color(r * 1.5f, g * 1.5f, b * 1.5f, a * 1.5f);
     }
-    CMatrix cprojection;
-    cprojection.BuildProjectionMatrix(1.2f, 1600.f, 900.f, .5f, 2000.f);
-    Matrix mprojection;
-    mprojection.BuildProjection(1.2f, 1600.f, 900.f, .5f, 2000.f);
+    const mt::Mat4 cprojection = mt::projectionMatrix(1.2f, 1600.f, 900.f, .5f, 2000.f);
 
-    measure("CMatrix::EqMultiply", kCount, [&] {
+    // --- vector/matrix API through legacy_api.h ---
+    measure("mat4 mulRowInto", kCount, [&] {
         keep(ca); keep(cb);
         for (int i = 0; i < kCount; ++i)
-            cr[i].EqMultiply(ca[i], cb[i]);
+            mt::mulRowInto(cr[i], ca[i], cb[i]);
         keep(cr);
         return sum(cr[kCount - 1]);
     });
-    measure("CMatrix operator*", kCount, [&] {
+    measure("mat4 mulRow", kCount, [&] {
         keep(ca); keep(cb);
         for (int i = 0; i < kCount; ++i)
-            cr[i] = ca[i] * cb[i];
+            cr[i] = mt::mulRow(ca[i], cb[i]);
         keep(cr);
         return sum(cr[kCount - 1]);
     });
-    measure("CMatrix * CVECTOR", kCount, [&] {
+    measure("mat4 transformPoint", kCount, [&] {
         keep(ca); keep(cv);
         for (int i = 0; i < kCount; ++i)
-            cres[i] = ca[i] * cv[i];
+            cres[i] = mt::transformPoint(ca[i], cv[i]);
         keep(cres);
-        return double(cres[kCount - 1].x) + cres[kCount - 1].y + cres[kCount - 1].z;
+        return sum(cres[kCount - 1]);
     });
-    measure("CMatrix::MulToInv", kCount, [&] {
+    measure("mat4 inverseTransformPoint", kCount, [&] {
         keep(ca); keep(cv);
         for (int i = 0; i < kCount; ++i)
-            ca[i].MulToInv(cv[i], cres[i]);
+            cres[i] = mt::inverseTransformPoint(ca[i], cv[i]);
         keep(cres);
-        return double(cres[kCount - 1].x) + cres[kCount - 1].y + cres[kCount - 1].z;
+        return sum(cres[kCount - 1]);
     });
-    measure("CMatrix::Projection[]", kCount, [&] {
+    measure("mat4 inverseTransformNormal", kCount, [&] {
+        keep(ca); keep(cv);
+        for (int i = 0; i < kCount; ++i)
+            cres[i] = mt::inverseTransformNormal(ca[i], cv[i]);
+        keep(cres);
+        return sum(cres[kCount - 1]);
+    });
+    measure("mat4 invertRigid", kCount, [&] {
+        keep(ca);
+        for (int i = 0; i < kCount; ++i)
+        {
+            cr[i] = ca[i];
+            mt::invertRigid(cr[i]);
+        }
+        keep(cr);
+        return sum(cr[kCount - 1]);
+    });
+    measure("mat4 transpose3x3", kCount, [&] {
+        keep(ca);
+        for (int i = 0; i < kCount; ++i)
+        {
+            cr[i] = ca[i];
+            mt::transpose3x3(cr[i]);
+        }
+        keep(cr);
+        return sum(cr[kCount - 1]);
+    });
+    measure("mat4 eulerMatrix", kCount, [&] {
+        keep(cv); keep(cw);
+        for (int i = 0; i < kCount; ++i)
+            cr[i] = mt::eulerMatrix(cv[i].x, cv[i].y, cv[i].z, cw[i].x, cw[i].y, cw[i].z);
+        keep(cr);
+        return sum(cr[kCount - 1]);
+    });
+    measure("mat4 viewMatrix", kCount, [&] {
+        keep(cv); keep(cw);
+        const mt::Vec3 up(0.f, 1.f, 0.f);
+        for (int i = 0; i < kCount; ++i)
+            mt::viewMatrix(cr[i], cv[i], cw[i], up);
+        keep(cr);
+        return sum(cr[kCount - 1]);
+    });
+    measure("mat4 projectPoints", kCount, [&] {
         keep(cv);
-        cprojection.Projection(cv.data(), cproj.data(), kCount, 800.f, 450.f, sizeof(CVECTOR),
-                               sizeof(MTX_PRJ_VECTOR));
+        mt::projectPoints(cprojection, cv.data(), cproj.data(), kCount, 800.f, 450.f, sizeof(mt::Vec3),
+                          sizeof(mt::ProjPoint));
         keep(cproj);
         return double(cproj[kCount - 1].x) + cproj[kCount - 1].y + cproj[kCount - 1].z + cproj[kCount - 1].rhw;
     });
-    measure("CVECTOR normalize (!)", kCount, [&] {
+    measure("vec3 normalizeOrZero", kCount, [&] {
         keep(cv);
         for (int i = 0; i < kCount; ++i)
-            cres[i] = !cv[i];
+            cres[i] = mt::normalizeOrZero(cv[i]);
         keep(cres);
-        return double(cres[kCount - 1].x) + cres[kCount - 1].y + cres[kCount - 1].z;
+        return sum(cres[kCount - 1]);
     });
-    measure("CVECTOR cross (^)", kCount, [&] {
-        keep(cv); keep(cw);
+    measure("vec3 length", kCount, [&] {
+        keep(cv);
         for (int i = 0; i < kCount; ++i)
-            cres[i] = cv[i] ^ cw[i];
-        keep(cres);
-        return double(cres[kCount - 1].x) + cres[kCount - 1].y + cres[kCount - 1].z;
-    });
-    measure("CVECTOR dot (|)", kCount, [&] {
-        keep(cv); keep(cw);
-        for (int i = 0; i < kCount; ++i)
-            scalars[i] = cv[i] | cw[i];
+            scalars[i] = mt::length(cv[i]);
         keep(scalars);
         return double(scalars[kCount - 1]);
     });
-    measure("Matrix::EqMultiply", kCount, [&] {
-        keep(ma); keep(mb);
+    measure("vec3 lengthXZ", kCount, [&] {
+        keep(cv);
         for (int i = 0; i < kCount; ++i)
-            mr[i].EqMultiply(ma[i], mb[i]);
-        keep(mr);
-        return sum(mr[kCount - 1]);
+            scalars[i] = mt::lengthXZ(cv[i]);
+        keep(scalars);
+        return double(scalars[kCount - 1]);
     });
-    measure("Matrix::EqMultiplyFast", kCount, [&] {
-        keep(ma); keep(mb);
+    measure("vec3 divScalar", kCount, [&] {
+        keep(cv); keep(blend);
         for (int i = 0; i < kCount; ++i)
-            mr[i].EqMultiplyFast(ma[i], mb[i]);
-        keep(mr);
-        return sum(mr[kCount - 1]);
+            cres[i] = mt::divScalar(cv[i], blend[i] + 1.f);
+        keep(cres);
+        return sum(cres[kCount - 1]);
     });
-    measure("Matrix::Inverse", kCount, [&] {
+    measure("vec3 cross", kCount, [&] {
+        keep(cv); keep(cw);
+        for (int i = 0; i < kCount; ++i)
+            cres[i] = mt::cross(cv[i], cw[i]);
+        keep(cres);
+        return sum(cres[kCount - 1]);
+    });
+    measure("vec3 dot", kCount, [&] {
+        keep(cv); keep(cw);
+        for (int i = 0; i < kCount; ++i)
+            scalars[i] = mt::dot(cv[i], cw[i]);
+        keep(scalars);
+        return double(scalars[kCount - 1]);
+    });
+    // --- what replaced the math3d classes (mt::m3) ---
+    measure("m3 transformPoint", kCount, [&] {
+        keep(ma); keep(pv);
+        for (int i = 0; i < kCount; ++i)
+            pres[i] = m3::transformPoint(ma[i], pv[i]);
+        keep(pres);
+        return sum3(pres[kCount - 1]);
+    });
+    measure("m3 rotateNormal", kCount, [&] {
+        keep(ma); keep(pv);
+        for (int i = 0; i < kCount; ++i)
+            pres[i] = m3::rotateNormal(ma[i], pv[i]);
+        keep(pres);
+        return sum3(pres[kCount - 1]);
+    });
+    measure("m3 invertRigid", kCount, [&] {
         keep(ma);
         for (int i = 0; i < kCount; ++i)
         {
             mr[i] = ma[i];
-            mr[i].Inverse();
+            m3::invertRigid(mr[i]);
         }
         keep(mr);
-        return sum(mr[kCount - 1]);
+        return sum3(mr[kCount - 1]);
     });
-    measure("Matrix::InverseWhithScale", kCount, [&] {
+    measure("m3 transpose", kCount, [&] {
         keep(ma);
         for (int i = 0; i < kCount; ++i)
         {
             mr[i] = ma[i];
-            mr[i].InverseWhithScale();
+            m3::transpose(mr[i]);
         }
         keep(mr);
-        return sum(mr[kCount - 1]);
+        return sum3(mr[kCount - 1]);
     });
-    measure("Matrix::MulVertex", kCount, [&] {
-        keep(ma); keep(pv);
+    measure("m3 eulerMatrix", kCount, [&] {
+        keep(pv); keep(pw);
         for (int i = 0; i < kCount; ++i)
-            pres[i] = ma[i].MulVertex(pv[i]);
-        keep(pres);
-        return double(pres[kCount - 1].x) + pres[kCount - 1].y + pres[kCount - 1].z;
+            mr[i] = m3::eulerMatrix(pv[i], pw[i]);
+        keep(mr);
+        return sum3(mr[kCount - 1]);
     });
-    measure("Matrix::MulNormal", kCount, [&] {
-        keep(ma); keep(pv);
+    measure("m3 eulerAngles", kCount, [&] {
+        keep(ma);
         for (int i = 0; i < kCount; ++i)
-            pres[i] = ma[i].MulNormal(pv[i]);
+            pres[i] = m3::eulerAngles(ma[i]);
         keep(pres);
-        return double(pres[kCount - 1].x) + pres[kCount - 1].y + pres[kCount - 1].z;
+        return sum3(pres[kCount - 1]);
     });
-    measure("Matrix::MulVertexByInverse", kCount, [&] {
-        keep(ma); keep(pv);
-        for (int i = 0; i < kCount; ++i)
-            pres[i] = ma[i].MulVertexByInverse(pv[i]);
-        keep(pres);
-        return double(pres[kCount - 1].x) + pres[kCount - 1].y + pres[kCount - 1].z;
-    });
-    measure("Matrix::Projection[]", kCount, [&] {
-        keep(pv);
-        mprojection.Projection(pres4.data(), pv.data(), kCount, 800.f, 450.f);
-        keep(pres4);
-        return double(pres4[kCount - 1].x) + pres4[kCount - 1].y + pres4[kCount - 1].z + pres4[kCount - 1].w;
-    });
-    measure("Quaternion::SLerp", kCount, [&] {
+    measure("quat slerp", kCount, [&] {
         keep(qa); keep(qb); keep(blend);
         for (int i = 0; i < kCount; ++i)
-            qr[i].SLerp(qa[i], qb[i], blend[i]);
+            qr[i] = m3::slerp(qa[i], qb[i], blend[i]);
         keep(qr);
-        return double(qr[kCount - 1].x) + qr[kCount - 1].y + qr[kCount - 1].z + qr[kCount - 1].w;
+        return sum3(qr[kCount - 1]);
     });
-    measure("Quaternion::GetMatrix", kCount, [&] {
+    measure("quat to matrix", kCount, [&] {
         keep(qa);
         for (int i = 0; i < kCount; ++i)
-            qa[i].GetMatrix(mr[i]);
+            mr[i] = m3::quatMatrix(qa[i]);
         keep(mr);
-        return sum(mr[kCount - 1]);
+        return sum3(mr[kCount - 1]);
     });
-    measure("Quaternion SLerp+GetMatrix", kCount, [&] {
+    measure("quat slerp + to matrix", kCount, [&] {
         keep(qa); keep(qb); keep(blend);
         for (int i = 0; i < kCount; ++i)
-        {
-            Quaternion q;
-            q.SLerp(qa[i], qb[i], blend[i]);
-            q.GetMatrix(mr[i]);
-        }
+            mr[i] = m3::quatMatrix(m3::slerp(qa[i], qb[i], blend[i]));
         keep(mr);
-        return sum(mr[kCount - 1]);
+        return sum3(mr[kCount - 1]);
     });
-    measure("Quaternion operator*", kCount, [&] {
-        keep(qa); keep(qb);
+    measure("quat from matrix", kCount, [&] {
+        keep(ma);
         for (int i = 0; i < kCount; ++i)
-            qr[i] = qa[i] * qb[i];
+            qr[i] = m3::quatFromMatrix(ma[i]);
         keep(qr);
-        return double(qr[kCount - 1].x) + qr[kCount - 1].y + qr[kCount - 1].z + qr[kCount - 1].w;
+        return sum3(qr[kCount - 1]);
     });
-    measure("Quaternion::Set(Matrix)", kCount, [&] {
-        keep(ma);
-        for (int i = 0; i < kCount; ++i)
-            qr[i].Set(ma[i]);
-        keep(qr);
-        return double(qr[kCount - 1].x) + qr[kCount - 1].y + qr[kCount - 1].z + qr[kCount - 1].w;
-    });
-    measure("Matrix::Transposition", kCount, [&] {
-        keep(ma);
-        for (int i = 0; i < kCount; ++i)
-        {
-            mr[i] = ma[i];
-            mr[i].Transposition();
-        }
-        keep(mr);
-        return sum(mr[kCount - 1]);
-    });
-    measure("Matrix::IsIdentity", kCount, [&] {
-        keep(ma);
-        int count = 0;
-        for (int i = 0; i < kCount; ++i)
-            count += ma[i].IsIdentity() ? 1 : 0;
-        return double(count);
-    });
-    measure("Color LerpA+Clamp", kCount, [&] {
-        keep(colors); keep(blend);
-        for (int i = 0; i < kCount; ++i)
-        {
-            colorResults[i].LerpA(colors[i], colors[kCount - 1 - i], blend[i]);
-            colorResults[i].Clamp();
-        }
-        keep(colorResults);
-        return double(colorResults[kCount - 1].r) + colorResults[kCount - 1].g + colorResults[kCount - 1].b +
-               colorResults[kCount - 1].a;
-    });
-    measure("Vector normalize (!)", kCount, [&] {
+    measure("vec3 normalizeInPlace", kCount, [&] {
         keep(pv);
         for (int i = 0; i < kCount; ++i)
-            pres[i] = !pv[i];
+        {
+            pres[i] = pv[i];
+            scalars[i] = m3::normalizeInPlace(pres[i]);
+        }
+        keep(pres); keep(scalars);
+        return sum3(pres[kCount - 1]) + scalars[kCount - 1];
+    });
+    measure("vec3 negated", kCount, [&] {
+        keep(pv);
+        for (int i = 0; i < kCount; ++i)
+            pres[i] = m3::negated(pv[i]);
         keep(pres);
-        return double(pres[kCount - 1].x) + pres[kCount - 1].y + pres[kCount - 1].z;
+        return sum3(pres[kCount - 1]);
+    });
+    measure("vec3 lerp", kCount, [&] {
+        keep(pv); keep(pw); keep(blend);
+        for (int i = 0; i < kCount; ++i)
+            pres[i] = m3::lerp(pv[i], pw[i], blend[i]);
+        keep(pres);
+        return sum3(pres[kCount - 1]);
+    });
+    measure("vec3 angleY", kCount, [&] {
+        keep(pv);
+        for (int i = 0; i < kCount; ++i)
+            scalars[i] = m3::angleY(pv[i], 0.f);
+        keep(scalars);
+        return double(scalars[kCount - 1]);
+    });
+    measure("color lerp + toARGB", kCount, [&] {
+        keep(colors); keep(blend);
+        for (int i = 0; i < kCount; ++i)
+            packed[i] = m3::colorToARGB(m3::colorLerp(colors[i], colors[kCount - 1 - i], blend[i], colors[i].a));
+        keep(packed);
+        return double(packed[kCount - 1]);
+    });
+    measure("color fromARGB", kCount, [&] {
+        keep(packed);
+        for (int i = 0; i < kCount; ++i)
+            colors[i] = m3::colorFromARGB(packed[i]);
+        keep(colors);
+        return double(colors[kCount - 1].r) + colors[kCount - 1].g + colors[kCount - 1].b + colors[kCount - 1].a;
+    });
+    measure("segment/plane", kCount, [&] {
+        keep(pv); keep(pw);
+        const m3::Plane plane = m3::planeFromPointNormal(m3::vec(.6f, .8f, 0.f), m3::vec(.5f, .25f, -1.f));
+        for (int i = 0; i < kCount; ++i)
+            hits[i] = m3::intersectSegmentPlane(plane, pv[i], pw[i], pres[i]);
+        keep(pres); keep(hits);
+        int count = 0;
+        for (int i = 0; i < kCount; ++i)
+            count += hits[i];
+        return sum3(pres[kCount - 1]) + count;
+    });
+    measure("segment/sphere", kCount, [&] {
+        keep(pv); keep(pw);
+        const m3::Vec3 center = m3::vec(.5f, .25f, -1.f);
+        for (int i = 0; i < kCount; ++i)
+            hits[i] = m3::intersectSegmentSphere(pv[i], pw[i], center, 6.f);
+        keep(hits);
+        int count = 0;
+        for (int i = 0; i < kCount; ++i)
+            count += hits[i];
+        return double(count);
     });
     return 0;
 }

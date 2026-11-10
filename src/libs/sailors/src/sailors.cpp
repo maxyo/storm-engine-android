@@ -78,7 +78,7 @@ ShipMan & ShipMan::operator=(ShipMan &&other) noexcept
 
 ShipMan::ShipMan()
 {
-    pos = CVECTOR(0.0f, 11.0f, 30.0f);
+    pos = glm::vec3(0.0f, 11.0f, 30.0f);
     manSpeed = 0.1f;
     rotSpeed = 0.5f;
     mode = MAN_WALK;
@@ -97,7 +97,7 @@ void ShipMan::SetPos(MODEL *ship, SHIP_BASE *ship_base, uint32_t &dltTime, ShipS
         if (ship_base && (shipState.dead || jumpSpeedY))
         {
             // If got in the water - detach from the ship and swim
-            if (!inWater && model->mtx.Pos().y < shipState.sea->WaveXZ(model->mtx.Pos().x, model->mtx.Pos().z) - 1.4f)
+            if (!inWater && storm::math::pos(model->mtx).y < shipState.sea->WaveXZ(storm::math::pos(model->mtx).x, storm::math::pos(model->mtx).z) - 1.4f)
             {
                 inWater = true;
 
@@ -106,7 +106,7 @@ void ShipMan::SetPos(MODEL *ship, SHIP_BASE *ship_base, uint32_t &dltTime, ShipS
                 model->GetAnimation()->Player(0).SetSpeed(model->GetAnimation()->Player(0).GetSpeed() / 2);
                 model->GetAnimation()->Player(0).Play();
 
-                pos = model->mtx.Pos();
+                pos = storm::math::pos(model->mtx);
 
                 ang.y += ship_base->GetAng().y;
                 ang.x = ang.z = 0;
@@ -119,26 +119,25 @@ void ShipMan::SetPos(MODEL *ship, SHIP_BASE *ship_base, uint32_t &dltTime, ShipS
 
         if (!inWater)
         {
-            CMatrix mPos, mRot, m1, m2;
+            glm::mat4 mPos, mRot, m1, m2;
 
-            mPos.BuildMatrix(CVECTOR(ang.x, ang.y, ang.z),
-                             pos + spos /*CVECTOR(pos.x+ spos.x, pos.y+ spos.y, pos.z+ spos.z)*/);
+            mPos = storm::math::eulerMatrix(glm::vec3(ang.x, ang.y, ang.z), pos + spos);
 
             if (ship_base)
             {
-                model->mtx = mPos * (*ship_base->GetMatrix());
+                model->mtx = (*ship_base->GetMatrix()) * mPos;
             }
             else
             {
-                model->mtx = mRot * mPos;
+                model->mtx = mPos * mRot;
             }
         }
         else
         {
-            CMatrix mpos, mrot;
-            mrot.BuildMatrix(this->ang);
-            mpos.BuildPosition(this->pos.x, this->pos.y, this->pos.z);
-            model->mtx = mrot * mpos;
+            glm::mat4 mpos, mrot;
+            mrot = storm::math::eulerMatrix(this->ang);
+            mpos = storm::math::translation(this->pos.x, this->pos.y, this->pos.z);
+            model->mtx = mpos * mrot;
         }
     }
 }
@@ -304,7 +303,7 @@ void ShipMan::FindNextPoint(SailorsPoints &sailorsPoints, ShipState &shipState)
             else
                 newWayPoint = path.point[path.currentPointPosition];
 
-            ApplyTargetPoint(CVECTOR(sailorsPoints.points.point[newWayPoint].x,
+            ApplyTargetPoint(glm::vec3(sailorsPoints.points.point[newWayPoint].x,
                                      sailorsPoints.points.point[newWayPoint].y,
                                      sailorsPoints.points.point[newWayPoint].z),
                              (sailorsPoints.points.point[newWayPoint].pointType == PT_TYPE_NORMAL));
@@ -330,13 +329,13 @@ void ShipMan::FindNextPoint(SailorsPoints &sailorsPoints, ShipState &shipState)
         if ((shipState.mode == SHIP_WAR || moveTo == MOVE_TO_CANNON) && mode == MAN_WALK)
             mode = MAN_RUN;
 
-        ApplyTargetPoint(CVECTOR(sailorsPoints.points.point[newWayPoint].x, sailorsPoints.points.point[newWayPoint].y,
+        ApplyTargetPoint(glm::vec3(sailorsPoints.points.point[newWayPoint].x, sailorsPoints.points.point[newWayPoint].y,
                                  sailorsPoints.points.point[newWayPoint].z),
                          (sailorsPoints.points.point[newWayPoint].pointType == PT_TYPE_NORMAL));
     }
 }
 
-void ShipMan::ApplyTargetPoint(CVECTOR pt, bool randomWalk)
+void ShipMan::ApplyTargetPoint(glm::vec3 pt, bool randomWalk)
 {
     if (randomWalk)
     {
@@ -351,7 +350,7 @@ void ShipMan::ApplyTargetPoint(CVECTOR pt, bool randomWalk)
         ptTo = pt;
     }
 
-    dir = !(ptTo - pos);
+    dir = storm::math::normalizeOrZero(ptTo - pos);
 
     if (mode != MAN_CLIMB_UP)
     {
@@ -409,7 +408,7 @@ int ShipMan::GetNearestEmptyCannon(SailorsPoints &sailorsPoints) const
         if (sailorsPoints.points.point[i].IsCannon() && sailorsPoints.points.point[i].buisy == false &&
             sailorsPoints.points.point[i].cannonReloaded == false && sailorsPoints.points.point[i].disabled == false)
         {
-            dest = Dest(CVECTOR(sailorsPoints.points.point[i].x, sailorsPoints.points.point[i].y,
+            dest = Dest(glm::vec3(sailorsPoints.points.point[i].x, sailorsPoints.points.point[i].y,
                                 sailorsPoints.points.point[i].z),
                         pos);
 
@@ -603,10 +602,10 @@ void ShipMan::NewAction(SailorsPoints &sailorsPoints, ShipState &shipState, uint
             mode = MAN_CANNONRELOAD;
 
             ang.y = angTo.y = Vector2Angle(
-                !(CVECTOR(sailorsPoints.points.point[targetWayPoint].x, sailorsPoints.points.point[targetWayPoint].y,
+                storm::math::normalizeOrZero(glm::vec3(sailorsPoints.points.point[targetWayPoint].x, sailorsPoints.points.point[targetWayPoint].y,
                           sailorsPoints.points.point[targetWayPoint].z) -
 
-                  CVECTOR(sailorsPoints.points.point[lastWayPoint].x, sailorsPoints.points.point[lastWayPoint].y,
+                  glm::vec3(sailorsPoints.points.point[lastWayPoint].x, sailorsPoints.points.point[lastWayPoint].y,
                           sailorsPoints.points.point[lastWayPoint].z)));
             return;
         }
@@ -848,15 +847,15 @@ void ShipWalk::SetMastBroken(int iMastIndex)
     }
 }
 
-void ShipWalk::OnHullHit(const CVECTOR &v)
+void ShipWalk::OnHullHit(const glm::vec3 &v)
 {
     for (auto &man : shipMan)
     {
         if (10 * rand() / RAND_MAX < 3 && man.mode != MAN_JUMP && man.mode != MAN_SWIM)
         {
-            CVECTOR pos;
+            glm::vec3 pos;
             if (ship)
-                pos = shipModel->mtx * man.pos;
+                pos = storm::math::transformPoint(shipModel->mtx, man.pos);
             else
                 pos = man.pos;
 
@@ -1137,7 +1136,7 @@ uint64_t Sailors::ProcessMessage(MESSAGE &message)
                 const auto y = message.Float();
                 const auto z = message.Float();
 
-                walk->OnHullHit(CVECTOR(x, y, z));
+                walk->OnHullHit(glm::vec3(x, y, z));
             }
         }
 

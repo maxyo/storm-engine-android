@@ -108,17 +108,17 @@ void TFlotsam::Realize(uint32_t _dTime)
     if (!enabled)
         return;
 
-    CVECTOR pos(x, 0, z);
+    glm::vec3 pos(x, 0, z);
     if (state == FLOTSAM_FLOAT)
         pos.y = sea->WaveXZ(x, z) + sink_effect::FLOTSAM_DY;
     else
         pos.y = y;
-    const CVECTOR ang(0.0f, angY, 0.0f);
+    const glm::vec3 ang(0.0f, angY, 0.0f);
     MODEL *model;
     model = static_cast<MODEL *>(core.GetEntityPointer(ModelID));
     if (model)
     {
-        model->mtx.BuildMatrix(ang, pos);
+        model->mtx = storm::math::eulerMatrix(ang, pos);
         model->ProcessStage(Entity::Stage::realize, _dTime);
     }
 }

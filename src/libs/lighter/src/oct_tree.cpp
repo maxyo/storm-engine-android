@@ -16,7 +16,7 @@
 
 #define LLOT_MAX 128
 
-OctTree::OTNode::OTNode(const CVECTOR &_min, const CVECTOR &_max)
+OctTree::OTNode::OTNode(const glm::vec3 &_min, const glm::vec3 &_max)
 {
     for (int32_t i = 0; i < 8; i++)
         node[i] = nullptr;
@@ -108,14 +108,14 @@ bool OctTree::AddVertex(OTNode *node, Vertex *v)
         }
         // Overflow, must be distributed among children
         const auto cnt = (node->min + node->max) * 0.5f;
-        node->node[0] = new OTNode(CVECTOR(min.x, min.y, min.z), CVECTOR(cnt.x, cnt.y, cnt.z));
-        node->node[1] = new OTNode(CVECTOR(min.x, min.y, cnt.z), CVECTOR(cnt.x, cnt.y, max.z));
-        node->node[2] = new OTNode(CVECTOR(cnt.x, min.y, cnt.z), CVECTOR(max.x, cnt.y, max.z));
-        node->node[3] = new OTNode(CVECTOR(cnt.x, min.y, min.z), CVECTOR(max.x, cnt.y, cnt.z));
-        node->node[4] = new OTNode(CVECTOR(min.x, cnt.y, min.z), CVECTOR(cnt.x, max.y, cnt.z));
-        node->node[5] = new OTNode(CVECTOR(min.x, cnt.y, cnt.z), CVECTOR(cnt.x, max.y, max.z));
-        node->node[6] = new OTNode(CVECTOR(cnt.x, cnt.y, cnt.z), CVECTOR(max.x, max.y, max.z));
-        node->node[7] = new OTNode(CVECTOR(cnt.x, cnt.y, min.z), CVECTOR(max.x, max.y, cnt.z));
+        node->node[0] = new OTNode(glm::vec3(min.x, min.y, min.z), glm::vec3(cnt.x, cnt.y, cnt.z));
+        node->node[1] = new OTNode(glm::vec3(min.x, min.y, cnt.z), glm::vec3(cnt.x, cnt.y, max.z));
+        node->node[2] = new OTNode(glm::vec3(cnt.x, min.y, cnt.z), glm::vec3(max.x, cnt.y, max.z));
+        node->node[3] = new OTNode(glm::vec3(cnt.x, min.y, min.z), glm::vec3(max.x, cnt.y, cnt.z));
+        node->node[4] = new OTNode(glm::vec3(min.x, cnt.y, min.z), glm::vec3(cnt.x, max.y, cnt.z));
+        node->node[5] = new OTNode(glm::vec3(min.x, cnt.y, cnt.z), glm::vec3(cnt.x, max.y, max.z));
+        node->node[6] = new OTNode(glm::vec3(cnt.x, cnt.y, cnt.z), glm::vec3(max.x, max.y, max.z));
+        node->node[7] = new OTNode(glm::vec3(cnt.x, cnt.y, min.z), glm::vec3(max.x, max.y, cnt.z));
         for (int32_t n = 0; n < node->num; n++)
         {
             int32_t c;
@@ -165,14 +165,14 @@ void OctTree::Optimize(OTNode *node)
 }
 
 // Find vertices in a given radius
-void OctTree::FindVerts(const CVECTOR &pos, float r)
+void OctTree::FindVerts(const glm::vec3 &pos, float r)
 {
     numVerts = 0;
     vertsPos = pos;
     vertsR = r * r;
     r += 0.000001f;
-    vertsPosMin = pos - CVECTOR(r);
-    vertsPosMax = pos + CVECTOR(r);
+    vertsPosMin = pos - glm::vec3(r);
+    vertsPosMax = pos + glm::vec3(r);
     if (root)
         FindVerts(root);
 }
@@ -208,7 +208,7 @@ void OctTree::FindVerts(OTNode *node)
     {
         for (int32_t i = 0; i < node->num; i++)
         {
-            const auto r = ~(node->vrt[i]->p - vertsPos);
+            const auto r = storm::math::lengthSquared(node->vrt[i]->p - vertsPos);
             if (r < vertsR)
             {
                 if (numVerts >= maxVerts)

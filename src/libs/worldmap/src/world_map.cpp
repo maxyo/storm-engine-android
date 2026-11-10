@@ -370,7 +370,7 @@ void WorldMap::Realize(uint32_t delta_time)
 {
     if (AttributesPointer && wdmObjects->playerShip)
     {
-        CVECTOR wind(0.0f);
+        glm::vec3 wind(0.0f);
         float x, z, ay;
         wdmObjects->playerShip->GetPosition(x, z, ay);
         const auto force = wdmObjects->GetWind(x, z, wind);
@@ -522,7 +522,7 @@ void WorldMap::Realize(uint32_t delta_time)
     wdmObjects->isNextDayUpdate = false;
     wdmObjects->forceUpdate = false;
     // Notify scripts about wind change
-    auto wind_dir = CVECTOR();
+    auto wind_dir = glm::vec3();
     auto x = 0.0f;
     auto z = 0.0f;
     auto ay = 0.0f;
@@ -945,7 +945,7 @@ bool WorldMap::CreateMerchantShip(const char *modelName, const char *locNameStar
     {
         core.Trace("World map: Islands not found");
     }
-    CVECTOR gpos;
+    glm::vec3 gpos;
     if (!locNameEnd || !locNameEnd[0])
     {
         if (wdmObjects->islands)

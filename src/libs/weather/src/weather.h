@@ -14,7 +14,7 @@ class WEATHER : public WEATHER_BASE
     float fFloats[MAX_FLOAT_PARAMS];
     int32_t iLongs[MAX_LONG_PARAMS];
     uint32_t dwColors[MAX_COLOR_PARAMS];
-    CVECTOR vVectors[MAX_VECTORS_PARAMS];
+    glm::vec3 vVectors[MAX_VECTORS_PARAMS];
     char *pStrings[MAX_STRINGS_PARAMS];
 
     // timer data
@@ -43,10 +43,10 @@ class WEATHER : public WEATHER_BASE
 
     // Weather_Base function
     int32_t GetInt(uint32_t dwCode) override;
-    uint32_t GetColor(uint32_t, CVECTOR *) override;
+    uint32_t GetColor(uint32_t, glm::vec3 *) override;
     uint32_t GetColor(uint32_t) override;
     float GetFloat(uint32_t) override;
-    void GetVector(uint32_t, CVECTOR *) override;
+    void GetVector(uint32_t, glm::vec3 *) override;
 
   public:
     WEATHER();

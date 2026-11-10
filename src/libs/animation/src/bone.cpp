@@ -14,6 +14,8 @@
 #include "storm_assert.h"
 #include "vma.hpp"
 
+#include <cstring>
+
 // ============================================================================================
 // Construction, destruction
 // ============================================================================================
@@ -33,7 +35,7 @@ Bone::~Bone()
 }
 
 // how many frames of animation there will be
-void Bone::SetNumFrames(int32_t num, CVECTOR &sPos, bool isRoot)
+void Bone::SetNumFrames(int32_t num, glm::vec3 &sPos, bool isRoot)
 {
     delete ang;
     delete pos;
@@ -49,25 +51,25 @@ void Bone::SetNumFrames(int32_t num, CVECTOR &sPos, bool isRoot)
     ang = new COMP_QUATERNION[num];
     memset(ang, 0, numFrames * sizeof(ang[0]));
 #else
-    ang = new Quaternion[num];
+    ang = new glm::quat[num];
     memset(ang, 0, numFrames * sizeof(ang[0]));
 #endif
 
     if (isRoot)
     {
-        pos = new CVECTOR[num];
-        memset(pos, 0, numFrames * sizeof(CVECTOR));
+        pos = new glm::vec3[num];
+        memset(pos, 0, numFrames * sizeof(glm::vec3));
     }
     pos0 = sPos;
 }
 
 // Set animation positions
-void Bone::SetPositions(const CVECTOR *pArray, int32_t numPos)
+void Bone::SetPositions(const glm::vec3 *pArray, int32_t numPos)
 {
     Assert(numPos == numFrames);
     Assert(pArray);
     Assert(pos);
-    memcpy(pos, pArray, numFrames * sizeof(CVECTOR));
+    memcpy(pos, pArray, numFrames * sizeof(glm::vec3));
 }
 
 //=====================================================================================
@@ -79,7 +81,7 @@ void Bone::SetPositions(const CVECTOR *pArray, int32_t numPos)
 //-------------------------------------
 
 // Set animation angles
-void Bone::SetAngles(const Quaternion *aArray, int32_t numAng)
+void Bone::SetAngles(const glm::quat *aArray, int32_t numAng)
 {
     Assert(numAng == numFrames);
     Assert(aArray);
@@ -101,7 +103,7 @@ void Bone::SetAngles(const Quaternion *aArray, int32_t numAng)
     }
 }
 
-inline void Bone::GetFrame(int32_t f, Quaternion &qt)
+inline void Bone::GetFrame(int32_t f, glm::quat &qt)
 {
     qt.x = sinf((ang[f].x * (1.0f / 32767.0f)) * PI * 0.5f);
     qt.y = sinf((ang[f].y * (1.0f / 32767.0f)) * PI * 0.5f);
@@ -116,7 +118,7 @@ inline void Bone::GetFrame(int32_t f, Quaternion &qt)
 //-------------------------------------
 
 // Set animation angles
-void Bone::SetAngles(const Quaternion *aArray, int32_t numAng)
+void Bone::SetAngles(const glm::quat *aArray, int32_t numAng)
 {
     Assert(numAng == numFrames);
     Assert(aArray);
@@ -124,7 +126,7 @@ void Bone::SetAngles(const Quaternion *aArray, int32_t numAng)
     memcpy(ang, aArray, numFrames * sizeof(*ang));
 }
 
-inline void Bone::GetFrame(int32_t f, Quaternion &qt)
+inline void Bone::GetFrame(int32_t f, glm::quat &qt)
 {
     qt = ang[f];
 }
@@ -156,15 +158,12 @@ void Bone::BuildStartMatrix()
 {
     if (numFrames == 0 || !ang)
         return;
-    Matrix tmpInmtx;
-    CMatrix inmtx;
-    Quaternion a;
+    glm::quat a;
     GetFrame(0, a);
-    a.GetMatrix(tmpInmtx);
-    inmtx = tmpInmtx;
-    inmtx.Pos() = pos0;
+    auto inmtx = glm::mat4_cast(a);
+    storm::math::pos(inmtx) = pos0;
     if (parent)
-        start.EqMultiply(inmtx, parent->start);
+        start = parent->start * inmtx;
     else
         start = inmtx;
 }
@@ -174,7 +173,7 @@ void Bone::BuildStartMatrix()
 // --------------------------------------------------------------------------------------------
 
 // Add animation frames
-void Bone::BlendFrame(int32_t frame, float kBlend, Quaternion &res)
+void Bone::BlendFrame(int32_t frame, float kBlend, glm::quat &res)
 {
     if (numFrames <= 0)
         return;
@@ -185,14 +184,23 @@ void Bone::BlendFrame(int32_t frame, float kBlend, Quaternion &res)
         GetFrame(numFrames - 1, res);
         return;
     }
-    Quaternion q0, q1;
+    glm::quat q0, q1;
     GetFrame(f0, q0);
+#ifdef ANI_COMPRESS_ENABLE
+    // Identical packed keys decode identically within this call. Reuse only
+    // the decoding; SLerp still applies its original rounding and sign rules.
+    if (std::memcmp(&ang[f0], &ang[f1], sizeof(ang[0])) == 0)
+        q1 = q0;
+    else
+        GetFrame(f1, q1);
+#else
     GetFrame(f1, q1);
+#endif
     if (kBlend < 0.0f)
         kBlend = 0.0f;
     if (kBlend > 1.0f)
         kBlend = 1.0f;
-    res.SLerp(q0, q1, kBlend);
+    res = storm::math::slerp(q0, q1, kBlend);
 }
 
 // Create a matrix for the resulting position
@@ -200,11 +208,9 @@ void Bone::BuildMatrix()
 {
     // Turns
     // matrix = a.BuildMatrix();
-    Matrix tmpMtx;
-    a.GetMatrix(tmpMtx);
-    matrix = tmpMtx;
-    matrix.Pos() = p;
+    matrix = glm::mat4_cast(a);
+    storm::math::pos(matrix) = p;
     // Multiply by the parent matrix
     if (parent)
-        matrix.EqMultiply(CMatrix(matrix), parent->matrix);
+        matrix = parent->matrix * glm::mat4(matrix);
 }

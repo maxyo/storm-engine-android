@@ -5,7 +5,7 @@
 #include "shared/sail_msg.h"
 #include "ship_base.h"
 
-extern void sailPrint(VDX9RENDER *rs, const CVECTOR &pos3D, float rad, int32_t line, const char *format, ...);
+extern void sailPrint(VDX9RENDER *rs, const glm::vec3 &pos3D, float rad, int32_t line, const char *format, ...);
 
 ROPE::ROPE()
 {
@@ -115,7 +115,7 @@ void ROPE::Execute(uint32_t Delta_Time)
                 // DoMove(rlist[i]);
                 else if (rlist[i]->len != 0.f) // set all vertex to point(0,0,0)
                 {
-                    const auto nulVect = CVECTOR(0.f, 0.f, 0.f);
+                    const auto nulVect = glm::vec3(0.f, 0.f, 0.f);
                     for (auto idx = rlist[i]->sv; idx < rlist[i]->sv + rlist[i]->nv; idx++)
                         vertBuf[idx].pos = nulVect;
                 }
@@ -143,7 +143,7 @@ void ROPE::Realize(uint32_t Delta_Time)
         else
         {
             // draw nature rope
-            CVECTOR cp, ca;
+            glm::vec3 cp, ca;
             float pr;
             RenderService->GetCamera(cp, ca, pr);
             pr = tanf(pr * .5f);
@@ -154,12 +154,12 @@ void ROPE::Realize(uint32_t Delta_Time)
             {
                 for (auto i = 0; i < groupQuantity; i++)
                     if (!gdata[i].bDeleted && gdata[i].nt != 0 && nVert != 0)
-                        if ((~(gdata[i].pMatWorld->Pos() - cp)) * pr < fMaxRopeDist)
+                        if ((storm::math::lengthSquared(storm::math::pos(*gdata[i].pMatWorld) - cp)) * pr < fMaxRopeDist)
                         // if the distance to the ship is not more than the maximum
                         {
                             static_cast<SHIP_BASE *>(core.GetEntityPointer(gdata[i].shipEI))
                                 ->SetLightAndFog(true);
-                            RenderService->SetTransform(D3DTS_WORLD, *gdata[i].pMatWorld);
+                            RenderService->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(*gdata[i].pMatWorld));
 
                             RenderService->TextureSet(0, texl);
                             RenderService->SetMaterial(mat);
@@ -439,11 +439,11 @@ void ROPE::SetVertexes(ROPEDATA *pr, float dtime) const
 
     int vertnum = pr->sv;
 
-    CVECTOR cvb, cve;
+    glm::vec3 cvb, cve;
     // Get begin point into Ship coordinate
-    gdata[pr->HostGroup].pMatWorld->MulToInv(*pr->bMatWorld * pr->pBeg, cvb);
+    cvb = storm::math::inverseTransformPoint(*gdata[pr->HostGroup].pMatWorld, storm::math::transformPoint(*pr->bMatWorld, pr->pBeg));
     // Get end point into Ship coordinate
-    gdata[pr->HostGroup].pMatWorld->MulToInv(*pr->eMatWorld * pr->pEnd, cve);
+    cve = storm::math::inverseTransformPoint(*gdata[pr->HostGroup].pMatWorld, storm::math::transformPoint(*pr->eMatWorld, pr->pEnd));
 
     // Set the first and last points of the rope
     vertBuf[vertnum].pos = cvb;
@@ -453,11 +453,11 @@ void ROPE::SetVertexes(ROPEDATA *pr, float dtime) const
 
     vertnum++;
 
-    const CVECTOR dtV = (cve - cvb - pr->cv) / static_cast<float>(pr->segquant);
-    const CVECTOR deepV = pr->vDeep * (4.f / static_cast<float>(pr->segquant * pr->segquant));
+    const glm::vec3 dtV = (cve - cvb - pr->cv) / static_cast<float>(pr->segquant);
+    const glm::vec3 deepV = pr->vDeep * (4.f / static_cast<float>(pr->segquant * pr->segquant));
     for (int segn = 0; segn <= pr->segquant; segn++)
     {
-        CVECTOR cv = cvb;
+        glm::vec3 cv = cvb;
         if (pr->bMakeWave)
             cv += deepV * static_cast<float>(segn * (pr->segquant - segn));
 
@@ -476,7 +476,7 @@ void ROPE::DoMove(ROPEDATA *pr)
     if(pr->bUse)
     {
         int vertnum=pr->sv;
-        CVECTOR cvb,cve,cv;
+        glm::vec3 cvb,cve,cv;
         // Get begin point into Ship coordinate
         gdata[pr->HostGroup].pMatWorld->MulToInv(*pr->bMatWorld*pr->pBeg,cvb);
         // Get end point into Ship coordinate
@@ -488,13 +488,13 @@ void ROPE::DoMove(ROPEDATA *pr)
 
         cvb += pr->cv;
 
-        CVECTOR chV = pr->pOld - pr->pBeg;
+        glm::vec3 chV = pr->pOld - pr->pBeg;
         if( chV.x>MaxCh || chV.x<-MaxCh ||
             chV.y>MaxCh || chV.y<-MaxCh ||
             chV.z>MaxCh || chV.z<-MaxCh )
         {
             vertnum++;
-            CVECTOR dc = (cve - cvb - pr->cv)/(float)pr->segquant;
+            glm::vec3 dc = (cve - cvb - pr->cv)/(float)pr->segquant;
             for(int j=0; j<=pr->segquant; j++)
             {
                 // set new coordinates in the current section
@@ -614,9 +614,9 @@ void ROPE::AddLabel(GEOS::LABEL &lbl, NODE *nod, bool bDontSage)
         // binding to sail
         if (grNum >= 0) // begin tip of rope - tie with sail
         {
-            rd->pBeg.x += nod->glob_mtx.matrix[3];
-            rd->pBeg.y += nod->glob_mtx.matrix[7];
-            rd->pBeg.z += nod->glob_mtx.matrix[11];
+            rd->pBeg.x += storm::math::data(nod->glob_mtx)[3];
+            rd->pBeg.y += storm::math::data(nod->glob_mtx)[7];
+            rd->pBeg.z += storm::math::data(nod->glob_mtx)[11];
             rd->btie = true;
         }
         break;
@@ -629,21 +629,21 @@ void ROPE::AddLabel(GEOS::LABEL &lbl, NODE *nod, bool bDontSage)
         // binding to sail
         if (grNum >= 0) // begin tip of rope - tie with sail
         {
-            rd->pEnd.x += nod->glob_mtx.matrix[3];
-            rd->pEnd.y += nod->glob_mtx.matrix[7];
-            rd->pEnd.z += nod->glob_mtx.matrix[11];
+            rd->pEnd.x += storm::math::data(nod->glob_mtx)[3];
+            rd->pEnd.y += storm::math::data(nod->glob_mtx)[7];
+            rd->pEnd.z += storm::math::data(nod->glob_mtx)[11];
             rd->etie = true;
         }
         break;
     }
 
     // now getting all two points
-    CVECTOR ce, cb;
+    glm::vec3 ce, cb;
     if (rd->bMatWorld != nullptr && rd->eMatWorld != nullptr)
     {
-        cb = *rd->bMatWorld * rd->pBeg;
-        ce = *rd->eMatWorld * rd->pEnd;
-        rd->len = sqrtf(~(ce - cb));
+        cb = storm::math::transformPoint(*rd->bMatWorld, rd->pBeg);
+        ce = storm::math::transformPoint(*rd->eMatWorld, rd->pEnd);
+        rd->len = sqrtf(storm::math::lengthSquared(ce - cb));
 
         if (rd->len < .1f || rd->len > 200.f)
         {
@@ -669,9 +669,9 @@ void ROPE::AddLabel(GEOS::LABEL &lbl, NODE *nod, bool bDontSage)
         else
         {
             rd->segquant = static_cast<uint16_t>(rd->len / ROPE_SEG_LENGTH) + 1;
-            rd->cv = (!(ce - cb)) * ROPE_END_LENGTH; // vector for rope edge length
+            rd->cv = (storm::math::normalizeOrZero(ce - cb)) * ROPE_END_LENGTH; // vector for rope edge length
             // Set normals with length equal the rope width
-            CVECTOR norm;
+            glm::vec3 norm;
             float cvert, chorz, svert, shorz;
             norm = ce - cb;
             cvert = norm.z / rd->len;
@@ -725,7 +725,7 @@ void ROPE::AddLabel(GEOS::LABEL &lbl, NODE *nod, bool bDontSage)
 
             rd->angDeep = 0.f;
             rd->angRot = 0.f;
-            rd->vDeep = 0.f;
+            rd->vDeep = glm::vec3(0.f);
 
             if (const auto sailEI = core.GetEntityId("sail"))
             {
@@ -756,7 +756,7 @@ void ROPE::AddLabel(GEOS::LABEL &lbl, NODE *nod, bool bDontSage)
 }
 
 // get the end point of the rope in the coordinates of the start point
-void ROPE::GetEndPoint(CVECTOR *cv, int ropenum, entid_t mdl_id)
+void ROPE::GetEndPoint(glm::vec3 *cv, int ropenum, entid_t mdl_id)
 {
     int rn;
 
@@ -779,9 +779,9 @@ void ROPE::GetEndPoint(CVECTOR *cv, int ropenum, entid_t mdl_id)
         return;
 
     if (bGetEnd)
-        rlist[rn]->bMatWorld->MulToInv(*rlist[rn]->eMatWorld * rlist[rn]->pEnd, *cv);
+        *cv = storm::math::inverseTransformPoint(*rlist[rn]->bMatWorld, storm::math::transformPoint(*rlist[rn]->eMatWorld, rlist[rn]->pEnd));
     else
-        rlist[rn]->eMatWorld->MulToInv(*rlist[rn]->bMatWorld * rlist[rn]->pBeg, *cv);
+        *cv = storm::math::inverseTransformPoint(*rlist[rn]->eMatWorld, storm::math::transformPoint(*rlist[rn]->bMatWorld, rlist[rn]->pBeg));
 }
 
 void ROPE::LoadIni()
@@ -922,7 +922,7 @@ void ROPE::SetTextureGrid(ROPEDATA *pv) const
 {
     int iv = pv->sv;
 
-    const float tvMax = sqrtf(~(*pv->eMatWorld * pv->pEnd - *pv->bMatWorld * pv->pBeg));
+    const float tvMax = sqrtf(storm::math::lengthSquared(storm::math::transformPoint(*pv->eMatWorld, pv->pEnd) - storm::math::transformPoint(*pv->bMatWorld, pv->pBeg)));
 
     vertBuf[iv].tu = 0.f;
     vertBuf[iv].tv = 0.f;

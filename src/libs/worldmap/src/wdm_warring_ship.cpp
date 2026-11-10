@@ -51,8 +51,8 @@ void WdmWarringShip::Update(float dltTime)
         // Half for the left side
         for (size_t i = 0; i < sizeof(move) / sizeof(move[0]) / 2; i++, numRects++)
         {
-            rect[numRects].vPos = mtx.Pos() + CVECTOR(0.0f, 2.0f, 0.0f);
-            rect[numRects].vPos += mtx.Vz() * 2.5f * (1.0f - rand() * 2.0f / RAND_MAX);
+            rect[numRects].vPos = storm::math::pos(mtx) + glm::vec3(0.0f, 2.0f, 0.0f);
+            rect[numRects].vPos += storm::math::vz(mtx) * 2.5f * (1.0f - rand() * 2.0f / RAND_MAX);
             rect[numRects].dwColor = 0;
             rect[numRects].dwSubTexture = 0;
             rect[numRects].fAngle = rand() * 6.0f / RAND_MAX;
@@ -60,13 +60,13 @@ void WdmWarringShip::Update(float dltTime)
             move[numRects].dAng = 0.3f * (1.0f - rand() * 2.0f / RAND_MAX);
             move[numRects].time = 0.0f;
             move[numRects].kTime = 1.0f / (2.0f + rand() * 2.0f / RAND_MAX);
-            move[numRects].v = mtx.Vx() * 30.0f * (0.6f + rand() * (0.4f / RAND_MAX));
+            move[numRects].v = storm::math::vx(mtx) * 30.0f * (0.6f + rand() * (0.4f / RAND_MAX));
         }
         // Half for the right side
         for (size_t i = 0; i < sizeof(move) / sizeof(move[0]) / 2; i++, numRects++)
         {
-            rect[numRects].vPos = mtx.Pos() + CVECTOR(0.0f, 2.0f, 0.0f);
-            rect[numRects].vPos += mtx.Vz() * 2.5f * (1.0f - rand() * 2.0f / RAND_MAX);
+            rect[numRects].vPos = storm::math::pos(mtx) + glm::vec3(0.0f, 2.0f, 0.0f);
+            rect[numRects].vPos += storm::math::vz(mtx) * 2.5f * (1.0f - rand() * 2.0f / RAND_MAX);
             rect[numRects].dwColor = 0;
             rect[numRects].dwSubTexture = 0;
             rect[numRects].fAngle = rand() * 6.0f / RAND_MAX;
@@ -74,7 +74,7 @@ void WdmWarringShip::Update(float dltTime)
             move[numRects].dAng = 0.3f * (1.0f - rand() * 2.0f / RAND_MAX);
             move[numRects].time = 0.0f;
             move[numRects].kTime = 1.0f / (2.0f + rand() * 2.0f / RAND_MAX);
-            move[numRects].v = mtx.Vx() * -30.0f * (0.6f + rand() * (0.4f / RAND_MAX));
+            move[numRects].v = storm::math::vx(mtx) * -30.0f * (0.6f + rand() * (0.4f / RAND_MAX));
         }
     }
     // Moving

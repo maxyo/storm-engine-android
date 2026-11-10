@@ -1,0 +1,58 @@
+{
+ "schemaVersion": 1,
+ "sceneEpoch": 4,
+ "activityGeneration": 2,
+ "language": "russian",
+ "mode": 0,
+ "revision": 14,
+ "available": true,
+ "active": true,
+ "complete": true,
+ "stage": "potions",
+ "pendingLabel": "Использовать",
+ "selectedItemId": "",
+ "canBack": true,
+ "canClose": true,
+ "items": [
+  {
+   "id": "p1",
+   "kind": "potion",
+   "label": "Лечебное зелье",
+   "source": "potion1",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "p2",
+   "kind": "potion",
+   "label": "Эликсир",
+   "source": "potion2",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "p3",
+   "kind": "potion",
+   "label": "Противоядие",
+   "source": "potion3",
+   "enabled": true,
+   "cooldown": 1.0
+  },
+  {
+   "id": "a1",
+   "kind": "ability",
+   "label": "Рывок",
+   "source": "BI_ActivateRush",
+   "enabled": false,
+   "cooldown": 0.4
+  },
+  {
+   "id": "x",
+   "kind": "cancel",
+   "label": "Отмена",
+   "source": "",
+   "enabled": true,
+   "cooldown": 1.0
+  }
+ ]
+}

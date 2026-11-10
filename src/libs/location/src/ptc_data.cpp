@@ -36,7 +36,7 @@ PtcData::PtcData()
     numVerteces = 0;
     normal = nullptr;
     numNormals = 0;
-    min = max = 0.0f;
+    min = max = glm::vec3(0.0f);
     map = nullptr;
     l = w = 0;
     ls = ws = 0.0f;
@@ -51,7 +51,7 @@ PtcData::PtcData()
     dbgEdges = nullptr;
     numSteps = 0;
     materials = nullptr;
-    middle = 0.0f;
+    middle = glm::vec3(0.0f);
 }
 
 PtcData::~PtcData()
@@ -67,7 +67,7 @@ bool PtcData::Load(const char *path)
     Assert(data == nullptr);
     char *buf = nullptr;
     uint32_t size = 0;
-    middle = 0.0f;
+    middle = glm::vec3(0.0f);
     // Loading data
     if (!fio->LoadFile(path, &buf, &size))
     {
@@ -163,7 +163,7 @@ void PtcData::SFLB_PotectionLoad()
     if (hdr.ver == PTC_VERSION)
         materials = (PtcMaterials *)(table + lineSize * numTriangles);
     // Looking for the midpoint
-    middle = 0.0f;
+    middle = glm::vec3(0.0f);
     for (int32_t i = 0; i < numVerteces; i++)
     {
         middle.x += vertex[i].x;
@@ -175,7 +175,7 @@ void PtcData::SFLB_PotectionLoad()
 }
 
 // Determine the current position
-int32_t PtcData::FindNode(const CVECTOR &pos, float &y)
+int32_t PtcData::FindNode(const glm::vec3 &pos, float &y)
 {
     // Position on the map
     const auto mapX = static_cast<int32_t>((pos.x - min.x) / ws);
@@ -197,8 +197,8 @@ int32_t PtcData::FindNode(const CVECTOR &pos, float &y)
         for (j = 0; j < 3; j++)
         {
             // Edge vertices
-            CVECTOR &vs = *(CVECTOR *)&vertex[trg.i[j]];
-            CVECTOR &ve = *(CVECTOR *)&vertex[trg.i[j == 2 ? 0 : j + 1]];
+            glm::vec3 &vs = *(glm::vec3 *)&vertex[trg.i[j]];
+            glm::vec3 &ve = *(glm::vec3 *)&vertex[trg.i[j == 2 ? 0 : j + 1]];
             // Edge normal
             const float nx = -(ve.z - vs.z);
             const float nz = (ve.x - vs.x);
@@ -232,7 +232,7 @@ int32_t PtcData::FindNode(const CVECTOR &pos, float &y)
 }
 
 // Move pos to to, returns a new node
-int32_t PtcData::Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t depth)
+int32_t PtcData::Move(int32_t curNode, const glm::vec3 &to, glm::vec3 &pos, int32_t depth)
 {
     isSlide = false;
     isBearing = false;
@@ -240,11 +240,11 @@ int32_t PtcData::Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t 
         return -1;
     Assert(curNode < numTriangles);
     // Direction of movement in 2D
-    CVECTOR dir(to.x - pos.x, 0.0f, to.z - pos.z);
-    CVECTOR ps = pos;
+    glm::vec3 dir(to.x - pos.x, 0.0f, to.z - pos.z);
+    glm::vec3 ps = pos;
     int32_t firstNode = curNode;
     // path length in 2D
-    float dst = ~dir;
+    float dst = storm::math::lengthSquared(dir);
     if (dst == 0.0f || depth > 32)
     {
         if (to.y != pos.y)
@@ -259,8 +259,8 @@ int32_t PtcData::Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t 
     dst = sqrtf(dst);
     dir *= 1.0f / dst;
     // Vertical plane passing through the displacement segment
-    CVECTOR nd(dir.z, 0.0f, -dir.x);
-    float d = (nd | pos);
+    glm::vec3 nd(dir.z, 0.0f, -dir.x);
+    float d = glm::dot(nd, pos);
     // Trace the way
     int32_t fromNode = -2; // Where we came from
     int32_t loopCounter;
@@ -272,8 +272,8 @@ int32_t PtcData::Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t 
         for (j = 0; j < 3; j++)
         {
             // Edge vertices
-            CVECTOR &vs = *(CVECTOR *)&vertex[trg[j]];
-            CVECTOR &ve = *(CVECTOR *)&vertex[trg[j == 2 ? 0 : j + 1]];
+            glm::vec3 &vs = *(glm::vec3 *)&vertex[trg[j]];
+            glm::vec3 &ve = *(glm::vec3 *)&vertex[trg[j == 2 ? 0 : j + 1]];
             // Edge normal
             float nx = -(ve.z - vs.z);
             float nz = (ve.x - vs.x);
@@ -304,18 +304,18 @@ int32_t PtcData::Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t 
         // Find the edge through which to go further
         short *nb = triangle[curNode].nb;
         int32_t curEdge = -1;
-        CVECTOR pnt;
+        glm::vec3 pnt;
         for (j = 0; j < 3; j++)
         {
             // skip the direction we came from
             if (nb[j] == fromNode)
                 continue;
             // Edge vertices
-            CVECTOR &vs = *(CVECTOR *)&vertex[trg[j]];
-            CVECTOR &ve = *(CVECTOR *)&vertex[trg[j == 2 ? 0 : j + 1]];
+            glm::vec3 &vs = *(glm::vec3 *)&vertex[trg[j]];
+            glm::vec3 &ve = *(glm::vec3 *)&vertex[trg[j == 2 ? 0 : j + 1]];
             // Distances to the movement line
-            float d1 = (nd | vs) - d;
-            float d2 = (nd | ve) - d;
+            float d1 = glm::dot(nd, vs) - d;
+            float d2 = glm::dot(nd, ve) - d;
             if (d1 * d2 > 0.0f)
                 continue;
             if (d1 - d2 == 0.0f)
@@ -327,15 +327,15 @@ int32_t PtcData::Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t 
             if (k > 1.0f)
                 k = 1.0f;
             // Intersection point
-            CVECTOR p;
+            glm::vec3 p;
             // k += 0.000000001;
             p.x = static_cast<float>(vs.x + (ve.x - vs.x) * k);
             p.y = static_cast<float>(vs.y + (ve.y - vs.y) * k);
             p.z = static_cast<float>(vs.z + (ve.z - vs.z) * k);
             // Checking hitting the path
-            if ((d1 = (dir | (p - ps))) < -0.00001f)
+            if ((d1 = glm::dot(dir, p - ps)) < -0.00001f)
                 continue;
-            if ((d2 = (dir | (to - p))) < -0.00001f)
+            if ((d2 = glm::dot(dir, to - p)) < -0.00001f)
                 continue;
             // Found an intersection
             if (nb[j] >= 0)
@@ -361,11 +361,11 @@ int32_t PtcData::Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t 
                 if (nb[j] == fromNode)
                     continue;
                 // Edge vertices
-                CVECTOR &vs = *(CVECTOR *)&vertex[trg[j]];
-                CVECTOR &ve = *(CVECTOR *)&vertex[trg[j == 2 ? 0 : j + 1]];
+                glm::vec3 &vs = *(glm::vec3 *)&vertex[trg[j]];
+                glm::vec3 &ve = *(glm::vec3 *)&vertex[trg[j == 2 ? 0 : j + 1]];
                 // Distances to the movement line
-                float d1 = (nd | vs) - d;
-                float d2 = (nd | ve) - d;
+                float d1 = glm::dot(nd, vs) - d;
+                float d2 = glm::dot(nd, ve) - d;
                 if (d1 * d2 > 0.0f)
                     continue;
                 if (d1 - d2 == 0.0f)
@@ -377,14 +377,14 @@ int32_t PtcData::Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t 
                 if (k > 1.0f)
                     k = 1.0f;
                 // Intersection point
-                CVECTOR p;
+                glm::vec3 p;
                 // k += 0.000000001;
                 p.x = static_cast<float>(vs.x + (ve.x - vs.x) * k);
                 p.y = static_cast<float>(vs.y + (ve.y - vs.y) * k);
                 p.z = static_cast<float>(vs.z + (ve.z - vs.z) * k);
                 // Checking for hitting the path
-                d1 = dir | (p - ps);
-                d2 = dir | (to - p);
+                d1 = glm::dot(dir, p - ps);
+                d2 = glm::dot(dir, to - p);
                 if (d1 < -0.00001f)
                     continue;
                 if (d2 < -0.00001f)
@@ -418,8 +418,8 @@ int32_t PtcData::Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t 
         else
         {
             // The edge along which need to slide
-            CVECTOR &vs = *(CVECTOR *)&vertex[trg[curEdge]];
-            CVECTOR &ve = *(CVECTOR *)&vertex[trg[curEdge == 2 ? 0 : curEdge + 1]];
+            glm::vec3 &vs = *(glm::vec3 *)&vertex[trg[curEdge]];
+            glm::vec3 &ve = *(glm::vec3 *)&vertex[trg[curEdge == 2 ? 0 : curEdge + 1]];
             // Edge normal
             float nx = -(ve.z - vs.z);
             float nz = (ve.x - vs.x);
@@ -437,7 +437,7 @@ int32_t PtcData::Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t 
             nx *= d;
             nz *= d;
             // Out-of-triangle vector
-            CVECTOR sld = to - pnt;
+            glm::vec3 sld = to - pnt;
             sld.y = 0.0f;
             // Sliding distance
             d = nx * sld.x + nz * sld.z;
@@ -446,7 +446,7 @@ int32_t PtcData::Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t 
             if (d < 0.0f)
                 d -= 0.001f;
             // Slide
-            CVECTOR newPos(to.x - nx * d, to.y, to.z - nz * d);
+            glm::vec3 newPos(to.x - nx * d, to.y, to.z - nz * d);
             if (newPos.x == to.x && newPos.z == to.z)
             {
                 isSlide = true;
@@ -486,7 +486,7 @@ int32_t PtcData::Move(int32_t curNode, const CVECTOR &to, CVECTOR &pos, int32_t 
 }
 
 // Get normal to a node
-void PtcData::GetNodeNormal(int32_t curNode, CVECTOR &n) const
+void PtcData::GetNodeNormal(int32_t curNode, glm::vec3 &n) const
 {
     if (curNode >= 0)
     {
@@ -498,12 +498,12 @@ void PtcData::GetNodeNormal(int32_t curNode, CVECTOR &n) const
     }
     else
     {
-        n = 0.0f;
+        n = glm::vec3(0.0f);
     }
 }
 
 // Find the direction of the path
-bool PtcData::FindPathDir(int32_t curNode, const CVECTOR &cur, int32_t toNode, const CVECTOR &to, int32_t &node, CVECTOR &toPos)
+bool PtcData::FindPathDir(int32_t curNode, const glm::vec3 &cur, int32_t toNode, const glm::vec3 &to, int32_t &node, glm::vec3 &toPos)
 {
     numSteps = 0;
     if (curNode < 0 || toNode < 0)
@@ -515,8 +515,8 @@ bool PtcData::FindPathDir(int32_t curNode, const CVECTOR &cur, int32_t toNode, c
 }
 
 // Find the direction of the path
-bool PtcData::FindPathDir(int32_t step, int32_t curNode, const CVECTOR &cur, int32_t toNode, const CVECTOR &to, int32_t &node,
-                          CVECTOR &pos)
+bool PtcData::FindPathDir(int32_t step, int32_t curNode, const glm::vec3 &cur, int32_t toNode, const glm::vec3 &to, int32_t &node,
+                          glm::vec3 &pos)
 {
     if (step > numSteps)
         numSteps = step;
@@ -537,10 +537,10 @@ bool PtcData::FindPathDir(int32_t step, int32_t curNode, const CVECTOR &cur, int
     if (v == 3)
         return false;
     // Edge
-    CVECTOR &vs = *(CVECTOR *)&vertex[triangle[curNode].i[v]];
-    CVECTOR &ve = *(CVECTOR *)&vertex[triangle[curNode].i[v + 1 < 3 ? v + 1 : 0]];
+    glm::vec3 &vs = *(glm::vec3 *)&vertex[triangle[curNode].i[v]];
+    glm::vec3 &ve = *(glm::vec3 *)&vertex[triangle[curNode].i[v + 1 < 3 ? v + 1 : 0]];
     // Point on the edge
-    const CVECTOR p = FindEdgePoint(vs, ve, cur, to);
+    const glm::vec3 p = FindEdgePoint(vs, ve, cur, to);
     // analyze the further path
     const int32_t nb = triangle[curNode].nb[v];
     if (nb < 0)
@@ -555,43 +555,43 @@ bool PtcData::FindPathDir(int32_t step, int32_t curNode, const CVECTOR &cur, int
 }
 
 // Find a point on an edge
-CVECTOR PtcData::FindEdgePoint(const CVECTOR &vs, const CVECTOR &ve, const CVECTOR &cur, const CVECTOR &to)
+glm::vec3 PtcData::FindEdgePoint(const glm::vec3 &vs, const glm::vec3 &ve, const glm::vec3 &cur, const glm::vec3 &to)
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     // Normal to the edge
-    CVECTOR edge = ve - vs;
+    glm::vec3 edge = ve - vs;
     edge.y = 0.0f;
-    CVECTOR nrm(edge.z, 0.0f, -edge.x);
-    const float nl = ~nrm;
+    glm::vec3 nrm(edge.z, 0.0f, -edge.x);
+    const float nl = storm::math::lengthSquared(nrm);
     if (nl > 0.0f)
     {
         // Plane
         nrm *= 1.0f / sqrtf(nl);
-        const float dist = nrm | vs;
+        const float dist = glm::dot(nrm, vs);
         // Destination position
-        const float dTo = (to | nrm) - dist;
+        const float dTo = glm::dot(to, nrm) - dist;
         if (dTo <= 0.0f)
         {
             // Destination behind the edge
-            const float dCur = (cur | nrm) - dist;
+            const float dCur = glm::dot(cur, nrm) - dist;
             if (dCur - dTo == 0.0f)
                 return (vs + ve) * 0.5f;
             float k = dCur / (dCur - dTo);
             pos = cur + (to - cur) * k;
             // Limiting the move point
-            CVECTOR p = vs + (ve - vs) * 0.001f;
-            k = (ve - p) | (pos - p);
+            glm::vec3 p = vs + (ve - vs) * 0.001f;
+            k = glm::dot(ve - p, pos - p);
             if (k <= 0.0f)
                 pos = p;
             p = vs + (ve - vs) * 0.999f;
-            k = (vs - p) | (pos - p);
+            k = glm::dot(vs - p, pos - p);
             if (k <= 0.0f)
                 pos = p;
         }
         else
         {
             // Destination in front of the edge
-            if (((to - cur) | edge) >= 0.0f)
+            if (glm::dot(to - cur, edge) >= 0.0f)
             {
                 // Selecting the end point of the edge
                 pos = vs + (ve - vs) * 0.99f;
@@ -611,18 +611,18 @@ CVECTOR PtcData::FindEdgePoint(const CVECTOR &vs, const CVECTOR &ve, const CVECT
 }
 
 // Find patch intersection
-float PtcData::Trace(const CVECTOR &s, const CVECTOR &d) const
+float PtcData::Trace(const glm::vec3 &s, const glm::vec3 &d) const
 {
     // The area describing the segment
     float k = 2.0f;
-    CVECTOR pmin = s;
+    glm::vec3 pmin = s;
     if (pmin.x > d.x)
         pmin.x = d.x;
     if (pmin.y > d.y)
         pmin.y = d.y;
     if (pmin.z > d.z)
         pmin.z = d.z;
-    CVECTOR pmax = s;
+    glm::vec3 pmax = s;
     if (pmax.x < d.x)
         pmax.x = d.x;
     if (pmax.y < d.y)
@@ -657,15 +657,15 @@ float PtcData::Trace(const CVECTOR &s, const CVECTOR &d) const
 }
 
 // Check the intersection of a triangle with a line segment
-float PtcData::Trace(PtcTriangle &trg, const CVECTOR &s, const CVECTOR &d) const
+float PtcData::Trace(PtcTriangle &trg, const glm::vec3 &s, const glm::vec3 &d) const
 {
     // Normal to triangle
-    CVECTOR &n = *(CVECTOR *)&normal[trg.n];
+    glm::vec3 &n = *(glm::vec3 *)&normal[trg.n];
     // Distance to triangle
-    const float dst = n | *(CVECTOR *)&vertex[trg.i[0]];
+    const float dst = glm::dot(n, *(glm::vec3 *)&vertex[trg.i[0]]);
     // Distance of the segment to the plane
-    const float d1 = (n | s) - dst;
-    const float d2 = (n | d) - dst;
+    const float d1 = glm::dot(n, s) - dst;
+    const float d2 = glm::dot(n, d) - dst;
     // If do not cross the plane, then missed
     if (d1 * d2 > 0.0f)
         return 2.0f;
@@ -679,30 +679,30 @@ float PtcData::Trace(PtcTriangle &trg, const CVECTOR &s, const CVECTOR &d) const
         k = 0.0f;
     if (k > 1.0f)
         k = 1.0f;
-    const CVECTOR pnt = s + (d - s) * k;
+    const glm::vec3 pnt = s + (d - s) * k;
     // Vertices
-    CVECTOR &v0 = *(CVECTOR *)&vertex[trg.i[0]];
-    CVECTOR &v1 = *(CVECTOR *)&vertex[trg.i[1]];
-    CVECTOR &v2 = *(CVECTOR *)&vertex[trg.i[2]];
+    glm::vec3 &v0 = *(glm::vec3 *)&vertex[trg.i[0]];
+    glm::vec3 &v1 = *(glm::vec3 *)&vertex[trg.i[1]];
+    glm::vec3 &v2 = *(glm::vec3 *)&vertex[trg.i[2]];
     // check the location of the point in the triangle
-    CVECTOR en;
-    en = (v1 - v0) ^ n;
-    if ((en | pnt) - (en | v0) > 0.0f)
+    glm::vec3 en;
+    en = glm::cross(v1 - v0, n);
+    if (glm::dot(en, pnt) - glm::dot(en, v0) > 0.0f)
         return 2.0f;
-    en = (v2 - v1) ^ n;
-    if ((en | pnt) - (en | v1) > 0.0f)
+    en = glm::cross(v2 - v1, n);
+    if (glm::dot(en, pnt) - glm::dot(en, v1) > 0.0f)
         return 2.0f;
-    en = (v0 - v2) ^ n;
-    if ((en | pnt) - (en | v2) > 0.0f)
+    en = glm::cross(v0 - v2, n);
+    if (glm::dot(en, pnt) - glm::dot(en, v2) > 0.0f)
         return 2.0f;
     // Got
     return k;
 }
 
 // Find the force pushing away from the edges
-void PtcData::FindForce(int32_t curNode, CVECTOR &force) const
+void PtcData::FindForce(int32_t curNode, glm::vec3 &force) const
 {
-    force = 0.0f;
+    force = glm::vec3(0.0f);
     if (curNode < 0 || curNode >= numTriangles)
         return;
     short *nb = triangle[curNode].nb;
@@ -714,8 +714,8 @@ void PtcData::FindForce(int32_t curNode, CVECTOR &force) const
         const int32_t s = triangle[curNode].i[i];
         const int32_t e = triangle[curNode].i[i < 2 ? i + 1 : 0];
         // Edge vertices
-        CVECTOR &vs = *(CVECTOR *)&vertex[s];
-        CVECTOR &ve = *(CVECTOR *)&vertex[e];
+        glm::vec3 &vs = *(glm::vec3 *)&vertex[s];
+        glm::vec3 &ve = *(glm::vec3 *)&vertex[e];
         // Edge normal
         float nx = (ve.z - vs.z);
         float nz = -(ve.x - vs.x);
@@ -731,9 +731,9 @@ void PtcData::FindForce(int32_t curNode, CVECTOR &force) const
 }
 
 // Find the force pushing away from the edges
-void PtcData::FindForce(int32_t curNode, const CVECTOR &pos, float dist, CVECTOR &force) const
+void PtcData::FindForce(int32_t curNode, const glm::vec3 &pos, float dist, glm::vec3 &force) const
 {
-    force = 0.0f;
+    force = glm::vec3(0.0f);
     if (curNode < 0 || curNode >= numTriangles)
         return;
     short *nb = triangle[curNode].nb;
@@ -745,8 +745,8 @@ void PtcData::FindForce(int32_t curNode, const CVECTOR &pos, float dist, CVECTOR
         const int32_t s = triangle[curNode].i[i];
         const int32_t e = triangle[curNode].i[i < 2 ? i + 1 : 0];
         // Edge vertices
-        CVECTOR &vs = *(CVECTOR *)&vertex[s];
-        CVECTOR &ve = *(CVECTOR *)&vertex[e];
+        glm::vec3 &vs = *(glm::vec3 *)&vertex[s];
+        glm::vec3 &ve = *(glm::vec3 *)&vertex[e];
         // Edge normal
         float nx = (ve.z - vs.z);
         float nz = -(ve.x - vs.x);
@@ -841,8 +841,8 @@ inline void PtcData::AddClTriangle(int32_t i)
 inline float PtcData::FindHeight(int32_t trgID, float x, float z)
 {
     Assert(trgID >= 0 && trgID < numTriangles);
-    CVECTOR &n = *(CVECTOR *)&normal[triangle[trgID].n];
-    float d = n | *(CVECTOR *)&vertex[triangle[trgID].i[0]];
+    glm::vec3 &n = *(glm::vec3 *)&normal[triangle[trgID].n];
+    float d = glm::dot(n, *(glm::vec3 *)&vertex[triangle[trgID].i[0]]);
     d = static_cast<float>((d - n.x * x - n.z * z) / static_cast<double>(n.y) + 0.0001);
     return d;
 }
@@ -893,7 +893,7 @@ void PtcData::DebugDraw(VDX9RENDER *rs, float dltTime)
         }
     }
     auto tech = "DbgPatchViewZ";
-    rs->SetTransform(D3DTS_WORLD, CMatrix());
+    rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
     rs->DrawPrimitiveUP(D3DPT_TRIANGLELIST, D3DFVF_XYZ | D3DFVF_DIFFUSE, numTriangles, dbgTriangles, sizeof(DbgVertex),
                         tech);
     rs->DrawPrimitiveUP(D3DPT_LINELIST, D3DFVF_XYZ | D3DFVF_DIFFUSE, numTriangles * 3, dbgEdges, sizeof(DbgVertex),

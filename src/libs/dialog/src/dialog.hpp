@@ -3,7 +3,7 @@
 #include "link_describe.hpp"
 
 #include "dx9render.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "vma.hpp"
 
 #include <string>
@@ -20,7 +20,7 @@ class INIFILE;
 
 struct XI_TEX_VERTEX
 {
-    CVECTOR pos;
+    glm::vec3 pos;
     float rhw;
     uint32_t color;
     float u, v;

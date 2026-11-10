@@ -1,11 +1,11 @@
 #include "t_butterfly.h"
-#include "matrix.h"
+#include "storm_glm.h"
 #include "core.h"
 #include "math_inlines.h"
 #include "rands.h"
 
 
-CVECTOR TButterfly::center;
+glm::vec3 TButterfly::center;
 
 //--------------------------------------------------------------------
 TButterfly::TButterfly() : minY(0.f), maxY(MAX_HEIGHT), firstDraw(true), time(0.f)
@@ -18,14 +18,14 @@ TButterfly::~TButterfly()
 }
 
 //--------------------------------------------------------------------
-void TButterfly::Initialize(const CVECTOR &_center, float _radius, int32_t _bufferIndex, int _tI, int _tJ)
+void TButterfly::Initialize(const glm::vec3 &_center, float _radius, int32_t _bufferIndex, int _tI, int _tJ)
 {
     bufferIndex = _bufferIndex;
     centerPosition.x = _center.x + randCentered(_radius);
     centerPosition.y = _center.y + randCentered(_radius);
     centerPosition.z = _center.z + randCentered(_radius);
-    centerVelocity = !CVECTOR(randCentered(1.0f), 0.f /*randCentered(1.0f)*/, randCentered(1.0f));
-    displaceVector = !CVECTOR(randCentered(1.0f), randCentered(1.0f), randCentered(1.0f));
+    centerVelocity = storm::math::normalizeOrZero(glm::vec3(randCentered(1.0f), 0.f /*randCentered(1.0f)*/, randCentered(1.0f)));
+    displaceVector = storm::math::normalizeOrZero(glm::vec3(randCentered(1.0f), randCentered(1.0f), randCentered(1.0f)));
     timeToNextDisplace = static_cast<int32_t>(rand(static_cast<float>(MAX_DISPLACE_TIME)));
     tI = SINGLE_SIZE * _tI;
     tJ = SINGLE_SIZE * _tJ;
@@ -93,10 +93,10 @@ void TButterfly::Calculate(int32_t _dTime, COLLIDE *_collide, entity_container_c
     timeToNextDisplace -= _dTime;
     if (timeToNextDisplace < 0)
     {
-        displaceVector = !CVECTOR(randCentered(1.0f), 0.f, randCentered(1.0f));
+        displaceVector = storm::math::normalizeOrZero(glm::vec3(randCentered(1.0f), 0.f, randCentered(1.0f)));
         timeToNextDisplace = static_cast<int32_t>(rand(static_cast<float>(MAX_DISPLACE_TIME)));
     }
-    centerVelocity = !(centerVelocity + (rand(DISPLACE_SPEED) * timeDelta) * displaceVector);
+    centerVelocity = storm::math::normalizeOrZero(centerVelocity + (rand(DISPLACE_SPEED) * timeDelta) * displaceVector);
 
     auto activity = 1.0f - activeTime / fullActiveTime; //~!~
     if (activity < MIN_ACTIVITY)
@@ -111,7 +111,7 @@ void TButterfly::Calculate(int32_t _dTime, COLLIDE *_collide, entity_container_c
     {
         const auto ray = _collide->Trace(
             its, centerPosition,
-            centerPosition + CVECTOR(velocityDelta * centerVelocity.x, 0.f, velocityDelta * centerVelocity.z), nullptr,
+            centerPosition + glm::vec3(velocityDelta * centerVelocity.x, 0.f, velocityDelta * centerVelocity.z), nullptr,
             0);
         if (ray <= 1.0f)
             centerVelocity = -centerVelocity;
@@ -200,7 +200,7 @@ void TButterfly::Draw(HDC _dc)
 }
 
 //--------------------------------------------------------------------
-void TButterfly::Effect(const CVECTOR &_position)
+void TButterfly::Effect(const glm::vec3 &_position)
 {
     if (active)
         return;
@@ -264,25 +264,25 @@ void TButterfly::Draw(IVBufferManager *_ivManager)
         vPointer[5].tv = tJ;
     }
 
-    // position = center + CVECTOR(0.2f, 1.f, 0.2f);
+    // position = center + glm::vec3(0.2f, 1.f, 0.2f);
     auto alpha = atan2f(centerVelocity.z, centerVelocity.x);
-    static CVECTOR v0(-MODEL_SIDE, 0, -MODEL_SIDE);
-    static CVECTOR v1(-MODEL_SIDE, 0, MODEL_SIDE);
-    static CVECTOR v2(0, 0, -MODEL_SIDE);
-    static CVECTOR v3(0, 0, MODEL_SIDE);
-    static CVECTOR v4(MODEL_SIDE, 0, -MODEL_SIDE);
-    static CVECTOR v5(MODEL_SIDE, 0, MODEL_SIDE);
-    // static CVECTOR v[6] = {v0, v1, v2, v3, v4, v5};
+    static glm::vec3 v0(-MODEL_SIDE, 0, -MODEL_SIDE);
+    static glm::vec3 v1(-MODEL_SIDE, 0, MODEL_SIDE);
+    static glm::vec3 v2(0, 0, -MODEL_SIDE);
+    static glm::vec3 v3(0, 0, MODEL_SIDE);
+    static glm::vec3 v4(MODEL_SIDE, 0, -MODEL_SIDE);
+    static glm::vec3 v5(MODEL_SIDE, 0, MODEL_SIDE);
+    // static glm::vec3 v[6] = {v0, v1, v2, v3, v4, v5};
 
-    CMatrix moveToPos, rightWingRotate, leftWingRotate, rotateYm;
-    moveToPos.BuildPosition(centerPosition.x, centerPosition.y, centerPosition.z);
-    rightWingRotate.BuildRotateZ(time);
-    leftWingRotate.BuildRotateZ(-time);
-    // CMatrix rotateYm/*.BuildRotateY*/(0.f, PId4/*atan2f(centerVelocity.z, centerVelocity.x)*/, 0.f);
-    // CMatrix rotateYm(0.f, -PId2+atan2f(centerPosition.z-oldPos.z, centerPosition.x-oldPos.x), 0.f);
-    rotateYm.Vx() = centerVelocity ^ CVECTOR(0.0f, 1.0f, 0.0f);
-    rotateYm.Vy() = CVECTOR(0.0f, 1.0f, 0.0f);
-    rotateYm.Vz() = centerVelocity;
+    glm::mat4 moveToPos, rightWingRotate, leftWingRotate, rotateYm;
+    moveToPos = storm::math::translation(centerPosition.x, centerPosition.y, centerPosition.z);
+    rightWingRotate = storm::math::rotationZ(time);
+    leftWingRotate = storm::math::rotationZ(-time);
+    // glm::mat4 rotateYm/*.BuildRotateY*/(0.f, PId4/*atan2f(centerVelocity.z, centerVelocity.x)*/, 0.f);
+    // glm::mat4 rotateYm(0.f, -PId2+atan2f(centerPosition.z-oldPos.z, centerPosition.x-oldPos.x), 0.f);
+    storm::math::vx(rotateYm) = glm::cross(centerVelocity, glm::vec3(0.0f, 1.0f, 0.0f));
+    storm::math::vy(rotateYm) = glm::vec3(0.0f, 1.0f, 0.0f);
+    storm::math::vz(rotateYm) = centerVelocity;
     // mtx.Pos() = centerPosition;
     // oldPos = centerPosition;
     /*
@@ -294,25 +294,25 @@ void TButterfly::Draw(IVBufferManager *_ivManager)
       }
     */
 
-    vPointer[0].pos = (leftWingRotate * rotateYm * moveToPos) * v0;
-    vPointer[1].pos = (leftWingRotate * rotateYm * moveToPos) * v1;
-    vPointer[2].pos = (rotateYm * moveToPos) * v2;
-    vPointer[3].pos = (rotateYm * moveToPos) * v3;
-    vPointer[4].pos = (rightWingRotate * rotateYm * moveToPos) * v4;
-    vPointer[5].pos = (rightWingRotate * rotateYm * moveToPos) * v5;
+    vPointer[0].pos = storm::math::transformPoint(moveToPos * (rotateYm * leftWingRotate), v0);
+    vPointer[1].pos = storm::math::transformPoint(moveToPos * (rotateYm * leftWingRotate), v1);
+    vPointer[2].pos = storm::math::transformPoint(moveToPos * rotateYm, v2);
+    vPointer[3].pos = storm::math::transformPoint(moveToPos * rotateYm, v3);
+    vPointer[4].pos = storm::math::transformPoint(moveToPos * (rotateYm * rightWingRotate), v4);
+    vPointer[5].pos = storm::math::transformPoint(moveToPos * (rotateYm * rightWingRotate), v5);
 }
 
 //--------------------------------------------------------------------
 void TButterfly::Draw(VDX9RENDER *_renderer, MODEL *_model)
 {
-    CMatrix moveToPos, rightWingRotate, leftWingRotate;
-    moveToPos.BuildPosition(centerPosition.x, centerPosition.y, centerPosition.z);
+    glm::mat4 moveToPos, rightWingRotate, leftWingRotate;
+    moveToPos = storm::math::translation(centerPosition.x, centerPosition.y, centerPosition.z);
     // rightWingRotate.BuildRotateZ(time);
     // leftWingRotate.BuildRotateZ(-time);
-    _model->mtx.Vx() = centerVelocity ^ CVECTOR(0.0f, 1.0f, 0.0f);
-    _model->mtx.Vy() = CVECTOR(0.0f, 1.0f, 0.0f);
-    _model->mtx.Vz() = centerVelocity;
-    _model->mtx.Pos() = centerPosition;
+    storm::math::vx(_model->mtx) = glm::cross(centerVelocity, glm::vec3(0.0f, 1.0f, 0.0f));
+    storm::math::vy(_model->mtx) = glm::vec3(0.0f, 1.0f, 0.0f);
+    storm::math::vz(_model->mtx) = centerVelocity;
+    storm::math::pos(_model->mtx) = centerPosition;
 }
 
 //--------------------------------------------------------------------

@@ -23,8 +23,8 @@
 
 WdmCamera::WdmCamera()
 {
-    pos = CVECTOR(0.0f, 120.0f, 0.0f);
-    ang = CVECTOR(1.0f, 0.0f, 0.0f);
+    pos = glm::vec3(0.0f, 120.0f, 0.0f);
+    ang = glm::vec3(1.0f, 0.0f, 0.0f);
     wdmObjects->camera = this;
     isInit = false;
     realHeight = 0.0f;
@@ -126,8 +126,8 @@ void WdmCamera::Move(float dltTime, VDX9RENDER *rs)
     }
     else
     {
-        pos.x = wdmObjects->playerShip->mtx.Pos().x - cx;
-        pos.z = wdmObjects->playerShip->mtx.Pos().z - cz;
+        pos.x = storm::math::pos(wdmObjects->playerShip->mtx).x - cx;
+        pos.z = storm::math::pos(wdmObjects->playerShip->mtx).z - cz;
         isInit = true;
     }
     // Camera rotation
@@ -183,7 +183,7 @@ void WdmCamera::Move(float dltTime, VDX9RENDER *rs)
     }
     else
         kBlendPos = 1.0f;
-    rs->SetCamera(CVECTOR(ps.x + r * sn, realHeight, ps.z + r * cs), ang);
+    rs->SetCamera(glm::vec3(ps.x + r * sn, realHeight, ps.z + r * cs), ang);
 }
 
 void WdmCamera::CheckRange()

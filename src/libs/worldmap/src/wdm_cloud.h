@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "matrix.h"
+#include "storm_glm.h"
 #include "wdm_render_object.h"
 
 class WdmCloud : public WdmRenderObject
@@ -20,9 +20,9 @@ class WdmCloud : public WdmRenderObject
 
     struct MoveInfo
     {
-        CVECTOR pos;
-        CVECTOR v;
-        CVECTOR cent;
+        glm::vec3 pos;
+        glm::vec3 v;
+        glm::vec3 cent;
         float rotSpd;
         float kSpd;
         float dx, dz;
@@ -32,7 +32,7 @@ class WdmCloud : public WdmRenderObject
     struct Rain
     {
         uint32_t isLive;
-        CVECTOR pos;
+        glm::vec3 pos;
         float alpha;
         float vy;
         float size;
@@ -41,7 +41,7 @@ class WdmCloud : public WdmRenderObject
 
     struct Vertex
     {
-        CVECTOR pos;
+        glm::vec3 pos;
         uint32_t c;
         float u, v;
     };
@@ -63,8 +63,8 @@ class WdmCloud : public WdmRenderObject
 
     int32_t FillRain(RS_RECT *rainRect, int32_t rcnt);
 
-    CVECTOR pos;       // Cloud position
-    CVECTOR dir;       // Direction of cloud movement
+    glm::vec3 pos;       // Cloud position
+    glm::vec3 dir;       // Direction of cloud movement
     float globalAlpha; // Current transparency
     float constAlpha;  // Current transparency
 
@@ -95,6 +95,6 @@ class WdmCloud : public WdmRenderObject
 
   private:
     void Render(VDX9RENDER *rs);
-    void FindPartPos(CVECTOR &v);
+    void FindPartPos(glm::vec3 &v);
     float Rnd();
 };

@@ -7,9 +7,18 @@
 //
 // A game interface instead of a document: --interface model.json renders a recorded
 // interface model through the screen routing (--state dialogue=state.json feeds a state
-// channel; with --interface too it is fed first). Extra script commands: interface <model.json> (a newer revision),
+// channel). Extra script commands: interface <model.json> (a newer revision),
 // text <answer> (accepts the pending text editor request). Engine actions are printed as
 // "command <engine queue line>".
+//
+// The HUD: --state channel=file.json, repeated, feeds recorded state channels in the
+// order given (gameplay, combat, vitals, worldInfo, contextAction, landCommands). The
+// channel "presentation" is the platform host's; without one the capture uses an idle game
+// in front ({"screen":"","loading":false,"cinematic":false,"dialogue":false,"live":true})
+// and says so. Extra script commands: state <channel> <file.json>, back (the back key),
+// cancel (the platform takes the gestures away), wants <x> <y> (prints whether a pointer
+// going down there belongs to the UI). HUD input is printed as "command <line>" and, when
+// it uses a latest-value slot, "command[<slot>] <line>".
 //
 // Sizes and script coordinates are in dp. The clock is simulated (60 frames a second),
 // so captures are repeatable. Reported actions go to stdout as "action id verb value".
@@ -139,7 +148,8 @@ std::string ReadFile(const std::string &path)
 
 int main(int argc, char **argv)
 {
-    std::string pack, doc, out = "shot.png", game_root, script, interface, state, text_token;
+    std::string pack, doc, out = "shot.png", game_root, script, interface, text_token;
+    std::vector<std::string> states;
     int width_dp = 915, height_dp = 412;
     float density = 2.0f;
     float safe[4] = {0, 0, 0, 0}; // safe-area insets in dp
@@ -159,7 +169,7 @@ int main(int argc, char **argv)
         else if (key == "--interface")
             interface = value;
         else if (key == "--state")
-            state = value;
+            states.push_back(value);
         else if (key == "--safe" && std::sscanf(value.c_str(), "%f,%f,%f,%f", &safe[0], &safe[1], &safe[2], &safe[3]) == 4)
             continue;
         else if (key == "--density")
@@ -172,9 +182,9 @@ int main(int argc, char **argv)
             return 2;
         }
     }
-    if (pack.empty() || (doc.empty() && interface.empty() && state.empty()))
+    if (pack.empty() || (doc.empty() && interface.empty() && states.empty()))
     {
-        std::fprintf(stderr, "usage: storm_ui_shot --pack DIR (--doc FILE | --interface JSON | --state CHANNEL=JSON) [--size WxH] [--density D] [--out PNG] [--game-root DIR] [--safe L,T,R,B] [--script S]\n");
+        std::fprintf(stderr, "usage: storm_ui_shot --pack DIR (--doc FILE | --interface JSON | --state CHANNEL=JSON …) [--size WxH] [--density D] [--out PNG] [--game-root DIR] [--safe L,T,R,B] [--script S]\n");
         return 2;
     }
     const int width = static_cast<int>(static_cast<float>(width_dp) * density), height = static_cast<int>(static_cast<float>(height_dp) * density);
@@ -208,6 +218,8 @@ int main(int argc, char **argv)
     config.on_action = [](const storm::ui::Action &action) {
         if (action.screen.empty())
             std::printf("action %s %s %s\n", action.node.c_str(), action.verb.c_str(), action.value.c_str());
+        else if (action.screen == "hud" && !action.node.empty())
+            std::printf("command[%s] %s\n", action.node.c_str(), storm::ui::EngineCommand(action).c_str());
         else
             std::printf("command %s\n", storm::ui::EngineCommand(action).c_str());
     };
@@ -223,20 +235,26 @@ int main(int argc, char **argv)
         return 4;
     }
     host->SetSafeArea(safe[0], safe[1], safe[2], safe[3]);
-    const auto feed_state = [&host](const std::string &pair) {
-        const size_t equals = pair.find('=');
-        return equals != std::string::npos && host->SetState(pair.substr(0, equals), ReadFile(pair.substr(equals + 1)));
-    };
-    // With --interface, a --state goes first: the screen reads the channel when it opens.
-    if (!interface.empty() && !state.empty() && !feed_state(state))
+    if (!doc.empty() ? !host->LoadDocument(doc) : !interface.empty() && !host->SetInterface(ReadFile(interface)))
     {
-        std::fprintf(stderr, "cannot load %s\n", state.c_str());
+        std::fprintf(stderr, "cannot load %s\n", (doc + interface).c_str());
         return 5;
     }
-    if (!doc.empty() ? !host->LoadDocument(doc) : !interface.empty() ? !host->SetInterface(ReadFile(interface)) : !feed_state(state))
+    bool presented = false;
+    for (const std::string &pair : states)
     {
-        std::fprintf(stderr, "cannot load %s\n", (doc + interface + state).c_str());
-        return 5;
+        const size_t equals = pair.find('=');
+        if (equals == std::string::npos || !host->SetState(pair.substr(0, equals), ReadFile(pair.substr(equals + 1))))
+        {
+            std::fprintf(stderr, "cannot feed state %s\n", pair.c_str());
+            return 5;
+        }
+        presented = presented || pair.substr(0, equals) == "presentation";
+    }
+    if (!states.empty() && !presented && states.front().rfind("dialogue=", 0) != 0)
+    {
+        std::fprintf(stderr, "no presentation state given: capturing an idle game in front\n");
+        host->SetState("presentation", R"({"screen":"","loading":false,"cinematic":false,"dialogue":false,"live":true})");
     }
     const auto run = [&](double seconds) {
         const int frames = std::max(1, static_cast<int>(seconds * 60.0 + 0.5));
@@ -318,6 +336,31 @@ int main(int argc, char **argv)
             std::getline(words, text);
             host->SubmitText(text_token, text.substr(std::min(text.size(), text.find_first_not_of(' '))), true);
             run(1.0 / 60.0);
+        }
+        else if (verb == "state") // state <channel> <file.json>: the next state of a channel
+        {
+            std::string channel, path;
+            words >> channel >> path;
+            if (!host->SetState(channel, ReadFile(path)))
+                status = 5;
+            run(1.0 / 60.0);
+        }
+        else if (verb == "back")
+        {
+            std::printf("back %s\n", host->WantsBack() ? "ui" : "game");
+            host->Back();
+            run(1.0 / 60.0);
+        }
+        else if (verb == "cancel")
+        {
+            host->CancelInput();
+            run(1.0 / 60.0);
+        }
+        else if (verb == "wants") // wants <x> <y>: would a pointer going down there belong to the UI?
+        {
+            float x = 0, y = 0;
+            words >> x >> y;
+            std::printf("wants %.0f %.0f %s\n", x, y, host->WantsTouch(x * density, y * density) ? "ui" : "game");
         }
         else if (verb == "scroll")
         {
