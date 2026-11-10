@@ -34,11 +34,6 @@ std::string EngineCommand(const Action &action)
     return "widget:" + action.screen + "\t" + action.node + "\t" + std::to_string(action.index) + "\t" + wire;
 }
 
-bool HostOwnsInterface(const std::string &screen)
-{
-    return screens::HostOwned(screen);
-}
-
 bool HostOwnsHud(const std::string &mode)
 {
     return !hud::Ported(mode);

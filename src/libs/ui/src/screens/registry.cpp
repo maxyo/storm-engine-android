@@ -110,11 +110,6 @@ std::span<const ScreenEntry> PortedScreens()
     return kPorted;
 }
 
-bool HostOwned(std::string_view)
-{
-    return false; // every interface is drawn here: a ported screen or the generic layout
-}
-
 std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()
 {
     std::vector<std::unique_ptr<StateConsumer>> consumers;

@@ -273,8 +273,6 @@ int main(int argc, char **argv)
     Notices(models);
     TradeBook(models);
     ColonyLoot(models);
-    for (const char *id : {"map", "dirsailenc", "leavebattle", "salary", "boal_frame", "tavernwait"})
-        Expect(!HostOwned(id), std::string(id) + " is not drawn by the platform host");
     if (failures)
         std::fprintf(stderr, "%d check(s) failed\n", failures);
     else
