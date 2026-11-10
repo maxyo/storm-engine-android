@@ -77,7 +77,8 @@ Before starting a big build in a worktree:
   same `cmake -S/-B` layout as the other worktrees (same depth).
 - `tools/ccache/check-build-dirs` lists every build directory of the workspace without the
   launcher (exit 1 if any); reconfigure those with `cmake -S <source> -B <build dir>`.
-- `CCACHE_DIR=~/.cache/ccache-storm ccache -s` shows the totals of the shared cache.
+- `tools/ccache/launcher -s` shows the totals of the shared cache with the project settings
+  (any ccache option works through the launcher; never `-C`/`-z` on another cache).
 
 ## The exception: building without the cache
 
