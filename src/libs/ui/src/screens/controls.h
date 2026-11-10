@@ -25,7 +25,8 @@ std::string SectionOf(const Widget &button);
 
 // The unified row image {kind:"item", texture:"atlas:GROUP/Picture"} for a picture the
 // engine names by its pictures.ini group, {kind:"portrait", texture:"INTERFACES/PORTRAITS/
-// 128/face_N"} for a game portrait; null when the widget carries no such reference.
+// 128/face_N"} for a game portrait, {kind:"item", texture:"<name under RESOURCE/Textures>"} for any
+// other game texture; null when the widget carries no such reference.
 Json PictureOf(const ImageRef *image);
 // The nation a picture of the game's NATIONS group shows, as our flag name ("england",
 // "france", "spain", "holland", "pirates"), or empty.

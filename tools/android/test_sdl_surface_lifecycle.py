@@ -3,7 +3,7 @@
 
 Usage: python3 tools/android/test_sdl_surface_lifecycle.py --sdl-source PATH
 PATH must be an isolated SDL checkout with sdl2-android-ndk30.patch applied.
-This checks callback branching/ownership, not Android Vulkan presentation.
+This checks callback branching/ownership, not EGL presentation.
 """
 import argparse
 from pathlib import Path

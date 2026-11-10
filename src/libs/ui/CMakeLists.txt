@@ -61,6 +61,10 @@ add_library(storm_ui STATIC
     src/screens/trade_commerce.cpp
     src/screens/trade_crew.cpp
     src/screens/trade_shipyard.cpp
+    src/screens/hero.cpp
+    src/screens/hero_character.cpp
+    src/screens/hero_items.cpp
+    src/screens/hero_journal.cpp
     src/screens/hero_nations.cpp
     src/screens/dialogue.cpp
     src/screens/menu_game.cpp
@@ -94,6 +98,7 @@ add_library(storm_ui STATIC
     src/game_image.cpp
     src/picture_atlas.cpp
     src/backend_gl3.cpp
+    src/frame_renderer.cpp
     "${storm_ui_rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp")
 target_compile_features(storm_ui PUBLIC cxx_std_20)
 target_include_directories(storm_ui PUBLIC include PRIVATE src "${storm_ui_rmlui_SOURCE_DIR}/Backends")
@@ -142,6 +147,9 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     target_link_libraries(storm_ui_press_unit PRIVATE storm_ui)
     add_test(NAME ui_press COMMAND storm_ui_press_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack"
         "${storm_ui_rmlui_SOURCE_DIR}/Samples/assets/LatoLatin-Regular.ttf")
+    add_executable(storm_ui_slot_unit tests/slot_check.cpp)
+    target_link_libraries(storm_ui_slot_unit PRIVATE storm_ui)
+    add_test(NAME ui_slot COMMAND storm_ui_slot_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
     add_executable(storm_ui_hud_land_unit tests/hud_land_check.cpp)
     target_link_libraries(storm_ui_hud_land_unit PRIVATE storm_ui)
     add_test(NAME ui_hud_land COMMAND storm_ui_hud_land_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
@@ -150,5 +158,9 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     add_executable(storm_ui_hud_worldmap_unit tests/hud_worldmap_check.cpp)
     target_link_libraries(storm_ui_hud_worldmap_unit PRIVATE storm_ui)
     add_test(NAME ui_hud_worldmap COMMAND storm_ui_hud_worldmap_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states")
+    add_executable(storm_ui_frame_cost_unit tests/frame_cost_check.cpp)
+    target_link_libraries(storm_ui_frame_cost_unit PRIVATE storm_ui)
+    target_include_directories(storm_ui_frame_cost_unit PRIVATE src)
+    add_test(NAME ui_frame_cost COMMAND storm_ui_frame_cost_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
     add_test(NAME ui_hud_sea COMMAND storm_ui_hud_sea_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
 endif()

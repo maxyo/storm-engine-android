@@ -20,6 +20,13 @@
 // going down there belongs to the UI). HUD input is printed as "command <line>" and, when
 // it uses a latest-value slot, "command[<slot>] <line>".
 //
+// Frame cost: bench <frames> [<channel> <a.json> <b.json>] runs that many frames as a
+// platform host does (Host::Prepare, and Host::Frame only for an out-of-date frame), each
+// finished on the GPU (glFinish), and prints what they cost (Host::LastFrameStats: CPU of
+// update and render, GPU wait, rebuilds, layout, meshes, draw calls, texture uploads).
+// With a channel the two states alternate every frame (a HUD that changes each frame);
+// the channel "interface" alternates two interface models instead.
+//
 // Sizes and script coordinates are in dp. The clock is simulated (60 frames a second),
 // so captures are repeatable. Reported actions go to stdout as "action id verb value".
 #include "storm_ui/render_backend.h"
@@ -27,6 +34,7 @@
 
 #include <plutovg.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -210,6 +218,7 @@ int main(int argc, char **argv)
     config.files = files.get();
     config.backend = backend.get();
     config.show_errors = true;
+    config.verify_unchanged = true;
     config.width = width;
     config.height = height;
     config.density = density;
@@ -361,6 +370,64 @@ int main(int argc, char **argv)
             float x = 0, y = 0;
             words >> x >> y;
             std::printf("wants %.0f %.0f %s\n", x, y, host->WantsTouch(x * density, y * density) ? "ui" : "game");
+        }
+        else if (verb == "bench") // bench <frames> [<channel> <a.json> <b.json>]
+        {
+            int frames = 0;
+            std::string channel, first, second;
+            words >> frames >> channel >> first >> second;
+            const std::string alternate[2] = {channel.empty() ? std::string() : ReadFile(first), channel.empty() ? std::string() : ReadFile(second)};
+            const auto finish = reinterpret_cast<void (*)()>(egl.GetProcAddress("glFinish"));
+            struct Sum
+            {
+                double total = 0, worst = 0;
+                void Add(double value)
+                {
+                    total += value;
+                    worst = std::max(worst, value);
+                }
+            } update, render, gpu, frame;
+            int drawn_frames = 0;
+            long rebuilds = 0, laid_out = 0, geometry = 0, draws = 0, masks = 0, layers = 0, cached = 0, textures = 0, bytes = 0;
+            for (int i = 0; i < frames; ++i)
+            {
+                const auto started = std::chrono::steady_clock::now();
+                if (channel == "interface")
+                    host->SetInterface(alternate[i % 2]);
+                else if (!channel.empty())
+                    host->SetState(channel, alternate[i % 2]);
+                clock += 1.0 / 60.0;
+                double delay = 0.0;
+                storm::ui::FrameStats stats;
+                if (host->Prepare(delay)) // as a platform host does: draw only an out-of-date frame
+                {
+                    host->Frame();
+                    stats = host->LastFrameStats();
+                    ++drawn_frames;
+                }
+                const auto drawn = std::chrono::steady_clock::now();
+                finish();
+                const auto finished = std::chrono::steady_clock::now();
+                update.Add(stats.update_ms);
+                render.Add(stats.render_ms);
+                gpu.Add(std::chrono::duration<double, std::milli>(finished - drawn).count());
+                frame.Add(std::chrono::duration<double, std::milli>(finished - started).count());
+                rebuilds += stats.rebuilds;
+                laid_out += stats.laid_out;
+                geometry += stats.geometry;
+                draws += stats.draws;
+                masks += stats.masks;
+                layers += stats.layers;
+                cached += stats.cached_layers;
+                textures += stats.textures;
+                bytes += static_cast<long>(stats.texture_bytes);
+            }
+            const double n = std::max(1, frames);
+            std::printf("bench %d frames%s%s, %d drawn: frame %.2f ms (max %.2f) = update %.2f (max %.2f) + render %.2f (max %.2f) + gpu %.2f (max %.2f); "
+                        "per frame: rebuilds %.1f, laid out %.1f, meshes %.1f, draws %.1f, masks %.1f, layers %.1f (cached %.1f), textures %.2f (%.0f bytes)\n",
+                        frames, channel.empty() ? "" : " alternating ", channel.c_str(), drawn_frames, frame.total / n, frame.worst, update.total / n, update.worst,
+                        render.total / n, render.worst, gpu.total / n, gpu.worst, rebuilds / n, laid_out / n, geometry / n, draws / n, masks / n, layers / n, cached / n, textures / n,
+                        bytes / n);
         }
         else if (verb == "scroll")
         {

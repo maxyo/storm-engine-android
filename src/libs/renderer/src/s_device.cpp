@@ -1,7 +1,11 @@
 #include "s_device.h"
 #include <platform/android_ui.hpp>
 #include <platform/android_interface_presentation.hpp>
+#ifdef __ANDROID__
+#include "android_render_resolution.hpp"
+#endif
 
+#include "app_events.hpp"
 #include "core.h"
 #include "scene_sweep.hpp"
 
@@ -13,18 +17,15 @@
 #include "fs.h"
 #include "debug-trap.h"
 #include "string_compare.hpp"
+#include "storm/render/perf_stats.hpp"
+#include "storm/render/texture_cache.hpp"
 
 #include <algorithm>
 #include <SDL_timer.h>
 
 #include <fmt/chrono.h>
 
-#ifdef _WIN32
-#include <DxErr.h>
-#include <corecrt_io.h>
-#else
 #include <unistd.h>
-#endif
 
 CREATE_SERVICE(DX9RENDER)
 
@@ -43,49 +44,6 @@ namespace
 {
 constexpr auto kKeyTakeScreenshot = "TakeScreenshot";
 
-#ifdef _WIN32 // Screenshot
-D3DXIMAGE_FILEFORMAT GetScreenshotFormat(const std::string &fmt)
-{
-    if (fmt == "bmp")
-    {
-        return D3DXIFF_BMP;
-    }
-    if (fmt == "jpg")
-    {
-        return D3DXIFF_JPG;
-    }
-    if (fmt == "tga")
-    {
-        return D3DXIFF_TGA;
-    }
-    if (fmt == "png")
-    {
-        return D3DXIFF_PNG;
-    }
-    if (fmt == "dds")
-    {
-        return D3DXIFF_DDS;
-    }
-    if (fmt == "ppm")
-    {
-        return D3DXIFF_PPM;
-    }
-    if (fmt == "dib")
-    {
-        return D3DXIFF_DIB;
-    }
-    if (fmt == "hdr")
-    {
-        return D3DXIFF_HDR;
-    }
-    if (fmt == "pfm")
-    {
-        return D3DXIFF_PFM;
-    }
-
-    return D3DXIFF_FORCE_DWORD;
-}
-#endif
 
 void InvokeEntitiesLostRender()
 {
@@ -377,11 +335,7 @@ inline bool ErrorHandler(HRESULT hr, const char *file, unsigned line, const char
 {
     if (hr != D3D_OK)
     {
-#ifdef _WIN32
-        core.Trace("[%s:%s:%d] %s: %s (%s)", file, func, line, DXGetErrorStringA(hr), DXGetErrorDescriptionA(hr), expr);
-#else
         core.Trace("[%s:%s:%d] (%s)", file, func, line, expr);
-#endif
         return true;
     }
 
@@ -502,19 +456,18 @@ bool DX9RENDER::Init()
         screenshotExt = str;
         std::ranges::transform(screenshotExt, screenshotExt.begin(),
                                [](const unsigned char c) { return std::tolower(c); });
-#ifdef _WIN32 // Screenshot
-        screenshotFormat = GetScreenshotFormat(str);
-        if (screenshotFormat == D3DXIFF_FORCE_DWORD)
-        {
-            screenshotExt = "jpg";
-            screenshotFormat = D3DXIFF_JPG;
-        }
-#endif
 
         bShowFps = ini->GetInt(nullptr, "show_fps", 0) == 1;
         bShowExInfo = ini->GetInt(nullptr, "show_exinfo", 0) == 1;
         renderMetricsEnabled = ini->GetInt(nullptr, "render_metrics", 0) == 1;
-        bSafeRendering = ini->GetInt(nullptr, "safe_render", 0) == 0;
+#ifdef STORM_SCENE_SWEEP
+        storm::scene_sweep::setRendererWindow([start = storm::render::PerfTotals()]() mutable {
+            const storm::render::PerfCounters &totals = storm::render::PerfTotals();
+            std::string summary = totals.Since(start).Summary();
+            start = totals;
+            return summary;
+        });
+#endif
         bDropVideoConveyor = ini->GetInt(nullptr, "DropVideoConveyor", 0) != 0;
         texLog = ini->GetInt(nullptr, "texture_log", 0) == 1;
         bUseLargeBackBuffer = ini->GetInt(nullptr, "UseLargeBackBuffer", 0) != 0;
@@ -529,14 +482,24 @@ bool DX9RENDER::Init()
 #endif
         requestedTextureAnisotropy = std::clamp(requestedTextureAnisotropy, 0, 16);
 
+        storm::render::TextureCacheConfig textureCache;
+        ini->ReadString(nullptr, "texture_compression", str, sizeof(str), "auto");
+        if (const auto mode = storm::render::ParseTextureCompression(str))
+            textureCache.mode = *mode;
+        else
+            spdlog::error("engine.ini texture_compression = '{}' is not auto, bc, etc2 or rgba; using auto", str);
+#ifdef __ANDROID__
+        textureCache.mode = static_cast<storm::render::TextureCompression>(
+            std::clamp(storm::android::graphicsSetting("texture_compression", static_cast<int>(textureCache.mode)), 0, 3));
+#endif
+        textureCache.max_bytes = static_cast<uint64_t>(std::max(ini->GetInt(nullptr, "texture_cache_mb", 3072), 64)) << 20;
+        textureCache.cache_directory = fs::GetStashPath() / "TextureCache";
+        storm::render::ConfigureTextureCache(textureCache);
+
         FovMultiplier = ini->GetFloat(nullptr, "fov_multiplier", 1.0f);
 
         screen_size.x = ini->GetInt(nullptr, "screen_x", 1024);
         screen_size.y = ini->GetInt(nullptr, "screen_y", 768);
-#ifdef __ANDROID__
-        screen_size.x = std::clamp(storm::android::graphicsSetting("screen_x", screen_size.x), 320, 8192);
-        screen_size.y = std::clamp(storm::android::graphicsSetting("screen_y", screen_size.y), 320, 8192);
-#endif
         fNearClipPlane = ini->GetFloat(nullptr, "NearClipPlane", 0.1f);
         fFarClipPlane = ini->GetFloat(nullptr, "FarClipPlane", 4000.0f);
         bBackBufferCanLock = ini->GetInt(nullptr, "lockable_back_buffer", 0) != 0;
@@ -577,20 +540,51 @@ bool DX9RENDER::Init()
         videoAdapterIndex = ini->GetInt(nullptr, "adapter", std::numeric_limits<int32_t>::max());
 
         // stencil_format = D3DFMT_D24S8;
+#ifdef __ANDROID__
+        // SDL's view already exists and has been shown by main. Query it here,
+        // immediately before device creation; imported PC dimensions are only
+        // a fallback. Presentation continues to handle later view resizes.
+        const storm::android::RenderExtent legacySize{screen_size.x, screen_size.y};
+        const auto viewSize = core.GetWindow()->GetWindowSize();
+        const auto startupSize = storm::android::chooseStartupRenderResolution(
+            {viewSize.width, viewSize.height}, legacySize);
+        // The view size is the default; an explicit graphics preference (lower render resolution,
+        // scaled up by the composite pass) still wins.
+        screen_size.x = std::clamp(storm::android::graphicsSetting("screen_x", startupSize.extent.width), 320, 8192);
+        screen_size.y = std::clamp(storm::android::graphicsSetting("screen_y", startupSize.extent.height), 320, 8192);
+        core.Trace("AndroidRenderResolution: legacy=%dx%d view=%dx%d chosen=%dx%d reason=%s",
+                   legacySize.width, legacySize.height, viewSize.width, viewSize.height,
+                   screen_size.x, screen_size.y, startupSize.reason);
+#endif
         if (!InitDevice(bWindow, static_cast<HWND>(core.GetWindow()->OSHandle()), screen_size.x, screen_size.y))
 #ifdef __ANDROID__
-            throw std::runtime_error("Cannot initialize renderer: Vulkan/DXVK could not create a graphics device. "
+            throw std::runtime_error("Cannot initialize renderer: OpenGL ES 3.0 could not create a graphics device. "
                                      "The game cannot start with this graphics driver.");
 #else
-            throw std::runtime_error("Cannot initialize renderer: could not create a Direct3D 9 device");
+            throw std::runtime_error("Cannot initialize renderer: could not create an OpenGL ES 3.0 device");
+#endif
+#ifdef __ANDROID__
+        core.Trace("AndroidRenderResolution: legacy=%dx%d view=%dx%d chosen=%dx%d final=%dx%d reason=%s deviceAdjusted=%d",
+                   legacySize.width, legacySize.height, viewSize.width, viewSize.height,
+                   startupSize.extent.width, startupSize.extent.height, screen_size.x, screen_size.y,
+                   startupSize.reason,
+                   screen_size.x != startupSize.extent.width || screen_size.y != startupSize.extent.height);
 #endif
 
-#ifdef _WIN32 // Effects
-        RecompileEffects();
-#else
+        gamePictures_ = std::make_unique<storm::GamePictures>(*this);
+        storm::render::SetGamePictureProvider(gamePictures_.get());
+        // The Android surface is destroyed in background: stop presenting before control returns
+        // to SDL (early subscriber) and re-attach to the new native window on return.
+        appEventsSubscription_ = storm::AppEvents::instance().subscribe(
+            [](const storm::AppEvent &event) {
+                if (event.type == storm::AppEventType::WillEnterBackground)
+                    storm::render::NotifySurfaceLost();
+                else if (event.type == storm::AppEventType::DidEnterForeground)
+                    storm::render::NotifySurfaceRestored();
+            },
+            true);
         pTechnique = std::make_unique<CTechnique>(this);
         pTechnique->DecodeFiles();
-#endif
 
         // get start ini file for fonts
         if (!ini->ReadString(nullptr, "startFontIniFile", str, sizeof(str) - 1, ""))
@@ -682,6 +676,7 @@ bool DX9RENDER::Init()
 //################################################################################
 DX9RENDER::~DX9RENDER()
 {
+    storm::render::ShutdownTextureCache();
     // d3d9->SetRenderTarget(NULL, NULL); //~!~
 
     S_RELEASE(pSmallPostProcessSurface2, 0);
@@ -835,9 +830,6 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
             }
         }
     }
-#ifdef _WIN32 // Effects
-    effects_.setDevice(d3d9);
-#endif
 
     textureAnisotropy = 0;
     if (requestedTextureAnisotropy > 0)
@@ -973,6 +965,11 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
 //################################################################################
 bool DX9RENDER::ReleaseDevice()
 {
+    if (appEventsSubscription_ >= 0)
+        storm::AppEvents::instance().unsubscribe(appEventsSubscription_);
+    appEventsSubscription_ = -1;
+    storm::render::SetGamePictureProvider(nullptr);
+    gamePictures_.reset();
     if (aniVBuffer)
         aniVBuffer->Release();
     aniVBuffer = nullptr;
@@ -1343,18 +1340,22 @@ bool DX9RENDER::DX9EndScene()
                 const auto percentile = [&](size_t percent) {
                     return metricsFrameTimes[(count * percent + 99) / 100 - 1];
                 };
+                const storm::render::PerfCounters &perfTotals = storm::render::PerfTotals();
                 core.Trace("RenderMetrics: frames=%u seconds=%.3f fps=%.2f frame_ms_p50=%.2f "
                            "frame_ms_p95=%.2f frame_ms_p99=%.2f frame_ms_max=%.2f "
-                           "present_ms_mean=%.2f draws_mean=%.1f resolution=%dx%d",
+                           "present_ms_mean=%.2f draws_mean=%.1f resolution=%dx%d %s",
                            static_cast<unsigned>(count), metricsElapsed, count / metricsElapsed,
                            percentile(50), percentile(95), percentile(99), metricsFrameTimes.back(),
                            1000.0 * metricsPresentTime / count, static_cast<double>(metricsDrawCalls) / count,
-                           screen_size.x, screen_size.y);
+                           screen_size.x, screen_size.y, perfTotals.Since(metricsPerfStart).Summary().c_str());
+                metricsPerfStart = perfTotals;
                 metricsFrameTimes.clear();
                 metricsElapsed = metricsPresentTime = 0.0;
                 metricsDrawCalls = 0;
             }
         }
+        if (hRes != D3D_OK || metricsPreviousPresent == 0.0)
+            metricsPerfStart = storm::render::PerfTotals();
         if (hRes != D3D_OK)
         {
             metricsFrameTimes.clear();
@@ -1369,14 +1370,6 @@ bool DX9RENDER::DX9EndScene()
         LostRender();
     }
 
-#ifdef _WIN32 // bSafeRendering
-    if (bSafeRendering)
-    {
-        const HDC dc = GetDC(hwnd);
-        SetPixel(dc, 0, 0, 0);
-        ReleaseDC(hwnd, dc);
-    }
-#endif
 
     return true;
 }
@@ -1551,13 +1544,6 @@ bool DX9RENDER::TextureLoad(int32_t t)
     auto fileS = fio->_CreateFile(fn, std::ios::binary | std::ios::in);
     if (!fileS.is_open())
     {
-        // try to load without '.tx' (e.g. raw Targa)
-        std::filesystem::path path_to_tex{fn};
-        path_to_tex.replace_extension();
-        if (exists(path_to_tex))
-        {
-            return TextureLoadUsingD3DX(path_to_tex.string().c_str(), t);
-        }
         if (bTrace)
         {
             core.Trace("Can't load texture %s", fn);
@@ -1861,34 +1847,6 @@ bool DX9RENDER::TextureLoad(int32_t t)
     // Close the file
     fio->_CloseFile(fileS);
     return true;
-}
-
-bool DX9RENDER::TextureLoadUsingD3DX(const char* path, int32_t t)
-{
-#ifdef _WIN32 // TextureLoadUsingD3DX - used only for loading raw Targa
-    // TODO: reimplement the whole thing in a tidy way
-    IDirect3DTexture9 *pTex;
-    if(CHECKD3DERR(D3DXCreateTextureFromFileA(d3d9, path, &pTex)))
-    {
-        delete Textures[t].name;
-        Textures[t].name = nullptr;
-        return false;
-    }
-
-    D3DSURFACE_DESC desc;
-    pTex->GetLevelDesc(0, &desc);
-
-    Textures[t].hash = 0;
-    Textures[t].ref = 1;
-    Textures[t].d3dtex = pTex;
-    Textures[t].isCubeMap = false;
-    Textures[t].dwSize = desc.Height * desc.Width * 4;
-    Textures[t].loaded = true;
-
-    return true;
-#else
-    return false;
-#endif
 }
 
 IDirect3DBaseTexture9 *DX9RENDER::GetBaseTexture(int32_t iTexture)
@@ -2750,33 +2708,12 @@ void DX9RENDER::RestoreRender()
     }
     SetCommonStates();
 
-#ifdef _WIN32 // Effects
-    RecompileEffects();
-#else
     pTechnique = std::make_unique<CTechnique>(this);
     pTechnique->DecodeFiles();
-#endif
 
     InvokeEntitiesRestoreRender();
 
     resourcesReleased = false;
-}
-
-void DX9RENDER::RecompileEffects()
-{
-#ifdef _WIN32 // Effects
-    effects_.release();
-
-    std::filesystem::path cur_path = std::filesystem::current_path();
-    std::filesystem::current_path(std::filesystem::u8path(fio->_GetExecutableDirectory()));
-    for (const auto &p : std::filesystem::recursive_directory_iterator("resource/techniques"))
-        if (is_regular_file(p) && p.path().extension() == ".fx")
-        {
-            auto s = p.path().string(); // hug microsoft
-            effects_.compile(s.c_str());
-        }
-    std::filesystem::current_path(cur_path);
-#endif
 }
 
 bool DX9RENDER::ResetDevice()
@@ -2866,12 +2803,8 @@ void DX9RENDER::RunStart()
     if (core.Controls->GetDebugAsyncKeyState(VK_SHIFT) < 0 && core.Controls->GetDebugAsyncKeyState(VK_F11) < 0)
     {
         InvokeEntitiesLostRender();
-#ifdef _WIN32 // Effects
-        RecompileEffects();
-#else
         pTechnique = std::make_unique<CTechnique>(this);
         pTechnique->DecodeFiles();
-#endif
         InvokeEntitiesRestoreRender();
     }
 
@@ -3410,9 +3343,6 @@ void DX9RENDER::MakeScreenShot()
         screenshot_path.replace_filename(screenshot_base_filename + "_" + std::to_string(i));
         screenshot_path.replace_extension(screenshotExt);
     }
-#ifdef _WIN32 // Screenshot
-    D3DXSaveSurfaceToFile(screenshot_path.c_str(), screenshotFormat, surface, nullptr, nullptr);
-#endif
 
     surface->Release();
     renderTarget->Release();
@@ -3479,14 +3409,6 @@ void DX9RENDER::FindPlanes(IDirect3DDevice9 *d3dDevice)
     viewplane[3].D = (pos.x * viewplane[3].Nx + pos.y * viewplane[3].Ny + pos.z * viewplane[3].Nz);
 }
 
-#ifdef _WIN32 // Effects
-bool DX9RENDER::TechniqueExecuteStart(const char *cBlockName)
-{
-    if (!cBlockName)
-        return false;
-    return effects_.begin(cBlockName);
-}
-#else
 bool DX9RENDER::TechniqueExecuteStart(const char *cBlockName)
 {
     if (!cBlockName)
@@ -3494,15 +3416,10 @@ bool DX9RENDER::TechniqueExecuteStart(const char *cBlockName)
     pTechnique->SetCurrentBlock(cBlockName, 0, nullptr);
     return pTechnique->ExecutePassStart();
 }
-#endif
 
 bool DX9RENDER::TechniqueExecuteNext()
 {
-#ifdef _WIN32 // Effects
-    return effects_.next();
-#else
     return pTechnique->ExecutePassNext();
-#endif
 }
 
 void DX9RENDER::DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlockName, uint32_t dwSubTexturesX,
@@ -3891,12 +3808,6 @@ HRESULT DX9RENDER::GetPixelShader(IDirect3DPixelShader9 **ppShader)
     return CHECKD3DERR(d3d9->GetPixelShader(ppShader));
 }
 
-#ifdef _WIN32 // Effects
-ID3DXEffect *DX9RENDER::GetEffectPointer(const char *techniqueName)
-{
-    return effects_.getEffectPointer(techniqueName);
-}
-#endif
 
 HRESULT DX9RENDER::SetTexture(uint32_t Stage, IDirect3DBaseTexture9 *pTexture)
 {

@@ -33,6 +33,9 @@ std::unique_ptr<Screen> CreateSailEmblemScreen();
 std::unique_ptr<Screen> CreateGameOverScreen();
 std::unique_ptr<StateConsumer> CreateGameOverConsumer();
 std::unique_ptr<Screen> CreateNationsScreen();
+std::unique_ptr<Screen> CreateHeroScreen();
+std::unique_ptr<Screen> CreateItemsScreen();
+std::unique_ptr<Screen> CreateJournalScreen();
 std::unique_ptr<Screen> CreateMapEncounterScreen();
 std::unique_ptr<Screen> CreateDirSailScreen();
 std::unique_ptr<Screen> CreateLeaveBattleScreen();
@@ -76,6 +79,10 @@ const ScreenEntry kPorted[] = {
     {"alchemy", CreateAlchemyScreen},
     {"game_over", CreateGameOverScreen}, // state channel gameOver, not a game interface
     {"nationrelation", CreateNationsScreen},
+    {"lscchar_all", CreateHeroScreen},
+    {"character", CreateHeroScreen},
+    {"items", CreateItemsScreen},
+    {"questbook", CreateJournalScreen},
     {"map", CreateMapEncounterScreen},
     {"dirsailenc", CreateDirSailScreen},
     {"leavebattle", CreateLeaveBattleScreen},
@@ -97,7 +104,7 @@ const ScreenEntry kPorted[] = {
 // Interfaces the platform host still draws with its own forms. Anything not listed here
 // and not ported above gets the generic layout.
 const char *const kHostOwned[] = {
-    "character", "lscchar_all", "items", "ship", "questbook", // hero sections
+    "ship", // hero section
 };
 
 } // namespace

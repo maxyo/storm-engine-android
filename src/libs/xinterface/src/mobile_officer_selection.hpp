@@ -23,11 +23,12 @@ public:
         if (!(state == published_)) { published_ = state; ++serial_; }
     }
     std::string rowId(int index) const { return std::to_string(serial_) + ":" + std::to_string(index); }
-    bool accepts(const OfficerListIdentity &state, int index, const std::string &action) const
+    bool accepts(const OfficerListIdentity &state, int index, const std::string &action,
+                 const std::string &verb = "select") const
     {
         return !state.profile.empty() && state.revision != 0 && state == published_ && index >= 0 &&
             static_cast<size_t>(index) < state.rows.size() &&
-            action == "select@" + std::to_string(state.revision) + ":" + rowId(index);
+            action == verb + "@" + std::to_string(state.revision) + ":" + rowId(index);
     }
 };
 }

@@ -528,7 +528,7 @@ void WorldMap::Realize(uint32_t delta_time)
     auto ay = 0.0f;
     wdmObjects->playerShip->GetPosition(x, z, ay);
     const auto wind_force = wdmObjects->GetWind(x, z, wind_dir);
-    const auto ang = atan2(wind_dir.x, wind_dir.z);
+    const float ang = std::atan2(wind_dir.x, wind_dir.z);
     core.Event("WorldMap_GetWindParameters", "ff", wind_force, ang);
     // Checking the update attribute of the encounter
     if (AttributesPointer)

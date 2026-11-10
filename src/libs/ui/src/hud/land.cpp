@@ -3,7 +3,8 @@
 // Layout scenes `land` (explore) and `land-combat` (melee) of hud-layout.json. Input goes
 // back through the engine's existing entry points:
 //   move:1\t<inputOwner>\t<movementGeneration>\t<sequence>\t<active>\t<x>\t<forward>   (±1000)
-//   combat:1\t<gameplayRevision>\t<activityGeneration>\t<sequence>\t<action>\t<tap|down|up|cancel>
+//   combat:2\t<activityGeneration>\t<actionGeneration>\t<sequence>\t<action>\t<tap|down|up|cancel>
+//     (the action's generation from the combat state; 0 for "all\tcancel")
 //   landcommands:1\t<sceneEpoch>\t<revision>\t<activityGeneration>\t<verb>\t<id>
 //   context:<action name>          shortcut:<mainmenu|character>
 #include "hud.h"
@@ -20,7 +21,6 @@ namespace
 
 constexpr double kIdle = 3600.0;
 constexpr double kMoveHeartbeat = 0.1;    // the engine drops a stick it has not heard from for 350 ms
-constexpr double kCoverageHeartbeat = 0.25; // … and a coverage acknowledgement after 750 ms
 constexpr double kChoiceSeconds = 1.5;    // a tapped row waits this long for the engine to select it
 
 using screens::StringKey;
@@ -188,15 +188,14 @@ class LandScene final : public Scene
         }
         else if (!choice_.empty())
             next = std::min(next, choice_until_ - now);
-        if (!covered_.empty())
-            next = std::min(next, std::max(0.0, covered_at_ + kCoverageHeartbeat - now));
         return next;
     }
 
     void Drawn(const States &states) override
     {
         // The sheet is on the screen with exactly this menu revision: only now may the
-        // engine stop drawing its own. Repeated while it stays, as the engine expects.
+        // engine stop drawing its own. Said once per revision: coverage lasts until the
+        // revision changes or the sheet says it no longer covers it, however slow frames are.
         const LandCommands &commands = states.land_commands;
         const bool covering = commands.known && commands.active && commands.complete && hud_.Interactive() && hud_.Shown().modal;
         if (!covering)
@@ -205,11 +204,10 @@ class LandScene final : public Scene
             return;
         }
         const std::string owner = Owner(commands);
-        const double now = hud_.Now();
-        if (owner == covered_ && now - covered_at_ < kCoverageHeartbeat)
+        if (owner == covered_)
             return;
         covered_ = owner;
-        covered_at_ = now;
+        declined_.clear();
         hud_.Send("landcommands", owner + "\tack\t1", "landcommands-ack");
         Follow(commands);
     }
@@ -435,7 +433,9 @@ class LandScene final : public Scene
             combat_activity_ = combat.activity;
             combat_sequence_ = 0;
         }
-        hud_.Send("combat", "1\t" + std::to_string(combat.gameplay_revision) + "\t" + std::to_string(combat.activity) + "\t" +
+        const auto offered = combat.actions.find(action);
+        const uint64_t generation = offered == combat.actions.end() ? 0 : offered->second;
+        hud_.Send("combat", "2\t" + std::to_string(combat.activity) + "\t" + std::to_string(generation) + "\t" +
                                 std::to_string(++combat_sequence_) + "\t" + action + "\t" + phase);
     }
 
@@ -579,22 +579,24 @@ class LandScene final : public Scene
         if (hud_.Interactive() && covered_ != Owner(commands) && announced_ != Owner(commands))
         {
             announced_ = Owner(commands);
+            declined_.clear();
             hud_.Send("landcommands", announced_ + "\tack\t2", "landcommands-ack"); // this revision is on its way to the screen
         }
     }
 
-    // The sheet does not cover the engine's menu (any more): say so once. A menu revision
+    // The sheet does not cover the engine's menu: say so once per revision. The engine
+    // keeps its own menu hidden after a transition until the sheet answers the new
+    // revision, so every active revision gets an answer, also one never drawn. A revision
     // the engine has replaced since needs no word: its coverage ended with it.
     void Uncover(const States &states)
     {
-        if (covered_.empty() && announced_.empty())
-            return;
-        const std::string owner = covered_.empty() ? announced_ : covered_;
         covered_.clear();
         announced_.clear();
         const LandCommands &commands = states.land_commands;
-        if (commands.known && Owner(commands) == owner)
-            hud_.Send("landcommands", owner + "\tack\t0", "landcommands-ack");
+        if (!commands.known || !commands.active || declined_ == Owner(commands))
+            return;
+        declined_ = Owner(commands);
+        hud_.Send("landcommands", declined_ + "\tack\t0", "landcommands-ack");
     }
 
     Hud &hud_;
@@ -608,8 +610,8 @@ class LandScene final : public Scene
     bool wheel_open_ = false;
     std::string move_;
     // action sheet
-    std::string covered_; // menu owner whose coverage was acknowledged last
-    double covered_at_ = 0.0;
+    std::string covered_;  // menu owner whose coverage was acknowledged last
+    std::string declined_; // menu owner told that the sheet does not cover it
     std::string choice_; // tapped row on its way through select → activate
     double choice_until_ = 0.0;
     uint64_t choice_revision_ = 0;

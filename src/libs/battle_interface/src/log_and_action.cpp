@@ -270,7 +270,7 @@ void ILogAndActions::Realize(uint32_t delta_time)
 #ifdef __ANDROID__
         && !storm::android::worldMapHud.covered(storm::android::MapCommands,core.GetEntityId("WorldMap"),SDL_GetTicks())
         // the touch control of exactly this action is on the screen: its native icon steps aside
-        && !storm::android::seaQuickAction.covered(GetId(), SDL_GetTicks())
+        && !storm::android::seaQuickAction.covered(GetId())
         // … and nothing of it while the touch orders panel covers the command menu
         && !storm::android::seaOrders.covered()
 #endif
@@ -287,7 +287,7 @@ void ILogAndActions::Realize(uint32_t delta_time)
             BI_ONETEXTURE_VERTEX relocated[4];
             float shiftX=0,shiftY=0;
             const auto &telemetry=storm::android::shipTelemetry;
-            const auto *layout=storm::android::seaNavigator.layout(SDL_GetTicks(),telemetry.revision(),telemetry.hudRevision(),telemetry.frame().navigatorGeneration);
+            const auto *layout=storm::android::seaNavigator.layout(telemetry.revision(),telemetry.hudRevision(),telemetry.frame().navigatorGeneration);
             if(layout && telemetry.frame().navigatorAvailable && storm::android::mobileScreen.empty()) {
                 D3DVIEWPORT9 viewport;rs->GetViewport(&viewport);
                 const float scale=float(viewport.Width)/layout->width;

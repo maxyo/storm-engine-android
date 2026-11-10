@@ -25,9 +25,9 @@ struct ImageRef
     int width = 0;
     int height = 0;
     uint32_t tint_argb = 0xffffffff;
-    std::string kind;  // "atlas", "battle_icon", "portrait" or empty
+    std::string kind;  // "atlas", "battle_icon", "portrait", "texture" or empty
     std::string group; // atlas: picture group ("GOODS")
-    std::string image; // atlas: picture name ("Balls"); portrait: the face ("12")
+    std::string image; // atlas: picture name ("Balls"); portrait: the face ("12"); texture: its name under RESOURCE/Textures
     std::string mode;  // battle_icon
     std::string atlas; // battle_icon
     int pic = -1;      // battle_icon

@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <set>
 #include <span>
@@ -44,7 +45,8 @@ struct Combat
     bool known = false;
     uint64_t gameplay_revision = 0, activity = 0;
     std::string player, mode = "unknown", interact_kind = "interact";
-    std::set<std::string> actions;
+    // Offered action -> its availability generation, which a command for it carries.
+    std::map<std::string, uint64_t> actions;
     std::string pistol = "unknown"; // unknown, no_weapon, unloaded, loaded
     int pistol_progress = 0;        // 0…20 while unloaded
 
@@ -120,6 +122,15 @@ struct Ship
     bool navigator = false, zoom_in = false, zoom_out = false;
     uint64_t navigator_generation = 0, navigator_layout = 0; // layout = the aperture the engine drew last
     double speed = -1.0, wind = -1.0, cannon_charge = -1.0;
+    double time_scale = -1.0; // the world's time scale the scripts set (x1 = 1)
+    // Battle abilities (instant repair, immediate reload) the ship's people can use.
+    struct Ability
+    {
+        std::string id;          // InstantRepair, ImmediateReload
+        std::string state;       // ready, active, recovery, blocked
+        double fill = 0.0;       // active: what is left of the effect; recovery: how far it recovered
+    };
+    std::vector<Ability> abilities;
     std::string date_time, location;
     std::string ammo;        // balls, grapes, knippels, bombs; "" = unknown
     double ammo_count = -1.0;
@@ -317,6 +328,10 @@ struct SceneEntry
     const char *name;
     std::span<const char *const> modes; // gameplay modes it draws
     std::unique_ptr<Scene> (*create)(Hud &);
+    // The engine's name for this HUD in "hudowner:<name>", said once when the HUD starts: the
+    // engine then keeps the native parts it replaces off while a revision is unanswered.
+    // nullptr: the scene only answers revisions it was asked about (the land sheet).
+    const char *presents = nullptr;
 };
 // The migration switch of the HUD (scenes.cpp): gameplay modes whose HUD is drawn here.
 // Every other mode still belongs to the platform host.
@@ -455,11 +470,11 @@ class Hud
     std::set<std::string> reported_;
     std::string language_; // game language last given to the mount
     bool changed_ = true;
-    double spyglass_ack_at_ = -1.0;  // last coverage acknowledgement of the spyglass overlay
-    uint64_t spyglass_ack_generation_ = 0;
+    std::string spyglass_answer_; // the last word said about the spyglass overlay
     bool visible_ = false;
     bool live_ = false;
     bool interface_ = false;
+    bool declared_ = false; // the "hudowner" declarations were sent
 };
 
 // The spyglass overlay (spyglass.cpp): its channel's consumer and the props of its part.

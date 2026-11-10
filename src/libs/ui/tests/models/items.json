@@ -1,0 +1,522 @@
+{
+ "schemaVersion": 2,
+ "language": "english",
+ "revision": 20,
+ "screenRevision": 5,
+ "screen": "items",
+ "widgets": [
+  {
+   "node": "TITLE",
+   "type": "heading",
+   "label": "  Items  ",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_SHIP",
+   "type": "button",
+   "label": "Ships",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABBTN_1",
+   "type": "image",
+   "label": "",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 1,
+     "imageRevision": 1,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "TABS",
+      "image": "TabDeSelected"
+     }
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABSTR_1",
+   "type": "text",
+   "label": "All",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABBTN_2",
+   "type": "image",
+   "label": "",
+   "value": "0",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 1,
+     "imageRevision": 1,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "TABS",
+      "image": "TabSelected"
+     }
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABSTR_2",
+   "type": "text",
+   "label": "Gear",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABBTN_3",
+   "type": "image",
+   "label": "",
+   "value": "0",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 1,
+     "imageRevision": 1,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "TABS",
+      "image": "TabSelected"
+     }
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABSTR_3",
+   "type": "text",
+   "label": "Misc",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABBTN_4",
+   "type": "image",
+   "label": "",
+   "value": "0",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [
+    {
+     "handle": 1,
+     "imageRevision": 1,
+     "width": 0,
+     "height": 0,
+     "tintArgb": 4294967295,
+     "source": {
+      "kind": "atlas",
+      "group": "TABS",
+      "image": "TabSelected"
+     }
+    }
+   ],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "TABSTR_4",
+   "type": "text",
+   "label": "Amulets",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_ITEMS",
+   "type": "choice",
+   "label": "Rapier\t2.4\t1\t2.4",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "inventory:7:character:1:role:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Rapier",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ITEMS_1",
+        "image": "itm1"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "2.4",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "2.4",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_ITEMS",
+   "type": "choice",
+   "label": "Dagger\t1.5\t1\t1.5",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "inventory:9:character:1:role:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Dagger",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ITEMS_1",
+        "image": "itm2"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "1.5",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "1",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "1.5",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_ITEMS",
+   "type": "choice",
+   "label": "Potion\t0.2\t3\t0.6",
+   "value": "0",
+   "index": 2,
+   "enabled": true,
+   "rowId": "inventory:30:character:1:role:0",
+   "images": [],
+   "actions": [
+    "select",
+    "activate"
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Potion",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 1,
+       "imageRevision": 1,
+       "width": 0,
+       "height": 0,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "ITEMS_1",
+        "image": "itm3"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "0.2",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "3",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "0.6",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "EQUIP_BUTTON",
+   "type": "button",
+   "label": "Take off",
+   "value": "",
+   "index": -1,
+   "enabled": true,
+   "rowId": "inventory:7:character:1:role:0",
+   "images": [],
+   "actions": [
+    "press"
+   ],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "A light blade.",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "Weight_TEXT",
+   "type": "text",
+   "label": "Weight: 4.6 / 140",
+   "value": "1",
+   "index": -1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "CHARACTERS_SCROLL",
+   "type": "choice",
+   "label": "Captain · Anne",
+   "value": "1",
+   "index": 0,
+   "enabled": true,
+   "rowId": "1:0",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "CHARACTERS_SCROLL",
+   "type": "choice",
+   "label": "Navigator · Jack",
+   "value": "0",
+   "index": 1,
+   "enabled": true,
+   "rowId": "1:1",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "cells": []
+  },
+  {
+   "node": "ANDROID_POSTS",
+   "type": "fact",
+   "label": "Anne Bonny",
+   "value": "",
+   "index": 0,
+   "enabled": false,
+   "rowId": "pic1",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "slot": "0",
+    "role": "Captain",
+    "character": "1",
+    "label": "Anne Bonny"
+   }
+  },
+  {
+   "node": "ANDROID_POSTS",
+   "type": "fact",
+   "label": "Jack Rackham",
+   "value": "",
+   "index": 1,
+   "enabled": false,
+   "rowId": "pic2",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "slot": "1",
+    "post": "navigator",
+    "role": "Navigator",
+    "character": "9",
+    "label": "Jack Rackham"
+   }
+  },
+  {
+   "node": "ANDROID_ITEMS",
+   "type": "fact",
+   "label": "",
+   "value": "",
+   "index": 0,
+   "enabled": false,
+   "rowId": "tr1",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "slot": "blade",
+    "worn": "1",
+    "quest": "0",
+    "map": "0"
+   }
+  },
+  {
+   "node": "ANDROID_ITEMS",
+   "type": "fact",
+   "label": "",
+   "value": "",
+   "index": 1,
+   "enabled": false,
+   "rowId": "tr2",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "slot": "blade",
+    "worn": "0",
+    "quest": "0",
+    "map": "0"
+   }
+  },
+  {
+   "node": "ANDROID_ITEMS",
+   "type": "fact",
+   "label": "",
+   "value": "",
+   "index": 2,
+   "enabled": false,
+   "rowId": "tr3",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "slot": "",
+    "worn": "0",
+    "quest": "0",
+    "map": "0"
+   }
+  },
+  {
+   "node": "ANDROID_SLOTS",
+   "type": "fact",
+   "label": "Rapier",
+   "value": "",
+   "index": 0,
+   "enabled": false,
+   "rowId": "blade",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "label": "Rapier",
+    "group": "ITEMS_1",
+    "image": "itm1"
+   }
+  }
+ ]
+}

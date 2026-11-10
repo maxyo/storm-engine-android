@@ -1,6 +1,3 @@
-#ifdef STORM_ENABLE_BGFX
-#include "fog_preview.hpp"
-#endif
 #include <chrono>
 #include <string>
 #include <thread>
@@ -28,6 +25,7 @@
 #include "platform/script_patches.hpp"
 #include "platform/android_shortcuts.hpp"
 #include "android_gameplay_state.hpp"
+#include "android_ship_abilities.hpp"
 #include "android_combat_state.hpp"
 #include "android_sea_orders_state.hpp"
 #include "android_land_commands_state.hpp"
@@ -286,8 +284,10 @@ void SubscribeEngineToAppEvents()
                 if (event.immediate && core_private && core_private->initialized())
                 {
                     // Hook for scripts (the app's background autosave). Runs between frames on
-                    // the game thread; the Android UI thread does not wait for it (Vulkan
-                    // window: SDL's surfaceDestroyed takes no hand-off from this thread).
+                    // the game thread. This handler runs before the renderer's (early handlers are
+                    // called in subscription order), so the scripts, and the save thumbnail, still
+                    // see a live surface; the renderer stops presenting right after. The Android
+                    // UI thread waits in surfaceDestroyed only for a running bgfx frame.
                     const auto started = std::chrono::steady_clock::now();
                     core_private->Event("AppWillEnterBackground");
                     spdlog::info("AppWillEnterBackground handlers took {} ms",
@@ -496,35 +496,6 @@ int main(int argc, char *argv[])
         bSteam = ini->GetInt(nullptr, "Steam", 1) != 0;
     }
 
-#ifdef STORM_ENABLE_BGFX
-    // This mode branches before OSWindow/InitBase: DXVK never owns this surface.
-    char fogPreview[1024]{}, fogCapture[1024]{}, fogShaders[1024]{};
-    if (ini) {
-        ini->ReadString(nullptr, "bgfx_fog_preview_file", fogPreview, sizeof(fogPreview), "");
-        ini->ReadString(nullptr, "bgfx_fog_capture_file", fogCapture, sizeof(fogCapture), "");
-        ini->ReadString(nullptr, "bgfx_shader_directory", fogShaders, sizeof(fogShaders), "");
-    }
-    if (fogPreview[0]) {
-        storm::render::FogPreviewOptions options;
-        options.snapshotPath = fogPreview;
-        options.shaderDirectory = fogShaders;
-        options.width = std::max(320, width);
-        options.height = std::max(180, height);
-        options.vsync = ini->GetInt(nullptr, "vsync", 1) != 0;
-        options.fogEnabled = ini->GetInt(nullptr, "bgfx_preview_fog", 1) != 0;
-#ifdef __ANDROID__
-        options.width = std::max(320, storm::android::graphicsSetting("screen_x", options.width));
-        options.height = std::max(180, storm::android::graphicsSetting("screen_y", options.height));
-        options.vsync = storm::android::graphicsSetting("vsync", options.vsync) != 0;
-#endif
-        core_private->CleanUp();
-        core_private->ReleaseBase();
-        const int result = storm::render::runFogPreview(options);
-        SDL_Quit();
-        return result;
-    }
-    storm::render::configureFogCapture(fogCapture);
-#endif
 
     // initialize SteamApi through evaluating its singleton
     try
@@ -638,7 +609,7 @@ int main(int argc, char *argv[])
             }
             else if (command.starts_with("spyglass:"))
             {
-                storm::android::spyglass.acknowledge(std::string_view(command).substr(9), SDL_GetTicks());
+                storm::android::spyglass.acknowledge(std::string_view(command).substr(9));
             }
             else if (command.starts_with("hold:"))
             {
@@ -670,7 +641,7 @@ int main(int argc, char *argv[])
             else if (command.starts_with("navigator:"))
             {
                 const bool accepted=storm::android::mobileScreen.empty() &&
-                    storm::android::seaNavigator.offer(std::string_view(command).substr(10), SDL_GetTicks(),
+                    storm::android::seaNavigator.offer(std::string_view(command).substr(10),
                         storm::android::shipTelemetry.revision(), storm::android::shipTelemetry.hudRevision(),
                         storm::android::shipTelemetry.frame().navigatorGeneration);
                 static std::string lastNavigatorPrepared,lastNavigatorVisible,lastNavigatorOther;
@@ -680,6 +651,16 @@ int main(int argc, char *argv[])
                     std::to_string(storm::android::shipTelemetry.revision())+"/"+std::to_string(storm::android::shipTelemetry.hudRevision())+"/"+
                     std::to_string(storm::android::shipTelemetry.frame().navigatorGeneration);
                 if(detail!=lastNavigatorRequest){lastNavigatorRequest=detail;storm::android::traceContextAction("navigator-mailbox","receive",detail);}
+            }
+            else if (command.starts_with("hudowner:"))
+            {
+                // The portable UI presents this HUD: its unanswered revisions keep native drawing off.
+                if (command == "hudowner:lost") {
+                    if (const auto line = storm::android::hudPresenters.lost(); !line.empty())
+                        __android_log_print(ANDROID_LOG_ERROR, "StormInput", "%s", line.c_str());
+                }
+                else if (!storm::android::hudPresenters.declare(std::string_view(command).substr(9)))
+                    __android_log_print(ANDROID_LOG_ERROR, "StormInput", "unknown HUD presenter declaration '%s'", command.c_str());
             }
             else if (command.starts_with("shiphud:"))
             {
@@ -849,12 +830,6 @@ int main(int argc, char *argv[])
                 exitCode = EXIT_FAILURE;
                 break;
             }
-#ifdef STORM_ENABLE_BGFX
-            static bool fogCaptureKeyDown = false;
-            const bool fogCaptureKey = core.Controls && core.Controls->GetDebugAsyncKeyState(VK_F11) != 0;
-            if (fogCaptureKey && !fogCaptureKeyDown) storm::render::requestFogCapture();
-            fogCaptureKeyDown = fogCaptureKey;
-#endif
 #ifdef __ANDROID__
             const bool gameplayReady = isRunning && bActive && androidLifecycle.canRun() &&
                 core_private->initialized() && core.Controls && storm::android::loadingState == 0 &&
@@ -892,6 +867,18 @@ int main(int argc, char *argv[])
                 storm::android::traceWorldMapModal("presented",storm::android::worldMapHud.modal.debug());
             }
             storm::android::publishWorldMapHud(storm::android::worldMapHud.modal.receipt(SDL_GetTicks()).token!=0);
+            {
+                // A presenting UI answers each revision within one of its frames; one that stays
+                // silent is withdrawn loudly and the native HUD parts come back (android_hud_presenter.hpp).
+                using namespace storm::android;
+                const auto &telemetry = shipTelemetry;
+                const bool seaWaiting = gameplayReady && (hudPresenters.seaFresh || seaQuickAction.awaiting() || telemetry.awaiting() ||
+                    (telemetry.frame().valid && seaNavigator.pending(telemetry.revision(), telemetry.hudRevision(), telemetry.frame().navigatorGeneration)));
+                for (const auto &line : {hudPresenters.watch("sea", seaWaiting, SDL_GetTicks()),
+                                         hudPresenters.watch("worldmap", gameplayReady && worldMapHud.awaiting(), SDL_GetTicks()),
+                                         hudPresenters.watch("spyglass", gameplayReady && spyglass.awaiting(), SDL_GetTicks())})
+                    if (line) __android_log_print(ANDROID_LOG_ERROR, "StormInput", "%s", line->c_str());
+            }
             if(storm::android::worldMapHud.modal.hold(bActive,SDL_GetTicks()))continue;
             if(const auto command=storm::android::worldMapHud.take(SDL_GetTicks()))
             {
@@ -899,17 +886,23 @@ int main(int argc, char *argv[])
                 storm::android::worldMapHud.update(storm::android::readWorldMapFrame(gameplayState,gameplayReady),SDL_GetTicks());
                 storm::android::publishWorldMapHud();
             }
-            storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipTelemetry(gameplayState));
+            storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, SDL_GetTicks(), storm::android::seaOrders.frame().active));
             // Activity recreation revokes pending targets/ready ACKs before dispatch.
             storm::android::publishShipTelemetry();
             if (const auto detent = storm::android::shipTelemetry.takeSails(SDL_GetTicks()))
                 if (storm::android::applyShipSailTarget(gameplayState, *detent))
                 {
-                    storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipTelemetry(gameplayState));
+                    storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, SDL_GetTicks(), storm::android::seaOrders.frame().active));
                     storm::android::publishShipTelemetry();
                 }
             if (const auto action = gameplayState.take(SDL_GetTicks()))
-                core_private->Event("Control Activation", "s", action->c_str());
+            {
+                // A battle ability goes through the command list, as the native menu launches it.
+                if (action->starts_with("BI_"))
+                    storm::android::launchShipAbility(*action);
+                else
+                    core_private->Event("Control Activation", "s", action->c_str());
+            }
             // Execute commands at a completed game-frame boundary, after control
             // polling and outside Android dialog callbacks. No timed key pulse
             // or held bit can be lost between two slow native frames.

@@ -20,6 +20,11 @@
   "BICommandsActivate",
   "BIFastCommand",
   "TelescopeIn",
-  "TelescopeOut"
+  "TelescopeOut",
+  "TimeScale",
+  "TimeScaleFaster",
+  "TimeScaleSlower",
+  "BI_InstantRepair",
+  "BI_ImmediateReload"
  ]
 }

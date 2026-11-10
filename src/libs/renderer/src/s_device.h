@@ -1,10 +1,7 @@
 #pragma once
 
-#ifdef _WIN32 // Effects
-#include "effects.h"
-#else
+#include "game_pictures.hpp"
 #include "technique.h"
-#endif
 #include "font.h"
 #include "video_texture.h"
 #include "dx9render.h"
@@ -12,6 +9,7 @@
 #include "platform/platform.hpp"
 
 #include "d3d9types.h"
+#include "storm/render/perf_stats.hpp"
 #include "script_libriary.h"
 
 #include <stack>
@@ -309,9 +307,6 @@ class DX9RENDER : public VDX9RENDER
     HRESULT SetFVF(uint32_t handle) override;
     HRESULT GetVertexShader(IDirect3DVertexShader9 **ppShader) override;
     HRESULT GetPixelShader(IDirect3DPixelShader9 **ppShader) override;
-#ifdef _WIN32 // Effects
-    ID3DXEffect *GetEffectPointer(const char *techniqueName) override;
-#endif
 
     // D3D Render Target/Begin/End/Clear
     HRESULT GetRenderTarget(IDirect3DSurface9 **ppRenderTarget) override;
@@ -435,6 +430,12 @@ class DX9RENDER : public VDX9RENDER
     void SetGLOWParams(float _fBlurBrushSize, int32_t _GlowIntensity, int32_t _GlowPasses) override;
 
     IDirect3DBaseTexture9 *GetTextureFromID(int32_t nTextureID) override;
+
+  private:
+    std::unique_ptr<storm::GamePictures> gamePictures_;
+    int appEventsSubscription_ = -1;
+
+  public:
     bool sampleTextureArgb(int32_t texture,float u,float v,uint32_t& result) override;
 
     bool GetRenderTargetAsTexture(IDirect3DTexture9 **tex) override;
@@ -442,7 +443,6 @@ class DX9RENDER : public VDX9RENDER
     void LostRender();
     void RestoreRender();
 
-    void RecompileEffects();
 
 private:
     struct RECT_VERTEX
@@ -468,11 +468,7 @@ private:
 
     float FovMultiplier{ 1.0f };
 
-#ifdef _WIN32 // Effects
-    Effects effects_;
-#else
     std::unique_ptr<CTechnique> pTechnique;
-#endif
 
     char *fontIniFileName;
     int32_t nFontQuantity;
@@ -487,7 +483,6 @@ private:
     float aspectRatio;
     float m_fHeightDeformator;
 
-    bool bSafeRendering;
     bool bShowFps, bShowExInfo;
     // Opt-in presentation cadence diagnostics; these are not GPU timings.
     bool renderMetricsEnabled = false;
@@ -496,6 +491,7 @@ private:
     double metricsPresentTime = 0.0;
     uint64_t metricsDrawCalls = 0;
     std::vector<double> metricsFrameTimes;
+    storm::render::PerfCounters metricsPerfStart; // shim counters at the start of the metrics window
     bool bInsideScene;
 
     PLANE viewplane[4];
@@ -603,11 +599,7 @@ private:
 
     std::stack<RenderTarget> stRenderTarget;
 
-#ifdef _WIN32 // Screenshot
-    D3DXIMAGE_FILEFORMAT screenshotFormat;
-#endif
     std::string screenshotExt;
 
     bool TextureLoad(int32_t texid);
-    bool TextureLoadUsingD3DX(const char *path, int32_t texid);
 };
