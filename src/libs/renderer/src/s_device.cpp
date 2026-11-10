@@ -22,6 +22,8 @@
 #include "storm/render/texture_cache.hpp"
 
 #include <algorithm>
+#include <functional>
+#include <map>
 #include <SDL_timer.h>
 
 #include <fmt/chrono.h>
@@ -466,10 +468,14 @@ void ApplyEffects(int preset, const std::vector<storm::render::EffectsOption> &o
         spdlog::error("graphics effects: {}", error);
 }
 
-void ConfigureGraphicsEffects(INIFILE *ini)
+// engine.ini's values of the effect options: the fallbacks when the app's preferences are read
+// again (live re-application, ReconfigureGraphicsEffects).
+std::map<std::string, int> effectsIniValues;
+
+void ConfigureGraphicsEffects(const std::function<int(const char *, int)> &iniValue)
 {
-    const auto read = [ini](const char *name, int fallback) {
-        int value = ini->GetInt(nullptr, name, fallback);
+    const auto read = [&iniValue](const char *name, int fallback) {
+        int value = iniValue(name, fallback);
 #ifdef __ANDROID__
         value = storm::android::graphicsSetting(name, value);
 #endif
@@ -503,6 +509,21 @@ void ConfigureGraphicsEffects(INIFILE *ini)
     });
 #endif
 }
+#ifdef __ANDROID__
+// The settings screen stored new preferences: the effects follow them without a restart
+// (MSAA and anisotropy rebuild the scene stores at the next Present). Options engine.ini
+// gave keep its values as fallbacks.
+void ReconfigureGraphicsEffects()
+{
+    if (!storm::android::graphicsSettingsChanged.exchange(false))
+        return;
+    spdlog::info("graphics effects: preferences changed, applying them");
+    ConfigureGraphicsEffects([](const char *name, int fallback) {
+        const auto found = effectsIniValues.find(name);
+        return found == effectsIniValues.end() ? fallback : found->second;
+    });
+}
+#endif
 } // namespace
 
 
@@ -560,7 +581,9 @@ bool DX9RENDER::Init()
 #ifdef __ANDROID__
         nTextureDegradation = std::clamp(storm::android::graphicsSetting("texture_degradation", nTextureDegradation), 0, 2);
 #endif
-        ConfigureGraphicsEffects(ini.get());
+        ConfigureGraphicsEffects([&ini](const char *name, int fallback) {
+            return effectsIniValues[name] = ini->GetInt(nullptr, name, fallback);
+        });
 
         storm::render::TextureCacheConfig textureCache;
         ini->ReadString(nullptr, "texture_compression", str, sizeof(str), "auto");
@@ -1080,6 +1103,9 @@ bool DX9RENDER::DX9Clear(int32_t type)
 //################################################################################
 bool DX9RENDER::DX9BeginScene()
 {
+#ifdef __ANDROID__
+    ReconfigureGraphicsEffects();
+#endif
     //~!~
     return false;
 }

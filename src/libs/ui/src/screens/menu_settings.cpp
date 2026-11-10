@@ -5,7 +5,10 @@
 // (owner decision). The renderer options of the application (texture filtering and
 // quality, vertical sync, character shadows, sea foam) sit on the image page; they come
 // from the platform host on the state channel "appSettings", are kept as a draft and go
-// back to the host with «Готово» (Bindings::SendHost). They take effect after a restart.
+// back to the host with «Готово» (Bindings::SendHost). They take effect after a restart,
+// except the graphics effects (engine renderer_bgfx fx): the preset «Оригинал / Среднее /
+// Высокое» and, under «Подробнее», one override per effect («Пресет» = -1, as the preset
+// says) apply at once (the host asks the engine to re-read them).
 // Keyboard bindings are not offered at all (mobile only); colour correction is not
 // available in the Android renderer. Fills the pack screen <s-settings>.
 #include "controls.h"
@@ -60,6 +63,56 @@ constexpr NodeRule kNodes[] = {
     {"SOFTWARE_SETTINGS", "text"},
     {"MAIN_BACK", "image"},
 };
+
+// The graphics effects the host keeps (app GraphicsSettings, engine renderer_bgfx effects.cpp
+// kOptions): toggles are «Пресет / Выкл / Вкл», the others their values. A value name is a
+// string key, or literal text when it starts with a digit.
+struct FxOption
+{
+    const char *key, *label;
+    std::vector<int> values;
+    std::vector<const char *> names;
+};
+const std::vector<FxOption> &FxOptions()
+{
+    static const std::vector<const char *> kToggle = {StringKey("settings.fx_from_preset"), StringKey("settings.fx_off"), StringKey("settings.fx_on")};
+    static const std::vector<FxOption> options = {
+        {"fx_msaa", StringKey("settings.fx_msaa"), {-1, 1, 2, 4}, {"settings.fx_from_preset", "1×", "2×", "4×"}},
+        {"fx_fxaa", StringKey("settings.fx_fxaa"), {-1, 0, 1}, kToggle},
+        {"fx_alpha_to_coverage", StringKey("settings.fx_alpha_to_coverage"), {-1, 0, 1}, kToggle},
+        {"fx_sharpen", StringKey("settings.fx_sharpen"), {-1, 0, 1}, kToggle},
+        {"fx_tonemap", StringKey("settings.fx_tonemap"), {-1, 0, 1}, kToggle},
+        {"fx_bloom", StringKey("settings.fx_bloom"), {-1, 0, 1}, kToggle},
+        {"fx_sun_shafts", StringKey("settings.fx_sun_shafts"), {-1, 0, 1}, kToggle},
+        {"fx_lens_flare", StringKey("settings.fx_lens_flare"), {-1, 0, 1}, kToggle},
+        {"fx_ssao", StringKey("settings.fx_ssao"), {-1, 0, 1}, kToggle},
+        {"fx_contact_shadows", StringKey("settings.fx_contact_shadows"), {-1, 0, 1}, kToggle},
+        {"fx_shadows", StringKey("settings.fx_shadows"), {-1, 0, 1, 2},
+         {"settings.fx_from_preset", StringKey("settings.fx_off"), StringKey("settings.fx_shadows_simple"), StringKey("settings.fx_shadows_soft")}},
+        {"fx_grade", StringKey("settings.fx_grade"), {-1, 0, 1, 2},
+         {"settings.fx_from_preset", StringKey("settings.fx_grade_original"), StringKey("settings.fx_grade_caribbean"), StringKey("settings.fx_grade_overcast")}},
+        {"fx_scene_grading", StringKey("settings.fx_scene_grading"), {-1, 0, 1}, kToggle},
+        {"fx_dither", StringKey("settings.fx_dither"), {-1, 0, 1}, kToggle},
+        {"fx_water", StringKey("settings.fx_water"), {-1, 0, 1, 2, 3},
+         {"settings.fx_from_preset", StringKey("settings.fx_water_classic"), StringKey("settings.fx_low"), StringKey("settings.fx_medium"),
+          StringKey("settings.fx_high")}},
+        {"fx_water_refraction", StringKey("settings.fx_water_refraction"), {-1, 0, 1}, kToggle},
+        {"fx_sky", StringKey("settings.fx_sky"), {-1, 0, 1}, kToggle},
+        {"fx_clouds", StringKey("settings.fx_clouds"), {-1, 0, 1}, kToggle},
+        {"fx_aerial", StringKey("settings.fx_aerial"), {-1, 0, 1}, kToggle},
+        {"fx_wind", StringKey("settings.fx_wind"), {-1, 0, 1}, kToggle},
+        {"fx_point_lights", StringKey("settings.fx_point_lights"), {-1, 4, 8}, {"settings.fx_from_preset", "4", "8"}},
+        {"fx_light_per_pixel", StringKey("settings.fx_light_per_pixel"), {-1, 0, 1}, kToggle},
+        {"fx_light_point", StringKey("settings.fx_light_point"), {-1, 0, 1}, kToggle},
+        {"fx_light_hemisphere", StringKey("settings.fx_light_hemisphere"), {-1, 0, 1}, kToggle},
+        {"fx_light_specular", StringKey("settings.fx_light_specular"), {-1, 0, 1}, kToggle},
+        {"fx_light_translucent", StringKey("settings.fx_light_translucent"), {-1, 0, 1}, kToggle},
+        {"fx_light_normal_map", StringKey("settings.fx_light_normal_map"), {-1, 0, 1}, kToggle},
+        {"fx_light_rim", StringKey("settings.fx_light_rim"), {-1, 0, 1}, kToggle},
+        {"fx_light_linear", StringKey("settings.fx_light_linear"), {-1, 0, 1}, kToggle},
+    };
+    return options;
+}
 
 const char *const kTabs[] = {StringKey("settings.tab_sound"), StringKey("settings.tab_controls"), StringKey("settings.tab_image"),
                              StringKey("settings.tab_interface")};
@@ -149,6 +202,32 @@ class SettingsScreen final : public Screen
                     {bindings.Text("settings.texture_full"), bindings.Text("settings.texture_medium"), bindings.Text("settings.texture_low")});
             Toggle(bindings, right, "character_shadows", "settings.shadows");
             sections.push_back({bindings.Text("settings.graphics"), {left, right}});
+            // The graphics effects: the preset, and every override under «Подробнее».
+            Column preset{bindings.Text("settings.fx_quality")}, beside;
+            Segment(bindings, preset, "fx_preset", "settings.fx_quality", {0, 1, 2},
+                    {bindings.Text("settings.fx_original"), bindings.Text("settings.fx_medium"), bindings.Text("settings.fx_high")}, false);
+            preset.rows.back().erase("label");
+            preset.rows.push_back(Json{{"kind", "action"}, {"id", "fx-more"}, {"icon", fx_open_ ? "chevron-up" : "chevron-down"},
+                                      {"title", bindings.Text(fx_open_ ? StringKey("settings.fx_less") : StringKey("settings.fx_more"))}});
+            bindings.On("fx-more", "", [this, &bindings](const Event &) {
+                fx_open_ = !fx_open_;
+                bindings.Rebuild();
+            });
+            sections.push_back({"", {preset, beside}});
+            if (fx_open_)
+            {
+                Column first, second;
+                const auto &options = FxOptions();
+                for (size_t i = 0; i < options.size(); ++i)
+                {
+                    const FxOption &option = options[i];
+                    Json names = Json::array();
+                    for (const char *name : option.names)
+                        names.push_back(name[0] >= '0' && name[0] <= '9' ? std::string(name) : bindings.Text(name));
+                    Segment(bindings, i * 2 < options.size() ? first : second, option.key, option.label, option.values, names, false, false);
+                }
+                sections.push_back({"", {first, second}});
+            }
             Column effects{bindings.Text("settings.effects")}, sea{bindings.Text("settings.sea")};
             game(effects, "GLOW_SLIDE", "settings.glow");
             game(effects, "ROTATESKY_CHECKBOX");
@@ -224,7 +303,10 @@ class SettingsScreen final : public Screen
         return draft_.is_object() && draft_.contains(key) && draft_[key].is_number_integer();
     }
 
-    void Segment(Bindings &bindings, Column &column, const char *key, const char *label, std::vector<int> values, Json options)
+    // `restart`: the option applies at the next start (marked so); `stack`: the options go
+    // under the label in a full-width segment.
+    void Segment(Bindings &bindings, Column &column, const char *key, const char *label, std::vector<int> values, Json options,
+                 bool restart = true, bool stack = true)
     {
         int selected = 0;
         for (size_t i = 0; i < values.size(); ++i)
@@ -236,8 +318,8 @@ class SettingsScreen final : public Screen
                                    {"label", bindings.Text(label)},
                                    {"options", options},
                                    {"selected", selected},
-                                   {"stack", true},
-                                   {"restart", true},
+                                   {"stack", stack},
+                                   {"restart", restart},
                                    {"disabled", !Known(key)},
                                    {"reason", Known(key) ? std::string() : bindings.Text("settings.app_unavailable")}});
         bindings.On(id, "change", [this, &bindings, key, values](const Event &event) {
@@ -266,6 +348,7 @@ class SettingsScreen final : public Screen
     }
 
     int tab_ = 0;
+    bool fx_open_ = false; // «Подробнее»: the effect overrides are shown
     Json draft_; // the renderer options as the player set them on this opening
 };
 
