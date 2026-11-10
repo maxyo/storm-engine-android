@@ -632,29 +632,64 @@ static void CheckTouches(const std::string &pack)
     Expect(!host.WantsTouch(400, 200) && !host.WantsBack(), "nothing shown: every touch is the game's");
     run.Explore();
 
-    // The test layout (800 × 400): stick at 40…140 × 270…370, weapon at 728…780 × 338…390,
-    // context at 716…780 × 256…320, hero at 682…730 × 10…58, vitals at 10…210 × 10…50.
+    // The test layout (800 × 400): the move zone at 0…336 × 176…400 with the stick resting at
+    // 40…140 × 270…370, inside the zone the actions button at 250…302 × 338…390 and the log
+    // box at 150…250 × 220…250; weapon at 728…780 × 338…390, context at 716…780 × 256…320,
+    // hero at 682…730 × 10…58, vitals at 10…210 × 10…50.
     Expect(host.WantsTouch(90, 320), "the stick is the UI's");
     Expect(host.WantsTouch(750, 360) && host.WantsTouch(740, 290) && host.WantsTouch(700, 30), "buttons are the UI's");
     Expect(!host.WantsTouch(400, 200) && !host.WantsTouch(500, 380), "the free scene is the game's");
     Expect(!host.WantsTouch(100, 30) && !host.WantsTouch(550, 20), "the bars and the location line show, they do not take touches");
-    Expect(!host.WantsTouch(240, 320) && !host.WantsTouch(20, 320), "just beside the stick is the game's");
+    Expect(host.WantsTouch(240, 320) && host.WantsTouch(20, 390) && host.WantsTouch(330, 180), "the whole move zone is the UI's, not just the stick");
+    Expect(!host.WantsTouch(340, 320) && !host.WantsTouch(100, 170), "just beside the zone is the game's");
+
+    // the floating stick: it appears under the thumb, wherever in the zone that lands
+    const size_t before = run.commands.size();
+    host.Touch(TouchPhase::Down, 1, 250, 300);
+    run.Frame();
+    Expect(run.commands.size() == before, "a thumb that only landed moves nobody");
+    host.Touch(TouchPhase::Move, 1, 250, 260);
+    Expect(run.Last() == "move:1\ttown:42\t3\t1\t1\t0\t1000", "pushed up from where it landed: straight forward, not towards the place of rest: " + run.Last());
+    Expect(!host.WantsTouch(400, 200) && !host.WantsTouch(340, 320), "a held stick leaves the scene to the camera finger");
+    host.Touch(TouchPhase::Down, 2, 400, 200); // the game's finger: the UI was not asked to take it, and does not act on it
+    host.Touch(TouchPhase::Up, 2, 400, 200);
+    Expect(run.Last() == "move:1\ttown:42\t3\t1\t1\t0\t1000", "a second finger outside the zone changes nothing");
+    host.Touch(TouchPhase::Up, 1, 250, 260);
+    Expect(run.Last() == "move:1\ttown:42\t3\t2\t0\t0\t0", "letting go stops the hero: " + run.Last());
+    run.Frame();
+    host.Touch(TouchPhase::Down, 1, 60, 200); // another place, over nothing
+    host.Touch(TouchPhase::Move, 1, 100, 200);
+    Expect(run.Last() == "move:1\ttown:42\t3\t3\t1\t1000\t0", "the next thumb gets its own base: " + run.Last());
+    host.Touch(TouchPhase::Up, 1, 100, 200);
+    run.Frame();
+    host.Touch(TouchPhase::Down, 1, 200, 235); // on the log box, which only shows
+    host.Touch(TouchPhase::Move, 1, 200, 275);
+    Expect(run.Last() == "move:1\ttown:42\t3\t5\t1\t0\t-1000", "a box that only shows does not shield the zone: " + run.Last());
+    host.Touch(TouchPhase::Up, 1, 200, 275);
+    run.Frame();
+    const size_t moves = run.commands.size();
+    host.Touch(TouchPhase::Down, 1, 276, 364); // the actions button lies inside the zone's rectangle
+    host.Touch(TouchPhase::Move, 1, 280, 360);
+    host.Touch(TouchPhase::Up, 1, 280, 360);
+    Expect(run.commands.size() == moves + 1 && run.Last() == "landcommands:1\t4\t10\t2\topen\t", "a button inside the zone wins over the stick: " + run.Last());
+    run.commands.clear();
+    run.Frame();
 
     // two pointers at once: the stick held, a button tapped
     host.Touch(TouchPhase::Down, 1, 90, 320);
     host.Touch(TouchPhase::Move, 1, 90, 280);
     run.Frame();
-    Expect(run.Last() == "move:1\ttown:42\t3\t1\t1\t0\t1000", "the stick moves the hero forward: " + run.Last());
+    Expect(run.Last() == "move:1\ttown:42\t3\t7\t1\t0\t1000", "the stick at its place of rest moves the hero forward: " + run.Last());
     Expect(host.WantsTouch(750, 360) && !host.WantsTouch(400, 200), "a held stick changes nothing for the other pointers");
     host.Touch(TouchPhase::Down, 2, 750, 360);
     host.Touch(TouchPhase::Up, 2, 750, 360);
     Expect(run.Sent("combat:1\t7\t5\t1\tweapon\ttap"), "a second finger taps the weapon while the stick is held");
     run.Frame(0.12);
-    Expect(run.Last() == "move:1\ttown:42\t3\t2\t1\t0\t1000", "the stick is still held (heartbeat): " + run.Last());
+    Expect(run.Last() == "move:1\ttown:42\t3\t8\t1\t0\t1000", "the stick is still held (heartbeat): " + run.Last());
 
     // the platform takes the gestures away
     host.CancelInput();
-    Expect(run.Sent("move:1\ttown:42\t3\t3\t0\t0\t0"), "cancelled input releases the stick");
+    Expect(run.Sent("move:1\ttown:42\t3\t9\t0\t0\t0"), "cancelled input releases the stick");
     const size_t count = run.commands.size();
     host.Touch(TouchPhase::Move, 1, 90, 300);
     host.Touch(TouchPhase::Up, 1, 90, 300);
@@ -731,7 +766,7 @@ static void CheckTouches(const std::string &pack)
     host.SetSafeArea(50, 0, 30, 10);
     run.Frame();
     run.Frame();
-    Expect(host.WantsTouch(140, 310) && !host.WantsTouch(60, 380) && host.WantsTouch(720, 350) && !host.WantsTouch(775, 385),
+    Expect(host.WantsTouch(140, 310) && !host.WantsTouch(40, 380) && !host.WantsTouch(140, 395) && host.WantsTouch(720, 350) && !host.WantsTouch(775, 385),
            "the safe area shifts the elements and what the UI claims");
 
     // errors are loud
