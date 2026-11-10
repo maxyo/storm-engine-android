@@ -96,7 +96,7 @@
   {
    "node": "CREW_QTY",
    "type": "text",
-   "label": "40",
+   "label": "50",
    "value": "",
    "index": -1,
    "enabled": true,
@@ -213,7 +213,7 @@
   {
    "node": "CREW_QTY2",
    "type": "text",
-   "label": "25",
+   "label": "15",
    "value": "",
    "index": -1,
    "enabled": true,

@@ -318,6 +318,11 @@ static void CheckMovement()
     Expect(mount.commands.size() == quiet, "not live: the stick sends nothing");
 
     bench.Feed("presentation", "presentation-game");
+    Expect(mount.visible, "a free game shows the HUD");
+    bench.Feed("presentation", "presentation-loading"); // the engine's progress view (location load, transition)
+    Expect(!mount.visible && mount.Last() == "presence:hidden", "loading: no HUD over the loading screen");
+    bench.Feed("presentation", "presentation-game");
+    Expect(mount.visible && mount.Last() == "presence:shown", "loaded: the HUD is back");
     bench.Press("move", "change", "sideways");
     Expect(!mount.errors.empty() && mount.errors.back().find("expected 'x,y'") != std::string::npos, "a malformed stick value is an error");
 }

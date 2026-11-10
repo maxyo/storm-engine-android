@@ -101,14 +101,17 @@ class CrewScreen final : public Screen
                 current = i;
         const std::string owner = ships[current]->row_id; // the ship every quantity action is bound to
 
-        const int crew = Number(admitted.Label("CREW_QTY"));
-        const int tavern = Number(admitted.Label("CREW_QTY2"));
         const int amount = std::abs(std::atoi(edit->value.c_str()));
         // The game names the operation in its own words; only hiring has a cost line.
         const std::string operation = admitted.Label("QTY_TypeOperation");
         const std::string result = OneLine(admitted.Label("QTY_Result"));
         const bool firing = amount > 0 && !operation.empty() && result.empty();
-        const int model_target = crew + (firing ? -amount : amount);
+        // The game moves the men of the open deal at once: its figures are those after the
+        // deal. The row and the header show the crew before it, the control the outcome.
+        const int moved = operation.empty() ? 0 : firing ? -amount : amount;
+        const int model_target = Number(admitted.Label("CREW_QTY"));
+        const int crew = model_target - moved;
+        const int tavern = Number(admitted.Label("CREW_QTY2")) + moved;
         const bool recent = owner == local_owner_ && bindings.Now() - local_at_ < 1.0;
         const int target = recent ? local_target_ : model_target;
         if (recent) // then the game's own amount, also when it answered with another one (a limit)
