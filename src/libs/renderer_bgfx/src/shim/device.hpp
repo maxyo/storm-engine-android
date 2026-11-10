@@ -295,7 +295,6 @@ struct Device final : Direct3DDevice9Stub
     };
     enum UniformId
     {
-        U_WORLDVIEW,
         U_PROJ,
         U_VS,
         U_CLIP,

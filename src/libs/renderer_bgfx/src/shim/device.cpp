@@ -125,7 +125,6 @@ Device::Device(SDL_Window *sdl_window, const D3DPRESENT_PARAMETERS &present) : w
         bgfx::UniformType::Enum type;
         uint16_t count;
     } table[] = {
-        {U_WORLDVIEW, "u_ffWorldView", bgfx::UniformType::Mat4, 1},
         {U_PROJ, "u_ffProj", bgfx::UniformType::Mat4, 1},
         {U_VS, "u_ffVs", bgfx::UniformType::Vec4, 4},
         {U_CLIP, "u_ffClipPlane", bgfx::UniformType::Vec4, 1},

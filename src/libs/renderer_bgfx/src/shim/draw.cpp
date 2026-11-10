@@ -213,7 +213,7 @@ const LayoutInfo *Device::current_layout()
 void Device::set_uniform(UniformId id, const float *data, uint16_t count)
 {
     Uniform &uniform = uniforms[id];
-    const size_t per = (id == U_WORLDVIEW || id == U_PROJ || id == U_TEXMTX) ? 16 : 4;
+    const size_t per = (id == U_PROJ || id == U_TEXMTX) ? 16 : 4;
     const size_t floats = per * count;
     if (uniform.sent && uniform.last.size() == floats && memcmp(uniform.last.data(), data, floats * sizeof(float)) == 0)
         return;
@@ -319,7 +319,8 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
     }
     else
         multiply(s.proj, fix, proj);
-    set_uniform(U_WORLDVIEW, &world_view.m[0][0], 1);
+    if (!vs_port)
+        bgfx::setTransform(&world_view.m[0][0]);
     set_uniform(U_PROJ, &proj.m[0][0], 1);
 
     if (vs_port)
