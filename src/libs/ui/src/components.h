@@ -4,6 +4,8 @@
 
 #include "template.h"
 
+#include "storm_ui/ui.h"
+
 #include <RmlUi/Core.h>
 #include <memory>
 #include <string>
@@ -74,6 +76,8 @@ class Services
     // Keeps Tick() coming to this component until it asks to stop.
     virtual void RequestTicks(ComponentElement &component, bool enable) = 0;
     virtual void Forget(ComponentElement &component) = 0;
+    // The counters of the frame being made (rebuilds, layout).
+    virtual FrameStats &Counters() = 0;
 };
 
 struct Pointer
@@ -171,6 +175,7 @@ class ComponentElement final : public Rml::Element
   protected:
     void OnAttributeChange(const Rml::ElementAttributes &changed) override;
     void OnUpdate() override;
+    void OnLayout() override;
 
   private:
     void ApplyClasses();

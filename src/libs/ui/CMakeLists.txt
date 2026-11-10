@@ -98,6 +98,7 @@ add_library(storm_ui STATIC
     src/game_image.cpp
     src/picture_atlas.cpp
     src/backend_gl3.cpp
+    src/frame_renderer.cpp
     "${storm_ui_rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp")
 target_compile_features(storm_ui PUBLIC cxx_std_20)
 target_include_directories(storm_ui PUBLIC include PRIVATE src "${storm_ui_rmlui_SOURCE_DIR}/Backends")
@@ -154,5 +155,9 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     add_executable(storm_ui_hud_worldmap_unit tests/hud_worldmap_check.cpp)
     target_link_libraries(storm_ui_hud_worldmap_unit PRIVATE storm_ui)
     add_test(NAME ui_hud_worldmap COMMAND storm_ui_hud_worldmap_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states")
+    add_executable(storm_ui_frame_cost_unit tests/frame_cost_check.cpp)
+    target_link_libraries(storm_ui_frame_cost_unit PRIVATE storm_ui)
+    target_include_directories(storm_ui_frame_cost_unit PRIVATE src)
+    add_test(NAME ui_frame_cost COMMAND storm_ui_frame_cost_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
     add_test(NAME ui_hud_sea COMMAND storm_ui_hud_sea_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
 endif()
