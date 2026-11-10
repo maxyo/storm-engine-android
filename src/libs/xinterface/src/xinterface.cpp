@@ -3266,19 +3266,11 @@ bool XINTERFACE::NewSaveFileName(const char *fileName) const
         return false;
     }
 
-    char param[256];
+    // Save names come from player input; no fixed-size buffer.
     const char *sSavePath = AttributesPointer->GetAttribute("SavePath");
+    const std::string param = sSavePath == nullptr ? std::string(fileName) : std::string(sSavePath) + "\\" + fileName;
 
-    if (sSavePath == nullptr)
-    {
-        sprintf(param, "%s", fileName);
-    }
-    else
-    {
-        sprintf(param, "%s\\%s", sSavePath, fileName);
-    }
-
-    return !(fio->_FileOrDirectoryExists(param));
+    return !(fio->_FileOrDirectoryExists(param.c_str()));
 }
 
 void XINTERFACE::DeleteSaveFile(const char *fileName)
@@ -3287,17 +3279,16 @@ void XINTERFACE::DeleteSaveFile(const char *fileName)
     {
         return;
     }
-    char param[256];
     const char *sSavePath = AttributesPointer->GetAttribute("SavePath");
-    if (sSavePath == nullptr)
+    const std::string param = sSavePath == nullptr ? std::string(fileName) : std::string(sSavePath) + "\\" + fileName;
+    fio->_DeleteFile(param.c_str());
+    // Leftovers of an interrupted atomic save of the same name (core/src/save_file.hpp).
+    for (const char *suffix : {".storm-tmp", ".storm-bak"})
     {
-        sprintf(param, "%s", fileName);
+        const std::string leftover = param + suffix;
+        if (fio->_FileOrDirectoryExists(leftover.c_str()))
+            fio->_DeleteFile(leftover.c_str());
     }
-    else
-    {
-        sprintf(param, "%s\\%s", sSavePath, fileName);
-    }
-    fio->_DeleteFile(param);
 }
 
 uint32_t XINTERFACE_BASE::GetBlendColor(uint32_t minCol, uint32_t maxCol, float fBlendFactor)

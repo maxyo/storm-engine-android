@@ -2,6 +2,8 @@
 
 #include "platform/platform.hpp"
 
+#include <string>
+
 #define HASH_TABLE_SIZE 512 // must be power of 2
 
 struct HTSUBELEMENT
@@ -47,7 +49,7 @@ class STRING_CODEC : public VSTRING_CODEC
             if (HTable[m].pElements)
             {
                 for (uint32_t n = 0; n < HTable[m].nStringsNum; n++)
-                    delete HTable[m].pElements[n].pStr;
+                    delete[] HTable[m].pElements[n].pStr;
                 free(HTable[m].pElements);
             }
             HTable[m].pElements = nullptr;
@@ -61,12 +63,15 @@ class STRING_CODEC : public VSTRING_CODEC
         if (pString == nullptr)
             return 0xffffffff;
 
-        char cTemp[1024];
-        strncpy_s(cTemp, pString, iLen);
-        cTemp[iLen] = 0;
+        // At most iLen bytes, stopping at a terminator. This used a 1024 byte
+        // stack buffer and wrote past it for longer strings.
+        size_t length = 0;
+        while (iLen > 0 && length < static_cast<size_t>(iLen) && pString[length] != 0)
+            ++length;
+        const std::string temp(pString, length);
 
         bool bNew;
-        return Convert(cTemp, bNew);
+        return Convert(temp.c_str(), bNew);
     }
 
     uint32_t Convert(const char *pString) override
