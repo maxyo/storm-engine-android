@@ -95,6 +95,9 @@ class Bindings
     void Toast(const std::string &text);
     // Local state of the screen changed: build the view again from the same model.
     void Rebuild();
+    // Builds the view again after `seconds` even if no new model comes (local state that
+    // expires, such as the amount the player set being preferred over the game's for a moment).
+    void RebuildAfter(double seconds);
 
     // The UI string `key` of the pack's string table (mobile-ui/design/strings) in the
     // language of the open interface. Every text the player reads that the game does not
@@ -248,6 +251,7 @@ class Router
     bool sent_in_event_ = false;
     bool rebuild_ = false;
     double last_flush_ = -1.0;
+    double rebuild_at_ = 0.0;   // Bindings::RebuildAfter
     double opened_at_ = 0.0;    // when the open interface was opened
     double settle_until_ = 0.0; // a rejected first model waits until then (kSettle)
 };

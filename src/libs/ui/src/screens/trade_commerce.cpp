@@ -200,6 +200,8 @@ class CommerceScreen final : public Screen
         const int model_target = deal ? Number(admitted.Label("QTY_INFO_SHIP_QTY")) : ours;
         const bool recent = deal && selected->row_id == local_row_ && bindings.Now() - local_at_ < 1.0;
         const int target = recent ? local_target_ : model_target;
+        if (recent) // then the game's own amount, also when it answered with another one (a limit)
+            bindings.RebuildAfter(local_at_ + 1.0 - bindings.Now());
 
         Json rows = Json::array();
         for (size_t i = 0; i < goods.size(); ++i)

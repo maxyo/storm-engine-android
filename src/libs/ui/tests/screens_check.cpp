@@ -305,6 +305,12 @@ static void Store(const std::string &models)
     ExpectEqual(surface.Last(), "widget:store\tQTY_EDIT\t-1\tguard@7:goods:0:ship:0|-50", "below the hold = sell, guarded by the row");
     router.OnEvent({"primary", "click", ""});
     ExpectEqual(surface.Last(), "widget:store\tQTY_OK_BUTTON\t-1\tguard@7:goods:0:ship:0|press", "primary confirms");
+    surface.now += 0.3;
+    router.SetInterface(Load(models, "store-deal.json")); // the game answers with its own amount (a limit)
+    Expect(surface.props["list"]["rows"][0]["q"]["value"] == 150, "the amount just set is shown for a moment");
+    surface.now += 1.0;
+    router.Tick();
+    Expect(surface.props["list"]["rows"][0]["q"]["value"] == 300, "then the game's amount, without another model");
     surface.commands.clear();
     router.OnEvent({"goods", "row", "2"});
     Expect(surface.commands.size() == 2 && surface.commands[0] == "widget:store\tQTY_CANCEL_BUTTON\t-1\tguard@7:goods:0:ship:0|press" &&

@@ -111,6 +111,8 @@ class CrewScreen final : public Screen
         const int model_target = crew + (firing ? -amount : amount);
         const bool recent = owner == local_owner_ && bindings.Now() - local_at_ < 1.0;
         const int target = recent ? local_target_ : model_target;
+        if (recent) // then the game's own amount, also when it answered with another one (a limit)
+            bindings.RebuildAfter(local_at_ + 1.0 - bindings.Now());
 
         Json row{{"id", "0"},
                  {"name", bindings.Text("crew.sailors")},

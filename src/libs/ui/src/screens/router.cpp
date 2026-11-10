@@ -270,6 +270,13 @@ void Bindings::Rebuild()
     router_.rebuild_ = true;
 }
 
+void Bindings::RebuildAfter(double seconds)
+{
+    const double when = router_.surface_.Now() + std::max(0.0, seconds);
+    if (router_.rebuild_at_ == 0.0 || when < router_.rebuild_at_)
+        router_.rebuild_at_ = when;
+}
+
 std::string Bindings::Text(const std::string &key) const
 {
     return router_.surface_.Text(key);
@@ -371,6 +378,7 @@ void Router::SetState(const std::string &channel, const Json &state)
 void Router::Build()
 {
     rebuild_ = false;
+    rebuild_at_ = 0.0;
     bindings_.handlers_.clear();
     // The ported screen registered for the id draws it when the model passes its admission.
     // If its REQUIRED nodes are missing or mistyped the interface is still drawn, by the
@@ -552,7 +560,9 @@ double Router::Tick()
     }
     if (!screen_)
         return kIdle;
-    double next = kIdle;
+    if (rebuild_at_ > 0.0 && now >= rebuild_at_)
+        Build();
+    double next = rebuild_at_ > 0.0 ? rebuild_at_ - now : kIdle;
     // In the order they were asked for: an edit goes out before the press that confirms it.
     for (size_t i = 0; i < waiting_.size();)
     {
