@@ -1,9 +1,13 @@
 // Pause menu (interface "game_menu", mockups V2-Menu-Game and V2-Menu-ExitConfirm): the
 // primary «Продолжить» over a 2 × 2 grid of save, load, settings and exit, centred over
 // the paused scene. The game's exit question (CONFIRM_EXIT_*, or CONFIRM_WINDOW_* in some
-// versions) becomes the danger C-Dialog. Fills the pack screen <s-game-menu>.
+// versions) becomes the danger C-Dialog. Above the actions the game in progress
+// «<hero> · <location> · <date>» from the engine's ANDROID_GAME text (context hero,
+// location, gameDate YYYY-MM-DD). Fills the pack screen <s-game-menu>.
 #include "controls.h"
 #include "menu.h"
+
+#include <cstdlib>
 
 namespace storm::ui::screens
 {
@@ -13,6 +17,7 @@ namespace
 
 constexpr NodeRule kNodes[] = {
     {"MB_RESUME", "button", true},
+    {"ANDROID_GAME", "text"},
     {"MB_SAVE", "button"},
     {"MB_LOAD", "button"},
     {"MB_OPTIONS", "button"},
@@ -32,6 +37,28 @@ constexpr NodeRule kNodes[] = {
     {"DLC_TEXT", "text"},
     {"COPYRIGHTS_TEXT", "text"},
 };
+
+const char *const kMonths[] = {StringKey("common.month_1"), StringKey("common.month_2"),  StringKey("common.month_3"),
+                               StringKey("common.month_4"), StringKey("common.month_5"),  StringKey("common.month_6"),
+                               StringKey("common.month_7"), StringKey("common.month_8"),  StringKey("common.month_9"),
+                               StringKey("common.month_10"), StringKey("common.month_11"), StringKey("common.month_12")};
+
+// «Шарль де Мор · Сен-Пьер, улицы · 1 окт. 1654»
+std::string GameLine(const Bindings &bindings, const Widget *game)
+{
+    if (!game)
+        return {};
+    std::string line = game->label;
+    const auto date = game->context.find("gameDate");
+    if (date != game->context.end() && date->second.size() == 10)
+    {
+        const int month = std::atoi(date->second.c_str() + 5);
+        if (month >= 1 && month <= 12)
+            line += " · " + std::to_string(std::atoi(date->second.c_str() + 8)) + " " + bindings.Text(kMonths[month - 1]) + " " +
+                    date->second.substr(0, 4);
+    }
+    return line;
+}
 
 std::string Joined(const Admission &admitted, const char *node)
 {
@@ -58,6 +85,7 @@ class GameMenuScreen final : public Screen
     {
         SetFromTitle(false);
         Json view = Json::object();
+        view["line"] = GameLine(bindings, admitted.One("ANDROID_GAME"));
         const Widget *resume = admitted.One("MB_RESUME");
         view["resume"] = ButtonView(bindings, *resume, "resume", "primary");
 
@@ -83,7 +111,7 @@ class GameMenuScreen final : public Screen
                                    {"title", window ? question : bindings.Text("menu.exit_question")},
                                    {"text", window ? std::string() : question},
                                    {"yes", window ? yes->label : bindings.Text("menu.exit")},
-                                   {"no", no ? no->label : bindings.Text("common.cancel")}};
+                                   {"no", window && no ? no->label : bindings.Text("common.cancel")}}; // V2-Menu-ExitConfirm: «Отмена»
             bindings.Forward("confirm-confirm", *yes, "press");
             if (no)
             {

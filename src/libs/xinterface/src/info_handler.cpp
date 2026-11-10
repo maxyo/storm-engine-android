@@ -4,12 +4,49 @@
 
 #include "vma.hpp"
 
+#ifdef __ANDROID__
+#include "v_data.h"
+#include "string_service.h"
+#include <platform/android_ui.hpp>
+#include <platform/android_gameplay.hpp>
+#include "string_compare.hpp"
+
+namespace
+{
+// The game's death pictures come through here (interface.c StartPictureAsVideo: DoInfoShower
+// "Game Over Picture" with InterfaceStates.GameOverPicture, seadogs.c GameOver). The UI
+// draws V2-Menu-GameOver over them: channel "gameOver" {kind: sea|land|defeat, language},
+// null after.
+bool PublishGameOver(ATTRIBUTES *attributes)
+{
+    auto *states = static_cast<VDATA *>(core.GetScriptVariable("InterfaceStates"));
+    const char *wanted = states && states->GetAClass() ? states->GetAClass()->GetAttribute("GameOverPicture") : nullptr;
+    const char *shown = attributes ? attributes->GetAttribute("picfilename") : nullptr;
+    if (!wanted || !*wanted || !shown || !storm::iEquals(std::string_view(wanted), std::string_view(shown)))
+        return false;
+    std::string name = shown;
+    name = name.substr(name.find_last_of("\\/") + 1);
+    const auto is = [&name](std::string_view picture) { return storm::iEquals(std::string_view(name), picture); };
+    const char *kind = is("seadeath.tga") ? "sea" : is("death.tga") ? "land" : "defeat";
+    auto *strings = static_cast<VSTRSERVICE *>(core.GetService("STRSERVICE"));
+    const char *language = strings ? strings->GetLanguage() : nullptr;
+    storm::android::publishUiState("gameOver", std::string("{\"kind\":\"") + kind + "\",\"language\":" +
+                                                   storm::android::gameplayJsonString(language ? language : "") + "}");
+    return true;
+}
+} // namespace
+#endif
+
 InfoHandler::InfoHandler() : m_rs(nullptr), tex(nullptr)
 {
 }
 
 InfoHandler::~InfoHandler()
 {
+#ifdef __ANDROID__
+    if (gameOver_)
+        storm::android::publishUiState("gameOver", "null");
+#endif
     if (tex)
         m_rs->Release(tex);
 }
@@ -33,6 +70,9 @@ bool InfoHandler::Init()
         core.Trace("DoPreOut failed");
         return false;
     }
+#ifdef __ANDROID__
+    gameOver_ = PublishGameOver(AttributesPointer);
+#endif
 
     if (!m_rs->GetRenderTargetAsTexture(&tex))
     {

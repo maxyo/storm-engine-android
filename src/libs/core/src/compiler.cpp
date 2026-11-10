@@ -6969,16 +6969,15 @@ void *COMPILER::GetSaveData(const char *file_name, int32_t &data_size)
 
     const auto path = std::filesystem::u8path(fio->ConvertPathResource(file_name));
     std::string error;
-    storm::save::Bytes image;
     storm::save::Bytes data;
-    if (!storm::save::readFile(path, image, error))
+    if (!std::filesystem::exists(path))
     {
         SetError("cant open save file: %s", file_name);
         return nullptr;
     }
     // Corrupt or truncated extended data is reported as "no data" instead of
     // handing the caller a buffer of uninitialized bytes.
-    if (!storm::save::readExtData(image, data, error))
+    if (!storm::save::readExtDataFromFile(path, data, error))
     {
         spdlog::warn("Ignoring damaged save description in '{}': {}", path.string(), error);
         return nullptr;

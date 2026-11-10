@@ -2,6 +2,9 @@
 #include <cmath>
 #include "battle_man_sign.h"
 #include "platform/android_land_diagnostics.hpp"
+#ifdef __ANDROID__
+#include "land_status.hpp"
+#endif
 #include "bi_utils.h"
 #include "battle_man_command.h"
 #include "core.h"
@@ -78,13 +81,14 @@ void BIManSign::Draw()
     }
 
 #ifdef __ANDROID__
-    auto *icons=m_pARoot ? m_pARoot->FindAClass(m_pARoot,"data.icons.id0") : nullptr;
+    auto *allIcons=m_pARoot ? m_pARoot->FindAClass(m_pARoot,"data.icons") : nullptr;
+    auto *icons=allIcons ? allIcons->GetAttributeClass("id0") : nullptr;
     if(icons && icons->GetAttribute("health") && icons->GetAttribute("energy")) {
         const auto ratio=[icons](const char *key){const float n=icons->GetAttributeAsFloat(key);return std::isfinite(n)?std::clamp(n,0.f,1.f):0.f;};
         const int capacity=std::clamp(static_cast<int>(icons->GetAttributeAsDword("shootMax",0)),0,100000);
         const int loaded=std::clamp(static_cast<int>(icons->GetAttributeAsDword("shootCur",0)),0,capacity);
         storm::android::publishVitals("{\"health\":"+std::to_string(ratio("health"))+",\"energy\":"+std::to_string(ratio("energy"))+
-            ",\"loaded\":"+std::to_string(loaded)+",\"capacity\":"+std::to_string(capacity)+",\"reload\":"+std::to_string(ratio("gunprogress"))+"}");
+            ",\"loaded\":"+std::to_string(loaded)+",\"capacity\":"+std::to_string(capacity)+",\"reload\":"+std::to_string(ratio("gunprogress"))+storm::android::landStatusJson(allIcons)+"}");
     } else storm::android::publishVitals("");
 #else
     if (m_nVBufID != -1 && m_nIBufID != -1)
