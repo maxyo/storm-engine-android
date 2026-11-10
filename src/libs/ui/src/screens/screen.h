@@ -93,6 +93,8 @@ class Bindings
     // Shows a long text on a parchment sheet over the screen.
     void Read(const std::string &title, const std::string &text);
     void Toast(const std::string &text);
+    // Something the screen cannot do as designed: an error line (a toast in debug hosts).
+    void Error(const std::string &text);
     // Local state of the screen changed: build the view again from the same model.
     void Rebuild();
     // Builds the view again after `seconds` even if no new model comes (local state that

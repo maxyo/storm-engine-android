@@ -265,6 +265,11 @@ void Bindings::Toast(const std::string &text)
     router_.surface_.Toast(text);
 }
 
+void Bindings::Error(const std::string &text)
+{
+    router_.surface_.Error("screen " + router_.using_ + ": " + text);
+}
+
 void Bindings::Rebuild()
 {
     router_.rebuild_ = true;

@@ -60,6 +60,7 @@ add_library(storm_ui STATIC
     src/screens/generic.cpp
     src/screens/trade_commerce.cpp
     src/screens/trade_crew.cpp
+    src/screens/trade_shipyard.cpp
     src/screens/dialogue.cpp
     src/template.cpp
     src/components.cpp
