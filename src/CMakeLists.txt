@@ -18,6 +18,11 @@ if(STORM_ENABLE_SAFE_MODE)
   add_definitions(-DSTORM_ENABLE_SAFE_MODE=1)
 endif()
 
+option(STORM_SCENE_SWEEP "Build the script hook used by tools/scene_sweep (never for shipped builds)" OFF)
+if(STORM_SCENE_SWEEP)
+  add_definitions(-DSTORM_SCENE_SWEEP=1)
+endif()
+
 if (MSVC)
     # Ignore warnings about missing pdb
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /ignore:4099")

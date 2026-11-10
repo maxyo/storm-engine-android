@@ -97,6 +97,8 @@ std::fstream FILE_SERVICE::_CreateFile(const char *filename, std::ios::openmode 
 
 void FILE_SERVICE::_CloseFile(std::fstream &fileS)
 {
+    if (!fileS.is_open())
+        return; // callers close unconditionally; close() on a stream that never opened sets failbit
     const auto result = storm::io::checked(fileS, [&] { fileS.close(); });
     if (!result.ok)
         spdlog::error("Failed to CloseFile: state={} errno={}", static_cast<unsigned>(result.state), result.error);
