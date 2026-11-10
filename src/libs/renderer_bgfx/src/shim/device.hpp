@@ -18,8 +18,10 @@ struct FfDraw;
 namespace storm::shim
 {
 
-// Texture units: 0..4 2D stage N, 5..7 cube of stage 0..2, 8..10 volume of stage 0..2.
-inline constexpr uint32_t kSamplerUnits = 13;
+// Texture units: 0..4 2D stage N, 5..7 cube of stage 0..2, 8..10 volume of stage 0..2,
+// 11 cube of stage 3, 12 volume of stage 4 (pixel ports), 13 the bone palette (vertex shader).
+inline constexpr uint32_t kSamplerUnits = 14;
+inline constexpr uint32_t kBonePaletteUnit = 13;
 
 // Owns bgfx::init/shutdown, the surface and the frame-owner contract.
 class Context final : public render::FrameOwner
