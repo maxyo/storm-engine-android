@@ -10,9 +10,6 @@ dynamic shadow cpp file
 #include "shadow.h"
 #include "live_list.hpp"
 #include "storm/render/effects.hpp"
-#ifdef __ANDROID__
-#include "platform/android_graphics_effects.hpp"
-#endif
 
 #include "core.h"
 #include "shared/messages.h"
@@ -74,9 +71,6 @@ Shadow::~Shadow()
 
 bool Shadow::Init()
 {
-#ifdef __ANDROID__
-    (void)storm::android::CharacterShadowsEnabled();
-#endif
     // GUARD(Shadow::SHADOW())
 
     col = static_cast<COLLIDE *>(core.GetService("coll"));
@@ -171,11 +165,6 @@ void Shadow::Realize(uint32_t Delta_Time)
         rs->GetTransform(D3DTS_VIEW, reinterpret_cast<D3DMATRIX *>(view.data()));
         storm::render::EffectsContactShadow({feet.x, feet.y, feet.z}, view);
     }
-#ifdef __ANDROID__
-    // Skip shadow rendering, blur AND projection together, before touching render state.
-    // No other pass consumes the retained private shadow textures.
-    if (!storm::android::CharacterShadowsEnabled()) return;
-#endif
     // Each shadow is realized once per frame: meeting one that already ran in this epoch starts a new frame.
     if (preparedEpoch_ != epoch_ || lastEpoch_ == epoch_)
     {
