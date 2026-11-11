@@ -862,7 +862,7 @@ uint32_t CTechnique::AddShader(char *pShaderName)
     pS->pName = new char[len];
     memcpy(pS->pName, pShaderName, len);
     pS->dwHashName = MakeHashValue(pShaderName);
-    pS->pVertexDecl = nullptr;
+    pS->vertexDecl = {};
     pS->pVertexShader = nullptr;
     pS->pPixelShader = nullptr;
     dwNumShaders++;
@@ -1293,8 +1293,8 @@ uint32_t CTechnique::ProcessVertexDeclaration(shader_t *pS, char *pFile, uint32_
     AddDeclElement(pS);
     *CurDeclElement(pS) = D3DDECL_END();
 
-    HRESULT hr = pRS->CreateVertexDeclaration(pS->pDecl, &pS->pVertexDecl);
-    if (hr != S_OK)
+    pS->vertexDecl = pRS->CreateVertexDeclaration(pS->pDecl);
+    if (!pS->vertexDecl)
         core.Trace("ERROR: invalid shader declaration <%s>", pS->pName);
 
     return 0;
@@ -1811,8 +1811,8 @@ bool CTechnique::ExecutePass(bool bStart)
                     AddState2Restore2(dwCode, dwSaveValue);
                 }
 
-                if (pShaders[dwShaderIndex].pVertexDecl != nullptr)
-                    pRS->SetVertexDeclaration(pShaders[dwShaderIndex].pVertexDecl);
+                if (pShaders[dwShaderIndex].vertexDecl)
+                    pRS->SetVertexDeclaration(pShaders[dwShaderIndex].vertexDecl);
 
                 pRS->SetVertexShader(pShaders[dwShaderIndex].pVertexShader);
             }

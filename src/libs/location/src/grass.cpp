@@ -988,7 +988,7 @@ int32_t Grass::GetColor(glm::vec3 color)
 
 void Grass::CreateVertexDeclaration() const
 {
-    if (vertexDecl_ == nullptr)
+    if (!vertexDecl_)
     {
         constexpr D3DVERTEXELEMENT9 VertexElements[] = {
             {0, 0, D3DDECLTYPE_FLOAT3, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
@@ -997,7 +997,7 @@ void Grass::CreateVertexDeclaration() const
             {0, 20, D3DDECLTYPE_FLOAT3, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
             D3DDECL_END()};
 
-        rs->CreateVertexDeclaration(VertexElements, &vertexDecl_);
+        vertexDecl_ = rs->CreateVertexDeclaration(VertexElements);
     }
 
 }

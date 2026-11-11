@@ -45,7 +45,7 @@ CREATE_CLASS(SEA)
 #define GC_FREE 28
 
 SEA *SEA::pSea = nullptr;
-IDirect3DVertexDeclaration9 *SEA::vertexDecl_ = nullptr;
+storm::render::VertexDeclarationId SEA::vertexDecl_;
 
 SEA::SEA()
 {
@@ -181,7 +181,7 @@ void SEA::SFLB_CreateBuffers()
 
 void SEA::CreateVertexDeclaration()
 {
-    if (vertexDecl_ != nullptr)
+    if (vertexDecl_)
         return;
 
     const D3DVERTEXELEMENT9 VertexElements[] = {
@@ -190,7 +190,7 @@ void SEA::CreateVertexDeclaration()
         {0, 24, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
         D3DDECL_END()};
 
-    rs->CreateVertexDeclaration(VertexElements, &vertexDecl_);
+    vertexDecl_ = rs->CreateVertexDeclaration(VertexElements);
 }
 
 bool SEA::Init()

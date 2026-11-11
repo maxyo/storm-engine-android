@@ -28,6 +28,19 @@ using RS_ID = uint32_t;
 
 using renderer_handle = uint32_t;
 
+namespace storm::render
+{
+// A vertex declaration in the renderer's table; the renderer owns it for its lifetime.
+struct VertexDeclarationId
+{
+    int32_t value = -1;
+    explicit operator bool() const
+    {
+        return value >= 0;
+    }
+};
+} // namespace storm::render
+
 struct FVF_VERTEX
 {
     float x, y, z;
@@ -354,9 +367,10 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
     virtual HRESULT GetRenderTargetData(IDirect3DSurface9 *pRenderTarget, IDirect3DSurface9 *pDestSurface) = 0;
 
     // D3D Pixel/Vertex Shaders Section
-    virtual HRESULT CreateVertexDeclaration(const D3DVERTEXELEMENT9 *pVertexElements,
-                                            IDirect3DVertexDeclaration9 **ppDecl) = 0;
-    virtual HRESULT SetVertexDeclaration(IDirect3DVertexDeclaration9 *pDecl) = 0;
+    // Returns the id of the declaration with these elements (D3DDECL_END-terminated), creating it on
+    // first use; equal element lists share one id. An invalid id (logged) if the device rejects it.
+    virtual storm::render::VertexDeclarationId CreateVertexDeclaration(const D3DVERTEXELEMENT9 *pVertexElements) = 0;
+    virtual void SetVertexDeclaration(storm::render::VertexDeclarationId declaration) = 0;
     virtual HRESULT CreatePixelShader(const uint32_t *pFunction, IDirect3DPixelShader9 **ppShader) = 0;
     virtual HRESULT CreateVertexShader(const uint32_t *pFunction, IDirect3DVertexShader9 **ppShader) = 0;
     virtual HRESULT DeletePixelShader(IDirect3DPixelShader9 *pShader) = 0;

@@ -29,7 +29,7 @@ Must be > 0
 #define PLOD 5.0f
 //=============================================================
 
-IDirect3DVertexDeclaration9 *BillBoardProcessor::vertexDecl_ = nullptr;
+storm::render::VertexDeclarationId BillBoardProcessor::vertexDecl_;
 
 BillBoardProcessor::BillBoardProcessor()
 {
@@ -568,7 +568,7 @@ void BillBoardProcessor::Clear()
 
 void BillBoardProcessor::CreateVertexDeclaration() const
 {
-    if (vertexDecl_ != nullptr)
+    if (vertexDecl_)
         return;
 
     const D3DVERTEXELEMENT9 VertexElements[] = {
@@ -582,5 +582,5 @@ void BillBoardProcessor::CreateVertexDeclaration() const
         {0, 52, D3DDECLTYPE_FLOAT1, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 3},
         D3DDECL_END()};
 
-    pRS->CreateVertexDeclaration(VertexElements, &vertexDecl_);
+    vertexDecl_ = pRS->CreateVertexDeclaration(VertexElements);
 }

@@ -24,6 +24,7 @@
 #include "storm/render/texture_cache.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <functional>
 #include <map>
 #include <SDL_timer.h>
@@ -1066,6 +1067,9 @@ bool DX9RENDER::ReleaseDevice()
         aniVBuffer->Release();
     aniVBuffer = nullptr;
     numAniVerteces = 0;
+    for (auto &declaration : vertexDeclarations_)
+        declaration.declaration->Release();
+    vertexDeclarations_.clear();
     for (int32_t b = 0; b < MAX_BUFFERS; b++)
     {
         if (VertexBuffers[b].buff)
@@ -3820,15 +3824,38 @@ HRESULT DX9RENDER::CreateDepthStencilSurface(UINT Width, UINT Height, D3DFORMAT 
     return CHECKD3DERR(d3d9->CreateDepthStencilSurface(Width, Height, Format, MultiSample, 0, TRUE, ppSurface, NULL));
 }
 
-HRESULT DX9RENDER::CreateVertexDeclaration(const D3DVERTEXELEMENT9 *pVertexElements,
-                                           IDirect3DVertexDeclaration9 **ppDecl)
+storm::render::VertexDeclarationId DX9RENDER::CreateVertexDeclaration(const D3DVERTEXELEMENT9 *pVertexElements)
 {
-    return CHECKD3DERR(d3d9->CreateVertexDeclaration(pVertexElements, ppDecl));
+    std::vector<D3DVERTEXELEMENT9> elements;
+    for (const auto *element = pVertexElements; element->Stream != 0xFF; ++element)
+        elements.push_back(*element);
+    elements.push_back(D3DDECL_END());
+    const auto same = [&](const VertexDeclaration &declaration) {
+        return declaration.elements.size() == elements.size() &&
+               std::memcmp(declaration.elements.data(), elements.data(),
+                           elements.size() * sizeof(D3DVERTEXELEMENT9)) == 0;
+    };
+    if (const auto it = std::ranges::find_if(vertexDeclarations_, same); it != vertexDeclarations_.end())
+        return {static_cast<int32_t>(it - vertexDeclarations_.begin())};
+
+    IDirect3DVertexDeclaration9 *declaration = nullptr;
+    if (CHECKD3DERR(d3d9->CreateVertexDeclaration(elements.data(), &declaration)))
+    {
+        spdlog::error("Renderer: vertex declaration with {} elements rejected", elements.size() - 1);
+        return {};
+    }
+    vertexDeclarations_.push_back({std::move(elements), declaration});
+    return {static_cast<int32_t>(vertexDeclarations_.size() - 1)};
 }
 
-HRESULT DX9RENDER::SetVertexDeclaration(IDirect3DVertexDeclaration9 *pDecl)
+void DX9RENDER::SetVertexDeclaration(storm::render::VertexDeclarationId declaration)
 {
-    return CHECKD3DERR(d3d9->SetVertexDeclaration(pDecl));
+    if (!declaration || static_cast<size_t>(declaration.value) >= vertexDeclarations_.size())
+    {
+        spdlog::error("Renderer: SetVertexDeclaration with invalid id {}", declaration.value);
+        return;
+    }
+    CHECKD3DERR(d3d9->SetVertexDeclaration(vertexDeclarations_[declaration.value].declaration));
 }
 
 HRESULT DX9RENDER::CreateVertexShader(const uint32_t *pFunction, IDirect3DVertexShader9 **ppShader)

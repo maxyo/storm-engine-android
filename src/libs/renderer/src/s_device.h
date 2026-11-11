@@ -290,9 +290,8 @@ class DX9RENDER : public VDX9RENDER
     HRESULT GetRenderTargetData(IDirect3DSurface9 *pRenderTarget, IDirect3DSurface9 *pDestSurface) override;
 
     // D3D Pixel/Vertex Shaders Section
-    HRESULT CreateVertexDeclaration(const D3DVERTEXELEMENT9 *pVertexElements,
-                                    IDirect3DVertexDeclaration9 **ppDecl) override;
-    HRESULT SetVertexDeclaration(IDirect3DVertexDeclaration9 *pDecl) override;
+    storm::render::VertexDeclarationId CreateVertexDeclaration(const D3DVERTEXELEMENT9 *pVertexElements) override;
+    void SetVertexDeclaration(storm::render::VertexDeclarationId declaration) override;
     HRESULT CreatePixelShader(const uint32_t *pFunction, IDirect3DPixelShader9 **ppShader) override;
     HRESULT CreateVertexShader(const uint32_t *pFunction, IDirect3DVertexShader9 **ppShader) override;
     HRESULT DeletePixelShader(IDirect3DPixelShader9 *pShader) override;
@@ -431,6 +430,13 @@ class DX9RENDER : public VDX9RENDER
   private:
     std::unique_ptr<storm::GamePictures> gamePictures_;
     int appEventsSubscription_ = -1;
+
+    struct VertexDeclaration
+    {
+        std::vector<D3DVERTEXELEMENT9> elements; // with D3DDECL_END
+        IDirect3DVertexDeclaration9 *declaration;
+    };
+    std::vector<VertexDeclaration> vertexDeclarations_; // indexed by VertexDeclarationId
 
   public:
     bool keepTexturePixels(int32_t texture) override;
