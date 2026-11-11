@@ -14,10 +14,11 @@ is detected at startup and logged in `system.log`; an unknown layout stops the e
 ## Build
 ```sh
 cmake -S . -B build/host -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DSTORM_HOST_SOURCES=<prepared sources> -DSTORM_AUDIO_SOURCES=<audio sources> [-DSTORM_SHADERC=<host shaderc>]
+  -DSTORM_HOST_SOURCES=<prepared sources> -DSTORM_AUDIO_SOURCES=<audio sources>
 ninja -C build/host engine
 ```
+The project compiler launcher (ccache) is set automatically by `cmake/StormBuildCache.cmake`; do
+not pass `-DCMAKE_*_COMPILER_LAUNCHER`. shaderc is built once per pin into `~/.cache/storm-deps`
 (see `cmake/host.cmake` and `src/libs/renderer_bgfx/README.md`).
 
 ## Run
