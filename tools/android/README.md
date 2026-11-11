@@ -107,7 +107,7 @@ Every release is arm64-v8a. x86_64 exists only for debug builds that run nativel
 emulators (arm64 libraries there run through ARM translation, far slower). The ABI is a
 parameter of every Android build script, default `arm64-v8a`:
 
-- `STORM_ANDROID_ABI=x86_64` for `ci_dependencies.sh`, `ci_engine.sh` and `ci_ui.sh`
+- `STORM_ANDROID_ABI=x86_64` for `ci_dependencies.sh` and `ci_engine.sh`
   (`abi.sh`); `--abi x86_64` for `build_dependencies.py`, `verify_engine.py`,
   `build_torrent.py` and `android/archive/build.py` (`android_abi.py`).
 - CMake: `cmake/toolchains/android-x86_64.cmake` instead of `android-arm64.cmake`; FFmpeg

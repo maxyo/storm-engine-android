@@ -33,19 +33,29 @@ display cutout and system bars). Component templates read them as `safe.left` �
 
 ## Android
 
-```sh
-bash tools/android/ci_ui.sh     # needs the NDK prepared by ci_dependencies.sh
-```
+The engine's Android build (`tools/android/ci_engine.sh`) makes the UI runtime: `game/libstorm_ui.so`
+(target `storm_ui_runtime`) next to `libengine.so` and `libbgfx.so`, and the licence texts of its
+dependencies in `<build>/licenses/`. The APK ships the three from that one build:
 
-produces `<build>/package/libstorm_ui.so` (stripped, 16 KiB pages) and
-`<build>/licenses/`: the host of the application screens without the engine (launcher,
-downloads, gallery, each in its own process). Their Java view (`StormUiView`, a GLSurfaceView)
-owns the EGL context; bgfx draws on it (`bgfx::PlatformData::context`) through the same backend
-as the game, `android/jni_host.cpp` playing the frame owner. The application packages both. The
-JNI surface belongs to `org.stormengine.port.StormUi`.
+- `libbgfx.so` (`storm_bgfx_runtime`, `src/libs/renderer_bgfx`): bgfx, bx and bimg whole, the
+  only bgfx of a process. `libengine.so` (renderer, effects, textures) and `libstorm_ui.so` both
+  link it, so the game's UI draws with the engine's bgfx and nothing of bgfx is in the APK twice.
+- `libstorm_ui.so`: `storm_ui`, the bgfx backend, RmlUi, FreeType, lunasvg/plutovg and
+  `android/jni_host.cpp`. The game links it (`src/libs/ui_host` in `libengine.so` hosts the UI in
+  the engine's frame); the application screens without the engine (launcher, downloads,
+  gallery, each in its own process) load it alone: their Java view (`StormUiView`, a
+  GLSurfaceView) owns the EGL context, bgfx draws on it (`bgfx::PlatformData::context`) through
+  the same backend, `android/jni_host.cpp` playing the frame owner. That JNI surface belongs to
+  `org.stormengine.port.StormUi`.
 
-The game does not use it: the engine's Android build links `storm_ui` and `storm_ui_bgfx` into
-`libengine.so` and hosts the UI inside its own frame (`src/libs/ui_host`).
+Builds with debug info (the engine's Android builds, `-g`) give the UI runtime and its
+third-party code line tables only (`-gline-tables-only`): stack traces keep function, file and
+line, and the debug APK, which ships its libraries unstripped, stays small. Debug play APK
+(Release native build, 2026-11-11): 59.1 MB before the UI was drawn by the engine; 84.1 MB with
+`storm_ui` linked into `libengine.so` at full `-g` (`libengine.so` 214 MB uncompressed); 64.6 MB
+now (`libengine.so` 105 MB, `libstorm_ui.so` 31 MB, `libbgfx.so` 8 MB uncompressed).
+
+The stand-alone project of this directory is for host checks and captures only.
 
 ## Parts
 
@@ -90,7 +100,8 @@ Nothing above `RenderBackend` calls a graphics API. There is one backend, bgfx
 
 The screens without the engine had RmlUi's GL3 renderer until 2026-11-11. Measured when it was
 replaced (emulator, x86_64 with arm64 translation, 1280x720, five cold launcher starts each):
-`libstorm_ui.so` 7 346 848 → 8 052 904 bytes stripped (+706 KB; +276 KB gzip); device start
+`libstorm_ui.so` 7 346 848 → 8 052 904 bytes stripped (+706 KB; +276 KB gzip; bgfx has since
+moved to the shared `libbgfx.so`, see «Android»); device start
 (GL3 backend / `bgfx::init` with its capability probes) 429–615 ms → 1356–1687 ms; host start
 (fonts, pack) unchanged at 0.4–1.9 s; activity start (`am start -W`) 1.5–2.4 s both. The extra
 second before the launcher's first frame on the emulator is bgfx probing texture formats through

@@ -165,6 +165,12 @@ class Host
     virtual bool SetInterface(const std::string &json) = 0;
     virtual void SetInterface(const InterfaceModel &model) = 0;
     virtual void CloseInterface() = 0;
+    // The game opens an interface whose model is still to come (it can take seconds: the
+    // interface loads first). From now the UI covers the game: WantsTouch is true everywhere
+    // and touches are held until the interface's first frame, then applied to it, so the
+    // player's first tap is not lost. CloseInterface withdraws the opening (held touches are
+    // dropped, logged).
+    virtual void ExpectInterface() = 0;
     // A named state channel of the game: JSON as the engine publishes it ("dialogue",
     // "gameplay", "combat", "vitals", "landCommands"; "worldInfo" and "contextAction" are
     // the engine's text as a JSON string), plus "presentation", which the platform host
@@ -184,7 +190,9 @@ class Host
     // something of the UI. Ask at pointer-down, per pointer; when true, deliver that
     // pointer's whole gesture through Touch, otherwise give it to the game (camera look).
     // True on an interactive HUD element, anywhere while an interface, a modal sheet or a
-    // plain document is shown. Coordinates in physical pixels.
+    // plain document is shown or an interface is being opened (ExpectInterface). A pointer
+    // that goes down on what is not laid out yet is held and applied after the next frame.
+    // Coordinates in physical pixels.
     // Thread-safe: answered from the layout of the last frame, so the thread that receives
     // touches does not wait for the UI thread.
     virtual bool WantsTouch(float x, float y) const = 0;

@@ -6,5 +6,5 @@ endif()
 STORM_SETUP(
     TARGET_NAME ui_host
     TYPE storm_module
-    DEPENDENCIES storm_ui storm_ui_bgfx util sdl android log
+    DEPENDENCIES storm_ui_runtime util sdl android log
 )

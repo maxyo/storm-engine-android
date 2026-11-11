@@ -3,15 +3,15 @@
 # This directory is self-contained and is NOT picked up by the engine build on
 # its own: the renderer (or tools/fx-preview) adds it with add_subdirectory()
 # after bgfx exists. Required from the parent scope:
-#   targets  bgfx, bx
+#   target   storm_bgfx_runtime (bgfx, bx, bimg)
 #   STORM_FX_SHADERC_COMMAND       host shaderc built from the pinned bgfx
 #   STORM_FX_SHADERC_DEPENDS       target/file the shader build depends on
 #   STORM_FX_BGFX_SHADER_INCLUDE   <bgfx>/src (bgfx_shader.sh)
 # render/bgfx can pass its STORM_SHADERC_COMMAND / STORM_SHADERC_DEPENDS and
 # "${STORM_BGFX_SOURCE_DIR}/bgfx/src" unchanged.
 cmake_minimum_required(VERSION 3.21)
-if(NOT TARGET bgfx)
-    message(FATAL_ERROR "renderer_bgfx/fx needs the pinned bgfx targets; configure tools/fx-preview or add it from renderer_bgfx")
+if(NOT TARGET storm_bgfx_runtime)
+    message(FATAL_ERROR "renderer_bgfx/fx needs the pinned bgfx (storm_bgfx_runtime); configure tools/fx-preview or add it from renderer_bgfx")
 endif()
 set(STORM_FX_SHADER_PROFILE "300_es" CACHE STRING "shaderc profile for the embedded fx shader blobs")
 include(cmake/storm_fx_shaders.cmake)
@@ -27,7 +27,7 @@ set_target_properties(storm_bgfx_fx_core PROPERTIES POSITION_INDEPENDENT_CODE ON
 add_library(storm_bgfx_fx STATIC
     src/gpu_util.cpp src/post_chain.cpp src/water.cpp src/sky.cpp src/lighting.cpp src/shadows.cpp src/capabilities.cpp
     src/contact_shadows.cpp src/self_test.cpp)
-target_link_libraries(storm_bgfx_fx PUBLIC storm_bgfx_fx_core bgfx bx PRIVATE storm_fx_shaders)
+target_link_libraries(storm_bgfx_fx PUBLIC storm_bgfx_fx_core storm_bgfx_runtime PRIVATE storm_fx_shaders)
 set_target_properties(storm_bgfx_fx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(NOT CMAKE_CROSSCOMPILING)

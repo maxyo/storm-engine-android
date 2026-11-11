@@ -1,10 +1,13 @@
 # Portable game UI runtime: RmlUi documents drawn through the bgfx render backend (inside the
-# engine frame for the game, on a bgfx context of its own elsewhere). Stand-alone project (host
-# checks and captures, the application screens' libstorm_ui.so) or part of the engine's Android
-# build (the game).
+# engine frame for the game, on a bgfx context of its own elsewhere). Stand-alone project for the
+# host checks and captures; on Android it is part of the engine build, which makes the APK's
+# libstorm_ui.so next to libengine.so and libbgfx.so (one bgfx per process).
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     cmake_minimum_required(VERSION 3.21)
     project(storm-ui LANGUAGES C CXX)
+    if(ANDROID)
+        message(FATAL_ERROR "The Android UI runtime is built by the engine build (tools/android/ci_engine.sh), with the libbgfx.so it shares with libengine.so")
+    endif()
     include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/StormBuildCache.cmake")
     set(STORM_ENABLE_UI ON)
 endif()
@@ -61,7 +64,24 @@ set(RMLUI_SAMPLES OFF CACHE BOOL "" FORCE)
 set(RMLUI_FONT_ENGINE freetype CACHE STRING "" FORCE)
 set(RMLUI_PRECOMPILED_HEADERS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(storm_ui_rmlui)
-# Licence texts of the pinned dependencies, packaged next to libstorm_ui.so.
+# Builds with debug info (the engine's Android builds: -g) keep only line tables for the UI
+# runtime and its third-party code: crash stacks still resolve to function, file and line, and
+# libstorm_ui.so ships unstripped in debug APKs without full variable/type info (about 4x larger).
+string(TOUPPER "${CMAKE_BUILD_TYPE}" storm_ui_config)
+if(" ${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${storm_ui_config}} " MATCHES " -g ")
+    set(storm_ui_line_tables_only ON)
+endif()
+function(storm_ui_line_tables)
+    if(storm_ui_line_tables_only)
+        foreach(target IN LISTS ARGN)
+            if(TARGET ${target})
+                target_compile_options(${target} PRIVATE -gline-tables-only)
+            endif()
+        endforeach()
+    endif()
+endfunction()
+storm_ui_line_tables(rmlui_core rmlui_debugger freetype lunasvg plutovg)
+# Licence texts of the pinned dependencies (<build>/licenses), packaged with libstorm_ui.so.
 foreach(notice
         "${storm_ui_rmlui_SOURCE_DIR}/LICENSE.txt|RmlUi-MIT.txt"
         "${storm_ui_freetype_SOURCE_DIR}/docs/FTL.TXT|FreeType-FTL.txt"
@@ -127,13 +147,12 @@ add_library(storm_ui STATIC
     src/behaviors.cpp
     src/draw_elements.cpp
     src/icons.cpp
-    src/tx_texture.cpp
     src/game_image.cpp
     src/picture_atlas.cpp
     src/frame_renderer.cpp)
 target_compile_features(storm_ui PUBLIC cxx_std_20)
 target_include_directories(storm_ui PUBLIC include PRIVATE src)
-target_link_libraries(storm_ui PUBLIC RmlUi::RmlUi nlohmann_json::nlohmann_json PRIVATE lunasvg::lunasvg plutovg::plutovg bimg)
+target_link_libraries(storm_ui PUBLIC RmlUi::RmlUi nlohmann_json::nlohmann_json PRIVATE lunasvg::lunasvg plutovg::plutovg)
 if(ANDROID)
     target_sources(storm_ui PRIVATE src/asset_files.cpp) # the pack in the APK assets
     target_link_libraries(storm_ui PRIVATE android)
@@ -147,30 +166,35 @@ storm_bgfx_embed_shaders(TARGET storm_ui_shaders NAMESPACE storm_ui_shaders
     VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${storm_ui_shader_sources})
 add_library(storm_ui_bgfx STATIC src/backend_bgfx.cpp)
 target_include_directories(storm_ui_bgfx PUBLIC "${storm_ui_renderer_bgfx}/include")
-target_link_libraries(storm_ui_bgfx PUBLIC storm_ui bgfx PRIVATE storm_ui_shaders)
+target_link_libraries(storm_ui_bgfx PUBLIC storm_ui storm_bgfx_runtime PRIVATE storm_ui_shaders)
 
-if(ANDROID AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    # libstorm_ui.so for the application screens without the engine (launcher, downloads,
-    # gallery: their own processes). The Java view owns the EGL context (GLSurfaceView); bgfx
-    # draws on it. The game links storm_ui and storm_ui_bgfx into libengine.so instead
-    # (src/libs/ui_host).
-    add_library(storm_ui_android SHARED android/jni_host.cpp)
-    target_link_libraries(storm_ui_android PRIVATE storm_ui_bgfx android log EGL)
-    target_link_options(storm_ui_android PRIVATE -Wl,--no-undefined -Wl,-z,max-page-size=16384)
-    set_target_properties(storm_ui_android PROPERTIES OUTPUT_NAME storm_ui)
+if(ANDROID)
+    # libstorm_ui.so, the one UI runtime of the APK: the game (src/libs/ui_host in libengine.so)
+    # and the application screens without the engine (launcher, downloads, gallery: their Java
+    # view owns the EGL context, android/jni_host.cpp) both load it. It takes bgfx from
+    # libbgfx.so (storm_bgfx_runtime), so the game process has one bgfx. Built by the engine's
+    # Android build, which packages it with libengine.so and libbgfx.so.
+    add_library(storm_ui_runtime SHARED android/jni_host.cpp)
+    target_link_libraries(storm_ui_runtime PRIVATE -Wl,--whole-archive storm_ui storm_ui_bgfx -Wl,--no-whole-archive android log EGL
+        PUBLIC storm_bgfx_runtime)
+    target_link_options(storm_ui_runtime PRIVATE -Wl,--no-undefined -Wl,-z,max-page-size=16384)
+    set_target_properties(storm_ui_runtime PROPERTIES OUTPUT_NAME storm_ui LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/game")
+    # Users compile against the runtime's headers (and RmlUi's, nlohmann::json's) but link only it.
+    target_include_directories(storm_ui_runtime INTERFACE "$<TARGET_PROPERTY:storm_ui_bgfx,INTERFACE_INCLUDE_DIRECTORIES>")
+    target_compile_definitions(storm_ui_runtime INTERFACE "$<TARGET_PROPERTY:storm_ui_bgfx,INTERFACE_COMPILE_DEFINITIONS>")
+    target_compile_features(storm_ui_runtime INTERFACE cxx_std_20)
     include("${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/build_stamp.cmake")
-    storm_build_stamp(storm_ui_android)
-    # The APK ships the stripped copy; the unstripped one stays for symbolication.
-    add_custom_command(TARGET storm_ui_android POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/package"
-        COMMAND ${CMAKE_STRIP} --strip-unneeded -o "${CMAKE_CURRENT_BINARY_DIR}/package/libstorm_ui.so" "$<TARGET_FILE:storm_ui_android>"
-        VERBATIM)
+    storm_build_stamp(storm_ui_runtime)
+    storm_ui_line_tables(storm_ui storm_ui_bgfx storm_ui_runtime)
 elseif(NOT CMAKE_CROSSCOMPILING)
     # Headless captures for design checks: bgfx GLES 3.0 on a surfaceless EGL display, PNG output.
+    # .tx decoding for the capture tool's pictures (the game takes them from the renderer).
+    add_library(storm_ui_tx STATIC src/tx_texture.cpp)
+    target_link_libraries(storm_ui_tx PUBLIC storm_ui PRIVATE storm_bgfx_runtime)
     add_executable(storm_ui_shot tools/ui_shot.cpp)
-    target_link_libraries(storm_ui_shot PRIVATE storm_ui_bgfx plutovg::plutovg ${CMAKE_DL_LIBS})
+    target_link_libraries(storm_ui_shot PRIVATE storm_ui_bgfx storm_ui_tx plutovg::plutovg ${CMAKE_DL_LIBS})
     add_executable(storm_ui_unit tests/unit_check.cpp)
-    target_link_libraries(storm_ui_unit PRIVATE storm_ui)
+    target_link_libraries(storm_ui_unit PRIVATE storm_ui storm_ui_tx)
     enable_testing()
     add_test(NAME ui_unit COMMAND storm_ui_unit)
     add_executable(storm_ui_screens_unit tests/screens_check.cpp)
