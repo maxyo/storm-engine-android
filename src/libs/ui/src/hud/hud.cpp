@@ -106,9 +106,17 @@ bool Hud::Notice(const std::string &text, const std::string &tone)
 {
     if (!visible_ || text.empty() || !view_.log)
         return false;
+    for (Line &line : lines_)
+        if (line.base == text)
+        {
+            line.text = RepeatedText(text, ++line.count);
+            line.until = mount_.Now() + kLineSeconds;
+            changed_ = true;
+            return true;
+        }
     if (lines_.size() >= kLines)
         lines_.erase(lines_.begin());
-    lines_.push_back({text, tone.empty() ? "info" : tone, mount_.Now() + kLineSeconds});
+    lines_.push_back({text, tone.empty() ? "info" : tone, mount_.Now() + kLineSeconds, text, 1});
     changed_ = true;
     return true;
 }

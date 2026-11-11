@@ -611,6 +611,15 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         Rml::Element *stack = overlay_->GetElementById(top ? "toasts-top" : "toasts-bottom");
         if (!stack)
             return;
+        const double until = system_.GetElapsedTime() + Setting("toastMs", 2600.0) / 1000.0;
+        for (Toast_ &shown : toasts_)
+            if (shown.text == text && shown.element)
+            {
+                shown.element->SetAttribute("text", hud::RepeatedText(text, ++shown.count));
+                shown.until = until;
+                changed_ = true;
+                return;
+            }
         while (toasts_.size() >= 3)
             RemoveToast(0);
         Rml::ElementPtr notice = overlay_->CreateElement("c-notice");
@@ -623,7 +632,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         changed_ = true;
         Toast_ toast;
         toast.element = stack->AppendChild(std::move(notice))->GetObserverPtr();
-        toast.until = system_.GetElapsedTime() + Setting("toastMs", 2600.0) / 1000.0;
+        toast.until = until;
+        toast.text = text;
         toasts_.push_back(std::move(toast));
     }
 
@@ -1294,6 +1304,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         Rml::ObserverPtr<Rml::Element> element;
         double until = 0.0;
+        std::string text; // the message; the element shows it with its repeat count
+        int count = 1;
     };
 
     void RemoveToast(size_t index)

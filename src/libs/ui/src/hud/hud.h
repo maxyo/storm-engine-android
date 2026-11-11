@@ -18,6 +18,14 @@
 namespace storm::ui::hud
 {
 
+// A message shown again while its toast is still up: one toast, "text ×N". Shared by the
+// HUD's event log and the runtime's toast stack (every game log line comes through these).
+inline std::string RepeatedText(const std::string &text, int count)
+{
+    return count > 1 ? text + " \u00D7" + std::to_string(count) : text;
+}
+
+
 using screens::Event;
 
 // --- states: one struct per channel, filled by its consumer (states.cpp) ---------------
@@ -453,6 +461,8 @@ class Hud
     {
         std::string text, tone;
         double until = 0.0;
+        std::string base; // the message itself; `text` adds the repeat count
+        int count = 1;
     };
     void Refresh();
     void Conceal();
