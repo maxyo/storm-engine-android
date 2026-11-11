@@ -253,6 +253,13 @@ GEOS::ID GEOM_SERVICE_R::CreateTexture(const char *fname)
     {
         sprintf_s(tex, "lighting\\%s\\%s", lightPath, fname);
     }
+    else if (storm::gameProfile() == storm::GameProfile::CaribbeanLegend && strpbrk(fname, "\\/"))
+    {
+        // Caribbean Legend models name a texture with its folder ("buildings\hut1.dds",
+        // "MainMenu\hut4.tga"): such names are relative to the textures root, not to the
+        // texture path of the model's loader. Bare names still use that path.
+        strcpy_s(tex, fname);
+    }
     else
     {
         strcpy_s(tex, texturePath);

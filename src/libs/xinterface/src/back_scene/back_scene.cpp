@@ -1,5 +1,7 @@
 #include "back_scene.h"
 
+#include "game_profile.hpp"
+
 #include "animation.h"
 #include "../xinterface.h"
 #include "geometry.h"
@@ -181,7 +183,10 @@ bool InterfaceBackScene::Init()
     m_pRS = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
     Assert(m_pRS);
     flyTex = m_pRS->TextureCreate("LocEfx\\firefly.tga");
-    m_nFlareTexture = m_pRS->TextureCreate("ShipsFlares\\corona.tga");
+    // Caribbean Legend keeps the flare in the textures root; TEHO in ShipsFlares\.
+    m_nFlareTexture = m_pRS->TextureCreate(storm::gameProfile() == storm::GameProfile::CaribbeanLegend
+                                               ? "corona.tga"
+                                               : "ShipsFlares\\corona.tga");
     return true;
 }
 
@@ -417,9 +422,12 @@ void InterfaceBackScene::LoadModel(const char *pcModelName)
         m_pLocators = nullptr;
     }
     auto *pGeo = static_cast<VGEOMETRY *>(core.GetService("Geometry"));
+    // TEHO keeps the menu scene textures per language (MainMenu\<language>\); Caribbean Legend has
+    // one set directly in MainMenu\ (folder-qualified names are root-relative, see geometry.cpp).
     if (pGeo)
-        pGeo->SetTexturePath(
-            (std::string("MainMenu\\") + XINTERFACE::pThis->StringService()->GetLanguage() + "\\").c_str());
+        pGeo->SetTexturePath(storm::gameProfile() == storm::GameProfile::CaribbeanLegend
+                                 ? "MainMenu\\"
+                                 : (std::string("MainMenu\\") + XINTERFACE::pThis->StringService()->GetLanguage() + "\\").c_str());
     // create model
     m_eiModel = core.CreateEntity("MODELR");
     core.Send_Message(m_eiModel, "ls", MSG_MODEL_LOAD_GEO, pcModelName);
