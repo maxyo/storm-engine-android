@@ -147,7 +147,7 @@ void BALLSPLASH::InitializeSplashes()
     for (auto i = 0; i < MAX_SPLASHES; ++i)
     {
         splashes[i].Release();
-        splashes[i].Initialize(psIni.get(), nullptr, sea, renderer);
+        splashes[i].Initialize(psIni.get(), sea, renderer);
     }
 }
 

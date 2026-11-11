@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <map>
 #include <vector>
-struct IDirect3DDevice9 {};
 struct VDX9RENDER {
     int next=1, created=0, released=0;
     std::map<int,std::vector<uint16_t>> indices;

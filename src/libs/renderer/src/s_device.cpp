@@ -1084,23 +1084,22 @@ bool DX9RENDER::ReleaseDevice()
         IndexBuffers[b].buff = nullptr;
     }
 
-    bool res = true;
+    // COM Release returns the remaining reference count, not an HRESULT.
     for (int32_t t = 0; t < MAX_STEXTURES; t++)
         if (Textures[t].ref && Textures[t].loaded && Textures[t].d3dtex)
         {
-            if (CHECKD3DERR(Textures[t].d3dtex->Release()) == false)
-                res = false;
+            Textures[t].d3dtex->Release();
             Textures[t].ref = NULL;
             delete Textures[t].name;
         }
 
-    if (d3d9 != nullptr && CHECKD3DERR(d3d9->Release()) == false)
-        res = false;
+    if (d3d9 != nullptr)
+        d3d9->Release();
     d3d9 = nullptr;
-    if (d3d != nullptr && CHECKD3DERR(d3d->Release()) == false)
-        res = false;
+    if (d3d != nullptr)
+        d3d->Release();
     d3d = nullptr;
-    return res;
+    return true;
 }
 
 //################################################################################
@@ -2259,13 +2258,9 @@ bool DX9RENDER::TextureRelease(int32_t texid)
         return false;
     }
 
+    // Release returns the remaining reference count (a texture still bound to a stage keeps one), not an HRESULT.
     if (Textures[texid].d3dtex)
-    {
-        if (CHECKD3DERR(Textures[texid].d3dtex->Release()) == true)
-        {
-            return false;
-        }
-    }
+        Textures[texid].d3dtex->Release();
     Textures[texid].d3dtex = nullptr;
     dwTotalSize -= Textures[texid].dwSize;
 
@@ -2480,13 +2475,6 @@ int32_t DX9RENDER::CreateVertexBuffer(int32_t type, size_t size, uint32_t dwUsag
     VertexBuffers[b].dwUsage = dwUsage;
 
     return b;
-}
-
-IDirect3DVertexBuffer9 *DX9RENDER::GetVertexBuffer(int32_t id)
-{
-    if (id < 0 || id >= MAX_BUFFERS)
-        return nullptr;
-    return VertexBuffers[id].buff;
 }
 
 int32_t DX9RENDER::GetVertexBufferFVF(int32_t id)
@@ -2763,7 +2751,7 @@ void DX9RENDER::ReleaseVertexBuffer(int32_t id)
         return; // no buffer
     if (!LiveBuffer(id, false, "ReleaseVertexBuffer"))
         return;
-    CHECKD3DERR(VertexBuffers[id].buff->Release());
+    VertexBuffers[id].buff->Release(); // returns a reference count, not an HRESULT
     VertexBuffers[id].buff = nullptr;
     VertexBuffers[id].dwNumLocks = 0;
 }
@@ -2775,7 +2763,7 @@ void DX9RENDER::ReleaseIndexBuffer(int32_t id)
         return; // no buffer
     if (!LiveBuffer(id, true, "ReleaseIndexBuffer"))
         return;
-    CHECKD3DERR(IndexBuffers[id].buff->Release());
+    IndexBuffers[id].buff->Release(); // returns a reference count, not an HRESULT
     IndexBuffers[id].buff = nullptr;
     IndexBuffers[id].dwNumLocks = 0;
 }
@@ -3744,7 +3732,7 @@ void DX9RENDER::DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlock
         if (bDraw)
             do
             {
-                CHECKD3DERR(SetStreamSource(0, rectsVBuffer, sizeof(RECT_VERTEX)));
+                CHECKD3DERR(d3d9->SetStreamSource(0, rectsVBuffer, 0, sizeof(RECT_VERTEX)));
                 CHECKD3DERR(DrawPrimitive(D3DPT_TRIANGLELIST, 0, drawCount * 2));
             } while (cBlockName && TechniqueExecuteNext());
     }
@@ -3846,15 +3834,16 @@ HRESULT DX9RENDER::SetFVF(uint32_t handle)
     return CHECKD3DERR(d3d9->SetVertexShader(NULL)) || CHECKD3DERR(d3d9->SetFVF(handle));
 }
 
-HRESULT DX9RENDER::SetStreamSource(UINT StreamNumber, void *pStreamData, UINT Stride)
+void DX9RENDER::SetStreamSource(UINT StreamNumber, int32_t vertexBuffer, UINT Stride)
 {
-    return CHECKD3DERR(
-        d3d9->SetStreamSource(StreamNumber, static_cast<IDirect3DVertexBuffer9 *>(pStreamData), 0, Stride));
-}
-
-HRESULT DX9RENDER::SetIndices(void *pIndexData)
-{
-    return CHECKD3DERR(d3d9->SetIndices(static_cast<IDirect3DIndexBuffer9 *>(pIndexData)));
+    if (vertexBuffer == -1)
+    {
+        CHECKD3DERR(d3d9->SetStreamSource(StreamNumber, nullptr, 0, 0));
+        return;
+    }
+    if (!LiveBuffer(vertexBuffer, false, "SetStreamSource"))
+        return;
+    CHECKD3DERR(d3d9->SetStreamSource(StreamNumber, VertexBuffers[vertexBuffer].buff, 0, Stride));
 }
 
 HRESULT DX9RENDER::DrawPrimitive(D3DPRIMITIVETYPE dwPrimitiveType, UINT StartVertex, UINT PrimitiveCount)

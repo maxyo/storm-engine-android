@@ -220,7 +220,6 @@ class DX9RENDER : public VDX9RENDER
     int32_t CreateVertexBuffer(int32_t type, size_t nverts, uint32_t usage, uint32_t dwPool) override;
     int32_t CreateIndexBuffer(size_t ntrgs, uint32_t dwUsage) override;
 
-    IDirect3DVertexBuffer9 *GetVertexBuffer(int32_t id) override;
     int32_t GetVertexBufferFVF(int32_t id) override;
     void *LockVertexBuffer(int32_t id, uint32_t dwFlags = 0) override;
     void UnLockVertexBuffer(int32_t id) override;
@@ -259,8 +258,7 @@ class DX9RENDER : public VDX9RENDER
     HRESULT GetDeviceCaps(D3DCAPS9 *pCaps) override;
 
     // D3D
-    HRESULT SetStreamSource(UINT StreamNumber, void *pStreamData, UINT Stride) override;
-    HRESULT SetIndices(void *pIndexData) override;
+    void SetStreamSource(UINT StreamNumber, int32_t vertexBuffer, UINT Stride) override;
     HRESULT DrawPrimitive(D3DPRIMITIVETYPE PrimitiveType, UINT StartVertex, UINT PrimitiveCount) override;
     HRESULT Release(IUnknown *pSurface) override;
 

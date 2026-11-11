@@ -115,7 +115,7 @@ class SEAFOAM_PS : VPARTICLE_SYSTEM
     int32_t ParticlesNum;
     PARTICLE *Particle;
 
-    IDirect3DVertexBuffer9 *VBuffer;
+    int32_t VBuffer; // renderer vertex buffer id
 
     glm::vec3 Camera_EmitterPos;
     glm::vec3 Camera_EmitterPosA;

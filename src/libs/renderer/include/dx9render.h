@@ -320,7 +320,6 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
                                        uint32_t dwPool = D3DPOOL_DEFAULT) = 0;
     virtual int32_t CreateIndexBuffer(size_t ntrgs, uint32_t dwUsage = D3DUSAGE_WRITEONLY) = 0;
 
-    virtual IDirect3DVertexBuffer9 *GetVertexBuffer(int32_t id) = 0;
     virtual int32_t GetVertexBufferFVF(int32_t id) = 0;
     virtual void *LockVertexBuffer(int32_t id, uint32_t dwFlags = 0) = 0;
     virtual void UnLockVertexBuffer(int32_t id) = 0;
@@ -351,8 +350,8 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
     virtual HRESULT GetDeviceCaps(D3DCAPS9 *pCaps) = 0;
 
     // D3D
-    virtual HRESULT SetStreamSource(UINT StreamNumber, void *pStreamData, UINT Stride) = 0;
-    virtual HRESULT SetIndices(void *pIndexData) = 0;
+    // Binds a vertex buffer (id, -1 unbinds) to a stream for the raw DrawPrimitive below.
+    virtual void SetStreamSource(UINT StreamNumber, int32_t vertexBuffer, UINT Stride) = 0;
     virtual HRESULT DrawPrimitive(D3DPRIMITIVETYPE PrimitiveType, UINT StartVertex, UINT PrimitiveCount) = 0;
 
     virtual HRESULT Release(IUnknown *pSurface) = 0;
