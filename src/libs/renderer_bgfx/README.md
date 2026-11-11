@@ -46,6 +46,11 @@ on Android and on the Linux development host alike.
   `src/effects`). Upstream bgfx has no per-level API; keep it until it does.
 - `fx/` — optional effects package (see its README), driven by `src/effects/` (presets, post chain,
   lighting and alpha to coverage of the fixed-function emulator).
+  A preset change on a live device (and the device's start, which begins on «Низкая») is staged by
+  `effects::Host::advance_switch`: the current settings keep drawing while the new ones' programs are
+  linked one per frame and their GPU self-test runs (once per settings set); then they switch at a Present
+  and the shim rebuilds only the scene targets whose MSAA / depth read changed. Checked by
+  `tests/renderer_bgfx/preset_switch_check`.
 
 ## Building
 

@@ -58,7 +58,6 @@ void SelfTest::Release()
     Destroy(output_);
     Destroy(readback_scene_);
     Destroy(readback_output_);
-    Destroy(copy_);
     Destroy(s_scene_);
     pending_frame_ = 0;
 }
@@ -75,16 +74,16 @@ void SelfTest::OnDeviceLost()
     pattern_ = BGFX_INVALID_HANDLE;
     scene_ = output_ = BGFX_INVALID_HANDLE;
     readback_scene_ = readback_output_ = BGFX_INVALID_HANDLE;
-    copy_ = BGFX_INVALID_HANDLE;
     s_scene_ = BGFX_INVALID_HANDLE;
     pending_frame_ = 0;
 }
 
-bool SelfTest::Submit(const Settings &settings, bgfx::ViewId first_view)
+bool SelfTest::Submit(const Settings &settings, bgfx::ViewId first_view, const PostChain &chain)
 {
     if (pending_frame_ != 0)
         return false;
     settings_ = settings;
+    post_.SharePrograms(chain);
     const RendererState state = RendererStateFor(settings);
     // The game's scene target: RGBA8 colour and D24S8 depth, multisampled like it (src/shim/device.cpp).
     const uint64_t msaa = state.msaa_samples >= 4 ? BGFX_TEXTURE_RT_MSAA_X4 : state.msaa_samples == 2 ? BGFX_TEXTURE_RT_MSAA_X2 : 0;
@@ -107,8 +106,6 @@ bool SelfTest::Submit(const Settings &settings, bgfx::ViewId first_view)
         readback_scene_ = bgfx::createTexture2D(kSize, kSize, false, 1, bgfx::TextureFormat::RGBA8, readback);
     if (!bgfx::isValid(readback_output_))
         readback_output_ = bgfx::createTexture2D(kSize, kSize, false, 1, bgfx::TextureFormat::RGBA8, readback);
-    if (!bgfx::isValid(copy_))
-        copy_ = LoadProgram("vs_fx_screen", "fs_fx_copy");
     if (!bgfx::isValid(s_scene_))
         s_scene_ = bgfx::createUniform("s_fxScene", bgfx::UniformType::Sampler);
 
@@ -116,7 +113,7 @@ bool SelfTest::Submit(const Settings &settings, bgfx::ViewId first_view)
     SetupView(view, "fx self-test scene", scene_, kSize, kSize);
     bgfx::setViewClear(view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x000000ff, 1.0f, 0);
     bgfx::setTexture(0, s_scene_, pattern_, kClampPoint);
-    SubmitScreenTriangle(view++, copy_, BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+    SubmitScreenTriangle(view++, post_.CopyProgram(), BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
 
     PostChain::Frame frame;
     frame.scene_color = bgfx::getTexture(scene_, 0);

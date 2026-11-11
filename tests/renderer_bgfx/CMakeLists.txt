@@ -32,3 +32,11 @@ target_include_directories(skinning_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../
 target_compile_definitions(skinning_check PRIVATE NOMINMAX)
 target_compile_options(skinning_check PRIVATE -fsigned-char)
 target_link_libraries(skinning_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
+
+# preset_switch_check: a live graphics preset switch through the shim on OpenGL ES (an X display, like
+# skinning_check): the previous settings draw until the new ones are prepared, no black frame after it.
+add_executable(preset_switch_check preset_switch_check.cpp)
+target_include_directories(preset_switch_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
+target_compile_definitions(preset_switch_check PRIVATE NOMINMAX)
+target_compile_options(preset_switch_check PRIVATE -fsigned-char)
+target_link_libraries(preset_switch_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")

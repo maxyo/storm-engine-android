@@ -39,14 +39,27 @@ bool SunShadows::prepare(const std::array<float, 16> &view)
     return active_;
 }
 
+void SunShadows::find_shaders()
+{
+    if (fs_caster_)
+        return;
+    vs_caster_[0] = shim::shader_id_by_name("vs_ff_caster");
+    vs_caster_[1] = shim::shader_id_by_name("vs_ff_caster_skin");
+    fs_caster_ = shim::shader_id_by_name("fs_ff_caster");
+}
+
+bool SunShadows::prepare_programs(shim::Device &device, const fx::Settings &settings, int &budget)
+{
+    if (settings.shadows == fx::ShadowQuality::Off)
+        return true;
+    find_shaders();
+    return device.prepare_program(vs_caster_[0], fs_caster_, budget) &&
+           device.prepare_program(vs_caster_[1], fs_caster_, budget);
+}
+
 void SunShadows::submit_caster(shim::Device &device, const float *world, bool skinned)
 {
-    if (!fs_caster_)
-    {
-        vs_caster_[0] = shim::shader_id_by_name("vs_ff_caster");
-        vs_caster_[1] = shim::shader_id_by_name("vs_ff_caster_skin");
-        fs_caster_ = shim::shader_id_by_name("fs_ff_caster");
-    }
+    find_shaders();
     const bgfx::ProgramHandle program = device.program(vs_caster_[skinned ? 1 : 0], fs_caster_); // logs a failure
     // The receiver's scissor and stencil stay with the receiver.
     bgfx::setScissor(UINT16_MAX);

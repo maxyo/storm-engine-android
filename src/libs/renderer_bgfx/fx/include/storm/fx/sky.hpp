@@ -39,6 +39,9 @@ class Sky
     // opaque geometry to save fill rate, or first. `view_matrix` / `projection` are the 4x4 matrices given
     // to bgfx::setViewTransform. The game's own sun glow, flares, stars and moon are drawn on top as before.
     void Submit(bgfx::ViewId view, const Settings &settings, const float *view_matrix, const float *projection);
+    // Creates the programs Submit() will need for `settings` (each a shader link on the GPU driver), at most
+    // `budget` of them; `budget` is reduced by the number created. True once all of them exist (PostChain::Prepare).
+    bool Prepare(const Settings &settings, int &budget);
 
     void Shutdown();
     void OnDeviceLost();

@@ -161,9 +161,11 @@ void Host::on_device_created()
     }
     support_device_ = fx::DetectSupport(facts);
     device_ready_ = true;
+    // Nothing is drawn yet: the device starts on the legacy path («Низкая», no effect, no MSAA) and switches to
+    // the request like any later change (advance_switch), once its programs exist and the self-test passed.
+    activate(fx::Settings::FromPreset(fx::QualityPreset::Low));
     apply();
-    renderer_state_changed_ = false; // the scene target is created after this, with the constrained state
-    self_test_pending_ = !settings_.PostIsIdentity() || renderer_state_.msaa_samples > 1;
+    renderer_state_changed_ = false; // the scene target is created after this, with the active state
 }
 
 void Host::on_device_lost()
@@ -272,8 +274,39 @@ void Host::apply()
             report_.disabled.push_back(names.substr(start, end - start));
         }
     }
-    const bool changed = !(next == settings_) || !device_ready_;
-    settings_ = next;
+    const bool changed = !(next == target_) || !device_ready_;
+    const fx::RendererState state = fx::RendererStateFor(next);
+    if (device_ready_ && state.max_anisotropy > 1 && device_max_anisotropy_ < state.max_anisotropy)
+        report_.changes.push_back("anisotropic filtering " + std::to_string(state.max_anisotropy) + "x: the device allows " +
+                                  std::to_string(static_cast<int>(device_max_anisotropy_)) + "x");
+    report_.summary = describe(next);
+    target_ = next;
+    if (!device_ready_)
+        activate(next); // nothing is drawn before the device exists
+    else if (!(target_ == settings_) && !switching_)
+    {
+        // The current settings keep drawing until the new ones are ready (advance_switch).
+        switching_ = true;
+        switch_started_ = std::chrono::steady_clock::now();
+        switch_frames_ = 0;
+        switch_programs_ = 0;
+    }
+    else if (target_ == settings_)
+        switching_ = false;
+    report_.pending = switching_;
+    if (changed)
+    {
+        shim::logf("effects: preset %d (%s)%s: %s", preset_,
+                   std::string(fx::NameRu(static_cast<fx::QualityPreset>(preset_))).c_str(),
+                   switching_ ? " requested, prepared while the current settings draw" : "", report_.summary.c_str());
+        for (const auto &line : report_.changes)
+            shim::logf("effects: preset %d on this device: %s", preset_, line.c_str());
+    }
+}
+
+void Host::activate(const fx::Settings &settings)
+{
+    settings_ = settings;
     const fx::RendererState state = fx::RendererStateFor(settings_);
     const bool depth_read = scene_depth_read();
     renderer_state_changed_ = renderer_state_changed_ ||
@@ -284,20 +317,12 @@ void Host::apply()
     renderer_state_ = state;
     // The level of every anisotropic sampler (patches/bgfx-anisotropy-level.patch), applied at the next reset.
     bgfx::gl::g_stormMaxAnisotropy = static_cast<float>(state.max_anisotropy);
-    if (device_ready_ && state.max_anisotropy > 1 && device_max_anisotropy_ < state.max_anisotropy)
-        report_.changes.push_back("anisotropic filtering " + std::to_string(state.max_anisotropy) + "x: the device allows " +
-                                  std::to_string(static_cast<int>(device_max_anisotropy_)) + "x");
     lighting_.configure(settings_, renderer_state_);
-    report_.summary = describe(settings_);
-    if (changed && device_ready_ && (!settings_.PostIsIdentity() || renderer_state_.msaa_samples > 1))
-        self_test_pending_ = true;
-    if (changed)
-    {
-        shim::logf("effects: preset %d (%s): %s", preset_,
-                   std::string(fx::NameRu(static_cast<fx::QualityPreset>(preset_))).c_str(), report_.summary.c_str());
-        for (const auto &line : report_.changes)
-            shim::logf("effects: preset %d on this device: %s", preset_, line.c_str());
-    }
+}
+
+bool Host::needs_self_test(const fx::Settings &settings)
+{
+    return !settings.PostIsIdentity() || fx::RendererStateFor(settings).msaa_samples > 1;
 }
 
 void Host::set_weather(const render::EffectsWeather &weather)
@@ -389,12 +414,37 @@ uint16_t Host::submit_post(const PostTargets &targets)
     return used;
 }
 
-void Host::submit_self_test()
+void Host::advance_switch()
 {
-    if (!self_test_pending_ || !device_ready_ || self_test_.Running())
+    shim::Device *device = shim::Device::current;
+    if (!switching_ || !device_ready_ || !device || self_test_.Running())
         return;
-    self_test_pending_ = false;
-    self_test_.Submit(settings_, render::kPostViewBegin);
+    ++switch_frames_;
+    // The programs of the new settings, one per frame: each is a shader link (tens of milliseconds on a phone,
+    // seconds on a first run under ANGLE); linked all at once in the first frame of the new settings they held
+    // the picture for seconds.
+    int budget = kProgramsPerFrame;
+    const bool ready = (target_.PostIsIdentity() || post_.Prepare(target_, budget)) && water_.Prepare(target_, budget) &&
+                       sky_.Prepare(target_, budget) && contact_.Prepare(target_, budget) &&
+                       lighting_.prepare_programs(*device, target_, budget);
+    switch_programs_ += kProgramsPerFrame - budget;
+    if (!ready)
+        return;
+    // The effect path of the new settings on a known picture (views kPostViewBegin..), once per settings: a
+    // settings set that passed on this device is not tested again.
+    if (needs_self_test(target_) && std::find(verified_.begin(), verified_.end(), target_) == verified_.end())
+    {
+        tested_ = target_;
+        self_test_.Submit(tested_, render::kPostViewBegin, post_);
+        return;
+    }
+    switching_ = false;
+    report_.pending = false;
+    activate(target_);
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - switch_started_).count();
+    shim::logf("effects: preset %d (%s) active after %u frames, %.0f ms (%u programs prepared)", preset_,
+               std::string(fx::NameRu(static_cast<fx::QualityPreset>(preset_))).c_str(), switch_frames_, ms,
+               switch_programs_);
 }
 
 void Host::end_frame(bool scene_frame, uint32_t frame)
@@ -406,7 +456,8 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
         {
             const char *gpu = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
             shim::logf("effects self-test passed on %s (preset %d, MSAA %ux)", gpu ? gpu : "?", preset_,
-                       renderer_state_.msaa_samples);
+                       fx::RendererStateFor(tested_).msaa_samples);
+            verified_.push_back(tested_);
         }
         if (result.done && result.failed != fx::SelfTest::Stage::None)
         {

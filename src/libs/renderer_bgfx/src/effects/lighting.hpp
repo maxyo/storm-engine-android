@@ -75,6 +75,11 @@ class Lighting
 {
   public:
     void configure(const fx::Settings &settings, const fx::RendererState &state);
+    // Creates the fixed-function programs the draws of `settings` can pick (lit / baked variants with and without
+    // relief and shadow, their skinned twins, coverage, shadow casters), at most `budget` of them (reduced by the
+    // number created; each is a shader link on the GPU driver). True once all exist. A settings switch calls it
+    // while the previous settings still draw (Host::advance_switch).
+    bool prepare_programs(shim::Device &device, const fx::Settings &settings, int &budget);
     // Nothing to decide per draw (preset «Низкая»): the shim skips prepare().
     bool idle() const { return !lighting_ && !coverage_; }
 
@@ -132,7 +137,9 @@ class Lighting
     std::vector<fx::PointLight> dynamic_lights_;
     bool dynamic_lights_this_frame_ = false;
     const fx::SkyState *sky_ = nullptr;
-    uint32_t vs_ff_ = 0, vs_lit_ = 0, fs_coverage_ = 0;
+    void find_shaders();
+
+    uint32_t vs_ff_ = 0, vs_lit_ = 0, vs_lit_skin_ = 0, fs_coverage_ = 0;
     uint32_t fs_lit_[2][2][2][3] = {}; // [specular][normal map][linear][shadow: none, one tap, soft]
     uint32_t fs_baked_[2][2] = {};  // [normal map][linear]
     NormalMaps normal_maps_;

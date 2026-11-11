@@ -26,6 +26,7 @@ native void SceneSweepCapture();
 native int SceneSweepSettleMs();
 native int SceneSweepVariants();
 native void SceneSweepVariant(int index);
+native int SceneSweepVariantReady();
 #libriary "SceneSweepLibrary"
 
 #event_handler("frame", "SceneSweep_Frame");
@@ -37,7 +38,8 @@ native void SceneSweepVariant(int index);
 #define SS_DONE		4	// leaving the game
 
 #define SS_SETTLE_FRAMES	5	// after the fader is gone; scene loading is synchronous
-#define SS_VARIANT_WARM	4	// --variants: frames after a settings change before the measured window
+#define SS_VARIANT_WARM	4	// --variants: frames after the variant draws (it is prepared first) before the measured window
+#define SS_VARIANT_READY_TIMEOUT_MS	60000	// the renderer links the variant's programs and self-tests it first
 #define SS_VARIANT_FRAMES	12	// --variants: frames in the measured window
 #define SS_FADE_TIMEOUT_MS	30000
 #define SS_LOAD_TIMEOUT_MS	360000
@@ -171,7 +173,14 @@ void SceneSweep_Frame()
 		}
 		if(!ssSteady)
 		{
-			if(SceneSweep_HasVariants() && ssFrames < SS_VARIANT_WARM) break; // target rebuilds, shader loads
+			if(SceneSweep_HasVariants() && !SceneSweepVariantReady())
+			{
+				// The previous settings draw while the renderer prepares the variant's programs.
+				if(ssTime > SS_VARIANT_READY_TIMEOUT_MS) SceneSweep_Fail("graphics variant " + ssVariant + " not active after " + ssTime + " ms");
+				ssFrames = 0;
+				break;
+			}
+			if(SceneSweep_HasVariants() && ssFrames < SS_VARIANT_WARM) break; // target rebuilds
 			// Restarts the runner's frame and renderer counters: the capture reports the scene alone.
 			SceneSweepEvent("steady " + ssScene);
 			ssSteady = true;

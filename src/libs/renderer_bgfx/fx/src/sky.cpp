@@ -131,6 +131,20 @@ void Sky::BindWind()
     bgfx::setUniform(u_wind_, ComputeWind(weather_, time_).u_fxWind.data(), 2);
 }
 
+bool Sky::Prepare(const Settings &settings, int &budget)
+{
+    if (!settings.sky_atmosphere)
+        return true;
+    bgfx::ProgramHandle &program = settings.sky_clouds ? program_clouds_ : program_;
+    if (bgfx::isValid(program))
+        return true;
+    if (budget <= 0)
+        return false;
+    program = LoadProgram("vs_fx_sky", settings.sky_clouds ? "fs_fx_sky_clouds" : "fs_fx_sky");
+    --budget;
+    return true;
+}
+
 void Sky::Submit(bgfx::ViewId view, const Settings &settings, const float *view_matrix, const float *projection)
 {
     EnsureResources();

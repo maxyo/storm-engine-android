@@ -47,12 +47,16 @@ class SunShadows
     // Caster: the draw's buffers (and bone palette) are still bound (submitted with BGFX_DISCARD_NONE); `world` is
     // its world matrix.
     void submit_caster(shim::Device &device, const float *world, bool skinned);
+    // The caster programs of `settings` (Lighting::prepare_programs).
+    bool prepare_programs(shim::Device &device, const fx::Settings &settings, int &budget);
     void end_frame();
 
     void shutdown() { shadows_.Shutdown(); }
     void on_device_lost() { shadows_.OnDeviceLost(); }
 
   private:
+    void find_shaders();
+
     fx::Settings settings_{};
     fx::Shadows shadows_;
     std::array<float, 3> sun_dir_{0.0f, 1.0f, 0.0f};

@@ -205,30 +205,38 @@ void Device::create_scene_stores(uint32_t width, uint32_t height)
 {
     // Effects: MSAA of the scene target (fx::RendererState). bgfx resolves colour and depth when the frame buffer
     // is left; the composite and the post chain read the resolved textures.
-    const auto &state = effects::Host::instance().renderer_state();
+    const auto &host = effects::Host::instance();
+    const auto &state = host.renderer_state();
     const uint64_t msaa = state.msaa_samples >= 4 ? BGFX_TEXTURE_RT_MSAA_X4
                           : state.msaa_samples == 2 ? BGFX_TEXTURE_RT_MSAA_X2
                                                     : 0;
-    const auto picture = [&] {
-        auto store = make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
-                                D3DPOOL_DEFAULT);
-        store->backbuffer = true;
-        store->target_flags = msaa;
-        return store;
-    };
-    back_color->store = picture();
-    back_depth->store = make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8,
-                                   D3DPOOL_DEFAULT);
-    back_depth->store->backbuffer = true;
     // A multisampled depth is resolved into a texture only when an effect reads it (ambient occlusion, the high
     // water's scene capture): otherwise it stays a write-only render buffer, so leaving the scene target resolves
     // colour alone (less bandwidth on tile GPUs, and no depth/stencil resolve blit, which drivers get wrong).
-    back_depth->store->target_flags =
-        msaa | (msaa && !effects::Host::instance().scene_depth_read() ? BGFX_TEXTURE_RT_WRITE_ONLY : 0);
-    post_color = effects::Host::instance().post_active() ? picture() : nullptr;
-    single_depth = msaa ? make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8,
-                                     D3DPOOL_DEFAULT)
-                        : nullptr;
+    const uint64_t depth_flags = msaa | (msaa && !host.scene_depth_read() ? BGFX_TEXTURE_RT_WRITE_ONLY : 0);
+    // A settings switch rebuilds only the targets it changes (an anisotropy change none of them).
+    const auto fits = [&](const std::shared_ptr<TexStore> &store, uint64_t flags) {
+        return store && store->width == width && store->height == height && store->target_flags == flags;
+    };
+    const auto target = [&](D3DFORMAT format, DWORD usage, uint64_t flags) {
+        auto store = make_store(this, TexKind::Tex2D, width, height, 1, 1, usage, format, D3DPOOL_DEFAULT);
+        store->backbuffer = true;
+        store->target_flags = flags;
+        return store;
+    };
+    if (!fits(back_color->store, msaa))
+        back_color->store = target(D3DFMT_A8R8G8B8, D3DUSAGE_RENDERTARGET, msaa);
+    if (!fits(back_depth->store, depth_flags))
+        back_depth->store = target(D3DFMT_D24S8, D3DUSAGE_DEPTHSTENCIL, depth_flags);
+    if (!host.post_active())
+        post_color = nullptr;
+    else if (!fits(post_color, msaa))
+        post_color = target(D3DFMT_A8R8G8B8, D3DUSAGE_RENDERTARGET, msaa);
+    if (!msaa)
+        single_depth = nullptr;
+    else if (!fits(single_depth, 0))
+        single_depth = make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8,
+                                  D3DPOOL_DEFAULT);
     world_anisotropy = state.max_anisotropy > 1;
     view_dirty = true;
 }
@@ -373,7 +381,7 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
                              back_color->store->height});
     auto &effects = effects::Host::instance();
     if (context.ready())
-        effects.submit_self_test(); // the effect path of the settings on a known picture (views kPostViewBegin..)
+        effects.advance_switch(); // a settings change: programs, self-test (views kPostViewBegin..), then the switch
     context.present(back_color->store->handle, back_color->store->width, back_color->store->height);
     effects.end_frame(scene_frame, context.last_frame());
     if (effects.take_renderer_state_change())
@@ -415,6 +423,11 @@ void Device::scene_complete()
         post_color->backbuffer = true;
         post_color->target_flags = back_color->store->target_flags;
     }
+    // The post chain writes this target outside the shim's views: a new one (the first post frame after a settings
+    // switch) is cleared now, in a view before the chain's. Cleared later, by the first shim view that draws the
+    // interface into it, it wiped the processed scene: one black frame after every preset change.
+    post_color->sync();
+    clear_if_new(post_color.get());
     const uint16_t budget = render::kGameViewEnd - render::kGameViewBegin;
     if (views_used + fx::PostChain::kMaxViews > budget)
     {

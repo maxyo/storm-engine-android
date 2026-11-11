@@ -92,6 +92,11 @@ class Water
     bool SubmitGerstner(const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky,
                         const GerstnerSet &waves, float bump_scale);
 
+    // Creates the programs the sea of `settings` will need (PrepareMesh() with the environment cube, the High
+    // scene capture; each a shader link on the GPU driver), at most `budget` of them; `budget` is reduced by the
+    // number created. True once all of them exist (PostChain::Prepare).
+    bool Prepare(const Settings &settings, int &budget);
+
     void Shutdown();
     void OnDeviceLost();
 

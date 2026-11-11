@@ -29,6 +29,9 @@ class ContactShadows
     // submit after the opaque geometry and before transparent effects. Does nothing unless
     // settings.contact_shadows is on.
     void Submit(bgfx::ViewId view, const Settings &settings);
+    // Creates the programs Submit() will need for `settings` (each a shader link on the GPU driver), at most
+    // `budget` of them; `budget` is reduced by the number created. True once all of them exist (PostChain::Prepare).
+    bool Prepare(const Settings &settings, int &budget);
 
     void Shutdown();
     void OnDeviceLost();

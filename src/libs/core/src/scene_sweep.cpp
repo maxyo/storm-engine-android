@@ -40,6 +40,7 @@ std::function<std::string()> rendererWindow;
 std::vector<std::string> variants; // STORM_SCENE_SWEEP_VARIANTS split at ';'
 int currentVariant = -1;
 storm::scene_sweep::VariantHook variantHook = nullptr;
+storm::scene_sweep::VariantReadyHook variantReadyHook = nullptr;
 
 void writeEvent(const std::string &text)
 {
@@ -132,6 +133,15 @@ uint32_t variant(VS_STACK *stack)
     return IFUNCRESULT_OK;
 }
 
+uint32_t variantReady(VS_STACK *stack)
+{
+    auto *result = static_cast<VDATA *>(stack->Push());
+    if (!result)
+        return IFUNCRESULT_FAILED;
+    result->Set(static_cast<int32_t>(variantReadyHook && variantReadyHook() ? 1 : 0));
+    return IFUNCRESULT_OK;
+}
+
 uint32_t settleMs(VS_STACK *stack)
 {
     static const int value = [] {
@@ -175,6 +185,7 @@ class SceneSweepLibrary : public SCRIPT_LIBRIARY
         registerFunction("SceneSweepSettleMs", "int", 0, settleMs);
         registerFunction("SceneSweepVariants", "int", 0, variantCount);
         registerFunction("SceneSweepVariant", "void", 1, variant);
+        registerFunction("SceneSweepVariantReady", "int", 0, variantReady);
         if (const char *list = std::getenv("STORM_SCENE_SWEEP_VARIANTS"); list && *list)
         {
             const std::string text = list;
@@ -201,9 +212,10 @@ void storm::scene_sweep::framePresented(uint32_t drawCalls)
     lastDrawCalls = drawCalls;
 }
 
-void storm::scene_sweep::setVariantHook(VariantHook hook)
+void storm::scene_sweep::setVariantHook(VariantHook hook, VariantReadyHook ready)
 {
     variantHook = hook;
+    variantReadyHook = ready;
 }
 
 void storm::scene_sweep::setRendererWindow(std::function<std::string()> window)
