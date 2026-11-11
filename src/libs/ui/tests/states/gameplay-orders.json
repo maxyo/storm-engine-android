@@ -6,5 +6,6 @@
  "inputOwner": "",
  "analogMovement": false,
  "movementGeneration": 0,
- "capabilities": []
+ "capabilities": [],
+ "blocked": "commands"
 }

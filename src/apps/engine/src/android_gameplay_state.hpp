@@ -13,7 +13,13 @@ namespace storm::android
 inline GameplaySnapshot readGameplaySnapshot(bool ready)
 {
     GameplaySnapshot out;
-    if (!ready) return out;
+    // Every way out without a mode says why (GameplaySnapshot::blocked).
+    const auto blocked = [](std::string_view why) {
+        GameplaySnapshot none;
+        none.blocked = std::string(why);
+        return none;
+    };
+    if (!ready) return blocked("starting");
     // Resolve every frame: loading a save replaces script variables and entities.
     // Do not retain pointers or infer sailing from ownership of a ship.
     try
@@ -26,19 +32,19 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         };
         auto *groupValue = static_cast<VDATA *>(core.GetScriptVariable("curKeyGroupName"));
         const char *group = nullptr;
-        if (!groupValue || !groupValue->Get(group) || !group) return out;
+        if (!groupValue || !groupValue->Get(group) || !group) return blocked("no-scene");
         out.group = group;
         auto *characters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
         const int index = integer("nMainCharacterIndex", -1);
-        if (!characters || index < 0 || static_cast<uint32_t>(index) >= characters->GetElementsNum()) return {};
+        if (!characters || index < 0 || static_cast<uint32_t>(index) >= characters->GetElementsNum()) return blocked("no-scene");
         auto *character = characters->GetAClass(index);
-        if (!character) return {};
-        if (integer("dialogRun")) return {};
+        if (!character) return blocked("no-scene");
+        if (integer("dialogRun")) return blocked("dialogue");
         auto *interfaceValue = static_cast<VDATA *>(core.GetScriptVariable("InterfaceStates"));
         auto *interfaceAttrs = interfaceValue ? interfaceValue->GetAClass() : nullptr;
-        if (interfaceAttrs && interfaceAttrs->GetAttributeAsDword("Launched", 0)) return {};
+        if (interfaceAttrs && interfaceAttrs->GetAttributeAsDword("Launched", 0)) return blocked("interface");
         auto *ai = character->FindAClass(character, "chr_ai.type");
-        if (ai && ai->HasValue() && ai->GetValue() == "actor") return {};
+        if (ai && ai->HasValue() && ai->GetValue() == "actor") return blocked("cutscene");
         const auto worldmap = core.GetEntityId("WorldMap");
         const bool sea = worldmap == invalid_entity && integer("bSeaActive") && !integer("bAbordageStarted");
         const auto commandActive = [](const char *name) {
@@ -51,11 +57,11 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         context.worldmap = worldmap != invalid_entity;
         context.sea = sea;
         context.land = integer("bLandInterfaceStart");
+        context.location = core.GetEntityId("location") != invalid_entity;
         // BICommandList::SetActive writes ComState during entity Execute, after
         // scripts may have last updated curKeyGroupName. Gate taps immediately.
-        context.blocked = commandActive("BattleInterface") || commandActive("objLandInterface") ||
-            core.GetEntityId("CAviPlayer") != invalid_entity ||
-            core.GetEntityId("WMVideoPlay") != invalid_entity;
+        context.video = core.GetEntityId("CAviPlayer") != invalid_entity || core.GetEntityId("WMVideoPlay") != invalid_entity;
+        context.blocked = commandActive("BattleInterface") || commandActive("objLandInterface") || context.video;
         auto player = invalid_entity;
         if (sea)
         {
@@ -71,10 +77,10 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
                 context.nativeFight = core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "IsFightMode") != 0;
         }
         out.mode = gameplayMode(context);
-        if (out.mode == "unknown") return {};
+        if (out.mode == "unknown") return blocked(gameplayBlocked(context));
         const char *location = character->GetAttribute("location");
         auto *mainShip = sea ? shipForCharacter(character) : nullptr;
-        if (sea && !mainShip) return {};
+        if (sea && !mainShip) return blocked("no-scene");
         out.scene = std::to_string(index) + ":" + (location ? location : "") + ":" +
             std::to_string(context.worldmap ? worldmap : sea ? mainShip->GetId() : core.GetEntityId("location"));
         if (!sea && !context.worldmap) out.inputOwner = out.scene + ":" + std::to_string(player);
@@ -124,7 +130,7 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
                 if (commands->GetAttributeClass(name)) out.capabilities.emplace_back(std::string("BI_") + name);
         return out;
     }
-    catch (...) { return {}; } // Missing/incompatible scripts fail closed.
+    catch (...) { return blocked("error"); } // Missing/incompatible scripts fail closed.
 }
 } // namespace storm::android
 #endif

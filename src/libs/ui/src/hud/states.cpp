@@ -151,6 +151,13 @@ class GameplayConsumer final : public HudConsumer
         std::string problem;
         if (next.mode != *mode && *mode != "unknown")
             problem = "unknown gameplay mode '" + *mode + "'";
+        if (*mode == "unknown")
+        {
+            next.blocked = Text(state, "blocked").value_or("");
+            if (!OneOf(next.blocked, {"starting", "paused", "loading", "interface", "dialogue", "cutscene", "video", "commands", "no-scene",
+                                      "no-land-interface", "no-player", "group", "error"}))
+                problem = "gameplay mode unknown without a known reason (blocked '" + next.blocked + "')";
+        }
         if (next.mode == "explore" || next.mode == "melee")
         {
             next.input_owner = Text(state, "inputOwner").value_or("");

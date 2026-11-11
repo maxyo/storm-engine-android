@@ -224,12 +224,15 @@ int main(int argc, char **argv)
     const std::string explore = Read(states / "gameplay-explore.json");
     Json blocked = Json::parse(explore);
     blocked["mode"] = "unknown"; // what the engine publishes while it loads or changes scene
+    blocked["blocked"] = "loading";
     blocked["revision"] = 8;
     blocked["capabilities"] = Json::array();
 
     // Before the game is in any gameplay mode (the title load, a scene change) nothing on the
     // screen can be used: the UI owns the touches and holds them. Gameplay coming next drops them.
-    Expect(host->WantsTouch(700, 350), "while the game is in no gameplay mode the touches are the UI's");
+    Expect(!host->WantsTouch(700, 350), "before any gameplay state nothing is decided: the game keeps the touches");
+    Expect(host->SetState("gameplay", blocked.dump()), "the engine loads (mode unknown, blocked loading)");
+    Expect(host->WantsTouch(700, 350), "while the game loads the touches are the UI's");
     tap(700, 350);
     frames(0.5);
     Expect(host->SetState("gameplay", explore), "gameplay starts");
@@ -238,6 +241,7 @@ int main(int argc, char **argv)
 
     // A scene change (no gameplay mode again), then the interface the game opens: a tap made
     // in between waits for it and presses it.
+    blocked["revision"] = 9;
     Expect(host->SetState("gameplay", blocked.dump()), "the game leaves gameplay");
     Expect(host->WantsTouch(700, 350), "between scenes the touches are the UI's again");
     tap(100, 24);

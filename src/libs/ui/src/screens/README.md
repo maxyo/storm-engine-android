@@ -174,7 +174,7 @@ Channels (JSON as the engine publishes it unless noted):
 
 | channel | shape | state |
 |---|---|---|
-| `gameplay` | `{schemaVersion: 1, revision, mode: explore\|melee\|sailing\|naval\|worldmap\|unknown, language, inputOwner, analogMovement, movementGeneration, capabilities: […]}` | `Gameplay` |
+| `gameplay` | `{schemaVersion: 1, revision, mode: explore\|melee\|sailing\|naval\|worldmap\|unknown, language, inputOwner, analogMovement, movementGeneration, capabilities: […], blocked: why the mode is unknown (starting\|paused\|loading\|interface\|dialogue\|cutscene\|video\|commands\|no-scene\|no-land-interface\|no-player\|group\|error)}` | `Gameplay` |
 | `combat` | `{schemaVersion: 2, gameplayRevision, activityGeneration, playerId, mode, actions: {name: generation}, interactKind, pistol: {state, progress 0…20}}`; a command carries the activity and the action's own generation, so an action appearing or going away (`interact` as people walk past) fences only itself | `Combat` |
 | `vitals` | `{health, energy, reload: 0…1, loaded, capacity, effects: [poison\|drunk\|healing], potions, officers: [{id, name, face, health}], dash?: 0…1}` or `null` | `Vitals` |
 | `worldInfo` | a JSON string: the engine's location lines, `\n` between them | `States::world_info` |
@@ -213,9 +213,11 @@ nothing.
 
 Touches over the game are decided per pointer at pointer-down: `Host::WantsTouch(x, y)` is
 true on an interactive HUD element (what the behaviours report as `Regions`), anywhere
-while a modal sheet, an interface or a plain document is shown or the game shows nothing to
-use (no gameplay mode a scene holds, no video, no cutscene: those touches wait for the next
-interface, gameplay drops them), and false elsewhere, so the game keeps the rest (camera
+while a modal sheet, an interface or a plain document is shown or the game is between scenes
+(gameplay mode "unknown" because the engine is starting, loading, has no scene or launched an
+interface not shown yet: those touches wait for the next interface, gameplay drops them, and
+every held or dropped touch is logged with the gameplay and presentation state;
+`tests/routing_check.cpp` lists every state), and false elsewhere, so the game keeps the rest (camera
 look). It is answered from the layout of the last frame and is thread-safe. The land move stick floats: its layout element is the zone (anchor and size in
 `hud-layout.json`, drawn under every other element), the stick rests at `restLeft` /
 `restBottom` and appears under the thumb that lands anywhere in the zone where no other

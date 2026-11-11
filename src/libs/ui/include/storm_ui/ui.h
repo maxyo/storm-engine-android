@@ -191,8 +191,9 @@ class Host
     // pointer's whole gesture through Touch, otherwise give it to the game (camera look).
     // True on an interactive HUD element, anywhere while an interface, a modal sheet or a
     // plain document is shown or an interface is being opened (ExpectInterface), and anywhere
-    // while the game shows nothing to use (no gameplay mode a HUD scene holds, no video, no
-    // cutscene: the loading screen, a scene change). A pointer that goes down on what is not
+    // while the game is between scenes (no gameplay mode, and the engine's reason for it is
+    // starting, loading, no-scene or an interface not shown yet: channel "gameplay", field
+    // "blocked"; every other reason leaves the touch to the game). A pointer that goes down on what is not
     // laid out yet is held and applied after the next frame; one held while nothing was shown
     // goes to the next interface, or is dropped (logged) when gameplay comes next.
     // Coordinates in physical pixels.

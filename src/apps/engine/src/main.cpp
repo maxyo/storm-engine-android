@@ -489,8 +489,19 @@ int main(int argc, char *argv[])
     storm::android::Lifecycle androidLifecycle;
     storm::android::GameplayShortcuts gameplayShortcuts;
     storm::android::GameplayState gameplayState;
+    // Why the game is not ready for gameplay this loop (GameplaySnapshot::blocked).
+    const auto notReady = [&]() -> const char * {
+        if (!androidLifecycle.canRun() || !bActive) return "paused";
+        if (storm::android::loadingState == 1) return "loading"; // -1: nothing loaded yet (starting)
+        if (!storm::android::mobileScreen.empty()) return "interface";
+        return "starting";
+    };
     storm::android::movementInput.updateOwner({});
-    gameplayState.update({});
+    {
+        storm::android::GameplaySnapshot starting;
+        starting.blocked = "starting";
+        gameplayState.update(std::move(starting));
+    }
     storm::android::combatInput.guard = [&]() {
         return storm::android::combatInput.player() == std::to_string(core.GetEntityId("Player")) &&
             storm::android::combatContextCurrent(gameplayState, isRunning && bActive && androidLifecycle.canRun() &&
@@ -752,7 +763,9 @@ int main(int argc, char *argv[])
             storm::android::publishLandCommands();
             storm::android::publishSeaOrders();
             storm::android::movementInput.updateOwner({});
-            gameplayState.update({});
+            storm::android::GameplaySnapshot blocked;
+            blocked.blocked = notReady();
+            gameplayState.update(std::move(blocked));
             storm::android::heldControls.update(gameplayState.revision());
             storm::android::updateCombatState(gameplayState, core_private);
             storm::android::publishCombatState();
@@ -887,6 +900,8 @@ int main(int argc, char *argv[])
                 storm::android::publishLandCommands();
             }
             auto gameplaySnapshot = storm::android::readGameplaySnapshot(gameplayReady);
+            if (!gameplayReady)
+                gameplaySnapshot.blocked = notReady(); // the same reason as the blocked branch above: one state per loop
             storm::android::movementInput.updateOwner(gameplaySnapshot.inputOwner);
             gameplaySnapshot.analogMovement = !gameplaySnapshot.inputOwner.empty();
             gameplaySnapshot.movementGeneration = gameplaySnapshot.analogMovement ? storm::android::movementInput.generation() : 0;
@@ -970,7 +985,11 @@ int main(int argc, char *argv[])
     storm::android::publishLandCommands();
     storm::android::publishSeaOrders();
     storm::android::movementInput.updateOwner({});
-    gameplayState.update({});
+    {
+        storm::android::GameplaySnapshot stopping;
+        stopping.blocked = "starting"; // the engine is going down: nothing of the game is usable
+        gameplayState.update(std::move(stopping));
+    }
     storm::android::publishGameplayState(gameplayState.json());
     storm::android::worldMapHud.update({},SDL_GetTicks());
     storm::android::publishWorldMapHud();

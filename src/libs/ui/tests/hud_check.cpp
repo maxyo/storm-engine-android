@@ -238,8 +238,14 @@ static void CheckConsumers()
     Expect(states.gameplay.mode == "sailing" && !states.gameplay.analog_movement && states.gameplay.input_owner.empty(), "gameplay: no land owner at sea");
     Json unknown = State("gameplay-explore");
     unknown["mode"] = "unknown";
+    unknown["blocked"] = "loading";
     bench.Feed("gameplay", unknown);
-    Expect(states.gameplay.mode == "unknown" && states.gameplay.capabilities.empty() && bench.mount.errors.empty(), "gameplay: the engine's own 'unknown' is no error");
+    Expect(states.gameplay.mode == "unknown" && states.gameplay.blocked == "loading" && states.gameplay.capabilities.empty() && bench.mount.errors.empty(),
+           "gameplay: the engine's own 'unknown' with its reason is no error");
+    unknown.erase("blocked");
+    bench.Feed("gameplay", unknown);
+    Expect(!bench.mount.errors.empty(), "gameplay: 'unknown' without a reason is reported (the routing of touches depends on it)");
+    bench.mount.errors.clear();
     Json strange = State("gameplay-explore");
     strange["mode"] = "flying";
     bench.Feed("gameplay", strange);

@@ -37,6 +37,39 @@ int main()
     context.blocked = false;
     context.group = "PrimaryLand";
     assert(gameplayMode(context) == "unknown"); // entering sea before sailing group is activated
+    // Why a scene has no mode (GameplaySnapshot::blocked): the touch UI holds touches only
+    // between scenes, so every reason in a scene is named.
+    {
+        GameplayContext why;
+        assert(gameplayBlocked(why) == "no-scene");
+        why.location = true;
+        assert(gameplayBlocked(why) == "no-land-interface"); // a location: the game may use touches (camera)
+        why.land = true; why.group = "PrimaryLand";
+        assert(gameplayBlocked(why) == "no-player");
+        why.nativeFight = false;
+        assert(gameplayBlocked(why) == "" && gameplayMode(why) == "explore");
+        why.group = "DialogControls";
+        assert(gameplayBlocked(why) == "group" && gameplayMode(why) == "unknown");
+        why.blocked = true;
+        assert(gameplayBlocked(why) == "commands");
+        why.video = true;
+        assert(gameplayBlocked(why) == "video");
+        GameplayContext sea;
+        sea.sea = true; sea.group = "Sailing1Pers"; // the deck camera
+        assert(gameplayBlocked(sea) == "" && gameplayMode(sea) == "sailing");
+        sea.group = "BattleInterfaceControls";
+        assert(gameplayBlocked(sea) == "group");
+        GameplayContext map;
+        map.worldmap = true; map.group = "WorldMapControls";
+        assert(gameplayBlocked(map) == "" && gameplayMode(map) == "worldmap");
+        map.group = "MainInterface";
+        assert(gameplayBlocked(map) == "group");
+        GameplaySnapshot loading;
+        loading.blocked = "loading";
+        GameplayState published;
+        published.update(loading);
+        assert(published.json().find("\"blocked\":\"loading\"") != std::string::npos);
+    }
     GameplayState state;
     state.update({});
     assert(!state.offer("1\tShip_Fire", 0));
