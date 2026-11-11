@@ -297,7 +297,6 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         LoadIconPack(icons);
         registry_ = std::make_unique<ComponentRegistry>(*this);
         registry_->Load(components);
-        SetGameImageLoader(config.game_picture_loader);
         SetGameImageRenderer(backend_);
         SetGameImageRoot(config.game_root);
 

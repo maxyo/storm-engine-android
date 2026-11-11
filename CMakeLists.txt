@@ -23,6 +23,9 @@ set(STORM_WATERMARK_FILE ${CMAKE_BINARY_DIR}/generated/storm_build_watermark.hpp
 
 if(ANDROID)
     include(android)
+    # The game's portable UI is drawn inside the engine frame (src/libs/ui_host): the UI
+    # runtime and its bgfx backend are part of libengine.so.
+    set(STORM_ENABLE_UI ON)
 else()
     include(host)
 endif()

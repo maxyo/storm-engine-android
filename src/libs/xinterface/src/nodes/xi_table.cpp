@@ -1604,9 +1604,7 @@ void CXI_TABLE::MobileCollect(std::vector<MobileWidget> &widgets) const
             auto *cell = line->GetAttributeClass(cellKey.c_str());
             auto output = collectCell(cell, col);
             widget.label += output.text;
-            // Old Java forms cannot render images-only rows.
-            hasContent = hasContent || !output.text.empty() ||
-                         (!output.images.empty() && storm::android::imagePoll && storm::android::imageReply);
+            hasContent = hasContent || !output.text.empty() || !output.images.empty();
             widget.cells.push_back(std::move(output));
         }
         if (hasContent)

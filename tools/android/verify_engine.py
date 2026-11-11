@@ -77,7 +77,9 @@ if a.allocator_library:
     if names.intersection({'malloc','calloc','realloc','free'}):
         raise SystemExit('Android mimalloc must not interpose libc allocation: emulated TLS recursion')
     # Placement new is harmless; owning global new/delete must remain in libc++.
+    # Exact names: a class's own operator new (RmlUi's layout boxes) is not the global one.
+    defined={line.split(' ',2)[2] for line in symbols.splitlines() if line.count(' ')>=2}
     for symbol in ('operator new(unsigned long)', 'operator new[](unsigned long)',
                    'operator delete(void*)', 'operator delete[](void*)'):
-        if symbol in symbols:raise SystemExit('Android must use the platform C++ allocator: '+symbol)
+        if symbol in defined:raise SystemExit('Android must use the platform C++ allocator: '+symbol)
     print('PASS: mimalloc API retained; Android uses platform C/C++ allocation without heap interposition')

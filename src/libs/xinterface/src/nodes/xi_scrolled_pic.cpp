@@ -356,7 +356,7 @@ void CXI_SCROLLEDPICTURE::SetScale(float fsx, float fsy)
 // comes back as "point@<opening>:<x>,<y>" in base units and "release" ends the hold.
 void CXI_SCROLLEDPICTURE::MobileCollect(std::vector<MobileWidget> &widgets) const
 {
-    if (!storm::android::imagePoll || !storm::android::imageReply || m_pTex)
+    if (m_pTex)
         return;
     const int order = m_rect.top * 8192 + m_rect.left;
     MobileWidget map{m_nodeName, "map", "", "", -1, order, m_bSelected && !m_bLockStatus};

@@ -1,6 +1,7 @@
-// bgfx render backend: draws the UI inside a bgfx frame that someone else owns (the
-// engine's frame owner, or a capture tool), in the frame owner's UI view range, after the
-// game picture and at native surface resolution. Needs the build option STORM_UI_BGFX.
+// bgfx render backend, the UI's only one: draws the UI inside a bgfx frame that someone else
+// owns (the engine's frame owner; for the screens without the engine and for captures, their
+// host), in the frame owner's UI view range, after the game picture and at native surface
+// resolution.
 //
 // It is also the frame client: register it with storm::render::FrameOwner::AddClient and
 // attach the host; it then lays out on OnSurfaceChanged, draws in OnUiRender and drops and
@@ -27,8 +28,9 @@ class Host;
 
 struct BgfxBackendOptions
 {
-    // Supplies game pictures (.tx) as GPU textures. Without it (a capture tool) pictures are
-    // unavailable: placeholders stay and one line is logged. The engine host always sets it.
+    // Supplies game pictures (.tx) as GPU textures. Without it (the screens without the engine)
+    // pictures are unavailable: placeholders stay and one line is logged. The engine host and
+    // the capture tool set it.
     storm::render::FrameOwner *owner = nullptr;
     // Multisampling of the layer frame buffers (0, 2 or 4). 2 matches the GL backend.
     int msaa_samples = 2;
@@ -54,6 +56,9 @@ class BgfxBackend : public RenderBackend, public storm::render::FrameClient
     virtual bool UpdateTexture(Rml::TextureHandle texture, Rml::Rectanglei region, Rml::Span<const Rml::byte> rgba) = 0;
     // Queued texture-producing layer work not yet rendered (see the header comment).
     virtual size_t PendingWork() const = 0;
+    // Seconds until the host needs another frame after the last OnUiRender (0 while something
+    // animates or layer work is queued).
+    virtual double NextFrameDelay() const = 0;
 };
 
 } // namespace storm::ui

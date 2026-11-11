@@ -21,19 +21,15 @@ ctest --test-dir build/ui-host --output-on-failure       # template language, .t
 build/ui-host/storm_ui_shot --pack <pack dir> --doc gallery/button.rml --out shot.png
 ```
 
-`storm_ui_shot` renders a document off-screen (EGL pbuffer, software GL 3.3, simulated
-clock) and can replay touches: `--script "down 1 660 88; wait 0.5; shot held.png; up 1 660 88"`.
+The build pulls in `src/libs/renderer_bgfx` for bgfx, its shader build and the pinned sources
+(offline: `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<checkout>`). `storm_ui_shot` renders
+off-screen through the UI's bgfx backend on bgfx's GLES 3.0 renderer (Mesa llvmpipe, headless,
+simulated clock), the tool acting as the frame owner with the engine's UI view range (`--views N`)
+and decoding game pictures from `--game-root` itself. It can replay touches:
+`--script "down 1 660 88; wait 0.5; shot held.png; up 1 660 88"`.
 Reported component actions are printed as `action <id> <verb> <value>`; `--safe L,T,R,B`
 applies safe-area insets in dp (what `Host::SetSafeArea` receives from the platform:
 display cutout and system bars). Component templates read them as `safe.left` … `safe.bottom`.
-
-With `-DSTORM_UI_BGFX=ON` the build also compiles the bgfx backend (bgfx, its shader
-compiler and the pinned sources come from `src/libs/renderer_bgfx`; offline:
-`-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<checkout>`), and
-`storm_ui_shot --backend bgfx [--views 16]` draws through it on bgfx's GLES 3.0 renderer
-(Mesa llvmpipe, headless), the tool acting as the frame owner with the engine's UI view
-range. Captures of both backends match except for antialiased edges (all pack screens:
-PSNR 42-76 dB over a mid-tone background).
 
 ## Android
 
@@ -42,8 +38,14 @@ bash tools/android/ci_ui.sh     # needs the NDK prepared by ci_dependencies.sh
 ```
 
 produces `<build>/package/libstorm_ui.so` (stripped, 16 KiB pages) and
-`<build>/licenses/`. The application packages both. The JNI surface in
-`android/jni_host.cpp` belongs to `org.stormengine.port.StormUi`.
+`<build>/licenses/`: the host of the application screens without the engine (launcher,
+downloads, gallery, each in its own process). Their Java view (`StormUiView`, a GLSurfaceView)
+owns the EGL context; bgfx draws on it (`bgfx::PlatformData::context`) through the same backend
+as the game, `android/jni_host.cpp` playing the frame owner. The application packages both. The
+JNI surface belongs to `org.stormengine.port.StormUi`.
+
+The game does not use it: the engine's Android build links `storm_ui` and `storm_ui_bgfx` into
+`libengine.so` and hosts the UI inside its own frame (`src/libs/ui_host`).
 
 ## Parts
 
@@ -51,14 +53,14 @@ produces `<build>/package/libstorm_ui.so` (stripped, 16 KiB pages) and
 |---|---|
 | `include/storm_ui/ui.h` | `Host`: load a document, touches in, frames out, actions out, safe-area insets |
 | `include/storm_ui/render_backend.h` | the only renderer-specific seam |
-| `src/backend_gl3.cpp` | GL backend: RmlUi's stock GL3 renderer (GLES 3.0 / GL 3.3) |
-| `include/storm_ui/backend_bgfx.h`, `src/backend_bgfx.cpp`, `shaders/` | bgfx backend and frame client (build option `STORM_UI_BGFX`) |
+| `include/storm_ui/backend_bgfx.h`, `src/backend_bgfx.cpp`, `shaders/` | the render backend (bgfx) and frame client |
 | `src/components.*`, `src/template.*` | `<c-…>` elements rendered from spec + template + props |
 | `src/behaviors.cpp` | press, hold-to-confirm, long-press tooltip, range, stick, lever, table columns |
 | `src/draw_elements.cpp` | `<ui-ring>` (hold progress), `<ui-paper>` (aged parchment), `<ui-clamp>` (text cut to N lines with an ellipsis) |
 | `src/icons.cpp` | `<ui-icon>`: SVG symbols rasterised per size and colour; `icon-shadow: <colour> <x> <y> <sigma>` bakes a drop shadow into the raster (use it instead of `filter: drop-shadow` on an icon: no offscreen layer per frame) |
 | `src/picture_atlas.*` | the game's `pictures.ini` (group + picture → texture + rectangle), read from the game root at run time |
-| `src/tx_texture.cpp`, `src/game_image.cpp` | `<ui-game-image>`: pictures decoded from the player's `.tx` files (or by the host's `game_picture_loader`, never both) on a worker thread; the loading placeholder shows until then, a picture that cannot be had is logged with texture, cell and reason and marked `image-missing` |
+| `src/game_image.cpp` | `<ui-game-image>`: pictures from the renderer (`AcquireGamePicture`); the loading placeholder shows until then, a picture that cannot be had is logged with texture, cell and reason and marked `image-missing` |
+| `include/storm_ui/tx_texture.h`, `src/tx_texture.cpp` | `.tx` decoding on the CPU for a frame owner without the engine's texture module (`storm_ui_shot --game-root`) |
 | `src/ui_host.cpp` | RmlUi set-up, pointer routing, toasts, tooltip, the HUD mount, the touch map, Prepare/Frame |
 | `src/frame_renderer.*` | between RmlUi and the backend: frame counters, the filter-result cache, the frame hash (see "Frame cost") |
 | `src/hud/` | the in-game HUD: state consumers, scenes by gameplay mode, engine input (see `src/screens/README.md`, "The HUD") |
@@ -79,19 +81,28 @@ list scroll.
 
 ## Renderer
 
-Nothing above `RenderBackend` calls a graphics API. Two backends:
+Nothing above `RenderBackend` calls a graphics API. There is one backend, bgfx
+(`backend_bgfx.h`, target `storm_ui_bgfx`), passed as the required `Config::backend`:
 
-`Config::backend` is required; there is no default and no automatic switch.
+- the game: inside the engine frame (`src/libs/ui_host`);
+- the screens without the engine: on the GLSurfaceView's context (`android/jni_host.cpp`);
+- captures: on a headless EGL display (`tools/ui_shot.cpp`).
 
-- **GL** (`CreateGl3Backend`): needs a current GLES 3.0 / GL 3.3 context from the host. Used by the Android `GLSurfaceView` bridge, the gallery and
-  host captures.
-- **bgfx** (`BgfxBackend::Create`, passed as `Config::backend`): draws inside the
-  engine frame through `storm/render/frame_owner.hpp`. It is a `FrameClient`: register
+The screens without the engine had RmlUi's GL3 renderer until 2026-11-11. Measured when it was
+replaced (emulator, x86_64 with arm64 translation, 1280x720, five cold launcher starts each):
+`libstorm_ui.so` 7 346 848 → 8 052 904 bytes stripped (+706 KB; +276 KB gzip); device start
+(GL3 backend / `bgfx::init` with its capability probes) 429–615 ms → 1356–1687 ms; host start
+(fonts, pack) unchanged at 0.4–1.9 s; activity start (`am start -W`) 1.5–2.4 s both. The extra
+second before the launcher's first frame on the emulator is bgfx probing texture formats through
+the emulator's GL translation. It was kept for one backend: one renderer to keep correct, one
+picture path, captures that draw what the game draws.
+
+It draws through `storm/render/frame_owner.hpp`. It is a `FrameClient`: register
   it with `FrameOwner::AddClient`, `AttachHost(host)`, and it lays out on
   `OnSurfaceChanged`, calls `Host::Frame()` in `OnUiRender` (the frame owner's UI view range, after the
   game picture, native resolution, composited premultiplied over the back buffer), and
   on device loss forgets its handles and lets RmlUi regenerate textures and geometry.
-  It follows RmlUi's GL3 renderer pass for pass: 2× MSAA layer stack with a shared
+  It follows RmlUi's stock GL3 renderer (not built) pass for pass: 2× MSAA layer stack with a shared
   D24S8 stencil for clip masks, the same gradient, blur, drop-shadow, colour-matrix and
   mask shaders (`shaders/*.sc`, built by `storm_bgfx_embed_shaders`). Each render-target
   switch takes one view, and a scheduler lets passes of different elements share views.
@@ -99,11 +110,10 @@ Nothing above `RenderBackend` calls a graphics API. Two backends:
   packed side by side, and may span frames when views are short. Running out of the
   frame owner's 64 views is an error (logged): the effects concerned are not drawn.
 
-Game pictures: `<ui-game-image>` asks the backend (`AcquireGamePicture`). The bgfx
-backend gets them from the frame owner's `.tx` loader (straight alpha, sampled by its own
-shader); a picture the renderer cannot load keeps the placeholder and is logged as an
-error. The GL backend has no renderer behind it and answers `DecodeOnCpu`: the UI reads
-the file itself (`Config::game_picture_loader` or the built-in reader).
+Game pictures: `<ui-game-image>` asks the backend (`AcquireGamePicture`), which gets them from
+the frame owner's `.tx` loader (straight alpha, sampled by its own shader); a picture the
+renderer cannot load keeps the placeholder and is logged as an error. Without a picture source
+(the screens without the engine) the neutral placeholder stays.
 
 ## Frame cost
 

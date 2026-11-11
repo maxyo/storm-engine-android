@@ -4,6 +4,8 @@
 #include "core.h"
 #include "string_compare.hpp"
 
+#include <spdlog/spdlog.h>
+
 #define SS_TEXTURE_WIDTH 128
 #define SS_TEXTURE_HEIGHT 128
 #define SS_TEXTURE_FONECOLOR 0xFF000000
@@ -104,7 +106,13 @@ bool SCRSHOTER::MakeScreenShot()
     // a copy of the frame, scaled down into the shot
     const int32_t frame = rs->GetRenderTargetAsTexture();
     if (frame < 0)
+    {
+        // No picture to copy: the surface is gone (an autosave while the app goes to the
+        // background). The save is written without a thumbnail (SFLB_DoSaveFileData), and the
+        // save list shows the record without a picture.
+        spdlog::warn("Screenshot for the save not taken: the render target cannot be read; the save gets no thumbnail");
         return false;
+    }
     D3DSURFACE_DESC desc{};
     textureIndex_ = rs->TextureCreate(SS_TEXTURE_WIDTH, SS_TEXTURE_HEIGHT, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED);
     bool ok = textureIndex_ >= 0 && rs->TextureLevelDesc(frame, 0, desc) &&
@@ -132,6 +140,7 @@ bool SCRSHOTER::MakeScreenShot()
     rs->TextureRelease(frame);
     if (!ok)
     {
+        spdlog::warn("Screenshot for the save not taken: the frame copy cannot be read; the save gets no thumbnail");
         TEXTURE_RELEASE(rs, textureIndex_);
         return false;
     }

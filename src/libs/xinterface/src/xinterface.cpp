@@ -597,7 +597,6 @@ void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
 void XINTERFACE::Realize(uint32_t)
 {
 #ifdef __ANDROID__
-    storm::mobile::PumpImages(); // Reap cancelled CPU work even after the interface closes.
 #endif
     if (!m_bUse || !bActive)
         return;
@@ -3369,12 +3368,16 @@ bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *gameSaveD
     entid_t ei;
     if (!(ei = core.GetEntityId("SCRSHOTER")))
         return false;
-    int32_t textureId = core.Send_Message(ei, "l", MSG_SCRSHOT_MAKE);
-    if (textureId == -1)
-        return false;
+    // Without a screenshot (no surface: an autosave while the app goes to the background) the
+    // save is still written, with its data and without a thumbnail (SurfaceDataSize 0).
+    const int32_t textureId = core.Send_Message(ei, "l", MSG_SCRSHOT_MAKE);
+    const bool shot = textureId != -1;
+    if (!shot)
+        spdlog::warn("Save '{}' is written without a thumbnail: no screenshot", saveName);
 
     D3DSURFACE_DESC dscr{};
-    pRenderService->TextureLevelDesc(textureId, 0, dscr);
+    if (shot)
+        pRenderService->TextureLevelDesc(textureId, 0, dscr);
 
     auto pdat = static_cast<char *>(malloc(sizeof(SAVE_DATA_HANDLE) + slen));
     if (pdat == nullptr)
@@ -3383,11 +3386,12 @@ bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *gameSaveD
     }
 
     ((SAVE_DATA_HANDLE *)pdat)->StringDataSize = slen;
+    ((SAVE_DATA_HANDLE *)pdat)->SurfaceDataSize = 0;
     // if(slen>0)
     memcpy(&pdat[sizeof(SAVE_DATA_HANDLE)], saveData, slen);
 
     int32_t ssize = 0;
-    if (dscr.Height > 0)
+    if (shot && dscr.Height > 0)
     {
         D3DLOCKED_RECT lockRect;
         if (pRenderService->TextureLock(textureId, 0, lockRect, D3DLOCK_READONLY))

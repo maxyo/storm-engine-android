@@ -1,5 +1,7 @@
-# Portable game UI runtime: RmlUi documents drawn by a GLES 3 / GL 3.3 context that the
-# platform host owns. Stand-alone project (host checks) or part of the Android build.
+# Portable game UI runtime: RmlUi documents drawn through the bgfx render backend (inside the
+# engine frame for the game, on a bgfx context of its own elsewhere). Stand-alone project (host
+# checks and captures, the application screens' libstorm_ui.so) or part of the engine's Android
+# build (the game).
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     cmake_minimum_required(VERSION 3.21)
     project(storm-ui LANGUAGES C CXX)
@@ -10,10 +12,9 @@ option(STORM_ENABLE_UI "Build the RmlUi based portable game UI runtime" OFF)
 if(NOT STORM_ENABLE_UI)
     return()
 endif()
-# bgfx render backend (drawn inside the engine frame through frame_owner.hpp). bgfx itself
-# is pinned only by src/libs/renderer_bgfx; a stand-alone build pulls that directory in
-# (shaders through its storm_bgfx_embed_shaders and the cached host shaderc).
-option(STORM_UI_BGFX "Build the bgfx render backend of the UI runtime" OFF)
+# Inside the engine build: neither this library nor its third-party sources take the engine's
+# global flags (-std=c++20 for C sources, the Windows type headers ...).
+set_directory_properties(PROPERTIES INCLUDE_DIRECTORIES "" COMPILE_DEFINITIONS "" COMPILE_OPTIONS "")
 
 include(FetchContent)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -73,9 +74,13 @@ foreach(notice
     configure_file("${from}" "${CMAKE_BINARY_DIR}/licenses/${to}" COPYONLY)
 endforeach()
 
-# bimg decodes the game's .tx textures, from the renderer's bgfx pin (no bgfx library is built).
-set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-include("${CMAKE_CURRENT_SOURCE_DIR}/../renderer_bgfx/cmake/bgfx_upstream.cmake")
+# bgfx is pinned only by src/libs/renderer_bgfx. A stand-alone build pulls that directory in: it
+# pins and configures bgfx (limits, GLES 3.0) and provides the shader build (the cached host
+# shaderc). Inside the engine it is there already.
+set(storm_ui_renderer_bgfx "${CMAKE_CURRENT_SOURCE_DIR}/../renderer_bgfx")
+if(NOT COMMAND storm_bgfx_embed_shaders)
+    add_subdirectory("${storm_ui_renderer_bgfx}" "${CMAKE_CURRENT_BINARY_DIR}/renderer_bgfx" EXCLUDE_FROM_ALL)
+endif()
 
 add_library(storm_ui STATIC
     src/ui_host.cpp
@@ -125,39 +130,32 @@ add_library(storm_ui STATIC
     src/tx_texture.cpp
     src/game_image.cpp
     src/picture_atlas.cpp
-    src/backend_gl3.cpp
-    src/frame_renderer.cpp
-    "${storm_ui_rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp")
+    src/frame_renderer.cpp)
 target_compile_features(storm_ui PUBLIC cxx_std_20)
-target_include_directories(storm_ui PUBLIC include PRIVATE src "${storm_ui_rmlui_SOURCE_DIR}/Backends")
+target_include_directories(storm_ui PUBLIC include PRIVATE src)
 target_link_libraries(storm_ui PUBLIC RmlUi::RmlUi nlohmann_json::nlohmann_json PRIVATE lunasvg::lunasvg plutovg::plutovg bimg)
-
-if(STORM_UI_BGFX)
-    set(storm_ui_renderer_bgfx "${CMAKE_CURRENT_SOURCE_DIR}/../renderer_bgfx")
-    if(NOT TARGET bgfx)
-        add_subdirectory("${storm_ui_renderer_bgfx}" "${CMAKE_CURRENT_BINARY_DIR}/renderer_bgfx" EXCLUDE_FROM_ALL)
-    endif()
-    file(GLOB storm_ui_shader_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.sc")
-    list(FILTER storm_ui_shader_sources EXCLUDE REGEX "varying\\.def\\.sc$")
-    storm_bgfx_embed_shaders(TARGET storm_ui_shaders NAMESPACE storm_ui_shaders
-        VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${storm_ui_shader_sources})
-    target_sources(storm_ui PRIVATE src/backend_bgfx.cpp)
-    # Only the frame owner's interface header is used (no symbols), so the stand-alone
-    # build does not need the engine's renderer library.
-    target_include_directories(storm_ui PUBLIC "${storm_ui_renderer_bgfx}/include")
-    target_link_libraries(storm_ui PUBLIC bgfx PRIVATE storm_ui_shaders)
-    target_compile_definitions(storm_ui PUBLIC STORM_UI_BGFX=1)
+if(ANDROID)
+    target_sources(storm_ui PRIVATE src/asset_files.cpp) # the pack in the APK assets
+    target_link_libraries(storm_ui PRIVATE android)
 endif()
 
-if(ANDROID)
-    # RmlUi's GL3 renderer picks GLSL ES 3.20 on Android. Its WebGL 2 path is the same code
-    # with GLSL ES 3.00 and <GLES3/gl3.h>, which every GLES 3.0 device (and the emulator's
-    # SwiftShader) accepts; select it for that one file.
-    set_source_files_properties("${storm_ui_rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp"
-        PROPERTIES COMPILE_DEFINITIONS RMLUI_PLATFORM_EMSCRIPTEN)
-    # The Java host owns the EGL context (GLSurfaceView); this library only issues GLES calls.
-    add_library(storm_ui_android SHARED android/jni_host.cpp android/asset_files.cpp)
-    target_link_libraries(storm_ui_android PRIVATE storm_ui android log GLESv3)
+# The render backend: bgfx. Only the frame owner's interface header is used (no symbols), so the
+# stand-alone build does not need the engine's renderer library.
+file(GLOB storm_ui_shader_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.sc")
+list(FILTER storm_ui_shader_sources EXCLUDE REGEX "varying\\.def\\.sc$")
+storm_bgfx_embed_shaders(TARGET storm_ui_shaders NAMESPACE storm_ui_shaders
+    VARYING "${CMAKE_CURRENT_SOURCE_DIR}/shaders/varying.def.sc" SOURCES ${storm_ui_shader_sources})
+add_library(storm_ui_bgfx STATIC src/backend_bgfx.cpp)
+target_include_directories(storm_ui_bgfx PUBLIC "${storm_ui_renderer_bgfx}/include")
+target_link_libraries(storm_ui_bgfx PUBLIC storm_ui bgfx PRIVATE storm_ui_shaders)
+
+if(ANDROID AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    # libstorm_ui.so for the application screens without the engine (launcher, downloads,
+    # gallery: their own processes). The Java view owns the EGL context (GLSurfaceView); bgfx
+    # draws on it. The game links storm_ui and storm_ui_bgfx into libengine.so instead
+    # (src/libs/ui_host).
+    add_library(storm_ui_android SHARED android/jni_host.cpp)
+    target_link_libraries(storm_ui_android PRIVATE storm_ui_bgfx android log EGL)
     target_link_options(storm_ui_android PRIVATE -Wl,--no-undefined -Wl,-z,max-page-size=16384)
     set_target_properties(storm_ui_android PROPERTIES OUTPUT_NAME storm_ui)
     include("${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/build_stamp.cmake")
@@ -168,9 +166,9 @@ if(ANDROID)
         COMMAND ${CMAKE_STRIP} --strip-unneeded -o "${CMAKE_CURRENT_BINARY_DIR}/package/libstorm_ui.so" "$<TARGET_FILE:storm_ui_android>"
         VERBATIM)
 elseif(NOT CMAKE_CROSSCOMPILING)
-    # Headless host renderer for design checks: EGL pbuffer + desktop GL 3.3, PNG output.
+    # Headless captures for design checks: bgfx GLES 3.0 on a surfaceless EGL display, PNG output.
     add_executable(storm_ui_shot tools/ui_shot.cpp)
-    target_link_libraries(storm_ui_shot PRIVATE storm_ui plutovg::plutovg ${CMAKE_DL_LIBS})
+    target_link_libraries(storm_ui_shot PRIVATE storm_ui_bgfx plutovg::plutovg ${CMAKE_DL_LIBS})
     add_executable(storm_ui_unit tests/unit_check.cpp)
     target_link_libraries(storm_ui_unit PRIVATE storm_ui)
     enable_testing()

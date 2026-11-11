@@ -4896,7 +4896,8 @@ int32_t DX9RENDER::GetRenderTargetAsTexture()
 {
     IDirect3DSurface9 *renderTarget = nullptr;
     D3DSURFACE_DESC desc;
-    if (CHECKD3DERR(GetRenderTarget(&renderTarget)))
+    // No render target (no surface: an autosave while the app goes to the background) is no copy.
+    if (CHECKD3DERR(GetRenderTarget(&renderTarget)) || !renderTarget)
         return -1;
     IDirect3DTexture9 *texture = nullptr;
     IDirect3DSurface9 *level = nullptr;

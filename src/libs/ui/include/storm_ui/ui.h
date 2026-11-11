@@ -66,34 +66,18 @@ struct TextRequest
 
 class RenderBackend; // render_backend.h
 
-// A decoded game picture: premultiplied RGBA8, top row first.
-struct Picture
-{
-    int width = 0;
-    int height = 0;
-    std::vector<uint8_t> rgba;
-};
-
 struct Config
 {
     FileSource *files = nullptr; // must outlive the host
-    // Renderer seam, chosen by the host and required: CreateGl3Backend() of
-    // render_backend.h (its GL context must be current) or BgfxBackend::Create()
-    // (backend_bgfx.h, inside the engine frame). There is no default and nothing else is tried.
+    // Renderer seam, required: BgfxBackend::Create() (backend_bgfx.h). There is no default.
     RenderBackend *backend = nullptr; // must outlive the host
     int width = 0;               // physical pixels
     int height = 0;
     float density = 1.0f; // physical pixels per dp
-    // Directory with the player's game files (the one holding RESOURCE/). With a backend
-    // that decodes game pictures on the CPU (GL) they are read from there at run time;
-    // nothing of them ships with the application. The bgfx backend takes them from the
-    // engine's texture module instead (RenderBackend::AcquireGamePicture). pictures.ini
-    // (atlas references) is always read from here.
+    // Directory with the player's game files (the one holding RESOURCE/): pictures.ini (atlas
+    // references) is read from there. The pictures themselves come from the renderer
+    // (RenderBackend::AcquireGamePicture); nothing of them ships with the application.
     std::string game_root;
-    // Optional replacement for the built-in .tx reader: called on a worker thread with
-    // the texture name ("INTERFACES/items6"); false keeps the placeholder. This is where
-    // the engine's texture module plugs in, so that pictures are decoded in one place.
-    std::function<bool(const std::string &texture, Picture &out)> game_picture_loader;
     std::function<void(const Action &)> on_action;
     std::function<void(const TextRequest &)> on_text_request;
     // Debug hosts: data and pack errors (malformed model, missing screen, unmapped event,

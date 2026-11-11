@@ -480,9 +480,6 @@ void CXI_PICTURE::MobileCollect(std::vector<MobileWidget> &widgets) const
     const int slot = MobileSaveSlot(m_nodeName);
     if (slot < 0)
     {
-        // Legacy Java forms render unknown widget types as blank text rows.
-        if (!storm::android::imagePoll || !storm::android::imageReply)
-            return;
         if (m_mobileTexturePath.empty() || m_pTex)
             return;
         auto ref =

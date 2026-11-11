@@ -2,15 +2,16 @@
 //
 //   storm_ui_shot --pack DIR --doc gallery/buttons.rml --size 915x412 --density 2 --out shot.png
 //                 [--game-root DIR] [--safe L,T,R,B] [--script "down 1 120 80; wait 0.5; shot held.png; up 1 120 80"]
-//                 [--backend gl3|bgfx] [--views N]
+//                 [--views N]
 //   script commands: down|move|up <pointer> <x> <y>, wait <s>, shot <png>, toast <text>, timed (print what
 //                    each later command costs up to its finished frame),
 //                    props <element id> <json>, scroll <element id>,
 //                    device-reset (bgfx: device loss and restore, as after a lost EGL context)
 //
-// --backend bgfx (build option STORM_UI_BGFX) draws through the bgfx backend on bgfx's
-// GLES 3.0 renderer, the engine configuration, with the tool acting as the frame owner and
-// N UI views from storm::render::kUiViewBegin (default kUiViewCount, the engine's range).
+// Draws through the UI's bgfx backend on bgfx's GLES 3.0 renderer (Mesa llvmpipe, headless),
+// the engine configuration, with the tool acting as the frame owner: N UI views from
+// storm::render::kUiViewBegin (default kUiViewCount, the engine's range), and game pictures
+// decoded from --game-root's .tx files (the engine takes them from its texture module).
 // Before each capture it renders frames on the same clock until the backend has no queued
 // layer work (at most 60), and reports how many.
 //
@@ -30,27 +31,24 @@
 // it uses a latest-value slot, "command[<slot>] <line>".
 //
 // Frame cost: bench <frames> [<channel> <a.json> <b.json>] runs that many frames as a
-// platform host does (Host::Prepare, and Host::Frame only for an out-of-date frame), each
-// finished on the GPU (glFinish; bgfx: every frame is drawn, as in the engine frame), and prints what they cost (Host::LastFrameStats: CPU of
+// host does (every frame drawn, as in the engine frame; an unchanged one re-submits its
+// commands), and prints what they cost (Host::LastFrameStats: CPU of
 // update and render, GPU wait, rebuilds, layout, meshes, draw calls, texture uploads).
 // With a channel the two states alternate every frame (a HUD that changes each frame);
 // the channel "interface" alternates two interface models instead. "redraw" draws every
 // frame (Host::Frame, the cost of a frame while something animates); "drag <x> <y> <dx> <dy>"
 // holds a pointer down at x,y, moves it by dx,dy every frame and lifts it on the last (a list
-// scroll; a following "bench" measures the fling). With GPU queries (GL backend) it also
-// prints the GPU time and the fragments shaded per drawn frame, every layer and filter pass
-// included, in screens of the capture size (overdraw).
+// scroll; a following "bench" measures the fling). Where bgfx's GPU timer works it also
+// prints the GPU time per drawn frame, every layer and filter pass included.
 //
 // Sizes and script coordinates are in dp. The clock is simulated (60 frames a second),
 // so captures are repeatable. Reported actions go to stdout as "action id verb value".
-#include "storm_ui/render_backend.h"
+#include "storm_ui/backend_bgfx.h"
+#include "storm_ui/tx_texture.h"
 #include "storm_ui/ui.h"
 
-#if STORM_UI_BGFX
-#include "storm_ui/backend_bgfx.h"
 #include <bgfx/bgfx.h>
 #include <cstdarg>
-#endif
 
 #include <plutovg.h>
 
@@ -60,7 +58,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <dlfcn.h>
+#include <filesystem>
+#include <unordered_map>
+#include <span>
+#include <cctype>
 #include <fstream>
 #include <iterator>
 #include <sstream>
@@ -71,77 +72,6 @@
 
 namespace
 {
-
-// The few EGL entry points needed for an off-screen desktop GL context. Declared here
-// because the build host has the EGL runtime but not necessarily its headers.
-using EGLDisplay = void *;
-using EGLConfig = void *;
-using EGLSurface = void *;
-using EGLContext = void *;
-using EGLint = int;
-constexpr EGLint EGL_NONE = 0x3038, EGL_SURFACE_TYPE = 0x3033, EGL_PBUFFER_BIT = 0x0001, EGL_RENDERABLE_TYPE = 0x3040;
-constexpr EGLint EGL_OPENGL_BIT = 0x0008, EGL_RED_SIZE = 0x3024, EGL_GREEN_SIZE = 0x3023, EGL_BLUE_SIZE = 0x3022, EGL_ALPHA_SIZE = 0x3021;
-constexpr EGLint EGL_STENCIL_SIZE = 0x3026, EGL_WIDTH = 0x3057, EGL_HEIGHT = 0x3056, EGL_OPENGL_API = 0x30A2;
-constexpr EGLint EGL_CONTEXT_MAJOR_VERSION = 0x3098, EGL_CONTEXT_MINOR_VERSION = 0x30FB, EGL_CONTEXT_OPENGL_PROFILE_MASK = 0x30FD;
-constexpr EGLint EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT = 0x00000001, EGL_PLATFORM_SURFACELESS_MESA = 0x31DD;
-
-struct Egl
-{
-    EGLDisplay (*GetDisplay)(void *) = nullptr;
-    EGLDisplay (*GetPlatformDisplay)(unsigned, void *, const intptr_t *) = nullptr;
-    unsigned (*Initialize)(EGLDisplay, EGLint *, EGLint *) = nullptr;
-    unsigned (*BindAPI)(unsigned) = nullptr;
-    unsigned (*ChooseConfig)(EGLDisplay, const EGLint *, EGLConfig *, EGLint, EGLint *) = nullptr;
-    EGLSurface (*CreatePbufferSurface)(EGLDisplay, EGLConfig, const EGLint *) = nullptr;
-    EGLContext (*CreateContext)(EGLDisplay, EGLConfig, EGLContext, const EGLint *) = nullptr;
-    unsigned (*MakeCurrent)(EGLDisplay, EGLSurface, EGLSurface, EGLContext) = nullptr;
-    void *(*GetProcAddress)(const char *) = nullptr;
-
-    bool Load()
-    {
-        void *library = dlopen("libEGL.so.1", RTLD_NOW | RTLD_GLOBAL);
-        if (!library)
-            return false;
-        const auto find = [library](const char *name) { return dlsym(library, name); };
-        GetDisplay = reinterpret_cast<decltype(GetDisplay)>(find("eglGetDisplay"));
-        GetPlatformDisplay = reinterpret_cast<decltype(GetPlatformDisplay)>(find("eglGetPlatformDisplay"));
-        Initialize = reinterpret_cast<decltype(Initialize)>(find("eglInitialize"));
-        BindAPI = reinterpret_cast<decltype(BindAPI)>(find("eglBindAPI"));
-        ChooseConfig = reinterpret_cast<decltype(ChooseConfig)>(find("eglChooseConfig"));
-        CreatePbufferSurface = reinterpret_cast<decltype(CreatePbufferSurface)>(find("eglCreatePbufferSurface"));
-        CreateContext = reinterpret_cast<decltype(CreateContext)>(find("eglCreateContext"));
-        MakeCurrent = reinterpret_cast<decltype(MakeCurrent)>(find("eglMakeCurrent"));
-        GetProcAddress = reinterpret_cast<decltype(GetProcAddress)>(find("eglGetProcAddress"));
-        return GetDisplay && Initialize && BindAPI && ChooseConfig && CreatePbufferSurface && CreateContext && MakeCurrent && GetProcAddress;
-    }
-};
-
-bool MakeContext(Egl &egl, int width, int height)
-{
-    EGLDisplay display = egl.GetPlatformDisplay ? egl.GetPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, nullptr, nullptr) : nullptr;
-    if (!display || !egl.Initialize(display, nullptr, nullptr))
-    {
-        display = egl.GetDisplay(nullptr);
-        if (!display || !egl.Initialize(display, nullptr, nullptr))
-            return false;
-    }
-    if (!egl.BindAPI(EGL_OPENGL_API))
-        return false;
-    const EGLint config_attributes[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
-                                        EGL_BLUE_SIZE,    8,               EGL_ALPHA_SIZE,      8,              EGL_STENCIL_SIZE, 8, EGL_NONE};
-    EGLConfig config = nullptr;
-    EGLint count = 0;
-    if (!egl.ChooseConfig(display, config_attributes, &config, 1, &count) || count < 1)
-        return false;
-    const EGLint surface_attributes[] = {EGL_WIDTH, width, EGL_HEIGHT, height, EGL_NONE};
-    EGLSurface surface = egl.CreatePbufferSurface(display, config, surface_attributes);
-    const EGLint context_attributes[] = {EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, 3,
-                                         EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT, EGL_NONE};
-    EGLContext context = egl.CreateContext(display, config, nullptr, context_attributes);
-    return surface && context && egl.MakeCurrent(display, surface, surface, context);
-}
-
-using ReadPixelsFn = void (*)(int, int, int, int, unsigned, unsigned, void *);
 
 // `rgba`: premultiplied RGBA8 rows, bottom row first (GL read-back order).
 bool SavePng(const std::vector<unsigned char> &rgba, int width, int height, const std::string &path)
@@ -162,6 +92,14 @@ bool SavePng(const std::vector<unsigned char> &rgba, int width, int height, cons
     return ok;
 }
 
+std::string ReadFile(const std::string &path)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file)
+        std::fprintf(stderr, "cannot read %s\n", path.c_str());
+    return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+}
+
 // Where frames are drawn and read back.
 class Capture
 {
@@ -179,107 +117,12 @@ class Capture
     virtual bool BenchFrame(storm::ui::Host &host) = 0;
     // bench: waits until the GPU has finished the frame.
     virtual void Finish() = 0;
-    // bench: GPU time and fragments shaded (every target: layers, filter passes) of what is
-    // drawn between the two calls; false when the backend cannot measure them.
-    virtual bool BeginGpuQuery()
-    {
-        return false;
-    }
-    virtual void EndGpuQuery(double &gpu_ms, double &fragments)
-    {
-        gpu_ms = fragments = 0.0;
-    }
+    // bench: GPU time of the frame drawn between the two calls (every target: layers, filter
+    // passes); false when the GPU timer does not work.
+    virtual bool BeginGpuQuery() = 0;
+    virtual void EndGpuQuery(double &gpu_ms) = 0;
 };
 
-class Gl3Capture final : public Capture
-{
-  public:
-    bool Start(int width, int height)
-    {
-        width_ = width;
-        height_ = height;
-        if (!egl_.Load() || !MakeContext(egl_, width, height))
-            return false;
-        std::string error;
-        backend_ = storm::ui::CreateGl3Backend(&error);
-        if (!backend_)
-            std::fprintf(stderr, "GL backend: %s\n", error.c_str());
-        return backend_ != nullptr;
-    }
-    storm::ui::RenderBackend *Backend() override
-    {
-        return backend_.get();
-    }
-    void Attach(storm::ui::Host &) override
-    {
-    }
-    void Frame(storm::ui::Host &host) override
-    {
-        host.Frame();
-    }
-    bool Shot(storm::ui::Host &host, const std::string &path) override
-    {
-        host.Frame();
-        const auto read_pixels = reinterpret_cast<ReadPixelsFn>(egl_.GetProcAddress("glReadPixels"));
-        if (!read_pixels)
-            return false;
-        std::vector<unsigned char> rgba(static_cast<size_t>(width_) * height_ * 4);
-        read_pixels(0, 0, width_, height_, 0x1908 /*GL_RGBA*/, 0x1401 /*GL_UNSIGNED_BYTE*/, rgba.data());
-        return SavePng(rgba, width_, height_, path);
-    }
-    bool BenchFrame(storm::ui::Host &host) override
-    {
-        double delay = 0.0;
-        if (!host.Prepare(delay)) // the Java GL host draws only an out-of-date frame
-            return false;
-        host.Frame();
-        return true;
-    }
-    void Finish() override
-    {
-        reinterpret_cast<void (*)()>(egl_.GetProcAddress("glFinish"))();
-    }
-    bool BeginGpuQuery() override
-    {
-        if (!queries_[0])
-        {
-            gen_queries_ = reinterpret_cast<void (*)(int, unsigned *)>(egl_.GetProcAddress("glGenQueries"));
-            begin_query_ = reinterpret_cast<void (*)(unsigned, unsigned)>(egl_.GetProcAddress("glBeginQuery"));
-            end_query_ = reinterpret_cast<void (*)(unsigned)>(egl_.GetProcAddress("glEndQuery"));
-            query_result_ = reinterpret_cast<void (*)(unsigned, unsigned, uint64_t *)>(egl_.GetProcAddress("glGetQueryObjectui64v"));
-            if (!gen_queries_ || !begin_query_ || !end_query_ || !query_result_)
-                return false;
-            gen_queries_(2, queries_);
-        }
-        begin_query_(kTimeElapsed, queries_[0]);
-        begin_query_(kSamplesPassed, queries_[1]);
-        return true;
-    }
-    void EndGpuQuery(double &gpu_ms, double &fragments) override
-    {
-        end_query_(kSamplesPassed);
-        end_query_(kTimeElapsed);
-        uint64_t ns = 0, samples = 0;
-        query_result_(queries_[0], kQueryResult, &ns);
-        query_result_(queries_[1], kQueryResult, &samples);
-        gpu_ms = static_cast<double>(ns) / 1e6;
-        fragments = static_cast<double>(samples);
-    }
-
-  private:
-    static constexpr unsigned kTimeElapsed = 0x88BF, kSamplesPassed = 0x8914, kQueryResult = 0x8866;
-    void (*gen_queries_)(int, unsigned *) = nullptr;
-    void (*begin_query_)(unsigned, unsigned) = nullptr;
-    void (*end_query_)(unsigned) = nullptr;
-    void (*query_result_)(unsigned, unsigned, uint64_t *) = nullptr;
-    unsigned queries_[2] = {};
-    Egl egl_;
-    std::unique_ptr<storm::ui::RenderBackend> backend_;
-    int width_ = 0;
-    int height_ = 0;
-};
-
-#if STORM_UI_BGFX
 struct QuietCallback final : bgfx::CallbackI
 {
     void fatal(const char *file, uint16_t line, bgfx::Fatal::Enum, const char *message) override
@@ -324,6 +167,186 @@ struct QuietCallback final : bgfx::CallbackI
     }
 };
 
+// The capture's game pictures: the .tx files under --game-root, decoded on the CPU and handed to
+// the backend as bgfx textures, as the engine's texture module does. Only the picture part of
+// the frame owner is used by the backend; the rest is not part of a capture.
+class PictureOwner final : public storm::render::FrameOwner
+{
+  public:
+    explicit PictureOwner(std::string root) : root_(std::move(root))
+    {
+    }
+    ~PictureOwner()
+    {
+        Forget();
+    }
+    // The device is gone: every texture handle with it.
+    void Forget()
+    {
+        pictures_.clear();
+    }
+    void DestroyAll()
+    {
+        for (auto &[name, picture] : pictures_)
+            if (bgfx::isValid(picture.texture))
+                bgfx::destroy(picture.texture);
+        pictures_.clear();
+    }
+
+    uint32_t ApiVersion() const override
+    {
+        return storm::render::kFrameOwnerApiVersion;
+    }
+    storm::render::GamePicture AcquireGamePicture(std::string_view path) override
+    {
+        Picture &picture = Load(path);
+        if (picture.result.state == storm::render::GamePicture::State::Ready)
+            ++picture.references;
+        return picture.result;
+    }
+    storm::render::GamePicture QueryGamePicture(std::string_view path) override
+    {
+        return Load(path).result;
+    }
+    void ReleaseGamePicture(std::string_view path) override
+    {
+        const auto found = pictures_.find(Key(path));
+        if (found == pictures_.end() || found->second.references == 0 || --found->second.references > 0)
+            return;
+        if (bgfx::isValid(found->second.texture))
+            bgfx::destroy(found->second.texture);
+        pictures_.erase(found);
+    }
+    uint16_t BgfxTexture(storm::render::TextureId id) const override
+    {
+        return id ? uint16_t(id - 1) : bgfx::kInvalidHandle;
+    }
+
+    void AddClient(storm::render::FrameClient *, int) override
+    {
+        Unused("AddClient");
+    }
+    void RemoveClient(storm::render::FrameClient *) override
+    {
+        Unused("RemoveClient");
+    }
+    storm::render::SurfaceMetrics Surface() const override
+    {
+        Unused("Surface");
+    }
+    GameTarget CurrentGameTarget() const override
+    {
+        Unused("CurrentGameTarget");
+    }
+    bool DeviceReady() const override
+    {
+        Unused("DeviceReady");
+    }
+    storm::render::TextureId CreateTexture(const storm::render::TextureDesc &, std::span<const std::byte>) override
+    {
+        Unused("CreateTexture");
+    }
+    bool UpdateTexture(storm::render::TextureId, uint16_t, uint16_t, uint16_t, uint16_t, std::span<const std::byte>) override
+    {
+        Unused("UpdateTexture");
+    }
+    void DestroyTexture(storm::render::TextureId) override
+    {
+        Unused("DestroyTexture");
+    }
+    bool IsFormatSupported(storm::render::PixelFormat) const override
+    {
+        Unused("IsFormatSupported");
+    }
+    void SetFrameRateLimit(uint32_t) override
+    {
+        Unused("SetFrameRateLimit");
+    }
+
+  private:
+    struct Picture
+    {
+        storm::render::GamePicture result;
+        bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
+        int references = 0;
+    };
+    [[noreturn]] static void Unused(const char *call)
+    {
+        std::fprintf(stderr, "storm_ui_shot: the UI backend called FrameOwner::%s, which a capture does not provide\n", call);
+        std::abort();
+    }
+    static std::string Key(std::string_view path)
+    {
+        std::string key(path);
+        for (char &c : key)
+            c = c == '\\' ? '/' : char(std::tolower(static_cast<unsigned char>(c)));
+        return key;
+    }
+    // Game data comes from Windows: each path part is matched without regard to case.
+    bool Resolve(const std::string &relative, std::filesystem::path &out) const
+    {
+        std::error_code error;
+        std::filesystem::path current = root_;
+        std::stringstream parts(relative);
+        std::string part;
+        while (std::getline(parts, part, '/'))
+        {
+            if (part.empty())
+                continue;
+            std::filesystem::path next;
+            for (std::filesystem::directory_iterator it(current, error), last; !error && it != last; it.increment(error))
+                if (Key(it->path().filename().string()) == Key(part))
+                {
+                    next = it->path();
+                    break;
+                }
+            if (next.empty())
+                return false;
+            current = next;
+        }
+        out = current;
+        return true;
+    }
+    Picture &Load(std::string_view path)
+    {
+        const std::string key = Key(path);
+        auto [found, fresh] = pictures_.try_emplace(key);
+        Picture &picture = found->second;
+        if (!fresh)
+            return picture;
+        std::filesystem::path file;
+        if (!Resolve("resource/textures/" + key + ".tga.tx", file))
+        {
+            std::fprintf(stderr, "game picture %s: no .tx under %s\n", key.c_str(), root_.c_str());
+            return picture; // Failed
+        }
+        const std::string bytes = ReadFile(file.string());
+        storm::ui::Picture decoded;
+        std::string error;
+        if (!storm::ui::DecodeTx(reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size(), decoded, &error))
+        {
+            std::fprintf(stderr, "game picture %s: %s\n", key.c_str(), error.c_str());
+            return picture;
+        }
+        // DecodeTx gives premultiplied RGBA; the frame owner's pictures are straight alpha.
+        for (size_t i = 0; i + 3 < decoded.rgba.size(); i += 4)
+            if (const int alpha = decoded.rgba[i + 3]; alpha > 0 && alpha < 255)
+                for (int c = 0; c < 3; ++c)
+                    decoded.rgba[i + c] = uint8_t(std::min(255, decoded.rgba[i + c] * 255 / alpha));
+        picture.texture = bgfx::createTexture2D(uint16_t(decoded.width), uint16_t(decoded.height), false, 1, bgfx::TextureFormat::RGBA8,
+                                                BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
+                                                bgfx::copy(decoded.rgba.data(), uint32_t(decoded.rgba.size())));
+        picture.result.state = storm::render::GamePicture::State::Ready;
+        picture.result.texture = storm::render::TextureId(picture.texture.idx) + 1;
+        picture.result.width = uint16_t(decoded.width);
+        picture.result.height = uint16_t(decoded.height);
+        return picture;
+    }
+
+    std::string root_;
+    std::unordered_map<std::string, Picture> pictures_;
+};
+
 // The tool plays the engine's frame owner: bgfx GLES 3.0 on a headless EGL context, an
 // RGBA8 + D24S8 frame buffer standing in for the surface, UI views re-pointed every frame.
 class BgfxCapture final : public Capture
@@ -334,12 +357,14 @@ class BgfxCapture final : public Capture
         if (!started_)
             return;
         backend_.reset();
+        pictures_->DestroyAll();
         bgfx::destroy(readback_);
         bgfx::destroy(target_);
         bgfx::shutdown();
     }
-    bool Start(int width, int height, int views)
+    bool Start(int width, int height, int views, const std::string &game_root)
     {
+        pictures_ = std::make_unique<PictureOwner>(game_root);
         width_ = width;
         height_ = height;
         views_ = uint16_t(views);
@@ -352,7 +377,9 @@ class BgfxCapture final : public Capture
         if (!StartDevice())
             return false;
         std::string error;
-        backend_ = storm::ui::BgfxBackend::Create({}, &error);
+        storm::ui::BgfxBackendOptions options;
+        options.owner = game_root.empty() ? nullptr : pictures_.get(); // without game files: placeholders
+        backend_ = storm::ui::BgfxBackend::Create(options, &error);
         if (!backend_)
         {
             std::fprintf(stderr, "%s\n", error.c_str());
@@ -365,6 +392,7 @@ class BgfxCapture final : public Capture
     bool ResetDevice() override
     {
         backend_->OnDeviceLost();
+        pictures_->Forget();
         bgfx::shutdown(); // handles die with the device, as on a lost EGL context
         started_ = false;
         if (!StartDevice())
@@ -456,10 +484,21 @@ class BgfxCapture final : public Capture
     {
         // bgfx::frame() renders inline (single-threaded bgfx); the driver may still be busy.
     }
+    bool BeginGpuQuery() override
+    {
+        return bgfx::getStats()->gpuTimerFreq > 0; // 0: the driver has no GPU timer (llvmpipe)
+    }
+    void EndGpuQuery(double &gpu_ms) override
+    {
+        // The timer of the latest frame bgfx has the result of (it lags a frame or two).
+        const bgfx::Stats *stats = bgfx::getStats();
+        gpu_ms = stats->gpuTimerFreq > 0 ? double(stats->gpuTimeEnd - stats->gpuTimeBegin) * 1000.0 / double(stats->gpuTimerFreq) : 0.0;
+    }
 
   private:
     static constexpr const char *kMesaVendor = "/usr/share/glvnd/egl_vendor.d/50_mesa.json";
     QuietCallback callback_;
+    std::unique_ptr<PictureOwner> pictures_;
     std::unique_ptr<storm::ui::BgfxBackend> backend_;
     bgfx::FrameBufferHandle target_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle color_ = BGFX_INVALID_HANDLE;
@@ -471,22 +510,14 @@ class BgfxCapture final : public Capture
     uint64_t frame_index_ = 0;
     bool started_ = false;
 };
-#endif
 
-std::string ReadFile(const std::string &path)
-{
-    std::ifstream file(path, std::ios::binary);
-    if (!file)
-        std::fprintf(stderr, "cannot read %s\n", path.c_str());
-    return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-}
 
 } // namespace
 
 int main(int argc, char **argv)
 {
-    std::string pack, doc, out = "shot.png", game_root, script, interface, text_token, backend_name = "gl3";
-    int views = 0; // bgfx: storm::render::kUiViewCount
+    std::string pack, doc, out = "shot.png", game_root, script, interface, text_token;
+    int views = storm::render::kUiViewCount;
     std::vector<std::string> states;
     int width_dp = 915, height_dp = 412;
     float density = 2.0f;
@@ -508,8 +539,6 @@ int main(int argc, char **argv)
             interface = value;
         else if (key == "--state")
             states.push_back(value);
-        else if (key == "--backend")
-            backend_name = value;
         else if (key == "--views")
             views = std::atoi(value.c_str());
         else if (key == "--safe" && std::sscanf(value.c_str(), "%f,%f,%f,%f", &safe[0], &safe[1], &safe[2], &safe[3]) == 4)
@@ -526,41 +555,17 @@ int main(int argc, char **argv)
     }
     if (pack.empty() || (doc.empty() && interface.empty() && states.empty()))
     {
-        std::fprintf(stderr, "usage: storm_ui_shot --pack DIR (--doc FILE | --interface JSON | --state CHANNEL=JSON …) [--size WxH] [--density D] [--out PNG] [--game-root DIR] [--safe L,T,R,B] [--script S] [--backend gl3|bgfx] [--views N]\n");
+        std::fprintf(stderr, "usage: storm_ui_shot --pack DIR (--doc FILE | --interface JSON | --state CHANNEL=JSON …) [--size WxH] [--density D] [--out PNG] [--game-root DIR] [--safe L,T,R,B] [--script S] [--views N]\n");
         return 2;
     }
     const int width = static_cast<int>(static_cast<float>(width_dp) * density), height = static_cast<int>(static_cast<float>(height_dp) * density);
 
     setenv("LIBGL_ALWAYS_SOFTWARE", "1", 0); // same pixels on every machine
-    std::unique_ptr<Capture> capture;
-    if (backend_name == "gl3")
+    auto capture = std::make_unique<BgfxCapture>();
+    if (views < 2 || views > 1024 || !capture->Start(width, height, views, game_root))
     {
-        auto gl3 = std::make_unique<Gl3Capture>();
-        if (!gl3->Start(width, height))
-        {
-            std::fprintf(stderr, "no off-screen OpenGL 3.3 context (EGL)\n");
-            return 3;
-        }
-        capture = std::move(gl3);
-    }
-#if STORM_UI_BGFX
-    else if (backend_name == "bgfx")
-    {
-        auto bgfx_capture = std::make_unique<BgfxCapture>();
-        if (views == 0)
-            views = storm::render::kUiViewCount;
-        if (views < 2 || views > 1024 || !bgfx_capture->Start(width, height, views))
-        {
-            std::fprintf(stderr, "no bgfx GLES 3.0 device (EGL surfaceless, texture blit)\n");
-            return 3;
-        }
-        capture = std::move(bgfx_capture);
-    }
-#endif
-    else
-    {
-        std::fprintf(stderr, "unknown backend %s\n", backend_name.c_str());
-        return 2;
+        std::fprintf(stderr, "no bgfx GLES 3.0 device (EGL surfaceless, texture blit)\n");
+        return 3;
     }
 
     double clock = 0.0;
@@ -767,7 +772,7 @@ int main(int argc, char **argv)
                     total += value;
                     worst = std::max(worst, value);
                 }
-            } update, render, gpu, frame, gpu_timer, fragments;
+            } update, render, gpu, frame, gpu_timer;
             int drawn_frames = 0;
             bool measured = false;
             long rebuilds = 0, laid_out = 0, geometry = 0, draws = 0, masks = 0, layers = 0, cached = 0, textures = 0, bytes = 0;
@@ -790,9 +795,9 @@ int main(int argc, char **argv)
                 storm::ui::FrameStats stats;
                 const bool query = capture->BeginGpuQuery();
                 const bool drew = redraw ? (capture->Frame(*host), true) : capture->BenchFrame(*host);
-                double frame_gpu = 0, frame_fragments = 0;
+                double frame_gpu = 0;
                 if (query)
-                    capture->EndGpuQuery(frame_gpu, frame_fragments);
+                    capture->EndGpuQuery(frame_gpu);
                 if (drew)
                 {
                     stats = host->LastFrameStats();
@@ -801,7 +806,6 @@ int main(int argc, char **argv)
                     {
                         measured = true;
                         gpu_timer.Add(frame_gpu);
-                        fragments.Add(frame_fragments);
                     }
                 }
                 const auto drawn = std::chrono::steady_clock::now();
@@ -827,10 +831,9 @@ int main(int argc, char **argv)
                         frames, alternating ? " alternating " : channel.empty() ? "" : " ", channel.c_str(), drawn_frames, frame.total / n, frame.worst, update.total / n, update.worst,
                         render.total / n, render.worst, gpu.total / n, gpu.worst, rebuilds / n, laid_out / n, geometry / n, draws / n, masks / n, layers / n, cached / n, textures / n,
                         bytes / n);
-            // Per drawn frame, from GPU queries: GPU time and fragments shaded over the screen area (overdraw).
+            // Per drawn frame, from bgfx's GPU timer.
             if (measured)
-                std::printf("bench gpu per drawn frame: %.3f ms (max %.3f), overdraw %.2f screens (max %.2f)\n", gpu_timer.total / drawn_n, gpu_timer.worst,
-                            fragments.total / drawn_n / (static_cast<double>(width) * height), fragments.worst / (static_cast<double>(width) * height));
+                std::printf("bench gpu per drawn frame: %.3f ms (max %.3f)\n", gpu_timer.total / drawn_n, gpu_timer.worst);
         }
         else if (verb == "device-reset")
         {

@@ -1,35 +1,25 @@
-// <ui-game-image texture="INTERFACES/items6" cell="8">: a picture read from the player's
-// own game files (RESOURCE/Textures/<texture>.tga.tx). Nothing is drawn until the file
-// is decoded on a worker thread, so the placeholder under the element stays visible;
-// the parent then gets the class "has-image". A picture that cannot be had (file missing,
-// loader refused, decode error, bad atlas cell) is logged once with texture, cell and reason
-// and the parent gets "image-missing", drawn unlike the neutral loading placeholder.
+// <ui-game-image texture="INTERFACES/items6" cell="8">: a picture of the player's own game
+// files (RESOURCE/Textures/<texture>.tga.tx), supplied by the renderer's texture module through
+// the render backend (RenderBackend::AcquireGamePicture). Nothing is drawn until the renderer
+// has it, so the placeholder under the element stays visible; the parent then gets the class
+// "has-image". A picture that cannot be had (file missing, bad atlas cell) is logged once with
+// texture, cell and reason and the parent gets "image-missing", drawn unlike the neutral loading
+// placeholder. A backend without a picture source (a capture without game files) keeps the
+// neutral placeholder; one line is logged.
 // texture="atlas:GOODS/Balls" names a picture the way interface models do: a group and a
 // picture of the game's own RESOURCE/INI/interfaces/pictures.ini, read at run time from
 // the game root (picture_atlas.h). It resolves to a texture and a rectangle; `cell` is
 // then ignored. uv="left,top,right,bottom" (0…1) shows that rectangle of a texture file
 // instead of a cell (pictures the engine names by file: maps, interlude pictures).
 // fit="contain|cover" keeps the picture's proportions (see OnRender).
-// Exactly one source is used, chosen by the render backend (RenderBackend::AcquireGamePicture):
-// a backend inside the engine frame (bgfx) takes the picture from the engine's texture module;
-// a backend without a renderer behind it (GL) answers DecodeOnCpu and the picture is decoded
-// on a worker thread here, by the configured loader if there is one, else from the .tx files
-// under the game root. With neither (gallery on the build host, the design canvas) the
-// pictures are "unavailable": the neutral placeholder stays and one line is logged.
 #include "elements.h"
 #include "picture_atlas.h"
 
-#include <atomic>
 #include <cmath>
-#include <condition_variable>
 #include <cstdio>
-#include <deque>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <memory>
-#include <mutex>
-#include <thread>
 #include <unordered_map>
 
 namespace storm::ui
@@ -40,20 +30,16 @@ namespace
 
 enum class State
 {
-    Loading,
-    Ready,
+    Loading, // the renderer reports it pending
+    Ready,   // draw GamePictureSource(texture)
     Missing,
-    Unavailable // no source (no frame owner, loader or game root): neutral placeholder, logged once
+    Unavailable // the renderer has no picture source (a capture without game files): neutral placeholder, logged once
 };
 
 struct Entry
 {
-    std::atomic<State> state{State::Loading};
-    bool polling = false;  // waiting for the renderer
-    bool renderer = false; // Ready through the renderer: draw GamePictureSource(texture)
-    TxImage image; // written by the worker before `state` becomes Ready
-    std::unique_ptr<Rml::CallbackTextureSource> source;
-    std::string reason; // why it is Missing; written by the worker before `state`
+    State state = State::Loading;
+    std::string reason; // why it is Missing
 };
 
 bool SameName(const std::string &a, const std::string &b)
@@ -103,6 +89,7 @@ bool ResolvePath(const std::filesystem::path &root, const std::string &relative,
     return true;
 }
 
+// Main thread only: the pictures the renderer was asked for, by texture name.
 class Store
 {
   public:
@@ -114,22 +101,17 @@ class Store
 
     void SetRoot(const std::string &root)
     {
-        std::lock_guard lock(mutex_);
         if (root == root_)
             return;
         root_ = root;
-        ++generation_;
-        entries_.clear();
-        pending_ -= static_cast<int>(queue_.size());
-        queue_.clear();
         atlas_.reset();
+        atlas_missing_.clear();
     }
 
     // Resolves "GROUP/Picture" through the game's pictures.ini. False with a reason when
     // the file or the picture is not there.
     bool Atlas(const std::string &reference, AtlasPicture &out, std::string &reason)
     {
-        std::lock_guard lock(mutex_);
         if (!atlas_)
         {
             atlas_ = std::make_unique<PictureAtlas>();
@@ -154,10 +136,9 @@ class Store
         return true;
     }
 
-    bool HasSource()
+    bool HasRoot() const
     {
-        std::lock_guard lock(mutex_);
-        return !root_.empty() || loader_;
+        return !root_.empty();
     }
 
     void SetRenderer(RenderBackend *renderer)
@@ -165,178 +146,63 @@ class Store
         renderer_ = renderer;
     }
 
-    // Main thread, each update while the renderer reports the picture as pending.
-    void Poll(const std::string &texture, const std::shared_ptr<Entry> &shared)
+    // Each update while the renderer reports the picture as pending.
+    void Poll(const std::string &texture, Entry &entry)
     {
-        Entry &entry = *shared;
-        if (!entry.polling)
+        if (entry.state != State::Loading || !renderer_)
             return;
-        switch (renderer_ ? renderer_->AcquireGamePicture(texture) : RenderBackend::PictureState::DecodeOnCpu)
+        switch (renderer_->AcquireGamePicture(texture))
         {
         case RenderBackend::PictureState::Pending:
             changed_ = true; // keep frames coming
             return;
         case RenderBackend::PictureState::Ready:
-            entry.polling = false;
-            entry.renderer = true;
             entry.state = State::Ready;
-            changed_ = true;
-            return;
+            break;
         case RenderBackend::PictureState::Failed:
-            entry.polling = false;
             entry.reason = "the renderer could not load " + texture;
             entry.state = State::Missing;
-            changed_ = true;
-            return;
+            break;
         case RenderBackend::PictureState::Unavailable:
-            entry.polling = false;
             entry.state = State::Unavailable;
-            changed_ = true;
-            return;
-        case RenderBackend::PictureState::DecodeOnCpu: {
-            entry.polling = false;
-            std::lock_guard lock(mutex_);
-            Queue(texture, shared);
-            return;
+            break;
         }
-        }
-    }
-
-    void SetLoader(std::function<bool(const std::string &, Picture &)> loader)
-    {
-        std::lock_guard lock(mutex_);
-        loader_ = std::move(loader);
+        changed_ = true;
     }
 
     std::shared_ptr<Entry> Request(const std::string &texture)
     {
-        std::lock_guard lock(mutex_);
         auto &entry = entries_[texture];
         if (!entry)
-        {
             entry = std::make_shared<Entry>();
-            all_.push_back(entry);
-            if (renderer_)
-                entry->polling = true;
-            else
-                Queue(texture, entry);
-        }
         return entry;
     }
 
     bool TakeChanged()
     {
-        return changed_.exchange(false);
+        const bool changed = changed_;
+        changed_ = false;
+        return changed;
     }
 
-    // Pictures queued or decoding, or decoded since the last TakeChanged (a decode that ends
-    // while a frame is being drawn must still get a frame of its own).
+    // A picture changed state since the last TakeChanged (it must get a frame of its own).
     bool Pending() const
     {
-        return pending_ > 0 || changed_;
+        return changed_;
     }
 
     void Shutdown()
     {
-        {
-            std::lock_guard lock(mutex_);
-            stop_ = true;
-            pending_ -= static_cast<int>(queue_.size());
-            queue_.clear();
-            entries_.clear();
-        }
-        wake_.notify_all();
-        if (worker_.joinable())
-            worker_.join();
-        stop_ = false;
-        // Elements may still hold entries: give their textures back before RmlUi shuts down.
-        for (const std::weak_ptr<Entry> &weak : all_)
-            if (const std::shared_ptr<Entry> entry = weak.lock())
-                entry->source.reset();
-        all_.clear();
+        entries_.clear();
     }
 
   private:
-    void Queue(const std::string &texture, const std::shared_ptr<Entry> &entry)
-    {
-        if (!entry)
-            return;
-        if (root_.empty() && !loader_)
-        {
-            entry->state = State::Unavailable;
-            return;
-        }
-        queue_.push_back({texture, entry, generation_});
-        ++pending_;
-        if (!worker_.joinable())
-            worker_ = std::thread([this] { Work(); });
-        wake_.notify_one();
-    }
-
-    struct Job
-    {
-        std::string texture;
-        std::shared_ptr<Entry> entry;
-        int generation = 0;
-    };
-
-    void Work()
-    {
-        while (true)
-        {
-            Job job;
-            std::string root;
-            std::function<bool(const std::string &, Picture &)> loader;
-            {
-                std::unique_lock lock(mutex_);
-                wake_.wait(lock, [this] { return stop_ || !queue_.empty(); });
-                if (stop_)
-                    return;
-                job = std::move(queue_.front());
-                queue_.pop_front();
-                root = root_;
-                loader = loader_;
-            }
-            bool ok = false;
-            std::filesystem::path path;
-            if (loader) // the one configured source; its failure is not retried elsewhere
-            {
-                ok = loader(job.texture, job.entry->image);
-                if (!ok)
-                    job.entry->reason = "the game picture loader refused it";
-            }
-            else if (ResolvePath(std::filesystem::path(root), "RESOURCE/Textures/" + job.texture + ".tga.tx", path)) // any case
-            {
-                std::ifstream file(path, std::ios::binary);
-                const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-                std::string error;
-                ok = DecodeTx(bytes.data(), bytes.size(), job.entry->image, &error);
-                if (!ok)
-                    job.entry->reason = "cannot decode " + path.string() + ": " + error;
-            }
-            else
-                job.entry->reason = "no file RESOURCE/Textures/" + job.texture + ".tga.tx under " + root;
-            job.entry->state = ok ? State::Ready : State::Missing;
-            changed_ = true;
-            --pending_;
-        }
-    }
-
-    std::mutex mutex_;
     std::unique_ptr<PictureAtlas> atlas_; // of the current game root, read on first use
     std::string atlas_missing_;
-    std::condition_variable wake_;
-    std::deque<Job> queue_;
     std::unordered_map<std::string, std::shared_ptr<Entry>> entries_;
-    std::vector<std::weak_ptr<Entry>> all_;
     std::string root_;
-    std::function<bool(const std::string &, Picture &)> loader_;
     RenderBackend *renderer_ = nullptr;
-    std::thread worker_;
-    std::atomic<bool> changed_{false};
-    std::atomic<int> pending_{0}; // pictures queued or being decoded
-    bool stop_ = false;
-    int generation_ = 0;
+    bool changed_ = false;
 };
 
 // "left,top,right,bottom" in 0…1 with a non-empty rectangle; false for anything else.
@@ -382,7 +248,7 @@ class GameImageElement final : public Rml::Element
         Rml::Element::OnUpdate();
         std::string texture = GetAttribute<Rml::String>("texture", "");
         const bool by_atlas = texture.rfind("atlas:", 0) == 0;
-        if (!entry_ && by_atlas && atlas_reason_.empty() && Store::Get().HasSource())
+        if (!entry_ && by_atlas && atlas_reason_.empty() && Store::Get().HasRoot())
         {
             if (Store::Get().Atlas(texture.substr(6), atlas_, atlas_reason_))
                 entry_ = Store::Get().Request(atlas_.texture);
@@ -390,8 +256,8 @@ class GameImageElement final : public Rml::Element
         else if (!entry_ && !by_atlas && !texture.empty())
             entry_ = Store::Get().Request(texture);
         if (entry_)
-            Store::Get().Poll(by_atlas ? atlas_.texture : texture, entry_);
-        const State state = entry_ ? entry_->state.load() : by_atlas && !Store::Get().HasSource() ? State::Unavailable : State::Loading;
+            Store::Get().Poll(by_atlas ? atlas_.texture : texture, *entry_);
+        const State state = entry_ ? entry_->state : by_atlas && !Store::Get().HasRoot() ? State::Unavailable : State::Loading;
         std::string reason;
         float scratch_uv[4];
         if (!atlas_reason_.empty())
@@ -407,7 +273,7 @@ class GameImageElement final : public Rml::Element
         else if (state == State::Unavailable && !unavailable_logged_)
         {
             unavailable_logged_ = true; // once per process: the host gave no source at all
-            Rml::Log::Message(Rml::Log::LT_INFO, "Game pictures unavailable (no frame owner, game root or loader): placeholders stay");
+            Rml::Log::Message(Rml::Log::LT_INFO, "Game pictures unavailable (no picture source or game root): placeholders stay");
         }
         const bool ready = state == State::Ready && reason.empty();
         const bool missing = !reason.empty();
@@ -441,18 +307,8 @@ class GameImageElement final : public Rml::Element
         const Rml::Vector2f size = GetBox().GetSize(Rml::BoxArea::Content);
         if (size.x < 1.0f || size.y < 1.0f)
             return;
-        if (entry_->renderer)
-        {
-            if (!renderer_texture_)
-                renderer_texture_ = manager->LoadTexture(GamePictureSource(atlas_.texture.empty() ? GetAttribute<Rml::String>("texture", "") : atlas_.texture));
-        }
-        else if (!entry_->source)
-        {
-            std::shared_ptr<Entry> entry = entry_;
-            entry_->source = std::make_unique<Rml::CallbackTextureSource>([entry](const Rml::CallbackTextureInterface &texture) {
-                return texture.GenerateTexture({entry->image.rgba.data(), entry->image.rgba.size()}, {entry->image.width, entry->image.height});
-            });
-        }
+        if (!renderer_texture_)
+            renderer_texture_ = manager->LoadTexture(GamePictureSource(atlas_.texture.empty() ? GetAttribute<Rml::String>("texture", "") : atlas_.texture));
         const float opacity = GetComputedValues().opacity();
         if (size != built_size_ || opacity != built_opacity_)
         {
@@ -466,9 +322,8 @@ class GameImageElement final : public Rml::Element
             // fit="contain" keeps the picture's proportions inside the box, "cover" fills the
             // box and crops the picture's middle; without it the picture is stretched.
             const std::string fit = GetAttribute<Rml::String>("fit", "");
-            const float picture = entry_->image.height && uv1.y != uv0.y
-                                      ? (entry_->image.width * std::abs(uv1.x - uv0.x)) / (entry_->image.height * std::abs(uv1.y - uv0.y))
-                                      : 0.0f;
+            const Rml::Vector2i pixels = renderer_texture_.GetDimensions();
+            const float picture = pixels.y && uv1.y != uv0.y ? (pixels.x * std::abs(uv1.x - uv0.x)) / (pixels.y * std::abs(uv1.y - uv0.y)) : 0.0f;
             const float box = size.x / size.y;
             if (fit == "contain" && picture > 0.0f)
             {
@@ -488,8 +343,7 @@ class GameImageElement final : public Rml::Element
             built_size_ = size;
             built_opacity_ = opacity;
         }
-        geometry_.Render(GetAbsoluteOffset(Rml::BoxArea::Content),
-                         entry_->renderer ? renderer_texture_ : entry_->source->GetTexture(*manager));
+        geometry_.Render(GetAbsoluteOffset(Rml::BoxArea::Content), renderer_texture_);
     }
 
   private:
@@ -539,11 +393,6 @@ void SetGameImageRoot(const std::string &game_root)
 void SetGameImageRenderer(RenderBackend *renderer)
 {
     Store::Get().SetRenderer(renderer);
-}
-
-void SetGameImageLoader(std::function<bool(const std::string &, Picture &)> loader)
-{
-    Store::Get().SetLoader(std::move(loader));
 }
 
 bool GameImagesChanged()

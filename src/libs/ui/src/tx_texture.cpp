@@ -1,6 +1,6 @@
 // Storm engine .tx texture: a 24-byte header (flags, width, height, mip count, D3D
 // format, top mip size) followed by the mip chain. Only the top mip is decoded, by bimg.
-#include "elements.h"
+#include "storm_ui/tx_texture.h"
 
 #include <algorithm>
 
@@ -46,7 +46,7 @@ bimg::TextureFormat::Enum TxFormat(uint32_t format)
 
 } // namespace
 
-bool DecodeTx(const uint8_t *data, size_t size, TxImage &out, std::string *error)
+bool DecodeTx(const uint8_t *data, size_t size, Picture &out, std::string *error)
 {
     const auto fail = [error](const char *what) {
         if (error)

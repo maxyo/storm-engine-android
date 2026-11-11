@@ -8,7 +8,7 @@ import tempfile
 here = Path(__file__).resolve().parent
 root = here.parents[1]
 source = (root / "src/apps/engine/src/android_combat_state.hpp").read_text()
-adapter = source[source.index("inline std::string combatInteractKind"):source.index("inline jweak combatActivity")]
+adapter = source[source.index("inline std::string combatInteractKind"):source.index("inline uint64_t combatHost")]
 with tempfile.TemporaryDirectory(prefix="storm-interact-") as directory:
     build = Path(directory)
     (build / "adapter.inc").write_text(adapter)
