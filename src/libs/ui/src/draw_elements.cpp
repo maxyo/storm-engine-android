@@ -533,7 +533,8 @@ bool clamps_changed = false;
 // text is wrapped here with the same font metrics RmlUi uses, after each layout that changed
 // the width or the font. A stepped-down size is the element's own inline font-size (so the
 // line boxes shrink with it); the style sheet's size, noted while no step-down applies, stays
-// the base of the next fit, and a new text starts from the style sheet again.
+// the base of the next fit, and a new text starts from the style sheet again. natural="1"
+// sizes the element by its text on one line at the base size (see Natural).
 class ClampElement final : public Rml::Element
 {
   public:
@@ -575,7 +576,10 @@ class ClampElement final : public Rml::Element
             return;
         refit_ = false;
         int size = 0;
-        const std::string text = Fit(GetAttribute<Rml::String>("text", ""), width_, size);
+        const std::string whole = GetAttribute<Rml::String>("text", "");
+        if (GetAttribute<int>("natural", 0) != 0)
+            Natural(whole);
+        const std::string text = Fit(whole, width_, size);
         Show(text, size);
     }
 
@@ -593,6 +597,21 @@ class ClampElement final : public Rml::Element
     {
         const auto &values = GetComputedValues();
         return {values.font_size(), static_cast<int>(values.font_weight()), static_cast<int>(values.font_style())};
+    }
+
+    // natural="1": the element asks for the width of its text on one line at the style sheet's
+    // size (and no more than its container). Sized by its own content it would ask for the
+    // width of what it shows, so once stepped down or cut it never got its room back.
+    void Natural(const std::string &text)
+    {
+        const int base = static_cast<int>(std::lround(base_));
+        const float width = base > 0 ? std::ceil(Width(text, base)) + 1.0f : 0.0f;
+        if (std::fabs(width - natural_) < 0.5f)
+            return;
+        natural_ = width;
+        SetProperty(Rml::PropertyId::Width, Rml::Property(width, Rml::Unit::PX));
+        SetProperty(Rml::PropertyId::MaxWidth, Rml::Property(100.0f, Rml::Unit::PERCENT));
+        clamps_changed = true;
     }
 
     // `size` > 0: the stepped-down font size in px, else the style sheet's.
@@ -741,6 +760,7 @@ class ClampElement final : public Rml::Element
     FontKey font_;
     float base_ = 0.0f; // the style sheet's font size (px)
     int applied_ = 0;   // the stepped-down size set inline (px), 0 = none
+    float natural_ = 0.0f; // natural="1": the one-line width asked for (px)
     bool refit_ = false;
     bool cut_ = false;
     std::string shown_;
