@@ -115,7 +115,7 @@ bool CAviPlayer::Start()
 {
     const std::string path = fio->ConvertPathResource(filename.c_str());
     std::unique_ptr<storm::video::AudioSink> audio;
-    if (auto *sound = static_cast<VSoundService *>(core.GetService("SoundService")))
+    if (auto *sound = silent_ ? nullptr : static_cast<VSoundService *>(core.GetService("SoundService")))
     {
         if (auto stream = sound->CreatePcmStream())
         {
@@ -158,8 +158,10 @@ uint64_t CAviPlayer::ProcessMessage(MESSAGE &message)
     }
     case MSG_SET_VIDEO_FLAGS: {
         constexpr auto loop_flag = 1 << 0;
+        constexpr auto silent_flag = 1 << 1;
         auto flags = message.Long();
         bLoop = flags & loop_flag;
+        silent_ = flags & silent_flag;
         break;
     }
     }

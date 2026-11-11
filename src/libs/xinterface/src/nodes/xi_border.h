@@ -41,6 +41,11 @@ class CXI_BORDER : public CINODE
     CXI_IMAGE *m_pCaptionImage;
     int32_t m_mCaptionDividerHeight;
     XYRECT m_rCapRect;
+    // the caption divider picture ("captionline_pic"); the top edge picture when not set
+    FXYRECT m_frCaptionLineUV;
+    // edges and corners are drawn around position + frameoffset (left, top, right, bottom added);
+    // the back and caption images keep position
+    XYRECT m_rFrameOffset;
 
     // texture parameters
     std::string m_sGroupName;

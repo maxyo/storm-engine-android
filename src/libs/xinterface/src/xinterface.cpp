@@ -28,6 +28,7 @@
 #include "mobile_sails_gerald.hpp"
 #include "mobile_alchemy.hpp"
 #include <set>
+#include <spdlog/spdlog.h>
 #include "mobile_owner_bridge.hpp"
 #include <chrono>
 static std::optional<storm::mobile::SaveListCapability::Target> deferredSaveAction;
@@ -1824,13 +1825,12 @@ void XINTERFACE::SFLB_CreateNode(INIFILE *pOwnerIni, INIFILE *pUserIni, const ch
         memcpy(pNewNod->m_nodeName, sNodeName, len);
         if (!pNewNod->Init(pUserIni, sNodeName, pOwnerIni, sNodeType, pRenderService, GlobalRect, xypScreenSize))
         {
+            spdlog::error("Interface: node '{}' of type '{}' failed to initialize and is not created", sNodeName,
+                          sNodeType);
             delete pNewNod;
-            pNewNod = nullptr;
+            return;
         }
-        else
-        {
-            AddNodeToList(pNewNod, priority);
-        }
+        AddNodeToList(pNewNod, priority);
 
         INIFILE *usedini = pUserIni;
         pNewNod->m_bBreakPress = pNewNod->GetIniBool(pUserIni, sNodeName, pOwnerIni, sNodeType, "bBreakCommand", false);

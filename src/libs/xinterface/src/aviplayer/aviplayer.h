@@ -13,7 +13,7 @@ struct Frame;
 
 // Script-facing video player entity ("CAviPlayer"). Scripts send MSG_SET_VIDEO_PLAY with a file
 // name under resource\videos and receive "ievntEndVideo" when it has played out (or failed);
-// MSG_SET_VIDEO_FLAGS bit 0 loops. xi_video_rect embeds one with SetShowVideo(false) and draws
+// MSG_SET_VIDEO_FLAGS bit 0 loops, bit 1 plays without the soundtrack. xi_video_rect embeds one with SetShowVideo(false) and draws
 // GetCurrentVideoTexture() itself. Decoding: src/libs/video.
 class CAviPlayer : public xiBaseVideo
 {
@@ -60,6 +60,7 @@ class CAviPlayer : public xiBaseVideo
     VDX9RENDER *rs = nullptr;
     bool m_bShowVideo = true;
     bool bLoop = false;
+    bool silent_ = false;       // no soundtrack (MSG_SET_VIDEO_FLAGS bit 1)
     std::string filename;
     std::unique_ptr<storm::video::Player> player_;
     IDirect3DTexture9 *texture_ = nullptr;

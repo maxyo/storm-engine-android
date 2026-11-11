@@ -1,6 +1,9 @@
 #include "xi_video_rect.h"
 #include "../base_video.h"
 #include "entity.h"
+#include "game_profile.hpp"
+
+#include <spdlog/spdlog.h>
 
 CXI_VIDEORECT::CXI_VIDEORECT()
     : m_dwColor(0), m_eiVideo(0)
@@ -66,8 +69,17 @@ void CXI_VIDEORECT::LoadIni(INIFILE *ini1, const char *name1, INIFILE *ini2, con
 {
     char param[255];
 
+    // Player flags (MSG_SET_VIDEO_FLAGS): "flags" as a number, or Caribbean Legend's "loop" and
+    // "silent" switches (bit 0 loops, bit 1 drops the soundtrack).
     m_dwFlags = GetIniLong(ini1, name1, ini2, name2, "flags", 0);
+    if (GetIniBool(ini1, name1, ini2, name2, "loop", false))
+        m_dwFlags |= 1 << 0;
+    if (GetIniBool(ini1, name1, ini2, name2, "silent", false))
+        m_dwFlags |= 1 << 1;
     m_rectTex = GetIniFloatRect(ini1, name1, ini2, name2, "textureRect", FXYRECT(0.f, 0.f, 1.f, 1.f));
+    // the video texture rows run bottom-up relative to the ini rectangle
+    m_rectTex.bottom = 1.f - m_rectTex.bottom;
+    m_rectTex.top = 1.f - m_rectTex.top;
     m_dwColor = GetIniARGB(ini1, name1, ini2, name2, "color", ARGB(255, 128, 128, 128));
     if (ReadIniString(ini1, name1, ini2, name2, "videoFile", param, sizeof(param), ""))
         StartVideoPlay(param);
@@ -106,16 +118,16 @@ int CXI_VIDEORECT::CommandExecute(int wActCode)
 
 uint32_t CXI_VIDEORECT::MessageProc(int32_t msgcode, MESSAGE &message)
 {
-    switch (msgcode)
-    {
-    case 0: // start video
+    // Start another video (a file under resource\videos): message 0 in the TEHO engine contract,
+    // 2 in Caribbean Legend's scripts (SetNewVideo in interface\utilite.c).
+    const int32_t startVideo = storm::gameProfile() == storm::GameProfile::CaribbeanLegend ? 2 : 0;
+    if (msgcode == startVideo)
     {
         const std::string &param = message.String();
         StartVideoPlay(param.c_str());
+        return 0;
     }
-    break;
-    }
-
+    spdlog::error("VIDEORECTANGLE '{}': unsupported message {}", m_nodeName, msgcode);
     return 0;
 }
 
@@ -129,8 +141,6 @@ void CXI_VIDEORECT::StartVideoPlay(const char *videoFileName)
         return;
 
     m_eiVideo = core.CreateEntity("CAviPlayer");
-    m_rectTex.bottom = 1.f - m_rectTex.bottom;
-    m_rectTex.top = 1.f - m_rectTex.top;
     if (auto *const ptr = core.GetEntityPointer(m_eiVideo))
         static_cast<xiBaseVideo *>(ptr)->SetShowVideo(false);
     core.Send_Message(m_eiVideo, "ll", MSG_SET_VIDEO_FLAGS, m_dwFlags);
