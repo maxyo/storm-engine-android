@@ -1,7 +1,14 @@
 #include "core.h"
 
+#include "game_profile.hpp"
 #include "geometry_r.h"
+#include "pbr_materials.hpp"
+#include "storm/render/pbr.hpp"
 #include "string_compare.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <string>
 
 CREATE_SERVICE(GEOMETRY)
 
@@ -140,6 +147,9 @@ GEOS *GEOMETRY::CreateGeometry(const char *file_name, const char *light_file_nam
         core.Trace("Invalid model: %s", fnt);
         return nullptr;
     }
+
+    if (storm::gameProfile() == storm::GameProfile::CaribbeanLegend)
+        storm::geometry::AttachPbrMaterials(*gp, file_name, *RenderService);
 
     if (geoLog)
     {
@@ -436,6 +446,27 @@ void GEOM_SERVICE_R::SetVertexBuffer(int32_t vsize, GEOS::ID vbuff)
     CurentVertexBufferSize = vsize;
 }
 
+void GEOM_SERVICE_R::SetPbrMaterial(const storm::render::PbrMaterial *material)
+{
+    CurrentPbr = material;
+}
+
+// Passes that do not shade the surface: shadow casters and receivers keep their own programs.
+bool GEOM_SERVICE_R::IsUtilityTechnique(const char *name)
+{
+    if (!name)
+        return false;
+    std::string lower(name);
+    std::ranges::transform(lower, lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return lower.find("shadow") != std::string::npos;
+}
+
+bool GEOM_SERVICE_R::EndsWithBlend(const char *name)
+{
+    const size_t length = name ? strlen(name) : 0;
+    return length >= 5 && storm::iEquals(std::string_view(name + length - 5), "blend");
+}
+
 void GEOM_SERVICE_R::DrawIndexedPrimitive(int32_t minv, int32_t numv, int32_t vrtsize, int32_t startidx, int32_t numtrg)
 {
     if (!RenderService)
@@ -468,15 +499,34 @@ void GEOM_SERVICE_R::DrawIndexedPrimitive(int32_t minv, int32_t numv, int32_t vr
         // RenderService->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *(int*)&SSBias);
     }
 
+    // Caribbean Legend PBR material (set by GEOM::Draw per object): one pass with a Pbr* technique, the shim
+    // draws it with the PBR program. Utility passes (shadow maps, caustics) keep the legacy path.
+    const char *pass_technique = technique;
+    const bool pbr = CurrentPbr && !bCaustic && !IsUtilityTechnique(technique);
+    if (pbr)
+    {
+        pass_technique = CurrentPbr->desc.alpha ? "PbrAlphaTest" : EndsWithBlend(technique) ? "PbrBlend" : "PbrOpaque";
+        storm::render::SetPbrMaterial(CurrentPbr);
+    }
+    struct PbrScope
+    {
+        bool on;
+        ~PbrScope()
+        {
+            if (on)
+                storm::render::SetPbrMaterial(nullptr);
+        }
+    } scope{pbr};
+
     // draw animation
     if (transform_func != nullptr)
     {
         auto *cavb = &avb[CurentVertexBuffer - SHIFT_VALUE];
 
-        const auto transformed = transform_func(transform_context,cavb->buff,cavb->lifetime,minv,numv,cavb->nvertices);
+        const auto transformed = transform_func(transform_context,cavb->buff,cavb->lifetime,minv,numv,cavb->nvertices,!bCaustic);
         if (!transformed) return;
         if (!bCaustic)
-            RenderService->DrawBuffer(transformed.value,cavb->stride,CurentIndexBuffer,minv,numv,startidx,numtrg,technique);
+            RenderService->DrawBuffer(transformed.value,sizeof(GEOS::AVERTEX0),CurentIndexBuffer,minv,numv,startidx,numtrg,pass_technique);
         else
             RenderService->DrawIndexedPrimitiveNoVShader(D3DPT_TRIANGLELIST,transformed.value,cavb->stride,
                 CurentIndexBuffer,minv,numv,startidx,numtrg,"caustic");
@@ -486,7 +536,7 @@ void GEOM_SERVICE_R::DrawIndexedPrimitive(int32_t minv, int32_t numv, int32_t vr
     {
         if (!bCaustic)
             RenderService->DrawBuffer(CurentVertexBuffer, vrtsize, CurentIndexBuffer, minv, numv, startidx, numtrg,
-                                      technique);
+                                      pass_technique);
         else
             RenderService->DrawIndexedPrimitiveNoVShader(D3DPT_TRIANGLELIST, CurentVertexBuffer, vrtsize,
                                                          CurentIndexBuffer, minv, numv, startidx, numtrg, "caustic");

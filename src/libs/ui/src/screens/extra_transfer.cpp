@@ -23,7 +23,7 @@ namespace
 {
 
 constexpr NodeRule kNodes[] = {
-    {"TABLE_LIST", "choice", true},
+    {"TABLE_LIST", "choice|table", true},
     {"EXIT_BTN", "button", true},
     {"TITLE", "heading|text"},
     {"ANDROID_TRANSFER", "transfer"},
@@ -241,7 +241,7 @@ class TransferScreen final : public Screen
         if (const Widget *take = admitted.One("TAKE_GOODS"); take && !crew_open)
         {
             int weight = 0;
-            for (const Widget *row : admitted.All("TABLE_LIST"))
+            for (const Widget *row : admitted.Rows("TABLE_LIST"))
                 weight += Number(row->CellText(4));
             view["primary"] = Json{{"label", bindings.Text("transfer.take_all")},
                                    {"sub", weight > 0 ? std::to_string(weight) + " " + bindings.Text("transfer.cwt") : std::string()},
@@ -348,7 +348,7 @@ class TransferScreen final : public Screen
     // transfer, and is not offered.
     void Cargo(const Admission &admitted, Bindings &bindings, Json &view, const std::string &ours)
     {
-        const std::vector<const Widget *> goods = admitted.All("TABLE_LIST");
+        const std::vector<const Widget *> goods = admitted.Rows("TABLE_LIST");
         const Widget *take = admitted.One("B_LEFT"), *give = admitted.One("B_RIGHT");
         const Widget *selected = nullptr;
         for (const Widget *row : goods)

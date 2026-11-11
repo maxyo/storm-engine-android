@@ -13,6 +13,7 @@
 //   loc:<id>       location <id> at noon
 //   night:<id>     location <id> at midnight
 //   combat:<id>    location <id> with a sword fight against a spawned enemy
+//   surface:<id>   underwater location <id> at noon, the camera looking up at the sea surface
 //   sea:<island>   sea around <island> ("sea:" is open sea)
 //   battle:<island> sea around <island> with an attacking enemy ship
 //   boarding:<island> boarding of that enemy ship (deck fight)
@@ -276,7 +277,7 @@ bool SceneSweep_InLocation(string id)
 // between land scenes; anywhere else the hero first returns to where the game began.
 bool SceneSweep_NeedsLand()
 {
-	if(ssKind == "loc" || ssKind == "night" || ssKind == "combat") return false;
+	if(ssKind == "loc" || ssKind == "night" || ssKind == "combat" || ssKind == "surface") return false;
 	if(ssKind == "map" || ssKind == "storm")
 	{
 		if(SceneSweep_OnMap()) return false;
@@ -305,6 +306,7 @@ void SceneSweep_Start()
 	case "loc":		SceneSweep_StartLocation(12);	break;
 	case "combat":	SceneSweep_StartLocation(12);	break;
 	case "night":	SceneSweep_StartLocation(0);	break;
+	case "surface":	SceneSweep_StartLocation(12);	break;
 	case "sea":		SceneSweep_StartSea(false);		break;
 	case "battle":	SceneSweep_StartSea(true);		break;
 	case "boarding":
@@ -333,7 +335,7 @@ void SceneSweep_Start()
 		}
 		break;
 	}
-	if(ssKind != "loc" && ssKind != "combat" && ssKind != "night" && ssKind != "sea" && ssKind != "battle" &&
+	if(ssKind != "loc" && ssKind != "combat" && ssKind != "night" && ssKind != "surface" && ssKind != "sea" && ssKind != "battle" &&
 		ssKind != "boarding" && ssKind != "map" && ssKind != "storm")
 	{
 		SceneSweep_Fail("unknown scene kind");
@@ -361,6 +363,18 @@ bool SceneSweep_Loaded()
 		break;
 	case "loc":		return SceneSweep_InLocationAtEntry();	break;
 	case "night":	return SceneSweep_InLocationAtEntry();	break;
+	case "surface":
+		if(!SceneSweep_InLocationAtEntry()) return false;
+		if(ssStep == 0)
+		{
+			ssStep = 1;
+			float x, y, z;
+			GetCharacterPos(pchar, &x, &y, &z);
+			// From the hero's head up through the water at the surface (the hero stands on the sea bed).
+			locCameraFromToPos(x, y + 1.7, z, true, x + 12.0, y + 40.0, z + 12.0);
+		}
+		return true;
+		break;
 	case "combat":
 		if(!SceneSweep_InLocationAtEntry()) return false;
 		if(ssStep == 0)

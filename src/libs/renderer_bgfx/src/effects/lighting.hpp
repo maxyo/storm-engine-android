@@ -18,6 +18,10 @@
 //     flags; lit draws perturb the normal, baked ones scale their colour by fxBakedRelief. Characters have none.
 //   * alpha to coverage (RendererState::alpha_to_coverage): alpha-tested (GREATER / GREATEREQUAL), non-blended draws
 //     into a multisampled target: BGFX_STATE_BLEND_ALPHA_TO_COVERAGE and fxCoverageAlpha() instead of the discard.
+//   * aerial perspective (kLightingAerial): every draw through the fixed-function vertex pipeline whose fog is the
+//     game's exp fog takes fog mode 5 (ff_finish.sh, fx_aerial.sh fxAerialFog): the same fog colour and density with
+//     height haze and desaturation, for lit, baked and unlit draws and ported pixel shaders alike. Draws with a ported
+//     vertex shader keep the fixed-function fog (reported once); without weather (interiors) the game's fog stays.
 // Cube-mapped draws (fs_ff_cube*) have no lighting or coverage variant: they keep the legacy path, reported once.
 #pragma once
 
@@ -71,6 +75,10 @@ class Lighting
     // Fixed-function draw (no shader ports). `cube_variant` = the fs_ff_cube* variant the shim picked (0 = none).
     void prepare(const shim::Device &device, const shim::LayoutInfo &layout, uint32_t cube_variant, FfDraw &draw);
     void submit(const FfDraw &draw);
+    // Fog of a draw with fog enabled in D3DFOG_EXP mode (the game's): true when it takes the aerial perspective (fog
+    // mode 5); u_fxAerialUp is then set for that draw and `haze` goes where fog mode 5 reads it (the fog start and end
+    // slots of u_ffFs, unused by exp fog). `view`: the draw's world -> view.
+    bool aerial_fog(const D3DMATRIX &view, bool vs_port, std::array<float, 2> &haze);
 
     void set_technique(const char *name);
     // The frame's dynamic point lights (not in any baked colours); kept until a frame passes without them.
@@ -85,7 +93,7 @@ class Lighting
     // Draws of the last presented frame that used a lit / baked / coverage variant (effects profile).
     struct Counts
     {
-        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0;
+        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, aerial = 0;
     };
     Counts last_frame() const { return last_frame_; }
 
@@ -116,6 +124,8 @@ class Lighting
     uint32_t fs_baked_[2][2] = {};  // [normal map][linear]
     NormalMaps normal_maps_;
     bool cube_reported_ = false;
+    bool aerial_port_reported_ = false;
+    bgfx::UniformHandle u_aerial_up_ = BGFX_INVALID_HANDLE;
     fx::Lighting fx_;
     bgfx::UniformHandle u_ff_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_coverage_ = BGFX_INVALID_HANDLE;

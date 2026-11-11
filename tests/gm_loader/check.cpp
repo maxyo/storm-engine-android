@@ -96,6 +96,7 @@ class FakeService : public GEOM_SERVICE
     void SetIndexBuffer(GEOS::ID) override {}
     void SetVertexBuffer(int32_t, GEOS::ID) override {}
     void DrawIndexedPrimitive(int32_t, int32_t, int32_t, int32_t, int32_t) override {}
+    void SetPbrMaterial(const storm::render::PbrMaterial *) override {}
     GEOS::ID CreateLight(GEOS::LIGHT) override { return 0; }
     void ActivateLight(GEOS::ID) override {}
     void SetCausticMode(bool) override {}

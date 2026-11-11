@@ -238,6 +238,7 @@ struct LayoutInfo
     uint16_t stride[kMaxStreams] = {};
     uint8_t stream_count = 0;
     bool rhw = false, has_normal = false, has_color0 = false, has_color1 = false;
+    bool skinned = false; // XYZB2 | LASTBETA_UBYTE4: one blend weight + bone indices (GPU skinning)
     uint8_t texcoord_size[8] = {};
     uint8_t texcoord_count = 0;
 };
@@ -290,6 +291,7 @@ struct DeviceState
     DWORD fvf = 0;
     // non-owning in the struct; the Device keeps the matching references
     IDirect3DBaseTexture9 *textures[kMaxStages] = {};
+    IDirect3DBaseTexture9 *vertex_texture = nullptr; // D3DVERTEXTEXTURESAMPLER0: the bone palette of skinned draws
     VertexBuffer *stream[kMaxStreams] = {};
     UINT stream_offset[kMaxStreams] = {}, stream_stride[kMaxStreams] = {};
     IndexBuffer *indices = nullptr;

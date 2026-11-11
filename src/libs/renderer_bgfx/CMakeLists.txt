@@ -132,6 +132,10 @@ set(STORM_FX_BGFX_SHADER_INCLUDE "${STORM_BGFX_SOURCE_DIR}/bgfx/src")
 add_subdirectory(fx)
 target_link_libraries(storm_bgfx PUBLIC storm_bgfx_fx)
 
+# Caribbean Legend PBR materials and image-based lighting (pbr/README.md), driven by src/pbr.
+add_subdirectory(pbr)
+target_link_libraries(storm_bgfx PUBLIC storm_bgfx_pbr)
+
 # Texture transcode tests and benchmark: only on request, so projects that merely consume
 # storm_bgfx (e.g. the standalone UI build) do not build them.
 option(STORM_BGFX_BUILD_TESTS "Build the renderer_bgfx texture tests and benchmark" OFF)

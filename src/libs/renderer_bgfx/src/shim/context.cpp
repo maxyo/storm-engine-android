@@ -1,5 +1,6 @@
 #include "device.hpp"
 #include "effects/effects.hpp"
+#include "pbr/host.hpp"
 #include "perf.hpp"
 #include "storm/render/d3d_interop.hpp"
 #include "storm/render/effekseer_device.hpp"
@@ -246,6 +247,7 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
          (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0);
     create_resources();
     effects::Host::instance().on_device_created();
+    pbr_host::Host::instance().on_device_created();
     for (auto &entry : clients_)
     {
         entry.client->OnDeviceRestored();
@@ -259,7 +261,9 @@ void Context::create_resources()
     static const char *names[kSamplerUnits] = {"s_tex0", "s_tex1", "s_tex2", "s_tex3", "s_tex4", "s_cube0",
                                                 "s_cube1", "s_cube2", "s_vol0", "s_vol1", "s_vol2",
                                                 // pixel-port extras: cube at stage 3, volume at stage 4 (sea)
-                                                "s_cube3", "s_vol4"};
+                                                "s_cube3", "s_vol4",
+                                                // skinned fixed-function draws (ff_vertex.sh FF_SKIN)
+                                                "s_bones"};
     for (uint32_t i = 0; i < kSamplerUnits; ++i)
         samplers_[i] = bgfx::createUniform(names[i], bgfx::UniformType::Sampler);
     blit_program_ = bgfx::createProgram(create_embedded_shader(shader_id_by_name("vs_blit")),
@@ -284,6 +288,7 @@ void Context::shutdown()
     dump_traps();
     render::effekseer::DetachDevice();
     effects::Host::instance().shutdown();
+    pbr_host::Host::instance().shutdown();
     bgfx::shutdown();
     initialised_ = false;
     surface_.valid = false;

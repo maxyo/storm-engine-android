@@ -296,9 +296,20 @@ void GEOM::Draw(const PLANE *pl, int32_t np, MATERIAL_FUNC mtf) const
         srv.SetMaterial(material[object[o].material]);
         if (mtf != nullptr)
             mtf(material[object[o].material]);
+        if (!pbr_materials.empty())
+            srv.SetPbrMaterial(pbr_materials[o]);
         srv.DrawIndexedPrimitive(object[o].start_vertex, object[o].num_vertices, vb->stride, object[o].striangle * 3,
                                  object[o].ntriangles);
     }
+    if (!pbr_materials.empty())
+        srv.SetPbrMaterial(nullptr);
+}
+
+void GEOM::AttachPbrMaterials(std::vector<const storm::render::PbrMaterial *> materials, std::shared_ptr<void> owner)
+{
+    materials.resize(size_t(rhead.nobjects), nullptr);
+    pbr_materials = std::move(materials);
+    pbr_owner = std::move(owner);
 }
 
 bool GEOM::GetCollisionDetails(TRACE_INFO &ti) const

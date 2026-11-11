@@ -15,8 +15,8 @@ namespace
 {
 
 constexpr NodeRule kNodes[] = {
-    {"TABLE_CITY", "choice", true},
-    {"TABLE_GOODS", "choice"},
+    {"TABLE_CITY", "choice|table", true},
+    {"TABLE_GOODS", "choice|table"},
     {"EXIT_BTN", "button"},
     {"I_*", "button"},
     {"TITLE", "heading|text"},
@@ -62,25 +62,37 @@ class TradeBookScreen final : public Screen
 
     Json Build(const Admission &admitted, Bindings &bindings) override
     {
-        const std::vector<const Widget *> towns = admitted.All("TABLE_CITY");
-        const std::vector<const Widget *> goods = admitted.All("TABLE_GOODS");
+        const std::vector<const Widget *> towns = admitted.Rows("TABLE_CITY");
+        const std::vector<const Widget *> goods = admitted.Rows("TABLE_GOODS");
 
+        // The price list is the selected town's; before the player picks one the game shows the
+        // first town's prices without marking its row (tradebook.c FillPriceListTown).
+        const Widget *shown = towns.empty() ? nullptr : towns.front();
+        for (const Widget *town : towns)
+            if (town->value == "1")
+                shown = town;
         Json cities = Json::array();
-        std::string chosen_town;
+        const std::string chosen_town = shown ? shown->CellText(1) : std::string();
         for (const Widget *town : towns)
         {
             const Cell *flag = CellAt(*town, 0);
-            std::string date = town->CellText(3);
+            // "13:00 01.10.1654" (or the date alone): the date in the column, the hour under it.
+            std::string date = town->CellText(3), hour;
+            if (const size_t space = date.rfind(' '); space != std::string::npos)
+            {
+                hour = date.substr(0, space);
+                date = date.substr(space + 1);
+            }
             const bool unknown = date.empty() || date.find('?') != std::string::npos;
-            const bool selected = town->value == "1";
-            if (selected)
-                chosen_town = town->CellText(1);
+            const bool selected = town == shown;
             Json name{{"text", town->CellText(1)}, {"sub", town->CellText(2)}};
             const std::string nation = NationOf(flag && !flag->images.empty() ? &flag->images.front() : nullptr);
             if (!nation.empty())
                 name.update(Json{{"icon", "nation-" + nation}, {"iconTone", "color"}, {"iconSize", 30}});
-            cities.push_back(Json{{"cells", Json::array({name, Json{{"text", unknown ? bindings.Text("tradebook.no_data") : date},
-                                                                    {"tone", unknown ? "dim" : ""}}})},
+            Json when{{"text", unknown ? bindings.Text("tradebook.no_data") : date}, {"tone", unknown ? "dim" : ""}};
+            if (!unknown && !hour.empty())
+                when["sub"] = hour;
+            cities.push_back(Json{{"cells", Json::array({name, when})},
                                   {"selected", selected},
                                   {"disabled", !town->enabled}});
         }
@@ -109,7 +121,10 @@ class TradeBookScreen final : public Screen
         };
 
         Json view = Json::object();
-        view["title"] = admitted.Label("TITLE");
+        std::string title = admitted.Label("TITLE");
+        title.erase(0, title.find_first_not_of(' '));
+        title.erase(title.find_last_not_of(' ') + 1);
+        view["title"] = title;
         view["towns"] = cities;
         view["townColumns"] = Json::array({Json{{"w", "1"}}, Json{{"w", "112px"}, {"align", "right"}}});
         view["columns"] = Json::array({Json{{"label", chosen_town}, {"w", "1"}},

@@ -55,7 +55,7 @@ produces `<build>/package/libstorm_ui.so` (stripped, 16 KiB pages) and
 | `src/components.*`, `src/template.*` | `<c-…>` elements rendered from spec + template + props |
 | `src/behaviors.cpp` | press, hold-to-confirm, long-press tooltip, range, stick, lever, table columns |
 | `src/draw_elements.cpp` | `<ui-ring>` (hold progress), `<ui-paper>` (aged parchment), `<ui-clamp>` (text cut to N lines with an ellipsis) |
-| `src/icons.cpp` | `<ui-icon>`: SVG symbols rasterised per size and colour |
+| `src/icons.cpp` | `<ui-icon>`: SVG symbols rasterised per size and colour; `icon-shadow: <colour> <x> <y> <sigma>` bakes a drop shadow into the raster (use it instead of `filter: drop-shadow` on an icon: no offscreen layer per frame) |
 | `src/picture_atlas.*` | the game's `pictures.ini` (group + picture → texture + rectangle), read from the game root at run time |
 | `src/tx_texture.cpp`, `src/game_image.cpp` | `<ui-game-image>`: pictures decoded from the player's `.tx` files (or by the host's `game_picture_loader`, never both) on a worker thread; the loading placeholder shows until then, a picture that cannot be had is logged with texture, cell and reason and marked `image-missing` |
 | `src/ui_host.cpp` | RmlUi set-up, pointer routing, toasts, tooltip, the HUD mount, the touch map, Prepare/Frame |

@@ -11,8 +11,13 @@
 #include "lights.h"
 
 #include "core.h"
+#include "game_profile.hpp"
+#include "storm/render/pbr.hpp"
 #include "storm/render/effects.hpp"
 #include "string_compare.hpp"
+
+#include <algorithm>
+#include <array>
 
 // ============================================================================================
 // Construction, destruction
@@ -526,6 +531,18 @@ void Lights::SetLightsAt(const glm::vec3 &pos)
         l.dxLight.Diffuse.r = lights[*i].color.r * static_cast<float>(lights[*i].intensity) / 255.0f;
         l.dxLight.Diffuse.g = lights[*i].color.g * static_cast<float>(lights[*i].intensity) / 255.0f;
         l.dxLight.Diffuse.b = lights[*i].color.b * static_cast<float>(lights[*i].intensity) / 255.0f;
+        // Caribbean Legend: the hour's lighting preset gives the colour x intensity of each light type ("point" groups).
+        if (std::array<float, 3> group; storm::gameProfile() == storm::GameProfile::CaribbeanLegend &&
+                                        storm::render::PbrPointLightGroup(l.name, group))
+        {
+            // keep the flicker (the light's colour relative to its type's) and the visibility fade
+            const float base = std::max({l.color.r, l.color.g, l.color.b});
+            const float now = std::max({lights[*i].color.r, lights[*i].color.g, lights[*i].color.b});
+            const float k = (base > 0.0f ? now / base : 0.0f) * static_cast<float>(lights[*i].intensity) / 255.0f;
+            l.dxLight.Diffuse.r = group[0] * k;
+            l.dxLight.Diffuse.g = group[1] * k;
+            l.dxLight.Diffuse.b = group[2] * k;
+        }
         l.dxLight.Position = lights[*i].pos;
 
         rs->SetLight(d3d_light_index, &l.dxLight);

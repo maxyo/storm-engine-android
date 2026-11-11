@@ -15,6 +15,7 @@
 #include <vector>
 
 struct IDirect3DBaseTexture9;
+struct IDirect3DCubeTexture9;
 
 namespace storm::render
 {
@@ -119,18 +120,21 @@ using EffectsMatrix = std::array<float, 16>;
 void EffectsDrawSky(const EffectsMatrix &view);
 
 // The SEA entity's surface for the fx water: its CPU-displaced vertices (SEA::SeaVertex: position relative to
-// `world_offset`, normal, uv) and triangle list, and the look from its Sea2 attributes. Only while
-// CurrentEffectsWorld().water.
+// `world_offset`, normal, uv) and triangle list, the look from its Sea2 attributes and its environment cube (the
+// scene reflected in the sea, rendered this frame by SEA::EnvMap_Render). Only while CurrentEffectsWorld().water.
 struct EffectsWaterShading
 {
     std::array<float, 3> water_color{0.04f, 0.22f, 0.39f}; // Sea2.WaterColor
     std::array<float, 3> sky_color{1.0f, 1.0f, 1.0f};      // Sea2.SkyColor
     float reflection = 0.7f;                               // Sea2.Reflection
     float transparency = 0.6f;                             // Sea2.Transparency
+    float attenuation = 0.2f;                              // Sea2.Attenuation
     float fresnel = 0.5f;                                  // Sea2.Frenel
     float bump_speed = 1.0f;                               // Sea2.BumpSpeed
     bool foam = false;                                     // Sea2.FoamEnable and the foam option
     float foam_v = 3.0f, foam_k = 0.3f, foam_uv = 1.0f;    // Sea2.FoamV / FoamK / FoamUV
+    std::array<float, 3> fog_color{0.5f, 0.6f, 0.7f};      // D3DRS_FOGCOLOR
+    float fog_density = 0.0f;                              // Sea.Fog.SeaDensity while Sea.Fog.Enable, else 0
 };
 struct EffectsWaterMesh
 {
@@ -141,6 +145,7 @@ struct EffectsWaterMesh
     std::array<float, 2> world_offset{0.0f, 0.0f}; // SEA::vWorldOffset x, z
     float crest_height = 4.0f;                     // Amp1 + Amp2
     EffectsWaterShading shading;
+    IDirect3DCubeTexture9 *env_map = nullptr; // required: the water reflects it
 };
 void EffectsDrawWater(const EffectsWaterMesh &mesh, const EffectsMatrix &view);
 

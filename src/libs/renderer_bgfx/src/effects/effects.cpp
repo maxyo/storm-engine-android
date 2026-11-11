@@ -105,10 +105,6 @@ struct Pending
 };
 
 const Pending kPending[] = {
-    {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingAerial) != 0; },
-     [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingAerial; }, "fx_aerial",
-     "aerial perspective is not bound in the emulator variants yet (fx::Sky::BindAerial): the "
-     "fixed-function fog stays"},
     {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingWind) != 0; },
      [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingWind; }, "fx_wind",
      "wind sway is not wired into the fixed-function emulator yet (needs per-technique vertex weights): switched off"},
@@ -291,8 +287,8 @@ void Host::set_weather(const render::EffectsWeather &weather)
 {
     weather_ = weather;
     weather_this_frame_ = true;
-    // The hemisphere ambient takes its tint from the sky dome.
-    if (settings_.lighting_flags & fx::kLightingHemisphere)
+    // The hemisphere ambient takes its tint from the sky dome; the aerial perspective needs a sky (no interiors).
+    if (settings_.lighting_flags & (fx::kLightingHemisphere | fx::kLightingAerial))
         lighting_.set_sky(&sky_state());
 }
 
@@ -422,9 +418,9 @@ void Host::end_frame(bool scene_frame)
                          profile_sum_post_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u",
                        preset_, gpu, profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
-                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief);
+                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial);
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_draws_ = 0;

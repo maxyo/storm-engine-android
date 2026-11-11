@@ -37,6 +37,9 @@ class GEOM_SERVICE_R final : public GEOM_SERVICE
     GEOS::ID CurentVertexBuffer;
     uint32_t CurentVertexBufferSize;
     bool bCaustic;
+    const storm::render::PbrMaterial *CurrentPbr = nullptr;
+    static bool IsUtilityTechnique(const char *name);
+    static bool EndsWithBlend(const char *name);
 
   public:
     void SetRenderService(VDX9RENDER *render_service);
@@ -65,6 +68,7 @@ class GEOM_SERVICE_R final : public GEOM_SERVICE
     void SetIndexBuffer(GEOS::ID ibuff);
     void SetVertexBuffer(int32_t vsize, GEOS::ID vbuff);
     void DrawIndexedPrimitive(int32_t minv, int32_t numv, int32_t vrtsize, int32_t startidx, int32_t numtrg);
+    void SetPbrMaterial(const storm::render::PbrMaterial *material) override;
 
     GEOS::ID CreateLight(const GEOS::LIGHT);
     void ActivateLight(GEOS::ID n);

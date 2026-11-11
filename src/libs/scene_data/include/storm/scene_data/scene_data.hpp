@@ -3,6 +3,7 @@
 //  * lighting presets              Resource/Lighting/*.json             {"hours": {"0".."23": ...}}
 //  * texture library               Resource/texture_library.json        {"<preset>": {"<variant>": ...}}
 //  * effects table                 Resource/Effects/effects.json        {"<effect>": {file, speed}}
+//  * tone mapping / colour grade   Resource/INI/aces.json               {type, exposure_ev, contrast, ...}
 // Every parser returns its result together with a Report: `errors` are values of the wrong type or
 // malformed JSON (the affected entry is skipped), `unknown_keys` lists keys the parser does not model
 // (JSON-path style), so nothing in a file is dropped silently.
@@ -162,5 +163,23 @@ struct EffectsTable
 };
 
 EffectsTable ParseEffectsTable(std::string_view json, Report &report);
+
+// ---- tone mapping -----------------------------------------------------------------------------
+
+struct ToneMapping
+{
+    std::string type; // "aces"
+    int version = 0;
+    float exposure_ev = 0.0f;
+    float contrast = 1.0f;
+    float saturation = 1.0f;
+    float temperature = 0.0f, tint = 0.0f;
+    Rgb color_filter{1.0f, 1.0f, 1.0f};
+    Rgb lift{0.0f, 0.0f, 0.0f};
+    Rgb gamma{1.0f, 1.0f, 1.0f};
+    Rgb gain{1.0f, 1.0f, 1.0f};
+};
+
+ToneMapping ParseToneMapping(std::string_view json, Report &report);
 
 } // namespace storm::scene_data
