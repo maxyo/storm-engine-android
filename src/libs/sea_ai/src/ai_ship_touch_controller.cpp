@@ -1,6 +1,8 @@
 #include "ai_ship.h"
 #include "math_inlines.h"
 
+#include <algorithm>
+
 AIShipTouchController::AIShipTouchController(AIShip *_pAIShip)
 {
     SetAIShip(_pAIShip);
@@ -150,7 +152,11 @@ void AIShipTouchController::Execute(float fDeltaTime)
                 const auto fAng =
                     GetAIShip()->GetAng().y + static_cast<float>(i) / static_cast<float>(aTouchRays.size()) * PIm2;
                 auto vPos = vOurPos + fRaySize * glm::vec3(sinf(fAng), 0.0f, cosf(fAng));
-                const auto fRes = static_cast<COLLISION_OBJECT *>(AIHelper::pIsland)->Trace(vOurPos, vPos);
+                auto *pIslandTrace = static_cast<COLLISION_OBJECT *>(AIHelper::pIsland);
+                auto fRes = pIslandTrace->Trace(vOurPos, vPos);
+                // and at the top of the ship: rock hanging over the water (island_overhang.hpp) stops the masts
+                const glm::vec3 vTop(0.0f, GetAIShip()->GetBoxsize().y, 0.0f);
+                fRes = std::min(fRes, pIslandTrace->Trace(vOurPos + vTop, vPos + vTop));
                 if (fRes < 1.0f)
                 {
                     aTouchRays[i].fDist *= fRes;

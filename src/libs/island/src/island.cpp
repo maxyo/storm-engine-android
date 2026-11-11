@@ -1,4 +1,5 @@
 #include "island.h"
+#include "island_overhang.hpp"
 
 #include "core.h"
 #include "foam.h"
@@ -331,10 +332,16 @@ bool ISLAND::Check2DBoxDepth(glm::vec3 vPos, glm::vec3 vSize, float fAngY, float
             float fDepth, xx = x, zz = z;
             RotateAroundY(xx, zz, fCos, fSin);
             GetDepthFast(vPos.x + xx, vPos.z + zz, &fDepth);
-            if (fDepth > fMinDepth)
+            if (fDepth > fMinDepth || OverheadContact(vPos.x + xx, vPos.z + zz, vSize.y))
                 return true;
         }
     return false;
+}
+
+bool ISLAND::OverheadContact(float x, float z, float fHeight)
+{
+    return storm::island::OverheadContact([this](const glm::vec3 &src, const glm::vec3 &dst) { return Trace(src, dst); },
+                                          x, z, fHeight);
 }
 
 bool ISLAND::GetDepthFast(float x, float z, float *fRes)

@@ -329,10 +329,14 @@ BOOL TOUCH::IsIntersectShipsReal(int32_t idx, int32_t cidx, glm::vec3 *vPos, glm
             return false;
         if (!BuildContour(idx))
             return false;
+        // The hull touches the island where the sea is too shallow or where island geometry hangs over the water
+        // below the top of the ship (a cliff lip: island_overhang.hpp).
+        const float fShipHeight = pS1->pShip->GetBoxsize().y;
         for (i = 0; i < pS1->iNumVContour; i++)
             if (pIslandBase->GetDepthFast(pS1->vContourTemp[1][i].x, pS1->vContourTemp[1][i].z, &fRes))
             {
-                if (fRes < fCollisionDepth)
+                if (fRes < fCollisionDepth &&
+                    !pIslandBase->OverheadContact(pS1->vContourTemp[1][i].x, pS1->vContourTemp[1][i].z, fShipHeight))
                     continue;
                 const auto v1 = &pS1->vContourTemp[0][i], v2 = &pS1->vContourTemp[1][i];
                 auto vTemp = storm::math::normalizeOrZero(*v2 - *v1);

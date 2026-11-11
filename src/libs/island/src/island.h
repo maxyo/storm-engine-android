@@ -177,6 +177,8 @@ class ISLAND : public ISLAND_BASE
     };
 
     bool Check2DBoxDepth(glm::vec3 vPos, glm::vec3 vSize, float fAngY, float fMinDepth);
+
+    bool OverheadContact(float x, float z, float fHeight);
     bool GetDepth(float x, float z, float *fRes = nullptr);
     bool GetDepthFast(float x, float z, float *fRes = nullptr);
     bool GetDepth(FRECT *pRect, float *fMinH, float *fMaxH);
