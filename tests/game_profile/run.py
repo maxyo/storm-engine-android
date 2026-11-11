@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Check the TEHO / Caribbean Legend game profile detection (src/libs/core/include/game_profile.hpp)."""
+"""Check the TEHO / Caribbean Legend game profile detection (src/libs/core/include/game_profile.hpp)
+and the script version each profile accepts (src/libs/core/include/script_version.hpp)."""
 import os
 from pathlib import Path
 import subprocess

@@ -4,6 +4,8 @@
 
 #include <string_view>
 
+class INIFILE;
+
 struct FLOAT_RECT
 {
     float x1, y1, x2, y2;
@@ -13,6 +15,7 @@ struct FONT_SYMBOL
 {
     FLOAT_RECT Pos;
     FLOAT_RECT Tuv;
+    float AdvanceReduction; // kerning (Caribbean Legend fonts): the pen advances Pos width minus this
 };
 
 class FONT final
@@ -41,6 +44,8 @@ class FONT final
     }
 
   private:
+    void LoadGlyphTable(INIFILE &ini, const char *font_name, const char *iniName);
+
     int32_t UpdateVertexBuffer(int32_t x, int32_t y, char *data_PTR, int utf8length, float scale, uint32_t color);
 
     std::vector<FONT_SYMBOL> charDescriptors_{};

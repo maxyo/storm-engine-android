@@ -16,6 +16,7 @@
 #include "texture.h"
 #include "v_s_stack.h"
 #include "fs.h"
+#include "game_profile.hpp"
 #include "debug-trap.h"
 #include "string_compare.hpp"
 #include "storm/render/d3d_interop.hpp"
@@ -577,6 +578,10 @@ bool DX9RENDER::Init()
 #endif
         bDropVideoConveyor = ini->GetInt(nullptr, "DropVideoConveyor", 0) != 0;
         texLog = ini->GetInt(nullptr, "texture_log", 0) == 1;
+        // TEHO resolves texture names exactly as the original engine; CL data needs the alternates.
+        textureAlternates = storm::gameProfile() == storm::GameProfile::CaribbeanLegend;
+        core.Trace("Texture name alternates (other extension / parent directory): %s",
+                   textureAlternates ? "on (Caribbean Legend)" : "off");
         bUseLargeBackBuffer = ini->GetInt(nullptr, "UseLargeBackBuffer", 0) != 0;
 
         bWindow = ini->GetInt(nullptr, "full_screen", 1) == 0;
@@ -1511,6 +1516,7 @@ int32_t DX9RENDER::TextureCreate(const char *fname)
         return -1;
 
     for (const TextureLookup lookup : {TextureLookup::Primary, TextureLookup::Alternates})
+    if (lookup == TextureLookup::Primary || textureAlternates)
     for (int32_t i = 3; i >= -1; i--)
     {
         char _fname[256];
@@ -1642,7 +1648,7 @@ bool DX9RENDER::TextureLoad(int32_t t, TextureLookup lookup)
     }
     if (!found)
     {
-        if (bTrace && lookup == TextureLookup::Alternates)
+        if (bTrace && (lookup == TextureLookup::Alternates || !textureAlternates)) // the last attempt
         {
             core.Trace("Can't load texture %s", candidates.primary.c_str());
         }

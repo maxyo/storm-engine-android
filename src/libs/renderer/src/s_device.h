@@ -622,6 +622,7 @@ private:
         Alternates,
     };
     bool TextureLoad(int32_t texid, TextureLookup lookup = TextureLookup::Primary);
+    bool textureAlternates = false; // set in Init() from the game profile
     // DDS / TXX files; `bytes` is the whole file.
     bool TextureLoadFile(int32_t texid, const char *path, std::vector<uint8_t> bytes, bool dds);
     void LogTextureLoad(int32_t texid, uint32_t width, uint32_t height);

@@ -1,5 +1,6 @@
 #include "font.h"
 #include "core.h"
+#include "font_glyphs.hpp"
 #include "storm/config.hpp"
 #include "utf8.h"
 #include <platform/android_interface_presentation.hpp>
@@ -11,7 +12,7 @@ namespace
 
 constexpr size_t MAX_SYMBOLS = 512;
 constexpr size_t SYM_VERTEXS = 6;
-constexpr size_t USED_CODES = 0x2070; // end of https://unicode-table.com/en/blocks/general-punctuation/
+constexpr size_t USED_CODES = 0x2070; // TEHO glyph keys: up to the end of the General Punctuation block
 
 constexpr auto FONT_CHAR_FVF = (D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1 | D3DFVF_TEXTUREFORMAT2);
 
@@ -76,11 +77,7 @@ bool FONT::Init(const char *font_name, const char *iniName)
     }
     initialized_ = true;
 
-    char key_name[MAX_PATH];
     char buffer[MAX_PATH];
-    int32_t codepoint;
-    int32_t ltmp;
-    char *pData;
 
     auto ini = fio->OpenIniFile(iniName);
     if (ini == nullptr)
@@ -122,7 +119,67 @@ bool FONT::Init(const char *font_name, const char *iniName)
     shadowOffsetY_ = ini->GetInt(font_name, "Shadow_offsety", 2);
     spacebarWidth_ = static_cast<int32_t>(ini->GetInt(font_name, "Spacebar", 8) * horizontalAspectRatio_);
 
-    ini->CaseSensitive(true);
+    LoadGlyphTable(*ini, font_name, iniName);
+
+    FONT_CHAR_VERTEX *pVertex;
+    device_.CreateVertexBuffer(sizeof(FONT_CHAR_VERTEX) * MAX_SYMBOLS * SYM_VERTEXS,
+                               D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, FONT_CHAR_FVF, D3DPOOL_SYSTEMMEM, &vertexBuffer_,
+                               nullptr);
+    if (vertexBuffer_ == nullptr)
+        throw std::runtime_error("vbuffer error");
+    vertexBuffer_->Lock(0, sizeof(FONT_CHAR_VERTEX) * MAX_SYMBOLS * SYM_VERTEXS, (void **)&pVertex, 0);
+    for (size_t vertex = 0; vertex < MAX_SYMBOLS * SYM_VERTEXS; vertex++)
+    {
+        pVertex[vertex].pos.z = 0.5f;
+    }
+    vertexBuffer_->Unlock();
+
+    textureHandle_ = renderService_.TextureCreate(textureName_.c_str());
+    if (textureHandle_ < 0)
+    {
+        core.Trace("Not Found Texture: %s", textureName_.c_str());
+        return false;
+    }
+
+    return true;
+}
+
+// Caribbean Legend `char =` tables (font_glyphs.hpp), else the TEHO `char_<glyph>` keys.
+void FONT::LoadGlyphTable(INIFILE &ini, const char *font_name, const char *iniName)
+{
+    const auto values = [&ini](const std::string &section, const char *key) {
+        std::vector<std::string> result;
+        char value[MAX_PATH];
+        if (ini.ReadString(section.c_str(), key, value, sizeof(value), ""))
+            do
+                result.emplace_back(value);
+            while (ini.ReadStringNext(section.c_str(), key, value, sizeof(value)));
+        return result;
+    };
+    const auto hasFlag = [&ini](const std::string &section, const char *key) {
+        return ini.TestKey(section.c_str(), key, nullptr);
+    };
+    const auto table = storm::font::readGlyphTable(iniName, font_name, values, hasFlag);
+    if (!table.glyphs.empty())
+    {
+        for (const auto &glyph : table.glyphs)
+        {
+            if (glyph.codepoint >= charDescriptors_.size())
+                charDescriptors_.resize(glyph.codepoint + 1, FONT_SYMBOL{});
+            const auto g = storm::font::glyphGeometry(glyph, textureSizeX_, textureSizeY_, height_,
+                                                      horizontalAspectRatio_, verticalAspectRatio_);
+            charDescriptors_[glyph.codepoint] = {{g.x1, g.y1, g.x2, g.y2}, {g.u1, g.v1, g.u2, g.v2},
+                                                 g.advanceReduction};
+        }
+        return;
+    }
+
+    char key_name[MAX_PATH];
+    char buffer[MAX_PATH];
+    int32_t codepoint;
+    int32_t ltmp;
+    char *pData;
+    ini.CaseSensitive(true);
     for (codepoint = 30; codepoint < USED_CODES; codepoint++)
     {
         char utf8[5];
@@ -135,7 +192,7 @@ bool FONT::Init(const char *font_name, const char *iniName)
             sprintf_s(key_name, "char_equ");
         else
             sprintf_s(key_name, "char_%s", utf8);
-        if (!ini->ReadString(font_name, key_name, buffer, sizeof(buffer), ""))
+        if (!ini.ReadString(font_name, key_name, buffer, sizeof(buffer), ""))
             continue;
         pData = buffer;
         if (!MakeLong(&pData, &ltmp))
@@ -160,29 +217,7 @@ bool FONT::Init(const char *font_name, const char *iniName)
         charDescriptors_[codepoint].Tuv.y2 =
             charDescriptors_[codepoint].Tuv.y1 + static_cast<float>(ltmp - 1.f) / static_cast<float>(textureSizeY_);
     }
-    ini->CaseSensitive(false);
-
-    FONT_CHAR_VERTEX *pVertex;
-    device_.CreateVertexBuffer(sizeof(FONT_CHAR_VERTEX) * MAX_SYMBOLS * SYM_VERTEXS,
-                               D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, FONT_CHAR_FVF, D3DPOOL_SYSTEMMEM, &vertexBuffer_,
-                               nullptr);
-    if (vertexBuffer_ == nullptr)
-        throw std::runtime_error("vbuffer error");
-    vertexBuffer_->Lock(0, sizeof(FONT_CHAR_VERTEX) * MAX_SYMBOLS * SYM_VERTEXS, (void **)&pVertex, 0);
-    for (codepoint = 0; codepoint < MAX_SYMBOLS * SYM_VERTEXS; codepoint++)
-    {
-        pVertex[codepoint].pos.z = 0.5f;
-    }
-    vertexBuffer_->Unlock();
-
-    textureHandle_ = renderService_.TextureCreate(textureName_.c_str());
-    if (textureHandle_ < 0)
-    {
-        core.Trace("Not Found Texture: %s", textureName_.c_str());
-        return false;
-    }
-
-    return true;
+    ini.CaseSensitive(false);
 }
 
 void OffsetFRect(FLOAT_RECT &fr, float dx, float dy)
@@ -206,7 +241,7 @@ int32_t FONT::GetStringWidth(const std::string_view &text, std::optional<float> 
     {
         uint32_t Codepoint = utf8::Utf8ToCodepoint(text.data() + i);
 
-        if (Codepoint >= USED_CODES) { // also catches -1 (invalid sequence) converted to unsigned
+        if (Codepoint >= charDescriptors_.size()) { // also catches -1 (invalid sequence) converted to unsigned
             core.Trace("Invalid codepoint: %d", Codepoint);
             if constexpr(storm::kIsDebug) {
                 throw std::runtime_error(fmt::format("Invalid codepoint: {}", Codepoint));
@@ -221,7 +256,7 @@ int32_t FONT::GetStringWidth(const std::string_view &text, std::optional<float> 
             pos.x1 *= scale;
             pos.x2 *= scale;
         }
-        xoffset += pos.x2 - pos.x1 + symbolInterval_ * scale;
+        xoffset += pos.x2 - pos.x1 - charDescriptors_[Codepoint].AdvanceReduction * scale + symbolInterval_ * scale;
         if (Codepoint == ' ')
         {
             xoffset += spacebarWidth_ * scale;
@@ -250,7 +285,7 @@ int32_t FONT::UpdateVertexBuffer(int32_t x, int32_t y, char *data_PTR, int utf8l
 
         int Codepoint = utf8::Utf8ToCodepoint(data_PTR + i);
 
-        if (Codepoint < 0 || Codepoint >= static_cast<int>(USED_CODES)) {
+        if (Codepoint < 0 || Codepoint >= static_cast<int>(charDescriptors_.size())) {
             core.Trace("Invalid codepoint: %d", Codepoint);
             if constexpr(storm::kIsDebug) {
                 throw std::runtime_error(fmt::format("Invalid codepoint: {}", Codepoint));
@@ -268,7 +303,7 @@ int32_t FONT::UpdateVertexBuffer(int32_t x, int32_t y, char *data_PTR, int utf8l
             pos.y2 *= scale;
         }
         OffsetFRect(pos, static_cast<float>(x) + xoffset, static_cast<float>(y));
-        xoffset += pos.x2 - pos.x1 + symbolInterval_ * scale;
+        xoffset += pos.x2 - pos.x1 - charDescriptors_[Codepoint].AdvanceReduction * scale + symbolInterval_ * scale;
 
         if (Codepoint == ' ')
         {
