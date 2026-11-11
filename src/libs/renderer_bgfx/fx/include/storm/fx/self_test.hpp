@@ -40,9 +40,10 @@ class SelfTest
     SelfTest(const SelfTest &) = delete;
     SelfTest &operator=(const SelfTest &) = delete;
 
-    // Submits the test for `settings` into [first_view, first_view + kViews). Returns false when a test is still
-    // running (one at a time).
-    bool Submit(const Settings &settings, bgfx::ViewId first_view);
+    // Submits the test for `settings` into [first_view, first_view + kViews), with the programs of `chain` (the
+    // game's post chain, PostChain::Prepare'd for `settings`: the test links nothing of its own). Returns false
+    // when a test is still running (one at a time).
+    bool Submit(const Settings &settings, bgfx::ViewId first_view, const PostChain &chain);
     // After each bgfx::frame(): `frame` = its return value. Returns the result once the read-backs arrived.
     Result Poll(uint32_t frame);
     bool Running() const { return pending_frame_ != 0; }
@@ -62,7 +63,6 @@ class SelfTest
     bgfx::FrameBufferHandle output_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle readback_scene_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle readback_output_ = BGFX_INVALID_HANDLE;
-    bgfx::ProgramHandle copy_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_scene_ = BGFX_INVALID_HANDLE;
     std::array<uint8_t, kSize * kSize * 4> scene_pixels_{};
     std::array<uint8_t, kSize * kSize * 4> output_pixels_{};

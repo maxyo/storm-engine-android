@@ -28,6 +28,17 @@ void ContactShadows::Add(Vec3 ground, float radius, float darkness)
         blobs_.push_back({ground, radius, std::min(darkness, 1.0f)});
 }
 
+bool ContactShadows::Prepare(const Settings &settings, int &budget)
+{
+    if (!settings.contact_shadows || bgfx::isValid(program_))
+        return true;
+    if (budget <= 0)
+        return false;
+    program_ = detail::LoadProgram("vs_fx_sprite_world", "fs_fx_sprite");
+    --budget;
+    return true;
+}
+
 void ContactShadows::Submit(bgfx::ViewId view, const Settings &settings)
 {
     std::vector<Blob> blobs;

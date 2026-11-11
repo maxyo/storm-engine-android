@@ -17,6 +17,7 @@
 #include <bgfx/bgfx.h>
 
 #include <array>
+#include <memory>
 #include <vector>
 
 namespace storm::fx
@@ -71,7 +72,18 @@ class PostChain
     // starting at frame.first_view. Call once per frame after the scene views.
     uint16_t Submit(const Settings &settings, const Frame &frame);
 
-    // Releases every GPU object (they are re-created by the next Submit).
+    // Creates the programs Submit() will need for `settings` (each takes a shader link on the GPU driver), at most
+    // `budget` of them; `budget` is reduced by the number created. True once all of them exist. A settings switch
+    // prepares them while the previous settings are still drawn, so the first frame of the new ones links nothing.
+    bool Prepare(const Settings &settings, int &budget);
+    // Uses the programs of `owner` (the game's chain): another chain on the same device (the GPU self-test) then
+    // links nothing of its own.
+    void SharePrograms(const PostChain &owner) { programs_ = owner.programs_; }
+    // The plain copy (vs_fx_screen + fs_fx_copy) of the shared programs.
+    bgfx::ProgramHandle CopyProgram();
+
+    // Releases every GPU object (they are re-created by the next Submit); shared programs go with the last chain
+    // that uses them.
     void Shutdown();
     // The context is gone: forget the handles without destroying them.
     void OnDeviceLost();
@@ -86,11 +98,22 @@ class PostChain
     void EnsureTarget(Target &target, uint16_t width, uint16_t height);
     void EnsureLut(const Settings &settings, const ColorGrade &scene_grade, bool scene_cut);
     bgfx::ProgramHandle Program(int index);
+    void EnsureUniforms();
 
     static constexpr int kMaxBloomLevels = 6;
-    static constexpr int kProgramCount = 16;
-    std::array<bgfx::ProgramHandle, kProgramCount> programs_{};
-    bool programs_loaded_ = false;
+    // The chain's programs; the lens flare's is the last one. Shared by the chains of one device (SharePrograms):
+    // destroyed with the last chain that uses them.
+    struct Programs
+    {
+        static constexpr int kCount = 17;
+        std::array<bgfx::ProgramHandle, kCount> handles{};
+        Programs() { handles.fill(BGFX_INVALID_HANDLE); }
+        ~Programs();
+        Programs(const Programs &) = delete;
+        Programs &operator=(const Programs &) = delete;
+    };
+    std::shared_ptr<Programs> programs_ = std::make_shared<Programs>();
+    bool uniforms_loaded_ = false;
     std::array<Target, kMaxBloomLevels + 1> bloom_{};
     Target graded_{};      // composite output when another pass follows
     Target antialiased_{}; // FXAA output when sharpening follows
@@ -103,7 +126,6 @@ class PostChain
     std::vector<uint8_t> pending_texels_;
     int pending_slice_ = -1; // next blue slice to build; -1: no rebuild in progress
     uint32_t frame_counter_ = 0;
-    bgfx::ProgramHandle flare_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_finish_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_scene_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_bloom_ = BGFX_INVALID_HANDLE;

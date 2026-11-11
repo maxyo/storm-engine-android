@@ -16,6 +16,9 @@
 
 #include <bgfx/bgfx.h>
 
+#include <chrono>
+#include <vector>
+
 namespace storm::effects
 {
 
@@ -45,7 +48,8 @@ class Host
     bool post_active() const { return device_ready_ && !settings_.PostIsIdentity(); }
     // An effect samples the scene depth (ambient occlusion, the high water's scene capture).
     bool scene_depth_read() const { return settings_.ssao || settings_.water == fx::WaterQuality::High; }
-    // True once after the options changed MSAA or anisotropy on a live device (the shim rebuilds the scene target).
+    // True once after a settings switch made MSAA, anisotropy or the scene depth read change (the shim rebuilds
+    // what of the scene target differs, between frames).
     bool take_renderer_state_change()
     {
         const bool changed = renderer_state_changed_;
@@ -73,8 +77,13 @@ class Host
     // Bookkeeping after bgfx::frame(): `scene_frame` = this presented frame had a 3D scene. A frame without one
     // (loading screen) makes the next scene a cut: its grade is applied at once, not blended in.
     void end_frame(bool scene_frame, uint32_t frame);
-    // Runs the GPU self-test of the current settings when they changed (fx::SelfTest); before bgfx::frame().
-    void submit_self_test();
+    // Before bgfx::frame(), while a settings change is pending: prepares the programs of the new settings
+    // (kProgramsPerFrame per frame), then runs their GPU self-test (fx::SelfTest, once per settings set), then
+    // makes them the active ones. Until then the current settings keep drawing: a change never shows a frame
+    // that waits for shader links or a picture of half-built targets.
+    void advance_switch();
+    // A requested settings change is not active yet (advance_switch).
+    bool switching() const { return switching_; }
     // A one-line notice for the player when the self-test switched a stage off; empty when there is none.
     std::string take_notice()
     {
@@ -91,7 +100,11 @@ class Host
     void contact_shadow(const std::array<float, 3> &ground, const render::EffectsMatrix &view);
 
   private:
+    static constexpr int kProgramsPerFrame = 1;
     void apply();
+    // Makes `settings` the ones that draw; the shim follows a renderer-state change at the next Present.
+    void activate(const fx::Settings &settings);
+    static bool needs_self_test(const fx::Settings &settings);
     // The sky behind the fx sky and water, the scene grade and the hemisphere ambient, from the last weather.
     const fx::SkyState &sky_state();
     fx::WeatherInput weather_input() const;
@@ -110,7 +123,12 @@ class Host
     int preset_ = 0;
     std::vector<render::EffectsOption> options_;
     fx::Settings requested_{};
-    fx::Settings settings_{};
+    fx::Settings settings_{}; // the active ones: what draws
+    fx::Settings target_{};   // the request constrained to the device: active once prepared (advance_switch)
+    bool switching_ = false;
+    std::chrono::steady_clock::time_point switch_started_{};
+    uint32_t switch_frames_ = 0;
+    uint32_t switch_programs_ = 0;
     fx::RendererState renderer_state_{};
     fx::Support support_{};        // what the settings are constrained against
     fx::Support support_device_{}; // what DetectSupport found
@@ -121,7 +139,8 @@ class Host
     bool renderer_state_changed_ = false;
     bool depth_read_ = false;
     fx::SelfTest self_test_;
-    bool self_test_pending_ = false;
+    fx::Settings tested_{};               // the settings of the running self-test
+    std::vector<fx::Settings> verified_; // settings whose self-test passed on this device
     std::string notice_; // scene_depth_read() when the scene target was last (re)built
     float device_max_anisotropy_ = 0.0f; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
     render::EffectsReport report_{};

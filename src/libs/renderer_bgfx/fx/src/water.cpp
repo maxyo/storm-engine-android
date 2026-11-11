@@ -171,6 +171,31 @@ void Water::CaptureScene(bgfx::ViewId view, bgfx::TextureHandle scene_color, bgf
     behind_valid_ = true;
 }
 
+bool Water::Prepare(const Settings &settings, int &budget)
+{
+    if (settings.water == WaterQuality::Legacy)
+        return true;
+    const WaterQuality quality = settings.water;
+    // As Bind() picks it for PrepareMesh() with the environment cube the SEA entity gives (not on Low).
+    const int fragment = quality == WaterQuality::Low ? 0 : (quality == WaterQuality::Medium ? 1 : 3) + 1;
+    bgfx::ProgramHandle &program = programs_[static_cast<int>(Source::Mesh) * 5 + fragment];
+    if (!bgfx::isValid(program))
+    {
+        if (budget <= 0)
+            return false;
+        program = LoadProgram(kVertexNames[static_cast<int>(Source::Mesh)], kFragmentNames[fragment]);
+        --budget;
+    }
+    if (quality == WaterQuality::High && SupportsSceneSnapshot() && !bgfx::isValid(capture_program_))
+    {
+        if (budget <= 0)
+            return false;
+        capture_program_ = LoadProgram("vs_fx_screen", "fs_fx_water_capture");
+        --budget;
+    }
+    return true;
+}
+
 bgfx::ProgramHandle Water::Bind(Source source, const Settings &settings, const WaterFrame &frame, const WaterShading &shading, Sky &sky)
 {
     EnsureResources();

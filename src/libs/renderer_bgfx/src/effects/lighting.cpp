@@ -79,10 +79,16 @@ void Lighting::configure(const fx::Settings &settings, const fx::RendererState &
     budget_ = fx::PointLightBudget(settings);
     shadows_.configure(settings);
     normal_maps_.configure(lighting_ && (flags_ & fx::kLightingNormalMap));
+    find_shaders();
+}
+
+void Lighting::find_shaders()
+{
     if (!vs_lit_)
     {
         vs_ff_ = shim::shader_id_by_name("vs_ff");
         vs_lit_ = shim::shader_id_by_name("vs_ff_lit");
+        vs_lit_skin_ = shim::shader_id_by_name("vs_ff_lit_skin");
         fs_coverage_ = shim::shader_id_by_name("fs_ff_coverage");
         static const char *const baked[2][2] = {{"fs_ff_baked", "fs_ff_baked_l"}, {"fs_ff_baked_n", "fs_ff_baked_nl"}};
         for (int s = 0; s < 2; ++s)
@@ -102,6 +108,38 @@ void Lighting::configure(const fx::Settings &settings, const fx::RendererState &
             for (int l = 0; l < 2; ++l)
                 fs_baked_[n][l] = shim::shader_id_by_name(baked[n][l]);
     }
+}
+
+bool Lighting::prepare_programs(shim::Device &device, const fx::Settings &settings, int &budget)
+{
+    find_shaders();
+    // The choices of prepare() for these settings; the skinned twins are the shim's (draw.cpp skinned_variant).
+    const uint32_t flags = settings.lighting_flags;
+    const bool lighting = (flags & (fx::kLightingPerPixel | fx::kLightingPoint)) != 0;
+    const bool per_pixel = (flags & fx::kLightingPerPixel) != 0;
+    const int specular = per_pixel && (flags & fx::kLightingSpecular) ? 1 : 0;
+    const int linear = (flags & fx::kLightingLinear) ? 1 : 0;
+    const int relief = lighting && (flags & fx::kLightingNormalMap) ? 1 : 0;
+    const int shadow = per_pixel && settings.shadows != fx::ShadowQuality::Off
+                           ? (settings.shadows == fx::ShadowQuality::Soft ? 2 : 1)
+                           : 0;
+    if (fx::RendererStateFor(settings).alpha_to_coverage && !device.prepare_program(vs_ff_, fs_coverage_, budget))
+        return false;
+    if (lighting)
+        for (int n = 0; n <= relief; ++n)
+        {
+            for (const int h : {0, shadow})
+            {
+                if (!device.prepare_program(vs_lit_, fs_lit_[specular][n][linear][h], budget))
+                    return false;
+                // Characters (the skinned draws) have no relief.
+                if (n == 0 && !device.prepare_program(vs_lit_skin_, fs_lit_[specular][0][linear][h], budget))
+                    return false;
+            }
+            if (!device.prepare_program(vs_lit_, fs_baked_[n][linear], budget))
+                return false;
+        }
+    return !per_pixel || shadows_.prepare_programs(device, settings, budget);
 }
 
 void Lighting::set_technique(const char *name)

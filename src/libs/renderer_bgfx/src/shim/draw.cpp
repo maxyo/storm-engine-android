@@ -735,6 +735,17 @@ HRESULT Device::GetPixelShader(IDirect3DPixelShader9 **shader)
     return D3D_OK;
 }
 
+bool Device::prepare_program(uint32_t vs_id, uint32_t fs_id, int &budget)
+{
+    if (programs.contains({vs_id, fs_id}))
+        return true;
+    if (budget <= 0)
+        return false;
+    program(vs_id, fs_id); // logs a failure
+    --budget;
+    return true;
+}
+
 bgfx::ProgramHandle Device::program(uint32_t vs_id, uint32_t fs_id)
 {
     const auto key = std::make_pair(vs_id, fs_id);

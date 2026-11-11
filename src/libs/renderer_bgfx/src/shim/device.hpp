@@ -283,6 +283,9 @@ struct Device final : Direct3DDevice9Stub
     uint16_t effects_view(bool fresh);
     static Device *current; // the one device (effects hooks reach it through the public render API)
     bgfx::ProgramHandle program(uint32_t vs_id, uint32_t fs_id);
+    // Creates program(vs_id, fs_id) unless it exists, within `budget` (reduced when one is created): the effects
+    // prepare the programs of new settings ahead of their first draw. False when the budget is spent.
+    bool prepare_program(uint32_t vs_id, uint32_t fs_id, int &budget);
 
     SDL_Window *window = nullptr;
     D3DPRESENT_PARAMETERS params{};

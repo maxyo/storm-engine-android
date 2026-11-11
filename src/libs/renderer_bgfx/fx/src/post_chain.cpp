@@ -24,6 +24,7 @@ enum ProgramIndex
     kComposite, // + 1 bloom, + 2 tone curve, + 4 ambient occlusion
     kFxaa = kComposite + 8,
     kCas,
+    kFlare, // vs_fx_sprite + fs_fx_sprite
 };
 
 constexpr const char *kFragmentNames[] = {
@@ -31,9 +32,9 @@ constexpr const char *kFragmentNames[] = {
     "fs_fx_ssao",
     "fs_fx_composite",   "fs_fx_composite_b",     "fs_fx_composite_t", "fs_fx_composite_bt",
     "fs_fx_composite_a", "fs_fx_composite_ab",    "fs_fx_composite_at", "fs_fx_composite_abt",
-    "fs_fx_fxaa",        "fs_fx_cas",
+    "fs_fx_fxaa",        "fs_fx_cas",             "fs_fx_sprite",
 };
-static_assert(std::size(kFragmentNames) == kCas + 1);
+static_assert(std::size(kFragmentNames) == kFlare + 1);
 
 constexpr uint64_t kWriteColor = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A;
 } // namespace
@@ -43,19 +44,23 @@ PostChain::~PostChain()
     Shutdown();
 }
 
+PostChain::Programs::~Programs()
+{
+    for (bgfx::ProgramHandle &program : handles)
+        Destroy(program);
+}
+
 void PostChain::Shutdown()
 {
-    if (programs_loaded_)
-        for (bgfx::ProgramHandle &program : programs_)
-            Destroy(program);
-    programs_loaded_ = false;
+    // Another chain may still use the shared programs: this one lets go of them, the last one destroys them.
+    programs_ = std::make_shared<Programs>();
+    uniforms_loaded_ = false;
     for (Target &target : bloom_)
         Destroy(target.fb);
     Destroy(graded_.fb);
     Destroy(antialiased_.fb);
     Destroy(occlusion_.fb);
     Destroy(lut_);
-    Destroy(flare_);
     Destroy(u_finish_);
     for (bgfx::UniformHandle *uniform :
          {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_,
@@ -67,14 +72,16 @@ void PostChain::Shutdown()
 
 void PostChain::OnDeviceLost()
 {
-    programs_loaded_ = false;
+    // The device is gone with every handle: forgotten, not destroyed (by every chain that shares them).
+    programs_->handles.fill(BGFX_INVALID_HANDLE);
+    programs_ = std::make_shared<Programs>();
+    uniforms_loaded_ = false;
     for (Target &target : bloom_)
         target = {};
     graded_ = {};
     antialiased_ = {};
     occlusion_ = {};
     lut_ = BGFX_INVALID_HANDLE;
-    flare_ = BGFX_INVALID_HANDLE;
     u_finish_ = BGFX_INVALID_HANDLE;
     for (bgfx::UniformHandle *uniform :
          {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_,
@@ -84,12 +91,11 @@ void PostChain::OnDeviceLost()
     pending_slice_ = -1;
 }
 
-bgfx::ProgramHandle PostChain::Program(int index)
+void PostChain::EnsureUniforms()
 {
-    if (!programs_loaded_)
+    if (!uniforms_loaded_)
     {
-        programs_.fill(BGFX_INVALID_HANDLE);
-        programs_loaded_ = true;
+        uniforms_loaded_ = true;
         s_scene_ = bgfx::createUniform("s_fxScene", bgfx::UniformType::Sampler);
         s_bloom_ = bgfx::createUniform("s_fxBloomTex", bgfx::UniformType::Sampler);
         s_lut_ = bgfx::createUniform("s_fxLut", bgfx::UniformType::Sampler);
@@ -104,9 +110,58 @@ bgfx::ProgramHandle PostChain::Program(int index)
         u_ao_ = bgfx::createUniform("u_fxAo", bgfx::UniformType::Vec4, 3);
         u_finish_ = bgfx::createUniform("u_fxFinish", bgfx::UniformType::Vec4);
     }
-    if (!bgfx::isValid(programs_[index]))
-        programs_[index] = LoadProgram("vs_fx_screen", kFragmentNames[index]);
-    return programs_[index];
+}
+
+bgfx::ProgramHandle PostChain::Program(int index)
+{
+    EnsureUniforms();
+    bgfx::ProgramHandle &program = programs_->handles[index];
+    if (!bgfx::isValid(program))
+        program = LoadProgram(index == kFlare ? "vs_fx_sprite" : "vs_fx_screen", kFragmentNames[index]);
+    return program;
+}
+
+bgfx::ProgramHandle PostChain::CopyProgram()
+{
+    return Program(kCopy);
+}
+
+bool PostChain::Prepare(const Settings &settings, int &budget)
+{
+    // The programs Submit() picks for these settings (a frame with the scene depth and the sun on screen).
+    int needed[8];
+    int count = 0;
+    if (settings.PostIsIdentity() || !SupportsLut3d())
+        needed[count++] = kCopy;
+    else
+    {
+        if (settings.ssao)
+            needed[count++] = kSsao;
+        if (settings.bloom)
+        {
+            needed[count++] = kBloomPrefilter;
+            needed[count++] = kBloomDown;
+            needed[count++] = kBloomUp;
+            if (settings.sun_shafts)
+                needed[count++] = kShafts;
+        }
+        needed[count++] = kComposite + (settings.bloom ? 1 : 0) + (settings.tonemap ? 2 : 0) + (settings.ssao ? 4 : 0);
+        if (settings.fxaa)
+            needed[count++] = kFxaa;
+        if (settings.sharpen)
+            needed[count++] = kCas;
+        if (settings.lens_flare)
+            needed[count++] = kFlare;
+    }
+    for (int i = 0; i < count; ++i)
+        if (!bgfx::isValid(programs_->handles[needed[i]]))
+        {
+            if (budget <= 0)
+                return false;
+            Program(needed[i]);
+            --budget;
+        }
+    return true;
 }
 
 void PostChain::EnsureTarget(Target &target, uint16_t width, uint16_t height)
@@ -385,12 +440,11 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
                             {e.r * frame.sun_color[0] * strength, e.g * frame.sun_color[1] * strength, e.b * frame.sun_color[2] * strength},
                             {corner[0], corner[1], e.shape}};
             }
-            if (!bgfx::isValid(flare_))
-                flare_ = LoadProgram("vs_fx_sprite", "fs_fx_sprite");
+            const bgfx::ProgramHandle flare = Program(kFlare);
             SetupView(view, "fx lens flare", frame.target, frame.target_width, frame.target_height);
             bgfx::setVertexBuffer(0, &buffer);
             bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_BLEND_ADD);
-            bgfx::submit(view++, flare_);
+            bgfx::submit(view++, flare);
         }
     }
     return static_cast<uint16_t>(view - frame.first_view);

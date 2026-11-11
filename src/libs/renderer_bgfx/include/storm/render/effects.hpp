@@ -44,10 +44,15 @@ struct EffectsReport
     std::vector<std::string> changes;  // options the device cannot honour, switched off (one line each)
     std::vector<std::string> errors;   // unknown option names / values
     std::vector<std::string> disabled; // option names the settings screen must grey out on this device
+    // The request does not draw yet: its shader programs are being linked (a few per frame) and its GPU self-test
+    // run while the previous settings keep drawing. Becomes false at the Present that switches.
+    bool pending = false;
 };
 
 // Applies `preset` and `options` (overrides). Safe before the device exists: the request is kept and
-// constrained when the device is created. Returns the report of the request as applied.
+// constrained when the device is created. On a live device the previous settings keep drawing until the new ones
+// are prepared (EffectsReport::pending); the device itself starts on «Низкая» and switches the same way.
+// Returns the report of the request.
 EffectsReport ConfigureEffects(int preset, const std::vector<EffectsOption> &options);
 EffectsReport CurrentEffects();
 // A one-line notice for the player (Russian) when the GPU self-test switched a stage off on this device; empty
@@ -100,7 +105,8 @@ void SetEffectsTextureSource(IDirect3DBaseTexture9 *texture, const char *path);
 
 // ---- World passes: fx sky, fx water, contact shadows ----
 // The consumer entities (SKY, SEA, shadow, SUNGLOW) ask which parts are on and then either call the fx pass below
-// or keep their legacy drawing. Constant between ConfigureEffects calls; everything false in «Низкая».
+// or keep their legacy drawing. Changes only at the Present that switches settings (EffectsReport::pending);
+// everything false in «Низкая».
 struct EffectsWorld
 {
     bool sky = false;             // fx sky replaces the textured sky box and the fog sphere of SKY
