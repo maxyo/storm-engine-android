@@ -455,6 +455,12 @@ class Hud
     {
         return view_;
     }
+    // The game is in a gameplay mode, or its scene holds through an "unknown" one (an open
+    // sheet that blocks gameplay): from the states as they are now, not the last refresh.
+    bool InGameplay() const
+    {
+        return states_.gameplay.mode != "unknown" || (scene_ && scene_->Holds(states_));
+    }
 
   private:
     struct Line
