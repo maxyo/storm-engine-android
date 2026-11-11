@@ -13,6 +13,7 @@ struct ShaderPort
     const char *shader_name; // embedded bgfx shader
     uint8_t sampler_count;   // pixel ports: texture stages to bind
     uint8_t vsc_count;       // vertex ports: constant registers c0.. the shader declares (PORT_VSC_COUNT)
+    bool slope_bias = false; // pixel ports compiled with STORM_SLOPE_BIAS (their technique sets the bias)
     uint32_t shader_id() const;
 };
 // Reference blob: kShaderRefMagic, the key bytes zero-padded to whole DWORDs, 0x0000FFFF.

@@ -176,10 +176,5 @@ void main()
     current.rgb = fxLit(current.rgb, tex0.rgb, fxPointDiffuse(N, P), vec3_splat(0.0), vec3_splat(0.0));
 #endif
     gl_FragColor = ffFinish(current);
-#if STORM_SLOPE_BIAS
-    // D3D9: depth + SlopeScaleDepthBias * max(|dz/dx|, |dz/dy|); the constant D3DRS_DEPTHBIAS part is
-    // already in the projection. Window depth is [0, 1] like D3D's.
-    float slope = max(abs(dFdx(gl_FragCoord.z)), abs(dFdy(gl_FragCoord.z)));
-    gl_FragDepth = clamp(gl_FragCoord.z + u_ffDepthBias.x * slope, 0.0, 1.0);
-#endif
+    FF_SLOPE_DEPTH();
 }

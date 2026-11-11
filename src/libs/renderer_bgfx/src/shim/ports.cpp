@@ -13,7 +13,7 @@ const ShaderPort ports[] = {
     {"particles_pixel_shader", false, "fs_port_particles", 4, 0},
     {"postprocess_shader", false, "fs_port_postprocess", 4, 0},
     {"caustic_vertex_shader", true, "vs_port_caustic", 0, 16},
-    {"caustic_pixel_shader", false, "fs_port_caustic", 3, 0},
+    {"caustic_pixel_shader", false, "fs_port_caustic", 3, 0, true},
     {"sea_sea2_vertex_shader", true, "vs_port_sea2", 0, 59},
     {"sea_sea2_pixel_shader", false, "fs_port_sea2", 4, 0},
     {"sea_sea2foam_vertex_shader", true, "vs_port_sea2foam", 0, 39},
