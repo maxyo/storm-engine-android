@@ -134,9 +134,6 @@ class DX9RENDER : public VDX9RENDER
     bool GetLightEnable(uint32_t dwIndex, BOOL *pEnable) override;
     bool GetLight(uint32_t dwIndex, D3DLIGHT9 *pLight) override;
 
-    // DX9Render: Screenshot Section
-    void SaveShoot() override;
-
     // DX9Render: Clip Planes Section
     HRESULT SetClipPlane(uint32_t Index, const float *pPlane) override;
     PLANE *GetPlanes() override;
@@ -320,7 +317,6 @@ class DX9RENDER : public VDX9RENDER
     HRESULT ImageBlt(const char *pName, RECT *pDstRect, RECT *pSrcRect) override;
     HRESULT ImageBlt(int32_t nTextureId, RECT *pDstRect, RECT *pSrcRect) override;
 
-    void MakeScreenShot();
     bool LoadTextureSurface(std::fstream &fileS, IDirect3DSurface9 *suface, uint32_t mipSize, uint32_t width,
                             uint32_t height, bool isSwizzled);
     uint32_t LoadCubmapSide(std::fstream &fileS, IDirect3DCubeTexture9 *tex, D3DCUBEMAP_FACES face, uint32_t numMips,
@@ -583,7 +579,6 @@ private:
     D3DFORMAT screen_bpp;
     D3DFORMAT stencil_format;
 
-    bool bMakeShoot;
     bool bWindow;
     bool bBackBufferCanLock;
 
@@ -608,7 +603,6 @@ private:
 
     std::stack<RenderTarget> stRenderTarget;
 
-    std::string screenshotExt;
 
     bool TextureLoad(int32_t texid);
 };

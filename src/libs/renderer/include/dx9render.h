@@ -194,9 +194,6 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
     virtual bool GetLightEnable(uint32_t dwIndex, BOOL *pEnable) = 0;
     virtual bool GetLight(uint32_t dwIndex, D3DLIGHT9 *pLight) = 0;
 
-    // DX9Render: Screenshot Section
-    virtual void SaveShoot() = 0;
-
     // DX9Render: Clip Planes Section
     virtual HRESULT SetClipPlane(uint32_t Index, const float *pPlane) = 0;
     virtual PLANE *GetPlanes() = 0;
