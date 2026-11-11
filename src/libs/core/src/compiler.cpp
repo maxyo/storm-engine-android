@@ -10,11 +10,7 @@
 
 #include <zlib.h>
 
-#ifdef _WIN32 // S_DEBUG
-#include "s_debug.h"
-#else
 #include "core_impl.h"
-#endif
 #include "debug-trap.h"
 #include "fs.h"
 #include "logging.hpp"
@@ -38,13 +34,6 @@
 #define DSL_INI_VALUE 0
 #define SBUPDATE 4
 #define DEF_COMPILE_EXPRESSIONS
-
-#ifdef _WIN32 // S_DEBUG
-namespace
-{
-S_DEBUG s_debug;
-}
-#endif
 
 namespace
 {
@@ -84,9 +73,6 @@ uint64_t CalculateCacheKey(const char *program_directory)
 
 // extern char * FuncNameTable[];
 extern INTFUNCDESC IntFuncTable[];
-#ifdef _WIN32 // S_DEBUG
-extern S_DEBUG *CDebug = &s_debug;
-#endif
 extern uint32_t dwNumberScriptCommandsExecuted;
 
 using std::chrono::duration_cast;
@@ -198,9 +184,6 @@ void COMPILER::SetProgramDirectory(const char *dir_name)
         strcpy_s(ProgramDirectory, len, dir_name);
         strcat_s(ProgramDirectory, len, "\\");
     }
-#ifdef _WIN32 // S_DEBUG
-    CDebug->SetProgramDirectory(dir_name);
-#endif
 }
 
 // load file into memory
@@ -397,10 +380,6 @@ void COMPILER::SetError(const char *data_PTR, ...)
 
     logError_->error(ErrorBuffer);
 
-#ifdef _WIN32 // S_DEBUG
-    if (bBreakOnError)
-        CDebug->SetTraceMode(TMODE_MAKESTEP);
-#endif
 }
 
 void COMPILER::SetWarning(const char *data_PTR, ...)
@@ -471,13 +450,6 @@ void COMPILER::LoadPreprocess()
         // else bScriptTrace = true;
     }
 
-#ifdef _WIN32 // S_DEBUG
-    auto ini = fio->OpenIniFile(PROJECT_NAME);
-    if (ini)
-    {
-        bBreakOnError = (ini->GetInt("options", "break_on_error", 0) == 1);
-    }
-#endif
 }
 
 bool COMPILER::CreateProgram(const char *file_name)
@@ -743,9 +715,6 @@ VDATA *COMPILER::ProcessEvent(const char *event_name)
     DATA *pResult;
     MESSAGE *pMem;
     EVENTINFO ei;
-#ifdef _WIN32 // S_DEBUG
-    uint32_t current_debug_mode;
-#endif
 
     uint64_t dwRDTSC, nTicks;
 
@@ -754,9 +723,6 @@ VDATA *COMPILER::ProcessEvent(const char *event_name)
     bEventsBreak = false;
 
     uint32_t nTimeOnEvent = SDL_GetTicks();
-#ifdef _WIN32 // S_DEBUG
-    current_debug_mode = CDebug->GetTraceMode();
-#endif
 
     pVD = nullptr;
     if (event_name == nullptr)
@@ -829,10 +795,6 @@ VDATA *COMPILER::ProcessEvent(const char *event_name)
 
     pRun_fi = nullptr;
 
-#ifdef _WIN32 // S_DEBUG
-    if (current_debug_mode == TMODE_CONTINUE)
-        CDebug->SetTraceMode(TMODE_CONTINUE);
-#endif
     // SetFocus(core_internal.App_Hwnd);        // VANO CHANGES
 
     RDTSC_E(dwRDTSC);
@@ -3731,9 +3693,6 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
     const char *mem_codebase;
     uint32_t arguments;
     uint32_t check_sp;
-#ifdef _WIN32 // S_DEBUG
-    uint32_t nDebugEnterMode;
-#endif
 
     CompilerStage = CS_RUNTIME;
 
@@ -3811,9 +3770,6 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
     mem_pfi = pRun_fi;
     mem_codebase = pRunCodeBase;
 
-#ifdef _WIN32 // S_DEBUG
-    nDebugEnterMode = CDebug->GetTraceMode();
-#endif
     uint64_t nTicks;
     if (call_segment_id == INTERNAL_SEGMENT_ID)
     {
@@ -3864,12 +3820,6 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
             core_internal.Trace("Invalid func_code = %u for AddTime", func_code);
         }
     }
-#ifdef _WIN32 // S_DEBUG
-    if (nDebugEnterMode == TMODE_MAKESTEP)
-    {
-        CDebug->SetTraceMode(TMODE_MAKESTEP);
-    }
-#endif
 
     if (pVResult)
     {
@@ -4456,57 +4406,6 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 break;
             if (bDebugExpressionRun)
                 break;
-#ifdef _WIN32 // S_DEBUG
-            memcpy(&nDebugTraceLineCode, &pCodeBase[ip], sizeof(uint32_t));
-            if (bTraceMode)
-            {
-                if (CDebug->GetTraceMode() == TMODE_MAKESTEP || CDebug->GetTraceMode() == TMODE_MAKESTEP_OVER)
-                {
-                    if (CDebug->GetTraceMode() == TMODE_MAKESTEP_OVER && bDebugWaitForThisFunc == false)
-                        break;
-
-                    if (!CDebug->IsDebug())
-                        CDebug->OpenDebugWindow(core_internal.GetAppInstance());
-                    // else
-                    ShowWindow(CDebug->GetWindowHandle(), SW_NORMAL);
-
-                    CDebug->SetTraceLine(nDebugTraceLineCode);
-                    CDebug->BreakOn(pfi->decl_file_name.c_str(), nDebugTraceLineCode);
-                    CDebug->SetTraceMode(TMODE_WAIT);
-                    while (CDebug->GetTraceMode() == TMODE_WAIT)
-                    {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(40));
-                    }
-                    if (CDebug->GetTraceMode() == TMODE_MAKESTEP_OVER)
-                        bDebugWaitForThisFunc = true;
-                    else
-                        bDebugWaitForThisFunc = false;
-                }
-                else if (CDebug->Breaks.CanBreak())
-                {
-                    // check for breakpoint
-                    if (CDebug->Breaks.Find(pfi->decl_file_name.c_str(), nDebugTraceLineCode))
-                    {
-                        if (!CDebug->IsDebug())
-                            CDebug->OpenDebugWindow(core_internal.GetAppInstance());
-
-                        ShowWindow(CDebug->GetWindowHandle(), SW_NORMAL);
-                        // CDebug->OpenDebugWindow(core_impl.hInstance);
-                        CDebug->SetTraceMode(TMODE_WAIT);
-                        CDebug->BreakOn(pfi->decl_file_name.c_str(), nDebugTraceLineCode);
-
-                        while (CDebug->GetTraceMode() == TMODE_WAIT)
-                        {
-                            std::this_thread::sleep_for(std::chrono::milliseconds(40));
-                        } // wait for debug thread decision
-                        if (CDebug->GetTraceMode() == TMODE_MAKESTEP_OVER)
-                            bDebugWaitForThisFunc = true;
-                        else
-                            bDebugWaitForThisFunc = false;
-                    }
-                }
-            }
-#endif
             break;
         case DEBUG_FILE_NAME:
 
@@ -6671,19 +6570,11 @@ void COMPILER::SaveVariable(DATA *pV, bool bdim)
         break;
     case VAR_AREFERENCE:
         pString = nullptr;
-#ifdef _WIN32
-        __try
-#else
         try
-#endif
         {
             pA = TraceARoot(pV->AttributesClass, pString);
         }
-#ifdef _WIN32 // TODO: check and replace __except
-        __except (EXCEPTION_EXECUTE_HANDLER)
-#else
         catch (...)
-#endif
         {
             SetError("Save - ARef to non existing attributes branch");
             WriteVDword(0xffffffff);
@@ -7960,7 +7851,4 @@ void COMPILER::FormatDialog(const char *file_name)
 
 void STRING_CODEC::VariableChanged()
 {
-#ifdef _WIN32 // S_DEBUG
-    CDebug->SetTraceMode(TMODE_MAKESTEP);
-#endif
 }

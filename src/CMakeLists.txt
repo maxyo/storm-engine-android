@@ -19,55 +19,22 @@ if(STORM_SCENE_SWEEP)
   add_definitions(-DSTORM_SCENE_SWEEP=1)
 endif()
 
-if (MSVC)
-    # Ignore warnings about missing pdb
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /ignore:4099")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /ignore:4099")
-    set(CMAKE_STATIC_LINKER_FLAGS "${CMAKE_STATIC_LINKER_FLAGS} /ignore:4099")
+add_compile_options(-std=c++20)
+# Matrices, vertex data and D3D structures are viewed through differently
+# typed pointers throughout the engine (storm_glm.h accessors, vertex locks).
+add_compile_options(-fno-strict-aliasing)
 
-    # Always generate PDBs
-    add_compile_options(/Zi)
-    add_link_options(/DEBUG)
-
-    add_compile_options(/W2) # Warning level
-    add_compile_options(/WX) # Treats compiler warnings as errors
-    add_compile_options(/std:c++latest) # Language Standard Version
-    add_compile_options(/MP) # Build with Multiple Processes
-    add_compile_options(/fp:fast) # Build with Multiple Processes
-
-
-    add_compile_options("$<$<CONFIG:Release>:/Gy>") # Enable Function-Level Linking
-    add_compile_options("$<$<CONFIG:Release>:/Oi>") # Generate intrinsic functions
-    add_compile_options("$<$<CONFIG:Release>:/Ot>") # Favor fast code, should be implied by /O2 though
-    add_compile_options("$<$<CONFIG:Release>:/GL>") # Whole program optimization
-
-    add_link_options("$<$<CONFIG:Release>:/OPT:REF>") # Eliminate functions and data that are never referenced, needs to be explicitly specified with /DEBUG
-    add_link_options("$<$<CONFIG:Release>:/OPT:ICF>") # Perform identical COMDAT folding, needs to be explicitly specified with /DEBUG
-    add_link_options("$<$<CONFIG:Release>:/LTCG>") # Enable link-time code generation
+if(ANDROID)
+    # Same optimization level as the RelWithDebInfo builds that were tested on
+    # devices; cmake/android.cmake adds LTO and hidden visibility for Release.
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS} -O2 -g -DNDEBUG")
 else()
-    add_compile_options(-std=c++20)
-    # Matrices, vertex data and D3D structures are viewed through differently
-    # typed pointers throughout the engine (storm_glm.h accessors, vertex locks).
-    add_compile_options(-fno-strict-aliasing)
-
-    # Verbose output
-    if(NOT ANDROID AND NOT STORM_HOST_SOURCES)
-        add_compile_options(-v)
-        add_link_options(-v)
-    endif()
-
-    if(ANDROID)
-        # Same optimization level as the RelWithDebInfo builds that were tested on
-        # devices; cmake/android.cmake adds LTO and hidden visibility for Release.
-        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS} -O2 -g -DNDEBUG")
-    else()
-        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS} -O3")
-    endif()
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -g")
-
-    # Add _DEBUG flag
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS} -O3")
 endif()
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -g")
+
+# Add _DEBUG flag
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
 
 # this is crucial to include libs first
 add_subdirectory(libs)

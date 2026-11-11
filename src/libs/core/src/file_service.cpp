@@ -527,7 +527,6 @@ std::string convert_path(const char *path)
 
 void FILE_SERVICE::ScanResourcePaths()
 {
-#ifndef _WIN32
     if (ResourcePathsFirstScan)
     {
         // Seems like if static code calls us we need to do this manually to avoid any bugs
@@ -537,7 +536,6 @@ void FILE_SERVICE::ScanResourcePaths()
     // One walk when the working directory is the game directory (always on
     // Android), two otherwise; see platform/resource_index.hpp.
     storm::resource_index::scan(ResourcePaths, fio->_GetExecutableDirectory());
-#endif
 #ifdef __ANDROID__
     const std::filesystem::path internal(SDL_AndroidGetInternalStoragePath());
     storm::android::indexUiOverlay(internal / "mobile-ui/current", ResourcePaths);
@@ -551,9 +549,6 @@ void FILE_SERVICE::ScanResourcePaths()
 
 std::string FILE_SERVICE::ConvertPathResource(const char *path)
 {
-#ifdef _WIN32
-    return std::string(path);
-#else
 #ifdef __ANDROID__
     // Mutable paths must never use the game resource index, even for reads,
     // directory queries, or already-resolved paths returned by enumeration.
@@ -616,7 +611,6 @@ std::string FILE_SERVICE::ConvertPathResource(const char *path)
     {
         return result;
     }
-#endif
 }
 
 uint64_t FILE_SERVICE::GetPathFingerprint(const std::filesystem::path &path)

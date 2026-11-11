@@ -123,25 +123,6 @@ void RunFrame()
     lifecycleDiagnostics.notifyAfterRun();
 }
 
-#ifdef _WIN32
-void RunFrameWithOverflowCheck()
-{
-    __try
-    {
-        RunFrame();
-    }
-    __except ([](unsigned code, struct _EXCEPTION_POINTERS *ep) {
-        return code == EXCEPTION_STACK_OVERFLOW;
-    }(GetExceptionCode(), GetExceptionInformation()))
-    {
-        _resetstkoflw();
-        throw std::runtime_error("Stack overflow");
-    }
-}
-#else
-#define RunFrameWithOverflowCheck RunFrame
-#endif
-
 // Sleep-based frame limiter. The previous one compared SDL_GetTicks() and
 // `continue`d, spinning the whole main loop (event pump, JNI polling) on one
 // core until the frame time had passed, with whole-millisecond periods
@@ -262,11 +243,7 @@ void mimalloc_fun(const char *msg, void *arg)
     }
 
     FILE *mimalloc_log =
-#ifdef _MSC_VER
-        _wfopen(mimalloc_log_path.c_str(), L"a+b");
-#else
         fopen(mimalloc_log_path.c_str(), "a+b");
-#endif
     if (mimalloc_log != nullptr)
     {
         fputs(msg, mimalloc_log);
@@ -386,14 +363,6 @@ void HandleWindowEvent(const storm::OSWindow::Event &event)
 int main(int argc, char *argv[])
 {
     // Prevent multiple instances
-#ifdef _WIN32 // CreateEventA
-    if (!CreateEventA(nullptr, false, false, "Global\\FBBD2286-A9F1-4303-B60C-743C3D7AA7BE") ||
-        GetLastError() == ERROR_ALREADY_EXISTS)
-    {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", "Another instance is already running!", nullptr);
-        return EXIT_SUCCESS;
-    }
-#endif
 #ifdef __ANDROID__
     try
     {
@@ -876,7 +845,7 @@ int main(int argc, char *argv[])
 #ifdef __ANDROID__
                 storm::android::worldMapHud.beginDraw(SDL_GetTicks());
 #endif
-                RunFrameWithOverflowCheck();
+                RunFrame();
             }
             catch (const std::exception &error)
             {
@@ -1024,9 +993,7 @@ int main(int argc, char *argv[])
     }
     if (auto logger = spdlog::default_logger())
         logger->flush();
-#ifdef _WIN32 // FIX_LINUX Cursor
-    ClipCursor(nullptr);
-#elif _DEBUG
+#if _DEBUG
     mi_option_set(mi_option_verbose, 0); // disable statistics writing in Linux
 #endif
     SDL_Quit();

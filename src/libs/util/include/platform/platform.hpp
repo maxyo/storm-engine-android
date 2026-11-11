@@ -1,15 +1,4 @@
 #pragma once
-#ifdef _WIN32
-
-#define PATH_SEP '\\'
-#define WRONG_PATH_SEP '/'
-
-inline const char *convert_path_sep(const char *cPath)
-{
-    return cPath;
-}
-
-#else // NOT _WIN32
 
 #include <cerrno>
 #include <climits>
@@ -167,4 +156,3 @@ template <size_t size> inline int sprintf_s(char (&buffer)[size], const char *fo
     return result;
 }
 
-#endif

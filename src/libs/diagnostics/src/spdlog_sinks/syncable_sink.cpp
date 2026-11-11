@@ -2,17 +2,7 @@
 
 #include <cstdio>
 
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <format>
-
-#include <windows.h>
-
-#include <fileapi.h>
-#include <io.h>
-#else
 #include <unistd.h>
-#endif
 
 #include <spdlog/common.h>
 #include <spdlog/pattern_formatter.h>
@@ -46,15 +36,7 @@ void storm::logging::sinks::syncable_sink::set_formatter(std::unique_ptr<spdlog:
 
 void storm::logging::sinks::syncable_sink::sync() const
 {
-#ifdef _WIN32
-    const auto success = FlushFileBuffers(reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(file_helper_.getfd()))));
-    if (!success)
-    {
-        OutputDebugStringA(std::format("failed to flush:{} ({})", file_helper_.filename(), GetLastError()).c_str());
-    }
-#else
     fsync(fileno(file_helper_.getfd()));
-#endif
 }
 
 void storm::logging::sinks::syncable_sink::terminate_immediately()

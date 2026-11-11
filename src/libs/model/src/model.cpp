@@ -5,10 +5,6 @@
 #include "legacy_dynamic_vertex_stream.hpp"
 #include "skinning.hpp"
 
-#ifdef _WIN32 // FIX_LINUX DirectXMath
-#include <DirectXMath.h>
-#endif
-
 CREATE_CLASS(MODELR)
 
 
@@ -72,7 +68,6 @@ storm::render::VertexBufferId MODELR::VBTransform(void *context, const void *vb,
     return model.skinnedStreams_.transform(vb,lifetime,uint32_t(totVerts),
         [&] {return storm::render::makeLegacyDynamicVertexStream(*model.rs);},
         [&](GEOS::VERTEX0* dst) {
-#ifndef _WIN32 // FIX_LINUX DirectXMath
     // NEON on arm64 (SSE2 on x86-64, scalar elsewhere); see skinning.hpp.
     static_assert(sizeof(GEOS::AVERTEX0) == sizeof(storm::skinning::Source) &&
                   offsetof(GEOS::AVERTEX0, weight) == offsetof(storm::skinning::Source, weight) &&
@@ -88,65 +83,6 @@ storm::render::VertexBufferId MODELR::VBTransform(void *context, const void *vb,
     storm::skinning::skin(reinterpret_cast<const storm::skinning::Source *>(src),
                           reinterpret_cast<storm::skinning::Target *>(dst), bones, sizeof(glm::mat4),
                           static_cast<size_t>(totVerts));
-#else
-    for (int32_t v = 0; v < totVerts; v++)
-    {
-        // Vertex
-        auto &vrt = src[v];
-        auto &dstVrt = dst[v];
-        // Matrices
-        auto &m1 = bones[vrt.boneid & 0xff];
-        auto &m2 = bones[(vrt.boneid >> 8) & 0xff];
-        // Inverse blending coefficient
-        const auto wNeg = 1.0f - vrt.weight;
-
-#ifdef _WIN32 // FIX_LINUX DirectXMath
-#ifdef __AVX__
-        // apparently, _mm256_set1_ps seems to be better using msvc with lat=~7+1*2+4+1*5+5+7+1*2==24 vs ~7+1*2+4+1*5+1+3+1*2==32 for _mm256_broadcast_ss
-        // TODO: check clang listings
-        const auto ymm0 = _mm256_set1_ps(vrt.weight);
-        const auto ymm1 = _mm256_set1_ps(wNeg);
-
-        const auto ymm2 = _mm256_add_ps(_mm256_mul_ps(_mm256_loadu_ps(storm::math::data(m1)), ymm0),
-                                        _mm256_mul_ps(_mm256_loadu_ps(storm::math::data(m2)), ymm1));
-        const auto ymm3 = _mm256_add_ps(_mm256_mul_ps(_mm256_loadu_ps(storm::math::data(m1) + 8), ymm0),
-                                        _mm256_mul_ps(_mm256_loadu_ps(storm::math::data(m2) + 8), ymm1));
-
-        const DirectX::XMMATRIX xmmtx(_mm256_castps256_ps128(ymm2), _mm256_extractf128_ps(ymm2, 1),
-                                      _mm256_castps256_ps128(ymm3), _mm256_extractf128_ps(ymm3, 1));
-#else
-        // pure SSE2
-        const auto xmm0 = _mm_set1_ps(vrt.weight);
-        const auto xmm1 = _mm_set1_ps(wNeg);
-
-        const auto xmm2 =
-            _mm_add_ps(_mm_mul_ps(_mm_loadu_ps(storm::math::data(m1)), xmm0), _mm_mul_ps(_mm_loadu_ps(storm::math::data(m2)), xmm1));
-        const auto xmm3 =
-            _mm_add_ps(_mm_mul_ps(_mm_loadu_ps(storm::math::data(m1) + 4), xmm0), _mm_mul_ps(_mm_loadu_ps(storm::math::data(m2) + 4), xmm1));
-        const auto xmm4 =
-            _mm_add_ps(_mm_mul_ps(_mm_loadu_ps(storm::math::data(m1) + 8), xmm0), _mm_mul_ps(_mm_loadu_ps(storm::math::data(m2) + 8), xmm1));
-        const auto xmm5 =
-            _mm_add_ps(_mm_mul_ps(_mm_loadu_ps(storm::math::data(m1) + 12), xmm0), _mm_mul_ps(_mm_loadu_ps(storm::math::data(m2) + 12), xmm1));
-
-
-        const DirectX::XMMATRIX xmmtx(xmm2, xmm3, xmm4, xmm5);
-#endif
-
-        // Position
-        XMStoreFloat3(reinterpret_cast<DirectX::XMFLOAT3 *>(&dstVrt.pos),
-            XMVector3Transform(XMLoadFloat3(reinterpret_cast<DirectX::XMFLOAT3 *>(&vrt.pos)), xmmtx));
-
-        // Normal
-        XMStoreFloat3(reinterpret_cast<DirectX::XMFLOAT3 *>(&dstVrt.nrm),
-            XMVector3Transform(XMLoadFloat3(reinterpret_cast<DirectX::XMFLOAT3 *>(&vrt.nrm)), xmmtx));
-#endif // _WIN32 DirectXMath
-
-        // Rest
-        dstVrt.color = vrt.color;
-        dstVrt.tu = vrt.tu0;
-        dstVrt.tv = vrt.tv0;
-    }
-#endif // _WIN32 skinning loop
 
         });
 }

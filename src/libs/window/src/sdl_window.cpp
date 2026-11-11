@@ -1,8 +1,5 @@
 #include "sdl_window.hpp"
 
-#ifdef _WIN32
-#include <SDL2/SDL_syswm.h>
-#endif
 #include <algorithm>
 
 namespace storm
@@ -140,15 +137,8 @@ void *SDLWindow::OSHandle()
     if (!window_)
         return nullptr;
 
-#ifdef _WIN32
-    SDL_SysWMinfo info;
-    SDL_VERSION(&info.version);
-    SDL_GetWindowWMInfo(window_.get(), &info);
-    return info.info.win.window;
-#else
     // The renderer (renderer_bgfx) receives the SDL window as its HWND
     return window_.get();
-#endif
 }
 
 SDL_Window *SDLWindow::SDLHandle() const

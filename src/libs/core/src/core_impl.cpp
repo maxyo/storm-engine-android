@@ -316,9 +316,6 @@ void CoreImpl::ProcessEngineIniFile()
 
             if (iScriptVersion != ENGINE_SCRIPT_VERSION)
             {
-#ifdef _WIN32 // FIX_LINUX Cursor
-                ShowCursor(true);
-#endif
                 SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", "Wrong script version", nullptr);
                 Compiler->ExitProgram();
             }
@@ -351,13 +348,6 @@ storm::OSWindow *CoreImpl::GetWindow()
 {
     return window_.get();
 }
-
-#ifdef _WIN32 // HINSTANCE
-HINSTANCE CoreImpl::GetAppInstance()
-{
-    return hInstance;
-}
-#endif
 
 void CoreImpl::SetTimeScale(float _scale)
 {
