@@ -3,7 +3,7 @@
 // The counters are always on: plain increments on the game thread, totals since start-up.
 // A reader keeps the totals of the start of its window and subtracts (Since()), so several
 // readers never disturb each other. The engine logs a window every few seconds when engine.ini
-// has `render_metrics=1` (DX9RENDER, "RenderMetrics:" line); the scene sweep reports one window
+// has `render_metrics=1` (Renderer, "RenderMetrics:" line); the scene sweep reports one window
 // per captured scene; tests/renderer_bgfx checks the counts of a fixed synthetic frame so that
 // draw/state regressions show up in host CI.
 #pragma once

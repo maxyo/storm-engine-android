@@ -344,7 +344,7 @@ struct Direct3D final : Object
 };
 
 void fill_caps(D3DCAPS9 *caps);
-// The entry point DX9RENDER creates the device through.
+// The entry point Renderer creates the device through.
 Direct3D *CreateDirect3D();
 
 } // namespace storm::shim

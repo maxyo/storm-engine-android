@@ -66,7 +66,7 @@ SEAFOAM_PS::~SEAFOAM_PS()
     {
         for (n = 0; n < TexturesNum; n++)
             RenderService->TextureRelease(TextureID[n]);
-        // core.FreeService("dx9render");
+        // core.FreeService("renderer");
     }
     delete Particle;
     Particle = nullptr;
@@ -161,9 +161,9 @@ bool SEAFOAM_PS::Init(INIFILE *ini, const char *psname)
     bool bRes;
 
     // load render service -----------------------------------------------------
-    RenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
+    RenderService = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!RenderService)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
 
     gs = static_cast<VGEOMETRY *>(core.GetService("geometry"));
     // if(!gs) return false;

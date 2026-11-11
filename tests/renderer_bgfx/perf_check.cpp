@@ -212,7 +212,7 @@ class Scene
         d_.SetIndices(ib_);
     }
 
-    // The sun fade reads a sky pixel on the CPU every frame (DX9RENDER::sampleTextureArgb): a
+    // The sun fade reads a sky pixel on the CPU every frame (Renderer::sampleTextureArgb): a
     // read-only lock must not re-upload the texture.
     void sample_texture()
     {

@@ -113,7 +113,7 @@ void BITimer::SetBeginData()
     m_fCurTimerCounter = 0.f;
     m_fMaxTimerCounter = 0.f;
 
-    m_pRender = static_cast<VRenderer *>(core.GetService("dx9render"));
+    m_pRender = static_cast<VRenderer *>(core.GetService("renderer"));
     Assert(m_pRender);
     m_pImgRndr = new BIImageRender(m_pRender);
     m_pBackImage = nullptr;

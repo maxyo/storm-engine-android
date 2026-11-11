@@ -279,7 +279,7 @@ int32_t CXI_UTILS::SplitStringByWidth(const char *pcText, int32_t nFontID, float
     const auto *const pcSrcStr = pcText;
     if (pcSrcStr == nullptr)
         return nMaxUsingWidth;
-    auto *rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    auto *rs = static_cast<VRenderer *>(core.GetService("renderer"));
     asOutStr.clear();
 
     int32_t nSrc = 0;

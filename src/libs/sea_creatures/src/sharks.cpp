@@ -530,9 +530,9 @@ Sharks::~Sharks()
 // Initialization
 bool Sharks::Init()
 {
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!rs)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
     for (int32_t i = 0; i < numShakes; i++)
         if (!shark[i].Init(0.0f, 0.0f))
             return false;

@@ -18,7 +18,7 @@ void TOUCH::SetDevices()
 {
     entid_t ent;
 
-    pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
+    pRS = static_cast<VRenderer *>(core.GetService("renderer"));
 }
 
 bool TOUCH::Init()

@@ -25,7 +25,7 @@ bool SHIP_CAMERA::Init()
 
 void SHIP_CAMERA::SetDevices()
 {
-    pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
+    pRS = static_cast<VRenderer *>(core.GetService("renderer"));
     Assert(pRS);
 
     pSea = static_cast<SEA_BASE *>(core.GetEntityPointer(core.GetEntityId("sea")));

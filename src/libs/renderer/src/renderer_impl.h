@@ -83,6 +83,8 @@ extern uint32_t dwSoundBuffersCount;
 extern uint32_t dwSoundBytes;
 extern uint32_t dwSoundBytesCached;
 
+// The game scripts load this library by its registered name (`#libriary "dx9render_script_libriary"` in
+// PROGRAM/seadogs.c), so the class keeps that name.
 class DX9RENDER_SCRIPT_LIBRIARY : public SCRIPT_LIBRIARY
 {
   public:
@@ -93,25 +95,25 @@ class DX9RENDER_SCRIPT_LIBRIARY : public SCRIPT_LIBRIARY
 };
 
 //-----------SDEVICE-----------
-class DX9RENDER : public VRenderer
+class Renderer : public VRenderer
 {
 #define RS_RECT_VERTEX_FORMAT (D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1)
 
   public:
-    static DX9RENDER *pRS;
+    static Renderer *pRS;
 
-    DX9RENDER();
-    ~DX9RENDER() override;
+    Renderer();
+    ~Renderer() override;
 
-    // DX9Render: Init/Release
+    // Renderer: Init/Release
     bool InitDevice(bool windowed, HWND hwnd, int32_t width, int32_t height) override;
     bool ReleaseDevice() override;
 
-    // DX9Render: Animation
+    // Renderer: Animation
     void RenderAnimation(int32_t ib, void *src, int32_t numVrts, int32_t minv, int32_t numv, int32_t startidx, int32_t numtrg,
                          bool isUpdateVB) override;
 
-    // DX9Render: Return d3d9 device
+    // Renderer: Return d3d9 device
     virtual void *GetDevice()
     {
         return d3d9;
@@ -123,23 +125,23 @@ class DX9RENDER : public VRenderer
     }
     uint32_t GetMaxActiveLights() override;
 
-    // DX9Render: Render Target/Begin/End/Clear
-    bool DX9Clear(int32_t type) override; // D3DCLEAR_STENCIL | D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER
-    bool DX9BeginScene() override;
-    bool DX9EndScene() override;
+    // Renderer: Render Target/Begin/End/Clear
+    bool ClearFrame(int32_t type) override; // D3DCLEAR_STENCIL | D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER
+    bool BeginFrame() override;
+    bool DrawFrameStats() override;
 
-    // DX9Render: Materials/Lights Section
+    // Renderer: Materials/Lights Section
     bool SetLight(uint32_t dwIndex, const D3DLIGHT9 *pLight) override;
     bool LightEnable(uint32_t dwIndex, bool bOn) override;
     bool SetMaterial(D3DMATERIAL9 &material) override;
     bool GetLightEnable(uint32_t dwIndex, BOOL *pEnable) override;
     bool GetLight(uint32_t dwIndex, D3DLIGHT9 *pLight) override;
 
-    // DX9Render: Clip Planes Section
+    // Renderer: Clip Planes Section
     HRESULT SetClipPlane(uint32_t Index, const float *pPlane) override;
     PLANE *GetPlanes() override;
 
-    // DX9Render: Camera Section
+    // Renderer: Camera Section
     void SetTransform(int32_t type, D3DMATRIX *mtx) override;
     void GetTransform(int32_t type, D3DMATRIX *mtx) override;
 
@@ -151,7 +153,7 @@ class DX9RENDER : public VRenderer
 
     bool SetCurrentMatrix(D3DMATRIX *mtx) override;
 
-    // DX9Render: Textures Section
+    // Renderer: Textures Section
     int32_t TextureCreate(const char *fname) override;
     int32_t TextureCreate(UINT width, UINT height, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool) override;
     int32_t CubeTextureCreate(UINT edgeLength, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool) override;
@@ -172,7 +174,7 @@ class DX9RENDER : public VRenderer
     bool TextureRelease(int32_t texid) override;
     bool TextureIncReference(int32_t texid) override;
 
-    // DX9Render: Fonts Section
+    // Renderer: Fonts Section
     int32_t Print(int32_t x, int32_t y, const char *format, ...) override;
     int32_t Print(int32_t nFontNum, uint32_t color, int32_t x, int32_t y, const char *format, ...) override;
     int32_t ExtPrint(int32_t nFontNum, uint32_t foreColor, uint32_t backColor, int wAlignment, bool bShadow, float fScale,
@@ -191,11 +193,11 @@ class DX9RENDER : public VRenderer
     char *GetFontIniFileName() override;
     bool SetFontIniFileName(const char *iniName) override;
 
-    // DX9Render: Techniques Section
+    // Renderer: Techniques Section
     bool TechniqueExecuteStart(const char *cBlockName) override;
     bool TechniqueExecuteNext() override;
 
-    // DX9Render: Draw Section
+    // Renderer: Draw Section
     void DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlockName = nullptr, uint32_t dwSubTexturesX = 1,
                    uint32_t dwSubTexturesY = 1, float fScaleX = 1.0f, float fScaleY = 1.0f) override;
     void DrawSprites(RS_SPRITE *pRSS, uint32_t dwSpritesNum, const char *cBlockName = nullptr) override;
@@ -216,12 +218,12 @@ class DX9RENDER : public VRenderer
                                 const void *pVertexData, uint32_t dwVertexStride,
                                 const char *cBlockName = nullptr) override;
 
-    // DX9Render: Video Section
+    // Renderer: Video Section
     void PlayToTexture() override;
     CVideoTexture *GetVideoTexture(const char *sVideoName) override;
     void ReleaseVideoTexture(CVideoTexture *pVTexture) override;
 
-    // DX9Render: Vertex/Index Buffers Section
+    // Renderer: Vertex/Index Buffers Section
     int32_t CreateVertexBuffer(int32_t type, size_t nverts, uint32_t usage, uint32_t dwPool) override;
     int32_t CreateIndexBuffer(size_t ntrgs, uint32_t dwUsage) override;
 
@@ -234,7 +236,7 @@ class DX9RENDER : public VRenderer
     void ReleaseVertexBuffer(int32_t id) override;
     void ReleaseIndexBuffer(int32_t id) override;
 
-    // DX9Render: Render/Texture States Section
+    // Renderer: Render/Texture States Section
     uint32_t SetRenderState(uint32_t State, uint32_t Value) override;
     uint32_t GetRenderState(uint32_t State, uint32_t *pValue) override;
     uint32_t GetSamplerState(uint32_t Sampler, D3DSAMPLERSTATETYPE Type, uint32_t *pValue) override;

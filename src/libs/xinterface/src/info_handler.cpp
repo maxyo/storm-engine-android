@@ -53,10 +53,10 @@ InfoHandler::~InfoHandler()
 bool InfoHandler::Init()
 {
     // get render service
-    m_rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    m_rs = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!m_rs)
     {
-        core.Trace("No service: dx9render");
+        core.Trace("No service: renderer");
         return false;
     }
     if (m_rs->IsInsideScene())

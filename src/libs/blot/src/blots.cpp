@@ -52,10 +52,10 @@ Blots::~Blots()
 bool Blots::Init()
 {
     // GUARD(Blots::Init())
-    // DX9 render
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    // renderer
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!rs)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
     // Layers
     ////core.LayerCreate("realize", true, false);
     // core.SetLayerType(realize, layer_type_t::realize);

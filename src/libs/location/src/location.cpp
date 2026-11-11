@@ -83,10 +83,10 @@ Location::~Location()
 // Initialization
 bool Location::Init()
 {
-    // DX9 render
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    // renderer
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!rs)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
     rs->SetRenderState(D3DRS_LIGHTING, FALSE);
 
     // core.LayerCreate("execute", true, false);

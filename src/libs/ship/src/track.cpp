@@ -21,7 +21,7 @@ bool ShipTracks::Init()
 {
     entid_t sea_id;
 
-    ShipTrack::pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
+    ShipTrack::pRS = static_cast<VRenderer *>(core.GetService("renderer"));
     Assert(ShipTrack::pRS);
     if (sea_id = core.GetEntityId("sea"))
         ShipTrack::pSea = static_cast<SEA_BASE *>(core.GetEntityPointer(sea_id));

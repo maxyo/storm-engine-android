@@ -80,7 +80,7 @@ void ISLAND::SetDevice()
 
     pCollide = static_cast<COLLIDE *>(core.GetService("COLL"));
     Assert(pCollide);
-    pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
+    pRS = static_cast<VRenderer *>(core.GetService("renderer"));
     Assert(pRS);
     pGS = static_cast<VGEOMETRY *>(core.GetService("geometry"));
     Assert(pGS);

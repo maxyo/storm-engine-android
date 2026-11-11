@@ -27,7 +27,7 @@ bool BLAST::Init()
     gs = static_cast<VGEOMETRY *>(core.GetService("geometry"));
     if (!gs)
         return false;
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!rs)
         return false;
 

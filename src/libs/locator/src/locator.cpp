@@ -25,7 +25,7 @@ LOCATOR::~LOCATOR()
 
 bool LOCATOR::Init()
 {
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
     gs = static_cast<VGEOMETRY *>(core.GetService("geometry"));
     if (!gs)
         return false;

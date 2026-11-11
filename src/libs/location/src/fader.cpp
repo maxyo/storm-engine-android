@@ -72,10 +72,10 @@ bool Fader::Init()
     core.SetLayerType(FADER_EXECUTE, layer_type_t::execute);
     core.AddToLayer(FADER_EXECUTE, GetId(), -256);
 
-    // DX9 render
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    // renderer
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!rs)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
     D3DVIEWPORT9 vp;
     rs->GetViewport(&vp);
     w = static_cast<float>(vp.Width);

@@ -110,10 +110,10 @@ bool WorldMap::Init()
     core.AddToLayer(EXECUTE, GetId(), 10000);
     core.AddToLayer(REALIZE, GetId(), 10000);
 
-    // DX9 render
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    // renderer
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!rs)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
     rs->SetPerspective((1.57f + 1.0f) / 2);
     wdmObjects->rs = rs;
     // GS

@@ -26,7 +26,7 @@ SailorsEditor::~SailorsEditor()
 
 bool SailorsEditor::Init()
 {
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
 
     sailors = core.CreateEntity("Sailors");
 

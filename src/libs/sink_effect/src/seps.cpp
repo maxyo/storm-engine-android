@@ -126,7 +126,7 @@ SEPS_PS::~SEPS_PS()
     RenderService->ReleaseVertexBuffer(VBuffer);
     for (n = 0; n < TexturesNum; n++)
         RenderService->TextureRelease(TextureID[n]);
-    // core.FreeService("dx9render");
+    // core.FreeService("renderer");
     delete Particle;
     Particle = nullptr;
     delete pFlowTrack;
@@ -220,9 +220,9 @@ bool SEPS_PS::Init(INIFILE *ini, char *psname)
     bool bRes;
 
     // load render service -----------------------------------------------------
-    RenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
+    RenderService = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!RenderService)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
 
     gs = static_cast<VGEOMETRY *>(core.GetService("geometry"));
     // if(!gs) return false;

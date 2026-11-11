@@ -148,7 +148,7 @@ LegacyDialog::~LegacyDialog() noexcept
 
 bool LegacyDialog::Init()
 {
-    RenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
+    RenderService = static_cast<VRenderer *>(core.GetService("renderer"));
     Assert(RenderService != nullptr);
 
     soundService_ = static_cast<VSoundService *>(core.GetService("SoundService"));

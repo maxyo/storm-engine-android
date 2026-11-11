@@ -10,7 +10,7 @@ CXI_IMAGE::CXI_IMAGE()
     m_rs = XINTERFACE::GetRenderService();
     if (!m_rs)
     {
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
     }
 
     m_bDisableDraw = false;

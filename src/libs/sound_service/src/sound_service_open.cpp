@@ -7,7 +7,7 @@
 SoundService::SoundService():bShowDebugInfo(false),initialized(false),fFXVolume(.5f),fMusicVolume(.5f),fSpeechVolume(.5f),fPitch(1) {}
 SoundService::~SoundService() = default;
 bool SoundService::Init() {
-    rs=static_cast<VRenderer*>(core.GetService("DX9RENDER"));
+    rs=static_cast<VRenderer*>(core.GetService("Renderer"));
     if(!rs)return false;
     try {
         unsigned budget=64;

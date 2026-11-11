@@ -24,7 +24,7 @@ bool Astronomy::Init()
 
 void Astronomy::SetDevice()
 {
-    pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
+    pRS = static_cast<VRenderer *>(core.GetService("renderer"));
     Assert(pRS);
     pGS = static_cast<VGEOMETRY *>(core.GetService("geometry"));
 }

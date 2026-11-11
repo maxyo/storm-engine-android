@@ -233,9 +233,9 @@ bool BLADE::Init()
 
     core.AddToLayer(REALIZE, GetId(), 65550);
 
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!rs)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
 
     // UNGUARD
     return true;

@@ -22,7 +22,7 @@ struct Device
     int DrawPrimitiveUP(int, uint32_t, const void *, uint32_t) { ++draws; return 0; }
     void DrawPrimitive(int, int, int) { ++draws; }
 };
-struct DX9RENDER
+struct Renderer
 {
     Device *d3d9;
     int dwNumDrawPrimitive = 0, passes = 0, starts = 0, fvfSets = 0;
@@ -42,7 +42,7 @@ namespace utf8 { int Utf8StringLength(const char *s) { return std::strlen(s); } 
 constexpr size_t MAX_SYMBOLS = 512; // font.cpp's vertex buffer capacity; Print clamps to it
 struct FONT
 {
-    DX9RENDER &renderService_;
+    Renderer &renderService_;
     Device &device_;
     std::string techniqueName_ = "font";
     int textureHandle_ = 0;
@@ -80,7 +80,7 @@ int main()
     assert(state.suppressed());
 
     Device device;
-    DX9RENDER renderer{&device};
+    Renderer renderer{&device};
     FONT font{renderer, device};
     char text[] = "hello";
     auto frame = [&] {

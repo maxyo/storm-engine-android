@@ -69,10 +69,10 @@ LocationEffects::~LocationEffects()
 // Initialization
 bool LocationEffects::Init()
 {
-    // DX9 render
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    // renderer
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!rs)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
 
     // core.LayerCreate("execute", true, false);
     core.SetLayerType(EXECUTE, layer_type_t::execute);

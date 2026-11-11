@@ -179,6 +179,6 @@ class Host
 
 namespace storm::render
 {
-// The device texture of a renderer texture id through the resolver DX9RENDER installed (null without one).
+// The device texture of a renderer texture id through the resolver Renderer installed (null without one).
 storm::shim::BaseTexture *ResolveEffectsTexture(int32_t texture);
 } // namespace storm::render

@@ -65,7 +65,7 @@ FONT::~FONT()
         vertexBuffer_->Release();
     if (textureHandle_ >= 0)
         renderService_.TextureRelease(textureHandle_);
-    // core.FreeService("dx9render");
+    // core.FreeService("renderer");
 }
 
 bool FONT::Init(const char *font_name, const char *iniName)

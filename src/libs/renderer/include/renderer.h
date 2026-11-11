@@ -190,34 +190,34 @@ class CVideoTexture;
 class VRenderer : public SERVICE, public storm::render::TextureColorReader
 {
   public:
-    // DX9Render: Construct/Destruct
+    // Renderer: Construct/Destruct
     ~VRenderer() override{};
 
-    // DX9Render: Init/Release
+    // Renderer: Init/Release
     virtual bool InitDevice(bool windowed, HWND hwnd, int32_t width, int32_t height) = 0;
     virtual bool ReleaseDevice() = 0;
 
-    // DX9Render: Animation
+    // Renderer: Animation
     virtual void RenderAnimation(int32_t ib, void *src, int32_t numVrts, int32_t minv, int32_t numv, int32_t startidx, int32_t numtrg,
                                  bool isUpdateVB) = 0;
 
-    // DX9Render: Render Target/Begin/End/Clear
-    virtual bool DX9Clear(int32_t type) = 0; // D3DCLEAR_STENCIL | D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER
-    virtual bool DX9BeginScene() = 0;
-    virtual bool DX9EndScene() = 0;
+    // Renderer: Render Target/Begin/End/Clear
+    virtual bool ClearFrame(int32_t type) = 0; // D3DCLEAR_STENCIL | D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER
+    virtual bool BeginFrame() = 0;
+    virtual bool DrawFrameStats() = 0;
 
-    // DX9Render: Materials/Lights Section
+    // Renderer: Materials/Lights Section
     virtual bool SetLight(uint32_t dwIndex, const D3DLIGHT9 *pLight) = 0;
     virtual bool LightEnable(uint32_t dwIndex, bool bOn) = 0;
     virtual bool SetMaterial(D3DMATERIAL9 &material) = 0;
     virtual bool GetLightEnable(uint32_t dwIndex, BOOL *pEnable) = 0;
     virtual bool GetLight(uint32_t dwIndex, D3DLIGHT9 *pLight) = 0;
 
-    // DX9Render: Clip Planes Section
+    // Renderer: Clip Planes Section
     virtual HRESULT SetClipPlane(uint32_t Index, const float *pPlane) = 0;
     virtual PLANE *GetPlanes() = 0;
 
-    // DX9Render: Camera Section
+    // Renderer: Camera Section
     virtual void SetTransform(int32_t type, D3DMATRIX *mtx) = 0;
     virtual void GetTransform(int32_t type, D3DMATRIX *mtx) = 0;
 
@@ -229,7 +229,7 @@ class VRenderer : public SERVICE, public storm::render::TextureColorReader
 
     virtual bool SetCurrentMatrix(D3DMATRIX *mtx) = 0;
 
-    // DX9Render: Textures Section
+    // Renderer: Textures Section
     virtual int32_t TextureCreate(const char *fname) = 0;
     // Textures made by code share the id table with file textures; TextureRelease frees them.
     // Returns -1 (logged) when the device rejects the texture.
@@ -258,7 +258,7 @@ class VRenderer : public SERVICE, public storm::render::TextureColorReader
     virtual bool TextureRelease(int32_t texid) = 0;
     virtual bool TextureIncReference(int32_t texid) = 0;
 
-    // DX9Render: Fonts Section
+    // Renderer: Fonts Section
     virtual int32_t Print(int32_t x, int32_t y, const char *format, ...) = 0;
     virtual int32_t Print(int32_t nFontNum, uint32_t color, int32_t x, int32_t y, const char *format, ...) = 0;
     virtual int32_t ExtPrint(int32_t nFontNum, uint32_t foreColor, uint32_t backColor, int wAlignment, bool bShadow,
@@ -278,11 +278,11 @@ class VRenderer : public SERVICE, public storm::render::TextureColorReader
     virtual char *GetFontIniFileName() = 0;
     virtual bool SetFontIniFileName(const char *iniName) = 0;
 
-    // DX9Render: Techniques Section
+    // Renderer: Techniques Section
     virtual bool TechniqueExecuteStart(const char *cBlockName) = 0;
     virtual bool TechniqueExecuteNext() = 0;
 
-    // DX9Render: Draw Section
+    // Renderer: Draw Section
     virtual void DrawRects(RS_RECT *pRSR, uint32_t dwRectsNum, const char *cBlockName = nullptr,
                            uint32_t dwSubTexturesX = 1, uint32_t dwSubTexturesY = 1, float fScaleX = 1.0f,
                            float fScaleY = 1.0f) = 0;
@@ -306,12 +306,12 @@ class VRenderer : public SERVICE, public storm::render::TextureColorReader
                                         const void *pVertexData, uint32_t dwVertexStride,
                                         const char *cBlockName = nullptr) = 0;
 
-    // DX9Render: Video Section
+    // Renderer: Video Section
     virtual void PlayToTexture() = 0;
     virtual CVideoTexture *GetVideoTexture(const char *sVideoName) = 0;
     virtual void ReleaseVideoTexture(CVideoTexture *pVTexture) = 0;
 
-    // DX9Render: Vertex/Index Buffers Section
+    // Renderer: Vertex/Index Buffers Section
     // Buffer handles: Create* returns an index into the renderer's table, or -1 on failure. -1 is the
     // "no buffer" handle owners keep before their first Create and after a release; releasing -1 does
     // nothing, like free(nullptr). Any other handle that is outside the table or has no buffer (never
@@ -330,7 +330,7 @@ class VRenderer : public SERVICE, public storm::render::TextureColorReader
     virtual void ReleaseVertexBuffer(int32_t id) = 0;
     virtual void ReleaseIndexBuffer(int32_t id) = 0;
 
-    // DX9Render: Render/Texture States Section
+    // Renderer: Render/Texture States Section
     virtual uint32_t SetRenderState(uint32_t State, uint32_t Value) = 0;
     virtual uint32_t GetRenderState(uint32_t State, uint32_t *pValue) = 0;
     virtual uint32_t GetSamplerState(uint32_t Sampler, D3DSAMPLERSTATETYPE Type, uint32_t *pValue) = 0;

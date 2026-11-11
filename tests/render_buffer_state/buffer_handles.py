@@ -1,6 +1,6 @@
-"""DX9RENDER buffer handles: -1 ("no buffer") and out-of-range ids never index the handle table.
+"""Renderer buffer handles: -1 ("no buffer") and out-of-range ids never index the handle table.
 
-Compiles the production block from DX9RENDER::LiveBuffer through DX9RENDER::ReleaseIndexBuffer with a
+Compiles the production block from Renderer::LiveBuffer through Renderer::ReleaseIndexBuffer with a
 stub renderer whose member in front of the table ends in a float 1.0f, as keptPixels_'s max_load_factor
 did with libc++ (Android): ReleaseIndexBuffer(-1) read it as a buffer pointer and crashed at 0x3f800000.
 UBSan's bounds check fails the run if any call still indexes the table out of range."""
@@ -10,8 +10,8 @@ import subprocess, sys, tempfile
 ROOT = Path(__file__).resolve().parents[2]
 p = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / 'src/libs/renderer/src/renderer.cpp'
 s = p.read_text()
-a = s.index('bool DX9RENDER::LiveBuffer(')
-b = s.index('\nvoid DX9RENDER::SetTransform(', a)
+a = s.index('bool Renderer::LiveBuffer(')
+b = s.index('\nvoid Renderer::SetTransform(', a)
 code = r'''
 #include <cassert>
 #include <cstdint>
@@ -29,7 +29,7 @@ struct Buffer {
 };
 struct VERTEX_BUFFER { uint32_t dwNumLocks; uint32_t dwUsage; int32_t type; int32_t size; Buffer *buff; };
 struct INDEX_BUFFER { uint32_t dwNumLocks; uint32_t dwUsage; int32_t size; Buffer *buff; };
-struct DX9RENDER {
+struct Renderer {
     // Ends like libc++'s unordered_map: ..., float max_load_factor = 1.0f (+ padding).
     struct { void *buckets = nullptr; size_t count = 0; void *first = nullptr; size_t size = 0; float mlf = 1.0f; } front;
     INDEX_BUFFER IndexBuffers[MAX_BUFFERS]{};
@@ -47,7 +47,7 @@ struct DX9RENDER {
 ''' + s[a:b] + r'''
 int main()
 {
-    DX9RENDER r;
+    Renderer r;
     Buffer vb, ib;
     r.VertexBuffers[2] = {0, 0, 0, 16, &vb};
     r.IndexBuffers[3] = {0, 0, 16, &ib};
@@ -81,7 +81,7 @@ int main()
     assert(spdlog::errors == 3 * 7 + 3);
     r.ReleaseIndexBuffer(3); // double release
     assert(ib.refs == 0 && spdlog::errors == 3 * 7 + 4);
-    std::cout << "actual DX9RENDER buffer handles: -1 is no buffer, out-of-range and released ids reported, live ids unchanged PASS\n";
+    std::cout << "actual Renderer buffer handles: -1 is no buffer, out-of-range and released ids reported, live ids unchanged PASS\n";
 }
 '''
 with tempfile.TemporaryDirectory(prefix='buffer-handles-') as d:

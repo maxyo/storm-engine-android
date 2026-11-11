@@ -37,9 +37,9 @@ MODELR::~MODELR()
 
 bool MODELR::Init()
 {
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!rs)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
     gpuSkinning_.setRenderer(rs);
 
     GeometyService = static_cast<VGEOMETRY *>(core.GetService("geometry"));

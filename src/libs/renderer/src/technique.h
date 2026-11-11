@@ -5,7 +5,7 @@
 #include "renderer.h"
 #include "shim/device.hpp"
 
-class DX9RENDER;
+class Renderer;
 
 struct SRSPARAM
 {
@@ -76,7 +76,7 @@ struct shader_find_t
 class CTechnique
 {
   protected:
-    DX9RENDER *pRS;
+    Renderer *pRS;
     storm::shim::Device *d3d9;
 
     // shaders
@@ -162,7 +162,7 @@ class CTechnique
     bool ExecutePassNext();
     bool ExecutePass(bool bStart);
 
-    CTechnique(DX9RENDER *_pRS);
+    CTechnique(Renderer *_pRS);
     ~CTechnique();
 };
 

@@ -596,7 +596,7 @@ SRSPARAM PARAM_TYPES[] = {
 
 SRSPARAM RESTORE_TYPES[] = {{"states", SUBCODE_RESTORE_STATES}, {"clear", SUBCODE_RESTORE_CLEAR}};
 
-CTechnique::CTechnique(DX9RENDER *_pRS)
+CTechnique::CTechnique(Renderer *_pRS)
 {
     dwNumBlocks = 0;
     dwNumShaders = 0;

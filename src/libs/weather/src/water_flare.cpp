@@ -44,9 +44,9 @@ void WATERFLARE::SetDevice()
 {
     // GUARD(void WATERFLARE::SetDevice())
 
-    RS = static_cast<VRenderer *>(core.GetService("dx9render"));
+    RS = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!RS)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
 
     entid_t ent;
     if (!(ent = core.GetEntityId("weather")))

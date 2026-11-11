@@ -30,7 +30,7 @@ bool SOUND::Init()
     if (!soundService)
         core.Trace("!SOUND: Can`t create sound service");
 
-    renderer = static_cast<VRenderer *>(core.GetService("dx9render"));
+    renderer = static_cast<VRenderer *>(core.GetService("renderer"));
     core.AddToLayer(REALIZE, GetId(), -1);
 
     return true;

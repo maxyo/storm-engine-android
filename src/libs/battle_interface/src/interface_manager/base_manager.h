@@ -46,7 +46,7 @@ class BI_ManagerBase : public Entity
     {
     }
 
-    VRenderer *GetDX9Render() const
+    VRenderer *GetRenderService() const
     {
         return m_pRS;
     }

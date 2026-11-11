@@ -8,7 +8,7 @@ CREATE_SERVICE(GEOMETRY)
 storm::render::VertexDeclarationId GEOM_SERVICE_R::vertexDecl_;
 
 char technique[256] = "";
-char RenderServiceName[] = "dx9render";
+char RenderServiceName[] = "renderer";
 GEOM_SERVICE_R GSR;
 char texturePath[256];
 

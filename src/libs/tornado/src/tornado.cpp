@@ -61,10 +61,10 @@ bool Tornado::Init()
     core.AddToLayer(EXECUTE, GetId(), 70000);
     core.AddToLayer(REALIZE, GetId(), 70000);
 
-    // DX9 render
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    // renderer
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!rs)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
 
     // Create buffers for the pillar
     ib = rs->CreateIndexBuffer(pillar.GetNumTriangles() * 3 * sizeof(uint16_t));

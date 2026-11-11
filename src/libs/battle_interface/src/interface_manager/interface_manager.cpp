@@ -30,7 +30,7 @@ BI_InterfaceManager::~BI_InterfaceManager()
 
 bool BI_InterfaceManager::Init()
 {
-    m_pRS = static_cast<VRenderer *>(core.GetService("DX9RENDER"));
+    m_pRS = static_cast<VRenderer *>(core.GetService("Renderer"));
     Assert(m_pRS);
     m_pImgRender = new BIImageRender(m_pRS);
     Assert(m_pImgRender);

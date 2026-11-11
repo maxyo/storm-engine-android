@@ -68,9 +68,9 @@ void MAST::SetDevice()
 {
     // GUARD(MAST::SetDevice())
 
-    RenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
+    RenderService = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!RenderService)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
 
     pCollide = static_cast<COLLIDE *>(core.GetService("COLL"));
     if (!pCollide)
@@ -761,9 +761,9 @@ bool HULL::Init()
 
 void HULL::SetDevice()
 {
-    RenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
+    RenderService = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!RenderService)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
 
     pCollide = static_cast<COLLIDE *>(core.GetService("COLL"));
     if (!pCollide)

@@ -1,7 +1,7 @@
 // Normal maps derived from the game's grey height ("bump") textures for the per-pixel lighting
 // (FX_LIGHT_NORMALMAP, fx/normal_map.hpp, FX.md "Normal maps from the game's height textures").
 //
-// DX9RENDER::TextureLoad reports each texture's file (SetEffectsTextureSource) right after its levels are filled.
+// Renderer::TextureLoad reports each texture's file (SetEffectsTextureSource) right after its levels are filled.
 // A texture whose name and pixels make it a height map (fx::HeightMapClassifier, every decision logged once) keeps
 // a copy of its top level; while kLightingNormalMap is on, the map is derived from it on a texture worker
 // (fx::DeriveNormalMap) and kept in the texture cache directory (texture::write_derived_file: same budget and LRU as

@@ -31,9 +31,9 @@ bool WaterRings::Init()
     const auto seaID = core.GetEntityId("sea");
     sea = static_cast<SEA_BASE *>(core.GetEntityPointer(seaID));
 
-    renderService = static_cast<VRenderer *>(core.GetService("dx9render"));
+    renderService = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!renderService)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
 
     ivManager =
         new IVBufferManager(renderService, waterrings::RING_FVF, sizeof(RING_VERTEX), waterrings::TRIANGLES_COUNT * 3,

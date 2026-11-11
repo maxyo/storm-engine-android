@@ -51,10 +51,10 @@ Lights::~Lights()
 // Initialization
 bool Lights::Init()
 {
-    // DX9 render
-    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
+    // renderer
+    rs = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!rs)
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
     collide = static_cast<COLLIDE *>(core.GetService("COLL"));
     // read the parameters
     auto ini = fio->OpenIniFile("RESOURCE\\Ini\\lights.ini");

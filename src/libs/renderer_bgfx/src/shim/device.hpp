@@ -150,7 +150,7 @@ struct Device final : Object
     Device(SDL_Window *window, const D3DPRESENT_PARAMETERS &params);
     ~Device() override;
 
-    // ---- the D3D9-shaped device API DX9RENDER drives ----
+    // ---- the D3D9-shaped device API Renderer drives ----
     HRESULT TestCooperativeLevel() { return D3D_OK; }
     UINT GetAvailableTextureMem() { return 1024u * 1024u * 1024u; }
     HRESULT GetDeviceCaps(D3DCAPS9 *caps);

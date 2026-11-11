@@ -62,7 +62,7 @@ EffectsReport CurrentEffects();
 // when there is none. Each notice is returned once.
 std::string TakeEffectsNotice();
 
-// The 3D scene of this frame is complete; what follows is the legacy interface (DX9RENDER::MakePostProcess,
+// The 3D scene of this frame is complete; what follows is the legacy interface (Renderer::MakePostProcess,
 // called by every interface before it draws). The post chain runs here, on the scene only.
 void EffectsSceneComplete();
 
@@ -102,11 +102,11 @@ struct EffectsPointLight
 };
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
 
-// The game file a texture was loaded from (DX9RENDER::TextureLoad, after its levels are filled). Grey height
+// The game file a texture was loaded from (Renderer::TextureLoad, after its levels are filled). Grey height
 // ("bump") textures get a normal map for the per-pixel lighting's relief (fx_light_normal_map).
 void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path);
 
-// DX9RENDER: the device texture behind a renderer texture id (EffectsWaterMesh::env_map), null for an invalid id.
+// Renderer: the device texture behind a renderer texture id (EffectsWaterMesh::env_map), null for an invalid id.
 void SetEffectsTextureResolver(std::function<shim::BaseTexture *(int32_t)> resolver);
 
 // ---- World passes: fx sky, fx water, contact shadows ----
@@ -128,7 +128,7 @@ bool EffectsSkyFogColor(std::array<float, 3> &rgb);
 
 // The world passes below draw into the current render target with the current D3D projection, in submission
 // order. `view` is the world -> view matrix as the engine sees it (VRenderer::GetTransform(D3DTS_VIEW)): the
-// device itself holds a camera-relative view, because DX9RENDER moves the camera translation into the world matrix.
+// device itself holds a camera-relative view, because Renderer moves the camera translation into the world matrix.
 using EffectsMatrix = std::array<float, 16>;
 
 // Draws the analytic sky on the far plane (depth test only). Only while CurrentEffectsWorld().sky.

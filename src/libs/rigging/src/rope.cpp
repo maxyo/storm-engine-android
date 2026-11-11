@@ -71,10 +71,10 @@ bool ROPE::Init()
 void ROPE::SetDevice()
 {
     // get render service
-    RenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
+    RenderService = static_cast<VRenderer *>(core.GetService("renderer"));
     if (!RenderService)
     {
-        throw std::runtime_error("No service: dx9render");
+        throw std::runtime_error("No service: renderer");
     }
 
     LoadIni();
