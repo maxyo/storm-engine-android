@@ -7,7 +7,7 @@ import tempfile
 root = Path(__file__).resolve().parents[2]
 with tempfile.TemporaryDirectory(prefix='storm-land-commands-') as directory:
     binary = Path(directory) / 'check'
-    for name in ('check.cpp', 'handoff.cpp', 'missing_source.cpp'):
+    for name in ('check.cpp', 'missing_source.cpp'):
         subprocess.run([os.environ.get('CXX', 'c++'), '-std=c++20', '-fsanitize=address,undefined',
                     '-I'+str(root/'src/libs/util/include'), str(Path(__file__).with_name(name)),
                     '-o', str(binary)], check=True)

@@ -294,6 +294,22 @@ bool PCS_CONTROLS::AndroidControlAllowed(int32_t code) const
         return false;
     });
 }
+
+// A held HUD control is its key held down also for the controls bound INVERSE to that key.
+int PCS_CONTROLS::AndroidHeldInverse(int32_t code) const
+{
+    const auto &control = pUserControls[code];
+    if (control.control_type == UCT_ControlTree || !(control.flags & INVERSE_CONTROL)) return -1;
+    for (int32_t i = 0; i < nControlsNum; ++i)
+    {
+        const auto &other = pUserControls[i];
+        if (i == code || !other.name || other.control_type == UCT_ControlTree || other.system_code != control.system_code ||
+            (other.flags & INVERSE_CONTROL))
+            continue;
+        if (const int state = storm::android::heldControls.inverse(other.name); state >= 0) return state;
+    }
+    return -1;
+}
 #endif
 
 bool PCS_CONTROLS::GetControlState(int32_t control_code, CONTROL_STATE &_state_struct)
@@ -312,8 +328,10 @@ bool PCS_CONTROLS::GetControlState(int32_t control_code, CONTROL_STATE &_state_s
     if (found && AndroidControlAllowed(control_code))
     {
         const int physical = _state_struct.state;
-        const int combined = storm::android::heldControls.merge(pUserControls[control_code].name,
+        int combined = storm::android::heldControls.merge(pUserControls[control_code].name,
             storm::android::combatInput.merge(pUserControls[control_code].name, physical));
+        if (const int inverse = AndroidHeldInverse(control_code); inverse >= 0)
+            combined = inverse;
         if (combined != physical)
         {
             _state_struct.state = static_cast<CONTROL_STATE_TYPE>(combined);

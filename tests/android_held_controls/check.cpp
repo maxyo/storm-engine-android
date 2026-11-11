@@ -26,6 +26,20 @@ int main()
     held.advance(0);
     assert(state("Ship_TurnLeft") == 0);
 
+    // the controls bound inversely to the held key see it pressed: the spyglass's TelescopeOut
+    // (VK_CONTROL inverted) lets go while TelescopeIn is held and activates on its release
+    assert(held.inverse("TelescopeIn") == -1 && held.inverse("Ship_Fire") == -1);
+    assert(held.offer("7\tTelescopeIn\t1", 0));
+    held.advance(0);
+    assert(state("TelescopeIn") == 3 && held.inverse("TelescopeIn") == 2);
+    held.advance(0);
+    assert(held.inverse("TelescopeIn") == 0);
+    assert(held.offer("7\tTelescopeIn\t0", 0));
+    held.advance(0);
+    assert(held.inverse("TelescopeIn") == 3);
+    held.advance(0);
+    assert(held.inverse("TelescopeIn") == -1);
+
     // Silence does not let go (event model): held through any number of frames, slow or fast,
     // until its "0".
     assert(held.offer("7\tShip_TurnRight\t1", 0));

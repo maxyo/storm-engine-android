@@ -11,7 +11,7 @@
 //     (mode 5: fog start, fog end hold the haze, see Lighting::aerial_fog)
 // [2] fog start, fog end, fog density, alpha ref  [3] alpha func (0 = off, else D3DCMP), specular add, stage count, fog depth is in v_fog.z
 uniform vec4 u_ffFs[4];
-uniform vec4 u_ffDepthBias; // x: D3DRS_SLOPESCALEDEPTHBIAS (fs_ff_slopebias only)
+uniform vec4 u_ffDepthBias; // x: D3DRS_SLOPESCALEDEPTHBIAS (STORM_SLOPE_BIAS shaders only)
 
 #ifdef FX_FF_COVERAGE
 #include "fx_coverage.sh"
@@ -62,5 +62,14 @@ vec4 ffFinish(vec4 color)
     }
     return color;
 }
+
+// D3DRS_SLOPESCALEDEPTHBIAS (bgfx has no polygon offset): depth + bias * max(|dz/dx|, |dz/dy|), written by the
+// shaders compiled with STORM_SLOPE_BIAS (it disables early depth, so only the draws that set the bias use them).
+// The constant D3DRS_DEPTHBIAS part is already in the projection. Window depth is [0, 1] like D3D's.
+#if STORM_SLOPE_BIAS
+#define FF_SLOPE_DEPTH() gl_FragDepth = clamp(gl_FragCoord.z + u_ffDepthBias.x * max(abs(dFdx(gl_FragCoord.z)), abs(dFdy(gl_FragCoord.z))), 0.0, 1.0)
+#else
+#define FF_SLOPE_DEPTH()
+#endif
 
 #endif

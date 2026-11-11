@@ -296,19 +296,9 @@ void refreshLandCommands(bool ready)
     const auto key = landOwnerKey(battle);
     if (key.empty()) { traceLandAdapter(2, "empty-owner-key"); battle->CloseAndroidLand(); landCommands.update({}, {}); return; }
     const auto ownerKey = key + ":list:" + frame.ownerIdentity;
-    const auto tick = SDL_GetTicks();
     traceLandAdapter(2, "ready owner=" + std::to_string(battle->GetId()) + " active=" + (frame.active ? "1" : "0") +
         " complete=" + (frame.complete ? "1" : "0") + " items=" + std::to_string(frame.items.size()));
-    landCommands.update(ownerKey, std::move(frame), tick);
-    // The hold ends with the UI's answer, however slow its frames are. A UI that has
-    // not answered for seconds is broken, not slow: say so loudly, once per hold.
-    static uint64_t reportedRevision = 0;
-    if (landCommands.handoffWaiting(tick) >= 5000 && reportedRevision != landCommands.revision()) {
-        reportedRevision = landCommands.revision();
-        __android_log_print(ANDROID_LOG_ERROR, "StormInput",
-            "land commands: the UI has not answered revision %llu for %u ms; the native menu stays hidden",
-            static_cast<unsigned long long>(landCommands.revision()), landCommands.handoffWaiting(tick));
-    }
+    landCommands.update(ownerKey, std::move(frame));
 }
 bool executeLandCommand(const LandCommandsRequest &request)
 {
@@ -322,7 +312,8 @@ bool executeLandCommand(const LandCommandsRequest &request)
     if (request.verb == "activateItem" && (request.id != frame.selectedItemId ||
         std::none_of(frame.items.begin(), frame.items.end(), [&](const auto &item) { return item.id == request.id && item.enabled; }))) return false;
     const bool result = battle->ExecuteAndroidLand(request);
-    landCommands.finishAndroidOperation(request, result, SDL_GetTicks()); return result;
+    landCommands.invalidate(); // the menu moved on: taps made for this revision are stale
+    return result;
 }
 void closeLandCommands()
 {

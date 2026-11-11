@@ -19,8 +19,9 @@ uniform vec4 u_psBem[5]; // per stage D3DTSS_BUMPENVMAT00, 01, 10, 11 (texbem)
 #define PS_CONST(c) clamp(c, -1.0, 1.0)
 // Source modifiers.
 #define PS_BX2(x) (2.0 * ((x) - 0.5))
-// Final colour: oC0 = saturate(r0), then D3D alpha test and fog.
-#define PORT_PS_OUTPUT(r0) gl_FragColor = ffFinish(clamp(r0, 0.0, 1.0))
+// Final colour: oC0 = saturate(r0), then D3D alpha test and fog (and the slope-scaled depth bias of a
+// STORM_SLOPE_BIAS port).
+#define PORT_PS_OUTPUT(r0) gl_FragColor = ffFinish(clamp(r0, 0.0, 1.0)); FF_SLOPE_DEPTH()
 
 // texbem: stage coordinates perturbed by the (du, dv) of an earlier texel.
 vec2 portBem(vec2 uv, vec2 dudv, vec4 m)

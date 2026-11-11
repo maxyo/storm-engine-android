@@ -1,6 +1,8 @@
 $input v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v_texcoord4, v_fog
 // Port of the technique shader caustic_pixel_shader (ps_1_1) of src/techniques/weather/caustic.fx.
 // Stages 0, 1, 2: 2D textures (model texture alpha, two caustic frames).
+// The technique sets SlopeScaleDepthBias, so this port writes the biased depth (ff_finish.sh).
+#define STORM_SLOPE_BIAS 1
 #include "port_ps.sh"
 SAMPLER2D(s_tex0, 0);
 SAMPLER2D(s_tex1, 1);

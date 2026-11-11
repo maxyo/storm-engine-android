@@ -911,21 +911,25 @@ HRESULT Device::draw(const DrawCall &call)
     static const uint32_t id_fs_ff[5] = {shader_id_by_name("fs_ff"), shader_id_by_name("fs_ff_cube0"),
                                          shader_id_by_name("fs_ff_cube1"), shader_id_by_name("fs_ff_cube2"),
                                          shader_id_by_name("fs_ff_slopebias")};
+    // A texture left bound on a stage after the first disabled one is not sampled (as in D3D9 and the
+    // texture binding below), so it does not select a cube variant.
     uint32_t fs_variant = 0;
-    for (uint32_t stage = 0; stage < 3 && !ps_port; ++stage)
+    for (uint32_t stage = 0; stage < 3 && !ps_port && s.tss[stage][D3DTSS_COLOROP] != D3DTOP_DISABLE; ++stage)
         if (const TexStore *store = store_of(s.textures[stage]); store && store->kind == TexKind::Cube)
         {
             fs_variant = stage + 1;
             break;
         }
     const float slope_bias = as_float(s.rs[D3DRS_SLOPESCALEDEPTHBIAS]);
-    if (slope_bias != 0.0f)
+    const bool port_bias = ps_port && s.ps->port->slope_bias;
+    if (slope_bias != 0.0f || port_bias)
     {
-        if (ps_port || fs_variant != 0)
-            trap("slope-scale depth bias with a pixel shader or a cube stage is not implemented (no bias applied)");
+        if (ps_port ? !port_bias : fs_variant != 0)
+            trap("slope-scale depth bias with this pixel shader or a cube stage is not implemented (no bias applied)");
         else
         {
-            fs_variant = 4;
+            if (!ps_port)
+                fs_variant = 4;
             const float bias[4] = {slope_bias, 0.0f, 0.0f, 0.0f};
             set_uniform(U_DEPTHBIAS, bias, 1);
         }

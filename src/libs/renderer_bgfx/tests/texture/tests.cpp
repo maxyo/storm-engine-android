@@ -395,7 +395,10 @@ void test_service(const fs::path &directory)
     CHECK(job3 && job3 != observer && !job3->cancelled);
     service.release(job3);
     service.shutdown();
-    CHECK(observer->state.load() == Job::Failed && !observer->result);
+    // Cancelled while queued it fails without a result; a worker may already have taken it before the last
+    // release, then it completes. Either way it is finished after shutdown.
+    const int final_state = observer->state.load();
+    CHECK((final_state == Job::Failed && !observer->result) || (final_state == Job::Done && observer->result));
 }
 } // namespace
 
