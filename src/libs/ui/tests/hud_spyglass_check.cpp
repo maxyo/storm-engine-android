@@ -94,6 +94,10 @@ struct QuietSurface final : screens::Surface
     void RequestText(TextRequest, const std::string &) override
     {
     }
+    void Alert(const std::string &text) override
+    {
+        Toast(text);
+    }
     void Toast(const std::string &) override
     {
     }

@@ -459,9 +459,9 @@ void Router::ReportError(const std::string &line)
     surface_.Error(line);
 }
 
-void Router::Notify(const std::string &key, const std::string &subject)
+void Router::Alert(const std::string &key, const std::string &subject)
 {
-    surface_.Toast(subject.empty() ? surface_.Text(key) : surface_.Text(key) + ": " + subject);
+    surface_.Alert(subject.empty() ? surface_.Text(key) : surface_.Text(key) + ": " + subject);
 }
 
 void Router::Build()

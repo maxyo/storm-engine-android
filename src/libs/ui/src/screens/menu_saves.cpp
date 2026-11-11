@@ -417,7 +417,7 @@ class LoadFailureConsumer final : public StateConsumer
         // "SAVE\<profile>\<file>": the player knows the record by its file name.
         const std::string record = state["record"].get<std::string>();
         const size_t slash = record.find_last_of("\\/");
-        router.Notify(StringKey("save.load_failed"), slash == std::string::npos ? record : record.substr(slash + 1));
+        router.Alert(StringKey("save.load_failed"), slash == std::string::npos ? record : record.substr(slash + 1));
     }
 };
 

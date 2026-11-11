@@ -61,6 +61,10 @@ struct FakeSurface final : Surface
     {
         text = std::move(request);
     }
+    void Alert(const std::string &text) override
+    {
+        Toast(text);
+    }
     void Toast(const std::string &) override
     {
     }

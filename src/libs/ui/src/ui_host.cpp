@@ -621,13 +621,25 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         if (hud_->Notice(text, tone)) // over the game, events go to the HUD's top-centre log
             return;
+        OverlayToast(text, tone, Setting("toastMs", 2600.0));
+    }
+
+    // On the overlay whatever is shown: over the game, over a screen, and through the change
+    // from one to the other (a failed load: the HUD's log would vanish with the menu that comes back).
+    void Alert(const std::string &text) override
+    {
+        OverlayToast(text, "danger", Setting("alertMs", 6000.0));
+    }
+
+    void OverlayToast(const std::string &text, const std::string &tone, double milliseconds)
+    {
         if (!overlay_ || text.empty())
             return;
         const bool top = document_ && document_->GetAttribute<Rml::String>("data-toast", "bottom") == "top";
         Rml::Element *stack = overlay_->GetElementById(top ? "toasts-top" : "toasts-bottom");
         if (!stack)
             return;
-        const double until = system_.GetElapsedTime() + Setting("toastMs", 2600.0) / 1000.0;
+        const double until = system_.GetElapsedTime() + milliseconds / 1000.0;
         for (Toast_ &shown : toasts_)
             if (shown.text == text && shown.element && shown.leaving < 0.0)
             {
