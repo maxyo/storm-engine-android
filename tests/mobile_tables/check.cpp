@@ -25,7 +25,6 @@ public:
 
 // Only engine service boundaries are stubbed; collection and ATTRIBUTES are real.
 namespace storm::android {
-bool imagePoll = true, imageReply = true;
 std::string mobileScreen = "test_screen";
 uint64_t mobileScreenRevision = 9;
 struct Action {std::string screen, node, value; int index;};
@@ -235,10 +234,8 @@ int main()
         nation->GetAttributeClass(("tr" + std::to_string(row)).c_str())->GetAttributeClass("td1")->SetAttribute("str", "");
     std::vector<MobileWidget> imageOnly;
     const auto onlyEmptyTable = [&] { return imageOnly.size() == 1 && imageOnly[0].type == "table"; };
-    storm::android::imagePoll = false;table.MobileCollect(imageOnly);assert(onlyEmptyTable());
-    storm::android::imagePoll = true;storm::android::imageReply = false;
-    imageOnly.clear();table.MobileCollect(imageOnly);assert(onlyEmptyTable());
-    imageOnly.clear();storm::android::imageReply = true;table.MobileCollect(imageOnly);assert(imageOnly.size() == 2);
+    // Image-only rows are drawable content: the portable UI draws their pictures.
+    table.MobileCollect(imageOnly);assert(imageOnly.size() == 2);
     for (int row = 1; row <= 2; ++row)
         nation->GetAttributeClass(("tr" + std::to_string(row)).c_str())->GetAttributeClass("td3")
             ->GetAttributeClass("icon")->SetAttribute("texturepointer", "1");
