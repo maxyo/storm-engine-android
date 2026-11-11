@@ -11,10 +11,24 @@ namespace storm::mobile
 {
 // One record: the game keeps saves per profile folder (SAVE\<profile>\<file>). This port has
 // no profiles (owner decision): the list shows the records of every profile together.
+// The game names save folders ASCII-case-insensitively (android_writable_storage.hpp child():
+// "SAVE\\Player\\x" is the folder "player"), and its profile name (options
+// StartGameParam.PlayerProfile, "Player") need not be spelled like the folder ("player") on
+// disk. Profiles are compared the game's way, never byte for byte.
+inline bool SameProfile(const std::string &a, const std::string &b)
+{
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i)
+    {
+        const auto fold = [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; };
+        if (fold(a[i]) != fold(b[i])) return false;
+    }
+    return true;
+}
 struct SaveRecord
 {
     std::string profile, file;
-    bool operator==(const SaveRecord &) const = default;
+    bool operator==(const SaveRecord &other) const { return SameProfile(profile, other.profile) && file == other.file; }
 };
 struct SaveListSnapshot
 {
@@ -172,7 +186,7 @@ public:
         if (index == target.owner.records.size())
             return state.saving ? static_cast<int>(state.files.size()) : -1;
         const SaveRecord &record = target.owner.records[index];
-        if (record.profile != state.profile) return -1;
+        if (!SameProfile(record.profile, state.profile)) return -1;
         for (size_t i = 0; i < state.files.size(); ++i)
             if (state.files[i] == record.file) return static_cast<int>(i);
         return -1;
@@ -187,7 +201,7 @@ inline bool SelectSaveTarget(const SaveListCapability::Target &target)
     auto state = ReadSaveList(); if (!state || !SaveListCapability::current(target, *state)) return false;
     // A record of another profile: that profile becomes the game's current one first.
     if (static_cast<size_t>(target.index) < target.owner.records.size() &&
-        target.owner.records[static_cast<size_t>(target.index)].profile != state->profile)
+        !SameProfile(target.owner.records[static_cast<size_t>(target.index)].profile, state->profile))
     {
         if (!ChooseSaveProfile(target.owner.records[static_cast<size_t>(target.index)].profile)) return false;
         state = ReadSaveList(); if (!state) return false;

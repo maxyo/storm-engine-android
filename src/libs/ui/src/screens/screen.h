@@ -201,6 +201,9 @@ class Surface
     // `anchor` is the id of the element the editor belongs to; the host fills the rectangle.
     virtual void RequestText(TextRequest request, const std::string &anchor) = 0;
     virtual void Toast(const std::string &text) = 0;
+    // Something the player asked for failed: a danger toast that stays several seconds and
+    // survives the change of screen (never the HUD's log).
+    virtual void Alert(const std::string &text) = 0;
     // The game language of the interface being shown ("russian"); tr() in templates and
     // Text() follow it.
     virtual void SetLanguage(const std::string &game_language) = 0;
@@ -244,7 +247,7 @@ class Router
     // For consumers: something is wrong with the data of their channel.
     void ReportError(const std::string &line);
     // For consumers: a short notice for the player, the UI string `key` (and what it is about).
-    void Notify(const std::string &key, const std::string &subject);
+    void Alert(const std::string &key, const std::string &subject);
     bool Active() const
     {
         return screen_ != nullptr;
