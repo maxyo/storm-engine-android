@@ -13,7 +13,7 @@
 
 #include <bgfx/bgfx.h>
 
-#include <d3d9.h>
+#include "storm_render_types.h"
 
 #include <atomic>
 #include <cstdint>

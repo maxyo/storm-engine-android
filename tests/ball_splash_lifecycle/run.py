@@ -31,9 +31,9 @@ with tempfile.TemporaryDirectory(prefix='storm-splash-lifecycle-') as temporary:
         (out / name).write_text((source / name).read_text())
     (out / 'sea_base.h').write_text('#pragma once\nstruct SEA_BASE {};\n')
     # t_splash.h takes its vector types from the real storm_glm.h (math_include_flags).
-    for name in ('windows.h', 'rands.h'):
+    for name in ('rands.h',):
         (out / name).write_text('#pragma once\n')
-    (out / 'd3d9types.h').write_text('''#pragma once
+    (out / 'storm_render_types.h').write_text('''#pragma once
 constexpr int D3DFVF_XYZ=2, D3DFVF_DIFFUSE=64, D3DFVF_TEX1=256, D3DFVF_TEX2=512;
 constexpr int D3DFVF_TEXTUREFORMAT2=0, D3DUSAGE_WRITEONLY=8;
 ''')

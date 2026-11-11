@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory(prefix='storm-input-std-') as d:
     b = Path(d)
     (b / 'SDL2').symlink_to(a.sdl_source.resolve() / 'include', target_is_directory=True)
     includes = [b, a.sdl_source.resolve()/'include', r/'src/libs/input/include', r/'src/libs/input/src', r/'src/libs/core/src',
-                r/'src/libs/util/include', r/'third_party/d3d9-headers/directx', r/'third_party/d3d9-headers/windows']
+                r/'src/libs/util/include', r/'src/libs/renderer_bgfx/include']
     flags = ['-std=c++20', '-pthread'] + ['-I'+str(i) for i in includes]
     cxx = os.environ.get('CXX', 'c++')
     # Leak/UB checks cover repeated segment release and erase/append ownership.

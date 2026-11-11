@@ -2,7 +2,7 @@
 #include "texture_pixels.hpp"
 
 #include <cstdint>
-#include <d3d9.h>
+#include "storm_render_types.h"
 #include <string_view>
 
 #include "entity.h"

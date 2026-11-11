@@ -34,7 +34,7 @@ for contract in contracts:
         if not a.glm_source:
             p.error('event contracts require --glm-source')
         contract_flags += ['-I'+str(i) for i in (r/'src/libs/math/include', a.glm_source.resolve(),
-                           r/'third_party/d3d9-headers/directx', r/'third_party/d3d9-headers/windows')]
+                           r/'src/libs/renderer_bgfx/include')]
         if contract == 'postevents':
             sources += [r/'src/libs/core/src/message.cpp']
     subprocess.run([os.environ.get('CXX', 'c++'), *contract_flags, '-g', '-fsanitize=address,undefined',
@@ -47,7 +47,7 @@ if a.ndk:
     # Compile actual consumers with the Android toolchain, without a link or a device.
     includes += list((r/'src/libs').glob('*/include'))
     includes += [deps/'SDL/include', deps/'spdlog/include', deps/'mimalloc/include', deps/'fast_float/include',
-                 r/'third_party/d3d9-headers/directx', r/'third_party/d3d9-headers/windows', a.glm_source.resolve(), b]
+                 r/'src/libs/renderer_bgfx/include', a.glm_source.resolve(), b]
     if not (b/'SDL2').exists():
         (b/'SDL2').symlink_to(deps/'SDL/include', target_is_directory=True)
     compiler = a.ndk.resolve()/'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++'

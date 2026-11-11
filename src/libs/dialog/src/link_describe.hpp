@@ -2,7 +2,7 @@
 
 #include "storm_glm.h"
 
-#include <d3d9.h>
+#include "storm_render_types.h"
 
 #include <optional>
 #include <string>

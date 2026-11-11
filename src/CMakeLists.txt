@@ -1,7 +1,3 @@
-add_definitions(-DUNICODE -D_UNICODE) # Use Unicode
-add_definitions(-DNOMINMAX) # Use std::max()/std::min()
-add_definitions(-D_CRT_SECURE_NO_WARNINGS) # Disable deprecation of unsafe functions
-
 if(STORM_ENABLE_CRASH_REPORTS)
 	add_definitions(-DSTORM_ENABLE_CRASH_REPORTS=1)
 endif()

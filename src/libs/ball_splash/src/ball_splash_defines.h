@@ -3,8 +3,7 @@
 #include "rands.h"
 #include <stdlib.h>
 
-#include <windows.h>
-#include <d3d9types.h>
+#include "storm_render_types.h"
 
 #define BALLSPLASH_TRACE_INFORMATION
 

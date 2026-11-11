@@ -1,13 +1,13 @@
 // D3D9-shaped shim over bgfx: internal declarations.
 //
-// The engine keeps talking to Device & co. (third_party/d3d9-headers);
+// The engine talks to a D3D9-shaped device (storm_render_types.h);
 // the objects behind those interfaces are implemented here on bgfx handles.
 // All D3D conventions (row vectors, 0..1 depth, top-left render targets,
 // integer pixel centres, BGRA colours, triangle fans) are translated in this
 // directory only.
 #pragma once
 
-#include <d3d9.h>
+#include "storm_render_types.h"
 
 #include <atomic>
 

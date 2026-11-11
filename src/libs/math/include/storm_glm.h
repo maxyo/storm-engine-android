@@ -49,8 +49,7 @@ static_assert(sizeof(glm::vec3) == 12 && sizeof(glm::dvec3) == 24 && sizeof(glm:
 #include <type_traits>
 #include <utility>
 
-struct _D3DMATRIX;
-typedef _D3DMATRIX D3DMATRIX;
+struct D3DMATRIX;
 
 namespace storm::math
 {

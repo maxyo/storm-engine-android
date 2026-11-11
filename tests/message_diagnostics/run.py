@@ -7,7 +7,7 @@ p.add_argument('--dependency-sources',type=Path,required=True)
 p.add_argument('--glm-source',type=Path,required=True)
 a=p.parse_args();root=Path(__file__).resolve().parents[2];deps=a.dependency_sources.resolve()
 includes=[root/'src/libs/core/include',root/'src/libs/math/include',root/'src/libs/util/include',
-          deps/'fmt/include',root/'third_party/d3d9-headers/directx',root/'third_party/d3d9-headers/windows',a.glm_source.resolve()]
+          deps/'fmt/include',root/'src/libs/renderer_bgfx/include',a.glm_source.resolve()]
 with tempfile.TemporaryDirectory(prefix='storm-message-diagnostics-') as temporary:
     binary=Path(temporary)/'check'
     subprocess.run([os.environ.get('CXX','c++'),'-std=c++20','-DFMT_HEADER_ONLY','-g','-fsanitize=address,undefined',

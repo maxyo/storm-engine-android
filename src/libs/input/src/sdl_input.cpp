@@ -3,7 +3,6 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_system.h>
 #include <SDL2/SDL_video.h>
-#include <windows.h>
 #include <algorithm>
 #include <map>
 #include <string_view>

@@ -4,7 +4,7 @@
 // Palette: 3 RGBA32F texels per bone, one row per bone; texel k = (m[k], m[4+k], m[8+k], m[12+k])
 // of the bone matrix in memory order, texel 0 negated (the CPU kernel, skinning.hpp, negates
 // elements 0, 4, 8 and 12 of the blended matrix; the blend is linear, so each bone is negated).
-#include <d3d9types.h>
+#include "storm_render_types.h"
 
 #include <cstdint>
 

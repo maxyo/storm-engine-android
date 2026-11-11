@@ -2030,8 +2030,6 @@ bool COMPILER::Compile(SEGMENT_DESC &Segment, char *pInternalCode, uint32_t pInt
         delete[] Segment.pData;
         Segment.pData = nullptr;
     }
-    HANDLE fh;
-    uint32_t dwR;
     if (bWriteCodeFile)
     {
         auto fName = std::filesystem::path(Segment.name.c_str()).filename().string();

@@ -3883,7 +3883,7 @@ HRESULT DX9RENDER::SetRenderTarget(storm::shim::Surface *pRenderTarget, storm::s
 {
     auto result = !CHECKD3DERR(d3d9->SetDepthStencilSurface(pNewZStencil)) &&
                   !CHECKD3DERR(d3d9->SetRenderTarget(0, pRenderTarget));
-    return result ? D3D_OK : S_FALSE;
+    return result ? D3D_OK : D3DERR_INVALIDCALL;
 }
 
 HRESULT DX9RENDER::Clear(uint32_t Count, const D3DRECT *pRects, uint32_t Flags, D3DCOLOR Color, float Z,
