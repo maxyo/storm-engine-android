@@ -341,10 +341,12 @@
      "props": {}
     },
     {
-     "id": "time-faster",
-     "component": "c-button",
-     "rcss": "position: absolute; left: 50%; margin-left: 30dp; bottom: 18dp; width: 44dp; height: 44dp;",
-     "props": {}
+     "id": "walk",
+     "component": "c-stick",
+     "rcss": "position: absolute; left: 232dp; bottom: 27dp; width: 112dp; height: 112dp;",
+     "props": {
+      "kind": "move"
+     }
     }
    ]
   },
@@ -486,6 +488,14 @@
      "component": "c-button",
      "rcss": "position: absolute; left: 50%; margin-left: -24dp; bottom: 16dp; width: 48dp; height: 48dp;",
      "props": {}
+    },
+    {
+     "id": "walk",
+     "component": "c-stick",
+     "rcss": "position: absolute; left: 232dp; bottom: 27dp; width: 112dp; height: 112dp;",
+     "props": {
+      "kind": "move"
+     }
     },
     {
      "id": "time-faster",

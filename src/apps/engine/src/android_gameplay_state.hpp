@@ -95,7 +95,8 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         else if (sea)
             for (auto name : {"Ship_TurnLeft", "Ship_TurnRight", "Ship_SailUp", "Ship_SailDown",
                  "Ship_Fire", "Sea_CameraSwitch", "hk_charge1", "hk_charge2", "hk_charge3", "hk_charge4",
-                 "BICommandsActivate", "BIFastCommand", "TelescopeIn", "TelescopeOut"}) add(name);
+                 "BICommandsActivate", "BIFastCommand", "TelescopeIn", "TelescopeOut",
+                 "DeckCamera_Forward", "DeckCamera_Backward"}) add(name); // walking: first person (Sailing1Pers) only
         else
         {
             for (auto name : {"ChrForward", "ChrBackward", "ChrStrafeLeft", "ChrStrafeRight", "ChrFightMode",

@@ -318,6 +318,18 @@ static void CheckSailing()
                mount.Has("helm"),
            "without telemetry only the controls of the gameplay state stay");
     Json other = State("ship");
+    Json deck = State("gameplay-sailing");
+    deck["revision"] = 11;
+    deck["capabilities"].push_back("DeckCamera_Forward");
+    deck["capabilities"].push_back("DeckCamera_Backward");
+    bench.Set("gameplay", deck);
+    Expect(mount.Has("walk"), "first person on deck: the walk stick");
+    bench.Press("walk", "change", "10,-70");
+    Expect(mount.Last() == "hold:11\tDeckCamera_Forward\t1", "up walks forward: " + mount.Last());
+    bench.Press("walk", "change", "0,80");
+    Expect(Sent(mount, "hold:11\tDeckCamera_Forward\t0") && mount.Last() == "hold:11\tDeckCamera_Backward\t1", "down walks back: " + mount.Last());
+    bench.Press("walk", "change", "0,0");
+    Expect(mount.Last() == "hold:11\tDeckCamera_Backward\t0", "let go: " + mount.Last());
     other["sequence"] = 30;
     other["gameplayRevision"] = 8;
     bench.Set("ship", other);

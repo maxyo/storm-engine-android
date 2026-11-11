@@ -203,6 +203,15 @@ class SeaScene final : public Scene
         else
             hud_.Error("sea HUD: the engine binds no helm (Ship_TurnLeft / Ship_TurnRight) in mode " + gameplay.mode + "; no helm");
 
+        // First person on deck: the move stick beside the helm walks (the deck camera only goes
+        // along the view, forward or back; turning is the look drag).
+        if (gameplay.Has("DeckCamera_Forward") || gameplay.Has("DeckCamera_Backward"))
+        {
+            view.elements["walk"] = Json::object();
+            input.On("walk", "change", [this](const Event &event) { Walk(event.value); });
+        }
+        else
+            walk_ = 0;
         BuildGuns(states, ship, view, input);
         BuildTime(gameplay, ship, view, input);
         if (ship && layout_ == "sea-battle")
@@ -284,6 +293,7 @@ class SeaScene final : public Scene
                 SendHold(hold.first, hold.second, states.gameplay);
             }
         turn_ = 0;
+        walk_ = 0;
     }
 
     void Suspended(const States &states) override
@@ -626,6 +636,24 @@ class SeaScene final : public Scene
         Hold(turn < 0 ? "Ship_TurnRight" : "Ship_TurnLeft", false);
         Hold(turn < 0 ? "Ship_TurnLeft" : "Ship_TurnRight", turn != 0);
     }
+    void Walk(const std::string &value)
+    {
+        const size_t comma = value.find(',');
+        if (comma == std::string::npos)
+        {
+            hud_.Error("sea HUD: the walk stick reported '" + value + "', expected 'x,y'");
+            return;
+        }
+        // y grows downwards: up walks forward.
+        const double y = std::strtod(value.c_str() + comma + 1, nullptr);
+        const int walk = y <= -kHelmDead ? 1 : y >= kHelmDead ? -1 : 0;
+        if (walk == walk_)
+            return;
+        walk_ = walk;
+        Hold(walk > 0 ? "DeckCamera_Backward" : "DeckCamera_Forward", false);
+        Hold(walk > 0 ? "DeckCamera_Forward" : "DeckCamera_Backward", walk != 0);
+    }
+
 
     void Hold(const std::string &control, bool down)
     {
@@ -928,6 +956,7 @@ class SeaScene final : public Scene
     int band_left_ = 0; // dp from the safe area; 0 = the layout's own band
     // held controls
     std::map<std::string, Held> holds_;
+    int walk_ = 0; // deck walking: 1 forward, -1 back
     int turn_ = 0;
     // sails
     int sail_target_ = -1;
