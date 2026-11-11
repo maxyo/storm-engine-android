@@ -937,6 +937,10 @@ class AboutScreen final : public Screen
             bindings.On(id, "", [this, &bindings, url](const Event &) { bindings.Send(command_, "open-url", url); });
         }
         view["sources"] = sources;
+        // Diagnostics for a device without adb: the host writes our logs, device and build
+        // facts to one file and offers it to the share sheet (app DiagnosticsExport).
+        view["shareLog"] = Json{{"id", "share-log"}, {"title", bindings.Text("about.share_log")}};
+        bindings.On("share-log", "", [this, &bindings](const Event &) { bindings.Send(command_, "share-log"); });
         view["note"] = bindings.Text("about.note");
         view["noticesTitle"] = bindings.Text("about.notices");
         // The engine's own licence first, then the components by name.
