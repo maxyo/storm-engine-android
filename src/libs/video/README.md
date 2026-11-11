@@ -15,7 +15,7 @@ described in `tools/ffmpeg/README.md`.
   three frames.
 - Game thread (`CAviPlayer::Realize`): `update()` advances the clock and shows the newest frame
   that is due (late frames are dropped), the frame is copied into an `A8B8G8R8` texture through
-  the renderer's D3D9 texture API (`CreateTexture`, `LockRect`/`UnlockRect`) and drawn
+  the renderer's texture ids (`TextureCreate`, `TextureLock`/`TextureUnlock`) and drawn
   letterboxed with the `battle_icons` technique (texture colour, no vertex colour).
 
 RGBA conversion happens in swscale on the decoder thread rather than in a YUV shader: the
