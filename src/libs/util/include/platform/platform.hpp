@@ -7,7 +7,6 @@
 #include <cstdio>
 #include <cstring>
 
-#include "d3dx9.hpp"
 #include "winuser.rh"
 
 #undef EXTERN // fix for token.h:72:5: error: expected identifier EXTERN,
