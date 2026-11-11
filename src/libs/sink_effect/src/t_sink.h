@@ -16,7 +16,7 @@ class TSink
     TSink();
     virtual ~TSink();
 
-    void Initialize(INIFILE *_ini, IDirect3DDevice9 *_device, SEA_BASE *sea, VDX9RENDER *_renderer);
+    void Initialize(INIFILE *_ini, SEA_BASE *sea, VDX9RENDER *_renderer);
     void Release();
     void Start(const glm::vec3 &_pos, float _radius);
     void Process(uint32_t dTime);

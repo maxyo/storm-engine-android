@@ -155,19 +155,19 @@ bool LGeometry::Process(VDX9RENDER *rs, int32_t numLights)
             vbuffer[numVBuffers].vbID = vbID;
             vbuffer[numVBuffers++].start = numVrt;
             // get the vertices
-            auto *vbuf = rs->GetVertexBuffer(vbID);
-            D3DVERTEXBUFFER_DESC desc;
-            if (!vbuf || vbuf->GetDesc(&desc) != D3D_OK)
+            const auto fvf = static_cast<uint32_t>(rs->GetVertexBufferFVF(vbID));
+            const auto bufferSize = rs->GetVertexBufferSize(vbID);
+            if (bufferSize <= 0)
             {
                 core.Trace("Location lighter: vertex buffer error, model %s, vbID %i", object[i].nameReal, vbID);
                 return false;
             }
             // Analyzing the type
             auto isEnabledType = true;
-            isEnabledType &= ((desc.FVF & D3DFVF_POSITION_MASK) == D3DFVF_XYZ);
-            isEnabledType &= ((desc.FVF & D3DFVF_NORMAL) != 0);
-            isEnabledType &= ((desc.FVF & D3DFVF_DIFFUSE) != 0);
-            isEnabledType &= ((desc.FVF & D3DFVF_PSIZE) == 0);
+            isEnabledType &= ((fvf & D3DFVF_POSITION_MASK) == D3DFVF_XYZ);
+            isEnabledType &= ((fvf & D3DFVF_NORMAL) != 0);
+            isEnabledType &= ((fvf & D3DFVF_DIFFUSE) != 0);
+            isEnabledType &= ((fvf & D3DFVF_PSIZE) == 0);
             if (!isEnabledType)
             {
                 core.Trace("Location lighter: incorrect fvf of vertex buffer, model %s, vbID %i", object[i].nameReal,
@@ -176,11 +176,11 @@ bool LGeometry::Process(VDX9RENDER *rs, int32_t numLights)
             }
             // Vertex size
             int32_t stride = 6 * sizeof(float) + sizeof(uint32_t);
-            stride += ((desc.FVF & D3DFVF_TEXCOUNT_MASK) >> D3DFVF_TEXCOUNT_SHIFT) * 2 * sizeof(float);
-            if (desc.FVF & D3DFVF_SPECULAR)
+            stride += ((fvf & D3DFVF_TEXCOUNT_MASK) >> D3DFVF_TEXCOUNT_SHIFT) * 2 * sizeof(float);
+            if (fvf & D3DFVF_SPECULAR)
                 stride += sizeof(uint32_t);
             // Number of vertices
-            auto num = desc.Size / stride;
+            auto num = bufferSize / stride;
             if (num <= 0)
             {
                 core.Trace("Location lighter: incorrect number of verteces in vertex buffer, model %s, vbID %i",
@@ -194,8 +194,8 @@ bool LGeometry::Process(VDX9RENDER *rs, int32_t numLights)
                 vrt.resize(maxVrt);
             }
             // Copy
-            uint8_t *pnt = nullptr;
-            if (vbuf->Lock(0, desc.Size, (void **)&pnt, 0) != D3D_OK)
+            auto *pnt = static_cast<uint8_t *>(rs->LockVertexBuffer(vbID));
+            if (!pnt)
             {
                 core.Trace("Location lighter: vertex buffer no locked, model %s, vbID %i", object[i].nameReal, vbID);
                 return false;
@@ -237,7 +237,7 @@ bool LGeometry::Process(VDX9RENDER *rs, int32_t numLights)
                 }
                 numVrt++;
             }
-            vbuf->Unlock();
+            rs->UnLockVertexBuffer(vbID);
         }
         object[i].lBufSize = cindex;
         // Triangles ------------------------------------------------- -------------------------------

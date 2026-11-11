@@ -22,14 +22,14 @@ struct RS_RECT {glm::vec3 vPos;float fSize=1,fAngle=0;uint32_t dwColor=0xfffffff
 // The device keeps real matrices; element [0][0] tells them apart (identity has 1 there).
 struct Device {std::array<glm::mat4,2> matrices;Device(){matrices[0][0][0]=42;matrices[1][0][0]=73;}
  float marker(int i)const{return matrices[i][0][0];}
- void GetTransform(int i,D3DMATRIX* m){std::memcpy(m,&matrices[i],64);} void SetTransform(int i,const D3DMATRIX* m){std::memcpy(&matrices[i],m,64);}};
+ void GetTransform(int i,D3DMATRIX* m){std::memcpy(m,&matrices[i],64);} void SetTransform(int i,const D3DMATRIX* m){std::memcpy(&matrices[i],m,64);}
+ template<class B> int SetStreamSource(int,B*,int,size_t){return 0;}};
 struct Buffer {std::array<RECT_VERTEX,12> vertices;bool locked=false;int attempts=0,unlocks=0,failAt=0,nullAt=0;
  int Lock(int,size_t bytes,void** p,int){assert(!locked&&bytes<=sizeof(vertices));++attempts;if(attempts==failAt)return -1;locked=true;*p=attempts==nullAt?nullptr:vertices.data();return 0;}
  void Unlock(){assert(locked);locked=false;++unlocks;}};
 struct DX9RENDER {Device device;Device* d3d9=&device;Buffer buffer;Buffer* rectsVBuffer=&buffer;
  uint32_t rectsVBuffer_SizeInRects=2;glm::vec3 vWordRelationPos;int draws=0,triangles=0;
  float GetHeightDeformator(){return 1;}int SetFVF(int){return 0;}bool TechniqueExecuteStart(const char*){return true;}bool TechniqueExecuteNext(){return false;}
- int SetStreamSource(int,Buffer*,size_t){return 0;}
  int DrawPrimitive(int,int,int n){assert(!buffer.locked&&device.matrices[0]==glm::mat4(1.0f)&&device.matrices[1]==glm::mat4(1.0f));++draws;triangles+=n;return 0;}
  void DrawRects(RS_RECT*,uint32_t,const char*,uint32_t,uint32_t,float,float);
 };

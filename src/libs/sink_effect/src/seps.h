@@ -117,7 +117,7 @@ class SEPS_PS
     int32_t ParticlesNum;
     sink_effect::PARTICLE *Particle;
 
-    IDirect3DVertexBuffer9 *VBuffer;
+    int32_t VBuffer; // renderer vertex buffer id
 
     glm::vec3 Camera_EmitterPos;
     glm::vec3 Camera_EmitterPosA;

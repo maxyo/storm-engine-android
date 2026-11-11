@@ -80,7 +80,7 @@ TSplash::~TSplash()
 }
 
 //--------------------------------------------------------------------
-void TSplash::Initialize(INIFILE *_ini, IDirect3DDevice9 *_device, SEA_BASE *_sea, VDX9RENDER *_renderer)
+void TSplash::Initialize(INIFILE *_ini, SEA_BASE *_sea, VDX9RENDER *_renderer)
 {
     ambientColor = 0;
     sea = _sea;

@@ -311,8 +311,8 @@ void Astronomy::STARS::Realize(double dDeltaTime, double dHour)
     pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mWorld));
     pRS->TextureSet(0, iTexture);
     pRS->SetVertexDeclaration(vertexDecl);
-    pRS->SetStreamSource(0, pRS->GetVertexBuffer(iVertexBuffer), sizeof(glm::vec3));
-    pRS->SetStreamSource(1, pRS->GetVertexBuffer(iVertexBufferColors), sizeof(uint32_t));
+    pRS->SetStreamSource(0, iVertexBuffer, sizeof(glm::vec3));
+    pRS->SetStreamSource(1, iVertexBufferColors, sizeof(uint32_t));
 
     if (pRS->TechniqueExecuteStart("stars"))
         do
@@ -323,7 +323,7 @@ void Astronomy::STARS::Realize(double dDeltaTime, double dHour)
     pRS->SetRenderState(D3DRS_POINTSPRITEENABLE, false);
     pRS->SetRenderState(D3DRS_POINTSCALEENABLE, false);
 
-    pRS->SetStreamSource(1, nullptr, 0);
+    pRS->SetStreamSource(1, -1, 0);
 
     /*Astronomy::pRS->GetTransform(D3DTS_VIEW, mView);
     Astronomy::pRS->GetCamera(vCamPos, vCamAng, fFov);

@@ -31,7 +31,7 @@ class TSplash
     TSplash();
     virtual ~TSplash();
 
-    void Initialize(INIFILE *_ini, IDirect3DDevice9 *_device, SEA_BASE *sea, VDX9RENDER *_renderer);
+    void Initialize(INIFILE *_ini, SEA_BASE *sea, VDX9RENDER *_renderer);
     void Release();
     void Start(const glm::vec3 &_pos, const glm::vec3 &_dir);
     bool Process(uint32_t dTime);
@@ -53,7 +53,6 @@ class TSplash
 
     static VDX9RENDER *renderer;
     SEA_BASE *sea;
-    IDirect3DDevice9 *device;
 
     static int32_t vBuffer, iBuffer, texture, texture2, vBuffer2, iBuffer2;
     static int buffersUsage;

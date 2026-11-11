@@ -126,7 +126,7 @@ void SINKEFFECT::InitializeSinks()
     for (auto i = 0; i < sink_effect::MAX_SINKS; ++i)
     {
         sinks[i].Release();
-        sinks[i].Initialize(psIni.get(), nullptr, sea, renderer);
+        sinks[i].Initialize(psIni.get(), sea, renderer);
     }
 }
 

@@ -9,8 +9,8 @@ void cohort(VDX9RENDER &renderer)
     const int before=renderer.created;
     auto first=std::make_unique<TSplash>();
     auto last=std::make_unique<TSplash>();
-    first->Initialize(nullptr,nullptr,nullptr,&renderer);
-    last->Initialize(nullptr,nullptr,nullptr,&renderer);
+    first->Initialize(nullptr,nullptr,&renderer);
+    last->Initialize(nullptr,nullptr,&renderer);
     assert(renderer.created==before+6); // one shared allocation, not per splash
     first.reset();
     assert(renderer.released==before); // another splash still uses the buffers

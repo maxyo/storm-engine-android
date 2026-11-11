@@ -22,7 +22,7 @@ SEAFOAM_PS::SEAFOAM_PS() : enableEmit(true)
     ParticlesNum = 0;
     TexturesNum = 0;
     Particle = nullptr;
-    VBuffer = nullptr;
+    VBuffer = -1;
 
     Emitter.x = Emitter.y = Emitter.z = 0;
     Camera_EmitterPos.x = Camera_EmitterPos.y = Camera_EmitterPos.z = 0;
@@ -60,8 +60,8 @@ SEAFOAM_PS::SEAFOAM_PS() : enableEmit(true)
 SEAFOAM_PS::~SEAFOAM_PS()
 {
     int32_t n;
-    if (VBuffer)
-        VBuffer->Release();
+    if (RenderService)
+        RenderService->ReleaseVertexBuffer(VBuffer);
     if (RenderService)
     {
         for (n = 0; n < TexturesNum; n++)
@@ -314,9 +314,9 @@ bool SEAFOAM_PS::Init(INIFILE *ini, const char *psname)
         bTrackAngle = false;
 
     // create vertex buffer
-    RenderService->CreateVertexBuffer(sizeof(PARTICLE_VERTEX) * VERTEXS_ON_PARTICLE * ParticlesNum,
-                                      D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, PARTICLE_FVF, D3DPOOL_SYSTEMMEM, &VBuffer);
-    if (VBuffer == nullptr)
+    VBuffer = RenderService->CreateVertexBuffer(PARTICLE_FVF, sizeof(PARTICLE_VERTEX) * VERTEXS_ON_PARTICLE * ParticlesNum,
+                                                D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, D3DPOOL_SYSTEMMEM);
+    if (VBuffer < 0)
         throw std::runtime_error("vbuffer error");
 
     UpdateVertexBuffer();
@@ -339,8 +339,9 @@ void SEAFOAM_PS::UpdateVertexBuffer()
 
     Camera_EmitterPosA.x = Camera_EmitterPosA.y = Camera_EmitterPosA.z = 0;
 
-    RenderService->VBLock(VBuffer, 0, sizeof(PARTICLE_VERTEX) * VERTEXS_ON_PARTICLE * ParticlesNum,
-                          (uint8_t **)&pVertex, 0);
+    pVertex = static_cast<PARTICLE_VERTEX *>(RenderService->LockVertexBuffer(VBuffer));
+    if (!pVertex)
+        return;
     for (n = 0; n < ParticlesNum; n++)
     {
         index = n * VERTEXS_ON_PARTICLE;
@@ -427,7 +428,7 @@ void SEAFOAM_PS::UpdateVertexBuffer()
             pVertex[i].color = Particle[n].color;
         }
     }
-    RenderService->VBUnlock(VBuffer);
+    RenderService->UnLockVertexBuffer(VBuffer);
     if (ParticlesNum)
     {
         Camera_EmitterPosA.x = Camera_EmitterPosA.x / ParticlesNum;
@@ -509,9 +510,6 @@ void SEAFOAM_PS::Realize(uint32_t DeltaTime)
 
     RenderService->TextureSet(0, TextureID[0]);
 
-    RenderService->SetFVF(PARTICLE_FVF);
-    RenderService->SetStreamSource(0, VBuffer, sizeof(PARTICLE_VERTEX));
-    // RenderService->SetIndices(0, 0);
 
     bool bDraw;
     // if(bColorInverse)bDraw = RenderService->TechniqueExecuteStart("particles_inv");
@@ -520,7 +518,8 @@ void SEAFOAM_PS::Realize(uint32_t DeltaTime)
     bDraw = RenderService->TechniqueExecuteStart(TechniqueName);
     if (bDraw)
     {
-        RenderService->DrawPrimitive(D3DPT_TRIANGLELIST, 0, 2 * ParticlesNum);
+        // drawn in the first pass only, as before
+        RenderService->DrawPrimitive(D3DPT_TRIANGLELIST, VBuffer, sizeof(PARTICLE_VERTEX), 0, 2 * ParticlesNum);
         while (RenderService->TechniqueExecuteNext())
         {
         }
