@@ -575,7 +575,8 @@ class HeroScreen final : public Screen
                                      : bonus.find('+') != std::string::npos ? "ok"
                                      : special                              ? ""
                                                                             : "gold";
-            Json first{{"text", name}};
+            // A name that does not fit wraps to two lines and steps down (ui-clamp min-size).
+            Json first{{"text", name}, {"lines", 2}};
             if (!special && !points && *SkillIcon(row->row_id))
                 first["icon"] = SkillIcon(row->row_id), first["iconSize"] = 24;
             Json cells = Json::array({first});
