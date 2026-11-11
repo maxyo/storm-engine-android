@@ -1,4 +1,3 @@
-#ifdef STORM_OPEN_AUDIO
 #include "sound_service.h"
 #include "core.h"
 #include "storm_glm.h"
@@ -117,4 +116,3 @@ void SoundService::DebugDraw() {
     rs->Print(0,0,"Open audio: physical %u / logical %u; CPU/memory metrics unavailable",audio->physicalCount(),audio->logicalCount());
     rs->Print(0,16,"Sound schemes %u",unsigned(SoundSchemeChannels.size()));
 }
-#endif
