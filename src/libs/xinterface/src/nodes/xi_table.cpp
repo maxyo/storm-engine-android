@@ -1517,7 +1517,7 @@ void CXI_TABLE::MobileCollect(std::vector<MobileWidget> &widgets) const
             output.text = text;
         output.colorArgb = cell->GetAttributeAsDword("color", m_dwFontCellColor);
         const auto addIcon = [&](ATTRIBUTES *icon) {
-            if (!icon || icon->GetAttribute("texturepointer"))
+            if (!icon)
                 return;
             storm::mobile::ImageRef ref;
             if (icon->GetAttribute("group"))

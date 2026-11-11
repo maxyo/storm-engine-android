@@ -196,7 +196,7 @@ int main()
     zeta->GetParent()->SetAttributeUseDword("color", 0xff123456);
     auto *alpha = icon(3, "icon", "Alpha"); // missing translation retains image identity
     icon(4, "icon", "Zeta\"\\\n"); // duplicate identities are exported, never assigned another nation
-    icon(5, "icon", "Zeta\"\\\n")->SetAttribute("texturepointer", "1");
+    nationHeader->CreateAttribute("td5", nullptr)->CreateAttribute("icon", nullptr); // an icon without a picture
     icon(6, "icon1", "Zeta\"\\\n");icon(6, "icon2", "Alpha"); // ambiguous caption
     icon(7, "icon", "Zeta\"\\\n")->GetParent()->SetAttribute("str", "Explicit caption");
     auto nationBefore = nationRows();
@@ -220,7 +220,7 @@ int main()
     assert((*nationRows()[0].headerCells)[2].text.empty());
     alpha->SetAttribute("image", "Zeta\"\\\n");table.pStringService = nullptr;
     assert((*nationRows()[0].headerCells)[2].text.empty());
-    // Texture icons use the existing safe path; malformed UV and pointer icons are rejected.
+    // Texture icons use the existing safe path; malformed UV icons are rejected.
     auto *texture = nationHeader->GetAttributeClass("td5");
     texture->DeleteAttributeClassX(texture->GetAttributeClass("icon"));
     auto *textureIcon = texture->CreateAttribute("icon", nullptr);textureIcon->SetAttribute("texture", "actual.tga");
@@ -237,8 +237,10 @@ int main()
     // Image-only rows are drawable content: the portable UI draws their pictures.
     table.MobileCollect(imageOnly);assert(imageOnly.size() == 2);
     for (int row = 1; row <= 2; ++row)
-        nation->GetAttributeClass(("tr" + std::to_string(row)).c_str())->GetAttributeClass("td3")
-            ->GetAttributeClass("icon")->SetAttribute("texturepointer", "1");
+    {
+        auto *cell = nation->GetAttributeClass(("tr" + std::to_string(row)).c_str())->GetAttributeClass("td3");
+        cell->DeleteAttributeClassX(cell->GetAttributeClass("icon"));
+    }
     imageOnly.clear();table.MobileCollect(imageOnly);assert(onlyEmptyTable());
     core.root = nullptr;table.m_nodeName = "TABLE_LIST";table.m_nColQuantity = 3;
 
