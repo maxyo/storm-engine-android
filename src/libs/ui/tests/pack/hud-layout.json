@@ -165,7 +165,7 @@
     {
      "id": "block",
      "component": "c-button",
-     "rcss": "position: absolute; right: 12dp; bottom: 170dp; width: 64dp; height: 64dp;",
+     "rcss": "position: absolute; left: 78dp; bottom: 236dp; width: 64dp; height: 64dp;",
      "props": {},
      "behavior": "hold"
     },

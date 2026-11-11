@@ -9,6 +9,9 @@
 //============================================================================================
 
 #ifdef __ANDROID__
+#ifdef __ANDROID__
+#include <platform/android_dialog_target.hpp>
+#endif
 #include <platform/android_movement.hpp>
 #endif
 #include "character.h"
@@ -4937,6 +4940,20 @@ Character *Character::FindDialogCharacter()
     auto *const location = GetLocation();
     if (IsFight() || liveValue < 0 || deadName)
         return nullptr;
+#ifdef __ANDROID__
+    // Touch: the talk button is this target and a tap talks to it; taken within the enter reach
+    // and kept within the wider exit reach, so it does not flicker (android_dialog_target.hpp).
+    auto fndCharacter = location->supervisor.FindCharacters(this, storm::android::dialogExit.radius);
+    std::vector<storm::android::DialogCandidate> candidates;
+    candidates.reserve(fndCharacter.size());
+    for (const auto &fc : fndCharacter)
+        candidates.push_back({fc.c->GetId(), fc.dx, fc.dy, fc.dz, fc.d2, !(fc.c->IsFight() || fc.c->liveValue < 0 || fc.c->deadName)});
+    androidDialogTarget = storm::android::dialogTargetChoice(candidates, ay, androidDialogTarget);
+    for (const auto &fc : fndCharacter)
+        if (fc.c->GetId() == androidDialogTarget) return fc.c;
+    androidDialogTarget = invalid_entity;
+    return nullptr;
+#else
     // Find the surrounding characters
     auto fndCharacter = location->supervisor.FindCharacters(this, 3.0f);
     if (fndCharacter.empty())
@@ -4981,6 +4998,7 @@ Character *Character::FindDialogCharacter()
     if (j >= 0)
         return fndCharacter[j].c;
     return nullptr;
+#endif
 }
 
 bool Character::SetPriorityAction(const char *action)

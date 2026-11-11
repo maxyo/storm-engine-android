@@ -37,11 +37,10 @@ class BILinesInfo
     ~BILinesInfo();
     void Release();
     void Init(VDX9RENDER *rs, ATTRIBUTES *pA);
-    void Draw(bool navigatorReplaced = false);
+    void Draw();
 
     VDX9RENDER *pRS;
     std::vector<RS_LINE2D> lines;
-    std::vector<std::string> sourceNames;
 };
 
 class IBIImage;

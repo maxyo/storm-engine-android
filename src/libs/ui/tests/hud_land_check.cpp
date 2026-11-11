@@ -478,17 +478,24 @@ static void CheckTouches(const std::string &pack)
     run.Feed("combat", "combat-melee");
     run.Frame();
     run.Frame();
-    Expect(host.WantsTouch(672, 282) && host.WantsTouch(756, 198), "strike and block are the UI's");
+    Expect(host.WantsTouch(672, 282) && host.WantsTouch(110, 132), "strike and block are the UI's");
+    // block sits left, above the floating stick's zone: right under it the zone still starts the stick
     run.commands.clear();
-    host.Touch(TouchPhase::Down, 1, 756, 198);
+    host.Touch(TouchPhase::Down, 4, 110, 200);
+    host.Touch(TouchPhase::Move, 4, 110, 170);
+    Expect(run.Last().rfind("move:1\t", 0) == 0, "the stick zone below the block is the stick's: " + run.Last());
+    host.Touch(TouchPhase::Up, 4, 110, 170);
+    run.Frame();
+    run.commands.clear();
+    host.Touch(TouchPhase::Down, 1, 110, 132);
     Expect(run.Last() == "combat:2\t6\t22\t1\tblock\tdown", "block goes down with the finger: " + run.Last());
-    host.Touch(TouchPhase::Move, 1, 700, 150); // far beyond a tap's slop: still held
+    host.Touch(TouchPhase::Move, 1, 200, 60); // far beyond a tap's slop: still held
     host.Touch(TouchPhase::Down, 2, 672, 282);
     host.Touch(TouchPhase::Move, 2, 720, 290); // right of the start: the thrust sector
     run.Frame();
     host.Touch(TouchPhase::Up, 2, 720, 290);
     Expect(run.Last() == "combat:2\t6\t17\t2\tbreak\ttap", "a swipe from the strike picks the move: " + run.Last());
-    host.Touch(TouchPhase::Up, 1, 700, 150);
+    host.Touch(TouchPhase::Up, 1, 200, 60);
     Expect(run.Last() == "combat:2\t6\t22\t3\tblock\tup", "block is let go with its finger: " + run.Last());
     run.Frame();
     host.Touch(TouchPhase::Down, 2, 672, 282);

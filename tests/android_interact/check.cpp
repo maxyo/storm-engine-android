@@ -1,4 +1,5 @@
 #include <platform/android_combat_input.hpp>
+#include <platform/android_dialog_target.hpp>
 #include <cassert>
 #include <iostream>
 
@@ -25,7 +26,8 @@ struct Core
 namespace storm::android
 {
 bool current = true, dialogAvailable = true;
-bool dialogTargetAvailable() { return dialogAvailable; }
+int64_t dialogIndex = 12;
+int64_t dialogTarget() { return dialogAvailable ? dialogIndex : -1; }
 bool combatContextCurrent(const GameplayState &, bool ready) { return current && ready; }
 #include "adapter.inc"
 }
@@ -118,5 +120,30 @@ int main()
     stale = packet(2);
     core.player = 8; refresh();
     assert(!combatInput.offer(stale, 27));
-    std::cout << "PASS production explore interact binding, native frame edge, physical priority and mode/control/lifecycle guards\n";
+    // Another target under the button is another availability: a tap aimed at the old one is
+    // refused (U0), the button stays.
+    current = true; core.player = 7; refresh();
+    const auto aimed = packet(30);
+    dialogIndex = 13; refresh();
+    assert(combatInput.json().find("\"interact\"") != std::string::npos && !combatInput.offer(aimed, 40));
+    assert(combatInput.offer(packet(31), 40));
+
+    // Hysteresis of the talk target (Character::FindDialogCharacter on Android): taken within
+    // the enter reach, kept within the wider exit reach, so walking about the edge does not
+    // flicker the button.
+    const float yaw = 0.0f; // facing +z
+    const auto at = [](uint64_t id, float x, float z) { return DialogCandidate{id, x, 0.0f, z, x * x + z * z, true}; };
+    DialogCandidate near[] = {at(5, 0.0f, 3.0f)};
+    assert(dialogTargetChoice(near, yaw, 0) == 5); // within 3.5 m, straight ahead
+    DialogCandidate drifting[] = {at(5, 0.0f, 4.2f)};
+    assert(dialogTargetChoice(drifting, yaw, 0) == 0 && dialogTargetChoice(drifting, yaw, 5) == 5); // 4.2 m: not taken, but kept
+    DialogCandidate aside[] = {at(5, 1.6f, 3.0f)}; // about 28 degrees off: outside the 20 degree half-cone, inside 35
+    assert(dialogTargetChoice(aside, yaw, 0) == 0 && dialogTargetChoice(aside, yaw, 5) == 5);
+    DialogCandidate gone[] = {at(5, 0.0f, 4.8f)};
+    assert(dialogTargetChoice(gone, yaw, 5) == 0); // beyond the exit reach: let go
+    DialogCandidate crowd[] = {at(5, 0.0f, 4.0f), at(6, 0.0f, 2.0f)};
+    assert(dialogTargetChoice(crowd, yaw, 5) == 5 && dialogTargetChoice(crowd, yaw, 0) == 6); // a closer passer-by does not steal a kept target
+    DialogCandidate fighting[] = {DialogCandidate{5, 0.0f, 0.0f, 2.0f, 4.0f, false}};
+    assert(dialogTargetChoice(fighting, yaw, 5) == 0);
+    std::cout << "PASS production explore interact binding, native frame edge, physical priority and mode/control/lifecycle guards, target change fence, talk target hysteresis\n";
 }

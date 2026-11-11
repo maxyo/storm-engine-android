@@ -18,6 +18,9 @@ struct CombatBinding
 {
     std::string action, control;
     bool held = false;
+    // The native target the action acts on (interact: the dialog character's index; -1 none).
+    // Another target is another availability: a tap aimed at the old one must not reach it.
+    int64_t target = -1;
     bool operator==(const CombatBinding &) const = default;
 };
 // Pure semantic state; numeric phases intentionally independent of CONTROLS.

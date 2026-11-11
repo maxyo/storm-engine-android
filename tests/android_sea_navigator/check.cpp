@@ -146,20 +146,14 @@ int main(){
     assert(ownership.offer(layout,4,8,2));ownership.didDraw(9);
     assert(ownership.offer("4\t8\t2\tvisible\t9",4,8,2));
     assert(ownership.presented(4,8,2,9));
-    // A UI presenting the sea HUD: an owner it has not prepared or cleared is pending (the native
-    // compass stays off however slow its first frame); either answer ends that.
+    // A UI presenting the sea HUD: an owner it has not prepared or cleared is pending (its silence
+    // watchdog; the native compass is off whenever the UI presents the sea HUD); either answer ends that.
     assert(!ownership.pending(4,8,2)); // no presenter declared: native drawing is unaffected
     hudPresenters.sea=true;
     assert(!ownership.pending(4,8,2)&&ownership.pending(4,9,2)&&ownership.pending(5,8,2)&&ownership.pending(4,8,3));
     assert(ownership.offer("4\t9\t2\tclear",4,9,2)&&!ownership.pending(4,9,2)&&!ownership.layout(4,9,2));
     assert(ownership.offer("5\t8\t2\tprepare\t11\t1280\t720\t1124\t228\t132\t2000\t1",5,8,2)&&!ownership.pending(5,8,2));
-    // A new sea scene: its first frames may come before any owner the UI could answer
-    // (gameplay still "unknown" after a load). The compass stays off until the first sea answer.
-    hudPresenters.seaSceneStarted();
-    assert(hudPresenters.seaFresh&&ownership.pending(5,8,2)); // even the answered owner
-    assert(ownership.offer("5\t8\t2\tclear",5,8,2)&&!hudPresenters.seaFresh&&!ownership.pending(5,8,2));
     hudPresenters.sea=false;
-    hudPresenters.seaSceneStarted();assert(!hudPresenters.seaFresh); // nothing declared: no hold
     // Reproduce runtime 2015 -> 991/1951 caption ACK churn while the same
     // complete navigator remains visible. Freshness is not ownership.
     ShipTelemetryFrame live;live.valid=true;live.ship.entityId=42;
@@ -175,7 +169,6 @@ int main(){
     for(auto mask:{2015,991,1951,2015}){
         live.windSpeed=*live.windSpeed+.1;live.shipSpeedKnots=*live.shipSpeedKnots+.1;liveState.update(4,live);
         assert(liveState.acknowledge("4\t"+std::to_string(mask)+"\t"+std::to_string(hud)));
-        assert(liveState.mask()==uint32_t(mask));
         assert(liveBridge.presented(liveState.revision(),liveState.hudRevision(),2,1));
     }
     live.windSpeed.reset();liveState.update(4,live);

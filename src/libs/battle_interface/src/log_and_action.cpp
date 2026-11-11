@@ -1,4 +1,7 @@
 #ifdef __ANDROID__
+#ifdef __ANDROID__
+#include <platform/android_hud_presenter.hpp>
+#endif
 #include "platform/android_worldmap.hpp"
 #include <SDL2/SDL_timer.h>
 #endif
@@ -261,6 +264,11 @@ void ILogAndActions::Realize(uint32_t delta_time)
         return;
     if (m_bDontShowAll)
         return;
+#ifdef __ANDROID__
+    // One coverage rule (android_hud_presenter.hpp): the quick action, its hints and the log
+    // lines are the touch HUD's (its quick action control and toasts).
+    if (storm::android::legacyDrawRefused("log and actions")) return;
+#endif
 
     rs->MakePostProcess();
 
@@ -496,8 +504,9 @@ void ILogAndActions::SetString(const char *str, bool immortal)
     if (str == nullptr)
         return;
 #ifdef __ANDROID__
-    // Passing lines are the portable UI's toasts; only lasting lines stay drawn here.
-    if (!immortal)
+    // Passing lines are the portable UI's toasts, and so are lasting ones while the touch HUD
+    // presents the game (the legacy log does not draw then); otherwise lasting lines stay here.
+    if (!immortal || storm::android::hudPresenters.any())
     {
         storm::android::publishGameMessage(str);
         return;

@@ -561,8 +561,20 @@ bool DX9RENDER::Init()
         std::ranges::transform(screenshotExt, screenshotExt.begin(),
                                [](const unsigned char c) { return std::tolower(c); });
 
+#ifdef __ANDROID__
+        // The game's engine.ini may switch the engine's FPS and debug text on; on a phone those are
+        // drawn over the touch HUD like a game icon. They show only with an explicit debug
+        // setting (adb shell setprop debug.storm.show_fps 1), never from the game's data.
+        char fpsSetting[PROP_VALUE_MAX] = {};
+        __system_property_get("debug.storm.show_fps", fpsSetting);
+        bShowFps = std::string_view(fpsSetting) == "1";
+        bShowExInfo = false;
+        if (ini->GetInt(nullptr, "show_fps", 0) == 1 || ini->GetInt(nullptr, "show_exinfo", 0) == 1)
+            __android_log_print(ANDROID_LOG_INFO, "StormRender", "engine.ini show_fps/show_exinfo ignored (debug.storm.show_fps=%s)", fpsSetting);
+#else
         bShowFps = ini->GetInt(nullptr, "show_fps", 0) == 1;
         bShowExInfo = ini->GetInt(nullptr, "show_exinfo", 0) == 1;
+#endif
         renderMetricsEnabled = ini->GetInt(nullptr, "render_metrics", 0) == 1;
 #ifdef STORM_SCENE_SWEEP
         storm::scene_sweep::setRendererWindow([start = storm::render::PerfTotals()]() mutable {

@@ -1,3 +1,6 @@
+#ifdef __ANDROID__
+#include <platform/android_hud_presenter.hpp>
+#endif
 #include "ship_pointer.h"
 #include "bi_defines.h"
 #include "entity.h"
@@ -87,6 +90,10 @@ void SHIPPOINTER::Execute(uint32_t delta_time)
 
 void SHIPPOINTER::Realize(uint32_t delta_time) const
 {
+#ifdef __ANDROID__
+    // One coverage rule (android_hud_presenter.hpp): the touch HUD presents the sea HUD.
+    if (storm::android::legacyDrawRefused("ship pointer", storm::android::hudPresenters.sea)) return;
+#endif
     if (!m_bVisible)
         return;
 

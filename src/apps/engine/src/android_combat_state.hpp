@@ -15,15 +15,17 @@ inline bool combatContextCurrent(const GameplayState &gameplay, bool ready)
     return current.mode == gameplay.snapshot().mode && current.scene == gameplay.snapshot().scene &&
         current.group == gameplay.snapshot().group && !current.scene.empty();
 }
-inline bool dialogTargetAvailable()
+// The dialog character's script index, or -1 (FindDialogCharacter keeps it with hysteresis).
+inline int64_t dialogTarget()
 {
     const auto player = core.GetEntityId("Player");
     auto *character = shipMainCharacter();
     if (player == invalid_entity || !character || core.Entity_GetAttributePointer(player) != character ||
-        core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "IsDead")) return false;
+        core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "IsDead")) return -1;
     // Query the same range, facing, life and fight checks used by Player::Update.
     // The script's dialogready attribute is only a one-second hint and can be stale.
-    return validDialogTarget(core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "FindDialogCharacter"));
+    const auto target = core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "FindDialogCharacter");
+    return validDialogTarget(target) ? target : -1;
 }
 inline void updateCombatState(const GameplayState &gameplay)
 {
@@ -54,8 +56,11 @@ inline void updateCombatState(const GameplayState &gameplay)
         };
         if (gameplay.allows("ChrFightMode")) add("weapon",false,{"ChrFightMode"});
         if (gameplay.allows("BOAL_UsePotion")) add("potion",false,{"BOAL_UsePotion"});
-        if (mode == "explore" && gameplay.allows("ChrAction") && dialogTargetAvailable())
+        if (const auto target = mode == "explore" && gameplay.allows("ChrAction") ? dialogTarget() : -1; target >= 0)
+        {
             add("interact",false,{"ChrAction"});
+            if (!bindings.empty() && bindings.back().action == "interact") bindings.back().target = target;
+        }
         add("freelook",true,{"ChrCamSpecMode"});
         if (mode == "melee")
         {

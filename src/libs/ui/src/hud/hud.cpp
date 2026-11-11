@@ -28,7 +28,7 @@ const char *const kWorldMapModes[] = {"worldmap"};
 // Ported HUD scenes by gameplay mode. Porting a zone = adding its scene here; the
 // platform host stops drawing that mode's HUD because HostOwnsHud turns false for it.
 const SceneEntry kScenes[] = {
-    {"land", kLandModes, CreateLandScene},
+    {"land", kLandModes, CreateLandScene, "land"},
     {"sea", kSeaModes, CreateSeaScene, "sea"},
     {"world-map", kWorldMapModes, CreateWorldMapScene, "worldmap"},
 };
