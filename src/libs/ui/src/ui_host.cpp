@@ -1372,7 +1372,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     }
 
     // The game is between scenes and shows nothing the player can use: no interface (nor one
-    // being opened), no full-screen video, no cutscene, no telescope, no gameplay mode a HUD
+    // being opened), no full-screen video, no telescope, no gameplay mode a HUD
     // scene holds, and the engine says why there is no mode: it is starting, loading, has no
     // scene yet, or launched an interface that is not shown yet (Gameplay::blocked). A touch the
     // game got then would land in whatever comes next unseen, so the UI owns the touches and holds
@@ -1384,7 +1384,10 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         if (video_ || opening_ != Opening::None || InterfaceActive())
             return false;
         const hud::States &states = hud_->Current();
-        if (states.presentation.cinematic || (states.spyglass.known && states.spyglass.on) || hud_->InGameplay())
+        // Engine states only (gameplay, video, spyglass): they arrive in the engine's own frame.
+        // The platform's presentation (its cinematic flag) comes a thread hop and a loop later and
+        // stays stale through a load that follows a video (the title).
+        if ((states.spyglass.known && states.spyglass.on) || hud_->InGameplay())
             return false;
         const std::string &why = states.gameplay.blocked;
         return why == "starting" || why == "loading" || why == "no-scene" || why == "interface";

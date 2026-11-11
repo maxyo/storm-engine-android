@@ -49,6 +49,7 @@ const Case kCases[] = {
     {"the app not in front", "unknown", "paused", "", false},
     {"scripts that could not be read", "unknown", "error", "", false},
     {"engine starting (the title load)", "unknown", "starting", "", true},
+    {"title load after the video: the platform's cinematic flag still on", "unknown", "starting", "cinematic", true},
     {"loading screen (a save, a location)", "unknown", "loading", "", true},
     {"no land, sea or world map yet", "unknown", "no-scene", "", true},
     {"an interface launched, not shown yet (MainInterface)", "unknown", "interface", "", true},
