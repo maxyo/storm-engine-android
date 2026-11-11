@@ -621,7 +621,7 @@ static void Crew(const std::string &models)
     Expect(row["q"]["value"] == 50 && surface.props["stats"][0]["preview"] == "50", "hiring 10 shows 50 on the ship");
     Expect(row["cells"][0] == "40" && row["cells"][1] == "25" && surface.props["stats"][0]["value"] == "40" && row["q"]["max"] == 65,
            "the game's figures already count the deal; the row shows the crews before it");
-    ExpectEqual(surface.props["primary"]["label"], "Нанять 10", "primary names the deal");
+    ExpectEqual(surface.props["primary"]["label"], "<crew.hire> 10", "primary names the deal");
     ExpectEqual(surface.props["primary"]["sub"], "Стоимость найма 230", "with its cost");
     router.OnEvent({"primary", "click", ""});
     ExpectEqual(surface.Last(), "widget:hirecrew\tQTY_OK_BUTTON\t-1\tguard@7:ship:0|press", "confirm is bound to the ship");
@@ -637,6 +637,58 @@ static void Crew(const std::string &models)
            "from firing to hiring: zero first, then the amount");
     router.OnEvent({"header", "subject-next", ""});
     ExpectEqual(surface.Last(), "widget:hirecrew\tSHIPS_SCROLL\t1\tselect@7:ship:1", "the next ship");
+
+    {
+        // One amount, as the store: control, its caption, the button and the header preview
+        // follow the player's step until the game holds it; the game's lone zero and its edit
+        // box published before its figures are no answer; its clamp (money) is.
+        FakeSurface q_surface;
+        Router q(q_surface);
+        InterfaceModel model = Load(models, "hirecrew.json");
+        q.SetInterface(model);
+        const auto answer = [&](int edit, int ship, int tavern, const std::string &operation, const std::string &result) {
+            model.revision += 1;
+            for (Widget &widget : model.widgets)
+            {
+                if (widget.node == "QTY_EDIT")
+                    widget.value = std::to_string(edit);
+                if (widget.node == "CREW_QTY")
+                    widget.label = std::to_string(ship);
+                if (widget.node == "CREW_QTY2")
+                    widget.label = std::to_string(tavern);
+                if (widget.node == "QTY_TypeOperation")
+                    widget.label = operation;
+                if (widget.node == "QTY_Result")
+                    widget.label = result;
+            }
+            q.SetInterface(model);
+        };
+        const auto shows = [&](int value, const std::string &button, bool busy) {
+            const Json &props = q_surface.props;
+            const Json &quantity = props["list"]["rows"][0]["q"];
+            return quantity["value"] == value && quantity["origin"] == 40 && props["primary"]["label"] == button && props["primary"]["busy"] == busy &&
+                   props["stats"][0]["preview"] == std::to_string(value);
+        };
+        q.OnEvent({"crew", "change", "41"});
+        Expect(shows(41, "<crew.hire> 1", true), "«+»: control, button and header show 41 at once, the button waits");
+        answer(1, 40, 25, "", "");
+        Expect(shows(41, "<crew.hire> 1", true), "the edit box before the figures changes nothing");
+        answer(1, 41, 24, "Нанять", "Стоимость найма 23");
+        Expect(shows(41, "<crew.hire> 1", false) && q_surface.props["primary"]["sub"] == "Стоимость найма 23" &&
+                   q_surface.props["list"]["rows"][0]["cells"][0] == "40",
+               "the game's answer: the same 41, the cost on the button, the row the crew before the deal");
+        q_surface.now += 3.0;
+        q.OnEvent({"crew", "change", "65"}); // «Все» to the right
+        Expect(shows(65, "<crew.hire> 25", true), "«Все»: the whole tavern, waiting");
+        answer(0, 40, 25, "", "");
+        answer(21, 40, 25, "", "");
+        answer(21, 61, 4, "Нанять", "Стоимость найма 483");
+        Expect(shows(61, "<crew.hire> 21", false) && q_surface.props["list"]["rows"][0]["q"]["max"] == 61,
+               "the game's clamp (money) is its answer: control, slider end, button and header at 61");
+        q_surface.now += 3.0;
+        q.OnEvent({"crew", "change", "0"}); // «Все» to the left
+        Expect(shows(0, "<crew.fire> 40", true), "«Все» to the left: firing all, waiting");
+    }
 
     InterfaceModel broken = Load(models, "hirecrew.json");
     broken.widgets.erase(std::remove_if(broken.widgets.begin(), broken.widgets.end(), [](const Widget &w) { return w.node == "QTY_EDIT"; }),

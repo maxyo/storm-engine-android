@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <limits>
 
 namespace storm::ui::screens
 {
@@ -101,21 +102,64 @@ class CrewScreen final : public Screen
                 current = i;
         const std::string owner = ships[current]->row_id; // the ship every quantity action is bound to
 
-        const int amount = std::abs(std::atoi(edit->value.c_str()));
-        // The game names the operation in its own words; only hiring has a cost line.
+        // The game moves the men of the open deal at once: CREW_QTY / CREW_QTY2 are the crews
+        // after it, QTY_EDIT the men it moves (hire or fire, by QTY_TypeOperation). The crews
+        // before the deal are noted while no deal is open, per ship. The game publishes its
+        // edit box a revision before the labels that follow from it, so a figure is taken
+        // from a revision only when it is whole (the ship's crew moved by exactly the edit).
+        const int edit_amount = std::abs(std::atoi(edit->value.c_str()));
         const std::string operation = admitted.Label("QTY_TypeOperation");
         const std::string result = OneLine(admitted.Label("QTY_Result"));
-        const bool firing = amount > 0 && !operation.empty() && result.empty();
-        // The game moves the men of the open deal at once: its figures are those after the
-        // deal. The row and the header show the crew before it, the control the outcome.
-        const int moved = operation.empty() ? 0 : firing ? -amount : amount;
         const int model_target = Number(admitted.Label("CREW_QTY"));
-        const int crew = model_target - moved;
-        const int tavern = Number(admitted.Label("CREW_QTY2")) + moved;
-        const bool recent = owner == local_owner_ && bindings.Now() - local_at_ < 1.0;
+        const int model_tavern = Number(admitted.Label("CREW_QTY2"));
+        if (owner != base_owner_)
+        {
+            base_owner_.clear();
+            limit_min_ = std::numeric_limits<int>::min();
+            limit_max_ = std::numeric_limits<int>::max();
+        }
+        if (edit_amount == 0 && operation.empty())
+        {
+            base_owner_ = owner;
+            base_crew_ = model_target;
+            base_tavern_ = model_tavern;
+        }
+        int crew = base_crew_, tavern = base_tavern_;
+        if (base_owner_ != owner) // opened with a deal already set: the game's figures minus it
+        {
+            const bool firing = edit_amount > 0 && !operation.empty() && result.empty();
+            const int moved = operation.empty() ? 0 : firing ? -edit_amount : edit_amount;
+            crew = model_target - moved;
+            tavern = model_tavern + moved;
+        }
+
+        // One amount for the control, its caption, the deal button and the header preview: the
+        // player's pending amount until the game answers it, then the game's (as the store).
+        const uint64_t revision = admitted.model->revision;
+        const bool mine = owner == local_owner_;
+        const bool waiting = mine && bindings.Waiting(*edit, "edit");
+        if (waiting)
+            asked_revision_ = revision;
+        const bool zero_echo = mine && local_target_ != local_ours_ && edit_amount == 0 && model_target == crew;
+        const bool whole = std::abs(model_target - crew) == edit_amount;
+        const bool answered = mine && !waiting && !zero_echo && whole && revision > asked_revision_;
+        const bool recent = mine && (waiting || (!answered && bindings.Now() - local_at_ < 2.0));
         const int target = recent ? local_target_ : model_target;
-        if (recent) // then the game's own amount, also when it answered with another one (a limit)
-            bindings.RebuildAfter(local_at_ + 1.0 - bindings.Now());
+        if (recent && !waiting)
+            bindings.RebuildAfter(local_at_ + 2.0 - bindings.Now());
+        else if (answered && crew == local_ours_ && model_target != local_target_)
+        {
+            // The game's clamp (tavern, the ship's room, money): its limit in that direction.
+            if (local_target_ > crew && model_target >= crew && model_target < local_target_)
+                limit_max_ = model_target;
+            if (local_target_ < crew && model_target <= crew && model_target > local_target_)
+                limit_min_ = model_target;
+            local_target_ = model_target;
+        }
+        const int low = std::max(0, std::min(limit_min_, crew));
+        const int high = std::min(crew + tavern, std::max(limit_max_, crew));
+        const int shown = std::clamp(target, low, std::max(low, high));
+        const bool settled = shown == model_target;
 
         Json row{{"id", "0"},
                  {"name", bindings.Text("crew.sailors")},
@@ -124,19 +168,27 @@ class CrewScreen final : public Screen
                  {"cells", Json::array({std::to_string(crew), std::to_string(tavern),
                                         Json{{"text", std::to_string(Number(admitted.Label("TAVERN_PRICE")))}, {"bold", true}}})},
                  {"selected", true},
-                 {"q", Json{{"value", target},
-                            {"min", 0},
-                            {"max", crew + tavern},
+                 // One slider for both directions, as the store: the crew on the ship is the
+                 // origin, firing to its left, hiring to its right; the cost is on the button.
+                 {"q", Json{{"value", shown},
+                            {"min", low},
+                            {"max", high},
+                            {"zones", true},
+                            {"origin", crew},
+                            {"lessLabel", bindings.Text("crew.fire")},
+                            {"moreLabel", bindings.Text("crew.hire")},
                             {"label", bindings.Text("crew.on_ship")},
                             {"allLabel", bindings.Text("common.all")},
-                            {"summary", result.empty() ? "-" : result},
+                            {"summary", "-"},
                             {"steps", Json::array({1, 10})},
                             {"disabled", !edit->Offers("edit")}}}};
-        const auto set = [this, &bindings, edit, owner, crew](const Event &event) {
+        const auto set = [this, &bindings, edit, owner, crew, asked = revision](const Event &event) {
             const int wanted = std::atoi(event.value.c_str());
             const int delta = wanted - crew;
             local_owner_ = owner;
             local_target_ = wanted;
+            local_ours_ = crew;
+            asked_revision_ = asked; // a revision after this one answers the request
             local_at_ = bindings.Now();
             // As in the trade screens: a negative number fires; once firing the game reads
             // every number as men to fire, so zero (which leaves firing) goes right before
@@ -168,8 +220,8 @@ class CrewScreen final : public Screen
         }
         Json stats = Json::array();
         Json men{{"icon", "crew"}, {"value", std::to_string(crew)}};
-        if (model_target != crew)
-            men["preview"] = std::to_string(model_target);
+        if (shown != crew)
+            men["preview"] = std::to_string(shown);
         stats.push_back(std::move(men));
         const std::string gold = admitted.Label("OUR_GOLD");
         if (const size_t digit = gold.find_first_of("0123456789"); digit != std::string::npos)
@@ -198,9 +250,14 @@ class CrewScreen final : public Screen
         view["primary"] = Json();
         if (ok)
         {
-            view["primary"] = DealView(bindings, *ok, operation, amount, result);
+            // Named in our words from the shown amount; it waits until the game holds it.
+            const std::string word = bindings.Text(shown > crew ? StringKey("crew.hire") : StringKey("crew.fire"));
+            view["primary"] = DealView(bindings, *ok, word, std::abs(shown - crew), settled ? result : std::string(), !settled);
             if (!view["primary"].is_null())
-                bindings.On("primary", "", [&bindings, ok, owner](const Event &) { bindings.Send(*ok, "press", {}, owner); });
+                bindings.On("primary", "", [&bindings, ok, owner, settled](const Event &) {
+                    if (settled) // a press would confirm the game's previous amount
+                        bindings.Send(*ok, "press", {}, owner);
+                });
         }
         const Widget *exit = admitted.One("EXIT_BTN");
         bindings.On("header-back", "", [&bindings, exit](const Event &) { bindings.Back(exit); });
@@ -208,10 +265,16 @@ class CrewScreen final : public Screen
     }
 
   private:
-    // The amount the player set last: shown until the game's own number catches up.
+    // The amount the player set last: shown until the game has answered it.
     std::string local_owner_;
     int local_target_ = 0;
+    int local_ours_ = 0;          // the crew when it was set
+    uint64_t asked_revision_ = 0; // a later revision answers it
     double local_at_ = 0.0;
+    // The crews before the open deal, noted while none is open, for this ship.
+    std::string base_owner_;
+    int base_crew_ = 0, base_tavern_ = 0;
+    int limit_min_ = std::numeric_limits<int>::min(), limit_max_ = std::numeric_limits<int>::max(); // the game's clamps
 };
 
 } // namespace
