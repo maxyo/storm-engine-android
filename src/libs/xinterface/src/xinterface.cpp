@@ -115,30 +115,29 @@ bool storm::mobile::ChooseSaveProfile(const std::string &profile)
 #ifdef __ANDROID__
 // No profiles in this port (owner decision). The game's profile chooser (save_load.c opens it
 // on a load from the main menu when there is more than one profile folder) never reaches the
-// player: it is answered with the profile of this opening at once. Whenever the list is idle
-// that profile is the game's current one again: another profile becomes current only to load
-// or delete one of its records (SelectSaveTarget), and a deletion must not leave the game in
-// progress saving into another profile.
+// player: it is answered at once (mobile_save_list.hpp ProfileToChoose). Whenever the list is
+// idle the opening's profile is the game's current one again: another profile becomes current
+// only to load or delete one of its records (SelectSaveTarget), and a deletion must not leave
+// the game in progress saving into another profile. The game's own SetCurrentProfile (on
+// opening, or through the chooser) is the only one of an opening: each runs LoadGameOptions.
 void XINTERFACE::MobileKeepSaveProfile()
 {
     static uint64_t opening = ~0ull;
-    static std::string profile;
+    static std::string profile, newest;
+    static bool listed = false;
     if (opening != storm::android::mobileScreenRevision)
     {
         opening = storm::android::mobileScreenRevision;
         auto *player = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
         const char *name = player && player->GetAClass() ? player->GetAClass()->GetAttribute("name") : nullptr;
         profile = name ? name : "";
-        // A profile without a folder (the options' name of a game never saved, or no name
-        // yet): the newest record's profile; with no record at all, nothing to keep.
-        if (profile.empty() || SaveProfileIndex(profile) < 0)
-        {
-            const auto records = storm::mobile::SaveRecordsOfAllProfiles();
-            const std::string newest = records.empty() ? std::string() : records.front().profile;
-            spdlog::warn("save_load: the game's profile '{}' has no save folder; the list keeps {}", profile,
-                         newest.empty() ? std::string("no profile (there is no record)") : "the newest record's profile '" + newest + "'");
-            profile = newest;
-        }
+        listed = !profile.empty() && SaveProfileIndex(profile) >= 0;
+        const auto records = storm::mobile::SaveRecordsOfAllProfiles();
+        newest = records.empty() ? std::string() : records.front().profile;
+        if (!listed)
+            spdlog::warn("save_load: the game's profile '{}' has no save folder; it stays current, and the profile "
+                         "chooser (if the game opens it) is answered with {}",
+                         profile, newest.empty() ? std::string("nothing (there is no record)") : "the newest record's profile '" + newest + "'");
     }
     const auto window = [this](const char *name) {
         auto *node = FindNode(name, nullptr);
@@ -147,11 +146,13 @@ void XINTERFACE::MobileKeepSaveProfile()
     CXI_WINDOW *chooser = window("PROFILE_WINDOW"), *main = window("MAIN_WINDOW");
     const bool chooserOpen = chooser && chooser->GetShow();
     const bool idle = main && main->GetActive() && !chooserOpen && !deferredSaveAction;
-    if (profile.empty() || (!chooserOpen && !idle))
+    if (!chooserOpen && !idle)
         return;
     const auto state = storm::mobile::ReadSaveList();
-    if (chooserOpen || (state && !storm::mobile::SameProfile(state->profile, profile)))
-        storm::mobile::ChooseSaveProfile(profile);
+    const std::string target = storm::mobile::ProfileToChoose(
+        chooserOpen, profile, listed, newest, state ? std::optional<std::string>(state->profile) : std::nullopt);
+    if (!target.empty())
+        storm::mobile::ChooseSaveProfile(target);
 }
 #endif
 
@@ -2405,23 +2406,6 @@ void XINTERFACE::DoControl()
         return;
 
 #ifdef __ANDROID__
-    // The stock script may open a profile chooser on initial load. Select only
-    // its already-current profile, through its existing handler; never delete,
-    // migrate, or enumerate another profile on behalf of the Android UI.
-    if (storm::android::mobileScreen == "save_load")
-    {
-        auto *window = FindNode("PROFILE_WINDOW", nullptr);
-        if (window && window->m_nNodeType == NODETYPE_WINDOW && static_cast<CXI_WINDOW *>(window)->GetActive())
-        {
-            auto *profile = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
-            auto *attributes = profile ? profile->GetAClass() : nullptr;
-            auto *table = core.Entity_GetAttributeClass(g_idInterface, "profile_window_list");
-            const char *name = attributes ? attributes->GetAttribute("name") : nullptr;
-            const int index = table ? static_cast<int>(table->GetAttributeAsDword("select", 0)) - 1 : -1;
-            const char *chosen = attributes && index >= 0 ? attributes->GetAttribute(("profile_" + std::to_string(index)).c_str()) : nullptr;
-            if (name && chosen && std::string(name) == chosen) core.Event("LoadProfile");
-        }
-    }
     if (deferredSaveAction)
     {
         const auto state = storm::mobile::ReadSaveList();

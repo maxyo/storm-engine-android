@@ -45,6 +45,20 @@ struct SaveListSnapshot
 // host defines it, because only the host knows which interface is on screen and its
 // revision (Android: xinterface.cpp); portable code here only parses and validates.
 std::optional<SaveListSnapshot> ReadSaveList();
+// The profile the save list makes current through the game's chooser now ("" for none), from
+// the opening's profile (`game`, PlayerProfile.name; `listed`: it has a save folder), the newest
+// record's profile and the game's current one (`current`, unknown while the list is unreadable).
+// An open chooser is answered once: the game opened it instead of its SetCurrentProfile.
+// Otherwise the opening's profile is made current again only when another one is (a record of
+// it was deleted); a profile without a folder cannot be chosen, and the game made it current
+// itself. Never a second SetCurrentProfile in the opening's frame: each runs LoadGameOptions.
+inline std::string ProfileToChoose(bool chooserOpen, const std::string &game, bool listed, const std::string &newest,
+                                   const std::optional<std::string> &current)
+{
+    if (chooserOpen) return listed ? game : newest;
+    if (!listed || !current || SameProfile(*current, game)) return {};
+    return game;
+}
 // Makes `profile` the game's current profile through its own chooser (save_load.c
 // ProcChooseProfile: SetCurrentProfile and the chooser closed); true when it is current.
 // Defined by the platform host with ReadSaveList.

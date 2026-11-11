@@ -835,6 +835,17 @@ uint32_t COMPILER::GetSegmentIndex(uint32_t segment_id)
 }
 
 // function release global variables, functions and labels reference for segment
+// A segment UnloadSegment marked is gone for the scripts at once (its functions, variables
+// and events are invalidated) and freed at the next ProcessFrame; until then it stays in the
+// table under its name. It is not loaded: a LoadSegment of the same name in that frame
+// (interface.c LoadGameOptions twice in one frame: load, call, unload, load again) loads it
+// afresh instead of answering "already loaded" with its functions gone ("Invalid function
+// call"), and an unload finds the live copy, not the stale one.
+static bool LiveSegment(const SEGMENT_DESC &segment, const char *file_name)
+{
+    return !segment.bUnload && strcmp(segment.name.c_str(), file_name) == 0;
+}
+
 // mark segment for subsequent unload (on ProcessFrame)
 void COMPILER::UnloadSegment(const char *segment_name)
 {
@@ -842,7 +853,7 @@ void COMPILER::UnloadSegment(const char *segment_name)
 
     for (uint32_t n = 0; n < SegmentsNum; n++)
     {
-        if (strcmp(SegmentTable[n].name.c_str(), segment_name) == 0)
+        if (LiveSegment(SegmentTable[n], segment_name))
         {
             const uint32_t segment_id = SegmentTable[n].id;
             SegmentTable[n].bUnload = true;
@@ -868,7 +879,7 @@ bool COMPILER::BC_SegmentIsLoaded(const char *file_name)
     }
     for (uint32_t n = 0; n < SegmentsNum; n++)
     {
-        if (strcmp(SegmentTable[n].name.c_str(), file_name) == 0)
+        if (LiveSegment(SegmentTable[n], file_name))
             return true;
     }
     return false;
@@ -891,7 +902,7 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
     // check for already loaded
     for (n = 0; n < SegmentsNum; n++)
     {
-        if (strcmp(SegmentTable[n].name.c_str(), file_name) == 0)
+        if (LiveSegment(SegmentTable[n], file_name))
         {
             SetWarning("Segment already loaded: %s", file_name);
             return true;
