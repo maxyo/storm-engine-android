@@ -1378,6 +1378,7 @@ void SEA::Realize(uint32_t dwDeltaTime)
     // renderer as they are.
     const bool fxWater = storm::render::CurrentEffectsWorld().water;
 
+    cubeFaces_ = CubeFacesDue(); // EnvMap_Render / SunRoad_Render draw only these faces this frame
     if (fxWater)
     {
         EnvMap_Render();
@@ -2092,6 +2093,7 @@ void SEA::LostRender()
 
 void SEA::RestoreRender()
 {
+    cubeRefreshAll_ = true; // new cube targets hold nothing yet
     rs->CreateTexture(XWIDTH, YWIDTH, MIPSLVLS, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
                       &pRenderTargetBumpMap);
 

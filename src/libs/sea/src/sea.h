@@ -179,6 +179,18 @@ class SEA : public SEA_BASE
     bool EnvMap_Render2();
     bool SunRoad_Render();
     bool EnvMap_Render();
+
+    // Environment and sun-road cube faces rendered this frame (bit per D3DCUBEMAP_FACES): all of them after the
+    // entity starts, a camera jump or a switch above/below the surface, otherwise kCubeFacesPerFrame round-robin
+    // (5 faces above the surface: a full refresh every 3 frames). The fx water reads the same cube (env_cube).
+    static constexpr uint32_t kCubeFacesPerFrame = 2;
+    static constexpr float kCubeJump = 10.0f; // camera movement in one frame that refreshes every face
+    uint32_t CubeFacesDue();
+    uint32_t cubeFaces_ = 0;
+    uint32_t cubeCursor_ = 0;
+    bool cubeRefreshAll_ = true;
+    bool cubeUnderSea_ = false;
+    glm::vec3 cubeCamPos_{};
     void EnvMap_GetSideMatrix(D3DCUBEMAP_FACES Face, glm::mat4 &mView);
 
     void SFLB_CreateBuffers();
