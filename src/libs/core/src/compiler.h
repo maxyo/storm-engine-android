@@ -122,6 +122,7 @@ class COMPILER : public VIRTUAL_COMPILER
     VDATA *ProcessEvent(const char *event_name);
     void SetEventHandler(const char *event_name, const char *func_name, int32_t flag, bool bStatic = false);
     void DelEventHandler(const char *event_name, const char *func_name);
+    bool HasActiveEventHandler(const char *event_name, const char *func_name);
 
     bool Completed()
     {

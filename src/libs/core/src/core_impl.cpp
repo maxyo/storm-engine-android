@@ -992,6 +992,11 @@ const char *CoreImpl::EngineIniFileName()
     return fs::ENGINE_INI_FILE_NAME;
 }
 
+bool CoreImpl::HasActiveEventHandler(const char *event_name, const char *func_name)
+{
+    return Compiler && Compiler->HasActiveEventHandler(event_name, func_name);
+}
+
 void *CoreImpl::GetScriptVariable(const char *pVariableName, uint32_t *pdwVarIndex)
 {
     const VarInfo *real_var;

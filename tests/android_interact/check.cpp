@@ -22,10 +22,12 @@ struct Core
     unsigned GetEntityId(const char *) const { return player; }
 } core;
 
+struct CorePrivate;
 namespace storm::android
 {
-bool current = true, dialogAvailable = true;
+bool current = true, dialogAvailable = true, boardingArmed = false;
 bool dialogTargetAvailable() { return dialogAvailable; }
+bool boardingContinueArmed(CorePrivate *) { return boardingArmed; }
 bool combatContextCurrent(const GameplayState &, bool ready) { return current && ready; }
 #include "adapter.inc"
 }
@@ -43,7 +45,7 @@ int main()
     state.capabilities = {"ChrAction"};
     gameplay.update(state);
     combatInput.guard = [] { return current; };
-    const auto refresh = [&] { updateCombatState(gameplay); };
+    const auto refresh = [&] { updateCombatState(gameplay, nullptr); };
     const auto packet = [&](int sequence, const char *phase = "tap") {
         return "2\t" + std::to_string(combatInput.generation()) + "\t" +
             std::to_string(combatInput.actionGeneration("interact")) + "\t" + std::to_string(sequence) + "\tinteract\t" + phase;
@@ -118,5 +120,25 @@ int main()
     stale = packet(2);
     core.player = 8; refresh();
     assert(!combatInput.offer(stale, 27));
-    std::cout << "PASS production explore interact binding, native frame edge, physical priority and mode/control/lifecycle guards\n";
+
+    // After a won boarding fight the script's LAi_ActivateReload waits for ChrAction: offered without
+    // any dialog target, named "boarding", and gone (with queued taps) once the handler is disarmed.
+    dialogAvailable = false; refresh();
+    assert(combatInput.json().find("\"interact\"") == std::string::npos && combatInteractKind == "dialog");
+    boardingArmed = true; refresh();
+    assert(combatInput.json().find("\"interact\"") != std::string::npos && combatInteractKind == "boarding");
+    assert(combatInput.offer(packet(1), 28));
+    combatInput.advance(29);
+    assert(combatInput.merge("ChrAction", 0) == 3);
+    combatInput.advance(30); combatInput.advance(31);
+    state.mode = "melee"; gameplay.update(state); refresh();
+    assert(combatInput.json().find("\"interact\"") == std::string::npos); // fighting on: the action key is not offered
+    state.mode = "explore"; gameplay.update(state); refresh();
+    const auto queued = packet(2);
+    assert(combatInput.offer(queued, 32));
+    boardingArmed = false; refresh();
+    assert(combatInput.json().find("\"interact\"") == std::string::npos && combatInteractKind == "dialog");
+    combatInput.advance(33);
+    assert(combatInput.merge("ChrAction", 0) != 3);
+    std::cout << "PASS production explore interact binding (dialog, boarding continuation), native frame edge, physical priority and mode/control/lifecycle guards\n";
 }

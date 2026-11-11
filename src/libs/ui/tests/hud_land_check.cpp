@@ -67,6 +67,23 @@ static void CheckExplore()
     bench.Set("contextAction", Json(""));
     Expect(!mount.Has("context"), "the target left: no button");
 
+    // after a won boarding fight the game waits for its action key (LAi_ActivateReload armed): the
+    // button stays whatever the script's icon says meanwhile (locator exits reset it to Nothing)
+    Json boarding = State("combat-explore-talk");
+    boarding["interactKind"] = "boarding";
+    bench.Set("combat", boarding);
+    Expect(mount.Has("context") && mount.shown.elements["context"]["icon"] == "grapple" &&
+               mount.shown.elements["context"]["label"] == "hud.context.boarding",
+           "boarding armed: «Продолжить абордаж» takes the slot without any script icon");
+    bench.Set("contextAction", Json("Reload"));
+    Expect(mount.shown.elements["context"]["icon"] == "grapple", "… and outranks the script's Reload icon");
+    bench.Press("context");
+    Expect(mount.Last().rfind("combat:2\t5\t14\t", 0) == 0 && mount.Last().ends_with("\tinteract\ttap"),
+           "it is the engine's action key (ChrAction)");
+    bench.Set("contextAction", Json(""));
+    bench.Set("combat", State("combat-explore"));
+    Expect(!mount.Has("context"), "boarding continued: no button");
+
     // a combat state of another revision is not ready: buttons stay, disabled, and send nothing
     Json stale = State("combat-explore");
     stale["gameplayRevision"] = 9;

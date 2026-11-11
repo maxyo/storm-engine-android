@@ -713,6 +713,23 @@ void COMPILER::DelEventHandler(const char *event_name, const char *func_name)
     }
 }
 
+// A handler ProcessEvent would run: FSTATUS_NORMAL (a NEW one becomes normal at the next frame,
+// a DELETED one is skipped until ProcessFrame removes it).
+bool COMPILER::HasActiveEventHandler(const char *event_name, const char *func_name)
+{
+    if (!event_name || !func_name)
+        return false;
+    const uint32_t func_code = FuncTab.FindFunc(func_name);
+    const uint32_t event_code = EventTab.FindEvent(event_name);
+    EVENTINFO ei;
+    if (func_code == INVALID_FUNC_CODE || event_code == INVALID_EVENT_CODE || !EventTab.GetEvent(ei, event_code))
+        return false;
+    for (uint32_t n = 0; n < ei.elements; n++)
+        if (ei.pFuncInfo[n].func_code == func_code && ei.pFuncInfo[n].status == FSTATUS_NORMAL)
+            return true;
+    return false;
+}
+
 VDATA *COMPILER::ProcessEvent(const char *event_name)
 {
     // TODO: only do if stack debug if enabled (should be runtime configurable)

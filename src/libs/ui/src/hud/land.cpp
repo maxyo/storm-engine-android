@@ -290,9 +290,12 @@ class LandScene final : public Scene
             return;
         if (states.combat.Has("interact"))
         {
-            // The engine's own target query: somebody to talk to stands in front of the hero.
-            const bool talk = states.combat.interact_kind == "dialog";
-            view.elements["context"] = Json{{"icon", talk ? "talk" : "hand"}, {"label", talk ? hud_.Text("hud.context.talk") : hud_.Text("hud.context.action")}};
+            // The engine's action key: somebody to talk to stands in front of the hero, or the game
+            // waits for it to go on after a won boarding fight (it outranks the script's icon).
+            const std::string &kind = states.combat.interact_kind;
+            const bool talk = kind == "dialog", boarding = kind == "boarding";
+            view.elements["context"] = Json{{"icon", talk ? "talk" : boarding ? "grapple" : "hand"},
+                                            {"label", hud_.Text(talk ? "hud.context.talk" : boarding ? "hud.context.boarding" : "hud.context.action")}};
             input.On("context", "click", [this](const Event &) { Strike("interact", "tap"); });
             return;
         }

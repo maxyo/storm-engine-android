@@ -1,5 +1,6 @@
 {
  "hud.context.action": "hud.context.action",
+ "hud.context.boarding": "hud.context.boarding",
  "hud.context.enter": "hud.context.enter",
  "hud.context.open": "hud.context.open",
  "hud.context.take": "hud.context.take",

@@ -238,7 +238,8 @@ class CombatConsumer final : public HudConsumer
         out.activity = *activity;
         out.player = *player;
         out.mode = *mode;
-        out.interact_kind = Text(state, "interactKind").value_or("") == "dialog" ? "dialog" : "interact";
+        const std::string kind = Text(state, "interactKind").value_or("");
+        out.interact_kind = kind == "dialog" || kind == "boarding" ? kind : "interact";
         return {};
     }
 };
