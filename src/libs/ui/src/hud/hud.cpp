@@ -17,6 +17,7 @@ namespace
 constexpr double kIdle = 3600.0;
 constexpr double kLineSeconds = 2.6; // an event line stays this long (pack setting toastMs)
 constexpr size_t kLines = 3;
+constexpr double kLeaveSeconds = 0.22; // a line animates out this long (pack time.toastLeave), then goes
 // The layout scene under the spyglass when no ported scene owns the mode (the platform still
 // draws the sea HUD): the overlay alone, no elements.
 constexpr const char *kSpyglassLayout = "sea";
@@ -98,7 +99,7 @@ Json Hud::LogLines() const
 {
     Json lines = Json::array();
     for (size_t i = lines_.size(); i-- > 0;)
-        lines.push_back(Json{{"text", lines_[i].text}, {"tone", lines_[i].tone}});
+        lines.push_back(Json{{"text", lines_[i].text}, {"tone", lines_[i].tone}, {"key", std::to_string(lines_[i].key)}, {"leaving", lines_[i].leaving >= 0.0}});
     return lines;
 }
 
@@ -107,16 +108,23 @@ bool Hud::Notice(const std::string &text, const std::string &tone)
     if (!visible_ || text.empty() || !view_.log)
         return false;
     for (Line &line : lines_)
-        if (line.base == text)
+        if (line.base == text && line.leaving < 0.0)
         {
             line.text = RepeatedText(text, ++line.count);
             line.until = mount_.Now() + kLineSeconds;
             changed_ = true;
             return true;
         }
-    if (lines_.size() >= kLines)
-        lines_.erase(lines_.begin());
-    lines_.push_back({text, tone.empty() ? "info" : tone, mount_.Now() + kLineSeconds, text, 1});
+    // At most kLines shown: the oldest shown line starts to leave.
+    const double now = mount_.Now();
+    if (std::count_if(lines_.begin(), lines_.end(), [](const Line &line) { return line.leaving < 0.0; }) >= static_cast<long>(kLines))
+        for (Line &line : lines_)
+            if (line.leaving < 0.0)
+            {
+                line.leaving = now;
+                break;
+            }
+    lines_.push_back({text, tone.empty() ? "info" : tone, now + kLineSeconds, text, 1, ++next_line_key_});
     changed_ = true;
     return true;
 }
@@ -251,8 +259,16 @@ double Hud::Tick()
         interface_ = interface;
         changed_ = true;
     }
+    // An expired line animates out first, then goes.
+    for (Line &line : lines_)
+        if (line.leaving < 0.0 && now >= line.until)
+        {
+            line.leaving = now;
+            changed_ = true;
+        }
     const size_t before = lines_.size();
-    lines_.erase(std::remove_if(lines_.begin(), lines_.end(), [now](const Line &line) { return now >= line.until; }), lines_.end());
+    lines_.erase(std::remove_if(lines_.begin(), lines_.end(), [now](const Line &line) { return line.leaving >= 0.0 && now >= line.leaving + kLeaveSeconds; }),
+                 lines_.end());
     if (lines_.size() != before)
         changed_ = true;
     // A handler or the scene's timed work may ask for another build: settle within the call.
@@ -268,7 +284,7 @@ double Hud::Tick()
     if (changed_)
         next = 0.0;
     for (const Line &line : lines_)
-        next = std::min(next, std::max(0.0, line.until - now));
+        next = std::min(next, std::max(0.0, (line.leaving >= 0.0 ? line.leaving + kLeaveSeconds : line.until) - now));
     return next;
 }
 

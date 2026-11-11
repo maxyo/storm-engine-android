@@ -436,11 +436,21 @@ static void CheckScenes()
         Expect(hud.Notice("one", "") && hud.Notice("two", "ok") && hud.Notice("three", "warn") && hud.Notice("four", "danger"), "the scene has a log");
         hud.Tick();
         const Json lines = mount.shown.elements["log"]["lines"];
-        Expect(lines.size() == 3 && lines[0]["text"] == "four" && lines[0]["tone"] == "danger" && lines[2]["text"] == "two", "three newest lines, newest first");
+        Expect(lines.size() == 4 && lines[0]["text"] == "four" && lines[0]["tone"] == "danger" && lines[2]["text"] == "two" &&
+                   lines[2]["leaving"] == false && lines[3]["text"] == "one" && lines[3]["leaving"] == true && lines[0]["key"] != lines[1]["key"],
+               "three newest lines, newest first, each with its own key; the oldest animates out");
+        Expect(hud.Tick() <= 0.22, "the log asks for the frame that removes the leaving line");
+        mount.now = 0.3;
+        hud.Tick();
+        Expect(mount.shown.elements["log"]["lines"].size() == 3, "the leaving line goes after its exit");
         Expect(hud.Tick() <= 2.6, "the log asks for the frame that ends a line");
         mount.now = 3.0;
         hud.Tick();
-        Expect(!mount.shown.elements.contains("log"), "lines expire");
+        const Json leaving = mount.shown.elements["log"]["lines"];
+        Expect(leaving.size() == 3 && leaving[0]["leaving"] == true && leaving[2]["leaving"] == true, "expired lines animate out first");
+        mount.now = 3.3;
+        hud.Tick();
+        Expect(!mount.shown.elements.contains("log"), "then they are gone");
 
         // the back key
         Expect(hud.Back() && calls.back() == "back", "the back key reaches a visible scene");

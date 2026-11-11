@@ -198,12 +198,9 @@ class CrewScreen final : public Screen
         view["primary"] = Json();
         if (ok)
         {
-            view["primary"] = Json{{"label", operation.empty() ? ok->label : operation + " " + std::to_string(amount)},
-                                   {"sub", result},
-                                   {"disabled", amount == 0 || !ok->Offers("press")},
-                                   {"reason", ok->unavailable_reason},
-                                   {"busy", bindings.Pending("primary")}};
-            bindings.On("primary", "", [&bindings, ok, owner](const Event &) { bindings.Send(*ok, "press", {}, owner); });
+            view["primary"] = DealView(bindings, *ok, operation, amount, result);
+            if (!view["primary"].is_null())
+                bindings.On("primary", "", [&bindings, ok, owner](const Event &) { bindings.Send(*ok, "press", {}, owner); });
         }
         const Widget *exit = admitted.One("EXIT_BTN");
         bindings.On("header-back", "", [&bindings, exit](const Event &) { bindings.Back(exit); });

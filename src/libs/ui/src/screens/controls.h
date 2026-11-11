@@ -42,6 +42,11 @@ Json MapViewOf(const Widget &map, std::span<const Widget *const> markers);
 std::string NationOf(const ImageRef *image);
 // {id, label, variant, disabled, reason, busy} of a c-button; a tap presses the widget.
 Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id, const char *variant);
+// The primary button of a money deal (store, hire): {label: "<operation> <amount>", sub: the
+// price line, disabled, reason, busy}, or null while the amount is unchanged: with nothing to
+// confirm there is no deal button (the game's bare "Ok" read as a dead, empty button). An
+// amount the game refuses (`ok` not offering press) stays a disabled button with its reason.
+Json DealView(Bindings &bindings, const Widget &ok, const std::string &operation, int amount, const std::string &sub);
 // {kind:"action", id, title, disabled, reason, selected, busy}: a button or choice as a list row.
 Json ActionRow(Bindings &bindings, const Widget &widget, const std::string &id);
 // Sends the verb a tap on a choice row means: activate on the selected row when offered,

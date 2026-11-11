@@ -358,7 +358,12 @@ class ItemsScreen final : public Screen
     {
         const bool worn = Field(fact, "worn") == "1";
         const bool quest = Field(fact, "quest") == "1";
-        std::string sub = LowerText(bindings.Text(SlotLabel(Field(fact, "slot"))));
+        // The slot the item is worn in; an item that is not worn anywhere (a ring, a gem) has none.
+        const std::string slot = Field(fact, "slot");
+        const char *slot_label = SlotLabel(slot);
+        if (!slot.empty() && !*slot_label)
+            bindings.Error("items: unknown slot '" + slot + "'");
+        std::string sub = *slot_label ? LowerText(bindings.Text(slot_label)) : std::string();
         if (worn)
             sub += (sub.empty() ? "" : " \xC2\xB7 ") + bindings.Text("items.worn");
         const Widget *info = a_->One("INFO_PIC");

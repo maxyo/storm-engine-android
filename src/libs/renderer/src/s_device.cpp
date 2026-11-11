@@ -429,9 +429,10 @@ DX9RENDER::DX9RENDER()
 
 namespace
 {
-// Graphics effects (renderer_bgfx/fx): «fx_preset» 0 Оригинал / 1 Среднее / 2 Высокое and the individual fx_* options
-// (-1 = the preset's value), from engine.ini and, on Android, the app's graphics preferences, which win.
-// STORM_FX_OPTIONS="fx_preset=2,fx_bloom=0" overrides both (measurements); it is logged.
+// Graphics effects (renderer_bgfx/fx): «fx_preset» 0 Низкая / 1 Средняя / 2 Высокая from engine.ini and, on
+// Android, the player's choice in the app, which wins; the individual fx_* options (-1 = the preset's value)
+// are developer keys of engine.ini. STORM_FX_OPTIONS="fx_preset=2,fx_bloom=0" overrides both (measurements);
+// it is logged.
 int effectsPreset = 0;
 std::vector<storm::render::EffectsOption> effectsOptions;
 
@@ -474,24 +475,18 @@ std::map<std::string, int> effectsIniValues;
 
 void ConfigureGraphicsEffects(const std::function<int(const char *, int)> &iniValue)
 {
-    const auto read = [&iniValue](const char *name, int fallback) {
-        int value = iniValue(name, fallback);
+    // The preset: engine.ini, and on Android the player's choice in the app, which wins.
+    effectsPreset = iniValue("fx_preset", 0);
 #ifdef __ANDROID__
-        value = storm::android::graphicsSetting(name, value);
+    effectsPreset = storm::android::graphicsSetting("fx_preset", effectsPreset);
 #endif
-        return value;
-    };
-    effectsPreset = read("fx_preset", 0);
-    // Anisotropic filtering stays the existing player setting «Filtering» (texture_anisotropy 1, 2, 4, 8, 16),
-    // independent of the preset; fx_anisotropy, when given, wins.
-    effectsOptions = {{"fx_anisotropy", std::clamp(read("texture_anisotropy", 1), 1, 16)}};
+    // The single effects (and fx_anisotropy, which the preset decides too) are developer keys of
+    // engine.ini only.
+    effectsOptions.clear();
     for (const auto &info : storm::render::EffectsOptionNames())
         if (std::string_view(info.name) != "fx_preset")
-            if (const int value = read(info.name, -1); value >= 0)
-            {
-                std::erase_if(effectsOptions, [&](const auto &option) { return option.name == info.name; });
+            if (const int value = iniValue(info.name, -1); value >= 0)
                 effectsOptions.push_back({info.name, value});
-            }
     if (const char *overrides = std::getenv("STORM_FX_OPTIONS"); overrides && *overrides)
     {
         spdlog::warn("graphics effects: STORM_FX_OPTIONS overrides the settings: {}", overrides);
@@ -510,7 +505,7 @@ void ConfigureGraphicsEffects(const std::function<int(const char *, int)> &iniVa
 #endif
 }
 #ifdef __ANDROID__
-// The settings screen stored new preferences: the effects follow them without a restart
+// The settings screen stored a new quality preset: the effects follow it without a restart
 // (MSAA and anisotropy rebuild the scene stores at the next Present). Options engine.ini
 // gave keep its values as fallbacks.
 void ReconfigureGraphicsEffects()
@@ -630,9 +625,12 @@ bool DX9RENDER::Init()
         }
 
         // new renderer settings
-        vSyncEnabled = ini->GetInt(nullptr, "vsync", 0);
 #ifdef __ANDROID__
-        vSyncEnabled = storm::android::graphicsSetting("vsync", vSyncEnabled) != 0;
+        // A phone always presents in step with the display (no tearing, steady pacing, less heat);
+        // there is no player setting for it.
+        vSyncEnabled = true;
+#else
+        vSyncEnabled = ini->GetInt(nullptr, "vsync", 0);
 #endif
 
         msaa = ini->GetInt(nullptr, "msaa", D3DMULTISAMPLE_NONE);

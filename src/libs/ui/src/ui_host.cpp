@@ -555,7 +555,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             delay = std::min(delay, 0.05); // a decoded picture is shown on the next frame
         delay = std::min(delay, routing);
         for (const Toast_ &toast : toasts_)
-            delay = std::min(delay, std::max(0.0, toast.until - now));
+            delay = std::min(delay, std::max(0.0, (toast.leaving >= 0.0 ? toast.leaving + ToastLeaveSeconds() : toast.until) - now));
         counters_.update_ms += Milliseconds(started, std::chrono::steady_clock::now());
         const bool draw = changed_ || !drawn_;
         if (!draw)
@@ -612,15 +612,21 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             return;
         const double until = system_.GetElapsedTime() + Setting("toastMs", 2600.0) / 1000.0;
         for (Toast_ &shown : toasts_)
-            if (shown.text == text && shown.element)
+            if (shown.text == text && shown.element && shown.leaving < 0.0)
             {
                 shown.element->SetAttribute("text", hud::RepeatedText(text, ++shown.count));
                 shown.until = until;
                 changed_ = true;
                 return;
             }
-        while (toasts_.size() >= 3)
-            RemoveToast(0);
+        // At most three shown: the oldest shown one starts to leave.
+        if (std::count_if(toasts_.begin(), toasts_.end(), [](const Toast_ &toast) { return toast.leaving < 0.0; }) >= 3)
+            for (Toast_ &shown : toasts_)
+                if (shown.leaving < 0.0)
+                {
+                    Leave(shown, system_.GetElapsedTime());
+                    break;
+                }
         Rml::ElementPtr notice = overlay_->CreateElement("c-notice");
         notice->SetAttribute("variant", "toast");
         notice->SetAttribute("place", "none");
@@ -1305,7 +1311,22 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         double until = 0.0;
         std::string text; // the message; the element shows it with its repeat count
         int count = 1;
+        double leaving = -1.0; // when it started to animate out (c-notice leaving), -1 = shown
     };
+
+    // How long a toast animates out (pack time.toastLeave); the stack closes up meanwhile.
+    double ToastLeaveSeconds() const
+    {
+        return Setting("toastLeave", 0.22);
+    }
+
+    void Leave(Toast_ &toast, double now)
+    {
+        changed_ = true;
+        toast.leaving = now;
+        if (Rml::Element *element = toast.element.get())
+            element->SetAttribute("leaving", "1");
+    }
 
     void RemoveToast(size_t index)
     {
@@ -1316,10 +1337,13 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         toasts_.erase(toasts_.begin() + static_cast<long>(index));
     }
 
+    // An expired toast animates out first; it goes once that has run.
     void ExpireToasts(double now)
     {
         for (size_t i = toasts_.size(); i-- > 0;)
-            if (now >= toasts_[i].until)
+            if (toasts_[i].leaving < 0.0 && now >= toasts_[i].until)
+                Leave(toasts_[i], now);
+            else if (toasts_[i].leaving >= 0.0 && now >= toasts_[i].leaving + ToastLeaveSeconds())
                 RemoveToast(i);
     }
 

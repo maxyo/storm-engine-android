@@ -463,6 +463,8 @@ class Hud
         double until = 0.0;
         std::string base; // the message itself; `text` adds the repeat count
         int count = 1;
+        unsigned key = 0;     // the line's own element in the log (data-key)
+        double leaving = -1.0; // when it started to animate out (-1 = shown); removed kLeaveSeconds later
     };
     void Refresh();
     void Conceal();
@@ -476,6 +478,7 @@ class Hud
     Input input_;
     View view_;
     std::vector<Line> lines_;
+    unsigned next_line_key_ = 0;
     std::set<std::string> reported_;
     std::string language_; // game language last given to the mount
     bool changed_ = true;
