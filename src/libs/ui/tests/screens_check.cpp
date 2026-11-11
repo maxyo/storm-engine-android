@@ -1786,6 +1786,9 @@ static void Launcher()
     ExpectEqual(verb(), "APP license ui-RmlUi-MIT.txt", "a notice opens");
     router.OnEvent({"source-app", "click", ""});
     ExpectEqual(verb(), "APP open-url https://example.org/app/tree/1", "source link");
+    ExpectEqual(surface.props["shareLog"]["title"].get<std::string>(), "<about.share_log>", "«Поделиться логом» row");
+    router.OnEvent({"share-log", "click", ""});
+    ExpectEqual(verb(), "APP share-log ", "the log goes to the host's share sheet");
 
     const size_t errors = surface.errors.size();
     router.SetState("launcher", Json{{"screen", "nowhere"}});
