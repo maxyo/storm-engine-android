@@ -282,8 +282,8 @@ void AnimationImp::BuildAnimationMatrices()
                 storm::math::pos(inmtx) = bn.pos0;
                 if (j == 0)
                 {
-                    auto p0 = bn.pos[f0] + ki0 * (bn.pos[f0 + 1] - bn.pos[f0]);
-                    auto p1 = bn.pos[f1] + ki1 * (bn.pos[f1 + 1] - bn.pos[f1]);
+                    auto p0 = bn.BlendPosition(f0, ki0);
+                    auto p1 = bn.BlendPosition(f1, ki1);
                     storm::math::pos(inmtx) = p0 + kBlend * (p1 - p0);
                 }
 
@@ -320,7 +320,7 @@ void AnimationImp::BuildAnimationMatrices()
                 auto inmtx = glm::mat4_cast(qt);
                 storm::math::pos(inmtx) = bn.pos0;
                 if (j == 0)
-                    storm::math::pos(inmtx) = bn.pos[f] + ki * (bn.pos[f + 1] - bn.pos[f]);
+                    storm::math::pos(inmtx) = bn.BlendPosition(f, ki);
 
                 // Procedural head look
                 if (j == headBoneIndex && isControllableHead)
@@ -355,7 +355,7 @@ void AnimationImp::BuildAnimationMatrices()
                 auto inmtx = glm::mat4_cast(qt);
                 storm::math::pos(inmtx) = bn.pos0;
                 if (j == 0)
-                    storm::math::pos(inmtx) = bn.pos[f] + ki * (bn.pos[f + 1] - bn.pos[f]);
+                    storm::math::pos(inmtx) = bn.BlendPosition(f, ki);
 
                 // Procedural head look
                 if (j == headBoneIndex && isControllableHead)
