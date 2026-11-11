@@ -18,6 +18,7 @@ public:
     CONTROL_STATE cache[3]={{CST_ACTIVATED,1,1},{CST_ACTIVATED,1,1},{CST_ACTIVE,0.75f,173}};
     bool GetPhysicalControlState(int32_t code,CONTROL_STATE &state){++physicalReads;state=cache[code];return true;}
     bool AndroidControlAllowed(int32_t)const{return false;}
+    int AndroidHeldInverse(int32_t)const{return -1;} // no held virtual control in this check
     bool GetControlState(int32_t,CONTROL_STATE &);
 };
 #include "control_poll.inc"
