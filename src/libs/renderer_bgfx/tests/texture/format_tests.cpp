@@ -203,25 +203,36 @@ void test_txx()
 
 void test_names()
 {
+    using List = std::vector<std::string>;
     auto c = GetTextureFileCandidates("LOCATIONS\\FOO.TGA");
     CHECK(c.primary == "resource\\textures\\LOCATIONS\\FOO.TGA.tx");
-    // the .tga.tx alternate equals the primary (case-insensitive) and is skipped
-    CHECK(c.alternates == (std::vector<std::string>{"resource\\textures\\LOCATIONS\\FOO.dds",
-                                                     "resource\\textures\\LOCATIONS\\FOO.txx"}));
+    // own directory first (the .tga.tx alternate equals the primary and is skipped), then the root
+    CHECK(c.alternates == (List{"resource\\textures\\LOCATIONS\\FOO.dds", "resource\\textures\\LOCATIONS\\FOO.txx",
+                                "resource\\textures\\FOO.tga.tx", "resource\\textures\\FOO.dds",
+                                "resource\\textures\\FOO.txx"}));
     c = GetTextureFileCandidates("Location\\Store02_AO.dds");
     CHECK(c.primary == "resource\\textures\\Location\\Store02_AO.dds");
-    CHECK(c.alternates == (std::vector<std::string>{"resource\\textures\\Location\\Store02_AO.tga.tx",
-                                                     "resource\\textures\\Location\\Store02_AO.txx"}));
+    CHECK(c.alternates.size() == 5 && c.alternates[0] == "resource\\textures\\Location\\Store02_AO.tga.tx" &&
+          c.alternates[1] == "resource\\textures\\Location\\Store02_AO.txx");
     c = GetTextureFileCandidates("Resource\\Textures\\\\blood_nom.dds");
     CHECK(c.primary == "Resource\\Textures\\blood_nom.dds");
+    CHECK(c.alternates == (List{"Resource\\Textures\\blood_nom.tga.tx", "Resource\\Textures\\blood_nom.txx"}));
     c = GetTextureFileCandidates("particles_newnm");
     CHECK(c.primary == "resource\\textures\\particles_newnm.tx");
     CHECK(c.alternates.size() == 3 && c.alternates[2] == "resource\\textures\\particles_newnm.txx");
     c = GetTextureFileCandidates("Particles_New.txx");
     CHECK(c.primary == "resource\\textures\\Particles_New.txx" && c.alternates.size() == 2);
+    // a language folder that CL does not have, and a model reference that repeats the texture path
+    c = GetTextureFileCandidates("MAINMENU\\RUSSIAN\\MAINMENU\\HUT4.TGA");
+    CHECK(c.primary == "resource\\textures\\MAINMENU\\RUSSIAN\\MAINMENU\\HUT4.TGA.tx");
+    CHECK(c.alternates.size() == 2 + 3 * 3);
+    CHECK(c.alternates[2] == "resource\\textures\\MAINMENU\\RUSSIAN\\HUT4.tga.tx");
+    CHECK(c.alternates[5] == "resource\\textures\\MAINMENU\\HUT4.tga.tx");
+    CHECK(c.alternates[8] == "resource\\textures\\HUT4.tga.tx");
     c = GetTextureFileCandidates("weather/sun/flare.tga.tx");
     CHECK(c.primary == "resource\\textures\\weather\\sun\\flare.tga.tx");
-    CHECK(c.alternates.size() == 2 && c.alternates[0] == "resource\\textures\\weather\\sun\\flare.dds");
+    CHECK(c.alternates.size() == 2 + 3 + 3 && c.alternates[0] == "resource\\textures\\weather\\sun\\flare.dds" &&
+          c.alternates[2] == "resource\\textures\\weather\\flare.tga.tx");
 }
 
 // Local-only: parse every .dds / .txx under a game's Resource directory.
