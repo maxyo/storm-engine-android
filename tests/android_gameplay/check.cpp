@@ -42,6 +42,8 @@ int main()
     {
         GameplayContext why;
         assert(gameplayBlocked(why) == "no-scene");
+        why.location = true;
+        assert(gameplayBlocked(why) == "no-land-interface"); // a location: the game may use touches (camera)
         why.land = true; why.group = "PrimaryLand";
         assert(gameplayBlocked(why) == "no-player");
         why.nativeFight = false;

@@ -45,6 +45,7 @@ const Case kCases[] = {
     {"command menu (BattleInterfaceControls) without a sheet", "unknown", "commands", "", false},
     {"a control group no mode knows", "unknown", "group", "", false},
     {"land without the native player", "unknown", "no-player", "", false},
+    {"a location whose land interface is not started (camera look)", "unknown", "no-land-interface", "", false},
     {"the app not in front", "unknown", "paused", "", false},
     {"scripts that could not be read", "unknown", "error", "", false},
     {"engine starting (the title load)", "unknown", "starting", "", true},

@@ -36,8 +36,8 @@ struct Gameplay
     uint64_t revision = 0;
     std::string mode = "unknown"; // explore, melee, sailing, naval, worldmap, unknown
     // Mode "unknown" only: why (the engine's GameplaySnapshot::blocked): starting, paused,
-    // loading, interface, dialogue, cutscene, video, commands, no-scene, no-player, group,
-    // error; empty before the first state.
+    // loading, interface, dialogue, cutscene, video, commands, no-scene, no-land-interface,
+    // no-player, group, error; empty before the first state.
     std::string blocked;
     std::string language;
     std::string input_owner;      // land only: one player in one loaded scene

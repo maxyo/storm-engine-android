@@ -57,6 +57,7 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         context.worldmap = worldmap != invalid_entity;
         context.sea = sea;
         context.land = integer("bLandInterfaceStart");
+        context.location = core.GetEntityId("location") != invalid_entity;
         // BICommandList::SetActive writes ComState during entity Execute, after
         // scripts may have last updated curKeyGroupName. Gate taps immediately.
         context.video = core.GetEntityId("CAviPlayer") != invalid_entity || core.GetEntityId("WMVideoPlay") != invalid_entity;

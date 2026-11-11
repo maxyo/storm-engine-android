@@ -155,7 +155,7 @@ class GameplayConsumer final : public HudConsumer
         {
             next.blocked = Text(state, "blocked").value_or("");
             if (!OneOf(next.blocked, {"starting", "paused", "loading", "interface", "dialogue", "cutscene", "video", "commands", "no-scene",
-                                      "no-player", "group", "error"}))
+                                      "no-land-interface", "no-player", "group", "error"}))
                 problem = "gameplay mode unknown without a known reason (blocked '" + next.blocked + "')";
         }
         if (next.mode == "explore" || next.mode == "melee")
