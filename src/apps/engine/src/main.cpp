@@ -3,7 +3,15 @@
 #include <thread>
 
 #include <SDL2/SDL.h>
-#ifndef __ANDROID__
+// AddressSanitizer must see every C++ allocation: an ASan build keeps the default new/delete.
+#if defined(__SANITIZE_ADDRESS__)
+#define STORM_ASAN 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define STORM_ASAN 1
+#endif
+#endif
+#if !defined(__ANDROID__) && !defined(STORM_ASAN)
 #include <mimalloc-new-delete.h>
 #endif
 #include <mimalloc.h>

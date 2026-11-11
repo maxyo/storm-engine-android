@@ -504,6 +504,8 @@ private:
         bool opaque = false; // X8R8G8B8
     };
     std::unordered_map<int32_t, KeptPixels> keptPixels_; // keepTexturePixels, by texture ID
+    // The buffer handle table (LiveBuffer). -1 is "no buffer"; the table is never indexed with it.
+    bool LiveBuffer(int32_t id, bool index, const char *call) const;
     INDEX_BUFFER IndexBuffers[MAX_BUFFERS]{};
     VERTEX_BUFFER VertexBuffers[MAX_BUFFERS]{};
 

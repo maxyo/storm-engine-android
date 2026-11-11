@@ -20,13 +20,18 @@ AIBalls::~AIBalls()
 
     AIHelper::pRS->TextureRelease(dwTextureIndex);
 
+    // The particles entity owns the systems it created and deletes them itself when it is destroyed
+    // first (engine shutdown erases all entities in creation order, with balls still in flight): a
+    // ball's system is deleted here only while that entity still holds it.
+    const auto eidParticles = core.GetEntityId("particles");
     for (i = 0; i < aBallTypes.size(); i++)
     {
         auto *pBallsType = &aBallTypes[i];
         for (j = 0; j < pBallsType->Balls.size(); j++)
         {
             auto *pBall = &pBallsType->Balls[j];
-            if (pBall->pParticle)
+            if (pBall->pParticle && eidParticles &&
+                core.Send_Message(eidParticles, "lp", PS_VALIDATE_PARTICLE, pBall->pParticle))
             {
                 STORM_DELETE(pBall->pParticle);
             }

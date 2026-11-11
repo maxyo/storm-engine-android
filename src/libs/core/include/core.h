@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 
 #include <spdlog/spdlog.h>
 
@@ -108,6 +109,9 @@ class Core
     virtual const char *EngineIniFileName() = 0;
 
     virtual void *GetScriptVariable(const char *pVariableName, uint32_t *pdwVarIndex = nullptr) = 0;
+
+    // Value of an integer #define of the loaded scripts (the game's own headers); nullopt when there is none.
+    [[nodiscard]] virtual std::optional<int32_t> GetScriptIntegerDefine(const char *name) = 0;
 
     [[nodiscard]] virtual storm::ENGINE_VERSION GetTargetEngineVersion() const noexcept = 0;
 

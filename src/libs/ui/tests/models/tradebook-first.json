@@ -1,0 +1,563 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 28,
+ "screenRevision": 18,
+ "screen": "tradebook",
+ "widgets": [
+  {
+   "node": "MAIN_BACK",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": false,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_CHARACTER",
+   "type": "button",
+   "label": "Герой",
+   "value": "",
+   "index": -1,
+   "order": 1,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_CHARACTER_2",
+   "type": "button",
+   "label": "Герой",
+   "value": "",
+   "index": -1,
+   "order": 2,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_SHIP",
+   "type": "button",
+   "label": "Суда",
+   "value": "",
+   "index": -1,
+   "order": 3,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_SHIP_2",
+   "type": "button",
+   "label": "Суда",
+   "value": "",
+   "index": -1,
+   "order": 4,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_QUESTBOOK",
+   "type": "button",
+   "label": "Записи",
+   "value": "",
+   "index": -1,
+   "order": 5,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_QUESTBOOK_2",
+   "type": "button",
+   "label": "Записи",
+   "value": "",
+   "index": -1,
+   "order": 6,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_NATIONS",
+   "type": "button",
+   "label": "Страны",
+   "value": "",
+   "index": -1,
+   "order": 7,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_NATIONS_2",
+   "type": "button",
+   "label": "Страны",
+   "value": "",
+   "index": -1,
+   "order": 8,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_ITEMS",
+   "type": "button",
+   "label": "Вещи",
+   "value": "",
+   "index": -1,
+   "order": 9,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "I_ITEMS_2",
+   "type": "button",
+   "label": "Вещи",
+   "value": "",
+   "index": -1,
+   "order": 10,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "STR_BUTTONS",
+   "type": "text",
+   "label": "Герой",
+   "value": "",
+   "index": -1,
+   "order": 11,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "STR_BUTTONS",
+   "type": "text",
+   "label": "Суда",
+   "value": "",
+   "index": -1,
+   "order": 12,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "STR_BUTTONS",
+   "type": "text",
+   "label": "Записи",
+   "value": "",
+   "index": -1,
+   "order": 13,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "STR_BUTTONS",
+   "type": "text",
+   "label": "Страны",
+   "value": "",
+   "index": -1,
+   "order": 14,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "STR_BUTTONS",
+   "type": "text",
+   "label": "Вещи",
+   "value": "",
+   "index": -1,
+   "order": 15,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TITLE",
+   "type": "heading",
+   "label": "  Книга цен  ",
+   "value": "",
+   "index": -1,
+   "order": 16,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "TABLE_CITY",
+   "type": "choice",
+   "label": "\tГородок\tОстровок\t13:00 01.10.1654",
+   "value": "0",
+   "index": 0,
+   "order": 500,
+   "enabled": true,
+   "rowId": "tradebook:city:town1",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "columnHeaders": [
+    "Флаг",
+    "Порт",
+    "Остров",
+    "Дата"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Флаг",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Порт",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Остров",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Дата",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 7,
+       "imageRevision": 7,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "NATIONS",
+        "image": "France"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "Городок",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Островок",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "13:00 01.10.1654",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_GOODS",
+   "type": "choice",
+   "label": "Ядро\t\t48\t24\t277\t20\t2",
+   "value": "0",
+   "index": 0,
+   "order": 600,
+   "enabled": true,
+   "rowId": "Balls",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "columnHeaders": [
+    "Товар",
+    "Вид",
+    "Продаём",
+    "Покупаем",
+    "Есть",
+    "Пачка",
+    "Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Товар",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вид",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Продаём",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Покупаем",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Есть",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Ядро",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 7,
+       "imageRevision": 7,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Balls"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "48",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "24",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "277",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "2",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  },
+  {
+   "node": "TABLE_GOODS",
+   "type": "choice",
+   "label": "Еда\t\t19\t10\t374\t20\t2",
+   "value": "0",
+   "index": 1,
+   "order": 601,
+   "enabled": true,
+   "rowId": "Food",
+   "images": [],
+   "actions": [
+    "select"
+   ],
+   "columnHeaders": [
+    "Товар",
+    "Вид",
+    "Продаём",
+    "Покупаем",
+    "Есть",
+    "Пачка",
+    "Вес"
+   ],
+   "headerCells": [
+    {
+     "column": 0,
+     "text": "Товар",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 1,
+     "text": "Вид",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "Продаём",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "Покупаем",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "Есть",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "Пачка",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "Вес",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ],
+   "cells": [
+    {
+     "column": 0,
+     "text": "Еда",
+     "colorArgb": 4294967295,
+     "images": [
+      {
+       "handle": 7,
+       "imageRevision": 7,
+       "width": 128,
+       "height": 128,
+       "tintArgb": 4294967295,
+       "source": {
+        "kind": "atlas",
+        "group": "GOODS",
+        "image": "Food"
+       }
+      }
+     ]
+    },
+    {
+     "column": 1,
+     "text": "",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 2,
+     "text": "19",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 3,
+     "text": "10",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 4,
+     "text": "374",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 5,
+     "text": "20",
+     "colorArgb": 4294967295,
+     "images": []
+    },
+    {
+     "column": 6,
+     "text": "2",
+     "colorArgb": 4294967295,
+     "images": []
+    }
+   ]
+  }
+ ]
+}

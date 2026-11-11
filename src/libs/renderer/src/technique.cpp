@@ -1648,7 +1648,7 @@ bool CTechnique::DecodeFile(std::string sname)
         SKIP;
     }
 
-    STORM_DELETE(pFile);
+    delete[] pFile;
     return true;
 }
 

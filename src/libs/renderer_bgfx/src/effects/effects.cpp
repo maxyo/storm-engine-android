@@ -105,16 +105,9 @@ struct Pending
 };
 
 const Pending kPending[] = {
-    {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingAerial) != 0; },
-     [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingAerial; }, "fx_aerial",
-     "aerial perspective is not bound in the emulator variants yet (fx::Sky::BindAerial): the "
-     "fixed-function fog stays"},
     {[](const fx::Settings &s) { return (s.lighting_flags & fx::kLightingWind) != 0; },
      [](fx::Settings &s) { s.lighting_flags &= ~fx::kLightingWind; }, "fx_wind",
      "wind sway is not wired into the fixed-function emulator yet (needs per-technique vertex weights): switched off"},
-    {[](const fx::Settings &s) { return s.shadows != fx::ShadowQuality::Off; },
-     [](fx::Settings &s) { s.shadows = fx::ShadowQuality::Off; }, "fx_shadows",
-     "sun shadows are not wired into this renderer yet: switched off"},
 };
 
 std::string describe(const fx::Settings &s)
@@ -291,8 +284,9 @@ void Host::set_weather(const render::EffectsWeather &weather)
 {
     weather_ = weather;
     weather_this_frame_ = true;
-    // The hemisphere ambient takes its tint from the sky dome.
-    if (settings_.lighting_flags & fx::kLightingHemisphere)
+    // The hemisphere ambient takes its tint from the sky dome; the aerial perspective needs a sky (no interiors).
+    lighting_.shadows().set_sun(weather.sun_dir, weather.sun_present);
+    if (settings_.lighting_flags & (fx::kLightingHemisphere | fx::kLightingAerial))
         lighting_.set_sky(&sky_state());
 }
 
@@ -381,7 +375,10 @@ void Host::end_frame(bool scene_frame)
         scene_cut_pending_ = true;
     weather_last_frame_ = weather_this_frame_;
     if (!weather_this_frame_)
+    {
         lighting_.set_sky(nullptr); // interiors: no sky tint on the hemisphere
+        lighting_.shadows().set_sun({0.0f, 1.0f, 0.0f}, false); // and no sun shadows
+    }
     weather_this_frame_ = false;
     lighting_.end_frame();
     transform_view_ = UINT16_MAX; // the shim's views start again next frame
@@ -422,9 +419,9 @@ void Host::end_frame(bool scene_frame)
                          profile_sum_post_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u",
                        preset_, gpu, profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
-                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief);
+                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters);
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_draws_ = 0;

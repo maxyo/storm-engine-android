@@ -13,8 +13,9 @@
 //   loc:<id>       location <id> at noon
 //   night:<id>     location <id> at midnight
 //   combat:<id>    location <id> with a sword fight against a spawned enemy
+//   surface:<id>   underwater location <id> at noon, the camera looking up at the sea surface
 //   sea:<island>   sea around <island> ("sea:" is open sea)
-//   battle:<island> sea around <island> with an attacking enemy ship
+//   battle:<island> sea around <island> with an attacking enemy ship, captured once it has fired
 //   boarding:<island> boarding of that enemy ship (deck fight)
 //   map:world      world map
 //   storm:world    storm entered from the world map
@@ -40,6 +41,8 @@ native void SceneSweepVariant(int index);
 #define SS_VARIANT_FRAMES	12	// --variants: frames in the measured window
 #define SS_FADE_TIMEOUT_MS	30000
 #define SS_LOAD_TIMEOUT_MS	360000
+#define SS_ENEMY_FIRE_TIMEOUT_MS	90000	// game time at sea before the battle enemy must have fired
+#define SS_ENEMY_DISTANCE	350.0	// metres from the hero to the battle enemy; cannons reach ~700
 #define SS_ENEMY_GROUP		"SceneSweepEnemy"
 #define SS_ENEMY_CAPTAIN	"SceneSweepCaptain"
 
@@ -59,6 +62,8 @@ string ssKind = "";
 string ssId = "";
 string ssGroup = "";		// locator the hero enters the current location at
 string ssLocator = "";
+int ssEnemyBalls = 0;		// cannons the battle enemy has fired
+int ssAtSeaTime = 0;		// game time at sea while waiting for them
 
 void SceneSweep_SetState(int state)
 {
@@ -76,6 +81,8 @@ void SceneSweep_Begin(string scene)
 	if(split + 1 < strlen(scene)) ssId = strcut(scene, split + 1, strlen(scene) - 1);
 	ssStep = 0;
 	ssViaHome = false;
+	ssEnemyBalls = 0;
+	ssAtSeaTime = 0;
 	SceneSweepEvent("begin " + scene);
 	SceneSweep_SetState(SS_LOAD);
 }
@@ -276,7 +283,7 @@ bool SceneSweep_InLocation(string id)
 // between land scenes; anywhere else the hero first returns to where the game began.
 bool SceneSweep_NeedsLand()
 {
-	if(ssKind == "loc" || ssKind == "night" || ssKind == "combat") return false;
+	if(ssKind == "loc" || ssKind == "night" || ssKind == "combat" || ssKind == "surface") return false;
 	if(ssKind == "map" || ssKind == "storm")
 	{
 		if(SceneSweep_OnMap()) return false;
@@ -305,6 +312,7 @@ void SceneSweep_Start()
 	case "loc":		SceneSweep_StartLocation(12);	break;
 	case "combat":	SceneSweep_StartLocation(12);	break;
 	case "night":	SceneSweep_StartLocation(0);	break;
+	case "surface":	SceneSweep_StartLocation(12);	break;
 	case "sea":		SceneSweep_StartSea(false);		break;
 	case "battle":	SceneSweep_StartSea(true);		break;
 	case "boarding":
@@ -333,7 +341,7 @@ void SceneSweep_Start()
 		}
 		break;
 	}
-	if(ssKind != "loc" && ssKind != "combat" && ssKind != "night" && ssKind != "sea" && ssKind != "battle" &&
+	if(ssKind != "loc" && ssKind != "combat" && ssKind != "night" && ssKind != "surface" && ssKind != "sea" && ssKind != "battle" &&
 		ssKind != "boarding" && ssKind != "map" && ssKind != "storm")
 	{
 		SceneSweep_Fail("unknown scene kind");
@@ -361,6 +369,18 @@ bool SceneSweep_Loaded()
 		break;
 	case "loc":		return SceneSweep_InLocationAtEntry();	break;
 	case "night":	return SceneSweep_InLocationAtEntry();	break;
+	case "surface":
+		if(!SceneSweep_InLocationAtEntry()) return false;
+		if(ssStep == 0)
+		{
+			ssStep = 1;
+			float x, y, z;
+			GetCharacterPos(pchar, &x, &y, &z);
+			// From the hero's head up through the water at the surface (the hero stands on the sea bed).
+			locCameraFromToPos(x, y + 1.7, z, true, x + 12.0, y + 40.0, z + 12.0);
+		}
+		return true;
+		break;
 	case "combat":
 		if(!SceneSweep_InLocationAtEntry()) return false;
 		if(ssStep == 0)
@@ -371,7 +391,14 @@ bool SceneSweep_Loaded()
 		return true;
 		break;
 	case "sea":		return SceneSweep_AtSea();	break;
-	case "battle":	return SceneSweep_AtSea();	break;
+	case "battle":
+		if(!SceneSweep_AtSea()) return false;
+		// The enemy attacks the hero: its cannons must fire (sea AI relations, cannons, balls).
+		if(ssEnemyBalls > 0) return true;
+		ssAtSeaTime += GetDeltaTime();
+		if(ssAtSeaTime > SS_ENEMY_FIRE_TIMEOUT_MS) SceneSweep_Fail("the enemy ship did not fire within " + ssAtSeaTime + " ms at sea");
+		return false;
+		break;
 	case "boarding":
 		if(ssStep == 0)
 		{
@@ -508,16 +535,33 @@ void SceneSweep_StartSea(bool withEnemy)
 	{
 		ref captain = GetCharacter(NPC_GenerateCharacter(SS_ENEMY_CAPTAIN, "mercen_1", "man", "man", 10, PIRATE, 1, true, "quest"));
 		FantomMakeCoolSailor(captain, SHIP_BRIG, "", CANNON_TYPE_CANNON_LBS12, 50, 50, 50);
+		captain.AlwaysEnemy = true;	// hostile whatever the nations' relations, as the game's quest ambushes
 		Group_DeleteGroup(SS_ENEMY_GROUP);
 		Group_FindOrCreateGroup(SS_ENEMY_GROUP);
 		Group_AddCharacter(SS_ENEMY_GROUP, SS_ENEMY_CAPTAIN);
 		Group_SetGroupCommander(SS_ENEMY_GROUP, SS_ENEMY_CAPTAIN);
 		Group_SetTaskAttack(SS_ENEMY_GROUP, PLAYER_GROUP);
 		Group_LockTask(SS_ENEMY_GROUP);
-		Group_SetPursuitGroup(SS_ENEMY_GROUP, PLAYER_GROUP);
+		// Within cannon range, ahead of where the hero enters the sea (the game's
+		// Group_SetPursuitGroup puts it 500-1200 m away at a random angle, often out of range).
+		ref enemyGroup = Group_FindOrCreateGroup(SS_ENEMY_GROUP);
+		ref seaIsland = GetIslandByID(island);
+		float heading = stf(seaIsland.reload.l1.ay);
+		enemyGroup.Pos.x = stf(seaIsland.reload.l1.x) + SS_ENEMY_DISTANCE * sin(heading);
+		enemyGroup.Pos.z = stf(seaIsland.reload.l1.z) + SS_ENEMY_DISTANCE * cos(heading);
+		enemyGroup.Pos.ay = heading;
 		QuestToSeaLogin_Add(SS_ENEMY_GROUP);
+		DelEventHandler(CANNON_FIRE, "SceneSweep_CannonFire");
+		SetEventHandler(CANNON_FIRE, "SceneSweep_CannonFire", 0);
 	}
 	QuestToSeaLogin_Launch();
+}
+
+// Every cannon shot at sea (the game's Cannon_FireCannon adds the ball).
+void SceneSweep_CannonFire()
+{
+	aref shooter = GetEventData();
+	if(shooter.id == SS_ENEMY_CAPTAIN) ssEnemyBalls++;
 }
 
 // A quest-style ambush: one armed enemy next to the hero, both sides drawn.

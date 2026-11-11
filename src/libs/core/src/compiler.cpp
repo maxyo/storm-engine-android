@@ -3907,6 +3907,17 @@ void COMPILER::StoreDynamicCallStatus(bool returned_value)
     ExpressionResult.Set(static_cast<int32_t>(returned_value ? 1 : 0));
 }
 
+std::optional<int32_t> COMPILER::FindIntegerDefine(const char *name)
+{
+    DEFINFO di;
+    const uint32_t def_code = DefTab.FindDef(name);
+    if (def_code == INVALID_DEF_CODE || !DefTab.GetDef(di, def_code) || di.deftype != NUMBER)
+        return std::nullopt;
+    int32_t value;
+    memcpy(&value, &di.data4b, sizeof(value));
+    return value;
+}
+
 bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const char *pDbgExpSource)
 {
     // GUARD(BC_Execute)

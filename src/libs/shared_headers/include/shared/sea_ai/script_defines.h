@@ -89,6 +89,8 @@
 // AI Section
 
 // Nation section
+// The engine's relation numbers. Games number them in their own Script_defines.h (TEHO 1.7.3
+// differently); the sea AI translates at the script boundary (sea_ai/src/script_relations.hpp).
 #define RELATION_UNKNOWN 0
 #define RELATION_FRIEND 1
 #define RELATION_NEUTRAL 2

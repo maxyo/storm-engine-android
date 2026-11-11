@@ -32,6 +32,7 @@ bool AIHelper::Uninit()
     aMainCharacters.clear();
     dwRelationSize = 0;
     STORM_DELETE(pRelations);
+    scriptRelations_.reset();
     return true;
 }
 
@@ -94,7 +95,7 @@ void AIHelper::CalculateRelations()
                 auto *pData =
                     core.Event(GET_RELATION_EVENT, "ll", GetIndex(aMainCharacters[y]), GetIndex(aMainCharacters[x]));
                 Assert(pData);
-                *GetRelation(y, x) = static_cast<uint32_t>(pData->GetInt());
+                *GetRelation(y, x) = ScriptRelationNumbers().ToEngine(pData->GetInt());
             }
             else
             {
@@ -126,6 +127,19 @@ uint32_t AIHelper::GetRelationSafe(ATTRIBUTES *pA1, ATTRIBUTES *pA2) const
     if (dw2 == INVALID_ARRAY_INDEX)
         return RELATION_NEUTRAL;
     return *GetRelation(dw1, dw2);
+}
+
+const storm::sea_ai::ScriptRelations &AIHelper::ScriptRelationNumbers()
+{
+    if (!scriptRelations_)
+        scriptRelations_ = storm::sea_ai::ScriptRelations::Read(
+            [](const char *name) { return core.GetScriptIntegerDefine(name); });
+    return *scriptRelations_;
+}
+
+int32_t AIHelper::GetScriptRelationSafe(ATTRIBUTES *pA1, ATTRIBUTES *pA2)
+{
+    return ScriptRelationNumbers().ToScript(GetRelationSafe(pA1, pA2));
 }
 
 uint32_t AIHelper::GetRelation(ATTRIBUTES *pA1, ATTRIBUTES *pA2) const

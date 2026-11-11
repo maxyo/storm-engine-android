@@ -43,6 +43,8 @@ FormatInfo format_info(D3DFORMAT format)
     case D3DFMT_A8B8G8R8:
     case D3DFMT_X8B8G8R8:
         return {4, 0, false, true};
+    case D3DFMT_A32B32G32R32F: // bone palettes (GPU skinning), sampled with texelFetch
+        return {16, 0, false, true};
     case D3DFMT_DXT1:
         return {0, 8, false, true};
     case D3DFMT_DXT2:
@@ -262,6 +264,8 @@ void TexStore::create_gpu()
                                                                          : bgfx::TextureFormat::BC3;
         gpu_compressed = true;
     }
+    else if (format == D3DFMT_A32B32G32R32F && !render_target)
+        gpu_format = bgfx::TextureFormat::RGBA32F; // uploaded as it is (same channel order)
     else
     {
         gpu_format = bgfx::TextureFormat::RGBA8;
@@ -662,7 +666,8 @@ void TexStore::sync()
 {
     if (system_memory)
         return;
-    const bool sampled = !render_target && !depth_stencil;
+    // Float textures (bone palettes) skip the DDS/transcode path: created empty, levels uploaded raw.
+    const bool sampled = !render_target && !depth_stencil && format != D3DFMT_A32B32G32R32F;
     if (transcoded)
     {
         if (!any_dirty)
@@ -698,7 +703,7 @@ void TexStore::sync()
             s.dirty = false;
             const uint32_t w = level_width(level), h = level_height(level), d = level_depth(level);
             const bgfx::Memory *memory;
-            if (gpu_compressed)
+            if (gpu_compressed || gpu_format == bgfx::TextureFormat::RGBA32F)
             {
                 memory = bgfx::copy(s.data.data(), static_cast<uint32_t>(s.data.size()));
             }

@@ -10,11 +10,13 @@ geometry file format
 
 #pragma once
 
-#pragma pack(push, 1)
-
+// Headers before the packing: their types (glm, and the std templates glm pulls in) must keep their normal layout,
+// or a TU that includes this file first packs them differently from the rest of the program (ODR violation).
 #include <cstdint>
 
 #include "storm_glm.h"
+
+#pragma pack(push, 1)
 
 /*
 

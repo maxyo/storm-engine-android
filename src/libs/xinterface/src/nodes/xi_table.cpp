@@ -1574,6 +1574,7 @@ void CXI_TABLE::MobileCollect(std::vector<MobileWidget> &widgets) const
         }
     }
     auto *interfaceRoot = core.Entity_GetAttributeClass(g_idInterface, "");
+    const size_t before = widgets.size();
     for (int row = 0; row < m_nLineQuantity; ++row)
     {
         const std::string key = "tr" + std::to_string(row + 1);
@@ -1613,6 +1614,16 @@ void CXI_TABLE::MobileCollect(std::vector<MobileWidget> &widgets) const
         }
         if (hasContent)
             widgets.push_back(std::move(widget));
+    }
+    // Rows are the table's widgets, so a table without rows would vanish from the model and
+    // look like an interface without that table. One "table" widget (index -1, the headers,
+    // no verbs) says the table is there and empty (an unvisited trade book, an empty chest).
+    if (widgets.size() == before)
+    {
+        MobileWidget empty{m_nodeName, "table", "", "0", -1, m_rect.top * 8192 + m_rect.left, false};
+        empty.columnHeaders = columnHeaders;
+        empty.headerCells = headerCells;
+        widgets.push_back(std::move(empty));
     }
 }
 
