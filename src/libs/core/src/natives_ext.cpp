@@ -242,7 +242,7 @@ std::string elementText(DATA *e)
     }
 }
 
-// Reorders the primitive elements of a script array: `order[i]` is the old index of the
+// Reorders the elements (primitives or objects) of a script array: `order[i]` is the old index of the
 // element that ends at position i.
 bool permuteArray(COMPILER &compiler, DATA *array, const std::vector<size_t> &order)
 {
@@ -250,9 +250,19 @@ bool permuteArray(COMPILER &compiler, DATA *array, const std::vector<size_t> &or
     if (n == 0)
         return true;
     const S_TOKEN_TYPE type = array->GetArrayElement(0)->GetType();
+    if (type == VAR_OBJECT)
+    {
+        // objects move with their whole attribute trees (each element owns its root)
+        std::vector<ATTRIBUTES *> trees(n);
+        for (uint32_t i = 0; i < n; ++i)
+            trees[i] = array->GetArrayElement(i)->AttributesClass;
+        for (uint32_t i = 0; i < n; ++i)
+            array->GetArrayElement(i)->AttributesClass = trees[order[i]];
+        return true;
+    }
     if (type != VAR_INTEGER && type != VAR_FLOAT && type != VAR_STRING)
     {
-        compiler.SetError("sorting/shuffling an array of this type is not supported (only int, float, string)");
+        compiler.SetError("sorting/shuffling an array of this type is not supported (only int, float, string, object)");
         return false;
     }
     std::vector<int32_t> ints;
@@ -306,6 +316,11 @@ void arraySort(NativeCall &call, const Args &args)
     std::vector<size_t> order(n);
     std::iota(order.begin(), order.end(), size_t{0});
     const S_TOKEN_TYPE type = array->GetArrayElement(0)->GetType();
+    if (type != VAR_INTEGER && type != VAR_FLOAT && type != VAR_STRING)
+    {
+        call.compiler.SetError("ArraySort: only arrays of int, float or string can be sorted");
+        return;
+    }
     std::vector<std::string> texts;
     std::vector<double> numbers;
     for (uint32_t i = 0; i < n; ++i)
