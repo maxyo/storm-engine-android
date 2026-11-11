@@ -2480,7 +2480,7 @@ void XINTERFACE::DoControl()
             {
                 if (!storm::mobile::RestoreSaveTarget(*pending))
                 {
-                    spdlog::error("save_load: {} refused: the chosen record is no longer in the game's list", action.node);
+                    spdlog::warn("save_load: {} refused: the chosen record is no longer where the game lists it", action.node);
                     continue;
                 }
                 if (action.node == "CONFIRM_YES")
@@ -2497,8 +2497,12 @@ void XINTERFACE::DoControl()
                     // evntLoad. Watched until the record is applied (load_watch.hpp).
                     const auto index = static_cast<size_t>(pending->index);
                     if (expected == 4 && index < pending->owner.records.size())
-                        storm::loadWatch().Requested("SAVE\\" + pending->owner.records[index].profile + "\\" +
-                                                     pending->owner.records[index].file);
+                    {
+                        const std::string record = "SAVE\\" + pending->owner.records[index].profile + "\\" +
+                                                   pending->owner.records[index].file;
+                        spdlog::info("load watch: '{}' asked for", record);
+                        storm::loadWatch().Requested(record);
+                    }
                 }
                 else if (!pending->owner.saving)
                 {

@@ -712,7 +712,12 @@ void CoreImpl::ProcessStateLoading()
         storm::loadWatch().Refused(State_file_name, "the game could not apply the record");
     }
     else
+    {
+        if (storm::loadWatch().Armed())
+            spdlog::info("load watch: '{}' applied {:.1f} s (frame time) after it was asked for", State_file_name,
+                         storm::loadWatch().Waited());
         storm::loadWatch().Loaded();
+    }
 
     delete[] State_file_name;
     State_file_name = nullptr;
