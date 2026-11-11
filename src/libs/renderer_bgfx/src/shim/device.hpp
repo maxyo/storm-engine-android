@@ -62,6 +62,7 @@ class Context final : public render::FrameOwner
     bool run_frame(uint32_t flags, uint32_t *frame_number = nullptr);
 
     uint64_t frame_index() const { return frame_.frame_index; }
+    uint32_t last_frame() const { return last_frame_; } // bgfx::frame() number of the last presented frame
     // Counts bgfx::frame() calls (presents and read-backs): transient buffers live until the next one.
     uint32_t submitted_frames() const { return submitted_frames_; }
     const bgfx::Caps *caps() const { return caps_; }
@@ -139,6 +140,7 @@ class Context final : public render::FrameOwner
     render::GamePictureProvider *picture_provider_ = nullptr;
     GameTarget game_target_;
     uint32_t frame_limit_ = 0;
+    uint32_t last_frame_ = 0;
     uint32_t submitted_frames_ = 0;
     double last_present_ = 0.0;
 };

@@ -72,6 +72,15 @@ function(storm_fx_build_shaders)
     endforeach()
     file(GENERATE OUTPUT "${gen_dir}/includes.inc" CONTENT "${includes}")
     file(GENERATE OUTPUT "${gen_dir}/table.inc" CONTENT "${table}")
+    # Every blob is highp (renderer_bgfx/cmake/essl_precision_check.py) when the renderer provides the check.
+    if(STORM_ESSL_PRECISION_CHECK)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        set(precision_stamp "${gen_dir}/precision-check.stamp")
+        add_custom_command(OUTPUT "${precision_stamp}"
+            COMMAND Python3::Interpreter "${STORM_ESSL_PRECISION_CHECK}" "${precision_stamp}" ${outputs}
+            DEPENDS ${outputs} "${STORM_ESSL_PRECISION_CHECK}" VERBATIM)
+        list(APPEND outputs "${precision_stamp}")
+    endif()
     add_custom_target(${arg_TARGET}_build DEPENDS ${outputs})
     add_custom_target(${arg_TARGET}_all_profiles DEPENDS ${check_outputs})
     add_library(${arg_TARGET} INTERFACE)

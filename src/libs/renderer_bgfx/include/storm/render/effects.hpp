@@ -1,8 +1,8 @@
 // Graphics effects (renderer_bgfx/fx) as seen by the engine: options, the scene boundary and the per-frame
 // inputs the renderer cannot observe through the D3D9-shaped shim. Game thread only.
 //
-// Presets: «Оригинал» (0, parity with the legacy image: no effect runs and the frame is composed exactly as
-// before), «Среднее» (1), «Высокое» (2). Individual options override the preset. What the device cannot do is
+// Presets: «Низкая» (0, the legacy image: no effect runs and the frame is composed exactly as
+// before), «Средняя» (1), «Высокая» (2). The fx_* options are developer overrides (engine.ini), not player settings. What the device cannot do is
 // switched off once, when the options are applied, and reported (log + EffectsReport::changes); nothing is
 // lowered silently later.
 #pragma once
@@ -38,7 +38,7 @@ const std::vector<EffectsOptionInfo> &EffectsOptionNames();
 
 struct EffectsReport
 {
-    int preset = 0;                    // 0 Оригинал, 1 Среднее, 2 Высокое
+    int preset = 0;                    // 0 Низкая, 1 Средняя, 2 Высокая
     std::string summary;               // the effective settings in one line
     std::string support;               // what the device supports (fx::Support::Describe)
     std::vector<std::string> changes;  // options the device cannot honour, switched off (one line each)
@@ -50,6 +50,9 @@ struct EffectsReport
 // constrained when the device is created. Returns the report of the request as applied.
 EffectsReport ConfigureEffects(int preset, const std::vector<EffectsOption> &options);
 EffectsReport CurrentEffects();
+// A one-line notice for the player (Russian) when the GPU self-test switched a stage off on this device; empty
+// when there is none. Each notice is returned once.
+std::string TakeEffectsNotice();
 
 // The 3D scene of this frame is complete; what follows is the legacy interface (DX9RENDER::MakePostProcess,
 // called by every interface before it draws). The post chain runs here, on the scene only.
@@ -97,7 +100,7 @@ void SetEffectsTextureSource(IDirect3DBaseTexture9 *texture, const char *path);
 
 // ---- World passes: fx sky, fx water, contact shadows ----
 // The consumer entities (SKY, SEA, shadow, SUNGLOW) ask which parts are on and then either call the fx pass below
-// or keep their legacy drawing. Constant between ConfigureEffects calls; everything false in «Оригинал».
+// or keep their legacy drawing. Constant between ConfigureEffects calls; everything false in «Низкая».
 struct EffectsWorld
 {
     bool sky = false;             // fx sky replaces the textured sky box and the fog sphere of SKY

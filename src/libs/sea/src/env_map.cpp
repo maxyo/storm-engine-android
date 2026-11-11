@@ -212,6 +212,27 @@ bool SEA::EnvMap_Render2()
     return true;
 }
 
+uint32_t SEA::CubeFacesDue()
+{
+    if (cubeUnderSea_ != bUnderSea || storm::math::lengthSquared(vCamPos - cubeCamPos_) > kCubeJump * kCubeJump)
+        cubeRefreshAll_ = true;
+    cubeUnderSea_ = bUnderSea;
+    cubeCamPos_ = vCamPos;
+    uint32_t faces[6], count = 0;
+    for (uint32_t i = 0; i < 6; i++)
+        if (bUnderSea || i != D3DCUBEMAP_FACE_NEGATIVE_Y)
+            faces[count++] = i;
+    if (cubeRefreshAll_)
+    {
+        cubeRefreshAll_ = false;
+        return (1u << 6) - 1;
+    }
+    uint32_t due = 0;
+    for (uint32_t k = 0; k < kCubeFacesPerFrame; k++)
+        due |= 1u << faces[cubeCursor_++ % count];
+    return due;
+}
+
 bool SEA::SunRoad_Render()
 {
     glm::mat4 mOldView = rs->GetView();
@@ -225,7 +246,7 @@ bool SEA::SunRoad_Render()
     uint32_t Colors[6] = {0xd934c8, 0x2FFF1F, 0x0000FF, 0xFF00, 0xb28e11, 0x0};
     for (uint32_t i = 0; i < 6; i++)
     {
-        if (!bUnderSea && i == D3DCUBEMAP_FACE_NEGATIVE_Y)
+        if ((!bUnderSea && i == D3DCUBEMAP_FACE_NEGATIVE_Y) || !(cubeFaces_ & (1u << i)))
             continue;
 
         rs->BeginScene();
@@ -280,9 +301,8 @@ bool SEA::EnvMap_Render()
     uint32_t Colors[6] = {0xd934c8, 0x2FFF1F, 0x0000FF, 0xFF00, 0xb28e11, 0x0};
     for (uint32_t i = 0; i < 6; i++)
     {
-        if (!bUnderSea && i == D3DCUBEMAP_FACE_NEGATIVE_Y)
+        if ((!bUnderSea && i == D3DCUBEMAP_FACE_NEGATIVE_Y) || !(cubeFaces_ & (1u << i)))
             continue;
-        // if (i != D3DCUBEMAP_FACE_NEGATIVE_Z) continue;
 
         rs->BeginScene();
         bool bCool = rs->SetRenderTarget(pEnvMap, i, 0, pZStencil);

@@ -18,4 +18,22 @@ struct RendererFacts
 // LogLevel::Info.
 Support DetectSupport(const RendererFacts &renderer);
 
+// Typical limits of GPU families, for tests and for forcing a profile on a development device
+// (engine option fx_caps_profile): the presets must constrain cleanly and report what they lose on each.
+enum class CapsProfile : uint8_t
+{
+    Device,       // what DetectSupport found (no restriction)
+    Gles30Minimal, // GLES 3.0 floor: no MSAA, no anisotropy, no vertex texture fetch of RGBA16F
+    MaliG5x,      // Mali-G52/G57: MSAA yes, multisampled depth not resolvable, anisotropy yes
+    MaliG7x,      // Mali-G7x / Immortalis: everything
+    Adreno6xx,    // everything but the multisampled depth resolve
+    Adreno7xx8xx, // everything
+    PowerVR,      // Rogue / IMG: no MSAA render targets in practice, no anisotropy
+    Xclipse,      // Samsung Xclipse (RDNA): everything
+    Count,
+};
+// `device` restricted to the profile (a profile never adds what the device lacks).
+Support RestrictSupport(const Support &device, CapsProfile profile);
+const char *CapsProfileName(CapsProfile profile);
+
 } // namespace storm::fx

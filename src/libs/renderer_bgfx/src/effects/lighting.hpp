@@ -75,7 +75,7 @@ class Lighting
 {
   public:
     void configure(const fx::Settings &settings, const fx::RendererState &state);
-    // Nothing to decide per draw (preset «Оригинал»): the shim skips prepare().
+    // Nothing to decide per draw (preset «Низкая»): the shim skips prepare().
     bool idle() const { return !lighting_ && !coverage_; }
 
     // Fixed-function draw (no shader ports). `cube_variant` = the fs_ff_cube* variant the shim picked (0 = none).

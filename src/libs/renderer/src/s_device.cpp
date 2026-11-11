@@ -2991,6 +2991,14 @@ void DX9RENDER::RunStart()
 #ifdef __ANDROID__
     ReconfigureGraphicsEffects(); // the settings screen stored new preferences
 #endif
+    // The GPU self-test switched an effect stage off on this device: tell the player once (also logged).
+    if (const std::string notice = storm::render::TakeEffectsNotice(); !notice.empty())
+    {
+        spdlog::warn("graphics effects: {}", notice);
+#ifdef __ANDROID__
+        storm::android::publishGameMessage(notice);
+#endif
+    }
     auto *pScriptRender = static_cast<VDATA *>(core.GetScriptVariable("Render"));
     ATTRIBUTES *pARender = pScriptRender->GetAClass();
 

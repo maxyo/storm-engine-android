@@ -2,6 +2,7 @@
 // baked noise, the engine wave model and its GPU/Gerstner mappings, the sea
 // grid, the sky model, lighting and point-light selection, the shadow cascade and the
 // explicit handling of unsupported settings. No GPU is needed.
+#include "storm/fx/capabilities.hpp"
 #include "storm/fx/color_lut.hpp"
 #include "storm/fx/light_set.hpp"
 #include "storm/fx/lighting_model.hpp"
@@ -48,7 +49,7 @@ float Chroma(std::array<float, 3> c)
 
 void CheckSettings()
 {
-    const Settings original = Settings::FromPreset(QualityPreset::Original);
+    const Settings original = Settings::FromPreset(QualityPreset::Low);
     CHECK(original.PostIsIdentity());
     CHECK(original.water == WaterQuality::Legacy);
     CHECK(!original.sky_atmosphere);
@@ -69,14 +70,14 @@ void CheckSettings()
     // The presets keep the legacy look: no tone curve, grade, flare, shafts, fx sky, hemisphere or linear sums.
     for (const Settings *preset : {&medium, &high})
         CHECK(!preset->tonemap && !preset->scene_grading && !preset->lens_flare && !preset->sun_shafts &&
-              !preset->sky_atmosphere && preset->grade == GradePreset::Original &&
+              !preset->sky_atmosphere && preset->grade == GradePreset::Caribbean && preset->grade_strength <= 0.4f &&
               !(preset->lighting_flags & (kLightingHemisphere | kLightingLinear | kLightingRim | kLightingAerial)));
     Settings graded = original;
     graded.grade = GradePreset::Caribbean;
     CHECK(!graded.PostIsIdentity());
     graded.grade_strength = 0.0f;
     CHECK(graded.PostIsIdentity());
-    CHECK(NameRu(QualityPreset::High) == "Высокое" && NameRu(GradePreset::Overcast) == "Пасмурно");
+    CHECK(NameRu(QualityPreset::High) == "Высокая" && NameRu(GradePreset::Overcast) == "Пасмурно");
 }
 
 void CheckLut()
@@ -513,14 +514,14 @@ void CheckSupport()
     Support all;
     all.lut_3d = all.shadow_map = all.scene_snapshot = all.wave_field = all.scene_depth = all.normal_map = true;
     all.msaa = all.msaa_depth = all.anisotropy = true;
-    for (QualityPreset preset : {QualityPreset::Original, QualityPreset::Medium, QualityPreset::High})
+    for (QualityPreset preset : {QualityPreset::Low, QualityPreset::Medium, QualityPreset::High})
     {
         const Settings settings = Settings::FromPreset(preset);
         CHECK(ValidateSettings(settings, all).empty());
         std::vector<std::string> changes;
         CHECK(ConstrainSettings(settings, all, changes) == settings && changes.empty());
         // The original look never depends on a capability.
-        if (preset == QualityPreset::Original)
+        if (preset == QualityPreset::Low)
             CHECK(ValidateSettings(settings, Support{}).empty());
     }
     const Settings high = Settings::FromPreset(QualityPreset::High);
@@ -939,6 +940,35 @@ void CheckHeightMapRules()
 }
 } // namespace
 
+// Every preset on every GPU-family profile: constrained settings are valid, every loss is reported, and the
+// low preset never needs anything.
+void CheckCapsProfiles()
+{
+    Support all;
+    all.lut_3d = all.shadow_map = all.scene_snapshot = all.wave_field = all.scene_depth = all.normal_map = true;
+    all.msaa = all.msaa_depth = all.anisotropy = true;
+    for (int p = 0; p < static_cast<int>(CapsProfile::Count); ++p)
+    {
+        const auto profile = static_cast<CapsProfile>(p);
+        const Support support = RestrictSupport(all, profile);
+        CHECK(std::string(CapsProfileName(profile)) != "?");
+        for (QualityPreset preset : {QualityPreset::Low, QualityPreset::Medium, QualityPreset::High})
+        {
+            const Settings requested = Settings::FromPreset(preset);
+            std::vector<std::string> changes;
+            const Settings constrained = ConstrainSettings(requested, support, changes);
+            CHECK(ValidateSettings(constrained, support).empty());
+            CHECK(changes.empty() == (constrained == requested));
+            if (preset == QualityPreset::Low)
+                CHECK(changes.empty());
+            if (!support.msaa)
+                CHECK(constrained.msaa == 1 && !constrained.alpha_to_coverage);
+        }
+    }
+    // A profile only removes.
+    CHECK(RestrictSupport(Support{}, CapsProfile::Xclipse).msaa == false);
+}
+
 int main()
 {
     CheckSettings();
@@ -951,6 +981,7 @@ int main()
     CheckSky();
     CheckLighting();
     CheckSupport();
+    CheckCapsProfiles();
     CheckLights();
     CheckShadows();
     CheckNormalMaps();

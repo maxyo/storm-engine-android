@@ -139,7 +139,9 @@ bool SupportsNormalMap()
 
 bool SupportsMsaa()
 {
-    return Format(bgfx::TextureFormat::RGBA8, BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA);
+    // The scene target is RGBA8 colour + D24S8 depth (src/shim): both must render multisampled.
+    return Format(bgfx::TextureFormat::RGBA8, BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA) &&
+           Format(bgfx::TextureFormat::D24S8, BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA);
 }
 
 void SetupView(bgfx::ViewId view, const char *name, bgfx::FrameBufferHandle target, uint16_t width, uint16_t height)
