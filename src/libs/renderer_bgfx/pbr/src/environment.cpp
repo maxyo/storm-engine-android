@@ -392,8 +392,12 @@ std::vector<std::string> LightingLibrary::Add(std::string file, scene_data::Ligh
         const auto existing = std::ranges::find(ids_, key, &std::pair<std::string, size_t>::first);
         if (existing != ids_.end())
         {
-            errors.push_back("location \"" + id + "\" is claimed by " + presets_[existing->second].file + " and " + file +
-                             " (keeping the first)");
+            // A preset may list the same id twice; that entry points at this preset, which is not stored yet.
+            if (existing->second == index)
+                errors.push_back("location \"" + id + "\" is listed twice in " + file);
+            else
+                errors.push_back("location \"" + id + "\" is claimed by " + presets_[existing->second].file + " and " +
+                                 file + " (keeping the first)");
             continue;
         }
         ids_.emplace_back(std::move(key), index);
