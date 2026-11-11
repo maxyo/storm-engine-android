@@ -217,6 +217,9 @@ void Bindings::SendLatest(const Widget &widget, const std::string &verb, const s
     std::optional<Action> first;
     if (lead)
         first = router_.Make(widget, verb, *lead, guard);
+    // A send that waits for its turn still changed what the screen shows (the amount the
+    // player just set): the view is built again now, not when it goes out.
+    router_.rebuild_ = true;
     for (Router::Waiting &waiting : router_.waiting_)
         if (waiting.action.node == action.node && waiting.action.index == action.index && waiting.action.verb == action.verb)
         {
@@ -244,6 +247,7 @@ void Bindings::SendAfter(double seconds, const Widget &widget, const std::string
     if (lead)
         first = router_.Make(widget, verb, *lead, guard);
     const double due = router_.surface_.Now() + seconds;
+    router_.rebuild_ = true; // as SendLatest: the view shows what was asked at once
     for (Router::Waiting &waiting : router_.waiting_)
         if (waiting.action.node == action.node && waiting.action.index == action.index && waiting.action.verb == action.verb)
         {

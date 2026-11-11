@@ -46,7 +46,8 @@ Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id,
 // price line, disabled, reason, busy}, or null while the amount is unchanged: with nothing to
 // confirm there is no deal button (the game's bare "Ok" read as a dead, empty button). An
 // amount the game refuses (`ok` not offering press) stays a disabled button with its reason.
-Json DealView(Bindings &bindings, const Widget &ok, const std::string &operation, int amount, const std::string &sub);
+// `settling`: the game does not hold the amount yet; the button waits (busy) until it does.
+Json DealView(Bindings &bindings, const Widget &ok, const std::string &operation, int amount, const std::string &sub, bool settling = false);
 // {kind:"action", id, title, disabled, reason, selected, busy}: a button or choice as a list row.
 Json ActionRow(Bindings &bindings, const Widget &widget, const std::string &id);
 // Sends the verb a tap on a choice row means: activate on the selected row when offered,
