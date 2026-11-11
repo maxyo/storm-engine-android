@@ -245,8 +245,8 @@ vec3 fxPointSpecular(vec3 N, vec3 P, vec3 V)
 #endif // FX_LIGHT_POINT
 
 #ifdef FX_LIGHT_SHADOW
-// Sampler stage 13 (fx::kShadowMapStage) is reserved for the shadow map in every shader that defines FX_LIGHT_SHADOW.
-SAMPLER2DSHADOW(s_fxShadowMap, 13);
+// Sampler stage 15 (fx::kShadowMapStage) is reserved for the shadow map in every shader that defines FX_LIGHT_SHADOW.
+SAMPLER2DSHADOW(s_fxShadowMap, 15);
 uniform mat4 u_fxShadowMtx; // view space -> shadow map uv and depth
 uniform vec4 u_fxShadow;    // x: one texel in uv, y: shadow strength, z: normal offset in view units, w: depth bias
 

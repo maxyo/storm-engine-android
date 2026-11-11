@@ -77,19 +77,27 @@ void Lighting::configure(const fx::Settings &settings, const fx::RendererState &
     lighting_ = (flags_ & (fx::kLightingPerPixel | fx::kLightingPoint)) != 0;
     coverage_ = state.alpha_to_coverage;
     budget_ = fx::PointLightBudget(settings);
+    shadows_.configure(settings);
     normal_maps_.configure(lighting_ && (flags_ & fx::kLightingNormalMap));
     if (!vs_lit_)
     {
         vs_ff_ = shim::shader_id_by_name("vs_ff");
         vs_lit_ = shim::shader_id_by_name("vs_ff_lit");
         fs_coverage_ = shim::shader_id_by_name("fs_ff_coverage");
-        static const char *const lit[2][2][2] = {{{"fs_ff_lit", "fs_ff_lit_l"}, {"fs_ff_lit_n", "fs_ff_lit_nl"}},
-                                                 {{"fs_ff_lit_s", "fs_ff_lit_sl"}, {"fs_ff_lit_sn", "fs_ff_lit_snl"}}};
         static const char *const baked[2][2] = {{"fs_ff_baked", "fs_ff_baked_l"}, {"fs_ff_baked_n", "fs_ff_baked_nl"}};
         for (int s = 0; s < 2; ++s)
             for (int n = 0; n < 2; ++n)
                 for (int l = 0; l < 2; ++l)
-                    fs_lit_[s][n][l] = shim::shader_id_by_name(lit[s][n][l]);
+                    for (int h = 0; h < 3; ++h)
+                    {
+                        // Suffix letters in the order of CMakeLists.txt: s, n, l, then h / o.
+                        std::string name = "fs_ff_lit";
+                        std::string suffix = std::string(s ? "s" : "") + (n ? "n" : "") + (l ? "l" : "") +
+                                             (h == 1 ? "h" : h == 2 ? "o" : "");
+                        if (!suffix.empty())
+                            name += "_" + suffix;
+                        fs_lit_[s][n][l][h] = shim::shader_id_by_name(name.c_str());
+                    }
         for (int n = 0; n < 2; ++n)
             for (int l = 0; l < 2; ++l)
                 fs_baked_[n][l] = shim::shader_id_by_name(baked[n][l]);
@@ -290,7 +298,16 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             selection.dropped = 0; // the rest is lit per vertex
         }
         draw.points = fx::PackPointLights(selection, input.view);
-        draw.fs_id = fs_lit_[specular][relief][linear];
+        // Sun shadows: lit draws into the game picture (the first one of a frame prepares the map with its camera).
+        const shim::TexStore *picture = device.back_color ? device.back_color->store.get() : nullptr;
+        if (per_pixel && sun_slot >= 0 && target && target == picture)
+        {
+            memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
+            draw.shadow = draw.caster = shadows_.prepare(draw.view);
+        }
+        const int shadow = draw.shadow ? (settings_.shadows == fx::ShadowQuality::Soft ? 2 : 1) : 0;
+        draw.fs_id = fs_lit_[specular][relief][linear][shadow];
+        frame_.shadowed += draw.shadow ? 1 : 0;
         ++frame_.lit;
     }
     else
@@ -316,6 +333,8 @@ void Lighting::submit(const FfDraw &draw)
     fx_.Apply(draw.points);
     if (bgfx::isValid(draw.normal_map))
         fx_.BindNormalMap(draw.normal_map, draw.normal_map_flags);
+    if (draw.shadow)
+        shadows_.bind(draw.view);
 }
 
 bool Lighting::aerial_fog(const D3DMATRIX &view, bool vs_port, std::array<float, 2> &haze)
@@ -344,6 +363,7 @@ void Lighting::end_frame()
 {
     last_frame_ = frame_;
     frame_ = {};
+    shadows_.end_frame();
     if (!dynamic_lights_this_frame_)
         dynamic_lights_.clear(); // no location reported them: none exist
     dynamic_lights_this_frame_ = false;
@@ -352,6 +372,7 @@ void Lighting::end_frame()
 void Lighting::shutdown()
 {
     fx_.Shutdown();
+    shadows_.shutdown();
     for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_aerial_up_})
     {
         if (bgfx::isValid(*u))
@@ -363,6 +384,7 @@ void Lighting::shutdown()
 void Lighting::on_device_lost()
 {
     fx_.OnDeviceLost();
+    shadows_.on_device_lost();
     u_coverage_ = u_ff_ = u_aerial_up_ = BGFX_INVALID_HANDLE;
 }
 

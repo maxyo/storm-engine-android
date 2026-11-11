@@ -9,6 +9,8 @@
 //                   added, as texture * light.
 //   FX_LIGHT_NORMALMAP  with FX_FF_LIT / FX_FF_BAKED: relief from the normal map derived from stage 1's height texture
 //                   (stage 14, stage 1's coordinates): lit draws perturb the normal, baked ones scale their colour.
+//   FX_LIGHT_SHADOW[_SOFT]  with FX_FF_LIT: the sun's diffuse and specular terms are scaled by the sun shadow map
+//                   (stage 15, src/effects/shadows.hpp).
 //   FX_FF_COVERAGE  alpha to coverage instead of the alpha-test discard (fx_coverage.sh); in the FX_FF_LIT /
 //                   FX_FF_BAKED variants it is switched per draw by u_fxCoverage.z.
 #include "ff_finish.sh"
@@ -147,7 +149,8 @@ void main()
     N = fxPerturbNormal(Ng, P, v_texcoord1.xy);
 #endif
 #ifdef FX_FF_LIT
-    ffDiffuse = vec4(clamp(fxLit(v_color0.rgb, v_matDiffuse.rgb, fxSunDiffuse(N, V) + fxPointDiffuse(N, P),
+    float sunShadow = fxSunShadow(P, Ng);
+    ffDiffuse = vec4(clamp(fxLit(v_color0.rgb, v_matDiffuse.rgb, fxSunDiffuse(N, V) * sunShadow + fxPointDiffuse(N, P),
                                  v_matAmbient.rgb, fxAmbient(N)), 0.0, 1.0), v_color0.a);
 #else
     ffDiffuse = v_color0;
@@ -164,7 +167,7 @@ void main()
     FF_STAGE(4, STAGE4_SAMPLE)
 #ifdef FX_FF_LIT
     // Highlights (white: the fixed-function material has no usable specular colour) and the rim light.
-    current.rgb = fxAddSpecular(current.rgb, fxSunSpecular(N, V) + fxPointSpecular(N, P, V) + fxRim(N, V));
+    current.rgb = fxAddSpecular(current.rgb, fxSunSpecular(N, V) * sunShadow + fxPointSpecular(N, P, V) + fxRim(N, V));
 #endif
 #ifdef FX_FF_BAKED
 #ifdef FX_LIGHT_NORMALMAP

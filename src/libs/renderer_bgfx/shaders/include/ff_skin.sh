@@ -1,5 +1,6 @@
-// Bone palette skinning of GEOS::AVERTEX0 vertices (one blend weight, two bone indices), shared by the
-// fixed-function emulator (ff_vertex.sh, FF_SKIN) and the Caribbean Legend PBR vertex stage (pbr/vs_pbr_skin.sc).
+// GPU skinning of GEOS::AVERTEX0 vertices (one blend weight, two bone indices) exactly like the former CPU kernel
+// (src/libs/model/src/skinning.hpp). Included by ff_vertex.sh (FF_SKIN), vs_ff_caster_skin.sc and the Caribbean
+// Legend PBR vertex stage (pbr/shaders/vs_pbr_skin.sc).
 #ifndef FF_SKIN_SH
 #define FF_SKIN_SH
 // The palette holds 3 texels per bone (row = bone): texel k = (m[k], m[4+k], m[8+k], m[12+k]) of the bone

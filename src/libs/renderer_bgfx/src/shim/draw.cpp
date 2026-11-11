@@ -1260,7 +1260,10 @@ HRESULT Device::draw(const DrawCall &call)
         bgfx::setScissor(static_cast<uint16_t>(std::max<int32_t>(0, s.scissor.left)), static_cast<uint16_t>(std::max(0, y)),
                          static_cast<uint16_t>(std::max(0, w)), static_cast<uint16_t>(std::max(0, h)));
     }
-    bgfx::submit(view_id, handle);
+    // Effects: a sun shadow caster keeps its buffers for the depth-only copy into the shadow view (effects/shadows.hpp).
+    bgfx::submit(view_id, handle, 0, fx_draw.caster ? BGFX_DISCARD_NONE : BGFX_DISCARD_ALL);
+    if (fx_draw.caster)
+        fx_lighting.submit_caster(*this, s.world, layout->skinned);
     view_has_content = true;
     render::PerfCounters &counters = perf();
     ++counters.draws;
