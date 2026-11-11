@@ -190,8 +190,11 @@ class Host
     // something of the UI. Ask at pointer-down, per pointer; when true, deliver that
     // pointer's whole gesture through Touch, otherwise give it to the game (camera look).
     // True on an interactive HUD element, anywhere while an interface, a modal sheet or a
-    // plain document is shown or an interface is being opened (ExpectInterface). A pointer
-    // that goes down on what is not laid out yet is held and applied after the next frame.
+    // plain document is shown or an interface is being opened (ExpectInterface), and anywhere
+    // while the game shows nothing to use (no gameplay mode a HUD scene holds, no video, no
+    // cutscene: the loading screen, a scene change). A pointer that goes down on what is not
+    // laid out yet is held and applied after the next frame; one held while nothing was shown
+    // goes to the next interface, or is dropped (logged) when gameplay comes next.
     // Coordinates in physical pixels.
     // Thread-safe: answered from the layout of the last frame, so the thread that receives
     // touches does not wait for the UI thread.

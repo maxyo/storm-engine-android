@@ -813,6 +813,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     void CancelInput() override
     {
         changed_ = true;
+        if (!held_.empty())
+            Log(std::to_string(held_.size()) + " touch events dropped: the platform cancelled the input while they waited");
         held_.clear();
         held_pointers_.clear();
         std::vector<std::pair<int, Rml::Vector2f>> held;
