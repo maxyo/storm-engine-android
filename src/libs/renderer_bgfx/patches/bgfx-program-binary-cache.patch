@@ -1,0 +1,39 @@
+--- a/src/renderer_gl.cpp
++++ b/src/renderer_gl.cpp
+@@ -4716,11 +4716,13 @@
+ 			if (m_programBinarySupport)
+ 			{
+ 				uint32_t length = g_callback->cacheReadSize(_id);
+-				cached = length > 0;
+ 
+-				if (cached)
++				if (length > 0)
+ 				{
+ 					void* data = bx::alloc(g_allocator, length);
++					// storm: a binary counts as cached only when the read succeeded and the driver accepted it
++					// (a driver update rejects old binaries); otherwise the program is linked from its shaders,
++					// and programCache() stores the new binary over the rejected one.
+ 					if (g_callback->cacheRead(_id, data, length) )
+ 					{
+ 						bx::Error err;
+@@ -4729,7 +4731,19 @@
+ 						GLenum format;
+ 						bx::read(&reader, format, &err);
+ 
+-						GL_CHECK(glProgramBinary(programId, format, reader.getDataPtr(), (GLsizei)reader.remaining() ) );
++						glProgramBinary(programId, format, reader.getDataPtr(), (GLsizei)reader.remaining() );
++						while (GL_NO_ERROR != glGetError() ) {}
++						GLint linked = 0;
++						glGetProgramiv(programId, GL_LINK_STATUS, &linked);
++						cached = 0 != linked;
++						if (!cached)
++						{
++							trace(__FILE__, __LINE__, "BGFX program binary %016" PRIx64 " rejected by the driver (format 0x%x): linked from its shaders\n", _id, format);
++						}
++					}
++					else
++					{
++						trace(__FILE__, __LINE__, "BGFX program binary %016" PRIx64 " could not be read from the cache: linked from its shaders\n", _id);
+ 					}
+ 
+ 					bx::free(g_allocator, data);

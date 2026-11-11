@@ -45,10 +45,12 @@ subprocess.run(configure, check=True, stdout=subprocess.DEVNULL)
 warmth = here.parents[1] / 'tools/ccache/warmth'
 subprocess.run([str(warmth), 'begin', str(build)], check=True)
 subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm_texture_tests', 'perf_check', 'skinning_check',
-                'preset_switch_check'], check=True)
+                'preset_switch_check', 'program_cache_check'], check=True)
 subprocess.run([str(warmth), 'end', str(build)], check=True)
 subprocess.run([str(build / 'renderer_bgfx' / 'storm_texture_tests')], check=True)
 subprocess.run([str(build / 'perf_check')], check=True)
 subprocess.run([str(build / 'skinning_check')], check=True)
 subprocess.run([str(build / 'preset_switch_check')], check=True)
-print('PASS: storm_bgfx builds; storm_texture_tests; perf_check; skinning_check; preset_switch_check', flush=True)
+subprocess.run([str(build / 'program_cache_check')], check=True)
+print('PASS: storm_bgfx builds; storm_texture_tests; perf_check; skinning_check; preset_switch_check; program_cache_check',
+      flush=True)

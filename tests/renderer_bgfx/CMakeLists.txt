@@ -40,3 +40,12 @@ target_include_directories(preset_switch_check PRIVATE "${CMAKE_CURRENT_LIST_DIR
 target_compile_definitions(preset_switch_check PRIVATE NOMINMAX)
 target_compile_options(preset_switch_check PRIVATE -fsigned-char)
 target_link_libraries(preset_switch_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
+
+# program_cache_check: program binaries between renderer starts (src/shim/program_cache.hpp) on OpenGL ES (an X
+# display, like skinning_check): stored, loaded, corrupt / rejected entries relinked, the size limit.
+add_executable(program_cache_check program_cache_check.cpp)
+target_include_directories(program_cache_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src")
+target_compile_definitions(program_cache_check PRIVATE NOMINMAX)
+target_compile_options(program_cache_check PRIVATE -fsigned-char)
+target_link_libraries(program_cache_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")

@@ -21,6 +21,7 @@
 #include "storm/render/d3d_interop.hpp"
 #include "storm/render/effects.hpp"
 #include "storm/render/perf_stats.hpp"
+#include "storm/render/program_cache.hpp"
 #include "storm/render/texture_cache.hpp"
 
 #include <algorithm>
@@ -597,6 +598,16 @@ bool DX9RENDER::Init()
         textureCache.max_bytes = static_cast<uint64_t>(std::max(ini->GetInt(nullptr, "texture_cache_mb", 3072), 64)) << 20;
         textureCache.cache_directory = fs::GetStashPath() / "TextureCache";
         storm::render::ConfigureTextureCache(textureCache);
+
+        // Linked GPU programs between runs (storm/render/program_cache.hpp): the app's cache directory on
+        // Android, next to the texture cache elsewhere.
+        storm::render::ProgramCacheConfig programCache;
+#ifdef __ANDROID__
+        programCache.directory = storm::android::cacheDirectory() / "ProgramCache";
+#else
+        programCache.directory = fs::GetStashPath() / "ProgramCache";
+#endif
+        storm::render::ConfigureProgramCache(programCache);
 
         FovMultiplier = ini->GetFloat(nullptr, "fov_multiplier", 1.0f);
 
