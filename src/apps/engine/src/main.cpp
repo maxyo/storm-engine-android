@@ -795,6 +795,13 @@ int main(int argc, char *argv[])
         if(storm::android::worldMapHud.modal.ownsInput(SDL_GetTicks()))storm::android::publishWorldMapHud();
         storm::android::worldMapHud.resume(bActive,SDL_GetTicks());
         const bool mapModalHold=storm::android::worldMapHud.modal.hold(bActive,SDL_GetTicks());
+#else
+        // SDL turns SIGINT/SIGTERM into SDL_QUIT: the host shuts down in order, like closing the window.
+        if (SDL_HasEvent(SDL_QUIT))
+        {
+            spdlog::info("Quit requested (SIGINT/SIGTERM)");
+            isRunning = false;
+        }
 #endif
         SDL_FlushEvents(0, SDL_LASTEVENT);
         if (!isRunning)
