@@ -2565,12 +2565,10 @@ void DX9RENDER::RenderAnimation(int32_t ib, void *src, int32_t numVrts, int32_t 
 }
 
 //################################################################################
-// Buffer handles are indices into VertexBuffers / IndexBuffers. -1 is the game's "no buffer": owners
-// hold it before their first Create and pass it to Release unchecked (BIImageMaterial::RemakeBuffers,
-// ShipTracks), so releasing -1 does nothing, like free(nullptr). Any other handle outside the table, or
-// one without a buffer, is a caller bug: it is reported and the call does nothing. Indexing the table
-// with -1 read the member in front of it as a buffer pointer (keptPixels_'s max_load_factor, 1.0f,
-// crashed as address 0x3f800000).
+// Buffer handles (the contract is in dx9render.h): indices into VertexBuffers / IndexBuffers, -1 is "no
+// buffer". Owners pass -1 to Release unchecked (BIImageMaterial::RemakeBuffers, ShipTracks); indexing the
+// table with it read the member in front of the table as a buffer pointer (keptPixels_'s
+// max_load_factor, 1.0f, crashed as address 0x3f800000).
 bool DX9RENDER::LiveBuffer(int32_t id, bool index, const char *call) const
 {
     if (id >= 0 && id < MAX_BUFFERS && (index ? IndexBuffers[id].buff != nullptr : VertexBuffers[id].buff != nullptr))
@@ -2633,7 +2631,7 @@ void DX9RENDER::UnLockIndexBuffer(int32_t id)
 //################################################################################
 void DX9RENDER::ReleaseVertexBuffer(int32_t id)
 {
-    if (id == -1 || (id >= 0 && id < MAX_BUFFERS && VertexBuffers[id].buff == nullptr))
+    if (id == -1)
         return; // no buffer
     if (!LiveBuffer(id, false, "ReleaseVertexBuffer"))
         return;
@@ -2645,7 +2643,7 @@ void DX9RENDER::ReleaseVertexBuffer(int32_t id)
 //################################################################################
 void DX9RENDER::ReleaseIndexBuffer(int32_t id)
 {
-    if (id == -1 || (id >= 0 && id < MAX_BUFFERS && IndexBuffers[id].buff == nullptr))
+    if (id == -1)
         return; // no buffer
     if (!LiveBuffer(id, true, "ReleaseIndexBuffer"))
         return;

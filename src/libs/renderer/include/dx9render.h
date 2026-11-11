@@ -274,6 +274,11 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
     virtual void ReleaseVideoTexture(CVideoTexture *pVTexture) = 0;
 
     // DX9Render: Vertex/Index Buffers Section
+    // Buffer handles: Create* returns an index into the renderer's table, or -1 on failure. -1 is the
+    // "no buffer" handle owners keep before their first Create and after a release; releasing -1 does
+    // nothing, like free(nullptr). Any other handle that is outside the table or has no buffer (never
+    // created, or already released) is a caller bug: Lock / UnLock / GetVertexBufferSize / Release*
+    // log an error and do nothing (Lock returns nullptr, the size is 0).
     virtual int32_t CreateVertexBuffer(int32_t type, size_t nverts, uint32_t usage,
                                        uint32_t dwPool = D3DPOOL_DEFAULT) = 0;
     virtual int32_t CreateIndexBuffer(size_t ntrgs, uint32_t dwUsage = D3DUSAGE_WRITEONLY) = 0;
