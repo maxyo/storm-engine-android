@@ -537,7 +537,10 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         const double routing = std::min(router_->Tick(), hud_->Tick());
 
         context_->Update();
-        const bool edges = ScrollEdgesChanged(context_->GetRootElement());
+        // Scroll edges move only with a layout, a touch or a scroll in motion: the walk over
+        // every element is skipped on frames without any of them.
+        const bool moved = changed_ || counters_.laid_out > 0 || context_->GetNextUpdateDelay() <= 0.0;
+        const bool edges = moved && ScrollEdgesChanged(context_->GetRootElement());
         const bool clamps = TextClampsChanged() || edges;
         if (clamps) // clamped text was re-cut for a new width, or a scrolling edge changed
             context_->Update();
