@@ -1,13 +1,19 @@
 // JNI surface of the UI runtime for the application screens without the engine
 // (org.stormengine.port.StormUi; the game hosts the UI in the engine: src/libs/ui_host).
-// Every call arrives on the GL thread of the host view, with its context current.
+// Every call arrives on the GL thread of the host view (GLSurfaceView), with its context
+// current. bgfx draws on that context (bgfx::PlatformData::context: bgfx neither creates nor
+// swaps the surface) through the same RmlUi backend as the game; this file plays the frame owner.
 // Actions are queued and handed to Java in batches after a frame, so no native code
 // ever calls back into the VM.
 #include "storm_ui/asset_files.h"
-#include "storm_ui/backend_gl3.h"
+#include "storm_ui/backend_bgfx.h"
 #include "storm_ui/ui.h"
 
+#include <EGL/egl.h>
 #include <android/asset_manager_jni.h>
+#include <bgfx/bgfx.h>
+#include <cstdarg>
+#include <cstdlib>
 #include <android/log.h>
 #include <jni.h>
 #include <memory>
@@ -18,14 +24,63 @@
 namespace
 {
 
+// bgfx's fatal errors end the process loudly; its traces are not needed here.
+struct Callback final : bgfx::CallbackI
+{
+    void fatal(const char *file, uint16_t line, bgfx::Fatal::Enum, const char *message) override
+    {
+        __android_log_print(ANDROID_LOG_FATAL, "StormUi", "bgfx fatal %s:%u: %s", file, line, message);
+        std::abort();
+    }
+    void traceVargs(const char *, uint16_t, const char *, va_list) override
+    {
+    }
+    void profilerBegin(const char *, uint32_t, const char *, uint16_t) override
+    {
+    }
+    void profilerBeginLiteral(const char *, uint32_t, const char *, uint16_t) override
+    {
+    }
+    void profilerEnd() override
+    {
+    }
+    uint32_t cacheReadSize(uint64_t) override
+    {
+        return 0;
+    }
+    bool cacheRead(uint64_t, void *, uint32_t) override
+    {
+        return false;
+    }
+    void cacheWrite(uint64_t, const void *, uint32_t) override
+    {
+    }
+    void screenShot(const char *, uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, const void *, uint32_t, bool) override
+    {
+    }
+    void captureBegin(uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, bool) override
+    {
+    }
+    void captureEnd() override
+    {
+    }
+    void captureFrame(const void *, uint32_t) override
+    {
+    }
+};
+Callback g_callback;
+
 struct Session
 {
     std::unique_ptr<storm::ui::FileSource> files;
-    std::unique_ptr<storm::ui::RenderBackend> backend; // the bundled GL backend on the host's GLES 3 context
+    std::unique_ptr<storm::ui::BgfxBackend> backend; // bgfx on the host view's GLES 3 context
     std::unique_ptr<storm::ui::Host> host;
     std::vector<storm::ui::Action> actions;
     std::vector<storm::ui::TextRequest> text_requests;
     jobject assets_reference = nullptr; // keeps the Java AssetManager alive
+    bool bgfx_started = false;
+    uint16_t width = 0, height = 0;
+    uint64_t frame_index = 0;
     // Debug hosts log what the UI frames cost, every few seconds (logcat tag StormUiFrames).
     bool log_frames = false;
     struct
@@ -84,6 +139,39 @@ Session *From(jlong handle)
     return reinterpret_cast<Session *>(handle);
 }
 
+void Destroy(JNIEnv *env, std::unique_ptr<Session> session)
+{
+    session->host.reset();
+    session->backend.reset();
+    if (session->bgfx_started)
+        bgfx::shutdown();
+    env->DeleteGlobalRef(session->assets_reference);
+}
+
+// One frame of the UI over the surface: the UI views draw into the back buffer of the view's
+// EGL surface (GLSurfaceView swaps it after onDrawFrame).
+double DrawFrame(Session &session)
+{
+    const storm::render::FrameContext frame = [&] {
+        storm::render::FrameContext context;
+        context.frame_index = ++session.frame_index;
+        return context;
+    }();
+    for (uint16_t view = frame.ui_view_begin; view < frame.ui_view_begin + frame.ui_view_count; ++view)
+    {
+        bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
+        bgfx::setViewRect(view, 0, 0, session.width, session.height);
+        bgfx::setViewClear(view, BGFX_CLEAR_NONE);
+        bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
+    }
+    // The screen has no game under it: the surface starts clear.
+    bgfx::setViewClear(frame.ui_view_begin, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH | BGFX_CLEAR_STENCIL, 0x000000ff, 1.0f, 0);
+    bgfx::touch(frame.ui_view_begin);
+    session.backend->OnUiRender(frame);
+    bgfx::frame();
+    return session.backend->NextFrameDelay();
+}
+
 } // namespace
 
 extern "C"
@@ -107,27 +195,43 @@ JNIEXPORT jlong JNICALL Java_org_stormengine_port_StormUi_nativeCreate(JNIEnv *e
     config.show_errors = show_errors == JNI_TRUE;
     session->log_frames = config.show_errors;
     std::string error;
-    session->backend = storm::ui::CreateGl3Backend(&error);
-    config.backend = session->backend.get();
-    if (session->backend)
+    const double started = Seconds();
+    bgfx::Init init;
+    init.type = bgfx::RendererType::OpenGLES;
+    init.platformData.context = eglGetCurrentContext(); // the view's: bgfx draws on it, the view swaps
+    init.swapChain.width = uint32_t(width); // no window handle: bgfx draws to the current surface
+    init.swapChain.height = uint32_t(height);
+    init.callback = &g_callback;
+    session->width = uint16_t(width);
+    session->height = uint16_t(height);
+    if (init.platformData.context == EGL_NO_CONTEXT)
+        error = "no current EGL context on the UI thread";
+    else if (!(session->bgfx_started = bgfx::init(init)))
+        error = "bgfx::init failed on the view's GLES context";
+    const double device_ready = Seconds();
+    if (session->bgfx_started && (session->backend = storm::ui::BgfxBackend::Create({}, &error)))
+    {
+        session->backend->SetViewport(width, height);
+        config.backend = session->backend.get();
         session->host = storm::ui::Host::Create(config, &error);
+    }
     if (!session->host)
     {
         __android_log_print(ANDROID_LOG_ERROR, "StormUi", "UI host failed: %s", error.c_str());
-        env->DeleteGlobalRef(session->assets_reference);
+        Destroy(env, std::move(session));
         return 0;
     }
+    session->backend->AttachHost(session->host.get());
+    __android_log_print(ANDROID_LOG_INFO, "StormUi", "UI host started on bgfx: device %.1f ms, host %.1f ms (%dx%d)", (device_ready - started) * 1000.0,
+                        (Seconds() - device_ready) * 1000.0, width, height);
     return reinterpret_cast<jlong>(session.release());
 }
 
 JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeDestroy(JNIEnv *env, jclass, jlong handle)
 {
     std::unique_ptr<Session> session(From(handle));
-    if (!session)
-        return;
-    session->host.reset();
-    session->backend.reset();
-    env->DeleteGlobalRef(session->assets_reference);
+    if (session)
+        Destroy(env, std::move(session));
 }
 
 JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeLoadDocument(JNIEnv *env, jclass, jlong handle, jstring path)
@@ -137,7 +241,14 @@ JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeLoadDocument(
 
 JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeResize(JNIEnv *, jclass, jlong handle, jint width, jint height, jfloat density)
 {
-    From(handle)->host->Resize(width, height, density);
+    Session *session = From(handle);
+    session->width = uint16_t(width);
+    session->height = uint16_t(height);
+    bgfx::SwapChain chain;
+    chain.width = uint32_t(width);
+    chain.height = uint32_t(height);
+    bgfx::reset(BGFX_RESET_NONE, &chain);
+    session->host->Resize(width, height, density);
 }
 
 // phase: 0 down, 1 move, 2 up, 3 cancel
@@ -167,7 +278,7 @@ JNIEXPORT jdouble JNICALL Java_org_stormengine_port_StormUi_nativeFrame(JNIEnv *
 {
     Session *session = From(handle);
     const double started = session->log_frames ? Seconds() : 0.0;
-    const double delay = session->host->Frame();
+    const double delay = DrawFrame(*session);
     if (session->log_frames)
     {
         const double now = Seconds();

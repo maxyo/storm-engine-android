@@ -791,6 +791,10 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
     {
         return jobs_.size();
     }
+    double NextFrameDelay() const override
+    {
+        return jobs_.empty() ? next_frame_delay_ : 0.0;
+    }
 
     // ---- FrameClient ------------------------------------------------------------------
     void OnSurfaceChanged(const storm::render::SurfaceMetrics &metrics) override

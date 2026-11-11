@@ -261,6 +261,10 @@ class NoBackend final : public RenderBackend
     void EndFrame() override
     {
     }
+    PictureState AcquireGamePicture(const std::string &) override
+    {
+        return PictureState::Unavailable; // no game files in the checks
+    }
 
   private:
     NoRenderer renderer_;

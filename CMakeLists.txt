@@ -27,7 +27,6 @@ if(ANDROID)
     # The game's portable UI is drawn inside the engine frame (src/libs/ui_host): the UI
     # runtime and its bgfx backend are part of libengine.so.
     set(STORM_ENABLE_UI ON)
-    set(STORM_UI_BGFX ON)
 else()
     include(host)
 endif()

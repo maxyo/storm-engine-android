@@ -22,8 +22,18 @@ Publishers whose commands carry an activity generation start a new one for each 
 (`ui::generation()`).
 
 A host that cannot start is an error shown to the player (`uiFailed`): the game has no other
-renderer for its screens. The application screens without the engine (launcher, downloads,
-gallery) run in their own processes with `libstorm_ui.so` and the GL backend.
+renderer for its screens.
+
+## One backend everywhere
+
+The application screens without the engine (launcher, downloads, gallery) run in their own
+processes with `libstorm_ui.so`: the same runtime and the same bgfx backend, bgfx drawing on the
+EGL context of their GLSurfaceView (src/libs/ui/android/jni_host.cpp plays the frame owner). A GL
+backend for them alone was weighed and dropped: two RmlUi renderers to keep pixel-equal
+(RmlUi's GL3 renderer and ours), two code paths in the UI's picture handling, and a second
+backend in host captures, against a small size cost of bgfx in libstorm_ui.so (numbers in
+src/libs/ui/README.md, «Renderer»). Those screens show no game pictures (no texture module
+without the engine): the neutral placeholder stays, logged once.
 
 Debug recordings (`adb shell setprop log.tag.<tag> DEBUG`): `StormUiState` logs every state,
 `StormUiModels` writes the newest model of each screen to `<external files>/ui-models/`.

@@ -2,6 +2,7 @@
 // the template language and the .tx decoder (synthetic data only).
 #include "../src/components.h"
 #include "../src/elements.h"
+#include "storm_ui/tx_texture.h"
 #include "../src/template.h"
 #include "../src/text_pages.h"
 
@@ -119,7 +120,7 @@ int main()
         std::vector<uint8_t> data = TxHeader(2, 2, 21);
         const uint8_t pixels[16] = {10, 20, 30, 255, 0, 0, 255, 255, 255, 0, 0, 128, 1, 2, 3, 0};
         data.insert(data.end(), pixels, pixels + 16);
-        storm::ui::TxImage image;
+        storm::ui::Picture image;
         Expect(storm::ui::DecodeTx(data.data(), data.size(), image), "ARGB decode");
         Expect(image.width == 2 && image.height == 2, "ARGB size");
         Expect(image.rgba[0] == 30 && image.rgba[1] == 20 && image.rgba[2] == 10 && image.rgba[3] == 255, "ARGB channel order");
@@ -131,7 +132,7 @@ int main()
         std::vector<uint8_t> data = TxHeader(1, 1, 23);
         data.push_back(0xE0);
         data.push_back(0x07);
-        storm::ui::TxImage image;
+        storm::ui::Picture image;
         Expect(storm::ui::DecodeTx(data.data(), data.size(), image) && image.rgba[0] == 0 && image.rgba[1] == 255 && image.rgba[2] == 0, "565 decode");
         data = TxHeader(1, 1, 26);
         data.push_back(0x00);
@@ -143,7 +144,7 @@ int main()
         std::vector<uint8_t> data = TxHeader(4, 4, 0x31545844);
         const uint8_t block[8] = {0x00, 0xF8, 0x1F, 0x00, 0xA4, 0xAA, 0xAA, 0xAA};
         data.insert(data.end(), block, block + 8);
-        storm::ui::TxImage image;
+        storm::ui::Picture image;
         Expect(storm::ui::DecodeTx(data.data(), data.size(), image), "DXT1 decode");
         Expect(image.rgba[0] == 255 && image.rgba[2] == 0, "DXT1 texel 0");
         Expect(image.rgba[4] == 0 && image.rgba[6] == 255, "DXT1 texel 1");
@@ -152,7 +153,7 @@ int main()
     // Truncated and unknown data are refused.
     {
         std::vector<uint8_t> data = TxHeader(64, 64, 21);
-        storm::ui::TxImage image;
+        storm::ui::Picture image;
         Expect(!storm::ui::DecodeTx(data.data(), data.size(), image), "truncated refused");
         data = TxHeader(1, 1, 999);
         data.resize(40);

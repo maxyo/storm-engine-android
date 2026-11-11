@@ -33,22 +33,17 @@ std::string IconSymbolId(std::string name, bool &plain);
 bool HasIcon(const std::string &name);
 void ReleaseIconTextures();
 
-using TxImage = Picture; // premultiplied alpha, top row first
-// Decodes a Storm engine .tx texture (top mip). Returns false on unknown data.
-bool DecodeTx(const uint8_t *data, size_t size, TxImage &out, std::string *error = nullptr);
-
 void RegisterGameImageElement();
 // UVs (u0, v0, u1, v1) of atlas cell 1…grid² (0 = the whole texture); false when the cell
 // does not exist. `uv` may be null to only check.
 bool AtlasCell(int cell, int grid, float uv[4]);
 void SetGameImageRoot(const std::string &game_root);
-void SetGameImageLoader(std::function<bool(const std::string &, Picture &)> loader);
-// Renderer asked first for game pictures (RenderBackend::AcquireGamePicture); may be null.
+// The renderer that supplies game pictures (RenderBackend::AcquireGamePicture).
 void SetGameImageRenderer(RenderBackend *renderer);
-// True once after a background decode finished: the host draws another frame.
+// True once after a picture changed state: the host draws another frame.
 bool GameImagesChanged();
-// True while pictures are queued or decoding, or decoded but not yet taken: the host must keep
-// drawing frames to show them (nothing else wakes an idle host).
+// True while a picture changed state and that is not yet taken: the host must keep drawing
+// frames to show it (nothing else wakes an idle host).
 bool GameImagesPending();
 void ShutdownGameImages();
 

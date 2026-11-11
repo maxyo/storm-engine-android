@@ -2,10 +2,9 @@
 // components, icons, game pictures) talks to Rml::RenderInterface and never to a
 // graphics API, so the UI moves with the engine renderer:
 //
-//   * GL backend (backend_gl3.h, target storm_ui_gl3): a GLES 3 / GL 3.3 context owned by a
-//     platform host without the engine (application screens, host captures).
-//   * bgfx backend (backend_bgfx.h, target storm_ui_bgfx): draws inside the engine frame in
-//     the frame owner's UI view range (the game). See src/libs/ui/README.md.
+// The backend is bgfx (backend_bgfx.h, target storm_ui_bgfx): inside the engine frame for the
+// game, on a bgfx context of the host's own for the screens without the engine and for captures.
+// See src/libs/ui/README.md.
 #pragma once
 
 #include <RmlUi/Core/RenderInterface.h>
@@ -31,23 +30,16 @@ class RenderBackend
     // renderer: Pending keeps the element's placeholder and polls again next frame, Ready
     // means GamePictureSource(texture) loads as an RmlUi texture, Failed keeps the
     // placeholder for good (logged by the backend). Unavailable: the backend has no picture
-    // source at all (a capture tool without a frame owner), the neutral placeholder stays,
-    // as for a GL host without a game root. A backend without a renderer behind it
-    // (GL) answers DecodeOnCpu: the UI reads the file itself (Config::game_picture_loader
-    // or the built-in reader). That choice belongs to the backend, it is never a fallback.
+    // source at all (a screen without the engine, a capture without game files): the neutral
+    // placeholder stays.
     enum class PictureState
     {
         Pending,
         Ready,
         Failed,
-        Unavailable,
-        DecodeOnCpu
+        Unavailable
     };
-    virtual PictureState AcquireGamePicture(const std::string &texture)
-    {
-        (void)texture;
-        return PictureState::DecodeOnCpu;
-    }
+    virtual PictureState AcquireGamePicture(const std::string &texture) = 0;
 };
 
 // RmlUi texture source of a renderer-supplied game picture (see AcquireGamePicture).
