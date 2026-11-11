@@ -67,12 +67,23 @@ TextureFileCandidates GetTextureFileCandidates(std::string_view name)
             stem.resize(stem.size() - extension.size());
             break;
         }
+    // The stem's own directory first, then each parent directory up to resource\textures\.
+    const size_t root = prefix.size();
+    const size_t slash = stem.rfind('\\');
+    const std::string file = stem.substr(slash + 1);
+    std::string directory = stem.substr(0, slash + 1); // ends with '\\', at least the prefix
     const std::string primary_lower = lower(out.primary);
-    for (std::string_view extension : {".tga.tx", ".dds", ".txx"})
+    while (true)
     {
-        std::string candidate = stem + std::string(extension);
-        if (lower(candidate) != primary_lower)
-            out.alternates.push_back(std::move(candidate));
+        for (std::string_view extension : {".tga.tx", ".dds", ".txx"})
+        {
+            std::string candidate = directory + file + std::string(extension);
+            if (lower(candidate) != primary_lower)
+                out.alternates.push_back(std::move(candidate));
+        }
+        if (directory.size() <= root)
+            break;
+        directory.resize(directory.rfind('\\', directory.size() - 2) + 1);
     }
     return out;
 }

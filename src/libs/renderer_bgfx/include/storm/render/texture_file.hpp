@@ -67,10 +67,13 @@ std::string ParseTxxTexture(std::vector<uint8_t> bytes, TextureFile &out);
 //  * the name gets the "resource\textures\" prefix unless it already has it;
 //  * the primary path is the name itself when it ends in .tx, .dds or .txx, otherwise name + ".tx"
 //    (the original engine rule: "foo.tga" -> "foo.tga.tx");
-//  * alternates, tried only when no texture path has the primary file, are the stem (the name
-//    without .tx and then without .tga/.dds/.txx) with ".tga.tx", ".dds" and ".txx", in this order,
-//    skipping the primary. Caribbean Legend models name a texture "x.tga" that only exists as
-//    "x.dds", "x.dds" that only exists as "x.tga.tx", and particle atlases "x.txx" / "xnm".
+//  * alternates (Caribbean Legend only, see DX9RENDER::TextureCreate), tried only when no texture
+//    path has the primary file: the stem (the name without .tx and then without .tga/.dds/.txx) with
+//    ".tga.tx", ".dds" and ".txx", first in the stem's own directory and then in each parent directory
+//    up to resource\textures\, skipping the primary. CL models name a texture "x.tga" that only
+//    exists as "x.dds" and "x.dds" that only exists as "x.tga.tx"; particle atlases are "x.txx" /
+//    "xnm"; CL keeps the main menu textures in MainMenu\ where TEHO had MainMenu\<language>\, and
+//    moved e.g. ShipsFlares\corona to the textures root.
 struct TextureFileCandidates
 {
     std::string primary;
