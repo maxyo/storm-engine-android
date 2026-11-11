@@ -4,6 +4,8 @@
 
 #include "dx9render.h"
 
+class DX9RENDER;
+
 struct SRSPARAM
 {
     char *cName;
@@ -73,7 +75,7 @@ struct shader_find_t
 class CTechnique
 {
   protected:
-    VDX9RENDER *pRS;
+    DX9RENDER *pRS;
     IDirect3DDevice9 *d3d9;
 
     // shaders
@@ -159,7 +161,7 @@ class CTechnique
     bool ExecutePassNext();
     bool ExecutePass(bool bStart);
 
-    CTechnique(VDX9RENDER *_pRS);
+    CTechnique(DX9RENDER *_pRS);
     ~CTechnique();
 };
 

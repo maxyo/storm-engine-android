@@ -753,18 +753,17 @@ void InterfaceBackScene::InitLight(ATTRIBUTES *pAParam)
 void InterfaceBackScene::SetLight()
 {
     int32_t nFreeLightIndex = 0;
-    D3DCAPS9 d3dcaps;
-    m_pRS->GetDeviceCaps(&d3dcaps);
+    const uint32_t maxActiveLights = m_pRS->GetMaxActiveLights();
 
     for (int32_t n = 0; n < m_aLights.size(); n++)
     {
         if (m_aLights[n]->bUse)
         {
             BOOL bTmp;
-            for (; nFreeLightIndex < static_cast<int32_t>(d3dcaps.MaxActiveLights); nFreeLightIndex++)
+            for (; nFreeLightIndex < static_cast<int32_t>(maxActiveLights); nFreeLightIndex++)
                 if (m_pRS->GetLightEnable(nFreeLightIndex, &bTmp) && bTmp == false)
                     break;
-            if (nFreeLightIndex < static_cast<int32_t>(d3dcaps.MaxActiveLights))
+            if (nFreeLightIndex < static_cast<int32_t>(maxActiveLights))
             {
                 // found a free source
                 m_aLights[n]->indexLight = nFreeLightIndex;

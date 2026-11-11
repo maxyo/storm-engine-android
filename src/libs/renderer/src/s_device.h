@@ -117,10 +117,11 @@ class DX9RENDER : public VDX9RENDER
         return d3d9;
     };
 
-    void *GetD3DDevice() override
+    IDirect3DDevice9 *GetD3DDevice() const
     {
         return d3d9;
-    };
+    }
+    uint32_t GetMaxActiveLights() override;
 
     // DX9Render: Render Target/Begin/End/Clear
     bool DX9Clear(int32_t type) override; // D3DCLEAR_STENCIL | D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER
@@ -259,67 +260,44 @@ class DX9RENDER : public VDX9RENDER
     // D3D Device/Viewport Section
     HRESULT GetViewport(D3DVIEWPORT9 *pViewport) override;
     HRESULT SetViewport(const D3DVIEWPORT9 *pViewport) override;
-    HRESULT GetDeviceCaps(D3DCAPS9 *pCaps) override;
 
     // D3D
     void SetStreamSource(UINT StreamNumber, int32_t vertexBuffer, UINT Stride) override;
     HRESULT DrawPrimitive(D3DPRIMITIVETYPE PrimitiveType, UINT StartVertex, UINT PrimitiveCount) override;
-    HRESULT Release(IUnknown *pSurface) override;
+    HRESULT Release(IUnknown *pSurface);
 
     // Vertex/Index Buffers Section
     HRESULT CreateVertexBuffer(UINT Length, uint32_t Usage, uint32_t fvf, D3DPOOL Pool,
-                               IDirect3DVertexBuffer9 **ppVertexBuffer) override;
-    HRESULT VBLock(IDirect3DVertexBuffer9 *pVB, UINT OffsetToLock, UINT SizeToLock, uint8_t **ppbData,
-                   uint32_t Flags) override;
-    void VBUnlock(IDirect3DVertexBuffer9 *pVB) override;
+                               IDirect3DVertexBuffer9 **ppVertexBuffer);
 
-    // D3D Textures/Surfaces Section
-    HRESULT GetDepthStencilSurface(IDirect3DSurface9 **ppZStencilSurface) override;
-    HRESULT GetCubeMapSurface(IDirect3DCubeTexture9 *ppCubeTexture, D3DCUBEMAP_FACES FaceType, UINT Level,
-                              IDirect3DSurface9 **ppCubeMapSurface) override;
     HRESULT CreateTexture(UINT Width, UINT Height, UINT Levels, uint32_t Usage, D3DFORMAT Format, D3DPOOL Pool,
-                          IDirect3DTexture9 **ppTexture) override;
+                          IDirect3DTexture9 **ppTexture);
     HRESULT CreateCubeTexture(UINT EdgeLength, UINT Levels, uint32_t Usage, D3DFORMAT Format, D3DPOOL Pool,
-                              IDirect3DCubeTexture9 **ppCubeTexture) override;
-    HRESULT CreateOffscreenPlainSurface(UINT Width, UINT Height, D3DFORMAT Format,
-                                        IDirect3DSurface9 **ppSurface) override;
+                              IDirect3DCubeTexture9 **ppCubeTexture);
     HRESULT CreateDepthStencilSurface(UINT Width, UINT Height, D3DFORMAT Format, D3DMULTISAMPLE_TYPE MultiSample,
-                                      IDirect3DSurface9 **ppSurface) override;
-    HRESULT SetTexture(uint32_t Stage, IDirect3DBaseTexture9 *pTexture) override;
-    HRESULT GetLevelDesc(IDirect3DTexture9 *ppTexture, UINT Level, D3DSURFACE_DESC *pDesc) override;
-    HRESULT GetLevelDesc(IDirect3DCubeTexture9 *ppCubeTexture, UINT Level, D3DSURFACE_DESC *pDesc) override;
-    HRESULT LockRect(IDirect3DCubeTexture9 *ppCubeTexture, D3DCUBEMAP_FACES FaceType, UINT Level,
-                     D3DLOCKED_RECT *pLockedRect, const RECT *pRect, uint32_t Flags) override;
-    HRESULT LockRect(IDirect3DTexture9 *ppTexture, UINT Level, D3DLOCKED_RECT *pLockedRect, const RECT *pRect,
-                     uint32_t Flags) override;
-    HRESULT UnlockRect(IDirect3DCubeTexture9 *pCubeTexture, D3DCUBEMAP_FACES FaceType, UINT Level) override;
-    HRESULT UnlockRect(IDirect3DTexture9 *pTexture, UINT Level) override;
-    HRESULT GetSurfaceLevel(IDirect3DTexture9 *ppTexture, UINT Level, IDirect3DSurface9 **ppSurfaceLevel) override;
+                                      IDirect3DSurface9 **ppSurface);
+    HRESULT SetTexture(uint32_t Stage, IDirect3DBaseTexture9 *pTexture);
     HRESULT UpdateSurface(IDirect3DSurface9 *pSourceSurface, const RECT *pSourceRectsArray, UINT cRects,
-                          IDirect3DSurface9 *pDestinationSurface, const POINT *pDestPointsArray) override;
-    HRESULT StretchRect(IDirect3DSurface9 *pSourceSurface, const RECT *pSourceRect, IDirect3DSurface9 *pDestSurface,
-                        const RECT *pDestRect, D3DTEXTUREFILTERTYPE Filter) override;
-    HRESULT GetRenderTargetData(IDirect3DSurface9 *pRenderTarget, IDirect3DSurface9 *pDestSurface) override;
+                          IDirect3DSurface9 *pDestinationSurface, const POINT *pDestPointsArray);
+    HRESULT GetRenderTargetData(IDirect3DSurface9 *pRenderTarget, IDirect3DSurface9 *pDestSurface);
 
     // D3D Pixel/Vertex Shaders Section
     storm::render::VertexDeclarationId CreateVertexDeclaration(const D3DVERTEXELEMENT9 *pVertexElements) override;
     void SetVertexDeclaration(storm::render::VertexDeclarationId declaration) override;
-    HRESULT CreatePixelShader(const uint32_t *pFunction, IDirect3DPixelShader9 **ppShader) override;
-    HRESULT CreateVertexShader(const uint32_t *pFunction, IDirect3DVertexShader9 **ppShader) override;
-    HRESULT DeletePixelShader(IDirect3DPixelShader9 *pShader) override;
-    HRESULT DeleteVertexShader(IDirect3DVertexShader9 *pShader) override;
-    HRESULT SetVertexShader(IDirect3DVertexShader9 *pShader) override;
-    HRESULT SetPixelShader(IDirect3DPixelShader9 *pShader) override;
+    HRESULT CreatePixelShader(const uint32_t *pFunction, IDirect3DPixelShader9 **ppShader);
+    HRESULT CreateVertexShader(const uint32_t *pFunction, IDirect3DVertexShader9 **ppShader);
+    HRESULT SetVertexShader(IDirect3DVertexShader9 *pShader);
+    HRESULT SetPixelShader(IDirect3DPixelShader9 *pShader);
     /*virtual HRESULT SetFVFConstant(DWORD Register, const void* pConstantData, DWORD  ConstantCount );*/
     HRESULT SetVertexShaderConstantF(UINT StartRegister, const float *pConstantData, UINT Vector4iCount) override;
     HRESULT SetPixelShaderConstantF(UINT StartRegister, const float *pConstantData, UINT Vector4iCount) override;
     HRESULT SetFVF(uint32_t handle) override;
-    HRESULT GetVertexShader(IDirect3DVertexShader9 **ppShader) override;
-    HRESULT GetPixelShader(IDirect3DPixelShader9 **ppShader) override;
+    HRESULT GetVertexShader(IDirect3DVertexShader9 **ppShader);
+    HRESULT GetPixelShader(IDirect3DPixelShader9 **ppShader);
 
     // D3D Render Target/Begin/End/Clear
-    HRESULT GetRenderTarget(IDirect3DSurface9 **ppRenderTarget) override;
-    HRESULT SetRenderTarget(IDirect3DSurface9 *pRenderTarget, IDirect3DSurface9 *pNewZStencil) override;
+    HRESULT GetRenderTarget(IDirect3DSurface9 **ppRenderTarget);
+    HRESULT SetRenderTarget(IDirect3DSurface9 *pRenderTarget, IDirect3DSurface9 *pNewZStencil);
     HRESULT Clear(uint32_t Count, const D3DRECT *pRects, uint32_t Flags, D3DCOLOR Color, float Z,
                   uint32_t Stencil) override;
     HRESULT BeginScene() override;
@@ -418,12 +396,11 @@ class DX9RENDER : public VDX9RENDER
                         glm::vec3 v2, float fScale, uint32_t dwColor);
     void DrawVector(const glm::vec3 &v1, const glm::vec3 &v2, uint32_t dwColor,
                     const char *pTechniqueName = "DXVector") override;
-    IDirect3DBaseTexture9 *GetBaseTexture(int32_t iTexture) override;
 
     bool PushRenderTarget() override;
     bool PopRenderTarget() override;
     bool SetRenderTarget(IDirect3DCubeTexture9 *pCubeTex, uint32_t dwFaceType, uint32_t dwLevel,
-                         IDirect3DSurface9 *pNewZStencil) override;
+                         IDirect3DSurface9 *pNewZStencil);
     void SetView(const glm::mat4 &mView) override;
     void SetWorld(const glm::mat4 &mView) override;
     void SetProjection(const glm::mat4 &mView) override;
@@ -431,13 +408,11 @@ class DX9RENDER : public VDX9RENDER
     const glm::mat4 &GetWorld() override;
     const glm::mat4 &GetProjection() override;
 
-    IDirect3DVolumeTexture9 *CreateVolumeTexture(uint32_t Width, uint32_t Height, uint32_t Depth, uint32_t Levels,
-                                                 uint32_t Usage, D3DFORMAT Format, D3DPOOL Pool) override;
 
     void MakePostProcess() override;
     void SetGLOWParams(float _fBlurBrushSize, int32_t _GlowIntensity, int32_t _GlowPasses) override;
 
-    IDirect3DBaseTexture9 *GetTextureFromID(int32_t nTextureID) override;
+    IDirect3DBaseTexture9 *GetTextureFromID(int32_t nTextureID);
 
   private:
     std::unique_ptr<storm::GamePictures> gamePictures_;

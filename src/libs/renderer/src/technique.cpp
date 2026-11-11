@@ -1,4 +1,5 @@
 #include "technique.h"
+#include "s_device.h"
 
 #include "core.h"
 #include "debug-trap.h"
@@ -595,7 +596,7 @@ SRSPARAM PARAM_TYPES[] = {
 
 SRSPARAM RESTORE_TYPES[] = {{"states", SUBCODE_RESTORE_STATES}, {"clear", SUBCODE_RESTORE_CLEAR}};
 
-CTechnique::CTechnique(VDX9RENDER *_pRS)
+CTechnique::CTechnique(DX9RENDER *_pRS)
 {
     dwNumBlocks = 0;
     dwNumShaders = 0;
