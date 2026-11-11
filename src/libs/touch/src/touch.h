@@ -14,6 +14,8 @@ using D3DTLVERTEX = struct
     uint32_t dwDiffuse;
 };
 
+#include "island_impact.hpp"
+
 struct TOUCH_SHIP
 {
     entid_t eID;                  // ship id
@@ -25,6 +27,7 @@ struct TOUCH_SHIP
     glm::vec3 vContour[128];        // initial contour // must be dynamic
     glm::vec3 vContourRect[4];      // rect contour
     int32_t iNumVContour;            // num points in contour
+    storm::touch::IslandContact islandContact; // damage bookkeeping of island contacts (island_impact.hpp)
 };
 
 class TOUCH : public Entity
@@ -40,6 +43,7 @@ class TOUCH : public Entity
 
     uint32_t dwDeltaTime;
     int32_t iDeltaTime;
+    float fIslandIntoSpeed = 0.0f; // knots towards the island of the last island contact (IsIntersectShipsReal)
 
     TOUCH_SHIP *pShips[256];
     int32_t iNumShips;
