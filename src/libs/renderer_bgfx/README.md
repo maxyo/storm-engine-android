@@ -9,10 +9,12 @@ on Android and on the Linux development host alike.
   standalone UI runtime (src/libs/ui) and the `tests/mobile_images` check include
   `bgfx_upstream.cmake` for bimg. Offline builds pass `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<pinned checkout>`.
   Licences: `third_party/licenses/{bgfx,bx,bimg}-BSD-2-Clause.txt`.
-- `src/shim/` — the D3D9-shaped shim. `DX9RENDER` (src/libs/renderer) and its consumers still
-  call `IDirect3DDevice9` and friends, declared by the vendored type headers in
-  `third_party/d3d9-headers/`; the objects behind those interfaces are implemented here on bgfx
-  handles. `d3d9_stubs.gen.hpp` makes every unimplemented method log a `[storm-bgfx] TRAP`.
+- `src/shim/` — the D3D9-shaped shim. Consumer libraries reach the renderer through `VDX9RENDER`
+  (src/libs/renderer/include/dx9render.h) with renderer ids (textures, render targets, depth surfaces,
+  vertex/index buffers, vertex declarations); `DX9RENDER` and, until it is ported, `SEA` still call
+  `IDirect3DDevice9` and friends, declared by the vendored type headers in `third_party/d3d9-headers/`.
+  The objects behind those interfaces are implemented here on bgfx handles. `d3d9_stubs.gen.hpp`
+  makes every unimplemented method log a `[storm-bgfx] TRAP`.
 - `shaders/` — fixed-function emulation (`vs_ff`, `fs_ff*`), the blit used for compositing,
   and `include/` with the shared conventions (`storm_common.sh`). The graphics effects add
   `vs_ff_lit`, `fs_ff_lit*`, `fs_ff_baked*` and `fs_ff_coverage` (per-pixel lighting, point lights,
