@@ -13,6 +13,7 @@
 #include "storm/fx/sky_model.hpp"
 #include "storm/fx/water.hpp"
 #include "storm/render/effects.hpp"
+#include "storm/render/program_cache.hpp"
 
 #include <bgfx/bgfx.h>
 
@@ -101,6 +102,7 @@ class Host
 
   private:
     static constexpr int kProgramsPerFrame = 1;
+    static constexpr int kCachedProgramsPerFrame = 4; // binaries from the program cache load without a link
     void apply();
     // Makes `settings` the ones that draw; the shim follows a renderer-state change at the next Present.
     void activate(const fx::Settings &settings);
@@ -129,6 +131,7 @@ class Host
     std::chrono::steady_clock::time_point switch_started_{};
     uint32_t switch_frames_ = 0;
     uint32_t switch_programs_ = 0;
+    render::ProgramCacheStats switch_cache_{}; // at the previous advance_switch
     fx::RendererState renderer_state_{};
     fx::Support support_{};        // what the settings are constrained against
     fx::Support support_device_{}; // what DetectSupport found

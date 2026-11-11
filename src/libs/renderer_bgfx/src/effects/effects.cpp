@@ -5,6 +5,7 @@
 #include "storm/fx/color_lut.hpp"
 #include "storm/fx/log.hpp"
 #include "storm/fx/sky_model.hpp"
+#include "storm/render/program_cache.hpp"
 
 #include <GLES2/gl2.h>
 
@@ -422,12 +423,17 @@ void Host::advance_switch()
     ++switch_frames_;
     // The programs of the new settings, one per frame: each is a shader link (tens of milliseconds on a phone,
     // seconds on a first run under ANGLE); linked all at once in the first frame of the new settings they held
-    // the picture for seconds.
-    int budget = kProgramsPerFrame;
+    // the picture for seconds. While the previous frame's programs all came from the program cache (loaded, none
+    // linked: storm/render/program_cache.hpp) a few more go per frame.
+    const render::ProgramCacheStats cache = render::CurrentProgramCacheStats();
+    const bool from_cache = cache.loaded != switch_cache_.loaded && cache.stored == switch_cache_.stored;
+    switch_cache_ = cache;
+    const int per_frame = from_cache ? kCachedProgramsPerFrame : kProgramsPerFrame;
+    int budget = per_frame;
     const bool ready = (target_.PostIsIdentity() || post_.Prepare(target_, budget)) && water_.Prepare(target_, budget) &&
                        sky_.Prepare(target_, budget) && contact_.Prepare(target_, budget) &&
                        lighting_.prepare_programs(*device, target_, budget);
-    switch_programs_ += kProgramsPerFrame - budget;
+    switch_programs_ += per_frame - budget;
     if (!ready)
         return;
     // The effect path of the new settings on a known picture (views kPostViewBegin..), once per settings: a

@@ -115,6 +115,7 @@ struct Run
 {
     Picture picture;
     render::ProgramCacheStats stats; // of this run only
+    int switch_frames = 0;           // frames until «Высокая» was active
 };
 
 // One renderer lifetime: «Высокая» prepared and drawn.
@@ -137,7 +138,7 @@ Run run(SDL_Window *window)
               "CreateOffscreenPlainSurface");
         check(device->GetRenderTarget(0, &back), "GetRenderTarget");
         render::ConfigureEffects(2, {});
-        for (int i = 0; i < 120 && render::CurrentEffects().pending; ++i)
+        for (; result.switch_frames < 120 && render::CurrentEffects().pending; ++result.switch_frames)
             frame(*device, back, readback);
         for (int i = 0; i < 2; ++i)
             result.picture = frame(*device, back, readback);
@@ -152,9 +153,9 @@ Run run(SDL_Window *window)
     result.stats.stored = after.stored - before.stored;
     result.stats.replaced = after.replaced - before.replaced;
     result.stats.invalid = after.invalid - before.invalid;
-    std::printf("     run: %u loaded, %u stored, %u replaced, %u invalid; %u binaries, %.1f KB\n", result.stats.loaded,
-                result.stats.stored, result.stats.replaced, result.stats.invalid, result.stats.entries,
-                result.stats.bytes / 1024.0);
+    std::printf("     run: «Высокая» after %d frames; %u loaded, %u stored, %u replaced, %u invalid; %u binaries, %.1f KB\n",
+                result.switch_frames, result.stats.loaded, result.stats.stored, result.stats.replaced,
+                result.stats.invalid, result.stats.entries, result.stats.bytes / 1024.0);
     return result;
 }
 
@@ -232,6 +233,8 @@ int main()
     ok &= expect(warm.stats.stored == 0 && warm.stats.loaded > 0 && warm.stats.loaded + 1 >= cold.stats.stored,
                  "warm cache: every program loaded, none linked");
     ok &= expect(max_difference(warm.picture, cold.picture) <= 2, "warm cache: the same picture");
+    ok &= expect(warm.switch_frames * 2 < cold.switch_frames,
+                 "warm cache: «Высокая» prepared in fewer frames (cached binaries need no link)");
 
     auto files = entries(root);
     {

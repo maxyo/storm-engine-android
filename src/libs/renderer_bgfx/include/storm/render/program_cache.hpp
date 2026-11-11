@@ -16,7 +16,7 @@ struct ProgramCacheConfig
     // Per-user cache storage (Android: Context.getCacheDir(); desktop: next to the texture cache). The binaries
     // of one GPU + driver + bgfx version live in a subdirectory named by them; the others are removed.
     std::filesystem::path directory;
-    uint64_t max_bytes = 32ull << 20; // the oldest entries go above this total
+    uint64_t max_bytes = 64ull << 20; // the oldest entries go above this total (ANGLE: ~0.4 MB per program)
 };
 
 // Before the device is created. Without it (host checks) every program is linked, and that is logged.
