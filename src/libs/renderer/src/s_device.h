@@ -277,8 +277,6 @@ class DX9RENDER : public VDX9RENDER
     HRESULT CreateDepthStencilSurface(UINT Width, UINT Height, D3DFORMAT Format, D3DMULTISAMPLE_TYPE MultiSample,
                                       IDirect3DSurface9 **ppSurface);
     HRESULT SetTexture(uint32_t Stage, IDirect3DBaseTexture9 *pTexture);
-    HRESULT UpdateSurface(IDirect3DSurface9 *pSourceSurface, const RECT *pSourceRectsArray, UINT cRects,
-                          IDirect3DSurface9 *pDestinationSurface, const POINT *pDestPointsArray);
     HRESULT GetRenderTargetData(IDirect3DSurface9 *pRenderTarget, IDirect3DSurface9 *pDestSurface);
 
     // D3D Pixel/Vertex Shaders Section
