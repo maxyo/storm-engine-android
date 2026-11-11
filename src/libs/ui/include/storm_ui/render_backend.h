@@ -2,10 +2,10 @@
 // components, icons, game pictures) talks to Rml::RenderInterface and never to a
 // graphics API, so the UI moves with the engine renderer:
 //
-//   * GL3 backend (this library): a GLES 3 / GL 3.3 context owned by the platform host.
-//     Used by the host capture tool and as the Android bridge until bgfx is live.
-//   * bgfx backend (backend_bgfx.h): draws inside the engine frame in the frame owner's
-//     UI view range. See src/libs/ui/README.md.
+//   * GL backend (backend_gl3.h, target storm_ui_gl3): a GLES 3 / GL 3.3 context owned by a
+//     platform host without the engine (application screens, host captures).
+//   * bgfx backend (backend_bgfx.h, target storm_ui_bgfx): draws inside the engine frame in
+//     the frame owner's UI view range (the game). See src/libs/ui/README.md.
 #pragma once
 
 #include <RmlUi/Core/RenderInterface.h>
@@ -55,9 +55,6 @@ inline std::string GamePictureSource(const std::string &texture)
 {
     return "storm-game-picture:" + texture;
 }
-
-// Needs a current GLES 3.0 (Android) or GL 3.3 core (desktop) context.
-std::unique_ptr<RenderBackend> CreateGl3Backend(std::string *error = nullptr);
 
 // For backend authors: decodes a PNG/JPEG of the UI pack (through Rml::GetFileInterface)
 // to premultiplied RGBA8. Game pictures do not come this way; see game_image.cpp.

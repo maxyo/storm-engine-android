@@ -3,8 +3,8 @@
 // nativeWantsTouch and nativeWantsBack come from the thread that receives input.
 // Actions are queued and handed to Java in batches after a frame, so no native code
 // ever calls back into the VM.
-#include "asset_files.h"
-#include "storm_ui/render_backend.h"
+#include "storm_ui/asset_files.h"
+#include "storm_ui/backend_gl3.h"
 #include "storm_ui/ui.h"
 
 #include <android/asset_manager_jni.h>

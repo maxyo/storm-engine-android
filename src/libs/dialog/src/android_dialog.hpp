@@ -27,21 +27,24 @@ inline std::string dialogueJsonString(std::string_view value) {
     return out + '"';
 }
 inline std::string dialogueJsonString(const char *value) { return dialogueJsonString(std::string_view(value ? value : "")); }
-inline bool sendDialogue(const std::string &json) {
+// State channel "dialogue" of the portable UI (the engine's UI host draws it); the activity
+// only learns whether a dialogue covers the game (its presentation state and controls).
+inline bool dialogueShown = false;
+inline void sendDialogue(const std::string &json) {
+    ui::state("dialogue", json);
+    const bool active = json.rfind("{\"active\":true", 0) == 0;
+    if (active == dialogueShown) return;
+    dialogueShown = active;
     auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
     auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return false;
+    if (!env || !activity) return;
     auto type = env->GetObjectClass(activity);
-    auto method = type ? env->GetMethodID(type, "showMobileDialogue", "([B)V") : nullptr;
-    auto bytes = env->NewByteArray(static_cast<jsize>(json.size()));
-    if (bytes) env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(json.size()), reinterpret_cast<const jbyte *>(json.data()));
-    bool success = method && bytes && !env->ExceptionCheck();
-    if (success) env->CallVoidMethod(activity, method, bytes);
-    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); success = false; }
-    if (bytes) env->DeleteLocalRef(bytes);
+    auto method = type ? env->GetMethodID(type, "showDialogue", "(Z)V") : nullptr;
+    if (method) env->CallVoidMethod(activity, method, static_cast<jboolean>(active));
+    else spdlog::error("dialogue: GameActivity.showDialogue(boolean) is missing");
+    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
     if (type) env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);
-    return success;
 }
 inline void closeDialogue(const void *owner) {
     if (dialogueOwner != owner) return;
@@ -95,7 +98,7 @@ inline bool publishDialogue(const void *owner, ATTRIBUTES *attrs, const char *sp
         if (const auto money = dialogueHeroMoney()) body += ",\"money\":" + std::to_string(*money);
     if (dialogueOwner == owner && dialogueSnapshot == body && dialogueIdentity == identity) return true;
     auto generation = dialogueGeneration + 1;
-    if (!sendDialogue("{\"active\":true,\"generation\":" + std::to_string(generation) + ',' + body + '}')) return false;
+    sendDialogue("{\"active\":true,\"generation\":" + std::to_string(generation) + ',' + body + '}');
     dialogueOwner=owner; dialogueSnapshot=body; dialogueIdentity=identity; dialogueGeneration=generation; dialogueActions.clear();
     return true;
 }

@@ -3360,14 +3360,16 @@ bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *gameSaveD
     entid_t ei;
     if (!(ei = core.GetEntityId("SCRSHOTER")))
         return false;
-    int32_t textureId = core.Send_Message(ei, "l", MSG_SCRSHOT_MAKE);
-    if (textureId == -1)
-        return false;
+    // Without a screenshot (no surface: an autosave while the app goes to the background) the
+    // save is still written, with its data and without a thumbnail (SurfaceDataSize 0).
+    const int32_t textureId = core.Send_Message(ei, "l", MSG_SCRSHOT_MAKE);
+    auto *pTex = textureId == -1 ? nullptr : static_cast<IDirect3DTexture9 *>(pRenderService->GetTextureFromID(textureId));
+    if (!pTex)
+        spdlog::warn("Save '{}' is written without a thumbnail: no screenshot", saveName);
 
-    auto *pTex = static_cast<IDirect3DTexture9 *>(pRenderService->GetTextureFromID(textureId));
-
-    D3DSURFACE_DESC dscr;
-    pTex->GetLevelDesc(0, &dscr);
+    D3DSURFACE_DESC dscr{};
+    if (pTex)
+        pTex->GetLevelDesc(0, &dscr);
 
     auto pdat = static_cast<char *>(malloc(sizeof(SAVE_DATA_HANDLE) + slen));
     if (pdat == nullptr)
@@ -3376,11 +3378,12 @@ bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *gameSaveD
     }
 
     ((SAVE_DATA_HANDLE *)pdat)->StringDataSize = slen;
+    ((SAVE_DATA_HANDLE *)pdat)->SurfaceDataSize = 0;
     // if(slen>0)
     memcpy(&pdat[sizeof(SAVE_DATA_HANDLE)], saveData, slen);
 
     int32_t ssize = 0;
-    if (dscr.Height > 0)
+    if (pTex && dscr.Height > 0)
     {
         D3DLOCKED_RECT lockRect;
         if (pTex->LockRect(0, &lockRect, nullptr, 0) == D3D_OK)

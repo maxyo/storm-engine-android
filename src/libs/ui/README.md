@@ -41,8 +41,12 @@ bash tools/android/ci_ui.sh     # needs the NDK prepared by ci_dependencies.sh
 ```
 
 produces `<build>/package/libstorm_ui.so` (stripped, 16 KiB pages) and
-`<build>/licenses/`. The application packages both. The JNI surface in
-`android/jni_host.cpp` belongs to `org.stormengine.port.StormUi`.
+`<build>/licenses/`: the GL host of the application screens without the engine (launcher,
+downloads, gallery, each in its own process). The application packages both. The JNI surface
+in `android/jni_host.cpp` belongs to `org.stormengine.port.StormUi`.
+
+The game does not use it: the engine's Android build links `storm_ui` and `storm_ui_bgfx` into
+`libengine.so` and hosts the UI inside its own frame (`src/libs/ui_host`).
 
 ## Parts
 
@@ -82,9 +86,10 @@ Nothing above `RenderBackend` calls a graphics API. Two backends:
 
 `Config::backend` is required; there is no default and no automatic switch.
 
-- **GL** (`CreateGl3Backend`): needs a current GLES 3.0 / GL 3.3 context from the host. Used by the Android `GLSurfaceView` bridge, the gallery and
-  host captures.
-- **bgfx** (`BgfxBackend::Create`, passed as `Config::backend`): draws inside the
+- **GL** (`backend_gl3.h`, target `storm_ui_gl3`): needs a current GLES 3.0 / GL 3.3 context
+  from the host. Only for hosts without the engine: the application screens (`libstorm_ui.so`)
+  and host captures.
+- **bgfx** (`backend_bgfx.h`, target `storm_ui_bgfx`): the game's backend; draws inside the
   engine frame through `storm/render/frame_owner.hpp`. It is a `FrameClient`: register
   it with `FrameOwner::AddClient`, `AttachHost(host)`, and it lays out on
   `OnSurfaceChanged`, calls `Host::Frame()` in `OnUiRender` (the frame owner's UI view range, after the

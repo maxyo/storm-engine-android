@@ -74,10 +74,6 @@ inline void updateCombatState(const GameplayState &gameplay)
     }
     combatInput.update(gameplay.revision(), std::move(scene), std::move(player), std::move(mode), std::move(bindings));
 }
-inline jweak combatActivity = nullptr;
-inline jmethodID combatMethod = nullptr;
-inline bool combatMethodKnown = false;
-inline std::string lastCombatState;
 inline PistolState readPistolState()
 {
     if (combatInput.player().empty()) return {};
@@ -89,28 +85,16 @@ inline PistolState readPistolState()
     return pistolState(equipped, shipText(character, "chr_ai.tmpl") == "player",
                        shipNumber(character, "chr_ai.charge"), shipNumber(character, "chr_ai.chargeprc"));
 }
+inline uint64_t combatHost = 0;
+inline std::string lastCombatState;
 inline void publishCombatState()
 {
-    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return;
-    if (!combatActivity || !env->IsSameObject(combatActivity, activity))
+    if (combatHost != ui::generation())
     {
-        if (combatActivity) env->DeleteWeakGlobalRef(combatActivity);
-        combatActivity = env->NewWeakGlobalRef(activity);
-        combatMethod = nullptr; combatMethodKnown = false; lastCombatState.clear();
+        combatHost = ui::generation(); // a new UI host: nothing held through the old one counts
+        lastCombatState.clear();
         combatInput.resetActivity();
         movementInput.resetActivity();
-    }
-    if (!combatMethodKnown && !env->ExceptionCheck())
-    {
-        auto type=env->GetObjectClass(activity);
-        if(type)
-        {
-            combatMethod=env->GetMethodID(type,"showCombatState","([B)V");
-            combatMethodKnown=true;env->DeleteLocalRef(type);
-        }
-        if(env->ExceptionCheck())env->ExceptionClear();
     }
     auto json=combatInput.json();
     const auto pistol = readPistolState();
@@ -118,16 +102,9 @@ inline void publishCombatState()
     json += ",\"interactKind\":" + gameplayJsonString("dialog");
     json += ",\"pistol\":{\"state\":" + gameplayJsonString(pistol.state) +
             ",\"progress\":" + std::to_string(pistol.progress) + "}}";
-    if(combatMethod && json!=lastCombatState && !env->ExceptionCheck())
-    {
-        auto bytes=env->NewByteArray(static_cast<jsize>(json.size()));
-        if(bytes && !env->ExceptionCheck())env->SetByteArrayRegion(bytes,0,static_cast<jsize>(json.size()),reinterpret_cast<const jbyte *>(json.data()));
-        if(bytes && !env->ExceptionCheck())env->CallVoidMethod(activity,combatMethod,bytes);
-        if(bytes && !env->ExceptionCheck())lastCombatState=json;
-        if(bytes)env->DeleteLocalRef(bytes);
-    }
-    if(env->ExceptionCheck())env->ExceptionClear();
-    env->DeleteLocalRef(activity);
+    if (json == lastCombatState) return;
+    lastCombatState = json;
+    ui::state("combat", json);
 }
 }
 #endif

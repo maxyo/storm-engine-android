@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <deque>
 #include <jni.h>
 #include <spdlog/spdlog.h>
@@ -22,12 +23,28 @@
 #include "android_land_commands.hpp"
 #include "android_worldmap.hpp"
 #include "android_interface_presentation.hpp"
+#include "android_ui_sink.hpp"
 
 namespace storm::android
 {
 struct UiTouch { float x, y; int phase; };
 // All native state is accessed only by the game thread. Java marshals its UI queue.
 inline std::string mobileScreen;
+// The engine's plain text as a JSON string (what the text channels carry), control characters escaped.
+inline std::string uiJsonText(std::string_view text)
+{
+    std::string out = "\"";
+    for (const unsigned char c : text)
+    {
+        if (c == '"' || c == '\\') { out += '\\'; out += char(c); }
+        else if (c == '\n') out += "\\n";
+        else if (c == '\r') out += "\\r";
+        else if (c == '\t') out += "\\t";
+        else if (c < 32) { char code[8]; std::snprintf(code, sizeof code, "\\u%04x", c); out += code; }
+        else out += char(c);
+    }
+    return out + '"';
+}
 inline uint64_t mobileScreenRevision = 1;
 inline InterfacePresentation interfacePresentation;
 inline std::deque<std::string> dialogueActions;
@@ -69,291 +86,109 @@ inline void showSaveError() {
     if(type)env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);
 }
-// Optional gameplay-state v1 bridge. Cached per Activity, never per process:
-// activity recreation must receive an identical snapshot again. One weak ref,
-// one method id and one bounded snapshot, all owned by the game thread.
-inline jweak gameplayActivity = nullptr;
-inline jmethodID gameplayMethod = nullptr;
-inline bool gameplayMethodKnown = false;
+// Gameplay state: channel "gameplay" of the UI host, and the activity's copy for its own controls.
 inline std::string lastGameplayState;
 inline void publishGameplayState(const std::string &json)
 {
+    if (lastGameplayState == json) return;
+    if (json.size() > 8192) { spdlog::error("gameplay state of {} bytes is over the 8192-byte bound: not published", json.size()); return; }
+    lastGameplayState = json;
+    ui::state("gameplay", json);
+    // The activity keeps the gameplay mode for its own controls (look surface, virtual keys).
     auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
     auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
     if (!env || !activity) return;
-    if (!gameplayActivity || !env->IsSameObject(gameplayActivity, activity))
-    {
-        if (gameplayActivity) env->DeleteWeakGlobalRef(gameplayActivity);
-        gameplayActivity = env->NewWeakGlobalRef(activity);
-        gameplayMethodKnown = false;
-        gameplayMethod = nullptr;
-        lastGameplayState.clear();
-    }
-    if (!gameplayMethodKnown && !env->ExceptionCheck())
-    {
-        auto type = env->GetObjectClass(activity);
-        if (type)
-        {
-            gameplayMethod = env->GetMethodID(type, "showGameplayState", "([B)V");
-            env->DeleteLocalRef(type);
-            gameplayMethodKnown = true;
-        }
-        // Old apps intentionally omit the optional method.
-        if (env->ExceptionCheck()) env->ExceptionClear();
-    }
-    if (gameplayMethod && lastGameplayState != json && json.size() <= 8192 && !env->ExceptionCheck())
-    {
-        auto bytes = env->NewByteArray(static_cast<jsize>(json.size()));
-        if (bytes && !env->ExceptionCheck())
-            env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(json.size()), reinterpret_cast<const jbyte *>(json.data()));
-        if (bytes && !env->ExceptionCheck()) env->CallVoidMethod(activity, gameplayMethod, bytes);
-        if (bytes && !env->ExceptionCheck()) lastGameplayState = json;
-        if (bytes) env->DeleteLocalRef(bytes);
-    }
-    if (env->ExceptionCheck()) env->ExceptionClear();
+    auto type = env->GetObjectClass(activity);
+    auto method = type ? env->GetMethodID(type, "showGameplayState", "([B)V") : nullptr;
+    auto bytes = env->NewByteArray(static_cast<jsize>(json.size()));
+    if (bytes) env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(json.size()), reinterpret_cast<const jbyte *>(json.data()));
+    if (method && bytes) env->CallVoidMethod(activity, method, bytes);
+    else spdlog::error("gameplay state: GameActivity.showGameplayState is missing");
+    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
+    if (bytes) env->DeleteLocalRef(bytes);
+    if (type) env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);
 }
-// Optional live ship telemetry channel. Independent from action revisions and
-// replayed to every Activity. Rendering acknowledgements are never inherited.
-inline jweak shipTelemetryActivity = nullptr;
-inline jmethodID shipTelemetryMethod = nullptr;
-inline bool shipTelemetryMethodKnown = false;
+// Live ship telemetry (channel "ship"). Independent from action revisions; rendering
+// acknowledgements are never inherited by a new UI host.
+inline uint64_t shipTelemetryHost = 0;
 inline void publishShipTelemetry()
 {
-    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return;
-    if (!shipTelemetryActivity || !env->IsSameObject(shipTelemetryActivity, activity))
+    if (shipTelemetryHost != ui::generation())
     {
-        if (shipTelemetryActivity) env->DeleteWeakGlobalRef(shipTelemetryActivity);
-        shipTelemetryActivity = env->NewWeakGlobalRef(activity);
-        shipTelemetryMethod = nullptr;
-        shipTelemetryMethodKnown = false;
-        shipTelemetry.resetActivity();
+        shipTelemetryHost = ui::generation();
+        shipTelemetry.resetActivity(); // a new UI host: nothing drawn or answered by the old one counts
     }
-    if (!shipTelemetryMethodKnown && !env->ExceptionCheck())
+    const auto tick = SDL_GetTicks();
+    if (const auto json = shipTelemetry.publication(tick))
     {
-        auto type = env->GetObjectClass(activity);
-        if (type)
-        {
-            shipTelemetryMethod = env->GetMethodID(type, "showShipTelemetry", "([B)V");
-            shipTelemetryMethodKnown = true;
-            env->DeleteLocalRef(type);
-        }
-        if (env->ExceptionCheck()) env->ExceptionClear(); // Old app: retain all native indicators.
+        ui::state("ship", *json);
+        shipTelemetry.published(*json, tick);
     }
-    if (shipTelemetryMethod && !env->ExceptionCheck())
-    {
-        const auto tick = SDL_GetTicks();
-        if (const auto json = shipTelemetry.publication(tick))
-        {
-            auto bytes = env->NewByteArray(static_cast<jsize>(json->size()));
-            if (bytes && !env->ExceptionCheck())
-                env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(json->size()), reinterpret_cast<const jbyte *>(json->data()));
-            if (bytes && !env->ExceptionCheck()) env->CallVoidMethod(activity, shipTelemetryMethod, bytes);
-            if (bytes && !env->ExceptionCheck()) shipTelemetry.published(*json, tick);
-            if (bytes) env->DeleteLocalRef(bytes);
-        }
-    }
-    if (env->ExceptionCheck()) env->ExceptionClear();
-    env->DeleteLocalRef(activity);
 }
-inline jweak worldMapActivity = nullptr;
-inline jmethodID worldMapMethod = nullptr;
-inline bool worldMapMethodKnown = false;
+inline uint64_t worldMapHost = 0;
 inline uint32_t worldMapPublishedAt = 0;
 inline uint64_t worldMapPublishedRevision = UINT64_MAX;
 inline uint64_t worldMapPublishedReady=0,worldMapPublishedActive=0,worldMapPublishedFailure=0;
 inline void publishWorldMapHud(bool force=false)
 {
-    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
-    if(!env||!activity)return;
-    if(!worldMapActivity||!env->IsSameObject(worldMapActivity,activity))
-    {
-        if(worldMapActivity)env->DeleteWeakGlobalRef(worldMapActivity);
-        worldMapActivity=env->NewWeakGlobalRef(activity);worldMapMethod=nullptr;worldMapMethodKnown=false;
-        worldMapHud.resetActivity();worldMapPublishedAt=0;
-    }
-    if(!worldMapMethodKnown&&!env->ExceptionCheck())
-    {
-        auto type=env->GetObjectClass(activity);
-        if(type){worldMapMethod=env->GetMethodID(type,"showWorldMapHud","([B)V");env->DeleteLocalRef(type);worldMapMethodKnown=true;}
-        if(env->ExceptionCheck())env->ExceptionClear();
-    }
+    if(worldMapHost!=ui::generation()){worldMapHost=ui::generation();worldMapHud.resetActivity();worldMapPublishedAt=0;}
     const auto tick=SDL_GetTicks();
     const auto modal=worldMapHud.modal.receipt(tick);
-    if(worldMapMethod && (force || tick-worldMapPublishedAt>=200 || worldMapPublishedRevision!=worldMapHud.revision() ||
-        modal.token!=worldMapPublishedReady || modal.active!=worldMapPublishedActive || modal.failed!=worldMapPublishedFailure) && !env->ExceptionCheck())
+    if(force || tick-worldMapPublishedAt>=200 || worldMapPublishedRevision!=worldMapHud.revision() ||
+        modal.token!=worldMapPublishedReady || modal.active!=worldMapPublishedActive || modal.failed!=worldMapPublishedFailure)
     {
-        const auto json=worldMapHud.json();
-        if(json.size()<=16384)
-        {
-            auto bytes=env->NewByteArray(static_cast<jsize>(json.size()));
-            if(bytes&&!env->ExceptionCheck())env->SetByteArrayRegion(bytes,0,static_cast<jsize>(json.size()),reinterpret_cast<const jbyte *>(json.data()));
-            if(bytes&&!env->ExceptionCheck())env->CallVoidMethod(activity,worldMapMethod,bytes);
-            if(bytes)env->DeleteLocalRef(bytes);
-            worldMapPublishedAt=tick;worldMapPublishedRevision=worldMapHud.revision();
-            worldMapPublishedReady=modal.token;worldMapPublishedActive=modal.active;worldMapPublishedFailure=modal.failed;
-        }
+        ui::state("worldMap",worldMapHud.json());
+        worldMapPublishedAt=tick;worldMapPublishedRevision=worldMapHud.revision();
+        worldMapPublishedReady=modal.token;worldMapPublishedActive=modal.active;worldMapPublishedFailure=modal.failed;
     }
-    if(env->ExceptionCheck())env->ExceptionClear();
-    env->DeleteLocalRef(activity);
 }
-inline jweak seaOrdersActivity = nullptr;
-inline jmethodID seaOrdersMethod = nullptr;
-inline bool seaOrdersMethodKnown = false;
+inline uint64_t seaOrdersHost = 0;
 inline std::string lastSeaOrders;
 inline void publishSeaOrders()
 {
-    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return;
-    if (!seaOrdersActivity || !env->IsSameObject(seaOrdersActivity, activity))
-    {
-        if (seaOrdersActivity) env->DeleteWeakGlobalRef(seaOrdersActivity);
-        seaOrdersActivity = env->NewWeakGlobalRef(activity);
-        seaOrdersMethod = nullptr; seaOrdersMethodKnown = false; lastSeaOrders.clear();
-        seaOrders.resetActivity();
-    }
-    if (!seaOrdersMethodKnown && !env->ExceptionCheck())
-    {
-        auto type = env->GetObjectClass(activity);
-        if (type)
-        {
-            seaOrdersMethod = env->GetMethodID(type, "showSeaOrders", "([B)V");
-            env->DeleteLocalRef(type); seaOrdersMethodKnown = true;
-        }
-        if (env->ExceptionCheck()) env->ExceptionClear();
-    }
+    if (seaOrdersHost != ui::generation()) { seaOrdersHost = ui::generation(); lastSeaOrders.clear(); seaOrders.resetActivity(); }
     const auto json = seaOrders.json();
-    if (seaOrdersMethod && json != lastSeaOrders && json.size() <= 65536 && !env->ExceptionCheck())
-    {
-        auto bytes = env->NewByteArray(static_cast<jsize>(json.size()));
-        if (bytes && !env->ExceptionCheck())
-            env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(json.size()), reinterpret_cast<const jbyte *>(json.data()));
-        if (bytes && !env->ExceptionCheck()) env->CallVoidMethod(activity, seaOrdersMethod, bytes);
-        if (bytes && !env->ExceptionCheck()) lastSeaOrders = json;
-        if (bytes) env->DeleteLocalRef(bytes);
-    }
-    if (env->ExceptionCheck()) env->ExceptionClear();
-    env->DeleteLocalRef(activity);
+    if (json == lastSeaOrders) return;
+    lastSeaOrders = json;
+    ui::state("seaOrders", json);
 }
-// The sea quick action (U1). A new Activity gets a new activity generation: nothing drawn or
+// The sea quick action (U1). A new UI host gets a new activity generation: nothing drawn or
 // tapped by the old one counts.
-inline jweak seaQuickActionActivity = nullptr;
-inline jmethodID seaQuickActionMethod = nullptr;
-inline bool seaQuickActionMethodKnown = false;
+inline uint64_t seaQuickActionHost = 0;
 inline std::string lastSeaQuickAction;
 inline void publishSeaQuickAction()
 {
-    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return;
-    if (!seaQuickActionActivity || !env->IsSameObject(seaQuickActionActivity, activity))
-    {
-        if (seaQuickActionActivity) env->DeleteWeakGlobalRef(seaQuickActionActivity);
-        seaQuickActionActivity = env->NewWeakGlobalRef(activity);
-        seaQuickActionMethod = nullptr; seaQuickActionMethodKnown = false; lastSeaQuickAction.clear();
-        seaQuickAction.resetActivity();
-    }
-    if (!seaQuickActionMethodKnown && !env->ExceptionCheck())
-    {
-        auto type = env->GetObjectClass(activity);
-        if (type)
-        {
-            seaQuickActionMethod = env->GetMethodID(type, "showSeaQuickAction", "([B)V");
-            env->DeleteLocalRef(type); seaQuickActionMethodKnown = true;
-        }
-        if (env->ExceptionCheck()) env->ExceptionClear(); // an application without the touch control keeps the native icon
-    }
+    if (seaQuickActionHost != ui::generation()) { seaQuickActionHost = ui::generation(); lastSeaQuickAction.clear(); seaQuickAction.resetActivity(); }
     const auto json = seaQuickAction.json();
-    if (seaQuickActionMethod && json != lastSeaQuickAction && !env->ExceptionCheck())
-    {
-        auto bytes = env->NewByteArray(static_cast<jsize>(json.size()));
-        if (bytes && !env->ExceptionCheck())
-            env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(json.size()), reinterpret_cast<const jbyte *>(json.data()));
-        if (bytes && !env->ExceptionCheck()) env->CallVoidMethod(activity, seaQuickActionMethod, bytes);
-        if (bytes && !env->ExceptionCheck()) lastSeaQuickAction = json;
-        if (bytes) env->DeleteLocalRef(bytes);
-    }
-    if (env->ExceptionCheck()) env->ExceptionClear();
-    env->DeleteLocalRef(activity);
+    if (json == lastSeaQuickAction) return;
+    lastSeaQuickAction = json;
+    ui::state("seaQuickAction", json);
 }
-inline jweak landCommandsActivity = nullptr;
-inline jmethodID landCommandsMethod = nullptr;
-inline bool landCommandsMethodKnown = false;
+inline uint64_t landCommandsHost = 0;
 inline std::string lastLandCommands;
 inline void publishLandCommands()
 {
-    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return;
-    if (!landCommandsActivity || !env->IsSameObject(landCommandsActivity, activity))
-    {
-        if (landCommandsActivity) env->DeleteWeakGlobalRef(landCommandsActivity);
-        landCommandsActivity = env->NewWeakGlobalRef(activity);
-        landCommandsMethod = nullptr; landCommandsMethodKnown = false; lastLandCommands.clear();
-        landCommands.resetActivity();
-    }
-    if (!landCommandsMethodKnown && !env->ExceptionCheck())
-    {
-        auto type = env->GetObjectClass(activity);
-        if (type)
-        {
-            landCommandsMethod = env->GetMethodID(type, "showLandCommands", "([B)V");
-            env->DeleteLocalRef(type); landCommandsMethodKnown = true;
-        }
-        if (env->ExceptionCheck()) env->ExceptionClear();
-    }
+    if (landCommandsHost != ui::generation()) { landCommandsHost = ui::generation(); lastLandCommands.clear(); landCommands.resetActivity(); }
     const auto json = landCommands.json();
-    if (landCommandsMethod && json != lastLandCommands && json.size() <= 65536 && !env->ExceptionCheck())
-    {
-        auto bytes = env->NewByteArray(static_cast<jsize>(json.size()));
-        if (bytes && !env->ExceptionCheck())
-            env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(json.size()), reinterpret_cast<const jbyte *>(json.data()));
-        if (bytes && !env->ExceptionCheck()) env->CallVoidMethod(activity, landCommandsMethod, bytes);
-        if (bytes && !env->ExceptionCheck()) lastLandCommands = json;
-        if (bytes) env->DeleteLocalRef(bytes);
-    }
-    if (env->ExceptionCheck()) env->ExceptionClear();
-    env->DeleteLocalRef(activity);
+    if (json == lastLandCommands) return;
+    lastLandCommands = json;
+    ui::state("landCommands", json);
 }
 inline std::string lastVitals;
 inline uint32_t lastVitalsTick=0;
 inline void publishVitals(const std::string &json) {
     const auto now=SDL_GetTicks();
     if(lastVitals==json || (!json.empty() && now-lastVitalsTick<100))return;
-    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return;
-    auto type=env->GetObjectClass(activity);
-    auto method=type ? env->GetMethodID(type,"showVitals","([B)V") : nullptr;
-    auto bytes=env->NewByteArray(static_cast<jsize>(json.size()));
-    if(bytes)env->SetByteArrayRegion(bytes,0,static_cast<jsize>(json.size()),reinterpret_cast<const jbyte *>(json.data()));
-    if(method && bytes)env->CallVoidMethod(activity,method,bytes);
-    if(env->ExceptionCheck()){env->ExceptionDescribe();env->ExceptionClear();}
-    else {lastVitals=json;lastVitalsTick=now;}
-    if(bytes)env->DeleteLocalRef(bytes);
-    if(type)env->DeleteLocalRef(type);
-    env->DeleteLocalRef(activity);
+    lastVitals=json;lastVitalsTick=now;
+    // Nothing at all when the engine draws no land hero: JSON null for the UI.
+    ui::state("vitals",json.empty()?std::string("null"):json);
 }
 inline std::string lastWorldInfo;
 inline void publishWorldInfo(const std::string &text) {
     if (lastWorldInfo == text) return;
-    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return;
-    auto type=env->GetObjectClass(activity);
-    auto method=type ? env->GetMethodID(type,"showWorldInfo","([B)V") : nullptr;
-    auto bytes=env->NewByteArray(static_cast<jsize>(text.size()));
-    if (bytes) env->SetByteArrayRegion(bytes,0,static_cast<jsize>(text.size()),reinterpret_cast<const jbyte *>(text.data()));
-    if (method && bytes) env->CallVoidMethod(activity,method,bytes);
-    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
-    else lastWorldInfo=text;
-    if (bytes) env->DeleteLocalRef(bytes);
-    if (type) env->DeleteLocalRef(type);
-    env->DeleteLocalRef(activity);
+    lastWorldInfo=text;
+    ui::state("worldInfo",uiJsonText(text)); // the engine's text as the JSON string the channel carries
 }
 // A passing line of the game's event log (Log_Info and alike): the portable UI shows it as
 // a toast (the HUD's top-centre log over a free game). The same text again within the
@@ -364,19 +199,7 @@ inline void publishGameMessage(const std::string &text) {
     const uint32_t now=SDL_GetTicks();
     if (text.empty() || (text == lastGameMessage && now - lastGameMessageAt < 5000)) return;
     lastGameMessage=text; lastGameMessageAt=now;
-    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return;
-    auto type=env->GetObjectClass(activity);
-    auto method=type ? env->GetMethodID(type,"showGameMessage","([B)V") : nullptr;
-    if (!method) __android_log_print(ANDROID_LOG_ERROR,"StormUi","game message dropped: the activity has no showGameMessage(byte[])");
-    auto bytes=env->NewByteArray(static_cast<jsize>(text.size()));
-    if (bytes) env->SetByteArrayRegion(bytes,0,static_cast<jsize>(text.size()),reinterpret_cast<const jbyte *>(text.data()));
-    if (method && bytes) env->CallVoidMethod(activity,method,bytes);
-    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
-    if (bytes) env->DeleteLocalRef(bytes);
-    if (type) env->DeleteLocalRef(type);
-    env->DeleteLocalRef(activity);
+    ui::toast(text);
 }
 // Set from the game thread's command queue ("graphics:reload", sent by the platform host after
 // the settings screen stored new renderer preferences); the renderer re-applies the graphics
@@ -401,17 +224,7 @@ inline void publishContextAction(const std::string &name) {
     if (contextAction == name) return;
     traceContextAction("publish", name, "previous=" + contextAction);
     contextAction = name; requestedContextAction.clear();
-    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return;
-    auto type=env->GetObjectClass(activity);
-    auto method=type ? env->GetMethodID(type,"showContextAction","(Ljava/lang/String;)V") : nullptr;
-    auto text=env->NewStringUTF(name.c_str());
-    if (method && text) env->CallVoidMethod(activity,method,text);
-    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
-    if (text) env->DeleteLocalRef(text);
-    if (type) env->DeleteLocalRef(type);
-    env->DeleteLocalRef(activity);
+    ui::state("contextAction",uiJsonText(name));
 }
 inline int loadingState = -1;
 inline void publishLoading(bool active) {
@@ -427,24 +240,10 @@ inline void publishLoading(bool active) {
     if (type) env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);
 }
-// A state channel of the portable UI (JSON as is, "null" = nothing) through GameActivity
-// showUiState: for channels the platform host only forwards.
+// A state channel of the portable UI (JSON as is, "null" = nothing), for channels without a
+// publisher of their own here.
 inline void publishUiState(const char *channel, const std::string &json) {
-    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return;
-    auto type=env->GetObjectClass(activity);
-    auto method=type ? env->GetMethodID(type,"showUiState","(Ljava/lang/String;[B)V") : nullptr;
-    auto name=env->NewStringUTF(channel);
-    auto bytes=env->NewByteArray(static_cast<jsize>(json.size()));
-    if (bytes) env->SetByteArrayRegion(bytes,0,static_cast<jsize>(json.size()),reinterpret_cast<const jbyte *>(json.data()));
-    if (method && name && bytes) env->CallVoidMethod(activity,method,name,bytes);
-    else spdlog::error("UI state {}: GameActivity.showUiState is missing", channel);
-    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
-    if (bytes) env->DeleteLocalRef(bytes);
-    if (name) env->DeleteLocalRef(name);
-    if (type) env->DeleteLocalRef(type);
-    env->DeleteLocalRef(activity);
+    ui::state(channel,json);
 }
 // Channel "spyglass" (android_spyglass.hpp): sent through the generic state channel when it changes.
 inline std::string lastSpyglass;
@@ -488,19 +287,8 @@ inline void publishCinematic(bool active) {
 inline void publishMobileWidgets(const std::string &json)
 {
     if (lastWidgetSnapshot == json) return;
-    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return;
-    const auto type = env->GetObjectClass(activity);
-    const auto method = type ? env->GetMethodID(type, "showMobileWidgets", "([B)V") : nullptr;
-    const auto bytes = env->NewByteArray(static_cast<jsize>(json.size()));
-    if (bytes) env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(json.size()), reinterpret_cast<const jbyte *>(json.data()));
-    if (method && bytes) env->CallVoidMethod(activity, method, bytes);
-    if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
-    else lastWidgetSnapshot = json;
-    if (bytes) env->DeleteLocalRef(bytes);
-    if (type) env->DeleteLocalRef(type);
-    env->DeleteLocalRef(activity);
+    lastWidgetSnapshot = json;
+    ui::interfaceModel(json);
 }
 
 // Optional v2 image bridge. All access and local JNI refs stay on the game thread.
@@ -643,6 +431,7 @@ inline void showMobileScreen(const std::string &name)
     uiTouches.clear();
     uiWidgetActions.clear();
     lastWidgetSnapshot.clear();
+    ui::screen(screen, mobileScreenRevision);
     auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
     auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
     if (!env || !activity) return;

@@ -589,7 +589,13 @@ int main(int argc, char *argv[])
 #ifdef __ANDROID__
         storm::android::worldMapHud.clock(SDL_GetTicks());
         const auto combatDrainEpoch = storm::android::combatCancelEpoch.load(std::memory_order_acquire);
-        for (const auto &command : storm::android::pollMobileActions())
+        // The UI host first: it applies the touches the platform sent, and what they produce
+        // is read in this iteration, together with the activity's own queue.
+        storm::android::ui::tick();
+        auto mobileCommands = storm::android::ui::takeCommands();
+        for (auto &command : storm::android::pollMobileActions())
+            mobileCommands.push_back(std::move(command));
+        for (const auto &command : mobileCommands)
         {
             if(storm::android::worldMapHud.modal.ownsInput(SDL_GetTicks()) &&
                 (command.starts_with("gameplay:") || command.starts_with("shortcut:") || command.starts_with("context:") ||
@@ -998,6 +1004,7 @@ int main(int argc, char *argv[])
     storm::android::publishWorldMapHud();
     storm::android::shipTelemetry.update(gameplayState.revision(), {});
     storm::android::publishShipTelemetry();
+    storm::android::ui::shutdown(); // its textures and frame client go before the renderer
 #endif
     storm::AppEvents::instance().uninstall();
     // After a fatal error the engine state is unknown: still try to shut down in

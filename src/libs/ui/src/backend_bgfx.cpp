@@ -40,6 +40,7 @@
 #include "storm_ui_shaders/vs_ui.bin.h"
 #include "storm_ui_shaders/vs_ui_quad.bin.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -744,6 +745,7 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
     }
     void SetViewport(int width, int height) override
     {
+        replayable_ = false;
         width = std::max(width, 1);
         height = std::max(height, 1);
         projection_ = Rml::Matrix4f::ProjectOrtho(0, float(width), float(height), 0, -10000, 10000);
@@ -804,8 +806,19 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
     void OnUiRender(const storm::render::FrameContext &frame) override
     {
         SetViews(frame.ui_view_begin, frame.ui_view_count);
-        if (host_)
+        if (!host_)
+            return;
+        // The engine frame is drawn anew every time, so the UI must be in it every time. A
+        // frame the host calls unchanged (Host::Prepare) submits the commands recorded for the
+        // last drawn one again, without RmlUi's update and render.
+        double delay = 0.0;
+        if (host_->Prepare(delay) || !replayable_)
             next_frame_delay_ = host_->Frame();
+        else
+        {
+            Execute(Commands(last_main_), last_clear_);
+            next_frame_delay_ = delay;
+        }
     }
     void OnDeviceLost() override
     {
@@ -817,6 +830,8 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
             set.Forget();
         jobs_.clear();
         commands_.clear();
+        last_main_.clear();
+        replayable_ = false;
         // RmlUi re-creates textures and geometry on demand through this interface.
         Rml::ReleaseTextures(this);
         Rml::ReleaseCompiledGeometry(this);
@@ -857,6 +872,7 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
     void ReleaseGeometry(Rml::CompiledGeometryHandle geometry) override
     {
         ReleaseHandle<storm::ui::Geometry>(geometry);
+        replayable_ = false; // the recorded frame may use it
     }
 
     Rml::TextureHandle LoadTexture(Rml::Vector2i &dimensions, const Rml::String &source) override
@@ -883,6 +899,7 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
     {
         const Ref<Texture> &texture = FromHandle<Texture>(handle);
         texture->released = true;
+        replayable_ = false; // the recorded frame may use it
         if (texture->kind == Texture::Kind::Picture)
             ReleasePicture(texture->picture);
         ReleaseHandle<Texture>(handle);
@@ -977,6 +994,7 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
     void ReleaseFilter(Rml::CompiledFilterHandle filter) override
     {
         ReleaseHandle<const Filter>(filter);
+        replayable_ = false; // the recorded frame may use it
     }
     Rml::CompiledShaderHandle CompileShader(const Rml::String &name, const Rml::Dictionary &parameters) override;
     void RenderShader(Rml::CompiledShaderHandle shader, Rml::CompiledGeometryHandle geometry, Rml::Vector2f translation,
@@ -990,6 +1008,7 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
     void ReleaseShader(Rml::CompiledShaderHandle shader) override
     {
         ReleaseHandle<const Shader>(shader);
+        replayable_ = false; // the recorded frame may use it
     }
 
   private:
@@ -1044,6 +1063,11 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
     // Recording.
     bool clear_ = false;
     Commands commands_;
+    // The frame's commands without its texture jobs, for frames the host calls unchanged.
+    Commands last_main_;
+    bool last_clear_ = false;
+    bool replayable_ = false;
+    void Execute(Commands main, bool clear);
     DrawState state_;
     int depth_ = 1;
     std::vector<size_t> open_layers_; // indices of the PushLayer commands of open layers
@@ -1601,10 +1625,24 @@ void BgfxBackendImpl::EndFrame()
 {
     Commands main = std::move(commands_);
     commands_.clear();
+    replayable_ = false;
     if (!device_ready_ || sets_[0].width <= 0)
         return;
     ExtractJobs(main);
+    // A frame that saves layers as textures (the frame renderer filling its filter cache) is
+    // not repeated: the next one draws from the cache.
+    replayable_ = std::none_of(main.begin(), main.end(), [](const Command &command) { return command.op == Op::SaveTexture; });
+    if (replayable_)
+    {
+        last_main_ = main;
+        last_clear_ = clear_;
+    }
+    Execute(std::move(main), clear_);
+}
 
+void BgfxBackendImpl::Execute(Commands main, bool clear)
+{
+    const bool clear_ = clear; // the frame's own clear, also for a replayed frame
     Executor counter(*this);
     counter.SetBudget(view_count_);
     counter.Main(main, clear_, false);

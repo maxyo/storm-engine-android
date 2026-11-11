@@ -1,4 +1,4 @@
-#include "asset_files.h"
+#include "storm_ui/asset_files.h"
 
 namespace storm::ui
 {

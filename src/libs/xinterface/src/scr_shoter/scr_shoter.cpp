@@ -4,6 +4,8 @@
 #include "core.h"
 #include "string_compare.hpp"
 
+#include <spdlog/spdlog.h>
+
 #define SS_TEXTURE_WIDTH 128
 #define SS_TEXTURE_HEIGHT 128
 #define SS_TEXTURE_FONECOLOR 0xFF000000
@@ -117,7 +119,19 @@ bool SCRSHOTER::MakeScreenShot()
         hr = rs->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, &pRenderTarg);
     if (hr == D3D_OK)
         hr = rs->GetRenderTargetData(pOldRenderTarg, pRenderTarg);
-    pOldRenderTarg->Release();
+    if (pOldRenderTarg)
+        pOldRenderTarg->Release();
+    if (hr != D3D_OK)
+    {
+        // No picture to copy: the surface is gone (an autosave while the app goes to the
+        // background) or the read-back failed. The save is written without a thumbnail
+        // (SFLB_DoSaveFileData), and the save list shows the record without a picture.
+        if (pRenderTarg)
+            pRenderTarg->Release();
+        spdlog::warn("Screenshot for the save not taken: the render target cannot be read (0x{:x}); the save gets no thumbnail",
+                     static_cast<uint32_t>(hr));
+        return false;
+    }
 
     // create a new screen shot
     if (hr == D3D_OK)

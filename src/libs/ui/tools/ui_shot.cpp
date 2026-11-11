@@ -38,7 +38,7 @@
 //
 // Sizes and script coordinates are in dp. The clock is simulated (60 frames a second),
 // so captures are repeatable. Reported actions go to stdout as "action id verb value".
-#include "storm_ui/render_backend.h"
+#include "storm_ui/backend_gl3.h"
 #include "storm_ui/ui.h"
 
 #if STORM_UI_BGFX
