@@ -33,7 +33,7 @@ class WdmWarringShip : public WdmEnemyShip
     void Update(float dltTime) override;
 
     // Rendering
-    void LRender(VDX9RENDER *rs) override;
+    void LRender(VRenderer *rs) override;
 
   protected:
     // All move calculations together

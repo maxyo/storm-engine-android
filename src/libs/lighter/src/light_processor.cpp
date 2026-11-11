@@ -32,7 +32,7 @@ LightProcessor::~LightProcessor()
 {
 }
 
-void LightProcessor::SetParams(LGeometry *g, Window *win, LighterLights *lit, OctTree *ot, VDX9RENDER *_rs)
+void LightProcessor::SetParams(LGeometry *g, Window *win, LighterLights *lit, OctTree *ot, VRenderer *_rs)
 {
     geometry = g;
     window = win;

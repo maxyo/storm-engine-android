@@ -208,7 +208,7 @@ DlgLinkDescribe &DlgLinkDescribe::SetAttributes(ATTRIBUTES *attributes)
     return *this;
 }
 
-DlgLinkDescribe &DlgLinkDescribe::SetRenderer(VDX9RENDER *renderer)
+DlgLinkDescribe &DlgLinkDescribe::SetRenderer(VRenderer *renderer)
 {
     renderer_ = renderer;
     return *this;

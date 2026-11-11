@@ -317,7 +317,7 @@ void XINTERFACE::SetDevice()
     m_UtilContainer.Init();
 
     // get render service
-    pRenderService = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    pRenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
     if (!pRenderService)
     {
         throw std::runtime_error("No service: dx9render");
@@ -3729,7 +3729,7 @@ void XINTERFACE::ReleaseDinamicPic(const char *sPicName)
         prevImg->next = findImg->next;
 }
 
-int32_t FindMaxStrForWidth(VDX9RENDER *pVR, int nW, char *str, int nFontID, float fScale)
+int32_t FindMaxStrForWidth(VRenderer *pVR, int nW, char *str, int nFontID, float fScale)
 {
     if (!pVR || !str || str[0] == '\0')
         return 0;

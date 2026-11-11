@@ -42,7 +42,7 @@ class TFishSchools : public TDynamicSystem
     // Creates the schools and their model once a sea exists; false while there is no sea.
     bool CreateSchools();
 
-    VDX9RENDER *renderService;
+    VRenderer *renderService;
     entid_t fishSchoolModel;
     TFishSchool *fishSchools[FISHSCHOOL_COUNT];
     int32_t shipsCount;

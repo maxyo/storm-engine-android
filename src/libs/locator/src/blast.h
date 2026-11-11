@@ -21,7 +21,7 @@ using GEOPARTICLE = struct
 
 class BLAST : public Entity
 {
-    VDX9RENDER *rs;
+    VRenderer *rs;
     VGEOMETRY *gs;
     std::vector<GEOPARTICLE> Item;
     CANNON_TRACE_BASE *pSea;

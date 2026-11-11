@@ -4,7 +4,7 @@
 #include <iostream>
 #include "production.inc"
 
-void cohort(VDX9RENDER &renderer)
+void cohort(VRenderer &renderer)
 {
     const int before=renderer.created;
     auto first=std::make_unique<TSplash>();
@@ -20,17 +20,17 @@ void cohort(VDX9RENDER &renderer)
 
 int main()
 {
-    auto first=std::make_unique<VDX9RENDER>();
+    auto first=std::make_unique<VRenderer>();
     // Allocate the replacement before retiring the old service, ensuring the
     // addresses differ. The old production code dereferences freed first here.
-    auto second=std::make_unique<VDX9RENDER>();
+    auto second=std::make_unique<VRenderer>();
     cohort(*first);
     cohort(*first); // scene reload while the renderer remains alive
     first.reset();
     cohort(*second); // second SDL_main creates a different renderer service
     cohort(*second);
     second.reset();
-    auto third=std::make_unique<VDX9RENDER>();
+    auto third=std::make_unique<VRenderer>();
     cohort(*third);
     std::cout<<"PASS production TSplash shared ownership, scene reload and renderer restart\n";
 }

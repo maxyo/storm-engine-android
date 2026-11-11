@@ -24,7 +24,7 @@ XSERVICE::~XSERVICE()
 {
 }
 
-void XSERVICE::Init(VDX9RENDER *pRS, int32_t lWidth, int32_t lHeight)
+void XSERVICE::Init(VRenderer *pRS, int32_t lWidth, int32_t lHeight)
 {
     m_pRS = pRS;
 

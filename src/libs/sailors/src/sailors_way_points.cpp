@@ -74,7 +74,7 @@ void Points::Delete(int Index)
 
 //--------------------------------------------------------------------------------------------------------------
 
-void SailorsPoints::Draw(VDX9RENDER *rs, bool pointmode)
+void SailorsPoints::Draw(VRenderer *rs, bool pointmode)
 {
     // D3DXVec3TransformCoord(0,0,0);
 
@@ -158,7 +158,7 @@ void SailorsPoints::Draw(VDX9RENDER *rs, bool pointmode)
 };
 
 //--------------------------------------------------------------------------------------------------------------
-void SailorsPoints::Draw_(VDX9RENDER *rs, bool pointmode)
+void SailorsPoints::Draw_(VRenderer *rs, bool pointmode)
 {
     if (!points.count || !links.count)
         return;
@@ -210,7 +210,7 @@ void SailorsPoints::Draw_(VDX9RENDER *rs, bool pointmode)
 };
 
 //--------------------------------------------------------------------------------------------------------------
-void SailorsPoints::DrawLinks(VDX9RENDER *rs)
+void SailorsPoints::DrawLinks(VRenderer *rs)
 {
     glm::vec3 _v2, _v1;
     RS_LINE pRSL[2];

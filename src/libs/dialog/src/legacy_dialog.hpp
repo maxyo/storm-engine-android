@@ -24,7 +24,7 @@ struct ScreenScale
 class LegacyDialog final : public Entity
 {
   public:
-    static VDX9RENDER *RenderService;
+    static VRenderer *RenderService;
 
     ~LegacyDialog() noexcept override;
 

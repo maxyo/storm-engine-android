@@ -4,7 +4,7 @@
 
 class IBoardingStatus : public Entity
 {
-    VDX9RENDER *rs;
+    VRenderer *rs;
 
   public:
     IBoardingStatus();

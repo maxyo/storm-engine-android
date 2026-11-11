@@ -8,7 +8,7 @@ class BIImageMaterial;
 class BIImage : public IBIImage
 {
   public:
-    BIImage(VDX9RENDER *rs, BIImageMaterial *pMaterial);
+    BIImage(VRenderer *rs, BIImageMaterial *pMaterial);
     ~BIImage() override;
 
     size_t GetVertexQuantity() const
@@ -53,7 +53,7 @@ class BIImage : public IBIImage
 
     void Release() const;
 
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
     BIImageMaterial *m_pMaterial;
 
     size_t m_nVertexQuantity;

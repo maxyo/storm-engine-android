@@ -77,7 +77,7 @@ class SAIL : public SAIL_BASE
 
     friend SAILONE;
     bool bUse;
-    VDX9RENDER *RenderService;
+    VRenderer *RenderService;
     D3DMATERIAL9 mat;
     std::filesystem::file_time_type ft_old;
     int32_t texl;

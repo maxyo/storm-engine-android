@@ -43,7 +43,7 @@ class ShipTracks : public Entity
     class ShipTrack
     {
       public:
-        static VDX9RENDER *pRS;
+        static VRenderer *pRS;
         static SEA_BASE *pSea;
         static int32_t iVTmpBuffer1, iVTmpBuffer2;
         static int32_t iITmpBuffer1, iITmpBuffer2;

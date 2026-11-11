@@ -13,7 +13,7 @@ class ShipInfoImages;
 
 class BATTLE_INTERFACE : public Entity
 {
-    VDX9RENDER *rs;
+    VRenderer *rs;
 
   public:
     BATTLE_INTERFACE();

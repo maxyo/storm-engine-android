@@ -57,7 +57,7 @@ static bool geoLog = false;
 
 bool GEOMETRY::Init()
 {
-    RenderService = static_cast<VDX9RENDER *>(core.GetService(RenderServiceName));
+    RenderService = static_cast<VRenderer *>(core.GetService(RenderServiceName));
     if (!RenderService)
     {
         core.Trace("No service: %s", RenderServiceName);
@@ -171,7 +171,7 @@ void GEOMETRY::DeleteGeometry(GEOS *gid)
 // Block 2
 //=================================================================================================
 
-void GEOM_SERVICE_R::SetRenderService(VDX9RENDER *render_service)
+void GEOM_SERVICE_R::SetRenderService(VRenderer *render_service)
 {
     bCaustic = false;
     RenderService = render_service;

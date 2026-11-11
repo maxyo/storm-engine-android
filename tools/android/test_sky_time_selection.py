@@ -69,11 +69,11 @@ struct Entity {
     virtual uint64_t ProcessMessage(MESSAGE&) { return 0; }
     virtual void ProcessStage(Stage,uint32_t) {}
 };
-struct VDX9RENDER;
+struct VRenderer;
 namespace storm::render {
     struct ColoredMesh {};
     struct TexturedMesh { void update(int,int) {} };
-    std::unique_ptr<TexturedMesh> makeLegacyTexturedMesh(VDX9RENDER&) { return std::make_unique<TexturedMesh>(); }
+    std::unique_ptr<TexturedMesh> makeLegacyTexturedMesh(VRenderer&) { return std::make_unique<TexturedMesh>(); }
 }
 namespace storm::weather {
     struct SkyMesh { int vertices=0,indices=0; };
@@ -91,7 +91,7 @@ struct Core {
     entid_t GetEntityId(const char* name) { assert(std::string(name)=="weather"); return present?1:0; }
     Entity* GetEntityPointer(entid_t id) { assert(id==1); return &weather; }
 } core;
-struct VDX9RENDER {
+struct VRenderer {
     struct Texture { std::string path; int refs; };
     std::vector<Texture> textures;
     int creates=0, increments=0, releases=0;
@@ -125,7 +125,7 @@ void SKY::Realize(uint32_t) {}
 void SKY::UpdateFogSphere(bool) {}
 ''' + methods + r'''
 constexpr const char* faces[]={"sky_fr.tga","sky_lf.tga","sky_bk.tga","sky_rt.tga","sky_up.tga"};
-void ownership(const SKY& sky,const VDX9RENDER& renderer) {
+void ownership(const SKY& sky,const VRenderer& renderer) {
     std::vector<int> expected(renderer.textures.size());
     for(int i=0;i<5;++i) {
         if(sky.TexturesID[i]>=0)++expected.at(sky.TexturesID[i]);
@@ -133,7 +133,7 @@ void ownership(const SKY& sky,const VDX9RENDER& renderer) {
     }
     for(size_t i=0;i<expected.size();++i)assert(expected[i]==renderer.textures[i].refs);
 }
-void pair(const SKY& sky,const VDX9RENDER& renderer,const std::string& a,const std::string& b,float factor) {
+void pair(const SKY& sky,const VRenderer& renderer,const std::string& a,const std::string& b,float factor) {
     assert(sky.loadedSkyDirs_[0]==a && sky.loadedSkyDirs_[1]==b);
     assert(std::abs(sky.fTimeFactor-factor)<0.0001f);
     for(int i=0;i<5;++i) {
@@ -150,7 +150,7 @@ void fill(SKY& sky,int count,float hours) {
 }
 void update(SKY& sky,float hours) { core.weather.hours=hours;sky.UpdateTimeFactor(); }
 struct Fixture {
-    VDX9RENDER renderer;
+    VRenderer renderer;
     SKY sky;
     Fixture(int count,float hours) {
         core.present=true;sky.pRS=&renderer;sky.fSkySize=2000.f;fill(sky,count,hours);sky.LoadTextures();
@@ -229,7 +229,7 @@ int main() {
     }
     // No initial pair: all temporary refs released; explicit reload retries once.
     {
-        VDX9RENDER r;SKY s;s.pRS=&r;fill(s,24,12.25f);r.failCreate=4;s.LoadTextures();
+        VRenderer r;SKY s;s.pRS=&r;fill(s,24,12.25f);r.failCreate=4;s.LoadTextures();
         assert(s.loadedSkyDirs_[0].empty());ownership(s,r);
         int before=r.creates;update(s,12.8f);assert(r.creates==before);
         r.failCreate=-1;s.LoadTextures();pair(s,r,"12/","13/",12.8f);s.Release();ownership(s,r);

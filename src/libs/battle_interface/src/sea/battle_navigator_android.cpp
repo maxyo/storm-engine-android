@@ -36,7 +36,7 @@ struct Shapes {
             const auto ink=nav::arcQuad({x,y},lo,hi,radius*unit,thickness);
             triangle(ink[0],ink[1],ink[2],color);triangle(ink[0],ink[2],ink[3],color);}
     }
-    void flush(VDX9RENDER *rs) {
+    void flush(VRenderer *rs) {
         if(!vertices.empty())rs->DrawPrimitiveUP(D3DPT_TRIANGLELIST,BI_COLORONLY_VERTEX_FORMAT,vertices.size()/3,
             vertices.data(),sizeof(BI_COLORONLY_VERTEX),"battle_only_color");
         vertices.clear();

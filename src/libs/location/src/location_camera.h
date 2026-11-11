@@ -106,7 +106,7 @@ class LocationCamera : public Entity
     void Clip(PLANE *p, int32_t numPlanes, glm::vec3 &cnt, float rad, bool (*fnc)(const glm::vec3 *vtx, int32_t num)) const;
 
   private:
-    VDX9RENDER *rs;
+    VRenderer *rs;
     // The sea
     entid_t sea;
     // Camera parameters

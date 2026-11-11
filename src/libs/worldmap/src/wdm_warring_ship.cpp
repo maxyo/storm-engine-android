@@ -108,7 +108,7 @@ void WdmWarringShip::Update(float dltTime)
 }
 
 // Rendering
-void WdmWarringShip::LRender(VDX9RENDER *rs)
+void WdmWarringShip::LRender(VRenderer *rs)
 {
     WdmEnemyShip::LRender(rs);
     // Smoke

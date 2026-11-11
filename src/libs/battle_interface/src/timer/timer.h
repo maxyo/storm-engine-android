@@ -45,7 +45,7 @@ class BITimer : public Entity
     float m_fMaxTimerCounter;
     std::string m_sEventName;
 
-    VDX9RENDER *m_pRender;
+    VRenderer *m_pRender;
     BIImageRender *m_pImgRndr;
     IBIImage *m_pBackImage;
     IBIImage *m_pForeImage;

@@ -28,17 +28,17 @@ class WdmCounter : public WdmRenderModel
     // Calculations
     void Update(float dltTime) override;
 
-    void PRender(VDX9RENDER *rs) override{};
+    void PRender(VRenderer *rs) override{};
 
-    void MRender(VDX9RENDER *rs) override{};
-    void LRender(VDX9RENDER *rs) override;
+    void MRender(VRenderer *rs) override{};
+    void LRender(VRenderer *rs) override;
 
     // --------------------------------------------------------------------------------------------
     // Encapsulation
     // --------------------------------------------------------------------------------------------
   private:
     bool LoadModel(WdmRenderModel *&pnt, const char *name, const char *tech) const;
-    void DrawNum(VDX9RENDER *rs, WdmRenderModel *m, float u, float v);
+    void DrawNum(VRenderer *rs, WdmRenderModel *m, float u, float v);
 
   private:
     WdmRenderModel *sky;

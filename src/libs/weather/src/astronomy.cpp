@@ -2,7 +2,7 @@
 
 #include "core.h"
 
-VDX9RENDER *Astronomy::pRS = nullptr;
+VRenderer *Astronomy::pRS = nullptr;
 VGEOMETRY *Astronomy::pGS = nullptr;
 
 Astronomy::Astronomy()
@@ -24,7 +24,7 @@ bool Astronomy::Init()
 
 void Astronomy::SetDevice()
 {
-    pRS = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
     Assert(pRS);
     pGS = static_cast<VGEOMETRY *>(core.GetService("geometry"));
 }

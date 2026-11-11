@@ -54,7 +54,7 @@ class BATTLE_LAND_INTERFACE : public Entity
 
     // data
   protected:
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
     bool m_bShowCommandos;
 
     BIManSign *m_pManSign;

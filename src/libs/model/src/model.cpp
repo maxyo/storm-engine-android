@@ -37,7 +37,7 @@ MODELR::~MODELR()
 
 bool MODELR::Init()
 {
-    rs = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
     if (!rs)
         throw std::runtime_error("No service: dx9render");
     gpuSkinning_.setRenderer(rs);

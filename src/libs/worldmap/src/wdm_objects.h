@@ -74,7 +74,7 @@ class WdmObjects
     // Engine object, which is in charge of everything
     WorldMap *wm;
     // Render service
-    VDX9RENDER *rs;
+    VRenderer *rs;
     // Geometry service
     VGEOMETRY *gs;
     // Camera

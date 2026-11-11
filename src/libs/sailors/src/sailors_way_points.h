@@ -135,9 +135,9 @@ class SailorsPoints
     Points points;
     Links links;
 
-    void Draw(VDX9RENDER *rs, bool pointmode);
-    void Draw_(VDX9RENDER *rs, bool pointmode);
-    void DrawLinks(VDX9RENDER *rs);
+    void Draw(VRenderer *rs, bool pointmode);
+    void Draw_(VRenderer *rs, bool pointmode);
+    void DrawLinks(VRenderer *rs);
 
     Path findPath(Path &path, int from, int to); // Calculate the path
 

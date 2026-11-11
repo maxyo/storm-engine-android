@@ -131,12 +131,12 @@ void WdmStormCloud::Update(float dltTime)
 }
 
 // Rendering
-void WdmStormCloud::PRender(VDX9RENDER *rs)
+void WdmStormCloud::PRender(VRenderer *rs)
 {
     LRender(rs);
 }
 
-void WdmStormCloud::LRender(VDX9RENDER *rs)
+void WdmStormCloud::LRender(VRenderer *rs)
 {
     // draw a background of the sea
 

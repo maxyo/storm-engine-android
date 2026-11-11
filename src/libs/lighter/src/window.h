@@ -67,7 +67,7 @@ class Window
     Window();
     virtual ~Window();
 
-    bool Init(VDX9RENDER *rs);
+    bool Init(VRenderer *rs);
     void InitList(LighterLights &ls);
     void Draw(float dltTime);
     void Reset(bool isVis);
@@ -127,7 +127,7 @@ class Window
 
   private:
     //
-    VDX9RENDER *rs;
+    VRenderer *rs;
     // Screen size
     float sw, sh;
     // Window options

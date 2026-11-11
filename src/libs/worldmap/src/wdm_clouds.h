@@ -19,7 +19,7 @@ class WdmCloud;
 class WdmClouds : public WdmRenderObject
 {
     static storm::render::VertexDeclarationId vertexDecl_;
-    void CreateVertexDeclaration(VDX9RENDER *rs);
+    void CreateVertexDeclaration(VRenderer *rs);
 
     struct Cloud
     {
@@ -69,7 +69,7 @@ class WdmClouds : public WdmRenderObject
     // Calculations
     void Update(float dltTime) override;
     // Drawing
-    void LRender(VDX9RENDER *rs) override;
+    void LRender(VRenderer *rs) override;
 
     int32_t texture, light;
     Cloud clouds[16];

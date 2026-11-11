@@ -49,7 +49,7 @@ class TSeagulls
 
     entid_t seagullModel;
     tSeagull seagulls[SEAGULL_COUNT];
-    VDX9RENDER *renderService;
+    VRenderer *renderService;
     VSoundService *soundService;
     bool enabled;
     int32_t count;

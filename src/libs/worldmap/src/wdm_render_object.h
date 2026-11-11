@@ -25,11 +25,11 @@ class WdmRenderObject
     // Calculations
     virtual void Update(float dltTime){};
     // Rendering
-    virtual void PRender(VDX9RENDER *rs){};
+    virtual void PRender(VRenderer *rs){};
 
-    virtual void MRender(VDX9RENDER *rs){};
+    virtual void MRender(VRenderer *rs){};
 
-    virtual void LRender(VDX9RENDER *rs){};
+    virtual void LRender(VRenderer *rs){};
 
     static void DeleteAllObjects();
 

@@ -42,7 +42,7 @@ class LIGHTNING : public Entity
     int32_t iFlickerTime;
 
     WEATHER_BASE *pWeather;
-    VDX9RENDER *pRS;
+    VRenderer *pRS;
     COLLIDE *pCollide;
 
     void Release() const;

@@ -187,11 +187,11 @@ inline uint32_t F2DW(float f)
 
 class CVideoTexture;
 
-class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
+class VRenderer : public SERVICE, public storm::render::TextureColorReader
 {
   public:
     // DX9Render: Construct/Destruct
-    ~VDX9RENDER() override{};
+    ~VRenderer() override{};
 
     // DX9Render: Init/Release
     virtual bool InitDevice(bool windowed, HWND hwnd, int32_t width, int32_t height) = 0;

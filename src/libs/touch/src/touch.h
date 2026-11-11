@@ -33,7 +33,7 @@ struct TOUCH_SHIP
 class TOUCH : public Entity
 {
   protected:
-    VDX9RENDER *pRS;
+    VRenderer *pRS;
     ISLAND_BASE *pIslandBase;
 
     bool bUseTouch;

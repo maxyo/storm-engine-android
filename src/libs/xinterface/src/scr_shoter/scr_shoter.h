@@ -45,7 +45,7 @@ class SCRSHOTER : public Entity
     void DelSaveTexture(const char *fileName);
     int32_t GetTexFromSave(char *fileName, char **pDatStr) const;
     
-    VDX9RENDER *rs = nullptr;
+    VRenderer *rs = nullptr;
     int32_t textureIndex_ = -1;
     SAVETEXTURES *m_list = nullptr;
 };

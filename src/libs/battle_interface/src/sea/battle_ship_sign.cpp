@@ -8,7 +8,7 @@
 #include "controls.h"
 #include "shared/battle_interface/msg_control.h"
 
-BIShipIcon::BIShipIcon(entid_t BIEntityID, VDX9RENDER *pRS)
+BIShipIcon::BIShipIcon(entid_t BIEntityID, VRenderer *pRS)
 {
     Assert(pRS);
 

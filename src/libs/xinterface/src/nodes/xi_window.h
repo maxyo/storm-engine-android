@@ -8,7 +8,7 @@ class CXI_WINDOW : public CINODE
     CXI_WINDOW();
     ~CXI_WINDOW() override;
 
-    bool Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs, XYRECT &hostRect,
+    bool Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VRenderer *rs, XYRECT &hostRect,
               XYPOINT &ScreenSize) override;
     void ChangePosition(XYRECT &rNewPos) override;
     void SaveParametersToIni() override;

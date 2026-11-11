@@ -108,7 +108,7 @@ bool GetNextIdFromList(char *&sptr, char *bufQuestID, size_t nSizeBufQuestID, ch
     return true;
 }
 
-static void SubRightWord(char *buf, int fontNum, int width, VDX9RENDER *rs)
+static void SubRightWord(char *buf, int fontNum, int width, VRenderer *rs)
 {
     if (buf == nullptr)
         return;
@@ -217,7 +217,7 @@ void CXI_QUESTTEXTS::Draw(bool bSelected, uint32_t Delta_Time)
     }
 }
 
-bool CXI_QUESTTEXTS::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs,
+bool CXI_QUESTTEXTS::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VRenderer *rs,
                           XYRECT &hostRect, XYPOINT &ScreenSize)
 {
     if (!CINODE::Init(ini1, name1, ini2, name2, rs, hostRect, ScreenSize))

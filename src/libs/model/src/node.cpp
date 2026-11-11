@@ -6,7 +6,7 @@
 #include "string_compare.hpp"
 
 VGEOMETRY *NODER::gs = nullptr;
-VDX9RENDER *NODER::rs = nullptr;
+VRenderer *NODER::rs = nullptr;
 int32_t NODER::depth = -1;
 int32_t NODER::node;
 extern int32_t clip_nps;

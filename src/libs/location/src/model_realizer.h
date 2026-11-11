@@ -10,7 +10,7 @@ class LocModelRealizer : public Entity
 {
     entid_t eid_model;
     Lights *lights;
-    VDX9RENDER *rs;
+    VRenderer *rs;
     VGEOMETRY *gs;
     bool bShow;
 

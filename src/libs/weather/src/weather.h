@@ -9,7 +9,7 @@
 class WEATHER : public WEATHER_BASE
 {
   private:
-    VDX9RENDER *pRS;
+    VRenderer *pRS;
 
     float fFloats[MAX_FLOAT_PARAMS];
     int32_t iLongs[MAX_LONG_PARAMS];

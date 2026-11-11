@@ -178,7 +178,7 @@ InterfaceBackScene::~InterfaceBackScene()
 
 bool InterfaceBackScene::Init()
 {
-    m_pRS = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    m_pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
     Assert(m_pRS);
     flyTex = m_pRS->TextureCreate("LocEfx\\firefly.tga");
     m_nFlareTexture = m_pRS->TextureCreate("ShipsFlares\\corona.tga");

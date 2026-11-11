@@ -53,7 +53,7 @@ class Tornado : public Entity
     // Encapsulation
     // --------------------------------------------------------------------------------------------
   private:
-    VDX9RENDER *rs;
+    VRenderer *rs;
 
     VSoundService *soundService;
     int32_t sID;

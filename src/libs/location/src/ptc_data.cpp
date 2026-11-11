@@ -848,7 +848,7 @@ inline float PtcData::FindHeight(int32_t trgID, float x, float z)
 }
 
 // Debug rendering
-void PtcData::DebugDraw(VDX9RENDER *rs, float dltTime)
+void PtcData::DebugDraw(VRenderer *rs, float dltTime)
 {
     if (numTriangles <= 0)
         return;

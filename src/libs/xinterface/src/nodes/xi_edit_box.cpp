@@ -117,7 +117,7 @@ void CXI_EDITBOX::Draw(bool bSelected, uint32_t Delta_Time)
                        (m_rect.left + m_rect.right) / 2, m_nTopStringPos, "%s", tmpstr);
 }
 
-bool CXI_EDITBOX::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs,
+bool CXI_EDITBOX::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VRenderer *rs,
                        XYRECT &hostRect, XYPOINT &ScreenSize)
 {
     if (!CINODE::Init(ini1, name1, ini2, name2, rs, hostRect, ScreenSize))

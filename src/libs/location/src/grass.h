@@ -156,7 +156,7 @@ class Grass : public Entity
 
   private:
     // Render service
-    VDX9RENDER *rs;
+    VRenderer *rs;
     // Buffers
     int32_t vb, ib;
     int32_t numPoints;

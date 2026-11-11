@@ -15,7 +15,7 @@
 #include "../../../xinterface/src/string_service.h"
 #endif
 
-BIShipCommandList::BIShipCommandList(entid_t eid, ATTRIBUTES *pA, VDX9RENDER *rs) : BICommandList(eid, pA, rs)
+BIShipCommandList::BIShipCommandList(entid_t eid, ATTRIBUTES *pA, VRenderer *rs) : BICommandList(eid, pA, rs)
 {
     Init();
 }

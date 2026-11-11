@@ -102,7 +102,7 @@ class CXI_UTILS
     static void WriteSquareToVertexBuffer(XI_ONETEX_VERTEX *pv, uint32_t color, FXYRECT &uv, int32_t left, int32_t top,
                                           int32_t right, int32_t bottom);
 
-    static void PrintTextIntoWindow(VDX9RENDER *pRender, int32_t nFont, uint32_t dwColor, int32_t wAlignment, bool bShadow,
+    static void PrintTextIntoWindow(VRenderer *pRender, int32_t nFont, uint32_t dwColor, int32_t wAlignment, bool bShadow,
                                     float fScale, int32_t scrWidth, int32_t scrHeight, int32_t x, int32_t y, const char *pcString,
                                     int32_t left, int32_t top, int32_t width, int32_t height);
 

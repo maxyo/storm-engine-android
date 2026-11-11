@@ -8,7 +8,7 @@
 class IVBufferManager
 {
   public:
-    IVBufferManager(VDX9RENDER *renderer_, int32_t vertex_type, int vertex_size, size_t index_count, size_t vertex_count,
+    IVBufferManager(VRenderer *renderer_, int32_t vertex_type, int vertex_size, size_t index_count, size_t vertex_count,
                     size_t max_size);
     virtual ~IVBufferManager();
 
@@ -21,7 +21,7 @@ class IVBufferManager
     void DrawBuffers(const char *_technique) const;
 
   private:
-    VDX9RENDER *const renderer_;
+    VRenderer *const renderer_;
     const size_t max_size_;
     const renderer_handle index_buffer_, vertex_buffer_;
     const size_t vertex_type_, vertex_size_, index_count_, vertex_count_;

@@ -31,14 +31,14 @@ constexpr const uint32_t COLOR_LINK_UNSELECTED = ARGB(255, 127, 127, 127);
 
 constexpr const uint32_t UNFADE_TIME = 1000;
 
-int32_t LoadFont(const std::string_view &fontName, INIFILE &ini, VDX9RENDER &renderService)
+int32_t LoadFont(const std::string_view &fontName, INIFILE &ini, VRenderer &renderService)
 {
     std::array<char, MAX_PATH> string_buffer{};
     ini.ReadString("DIALOG", fontName.data(), string_buffer.data(), string_buffer.size(), "DIALOG0");
     return renderService.LoadFont(string_buffer.data());
 }
 
-void FillIndexBuffer(VDX9RENDER &renderService, int32_t indexBuffer, size_t spriteCount)
+void FillIndexBuffer(VRenderer &renderService, int32_t indexBuffer, size_t spriteCount)
 {
     auto *pI = static_cast<uint16_t *>(renderService.LockIndexBuffer(indexBuffer));
     for (size_t n = 0; n < spriteCount; n++)
@@ -131,7 +131,7 @@ constexpr auto SPRITE_COUNT = SPRITE_DATA.size() + (DIALOG_MAX_LINES - 1);
 
 } // namespace
 
-VDX9RENDER *LegacyDialog::RenderService = nullptr;
+VRenderer *LegacyDialog::RenderService = nullptr;
 
 LegacyDialog::~LegacyDialog() noexcept
 {
@@ -148,7 +148,7 @@ LegacyDialog::~LegacyDialog() noexcept
 
 bool LegacyDialog::Init()
 {
-    RenderService = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    RenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
     Assert(RenderService != nullptr);
 
     soundService_ = static_cast<VSoundService *>(core.GetService("SoundService"));

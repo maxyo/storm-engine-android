@@ -93,7 +93,7 @@ class DX9RENDER_SCRIPT_LIBRIARY : public SCRIPT_LIBRIARY
 };
 
 //-----------SDEVICE-----------
-class DX9RENDER : public VDX9RENDER
+class DX9RENDER : public VRenderer
 {
 #define RS_RECT_VERTEX_FORMAT (D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1)
 

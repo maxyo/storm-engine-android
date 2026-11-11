@@ -27,7 +27,7 @@ class WdmPlayerShip : public WdmShip
 
     // Calculations
     void Update(float dltTime) override;
-    void LRender(VDX9RENDER *rs) override;
+    void LRender(VRenderer *rs) override;
 
     // Check when exiting the map
     bool ExitFromMap();

@@ -86,7 +86,7 @@ class XINTERFACE_BASE : public Entity
     virtual storm::QuestFileReader *QuestFileReader() = 0;
     virtual VXSERVICE *PictureService() = 0;
     virtual VSTRSERVICE *StringService() = 0;
-    virtual VDX9RENDER *RenderService() = 0;
+    virtual VRenderer *RenderService() = 0;
     virtual void *GetCurrentNode() = 0;
     virtual FXYPOINT GetMousePoint() = 0;
     virtual int32_t PrintIntoWindow(int32_t wl, int32_t wr, int32_t idFont, uint32_t dwFCol, uint32_t dwBCol, int32_t align,
@@ -178,7 +178,7 @@ class CINODE
     virtual bool MobileApply(int index, const std::string &value) { return false; }
 #endif
     virtual void Draw(bool bSelected, uint32_t Delta_Time) = 0;
-    virtual bool Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs,
+    virtual bool Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VRenderer *rs,
                       XYRECT &hostRect, XYPOINT &ScreenSize);
     virtual void ReleaseAll() = 0;
     CINODE *DoAction(int wActCode, bool &bBreakPress, bool bFirstPress);
@@ -340,7 +340,7 @@ class CINODE
 
     XINTERFACE_BASE *ptrOwner;
 
-    VDX9RENDER *m_rs;
+    VRenderer *m_rs;
     XYPOINT m_screenSize;
     XYRECT m_rect;
     XYRECT m_hostRect;

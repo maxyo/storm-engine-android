@@ -6,7 +6,7 @@ class XINTERFACE;
 class CXI_IMAGE;
 class GIEditorList;
 class CINODE;
-class VDX9RENDER;
+class VRenderer;
 
 class GIEditor : public GIEditorObject
 {
@@ -44,7 +44,7 @@ class GIEditor : public GIEditorObject
     GIEditorList *m_pSubNameList;
 
   public:
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
     XINTERFACE *m_pGIOwner;
 
     void ChangeNodeName();

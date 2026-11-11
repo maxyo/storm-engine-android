@@ -84,7 +84,7 @@ Location::~Location()
 bool Location::Init()
 {
     // DX9 render
-    rs = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
     if (!rs)
         throw std::runtime_error("No service: dx9render");
     rs->SetRenderState(D3DRS_LIGHTING, FALSE);

@@ -116,7 +116,7 @@ class Sharks : public Entity
     bool LoadPeriscopeModel();
 
   private:
-    VDX9RENDER *rs;
+    VRenderer *rs;
     Shark shark[6];
     int32_t numShakes;
     Periscope periscope;

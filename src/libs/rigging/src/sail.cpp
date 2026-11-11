@@ -17,7 +17,7 @@
 
 static const char *RIGGING_INI_FILE = "resource\\ini\\rigging.ini";
 
-void sailPrint(VDX9RENDER *rs, const glm::vec3 &pos3D, float rad, int32_t line, const char *format, ...);
+void sailPrint(VRenderer *rs, const glm::vec3 &pos3D, float rad, int32_t line, const char *format, ...);
 int traceSail = -1;
 int32_t g_iBallOwnerIdx = -1;
 
@@ -219,7 +219,7 @@ void SAIL::SetDevice()
     mtx = glm::mat4(1.0f);
 
     // get render service
-    RenderService = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    RenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
     if (!RenderService)
     {
         throw std::runtime_error("No service: dx9render");
@@ -2035,7 +2035,7 @@ void SAIL::DoNoRopeSailToNewHost(entid_t newModel, entid_t newHost, entid_t oldH
     }
 }
 
-void sailPrint(VDX9RENDER *rs, const glm::vec3 &pos3D, float rad, int32_t line, const char *format, ...)
+void sailPrint(VRenderer *rs, const glm::vec3 &pos3D, float rad, int32_t line, const char *format, ...)
 {
     static char buf[256];
     // print to the buffer

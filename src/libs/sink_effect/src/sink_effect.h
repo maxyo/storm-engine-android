@@ -44,6 +44,6 @@ class SINKEFFECT : public Entity
     TSink *TryToAddSink(const glm::vec3 &_pos, float _r);
 
     TSink sinks[sink_effect::MAX_SINKS];
-    VDX9RENDER *renderer;
+    VRenderer *renderer;
     SEA_BASE *sea;
 };

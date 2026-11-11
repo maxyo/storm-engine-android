@@ -49,12 +49,12 @@ bool WdmRenderModel::Load(const char *modelName)
     return false;
 }
 
-void WdmRenderModel::PRender(VDX9RENDER *rs)
+void WdmRenderModel::PRender(VRenderer *rs)
 {
     LRender(rs);
 }
 
-void WdmRenderModel::MRender(VDX9RENDER *rs)
+void WdmRenderModel::MRender(VRenderer *rs)
 {
     auto m(mtx);
     m[0][1] = -m[0][1];
@@ -65,7 +65,7 @@ void WdmRenderModel::MRender(VDX9RENDER *rs)
     Render(rs);
 }
 
-void WdmRenderModel::LRender(VDX9RENDER *rs)
+void WdmRenderModel::LRender(VRenderer *rs)
 {
     rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mtx));
     Render(rs);
@@ -111,7 +111,7 @@ void WdmRenderModel::SetTexture(int32_t stage, int32_t id) const
     geo->SetMaterial(0, mtl);
 }
 
-void WdmRenderModel::Render(VDX9RENDER *rs) const
+void WdmRenderModel::Render(VRenderer *rs) const
 {
     if (!geo)
         return;

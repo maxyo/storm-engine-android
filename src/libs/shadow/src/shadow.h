@@ -9,7 +9,7 @@
 
 class Shadow : public Entity
 {
-    VDX9RENDER *rs;
+    VRenderer *rs;
     COLLIDE *col;
     void FindPlanes(const glm::mat4 &view, const glm::mat4 &proj);
     PLANE planes[6];

@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-class VDX9RENDER;
+class VRenderer;
 class ATTRIBUTES;
 class INIFILE;
 
@@ -26,7 +26,7 @@ class DlgLinkDescribe final
     void Show(int32_t nY);
 
     DlgLinkDescribe &SetAttributes(ATTRIBUTES *attributes);
-    DlgLinkDescribe &SetRenderer(VDX9RENDER *renderer);
+    DlgLinkDescribe &SetRenderer(VRenderer *renderer);
     DlgLinkDescribe &SetOffset(const POINT &offset);
     DlgLinkDescribe &SetWindowWidth(int32_t width);
     DlgLinkDescribe &SetFont(int32_t font_id);
@@ -51,7 +51,7 @@ class DlgLinkDescribe final
     void UpdateEditMode(int32_t nTextIdx);
     void ShowEditMode(int32_t nX, int32_t nY, int32_t nTextIdx);
 
-    VDX9RENDER *renderer_ = nullptr;
+    VRenderer *renderer_ = nullptr;
     POINT offset_{};
     int32_t fontId_ = -1;
     float fontScale_{1.0f};

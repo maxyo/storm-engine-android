@@ -127,7 +127,7 @@ EffectsWorld CurrentEffectsWorld();
 bool EffectsSkyFogColor(std::array<float, 3> &rgb);
 
 // The world passes below draw into the current render target with the current D3D projection, in submission
-// order. `view` is the world -> view matrix as the engine sees it (VDX9RENDER::GetTransform(D3DTS_VIEW)): the
+// order. `view` is the world -> view matrix as the engine sees it (VRenderer::GetTransform(D3DTS_VIEW)): the
 // device itself holds a camera-relative view, because DX9RENDER moves the camera translation into the world matrix.
 using EffectsMatrix = std::array<float, 16>;
 

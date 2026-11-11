@@ -26,7 +26,7 @@ class WdmCamera
     // --------------------------------------------------------------------------------------------
   public:
     void Init(float defAy, float defHeight = -1.0f);
-    void Move(float dltTime, VDX9RENDER *rs);
+    void Move(float dltTime, VRenderer *rs);
 
     // --------------------------------------------------------------------------------------------
     // Control functions

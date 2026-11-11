@@ -69,7 +69,7 @@ class SEA : public SEA_BASE
         float fTime;
     };
 
-    VDX9RENDER *rs;
+    VRenderer *rs;
     static SEA *pSea;
 
     uint32_t dwMaxDim, dwMinDim;

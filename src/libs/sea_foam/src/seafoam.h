@@ -75,7 +75,7 @@ class SEAFOAM : public Entity
     void InterpolateRightParticle(tShipFoamInfo &_shipFoamInfo, int z, uint32_t dTime);
     void AddShip(entid_t pShipEID);
 
-    VDX9RENDER *renderer;
+    VRenderer *renderer;
     entid_t seaID;
     SEA_BASE *sea;
     tShipFoamInfo shipFoamInfo[MAX_SHIPS]{};

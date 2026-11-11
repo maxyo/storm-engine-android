@@ -4,7 +4,7 @@
 
 class SHIPPOINTER : public Entity
 {
-    VDX9RENDER *rs;
+    VRenderer *rs;
 
   public:
     SHIPPOINTER();

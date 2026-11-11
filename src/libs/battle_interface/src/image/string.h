@@ -10,7 +10,7 @@ class BIString : public IBIString
   public:
     BIString(BIString &&) = delete;
     BIString(const BIString &) = delete;
-    BIString(BIImageRender *pImgRender, VDX9RENDER *rs);
+    BIString(BIImageRender *pImgRender, VRenderer *rs);
     ~BIString() override;
 
     int32_t GetPrioritet() const
@@ -51,7 +51,7 @@ class BIString : public IBIString
     void UpdateString();
 
     BIImageRender *m_pImgRender;
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
     FRECT m_BasePos;
     int32_t m_nPrioritet;
     std::string m_sText;

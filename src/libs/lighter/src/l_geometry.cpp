@@ -104,7 +104,7 @@ void LGeometry::AddObject(const char *name, entid_t model)
 }
 
 // Process data
-bool LGeometry::Process(VDX9RENDER *rs, int32_t numLights)
+bool LGeometry::Process(VRenderer *rs, int32_t numLights)
 {
     // Preparing data for lighting
     for (int32_t i = 0; i < numObjects; i++)
@@ -368,7 +368,7 @@ bool LGeometry::Process(VDX9RENDER *rs, int32_t numLights)
 }
 
 // Draw normals
-void LGeometry::DrawNormals(VDX9RENDER *rs)
+void LGeometry::DrawNormals(VRenderer *rs)
 {
     if (!drawbuf)
         drawbuf = new glm::vec3[1024];
@@ -392,7 +392,7 @@ void LGeometry::DrawNormals(VDX9RENDER *rs)
 }
 
 // Update colors in buffers
-void LGeometry::UpdateColors(VDX9RENDER *rs)
+void LGeometry::UpdateColors(VRenderer *rs)
 {
     int32_t lockedVB = -1;
     uint8_t *pnt = nullptr;

@@ -30,7 +30,7 @@ class IParticleManager
     virtual bool Release() = 0;
 
     // Get a pointer to Render / FileService
-    virtual VDX9RENDER *Render() = 0;
+    virtual VRenderer *Render() = 0;
 
     // Open project
     virtual bool OpenProject(const char *FileName) = 0;

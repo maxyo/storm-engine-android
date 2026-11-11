@@ -55,7 +55,7 @@ class NODE
     virtual void SubstituteGeometry(const std::string& new_model) = 0;
 };
 
-class VDX9RENDER;
+class VRenderer;
 
 class MODEL : public COLLISION_OBJECT
 {
@@ -69,9 +69,9 @@ class MODEL : public COLLISION_OBJECT
 
         virtual ~RenderTuner(){};
 
-        virtual void Set(MODEL *model, VDX9RENDER *rs){};
+        virtual void Set(MODEL *model, VRenderer *rs){};
 
-        virtual void Restore(MODEL *model, VDX9RENDER *rs){};
+        virtual void Restore(MODEL *model, VRenderer *rs){};
     };
 
     void SetRenderTuner(RenderTuner *rt)

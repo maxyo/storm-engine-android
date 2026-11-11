@@ -281,7 +281,7 @@ void WdmSea::Update(float dltTime)
     }
 }
 
-void WdmSea::PRender(VDX9RENDER *rs)
+void WdmSea::PRender(VRenderer *rs)
 {
     // Preliminary background rendering
     // Textures
@@ -291,7 +291,7 @@ void WdmSea::PRender(VDX9RENDER *rs)
     Render(rs, "WdmSeaDraw1");
 }
 
-void WdmSea::LRender(VDX9RENDER *rs)
+void WdmSea::LRender(VRenderer *rs)
 {
     // Further background rendering
     // Textures
@@ -348,7 +348,7 @@ void WdmSea::LRender(VDX9RENDER *rs)
     }
 }
 
-void WdmSea::Render(VDX9RENDER *rs, const char *tech) const
+void WdmSea::Render(VRenderer *rs, const char *tech) const
 {
     static glm::mat4 identity;
     if (vb < 0 || ib < 0)
@@ -358,7 +358,7 @@ void WdmSea::Render(VDX9RENDER *rs, const char *tech) const
 }
 
 // Adjust texture coordinate transformations
-void WdmSea::PresetMain(VDX9RENDER *rs) const
+void WdmSea::PresetMain(VRenderer *rs) const
 {
     // Matrix for textures
     glm::mat4 mtx;

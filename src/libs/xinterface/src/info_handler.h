@@ -4,7 +4,7 @@
 
 class InfoHandler : public Entity
 {
-    VDX9RENDER *m_rs;
+    VRenderer *m_rs;
     bool gameOver_ = false; // shows the game's death picture: the portable UI draws the game-over screen
 
   public:

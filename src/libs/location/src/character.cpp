@@ -286,7 +286,7 @@ Character::RTuner::RTuner()
     isVisible = true;
 }
 
-void Character::RTuner::Set(MODEL *model, VDX9RENDER *rs)
+void Character::RTuner::Set(MODEL *model, VRenderer *rs)
 {
     auto *n = model->GetNode(0);
     if (!n)
@@ -350,7 +350,7 @@ void Character::RTuner::Set(MODEL *model, VDX9RENDER *rs)
     }
 }
 
-void Character::RTuner::Restore(MODEL *model, VDX9RENDER *rs)
+void Character::RTuner::Restore(MODEL *model, VRenderer *rs)
 {
     if (auto *const location = character->GetLocation())
     {
@@ -3149,7 +3149,7 @@ void Character::SetSoundPosition(int32_t id)
     auto *const location = GetLocation();
     if (location->supervisor.player)
     {
-        VDX9RENDER *rs = location->GetRS();
+        VRenderer *rs = location->GetRS();
         if (rs)
         {
             static glm::mat4 view, cur;

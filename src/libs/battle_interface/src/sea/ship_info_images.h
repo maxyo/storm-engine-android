@@ -11,7 +11,7 @@ struct SII_VERTEX
 class ShipInfoImages
 {
   public:
-    ShipInfoImages(VDX9RENDER *rs, ATTRIBUTES *pAttr);
+    ShipInfoImages(VRenderer *rs, ATTRIBUTES *pAttr);
     ~ShipInfoImages();
 
     void Draw();
@@ -39,7 +39,7 @@ class ShipInfoImages
                            const FRECT &uv, float fProgress) const;
 
   protected:
-    VDX9RENDER *pRS;
+    VRenderer *pRS;
     bool m_bVisible;
 
     int32_t m_idRelationTexture;

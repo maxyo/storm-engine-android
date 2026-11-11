@@ -136,7 +136,7 @@ void Debris::Update(float dltTime)
     }
 }
 
-void Debris::Draw(VDX9RENDER *rs)
+void Debris::Draw(VRenderer *rs)
 {
     for (int32_t i = 0; i < flyCounter; i++)
     {

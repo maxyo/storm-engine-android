@@ -2,7 +2,7 @@
 
 #include "core.h"
 
-void Menu::Draw(VDX9RENDER *rs, SailorsPoints &sailorsPoints) const
+void Menu::Draw(VRenderer *rs, SailorsPoints &sailorsPoints) const
 {
     for (auto i = 0; i < count; i++)
         if (i != selected && i != blocked)

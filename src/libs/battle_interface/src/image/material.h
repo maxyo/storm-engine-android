@@ -10,7 +10,7 @@ class BIImageRender;
 class BIImageMaterial
 {
   public:
-    BIImageMaterial(VDX9RENDER *pRS, BIImageRender *pImgRender);
+    BIImageMaterial(VRenderer *pRS, BIImageRender *pImgRender);
     ~BIImageMaterial();
 
     void Render(int32_t nBegPrior, int32_t nEndPrior);
@@ -72,7 +72,7 @@ class BIImageMaterial
     void RecalculatePriorityRange();
     void InsertImageToList(BIImage *pImg);
 
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
     BIImageRender *m_pImageRender;
 
     std::string m_sTextureName;

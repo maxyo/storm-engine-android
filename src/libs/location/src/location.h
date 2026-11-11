@@ -110,7 +110,7 @@ class Location : public Entity
 
     Lights *GetLights() const;
 
-    VDX9RENDER *GetRS() const;
+    VRenderer *GetRS() const;
     void DrawLine(const glm::vec3 &s, uint32_t cs, const glm::vec3 &d, uint32_t cd, bool useZ = true) const;
     // Write text
     void Print(const glm::vec3 &pos3D, float rad, int32_t line, float alpha, uint32_t color, float scale, const char *format,
@@ -166,7 +166,7 @@ class Location : public Entity
     bool isPause;
     bool isDebugView;
 
-    VDX9RENDER *rs;
+    VRenderer *rs;
 
     // All models
     ModelArray model;
@@ -222,7 +222,7 @@ inline MODEL *Location::JmpPatch()
     return model[patchJump];
 }
 
-inline VDX9RENDER *Location::GetRS() const
+inline VRenderer *Location::GetRS() const
 {
     return rs;
 }

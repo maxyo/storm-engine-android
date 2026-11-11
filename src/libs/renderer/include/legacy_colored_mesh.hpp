@@ -1,6 +1,6 @@
 #pragma once
 #include "colored_mesh.hpp"
-class VDX9RENDER;
+class VRenderer;
 namespace storm::render {
-std::unique_ptr<ColoredMesh> makeLegacyColoredMesh(VDX9RENDER& device);
+std::unique_ptr<ColoredMesh> makeLegacyColoredMesh(VRenderer& device);
 }

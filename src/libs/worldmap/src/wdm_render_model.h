@@ -29,9 +29,9 @@ class WdmRenderModel : public WdmRenderObject
 
     virtual bool Load(const char *modelName);
 
-    void PRender(VDX9RENDER *rs) override;
-    void MRender(VDX9RENDER *rs) override;
-    void LRender(VDX9RENDER *rs) override;
+    void PRender(VRenderer *rs) override;
+    void MRender(VRenderer *rs) override;
+    void LRender(VRenderer *rs) override;
 
     void SetTech(const char *t, const char *ta);
     int32_t GetTexture(int32_t stage) const;
@@ -41,7 +41,7 @@ class WdmRenderModel : public WdmRenderObject
     float alpha;
 
   public:
-    void Render(VDX9RENDER *rs) const;
+    void Render(VRenderer *rs) const;
 
     GEOS *geo;
     const char *tech;

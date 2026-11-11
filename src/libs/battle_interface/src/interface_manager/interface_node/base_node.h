@@ -37,12 +37,12 @@ class BI_BaseNode : public BI_ManagerNodeBase
         return m_pManager;
     }
 
-    VDX9RENDER *Render() const
+    VRenderer *Render() const
     {
         return m_pRS;
     }
 
   protected:
     BI_ManagerBase *m_pManager;
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
 };

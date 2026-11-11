@@ -31,7 +31,7 @@ class TSplash
     TSplash();
     virtual ~TSplash();
 
-    void Initialize(INIFILE *_ini, SEA_BASE *sea, VDX9RENDER *_renderer);
+    void Initialize(INIFILE *_ini, SEA_BASE *sea, VRenderer *_renderer);
     void Release();
     void Start(const glm::vec3 &_pos, const glm::vec3 &_dir);
     bool Process(uint32_t dTime);
@@ -51,7 +51,7 @@ class TSplash
 
     bool enabled;
 
-    static VDX9RENDER *renderer;
+    static VRenderer *renderer;
     SEA_BASE *sea;
 
     static int32_t vBuffer, iBuffer, texture, texture2, vBuffer2, iBuffer2;

@@ -9,7 +9,7 @@
 //-------------------------------------------------------------------
 class GEOMETRY final : public VGEOMETRY
 {
-    VDX9RENDER *RenderService;
+    VRenderer *RenderService;
 
   public:
     GEOMETRY();
@@ -32,14 +32,14 @@ class GEOM_SERVICE_R final : public GEOM_SERVICE
 {
     static storm::render::VertexDeclarationId vertexDecl_;
 
-    VDX9RENDER *RenderService;
+    VRenderer *RenderService;
     GEOS::ID CurentIndexBuffer;
     GEOS::ID CurentVertexBuffer;
     uint32_t CurentVertexBufferSize;
     bool bCaustic;
 
   public:
-    void SetRenderService(VDX9RENDER *render_service);
+    void SetRenderService(VRenderer *render_service);
 
     std::fstream OpenFile(const char *fname);
     int FileSize(const char *fname);

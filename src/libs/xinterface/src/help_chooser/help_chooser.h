@@ -4,7 +4,7 @@
 
 class HELPCHOOSER : public Entity
 {
-    VDX9RENDER *rs;
+    VRenderer *rs;
 
   public:
     HELPCHOOSER();

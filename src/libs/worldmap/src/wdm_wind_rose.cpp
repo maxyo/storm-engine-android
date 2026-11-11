@@ -36,7 +36,7 @@ void WdmWindRose::Update(float dltTime)
 {
 }
 
-void WdmWindRose::LRender(VDX9RENDER *rs)
+void WdmWindRose::LRender(VRenderer *rs)
 {
     static glm::mat4 view, prj, oldView, oldPrj;
     rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(view));

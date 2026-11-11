@@ -279,7 +279,7 @@ int32_t CXI_UTILS::SplitStringByWidth(const char *pcText, int32_t nFontID, float
     const auto *const pcSrcStr = pcText;
     if (pcSrcStr == nullptr)
         return nMaxUsingWidth;
-    auto *rs = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    auto *rs = static_cast<VRenderer *>(core.GetService("dx9render"));
     asOutStr.clear();
 
     int32_t nSrc = 0;
@@ -410,7 +410,7 @@ void CXI_UTILS::WriteSquareToVertexBuffer(XI_ONETEX_VERTEX *pv, uint32_t color, 
     pv[3].tv = uv.bottom;
 }
 
-void CXI_UTILS::PrintTextIntoWindow(VDX9RENDER *pRender, int32_t nFont, uint32_t dwColor, int32_t wAlignment, bool bShadow,
+void CXI_UTILS::PrintTextIntoWindow(VRenderer *pRender, int32_t nFont, uint32_t dwColor, int32_t wAlignment, bool bShadow,
                                     float fScale, int32_t scrWidth, int32_t scrHeight, int32_t x, int32_t y, const char *pcString,
                                     int32_t left, int32_t top, int32_t width, int32_t height)
 {

@@ -40,7 +40,7 @@ class BLADE : public Entity
 
         BLADE_INFO();
         ~BLADE_INFO();
-        void DrawBlade(VDX9RENDER *rs, unsigned int blendValue, MODEL *mdl, NODE *manNode);
+        void DrawBlade(VRenderer *rs, unsigned int blendValue, MODEL *mdl, NODE *manNode);
         bool LoadBladeModel(MESSAGE &message);
     };
 
@@ -63,11 +63,11 @@ class BLADE : public Entity
         }
 
         void Release();
-        void DrawItem(VDX9RENDER *rs, unsigned int blendValue, MODEL *mdl, NODE *manNode);
+        void DrawItem(VRenderer *rs, unsigned int blendValue, MODEL *mdl, NODE *manNode);
         bool LoadItemModel(const char *mdlName, const char *locName);
     };
 
-    VDX9RENDER *rs;
+    VRenderer *rs;
     COLLIDE *col;
     entid_t man;
     unsigned int blendValue;

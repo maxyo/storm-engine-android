@@ -30,7 +30,7 @@ Blood::~Blood()
 // Initialization
 bool Blood::Init()
 {
-    pRS = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
     Assert(pRS);
 
     pCol = static_cast<COLLIDE *>(core.GetService("coll"));

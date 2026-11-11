@@ -3,7 +3,7 @@
 #include "image.h"
 #include "img_render.h"
 
-BIImageMaterial::BIImageMaterial(VDX9RENDER *pRS, BIImageRender *pImgRender)
+BIImageMaterial::BIImageMaterial(VRenderer *pRS, BIImageRender *pImgRender)
 {
     m_pRS = pRS;
     m_pImageRender = pImgRender;

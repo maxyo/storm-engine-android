@@ -26,7 +26,7 @@ class WdmWindUI : public WdmInterfaceObject
 
     void SetAttributes(ATTRIBUTES *apnt);
     // Rendering
-    void LRender(VDX9RENDER *rs) override;
+    void LRender(VRenderer *rs) override;
 
     // --------------------------------------------------------------------------------------------
     // Encapsulation

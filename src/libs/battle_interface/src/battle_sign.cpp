@@ -4,7 +4,7 @@
 #include "core.h"
 #include "vma.hpp"
 
-BISignIcon::BISignIcon(entid_t BIEntityID, VDX9RENDER *pRS)
+BISignIcon::BISignIcon(entid_t BIEntityID, VRenderer *pRS)
 {
     Assert(pRS);
 

@@ -75,7 +75,7 @@ class SHIP : public SHIP_BASE
     entid_t model_id, sphere[36];
     entid_t sail_id, rope_id, flag_id, cannon_id, vant_id, vantl_id, vantz_id, touch_id, sea_id, blots_id;
 
-    static VDX9RENDER *pRS;
+    static VRenderer *pRS;
     static SEA_BASE *pSea;
     static ISLAND_BASE *pIsland;
     static COLLIDE *pCollide;

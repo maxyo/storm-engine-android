@@ -16,7 +16,7 @@
 class WdmCloud : public WdmRenderObject
 {
     static storm::render::VertexDeclarationId vertexDecl_;
-    void CreateVertexDeclaration(VDX9RENDER *rs);
+    void CreateVertexDeclaration(VRenderer *rs);
 
     struct MoveInfo
     {
@@ -56,8 +56,8 @@ class WdmCloud : public WdmRenderObject
     // Calculations
     void Update(float dltTime) override;
     // Rendering
-    void PRender(VDX9RENDER *rs) override;
-    void LRender(VDX9RENDER *rs) override;
+    void PRender(VRenderer *rs) override;
+    void LRender(VRenderer *rs) override;
 
     virtual void Move(float dltTime);
 
@@ -94,7 +94,7 @@ class WdmCloud : public WdmRenderObject
     float rainBurnTime;
 
   private:
-    void Render(VDX9RENDER *rs);
+    void Render(VRenderer *rs);
     void FindPartPos(glm::vec3 &v);
     float Rnd();
 };

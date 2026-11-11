@@ -65,7 +65,7 @@ class AIBalls : public Entity
     std::vector<BALL_TYPE> aBallTypes; // Balls types container
     std::vector<RS_RECT> aBallRects;   // Balls container for render
 
-    VDX9RENDER *rs{};
+    VRenderer *rs{};
 
     void AddBall(ATTRIBUTES *pABall);
 

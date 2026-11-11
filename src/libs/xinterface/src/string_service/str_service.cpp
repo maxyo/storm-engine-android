@@ -270,7 +270,7 @@ void STRSERVICE::SetLanguage(const char *sLanguage)
     //==========================================================================
     // reread fonts
     //==========================================================================
-    auto *RenderService = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    auto *RenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
     if (RenderService)
     {
         char fullIniPath[512];
@@ -1108,7 +1108,7 @@ uint32_t _SetColorCorrection(VS_STACK *pS)
     float fContrast = 1.f;
     pContrast->Get(fContrast);
 
-    auto pVR = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    auto pVR = static_cast<VRenderer *>(core.GetService("dx9render"));
     if (!pVR)
         return IFUNCRESULT_FAILED;
 

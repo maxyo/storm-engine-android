@@ -3,7 +3,7 @@
 #include "platform/android_ui.hpp"
 #endif
 
-void SubRightWord(char *buf, int fontNum, int width, VDX9RENDER *rs)
+void SubRightWord(char *buf, int fontNum, int width, VRenderer *rs)
 {
     if (buf == nullptr)
         return;
@@ -149,7 +149,7 @@ void CXI_QUESTTITLE::Draw(bool bSelected, uint32_t Delta_Time)
     }
 }
 
-bool CXI_QUESTTITLE::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs,
+bool CXI_QUESTTITLE::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VRenderer *rs,
                           XYRECT &hostRect, XYPOINT &ScreenSize)
 {
     if (!CINODE::Init(ini1, name1, ini2, name2, rs, hostRect, ScreenSize))

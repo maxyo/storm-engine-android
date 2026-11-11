@@ -5,7 +5,7 @@
 #include "shared/battle_interface/msg_control.h"
 #include "vma.hpp"
 
-BIManCommandList::BIManCommandList(entid_t eid, ATTRIBUTES *pA, VDX9RENDER *rs) : BICommandList(eid, pA, rs)
+BIManCommandList::BIManCommandList(entid_t eid, ATTRIBUTES *pA, VRenderer *rs) : BICommandList(eid, pA, rs)
 {
     Init();
 }

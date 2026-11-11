@@ -90,7 +90,7 @@ class Blots : public Entity
     void LoadBlot(int32_t i);
 
   private:
-    VDX9RENDER *rs;
+    VRenderer *rs;
     entid_t model;
     int32_t textureID;
     ATTRIBUTES *blotsInfo;

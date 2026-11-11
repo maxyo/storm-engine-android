@@ -440,7 +440,7 @@ void BATTLE_NAVIGATOR::FillOneSideFireRange(BI_NOTEXTURE_VERTEX *pv, ATTRIBUTES 
     }
 }
 
-void BATTLE_NAVIGATOR::Init(VDX9RENDER *RenderService, Entity *pOwnerEI)
+void BATTLE_NAVIGATOR::Init(VRenderer *RenderService, Entity *pOwnerEI)
 {
     int i;
     const char *tmpstr;

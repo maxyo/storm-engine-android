@@ -67,7 +67,7 @@ class CXI_IMAGE
     }
 
   protected:
-    VDX9RENDER *m_rs;
+    VRenderer *m_rs;
 
     bool m_bDisableDraw;
     char *m_pcPictureListName;

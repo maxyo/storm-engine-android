@@ -44,6 +44,6 @@ class BALLSPLASH : public Entity
     TSplash *TryToAddSplash(const glm::vec3 &_pos, const glm::vec3 &_dir);
 
     TSplash splashes[MAX_SPLASHES];
-    VDX9RENDER *renderer;
+    VRenderer *renderer;
     SEA_BASE *sea;
 };

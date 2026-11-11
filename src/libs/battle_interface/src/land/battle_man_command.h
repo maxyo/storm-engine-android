@@ -8,7 +8,7 @@
 class BIManCommandList : public BICommandList
 {
   public:
-    BIManCommandList(entid_t eid, ATTRIBUTES *pA, VDX9RENDER *rs);
+    BIManCommandList(entid_t eid, ATTRIBUTES *pA, VRenderer *rs);
     ~BIManCommandList() override;
 
     void FillIcons() override;

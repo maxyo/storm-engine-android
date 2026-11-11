@@ -4,7 +4,7 @@
 
 #include <algorithm>
 
-BIImageRender::BIImageRender(VDX9RENDER *pRS)
+BIImageRender::BIImageRender(VRenderer *pRS)
     : m_nBeginOutputPrioritet(0), m_nEndOutputPrioritet(0)
 {
     m_pRS = pRS;

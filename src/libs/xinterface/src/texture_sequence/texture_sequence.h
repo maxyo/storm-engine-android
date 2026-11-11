@@ -8,7 +8,7 @@
 //-----------------------------------------------------------------------------
 class TextureSequence : public CVideoTexture
 {
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
     int32_t m_xQuantity;
     int32_t m_yQuantity;
     int32_t m_texWidth;
@@ -30,7 +30,7 @@ class TextureSequence : public CVideoTexture
     TextureSequence();
     ~TextureSequence() override;
 
-    int32_t Initialize(VDX9RENDER *pRS, const char *cTSfileName, bool bCicled) override;
+    int32_t Initialize(VRenderer *pRS, const char *cTSfileName, bool bCicled) override;
     bool FrameUpdate() override;
     void Release() override;
     void LostRender();

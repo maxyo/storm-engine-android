@@ -71,7 +71,7 @@ class Blood : public Entity
     static bool AddClipPoligon(const glm::vec3 *v, int32_t nv);
 
   protected:
-    VDX9RENDER *pRS;
+    VRenderer *pRS;
     COLLIDE *pCol;
     int32_t texID;
 

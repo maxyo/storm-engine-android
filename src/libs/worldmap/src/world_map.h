@@ -19,7 +19,7 @@ class ATTRIBUTES;
 class MESSAGE;
 class WdmRenderObject;
 class WdmRenderModel;
-class VDX9RENDER;
+class VRenderer;
 class WdmCamera;
 class WdmEventWindow;
 class WdmWaitMenu;
@@ -93,7 +93,7 @@ class WorldMap : public Entity
 
     //--------------------------------------------------------------------------------------------
 
-    VDX9RENDER *GetRS() const;
+    VRenderer *GetRS() const;
 
     // --------------------------------------------------------------------------------------------
     // Encapsulation
@@ -131,7 +131,7 @@ class WorldMap : public Entity
 
   private:
     // Render service
-    VDX9RENDER *rs;
+    VRenderer *rs;
     WdmCamera *camera;
 
     ATTRIBUTES *aStorm;
@@ -167,7 +167,7 @@ class WorldMap : public Entity
     static int32_t month[];
 };
 
-inline VDX9RENDER *WorldMap::GetRS() const
+inline VRenderer *WorldMap::GetRS() const
 {
     return rs;
 }

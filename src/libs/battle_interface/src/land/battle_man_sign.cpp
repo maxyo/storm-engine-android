@@ -10,7 +10,7 @@
 #include "core.h"
 #include "shared/battle_interface/msg_control.h"
 
-BIManSign::BIManSign(entid_t BIEntityID, VDX9RENDER *pRS)
+BIManSign::BIManSign(entid_t BIEntityID, VRenderer *pRS)
 {
     Assert(pRS);
 

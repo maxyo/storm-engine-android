@@ -84,7 +84,7 @@ class SEA_OPERATOR : public Entity
 
     bool enabled, active;
     SEA_BASE *sea;
-    VDX9RENDER *renderer;
+    VRenderer *renderer;
     SHIP_BASE *myShip, *enemyShip;
     int32_t actionTime;
     bool ballTracked;

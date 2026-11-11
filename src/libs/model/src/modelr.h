@@ -35,7 +35,7 @@ class NODER : public NODE
     glm::vec3 center;
 
     static VGEOMETRY *gs;
-    static VDX9RENDER *rs;
+    static VRenderer *rs;
 
     bool Init(const char *lightPath, const char *pname, const char *oname, const glm::mat4 &m, const glm::mat4 &globm,
               NODER *par, const char *lmPath) override;
@@ -84,7 +84,7 @@ class MODELR : public MODEL
         int32_t vb;
     };
 
-    VDX9RENDER *rs;
+    VRenderer *rs;
     VGEOMETRY *GeometyService;
     Animation *ani;
     float aniPos[ANI_MAX_ACTIONS];

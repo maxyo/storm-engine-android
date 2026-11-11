@@ -22,7 +22,7 @@ class MAST : public Entity
     bool bUse;
     bool bFallUnderWater;
     int wMoveCounter;
-    VDX9RENDER *RenderService;
+    VRenderer *RenderService;
     COLLIDE *pCollide;
     bool bModel;
     entid_t model_id, oldmodel_id;
@@ -88,7 +88,7 @@ class HULL : public Entity
         entid_t modelEI;
     } m_mount_param;
 
-    VDX9RENDER *RenderService;
+    VRenderer *RenderService;
     COLLIDE *pCollide;
     NODE *m_pHullNode;
     bool bModel;

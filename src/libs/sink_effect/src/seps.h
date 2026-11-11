@@ -108,7 +108,7 @@ class SEPS_PS
 
     bool bTrackAngle;
 
-    VDX9RENDER *RenderService;
+    VRenderer *RenderService;
     VGEOMETRY *gs;
 
     int32_t TextureID[MAX_PS_TEXTURES];

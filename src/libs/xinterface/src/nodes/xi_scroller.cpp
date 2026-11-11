@@ -73,7 +73,7 @@ void CXI_SCROLLER::Draw(bool bSelected, uint32_t Delta_Time)
     }
 }
 
-bool CXI_SCROLLER::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs,
+bool CXI_SCROLLER::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VRenderer *rs,
                         XYRECT &hostRect, XYPOINT &ScreenSize)
 {
     if (!CINODE::Init(ini1, name1, ini2, name2, rs, hostRect, ScreenSize))

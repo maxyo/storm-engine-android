@@ -3,7 +3,7 @@
 #include <algorithm>
 
 //--------------------------------------------------------------------
-IVBufferManager::IVBufferManager(VDX9RENDER *renderer_, int32_t vertex_type, int vertex_size, size_t index_count,
+IVBufferManager::IVBufferManager(VRenderer *renderer_, int32_t vertex_type, int vertex_size, size_t index_count,
                                  size_t vertex_count, size_t max_size)
     : renderer_(renderer_), max_size_(max_size),
       index_buffer_(renderer_->CreateIndexBuffer(max_size * index_count * sizeof(uint16_t))),

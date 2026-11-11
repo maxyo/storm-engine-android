@@ -36,7 +36,7 @@ WEATHER::~WEATHER()
 
 void WEATHER::SetDevice()
 {
-    pRS = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
     Assert(pRS);
 
     // LoadWeatherIni();

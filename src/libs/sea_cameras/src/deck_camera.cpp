@@ -36,7 +36,7 @@ bool DECK_CAMERA::Init()
 
 void DECK_CAMERA::SetDevice()
 {
-    RenderService = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    RenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
     Assert(RenderService);
 }
 

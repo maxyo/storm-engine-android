@@ -5,11 +5,11 @@
 namespace storm::render {
 namespace {
 class LegacyTexturedMesh final: public TexturedMesh {
-    VDX9RENDER& device_;
+    VRenderer& device_;
     int32_t vb_=-1,ib_=-1;
     size_t vertexCount_=0,indexCount_=0;
 public:
-    explicit LegacyTexturedMesh(VDX9RENDER& device):device_(device) {}
+    explicit LegacyTexturedMesh(VRenderer& device):device_(device) {}
     ~LegacyTexturedMesh() override {
         if(vb_>=0) device_.ReleaseVertexBuffer(vb_);
         if(ib_>=0) device_.ReleaseIndexBuffer(ib_);
@@ -54,5 +54,5 @@ public:
     }
 };
 }
-std::unique_ptr<TexturedMesh> makeLegacyTexturedMesh(VDX9RENDER& device) {return std::make_unique<LegacyTexturedMesh>(device);}
+std::unique_ptr<TexturedMesh> makeLegacyTexturedMesh(VRenderer& device) {return std::make_unique<LegacyTexturedMesh>(device);}
 }

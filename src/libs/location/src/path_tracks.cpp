@@ -83,7 +83,7 @@ bool PathTracks::Load(const char *fileName)
 }
 
 // Draw track
-void PathTracks::Draw(VDX9RENDER *render)
+void PathTracks::Draw(VRenderer *render)
 {
     /*render.FlushBufferedLines();
     for(int32_t i = 0; i < numPoints - 1; i++)

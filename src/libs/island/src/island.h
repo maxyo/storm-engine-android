@@ -72,7 +72,7 @@ class ISLAND : public ISLAND_BASE
     uint8_t *pDepthMap;
     uint8_t *pShadowMap;
 
-    VDX9RENDER *pRS;
+    VRenderer *pRS;
     VGEOMETRY *pGS;
     COLLIDE *pCollide;
 

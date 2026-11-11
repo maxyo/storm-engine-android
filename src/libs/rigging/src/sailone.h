@@ -177,7 +177,7 @@ class SAILONE : public SAILONE_BASE
     friend SAIL;
 
   public:
-    VDX9RENDER *RenderService;
+    VRenderer *RenderService;
     SAILONE();
     ~SAILONE();
     bool SetSail();

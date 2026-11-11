@@ -28,7 +28,7 @@ bool LIGHTNING::Init()
 
 void LIGHTNING::SetDevice()
 {
-    pRS = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
     Assert(pRS);
     pCollide = static_cast<COLLIDE *>(core.GetService("COLL"));
     Assert(pCollide);

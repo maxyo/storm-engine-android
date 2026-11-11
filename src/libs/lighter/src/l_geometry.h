@@ -47,11 +47,11 @@ class LGeometry
     // Add object
     void AddObject(const char *name, entid_t model);
     // Process data
-    bool Process(VDX9RENDER *rs, int32_t numLights);
+    bool Process(VRenderer *rs, int32_t numLights);
     // Draw normals
-    void DrawNormals(VDX9RENDER *rs);
+    void DrawNormals(VRenderer *rs);
     // Update colors in buffers
-    void UpdateColors(VDX9RENDER *rs);
+    void UpdateColors(VRenderer *rs);
     // Trace the ray through all models
     float Trace(const glm::vec3 &src, const glm::vec3 &dst);
     // Save lighting

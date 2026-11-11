@@ -28,7 +28,7 @@ class TButterflies
   private:
     void LoadSettings();
 
-    VDX9RENDER *renderService;
+    VRenderer *renderService;
     COLLIDE *collide;
     IVBufferManager *ivManager;
     entid_t butterflyModel;

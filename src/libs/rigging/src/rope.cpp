@@ -5,7 +5,7 @@
 #include "shared/sail_msg.h"
 #include "ship_base.h"
 
-extern void sailPrint(VDX9RENDER *rs, const glm::vec3 &pos3D, float rad, int32_t line, const char *format, ...);
+extern void sailPrint(VRenderer *rs, const glm::vec3 &pos3D, float rad, int32_t line, const char *format, ...);
 
 ROPE::ROPE()
 {
@@ -71,7 +71,7 @@ bool ROPE::Init()
 void ROPE::SetDevice()
 {
     // get render service
-    RenderService = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    RenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
     if (!RenderService)
     {
         throw std::runtime_error("No service: dx9render");

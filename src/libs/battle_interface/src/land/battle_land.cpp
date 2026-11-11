@@ -23,7 +23,7 @@ BATTLE_LAND_INTERFACE::~BATTLE_LAND_INTERFACE()
 
 bool BATTLE_LAND_INTERFACE::Init()
 {
-    m_pRS = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    m_pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
     if (!m_pRS)
     {
         throw std::runtime_error("Can`t create render service");

@@ -38,7 +38,7 @@ void TButterflies::Init()
 {
     LoadSettings();
 
-    renderService = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    renderService = static_cast<VRenderer *>(core.GetService("dx9render"));
     if (!renderService)
         throw std::runtime_error("!Butterflies: No service 'dx9render'");
 

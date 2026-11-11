@@ -314,7 +314,7 @@ void WdmClouds::Update(float dltTime)
 }
 
 // Drawing
-void WdmClouds::LRender(VDX9RENDER *rs)
+void WdmClouds::LRender(VRenderer *rs)
 {
     int32_t cnt = 0;
     // Getting camera frustum
@@ -379,7 +379,7 @@ void WdmClouds::LRender(VDX9RENDER *rs)
     // rs->Print(20, 200, "Visible clouds = %i, Visible particles = %i", cnt, count);
 }
 
-void WdmClouds::CreateVertexDeclaration(VDX9RENDER *rs)
+void WdmClouds::CreateVertexDeclaration(VRenderer *rs)
 {
     if (vertexDecl_)
         return;

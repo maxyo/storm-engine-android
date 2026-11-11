@@ -48,7 +48,7 @@ BLADE::BLADE_INFO::~BLADE_INFO()
     core.EraseEntity(eid);
 }
 
-void BLADE::BLADE_INFO::DrawBlade(VDX9RENDER *rs, unsigned int blendValue, MODEL *mdl, NODE *manNode)
+void BLADE::BLADE_INFO::DrawBlade(VRenderer *rs, unsigned int blendValue, MODEL *mdl, NODE *manNode)
 {
     auto *obj = static_cast<MODEL *>(core.GetEntityPointer(eid));
     if (obj != nullptr)
@@ -233,7 +233,7 @@ bool BLADE::Init()
 
     core.AddToLayer(REALIZE, GetId(), 65550);
 
-    rs = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
     if (!rs)
         throw std::runtime_error("No service: dx9render");
 
@@ -607,7 +607,7 @@ void BLADE::TIEITEM_INFO::Release()
     }
 }
 
-void BLADE::TIEITEM_INFO::DrawItem(VDX9RENDER *rs, unsigned int blendValue, MODEL *mdl, NODE *manNode)
+void BLADE::TIEITEM_INFO::DrawItem(VRenderer *rs, unsigned int blendValue, MODEL *mdl, NODE *manNode)
 {
     auto *obj = static_cast<MODEL *>(core.GetEntityPointer(eid));
     if (obj != nullptr)

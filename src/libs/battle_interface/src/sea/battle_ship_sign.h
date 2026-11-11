@@ -29,7 +29,7 @@ class BIShipIcon
 
     BIShipIcon(BIShipIcon &&) = delete;
     BIShipIcon(const BIShipIcon &) = delete;
-    BIShipIcon(entid_t BIEntityID, VDX9RENDER *pRS);
+    BIShipIcon(entid_t BIEntityID, VRenderer *pRS);
     ~BIShipIcon();
 
     void Draw();
@@ -79,7 +79,7 @@ class BIShipIcon
 
     int32_t GetShipClass(int32_t nCharIdx);
 
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
 
     int32_t m_nVBufID;
     int32_t m_nIBufID;

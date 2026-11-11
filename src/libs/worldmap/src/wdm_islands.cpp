@@ -638,7 +638,7 @@ void WdmIslands::Update(float dltTime)
     }
 }
 
-void WdmIslands::LRender(VDX9RENDER *rs)
+void WdmIslands::LRender(VRenderer *rs)
 {
     // Draw a patch if needed
     if (wdmObjects->isDebug)
@@ -997,7 +997,7 @@ void WdmIslandWaves::Update(float dltTime)
         phase -= 1.0f;
 }
 
-void WdmIslandWaves::LRender(VDX9RENDER *rs)
+void WdmIslandWaves::LRender(VRenderer *rs)
 {
     const float fullPeriod = 0.8f;
     float k = phase * (1.0f / fullPeriod);
@@ -1020,7 +1020,7 @@ void WdmIslandWaves::LRender(VDX9RENDER *rs)
     }
 }
 
-void WdmIslandWaves::Render(VDX9RENDER *rs, float k)
+void WdmIslandWaves::Render(VRenderer *rs, float k)
 {
     // Setting the matrix for the texture
     // k = 0.5f + 0.5f * sinf (k * 2.0f * PI);

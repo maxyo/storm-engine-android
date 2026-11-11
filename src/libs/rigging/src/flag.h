@@ -46,7 +46,7 @@ class FLAG : public Entity
     bool bUse;
     bool bFirstRun;
     bool verticesNeedUpdate_ = true;
-    VDX9RENDER *RenderService;
+    VRenderer *RenderService;
     std::string textureName_;
     int32_t texl;
 

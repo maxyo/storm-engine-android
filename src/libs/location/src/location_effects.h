@@ -15,7 +15,7 @@
 #include "vma.hpp"
 
 class MESSAGE;
-class VDX9RENDER;
+class VRenderer;
 
 #define LFX_SPLASHES_SECT 16
 
@@ -123,7 +123,7 @@ class LocationEffects : public Entity
                        int32_t numU = 0);
 
   private:
-    VDX9RENDER *rs;
+    VRenderer *rs;
 
     // ---------------------------------------------------
     // Ѕplashes from the character

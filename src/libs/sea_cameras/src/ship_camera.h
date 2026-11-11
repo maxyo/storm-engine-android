@@ -36,7 +36,7 @@ class SHIP_CAMERA : public COMMON_CAMERA
     SEA_BASE *pSea;
     ISLAND_BASE *pIsland;
     int32_t lIlsInitCnt;
-    VDX9RENDER *pRS;
+    VRenderer *pRS;
 
     void Move(float fDeltaTime);
 

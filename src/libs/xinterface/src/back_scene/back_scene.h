@@ -78,7 +78,7 @@ class InterfaceBackScene : public Entity
     }
 
   protected:
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
 
     entid_t m_eiModel;
     MODEL *m_pModel;

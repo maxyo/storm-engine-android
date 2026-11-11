@@ -15,7 +15,7 @@
 
 #define PTCDATA_MAXSTEPS 32
 
-class VDX9RENDER;
+class VRenderer;
 
 class PtcData
 {
@@ -72,7 +72,7 @@ class PtcData
     glm::vec3 middle;
 
     // Debug rendering
-    void DebugDraw(VDX9RENDER *rs, float dltTime);
+    void DebugDraw(VRenderer *rs, float dltTime);
 
     // --------------------------------------------------------------------------------------------
     // Encapsulation

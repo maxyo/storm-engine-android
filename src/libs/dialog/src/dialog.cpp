@@ -16,7 +16,7 @@ CREATE_CLASS(DIALOG)
 #define DIALOG_BOTTOM_LINESPACE 12
 #define DIALOG_TOP_LINESPACE 12
 
-VDX9RENDER *DIALOG::RenderService = nullptr;
+VRenderer *DIALOG::RenderService = nullptr;
 FRECT DIALOG::m_frScreenData;
 
 inline void SetVerticesForSquare(XI_TEX_VERTEX *pV, FRECT uv, float left, float top, float right, float bottom)
@@ -95,7 +95,7 @@ void DIALOG::DlgTextDescribe::ChangeText(const std::string_view text)
     pageBreaks_ = storm::dialog::SplitIntoPages(asText.size(), nShowQuantity, forced_page_breaks);
 }
 
-void DIALOG::DlgTextDescribe::Init(VDX9RENDER *pRS, D3DVIEWPORT9 &vp, INIFILE *pIni)
+void DIALOG::DlgTextDescribe::Init(VRenderer *pRS, D3DVIEWPORT9 &vp, INIFILE *pIni)
 {
     Assert(pRS);
 
@@ -590,7 +590,7 @@ bool DIALOG::Init()
     core.SetTimeScale(0.f);
     unfadeTime = 0;
 
-    RenderService = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    RenderService = static_cast<VRenderer *>(core.GetService("dx9render"));
     Assert(RenderService);
 
     snd = static_cast<VSoundService *>(core.GetService("SoundService"));
@@ -620,7 +620,7 @@ bool DIALOG::Init()
     return true;
 }
 
-void DIALOG::InitLinks(VDX9RENDER *pRS, D3DVIEWPORT9 &vp, INIFILE *pIni)
+void DIALOG::InitLinks(VRenderer *pRS, D3DVIEWPORT9 &vp, INIFILE *pIni)
 {
     linkDescribe_.Init();
 

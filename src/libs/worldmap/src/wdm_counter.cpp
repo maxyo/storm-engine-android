@@ -120,7 +120,7 @@ void WdmCounter::Update(float dltTime)
 {
 }
 
-void WdmCounter::LRender(VDX9RENDER *rs)
+void WdmCounter::LRender(VRenderer *rs)
 {
     // Camera matrix
     static glm::mat4 view, prj, oldPrj;
@@ -280,7 +280,7 @@ bool WdmCounter::LoadModel(WdmRenderModel *&pnt, const char *name, const char *t
     return true;
 }
 
-void WdmCounter::DrawNum(VDX9RENDER *rs, WdmRenderModel *m, float u, float v)
+void WdmCounter::DrawNum(VRenderer *rs, WdmRenderModel *m, float u, float v)
 {
     glm::mat4 mtx;
     mtx[0][0] = 0.25f;

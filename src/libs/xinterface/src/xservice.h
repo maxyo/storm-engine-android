@@ -29,7 +29,7 @@ class XSERVICE : public VXSERVICE
     ~XSERVICE() override;
 
     // initialization of service
-    void Init(VDX9RENDER *pRS, int32_t lWidth, int32_t lHight) override;
+    void Init(VRenderer *pRS, int32_t lWidth, int32_t lHight) override;
 
     // get texture identificator for image group
     int32_t GetTextureID(const char *sImageListName) override;
@@ -59,7 +59,7 @@ class XSERVICE : public VXSERVICE
     void LoadAllPicturesInfo();
 
   protected:
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
 
     int32_t m_dwListQuantity;
     int32_t m_dwImageQuantity;
@@ -76,7 +76,7 @@ class XSERVICE : public VXSERVICE
 
 class ComboString
 {
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
 
     struct STRING_DESCR
     {

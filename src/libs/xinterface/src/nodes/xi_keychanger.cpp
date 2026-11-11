@@ -133,7 +133,7 @@ void CXI_KEYCHANGER::SetChoosingControls(ATTRIBUTES *pA)
     }
 }
 
-bool CXI_KEYCHANGER::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs,
+bool CXI_KEYCHANGER::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VRenderer *rs,
                           XYRECT &hostRect, XYPOINT &ScreenSize)
 {
     SetGlowCursor(false);

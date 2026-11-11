@@ -15,7 +15,7 @@ TSink::~TSink()
 }
 
 //--------------------------------------------------------------------
-void TSink::Initialize(INIFILE *_ini, SEA_BASE *_sea, VDX9RENDER *_renderer)
+void TSink::Initialize(INIFILE *_ini, SEA_BASE *_sea, VRenderer *_renderer)
 {
     sea = _sea;
     renderer = _renderer;

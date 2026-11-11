@@ -48,5 +48,5 @@ class SOUND : public Entity
 
   private:
     VSoundService *soundService;
-    VDX9RENDER *renderer;
+    VRenderer *renderer;
 };

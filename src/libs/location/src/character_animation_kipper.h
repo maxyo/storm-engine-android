@@ -14,7 +14,7 @@
 #include "entity.h"
 #include "vma.hpp"
 
-class VDX9RENDER;
+class VRenderer;
 
 class CharacterAnimationKipper : public Entity
 {
@@ -37,7 +37,7 @@ class CharacterAnimationKipper : public Entity
     // Encapsulation
     // --------------------------------------------------------------------------------------------
   private:
-    VDX9RENDER *rs;
+    VRenderer *rs;
 
     AnimationService *asr;
     Animation *aniMan;

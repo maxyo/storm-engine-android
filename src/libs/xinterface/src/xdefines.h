@@ -260,7 +260,7 @@ inline void PICTURE_TEXTURE_RELEASE(VXSERVICE *ps, const char *gn, int32_t &tex)
     }
 }
 
-inline void VIDEOTEXTURE_RELEASE(VDX9RENDER *rs, CVideoTexture *tex)
+inline void VIDEOTEXTURE_RELEASE(VRenderer *rs, CVideoTexture *tex)
 {
     if (rs != nullptr && tex != nullptr)
     {

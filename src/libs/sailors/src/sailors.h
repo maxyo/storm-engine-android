@@ -158,7 +158,7 @@ class Sailors : public Entity
         }
     }
 
-    VDX9RENDER *rs;
+    VRenderer *rs;
     std::vector<ShipWalk> shipWalk;
     bool editorMode;
     bool disabled;

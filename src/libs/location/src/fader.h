@@ -52,7 +52,7 @@ class Fader : public Entity
     // Encapsulation
     // --------------------------------------------------------------------------------------------
   private:
-    VDX9RENDER *rs;
+    VRenderer *rs;
     int32_t tex; // renderer texture id of the captured start frame
 
     bool isWork;

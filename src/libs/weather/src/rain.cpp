@@ -189,7 +189,7 @@ void RAIN::GenerateRain()
 
 bool RAIN::Init()
 {
-    rs = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
     cs = static_cast<COLLIDE *>(core.GetService("coll"));
 
     SetDevice();

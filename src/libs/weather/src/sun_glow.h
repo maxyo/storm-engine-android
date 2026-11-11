@@ -109,7 +109,7 @@ class SUNGLOW : public Entity
     COLLIDE *pCollide;
     WEATHER_BASE *pWeather;
     SKY *pSky;
-    VDX9RENDER *pRS;
+    VRenderer *pRS;
     int32_t idRectBuf;
 
     std::vector<RS_RECT> aRSR;

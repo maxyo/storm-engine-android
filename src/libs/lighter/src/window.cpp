@@ -80,7 +80,7 @@ Window::~Window()
     }
 }
 
-bool Window::Init(VDX9RENDER *rs)
+bool Window::Init(VRenderer *rs)
 {
     this->rs = rs;
     Assert(rs);

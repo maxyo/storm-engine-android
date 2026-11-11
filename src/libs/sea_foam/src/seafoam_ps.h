@@ -106,7 +106,7 @@ class SEAFOAM_PS : VPARTICLE_SYSTEM
 
     bool bTrackAngle;
 
-    VDX9RENDER *RenderService;
+    VRenderer *RenderService;
     VGEOMETRY *gs;
 
     int32_t TextureID[MAX_PS_TEXTURES];

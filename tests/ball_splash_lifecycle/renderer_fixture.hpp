@@ -3,11 +3,11 @@
 #include <cstdint>
 #include <map>
 #include <vector>
-struct VDX9RENDER {
+struct VRenderer {
     int next=1, created=0, released=0;
     std::map<int,std::vector<uint16_t>> indices;
     std::map<int,int> vertices,textures;
-    ~VDX9RENDER(){assert(indices.empty()&&vertices.empty()&&textures.empty());}
+    ~VRenderer(){assert(indices.empty()&&vertices.empty()&&textures.empty());}
     int CreateIndexBuffer(int bytes,int){int id=next++;++created;indices[id].resize(bytes/2);return id;}
     int CreateVertexBuffer(int,int bytes,int){int id=next++;++created;vertices[id]=bytes;return id;}
     int TextureCreate(const char *){int id=next++;++created;textures[id]=1;return id;}

@@ -57,7 +57,7 @@ class ParticleManager : public IParticleManager
     // The service that created the system
     ParticleService *pService;
 
-    VDX9RENDER *pRS;
+    VRenderer *pRS;
 
     void DeleteAllSystems();
 
@@ -87,7 +87,7 @@ class ParticleManager : public IParticleManager
     bool Release() override;
 
     // Get a pointer to Render / FileService
-    VDX9RENDER *Render() override;
+    VRenderer *Render() override;
 
     // Open project
     bool OpenProject(const char *FileName) override;

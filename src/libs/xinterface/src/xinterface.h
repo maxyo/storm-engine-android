@@ -24,7 +24,7 @@ class XINTERFACE : public XINTERFACE_BASE
     storm::QuestFileReader *pQuestService;
     VXSERVICE *pPictureService;
     VSTRSERVICE *pStringService;
-    VDX9RENDER *pRenderService;
+    VRenderer *pRenderService;
 
     CXI_UTILS m_UtilContainer;
 
@@ -131,7 +131,7 @@ class XINTERFACE : public XINTERFACE_BASE
         return pThis->pStringService;
     }
 
-    static VDX9RENDER *GetRenderService()
+    static VRenderer *GetRenderService()
     {
         return pThis->pRenderService;
     }
@@ -151,7 +151,7 @@ class XINTERFACE : public XINTERFACE_BASE
         return pStringService;
     }
 
-    VDX9RENDER *RenderService() override
+    VRenderer *RenderService() override
     {
         return pRenderService;
     }

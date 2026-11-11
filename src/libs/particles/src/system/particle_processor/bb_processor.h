@@ -32,7 +32,7 @@ class BillBoardProcessor
         float AddPowerK;
     };
 
-    VDX9RENDER *pRS;
+    VRenderer *pRS;
     // Buffers for rendering billboards
     int32_t pVBuffer;
     int32_t pIBuffer;

@@ -478,7 +478,7 @@ bool CINODE::CheckCommandUsed(int comCode) const
     return m_pCommands[i].bUse;
 }
 
-bool CINODE::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs, XYRECT &hostRect,
+bool CINODE::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VRenderer *rs, XYRECT &hostRect,
                   XYPOINT &ScreenSize)
 {
     char param[512];

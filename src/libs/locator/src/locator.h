@@ -20,7 +20,7 @@ class LOCATOR : public Entity
     };
 
     VGEOMETRY *gs;
-    VDX9RENDER *rs;
+    VRenderer *rs;
     GEOS *geo;
     int32_t groupID;
     int32_t stringIndex;

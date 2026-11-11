@@ -7,12 +7,12 @@
 namespace storm::render {
 namespace {
 class LegacyColoredMesh final:public ColoredMesh {
-    VDX9RENDER& device_;
+    VRenderer& device_;
     int32_t vertices_=-1,indices_=-1;
     size_t vertexCount_=0;
     std::vector<uint16_t> topology_;
 public:
-    explicit LegacyColoredMesh(VDX9RENDER& device):device_(device) {}
+    explicit LegacyColoredMesh(VRenderer& device):device_(device) {}
     ~LegacyColoredMesh() override {
         if(vertices_>=0) device_.ReleaseVertexBuffer(vertices_);
         if(indices_>=0) device_.ReleaseIndexBuffer(indices_);
@@ -59,5 +59,5 @@ public:
     }
 };
 }
-std::unique_ptr<ColoredMesh> makeLegacyColoredMesh(VDX9RENDER& device) {return std::make_unique<LegacyColoredMesh>(device);}
+std::unique_ptr<ColoredMesh> makeLegacyColoredMesh(VRenderer& device) {return std::make_unique<LegacyColoredMesh>(device);}
 }

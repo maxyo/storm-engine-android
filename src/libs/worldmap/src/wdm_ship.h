@@ -54,7 +54,7 @@ class WdmShip : public WdmRenderModel
     bool Load(const char *modelName) override;
     // Calculations
     void Update(float dltTime) override;
-    void LRender(VDX9RENDER *rs) override;
+    void LRender(VRenderer *rs) override;
 
     // true if free
     static bool CheckPosition(float x, float z, float objRadius);

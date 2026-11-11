@@ -4,7 +4,7 @@
 
 class ILogAndActions : public Entity
 {
-    VDX9RENDER *rs;
+    VRenderer *rs;
 
     struct STRING_DESCR
     {

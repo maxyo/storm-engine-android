@@ -365,7 +365,7 @@ uint32_t ModelArray::CalcHashString(const char *str)
     return hval;
 }
 
-void ModelArray::UVSlider::Set(MODEL *model, VDX9RENDER *rs)
+void ModelArray::UVSlider::Set(MODEL *model, VRenderer *rs)
 {
     static glm::mat4 mtx;
     mtx[2][0] = u0;
@@ -378,7 +378,7 @@ void ModelArray::UVSlider::Set(MODEL *model, VDX9RENDER *rs)
     rs->SetTextureStageState(1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
 }
 
-void ModelArray::UVSlider::Restore(MODEL *model, VDX9RENDER *rs)
+void ModelArray::UVSlider::Restore(MODEL *model, VRenderer *rs)
 {
     static glm::mat4 mtx;
     rs->SetTransform(D3DTS_TEXTURE0, storm::math::d3dMatrix(mtx));
@@ -387,7 +387,7 @@ void ModelArray::UVSlider::Restore(MODEL *model, VDX9RENDER *rs)
     rs->SetTextureStageState(1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
 }
 
-void ModelArray::Relection::Set(MODEL *model, VDX9RENDER *rs)
+void ModelArray::Relection::Set(MODEL *model, VRenderer *rs)
 {
     glm::mat4 mtx;
     rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mtx));
@@ -397,7 +397,7 @@ void ModelArray::Relection::Set(MODEL *model, VDX9RENDER *rs)
     rs->SetRenderState(D3DRS_TEXTUREFACTOR, tfactor);
 }
 
-void ModelArray::Relection::Restore(MODEL *model, VDX9RENDER *rs)
+void ModelArray::Relection::Restore(MODEL *model, VRenderer *rs)
 {
     const glm::mat4 mtx;
     rs->SetTransform(D3DTS_TEXTURE1, storm::math::d3dMatrix(mtx));

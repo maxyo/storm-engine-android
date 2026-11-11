@@ -52,7 +52,7 @@ TextureSequence::~TextureSequence()
     Release();
 }
 
-int32_t TextureSequence::Initialize(VDX9RENDER *pRS, const char *cTSfileName, bool bCicled)
+int32_t TextureSequence::Initialize(VRenderer *pRS, const char *cTSfileName, bool bCicled)
 {
     m_bCicled = bCicled;
     if (pRS == nullptr || cTSfileName == nullptr)

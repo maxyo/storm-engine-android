@@ -47,7 +47,7 @@ class ROPE : public ROPE_BASE
     char *TextureName;
     int32_t texl;
 
-    VDX9RENDER *RenderService;
+    VRenderer *RenderService;
 
   public:
     ROPE();

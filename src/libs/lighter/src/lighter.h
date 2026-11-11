@@ -57,7 +57,7 @@ class Lighter : public Entity
     void PreparingData();
 
   private:
-    VDX9RENDER *rs;
+    VRenderer *rs;
 
     LGeometry geometry;
     OctTree octTree;

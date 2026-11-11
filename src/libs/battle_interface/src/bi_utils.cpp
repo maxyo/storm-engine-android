@@ -63,7 +63,7 @@ const char *BIUtils::GetStringFromAttr(ATTRIBUTES *pA, const char *name, const c
     return aVal;
 }
 
-int32_t BIUtils::GetTextureFromAttr(VDX9RENDER *rs, ATTRIBUTES *pA, const char *sAttrName)
+int32_t BIUtils::GetTextureFromAttr(VRenderer *rs, ATTRIBUTES *pA, const char *sAttrName)
 {
     if (!rs || !pA)
         return -1;
@@ -153,7 +153,7 @@ int32_t BIUtils::GetAlignmentFromAttr(ATTRIBUTES *pA, const char *name, int32_t 
     return nDefAlign;
 }
 
-int32_t BIUtils::GetFontIDFromAttr(ATTRIBUTES *pA, const char *name, VDX9RENDER *rs, const char *pcDefFontName)
+int32_t BIUtils::GetFontIDFromAttr(ATTRIBUTES *pA, const char *name, VRenderer *rs, const char *pcDefFontName)
 {
     if (rs && pA && name)
     {
@@ -264,7 +264,7 @@ float BIUtils::GetFromStr_Float(const char *&pcStr, float fDefault)
     return static_cast<float>(atof(ctmp));
 }
 
-void BIUtils::FillTextInfoArray(VDX9RENDER *pRS, ATTRIBUTES *pA, std::vector<BITextInfo> &tia)
+void BIUtils::FillTextInfoArray(VRenderer *pRS, ATTRIBUTES *pA, std::vector<BITextInfo> &tia)
 {
     if (!pA)
         return;
@@ -331,7 +331,7 @@ void BITextInfo::Release()
     FONT_RELEASE(pRS, nFont);
 }
 
-void BITextInfo::Init(VDX9RENDER *rs, ATTRIBUTES *pA)
+void BITextInfo::Init(VRenderer *rs, ATTRIBUTES *pA)
 {
     FONT_RELEASE(pRS, nFont);
     pRS = rs;
@@ -401,7 +401,7 @@ void BILinesInfo::Release()
     lines.clear();
 }
 
-void BILinesInfo::Init(VDX9RENDER *rs, ATTRIBUTES *pA)
+void BILinesInfo::Init(VRenderer *rs, ATTRIBUTES *pA)
 {
     pRS = rs;
     if (!pA)
@@ -471,7 +471,7 @@ void BIImagesInfo::Release()
     STORM_DELETE(pImgRender);
 }
 
-void BIImagesInfo::Init(VDX9RENDER *rs, ATTRIBUTES *pA)
+void BIImagesInfo::Init(VRenderer *rs, ATTRIBUTES *pA)
 {
     if (!pA || !rs)
         return;
@@ -526,7 +526,7 @@ void BIBorderInfo::Release()
     TEXTURE_RELEASE(pRS, nTexID);
 }
 
-void BIBorderInfo::Init(VDX9RENDER *rs, ATTRIBUTES *pA)
+void BIBorderInfo::Init(VRenderer *rs, ATTRIBUTES *pA)
 {
     pRS = rs;
     nVBuf = rs->CreateVertexBuffer(BI_COLOR_VERTEX_FORMAT, 2 * 5 * sizeof(BI_COLOR_VERTEX), D3DUSAGE_WRITEONLY);

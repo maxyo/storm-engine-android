@@ -354,7 +354,7 @@ void WdmWindUI::SetAttributes(ATTRIBUTES *apnt)
 }
 
 // Rendering
-void WdmWindUI::LRender(VDX9RENDER *rs)
+void WdmWindUI::LRender(VRenderer *rs)
 {
     if (!wdmObjects->showWindUI)
     {

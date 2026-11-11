@@ -22,7 +22,7 @@ class BISignIcon
 
     BISignIcon(BISignIcon &&) = delete;
     BISignIcon(const BISignIcon &) = delete;
-    BISignIcon(entid_t BIEntityID, VDX9RENDER *pRS);
+    BISignIcon(entid_t BIEntityID, VRenderer *pRS);
     virtual ~BISignIcon();
 
     virtual void Draw();
@@ -64,7 +64,7 @@ class BISignIcon
                                         const FPOINT &size, float fClampUp, float fClampDown, float fClampLeft,
                                         float fClampRight);
 
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
 
     int32_t m_nVBufID;
     int32_t m_nIBufID;

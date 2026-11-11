@@ -303,7 +303,7 @@ void TButterfly::Draw(IVBufferManager *_ivManager)
 }
 
 //--------------------------------------------------------------------
-void TButterfly::Draw(VDX9RENDER *_renderer, MODEL *_model)
+void TButterfly::Draw(VRenderer *_renderer, MODEL *_model)
 {
     glm::mat4 moveToPos, rightWingRotate, leftWingRotate;
     moveToPos = storm::math::translation(centerPosition.x, centerPosition.y, centerPosition.z);

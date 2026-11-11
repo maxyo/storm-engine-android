@@ -25,7 +25,7 @@ class GpuSkinning
 {
     struct Source final : render::VertexSourceLifetime::Dependent
     {
-        VDX9RENDER *rs = nullptr;
+        VRenderer *rs = nullptr;
         int32_t vb = -1;
         void invalidateSource() noexcept override
         {
@@ -36,19 +36,19 @@ class GpuSkinning
         ~Source() override { invalidateSource(); }
     };
 
-    VDX9RENDER *rs_ = nullptr;
+    VRenderer *rs_ = nullptr;
     int32_t palette_ = -1; // renderer texture id
     uint32_t paletteBones_ = 0;
     bool poseUploaded_ = false;
     std::unordered_map<const void *, std::shared_ptr<Source>> sources_;
 
   public:
-    explicit GpuSkinning(VDX9RENDER *rs = nullptr) : rs_(rs) {}
+    explicit GpuSkinning(VRenderer *rs = nullptr) : rs_(rs) {}
     GpuSkinning(const GpuSkinning &) = delete;
     GpuSkinning &operator=(const GpuSkinning &) = delete;
     ~GpuSkinning() { clear(); }
 
-    void setRenderer(VDX9RENDER *rs) { rs_ = rs; }
+    void setRenderer(VRenderer *rs) { rs_ = rs; }
 
     // Releases the vertex buffers and the palette (device lost, new animation, destruction).
     void clear()

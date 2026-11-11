@@ -62,7 +62,7 @@ void ISPYGLASS::ImageParam::ChangeIcon(BIImageRender *pImgRender, const char *pc
     }
 }
 
-void ISPYGLASS::TextParam::LoadFromAttr(VDX9RENDER *rs, ATTRIBUTES *pA, const char *pcDefText, int32_t nDefXPos,
+void ISPYGLASS::TextParam::LoadFromAttr(VRenderer *rs, ATTRIBUTES *pA, const char *pcDefText, int32_t nDefXPos,
                                         int32_t nDefYPos)
 {
     this->rs = rs;
@@ -101,7 +101,7 @@ ISPYGLASS::~ISPYGLASS()
 
 bool ISPYGLASS::Init()
 {
-    if ((rs = static_cast<VDX9RENDER *>(core.GetService("dx9render"))) == nullptr)
+    if ((rs = static_cast<VRenderer *>(core.GetService("dx9render"))) == nullptr)
     {
         throw std::runtime_error("Can`t create render service");
     }

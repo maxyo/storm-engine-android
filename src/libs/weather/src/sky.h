@@ -63,7 +63,7 @@ class SKY : public Entity
     std::string sTechSkyBlendAlpha = "Skyblend_alpha";
     std::string sTechSkyFog = "SkyFog";
 
-    VDX9RENDER *pRS;
+    VRenderer *pRS;
     int32_t TexturesID[SKY_NUM_TEXTURES];
     int32_t TexturesNextID[SKY_NUM_TEXTURES];
     float fTimeFactor = 0.f;

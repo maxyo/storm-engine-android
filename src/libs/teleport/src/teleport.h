@@ -5,7 +5,7 @@
 
 class TMPTELEPORT : public Entity
 {
-    VDX9RENDER *rs;
+    VRenderer *rs;
 
     struct TELEPORT_DESCR
     {

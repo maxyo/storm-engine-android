@@ -30,7 +30,7 @@ class CXI_ToolTip
     void ReplaceRectangle(int32_t x, int32_t y);
 
   protected:
-    VDX9RENDER *m_rs;
+    VRenderer *m_rs;
     XI_ONETEX_VERTEX *m_pV;
     uint16_t *m_pI;
     int32_t m_nSquareQ;

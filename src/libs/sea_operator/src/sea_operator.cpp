@@ -34,7 +34,7 @@ bool SEA_OPERATOR::Init()
     core.AddToLayer(REALIZE, GetId(), 1);
     core.AddToLayer(EXECUTE, GetId(), 0);
 
-    renderer = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    renderer = static_cast<VRenderer *>(core.GetService("dx9render"));
 
     return true;
 }

@@ -33,7 +33,7 @@ class WdmStorm : public WdmRenderObject
 
     // Calculations
     void Update(float dltTime) override;
-    void LRender(VDX9RENDER *rs) override;
+    void LRender(VRenderer *rs) override;
 
     const char *GetId() const;
 

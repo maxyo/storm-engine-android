@@ -222,12 +222,12 @@ void WdmCloud::Update(float dltTime)
     }
 }
 
-void WdmCloud::PRender(VDX9RENDER *rs)
+void WdmCloud::PRender(VRenderer *rs)
 {
     //    LRender(rs);
 }
 
-void WdmCloud::LRender(VDX9RENDER *rs)
+void WdmCloud::LRender(VRenderer *rs)
 {
     Render(rs);
 }
@@ -257,7 +257,7 @@ int32_t WdmCloud::FillRain(RS_RECT *rainRect, int32_t rcnt)
     return rcnt;
 }
 
-void WdmCloud::Render(VDX9RENDER *rs)
+void WdmCloud::Render(VRenderer *rs)
 {
     // Inverse camera matrix
     glm::mat4 view;
@@ -374,7 +374,7 @@ inline float WdmCloud::Rnd()
     return f;
 }
 
-void WdmCloud::CreateVertexDeclaration(VDX9RENDER *rs)
+void WdmCloud::CreateVertexDeclaration(VRenderer *rs)
 {
     if (vertexDecl_)
         return;

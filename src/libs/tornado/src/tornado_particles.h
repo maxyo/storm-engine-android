@@ -58,7 +58,7 @@ class TornadoParticles
     void SetSea();
 
     void Update(float dltTime);
-    void Draw(VDX9RENDER *rs);
+    void Draw(VRenderer *rs);
 
     int32_t txtPillarPrts;
     int32_t txtGroundPrts;
@@ -69,7 +69,7 @@ class TornadoParticles
     // Encapsulation
     // --------------------------------------------------------------------------------------------
   private:
-    void DrawParticles(VDX9RENDER *rs, void *prts, int32_t num, int32_t size, int32_t texture, const char *tech);
+    void DrawParticles(VRenderer *rs, void *prts, int32_t num, int32_t size, int32_t texture, const char *tech);
     static float GetRand(float r, float dev = 0.5f); // dev = 0..1, return 0..r
 
   private:

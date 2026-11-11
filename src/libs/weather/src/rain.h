@@ -96,7 +96,7 @@ class RAIN : public Entity
     int32_t iIBSeaDrops;
     int32_t iVBSeaDrops;
 
-    VDX9RENDER *rs;
+    VRenderer *rs;
     COLLIDE *cs;
 
     void GenerateRandomDrop(glm::vec3 *vPos) const;

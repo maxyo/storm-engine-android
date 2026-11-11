@@ -110,7 +110,7 @@ void WdmIcon::Update(float dltTime)
 }
 
 // Rendering
-void WdmIcon::LRender(VDX9RENDER *rs)
+void WdmIcon::LRender(VRenderer *rs)
 {
     return; //~!~
     Vertex vrt[6];

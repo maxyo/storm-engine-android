@@ -74,7 +74,7 @@ class WaterRings : public Entity
   private:
     void UpdateGrid(int _ringI, uint16_t *iPointer, RING_VERTEX *vPointer, int32_t vOffset);
 
-    VDX9RENDER *renderService;
+    VRenderer *renderService;
     SEA_BASE *sea;
     IVBufferManager *ivManager;
     int32_t ringTexture;

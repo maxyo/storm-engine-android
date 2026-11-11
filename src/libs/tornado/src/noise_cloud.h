@@ -42,7 +42,7 @@ class NoiseCloud
     virtual ~NoiseCloud();
 
     void Update(float dltTime);
-    void Draw(VDX9RENDER *rs);
+    void Draw(VRenderer *rs);
 
     void SetGlobalAlpha(float a);
 

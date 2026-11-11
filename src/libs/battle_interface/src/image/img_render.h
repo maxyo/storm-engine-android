@@ -5,7 +5,7 @@
 class BIImageRender
 {
   public:
-    BIImageRender(VDX9RENDER *pRS);
+    BIImageRender(VRenderer *pRS);
     ~BIImageRender();
 
     void Render();
@@ -47,7 +47,7 @@ class BIImageRender
     int32_t m_nBeginOutputPrioritet;
     int32_t m_nEndOutputPrioritet;
 
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
     std::vector<BIImageMaterial *> m_apMaterial;
     std::vector<IBIString *> m_apStrings;
     // bool m_bDeleteEverything;

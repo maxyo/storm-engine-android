@@ -33,7 +33,7 @@ class SailorsEditor : public Entity
         }
     }
 
-    VDX9RENDER *rs;
+    VRenderer *rs;
     entid_t sailors;
     entid_t shipID;
     entid_t pointID;

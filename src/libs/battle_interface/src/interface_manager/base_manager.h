@@ -46,7 +46,7 @@ class BI_ManagerBase : public Entity
     {
     }
 
-    VDX9RENDER *GetDX9Render() const
+    VRenderer *GetDX9Render() const
     {
         return m_pRS;
     }
@@ -68,7 +68,7 @@ class BI_ManagerBase : public Entity
     virtual void DeleteNode(BI_ManagerNodeBase *pNod) = 0;
 
   protected:
-    VDX9RENDER *m_pRS;
+    VRenderer *m_pRS;
     BIImageRender *m_pImgRender;
     BI_MousePointerBase *m_pMouse;
 };

@@ -3,7 +3,7 @@
 #include "shared/battle_interface/msg_control.h"
 #include "vma.hpp"
 
-WMShipCommandList::WMShipCommandList(entid_t eid, ATTRIBUTES *pA, VDX9RENDER *rs) : BICommandList(eid, pA, rs)
+WMShipCommandList::WMShipCommandList(entid_t eid, ATTRIBUTES *pA, VRenderer *rs) : BICommandList(eid, pA, rs)
 {
     Init();
 }

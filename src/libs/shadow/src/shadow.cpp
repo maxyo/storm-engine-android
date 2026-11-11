@@ -34,18 +34,18 @@ uint32_t Shadow::epoch_ = 0, Shadow::preparedEpoch_ = UINT32_MAX;
 
 namespace
 {
-int32_t createShadowTarget(VDX9RENDER *rs, D3DFORMAT format)
+int32_t createShadowTarget(VRenderer *rs, D3DFORMAT format)
 {
     return rs->TextureCreate(TEXTURE_SIZE, TEXTURE_SIZE, 1, D3DUSAGE_RENDERTARGET, format, D3DPOOL_DEFAULT);
 }
 
-int32_t createShadowVertexBuffer(VDX9RENDER *rs)
+int32_t createShadowVertexBuffer(VRenderer *rs)
 {
     return rs->CreateVertexBuffer(SHADOW_FVF, sizeof(Shadow::SHADOW_VERTEX) * (vbuff_size + 128),
                                   D3DUSAGE_WRITEONLY | D3DUSAGE_DYNAMIC);
 }
 
-void releaseShared(VDX9RENDER *rs)
+void releaseShared(VRenderer *rs)
 {
     rs->ReleaseVertexBuffer(vbuff);
     vbuff = -1;
@@ -79,7 +79,7 @@ bool Shadow::Init()
 
     core.AddToLayer(REALIZE, GetId(), 900);
 
-    rs = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    rs = static_cast<VRenderer *>(core.GetService("dx9render"));
     if (!rs)
         throw std::runtime_error("No service: dx9render");
 

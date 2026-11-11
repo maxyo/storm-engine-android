@@ -2,7 +2,7 @@
 #include "bi_utils.h"
 #include "platform/platform.hpp"
 
-WMShipIcon::WMShipIcon(entid_t BIEntityID, VDX9RENDER *pRS) : BISignIcon(BIEntityID, pRS)
+WMShipIcon::WMShipIcon(entid_t BIEntityID, VRenderer *pRS) : BISignIcon(BIEntityID, pRS)
 {
 }
 

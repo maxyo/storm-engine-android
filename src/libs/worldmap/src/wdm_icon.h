@@ -32,7 +32,7 @@ class WdmIcon : public WdmInterfaceObject
     // Calculations
     void Update(float dltTime) override;
     // Rendering
-    void LRender(VDX9RENDER *rs) override;
+    void LRender(VRenderer *rs) override;
 
     // --------------------------------------------------------------------------------------------
     // Encapsulation

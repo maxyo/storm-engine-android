@@ -40,7 +40,7 @@ class DECK_CAMERA : public COMMON_CAMERA
     glm::vec3 g_gv0, g_gv1, g_gv2;
 
     MODEL *pModel;
-    VDX9RENDER *RenderService;
+    VRenderer *RenderService;
     glm::vec3 camera_pos, camera_ang;
     float h_eye;
     RECT Screen_Rect;

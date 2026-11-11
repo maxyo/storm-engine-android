@@ -2,7 +2,7 @@
 #include "bi_defines.h"
 #include "img_render.h"
 
-BIString::BIString(BIImageRender *pImgRender, VDX9RENDER *rs)
+BIString::BIString(BIImageRender *pImgRender, VRenderer *rs)
 {
     m_pImgRender = pImgRender;
     Assert(m_pImgRender);

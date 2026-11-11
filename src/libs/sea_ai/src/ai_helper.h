@@ -36,7 +36,7 @@ class AIHelper
 
     static ATTRIBUTES *pASeaCameras;
     static ISLAND_BASE *pIsland;
-    static VDX9RENDER *pRS;
+    static VRenderer *pRS;
     static COLLIDE *pCollide;
 
     static float fGravity;

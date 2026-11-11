@@ -7,7 +7,7 @@
 #include "shared/messages.h"
 #include "ship.h"
 
-VDX9RENDER *ShipLights::pRS = nullptr;
+VRenderer *ShipLights::pRS = nullptr;
 COLLIDE *ShipLights::pCollide = nullptr;
 
 ShipLights::ShipLights()
@@ -43,7 +43,7 @@ ShipLights::~ShipLights()
 
 bool ShipLights::Init()
 {
-    pRS = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
     Assert(pRS);
     pCollide = static_cast<COLLIDE *>(core.GetService("coll"));
     Assert(pCollide);

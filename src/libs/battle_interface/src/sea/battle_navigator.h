@@ -19,7 +19,7 @@ namespace storm::android { struct ShipTelemetryFrame; }
 
 class BATTLE_NAVIGATOR
 {
-    VDX9RENDER *rs{};
+    VRenderer *rs{};
     Entity *m_pOwnerEI{};
 
   public:
@@ -34,7 +34,7 @@ class BATTLE_NAVIGATOR
     void ReadAndroidSpeeds(storm::android::ShipTelemetryFrame &frame, uint64_t mainShipId) const;
 #endif
     void Update();
-    void Init(VDX9RENDER *RenderService, Entity *pOwnerEI);
+    void Init(VRenderer *RenderService, Entity *pOwnerEI);
     void SetIsland();
 
     void DecrementScale()

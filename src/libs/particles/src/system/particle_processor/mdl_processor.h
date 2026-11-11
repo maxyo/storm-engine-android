@@ -18,7 +18,7 @@ class ParticleManager;
 
 class ModelProcessor
 {
-    VDX9RENDER *pRS;
+    VRenderer *pRS;
     ParticleManager *pMasterManager;
     GeomNameParser Parser;
 

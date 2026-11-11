@@ -113,7 +113,7 @@ class CoastFoam : public Entity
 
     uint32_t dwNumPenasExecuted;
 
-    VDX9RENDER *rs;
+    VRenderer *rs;
 
     void ExtractRay(const D3DVIEWPORT9 &viewport, float fCursorX, float fCursorY, glm::vec3 &raystart, glm::vec3 &rayend);
 

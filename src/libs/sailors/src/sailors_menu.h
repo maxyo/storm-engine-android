@@ -29,7 +29,7 @@ class Menu
         keyPressed = false;
     };
 
-    void Draw(VDX9RENDER *rs, SailorsPoints &sailorsPoints) const;
+    void Draw(VRenderer *rs, SailorsPoints &sailorsPoints) const;
     void OnKeyPress(SailorsPoints &sailorsPoints);
     void ChangeControl(int key, SailorsPoints &sailorsPoints);
 

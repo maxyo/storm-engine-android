@@ -25,7 +25,7 @@ ParticleManager::ParticleManager(ParticleService *service) : IParticleManager(se
     BB_Processor = new BillBoardProcessor;
     GlobalDelete = false;
     TimeFromLastStatUpdate = 100.0f;
-    pRS = static_cast<VDX9RENDER *>(core.GetService("DX9Render"));
+    pRS = static_cast<VRenderer *>(core.GetService("DX9Render"));
     Assert(pRS != NULL);
 
     pDataCache = new DataCache(this);
@@ -38,7 +38,7 @@ ParticleManager::ParticleManager(ParticleService *service) : IParticleManager(se
 ParticleManager::~ParticleManager()
 {
     DeleteAllSystems();
-    pRS = static_cast<VDX9RENDER *>(core.GetService("DX9Render"));
+    pRS = static_cast<VRenderer *>(core.GetService("DX9Render"));
     if (pProjectTexture >= 0 && pRS != nullptr)
     {
         pRS->TextureRelease(pProjectTexture);
@@ -64,7 +64,7 @@ bool ParticleManager::Release()
     return true;
 }
 
-VDX9RENDER *ParticleManager::Render()
+VRenderer *ParticleManager::Render()
 {
     return pRS;
 }

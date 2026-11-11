@@ -3,7 +3,7 @@
 #include "core.h"
 #include "math_inlines.h"
 
-VDX9RENDER *TSplash::renderer = nullptr;
+VRenderer *TSplash::renderer = nullptr;
 bool TSplash::startRender = true;
 float dU = 1.f / SPLASH_FRAMES_COUNT;
 
@@ -80,7 +80,7 @@ TSplash::~TSplash()
 }
 
 //--------------------------------------------------------------------
-void TSplash::Initialize(INIFILE *_ini, SEA_BASE *_sea, VDX9RENDER *_renderer)
+void TSplash::Initialize(INIFILE *_ini, SEA_BASE *_sea, VRenderer *_renderer)
 {
     ambientColor = 0;
     sea = _sea;

@@ -20,7 +20,7 @@ class SoundVisualisationEntity;
 
 class SoundService : public VSoundService
 {
-    VDX9RENDER *rs = nullptr;
+    VRenderer *rs = nullptr;
 
     bool bShowDebugInfo;
     bool initialized;

@@ -35,7 +35,7 @@ class VSoundService;
 
 class DIALOG final : public Entity
 {
-    static VDX9RENDER *RenderService;
+    static VRenderer *RenderService;
 
   public:
     DIALOG(DIALOG &&) = delete;
@@ -44,7 +44,7 @@ class DIALOG final : public Entity
     ~DIALOG();
 
     bool Init();
-    void InitLinks(VDX9RENDER *pRS, D3DVIEWPORT9 &vp, INIFILE *pIni);
+    void InitLinks(VRenderer *pRS, D3DVIEWPORT9 &vp, INIFILE *pIni);
     void Realize(uint32_t Delta_Time);
     uint32_t AttributeChanged(ATTRIBUTES *pA);
     uint64_t ProcessMessage(MESSAGE &message);
@@ -99,7 +99,7 @@ class DIALOG final : public Entity
         }
 
         void ChangeText(std::string_view text);
-        void Init(VDX9RENDER *pRS, D3DVIEWPORT9 &vp, INIFILE *pIni);
+        void Init(VRenderer *pRS, D3DVIEWPORT9 &vp, INIFILE *pIni);
         int32_t GetShowHeight();
         void Show(int32_t nY);
         bool IsLastPage();

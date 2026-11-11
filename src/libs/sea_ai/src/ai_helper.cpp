@@ -4,7 +4,7 @@
 
 AIHelper Helper;
 
-VDX9RENDER *AIHelper::pRS = nullptr;
+VRenderer *AIHelper::pRS = nullptr;
 ISLAND_BASE *AIHelper::pIsland = nullptr;
 COLLIDE *AIHelper::pCollide = nullptr;
 ATTRIBUTES *AIHelper::pASeaCameras = nullptr;
@@ -38,7 +38,7 @@ bool AIHelper::Uninit()
 
 bool AIHelper::SetDevice()
 {
-    pRS = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
     Assert(pRS);
     pCollide = static_cast<COLLIDE *>(core.GetService("COLL"));
     Assert(pCollide);

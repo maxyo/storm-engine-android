@@ -120,7 +120,7 @@ class ShipLights : public IShipLights
     bool SetLabel(ShipLight *pL, MODEL *pModel, const char *pStr);
 
   public:
-    static VDX9RENDER *pRS;
+    static VRenderer *pRS;
     static COLLIDE *pCollide;
 
     ShipLights();

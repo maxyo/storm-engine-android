@@ -23,7 +23,7 @@ CREATE_CLASS(ShipLights)
 
 CREATE_CLASS(ShipTracks)
 
-VDX9RENDER *SHIP::pRS = nullptr;
+VRenderer *SHIP::pRS = nullptr;
 SEA_BASE *SHIP::pSea = nullptr;
 ISLAND_BASE *SHIP::pIsland = nullptr;
 COLLIDE *SHIP::pCollide = nullptr;
@@ -171,7 +171,7 @@ void SHIP::LoadServices()
 
     pGS = static_cast<VGEOMETRY *>(core.GetService("geometry"));
     Assert(pGS);
-    pRS = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
     Assert(pRS);
     pCollide = static_cast<COLLIDE *>(core.GetService("coll"));
     Assert(pCollide);

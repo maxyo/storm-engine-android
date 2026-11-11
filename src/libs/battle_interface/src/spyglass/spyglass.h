@@ -36,7 +36,7 @@ class ISPYGLASS : public Entity
 
     struct TextParam
     {
-        VDX9RENDER *rs;
+        VRenderer *rs;
         int32_t nFontID;
         IPOINT pos;
         float fScale;
@@ -65,7 +65,7 @@ class ISPYGLASS : public Entity
             nFontID = -1;
         }
 
-        void LoadFromAttr(VDX9RENDER *rs, ATTRIBUTES *pA, const char *pcDefText, int32_t nDefXPos, int32_t nDefYPos);
+        void LoadFromAttr(VRenderer *rs, ATTRIBUTES *pA, const char *pcDefText, int32_t nDefXPos, int32_t nDefYPos);
         void Print() const;
     };
 
@@ -110,7 +110,7 @@ class ISPYGLASS : public Entity
     }
 
   protected:
-    VDX9RENDER *rs;
+    VRenderer *rs;
     BIImageRender *m_pImgRender;
 
     // telescope lens

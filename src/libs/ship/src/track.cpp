@@ -3,7 +3,7 @@
 #include "core.h"
 #include "math_inlines.h"
 
-VDX9RENDER *ShipTracks::ShipTrack::pRS = nullptr;
+VRenderer *ShipTracks::ShipTrack::pRS = nullptr;
 SEA_BASE *ShipTracks::ShipTrack::pSea = nullptr;
 int32_t ShipTracks::ShipTrack::iRefCount = 0;
 uint32_t ShipTracks::ShipTrack::dwMaxBufferSize1 = 0, ShipTracks::ShipTrack::dwMaxBufferSize2 = 0;
@@ -21,7 +21,7 @@ bool ShipTracks::Init()
 {
     entid_t sea_id;
 
-    ShipTrack::pRS = static_cast<VDX9RENDER *>(core.GetService("dx9render"));
+    ShipTrack::pRS = static_cast<VRenderer *>(core.GetService("dx9render"));
     Assert(ShipTrack::pRS);
     if (sea_id = core.GetEntityId("sea"))
         ShipTrack::pSea = static_cast<SEA_BASE *>(core.GetEntityPointer(sea_id));

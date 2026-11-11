@@ -1,6 +1,6 @@
 #pragma once
 #include "textured_mesh.hpp"
-class VDX9RENDER;
+class VRenderer;
 namespace storm::render {
-std::unique_ptr<TexturedMesh> makeLegacyTexturedMesh(VDX9RENDER&);
+std::unique_ptr<TexturedMesh> makeLegacyTexturedMesh(VRenderer&);
 }

@@ -9,7 +9,7 @@ class CXI_SLIDEPICTURE : public CINODE
     CXI_SLIDEPICTURE();
     ~CXI_SLIDEPICTURE() override;
     void Draw(bool bSelected, uint32_t Delta_Time) override;
-    bool Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VDX9RENDER *rs, XYRECT &hostRect,
+    bool Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *name2, VRenderer *rs, XYRECT &hostRect,
               XYPOINT &ScreenSize) override;
     void ReleaseAll() override;
     int CommandExecute(int wActCode) override;

@@ -19,7 +19,7 @@ struct FONT_SYMBOL
 class FONT final
 {
   public:
-    FONT(VDX9RENDER &renderer, storm::shim::Device &device);
+    FONT(VRenderer &renderer, storm::shim::Device &device);
     ~FONT();
     bool Init(const char *font_name, const char *iniName);
     void TempUnload();
@@ -49,7 +49,7 @@ class FONT final
     std::string techniqueName_{};
     std::string textureName_{};
 
-    VDX9RENDER &renderService_;
+    VRenderer &renderService_;
     storm::shim::Device &device_;
     storm::shim::VertexBuffer *vertexBuffer_ = nullptr;
 

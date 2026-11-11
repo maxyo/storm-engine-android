@@ -50,7 +50,7 @@ class VANT_BASE : public Entity
         }
     }
 
-    VDX9RENDER *RenderService;
+    VRenderer *RenderService;
 
   protected:
     // parameters obtained from INI file //

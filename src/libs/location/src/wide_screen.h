@@ -49,7 +49,7 @@ class WideScreen : public Entity
     // Encapsulation
     // --------------------------------------------------------------------------------------------
   private:
-    VDX9RENDER *rs; //
+    VRenderer *rs; //
     float w, h;     // Screen dimensions
     float state;    // Screen state
     float dlt;      // Screen change direction

@@ -9,7 +9,7 @@
 #include <sys/system_properties.h>
 #endif
 
-BICommandList::BICommandList(entid_t eid, ATTRIBUTES *pA, VDX9RENDER *rs)
+BICommandList::BICommandList(entid_t eid, ATTRIBUTES *pA, VRenderer *rs)
 {
     m_idHostObj = eid;
     m_pARoot = pA;

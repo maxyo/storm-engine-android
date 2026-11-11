@@ -57,7 +57,7 @@ class CAviPlayer : public xiBaseVideo
     void ReleaseTexture();
     void DetectTapToSkip();
 
-    VDX9RENDER *rs = nullptr;
+    VRenderer *rs = nullptr;
     bool m_bShowVideo = true;
     bool bLoop = false;
     std::string filename;

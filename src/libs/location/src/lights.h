@@ -158,7 +158,7 @@ class Lights : public Entity
     constexpr static auto max_d3d_lights = 8U;
     constexpr static auto max_d3d_custom_lights = max_d3d_lights - 1;
 
-    VDX9RENDER *rs;
+    VRenderer *rs;
     COLLIDE *collide;
 
     // Installed light sources

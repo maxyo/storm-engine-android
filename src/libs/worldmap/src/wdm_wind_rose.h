@@ -31,10 +31,10 @@ class WdmWindRose : public WdmRenderModel
     // Calculations
     void Update(float dltTime) override;
 
-    void PRender(VDX9RENDER *rs) override{};
+    void PRender(VRenderer *rs) override{};
 
-    void MRender(VDX9RENDER *rs) override{};
-    void LRender(VDX9RENDER *rs) override;
+    void MRender(VRenderer *rs) override{};
+    void LRender(VRenderer *rs) override;
 
     // --------------------------------------------------------------------------------------------
     // Encapsulation

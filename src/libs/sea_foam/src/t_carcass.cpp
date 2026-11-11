@@ -8,7 +8,7 @@
 #define WIDEN_K 3.0f
 
 //--------------------------------------------------------------------
-TCarcass::TCarcass(int _levelsCount, int _measurePointsCount, VDX9RENDER *_renderer, bool _normalsInverted /*= false*/)
+TCarcass::TCarcass(int _levelsCount, int _measurePointsCount, VRenderer *_renderer, bool _normalsInverted /*= false*/)
     : normalsInverted(_normalsInverted), levelsCount(_levelsCount), ivElementIndex(0), indexesCreated(false), time(0),
       vSpeed(0.f), speedA(0.f), renderer(_renderer)
 {

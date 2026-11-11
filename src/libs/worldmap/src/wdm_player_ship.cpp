@@ -241,7 +241,7 @@ void WdmPlayerShip::Update(float dltTime)
         core.Event("WM_UpdateCurrentAction");
 }
 
-void WdmPlayerShip::LRender(VDX9RENDER *rs)
+void WdmPlayerShip::LRender(VRenderer *rs)
 {
     WdmShip::LRender(rs);
     if (wdmObjects->isDebug)

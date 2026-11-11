@@ -68,7 +68,7 @@ class TButterfly
 
     void Draw(HDC _dc);
     void Draw(IVBufferManager *_ivManager);
-    void Draw(VDX9RENDER *_renderer, MODEL *_model);
+    void Draw(VRenderer *_renderer, MODEL *_model);
 
   private:
     glm::vec3 centerPosition, centerVelocity, oldPos;
