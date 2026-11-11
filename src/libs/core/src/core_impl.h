@@ -29,6 +29,7 @@ class CoreImpl final : public CorePrivate
     void ProcessExecute();
     void ProcessRealize();
     void ProcessStateLoading();
+    void ReportFailedLoad();
     void ProcessRunStart(uint32_t section_code);
     void ProcessRunEnd(uint32_t section_code);
 

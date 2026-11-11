@@ -37,6 +37,7 @@ struct FakeSurface final : Surface
     Json props;
     std::vector<std::string> commands;
     std::vector<std::string> errors;
+    std::vector<std::string> toasts;
     double now = 0.0;
 
     void Show(const std::string &shown, const Json &view) override
@@ -55,8 +56,9 @@ struct FakeSurface final : Surface
     void RequestText(TextRequest, const std::string &) override
     {
     }
-    void Toast(const std::string &) override
+    void Toast(const std::string &text) override
     {
+        toasts.push_back(text);
     }
     void SetLanguage(const std::string &) override
     {
@@ -481,11 +483,26 @@ static void GameOver()
     Expect(!router.Active() && surface.errors.size() == 1, "an unknown kind is an error");
 }
 
+// The engine's load watchdog (core load_watch.hpp): the player is told which record did not load.
+static void LoadFailure()
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetState("loadFailure", Json{{"record", "SAVE\\player\\Автосохранение 1"}, {"reason", "the record has no readable description"}});
+    Expect(surface.toasts.size() == 1 && surface.toasts.front() == "<save.load_failed>: Автосохранение 1" && surface.errors.empty(),
+           "a failed load names its record to the player");
+    router.SetState("loadFailure", nullptr);
+    Expect(surface.toasts.size() == 1 && surface.errors.empty(), "null says nothing");
+    router.SetState("loadFailure", Json{{"record", 7}});
+    Expect(surface.toasts.size() == 1 && surface.errors.size() == 1, "a malformed failure is an error, never a quiet drop");
+}
+
 int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
     GameMenu(models);
     GameOver();
+    LoadFailure();
     Saves(models);
     Autosaves(models);
     Settings(models);

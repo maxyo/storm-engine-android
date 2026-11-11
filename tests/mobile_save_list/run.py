@@ -85,13 +85,19 @@ int main(){
  ChooseSaveProfile("existing");switches=0;
  target=cap.accept(live,3,token6(3,"delete"));assert(target&&SelectSaveTarget(*target)&&switches==0&&selection.value==1);
  assert(cap.accept(live,4,token6(4,"delete"))&&!cap.accept(live,5,token6(4,"activate")));
+ // The game's profile name is spelled unlike its folder ("Player" for the folder "player",
+ // the game's paths fold ASCII case): its records are its own, no switch, the same slot.
+ assert(SameProfile("Player","player")&&!SameProfile("Player","player2")&&!SameProfile("Плеер","плеер"));
+ live.profile="EXISTING";switches=0;
+ target=cap.accept(live,3,token6(3,"delete"));assert(target&&SelectSaveTarget(*target)&&switches==0&&selection.value==1);
+ assert(RestoreSaveTarget(*target));live.profile="existing";
  // A record whose profile folder is gone cannot be chosen.
  live.records.push_back({"vanished","X"});rows.clear();cap.collect(live,true,rows,rowFacts);rows.erase(rows.begin());
  auto token7=[&](int index,const char *verb){return std::string(verb)+"@6:"+rows[index].rowId;};
  target=cap.accept(live,5,token7(5,"activate"));assert(target&&!SelectSaveTarget(*target));
  // No records at all: the empty list.
  live.records.clear();live.files.clear();rows.clear();cap.collect(live,true,rows,rowFacts);assert(rows.size()==1&&rows[0].node=="ANDROID_SAVES"&&rows[0].value=="0");
- std::cout<<"PASS record facts, every profile in one list, records of other profiles chosen through the game, stable identity, distant/earlier/new slot selection, delayed callback restore, profile/list/revision guards\n";
+ std::cout<<"PASS record facts, every profile in one list, records of other profiles chosen through the game, stable identity, distant/earlier/new slot selection, delayed callback restore, profile/list/revision guards, profile names compared the game's way (ASCII case)\n";
 }
 '''
 with tempfile.TemporaryDirectory(prefix='mobile-saves-') as directory:

@@ -394,11 +394,43 @@ class SavesScreen final : public Screen
     uint64_t confirmed_ = 0; // model revision whose load question was answered for the player
 };
 
+// Channel "loadFailure" {record, reason}: a load the player asked for was refused or never
+// started (the engine's load watchdog, core load_watch.hpp). The engine has logged the reason
+// and its scripts bring the menu back; the player is told which record did not load.
+class LoadFailureConsumer final : public StateConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "loadFailure";
+    }
+    void OnState(const Json &state, Router &router) override
+    {
+        if (state.is_null())
+            return;
+        if (!state.is_object() || !state.contains("record") || !state["record"].is_string() || !state.contains("reason") ||
+            !state["reason"].is_string())
+        {
+            router.ReportError("state channel loadFailure: expected {record, reason}, got " + state.dump());
+            return;
+        }
+        // "SAVE\<profile>\<file>": the player knows the record by its file name.
+        const std::string record = state["record"].get<std::string>();
+        const size_t slash = record.find_last_of("\\/");
+        router.Notify(StringKey("save.load_failed"), slash == std::string::npos ? record : record.substr(slash + 1));
+    }
+};
+
 } // namespace
 
 std::unique_ptr<Screen> CreateSavesScreen()
 {
     return std::make_unique<SavesScreen>();
+}
+
+std::unique_ptr<StateConsumer> CreateLoadFailureConsumer()
+{
+    return std::make_unique<LoadFailureConsumer>();
 }
 
 } // namespace storm::ui::screens

@@ -8,6 +8,10 @@
 #include <storm/render/frame_owner.hpp>
 
 #include "xinterface.h"
+#include "load_watch.hpp"
+#include "save_description.hpp"
+#include <set>
+#include <spdlog/spdlog.h>
 #include "back_scene/back_scene.h"
 #include "help_chooser/help_chooser.h"
 #include "info_handler.h"
@@ -28,7 +32,6 @@
 #include "mobile_goods_transfer.hpp"
 #include "mobile_sails_gerald.hpp"
 #include "mobile_alchemy.hpp"
-#include <set>
 #include "mobile_owner_bridge.hpp"
 #include <chrono>
 static std::optional<storm::mobile::SaveListCapability::Target> deferredSaveAction;
@@ -87,7 +90,8 @@ static int SaveProfileIndex(const std::string &profile)
     ATTRIBUTES *profiles = player ? player->GetAClass() : nullptr;
     const int count = profiles ? static_cast<int>(profiles->GetAttributeAsDword("profilesQuantity", 0)) : 0;
     for (int i = 0; i < count; ++i)
-        if (const char *name = profiles->GetAttribute(("profile_" + std::to_string(i)).c_str()); name && profile == name)
+        if (const char *name = profiles->GetAttribute(("profile_" + std::to_string(i)).c_str());
+            name && storm::mobile::SameProfile(profile, name))
             return i;
     return -1;
 }
@@ -104,7 +108,7 @@ bool storm::mobile::ChooseSaveProfile(const std::string &profile)
     gameInterface->CreateSubAClass(gameInterface, "profile_window_list")->SetAttribute("select", std::to_string(index + 1));
     core.Event("LoadProfile"); // ProcChooseProfile: SetCurrentProfile, the chooser closed
     const auto state = ReadSaveList();
-    return state && state->profile == profile;
+    return state && storm::mobile::SameProfile(state->profile, profile);
 }
 #endif
 
@@ -125,9 +129,16 @@ void XINTERFACE::MobileKeepSaveProfile()
         auto *player = static_cast<VDATA *>(core.GetScriptVariable("PlayerProfile"));
         const char *name = player && player->GetAClass() ? player->GetAClass()->GetAttribute("name") : nullptr;
         profile = name ? name : "";
-        if (profile.empty())
-            if (const auto records = storm::mobile::SaveRecordsOfAllProfiles(); !records.empty())
-                profile = records.front().profile; // the newest record's
+        // A profile without a folder (the options' name of a game never saved, or no name
+        // yet): the newest record's profile; with no record at all, nothing to keep.
+        if (profile.empty() || SaveProfileIndex(profile) < 0)
+        {
+            const auto records = storm::mobile::SaveRecordsOfAllProfiles();
+            const std::string newest = records.empty() ? std::string() : records.front().profile;
+            spdlog::warn("save_load: the game's profile '{}' has no save folder; the list keeps {}", profile,
+                         newest.empty() ? std::string("no profile (there is no record)") : "the newest record's profile '" + newest + "'");
+            profile = newest;
+        }
     }
     const auto window = [this](const char *name) {
         auto *node = FindNode(name, nullptr);
@@ -139,7 +150,7 @@ void XINTERFACE::MobileKeepSaveProfile()
     if (profile.empty() || (!chooserOpen && !idle))
         return;
     const auto state = storm::mobile::ReadSaveList();
-    if (chooserOpen || (state && state->profile != profile))
+    if (chooserOpen || (state && !storm::mobile::SameProfile(state->profile, profile)))
         storm::mobile::ChooseSaveProfile(profile);
 }
 #endif
@@ -1271,16 +1282,28 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
     }
     break;
     case MSG_INTERFACE_GET_SAVE_DATA: {
-        const std::string &param1 = message.String();
-        char param2[256];
-        param2[0] = 0;
-        if (SFLB_GetSaveFileData(param1.c_str(), sizeof(param2), param2) && strlen(param2) > 0)
+        // seadogs.c LoadGame drops a load without a word when this is empty (save_description.hpp).
+        const std::string &record = message.String();
+        char description[256];
+        description[0] = 0;
+        if (SFLB_GetSaveFileData(record.c_str(), sizeof(description), description) && strlen(description) > 0)
         {
-            message.ScriptVariablePointer()->Set(param2);
+            message.ScriptVariablePointer()->Set(description);
+        }
+        else if (const auto undescribed = storm::UndescribedRecordDescription(
+                     std::filesystem::u8path(fio->ConvertPathResource(record.c_str())), record))
+        {
+            static std::set<std::string> reported;
+            if (reported.insert(record).second)
+                spdlog::warn("Save '{}' has no description (written without one by a build before 2026-11-11, "
+                             "e.g. a background autosave); it is described by its file name '{}'",
+                             record, *undescribed);
+            message.ScriptVariablePointer()->Set(undescribed->c_str());
         }
         else
         {
             message.ScriptVariablePointer()->Set("");
+            storm::loadWatch().Refused(record, "the record has no readable description");
         }
     }
     break;
@@ -2455,15 +2478,33 @@ void XINTERFACE::DoControl()
             const auto &pending = storm::mobile::saveListCapability.pending;
             if (pending && pending->owner.revision == storm::android::mobileScreenRevision)
             {
-                if (!storm::mobile::RestoreSaveTarget(*pending)) continue;
+                if (!storm::mobile::RestoreSaveTarget(*pending))
+                {
+                    spdlog::error("save_load: {} refused: the chosen record is no longer in the game's list", action.node);
+                    continue;
+                }
                 if (action.node == "CONFIRM_YES")
                 {
                     auto *mode = static_cast<VDATA *>(core.GetScriptVariable("g_nConfirmMode"));
                     int32_t actual = -1;
                     const int expected = pending->verb == "delete" ? 2 : pending->owner.saving ? 3 : 4;
-                    if (!mode || !mode->Get(actual) || actual != expected) continue;
+                    if (!mode || !mode->Get(actual) || actual != expected)
+                    {
+                        spdlog::error("save_load: CONFIRM_YES refused: the game asks question {} instead of {}", actual, expected);
+                        continue;
+                    }
+                    // The player's load: save_load.c ProcessLoad closes the interface and posts
+                    // evntLoad. Watched until the record is applied (load_watch.hpp).
+                    const auto index = static_cast<size_t>(pending->index);
+                    if (expected == 4 && index < pending->owner.records.size())
+                        storm::loadWatch().Requested("SAVE\\" + pending->owner.records[index].profile + "\\" +
+                                                     pending->owner.records[index].file);
                 }
-                else if (!pending->owner.saving) continue;
+                else if (!pending->owner.saving)
+                {
+                    spdlog::error("save_load: CUSTOM_SAVE_BTN_OK refused: the chosen record is not a save");
+                    continue;
+                }
             }
         }
         const bool guardedEquip = action.screen == "items" && action.node == "EQUIP_BUTTON" &&
