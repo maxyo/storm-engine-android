@@ -453,18 +453,83 @@ uint32_t CINODE::MessageProc(int32_t msgcode, MESSAGE &message)
     }
     break;
 
-    case 4: // Change position
+    case 4: // Change position [, bAbs: the rectangle is in ini coordinates, placed like "position"]
     {
         XYRECT rect;
         rect.left = message.Long();
         rect.top = message.Long();
         rect.right = message.Long();
         rect.bottom = message.Long();
+        if (message.GetCurrentFormatType() && message.Long() != 0)
+            GetAbsoluteRect(rect, m_nAbsoluteRectVal);
         ChangePosition(rect);
     }
     break;
+
+    case 5: // Get position into four references [, bAbs: in ini coordinates, the inverse of 4]
+    {
+        XYRECT rect = m_rect;
+        VDATA *refs[4];
+        for (auto &ref : refs)
+            ref = ReadOptionalReference(message);
+        if (message.GetCurrentFormatType() && message.Long() != 0)
+            GetAbsoluteRectForSave(rect, m_nAbsoluteRectVal);
+        SetReferences(refs, rect);
+    }
+    break;
+
+    case 6: // Get the hover trigger frame into four references
+    {
+        VDATA *refs[4];
+        for (auto &ref : refs)
+            ref = ReadOptionalReference(message);
+        SetReferences(refs, m_bTriggerFramePos ? m_rectTriggerFrame : m_rect);
+    }
+    break;
+
+    case 7: // Set the hover trigger frame (screen coordinates)
+        m_rectTriggerFrame.left = message.Long();
+        m_rectTriggerFrame.top = message.Long();
+        m_rectTriggerFrame.right = message.Long();
+        m_rectTriggerFrame.bottom = message.Long();
+        m_bTriggerFramePos = true;
+        break;
+
+    case 8: // Get the hover trigger frame type into a reference
+        if (auto *ref = ReadOptionalReference(message))
+            ref->Set(m_nTriggerFrameType);
+        break;
+
+    case 9: // Set the hover trigger frame type
+        m_nTriggerFrameType = message.Long();
+        break;
+
+    case 10: // Switch the hover trigger on or off
+        m_bUseTrigger = message.Long() != 0;
+        break;
+
+    default:
+        core.Trace("ERROR interface node %s: unknown common node message %d", m_nodeName, msgcode);
+        break;
     }
     return 0;
+}
+
+// A reference argument ('e'); scripts pass 0 instead when they do not want that value.
+VDATA *CINODE::ReadOptionalReference(MESSAGE &message)
+{
+    if (message.GetCurrentFormatType() == 'e')
+        return message.ScriptVariablePointer();
+    message.Long();
+    return nullptr;
+}
+
+void CINODE::SetReferences(VDATA *const (&refs)[4], const XYRECT &rect)
+{
+    const int32_t values[4] = {rect.left, rect.top, rect.right, rect.bottom};
+    for (int i = 0; i < 4; i++)
+        if (refs[i])
+            refs[i]->Set(values[i]);
 }
 
 bool CINODE::CheckCommandUsed(int comCode) const
@@ -537,6 +602,15 @@ bool CINODE::Init(INIFILE *ini1, const char *name1, INIFILE *ini2, const char *n
     }
 
     m_bMakeActionInDeclick = GetIniBool(ini1, name1, ini2, name2, "UseActionByDeclick", false);
+
+    m_bUseTrigger = GetIniBool(ini1, name1, ini2, name2, "UseTrigger", false);
+    m_nTriggerFrameType = GetIniLong(ini1, name1, ini2, name2, "TriggerFrameType", 0);
+    if (ReadIniString(ini1, name1, ini2, name2, "TriggerFramePos", param, sizeof(param) - 1, ""))
+    {
+        m_bTriggerFramePos = true;
+        m_rectTriggerFrame = GetIniLongRect(ini1, name1, ini2, name2, "TriggerFramePos", m_hostRect);
+        GetAbsoluteRect(m_rectTriggerFrame, m_nAbsoluteRectVal);
+    }
 
     LoadIni(ini1, name1, ini2, name2);
     return true;

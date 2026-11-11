@@ -1458,6 +1458,16 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
         break;
 
     case MSG_INTERFACE_SET_TOOLTIP: {
+        // TEHO's layout: header, four texts with colours, picture. Caribbean Legend sends another one
+        // (header, one marked-up text, picture, wind rose, anchor rectangle, width limits) for its
+        // TEXT / WINDROSE tooltip nodes, which this interface does not lay out yet.
+        if (message.GetFormat() != "lsslslslslsssll")
+        {
+            core.Trace("ERROR interface: MSG_INTERFACE_SET_TOOLTIP with format '%s' is not supported (only TEHO's "
+                       "'lsslslslslsssll'); no tooltip shown",
+                       std::string(message.GetFormat()).c_str());
+            break;
+        }
         const char *pcHeader = message.StringPointer();
         const char *pcText1 = message.StringPointer();
         int32_t dwTextColor1 = message.Long();
@@ -1980,6 +1990,8 @@ CINODE *XINTERFACE::NewNode(const char *pcNodType)
         m_pContHelp = pNewNod = new CXI_CONTEXTHELP;
     else if (storm::iEquals(pcNodType, "GLOWCURSOR"))
         m_pGlowCursorNode = pNewNod = new CXI_GLOWCURSOR;
+    else if (storm::iEquals(pcNodType, "TRIGGER"))
+        pNewNod = new CXI_TRIGGER;
     else
         core.Trace("Not supported node type:\"%s\"", pcNodType);
     return pNewNod;
@@ -2928,6 +2940,16 @@ CINODE *XINTERFACE::GetActivingNode(CINODE *findRoot)
     }
 
     return retVal;
+}
+
+CINODE *XINTERFACE::FindTriggerNode(float x, float y)
+{
+    // The same walk as MouseMove: nodes under the point, front to back.
+    for (auto *node = m_pNodes ? m_pNodes->FindNode(x, y) : nullptr; node != nullptr;
+         node = node->m_next ? node->m_next->FindNode(x, y) : nullptr)
+        if (node->m_bUse && node->m_bUseTrigger)
+            return node;
+    return nullptr;
 }
 
 void XINTERFACE::MouseMove()

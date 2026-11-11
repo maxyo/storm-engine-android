@@ -61,6 +61,7 @@ class CXI_ToolTip;
 #define NODETYPE_TABLE 35
 #define NODETYPE_TABSECTION 36
 #define NODETYPE_BORDER 37
+#define NODETYPE_TRIGGER 38
 
 #define INTERFACE_CONTROL_RIGHT "IRight"
 #define INTERFACE_CONTROL_LEFT "ILeft"
@@ -94,6 +95,8 @@ class XINTERFACE_BASE : public Entity
                                  int nWidthForScaleCorrecting = -1, int nSplit = 0) = 0;
 
     virtual CINODE *FindNode(const char *sNodeName, CINODE *findRoot) = 0;
+    // The used node with a hover trigger (UseTrigger) under a screen point, or nullptr.
+    virtual CINODE *FindTriggerNode(float x, float y) = 0;
     virtual void ShowWindow(const char *pcWindowName, bool bShow) = 0;
     virtual void DisableWindow(const char *pcWindowName, bool bDisable) = 0;
     virtual void AddNodeToWindow(const char *pcNodeName, const char *pcWindowName) = 0;
@@ -283,6 +286,8 @@ class CINODE
     }
 
     virtual uint32_t MessageProc(int32_t msgcode, MESSAGE &message);
+    static VDATA *ReadOptionalReference(MESSAGE &message);
+    static void SetReferences(VDATA *const (&refs)[4], const XYRECT &rect);
 
     void SetGlowCursor(bool bShowFlag)
     {
@@ -354,6 +359,13 @@ class CINODE
     bool m_bBreakPress;
     bool m_bLockedNode;
     bool m_bMouseSelect;
+
+    // Hover trigger (Caribbean Legend, see hover_trigger.hpp): UseTrigger, TriggerFrameType,
+    // TriggerFramePos (the highlight frame; the node rectangle when not given).
+    bool m_bUseTrigger = false;
+    int32_t m_nTriggerFrameType = 0;
+    bool m_bTriggerFramePos = false;
+    XYRECT m_rectTriggerFrame{};
 
     int32_t m_nDoDelay;
     int m_nCurrentCommandNumber;
