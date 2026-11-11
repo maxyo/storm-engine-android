@@ -103,9 +103,11 @@ class LandScene final : public Scene
                 BuildSheet(commands, view, input);
                 return;
             }
-            // The engine marked its menu as something only it can draw. It stays on the
-            // game's own surface (no coverage is acknowledged); the HUD keeps out of it.
-            hud_.Error("land commands: the engine's menu is not drawable here (stage " + commands.stage + "); the game's own menu stays");
+            // The engine marked its menu as something the sheet cannot show. The engine never
+            // draws its own menu under the touch HUD, so an invisible menu would hold the
+            // player: close it and report it.
+            hud_.Error("land commands: the engine's menu is not drawable here (stage " + commands.stage + "); closed");
+            hud_.Send("landcommands", Owner(commands) + "\tclose\t");
             return;
         }
         choice_.clear();
@@ -161,11 +163,6 @@ class LandScene final : public Scene
             BuildContext(states, ready, view, input);
     }
 
-    void Hidden(const States &states) override
-    {
-        Uncover(states);
-    }
-
     double Tick(const States &states, double now) override
     {
         double next = kIdle;
@@ -188,23 +185,12 @@ class LandScene final : public Scene
 
     void Drawn(const States &states) override
     {
-        // The sheet is on the screen with exactly this menu revision: only now may the
-        // engine stop drawing its own. Said once per revision: coverage lasts until the
-        // revision changes or the sheet says it no longer covers it, however slow frames are.
+        // A tapped row goes on once the sheet showing the menu's new revision is on the screen
+        // (select, then activate against the revision that reports the selection). The engine
+        // never draws its own menu under the touch HUD (android_hud_presenter.hpp).
         const LandCommands &commands = states.land_commands;
-        const bool covering = commands.known && commands.active && commands.complete && hud_.Interactive() && hud_.Shown().modal;
-        if (!covering)
-        {
-            Uncover(states);
-            return;
-        }
-        const std::string owner = Owner(commands);
-        if (owner == covered_)
-            return;
-        covered_ = owner;
-        declined_.clear();
-        hud_.Send("landcommands", owner + "\tack\t1", "landcommands-ack");
-        Follow(commands);
+        if (commands.known && commands.active && commands.complete && hud_.Interactive() && hud_.Shown().modal)
+            Follow(commands);
     }
 
     void Released(const States &states) override
@@ -224,7 +210,6 @@ class LandScene final : public Scene
     void Suspended(const States &states) override
     {
         const LandCommands &commands = states.land_commands;
-        Uncover(states);
         if (commands.known && commands.active)
             hud_.Send("landcommands", Owner(commands) + "\tclose\t");
         choice_.clear();
@@ -572,27 +557,6 @@ class LandScene final : public Scene
         input.On("sheet-back", "click", [this](const Event &) { Commands("back", {}); });
         input.On("sheet-close", "click", [this](const Event &) { Commands("close", {}); });
         input.On("sheet", "close", [this](const Event &) { Commands("close", {}); });
-        if (hud_.Interactive() && covered_ != Owner(commands) && announced_ != Owner(commands))
-        {
-            announced_ = Owner(commands);
-            declined_.clear();
-            hud_.Send("landcommands", announced_ + "\tack\t2", "landcommands-ack"); // this revision is on its way to the screen
-        }
-    }
-
-    // The sheet does not cover the engine's menu: say so once per revision. The engine
-    // keeps its own menu hidden after a transition until the sheet answers the new
-    // revision, so every active revision gets an answer, also one never drawn. A revision
-    // the engine has replaced since needs no word: its coverage ended with it.
-    void Uncover(const States &states)
-    {
-        covered_.clear();
-        announced_.clear();
-        const LandCommands &commands = states.land_commands;
-        if (!commands.known || !commands.active || declined_ == Owner(commands))
-            return;
-        declined_ = Owner(commands);
-        hud_.Send("landcommands", declined_ + "\tack\t0", "landcommands-ack");
     }
 
     Hud &hud_;
@@ -608,13 +572,10 @@ class LandScene final : public Scene
     bool wheel_open_ = false;
     std::string move_;
     // action sheet
-    std::string covered_;  // menu owner whose coverage was acknowledged last
-    std::string declined_; // menu owner told that the sheet does not cover it
     std::string choice_; // tapped row on its way through select → activate
     double choice_until_ = 0.0;
     uint64_t choice_revision_ = 0;
     bool choice_activated_ = false;
-    std::string announced_; // menu owner told that its sheet is being drawn
 };
 
 } // namespace

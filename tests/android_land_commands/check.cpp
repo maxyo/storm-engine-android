@@ -27,11 +27,11 @@ int main() {
     assert(!s.offer(request(s,"back","i1"),100));
     assert(!s.offer(request(s,"close")+"\textra",100));
     // Coverage is an event, not a lease: it lasts however long the next UI frame takes.
-    assert(s.offer(request(s,"ack","1"),100));assert(s.covered());
-    assert(s.offer(request(s,"ack","1"),60000));assert(s.covered());
+    // No coverage words: the stock list never draws under the touch HUD (android_hud_presenter.hpp).
+    assert(!s.offer(request(s,"ack","1"),100));
     const auto stale=request(s,"activateItem","i1");assert(s.offer(stale,600));
     f.items[1].identity="box:different-chest-same-caption";s.update("bli:1:player:2:scene:3:target:4",f);
-    assert(!s.take(601)&&!s.offer(stale,601)&&!s.covered());
+    assert(!s.take(601)&&!s.offer(stale,601));
     for(auto owner:{"bli:9:player:2:scene:3:target:4","bli:9:player:7:scene:3:target:4","bli:9:player:7:scene:8:target:4","bli:9:player:7:scene:8:target:6"}) {
         auto old=request(s,"activateItem","i1");s.update(owner,f);assert(!s.offer(old,602));
     }
@@ -39,10 +39,9 @@ int main() {
     auto revision=s.revision();f.items[1].cooldown=.5;s.update("cooldown",f);assert(revision==s.revision());
     f.items[1].enabled=true;f.items[1].cooldown=1;s.update("cooldown",f);assert(revision!=s.revision());
     auto removed=request(s,"activateItem","i1");f.items.erase(f.items.begin()+1);f.selectedItemId="i0";s.update("cooldown",f);assert(!s.offer(removed,100));
-    assert(s.offer(request(s,"activateItem","i0"),100));assert(s.offer(request(s,"ack","0"),100));assert(!s.take(101));
+    assert(s.offer(request(s,"activateItem","i0"),100));assert(!s.take(1601)); // too old by the game frame
     auto beforeActivity=request(s,"close");s.resetActivity();assert(!s.offer(beforeActivity,100));
-    assert(s.offer(request(s,"ack","1"),100));assert(s.covered());s.resetActivity();assert(!s.covered());
-    f.complete=false;s.update("incomplete",f);assert(s.offer(request(s,"ack","1"),100));assert(!s.covered());
+    f.complete=false;s.update("incomplete",f);
     assert(!s.offer(request(s,"activateItem","i0"),100));assert(s.offer(request(s,"close"),100));assert(s.take(101));
     f=fixture();f.items[0].label="";s.update("missing",f);assert(!s.frame().complete&&s.frame().available);
     f=fixture();f.items[0].source=std::string(513,'a');s.update("invalid-source",f);assert(!s.frame().complete);
@@ -53,5 +52,5 @@ int main() {
     assert(s.offer(request(s,"open"),100));assert(!s.take(1601));
     assert(s.offer(request(s,"open"),0xfffffff0u));assert(s.take(0x10u));
     s.update({},{});assert(!s.offer(request(s,"open"),100));
-    std::cout<<"PASS: land selection acknowledgement, duplicate-caption identity, stale target/scene/activity, removed/disabled entries, cooldown, completeness, bounds, coverage without a lease, queue age and duplicate rejection\n";
+    std::cout<<"PASS: land selection acknowledgement, duplicate-caption identity, stale target/scene/activity, removed/disabled entries, cooldown, completeness, bounds, no coverage words, queue age and duplicate rejection\n";
 }

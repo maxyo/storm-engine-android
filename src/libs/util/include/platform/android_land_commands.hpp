@@ -62,25 +62,9 @@ class LandCommandsState
     LandCommandsFrame frame_;
     std::string sceneKey_;
     uint64_t scene_ = 0, revision_ = 1, activity_ = 0;
-    // The Android sheet answers every active revision it is given, as events, never as a
-    // lease renewed per frame: ack 2 "taking it", ack 1 "drawn", ack 0 "not covering".
-    // A UI frame may take seconds on a slow device; nothing here measures its frame rate.
-    // covered_: the UI drew exactly this revision and has not released it.
-    bool covered_ = false;
-    // Visual continuity only: after a known transition (open/select/activate/back) or a
-    // change of a covered menu, stock drawing stays off until the UI answers the new
-    // revision. Never turns an old draw ACK into current coverage or authorizes an
-    // action; exact revision checks below remain unchanged.
-    bool handoff_ = false;
-    uint32_t handoffAt_ = 0; // diagnostics only (handoffWaiting)
-    uint64_t handoffScene_ = 0, handoffActivity_ = 0;
-    std::string handoffOwner_;
-    void beginHandoff(uint32_t tick)
-    {
-        if (handoff_) return;
-        handoff_ = true; handoffAt_ = tick; handoffScene_ = scene_;
-        handoffActivity_ = activity_; handoffOwner_ = frame_.ownerIdentity;
-    }
+    // Whether the stock command list draws is not decided here: while the touch HUD presents the
+    // land HUD it never draws (android_hud_presenter.hpp). This state only carries the menu and
+    // the authority of the sheet's taps (scene, revision, activity).
     std::deque<LandCommandsRequest> pending_;
     static bool number(std::string_view value, uint64_t &result)
     {
@@ -92,30 +76,10 @@ public:
     uint64_t sceneEpoch() const { return scene_; }
     uint64_t revision() const { return revision_; }
     uint64_t activityGeneration() const { return activity_; }
-    bool covered() const { return covered_ && frame_.active && frame_.complete; }
-    bool holdingPresentation() const
-    {
-        return handoff_ && frame_.available && frame_.active && frame_.complete &&
-            handoffScene_ == scene_ && handoffActivity_ == activity_ && handoffOwner_ == frame_.ownerIdentity;
-    }
-    // How long the current hold has waited for the UI's answer (0 when none). Only for
-    // reporting a UI that stopped answering; it never ends the hold.
-    uint32_t handoffWaiting(uint32_t tick) const { return holdingPresentation() ? tick - handoffAt_ : 0; }
-    bool suppressStock() const { return covered() || holdingPresentation(); }
-    void finishAndroidOperation(const LandCommandsRequest &request, bool executed, uint32_t tick)
-    {
-        const bool sameOwner = request.scene == scene_ && request.activity == activity_ && request.revision == revision_;
-        const bool transition = request.verb == "open" || request.verb == "selectItem" ||
-            request.verb == "activateItem" || request.verb == "back";
-        const bool known = sameOwner && executed && transition && frame_.available && frame_.complete;
-        if (known) beginHandoff(tick);
-        invalidate(known);
-    }
-    void invalidate(bool preserveHandoff = false)
+    // A new revision: every tap made for the old one is stale (also after an executed one).
+    void invalidate()
     {
         ++revision_;
-        covered_ = false;
-        if (!preserveHandoff) handoff_ = false;
         pending_.clear();
     }
     void resetActivity()
@@ -123,7 +87,7 @@ public:
         activity_ = nextEpoch_.fetch_add(1, std::memory_order_relaxed) + 1;
         invalidate();
     }
-    void update(std::string sceneKey, LandCommandsFrame frame, uint32_t tick = 0)
+    void update(std::string sceneKey, LandCommandsFrame frame)
     {
         // Always publish a bounded valid snapshot, including a recoverable
         // active/Back/Close state for incompatible or malformed script data.
@@ -147,9 +111,6 @@ public:
         {
             frame.items.clear(); frame.selectedItemId.clear(); frame.complete = false;
         }
-        const bool samePresentationOwner = sceneKey_ == sceneKey && frame_.ownerIdentity == frame.ownerIdentity;
-        const bool canContinue = samePresentationOwner && frame.available && frame.active && frame.complete;
-        if (!canContinue) handoff_ = false;
         if (sceneKey_ != sceneKey || !scene_)
         {
             sceneKey_ = std::move(sceneKey);
@@ -163,10 +124,7 @@ public:
         for (auto &item : stable.items) item.cooldown = item.enabled ? 1 : 0;
         auto old = frame_;
         for (auto &item : old.items) item.cooldown = item.enabled ? 1 : 0;
-        if (stable != old) {
-            if (canContinue && covered()) beginHandoff(tick);
-            invalidate(canContinue);
-        }
+        if (stable != old) invalidate();
         frame_ = std::move(frame);
     }
     bool releaseUnavailableSource(LandCommandSource source)
@@ -201,18 +159,6 @@ public:
             !number(fields[3], request.activity) || request.scene != scene_ || request.revision != revision_ ||
             request.activity != activity_ || !activity_ || !frame_.available) return false;
         request.verb = fields[4]; request.id = fields[5]; request.tick = tick;
-        if (request.verb == "ack")
-        {
-            if (request.id != "0" && request.id != "1" && request.id != "2") return false;
-            // 2: the live Android owner is taking this known snapshot to the screen. It
-            // may bridge already drawn coverage, but cannot initiate an unacknowledged
-            // takeover. 1: drawn. 0: not covering it; stock drawing returns at once.
-            if (request.id == "2" && covered()) beginHandoff(tick);
-            covered_ = request.id == "1" && frame_.active && frame_.complete;
-            if (request.id == "1") handoff_ = false;
-            if (request.id == "0") { pending_.clear(); handoff_ = false; }
-            return true;
-        }
         if (request.verb != "open" && request.verb != "selectItem" &&
             request.verb != "activateItem" && request.verb != "back" && request.verb != "close") return false;
         if ((request.verb == "back" || request.verb == "close") && !request.id.empty()) return false;

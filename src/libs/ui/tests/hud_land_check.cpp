@@ -282,16 +282,12 @@ static void CheckSheet()
     Expect(props["rows"][0]["id"] == "item-c1" && props["rows"][0]["icon"] == "compass" && props["rows"][0]["chevron"] == true &&
                props["rows"][2]["icon"] == "thought" && props["rows"][2]["chevron"] == false && props["rows"][3]["disabled"] == true,
            "rows: icon by command, › for stages, disabled as the engine says");
-    ExpectEqual(mount.Last(), "landcommands:1\t4\t11\t2\tack\t2", "before the sheet is drawn the engine hears that it is coming");
     bench.Set("vitals", Json{{"health", 0.5}, {"energy", 0.5}});
-    Expect(mount.commands.size() == 1, "… once");
     bench.Frame();
-    ExpectEqual(mount.Last(), "landcommands:1\t4\t11\t2\tack\t1", "a drawn sheet covers the engine's menu");
-    Expect(mount.slots.back() == "landcommands-ack", "acknowledgements use their latest-value slot");
     bench.Frame(0.1);
     bench.Frame(5.0);
-    Expect(mount.commands.size() == 2, "coverage is said once per revision: no heartbeat, however far apart frames are");
-    Expect(bench.hud.Tick() > 5.0, "… and the sheet asks for no frames to repeat it");
+    Expect(mount.commands.empty(), "the sheet says nothing to the engine to cover its menu: the engine never draws it under the HUD");
+    Expect(bench.hud.Tick() > 5.0, "… and the sheet asks for no frames");
 
     // the engine reports no gameplay mode while its menu is open: the sheet stays, nothing is closed
     Json blocked = State("gameplay-explore");
@@ -311,7 +307,6 @@ static void CheckSheet()
     bench.Feed("landCommands", "land-commands-root-selected");
     bench.Frame();
     ExpectEqual(mount.Last(), "landcommands:1\t4\t12\t2\tactivateItem\tc3", "… and the selected revision is activated");
-    Expect(mount.commands[mount.commands.size() - 2] == "landcommands:1\t4\t12\t2\tack\t1", "after its coverage was acknowledged");
     bench.Press("item-c4");
     ExpectEqual(mount.Last(), "landcommands:1\t4\t12\t2\tactivateItem\tc3", "a disabled row does nothing");
 
@@ -350,37 +345,15 @@ static void CheckSheet()
     bench.Press("sheet-close");
     ExpectEqual(mount.Last(), "landcommands:1\t4\t11\t2\tclose\t", "✕ closes");
 
-    // a revision the sheet will not draw is still answered, once: the engine keeps its menu hidden until then
-    mount.commands.clear();
-    bench.Feed("presentation", "presentation-menu");
-    Json moved = State("land-commands-root");
-    moved["revision"] = 30;
-    bench.Set("landCommands", moved);
-    bench.Frame();
-    bench.Frame();
-    Expect(std::count(mount.commands.begin(), mount.commands.end(), "landcommands:1\t4\t30\t2\tack\t0") == 1,
-           "a hidden sheet declines the new revision once: " + mount.Last());
-    bench.Feed("presentation", "presentation-game");
-    bench.Set("landCommands", Json(nullptr));
-    bench.Feed("landCommands", "land-commands-root");
-    bench.Frame();
-
-    // losing the screen: no coverage, the menu is closed
+    // losing the screen: the menu is closed
     mount.commands.clear();
     bench.Feed("presentation", "presentation-background");
-    Expect(mount.commands.size() >= 2 && mount.commands[mount.commands.size() - 2] == "landcommands:1\t4\t11\t2\tack\t0" &&
-               mount.Last() == "landcommands:1\t4\t11\t2\tclose\t",
-           "in the background the coverage is withdrawn and the menu closed");
+    ExpectEqual(mount.Last(), "landcommands:1\t4\t11\t2\tclose\t", "in the background the menu is closed");
+    const size_t closed = mount.commands.size();
     bench.Frame(0.3);
-    Expect(mount.Last() == "landcommands:1\t4\t11\t2\tclose\t", "… and nothing is acknowledged while not live");
+    Expect(mount.commands.size() == closed, "… and nothing more is said while not live");
     bench.Feed("presentation", "presentation-game");
-
-    // a covered menu hidden by a game menu withdraws its coverage
     bench.Frame();
-    ExpectEqual(mount.Last(), "landcommands:1\t4\t11\t2\tack\t1", "live again: covered again");
-    bench.Feed("presentation", "presentation-menu");
-    ExpectEqual(mount.Last(), "landcommands:1\t4\t11\t2\tack\t0", "hidden: not covered");
-    bench.Feed("presentation", "presentation-game");
 
     // the menu closed while gameplay is still blocked: the scene has nothing to hold on to
     bench.Set("gameplay", blocked);
@@ -389,15 +362,15 @@ static void CheckSheet()
     bench.Feed("gameplay", "gameplay-explore");
     Expect(mount.visible && mount.Last() == "presence:shown", "explore again: the HUD is back and says so");
 
-    // a menu only the engine can draw stays the engine's: no sheet, no coverage, an error
+    // a menu the sheet cannot show is closed and reported: the engine never draws its own
     bench.Set("landCommands", Json(nullptr));
     mount.commands.clear();
     bench.Feed("landCommands", "land-commands-unknown-kind");
     bench.Frame();
     Expect(mount.shown.sheet.empty() && !mount.shown.modal && !mount.Has("move") && mount.commands.size() == 1 &&
-               mount.Last() == "landcommands:1\t4\t15\t2\tack\t0" && !mount.errors.empty() &&
+               mount.Last() == "landcommands:1\t4\t15\t2\tclose\t" && !mount.errors.empty() &&
                mount.errors.back().find("not drawable here") != std::string::npos && !bench.hud.Back(),
-           "an undrawable menu: declined once so the engine draws its own at once, and that is reported");
+           "an undrawable menu: closed once, and that is reported");
 }
 
 static void CheckTouches(const std::string &pack)
@@ -516,7 +489,6 @@ static void CheckTouches(const std::string &pack)
     run.Frame();
     run.Frame();
     Expect(host.WantsTouch(400, 200) && host.WantsTouch(5, 5) && host.WantsBack(), "an open sheet takes every touch and the back key");
-    Expect(run.Sent("landcommands:1\t4\t11\t2\tack\t1"), "the drawn sheet is acknowledged");
     host.Touch(TouchPhase::Down, 1, 700, 20); // the first row
     host.Touch(TouchPhase::Up, 1, 700, 20);
     Expect(run.Last() == "landcommands:1\t4\t11\t2\tselectItem\tc1", "a tap on a row: " + run.Last());
