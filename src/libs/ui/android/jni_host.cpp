@@ -1,6 +1,6 @@
-// JNI surface of the UI runtime for the Android host (org.stormengine.port.StormUi).
-// Every call arrives on the GL thread of the host view, with its context current; only
-// nativeWantsTouch and nativeWantsBack come from the thread that receives input.
+// JNI surface of the UI runtime for the application screens without the engine
+// (org.stormengine.port.StormUi; the game hosts the UI in the engine: src/libs/ui_host).
+// Every call arrives on the GL thread of the host view, with its context current.
 // Actions are queued and handed to Java in batches after a frame, so no native code
 // ever calls back into the VM.
 #include "storm_ui/asset_files.h"
@@ -140,11 +140,6 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeResize(JNIEnv *, 
     From(handle)->host->Resize(width, height, density);
 }
 
-JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeSetGameRoot(JNIEnv *env, jclass, jlong handle, jstring game_root)
-{
-    From(handle)->host->SetGameRoot(Text(env, game_root));
-}
-
 // phase: 0 down, 1 move, 2 up, 3 cancel
 JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeTouch(JNIEnv *, jclass, jlong handle, jint phase, jint pointer, jfloat x, jfloat y)
 {
@@ -198,48 +193,10 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeToast(JNIEnv *env
     From(handle)->host->Toast(Text(env, text), Text(env, tone));
 }
 
-JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeSetProps(JNIEnv *env, jclass, jlong handle, jstring element_id, jstring json)
-{
-    return From(handle)->host->SetProps(Text(env, element_id), Text(env, json)) ? JNI_TRUE : JNI_FALSE;
-}
-
-JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeScrollTo(JNIEnv *env, jclass, jlong handle, jstring element_id)
-{
-    From(handle)->host->ScrollTo(Text(env, element_id));
-}
-
-JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeHostOwnsHud(JNIEnv *env, jclass, jstring mode)
-{
-    return storm::ui::HostOwnsHud(Text(env, mode)) ? JNI_TRUE : JNI_FALSE;
-}
-
-// The engine's interface snapshot, forwarded as it arrived.
-JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeSetInterface(JNIEnv *env, jclass, jlong handle, jbyteArray json)
-{
-    return From(handle)->host->SetInterface(Bytes(env, json)) ? JNI_TRUE : JNI_FALSE;
-}
-
-JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeCloseInterface(JNIEnv *, jclass, jlong handle)
-{
-    From(handle)->host->CloseInterface();
-}
-
-// A state channel of the game: the engine's JSON bytes, forwarded as they arrived.
+// A state channel of the screen ("launcher", "downloads", …).
 JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeSetState(JNIEnv *env, jclass, jlong handle, jstring channel, jbyteArray json)
 {
     return From(handle)->host->SetState(Text(env, channel), Bytes(env, json)) ? JNI_TRUE : JNI_FALSE;
-}
-
-// Input thread, at pointer-down: does this pointer belong to the UI? (physical pixels)
-JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeWantsTouch(JNIEnv *, jclass, jlong handle, jfloat x, jfloat y)
-{
-    return From(handle)->host->WantsTouch(x, y) ? JNI_TRUE : JNI_FALSE;
-}
-
-// Input thread: the back key belongs to the UI (an open HUD sheet).
-JNIEXPORT jboolean JNICALL Java_org_stormengine_port_StormUi_nativeWantsBack(JNIEnv *, jclass, jlong handle)
-{
-    return From(handle)->host->WantsBack() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeBack(JNIEnv *, jclass, jlong handle)
@@ -247,21 +204,10 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeBack(JNIEnv *, jc
     From(handle)->host->Back();
 }
 
-JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeCancelInput(JNIEnv *, jclass, jlong handle)
-{
-    From(handle)->host->CancelInput();
-}
-
 JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeSubmitText(JNIEnv *env, jclass, jlong handle, jstring token, jstring text,
                                                                          jboolean accepted)
 {
     From(handle)->host->SubmitText(Text(env, token), Text(env, text), accepted == JNI_TRUE);
-}
-
-JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeSetSafeArea(JNIEnv *, jclass, jlong handle, jfloat left, jfloat top,
-                                                                          jfloat right, jfloat bottom)
-{
-    From(handle)->host->SetSafeArea(left, top, right, bottom);
 }
 
 // The oldest pending editor request as {token, text, title, numeric, x, y, width, height, secret}, or null.
