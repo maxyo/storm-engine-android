@@ -41,3 +41,20 @@ int test_reference_items()
 	for (ref value: &values) value = value * 10;
 	return values[0] == 10 && values[1] == 20;
 }
+
+int test_attribute_names_as_keys()
+{
+	DeleteAttribute(&bag, "");
+	bag.left = "0.5";
+	bag.right = "1.0";
+	aref view;
+	makearef(view, bag);
+	string names = "";
+	float sum = 0.0;
+	for (string name, aref entry: &view)
+	{
+		names += name;
+		sum += makefloat(view.(name));
+	}
+	return names == "leftright" && sum == 1.5;
+}

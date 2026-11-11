@@ -6929,7 +6929,12 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
                 pLeftOperandAClass->SetValue(pChar);
 
                 if (nLeftOperandIndex != INVALID_ARRAY_INDEX)
-                    pVDst = pVDst->GetArrayElement(nLeftOperandIndex);
+                {
+                    // the element of an object array, directly or through a reference to it
+                    pVDst = pVDst->GetVarPointer();
+                    if (pVDst)
+                        pVDst = pVDst->GetArrayElement(nLeftOperandIndex);
+                }
                 if (!pVDst)
                     return false;
 
@@ -7426,7 +7431,14 @@ bool COMPILER::BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const c
             else
                 item->SetAReference(attributes->GetAttributeClass(static_cast<uint32_t>(at)));
             if (slots[3] != INVALID_VAR_CODE)
-                SStack.Read(pRun_fi->stack_offset, slots[3])->Set(at);
+            {
+                // the key: the position, or for attributes into a string key the attribute's name
+                DATA *key = SStack.Read(pRun_fi->stack_offset, slots[3]);
+                if (!array && key->GetType() == VAR_STRING)
+                    key->Set(attributes->GetAttributeClass(static_cast<uint32_t>(at))->GetThisName());
+                else
+                    key->Set(at);
+            }
             position->Set(at + 1);
             ExpressionResult.Set(int32_t{1});
             break;

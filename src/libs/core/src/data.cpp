@@ -10,7 +10,7 @@
 const char *UNINIT_REF = {"Using reference variable without initializing"};
 const char *INVALID_REF_OP = {"Invalid operation on reference object"};
 const char *NO_INDEX = {"Missed array index"};
-const char *INVALID_CONVERSATION = {"Invalid conversation"};
+extern const char *TokenTypeName[];
 const char *INDEX_ON_SINGLE = {"Incorrect usage of index on single variable"};
 const char *INCORRECT_TYPE_ASSIGMENT = {"Incorrect type assigment"};
 const char *INCORRECT_INDEX = {"Incorrect index"};
@@ -216,6 +216,11 @@ void DATA::Error(const char *text)
 {
     // DumpError(text);
     pVCompiler->SetError(text);
+}
+
+void DATA::ConversionError(S_TOKEN_TYPE type)
+{
+    pVCompiler->SetError("Invalid conversation: %s to %s", TokenTypeName[Data_type], TokenTypeName[type]);
 }
 
 void DATA::SetReference(DATA *pRef)
@@ -1067,7 +1072,7 @@ bool DATA::Convert(S_TOKEN_TYPE type)
             Data_type = VAR_FREF;
             return true;
         }
-        Error(INVALID_CONVERSATION);
+        ConversionError(type);
         return false;
     }
     switch (Data_type)
@@ -1091,7 +1096,7 @@ bool DATA::Convert(S_TOKEN_TYPE type)
             Set(buffer);
             return true;
         default:
-            Error(INVALID_CONVERSATION);
+            ConversionError(type);
             return false;
         }
         break;
@@ -1114,7 +1119,7 @@ bool DATA::Convert(S_TOKEN_TYPE type)
             Set(buffer);
             return true;
         default:
-            Error(INVALID_CONVERSATION);
+            ConversionError(type);
             return false;
         }
         break;
@@ -1137,7 +1142,7 @@ bool DATA::Convert(S_TOKEN_TYPE type)
         case VAR_STRING:
             return true;
         default:
-            Error(INVALID_CONVERSATION);
+            ConversionError(type);
             return false;
         }
         break;
@@ -1199,7 +1204,7 @@ bool DATA::Convert(S_TOKEN_TYPE type)
             lValue = static_cast<int32_t>(pValue);
             return true;
         default:
-            Error(INVALID_CONVERSATION);
+            ConversionError(type);
             return false;
         }
     }

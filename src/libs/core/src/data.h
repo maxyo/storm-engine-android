@@ -109,6 +109,7 @@ class DATA : public VDATA
     void SetType(S_TOKEN_TYPE type, uint32_t array_size = 1);
     bool Convert(S_TOKEN_TYPE type);
     void Error(const char *);
+    void ConversionError(S_TOKEN_TYPE type);
     DATA *GetArrayElement(uint32_t index) override;
 
     S_TOKEN_TYPE GetType()
