@@ -11,9 +11,9 @@
 // calls Requested(); CoreImpl::ProcessStateLoading calls Loaded() once the record's state is
 // applied. Every known refusal (the description guard, InitiateStateLoading,
 // ProcessStateLoading) calls Refused() with its reason. The core frame loop calls Poll() with
-// the frame's real time: it returns the failure once — at the first refusal, or when the load
-// has not started within kTimeoutSeconds of running frames (time the app spends suspended
-// does not count). The caller then logs it, brings the menu back and tells the player.
+// the wall-clock time since its last call: it returns the failure once — at the first
+// refusal, or when the load is not done within kTimeoutSeconds (a frame counts
+// kMaxFrameSeconds at most, so a suspension of the app does not count). The caller then logs it, brings the menu back and tells the player.
 #include <optional>
 #include <string>
 
@@ -22,14 +22,15 @@ namespace storm
 class LoadWatch
 {
   public:
-    // Measured from the confirmed load to InitiateStateLoading: ~2-3 s on the arm64-on-x86
-    // emulator at 1-2 menu frames per second, well under a second on a phone; the state is
-    // then applied inside one frame (counted as kMaxFrameSeconds at most). The deadline is
-    // generous so that only a load that will never start trips it.
-    static constexpr double kTimeoutSeconds = 20.0;
-    // One frame never counts for more than this: a frame that spans a suspension of the app
-    // must not trip the deadline.
-    static constexpr double kMaxFrameSeconds = 1.0;
+    // Measured on the arm64-on-x86 emulator (1-2 menu frames per second): ~1.3 s from the
+    // confirmed load to the description guard, ~2 s to InitiateStateLoading; the state is then
+    // applied inside one long frame (95 s there), counted as kMaxFrameSeconds. A phone is
+    // several times faster. The deadline is generous so that only a load that will never
+    // start trips it.
+    static constexpr double kTimeoutSeconds = 30.0;
+    // One frame never counts for more than this: neither the frame that applies the state nor
+    // one spanning a suspension of the app may trip the deadline.
+    static constexpr double kMaxFrameSeconds = 5.0;
 
     struct Failure
     {

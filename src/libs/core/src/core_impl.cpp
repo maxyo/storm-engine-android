@@ -714,7 +714,7 @@ void CoreImpl::ProcessStateLoading()
     else
     {
         if (storm::loadWatch().Armed())
-            spdlog::info("load watch: '{}' applied {:.1f} s (frame time) after it was asked for", State_file_name,
+            spdlog::info("load watch: '{}' applied {:.1f} s (wall clock, a frame counted 5 s at most) after it was asked for", State_file_name,
                          storm::loadWatch().Waited());
         storm::loadWatch().Loaded();
     }
@@ -729,7 +729,12 @@ void CoreImpl::ProcessStateLoading()
 // AndroidLoadFailed: app script interface/android_load_failure.c) and the UI tells the player.
 void CoreImpl::ReportFailedLoad()
 {
-    const auto failure = storm::loadWatch().Poll(GetRDeltaTime() * 0.001);
+    // Wall-clock time: the core's frame delta is clamped to 100 ms and would stretch the
+    // deadline tenfold at the emulator's frame rates.
+    static uint64_t last = SDL_GetTicks64();
+    const uint64_t now = SDL_GetTicks64();
+    const auto failure = storm::loadWatch().Poll(static_cast<double>(now - last) * 0.001);
+    last = now;
     if (!failure)
         return;
     spdlog::error("LOAD FAILED: record '{}': {}; the menu is brought back", failure->record, failure->reason);
