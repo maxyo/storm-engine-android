@@ -108,7 +108,7 @@ public:
         if (control != "Ship_Fire" && control != "Sea_CameraSwitch" &&
             control != "hk_charge1" && control != "hk_charge2" &&
             control != "hk_charge3" && control != "hk_charge4" &&
-            control != "TimeScale" && control != "TimeScaleFaster" && control != "TimeScaleSlower" &&
+            control != "TimeScaleX1" && control != "TimeScaleX2" && control != "TimeScaleX4" && control != "TimeScaleX8" &&
             control != "BI_InstantRepair" && control != "BI_ImmediateReload") return false;
         if (!allows(control)) return false;
         pending_.push_back({revision, std::string(control), tick});

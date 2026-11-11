@@ -506,12 +506,17 @@ class SeaScene final : public Scene
         }
     }
 
-    // The game's time acceleration (its R / + / − keys): the scripts step and clamp the scale,
-    // the button shows the scale the engine runs at.
+    // The game's time acceleration in four steps (owner decision): a tap is the next of x1, x2,
+    // x4, x8 after the scale the engine runs at; the scripts apply and clamp it
+    // (android_time_scale.hpp), the badge shows what the engine really runs at.
     void BuildTime(const Gameplay &gameplay, const Ship *ship, View &view, Input &input)
     {
-        if (!gameplay.Has("TimeScale") || !ship || ship->time_scale < 0.0)
+        static const char *const kSteps[] = {"TimeScaleX1", "TimeScaleX2", "TimeScaleX4", "TimeScaleX8"};
+        if (!ship || ship->time_scale < 0.0)
             return;
+        for (const char *step : kSteps)
+            if (!gameplay.Has(step))
+                return;
         char text[16];
         std::snprintf(text, sizeof(text), "%.2f", ship->time_scale);
         std::string scale = text;
@@ -519,16 +524,10 @@ class SeaScene final : public Scene
             scale.pop_back();
         if (scale.back() == '.')
             scale.pop_back();
-        const bool fast = std::abs(ship->time_scale - 1.0) > 0.001;
-        view.elements["time"] = Json{{"badge", "×" + scale}, {"variant", fast ? "active" : "normal"}};
-        input.On("time", "click", [this](const Event &) { Control("TimeScale"); });
-        for (const auto &[element, control] : {std::pair{"time-slower", "TimeScaleSlower"}, std::pair{"time-faster", "TimeScaleFaster"}})
-        {
-            if (!gameplay.Has(control))
-                continue;
-            view.elements[element] = Json::object();
-            input.On(element, "click", [this, control = std::string(control)](const Event &) { Control(control); });
-        }
+        const double now = ship->time_scale;
+        const int current = now < 1.5 ? 0 : now < 3.0 ? 1 : now < 6.0 ? 2 : 3;
+        view.elements["time"] = Json{{"badge", "×" + scale}, {"variant", current ? "active" : "normal"}};
+        input.On("time", "click", [this, next = std::string(kSteps[(current + 1) % 4])](const Event &) { Control(next); });
     }
 
     // The battle abilities beside the guns (V2-Sea-Battle effect-0 / effect-1): a tap launches
@@ -636,6 +635,7 @@ class SeaScene final : public Scene
         Hold(turn < 0 ? "Ship_TurnRight" : "Ship_TurnLeft", false);
         Hold(turn < 0 ? "Ship_TurnLeft" : "Ship_TurnRight", turn != 0);
     }
+
     void Walk(const std::string &value)
     {
         const size_t comma = value.find(',');
@@ -653,7 +653,6 @@ class SeaScene final : public Scene
         Hold(walk > 0 ? "DeckCamera_Backward" : "DeckCamera_Forward", false);
         Hold(walk > 0 ? "DeckCamera_Forward" : "DeckCamera_Backward", walk != 0);
     }
-
 
     void Hold(const std::string &control, bool down)
     {
@@ -956,8 +955,8 @@ class SeaScene final : public Scene
     int band_left_ = 0; // dp from the safe area; 0 = the layout's own band
     // held controls
     std::map<std::string, Held> holds_;
-    int walk_ = 0; // deck walking: 1 forward, -1 back
     int turn_ = 0;
+    int walk_ = 0; // deck walking: 1 forward, -1 back
     // sails
     int sail_target_ = -1;
     double sail_until_ = 0.0;

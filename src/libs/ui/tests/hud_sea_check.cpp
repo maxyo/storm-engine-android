@@ -176,14 +176,10 @@ static void CheckSailing()
     Expect(mount.Last() == "gameplay:9\tSea_CameraSwitch", "camera: " + mount.Last());
     bench.Press("fire");
     Expect(mount.Last() == "gameplay:9\tShip_Fire", "fire: " + mount.Last());
-    Expect(mount.shown.elements["time"]["badge"] == "×1" && mount.shown.elements["time"]["variant"] == "normal" && mount.Has("time-slower") && mount.Has("time-faster"),
+    Expect(mount.shown.elements["time"]["badge"] == "×1" && mount.shown.elements["time"]["variant"] == "normal" && !mount.Has("time-slower") && !mount.Has("time-faster"),
            "the time scale the engine runs at: " + mount.shown.elements["time"].dump());
     bench.Press("time");
-    Expect(mount.Last() == "gameplay:9\tTimeScale", "the time button is the game's R: " + mount.Last());
-    bench.Press("time-faster");
-    Expect(mount.Last() == "gameplay:9\tTimeScaleFaster", "faster: " + mount.Last());
-    bench.Press("time-slower");
-    Expect(mount.Last() == "gameplay:9\tTimeScaleSlower", "slower: " + mount.Last());
+    Expect(mount.Last() == "gameplay:9\tTimeScaleX2", "x1 → x2: " + mount.Last());
     bench.Press("orders");
     Expect(mount.Last() == "orders:1\t6\t14\t2\topen\t", "orders: " + mount.Last());
     bench.Press("fleet", "ship", "1");
@@ -357,6 +353,8 @@ static void CheckBattle()
                shown["minimap"]["time"] == "11:42",
            "battle values");
     Expect(shown["time"]["badge"] == "×1.5" && shown["time"]["variant"] == "active", "an accelerated world: " + shown["time"].dump());
+    bench.Press("time");
+    Expect(mount.Last() == "gameplay:10\tTimeScaleX4", "x1.5 counts as x2: the next step is x4: " + mount.Last());
     Expect(shown["effect-0"]["icon"] == "perk-instantrepair" && !shown["effect-0"].contains("fill") && !shown["effect-0"].contains("disabled") &&
                shown["effect-1"]["fill"] == 40 && shown["effect-1"]["fillTone"] == "cooldown",
            "the battle abilities: " + shown["effect-0"].dump() + shown["effect-1"].dump());
