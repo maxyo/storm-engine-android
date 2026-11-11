@@ -4457,6 +4457,9 @@ bool COMPILER::CompileBlock(SEGMENT_DESC &Segment, bool &bFunctionBlock, uint32_
                 if (!CompileAttributeIntrinsic(Segment))
                     return false;
                 CompileToken(Segment, STACK_POP_VOID);
+                // the intrinsic read the ';' as an expression would: give it back, so that it ends
+                // this statement (an unbraced if/else/loop body is one statement)
+                Token.StepBack();
                 break;
             }
             if (S_TOKEN_TYPE call_type = DetectCallThrough(); call_type != UNKNOWN)

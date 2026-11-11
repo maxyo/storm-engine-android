@@ -4,7 +4,7 @@
 
 uint64_t dwTmpRDTSC;
 
-AICannon::AICannon() : pAHolder(nullptr), eidParent(0), vPos(), vDir(), fSpeedV0(0), vEnemyPos()
+AICannon::AICannon() : pAHolder(nullptr), eidParent(0), dwBortIndex(0), vPos(), vDir(), fSpeedV0(0), vEnemyPos()
 {
     bLoad = false;
     bEmpty = true;
@@ -178,8 +178,9 @@ bool AICannon::Fire(float _fSpeedV0, const glm::vec3 &_vFirePos)
     vEnemyPos = _vFirePos;
     fSpeedV0 = _fSpeedV0;
 
-    // calculate in script timeout before real fire
-    auto *pVData = core.Event(CANNON_GET_FIRE_TIME, "a", pAHolder->GetACharacter());
+    // calculate in script timeout before real fire: bort, random delay of a real shot, cannon index
+    auto *pVData = core.Event(CANNON_GET_FIRE_TIME, "asll", pAHolder->GetACharacter(), sBortName.c_str(), 1,
+                              static_cast<int32_t>(dwBortIndex));
     Assert(pVData);
     fTotalTime2Action = fTime2Action = pVData->GetFloat();
     return true;
@@ -217,7 +218,7 @@ void AICannon::Recharge()
     bRecharged = true;
 
     // calculate in script recharge time, and possibility of recharge
-    auto *pVData = core.Event(CANNON_GET_RECHARGE_TIME, "a", pAHolder->GetACharacter());
+    auto *pVData = core.Event(CANNON_GET_RECHARGE_TIME, "as", pAHolder->GetACharacter(), sBortName.c_str());
     Assert(pVData);
     fTotalTime2Action = fTime2Action = pVData->GetFloat();
 }
@@ -248,10 +249,13 @@ float AICannon::CalcMaxFireDistance(float fFireHeight, float fSpeedV0, float fAn
     return fDistance;
 }
 
-void AICannon::Init(AIAttributesHolder *_pAHolder, const entid_t eid, GEOS::LABEL &lbl)
+void AICannon::Init(AIAttributesHolder *_pAHolder, const entid_t eid, GEOS::LABEL &lbl, std::string bortName,
+                    const uint32_t bortIndex)
 {
     pAHolder = _pAHolder;
     eidParent = eid;
+    sBortName = std::move(bortName);
+    dwBortIndex = bortIndex;
 
     glm::mat4 m;
     memcpy(&m[0][0], &lbl.m[0][0], sizeof(m));
@@ -278,10 +282,13 @@ void AICannon::Save(CSaveLoad *pSL) const
     pSL->SaveDword(bCanRecharge);
 }
 
-void AICannon::Load(CSaveLoad *pSL, AIAttributesHolder *_pAHolder, const entid_t eid)
+void AICannon::Load(CSaveLoad *pSL, AIAttributesHolder *_pAHolder, const entid_t eid, std::string bortName,
+                    const uint32_t bortIndex)
 {
     pAHolder = _pAHolder;
     eidParent = eid;
+    sBortName = std::move(bortName);
+    dwBortIndex = bortIndex;
 
     vPos = pSL->LoadVector();
     vDir = pSL->LoadVector();

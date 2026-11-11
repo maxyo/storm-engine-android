@@ -3,6 +3,8 @@
 #include "ai_helper.h"
 #include "vai_objbase.h"
 
+#include <string>
+
 // ============================================================================
 // Master class AICannon
 // Contain functions and parameters for cannon
@@ -12,6 +14,11 @@ class AICannon
   private:
     AIAttributesHolder *pAHolder;
     entid_t eidParent;       // parent for cannon (ship, or fort entity)
+    // Script-side identity of the cannon, passed with every cannon event: the bort it stands on
+    // (a ship bort name, or for forts the key of its kind in Fort.Cannons.Type: "1" cannon,
+    // "2" culverin, "3" mortar) and its index within that bort.
+    std::string sBortName;
+    uint32_t dwBortIndex;
     glm::vec3 vPos, vDir;      // Cannon position and direction(relative to parent)
     float fTime2Action;      // timeout before action(calculated in script)
     float fTotalTime2Action; // total timeout before action(calculated in script)(unchangeable)
@@ -47,11 +54,16 @@ class AICannon
     AICannon();
     virtual ~AICannon();
 
-    void Init(AIAttributesHolder *_pAHolder, entid_t eid, GEOS::LABEL &lbl);
+    void Init(AIAttributesHolder *_pAHolder, entid_t eid, GEOS::LABEL &lbl, std::string bortName, uint32_t bortIndex);
 
     void Execute(float fDeltaTime);
 
     static float CalcMaxFireDistance(float fFireHeight, float fSpeedV0, float fAngle);
+
+    const std::string &GetBortName() const
+    {
+        return sBortName;
+    }
 
     entid_t GetParentEID() const
     {
@@ -136,7 +148,7 @@ class AICannon
     }
 
     void Save(CSaveLoad *pSL) const;
-    void Load(CSaveLoad *pSL, AIAttributesHolder *_pAHolder, entid_t eid);
+    void Load(CSaveLoad *pSL, AIAttributesHolder *_pAHolder, entid_t eid, std::string bortName, uint32_t bortIndex);
 
   private:
     CANNONTYPE CannonType;

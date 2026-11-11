@@ -27,6 +27,15 @@ void AIFort::SetDevice()
 {
 }
 
+namespace
+{
+// Script names of the fort cannon kinds: the keys of Fort.Cannons.Type ("Fort.Cannons.Type.1" ...),
+// passed as the bort name of fort cannons in cannon events.
+constexpr const char *kFortCannonBort = "1";
+constexpr const char *kFortCulverinBort = "2";
+constexpr const char *kFortMortarBort = "3";
+} // namespace
+
 float AIFort::GetSpeedV0(uint32_t dwFortIndex)
 {
     ATTRIBUTES *pACannon, *pACharacter;
@@ -350,30 +359,35 @@ bool AIFort::ScanFortForCannons(AI_FORT *pFort, const char *pModelsDir, const ch
         {
             pNode->geo->GetLabel(i, label);
             AICannon *pCannon = nullptr;
+            const char *bortName = nullptr;
+            uint32_t bortIndex = 0;
 
             if (storm::iEquals(label.name, "cannon", 6) && pFort->dwCannonType != -1)
             {
+                bortIndex = static_cast<uint32_t>(pFort->aCannons.size());
                 pFort->aCannons.push_back(AICannon{});
                 pCannon = &pFort->aCannons.back();
-                // pCannon = &pFort->aCannons[pFort->aCannons.Add()];
+                bortName = kFortCannonBort;
             }
             if (storm::iEquals(label.name, "culverin", 8) && pFort->dwCulverinType != -1)
             {
+                bortIndex = static_cast<uint32_t>(pFort->aCulverins.size());
                 pFort->aCulverins.push_back(AICannon{});
                 pCannon = &pFort->aCulverins.back();
-                // pCannon = &pFort->aCulverins[pFort->aCulverins.Add()];
+                bortName = kFortCulverinBort;
             }
             if (storm::iEquals(label.name, "mortar", 6) && pFort->dwMortarType != -1)
             {
+                bortIndex = static_cast<uint32_t>(pFort->aMortars.size());
                 pFort->aMortars.push_back(AICannon{});
                 pCannon = &pFort->aMortars.back();
-                // pCannon = &pFort->aMortars[pFort->aMortars.Add()];
                 pCannon->SetType(AICannon::CANNONTYPE::CANNONTYPE_MORTAR);
+                bortName = kFortMortarBort;
             }
 
             if (pCannon)
             {
-                pCannon->Init(pFort, GetId(), label);
+                pCannon->Init(pFort, GetId(), label, bortName, bortIndex);
                 pCannon->QuickRecharge(true);
             }
         }
@@ -522,7 +536,7 @@ void AIFort::AI_FORT::Load(CSaveLoad *pSL, entid_t eid)
     uint32_t i;
     for (i = 0; i < aCannons.size(); i++)
     {
-        aCannons[i].Load(pSL, this, eid);
+        aCannons[i].Load(pSL, this, eid, kFortCannonBort, i);
         if (aCannons[i].isDamaged())
         {
             const glm::vec3 vPos = aCannons[i].GetPos();
@@ -532,7 +546,7 @@ void AIFort::AI_FORT::Load(CSaveLoad *pSL, entid_t eid)
 
     for (i = 0; i < aCulverins.size(); i++)
     {
-        aCulverins[i].Load(pSL, this, eid);
+        aCulverins[i].Load(pSL, this, eid, kFortCulverinBort, i);
         if (aCulverins[i].isDamaged())
         {
             const glm::vec3 vPos = aCulverins[i].GetPos();
@@ -542,7 +556,7 @@ void AIFort::AI_FORT::Load(CSaveLoad *pSL, entid_t eid)
 
     for (i = 0; i < aMortars.size(); i++)
     {
-        aMortars[i].Load(pSL, this, eid);
+        aMortars[i].Load(pSL, this, eid, kFortMortarBort, i);
         if (aMortars[i].isDamaged())
         {
             const glm::vec3 vPos = aMortars[i].GetPos();

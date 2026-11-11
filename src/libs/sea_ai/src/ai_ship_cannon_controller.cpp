@@ -98,11 +98,20 @@ bool AIShipCannonController::Fire(AIShip *pEnemy)
     Assert(pEnemy);
     Assert(AIBalls::pAIBalls);
 
-    VDATA *pVData = core.Event(CANNON_GET_FIRE_HEIGHT, "aa", GetAIShip()->GetACharacter(), pEnemy->GetACharacter());
+    // The aim height and the mean fire delay are asked once per volley for the bort that faces the
+    // enemy now (callers check isCanFire(pEnemy) first, so there is one).
+    const auto aimBortIt = GetFirstFireBort(pEnemy->GetPos());
+    if (!IsValid(aimBortIt))
+        return false;
+    const char *aimBort = aimBortIt->sName.c_str();
+
+    VDATA *pVData = core.Event(CANNON_GET_FIRE_HEIGHT, "aas", GetAIShip()->GetACharacter(), pEnemy->GetACharacter(),
+                               aimBort);
     Assert(pVData);
     const float fFireHeight = pVData->GetFloat();
 
-    pVData = core.Event(CANNON_GET_FIRE_TIME, "a", GetAIShip()->GetACharacter());
+    // mean delay for the lead estimate: no random ripple, no particular cannon
+    pVData = core.Event(CANNON_GET_FIRE_TIME, "asll", GetAIShip()->GetACharacter(), aimBort, 0, -1);
     Assert(pVData);
     const float fFireTime = pVData->GetFloat();
 
@@ -758,7 +767,8 @@ bool AIShipCannonController::ScanShipForCannons()
                     const glm::mat4 m;
                     memcpy(storm::math::d3dMatrix(m), label.m, sizeof(m));
                     bort.fOurBortFireHeight += storm::math::pos(m).y;
-                    pCannon->Init(GetAIShip(), GetAIShip()->GetShipEID(), label);
+                    pCannon->Init(GetAIShip(), GetAIShip()->GetShipEID(), label, bort.sName,
+                                  static_cast<uint32_t>(bort.aCannons.size() - 1));
 
                     char buf[512];
                     sprintf_s(buf, "%s.damages", label.group_name);
@@ -881,8 +891,8 @@ void AIShipCannonController::CheckCannonsBoom(float fTmpCannonDamage, const glm:
 
             if (fDistance > fMaxCannonDamageDistance)
                 continue;
-            VDATA *pVData = core.Event(CANNON_DAMAGE, "affffff", GetAIShip()->GetACharacter(), fTmpCannonDamage,
-                                       pC->GetDamage(), fDistance, vPnt.x, vPnt.y, vPnt.z);
+            VDATA *pVData = core.Event(CANNON_DAMAGE, "affffffs", GetAIShip()->GetACharacter(), fTmpCannonDamage,
+                                       pC->GetDamage(), fDistance, vPnt.x, vPnt.y, vPnt.z, bort.sName.c_str());
 
             sprintf_s(str, "c%d", j);
 
@@ -1005,7 +1015,7 @@ void AIShipCannonController::Load(CSaveLoad *pSL)
         for (uint32_t j = 0; j < dwNumCannons; j++)
         {
             B.aCannons.emplace_back();
-            B.aCannons.back().Load(pSL, GetAIShip(), GetAIShip()->GetShipEID());
+            B.aCannons.back().Load(pSL, GetAIShip(), GetAIShip()->GetShipEID(), B.sName, j);
         }
     }
 }
