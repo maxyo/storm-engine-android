@@ -490,7 +490,11 @@ int main(int argc, char *argv[])
     storm::android::GameplayShortcuts gameplayShortcuts;
     storm::android::GameplayState gameplayState;
     storm::android::movementInput.updateOwner({});
-    gameplayState.update({});
+    {
+        storm::android::GameplaySnapshot starting;
+        starting.blocked = "starting";
+        gameplayState.update(std::move(starting));
+    }
     storm::android::combatInput.guard = [&]() {
         return storm::android::combatInput.player() == std::to_string(core.GetEntityId("Player")) &&
             storm::android::combatContextCurrent(gameplayState, isRunning && bActive && androidLifecycle.canRun() &&
@@ -752,7 +756,9 @@ int main(int argc, char *argv[])
             storm::android::publishLandCommands();
             storm::android::publishSeaOrders();
             storm::android::movementInput.updateOwner({});
-            gameplayState.update({});
+            storm::android::GameplaySnapshot blocked;
+            blocked.blocked = !androidLifecycle.canRun() ? "paused" : storm::android::loadingState != 0 ? "loading" : "interface";
+            gameplayState.update(std::move(blocked));
             storm::android::heldControls.update(gameplayState.revision());
             storm::android::updateCombatState(gameplayState, core_private);
             storm::android::publishCombatState();
@@ -887,6 +893,8 @@ int main(int argc, char *argv[])
                 storm::android::publishLandCommands();
             }
             auto gameplaySnapshot = storm::android::readGameplaySnapshot(gameplayReady);
+            if (!gameplayReady && (!bActive || !androidLifecycle.canRun()))
+                gameplaySnapshot.blocked = "paused";
             storm::android::movementInput.updateOwner(gameplaySnapshot.inputOwner);
             gameplaySnapshot.analogMovement = !gameplaySnapshot.inputOwner.empty();
             gameplaySnapshot.movementGeneration = gameplaySnapshot.analogMovement ? storm::android::movementInput.generation() : 0;
@@ -970,7 +978,11 @@ int main(int argc, char *argv[])
     storm::android::publishLandCommands();
     storm::android::publishSeaOrders();
     storm::android::movementInput.updateOwner({});
-    gameplayState.update({});
+    {
+        storm::android::GameplaySnapshot stopping;
+        stopping.blocked = "starting"; // the engine is going down: nothing of the game is usable
+        gameplayState.update(std::move(stopping));
+    }
     storm::android::publishGameplayState(gameplayState.json());
     storm::android::worldMapHud.update({},SDL_GetTicks());
     storm::android::publishWorldMapHud();

@@ -19,7 +19,8 @@ namespace storm::android
 struct GameplayContext
 {
     std::string_view group;
-    bool blocked = false, sea = false, land = false, naval = false, worldmap = false;
+    // blocked: a command menu (ComState) or a video takes the controls; video says which.
+    bool blocked = false, video = false, sea = false, land = false, naval = false, worldmap = false;
     std::optional<bool> nativeFight;
 };
 inline std::string_view gameplayMode(const GameplayContext &context)
@@ -35,6 +36,18 @@ inline std::string_view gameplayMode(const GameplayContext &context)
         return *context.nativeFight ? "melee" : "explore";
     return "unknown";
 }
+// Why gameplayMode is "unknown" (GameplaySnapshot::blocked): the touch UI decides from it
+// whether the screen shows anything the player can use (storm::ui Host::WantsTouch).
+inline std::string_view gameplayBlocked(const GameplayContext &context)
+{
+    if (context.blocked) return context.video ? "video" : "commands";
+    if (context.worldmap) return context.group == "WorldMapControls" ? "" : "group";
+    if (context.sea) return context.group == "Sailing1Pers" || context.group == "Sailing3Pers" ? "" : "group";
+    if (!context.land) return "no-scene";
+    if (!context.nativeFight.has_value()) return "no-player";
+    if (context.group == "PrimaryLand" || context.group == "FightModeControls") return "";
+    return "group";
+}
 struct GameplaySnapshot
 {
     std::string mode = "unknown", language, group, scene;
@@ -44,6 +57,12 @@ struct GameplaySnapshot
     std::string inputOwner;
     bool analogMovement = false;
     uint64_t movementGeneration = 0;
+    // Mode "unknown" only: why. starting (the engine or its scripts not up yet), paused (the
+    // app not in front), loading (the loading screen), interface (one open or launched),
+    // dialogue, cutscene (the hero is an actor), video, commands (a command menu), no-scene
+    // (no land, sea or world map yet), no-player, group (a control group no mode knows),
+    // error (the scripts could not be read).
+    std::string blocked;
     bool operator==(const GameplaySnapshot &) const = default;
 };
 inline std::string gameplayJsonString(std::string_view value)
@@ -86,6 +105,7 @@ public:
             ",\"inputOwner\":" + gameplayJsonString(snapshot_.inputOwner) +
             ",\"analogMovement\":" + (snapshot_.analogMovement ? "true" : "false") +
             ",\"movementGeneration\":" + std::to_string(snapshot_.movementGeneration) +
+            ",\"blocked\":" + gameplayJsonString(snapshot_.blocked) +
             ",\"capabilities\":[";
         for (size_t i = 0; i < snapshot_.capabilities.size(); ++i)
         {
