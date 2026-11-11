@@ -25,7 +25,7 @@ class Character;
 
 class Grass : public Entity
 {
-    static inline IDirect3DVertexDeclaration9 *vertexDecl_;
+    static inline storm::render::VertexDeclarationId vertexDecl_;
 
 #pragma pack(push, 1)
 

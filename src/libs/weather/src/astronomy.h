@@ -95,7 +95,7 @@ class Astronomy : public Entity
         int32_t iTexture;
         bool bEnable;
         int32_t iVertexBuffer, iVertexBufferColors;
-        IDirect3DVertexDeclaration9 *pDecl;
+        storm::render::VertexDeclarationId vertexDecl;
         float fPrevFov;
 
         struct Star

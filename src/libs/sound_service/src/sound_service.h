@@ -1,6 +1,5 @@
 #pragma once
 
-#include <stack>
 #include <string>
 
 #include "storm_glm.h"
@@ -9,13 +8,7 @@
 #include "sound_defines.h"
 #include "v_sound_service.h"
 
-#ifdef STORM_OPEN_AUDIO
 #include "service_backend.hpp"
-#else
-#include <fmod.hpp>
-#endif
-
-#define MAX_SOUNDS_SLOTS 4095
 
 class INIFILE;
 // debug....
@@ -32,7 +25,6 @@ class SoundService : public VSoundService
     bool bShowDebugInfo;
     bool initialized;
 
-#ifdef STORM_OPEN_AUDIO
     std::unique_ptr<storm_audio::Mixer> audio;
   public:
     void SetDucking(float gain) override;
@@ -41,87 +33,6 @@ class SoundService : public VSoundService
   private:
     storm_audio::Vec3 listenerPos{}, listenerForward{0,0,1}, listenerUp{0,1,0};
     void CreateEntityIfNeed();
-#else
-    FMOD::System *system;
-    FMOD::Sound *OGG_sound[2];
-
-    struct tSoundCache
-    {
-        uint32_t dwNameHash;
-        std::string Name;
-        FMOD::Sound *sound;
-        float fTimeFromLastPlay;
-        eSoundType type;
-
-        tSoundCache() : type()
-        {
-            dwNameHash = 0;
-            sound = nullptr;
-            fTimeFromLastPlay = 0.0f;
-        }
-    };
-
-    struct tPlayedSound
-    {
-        float fFaderNeedVolume;
-        float fFaderCurrentVolume;
-        float fFaderDeltaInSec;
-
-        FMOD::Channel *channel;
-        eVolumeType type;
-        eSoundType sound_type;
-        float fSoundVolume;
-
-        // temp
-        std::string Name;
-
-        uint16_t stamp;
-        bool bFree;
-
-        tPlayedSound() : sound_type(), fSoundVolume(0)
-        {
-            channel = nullptr;
-            type = VOLUME_FX;
-
-            fFaderNeedVolume = 0;
-            fFaderCurrentVolume = 0;
-            fFaderDeltaInSec = 0;
-
-            stamp = 0;
-            bFree = true;
-        }
-    };
-
-    tPlayedSound PlayingSounds[MAX_SOUNDS_SLOTS];
-    std::stack<uint16_t> freeSounds;
-    uint16_t numActiveSounds{};
-
-    struct PlayedOGG
-    {
-        std::string Name;
-        uint32_t dwHash;
-        unsigned int position;
-    };
-
-    std::vector<PlayedOGG> OGGPosition;
-
-    unsigned int GetOGGPosition(const char *szName);
-    void SetOGGPosition(const char *szName, unsigned int pos);
-    int GetOGGPositionIndex(const char *szName);
-
-    std::vector<tSoundCache> SoundCache;
-
-    int GetFromCache(const char *szName, eSoundType _type);
-
-    bool FaderParity;
-
-    FMOD_VECTOR vListenerPos;
-    FMOD_VECTOR vListenerForward;
-    FMOD_VECTOR vListenerTop;
-
-    void CreateEntityIfNeed();
-
-#endif
     // Aliases ------------------------------------------------------------
     struct tAlias
     {
@@ -171,8 +82,6 @@ class SoundService : public VSoundService
     void ProcessSoundSchemes();
 
     //----------------------------------------------------------------------------
-
-    bool AllocateSound(TSD_ID &id);
 
     float fFXVolume;
     float fMusicVolume;
@@ -231,8 +140,4 @@ class SoundService : public VSoundService
     void DebugPrint3D(const glm::vec3 &pos3D, float rad, int32_t line, float alpha, uint32_t color, float scale,
                       const char *format, ...) const;
     void Draw2DCircle(const glm::vec3 &center, uint32_t dwColor, float fRadius, uint32_t dwColor2, float fRadius2) const;
-
-    void ProcessFader(uint16_t idx);
-
-    uint16_t FreeSound(uint16_t idx);
 };

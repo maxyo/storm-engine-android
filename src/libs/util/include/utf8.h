@@ -4,10 +4,6 @@
 #include <cstring>
 #include <string>
 
-#ifdef _WIN32 // for WideCharToMultiByte / MultiByteToWideChar
-#include <windows.h>
-#endif
-
 namespace utf8
 {
 struct u8_char
@@ -27,24 +23,6 @@ struct u8_char
         char b[4];
     };
 };
-
-#ifdef _WIN32 // S_DEBUG
-inline std::string ConvertWideToUtf8(const std::wstring &wstr)
-{
-    int count = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), static_cast<int>(wstr.length()), NULL, 0, NULL, NULL);
-    std::string str(count, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &str[0], count, NULL, NULL);
-    return str;
-}
-
-inline std::wstring ConvertUtf8ToWide(const std::string &str)
-{
-    int count = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), static_cast<int>(str.length()), NULL, 0);
-    std::wstring wstr(count, 0);
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), static_cast<int>(str.length()), &wstr[0], count);
-    return wstr;
-}
-#endif
 
 /* is c the start of a utf8 sequence? */
 #define isutf(c) (((c)&0xC0) != 0x80)

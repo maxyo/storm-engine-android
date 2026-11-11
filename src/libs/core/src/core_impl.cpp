@@ -9,7 +9,6 @@
 #include "platform/host_hooks.hpp"
 #include "save_file.hpp"
 #include "save_trash.hpp"
-#include "steam_api.hpp"
 
 #include <fstream>
 
@@ -217,8 +216,6 @@ bool CoreImpl::Run()
         return false;
     ProcessRealize(); // transfer control to objects via Realize() function
 
-    steamapi::SteamApi::getInstance().RunCallbacks();
-
     if (Controls)
         Controls->Update(Timer.rDelta_Time);
 
@@ -319,9 +316,6 @@ void CoreImpl::ProcessEngineIniFile()
 
             if (iScriptVersion != ENGINE_SCRIPT_VERSION)
             {
-#ifdef _WIN32 // FIX_LINUX Cursor
-                ShowCursor(true);
-#endif
                 SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", "Wrong script version", nullptr);
                 Compiler->ExitProgram();
             }
@@ -354,13 +348,6 @@ storm::OSWindow *CoreImpl::GetWindow()
 {
     return window_.get();
 }
-
-#ifdef _WIN32 // HINSTANCE
-HINSTANCE CoreImpl::GetAppInstance()
-{
-    return hInstance;
-}
-#endif
 
 void CoreImpl::SetTimeScale(float _scale)
 {

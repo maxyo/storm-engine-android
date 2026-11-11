@@ -383,13 +383,6 @@ void AnimationImp::BuildAnimationMatrices()
     {
         auto &bn = aniInfo->GetBone(j);
         matrix[j] = glm::mat4(bn.matrix) * glm::mat4(bn.start);
-#ifdef _WIN32 // FIX_LINUX DirectXMath
-        // inverse first column in advance
-        matrix[j][0][0] = -matrix[j][0][0];
-        matrix[j][1][0] = -matrix[j][1][0];
-        matrix[j][2][0] = -matrix[j][2][0];
-        matrix[j][3][0] = -matrix[j][3][0];
-#endif
     }
 }
 

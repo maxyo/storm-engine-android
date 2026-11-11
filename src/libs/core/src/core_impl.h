@@ -56,9 +56,6 @@ class CoreImpl final : public CorePrivate
     void Exit();
     // return application handle
     storm::OSWindow *GetWindow() override;
-#ifdef _WIN32 // HINSTANCE
-    HINSTANCE GetAppInstance();
-#endif
     // set time scale; affect on std entity functions DeltaTime parameter
     void SetTimeScale(float _scale) override;
     float GetTimeScale() const override
@@ -172,10 +169,6 @@ private:
     bool bEnableTimeScale{};
 
     SERVICES_LIST Services_List; // list for subsequent calls RunStart/RunEnd service functions
-
-#ifdef _WIN32 // HINSTANCE
-    HINSTANCE hInstance{};
-#endif
 
     char *State_file_name;
 

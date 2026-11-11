@@ -312,10 +312,8 @@ SRSPARAM MYD3DFILL[] = {{"point", D3DFILL_POINT}, {"wireframe", D3DFILL_WIREFRAM
 
 SRSPARAM MYD3DSHADE[] = {{"flat", D3DSHADE_FLAT},
                          {"gouraud", D3DSHADE_GOURAUD}
-#ifndef _XBOX
                          ,
                          {"phong", D3DSHADE_PHONG}
-#endif
 };
 
 SRSPARAM MYD3DBLEND[] = {{"zero", D3DBLEND_ZERO},
@@ -329,10 +327,8 @@ SRSPARAM MYD3DBLEND[] = {{"zero", D3DBLEND_ZERO},
                          {"destcolor", D3DBLEND_DESTCOLOR},
                          {"invdestcolor", D3DBLEND_INVDESTCOLOR},
                          {"srcalphasat", D3DBLEND_SRCALPHASAT},
-#ifndef _XBOX
                          {"bothsrcalpha", D3DBLEND_BOTHSRCALPHA},
                          {"bothinvsrcalpha", D3DBLEND_BOTHINVSRCALPHA}
-#endif
 };
 
 SRSPARAM MYD3DCULL[] = {{"none", D3DCULL_NONE}, {"cw", D3DCULL_CW}, {"ccw", D3DCULL_CCW}};
@@ -366,9 +362,7 @@ SRSPARAM MYD3DMATERIALCOLORSOURCE[] = {
 SRSPARAM MYD3DVERTEXBLENDFLAGS[] = {
     {"disable", D3DVBF_DISABLE},   {"1weights", D3DVBF_1WEIGHTS}, {"2weights", D3DVBF_2WEIGHTS},
     {"3weights", D3DVBF_3WEIGHTS},
-#ifndef _XBOX
     {"tweening", D3DVBF_TWEENING}, {"0WEIGHTS ", D3DVBF_0WEIGHTS}
-#endif
 };
 
 SRSPARAM MYD3DPATCHEDGESTYLE[] = {{"discrete", D3DPATCHEDGE_DISCRETE}, {"continuous", D3DPATCHEDGE_CONTINUOUS}};
@@ -387,14 +381,10 @@ SRS RenderStates[] = {
     {DEFSIZE(MYD3DZB), SRS_DWORD, "ZEnable", D3DRS_ZENABLE},
     {DEFSIZE(MYD3DFILL), SRS_DWORD, "FillMode", D3DRS_FILLMODE},
     {DEFSIZE(MYD3DSHADE), SRS_DWORD, "ShadeMode", D3DRS_SHADEMODE},
-#ifndef _XBOX
 //{ DEFSIZE(0) , SRS_DWORD, "LinePattern",						D3DRS_LINEPATTERN },
-#endif
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "ZWriteEnable", D3DRS_ZWRITEENABLE},
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "AlphaTestEnable", D3DRS_ALPHATESTENABLE},
-#ifndef _XBOX
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "LastPixel", D3DRS_LASTPIXEL},
-#endif
     {DEFSIZE(MYD3DBLEND), SRS_DWORD, "SrcBlend", D3DRS_SRCBLEND},
     {DEFSIZE(MYD3DBLEND), SRS_DWORD, "DestBlend", D3DRS_DESTBLEND},
     {DEFSIZE(MYD3DCULL), SRS_DWORD, "CullMode", D3DRS_CULLMODE},
@@ -405,9 +395,7 @@ SRS RenderStates[] = {
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "AlphaBlendEnable", D3DRS_ALPHABLENDENABLE},
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "FogEnable", D3DRS_FOGENABLE},
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "SpecularEnable", D3DRS_SPECULARENABLE},
-#ifndef _XBOX
 //{ DEFSIZE(MYTRUEFALSE) , SRS_DWORD, "ZVisible",					D3DRS_ZVISIBLE },
-#endif
     {DEFSIZE(0), SRS_DWORD, "FogColor", D3DRS_FOGCOLOR},
     {DEFSIZE(MYD3DFOGMODE), SRS_DWORD, "FogTableMode", D3DRS_FOGTABLEMODE},
     {DEFSIZE(0), SRS_FLOAT, "FogStart", D3DRS_FOGSTART},
@@ -435,18 +423,14 @@ SRS RenderStates[] = {
     {DEFSIZE(MYD3DWRAP), SRS_DWORD, "Wrap1", D3DRS_WRAP1},
     {DEFSIZE(MYD3DWRAP), SRS_DWORD, "Wrap2", D3DRS_WRAP2},
     {DEFSIZE(MYD3DWRAP), SRS_DWORD, "Wrap3", D3DRS_WRAP3},
-#ifndef _XBOX
     {DEFSIZE(MYD3DWRAP), SRS_DWORD, "Wrap4", D3DRS_WRAP4},
     {DEFSIZE(MYD3DWRAP), SRS_DWORD, "Wrap5", D3DRS_WRAP5},
     {DEFSIZE(MYD3DWRAP), SRS_DWORD, "Wrap6", D3DRS_WRAP6},
     {DEFSIZE(MYD3DWRAP), SRS_DWORD, "Wrap7", D3DRS_WRAP7},
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "Clipping", D3DRS_CLIPPING},
-#endif
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "Lighting", D3DRS_LIGHTING},
     {DEFSIZE(0), SRS_DWORD, "Ambient", D3DRS_AMBIENT},
-#ifndef _XBOX
     {DEFSIZE(MYD3DFOGMODE), SRS_DWORD, "FogVertexMode", D3DRS_FOGVERTEXMODE},
-#endif
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "ColorVertex", D3DRS_COLORVERTEX},
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "LocalViewer", D3DRS_LOCALVIEWER},
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "NormalizeNormals", D3DRS_NORMALIZENORMALS},
@@ -455,10 +439,8 @@ SRS RenderStates[] = {
     {DEFSIZE(MYD3DMATERIALCOLORSOURCE), SRS_DWORD, "AmbientMaterialSource", D3DRS_AMBIENTMATERIALSOURCE},
     {DEFSIZE(MYD3DMATERIALCOLORSOURCE), SRS_DWORD, "EmissiveMaterialSource", D3DRS_EMISSIVEMATERIALSOURCE},
     {DEFSIZE(MYD3DVERTEXBLENDFLAGS), SRS_DWORD, "VertexBlend", D3DRS_VERTEXBLEND},
-#ifndef _XBOX
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "ClipPlaneEnable", D3DRS_CLIPPLANEENABLE},
 //{ DEFSIZE(MYTRUEFALSE) , SRS_DWORD, "SoftwareVertexProcessing",	D3DRS_SOFTWAREVERTEXPROCESSING },
-#endif
     {DEFSIZE(0), SRS_FLOAT, "PointSize", D3DRS_POINTSIZE},
     {DEFSIZE(0), SRS_FLOAT, "PointSize_Min", D3DRS_POINTSIZE_MIN},
     {DEFSIZE(0), SRS_FLOAT, "PointSize_Max", D3DRS_POINTSIZE_MAX},
@@ -471,13 +453,9 @@ SRS RenderStates[] = {
     {DEFSIZE(0), SRS_DWORD, "MultiSampleMask", D3DRS_MULTISAMPLEMASK},
     //{ DEFSIZE(0), SRS_FLOAT, "PatchSegments",						D3DRS_PATCHSEGMENTS },
     {DEFSIZE(MYD3DPATCHEDGESTYLE), SRS_DWORD, "PatchEdgeStyle", D3DRS_PATCHEDGESTYLE},
-#ifndef _XBOX
     {DEFSIZE(MYTRUEFALSE), SRS_DWORD, "IndexedVertexBlendEnable", D3DRS_INDEXEDVERTEXBLENDENABLE},
-#endif
     {DEFSIZE(MYD3DCOLORWRITEMASK), SRS_DWORD, "ColorWriteEnable", D3DRS_COLORWRITEENABLE},
-#ifndef _XBOX
     {DEFSIZE(0), SRS_FLOAT, "TweenFactor", D3DRS_TWEENFACTOR},
-#endif
     {DEFSIZE(MYD3DBLENDOP), SRS_DWORD, "BlendOp", D3DRS_BLENDOP}};
 
 // ---------------------------------------------------------------------------------
@@ -541,16 +519,12 @@ SRSPARAM MYD3DTEXTUREADDRESS[] = {{"wrap", D3DTADDRESS_WRAP},
                                   {"mirror", D3DTADDRESS_MIRROR},
                                   {"clamp", D3DTADDRESS_CLAMP},
                                   {"border", D3DTADDRESS_BORDER},
-#ifndef _XBOX
                                   {"mirroronce", D3DTADDRESS_MIRRORONCE}
-#endif
 };
 
 SRSPARAM MYD3DTEXTUREFILTERTYPE[] = {
     {"none", D3DTEXF_NONE}, {"point", D3DTEXF_POINT}, {"linear", D3DTEXF_LINEAR}, {"anisotropic", D3DTEXF_ANISOTROPIC},
-#ifndef _XBOX
 //{ "flatcubic", D3DTEXF_FLATCUBIC },
-#endif
     //{ "gaussiancubic", D3DTEXF_GAUSSIANCUBIC } };
 };
 
@@ -603,10 +577,8 @@ SAMP SampleStates[] = {{DEFSIZE(MYD3DTEXTUREADDRESS), SRS_DWORD, "addressu", D3D
 SRSPARAM TRANSFORM_TYPES[] = {{"view", D3DTS_VIEW},     {"projection", D3DTS_PROJECTION}, {"world", D3DTS_WORLD},
                               {"tex0", D3DTS_TEXTURE0}, {"tex1", D3DTS_TEXTURE1},         {"tex2", D3DTS_TEXTURE2},
                               {"tex3", D3DTS_TEXTURE3},
-#ifndef _XBOX
                               {"tex4", D3DTS_TEXTURE4}, {"tex5", D3DTS_TEXTURE5},         {"tex6", D3DTS_TEXTURE6},
                               {"tex7", D3DTS_TEXTURE7}
-#endif
 };
 
 // ---------------------------------------------------------------------------------
@@ -890,7 +862,7 @@ uint32_t CTechnique::AddShader(char *pShaderName)
     pS->pName = new char[len];
     memcpy(pS->pName, pShaderName, len);
     pS->dwHashName = MakeHashValue(pShaderName);
-    pS->pVertexDecl = nullptr;
+    pS->vertexDecl = {};
     pS->pVertexShader = nullptr;
     pS->pPixelShader = nullptr;
     dwNumShaders++;
@@ -1321,8 +1293,8 @@ uint32_t CTechnique::ProcessVertexDeclaration(shader_t *pS, char *pFile, uint32_
     AddDeclElement(pS);
     *CurDeclElement(pS) = D3DDECL_END();
 
-    HRESULT hr = pRS->CreateVertexDeclaration(pS->pDecl, &pS->pVertexDecl);
-    if (hr != S_OK)
+    pS->vertexDecl = pRS->CreateVertexDeclaration(pS->pDecl);
+    if (!pS->vertexDecl)
         core.Trace("ERROR: invalid shader declaration <%s>", pS->pName);
 
     return 0;
@@ -1839,8 +1811,8 @@ bool CTechnique::ExecutePass(bool bStart)
                     AddState2Restore2(dwCode, dwSaveValue);
                 }
 
-                if (pShaders[dwShaderIndex].pVertexDecl != nullptr)
-                    pRS->SetVertexDeclaration(pShaders[dwShaderIndex].pVertexDecl);
+                if (pShaders[dwShaderIndex].vertexDecl)
+                    pRS->SetVertexDeclaration(pShaders[dwShaderIndex].vertexDecl);
 
                 pRS->SetVertexShader(pShaders[dwShaderIndex].pVertexShader);
             }

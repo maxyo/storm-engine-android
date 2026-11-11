@@ -6,11 +6,7 @@
 #include "platform/android_runtime.hpp"
 #endif
 
-#ifdef _WIN32 // SHGetKnownFolderPath
-#include <ShlObj.h>
-#else
 #include <SDL2/SDL.h>
-#endif
 
 /* Filesystem proxy */
 namespace fs
@@ -22,13 +18,7 @@ inline path GetStashPath()
     static path path;
     if (path.empty())
     {
-#ifdef _WIN32 // SHGetKnownFolderPath
-        wchar_t *str = nullptr;
-        SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_SIMPLE_IDLIST, nullptr, &str);
-        path = str;
-        path = path / "My Games" / "Sea Dogs";
-        CoTaskMemFree(str);
-#elif defined(__ANDROID__)
+#if defined(__ANDROID__)
         path = storm::android::storagePaths().user;
 #else
         char *pref_path = nullptr;
@@ -50,11 +40,6 @@ inline path GetLogsPath()
 inline path GetSaveDataPath()
 {
     return GetStashPath() / "SaveData";
-}
-
-inline path GetScreenshotsPath()
-{
-    return GetStashPath() / "Screenshots";
 }
 
 constexpr char ENGINE_INI_FILE_NAME[] = "engine.ini";

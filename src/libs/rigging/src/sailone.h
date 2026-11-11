@@ -4,10 +4,6 @@
 
 #pragma once
 
-#if _MSC_VER > 1000
-#pragma once
-#endif // _MSC_VER > 1000
-
 #include "storm_glm.h"
 #include "dx9render.h"
 #include "sail_base.h"

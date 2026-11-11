@@ -81,12 +81,10 @@ void BLADE::BLADE_INFO::DrawBlade(VDX9RENDER *rs, unsigned int blendValue, MODEL
             storm::math::pos(mt) = glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
 
             auto mbn = bones[lb.bones[0]] * mt;
-#ifndef _WIN32 // FIX_LINUX DirectXMath
             storm::math::pos(mbn).x *= -1.0f;
             storm::math::vx(mbn).x *= -1.0f;
             storm::math::vy(mbn).x *= -1.0f;
             storm::math::vz(mbn).x *= -1.0f;
-#endif
             glm::mat4 scl;
             storm::math::vx(scl).x = -1.0f;
             storm::math::vy(scl).y = 1.0f;
@@ -300,12 +298,10 @@ void BLADE::Realize(uint32_t Delta_Time)
             storm::math::pos(mt) = glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
 
             auto mbn = bones[lb.bones[0]] * mt;
-#ifndef _WIN32 // FIX_LINUX DirectXMath
             storm::math::pos(mbn).x *= -1.0f;
             storm::math::vx(mbn).x *= -1.0f;
             storm::math::vy(mbn).x *= -1.0f;
             storm::math::vz(mbn).x *= -1.0f;
-#endif
             glm::mat4 scl;
             storm::math::vx(scl).x = -1.0f;
             storm::math::vy(scl).y = 1.0f;
@@ -422,12 +418,10 @@ void BLADE::GunFire()
             storm::math::pos(mt) = glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
 
             auto mbn = bones[lb.bones[0]] * mt;
-#ifndef _WIN32 // FIX_LINUX DirectXMath
             storm::math::pos(mbn).x *= -1.0f;
             storm::math::vx(mbn).x *= -1.0f;
             storm::math::vy(mbn).x *= -1.0f;
             storm::math::vz(mbn).x *= -1.0f;
-#endif
             perMtx = mdl->mtx * mbn;
         }
 
@@ -646,12 +640,10 @@ void BLADE::TIEITEM_INFO::DrawItem(VDX9RENDER *rs, unsigned int blendValue, MODE
             storm::math::pos(mt) = glm::vec3(lb.m[3][0], lb.m[3][1], lb.m[3][2]);
 
             glm::mat4 mbn = bones[lb.bones[0]] * mt;
-#ifndef _WIN32 // FIX_LINUX DirectXMath
             storm::math::pos(mbn).x *= -1.0f;
             storm::math::vx(mbn).x *= -1.0f;
             storm::math::vy(mbn).x *= -1.0f;
             storm::math::vz(mbn).x *= -1.0f;
-#endif
             glm::mat4 scl;
             storm::math::vx(scl).x = -1.0f;
             storm::math::vy(scl).y = 1.0f;

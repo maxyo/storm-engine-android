@@ -13,21 +13,6 @@
 #include "watermark.hpp"
 
 #ifdef STORM_ENABLE_CRASH_REPORTS
-#if defined(_UNICODE) && defined(_WIN32)
-#include <tchar.h>
-#define sentry_options_set_database_path sentry_options_set_database_pathw
-#define sentry_options_set_handler_path sentry_options_set_handler_pathw
-#define sentry_options_add_attachment sentry_options_add_attachmentw
-#else
-#include <cstdlib>
-#define _T(x) x
-#define _tsystem std::system
-#endif
-
-#ifdef _WIN32
-#include "logging.hpp"
-#include "seh_extractor.hpp"
-#endif
 
 namespace
 {
@@ -41,15 +26,6 @@ auto &getLogsArchive()
     static const auto logsArchive = fs::GetLogsPath().replace_extension(".7z");
     return logsArchive;
 }
-
-#ifdef _WIN32 // FIX_LINUX 7za.exe
-auto assembleArchiveCmd()
-{
-    constexpr auto archiverBin = "7za.exe";
-    return _T("call \"") + (getExecutableDir() / archiverBin).native() + _T("\" a \"\\\\?\\") +
-           getLogsArchive().native() + _T("\" \"\\\\?\\") + fs::GetLogsPath().native() + _T("\"");
-}
-#endif
 
 void log_sentry(sentry_level_t level, const char *message, va_list args, void *)
 {
@@ -206,11 +182,7 @@ LifecycleDiagnosticsService::Guard LifecycleDiagnosticsService::initialize(const
         sentry_options_set_dsn(options, "https://1798a1bcfb654cbd8ce157b381964525@o572138.ingest.sentry.io/5721165");
         sentry_options_set_release(options, STORM_BUILD_WATERMARK_STRING);
         sentry_options_set_database_path(options, (fs::GetStashPath() / "sentry-db").c_str());
-#ifdef _WIN32
-        sentry_options_set_handler_path(options, (getExecutableDir() / "crashpad_handler.exe").c_str());
-#else
         sentry_options_set_handler_path(options, (getExecutableDir() / "crashpad_handler").c_str());
-#endif
         sentry_options_add_attachment(options, getLogsArchive().c_str());
         sentry_options_set_on_crash(options, beforeCrash, this);
         sentry_options_set_system_crash_reporter_enabled(options, enableCrashReports);
@@ -268,26 +240,8 @@ sentry_value_t LifecycleDiagnosticsService::beforeCrash(const sentry_ucontext_t 
         self->collectCrashInfo_();
     }
 
-#ifdef _WIN32
-    // collect exception data
-    if (uctx != nullptr)
-    {
-        if(const seh_extractor seh(&uctx->exception_ptrs); seh.is_abnormal())
-        {
-            static auto logger = logging::getOrCreateLogger("exceptions");
-            logger->set_pattern("%v");
-            seh.sink([](const char *msg) { logger->trace(msg); });
-        }
-    }
-#endif
-    
     // terminate logging
     self->loggingService_->terminate();
-
-#ifdef _WIN32 // FIX_LINUX 7za.exe
-    // archive logs for sentry backend
-    _tsystem(assembleArchiveCmd().c_str());
-#endif
 
     return event;
 }

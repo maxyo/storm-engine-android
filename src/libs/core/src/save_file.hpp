@@ -35,12 +35,8 @@
 
 #include <zlib.h>
 
-#ifdef _WIN32
-#include <io.h>
-#else
 #include <fcntl.h>
 #include <unistd.h>
-#endif
 
 namespace storm::save
 {
@@ -320,23 +316,6 @@ inline std::string lastError(const char *what)
 // Write and flush to stable storage. Returns false with `error` set.
 inline bool writeDurable(const fs::path &path, const char *data, size_t size, std::string &error)
 {
-#ifdef _WIN32
-    FILE *file = _wfopen(path.c_str(), L"wb");
-    if (!file)
-    {
-        error = lastError("create temporary save");
-        return false;
-    }
-    bool ok = std::fwrite(data, 1, size, file) == size && std::fflush(file) == 0 && _commit(_fileno(file)) == 0;
-    if (!ok)
-        error = lastError("write temporary save");
-    if (std::fclose(file) != 0 && ok)
-    {
-        ok = false;
-        error = lastError("close temporary save");
-    }
-    return ok;
-#else
     const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     if (fd < 0)
     {
@@ -369,23 +348,18 @@ inline bool writeDurable(const fs::path &path, const char *data, size_t size, st
         error = lastError("close temporary save");
     }
     return ok;
-#endif
 }
 
 // Make a rename durable. Some filesystems refuse directory fsync; that is not
 // a reason to fail a save whose data is already synced.
 inline void syncDirectory(const fs::path &directory)
 {
-#ifndef _WIN32
     const int fd = ::open(directory.empty() ? "." : directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (fd >= 0)
     {
         (void)::fsync(fd);
         ::close(fd);
     }
-#else
-    (void)directory;
-#endif
 }
 
 inline void removeQuietly(const fs::path &path)

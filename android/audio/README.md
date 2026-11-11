@@ -1,10 +1,9 @@
 # Open audio primitives and SoundService backend
 
-The initial isolated experiment now also backs Android SoundService through
-`service_backend.cpp`; desktop FMOD remains the default desktop path. The
+The miniaudio backend is the only SoundService implementation (Android and the Linux host),
+through `service_backend.cpp`. The
 small RAII adapter uses real miniaudio mixing/decoding, either offline PCM or an
 explicit real-device backend list (Android AAudio/OpenSL ES; no null fallback).
-No SDK terms or FMOD license are accepted by this code.
 
 Sources are downloaded by `tests/audio/run.py` into the ignored build directory
 and verified by SHA256 before compilation:

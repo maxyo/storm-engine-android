@@ -13,7 +13,6 @@ Astronomy::STARS::STARS()
 
     bEnable = false;
 
-    pDecl = nullptr;
     iTexture = -1;
     iVertexBuffer = -1;
     iVertexBufferColors = -1;
@@ -33,11 +32,6 @@ Astronomy::STARS::~STARS()
         pRS->ReleaseVertexBuffer(iVertexBuffer);
     if (iVertexBufferColors >= 0)
         pRS->ReleaseVertexBuffer(iVertexBufferColors);
-    if (pDecl != nullptr)
-    {
-        pDecl->Release();
-        pDecl = nullptr;
-    }
 }
 
 void Astronomy::STARS::Init(ATTRIBUTES *pAP)
@@ -50,11 +44,6 @@ void Astronomy::STARS::Init(ATTRIBUTES *pAP)
         pRS->ReleaseVertexBuffer(iVertexBuffer);
     if (iVertexBufferColors >= 0)
         pRS->ReleaseVertexBuffer(iVertexBufferColors);
-    if (pDecl != nullptr)
-    {
-        pDecl->Release();
-        pDecl = nullptr;
-    }
 
     bEnable = false;
 
@@ -157,7 +146,7 @@ void Astronomy::STARS::Init(ATTRIBUTES *pAP)
             {1, 0, D3DDECLTYPE_D3DCOLOR, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_COLOR, 0},
             D3DDECL_END()};
 
-        pRS->CreateVertexDeclaration(VertexElem, &pDecl);
+        vertexDecl = pRS->CreateVertexDeclaration(VertexElem);
 
         iVertexBuffer = pRS->CreateVertexBuffer(0, dwSize * sizeof(glm::vec3), D3DUSAGE_WRITEONLY);
         iVertexBufferColors =
@@ -321,7 +310,7 @@ void Astronomy::STARS::Realize(double dDeltaTime, double dHour)
     mWorld = storm::math::translation(vCamPos.x, vCamPos.y, vCamPos.z);
     pRS->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(mWorld));
     pRS->TextureSet(0, iTexture);
-    pRS->SetVertexDeclaration(pDecl);
+    pRS->SetVertexDeclaration(vertexDecl);
     pRS->SetStreamSource(0, pRS->GetVertexBuffer(iVertexBuffer), sizeof(glm::vec3));
     pRS->SetStreamSource(1, pRS->GetVertexBuffer(iVertexBufferColors), sizeof(uint32_t));
 

@@ -33,8 +33,7 @@ checks while reusing a single string view under Clang 21.
 
 The script applies patches to the supplied pinned SDL and fmt checkouts.
 Use checkouts dedicated to this experiment. It also builds shared fmt. The resulting Android libraries still
-need runtime validation and full engine integration. FMOD is not downloaded or
-licensed by this script.
+need runtime validation and full engine integration.
 
 ## Full engine after dependency build
 

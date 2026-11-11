@@ -73,7 +73,6 @@ class SLIBHOLDER
     }
 };
 
-class S_DEBUG;
 
 enum COMPILER_STAGE
 {
@@ -87,7 +86,6 @@ class CoreImpl;
 class COMPILER : public VIRTUAL_COMPILER
 {
     friend CoreImpl;
-    friend S_DEBUG;
 
   public:
     bool bBreakOnError;

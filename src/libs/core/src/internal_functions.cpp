@@ -9,8 +9,6 @@
 #define BAD_FA "Bad function argument"
 #define MISSING_PARAMETER "Missing function parameter(s)"
 
-extern bool bSteam;
-
 //#define _TOFF
 
 enum FUNCTION_CODE

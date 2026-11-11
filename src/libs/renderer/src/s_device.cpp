@@ -24,11 +24,11 @@
 #include "storm/render/texture_cache.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <functional>
 #include <map>
 #include <SDL_timer.h>
 
-#include <fmt/chrono.h>
 
 #include <unistd.h>
 
@@ -47,7 +47,6 @@ CREATE_SCRIPTLIBRIARY(DX9RENDER_SCRIPT_LIBRIARY)
 
 namespace
 {
-constexpr auto kKeyTakeScreenshot = "TakeScreenshot";
 
 
 void InvokeEntitiesLostRender()
@@ -396,7 +395,6 @@ DX9RENDER::DX9RENDER()
 
     aspectRatio = -1.0f;
 
-    bMakeShoot = false;
     bShowFps = false;
     bShowExInfo = false;
     bInsideScene = false;
@@ -546,8 +544,6 @@ bool DX9RENDER::Init()
     d3d = nullptr;
     d3d9 = nullptr;
 
-    create_directories(fs::GetScreenshotsPath());
-
     auto ini = fio->OpenIniFile(core.EngineIniFileName());
     if (!ini)
         throw std::runtime_error("Cannot initialize renderer: engine.ini is unavailable");
@@ -555,12 +551,6 @@ bool DX9RENDER::Init()
     {
         // bPostProcessEnabled = ini->GetInt(0, "PostProcess", 0) == 1;
         bPostProcessEnabled = false; //~!~
-
-        // screenshot format and extension
-        ini->ReadString(nullptr, "screenshot_format", str, sizeof(str), "jpg");
-        screenshotExt = str;
-        std::ranges::transform(screenshotExt, screenshotExt.begin(),
-                               [](const unsigned char c) { return std::tolower(c); });
 
 #ifdef __ANDROID__
         // The game's engine.ini may switch the engine's FPS and debug text on; on a phone those are
@@ -782,9 +772,6 @@ bool DX9RENDER::Init()
             *pI++ = static_cast<uint16_t>((y + 1) * 32 + x);
         }
     }
-
-    const auto ctrl = core.Controls->CreateControl(kKeyTakeScreenshot);
-    core.Controls->MapControl(ctrl, VK_F8);
 
     // UNGUARD
     return true;
@@ -1080,6 +1067,9 @@ bool DX9RENDER::ReleaseDevice()
         aniVBuffer->Release();
     aniVBuffer = nullptr;
     numAniVerteces = 0;
+    for (auto &declaration : vertexDeclarations_)
+        declaration.declaration->Release();
+    vertexDeclarations_.clear();
     for (int32_t b = 0; b < MAX_BUFFERS; b++)
     {
         if (VertexBuffers[b].buff)
@@ -1416,9 +1406,6 @@ bool DX9RENDER::DX9EndScene()
 #endif
         return false;
     }
-
-    if (bMakeShoot)
-        MakeScreenShot();
 
     const auto presentStart = renderMetricsEnabled ? SDL_GetPerformanceCounter() : 0;
     const HRESULT hRes = d3d9->Present(nullptr, nullptr, nullptr, nullptr);
@@ -2951,13 +2938,6 @@ void DX9RENDER::RunStart()
     // SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID); eddy
 
     PlayToTexture();
-
-    // make screenshot
-    if (CONTROL_STATE cs; core.Controls->GetControlState(kKeyTakeScreenshot, cs) 
-                          && cs.state == CST_ACTIVATED)
-    {
-        SaveShoot();
-    }
 }
 
 void DX9RENDER::RunEnd()
@@ -3433,51 +3413,6 @@ using TGA_H = struct tagTGA_H
 
 // WORD Temp[1600*4];
 
-void DX9RENDER::SaveShoot()
-{
-    bMakeShoot = true;
-}
-
-void DX9RENDER::MakeScreenShot()
-{
-    bMakeShoot = false;
-
-    IDirect3DSurface9 *renderTarget;
-    if (FAILED(GetRenderTarget(&renderTarget)))
-    {
-        core.Trace("Failed to make screenshot");
-        return;
-    }
-
-    IDirect3DSurface9 *surface;
-    if (FAILED(CreateOffscreenPlainSurface(screen_size.x, screen_size.y, D3DFMT_X8R8G8B8, &surface)))
-    {
-        renderTarget->Release();
-        core.Trace("Failed to make screenshot");
-        return;
-    }
-
-    if (CHECKD3DERR(D3DXLoadSurfaceFromSurface(surface, NULL, NULL, renderTarget, NULL, NULL, D3DX_DEFAULT, 0)))
-    {
-        surface->Release();
-        renderTarget->Release();
-        core.Trace("Failed to make screenshot");
-        return;
-    }
-
-    const auto screenshot_base_filename = fmt::format("{:%Y-%m-%d_%H-%M-%S}", fmt::localtime(std::time(nullptr)));
-    auto screenshot_path = fs::GetScreenshotsPath() / screenshot_base_filename;
-    screenshot_path.replace_extension(screenshotExt);
-    for(size_t i = 0; exists(screenshot_path); ++i)
-    {
-        screenshot_path.replace_filename(screenshot_base_filename + "_" + std::to_string(i));
-        screenshot_path.replace_extension(screenshotExt);
-    }
-
-    surface->Release();
-    renderTarget->Release();
-}
-
 PLANE *DX9RENDER::GetPlanes()
 {
     FindPlanes(d3d9);
@@ -3889,15 +3824,38 @@ HRESULT DX9RENDER::CreateDepthStencilSurface(UINT Width, UINT Height, D3DFORMAT 
     return CHECKD3DERR(d3d9->CreateDepthStencilSurface(Width, Height, Format, MultiSample, 0, TRUE, ppSurface, NULL));
 }
 
-HRESULT DX9RENDER::CreateVertexDeclaration(const D3DVERTEXELEMENT9 *pVertexElements,
-                                           IDirect3DVertexDeclaration9 **ppDecl)
+storm::render::VertexDeclarationId DX9RENDER::CreateVertexDeclaration(const D3DVERTEXELEMENT9 *pVertexElements)
 {
-    return CHECKD3DERR(d3d9->CreateVertexDeclaration(pVertexElements, ppDecl));
+    std::vector<D3DVERTEXELEMENT9> elements;
+    for (const auto *element = pVertexElements; element->Stream != 0xFF; ++element)
+        elements.push_back(*element);
+    elements.push_back(D3DDECL_END());
+    const auto same = [&](const VertexDeclaration &declaration) {
+        return declaration.elements.size() == elements.size() &&
+               std::memcmp(declaration.elements.data(), elements.data(),
+                           elements.size() * sizeof(D3DVERTEXELEMENT9)) == 0;
+    };
+    if (const auto it = std::ranges::find_if(vertexDeclarations_, same); it != vertexDeclarations_.end())
+        return {static_cast<int32_t>(it - vertexDeclarations_.begin())};
+
+    IDirect3DVertexDeclaration9 *declaration = nullptr;
+    if (CHECKD3DERR(d3d9->CreateVertexDeclaration(elements.data(), &declaration)))
+    {
+        spdlog::error("Renderer: vertex declaration with {} elements rejected", elements.size() - 1);
+        return {};
+    }
+    vertexDeclarations_.push_back({std::move(elements), declaration});
+    return {static_cast<int32_t>(vertexDeclarations_.size() - 1)};
 }
 
-HRESULT DX9RENDER::SetVertexDeclaration(IDirect3DVertexDeclaration9 *pDecl)
+void DX9RENDER::SetVertexDeclaration(storm::render::VertexDeclarationId declaration)
 {
-    return CHECKD3DERR(d3d9->SetVertexDeclaration(pDecl));
+    if (!declaration || static_cast<size_t>(declaration.value) >= vertexDeclarations_.size())
+    {
+        spdlog::error("Renderer: SetVertexDeclaration with invalid id {}", declaration.value);
+        return;
+    }
+    CHECKD3DERR(d3d9->SetVertexDeclaration(vertexDeclarations_[declaration.value].declaration));
 }
 
 HRESULT DX9RENDER::CreateVertexShader(const uint32_t *pFunction, IDirect3DVertexShader9 **ppShader)

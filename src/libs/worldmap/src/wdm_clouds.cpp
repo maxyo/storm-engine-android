@@ -20,7 +20,7 @@
 #define WdmCloudsSizeMin 30.0f
 #define WdmCloudsSizeMax 50.0f
 
-IDirect3DVertexDeclaration9 *WdmClouds::vertexDecl_ = nullptr;
+storm::render::VertexDeclarationId WdmClouds::vertexDecl_;
 
 WdmClouds::Cloud::Cloud()
 {
@@ -381,7 +381,7 @@ void WdmClouds::LRender(VDX9RENDER *rs)
 
 void WdmClouds::CreateVertexDeclaration(VDX9RENDER *rs)
 {
-    if (vertexDecl_ != nullptr)
+    if (vertexDecl_)
         return;
 
     const D3DVERTEXELEMENT9 VertexElements[] = {
@@ -390,5 +390,5 @@ void WdmClouds::CreateVertexDeclaration(VDX9RENDER *rs)
         {0, 16, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
         D3DDECL_END()};
 
-    rs->CreateVertexDeclaration(VertexElements, &vertexDecl_);
+    vertexDecl_ = rs->CreateVertexDeclaration(VertexElements);
 }

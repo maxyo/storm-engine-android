@@ -134,9 +134,6 @@ class DX9RENDER : public VDX9RENDER
     bool GetLightEnable(uint32_t dwIndex, BOOL *pEnable) override;
     bool GetLight(uint32_t dwIndex, D3DLIGHT9 *pLight) override;
 
-    // DX9Render: Screenshot Section
-    void SaveShoot() override;
-
     // DX9Render: Clip Planes Section
     HRESULT SetClipPlane(uint32_t Index, const float *pPlane) override;
     PLANE *GetPlanes() override;
@@ -293,9 +290,8 @@ class DX9RENDER : public VDX9RENDER
     HRESULT GetRenderTargetData(IDirect3DSurface9 *pRenderTarget, IDirect3DSurface9 *pDestSurface) override;
 
     // D3D Pixel/Vertex Shaders Section
-    HRESULT CreateVertexDeclaration(const D3DVERTEXELEMENT9 *pVertexElements,
-                                    IDirect3DVertexDeclaration9 **ppDecl) override;
-    HRESULT SetVertexDeclaration(IDirect3DVertexDeclaration9 *pDecl) override;
+    storm::render::VertexDeclarationId CreateVertexDeclaration(const D3DVERTEXELEMENT9 *pVertexElements) override;
+    void SetVertexDeclaration(storm::render::VertexDeclarationId declaration) override;
     HRESULT CreatePixelShader(const uint32_t *pFunction, IDirect3DPixelShader9 **ppShader) override;
     HRESULT CreateVertexShader(const uint32_t *pFunction, IDirect3DVertexShader9 **ppShader) override;
     HRESULT DeletePixelShader(IDirect3DPixelShader9 *pShader) override;
@@ -320,7 +316,6 @@ class DX9RENDER : public VDX9RENDER
     HRESULT ImageBlt(const char *pName, RECT *pDstRect, RECT *pSrcRect) override;
     HRESULT ImageBlt(int32_t nTextureId, RECT *pDstRect, RECT *pSrcRect) override;
 
-    void MakeScreenShot();
     bool LoadTextureSurface(std::fstream &fileS, IDirect3DSurface9 *suface, uint32_t mipSize, uint32_t width,
                             uint32_t height, bool isSwizzled);
     uint32_t LoadCubmapSide(std::fstream &fileS, IDirect3DCubeTexture9 *tex, D3DCUBEMAP_FACES face, uint32_t numMips,
@@ -435,6 +430,13 @@ class DX9RENDER : public VDX9RENDER
   private:
     std::unique_ptr<storm::GamePictures> gamePictures_;
     int appEventsSubscription_ = -1;
+
+    struct VertexDeclaration
+    {
+        std::vector<D3DVERTEXELEMENT9> elements; // with D3DDECL_END
+        IDirect3DVertexDeclaration9 *declaration;
+    };
+    std::vector<VertexDeclaration> vertexDeclarations_; // indexed by VertexDeclarationId
 
   public:
     bool keepTexturePixels(int32_t texture) override;
@@ -583,7 +585,6 @@ private:
     D3DFORMAT screen_bpp;
     D3DFORMAT stencil_format;
 
-    bool bMakeShoot;
     bool bWindow;
     bool bBackBufferCanLock;
 
@@ -608,7 +609,6 @@ private:
 
     std::stack<RenderTarget> stRenderTarget;
 
-    std::string screenshotExt;
 
     bool TextureLoad(int32_t texid);
 };

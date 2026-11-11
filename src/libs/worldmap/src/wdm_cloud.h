@@ -15,7 +15,7 @@
 
 class WdmCloud : public WdmRenderObject
 {
-    static IDirect3DVertexDeclaration9 *vertexDecl_;
+    static storm::render::VertexDeclarationId vertexDecl_;
     void CreateVertexDeclaration(VDX9RENDER *rs);
 
     struct MoveInfo

@@ -50,7 +50,7 @@ struct shader_t // pixel/vertex shader structure
     uint32_t dwShaderType;
 
     D3DVERTEXELEMENT9 *pDecl; // declarations for vertex shader
-    IDirect3DVertexDeclaration9 *pVertexDecl;
+    storm::render::VertexDeclarationId vertexDecl;
     IDirect3DVertexShader9 *pVertexShader;
     IDirect3DPixelShader9 *pPixelShader;
     uint32_t dwDeclSize;
