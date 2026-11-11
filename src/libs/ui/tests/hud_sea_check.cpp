@@ -314,6 +314,10 @@ static void CheckSailing()
                mount.Has("helm"),
            "without telemetry only the controls of the gameplay state stay");
     Json other = State("ship");
+    other["sequence"] = 30;
+    other["gameplayRevision"] = 8;
+    bench.Set("ship", other);
+    Expect(!mount.Has("vitals"), "the ship of another gameplay revision is not shown");
     Json deck = State("gameplay-sailing");
     deck["revision"] = 11;
     deck["capabilities"].push_back("DeckCamera_Forward");
@@ -326,10 +330,6 @@ static void CheckSailing()
     Expect(Sent(mount, "hold:11\tDeckCamera_Forward\t0") && mount.Last() == "hold:11\tDeckCamera_Backward\t1", "down walks back: " + mount.Last());
     bench.Press("walk", "change", "0,0");
     Expect(mount.Last() == "hold:11\tDeckCamera_Backward\t0", "let go: " + mount.Last());
-    other["sequence"] = 30;
-    other["gameplayRevision"] = 8;
-    bench.Set("ship", other);
-    Expect(!mount.Has("vitals"), "the ship of another gameplay revision is not shown");
     Json helmless = State("gameplay-sailing");
     helmless["revision"] = 12;
     helmless["capabilities"] = Json::array({"Ship_Fire"});
@@ -475,6 +475,34 @@ static void CheckOrders()
     Expect(mount.shown.sheet.empty() && !mount.shown.modal && mount.Has("helm") && mount.Has("orders") && mount.shown.layout == "sea", "the panel closed");
 }
 
+static void CheckEmptyCategory()
+{
+    Bench bench;
+    FakeMount &mount = bench.mount;
+    Sail(bench);
+    bench.Feed("seaOrders", "sea-orders-root");
+    bench.Feed("gameplay", "gameplay-orders");
+    bench.Feed("ship", "ship-orders");
+    bench.Frame();
+    // a command whose target list would be empty (the engine counts it with the list's own
+    // builder) is a disabled tile without a cooldown fill, and a tap on it does nothing
+    {
+        Json empty = State("sea-orders-root-selected");
+        empty["revision"] = 16;
+        empty["selectedItemId"] = "";
+        empty["items"][2]["enabled"] = false; // Выслать шлюпку, nobody to send the boat to
+        empty["items"][2]["cooldown"] = 1.0;
+        bench.Set("seaOrders", empty);
+        const Json &tile = mount.shown.sheet_props["tiles"][2];
+        Expect(tile["disabled"] == true && tile["cooldown"] == 0, "an empty category is disabled: " + tile.dump());
+        bench.Frame(2.0);
+        const size_t before = mount.commands.size();
+        bench.Press("item-i2");
+        Expect(mount.commands.size() == before || mount.Last().find("\tack\t") != std::string::npos, "a tap on it sends nothing");
+    }
+
+}
+
 static void CheckTouches(const std::string &pack)
 {
     Runtime run(pack);
@@ -568,6 +596,7 @@ int main(int argc, char **argv)
     CheckSailing();
     CheckBattle();
     CheckOrders();
+    CheckEmptyCategory();
     CheckTouches(pack);
     if (failures)
         std::fprintf(stderr, "%d sea HUD check(s) failed\n", failures);
