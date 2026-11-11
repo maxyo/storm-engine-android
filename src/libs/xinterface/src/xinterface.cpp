@@ -3410,15 +3410,14 @@ bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *gameSaveD
     if (slen <= 1)
         return false;
 
-    entid_t ei;
-    if (!(ei = core.GetEntityId("SCRSHOTER")))
-        return false;
-    // Without a screenshot (no surface: an autosave while the app goes to the background) the
-    // save is still written, with its data and without a thumbnail (SurfaceDataSize 0).
-    const int32_t textureId = core.Send_Message(ei, "l", MSG_SCRSHOT_MAKE);
+    // Without a screenshot (no surface: an autosave while the app goes to the background; no
+    // screen shooter entity) the save is still written, with its data and without a thumbnail
+    // (SurfaceDataSize 0): seadogs.c LoadGame refuses a record without a description.
+    const entid_t ei = core.GetEntityId("SCRSHOTER");
+    const int32_t textureId = ei ? static_cast<int32_t>(core.Send_Message(ei, "l", MSG_SCRSHOT_MAKE)) : -1;
     const bool shot = textureId != -1;
     if (!shot)
-        spdlog::warn("Save '{}' is written without a thumbnail: no screenshot", saveName);
+        spdlog::warn("Save '{}' is written without a thumbnail: {}", saveName, ei ? "no screenshot" : "no screen shooter");
 
     D3DSURFACE_DESC dscr{};
     if (shot)
