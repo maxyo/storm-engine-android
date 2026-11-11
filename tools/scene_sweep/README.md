@@ -18,6 +18,8 @@ without editing the tool:
   every type at midnight, land fights (jungle, town, cave, deck), the sea surface seen from below
   (the first underwater location with a sea, camera looking up), a sea battle, a boarding,
   the world map and a storm entered from the world map.
+  The sea battle waits until the enemy ship has fired its cannons (`CANNON_FIRE` from that
+  captain) and fails when it has not within 90 s of game time at sea.
 
 After the new game the script reports the size of the game's own location and island tables;
 the sweep fails (`inventory:tables`) when they differ from what `inventory.py` parsed.

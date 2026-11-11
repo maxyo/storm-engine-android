@@ -992,6 +992,11 @@ const char *CoreImpl::EngineIniFileName()
     return fs::ENGINE_INI_FILE_NAME;
 }
 
+std::optional<int32_t> CoreImpl::GetScriptIntegerDefine(const char *name)
+{
+    return Compiler->FindIntegerDefine(name);
+}
+
 void *CoreImpl::GetScriptVariable(const char *pVariableName, uint32_t *pdwVarIndex)
 {
     const VarInfo *real_var;
