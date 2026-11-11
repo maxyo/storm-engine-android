@@ -109,6 +109,8 @@ void TOUCH::Execute(uint32_t dwCoreDeltaTime)
         // iDeltaTime = (iTempDeltaTime>DELTA_TIME) ? DELTA_TIME : iTempDeltaTime;
         iDeltaTime = dwCoreDeltaTime;
         for (i = 0; i < iNumShips; i++)
+            storm::touch::AdvanceIslandContact(pShips[i]->islandContact, static_cast<float>(iDeltaTime) * 0.001f);
+        for (i = 0; i < iNumShips; i++)
             Touch(i, INVALID_SHIP_IDX, nullptr, nullptr, 0.0f, 0.0f);
     }
 
@@ -345,6 +347,8 @@ BOOL TOUCH::IsIntersectShipsReal(int32_t idx, int32_t cidx, glm::vec3 *vPos, glm
                 //*vRecoil = !(*vRecoil + vTemp);
                 //*vRecoil = vTemp;//!(*v1-pS1->TP[1].vPos);
                 *fPower = METERS2KNOTS(sqrtf(storm::math::lengthSquared(*v2 - *v1))) * (1000.0f / static_cast<float>(iDeltaTime));
+                fIslandIntoSpeed = METERS2KNOTS(std::max(0.0f, glm::dot(*v2 - *v1, *vRecoil))) *
+                                   (1000.0f / static_cast<float>(iDeltaTime));
                 *vPos = pS1->vContourTemp[0][i];
                 vPos->y = 0.0f;
                 return true;
@@ -548,11 +552,16 @@ float TOUCH::Touch(int32_t idx, int32_t skip_idx, glm::vec3 *vPos, glm::vec3 *vA
                 RotateAroundY(vPosTemp.x, vPosTemp.z, cosf(PI + fAngle), sinf(PI + fAngle));
                 RotateAroundY(vDirTemp.x, vDirTemp.z, cosf(fAngle), sinf(fAngle));
 
-                // script event initiate
+                // script event initiate (island contacts: frame-rate independent damage power, island_impact.hpp)
                 const auto iEnemyCharacterIndex = (i == ISLAND_CODE) ? -1 : GetIndex(pShips[i]->pShip->GetACharacter());
-                core.Event((i != ISLAND_CODE) ? SHIP_SHIP2SHIP_COLLISION : SHIP_SHIP2ISLAND_COLLISION, "llfflfff",
-                           GetIndex(pOur->GetACharacter()), iEnemyCharacterIndex, fPower1, fSlide1,
-                           GetTouchPoint(idx, vPosTemp), vPos1.x, vPos1.y, vPos1.z);
+                const float fEventPower =
+                    (i == ISLAND_CODE) ? storm::touch::IslandImpactPower(pShips[idx]->islandContact, fPower1, fIslandIntoSpeed,
+                                                                         static_cast<float>(iDeltaTime) * 0.001f)
+                                       : fPower1;
+                if (i != ISLAND_CODE || fEventPower > 0.0f)
+                    core.Event((i != ISLAND_CODE) ? SHIP_SHIP2SHIP_COLLISION : SHIP_SHIP2ISLAND_COLLISION, "llfflfff",
+                               GetIndex(pOur->GetACharacter()), iEnemyCharacterIndex, fEventPower, fSlide1,
+                               GetTouchPoint(idx, vPosTemp), vPos1.x, vPos1.y, vPos1.z);
 
                 if (i == ISLAND_CODE)
                     vGlobalRecoil = vDirTemp;
