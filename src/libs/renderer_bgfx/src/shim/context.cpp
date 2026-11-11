@@ -1,10 +1,12 @@
 #include "device.hpp"
 #include "effects/effects.hpp"
 #include "perf.hpp"
+#include "program_cache.hpp"
 #include "storm/render/d3d_interop.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_syswm.h>
+#include <GLES2/gl2.h>
 
 #include <algorithm>
 #include <chrono>
@@ -13,6 +15,7 @@
 #include <cstdio>
 #include <map>
 #include <mutex>
+#include <string>
 #include <thread>
 
 #ifdef __ANDROID__
@@ -220,6 +223,7 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     init.swapChain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
     init.reset = reset_flags();
     init.fallback = false; // never continue on the Noop renderer
+    init.callback = &ProgramCache::instance(); // program binaries between runs; bgfx fatals and traces into the log
     if (!bgfx::init(init))
     {
         logf("bgfx::init failed");
@@ -227,6 +231,16 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     }
     caps_ = bgfx::getCaps();
     flip_y_ = caps_->originBottomLeft;
+    if (window)
+    {
+        // The program binaries are valid for this GPU, driver and bgfx version only.
+        const auto text = [](GLenum name) {
+            const auto *value = reinterpret_cast<const char *>(glGetString(name));
+            return std::string(value ? value : "?");
+        };
+        ProgramCache::instance().attach_device(text(GL_VENDOR) + " | " + text(GL_RENDERER) + " | " + text(GL_VERSION) +
+                                               " | bgfx API " + std::to_string(BGFX_API_VERSION));
+    }
     initialised_ = true;
     surface_.width_px = width;
     surface_.height_px = height;
@@ -284,6 +298,7 @@ void Context::shutdown()
     dump_traps();
     effects::Host::instance().shutdown();
     bgfx::shutdown();
+    ProgramCache::instance().detach_device();
     initialised_ = false;
     surface_.valid = false;
     surface_lost();
@@ -574,6 +589,7 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
         if (run_frame(BGFX_FRAME_NONE, &last_frame_))
             perf_frame_presented(
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+        ProgramCache::instance().log_activity();
     }
     else
     {

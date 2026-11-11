@@ -89,6 +89,35 @@ inline StoragePaths storagePaths()
                         std::filesystem::path(path));
 }
 
+// Context.getCacheDir(): storage the system may clear when space runs low (derived data only).
+inline std::filesystem::path cacheDirectory()
+{
+    auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity)
+        throw std::runtime_error("Android game activity is unavailable");
+    std::string result;
+    const auto type = env->GetObjectClass(activity);
+    const auto getCacheDir = type ? env->GetMethodID(type, "getCacheDir", "()Ljava/io/File;") : nullptr;
+    const auto file = getCacheDir ? env->CallObjectMethod(activity, getCacheDir) : nullptr;
+    const auto fileType = file ? env->GetObjectClass(file) : nullptr;
+    const auto getPath = fileType ? env->GetMethodID(fileType, "getAbsolutePath", "()Ljava/lang/String;") : nullptr;
+    const auto path = getPath ? static_cast<jstring>(env->CallObjectMethod(file, getPath)) : nullptr;
+    if (path && !env->ExceptionCheck())
+        if (const char *chars = env->GetStringUTFChars(path, nullptr))
+        {
+            result = chars;
+            env->ReleaseStringUTFChars(path, chars);
+        }
+    env->ExceptionClear();
+    for (jobject local : {static_cast<jobject>(path), static_cast<jobject>(fileType), file, static_cast<jobject>(type), activity})
+        if (local)
+            env->DeleteLocalRef(local);
+    if (result.empty())
+        throw std::runtime_error("Android cache directory (Context.getCacheDir) is unavailable");
+    return result;
+}
+
 inline void prepareGameDirectory()
 {
     const auto paths = storagePaths();
