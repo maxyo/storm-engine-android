@@ -12,7 +12,7 @@ import hashlib
 from pathlib import Path
 import re
 
-LAND_KINDS = ('loc', 'night', 'combat')
+LAND_KINDS = ('loc', 'night', 'combat', 'surface')
 # Kinds that are entered from land (see SceneSweep_StartSea in scene_sweep.c).
 SEA_KINDS = ('sea', 'battle', 'boarding', 'map', 'storm')
 BOOT_SCENES = ('menu:main', 'newgame:intro')
@@ -127,7 +127,8 @@ def locations(game):
                 kind = attribute(block, 'type').lower() or 'untyped'
                 scenes[f'loc:{name}'] = Scene(f'loc:{name}', kind, fingerprint(game, block, models),
                                               str(path.relative_to(game)),
-                                              {'island': attribute(block, 'islandId'), 'models': models})
+                                              {'island': attribute(block, 'islandId'), 'models': models,
+                                               'sea': attribute(block, 'environment.sea').lower() != 'false'})
     if called:
         raise SystemExit('location init functions called by locations_init.c but not found: ' + ', '.join(sorted(called)))
     return list(scenes.values())
@@ -165,7 +166,7 @@ def first_of_each_category(scenes):
 
 def build(game):
     """Every scene of the game: all locations, the sea around every island, and the
-    special scenes (night, land combat, sea battle, boarding, world map, storm)."""
+    special scenes (night, land combat, underwater surface, sea battle, boarding, world map, storm)."""
     land = locations(game)
     scenes = list(land)
     sea = islands(game)
@@ -181,6 +182,10 @@ def build(game):
         scene = next((item for item in land if item.category == category), None)
         if scene:
             scenes.append(Scene('combat:' + scene.id.split(':', 1)[1], 'combat', scene.fingerprint + scripts, scene.source))
+    # The sea surface seen from below, in the first underwater location with a sea (SEA's underwater mode).
+    scene = next((item for item in land if item.category == 'underwater' and item.attributes['sea']), None)
+    if scene:
+        scenes.append(Scene('surface:' + scene.id.split(':', 1)[1], 'underwater surface', scene.fingerprint, scene.source))
     if sea:
         name, mark, source = sea[0]
         scenes.append(Scene(f'battle:{name}', 'sea battle', mark + scripts, source))

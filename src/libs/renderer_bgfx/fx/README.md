@@ -77,7 +77,7 @@ post.Submit(settings, post_frame);               // scene colour (+ depth for oc
 // Per lit draw call of the fixed-function emulator (variant compiled with fx::LightingDefines(settings)):
 lighting.Apply(fx::ComputeLighting(input, fx::LightingMaterial::Hull(), &sky.State()));
 lighting.Apply(fx::PackPointLights(fx::SelectLights(lights, center, radius, fx::PointLightBudget(settings)), view));
-shadows.Bind();
+shadows.Bind(view);
 sky.BindAerial(view); sky.BindWind();            // FX_AERIAL / FX_WIND variants
 ```
 
@@ -94,7 +94,7 @@ shadows fading out as the sun reaches the horizon.
 All colour targets are gamma-encoded RGBA8, like the legacy pipeline; no float render targets are required.
 After a lost context call `OnDeviceLost()` on each object; resources are re-created on the next use.
 Sampler stages 5 and 6 belong to `fx_atmosphere.sh`, stages 8 and 9 (vertex shader) to the sea height field,
-stage 13 to the shadow map, stage 14 to the derived normal map (above the fixed-function emulator's units).
+stage 15 to the shadow map, stage 14 to the derived normal map (above the fixed-function emulator's units).
 
 Normal maps are derived on the device from the player's own textures (`DeriveNormalMap`, deterministic, RG8
 with mips). Cache them on the device; never ship or commit them.

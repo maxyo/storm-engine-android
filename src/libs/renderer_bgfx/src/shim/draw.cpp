@@ -359,7 +359,7 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
     // D3D9 fog: a table (pixel) mode wins and is evaluated from depth; otherwise the fixed-function
     // vertex mode is used, and with no mode at all the factor comes from the vertex (the vertex
     // shader's oFog, or the specular alpha of fixed-function vertices).
-    enum : uint32_t { kFogOff = 0, kFogFactor = 4 };
+    enum : uint32_t { kFogOff = 0, kFogFactor = 4, kFogAerial = 5 };
     uint32_t fog_mode = kFogOff;
     bool fog_from_clip_depth = false, fog_from_specular = false;
     if (fog)
@@ -379,6 +379,10 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
             fog_from_specular = true;
         }
     }
+    // Effects: the game's exp fog with the aerial perspective (effects/lighting.hpp, ff_finish.sh mode 5).
+    std::array<float, 2> aerial_haze{};
+    if (fog_mode == D3DFOG_EXP && effects::Host::instance().lighting().aerial_fog(s.view, vs_port, aerial_haze))
+        fog_mode = kFogAerial;
 
     if (!vs_port)
     {
@@ -528,8 +532,8 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
     color_to_float(rs[D3DRS_FOGCOLOR], fs[1]);
     fs[1][3] = static_cast<float>(fog_mode);
     fs[3][3] = fog_from_clip_depth ? 1.0f : 0.0f;
-    fs[2][0] = as_float(rs[D3DRS_FOGSTART]);
-    fs[2][1] = as_float(rs[D3DRS_FOGEND]);
+    fs[2][0] = fog_mode == kFogAerial ? aerial_haze[0] : as_float(rs[D3DRS_FOGSTART]);
+    fs[2][1] = fog_mode == kFogAerial ? aerial_haze[1] : as_float(rs[D3DRS_FOGEND]);
     fs[2][2] = as_float(rs[D3DRS_FOGDENSITY]);
     fs[2][3] = static_cast<float>(rs[D3DRS_ALPHAREF] & 255) / 255.0f;
     fs[3][0] = rs[D3DRS_ALPHATESTENABLE] && rs[D3DRS_ALPHAFUNC] != D3DCMP_ALWAYS ? static_cast<float>(rs[D3DRS_ALPHAFUNC])
@@ -1249,7 +1253,10 @@ HRESULT Device::draw(const DrawCall &call)
         bgfx::setScissor(static_cast<uint16_t>(std::max<int32_t>(0, s.scissor.left)), static_cast<uint16_t>(std::max(0, y)),
                          static_cast<uint16_t>(std::max(0, w)), static_cast<uint16_t>(std::max(0, h)));
     }
-    bgfx::submit(view_id, handle);
+    // Effects: a sun shadow caster keeps its buffers for the depth-only copy into the shadow view (effects/shadows.hpp).
+    bgfx::submit(view_id, handle, 0, fx_draw.caster ? BGFX_DISCARD_NONE : BGFX_DISCARD_ALL);
+    if (fx_draw.caster)
+        fx_lighting.submit_caster(*this, s.world, layout->skinned);
     view_has_content = true;
     render::PerfCounters &counters = perf();
     ++counters.draws;

@@ -497,7 +497,6 @@ class Preview
         shadow_frame.sun_dir = light_dir;
         shadow_frame.focus = focus;
         shadow_frame.radius = shot.content == Content::Deck ? 34.0f : shot.content == Content::Materials ? 16.0f : 60.0f;
-        std::copy_n(view, 16, shadow_frame.camera_view.begin());
         if (shadows_.Begin(settings, shadow_frame))
             for (const GpuMesh *mesh : casters)
             {
@@ -541,7 +540,7 @@ class Preview
                 bgfx::setUniform(u_point_count_, packed.u_fxPointCount.data());
             }
             if (settings.shadows != fx::ShadowQuality::Off && (settings.lighting_flags & fx::kLightingPerPixel))
-                shadows_.Bind();
+                shadows_.Bind(lighting.view);
             // Renderer state from fx: anisotropic filtering on the world textures, alpha to coverage on alpha-tested ones.
             const uint32_t sampler = renderer.max_anisotropy > 1 ? BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC : BGFX_SAMPLER_NONE;
             bgfx::setTexture(0, s_base_, bgfx::isValid(mesh.base) ? mesh.base : white_base_, sampler);

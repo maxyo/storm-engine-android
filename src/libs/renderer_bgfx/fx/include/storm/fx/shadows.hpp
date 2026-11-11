@@ -8,7 +8,7 @@
 //           bgfx::setTransform(world); set buffers; bgfx::setState(Shadows::kCasterState);
 //           bgfx::submit(frame.view, shadows.CasterProgram());
 //   ...
-//   shadows.Bind();                                // before every receiver draw call
+//   shadows.Bind(camera_view);                     // before every receiver draw call
 #pragma once
 
 #include "storm/fx/shadow_model.hpp"
@@ -25,7 +25,6 @@ struct ShadowFrame
     Vec3 focus{0.0f, 0.0f, 0.0f};   // centre of the shadowed region: the player's ship or character
     float radius = 60.0f;          // metres around the focus that receive shadows
     float caster_reach = 120.0f;   // how far towards the sun casters are still captured
-    std::array<float, 16> camera_view{}; // the scene's world -> view matrix (receivers shade in view space)
 };
 
 class Shadows
@@ -45,9 +44,11 @@ class Shadows
     bool Begin(const Settings &settings, const ShadowFrame &frame);
     bgfx::ProgramHandle CasterProgram();
 
-    // Sets the shadow map (sampler stage kShadowMapStage), u_fxShadowMtx and u_fxShadow for the next draw call. Required
-    // for every draw of a FX_LIGHT_SHADOW variant; calling it before the first Begin() is an error.
-    void Bind();
+    // Sets the shadow map (sampler stage kShadowMapStage), u_fxShadowMtx and u_fxShadow for the next draw call.
+    // `camera_view`: the receiver's world -> view matrix (receivers shade in view space; draws of one frame may use
+    // different cameras). Required for every draw of a FX_LIGHT_SHADOW variant; calling it before the first Begin()
+    // is an error.
+    void Bind(const std::array<float, 16> &camera_view);
 
     void Shutdown();
     void OnDeviceLost();
@@ -62,6 +63,8 @@ class Shadows
     bgfx::UniformHandle s_map_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_matrix_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_params_ = BGFX_INVALID_HANDLE;
+    std::array<float, 16> world_to_shadow_{}; // world -> shadow map uv and 0..1 depth
+    std::array<float, 16> camera_view_{};     // the camera view_to_shadow_ was made for
     std::array<float, 16> view_to_shadow_{};
     std::array<float, 4> params_{};
     bool reported_bind_ = false; // one report per object is enough: both causes mean "no shadow map"

@@ -15,5 +15,5 @@ args = parser.parse_args()
 # rain_batch.py compiles a block that uses the real GLM-based math headers.
 os.environ[ENVIRONMENT] = str(glm_source(args.glm_source))
 
-for script in ("rain_batch.py", "drawrects_restore.py"):
+for script in ("rain_batch.py", "drawrects_restore.py", "buffer_handles.py"):
     subprocess.run([sys.executable, str(Path(__file__).with_name(script))], check=True)

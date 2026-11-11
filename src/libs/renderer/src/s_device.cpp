@@ -871,7 +871,7 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
     }
 
     d3dpp.MultiSampleType = D3DMULTISAMPLE_NONE;
-    for (auto samples = msaa; msaa > D3DMULTISAMPLE_2_SAMPLES; samples--)
+    for (auto samples = msaa; samples >= D3DMULTISAMPLE_2_SAMPLES; samples--)
     {
         if (SUCCEEDED(d3d->CheckDeviceMultiSampleType(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, d3dpp.BackBufferFormat, false,
                                                       static_cast<D3DMULTISAMPLE_TYPE>(samples), nullptr)))
@@ -880,6 +880,10 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
             break;
         }
     }
+    if (msaa >= D3DMULTISAMPLE_2_SAMPLES && d3dpp.MultiSampleType == D3DMULTISAMPLE_NONE)
+        spdlog::warn("engine.ini msaa = {}: no multisample back buffer is available on this device; the back buffer is "
+                     "not multisampled (scene MSAA is the fx_msaa option)",
+                     static_cast<int>(msaa));
 
     if (bBackBufferCanLock)
         d3dpp.Flags = D3DPRESENTFLAG_LOCKABLE_BACKBUFFER;
@@ -2561,8 +2565,25 @@ void DX9RENDER::RenderAnimation(int32_t ib, void *src, int32_t numVrts, int32_t 
 }
 
 //################################################################################
+// Buffer handles are indices into VertexBuffers / IndexBuffers. -1 is the game's "no buffer": owners
+// hold it before their first Create and pass it to Release unchecked (BIImageMaterial::RemakeBuffers,
+// ShipTracks), so releasing -1 does nothing, like free(nullptr). Any other handle outside the table, or
+// one without a buffer, is a caller bug: it is reported and the call does nothing. Indexing the table
+// with -1 read the member in front of it as a buffer pointer (keptPixels_'s max_load_factor, 1.0f,
+// crashed as address 0x3f800000).
+bool DX9RENDER::LiveBuffer(int32_t id, bool index, const char *call) const
+{
+    if (id >= 0 && id < MAX_BUFFERS && (index ? IndexBuffers[id].buff != nullptr : VertexBuffers[id].buff != nullptr))
+        return true;
+    spdlog::error("{}: {} buffer handle {} {}", call, index ? "index" : "vertex", id,
+                  id >= 0 && id < MAX_BUFFERS ? "has no buffer" : "is out of range");
+    return false;
+}
+
 void *DX9RENDER::LockVertexBuffer(int32_t id, uint32_t dwFlags)
 {
+    if (!LiveBuffer(id, false, "LockVertexBuffer"))
+        return nullptr;
     uint8_t *ptr;
     VertexBuffers[id].dwNumLocks++;
     if (CHECKD3DERR(VertexBuffers[id].buff->Lock(0, VertexBuffers[id].size, (void **)&ptr, dwFlags)))
@@ -2575,17 +2596,23 @@ void *DX9RENDER::LockVertexBuffer(int32_t id, uint32_t dwFlags)
 //################################################################################
 void DX9RENDER::UnLockVertexBuffer(int32_t id)
 {
-        VertexBuffers[id].dwNumLocks--;
-        CHECKD3DERR(VertexBuffers[id].buff->Unlock());
+    if (!LiveBuffer(id, false, "UnLockVertexBuffer"))
+        return;
+    VertexBuffers[id].dwNumLocks--;
+    CHECKD3DERR(VertexBuffers[id].buff->Unlock());
 }
 
 int32_t DX9RENDER::GetVertexBufferSize(int32_t id)
 {
+    if (!LiveBuffer(id, false, "GetVertexBufferSize"))
+        return 0;
     return VertexBuffers[id].size;
 }
 
 void *DX9RENDER::LockIndexBuffer(int32_t id, uint32_t dwFlags)
 {
+    if (!LiveBuffer(id, true, "LockIndexBuffer"))
+        return nullptr;
     uint8_t *ptr = nullptr;
     IndexBuffers[id].dwNumLocks++;
     if (CHECKD3DERR(IndexBuffers[id].buff->Lock(0, IndexBuffers[id].size, (void **)&ptr, dwFlags)))
@@ -2597,14 +2624,18 @@ void *DX9RENDER::LockIndexBuffer(int32_t id, uint32_t dwFlags)
 
 void DX9RENDER::UnLockIndexBuffer(int32_t id)
 {
-        IndexBuffers[id].dwNumLocks--;
-        CHECKD3DERR(IndexBuffers[id].buff->Unlock());
+    if (!LiveBuffer(id, true, "UnLockIndexBuffer"))
+        return;
+    IndexBuffers[id].dwNumLocks--;
+    CHECKD3DERR(IndexBuffers[id].buff->Unlock());
 }
 
 //################################################################################
 void DX9RENDER::ReleaseVertexBuffer(int32_t id)
 {
-    if (VertexBuffers[id].buff == nullptr)
+    if (id == -1 || (id >= 0 && id < MAX_BUFFERS && VertexBuffers[id].buff == nullptr))
+        return; // no buffer
+    if (!LiveBuffer(id, false, "ReleaseVertexBuffer"))
         return;
     CHECKD3DERR(VertexBuffers[id].buff->Release());
     VertexBuffers[id].buff = nullptr;
@@ -2614,7 +2645,9 @@ void DX9RENDER::ReleaseVertexBuffer(int32_t id)
 //################################################################################
 void DX9RENDER::ReleaseIndexBuffer(int32_t id)
 {
-    if (IndexBuffers[id].buff == nullptr)
+    if (id == -1 || (id >= 0 && id < MAX_BUFFERS && IndexBuffers[id].buff == nullptr))
+        return; // no buffer
+    if (!LiveBuffer(id, true, "ReleaseIndexBuffer"))
         return;
     CHECKD3DERR(IndexBuffers[id].buff->Release());
     IndexBuffers[id].buff = nullptr;

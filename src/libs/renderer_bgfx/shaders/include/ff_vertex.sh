@@ -17,6 +17,7 @@ uniform mat4 u_ffProj; // projection (or screen matrix for XYZRHW) with the D3D-
 // [3] x: specular enable  y: material power  z: fog passthrough (0 = eye depth)  w: point size
 uniform vec4 u_ffVs[4];
 uniform vec4 u_ffClipPlane;   // view-space plane, all zero when disabled
+uniform vec4 u_fxAerialUp;     // world up in view space: v_fog.w = height above the eye (effects' aerial fog, mode 5)
 #ifndef FF_UNLIT
 uniform vec4 u_ffMaterial[4]; // diffuse, ambient, specular, emissive
 uniform vec4 u_ffAmbient;
@@ -54,23 +55,7 @@ vec4 stageCoord(int i, vec4 t0, vec4 t1, vec4 t2, vec4 t3, vec3 P, vec3 N)
 }
 
 #ifdef FF_SKIN
-// The palette holds 3 texels per bone (row = bone): texel k = (m[k], m[4+k], m[8+k], m[12+k]) of the bone
-// matrix, texel 0 negated (the CPU kernel negates elements 0, 4, 8 and 12 after blending); see
-// src/libs/model/include/skinning_palette.hpp.
-SAMPLER2D(s_bones, 13);
-
-vec4 blendedRow(int row, int bone0, int bone1, float weight)
-{
-    return texelFetch(s_bones, ivec2(row, bone0), 0) * weight + texelFetch(s_bones, ivec2(row, bone1), 0) * (1.0 - weight);
-}
-
-// Position and normal alike, the normal with the translation included (as the CPU kernel did).
-vec3 skinPoint(vec4 r0, vec4 r1, vec4 r2, vec3 v)
-{
-    return vec3((r0.x * v.x + r0.y * v.y) + (r0.z * v.z + r0.w),
-                (r1.x * v.x + r1.y * v.y) + (r1.z * v.z + r1.w),
-                (r2.x * v.x + r2.y * v.y) + (r2.z * v.z + r2.w));
-}
+#include "ff_skin.sh"
 #endif
 
 void main()
@@ -116,7 +101,7 @@ void main()
         if (u_ffVs[3].z > 0.5) fogDepth = specular.a; // fog enabled without a mode: the factor comes with the vertex
         float clipDist = dot(u_ffClipPlane.xyz, P) + u_ffClipPlane.w;
         if (dot(u_ffClipPlane, u_ffClipPlane) == 0.0) clipDist = 1.0;
-        v_fog = vec4(fogDepth, clipDist, 0.0, 0.0);
+        v_fog = vec4(fogDepth, clipDist, 0.0, dot(P, u_fxAerialUp.xyz));
 #ifdef FX_FF_LIT
         v_normal = vec4(N, 0.0);
         v_position = vec4(P, 1.0);
