@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <map>
+#include <set>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -206,6 +208,48 @@ void SyncElement(Rml::Element *live, Rml::Element *fresh)
     MorphChildren(live, fresh);
 }
 
+// Children with a data-key (a list whose items come and go, like the HUD's log lines) keep
+// their element by key, not by position: a new item gets a new element, so its entrance
+// animation plays on it and a leaving item keeps animating out instead of taking over the
+// text of its neighbour.
+bool KeyedChildren(const std::vector<Rml::ElementPtr> &wanted)
+{
+    return !wanted.empty() && std::all_of(wanted.begin(), wanted.end(), [](const Rml::ElementPtr &child) { return child->HasAttribute("data-key"); });
+}
+
+void MorphKeyed(Rml::Element *live, std::vector<Rml::ElementPtr> &wanted, const std::vector<Rml::Element *> &current_children)
+{
+    std::map<std::string, Rml::Element *> by_key;
+    for (Rml::Element *child : current_children)
+        if (child->HasAttribute("data-key"))
+            by_key.emplace(child->GetAttribute<Rml::String>("data-key", ""), child);
+    std::set<Rml::Element *> kept;
+    Rml::Element *after = nullptr; // the element the next wanted child follows
+    for (Rml::ElementPtr &child : wanted)
+    {
+        const auto found = by_key.find(child->GetAttribute<Rml::String>("data-key", ""));
+        Rml::Element *current = found != by_key.end() && found->second->GetTagName() == child->GetTagName() ? found->second : nullptr;
+        if (current)
+        {
+            SyncElement(current, child.get());
+            // Out of order (a reordered list): move it after its predecessor.
+            Rml::Element *expected = after ? after->GetNextSibling() : live->GetFirstChild();
+            if (expected != current)
+                current = live->InsertBefore(live->RemoveChild(current), expected);
+        }
+        else
+        {
+            Rml::Element *before = after ? after->GetNextSibling() : live->GetFirstChild();
+            current = before ? live->InsertBefore(std::move(child), before) : live->AppendChild(std::move(child));
+        }
+        kept.insert(current);
+        after = current;
+    }
+    for (Rml::Element *child : current_children)
+        if (!kept.count(child))
+            live->RemoveChild(child);
+}
+
 void MorphChildren(Rml::Element *live, Rml::Element *fresh)
 {
     std::vector<Rml::ElementPtr> wanted;
@@ -218,6 +262,8 @@ void MorphChildren(Rml::Element *live, Rml::Element *fresh)
     for (int i = 0; i < live->GetNumChildren(); ++i)
         if (!live->GetChild(i)->IsClassSet("scroll-fade"))
             current_children.push_back(live->GetChild(i));
+    if (KeyedChildren(wanted))
+        return MorphKeyed(live, wanted, current_children);
     for (size_t i = 0; i < wanted.size(); ++i)
     {
         Rml::Element *current = i < current_children.size() ? current_children[i] : nullptr;

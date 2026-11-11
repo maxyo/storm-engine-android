@@ -33,7 +33,8 @@ static void CheckExplore()
         Expect(lines.size() == 2 && lines[1]["text"] == "Недостаточно денег \u00D72" && lines[0]["text"] == "Взято: ром",
                "no second copy: the shown line counts «×2»: " + lines.dump());
     }
-    bench.Frame(1.0); // 3 s after the first: the other line is gone, the repeated one lives on
+    bench.Frame(1.0); // 3 s after the first: the other line animates out, the repeated one lives on
+    bench.Frame(0.3); // and is gone after its exit
     {
         const Json lines = mount.shown.elements["log"]["lines"];
         Expect(lines.size() == 1 && lines[0]["text"] == "Недостаточно денег \u00D72", "the repeat extends its toast: " + lines.dump());
@@ -42,7 +43,9 @@ static void CheckExplore()
     bench.Frame();
     ExpectEqual(mount.shown.elements["log"]["lines"][0]["text"].get<std::string>(), "Недостаточно денег \u00D73", "and counts on");
     bench.Frame(3.0);
-    Expect(!mount.Has("log"), "then it goes");
+    Expect(mount.shown.elements["log"]["lines"][0]["leaving"] == true, "then it animates out");
+    bench.Frame(0.3);
+    Expect(!mount.Has("log"), "and goes");
     bench.hud.Notice("Недостаточно денег", "info");
     bench.Frame();
     ExpectEqual(mount.shown.elements["log"]["lines"][0]["text"].get<std::string>(), "Недостаточно денег", "after it went, the same message starts afresh");
