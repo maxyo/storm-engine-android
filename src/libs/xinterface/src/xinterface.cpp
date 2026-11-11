@@ -2617,7 +2617,17 @@ void XINTERFACE::DoControl()
             if(auto *next=node->DoAction(code,stop,true))SetCurNode(next);
             continue;
         }
-        if (node->MobileApply(action.index, action.value)) continue;
+        if (node->MobileApply(action.index, action.value))
+        {
+            // An edit box takes its text at once, but the script event its activation queues
+            // runs in the next Execute and reads the box then. A second text applied in the same
+            // frame overwrote the first before its event ran: the trade's "0" (leave selling)
+            // followed by "277" (buy) reached the script as "277" twice, read as selling.
+            // The rest of the queue waits for the next frame, after the event has run.
+            if (node->m_nNodeType == NODETYPE_PCEDITBOX || node->m_nNodeType == NODETYPE_EDITBOX)
+                break;
+            continue;
+        }
         if (action.index == -1 && action.value == "press" && node->m_bSelected && node->m_bClickable)
         {
             const int code = node->CheckCommandUsed(ACTION_MOUSECLICK) ? ACTION_MOUSECLICK : ACTION_ACTIVATE;

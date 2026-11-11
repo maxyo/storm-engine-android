@@ -219,7 +219,16 @@ class CommerceScreen final : public Screen
         const bool waiting = mine && bindings.Waiting(*edit, "edit");
         if (waiting)
             asked_revision_ = revision;
-        const bool answered = mine && !waiting && revision > asked_revision_;
+        // A revision answers the player's amount only when it is whole. The amount goes out as
+        // "0" and then the signed amount, in one flush; the game may publish the zero on its
+        // own first (QTY_EDIT 0, the hold as before), and it publishes its clamped QTY_EDIT a
+        // revision before the labels that follow from it (QTY_INFO_SHIP_QTY still the old
+        // figure; seen on the device). Taking either as the answer learnt a false limit at
+        // what we hold. Whole = the hold figure moved by exactly the edit box's amount.
+        const int edit_amount = std::abs(Number(edit ? edit->value : std::string()));
+        const bool zero_echo = mine && local_target_ != local_ours_ && edit_amount == 0 && model_target == ours;
+        const bool whole = std::abs(model_target - ours) == edit_amount;
+        const bool answered = mine && !waiting && !zero_echo && whole && revision > asked_revision_;
         const bool recent = mine && (waiting || (!answered && bindings.Now() - local_at_ < 2.0));
         const int target = recent ? local_target_ : model_target;
         if (recent && !waiting)
@@ -235,6 +244,18 @@ class CommerceScreen final : public Screen
                 limit_min_ = model_target;
             local_target_ = model_target;
         }
+
+        // One amount for everything the deal shows: the quantity control (its number, knob and
+        // buy / sell caption), the deal button and the header previews all derive from it. It
+        // is the player's pending amount until the game has answered, then the game's.
+        const bool can_take = !selected || !money || selected->CellText(columns.buy) != "-";
+        const bool can_give = !selected || !money || selected->CellText(columns.sell) != "-";
+        const int low = std::max(can_give ? 0 : ours, std::min(limit_min_, ours));
+        const int high = std::min(can_take ? ours + theirs : ours, std::max(limit_max_, ours));
+        const int shown = std::clamp(target, low, std::max(low, high));
+        // The game's figures (price line, hold, balance) describe its own amount: they are shown
+        // once it is the one the player set.
+        const bool settled = shown == model_target;
 
         Json rows = Json::array();
         for (size_t i = 0; i < goods.size(); ++i)
@@ -274,14 +295,10 @@ class CommerceScreen final : public Screen
                       {"reason", row->unavailable_reason}};
             if (row == selected && deal)
             {
-                const bool can_take = !money || row->CellText(columns.buy) != "-";
-                const bool can_give = !money || row->CellText(columns.sell) != "-";
-                const std::string result = OneLine(admitted.Label("QTY_Result"));
-                const int low = std::max(can_give ? 0 : ours, std::min(limit_min_, ours));
-                const int high = std::min(can_take ? ours + theirs : ours, std::max(limit_max_, ours));
+                const std::string result = settled ? OneLine(admitted.Label("QTY_Result")) : std::string();
                 // One slider for both directions: what we hold is the origin, the zone to its
                 // left gives (sells), the zone to its right takes (buys), each in its colour.
-                Json quantity{{"value", std::clamp(target, low, high)},
+                Json quantity{{"value", shown},
                               {"min", low},
                               {"max", high},
                               {"zones", true},
@@ -290,7 +307,9 @@ class CommerceScreen final : public Screen
                               {"moreLabel", bindings.Text(money ? StringKey("trade.buy") : StringKey("trade.take"))},
                               {"label", own_caption},
                               {"allLabel", bindings.Text("common.all")},
-                              {"summary", result.empty() ? "-" : result},
+                              // A money deal's price is on its button (one place); the control keeps the
+                              // width for the amount. A free transfer's line stays.
+                              {"summary", money || result.empty() ? "-" : result},
                               {"disabled", !edit->Offers("edit")}};
                 if (columns.small)
                     quantity["steps"] = Json::array({1, 10});
@@ -395,7 +414,7 @@ class CommerceScreen final : public Screen
         // already counts the deal into the hold figure, so the figure from before is kept;
         // the balance changes only on confirmation, so its outcome is computed from the
         // game's own result line.
-        const int amount_now = std::abs(model_target - ours);
+        const int amount_now = settled ? std::abs(model_target - ours) : 0;
         Json stats = Json::array();
         for (const char *node : {"CAPACITY", "STORE_CAPACITY"})
         {
@@ -504,11 +523,15 @@ class CommerceScreen final : public Screen
         view["primary"] = Json();
         if (deal && ok && money)
         {
-            const std::string operation = admitted.Label("QTY_TypeOperation");
-            const int amount = std::abs(model_target - ours);
-            view["primary"] = DealView(bindings, *ok, operation, amount, OneLine(admitted.Label("QTY_Result")));
+            // The button names the shown amount in our words; until the game holds that amount
+            // it waits (a press would confirm the game's previous one).
+            const std::string operation = bindings.Text(shown > ours ? StringKey("trade.buy") : StringKey("trade.sell"));
+            view["primary"] = DealView(bindings, *ok, operation, std::abs(shown - ours), settled ? OneLine(admitted.Label("QTY_Result")) : std::string(), !settled);
             if (!view["primary"].is_null())
-                bindings.On("primary", "", [&bindings, ok, selected](const Event &) { bindings.Send(*ok, "press", {}, selected->row_id); });
+                bindings.On("primary", "", [&bindings, ok, selected, settled](const Event &) {
+                    if (settled) // while the game does not hold the shown amount the button waits
+                        bindings.Send(*ok, "press", {}, selected->row_id);
+                });
         }
         else if (!deal)
         {

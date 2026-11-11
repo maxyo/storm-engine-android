@@ -320,7 +320,7 @@ static void Store(const std::string &models)
     router.SetInterface(Load(models, "store-deal.json"));
     const Json row = surface.props["list"]["rows"][0];
     Expect(row["q"]["value"] == 300 && row["q"]["max"] == 2040 && row["q"]["min"] == 0, "open row shows the target amount in the hold");
-    ExpectEqual(surface.props["primary"]["label"], "Купить 100", "primary names the deal");
+    ExpectEqual(surface.props["primary"]["label"], "<trade.buy> 100", "primary names the deal");
     {
         // The game opens the deal at the amount held: nothing to confirm, so no deal button
         // (its bare "Ok" read as a dead button).
@@ -343,14 +343,68 @@ static void Store(const std::string &models)
     surface.commands.clear();
     router.OnEvent({"goods", "commit", "150"});
     ExpectEqual(surface.Last(), "widget:store\tQTY_EDIT\t-1\tguard@7:goods:0:ship:0|-50", "below the hold = sell, guarded by the row");
+    Expect(surface.props["primary"]["label"] == "<trade.sell> 50" && surface.props["primary"]["busy"] == true && surface.props["primary"]["sub"] == "",
+           "the button follows the amount just set and waits until the game holds it");
+    surface.commands.clear();
     router.OnEvent({"primary", "click", ""});
-    ExpectEqual(surface.Last(), "widget:store\tQTY_OK_BUTTON\t-1\tguard@7:goods:0:ship:0|press", "primary confirms");
+    Expect(surface.commands.empty(), "a press while the game does not hold the amount confirms nothing");
     surface.now += 0.3;
     router.SetInterface(Load(models, "store-deal.json")); // the game answers with its own amount (a limit)
     Expect(surface.props["list"]["rows"][0]["q"]["value"] == 150, "the amount just set is shown for a moment");
     surface.now += 2.0;
     router.Tick();
     Expect(surface.props["list"]["rows"][0]["q"]["value"] == 300, "then the game's amount, without another model");
+
+    {
+        // One amount: the control's number, its caption and the deal button follow the
+        // player's step until the game answers it; the game's lone zero (sent first in the
+        // same flush) is no answer and teaches no limit; the game's clamp is.
+        FakeSurface q_surface;
+        Router q(q_surface);
+        InterfaceModel model = Load(models, "store-deal.json");
+        q.SetInterface(model);
+        const auto answer = [&](int edit, int hold, const std::string &operation, const std::string &result) {
+            model.revision += 1;
+            for (Widget &widget : model.widgets)
+            {
+                if (widget.node == "QTY_EDIT")
+                    widget.value = std::to_string(edit);
+                if (widget.node == "QTY_INFO_SHIP_QTY")
+                    widget.label = std::to_string(hold);
+                if (widget.node == "QTY_TypeOperation")
+                    widget.label = operation;
+                if (widget.node == "QTY_Result")
+                    widget.label = result;
+            }
+            q.SetInterface(model);
+        };
+        const auto shows = [&](int value, const std::string &button, bool busy) {
+            const Json &props = q_surface.props;
+            return props["list"]["rows"][0]["q"]["value"] == value && props["primary"]["label"] == button && props["primary"]["busy"] == busy;
+        };
+        q.OnEvent({"goods", "change", "301"});
+        Expect(shows(301, "<trade.buy> 101", true), "«+»: the control and the button show 101 at once, the button waits");
+        answer(0, 200, "", "");
+        Expect(shows(301, "<trade.buy> 101", true), "the game's lone zero changes nothing");
+        answer(101, 200, "", ""); // the game's edit box a revision before its labels (device)
+        Expect(shows(301, "<trade.buy> 101", true) && q_surface.props["list"]["rows"][0]["q"]["max"] == 2040,
+               "a half answer (edit box without the hold figure) changes nothing and teaches no limit");
+        answer(101, 301, "Купить", "Деньги 5, вес 6 ц");
+        Expect(shows(301, "<trade.buy> 101", false) && q_surface.props["primary"]["sub"] == "Деньги 5, вес 6 ц",
+               "the game's answer: the same 101, the button ready with the game's price");
+        q_surface.now += 3.0;
+        q.Tick();
+        Expect(shows(301, "<trade.buy> 101", false), "and it stays after the player's window");
+        q.OnEvent({"goods", "change", "2240"}); // «Все» to the right
+        Expect(shows(2040, "<trade.buy> 1840", true), "«Все»: the store's stock, waiting");
+        answer(0, 200, "", "");
+        answer(208, 200, "", "");
+        answer(208, 408, "Купить", "Деньги 500, вес 11 ц");
+        Expect(shows(408, "<trade.buy> 208", false) && q_surface.props["list"]["rows"][0]["q"]["max"] == 408,
+               "the game's clamp (money) is its answer: control, slider end and button at 208");
+        q.OnEvent({"goods", "change", "0"}); // «Все» to the left
+        Expect(shows(0, "<trade.sell> 200", true), "«Все» to the left: selling all, waiting: " + q_surface.props["list"]["rows"][0]["q"].dump() + q_surface.props["primary"].dump());
+    }
 
     // One slider for both directions: what we hold is the origin, selling left, buying right.
     {
@@ -384,6 +438,8 @@ static void Store(const std::string &models)
     for (Widget &w : limited.widgets)
         if (w.node == "QTY_INFO_SHIP_QTY")
             w.label = "280";
+        else if (w.node == "QTY_EDIT")
+            w.value = "80"; // the game's clamped amount, as its hold figure says
     router.SetInterface(limited);
     {
         const Json q = surface.props["list"]["rows"][0]["q"];
@@ -532,12 +588,12 @@ static void Commerce(const std::string &models)
 
     // Money trades: explicit primary with the price.
     router.SetInterface(Load(models, "cannons-deal.json"));
-    ExpectEqual(surface.props["primary"]["label"], "Купить 6", "cannons: the primary names the deal");
+    ExpectEqual(surface.props["primary"]["label"], "<trade.buy> 6", "cannons: the primary names the deal");
     ExpectEqual(surface.props["primary"]["sub"], "Деньги 1740, вес 36 ц", "and carries the price");
     ExpectEqual(surface.props["list"]["rows"][1]["meta"], "Дист. 450 · Урон x1.5 · Время 11", "cannons: range, damage, reload under the name");
     router.SetInterface(Load(models, "contraband-deal.json"));
     Expect(surface.props["list"]["rows"][0]["q"]["max"] == 50 && surface.props["list"]["rows"][0]["q"]["min"] == 0, "contraband: goods without a buy price can only be sold");
-    ExpectEqual(surface.props["primary"]["label"], "Продать 50", "contraband: selling");
+    ExpectEqual(surface.props["primary"]["label"], "<trade.sell> 50", "contraband: selling");
     router.SetInterface(Load(models, "itemstrade-deal.json"));
     ExpectEqual(surface.props["subject"]["label"], "Шарль де Мор", "items trade: the character selector is the subject");
     router.OnEvent({"goods", "commit", "5"});
