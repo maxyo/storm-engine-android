@@ -8,14 +8,12 @@
 #include <algorithm>
 #include <cmath>
 
-IDirect3D9 *WINAPI Direct3DCreate9(UINT)
-{
-    return new storm::shim::Direct3D();
-}
-
 namespace storm::shim
 {
-
+Direct3D *CreateDirect3D()
+{
+    return new Direct3D();
+}
 
 // ---------------------------------------------------------------------------
 // Direct3D
@@ -89,7 +87,7 @@ HRESULT Direct3D::GetDeviceCaps(UINT, D3DDEVTYPE, D3DCAPS9 *caps)
 }
 
 HRESULT Direct3D::CreateDevice(UINT, D3DDEVTYPE, HWND window, DWORD, D3DPRESENT_PARAMETERS *params,
-                               IDirect3DDevice9 **device)
+                               Device **device)
 {
     auto *sdl_window = static_cast<SDL_Window *>(window);
     const bool vsync = params->PresentationInterval != D3DPRESENT_INTERVAL_IMMEDIATE;
@@ -326,7 +324,7 @@ HRESULT Device::GetDeviceCaps(D3DCAPS9 *caps)
     return D3D_OK;
 }
 
-HRESULT Device::GetDirect3D(IDirect3D9 **d3d)
+HRESULT Device::GetDirect3D(Direct3D **d3d)
 {
     *d3d = new Direct3D();
     return D3D_OK;
@@ -467,7 +465,7 @@ uint16_t Device::effects_view(bool fresh)
     return id;
 }
 
-HRESULT Device::GetBackBuffer(UINT, UINT, D3DBACKBUFFER_TYPE, IDirect3DSurface9 **surface)
+HRESULT Device::GetBackBuffer(UINT, UINT, D3DBACKBUFFER_TYPE, Surface **surface)
 {
     *surface = back_color;
     back_color->AddRef();
@@ -599,7 +597,7 @@ uint16_t Device::ensure_view()
 HRESULT Device::Clear(DWORD count, const D3DRECT *, DWORD flags, D3DCOLOR color, float z, DWORD stencil)
 {
     if (count != 0)
-        return trap("IDirect3DDevice9::Clear with rectangles is not supported"); // nothing is cleared
+        return trap("Device::Clear with rectangles is not supported"); // nothing is cleared
     if (!Context::instance().ready())
         return D3D_OK;
     Context::instance().begin_frame_if_needed();
@@ -620,7 +618,7 @@ HRESULT Device::Clear(DWORD count, const D3DRECT *, DWORD flags, D3DCOLOR color,
     return D3D_OK;
 }
 
-HRESULT Device::SetRenderTarget(DWORD index, IDirect3DSurface9 *surface)
+HRESULT Device::SetRenderTarget(DWORD index, Surface *surface)
 {
     if (index != 0 || !surface)
         return D3DERR_INVALIDCALL;
@@ -637,7 +635,7 @@ HRESULT Device::SetRenderTarget(DWORD index, IDirect3DSurface9 *surface)
     return D3D_OK;
 }
 
-HRESULT Device::GetRenderTarget(DWORD index, IDirect3DSurface9 **surface)
+HRESULT Device::GetRenderTarget(DWORD index, Surface **surface)
 {
     if (index != 0)
         return D3DERR_NOTFOUND;
@@ -646,7 +644,7 @@ HRESULT Device::GetRenderTarget(DWORD index, IDirect3DSurface9 **surface)
     return D3D_OK;
 }
 
-HRESULT Device::SetDepthStencilSurface(IDirect3DSurface9 *surface)
+HRESULT Device::SetDepthStencilSurface(Surface *surface)
 {
     auto *next = static_cast<Surface *>(surface);
     if (next != ds)
@@ -657,7 +655,7 @@ HRESULT Device::SetDepthStencilSurface(IDirect3DSurface9 *surface)
     return D3D_OK;
 }
 
-HRESULT Device::GetDepthStencilSurface(IDirect3DSurface9 **surface)
+HRESULT Device::GetDepthStencilSurface(Surface **surface)
 {
     *surface = ds;
     if (!ds)
@@ -685,27 +683,27 @@ HRESULT Device::GetViewport(D3DVIEWPORT9 *viewport)
 // ---------------------------------------------------------------------------
 // resources
 HRESULT Device::CreateTexture(UINT width, UINT height, UINT levels, DWORD usage, D3DFORMAT format, D3DPOOL pool,
-                              IDirect3DTexture9 **texture, HANDLE *)
+                              Texture2D **texture, HANDLE *)
 {
     *texture = new Texture2D(make_store(this, TexKind::Tex2D, width, height, 1, levels, usage, format, pool));
     return D3D_OK;
 }
 
 HRESULT Device::CreateVolumeTexture(UINT width, UINT height, UINT depth, UINT levels, DWORD usage, D3DFORMAT format,
-                                    D3DPOOL pool, IDirect3DVolumeTexture9 **texture, HANDLE *)
+                                    D3DPOOL pool, VolumeTexture **texture, HANDLE *)
 {
     *texture = new VolumeTexture(make_store(this, TexKind::Volume, width, height, depth, levels, usage, format, pool));
     return D3D_OK;
 }
 
 HRESULT Device::CreateCubeTexture(UINT edge, UINT levels, DWORD usage, D3DFORMAT format, D3DPOOL pool,
-                                  IDirect3DCubeTexture9 **texture, HANDLE *)
+                                  CubeTexture **texture, HANDLE *)
 {
     *texture = new CubeTexture(make_store(this, TexKind::Cube, edge, edge, 1, levels, usage, format, pool));
     return D3D_OK;
 }
 
-HRESULT Device::CreateVertexBuffer(UINT length, DWORD usage, DWORD fvf, D3DPOOL, IDirect3DVertexBuffer9 **buffer,
+HRESULT Device::CreateVertexBuffer(UINT length, DWORD usage, DWORD fvf, D3DPOOL, VertexBuffer **buffer,
                                    HANDLE *)
 {
     auto *vb = new VertexBuffer();
@@ -718,7 +716,7 @@ HRESULT Device::CreateVertexBuffer(UINT length, DWORD usage, DWORD fvf, D3DPOOL,
     return D3D_OK;
 }
 
-HRESULT Device::CreateIndexBuffer(UINT length, DWORD usage, D3DFORMAT format, D3DPOOL, IDirect3DIndexBuffer9 **buffer,
+HRESULT Device::CreateIndexBuffer(UINT length, DWORD usage, D3DFORMAT format, D3DPOOL, IndexBuffer **buffer,
                                   HANDLE *)
 {
     auto *ib = new IndexBuffer();
@@ -732,7 +730,7 @@ HRESULT Device::CreateIndexBuffer(UINT length, DWORD usage, D3DFORMAT format, D3
 }
 
 HRESULT Device::CreateRenderTarget(UINT width, UINT height, D3DFORMAT format, D3DMULTISAMPLE_TYPE, DWORD, BOOL,
-                                   IDirect3DSurface9 **surface, HANDLE *)
+                                   Surface **surface, HANDLE *)
 {
     *surface = new Surface(
         make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_RENDERTARGET, format, D3DPOOL_DEFAULT), 0, 0);
@@ -740,7 +738,7 @@ HRESULT Device::CreateRenderTarget(UINT width, UINT height, D3DFORMAT format, D3
 }
 
 HRESULT Device::CreateDepthStencilSurface(UINT width, UINT height, D3DFORMAT format, D3DMULTISAMPLE_TYPE, DWORD, BOOL,
-                                          IDirect3DSurface9 **surface, HANDLE *)
+                                          Surface **surface, HANDLE *)
 {
     *surface = new Surface(
         make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, format, D3DPOOL_DEFAULT), 0, 0);
@@ -748,7 +746,7 @@ HRESULT Device::CreateDepthStencilSurface(UINT width, UINT height, D3DFORMAT for
 }
 
 HRESULT Device::CreateOffscreenPlainSurface(UINT width, UINT height, D3DFORMAT format, D3DPOOL pool,
-                                            IDirect3DSurface9 **surface, HANDLE *)
+                                            Surface **surface, HANDLE *)
 {
     auto store = make_store(this, TexKind::Tex2D, width, height, 1, 1, 0, format, pool);
     store->system_memory = true;
@@ -756,13 +754,13 @@ HRESULT Device::CreateOffscreenPlainSurface(UINT width, UINT height, D3DFORMAT f
     return D3D_OK;
 }
 
-HRESULT Device::UpdateSurface(IDirect3DSurface9 *src, const RECT *src_rect, IDirect3DSurface9 *dst,
+HRESULT Device::UpdateSurface(Surface *src, const RECT *src_rect, Surface *dst,
                               const POINT *dst_point)
 {
     auto *from = static_cast<Surface *>(src);
     auto *to = static_cast<Surface *>(dst);
     if (!from || !to || from->store->format != to->store->format || format_info(from->store->format).block_bytes)
-        return trap("IDirect3DDevice9::UpdateSurface(format)");
+        return trap("Device::UpdateSurface(format)");
     const uint32_t bpp = format_info(from->store->format).bytes_per_pixel;
     uint32_t src_pitch = 0, dst_pitch = 0;
     const uint8_t *source = from->store->lock(from->face, from->level, &src_pitch, nullptr, true);
@@ -783,7 +781,7 @@ HRESULT Device::UpdateSurface(IDirect3DSurface9 *src, const RECT *src_rect, IDir
     return D3D_OK;
 }
 
-HRESULT Device::StretchRect(IDirect3DSurface9 *src, const RECT *src_rect, IDirect3DSurface9 *dst, const RECT *dst_rect,
+HRESULT Device::StretchRect(Surface *src, const RECT *src_rect, Surface *dst, const RECT *dst_rect,
                             D3DTEXTUREFILTERTYPE filter)
 {
     auto *from = static_cast<Surface *>(src);
@@ -856,7 +854,7 @@ HRESULT Device::StretchRect(IDirect3DSurface9 *src, const RECT *src_rect, IDirec
     return D3D_OK;
 }
 
-HRESULT Device::GetRenderTargetData(IDirect3DSurface9 *target, IDirect3DSurface9 *dest)
+HRESULT Device::GetRenderTargetData(Surface *target, Surface *dest)
 {
     auto *from = static_cast<Surface *>(target);
     auto *to = static_cast<Surface *>(dest);
@@ -932,7 +930,7 @@ HRESULT Device::SetTransform(D3DTRANSFORMSTATETYPE state, const D3DMATRIX *matri
     else if (state >= D3DTS_TEXTURE0 && state <= D3DTS_TEXTURE7)
         s.texture[state - D3DTS_TEXTURE0] = *matrix;
     else
-        return trap("IDirect3DDevice9::SetTransform(state)");
+        return trap("Device::SetTransform(state)");
     return D3D_OK;
 }
 
@@ -947,7 +945,7 @@ HRESULT Device::GetTransform(D3DTRANSFORMSTATETYPE state, D3DMATRIX *matrix)
     else if (state >= D3DTS_TEXTURE0 && state <= D3DTS_TEXTURE7)
         *matrix = s.texture[state - D3DTS_TEXTURE0];
     else
-        return trap("IDirect3DDevice9::GetTransform(state)");
+        return trap("Device::GetTransform(state)");
     return D3D_OK;
 }
 
@@ -1018,7 +1016,7 @@ HRESULT Device::GetRenderState(D3DRENDERSTATETYPE state, DWORD *value)
     return D3D_OK;
 }
 
-HRESULT Device::GetTexture(DWORD stage, IDirect3DBaseTexture9 **texture)
+HRESULT Device::GetTexture(DWORD stage, BaseTexture **texture)
 {
     if (stage >= kMaxStages)
         return D3DERR_INVALIDCALL;
@@ -1027,7 +1025,7 @@ HRESULT Device::GetTexture(DWORD stage, IDirect3DBaseTexture9 **texture)
         (*texture)->AddRef();
     return D3D_OK;
 }
-HRESULT Device::SetTexture(DWORD stage, IDirect3DBaseTexture9 *texture)
+HRESULT Device::SetTexture(DWORD stage, BaseTexture *texture)
 {
     if (stage == D3DVERTEXTEXTURESAMPLER0)
     {
@@ -1078,7 +1076,7 @@ HRESULT Device::GetScissorRect(RECT *rect)
     return D3D_OK;
 }
 
-HRESULT Device::CreateVertexDeclaration(const D3DVERTEXELEMENT9 *elements, IDirect3DVertexDeclaration9 **decl)
+HRESULT Device::CreateVertexDeclaration(const D3DVERTEXELEMENT9 *elements, VertexDeclaration **decl)
 {
     auto *result = new VertexDeclaration();
     for (; elements->Stream != 0xFF; ++elements)
@@ -1086,12 +1084,12 @@ HRESULT Device::CreateVertexDeclaration(const D3DVERTEXELEMENT9 *elements, IDire
     *decl = result;
     return D3D_OK;
 }
-HRESULT Device::SetVertexDeclaration(IDirect3DVertexDeclaration9 *decl)
+HRESULT Device::SetVertexDeclaration(VertexDeclaration *decl)
 {
     assign_ref(s.decl, static_cast<VertexDeclaration *>(decl));
     return D3D_OK;
 }
-HRESULT Device::GetVertexDeclaration(IDirect3DVertexDeclaration9 **decl)
+HRESULT Device::GetVertexDeclaration(VertexDeclaration **decl)
 {
     *decl = s.decl;
     if (s.decl)
@@ -1111,16 +1109,16 @@ HRESULT Device::GetFVF(DWORD *fvf)
     return D3D_OK;
 }
 
-HRESULT Device::SetStreamSource(UINT stream, IDirect3DVertexBuffer9 *buffer, UINT offset, UINT stride)
+HRESULT Device::SetStreamSource(UINT stream, VertexBuffer *buffer, UINT offset, UINT stride)
 {
     if (stream >= kMaxStreams)
-        return trap("IDirect3DDevice9::SetStreamSource(stream>=4)");
+        return trap("Device::SetStreamSource(stream>=4)");
     assign_ref(s.stream[stream], static_cast<VertexBuffer *>(buffer));
     s.stream_offset[stream] = offset;
     s.stream_stride[stream] = stride;
     return D3D_OK;
 }
-HRESULT Device::GetStreamSource(UINT stream, IDirect3DVertexBuffer9 **buffer, UINT *offset, UINT *stride)
+HRESULT Device::GetStreamSource(UINT stream, VertexBuffer **buffer, UINT *offset, UINT *stride)
 {
     if (stream >= kMaxStreams)
         return D3DERR_INVALIDCALL;
@@ -1133,12 +1131,12 @@ HRESULT Device::GetStreamSource(UINT stream, IDirect3DVertexBuffer9 **buffer, UI
         *stride = s.stream_stride[stream];
     return D3D_OK;
 }
-HRESULT Device::SetIndices(IDirect3DIndexBuffer9 *buffer)
+HRESULT Device::SetIndices(IndexBuffer *buffer)
 {
     assign_ref(s.indices, static_cast<IndexBuffer *>(buffer));
     return D3D_OK;
 }
-HRESULT Device::GetIndices(IDirect3DIndexBuffer9 **buffer)
+HRESULT Device::GetIndices(IndexBuffer **buffer)
 {
     *buffer = s.indices;
     if (s.indices)
@@ -1149,7 +1147,7 @@ HRESULT Device::GetIndices(IDirect3DIndexBuffer9 **buffer)
 HRESULT Device::SetVertexShaderConstantF(UINT start, const float *data, UINT count)
 {
     if (start + count > kVsConstants)
-        return trap("IDirect3DDevice9::SetVertexShaderConstantF(range)");
+        return trap("Device::SetVertexShaderConstantF(range)");
     memcpy(s.vs_const[start], data, sizeof(float) * 4 * count);
     return D3D_OK;
 }
@@ -1163,7 +1161,7 @@ HRESULT Device::GetVertexShaderConstantF(UINT start, float *data, UINT count)
 HRESULT Device::SetPixelShaderConstantF(UINT start, const float *data, UINT count)
 {
     if (start + count > kPsConstants)
-        return trap("IDirect3DDevice9::SetPixelShaderConstantF(range)");
+        return trap("Device::SetPixelShaderConstantF(range)");
     memcpy(s.ps_const[start], data, sizeof(float) * 4 * count);
     return D3D_OK;
 }
@@ -1229,7 +1227,7 @@ HRESULT StateBlock::Apply()
         device->view_dirty = true;
     return D3D_OK;
 }
-HRESULT Device::CreateStateBlock(D3DSTATEBLOCKTYPE, IDirect3DStateBlock9 **block)
+HRESULT Device::CreateStateBlock(D3DSTATEBLOCKTYPE, StateBlock **block)
 {
     *block = new StateBlock(this);
     return D3D_OK;

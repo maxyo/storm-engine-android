@@ -8,7 +8,7 @@
 #include "vma.hpp"
 #include "platform/platform.hpp"
 
-#include "d3d9types.h"
+#include "shim/device.hpp"
 #include "storm/render/perf_stats.hpp"
 #include "script_libriary.h"
 
@@ -33,7 +33,7 @@ struct texpaths_t
 
 struct STEXTURE
 {
-    IDirect3DBaseTexture9 *d3dtex;
+    storm::shim::BaseTexture *d3dtex;
     char *name;
     uint32_t hash;
     int32_t ref;
@@ -49,7 +49,7 @@ struct VERTEX_BUFFER
     uint32_t dwUsage;
     int32_t type;
     int32_t size;
-    IDirect3DVertexBuffer9 *buff;
+    storm::shim::VertexBuffer *buff;
 };
 
 struct INDEX_BUFFER
@@ -57,7 +57,7 @@ struct INDEX_BUFFER
     uint32_t dwNumLocks;
     uint32_t dwUsage;
     int32_t size;
-    IDirect3DIndexBuffer9 *buff;
+    storm::shim::IndexBuffer *buff;
 };
 
 struct FONTEntity
@@ -117,7 +117,7 @@ class DX9RENDER : public VDX9RENDER
         return d3d9;
     };
 
-    IDirect3DDevice9 *GetD3DDevice() const
+    storm::shim::Device *GetD3DDevice() const
     {
         return d3d9;
     }
@@ -264,38 +264,38 @@ class DX9RENDER : public VDX9RENDER
     // D3D
     void SetStreamSource(UINT StreamNumber, int32_t vertexBuffer, UINT Stride) override;
     HRESULT DrawPrimitive(D3DPRIMITIVETYPE PrimitiveType, UINT StartVertex, UINT PrimitiveCount) override;
-    HRESULT Release(IUnknown *pSurface);
+    HRESULT Release(storm::shim::Object *pSurface);
 
     // Vertex/Index Buffers Section
     HRESULT CreateVertexBuffer(UINT Length, uint32_t Usage, uint32_t fvf, D3DPOOL Pool,
-                               IDirect3DVertexBuffer9 **ppVertexBuffer);
+                               storm::shim::VertexBuffer **ppVertexBuffer);
 
     HRESULT CreateTexture(UINT Width, UINT Height, UINT Levels, uint32_t Usage, D3DFORMAT Format, D3DPOOL Pool,
-                          IDirect3DTexture9 **ppTexture);
+                          storm::shim::Texture2D **ppTexture);
     HRESULT CreateCubeTexture(UINT EdgeLength, UINT Levels, uint32_t Usage, D3DFORMAT Format, D3DPOOL Pool,
-                              IDirect3DCubeTexture9 **ppCubeTexture);
+                              storm::shim::CubeTexture **ppCubeTexture);
     HRESULT CreateDepthStencilSurface(UINT Width, UINT Height, D3DFORMAT Format, D3DMULTISAMPLE_TYPE MultiSample,
-                                      IDirect3DSurface9 **ppSurface);
-    HRESULT SetTexture(uint32_t Stage, IDirect3DBaseTexture9 *pTexture);
-    HRESULT GetRenderTargetData(IDirect3DSurface9 *pRenderTarget, IDirect3DSurface9 *pDestSurface);
+                                      storm::shim::Surface **ppSurface);
+    HRESULT SetTexture(uint32_t Stage, storm::shim::BaseTexture *pTexture);
+    HRESULT GetRenderTargetData(storm::shim::Surface *pRenderTarget, storm::shim::Surface *pDestSurface);
 
     // D3D Pixel/Vertex Shaders Section
     storm::render::VertexDeclarationId CreateVertexDeclaration(const D3DVERTEXELEMENT9 *pVertexElements) override;
     void SetVertexDeclaration(storm::render::VertexDeclarationId declaration) override;
-    HRESULT CreatePixelShader(const uint32_t *pFunction, IDirect3DPixelShader9 **ppShader);
-    HRESULT CreateVertexShader(const uint32_t *pFunction, IDirect3DVertexShader9 **ppShader);
-    HRESULT SetVertexShader(IDirect3DVertexShader9 *pShader);
-    HRESULT SetPixelShader(IDirect3DPixelShader9 *pShader);
+    HRESULT CreatePixelShader(const uint32_t *pFunction, storm::shim::PixelShader **ppShader);
+    HRESULT CreateVertexShader(const uint32_t *pFunction, storm::shim::VertexShader **ppShader);
+    HRESULT SetVertexShader(storm::shim::VertexShader *pShader);
+    HRESULT SetPixelShader(storm::shim::PixelShader *pShader);
     /*virtual HRESULT SetFVFConstant(DWORD Register, const void* pConstantData, DWORD  ConstantCount );*/
     HRESULT SetVertexShaderConstantF(UINT StartRegister, const float *pConstantData, UINT Vector4iCount) override;
     HRESULT SetPixelShaderConstantF(UINT StartRegister, const float *pConstantData, UINT Vector4iCount) override;
     HRESULT SetFVF(uint32_t handle) override;
-    HRESULT GetVertexShader(IDirect3DVertexShader9 **ppShader);
-    HRESULT GetPixelShader(IDirect3DPixelShader9 **ppShader);
+    HRESULT GetVertexShader(storm::shim::VertexShader **ppShader);
+    HRESULT GetPixelShader(storm::shim::PixelShader **ppShader);
 
     // D3D Render Target/Begin/End/Clear
-    HRESULT GetRenderTarget(IDirect3DSurface9 **ppRenderTarget);
-    HRESULT SetRenderTarget(IDirect3DSurface9 *pRenderTarget, IDirect3DSurface9 *pNewZStencil);
+    HRESULT GetRenderTarget(storm::shim::Surface **ppRenderTarget);
+    HRESULT SetRenderTarget(storm::shim::Surface *pRenderTarget, storm::shim::Surface *pNewZStencil);
     HRESULT Clear(uint32_t Count, const D3DRECT *pRects, uint32_t Flags, D3DCOLOR Color, float Z,
                   uint32_t Stencil) override;
     HRESULT BeginScene() override;
@@ -304,9 +304,9 @@ class DX9RENDER : public VDX9RENDER
     HRESULT ImageBlt(const char *pName, RECT *pDstRect, RECT *pSrcRect) override;
     HRESULT ImageBlt(int32_t nTextureId, RECT *pDstRect, RECT *pSrcRect) override;
 
-    bool LoadTextureSurface(std::fstream &fileS, IDirect3DSurface9 *suface, uint32_t mipSize, uint32_t width,
+    bool LoadTextureSurface(std::fstream &fileS, storm::shim::Surface *suface, uint32_t mipSize, uint32_t width,
                             uint32_t height, bool isSwizzled);
-    uint32_t LoadCubmapSide(std::fstream &fileS, IDirect3DCubeTexture9 *tex, D3DCUBEMAP_FACES face, uint32_t numMips,
+    uint32_t LoadCubmapSide(std::fstream &fileS, storm::shim::CubeTexture *tex, D3DCUBEMAP_FACES face, uint32_t numMips,
                             uint32_t mipSize, uint32_t size, bool isSwizzled);
 
     // core interface
@@ -322,7 +322,7 @@ class DX9RENDER : public VDX9RENDER
     bool CreateState(ENTITY_STATE_GEN *state_gen) override;
 
     void ProcessScriptPosAng(const glm::vec3 &vPos, const glm::vec3 &vAng);
-    void FindPlanes(IDirect3DDevice9 *d3dDevice);
+    void FindPlanes(storm::shim::Device *d3dDevice);
 
     void SetCommonStates();
     void SetProgressImage(const char *image) override;
@@ -333,7 +333,7 @@ class DX9RENDER : public VDX9RENDER
     void EndProgressView() override;
 
     static const uint32_t rectsVBuffer_SizeInRects;
-    IDirect3DVertexBuffer9 *rectsVBuffer;
+    storm::shim::VertexBuffer *rectsVBuffer;
 
     char *progressImage;
     int32_t progressImageSize;
@@ -397,8 +397,8 @@ class DX9RENDER : public VDX9RENDER
 
     bool PushRenderTarget() override;
     bool PopRenderTarget() override;
-    bool SetRenderTarget(IDirect3DCubeTexture9 *pCubeTex, uint32_t dwFaceType, uint32_t dwLevel,
-                         IDirect3DSurface9 *pNewZStencil);
+    bool SetRenderTarget(storm::shim::CubeTexture *pCubeTex, uint32_t dwFaceType, uint32_t dwLevel,
+                         storm::shim::Surface *pNewZStencil);
     void SetView(const glm::mat4 &mView) override;
     void SetWorld(const glm::mat4 &mView) override;
     void SetProjection(const glm::mat4 &mView) override;
@@ -410,7 +410,7 @@ class DX9RENDER : public VDX9RENDER
     void MakePostProcess() override;
     void SetGLOWParams(float _fBlurBrushSize, int32_t _GlowIntensity, int32_t _GlowPasses) override;
 
-    IDirect3DBaseTexture9 *GetTextureFromID(int32_t nTextureID);
+    storm::shim::BaseTexture *GetTextureFromID(int32_t nTextureID);
 
   private:
     std::unique_ptr<storm::GamePictures> gamePictures_;
@@ -419,15 +419,15 @@ class DX9RENDER : public VDX9RENDER
     struct VertexDeclaration
     {
         std::vector<D3DVERTEXELEMENT9> elements; // with D3DDECL_END
-        IDirect3DVertexDeclaration9 *declaration;
+        storm::shim::VertexDeclaration *declaration;
     };
     std::vector<VertexDeclaration> vertexDeclarations_; // indexed by VertexDeclarationId
-    std::vector<IDirect3DSurface9 *> depthSurfaces_;     // indexed by DepthSurfaceId, null when released
+    std::vector<storm::shim::Surface *> depthSurfaces_;     // indexed by DepthSurfaceId, null when released
 
     // Puts a code-made texture into a free slot of Textures; -1 (logged, texture released) when full.
-    int32_t AddCodeTexture(IDirect3DBaseTexture9 *texture, uint32_t size, bool cubeMap);
+    int32_t AddCodeTexture(storm::shim::BaseTexture *texture, uint32_t size, bool cubeMap);
     // The texture of a valid id, or null (logged) for an invalid, released or file-less id.
-    IDirect3DBaseTexture9 *CodeTexture(int32_t texid, const char *operation);
+    storm::shim::BaseTexture *CodeTexture(int32_t texid, const char *operation);
 
   public:
     bool keepTexturePixels(int32_t texture) override;
@@ -449,13 +449,13 @@ private:
 
     struct RenderTarget
     {
-        IDirect3DSurface9 *pRenderTarget;
-        IDirect3DSurface9 *pDepthSurface;
+        storm::shim::Surface *pRenderTarget;
+        storm::shim::Surface *pDepthSurface;
         D3DVIEWPORT9 ViewPort;
     };
 
-    IDirect3DDevice9 *d3d9;
-    IDirect3D9 *d3d;
+    storm::shim::Device *d3d9;
+    storm::shim::Direct3D *d3d;
     HWND hwnd;
 
     glm::vec3 Pos, Ang;
@@ -503,7 +503,7 @@ private:
     VERTEX_BUFFER VertexBuffers[MAX_BUFFERS]{};
 
     bool MakeAvi;
-    IDirect3DSurface9 *ImageBuffer;
+    storm::shim::Surface *ImageBuffer;
 
     //-------- post process
 
@@ -530,24 +530,24 @@ private:
 
     float fSmallWidth;
     float fSmallHeight;
-    IDirect3DTexture9 *pPostProcessTexture;
-    IDirect3DSurface9 *pPostProcessSurface;
+    storm::shim::Texture2D *pPostProcessTexture;
+    storm::shim::Surface *pPostProcessSurface;
 
-    IDirect3DTexture9 *pSmallPostProcessTexture;
-    IDirect3DSurface9 *pSmallPostProcessSurface;
+    storm::shim::Texture2D *pSmallPostProcessTexture;
+    storm::shim::Surface *pSmallPostProcessSurface;
 
-    IDirect3DTexture9 *pSmallPostProcessTexture2;
-    IDirect3DSurface9 *pSmallPostProcessSurface2;
+    storm::shim::Texture2D *pSmallPostProcessTexture2;
+    storm::shim::Surface *pSmallPostProcessSurface2;
 
-    IDirect3DSurface9 *pOriginalScreenSurface;
-    IDirect3DSurface9 *pOriginalDepthSurface;
+    storm::shim::Surface *pOriginalScreenSurface;
+    storm::shim::Surface *pOriginalDepthSurface;
 
     D3DVIEWPORT9 OriginalViewPort;
 
     void CreateRenderQuad(float fWidth, float fHeight, float fSrcWidth, float fSrcHeight, float fMulU = 1.0f,
                           float fMulV = 1.0f);
 
-    void ClearPostProcessSurface(IDirect3DSurface9 *pSurf);
+    void ClearPostProcessSurface(storm::shim::Surface *pSurf);
     void BlurGlowTexture();
     void CopyGlowToScreen();
     void CopyPostProcessToScreen();
@@ -579,10 +579,10 @@ private:
     bool bWindow;
     bool bBackBufferCanLock;
 
-    IDirect3DVertexBuffer9 *aniVBuffer;
+    storm::shim::VertexBuffer *aniVBuffer;
     int32_t numAniVerteces;
 
-    IDirect3DVertexBuffer9 *pDropConveyorVBuffer;
+    storm::shim::VertexBuffer *pDropConveyorVBuffer;
 
     uint32_t dwNumDrawPrimitive, dwNumLV, dwNumLI;
     float fG, fB, fC;

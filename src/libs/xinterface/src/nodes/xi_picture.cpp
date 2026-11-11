@@ -328,7 +328,7 @@ uint32_t CXI_PICTURE::MessageProc(int32_t msgcode, MESSAGE &message)
     }
     break;
 
-    case 7: // set new picture by pointer to IDirect3DTexture9
+    case 7: // set new picture by renderer texture id
     {
         int32_t pTex = -1;
         if (message.GetCurrentFormatType() == 'p') {

@@ -134,7 +134,7 @@ class Frames
 
   private:
     Device &d_;
-    IDirect3DSurface9 *readback_ = nullptr, *back_ = nullptr;
+    storm::shim::Surface *readback_ = nullptr, *back_ = nullptr;
 };
 
 // Mean of the colour channels over the picture outside the interface rectangle (the scene), 0..255.

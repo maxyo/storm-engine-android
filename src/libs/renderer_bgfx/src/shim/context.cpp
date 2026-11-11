@@ -79,7 +79,7 @@ FrameOwner *FrameOwner::Get()
     return context.initialised() ? &context : nullptr;
 }
 
-uint16_t BgfxTextureOf(IDirect3DBaseTexture9 *texture, uint16_t *width, uint16_t *height)
+uint16_t BgfxTextureOf(shim::BaseTexture *texture, uint16_t *width, uint16_t *height)
 {
     shim::TexStore *store = shim::store_of(texture);
     if (!store || !shim::Context::instance().initialised())
@@ -93,7 +93,7 @@ uint16_t BgfxTextureOf(IDirect3DBaseTexture9 *texture, uint16_t *width, uint16_t
     return store->handle.idx;
 }
 
-void MarkTextureImmutable(IDirect3DBaseTexture9 *texture)
+void MarkTextureImmutable(shim::BaseTexture *texture)
 {
     shim::TexStore *store = shim::store_of(texture);
     if (!store)

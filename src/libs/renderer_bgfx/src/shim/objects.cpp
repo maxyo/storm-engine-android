@@ -734,7 +734,7 @@ void TexStore::sync()
         }
 }
 
-TexStore *store_of(IDirect3DBaseTexture9 *texture)
+TexStore *store_of(BaseTexture *texture)
 {
     if (!texture)
         return nullptr;
@@ -803,12 +803,6 @@ HRESULT Surface::UnlockRect()
     store->unlock(face, level);
     return D3D_OK;
 }
-HRESULT Surface::GetDevice(IDirect3DDevice9 **device)
-{
-    *device = store->device;
-    store->device->AddRef();
-    return D3D_OK;
-}
 
 HRESULT Texture2D::GetLevelDesc(UINT level, D3DSURFACE_DESC *desc)
 {
@@ -817,7 +811,7 @@ HRESULT Texture2D::GetLevelDesc(UINT level, D3DSURFACE_DESC *desc)
     fill_desc(*store, level, desc);
     return D3D_OK;
 }
-HRESULT Texture2D::GetSurfaceLevel(UINT level, IDirect3DSurface9 **surface)
+HRESULT Texture2D::GetSurfaceLevel(UINT level, Surface **surface)
 {
     if (level >= store->levels)
         return D3DERR_INVALIDCALL;
@@ -833,12 +827,6 @@ HRESULT Texture2D::UnlockRect(UINT level)
     store->unlock(0, level);
     return D3D_OK;
 }
-HRESULT Texture2D::GetDevice(IDirect3DDevice9 **device)
-{
-    *device = store->device;
-    store->device->AddRef();
-    return D3D_OK;
-}
 
 HRESULT CubeTexture::GetLevelDesc(UINT level, D3DSURFACE_DESC *desc)
 {
@@ -847,7 +835,7 @@ HRESULT CubeTexture::GetLevelDesc(UINT level, D3DSURFACE_DESC *desc)
     fill_desc(*store, level, desc);
     return D3D_OK;
 }
-HRESULT CubeTexture::GetCubeMapSurface(D3DCUBEMAP_FACES face, UINT level, IDirect3DSurface9 **surface)
+HRESULT CubeTexture::GetCubeMapSurface(D3DCUBEMAP_FACES face, UINT level, Surface **surface)
 {
     if (level >= store->levels || static_cast<uint32_t>(face) >= 6)
         return D3DERR_INVALIDCALL;
@@ -982,41 +970,6 @@ HRESULT IndexBuffer::GetDesc(D3DINDEXBUFFER_DESC *desc)
     desc->Pool = D3DPOOL_MANAGED;
     desc->Size = static_cast<UINT>(shadow.size());
     return D3D_OK;
-}
-
-HRESULT VertexDeclaration::GetDeclaration(D3DVERTEXELEMENT9 *elements_out, UINT *count)
-{
-    if (count)
-        *count = static_cast<UINT>(elements.size()) + 1;
-    if (elements_out)
-    {
-        std::copy(elements.begin(), elements.end(), elements_out);
-        elements_out[elements.size()] = D3DDECL_END();
-    }
-    return D3D_OK;
-}
-
-namespace
-{
-template <class T> HRESULT get_function(const std::vector<DWORD> &bytecode, void *data, UINT *size)
-{
-    const UINT bytes = static_cast<UINT>(bytecode.size() * sizeof(DWORD));
-    if (!data)
-    {
-        *size = bytes;
-        return D3D_OK;
-    }
-    memcpy(data, bytecode.data(), std::min(bytes, *size));
-    return D3D_OK;
-}
-} // namespace
-HRESULT VertexShader::GetFunction(void *data, UINT *size)
-{
-    return get_function<VertexShader>(bytecode, data, size);
-}
-HRESULT PixelShader::GetFunction(void *data, UINT *size)
-{
-    return get_function<PixelShader>(bytecode, data, size);
 }
 
 } // namespace storm::shim

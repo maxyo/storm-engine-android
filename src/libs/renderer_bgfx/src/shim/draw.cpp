@@ -684,7 +684,7 @@ std::string_view shader_key(const DWORD *function, size_t *words)
 }
 } // namespace
 
-HRESULT Device::CreateVertexShader(const DWORD *function, IDirect3DVertexShader9 **shader)
+HRESULT Device::CreateVertexShader(const DWORD *function, VertexShader **shader)
 {
     auto *result = new VertexShader();
     size_t words = 0;
@@ -697,7 +697,7 @@ HRESULT Device::CreateVertexShader(const DWORD *function, IDirect3DVertexShader9
     return D3D_OK;
 }
 
-HRESULT Device::CreatePixelShader(const DWORD *function, IDirect3DPixelShader9 **shader)
+HRESULT Device::CreatePixelShader(const DWORD *function, PixelShader **shader)
 {
     auto *result = new PixelShader();
     size_t words = 0;
@@ -710,24 +710,24 @@ HRESULT Device::CreatePixelShader(const DWORD *function, IDirect3DPixelShader9 *
     return D3D_OK;
 }
 
-HRESULT Device::SetVertexShader(IDirect3DVertexShader9 *shader)
+HRESULT Device::SetVertexShader(VertexShader *shader)
 {
     assign_ref(s.vs, static_cast<VertexShader *>(shader));
     return D3D_OK;
 }
-HRESULT Device::GetVertexShader(IDirect3DVertexShader9 **shader)
+HRESULT Device::GetVertexShader(VertexShader **shader)
 {
     *shader = s.vs;
     if (s.vs)
         s.vs->AddRef();
     return D3D_OK;
 }
-HRESULT Device::SetPixelShader(IDirect3DPixelShader9 *shader)
+HRESULT Device::SetPixelShader(PixelShader *shader)
 {
     assign_ref(s.ps, static_cast<PixelShader *>(shader));
     return D3D_OK;
 }
-HRESULT Device::GetPixelShader(IDirect3DPixelShader9 **shader)
+HRESULT Device::GetPixelShader(PixelShader **shader)
 {
     *shader = s.ps;
     if (s.ps)

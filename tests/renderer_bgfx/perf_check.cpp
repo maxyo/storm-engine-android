@@ -156,9 +156,9 @@ class Scene
     UINT draws_per_frame() const { return 40 + 10 + 2 + 3 + 6 + 36; }
 
   private:
-    IDirect3DTexture9 *make_texture(UINT size)
+    storm::shim::Texture2D *make_texture(UINT size)
     {
-        IDirect3DTexture9 *texture = nullptr;
+        storm::shim::Texture2D *texture = nullptr;
         check(d_.CreateTexture(size, size, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr), "CreateTexture");
         D3DLOCKED_RECT rect;
         check(texture->LockRect(0, &rect, nullptr, 0), "LockRect");
@@ -168,9 +168,9 @@ class Scene
         return texture;
     }
 
-    IDirect3DVertexBuffer9 *make_vb(const std::vector<MeshVertex> &vertices, DWORD usage)
+    storm::shim::VertexBuffer *make_vb(const std::vector<MeshVertex> &vertices, DWORD usage)
     {
-        IDirect3DVertexBuffer9 *vb = nullptr;
+        storm::shim::VertexBuffer *vb = nullptr;
         const UINT bytes = static_cast<UINT>(vertices.size() * sizeof(MeshVertex));
         check(d_.CreateVertexBuffer(bytes, usage, kMeshFvf, D3DPOOL_MANAGED, &vb, nullptr), "CreateVertexBuffer");
         void *data = nullptr;
@@ -357,12 +357,12 @@ class Scene
     }
 
     Device &d_;
-    IDirect3DTexture9 *textures_[4] = {};
-    IDirect3DTexture9 *target_ = nullptr;
-    IDirect3DSurface9 *target_surface_ = nullptr, *target_depth_ = nullptr;
-    IDirect3DSurface9 *back_surface_ = nullptr, *back_depth_ = nullptr;
-    IDirect3DVertexBuffer9 *model_vb_ = nullptr, *skinned_vb_ = nullptr, *rewritten_vb_ = nullptr;
-    IDirect3DIndexBuffer9 *ib_ = nullptr;
+    storm::shim::Texture2D *textures_[4] = {};
+    storm::shim::Texture2D *target_ = nullptr;
+    storm::shim::Surface *target_surface_ = nullptr, *target_depth_ = nullptr;
+    storm::shim::Surface *back_surface_ = nullptr, *back_depth_ = nullptr;
+    storm::shim::VertexBuffer *model_vb_ = nullptr, *skinned_vb_ = nullptr, *rewritten_vb_ = nullptr;
+    storm::shim::IndexBuffer *ib_ = nullptr;
     std::vector<MeshVertex> source_;
     UINT mesh_vertices_ = 0, mesh_triangles_ = 0;
     uint32_t sampled_ = 0;

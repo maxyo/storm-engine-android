@@ -678,7 +678,7 @@ bool DX9RENDER::Init()
 
         gamePictures_ = std::make_unique<storm::GamePictures>(*this);
         storm::render::SetGamePictureProvider(gamePictures_.get());
-        storm::render::SetEffectsTextureResolver([this](int32_t texture) -> IDirect3DBaseTexture9 * {
+        storm::render::SetEffectsTextureResolver([this](int32_t texture) -> storm::shim::BaseTexture * {
             return texture >= 0 && texture < MAX_STEXTURES && Textures[texture].ref > 0 ? Textures[texture].d3dtex
                                                                                        : nullptr;
         });
@@ -833,7 +833,7 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
 
     hwnd = _hwnd;
     core.Trace("Initializing DirectX 9");
-    d3d = Direct3DCreate9(D3D_SDK_VERSION);
+    d3d = storm::shim::CreateDirect3D();
     if (d3d == nullptr)
     {
         // MessageBox(hwnd, "Direct3DCreate9 error", "InitDevice::Direct3DCreate9", MB_OK);
@@ -1294,7 +1294,7 @@ void DX9RENDER::CopyPostProcessToScreen()
     }
 }
 
-void DX9RENDER::ClearPostProcessSurface(IDirect3DSurface9 *pSurf)
+void DX9RENDER::ClearPostProcessSurface(storm::shim::Surface *pSurf)
 {
     HRESULT hr = SetRenderTarget(pSurf, nullptr);
     hr = BeginScene();
@@ -1325,7 +1325,7 @@ void DX9RENDER::MakePostProcess()
     if (!bNeedCopyToScreen)
         return;
 
-    IDirect3DStateBlock9 *pStateBlock = nullptr;
+    storm::shim::StateBlock *pStateBlock = nullptr;
     d3d9->CreateStateBlock(D3DSBT_ALL, &pStateBlock);
     pStateBlock->Capture();
 
@@ -1576,7 +1576,7 @@ int32_t DX9RENDER::TextureCreate(const char *fname)
     return -1;
 }
 
-int32_t DX9RENDER::AddCodeTexture(IDirect3DBaseTexture9 *texture, uint32_t size, bool cubeMap)
+int32_t DX9RENDER::AddCodeTexture(storm::shim::BaseTexture *texture, uint32_t size, bool cubeMap)
 {
     const auto slot = std::find_if(std::begin(Textures), std::end(Textures),
                                    [](const STEXTURE &entry) { return entry.ref == 0; });
@@ -1595,7 +1595,7 @@ int32_t DX9RENDER::AddCodeTexture(IDirect3DBaseTexture9 *texture, uint32_t size,
     return static_cast<int32_t>(slot - std::begin(Textures));
 }
 
-IDirect3DBaseTexture9 *DX9RENDER::CodeTexture(int32_t texid, const char *operation)
+storm::shim::BaseTexture *DX9RENDER::CodeTexture(int32_t texid, const char *operation)
 {
     if (texid < 0 || texid >= MAX_STEXTURES || Textures[texid].ref <= 0 || !Textures[texid].d3dtex)
     {
@@ -1607,7 +1607,7 @@ IDirect3DBaseTexture9 *DX9RENDER::CodeTexture(int32_t texid, const char *operati
 
 int32_t DX9RENDER::TextureCreate(UINT width, UINT height, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool)
 {
-    IDirect3DTexture9 *texture = nullptr;
+    storm::shim::Texture2D *texture = nullptr;
     if (CHECKD3DERR(CreateTexture(width, height, levels, usage, format, pool, &texture)))
     {
         spdlog::error("Renderer: cannot create a {}x{} texture (format {}, usage {:#x})", width, height,
@@ -1619,7 +1619,7 @@ int32_t DX9RENDER::TextureCreate(UINT width, UINT height, UINT levels, uint32_t 
 
 int32_t DX9RENDER::CubeTextureCreate(UINT edgeLength, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool)
 {
-    IDirect3DCubeTexture9 *texture = nullptr;
+    storm::shim::CubeTexture *texture = nullptr;
     if (CHECKD3DERR(CreateCubeTexture(edgeLength, levels, usage, format, pool, &texture)))
     {
         spdlog::error("Renderer: cannot create a {} cube texture (format {}, usage {:#x})", edgeLength,
@@ -1632,7 +1632,7 @@ int32_t DX9RENDER::CubeTextureCreate(UINT edgeLength, UINT levels, uint32_t usag
 int32_t DX9RENDER::VolumeTextureCreate(UINT width, UINT height, UINT depth, UINT levels, uint32_t usage,
                                        D3DFORMAT format, D3DPOOL pool)
 {
-    IDirect3DVolumeTexture9 *texture = nullptr;
+    storm::shim::VolumeTexture *texture = nullptr;
     if (CHECKD3DERR(d3d9->CreateVolumeTexture(width, height, depth, levels, usage, format, pool, &texture, nullptr)))
     {
         spdlog::error("Renderer: cannot create a {}x{}x{} volume texture (format {})", width, height, depth,
@@ -1648,7 +1648,7 @@ bool DX9RENDER::TextureLockBox(int32_t texid, uint32_t level, D3DLOCKED_BOX &loc
     if (!texture)
         return false;
     if (texture->GetType() != D3DRTYPE_VOLUMETEXTURE ||
-        CHECKD3DERR(static_cast<IDirect3DVolumeTexture9 *>(texture)->LockBox(level, &locked, nullptr, flags)) ||
+        CHECKD3DERR(static_cast<storm::shim::VolumeTexture *>(texture)->LockBox(level, &locked, nullptr, flags)) ||
         !locked.pBits)
     {
         spdlog::error("Renderer: cannot lock level {} of volume texture {}", level, texid);
@@ -1661,7 +1661,7 @@ void DX9RENDER::TextureUnlockBox(int32_t texid, uint32_t level)
 {
     auto *texture = CodeTexture(texid, "TextureUnlockBox");
     if (texture && texture->GetType() == D3DRTYPE_VOLUMETEXTURE)
-        CHECKD3DERR(static_cast<IDirect3DVolumeTexture9 *>(texture)->UnlockBox(level));
+        CHECKD3DERR(static_cast<storm::shim::VolumeTexture *>(texture)->UnlockBox(level));
 }
 
 bool DX9RENDER::TextureLock(int32_t texid, uint32_t level, D3DLOCKED_RECT &locked, uint32_t flags, uint32_t cubeFace)
@@ -1676,9 +1676,9 @@ bool DX9RENDER::TextureLock(int32_t texid, uint32_t level, D3DLOCKED_RECT &locke
         return false;
     const auto result =
         Textures[texid].isCubeMap
-            ? static_cast<IDirect3DCubeTexture9 *>(texture)->LockRect(static_cast<D3DCUBEMAP_FACES>(cubeFace), level,
+            ? static_cast<storm::shim::CubeTexture *>(texture)->LockRect(static_cast<D3DCUBEMAP_FACES>(cubeFace), level,
                                                                        &locked, nullptr, flags)
-            : static_cast<IDirect3DTexture9 *>(texture)->LockRect(level, &locked, nullptr, flags);
+            : static_cast<storm::shim::Texture2D *>(texture)->LockRect(level, &locked, nullptr, flags);
     if (CHECKD3DERR(result) || !locked.pBits)
     {
         spdlog::error("Renderer: cannot lock level {} of texture {}", level, texid);
@@ -1698,10 +1698,10 @@ void DX9RENDER::TextureUnlock(int32_t texid, uint32_t level, uint32_t cubeFace)
     if (!texture)
         return;
     if (Textures[texid].isCubeMap)
-        CHECKD3DERR(static_cast<IDirect3DCubeTexture9 *>(texture)->UnlockRect(static_cast<D3DCUBEMAP_FACES>(cubeFace),
+        CHECKD3DERR(static_cast<storm::shim::CubeTexture *>(texture)->UnlockRect(static_cast<D3DCUBEMAP_FACES>(cubeFace),
                                                                              level));
     else
-        CHECKD3DERR(static_cast<IDirect3DTexture9 *>(texture)->UnlockRect(level));
+        CHECKD3DERR(static_cast<storm::shim::Texture2D *>(texture)->UnlockRect(level));
 }
 
 bool DX9RENDER::TextureLevelDesc(int32_t texid, uint32_t level, D3DSURFACE_DESC &desc)
@@ -1715,14 +1715,14 @@ bool DX9RENDER::TextureLevelDesc(int32_t texid, uint32_t level, D3DSURFACE_DESC 
     if (!texture)
         return false;
     const auto result = Textures[texid].isCubeMap
-                            ? static_cast<IDirect3DCubeTexture9 *>(texture)->GetLevelDesc(level, &desc)
-                            : static_cast<IDirect3DTexture9 *>(texture)->GetLevelDesc(level, &desc);
+                            ? static_cast<storm::shim::CubeTexture *>(texture)->GetLevelDesc(level, &desc)
+                            : static_cast<storm::shim::Texture2D *>(texture)->GetLevelDesc(level, &desc);
     return !CHECKD3DERR(result);
 }
 
 storm::render::DepthSurfaceId DX9RENDER::DepthSurfaceCreate(UINT width, UINT height, D3DFORMAT format)
 {
-    IDirect3DSurface9 *surface = nullptr;
+    storm::shim::Surface *surface = nullptr;
     if (CHECKD3DERR(CreateDepthStencilSurface(width, height, format, D3DMULTISAMPLE_NONE, &surface)))
     {
         spdlog::error("Renderer: cannot create a {}x{} depth surface (format {})", width, height,
@@ -1762,7 +1762,7 @@ bool DX9RENDER::SetRenderTarget(int32_t texid, uint32_t level, uint32_t cubeFace
     }
     if (!texture)
         return false;
-    IDirect3DSurface9 *depthSurface = nullptr;
+    storm::shim::Surface *depthSurface = nullptr;
     if (depth)
     {
         if (static_cast<size_t>(depth.value) >= depthSurfaces_.size() || !depthSurfaces_[depth.value])
@@ -1772,12 +1772,12 @@ bool DX9RENDER::SetRenderTarget(int32_t texid, uint32_t level, uint32_t cubeFace
         }
         depthSurface = depthSurfaces_[depth.value];
     }
-    IDirect3DSurface9 *surface = nullptr;
+    storm::shim::Surface *surface = nullptr;
     const auto result =
         Textures[texid].isCubeMap
-            ? static_cast<IDirect3DCubeTexture9 *>(texture)->GetCubeMapSurface(static_cast<D3DCUBEMAP_FACES>(cubeFace),
+            ? static_cast<storm::shim::CubeTexture *>(texture)->GetCubeMapSurface(static_cast<D3DCUBEMAP_FACES>(cubeFace),
                                                                                level, &surface)
-            : static_cast<IDirect3DTexture9 *>(texture)->GetSurfaceLevel(level, &surface);
+            : static_cast<storm::shim::Texture2D *>(texture)->GetSurfaceLevel(level, &surface);
     if (CHECKD3DERR(result))
         return false;
     const bool ok = !CHECKD3DERR(SetRenderTarget(surface, depthSurface));
@@ -1893,7 +1893,7 @@ bool DX9RENDER::TextureLoad(int32_t t)
             fio->_SetFilePointer(fileS, seekposition, std::ios::cur);
         }
         // create the texture
-        IDirect3DTexture9 *tex = nullptr;
+        storm::shim::Texture2D *tex = nullptr;
         if (CHECKD3DERR(d3d9->CreateTexture(head.width, head.height, head.nmips, 0, d3dFormat, D3DPOOL_MANAGED, &tex,
                                             NULL)) == true ||
             !tex)
@@ -1916,7 +1916,7 @@ bool DX9RENDER::TextureLoad(int32_t t)
             Textures[t].dwSize += head.mip_size;
             // Getting the mip surface
             bool isError = false;
-            IDirect3DSurface9 *surface = nullptr;
+            storm::shim::Surface *surface = nullptr;
             if (CHECKD3DERR(tex->GetSurfaceLevel(m, &surface)) == true || !surface)
             {
                 isError = true;
@@ -1988,7 +1988,7 @@ bool DX9RENDER::TextureLoad(int32_t t)
             head.nmips = 1;
         }
         // create the texture
-        IDirect3DCubeTexture9 *tex = nullptr;
+        storm::shim::CubeTexture *tex = nullptr;
         if (CHECKD3DERR(d3d9->CreateCubeTexture(head.width, head.nmips, 0, d3dFormat, D3DPOOL_MANAGED, &tex, NULL)) ==
                 true ||
             !tex)
@@ -2131,7 +2131,7 @@ bool DX9RENDER::TextureLoad(int32_t t)
     return true;
 }
 
-uint32_t DX9RENDER::LoadCubmapSide(std::fstream &fileS, IDirect3DCubeTexture9 *tex, D3DCUBEMAP_FACES face,
+uint32_t DX9RENDER::LoadCubmapSide(std::fstream &fileS, storm::shim::CubeTexture *tex, D3DCUBEMAP_FACES face,
                                    uint32_t numMips, uint32_t mipSize, uint32_t size, bool isSwizzled)
 {
     uint32_t texsize = 0;
@@ -2142,7 +2142,7 @@ uint32_t DX9RENDER::LoadCubmapSide(std::fstream &fileS, IDirect3DCubeTexture9 *t
         texsize += mipSize;
         // Getting the mip surface
         bool isError = false;
-        IDirect3DSurface9 *surface = nullptr;
+        storm::shim::Surface *surface = nullptr;
         if (CHECKD3DERR(tex->GetCubeMapSurface(face, m, &surface)) == true || !surface)
         {
             isError = true;
@@ -2173,7 +2173,7 @@ uint32_t DX9RENDER::LoadCubmapSide(std::fstream &fileS, IDirect3DCubeTexture9 *t
     return texsize;
 }
 
-bool DX9RENDER::LoadTextureSurface(std::fstream &fileS, IDirect3DSurface9 *suface, uint32_t mipSize, uint32_t width,
+bool DX9RENDER::LoadTextureSurface(std::fstream &fileS, storm::shim::Surface *suface, uint32_t mipSize, uint32_t width,
                                    uint32_t height, bool isSwizzled)
 {
     //------------------------------------------------------------------------------------------
@@ -3233,7 +3233,7 @@ int32_t DX9RENDER::ExtPrint(int32_t nFontNum, uint32_t foreColor, uint32_t backC
     vsnprintf(Buff_4k, sizeof(Buff_4k), format, args);
     va_end(args);
 
-    IDirect3DSurface9 *pRenderTarget;
+    storm::shim::Surface *pRenderTarget;
     GetRenderTarget(&pRenderTarget);
     D3DSURFACE_DESC dscrSurface;
     pRenderTarget->GetDesc(&dscrSurface);
@@ -3596,7 +3596,7 @@ PLANE *DX9RENDER::GetPlanes()
     return viewplane;
 }
 
-void DX9RENDER::FindPlanes(IDirect3DDevice9 *d3dDevice)
+void DX9RENDER::FindPlanes(storm::shim::Device *d3dDevice)
 {
     D3DMATRIX m;
     glm::vec3 v[4];
@@ -3865,7 +3865,7 @@ void DX9RENDER::DrawLines2D(RS_LINE2D *pRSL2D, size_t dwLinesNum, const char *cB
 
 //-----------------------
 HRESULT DX9RENDER::CreateVertexBuffer(UINT Length, uint32_t Usage, uint32_t FVF, D3DPOOL Pool,
-                                      IDirect3DVertexBuffer9 **ppVertexBuffer)
+                                      storm::shim::VertexBuffer **ppVertexBuffer)
 {
     return CHECKD3DERR(d3d9->CreateVertexBuffer(Length, Usage, FVF, Pool, ppVertexBuffer, NULL));
 }
@@ -3894,7 +3894,7 @@ HRESULT DX9RENDER::DrawPrimitive(D3DPRIMITIVETYPE dwPrimitiveType, UINT StartVer
     return CHECKD3DERR(d3d9->DrawPrimitive(dwPrimitiveType, StartVertex, PrimitiveCount));
 }
 
-HRESULT DX9RENDER::Release(IUnknown *pObject)
+HRESULT DX9RENDER::Release(storm::shim::Object *pObject)
 {
     if (pObject)
     {
@@ -3906,12 +3906,12 @@ HRESULT DX9RENDER::Release(IUnknown *pObject)
     return D3D_OK;
 }
 
-HRESULT DX9RENDER::GetRenderTarget(IDirect3DSurface9 **ppRenderTarget)
+HRESULT DX9RENDER::GetRenderTarget(storm::shim::Surface **ppRenderTarget)
 {
     return CHECKD3DERR(d3d9->GetRenderTarget(0, ppRenderTarget));
 }
 
-HRESULT DX9RENDER::SetRenderTarget(IDirect3DSurface9 *pRenderTarget, IDirect3DSurface9 *pNewZStencil)
+HRESULT DX9RENDER::SetRenderTarget(storm::shim::Surface *pRenderTarget, storm::shim::Surface *pNewZStencil)
 {
     auto result = !CHECKD3DERR(d3d9->SetDepthStencilSurface(pNewZStencil)) &&
                   !CHECKD3DERR(d3d9->SetRenderTarget(0, pRenderTarget));
@@ -3955,19 +3955,19 @@ HRESULT DX9RENDER::SetClipPlane(uint32_t Index, const float *pPlane)
 }
 
 HRESULT DX9RENDER::CreateTexture(UINT Width, UINT Height, UINT Levels, uint32_t Usage, D3DFORMAT Format, D3DPOOL Pool,
-                                 IDirect3DTexture9 **ppTexture)
+                                 storm::shim::Texture2D **ppTexture)
 {
     return CHECKD3DERR(d3d9->CreateTexture(Width, Height, Levels, Usage, Format, Pool, ppTexture, NULL));
 }
 
 HRESULT DX9RENDER::CreateCubeTexture(UINT EdgeLength, UINT Levels, uint32_t Usage, D3DFORMAT Format, D3DPOOL Pool,
-                                     IDirect3DCubeTexture9 **ppCubeTexture)
+                                     storm::shim::CubeTexture **ppCubeTexture)
 {
     return CHECKD3DERR(d3d9->CreateCubeTexture(EdgeLength, Levels, Usage, Format, Pool, ppCubeTexture, NULL));
 }
 
 HRESULT DX9RENDER::CreateDepthStencilSurface(UINT Width, UINT Height, D3DFORMAT Format, D3DMULTISAMPLE_TYPE MultiSample,
-                                             IDirect3DSurface9 **ppSurface)
+                                             storm::shim::Surface **ppSurface)
 {
     return CHECKD3DERR(d3d9->CreateDepthStencilSurface(Width, Height, Format, MultiSample, 0, TRUE, ppSurface, NULL));
 }
@@ -3986,7 +3986,7 @@ storm::render::VertexDeclarationId DX9RENDER::CreateVertexDeclaration(const D3DV
     if (const auto it = std::ranges::find_if(vertexDeclarations_, same); it != vertexDeclarations_.end())
         return {static_cast<int32_t>(it - vertexDeclarations_.begin())};
 
-    IDirect3DVertexDeclaration9 *declaration = nullptr;
+    storm::shim::VertexDeclaration *declaration = nullptr;
     if (CHECKD3DERR(d3d9->CreateVertexDeclaration(elements.data(), &declaration)))
     {
         spdlog::error("Renderer: vertex declaration with {} elements rejected", elements.size() - 1);
@@ -4006,44 +4006,44 @@ void DX9RENDER::SetVertexDeclaration(storm::render::VertexDeclarationId declarat
     CHECKD3DERR(d3d9->SetVertexDeclaration(vertexDeclarations_[declaration.value].declaration));
 }
 
-HRESULT DX9RENDER::CreateVertexShader(const uint32_t *pFunction, IDirect3DVertexShader9 **ppShader)
+HRESULT DX9RENDER::CreateVertexShader(const uint32_t *pFunction, storm::shim::VertexShader **ppShader)
 {
     return CHECKD3DERR(d3d9->CreateVertexShader((const DWORD *)pFunction, ppShader));
 }
 
-HRESULT DX9RENDER::CreatePixelShader(const uint32_t *pFunction, IDirect3DPixelShader9 **ppShader)
+HRESULT DX9RENDER::CreatePixelShader(const uint32_t *pFunction, storm::shim::PixelShader **ppShader)
 {
     return CHECKD3DERR(d3d9->CreatePixelShader((const DWORD *)pFunction, ppShader));
 }
 
-HRESULT DX9RENDER::GetVertexShader(IDirect3DVertexShader9 **ppShader)
+HRESULT DX9RENDER::GetVertexShader(storm::shim::VertexShader **ppShader)
 {
     return CHECKD3DERR(d3d9->GetVertexShader(ppShader));
 }
 
-HRESULT DX9RENDER::GetPixelShader(IDirect3DPixelShader9 **ppShader)
+HRESULT DX9RENDER::GetPixelShader(storm::shim::PixelShader **ppShader)
 {
     return CHECKD3DERR(d3d9->GetPixelShader(ppShader));
 }
 
 
-HRESULT DX9RENDER::SetTexture(uint32_t Stage, IDirect3DBaseTexture9 *pTexture)
+HRESULT DX9RENDER::SetTexture(uint32_t Stage, storm::shim::BaseTexture *pTexture)
 {
     return CHECKD3DERR(d3d9->SetTexture(Stage, pTexture));
 }
 
 // The shim's render targets are never multisampled surfaces (MSAA is a bgfx texture flag of the scene target).
-HRESULT DX9RENDER::GetRenderTargetData(IDirect3DSurface9 *pRenderTarget, IDirect3DSurface9 *pDestSurface)
+HRESULT DX9RENDER::GetRenderTargetData(storm::shim::Surface *pRenderTarget, storm::shim::Surface *pDestSurface)
 {
     return CHECKD3DERR(d3d9->GetRenderTargetData(pRenderTarget, pDestSurface));
 }
 
-HRESULT DX9RENDER::SetVertexShader(IDirect3DVertexShader9 *pShader)
+HRESULT DX9RENDER::SetVertexShader(storm::shim::VertexShader *pShader)
 {
     return CHECKD3DERR(d3d9->SetVertexShader(pShader));
 }
 
-HRESULT DX9RENDER::SetPixelShader(IDirect3DPixelShader9 *pShader)
+HRESULT DX9RENDER::SetPixelShader(storm::shim::PixelShader *pShader)
 {
     return CHECKD3DERR(d3d9->SetPixelShader(pShader));
 }
@@ -4714,10 +4714,10 @@ bool DX9RENDER::PopRenderTarget()
     return true;
 }
 
-bool DX9RENDER::SetRenderTarget(IDirect3DCubeTexture9 *pRenderTarget, uint32_t FaceType, uint32_t dwLevel,
-                                IDirect3DSurface9 *pZStencil)
+bool DX9RENDER::SetRenderTarget(storm::shim::CubeTexture *pRenderTarget, uint32_t FaceType, uint32_t dwLevel,
+                                storm::shim::Surface *pZStencil)
 {
-    IDirect3DSurface9 *pSurface;
+    storm::shim::Surface *pSurface;
     return !CHECKD3DERR(pRenderTarget->GetCubeMapSurface(static_cast<D3DCUBEMAP_FACES>(FaceType), dwLevel, &pSurface)) &&
            !CHECKD3DERR(SetRenderTarget(pSurface, pZStencil)) && Release(pSurface) == D3D_OK;
 }
@@ -4755,7 +4755,7 @@ const glm::mat4 &DX9RENDER::GetProjection()
     return mProjection;
 }
 
-IDirect3DBaseTexture9 *DX9RENDER::GetTextureFromID(int32_t nTextureID)
+storm::shim::BaseTexture *DX9RENDER::GetTextureFromID(int32_t nTextureID)
 {
     if (nTextureID < 0)
         return nullptr;
@@ -4770,9 +4770,9 @@ bool DX9RENDER::keepTexturePixels(int32_t texture)
     D3DSURFACE_DESC desc{};
     D3DLOCKED_RECT lock{};
     if(!base || base->GetType()!=D3DRTYPE_TEXTURE ||
-       FAILED(static_cast<IDirect3DTexture9*>(base)->GetLevelDesc(0,&desc)) ||
+       FAILED(static_cast<storm::shim::Texture2D*>(base)->GetLevelDesc(0,&desc)) ||
        (desc.Format!=D3DFMT_A8R8G8B8 && desc.Format!=D3DFMT_X8R8G8B8) ||
-       FAILED(static_cast<IDirect3DTexture9*>(base)->LockRect(0,&lock,nullptr,D3DLOCK_READONLY)))
+       FAILED(static_cast<storm::shim::Texture2D*>(base)->LockRect(0,&lock,nullptr,D3DLOCK_READONLY)))
     {
         core.Trace("keepTexturePixels: texture %d (%s) has no readable A8R8G8B8/X8R8G8B8 level 0", texture,
                    Textures[texture].name ? Textures[texture].name : "?");
@@ -4784,7 +4784,7 @@ bool DX9RENDER::keepTexturePixels(int32_t texture)
     for(uint32_t y=0;y<desc.Height;++y)
         std::memcpy(kept.bytes.data()+size_t(y)*desc.Width*4,
                     static_cast<const uint8_t*>(lock.pBits)+size_t(y)*lock.Pitch,size_t(desc.Width)*4);
-    static_cast<IDirect3DTexture9*>(base)->UnlockRect(0);
+    static_cast<storm::shim::Texture2D*>(base)->UnlockRect(0);
     return true;
 }
 
@@ -4803,13 +4803,13 @@ bool DX9RENDER::sampleTextureArgb(int32_t texture,float u,float v,uint32_t& resu
 
 int32_t DX9RENDER::GetRenderTargetAsTexture()
 {
-    IDirect3DSurface9 *renderTarget = nullptr;
+    storm::shim::Surface *renderTarget = nullptr;
     D3DSURFACE_DESC desc;
     // No render target (no surface: an autosave while the app goes to the background) is no copy.
     if (CHECKD3DERR(GetRenderTarget(&renderTarget)) || !renderTarget)
         return -1;
-    IDirect3DTexture9 *texture = nullptr;
-    IDirect3DSurface9 *level = nullptr;
+    storm::shim::Texture2D *texture = nullptr;
+    storm::shim::Surface *level = nullptr;
     const bool copied = !CHECKD3DERR(renderTarget->GetDesc(&desc)) &&
                         !CHECKD3DERR(CreateTexture(desc.Width, desc.Height, 1, 0, desc.Format, D3DPOOL_DEFAULT, &texture)) &&
                         !CHECKD3DERR(texture->GetSurfaceLevel(0, &level)) &&
@@ -4829,7 +4829,7 @@ int32_t DX9RENDER::GetRenderTargetAsTexture()
 
 POINT DX9RENDER::GetRenderTargetSize()
 {
-    IDirect3DSurface9 *renderTarget = nullptr;
+    storm::shim::Surface *renderTarget = nullptr;
     D3DSURFACE_DESC desc;
     if (CHECKD3DERR(GetRenderTarget(&renderTarget)))
         return {};

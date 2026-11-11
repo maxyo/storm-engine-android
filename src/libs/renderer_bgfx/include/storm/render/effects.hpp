@@ -15,7 +15,10 @@
 #include <string_view>
 #include <vector>
 
-struct IDirect3DBaseTexture9;
+namespace storm::shim
+{
+struct BaseTexture;
+}
 
 namespace storm::render
 {
@@ -101,10 +104,10 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
 
 // The game file a texture was loaded from (DX9RENDER::TextureLoad, after its levels are filled). Grey height
 // ("bump") textures get a normal map for the per-pixel lighting's relief (fx_light_normal_map).
-void SetEffectsTextureSource(IDirect3DBaseTexture9 *texture, const char *path);
+void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path);
 
 // DX9RENDER: the device texture behind a renderer texture id (EffectsWaterMesh::env_map), null for an invalid id.
-void SetEffectsTextureResolver(std::function<IDirect3DBaseTexture9 *(int32_t)> resolver);
+void SetEffectsTextureResolver(std::function<shim::BaseTexture *(int32_t)> resolver);
 
 // ---- World passes: fx sky, fx water, contact shadows ----
 // The consumer entities (SKY, SEA, shadow, SUNGLOW) ask which parts are on and then either call the fx pass below

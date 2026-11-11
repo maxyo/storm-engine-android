@@ -54,7 +54,7 @@ bool MakeLong(char **pDataPointer, int32_t *result)
 
 } // namespace
 
-FONT::FONT(VDX9RENDER &renderer, IDirect3DDevice9 &device)
+FONT::FONT(VDX9RENDER &renderer, storm::shim::Device &device)
     : charDescriptors_(USED_CODES), renderService_(renderer), device_(device)
 {
 }

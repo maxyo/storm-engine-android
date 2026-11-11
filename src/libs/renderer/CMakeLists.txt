@@ -6,3 +6,6 @@ STORM_SETUP(
 
 # Renderer-neutral resource contracts use bounded std::span views.
 target_compile_features(renderer PUBLIC cxx_std_20)
+
+# DX9RENDER drives the bgfx shim's device directly (renderer_bgfx/src/shim): the two halves of one renderer.
+target_include_directories(renderer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../renderer_bgfx/src")

@@ -1808,7 +1808,7 @@ bool CTechnique::ExecutePass(bool bStart)
             {
                 if (bSave)
                 {
-                    pRS->GetVertexShader((IDirect3DVertexShader9 **)&dwSaveValue);
+                    pRS->GetVertexShader((storm::shim::VertexShader **)&dwSaveValue);
                     AddState2Restore2(dwCode, dwSaveValue);
                 }
 
@@ -1825,7 +1825,7 @@ bool CTechnique::ExecutePass(bool bStart)
             {
                 if (bSave)
                 {
-                    pRS->GetPixelShader((IDirect3DPixelShader9 **)&dwSaveValue);
+                    pRS->GetPixelShader((storm::shim::PixelShader **)&dwSaveValue);
                     AddState2Restore2(dwCode, dwSaveValue);
                 }
 
@@ -1975,13 +1975,13 @@ void CTechnique::RestoreSavedStates()
         break;
         case CODE_SPS:
             dwValue = pSavedStates[dwTempSavedStatesPos++];
-            throw std::runtime_error("conversion from uint32_t to IDirect3DPixelShader9 *");
-            // pRS->SetPixelShader((IDirect3DPixelShader9*)dwValue);
+            throw std::runtime_error("conversion from uint32_t to storm::shim::PixelShader *");
+            // pRS->SetPixelShader((storm::shim::PixelShader*)dwValue);
             break;
         case CODE_SVS:
             dwValue = pSavedStates[dwTempSavedStatesPos++];
-            throw std::runtime_error("conversion from uint32_t to IDirect3DPixelShader9 *");
-            // pRS->SetVertexShader((IDirect3DVertexShader9*)dwValue);
+            throw std::runtime_error("conversion from uint32_t to storm::shim::PixelShader *");
+            // pRS->SetVertexShader((storm::shim::VertexShader*)dwValue);
             break;
         }
     }

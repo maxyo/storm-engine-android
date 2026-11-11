@@ -145,100 +145,100 @@ class Context final : public render::FrameOwner
     double last_present_ = 0.0;
 };
 
-struct Device final : Direct3DDevice9Stub
+struct Device final : Object
 {
     Device(SDL_Window *window, const D3DPRESENT_PARAMETERS &params);
     ~Device() override;
 
-    // ---- IDirect3DDevice9 ----
-    HRESULT TestCooperativeLevel() override { return D3D_OK; }
-    UINT GetAvailableTextureMem() override { return 1024u * 1024u * 1024u; }
-    HRESULT GetDeviceCaps(D3DCAPS9 *caps) override;
-    HRESULT GetDirect3D(IDirect3D9 **d3d) override;
-    HRESULT Reset(D3DPRESENT_PARAMETERS *params) override;
-    HRESULT Present(const RECT *, const RECT *, HWND, const RGNDATA *) override;
-    HRESULT GetBackBuffer(UINT, UINT, D3DBACKBUFFER_TYPE, IDirect3DSurface9 **surface) override;
+    // ---- the D3D9-shaped device API DX9RENDER drives ----
+    HRESULT TestCooperativeLevel() { return D3D_OK; }
+    UINT GetAvailableTextureMem() { return 1024u * 1024u * 1024u; }
+    HRESULT GetDeviceCaps(D3DCAPS9 *caps);
+    HRESULT GetDirect3D(Direct3D **d3d);
+    HRESULT Reset(D3DPRESENT_PARAMETERS *params);
+    HRESULT Present(const RECT *, const RECT *, HWND, const RGNDATA *);
+    HRESULT GetBackBuffer(UINT, UINT, D3DBACKBUFFER_TYPE, Surface **surface);
     HRESULT CreateTexture(UINT width, UINT height, UINT levels, DWORD usage, D3DFORMAT format, D3DPOOL pool,
-                          IDirect3DTexture9 **texture, HANDLE *) override;
+                          Texture2D **texture, HANDLE *);
     HRESULT CreateVolumeTexture(UINT width, UINT height, UINT depth, UINT levels, DWORD usage, D3DFORMAT format,
-                                D3DPOOL pool, IDirect3DVolumeTexture9 **texture, HANDLE *) override;
+                                D3DPOOL pool, VolumeTexture **texture, HANDLE *);
     HRESULT CreateCubeTexture(UINT edge, UINT levels, DWORD usage, D3DFORMAT format, D3DPOOL pool,
-                              IDirect3DCubeTexture9 **texture, HANDLE *) override;
-    HRESULT CreateVertexBuffer(UINT length, DWORD usage, DWORD fvf, D3DPOOL pool, IDirect3DVertexBuffer9 **buffer,
-                               HANDLE *) override;
-    HRESULT CreateIndexBuffer(UINT length, DWORD usage, D3DFORMAT format, D3DPOOL pool, IDirect3DIndexBuffer9 **buffer,
-                              HANDLE *) override;
+                              CubeTexture **texture, HANDLE *);
+    HRESULT CreateVertexBuffer(UINT length, DWORD usage, DWORD fvf, D3DPOOL pool, VertexBuffer **buffer,
+                               HANDLE *);
+    HRESULT CreateIndexBuffer(UINT length, DWORD usage, D3DFORMAT format, D3DPOOL pool, IndexBuffer **buffer,
+                              HANDLE *);
     HRESULT CreateRenderTarget(UINT width, UINT height, D3DFORMAT format, D3DMULTISAMPLE_TYPE, DWORD, BOOL,
-                               IDirect3DSurface9 **surface, HANDLE *) override;
+                               Surface **surface, HANDLE *);
     HRESULT CreateDepthStencilSurface(UINT width, UINT height, D3DFORMAT format, D3DMULTISAMPLE_TYPE, DWORD, BOOL,
-                                      IDirect3DSurface9 **surface, HANDLE *) override;
+                                      Surface **surface, HANDLE *);
     HRESULT CreateOffscreenPlainSurface(UINT width, UINT height, D3DFORMAT format, D3DPOOL pool,
-                                        IDirect3DSurface9 **surface, HANDLE *) override;
-    HRESULT UpdateSurface(IDirect3DSurface9 *src, const RECT *src_rect, IDirect3DSurface9 *dst,
-                          const POINT *dst_point) override;
-    HRESULT GetRenderTargetData(IDirect3DSurface9 *target, IDirect3DSurface9 *dest) override;
-    HRESULT StretchRect(IDirect3DSurface9 *src, const RECT *src_rect, IDirect3DSurface9 *dst, const RECT *dst_rect,
-                        D3DTEXTUREFILTERTYPE filter) override;
-    HRESULT SetRenderTarget(DWORD index, IDirect3DSurface9 *surface) override;
-    HRESULT GetRenderTarget(DWORD index, IDirect3DSurface9 **surface) override;
-    HRESULT SetDepthStencilSurface(IDirect3DSurface9 *surface) override;
-    HRESULT GetDepthStencilSurface(IDirect3DSurface9 **surface) override;
-    HRESULT BeginScene() override;
-    HRESULT EndScene() override { return D3D_OK; }
-    HRESULT Clear(DWORD count, const D3DRECT *rects, DWORD flags, D3DCOLOR color, float z, DWORD stencil) override;
-    HRESULT SetTransform(D3DTRANSFORMSTATETYPE state, const D3DMATRIX *matrix) override;
-    HRESULT GetTransform(D3DTRANSFORMSTATETYPE state, D3DMATRIX *matrix) override;
-    HRESULT SetViewport(const D3DVIEWPORT9 *viewport) override;
-    HRESULT GetViewport(D3DVIEWPORT9 *viewport) override;
-    HRESULT SetMaterial(const D3DMATERIAL9 *material) override;
-    HRESULT GetMaterial(D3DMATERIAL9 *material) override;
-    HRESULT SetLight(DWORD index, const D3DLIGHT9 *light) override;
-    HRESULT GetLight(DWORD index, D3DLIGHT9 *light) override;
-    HRESULT LightEnable(DWORD index, BOOL enable) override;
-    HRESULT GetLightEnable(DWORD index, BOOL *enable) override;
-    HRESULT SetClipPlane(DWORD index, const float *plane) override;
-    HRESULT SetRenderState(D3DRENDERSTATETYPE state, DWORD value) override;
-    HRESULT GetRenderState(D3DRENDERSTATETYPE state, DWORD *value) override;
-    HRESULT CreateStateBlock(D3DSTATEBLOCKTYPE type, IDirect3DStateBlock9 **block) override;
-    HRESULT GetTexture(DWORD stage, IDirect3DBaseTexture9 **texture) override;
-    HRESULT SetTexture(DWORD stage, IDirect3DBaseTexture9 *texture) override;
-    HRESULT GetTextureStageState(DWORD stage, D3DTEXTURESTAGESTATETYPE type, DWORD *value) override;
-    HRESULT SetTextureStageState(DWORD stage, D3DTEXTURESTAGESTATETYPE type, DWORD value) override;
-    HRESULT GetSamplerState(DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD *value) override;
-    HRESULT SetSamplerState(DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD value) override;
-    HRESULT SetScissorRect(const RECT *rect) override;
-    HRESULT GetScissorRect(RECT *rect) override;
-    HRESULT DrawPrimitive(D3DPRIMITIVETYPE type, UINT start_vertex, UINT primitive_count) override;
+                                        Surface **surface, HANDLE *);
+    HRESULT UpdateSurface(Surface *src, const RECT *src_rect, Surface *dst,
+                          const POINT *dst_point);
+    HRESULT GetRenderTargetData(Surface *target, Surface *dest);
+    HRESULT StretchRect(Surface *src, const RECT *src_rect, Surface *dst, const RECT *dst_rect,
+                        D3DTEXTUREFILTERTYPE filter);
+    HRESULT SetRenderTarget(DWORD index, Surface *surface);
+    HRESULT GetRenderTarget(DWORD index, Surface **surface);
+    HRESULT SetDepthStencilSurface(Surface *surface);
+    HRESULT GetDepthStencilSurface(Surface **surface);
+    HRESULT BeginScene();
+    HRESULT EndScene() { return D3D_OK; }
+    HRESULT Clear(DWORD count, const D3DRECT *rects, DWORD flags, D3DCOLOR color, float z, DWORD stencil);
+    HRESULT SetTransform(D3DTRANSFORMSTATETYPE state, const D3DMATRIX *matrix);
+    HRESULT GetTransform(D3DTRANSFORMSTATETYPE state, D3DMATRIX *matrix);
+    HRESULT SetViewport(const D3DVIEWPORT9 *viewport);
+    HRESULT GetViewport(D3DVIEWPORT9 *viewport);
+    HRESULT SetMaterial(const D3DMATERIAL9 *material);
+    HRESULT GetMaterial(D3DMATERIAL9 *material);
+    HRESULT SetLight(DWORD index, const D3DLIGHT9 *light);
+    HRESULT GetLight(DWORD index, D3DLIGHT9 *light);
+    HRESULT LightEnable(DWORD index, BOOL enable);
+    HRESULT GetLightEnable(DWORD index, BOOL *enable);
+    HRESULT SetClipPlane(DWORD index, const float *plane);
+    HRESULT SetRenderState(D3DRENDERSTATETYPE state, DWORD value);
+    HRESULT GetRenderState(D3DRENDERSTATETYPE state, DWORD *value);
+    HRESULT CreateStateBlock(D3DSTATEBLOCKTYPE type, StateBlock **block);
+    HRESULT GetTexture(DWORD stage, BaseTexture **texture);
+    HRESULT SetTexture(DWORD stage, BaseTexture *texture);
+    HRESULT GetTextureStageState(DWORD stage, D3DTEXTURESTAGESTATETYPE type, DWORD *value);
+    HRESULT SetTextureStageState(DWORD stage, D3DTEXTURESTAGESTATETYPE type, DWORD value);
+    HRESULT GetSamplerState(DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD *value);
+    HRESULT SetSamplerState(DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD value);
+    HRESULT SetScissorRect(const RECT *rect);
+    HRESULT GetScissorRect(RECT *rect);
+    HRESULT DrawPrimitive(D3DPRIMITIVETYPE type, UINT start_vertex, UINT primitive_count);
     HRESULT DrawIndexedPrimitive(D3DPRIMITIVETYPE type, INT base_vertex, UINT min_index, UINT vertex_count,
-                                 UINT start_index, UINT primitive_count) override;
-    HRESULT DrawPrimitiveUP(D3DPRIMITIVETYPE type, UINT primitive_count, const void *data, UINT stride) override;
+                                 UINT start_index, UINT primitive_count);
+    HRESULT DrawPrimitiveUP(D3DPRIMITIVETYPE type, UINT primitive_count, const void *data, UINT stride);
     HRESULT DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE type, UINT min_index, UINT vertex_count, UINT primitive_count,
                                    const void *index_data, D3DFORMAT index_format, const void *data,
-                                   UINT stride) override;
-    HRESULT CreateVertexDeclaration(const D3DVERTEXELEMENT9 *elements, IDirect3DVertexDeclaration9 **decl) override;
-    HRESULT SetVertexDeclaration(IDirect3DVertexDeclaration9 *decl) override;
-    HRESULT GetVertexDeclaration(IDirect3DVertexDeclaration9 **decl) override;
-    HRESULT SetFVF(DWORD fvf) override;
-    HRESULT GetFVF(DWORD *fvf) override;
-    HRESULT CreateVertexShader(const DWORD *function, IDirect3DVertexShader9 **shader) override;
-    HRESULT SetVertexShader(IDirect3DVertexShader9 *shader) override;
-    HRESULT GetVertexShader(IDirect3DVertexShader9 **shader) override;
-    HRESULT SetVertexShaderConstantF(UINT start, const float *data, UINT count) override;
-    HRESULT GetVertexShaderConstantF(UINT start, float *data, UINT count) override;
-    HRESULT SetStreamSource(UINT stream, IDirect3DVertexBuffer9 *buffer, UINT offset, UINT stride) override;
-    HRESULT GetStreamSource(UINT stream, IDirect3DVertexBuffer9 **buffer, UINT *offset, UINT *stride) override;
-    HRESULT SetIndices(IDirect3DIndexBuffer9 *buffer) override;
-    HRESULT GetIndices(IDirect3DIndexBuffer9 **buffer) override;
-    HRESULT CreatePixelShader(const DWORD *function, IDirect3DPixelShader9 **shader) override;
-    HRESULT SetPixelShader(IDirect3DPixelShader9 *shader) override;
-    HRESULT GetPixelShader(IDirect3DPixelShader9 **shader) override;
-    HRESULT SetPixelShaderConstantF(UINT start, const float *data, UINT count) override;
-    HRESULT GetPixelShaderConstantF(UINT start, float *data, UINT count) override;
-    HRESULT SetNPatchMode(float) override { return D3D_OK; }
-    HRESULT SetSoftwareVertexProcessing(BOOL) override { return D3D_OK; }
-    HRESULT ShowCursor(BOOL) override { return D3D_OK; }
-    HRESULT EvictManagedResources() override { return D3D_OK; }
-    void SetGammaRamp(UINT, DWORD, const D3DGAMMARAMP *) override {}
+                                   UINT stride);
+    HRESULT CreateVertexDeclaration(const D3DVERTEXELEMENT9 *elements, VertexDeclaration **decl);
+    HRESULT SetVertexDeclaration(VertexDeclaration *decl);
+    HRESULT GetVertexDeclaration(VertexDeclaration **decl);
+    HRESULT SetFVF(DWORD fvf);
+    HRESULT GetFVF(DWORD *fvf);
+    HRESULT CreateVertexShader(const DWORD *function, VertexShader **shader);
+    HRESULT SetVertexShader(VertexShader *shader);
+    HRESULT GetVertexShader(VertexShader **shader);
+    HRESULT SetVertexShaderConstantF(UINT start, const float *data, UINT count);
+    HRESULT GetVertexShaderConstantF(UINT start, float *data, UINT count);
+    HRESULT SetStreamSource(UINT stream, VertexBuffer *buffer, UINT offset, UINT stride);
+    HRESULT GetStreamSource(UINT stream, VertexBuffer **buffer, UINT *offset, UINT *stride);
+    HRESULT SetIndices(IndexBuffer *buffer);
+    HRESULT GetIndices(IndexBuffer **buffer);
+    HRESULT CreatePixelShader(const DWORD *function, PixelShader **shader);
+    HRESULT SetPixelShader(PixelShader *shader);
+    HRESULT GetPixelShader(PixelShader **shader);
+    HRESULT SetPixelShaderConstantF(UINT start, const float *data, UINT count);
+    HRESULT GetPixelShaderConstantF(UINT start, float *data, UINT count);
+    HRESULT SetNPatchMode(float) { return D3D_OK; }
+    HRESULT SetSoftwareVertexProcessing(BOOL) { return D3D_OK; }
+    HRESULT ShowCursor(BOOL) { return D3D_OK; }
+    HRESULT EvictManagedResources() { return D3D_OK; }
+    void SetGammaRamp(UINT, DWORD, const D3DGAMMARAMP *) {}
 
     // ---- internals ----
     struct DrawCall

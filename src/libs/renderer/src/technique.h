@@ -3,6 +3,7 @@
 #include <unordered_map>
 
 #include "dx9render.h"
+#include "shim/device.hpp"
 
 class DX9RENDER;
 
@@ -53,8 +54,8 @@ struct shader_t // pixel/vertex shader structure
 
     D3DVERTEXELEMENT9 *pDecl; // declarations for vertex shader
     storm::render::VertexDeclarationId vertexDecl;
-    IDirect3DVertexShader9 *pVertexShader;
-    IDirect3DPixelShader9 *pPixelShader;
+    storm::shim::VertexShader *pVertexShader;
+    storm::shim::PixelShader *pPixelShader;
     uint32_t dwDeclSize;
     // uint32_t	dwShaderHandle;		// shader handle
 };
@@ -76,7 +77,7 @@ class CTechnique
 {
   protected:
     DX9RENDER *pRS;
-    IDirect3DDevice9 *d3d9;
+    storm::shim::Device *d3d9;
 
     // shaders
     uint32_t dwNumShaders;

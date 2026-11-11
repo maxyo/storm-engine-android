@@ -1,13 +1,15 @@
 // D3D9-shaped shim over bgfx: internal declarations.
 //
-// The engine keeps talking to IDirect3DDevice9 & co. (third_party/d3d9-headers);
+// The engine keeps talking to Device & co. (third_party/d3d9-headers);
 // the objects behind those interfaces are implemented here on bgfx handles.
 // All D3D conventions (row vectors, 0..1 depth, top-left render targets,
 // integer pixel centres, BGRA colours, triangle fans) are translated in this
 // directory only.
 #pragma once
 
-#include "d3d9_stubs.gen.hpp"
+#include <d3d9.h>
+
+#include <atomic>
 
 #include <bgfx/bgfx.h>
 
@@ -32,6 +34,8 @@ namespace storm::shim
 {
 
 void logf(const char *format, ...);
+// Logs an unimplemented path once per message ("[storm-bgfx] TRAP") and returns D3DERR_INVALIDCALL.
+HRESULT trap(const char *what);
 // Writes the per-method trap counters collected so far to the log.
 void dump_traps();
 
@@ -128,67 +132,78 @@ using TexStorePtr = std::shared_ptr<TexStore>;
 TexStorePtr make_store(Device *device, TexKind kind, uint32_t width, uint32_t height, uint32_t depth, uint32_t levels,
                        DWORD usage, D3DFORMAT format, D3DPOOL pool);
 
-struct Surface final : Direct3DSurface9Stub
+// ---------------------------------------------------------------------------
+// objects: reference counted like the D3D9 objects the renderer was written against
+struct Object
+{
+    virtual ~Object() = default;
+    ULONG AddRef() { return ++refs_; }
+    ULONG Release()
+    {
+        const ULONG r = --refs_;
+        if (r == 0)
+            delete this;
+        return r;
+    }
+
+  private:
+    std::atomic<ULONG> refs_{1};
+};
+
+struct BaseTexture : Object
+{
+    virtual D3DRESOURCETYPE GetType() const = 0;
+    virtual DWORD GetLevelCount() const = 0;
+};
+
+struct Surface final : Object
 {
     TexStorePtr store;
     uint32_t face = 0, level = 0;
     Surface(TexStorePtr s, uint32_t f, uint32_t l) : store(std::move(s)), face(f), level(l) {}
-    HRESULT GetDesc(D3DSURFACE_DESC *desc) override;
-    HRESULT LockRect(D3DLOCKED_RECT *locked, const RECT *rect, DWORD flags) override;
-    HRESULT UnlockRect() override;
-    D3DRESOURCETYPE GetType() override { return D3DRTYPE_SURFACE; }
-    HRESULT GetDevice(IDirect3DDevice9 **device) override;
+    HRESULT GetDesc(D3DSURFACE_DESC *desc);
+    HRESULT LockRect(D3DLOCKED_RECT *locked, const RECT *rect, DWORD flags);
+    HRESULT UnlockRect();
+    D3DRESOURCETYPE GetType() const { return D3DRTYPE_SURFACE; }
 };
 
-struct Texture2D final : Direct3DTexture9Stub
+struct Texture2D final : BaseTexture
 {
     TexStorePtr store;
     explicit Texture2D(TexStorePtr s) : store(std::move(s)) {}
-    D3DRESOURCETYPE GetType() override { return D3DRTYPE_TEXTURE; }
-    DWORD GetLevelCount() override { return store->levels; }
-    HRESULT GetLevelDesc(UINT level, D3DSURFACE_DESC *desc) override;
-    HRESULT GetSurfaceLevel(UINT level, IDirect3DSurface9 **surface) override;
-    HRESULT LockRect(UINT level, D3DLOCKED_RECT *locked, const RECT *rect, DWORD flags) override;
-    HRESULT UnlockRect(UINT level) override;
-    HRESULT AddDirtyRect(const RECT *) override { return D3D_OK; }
-    void GenerateMipSubLevels() override {}
-    void PreLoad() override {}
-    DWORD SetLOD(DWORD) override { return 0; }
-    DWORD GetLOD() override { return 0; }
-    HRESULT GetDevice(IDirect3DDevice9 **device) override;
+    D3DRESOURCETYPE GetType() const override { return D3DRTYPE_TEXTURE; }
+    DWORD GetLevelCount() const override { return store->levels; }
+    HRESULT GetLevelDesc(UINT level, D3DSURFACE_DESC *desc);
+    HRESULT GetSurfaceLevel(UINT level, Surface **surface);
+    HRESULT LockRect(UINT level, D3DLOCKED_RECT *locked, const RECT *rect, DWORD flags);
+    HRESULT UnlockRect(UINT level);
 };
 
-struct CubeTexture final : Direct3DCubeTexture9Stub
+struct CubeTexture final : BaseTexture
 {
     TexStorePtr store;
     explicit CubeTexture(TexStorePtr s) : store(std::move(s)) {}
-    D3DRESOURCETYPE GetType() override { return D3DRTYPE_CUBETEXTURE; }
-    DWORD GetLevelCount() override { return store->levels; }
-    HRESULT GetLevelDesc(UINT level, D3DSURFACE_DESC *desc) override;
-    HRESULT GetCubeMapSurface(D3DCUBEMAP_FACES face, UINT level, IDirect3DSurface9 **surface) override;
-    HRESULT LockRect(D3DCUBEMAP_FACES face, UINT level, D3DLOCKED_RECT *locked, const RECT *rect, DWORD flags) override;
-    HRESULT UnlockRect(D3DCUBEMAP_FACES face, UINT level) override;
-    HRESULT AddDirtyRect(D3DCUBEMAP_FACES, const RECT *) override { return D3D_OK; }
-    void GenerateMipSubLevels() override {}
-    void PreLoad() override {}
+    D3DRESOURCETYPE GetType() const override { return D3DRTYPE_CUBETEXTURE; }
+    DWORD GetLevelCount() const override { return store->levels; }
+    HRESULT GetLevelDesc(UINT level, D3DSURFACE_DESC *desc);
+    HRESULT GetCubeMapSurface(D3DCUBEMAP_FACES face, UINT level, Surface **surface);
+    HRESULT LockRect(D3DCUBEMAP_FACES face, UINT level, D3DLOCKED_RECT *locked, const RECT *rect, DWORD flags);
+    HRESULT UnlockRect(D3DCUBEMAP_FACES face, UINT level);
 };
 
-struct VolumeTexture final : Direct3DVolumeTexture9Stub
+struct VolumeTexture final : BaseTexture
 {
     TexStorePtr store;
     explicit VolumeTexture(TexStorePtr s) : store(std::move(s)) {}
-    D3DRESOURCETYPE GetType() override { return D3DRTYPE_VOLUMETEXTURE; }
-    DWORD GetLevelCount() override { return store->levels; }
-    HRESULT GetLevelDesc(UINT level, D3DVOLUME_DESC *desc) override;
-    HRESULT LockBox(UINT level, D3DLOCKED_BOX *locked, const D3DBOX *box, DWORD flags) override;
-    HRESULT UnlockBox(UINT level) override;
-    HRESULT AddDirtyBox(const D3DBOX *) override { return D3D_OK; }
-    void GenerateMipSubLevels() override {}
-    void PreLoad() override {}
+    D3DRESOURCETYPE GetType() const override { return D3DRTYPE_VOLUMETEXTURE; }
+    DWORD GetLevelCount() const override { return store->levels; }
+    HRESULT GetLevelDesc(UINT level, D3DVOLUME_DESC *desc);
+    HRESULT LockBox(UINT level, D3DLOCKED_BOX *locked, const D3DBOX *box, DWORD flags);
+    HRESULT UnlockBox(UINT level);
 };
 
 // Returns the storage behind any of the three texture classes (or nullptr).
-TexStore *store_of(IDirect3DBaseTexture9 *texture);
+TexStore *store_of(BaseTexture *texture);
 
 // ---------------------------------------------------------------------------
 // buffers
@@ -205,26 +220,26 @@ struct BufferBase
     void mark(uint32_t offset, uint32_t size);
 };
 
-struct VertexBuffer final : Direct3DVertexBuffer9Stub, BufferBase
+struct VertexBuffer final : Object, BufferBase
 {
     DWORD fvf = 0;
     bgfx::VertexBufferHandle handle = BGFX_INVALID_HANDLE; // immutable snapshot, re-created when stale
     ~VertexBuffer() override;
-    HRESULT Lock(UINT offset, UINT size, void **data, DWORD flags) override;
-    HRESULT Unlock() override;
-    HRESULT GetDesc(D3DVERTEXBUFFER_DESC *desc) override;
-    D3DRESOURCETYPE GetType() override { return D3DRTYPE_VERTEXBUFFER; }
+    HRESULT Lock(UINT offset, UINT size, void **data, DWORD flags);
+    HRESULT Unlock();
+    HRESULT GetDesc(D3DVERTEXBUFFER_DESC *desc);
+    D3DRESOURCETYPE GetType() const { return D3DRTYPE_VERTEXBUFFER; }
 };
 
-struct IndexBuffer final : Direct3DIndexBuffer9Stub, BufferBase
+struct IndexBuffer final : Object, BufferBase
 {
     bool index32 = false;
     bgfx::IndexBufferHandle handle = BGFX_INVALID_HANDLE;
     ~IndexBuffer() override;
-    HRESULT Lock(UINT offset, UINT size, void **data, DWORD flags) override;
-    HRESULT Unlock() override;
-    HRESULT GetDesc(D3DINDEXBUFFER_DESC *desc) override;
-    D3DRESOURCETYPE GetType() override { return D3DRTYPE_INDEXBUFFER; }
+    HRESULT Lock(UINT offset, UINT size, void **data, DWORD flags);
+    HRESULT Unlock();
+    HRESULT GetDesc(D3DINDEXBUFFER_DESC *desc);
+    D3DRESOURCETYPE GetType() const { return D3DRTYPE_INDEXBUFFER; }
 };
 
 // ---------------------------------------------------------------------------
@@ -243,27 +258,24 @@ struct LayoutInfo
     uint8_t texcoord_count = 0;
 };
 
-struct VertexDeclaration final : Direct3DVertexDeclaration9Stub
+struct VertexDeclaration final : Object
 {
     std::vector<D3DVERTEXELEMENT9> elements; // without the D3DDECL_END terminator
     LayoutInfo info;
-    HRESULT GetDeclaration(D3DVERTEXELEMENT9 *elements_out, UINT *count) override;
 };
 
 // ---------------------------------------------------------------------------
 // programmable shaders: technique shader keys mapped to hand-ported bgfx shaders (ports.hpp)
 struct ShaderPort;
-struct VertexShader final : Direct3DVertexShader9Stub
+struct VertexShader final : Object
 {
     std::vector<DWORD> bytecode;
     const ShaderPort *port = nullptr;
-    HRESULT GetFunction(void *data, UINT *size) override;
 };
-struct PixelShader final : Direct3DPixelShader9Stub
+struct PixelShader final : Object
 {
     std::vector<DWORD> bytecode;
     const ShaderPort *port = nullptr;
-    HRESULT GetFunction(void *data, UINT *size) override;
 };
 
 // ---------------------------------------------------------------------------
@@ -290,8 +302,8 @@ struct DeviceState
     float ps_const[kPsConstants][4] = {};
     DWORD fvf = 0;
     // non-owning in the struct; the Device keeps the matching references
-    IDirect3DBaseTexture9 *textures[kMaxStages] = {};
-    IDirect3DBaseTexture9 *vertex_texture = nullptr; // D3DVERTEXTEXTURESAMPLER0: the bone palette of skinned draws
+    BaseTexture *textures[kMaxStages] = {};
+    BaseTexture *vertex_texture = nullptr; // D3DVERTEXTEXTURESAMPLER0: the bone palette of skinned draws
     VertexBuffer *stream[kMaxStreams] = {};
     UINT stream_offset[kMaxStreams] = {}, stream_stride[kMaxStreams] = {};
     IndexBuffer *indices = nullptr;
@@ -306,33 +318,35 @@ struct Light
     bool enabled = false;
 };
 
-struct StateBlock final : Direct3DStateBlock9Stub
+struct StateBlock final : Object
 {
     Device *device;
     DeviceState state;
     std::vector<Light> lights;
     explicit StateBlock(Device *d);
     ~StateBlock() override;
-    HRESULT Capture() override;
-    HRESULT Apply() override;
+    HRESULT Capture();
+    HRESULT Apply();
 };
 
-struct Direct3D final : Direct3D9Stub
+struct Direct3D final : Object
 {
-    UINT GetAdapterCount() override { return 1; }
-    HRESULT GetAdapterIdentifier(UINT adapter, DWORD flags, D3DADAPTER_IDENTIFIER9 *identifier) override;
-    HRESULT GetAdapterDisplayMode(UINT adapter, D3DDISPLAYMODE *mode) override;
-    HRESULT GetDeviceCaps(UINT adapter, D3DDEVTYPE type, D3DCAPS9 *caps) override;
-    HRESULT CheckDeviceMultiSampleType(UINT, D3DDEVTYPE, D3DFORMAT, BOOL, D3DMULTISAMPLE_TYPE, DWORD *) override
+    UINT GetAdapterCount() { return 1; }
+    HRESULT GetAdapterIdentifier(UINT adapter, DWORD flags, D3DADAPTER_IDENTIFIER9 *identifier);
+    HRESULT GetAdapterDisplayMode(UINT adapter, D3DDISPLAYMODE *mode);
+    HRESULT GetDeviceCaps(UINT adapter, D3DDEVTYPE type, D3DCAPS9 *caps);
+    HRESULT CheckDeviceMultiSampleType(UINT, D3DDEVTYPE, D3DFORMAT, BOOL, D3DMULTISAMPLE_TYPE, DWORD *)
     {
         return D3DERR_NOTAVAILABLE;
     }
-    HRESULT CheckDeviceFormat(UINT, D3DDEVTYPE, D3DFORMAT, DWORD, D3DRESOURCETYPE, D3DFORMAT) override { return D3D_OK; }
-    HRESULT CheckDepthStencilMatch(UINT, D3DDEVTYPE, D3DFORMAT, D3DFORMAT, D3DFORMAT) override { return D3D_OK; }
+    HRESULT CheckDeviceFormat(UINT, D3DDEVTYPE, D3DFORMAT, DWORD, D3DRESOURCETYPE, D3DFORMAT) { return D3D_OK; }
+    HRESULT CheckDepthStencilMatch(UINT, D3DDEVTYPE, D3DFORMAT, D3DFORMAT, D3DFORMAT) { return D3D_OK; }
     HRESULT CreateDevice(UINT adapter, D3DDEVTYPE type, HWND window, DWORD flags, D3DPRESENT_PARAMETERS *params,
-                         IDirect3DDevice9 **device) override;
+                         Device **device);
 };
 
 void fill_caps(D3DCAPS9 *caps);
+// The entry point DX9RENDER creates the device through.
+Direct3D *CreateDirect3D();
 
 } // namespace storm::shim

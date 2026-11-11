@@ -133,7 +133,7 @@ class Harness
         const UINT triangles = static_cast<UINT>(mesh.source.size() / 3);
         if (gpu)
         {
-            IDirect3DTexture9 *palette = nullptr;
+            storm::shim::Texture2D *palette = nullptr;
             check(d_.CreateTexture(model::kPaletteTexelsPerBone, mesh.bone_count, 1, D3DUSAGE_DYNAMIC, D3DFMT_A32B32G32R32F,
                                    D3DPOOL_DEFAULT, &palette, nullptr),
                   "CreateTexture(palette)");
@@ -174,7 +174,7 @@ class Harness
 
   private:
     Device &d_;
-    IDirect3DSurface9 *target_ = nullptr, *readback_ = nullptr, *back_ = nullptr;
+    storm::shim::Surface *target_ = nullptr, *readback_ = nullptr, *back_ = nullptr;
 };
 
 // Pixels whose colour differs by more than 2/255 in a channel, and how many pixels were drawn.
