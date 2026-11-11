@@ -170,6 +170,8 @@ class XINTERFACE : public XINTERFACE_BASE
                          float scale, int32_t sxs, int32_t sys, int32_t left, int32_t top, const char *str,
                          int nWidthForScaleCorrecting = -1, int nSplit = 0) override;
 
+    CINODE *FindTriggerNode(float x, float y) override;
+
     CINODE *FindNode(const char *sNodeName, CINODE *findRoot) override
     {
         if (!findRoot)

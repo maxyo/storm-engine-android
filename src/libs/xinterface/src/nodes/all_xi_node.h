@@ -12,6 +12,7 @@
 #include "xi_formt_text.h"
 #include "xi_four_img.h"
 #include "xi_glow_cursor.h"
+#include "xi_trigger.h"
 #include "xi_glower.h"
 #include "xi_img_collection.h"
 #include "xi_keychanger.h"
