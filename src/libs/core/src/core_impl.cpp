@@ -714,7 +714,7 @@ void CoreImpl::ProcessStateLoading()
     else
     {
         if (storm::loadWatch().Armed())
-            spdlog::info("load watch: '{}' applied {:.1f} s (wall clock, a frame counted 5 s at most) after it was asked for", State_file_name,
+            spdlog::info("load watch: '{}' applied; its state was taken {:.1f} s (wall clock) after it was asked for", State_file_name,
                          storm::loadWatch().Waited());
         storm::loadWatch().Loaded();
     }
