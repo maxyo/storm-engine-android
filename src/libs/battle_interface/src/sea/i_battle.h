@@ -3,7 +3,7 @@
 #include "bi_utils.h"
 #include "bi_defines.h"
 #include "battle_navigator.h"
-#include "dx9render.h"
+#include "renderer.h"
 #ifdef __ANDROID__
 #include <platform/android_sea_orders.hpp>
 #endif

@@ -1,5 +1,5 @@
 #include "legacy_dynamic_vertex_stream.hpp"
-#include "dx9render.h"
+#include "renderer.h"
 #include <cstring>
 namespace storm::render {
 namespace {

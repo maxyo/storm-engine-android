@@ -2,7 +2,7 @@
 
 #include "storm_glm.h"
 #include "collide.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "entity.h"
 #include "geometry.h"
 #include "geos.h"

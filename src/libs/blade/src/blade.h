@@ -9,7 +9,7 @@ model binded to an animated locator
 #pragma once
 
 #include "collide.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "model.h"
 
 #define BLADE_INFO_QUANTITY 2

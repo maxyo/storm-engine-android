@@ -2,7 +2,7 @@
 
 #include "storm_glm.h"
 #include "storm_glm.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "geometry.h"
 
 #define MAX_MEASURE_POINTS 10

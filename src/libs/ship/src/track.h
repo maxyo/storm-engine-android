@@ -1,6 +1,6 @@
 #pragma once
 
-#include "dx9render.h"
+#include "renderer.h"
 #include "sea_base.h"
 #include "ship_base.h"
 #include <vector>

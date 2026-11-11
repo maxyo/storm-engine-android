@@ -1,6 +1,6 @@
 #pragma once
 
-#include "dx9render.h"
+#include "renderer.h"
 #include "geos.h"
 #include "storm_glm.h"
 #include "model.h"

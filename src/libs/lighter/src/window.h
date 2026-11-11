@@ -12,7 +12,7 @@
 
 #include "l_types.h"
 #include "lighter_lights.h"
-#include "dx9render.h"
+#include "renderer.h"
 
 class Window
 {

@@ -3,7 +3,7 @@
 #include <string>
 
 #include "storm_glm.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "probability_table.hpp"
 #include "sound_defines.h"
 #include "v_sound_service.h"

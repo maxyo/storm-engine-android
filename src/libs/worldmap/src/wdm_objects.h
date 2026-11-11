@@ -11,7 +11,7 @@
 #pragma once
 
 #include "storm_glm.h"
-#include "dx9render.h"
+#include "renderer.h"
 
 #include "wdm_objects_wind.h"
 

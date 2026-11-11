@@ -3,7 +3,7 @@
 #include "animals_defines.h"
 #include "storm_glm.h"
 #include "v_sound_service.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "message.h"
 
 ///////////////////////////////////////////////////////////////////

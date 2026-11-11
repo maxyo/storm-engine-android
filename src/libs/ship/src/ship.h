@@ -5,7 +5,7 @@
 
 #include "collide.h"
 #include "d_timer.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "fire_place.h"
 #include "geometry.h"
 #include "island_base.h"

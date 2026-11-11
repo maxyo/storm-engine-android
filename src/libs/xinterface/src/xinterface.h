@@ -3,7 +3,7 @@
 #include "storm_glm.h"
 #include "nodes/xi_util.h"
 #include "quest_file_reader/quest_file_reader.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "editor/editor.h"
 #include "inode.h"
 #include "vma.hpp"

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "collide.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "model.h"
 #include "sea_base.h"
 #include "vma.hpp"

@@ -11,7 +11,7 @@
 #include "character_animation_kipper.h"
 #include "entity.h"
 #include "core.h"
-#include "dx9render.h"
+#include "renderer.h"
 
 // ============================================================================================
 // Construction, destruction

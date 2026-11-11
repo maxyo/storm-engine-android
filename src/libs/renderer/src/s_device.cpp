@@ -2702,7 +2702,7 @@ void DX9RENDER::RenderAnimation(int32_t ib, void *src, int32_t numVrts, int32_t 
 }
 
 //################################################################################
-// Buffer handles (the contract is in dx9render.h): indices into VertexBuffers / IndexBuffers, -1 is "no
+// Buffer handles (the contract is in renderer.h): indices into VertexBuffers / IndexBuffers, -1 is "no
 // buffer". Owners pass -1 to Release unchecked (BIImageMaterial::RemakeBuffers, ShipTracks); indexing the
 // table with it read the member in front of the table as a buffer pointer (keptPixels_'s
 // max_load_factor, 1.0f, crashed as address 0x3f800000).

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "island_base.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "ship_base.h"
 #include <vector>
 

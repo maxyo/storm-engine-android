@@ -2,7 +2,7 @@
 
 #include "storm_glm.h"
 #include "v_sound_service.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "sea_base.h"
 #include "seps.h"
 

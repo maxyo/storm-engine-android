@@ -2,7 +2,7 @@
 
 #include "storm_glm.h"
 #include "quest_file_reader/quest_file_reader.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "shared/interface/messages.h"
 #include "string_service.h"
 #include "vx_service.h"

@@ -2,7 +2,7 @@
 
 #include <unordered_map>
 
-#include "dx9render.h"
+#include "renderer.h"
 #include "shim/device.hpp"
 
 class DX9RENDER;

@@ -3,7 +3,7 @@
 #include "ball_splash_defines.h"
 #include "storm_glm.h"
 #include "t_splash.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "geometry.h"
 #include "sea_base.h"
 

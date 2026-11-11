@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix='storm-splash-lifecycle-') as temporary:
 constexpr int D3DFVF_XYZ=2, D3DFVF_DIFFUSE=64, D3DFVF_TEX1=256, D3DFVF_TEX2=512;
 constexpr int D3DFVF_TEXTUREFORMAT2=0, D3DUSAGE_WRITEONLY=8;
 ''')
-    (out / 'dx9render.h').write_text((Path(__file__).with_name('renderer_fixture.hpp')).read_text())
+    (out / 'renderer.h').write_text((Path(__file__).with_name('renderer_fixture.hpp')).read_text())
     production = (source / 't_splash.cpp').read_text()
     globals_ = production[production.index('VRenderer *TSplash::renderer'):production.index('uint32_t Desaturate')]
     methods = '\n'.join(function(production, signature) for signature in (

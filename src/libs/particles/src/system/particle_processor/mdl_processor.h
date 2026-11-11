@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "dx9render.h"
+#include "renderer.h"
 
 #include "../../i_common/particle.h"
 #include "../data_source/field_list.h"

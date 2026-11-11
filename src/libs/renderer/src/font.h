@@ -1,6 +1,6 @@
 #pragma once
 
-#include "dx9render.h"
+#include "renderer.h"
 #include "shim/device.hpp"
 
 #include <string_view>

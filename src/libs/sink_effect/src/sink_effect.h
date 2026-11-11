@@ -3,7 +3,7 @@
 #include "storm_glm.h"
 #include "sink_splash_defines.h"
 #include "t_sink.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "geometry.h"
 #include "sea_base.h"
 

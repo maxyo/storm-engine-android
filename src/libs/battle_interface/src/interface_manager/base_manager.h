@@ -1,7 +1,7 @@
 #pragma once
 
 #include "bi_defines.h"
-#include "dx9render.h"
+#include "renderer.h"
 
 class BIImageRender;
 class BI_ManagerBase;

@@ -11,7 +11,7 @@
 #pragma once
 
 #include "supervisor.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "grs.h"
 #include "vma.hpp"
 

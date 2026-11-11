@@ -1,5 +1,5 @@
 #include "legacy_textured_mesh.hpp"
-#include "dx9render.h"
+#include "renderer.h"
 #include <cstring>
 #include <string>
 namespace storm::render {

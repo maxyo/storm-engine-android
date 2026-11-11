@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../xdefines.h"
-#include "dx9render.h"
+#include "renderer.h"
 
 class INIFILE;
 class VXSERVICE;

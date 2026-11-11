@@ -5,7 +5,7 @@
 #pragma once
 
 #include "storm_glm.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "sail_base.h"
 
 extern float g_fSailHoleDepend;

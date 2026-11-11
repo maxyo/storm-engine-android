@@ -4,7 +4,7 @@
 #pragma once
 
 #include "sea_base.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "vma.hpp"
 #ifdef __ANDROID__
 #include "parallel_for.hpp"

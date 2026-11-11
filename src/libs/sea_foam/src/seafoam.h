@@ -3,7 +3,7 @@
 #include "seafoam_defines.h"
 #include "t_carcass.h"
 #include "v_sound_service.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "geos.h"
 #include "model.h"
 #include "sea_base.h"

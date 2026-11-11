@@ -10,7 +10,7 @@
 
 #include "location_effects.h"
 #include "core.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "string_compare.hpp"
 
 #define LFX_SPLASHES_NUM (sizeof(chrSplash) / sizeof(ChrSplash))

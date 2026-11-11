@@ -1,6 +1,6 @@
 #pragma once
 
-#include "dx9render.h"
+#include "renderer.h"
 
 #define BI_IMAGE_VERTEX_FORMAT (D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1 | D3DFVF_TEXTUREFORMAT2)
 

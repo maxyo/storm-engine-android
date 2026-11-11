@@ -2,7 +2,7 @@
 
 #include "link_describe.hpp"
 
-#include <dx9render.h>
+#include <renderer.h>
 #include <entity.h>
 #include <v_sound_service.h>
 

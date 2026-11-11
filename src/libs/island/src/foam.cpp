@@ -1,7 +1,7 @@
 #include "foam.h"
 #include "core.h"
 #include "math_inlines.h"
-#include "dx9render.h"
+#include "renderer.h"
 
 CoastFoam::CoastFoam()
 {

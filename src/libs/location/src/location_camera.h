@@ -12,7 +12,7 @@
 
 #include "storm_glm.h"
 #include "path_tracks.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "vma.hpp"
 #include <string>
 #include <vector>

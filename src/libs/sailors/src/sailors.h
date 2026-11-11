@@ -3,7 +3,7 @@
 #include <string>
 
 #include "collide.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "model.h"
 #include "ship_base.h"
 #include "sea_base.h"

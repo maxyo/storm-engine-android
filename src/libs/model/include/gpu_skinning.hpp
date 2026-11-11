@@ -8,7 +8,7 @@
 // blends the bones exactly like the CPU kernel in src/libs/model/src/skinning.hpp, which stays for
 // the caustic pass only (its vs_1_1 port has no skinned variant).
 // Vertex and palette layout: skinning_palette.hpp.
-#include "dx9render.h"
+#include "renderer.h"
 #include "skinning_palette.hpp"
 #include "vertex_source_lifetime.hpp"
 

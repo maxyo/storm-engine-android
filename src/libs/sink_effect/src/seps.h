@@ -1,7 +1,7 @@
 #pragma once
 
 #include "storm_glm.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "geometry.h"
 #include "v_file_service.h"
 #include "vma.hpp"

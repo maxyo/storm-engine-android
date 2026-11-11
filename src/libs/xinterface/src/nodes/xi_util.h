@@ -5,7 +5,7 @@
 #define UTILS_KEYS_DELAY_FOR_REPEAT 800
 
 #include "../xdefines.h"
-#include "dx9render.h"
+#include "renderer.h"
 
 enum InterfaceStringCurTokenType
 {

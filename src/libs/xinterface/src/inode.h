@@ -6,7 +6,7 @@
 #include "nodes/xi_tooltips.h"
 #include "video_texture.h"
 #include "core.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "v_file_service.h"
 #include "vma.hpp"
 #include "vx_service.h"

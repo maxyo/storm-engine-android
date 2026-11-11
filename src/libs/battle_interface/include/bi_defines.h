@@ -1,6 +1,6 @@
 #pragma once
 
-#include "dx9render.h"
+#include "renderer.h"
 #include "storm_assert.h"
 #include "v_data.h"
 

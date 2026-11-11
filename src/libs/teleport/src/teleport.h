@@ -1,6 +1,6 @@
 #pragma once
 
-#include "dx9render.h"
+#include "renderer.h"
 #include "vma.hpp"
 
 class TMPTELEPORT : public Entity

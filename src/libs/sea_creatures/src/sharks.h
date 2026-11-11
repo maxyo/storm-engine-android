@@ -13,7 +13,7 @@
 #include "animation.h"
 #include "island_base.h"
 #include "storm_glm.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "sea_base.h"
 #include "ship_base.h"
 

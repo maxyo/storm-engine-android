@@ -2,7 +2,7 @@
 
 #include "common_camera.h"
 #include "island_base.h"
-#include "dx9render.h"
+#include "renderer.h"
 
 class FREE_CAMERA : public COMMON_CAMERA
 {

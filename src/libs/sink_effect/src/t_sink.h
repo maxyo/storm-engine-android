@@ -4,7 +4,7 @@
 #include "iv_buffer_manager.h"
 #include "t_flotsam.h"
 #include "t_sink_splash.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "sea_base.h"
 
 ///////////////////////////////////////////////////////////////////

@@ -4,7 +4,7 @@
 #include "technique.h"
 #include "font.h"
 #include "video_texture.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "vma.hpp"
 #include "platform/platform.hpp"
 

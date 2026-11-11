@@ -13,7 +13,7 @@
 #include <chrono>
 
 #include "core.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "storm_assert.h"
 #include "v_file_service.h"
 

@@ -13,7 +13,7 @@ on Android and on the Linux development host alike.
   static libraries. Offline builds pass `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<pinned checkout>`.
   Licences: `third_party/licenses/{bgfx,bx,bimg}-BSD-2-Clause.txt`.
 - `src/shim/` — the D3D9-shaped device. Consumer libraries reach the renderer through `VRenderer`
-  (src/libs/renderer/include/dx9render.h) with renderer ids (textures, render targets, depth surfaces,
+  (src/libs/renderer/include/renderer.h) with renderer ids (textures, render targets, depth surfaces,
   vertex/index buffers, vertex declarations); `DX9RENDER` drives `shim::Device` directly. The device
   and its objects (`Texture2D`, `CubeTexture`, `VolumeTexture`, `Surface`, buffers, declarations,
   shaders) are plain reference-counted classes on bgfx handles with D3D9-style methods; an

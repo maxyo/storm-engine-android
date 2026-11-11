@@ -12,7 +12,7 @@
 
 #include "storm_glm.h"
 #include "pillar.h"
-#include "dx9render.h"
+#include "renderer.h"
 
 class NoiseCloud
 {

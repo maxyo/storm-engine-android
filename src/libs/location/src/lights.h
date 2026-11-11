@@ -14,7 +14,7 @@
 #include <set>
 
 #include "collide.h"
-#include "dx9render.h"
+#include "renderer.h"
 
 class Lights : public Entity
 {

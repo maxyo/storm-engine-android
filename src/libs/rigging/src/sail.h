@@ -1,7 +1,7 @@
 #pragma once
 
 #include "sailone.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "geos.h"
 #include "model.h"
 #include "sail_base.h"

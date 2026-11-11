@@ -4,7 +4,7 @@
 #include "../xdefines.h"
 #include "entity.h"
 #include "storm_glm.h"
-#include "dx9render.h"
+#include "renderer.h"
 
 class MODEL;
 class NODE;

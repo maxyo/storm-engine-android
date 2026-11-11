@@ -4,7 +4,7 @@
 #include "storm_glm.h"
 #include "t_dynamic_object.h"
 #include "t_dynamic_system.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "geometry.h"
 #include "sea_base.h"
 #include "ship_base.h"

@@ -2,7 +2,7 @@
 
 #include "link_describe.hpp"
 
-#include "dx9render.h"
+#include "renderer.h"
 #include "storm_glm.h"
 #include "vma.hpp"
 

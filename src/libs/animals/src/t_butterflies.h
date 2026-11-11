@@ -6,7 +6,7 @@
 #include "storm_glm.h"
 #include "t_butterfly.h"
 #include "collide.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "geometry.h"
 
 #define Y_REDEFINE_TIME 250

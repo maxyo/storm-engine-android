@@ -10,7 +10,7 @@
 
 #include "geometry.h"
 
-#include "dx9render.h"
+#include "renderer.h"
 #include "model_array.h"
 #include "core.h"
 #include "entity.h"

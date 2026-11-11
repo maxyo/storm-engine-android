@@ -2,7 +2,7 @@
 
 #include "common_camera.h"
 #include "island_base.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "sea_base.h"
 
 #define MIN_DIST 70.f

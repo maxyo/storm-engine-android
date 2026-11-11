@@ -4,7 +4,7 @@
 #pragma once
 
 #include "common_camera.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "model.h"
 #include "vma.hpp"
 

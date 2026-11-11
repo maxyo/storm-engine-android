@@ -11,7 +11,7 @@
 #pragma once
 
 #include "attributes.h"
-#include "dx9render.h"
+#include "renderer.h"
 
 class WdmRenderObject
 {

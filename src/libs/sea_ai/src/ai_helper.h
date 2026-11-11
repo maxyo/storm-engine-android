@@ -4,7 +4,7 @@
 #include "island_base.h"
 #include "save_load.h"
 #include "collide.h"
-#include "dx9render.h"
+#include "renderer.h"
 #include "script_relations.hpp"
 #include <optional>
 #include <vector>
