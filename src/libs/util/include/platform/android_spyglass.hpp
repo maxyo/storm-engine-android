@@ -122,7 +122,8 @@ class SpyglassState
     bool awaiting() const { return on_ && answered_ != generation_; }
     bool covered() const
     {
-        return on_ && (answered_ == generation_ ? covering_ : hudPresenters.spyglass);
+        // One coverage rule (android_hud_presenter.hpp): the UI presents the spyglass info.
+        return on_ && (hudPresenters.spyglass || (answered_ == generation_ && covering_));
     }
 
     std::string json() const

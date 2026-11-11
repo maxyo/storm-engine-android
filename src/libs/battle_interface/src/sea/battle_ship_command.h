@@ -1,4 +1,5 @@
 #pragma once
+#include <unordered_map>
 
 #include "../battle_command.h"
 
@@ -9,6 +10,14 @@ class BIShipCommandList : public BICommandList
     ~BIShipCommandList() override;
 
     void FillIcons() override;
+#ifdef __ANDROID__
+    int32_t AndroidTargetCount(const std::string &command) override;
+#endif
+  private:
+#ifdef __ANDROID__
+    std::unordered_map<std::string, std::pair<uint32_t, int32_t>> m_androidTargetCounts; // probe time, count
+#endif
+  protected:
     void Init() override;
 
   protected:

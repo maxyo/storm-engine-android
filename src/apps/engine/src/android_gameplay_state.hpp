@@ -95,7 +95,8 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         else if (sea)
             for (auto name : {"Ship_TurnLeft", "Ship_TurnRight", "Ship_SailUp", "Ship_SailDown",
                  "Ship_Fire", "Sea_CameraSwitch", "hk_charge1", "hk_charge2", "hk_charge3", "hk_charge4",
-                 "BICommandsActivate", "BIFastCommand", "TelescopeIn", "TelescopeOut"}) add(name);
+                 "BICommandsActivate", "BIFastCommand", "TelescopeIn", "TelescopeOut",
+                 "DeckCamera_Forward", "DeckCamera_Backward"}) add(name); // walking: first person (Sailing1Pers) only
         else
         {
             for (auto name : {"ChrForward", "ChrBackward", "ChrStrafeLeft", "ChrStrafeRight", "ChrFightMode",
@@ -105,9 +106,9 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         }
         // The time scale controls are global (no key group): offered when the scripts created them.
         auto *created = attributes ? attributes->FindAClass(attributes, "map.controls") : nullptr;
-        if (sea && !context.worldmap && created)
-            for (auto name : {"TimeScale", "TimeScaleFaster", "TimeScaleSlower"})
-                if (created->GetAttributeClass(name)) out.capabilities.emplace_back(name);
+        // A touch HUD offers four steps of them (android_time_scale.hpp).
+        if (sea && !context.worldmap && created && created->GetAttributeClass("TimeScaleFaster") && created->GetAttributeClass("TimeScaleSlower"))
+            for (auto name : {"TimeScaleX1", "TimeScaleX2", "TimeScaleX4", "TimeScaleX8"}) out.capabilities.emplace_back(name);
         // The battle abilities the scripts' command list knows (launched like its own buttons).
         auto *battleData = static_cast<VDATA *>(core.GetScriptVariable("BattleInterface"));
         auto *battle = sea && !context.worldmap && battleData ? battleData->GetAClass() : nullptr;

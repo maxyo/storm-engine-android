@@ -175,14 +175,23 @@ void BATTLE_INTERFACE::Realize(uint32_t delta_time)
         if (m_bVisible)
         {
             rs->MakePostProcess();
+#ifdef __ANDROID__
+            // One coverage rule (android_hud_presenter.hpp): while the touch HUD presents the sea
+            // HUD, none of the legacy sea interface draws: info images, perk/state icons, the
+            // command icons, readout texts, lines and the battle border. Only the navigator runs,
+            // which draws the radar into the touch HUD's own disc and never the native compass.
+            const bool legacy = !storm::android::legacyDrawRefused("sea interface", storm::android::hudPresenters.sea);
+#else
+            constexpr bool legacy = true;
+#endif
 
-            if (m_bShowBattleNavigator && m_pShipInfoImages)
+            if (legacy && m_bShowBattleNavigator && m_pShipInfoImages)
                 m_pShipInfoImages->Draw();
 
-            if (m_bShowBattleNavigator)
+            if (legacy && m_bShowBattleNavigator)
                 m_ImagesInfo.Draw();
 
-            if (m_bShowCommandMenu)
+            if (legacy && m_bShowCommandMenu)
                 m_pShipIcon->Draw();
 #ifdef __ANDROID__
             // The touch orders panel covers the open command menu: the native navigator and its
@@ -200,31 +209,10 @@ void BATTLE_INTERFACE::Realize(uint32_t delta_time)
             }
             // if( m_pMessageIcons ) m_pMessageIcons->Draw();
 
-            if (navigatorShown)
+            if (legacy && navigatorShown)
             {
-#ifdef __ANDROID__
-                const uint32_t mobileMask = AndroidCommandActive() ? 0 :
-                    storm::android::shipCaptionMask(AndroidCaptionsVisible(), false, storm::android::mobileShipHudMask());
-                for (auto &text : m_TextArray)
-                {
-                    const auto &name = text.sourceName;
-                    if(BattleNavigator.AndroidPresented() && (storm::iEquals(name,"Speed") || storm::iEquals(name,"Ammo") ||
-                        storm::iEquals(name,"Powder") || storm::iEquals(name,"Date") || storm::iEquals(name,"Location"))) continue;
-                    if (((mobileMask & storm::android::ShipAmmo) && storm::iEquals(name, "Ammo")) ||
-                        ((mobileMask & storm::android::ShipPowder) && storm::iEquals(name, "Powder")) ||
-                        ((mobileMask & storm::android::ShipDateTime) && storm::iEquals(name, "Date")) ||
-                        ((mobileMask & storm::android::ShipLocation) && storm::iEquals(name, "Location")) ||
-                        (storm::android::shipHideSpeedHeading(mobileMask) && storm::iEquals(name, "Speed"))) continue;
-                    text.Print();
-                }
-#else
                 BIUtils::PrintTextInfoArray(m_TextArray);
-#endif
-#ifdef __ANDROID__
-                m_LinesInfo.Draw(BattleNavigator.AndroidPresented() || (BattleNavigator.AndroidDrawn() && storm::android::shipHideSpeedHeading(mobileMask) && (mobileMask & storm::android::ShipAmmo)));
-#else
                 m_LinesInfo.Draw();
-#endif
                 if (m_bShowBattleBorder)
                     m_BattleBorder.Draw();
             }
@@ -331,14 +319,8 @@ uint64_t BATTLE_INTERFACE::ProcessMessage(MESSAGE &message)
     }
     break;
     case BI_SET_VISIBLE: // "ll"
-    {
-        const bool visible = 0 != message.Long();
-#ifdef __ANDROID__
-        if (visible != m_bVisible) storm::android::shipTelemetry.nativeVisibilityChanged();
-#endif
-        m_bVisible = visible;
+        m_bVisible = (0 != message.Long());
         break;
-    }
     case BI_SET_ISLAND_LOCATORS: // "la"
         g_IslandDescr.SetIsland(message.AttributePointer());
         break;

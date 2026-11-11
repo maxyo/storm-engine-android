@@ -18,6 +18,14 @@
 namespace storm::ui::hud
 {
 
+// A message shown again while its toast is still up: one toast, "text ×N". Shared by the
+// HUD's event log and the runtime's toast stack (every game log line comes through these).
+inline std::string RepeatedText(const std::string &text, int count)
+{
+    return count > 1 ? text + " \u00D7" + std::to_string(count) : text;
+}
+
+
 using screens::Event;
 
 // --- states: one struct per channel, filled by its consumer (states.cpp) ---------------
@@ -44,7 +52,7 @@ struct Combat
 {
     bool known = false;
     uint64_t gameplay_revision = 0, activity = 0;
-    std::string player, mode = "unknown", interact_kind = "interact";
+    std::string player, mode = "unknown", interact_kind = "interact"; // interact_kind: dialog | boarding | interact
     // Offered action -> its availability generation, which a command for it carries.
     std::map<std::string, uint64_t> actions;
     std::string pistol = "unknown"; // unknown, no_weapon, unloaded, loaded
@@ -329,8 +337,7 @@ struct SceneEntry
     std::span<const char *const> modes; // gameplay modes it draws
     std::unique_ptr<Scene> (*create)(Hud &);
     // The engine's name for this HUD in "hudowner:<name>", said once when the HUD starts: the
-    // engine then keeps the native parts it replaces off while a revision is unanswered.
-    // nullptr: the scene only answers revisions it was asked about (the land sheet).
+    // engine then keeps that HUD's legacy rendering off (android_hud_presenter.hpp).
     const char *presents = nullptr;
 };
 // The migration switch of the HUD (scenes.cpp): gameplay modes whose HUD is drawn here.
@@ -454,6 +461,8 @@ class Hud
     {
         std::string text, tone;
         double until = 0.0;
+        std::string base; // the message itself; `text` adds the repeat count
+        int count = 1;
     };
     void Refresh();
     void Conceal();

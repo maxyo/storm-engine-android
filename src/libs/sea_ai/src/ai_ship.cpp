@@ -344,6 +344,25 @@ bool AIShip::Fire(bool bCameraOutside)
     {
         return GetCameraController()->Fire();
     }
+    // The player's ship seen from outside (owner rule): the gun side the camera faces fires -
+    // at the nearest enemy in that direction, otherwise as far as it reaches along the view.
+    // (Stock fired only at enemies already in range of any side, so a tap usually did nothing.)
+    glm::vec3 vLook{};
+    const bool bFacing = isMainCharacter() && bCameraOutside && AIHelper::pRS;
+    if (bFacing)
+    {
+        glm::mat4 m;
+        AIHelper::pRS->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(m));
+        storm::math::invertRigid(m);
+        const auto vZ = storm::math::vz(m);
+        vLook = storm::math::normalizeOrZero(glm::vec3(vZ.x, 0.0f, vZ.z));
+        if (!GetCannonController()->isCanFire(vLook))
+            return false; // no side looks that way (the bow or the stern without guns)
+    }
+    // Within this cone around the view a target counts as "in that direction".
+    const auto inView = [&](const glm::vec3 &vTarget) {
+        return !bFacing || glm::dot(storm::math::normalizeOrZero(glm::vec3(vTarget.x - GetPos().x, 0.0f, vTarget.z - GetPos().z)), vLook) > 0.7f;
+    };
     if (bCameraOutside)
     {
         aShipFire.clear();
@@ -352,7 +371,7 @@ bool AIShip::Fire(bool bCameraOutside)
             if (isEnemy(*AIShips[i]))
             {
                 const auto bCanFire = GetCannonController()->isCanFire(AIShips[i]);
-                if (!isCanFire(AIShips[i]->GetPos()))
+                if (!isCanFire(AIShips[i]->GetPos()) || !inView(AIShips[i]->GetPos()))
                     continue;
                 if (bCanFire)
                 {
@@ -380,7 +399,7 @@ bool AIShip::Fire(bool bCameraOutside)
                 {
                     auto *const pC = pFort->GetCannon(i);
                     if (pC && !pC->isDamaged() && GetCannonController()->isCanFirePos(pC->GetPos()) &&
-                        isCanFire(pC->GetPos()))
+                        isCanFire(pC->GetPos()) && inView(pC->GetPos()))
                     {
                         // check for friendly fire
                         // uint32_t dwIdx = aShipFire.Add();
@@ -407,6 +426,8 @@ bool AIShip::Fire(bool bCameraOutside)
                     GetCannonController()->Fire(pFire->pFortCannon->GetPos());
             }
         }
+        else if (bFacing)
+            GetCannonController()->Fire(GetPos(), vLook);
     }
     return true;
 }

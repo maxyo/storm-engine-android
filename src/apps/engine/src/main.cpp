@@ -34,6 +34,7 @@
 #include "platform/android_shortcuts.hpp"
 #include "android_gameplay_state.hpp"
 #include "android_ship_abilities.hpp"
+#include "android_time_scale.hpp"
 #include "android_combat_state.hpp"
 #include "android_sea_orders_state.hpp"
 #include "android_land_commands_state.hpp"
@@ -577,7 +578,7 @@ int main(int argc, char *argv[])
         return isRunning && bActive && androidLifecycle.canRun() && core_private->initialized() && core.Controls &&
             storm::android::loadingState == 0 && storm::android::mobileScreen.empty() && gameplayState.allows(control);
     };
-    storm::android::updateCombatState(gameplayState);
+    storm::android::updateCombatState(gameplayState, core_private);
     storm::android::publishCombatState();
     storm::android::publishGameplayState(gameplayState.json());
     storm::android::worldMapHud.update({},SDL_GetTicks());
@@ -799,7 +800,7 @@ int main(int argc, char *argv[])
             storm::android::movementInput.updateOwner({});
             gameplayState.update({});
             storm::android::heldControls.update(gameplayState.revision());
-            storm::android::updateCombatState(gameplayState);
+            storm::android::updateCombatState(gameplayState, core_private);
             storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
             storm::android::worldMapHud.update({},SDL_GetTicks());
@@ -842,6 +843,8 @@ int main(int argc, char *argv[])
                 // A battle ability goes through the command list, as the native menu launches it.
                 if (action->starts_with("BI_"))
                     storm::android::launchShipAbility(*action);
+                else if (const int step = storm::android::timeScaleStep(*action); step >= 0)
+                    storm::android::applyTimeScaleStep(step);
                 else
                     core_private->Event("Control Activation", "s", action->c_str());
             }
@@ -930,7 +933,7 @@ int main(int argc, char *argv[])
             storm::android::heldControls.update(gameplayState.revision());
             storm::android::seaQuickLifecycleReady = gameplayReady;
             storm::android::publishSeaQuickAction();
-            storm::android::updateCombatState(gameplayState);
+            storm::android::updateCombatState(gameplayState, core_private);
             storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
             storm::android::worldMapHud.update(storm::android::readWorldMapFrame(gameplayState,gameplayReady),SDL_GetTicks());
@@ -944,7 +947,7 @@ int main(int argc, char *argv[])
                 // silent is withdrawn loudly and the native HUD parts come back (android_hud_presenter.hpp).
                 using namespace storm::android;
                 const auto &telemetry = shipTelemetry;
-                const bool seaWaiting = gameplayReady && (hudPresenters.seaFresh || seaQuickAction.awaiting() || telemetry.awaiting() ||
+                const bool seaWaiting = gameplayReady && (seaQuickAction.awaiting() || telemetry.awaiting() ||
                     (telemetry.frame().valid && seaNavigator.pending(telemetry.revision(), telemetry.hudRevision(), telemetry.frame().navigatorGeneration)));
                 for (const auto &line : {hudPresenters.watch("sea", seaWaiting, SDL_GetTicks()),
                                          hudPresenters.watch("worldmap", gameplayReady && worldMapHud.awaiting(), SDL_GetTicks()),

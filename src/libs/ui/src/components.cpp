@@ -211,9 +211,16 @@ void MorphChildren(Rml::Element *live, Rml::Element *fresh)
     std::vector<Rml::ElementPtr> wanted;
     while (fresh->GetNumChildren() > 0)
         wanted.push_back(fresh->RemoveChild(fresh->GetFirstChild()));
+    // Children the runtime added itself (the scroll-edge fade) are not the template's: they
+    // stay. Dropping them on every rebuild made them come back as new elements, which laid
+    // the whole document out a second time on every model change.
+    std::vector<Rml::Element *> current_children;
+    for (int i = 0; i < live->GetNumChildren(); ++i)
+        if (!live->GetChild(i)->IsClassSet("scroll-fade"))
+            current_children.push_back(live->GetChild(i));
     for (size_t i = 0; i < wanted.size(); ++i)
     {
-        Rml::Element *current = static_cast<int>(i) < live->GetNumChildren() ? live->GetChild(static_cast<int>(i)) : nullptr;
+        Rml::Element *current = i < current_children.size() ? current_children[i] : nullptr;
         // A component that takes another id is another component (a dialog with a body
         // slot after one without): build it afresh, its slot content is set only then.
         // A slot holds the component's content and is never morphed from a plain element
@@ -228,8 +235,8 @@ void MorphChildren(Rml::Element *live, Rml::Element *fresh)
         else
             live->AppendChild(std::move(wanted[i]));
     }
-    while (live->GetNumChildren() > static_cast<int>(wanted.size()))
-        live->RemoveChild(live->GetLastChild());
+    for (size_t i = wanted.size(); i < current_children.size(); ++i)
+        live->RemoveChild(current_children[i]);
 }
 
 } // namespace
@@ -417,6 +424,8 @@ void ComponentElement::OnLayout()
 void ComponentElement::RebuildNow()
 {
     dirty_ = false;
+    // Counted for every re-render, also one whose output is unchanged: a behaviour may still
+    // change what is shown in Rebuilt (Prepare draws a frame for it).
     ++services_.Counters().rebuilds;
 
     // First build: the element's own children are the content for the slot.
@@ -486,14 +495,19 @@ void ComponentElement::RebuildNow()
     }
     Rml::ElementDocument *document = GetOwnerDocument();
     if (!built_ || !document)
+    {
         SetInnerRML(rml);
-    else
+    }
+    else if (rml != built_rml_)
     {
         // Later builds patch the existing tree in place.
         Rml::ElementPtr fresh = document->CreateElement("div");
         fresh->SetInnerRML(rml);
         MorphChildren(this, fresh.get());
     }
+    // Else the template gave what is shown already (a model revision that did not touch this
+    // component): no tree is parsed, compared or laid out.
+    built_rml_ = std::move(rml);
     if (!kept.empty())
     {
         if (Rml::Element *slot = FindSlot(this))
@@ -549,6 +563,8 @@ void ComponentElement::ApplyClasses()
     for (const std::string &name : live_classes_)
         if (std::find(wanted.begin(), wanted.end(), name) == wanted.end())
             wanted.push_back(name);
+    if (wanted == applied_classes_)
+        return;
     for (const std::string &name : applied_classes_)
         if (std::find(wanted.begin(), wanted.end(), name) == wanted.end())
             SetClass(name, false);

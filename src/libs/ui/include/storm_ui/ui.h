@@ -113,8 +113,9 @@ struct FrameStats
 {
     double update_ms = 0.0; // CPU: timers, routing, Context::Update (styles, rebuilds, layout)
     double render_ms = 0.0; // CPU: Context::Render and the backend's frame (command submission, not GPU time)
-    int rebuilds = 0;       // components re-rendered from their template
+    int rebuilds = 0;       // components re-rendered from their template (an unchanged output patches nothing)
     int laid_out = 0;       // component boxes formatted (0 = no layout ran)
+    int layout_passes = 0;  // documents formatted (RmlUi lays out a whole document at a time)
     int geometry = 0;       // meshes compiled
     int draws = 0;          // draw calls (geometry, shaders)
     int masks = 0;          // clip-mask (stencil) draws: rounded or transformed clipping
@@ -122,6 +123,7 @@ struct FrameStats
     int cached_layers = 0;  // of those, filtered layers drawn from the runtime's cache (no backend layer)
     int textures = 0;       // textures created (uploads)
     size_t texture_bytes = 0;
+    int textures_shared = 0; // textures saved from a layer (box shadows) handed out again instead of made
     // With Config::verify_unchanged: this frame was predicted unchanged by Prepare but drew
     // other commands than the frame shown (also an error in the log).
     bool mispredicted = false;

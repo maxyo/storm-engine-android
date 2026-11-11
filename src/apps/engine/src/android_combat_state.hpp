@@ -5,6 +5,7 @@
 #include "platform/android_combat_input.hpp"
 #include "platform/android_movement.hpp"
 #include "platform/android_pistol_state.hpp"
+#include "core_private.h"
 
 namespace storm::android
 {
@@ -15,20 +16,39 @@ inline bool combatContextCurrent(const GameplayState &gameplay, bool ready)
     return current.mode == gameplay.snapshot().mode && current.scene == gameplay.snapshot().scene &&
         current.group == gameplay.snapshot().group && !current.scene.empty();
 }
-inline bool dialogTargetAvailable()
+// The dialog character's script index, or -1 (FindDialogCharacter keeps it with hysteresis).
+inline int64_t dialogTarget()
 {
     const auto player = core.GetEntityId("Player");
     auto *character = shipMainCharacter();
     if (player == invalid_entity || !character || core.Entity_GetAttributePointer(player) != character ||
-        core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "IsDead")) return false;
+        core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "IsDead")) return -1;
     // Query the same range, facing, life and fight checks used by Player::Update.
     // The script's dialogready attribute is only a one-second hint and can be stale.
-    return validDialogTarget(core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "FindDialogCharacter"));
+    const auto target = core.Send_Message(player, "ls", MSG_CHARACTER_EX_MSG, "FindDialogCharacter");
+    return validDialogTarget(target) ? target : -1;
 }
-inline void updateCombatState(const GameplayState &gameplay)
+// The game's way on after a boarding fight (LAi_boarding.c, TEHO and Caribbean Legend): once the enemy
+// group is dead and its delay has passed, LAi_EnableReload arms the one-shot "Control Activation"
+// handler LAi_ActivateReload, which continues the boarding on the action key (ChrAction) unless a quest
+// set GenQuest.CannotReloadBoarding. The active-action icon it also sets is only a hint: leaving a
+// locator, box or item resets it to "Nothing", and CL's BI_FastCommand ignores its BoardingReload. So
+// the touch HUD offers the action key while that handler is armed, not while the icon happens to show.
+inline bool boardingContinueArmed(CorePrivate *scripts)
+{
+    auto *process = static_cast<VDATA *>(core.GetScriptVariable("LAi_boarding_process"));
+    int32_t boarding = 0;
+    if (!process || !process->Get(boarding) || !boarding || !scripts ||
+        !scripts->HasActiveEventHandler("Control Activation", "LAi_ActivateReload"))
+        return false;
+    auto *character = shipMainCharacter();
+    return character && !character->FindAClass(character, "GenQuest.CannotReloadBoarding");
+}
+inline std::string combatInteractKind = "dialog";
+inline void updateCombatState(const GameplayState &gameplay, CorePrivate *scripts)
 {
     std::vector<CombatBinding> bindings;
-    std::string scene, player, mode = "unknown";
+    std::string scene, player, mode = "unknown", interactKind = "dialog";
     if (combatContextCurrent(gameplay, core.Controls != nullptr))
     {
         mode = gameplay.snapshot().mode;
@@ -54,8 +74,21 @@ inline void updateCombatState(const GameplayState &gameplay)
         };
         if (gameplay.allows("ChrFightMode")) add("weapon",false,{"ChrFightMode"});
         if (gameplay.allows("BOAL_UsePotion")) add("potion",false,{"BOAL_UsePotion"});
-        if (mode == "explore" && gameplay.allows("ChrAction") && dialogTargetAvailable())
-            add("interact",false,{"ChrAction"});
+        if (mode == "explore" && gameplay.allows("ChrAction"))
+        {
+            // The boarding continuation has no dialog target; otherwise the interact binding carries
+            // the talk target it was offered for (a tap aimed at another target is refused).
+            if (boardingContinueArmed(scripts))
+            {
+                interactKind = "boarding";
+                add("interact",false,{"ChrAction"});
+            }
+            else if (const auto target = dialogTarget(); target >= 0)
+            {
+                add("interact",false,{"ChrAction"});
+                if (!bindings.empty() && bindings.back().action == "interact") bindings.back().target = target;
+            }
+        }
         add("freelook",true,{"ChrCamSpecMode"});
         if (mode == "melee")
         {
@@ -73,6 +106,7 @@ inline void updateCombatState(const GameplayState &gameplay)
         }
     }
     combatInput.update(gameplay.revision(), std::move(scene), std::move(player), std::move(mode), std::move(bindings));
+    combatInteractKind = std::move(interactKind);
 }
 inline PistolState readPistolState()
 {
@@ -99,7 +133,7 @@ inline void publishCombatState()
     auto json=combatInput.json();
     const auto pistol = readPistolState();
     json.pop_back();
-    json += ",\"interactKind\":" + gameplayJsonString("dialog");
+    json += ",\"interactKind\":" + gameplayJsonString(combatInteractKind);
     json += ",\"pistol\":{\"state\":" + gameplayJsonString(pistol.state) +
             ",\"progress\":" + std::to_string(pistol.progress) + "}}";
     if (json == lastCombatState) return;

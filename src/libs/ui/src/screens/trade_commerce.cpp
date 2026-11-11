@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <limits>
 
 namespace storm::ui::screens
 {
@@ -204,10 +205,36 @@ class CommerceScreen final : public Screen
         const int ours = selected ? Number(selected->CellText(columns.own)) : 0;
         const int theirs = selected ? Number(selected->CellText(columns.other)) : 0;
         const int model_target = deal ? Number(admitted.Label("QTY_INFO_SHIP_QTY")) : ours;
-        const bool recent = deal && selected->row_id == local_row_ && bindings.Now() - local_at_ < 1.0;
+        if (!deal || !selected || selected->row_id != limit_row_)
+        {
+            limit_row_ = deal && selected ? selected->row_id : std::string();
+            limit_min_ = std::numeric_limits<int>::min();
+            limit_max_ = std::numeric_limits<int>::max();
+        }
+        // The player's own amount stands until the game has answered it: while it waits to
+        // go out and until a revision made after it arrives (at most 2 s), so that steps
+        // count on from it and not from a revision the game made before it saw the request.
+        const uint64_t revision = admitted.model->revision;
+        const bool mine = deal && selected->row_id == local_row_;
+        const bool waiting = mine && bindings.Waiting(*edit, "edit");
+        if (waiting)
+            asked_revision_ = revision;
+        const bool answered = mine && !waiting && revision > asked_revision_;
+        const bool recent = mine && (waiting || (!answered && bindings.Now() - local_at_ < 2.0));
         const int target = recent ? local_target_ : model_target;
-        if (recent) // then the game's own amount, also when it answered with another one (a limit)
-            bindings.RebuildAfter(local_at_ + 1.0 - bindings.Now());
+        if (recent && !waiting)
+            bindings.RebuildAfter(local_at_ + 2.0 - bindings.Now());
+        else if (answered && ours == local_ours_ && model_target != local_target_)
+        {
+            // The game answered with another amount: its limit in that direction (money,
+            // hold space, the merchant's purse). The control stops there instead of jumping
+            // out and back on every further tap.
+            if (local_target_ > ours && model_target >= ours && model_target < local_target_)
+                limit_max_ = model_target;
+            if (local_target_ < ours && model_target <= ours && model_target > local_target_)
+                limit_min_ = model_target;
+            local_target_ = model_target;
+        }
 
         Json rows = Json::array();
         for (size_t i = 0; i < goods.size(); ++i)
@@ -250,9 +277,17 @@ class CommerceScreen final : public Screen
                 const bool can_take = !money || row->CellText(columns.buy) != "-";
                 const bool can_give = !money || row->CellText(columns.sell) != "-";
                 const std::string result = OneLine(admitted.Label("QTY_Result"));
-                Json quantity{{"value", target},
-                              {"min", can_give ? 0 : ours},
-                              {"max", can_take ? ours + theirs : ours},
+                const int low = std::max(can_give ? 0 : ours, std::min(limit_min_, ours));
+                const int high = std::min(can_take ? ours + theirs : ours, std::max(limit_max_, ours));
+                // One slider for both directions: what we hold is the origin, the zone to its
+                // left gives (sells), the zone to its right takes (buys), each in its colour.
+                Json quantity{{"value", std::clamp(target, low, high)},
+                              {"min", low},
+                              {"max", high},
+                              {"zones", true},
+                              {"origin", ours},
+                              {"lessLabel", bindings.Text(money ? StringKey("trade.sell") : StringKey("trade.give"))},
+                              {"moreLabel", bindings.Text(money ? StringKey("trade.buy") : StringKey("trade.take"))},
                               {"label", own_caption},
                               {"allLabel", bindings.Text("common.all")},
                               {"summary", result.empty() ? "-" : result},
@@ -294,27 +329,29 @@ class CommerceScreen final : public Screen
         {
             // The game's edit box holds the amount to take; a negative number is the
             // amount to give.
-            const auto set = [this, &bindings, edit, ok, selected, ours, money](const Event &event) {
+            const auto set = [this, &bindings, edit, ok, selected, ours, money, asked = revision](const Event &event) {
                 const int wanted = std::atoi(event.value.c_str());
                 const int delta = wanted - ours;
                 local_row_ = selected->row_id;
                 local_target_ = wanted;
+                local_ours_ = ours;
+                asked_revision_ = asked; // a revision after this one answers the request
                 local_at_ = bindings.Now();
                 // Once the game has turned a negative amount into giving it reads every
-                // later number as an amount to give, and the model may not show that yet
-                // (a second step sent before the first one is answered). Zero always
-                // leaves giving, so it goes first and the signed amount after it.
-                bindings.Send(*edit, "edit", "0", selected->row_id);
+                // later number as an amount to give. Zero always leaves giving, so it goes
+                // right before the signed amount, in the same flush: sent on its own it made
+                // the game reset the deal and publish that in between (the amount jumped back
+                // to what we hold while the player was still stepping).
                 const std::string amount = std::to_string(delta);
                 if (money)
                 {
-                    bindings.SendLatest(*edit, "edit", amount, selected->row_id);
+                    bindings.SendLatest(*edit, "edit", amount, selected->row_id, std::string("0"));
                     return;
                 }
                 // A free transfer applies at once: when a drag ends, or shortly after the
                 // last step, the amount is entered and confirmed.
                 const double wait = event.verb == "commit" ? 0.0 : 0.4;
-                bindings.SendAfter(wait, *edit, "edit", amount, selected->row_id);
+                bindings.SendAfter(wait, *edit, "edit", amount, selected->row_id, std::string("0"));
                 if (ok && delta != 0)
                 {
                     bindings.SendAfter(wait, *ok, "press", {}, selected->row_id);
@@ -512,7 +549,13 @@ class CommerceScreen final : public Screen
     // The amount the player set last: shown until the game's own number catches up.
     std::string local_row_;
     int local_target_ = 0;
+    int local_ours_ = 0; // what we held when it was set: a learnt limit is one of this deal only
     double local_at_ = 0.0;
+    uint64_t asked_revision_ = 0; // the model revision the player's amount was asked against
+    // The game's own limits for the open row, learnt from its answers.
+    std::string limit_row_;
+    int limit_min_ = std::numeric_limits<int>::min();
+    int limit_max_ = std::numeric_limits<int>::max();
 };
 
 } // namespace

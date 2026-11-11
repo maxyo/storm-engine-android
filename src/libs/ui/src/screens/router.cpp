@@ -210,37 +210,57 @@ void Bindings::Send(const Widget &widget, const std::string &verb, const std::st
     router_.Emit(router_.Make(widget, verb, value, guard));
 }
 
-void Bindings::SendLatest(const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard)
+void Bindings::SendLatest(const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard,
+                          const std::optional<std::string> &lead)
 {
     Action action = router_.Make(widget, verb, value, guard);
+    std::optional<Action> first;
+    if (lead)
+        first = router_.Make(widget, verb, *lead, guard);
     for (Router::Waiting &waiting : router_.waiting_)
         if (waiting.action.node == action.node && waiting.action.index == action.index && waiting.action.verb == action.verb)
         {
             waiting.action = std::move(action);
+            waiting.lead = std::move(first);
             return;
         }
     const double now = router_.surface_.Now();
     if (now - router_.last_flush_ >= kFlushSeconds)
     {
         router_.last_flush_ = now;
+        if (first)
+            router_.Emit(std::move(*first));
         router_.Emit(std::move(action));
         return;
     }
-    router_.waiting_.push_back({std::move(action), router_.last_flush_ + kFlushSeconds});
+    router_.waiting_.push_back({std::move(action), router_.last_flush_ + kFlushSeconds, std::move(first)});
 }
 
-void Bindings::SendAfter(double seconds, const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard)
+void Bindings::SendAfter(double seconds, const Widget &widget, const std::string &verb, const std::string &value, const std::string &guard,
+                         const std::optional<std::string> &lead)
 {
     Action action = router_.Make(widget, verb, value, guard);
+    std::optional<Action> first;
+    if (lead)
+        first = router_.Make(widget, verb, *lead, guard);
     const double due = router_.surface_.Now() + seconds;
     for (Router::Waiting &waiting : router_.waiting_)
         if (waiting.action.node == action.node && waiting.action.index == action.index && waiting.action.verb == action.verb)
         {
             waiting.action = std::move(action);
+            waiting.lead = std::move(first);
             waiting.due = due;
             return;
         }
-    router_.waiting_.push_back({std::move(action), due});
+    router_.waiting_.push_back({std::move(action), due, std::move(first)});
+}
+
+bool Bindings::Waiting(const Widget &widget, const std::string &verb) const
+{
+    for (const Router::Waiting &waiting : router_.waiting_)
+        if (waiting.action.node == widget.node && waiting.action.index == widget.index && waiting.action.verb == verb)
+            return true;
+    return false;
 }
 
 void Bindings::SendHost(const std::string &node, const std::string &value)
@@ -686,6 +706,8 @@ double Router::Tick()
         if (now >= waiting_[i].due)
         {
             last_flush_ = now;
+            if (waiting_[i].lead)
+                surface_.Send(*waiting_[i].lead);
             surface_.Send(waiting_[i].action);
             waiting_.erase(waiting_.begin() + static_cast<long>(i));
         }

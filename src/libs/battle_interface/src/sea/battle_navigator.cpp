@@ -62,32 +62,16 @@ void BATTLE_NAVIGATOR::Draw() const
             " ship="+std::to_string(m_speedShipId)+" generation="+std::to_string(m_navigatorGeneration)+
             " scale="+std::to_string(m_fCurScale)+" windState="+std::to_string(m_curWindPic));}
 
-    const auto *owner = static_cast<const BATTLE_INTERFACE *>(m_pOwnerEI);
-    const uint32_t mobileMask = !owner || owner->AndroidCommandActive() ?
-        0 : storm::android::shipCaptionMask(owner->AndroidCaptionsVisible(), false, storm::android::mobileShipHudMask());
 #endif
 
     // set world matrix
     const glm::mat4 matw;
     rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(matw));
 #ifdef __ANDROID__
-    // The touch HUD holds the navigator's place (its aperture for this owner) but this frame could
-    // not draw into it (the island map re-renders after a zoom, a source value is missing for a
-    // moment), or the HUD has not answered this owner yet (after a load, a new fleet): draw
-    // nothing rather than flashing the native compass over the HUD.
-    if (!m_androidDrawn) {
-        const auto &telemetry = storm::android::shipTelemetry;
-        if (storm::android::seaNavigator.layout(telemetry.revision(), telemetry.hudRevision(), m_navigatorGeneration) ||
-            ((telemetry.frame().valid || storm::android::hudPresenters.seaFresh) && storm::android::seaNavigator.pending(telemetry.revision(), telemetry.hudRevision(), m_navigatorGeneration)))
-            return;
-    }
-    if (m_androidDrawn) {
-        const auto required=storm::android::ShipCaptions|storm::android::ShipAmmo;
-        if(AndroidPresented()||(mobileMask&required)==required)return;
-        // The native map is ready before Android reveals its panel. Keep the
-        // old numerical/icon readouts until the visible captions acknowledge.
-        goto readouts;
-    }
+    // One coverage rule (android_hud_presenter.hpp): while the touch HUD presents the sea HUD the
+    // native compass and its readouts never draw; the engine only draws its radar into the HUD's
+    // own disc (DrawAndroid, above).
+    if (storm::android::legacyDrawRefused("sea navigator", storm::android::hudPresenters.sea) || m_androidDrawn) return;
 #endif
 
     // gradient background
@@ -182,26 +166,13 @@ void BATTLE_NAVIGATOR::Draw() const
         rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCourseVBuf, sizeof(BI_ONETEXTURE_VERTEX), 4, 2, "battle_rectangle");
     }
 
-#ifdef __ANDROID__
-readouts:
-#endif
-    // Each numeric caption is hidden only after its own Android draw ACK.
-#ifdef __ANDROID__
-    if (!(mobileMask & storm::android::ShipWind))
-#endif
     rs->ExtPrint(m_speedFont, 0xFFFFFFFF, 0, PR_ALIGN_CENTER, true, m_fFontScale, 0, 0, m_xWindSpeed, m_ySpeedShow,
                  "%.1f", m_fWindStrength);
-#ifdef __ANDROID__
-    if (!(mobileMask & storm::android::ShipSpeed))
-#endif
     rs->ExtPrint(m_speedFont, 0xFFFFFFFF, 0, PR_ALIGN_CENTER, true, m_fFontScale, 0, 0, m_xShipSpeed, m_ySpeedShow,
                  "%.1f", m_fShipSpeed);
 
     // show current charge
     if (m_curCharge >= 0
-#ifdef __ANDROID__
-        && (!(mobileMask & storm::android::ShipAmmo) || m_bNotEnoughBallFlag)
-#endif
     )
     {
         rs->TextureSet(0, m_idChargeTexture);
@@ -216,19 +187,11 @@ readouts:
         rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 12, 2,
                           m_bPowderRunOut ? "battle_texure_blend_tf" : "battle_rectangle");
     }
-    // Wind strength/state icon shares the numeric wind replacement ACK.
-    // The separate compass wind-direction arrow above always remains native.
-#ifdef __ANDROID__
-    if (!(mobileMask & storm::android::ShipWind))
-#endif
     {
         rs->TextureSet(0, m_idWindTexture);
         rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 4, 2, "battle_rectangle");
     }
     // show sails position icon
-#ifdef __ANDROID__
-    if (!(mobileMask & storm::android::ShipSailPosition))
-#endif
     {
         rs->TextureSet(0, m_idSailTexture);
         rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idCurChargeVBuf, sizeof(BI_ONETEXTURE_VERTEX), 8, 2, "battle_rectangle");
@@ -1397,7 +1360,6 @@ int32_t BATTLE_NAVIGATOR::SetRectangleSegVertexTex(BI_ONETEXTURE_VERTEX *v, floa
 void BATTLE_NAVIGATOR::SetIsland()
 {
 #ifdef __ANDROID__
-    storm::android::hudPresenters.seaSceneStarted();
     ++m_navigatorGeneration;
     m_androidDrawn=false;m_androidLayoutId=0;
     storm::android::seaNavigator.clear();

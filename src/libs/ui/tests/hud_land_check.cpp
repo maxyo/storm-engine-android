@@ -23,6 +23,31 @@ static void CheckExplore()
            "the peace set; no context without an action");
     ExpectEqual(mount.shown.elements["weapon"]["label"].get<std::string>(), "hud.weapon.draw", "the weapon button names what it will do");
 
+    // A game message repeated while its toast is up: one toast with a count, kept longer.
+    Expect(bench.hud.Notice("Недостаточно денег", "info") && bench.hud.Notice("Взято: ром", "info"), "event lines go to the HUD's log");
+    bench.Frame(2.0);
+    Expect(bench.hud.Notice("Недостаточно денег", "info"), "the repeat is taken");
+    bench.Frame();
+    {
+        const Json lines = mount.shown.elements["log"]["lines"];
+        Expect(lines.size() == 2 && lines[1]["text"] == "Недостаточно денег \u00D72" && lines[0]["text"] == "Взято: ром",
+               "no second copy: the shown line counts «×2»: " + lines.dump());
+    }
+    bench.Frame(1.0); // 3 s after the first: the other line is gone, the repeated one lives on
+    {
+        const Json lines = mount.shown.elements["log"]["lines"];
+        Expect(lines.size() == 1 && lines[0]["text"] == "Недостаточно денег \u00D72", "the repeat extends its toast: " + lines.dump());
+    }
+    bench.hud.Notice("Недостаточно денег", "info");
+    bench.Frame();
+    ExpectEqual(mount.shown.elements["log"]["lines"][0]["text"].get<std::string>(), "Недостаточно денег \u00D73", "and counts on");
+    bench.Frame(3.0);
+    Expect(!mount.Has("log"), "then it goes");
+    bench.hud.Notice("Недостаточно денег", "info");
+    bench.Frame();
+    ExpectEqual(mount.shown.elements["log"]["lines"][0]["text"].get<std::string>(), "Недостаточно денег", "after it went, the same message starts afresh");
+    bench.Frame(3.0);
+
     bench.Press("hero");
     ExpectEqual(mount.Last(), "shortcut:character", "Персонаж opens the character");
     bench.Press("pause");
@@ -66,6 +91,23 @@ static void CheckExplore()
     bench.hud.Tick();
     bench.Set("contextAction", Json(""));
     Expect(!mount.Has("context"), "the target left: no button");
+
+    // after a won boarding fight the game waits for its action key (LAi_ActivateReload armed): the
+    // button stays whatever the script's icon says meanwhile (locator exits reset it to Nothing)
+    Json boarding = State("combat-explore-talk");
+    boarding["interactKind"] = "boarding";
+    bench.Set("combat", boarding);
+    Expect(mount.Has("context") && mount.shown.elements["context"]["icon"] == "grapple" &&
+               mount.shown.elements["context"]["label"] == "hud.context.boarding",
+           "boarding armed: «Продолжить абордаж» takes the slot without any script icon");
+    bench.Set("contextAction", Json("Reload"));
+    Expect(mount.shown.elements["context"]["icon"] == "grapple", "… and outranks the script's Reload icon");
+    bench.Press("context");
+    Expect(mount.Last().rfind("combat:2\t5\t14\t", 0) == 0 && mount.Last().ends_with("\tinteract\ttap"),
+           "it is the engine's action key (ChrAction)");
+    bench.Set("contextAction", Json(""));
+    bench.Set("combat", State("combat-explore"));
+    Expect(!mount.Has("context"), "boarding continued: no button");
 
     // a combat state of another revision is not ready: buttons stay, disabled, and send nothing
     Json stale = State("combat-explore");
@@ -478,17 +520,24 @@ static void CheckTouches(const std::string &pack)
     run.Feed("combat", "combat-melee");
     run.Frame();
     run.Frame();
-    Expect(host.WantsTouch(672, 282) && host.WantsTouch(756, 198), "strike and block are the UI's");
+    Expect(host.WantsTouch(672, 282) && host.WantsTouch(110, 132), "strike and block are the UI's");
+    // block sits left, above the floating stick's zone: right under it the zone still starts the stick
     run.commands.clear();
-    host.Touch(TouchPhase::Down, 1, 756, 198);
+    host.Touch(TouchPhase::Down, 4, 110, 200);
+    host.Touch(TouchPhase::Move, 4, 110, 170);
+    Expect(run.Last().rfind("move:1\t", 0) == 0, "the stick zone below the block is the stick's: " + run.Last());
+    host.Touch(TouchPhase::Up, 4, 110, 170);
+    run.Frame();
+    run.commands.clear();
+    host.Touch(TouchPhase::Down, 1, 110, 132);
     Expect(run.Last() == "combat:2\t6\t22\t1\tblock\tdown", "block goes down with the finger: " + run.Last());
-    host.Touch(TouchPhase::Move, 1, 700, 150); // far beyond a tap's slop: still held
+    host.Touch(TouchPhase::Move, 1, 200, 60); // far beyond a tap's slop: still held
     host.Touch(TouchPhase::Down, 2, 672, 282);
     host.Touch(TouchPhase::Move, 2, 720, 290); // right of the start: the thrust sector
     run.Frame();
     host.Touch(TouchPhase::Up, 2, 720, 290);
     Expect(run.Last() == "combat:2\t6\t17\t2\tbreak\ttap", "a swipe from the strike picks the move: " + run.Last());
-    host.Touch(TouchPhase::Up, 1, 700, 150);
+    host.Touch(TouchPhase::Up, 1, 200, 60);
     Expect(run.Last() == "combat:2\t6\t22\t3\tblock\tup", "block is let go with its finger: " + run.Last());
     run.Frame();
     host.Touch(TouchPhase::Down, 2, 672, 282);

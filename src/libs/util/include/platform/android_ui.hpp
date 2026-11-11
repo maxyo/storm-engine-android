@@ -191,14 +191,13 @@ inline void publishWorldInfo(const std::string &text) {
     ui::state("worldInfo",uiJsonText(text)); // the engine's text as the JSON string the channel carries
 }
 // A passing line of the game's event log (Log_Info and alike): the portable UI shows it as
-// a toast (the HUD's top-centre log over a free game). The same text again within the
-// engine log's own line life is one line, as the engine's list keeps it.
-inline std::string lastGameMessage;
-inline uint32_t lastGameMessageAt = 0;
+// a toast (the HUD's top-centre log over a free game). Every line goes; the UI counts a
+// repeat of a shown one («×2») instead of stacking it.
+// > 0 while the engine runs a script action whose log line the HUD already shows otherwise
+// (the time scale: its button carries the multiplier).
+inline int gameMessagesMuted = 0;
 inline void publishGameMessage(const std::string &text) {
-    const uint32_t now=SDL_GetTicks();
-    if (text.empty() || (text == lastGameMessage && now - lastGameMessageAt < 5000)) return;
-    lastGameMessage=text; lastGameMessageAt=now;
+    if (gameMessagesMuted > 0 || text.empty()) return;
     ui::toast(text);
 }
 // Set from the game thread's command queue ("graphics:reload", sent by the platform host after

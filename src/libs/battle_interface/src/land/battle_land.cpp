@@ -1,3 +1,6 @@
+#ifdef __ANDROID__
+#include <platform/android_hud_presenter.hpp>
+#endif
 #include <platform/android_ui.hpp>
 #include "battle_land.h"
 #include "platform/android_land_diagnostics.hpp"
@@ -57,8 +60,13 @@ void BATTLE_LAND_INTERFACE::Realize(uint32_t delta_time)
     {
         m_pRS->MakePostProcess();
         if (m_pManSign)
-            m_pManSign->Draw();
-
+            m_pManSign->Draw(); // on Android it publishes the vitals and draws only what is not covered
+#ifdef __ANDROID__
+        // One coverage rule (android_hud_presenter.hpp): the land interface's images and texts are
+        // the touch HUD's (its location line from publishWorldInfo below).
+        const bool legacy = !storm::android::legacyDrawRefused("land interface", storm::android::hudPresenters.land);
+        if (legacy)
+#endif
         m_Images.Draw();
 #ifdef __ANDROID__
         std::string info;
@@ -84,7 +92,7 @@ void BATTLE_LAND_INTERFACE::Realize(uint32_t delta_time)
                     }
                     if(!display.empty()){if(!info.empty())info+='\n';info+=display;}
                 }
-            } else if(i<m_TextInfo.size()) m_TextInfo[i].Print();
+            } else if(legacy && i<m_TextInfo.size()) m_TextInfo[i].Print();
         }
         storm::android::publishWorldInfo(info);
 #else

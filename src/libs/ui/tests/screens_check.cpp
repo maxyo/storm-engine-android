@@ -325,9 +325,50 @@ static void Store(const std::string &models)
     surface.now += 0.3;
     router.SetInterface(Load(models, "store-deal.json")); // the game answers with its own amount (a limit)
     Expect(surface.props["list"]["rows"][0]["q"]["value"] == 150, "the amount just set is shown for a moment");
-    surface.now += 1.0;
+    surface.now += 2.0;
     router.Tick();
     Expect(surface.props["list"]["rows"][0]["q"]["value"] == 300, "then the game's amount, without another model");
+
+    // One slider for both directions: what we hold is the origin, selling left, buying right.
+    {
+        const Json q = surface.props["list"]["rows"][0]["q"];
+        Expect(q["zones"] == true && q["origin"] == 200 && q["lessLabel"] == "<trade.sell>" && q["moreLabel"] == "<trade.buy>",
+               "trade zones: the hold is the origin, sell and buy named");
+    }
+    // Steps: zero and the amount go out as one ordered pair, never a lone zero; the
+    // control keeps the player's amount until a revision made after the request arrives.
+    const std::string reset = "widget:store\tQTY_EDIT\t-1\tguard@7:goods:0:ship:0|0";
+    surface.now += 1.0;
+    surface.commands.clear();
+    router.OnEvent({"goods", "change", "301"});
+    Expect(surface.commands.size() == 2 && surface.commands[0] == reset && surface.commands[1] == "widget:store\tQTY_EDIT\t-1\tguard@7:goods:0:ship:0|101",
+           "a step: zero and the amount together");
+    router.OnEvent({"goods", "change", "302"});
+    Expect(surface.commands.size() == 2, "the next step within the flush interval waits, zero included");
+    InterfaceModel before = Load(models, "store-deal.json");
+    before.revision = 3;
+    router.SetInterface(before);
+    Expect(surface.props["list"]["rows"][0]["q"]["value"] == 302, "a revision from before the request does not move the control");
+    surface.now += 0.2;
+    router.Tick();
+    Expect(surface.commands.size() == 4 && surface.commands[2] == reset && surface.commands[3] == "widget:store\tQTY_EDIT\t-1\tguard@7:goods:0:ship:0|102",
+           "then the waiting pair goes out in order");
+    surface.now += 0.5;
+    router.Tick();
+    Expect(surface.props["list"]["rows"][0]["q"]["value"] == 302, "no answer yet: still the player's amount");
+    InterfaceModel limited = Load(models, "store-deal.json");
+    limited.revision = 4;
+    for (Widget &w : limited.widgets)
+        if (w.node == "QTY_INFO_SHIP_QTY")
+            w.label = "280";
+    router.SetInterface(limited);
+    {
+        const Json q = surface.props["list"]["rows"][0]["q"];
+        Expect(q["value"] == 280 && q["max"] == 280 && q["min"] == 0, "the game's answer below the request is its limit: the control stops there");
+    }
+    surface.now += 3.0;
+    router.Tick();
+    Expect(surface.props["list"]["rows"][0]["q"]["max"] == 280, "the limit stays for this deal");
     surface.commands.clear();
     router.OnEvent({"goods", "row", "2"});
     Expect(surface.commands.size() == 2 && surface.commands[0] == "widget:store\tQTY_CANCEL_BUTTON\t-1\tguard@7:goods:0:ship:0|press" &&
@@ -408,14 +449,12 @@ static void Commerce(const std::string &models)
     const std::string zero = "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|0";
     router.OnEvent({"goods", "change", "80"});
     router.OnEvent({"goods", "change", "90"});
-    Expect(surface.commands.size() == 2 && surface.commands[0] == zero && surface.commands[1] == zero,
-           "each step only leaves giving at once; the amount waits for it to settle");
-    surface.commands.clear();
+    Expect(surface.commands.empty(), "steps send nothing at once: the amount waits for them to settle");
     surface.now += 0.5;
     router.Tick();
-    Expect(surface.commands.size() == 2 && surface.commands[0] == "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|30" &&
-               surface.commands[1] == "widget:storage\tQTY_OK_BUTTON\t-1\tguard@7:row:0|press",
-           "then the last amount is entered and confirmed, in that order");
+    Expect(surface.commands.size() == 3 && surface.commands[0] == zero && surface.commands[1] == "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|30" &&
+               surface.commands[2] == "widget:storage\tQTY_OK_BUTTON\t-1\tguard@7:row:0|press",
+           "then zero, the last amount and the confirmation go out together, in that order");
     surface.commands.clear();
     router.OnEvent({"goods", "commit", "10"});
     router.Tick();
@@ -1176,6 +1215,25 @@ static void Hero(const std::string &models)
            "free points: ‹ › on the skills, ‹ only for points added in this visit");
     Expect(view["subject"]["sub"] == "1 <common.of> 2" && view["subject"]["prev"] == false && view["subject"]["next"] == true,
            "the captain and one officer in the switch");
+    // The subject list: a tap on the name lists the captain and the officers; a picked row is the same select as ›.
+    Expect(view["subject"]["list"] == true && !view["subject"].contains("open"), "two subjects offer the list, closed");
+    router.OnEvent({"header", "subject-list", ""});
+    view = surface.props;
+    Expect(view["subject"]["open"] == true && view["subject"]["title"] == "<hero.subjects>" && view["subject"]["rows"].size() == 2 &&
+               view["subject"]["rows"][0]["label"] == "Anne Bonny" && view["subject"]["rows"][0]["selected"] == true &&
+               view["subject"]["rows"][1]["selected"] == false,
+           "the list of the captain and the officer on a post, the current one selected");
+    Expect(router.WantsBack(), "back closes the subject list");
+    router.Back();
+    Expect(!surface.props["subject"].contains("open"), "back closed the list");
+    router.OnEvent({"header", "subject-list", ""});
+    const size_t sent = surface.commands.size();
+    router.OnEvent({"header-subject-0", "", ""});
+    Expect(surface.commands.size() == sent && !surface.props["subject"].contains("open"), "picking the current subject only closes the list");
+    router.OnEvent({"header", "subject-list", ""});
+    router.OnEvent({"header-subject-1", "", ""});
+    ExpectEqual(surface.Last(), "widget:lscchar_all\tCHARACTERS_SCROLL\t1\tselect@4:1:1", "a picked officer is selected as with ›");
+    Expect(!surface.props["subject"].contains("open"), "the pick closes the list");
     Expect(view["extras"]["rows"].empty(), "every widget is known: no extras");
 
     // A skill arrow: select the row, then the game's arrow once the engine shows the row selected.
@@ -1338,6 +1396,10 @@ static void Items(const std::string &models)
     ExpectEqual(surface.Last(), "widget:items\tTABBTN_3\t-1\tpress", "a game tab");
     router.OnEvent({"header", "subject-next", ""});
     ExpectEqual(surface.Last(), "widget:items\tCHARACTERS_SCROLL\t1\tselect@5:1:1", "the next officer's items");
+    router.OnEvent({"header", "subject-list", ""});
+    Expect(surface.props["subject"]["open"] == true && surface.props["subject"]["rows"].size() == 2, "the items screen lists the subjects too");
+    router.OnEvent({"header-subjects", "dismiss", ""});
+    Expect(!surface.props["subject"].contains("open"), "a tap beside the list closes it");
 
     // The game's map window.
     model.revision += 1;
@@ -1383,6 +1445,15 @@ static void Ship(const std::string &models)
            "the figures rounded, the guns row opens the cannons window");
     Expect(view["subject"]["label"] == "Swallow" && view["subject"]["sub"] == "2 <common.of> 2", "the squadron's ships are the header subject");
 
+    Expect(view["subject"]["list"] == true, "two ships offer the list");
+    router.OnEvent({"header", "subject-list", ""});
+    Expect(surface.props["subject"]["open"] == true && surface.props["subject"]["title"] == "<ship.squadron>" &&
+               surface.props["subject"]["rows"].size() == 2 && surface.props["subject"]["rows"][1]["selected"] == true &&
+               surface.props["subject"]["rows"][0]["icon"] == "ship",
+           "the squadron's ships listed, the current one selected");
+    router.OnEvent({"header-subject-0", "", ""});
+    ExpectEqual(surface.Last(), "widget:ship\tSHIPS_SCROLL\t0\tselect@7:1:0", "a picked ship is selected as with ‹");
+    Expect(!surface.props["subject"].contains("open"), "the pick closes the list");
     router.OnEvent({"header", "subject-prev", ""});
     ExpectEqual(surface.Last(), "widget:ship\tSHIPS_SCROLL\t0\tselect@7:1:0", "the previous ship");
     router.OnEvent({"ship-rename", "click", ""});

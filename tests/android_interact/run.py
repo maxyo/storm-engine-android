@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check production interact binding and frame-latched ChrAction delivery."""
+"""Check production interact binding (dialog target, armed boarding continuation) and frame-latched ChrAction delivery."""
 import os
 from pathlib import Path
 import subprocess
@@ -8,7 +8,7 @@ import tempfile
 here = Path(__file__).resolve().parent
 root = here.parents[1]
 source = (root / "src/apps/engine/src/android_combat_state.hpp").read_text()
-adapter = source[source.index("inline void updateCombatState("):source.index("inline jweak combatActivity")]
+adapter = source[source.index("inline std::string combatInteractKind"):source.index("inline jweak combatActivity")]
 with tempfile.TemporaryDirectory(prefix="storm-interact-") as directory:
     build = Path(directory)
     (build / "adapter.inc").write_text(adapter)

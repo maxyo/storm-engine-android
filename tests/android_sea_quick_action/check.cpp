@@ -53,14 +53,14 @@ int main()
     state.resetActivity();
     assert(!state.covered(19) && !state.offer(old, 4001));
 
-    // A UI that presents the sea HUD: an offer it has not answered keeps the native icon off,
-    // however slow its first frame (no flash after a load); its answer decides.
+    // One coverage rule: while the UI presents the sea HUD the native icon is off, whatever the UI
+    // answered; a tap is accepted only for a control the UI said is drawn.
     hudPresenters.sea = true;
     state.update(frame("Moor"));
     assert(state.covered(19) && !state.covered(20));
-    assert(state.offer(request(state, "ack", "0"), 4100) && !state.covered(19)); // not drawn: native icon back
+    assert(state.offer(request(state, "ack", "0"), 4100) && state.covered(19)); // not drawn by the UI: still no native icon
     state.update(frame("Board"));
-    assert(state.covered(19) && !state.offer(request(state, "activate", "Board"), 4101)); // pending is not drawn: no tap
+    assert(state.covered(19) && !state.offer(request(state, "activate", "Board"), 4101)); // not answered drawn: no tap
     assert(state.offer(request(state, "ack", "1"), 60000) && state.covered(19) && state.offer(request(state, "activate", "Board"), 60001));
     hudPresenters.sea = false;
 
@@ -75,7 +75,7 @@ int main()
         assert(!hudPresenters.watch("sea", silent.awaiting(), 1000));
         assert(!hudPresenters.watch("sea", silent.awaiting(), 1000 + HudPresenters::kSilentMs - 1) && silent.covered(19));
         const auto line = hudPresenters.watch("sea", silent.awaiting(), 1000 + HudPresenters::kSilentMs);
-        assert(line && line->find("HUD presenter sea withdrawn") != std::string::npos && line->find("native parts are back") != std::string::npos);
+        assert(line && line->find("HUD presenter sea withdrawn") != std::string::npos && line->find("legacy HUD is back") != std::string::npos);
         assert(!hudPresenters.sea && !silent.covered(19)); // native back
         assert(!hudPresenters.watch("sea", silent.awaiting(), 60000)); // said once
         assert(silent.offer(request(silent, "ack", "1"), 60001) && silent.covered(19)); // a late answer still covers

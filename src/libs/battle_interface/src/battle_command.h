@@ -48,7 +48,13 @@ class BICommandList
 
     void SetUpDown(bool bUp, bool bDown);
 #ifdef __ANDROID__
-    void ReadAndroidOrders(storm::android::SeaOrdersFrame &frame) const;
+    void ReadAndroidOrders(storm::android::SeaOrdersFrame &frame);
+    // How many targets the list of `command` would offer now (the very builder of that list),
+    // -1 when the command opens no target list.
+    virtual int32_t AndroidTargetCount(const std::string &command)
+    {
+        return -1;
+    }
     bool SelectAndroidItem(const std::string &id);
     void ResetAndroidCommand();
     bool AndroidPendingAllowed();

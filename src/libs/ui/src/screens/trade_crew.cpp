@@ -139,9 +139,9 @@ class CrewScreen final : public Screen
             local_target_ = wanted;
             local_at_ = bindings.Now();
             // As in the trade screens: a negative number fires; once firing the game reads
-            // every number as men to fire, so zero (which leaves firing) goes first.
-            bindings.Send(*edit, "edit", "0", owner);
-            bindings.SendLatest(*edit, "edit", std::to_string(delta), owner);
+            // every number as men to fire, so zero (which leaves firing) goes right before
+            // the amount, in the same flush (on its own it reset the deal in between).
+            bindings.SendLatest(*edit, "edit", std::to_string(delta), owner, std::string("0"));
         };
         bindings.On("crew", "change", set);
         bindings.On("crew", "commit", set);

@@ -844,17 +844,20 @@ bool ScrollEdgesChanged(Rml::Element *root)
                 root->SetProperty(Rml::PropertyId::Position, Rml::Property(Rml::Style::Position::Relative));
             Rml::ElementPtr made = root->GetOwnerDocument()->CreateElement("div");
             made->SetClass("scroll-fade", true);
+            made->SetProperty(Rml::PropertyId::Top, Rml::Property(0.0f, Rml::Unit::PX));
             fade = root->AppendChild(std::move(made));
             changed = true;
         }
         if (fade)
         {
+            // Moved by a transform, not by `top`: a changed offset property lays out the whole
+            // document again, on every frame of a scroll (900 boxes in the store).
             const float at = top + height - fade->GetOffsetHeight();
             const std::string position = std::to_string(static_cast<int>(std::lround(at))) + "px";
             if (fade->GetAttribute<Rml::String>("data-at", "") != position)
             {
                 fade->SetAttribute("data-at", position);
-                fade->SetProperty("top", position);
+                fade->SetProperty("transform", "translateY(" + position + ")");
                 changed = true;
             }
         }

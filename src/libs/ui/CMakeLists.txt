@@ -36,9 +36,14 @@ storm_fetch_declare(storm_ui_lunasvg
 storm_fetch_declare(storm_ui_json
     URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
     URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa)
+# Local fixes on top of the RmlUi pin: patches/rmlui-*.patch (a changed patch set moves every build directory to
+# the matching shared source copy on its next build).
+file(GLOB storm_ui_rmlui_patches CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/patches/rmlui-*.patch")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${storm_ui_rmlui_patches})
 storm_fetch_declare(storm_ui_rmlui
     URL https://github.com/mikke89/RmlUi/archive/refs/tags/6.3.tar.gz
-    URL_HASH SHA256=d977298bb6147610e5984d5db85ddf284020d655a8713913f6982074f1dbdede)
+    URL_HASH SHA256=d977298bb6147610e5984d5db85ddf284020d655a8713913f6982074f1dbdede
+    STORM_PATCHES . ${storm_ui_rmlui_patches})
 
 # FreeType without optional codecs: the bundled fonts are plain TrueType outlines.
 foreach(codec ZLIB BZIP2 PNG HARFBUZZ BROTLI)

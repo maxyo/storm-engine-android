@@ -159,8 +159,8 @@ static void CheckSailing()
     Expect(!Sent(mount, "seaquick:1\t5\t31\tactivate\tMoor"), "a quick action that was not drawn yet cannot be tapped");
     bench.Frame();
     Expect(Sent(mount, "shiphud:9\t2047\t3"), "the drawn elements replace the engine's indicators: hull, crew, sails, ammunition, fleet, speed, wind, date, place");
-    Expect(Count(mount, "hudowner:sea") == 1 && Count(mount, "hudowner:worldmap") == 1 && !Sent(mount, "hudowner:land"),
-           "the HUD declares once which engine HUDs it presents (the engine then keeps their unanswered revisions native-free)");
+    Expect(Count(mount, "hudowner:sea") == 1 && Count(mount, "hudowner:worldmap") == 1 && Count(mount, "hudowner:land") == 1,
+           "the HUD declares once which engine HUDs it presents (the engine then keeps their legacy HUD off)");
     Expect(mount.slots.back() == "seaquick-ack" && mount.Last() == "seaquick:1\t5\t31\tack\t1", "the drawn quick action is acknowledged: " + mount.Last());
     bench.Frame(0.1);
     bench.Frame(5.0);
@@ -176,14 +176,10 @@ static void CheckSailing()
     Expect(mount.Last() == "gameplay:9\tSea_CameraSwitch", "camera: " + mount.Last());
     bench.Press("fire");
     Expect(mount.Last() == "gameplay:9\tShip_Fire", "fire: " + mount.Last());
-    Expect(mount.shown.elements["time"]["badge"] == "×1" && mount.shown.elements["time"]["variant"] == "normal" && mount.Has("time-slower") && mount.Has("time-faster"),
+    Expect(mount.shown.elements["time"]["badge"] == "×1" && mount.shown.elements["time"]["variant"] == "normal" && !mount.Has("time-slower") && !mount.Has("time-faster"),
            "the time scale the engine runs at: " + mount.shown.elements["time"].dump());
     bench.Press("time");
-    Expect(mount.Last() == "gameplay:9\tTimeScale", "the time button is the game's R: " + mount.Last());
-    bench.Press("time-faster");
-    Expect(mount.Last() == "gameplay:9\tTimeScaleFaster", "faster: " + mount.Last());
-    bench.Press("time-slower");
-    Expect(mount.Last() == "gameplay:9\tTimeScaleSlower", "slower: " + mount.Last());
+    Expect(mount.Last() == "gameplay:9\tTimeScaleX2", "x1 → x2: " + mount.Last());
     bench.Press("orders");
     Expect(mount.Last() == "orders:1\t6\t14\t2\topen\t", "orders: " + mount.Last());
     bench.Press("fleet", "ship", "1");
@@ -322,6 +318,18 @@ static void CheckSailing()
     other["gameplayRevision"] = 8;
     bench.Set("ship", other);
     Expect(!mount.Has("vitals"), "the ship of another gameplay revision is not shown");
+    Json deck = State("gameplay-sailing");
+    deck["revision"] = 11;
+    deck["capabilities"].push_back("DeckCamera_Forward");
+    deck["capabilities"].push_back("DeckCamera_Backward");
+    bench.Set("gameplay", deck);
+    Expect(mount.Has("walk"), "first person on deck: the walk stick");
+    bench.Press("walk", "change", "10,-70");
+    Expect(mount.Last() == "hold:11\tDeckCamera_Forward\t1", "up walks forward: " + mount.Last());
+    bench.Press("walk", "change", "0,80");
+    Expect(Sent(mount, "hold:11\tDeckCamera_Forward\t0") && mount.Last() == "hold:11\tDeckCamera_Backward\t1", "down walks back: " + mount.Last());
+    bench.Press("walk", "change", "0,0");
+    Expect(mount.Last() == "hold:11\tDeckCamera_Backward\t0", "let go: " + mount.Last());
     Json helmless = State("gameplay-sailing");
     helmless["revision"] = 12;
     helmless["capabilities"] = Json::array({"Ship_Fire"});
@@ -345,6 +353,8 @@ static void CheckBattle()
                shown["minimap"]["time"] == "11:42",
            "battle values");
     Expect(shown["time"]["badge"] == "×1.5" && shown["time"]["variant"] == "active", "an accelerated world: " + shown["time"].dump());
+    bench.Press("time");
+    Expect(mount.Last() == "gameplay:10\tTimeScaleX4", "x1.5 counts as x2: the next step is x4: " + mount.Last());
     Expect(shown["effect-0"]["icon"] == "perk-instantrepair" && !shown["effect-0"].contains("fill") && !shown["effect-0"].contains("disabled") &&
                shown["effect-1"]["fill"] == 40 && shown["effect-1"]["fillTone"] == "cooldown",
            "the battle abilities: " + shown["effect-0"].dump() + shown["effect-1"].dump());
@@ -465,6 +475,34 @@ static void CheckOrders()
     Expect(mount.shown.sheet.empty() && !mount.shown.modal && mount.Has("helm") && mount.Has("orders") && mount.shown.layout == "sea", "the panel closed");
 }
 
+static void CheckEmptyCategory()
+{
+    Bench bench;
+    FakeMount &mount = bench.mount;
+    Sail(bench);
+    bench.Feed("seaOrders", "sea-orders-root");
+    bench.Feed("gameplay", "gameplay-orders");
+    bench.Feed("ship", "ship-orders");
+    bench.Frame();
+    // a command whose target list would be empty (the engine counts it with the list's own
+    // builder) is a disabled tile without a cooldown fill, and a tap on it does nothing
+    {
+        Json empty = State("sea-orders-root-selected");
+        empty["revision"] = 16;
+        empty["selectedItemId"] = "";
+        empty["items"][2]["enabled"] = false; // Выслать шлюпку, nobody to send the boat to
+        empty["items"][2]["cooldown"] = 1.0;
+        bench.Set("seaOrders", empty);
+        const Json &tile = mount.shown.sheet_props["tiles"][2];
+        Expect(tile["disabled"] == true && tile["cooldown"] == 0, "an empty category is disabled: " + tile.dump());
+        bench.Frame(2.0);
+        const size_t before = mount.commands.size();
+        bench.Press("item-i2");
+        Expect(mount.commands.size() == before || mount.Last().find("\tack\t") != std::string::npos, "a tap on it sends nothing");
+    }
+
+}
+
 static void CheckTouches(const std::string &pack)
 {
     Runtime run(pack);
@@ -558,6 +596,7 @@ int main(int argc, char **argv)
     CheckSailing();
     CheckBattle();
     CheckOrders();
+    CheckEmptyCategory();
     CheckTouches(pack);
     if (failures)
         std::fprintf(stderr, "%d sea HUD check(s) failed\n", failures);

@@ -1,0 +1,16 @@
+diff --git a/Source/Core/ElementText.cpp b/Source/Core/ElementText.cpp
+index fe1dd2e..50257d9 100644
+--- a/Source/Core/ElementText.cpp
++++ b/Source/Core/ElementText.cpp
+@@ -62,7 +62,10 @@ static TextOverflowResolved ResolveTextOverflow(Element* parent, FontFaceHandle
+ 		return result;
+ 	};
+ 
+-	const float overflow_width = parent->GetScrollLeft() + box.GetSize().x + AccumulateRightSideEdgesUpTo(box, clip_area);
++	// Text widths are whole pixels, while box sizes carry float error from fractional dp edges (1dp = 2.2 px
++	// borders and paddings): at such densities a label in a box shrunk to fit it was abbreviated although it fits.
++	// The clip region is snapped to the pixel grid as well, so compare against the box width in whole pixels.
++	const float overflow_width = Math::Round(parent->GetScrollLeft() + box.GetSize().x + AccumulateRightSideEdgesUpTo(box, clip_area));
+ 
+ 	constexpr char ellipsis_chars[] = "\xE2\x80\xA6"; // U+2026
+ 	constexpr char dots_chars[] = "...";
