@@ -12,6 +12,5 @@ inline ImageRef WithBattleIconSource(ImageRef reference, const char *mode, const
         reference.source = {"battle_icon", {}, {}, mode, atlas, pic};
     return reference;
 }
-void PumpImages();
 void ResetImages();
 } // namespace storm::mobile

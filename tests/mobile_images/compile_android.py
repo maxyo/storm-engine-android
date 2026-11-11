@@ -13,7 +13,7 @@ while i<len(args):
     if args[i] in ('-o','-c','-MF','-MT'): i+=2;continue
     if args[i]=='-MD': i+=1;continue
     filtered.append(args[i].replace(old+'/src/',str(root)+'/src/'));i+=1
-sources=['mobile_image_decode.cpp','mobile_image_cache.cpp','mobile_image_bridge.cpp','xservice.cpp','xinterface.cpp','nodes/xi_picture.cpp','nodes/xi_table.cpp']
+sources=['mobile_image_cache.cpp','mobile_image_bridge.cpp','xservice.cpp','xinterface.cpp','nodes/xi_picture.cpp','nodes/xi_table.cpp']
 if a.source:
     assert all(source in sources for source in a.source), 'source must belong to the known changed-source list'
     sources=a.source

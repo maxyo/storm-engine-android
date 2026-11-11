@@ -605,7 +605,6 @@ void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
 void XINTERFACE::Realize(uint32_t)
 {
 #ifdef __ANDROID__
-    storm::mobile::PumpImages(); // Reap cancelled CPU work even after the interface closes.
 #endif
     if (!m_bUse || !bActive)
         return;
