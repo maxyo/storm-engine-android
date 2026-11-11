@@ -176,6 +176,17 @@ void Host::draw_water(const render::EffectsWaterMesh &mesh, const render::Effect
         }
     }
     fx::WaterFrame frame;
+    if (shim::TexStore *env = shim::store_of(mesh.env_map); env && env->kind == shim::TexKind::Cube)
+    {
+        env->sync();
+        frame.env_cube = env->handle;
+    }
+    else if (!water_env_logged_)
+    {
+        water_env_logged_ = true;
+        shim::logf("ERROR: effects: the SEA entity gave the fx water no environment cube: the sea reflects the analytic "
+                   "sky only");
+    }
     frame.view = pass.view;
     frame.camera = pass.camera;
     frame.time = seconds();
@@ -187,12 +198,15 @@ void Host::draw_water(const render::EffectsWaterMesh &mesh, const render::Effect
     shading.sky_color = decode(in.sky_color);
     shading.reflection = in.reflection;
     shading.transparency = in.transparency;
+    shading.attenuation = in.attenuation;
     shading.fresnel = in.fresnel;
     shading.bump_speed = in.bump_speed;
     shading.foam = in.foam;
     shading.foam_v = in.foam_v;
     shading.foam_k = in.foam_k;
     shading.foam_uv = in.foam_uv;
+    shading.fog_color = decode(in.fog_color);
+    shading.fog_density = in.fog_density;
 
     bgfx::TransientVertexBuffer vertices;
     bgfx::TransientIndexBuffer indices;

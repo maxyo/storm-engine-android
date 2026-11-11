@@ -209,13 +209,13 @@ static void CheckSailing()
     bench.Frame();
     Expect(!mount.Has("context") && !Sent(mount, "seaquick:1\t5\t33\tack\t1"), "no offer, no button, nothing covered");
 
-    // the helm holds a turn; the engine hears from it at least every 100 ms
+    // the helm holds a turn until it is let go
     bench.Press("helm", "change", "15");
     Expect(mount.Last() != "hold:9\tShip_TurnRight\t1", "a helm near the middle turns nothing");
     bench.Press("helm", "change", "60");
     Expect(mount.Last() == "hold:9\tShip_TurnRight\t1" && mount.slots.back() == "hold-Ship_TurnRight", "helm to starboard: " + mount.Last());
-    bench.Frame(0.12);
-    Expect(Count(mount, "hold:9\tShip_TurnRight\t1") == 2, "a held helm is repeated");
+    bench.Frame(3.0);
+    Expect(Count(mount, "hold:9\tShip_TurnRight\t1") == 1, "a held helm is said once: the engine holds it until its release");
     bench.Press("helm", "change", "-80");
     Expect(Sent(mount, "hold:9\tShip_TurnRight\t0") && mount.Last() == "hold:9\tShip_TurnLeft\t1", "helm over to port: " + mount.Last());
     bench.Press("helm", "change", "0");
@@ -363,7 +363,8 @@ static void CheckBattle()
     Expect(mount.Last() == "hold:10\tShip_TurnLeft\t1", "helm in battle: " + mount.Last());
     bench.Feed("gameplay", "gameplay-sailing");
     bench.Frame(0.12);
-    Expect(mount.shown.layout == "sea" && Sent(mount, "hold:9\tShip_TurnLeft\t1"), "the held helm follows the gameplay revision");
+    Expect(mount.shown.layout == "sea" && !Sent(mount, "hold:10\tShip_TurnLeft\t0") && Count(mount, "hold:10\tShip_TurnLeft\t1") == 1 && !Sent(mount, "hold:9\tShip_TurnLeft\t1"),
+           "the held helm carries on through the new gameplay revision (the engine keeps a taken hold)");
 }
 
 static void CheckOrders()
@@ -498,8 +499,8 @@ static void CheckTouches(const std::string &pack)
     host.Touch(TouchPhase::Down, 2, 746, 346);
     host.Touch(TouchPhase::Up, 2, 746, 346);
     Expect(run.Last() == "gameplay:9\tShip_Fire", "a second finger fires: " + run.Last());
-    run.Frame(0.12);
-    Expect(run.Last() == "hold:9\tShip_TurnRight\t1", "the helm is still held (heartbeat): " + run.Last());
+    run.Frame(3.0);
+    Expect(run.Last() == "gameplay:9\tShip_Fire" && !run.Sent("hold:9\tShip_TurnRight\t0"), "the helm stays held through a slow frame, without a heartbeat: " + run.Last());
     host.Touch(TouchPhase::Down, 2, 760, 226);
     Expect(run.Last() == "sails:9\t1", "the lever under a second finger: " + run.Last());
     host.Touch(TouchPhase::Move, 2, 760, 290);
@@ -512,7 +513,7 @@ static void CheckTouches(const std::string &pack)
     run.Feed("gameplay", "gameplay-naval");
     run.Feed("ship", "ship-battle");
     run.Frame(0.12);
-    Expect(run.Sent("hold:10\tShip_TurnLeft\t1"), "the held helm survives the change of layout");
+    Expect(!run.Sent("hold:9\tShip_TurnLeft\t0"), "the held helm survives the change of layout");
     host.Touch(TouchPhase::Up, 1, 30, 341);
     Expect(run.Last() == "hold:10\tShip_TurnLeft\t0", "letting go straightens the helm: " + run.Last());
 

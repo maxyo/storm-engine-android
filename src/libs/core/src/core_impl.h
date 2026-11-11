@@ -112,6 +112,7 @@ class CoreImpl final : public CorePrivate
     const char *EngineIniFileName() override;
 
     void *GetScriptVariable(const char *pVariableName, uint32_t *pdwVarIndex = nullptr) override;
+    [[nodiscard]] std::optional<int32_t> GetScriptIntegerDefine(const char *name) override;
 
     [[nodiscard]] storm::ENGINE_VERSION GetTargetEngineVersion() const noexcept override;
 

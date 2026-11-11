@@ -287,6 +287,13 @@ AerialUniforms ComputeAerial(const SkyState &sky, float camera_height, const std
     return u;
 }
 
+std::array<float, 2> ComputeAerialFogHaze(float camera_height)
+{
+    // A sixth of the fx sky's haze: the emulated geometry keeps the game's fog, the layer only lifts it a little off
+    // what rises above the eye.
+    return {kHazeDensityFactor / 6.0f * std::exp(-std::max(camera_height, 0.0f) / kHazeLayerHeight), 1.0f / kHazeLayerHeight};
+}
+
 WindUniforms ComputeWind(const WeatherInput &weather, float time_seconds)
 {
     WindUniforms u;

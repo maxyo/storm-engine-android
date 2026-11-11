@@ -27,7 +27,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.bloom_levels = 3;
         s.water = WaterQuality::Medium;
         s.anisotropy = 4;
-        s.lighting_flags = kLightingPerPixel | kLightingPoint | kLightingNormalMap | kLightingWind;
+        s.lighting_flags = kLightingPerPixel | kLightingPoint | kLightingNormalMap;
         s.point_lights = 4;
         s.normal_map_strength = 0.6f;
         s.shadows = ShadowQuality::Low;
@@ -40,8 +40,9 @@ Settings Settings::FromPreset(QualityPreset preset)
     // low strength; it stays an option.
     s.water = WaterQuality::High;
     s.water_refraction = true;
-    s.lighting_flags = kLightingPerPixel | kLightingSpecular | kLightingTranslucent | kLightingPoint | kLightingNormalMap |
-                       kLightingWind;
+    // Wind sway is not in the presets: the game already sways sails, flags and grass itself, and the static
+    // location models carry no anchor weights for foliage (option fx_wind, reported as not wired).
+    s.lighting_flags = kLightingPerPixel | kLightingSpecular | kLightingTranslucent | kLightingPoint | kLightingNormalMap;
     s.point_lights = 8;
     s.shadows = ShadowQuality::Soft;
     s.ssao = true;

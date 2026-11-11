@@ -46,7 +46,7 @@ struct Cell
 struct Widget
 {
     std::string node; // name of the interface node; rows of one table share it
-    std::string type; // heading, text, button, choice, check, edit, slider, stepper, image, or a form-specific type
+    std::string type; // heading, text, button, choice, check, edit, slider, stepper, image, table (a table without rows), or a form-specific type
     std::string label;
     std::string value;
     int index = -1; // row / option number inside the node, -1 for a single control

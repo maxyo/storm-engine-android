@@ -62,12 +62,15 @@ inline MovementDirection movementDirection(const MovementAxes &axes, float camer
 }
 // One latest-value slot, owned by the engine thread. No entity/script pointers
 // cross JNI. The atomic cancellation epoch is the existing JNI hard-cancel fence.
+// The stick is held from its "1" packet until its "0" packet (pointer up or cancel in the
+// UI), a hard cancellation (lifecycle, screen, UI loss: cancelAndroidCombatInput), a new
+// owner or a failing guard: events, never a clock. A UI frame may take seconds on a slow
+// device; a held stick must not let go meanwhile (it used to after 350 ms of silence).
 class MovementInput
 {
     inline static std::atomic<uint64_t> nextGeneration_{0};
     std::string owner_;
     uint64_t generation_ = 0, sequence_ = 0, cancel_ = 0;
-    uint32_t tick_ = 0;
     int x_ = 0, y_ = 0;
     bool active_ = false, moving_ = false;
     template<class T> static bool number(std::string_view value, T &out)
@@ -96,11 +99,9 @@ public:
     }
     uint64_t generation() { synchronizeCancel(); return generation_; }
     const std::string &owner() const { return owner_; }
-    bool offer(std::string_view input, uint32_t tick,
-               uint64_t enqueueEpoch = combatCancelEpoch.load(std::memory_order_acquire))
+    bool offer(std::string_view input, uint64_t enqueueEpoch = combatCancelEpoch.load(std::memory_order_acquire))
     {
         synchronizeCancel();
-        if (active_ && tick - tick_ > 350) resetActivity();
         if (enqueueEpoch != cancel_ || input.size() > 256 || owner_.empty()) return false;
         std::array<std::string_view,7> fields;
         for (size_t i=0; i<fields.size(); ++i)
@@ -116,16 +117,14 @@ public:
             (fields[4] != "0" && fields[4] != "1") || !number(fields[5],x) || !number(fields[6],y) ||
             x < -1000 || x > 1000 || y < -1000 || y > 1000 || (fields[4] == "0" && (x || y))) return false;
         if (!guard || !guard(owner_)) { updateOwner({}); return false; }
-        sequence_ = sequence; tick_ = tick; x_ = x; y_ = y; active_ = fields[4] == "1";
+        sequence_ = sequence; x_ = x; y_ = y; active_ = fields[4] == "1";
         if (!active_) moving_ = false;
         return true;
     }
-    std::optional<MovementAxes> read(uint32_t tick)
+    std::optional<MovementAxes> read()
     {
         synchronizeCancel();
         if (!active_) return std::nullopt;
-        // Expiry rotates the token: a delayed heartbeat cannot restart movement.
-        if (tick - tick_ > 350) { resetActivity(); return std::nullopt; }
         const auto permission = guard ? guard(owner_) : std::nullopt;
         if (!permission) { updateOwner({}); return std::nullopt; }
         const auto axes = movementAxes(x_, y_, *permission, moving_);

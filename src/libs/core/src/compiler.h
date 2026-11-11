@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string_view>
 #include <tuple>
 
@@ -149,6 +150,8 @@ class COMPILER : public VIRTUAL_COMPILER
     bool BC_Execute(uint32_t function_code, DATA *&pVReturnResult, const char *pDbgExpSource = nullptr);
     bool BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult);
     void StoreDynamicCallStatus(bool returned_value);
+    // Value of an integer #define of a loaded script segment; nullopt when there is none.
+    std::optional<int32_t> FindIntegerDefine(const char *name);
     void FindErrorSource();
     S_TOKEN_TYPE BC_TokenGet(uint32_t &ip, uint32_t &token_data_size);
     S_TOKEN_TYPE BC_TokenGet();

@@ -75,8 +75,9 @@ bool Shadows::Begin(const Settings &settings, const ShadowFrame &frame)
         return false;
     }
     EnsureResources(size);
-    // A low sun gives endless, shimmering shadows; fade them out before it sets.
-    const float strength = std::clamp(frame.sun_dir[1] * 8.0f, 0.0f, 1.0f) * 0.82f;
+    // A low sun gives endless, shimmering shadows; fade them out before it sets. At most 60 % of the sun is taken
+    // away: the shadows stay soft and the lit surfaces keep the legacy brightness around them.
+    const float strength = std::clamp(frame.sun_dir[1] * 8.0f, 0.0f, 1.0f) * 0.6f;
     if (strength <= 0.0f)
         return false;
 
@@ -97,25 +98,31 @@ bool Shadows::Begin(const Settings &settings, const ShadowFrame &frame)
     bgfx::setViewTransform(frame.view, setup.view.data(), projection.data());
     bgfx::touch(frame.view);
 
-    // Receivers: camera view space -> world -> light clip -> uv and 0..1 depth.
-    float inverse_view[16], world_to_clip[16], view_to_clip[16];
-    bx::mtxInverse(inverse_view, frame.camera_view.data());
+    // Receivers: world -> light clip -> uv and 0..1 depth; Bind() puts the camera's view space in front.
+    float world_to_clip[16];
     bx::mtxMul(world_to_clip, setup.view.data(), setup.projection.data());
-    bx::mtxMul(view_to_clip, inverse_view, world_to_clip);
     const float flip = caps->originBottomLeft ? 0.5f : -0.5f;
     const float bias[16] = {0.5f, 0.0f, 0.0f, 0.0f, 0.0f, flip, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 0.5f, 0.0f, 1.0f};
-    bx::mtxMul(view_to_shadow_.data(), view_to_clip, bias);
+    bx::mtxMul(world_to_shadow_.data(), world_to_clip, bias);
+    camera_view_ = {}; // recomputed by the next Bind()
     const float depth_range = 2.0f * frame.radius + frame.caster_reach;
     params_ = {1.0f / static_cast<float>(size), strength, 1.5f * setup.texel_world, 1.5f * setup.texel_world / depth_range};
     return true;
 }
 
-void Shadows::Bind()
+void Shadows::Bind(const std::array<float, 16> &camera_view)
 {
     if (!bgfx::isValid(map_))
     {
         STORM_FX_ERROR_ONCE(reported_bind_, "Shadows::Bind() before Shadows::Begin(): no shadow map exists");
         return;
+    }
+    if (camera_view != camera_view_)
+    {
+        float inverse_view[16];
+        bx::mtxInverse(inverse_view, camera_view.data());
+        bx::mtxMul(view_to_shadow_.data(), inverse_view, world_to_shadow_.data());
+        camera_view_ = camera_view;
     }
     bgfx::setUniform(u_matrix_, view_to_shadow_.data());
     bgfx::setUniform(u_params_, params_.data());

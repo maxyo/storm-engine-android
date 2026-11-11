@@ -67,6 +67,11 @@ struct AerialUniforms
 };
 // `view` is the world -> view matrix (row-vector convention), `camera_height` the camera's y above the sea.
 AerialUniforms ComputeAerial(const SkyState &sky, float camera_height, const std::array<float, 16> &view);
+// fxAerialFog (fx_aerial.sh) for an emulator that keeps each draw's own fog colour and density: {haze density relative
+// to the fog density at the eye's height (the layer only redistributes the fog with height), 1 / layer thickness}.
+// Its desaturation is milder than the fx sky's own (FX_AERIAL_FOG_DESATURATION in fx_aerial.sh): the game's palette stays.
+inline constexpr float kAerialFogDesaturation = 0.3f;
+std::array<float, 2> ComputeAerialFogHaze(float camera_height);
 // Fog density for a surface at sea level seen from `camera_height`: the game's fog plus the haze layer.
 float SeaFogDensity(const SkyState &sky, float camera_height);
 

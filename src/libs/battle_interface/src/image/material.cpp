@@ -105,7 +105,7 @@ void BIImageMaterial::Release()
     // m_apImage.DelAllWithPointers();
     TEXTURE_RELEASE(m_pRS, m_nTextureID);
     VERTEX_BUFFER_RELEASE(m_pRS, m_nVBufID);
-    INDEX_BUFFER_RELEASE(m_pRS, m_nVBufID);
+    INDEX_BUFFER_RELEASE(m_pRS, m_nIBufID);
 
     m_nVertexQuantity = 0;
     m_nTriangleQuantity = 0;

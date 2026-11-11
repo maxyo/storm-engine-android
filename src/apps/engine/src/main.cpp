@@ -3,7 +3,15 @@
 #include <thread>
 
 #include <SDL2/SDL.h>
-#ifndef __ANDROID__
+// AddressSanitizer must see every C++ allocation: an ASan build keeps the default new/delete.
+#if defined(__SANITIZE_ADDRESS__)
+#define STORM_ASAN 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define STORM_ASAN 1
+#endif
+#endif
+#if !defined(__ANDROID__) && !defined(STORM_ASAN)
 #include <mimalloc-new-delete.h>
 #endif
 #include <mimalloc.h>
@@ -607,7 +615,7 @@ int main(int argc, char *argv[])
             }
             else if (command.starts_with("move:"))
             {
-                storm::android::movementInput.offer(std::string_view(command).substr(5), storm::android::movementTick(), combatDrainEpoch);
+                storm::android::movementInput.offer(std::string_view(command).substr(5), combatDrainEpoch);
             }
             else if (command.starts_with("landcommands:"))
             {
@@ -619,7 +627,7 @@ int main(int argc, char *argv[])
             }
             else if (command.starts_with("hold:"))
             {
-                storm::android::heldControls.offer(std::string_view(command).substr(5), SDL_GetTicks(), combatDrainEpoch);
+                storm::android::heldControls.offer(std::string_view(command).substr(5), combatDrainEpoch);
             }
             else if (command.starts_with("seaquick:"))
             {
