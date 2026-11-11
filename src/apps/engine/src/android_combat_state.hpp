@@ -108,6 +108,8 @@ inline void updateCombatState(const GameplayState &gameplay, CorePrivate *script
     combatInput.update(gameplay.revision(), std::move(scene), std::move(player), std::move(mode), std::move(bindings));
     combatInteractKind = std::move(interactKind);
 }
+inline uint64_t combatHost = 0;
+inline std::string lastCombatState;
 inline PistolState readPistolState()
 {
     if (combatInput.player().empty()) return {};
@@ -119,8 +121,6 @@ inline PistolState readPistolState()
     return pistolState(equipped, shipText(character, "chr_ai.tmpl") == "player",
                        shipNumber(character, "chr_ai.charge"), shipNumber(character, "chr_ai.chargeprc"));
 }
-inline uint64_t combatHost = 0;
-inline std::string lastCombatState;
 inline void publishCombatState()
 {
     if (combatHost != ui::generation())
