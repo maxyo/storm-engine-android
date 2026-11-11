@@ -6,7 +6,7 @@ dynamic-resolution upscale), a sea surface, an analytic sky with matching fog, c
 per-pixel lighting for the fixed-function emulator: sun, point and spot lights, flash lights for shots and
 explosions, sun shadows, rim light, linear-light sums, relief from derived normal maps, aerial perspective
 and wind sway. MSAA, alpha to coverage and anisotropic filtering are renderer state: fx decides them
-(`RendererStateFor`), the renderer applies them. `QualityPreset::Original` switches everything off
+(`RendererStateFor`), the renderer applies them. `QualityPreset::Low` switches everything off
 and leaves the legacy image untouched.
 
 The package is self-contained: it depends on bgfx only, takes plain structs instead of engine types, and

@@ -5,7 +5,9 @@
 
 #include "effects/lighting.hpp"
 #include "storm/fx/contact_shadows.hpp"
+#include "storm/fx/capabilities.hpp"
 #include "storm/fx/post_chain.hpp"
+#include "storm/fx/self_test.hpp"
 #include "storm/fx/settings.hpp"
 #include "storm/fx/sky.hpp"
 #include "storm/fx/sky_model.hpp"
@@ -41,6 +43,8 @@ class Host
     const fx::Settings &settings() const { return settings_; }
     const fx::RendererState &renderer_state() const { return renderer_state_; }
     bool post_active() const { return device_ready_ && !settings_.PostIsIdentity(); }
+    // An effect samples the scene depth (ambient occlusion, the high water's scene capture).
+    bool scene_depth_read() const { return settings_.ssao || settings_.water == fx::WaterQuality::High; }
     // True once after the options changed MSAA or anisotropy on a live device (the shim rebuilds the scene target).
     bool take_renderer_state_change()
     {
@@ -68,7 +72,16 @@ class Host
     uint16_t submit_post(const PostTargets &targets);
     // Bookkeeping after bgfx::frame(): `scene_frame` = this presented frame had a 3D scene. A frame without one
     // (loading screen) makes the next scene a cut: its grade is applied at once, not blended in.
-    void end_frame(bool scene_frame);
+    void end_frame(bool scene_frame, uint32_t frame);
+    // Runs the GPU self-test of the current settings when they changed (fx::SelfTest); before bgfx::frame().
+    void submit_self_test();
+    // A one-line notice for the player when the self-test switched a stage off; empty when there is none.
+    std::string take_notice()
+    {
+        std::string notice;
+        notice.swap(notice_);
+        return notice;
+    }
 
     // World passes (world.cpp): drawn into the shim's current game view, in submission order.
     render::EffectsWorld world() const;
@@ -99,9 +112,17 @@ class Host
     fx::Settings requested_{};
     fx::Settings settings_{};
     fx::RendererState renderer_state_{};
-    fx::Support support_{};
+    fx::Support support_{};        // what the settings are constrained against
+    fx::Support support_device_{}; // what DetectSupport found
+    fx::CapsProfile caps_profile_ = fx::CapsProfile::Device;
+    bool msaa_broken_ = false; // the self-test found the multisampled scene target broken on this device
+    bool post_broken_ = false; // ... or the post chain
     bool device_ready_ = false;
     bool renderer_state_changed_ = false;
+    bool depth_read_ = false;
+    fx::SelfTest self_test_;
+    bool self_test_pending_ = false;
+    std::string notice_; // scene_depth_read() when the scene target was last (re)built
     float device_max_anisotropy_ = 0.0f; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
     render::EffectsReport report_{};
     render::EffectsWeather weather_{};

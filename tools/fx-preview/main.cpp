@@ -980,7 +980,7 @@ void WriteCpuImages(const std::string &dir)
 std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
 {
     using fx::QualityPreset;
-    const fx::Settings original = fx::Settings::FromPreset(QualityPreset::Original);
+    const fx::Settings original = fx::Settings::FromPreset(QualityPreset::Low);
     // The presets as this device can run them: what it lacks is taken out here, once, and said so.
     std::vector<std::string> changes;
     const fx::Settings medium = fx::ConstrainSettings(fx::Settings::FromPreset(QualityPreset::Medium), support, changes);

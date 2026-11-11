@@ -159,15 +159,17 @@ void Host::on_device_created()
         constexpr GLenum kMaxAnisotropy = 0x84FF; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
         glGetFloatv(kMaxAnisotropy, &device_max_anisotropy_);
     }
-    support_ = fx::DetectSupport(facts);
+    support_device_ = fx::DetectSupport(facts);
     device_ready_ = true;
     apply();
     renderer_state_changed_ = false; // the scene target is created after this, with the constrained state
+    self_test_pending_ = !settings_.PostIsIdentity() || renderer_state_.msaa_samples > 1;
 }
 
 void Host::on_device_lost()
 {
     post_.OnDeviceLost();
+    self_test_.OnDeviceLost();
     lighting_.on_device_lost();
     sky_.OnDeviceLost();
     water_.OnDeviceLost();
@@ -178,6 +180,7 @@ void Host::on_device_lost()
 void Host::shutdown()
 {
     post_.Shutdown();
+    self_test_.Shutdown();
     lighting_.shutdown();
     sky_.Shutdown();
     water_.Shutdown();
@@ -199,12 +202,15 @@ void Host::apply()
     report_.preset = preset_;
     requested_ = fx::Settings::FromPreset(static_cast<fx::QualityPreset>(preset_));
     bool profile = false;
+    caps_profile_ = fx::CapsProfile::Device;
     for (const auto &option : options_)
     {
         if (option.value < 0)
             continue; // the preset's value
         if (option.name == "fx_gpu_profile")
             profile = option.value != 0;
+        else if (option.name == "fx_caps_profile")
+            caps_profile_ = static_cast<fx::CapsProfile>(std::clamp(option.value, 0, static_cast<int>(fx::CapsProfile::Count) - 1));
         else if (const Option *known = find_option(option.name))
             known->apply(requested_, option.value);
         else
@@ -228,6 +234,15 @@ void Host::apply()
         }
     if (device_ready_)
     {
+        // What the device can do, narrowed by a forced GPU-family profile (fx_caps_profile, development) and by
+        // the stages the self-test found broken on this device.
+        support_ = fx::RestrictSupport(support_device_, caps_profile_);
+        if (caps_profile_ != fx::CapsProfile::Device)
+            report_.changes.push_back(std::string("caps profile forced: ") + fx::CapsProfileName(caps_profile_));
+        if (msaa_broken_)
+            support_.msaa = support_.msaa_depth = false;
+        if (post_broken_)
+            support_.lut_3d = false;
         next = fx::ConstrainSettings(next, support_, report_.changes);
         report_.support = support_.Describe();
         // Options the device can never honour, for the settings screen.
@@ -260,9 +275,12 @@ void Host::apply()
     const bool changed = !(next == settings_) || !device_ready_;
     settings_ = next;
     const fx::RendererState state = fx::RendererStateFor(settings_);
+    const bool depth_read = scene_depth_read();
     renderer_state_changed_ = renderer_state_changed_ ||
                               (device_ready_ && (state.msaa_samples != renderer_state_.msaa_samples ||
-                                                 state.max_anisotropy != renderer_state_.max_anisotropy));
+                                                 state.max_anisotropy != renderer_state_.max_anisotropy ||
+                                                 depth_read != depth_read_));
+    depth_read_ = depth_read;
     renderer_state_ = state;
     // The level of every anisotropic sampler (patches/bgfx-anisotropy-level.patch), applied at the next reset.
     bgfx::gl::g_stormMaxAnisotropy = static_cast<float>(state.max_anisotropy);
@@ -271,6 +289,8 @@ void Host::apply()
                                   std::to_string(static_cast<int>(device_max_anisotropy_)) + "x");
     lighting_.configure(settings_, renderer_state_);
     report_.summary = describe(settings_);
+    if (changed && device_ready_ && (!settings_.PostIsIdentity() || renderer_state_.msaa_samples > 1))
+        self_test_pending_ = true;
     if (changed)
     {
         shim::logf("effects: preset %d (%s): %s", preset_,
@@ -369,8 +389,39 @@ uint16_t Host::submit_post(const PostTargets &targets)
     return used;
 }
 
-void Host::end_frame(bool scene_frame)
+void Host::submit_self_test()
 {
+    if (!self_test_pending_ || !device_ready_ || self_test_.Running())
+        return;
+    self_test_pending_ = false;
+    self_test_.Submit(settings_, render::kPostViewBegin);
+}
+
+void Host::end_frame(bool scene_frame, uint32_t frame)
+{
+    if (self_test_.Running())
+    {
+        const fx::SelfTest::Result result = self_test_.Poll(frame);
+        if (result.done && result.failed == fx::SelfTest::Stage::None)
+        {
+            const char *gpu = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
+            shim::logf("effects self-test passed on %s (preset %d, MSAA %ux)", gpu ? gpu : "?", preset_,
+                       renderer_state_.msaa_samples);
+        }
+        if (result.done && result.failed != fx::SelfTest::Stage::None)
+        {
+            const char *gpu = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
+            const bool scene = result.failed == fx::SelfTest::Stage::SceneTarget;
+            shim::logf("ERROR: effects self-test failed on %s (%s): %s. %s switched off; %s", gpu ? gpu : "?",
+                       bgfx::getRendererName(bgfx::getRendererType()), result.detail.c_str(),
+                       scene ? "MSAA" : "the post-processing chain", support_.Describe().c_str());
+            // Like a missing capability: ConstrainSettings switches the stage off and reports it.
+            (scene ? msaa_broken_ : post_broken_) = true;
+            notice_ = std::string("Графика: ") + (scene ? "сглаживание MSAA" : "постобработка") +
+                      " не работает на этом GPU и отключена.";
+            apply();
+        }
+    }
     if (!scene_frame)
         scene_cut_pending_ = true;
     weather_last_frame_ = weather_this_frame_;
@@ -437,7 +488,9 @@ namespace storm::render
 const std::vector<EffectsOptionInfo> &EffectsOptionNames()
 {
     static const std::vector<EffectsOptionInfo> names = [] {
-        std::vector<EffectsOptionInfo> list{{"fx_preset", "0 Оригинал, 1 Среднее, 2 Высокое"},
+        std::vector<EffectsOptionInfo> list{{"fx_preset", "0 Низкая, 1 Средняя, 2 Высокая"},
+                                            {"fx_caps_profile", "0 device, 1 gles30-minimal, 2 mali-g5x, 3 mali-g7x, 4 adreno-6xx, "
+                                                                "5 adreno-7xx-8xx, 6 powervr, 7 xclipse (development)"},
                                             {"fx_gpu_profile", "1: log GPU timer averages every 30 frames (measurements)"}};
         for (const auto &option : effects::kOptions)
             list.push_back({option.name, option.values});
@@ -479,6 +532,11 @@ void SetEffectsTextureSource(IDirect3DBaseTexture9 *texture, const char *path)
 {
     if (shim::TexStore *store = shim::store_of(texture))
         effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path);
+}
+
+std::string TakeEffectsNotice()
+{
+    return effects::Host::instance().take_notice();
 }
 
 EffectsReport CurrentEffects()

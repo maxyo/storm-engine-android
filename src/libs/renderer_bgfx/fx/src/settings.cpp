@@ -1,4 +1,7 @@
 #include "storm/fx/settings.hpp"
+#include "storm/fx/capabilities.hpp"
+
+#include <iterator>
 
 namespace storm::fx
 {
@@ -6,11 +9,11 @@ namespace storm::fx
 Settings Settings::FromPreset(QualityPreset preset)
 {
     Settings s;
-    if (preset == QualityPreset::Original)
+    if (preset == QualityPreset::Low)
         return s;
 
-    // «Среднее» and «Высокое» are the same game, cleaner: the legacy palette, exposure and saturation stay. No tone
-    // curve, no colour grade, no lens flare or sun shafts (all options); a faint bloom on the brightest highlights,
+    // «Средняя» and «Высокая» are the same game, cleaner: the legacy palette and exposure stay. No tone
+    // curve, a gentle Caribbean grade only, no lens flare or sun shafts (all options); a faint bloom on the brightest highlights,
     // MSAA, sharper textures, per-pixel lighting that keeps the legacy brightness (the global ambient stays the
     // flat one of the fixed-function pipeline, lights add in gamma space as before), the game's own sky.
     s.bloom = true;
@@ -20,6 +23,10 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.alpha_to_coverage = true;
     s.dither = true; // ±0.5/255: invisible, removes banding of the bloom
     s.contact_shadows = true;
+    // A gentle Caribbean grade: warm sunlight, clearer turquoise water, lush greens, restrained (a third of the
+    // full «Карибы» grade: no visible saturation boost).
+    s.grade = GradePreset::Caribbean;
+    s.grade_strength = 0.35f;
 
     if (preset == QualityPreset::Medium)
     {
@@ -196,11 +203,11 @@ std::string_view NameRu(QualityPreset preset)
     switch (preset)
     {
     case QualityPreset::Medium:
-        return "Среднее";
+        return "Средняя";
     case QualityPreset::High:
-        return "Высокое";
+        return "Высокая";
     default:
-        return "Оригинал";
+        return "Низкая";
     }
 }
 
@@ -215,6 +222,39 @@ std::string_view NameRu(GradePreset preset)
     default:
         return "Оригинал";
     }
+}
+
+Support RestrictSupport(const Support &device, CapsProfile profile)
+{
+    Support s = device;
+    switch (profile)
+    {
+    case CapsProfile::Gles30Minimal:
+        s.msaa = s.msaa_depth = s.anisotropy = s.wave_field = false;
+        break;
+    case CapsProfile::MaliG5x:
+    case CapsProfile::Adreno6xx:
+        s.msaa_depth = false;
+        break;
+    case CapsProfile::PowerVR:
+        s.msaa = s.msaa_depth = s.anisotropy = false;
+        break;
+    case CapsProfile::Device:
+    case CapsProfile::MaliG7x:
+    case CapsProfile::Adreno7xx8xx:
+    case CapsProfile::Xclipse:
+    case CapsProfile::Count:
+        break;
+    }
+    return s;
+}
+
+const char *CapsProfileName(CapsProfile profile)
+{
+    static const char *const names[] = {"device", "gles30-minimal", "mali-g5x", "mali-g7x", "adreno-6xx",
+                                        "adreno-7xx-8xx", "powervr", "xclipse"};
+    const auto index = static_cast<size_t>(profile);
+    return index < std::size(names) ? names[index] : "?";
 }
 
 } // namespace storm::fx

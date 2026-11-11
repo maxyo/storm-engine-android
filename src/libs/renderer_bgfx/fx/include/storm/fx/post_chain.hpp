@@ -111,6 +111,7 @@ class PostChain
     bgfx::UniformHandle u_bloom_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_shafts_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_tone_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_bloom_range_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_lut_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_texel_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_ao_ = BGFX_INVALID_HANDLE;

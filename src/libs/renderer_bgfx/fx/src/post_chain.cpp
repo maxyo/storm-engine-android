@@ -58,7 +58,8 @@ void PostChain::Shutdown()
     Destroy(flare_);
     Destroy(u_finish_);
     for (bgfx::UniformHandle *uniform :
-         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_, &u_ao_})
+         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_,
+          &u_ao_})
         Destroy(*uniform);
     lut_strength_ = -1.0f;
     pending_slice_ = -1;
@@ -76,7 +77,8 @@ void PostChain::OnDeviceLost()
     flare_ = BGFX_INVALID_HANDLE;
     u_finish_ = BGFX_INVALID_HANDLE;
     for (bgfx::UniformHandle *uniform :
-         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_, &u_ao_})
+         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_,
+          &u_ao_})
         *uniform = BGFX_INVALID_HANDLE;
     lut_strength_ = -1.0f;
     pending_slice_ = -1;
@@ -94,6 +96,7 @@ bgfx::ProgramHandle PostChain::Program(int index)
         u_bloom_ = bgfx::createUniform("u_fxBloom", bgfx::UniformType::Vec4);
         u_shafts_ = bgfx::createUniform("u_fxShafts", bgfx::UniformType::Vec4);
         u_tone_ = bgfx::createUniform("u_fxTone", bgfx::UniformType::Vec4);
+        u_bloom_range_ = bgfx::createUniform("u_fxBloomRange", bgfx::UniformType::Vec4);
         u_lut_ = bgfx::createUniform("u_fxLut", bgfx::UniformType::Vec4);
         u_texel_ = bgfx::createUniform("u_fxTexel", bgfx::UniformType::Vec4);
         s_ao_ = bgfx::createUniform("s_fxAoTex", bgfx::UniformType::Sampler);
@@ -231,6 +234,8 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
                                     std::clamp(settings.bloom_knee, 0.0f, 1.0f) * threshold};
         const bgfx::ProgramHandle bright = Program(kBloomPrefilter);
         bgfx::setUniform(u_bloom_, prefilter);
+        const float range[4] = {settings.tonemap ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+        bgfx::setUniform(u_bloom_range_, range);
         bgfx::setTexture(0, s_scene_, frame.scene_color, kClampLinear);
         SubmitScreenTriangle(view++, bright, kWriteColor);
 

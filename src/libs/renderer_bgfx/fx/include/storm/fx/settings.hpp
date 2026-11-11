@@ -1,7 +1,7 @@
 // Runtime switches of the graphics effects package.
 //
 // Every field may be changed between frames; the passes read the struct each
-// frame and (re)create GPU resources lazily. `QualityPreset::Original` turns
+// frame and (re)create GPU resources lazily. `QualityPreset::Low` turns
 // every effect off: the post chain degenerates to a plain copy and the legacy
 // sea / sky / fixed-function lighting paths must be used unchanged.
 #pragma once
@@ -22,9 +22,9 @@ inline constexpr uint8_t kNormalMapStage = 14;
 
 enum class QualityPreset : uint8_t
 {
-    Original, // «Оригинал»: parity with the legacy renderer
-    Medium,   // «Среднее»: Mali-G52 / Adreno 610 class at 30 fps
-    High,     // «Высокое»: Adreno 640+ / Mali-G76+ class
+    Low,    // «Низкая»: the legacy look, no effect runs (parity with the original renderer); weak phones
+    Medium, // «Средняя»: Mali-G52 / Adreno 610 class at 30 fps
+    High,   // «Высокая»: Adreno 640+ / Mali-G76+ class
 };
 
 // Colour grade, independent of the quality preset.

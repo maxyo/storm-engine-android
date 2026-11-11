@@ -571,7 +571,7 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
             entry.client->OnUiRender(frame_);
         pace();
         const auto started = std::chrono::steady_clock::now();
-        if (run_frame(BGFX_FRAME_NONE))
+        if (run_frame(BGFX_FRAME_NONE, &last_frame_))
             perf_frame_presented(
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
     }

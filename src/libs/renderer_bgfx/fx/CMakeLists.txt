@@ -26,7 +26,7 @@ set_target_properties(storm_bgfx_fx_core PROPERTIES POSITION_INDEPENDENT_CODE ON
 
 add_library(storm_bgfx_fx STATIC
     src/gpu_util.cpp src/post_chain.cpp src/water.cpp src/sky.cpp src/lighting.cpp src/shadows.cpp src/capabilities.cpp
-    src/contact_shadows.cpp)
+    src/contact_shadows.cpp src/self_test.cpp)
 target_link_libraries(storm_bgfx_fx PUBLIC storm_bgfx_fx_core bgfx bx PRIVATE storm_fx_shaders)
 set_target_properties(storm_bgfx_fx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 

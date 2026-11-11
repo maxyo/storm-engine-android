@@ -220,7 +220,11 @@ void Device::create_scene_stores(uint32_t width, uint32_t height)
     back_depth->store = make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8,
                                    D3DPOOL_DEFAULT);
     back_depth->store->backbuffer = true;
-    back_depth->store->target_flags = msaa;
+    // A multisampled depth is resolved into a texture only when an effect reads it (ambient occlusion, the high
+    // water's scene capture): otherwise it stays a write-only render buffer, so leaving the scene target resolves
+    // colour alone (less bandwidth on tile GPUs, and no depth/stencil resolve blit, which drivers get wrong).
+    back_depth->store->target_flags =
+        msaa | (msaa && !effects::Host::instance().scene_depth_read() ? BGFX_TEXTURE_RT_WRITE_ONLY : 0);
     post_color = effects::Host::instance().post_active() ? picture() : nullptr;
     single_depth = msaa ? make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8,
                                      D3DPOOL_DEFAULT)
@@ -367,9 +371,11 @@ HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
     interface_drawn = false;
     context.set_game_target({back_color->store->handle.idx, back_depth->store->handle.idx, back_color->store->width,
                              back_color->store->height});
-    context.present(back_color->store->handle, back_color->store->width, back_color->store->height);
     auto &effects = effects::Host::instance();
-    effects.end_frame(scene_frame);
+    if (context.ready())
+        effects.submit_self_test(); // the effect path of the settings on a known picture (views kPostViewBegin..)
+    context.present(back_color->store->handle, back_color->store->width, back_color->store->height);
+    effects.end_frame(scene_frame, context.last_frame());
     if (effects.take_renderer_state_change())
     {
         // Between frames: the scene target follows the new MSAA setting, samplers the new anisotropy.
@@ -423,8 +429,9 @@ void Device::scene_complete()
     back_depth->store->sync();
     effects::Host::PostTargets targets;
     targets.scene_color = scene->handle;
-    // A multisampled depth is resolved into the texture with the colour (Host::on_device_created).
-    targets.scene_depth = back_depth->store->handle;
+    // A multisampled depth is resolved into the texture with the colour only when an effect reads it.
+    if (!(back_depth->store->target_flags & BGFX_TEXTURE_RT_WRITE_ONLY))
+        targets.scene_depth = back_depth->store->handle;
     targets.width = static_cast<uint16_t>(scene->width);
     targets.height = static_cast<uint16_t>(scene->height);
     targets.target = framebuffer(post_color.get(), 0, 0, nullptr);
@@ -546,7 +553,7 @@ uint16_t Device::new_view()
         depth = nullptr;
     // Attachments must agree in sample count: other targets drawn with the multisampled scene depth get a
     // single-sample depth of the same size.
-    if (depth && depth->target_flags != color->target_flags)
+    if (depth && (depth->target_flags & BGFX_TEXTURE_RT_MSAA_MASK) != (color->target_flags & BGFX_TEXTURE_RT_MSAA_MASK))
     {
         if (single_depth && depth == back_depth->store.get() && !color->target_flags)
             depth = single_depth.get();
