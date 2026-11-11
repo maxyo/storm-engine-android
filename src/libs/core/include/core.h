@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <optional>
+#include <string>
 
 #include <spdlog/spdlog.h>
 
@@ -81,6 +82,9 @@ class Core
     virtual bool SaveState(const char *file_name) = 0;
     // force core to load state file at the start of next game loop, return false if no state file
     virtual bool InitiateStateLoading(const char *file_name) = 0;
+    // Why the state file cannot be loaded ("" when it can): the check InitiateStateLoading
+    // makes, for a caller that must refuse a record before it tears the game down.
+    virtual std::string StateFileProblem(const char *file_name) = 0;
 
     // return current fps
     virtual uint32_t EngineFps() = 0;

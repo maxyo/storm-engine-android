@@ -1286,7 +1286,17 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
         const std::string &record = message.String();
         char description[256];
         description[0] = 0;
-        if (SFLB_GetSaveFileData(record.c_str(), sizeof(description), description) && strlen(description) > 0)
+        // The record of a watched load is about to cost the game its world (LoadGame runs
+        // DeleteEntities right after this guard): a record whose state cannot be loaded is
+        // refused here, while the menu or the game is still there to come back to.
+        const std::string problem = storm::loadWatch().Watching(record) ? core.StateFileProblem(record.c_str()) : std::string();
+        if (!problem.empty())
+        {
+            spdlog::error("Save '{}' cannot be loaded: {}", record, problem);
+            message.ScriptVariablePointer()->Set("");
+            storm::loadWatch().Refused(record, "the record cannot be read: " + problem);
+        }
+        else if (SFLB_GetSaveFileData(record.c_str(), sizeof(description), description) && strlen(description) > 0)
         {
             message.ScriptVariablePointer()->Set(description);
         }

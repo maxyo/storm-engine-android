@@ -647,6 +647,21 @@ bool CoreImpl::SaveState(const char *file_name)
 }
 
 // force core to load state file at the start of next game loop, return false if no state file
+std::string CoreImpl::StateFileProblem(const char *file_name)
+{
+    if (!file_name)
+        return "no file name";
+    const auto path = std::filesystem::u8path(fio->ConvertPathResource(file_name));
+    storm::save::Bytes image, raw;
+    std::string error;
+    const auto source = storm::save::loadWithRecovery(path, image, raw, error);
+    if (source == storm::save::Source::None)
+        return error.empty() ? std::string("unreadable") : error;
+    if (source == storm::save::Source::Backup)
+        spdlog::warn("Save '{}': {}", file_name, error);
+    return {};
+}
+
 bool CoreImpl::InitiateStateLoading(const char *file_name)
 {
     if (!file_name)
@@ -656,19 +671,11 @@ bool CoreImpl::InitiateStateLoading(const char *file_name)
 
     // Reject missing or damaged saves here, while the caller can still react,
     // instead of discovering it after the running game has been torn down.
-    const auto path = std::filesystem::u8path(fio->ConvertPathResource(file_name));
-    storm::save::Bytes image, raw;
-    std::string error;
-    const auto source = storm::save::loadWithRecovery(path, image, raw, error);
-    if (source == storm::save::Source::None)
+    if (const std::string problem = StateFileProblem(file_name); !problem.empty())
     {
-        spdlog::error("Cannot load save '{}' (resolved '{}'): {}", file_name, path.string(), error);
-        storm::loadWatch().Refused(file_name, "the record cannot be read: " + error);
+        spdlog::error("Cannot load save '{}' (resolved '{}'): {}", file_name, fio->ConvertPathResource(file_name), problem);
+        storm::loadWatch().Refused(file_name, "the record cannot be read: " + problem);
         return false;
-    }
-    if (source == storm::save::Source::Backup)
-    {
-        spdlog::warn("Save '{}': {}", file_name, error);
     }
 
     delete[] State_file_name;

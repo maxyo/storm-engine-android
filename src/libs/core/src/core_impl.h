@@ -89,6 +89,7 @@ class CoreImpl final : public CorePrivate
     bool SaveState(const char *file_name) override;
     // force core to load state file at the start of next game loop, return false if no state file
     bool InitiateStateLoading(const char *file_name) override;
+    std::string StateFileProblem(const char *file_name) override;
 
     // return current fps
     uint32_t EngineFps() override;

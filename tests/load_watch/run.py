@@ -33,10 +33,11 @@ int main(int, char **argv) {
     assert(!watch.Armed() && !watch.Poll(deadline * 2));
     // The description guard refuses the record: the failure comes at once, with that reason, once.
     watch.Requested("SAVE\\player\\Автосохранение 1");
+    assert(watch.Watching("SAVE/Player/Автосохранение 1") && !watch.Watching("SAVE\\player\\Автосохранение 2"));
     watch.Refused("SAVE/Player/Автосохранение 1", "the record has no readable description");
     auto failure = watch.Poll(step);
     assert(failure && failure->record == "SAVE\\player\\Автосохранение 1" && failure->reason == "the record has no readable description");
-    assert(!watch.Armed() && !watch.Poll(step));
+    assert(!watch.Armed() && !watch.Watching("SAVE\\player\\Автосохранение 1") && !watch.Poll(step));
     // A refusal of another record (the list reading descriptions meanwhile) does not fail the load.
     watch.Requested("SAVE\\player\\a");
     watch.Refused("SAVE\\player\\b", "unreadable");

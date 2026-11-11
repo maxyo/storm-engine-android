@@ -74,6 +74,11 @@ class LoadWatch
     {
         return armed_;
     }
+    // A load of this record is being watched.
+    bool Watching(const std::string &record) const
+    {
+        return armed_ && Same(record, record_);
+    }
     double Waited() const
     {
         return waited_;
