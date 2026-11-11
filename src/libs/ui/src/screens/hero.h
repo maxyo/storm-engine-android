@@ -30,8 +30,9 @@ Json Portrait(const std::string &face);
 // last model without them (the script's subject is gone): a missing `fact` is an error only in
 // the first model of an opening. `opening` keeps the opening already checked.
 void CheckAdapter(const Admission &admitted, Bindings &bindings, const char *fact, uint64_t &opening);
-// ‹ name k of n › over the captain and the officers on posts (CHARACTERS_SCROLL rows, the
-// adapter's ANDROID_POSTS); `select` sends the selection of a row. Null without officers.
-Json Subject(const Admission &admitted, Bindings &bindings, std::function<void(const Widget &)> select);
+// The subject switch over the captain and the officers on posts (CHARACTERS_SCROLL rows, the
+// adapter's ANDROID_POSTS), with their list; `select` sends the selection of a row. Null without
+// officers.
+Json Subject(const Admission &admitted, Bindings &bindings, SubjectSwitch &subjects, std::function<void(const Widget &)> select);
 
 } // namespace storm::ui::screens::hero

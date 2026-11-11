@@ -224,7 +224,7 @@ class HeroScreen final : public Screen
             bindings.Rebuild();
         });
         view["tab"] = tab_ == Tab::Skills ? "skills" : tab_ == Tab::Perks ? "perks" : "officers";
-        view["subject"] = full ? hero::Subject(admitted, bindings, [this, &bindings](const Widget &row) {
+        view["subject"] = full ? hero::Subject(admitted, bindings, subjects_, [this, &bindings](const Widget &row) {
             sent_revision_ = 0; // a player action: its first step may go at once
             Step(bindings, &row, "select", row.row_id);
         })
@@ -250,13 +250,15 @@ class HeroScreen final : public Screen
         return view;
     }
 
-    // Android back closes the game's window first.
+    // Android back closes the subject list or the game's window first.
     bool OwnsBack() const override
     {
-        return window_ != Window::None;
+        return subjects_.Open() || window_ != Window::None;
     }
     void Back(Bindings &bindings) override
     {
+        if (subjects_.Open())
+            return subjects_.Close(bindings);
         sent_revision_ = 0; // a player action: its first step may go at once
         CloseWindow(bindings);
     }
@@ -291,6 +293,7 @@ class HeroScreen final : public Screen
     uint64_t revision_ = 0;
     uint64_t sent_revision_ = 0;
     uint64_t checked_opening_ = 0;
+    SubjectSwitch subjects_;
     Tab tab_ = Tab::Skills;
     Window window_ = Window::None;
     Intent intent_;

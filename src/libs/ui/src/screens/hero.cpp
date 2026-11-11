@@ -122,18 +122,16 @@ void CheckAdapter(const Admission &admitted, Bindings &bindings, const char *fac
         bindings.Error(admitted.model->screen + ": no " + fact + " from the interface adapter (android_hero.c not loaded?)");
 }
 
-Json Subject(const Admission &admitted, Bindings &bindings, std::function<void(const Widget &)> select)
+Json Subject(const Admission &admitted, Bindings &bindings, SubjectSwitch &subjects, std::function<void(const Widget &)> select)
 {
     std::vector<int> filled;
-    std::vector<std::string> names;
+    std::vector<SubjectSwitch::Choice> choices;
     for (const Widget *post : admitted.All("ANDROID_POSTS"))
         if (!Field(post, "character").empty())
         {
             filled.push_back(std::atoi(Field(post, "slot").c_str()));
-            names.push_back(post->label);
+            choices.push_back({post->label, LowerText(Field(post, "role")), Portrait(Field(post, "face")), "hero"});
         }
-    if (filled.empty())
-        return nullptr;
     const Widget *current = nullptr;
     for (const Widget *row : admitted.All("CHARACTERS_SCROLL"))
         if (row->value == "1")
@@ -141,23 +139,13 @@ Json Subject(const Admission &admitted, Bindings &bindings, std::function<void(c
     const int slot = current ? current->index : 0;
     const auto at = std::find(filled.begin(), filled.end(), slot);
     // A free post selected in the game's list shows the captain (character_all.c SetButtonsState).
-    const int position = at == filled.end() ? 0 : static_cast<int>(at - filled.begin());
+    const size_t position = at == filled.end() ? 0 : static_cast<size_t>(at - filled.begin());
     std::vector<const Widget *> rows = admitted.All("CHARACTERS_SCROLL");
-    const auto choose = [rows, filled, select](int index) {
-        if (index < 0 || index >= static_cast<int>(filled.size()))
-            return;
+    return subjects.View(bindings, choices, position, bindings.Text("hero.subjects"), [rows, filled, select](size_t index) {
         for (const Widget *row : rows)
             if (row->index == filled[index] && row->Offers("select"))
                 select(*row);
-    };
-    bindings.On("header", "subject-prev", [choose, position](const Event &) { choose(position - 1); });
-    bindings.On("header", "subject-next", [choose, position](const Event &) { choose(position + 1); });
-    bindings.Ignore("header", "subject-list");
-    return Json{{"label", names[position]},
-                {"sub", std::to_string(position + 1) + " " + bindings.Text("common.of") + " " + std::to_string(filled.size())},
-                {"prev", position > 0},
-                {"next", position + 1 < static_cast<int>(filled.size())},
-                {"list", false}};
+    });
 }
 
 } // namespace storm::ui::screens::hero

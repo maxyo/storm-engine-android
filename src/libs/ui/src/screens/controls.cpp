@@ -390,4 +390,67 @@ void ControlRows(Bindings &bindings, std::span<const Widget *const> widgets, con
     }
 }
 
+Json SubjectSwitch::View(Bindings &bindings, const std::vector<Choice> &choices, size_t current, const std::string &title,
+                        std::function<void(size_t)> choose)
+{
+    const size_t count = choices.size();
+    if (current >= count)
+    {
+        open_ = false;
+        return nullptr;
+    }
+    const bool list = count > 1;
+    if (!list)
+        open_ = false;
+    bindings.On("header", "subject-prev", [choose, current](const Event &) {
+        if (current > 0)
+            choose(current - 1);
+    });
+    bindings.On("header", "subject-next", [choose, current, count](const Event &) {
+        if (current + 1 < count)
+            choose(current + 1);
+    });
+    if (list)
+        bindings.On("header", "subject-list", [this, &bindings](const Event &) {
+            open_ = true;
+            bindings.Rebuild();
+        });
+    else
+        bindings.Ignore("header", "subject-list");
+    Json view{{"label", choices[current].label},
+              {"sub", std::to_string(current + 1) + " " + bindings.Text("common.of") + " " + std::to_string(count)},
+              {"prev", current > 0},
+              {"next", current + 1 < count},
+              {"list", list}};
+    if (!open_)
+        return view;
+    Json rows = Json::array();
+    for (size_t i = 0; i < count; ++i)
+    {
+        rows.push_back(Json{{"label", choices[i].label},
+                            {"meta", choices[i].meta},
+                            {"image", choices[i].image},
+                            {"icon", choices[i].icon},
+                            {"selected", i == current}});
+        bindings.On("header-subject-" + std::to_string(i), "", [this, &bindings, choose, current, i](const Event &) {
+            Close(bindings);
+            if (i != current)
+                choose(i);
+        });
+    }
+    const auto close = [this, &bindings](const Event &) { Close(bindings); };
+    bindings.On("header-subjects", "dismiss", close);
+    bindings.On("header-subjects-close", "", close);
+    view["open"] = true;
+    view["title"] = title;
+    view["rows"] = rows;
+    return view;
+}
+
+void SubjectSwitch::Close(Bindings &bindings)
+{
+    open_ = false;
+    bindings.Rebuild();
+}
+
 } // namespace storm::ui::screens

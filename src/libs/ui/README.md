@@ -9,7 +9,8 @@ touch delivery. The pack and the design rules live in the application repository
 Build option `STORM_ENABLE_UI` (off in the main engine build; the directory is also a
 stand-alone CMake project). Dependencies are SHA256-pinned release archives fetched at
 configure time: RmlUi 6.3 (MIT), FreeType 2.14.3 (FTL), lunasvg 3.5.0 with plutovg
-(MIT), nlohmann/json 3.12.0 (MIT). No game data is involved in building or testing.
+(MIT), nlohmann/json 3.12.0 (MIT). Local fixes on top of the RmlUi pin live in `patches/rmlui-*.patch`.
+No game data is involved in building or testing.
 
 ## Build and check on the host
 

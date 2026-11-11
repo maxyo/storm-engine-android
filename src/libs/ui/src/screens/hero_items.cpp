@@ -109,7 +109,7 @@ class ItemsScreen final : public Screen
 
         Json view = Json::object();
         view["title"] = Trim(admitted.Label("TITLE"));
-        view["subject"] = Subject(admitted, bindings, [this, &bindings](const Widget &row) {
+        view["subject"] = Subject(admitted, bindings, subjects_, [this, &bindings](const Widget &row) {
             sent_revision_ = 0;
             filter_.clear();
             Step(bindings, &row, "select", row.row_id);
@@ -256,13 +256,15 @@ class ItemsScreen final : public Screen
         return view;
     }
 
-    // Android back closes the map window first.
+    // Android back closes the subject list or the map window first.
     bool OwnsBack() const override
     {
-        return map_open_;
+        return subjects_.Open() || map_open_;
     }
     void Back(Bindings &bindings) override
     {
+        if (subjects_.Open())
+            return subjects_.Close(bindings);
         sent_revision_ = 0;
         CloseMap(bindings);
     }
@@ -280,6 +282,7 @@ class ItemsScreen final : public Screen
     uint64_t revision_ = 0;
     uint64_t sent_revision_ = 0;
     uint64_t checked_opening_ = 0;
+    SubjectSwitch subjects_;
     bool map_open_ = false;
     std::string filter_; // the slot whose items the list shows
     Intent intent_;

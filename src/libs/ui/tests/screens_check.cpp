@@ -1215,6 +1215,25 @@ static void Hero(const std::string &models)
            "free points: ‹ › on the skills, ‹ only for points added in this visit");
     Expect(view["subject"]["sub"] == "1 <common.of> 2" && view["subject"]["prev"] == false && view["subject"]["next"] == true,
            "the captain and one officer in the switch");
+    // The subject list: a tap on the name lists the captain and the officers; a picked row is the same select as ›.
+    Expect(view["subject"]["list"] == true && !view["subject"].contains("open"), "two subjects offer the list, closed");
+    router.OnEvent({"header", "subject-list", ""});
+    view = surface.props;
+    Expect(view["subject"]["open"] == true && view["subject"]["title"] == "<hero.subjects>" && view["subject"]["rows"].size() == 2 &&
+               view["subject"]["rows"][0]["label"] == "Anne Bonny" && view["subject"]["rows"][0]["selected"] == true &&
+               view["subject"]["rows"][1]["selected"] == false,
+           "the list of the captain and the officer on a post, the current one selected");
+    Expect(router.WantsBack(), "back closes the subject list");
+    router.Back();
+    Expect(!surface.props["subject"].contains("open"), "back closed the list");
+    router.OnEvent({"header", "subject-list", ""});
+    const size_t sent = surface.commands.size();
+    router.OnEvent({"header-subject-0", "", ""});
+    Expect(surface.commands.size() == sent && !surface.props["subject"].contains("open"), "picking the current subject only closes the list");
+    router.OnEvent({"header", "subject-list", ""});
+    router.OnEvent({"header-subject-1", "", ""});
+    ExpectEqual(surface.Last(), "widget:lscchar_all\tCHARACTERS_SCROLL\t1\tselect@4:1:1", "a picked officer is selected as with ›");
+    Expect(!surface.props["subject"].contains("open"), "the pick closes the list");
     Expect(view["extras"]["rows"].empty(), "every widget is known: no extras");
 
     // A skill arrow: select the row, then the game's arrow once the engine shows the row selected.
@@ -1377,6 +1396,10 @@ static void Items(const std::string &models)
     ExpectEqual(surface.Last(), "widget:items\tTABBTN_3\t-1\tpress", "a game tab");
     router.OnEvent({"header", "subject-next", ""});
     ExpectEqual(surface.Last(), "widget:items\tCHARACTERS_SCROLL\t1\tselect@5:1:1", "the next officer's items");
+    router.OnEvent({"header", "subject-list", ""});
+    Expect(surface.props["subject"]["open"] == true && surface.props["subject"]["rows"].size() == 2, "the items screen lists the subjects too");
+    router.OnEvent({"header-subjects", "dismiss", ""});
+    Expect(!surface.props["subject"].contains("open"), "a tap beside the list closes it");
 
     // The game's map window.
     model.revision += 1;
@@ -1422,6 +1445,15 @@ static void Ship(const std::string &models)
            "the figures rounded, the guns row opens the cannons window");
     Expect(view["subject"]["label"] == "Swallow" && view["subject"]["sub"] == "2 <common.of> 2", "the squadron's ships are the header subject");
 
+    Expect(view["subject"]["list"] == true, "two ships offer the list");
+    router.OnEvent({"header", "subject-list", ""});
+    Expect(surface.props["subject"]["open"] == true && surface.props["subject"]["title"] == "<ship.squadron>" &&
+               surface.props["subject"]["rows"].size() == 2 && surface.props["subject"]["rows"][1]["selected"] == true &&
+               surface.props["subject"]["rows"][0]["icon"] == "ship",
+           "the squadron's ships listed, the current one selected");
+    router.OnEvent({"header-subject-0", "", ""});
+    ExpectEqual(surface.Last(), "widget:ship\tSHIPS_SCROLL\t0\tselect@7:1:0", "a picked ship is selected as with ‹");
+    Expect(!surface.props["subject"].contains("open"), "the pick closes the list");
     router.OnEvent({"header", "subject-prev", ""});
     ExpectEqual(surface.Last(), "widget:ship\tSHIPS_SCROLL\t0\tselect@7:1:0", "the previous ship");
     router.OnEvent({"ship-rename", "click", ""});
