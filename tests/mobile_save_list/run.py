@@ -9,6 +9,7 @@ facts=source[source.index('// What the save list shows of a record'):source.inde
 cap=source[source.index('class SaveListCapability'):source.index('inline SaveListCapability saveListCapability')]
 select=source[source.index('inline bool SelectSaveTarget'):source.index('\n}\nnamespace storm::mobile')]
 restore=source[source.index('inline bool RestoreSaveTarget'):source.rindex('\n}')]
+choose=source[source.index('inline std::string ProfileToChoose('):source.index('// Makes `profile` the game')]
 code=r'''
 #include <string>
 #include <vector>
@@ -21,7 +22,7 @@ code=r'''
 #include <cstdint>
 #include <iostream>
 struct MobileWidget { std::string node,type,label,value;int index,order;bool enabled;std::string rowId;std::vector<std::string> actions;std::string unavailableReason;std::map<std::string,std::string> context; };
-''' + state + facts + cap + r'''
+''' + state + facts + cap + choose + r'''
 SaveListSnapshot live;
 std::map<std::string,std::vector<std::string>> profiles; // the profile folders on disk
 std::optional<SaveListSnapshot> ReadSaveList(){return live;}
@@ -91,13 +92,31 @@ int main(){
  live.profile="EXISTING";switches=0;
  target=cap.accept(live,3,token6(3,"delete"));assert(target&&SelectSaveTarget(*target)&&switches==0&&selection.value==1);
  assert(RestoreSaveTarget(*target));live.profile="existing";
+ // One SetCurrentProfile per opening (each runs interface.c LoadGameOptions): frames of an
+ // opening, counting the game's own (no chooser) and the list's (through the chooser).
+ auto opening=[&](bool chooser,const std::string &game,bool listed,const std::string &newest){
+  int sets=chooser?0:1; std::optional<std::string> current=chooser?std::nullopt:std::optional<std::string>(game);
+  for(int frame=0;frame<5;++frame){
+   const std::string target=ProfileToChoose(chooser,game,listed,newest,current);
+   if(!target.empty()){++sets;current=target;chooser=false;}
+  }
+  return std::make_pair(sets,current);
+ };
+ auto run=opening(false,"player",false,"QA_Skip");assert(run.first==1&&run.second=="player"); // no folder: it stays current
+ run=opening(false,"player",true,"QA_Skip");assert(run.first==1&&run.second=="player");
+ run=opening(true,"player",true,"QA_Skip");assert(run.first==1&&run.second=="player");        // the chooser answered once
+ run=opening(true,"player",false,"QA_Skip");assert(run.first==1&&run.second=="QA_Skip");      // with the newest record's
+ run=opening(true,"player",false,"");assert(run.first==0);                                      // no record: nothing to choose
+ // After a record of another profile was deleted the opening's profile is made current again, once.
+ assert(ProfileToChoose(false,"player",true,"x",std::string("QA_Skip"))=="player"&&ProfileToChoose(false,"Player",true,"x",std::string("player")).empty());
+ assert(ProfileToChoose(false,"player",false,"x",std::string("QA_Skip")).empty()&&ProfileToChoose(false,"player",true,"x",std::nullopt).empty());
  // A record whose profile folder is gone cannot be chosen.
  live.records.push_back({"vanished","X"});rows.clear();cap.collect(live,true,rows,rowFacts);rows.erase(rows.begin());
  auto token7=[&](int index,const char *verb){return std::string(verb)+"@6:"+rows[index].rowId;};
  target=cap.accept(live,5,token7(5,"activate"));assert(target&&!SelectSaveTarget(*target));
  // No records at all: the empty list.
  live.records.clear();live.files.clear();rows.clear();cap.collect(live,true,rows,rowFacts);assert(rows.size()==1&&rows[0].node=="ANDROID_SAVES"&&rows[0].value=="0");
- std::cout<<"PASS record facts, every profile in one list, records of other profiles chosen through the game, stable identity, distant/earlier/new slot selection, delayed callback restore, profile/list/revision guards, profile names compared the game's way (ASCII case)\n";
+ std::cout<<"PASS record facts, every profile in one list, records of other profiles chosen through the game, stable identity, distant/earlier/new slot selection, delayed callback restore, profile/list/revision guards, profile names compared the game's way (ASCII case), one SetCurrentProfile per opening\n";
 }
 '''
 with tempfile.TemporaryDirectory(prefix='mobile-saves-') as directory:
