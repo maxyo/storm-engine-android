@@ -1093,13 +1093,6 @@ bool Renderer::ClearFrame(int32_t type)
     return true;
 }
 
-//################################################################################
-bool Renderer::BeginFrame()
-{
-    //~!~
-    return false;
-}
-
 void Renderer::CreateRenderQuad(float fWidth, float fHeight, float fSrcWidth, float fSrcHeight, float fMulU,
                                  float fMulV)
 {

@@ -201,11 +201,6 @@ class VRenderer : public SERVICE, public storm::render::TextureColorReader
     virtual void RenderAnimation(int32_t ib, void *src, int32_t numVrts, int32_t minv, int32_t numv, int32_t startidx, int32_t numtrg,
                                  bool isUpdateVB) = 0;
 
-    // Renderer: Render Target/Begin/End/Clear
-    virtual bool ClearFrame(int32_t type) = 0; // D3DCLEAR_STENCIL | D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER
-    virtual bool BeginFrame() = 0;
-    virtual bool DrawFrameStats() = 0;
-
     // Renderer: Materials/Lights Section
     virtual bool SetLight(uint32_t dwIndex, const D3DLIGHT9 *pLight) = 0;
     virtual bool LightEnable(uint32_t dwIndex, bool bOn) = 0;

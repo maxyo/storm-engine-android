@@ -126,9 +126,8 @@ class Renderer : public VRenderer
     uint32_t GetMaxActiveLights() override;
 
     // Renderer: Render Target/Begin/End/Clear
-    bool ClearFrame(int32_t type) override; // D3DCLEAR_STENCIL | D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER
-    bool BeginFrame() override;
-    bool DrawFrameStats() override;
+    bool ClearFrame(int32_t type); // D3DCLEAR_STENCIL | D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER
+    bool DrawFrameStats();
 
     // Renderer: Materials/Lights Section
     bool SetLight(uint32_t dwIndex, const D3DLIGHT9 *pLight) override;
