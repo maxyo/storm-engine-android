@@ -22,7 +22,6 @@
 #include "logging.hpp"
 #include "os_window.hpp"
 #include "app_events.hpp"
-#include "steam_api.hpp"
 #include "v_sound_service.h"
 #include "fs.h"
 #include "platform/host_hooks.hpp"
@@ -474,7 +473,6 @@ int main(int argc, char *argv[])
     auto ini = fio->OpenIniFile(fs::ENGINE_INI_FILE_NAME);
 
     uint32_t dwMaxFPS = 0;
-    bool bSteam = false;
     int width = 1024, height = 768;
     int preferred_display = 0;
     bool fullscreen = false;
@@ -502,19 +500,6 @@ int main(int argc, char *argv[])
         else {
             bSoundInBackground = false;
         }
-        bSteam = ini->GetInt(nullptr, "Steam", 1) != 0;
-    }
-
-
-    // initialize SteamApi through evaluating its singleton
-    try
-    {
-        steamapi::SteamApi::getInstance(!bSteam);
-    }
-    catch (const std::exception &e)
-    {
-        spdlog::critical(e.what());
-        return EXIT_FAILURE;
     }
 
     std::shared_ptr<storm::OSWindow> window =

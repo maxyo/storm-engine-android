@@ -9,7 +9,6 @@
 #include "platform/host_hooks.hpp"
 #include "save_file.hpp"
 #include "save_trash.hpp"
-#include "steam_api.hpp"
 
 #include <fstream>
 
@@ -216,8 +215,6 @@ bool CoreImpl::Run()
     if (Exit_flag)
         return false;
     ProcessRealize(); // transfer control to objects via Realize() function
-
-    steamapi::SteamApi::getInstance().RunCallbacks();
 
     if (Controls)
         Controls->Update(Timer.rDelta_Time);
