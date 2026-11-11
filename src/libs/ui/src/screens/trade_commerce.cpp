@@ -302,7 +302,9 @@ class CommerceScreen final : public Screen
                               {"moreLabel", bindings.Text(money ? StringKey("trade.buy") : StringKey("trade.take"))},
                               {"label", own_caption},
                               {"allLabel", bindings.Text("common.all")},
-                              {"summary", result.empty() ? "-" : result},
+                              // A money deal's price is on its button (one place); the control keeps the
+                              // width for the amount. A free transfer's line stays.
+                              {"summary", money || result.empty() ? "-" : result},
                               {"disabled", !edit->Offers("edit")}};
                 if (columns.small)
                     quantity["steps"] = Json::array({1, 10});
