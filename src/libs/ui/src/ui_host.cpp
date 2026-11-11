@@ -447,7 +447,11 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         if (phase == TouchPhase::Down ? Holding() : held_pointers_.count(pointer) > 0)
         {
             if (phase == TouchPhase::Down)
+            {
                 held_pointers_.insert(pointer);
+                Log("touch held for " + std::string(opening_ != Opening::None ? "an interface being opened" : between_ ? "what comes after the transition" : "the next layout") +
+                    ": " + RoutingFacts());
+            }
             held_.push_back({phase, pointer, x, y});
             return;
         }
@@ -720,7 +724,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         {
             opening_ = Opening::None;
             if (!held_.empty())
-                Log(std::to_string(held_.size()) + " touch events dropped: the interface closed before it was shown");
+                Log(std::to_string(held_.size()) + " touch events dropped: the interface closed before it was shown; " + RoutingFacts());
             held_.clear();
             held_pointers_.clear();
         }
@@ -814,7 +818,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         changed_ = true;
         if (!held_.empty())
-            Log(std::to_string(held_.size()) + " touch events dropped: the platform cancelled the input while they waited");
+            Log(std::to_string(held_.size()) + " touch events dropped: the platform cancelled the input while they waited; " + RoutingFacts());
         held_.clear();
         held_pointers_.clear();
         std::vector<std::pair<int, Rml::Vector2f>> held;
@@ -1367,20 +1371,37 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         touch_map_ = std::move(map);
     }
 
-    // The game shows nothing the player can use: no interface (nor one being opened), no
-    // full-screen video, no cutscene, no telescope, and the game in no gameplay mode that a HUD
-    // scene holds (the loading screen, a scene change, the title before its menu). A touch the game got then
-    // would land in whatever comes next unseen, so the UI owns the touches and holds them for
-    // that: the next interface gets them, gameplay drops them (ReleaseHeld). States the engine
-    // publishes decide it, not a timer.
+    // The game is between scenes and shows nothing the player can use: no interface (nor one
+    // being opened), no full-screen video, no cutscene, no telescope, no gameplay mode a HUD
+    // scene holds, and the engine says why there is no mode: it is starting, loading, has no
+    // scene yet, or launched an interface that is not shown yet (Gameplay::blocked). A touch the
+    // game got then would land in whatever comes next unseen, so the UI owns the touches and holds
+    // them for that: the next interface gets them, gameplay drops them (ReleaseHeld). Every
+    // other reason (a cutscene, a dialogue, a command menu, a control group no mode knows, no
+    // native player) leaves the touches to the game as before. States decide it, not a timer.
     bool Between() const
     {
         if (video_ || opening_ != Opening::None || InterfaceActive())
             return false;
         const hud::States &states = hud_->Current();
-        if (states.presentation.cinematic || (states.spyglass.known && states.spyglass.on))
+        if (states.presentation.cinematic || (states.spyglass.known && states.spyglass.on) || hud_->InGameplay())
             return false;
-        return !hud_->InGameplay();
+        const std::string &why = states.gameplay.blocked;
+        return why == "starting" || why == "loading" || why == "no-scene" || why == "interface";
+    }
+
+    // What decided a held or dropped touch, for the log (the player's shared log shows a state
+    // that was missing).
+    std::string RoutingFacts() const
+    {
+        const hud::States &states = hud_->Current();
+        const hud::Presentation &shown = states.presentation;
+        return "gameplay " + states.gameplay.mode + (states.gameplay.blocked.empty() ? "" : " (" + states.gameplay.blocked + ")") +
+               ", presentation " + (shown.known ? "screen '" + shown.screen + "' loading " + std::to_string(shown.loading) + " cinematic " +
+                                                      std::to_string(shown.cinematic) + " dialogue " + std::to_string(shown.dialogue) + " live " +
+                                                      std::to_string(shown.live)
+                                                : std::string("unknown")) +
+               ", interface " + std::to_string(InterfaceActive()) + ", video " + std::to_string(video_);
     }
 
     bool Holding() const
@@ -1404,7 +1425,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         held_pointers_.clear();
         if (!InterfaceActive())
         {
-            Log(std::to_string(held.size()) + " touch events dropped: made while the game showed nothing to use, and gameplay came next");
+            Log(std::to_string(held.size()) + " touch events dropped: made while the game showed nothing to use, and gameplay came next; " + RoutingFacts());
             return;
         }
         for (const HeldTouch &touch : held)
