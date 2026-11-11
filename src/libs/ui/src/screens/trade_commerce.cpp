@@ -219,11 +219,16 @@ class CommerceScreen final : public Screen
         const bool waiting = mine && bindings.Waiting(*edit, "edit");
         if (waiting)
             asked_revision_ = revision;
-        // The amount goes out as "0" and then the signed amount, in one flush; the game may
-        // publish the zero on its own first (QTY_EDIT 0, the hold figure as before). That is
-        // not its answer, and taking it as one learnt a false limit at what we hold.
-        const bool zero_echo = mine && local_target_ != local_ours_ && Number(edit->value) == 0 && model_target == ours;
-        const bool answered = mine && !waiting && !zero_echo && revision > asked_revision_;
+        // A revision answers the player's amount only when it is whole. The amount goes out as
+        // "0" and then the signed amount, in one flush; the game may publish the zero on its
+        // own first (QTY_EDIT 0, the hold as before), and it publishes its clamped QTY_EDIT a
+        // revision before the labels that follow from it (QTY_INFO_SHIP_QTY still the old
+        // figure; seen on the device). Taking either as the answer learnt a false limit at
+        // what we hold. Whole = the hold figure moved by exactly the edit box's amount.
+        const int edit_amount = std::abs(Number(edit ? edit->value : std::string()));
+        const bool zero_echo = mine && local_target_ != local_ours_ && edit_amount == 0 && model_target == ours;
+        const bool whole = std::abs(model_target - ours) == edit_amount;
+        const bool answered = mine && !waiting && !zero_echo && whole && revision > asked_revision_;
         const bool recent = mine && (waiting || (!answered && bindings.Now() - local_at_ < 2.0));
         const int target = recent ? local_target_ : model_target;
         if (recent && !waiting)

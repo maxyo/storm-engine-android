@@ -382,6 +382,9 @@ static void Store(const std::string &models)
         Expect(shows(301, "<trade.buy> 101", true), "«+»: the control and the button show 101 at once, the button waits");
         answer(0, 200, "", "");
         Expect(shows(301, "<trade.buy> 101", true), "the game's lone zero changes nothing");
+        answer(101, 200, "", ""); // the game's edit box a revision before its labels (device)
+        Expect(shows(301, "<trade.buy> 101", true) && q_surface.props["list"]["rows"][0]["q"]["max"] == 2040,
+               "a half answer (edit box without the hold figure) changes nothing and teaches no limit");
         answer(101, 301, "Купить", "Деньги 5, вес 6 ц");
         Expect(shows(301, "<trade.buy> 101", false) && q_surface.props["primary"]["sub"] == "Деньги 5, вес 6 ц",
                "the game's answer: the same 101, the button ready with the game's price");
@@ -391,6 +394,7 @@ static void Store(const std::string &models)
         q.OnEvent({"goods", "change", "2240"}); // «Все» to the right
         Expect(shows(2040, "<trade.buy> 1840", true), "«Все»: the store's stock, waiting");
         answer(0, 200, "", "");
+        answer(208, 200, "", "");
         answer(208, 408, "Купить", "Деньги 500, вес 11 ц");
         Expect(shows(408, "<trade.buy> 208", false) && q_surface.props["list"]["rows"][0]["q"]["max"] == 408,
                "the game's clamp (money) is its answer: control, slider end and button at 208");
@@ -430,6 +434,8 @@ static void Store(const std::string &models)
     for (Widget &w : limited.widgets)
         if (w.node == "QTY_INFO_SHIP_QTY")
             w.label = "280";
+        else if (w.node == "QTY_EDIT")
+            w.value = "80"; // the game's clamped amount, as its hold figure says
     router.SetInterface(limited);
     {
         const Json q = surface.props["list"]["rows"][0]["q"];
