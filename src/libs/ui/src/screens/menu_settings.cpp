@@ -156,6 +156,29 @@ class SettingsScreen final : public Screen
             game(detail, "HERB_CHECKBOX", "settings.grass");
             game(detail, "SEA_DETAILS_SLIDE", "settings.sea_detail");
             sections.push_back({"", {graphics, detail}});
+            // A debuggable app reports single fx overrides (GraphicsSettings.DEBUG_KEYS): rows to bisect
+            // rendering problems on a phone, applied with «Готово» like the preset. Development only, so
+            // the texts are not translated.
+            if (Known("fx_water"))
+            {
+                Column debug{"Отладка эффектов"};
+                const Json onOff = Json::array({"пресет", "выкл", "вкл"});
+                DebugSegment(bindings, debug, "fx_ssao", "SSAO", {-1, 0, 1}, onOff);
+                DebugSegment(bindings, debug, "fx_msaa", "MSAA", {-1, 1, 2, 4}, {"пресет", "выкл", "2x", "4x"});
+                DebugSegment(bindings, debug, "fx_bloom", "Свечение (bloom)", {-1, 0, 1}, onOff);
+                DebugSegment(bindings, debug, "fx_grade", "Цветокоррекция", {-1, 0, 1, 2}, {"пресет", "выкл", "Карибы", "Пасмурно"});
+                DebugSegment(bindings, debug, "fx_dither", "Дизеринг", {-1, 0, 1}, onOff);
+                DebugSegment(bindings, debug, "fx_contact_shadows", "Контактные тени", {-1, 0, 1}, onOff);
+                DebugSegment(bindings, debug, "fx_shadows", "Тени солнца", {-1, 0, 1, 2}, {"пресет", "выкл", "низк", "мягк"});
+                DebugSegment(bindings, debug, "fx_water", "Вода", {-1, 0, 1, 2, 3}, {"пресет", "старая", "низк", "средн", "высок"});
+                DebugSegment(bindings, debug, "fx_light_per_pixel", "Освещение попиксельно", {-1, 0, 1}, onOff);
+                DebugSegment(bindings, debug, "fx_light_point", "Точечные огни", {-1, 0, 1}, onOff);
+                DebugSegment(bindings, debug, "fx_light_specular", "Блики", {-1, 0, 1}, onOff);
+                DebugSegment(bindings, debug, "fx_light_normal_map", "Карты нормалей", {-1, 0, 1}, onOff);
+                DebugSegment(bindings, debug, "fx_alpha_to_coverage", "Alpha to coverage", {-1, 0, 1}, onOff);
+                DebugSegment(bindings, debug, "fx_anisotropy", "Анизотропия", {-1, 1, 4, 8}, {"пресет", "выкл", "4x", "8x"});
+                sections.push_back({"", {debug}});
+            }
         }
         else
         {
@@ -243,6 +266,24 @@ class SettingsScreen final : public Screen
         bindings.On(id, "change", [this, &bindings, key, values](const Event &event) {
             const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
             if (index < values.size() && Known(key))
+                draft_[key] = values[index];
+            bindings.Rebuild();
+        });
+    }
+
+    // A debug override row (raw, untranslated label); applied with «Готово» without a restart.
+    void DebugSegment(Bindings &bindings, Column &column, const char *key, const char *label, std::vector<int> values, Json options)
+    {
+        int selected = 0;
+        for (size_t i = 0; i < values.size(); ++i)
+            if (draft_[key].get<int>() == values[i])
+                selected = static_cast<int>(i);
+        const std::string id = std::string("app-") + key;
+        column.rows.push_back(Json{{"kind", "segment"}, {"id", id},       {"label", label},     {"options", options},
+                                   {"selected", selected}, {"stack", true}, {"restart", false}, {"disabled", false}});
+        bindings.On(id, "change", [this, &bindings, key, values](const Event &event) {
+            const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
+            if (index < values.size())
                 draft_[key] = values[index];
             bindings.Rebuild();
         });

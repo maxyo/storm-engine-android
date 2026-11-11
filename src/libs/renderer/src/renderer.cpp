@@ -482,12 +482,24 @@ void ConfigureGraphicsEffects(const std::function<int(const char *, int)> &iniVa
     effectsPreset = storm::android::graphicsSetting("fx_preset", effectsPreset);
 #endif
     // The single effects (and fx_anisotropy, which the preset decides too) are developer keys of
-    // engine.ini only.
+    // engine.ini; a debuggable Android build also offers some of them on the settings screen
+    // (GraphicsSettings.DEBUG_KEYS of the app), which win over engine.ini.
     effectsOptions.clear();
+    std::string overridden;
     for (const auto &info : storm::render::EffectsOptionNames())
         if (std::string_view(info.name) != "fx_preset")
-            if (const int value = iniValue(info.name, -1); value >= 0)
+        {
+            int value = iniValue(info.name, -1);
+#ifdef __ANDROID__
+            value = storm::android::graphicsSetting(info.name, value);
+#endif
+            if (value >= 0)
+            {
                 effectsOptions.push_back({info.name, value});
+                overridden += fmt::format(" {}={}", info.name, value);
+            }
+        }
+    spdlog::info("graphics effects: preset {}, options:{}", effectsPreset, overridden.empty() ? " none" : overridden);
     if (const char *overrides = std::getenv("STORM_FX_OPTIONS"); overrides && *overrides)
     {
         spdlog::warn("graphics effects: STORM_FX_OPTIONS overrides the settings: {}", overrides);
