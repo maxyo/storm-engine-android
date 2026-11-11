@@ -471,6 +471,10 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             if (capture.pointer.target && capture.pointer.target->GetOwnerDocument() == hud_document_ && !hud_->Interactive())
                 return;
             ComponentElement *component = InteractiveComponentAt(capture.pointer.target, capture.pointer);
+            // Claimed for something that is gone when it arrives (a load ended in gameplay in
+            // between): nothing takes it, said once per gesture.
+            if (!component && !InterfaceActive() && !hud_->Interactive())
+                Log("touch reached nothing of the UI: " + RoutingFacts());
             if (component && component->PointerExclusive(capture.pointer))
             {
                 capture.exclusive = true;
