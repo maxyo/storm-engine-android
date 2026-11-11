@@ -1,7 +1,8 @@
 // Host checks for the press behaviour with the whole runtime (a renderer that draws
 // nothing, the synthetic pack tests/pack plus one row component and a real font, so text
 // is measured): a long press on a row whose title was cut to fit opens the tooltip with
-// the full text and sends nothing; on a row whose title fits it is a plain press. The
+// the full text and sends nothing; on a row whose title fits it is a plain press, also
+// when it fits only stepped down to its min-size. The
 // panzoom behaviour (c-map-view) reports taps in the picture's units through pan and zoom. A full-screen
 // game video (state channel "video") hides the screen and passes every touch to the game.
 // No GL context, no game data.
@@ -47,6 +48,13 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
         "props": {"title": {"type": "text", "default": ""}, "hold": {"type": "bool", "default": false}, "tip": {"type": "text", "default": ""}},
         "constants": {"holdMode": "tooltip"},
         "template": "<ui-clamp lines=\"2\" text=\"{{title}}\" style=\"display: block; width: 100%;\"/>"})"));
+    // A one-line label that fits only when stepped down (ui-clamp min-size), and the same label
+    // without a step-down: cut, so its long press is the tooltip.
+    components["components"].push_back(Json::parse(R"({
+        "tag": "c-fit", "behaviors": ["press"],
+        "props": {"title": {"type": "text", "default": ""}, "least": {"type": "int", "default": 0}, "hold": {"type": "bool", "default": false}, "tip": {"type": "text", "default": ""}},
+        "constants": {"holdMode": "tooltip"},
+        "template": "<ui-clamp lines=\"1\" min-size=\"{{least}}\" text=\"{{title}}\" style=\"display: block; width: 100%; white-space: nowrap;\"/>"})"));
     components["components"].push_back(Json::parse(R"({
         "tag": "c-pz", "behaviors": ["panzoom"],
         "props": {"base": {"type": "json", "default": [1000, 500]}, "view": {"type": "json", "default": []}},
@@ -55,9 +63,12 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
     Write(pack / "overlay.rml", "<rml><head><style>body { font-family: LatoLatin; } #tooltip { display: none; } #tooltip.open { display: block; position: absolute; }</style></head>"
                                 "<body><div id=\"tooltip\"></div></body></rml>");
     Write(pack / "rows.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
-                             " c-row { display: block; position: absolute; left: 0; width: 200dp; height: 48dp; }</style></head><body>"
+                             " c-row { display: block; position: absolute; left: 0; width: 200dp; height: 48dp; }"
+                             " c-fit { display: block; position: absolute; left: 0; width: 72dp; height: 40dp; }</style></head><body>"
                              "<c-row id=\"short\" style=\"top: 0;\" hold=\"1\" title=\"Short\"/>"
                              "<c-row id=\"long\" style=\"top: 100dp;\" hold=\"1\" title=\"A reply far too long to fit in two lines of a narrow column, so it is cut and ends in an ellipsis\"/>"
+                             "<c-fit id=\"fit\" style=\"top: 200dp;\" hold=\"1\" least=\"11\" title=\"Mannschaft\"/>"
+                             "<c-fit id=\"cut\" style=\"top: 300dp;\" hold=\"1\" title=\"Mannschaft\"/>"
                              "<c-pz id=\"pz\" style=\"display: block; position: absolute; left: 400dp; top: 200dp; width: 400dp; height: 200dp;\"/>"
                              "</body></rml>");
     return pack;
@@ -98,17 +109,21 @@ int main(int argc, char **argv)
         }
     };
     frames(0.2);
-    const auto hold = [&](float y) {
+    const auto hold = [&](float y, float x = 100) {
         clicks.clear();
-        host->Touch(TouchPhase::Down, 1, 100, y);
+        host->Touch(TouchPhase::Down, 1, x, y);
         frames(1.0);
-        host->Touch(TouchPhase::Up, 1, 100, y);
+        host->Touch(TouchPhase::Up, 1, x, y);
         frames(0.1);
     };
     hold(124);
     Expect(clicks.empty(), "a long press on a cut title opens its tooltip and sends nothing");
     hold(24);
     Expect(clicks.size() == 1 && clicks[0] == "short click", "a long press on a title that fits is a plain press");
+    hold(220, 30);
+    Expect(clicks.size() == 1 && clicks[0] == "fit click", "the same label with min-size steps down and fits: a plain press");
+    hold(320, 30);
+    Expect(clicks.empty(), "a label too wide for its box without a step-down is cut (tooltip)");
 
     // Panzoom: the 1000 x 500 picture fills the 400 x 200 viewport (0.4 px per unit).
     const auto tap = [&](float x, float y) {

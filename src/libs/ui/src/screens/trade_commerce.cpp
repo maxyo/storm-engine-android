@@ -506,12 +506,9 @@ class CommerceScreen final : public Screen
         {
             const std::string operation = admitted.Label("QTY_TypeOperation");
             const int amount = std::abs(model_target - ours);
-            view["primary"] = Json{{"label", operation.empty() ? ok->label : operation + " " + std::to_string(amount)},
-                                   {"sub", OneLine(admitted.Label("QTY_Result"))},
-                                   {"disabled", amount == 0 || !ok->Offers("press")},
-                                   {"reason", ok->unavailable_reason},
-                                   {"busy", bindings.Pending("primary")}};
-            bindings.On("primary", "", [&bindings, ok, selected](const Event &) { bindings.Send(*ok, "press", {}, selected->row_id); });
+            view["primary"] = DealView(bindings, *ok, operation, amount, OneLine(admitted.Label("QTY_Result")));
+            if (!view["primary"].is_null())
+                bindings.On("primary", "", [&bindings, ok, selected](const Event &) { bindings.Send(*ok, "press", {}, selected->row_id); });
         }
         else if (!deal)
         {

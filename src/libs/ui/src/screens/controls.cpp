@@ -250,6 +250,17 @@ Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id,
                 {"busy", bindings.Pending(id)}};
 }
 
+Json DealView(Bindings &bindings, const Widget &ok, const std::string &operation, int amount, const std::string &sub)
+{
+    if (amount == 0)
+        return Json();
+    return Json{{"label", operation.empty() ? ok.label : operation + " " + std::to_string(amount)},
+                {"sub", sub},
+                {"disabled", !ok.Offers("press")},
+                {"reason", ok.unavailable_reason},
+                {"busy", bindings.Pending("primary")}};
+}
+
 void TapChoice(Bindings &bindings, const Widget &choice)
 {
     const char *verb = choice.value == "1" && choice.Offers("activate") ? "activate"

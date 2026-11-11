@@ -317,6 +317,25 @@ static void Store(const std::string &models)
     const Json row = surface.props["list"]["rows"][0];
     Expect(row["q"]["value"] == 300 && row["q"]["max"] == 2040 && row["q"]["min"] == 0, "open row shows the target amount in the hold");
     ExpectEqual(surface.props["primary"]["label"], "Купить 100", "primary names the deal");
+    {
+        // The game opens the deal at the amount held: nothing to confirm, so no deal button
+        // (its bare "Ok" read as a dead button).
+        FakeSurface idle_surface;
+        Router idle(idle_surface);
+        InterfaceModel unchanged = Load(models, "store-deal.json");
+        for (Widget &widget : unchanged.widgets)
+        {
+            if (widget.node == "QTY_INFO_SHIP_QTY")
+                widget.label = "200";
+            if (widget.node == "QTY_TypeOperation" || widget.node == "QTY_Result")
+                widget.label.clear();
+            if (widget.node == "QTY_EDIT")
+                widget.value = "0";
+        }
+        idle.SetInterface(unchanged);
+        Expect(idle_surface.props["list"]["rows"][0]["q"]["value"] == 200 && idle_surface.props["primary"].is_null(),
+               "an open deal at the amount held has no deal button");
+    }
     surface.commands.clear();
     router.OnEvent({"goods", "commit", "150"});
     ExpectEqual(surface.Last(), "widget:store\tQTY_EDIT\t-1\tguard@7:goods:0:ship:0|-50", "below the hold = sell, guarded by the row");
@@ -531,7 +550,7 @@ static void Crew(const std::string &models)
     Expect(router.Using() == "hirecrew" && surface.tag == "s-crew" && surface.errors.empty(), "hirecrew is drawn by the crew screen");
     Json row = surface.props["list"]["rows"][0];
     Expect(row["q"]["value"] == 40 && row["q"]["max"] == 65 && row["cells"][2]["text"] == "23", "crew on the ship, up to ship + tavern, price per man");
-    Expect(surface.props["primary"]["disabled"] == true, "nothing to confirm yet");
+    Expect(surface.props["primary"].is_null(), "nothing to confirm yet: no deal button");
     Expect(surface.props["ship"].size() == 4 && surface.props["ship"][0]["v"] == "Хорошая" && surface.props["tavern"][1]["v"] == "неопытные",
            "morale and experience of both crews");
     router.OnEvent({"crew", "commit", "50"});

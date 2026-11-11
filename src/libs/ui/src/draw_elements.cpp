@@ -7,9 +7,15 @@
 #include "elements.h"
 #include "text_pages.h"
 
+#include <RmlUi/Core/Context.h>
+#include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/ElementUtilities.h>
+#include <RmlUi/Core/FontEngineInterface.h>
+#include <RmlUi/Core/ID.h>
+#include <RmlUi/Core/Property.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -518,10 +524,16 @@ namespace
 
 bool clamps_changed = false;
 
-// <ui-clamp lines="2" text="…">: at most `lines` lines (1–3 in the design: list rows,
-// dialogue replies, table cells); a longer text ends in "…" after the last whole word.
-// The text is wrapped here with the same font metrics RmlUi uses, after each layout that
-// changed the width.
+// <ui-clamp lines="2" min-size="12" text="…">: at most `lines` lines (1–3 in the design: list
+// rows, dialogue replies, table cells, tile labels). A text that does not fit at the element's
+// font size steps down one pixel at a time, at most to `min-size` (dp; none = no step-down),
+// until every word fits on its line and the lines fit a `max-height` the style sheet sets (a
+// two-line name above a sub line); only a text that does not fit even then ends in "…"
+// after the last whole word (a lone word too wide for its line is cut inside the word). The
+// text is wrapped here with the same font metrics RmlUi uses, after each layout that changed
+// the width or the font. A stepped-down size is the element's own inline font-size (so the
+// line boxes shrink with it); the style sheet's size, noted while no step-down applies, stays
+// the base of the next fit, and a new text starts from the style sheet again.
 class ClampElement final : public Rml::Element
 {
   public:
@@ -531,10 +543,10 @@ class ClampElement final : public Rml::Element
     void OnAttributeChange(const Rml::ElementAttributes &changed) override
     {
         Rml::Element::OnAttributeChange(changed);
-        if (changed.count("text") || changed.count("lines"))
+        if (changed.count("text") || changed.count("lines") || changed.count("min-size"))
         {
             width_ = -1.0f;
-            Show(GetAttribute<Rml::String>("text", ""));
+            Show(GetAttribute<Rml::String>("text", ""), 0);
         }
     }
 
@@ -542,9 +554,14 @@ class ClampElement final : public Rml::Element
     {
         Rml::Element::OnLayout();
         const float width = GetBox().GetSize(Rml::BoxArea::Content).x;
-        if (width <= 0.0f || std::fabs(width - width_) < 0.5f)
+        FontKey font = Font();
+        if (applied_ == 0)
+            base_ = font.size;
+        font.size = base_;
+        if (width <= 0.0f || (std::fabs(width - width_) < 0.5f && font == font_))
             return;
         width_ = width;
+        font_ = font;
         // Children created during layout would be drawn before their styles (the font)
         // are resolved: refit in the next update instead.
         refit_ = true;
@@ -557,12 +574,39 @@ class ClampElement final : public Rml::Element
         if (!refit_)
             return;
         refit_ = false;
-        Show(Fit(GetAttribute<Rml::String>("text", ""), width_));
+        int size = 0;
+        const std::string text = Fit(GetAttribute<Rml::String>("text", ""), width_, size);
+        Show(text, size);
     }
 
   private:
-    void Show(const std::string &text)
+    // What the measurements depend on besides the width: the style sheet's font.
+    struct FontKey
     {
+        float size = 0.0f;
+        int weight = 0;
+        int style = 0;
+        bool operator==(const FontKey &) const = default;
+    };
+
+    FontKey Font()
+    {
+        const auto &values = GetComputedValues();
+        return {values.font_size(), static_cast<int>(values.font_weight()), static_cast<int>(values.font_style())};
+    }
+
+    // `size` > 0: the stepped-down font size in px, else the style sheet's.
+    void Show(const std::string &text, int size)
+    {
+        if (size != applied_)
+        {
+            if (size > 0)
+                SetProperty(Rml::PropertyId::FontSize, Rml::Property(static_cast<float>(size), Rml::Unit::PX));
+            else
+                RemoveProperty(Rml::PropertyId::FontSize);
+            applied_ = size;
+            clamps_changed = true;
+        }
         if (text == shown_ && GetNumChildren() > 0)
             return;
         shown_ = text;
@@ -570,15 +614,20 @@ class ClampElement final : public Rml::Element
         clamps_changed = true;
     }
 
-    float Width(const std::string &text)
+    // The width of `text` in the element's font at `size` px.
+    float Width(const std::string &text, int size)
     {
-        return static_cast<float>(Rml::ElementUtilities::GetStringWidth(this, text));
+        const auto &values = GetComputedValues();
+        Rml::FontEngineInterface *fonts = Rml::GetFontEngineInterface();
+        const Rml::FontFaceHandle face = fonts->GetFontFaceHandle(values.font_family(), values.font_style(), values.font_weight(), size);
+        if (face == 0)
+            return 0.0f;
+        const Rml::TextShapingContext shaping{values.language(), values.direction(), values.font_kerning(), values.letter_spacing()};
+        return static_cast<float>(fonts->GetStringWidth(face, text, shaping));
     }
 
-    std::string Fit(const std::string &text, float width)
+    static std::vector<std::string> Words(const std::string &text)
     {
-        cut_ = false;
-        const int lines = std::clamp(GetAttribute<int>("lines", 1), 1, 6);
         std::vector<std::string> words;
         for (size_t at = 0; at <= text.size();)
         {
@@ -587,33 +636,89 @@ class ClampElement final : public Rml::Element
                 words.push_back(text.substr(at, end - at));
             at = end + 1;
         }
-        std::string done, line;
+        return words;
+    }
+
+    // The height of `count` lines at `size` px.
+    float LinesHeight(int count, int size)
+    {
+        const Rml::Style::LineHeight line = GetComputedValues().line_height();
+        const float one = line.inherit_type == Rml::Style::LineHeight::Number ? static_cast<float>(size) * line.inherit_value : line.value;
+        return one * static_cast<float>(count);
+    }
+
+    // Greedy wrap at `size` px: true when the words take at most `lines` lines, none is wider
+    // than its line and the lines stay within `max_height`.
+    bool Fits(const std::vector<std::string> &words, float width, int size, int lines, float max_height)
+    {
+        std::string line;
         int line_count = 1;
-        for (size_t i = 0; i < words.size(); ++i)
+        for (const std::string &word : words)
         {
-            const std::string candidate = line.empty() ? words[i] : line + " " + words[i];
-            if (line.empty() || Width(candidate) <= width)
+            if (Width(word, size) > width)
+                return false;
+            const std::string candidate = line.empty() ? word : line + " " + word;
+            if (line.empty() || Width(candidate, size) <= width)
             {
                 line = candidate;
                 continue;
             }
-            if (line_count == lines)
+            if (++line_count > lines)
+                return false;
+            line = word;
+        }
+        return LinesHeight(line_count, size) <= max_height + 0.5f;
+    }
+
+    std::string Fit(const std::string &text, float width, int &size)
+    {
+        cut_ = false;
+        size = 0;
+        const int lines = std::clamp(GetAttribute<int>("lines", 1), 1, 6);
+        const std::vector<std::string> words = Words(text);
+        const int base = static_cast<int>(std::lround(base_));
+        const Rml::Context *context = GetContext();
+        const float ratio = context ? context->GetDensityIndependentPixelRatio() : 1.0f;
+        const float min_dp = GetAttribute<float>("min-size", 0.0f);
+        const int least = min_dp > 0.0f ? std::clamp(static_cast<int>(std::ceil(min_dp * ratio)), 1, base) : base;
+        const Rml::Style::MaxHeight cap = GetComputedValues().max_height();
+        const float max_height = cap.type == Rml::Style::LengthPercentage::Length ? cap.value : FLT_MAX;
+        for (int at = base; at >= least; --at)
+            if (Fits(words, width, at, lines, max_height))
             {
-                cut_ = true;
-                return done + Ellipsis(line, width);
+                size = at < base ? at : 0;
+                return text;
             }
+        // Even the smallest size does not fit: the text at that size, cut at the last line
+        // (or at a word too wide for its own line).
+        size = least < base ? least : 0;
+        cut_ = true;
+        std::string done, line;
+        int line_count = 1;
+        for (const std::string &word : words)
+        {
+            const std::string candidate = line.empty() ? word : line + " " + word;
+            if (line.empty() || Width(candidate, least) <= width)
+            {
+                line = candidate;
+                if (Width(line, least) > width)
+                    return done + Ellipsis(line, width, least);
+                continue;
+            }
+            if (line_count == lines)
+                return done + Ellipsis(line, width, least);
             done += line + " ";
-            line = words[i];
+            line = word;
             ++line_count;
         }
-        return text;
+        return done + Ellipsis(line, width, least);
     }
 
     // The last line with as much of it as fits before "…".
-    std::string Ellipsis(std::string line, float width)
+    std::string Ellipsis(std::string line, float width, int size)
     {
         static const std::string dots = "\xE2\x80\xA6";
-        while (!line.empty() && Width(line + dots) > width)
+        while (!line.empty() && Width(line + dots, size) > width)
         {
             const size_t space = line.rfind(' ');
             if (space != std::string::npos)
@@ -633,6 +738,9 @@ class ClampElement final : public Rml::Element
     }
 
     float width_ = -1.0f;
+    FontKey font_;
+    float base_ = 0.0f; // the style sheet's font size (px)
+    int applied_ = 0;   // the stepped-down size set inline (px), 0 = none
     bool refit_ = false;
     bool cut_ = false;
     std::string shown_;
