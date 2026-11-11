@@ -489,6 +489,13 @@ int main(int argc, char *argv[])
     storm::android::Lifecycle androidLifecycle;
     storm::android::GameplayShortcuts gameplayShortcuts;
     storm::android::GameplayState gameplayState;
+    // Why the game is not ready for gameplay this loop (GameplaySnapshot::blocked).
+    const auto notReady = [&]() -> const char * {
+        if (!androidLifecycle.canRun() || !bActive) return "paused";
+        if (storm::android::loadingState == 1) return "loading"; // -1: nothing loaded yet (starting)
+        if (!storm::android::mobileScreen.empty()) return "interface";
+        return "starting";
+    };
     storm::android::movementInput.updateOwner({});
     {
         storm::android::GameplaySnapshot starting;
@@ -757,7 +764,7 @@ int main(int argc, char *argv[])
             storm::android::publishSeaOrders();
             storm::android::movementInput.updateOwner({});
             storm::android::GameplaySnapshot blocked;
-            blocked.blocked = !androidLifecycle.canRun() ? "paused" : storm::android::loadingState != 0 ? "loading" : "interface";
+            blocked.blocked = notReady();
             gameplayState.update(std::move(blocked));
             storm::android::heldControls.update(gameplayState.revision());
             storm::android::updateCombatState(gameplayState, core_private);
@@ -893,8 +900,8 @@ int main(int argc, char *argv[])
                 storm::android::publishLandCommands();
             }
             auto gameplaySnapshot = storm::android::readGameplaySnapshot(gameplayReady);
-            if (!gameplayReady && (!bActive || !androidLifecycle.canRun()))
-                gameplaySnapshot.blocked = "paused";
+            if (!gameplayReady)
+                gameplaySnapshot.blocked = notReady(); // the same reason as the blocked branch above: one state per loop
             storm::android::movementInput.updateOwner(gameplaySnapshot.inputOwner);
             gameplaySnapshot.analogMovement = !gameplaySnapshot.inputOwner.empty();
             gameplaySnapshot.movementGeneration = gameplaySnapshot.analogMovement ? storm::android::movementInput.generation() : 0;
