@@ -34,6 +34,7 @@ static std::optional<storm::mobile::SaveListCapability::Target> deferredSaveActi
 static std::chrono::steady_clock::time_point deferredSaveDeadline;
 #include "android_newgame.hpp"
 #include "platform/android_ui.hpp"
+#include "platform/android_hud_presenter.hpp"
 static storm::mobile::InventoryEquipCapability inventoryEquipCapability;
 #endif
 #ifdef __ANDROID__
@@ -843,7 +844,13 @@ void XINTERFACE::Realize(uint32_t)
             m_pEditor->DrawSizeBox();
 
     // Mouse pointer show
-    if (m_bShowMouse)
+    if (m_bShowMouse
+#ifdef __ANDROID__
+        // One coverage rule (android_hud_presenter.hpp): no pointer of the original interface
+        // over a touch UI.
+        && !storm::android::legacyDrawRefused("interface cursor")
+#endif
+    )
     {
         pRenderService->TextureSet(0, m_idTex);
         pRenderService->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, XI_ONLYONETEX_FVF, 2, vMouse, sizeof(XI_ONLYONETEX_VERTEX),

@@ -1,6 +1,7 @@
 #include "s_device.h"
 #include <platform/android_ui.hpp>
 #include <platform/android_interface_presentation.hpp>
+#include <platform/android_hud_presenter.hpp>
 #ifdef __ANDROID__
 #include "android_render_resolution.hpp"
 #endif
@@ -4527,9 +4528,16 @@ void DX9RENDER::ProgressView()
     v[3].u = (fx + 1.0f) / float(sizeX);
     v[3].v = (fy + 1.0f) / float(sizeY);
     // Draw
-    TextureSet(0, progressTexture);
-    DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1, 2, v, sizeof(v[0]),
-                    "ProgressTech");
+#ifdef __ANDROID__
+    // One coverage rule (android_hud_presenter.hpp): the loading/saving spinner of the original
+    // interface does not draw over a touch UI; the game's loading picture stays.
+    if (!storm::android::legacyDrawRefused("loading spinner"))
+#endif
+    {
+        TextureSet(0, progressTexture);
+        DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1, 2, v, sizeof(v[0]),
+                        "ProgressTech");
+    }
     EndScene();
 #ifdef __ANDROID__
     // A progress/loading present is not the admitted world-map frame.
