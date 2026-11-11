@@ -429,7 +429,8 @@ Json SubjectSwitch::View(Bindings &bindings, const std::vector<Choice> &choices,
     else
         bindings.Ignore("header", "subject-list");
     Json view{{"label", choices[current].label},
-              {"sub", std::to_string(current + 1) + " " + bindings.Text("common.of") + " " + std::to_string(count)},
+              // «1 из 1» says nothing and takes the line a two-line name needs.
+              {"sub", count > 1 ? std::to_string(current + 1) + " " + bindings.Text("common.of") + " " + std::to_string(count) : std::string()},
               {"prev", current > 0},
               {"next", current + 1 < count},
               {"list", list}};
