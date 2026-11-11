@@ -128,7 +128,7 @@ class Frames
         for (uint32_t y = 0; y < kHeight; ++y)
             std::memcpy(&pixels[y * kWidth * 4], static_cast<uint8_t *>(locked.pBits) + y * locked.Pitch, kWidth * 4);
         readback_->UnlockRect();
-        check(d_.Present(nullptr, nullptr, nullptr, nullptr), "Present");
+        check(d_.Present(), "Present");
         return pixels;
     }
 

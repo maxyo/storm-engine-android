@@ -17,15 +17,6 @@ Direct3D *CreateDirect3D()
 
 // ---------------------------------------------------------------------------
 // Direct3D
-HRESULT Direct3D::GetAdapterIdentifier(UINT, DWORD, D3DADAPTER_IDENTIFIER9 *identifier)
-{
-    *identifier = {};
-    snprintf(identifier->Description, sizeof(identifier->Description), "bgfx");
-    snprintf(identifier->DeviceName, sizeof(identifier->DeviceName), "storm-bgfx");
-    snprintf(identifier->Driver, sizeof(identifier->Driver), "bgfx");
-    return D3D_OK;
-}
-
 HRESULT Direct3D::GetAdapterDisplayMode(UINT, D3DDISPLAYMODE *mode)
 {
     SDL_DisplayMode current{};
@@ -355,7 +346,7 @@ HRESULT Device::BeginScene()
     return D3D_OK;
 }
 
-HRESULT Device::Present(const RECT *, const RECT *, HWND, const RGNDATA *)
+HRESULT Device::Present()
 {
     auto &context = Context::instance();
     int w = 0, h = 0;

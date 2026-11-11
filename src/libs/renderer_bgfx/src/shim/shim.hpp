@@ -331,8 +331,6 @@ struct StateBlock final : Object
 
 struct Direct3D final : Object
 {
-    UINT GetAdapterCount() { return 1; }
-    HRESULT GetAdapterIdentifier(UINT adapter, DWORD flags, D3DADAPTER_IDENTIFIER9 *identifier);
     HRESULT GetAdapterDisplayMode(UINT adapter, D3DDISPLAYMODE *mode);
     HRESULT GetDeviceCaps(UINT adapter, D3DDEVTYPE type, D3DCAPS9 *caps);
     HRESULT CheckDeviceMultiSampleType(UINT, D3DDEVTYPE, D3DFORMAT, BOOL, D3DMULTISAMPLE_TYPE, DWORD *)

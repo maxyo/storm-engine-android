@@ -168,7 +168,7 @@ class Harness
             std::memcpy(&pixels[y * kSize * 4], static_cast<uint8_t *>(locked.pBits) + y * locked.Pitch, kSize * 4);
         readback_->UnlockRect();
         check(d_.SetRenderTarget(0, back_), "SetRenderTarget(back)");
-        check(d_.Present(nullptr, nullptr, nullptr, nullptr), "Present");
+        check(d_.Present(), "Present");
         return pixels;
     }
 

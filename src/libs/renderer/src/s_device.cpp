@@ -642,7 +642,6 @@ bool DX9RENDER::Init()
             }
         }
 
-        videoAdapterIndex = ini->GetInt(nullptr, "adapter", std::numeric_limits<int32_t>::max());
 
         // stencil_format = D3DFMT_D24S8;
 #ifdef __ANDROID__
@@ -906,40 +905,9 @@ bool DX9RENDER::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t hei
         d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
     }
 
-    // Choose desired video adapter
-    auto adapters_num = d3d->GetAdapterCount();
-    if (videoAdapterIndex > adapters_num - 1)
-        videoAdapterIndex = 0U;
-
-    spdlog::info("Querying available DirectX 9 adapters... detected {}:", adapters_num);
-    for (UINT i = 0; i != adapters_num; ++i)
-    {
-        D3DCAPS9 caps;
-        d3d->GetDeviceCaps(i, D3DDEVTYPE_HAL, &caps);
-        if (caps.DeviceType == D3DDEVTYPE_HAL)
-        {
-            D3DADAPTER_IDENTIFIER9 id;
-            d3d->GetAdapterIdentifier(i, 0, &id);
-            spdlog::info("{}: {} ({}) ", i, id.Description, id.DeviceName);
-        }
-    }
-    spdlog::info("Using adapter with index {} (configurable by setting adapter=<index> inside engine.ini)",
-             videoAdapterIndex);
-
-    // Create device
-    if (CHECKD3DERR(d3d->CreateDevice(videoAdapterIndex, D3DDEVTYPE_HAL, hwnd, D3DCREATE_HARDWARE_VERTEXPROCESSING,
-                                      &d3dpp, &d3d9)))
-    {
-        if (CHECKD3DERR(d3d->CreateDevice(videoAdapterIndex, D3DDEVTYPE_HAL, hwnd, D3DCREATE_MIXED_VERTEXPROCESSING,
-                                          &d3dpp, &d3d9)))
-        {
-            if (CHECKD3DERR(d3d->CreateDevice(videoAdapterIndex, D3DDEVTYPE_HAL, hwnd,
-                                              D3DCREATE_SOFTWARE_VERTEXPROCESSING, &d3dpp, &d3d9)))
-            {
-                return false;
-            }
-        }
-    }
+    // One device on bgfx; the behaviour flags of D3D9 mean nothing to the shim.
+    if (CHECKD3DERR(d3d->CreateDevice(0, D3DDEVTYPE_HAL, hwnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, &d3d9)))
+        return false;
 
     // Create render targets for POST PROCESS effects
     d3d9->GetRenderTarget(0, &pOriginalScreenSurface);
@@ -1414,7 +1382,7 @@ bool DX9RENDER::DX9EndScene()
     }
 
     const auto presentStart = renderMetricsEnabled ? SDL_GetPerformanceCounter() : 0;
-    const HRESULT hRes = d3d9->Present(nullptr, nullptr, nullptr, nullptr);
+    const HRESULT hRes = d3d9->Present();
 #ifdef __ANDROID__
     storm::android::worldMapHud.presented(hRes==D3D_OK);
 #endif
@@ -4544,7 +4512,7 @@ void DX9RENDER::ProgressView()
     // A progress/loading present is not the admitted world-map frame.
     storm::android::worldMapHud.presented(false);
 #endif
-    d3d9->Present(nullptr, nullptr, nullptr, nullptr);
+    d3d9->Present();
     BeginScene();
     // Next frame
     loadFrame++;

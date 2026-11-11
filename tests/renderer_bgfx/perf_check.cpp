@@ -150,7 +150,7 @@ class Scene
         fans();
         sprites_and_text();
         check(d_.EndScene(), "EndScene");
-        check(d_.Present(nullptr, nullptr, nullptr, nullptr), "Present");
+        check(d_.Present(), "Present");
     }
 
     UINT draws_per_frame() const { return 40 + 10 + 2 + 3 + 6 + 36; }

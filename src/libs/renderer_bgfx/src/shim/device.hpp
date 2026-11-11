@@ -156,7 +156,7 @@ struct Device final : Object
     HRESULT GetDeviceCaps(D3DCAPS9 *caps);
     HRESULT GetDirect3D(Direct3D **d3d);
     HRESULT Reset(D3DPRESENT_PARAMETERS *params);
-    HRESULT Present(const RECT *, const RECT *, HWND, const RGNDATA *);
+    HRESULT Present();
     HRESULT GetBackBuffer(UINT, UINT, D3DBACKBUFFER_TYPE, Surface **surface);
     HRESULT CreateTexture(UINT width, UINT height, UINT levels, DWORD usage, D3DFORMAT format, D3DPOOL pool,
                           Texture2D **texture, HANDLE *);
@@ -238,7 +238,6 @@ struct Device final : Object
     HRESULT SetSoftwareVertexProcessing(BOOL) { return D3D_OK; }
     HRESULT ShowCursor(BOOL) { return D3D_OK; }
     HRESULT EvictManagedResources() { return D3D_OK; }
-    void SetGammaRamp(UINT, DWORD, const D3DGAMMARAMP *) {}
 
     // ---- internals ----
     struct DrawCall

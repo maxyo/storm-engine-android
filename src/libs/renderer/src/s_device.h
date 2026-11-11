@@ -360,7 +360,6 @@ class DX9RENDER : public VDX9RENDER
     // new renderer settings
     bool vSyncEnabled;
     uint32_t msaa;
-    uint32_t videoAdapterIndex;
 
     D3DPRESENT_PARAMETERS d3dpp;
 
