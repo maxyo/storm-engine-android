@@ -26,6 +26,8 @@ target_compile_definitions(spdlog INTERFACE SPDLOG_FMT_EXTERNAL)
 target_link_libraries(spdlog INTERFACE fmt)
 add_library(catch2 INTERFACE)
 target_include_directories(catch2 INTERFACE "${STORM_ANDROID_SOURCES}/catch2/single_include")
+# Catch2 writes its output to the Android log (__android_log_write) on Android.
+target_link_libraries(catch2 INTERFACE log)
 set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(MI_BUILD_STATIC OFF CACHE BOOL "" FORCE)
 set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
