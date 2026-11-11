@@ -19,8 +19,9 @@
   "hk_charge4",
   "BICommandsActivate",
   "BIFastCommand",
-  "TimeScale",
-  "TimeScaleFaster",
-  "TimeScaleSlower"
+  "TimeScaleX1",
+  "TimeScaleX2",
+  "TimeScaleX4",
+  "TimeScaleX8"
  ]
 }

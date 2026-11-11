@@ -34,6 +34,7 @@
 #include "platform/android_shortcuts.hpp"
 #include "android_gameplay_state.hpp"
 #include "android_ship_abilities.hpp"
+#include "android_time_scale.hpp"
 #include "android_combat_state.hpp"
 #include "android_sea_orders_state.hpp"
 #include "android_land_commands_state.hpp"
@@ -836,6 +837,8 @@ int main(int argc, char *argv[])
                 // A battle ability goes through the command list, as the native menu launches it.
                 if (action->starts_with("BI_"))
                     storm::android::launchShipAbility(*action);
+                else if (const int step = storm::android::timeScaleStep(*action); step >= 0)
+                    storm::android::applyTimeScaleStep(step);
                 else
                     core_private->Event("Control Activation", "s", action->c_str());
             }

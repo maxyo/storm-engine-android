@@ -1,5 +1,10 @@
 #include "battle_ship_command.h"
 
+#include <algorithm>
+#ifdef __ANDROID__
+#include <SDL2/SDL.h>
+#endif
+
 #include "core.h"
 
 #include "island_descr.h"
@@ -104,6 +109,45 @@ void BIShipCommandList::FillIcons()
     
     nIconsQuantity += AddCancelIcon();
 }
+
+#ifdef __ANDROID__
+int32_t BIShipCommandList::AndroidTargetCount(const std::string &command)
+{
+    constexpr int32_t targets = BI_COMMODE_MY_SHIP_SELECT | BI_COMMODE_NEUTRAL_SHIP_SELECT | BI_COMMODE_FRIEND_SHIP_SELECT |
+                                BI_COMMODE_ENEMY_SHIP_SELECT | BI_COMMODE_FRIEND_FORT_SELECT | BI_COMMODE_NEUTRAL_FORT_SELECT |
+                                BI_COMMODE_ENEMY_FORT_SELECT | BI_COMMODE_LAND_SELECT | BI_COMMODE_ENEMY_TOWN |
+                                BI_COMMODE_DISEASED_TOWN | BI_COMMODE_NOTDISEASED_TOWN | BI_COMMODE_ALLLOCATOR_SELECT;
+    // Probed at most twice a second per command and recipient: the menu is read every frame.
+    const auto key = command + "\n" + std::to_string(m_nCurrentCommandCharacterIndex);
+    const uint32_t now = SDL_GetTicks();
+    if (const auto found = m_androidTargetCounts.find(key); found != m_androidTargetCounts.end() && now - found->second.first < 500)
+        return found->second.second;
+    const auto remember = [&](int32_t count) { m_androidTargetCounts[key] = {now, count}; return count; };
+    // The scripts' own answer what list the command opens (it also sets the command's range).
+    int32_t mode = 0;
+    if (auto *data = core.Event("BI_CommandEndChecking", "s", command.c_str()))
+        data->Get(mode);
+    if (mode <= 0 || (mode & ~targets) || !(mode & ~BI_COMMODE_ALLLOCATOR_SELECT))
+        return remember(-1);
+    // Fill that list exactly as a tap would, count it, and put everything back.
+    auto icons = std::move(m_aUsedCommand);
+    auto cooldowns = std::move(m_aCooldownUpdate);
+    const auto name = m_sCurrentCommandName, kind = m_fillingKind;
+    const auto previous = m_nCurrentCommandMode;
+    m_aUsedCommand.clear();
+    m_aCooldownUpdate.clear();
+    m_sCurrentCommandName = command;
+    m_nCurrentCommandMode = mode;
+    FillIcons();
+    const auto count = std::count_if(m_aUsedCommand.begin(), m_aUsedCommand.end(), [](const UsedCommand &c) { return c.sKind != "cancel"; });
+    m_aUsedCommand = std::move(icons);
+    m_aCooldownUpdate = std::move(cooldowns);
+    m_sCurrentCommandName = name;
+    m_fillingKind = kind;
+    m_nCurrentCommandMode = previous;
+    return remember(static_cast<int32_t>(count));
+}
+#endif
 
 void BIShipCommandList::Init()
 {

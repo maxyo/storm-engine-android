@@ -653,7 +653,7 @@ ATTRIBUTES *BICommandList::GetCurrentCommandAttribute() const
 }
 
 #ifdef __ANDROID__
-void BICommandList::ReadAndroidOrders(storm::android::SeaOrdersFrame &frame) const
+void BICommandList::ReadAndroidOrders(storm::android::SeaOrdersFrame &frame)
 {
     frame.items.clear();
     frame.selectedItemId.clear();
@@ -671,6 +671,11 @@ void BICommandList::ReadAndroidOrders(storm::android::SeaOrdersFrame &frame) con
         item.source = command.sCommandName;
         item.cooldown = command.fCooldownFactor;
         item.enabled = command.nCooldownPictureIndex < 0 || command.fCooldownFactor >= 1.f;
+        // A command whose target list would be empty (no ship to send a boat to) is offered
+        // disabled; the count comes from the same builder that fills that list on a tap.
+        if (item.enabled && (m_nCurrentCommandMode & BI_COMMODE_COMMAND_SELECT) && command.sKind == "command" &&
+            !command.sCommandName.empty() && AndroidTargetCount(command.sCommandName) == 0)
+            item.enabled = false;
         // Include target entity identity so a reused character slot cannot
         // inherit a pending touch even when its visible name is unchanged.
         const auto *ship = g_ShipList.FindShip(command.nCharIndex);

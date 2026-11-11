@@ -63,6 +63,15 @@ int main()
     assert(inventoryFirst->find("\"type\":\"Lugger\"") != std::string::npos);
     assert(inventoryFirst->find("\"shipClass\":5") != std::string::npos);
     assert(inventoryFirst->find("\"ammoCounts\":{\"balls\":0,\"grapes\":25,\"knippels\":36,\"bombs\":47}") != std::string::npos);
+    {   // every bar under its own key: distinct values catch a swap of crew and sails
+        ShipTelemetryFrame bars = inventory;
+        bars.ship.hull = ShipMetric{410, 1000}; bars.ship.crew = ShipMetric{33, 120}; bars.ship.sails = ShipMetric{77, 100};
+        ShipTelemetryState barsState; barsState.update(12, bars);
+        const auto json = barsState.json();
+        assert(json.find("\"hull\":" + std::to_string(410.0) + ",\"hullMax\":" + std::to_string(1000.0)) != std::string::npos);
+        assert(json.find("\"crew\":" + std::to_string(33.0) + ",\"crewMax\":" + std::to_string(120.0)) != std::string::npos);
+        assert(json.find("\"sailIntegrity\":" + std::to_string(77.0) + ",\"sailIntegrityMax\":" + std::to_string(100.0)) != std::string::npos);
+    }
     inventoryState.published(*inventoryFirst, 0);
     const auto inventoryGeneration = inventoryState.hudRevision();
     inventory.ammoCounts[1] = 24;
