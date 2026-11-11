@@ -1391,6 +1391,18 @@ static void Items(const std::string &models)
                view["detail"]["action"]["disabled"] == false,
            "the selected item with the game's own action");
     Expect(view["extras"]["rows"].empty(), "every widget is known: no extras");
+    {
+        // An item worn nowhere (the potion: no slot) has no slot line and is no error.
+        FakeSurface potion_surface;
+        Router potion(potion_surface);
+        InterfaceModel selected = model;
+        for (Widget &widget : selected.widgets)
+            if (widget.node == "TABLE_ITEMS")
+                widget.value = widget.index == 2 ? "1" : "0";
+        potion.SetInterface(selected);
+        Expect(potion_surface.props["detail"]["title"] == "Potion" && potion_surface.props["detail"]["sub"] == "" && potion_surface.errors.empty(),
+               "an item without a slot: no slot line, no missing-string error");
+    }
 
     router.OnEvent({"item-equip", "click", ""});
     ExpectEqual(surface.Last(), "widget:items\tEQUIP_BUTTON\t-1\tpress@5:inventory:7:character:1:role:0", "the action is the game's guarded press");
