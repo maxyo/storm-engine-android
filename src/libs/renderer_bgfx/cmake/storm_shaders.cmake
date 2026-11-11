@@ -7,6 +7,7 @@
 # File names must start with vs_ or fs_; a variant compiles <source> again with extra
 # defines under its own <name>. Other libraries (e.g. the UI) call this with their own
 # sources and varying.def.sc; see renderer_bgfx/README.md.
+set(STORM_ESSL_PRECISION_CHECK "${CMAKE_CURRENT_LIST_DIR}/essl_precision_check.py" CACHE INTERNAL "")
 function(storm_bgfx_embed_shaders)
     cmake_parse_arguments(arg "" "TARGET;NAMESPACE;VARYING" "SOURCES;DEFINES;INCLUDES;VARIANTS" ${ARGN})
     set(out_dir "${CMAKE_CURRENT_BINARY_DIR}/shaders-gen/${arg_NAMESPACE}")
@@ -64,7 +65,13 @@ function(storm_bgfx_embed_shaders)
     # includes.inc pulls in every blob; table.inc lists STORM_SHADER(name) entries.
     file(GENERATE OUTPUT "${out_dir}/includes.inc" CONTENT "${include_lines}")
     file(GENERATE OUTPUT "${out_dir}/table.inc" CONTENT "${table_lines}")
-    add_custom_target(${arg_TARGET}_build DEPENDS ${outputs})
+    # Every blob is highp (cmake/essl_precision_check.py): the build fails otherwise.
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(precision_stamp "${out_dir}/precision-check.stamp")
+    add_custom_command(OUTPUT "${precision_stamp}"
+        COMMAND Python3::Interpreter "${STORM_ESSL_PRECISION_CHECK}" "${precision_stamp}" ${outputs}
+        DEPENDS ${outputs} "${STORM_ESSL_PRECISION_CHECK}" VERBATIM)
+    add_custom_target(${arg_TARGET}_build DEPENDS ${outputs} "${precision_stamp}")
     add_library(${arg_TARGET} INTERFACE)
     add_dependencies(${arg_TARGET} ${arg_TARGET}_build)
     target_include_directories(${arg_TARGET} INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/shaders-gen")
