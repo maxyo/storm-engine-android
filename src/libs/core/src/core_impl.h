@@ -113,6 +113,7 @@ class CoreImpl final : public CorePrivate
 
     void *GetScriptVariable(const char *pVariableName, uint32_t *pdwVarIndex = nullptr) override;
     bool HasActiveEventHandler(const char *event_name, const char *func_name) override;
+    [[nodiscard]] std::optional<int32_t> GetScriptIntegerDefine(const char *name) override;
 
     [[nodiscard]] storm::ENGINE_VERSION GetTargetEngineVersion() const noexcept override;
 

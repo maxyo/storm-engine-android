@@ -5,6 +5,8 @@
 #include "save_load.h"
 #include "collide.h"
 #include "dx9render.h"
+#include "script_relations.hpp"
+#include <optional>
 #include <vector>
 
 class AIAttributesHolder
@@ -55,6 +57,8 @@ class AIHelper
 
     uint32_t GetRelation(ATTRIBUTES *pA1, ATTRIBUTES *pA2) const;
     uint32_t GetRelationSafe(ATTRIBUTES *pA1, ATTRIBUTES *pA2) const;
+    // GetRelationSafe in the scripts' numbering, for relations handed to the scripts.
+    int32_t GetScriptRelationSafe(ATTRIBUTES *pA1, ATTRIBUTES *pA2);
 
     static void Print(float x, float y, float fScale, const char *pFormat, ...);
     static void Print3D(glm::vec3 vPos, float dy, float fScale, const char *pFormat, ...);
@@ -64,6 +68,9 @@ class AIHelper
 
   private:
     uint32_t *pRelations, dwRelationSize;
+    std::optional<storm::sea_ai::ScriptRelations> scriptRelations_; // read from the scripts on first use
+
+    const storm::sea_ai::ScriptRelations &ScriptRelationNumbers();
     std::vector<ATTRIBUTES *> aCharacters, aMainCharacters;
 
     uint32_t *GetRelation(uint32_t x, uint32_t y) const;

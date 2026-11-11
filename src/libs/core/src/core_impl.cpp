@@ -997,6 +997,11 @@ bool CoreImpl::HasActiveEventHandler(const char *event_name, const char *func_na
     return Compiler && Compiler->HasActiveEventHandler(event_name, func_name);
 }
 
+std::optional<int32_t> CoreImpl::GetScriptIntegerDefine(const char *name)
+{
+    return Compiler->FindIntegerDefine(name);
+}
+
 void *CoreImpl::GetScriptVariable(const char *pVariableName, uint32_t *pdwVarIndex)
 {
     const VarInfo *real_var;

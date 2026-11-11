@@ -34,3 +34,5 @@ It reports BlendFrame cost only: it does not measure the game renderer or FPS,
 and sequential traversal is not an actual distribution of active actions.
 Validate target ARM64 correctness and game frame cost separately before
 accepting a performance claim. The miss path has an added comparison/branch.
+
+`root_position.py` checks `Bone::BlendPosition` (the root bone track between two frames) under ASan/UBSan: the last frame holds and nothing past the track is read.

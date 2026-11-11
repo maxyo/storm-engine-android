@@ -65,10 +65,11 @@ int main()
         r.UnLockIndexBuffer(id);
     }
     assert(spdlog::errors == 3 * 7);
-    // A handle without a buffer: Lock is reported, Release of it stays a no-op (double release).
+    // A handle without a buffer (never created or already released): reported, nothing done.
     assert(!r.LockIndexBuffer(5) && spdlog::errors == 3 * 7 + 1);
     r.ReleaseIndexBuffer(5);
-    assert(spdlog::errors == 3 * 7 + 1);
+    r.ReleaseVertexBuffer(5);
+    assert(spdlog::errors == 3 * 7 + 3);
     // Live handles work as before.
     assert(r.LockVertexBuffer(2) == vb.data && r.GetVertexBufferSize(2) == 16);
     r.UnLockVertexBuffer(2);
@@ -77,8 +78,10 @@ int main()
     r.ReleaseVertexBuffer(2);
     r.ReleaseIndexBuffer(3);
     assert(vb.refs == 0 && ib.refs == 0 && !r.VertexBuffers[2].buff && !r.IndexBuffers[3].buff && vb.locks == 0);
-    assert(spdlog::errors == 3 * 7 + 1);
-    std::cout << "actual DX9RENDER buffer handles: -1 is no buffer, out-of-range ids reported, live ids unchanged PASS\n";
+    assert(spdlog::errors == 3 * 7 + 3);
+    r.ReleaseIndexBuffer(3); // double release
+    assert(ib.refs == 0 && spdlog::errors == 3 * 7 + 4);
+    std::cout << "actual DX9RENDER buffer handles: -1 is no buffer, out-of-range and released ids reported, live ids unchanged PASS\n";
 }
 '''
 with tempfile.TemporaryDirectory(prefix='buffer-handles-') as d:

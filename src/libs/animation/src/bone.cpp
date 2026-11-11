@@ -173,6 +173,13 @@ void Bone::BuildStartMatrix()
 // --------------------------------------------------------------------------------------------
 
 // Add animation frames
+glm::vec3 Bone::BlendPosition(int32_t frame, float kBlend) const
+{
+    if (frame + 1 >= numFrames)
+        return pos[numFrames - 1];
+    return pos[frame] + kBlend * (pos[frame + 1] - pos[frame]);
+}
+
 void Bone::BlendFrame(int32_t frame, float kBlend, glm::quat &res)
 {
     if (numFrames <= 0)
