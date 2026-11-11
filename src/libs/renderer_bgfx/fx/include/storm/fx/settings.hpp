@@ -17,7 +17,7 @@ namespace storm::fx
 // Sampler stages fx binds into the fixed-function emulator's programs (FX_LIGHT_SHADOW, FX_LIGHT_NORMALMAP).
 // They are above the emulator's own units (stages 0..4, cube maps 5..7 and 11, volume textures 8..10 and 12),
 // so every combination fits in the 16 units of GLES 3.0.
-inline constexpr uint8_t kShadowMapStage = 13;
+inline constexpr uint8_t kShadowMapStage = 15; // 13 is the renderer's bone palette (vertex shader)
 inline constexpr uint8_t kNormalMapStage = 14;
 
 enum class QualityPreset : uint8_t

@@ -16,6 +16,8 @@
 //   * relief (kLightingNormalMap): a lit or baked draw whose stage 1 holds a height texture with a derived normal map
 //     (effects/normal_maps.hpp) uses the FX_LIGHT_NORMALMAP variant with the map at stage 14 and stage 1's sampler
 //     flags; lit draws perturb the normal, baked ones scale their colour by fxBakedRelief. Characters have none.
+//   * sun shadows (Settings::shadows, effects/shadows.hpp): lit draws into the game picture cast (the shim submits
+//     them again into the shadow view: FfDraw::caster) and receive (FX_LIGHT_SHADOW[_SOFT] variants).
 //   * alpha to coverage (RendererState::alpha_to_coverage): alpha-tested (GREATER / GREATEREQUAL), non-blended draws
 //     into a multisampled target: BGFX_STATE_BLEND_ALPHA_TO_COVERAGE and fxCoverageAlpha() instead of the discard.
 //   * aerial perspective (kLightingAerial): every draw through the fixed-function vertex pipeline whose fog is the
@@ -26,6 +28,7 @@
 #pragma once
 
 #include "effects/normal_maps.hpp"
+#include "effects/shadows.hpp"
 #include "storm/fx/lighting.hpp"
 #include "storm/fx/settings.hpp"
 #include "storm/fx/sky_model.hpp"
@@ -63,6 +66,9 @@ struct FfDraw
     std::array<float, 4> coverage{};
     bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE; // FX_LIGHT_NORMALMAP variant: bound at stage 14
     uint32_t normal_map_flags = 0;
+    bool shadow = false;           // FX_LIGHT_SHADOW variant: submit() binds the map for `view`
+    bool caster = false;           // the shim also submits this draw into the shadow view (submit_caster)
+    std::array<float, 16> view{};  // the draw's world -> view (shadow receivers)
 };
 
 class Lighting
@@ -89,11 +95,18 @@ class Lighting
     }
     void set_sky(const fx::SkyState *sky) { sky_ = sky; }
     NormalMaps &normal_maps() { return normal_maps_; }
+    SunShadows &shadows() { return shadows_; }
+    // After the draw was submitted with its buffers kept (BGFX_DISCARD_NONE for buffers): the depth-only copy.
+    void submit_caster(shim::Device &device, const D3DMATRIX &world, bool skinned)
+    {
+        shadows_.submit_caster(device, &world.m[0][0], skinned);
+        ++frame_.casters;
+    }
     void end_frame();
     // Draws of the last presented frame that used a lit / baked / coverage variant (effects profile).
     struct Counts
     {
-        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, aerial = 0;
+        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, shadowed = 0, casters = 0, aerial = 0;
     };
     Counts last_frame() const { return last_frame_; }
 
@@ -120,9 +133,10 @@ class Lighting
     bool dynamic_lights_this_frame_ = false;
     const fx::SkyState *sky_ = nullptr;
     uint32_t vs_ff_ = 0, vs_lit_ = 0, fs_coverage_ = 0;
-    uint32_t fs_lit_[2][2][2] = {}; // [specular][normal map][linear]
+    uint32_t fs_lit_[2][2][2][3] = {}; // [specular][normal map][linear][shadow: none, one tap, soft]
     uint32_t fs_baked_[2][2] = {};  // [normal map][linear]
     NormalMaps normal_maps_;
+    SunShadows shadows_;
     bool cube_reported_ = false;
     bool aerial_port_reported_ = false;
     bgfx::UniformHandle u_aerial_up_ = BGFX_INVALID_HANDLE;
