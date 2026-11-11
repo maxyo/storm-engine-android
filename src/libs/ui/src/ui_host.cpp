@@ -190,6 +190,7 @@ class CountedDocument final : public Rml::ElementDocument
     {
         Rml::ElementDocument::OnLayout();
         ++stats_.laid_out;
+        ++stats_.layout_passes;
     }
 
   private:
@@ -536,7 +537,10 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         const double routing = std::min(router_->Tick(), hud_->Tick());
 
         context_->Update();
-        const bool edges = ScrollEdgesChanged(context_->GetRootElement());
+        // Scroll edges move only with a layout, a touch or a scroll in motion: the walk over
+        // every element is skipped on frames without any of them.
+        const bool moved = changed_ || counters_.laid_out > 0 || context_->GetNextUpdateDelay() <= 0.0;
+        const bool edges = moved && ScrollEdgesChanged(context_->GetRootElement());
         const bool clamps = TextClampsChanged() || edges;
         if (clamps) // clamped text was re-cut for a new width, or a scrolling edge changed
             context_->Update();
@@ -579,9 +583,10 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         if (counters_.mispredicted)
             Error("UI frame predicted unchanged drew something else: a change that does not ask for a frame; " + renderer_->Difference());
         shown_hash_ = renderer_->FrameHash();
-        // Textures made while drawing (a font atlas that grew for new glyphs) make RmlUi
-        // re-encode other meshes in the next frame: that frame is drawn too.
-        changed_ = counters_.textures > 0;
+        // Textures made or handed out while drawing (a font atlas that grew for new glyphs, a
+        // box shadow made again) make RmlUi re-encode meshes and re-apply its clip state in
+        // the next frame: that frame is drawn too.
+        changed_ = counters_.textures > 0 || counters_.textures_shared > 0;
         drawn_ = true;
         counters_.render_ms = Milliseconds(updated, std::chrono::steady_clock::now());
         last_frame_ = counters_;

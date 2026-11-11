@@ -4,3 +4,7 @@ s-hud, c-box, c-button, c-stick, c-fleet, c-minimap, c-lever, c-helm, s-hud-orde
 s-hud-orders { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
 /* boxes only show: a touch on one belongs to what lies under it */
 c-box { pointer-events: none; }
+
+/* The runtime's scroll-edge fade, as the real pack styles it (base.rcss). */
+.scroll-fade { position: absolute; left: 0; right: 0; height: 26dp; pointer-events: none; z-index: 3; background-color: #00000080; display: none; }
+.scroll-below > .scroll-fade { display: block; }

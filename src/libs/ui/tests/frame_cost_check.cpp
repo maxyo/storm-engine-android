@@ -190,6 +190,38 @@ void FilterCache()
     Expect(backend.Count("push") == 0 && backend.Count("draw") == 0, "a layer composited into an empty region draws nothing");
 }
 
+// RmlUi's box shadow: a layer drawn, saved as a texture, popped. An element rebuilt with the
+// same look draws the same: it gets the texture made before, and it lives while held.
+void SharedShadows()
+{
+    Recorder backend;
+    FrameStats stats;
+    FrameRenderer renderer(backend, stats);
+    const Rml::CompiledGeometryHandle shape = Mesh(renderer, 0);
+    const auto shadow = [&](float x) {
+        renderer.EnableScissorRegion(true);
+        renderer.SetScissorRegion(Rml::Rectanglei::FromPositionSize({static_cast<int>(x), 0}, {60, 30}));
+        renderer.PushLayer();
+        renderer.RenderGeometry(shape, {x + 4, 4}, 0);
+        const Rml::TextureHandle texture = renderer.SaveLayerAsTexture();
+        renderer.PopLayer();
+        renderer.EnableScissorRegion(false);
+        return texture;
+    };
+    renderer.BeginFrame();
+    const Rml::TextureHandle first = shadow(0);
+    renderer.EndFrame();
+    Expect(backend.Count("save") == 1, "the first box shadow is made");
+    backend.calls.clear();
+    renderer.BeginFrame();
+    renderer.ReleaseTexture(first); // the element was rebuilt: RmlUi lets go of the old one...
+    const Rml::TextureHandle again = shadow(100); // ...and makes the same shadow elsewhere
+    renderer.EndFrame();
+    Expect(again == first && backend.Count("save") == 0 && backend.Count("push") == 0, "the same shadow again is the texture made before");
+    Expect(stats.textures_shared == 1, "counted as shared");
+    Expect(backend.Count("release-texture") == 0, "a held texture is not released");
+}
+
 void SteadyRuntime(const std::string &pack)
 {
     Runtime runtime(pack);
@@ -240,6 +272,11 @@ void TapLatency(const std::string &pack)
     Expect(runtime.host->Prepare(delay), "the model asks for a frame at once");
     runtime.Frame();
     Expect(runtime.host->InterfaceActive(), "the next frame shows the screen");
+    // A new screen: its document, the clamped text re-cut for the widths it got, the HUD hidden.
+    Expect(runtime.host->LastFrameStats().layout_passes <= 3, "a new screen costs at most three layout passes");
+    runtime.host->SetInterface(model); // the same revision again
+    runtime.Frame();
+    Expect(runtime.host->LastFrameStats().layout_passes == 0, "a model that changed nothing lays nothing out");
     Expect(!runtime.host->Prepare(delay), "the screen is complete in that one frame");
 }
 
@@ -259,6 +296,8 @@ void ScrollFling(const std::string &pack)
     {
         runtime.host->Touch(TouchPhase::Move, 1, 150, static_cast<float>(y));
         runtime.Frame();
+        if (y < 260) // the first move may add the edge fade (a new element)
+            Expect(runtime.host->LastFrameStats().laid_out == 0, "scrolling lays nothing out (the edge fade moves by transform)");
     }
     runtime.host->Touch(TouchPhase::Up, 1, 150, 60);
     int moving = 0;
@@ -284,6 +323,7 @@ int main(int argc, char **argv)
     }
     states_directory = argv[1];
     FilterCache();
+    SharedShadows();
     SteadyRuntime(argv[2]);
     TapLatency(argv[2]);
     ScrollFling(argv[2]);
