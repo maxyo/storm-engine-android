@@ -441,6 +441,21 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     void Touch(TouchPhase phase, int pointer, float x, float y) override
     {
         changed_ = true;
+        // A pointer that went down on what is not laid out yet (an interface whose model is
+        // still to come, a sheet opened since the last frame) waits for that layout, with the
+        // rest of its gesture (ReleaseHeld).
+        if (phase == TouchPhase::Down ? Holding() : held_pointers_.count(pointer) > 0)
+        {
+            if (phase == TouchPhase::Down)
+                held_pointers_.insert(pointer);
+            held_.push_back({phase, pointer, x, y});
+            return;
+        }
+        Apply(phase, pointer, x, y);
+    }
+
+    void Apply(TouchPhase phase, int pointer, float x, float y)
+    {
         const Rml::Vector2f at = {x, y};
         if (phase == TouchPhase::Down)
         {
@@ -563,7 +578,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             // The frame on the screen still shows everything: acknowledgements that wait
             // for a drawn frame are given for it.
             hud_->Drawn();
-            PublishTouchMap();
+            PublishTouchMap(true);
+            ReleaseHeld();
         }
         return draw;
     }
@@ -591,7 +607,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         last_frame_ = counters_;
         counters_ = FrameStats(); // what happens until the next frame counts for it
         hud_->Drawn();
-        PublishTouchMap();
+        PublishTouchMap(true);
+        ReleaseHeld();
         return delay;
     }
 
@@ -679,11 +696,30 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     void SetInterface(const InterfaceModel &model) override
     {
         router_->SetInterface(model);
+        if (opening_ == Opening::AwaitModel)
+            opening_ = Opening::AwaitFrame;
+        PublishTouchMap();
     }
 
     void CloseInterface() override
     {
         router_->CloseInterface();
+        if (opening_ != Opening::None)
+        {
+            opening_ = Opening::None;
+            if (!held_.empty())
+                Error(std::to_string(held_.size()) + " touch events dropped: the interface closed before it was shown");
+            held_.clear();
+            held_pointers_.clear();
+        }
+        PublishTouchMap();
+    }
+
+    void ExpectInterface() override
+    {
+        changed_ = true;
+        opening_ = Opening::AwaitModel;
+        PublishTouchMap();
     }
 
     bool SetState(const std::string &channel, const std::string &json) override
@@ -705,6 +741,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             Error("state channel " + channel + ": " + error.what());
             return false;
         }
+        PublishTouchMap(); // a sheet the state opened owns the touches from now
         return true;
     }
 
@@ -764,6 +801,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     void CancelInput() override
     {
         changed_ = true;
+        held_.clear();
+        held_pointers_.clear();
         std::vector<std::pair<int, Rml::Vector2f>> held;
         for (const auto &capture : captures_)
             held.emplace_back(capture.first, capture.second.pointer.position);
@@ -1292,17 +1331,44 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     }
 
     // Called after everything that changes what a touch would hit (a frame, a document,
-    // an interface): the answer of WantsTouch never waits for this thread.
-    void PublishTouchMap()
+    // an interface, a state): the answer of WantsTouch never waits for this thread. Outside a
+    // frame (`laid_out` false) what now covers the game is not laid out yet: pointers that go
+    // down on it are held until the next frame (Touch, ReleaseHeld).
+    void PublishTouchMap(bool laid_out = false)
     {
         TouchMap map;
         const bool hud = hud_->Interactive();
         map.back = !video_ && ((hud && hud_->Shown().modal) || router_->WantsBack()); // a modal HUD sheet or a screen's own modal
-        map.everywhere = !video_ && (document_ != nullptr || map.back); // a document or an interface screen, or a modal HUD sheet
+        // a document or an interface screen (also one the game opened whose model is still to
+        // come), or a modal HUD sheet
+        map.everywhere = !video_ && (document_ != nullptr || map.back || opening_ != Opening::None);
         if (hud && !map.everywhere && hud_document_)
             CollectRegions(hud_document_, map.regions);
         const std::lock_guard<std::mutex> lock(touch_mutex_);
+        if (!laid_out && map.everywhere && !touch_map_.everywhere)
+            unlaid_ = true;
         touch_map_ = std::move(map);
+    }
+
+    bool Holding() const
+    {
+        return opening_ != Opening::None || unlaid_;
+    }
+
+    // After a frame (its layout): an opened interface that got its model is shown, a new sheet
+    // is laid out, and the touches held for them are applied in order.
+    void ReleaseHeld()
+    {
+        if (opening_ == Opening::AwaitFrame)
+            opening_ = Opening::None;
+        unlaid_ = false;
+        if (opening_ != Opening::None || held_.empty())
+            return;
+        const std::vector<HeldTouch> held = std::move(held_);
+        held_.clear();
+        held_pointers_.clear();
+        for (const HeldTouch &touch : held)
+            Apply(touch.phase, touch.pointer, touch.x, touch.y);
     }
 
     struct Toast_
@@ -1379,6 +1445,24 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     std::unordered_map<std::string, std::string> hud_made_; // what each mounted element was created as
     mutable std::mutex touch_mutex_;
     TouchMap touch_map_;
+    // An interface the game opened (ExpectInterface): its model is still to come, then its
+    // first frame.
+    enum class Opening
+    {
+        None,
+        AwaitModel,
+        AwaitFrame
+    };
+    Opening opening_ = Opening::None;
+    bool unlaid_ = false; // something covers the game since the last frame (PublishTouchMap)
+    struct HeldTouch
+    {
+        TouchPhase phase;
+        int pointer;
+        float x, y;
+    };
+    std::vector<HeldTouch> held_;
+    std::set<int> held_pointers_;
     Json settings_ = Json::object();
     Json safe_ = {{"left", 0}, {"top", 0}, {"right", 0}, {"bottom", 0}};
     std::unordered_map<int, Capture> captures_;

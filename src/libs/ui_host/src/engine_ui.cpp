@@ -133,6 +133,10 @@ class EngineUi
         if (!screen.empty())
         {
             close_at_ = 0;
+            // Its model comes once the interface has loaded, seconds later at times: the UI
+            // owns the touches from now and holds them for the screen (Host::ExpectInterface).
+            if (host_)
+                host_->ExpectInterface();
             return;
         }
         close_at_ = SDL_GetTicks() + kCloseGraceMs;
@@ -393,6 +397,8 @@ class EngineUi
             host_->SetState(channel, json);
         if (!interface_.empty())
             host_->SetInterface(interface_);
+        else if (!screen_.empty())
+            host_->ExpectInterface();
         {
             const std::lock_guard lock(inbox_mutex_);
             if (has_safe_area_)

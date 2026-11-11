@@ -21,7 +21,7 @@ set(BGFX_CONFIG_MAX_TRANSIENT_INDEX_BUFFER_SIZE 8388608 CACHE STRING "" FORCE)
 # Shaders compile with a host shaderc built once per machine and pin (cmake/storm_shaderc.cmake),
 # never with bgfx's tools inside this build.
 set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-# The pinned bgfx/bx/bimg (also used by the standalone UI runtime for bimg).
+# The pinned bgfx/bx/bimg.
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/bgfx_upstream.cmake")
 # Android and the Linux development host both run the GLES 3.0 backend so the
 # same ESSL shader blobs and code paths are exercised. Selecting one renderer
@@ -31,6 +31,29 @@ if(ANDROID)
     target_link_libraries(bgfx PUBLIC android log EGL GLESv3)
 else()
     target_link_libraries(bgfx PUBLIC EGL GLESv2)
+endif()
+
+# storm_bgfx_runtime: what every bgfx user links (never bgfx, bx or bimg directly). On Android it
+# is libbgfx.so, the whole of bgfx, bx and bimg in one shared library, so the process has exactly
+# one bgfx (one context, one set of handles) for both libengine.so and libstorm_ui.so, and the
+# code is in the APK once. The application screens without the engine load it with
+# libstorm_ui.so. Elsewhere (desktop engine, host checks) it is the static libraries.
+if(ANDROID)
+    add_library(storm_bgfx_runtime SHARED runtime/bgfx_runtime.cpp)
+    # Next to libengine.so (game/), where the APK packaging takes the engine's libraries from.
+    set_target_properties(storm_bgfx_runtime PROPERTIES OUTPUT_NAME bgfx LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/game")
+    target_link_libraries(storm_bgfx_runtime PRIVATE -Wl,--whole-archive bgfx bimg bx -Wl,--no-whole-archive)
+    target_link_options(storm_bgfx_runtime PRIVATE -Wl,--no-undefined -Wl,-z,max-page-size=16384)
+    # The consumers compile against the same headers and configuration (BX_CONFIG_DEBUG ...).
+    foreach(part bgfx bimg bx)
+        target_include_directories(storm_bgfx_runtime SYSTEM INTERFACE "$<TARGET_PROPERTY:${part},INTERFACE_INCLUDE_DIRECTORIES>")
+        target_compile_definitions(storm_bgfx_runtime INTERFACE "$<TARGET_PROPERTY:${part},INTERFACE_COMPILE_DEFINITIONS>")
+    endforeach()
+    include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/build_stamp.cmake")
+    storm_build_stamp(storm_bgfx_runtime)
+else()
+    add_library(storm_bgfx_runtime INTERFACE)
+    target_link_libraries(storm_bgfx_runtime INTERFACE bgfx bimg bx)
 endif()
 
 # etcpak: ETC2 encoder for the DXT -> ETC2 texture transcode (src/texture).
@@ -103,7 +126,10 @@ add_library(storm_bgfx STATIC ${shim_sources})
 target_compile_features(storm_bgfx PUBLIC cxx_std_20)
 target_include_directories(storm_bgfx PUBLIC include "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/d3d9-headers/directx"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/d3d9-headers/windows" PRIVATE src)
-target_link_libraries(storm_bgfx PUBLIC bgfx bx bimg PRIVATE storm_bgfx_shaders ${SDL2_LIBRARIES})
+target_link_libraries(storm_bgfx PUBLIC storm_bgfx_runtime PRIVATE storm_bgfx_shaders ${SDL2_LIBRARIES})
+if(ANDROID)
+    target_link_libraries(storm_bgfx PRIVATE GLESv3) # driver string and limit queries next to bgfx
+endif()
 set_target_properties(storm_bgfx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(storm_bgfx PRIVATE -fsigned-char)
 target_compile_definitions(storm_bgfx PRIVATE NOMINMAX)
@@ -113,7 +139,7 @@ file(GLOB texture_core_sources CONFIGURE_DEPENDS src/texture/core/*.cpp src/text
 add_library(storm_texture_core STATIC ${texture_core_sources})
 target_compile_features(storm_texture_core PUBLIC cxx_std_20)
 target_include_directories(storm_texture_core PUBLIC src/texture/core)
-target_link_libraries(storm_texture_core PRIVATE storm_etcpak bimg bx)
+target_link_libraries(storm_texture_core PRIVATE storm_etcpak storm_bgfx_runtime)
 find_package(Threads REQUIRED)
 target_link_libraries(storm_texture_core PUBLIC Threads::Threads)
 set_target_properties(storm_texture_core PROPERTIES POSITION_INDEPENDENT_CODE ON)

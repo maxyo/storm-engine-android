@@ -4,10 +4,13 @@ The engine's only GPU backend: [bgfx](https://github.com/bkaradzic/bgfx) on Open
 on Android and on the Linux development host alike.
 
 - `cmake/bgfx_pin.cmake` — the single pin of bgfx.cmake (bgfx/bx/bimg as its submodules).
-  `cmake/bgfx_upstream.cmake` adds those targets (patched, see `patches/`). Engine libraries link
-  `storm_bgfx` (or just `bimg` for CPU image decoding) and never fetch bgfx themselves; the
-  standalone UI runtime (src/libs/ui) and the `tests/mobile_images` check include
-  `bgfx_upstream.cmake` for bimg. Offline builds pass `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<pinned checkout>`.
+  `cmake/bgfx_upstream.cmake` adds those targets (patched, see `patches/`). Everything that uses
+  bgfx, bx or bimg links `storm_bgfx_runtime` (or `storm_bgfx`), never those targets, and never
+  fetches bgfx itself. On Android `storm_bgfx_runtime` is `libbgfx.so`: bgfx, bx and bimg whole in
+  one shared library next to `libengine.so`, which `libengine.so` and the UI runtime
+  (`libstorm_ui.so`, src/libs/ui) both link, so a process has exactly one bgfx
+  (`tools/android/verify_engine.py` refuses a `libengine.so` with its own). Elsewhere it is the
+  static libraries. Offline builds pass `-DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=<pinned checkout>`.
   Licences: `third_party/licenses/{bgfx,bx,bimg}-BSD-2-Clause.txt`.
 - `src/shim/` — the D3D9-shaped shim. Consumer libraries reach the renderer through `VDX9RENDER`
   (src/libs/renderer/include/dx9render.h) with renderer ids (textures, render targets, depth surfaces,

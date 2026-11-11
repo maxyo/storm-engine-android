@@ -1,6 +1,6 @@
 # Adds the pinned, patched bgfx/bx/bimg targets (bgfx_pin.cmake) once per build.
-# Used by this directory and by projects that only need bimg (the standalone UI runtime and
-# image decoding checks). Callers set BGFX_BUILD_TOOLS and the bgfx limits before including.
+# Used by this directory (renderer_bgfx/CMakeLists.txt, which defines storm_bgfx_runtime).
+# Callers set BGFX_BUILD_TOOLS and the bgfx limits before including.
 # EXCLUDE_FROM_ALL: only targets that something links get built.
 set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BGFX_BUILD_TESTS OFF CACHE BOOL "" FORCE)

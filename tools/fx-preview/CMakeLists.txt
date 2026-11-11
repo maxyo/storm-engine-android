@@ -42,6 +42,9 @@ foreach(target bgfx bx bimg bimg_decode bimg_encode)
         target_compile_options(${target} PRIVATE -w)
     endif()
 endforeach()
+# What the effects package links (renderer_bgfx/CMakeLists.txt defines it in the engine).
+add_library(storm_bgfx_runtime INTERFACE)
+target_link_libraries(storm_bgfx_runtime INTERFACE bgfx bimg bx)
 
 set(STORM_FX_BGFX_SHADER_INCLUDE "${storm_bgfx_upstream_SOURCE_DIR}/bgfx/src")
 set(STORM_FX_SHADERC_COMMAND "$<TARGET_FILE:shaderc>")

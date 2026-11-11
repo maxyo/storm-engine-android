@@ -5,6 +5,8 @@
 // when it fits only stepped down to its min-size. The
 // panzoom behaviour (c-map-view) reports taps in the picture's units through pan and zoom. A full-screen
 // game video (state channel "video") hides the screen and passes every touch to the game.
+// A tap on what is not laid out yet waits for its first frame: a document tapped before it was
+// drawn, and an interface the game opens (ExpectInterface) before its model arrived.
 // No GL context, no game data.
 #include "runtime_stub.h"
 #include "storm_ui/ui.h"
@@ -66,6 +68,11 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
         "tag": "c-pz", "behaviors": ["panzoom"],
         "props": {"base": {"type": "json", "default": [1000, 500]}, "view": {"type": "json", "default": []}},
         "template": "<div data-panzoom=\"1\" style=\"position: absolute; left: 0; top: 0; right: 0; bottom: 0;\"><div data-plane=\"1\" style=\"position: absolute;\"></div><div data-zoom=\"in\" style=\"position: absolute; right: 0; top: 0; width: 40dp; height: 40dp;\"></div></div>"})"));
+    // The pause menu's screen component, reduced to its «Продолжить» (id "resume") as a row.
+    components["components"].push_back(Json::parse(R"({
+        "tag": "s-game-menu",
+        "props": {"line": {"type": "json", "default": {}}, "resume": {"type": "json", "default": {}}, "buttons": {"type": "json", "default": []}, "confirm": {"type": "json", "default": {}}, "extras": {"type": "json", "default": []}},
+        "template": "<div style=\"font-family: LatoLatin;\"><c-row id=\"resume\" style=\"display: block; position: absolute; left: 0; top: 0; width: 200dp; height: 48dp;\" title=\"Resume\"/></div>"})"));
     Write(pack / "components.json", components.dump());
     Write(pack / "overlay.rml", "<rml><head><style>body { font-family: LatoLatin; } #tooltip { display: none; } #tooltip.open { display: block; position: absolute; }"
                                 " #toasts-bottom { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; }"
@@ -194,6 +201,43 @@ int main(int argc, char **argv)
     Expect(drawing(0.0, 0.18), "its exit keeps frames coming");
     frames(0.2);
     Expect(!host->Prepare(delay) && delay > 0.2, "after the exit has run the toast is gone and frames stop");
+
+    // A document opened by the platform and tapped before any frame laid it out: the tap
+    // waits for that layout and then presses what is under it.
+    Expect(host->LoadDocument("rows.rml"), "the rows document loads again");
+    tap(100, 24);
+    Expect(clicks.size() == 1 && clicks[0] == "short click", "a tap before the document's first frame presses it after that frame");
+
+    // The game opens an interface whose model comes seconds later (the interface loads first):
+    // from the announcement the UI owns every touch, and the player's first tap waits for the
+    // screen instead of reaching what was there before or the game.
+    host.reset();
+    host = Host::Create(config, &error);
+    Expect(host != nullptr, "a second runtime starts: " + error);
+    if (!host)
+        return 1;
+    frames(0.05);
+    clicks.clear();
+    Expect(!host->WantsTouch(700, 350), "nothing of the UI over the game: its touches go to the game");
+    host->ExpectInterface();
+    Expect(host->WantsTouch(700, 350) && host->WantsTouch(100, 24), "an interface being opened owns every touch at once");
+    tap(100, 24);
+    frames(0.5);
+    Expect(clicks.empty(), "the tap waits while the model is still to come");
+    const std::string menu = Read(fs::path(argv[1]) / "../models/game-menu.json");
+    Expect(host->SetInterface(menu), "the game menu model arrives");
+    frames(0.05);
+    // «Продолжить» resumes through the engine's back (menu_game.cpp).
+    Expect(clicks.size() == 1 && clicks[0] == " back",
+           "then the held tap presses the screen's «Продолжить»: " + (clicks.empty() ? std::string("nothing") : clicks[0]));
+    clicks.clear();
+    host->CloseInterface();
+    frames(0.05);
+    host->ExpectInterface();
+    tap(100, 24);
+    host->CloseInterface();
+    frames(0.05);
+    Expect(clicks.empty() && !host->WantsTouch(700, 350), "an opening withdrawn before its model drops its held tap and gives the touches back");
     host.reset();
     fs::remove_all(pack);
     if (failures)
