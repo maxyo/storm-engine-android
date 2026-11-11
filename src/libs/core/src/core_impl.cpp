@@ -1,9 +1,7 @@
-#ifdef __ANDROID__
-#include "android_newgame.hpp"
 #include "load_watch.hpp"
 #ifdef __ANDROID__
+#include "android_newgame.hpp"
 #include "platform/android_ui.hpp"
-#endif
 #endif
 #include "core_impl.h"
 
