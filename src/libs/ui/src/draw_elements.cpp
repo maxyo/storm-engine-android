@@ -686,7 +686,8 @@ class ClampElement final : public Rml::Element
                 return false;
             line = word;
         }
-        return LinesHeight(line_count, size) <= max_height + 0.5f;
+        // A pixel of slack: min-size in dp rounds to whole pixels (13 dp at density 3.125 is 40.6 px).
+        return LinesHeight(line_count, size) <= max_height + 1.0f;
     }
 
     std::string Fit(const std::string &text, float width, int &size)
