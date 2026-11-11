@@ -170,15 +170,24 @@ class EngineUi
                 host_->CloseInterface();
             PublishInterfaceActive();
         }
-        std::vector<std::function<void(storm::ui::Host &)>> work;
+        std::vector<Step> work;
         {
             const std::lock_guard lock(inbox_mutex_);
             work.swap(inbox_);
         }
         if (!host_)
             return; // nothing of it applies to a host that is not there (touches of no UI)
-        for (auto &call : work)
-            call(*host_);
+        for (Step &step : work)
+        {
+            if (step.call)
+            {
+                step.call(*host_);
+                continue;
+            }
+            if (step.phase != kMove)
+                TraceInput("touch", std::to_string(step.phase) + " " + std::to_string(int(step.x)) + "," + std::to_string(int(step.y)));
+            host_->Touch(static_cast<storm::ui::TouchPhase>(step.phase), step.pointer, step.x, step.y);
+        }
         PublishInterfaceActive();
     }
 
@@ -229,7 +238,27 @@ class EngineUi
     void Post(std::function<void(storm::ui::Host &)> call)
     {
         const std::lock_guard lock(inbox_mutex_);
-        inbox_.push_back(std::move(call));
+        inbox_.push_back({std::move(call)});
+    }
+
+    // A pointer step. A move replaces the same pointer's move still waiting (only where the
+    // finger is now matters): a fast finger costs one host call per pointer and frame.
+    void Touch(int phase, int pointer, float x, float y)
+    {
+        const std::lock_guard lock(inbox_mutex_);
+        if (phase == kMove)
+            for (auto step = inbox_.rbegin(); step != inbox_.rend() && !step->call; ++step)
+            {
+                if (step->pointer != pointer)
+                    continue;
+                if (step->phase == kMove)
+                {
+                    step->x = x, step->y = y;
+                    return;
+                }
+                break;
+            }
+        inbox_.push_back({{}, phase, pointer, x, y});
     }
 
     // Answered from the layout of the last frame (Host is thread-safe here).
@@ -350,11 +379,11 @@ class EngineUi
             if (has_safe_area_)
             {
                 const auto [left, top, right, bottom] = safe_area_;
-                inbox_.insert(inbox_.begin(), [left, top, right, bottom](storm::ui::Host &host) {
+                inbox_.insert(inbox_.begin(), Step{[left, top, right, bottom](storm::ui::Host &host) {
                     const auto *frame_owner = storm::render::FrameOwner::Get();
                     const float density = frame_owner ? frame_owner->Surface().density : 1.0f;
                     host.SetSafeArea(left / density, top / density, right / density, bottom / density);
-                });
+                }});
             }
         }
         __android_log_print(ANDROID_LOG_INFO, kTag, "UI host started in the engine frame (%ux%u, density %.2f)", surface.width_px,
@@ -472,8 +501,16 @@ class EngineUi
     std::atomic<bool> interface_active_{false};
     std::vector<std::string> commands_;
     std::map<std::string, size_t> slots_; // slot -> index in commands_
+    static constexpr int kMove = 1; // storm::ui::TouchPhase::Move on the JNI surface
+    // What the platform thread sent: a call, or (no call) a pointer step.
+    struct Step
+    {
+        std::function<void(storm::ui::Host &)> call;
+        int phase = 0, pointer = 0;
+        float x = 0.0f, y = 0.0f;
+    };
     std::mutex inbox_mutex_;
-    std::vector<std::function<void(storm::ui::Host &)>> inbox_;
+    std::vector<Step> inbox_;
     std::array<float, 4> safe_area_{};
     bool has_safe_area_ = false;
 };
@@ -537,11 +574,7 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeTouch(JNIEnv *, 
 {
     if (phase < 0 || phase > 3)
         return;
-    EngineUi::Get().Post([phase, pointer, x, y](storm::ui::Host &host) {
-        if (phase != 1)
-            EngineUi::Get().TraceInput("touch", std::to_string(phase) + " " + std::to_string(int(x)) + "," + std::to_string(int(y)));
-        host.Touch(static_cast<storm::ui::TouchPhase>(phase), pointer, x, y);
-    });
+    EngineUi::Get().Touch(phase, pointer, x, y);
 }
 
 JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeCancelInput(JNIEnv *, jclass)
