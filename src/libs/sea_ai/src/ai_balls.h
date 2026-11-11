@@ -61,7 +61,6 @@ class AIBalls : public Entity
     std::string sTextureName;          // texture name
     uint32_t dwTextureIndex{};         // texture index
     uint32_t dwSubTexX{}, dwSubTexY{}; // all balls must be in one texture
-    uint32_t dwFireBallFromCameraTime;
 
     std::vector<BALL_TYPE> aBallTypes; // Balls types container
     std::vector<RS_RECT> aBallRects;   // Balls container for render
@@ -77,7 +76,6 @@ class AIBalls : public Entity
     void Realize(uint32_t Delta_Time);
     void Execute(uint32_t Delta_Time);
 
-    void FireBallFromCamera();
 
     uint32_t AttributeChanged(ATTRIBUTES *pAttributeChanged) override;
 

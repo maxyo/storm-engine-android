@@ -1801,7 +1801,7 @@ ATTRIBUTES *SHIP::BallOwnerCharacter(int32_t iBallOwner)
 {
     // A ball carries the slot of the character that fired it in the script's fixed-size Characters
     // array: Ball_AddBall sets AIBalls.CharacterIndex = aCharacter.Index for ships and forts alike
-    // (fort commanders are characters too), and FireBallFromCamera uses the main character. Slots are
+    // (fort commanders are characters too). Slots are
     // never removed, so the index stays in range while the ball flies: after the owner sinks or
     // despawns, after the slot is reused for another character, and across save/load (BALL_PARAMS
     // saves the index, the save restores the array). A reused slot names its current character;

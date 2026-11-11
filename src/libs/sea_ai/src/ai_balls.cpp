@@ -7,7 +7,7 @@ AIBalls *AIBalls::pAIBalls = nullptr;
 
 AIBalls::AIBalls()
     : pSail(nullptr), pSea(nullptr), pFort(nullptr), pIsland(nullptr), fDeltaTimeMultiplier(1.0f),
-      fBallFlySoundDistance(1.0f), dwFireBallFromCameraTime(0)
+      fBallFlySoundDistance(1.0f)
 {
     pAIBalls = this;
 }
@@ -51,65 +51,6 @@ bool AIBalls::Init()
 
 void AIBalls::SetDevice()
 {
-}
-
-void AIBalls::FireBallFromCamera()
-{
-    auto *pMainCharIndex = static_cast<VDATA *>(core.GetScriptVariable("nMainCharacterIndex"));
-    if (!pMainCharIndex)
-        return;
-    auto iMainCharIndex = pMainCharIndex->GetInt();
-    if (iMainCharIndex < 0)
-        return;
-    auto *pMainCharacter = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
-    if (!pMainCharacter)
-        return;
-    auto *pAMainCharacter = pMainCharacter->GetAClass(iMainCharIndex);
-    if (!pAMainCharacter)
-        return;
-    auto *pACannonType = pAMainCharacter->FindAClass(pAMainCharacter, "Ship.Cannons.Type");
-    if (!pACannonType)
-        return;
-    auto dwCannonType = pACannonType->GetAttributeAsDword();
-
-    auto *pABall = pAMainCharacter->CreateAttribute("_err324__", "");
-    if (!pABall)
-        return;
-
-    /*AIHelper::pRS->GetTransform(D3DTS_VIEW, mView);
-    glm::mat4 mIView = mView;
-    mIView.Transposition3X3();
-    float fY = atan2f(mIView.Vz().x, mIView.Vz().z);
-    float fX = SIGN(mIView.Vz().y) * acosf(mIView.Vz() | glm::vec3(mIView.Vz().x, 0.0f, mIView.Vz().z));*/
-
-    glm::vec3 vCamPos, vCamAng;
-    float fFov;
-    AIHelper::pRS->GetCamera(vCamPos, vCamAng, fFov);
-
-    glm::mat4 mView = storm::math::eulerMatrix(vCamAng, vCamPos);
-    auto mIView = mView;
-    // mIView.Transposition3X3();
-    auto fY = atan2f(storm::math::vz(mIView).x, storm::math::vz(mIView).z);
-    auto fX = SIGN(storm::math::vz(mIView).y) * acosf(glm::dot(storm::math::vz(mIView), glm::vec3(storm::math::vz(mIView).x, 0.0f, storm::math::vz(mIView).z)));
-
-    pABall->SetAttribute("Type", "Balls");
-    pABall->SetAttributeUseDword("CharacterIndex", static_cast<uint32_t>(iMainCharIndex));
-    pABall->SetAttributeUseFloat("x", storm::math::pos(mIView).x);
-    pABall->SetAttributeUseFloat("y", storm::math::pos(mIView).y);
-    pABall->SetAttributeUseFloat("z", storm::math::pos(mIView).z);
-    pABall->SetAttributeUseFloat("SpdV0", 100.0f);
-    pABall->SetAttributeUseFloat("HeightMultiply", 1.0f);
-    pABall->SetAttributeUseFloat("SizeMultiply", 1.0f);
-    pABall->SetAttributeUseFloat("TimeSpeedMultiply", 1.0f);
-    pABall->SetAttributeUseDword("CannonType", dwCannonType);
-    pABall->SetAttributeUseFloat("MaxFireDistance", 15000.0f);
-
-    pABall->SetAttributeUseFloat("Ang", fX);
-    pABall->SetAttributeUseFloat("Dir", fY);
-
-    AddBall(pABall);
-
-    pAMainCharacter->DeleteAttributeClassX(pABall);
 }
 
 void AIBalls::AddBall(ATTRIBUTES *pABall)
@@ -329,8 +270,6 @@ void AIBalls::Realize(uint32_t Delta_Time)
         AIHelper::pRS->DrawRects(&aBallRects[0], aBallRects.size(), "Cannonballs", dwSubTexX, dwSubTexY);
         aBallRects.clear();
     }
-
-    dwFireBallFromCameraTime += Delta_Time;
 }
 
 uint32_t AIBalls::AttributeChanged(ATTRIBUTES *pAttributeChanged)
