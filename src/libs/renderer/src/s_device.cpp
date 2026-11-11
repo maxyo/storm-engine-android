@@ -678,6 +678,10 @@ bool DX9RENDER::Init()
 
         gamePictures_ = std::make_unique<storm::GamePictures>(*this);
         storm::render::SetGamePictureProvider(gamePictures_.get());
+        storm::render::SetEffectsTextureResolver([this](int32_t texture) -> IDirect3DBaseTexture9 * {
+            return texture >= 0 && texture < MAX_STEXTURES && Textures[texture].ref > 0 ? Textures[texture].d3dtex
+                                                                                       : nullptr;
+        });
         // The Android surface is destroyed in background: stop presenting before control returns
         // to SDL (early subscriber) and re-attach to the new native window on return.
         appEventsSubscription_ = storm::AppEvents::instance().subscribe(
@@ -1060,6 +1064,7 @@ bool DX9RENDER::ReleaseDevice()
         storm::AppEvents::instance().unsubscribe(appEventsSubscription_);
     appEventsSubscription_ = -1;
     storm::render::SetGamePictureProvider(nullptr);
+    storm::render::SetEffectsTextureResolver(nullptr);
     gamePictures_.reset();
     if (aniVBuffer)
         aniVBuffer->Release();
@@ -1624,9 +1629,49 @@ int32_t DX9RENDER::CubeTextureCreate(UINT edgeLength, UINT levels, uint32_t usag
     return AddCodeTexture(texture, edgeLength * edgeLength * 4 * 6, true);
 }
 
+int32_t DX9RENDER::VolumeTextureCreate(UINT width, UINT height, UINT depth, UINT levels, uint32_t usage,
+                                       D3DFORMAT format, D3DPOOL pool)
+{
+    IDirect3DVolumeTexture9 *texture = nullptr;
+    if (CHECKD3DERR(d3d9->CreateVolumeTexture(width, height, depth, levels, usage, format, pool, &texture, nullptr)))
+    {
+        spdlog::error("Renderer: cannot create a {}x{}x{} volume texture (format {})", width, height, depth,
+                      static_cast<int>(format));
+        return -1;
+    }
+    return AddCodeTexture(texture, width * height * depth * 4, false);
+}
+
+bool DX9RENDER::TextureLockBox(int32_t texid, uint32_t level, D3DLOCKED_BOX &locked, uint32_t flags)
+{
+    auto *texture = CodeTexture(texid, "TextureLockBox");
+    if (!texture)
+        return false;
+    if (texture->GetType() != D3DRTYPE_VOLUMETEXTURE ||
+        CHECKD3DERR(static_cast<IDirect3DVolumeTexture9 *>(texture)->LockBox(level, &locked, nullptr, flags)) ||
+        !locked.pBits)
+    {
+        spdlog::error("Renderer: cannot lock level {} of volume texture {}", level, texid);
+        return false;
+    }
+    return true;
+}
+
+void DX9RENDER::TextureUnlockBox(int32_t texid, uint32_t level)
+{
+    auto *texture = CodeTexture(texid, "TextureUnlockBox");
+    if (texture && texture->GetType() == D3DRTYPE_VOLUMETEXTURE)
+        CHECKD3DERR(static_cast<IDirect3DVolumeTexture9 *>(texture)->UnlockBox(level));
+}
+
 bool DX9RENDER::TextureLock(int32_t texid, uint32_t level, D3DLOCKED_RECT &locked, uint32_t flags, uint32_t cubeFace)
 {
     auto *texture = CodeTexture(texid, "TextureLock");
+    if (texture && texture->GetType() == D3DRTYPE_VOLUMETEXTURE)
+    {
+        spdlog::error("Renderer: TextureLock on volume texture {}", texid);
+        return false;
+    }
     if (!texture)
         return false;
     const auto result =
@@ -1645,6 +1690,11 @@ bool DX9RENDER::TextureLock(int32_t texid, uint32_t level, D3DLOCKED_RECT &locke
 void DX9RENDER::TextureUnlock(int32_t texid, uint32_t level, uint32_t cubeFace)
 {
     auto *texture = CodeTexture(texid, "TextureUnlock");
+    if (texture && texture->GetType() == D3DRTYPE_VOLUMETEXTURE)
+    {
+        spdlog::error("Renderer: TextureUnlock on volume texture {}", texid);
+        return;
+    }
     if (!texture)
         return;
     if (Textures[texid].isCubeMap)
@@ -1657,6 +1707,11 @@ void DX9RENDER::TextureUnlock(int32_t texid, uint32_t level, uint32_t cubeFace)
 bool DX9RENDER::TextureLevelDesc(int32_t texid, uint32_t level, D3DSURFACE_DESC &desc)
 {
     auto *texture = CodeTexture(texid, "TextureLevelDesc");
+    if (texture && texture->GetType() == D3DRTYPE_VOLUMETEXTURE)
+    {
+        spdlog::error("Renderer: TextureLevelDesc on volume texture {}", texid);
+        return false;
+    }
     if (!texture)
         return false;
     const auto result = Textures[texid].isCubeMap
@@ -1700,6 +1755,11 @@ void DX9RENDER::DepthSurfaceRelease(storm::render::DepthSurfaceId surface)
 bool DX9RENDER::SetRenderTarget(int32_t texid, uint32_t level, uint32_t cubeFace, storm::render::DepthSurfaceId depth)
 {
     auto *texture = CodeTexture(texid, "SetRenderTarget");
+    if (texture && texture->GetType() == D3DRTYPE_VOLUMETEXTURE)
+    {
+        spdlog::error("Renderer: SetRenderTarget on volume texture {}", texid);
+        return false;
+    }
     if (!texture)
         return false;
     IDirect3DSurface9 *depthSurface = nullptr;

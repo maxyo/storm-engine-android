@@ -239,11 +239,16 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
     // Returns -1 (logged) when the device rejects the texture.
     virtual int32_t TextureCreate(UINT width, UINT height, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool) = 0;
     virtual int32_t CubeTextureCreate(UINT edgeLength, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool) = 0;
+    virtual int32_t VolumeTextureCreate(UINT width, UINT height, UINT depth, UINT levels, uint32_t usage,
+                                        D3DFORMAT format, D3DPOOL pool) = 0;
     // Locks one level (of one cube face) of a code-made texture; false (logged) if it cannot.
     virtual bool TextureLock(int32_t texid, uint32_t level, D3DLOCKED_RECT &locked, uint32_t flags,
                              uint32_t cubeFace = 0) = 0;
     virtual void TextureUnlock(int32_t texid, uint32_t level, uint32_t cubeFace = 0) = 0;
     virtual bool TextureLevelDesc(int32_t texid, uint32_t level, D3DSURFACE_DESC &desc) = 0;
+    // Locks one level of a volume texture; false (logged) if it cannot.
+    virtual bool TextureLockBox(int32_t texid, uint32_t level, D3DLOCKED_BOX &locked, uint32_t flags) = 0;
+    virtual void TextureUnlockBox(int32_t texid, uint32_t level) = 0;
 
     // Render targets: a level (and cube face) of a texture made with D3DUSAGE_RENDERTARGET, with a
     // depth surface or none. PushRenderTarget / PopRenderTarget save and restore the current pair.

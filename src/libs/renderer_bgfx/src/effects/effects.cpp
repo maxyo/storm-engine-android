@@ -528,6 +528,25 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)
     effects::Host::instance().lighting().set_dynamic_lights(std::span(converted, count));
 }
 
+namespace
+{
+std::function<IDirect3DBaseTexture9 *(int32_t)> &textureResolver()
+{
+    static std::function<IDirect3DBaseTexture9 *(int32_t)> resolver;
+    return resolver;
+}
+} // namespace
+
+void SetEffectsTextureResolver(std::function<IDirect3DBaseTexture9 *(int32_t)> resolver)
+{
+    textureResolver() = std::move(resolver);
+}
+
+IDirect3DBaseTexture9 *ResolveEffectsTexture(int32_t texture)
+{
+    return textureResolver() ? textureResolver()(texture) : nullptr;
+}
+
 void SetEffectsTextureSource(IDirect3DBaseTexture9 *texture, const char *path)
 {
     if (shim::TexStore *store = shim::store_of(texture))

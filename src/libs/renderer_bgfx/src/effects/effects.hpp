@@ -154,3 +154,9 @@ class Host
 };
 
 } // namespace storm::effects
+
+namespace storm::render
+{
+// The device texture of a renderer texture id through the resolver DX9RENDER installed (null without one).
+IDirect3DBaseTexture9 *ResolveEffectsTexture(int32_t texture);
+} // namespace storm::render

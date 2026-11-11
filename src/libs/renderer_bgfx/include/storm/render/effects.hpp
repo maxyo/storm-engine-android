@@ -9,13 +9,13 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 struct IDirect3DBaseTexture9;
-struct IDirect3DCubeTexture9;
 
 namespace storm::render
 {
@@ -98,6 +98,9 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
 // ("bump") textures get a normal map for the per-pixel lighting's relief (fx_light_normal_map).
 void SetEffectsTextureSource(IDirect3DBaseTexture9 *texture, const char *path);
 
+// DX9RENDER: the device texture behind a renderer texture id (EffectsWaterMesh::env_map), null for an invalid id.
+void SetEffectsTextureResolver(std::function<IDirect3DBaseTexture9 *(int32_t)> resolver);
+
 // ---- World passes: fx sky, fx water, contact shadows ----
 // The consumer entities (SKY, SEA, shadow, SUNGLOW) ask which parts are on and then either call the fx pass below
 // or keep their legacy drawing. Constant between ConfigureEffects calls; everything false in «Низкая».
@@ -148,7 +151,7 @@ struct EffectsWaterMesh
     std::array<float, 2> world_offset{0.0f, 0.0f}; // SEA::vWorldOffset x, z
     float crest_height = 4.0f;                     // Amp1 + Amp2
     EffectsWaterShading shading;
-    IDirect3DCubeTexture9 *env_map = nullptr; // required: the water reflects it
+    int32_t env_map = -1; // required: renderer texture id of the cube the water reflects
 };
 void EffectsDrawWater(const EffectsWaterMesh &mesh, const EffectsMatrix &view);
 

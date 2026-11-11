@@ -23,8 +23,6 @@ CREATE_CLASS(SEA)
 #define XWIDTH 128
 #define YWIDTH 128
 
-#define MIPSLVLS 4
-
 #define GC_CONSTANT 0 // Global constants = {0.0, 1.0, 0.5, 0.0000152590218967 = (0.5 / 32767.5)}
 #define GC_CONSTANT2 1 // Global constants 2 = {2.0, -1.0, 0.00036621652552071 = (12 / 32767.5), fog}
 #define GC_ANIMATION 2 // Animation frames(0.0-1.0) for 4 stages = {stage0, stage1, stage2, stage3}
@@ -51,7 +49,6 @@ SEA::SEA()
     aTrashRects.reserve(512);
     aSeaLights.reserve(512);
     aLightsRects.reserve(512);
-    aBumpMaps.reserve(FRAMES);
     aNormals.reserve(FRAMES);
 
     dwMaxDim = 65536 * 2;
@@ -116,19 +113,12 @@ SEA::SEA()
 
     vWorldOffset = glm::vec3(0.f);
 
-    pRenderTargetBumpMap = nullptr;
 }
 
 SEA::~SEA()
 {
-    rs->Release(pReflection);
-    rs->Release(pReflectionSunroad);
-    rs->Release(pEnvMap);
-    rs->Release(pSunRoadMap);
-    rs->Release(pZStencil);
-    rs->Release(pReflectionSurfaceDepth);
-    rs->Release(pVolumeTexture);
-    rs->Release(pRenderTargetBumpMap);
+    ReleaseTargets();
+    rs->TextureRelease(volumeTexture);
 
     rs->TextureRelease(iSeaTrashTexture);
     rs->TextureRelease(iSeaLightTexture);
@@ -148,9 +138,6 @@ SEA::~SEA()
     pIndices = nullptr;
     delete[] pVSea;
     pVSea = nullptr;
-
-    for (int32_t i = 0; i < aBumpMaps.size(); i++)
-        rs->Release(aBumpMaps[i]);
 
     for (int32_t i = 0; i < aBumps.size(); i++)
         delete[] aBumps[i];
@@ -201,22 +188,14 @@ bool SEA::Init()
 
     iFoamTexture = rs->TextureCreate("weather\\sea\\pena\\pena.tga");
 
-    rs->CreateTexture(XWIDTH, YWIDTH, MIPSLVLS, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
-                      &pRenderTargetBumpMap);
-
     SFLB_CreateBuffers();
 
-    pVolumeTexture = rs->CreateVolumeTexture(XWIDTH, YWIDTH, FRAMES, 4, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED);
-    /*pAnimTexture = rs->CreateAnimationTexture(pVolumeTexture, _FL_);
-    pAnimTexture->SetAnimSpeed(20.0f);*/
+    // The animated bump normals: one volume texture, slices = frames, 4 mip levels.
+    volumeTexture = rs->VolumeTextureCreate(XWIDTH, YWIDTH, FRAMES, 4, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED);
+    if (volumeTexture < 0)
+        throw std::runtime_error("SEA: cannot create the bump volume texture");
 
-    rs->CreateCubeTexture(128, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT, &pEnvMap);
-    rs->CreateCubeTexture(128, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT, &pSunRoadMap);
-    rs->CreateDepthStencilSurface(128, 128, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, &pZStencil);
-
-    rs->CreateTexture(128, 128, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT, &pReflection);
-    rs->CreateTexture(128, 128, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT, &pReflectionSunroad);
-    rs->CreateDepthStencilSurface(128, 128, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, &pReflectionSurfaceDepth);
+    CreateTargets();
 
     iSeaTrashTexture = rs->TextureCreate("seatrash.tga");
     iSeaLightTexture = rs->TextureCreate("sealight.tga");
@@ -305,16 +284,9 @@ void SEA::BuildVolumeTexture()
 
     D3DLOCKED_BOX box[4];
 
-    if (pVolumeTexture)
-        for (i = 0; i < 4; i++)
-            pVolumeTexture->LockBox(i, &box[i], nullptr, 0);
-
-    for (i = 0; i < aBumpMaps.size(); i++)
-        rs->Release(aBumpMaps[i]);
-    aBumpMaps.clear();
-
-    uint32_t dwTexelSize = 4;
-    auto *pDst = static_cast<char *>(new char[XWIDTH * YWIDTH * dwTexelSize]);
+    for (i = 0; i < 4; i++)
+        if (!rs->TextureLockBox(volumeTexture, i, box[i], 0))
+            throw std::runtime_error("SEA: cannot fill the bump volume texture");
 
     // build normals
 
@@ -381,67 +353,15 @@ void SEA::BuildVolumeTexture()
                 int32_t green = fftol((vRes1.y * 0.5f + 0.5f) * 255.0f); // FIX-ME no ftol
                 int32_t blue = fftol((vRes1.z * 0.5f + 0.5f) * 255.0f);  // FIX-ME no ftol
 
-                if (pVolumeTexture)
-                {
-                    if (bSimpleSea)
-                        *(uint32_t *)&(
-                            static_cast<char *>(box[0].pBits)[i * box[0].SlicePitch + y * box[0].RowPitch + x * 4]) =
-                            ARGB(0x80, blue, blue, red);
-                    else
-                        *(uint32_t *)&(
-                            static_cast<char *>(box[0].pBits)[i * box[0].SlicePitch + y * box[0].RowPitch + x * 4]) =
-                            ARGB(0x80, blue, green, red);
-                }
+                if (bSimpleSea)
+                    *(uint32_t *)&(
+                        static_cast<char *>(box[0].pBits)[i * box[0].SlicePitch + y * box[0].RowPitch + x * 4]) =
+                        ARGB(0x80, blue, blue, red);
+                else
+                    *(uint32_t *)&(
+                        static_cast<char *>(box[0].pBits)[i * box[0].SlicePitch + y * box[0].RowPitch + x * 4]) =
+                        ARGB(0x80, blue, green, red);
             }
-
-        if (!pVolumeTexture)
-        {
-            D3DSURFACE_DESC d3dsd;
-            D3DLOCKED_RECT d3dlr;
-            HRESULT hr;
-
-            aBumpMaps.push_back(nullptr);
-            // pBumpMap = &aBumpMaps[aBumpMaps.Add()];
-            IDirect3DTexture9 **pBumpMap = &aBumpMaps.back();
-            hr = rs->CreateTexture(XWIDTH, YWIDTH, MIPSLVLS, 0, D3DFMT_X8R8G8B8, D3DPOOL_MANAGED, pBumpMap);
-
-            // generate mip levels for random bump
-            for (uint32_t lev = 0; lev < MIPSLVLS; lev++)
-            {
-                (*pBumpMap)->GetLevelDesc(lev, &d3dsd);
-                (*pBumpMap)->LockRect(lev, &d3dlr, nullptr, 0);
-
-                auto *pDstT = (uint32_t *)pDst;
-                for (uint32_t y = 0; y < d3dsd.Height; y++)
-                {
-                    for (uint32_t x = 0; x < d3dsd.Width; x++)
-                    {
-                        glm::vec3 vTmp(0.0f);
-                        int32_t dwMult = 1 << (lev);
-                        for (uint32_t y1 = y * dwMult; y1 < (y + 1) * dwMult; y1++)
-                            for (uint32_t x1 = x * dwMult; x1 < (x + 1) * dwMult; x1++)
-                                vTmp += aVectors[i][(x1 & (XWIDTH - 1)) + (y1 & (YWIDTH - 1)) * XWIDTH];
-
-                        vTmp *= (1.0f / static_cast<float>(dwMult * dwMult));
-
-                        int red = static_cast<int>((vTmp.x * 0.5f + 0.5f) * 255.0f);   // FIX-ME no ftol
-                        int green = static_cast<int>((vTmp.y * 0.5f + 0.5f) * 255.0f); // FIX-ME no ftol
-                        int blue = static_cast<int>((vTmp.z * 0.5f + 0.5f) * 255.0f);  // FIX-ME no ftol
-                        *pDstT++ = ARGB(255, blue, green, red);
-                    }
-                }
-
-                // simple copy
-                auto pDstTemp = static_cast<uint8_t *>(d3dlr.pBits);
-                for (uint32_t y = 0; y < d3dsd.Height; y++)
-                {
-                    memcpy(pDstTemp, &pDst[y * d3dsd.Width * dwTexelSize], d3dsd.Width * dwTexelSize);
-                    pDstTemp += static_cast<uint32_t>(d3dlr.Pitch);
-                }
-
-                (*pBumpMap)->UnlockRect(lev);
-            }
-        }
     }
 
     for (j = 1; j < 4; j++)
@@ -470,8 +390,7 @@ void SEA::BuildVolumeTexture()
                 }
 
             //
-            if (pVolumeTexture)
-                for (uint32_t y = 0; y < (YWIDTH >> j); y++)
+            for (uint32_t y = 0; y < (YWIDTH >> j); y++)
                     for (uint32_t x = 0; x < (XWIDTH >> j); x++)
                     {
                         int32_t red = fftol((pVectors[x + y * (XWIDTH >> j)].x * 0.5f + 0.5f) * 255.0f); // FIX-ME no ftol
@@ -492,15 +411,13 @@ void SEA::BuildVolumeTexture()
         delete[] pVectors;
     }
 
-    if (pVolumeTexture)
-        for (i = 0; i < 4; i++)
-            pVolumeTexture->UnlockBox(i);
+    for (i = 0; i < 4; i++)
+        rs->TextureUnlockBox(volumeTexture, i);
 
     for (const auto &vector : aVectors)
         delete[] vector;
     aVectors.clear();
     // aVectors.DelAllWithPointers();
-    delete[] pDst;
 }
 
 bool SEA::EditMode_Update()
@@ -1398,48 +1315,6 @@ void SEA::Realize(uint32_t dwDeltaTime)
     iTStart = 0;
     iIStart = 0;
 
-    if (!fxWater && !pVolumeTexture && aBumpMaps.size())
-    {
-        IDirect3DSurface9 *pFace;
-
-        static float fBumpMapFrame = 0.0f;
-        fBumpMapFrame += static_cast<float>(fDeltaTime) * fBumpSpeed * 48.0f;
-
-        uint32_t dw1 = static_cast<int32_t>(fBumpMapFrame) % aBumpMaps.size();
-        uint32_t dw2 = static_cast<int32_t>(fBumpMapFrame + 1.0f) % aBumpMaps.size();
-
-        float fAlpha = 255.0f * (fBumpMapFrame - static_cast<float>(static_cast<int32_t>(fBumpMapFrame)));
-        rs->SetRenderState(D3DRS_TEXTUREFACTOR, ARGB(fAlpha, 0, 0, 0));
-
-        rs->SetTexture(0, aBumpMaps[dw1]);
-        rs->SetTexture(1, aBumpMaps[dw2]);
-
-        rs->EndScene();
-        rs->PushRenderTarget();
-        for (uint32_t i = 0; i < MIPSLVLS; i++)
-        {
-            HRESULT hr = pRenderTargetBumpMap->GetSurfaceLevel(i, &pFace);
-            rs->SetRenderTarget(pFace, nullptr);
-            pFace->Release();
-            float w, h;
-            w = h = static_cast<float>(XWIDTH >> i);
-
-            rs->BeginScene();
-
-            RS_SPRITE spr[4];
-            FillSpriteVertex(spr[0], 0, 0, 0.1f, 0xFFFFFFFF, 0.0f, 0.0f);
-            FillSpriteVertex(spr[1], 0, h, 0.1f, 0xFFFFFFFF, 0.0f, 1.0f);
-            FillSpriteVertex(spr[2], w, h, 0.1f, 0xFFFFFFFF, 1.0f, 1.0f);
-            FillSpriteVertex(spr[3], w, 0, 0.1f, 0xFFFFFFFF, 1.0f, 0.0f);
-
-            rs->DrawSprites(spr, 1, "bump_interpolate");
-
-            rs->EndScene();
-        }
-        rs->PopRenderTarget();
-        rs->BeginScene();
-    }
-
     memset(pIndices, 0xFF, NUM_VERTEXS * sizeof(pIndices[0]) * 3);
 
     uint64_t dwX;
@@ -1527,7 +1402,7 @@ void SEA::Realize(uint32_t dwDeltaTime)
                                  static_cast<float>((fogColor >> 8) & 0xFF) / 255.0f,
                                  static_cast<float>(fogColor & 0xFF) / 255.0f};
             shading.fog_density = bFogEnable ? fFogSeaDensity : 0.0f;
-            mesh.env_map = pEnvMap;
+            mesh.env_map = envMap;
             storm::render::EffectsMatrix view;
             rs->GetTransform(D3DTS_VIEW, reinterpret_cast<D3DMATRIX *>(view.data()));
             storm::render::EffectsDrawWater(mesh, view);
@@ -1597,14 +1472,10 @@ void SEA::Realize(uint32_t dwDeltaTime)
         {
             rs->SetVertexShaderConstantF(GC_FREE + 8, (const float *)&mTexProjection, 4); // Matrix!!
 
-            // rs->SetTexture(0, pVolumeTexture);
-            rs->SetTexture(0, (pVolumeTexture) ? static_cast<IDirect3DBaseTexture9 *>(pVolumeTexture)
-                                               : static_cast<IDirect3DBaseTexture9 *>(pRenderTargetBumpMap));
-            rs->SetTexture(1, pReflection);
-            // rs->SetTexture(2, pVolumeTexture);
-            rs->SetTexture(2, (pVolumeTexture) ? static_cast<IDirect3DBaseTexture9 *>(pVolumeTexture)
-                                               : static_cast<IDirect3DBaseTexture9 *>(pRenderTargetBumpMap));
-            rs->SetTexture(3, pReflectionSunroad);
+            rs->TextureSet(0, volumeTexture);
+            rs->TextureSet(1, reflection);
+            rs->TextureSet(2, volumeTexture);
+            rs->TextureSet(3, reflectionSunroad);
 
             rs->SetTextureStageState(1, D3DTSS_BUMPENVMAT00, F2DW(0.08f));
             rs->SetTextureStageState(1, D3DTSS_BUMPENVMAT10, F2DW(0.0f));
@@ -1624,9 +1495,8 @@ void SEA::Realize(uint32_t dwDeltaTime)
             const auto vec1 = storm::math::eulerMatrix(0.0f, 0.0f, PId2);
             rs->SetVertexShaderConstantF(GC_FREE + 8, (const float *)&vec1, 4); // Matrix!!
 
-            rs->SetTexture(0, (pVolumeTexture) ? static_cast<IDirect3DBaseTexture9 *>(pVolumeTexture)
-                                               : static_cast<IDirect3DBaseTexture9 *>(pRenderTargetBumpMap));
-            rs->SetTexture(3, pEnvMap);
+            rs->TextureSet(0, volumeTexture);
+            rs->TextureSet(3, envMap);
             rs->DrawIndexedPrimitiveNoVShader(D3DPT_TRIANGLELIST, iVSeaBuffer, sizeof(SeaVertex), iISeaBuffer, 0,
                                               iVStart, 0, iTStart, "Sea2");
 
@@ -1637,15 +1507,13 @@ void SEA::Realize(uint32_t dwDeltaTime)
                 rs->SetPixelShaderConstantF(0, (const float *)&vec2, 1);
 
                 rs->TextureSet(0, iFoamTexture);
-                rs->SetTexture(4, (pVolumeTexture) ? static_cast<IDirect3DBaseTexture9 *>(pVolumeTexture)
-                                                   : static_cast<IDirect3DBaseTexture9 *>(pRenderTargetBumpMap));
+                rs->TextureSet(4, volumeTexture);
                 rs->DrawIndexedPrimitiveNoVShader(D3DPT_TRIANGLELIST, iVSeaBuffer, sizeof(SeaVertex), iISeaBuffer, 0,
                                                   iVStart, 0, iTStart, "Sea2_Foam");
             }
 
-            rs->SetTexture(0, (pVolumeTexture) ? static_cast<IDirect3DBaseTexture9 *>(pVolumeTexture)
-                                               : static_cast<IDirect3DBaseTexture9 *>(pRenderTargetBumpMap));
-            rs->SetTexture(3, pSunRoadMap);
+            rs->TextureSet(0, volumeTexture);
+            rs->TextureSet(3, sunRoadMap);
             rs->DrawIndexedPrimitiveNoVShader(D3DPT_TRIANGLELIST, iVSeaBuffer, sizeof(SeaVertex), iISeaBuffer, 0,
                                               iVStart, 0, iTStart, "Sea2_SunRoad");
         }
@@ -1670,8 +1538,7 @@ void SEA::Realize(uint32_t dwDeltaTime)
     FillSpriteVertex(spr[1], 0, h, 0.1f, 0xFFFFFFFF, 0.0f, 1.0f);
     FillSpriteVertex(spr[2], w, h, 0.1f, 0xFFFFFFFF, 1.0f, 1.0f);
     FillSpriteVertex(spr[3], w, 0, 0.1f, 0xFFFFFFFF, 1.0f, 0.0f);
-    //rs->SetTexture(0, pReflection);
-    rs->SetTexture(0, pReflectionSunroad);
+    rs->TextureSet(0, reflectionSunroad);
     rs->DrawSprites(spr, 1, "Telescope");*/
 
     if (bUnderSea && bUnderSeaEnable)
@@ -2072,29 +1939,36 @@ uint32_t SEA::AttributeChanged(ATTRIBUTES *pAttribute)
     return 0;
 }
 
+void SEA::CreateTargets()
+{
+    envMap = rs->CubeTextureCreate(128, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT);
+    sunRoadMap = rs->CubeTextureCreate(128, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT);
+    zStencil = rs->DepthSurfaceCreate(128, 128, D3DFMT_D24S8);
+
+    reflection = rs->TextureCreate(128, 128, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT);
+    reflectionSunroad = rs->TextureCreate(128, 128, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT);
+    reflectionDepth = rs->DepthSurfaceCreate(128, 128, D3DFMT_D24S8);
+}
+
+void SEA::ReleaseTargets()
+{
+    TEXTURE_RELEASE(rs, reflection);
+    TEXTURE_RELEASE(rs, reflectionSunroad);
+    TEXTURE_RELEASE(rs, envMap);
+    TEXTURE_RELEASE(rs, sunRoadMap);
+    rs->DepthSurfaceRelease(zStencil);
+    zStencil = {};
+    rs->DepthSurfaceRelease(reflectionDepth);
+    reflectionDepth = {};
+}
+
 void SEA::LostRender()
 {
-    rs->Release(pReflection);
-    rs->Release(pReflectionSunroad);
-    rs->Release(pEnvMap);
-    rs->Release(pSunRoadMap);
-    rs->Release(pRenderTargetBumpMap);
-
-    rs->Release(pZStencil);
-    rs->Release(pReflectionSurfaceDepth);
+    ReleaseTargets();
 }
 
 void SEA::RestoreRender()
 {
     cubeRefreshAll_ = true; // new cube targets hold nothing yet
-    rs->CreateTexture(XWIDTH, YWIDTH, MIPSLVLS, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
-                      &pRenderTargetBumpMap);
-
-    rs->CreateCubeTexture(128, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT, &pEnvMap);
-    rs->CreateCubeTexture(128, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT, &pSunRoadMap);
-    rs->CreateDepthStencilSurface(128, 128, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, &pZStencil);
-
-    rs->CreateTexture(128, 128, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT, &pReflection);
-    rs->CreateTexture(128, 128, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT, &pReflectionSunroad);
-    rs->CreateDepthStencilSurface(128, 128, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, &pReflectionSurfaceDepth);
+    CreateTargets();
 }

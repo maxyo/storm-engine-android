@@ -154,6 +154,10 @@ class DX9RENDER : public VDX9RENDER
     int32_t TextureCreate(const char *fname) override;
     int32_t TextureCreate(UINT width, UINT height, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool) override;
     int32_t CubeTextureCreate(UINT edgeLength, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool) override;
+    int32_t VolumeTextureCreate(UINT width, UINT height, UINT depth, UINT levels, uint32_t usage, D3DFORMAT format,
+                                D3DPOOL pool) override;
+    bool TextureLockBox(int32_t texid, uint32_t level, D3DLOCKED_BOX &locked, uint32_t flags) override;
+    void TextureUnlockBox(int32_t texid, uint32_t level) override;
     bool TextureLock(int32_t texid, uint32_t level, D3DLOCKED_RECT &locked, uint32_t flags,
                      uint32_t cubeFace = 0) override;
     void TextureUnlock(int32_t texid, uint32_t level, uint32_t cubeFace = 0) override;

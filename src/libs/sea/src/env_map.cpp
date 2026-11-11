@@ -73,11 +73,8 @@ bool SEA::SunRoad_Render2()
         // if (i == D3DCUBEMAP_FACE_NEGATIVE_Y) continue;
         // if (i != D3DCUBEMAP_FACE_NEGATIVE_Z) continue;
 
-        IDirect3DSurface9 *pReflectionSurface;
-        pReflectionSunroad->GetSurfaceLevel(0, &pReflectionSurface);
-
         rs->BeginScene();
-        bool bCool = rs->SetRenderTarget(pReflectionSurface, pZStencil);
+        bool bCool = rs->SetRenderTarget(reflectionSunroad, 0, 0, zStencil);
         bCool = D3D_OK != rs->Clear(0, nullptr, D3DCLEAR_ZBUFFER | D3DCLEAR_TARGET, 0x0, 1.0f, 0);
 
         // glm::mat4 mView;
@@ -106,7 +103,6 @@ bool SEA::SunRoad_Render2()
         }
 
         rs->EndScene();
-        pReflectionSurface->Release();
     }
 
     rs->PopRenderTarget();
@@ -152,13 +148,8 @@ bool SEA::EnvMap_Render2()
         // if (i == D3DCUBEMAP_FACE_NEGATIVE_Y) continue;
         // if (i != D3DCUBEMAP_FACE_NEGATIVE_Z) continue;
 
-        IDirect3DSurface9 *pReflectionSurface;
-        pReflection->GetSurfaceLevel(0, &pReflectionSurface);
-
         rs->BeginScene();
-        // bool bCool = rs->SetRenderTarget(pEnvMap, i, 0, pZStencil);
-        // bool bCool = rs->SetRenderTarget(pEnvMap, i, 0, pZStencil);
-        bool bCool = rs->SetRenderTarget(pReflectionSurface, pReflectionSurfaceDepth);
+        bool bCool = rs->SetRenderTarget(reflection, 0, 0, reflectionDepth);
         bCool = D3D_OK != rs->Clear(0, nullptr, D3DCLEAR_ZBUFFER | D3DCLEAR_TARGET, 0x0, 1.0f, 0);
 
         // glm::mat4 mView;
@@ -188,7 +179,6 @@ bool SEA::EnvMap_Render2()
         }
 
         rs->EndScene();
-        pReflectionSurface->Release();
     }
 
     rs->PopRenderTarget();
@@ -250,7 +240,7 @@ bool SEA::SunRoad_Render()
             continue;
 
         rs->BeginScene();
-        bool bCool = rs->SetRenderTarget(pSunRoadMap, i, 0, pZStencil);
+        bool bCool = rs->SetRenderTarget(sunRoadMap, 0, i, zStencil);
         bCool = D3D_OK != rs->Clear(0, nullptr, D3DCLEAR_ZBUFFER | D3DCLEAR_TARGET, 0x0, 1.0f, 0);
 
         glm::mat4 mView;
@@ -305,7 +295,7 @@ bool SEA::EnvMap_Render()
             continue;
 
         rs->BeginScene();
-        bool bCool = rs->SetRenderTarget(pEnvMap, i, 0, pZStencil);
+        bool bCool = rs->SetRenderTarget(envMap, 0, i, zStencil);
         bCool = D3D_OK != rs->Clear(0, nullptr, D3DCLEAR_ZBUFFER | D3DCLEAR_TARGET, Colors[i] /*0x0*/, 1.0f, 0);
 
         glm::mat4 mView;

@@ -89,12 +89,16 @@ class SEA : public SEA_BASE
 
     int32_t iVSeaBuffer, iISeaBuffer;
 
-    IDirect3DVolumeTexture9 *pVolumeTexture;
-    IDirect3DCubeTexture9 *pEnvMap, *pSunRoadMap;
-    IDirect3DSurface9 *pZStencil;
+    // Renderer texture ids: the bump normal frames, the environment / sun road cubes and the reflections.
+    int32_t volumeTexture = -1;
+    int32_t envMap = -1, sunRoadMap = -1;
+    storm::render::DepthSurfaceId zStencil;
 
-    IDirect3DTexture9 *pReflection, *pReflectionSunroad;
-    IDirect3DSurface9 *pReflectionSurfaceDepth;
+    int32_t reflection = -1, reflectionSunroad = -1;
+    storm::render::DepthSurfaceId reflectionDepth;
+
+    void CreateTargets();
+    void ReleaseTargets();
 
     bool bSimpleSea;
 
@@ -126,8 +130,6 @@ class SEA : public SEA_BASE
 
     glm::vec4 v4SeaColor, v4SkyColor, v4SeaParameters;
 
-    std::vector<IDirect3DTexture9 *> aBumpMaps;
-    IDirect3DTexture9 *pRenderTargetBumpMap;
 
     float *pSeaFrame1, *pSeaFrame2, *pSeaNormalsFrame1, *pSeaNormalsFrame2;
 

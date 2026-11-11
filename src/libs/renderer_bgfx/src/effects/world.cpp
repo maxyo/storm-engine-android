@@ -176,7 +176,7 @@ void Host::draw_water(const render::EffectsWaterMesh &mesh, const render::Effect
         }
     }
     fx::WaterFrame frame;
-    if (shim::TexStore *env = shim::store_of(mesh.env_map); env && env->kind == shim::TexKind::Cube)
+    if (shim::TexStore *env = shim::store_of(render::ResolveEffectsTexture(mesh.env_map)); env && env->kind == shim::TexKind::Cube)
     {
         env->sync();
         frame.env_cube = env->handle;
