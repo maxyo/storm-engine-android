@@ -54,7 +54,7 @@ struct UiVertex
 };
 using Picture = std::vector<uint8_t>;
 
-Picture frame(Device &d, IDirect3DSurface9 *back, IDirect3DSurface9 *readback)
+Picture frame(Device &d, storm::shim::Surface *back, storm::shim::Surface *readback)
 {
     check(d.BeginScene(), "BeginScene");
     check(d.SetRenderTarget(0, back), "SetRenderTarget");
@@ -107,7 +107,7 @@ Picture frame(Device &d, IDirect3DSurface9 *back, IDirect3DSurface9 *readback)
     for (uint32_t y = 0; y < kHeight; ++y)
         std::memcpy(&pixels[y * kWidth * 4], static_cast<uint8_t *>(locked.pBits) + y * locked.Pitch, kWidth * 4);
     readback->UnlockRect();
-    check(d.Present(nullptr, nullptr, nullptr, nullptr), "Present");
+    check(d.Present(), "Present");
     return pixels;
 }
 
@@ -133,7 +133,7 @@ Run run(SDL_Window *window)
         params.BackBufferWidth = kWidth;
         params.BackBufferHeight = kHeight;
         auto *device = new Device(window, params);
-        IDirect3DSurface9 *readback = nullptr, *back = nullptr;
+        storm::shim::Surface *readback = nullptr, *back = nullptr;
         check(device->CreateOffscreenPlainSurface(kWidth, kHeight, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &readback, nullptr),
               "CreateOffscreenPlainSurface");
         check(device->GetRenderTarget(0, &back), "GetRenderTarget");
