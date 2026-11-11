@@ -720,7 +720,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         {
             opening_ = Opening::None;
             if (!held_.empty())
-                Error(std::to_string(held_.size()) + " touch events dropped: the interface closed before it was shown");
+                Log(std::to_string(held_.size()) + " touch events dropped: the interface closed before it was shown");
             held_.clear();
             held_pointers_.clear();
         }
@@ -813,6 +813,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     void CancelInput() override
     {
         changed_ = true;
+        if (!held_.empty())
+            Log(std::to_string(held_.size()) + " touch events dropped: the platform cancelled the input while they waited");
         held_.clear();
         held_pointers_.clear();
         std::vector<std::pair<int, Rml::Vector2f>> held;
@@ -1351,34 +1353,60 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         TouchMap map;
         const bool hud = hud_->Interactive();
         map.back = !video_ && ((hud && hud_->Shown().modal) || router_->WantsBack()); // a modal HUD sheet or a screen's own modal
+        const bool was_between = between_;
+        between_ = Between();
         // a document or an interface screen (also one the game opened whose model is still to
-        // come), or a modal HUD sheet
-        map.everywhere = !video_ && (document_ != nullptr || map.back || opening_ != Opening::None);
+        // come), a modal HUD sheet, or nothing the player can use (Between)
+        map.everywhere = !video_ && (document_ != nullptr || map.back || opening_ != Opening::None || between_);
         if (hud && !map.everywhere && hud_document_)
             CollectRegions(hud_document_, map.regions);
         const std::lock_guard<std::mutex> lock(touch_mutex_);
-        if (!laid_out && map.everywhere && !touch_map_.everywhere)
+        // What comes after a transition is not laid out before the next frame either.
+        if (!laid_out && map.everywhere && (!touch_map_.everywhere || (was_between && !between_)))
             unlaid_ = true;
         touch_map_ = std::move(map);
     }
 
+    // The game shows nothing the player can use: no interface (nor one being opened), no
+    // full-screen video, no cutscene, no telescope, and the game in no gameplay mode that a HUD
+    // scene holds (the loading screen, a scene change, the title before its menu). A touch the game got then
+    // would land in whatever comes next unseen, so the UI owns the touches and holds them for
+    // that: the next interface gets them, gameplay drops them (ReleaseHeld). States the engine
+    // publishes decide it, not a timer.
+    bool Between() const
+    {
+        if (video_ || opening_ != Opening::None || InterfaceActive())
+            return false;
+        const hud::States &states = hud_->Current();
+        if (states.presentation.cinematic || (states.spyglass.known && states.spyglass.on))
+            return false;
+        return !hud_->InGameplay();
+    }
+
     bool Holding() const
     {
-        return opening_ != Opening::None || unlaid_;
+        return opening_ != Opening::None || unlaid_ || between_;
     }
 
     // After a frame (its layout): an opened interface that got its model is shown, a new sheet
-    // is laid out, and the touches held for them are applied in order.
+    // is laid out, and the touches held for them are applied in order. Touches held through a
+    // transition that ends in gameplay are dropped instead: the player aimed at a screen, not
+    // at the scene that appeared.
     void ReleaseHeld()
     {
         if (opening_ == Opening::AwaitFrame)
             opening_ = Opening::None;
         unlaid_ = false;
-        if (opening_ != Opening::None || held_.empty())
+        if (opening_ != Opening::None || between_ || held_.empty())
             return;
         const std::vector<HeldTouch> held = std::move(held_);
         held_.clear();
         held_pointers_.clear();
+        if (!InterfaceActive())
+        {
+            Log(std::to_string(held.size()) + " touch events dropped: made while the game showed nothing to use, and gameplay came next");
+            return;
+        }
         for (const HeldTouch &touch : held)
             Apply(touch.phase, touch.pointer, touch.x, touch.y);
     }
@@ -1467,6 +1495,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     };
     Opening opening_ = Opening::None;
     bool unlaid_ = false; // something covers the game since the last frame (PublishTouchMap)
+    bool between_ = false; // nothing the player can use is shown (Between)
     struct HeldTouch
     {
         TouchPhase phase;

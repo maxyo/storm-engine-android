@@ -6,7 +6,9 @@
 // panzoom behaviour (c-map-view) reports taps in the picture's units through pan and zoom. A full-screen
 // game video (state channel "video") hides the screen and passes every touch to the game.
 // A tap on what is not laid out yet waits for its first frame: a document tapped before it was
-// drawn, and an interface the game opens (ExpectInterface) before its model arrived.
+// drawn, an interface the game opens (ExpectInterface) before its model arrived, and a tap
+// made while the game is in no gameplay mode (title load, scene change): the next interface
+// gets it, gameplay drops it.
 // No GL context, no game data.
 #include "runtime_stub.h"
 #include "storm_ui/ui.h"
@@ -218,6 +220,40 @@ int main(int argc, char **argv)
         return 1;
     frames(0.05);
     clicks.clear();
+    const fs::path states = fs::path(argv[1]) / "../states";
+    const std::string explore = Read(states / "gameplay-explore.json");
+    Json blocked = Json::parse(explore);
+    blocked["mode"] = "unknown"; // what the engine publishes while it loads or changes scene
+    blocked["revision"] = 8;
+    blocked["capabilities"] = Json::array();
+
+    // Before the game is in any gameplay mode (the title load, a scene change) nothing on the
+    // screen can be used: the UI owns the touches and holds them. Gameplay coming next drops them.
+    Expect(host->WantsTouch(700, 350), "while the game is in no gameplay mode the touches are the UI's");
+    tap(700, 350);
+    frames(0.5);
+    Expect(host->SetState("gameplay", explore), "gameplay starts");
+    frames(0.05);
+    Expect(clicks.empty() && !host->WantsTouch(700, 350), "gameplay drops the held tap and the game gets the touches again");
+
+    // A scene change (no gameplay mode again), then the interface the game opens: a tap made
+    // in between waits for it and presses it.
+    Expect(host->SetState("gameplay", blocked.dump()), "the game leaves gameplay");
+    Expect(host->WantsTouch(700, 350), "between scenes the touches are the UI's again");
+    tap(100, 24);
+    frames(0.5);
+    Expect(clicks.empty(), "nothing receives the tap between scenes");
+    host->ExpectInterface();
+    const std::string first_menu = Read(fs::path(argv[1]) / "../models/game-menu.json");
+    Expect(host->SetInterface(first_menu), "the game menu model arrives after the scene change");
+    frames(0.05);
+    Expect(clicks.size() == 1 && clicks[0] == " back",
+           "the tap made between scenes presses the menu that came next: " + (clicks.empty() ? std::string("nothing") : clicks[0]));
+    clicks.clear();
+    host->CloseInterface();
+    Expect(host->SetState("gameplay", explore), "gameplay again");
+    frames(0.05);
+
     Expect(!host->WantsTouch(700, 350), "nothing of the UI over the game: its touches go to the game");
     host->ExpectInterface();
     Expect(host->WantsTouch(700, 350) && host->WantsTouch(100, 24), "an interface being opened owns every touch at once");

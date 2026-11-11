@@ -12,7 +12,7 @@ resolution. There is no second GL surface or thread for the game's UI.
 | Interface models (widget snapshots) | `xinterface` | `ui::interfaceModel()`; `ui::screen()` opens/closes (a close waits 150 ms for the next screen). An opening is `Host::ExpectInterface`: the model comes once the interface has loaded (seconds at times), and the touches in between are the UI's, held for the screen's first frame |
 | Game log lines | engine | `ui::toast()` |
 | Touches, `presentation`, `appSettings`, insets, editor answers | `GameActivity` / `MobileHud` (Java) | `EngineUi` natives: queued, applied by `ui::tick()` at the top of the next engine loop iteration |
-| `WantsTouch`, `WantsBack`, interface shown | Java, at pointer-down / back | answered at once from the host's last frame (thread-safe) |
+| `WantsTouch`, `WantsBack`, interface shown | Java, at pointer-down / back | answered at once from the host's last frame (thread-safe). While the game shows nothing to use (loading screen, scene change: no gameplay mode, no interface) the touches are the UI's and wait for the next interface; gameplay drops them (`Host::WantsTouch`) |
 | Engine commands of the UI (`widget:…`, `hold:…`, stick slots) | host actions | `ui::takeCommands()`, read in the same iteration as the activity's queue; a latest-value slot keeps only its newest command |
 | Pause dialog, shortcuts mailbox, HUD presence, About, settings, system editor | host actions | JNI calls on `GameActivity` (`onUiHudInput`, `onUiAction`, `onUiTextRequest`, `uiFailed`) |
 
