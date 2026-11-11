@@ -2,26 +2,17 @@
 
 #include "vx_service.h"
 #include "xdefines.h"
+#include "picture_catalog.hpp"
+
+#include <vector>
 
 class XSERVICE : public VXSERVICE
 {
-    struct IMAGELISTDESCR
+    // Renderer texture of a group, created on first use and shared by reference count.
+    struct GroupTexture
     {
-        char *sImageListName;
-        char *sTextureName;
-        int32_t textureID;
-        int textureQuantity;
-
-        int32_t textureWidth;
-        int32_t textureHeight;
-        int32_t pictureQuantity;
-        int32_t pictureStart;
-    };
-
-    struct PICTUREDESCR
-    {
-        char *sPictureName;
-        XYRECT pTextureRect;
+        int32_t id = -1;
+        int references = 0;
     };
 
   public:
@@ -61,10 +52,8 @@ class XSERVICE : public VXSERVICE
   protected:
     VDX9RENDER *m_pRS;
 
-    int32_t m_dwListQuantity;
-    int32_t m_dwImageQuantity;
-    IMAGELISTDESCR *m_pList;
-    PICTUREDESCR *m_pImage;
+    storm::xinterface::PictureCatalog m_catalog;
+    std::vector<GroupTexture> m_textures; // parallel to m_catalog.groups()
 
     // Scale factors
     float m_fWScale;

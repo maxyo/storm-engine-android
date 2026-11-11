@@ -7,8 +7,7 @@
 #include "services_list.h"
 #include "timer.h"
 #include "vma.hpp"
-
-#define ENGINE_SCRIPT_VERSION 54128
+#include "script_version.hpp"
 
 class CoreImpl final : public CorePrivate
 {

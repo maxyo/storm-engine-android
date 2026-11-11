@@ -317,12 +317,18 @@ void CoreImpl::ProcessEngineIniFile()
             if (pVScriptVersion)
                 pVScriptVersion->Get(iScriptVersion);
 
-            if (iScriptVersion != ENGINE_SCRIPT_VERSION)
+            const auto expected = storm::engineScriptVersion(storm::gameProfile());
+            if (iScriptVersion != expected)
             {
 #ifdef _WIN32 // FIX_LINUX Cursor
                 ShowCursor(true);
 #endif
-                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", "Wrong script version", nullptr);
+                const auto message = fmt::format("Wrong script version: the scripts declare iScriptVersion = {}, "
+                                                 "{} needs {}",
+                                                 iScriptVersion, storm::gameProfileName(storm::gameProfile()),
+                                                 expected);
+                spdlog::error("{}", message);
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", message.c_str(), nullptr);
                 Compiler->ExitProgram();
             }
         }
