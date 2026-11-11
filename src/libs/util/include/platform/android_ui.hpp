@@ -360,8 +360,12 @@ inline void publishWorldInfo(const std::string &text) {
 // engine log's own line life is one line, as the engine's list keeps it.
 inline std::string lastGameMessage;
 inline uint32_t lastGameMessageAt = 0;
+// > 0 while the engine runs a script action whose log line the HUD already shows otherwise
+// (the time scale: its button carries the multiplier).
+inline int gameMessagesMuted = 0;
 inline void publishGameMessage(const std::string &text) {
     const uint32_t now=SDL_GetTicks();
+    if (gameMessagesMuted > 0) return;
     if (text.empty() || (text == lastGameMessage && now - lastGameMessageAt < 5000)) return;
     lastGameMessage=text; lastGameMessageAt=now;
     auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());

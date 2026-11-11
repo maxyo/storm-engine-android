@@ -6,6 +6,7 @@
 // their handler, which applies their guards (underwater, quest locks), clamps (x6 in a fight,
 // x3 on land), logs the new scale once and keeps the TimeSpeed perk in step.
 #include "core.h"
+#include "platform/android_ui.hpp"
 #include "v_data.h"
 
 #include <array>
@@ -34,7 +35,10 @@ inline void applyTimeScaleStep(int step)
     if (step < 0 || step >= static_cast<int>(TimeScaleCounters.size()) || !counter || !counter->Get(current)) return;
     if (current == TimeScaleCounters[step]) return;
     counter->Set(TimeScaleFrom[step]);
+    // No toast for the new scale (owner decision): the HUD's time button shows it.
+    ++gameMessagesMuted;
     core.Event("Control Activation", "s", step == 0 ? "TimeScaleSlower" : "TimeScaleFaster");
+    --gameMessagesMuted;
 }
 } // namespace storm::android
 #endif
