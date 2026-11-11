@@ -578,7 +578,7 @@ int main(int argc, char *argv[])
         return isRunning && bActive && androidLifecycle.canRun() && core_private->initialized() && core.Controls &&
             storm::android::loadingState == 0 && storm::android::mobileScreen.empty() && gameplayState.allows(control);
     };
-    storm::android::updateCombatState(gameplayState);
+    storm::android::updateCombatState(gameplayState, core_private);
     storm::android::publishCombatState();
     storm::android::publishGameplayState(gameplayState.json());
     storm::android::worldMapHud.update({},SDL_GetTicks());
@@ -794,7 +794,7 @@ int main(int argc, char *argv[])
             storm::android::movementInput.updateOwner({});
             gameplayState.update({});
             storm::android::heldControls.update(gameplayState.revision());
-            storm::android::updateCombatState(gameplayState);
+            storm::android::updateCombatState(gameplayState, core_private);
             storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
             storm::android::worldMapHud.update({},SDL_GetTicks());
@@ -927,7 +927,7 @@ int main(int argc, char *argv[])
             storm::android::heldControls.update(gameplayState.revision());
             storm::android::seaQuickLifecycleReady = gameplayReady;
             storm::android::publishSeaQuickAction();
-            storm::android::updateCombatState(gameplayState);
+            storm::android::updateCombatState(gameplayState, core_private);
             storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
             storm::android::worldMapHud.update(storm::android::readWorldMapFrame(gameplayState,gameplayReady),SDL_GetTicks());

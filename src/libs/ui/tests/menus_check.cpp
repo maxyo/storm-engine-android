@@ -110,7 +110,9 @@ static void GameMenu(const std::string &models)
     ExpectEqual(surface.props["resume"]["label"], "Продолжить", "resume is the game's button");
     Expect(surface.props["buttons"].size() == 4 && surface.props["buttons"][3]["id"] == "exit", "grid: save, load, settings, exit (no disabled updates)");
     Expect(surface.props["confirm"].is_null(), "no question yet");
-    const char *const ids[][2] = {{"resume", "MB_RESUME"}, {"save", "MB_SAVE"}, {"load", "MB_LOAD"}, {"options", "MB_OPTIONS"}, {"exit", "MB_EXITGAME"}};
+    router.OnEvent({"resume", "click", ""});
+    ExpectEqual(surface.Last(), "back", "«Продолжить» resumes through the menu's cancel (exitCancel)");
+    const char *const ids[][2] = {{"save", "MB_SAVE"}, {"load", "MB_LOAD"}, {"options", "MB_OPTIONS"}, {"exit", "MB_EXITGAME"}};
     for (const auto &[id, node] : ids)
     {
         router.OnEvent({id, "click", ""});
@@ -128,6 +130,26 @@ static void GameMenu(const std::string &models)
     ExpectEqual(surface.Last(), "widget:game_menu\tCONFIRM_EXIT_NO\t-1\tpress", "the scrim answers no");
     router.OnEvent({"confirm-cancel", "click", ""});
     ExpectEqual(surface.Last(), "widget:game_menu\tCONFIRM_EXIT_NO\t-1\tpress", "«Отмена» answers no");
+
+    // TEHO's game_menu.c greys out MB_RESUME during a boarding; its cancel still resumes there.
+    InterfaceModel boarding = Load(models, "game-menu.json");
+    boarding.opening = 97;
+    for (Widget &widget : boarding.widgets)
+        if (widget.node == "MB_RESUME")
+            widget.enabled = false;
+    router.SetInterface(boarding);
+    Expect(surface.props["resume"]["disabled"] == false, "boarding: «Продолжить» stays available while the cancel resumes");
+    router.OnEvent({"resume", "click", ""});
+    ExpectEqual(surface.Last(), "back", "boarding: «Продолжить» takes the cancel route");
+    for (Widget &widget : boarding.widgets)
+        if (widget.node == "MB_RESUME")
+            widget.context["resumeOnCancel"] = "0";
+    boarding.opening = 98;
+    const size_t sent = surface.commands.size();
+    router.SetInterface(boarding);
+    Expect(surface.props["resume"]["disabled"] == true, "no resume (Buttons.Resume.enable 0): «Продолжить» unavailable");
+    router.OnEvent({"resume", "click", ""});
+    Expect(surface.commands.size() == sent && surface.errors.empty(), "an unavailable «Продолжить» sends nothing");
 
     InterfaceModel broken = Load(models, "game-menu.json");
     Without(broken, "MB_RESUME");

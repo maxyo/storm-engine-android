@@ -44,7 +44,7 @@ struct Combat
 {
     bool known = false;
     uint64_t gameplay_revision = 0, activity = 0;
-    std::string player, mode = "unknown", interact_kind = "interact";
+    std::string player, mode = "unknown", interact_kind = "interact"; // interact_kind: dialog | boarding | interact
     // Offered action -> its availability generation, which a command for it carries.
     std::map<std::string, uint64_t> actions;
     std::string pistol = "unknown"; // unknown, no_weapon, unloaded, loaded

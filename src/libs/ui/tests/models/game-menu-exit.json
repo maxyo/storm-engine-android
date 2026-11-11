@@ -39,7 +39,10 @@
    "rowId": "",
    "images": [],
    "actions": [],
-   "cells": []
+   "cells": [],
+   "context": {
+    "resumeOnCancel": "1"
+   }
   },
   {
    "node": "MB_SAVE",
