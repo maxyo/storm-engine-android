@@ -89,7 +89,7 @@ void CXI_GLOWCURSOR::Draw(bool bSelected, uint32_t Delta_Time)
                 }
                 if (m_pBackTex != nullptr)
                 {
-                    m_rs->SetTexture(0, m_pBackTex->m_pTexture);
+                    m_rs->TextureSet(0, m_pBackTex->m_texture);
                     m_rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, XI_ONETEX_FVF, 2, m_pTexVert, sizeof(XI_ONETEX_VERTEX),
                                           "iGlow");
                 }
@@ -107,7 +107,7 @@ void CXI_GLOWCURSOR::Draw(bool bSelected, uint32_t Delta_Time)
                 }
                 if (m_pBackTex != nullptr)
                 {
-                    m_rs->SetTexture(0, m_pBackTex->m_pTexture);
+                    m_rs->TextureSet(0, m_pBackTex->m_texture);
                     m_rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, XI_ONETEX_FVF, 8, &m_pTexVert[4],
                                           sizeof(XI_ONETEX_VERTEX), "iGlow");
                 }

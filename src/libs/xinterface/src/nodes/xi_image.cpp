@@ -19,7 +19,6 @@ CXI_IMAGE::CXI_IMAGE()
     m_nPictureNum = -1;
 
     m_nTextureID = -1;
-    m_pTexture = nullptr;
 
     m_frUV.left = 0.f;
     m_frUV.top = 0.f;
@@ -161,15 +160,6 @@ void CXI_IMAGE::LoadAccordingToString(const char *pcImageParam)
         m_bThisIsColorRectangle = false;
 }
 
-void CXI_IMAGE::SetPointerToTexture(IDirect3DTexture9 *pTex)
-{
-    Unload();
-    if (!pTex)
-        return;
-    m_pTexture = pTex;
-    pTex->AddRef();
-}
-
 void CXI_IMAGE::Draw()
 {
     if (m_bDisableDraw)
@@ -183,10 +173,7 @@ void CXI_IMAGE::Draw()
 
     if (IsImagePresent())
     {
-        if (m_pTexture)
-            m_rs->SetTexture(0, m_pTexture);
-        else
-            m_rs->TextureSet(0, m_nTextureID);
+        m_rs->TextureSet(0, m_nTextureID);
         m_rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, XI_ONETEX_FVF, 2, m_vrtx, sizeof(XI_ONETEX_VERTEX), "iVideo");
     }
 }
@@ -317,7 +304,6 @@ void CXI_IMAGE::Unload()
             TEXTURE_RELEASE(m_rs, m_nTextureID);
         }
     }
-    RELEASE(m_pTexture);
     STORM_DELETE(m_pcPictureListName);
 }
 

@@ -188,7 +188,7 @@ void CXI_BUTTON::Draw(bool bSelected, uint32_t Delta_Time)
         if (m_idTex != -1)
             m_rs->TextureSet(0, m_idTex);
         else
-            m_rs->SetTexture(0, m_pTex ? m_pTex->m_pTexture : nullptr);
+            m_rs->TextureSet(0, m_pTex ? m_pTex->m_texture : -1);
 
         if (m_idTex >= 0 || m_pTex != nullptr)
         {

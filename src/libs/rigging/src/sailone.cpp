@@ -50,7 +50,6 @@ SAILONE::SAILONE()
 
     m_bIsGerald = false;
     m_nGeraldTex = -1;
-    m_pGeraldTex = nullptr;
 
     m_fHorzGeraldScale = 1.f;
     m_fVertGeraldScale = 1.f;
@@ -70,7 +69,6 @@ SAILONE::~SAILONE()
     STORM_DELETE(sailtrope.rrs[1]);
     TEXTURE_RELEASE(pp->RenderService, surfaceTex);
     TEXTURE_RELEASE(pp->RenderService, m_nGeraldTex);
-    RELEASE(m_pGeraldTex);
 }
 
 void SAILONE::goWave(SAILVERTEX *pv, uint32_t Delta_Time)

@@ -20,8 +20,8 @@ void CXI_VIDEORECT::Draw(bool bSelected, uint32_t Delta_Time)
     {
         if (auto *const ptr = core.GetEntityPointer(m_eiVideo))
         {
-            auto *const pTex = static_cast<xiBaseVideo *>(ptr)->GetCurrentVideoTexture();
-            if (pTex != nullptr)
+            const int32_t pTex = static_cast<xiBaseVideo *>(ptr)->GetCurrentVideoTexture();
+            if (pTex >= 0)
             {
                 // Create rectangle
                 XI_ONETEX_VERTEX v[4];
@@ -46,7 +46,7 @@ void CXI_VIDEORECT::Draw(bool bSelected, uint32_t Delta_Time)
                     v[i].pos.z = 1.f;
                 }
 
-                m_rs->SetTexture(0, pTex);
+                m_rs->TextureSet(0, pTex);
                 m_rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, XI_ONETEX_FVF, 2, v, sizeof(XI_ONETEX_VERTEX), "iVideo");
             }
         }

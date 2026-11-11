@@ -227,8 +227,6 @@ XINTERFACE::XINTERFACE()
     m_imgLists = nullptr;
 
     m_bShowPrevTexture = false;
-    m_pTexture = nullptr;
-    m_pPrevTexture = nullptr;
 
     m_pEvents = nullptr;
 
@@ -278,12 +276,6 @@ XINTERFACE::XINTERFACE()
 XINTERFACE::~XINTERFACE()
 {
     ReleaseOld();
-
-    if (m_pTexture)
-        pRenderService->Release(m_pTexture);
-    if (m_pPrevTexture)
-        pRenderService->Release(m_pPrevTexture);
-    m_pTexture = m_pPrevTexture = nullptr;
 
     if (pPictureService != nullptr)
     {
@@ -3205,12 +3197,10 @@ void XINTERFACE::ShowPrevTexture()
         m_nBlendColor = 0;
         m_fAngle = 0.f;
         m_bShowPrevTexture = false;
-        if (m_pPrevTexture != nullptr)
-            pRenderService->Release(m_pPrevTexture);
-        m_pPrevTexture = nullptr;
     }
 
-    pRenderService->SetTexture(0, m_pPrevTexture);
+    // Nothing captures the previous screen: the wave blends an untextured quad.
+    pRenderService->TextureSet(0, -1);
     pRenderService->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
     pRenderService->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_CURRENT);
     pRenderService->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TEXTURE);
@@ -3383,10 +3373,8 @@ bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *gameSaveD
     if (textureId == -1)
         return false;
 
-    auto *pTex = static_cast<IDirect3DTexture9 *>(pRenderService->GetTextureFromID(textureId));
-
-    D3DSURFACE_DESC dscr;
-    pTex->GetLevelDesc(0, &dscr);
+    D3DSURFACE_DESC dscr{};
+    pRenderService->TextureLevelDesc(textureId, 0, dscr);
 
     auto pdat = static_cast<char *>(malloc(sizeof(SAVE_DATA_HANDLE) + slen));
     if (pdat == nullptr)
@@ -3402,13 +3390,13 @@ bool XINTERFACE::SFLB_DoSaveFileData(const char *saveName, const char *gameSaveD
     if (dscr.Height > 0)
     {
         D3DLOCKED_RECT lockRect;
-        if (pTex->LockRect(0, &lockRect, nullptr, 0) == D3D_OK)
+        if (pRenderService->TextureLock(textureId, 0, lockRect, D3DLOCK_READONLY))
         {
             ssize = lockRect.Pitch * dscr.Height;
             pdat = static_cast<char *>(realloc(pdat, sizeof(SAVE_DATA_HANDLE) + slen + ssize));
             ((SAVE_DATA_HANDLE *)pdat)->SurfaceDataSize = ssize;
             memcpy(&pdat[sizeof(SAVE_DATA_HANDLE) + slen], lockRect.pBits, ssize);
-            pTex->UnlockRect(0);
+            pRenderService->TextureUnlock(textureId, 0);
         }
         else
             core.Trace("Can`t lock screenshot texture");

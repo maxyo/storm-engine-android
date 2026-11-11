@@ -64,7 +64,7 @@ void CXI_CHANGER::Draw(bool bSelected, uint32_t Delta_Time)
             m_rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, XI_ONETEX_FVF, 2, &m_pTexVert[4], sizeof(XI_ONETEX_VERTEX),
                                   "iRectangle");
         }
-        m_rs->SetTexture(0, m_pTex ? m_pTex->m_pTexture : nullptr);
+        m_rs->TextureSet(0, m_pTex ? m_pTex->m_texture : -1);
         m_rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, XI_ONETEX_FVF, 2, m_pTexVert, sizeof(XI_ONETEX_VERTEX), "iChanger");
     }
 }

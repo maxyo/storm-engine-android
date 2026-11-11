@@ -97,7 +97,7 @@ void BLADE::BLADE_INFO::DrawBlade(VDX9RENDER *rs, unsigned int blendValue, MODEL
         obj->ProcessStage(Stage::realize, 0);
 
         //--------------------------------------------------------------------------
-        rs->SetTexture(0, nullptr);
+        rs->TextureSet(0, -1);
         rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
 
         // move to the beginning

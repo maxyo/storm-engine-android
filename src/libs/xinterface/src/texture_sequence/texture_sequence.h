@@ -30,10 +30,10 @@ class TextureSequence : public CVideoTexture
     TextureSequence();
     ~TextureSequence() override;
 
-    IDirect3DTexture9 *Initialize(VDX9RENDER *pRS, const char *cTSfileName, bool bCicled) override;
+    int32_t Initialize(VDX9RENDER *pRS, const char *cTSfileName, bool bCicled) override;
     bool FrameUpdate() override;
     void Release() override;
-    void LostRender() const;
+    void LostRender();
     void RestoreRender();
 
     void ProcessStage(Stage stage, uint32_t delta) override

@@ -10,8 +10,9 @@ class xiBaseVideo : public Entity
     {
     }
 
-    virtual IDirect3DTexture9 *GetCurrentVideoTexture()
+    // Renderer texture id of the current frame, -1 if there is none.
+    virtual int32_t GetCurrentVideoTexture()
     {
-        return nullptr;
+        return -1;
     }
 };

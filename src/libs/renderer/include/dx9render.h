@@ -462,6 +462,7 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
 
     virtual IDirect3DBaseTexture9 *GetTextureFromID(int32_t nTextureID) = 0;
 
-    // A new texture (the caller releases it) holding a copy of the current render target, or -1 (logged).
+    // A new one-level texture (the caller releases it) holding a copy of the current render target, readable
+    // with TextureLock; -1 (logged) on failure.
     virtual int32_t GetRenderTargetAsTexture() = 0;
 };

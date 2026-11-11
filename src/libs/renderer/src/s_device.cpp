@@ -4193,7 +4193,7 @@ CVideoTexture *DX9RENDER::GetVideoTexture(const char *sVideoName)
     if (pVTLcur->VideoTexture != nullptr)
     {
         pVTLcur->videoTexture_id = ei;
-        if (pVTLcur->VideoTexture->Initialize(this, sVideoName, true) == nullptr)
+        if (pVTLcur->VideoTexture->Initialize(this, sVideoName, true) < 0)
         {
             delete pVTLcur;
             core.EraseEntity(ei);
@@ -4901,7 +4901,7 @@ int32_t DX9RENDER::GetRenderTargetAsTexture()
     IDirect3DTexture9 *texture = nullptr;
     IDirect3DSurface9 *level = nullptr;
     const bool copied = !CHECKD3DERR(renderTarget->GetDesc(&desc)) &&
-                        !CHECKD3DERR(CreateTexture(desc.Width, desc.Height, 0, 0, desc.Format, D3DPOOL_DEFAULT, &texture)) &&
+                        !CHECKD3DERR(CreateTexture(desc.Width, desc.Height, 1, 0, desc.Format, D3DPOOL_DEFAULT, &texture)) &&
                         !CHECKD3DERR(texture->GetSurfaceLevel(0, &level)) &&
                         !CHECKD3DERR(GetRenderTargetData(renderTarget, level));
     if (level)

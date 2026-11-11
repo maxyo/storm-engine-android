@@ -30,7 +30,6 @@ SCRSHOTER::~SCRSHOTER()
 {
     if (textureIndex_ != -1 && rs != nullptr)
         rs->TextureRelease(textureIndex_);
-    texture_ = nullptr;
     SAVETEXTURES *pst;
     while (m_list)
     {
@@ -65,7 +64,7 @@ void SCRSHOTER::Execute(uint32_t Delta_Time)
 
 void SCRSHOTER::Realize(uint32_t Delta_Time)
 {
-    if (texture_ == nullptr)
+    if (textureIndex_ < 0)
         if (!MakeScreenShot())
         {
             core.Trace("ERROR!!! screen shot create error");
@@ -77,7 +76,6 @@ void SCRSHOTER::Realize(uint32_t Delta_Time)
 
 bool SCRSHOTER::MakeScreenShot()
 {
-    int n;
     D3DLOCKED_RECT inRect, outRect;
 
     auto hr = D3D_OK;
@@ -101,79 +99,50 @@ bool SCRSHOTER::MakeScreenShot()
     {
         rs->TextureRelease(textureIndex_);
     }
-    texture_ = nullptr;
     textureIndex_ = -1;
 
-    // get data of the old render surface
-    D3DSURFACE_DESC desc;
-    IDirect3DSurface9 *pOldRenderTarg = nullptr;
-    hr = rs->GetRenderTarget(&pOldRenderTarg);
-    if (hr == D3D_OK)
-        hr = pOldRenderTarg->GetDesc(&desc);
-
-    // get a copy of the render buffer
-    IDirect3DSurface9 *pRenderTarg = nullptr;
-    if (hr == D3D_OK)
-        hr = rs->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, &pRenderTarg);
-    if (hr == D3D_OK)
-        hr = rs->GetRenderTargetData(pOldRenderTarg, pRenderTarg);
-    pOldRenderTarg->Release();
-
-    // create a new screen shot
-    if (hr == D3D_OK)
+    // a copy of the frame, scaled down into the shot
+    const int32_t frame = rs->GetRenderTargetAsTexture();
+    if (frame < 0)
+        return false;
+    D3DSURFACE_DESC desc{};
+    textureIndex_ = rs->TextureCreate(SS_TEXTURE_WIDTH, SS_TEXTURE_HEIGHT, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED);
+    bool ok = textureIndex_ >= 0 && rs->TextureLevelDesc(frame, 0, desc) &&
+              rs->TextureLock(frame, 0, inRect, D3DLOCK_READONLY);
+    if (ok)
     {
-        textureIndex_ =
-            rs->TextureCreate(SS_TEXTURE_WIDTH, SS_TEXTURE_HEIGHT, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED);
-        texture_ = static_cast<IDirect3DTexture9 *>(rs->GetTextureFromID(textureIndex_));
-    }
-
-    // get a buffer for a copy of the rendering surface
-    void *pIn = nullptr;
-    if (hr == D3D_OK)
-        hr = pRenderTarg->LockRect(&inRect, nullptr, 0);
-    if (hr == D3D_OK)
-        pIn = inRect.pBits;
-    // get a buffer for the texture
-    void *pOut = nullptr;
-    if (hr == D3D_OK)
-        hr = texture_->LockRect(0, &outRect, nullptr, 0);
-    if (hr == D3D_OK)
-        pOut = outRect.pBits;
-
-    // fill this texture from a copy of our render buffer
-    if (hr == D3D_OK)
-    {
-        for (int vi = 0; vi < SS_TEXTURE_HEIGHT; vi++)
+        ok = rs->TextureLock(textureIndex_, 0, outRect, 0);
+        if (ok)
         {
-            const size_t vertical_offset = vi * desc.Height / SS_TEXTURE_HEIGHT;
-            auto *const pInPxl = static_cast<uint8_t *>(pIn) + inRect.Pitch * vertical_offset;
-            auto *pOutPxl = (uint32_t *)(static_cast<uint8_t *>(pOut) + outRect.Pitch * vi);
-            for (int hi = 0; hi < SS_TEXTURE_WIDTH; hi++)
+            for (int vi = 0; vi < SS_TEXTURE_HEIGHT; vi++)
             {
-                const size_t horizontal_offset = (hi * desc.Width / SS_TEXTURE_WIDTH) * (inRect.Pitch / desc.Width);
-                pOutPxl[hi] = GetA8R8G8B8_FromFMT(&pInPxl[horizontal_offset], desc.Format);
+                const size_t vertical_offset = vi * desc.Height / SS_TEXTURE_HEIGHT;
+                auto *const pInPxl = static_cast<uint8_t *>(inRect.pBits) + inRect.Pitch * vertical_offset;
+                auto *pOutPxl = (uint32_t *)(static_cast<uint8_t *>(outRect.pBits) + outRect.Pitch * vi);
+                for (int hi = 0; hi < SS_TEXTURE_WIDTH; hi++)
+                {
+                    const size_t horizontal_offset = (hi * desc.Width / SS_TEXTURE_WIDTH) * (inRect.Pitch / desc.Width);
+                    pOutPxl[hi] = GetA8R8G8B8_FromFMT(&pInPxl[horizontal_offset], desc.Format);
+                }
             }
+            rs->TextureUnlock(textureIndex_, 0);
         }
+        rs->TextureUnlock(frame, 0);
     }
-
-    // close opened buffers
-    if (pIn != nullptr)
-        pRenderTarg->UnlockRect();
-
-    // close opened buffers
-    if (pOut != nullptr)
-        texture_->UnlockRect(0);
-
-    // Delete unnecessary screen copy
-    pRenderTarg->Release();
+    rs->TextureRelease(frame);
+    if (!ok)
+    {
+        TEXTURE_RELEASE(rs, textureIndex_);
+        return false;
+    }
 
     // Add a texture with a frame to the shot
     const int nTextureID = rs->TextureCreate("interfaces\\EmptyBorder.tga");
     if (nTextureID >= 0)
     {
-        IDirect3DTexture9 *pScrShotTex = nullptr;
-        if (D3D_OK == rs->CreateTexture(SS_TEXTURE_WIDTH, SS_TEXTURE_HEIGHT, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
-                                        D3DPOOL_DEFAULT, &pScrShotTex))
+        const int32_t framed = rs->TextureCreate(SS_TEXTURE_WIDTH, SS_TEXTURE_HEIGHT, 1, D3DUSAGE_RENDERTARGET,
+                                                 D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT);
+        if (framed >= 0)
         {
             const uint32_t BI_SCRSHOTER_VERTEX_FORMAT = (D3DFVF_XYZRHW | D3DFVF_TEX1 | D3DFVF_TEXTUREFORMAT2);
             struct BI_SCRSHOTER_VERTEX
@@ -196,46 +165,30 @@ bool SCRSHOTER::MakeScreenShot()
             vert[3].tu = vert[2].tu = 1.f;
             vert[3].tv = vert[1].tv = 1.f;
 
-            pOldRenderTarg = nullptr;
-            pRenderTarg = nullptr;
-            if (rs->GetRenderTarget(&pOldRenderTarg) == S_OK)
+            rs->PushRenderTarget();
+            if (rs->SetRenderTarget(framed, 0, 0, {}))
             {
-                IDirect3DSurface9 *pStencil = nullptr;
-                rs->GetDepthStencilSurface(&pStencil);
-                pScrShotTex->GetSurfaceLevel(0, &pRenderTarg);
-                if (rs->SetRenderTarget(pRenderTarg, nullptr) == S_OK)
+                rs->TextureSet(0, textureIndex_);
+                rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, BI_SCRSHOTER_VERTEX_FORMAT, 2, vert,
+                                    sizeof(BI_SCRSHOTER_VERTEX), "battle_icons");
+                rs->TextureSet(0, nTextureID);
+                rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, BI_SCRSHOTER_VERTEX_FORMAT, 2, vert,
+                                    sizeof(BI_SCRSHOTER_VERTEX), "battle_icons");
+                // the framed shot replaces the plain one (a readable copy of the render target)
+                if (const int32_t shot = rs->GetRenderTargetAsTexture(); shot >= 0)
                 {
-                    rs->TextureSet(0, textureIndex_);
-                    rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, BI_SCRSHOTER_VERTEX_FORMAT, 2, vert,
-                                        sizeof(BI_SCRSHOTER_VERTEX), "battle_icons");
-                    rs->TextureSet(0, nTextureID);
-                    rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, BI_SCRSHOTER_VERTEX_FORMAT, 2, vert,
-                                        sizeof(BI_SCRSHOTER_VERTEX), "battle_icons");
-                    rs->SetRenderTarget(pOldRenderTarg, pStencil);
+                    rs->TextureRelease(textureIndex_);
+                    textureIndex_ = shot;
                 }
-                if (pRenderTarg)
-                    pRenderTarg->Release();
-                if (pStencil)
-                    pStencil->Release();
-                if (pOldRenderTarg)
-                    pOldRenderTarg->Release();
             }
-            IDirect3DSurface9 *pSurf1 = nullptr, *pSurf2 = nullptr;
-            rs->GetSurfaceLevel(texture_, 0, &pSurf1);
-            rs->GetSurfaceLevel(pScrShotTex, 0, &pSurf2);
-            // rs->UpdateSurface(pSurf2,null,0,pSurf1,null);
-            hr = D3DXLoadSurfaceFromSurface(pSurf1, nullptr, nullptr, pSurf2, nullptr, nullptr, D3DX_DEFAULT, 0);
-            if (pSurf1)
-                rs->Release(pSurf1);
-            if (pSurf2)
-                rs->Release(pSurf2);
-            rs->Release(pScrShotTex);
+            rs->PopRenderTarget();
+            rs->TextureRelease(framed);
         }
 
         rs->TextureRelease(nTextureID);
     }
 
-    return hr == D3D_OK;
+    return true;
 }
 
 uint64_t SCRSHOTER::ProcessMessage(MESSAGE &message)
@@ -246,7 +199,7 @@ uint64_t SCRSHOTER::ProcessMessage(MESSAGE &message)
         // Normally Realize has taken the shot already. A save made outside the
         // frame loop (autosave when the app goes to background) asks before
         // any Realize ran: take it now from the last rendered back buffer.
-        if (texture_ == nullptr && !MakeScreenShot())
+        if (textureIndex_ < 0 && !MakeScreenShot())
         {
             core.Trace("ERROR!!! screen shot create error");
         }
@@ -370,7 +323,7 @@ void SCRSHOTER::DelSaveTexture(const char *fileName)
 
 int32_t SCRSHOTER::GetTexFromSave(char *fileName, char **pDatStr) const
 {
-    HRESULT hr = D3D_OK;
+    bool ok = true;
     D3DLOCKED_RECT outRect;
     int32_t textureId = -1;
     *pDatStr = nullptr; //~!~
@@ -389,12 +342,11 @@ int32_t SCRSHOTER::GetTexFromSave(char *fileName, char **pDatStr) const
         texSize == 4 * SS_TEXTURE_WIDTH * SS_TEXTURE_HEIGHT)
     {
         textureId = rs->TextureCreate(SS_TEXTURE_WIDTH, SS_TEXTURE_HEIGHT, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED);
-        auto *pt = static_cast<IDirect3DTexture9 *>(rs->GetTextureFromID(textureId));
-        hr = pt->LockRect(0, &outRect, nullptr, 0);
-        if (hr == D3D_OK)
+        ok = textureId >= 0 && rs->TextureLock(textureId, 0, outRect, 0);
+        if (ok)
         {
             memcpy(outRect.pBits, &pdat[startIdx], texSize);
-            pt->UnlockRect(0);
+            rs->TextureUnlock(textureId, 0);
         }
         char *stringData = &pdat[sizeof(SAVE_DATA_HANDLE)];
         if (!utf8::IsValidUtf8(stringData))
@@ -422,14 +374,13 @@ int32_t SCRSHOTER::GetTexFromSave(char *fileName, char **pDatStr) const
       }*/
     delete pdat;
 
-    if (hr == D3D_OK)
+    if (ok)
     {
         return textureId;
     }
     if (*pDatStr)
         delete (*pDatStr);
     *pDatStr = nullptr;
-    if (textureId && rs)
-        rs->TextureRelease(textureId);
+    TEXTURE_RELEASE(rs, textureId);
     return -1;
 }

@@ -46,7 +46,6 @@ class SCRSHOTER : public Entity
     int32_t GetTexFromSave(char *fileName, char **pDatStr) const;
     
     VDX9RENDER *rs = nullptr;
-    IDirect3DTexture9 *texture_ = nullptr;
     int32_t textureIndex_ = -1;
     SAVETEXTURES *m_list = nullptr;
 };

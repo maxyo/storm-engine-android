@@ -280,7 +280,6 @@ class SAILONE : public SAILONE_BASE
     int32_t surfaceTex;
     bool m_bIsGerald;
     int32_t m_nGeraldTex;
-    IDirect3DTexture9 *m_pGeraldTex;
 
     float m_fHorzGeraldScale;
     float m_fVertGeraldScale;

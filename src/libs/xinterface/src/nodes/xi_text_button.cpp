@@ -140,7 +140,7 @@ void CXI_TEXTBUTTON::Draw(bool bSelected, uint32_t Delta_Time)
             // show midle video fragment
             if (bSelected && m_pTex != nullptr)
             {
-                m_rs->SetTexture(0, m_pTex->m_pTexture);
+                m_rs->TextureSet(0, m_pTex->m_texture);
                 if (m_nPressedDelay > 0)
                     m_rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, XI_ONETEX_FVF, 2, &m_v[4], sizeof(XI_ONETEX_VERTEX),
                                           "iVideo");
@@ -172,7 +172,7 @@ void CXI_TEXTBUTTON::Draw(bool bSelected, uint32_t Delta_Time)
             // show midle video fragment
             if (bSelected && m_pTex != nullptr)
             {
-                m_rs->SetTexture(0, m_pTex->m_pTexture);
+                m_rs->TextureSet(0, m_pTex->m_texture);
                 if (m_nPressedDelay > 0)
                     m_rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, XI_ONETEX_FVF, 2, &m_v[4], sizeof(XI_ONETEX_VERTEX),
                                           "iVideo");

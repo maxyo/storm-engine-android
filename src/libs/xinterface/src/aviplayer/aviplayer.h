@@ -43,7 +43,7 @@ class CAviPlayer : public xiBaseVideo
         m_bShowVideo = bShowVideo;
     }
 
-    IDirect3DTexture9 *GetCurrentVideoTexture() override
+    int32_t GetCurrentVideoTexture() override
     {
         return texture_;
     }
@@ -62,7 +62,7 @@ class CAviPlayer : public xiBaseVideo
     bool bLoop = false;
     std::string filename;
     std::unique_ptr<storm::video::Player> player_;
-    IDirect3DTexture9 *texture_ = nullptr;
+    int32_t texture_ = -1; // renderer texture id
     int textureWidth_ = 0, textureHeight_ = 0;
     bool ended_ = false;        // ievntEndVideo sent
     bool background_ = false;   // application in background (AppEvents)

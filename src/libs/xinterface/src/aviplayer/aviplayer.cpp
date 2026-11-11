@@ -215,21 +215,21 @@ void CAviPlayer::DetectTapToSkip()
 
 void CAviPlayer::Upload(const storm::video::Frame &frame)
 {
-    if (!texture_ || textureWidth_ != frame.width || textureHeight_ != frame.height)
+    if (texture_ < 0 || textureWidth_ != frame.width || textureHeight_ != frame.height)
     {
         ReleaseTexture();
         // A8B8G8R8 is R,G,B,A in memory, the decoder's output order.
-        if (FAILED(rs->CreateTexture(frame.width, frame.height, 1, 0, D3DFMT_A8B8G8R8, D3DPOOL_MANAGED, &texture_)))
+        texture_ = rs->TextureCreate(frame.width, frame.height, 1, 0, D3DFMT_A8B8G8R8, D3DPOOL_MANAGED);
+        if (texture_ < 0)
         {
             spdlog::error("Video: cannot create a {}x{} texture for {}", frame.width, frame.height, filename);
-            texture_ = nullptr;
             return;
         }
         textureWidth_ = frame.width;
         textureHeight_ = frame.height;
     }
     D3DLOCKED_RECT locked;
-    if (FAILED(texture_->LockRect(0, &locked, nullptr, 0)))
+    if (!rs->TextureLock(texture_, 0, locked, 0))
     {
         spdlog::error("Video: cannot lock the texture of {}", filename);
         return;
@@ -238,7 +238,7 @@ void CAviPlayer::Upload(const storm::video::Frame &frame)
     auto *target = static_cast<uint8_t *>(locked.pBits);
     for (int y = 0; y < frame.height; ++y)
         std::memcpy(target + static_cast<size_t>(y) * locked.Pitch, frame.rgba.data() + y * row, row);
-    texture_->UnlockRect(0);
+    rs->TextureUnlock(texture_, 0);
 }
 
 void CAviPlayer::Realize()
@@ -255,7 +255,7 @@ void CAviPlayer::Realize()
     if (!m_bShowVideo)
         return;
     rs->Clear(0, nullptr, D3DCLEAR_TARGET, 0, 0.f, 0);
-    if (!texture_)
+    if (texture_ < 0)
         return;
     // Letterboxed to the screen, keeping the display aspect ratio.
     const POINT screen = rs->GetScreenSize();
@@ -273,14 +273,14 @@ void CAviPlayer::Realize()
         {left + width, top, 1.f, .5f, 1.f, 0.f},
         {left + width, top + height, 1.f, .5f, 1.f, 1.f},
     };
-    rs->SetTexture(0, texture_);
+    rs->TextureSet(0, texture_);
     rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, XI_AVIVIDEO_FVF, 2, v, sizeof(XI_AVIVIDEO_VERTEX), "battle_icons");
 }
 
 void CAviPlayer::ReleaseTexture()
 {
-    if (texture_ && rs)
-        rs->Release(texture_);
-    texture_ = nullptr;
+    if (texture_ >= 0 && rs)
+        rs->TextureRelease(texture_);
+    texture_ = -1;
     textureWidth_ = textureHeight_ = 0;
 }

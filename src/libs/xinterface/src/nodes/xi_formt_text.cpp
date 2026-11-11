@@ -105,7 +105,7 @@ void CXI_FORMATEDTEXT::Draw(bool bSelected, uint32_t Delta_Time)
         }
         if (m_pVidTex != nullptr)
         {
-            m_rs->SetTexture(0, m_pVidTex->m_pTexture);
+            m_rs->TextureSet(0, m_pVidTex->m_texture);
             m_rs->DrawPrimitive(D3DPT_TRIANGLESTRIP, m_idVBuf, sizeof(XI_ONLYONETEX_VERTEX), 0, 2, "iDinamicPictures");
         }
     }

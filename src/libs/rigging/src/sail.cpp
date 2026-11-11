@@ -560,10 +560,7 @@ void SAIL::Realize(uint32_t Delta_Time)
                     RenderService->TextureSet(0, slist[i]->surfaceTex);
                     if (slist[i]->m_bIsGerald)
                     {
-                        if (slist[i]->m_pGeraldTex)
-                            RenderService->SetTexture(1, slist[i]->m_pGeraldTex);
-                        else
-                            RenderService->TextureSet(1, slist[i]->m_nGeraldTex);
+                        RenderService->TextureSet(1, slist[i]->m_nGeraldTex);
                     }
                     else
                         RenderService->TextureSet(1, m_nEmptyGerbTex);
@@ -599,10 +596,7 @@ void SAIL::Realize(uint32_t Delta_Time)
                     RenderService->TextureSet(0, slist[i]->surfaceTex);
                     if (slist[i]->m_bIsGerald)
                     {
-                        if (slist[i]->m_pGeraldTex)
-                            RenderService->SetTexture(1, slist[i]->m_pGeraldTex);
-                        else
-                            RenderService->TextureSet(1, slist[i]->m_nGeraldTex);
+                        RenderService->TextureSet(1, slist[i]->m_nGeraldTex);
                     }
                     else
                         RenderService->TextureSet(1, m_nEmptyGerbTex);
@@ -2111,7 +2105,6 @@ void SAIL::SetSailTextures(int32_t grNum, VDATA *pvd) const
     // main texture
     const char *pcNormalName = pA->GetAttribute("normalTex");
     // coat of arms of a texture
-    auto *pGeraldTexture = (IDirect3DTexture9 *)pA->GetAttributeAsPointer("geraldTexPointer", 0);
     const char *pcGeraldName = pA->GetAttribute("geraldTex");
     //
     gdata[grNum].dwSailsColor = pA->GetAttributeAsDword("sailscolor", 0xFFFFFFFF);
@@ -2130,12 +2123,7 @@ void SAIL::SetSailTextures(int32_t grNum, VDATA *pvd) const
                 so->m_nGeraldTex = RenderService->TextureCreate(pAGerald->GetAttribute("Gerald"));
             if (so->m_nGeraldTex == -1 && pcGeraldName)
                 so->m_nGeraldTex = RenderService->TextureCreate(pcGeraldName);
-            if (so->m_nGeraldTex == -1 && pGeraldTexture)
-            {
-                pGeraldTexture->AddRef();
-                so->m_pGeraldTex = pGeraldTexture;
-            }
-            if (so->m_nGeraldTex != -1 || so->m_pGeraldTex != nullptr)
+            if (so->m_nGeraldTex != -1)
             {
                 so->m_bIsGerald = true;
                 so->m_fHorzGeraldScale = pAGerald->GetAttributeAsFloat("hscale", 0.5f);

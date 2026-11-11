@@ -327,9 +327,6 @@ void XI_TableCellDescribe::LoadImageParam(ImgDescribe *pImg, ATTRIBUTES *pA) con
         if (pA->GetAttribute("texture"))
             pImg->pImage->LoadFromFile(pA->GetAttribute("texture"));
 
-        if (pA->GetAttribute("texturepointer"))
-            pImg->pImage->SetPointerToTexture((IDirect3DTexture9 *)pA->GetAttributeAsPointer("texturepointer"));
-
         auto fL = 0.f, fT = 0.f, fR = 1.f, fB = 1.f;
         if (pA->GetAttribute("uv"))
             sscanf(pA->GetAttribute("uv"), "%f,%f,%f,%f", &fL, &fT, &fR, &fB);

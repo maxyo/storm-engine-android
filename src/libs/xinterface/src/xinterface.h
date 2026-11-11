@@ -407,8 +407,6 @@ class XINTERFACE : public XINTERFACE_BASE
     int32_t m_ChangeType;       // exchange type
     float m_fAngle;
     int32_t m_nBlendColor;
-    IDirect3DTexture9 *m_pTexture;
-    IDirect3DTexture9 *m_pPrevTexture;
 
     // vertex & index data
     int32_t vBuf, iBuf;

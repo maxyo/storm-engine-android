@@ -43,7 +43,7 @@ void CXI_VIDEO::Draw(bool bSelected, uint32_t Delta_Time)
             v[i].pos.z = 1.f;
         }
 
-        m_rs->SetTexture(0, pTex ? pTex->m_pTexture : nullptr);
+        m_rs->TextureSet(0, pTex ? pTex->m_texture : -1);
         if (vid_counter++ > 10)
             m_rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, XI_ONETEX_FVF, 2, v, sizeof(XI_ONETEX_VERTEX), "iVideo");
     }
