@@ -49,13 +49,13 @@ static LandCommandsFrame frame(){LandCommandsFrame f;f.available=f.active=true;f
 int main(){
     COMPILER c;c.Run();assert(c.handler&&c.compiles==1&&c.order[0]=="Main returned"&&c.order[1]=="load adapter");
     c.clearEvents();for(int i=0;i<1000;++i)c.LoadAndroidUiAdapter();assert(c.handler&&c.compiles==1); // new game within same program
-    landCommands.resetActivity();landCommands.update("same-land-save",frame(),10);
-    assert(landCommands.offer(action("ack","1"),11));auto oldAck=action("ack","1"),oldAction=action("activateItem","i0");
+    landCommands.resetActivity();landCommands.update("same-land-save",frame());
+    auto oldAction=action("activateItem","i0");
     assert(landCommands.offer(oldAction,12));
-    c.releasedTables();assert(!c.handler&&!landCommands.frame().available&&!landCommands.suppressStock()&&!landCommands.take(13));
-    assert(!landCommands.offer(oldAck,13)&&!landCommands.offer(oldAction,13));
+    c.releasedTables();assert(!c.handler&&!landCommands.frame().available&&!landCommands.take(13));
+    assert(!landCommands.offer(oldAction,13));
     c.restoreBase();c.OnLoad();assert(c.handler&&c.compiles==2&&c.order[c.order.size()-2]=="OnLoad returned");
-    landCommands.update("same-land-save",frame(),14);assert(!landCommands.offer(oldAck,14));
+    landCommands.update("same-land-save",frame());assert(!landCommands.offer(oldAction,14));
     for(int i=0;i<3;++i){c.releasedTables();c.restoreBase();c.OnLoad();assert(c.handler);}assert(c.compiles==5); // same/another/repeated save
     c.releasedTables();c.Run();assert(c.handler&&c.compiles==6); // whole-program new game/reset
 

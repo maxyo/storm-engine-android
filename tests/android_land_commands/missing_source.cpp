@@ -18,35 +18,28 @@ int main() {
         if(s.releaseUnavailableSource(source)){nativeActive=false;++nativeCloses;}
     };
     unavailable(LandCommandSource::Missing);
-    assert(nativeActive&&nativeCloses==0&&!s.frame().available&&!s.suppressStock());
+    assert(nativeActive&&nativeCloses==0&&!s.frame().available);
     unavailable(LandCommandSource::Missing);assert(nativeActive&&nativeCloses==0);
-    // The helper appears: native stock ownership can now be represented, but
-    // disappearance must release only Android authority, not close that tree.
-    s.update("scene",frame(),200);assert(s.offer(action(s,"ack","1"),201));assert(s.covered());
-    auto oldAck=action(s,"ack","1"),oldAction=action(s,"activateItem","i0");
+    // The helper appears; its disappearance must release only Android authority (queued and
+    // in-flight taps), not close the native tree.
+    s.update("scene",frame());
+    auto oldAction=action(s,"activateItem","i0");
     assert(s.offer(oldAction,202));unavailable(LandCommandSource::Missing);
-    assert(nativeActive&&nativeCloses==0&&!s.covered()&&!s.suppressStock());
-    assert(!s.take(203)&&!s.offer(oldAck,203)&&!s.offer(oldAction,203));
-    // A missing helper during a pending Android operation also restores stock.
-    s.update("scene",frame(),300);assert(s.offer(action(s,"selectItem","i0"),301));
-    auto select=s.take(301);assert(select);s.finishAndroidOperation(*select,true,301);s.update("scene",frame(),302);
-    assert(s.holdingPresentation());oldAck=action(s,"ack","1");oldAction=action(s,"activateItem","i0");
+    assert(nativeActive&&nativeCloses==0);
+    assert(!s.take(203)&&!s.offer(oldAction,203));
+    // A missing helper after an executed Android operation: nothing of it revives.
+    s.update("scene",frame());assert(s.offer(action(s,"selectItem","i0"),301));
+    auto select=s.take(301);assert(select);s.invalidate();s.update("scene",frame());
+    oldAction=action(s,"activateItem","i0");
     unavailable(LandCommandSource::Missing);
-    assert(nativeActive&&nativeCloses==0&&!s.suppressStock()&&!s.holdingPresentation());
-    assert(!s.offer(oldAck,1301)&&!s.offer(oldAction,1301));
+    assert(nativeActive&&nativeCloses==0&&!s.offer(oldAction,1301));
     // Recovery gives a fresh owner. No disappeared session's tokens revive.
-    s.update("scene",frame(),1400);assert(!s.offer(oldAck,1400)&&!s.offer(oldAction,1400));
-    assert(s.offer(action(s,"ack","1"),1401));assert(s.covered());
+    s.update("scene",frame());assert(!s.offer(oldAction,1400));
     // Explicit original gameplay prohibition is deliberately different from
     // absence of presentation support: this result requests native Close.
-    oldAck=action(s,"ack","1");unavailable(LandCommandSource::Forbidden);
-    assert(!nativeActive&&nativeCloses==1&&!s.suppressStock()&&!s.offer(oldAck,1402));
-    // A still-present, compatible source keeps the hold until the UI answers, however
-    // long that takes; nothing closes the menu behind the player's back.
-    nativeActive=true;s.update("scene",frame(),1500);assert(s.offer(action(s,"selectItem","i0"),1501));
-    select=s.take(1501);s.finishAndroidOperation(*select,true,1501);s.update("scene",frame(),1502);
-    assert(!s.releaseUnavailableSource(LandCommandSource::Ready));assert(s.holdingPresentation());
-    s.update("scene",frame(),60000);assert(s.holdingPresentation()&&s.handoffWaiting(60000)==58499&&nativeCloses==1);
-    assert(s.offer(action(s,"ack","1"),60001)&&s.covered()&&!s.holdingPresentation()&&s.handoffWaiting(60001)==0);
-    std::cout<<"PASS: missing adapter before takeover/after drawn ownership/during handoff preserves native stock; queues, ACKs and holds revoked; recovery fenced; explicit source prohibition requests Close; a known hold waits for the UI\n";
+    oldAction=action(s,"activateItem","i0");unavailable(LandCommandSource::Forbidden);
+    assert(!nativeActive&&nativeCloses==1&&!s.offer(oldAction,1402));
+    nativeActive=true;s.update("scene",frame());
+    assert(!s.releaseUnavailableSource(LandCommandSource::Ready)&&nativeCloses==1);
+    std::cout<<"PASS: a missing adapter preserves native stock; queued and in-flight taps revoked; recovery fenced; explicit source prohibition requests Close\n";
 }
