@@ -279,6 +279,18 @@ class EngineUi
         return interface_active_.load();
     }
 
+    // A channel Android writes ("presentation", "appSettings"), from the activity's thread. It is
+    // kept as well as posted: the activity writes some before the engine has a host (the settings
+    // at start), and what is posted to no host is dropped; a new host gets the latest of each.
+    void PlatformState(std::string channel, std::string json)
+    {
+        {
+            const std::lock_guard lock(inbox_mutex_);
+            platform_states_[channel] = json;
+        }
+        Post([channel = std::move(channel), json = std::move(json)](storm::ui::Host &host) { host.SetState(channel, json); });
+    }
+
     // Safe-area insets in pixels; the host takes dp.
     void SafeArea(float left, float top, float right, float bottom)
     {
@@ -371,6 +383,13 @@ class EngineUi
         backend_->AttachHost(host_.get());
         owner->AddClient(backend_.get(), kClientOrder); // OnSurfaceChanged: the host lays out at the surface's size and density
         for (const auto &[channel, json] : states_)
+            host_->SetState(channel, json);
+        std::map<std::string, std::string> platform;
+        {
+            const std::lock_guard lock(inbox_mutex_);
+            platform = platform_states_;
+        }
+        for (const auto &[channel, json] : platform)
             host_->SetState(channel, json);
         if (!interface_.empty())
             host_->SetInterface(interface_);
@@ -495,6 +514,7 @@ class EngineUi
         long draws = 0, layers = 0;
     } frame_trace_;
     std::map<std::string, std::string> states_;
+    std::map<std::string, std::string> platform_states_; // guarded by inbox_mutex_
     std::string screen_;
     std::string interface_;
     uint32_t close_at_ = 0; // SDL ticks; 0 = no close pending
@@ -601,7 +621,7 @@ JNIEXPORT jboolean JNICALL Java_org_stormengine_port_EngineUi_nativeInterfaceAct
 JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeSetState(JNIEnv *env, jclass, jstring channel, jbyteArray json)
 {
     std::string name = storm::android::ui::Text(env, channel), text = storm::android::ui::Bytes(env, json);
-    EngineUi::Get().Post([name = std::move(name), text = std::move(text)](storm::ui::Host &host) { host.SetState(name, text); });
+    EngineUi::Get().PlatformState(std::move(name), std::move(text));
 }
 
 JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeSubmitText(JNIEnv *env, jclass, jstring token, jstring text, jboolean accepted)
