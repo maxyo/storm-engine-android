@@ -13,6 +13,7 @@ storm_fetch_declare(storm_bgfx_upstream
     GIT_TAG 8d950d6dc3df1d763e7d3655987c89009767a07e
     GIT_SUBMODULES bgfx bx bimg
     GIT_SUBMODULES_RECURSE TRUE
+    STORM_POPULATE_ONLY
     STORM_PATCHES bgfx ${storm_bgfx_patches})
 # bgfx.cmake keeps the bgfx/bx/bimg locations as cache entries from the first configure; they must
 # follow the source copy of the current pin and patch set, or a warm build directory keeps compiling

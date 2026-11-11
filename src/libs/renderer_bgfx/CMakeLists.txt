@@ -61,11 +61,9 @@ endif()
 # Offline: -DFETCHCONTENT_SOURCE_DIR_STORM_ETCPAK=/path/to/pinned/checkout
 storm_fetch_declare(storm_etcpak
     GIT_REPOSITORY https://github.com/wolfpld/etcpak
-    GIT_TAG 3d716e1550023dc5ff8b602636af8b76584e0b66)
-FetchContent_GetProperties(storm_etcpak)
-if(NOT storm_etcpak_POPULATED)
-    FetchContent_Populate(storm_etcpak)
-endif()
+    GIT_TAG 3d716e1550023dc5ff8b602636af8b76584e0b66
+    STORM_POPULATE_ONLY)
+FetchContent_MakeAvailable(storm_etcpak)
 add_library(storm_etcpak STATIC
     "${storm_etcpak_SOURCE_DIR}/ProcessRGB.cpp"
     "${storm_etcpak_SOURCE_DIR}/Tables.cpp"

@@ -58,8 +58,10 @@ endif()
 # by every build directory of every worktree; the patches are applied there with git apply in
 # <dir> (relative to the source root) right after fetching. Builds never modify shared sources.
 # An explicit FETCHCONTENT_SOURCE_DIR_<NAME> still wins.
+# STORM_POPULATE_ONLY: FetchContent_MakeAvailable(<name>) only provides the sources (no add_subdirectory);
+# the caller adds or compiles what it needs. It does not change the shared copy.
 function(storm_fetch_declare name)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "STORM_PATCHES")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "STORM_POPULATE_ONLY" "" "STORM_PATCHES")
     set(fetch ${arg_UNPARSED_ARGUMENTS})
     string(TOUPPER "${name}" upper)
     # FetchContent keeps FETCHCONTENT_SOURCE_DIR_<NAME> in the cache. A value inside our own shared copies is the
@@ -125,6 +127,10 @@ function(storm_fetch_declare name)
                 endif()
             endforeach()
         endif()
+    endif()
+    if(arg_STORM_POPULATE_ONLY)
+        # A SOURCE_SUBDIR without a CMakeLists.txt: FetchContent_MakeAvailable populates and adds nothing.
+        list(APPEND fetch SOURCE_SUBDIR storm-populate-only)
     endif()
     FetchContent_Declare(${name} ${fetch})
 endfunction()
