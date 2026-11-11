@@ -37,7 +37,7 @@ bool PublishGameOver(ATTRIBUTES *attributes)
 } // namespace
 #endif
 
-InfoHandler::InfoHandler() : m_rs(nullptr), tex(nullptr)
+InfoHandler::InfoHandler() : m_rs(nullptr), tex(-1)
 {
 }
 
@@ -47,8 +47,7 @@ InfoHandler::~InfoHandler()
     if (gameOver_)
         storm::android::publishUiState("gameOver", "null");
 #endif
-    if (tex)
-        m_rs->Release(tex);
+    TEXTURE_RELEASE(m_rs, tex);
 }
 
 bool InfoHandler::Init()
@@ -74,11 +73,9 @@ bool InfoHandler::Init()
     gameOver_ = PublishGameOver(AttributesPointer);
 #endif
 
-    if (!m_rs->GetRenderTargetAsTexture(&tex))
-    {
-        core.Trace("[InfoHandler] GetRenderTargetAsTexture failed");
+    tex = m_rs->GetRenderTargetAsTexture();
+    if (tex < 0)
         return false;
-    }
 
     D3DVIEWPORT9 vp;
     m_rs->GetViewport(&vp);
@@ -133,11 +130,11 @@ void InfoHandler::Execute(uint32_t delta_time)
 
 void InfoHandler::Realize(uint32_t delta_time) const
 {
-    if (tex == nullptr)
+    if (tex < 0)
         return;
     m_rs->MakePostProcess();
     // keep the screen constant
-    m_rs->SetTexture(0, tex);
+    m_rs->TextureSet(0, tex);
     m_rs->DrawPrimitiveUP(D3DPT_TRIANGLELIST, D3DFVF_XYZRHW | D3DFVF_TEX1 | D3DFVF_TEXTUREFORMAT2, 2, drawbuf_base,
                         sizeof(drawbuf_base[0]), "Fader");
 }
@@ -198,17 +195,11 @@ bool InfoHandler::DoPreOut()
     pV[3].pos.z = 1.f;
     pV[3].w = .5f;
 
-    IDirect3DSurface9 *pRenderTarget;
-    if (m_rs->GetRenderTarget(&pRenderTarget) != D3D_OK)
-    {
+    const POINT targetSize = m_rs->GetRenderTargetSize();
+    if (targetSize.x <= 0 || targetSize.y <= 0)
         return false;
-    }
-    
-    if (pRenderTarget->GetDesc(&desc) != D3D_OK)
-    {
-        m_rs->Release(pRenderTarget);
-        return false;
-    }
+    desc.Width = targetSize.x;
+    desc.Height = targetSize.y;
 
     if (inStrStart)
     {
@@ -368,8 +359,6 @@ bool InfoHandler::DoPreOut()
         if (bMakeEndScene)
             m_rs->EndScene();
     }
-
-    m_rs->Release(pRenderTarget);
 
     return isOK;
 }

@@ -53,7 +53,7 @@ class Fader : public Entity
     // --------------------------------------------------------------------------------------------
   private:
     VDX9RENDER *rs;
-    IDirect3DTexture9 *tex;
+    int32_t tex; // renderer texture id of the captured start frame
 
     bool isWork;
     bool haveFrame;

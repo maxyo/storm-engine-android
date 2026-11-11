@@ -155,7 +155,7 @@ class Window
     // Picker
     bool isPikerActive;
     float pikerWait;
-    IDirect3DTexture9 *pickerTexture;
+    int32_t pickerTexture; // renderer texture id
     // Presets
     int32_t lastPreset;
     char prsComment[64];

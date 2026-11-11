@@ -29,7 +29,7 @@ class Shadow : public Entity
         int32_t shade = 0;
     };
     Prepared prepared_;
-    IDirect3DTexture9 *blurTex_ = nullptr; // this shadow's blurred map, read by project()
+    int32_t blurTex_ = -1; // renderer texture id: this shadow's blurred map, read by project()
     uint32_t lastEpoch_ = UINT32_MAX;
     static std::vector<Shadow *> instances_;
     static uint32_t epoch_, preparedEpoch_;

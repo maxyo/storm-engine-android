@@ -107,7 +107,7 @@ bool BATTLE_NAVIGATOR::DrawAndroid() const {
     mesh.arc(0,2*pi,60,inner,0xc0183b48);mesh.flush(rs);
     // Reuse the real island render target and exactly the original texture-space
     // center, world radius/scale, and heading. No island artwork is bundled.
-    if(m_bYesIsland&&m_pIslandTexture&&m_islandTextureReady&&m_fIslandRadius>0){
+    if(m_bYesIsland&&m_islandTexture>=0&&m_islandTextureReady&&m_fIslandRadius>0){
         std::array<BI_ONETEXTURE_VERTEX,RADIAL_QUANTITY+2> map{};
         const float tx=.5f+(m_fXPos-m_fXIsland)/m_fIslandWidth,ty=.5f-(m_fYPos-m_fYIsland)/m_fIslandHeight;
         const float tr=m_fWorldRad*m_fCurScale/m_fIslandRadius;
@@ -116,7 +116,7 @@ bool BATTLE_NAVIGATOR::DrawAndroid() const {
             map[i+1]={glm::vec3(cx+std::sin(a)*inner,cy+std::cos(a)*inner,1),.5f,
                 tx+tr*std::sin(a-m_fAngle),ty+tr*std::cos(a-m_fAngle)};}
         rs->SetSamplerState(0,D3DSAMP_ADDRESSU,D3DTADDRESS_CLAMP);rs->SetSamplerState(0,D3DSAMP_ADDRESSV,D3DTADDRESS_CLAMP);
-        rs->SetTexture(0,m_pIslandTexture);
+        rs->TextureSet(0,m_islandTexture);
         rs->DrawPrimitiveUP(D3DPT_TRIANGLEFAN,BI_ONETEX_VERTEX_FORMAT,RADIAL_QUANTITY,map.data(),sizeof(BI_ONETEXTURE_VERTEX),"battle_island");
         rs->SetSamplerState(0,D3DSAMP_ADDRESSU,D3DTADDRESS_WRAP);rs->SetSamplerState(0,D3DSAMP_ADDRESSV,D3DTADDRESS_WRAP);
     }

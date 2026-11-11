@@ -39,6 +39,16 @@ struct VertexDeclarationId
         return value >= 0;
     }
 };
+
+// A depth-stencil surface in the renderer's table (DepthSurfaceCreate / DepthSurfaceRelease).
+struct DepthSurfaceId
+{
+    int32_t value = -1;
+    explicit operator bool() const
+    {
+        return value >= 0;
+    }
+};
 } // namespace storm::render
 
 struct FVF_VERTEX
@@ -225,7 +235,24 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
 
     // DX9Render: Textures Section
     virtual int32_t TextureCreate(const char *fname) = 0;
+    // Textures made by code share the id table with file textures; TextureRelease frees them.
+    // Returns -1 (logged) when the device rejects the texture.
     virtual int32_t TextureCreate(UINT width, UINT height, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool) = 0;
+    virtual int32_t CubeTextureCreate(UINT edgeLength, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool) = 0;
+    // Locks one level (of one cube face) of a code-made texture; false (logged) if it cannot.
+    virtual bool TextureLock(int32_t texid, uint32_t level, D3DLOCKED_RECT &locked, uint32_t flags,
+                             uint32_t cubeFace = 0) = 0;
+    virtual void TextureUnlock(int32_t texid, uint32_t level, uint32_t cubeFace = 0) = 0;
+    virtual bool TextureLevelDesc(int32_t texid, uint32_t level, D3DSURFACE_DESC &desc) = 0;
+
+    // Render targets: a level (and cube face) of a texture made with D3DUSAGE_RENDERTARGET, with a
+    // depth surface or none. PushRenderTarget / PopRenderTarget save and restore the current pair.
+    virtual storm::render::DepthSurfaceId DepthSurfaceCreate(UINT width, UINT height, D3DFORMAT format) = 0;
+    virtual void DepthSurfaceRelease(storm::render::DepthSurfaceId surface) = 0;
+    virtual bool SetRenderTarget(int32_t texid, uint32_t level, uint32_t cubeFace,
+                                 storm::render::DepthSurfaceId depth) = 0;
+    // Size of the current colour render target ({0, 0}, logged, if there is none).
+    virtual POINT GetRenderTargetSize() = 0;
     virtual bool TextureSet(int32_t stage, int32_t texid) = 0;
     virtual bool TextureRelease(int32_t texid) = 0;
     virtual bool TextureIncReference(int32_t texid) = 0;
@@ -435,5 +462,6 @@ class VDX9RENDER : public SERVICE, public storm::render::TextureColorReader
 
     virtual IDirect3DBaseTexture9 *GetTextureFromID(int32_t nTextureID) = 0;
 
-    virtual bool GetRenderTargetAsTexture(IDirect3DTexture9 **tex) = 0;
+    // A new texture (the caller releases it) holding a copy of the current render target, or -1 (logged).
+    virtual int32_t GetRenderTargetAsTexture() = 0;
 };

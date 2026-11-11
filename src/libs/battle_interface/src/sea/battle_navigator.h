@@ -193,7 +193,7 @@ class BATTLE_NAVIGATOR
     int32_t m_idPowderTexture{-1}; // current gunpowder
     int32_t m_idWindTexture{-1};   // wind speed
     int32_t m_idSailTexture{-1};   // sail position / ship speed
-    IDirect3DTexture9 *m_pIslandTexture{};
+    int32_t m_islandTexture = -1; // renderer texture id of the island render target
 
     uint32_t m_dwSeaColor{};                 // color of the sea on the minimap
     uint32_t m_dwFireZoneColor = 0x20FF0050; // color of the fire zone on the minimap

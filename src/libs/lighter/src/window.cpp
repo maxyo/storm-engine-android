@@ -41,7 +41,7 @@ Window::Window()
     isPikerActive = false;
     listWait = 0.0f;
     pikerWait = 0.0f;
-    pickerTexture = nullptr;
+    pickerTexture = -1;
     tracePrc = 0.0f;
     smoothPrc = 0.0f;
     smoothRad = 0.2f;
@@ -68,8 +68,8 @@ Window::Window()
 
 Window::~Window()
 {
-    if (pickerTexture)
-        pickerTexture->Release();
+    if (rs && pickerTexture >= 0)
+        rs->TextureRelease(pickerTexture);
     if (rs && font != FONT_DEFAULT)
         rs->UnloadFont("Lighter");
     if (list)
@@ -105,10 +105,11 @@ bool Window::Init(VDX9RENDER *rs)
     textColor = 0xffffff8f;
     selColor = 0x00c0c000;
     // Picker texture
-    if (rs->CreateTexture(256, 256, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &pickerTexture) == D3D_OK && pickerTexture)
+    pickerTexture = rs->TextureCreate(256, 256, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED);
+    if (pickerTexture >= 0)
     {
         D3DLOCKED_RECT lockedRect;
-        if (rs->LockRect(pickerTexture, 0, &lockedRect, nullptr, 0) == D3D_OK)
+        if (rs->TextureLock(pickerTexture, 0, lockedRect, 0))
         {
             auto *pnt = static_cast<uint8_t *>(lockedRect.pBits);
             for (int32_t y = 0; y < 256; y++)
@@ -126,7 +127,7 @@ bool Window::Init(VDX9RENDER *rs)
                     pnt[2] = static_cast<uint8_t>(r * k);
                     pnt[3] = 255;
                 }
-            rs->UnlockRect(pickerTexture, 0);
+            rs->TextureUnlock(pickerTexture, 0);
         }
     }
 
@@ -906,10 +907,9 @@ bool Window::ColorPicker(int32_t id, float y, glm::vec3 &ref, float st, glm::vec
         v[3].rhw = 2.0f;
         v[3].u = 1.0f;
         v[3].v = 1.0f;
-        rs->TextureSet(0, -1);
-        rs->SetTexture(0, pickerTexture);
+        rs->TextureSet(0, pickerTexture);
         rs->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, D3DFVF_XYZRHW | D3DFVF_TEX1, 2, v, sizeof(v[0]), "DbgDraw2DTexture");
-        rs->SetTexture(0, nullptr);
+        rs->TextureSet(0, -1);
         //
         if (pikerWait < 0.0f && isMouseDown)
         {

@@ -153,6 +153,16 @@ class DX9RENDER : public VDX9RENDER
     // DX9Render: Textures Section
     int32_t TextureCreate(const char *fname) override;
     int32_t TextureCreate(UINT width, UINT height, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool) override;
+    int32_t CubeTextureCreate(UINT edgeLength, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool) override;
+    bool TextureLock(int32_t texid, uint32_t level, D3DLOCKED_RECT &locked, uint32_t flags,
+                     uint32_t cubeFace = 0) override;
+    void TextureUnlock(int32_t texid, uint32_t level, uint32_t cubeFace = 0) override;
+    bool TextureLevelDesc(int32_t texid, uint32_t level, D3DSURFACE_DESC &desc) override;
+    storm::render::DepthSurfaceId DepthSurfaceCreate(UINT width, UINT height, D3DFORMAT format) override;
+    void DepthSurfaceRelease(storm::render::DepthSurfaceId surface) override;
+    bool SetRenderTarget(int32_t texid, uint32_t level, uint32_t cubeFace,
+                         storm::render::DepthSurfaceId depth) override;
+    POINT GetRenderTargetSize() override;
     bool TextureSet(int32_t stage, int32_t texid) override;
     bool TextureRelease(int32_t texid) override;
     bool TextureIncReference(int32_t texid) override;
@@ -437,12 +447,18 @@ class DX9RENDER : public VDX9RENDER
         IDirect3DVertexDeclaration9 *declaration;
     };
     std::vector<VertexDeclaration> vertexDeclarations_; // indexed by VertexDeclarationId
+    std::vector<IDirect3DSurface9 *> depthSurfaces_;     // indexed by DepthSurfaceId, null when released
+
+    // Puts a code-made texture into a free slot of Textures; -1 (logged, texture released) when full.
+    int32_t AddCodeTexture(IDirect3DBaseTexture9 *texture, uint32_t size, bool cubeMap);
+    // The texture of a valid id, or null (logged) for an invalid, released or file-less id.
+    IDirect3DBaseTexture9 *CodeTexture(int32_t texid, const char *operation);
 
   public:
     bool keepTexturePixels(int32_t texture) override;
     bool sampleTextureArgb(int32_t texture,float u,float v,uint32_t& result) override;
 
-    bool GetRenderTargetAsTexture(IDirect3DTexture9 **tex) override;
+    int32_t GetRenderTargetAsTexture() override;
 
     void LostRender();
     void RestoreRender();

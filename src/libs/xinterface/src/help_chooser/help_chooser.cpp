@@ -227,13 +227,9 @@ bool HELPCHOOSER::RunChooser(const char *ChooserGroup)
     texHeight = ini->GetFloat(ChooserGroup, "TextureHeight", 512.f);
 
     // Get the size of the output surface (window size)
-    IDirect3DSurface9 *pRenderTarget;
-    rs->GetRenderTarget(&pRenderTarget);
-    D3DSURFACE_DESC dscrSurface;
-    pRenderTarget->GetDesc(&dscrSurface);
-    m_fScreenWidth = static_cast<float>(dscrSurface.Width);
-    m_fScreenHeight = static_cast<float>(dscrSurface.Height);
-    pRenderTarget->Release();
+    const POINT screenSize = rs->GetRenderTargetSize();
+    m_fScreenWidth = static_cast<float>(screenSize.x);
+    m_fScreenHeight = static_cast<float>(screenSize.y);
 
     // texture of the selected image
     if (ini->ReadString(ChooserGroup, "FrontTexture", param, sizeof(param) - 1, ""))
@@ -323,12 +319,12 @@ bool HELPCHOOSER::RunChooser(const char *ChooserGroup)
 
             pv[0].pos.x = 0.f;
             pv[0].pos.y = 0.f;
-            pv[2].pos.x = static_cast<float>(dscrSurface.Width);
+            pv[2].pos.x = m_fScreenWidth;
             pv[2].pos.y = 0.f;
-            pv[4].pos.x = static_cast<float>(dscrSurface.Width);
-            pv[4].pos.y = static_cast<float>(dscrSurface.Height);
+            pv[4].pos.x = m_fScreenWidth;
+            pv[4].pos.y = m_fScreenHeight;
             pv[6].pos.x = 0.f;
-            pv[6].pos.y = static_cast<float>(dscrSurface.Height);
+            pv[6].pos.y = m_fScreenHeight;
             pv[8].pos.x = 0.f;
             pv[8].pos.y = 0.f;
 

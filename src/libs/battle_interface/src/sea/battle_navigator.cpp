@@ -84,8 +84,8 @@ void BATTLE_NAVIGATOR::Draw() const
     rs->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
     if (m_idIslandTexture >= 0)
         rs->TextureSet(0, m_idIslandTexture);
-    if (m_pIslandTexture != nullptr)
-        rs->SetTexture(0, m_pIslandTexture);
+    if (m_islandTexture >= 0)
+        rs->TextureSet(0, m_islandTexture);
     if (m_bYesIsland)
         rs->DrawPrimitive(D3DPT_TRIANGLEFAN, m_idMapVBuf, sizeof(BI_ONETEXTURE_VERTEX), 0, RADIAL_QUANTITY,
                           "battle_island");
@@ -1140,11 +1140,7 @@ void BATTLE_NAVIGATOR::ReleaseAll()
     TEXTURE_RELEASE(rs, m_idWindTexture);
     TEXTURE_RELEASE(rs, m_idSailTexture);
 
-    if (m_pIslandTexture != nullptr)
-    {
-        rs->Release(m_pIslandTexture);
-        m_pIslandTexture = nullptr;
-    }
+    TEXTURE_RELEASE(rs, m_islandTexture);
 
     VERTEX_BUFFER_RELEASE(rs, m_idEmptyVBuf);
     VERTEX_BUFFER_RELEASE(rs, m_idCourseVBuf);
@@ -1366,8 +1362,7 @@ void BATTLE_NAVIGATOR::SetIsland()
     m_islandExpected = false;
     m_islandTextureReady = false;
     m_renderLost = false;
-    rs->Release(m_pIslandTexture);
-    m_pIslandTexture = nullptr;
+    TEXTURE_RELEASE(rs, m_islandTexture);
 #endif
     glm::vec3 posCenter{};
     float islSize = 0;
@@ -1415,58 +1410,45 @@ void BATTLE_NAVIGATOR::SetIsland()
         islSize = (xMax - xMin) > (zMax - zMin) ? (xMax - xMin) : (zMax - zMin);
         islSize *= 1.1f;
 
-        IDirect3DSurface9 *pRenderTarg = nullptr, *pOldRenderTarg = nullptr;
-        if (rs->GetRenderTarget(&pOldRenderTarg) == D3D_OK)
+        m_islandTexture = rs->TextureCreate(MAP_TEXTURE_WIDTH, MAP_TEXTURE_HEIGHT, 1, D3DUSAGE_RENDERTARGET,
+                                            D3DFMT_R5G6B5, D3DPOOL_DEFAULT);
+        if (m_islandTexture >= 0)
         {
-            if (rs->CreateTexture(MAP_TEXTURE_WIDTH, MAP_TEXTURE_HEIGHT, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5,
-                                  D3DPOOL_DEFAULT, &m_pIslandTexture) == D3D_OK)
+            rs->PushRenderTarget();
+            // SIMPLE OUT
+            if (rs->SetRenderTarget(m_islandTexture, 0, 0, {}))
             {
-                // SIMPLE OUT
-                if (rs->GetSurfaceLevel(m_pIslandTexture, 0, &pRenderTarg) == D3D_OK)
+                glm::mat4 matw, matv, oldmatv;
+                D3DMATRIX matp, oldmatp;
+                storm::math::viewMatrix(matv, posCenter + glm::vec3(0.f, islSize / 2.f, 0.f), posCenter, glm::vec3(0.f, 0.f, 1.f));
+                rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(oldmatv));
+                rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(matv));
+                rs->GetTransform(D3DTS_PROJECTION, &oldmatp);
+                matp = {};
+                matp._11 = matp._22 = 2.f / islSize;
+                matp._33 = 1.f / islSize;
+                matp._44 = 1.f;
+                rs->SetTransform(D3DTS_PROJECTION, &matp);
+                // fill fone color
+                rs->Clear(0, nullptr, D3DCLEAR_TARGET, m_dwSeaColor, 1.f, 0);
+                // show island
+                if (rs->TechniqueExecuteStart("battle_island_gettexture"))
                 {
-                    IDirect3DSurface9 *pStencil;
-                    rs->GetDepthStencilSurface(&pStencil);
-                    if (rs->SetRenderTarget(pRenderTarg, nullptr) == D3D_OK)
-                    {
-                        glm::mat4 matw, matv, oldmatv;
-                        D3DMATRIX matp, oldmatp;
-                        storm::math::viewMatrix(matv, posCenter + glm::vec3(0.f, islSize / 2.f, 0.f), posCenter, glm::vec3(0.f, 0.f, 1.f));
-                        rs->GetTransform(D3DTS_VIEW, storm::math::d3dMatrix(oldmatv));
-                        rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(matv));
-                        rs->GetTransform(D3DTS_PROJECTION, &oldmatp);
-                        matp = {};
-                        matp._11 = matp._22 = 2.f / islSize;
-                        matp._33 = 1.f / islSize;
-                        matp._44 = 1.f;
-                        rs->SetTransform(D3DTS_PROJECTION, &matp);
-                        // fill fone color
-                        rs->Clear(0, nullptr, D3DCLEAR_TARGET, m_dwSeaColor, 1.f, 0);
-                        // show island
-                        if (rs->TechniqueExecuteStart("battle_island_gettexture"))
-                        {
-                            pM->ProcessStage(Entity::Stage::realize, 1);
+                    pM->ProcessStage(Entity::Stage::realize, 1);
 #ifdef __ANDROID__
-                            m_islandTextureReady = true;
+                    m_islandTextureReady = true;
 #endif
-                            while (rs->TechniqueExecuteNext())
-                                ;
-                        }
-                        rs->SetRenderTarget(pOldRenderTarg, pStencil);
-                        rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(oldmatv));
-                        rs->SetTransform(D3DTS_PROJECTION, &oldmatp);
-                    }
-                    pStencil->Release();
-                    pRenderTarg->Release();
+                    while (rs->TechniqueExecuteNext())
+                        ;
                 }
+                rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(oldmatv));
+                rs->SetTransform(D3DTS_PROJECTION, &oldmatp);
             }
-            pOldRenderTarg->Release();
+            rs->PopRenderTarget();
         }
     }
 
-    if (m_pIslandTexture != nullptr)
-        m_bYesIsland = true;
-    else
-        m_bYesIsland = false;
+    m_bYesIsland = m_islandTexture >= 0;
     m_fXIsland = posCenter.x;
     m_fYIsland = posCenter.z;
     m_fIslandWidth = m_fIslandHeight = islSize;
@@ -1620,8 +1602,7 @@ void BATTLE_NAVIGATOR::LostRender()
     m_androidDrawn=false;m_androidLayoutId=0;
     storm::android::seaNavigator.clear();
 #endif
-    rs->Release(m_pIslandTexture);
-    m_pIslandTexture = nullptr;
+    TEXTURE_RELEASE(rs, m_islandTexture);
 }
 
 void BATTLE_NAVIGATOR::RestoreRender()
@@ -1629,9 +1610,6 @@ void BATTLE_NAVIGATOR::RestoreRender()
 #ifdef __ANDROID__
     SetIsland();
 #endif
-    //~!~
-    // rs->CreateTexture(MAP_TEXTURE_WIDTH, MAP_TEXTURE_HEIGHT, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5,
-    // D3DPOOL_DEFAULT, &m_pIslandTexture);
 }
 
 #ifdef __ANDROID__

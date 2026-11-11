@@ -27,8 +27,8 @@ static const float farBlend = 16.0f;
 static const int32_t vbuff_size = 1024;
 static int32_t refcount = 0;
 #define TEXTURE_SIZE 128
-IDirect3DTexture9 *shTex = nullptr; // shared: the raw shadow map of the character being prepared
-IDirect3DVertexBuffer9 *vbuff;
+int32_t shTex = -1; // shared: the raw shadow map of the character being prepared (renderer texture id)
+int32_t vbuff = -1;
 
 // All shadows of a frame render their maps in one pass (prepareAll) at the first Shadow::Realize, each
 // into its own blurred texture, so the frame leaves the back buffer once instead of once per character.
@@ -37,13 +37,23 @@ uint32_t Shadow::epoch_ = 0, Shadow::preparedEpoch_ = UINT32_MAX;
 
 namespace
 {
-IDirect3DTexture9 *createShadowTarget(VDX9RENDER *rs, D3DFORMAT first, D3DFORMAT second)
+int32_t createShadowTarget(VDX9RENDER *rs, D3DFORMAT format)
 {
-    IDirect3DTexture9 *texture = nullptr;
-    rs->CreateTexture(TEXTURE_SIZE, TEXTURE_SIZE, 1, D3DUSAGE_RENDERTARGET, first, D3DPOOL_DEFAULT, &texture);
-    if (texture == nullptr)
-        rs->CreateTexture(TEXTURE_SIZE, TEXTURE_SIZE, 1, D3DUSAGE_RENDERTARGET, second, D3DPOOL_DEFAULT, &texture);
-    return texture;
+    return rs->TextureCreate(TEXTURE_SIZE, TEXTURE_SIZE, 1, D3DUSAGE_RENDERTARGET, format, D3DPOOL_DEFAULT);
+}
+
+int32_t createShadowVertexBuffer(VDX9RENDER *rs)
+{
+    return rs->CreateVertexBuffer(SHADOW_FVF, sizeof(Shadow::SHADOW_VERTEX) * (vbuff_size + 128),
+                                  D3DUSAGE_WRITEONLY | D3DUSAGE_DYNAMIC);
+}
+
+void releaseShared(VDX9RENDER *rs)
+{
+    rs->ReleaseVertexBuffer(vbuff);
+    vbuff = -1;
+    rs->TextureRelease(shTex);
+    shTex = -1;
 }
 } // namespace
 
@@ -56,13 +66,10 @@ Shadow::Shadow()
 Shadow::~Shadow()
 {
     std::erase(instances_, this);
-    rs->Release(blurTex_);
+    rs->TextureRelease(blurTex_);
     refcount--;
     if (refcount == 0)
-    {
-        rs->Release(vbuff);
-        rs->Release(shTex);
-    }
+        releaseShared(rs);
 }
 
 bool Shadow::Init()
@@ -84,12 +91,11 @@ bool Shadow::Init()
 
     if (refcount == 0)
     {
-        shTex = createShadowTarget(rs, D3DFMT_R5G6B5, D3DFMT_X8R8G8B8);
-        rs->CreateVertexBuffer(sizeof(SHADOW_VERTEX) * (vbuff_size + 128), D3DUSAGE_WRITEONLY | D3DUSAGE_DYNAMIC,
-                               SHADOW_FVF, D3DPOOL_DEFAULT, &vbuff);
+        shTex = createShadowTarget(rs, D3DFMT_R5G6B5);
+        vbuff = createShadowVertexBuffer(rs);
     }
     refcount++;
-    blurTex_ = createShadowTarget(rs, D3DFMT_X8R8G8B8, D3DFMT_R5G6B5);
+    blurTex_ = createShadowTarget(rs, D3DFMT_X8R8G8B8);
     instances_.push_back(this);
 
     // UNGUARD
@@ -190,21 +196,17 @@ void Shadow::prepareAll(uint32_t Delta_Time)
     rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prev_proj));
     D3DVIEWPORT9 vp;
     rs->GetViewport(&vp);
-    IDirect3DSurface9 *backbuff, *zbuff;
-    rs->GetRenderTarget(&backbuff);
-    rs->GetDepthStencilSurface(&zbuff);
+    // prepare() pushes the frame's render target before it leaves it (sceneOpen goes false).
     bool sceneOpen = true;
     // prepare() runs script events and the character's realize, which may create or delete shadows.
     storm::shadow::forEachLive(instances_, [&](Shadow *shadow) { shadow->prepare(Delta_Time, prev_view, prev_proj, sceneOpen); });
     if (!sceneOpen)
     {
-        rs->SetRenderTarget(backbuff, zbuff);
+        rs->PopRenderTarget();
         rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(prev_view));
         rs->SetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prev_proj));
         rs->BeginScene();
     }
-    rs->Release(backbuff);
-    rs->Release(zbuff);
     rs->SetViewport(&vp);
 }
 
@@ -338,15 +340,13 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
     if (sceneOpen)
     {
         rs->EndScene();
+        rs->PushRenderTarget();
         sceneOpen = false;
     }
     rs->SetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(proj));
     rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(lightmtx));
 
-    IDirect3DSurface9 *texsurf;
-    shTex->GetSurfaceLevel(0, &texsurf);
-    rs->SetRenderTarget(texsurf, nullptr);
-    rs->Release(texsurf);
+    rs->SetRenderTarget(shTex, 0, 0, {});
 
     rs->Clear(0L, nullptr, D3DCLEAR_TARGET, 0, 0.0f, 0L);
     rs->BeginScene();
@@ -414,25 +414,21 @@ void Shadow::project()
     planes[5].Nz = -pdir.z;
     planes[5].D = glm::dot(-pdir, objPos - 3.5f * pdir);
 
-    rs->SetTexture(0, blurTex_);
+    rs->TextureSet(0, blurTex_);
     rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
 
     rs->SetRenderState(D3DRS_TEXTUREFACTOR, (in.shade << 16) | (in.shade << 8) | (in.shade << 0));
-    rs->SetFVF(SHADOW_FVF);
-    rs->SetStreamSource(0, vbuff, sizeof(SHADOW_VERTEX));
-
     const auto its = core.GetEntityIds(SHADOW);
     tot_verts = 0;
-    rs->VBLock(vbuff, 0, 0, (uint8_t **)&shadvert, D3DLOCK_DISCARD | D3DLOCK_NOSYSLOCK);
+    shadvert = static_cast<SHADOW_VERTEX *>(rs->LockVertexBuffer(vbuff, D3DLOCK_DISCARD | D3DLOCK_NOSYSLOCK));
+    if (!shadvert)
+        return;
     col->Clip(its, &planes[0], 5, in.cen, in.radius, AddPoly, &entity, 1);
 
-    rs->VBUnlock(vbuff);
+    rs->UnLockVertexBuffer(vbuff);
 
-    if (tot_verts >= 3 && rs->TechniqueExecuteStart("shadow_draw"))
-        do
-        {
-            rs->DrawPrimitive(D3DPT_TRIANGLELIST, 0, tot_verts / 3);
-        } while (rs->TechniqueExecuteNext());
+    if (tot_verts >= 3)
+        rs->DrawPrimitive(D3DPT_TRIANGLELIST, vbuff, sizeof(SHADOW_VERTEX), 0, tot_verts / 3, "shadow_draw");
 }
 
 void Shadow::FindPlanes(const glm::mat4 &view, const glm::mat4 &proj)
@@ -538,15 +534,12 @@ void Shadow::Smooth()
     vrt[0].diffuse = vrt[3].diffuse = HEAD_DENSITY;
     vrt[1].diffuse = vrt[2].diffuse = 0xFFFFFFFF;
 
-    IDirect3DSurface9 *texsurf;
-    blurTex_->GetSurfaceLevel(0, &texsurf);
-    rs->SetRenderTarget(texsurf, nullptr);
-    rs->Release(texsurf);
+    rs->SetRenderTarget(blurTex_, 0, 0, {});
 
     rs->Clear(0L, nullptr, D3DCLEAR_TARGET, 0, 0.0f, 0L);
     rs->BeginScene();
 
-    rs->SetTexture(0, shTex);
+    rs->TextureSet(0, shTex);
 
     if (rs->TechniqueExecuteStart("shadow_smooth"))
         do
@@ -595,22 +588,18 @@ uint64_t Shadow::ProcessMessage(MESSAGE &message)
 
 void Shadow::LostRender()
 {
-    rs->Release(blurTex_);
-    blurTex_ = nullptr;
+    rs->TextureRelease(blurTex_);
+    blurTex_ = -1;
     if (--refcount == 0)
-    {
-        rs->Release(shTex);
-        rs->Release(vbuff);
-    }
+        releaseShared(rs);
 }
 
 void Shadow::RestoreRender()
 {
     if (refcount++ == 0)
     {
-        shTex = createShadowTarget(rs, D3DFMT_R5G6B5, D3DFMT_X8R8G8B8);
-        rs->CreateVertexBuffer(sizeof(SHADOW_VERTEX) * (vbuff_size + 128), D3DUSAGE_WRITEONLY | D3DUSAGE_DYNAMIC,
-                               SHADOW_FVF, D3DPOOL_DEFAULT, &vbuff);
+        shTex = createShadowTarget(rs, D3DFMT_R5G6B5);
+        vbuff = createShadowVertexBuffer(rs);
     }
-    blurTex_ = createShadowTarget(rs, D3DFMT_X8R8G8B8, D3DFMT_R5G6B5);
+    blurTex_ = createShadowTarget(rs, D3DFMT_X8R8G8B8);
 }

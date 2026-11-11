@@ -1070,6 +1070,10 @@ bool DX9RENDER::ReleaseDevice()
     for (auto &declaration : vertexDeclarations_)
         declaration.declaration->Release();
     vertexDeclarations_.clear();
+    for (auto *surface : depthSurfaces_)
+        if (surface)
+            surface->Release();
+    depthSurfaces_.clear();
     for (int32_t b = 0; b < MAX_BUFFERS; b++)
     {
         if (VertexBuffers[b].buff)
@@ -1570,34 +1574,158 @@ int32_t DX9RENDER::TextureCreate(const char *fname)
     return -1;
 }
 
+int32_t DX9RENDER::AddCodeTexture(IDirect3DBaseTexture9 *texture, uint32_t size, bool cubeMap)
+{
+    const auto slot = std::find_if(std::begin(Textures), std::end(Textures),
+                                   [](const STEXTURE &entry) { return entry.ref == 0; });
+    if (slot == std::end(Textures))
+    {
+        spdlog::error("Renderer: all {} texture slots are in use", MAX_STEXTURES);
+        texture->Release();
+        return -1;
+    }
+    *slot = {};
+    slot->d3dtex = texture;
+    slot->ref = 1;
+    slot->dwSize = size;
+    slot->isCubeMap = cubeMap;
+    slot->loaded = true;
+    return static_cast<int32_t>(slot - std::begin(Textures));
+}
+
+IDirect3DBaseTexture9 *DX9RENDER::CodeTexture(int32_t texid, const char *operation)
+{
+    if (texid < 0 || texid >= MAX_STEXTURES || Textures[texid].ref <= 0 || !Textures[texid].d3dtex)
+    {
+        spdlog::error("Renderer: {} with invalid texture id {}", operation, texid);
+        return nullptr;
+    }
+    return Textures[texid].d3dtex;
+}
+
 int32_t DX9RENDER::TextureCreate(UINT width, UINT height, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool)
 {
     IDirect3DTexture9 *texture = nullptr;
-
-    const auto result = CreateTexture(width, height, levels, usage, format, pool, &texture);
-    if (CHECKD3DERR(result))
+    if (CHECKD3DERR(CreateTexture(width, height, levels, usage, format, pool, &texture)))
     {
+        spdlog::error("Renderer: cannot create a {}x{} texture (format {}, usage {:#x})", width, height,
+                      static_cast<int>(format), usage);
         return -1;
     }
+    return AddCodeTexture(texture, width * height * 4, false);
+}
 
-    int32_t t;
-    for (t = 0; t < MAX_STEXTURES; t++)
+int32_t DX9RENDER::CubeTextureCreate(UINT edgeLength, UINT levels, uint32_t usage, D3DFORMAT format, D3DPOOL pool)
+{
+    IDirect3DCubeTexture9 *texture = nullptr;
+    if (CHECKD3DERR(CreateCubeTexture(edgeLength, levels, usage, format, pool, &texture)))
     {
-        if (Textures[t].ref == 0)
-        {
-            break;
-        }
+        spdlog::error("Renderer: cannot create a {} cube texture (format {}, usage {:#x})", edgeLength,
+                      static_cast<int>(format), usage);
+        return -1;
     }
+    return AddCodeTexture(texture, edgeLength * edgeLength * 4 * 6, true);
+}
 
-    Textures[t].d3dtex = texture;
-    Textures[t].name = nullptr;
-    Textures[t].hash = 0;
-    Textures[t].ref = 1;
-    Textures[t].dwSize = width * height * 4; // Assuming 32-bit pixels
-    Textures[t].isCubeMap = false;
-    Textures[t].loaded = true;
+bool DX9RENDER::TextureLock(int32_t texid, uint32_t level, D3DLOCKED_RECT &locked, uint32_t flags, uint32_t cubeFace)
+{
+    auto *texture = CodeTexture(texid, "TextureLock");
+    if (!texture)
+        return false;
+    const auto result =
+        Textures[texid].isCubeMap
+            ? static_cast<IDirect3DCubeTexture9 *>(texture)->LockRect(static_cast<D3DCUBEMAP_FACES>(cubeFace), level,
+                                                                       &locked, nullptr, flags)
+            : static_cast<IDirect3DTexture9 *>(texture)->LockRect(level, &locked, nullptr, flags);
+    if (CHECKD3DERR(result) || !locked.pBits)
+    {
+        spdlog::error("Renderer: cannot lock level {} of texture {}", level, texid);
+        return false;
+    }
+    return true;
+}
 
-    return t;
+void DX9RENDER::TextureUnlock(int32_t texid, uint32_t level, uint32_t cubeFace)
+{
+    auto *texture = CodeTexture(texid, "TextureUnlock");
+    if (!texture)
+        return;
+    if (Textures[texid].isCubeMap)
+        CHECKD3DERR(static_cast<IDirect3DCubeTexture9 *>(texture)->UnlockRect(static_cast<D3DCUBEMAP_FACES>(cubeFace),
+                                                                             level));
+    else
+        CHECKD3DERR(static_cast<IDirect3DTexture9 *>(texture)->UnlockRect(level));
+}
+
+bool DX9RENDER::TextureLevelDesc(int32_t texid, uint32_t level, D3DSURFACE_DESC &desc)
+{
+    auto *texture = CodeTexture(texid, "TextureLevelDesc");
+    if (!texture)
+        return false;
+    const auto result = Textures[texid].isCubeMap
+                            ? static_cast<IDirect3DCubeTexture9 *>(texture)->GetLevelDesc(level, &desc)
+                            : static_cast<IDirect3DTexture9 *>(texture)->GetLevelDesc(level, &desc);
+    return !CHECKD3DERR(result);
+}
+
+storm::render::DepthSurfaceId DX9RENDER::DepthSurfaceCreate(UINT width, UINT height, D3DFORMAT format)
+{
+    IDirect3DSurface9 *surface = nullptr;
+    if (CHECKD3DERR(CreateDepthStencilSurface(width, height, format, D3DMULTISAMPLE_NONE, &surface)))
+    {
+        spdlog::error("Renderer: cannot create a {}x{} depth surface (format {})", width, height,
+                      static_cast<int>(format));
+        return {};
+    }
+    const auto free = std::ranges::find(depthSurfaces_, nullptr);
+    if (free != depthSurfaces_.end())
+    {
+        *free = surface;
+        return {static_cast<int32_t>(free - depthSurfaces_.begin())};
+    }
+    depthSurfaces_.push_back(surface);
+    return {static_cast<int32_t>(depthSurfaces_.size() - 1)};
+}
+
+void DX9RENDER::DepthSurfaceRelease(storm::render::DepthSurfaceId surface)
+{
+    if (!surface)
+        return;
+    if (static_cast<size_t>(surface.value) >= depthSurfaces_.size() || !depthSurfaces_[surface.value])
+    {
+        spdlog::error("Renderer: DepthSurfaceRelease with invalid id {}", surface.value);
+        return;
+    }
+    depthSurfaces_[surface.value]->Release();
+    depthSurfaces_[surface.value] = nullptr;
+}
+
+bool DX9RENDER::SetRenderTarget(int32_t texid, uint32_t level, uint32_t cubeFace, storm::render::DepthSurfaceId depth)
+{
+    auto *texture = CodeTexture(texid, "SetRenderTarget");
+    if (!texture)
+        return false;
+    IDirect3DSurface9 *depthSurface = nullptr;
+    if (depth)
+    {
+        if (static_cast<size_t>(depth.value) >= depthSurfaces_.size() || !depthSurfaces_[depth.value])
+        {
+            spdlog::error("Renderer: SetRenderTarget with invalid depth surface id {}", depth.value);
+            return false;
+        }
+        depthSurface = depthSurfaces_[depth.value];
+    }
+    IDirect3DSurface9 *surface = nullptr;
+    const auto result =
+        Textures[texid].isCubeMap
+            ? static_cast<IDirect3DCubeTexture9 *>(texture)->GetCubeMapSurface(static_cast<D3DCUBEMAP_FACES>(cubeFace),
+                                                                               level, &surface)
+            : static_cast<IDirect3DTexture9 *>(texture)->GetSurfaceLevel(level, &surface);
+    if (CHECKD3DERR(result))
+        return false;
+    const bool ok = !CHECKD3DERR(SetRenderTarget(surface, depthSurface));
+    surface->Release();
+    return ok;
 }
 
 bool DX9RENDER::TextureIncReference(int32_t texid)
@@ -4764,30 +4892,41 @@ bool DX9RENDER::sampleTextureArgb(int32_t texture,float u,float v,uint32_t& resu
     return true;
 }
 
-bool DX9RENDER::GetRenderTargetAsTexture(IDirect3DTexture9 **tex)
+int32_t DX9RENDER::GetRenderTargetAsTexture()
 {
-    Release(*tex);
-    IDirect3DSurface9 *renderTarget;
+    IDirect3DSurface9 *renderTarget = nullptr;
     D3DSURFACE_DESC desc;
-
-    auto success = false;
-
-    if (GetRenderTarget(&renderTarget) == D3D_OK && renderTarget->GetDesc(&desc) == D3D_OK)
+    if (CHECKD3DERR(GetRenderTarget(&renderTarget)))
+        return -1;
+    IDirect3DTexture9 *texture = nullptr;
+    IDirect3DSurface9 *level = nullptr;
+    const bool copied = !CHECKD3DERR(renderTarget->GetDesc(&desc)) &&
+                        !CHECKD3DERR(CreateTexture(desc.Width, desc.Height, 0, 0, desc.Format, D3DPOOL_DEFAULT, &texture)) &&
+                        !CHECKD3DERR(texture->GetSurfaceLevel(0, &level)) &&
+                        !CHECKD3DERR(GetRenderTargetData(renderTarget, level));
+    if (level)
+        level->Release();
+    renderTarget->Release();
+    if (!copied)
     {
-        if (CreateTexture(desc.Width, desc.Height, 0, 0, desc.Format, D3DPOOL_DEFAULT, tex) == D3D_OK)
-        {
-            IDirect3DSurface9 *pTexSurface;
-            if ((*tex)->GetSurfaceLevel(0, &pTexSurface) == D3D_OK)
-            {
-                if (GetRenderTargetData(renderTarget, pTexSurface) == D3D_OK)
-                {
-                    success = true;
-                }
-                pTexSurface->Release();
-            }
-        }
+        if (texture)
+            texture->Release();
+        spdlog::error("Renderer: cannot copy the render target into a texture");
+        return -1;
     }
+    return AddCodeTexture(texture, desc.Width * desc.Height * 4, false);
+}
 
-    return success;
+POINT DX9RENDER::GetRenderTargetSize()
+{
+    IDirect3DSurface9 *renderTarget = nullptr;
+    D3DSURFACE_DESC desc;
+    if (CHECKD3DERR(GetRenderTarget(&renderTarget)))
+        return {};
+    const bool known = !CHECKD3DERR(renderTarget->GetDesc(&desc));
+    renderTarget->Release();
+    if (!known)
+        return {};
+    return {static_cast<LONG>(desc.Width), static_cast<LONG>(desc.Height)};
 }
 

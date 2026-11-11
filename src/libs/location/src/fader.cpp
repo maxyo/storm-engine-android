@@ -28,7 +28,7 @@ Fader::Fader()
     haveFrame = false;
     endFade = false;
     alpha = 0.0f;
-    tex = nullptr;
+    tex = -1;
     textureID = -1;
     textureBackID = -1;
     tipsID = -1;
@@ -39,9 +39,7 @@ Fader::Fader()
 
 Fader::~Fader()
 {
-    if (tex)
-        rs->Release(tex);
-    tex = nullptr;
+    TEXTURE_RELEASE(rs, tex);
     if (textureID >= 0)
         rs->TextureRelease(textureID);
     if (textureBackID >= 0)
@@ -200,9 +198,7 @@ uint64_t Fader::ProcessMessage(MESSAGE &message)
         endFade = false;
         isAutodelete = message.Long() != 0;
         haveFrame = false;
-        if (tex)
-            tex->Release();
-        tex = nullptr;
+        TEXTURE_RELEASE(rs, tex);
         eventStart = false;
         eventEnd = false;
         break;
@@ -310,13 +306,11 @@ void Fader::Realize(uint32_t delta_time)
         {
             if (isStart)
             {
-                if (!rs->GetRenderTargetAsTexture(&tex))
-                {
-                    core.Trace("Fader: GetRenderTargetAsTexture failed");
-                }
+                TEXTURE_RELEASE(rs, tex);
+                tex = rs->GetRenderTargetAsTexture();
             }
             else {
-                rs->SetTexture(0, tex);
+                rs->TextureSet(0, tex);
                 rs->DrawPrimitiveUP(D3DPT_TRIANGLELIST,
                                     D3DFVF_XYZRHW  | D3DFVF_TEX1 | D3DFVF_TEXTUREFORMAT2, 2, drawbuf_base, sizeof(drawbuf_base[0]), "Fader");
             }

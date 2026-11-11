@@ -37,7 +37,7 @@ class InfoHandler : public Entity
     const char *GetCutString(const char *pstr, int nOutWidth, float fScale) const;
     bool DoPreOut();
 
-    IDirect3DTexture9 *tex;
+    int32_t tex; // renderer texture id of the captured screen
 
     struct
     {

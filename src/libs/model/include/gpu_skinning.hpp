@@ -37,7 +37,7 @@ class GpuSkinning
     };
 
     VDX9RENDER *rs_ = nullptr;
-    IDirect3DTexture9 *palette_ = nullptr;
+    int32_t palette_ = -1; // renderer texture id
     uint32_t paletteBones_ = 0;
     bool poseUploaded_ = false;
     std::unordered_map<const void *, std::shared_ptr<Source>> sources_;
@@ -54,9 +54,9 @@ class GpuSkinning
     void clear()
     {
         sources_.clear();
-        if (palette_)
-            palette_->Release();
-        palette_ = nullptr;
+        if (palette_ >= 0)
+            rs_->TextureRelease(palette_);
+        palette_ = -1;
         paletteBones_ = 0;
         poseUploaded_ = false;
     }
@@ -95,13 +95,12 @@ class GpuSkinning
     {
         if (!count)
             throw std::invalid_argument("Skinned draw without bones");
-        if (!palette_ || paletteBones_ != count)
+        if (palette_ < 0 || paletteBones_ != count)
         {
-            if (palette_)
-                palette_->Release();
-            palette_ = nullptr;
-            if (rs_->CreateTexture(kPaletteTexelsPerBone, count, 1, D3DUSAGE_DYNAMIC, D3DFMT_A32B32G32R32F,
-                                   D3DPOOL_DEFAULT, &palette_) != D3D_OK || !palette_)
+            rs_->TextureRelease(palette_);
+            palette_ = rs_->TextureCreate(kPaletteTexelsPerBone, count, 1, D3DUSAGE_DYNAMIC, D3DFMT_A32B32G32R32F,
+                                          D3DPOOL_DEFAULT);
+            if (palette_ < 0)
                 throw std::runtime_error("Bone palette allocation failed");
             paletteBones_ = count;
             poseUploaded_ = false;
@@ -109,18 +108,18 @@ class GpuSkinning
         if (!poseUploaded_)
         {
             D3DLOCKED_RECT locked{};
-            if (palette_->LockRect(0, &locked, nullptr, D3DLOCK_DISCARD) != D3D_OK || !locked.pBits)
+            if (!rs_->TextureLock(palette_, 0, locked, D3DLOCK_DISCARD))
                 throw std::runtime_error("Bone palette upload failed");
             for (uint32_t i = 0; i < count; ++i)
                 writePaletteRow(reinterpret_cast<const float *>(&bones[i]),
                                 reinterpret_cast<float *>(static_cast<uint8_t *>(locked.pBits) + size_t(i) * locked.Pitch));
-            palette_->UnlockRect(0);
+            rs_->TextureUnlock(palette_, 0);
             poseUploaded_ = true;
         }
-        rs_->SetTexture(D3DVERTEXTEXTURESAMPLER0, palette_);
+        rs_->TextureSet(D3DVERTEXTEXTURESAMPLER0, palette_);
     }
 
-    void unbind() { rs_->SetTexture(D3DVERTEXTEXTURESAMPLER0, nullptr); }
+    void unbind() { rs_->TextureSet(D3DVERTEXTEXTURESAMPLER0, -1); }
 };
 
 } // namespace storm::model
