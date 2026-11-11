@@ -24,7 +24,7 @@ def method(path, signature):
 with tempfile.TemporaryDirectory(prefix="storm-interface-presentation-") as directory:
     build = Path(directory)
     renderer = root / "src/libs/renderer/src"
-    (build / "renderer.inc").write_text(method(renderer / "s_device.cpp", "void DX9RENDER::DrawPrimitiveUP("))
+    (build / "renderer.inc").write_text(method(renderer / "renderer.cpp", "void DX9RENDER::DrawPrimitiveUP("))
     (build / "font.inc").write_text(method(renderer / "font.cpp", "int32_t FONT::Print("))
     binary = build / "check"
     subprocess.run([os.environ.get("CXX", "c++"), "-std=c++17", "-O1", "-g",

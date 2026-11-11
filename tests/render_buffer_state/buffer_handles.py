@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess, sys, tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
-p = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / 'src/libs/renderer/src/s_device.cpp'
+p = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / 'src/libs/renderer/src/renderer.cpp'
 s = p.read_text()
 a = s.index('bool DX9RENDER::LiveBuffer(')
 b = s.index('\nvoid DX9RENDER::SetTransform(', a)

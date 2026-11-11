@@ -1,5 +1,5 @@
 #include "technique.h"
-#include "s_device.h"
+#include "renderer_impl.h"
 
 #include "core.h"
 #include "debug-trap.h"

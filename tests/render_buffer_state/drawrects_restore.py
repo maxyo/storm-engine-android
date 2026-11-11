@@ -4,7 +4,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.dont_write_bytecode = True  # keep the source tree clean
 sys.path.insert(0, str(ROOT / 'tests/glm_math'))
 from glm_source import math_include_flags
-p = Path(sys.argv[1]) if len(sys.argv)>1 else ROOT / 'src/libs/renderer/src/s_device.cpp'
+p = Path(sys.argv[1]) if len(sys.argv)>1 else ROOT / 'src/libs/renderer/src/renderer.cpp'
 s=p.read_text();a=s.index('void DX9RENDER::DrawRects(');b=s.index('\nvoid DX9RENDER::DrawSprites(',a)
 code=r'''
 #include <cassert>

@@ -1,6 +1,6 @@
 #include "game_pictures.hpp"
 
-#include "s_device.h"
+#include "renderer_impl.h"
 
 #include <storm/render/d3d_interop.hpp>
 

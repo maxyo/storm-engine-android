@@ -1,4 +1,4 @@
-#include "s_device.h"
+#include "renderer_impl.h"
 #include <platform/android_ui.hpp>
 #include <platform/android_interface_presentation.hpp>
 #include <platform/android_hud_presenter.hpp>
