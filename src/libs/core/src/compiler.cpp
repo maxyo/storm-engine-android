@@ -7,6 +7,8 @@
 
 #include <chrono>
 #include <cstdio>
+#include <limits>
+#include <stdexcept>
 
 #include <zlib.h>
 
@@ -3030,18 +3032,30 @@ bool COMPILER::AssignValue(DATA *destination, DATA *value)
     return destination->Copy(source);
 }
 
+namespace
+{
+// The function table answers with size_t; local variable codes are 32-bit in the bytecode
+// (INVALID_VAR_CODE included). A larger value is a compiler bug, never truncated.
+uint32_t LocalSlot(const size_t code)
+{
+    if (code > std::numeric_limits<uint32_t>::max())
+        throw std::logic_error("Local variable code " + std::to_string(code) + " does not fit the bytecode");
+    return static_cast<uint32_t>(code);
+}
+} // namespace
+
 uint32_t COMPILER::FindLocal(const char *name) const
 {
     for (auto it = localScopes_.rbegin(); it != localScopes_.rend(); ++it)
         if (storm::iEquals(it->name, name))
             return it->slot;
     // arguments, and a local used after the block that declared it (function-wide, as before)
-    return FuncTab.FindVar(CurrentFuncCode, name);
+    return LocalSlot(FuncTab.FindVar(CurrentFuncCode, name));
 }
 
 uint32_t COMPILER::BindLocal(const char *name, uint32_t depth)
 {
-    const auto slot = FuncTab.FindVar(CurrentFuncCode, LocalSlotName(name, localDeclarations_[LowerName(name)]++));
+    const auto slot = LocalSlot(FuncTab.FindVar(CurrentFuncCode, LocalSlotName(name, localDeclarations_[LowerName(name)]++)));
     if (slot != INVALID_VAR_CODE)
         localScopes_.push_back({name, slot, depth});
     return slot;

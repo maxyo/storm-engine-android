@@ -463,7 +463,12 @@ int main(int argc, char *argv[])
         // The working directory is the game directory (see FILE_SERVICE::_GetExecutableDirectory).
         fio->ScanResourcePaths();
 #endif
-        storm::initGameProfile();
+        [[maybe_unused]] const auto profile = storm::initGameProfile();
+#ifdef __ANDROID__
+        if (profile != storm::GameProfile::TEHO)
+            spdlog::info("The APK's interface scripts and script fixes are for To Each His Own; {} runs its own scripts",
+                         storm::gameProfileName(profile));
+#endif
     }
     catch (const std::exception &error)
     {

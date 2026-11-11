@@ -53,6 +53,9 @@ else()
     # Matrices, vertex data and D3D structures are viewed through differently
     # typed pointers throughout the engine (storm_glm.h accessors, vertex locks).
     add_compile_options(-fno-strict-aliasing)
+    # Narrowing in braced initializers is ill-formed C++. Clang (the NDK) rejects it, GCC (the
+    # Linux host) only warns: make it an error everywhere so the host build catches it first.
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Werror=narrowing>)
 
     # Verbose output
     if(NOT ANDROID AND NOT STORM_HOST_SOURCES)

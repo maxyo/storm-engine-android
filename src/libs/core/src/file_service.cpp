@@ -20,6 +20,7 @@
 #ifndef _WIN32
 #include "platform/android_writable_storage.hpp"
 #include "platform/resource_overlay.hpp"
+#include "game_profile.hpp"
 #endif
 #include <string>
 
@@ -543,11 +544,19 @@ void FILE_SERVICE::ScanResourcePaths(bool engineShaders)
 #endif
 #ifdef __ANDROID__
     const std::filesystem::path internal(SDL_AndroidGetInternalStoragePath());
-    storm::android::indexUiOverlay(internal / "mobile-ui/current", ResourcePaths);
     storm::android::indexUiOverlay(internal / "engine-shaders/current", ResourcePaths, true);
-    // Fixes to the player's own scripts; throws LayerError if the layer is damaged.
-    storm::script_patches::lastReport() = storm::script_patches::applyLayer(
-        internal / "script-patches/current", internal / "script-patches/derived", ResourcePaths);
+    // The APK's interface scripts and script fixes are written against To Each His Own's
+    // program tree; another game keeps its own scripts (main() logs the decision). The
+    // profile is decided from the game files indexed above, as initGameProfile() does later.
+    const auto profile = storm::detectGameProfile(
+        [this](const std::string &path) { return ResourcePaths.contains(storm::resource_index::lowered(path)); });
+    if (profile == storm::GameProfile::TEHO)
+    {
+        storm::android::indexUiOverlay(internal / "mobile-ui/current", ResourcePaths);
+        // Fixes to the player's own scripts; throws LayerError if the layer is damaged.
+        storm::script_patches::lastReport() = storm::script_patches::applyLayer(
+            internal / "script-patches/current", internal / "script-patches/derived", ResourcePaths);
+    }
 #endif
 #if !defined(_WIN32) && !defined(__ANDROID__)
     // The engine's techniques laid over the game's, as the APK does with its engine-shaders
@@ -643,11 +652,11 @@ uint64_t FILE_SERVICE::GetPathFingerprint(const std::filesystem::path &path)
     // Hash of (relative path, size, mtime) per file; see platform/path_fingerprint.hpp.
     uint64_t result = storm::fingerprint::tree(path);
 #ifdef __ANDROID__
-    // Interface scripts shipped inside the APK override files of the program tree,
-    // and the script patch layer changes others.
+    // Interface scripts shipped inside the APK override files of TEHO's program tree,
+    // and the script patch layer changes others (see ScanResourcePaths).
     const auto normal = path.lexically_normal();
     const auto leaf = normal.filename().empty() ? normal.parent_path().filename() : normal.filename();
-    if (storm::android::resourceKey(leaf) == "program")
+    if (storm::android::resourceKey(leaf) == "program" && storm::gameProfile() == storm::GameProfile::TEHO)
         for (const auto &layer : storm::android::programLayers(SDL_AndroidGetInternalStoragePath()))
             result += storm::fingerprint::mix(storm::fingerprint::tree(layer));
 #endif
