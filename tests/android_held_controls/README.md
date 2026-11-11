@@ -9,3 +9,6 @@ by name: `hold:<gameplayRevision>\t<control>\t<0|1>`. `HeldControls` merges the 
 current gameplay revision and lasts, through any number of slow frames and later revisions,
 until its release, a cancelled input or the gameplay no longer binding the control (no
 heartbeat, no lease). A physical key keeps priority.
+A hold is its key held down also for the controls bound INVERSE to the same key: the original
+bindings end the spyglass with `TelescopeOut` (VK_CONTROL inverted beside `TelescopeIn`), so its
+release lowers the telescope.

@@ -78,6 +78,22 @@ public:
         const int state = held_[static_cast<size_t>(slot)].state;
         return state == 0 ? physical : state;
     }
+    // What a control bound INVERSE to the same key as the held `control` sees: the hold is that
+    // key held down. The original bindings end a hold this way (TelescopeOut is VK_CONTROL
+    // inverted beside TelescopeIn on VK_CONTROL), so a released spyglass lowers the telescope.
+    // -1 while the control is not held: the physical state stands.
+    int inverse(std::string_view control) const
+    {
+        const int slot = index(control);
+        if (slot < 0) return -1;
+        switch (held_[static_cast<size_t>(slot)].state)
+        {
+        case 1: return 0; // held: the inverse is inactive
+        case 3: return 2; // pressed: the inverse lets go
+        case 2: return 3; // released: the inverse activates
+        default: return -1;
+        }
+    }
     bool holding(std::string_view control) const
     {
         const int slot = index(control);

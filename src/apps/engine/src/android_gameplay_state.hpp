@@ -93,9 +93,16 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
             for (auto name : {"WMapShipSailUp", "WMapShipSailDown", "WMapShipTurnLeft", "WMapShipTurnRight",
                  "WMapCancel", "WMapCameraSwitch", "WMapCameraRotate"}) add(name);
         else if (sea)
+        {
             for (auto name : {"Ship_TurnLeft", "Ship_TurnRight", "Ship_SailUp", "Ship_SailDown",
                  "Ship_Fire", "Sea_CameraSwitch", "hk_charge1", "hk_charge2", "hk_charge3", "hk_charge4",
-                 "BICommandsActivate", "BIFastCommand", "TelescopeIn", "TelescopeOut"}) add(name);
+                 "BICommandsActivate", "BIFastCommand"}) add(name);
+            // The scripts raise the telescope only with a spyglass equipped (Telescope_Request reads
+            // equip.spyglass in every supported script set): without one the spyglass is not offered,
+            // instead of a button the scripts silently ignore.
+            if (auto *spyglass = character->FindAClass(character, "equip.spyglass"); spyglass && spyglass->HasValue() && !spyglass->GetValue().empty())
+                for (auto name : {"TelescopeIn", "TelescopeOut"}) add(name);
+        }
         else
         {
             for (auto name : {"ChrForward", "ChrBackward", "ChrStrafeLeft", "ChrStrafeRight", "ChrFightMode",

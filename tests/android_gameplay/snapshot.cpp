@@ -145,6 +145,24 @@ int main()
     interfaceState.SetAttributeUseDword("Launched", 0);
     core.entities["CAviPlayer"] = 23; unknown(); core.entities.erase("CAviPlayer");
     core.entities.erase("WorldMap"); unknown(); // group alone cannot authorize map input
+    // At sea the spyglass is offered only with a spyglass equipped: the scripts ignore it otherwise.
+    auto *deck = groups->CreateAttribute("Sailing1Pers", nullptr);
+    for (const char *control : {"Ship_TurnLeft", "TelescopeIn", "TelescopeOut"})
+        deck->CreateAttribute(control, nullptr);
+    core.variables["curKeyGroupName"].text = "Sailing1Pers";
+    const auto offers = [](const GameplaySnapshot &snapshot, const char *control) {
+        return std::find(snapshot.capabilities.begin(), snapshot.capabilities.end(), control) != snapshot.capabilities.end();
+    };
+    auto sailing = readGameplaySnapshot(true);
+    assert(sailing.mode == "sailing" && offers(sailing, "Ship_TurnLeft") && !offers(sailing, "TelescopeIn") && !offers(sailing, "TelescopeOut"));
+    auto *equip = character.CreateAttribute("equip", nullptr);
+    equip->SetAttribute("spyglass", "");
+    assert(!offers(readGameplaySnapshot(true), "TelescopeIn")); // an emptied slot is no spyglass
+    equip->SetAttribute("spyglass", "spyglass1");
+    sailing = readGameplaySnapshot(true);
+    assert(offers(sailing, "TelescopeIn") && offers(sailing, "TelescopeOut"));
+    character.DeleteAttributeClassX(equip);
+    core.variables["curKeyGroupName"].text = "WorldMapControls";
     core.variables["bSeaActive"].integer = 0;
     core.variables["curKeyGroupName"].text = "BattleInterfaceControls"; unknown();
     core.variables["curKeyGroupName"].text = "PrimaryLand";
