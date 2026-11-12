@@ -241,6 +241,29 @@ class CommerceScreen final : public Screen
             if (row->value == "1")
                 selected = row;
         const bool deal = selected && edit && (ok || cancel); // the game's quantity window is open
+
+        // A tapped row: the game selects it in one loop and opens its window in the next. The frame
+        // between (the row selected, no deal yet) is not shown: the screen stays as it was until the
+        // deal arrives, so the selection and its deal appear together. A row whose window does not
+        // come is shown selected after kSelectHold. The handlers are bound from this model all the
+        // same (← still closes what the game has open).
+        bool holding = false;
+        if (!hold_row_.empty())
+        {
+            // the game's window opened after the tap (the tapped row's, or the one it chose); the
+            // window still open from before the tap is not its answer
+            const bool arrived = deal && (selected->row_id == hold_row_ || admitted.model->revision > hold_revision_);
+            const bool still = !arrived && !last_view_.is_null() && bindings.Now() - hold_at_ < kSelectHold;
+            if (still)
+            {
+                holding = true;
+                bindings.RebuildAfter(hold_at_ + kSelectHold - bindings.Now());
+            }
+            else if (!arrived)
+                bindings.Error(std::string(columns.title) + ": the game opened no window for " + hold_row_ + " within " + std::to_string(kSelectHold) + " s; shown selected");
+            if (!still)
+                hold_row_.clear();
+        }
         const Widget *first = goods.empty() ? nullptr : goods.front();
         const auto header = [first](int column) {
             return first && column >= 0 && static_cast<size_t>(column) < first->column_headers.size()
@@ -529,7 +552,7 @@ class CommerceScreen final : public Screen
                 quick_at_ = bindings.Now();
                 bindings.Send(*row, "activate", row->row_id);
             });
-        bindings.On("goods", "row", [this, &bindings, goods, selected, deal, cancel](const Event &event) {
+        bindings.On("goods", "row", [this, &bindings, goods, selected, deal, cancel, revision = admitted.model->revision](const Event &event) {
             const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
             if (index >= goods.size())
                 return;
@@ -541,7 +564,12 @@ class CommerceScreen final : public Screen
             if (deal && row == selected)
                 return; // a tap on the open row closes it
             if (row->Offers("activate"))
+            {
+                hold_row_ = row->row_id; // its window comes a loop after its selection (see Build)
+                hold_at_ = bindings.Now();
+                hold_revision_ = revision;
                 bindings.Send(*row, "activate", row->row_id);
+            }
             else if (row->Offers("select"))
                 bindings.Send(*row, "select", row->row_id);
         });
@@ -808,11 +836,19 @@ class CommerceScreen final : public Screen
             else
                 bindings.Back(exit);
         });
+        if (holding)
+            return last_view_;
+        last_view_ = view;
         return view;
     }
 
   private:
+    static constexpr double kSelectHold = 0.5; // s: how long a tapped row may wait for its window
     const Layout &layout_;
+    Json last_view_;           // what the screen shows (kept while a tapped row waits for its window)
+    std::string hold_row_;     // the tapped row whose window has not come yet
+    double hold_at_ = 0.0;
+    uint64_t hold_revision_ = 0; // the model revision the row was tapped in
     std::string reopen_row_;  // the row whose window the game closed after a free transfer
     int filter_ = 0; // 0 all, 1 on our side, 2 profitable (export goods) / on the other side
     int sort_ = -1;  // the column the rows are ordered by (own, other, buy, sell); -1 = the game's order
