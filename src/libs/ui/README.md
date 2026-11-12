@@ -38,7 +38,11 @@ system bars). Component templates read them as `safe.left` … `safe.bottom`. `-
 `DisplayCutout.getBoundingRects`): screens and the HUD lay out edge to edge, and after layout
 only what falls under a cutout and must stay readable or touchable moves out by the minimum
 (the cutout's depth plus 4 dp, a translate): text, icons, pictures and components no larger than
-a quarter of the screen. Backgrounds, panels, rows and lists run under it, and nothing inside a scrolling element
+a quarter of the screen. A flex row of several things no taller than a quarter of the screen (a header
+bar, a strip of tabs) under a cutout of the left or right edge is laid out beside it instead (padding):
+its own layout decides who gives way, so its controls never land on each other and take their taps where
+they are drawn. A lone thing moves inside the box that holds it and no further (logged once when that
+leaves it partly under the cutout). Backgrounds, panels, rows and lists run under it, and nothing inside a scrolling element
 (`overflow: auto` / `scroll`) is ever moved: scrolled content ignores the cutout. Touch regions and the
 behaviours' hit boxes follow the move.
 

@@ -124,6 +124,10 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
                                   "<c-store id=\"store\" amount=\"1\" total=\"Buy 1\" rows='" + rows.dump() + "'/>"
                                   "<div style=\"display: flex;\"><c-sized id=\"sized\" size=\"20\"/></div></body></rml>");
     }
+    Write(pack / "cutout-bar.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
+                                   " #bar { display: flex; flex-direction: row; position: absolute; left: 0; top: 0; width: 800dp; height: 40dp; }"
+                                   " c-row { display: block; flex: 0 0 auto; width: 40dp; height: 40dp; }</style></head><body>"
+                                   "<div id=\"bar\"><c-row id=\"first\" title=\"A\"/><c-row id=\"second\" title=\"B\"/></div></body></rml>");
     Write(pack / "cutout.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
                                " c-row { display: block; position: absolute; left: 0; height: 40dp; }</style></head><body>"
                                "<c-row id=\"small\" style=\"top: 200dp; width: 40dp;\" title=\"S\"/>"
@@ -345,6 +349,24 @@ int main(int argc, char **argv)
     // A display cutout on the left edge (x 0..30, y 150..350): the layout runs under it; the
     // small control that falls under it moves right by the minimum (to 34), the row across the
     // screen stays where it is.
+    // A bar of several controls under a cutout (a header: back, then the next control right
+    // after it) is laid out beside the cutout: both stay apart and take their taps where they are
+    // drawn. Moved one by one, the first landed on the second, which then took its taps.
+    Expect(host->LoadDocument("cutout-bar.rml"), "the bar document loads");
+    frames(0.05);
+    host->SetCutouts({Cutout{0, 0, 60, 60}});
+    frames(0.05);
+    tap(84, 20); // 64..104: where the first control is now
+    Expect(clicks.size() == 1 && clicks[0] == "first click", "the first control of the bar is beside the cutout and takes the tap there: " + (clicks.empty() ? std::string("nothing") : clicks[0]));
+    tap(124, 20); // 104..144: the second, after it
+    Expect(clicks.size() == 1 && clicks[0] == "second click", "the second follows it, not under it: " + (clicks.empty() ? std::string("nothing") : clicks[0]));
+    tap(20, 20);
+    Expect(clicks.empty(), "nothing of the bar is left under the cutout");
+    host->SetCutouts({});
+    frames(0.05);
+    tap(20, 20);
+    Expect(clicks.size() == 1 && clicks[0] == "first click", "without the cutout the bar begins at the edge again");
+
     Expect(host->LoadDocument("cutout.rml"), "the cutout document loads");
     frames(0.05);
     host->SetCutouts({Cutout{0, 150, 30, 200}});
