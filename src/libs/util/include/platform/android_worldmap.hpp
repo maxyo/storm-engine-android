@@ -70,6 +70,7 @@ class WorldMapHud
     mutable uint32_t drawnMask_=0;
     uint32_t presentedMask_=0;
     WorldMapModal::Owner drawnOwner_;
+    uint64_t underInterface_=0; // the world map an interface of the game is shown over (interfaceOver)
 public:
     WorldMapModal modal;
     WorldMapModal::Owner owner() const { return {revision_,activity_,frame_.gameplayRevision,frame_.owner}; }
@@ -109,8 +110,15 @@ public:
     const WorldMapFrame &frame() const { return frame_; }
     bool awaiting() const { return frame_.available && answered_ != revision_; }
     uint64_t revision() const { return revision_; }
+    // An interface of the game is shown over the world map (the encounter signal, map.c): the
+    // world map stays the scene but is no live gameplay, so no frame is available. The UI that
+    // presents the world map HUD still replaces every native part (its scene comes back when the
+    // interface closes); without this the game's own instruments and fleet drew behind the card.
+    void interfaceOver(uint64_t worldMapOwner) { underInterface_=worldMapOwner; }
     bool covered(uint32_t mask, uint64_t owner) const
     {
+        if (!frame_.available && underInterface_ && owner == underInterface_ && hudPresenters.worldMap)
+            return true;
         // One coverage rule (android_hud_presenter.hpp): while the UI presents the world map HUD
         // every native part is replaced; otherwise what the UI answered (no UI: nothing).
         const uint32_t replaced = hudPresenters.worldMap ? 7u : covered_;
