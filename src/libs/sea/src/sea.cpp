@@ -1,6 +1,7 @@
 #include "sea.h"
 
 #include <algorithm>
+#include <cmath>
 #include <execution>
 #include <thread>
 
@@ -580,10 +581,30 @@ void SEA::AddBlock(int32_t iTX, int32_t iTY, int32_t iSize, int32_t iLOD)
     aBlocks.emplace_back(SeaBlock{0, 0, 0, 0, iSize >> iLOD, iTX, iTY, iSize, iLOD, 0, 0, 0, false, false});
 }
 
+// The block tree is anchored to the world. It spans twice MaxDim grid cells and its origin follows the camera only
+// in steps of a quarter of that, so every block of the levels below the top two sits on the same world grid before
+// and after a step, with the same vertices and the same LOD (both depend on the block's world extent and the camera
+// only); the top two levels are far beyond the sea's relief whenever they are leaves. The camera stays in the second
+// quarter of each axis, at least MaxDim / 2 cells from the edges, as far as with the original placement. That one
+// stepped by 256 grid cells: the partition of every larger block and the vertices of the coarse LODs (36 m and wider
+// between vertices, beyond ~700 m) moved to other world points at each step, about every 18 m of camera travel, and
+// the far band of the sea changed its shape and shading in one frame (tests/sea_tree_continuity).
+uint32_t SEA::TreeDim() const
+{
+    return dwMaxDim * 2;
+}
+
+void SEA::PlaceTree()
+{
+    const float fStep = fGridStep * static_cast<float>(TreeDim() / 4);
+    vSeaCenterPos = glm::vec3(fStep * (std::floor(vCamPos.x / fStep) - 2.0f), fMaxSeaHeight * 0.5f,
+                              fStep * (std::floor(vCamPos.z / fStep) - 2.0f));
+}
+
 void SEA::BuildTree(int32_t iTX, int32_t iTY, int32_t iLev)
 {
     int32_t iMaxLOD, iMinLOD;
-    const int32_t iSize = static_cast<int32_t>(dwMaxDim >> iLev);
+    const int32_t iSize = static_cast<int32_t>(TreeDim() >> iLev);
     const float fGSize = fGridStep * iSize;
 
     const glm::vec3 v1 = vSeaCenterPos + glm::vec3(iTX * fGSize, -fMaxSeaHeight / 2.0f, iTY * fGSize);
@@ -1295,10 +1316,7 @@ void SEA::Realize(uint32_t dwDeltaTime)
 
     pFrustumPlanes = rs->GetPlanes();
 
-    float fBlockSize = 256.0f * fGridStep;
-    int32_t iNumBlocks = static_cast<int32_t>(dwMaxDim) / (256 * 2);
-    vSeaCenterPos = glm::vec3(fBlockSize * (static_cast<int32_t>(vCamPos.x / fBlockSize) - iNumBlocks), fMaxSeaHeight * 0.5f,
-                            fBlockSize * (static_cast<int32_t>(vCamPos.z / fBlockSize) - iNumBlocks));
+    PlaceTree();
 
     iVStart = 0;
     iTStart = 0;

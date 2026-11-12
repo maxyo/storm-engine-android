@@ -160,6 +160,8 @@ class SEA : public SEA_BASE
     float WaveXZ(float x, float z, glm::vec3 *pNormal = nullptr) override;
 
     void AddBlock(int32_t iTX, int32_t iTY, int32_t iSize, int32_t iLOD);
+    uint32_t TreeDim() const;
+    void PlaceTree();
     void BuildTree(int32_t iTX, int32_t iTY, int32_t iLev);
     void SetBlock(uint32_t dwBlockIndex);
 
