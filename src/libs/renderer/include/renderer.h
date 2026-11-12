@@ -404,7 +404,6 @@ class VRenderer : public SERVICE, public storm::render::TextureColorReader
 
 
     virtual void MakePostProcess() = 0;
-    virtual void SetGLOWParams(float _fBlurBrushSize, int32_t _GlowIntensity, int32_t _GlowPasses) = 0;
 
 
     // A new one-level texture (the caller releases it) holding a copy of the current render target, readable
