@@ -1139,8 +1139,11 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void Send(const Action &action) override
     {
-        last_action_ = std::chrono::steady_clock::now();
-        last_action_text_ = action.screen + " " + action.node + " " + action.verb;
+        if (action.screen != "sound") // a press's click is not what a switch answers
+        {
+            last_action_ = std::chrono::steady_clock::now();
+            last_action_text_ = action.screen + " " + action.node + " " + action.verb;
+        }
         if (config_.on_action)
             config_.on_action(action);
     }
@@ -1299,6 +1302,17 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         else if (!enable && found != ticking_.end())
             ticking_.erase(found);
     }
+    void PressStarted(ComponentElement &component) override
+    {
+        // Game interfaces only (their scripts' click); the HUD and the application screens have none.
+        if (!screen_root_ || component.GetOwnerDocument() != screen_root_)
+            return;
+        Action action;
+        action.screen = "sound";
+        action.verb = "press";
+        Send(action);
+    }
+
     FrameStats &Counters() override
     {
         return counters_;

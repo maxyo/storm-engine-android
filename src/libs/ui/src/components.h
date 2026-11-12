@@ -78,6 +78,9 @@ class Services
     virtual void Forget(ComponentElement &component) = 0;
     // The counters of the frame being made (rebuilds, layout).
     virtual FrameStats &Counters() = 0;
+    // A press started on an interactive element: the gesture's one interface click (a game
+    // interface's sound; the actions the press sends later are silent in the engine).
+    virtual void PressStarted(ComponentElement &component) = 0;
 };
 
 struct Pointer

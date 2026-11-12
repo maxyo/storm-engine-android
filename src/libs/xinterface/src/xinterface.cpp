@@ -2431,7 +2431,7 @@ void XINTERFACE::DoControl()
         auto action = storm::android::uiWidgetActions.front();
         storm::android::uiWidgetActions.pop_front();
         if (action.screen != storm::android::mobileScreen) continue;
-        storm::mobile::ActionSound::Scope sound(storm::mobile::actionSound, SDL_GetTicks()); // one click per gesture
+        const storm::mobile::UiAction::Scope programmatic(storm::mobile::uiAction); // silent: the UI clicked for the press
         if(action.screen=="goodstransfer"&&action.node=="ANDROID_GOODS_ORDER"){
             storm::android::lastWidgetSnapshot.clear();MobileApplyGoodsTransfer(action.value);continue;
         }
@@ -2525,7 +2525,6 @@ void XINTERFACE::DoControl()
         auto *node = find(find, m_pNodes, action.node);
         if (node && (node->m_nNodeType == NODETYPE_PCEDITBOX || node->m_nNodeType == NODETYPE_EDITBOX))
         {
-            sound.EditText();
             // A quantity drag sends its amount as an ordered pair per step (zero, then the amount),
             // and every text waits a frame for its script event: a fast drag queued steps behind
             // each other and the amount trailed the finger. A text with a whole later pair for the

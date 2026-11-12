@@ -152,6 +152,8 @@ class PressBehavior final : public Behavior
         SetPressed(self, true);
         down_at_ = self.Host().Now();
         const bool disabled = Disabled(self);
+        if (!disabled)
+            self.Host().PressStarted(self);
         holding_ = !disabled && HoldMode(self) == Hold::Confirm;
         tooltip_pending_ = HoldMode(self) == Hold::Tooltip;
         tooltip_open_ = false;
