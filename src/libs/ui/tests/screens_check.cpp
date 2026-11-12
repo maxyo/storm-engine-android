@@ -40,6 +40,7 @@ struct FakeSurface final : Surface
     std::vector<Action> actions;
     std::vector<std::string> logs;
     std::vector<std::string> errors;
+    std::vector<std::string> toasts;
     std::string language;
     TextRequest text;
     double now = 0.0;
@@ -66,8 +67,9 @@ struct FakeSurface final : Surface
     {
         Toast(text);
     }
-    void Toast(const std::string &) override
+    void Toast(const std::string &line) override
     {
+        toasts.push_back(line);
     }
     void SetLanguage(const std::string &game_language) override
     {
@@ -619,6 +621,57 @@ static void Commerce(const std::string &models)
                    quick_surface.commands[1].rfind("|" + std::to_string(there)) == quick_surface.commands[1].size() - std::to_string(there).size() - 1 &&
                    quick_surface.commands[2].find("QTY_OK_BUTTON") != std::string::npos,
                "quick take: all of the other side, confirmed: " + Json(quick_surface.commands).dump());
+    }
+    {
+        // A chest (the game offers no take-all there): our «Взять всё» takes one stack after
+        // another through the hand's quick take, and stops when a stack is too heavy to carry.
+        const auto chest = [&](const char *name, int revision, std::map<std::string, std::string> there, const std::string &selected) {
+            InterfaceModel model = Load(models, name);
+            std::erase_if(model.widgets, [](const Widget &widget) { return widget.node == "GETALL_BUTTON" || widget.node == "DELBODY_BUTTON"; });
+            model.revision = static_cast<uint64_t>(revision);
+            for (Widget &widget : model.widgets)
+                if (widget.node == "TABLE_LIST")
+                {
+                    widget.value = widget.row_id == selected ? "1" : "0";
+                    if (there.count(widget.row_id))
+                        for (Cell &cell : widget.cells)
+                            if (cell.column == 4)
+                                cell.text = there[widget.row_id];
+                }
+            return model;
+        };
+        FakeSurface chest_surface;
+        Router box(chest_surface);
+        box.SetInterface(chest("itemsbox.json", 1, {}, "row:0"));
+        ExpectEqual(chest_surface.props["primary"]["label"], "<trade.take_all>", "a chest: our take all is the primary");
+        const auto activated = [&](const std::string &row) {
+            return !chest_surface.commands.empty() && chest_surface.Last().find("\tTABLE_LIST\t") != std::string::npos &&
+                   chest_surface.Last().find("activate@") != std::string::npos && chest_surface.Last().find(row) != std::string::npos;
+        };
+        box.OnEvent({"primary", "click", ""});
+        box.Tick();
+        Expect(activated("row:0"), "take all: the first stack's amount window: " + chest_surface.Last());
+        Expect(chest_surface.props["primary"]["busy"] == true, "… the button says it is busy");
+        chest_surface.commands.clear();
+        box.SetInterface(chest("itemsbox-deal.json", 10, {}, "row:0"));
+        box.Tick();
+        Expect(chest_surface.commands.size() >= 2 && chest_surface.commands[chest_surface.commands.size() - 2].find("QTY_EDIT") != std::string::npos &&
+                   chest_surface.Last().find("QTY_OK_BUTTON") != std::string::npos,
+               "… all of it entered and confirmed: " + Json(chest_surface.commands).dump());
+        box.SetInterface(chest("itemsbox.json", 20, {{"row:0", "0"}, {"row:1", "0"}, {"row:2", "0"}}, "row:0"));
+        box.Tick();
+        Expect(activated("row:3"), "the stack is in the hero's hands: the next one: " + chest_surface.Last());
+        box.SetInterface(chest("itemsbox-deal.json", 30, {{"row:0", "0"}, {"row:1", "0"}, {"row:2", "0"}}, "row:3"));
+        box.Tick();
+        Expect(chest_surface.Last().find("QTY_OK_BUTTON") != std::string::npos, "… taken");
+        chest_surface.commands.clear();
+        box.SetInterface(chest("itemsbox.json", 40, {{"row:0", "0"}, {"row:1", "0"}, {"row:2", "0"}, {"row:3", "1"}}, "row:3"));
+        box.Tick();
+        Expect(chest_surface.commands.empty() && chest_surface.toasts.size() == 1 && chest_surface.toasts[0] == "<trade.too_heavy>",
+               "a stack left after its take: the weight limit; the take stops and says so: " + Json(chest_surface.toasts).dump());
+        Expect(chest_surface.props["primary"]["busy"] == false, "… and the button is free again");
+        box.SetInterface(chest("itemsbox.json", 50, {{"row:0", "0"}, {"row:1", "0"}, {"row:2", "0"}, {"row:3", "0"}}, "row:3"));
+        Expect(chest_surface.props["primary"].is_null(), "an empty chest offers no take all");
     }
     router.OnEvent({"primary", "click", ""});
     ExpectEqual(surface.Last(), "widget:itemsbox\tGETALL_BUTTON\t-1\tpress", "take all");

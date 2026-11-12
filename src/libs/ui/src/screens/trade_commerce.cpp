@@ -270,9 +270,38 @@ class CommerceScreen final : public Screen
             {
                 bindings.Error(std::string(columns.title) + ": the game did not open the amount window of " + quick_row_ + "; nothing was taken");
                 quick_row_.clear();
+                take_all_ = false;
             }
             else
                 bindings.RebuildAfter(quick_at_ + 3.0 - bindings.Now());
+        }
+
+        // «Взять всё» of a chest (the game has none there): the hand's quick take, one stack after
+        // another, while no amount window is open. A stack still there after its take was cut
+        // by the weight the hero can carry (the game's amount window caps it): the take stops.
+        if (take_all_ && quick_row_.empty() && !deal)
+        {
+            const Widget *next = nullptr;
+            for (const Widget *row : goods)
+                if (Number(row->CellText(columns.other)) > 0 && row->Offers("activate"))
+                {
+                    next = row;
+                    break;
+                }
+            if (!next)
+                take_all_ = false;
+            else if (next->row_id == take_all_row_)
+            {
+                take_all_ = false;
+                bindings.Toast(bindings.Text("trade.too_heavy"));
+            }
+            else
+            {
+                take_all_row_ = next->row_id;
+                quick_row_ = next->row_id;
+                quick_at_ = bindings.Now();
+                bindings.Send(*next, "activate", next->row_id);
+            }
         }
 
         // The order of the rows: the game's, or by the column whose caption the player tapped.
@@ -408,6 +437,7 @@ class CommerceScreen final : public Screen
                 bindings.Send(*cancel, "press", {}, selected->row_id);
             reopen_row_.clear();
             quick_row_.clear();
+            take_all_ = false; // the player's own step ends a running «Взять всё»
             if (deal && row == selected)
                 return; // a tap on the open row closes it
             local_row_.clear();
@@ -641,6 +671,20 @@ class CommerceScreen final : public Screen
                                        {"busy", bindings.Pending("primary")}};
                 bindings.Forward("primary", *all, "press");
             }
+            else if (columns.quick && std::any_of(goods.begin(), goods.end(), [&columns](const Widget *row) {
+                         return Number(row->CellText(columns.other)) > 0 && row->Offers("activate");
+                     }))
+            {
+                // A chest: our «Взять всё», the hand on every stack in turn (see Build).
+                view["primary"] = Json{{"label", bindings.Text("trade.take_all")}, {"sub", ""}, {"disabled", false}, {"busy", take_all_}};
+                bindings.On("primary", "", [this, &bindings](const Event &) {
+                    if (take_all_)
+                        return;
+                    take_all_ = true;
+                    take_all_row_.clear();
+                    bindings.Rebuild();
+                });
+            }
         }
         view["actions"] = actions;
 
@@ -648,6 +692,7 @@ class CommerceScreen final : public Screen
         bindings.On("header-back", "", [this, &bindings, exit, cancel, deal, selected](const Event &) {
             reopen_row_.clear();
             quick_row_.clear();
+            take_all_ = false; // the player's own step ends a running «Взять всё»
             if (deal && cancel && cancel->Offers("press"))
                 bindings.Send(*cancel, "press", {}, selected->row_id);
             else
@@ -664,6 +709,8 @@ class CommerceScreen final : public Screen
     int sort_ = -1;  // the column the rows are ordered by (own, other, buy, sell); -1 = the game's order
     bool sort_descending_ = true;
     std::string quick_row_; // the row whose whole stack is taken once the game opens its amount window
+    bool take_all_ = false;    // «Взять всё» of a chest runs: the quick take of one stack after another
+    std::string take_all_row_; // the stack it took last (still there next time: too heavy to carry)
     double quick_at_ = 0.0;
     // The amount the player set last: shown until the game's own number catches up.
     std::string local_row_;
