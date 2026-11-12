@@ -308,6 +308,14 @@ class EngineUi
         has_safe_area_ = true;
     }
 
+    // Display cutouts in pixels (the host's own unit for them).
+    void Cutouts(std::vector<storm::ui::Cutout> cutouts)
+    {
+        Post([cutouts](storm::ui::Host &host) { host.SetCutouts(cutouts); });
+        const std::lock_guard lock(inbox_mutex_);
+        cutouts_ = std::move(cutouts);
+    }
+
   private:
     void Start()
     {
@@ -401,6 +409,8 @@ class EngineUi
             host_->ExpectInterface();
         {
             const std::lock_guard lock(inbox_mutex_);
+            if (!cutouts_.empty())
+                inbox_.insert(inbox_.begin(), Step{[cutouts = cutouts_](storm::ui::Host &host) { host.SetCutouts(cutouts); }});
             if (has_safe_area_)
             {
                 const auto [left, top, right, bottom] = safe_area_;
@@ -539,6 +549,7 @@ class EngineUi
     std::vector<Step> inbox_;
     std::array<float, 4> safe_area_{};
     bool has_safe_area_ = false;
+    std::vector<storm::ui::Cutout> cutouts_;
 };
 
 } // namespace
@@ -641,6 +652,25 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeSubmitText(JNIEn
 JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeSetSafeArea(JNIEnv *, jclass, jfloat left, jfloat top, jfloat right, jfloat bottom)
 {
     EngineUi::Get().SafeArea(left, top, right, bottom);
+}
+
+// x, y, width, height per cutout, in pixels.
+JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeSetCutouts(JNIEnv *env, jclass, jfloatArray rects)
+{
+    std::vector<storm::ui::Cutout> cutouts;
+    const jsize count = rects ? env->GetArrayLength(rects) : 0;
+    if (count % 4 != 0)
+    {
+        __android_log_print(ANDROID_LOG_ERROR, "StormUi", "cutouts: %d numbers, not x, y, width, height per cutout", static_cast<int>(count));
+        return;
+    }
+    std::vector<jfloat> values(static_cast<size_t>(count));
+    if (count)
+        env->GetFloatArrayRegion(rects, 0, count, values.data());
+    for (jsize i = 0; i < count; i += 4)
+        cutouts.push_back({values[i], values[i + 1], values[i + 2], values[i + 3]});
+    __android_log_print(ANDROID_LOG_INFO, "StormUi", "display cutouts: %d", static_cast<int>(cutouts.size()));
+    EngineUi::Get().Cutouts(std::move(cutouts));
 }
 
 JNIEXPORT jboolean JNICALL Java_org_stormengine_port_EngineUi_nativeHostOwnsHud(JNIEnv *env, jclass, jstring mode)

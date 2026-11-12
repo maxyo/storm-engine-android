@@ -28,8 +28,14 @@ simulated clock), the tool acting as the frame owner with the engine's UI view r
 and decoding game pictures from `--game-root` itself. It can replay touches:
 `--script "down 1 660 88; wait 0.5; shot held.png; up 1 660 88"`.
 Reported component actions are printed as `action <id> <verb> <value>`; `--safe L,T,R,B`
-applies safe-area insets in dp (what `Host::SetSafeArea` receives from the platform:
-display cutout and system bars). Component templates read them as `safe.left` … `safe.bottom`.
+applies safe-area insets in dp (what `Host::SetSafeArea` receives from the platform: the
+system bars). Component templates read them as `safe.left` … `safe.bottom`. `--cutout X,Y,W,H`
+(dp, repeatable) adds a display cutout (`Host::SetCutouts`, the platform's
+`DisplayCutout.getBoundingRects`): screens and the HUD lay out edge to edge, and after layout
+only what falls under a cutout and must stay readable or touchable moves out by the minimum
+(the cutout's depth plus 4 dp, a translate): text, icons, pictures and components no larger than
+a quarter of the screen. Backgrounds, panels, rows and lists run under it. Touch regions and the
+behaviours' hit boxes follow the move.
 
 ## Android
 

@@ -90,6 +90,11 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
                              "<c-fit id=\"cut\" style=\"top: 300dp;\" hold=\"1\" title=\"Mannschaft\"/>"
                              "<c-pz id=\"pz\" style=\"display: block; position: absolute; left: 400dp; top: 200dp; width: 400dp; height: 200dp;\"/>"
                              "</body></rml>");
+    Write(pack / "cutout.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
+                               " c-row { display: block; position: absolute; left: 0; height: 40dp; }</style></head><body>"
+                               "<c-row id=\"small\" style=\"top: 200dp; width: 40dp;\" title=\"S\"/>"
+                               "<c-row id=\"wide\" style=\"top: 300dp; width: 800dp;\" title=\"A row across the screen\"/>"
+                               "</body></rml>");
     return pack;
 }
 
@@ -213,6 +218,26 @@ int main(int argc, char **argv)
     // The game opens an interface whose model comes seconds later (the interface loads first):
     // from the announcement the UI owns every touch, and the player's first tap waits for the
     // screen instead of reaching what was there before or the game.
+    // A display cutout on the left edge (x 0..30, y 150..350): the layout runs under it; the
+    // small control that falls under it moves right by the minimum (to 34), the row across the
+    // screen stays where it is.
+    Expect(host->LoadDocument("cutout.rml"), "the cutout document loads");
+    frames(0.05);
+    host->SetCutouts({Cutout{0, 150, 30, 200}});
+    frames(0.05);
+    tap(60, 220);
+    Expect(clicks.size() == 1 && clicks[0] == "small click", "the control under the cutout moved out of it: " + (clicks.empty() ? std::string("nothing") : clicks[0]));
+    tap(20, 220);
+    Expect(clicks.empty(), "nothing of it is left under the cutout");
+    tap(20, 320);
+    Expect(clicks.size() == 1 && clicks[0] == "wide click", "the row across the screen runs under the cutout");
+    tap(60, 100);
+    Expect(clicks.empty(), "away from the cutout nothing moves into empty space");
+    host->SetCutouts({});
+    frames(0.05);
+    tap(20, 220);
+    Expect(clicks.size() == 1 && clicks[0] == "small click", "without the cutout the control is back at the edge");
+
     host.reset();
     host = Host::Create(config, &error);
     Expect(host != nullptr, "a second runtime starts: " + error);

@@ -121,6 +121,13 @@ enum class TouchPhase
     Cancel
 };
 
+// A display cutout's bounding rectangle in physical pixels (Host::SetCutouts).
+struct Cutout
+{
+    float x = 0, y = 0, width = 0, height = 0;
+    bool operator==(const Cutout &) const = default;
+};
+
 class Host
 {
   public:
@@ -138,9 +145,15 @@ class Host
     virtual bool LoadDocument(const std::string &path) = 0;
     virtual void Resize(int width, int height, float density) = 0;
     virtual void SetGameRoot(const std::string &game_root) = 0;
-    // Safe-area insets in dp (display cutout and system bars). HUD scenes and menu screens
-    // keep their content inside; templates read them as `safe.left` … `safe.bottom`.
+    // Safe-area insets in dp (the system bars; cutouts are SetCutouts). HUD scenes and menu
+    // screens keep their content inside; templates read them as `safe.left` … `safe.bottom`.
     virtual void SetSafeArea(float left, float top, float right, float bottom) = 0;
+    // The display cutouts (DisplayCutout.getBoundingRects), in physical pixels. Layout runs
+    // edge to edge under them; only what falls under a cutout and must stay readable or
+    // touchable moves out by the minimum (the cutout's depth from its screen edge): text,
+    // icons, pictures and small controls (a component no larger than a quarter of the screen
+    // each way). Backgrounds, panels, rows and lists stay where they are, under it.
+    virtual void SetCutouts(const std::vector<Cutout> &cutouts) = 0;
     virtual void Touch(TouchPhase phase, int pointer, float x, float y) = 0;
     // Settles timers, routing and the documents without drawing. True when the frame on
     // the screen is out of date: the host then asks for a Frame. False when it still shows
