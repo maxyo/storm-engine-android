@@ -293,6 +293,9 @@ class VitalsConsumer final : public HudConsumer
             next.hero = static_cast<int>(std::min<uint64_t>(*id, 1000000));
             next.name = *name;
             next.face = *face;
+            if (const auto found = state.find("picture"); found != state.end() && !found->is_null())
+                if (std::string problem = ReadPicture(*found, next.picture); !problem.empty())
+                    return "hero " + problem;
         }
         static const std::set<std::string> kEffects = {"poison", "drunk", "healing"};
         if (const auto effects = state.find("effects"); effects != state.end())
@@ -326,8 +329,12 @@ class VitalsConsumer final : public HudConsumer
                     return "officers: expected {id, name, face, health, energy}";
                 if (!Token(officer["face"].get<std::string>(), true))
                     return "officers: bad face";
+                Picture picture;
+                if (const auto found = officer.find("picture"); found != officer.end() && !found->is_null())
+                    if (std::string problem = ReadPicture(*found, picture); !problem.empty())
+                        return "officers: " + problem;
                 next.officers.push_back({static_cast<int>(*id), officer["name"].get<std::string>(), officer["face"].get<std::string>(),
-                                         Ratio(officer, "health"), Ratio(officer, "energy")});
+                                         std::move(picture), Ratio(officer, "health"), Ratio(officer, "energy")});
             }
         }
         if (const auto dash = state.find("dash"); dash != state.end())

@@ -214,7 +214,7 @@ class WorldMapScene final : public Scene
     }
 
     // The squadron column, as the map's own ship signs: the flagship first, each ship's picture
-    // with hull, sails and crew inside it (sea.cpp draws the same cells). A tap opens the ship
+    // ringed by its hull, crew and sails (sea.cpp draws the same cells). A tap opens the ship
     // screen on that ship.
     void BuildFleet(const WorldMap &map, View &view, Input &input)
     {
@@ -227,8 +227,8 @@ class WorldMapScene final : public Scene
                 hud_.Log("world-map HUD: the engine gives no picture for the ship " + vessel.name + " (" + vessel.type + "): its placeholder stays");
             ships.push_back(MemberCell(vessel.name, vessel.picture,
                                        {{"health", vessel.hull < 0.0 ? -1.0 : vessel.hull / 100.0},
-                                        {"sails", vessel.sails < 0.0 ? -1.0 : vessel.sails / 100.0},
-                                        {"crew", vessel.crew}},
+                                        {"crew", vessel.crew},
+                                        {"sails", vessel.sails < 0.0 ? -1.0 : vessel.sails / 100.0}},
                                        true));
         }
         view.elements["fleet"] = Json{{"ships", ships}};

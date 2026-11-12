@@ -204,7 +204,7 @@ contract are errors (log, toast in debug hosts), never quiet drops.
 
 The party (land: the hero and his officers, face portraits) and the squadron (sea and world
 map: each ship's picture of the battle interface's icon atlas) are one cell kind
-(`MemberCell`: picture plus bars inside it) in `c-hud-plate` variants `officers` / `fleet`. A tap
+(`MemberCell`: a round picture ringed by its bars) in `c-hud-plate` variants `officers` / `fleet`. A tap
 on a sea ship opens the orders for it; a tap on a land member or a map ship sends the shortcut
 `characterscreen` / `shipscreen` and leaves the subject with `Hud::RequestSubject`; the hero
 screen that opens takes it once (`Bindings::TakeSubject`) and selects that person or ship with

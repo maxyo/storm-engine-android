@@ -142,7 +142,7 @@ static void CheckSailing()
     Expect(!mount.Has("spyglass") && !mount.Has("log") && !mount.Has("ammo-1"), "sailing: no spyglass off the deck, no event lines, no fan");
     const Json &ships = shown["fleet"]["ships"];
     Expect(ships.size() == 4 && ships[0]["name"] == "Аделина" &&
-               ships[0]["bars"] == Json::parse(R"([{"kind":"health","value":82},{"kind":"sails","value":95},{"kind":"crew","value":90}])"),
+               ships[0]["bars"] == Json::parse(R"([{"kind":"health","value":82},{"kind":"crew","value":90},{"kind":"sails","value":95}])"),
            "the flagship first, its hull, sails and crew inside its picture: " + ships[0].dump());
     Expect(ships[0]["texture"] == "battle_interface/ship_icons2" && ships[0]["uv"] == "0.5,0.125,0.5625,0.1875" && ships[1]["name"] == "Сокол" &&
                ships[3]["bars"][0]["value"] == 41 && ships[2]["name"] == "Ласточка" && ships[1]["tap"] == true,

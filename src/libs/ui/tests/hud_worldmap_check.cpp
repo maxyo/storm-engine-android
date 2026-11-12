@@ -55,7 +55,7 @@ static void CheckScene()
     Expect(!mount.Has("details") && !mount.Has("attack") && !mount.Has("storm"), "no details, no encounter buttons");
     const Json &ships = shown["fleet"]["ships"];
     Expect(ships.size() == 2 && ships[0]["name"] == "Аделина" && ships[0]["texture"] == "battle_interface/ship_icons2" && ships[0]["uv"] == "0.5,0.25,0.5625,0.3125" &&
-               ships[0]["bars"] == Json::parse(R"([{"kind":"health","value":82},{"kind":"sails","value":90},{"kind":"crew","value":50}])") &&
+               ships[0]["bars"] == Json::parse(R"([{"kind":"health","value":82},{"kind":"crew","value":50},{"kind":"sails","value":90}])") &&
                ships[1]["bars"][0]["value"] == 74 && ships[1]["tap"] == true,
            "the squadron: the map signs' ship pictures with hull, sails and crew inside: " + ships.dump());
     // A tap on a ship opens the ship screen on it.

@@ -264,21 +264,20 @@ class LandScene final : public Scene
 
     // --- the party ---
 
-    // The face portrait of a party member. A character without a FaceId has no portrait in the
-    // game either (landinterface.c falls back to its generic two.tga figure): the placeholder
-    // stays, and that is said once per person.
-    Picture Face(const std::string &face, const std::string &name, int character)
+    // The portrait of a party member: the game's 128 px face by FaceId. Without a FaceId the
+    // land interface draws its generic figure (landinterface.c: two.tga), which the engine sends
+    // as the icon's picture: shown the same, and said once per person.
+    Picture Face(const std::string &face, const Picture &icon, const std::string &name, int character)
     {
-        if (face.empty())
-        {
-            hud_.Log("land HUD: " + name + " (character " + std::to_string(character) + ") has no FaceId: the portrait placeholder stays");
-            return {};
-        }
-        return {"INTERFACES/PORTRAITS/128/face_" + face, {}};
+        if (!face.empty())
+            return {"INTERFACES/PORTRAITS/128/face_" + face, {}};
+        hud_.Log("land HUD: " + name + " (character " + std::to_string(character) + ") has no FaceId: " +
+                 (icon.texture.empty() ? "the engine gives no picture either, the placeholder stays" : "the game's own figure " + icon.texture));
+        return icon;
     }
 
     // The party row (as the original land interface's icons): the hero first, then the officers
-    // who walk with him, each the face portrait with health and energy inside it. A tap opens
+    // who walk with him, each the round face portrait ringed by health and energy. A tap opens
     // the character screen on that person; the game refuses that screen in a fight, so a tap
     // there does nothing.
     void BuildParty(const States &states, bool melee, View &view, Input &input)
@@ -286,9 +285,9 @@ class LandScene final : public Scene
         const Vitals &vitals = states.vitals;
         const bool tap = !melee && vitals.hero >= 0;
         Json members = Json::array();
-        members.push_back(MemberCell(vitals.name, Face(vitals.face, vitals.name, vitals.hero), {{"health", vitals.health}, {"energy", vitals.energy}}, tap));
+        members.push_back(MemberCell(vitals.name, Face(vitals.face, vitals.picture, vitals.name, vitals.hero), {{"health", vitals.health}, {"energy", vitals.energy}}, tap));
         for (const Vitals::Officer &officer : vitals.officers)
-            members.push_back(MemberCell(officer.name, Face(officer.face, officer.name, officer.id), {{"health", officer.health}, {"energy", officer.energy}}, tap));
+            members.push_back(MemberCell(officer.name, Face(officer.face, officer.picture, officer.name, officer.id), {{"health", officer.health}, {"energy", officer.energy}}, tap));
         view.elements["party"] = Json{{"officers", members}};
         if (!tap)
             return;

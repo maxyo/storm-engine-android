@@ -283,10 +283,10 @@ static void CheckStatus()
     const Json party = mount.shown.elements["party"]["officers"];
     Expect(party.size() == 3 && party[0]["name"] == "Шарль де Мор" && party[0]["texture"] == "INTERFACES/PORTRAITS/128/face_201" &&
                party[1]["texture"] == "INTERFACES/PORTRAITS/128/face_205" &&
-               party[1]["bars"] == Json::parse(R"([{"kind":"health","value":84},{"kind":"energy","value":70}])") && party[2]["texture"] == "" &&
+               party[1]["bars"] == Json::parse(R"([{"kind":"health","value":84},{"kind":"energy","value":70}])") && party[2]["texture"] == "battle_interface/two" && party[2]["uv"] == "0,0,0.5,1" &&
                party[2]["name"] == "Офицер Бета" && party[0]["tap"] == true && party[2]["tap"] == true,
-           "explore: the party row, hero first, officers with their faces, health and energy; an officer without a face keeps the placeholder");
-    Expect(std::find(mount.logs.begin(), mount.logs.end(), "land HUD: Офицер Бета (character 32) has no FaceId: the portrait placeholder stays") != mount.logs.end(),
+           "explore: the party row, hero first, officers with their faces, health and energy; an officer without a face shows the game's own figure");
+    Expect(std::find(mount.logs.begin(), mount.logs.end(), "land HUD: Офицер Бета (character 32) has no FaceId: the game's own figure battle_interface/two") != mount.logs.end(),
            "… and that is said, naming the person");
     // A tap on a member opens the character screen on that person.
     mount.commands.clear();

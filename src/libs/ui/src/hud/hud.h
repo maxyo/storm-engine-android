@@ -84,11 +84,13 @@ struct Vitals
     {
         int id = -1;
         std::string name, face;            // face: the game's FaceId
+        Picture picture;                   // what the land interface draws for him (two.tga without a face)
         double health = 0.0, energy = 0.0; // 0…1
     };
     bool known = false;
     int hero = -1;    // the hero's character index (-1: not given)
     std::string name, face; // the hero's name and FaceId
+    Picture picture;        // the hero's land interface picture
     double health = 0.0, energy = 0.0, reload = 0.0; // 0…1
     int loaded = 0, capacity = 0;
     std::vector<std::string> effects; // poison, drunk, healing
@@ -534,8 +536,8 @@ std::string Lower(std::string text);
 const char *ShipIcon(const std::string &type);
 
 // One member of a party or squadron column (c-hud-plate variant officers / fleet): the game
-// picture and the bars drawn inside it, {kind, share 0…1}; a share below 0 (unknown) is left
-// out. `tap` makes the cell report its index (verb `member` / `ship`).
+// picture and its bars, drawn as arcs around it in this order from the outside in, {kind,
+// share 0…1}; a share below 0 (unknown) is left out. `tap` makes the cell report its index (verb `member` / `ship`).
 struct MemberBar
 {
     const char *kind;

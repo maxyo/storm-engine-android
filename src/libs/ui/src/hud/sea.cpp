@@ -345,8 +345,8 @@ class SeaScene final : public Scene
     // --- bars, fleet, minimap, sails ---
 
     // The squadron column (V2-Sea-Sailing, as the original battle interface's ship icons): the
-    // flagship first, then the companions, each the ship's picture with hull, sails and crew
-    // inside it. A tap opens the orders for that ship, as a click on the engine's icon does.
+    // flagship first, then the companions, each the ship's round picture ringed by its hull,
+    // crew and sails. A tap opens the orders for that ship, as a click on the engine's icon does.
     void BuildFleet(const Ship &ship, View &view, Input &input)
     {
         if (ship.own.hull < 0.0 && ship.own.crew < 0.0 && ship.own.sails < 0.0 && ship.fleet.empty())
@@ -359,7 +359,7 @@ class SeaScene final : public Scene
             const Ship::Vessel &vessel = i == 0 ? ship.own : ship.fleet[i - 1];
             if (vessel.picture.texture.empty())
                 hud_.Log("sea HUD: the engine gives no picture for the ship " + vessel.name + " (" + vessel.type + "): its placeholder stays");
-            ships.push_back(MemberCell(vessel.name, vessel.picture, {{"health", vessel.hull}, {"sails", vessel.sails}, {"crew", vessel.crew}}, tap));
+            ships.push_back(MemberCell(vessel.name, vessel.picture, {{"health", vessel.hull}, {"crew", vessel.crew}, {"sails", vessel.sails}}, tap));
         }
         view.elements["fleet"] = Json{{"ships", ships}};
         if (!tap)
