@@ -539,7 +539,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             }
             if (pointer == scroll_pointer_ && ended)
             {
-                scroll_.Up(at, time, phase == TouchPhase::Cancel);
+                scroll_.Up(time, phase == TouchPhase::Cancel);
                 scroll_pointer_ = -1;
             }
         }

@@ -304,8 +304,9 @@ struct Gesture
 
 // One finger: down at y 290, then upwards at `speed` px/s with a sample every 1/120 s (two
 // per 60 Hz frame, as a touchscreen gives them: every sample with its own time), `travel` px
-// in all; `pause` seconds still before the release; frames of `frame` seconds throughout.
-Gesture Swipe(Runtime &runtime, float speed, float travel, double pause, double frame)
+// in all; `pause` seconds still before the release, which is `back` px behind the last move
+// (an injected swipe ends on its target); frames of `frame` seconds throughout.
+Gesture Swipe(Runtime &runtime, float speed, float travel, double pause, double frame, float back = 0.0f)
 {
     Gesture out;
     Rml::Element *list = List();
@@ -338,7 +339,7 @@ Gesture Swipe(Runtime &runtime, float speed, float travel, double pause, double 
     t += pause;
     frames_until(t, &out.drag);
     out.released = list->GetScrollTop();
-    runtime.host->Touch(TouchPhase::Up, 1, 150, y, t);
+    runtime.host->Touch(TouchPhase::Up, 1, 150, y + back, t);
     double delay = 0.0;
     for (int i = 0; i < 600 && runtime.host->Prepare(delay); ++i)
     {
@@ -415,6 +416,15 @@ void ScrollFling(const std::string &pack)
     const Gesture rested = Swipe(*runtime, speed, 280.0f, 0.1, 1.0 / 60.0);
     Expect(rested.fling.size() <= 1 && std::fabs(rested.released - 270.0f) <= 1.0f && (rested.fling.empty() || rested.fling.back() == rested.released),
            "a finger that rested before the release does not fling (" + std::to_string(rested.released) + " px, " + std::to_string(rested.fling.size()) + " frames after)");
+
+    // The up repeats the last position (or steps back to an injected swipe's target): it is
+    // not a sample of the motion, and the fling goes on at the finger's speed.
+    runtime.reset();
+    runtime = ListRuntime(pack);
+    const Gesture stepped = Swipe(*runtime, speed, 280.0f, 0.02, 1.0 / 60.0, 3.0f);
+    Expect(!stepped.fling.empty() && !fast.fling.empty() && std::fabs(stepped.fling.back() - fast.fling.back()) <= 2.0f,
+           "an up 20 ms after the last move, 3 px back, flings as far (" + (stepped.fling.empty() ? std::string("-") : std::to_string(stepped.fling.back())) +
+               " px)");
 
     // Caught: a second finger-down 5 frames into a fling holds the list where it is.
     runtime.reset();

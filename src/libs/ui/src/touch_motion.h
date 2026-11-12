@@ -33,6 +33,10 @@ class VelocityTracker
     // A sample more than 40 ms after the one before clears the history first (the finger
     // had stopped): a release after a pause has no velocity.
     void Add(double time, Rml::Vector2f position);
+    // The pointer went up at `time`. Its position is not a sample (it repeats the last move;
+    // an injected or late up may even step back), but an up 40 ms or more after the last
+    // sample means the finger had stopped: no velocity (VelocityTracker, ACTION_UP).
+    void Lift(double time);
     Rml::Vector2f Velocity() const;
 
   private:
@@ -86,7 +90,7 @@ class TouchScroll
     void Down(Rml::Element *target, Rml::Vector2f at, double time, float density, float slop);
     // True from the sample that starts the drag on (the press under the finger is withdrawn).
     bool Move(Rml::Vector2f at, double time);
-    void Up(Rml::Vector2f at, double time, bool cancelled);
+    void Up(double time, bool cancelled);
     // Moves a flinging box to where it is at `time`; true while one is in motion.
     bool Update(double time);
     // Down caught a box in motion (the touch is a drag from its start).

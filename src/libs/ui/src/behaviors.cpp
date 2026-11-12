@@ -875,7 +875,7 @@ class PanZoomBehavior final : public Behavior
     // A pan released in motion coasts on (the lists' fling, touch_motion.h).
     void Throw(ComponentElement &self, const Pointer &pointer)
     {
-        tracker_.Add(pointer.time, pointer.position);
+        tracker_.Lift(pointer.time);
         const Rml::Vector2f velocity = tracker_.Velocity();
         const float density = self.Host().Density();
         bool thrown = false;

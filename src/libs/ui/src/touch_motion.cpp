@@ -105,6 +105,12 @@ void VelocityTracker::Add(double time, Rml::Vector2f position)
     count_ = std::min(count_ + 1, kHistory);
 }
 
+void VelocityTracker::Lift(double time)
+{
+    if (count_ > 0 && time - samples_[newest_].time >= kAssumeStopped)
+        Clear();
+}
+
 Rml::Vector2f VelocityTracker::Velocity() const
 {
     if (count_ == 0)
@@ -237,13 +243,13 @@ bool TouchScroll::Move(Rml::Vector2f at, double time)
     return true;
 }
 
-void TouchScroll::Up(Rml::Vector2f at, double time, bool cancelled)
+void TouchScroll::Up(double time, bool cancelled)
 {
     const bool fling = down_ && dragging_ && !cancelled && box_;
     down_ = dragging_ = caught_ = false;
     if (!fling)
         return;
-    tracker_.Add(time, at);
+    tracker_.Lift(time);
     const Rml::Vector2f velocity = tracker_.Velocity();
     for (int i = 0; i < 2; ++i)
     {
