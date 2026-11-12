@@ -18,8 +18,10 @@ void main()
     vec4 t0 = texture2D(s_tex0, v_texcoord0.xy);                            // tex t0
     vec4 t1 = texture2D(s_tex1, v_texcoord1.xy);                            // tex t1
     vec4 t2 = texture2D(s_tex2, v_texcoord2.xy);                            // tex t2
-    // ps_1_1 texcoord yields (u, v, w, 1) clamped to [0, 1]: the w written by the vertex shader is not visible.
-    vec4 t3 = vec4(clamp(v_texcoord3.xyz, 0.0, 1.0), 1.0);                  // texcoord t3
+    // ps_1_1 texcoord: the interpolated coordinate set clamped to [0, 1], all four components, as wined3d translates
+    // it (the SDK text says alpha 1). The game is written for that: the vertex shader puts the caustic's fade
+    // (up-facing x within c15 distance, mov oT3.w, r2.x) in w, and r0.a = t0.a * t3.a applies it.
+    vec4 t3 = clamp(v_texcoord3, 0.0, 1.0);                                 // texcoord t3
     r0 = t3;                                                                // mov r0, t3
     r0 = PS11(r0 * t2 + (vec4_splat(1.0) - r0) * t1);                       // lrp r0, r0, t2, t1
     r0 = PS11(r0 * v0);                                                     // mul r0, r0, v0

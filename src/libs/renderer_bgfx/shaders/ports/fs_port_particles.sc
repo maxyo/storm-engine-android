@@ -16,7 +16,7 @@ void main()
 
     vec4 t0 = texture2D(s_tex0, v_texcoord0.xy);                            // tex t0
     vec4 t1 = texture2D(s_tex1, v_texcoord1.xy);                            // tex t1
-    vec4 t2 = vec4(clamp(v_texcoord2.xyz, 0.0, 1.0), 1.0);                  // texcoord t2
+    vec4 t2 = clamp(v_texcoord2, 0.0, 1.0);                                 // texcoord t2 (all four, see fs_port_caustic)
     vec4 t3 = texture2D(s_tex3, v_texcoord3.xy);                            // tex t3
     r0 = PS11(v1.aaaa * t0 + (vec4_splat(1.0) - v1.aaaa) * t1);             // lrp r0, v1.aaaa, t0, t1
     r1 = PS11(r0 * v0);                                                     // mul r1, r0, v0
