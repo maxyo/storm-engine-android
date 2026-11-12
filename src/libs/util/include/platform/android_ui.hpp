@@ -307,7 +307,7 @@ inline void publishMobileWidgets(const std::string &json)
     ui::interfaceModel(json);
 }
 
-inline void showMobileScreen(const std::string &name)
+inline void showMobileScreen(const std::string &name, double release_ms = 0.0, double load_ms = 0.0)
 {
     auto screen = name;
     std::replace(screen.begin(), screen.end(), '\\', '/');
@@ -325,7 +325,7 @@ inline void showMobileScreen(const std::string &name)
     uiTouches.clear();
     uiWidgetActions.clear();
     lastWidgetSnapshot.clear();
-    ui::screen(screen, mobileScreenRevision);
+    ui::screen(screen, mobileScreenRevision, release_ms, load_ms);
     auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
     auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
     if (!env || !activity) return;

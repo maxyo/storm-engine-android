@@ -14,8 +14,10 @@ namespace storm::android::ui
 // A state channel of the portable UI: JSON as the UI host's SetState takes it ("null" =
 // nothing). Kept until the host exists, then delivered in order.
 void state(std::string_view channel, std::string json);
-// The open interface opened (`screen` not empty, `revision` of the opening) or closed.
-void screen(const std::string &screen, uint64_t revision);
+// The open interface opened (`screen` not empty, `revision` of the opening) or closed. An
+// opening says how long the game took to make it: releasing the old interface and loading
+// the new one's INI with its nodes (milliseconds, logged with the opening).
+void screen(const std::string &screen, uint64_t revision, double release_ms = 0.0, double load_ms = 0.0);
 // Interface model (widget snapshot) of the open screen; the newest replaces older ones.
 void interfaceModel(std::string json);
 // A passing line of the game's log: a toast over the game.

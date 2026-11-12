@@ -166,7 +166,8 @@ void SyncElement(Rml::Element *live, Rml::Element *fresh)
     }
     std::vector<std::string> stale;
     for (const auto &entry : live->GetAttributes())
-        if (!fresh->HasAttribute(entry.first))
+        // A component's own layout boundary (constants.layoutBoundary) is not its parent's template's to drop.
+        if (!fresh->HasAttribute(entry.first) && !(entry.first == "rmlui-layout-boundary" && dynamic_cast<ComponentElement *>(live)))
             stale.push_back(entry.first);
     for (const std::string &name : stale)
     {
@@ -291,7 +292,7 @@ void MorphChildren(Rml::Element *live, Rml::Element *fresh)
 bool IsGenericAttribute(const std::string &attribute)
 {
     return attribute == "id" || attribute == "class" || attribute == "style" || attribute == "props" || attribute == "slot" ||
-           attribute.rfind("data-", 0) == 0;
+           attribute == "rmlui-layout-boundary" || attribute.rfind("data-", 0) == 0;
 }
 
 std::string CheckPropValue(const PropSpec &prop, const Json &value)
@@ -557,6 +558,10 @@ void ComponentElement::RebuildNow()
     Rml::ElementDocument *document = GetOwnerDocument();
     if (!built_ || !document)
     {
+        // constants.layoutBoundary: the component's size never depends on its contents (a header bar of fixed
+        // height across the screen), so a change inside it lays out only it (patches/rmlui-layout-boundary.patch).
+        if (!built_ && Truthy(spec_.constants.value("layoutBoundary", Json(false))))
+            SetAttribute("rmlui-layout-boundary", "");
         SetInnerRML(rml);
     }
     else if (rml != built_rml_)
