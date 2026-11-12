@@ -1,0 +1,22 @@
+bgfx presents a caller-provided EGL context's current surface itself (GlContext::swap), although the host that
+provided the context presents it (src/libs/ui/android/jni_host.cpp under a GLSurfaceView, which swaps after
+onDrawFrame): every frame showed a second, undrawn buffer, black or a frame older, seen as the launcher's buttons
+flashing between pressed, black and normal on a tap. With a caller-provided context bgfx does not swap.
+
+diff --git a/src/glcontext_egl.cpp b/src/glcontext_egl.cpp
+index 2a9109c..e5ebddc 100644
+--- a/src/glcontext_egl.cpp
++++ b/src/glcontext_egl.cpp
+@@ -1092,7 +1092,11 @@ WL_EGL_IMPORT
+ 
+ 		if (NULL == _swapChain)
+ 		{
+-			if (NULL != m_display
++			// A caller-provided context (PlatformData::context) belongs to a host that presents its
++			// surface itself (an Android GLSurfaceView swaps after onDrawFrame): a swap here as well
++			// presented a second, undrawn buffer every frame.
++			if (m_ownsContext
++			&&  NULL != m_display
+ 			&&  EGL_NO_SURFACE != m_surface)
+ 			{
+ 				EGL_CHECK(eglSwapBuffers(m_display, m_surface) );
