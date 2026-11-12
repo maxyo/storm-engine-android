@@ -35,6 +35,11 @@ int ShadowMapSize(ShadowQuality quality)
     }
 }
 
+float SunShadowStrength(float sun_dir_y)
+{
+    return std::clamp(sun_dir_y * 8.0f, 0.0f, 1.0f);
+}
+
 ShadowSetup ComputeShadowSetup(Vec3 sun_dir, Vec3 focus, float radius, float caster_reach, int map_size)
 {
     ShadowSetup setup;

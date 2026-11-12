@@ -757,6 +757,9 @@ void CheckLights()
 
 void CheckShadows()
 {
+    // A shadow takes the whole direct sun away (only the ambient stays); it fades as the sun sets.
+    CHECK(SunShadowStrength(0.7f) == 1.0f && SunShadowStrength(0.125f) == 1.0f);
+    CHECK(Near(SunShadowStrength(0.0625f), 0.5f, 1e-6f) && SunShadowStrength(0.0f) == 0.0f && SunShadowStrength(-0.3f) == 0.0f);
     CHECK(ShadowMapSize(ShadowQuality::Off) == 0 && ShadowMapSize(ShadowQuality::Low) == 1024 && ShadowMapSize(ShadowQuality::Soft) == 2048);
     const Vec3 sun{0.48f, 0.64f, 0.6f};
     const Vec3 focus{100.0f, 5.0f, -40.0f};

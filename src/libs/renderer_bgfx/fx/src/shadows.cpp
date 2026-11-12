@@ -75,9 +75,7 @@ bool Shadows::Begin(const Settings &settings, const ShadowFrame &frame)
         return false;
     }
     EnsureResources(size);
-    // A low sun gives endless, shimmering shadows; fade them out before it sets. At most 60 % of the sun is taken
-    // away: the shadows stay soft and the lit surfaces keep the legacy brightness around them.
-    const float strength = std::clamp(frame.sun_dir[1] * 8.0f, 0.0f, 1.0f) * 0.6f;
+    const float strength = SunShadowStrength(frame.sun_dir[1]);
     if (strength <= 0.0f)
         return false;
 
