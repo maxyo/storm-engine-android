@@ -153,7 +153,9 @@ and gets each frame's CPU work without the present wait. Logged (tag `storm-bgfx
 - every 30 s: `frame pacing: 30.0 s, N frames (fps) ...; frame ms p50 p95 p99 max; refreshes per
   frame 1:..% 2:..% ...; present wait mean ...` (intervals between presents, in display refreshes);
 - without Swappy an error `frame pacing: Swappy GL unavailable (...)`: the game then presents with
-  `eglSwapBuffers` at swap interval 1, the display's own rate, unpaced.
+  `eglSwapBuffers` at swap interval 1, the display's own rate, unpaced, and logs the same 30 s lines
+  (`eglSwapBuffers, no Swappy`). Swappy's own switch `adb shell setprop swappy.disable 1` (root, e.g. an
+  emulator after `adb root`) selects that path for an A/B with the same APK.
 
 Emulator frame times are far above 16.7 ms (its present alone takes ~50 ms), so emulator runs show
 that pacing works, not its quality; the numbers come from a phone's log.

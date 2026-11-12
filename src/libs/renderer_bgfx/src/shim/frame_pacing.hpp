@@ -11,8 +11,9 @@
 // game thread's CPU time per frame, without the present wait measured here (platform/host_hooks.hpp).
 // Swappy's CPU affinity is off: the scheduler and ADPF place the game thread.
 //
-// Without Swappy (its init failed or the device disables it) an error says why, and bgfx swaps with
-// eglSwapBuffers at swap interval 1: the display's rate, unpaced.
+// Without Swappy (its init failed or the device disables it) an error says why, and the present is a plain
+// eglSwapBuffers at swap interval 1: the display's rate, unpaced; the frame times are logged the same way and
+// ADPF aims at kTargetFrame.
 //
 // Every 30 s of presented frames the log gets a "frame pacing:" line with the frame intervals measured after
 // each present (percentiles and a histogram in display refreshes) and the mean present wait. Swappy's own
@@ -48,7 +49,8 @@ class FramePacing
     void log_stats(double seconds);
     void reset_stats();
 
-    bool swappy_ = false;
+    bool started_ = false;
+    bool swappy_ = false; // false: started without Swappy, presents with eglSwapBuffers
     std::chrono::nanoseconds swap_interval_{0}; // what Swappy paces at now
     std::chrono::nanoseconds refresh_period_{0};
     std::chrono::steady_clock::time_point last_present_{};

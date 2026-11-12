@@ -60,30 +60,43 @@ FramePacing &FramePacing::instance()
 
 void FramePacing::start()
 {
-    if (swappy_)
+    if (started_)
         return;
+    started_ = true;
     auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
     auto activity = env ? static_cast<jobject>(SDL_AndroidGetActivity()) : nullptr;
     const bool initialised = activity && SwappyGL_init(env, activity);
     if (activity)
         env->DeleteLocalRef(activity);
-    if (!initialised || !SwappyGL_isEnabled())
+    swappy_ = initialised && SwappyGL_isEnabled();
+    if (swappy_)
     {
-        log_error(!activity ? "frame pacing: Swappy GL unavailable (no JNI environment or activity for the game thread); "
-                              "presenting with eglSwapBuffers at swap interval 1: the display's rate, unpaced"
-                            : "frame pacing: Swappy GL unavailable (SwappyGL_init failed or the device disables it, see the "
-                              "Swappy lines above); presenting with eglSwapBuffers at swap interval 1: the display's rate, "
-                              "unpaced");
+        // The scheduler and the ADPF hint session place the game thread; Swappy's pinning would fight them.
+        SwappyGL_setUseAffinity(false);
+        SwappyGL_setAutoSwapInterval(true);
+        SwappyGL_setAutoPipelineMode(true);
+        choose_interval();
+    }
+    else
+    {
         if (activity)
             SwappyGL_destroy(); // whatever SwappyGL_init left behind
-        return;
+        SDL_DisplayMode mode{};
+        if (SDL_GetCurrentDisplayMode(0, &mode) == 0 && mode.refresh_rate > 0)
+            refresh_period_ = std::chrono::nanoseconds(1'000'000'000LL / mode.refresh_rate);
+        char message[512];
+        snprintf(message, sizeof(message),
+                 "frame pacing: Swappy GL unavailable (%s); presenting with eglSwapBuffers at swap interval 1, the "
+                 "display's own rate (%s), unpaced; ADPF aims at %.2f ms; frame times are still logged",
+                 activity ? "SwappyGL_init failed or the device disables it, see the Swappy lines above"
+                          : "no JNI environment or activity for the game thread",
+                 refresh_period_.count() ? (std::to_string(1'000'000'000LL / refresh_period_.count()) + " Hz").c_str()
+                                         : "refresh unknown to SDL",
+                 to_ms(kTargetFrame));
+        log_error(message);
+        storm::platform::frameWorkTarget(kTargetFrame);
     }
-    swappy_ = true;
-    // The scheduler and the ADPF hint session place the game thread; Swappy's pinning would fight them.
-    SwappyGL_setUseAffinity(false);
-    SwappyGL_setAutoSwapInterval(true);
-    SwappyGL_setAutoPipelineMode(true);
-    choose_interval();
+    // Both ways the present goes through present_frame: the same frame times and present wait.
     bgfx::setEglPresent(&FramePacing::present);
     reset_stats();
 }
@@ -146,20 +159,21 @@ void FramePacing::choose_interval()
 
 void FramePacing::set_window(void *native_window)
 {
-    if (!swappy_)
-        return;
-    SwappyGL_setWindow(static_cast<ANativeWindow *>(native_window));
+    if (swappy_)
+        SwappyGL_setWindow(static_cast<ANativeWindow *>(native_window));
     // No interval spans the time without a window.
     last_present_ = {};
 }
 
 void FramePacing::shutdown()
 {
-    if (!swappy_)
+    if (!started_)
         return;
     bgfx::setEglPresent(nullptr);
-    SwappyGL_destroy();
+    if (swappy_)
+        SwappyGL_destroy();
     swappy_ = false;
+    started_ = false;
 }
 
 bool FramePacing::present(void *display, void *surface)
@@ -171,16 +185,23 @@ bool FramePacing::present_frame(void *display, void *surface)
 {
     const auto before = Clock::now();
     bool presented = false;
+    if (swappy_)
     {
         STORM_PROFILE_ZONE("present: Swappy waits for the vsync slot");
         presented = SwappyGL_swap(static_cast<EGLDisplay>(display), static_cast<EGLSurface>(surface));
+    }
+    else
+    {
+        STORM_PROFILE_ZONE("present: eglSwapBuffers (no Swappy)");
+        presented = eglSwapBuffers(static_cast<EGLDisplay>(display), static_cast<EGLSurface>(surface)) == EGL_TRUE;
     }
     const auto after = Clock::now();
     if (!presented)
     {
         static uint32_t failures = 0;
         if (failures++ % 600 == 0)
-            logf("ERROR: SwappyGL_swap failed (EGL error 0x%x), %u failures so far", eglGetError(), failures);
+            logf("ERROR: %s failed (EGL error 0x%x), %u failures so far", swappy_ ? "SwappyGL_swap" : "eglSwapBuffers",
+                 eglGetError(), failures);
     }
     const auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(after - before);
     storm::platform::presentWaited(wait);
@@ -193,8 +214,9 @@ bool FramePacing::present_frame(void *display, void *surface)
     }
     last_present_ = after;
 
-    const std::chrono::nanoseconds interval(SwappyGL_getSwapIntervalNS()), refresh(SwappyGL_getRefreshPeriodNanos());
-    if (interval != swap_interval_ || refresh != refresh_period_)
+    const std::chrono::nanoseconds interval(swappy_ ? SwappyGL_getSwapIntervalNS() : 0),
+        refresh(swappy_ ? SwappyGL_getRefreshPeriodNanos() : refresh_period_.count());
+    if (swappy_ && (interval != swap_interval_ || refresh != refresh_period_))
     {
         logf("frame pacing: Swappy presents every %.2f ms (%.1f fps) at a %.2f ms (%.0f Hz) display refresh "
              "(was %.2f ms at %.2f ms)",
@@ -220,16 +242,21 @@ void FramePacing::log_stats(double seconds)
     std::sort(sorted.begin(), sorted.end());
     const size_t count = sorted.size();
     const auto percentile = [&](size_t percent) { return sorted[(count * percent + 99) / 100 - 1]; };
-    // Frame intervals in display refreshes (1 ... 5, 6 = six or more).
+    // Frame intervals in display refreshes (1 ... 5, 6 = six or more); without a known refresh in 60 Hz ones.
     const double refresh = refresh_period_.count() ? to_ms(refresh_period_) : to_ms(kTargetFrame);
     uint32_t buckets[6] = {};
     for (const float ms : intervals_ms_)
         ++buckets[std::clamp<long>(std::lround(ms / refresh), 1, 6) - 1];
     const auto share = [&](uint64_t value, uint64_t total) { return total ? 100.0 * value / total : 0.0; };
-    logf("frame pacing: %.1f s, %zu frames (%.1f fps) at %.2f ms intervals (Swappy), %.2f ms refresh; frame ms p50 %.2f "
-         "p95 %.2f p99 %.2f max %.2f; refreshes per frame 1:%.1f%% 2:%.1f%% 3:%.1f%% 4:%.1f%% 5:%.1f%% 6+:%.1f%%; "
-         "present wait mean %.2f ms",
-         seconds, count, count / seconds, to_ms(swap_interval_), refresh, percentile(50), percentile(95), percentile(99),
+    char pacing[64];
+    if (swappy_)
+        snprintf(pacing, sizeof(pacing), "Swappy at %.2f ms intervals", to_ms(swap_interval_));
+    else
+        snprintf(pacing, sizeof(pacing), "eglSwapBuffers, no Swappy");
+    logf("frame pacing: %.1f s, %zu frames (%.1f fps), %s, %.2f ms refresh%s; frame ms p50 %.2f p95 %.2f p99 %.2f max "
+         "%.2f; refreshes per frame 1:%.1f%% 2:%.1f%% 3:%.1f%% 4:%.1f%% 5:%.1f%% 6+:%.1f%%; present wait mean %.2f ms",
+         seconds, count, count / seconds, pacing, refresh, refresh_period_.count() ? "" : " (assumed)", percentile(50),
+         percentile(95), percentile(99),
          sorted.back(), share(buckets[0], count), share(buckets[1], count), share(buckets[2], count),
          share(buckets[3], count), share(buckets[4], count), share(buckets[5], count), wait_ms_ / count);
 }
