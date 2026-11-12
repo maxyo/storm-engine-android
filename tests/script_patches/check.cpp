@@ -127,13 +127,13 @@ void checkWhitelist()
 {
     for (const char *path : {"PROGRAM/dialog.c", "program/quests/quests_reaction.c", "PROGRAM/dialogs/russian/x.c",
                              "program/dialogs/english/Quest/a.c", "program/Loc_ai/LAi_utilites.c",
-                             "program/sea_ai/sea.c", "program/weather/whr.h"})
+                             "program/sea_ai/sea.c", "program/weather/whr.h", "program/battle_interface/BattleInterface.c"})
     {
         CHECK(isPatchTargetPath(path));
         CHECK(!storm::android::isUiOverlayPath(path)); // the two layers never claim the same file
     }
     for (const char *path : {"program/interface/mainmenu.c", "program/controls/init.c", "program/dialogs/x.c",
-                             "program/seadogs.c", "program/battle_interface/bi.c", "program/quests/q.txt", "../program/dialog.c",
+                             "program/seadogs.c", "program/battle_interface/bi.txt", "program/quests/q.txt", "../program/dialog.c",
                              "/program/dialog.c", "program/quests/../seadogs.c", "resource/ini/x.ini"})
         CHECK(!isPatchTargetPath(path));
 }
