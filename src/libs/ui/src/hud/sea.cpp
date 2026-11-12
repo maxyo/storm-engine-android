@@ -213,10 +213,10 @@ class SeaScene final : public Scene
             walk_ = 0;
         BuildGuns(states, ship, view, input);
         BuildTimeScale(hud_, gameplay, ship ? ship->time_scale : -1.0, view, input);
+        if (fan_open_)
+            return; // the fan takes the place of the buttons around the ammunition, the abilities too (hud-layout.json "replaces")
         if (ship && layout_ == "sea-battle")
             BuildAbilities(gameplay, *ship, view, input);
-        if (fan_open_)
-            return; // the fan takes the place of the buttons around the ammunition
         BuildQuick(states.sea_quick, view, input);
         if (gameplay.Has("Sea_CameraSwitch"))
         {

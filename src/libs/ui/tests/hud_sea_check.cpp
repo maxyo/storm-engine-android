@@ -368,6 +368,10 @@ static void CheckBattle()
     const size_t launched = mount.commands.size();
     bench.Press("effect-1");
     Expect(mount.commands.size() == launched, "a recovering ability does nothing");
+    bench.Press("ammo");
+    Expect(mount.Has("ammo-1") && !mount.Has("effect-0") && !mount.Has("effect-1"), "the open fan takes the place of the abilities too");
+    bench.Press("ammo");
+    Expect(!mount.Has("ammo-1") && mount.Has("effect-0"), "folded: the abilities are back");
     bench.Press("spyglass", "down");
     Expect(mount.Last() == "hold:10\tTelescopeIn\t1", "the spyglass is held: " + mount.Last());
     bench.Press("spyglass", "up");

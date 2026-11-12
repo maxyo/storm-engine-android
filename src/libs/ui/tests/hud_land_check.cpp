@@ -332,12 +332,14 @@ static void CheckStatus()
     Expect(mount.shown.elements["dash"]["fill"] == 40 && mount.shown.elements["dash"]["fillTone"] == "cooldown" &&
                mount.shown.elements["dash"]["disabled"] == true,
            "dash cooling down: filled and not pressable");
-    Expect(!mount.Has("opponent"), "no cabin captain: no captain bar");
+    bench.Feed("worldInfo", "world-info");
+    Expect(!mount.Has("opponent") && mount.Has("location"), "no cabin captain: no captain bar, the location line");
     Json cabin = State("vitals-status");
     cabin["opponent"] = Json{{"name", "Клод Дюран"}, {"health", 0.62}};
     bench.Set("vitals", cabin);
     Expect(mount.shown.elements["opponent"]["title"] == "hud.captain Клод Дюран" && mount.shown.elements["opponent-hp"]["value"] == 62,
            "cabin fight: the enemy captain's name and health on top");
+    Expect(!mount.Has("location"), "the cabin captain takes the place of the location line");
     cabin["opponent"] = Json{{"name", ""}, {"health", 0.5}};
     bench.Set("vitals", cabin);
     Expect(!mount.errors.empty(), "an opponent without a name is rejected aloud");
