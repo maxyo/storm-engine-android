@@ -8,9 +8,12 @@
 //   FX_FF_BAKED     geometry with baked vertex colours (lighting off, vs_ff_lit): only dynamic point lights are
 //                   added, as texture * light.
 //   FX_LIGHT_NORMALMAP  with FX_FF_LIT / FX_FF_BAKED: relief from the normal map derived from stage 1's height texture
-//                   (stage 14, stage 1's coordinates): lit draws perturb the normal, baked ones scale their colour.
+//                   or stage 0's colour texture (stage 14, that stage's coordinates: u_fxFf.y): lit draws perturb the
+//                   normal, baked ones scale their colour.
 //   FX_LIGHT_SHADOW[_SOFT]  with FX_FF_LIT: the sun's diffuse and specular terms are scaled by the sun shadow map
 //                   (stage 15, src/effects/shadows.hpp).
+//   AO volume       FX_FF_LIT / FX_FF_BAKED: the interior's ambient occlusion (ffAoVolume, off per draw by
+//                   u_fxAoParams.x = 0): darkens the ambient of lit draws and the baked colours.
 //   FX_FF_COVERAGE  alpha to coverage instead of the alpha-test discard (fx_coverage.sh); in the FX_FF_LIT /
 //                   FX_FF_BAKED variants it is switched per draw by u_fxCoverage.z.
 #include "ff_finish.sh"
@@ -19,8 +22,95 @@
 #define FX_FF_PIXEL_LIGHTING 1
 #include "fx_lighting.sh"
 // x: two-sided surface whose back side shows the light passing through (normal flipped towards the viewer)
+// y: FX_LIGHT_NORMALMAP: the texture stage (0 or 1) whose coordinates the normal map follows
 uniform vec4 u_fxFf;
 vec4 ffDiffuse;
+
+// Ambient-occlusion volume of the interior (src/effects/ao_volume.hpp; stage 12 = fx::kAoVolumeStage).
+// u_fxAoVolume: view space -> volume uvw. u_fxAoParams: x strength (0 = no volume for this draw), y contrast,
+// z normal offset in metres (half a cell: sample the open side of the surface), w 1 / what an open surface sees.
+// The volume holds four cosine lobes (fx::AoLobeAxes, RGBA); Nw is the world-space normal.
+SAMPLER3D(s_fxAoVolume, 12);
+uniform mat4 u_fxAoVolume;
+uniform vec4 u_fxAoParams;
+float ffAoVolume(vec3 P, vec3 Ng, vec3 Nw)
+{
+    if (u_fxAoParams.x <= 0.0)
+        return 1.0;
+    vec3 uvw = mul(u_fxAoVolume, vec4(P + Ng * u_fxAoParams.z, 1.0)).xyz;
+    vec4 lobes = texture3D(s_fxAoVolume, uvw);
+    const float k = 0.57735027;
+    vec4 w = max(vec4(dot(Nw, vec3(k, k, k)), dot(Nw, vec3(k, -k, -k)), dot(Nw, vec3(-k, k, -k)), dot(Nw, vec3(-k, -k, k))), 0.0);
+    float seen = dot(lobes, w) / max(dot(w, vec4_splat(1.0)), 1e-4);
+    float ao = clamp(seen * u_fxAoParams.w, 0.0, 1.0);
+    return mix(1.0, pow(ao, u_fxAoParams.y), u_fxAoParams.x);
+}
+
+// Lamp shadows of interiors (src/effects/lamp_shadows.hpp, fx/lamp_shadows.hpp for the face convention).
+// u_fxLampView: view space -> world. u_fxLamps[0]: x lamp count, y 1 = GL texture origin (bottom-left), z 1 / rows of
+// the atlases, w the draw's ambient luminance; per lamp i at 1 + 4i: xyz position, w far plane | rgb colour, w range |
+// att0, att1, att2, w slot | x baked share constant, y static texel, z dynamic texel.
+uniform mat4 u_fxLampView;
+uniform vec4 u_fxLamps[17];
+SAMPLER2DSHADOW(s_fxLampDynamic, 10);
+SAMPLER2DSHADOW(s_fxLampStatic, 11);
+
+// 1 = the lamp reaches Pw, 0 = something stands between them (the location or a character).
+float ffLampVisibility(int i, vec3 Pw)
+{
+    vec4 lamp = u_fxLamps[1 + 4 * i];
+    vec3 L = Pw - lamp.xyz;
+    vec3 a = abs(L);
+    vec3 F;
+    vec3 R;
+    vec3 U;
+    float face;
+    if (a.x >= a.y && a.x >= a.z)
+    {
+        if (L.x >= 0.0) { face = 0.0; F = vec3(1.0, 0.0, 0.0); R = vec3(0.0, 0.0, -1.0); U = vec3(0.0, 1.0, 0.0); }
+        else { face = 1.0; F = vec3(-1.0, 0.0, 0.0); R = vec3(0.0, 0.0, 1.0); U = vec3(0.0, 1.0, 0.0); }
+    }
+    else if (a.y >= a.z)
+    {
+        if (L.y >= 0.0) { face = 2.0; F = vec3(0.0, 1.0, 0.0); R = vec3(1.0, 0.0, 0.0); U = vec3(0.0, 0.0, -1.0); }
+        else { face = 3.0; F = vec3(0.0, -1.0, 0.0); R = vec3(1.0, 0.0, 0.0); U = vec3(0.0, 0.0, 1.0); }
+    }
+    else
+    {
+        if (L.z >= 0.0) { face = 4.0; F = vec3(0.0, 0.0, 1.0); R = vec3(1.0, 0.0, 0.0); U = vec3(0.0, 1.0, 0.0); }
+        else { face = 5.0; F = vec3(0.0, 0.0, -1.0); R = vec3(-1.0, 0.0, 0.0); U = vec3(0.0, 1.0, 0.0); }
+    }
+    float major = max(dot(L, F), 0.31); // inside the near plane: lit
+    float s = 1.0 / 1.05; // fx::kLampFaceGuard
+    float u = dot(L, R) / major * s;
+    float v = dot(L, U) / major * s;
+    float tile = u_fxLamps[3 + 4 * i].w * 6.0 + face;
+    float row = floor(tile / 6.0);
+    float column = tile - row * 6.0;
+    float x = (column + u * 0.5 + 0.5) / 6.0;
+    float y = (row + 0.5 - v * 0.5) * u_fxLamps[0].z;
+    if (u_fxLamps[0].y > 0.5)
+        y = 1.0 - y;
+    float far = lamp.w;
+    float depth = far / (far - 0.3) * (1.0 - 0.3 / major) - 0.0015; // fx::kLampShadowNear, a small bias
+    float t = u_fxLamps[4 + 4 * i].y;
+    float lit = 0.25 * (shadow2D(s_fxLampStatic, vec3(x - t, y - t, depth)) + shadow2D(s_fxLampStatic, vec3(x + t, y - t, depth)) +
+                        shadow2D(s_fxLampStatic, vec3(x - t, y + t, depth)) + shadow2D(s_fxLampStatic, vec3(x + t, y + t, depth)));
+    return min(lit, shadow2D(s_fxLampDynamic, vec3(x, y, depth)));
+}
+
+// The lamp's diffuse light at Pw (the D3D formulas the game's lights use), without the shadow.
+vec3 ffLampLight(int i, vec3 Pw, vec3 Nw)
+{
+    vec3 d = u_fxLamps[1 + 4 * i].xyz - Pw;
+    float distance = length(d);
+    vec4 color = u_fxLamps[2 + 4 * i];
+    vec4 att = u_fxLamps[3 + 4 * i];
+    if (distance > color.w)
+        return vec3_splat(0.0);
+    float ndl = max(dot(Nw, d / max(distance, 1e-4)), 0.0);
+    return color.rgb * ndl / max(att.x + att.y * distance + att.z * distance * distance, 1e-3);
+}
 #define FF_DIFFUSE ffDiffuse
 #else
 #define FF_DIFFUSE v_color0
@@ -146,12 +236,24 @@ void main()
 #endif
     vec3 Ng = N;
 #ifdef FX_LIGHT_NORMALMAP
-    N = fxPerturbNormal(Ng, P, v_texcoord1.xy);
+    N = fxPerturbNormal(Ng, P, u_fxFf.y > 0.5 ? v_texcoord1.xy : v_texcoord0.xy);
 #endif
+    // Two texels of a 512² face at 4 m along the normal: no self-shadowing at grazing light.
+    vec3 Pw = mul(u_fxLampView, vec4(P + Ng * 0.06, 1.0)).xyz;
+    vec3 Nw = normalize(mul(u_fxLampView, vec4(Ng, 0.0)).xyz);
+    float aoVolume = ffAoVolume(P, Ng, Nw);
 #ifdef FX_FF_LIT
+    // The volume occludes the ambient part (the per-vertex sum carries the global ambient and the lights not lit per
+    // pixel); the per-pixel sun and lamps keep their own visibility.
     float sunShadow = fxSunShadow(P, Ng);
-    ffDiffuse = vec4(clamp(fxLit(v_color0.rgb, v_matDiffuse.rgb, fxSunDiffuse(N, V) * sunShadow + fxPointDiffuse(N, P),
-                                 v_matAmbient.rgb, fxAmbient(N)), 0.0, 1.0), v_color0.a);
+    ffDiffuse = vec4(clamp(fxLit(v_color0.rgb * aoVolume, v_matDiffuse.rgb, fxSunDiffuse(N, V) * sunShadow + fxPointDiffuse(N, P),
+                                 v_matAmbient.rgb, fxAmbient(N) * aoVolume), 0.0, 1.0), v_color0.a);
+    // Lamp shadows: the light of a hidden lamp leaves (wherever the sum carried it: per vertex or per pixel).
+    vec3 lampLost = vec3_splat(0.0);
+    for (int i = 0; i < 4; ++i)
+        if (float(i) < u_fxLamps[0].x)
+            lampLost += ffLampLight(i, Pw, Nw) * (1.0 - ffLampVisibility(i, Pw));
+    ffDiffuse.rgb = max(ffDiffuse.rgb - v_matDiffuse.rgb * lampLost, ffDiffuse.rgb * 0.2);
 #else
     ffDiffuse = v_color0;
     vec4 tex0 = vec4_splat(0.0);
@@ -173,6 +275,18 @@ void main()
 #ifdef FX_LIGHT_NORMALMAP
     current.rgb *= fxBakedRelief(Ng, N, V);
 #endif
+    // The baked colours of interiors are mostly the ambient of the room (local-testing/shadows/DESIGN.md §2.1).
+    current.rgb *= aoVolume;
+    // Lamp shadows: a hidden lamp takes its share of the baked light, A / (A + k * ambient), along.
+    float lampKeep = 1.0;
+    for (int i = 0; i < 4; ++i)
+        if (float(i) < u_fxLamps[0].x)
+        {
+            float A = dot(ffLampLight(i, Pw, Nw), vec3(0.299, 0.587, 0.114));
+            float share = A / (A + u_fxLamps[4 + 4 * i].x * max(u_fxLamps[0].w, 0.02));
+            lampKeep -= share * (1.0 - ffLampVisibility(i, Pw));
+        }
+    current.rgb *= max(lampKeep, 0.2);
     current.rgb = fxLit(current.rgb, tex0.rgb, fxPointDiffuse(N, P), vec3_splat(0.0), vec3_splat(0.0));
 #endif
     gl_FragColor = ffFinish(current);

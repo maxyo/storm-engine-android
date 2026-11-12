@@ -13,8 +13,8 @@
 //   FX_LIGHT_RIM          rim light on silhouettes seen against the sun (characters, ships)
 //   FX_LIGHT_LINEAR       lights are summed in linear light: overlapping lights no longer burn out and
 //                         the terminator is soft. Combine with fxLit() / fxAddSpecular().
-//   FX_LIGHT_NORMALMAP    relief from a normal map derived from the game's height ("bump") texture
-//                         of texture stage 1; no mesh tangents needed
+//   FX_LIGHT_NORMALMAP    relief from a normal map derived from the game's height ("bump") texture of texture
+//                         stage 1 or the colour texture of stage 0 (fx/normal_map.hpp); no mesh tangents needed
 //
 // Contract with the emulator's vertex shader when FX_LIGHT_PER_PIXEL is on:
 //   * pass the view-space normal and position to the fragment shader;
@@ -36,10 +36,10 @@
 // overlapping lights add up the way light does. Render targets stay gamma encoded; the
 // «Оригинал» preset never defines this flag.
 //
-// FX_LIGHT_NORMALMAP (only for draw calls whose stage 1 texture has a derived normal map, bound with
+// FX_LIGHT_NORMALMAP (only for draw calls whose stage 1 or stage 0 texture has a derived normal map, bound with
 // fx::Lighting::BindNormalMap): replace the interpolated normal before any of the calls above,
-//   N = fxPerturbNormal(N, P, stage 1 texture coordinates);
-// The stage itself stays as it is (the 2x multiply detail layer of the original look). Cost per pixel:
+//   N = fxPerturbNormal(N, P, that stage's texture coordinates);
+// The stages themselves stay as they are (colour, and the 2x multiply detail layer of the original look). Cost per pixel:
 // one RG8 fetch, four screen-space derivatives, two cross products and two normalisations.
 // For baked geometry, which has no run-time sun term, multiply the baked colour instead:
 //   current.rgb *= fxBakedRelief(Ngeometry, N, V);
@@ -143,7 +143,7 @@ vec3 fxRim(vec3 N, vec3 V)
 // Sampler stage 14 (fx::kNormalMapStage) is reserved for the derived normal map (RG8: x, y of the tangent-space normal).
 SAMPLER2D(s_fxNormalMap, 14);
 
-// N: unit interpolated normal, P: position (both view space), uv: the height texture's coordinates.
+// N: unit interpolated normal, P: position (both view space), uv: the coordinates of the map's texture.
 // The tangent frame comes from screen-space derivatives of P and uv (a cotangent frame), so meshes need no
 // tangents and mirrored or rotated texture mappings are handled by construction.
 vec3 fxPerturbNormal(vec3 N, vec3 P, vec2 uv)
@@ -172,7 +172,7 @@ float fxBakedRelief(vec3 Ng, vec3 N, vec3 V)
     vec3 t = u_fxLight[0].xyz - Ng * dot(u_fxLight[0].xyz, Ng);
     if (dot(t, t) < 1e-4) t = V - Ng * dot(V, Ng);
     vec3 L = Ng * 0.5 + t * (0.866 * inversesqrt(max(dot(t, t), 1e-12)));
-    return clamp(1.0 + 1.6 * (dot(N, L) - 0.5), 0.55, 1.5);
+    return clamp(1.0 + 2.4 * (dot(N, L) - 0.5), 0.4, 1.6);
 }
 #endif // FX_LIGHT_NORMALMAP
 
@@ -249,6 +249,11 @@ vec3 fxPointSpecular(vec3 N, vec3 P, vec3 V)
 SAMPLER2DSHADOW(s_fxShadowMap, 15);
 uniform mat4 u_fxShadowMtx; // view space -> shadow map uv and depth
 uniform vec4 u_fxShadow;    // x: one texel in uv, y: shadow strength, z: normal offset in view units, w: depth bias
+// The location's still geometry from the sun (src/effects/shadows.hpp: cached around the player, stage 9): houses,
+// walls and palms onto the lit models. u_fxShadowStatic: x one texel, y 1 = present, z normal offset, w depth bias.
+SAMPLER2DSHADOW(s_fxShadowStatic, 9);
+uniform mat4 u_fxShadowStaticMtx;
+uniform vec4 u_fxShadowStatic;
 
 // 1 = fully lit by the sun, 1 - strength = fully shadowed. P and N in view space.
 float fxSunShadow(vec3 P, vec3 N)
@@ -269,7 +274,19 @@ float fxSunShadow(vec3 P, vec3 N)
     // Outside the map (and beyond its far plane) everything is lit; fade out over the last tenth.
     vec2 edge = abs(coord.xy - vec2_splat(0.5)) * 2.0;
     float inside = clamp((1.0 - max(max(edge.x, edge.y), coord.z)) * 10.0, 0.0, 1.0);
-    return 1.0 - (1.0 - lit) * u_fxShadow.y * inside;
+    lit = 1.0 - (1.0 - lit) * inside;
+    if (u_fxShadowStatic.y > 0.5)
+    {
+        vec4 s = mul(u_fxShadowStaticMtx, vec4(P + N * u_fxShadowStatic.z, 1.0));
+        vec3 sc = vec3(s.xy, s.z - u_fxShadowStatic.w);
+        vec2 so = u_fxShadowStatic.xx;
+        float slit = 0.25 * (shadow2D(s_fxShadowStatic, sc + vec3(-so.x, -so.y, 0.0)) + shadow2D(s_fxShadowStatic, sc + vec3(so.x, -so.y, 0.0)) +
+                             shadow2D(s_fxShadowStatic, sc + vec3(-so.x, so.y, 0.0)) + shadow2D(s_fxShadowStatic, sc + vec3(so.x, so.y, 0.0)));
+        vec2 sedge = abs(sc.xy - vec2_splat(0.5)) * 2.0;
+        float sinside = clamp((1.0 - max(max(sedge.x, sedge.y), sc.z)) * 10.0, 0.0, 1.0);
+        lit = min(lit, 1.0 - (1.0 - slit) * sinside);
+    }
+    return 1.0 - (1.0 - lit) * u_fxShadow.y;
 }
 #else
 #define fxSunShadow(P, N) 1.0

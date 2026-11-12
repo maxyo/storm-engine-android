@@ -561,49 +561,57 @@ Mesh MakeAliasingPattern()
     return mesh;
 }
 
-storm::fx::EngineSeaState MakeSeaState(float time)
+float SeaHeight(float x, float z, float time, float *normal)
 {
-    storm::fx::EngineSeaState sea;
-    sea.layers[0] = {2.6f, 0.5f, {4.0f * time, 0.0f}};
-    sea.layers[1] = {0.55f, 2.0f, {0.0f, 1.5f * time}};
-    sea.pos_shift = 1.2f;
-    sea.bump_scale = 0.09f;
-    return sea;
+    // Travelling swells of a fresh breeze: wave vector (rad/m), amplitude (m); deep-water speed w = sqrt(g k).
+    constexpr float kWaves[5][3] = {{0.080f, 0.020f, 0.50f}, {0.050f, -0.110f, 0.26f}, {0.210f, 0.090f, 0.14f},
+                                    {-0.160f, 0.270f, 0.09f}, {0.450f, -0.380f, 0.04f}};
+    float height = 1.2f, dx = 0.0f, dz = 0.0f;
+    for (int i = 0; i < 5; ++i)
+    {
+        const float kx = kWaves[i][0], kz = kWaves[i][1], amp = kWaves[i][2];
+        const float phase = kx * x + kz * z - std::sqrt(9.81f * std::sqrt(kx * kx + kz * kz)) * time + 1.3f * i;
+        height += amp * std::sin(phase);
+        dx += amp * kx * std::cos(phase);
+        dz += amp * kz * std::cos(phase);
+    }
+    if (normal)
+    {
+        const V3 n = Normalize({-dx, 1.0f, -dz});
+        normal[0] = n.x;
+        normal[1] = n.y;
+        normal[2] = n.z;
+    }
+    return height;
 }
 
-void FillWaveField(storm::fx::EngineWaveField &field, float time)
+Mesh MakeSea(std::array<float, 2> centre, float time)
 {
-    const int n = storm::fx::EngineWaveField::kSize;
-    for (int layer = 0; layer < 2; ++layer)
-    {
-        std::vector<float> heights(static_cast<size_t>(n) * n), normals(static_cast<size_t>(n) * n * 2);
-        const float phase = time * (layer == 0 ? 0.9f : 1.7f);
-        const auto h = [&](int x, int z) {
-            const float u = 2.0f * kPi * static_cast<float>(x & (n - 1)) / n, v = 2.0f * kPi * static_cast<float>(z & (n - 1)) / n;
-            // Tiling swell: a few integer-frequency waves with sharpened crests plus fractal chop.
-            float sum = 0.0f;
-            const float waves[5][3] = {{3, 1, 1.0f}, {2, -3, 0.55f}, {5, 2, 0.4f}, {-4, 5, 0.28f}, {7, -6, 0.18f}};
-            for (int i = 0; i < 5; ++i)
-            {
-                const float s = std::sin(waves[i][0] * u + waves[i][1] * v + phase * (1.0f + 0.37f * i) + 1.3f * i + 2.0f * layer);
-                sum += waves[i][2] * (1.0f - std::pow(std::fabs(s), 1.3f));
-            }
-            sum /= 2.41f;
-            sum += 0.10f * storm::fx::PeriodicFbm(static_cast<float>(x & (n - 1)) / n, static_cast<float>(z & (n - 1)) / n, 8, 3, 17u + layer);
-            return std::clamp(0.5f + 0.5f * (sum - 0.5f) * 1.5f, 0.0f, 1.0f);
-        };
-        for (int z = 0; z < n; ++z)
-            for (int x = 0; x < n; ++x)
-            {
-                heights[z * n + x] = h(x, z);
-                // sea.cpp: unit normal of the 0..1 height field with a texel as the horizontal unit.
-                const float dx = 0.5f * (h(x + 1, z) - h(x - 1, z)), dz = 0.5f * (h(x, z + 1) - h(x, z - 1));
-                const float len = std::sqrt(dx * dx + 1.0f + dz * dz);
-                normals[2 * (z * n + x) + 0] = -dx / len;
-                normals[2 * (z * n + x) + 1] = -dz / len;
-            }
-        field.SetLayer(layer, heights, normals);
-    }
+    // Square grid around `centre`, about 0.5 m apart under the camera and widening cubically to 3 km at the edge.
+    constexpr int kCells = 256;
+    const auto offset = [](int i) {
+        const float s = 2.0f * static_cast<float>(i) / kCells - 1.0f;
+        return 64.0f * s + 2950.0f * s * s * s;
+    };
+    Mesh mesh;
+    mesh.vertices.reserve(static_cast<size_t>(kCells + 1) * (kCells + 1));
+    for (int z = 0; z <= kCells; ++z)
+        for (int x = 0; x <= kCells; ++x)
+        {
+            Vertex v{};
+            v.pos[0] = centre[0] + offset(x);
+            v.pos[2] = centre[1] + offset(z);
+            v.pos[1] = SeaHeight(v.pos[0], v.pos[2], time, v.normal);
+            v.abgr = 0xffffffffu;
+            mesh.vertices.push_back(v);
+        }
+    for (int z = 0; z < kCells; ++z)
+        for (int x = 0; x < kCells; ++x)
+        {
+            const auto at = [](int px, int pz) { return static_cast<uint32_t>(pz * (kCells + 1) + px); };
+            mesh.indices.insert(mesh.indices.end(), {at(x, z), at(x, z + 1), at(x + 1, z), at(x + 1, z), at(x, z + 1), at(x + 1, z + 1)});
+        }
+    return mesh;
 }
 
 storm::fx::WeatherInput MakeWeather(Weather weather, float sun_turn)

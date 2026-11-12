@@ -3,7 +3,7 @@
 // Every field may be changed between frames; the passes read the struct each
 // frame and (re)create GPU resources lazily. `QualityPreset::Low` turns
 // every effect off: the post chain degenerates to a plain copy and the legacy
-// sea / sky / fixed-function lighting paths must be used unchanged.
+// sea / sky / fixed-function lighting paths are used unchanged.
 #pragma once
 
 #include <cstdint>
@@ -15,9 +15,14 @@ namespace storm::fx
 {
 
 // Sampler stages fx binds into the fixed-function emulator's programs (FX_LIGHT_SHADOW, FX_LIGHT_NORMALMAP).
-// They are above the emulator's own units (stages 0..4, cube maps 5..7 and 11, volume textures 8..10 and 12),
-// so every combination fits in the 16 units of GLES 3.0.
+// They are above the emulator's own units (stages 0..4, cube maps 5..7) except 10..12: the shim also maps volume
+// textures (8..10, 12) and a stage-3 cube (11) there, which only ported pixel shaders read; the fx lit / baked
+// variants never run a port and bind their own textures to those units after the shim, so every combination fits
+// in the 16 units of GLES 3.0.
 inline constexpr uint8_t kShadowMapStage = 15; // 13 is the renderer's bone palette (vertex shader)
+inline constexpr uint8_t kAoVolumeStage = 12;    // the interior's AO volume (RGBA8 3D, four lobes)
+inline constexpr uint8_t kLampDynamicStage = 10; // lamp shadow atlases (characters / location)
+inline constexpr uint8_t kLampStaticStage = 11;
 inline constexpr uint8_t kNormalMapStage = 14;
 
 enum class QualityPreset : uint8_t
@@ -35,14 +40,6 @@ enum class GradePreset : uint8_t
     Overcast,  // «Пасмурно»: cool, low saturation, softer contrast
 };
 
-enum class WaterQuality : uint8_t
-{
-    Legacy, // fx::Water is not used; the ported Sea2/Sea3 techniques draw the sea
-    Low,    // analytic sky reflection, two detail normals, sun specular
-    Medium, // + crest foam, reflected clouds / environment cube
-    High,   // + scene depth: depth colour, shore foam, soft edges, refraction
-};
-
 // Bits understood by shaders/include/fx_lighting.sh (see lighting.hpp).
 enum LightingFlags : uint32_t
 {
@@ -52,7 +49,7 @@ enum LightingFlags : uint32_t
     kLightingSpecular = 1u << 2,   // FX_LIGHT_SPECULAR: Blinn-Phong highlight
     kLightingTranslucent = 1u << 3, // FX_LIGHT_TRANSLUCENT: back-lit thin surfaces (sails, flags)
     kLightingPoint = 1u << 4,       // FX_LIGHT_POINT: point and spot lights evaluated per pixel
-    kLightingNormalMap = 1u << 5,   // FX_LIGHT_NORMALMAP: relief from normal maps derived from the game's bump textures
+    kLightingNormalMap = 1u << 5,   // FX_LIGHT_NORMALMAP: relief from normal maps derived from the game's textures
     kLightingRim = 1u << 6,         // FX_LIGHT_RIM: rim light on characters and ships seen against the sun
     kLightingLinear = 1u << 7,      // FX_LIGHT_LINEAR: lights are added in linear light instead of gamma space
     kLightingAerial = 1u << 8,      // FX_AERIAL: aerial perspective and height fog instead of the plain fog
@@ -65,6 +62,23 @@ enum class ShadowQuality : uint8_t
     Off,
     Low,  // 1024² map, one hardware-filtered tap
     Soft, // 2048² map, four taps
+};
+
+// Strengths of the interior ambient-occlusion volume (Settings::ao_volume, option fx_ao_volume), for the owner's
+// choice of the interior contrast. The shader darkens by mix(1, pow(ao, contrast), strength), where ao is the baked
+// visibility relative to an open floor or wall (1 there, lower under tables, behind barrels, in corners).
+inline constexpr uint8_t kAoVolumeLevels = 3;
+struct AoVolumeLevel
+{
+    const char *name;
+    float strength;
+    float contrast;
+};
+inline constexpr AoVolumeLevel kAoVolumeLevel[kAoVolumeLevels + 1] = {
+    {"off", 0.0f, 1.0f},
+    {"as the game's data", 0.6f, 1.0f},
+    {"moderate contrast", 0.85f, 1.4f},
+    {"strong stylised contrast", 1.0f, 1.7f},
 };
 
 struct Settings
@@ -90,8 +104,6 @@ struct Settings
     bool lens_flare = false;      // procedural sun glare and flare ghosts (switch the legacy flare sprites off)
     float lens_flare_intensity = 0.5f;
     bool scene_grading = false;   // PostChain::Frame::scene_grade (mood of the place and hour) is applied
-    float vignette = 0.0f;        // 0 = off .. 1 = strong darkening of the corners; optional, off in every preset
-    float film_grain = 0.0f;      // 0 = off .. 1; optional, off in every preset
     bool ssao = false;            // high end only; needs the scene depth texture
     float ssao_radius = 0.6f;     // metres
     float ssao_intensity = 0.8f;
@@ -103,14 +115,25 @@ struct Settings
 
     // ---- world passes ----
     bool contact_shadows = false; // soft blobs under characters and objects (ContactShadows)
-    WaterQuality water = WaterQuality::Legacy;
-    bool water_refraction = false; // needs a copy of the opaque scene colour
+    // The game's own sea (the ported Sea2 technique, shaders/ports/fs_port_sea2.sc) with improvements on top; the
+    // reflected ray is clamped to the horizon always, these are optional:
+    bool sea_band_limit = false;  // the bump detail fades with the pixel footprint: no shimmer towards the horizon
+    bool sea_soft_edges = false;  // the sea fades out where shallow in front of the scene (needs the scene depth)
+    bool sea_specular = false;    // a clean sun highlight from the bumped normal over the game's own sun road
+    float sea_edge_depth = 1.5f;  // metres of water over which a soft edge fades in
+    float sea_specular_power = 400.0f;
+    float sea_specular_strength = 0.6f;
     bool sky_atmosphere = false;   // analytic sky instead of the textured sky box
     bool sky_clouds = false;
     uint32_t lighting_flags = kLightingNone;
     uint8_t point_lights = 4;      // per draw call with kLightingPoint: 4 or 8
     float normal_map_strength = 1.0f; // with kLightingNormalMap: scales every material's relief (0..1)
+    uint16_t normal_map_size = 1024;  // with kLightingNormalMap: larger side of the resident normal maps (RG8 + mips)
     ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
+    // Ambient-occlusion volume of interiors (ao_volume.hpp): 0 off, else one of the strengths AoVolumeLevel names.
+    uint8_t ao_volume = 0;
+    // Lamp shadows of interiors (lamp_shadows.hpp): how many lamps cast them, 0, 2 or 4.
+    uint8_t lamp_shadows = 0;
 
     static Settings FromPreset(QualityPreset preset);
 
@@ -128,20 +151,19 @@ struct Support
 {
     bool lut_3d = false;        // 3D RGBA8 texture: the grading table every post effect passes through
     bool shadow_map = false;    // D16 texture as a render target: Settings::shadows
-    bool scene_snapshot = false; // two colour attachments: WaterQuality::High
-    bool wave_field = false;    // RGBA16F texture readable in the vertex shader: Water::SubmitField
-    bool scene_depth = false;   // the scene's depth attachment can be sampled: Settings::ssao, WaterQuality::High
+    bool scene_depth = false;   // the scene's depth attachment can be sampled: Settings::ssao, Settings::sea_soft_edges
     bool normal_map = false;    // RG8 textures: kLightingNormalMap
     bool msaa = false;          // multisampled RGBA8 render targets: Settings::msaa
     bool msaa_depth = false;    // the scene depth can still be sampled when the scene target is multisampled
-                                // (renderer knowledge, like scene_depth): msaa together with ssao / high water
+                                // (renderer knowledge, like scene_depth): msaa together with ssao / sea soft edges
     bool anisotropy = false;    // anisotropic texture filtering
+    bool ao_volume = false;     // RGBA8 3D textures with linear filtering: Settings::ao_volume
 
     std::string Describe() const;
 };
 
 // Inconsistent or unsupported requests in `settings`, one message each; empty = every effect will run exactly
-// as asked. PostChain, Water and Shadows refuse (and log) what this reports.
+// as asked. PostChain, Shadows and the sea's soft edges refuse (and log) what this reports.
 std::vector<std::string> ValidateSettings(const Settings &settings, const Support &support);
 
 // The explicit, one-time alternative to a silent fallback: returns `requested` with every option that

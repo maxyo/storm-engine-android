@@ -58,6 +58,7 @@ struct Combat
     bool known = false;
     uint64_t gameplay_revision = 0, activity = 0;
     std::string player, mode = "unknown", interact_kind = "interact"; // interact_kind: dialog | boarding | interact
+    std::string interact_name; // whom the talk button talks to ("" = the engine has no name)
     // Offered action -> its availability generation, which a command for it carries.
     std::map<std::string, uint64_t> actions;
     std::string pistol = "unknown"; // unknown, no_weapon, unloaded, loaded
@@ -228,6 +229,7 @@ struct WorldMap
     bool instruments = false, ships_visible = false, commands_ready = false;
     std::string date, coordinates;
     double hour = -1.0, wind_force = -1.0, morale = -1.0, speed = -1.0;
+    double time_scale = -1.0; // the world's time scale the scripts set (x1 = 1)
     double wind_angle = 0.0, heading = 0.0;
     bool angles = false; // wind_angle and heading are known
     int food_days = -1, rum_days = -1, flag = -1, storm = -1;
@@ -264,6 +266,7 @@ struct States
     Vitals vitals;
     std::string world_info;     // channel "worldInfo": lines of the location text
     std::string context_action; // channel "contextAction": the script's quick action, "" = none
+    std::string reload_place;   // channel "reloadPlace": where the reload locator the hero is in leads, "" = none
     LandCommands land_commands;
     Ship ship;
     SeaOrders sea_orders;
@@ -371,6 +374,7 @@ struct Placement
     float layer_x = 0.0f, layer_y = 0.0f;                  // the origin of the HUD layer (the safe area)
     float screen_width = 0.0f, screen_height = 0.0f;
     float density = 1.0f; // pixels per dp
+    float layer_width = 0.0f, layer_height = 0.0f; // the size of the HUD layer (the safe area)
 };
 
 // What the HUD needs from the host; unit tests give it a fake.
@@ -537,6 +541,13 @@ std::unique_ptr<screens::StateConsumer> CreateSpyglassConsumer();
 Json SpyglassProps(const Spyglass &spyglass, Hud &hud);
 // ASCII lower case: engine identifiers are matched without regard to case.
 std::string Lower(std::string text);
+
+// The game's time acceleration in four steps (owner decision), the same at sea and on the world
+// map: the "time" button shows the scale the engine runs at (`scale`, x1 = 1; negative: unknown,
+// no button) and a tap asks for the next of x1, x2, x4, x8. The engine applies it through the
+// scripts, which clamp it to their limits (android_time_scale.hpp). Offered only when the
+// gameplay binds all four steps.
+void BuildTimeScale(Hud &hud, const Gameplay &gameplay, double scale, View &view, Input &input);
 
 // The fleet token of a ship by a word of the engine's ship model name ("Lugger" → ship-lugger).
 const char *ShipIcon(const std::string &type);

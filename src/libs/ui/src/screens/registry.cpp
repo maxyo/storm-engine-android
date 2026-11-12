@@ -131,7 +131,7 @@ std::vector<std::unique_ptr<StateConsumer>> CreateStateConsumers()
     consumers.push_back(CreateGameOverConsumer());
     consumers.push_back(CreateLoadFailureConsumer());
     consumers.push_back(CreateLauncherConsumer());
-    hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, landCommands, ship, seaOrders, seaQuickAction, presentation, spyglass
+    hud::AddStateConsumers(consumers); // gameplay, combat, vitals, worldInfo, contextAction, reloadPlace, landCommands, ship, seaOrders, seaQuickAction, presentation, spyglass
     return consumers;
 }
 

@@ -24,6 +24,7 @@ enum ProgramIndex
     kComposite, // + 1 bloom, + 2 tone curve, + 4 ambient occlusion
     kFxaa = kComposite + 8,
     kCas,
+    kWobble,
     kFlare, // vs_fx_sprite + fs_fx_sprite
 };
 
@@ -32,7 +33,7 @@ constexpr const char *kFragmentNames[] = {
     "fs_fx_ssao",
     "fs_fx_composite",   "fs_fx_composite_b",     "fs_fx_composite_t", "fs_fx_composite_bt",
     "fs_fx_composite_a", "fs_fx_composite_ab",    "fs_fx_composite_at", "fs_fx_composite_abt",
-    "fs_fx_fxaa",        "fs_fx_cas",             "fs_fx_sprite",
+    "fs_fx_fxaa",        "fs_fx_cas",             "fs_fx_wobble",      "fs_fx_sprite",
 };
 static_assert(std::size(kFragmentNames) == kFlare + 1);
 
@@ -60,8 +61,10 @@ void PostChain::Shutdown()
     Destroy(graded_.fb);
     Destroy(antialiased_.fb);
     Destroy(occlusion_.fb);
+    Destroy(wobbled_.fb);
     Destroy(lut_);
-    Destroy(u_finish_);
+    Destroy(u_dither_);
+    Destroy(u_wobble_);
     for (bgfx::UniformHandle *uniform :
          {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_,
           &u_ao_})
@@ -81,8 +84,10 @@ void PostChain::OnDeviceLost()
     graded_ = {};
     antialiased_ = {};
     occlusion_ = {};
+    wobbled_ = {};
     lut_ = BGFX_INVALID_HANDLE;
-    u_finish_ = BGFX_INVALID_HANDLE;
+    u_dither_ = BGFX_INVALID_HANDLE;
+    u_wobble_ = BGFX_INVALID_HANDLE;
     for (bgfx::UniformHandle *uniform :
          {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_,
           &u_ao_})
@@ -108,7 +113,8 @@ void PostChain::EnsureUniforms()
         s_ao_ = bgfx::createUniform("s_fxAoTex", bgfx::UniformType::Sampler);
         s_depth_ = bgfx::createUniform("s_fxSceneDepth", bgfx::UniformType::Sampler);
         u_ao_ = bgfx::createUniform("u_fxAo", bgfx::UniformType::Vec4, 3);
-        u_finish_ = bgfx::createUniform("u_fxFinish", bgfx::UniformType::Vec4);
+        u_dither_ = bgfx::createUniform("u_fxDither", bgfx::UniformType::Vec4);
+        u_wobble_ = bgfx::createUniform("u_fxWobble", bgfx::UniformType::Vec4, 2);
     }
 }
 
@@ -129,8 +135,9 @@ bgfx::ProgramHandle PostChain::CopyProgram()
 bool PostChain::Prepare(const Settings &settings, int &budget)
 {
     // The programs Submit() picks for these settings (a frame with the scene depth and the sun on screen).
-    int needed[8];
+    int needed[9];
     int count = 0;
+    needed[count++] = kWobble; // underwater, on every preset
     if (settings.PostIsIdentity() || !SupportsLut3d())
         needed[count++] = kCopy;
     else
@@ -220,10 +227,11 @@ void PostChain::EnsureLut(const Settings &settings, const ColorGrade &scene_grad
     }
 }
 
-uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
+uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
 {
-    if (!bgfx::isValid(frame.scene_color) || frame.scene_width == 0 || frame.scene_height == 0)
+    if (!bgfx::isValid(input.scene_color) || input.scene_width == 0 || input.scene_height == 0)
         return 0;
+    Frame frame = input;
     bgfx::ViewId view = frame.first_view;
     const bool same_size = frame.scene_width == frame.target_width && frame.scene_height == frame.target_height;
 
@@ -231,7 +239,33 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
     const bool usable = SupportsLut3d();
     if (!usable && !settings.PostIsIdentity())
         STORM_FX_ERROR_ONCE(reported_lut_, "post effects are on but the device has no 3D textures (Support::lut_3d): frame copied unprocessed");
-    if (settings.PostIsIdentity() || !usable)
+    const bool copy_only = settings.PostIsIdentity() || !usable;
+
+    // ---- underwater wobble: replaces the copy, or feeds the wobbled picture to the passes below ----
+    if (frame.wobble.on)
+    {
+        const float sizes[2] = {static_cast<float>(frame.scene_width), static_cast<float>(frame.scene_height)};
+        float wobble[2][4] = {{frame.wobble.phase, bgfx::getCaps()->originBottomLeft ? 1.0f : 0.0f, 0.0f, 0.0f}, {}};
+        for (int axis = 0; axis < 2; ++axis)
+        {
+            // As the game's grid: a whole number of pixels, the picture squeezed by twice that.
+            const float d = std::floor(sizes[axis] * std::max(frame.wobble.amplitude, 0.0f));
+            wobble[1][axis] = sizes[axis] / (sizes[axis] + 2.0f * d);
+            wobble[1][axis + 2] = d / (sizes[axis] + 2.0f * d);
+        }
+        if (!copy_only)
+            EnsureTarget(wobbled_, frame.scene_width, frame.scene_height);
+        SetupView(view, "fx underwater wobble", copy_only ? frame.target : wobbled_.fb,
+                  copy_only ? frame.target_width : frame.scene_width, copy_only ? frame.target_height : frame.scene_height);
+        const bgfx::ProgramHandle program = Program(kWobble);
+        bgfx::setUniform(u_wobble_, wobble, 2);
+        bgfx::setTexture(0, s_scene_, frame.scene_color, kClampLinear);
+        SubmitScreenTriangle(view++, program, kWriteColor, copy_only && frame.flip_v);
+        if (copy_only)
+            return 1;
+        frame.scene_color = bgfx::getTexture(wobbled_.fb);
+    }
+    if (copy_only)
     {
         SetupView(view, "fx copy", frame.target, frame.target_width, frame.target_height);
         const bgfx::ProgramHandle copy = Program(kCopy);
@@ -344,9 +378,9 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
         const float lut[4] = {static_cast<float>(kDefaultLutSize - 1) / kDefaultLutSize, 0.5f / kDefaultLutSize, 0.0f, 0.0f};
         bgfx::setUniform(u_tone_, tone);
         bgfx::setUniform(u_lut_, lut);
-        const float finish[4] = {settings.dither ? 1.0f / 255.0f : 0.0f, std::clamp(settings.vignette, 0.0f, 1.0f),
-                                 std::clamp(settings.film_grain, 0.0f, 1.0f), static_cast<float>((++frame_counter_ * 37u) % 251u)};
-        bgfx::setUniform(u_finish_, finish);
+        const float dither[4] = {settings.dither ? 1.0f / 255.0f : 0.0f, static_cast<float>((++frame_counter_ * 37u) % 251u),
+                                 0.0f, 0.0f};
+        bgfx::setUniform(u_dither_, dither);
         bgfx::setTexture(0, s_scene_, frame.scene_color, same_size || !composite_is_final ? kClampPoint : kClampLinear);
         if (levels > 0)
             bgfx::setTexture(1, s_bloom_, bgfx::getTexture(bloom_[0].fb), kClampLinear);

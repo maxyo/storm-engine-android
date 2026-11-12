@@ -29,6 +29,7 @@
 #ifdef __ANDROID__
 #include <android/log.h>
 #include "platform/android_ui.hpp"
+#include "shared/interface/messages.h"
 #include "platform/android_camera_zoom.hpp"
 #include "platform/android_camera_turn.hpp"
 #include "platform/android_held_controls.hpp"
@@ -728,6 +729,13 @@ int main(int argc, char *argv[])
             }
             else if (command == "back" && !storm::android::mobileScreen.empty())
                 core_private->Event("exitCancel");
+            else if (command == "uisound:press")
+            {
+                // A press started on the touch UI's game interface: the scripts' interface click,
+                // once per gesture (the widget actions that follow are silent, mobile_action_frame.hpp).
+                if (!storm::android::mobileScreen.empty())
+                    core_private->Event(ISOUND_EVENT, "l", 1);
+            }
             else if (command.starts_with("context:"))
             {
                 const bool accepted = storm::android::mobileScreen.empty() && command.substr(8) == storm::android::contextAction;

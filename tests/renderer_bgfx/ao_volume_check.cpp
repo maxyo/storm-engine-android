@@ -1,0 +1,341 @@
+// The interior AO volume end to end (src/effects/ao_volume.hpp, ff_fragment.sh ffAoVolume) on OpenGL ES in an SDL
+// window (an X display, like skinning_check): a 6 x 6 m floor with baked vertex colours (lighting off, as the
+// location models draw) under a 1.2 m table top at 0.8 m, seen from above. The table top is part of the reported
+// geometry, not drawn, so the floor under it stays in view.
+//   «Низкая»: no volume, the floor is one colour;
+//   «Высокая» with fx_ao_volume=0: the baked variant must reproduce exactly that colour;
+//   fx_ao_volume=1..3: under the table clearly darker, the open floor unchanged, stronger levels darker.
+#include "device.hpp"
+#include <SDL2/SDL.h>
+#include "storm/render/effects.hpp"
+
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <span>
+#include <vector>
+
+using namespace storm;
+using shim::Device;
+
+namespace
+{
+
+constexpr uint32_t kSize = 96;
+
+void check(HRESULT result, const char *what)
+{
+    if (FAILED(result))
+    {
+        std::fprintf(stderr, "FAIL: %s returned 0x%08x\n", what, static_cast<unsigned>(result));
+        std::exit(1);
+    }
+}
+
+struct Vertex
+{
+    float pos[3];
+    float nrm[3];
+    uint32_t color;
+};
+
+void add_box(std::vector<std::array<float, 3>> &p, std::vector<uint32_t> &idx, std::array<float, 3> lo,
+             std::array<float, 3> hi)
+{
+    const auto base = static_cast<uint32_t>(p.size());
+    for (int c = 0; c < 8; ++c)
+        p.push_back({c & 1 ? hi[0] : lo[0], c & 2 ? hi[1] : lo[1], c & 4 ? hi[2] : lo[2]});
+    const uint32_t faces[6][4] = {{0, 1, 3, 2}, {4, 6, 7, 5}, {0, 4, 5, 1}, {2, 3, 7, 6}, {0, 2, 6, 4}, {1, 5, 7, 3}};
+    for (const auto &f : faces)
+        for (const uint32_t t : {f[0], f[1], f[2], f[0], f[2], f[3]})
+            idx.push_back(base + t);
+}
+
+class Harness
+{
+  public:
+    explicit Harness(Device &device) : d_(device)
+    {
+        check(d_.CreateOffscreenPlainSurface(kSize, kSize, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &readback_, nullptr),
+              "CreateOffscreenPlainSurface");
+        check(d_.GetRenderTarget(0, &back_), "GetRenderTarget");
+    }
+    ~Harness()
+    {
+        readback_->Release();
+        back_->Release();
+    }
+
+    // The floor from 5 m above, orthographic over 6 x 6 m; returns the picture (BGRA).
+    std::vector<uint8_t> render(bool lit = false)
+    {
+        check(d_.BeginScene(), "BeginScene");
+        check(d_.Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xFF000000, 1.0f, 0), "Clear");
+        D3DMATRIX identity{};
+        identity.m[0][0] = identity.m[1][1] = identity.m[2][2] = identity.m[3][3] = 1.0f;
+        // Row-vector view: world x -> view x, world z -> view y, world y -> towards the camera; eye 5 m up.
+        D3DMATRIX view{};
+        view.m[0][0] = 1.0f;
+        view.m[1][2] = -1.0f;
+        view.m[2][1] = 1.0f;
+        view.m[3][2] = 5.0f;
+        view.m[3][3] = 1.0f;
+        D3DMATRIX projection{};
+        projection.m[0][0] = projection.m[1][1] = 1.0f / 3.0f;
+        projection.m[2][2] = 0.1f;
+        projection.m[3][3] = 1.0f;
+        d_.SetTransform(D3DTS_WORLD, &identity);
+        d_.SetTransform(D3DTS_VIEW, &view);
+        d_.SetTransform(D3DTS_PROJECTION, &projection);
+        d_.SetRenderState(D3DRS_ZENABLE, FALSE);
+        d_.SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+        d_.SetRenderState(D3DRS_LIGHTING, lit ? TRUE : FALSE);
+        d_.SetRenderState(D3DRS_AMBIENT, 0xFF202020);
+        if (lit)
+        {
+            // The sun from the west (-x), 45° up: the wall of the outdoor case shades the floor east of it.
+            D3DMATERIAL9 material{};
+            material.Diffuse = material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
+            d_.SetMaterial(&material);
+            D3DLIGHT9 sun{};
+            sun.Type = D3DLIGHT_DIRECTIONAL;
+            sun.Diffuse = {0.7f, 0.7f, 0.7f, 1.0f};
+            sun.Direction = {0.7071f, -0.7071f, 0.0f};
+            d_.SetLight(0, &sun);
+            d_.LightEnable(0, TRUE);
+        }
+        d_.SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
+        d_.SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+        d_.SetTexture(0, nullptr);
+        // 12 x 12 quads: the interpolation of the baked colour is per vertex, the AO per pixel.
+        std::vector<Vertex> floor;
+        const int n = 12;
+        for (int z = 0; z < n; ++z)
+            for (int x = 0; x < n; ++x)
+            {
+                const float corners[6][2] = {{0, 0}, {1, 0}, {0, 1}, {0, 1}, {1, 0}, {1, 1}};
+                for (const auto &c : corners)
+                    floor.push_back({{-3.0f + 6.0f * (x + c[0]) / n, 0.0f, -3.0f + 6.0f * (z + c[1]) / n},
+                                     {0.0f, 1.0f, 0.0f},
+                                     0xFF909090u});
+            }
+        d_.SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE);
+        check(d_.DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(floor.size() / 3), floor.data(), sizeof(Vertex)),
+              "draw floor");
+        check(d_.EndScene(), "EndScene");
+        check(d_.GetRenderTargetData(back_, readback_), "GetRenderTargetData");
+        D3DLOCKED_RECT locked;
+        check(readback_->LockRect(&locked, nullptr, D3DLOCK_READONLY), "LockRect(readback)");
+        std::vector<uint8_t> pixels(kSize * kSize * 4);
+        for (uint32_t y = 0; y < kSize; ++y)
+            std::memcpy(&pixels[y * kSize * 4], static_cast<uint8_t *>(locked.pBits) + y * locked.Pitch, kSize * 4);
+        readback_->UnlockRect();
+        check(d_.Present(), "Present");
+        return pixels;
+    }
+
+  private:
+    Device &d_;
+    storm::shim::Surface *readback_ = nullptr, *back_ = nullptr;
+};
+
+// Mean green of a square of pixels around (u, v) in 0..1 picture coordinates.
+float mean(const std::vector<uint8_t> &p, float u, float v)
+{
+    const int cx = static_cast<int>(u * kSize), cy = static_cast<int>(v * kSize);
+    float sum = 0.0f;
+    int count = 0;
+    for (int y = cy - 3; y <= cy + 3; ++y)
+        for (int x = cx - 3; x <= cx + 3; ++x)
+        {
+            sum += p[(static_cast<size_t>(y) * kSize + x) * 4 + 1];
+            ++count;
+        }
+    return sum / static_cast<float>(count);
+}
+
+bool settle(Harness &harness, int preset, const std::vector<render::EffectsOption> &options)
+{
+    render::ConfigureEffects(preset, options);
+    // The previous settings draw until the new ones are prepared; the volume bakes on a texture worker.
+    for (int frame = 0; frame < 400; ++frame)
+    {
+        harness.render();
+        if (!render::CurrentEffects().pending && frame > 30)
+            return true;
+        SDL_Delay(5);
+    }
+    return !render::CurrentEffects().pending;
+}
+
+} // namespace
+
+int main()
+{
+    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    {
+        std::fprintf(stderr, "FAIL: SDL video: %s (an X display is needed)\n", SDL_GetError());
+        return 1;
+    }
+    SDL_Window *window = SDL_CreateWindow("ao_volume_check", 0, 0, kSize, kSize, 0);
+    if (!window || !shim::Context::instance().init(window, kSize, kSize, false))
+    {
+        std::fprintf(stderr, "FAIL: no OpenGL ES window: %s\n", SDL_GetError());
+        return 1;
+    }
+    bool ok = true;
+    {
+        D3DPRESENT_PARAMETERS params{};
+        params.BackBufferWidth = kSize;
+        params.BackBufferHeight = kSize;
+        params.EnableAutoDepthStencil = TRUE;
+        params.AutoDepthStencilFormat = D3DFMT_D24S8;
+        auto *device = new Device(window, params);
+        {
+            Harness harness(*device);
+            std::vector<std::array<float, 3>> positions;
+            std::vector<uint32_t> indices;
+            add_box(positions, indices, {-3.0f, -0.05f, -3.0f}, {3.0f, 0.0f, 3.0f}); // the floor slab
+            add_box(positions, indices, {-0.6f, 0.76f, -0.6f}, {0.6f, 0.8f, 0.6f});  // the table top
+            render::SetEffectsLocationGeometry("ao_volume_check room", positions, indices, true);
+
+            // Picture coordinates: the centre is under the table, (0.2, 0.2) is open floor 1.8 m from the edge.
+            settle(harness, 0, {});
+            const auto low = harness.render();
+            const float low_centre = mean(low, 0.5f, 0.5f), low_open = mean(low, 0.2f, 0.2f);
+            std::printf("Низкая: under the table %.1f, open floor %.1f\n", low_centre, low_open);
+            ok &= low_centre > 100.0f && std::fabs(low_centre - low_open) <= 1.0f;
+
+            if (!settle(harness, 2, {{"fx_ao_volume", 0}}))
+            {
+                std::printf("FAIL: «Высокая» still pending\n");
+                ok = false;
+            }
+            const auto off = harness.render();
+            const float off_centre = mean(off, 0.5f, 0.5f);
+            std::printf("Высокая, AO volume off: under the table %.1f\n", off_centre);
+            ok &= std::fabs(off_centre - low_centre) <= 2.0f;
+
+            float previous = 1e9f;
+            for (int level = 1; level <= 3; ++level)
+            {
+                if (!settle(harness, 2, {{"fx_ao_volume", level}}))
+                {
+                    std::printf("FAIL: «Высокая», fx_ao_volume=%d still pending\n", level);
+                    ok = false;
+                }
+                const auto on = harness.render();
+                const float centre = mean(on, 0.5f, 0.5f), open = mean(on, 0.2f, 0.2f);
+                // Level 1 follows the game's data (a 1.2 m table top at 0.8 m hides little of the sky), 3 is stylised.
+                const float darker = 1.0f - 0.06f * static_cast<float>(level);
+                const bool level_ok = centre < darker * open && std::fabs(open - low_open) <= 0.06f * low_open &&
+                                      centre < previous;
+                std::printf("%s fx_ao_volume=%d: under the table %.1f, open floor %.1f (%.0f %% of open)\n",
+                            level_ok ? "PASS" : "FAIL", level, centre, open, 100.0f * centre / open);
+                ok &= level_ok;
+                previous = centre;
+            }
+
+            // Lamp shadows: a lamp 2.5 m above the floor at (-2, -2) and a 0.6 m pillar between it and the far side;
+            // the floor behind the pillar (seen from the lamp) darkens, the floor beside it does not.
+            add_box(positions, indices, {-1.3f, 0.0f, -1.3f}, {-0.7f, 2.0f, -0.7f});
+            render::SetEffectsLocationGeometry("ao_volume_check room with a pillar", positions, indices, true);
+            const render::EffectsPointLight lamp{{-2.0f, 2.0f, -2.0f}, {4.0f, 3.6f, 3.0f}, 15.0f, 0.5f, 0.0f, 0.1f};
+            for (const int count : {0, 4})
+            {
+                bool ready = true;
+                render::ConfigureEffects(2, {{"fx_ao_volume", 0}, {"fx_lamp_shadows", count}});
+                for (int frame = 0; frame < 400; ++frame)
+                {
+                    render::SetEffectsLamps(std::span(&lamp, 1));
+                    harness.render();
+                    if (!render::CurrentEffects().pending && frame > 30)
+                        break;
+                    SDL_Delay(5);
+                }
+                ready = !render::CurrentEffects().pending;
+                render::SetEffectsLamps(std::span(&lamp, 1));
+                const auto picture = harness.render();
+                if (const char *dump = std::getenv("AO_CHECK_DUMP"))
+                {
+                    char name[512];
+                    std::snprintf(name, sizeof(name), "%s/lamp_%d.ppm", dump, count);
+                    if (FILE *f = std::fopen(name, "wb"))
+                    {
+                        std::fprintf(f, "P6 %u %u 255\n", kSize, kSize);
+                        for (size_t i = 0; i < picture.size(); i += 4)
+                            std::fputc(picture[i + 2], f), std::fputc(picture[i + 1], f), std::fputc(picture[i], f);
+                        std::fclose(f);
+                    }
+                }
+                // Picture (read back top row first): x = (world x + 3) / 6, y = (3 - world z) / 6. Behind the pillar
+                // from the lamp: world (0.5, 0.5); beside it, as far from the lamp: (1.2, -2.0).
+                const float behind = mean(picture, (0.5f + 3.0f) / 6.0f, (3.0f - 0.5f) / 6.0f);
+                const float beside = mean(picture, (1.2f + 3.0f) / 6.0f, (3.0f + 2.0f) / 6.0f);
+                std::printf("fx_lamp_shadows=%d: floor behind the pillar %.1f, beside it %.1f\n", count, behind, beside);
+                if (!ready)
+                {
+                    std::printf("FAIL: fx_lamp_shadows=%d still pending\n", count);
+                    ok = false;
+                }
+                const bool shadow = behind < 0.85f * beside;
+                if (count == 4 && beside < 140.0f)
+                {
+                    std::printf("FAIL: the lit floor beside the pillar darkens (shadow acne)\n");
+                    ok = false;
+                }
+                if (count == 0 && shadow)
+                {
+                    std::printf("FAIL: a shadow behind the pillar without lamp shadows\n");
+                    ok = false;
+                }
+                if (count == 4 && !shadow)
+                {
+                    std::printf("FAIL: no lamp shadow behind the pillar\n");
+                    ok = false;
+                }
+            }
+            render::SetEffectsLamps({});
+
+            // Outdoors: a 3 m wall of the location geometry casts the sun's shadow on a lit receiver east of it (the
+            // static sun shadow map); the floor west of the wall stays in the sun.
+            std::vector<std::array<float, 3>> street;
+            std::vector<uint32_t> street_indices;
+            add_box(street, street_indices, {-0.5f, 0.0f, -3.0f}, {0.0f, 3.0f, 3.0f});
+            render::SetEffectsLocationGeometry("ao_volume_check street", street, street_indices, false);
+            render::EffectsWeather weather;
+            weather.sun_dir = {-0.7071f, 0.7071f, 0.0f};
+            weather.sun_present = true;
+            weather.sky_sun_dir = weather.sun_dir;
+            render::ConfigureEffects(2, {{"fx_ao_volume", 0}});
+            for (int frame = 0; frame < 400; ++frame)
+            {
+                render::SetEffectsWeather(weather);
+                harness.render(true);
+                if (!render::CurrentEffects().pending && frame > 30)
+                    break;
+                SDL_Delay(5);
+            }
+            render::SetEffectsWeather(weather);
+            const auto street_picture = harness.render(true);
+            const float shade = mean(street_picture, (1.2f + 3.0f) / 6.0f, 0.5f);
+            const float sun = mean(street_picture, (-2.0f + 3.0f) / 6.0f, 0.5f);
+            std::printf("outdoors: floor in the wall's shadow %.1f, in the sun %.1f\n", shade, sun);
+            if (!(shade < 0.75f * sun))
+            {
+                std::printf("FAIL: the location geometry casts no sun shadow on lit receivers\n");
+                ok = false;
+            }
+            render::SetEffectsLocationGeometry({}, {}, {}, false);
+            render::ConfigureEffects(0, {});
+        }
+        device->Release();
+    }
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+    std::printf(ok ? "PASS: the AO volume darkens under the table and nowhere else; a lamp shadow falls behind the pillar\n"
+                : "FAIL: AO volume / lamp shadow check\n");
+    return ok ? 0 : 1;
+}

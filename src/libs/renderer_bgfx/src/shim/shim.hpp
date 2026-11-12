@@ -34,6 +34,8 @@ namespace storm::shim
 {
 
 void logf(const char *format, ...);
+// Debug level: logcat DEBUG on Android (hidden by the usual INFO filter), "debug:" lines on stderr.
+void logd(const char *format, ...);
 // Logs an unimplemented path once per message ("[storm-bgfx] TRAP") and returns D3DERR_INVALIDCALL.
 HRESULT trap(const char *what);
 // Writes the per-method trap counters collected so far to the log.

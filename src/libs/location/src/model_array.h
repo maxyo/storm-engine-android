@@ -96,6 +96,8 @@ class ModelArray
     MODEL *operator[](int32_t modelIndex);
     // Getting animation by index
     Animation *GetAnimation(int32_t modelIndex);
+    // Neither animated nor moved by a rotation or UV slide: part of the location's still geometry
+    bool IsStill(int32_t modelIndex);
     // Getting the renderer ID by index
     entid_t RealizerID(int32_t modelIndex);
 

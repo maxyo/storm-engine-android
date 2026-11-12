@@ -4,7 +4,8 @@
 // The scripts keep the logic: TimeScaleCounter (scale = 1 + counter * 0.25) is set one step of
 // their own ladder below the target and one TimeScaleFaster / TimeScaleSlower activation runs
 // their handler, which applies their guards (underwater, quest locks), clamps (x6 in a fight,
-// x3 on land), logs the new scale once and keeps the TimeSpeed perk in step.
+// x3 on land, x2.5 on the world map), logs the new scale once and keeps the TimeSpeed perk in
+// step.
 #include "core.h"
 #include "platform/android_ui.hpp"
 #include "v_data.h"
@@ -39,6 +40,12 @@ inline void applyTimeScaleStep(int step)
     ++gameMessagesMuted;
     core.Event("Control Activation", "s", step == 0 ? "TimeScaleSlower" : "TimeScaleFaster");
     --gameMessagesMuted;
+    // A step beyond the scripts' limit (x2.5 on the world map, x6 in a fight) leaves the scale
+    // where the limit holds it; asked again from there, the ladder goes round to x1 instead of
+    // standing still on a button that no longer changes anything.
+    int32_t after = current;
+    if (step > 0 && counter->Get(after) && after == current)
+        applyTimeScaleStep(0);
 }
 } // namespace storm::android
 #endif

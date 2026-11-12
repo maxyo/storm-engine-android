@@ -62,12 +62,6 @@ float PeriodicCells(float x, float y, int period, uint32_t seed)
     return std::sqrt(best);
 }
 
-float Smoothstep(float a, float b, float x)
-{
-    const float t = std::clamp((x - a) / (b - a), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
-
 uint8_t ToByte(float v)
 {
     return static_cast<uint8_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f));
@@ -108,62 +102,6 @@ float PeriodicFbm(float u, float v, int period, int octaves, uint32_t seed, floa
         period *= 2;
     }
     return sum / norm;
-}
-
-BakedTexture BakeWaterDetail(int size, uint32_t seed)
-{
-    BakedTexture out;
-    out.size = size;
-    std::vector<float> height(static_cast<size_t>(size) * size);
-    const float inv = 1.0f / static_cast<float>(size);
-    for (int y = 0; y < size; ++y)
-        for (int x = 0; x < size; ++x)
-        {
-            const float u = (static_cast<float>(x) + 0.5f) * inv, v = (static_cast<float>(y) + 0.5f) * inv;
-            // Domain warp gives the ripples their irregular, flowing crests.
-            const float wu = u + 0.045f * PeriodicFbm(u, v, 3, 2, seed + 7u);
-            const float wv = v + 0.045f * PeriodicFbm(u, v, 3, 2, seed + 11u);
-            float h = 0.0f, amp = 1.0f, norm = 0.0f;
-            int period = 5;
-            for (int o = 0; o < 5; ++o)
-            {
-                const float n = PeriodicNoise(wu * static_cast<float>(period), wv * static_cast<float>(period), period, seed + 17u * o);
-                // Sharpened crests (1 - |n|)² on the larger octaves, plain noise on the small ones.
-                const float ridge = 1.0f - std::fabs(n);
-                h += amp * (o < 3 ? ridge * ridge : 0.5f + 0.5f * n);
-                norm += amp;
-                amp *= 0.52f;
-                period *= 2;
-            }
-            height[static_cast<size_t>(y) * size + x] = h / norm;
-        }
-
-    out.rgba.resize(static_cast<size_t>(size) * size * 4);
-    // Slope scale: one texel step of the height field covers 1/size of the tile.
-    const float slope_scale = 0.045f * static_cast<float>(size);
-    for (int y = 0; y < size; ++y)
-        for (int x = 0; x < size; ++x)
-        {
-            const auto h = [&](int px, int py) { return height[static_cast<size_t>((py + size) % size) * size + (px + size) % size]; };
-            float sx = -(h(x + 1, y) - h(x - 1, y)) * 0.5f * slope_scale;
-            float sy = -(h(x, y + 1) - h(x, y - 1)) * 0.5f * slope_scale;
-            const float len = std::sqrt(sx * sx + 1.0f + sy * sy);
-            sx /= len;
-            sy /= len;
-            const float u = (static_cast<float>(x) + 0.5f) * inv, v = (static_cast<float>(y) + 0.5f) * inv;
-            // Foam: bubbly cells broken up by streaks of fractal noise.
-            const float cells = PeriodicCells(u * 14.0f, v * 14.0f, 14, seed + 101u);
-            const float fine = PeriodicCells(u * 37.0f, v * 37.0f, 37, seed + 103u);
-            const float breakup = 0.5f + 0.5f * PeriodicFbm(u, v, 4, 4, seed + 107u);
-            const float foam = Smoothstep(0.25f, 0.85f, (1.0f - Smoothstep(0.05f, 0.55f, cells) * 0.75f) * (0.55f + 0.45f * fine) * (0.35f + breakup));
-            const size_t o = (static_cast<size_t>(y) * size + x) * 4;
-            out.rgba[o + 0] = ToByte(0.5f + 0.5f * sx);
-            out.rgba[o + 1] = ToByte(0.5f + 0.5f * sy);
-            out.rgba[o + 2] = ToByte(foam);
-            out.rgba[o + 3] = ToByte(h(x, y));
-        }
-    out.mip_count = AppendMips(out.rgba, size);
-    return out;
 }
 
 BakedTexture BakeCloudNoise(int size, uint32_t seed)

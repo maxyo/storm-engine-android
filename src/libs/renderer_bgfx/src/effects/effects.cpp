@@ -25,7 +25,10 @@ namespace
 {
 void log_sink(fx::LogLevel level, const char *message)
 {
-    shim::logf("%sfx: %s", level == fx::LogLevel::Error ? "ERROR: " : "", message);
+    if (level == fx::LogLevel::Debug)
+        shim::logd("fx: %s", message);
+    else
+        shim::logf("%sfx: %s", level == fx::LogLevel::Error ? "ERROR: " : "", message);
 }
 
 // One engine option: an integer from engine.ini / the app's graphics preferences. -1 keeps the preset's value.
@@ -61,17 +64,19 @@ const Option kOptions[] = {
     {"fx_scene_grading", "0 off, 1 on", [](fx::Settings &s, int v) { s.scene_grading = on(v); }},
     {"fx_grade", "0 Оригинал, 1 Карибы, 2 Пасмурно",
      [](fx::Settings &s, int v) { s.grade = static_cast<fx::GradePreset>(std::clamp(v, 0, 2)); }},
-    {"fx_vignette", "0..100 (%)", [](fx::Settings &s, int v) { s.vignette = std::clamp(v, 0, 100) / 100.0f; }},
-    {"fx_film_grain", "0..100 (%)", [](fx::Settings &s, int v) { s.film_grain = std::clamp(v, 0, 100) / 100.0f; }},
     {"fx_msaa", "1, 2, 4", [](fx::Settings &s, int v) { s.msaa = static_cast<uint8_t>(std::clamp(v, 1, 4)); }},
     {"fx_alpha_to_coverage", "0 off, 1 on", [](fx::Settings &s, int v) { s.alpha_to_coverage = on(v); }},
     {"fx_anisotropy", "1, 4, 8", [](fx::Settings &s, int v) { s.anisotropy = static_cast<uint8_t>(std::clamp(v, 1, 16)); }},
     {"fx_contact_shadows", "0 off, 1 on", [](fx::Settings &s, int v) { s.contact_shadows = on(v); }},
-    {"fx_water", "0 legacy, 1 low, 2 medium, 3 high",
-     [](fx::Settings &s, int v) { s.water = static_cast<fx::WaterQuality>(std::clamp(v, 0, 3)); }},
-    {"fx_water_refraction", "0 off, 1 on", [](fx::Settings &s, int v) { s.water_refraction = on(v); }},
+    {"fx_sea_band_limit", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_band_limit = on(v); }},
+    {"fx_sea_soft_edges", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_soft_edges = on(v); }},
+    {"fx_sea_specular", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_specular = on(v); }},
     {"fx_sky", "0 off, 1 on", [](fx::Settings &s, int v) { s.sky_atmosphere = on(v); }},
     {"fx_clouds", "0 off, 1 on", [](fx::Settings &s, int v) { s.sky_clouds = on(v); }},
+    {"fx_lamp_shadows", "interiors: lamps that cast shadows, 0, 2 or 4",
+     [](fx::Settings &s, int v) { s.lamp_shadows = static_cast<uint8_t>(std::clamp(v, 0, 4)); }},
+    {"fx_ao_volume", "interiors: 0 off, 1 as the game's data, 2 moderate, 3 strong",
+     [](fx::Settings &s, int v) { s.ao_volume = static_cast<uint8_t>(std::clamp(v, 0, 3)); }},
     {"fx_shadows", "0 off, 1 low, 2 soft",
      [](fx::Settings &s, int v) { s.shadows = static_cast<fx::ShadowQuality>(std::clamp(v, 0, 2)); }},
     {"fx_point_lights", "4, 8", [](fx::Settings &s, int v) { s.point_lights = static_cast<uint8_t>(v >= 8 ? 8 : 4); }},
@@ -116,11 +121,11 @@ std::string describe(const fx::Settings &s)
     char text[512];
     snprintf(text, sizeof(text),
              "tonemap=%d bloom=%d(1/%u,%u) shafts=%d fxaa=%d sharpen=%d ssao=%d dither=%d flare=%d scene_grading=%d "
-             "grade=%d vignette=%.2f grain=%.2f msaa=%u a2c=%d aniso=%u sky=%d clouds=%d water=%d shadows=%d "
+             "grade=%d msaa=%u a2c=%d aniso=%u sky=%d clouds=%d sea=%d%d%d shadows=%d "
              "lighting=0x%x contact=%d",
              s.tonemap, s.bloom, s.bloom_downscale, s.bloom_levels, s.sun_shafts, s.fxaa, s.sharpen, s.ssao, s.dither,
-             s.lens_flare, s.scene_grading, static_cast<int>(s.grade), s.vignette, s.film_grain, s.msaa,
-             s.alpha_to_coverage, s.anisotropy, s.sky_atmosphere, s.sky_clouds, static_cast<int>(s.water),
+             s.lens_flare, s.scene_grading, static_cast<int>(s.grade), s.msaa,
+             s.alpha_to_coverage, s.anisotropy, s.sky_atmosphere, s.sky_clouds, s.sea_band_limit, s.sea_soft_edges, s.sea_specular,
              static_cast<int>(s.shadows), s.lighting_flags, s.contact_shadows);
     return text;
 }
@@ -175,8 +180,13 @@ void Host::on_device_lost()
     self_test_.OnDeviceLost();
     lighting_.on_device_lost();
     sky_.OnDeviceLost();
-    water_.OnDeviceLost();
+    sea_depth_.OnDeviceLost();
+    u_sea_fx_ = s_sea_depth_ = BGFX_INVALID_HANDLE;
+    sea_depth_frame_ = UINT32_MAX;
     contact_.OnDeviceLost();
+    ao_.on_device_lost();
+    ao_bound_ = nullptr;
+    lighting_.set_ao_volume(nullptr);
     device_ready_ = false;
 }
 
@@ -186,8 +196,18 @@ void Host::shutdown()
     self_test_.Shutdown();
     lighting_.shutdown();
     sky_.Shutdown();
-    water_.Shutdown();
+    sea_depth_.Shutdown();
+    for (bgfx::UniformHandle *uniform : {&u_sea_fx_, &s_sea_depth_})
+        if (bgfx::isValid(*uniform))
+        {
+            bgfx::destroy(*uniform);
+            *uniform = BGFX_INVALID_HANDLE;
+        }
+    sea_depth_frame_ = UINT32_MAX;
     contact_.Shutdown();
+    ao_.shutdown();
+    ao_bound_ = nullptr;
+    lighting_.set_ao_volume(nullptr);
     device_ready_ = false;
 }
 
@@ -261,7 +281,7 @@ void Host::apply()
             report_.disabled.push_back("fx_ssao");
         if (possible.PostIsIdentity())
             for (const char *name : {"fx_tonemap", "fx_bloom", "fx_sun_shafts", "fx_fxaa", "fx_sharpen", "fx_dither",
-                                     "fx_lens_flare", "fx_scene_grading", "fx_grade", "fx_vignette", "fx_film_grain"})
+                                     "fx_lens_flare", "fx_scene_grading", "fx_grade"})
                 report_.disabled.push_back(name);
     }
     for (const Pending &pending : kPending)
@@ -378,6 +398,7 @@ uint16_t Host::submit_post(const PostTargets &targets)
         frame.far_plane = p[14] / (1.0f - p[10]);
     }
     frame.projection_scale = {p[0], p[5]};
+    frame.wobble = {.on = wobble_.on, .amplitude = wobble_.amplitude, .phase = wobble_.phase};
 
     // A frame without weather has no sky (interiors).
     const bool weather = has_weather();
@@ -430,7 +451,8 @@ void Host::advance_switch()
     switch_cache_ = cache;
     const int per_frame = from_cache ? kCachedProgramsPerFrame : kProgramsPerFrame;
     int budget = per_frame;
-    const bool ready = (target_.PostIsIdentity() || post_.Prepare(target_, budget)) && water_.Prepare(target_, budget) &&
+    // The post chain's programs also on «Низкая»: the underwater wobble runs on every preset.
+    const bool ready = post_.Prepare(target_, budget) && (!target_.sea_soft_edges || sea_depth_.Prepare(budget)) &&
                        sky_.Prepare(target_, budget) && contact_.Prepare(target_, budget) &&
                        lighting_.prepare_programs(*device, target_, budget);
     switch_programs_ += per_frame - budget;
@@ -489,6 +511,8 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
     }
     weather_this_frame_ = false;
     lighting_.end_frame();
+    ao_bound_ = ao_.update(settings_.ao_volume > 0); // for the next frame's draws
+    lighting_.set_ao_volume(ao_bound_);
     transform_view_ = UINT16_MAX; // the shim's views start again next frame
     times_ = {};
     if (!profile_)
@@ -527,9 +551,9 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
                          profile_sum_post_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u",
                        preset_, gpu, profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
-                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters);
+                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters);
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_draws_ = 0;
@@ -572,6 +596,33 @@ void SetEffectsTechnique(const char *name)
     effects::Host::instance().lighting().set_technique(name);
 }
 
+void SetEffectsLocationGeometry(std::string_view name, std::span<const std::array<float, 3>> positions,
+                                std::span<const uint32_t> indices, bool interior, const std::array<float, 3> &bounds_lo,
+                                const std::array<float, 3> &bounds_hi)
+{
+    std::vector<fx::Vec3> points(positions.begin(), positions.end());
+    std::vector<uint32_t> triangles(indices.begin(), indices.end());
+    effects::Host &host = effects::Host::instance();
+    host.lighting().shadows().set_geometry(interior ? std::vector<fx::Vec3>{} : points,
+                                           interior ? std::vector<uint32_t>{} : triangles);
+    if (!interior)
+    {
+        points.clear();
+        triangles.clear();
+    }
+    host.lighting().lamp_shadows().set_geometry(points, triangles);
+    host.ao_volumes().set_geometry(std::string(name), std::move(points), std::move(triangles), bounds_lo, bounds_hi);
+}
+
+void SetEffectsLamps(std::span<const EffectsPointLight> lamps)
+{
+    std::vector<fx::Lamp> converted;
+    converted.reserve(lamps.size());
+    for (const EffectsPointLight &l : lamps)
+        converted.push_back({l.position, l.color, l.range, l.att0, l.att1, l.att2});
+    effects::Host::instance().lighting().lamp_shadows().set_lamps(std::move(converted));
+}
+
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)
 {
     fx::PointLight converted[fx::kMaxPointLights * 4];
@@ -585,29 +636,15 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)
     effects::Host::instance().lighting().set_dynamic_lights(std::span(converted, count));
 }
 
-namespace
-{
-std::function<storm::shim::BaseTexture *(int32_t)> &textureResolver()
-{
-    static std::function<storm::shim::BaseTexture *(int32_t)> resolver;
-    return resolver;
-}
-} // namespace
-
-void SetEffectsTextureResolver(std::function<storm::shim::BaseTexture *(int32_t)> resolver)
-{
-    textureResolver() = std::move(resolver);
-}
-
-storm::shim::BaseTexture *ResolveEffectsTexture(int32_t texture)
-{
-    return textureResolver() ? textureResolver()(texture) : nullptr;
-}
-
 void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path)
 {
     if (shim::TexStore *store = shim::store_of(texture))
         effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path);
+}
+
+void ConfigureEffectsCache(const std::filesystem::path &directory, uint64_t max_bytes)
+{
+    effects::ConfigureNormalMapCache(directory / "NormalMaps", max_bytes);
 }
 
 std::string TakeEffectsNotice()
@@ -623,5 +660,10 @@ EffectsReport CurrentEffects()
 void SetEffectsWeather(const EffectsWeather &weather)
 {
     effects::Host::instance().set_weather(weather);
+}
+
+void SetEffectsWobble(const EffectsWobble &wobble)
+{
+    effects::Host::instance().set_wobble(wobble);
 }
 } // namespace storm::render

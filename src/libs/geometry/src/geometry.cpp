@@ -360,6 +360,22 @@ void *GEOM_SERVICE_R::LockVertexBuffer(GEOS::ID vb)
     return RenderService->LockVertexBuffer(vb);
 }
 
+const void *GEOM_SERVICE_R::ReadVertexBuffer(GEOS::ID vb)
+{
+    if (vb == INVALID_BUFFER_ID || RenderService == nullptr)
+        return nullptr;
+    if (vb >= SHIFT_VALUE)
+        return avb[vb - SHIFT_VALUE].buff;
+    return RenderService->LockVertexBuffer(vb, D3DLOCK_READONLY);
+}
+
+const void *GEOM_SERVICE_R::ReadIndexBuffer(GEOS::ID ib)
+{
+    if (ib == INVALID_BUFFER_ID || RenderService == nullptr)
+        return nullptr;
+    return RenderService->LockIndexBuffer(ib, D3DLOCK_READONLY);
+}
+
 void GEOM_SERVICE_R::UnlockVertexBuffer(GEOS::ID vb)
 {
     if (vb == INVALID_BUFFER_ID)

@@ -9,7 +9,7 @@
 
 #include <array>
 #include <cstdint>
-#include <functional>
+#include <filesystem>
 #include <span>
 #include <string>
 #include <string_view>
@@ -66,6 +66,16 @@ std::string TakeEffectsNotice();
 // called by every interface before it draws). The post chain runs here, on the scene only.
 void EffectsSceneComplete();
 
+// The game's underwater screen wobble of this frame (script Render.SeaEffect, SeaEffectSize, SeaEffectSpeed), set by
+// the renderer at the start of every frame. It is the legacy look and runs on every preset.
+struct EffectsWobble
+{
+    bool on = false;
+    float amplitude = 0.0f; // wave height, fraction of the picture size
+    float phase = 0.0f;     // radians, advanced by the renderer at SeaEffectSpeed radians per second
+};
+void SetEffectsWobble(const EffectsWobble &wobble);
+
 // The weather of this frame, pushed by the WEATHER entity every frame it runs. A frame without it has no sky
 // (interiors): sun effects are off and the scene grade is the interior one. The scene camera is taken from the
 // draws themselves (the last perspective draw into the game picture).
@@ -102,23 +112,39 @@ struct EffectsPointLight
 };
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
 
-// The game file a texture was loaded from (Renderer::TextureLoad, after its levels are filled). Grey height
-// ("bump") textures get a normal map for the per-pixel lighting's relief (fx_light_normal_map).
+// Location, every frame it draws: its static lamps (the lights of lights.ini at its locators, colour with this
+// frame's flicker). In interiors the strongest ones cast shadows (fx_lamp_shadows); outdoors: empty.
+void SetEffectsLamps(std::span<const EffectsPointLight> lamps);
+
+// Location, once loaded: its still, collidable geometry (world space positions, triangle list; `name` names it in the
+// log). Interiors bake their ambient-occlusion volume from it over the box one walks in (`bounds_lo`..`bounds_hi`:
+// the geometry outside, such as the backdrop behind the windows, only occludes) and draw it into the lamp shadows;
+// outdoors it casts into the static sun shadow map (buildings and palms onto characters and props). Leaving: empty.
+void SetEffectsLocationGeometry(std::string_view name, std::span<const std::array<float, 3>> positions,
+                                std::span<const uint32_t> indices, bool interior,
+                                const std::array<float, 3> &bounds_lo = {}, const std::array<float, 3> &bounds_hi = {});
+
+// The game file a texture was loaded from (Renderer::TextureLoad, after its levels are filled). Stone, wood, plaster
+// and ground textures and grey height ("bump") textures get a normal map for the per-pixel lighting's relief
+// (fx_light_normal_map, fx/normal_map.hpp).
 void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path);
 
-// Renderer: the device texture behind a renderer texture id (EffectsWaterMesh::env_map), null for an invalid id.
-void SetEffectsTextureResolver(std::function<shim::BaseTexture *(int32_t)> resolver);
+// Where the effects keep what they derive from the game's files (normal maps), at most `max_bytes` (least recently
+// used files are evicted): the app's cache directory on Android. Before the first texture is loaded.
+void ConfigureEffectsCache(const std::filesystem::path &directory, uint64_t max_bytes);
 
-// ---- World passes: fx sky, fx water, contact shadows ----
+// ---- World passes: fx sky, contact shadows ----
 // The consumer entities (SKY, SEA, shadow, SUNGLOW) ask which parts are on and then either call the fx pass below
 // or keep their legacy drawing. Changes only at the Present that switches settings (EffectsReport::pending);
 // everything false in «Низкая».
 struct EffectsWorld
 {
     bool sky = false;             // fx sky replaces the textured sky box and the fog sphere of SKY
-    bool water = false;           // fx water replaces the Sea2 / Sea3 passes of SEA (and its reflection renders)
     bool contact_shadows = false; // a soft blob under each character
     bool lens_flare = false;      // the post chain draws the lens flare: SUNGLOW leaves its flare sprites out
+    // An interior with lamp shadows: the characters' shadows come from the room's lamps; the shadow entity leaves
+    // its projected shadow (cast along the outdoor sun) out.
+    bool lamp_character_shadows = false;
 };
 EffectsWorld CurrentEffectsWorld();
 
@@ -133,36 +159,6 @@ using EffectsMatrix = std::array<float, 16>;
 
 // Draws the analytic sky on the far plane (depth test only). Only while CurrentEffectsWorld().sky.
 void EffectsDrawSky(const EffectsMatrix &view);
-
-// The SEA entity's surface for the fx water: its CPU-displaced vertices (SEA::SeaVertex: position relative to
-// `world_offset`, normal, uv) and triangle list, the look from its Sea2 attributes and its environment cube (the
-// scene reflected in the sea, rendered this frame by SEA::EnvMap_Render). Only while CurrentEffectsWorld().water.
-struct EffectsWaterShading
-{
-    std::array<float, 3> water_color{0.04f, 0.22f, 0.39f}; // Sea2.WaterColor
-    std::array<float, 3> sky_color{1.0f, 1.0f, 1.0f};      // Sea2.SkyColor
-    float reflection = 0.7f;                               // Sea2.Reflection
-    float transparency = 0.6f;                             // Sea2.Transparency
-    float attenuation = 0.2f;                              // Sea2.Attenuation
-    float fresnel = 0.5f;                                  // Sea2.Frenel
-    float bump_speed = 1.0f;                               // Sea2.BumpSpeed
-    bool foam = false;                                     // Sea2.FoamEnable and the foam option
-    float foam_v = 3.0f, foam_k = 0.3f, foam_uv = 1.0f;    // Sea2.FoamV / FoamK / FoamUV
-    std::array<float, 3> fog_color{0.5f, 0.6f, 0.7f};      // D3DRS_FOGCOLOR
-    float fog_density = 0.0f;                              // Sea.Fog.SeaDensity while Sea.Fog.Enable, else 0
-};
-struct EffectsWaterMesh
-{
-    const void *vertices = nullptr; // vertex_count * 32 bytes (SEA::SeaVertex)
-    uint32_t vertex_count = 0;
-    const uint16_t *indices = nullptr;
-    uint32_t index_count = 0;
-    std::array<float, 2> world_offset{0.0f, 0.0f}; // SEA::vWorldOffset x, z
-    float crest_height = 4.0f;                     // Amp1 + Amp2
-    EffectsWaterShading shading;
-    int32_t env_map = -1; // required: renderer texture id of the cube the water reflects
-};
-void EffectsDrawWater(const EffectsWaterMesh &mesh, const EffectsMatrix &view);
 
 // A contact shadow on the floor at `ground` (a character's feet), drawn at once. Call it after the floor is drawn.
 // Only while CurrentEffectsWorld().contact_shadows.

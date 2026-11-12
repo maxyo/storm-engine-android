@@ -1,8 +1,9 @@
 // Unit checks for the CPU side of the fx package: grading LUTs, tone curve,
-// baked noise, the engine wave model and its GPU/Gerstner mappings, the sea
-// grid, the sky model, lighting and point-light selection, the shadow cascade and the
+// baked noise, the sky model, lighting and point-light selection, the shadow cascade and the
 // explicit handling of unsupported settings. No GPU is needed.
+#include "storm/fx/ao_volume.hpp"
 #include "storm/fx/capabilities.hpp"
+#include "storm/fx/lamp_shadows.hpp"
 #include "storm/fx/color_lut.hpp"
 #include "storm/fx/light_set.hpp"
 #include "storm/fx/lighting_model.hpp"
@@ -12,10 +13,9 @@
 #include "storm/fx/settings.hpp"
 #include "storm/fx/shadow_model.hpp"
 #include "storm/fx/sky_model.hpp"
-#include "storm/fx/water_grid.hpp"
-#include "storm/fx/wave_model.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -51,7 +51,7 @@ void CheckSettings()
 {
     const Settings original = Settings::FromPreset(QualityPreset::Low);
     CHECK(original.PostIsIdentity());
-    CHECK(original.water == WaterQuality::Legacy);
+    CHECK(!original.sea_band_limit && !original.sea_soft_edges && !original.sea_specular);
     CHECK(!original.sky_atmosphere);
     CHECK(original.lighting_flags == kLightingNone);
     const Settings medium = Settings::FromPreset(QualityPreset::Medium);
@@ -62,11 +62,15 @@ void CheckSettings()
     // MSAA is the primary anti-aliasing of the presets; FXAA is left to the player. Optional looks stay off.
     CHECK(medium.msaa == 4 && high.msaa == 4 && !medium.fxaa && !high.fxaa && original.msaa == 1);
     CHECK(medium.anisotropy == 4 && high.anisotropy == 8 && original.anisotropy == 1);
-    CHECK(high.vignette == 0.0f && high.film_grain == 0.0f && medium.dither && !original.dither);
-    CHECK(high.water == WaterQuality::High && medium.water == WaterQuality::Medium);
+    CHECK(medium.dither && !original.dither);
+    // The game's own sea everywhere: the band limit from «Средняя», soft edges at «Высокая», the specular optional.
+    CHECK(medium.sea_band_limit && !medium.sea_soft_edges && high.sea_band_limit && high.sea_soft_edges);
+    CHECK(!medium.sea_specular && !high.sea_specular);
     CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
     CHECK(!medium.ssao && high.ssao && !original.ssao);
+    CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 3); // Низкая: no shadows, as the original
+    CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 2 && high.lamp_shadows == 4);
     // The presets keep the legacy look: no tone curve, grade, flare, shafts, fx sky, hemisphere or linear sums.
     for (const Settings *preset : {&medium, &high})
         CHECK(!preset->tonemap && !preset->scene_grading && !preset->lens_flare && !preset->sun_shafts &&
@@ -163,35 +167,6 @@ void CheckToneCurve()
 
 void CheckNoise()
 {
-    const BakedTexture water = BakeWaterDetail(128, 1u);
-    CHECK(water.size == 128 && water.mip_count == 8);
-    size_t expected = 0;
-    for (int s = 128; s >= 1; s /= 2)
-        expected += static_cast<size_t>(s) * s * 4;
-    CHECK(water.rgba.size() == expected);
-    // Deterministic for a seed, different for another.
-    CHECK(BakeWaterDetail(128, 1u).rgba == water.rgba);
-    CHECK(BakeWaterDetail(128, 2u).rgba != water.rgba);
-    // Tiling: the step across the wrap is no larger than the largest step inside the texture.
-    int inside = 0, wrap = 0;
-    double slope_sum = 0.0;
-    for (int y = 0; y < 128; ++y)
-    {
-        for (int x = 0; x + 1 < 128; ++x)
-            inside = std::max(inside, std::abs(water.rgba[(y * 128 + x) * 4 + 3] - water.rgba[(y * 128 + x + 1) * 4 + 3]));
-        wrap = std::max(wrap, std::abs(water.rgba[(y * 128 + 127) * 4 + 3] - water.rgba[(y * 128) * 4 + 3]));
-        wrap = std::max(wrap, std::abs(water.rgba[(127 * 128 + y) * 4 + 3] - water.rgba[y * 4 + 3]));
-        for (int x = 0; x < 128; ++x)
-            slope_sum += water.rgba[(y * 128 + x) * 4 + 0] - 127.5;
-    }
-    CHECK(wrap <= inside);
-    // Slopes average to zero (a flat sea on average) and use a useful part of the range.
-    CHECK(std::fabs(slope_sum / (128.0 * 128.0)) < 3.0);
-    const auto minmax = std::minmax_element(water.rgba.begin(), water.rgba.begin() + 128 * 128 * 4);
-    CHECK(*minmax.second - *minmax.first > 150);
-    // The 1x1 mip of the slopes is the neutral value.
-    CHECK(std::abs(water.rgba[water.rgba.size() - 4] - 128) <= 3);
-
     const BakedTexture clouds = BakeCloudNoise(64, 3u);
     CHECK(clouds.size == 64 && clouds.mip_count == 7);
     for (int i = 0; i < 300; ++i)
@@ -199,202 +174,6 @@ void CheckNoise()
         const float u = 0.013f * i, v = 0.007f * i;
         CHECK(Near(PeriodicFbm(u, v, 4, 3, 9u), PeriodicFbm(u + 1.0f, v + 2.0f, 4, 3, 9u), 2e-3f));
         CHECK(std::fabs(PeriodicFbm(u, v, 4, 3, 9u)) <= 1.0f);
-    }
-}
-
-// A synthetic stand-in for the engine's animated height frames (no game data).
-void FillLayer(EngineWaveField &field, int layer, float phase)
-{
-    const int n = EngineWaveField::kSize;
-    std::vector<float> heights(EngineWaveField::kTexels), normals(2 * EngineWaveField::kTexels);
-    const auto h = [&](int x, int z) {
-        const float u = 6.2831853f * static_cast<float>(x & (n - 1)) / n, v = 6.2831853f * static_cast<float>(z & (n - 1)) / n;
-        return 0.5f + 0.25f * std::sin(3.0f * u + phase) * std::cos(2.0f * v) + 0.2f * std::sin(5.0f * v - phase + u);
-    };
-    for (int z = 0; z < n; ++z)
-        for (int x = 0; x < n; ++x)
-        {
-            heights[z * n + x] = h(x, z);
-            // Unit normal of the height field in texel units, as sea.cpp stores it (x and z components).
-            const float dx = 0.5f * (h(x + 1, z) - h(x - 1, z)), dz = 0.5f * (h(x, z + 1) - h(x, z - 1));
-            const float len = std::sqrt(dx * dx + 1.0f + dz * dz);
-            normals[2 * (z * n + x) + 0] = -dx / len;
-            normals[2 * (z * n + x) + 1] = -dz / len;
-        }
-    field.SetLayer(layer, heights, normals);
-}
-
-void CheckEngineWaves()
-{
-    EngineWaveField field;
-    FillLayer(field, 0, 0.3f);
-    FillLayer(field, 1, 1.9f);
-    EngineSeaState sea;
-    sea.layers[0] = {6.0f, 0.5f, {3.0f, -2.0f}};
-    sea.layers[1] = {0.75f, 2.0f, {-1.0f, 4.5f}};
-    sea.pos_shift = 1.2f;
-    sea.bump_scale = 0.05f;
-
-    // At texel centres of layer 1 with layer 2 switched off, the height is amp * texel value.
-    EngineSeaState single = sea;
-    single.layers[1].amp = 0.0f;
-    single.layers[0].move = {0.0f, 0.0f};
-    float normal[3];
-    const float at_texel = field.Height(single, 10.0f / 0.5f, 7.0f / 0.5f, normal);
-    const float u = 6.2831853f * 10.0f / 128.0f, v = 6.2831853f * 7.0f / 128.0f;
-    CHECK(Near(at_texel, 6.0f * (0.5f + 0.25f * std::sin(3.0f * u + 0.3f) * std::cos(2.0f * v) + 0.2f * std::sin(5.0f * v - 0.3f + u)), 1e-4f));
-    CHECK(Near(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2], 1.0f, 1e-5f) && normal[1] > 0.0f);
-
-    // Bilinear: the midpoint between two texels is their average.
-    const float a = field.Height(single, 20.0f, 14.0f), b = field.Height(single, 22.0f, 14.0f);
-    CHECK(Near(field.Height(single, 21.0f, 14.0f), 0.5f * (a + b), 1e-4f));
-    // The field tiles every 128 / scale metres and scrolls with `move`.
-    CHECK(Near(field.Height(sea, 5.3f, -8.1f), field.Height(sea, 5.3f + 256.0f, -8.1f + 256.0f), 1e-3f));
-    EngineSeaState moved = single;
-    moved.layers[0].move = {4.0f, 0.0f};
-    CHECK(Near(field.Height(moved, 16.0f, 14.0f), field.Height(single, 20.0f, 14.0f), 1e-4f));
-    // Heights stay inside 0 .. amp1 + amp2, the normal leans against the slope.
-    for (int i = 0; i < 500; ++i)
-    {
-        const float x = 0.37f * i - 40.0f, z = 0.91f * i - 100.0f;
-        const float y = field.Height(sea, x, z, normal);
-        CHECK(y >= 0.0f && y <= 6.75f);
-        const float slope = (field.Height(sea, x + 0.05f, z) - field.Height(sea, x - 0.05f, z)) / 0.1f;
-        if (std::fabs(slope) > 0.15f)
-            CHECK(normal[0] * slope < 0.0f);
-    }
-    // Vertex construction as in SEA::SSE_WaveXZBlock.
-    const SeaVertex vertex = field.Displace(sea, 12.0f, -3.0f, {10.0f, -5.0f});
-    float n[3];
-    const float y = field.Height(sea, 12.0f, -3.0f, n);
-    CHECK(Near(vertex.pos[1], y, 1e-6f));
-    CHECK(Near(vertex.pos[0], 12.0f - n[0] * 3.6f - 10.0f, 1e-5f) && Near(vertex.pos[2], -3.0f - n[2] * 3.6f + 5.0f, 1e-5f));
-    CHECK(Near(vertex.uv[0], (12.0f - n[0] * 5.3f) * 0.05f, 1e-6f) && Near(vertex.uv[1], (-3.0f - n[2] * 5.3f) * 0.05f, 1e-6f));
-
-    // GPU texture: half floats round-trip, mip 0 holds the texels, the last mip the mean.
-    for (float value : {0.0f, 1.0f, -1.0f, 0.5f, 0.333333f, -0.72f, 1e-3f, 65504.0f, 3.0e-6f})
-        CHECK(Near(HalfToFloat(FloatToHalf(value)), value, std::max(std::fabs(value) * 6e-4f, 4e-8f)));
-    const std::vector<uint16_t> packed = field.PackLayerHalf(0);
-    size_t expected = 0;
-    for (int s = 128; s >= 1; s /= 2)
-        expected += static_cast<size_t>(s) * s * 4;
-    CHECK(packed.size() == expected);
-    CHECK(Near(HalfToFloat(packed[4 * (7 * 128 + 10)]), field.Height(single, 20.0f, 14.0f) / 6.0f, 1e-3f));
-    CHECK(Near(HalfToFloat(packed[packed.size() - 4]), 0.5f, 0.01f));
-}
-
-void CheckGerstner()
-{
-    GerstnerSource source;
-    source.amp = {6.0f, 0.75f};
-    source.scale = {0.5f, 2.0f};
-    source.move_speed = {{{5.0f, 0.0f}, {0.0f, 2.0f}}};
-    source.pos_shift = 1.2f;
-    const GerstnerSet set = GerstnerFromEngine(source);
-    CHECK(Near(set.mean_level, 3.375f, 1e-6f));
-
-    float amplitude = 0.0f, steepness = 0.0f;
-    for (const GerstnerWave &w : set.waves)
-    {
-        amplitude += w.amplitude;
-        steepness += w.wave_number * w.horizontal;
-        CHECK(Near(std::hypot(w.dir[0], w.dir[1]), 1.0f, 1e-5f));
-        CHECK(w.wave_number > 0.0f && w.omega > 0.0f);
-    }
-    // Same height range as the engine layers (0 .. amp1 + amp2) and no self-intersection.
-    CHECK(Near(amplitude, 0.5f * 6.75f, 1e-4f));
-    CHECK(steepness <= 0.8f + 1e-4f);
-    // The primary wave of layer 1 is half a tile long and travels against the scroll vector.
-    CHECK(Near(6.2831853f / set.waves[0].wave_number, 128.0f, 1e-2f));
-    CHECK(set.waves[0].dir[0] < -0.99f);
-    CHECK(set.waves[3].dir[1] < -0.99f);
-
-    float min_y = 1e9f, max_y = -1e9f;
-    for (int i = 0; i < 2000; ++i)
-    {
-        const float x = 1.7f * i, z = -0.9f * i, t = 0.01f * i;
-        float p[3], n[3];
-        EvaluateGerstner(set, x, z, t, p, n);
-        min_y = std::min(min_y, p[1]);
-        max_y = std::max(max_y, p[1]);
-        CHECK(Near(n[0] * n[0] + n[1] * n[1] + n[2] * n[2], 1.0f, 1e-4f) && n[1] > 0.0f);
-        if (i % 50 == 0)
-        {
-            // The analytic normal is perpendicular to the surface tangents.
-            float px[3], pz[3];
-            EvaluateGerstner(set, x + 0.01f, z, t, px, nullptr);
-            EvaluateGerstner(set, x, z + 0.01f, t, pz, nullptr);
-            const float tx = n[0] * (px[0] - p[0]) + n[1] * (px[1] - p[1]) + n[2] * (px[2] - p[2]);
-            const float tz = n[0] * (pz[0] - p[0]) + n[1] * (pz[1] - p[1]) + n[2] * (pz[2] - p[2]);
-            CHECK(std::fabs(tx) < 2e-4f && std::fabs(tz) < 2e-4f);
-        }
-    }
-    CHECK(min_y >= -1e-3f && max_y <= 6.75f + 1e-3f && max_y - min_y > 2.5f);
-
-    // A calm sea is flat, and stronger PosShift never produces loops.
-    GerstnerSource calm = source;
-    calm.amp = {0.0f, 0.0f};
-    float p[3], n[3];
-    EvaluateGerstner(GerstnerFromEngine(calm), 3.0f, 4.0f, 5.0f, p, n);
-    CHECK(Near(p[1], 0.0f, 1e-6f) && Near(n[1], 1.0f, 1e-6f));
-    GerstnerSource sharp = source;
-    sharp.pos_shift = 20.0f;
-    float sum = 0.0f;
-    for (const GerstnerWave &w : GerstnerFromEngine(sharp).waves)
-        sum += w.wave_number * w.horizontal;
-    CHECK(sum <= 0.8f + 1e-4f);
-}
-
-void CheckGrid()
-{
-    for (int cells : {48, 64, 96})
-    {
-        const WaterGridMesh mesh = BuildWaterGrid(cells);
-        CHECK(mesh.cells == cells);
-        CHECK(mesh.vertices.size() == static_cast<size_t>(cells + 1) * (cells + 1) * 3);
-        CHECK(mesh.full.size() == static_cast<size_t>(cells) * cells * 6);
-        for (const auto &ring : mesh.rings)
-            CHECK(ring.size() == static_cast<size_t>(cells * cells - (cells / 2) * (cells / 2)) * 6);
-        // Edge codes: corners and even edge vertices 1, odd edge vertices 2 (edge along x) or 3 (along z).
-        const int side = cells + 1;
-        const auto code = [&](int x, int z) { return mesh.vertices[(static_cast<size_t>(z) * side + x) * 3 + 2]; };
-        CHECK(code(0, 0) == 1.0f && code(cells, cells) == 1.0f && code(2, 0) == 1.0f);
-        CHECK(code(1, 0) == 2.0f && code(3, cells) == 2.0f && code(0, 1) == 3.0f && code(cells, 5) == 3.0f);
-        CHECK(code(1, 1) == 0.0f && code(cells / 2, cells / 2) == 0.0f);
-    }
-    CHECK(BuildWaterGrid(50).cells == 48);
-
-    // Placement: for many camera positions the levels tile the plane exactly once.
-    const int cells = 16;
-    const WaterGridMesh mesh = BuildWaterGrid(cells);
-    for (int sample = 0; sample < 40; ++sample)
-    {
-        const float cx = 37.3f * sample - 500.0f, cz = -11.7f * sample + 123.0f;
-        const std::vector<WaterGridLevel> levels = PlaceWaterGrid(cx, cz, 0.5f, 4);
-        CHECK(levels.size() == 4 && levels[0].ring == -1);
-        // Count coverage on the finest lattice (quarter-cell sample points avoid the cell borders).
-        std::map<std::pair<long, long>, int> coverage;
-        for (const WaterGridLevel &level : levels)
-        {
-            CHECK(std::fabs(cx - level.origin[0]) <= 2.0f * level.step && std::fabs(cz - level.origin[1]) <= 2.0f * level.step);
-            const std::vector<uint16_t> &indices = level.ring < 0 ? mesh.full : mesh.rings[level.ring];
-            for (size_t i = 0; i < indices.size(); i += 6)
-            {
-                // Each cell is two triangles; its first vertex is the cell's lower corner.
-                const float x0 = level.origin[0] + mesh.vertices[indices[i] * 3 + 0] * level.step;
-                const float z0 = level.origin[1] + mesh.vertices[indices[i] * 3 + 1] * level.step;
-                const int fine = static_cast<int>(std::lround(level.step / 0.5f));
-                for (int dz = 0; dz < fine; ++dz)
-                    for (int dx = 0; dx < fine; ++dx)
-                        ++coverage[{std::lround(x0 / 0.5f) + dx, std::lround(z0 / 0.5f) + dz}];
-            }
-        }
-        bool once = true;
-        for (const auto &entry : coverage)
-            once = once && entry.second == 1;
-        CHECK(once);
-        // The union is the outermost level's square.
-        CHECK(coverage.size() == static_cast<size_t>(cells * 8) * (cells * 8));
     }
 }
 
@@ -485,11 +264,11 @@ void CheckLighting()
     SkyState sky;
     sky.dome = {0.2f, 0.4f, 0.8f};
     const LightingUniforms tinted = ComputeLighting(input, LightingMaterial::Character(), &sky, Settings{});
-    // Relief strength: per material, scaled by the preset; stone > wood > canvas, none on characters.
+    // Relief scale: per material (the texture class sets the strength), scaled by the preset; none on characters.
     Settings half;
     half.normal_map_strength = 0.5f;
     CHECK(Near(ComputeLighting(input, LightingMaterial::Stone(), nullptr, half).u_fxLight[5][0], 0.5f, 1e-6f));
-    CHECK(LightingMaterial::Stone().relief > LightingMaterial::Hull().relief && LightingMaterial::Hull().relief > LightingMaterial::Sail().relief);
+    CHECK(LightingMaterial::Stone().relief == LightingMaterial::Hull().relief && LightingMaterial::Hull().relief > LightingMaterial::Sail().relief);
     CHECK(tinted.u_fxLight[5][0] == 0.0f);
     CHECK(tinted.u_fxLight[3][2] > tinted.u_fxLight[3][0]);
     CHECK(tinted.u_fxLight[4][0] > tinted.u_fxLight[4][2]);
@@ -512,8 +291,8 @@ void CheckLighting()
 void CheckSupport()
 {
     Support all;
-    all.lut_3d = all.shadow_map = all.scene_snapshot = all.wave_field = all.scene_depth = all.normal_map = true;
-    all.msaa = all.msaa_depth = all.anisotropy = true;
+    all.lut_3d = all.shadow_map = all.scene_depth = all.normal_map = true;
+    all.msaa = all.msaa_depth = all.anisotropy = all.ao_volume = true;
     for (QualityPreset preset : {QualityPreset::Low, QualityPreset::Medium, QualityPreset::High})
     {
         const Settings settings = Settings::FromPreset(preset);
@@ -526,14 +305,14 @@ void CheckSupport()
     }
     const Settings high = Settings::FromPreset(QualityPreset::High);
 
-    // No sampleable scene depth: occlusion off, water one level down (and its refraction with it).
+    // No sampleable scene depth: occlusion and the sea's soft edges off.
     Support no_depth = all;
     no_depth.scene_depth = false;
     CHECK(ValidateSettings(high, no_depth).size() == 2);
     std::vector<std::string> changes;
     Settings constrained = ConstrainSettings(high, no_depth, changes);
-    CHECK(!constrained.ssao && constrained.water == WaterQuality::Medium && !constrained.water_refraction);
-    CHECK(changes.size() == 2); // occlusion, water quality (which takes refraction with it)
+    CHECK(!constrained.ssao && !constrained.sea_soft_edges && constrained.sea_band_limit);
+    CHECK(changes.size() == 2);
     CHECK(constrained.shadows == high.shadows && constrained.bloom && constrained.lighting_flags == high.lighting_flags);
     CHECK(ValidateSettings(constrained, no_depth).empty());
 
@@ -542,8 +321,26 @@ void CheckSupport()
     no_shadow.shadow_map = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_shadow, changes);
-    CHECK(constrained.shadows == ShadowQuality::Off && changes.size() == 1);
+    CHECK(constrained.shadows == ShadowQuality::Off && constrained.lamp_shadows == 0 && changes.size() == 2);
     CHECK(LightingDefines(constrained).find("FX_LIGHT_SHADOW") == std::string::npos);
+
+    // No R8 3D textures: no AO volume, said once; the rest stays.
+    Support no_ao = all;
+    no_ao.ao_volume = false;
+    changes.clear();
+    constrained = ConstrainSettings(high, no_ao, changes);
+    CHECK(constrained.ao_volume == 0 && changes.size() == 1 && constrained.shadows == high.shadows);
+    // An AO volume without the fx lighting path has no shader to apply it: switched off, said.
+    Settings unlit = high;
+    unlit.lighting_flags = kLightingNone;
+    unlit.shadows = ShadowQuality::Off;
+    unlit.lamp_shadows = 0;
+    changes.clear();
+    CHECK(ConstrainSettings(unlit, all, changes).ao_volume == 0 && changes.size() == 1);
+    Settings too_strong = high;
+    too_strong.ao_volume = 9;
+    changes.clear();
+    CHECK(ConstrainSettings(too_strong, all, changes).ao_volume == kAoVolumeLevels && changes.size() == 1);
 
     // No 3D textures: the post chain is reduced to its plain copy; MSAA is the renderer's and stays.
     Support no_lut = all;
@@ -559,13 +356,13 @@ void CheckSupport()
     no_msaa_depth.msaa_depth = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_msaa_depth, changes);
-    CHECK(constrained.msaa == 4 && !constrained.ssao && constrained.water == WaterQuality::Medium && changes.size() == 2);
+    CHECK(constrained.msaa == 4 && !constrained.ssao && !constrained.sea_soft_edges && changes.size() == 2);
     // No MSAA at all: alpha to coverage goes with it, and then depth-based effects are fine again.
     Support no_msaa = no_msaa_depth;
     no_msaa.msaa = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_msaa, changes);
-    CHECK(constrained.msaa == 1 && !constrained.alpha_to_coverage && constrained.ssao && constrained.water == WaterQuality::High);
+    CHECK(constrained.msaa == 1 && !constrained.alpha_to_coverage && constrained.ssao && constrained.sea_soft_edges);
     // ... and FXAA takes over the anti-aliasing, reported (PowerVR, minimal GLES, a failed MSAA self-test).
     CHECK(constrained.fxaa && !high.fxaa);
     CHECK(std::find(changes.begin(), changes.end(), std::string("MSAA unavailable: FXAA instead")) != changes.end());
@@ -607,11 +404,10 @@ void CheckSupport()
     odd.sun_shafts = true; // without bloom
     odd.lighting_flags = kLightingSpecular; // without per-pixel lighting
     odd.shadows = ShadowQuality::Soft;
-    odd.water_refraction = true;
-    CHECK(ValidateSettings(odd, all).size() == 4);
+    CHECK(ValidateSettings(odd, all).size() == 3);
     changes.clear();
     constrained = ConstrainSettings(odd, all, changes);
-    CHECK(changes.size() == 4 && constrained == Settings{});
+    CHECK(changes.size() == 3 && constrained == Settings{});
     CHECK(Support{}.Describe().find("NO") != std::string::npos && all.Describe().find("NO") == std::string::npos);
 }
 
@@ -737,6 +533,9 @@ void CheckLights()
 
 void CheckShadows()
 {
+    // A shadow takes the whole direct sun away (only the ambient stays); it fades as the sun sets.
+    CHECK(SunShadowStrength(0.7f) == 1.0f && SunShadowStrength(0.125f) == 1.0f);
+    CHECK(Near(SunShadowStrength(0.0625f), 0.5f, 1e-6f) && SunShadowStrength(0.0f) == 0.0f && SunShadowStrength(-0.3f) == 0.0f);
     CHECK(ShadowMapSize(ShadowQuality::Off) == 0 && ShadowMapSize(ShadowQuality::Low) == 1024 && ShadowMapSize(ShadowQuality::Soft) == 2048);
     const Vec3 sun{0.48f, 0.64f, 0.6f};
     const Vec3 focus{100.0f, 5.0f, -40.0f};
@@ -781,6 +580,20 @@ std::array<float, 3> NormalAt(const NormalMap &map, int mip, int x, int y)
     return {nx, ny, std::sqrt(std::max(1.0f - nx * nx - ny * ny, 0.0f))};
 }
 
+// Grey RGBA texels from heights.
+std::vector<uint8_t> Grey(const std::vector<uint8_t> &heights)
+{
+    std::vector<uint8_t> rgba;
+    for (uint8_t h : heights)
+        rgba.insert(rgba.end(), {h, h, h, 255});
+    return rgba;
+}
+
+NormalMap Derive(const std::vector<uint8_t> &heights, int width, int height, const NormalMapOptions &options)
+{
+    return DeriveNormalMap(Grey(heights), width, height, options);
+}
+
 void CheckNormalMaps()
 {
     const int n = 64;
@@ -790,7 +603,7 @@ void CheckNormalMaps()
 
     // A flat height field: every normal points straight out, at every mip.
     const std::vector<uint8_t> flat(n * n, 77);
-    const NormalMap level = DeriveNormalMap(flat, n, n, options);
+    const NormalMap level = Derive(flat, n, n, options);
     CHECK(level.width == n && level.height == n && level.mip_count == 7);
     size_t texels = 0;
     for (int s = n; s >= 1; s /= 2)
@@ -804,7 +617,7 @@ void CheckNormalMaps()
         for (int x = 0; x < n; ++x)
             ramp[y * n + x] = static_cast<uint8_t>(x * 255 / (n - 1));
     options.wrap = false;
-    const NormalMap slope = DeriveNormalMap(ramp, n, n, options);
+    const NormalMap slope = Derive(ramp, n, n, options);
     const float expected = 4.0f / (n - 1); // dh/du in texels, times strength
     const auto mid = NormalAt(slope, 0, n / 2, n / 2);
     CHECK(Near(mid[0] / mid[2], -expected, 0.012f) && Near(mid[1], 0.0f, 0.01f));
@@ -816,7 +629,7 @@ void CheckNormalMaps()
     for (int y = 0; y < n; ++y)
         for (int x = 0; x < n; ++x)
             ramp_v[y * n + x] = ramp[x * n + y];
-    const auto mid_v = NormalAt(DeriveNormalMap(ramp_v, n, n, options), 0, n / 2, n / 2);
+    const auto mid_v = NormalAt(Derive(ramp_v, n, n, options), 0, n / 2, n / 2);
     CHECK(Near(mid_v[1] / mid_v[2], -expected, 0.012f) && Near(mid_v[0], 0.0f, 0.01f));
 
     // A cone: normals point away from the apex, with equal lean all around.
@@ -824,7 +637,7 @@ void CheckNormalMaps()
     for (int y = 0; y < n; ++y)
         for (int x = 0; x < n; ++x)
             cone[y * n + x] = static_cast<uint8_t>(std::clamp(255.0f - 6.0f * std::hypot(x - 31.5f, y - 31.5f), 0.0f, 255.0f));
-    const NormalMap hill = DeriveNormalMap(cone, n, n, options);
+    const NormalMap hill = Derive(cone, n, n, options);
     for (int i = 0; i < 16; ++i)
     {
         const float angle = 0.3927f * i;
@@ -841,7 +654,7 @@ void CheckNormalMaps()
         for (int x = 0; x < n; ++x)
             wave[y * n + x] = static_cast<uint8_t>(std::lround(127.5f + 100.0f * std::sin(6.2831853f * 2.0f * (x + 0.5f) / n)));
     options.wrap = true;
-    const NormalMap tiled = DeriveNormalMap(wave, n, n, options);
+    const NormalMap tiled = Derive(wave, n, n, options);
     for (int x = 0; x < n; ++x)
     {
         const float slope_here = 4.0f * (100.0f / 255.0f) * (6.2831853f * 2.0f / n) * std::cos(6.2831853f * 2.0f * (x + 0.5f) / n);
@@ -851,7 +664,7 @@ void CheckNormalMaps()
     CHECK(std::abs(tiled.rg[0] - tiled.rg[(n - 1) * 2]) <= std::abs(tiled.rg[2 * 10] - tiled.rg[2 * 11]) + 1);
     // Without wrapping the same texture has an edge: the border normal differs from the wrapped one.
     options.wrap = false;
-    CHECK(DeriveNormalMap(wave, n, n, options).rg[0] != tiled.rg[0]);
+    CHECK(Derive(wave, n, n, options).rg[0] != tiled.rg[0]);
     options.wrap = true;
 
     // The pre-blur softens DXT block noise: the steps between 4x4 blocks give smaller peak slopes.
@@ -863,7 +676,7 @@ void CheckNormalMaps()
         NormalMapOptions o = options;
         o.strength = 8.0f;
         o.pre_blur = blur;
-        const NormalMap map = DeriveNormalMap(blocky, n, n, o);
+        const NormalMap map = Derive(blocky, n, n, o);
         int worst = 0;
         for (int i = 0; i < n * n * 2; ++i)
             worst = std::max(worst, std::abs(map.rg[i] - 128));
@@ -872,7 +685,7 @@ void CheckNormalMaps()
     CHECK(peak(false) > 8 && peak(true) * 10 <= peak(false) * 8);
 
     // Deterministic and cacheable: same input, same bytes; the key changes with every option.
-    CHECK(DeriveNormalMap(cone, n, n, options).rg == DeriveNormalMap(cone, n, n, options).rg);
+    CHECK(Derive(cone, n, n, options).rg == Derive(cone, n, n, options).rg);
     NormalMapOptions other = options;
     other.strength = 2.0f;
     CHECK(NormalMapCacheKey(options) == NormalMapCacheKey(options) && NormalMapCacheKey(options) != NormalMapCacheKey(other));
@@ -880,9 +693,138 @@ void CheckNormalMaps()
     other.pre_blur = !options.pre_blur;
     CHECK(NormalMapCacheKey(options) != NormalMapCacheKey(other));
     // Non-square textures and bad input.
-    const NormalMap strip = DeriveNormalMap(std::vector<uint8_t>(256 * 64, 10), 256, 64, options);
+    const NormalMap strip = Derive(std::vector<uint8_t>(256 * 64, 10), 256, 64, options);
     CHECK(strip.mip_count == 9 && strip.rg.size() == 2u * (256 * 64 + 128 * 32 + 64 * 16 + 32 * 8 + 16 * 4 + 8 * 2 + 4 + 2 + 1));
-    CHECK(DeriveNormalMap(flat, n, n + 1, options).rg.empty());
+    CHECK(Derive(flat, n, n + 1, options).rg.empty());
+
+    // The size cap: a 256 x 64 texture with max_size 64 is derived at 64 x 16, and DropTopMips trims a chain.
+    NormalMapOptions capped = options;
+    capped.max_size = 64;
+    int w = 0, h = 0;
+    NormalMapSize(256, 64, capped, w, h);
+    CHECK(w == 64 && h == 16);
+    NormalMap small = Derive(std::vector<uint8_t>(256 * 64, 10), 256, 64, capped);
+    CHECK(small.width == 64 && small.height == 16 && small.mip_count == 7 && small.rg.size() == NormalMapBytes(64, 16));
+    NormalMap trimmed = strip;
+    DropTopMips(trimmed, 32);
+    CHECK(trimmed.width == 32 && trimmed.height == 8 && trimmed.mip_count == 6 && trimmed.rg.size() == NormalMapBytes(32, 8));
+    CHECK(std::equal(trimmed.rg.begin(), trimmed.rg.end(), strip.rg.end() - static_cast<std::ptrdiff_t>(trimmed.rg.size())));
+    other = options;
+    other.max_size = 512;
+    CHECK(NormalMapCacheKey(options) != NormalMapCacheKey(other));
+    other = options;
+    other.source = NormalMapSource::Luminance;
+    CHECK(NormalMapCacheKey(options) != NormalMapCacheKey(other));
+    NormalMapOptions wider = other;
+    wider.band_sigma = other.band_sigma + 1.0f;
+    CHECK(NormalMapCacheKey(other) != NormalMapCacheKey(wider));
+}
+
+// Max lean |n.xy| over a square of the top mip.
+float MaxLean(const NormalMap &map, int x0, int y0, int x1, int y1)
+{
+    float lean = 0.0f;
+    for (int y = y0; y < y1; ++y)
+        for (int x = x0; x < x1; ++x)
+        {
+            const auto normal = NormalAt(map, 0, x, y);
+            lean = std::max(lean, std::hypot(normal[0], normal[1]));
+        }
+    return lean;
+}
+
+// Colour textures: luminance, band-passed, as height.
+void CheckLuminanceRelief()
+{
+    const int n = 128;
+    const NormalMapOptions stone = ReliefOptions(ReliefClass::Stone);
+    CHECK(stone.source == NormalMapSource::Luminance && stone.strength > ReliefOptions(ReliefClass::Wood).strength &&
+          ReliefOptions(ReliefClass::Wood).strength > ReliefOptions(ReliefClass::Plaster).strength &&
+          ReliefOptions(ReliefClass::Building).strength > ReliefOptions(ReliefClass::Plaster).strength);
+    CHECK(ReliefOptions(ReliefClass::HeightMap).source == NormalMapSource::Height);
+    const auto texture = [&](auto colour) {
+        std::vector<uint8_t> rgba;
+        for (int y = 0; y < n; ++y)
+            for (int x = 0; x < n; ++x)
+            {
+                const std::array<uint8_t, 3> c = colour(x, y);
+                rgba.insert(rgba.end(), {c[0], c[1], c[2], 255});
+            }
+        return rgba;
+    };
+
+    // A flat colour (any colour) has no relief at all.
+    const NormalMap flat = DeriveNormalMap(texture([](int, int) { return std::array<uint8_t, 3>{180, 90, 40}; }), n, n, stone);
+    CHECK(flat.width == n && std::all_of(flat.rg.begin(), flat.rg.end(), [](uint8_t v) { return v == 128; }));
+
+    // A big dark patch (a stain, a painted panel) on a plain wall: the inside of the patch is as flat as the wall around
+    // it (no pit); only its rim leans, and only over a few texels.
+    const NormalMap patch = DeriveNormalMap(texture([](int x, int y) {
+                                                const bool dark = std::abs(x - 64) < 32 && std::abs(y - 64) < 32;
+                                                return dark ? std::array<uint8_t, 3>{40, 40, 50} : std::array<uint8_t, 3>{200, 190, 170};
+                                            }),
+                                            n, n, stone);
+    CHECK(MaxLean(patch, 48, 48, 80, 80) < 0.02f); // centre of the patch
+    CHECK(MaxLean(patch, 0, 0, 16, 16) < 0.02f);   // the wall far from it
+    CHECK(MaxLean(patch, 28, 60, 36, 68) > 0.3f);  // the rim
+    // The same patch at twice the size: still flat inside, so the depth does not grow with the patch (a height field
+    // would make a pit whose walls get no flatter).
+    const NormalMap wide = DeriveNormalMap(texture([](int x, int y) {
+                                               const bool dark = std::abs(x - 64) < 56 && std::abs(y - 64) < 56;
+                                               return dark ? std::array<uint8_t, 3>{40, 40, 50} : std::array<uint8_t, 3>{200, 190, 170};
+                                           }),
+                                           n, n, stone);
+    CHECK(MaxLean(wide, 40, 40, 88, 88) < 0.02f);
+
+    // Bricks: light bricks with dark mortar lines every 16 texels (rows) and 32 texels (columns). The brick faces are
+    // higher than the mortar: on both sides of a horizontal line the normal leans down into it, in v only.
+    const NormalMap bricks = DeriveNormalMap(texture([](int x, int y) {
+                                                 const bool mortar = y % 16 < 2 || (x + (y / 16 % 2) * 16) % 32 < 2;
+                                                 const uint8_t v = mortar ? 60 : 190;
+                                                 return std::array<uint8_t, 3>{v, static_cast<uint8_t>(v * 0.8f), static_cast<uint8_t>(v * 0.6f)};
+                                             }),
+                                             n, n, stone);
+    const auto above = NormalAt(bricks, 0, 8, 16 - 2); // the brick above the line at y = 16..17: leans to +v
+    const auto below = NormalAt(bricks, 0, 8, 17 + 2); // the brick below it: leans to -v
+    CHECK(above[1] > 0.3f && below[1] < -0.3f && std::fabs(above[0]) < 0.05f && std::fabs(below[0]) < 0.05f);
+    // ... and next to a vertical line (x = 0..1 in this row) the lean is in u.
+    const auto right = NormalAt(bricks, 0, 2, 8);
+    CHECK(right[0] < -0.3f && std::fabs(right[1]) < 0.05f);
+    // The middle of a brick is nearly flat (only the faint halo of the band pass).
+    CHECK(MaxLean(bricks, 14, 7, 18, 10) < 0.1f);
+    // Stronger classes lean more on the same texture.
+    const auto plaster = NormalAt(DeriveNormalMap(texture([](int x, int y) {
+                                                      const bool mortar = y % 16 < 2 || (x + (y / 16 % 2) * 16) % 32 < 2;
+                                                      const uint8_t v = mortar ? 60 : 190;
+                                                      return std::array<uint8_t, 3>{v, v, v};
+                                                  }),
+                                                  n, n, ReliefOptions(ReliefClass::Plaster)),
+                                  0, 8, 17 + 2);
+    CHECK(plaster[1] < 0.0f && plaster[1] > below[1]);
+
+    // A lower preset derives a smaller map with the same relief: a 2048-wide stripe pattern derived at
+    // 512 leans like the 1024 map (strength and band are given at kNormalMapReferenceSize).
+    const int big = 2048;
+    std::vector<uint8_t> stripes(static_cast<size_t>(big) * 8 * 4);
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < big; ++x)
+        {
+            const uint8_t v = static_cast<uint8_t>(std::lround(127.5f + 100.0f * std::sin(6.2831853f * x / 64.0f)));
+            uint8_t *t = &stripes[(static_cast<size_t>(y) * big + x) * 4];
+            t[0] = t[1] = t[2] = v;
+            t[3] = 255;
+        }
+    NormalMapOptions full = stone, half = stone;
+    full.max_size = 1024;
+    half.max_size = 512;
+    const NormalMap at_full = DeriveNormalMap(stripes, big, 8, full), at_half = DeriveNormalMap(stripes, big, 8, half);
+    CHECK(at_full.width == 1024 && at_half.width == 512);
+    float lean_full = 0.0f, lean_half = 0.0f;
+    for (int x = 0; x < 1024; ++x)
+        lean_full = std::max(lean_full, std::fabs(NormalAt(at_full, 0, x, 1)[0]));
+    for (int x = 0; x < 512; ++x)
+        lean_half = std::max(lean_half, std::fabs(NormalAt(at_half, 0, x, 1)[0]));
+    CHECK(lean_full > 0.1f && Near(lean_half, lean_full, 0.1f * lean_full));
 }
 
 void CheckCheapUpgrades()
@@ -958,10 +900,12 @@ void CheckCheapUpgrades()
 }
 
 int g_log_lines = 0;
+int g_debug_lines = 0;
 
-void CheckHeightMapRules()
+void CheckReliefRules()
 {
     CHECK(NormalizeTexturePath("Locations\\Bump_City.tga.tx") == "locations/bump_city");
+    CHECK(NormalizeTexturePath("resource\\textures\\Ships\\Brig1\\Hull1\\bortoutbrig.TGA") == "ships/brig1/hull1/bortoutbrig");
     CHECK(NameSuggestsHeightMap("bump_houses") && NameSuggestsHeightMap("ships/sailbumpu1") && NameSuggestsHeightMap("sph2_bump2"));
     CHECK(!NameSuggestsHeightMap("bumpy_folder/wall") && !NameSuggestsHeightMap("deckplanksu2"));
 
@@ -975,21 +919,58 @@ void CheckHeightMapRules()
     }
     CHECK(IsGrayscale(grey) && !IsGrayscale(tinted) && !IsGrayscale({}));
 
-    const HeightMapManifest manifest = HeightMapManifest::Parse("# overrides\n+Detail\\DetailWoodU1.tga\n-bump_land  # looks wrong\n\nnonsense\n");
-    CHECK(manifest.include.size() == 1 && manifest.include[0] == "detail/detailwoodu1");
-    CHECK(manifest.exclude.size() == 1 && manifest.exclude[0] == "bump_land");
+    // The table on names from TEHO's RESOURCE/Textures.
+    const auto relief = [](const char *path) { return ClassifyTextureName(NormalizeTexturePath(path)).relief; };
+    const ReliefClass N = ReliefClass::None, S = ReliefClass::Stone, W = ReliefClass::Wood, B = ReliefClass::Building,
+                      P = ReliefClass::Plaster;
+    const std::pair<const char *, ReliefClass> cases[] = {
+        // stone and brick
+        {"StoneH2_walls.tga.tx", S}, {"BigBarBrick.tga", S}, {"rockK1a", S}, {"skala_jungle", S}, {"cobbleM1", S},
+        {"TOWN_COB", S}, {"Beton_2", S}, {"fort_fra_0", S}, {"TortugaFortMain", S}, {"cavernTileU4", S}, {"tileU8", S},
+        {"063pierres", S}, {"pierStone1", S}, {"lighthouseU1", S}, {"incas_hram", S}, {"Crypt_0", S},
+        // wood, planks, ships
+        {"woodPlanksU1", W}, {"deckPlanksT5", W}, {"Capdeck_2", W}, {"dm_barque", W}, {"Gundeck_1", W}, {"pierWood1", W},
+        {"balkU3", W}, {"doorU1", W}, {"Hold_1", W}, {"TOWN_WOOD", W}, {"Ships\\Brig1\\Hull1\\bortoutbrig", W},
+        {"Ships\\Barque1\\Hull3\\deckPlanksT3", W}, {"Ships\\deck", W}, {"cabinet1c", W},
+        // building atlases
+        {"BigHouse01", B}, {"Residence2_walls", B}, {"Tavern1_walls", B}, {"tavern1ins", B}, {"church2_walls", B},
+        {"windmill_walls", B}, {"FlH03", B}, {"SpH4_walls", B}, {"Shipyard1", B}, {"objects_tex2", W},
+        // plaster, ground
+        {"Celling", P}, {"floorU3", P}, {"groundK2", P}, {"1sand1", P}, {"shoreU5", P},
+        {"dirtK3", P}, {"tropa256", P}, {"jungleU5", P}, {"1grass1", N}, {"grassgreen1", N},
+        // no relief: characters, UI, sky, water, glass, foliage cards, cloth and sails, decals, light, lightmaps
+        {"Characters\\Lo_Man_1", N}, {"INTERFACES\\PORTRAITS\\128\\face_1", N}, {"BATTLE_INTERFACE\\cannons", N},
+        {"WEATHER\\SKIES\\day", N}, {"lighting\\day1\\Fort_lm", N}, {"Ships\\parus_common", N},
+        {"Ships\\Mayfang1\\Hull1\\mayfang1_alpha", N}, {"Ships\\trailShip", N}, {"sky_up", N}, {"water1", N},
+        {"sea_1", N}, {"GlassWindow", N}, {"windBigHouse01", N}, {"res_win", N}, {"occlTempleU1", N}, {"reflChurchU2", N},
+        {"MontserratMask", N}, {"PalmsSprites", N}, {"leafPalms", N}, {"Ferns", N}, {"tree4", N}, {"cloth1", N},
+        {"carpetU4", N}, {"ropeU1", N}, {"FishingNets", N}, {"SignboardsA", N}, {"smoke_dirt", N}, {"bonfire_small", N},
+        {"corona01", N}, {"fonar", N}, {"lighthouseFonarU1", N}, {"candle4c", N}, {"WaterFall", N}, {"River1", N},
+        {"metalU4", N}, {"cannon_T1", N}, {"skelet3", N}, {"telo", N}, {"Item_Rapier02", N}, {"MenuWoodFlooooor01", N},
+        {"HiDeckalpha", N}, {"cap_deck_glass", N}, {"Particles_list", N}, {"shadow2", N}, {"back_jungle", N},
+    };
+    for (const auto &[path, expected] : cases)
+        if (relief(path) != expected)
+        {
+            std::printf("FAILED relief rule: %s is %s, expected %s\n", path, ReliefClassName(relief(path)), ReliefClassName(expected));
+            ++failures;
+        }
+    // An unknown name has no rule: no relief.
+    CHECK(ClassifyTextureName("antigua").rule == nullptr && ClassifyTextureName("antigua").relief == N);
 
-    SetLogSink([](LogLevel, const char *) { ++g_log_lines; });
-    HeightMapClassifier classifier(manifest);
+    SetLogSink([](LogLevel level, const char *) { ++(level == LogLevel::Debug ? g_debug_lines : g_log_lines); });
+    ReliefClassifier classifier;
     const auto verdict = [&](const char *path, const std::vector<uint8_t> &pixels) { return classifier.Classify(path, pixels); };
-    CHECK(verdict("bump_city.tga.tx", grey).is_height_map && verdict("bump_city.tga.tx", grey).reason == HeightMapReason::NameAndGrayscale);
-    CHECK(!verdict("Bump3.tga", tinted).is_height_map && verdict("Bump3.tga", tinted).reason == HeightMapReason::NotGrayscale);
-    CHECK(verdict("WEATHER\\SEA\\BUMP_G2MX\\seabump0017.tga.tx", grey).reason == HeightMapReason::ExcludedFolder);
-    CHECK(verdict("deckPlanksU2.tga", grey).reason == HeightMapReason::NameNoMatch);
-    CHECK(verdict("bump_land.tga", grey).reason == HeightMapReason::ManifestExclude && !verdict("bump_land.tga", grey).is_height_map);
-    CHECK(verdict("detail/DetailWoodU1.tga", tinted).is_height_map); // the manifest wins over both rules
-    // One log line per decided texture, none for ordinary textures, none for repeats.
-    CHECK(g_log_lines == 5);
+    CHECK(verdict("bump_city.tga.tx", grey).relief == ReliefClass::HeightMap);
+    // A coloured "bump" texture is an ordinary one: here the table's stone.
+    CHECK(verdict("bump_rock.tga", tinted).relief == S);
+    // The sea's animated bump frames stay without relief (folder rule), grey or not.
+    CHECK(verdict("WEATHER\\SEA\\BUMP_G2MX\\seabump0017.tga.tx", grey).relief == N);
+    CHECK(verdict("deckPlanksU2.tga", {}).relief == W);
+    CHECK(verdict("Antigua.tga.tx", {}).relief == N);
+    CHECK(verdict("deckPlanksU2.tga", {}).relief == W); // a repeat: decided again, not logged again
+    // One debug line per texture, nothing at the normal levels.
+    CHECK(g_debug_lines == 5 && g_log_lines == 0);
     SetLogSink(nullptr);
 }
 } // namespace
@@ -999,7 +980,7 @@ void CheckHeightMapRules()
 void CheckCapsProfiles()
 {
     Support all;
-    all.lut_3d = all.shadow_map = all.scene_snapshot = all.wave_field = all.scene_depth = all.normal_map = true;
+    all.lut_3d = all.shadow_map = all.scene_depth = all.normal_map = true;
     all.msaa = all.msaa_depth = all.anisotropy = true;
     for (int p = 0; p < static_cast<int>(CapsProfile::Count); ++p)
     {
@@ -1026,15 +1007,189 @@ void CheckCapsProfiles()
     CHECK(RestrictSupport(Support{}, CapsProfile::Xclipse).msaa == false);
 }
 
+// Axis-aligned box as 12 triangles (the AO bake only needs surfaces).
+void AddBox(std::vector<Vec3> &p, std::vector<uint32_t> &i, Vec3 lo, Vec3 hi)
+{
+    const uint32_t base = static_cast<uint32_t>(p.size());
+    for (int c = 0; c < 8; ++c)
+        p.push_back({c & 1 ? hi[0] : lo[0], c & 2 ? hi[1] : lo[1], c & 4 ? hi[2] : lo[2]});
+    const uint32_t faces[6][4] = {{0, 1, 3, 2}, {4, 6, 7, 5}, {0, 4, 5, 1}, {2, 3, 7, 6}, {0, 2, 6, 4}, {1, 5, 7, 3}};
+    for (const auto &f : faces)
+        for (const uint32_t t : {f[0], f[1], f[2], f[0], f[2], f[3]})
+            i.push_back(base + t);
+}
+
+void CheckLampShadows()
+{
+    // Three candles of one candlestick become one lamp; the fireplace stays apart.
+    const Lamp candle{{1.0f, 2.0f, 1.0f}, {2.2f, 1.5f, 0.5f}, 15.0f, 0.5f, 0.0f, 1.5f};
+    std::vector<Lamp> lamps = {candle, candle, candle, {{-4.0f, 0.8f, 0.0f}, {2.2f, 1.2f, 0.7f}, 40.0f, 1.5f, 0.0f, 0.2f}};
+    lamps[1].position[0] += 0.1f;
+    lamps[2].position[2] -= 0.1f;
+    const std::vector<Lamp> clustered = ClusterLamps(lamps, 0.6f);
+    CHECK(clustered.size() == 2 && Near(clustered[0].color[0], 6.6f, 1e-4f));
+    CHECK(Near(clustered[0].position[0], 1.0333f, 1e-3f) && Near(clustered[0].position[2], 0.9667f, 1e-3f));
+
+    // Selection: the nearest strong lamp first; out of range lamps never; hysteresis keeps a slot.
+    std::vector<Lamp> room = {{{0.0f, 2.0f, 0.0f}, {2.0f, 2.0f, 2.0f}, 10.0f, 0.5f, 0.0f, 1.0f},
+                              {{6.0f, 2.0f, 0.0f}, {2.0f, 2.0f, 2.0f}, 10.0f, 0.5f, 0.0f, 1.0f},
+                              {{50.0f, 2.0f, 0.0f}, {9.0f, 9.0f, 9.0f}, 10.0f, 0.5f, 0.0f, 1.0f}};
+    std::vector<int> pick = SelectShadowLamps(room, {1.0f, 1.7f, 0.0f}, 2, {});
+    CHECK(pick.size() == 2 && pick[0] == 0 && pick[1] == 1);
+    pick = SelectShadowLamps(room, {1.0f, 1.7f, 0.0f}, 1, {});
+    CHECK(pick.size() == 1 && pick[0] == 0);
+    // At the middle the right lamp is marginally stronger; the left one keeps its slot.
+    pick = SelectShadowLamps(room, {3.1f, 1.7f, 0.0f}, 1, std::vector<int>{0});
+    CHECK(pick.size() == 1 && pick[0] == 0);
+    pick = SelectShadowLamps(room, {5.5f, 1.7f, 0.0f}, 1, std::vector<int>{0});
+    CHECK(pick.size() == 1 && pick[0] == 1);
+
+    // Caster side (face view-projection + tile) and receiver side (LampShadowCoord) agree on atlas position and depth
+    // in every face, and the guard band keeps points of a face inside its tile.
+    const Vec3 lamp{0.5f, 2.0f, -1.0f};
+    const float far_plane = 12.0f;
+    const int columns = 6, rows = 4;
+    int faces_seen = 0;
+    for (int i = 0; i < 200; ++i)
+    {
+        const float a = static_cast<float>(i) * 2.399963f, y = 1.0f - 2.0f * (static_cast<float>(i) + 0.5f) / 200.0f;
+        const float r = std::sqrt(1.0f - y * y), distance = 0.6f + 0.05f * static_cast<float>(i % 100);
+        const Vec3 p{lamp[0] + r * std::cos(a) * distance, lamp[1] + y * distance, lamp[2] + r * std::sin(a) * distance};
+        for (const int slot : {0, 3})
+        {
+            const LampShadowSample s = LampShadowCoord(lamp, p, far_plane, slot, columns, rows);
+            faces_seen |= 1 << s.face;
+            const auto vp = LampFaceViewProj(lamp, s.face, far_plane);
+            const auto tile_clip = TileClip(LampAtlasTile(slot, s.face, columns, rows));
+            float clip[4], atlas[4];
+            for (int j = 0; j < 4; ++j)
+                clip[j] = p[0] * vp[j] + p[1] * vp[4 + j] + p[2] * vp[8 + j] + vp[12 + j];
+            for (int j = 0; j < 4; ++j)
+                atlas[j] = clip[0] * tile_clip[j] + clip[1] * tile_clip[4 + j] + clip[2] * tile_clip[8 + j] + clip[3] * tile_clip[12 + j];
+            const float x = atlas[0] / atlas[3] * 0.5f + 0.5f, yy = 0.5f - atlas[1] / atlas[3] * 0.5f;
+            CHECK(Near(x, s.x, 1e-4f) && Near(yy, s.y, 1e-4f) && Near(clip[2] / clip[3], s.depth, 1e-4f));
+            const AtlasTile t = LampAtlasTile(slot, s.face, columns, rows);
+            const float margin = 0.5f * (1.0f - 1.0f / kLampFaceGuard) * t.sx * 0.99f;
+            CHECK(s.x >= t.x0 + margin && s.x <= t.x0 + t.sx - margin && s.y >= t.y0 && s.y <= t.y0 + t.sy);
+            CHECK(s.depth > 0.0f && s.depth < 1.0f);
+        }
+    }
+    CHECK(faces_seen == 63);
+    // A character 2 m in front of the lamp on +Z is in that face only; one straddling the edge in two; one at the
+    // lamp in all six.
+    int in_faces = 0, edge_faces = 0, at_lamp = 0;
+    for (int f = 0; f < 6; ++f)
+    {
+        in_faces += SphereInLampFace(lamp, f, {lamp[0], lamp[1], lamp[2] + 2.0f}, 0.4f) ? 1 : 0;
+        edge_faces += SphereInLampFace(lamp, f, {lamp[0] + 2.0f, lamp[1], lamp[2] + 2.0f}, 0.4f) ? 1 : 0;
+        at_lamp += SphereInLampFace(lamp, f, lamp, 0.4f) ? 1 : 0;
+    }
+    CHECK(in_faces == 1 && edge_faces == 2 && at_lamp == 6);
+}
+
+void CheckAoVolume()
+{
+    // A 6 x 3 x 6 m room, a table (top at 0.8 m), a barrel 0.7 m from the +x wall.
+    std::vector<Vec3> p;
+    std::vector<uint32_t> idx;
+    AddBox(p, idx, {-3.0f, 0.0f, -3.0f}, {3.0f, 3.0f, 3.0f});
+    AddBox(p, idx, {-0.6f, 0.76f, -0.6f}, {0.6f, 0.8f, 0.6f});
+    AddBox(p, idx, {1.7f, 0.0f, -0.3f}, {2.3f, 0.9f, 0.3f});
+    for (float z = -2.5f; z <= 2.5f; z += 1.0f) // ceiling beams across the room, 0.4 m under the ceiling
+        AddBox(p, idx, {-3.0f, 2.6f, z - 0.1f}, {3.0f, 2.8f, z + 0.1f});
+    AoBakeParams params;
+    params.threads = 1;
+    const AoGeometry geometry{p, idx};
+    const auto start = std::chrono::steady_clock::now();
+    const AoVolume volume = BakeAoVolume(geometry, params);
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    std::printf("ao volume: %dx%dx%d cells of %.2f m baked in %.1f ms (1 thread)\n", volume.size[0], volume.size[1],
+                volume.size[2], volume.cell, ms);
+    CHECK(!volume.Empty());
+    CHECK(Near(volume.cell, 0.2f, 1e-6f));
+    CHECK(volume.size[0] == 32 && volume.size[1] == 17 && volume.size[2] == 32);
+    // Receivers sample half a cell off the surface along the normal (as the shader does).
+    const Vec3 up{0.0f, 1.0f, 0.0f}, west{-1.0f, 0.0f, 0.0f};
+    const float open = volume.Sample({-1.5f, 0.1f, -1.5f}, up);
+    const float under_table = volume.Sample({0.0f, 0.1f, 0.0f}, up);
+    const float corner = volume.Sample({2.9f, 0.1f, 2.9f}, up);
+    const float behind_barrel = volume.Sample({2.65f, 0.1f, 0.0f}, up);
+    const float in_front_of_barrel = volume.Sample({1.0f, 0.1f, 0.0f}, up);
+    const float mid_air = volume.Sample({-1.5f, 1.6f, -1.5f}, up);
+    const float wall = volume.Sample({2.9f, 1.5f, -1.5f}, west);
+    const float wall_under_beams = volume.Sample({2.9f, 2.35f, -1.5f}, west);
+    std::printf("ao volume: open floor %.2f, under the table %.2f, corner %.2f, behind / in front of the barrel %.2f / "
+                "%.2f, wall %.2f, wall under the beams %.2f, mid-air %.2f\n",
+                open, under_table, corner, behind_barrel, in_front_of_barrel, wall, wall_under_beams, mid_air);
+    CHECK(Near(open, kAoOpenSurface, 0.04f) && Near(wall, kAoOpenSurface, 0.04f)); // the shader's reference
+    CHECK(under_table < 0.85f * open);         // the shader scales the contrast (fx strength)
+    CHECK(behind_barrel < 0.75f * open);       // ... and behind the barrels
+    CHECK(behind_barrel < in_front_of_barrel); // ... than in front of them
+    CHECK(corner < 0.85f * open);
+    CHECK(wall > corner && wall < mid_air);
+    CHECK(mid_air > 0.9f);
+    CHECK(wall_under_beams > 0.65f * wall); // beams 0.25 m above shade a wall less than a table top shades the floor
+    CHECK(volume.At({0.0f, 50.0f, 0.0f}, up) == 1.0f); // outside the grid: open
+    // Inside the table top the cells take their open neighbours' value, not 0.
+    CHECK(volume.At({0.0f, 0.78f, 0.0f}, up) > 0.2f);
+
+    // The thread count does not change a single cell; the key follows geometry and parameters.
+    params.threads = 4;
+    const AoVolume threaded = BakeAoVolume(geometry, params);
+    CHECK(threaded.visibility == volume.visibility);
+    const uint64_t key = AoBakeKey(geometry, params);
+    CHECK(key == AoBakeKey(geometry, AoBakeParams{}));    // threads are not part of the key
+    AoBakeParams wider = params;
+    wider.radius = 2.0f;
+    CHECK(key != AoBakeKey(geometry, wider));
+    std::vector<Vec3> moved = p;
+    moved[0][1] += 0.01f;
+    CHECK(key != AoBakeKey({moved, idx}, params));
+
+    // Disk cache round trip and explicit refusals.
+    const std::vector<uint8_t> bytes = EncodeAoVolume(volume, key);
+    std::string error;
+    const auto decoded = DecodeAoVolume(bytes, key, error);
+    CHECK(decoded && decoded->visibility == volume.visibility && decoded->size == volume.size &&
+          decoded->origin == volume.origin && decoded->cell == volume.cell);
+    CHECK(!DecodeAoVolume(bytes, key + 1, error) && error.find("other geometry") != std::string::npos);
+    CHECK(!DecodeAoVolume(std::span(bytes).first(bytes.size() - 1), key, error) && !error.empty());
+    CHECK(!DecodeAoVolume(std::span(bytes).first(10), key, error) && !error.empty());
+
+    // Bounds: a backdrop far outside the room does not grow the grid, yet still occludes inside it.
+    std::vector<Vec3> with_backdrop = p;
+    std::vector<uint32_t> backdrop_idx = idx;
+    AddBox(with_backdrop, backdrop_idx, {-200.0f, -5.0f, -150.0f}, {250.0f, 45.0f, 120.0f});
+    AoBakeParams bounded = params;
+    bounded.bounds_lo = {-3.5f, -0.5f, -3.5f};
+    bounded.bounds_hi = {3.5f, 3.5f, 3.5f};
+    const AoVolume clipped = BakeAoVolume({with_backdrop, backdrop_idx}, bounded);
+    CHECK(clipped.size[0] == 37 && clipped.size[1] == 22 && clipped.size[2] == 37 && clipped.cell == volume.cell);
+    std::printf("ao volume, bounded: under the table %.2f, open floor %.2f\n", clipped.Sample({0.0f, 0.1f, 0.0f}, up),
+                clipped.Sample({-1.5f, 0.1f, -1.5f}, up));
+    CHECK(Near(clipped.Sample({0.0f, 0.1f, 0.0f}, up), under_table, 0.08f) &&
+          Near(clipped.Sample({-1.5f, 0.1f, -1.5f}, up), open, 0.08f)); // another cell grid
+    CHECK(AoBakeKey({with_backdrop, backdrop_idx}, bounded) != AoBakeKey({with_backdrop, backdrop_idx}, params));
+
+    // Nothing to bake: an empty volume (the caller then has no AO for the location and says so).
+    CHECK(BakeAoVolume({}, params).Empty());
+    // A huge box grows the cell to stay within the cell budget.
+    std::vector<Vec3> big;
+    std::vector<uint32_t> big_idx;
+    AddBox(big, big_idx, {0.0f, 0.0f, 0.0f}, {300.0f, 40.0f, 300.0f});
+    AoBakeParams coarse;
+    coarse.max_cells = 64 * 64 * 64;
+    coarse.radius = 0.5f;
+    const AoVolume large = BakeAoVolume({big, big_idx}, coarse);
+    CHECK(static_cast<size_t>(large.size[0]) * large.size[1] * large.size[2] <= coarse.max_cells && large.cell > 0.2f);
+}
+
 int main()
 {
     CheckSettings();
     CheckLut();
     CheckToneCurve();
     CheckNoise();
-    CheckEngineWaves();
-    CheckGerstner();
-    CheckGrid();
     CheckSky();
     CheckLighting();
     CheckSupport();
@@ -1043,7 +1198,10 @@ int main()
     CheckShadows();
     CheckNormalMaps();
     CheckCheapUpgrades();
-    CheckHeightMapRules();
+    CheckLuminanceRelief();
+    CheckReliefRules();
+    CheckAoVolume();
+    CheckLampShadows();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

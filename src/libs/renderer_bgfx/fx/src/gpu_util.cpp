@@ -112,24 +112,15 @@ bool SupportsLut3d()
     return Format(bgfx::TextureFormat::RGBA8, BGFX_CAPS_FORMAT_TEXTURE_3D);
 }
 
+bool SupportsAoVolume()
+{
+    return Format(bgfx::TextureFormat::RGBA8, BGFX_CAPS_FORMAT_TEXTURE_3D);
+}
+
 bool SupportsShadowMap()
 {
     // Compare samplers have no capability bit of their own: every backend bgfx offers for this engine has them.
     return Format(bgfx::TextureFormat::D16, BGFX_CAPS_FORMAT_TEXTURE_2D | BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER);
-}
-
-bool SupportsSceneSnapshot()
-{
-    return bgfx::getCaps()->limits.maxFBAttachments >= 2;
-}
-
-bool SupportsWaveField()
-{
-    // bgfx's GL backends never set the vertex-texture bit, but OpenGL ES 3.0 guarantees vertex texture
-    // fetch and filterable RGBA16F; elsewhere the bit is authoritative.
-    const bgfx::RendererType::Enum type = bgfx::getCaps()->rendererType;
-    const bool gl = type == bgfx::RendererType::OpenGLES || type == bgfx::RendererType::OpenGL;
-    return Format(bgfx::TextureFormat::RGBA16F, BGFX_CAPS_FORMAT_TEXTURE_2D | (gl ? 0u : BGFX_CAPS_FORMAT_TEXTURE_VERTEX));
 }
 
 bool SupportsNormalMap()

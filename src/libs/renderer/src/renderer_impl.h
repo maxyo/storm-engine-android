@@ -408,7 +408,6 @@ class Renderer : public VRenderer
 
 
     void MakePostProcess() override;
-    void SetGLOWParams(float _fBlurBrushSize, int32_t _GlowIntensity, int32_t _GlowPasses) override;
 
     storm::shim::BaseTexture *GetTextureFromID(int32_t nTextureID);
 
@@ -505,71 +504,16 @@ private:
     bool MakeAvi;
     storm::shim::Surface *ImageBuffer;
 
-    //-------- post process
-
-    struct QuadVertex
-    {
-        glm::vec4 vPos;
-
-        float u0;
-        float v0;
-
-        float u1;
-        float v1;
-
-        float u2;
-        float v2;
-
-        float u3;
-        float v3;
-    };
-
-    QuadVertex PostProcessQuad[4];
-    QuadVertex qv[32 * 32];
-    uint16_t qi[31 * 31 * 2 * 3];
-
-    float fSmallWidth;
-    float fSmallHeight;
-    storm::shim::Texture2D *pPostProcessTexture;
-    storm::shim::Surface *pPostProcessSurface;
-
-    storm::shim::Texture2D *pSmallPostProcessTexture;
-    storm::shim::Surface *pSmallPostProcessSurface;
-
-    storm::shim::Texture2D *pSmallPostProcessTexture2;
-    storm::shim::Surface *pSmallPostProcessSurface2;
-
+    // The back buffer and its depth, the target of every frame.
     storm::shim::Surface *pOriginalScreenSurface;
     storm::shim::Surface *pOriginalDepthSurface;
-
     D3DVIEWPORT9 OriginalViewPort;
 
-    void CreateRenderQuad(float fWidth, float fHeight, float fSrcWidth, float fSrcHeight, float fMulU = 1.0f,
-                          float fMulV = 1.0f);
-
-    void ClearPostProcessSurface(storm::shim::Surface *pSurf);
-    void BlurGlowTexture();
-    void CopyGlowToScreen();
-    void CopyPostProcessToScreen();
-
-    void SetPostProcessTextureAsRenderTarget();
+    void ClearSurface(storm::shim::Surface *pSurf);
     void SetScreenAsRenderTarget();
 
-    float fBlurSize;
-    int GlowIntensity;
-    int iBlurPasses;
-
-    bool bNeedCopyToScreen;
-
-    bool bPostProcessEnabled;
-    bool bPostProcessError;
-
-    bool bSeaEffect;
-    float fSeaEffectSize;
-    float fSeaEffectSpeed;
     uint32_t dwBackColor;
-
-    //-------- post process
+    float fWobblePhase = 0.0f; // Render.SeaEffect wave phase, radians
 
     // state save/load ex
     POINT screen_size;

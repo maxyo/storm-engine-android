@@ -37,8 +37,6 @@ CREATE_SERVICE(Renderer)
 
 CREATE_SCRIPTLIBRIARY(DX9RENDER_SCRIPT_LIBRIARY)
 
-#define POST_PROCESS_FVF (D3DFVF_XYZRHW | D3DFVF_TEX4)
-
 #define S_RELEASE(a, b)                                                                                                \
     if (a)                                                                                                             \
     {                                                                                                                  \
@@ -133,13 +131,12 @@ uint32_t RPrint(VS_STACK *pS)
     return IFUNCRESULT_OK;
 }
 
+// The game's options screen and seadogs.c still call SetGlowParams for the D3D9 glow, which never ran (its render
+// targets were never created) and is gone: the arguments are taken and ignored. Glow is fx bloom now.
 uint32_t SetGlowParams(VS_STACK *pS)
 {
-    const float fBlurBrushSize = ((VDATA *)pS->Pop())->GetFloat();
-    const int32_t Intensivity = ((VDATA *)pS->Pop())->GetInt();
-    const int32_t BlurPasses = ((VDATA *)pS->Pop())->GetInt();
-
-    Renderer::pRS->SetGLOWParams(fBlurBrushSize, Intensivity, BlurPasses);
+    for (int i = 0; i < 3; ++i)
+        pS->Pop();
 
     auto *pVR = (VDATA *)pS->Push();
     pVR->Set(0);
@@ -354,20 +351,6 @@ Renderer::Renderer()
 {
     rectsVBuffer = nullptr;
 
-    bPostProcessEnabled = true;
-    bPostProcessError = false;
-    iBlurPasses = 4;
-    GlowIntensity = 200;
-    fBlurSize = 0.8f;
-
-    pPostProcessTexture = nullptr;
-    pSmallPostProcessTexture = nullptr;
-    pSmallPostProcessTexture2 = nullptr;
-
-    pPostProcessSurface = nullptr;
-    pSmallPostProcessSurface = nullptr;
-    pSmallPostProcessSurface2 = nullptr;
-
     pOriginalScreenSurface = nullptr;
     pOriginalDepthSurface = nullptr;
 
@@ -383,9 +366,6 @@ Renderer::Renderer()
 
     bLoadTextureEnabled = true;
 
-    bSeaEffect = false;
-    fSeaEffectSize = 0.0f;
-    fSeaEffectSpeed = 0.0f;
     dwBackColor = 0x0;
 
     bTrace = true;
@@ -536,7 +516,6 @@ void ReconfigureGraphicsEffects()
 
 
 static bool texLog = false;
-static float fSin = 0.0f;
 
 bool Renderer::Init()
 {
@@ -557,9 +536,6 @@ bool Renderer::Init()
         throw std::runtime_error("Cannot initialize renderer: engine.ini is unavailable");
     if (ini)
     {
-        // bPostProcessEnabled = ini->GetInt(0, "PostProcess", 0) == 1;
-        bPostProcessEnabled = false; //~!~
-
 #ifdef __ANDROID__
         // The game's engine.ini may switch the engine's FPS and debug text on; on a phone those are
         // drawn over the touch HUD like a game icon. They show only with an explicit debug
@@ -620,6 +596,14 @@ bool Renderer::Init()
         programCache.directory = fs::GetStashPath() / "ProgramCache";
 #endif
         storm::render::ConfigureProgramCache(programCache);
+
+        // Normal maps derived from the game's textures (fx relief): game-derived data, never shipped.
+#ifdef __ANDROID__
+        const std::filesystem::path effectsCache = storm::android::cacheDirectory();
+#else
+        const std::filesystem::path effectsCache = fs::GetStashPath();
+#endif
+        storm::render::ConfigureEffectsCache(effectsCache, uint64_t{512} << 20);
 
         FovMultiplier = ini->GetFloat(nullptr, "fov_multiplier", 1.0f);
 
@@ -700,10 +684,6 @@ bool Renderer::Init()
 
         gamePictures_ = std::make_unique<storm::GamePictures>(*this);
         storm::render::SetGamePictureProvider(gamePictures_.get());
-        storm::render::SetEffectsTextureResolver([this](int32_t texture) -> storm::shim::BaseTexture * {
-            return texture >= 0 && texture < MAX_STEXTURES && Textures[texture].ref > 0 ? Textures[texture].d3dtex
-                                                                                       : nullptr;
-        });
         // The Android surface is destroyed in background: stop presenting before control returns
         // to SDL (early subscriber) and re-attach to the new native window on return.
         appEventsSubscription_ = storm::AppEvents::instance().subscribe(
@@ -781,22 +761,6 @@ bool Renderer::Init()
         throw std::runtime_error("Cannot initialize renderer: could not allocate vertex buffers");
     }
 
-    uint16_t *pI = &qi[0];
-    // setup ibuffer
-    for (int32_t y = 0; y < 31; y++)
-    {
-        for (int32_t x = 0; x < 31; x++)
-        {
-            *pI++ = static_cast<uint16_t>((y + 0) * 32 + x + 1);
-            *pI++ = static_cast<uint16_t>((y + 1) * 32 + x);
-            *pI++ = static_cast<uint16_t>((y + 0) * 32 + x);
-
-            *pI++ = static_cast<uint16_t>((y + 0) * 32 + x + 1);
-            *pI++ = static_cast<uint16_t>((y + 1) * 32 + x + 1);
-            *pI++ = static_cast<uint16_t>((y + 1) * 32 + x);
-        }
-    }
-
     // UNGUARD
     return true;
 }
@@ -807,16 +771,8 @@ Renderer::~Renderer()
     storm::render::ShutdownTextureCache();
     // d3d9->SetRenderTarget(NULL, NULL); //~!~
 
-    S_RELEASE(pSmallPostProcessSurface2, 0);
-    S_RELEASE(pPostProcessSurface, 1);
-    S_RELEASE(pSmallPostProcessSurface, 2);
-
     S_RELEASE(pOriginalScreenSurface, 3);
     S_RELEASE(pOriginalDepthSurface, 4);
-
-    S_RELEASE(pSmallPostProcessTexture2, 5);
-    S_RELEASE(pPostProcessTexture, 6);
-    S_RELEASE(pSmallPostProcessTexture, 7);
 
     S_RELEASE(rectsVBuffer, 8);
     S_RELEASE(pDropConveyorVBuffer, 9);
@@ -932,51 +888,10 @@ bool Renderer::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t heig
     if (CHECKD3DERR(d3d->CreateDevice(0, D3DDEVTYPE_HAL, hwnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, &d3d9)))
         return false;
 
-    // Create render targets for POST PROCESS effects
+    // The back buffer and its depth: the target of every frame (SetScreenAsRenderTarget).
     d3d9->GetRenderTarget(0, &pOriginalScreenSurface);
     d3d9->GetDepthStencilSurface(&pOriginalDepthSurface);
-
-    fSmallWidth = 128;
-    fSmallHeight = 128;
-
-    if (bPostProcessEnabled)
-    {
-        d3d9->CreateTexture(width, height, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
-                            &pPostProcessTexture, nullptr);
-        d3d9->CreateTexture(static_cast<int>(fSmallWidth), static_cast<int>(fSmallHeight), 1, D3DUSAGE_RENDERTARGET,
-                            D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &pSmallPostProcessTexture, nullptr);
-        d3d9->CreateTexture(static_cast<int>(fSmallWidth * 2.0f), static_cast<int>(fSmallHeight * 2.0f), 1,
-                            D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &pSmallPostProcessTexture2,
-                            nullptr);
-    }
-
-    if (!pPostProcessTexture || !pSmallPostProcessTexture || !pSmallPostProcessTexture2)
-    {
-        bPostProcessEnabled = false;
-        bPostProcessError = true;
-    }
-
-    if (!bPostProcessError)
-    {
-        pPostProcessTexture->GetSurfaceLevel(0, &pPostProcessSurface);
-        pSmallPostProcessTexture2->GetSurfaceLevel(0, &pSmallPostProcessSurface2);
-        pSmallPostProcessTexture->GetSurfaceLevel(0, &pSmallPostProcessSurface);
-
-        if (!pPostProcessSurface || !pSmallPostProcessSurface2 || !pSmallPostProcessSurface)
-        {
-            bPostProcessEnabled = false;
-            bPostProcessError = true;
-        }
-    }
-
-    if (!bPostProcessError)
-    {
-        ClearPostProcessSurface(pPostProcessSurface);
-        ClearPostProcessSurface(pSmallPostProcessSurface);
-        ClearPostProcessSurface(pSmallPostProcessSurface2);
-    }
-
-    ClearPostProcessSurface(pOriginalScreenSurface);
+    ClearSurface(pOriginalScreenSurface);
 
     OriginalViewPort.X = 0;
     OriginalViewPort.Y = 0;
@@ -984,13 +899,6 @@ bool Renderer::InitDevice(bool windowed, HWND _hwnd, int32_t width, int32_t heig
     OriginalViewPort.Height = height;
     OriginalViewPort.MinZ = 0.0f;
     OriginalViewPort.MaxZ = 1.0f;
-
-    // if(CHECKD3DERR(SetViewport(&vprt))==true)    return false;
-
-    // set it as a render target
-    // FIX
-    // SetPostProcessTextureAsRenderTarget();
-    // set it as a render target
 
     for (int32_t b = 0; b < MAX_BUFFERS; b++)
     {
@@ -1055,7 +963,6 @@ bool Renderer::ReleaseDevice()
         storm::AppEvents::instance().unsubscribe(appEventsSubscription_);
     appEventsSubscription_ = -1;
     storm::render::SetGamePictureProvider(nullptr);
-    storm::render::SetEffectsTextureResolver(nullptr);
     gamePictures_.reset();
     if (aniVBuffer)
         aniVBuffer->Release();
@@ -1105,180 +1012,7 @@ bool Renderer::ClearFrame(int32_t type)
     return true;
 }
 
-void Renderer::CreateRenderQuad(float fWidth, float fHeight, float fSrcWidth, float fSrcHeight, float fMulU,
-                                 float fMulV)
-{
-    const float StartX = -0.5f;
-    const float StartY = -0.5f;
-    fWidth -= 0.5f;
-    fHeight -= 0.5f;
-    PostProcessQuad[0].vPos = glm::vec4(StartX, fHeight, 0.0f, 1.0f);
-    PostProcessQuad[1].vPos = glm::vec4(StartX, StartY, 0.0f, 1.0f);
-    PostProcessQuad[2].vPos = glm::vec4(fWidth, fHeight, 0.0f, 1.0f);
-    PostProcessQuad[3].vPos = glm::vec4(fWidth, StartY, 0.0f, 1.0f);
-
-    const float fTexelU = 1.0f / fSrcWidth;
-    const float fTexelV = 1.0f / fSrcHeight;
-
-    const float fNearV = fTexelV * 0.5f;
-    const float fFarV = 1.0f - (fTexelV * 0.5f);
-
-    const float fNearU = fTexelU * 0.5f;
-    const float fFarU = 1.0f - (fTexelU * 0.5f);
-
-    PostProcessQuad[0].v0 = fFarV;
-    PostProcessQuad[0].u0 = fNearU;
-    PostProcessQuad[1].v0 = fNearV;
-    PostProcessQuad[1].u0 = fNearU;
-    PostProcessQuad[2].v0 = fFarV;
-    PostProcessQuad[2].u0 = fFarU;
-    PostProcessQuad[3].v0 = fNearV;
-    PostProcessQuad[3].u0 = fFarU;
-
-    for (int i = 0; i < 4; i++)
-    {
-        float u = PostProcessQuad[i].u0;
-        float v = PostProcessQuad[i].v0;
-
-        u = u * fMulU;
-        v = v * fMulV;
-
-        PostProcessQuad[i].u0 = u - (fTexelU * fBlurSize);
-        PostProcessQuad[i].v0 = v - (fTexelV * fBlurSize);
-
-        PostProcessQuad[i].u1 = u + (fTexelU * fBlurSize);
-        PostProcessQuad[i].v1 = v - (fTexelV * fBlurSize);
-
-        PostProcessQuad[i].u2 = u - (fTexelU * fBlurSize);
-        PostProcessQuad[i].v2 = v + (fTexelV * fBlurSize);
-
-        PostProcessQuad[i].u3 = u + (fTexelU * fBlurSize);
-        PostProcessQuad[i].v3 = v + (fTexelV * fBlurSize);
-    }
-}
-
-void Renderer::BlurGlowTexture()
-{
-    // Render everything to a small texture
-    CreateRenderQuad(fSmallWidth * 2.0f, fSmallHeight * 2.0f, 1024.0f, 1024.0f);
-    SetTexture(0, pPostProcessTexture);
-    SetTexture(1, pPostProcessTexture);
-    SetTexture(2, pPostProcessTexture);
-    SetTexture(3, pPostProcessTexture);
-    SetRenderTarget(pSmallPostProcessSurface2, nullptr);
-    DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, POST_PROCESS_FVF, 2, PostProcessQuad, sizeof(QuadVertex), "PostProcessBlur");
-
-    // pre-blur iBlurPasses times
-    for (int i = 0; i < iBlurPasses; i++)
-    {
-        CreateRenderQuad(fSmallWidth, fSmallHeight, fSmallWidth * 2.0f, fSmallHeight * 2.0f);
-
-        SetTexture(0, pSmallPostProcessTexture2);
-        SetTexture(1, pSmallPostProcessTexture2);
-        SetTexture(2, pSmallPostProcessTexture2);
-        SetTexture(3, pSmallPostProcessTexture2);
-        SetRenderTarget(pSmallPostProcessSurface, nullptr);
-        DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, POST_PROCESS_FVF, 2, PostProcessQuad, sizeof(QuadVertex),
-                        "PostProcessBlur");
-
-        CreateRenderQuad(fSmallWidth * 2.0f, fSmallHeight * 2.0f, fSmallWidth, fSmallHeight);
-
-        SetTexture(0, pSmallPostProcessTexture);
-        SetTexture(1, pSmallPostProcessTexture);
-        SetTexture(2, pSmallPostProcessTexture);
-        SetTexture(3, pSmallPostProcessTexture);
-        SetRenderTarget(pSmallPostProcessSurface2, nullptr);
-        DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, POST_PROCESS_FVF, 2, PostProcessQuad, sizeof(QuadVertex),
-                        "PostProcessBlur");
-    }
-
-    CreateRenderQuad(fSmallWidth, fSmallHeight, fSmallWidth * 2.0f, fSmallHeight * 2.0f);
-    SetTexture(0, pSmallPostProcessTexture2);
-    SetTexture(1, pSmallPostProcessTexture2);
-    SetTexture(2, pSmallPostProcessTexture2);
-    SetTexture(3, pSmallPostProcessTexture2);
-    SetRenderTarget(pSmallPostProcessSurface, nullptr);
-    DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, POST_PROCESS_FVF, 2, PostProcessQuad, sizeof(QuadVertex), "PostProcessBlur");
-}
-
-void Renderer::CopyGlowToScreen()
-{
-    const auto sx = static_cast<float>(screen_size.x);
-    const auto sy = static_cast<float>(screen_size.y);
-    // Render to screen
-    PostProcessQuad[0].vPos = glm::vec4(0, sy, 0.0f, 1.0f);
-    PostProcessQuad[1].vPos = glm::vec4(0, 0, 0.0f, 1.0f);
-    PostProcessQuad[2].vPos = glm::vec4(sx, sy, 0.0f, 1.0f);
-    PostProcessQuad[3].vPos = glm::vec4(sx, 0, 0.0f, 1.0f);
-
-    PostProcessQuad[0].v0 = 1.0f;
-    PostProcessQuad[0].u0 = 0.0f;
-    PostProcessQuad[1].v0 = 0.0f;
-    PostProcessQuad[1].u0 = 0.0f;
-    PostProcessQuad[2].v0 = 1.0f;
-    PostProcessQuad[2].u0 = 1.0f;
-    PostProcessQuad[3].v0 = 0.0f;
-    PostProcessQuad[3].u0 = 1.0f;
-
-    SetRenderTarget(pOriginalScreenSurface, pOriginalDepthSurface);
-
-    if (GlowIntensity < 0)
-        GlowIntensity = 0;
-    if (GlowIntensity > 255)
-        GlowIntensity = 255;
-    const uint8_t bGLOW = static_cast<uint8_t>(GlowIntensity);
-    const uint32_t dwTFactor = (bGLOW << 24) | (bGLOW << 16) | (bGLOW << 8) | bGLOW;
-
-    // Draw the GLOW screen
-    SetRenderState(D3DRS_TEXTUREFACTOR, dwTFactor);
-
-    SetTexture(0, pSmallPostProcessTexture);
-    SetTexture(1, pSmallPostProcessTexture);
-    SetTexture(2, pSmallPostProcessTexture);
-    SetTexture(3, pSmallPostProcessTexture);
-
-    DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, POST_PROCESS_FVF, 2, PostProcessQuad, sizeof(QuadVertex), "PostProcessGlow");
-}
-
-void Renderer::CopyPostProcessToScreen()
-{
-    const auto sx = static_cast<float>(screen_size.x);
-    const auto sy = static_cast<float>(screen_size.y);
-    PostProcessQuad[0].vPos = glm::vec4(0, sy, 0.0f, 1.0f);
-    PostProcessQuad[1].vPos = glm::vec4(0, 0, 0.0f, 1.0f);
-    PostProcessQuad[2].vPos = glm::vec4(sx, sy, 0.0f, 1.0f);
-    PostProcessQuad[3].vPos = glm::vec4(sx, 0, 0.0f, 1.0f);
-
-    PostProcessQuad[0].v0 = 1.0f;
-    PostProcessQuad[0].u0 = 0.0f;
-    PostProcessQuad[1].v0 = 0.0f;
-    PostProcessQuad[1].u0 = 0.0f;
-    PostProcessQuad[2].v0 = 1.0f;
-    PostProcessQuad[2].u0 = 1.0f;
-    PostProcessQuad[3].v0 = 0.0f;
-    PostProcessQuad[3].u0 = 1.0f;
-
-    SetRenderTarget(pOriginalScreenSurface, pOriginalDepthSurface);
-
-    // Draw the original screen
-    SetTexture(0, pPostProcessTexture);
-    SetTexture(1, pPostProcessTexture);
-    SetTexture(2, pPostProcessTexture);
-    SetTexture(3, pPostProcessTexture);
-
-    if (bSeaEffect)
-    {
-        SetFVF(POST_PROCESS_FVF);
-        DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, 32 * 32, 31 * 31 * 2, qi, D3DFMT_INDEX16, qv, sizeof(QuadVertex),
-                               "PostProcess");
-    }
-    else
-    {
-        DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, POST_PROCESS_FVF, 2, PostProcessQuad, sizeof(QuadVertex), "PostProcess");
-    }
-}
-
-void Renderer::ClearPostProcessSurface(storm::shim::Surface *pSurf)
+void Renderer::ClearSurface(storm::shim::Surface *pSurf)
 {
     HRESULT hr = SetRenderTarget(pSurf, nullptr);
     hr = BeginScene();
@@ -1292,42 +1026,10 @@ void Renderer::SetScreenAsRenderTarget()
     SetViewport(&OriginalViewPort);
 }
 
-void Renderer::SetPostProcessTextureAsRenderTarget()
-{
-    SetRenderTarget(pPostProcessSurface, pOriginalDepthSurface);
-    SetViewport(&OriginalViewPort);
-}
-
 void Renderer::MakePostProcess()
 {
     // Every interface calls this before it draws: the 3D scene of this frame ends here (graphics effects).
     storm::render::EffectsSceneComplete();
-    if (bPostProcessError)
-        return;
-    if (!bSeaEffect && !bPostProcessEnabled)
-        return;
-    if (!bNeedCopyToScreen)
-        return;
-
-    storm::shim::StateBlock *pStateBlock = nullptr;
-    d3d9->CreateStateBlock(D3DSBT_ALL, &pStateBlock);
-    pStateBlock->Capture();
-
-    bNeedCopyToScreen = false;
-
-    CopyPostProcessToScreen();
-    BlurGlowTexture();
-    CopyGlowToScreen();
-
-    pStateBlock->Apply();
-    pStateBlock->Release();
-
-    SetScreenAsRenderTarget();
-    /*
-    Print (0, 0, "Blur = %3.2f",    fBlurSize);
-    Print (0, 16, "Intensity = %d",    GlowIntensity);
-    Print (0, 32, "BlurPasses = %d",    iBlurPasses);
-    */
 }
 
 //################################################################################
@@ -1937,7 +1639,7 @@ bool Renderer::TextureLoad(int32_t t)
         }
         Textures[t].d3dtex = tex;
         Textures[t].isCubeMap = false;
-        storm::render::SetEffectsTextureSource(tex, Textures[t].name); // relief from height textures
+        storm::render::SetEffectsTextureSource(tex, Textures[t].name); // relief (fx normal maps)
     }
     else
     {
@@ -2902,42 +2604,7 @@ void Renderer::RestoreRender()
 {
     d3d9->GetRenderTarget(0, &pOriginalScreenSurface);
     d3d9->GetDepthStencilSurface(&pOriginalDepthSurface);
-    fSmallWidth = 128;
-    fSmallHeight = 128;
-    if (bPostProcessEnabled)
-    {
-        d3d9->CreateTexture(screen_size.x, screen_size.y, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
-                            &pPostProcessTexture, nullptr);
-        d3d9->CreateTexture(static_cast<int>(fSmallWidth), static_cast<int>(fSmallHeight), 1, D3DUSAGE_RENDERTARGET,
-                            D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &pSmallPostProcessTexture, nullptr);
-        d3d9->CreateTexture(static_cast<int>(fSmallWidth * 2.0f), static_cast<int>(fSmallHeight * 2.0f), 1,
-                            D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &pSmallPostProcessTexture2,
-                            nullptr);
-    }
-    if (!pPostProcessTexture || !pSmallPostProcessTexture || !pSmallPostProcessTexture2)
-    {
-        bPostProcessEnabled = false;
-        bPostProcessError = true;
-    }
-    if (!bPostProcessError)
-    {
-        pPostProcessTexture->GetSurfaceLevel(0, &pPostProcessSurface);
-        pSmallPostProcessTexture2->GetSurfaceLevel(0, &pSmallPostProcessSurface2);
-        pSmallPostProcessTexture->GetSurfaceLevel(0, &pSmallPostProcessSurface);
-
-        if (!pPostProcessSurface || !pSmallPostProcessSurface2 || !pSmallPostProcessSurface)
-        {
-            bPostProcessEnabled = false;
-            bPostProcessError = true;
-        }
-    }
-    if (!bPostProcessError)
-    {
-        ClearPostProcessSurface(pPostProcessSurface);
-        ClearPostProcessSurface(pSmallPostProcessSurface);
-        ClearPostProcessSurface(pSmallPostProcessSurface2);
-    }
-    ClearPostProcessSurface(pOriginalScreenSurface);
+    ClearSurface(pOriginalScreenSurface);
     d3d9->CreateVertexBuffer(rectsVBuffer_SizeInRects * 6 * sizeof(RECT_VERTEX), D3DUSAGE_WRITEONLY | D3DUSAGE_DYNAMIC,
                              RS_RECT_VERTEX_FORMAT, D3DPOOL_DEFAULT, &rectsVBuffer, nullptr);
     for (int32_t b = 0; b < MAX_BUFFERS; b++)
@@ -3004,13 +2671,6 @@ bool Renderer::ResetDevice()
     return true;
 }
 
-void Renderer::SetGLOWParams(float _fBlurBrushSize, int32_t _GlowIntensity, int32_t _GlowPasses)
-{
-    fBlurSize = _fBlurBrushSize;
-    GlowIntensity = _GlowIntensity;
-    iBlurPasses = _GlowPasses;
-}
-
 void Renderer::RunStart()
 {
 #ifdef __ANDROID__
@@ -3027,51 +2687,20 @@ void Renderer::RunStart()
     auto *pScriptRender = static_cast<VDATA *>(core.GetScriptVariable("Render"));
     ATTRIBUTES *pARender = pScriptRender->GetAClass();
 
-    bSeaEffect = pARender->GetAttributeAsDword("SeaEffect", 0) != 0;
-    fSeaEffectSize = pARender->GetAttributeAsFloat("SeaEffectSize", 0.0f);
-    fSeaEffectSpeed = pARender->GetAttributeAsFloat("SeaEffectSpeed", 0.0f);
     dwBackColor = pARender->GetAttributeAsDword("BackColor", 0);
-
-    if (bSeaEffect)
+    // Render.SeaEffect (locations_loader.c, underwater locations): the game's screen wobble, drawn by the effects
+    // post chain on every preset. The phase advances at SeaEffectSpeed radians per second, as in the D3D9 engine.
+    storm::render::EffectsWobble wobble;
+    wobble.on = pARender->GetAttributeAsDword("SeaEffect", 0) != 0;
+    if (wobble.on)
     {
-        fSin += static_cast<float>(core.GetRDeltaTime()) * 0.001f * fSeaEffectSpeed;
-
-        const auto sx = static_cast<float>(screen_size.x);
-        const auto sy = static_cast<float>(screen_size.y);
-
-        const auto fDX = static_cast<float>(static_cast<int32_t>(sx * fSeaEffectSize));
-        const float fDY = static_cast<float>(static_cast<int32_t>(sy * fSeaEffectSize));
-
-        const float sx2 = sx + fDX * 2.0f;
-        const float sy2 = sy + fDY * 2.0f;
-
-        for (int32_t y = 0; y < 32; y++)
-        {
-            for (int32_t x = 0; x < 32; x++)
-            {
-                qv[x + y * 32].vPos =
-                    glm::vec4(sx * static_cast<float>(x) / 31.0f, sy * static_cast<float>(y) / 31.0f, 0.0f, 1.0f);
-
-                qv[x + y * 32].u0 = (sx * static_cast<float>(x) / 31.0f +
-                                     sinf(fSin + static_cast<float>(x) / 31.0f * PI * 16.0f) * fDX + fDX) /
-                                    sx2;
-                qv[x + y * 32].v0 = (sy * static_cast<float>(y) / 31.0f +
-                                     sinf(fSin + static_cast<float>(y) / 31.0f * PI * 16.0f) * fDY + fDY) /
-                                    sy2;
-            }
-        }
+        const float speed = pARender->GetAttributeAsFloat("SeaEffectSpeed", 0.0f);
+        fWobblePhase = std::fmod(fWobblePhase + static_cast<float>(core.GetRDeltaTime()) * 0.001f * speed, 2.0f * PI);
+        wobble.amplitude = pARender->GetAttributeAsFloat("SeaEffectSize", 0.0f);
+        wobble.phase = fWobblePhase;
     }
-
-    bNeedCopyToScreen = true;
-    //------------------------------------------
-    if ((bPostProcessEnabled || bSeaEffect) && (!bPostProcessError))
-    {
-        SetPostProcessTextureAsRenderTarget();
-    }
-    else
-    {
-        SetScreenAsRenderTarget();
-    }
+    storm::render::SetEffectsWobble(wobble);
+    SetScreenAsRenderTarget();
 
     ClearFrame(D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | ((stencil_format == D3DFMT_D24S8) ? D3DCLEAR_STENCIL : 0));
 
@@ -3103,8 +2732,6 @@ void Renderer::RunStart()
 
 void Renderer::RunEnd()
 {
-    // MakePostProcess();
-
     bInsideScene = false;
     DrawFrameStats();
     if (progressTexture >= 0)

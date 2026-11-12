@@ -1,10 +1,17 @@
-// Normal maps derived on the device from the game's grayscale height ("bump")
-// textures, and the explicit rule that decides which textures are height maps.
+// Normal maps derived on the device from the player's own textures, and the rules that decide which textures get
+// one and how strong their relief is.
 //
-// The game uses those textures as a 2x multiply detail layer on the second
-// texture stage (GEOM_SERVICE_R::SetMaterial, texture[1], second UV set). The
-// derived map adds lighting relief on the same coordinates. Derived textures
-// come from the player's files: cache them on the device, never ship them.
+// Two sources:
+//   * the game's grey height ("bump") textures: the 2x multiply detail layer on the second texture stage
+//     (GEOM_SERVICE_R::SetMaterial, texture[1], second UV set). Their values are heights.
+//   * ordinary colour textures of stone, wood, plaster and ground: the luminance, band-passed so that only the
+//     small-scale detail (mortar lines, plank gaps, cobbles) becomes height. Brightness changes wider than the band
+//     (a dark patch, a painted stripe, baked light) stay colour and make no pits or hills.
+// Which textures, and how strong, comes from one ordered table of path / name rules (ClassifyTextureName) written
+// from TEHO's texture folders. Anything the table does not know gets no relief (and is logged once).
+//
+// Derived textures come from the player's files: cache them on the device (keyed by the source pixels and
+// NormalMapCacheKey), never ship or commit them.
 #pragma once
 
 #include <cstdint>
@@ -16,14 +23,48 @@
 namespace storm::fx
 {
 
+// Material class of a texture for the relief. Stone and brick strong; wood and planks, and the buildings' mixed atlases
+// (stone, plaster, beams and doors of one house in one texture) medium; plaster and ground weak.
+enum class ReliefClass : uint8_t
+{
+    None,      // no relief: faces and skin, cloth and sails, UI, water, glass, foliage cards, sky, decals, unknown
+    HeightMap, // grey "bump" texture: its values are heights
+    Stone,
+    Wood,
+    Building, // one atlas per building: its walls, beams, doors
+    Plaster,  // plaster, ceilings, floors, ground, sand
+};
+const char *ReliefClassName(ReliefClass relief);
+
+enum class NormalMapSource : uint8_t
+{
+    Height,    // the red channel is the height
+    Luminance, // band-passed luminance is the height
+};
+
 struct NormalMapOptions
 {
-    float strength = 2.0f; // height of a full black-to-white step, in texels of the top mip
-    bool wrap = true;      // texture tiles: filters wrap around the edges
-    bool pre_blur = true;  // one 3x3 binomial pass first: removes DXT block noise from the height
+    NormalMapSource source = NormalMapSource::Height;
+    // Height: height of a full black-to-white step, in texels (see max_size).
+    // Luminance: height of a unit step of the band-passed luminance relative to the local brightness (softly limited),
+    // in texels.
+    float strength = 2.0f;
+    bool wrap = true;     // texture tiles: filters wrap around the edges
+    int pre_blur = 1;     // 3x3 binomial passes first: remove DXT block noise (and, more, fine grain)
+    // Luminance: Gaussian sigma, in texels (see max_size), of the brightness that counts as colour. Detail
+    // narrower than about two sigmas becomes height; wider patches are removed (a high pass).
+    float band_sigma = 3.0f;
+    // The derived top mip is the texture halved until its larger side is at most this. `strength` and `band_sigma`
+    // are in texels of the map derived at kNormalMapReferenceSize, so a smaller map has the same relief.
+    int max_size = 1024;
 
     bool operator==(const NormalMapOptions &) const = default;
 };
+
+inline constexpr int kNormalMapReferenceSize = 1024;
+
+// The derivation options of a class (strength, band, size). ReliefClass::None has none to give: an empty map.
+NormalMapOptions ReliefOptions(ReliefClass relief);
 
 struct NormalMap
 {
@@ -36,59 +77,52 @@ struct NormalMap
 };
 
 // Bump this when the derivation changes, and put NormalMapCacheKey() into the cache key of the device cache.
-inline constexpr uint32_t kNormalMapVersion = 1;
+inline constexpr uint32_t kNormalMapVersion = 2;
 uint64_t NormalMapCacheKey(const NormalMapOptions &options);
 
-// `height`: width * height values, row by row (any one colour channel of the bump texture). Deterministic.
-// Every mip is derived from the height field downsampled to that size (Scharr filter), so distant surfaces
-// flatten correctly instead of keeping a noisy, shortened normal.
-NormalMap DeriveNormalMap(std::span<const uint8_t> height, int width, int height_px, const NormalMapOptions &options = {});
+// Size of the derived top mip for a `width` x `height` texture (max_size applied).
+void NormalMapSize(int width, int height, const NormalMapOptions &options, int &out_width, int &out_height);
 
-// ---- which textures are height maps ----
+// `rgba`: width * height texels, 4 bytes each (R first), row by row. Deterministic. Every mip is derived from the
+// height field downsampled to that size (Scharr filter), so distant surfaces flatten correctly instead of keeping a
+// noisy, shortened normal. Empty map on bad input.
+NormalMap DeriveNormalMap(std::span<const uint8_t> rgba, int width, int height, const NormalMapOptions &options);
 
-enum class HeightMapReason
-{
-    ManifestInclude,  // listed with '+' in the manifest
-    ManifestExclude,  // listed with '-' in the manifest
-    NameAndGrayscale, // name rule matched and the pixels are grey: a height map
-    NameNoMatch,      // name rule did not match
-    ExcludedFolder,   // name matched, but the folder holds something else (animated sea bump frames)
-    NotGrayscale,     // name matched, but the texture is coloured: treated as an ordinary texture
-};
+// Removes top mips until the larger side is at most `max_size` (the preset's resolution of the resident map).
+void DropTopMips(NormalMap &map, int max_size);
+// Bytes of all mips of an RG8 map whose top mip is width x height.
+size_t NormalMapBytes(int width, int height);
 
-struct HeightMapVerdict
-{
-    bool is_height_map = false;
-    HeightMapReason reason = HeightMapReason::NameNoMatch;
-};
+// ---- which textures get relief ----
 
-// Override list. Text format, one texture per line, path relative to RESOURCE/Textures without extension,
-// case-insensitive, '/' or '\': "+path" forces a height map, "-path" forbids one, '#' starts a comment.
-struct HeightMapManifest
-{
-    std::vector<std::string> include;
-    std::vector<std::string> exclude;
-
-    static HeightMapManifest Parse(std::string_view text);
-};
-
-// "locations\\Bump_City.tga.tx" -> "locations/bump_city".
+// "Resource\\Textures\\Locations\\Bump_City.tga.tx" -> "locations/bump_city": lower case, '/', without the
+// textures folder and the extensions.
 std::string NormalizeTexturePath(std::string_view path);
-// The name rule: the file name contains "bump".
+// The height-map name rule: the file name contains "bump".
 bool NameSuggestsHeightMap(std::string_view normalized_path);
 // R, G and B agree within what DXT compression of a grey image produces. `rgba`: 4 bytes per pixel.
 bool IsGrayscale(std::span<const uint8_t> rgba);
 
-// The whole decision for one texture; `rgba` may be any mip (64x64 is plenty). Nothing is guessed silently:
-// the first decision for each path is logged (LogLevel::Info) with its reason.
-class HeightMapClassifier
+struct ReliefVerdict
+{
+    ReliefClass relief = ReliefClass::None;
+    // The table entry that decided (a folder "ships/", a name part "brick"; "ships/parus" = name part in a folder),
+    // "bump + grey" for height maps, nullptr when no rule matched (unknown texture: no relief).
+    const char *rule = nullptr;
+    bool by_folder = false; // the rule names a whole folder
+};
+
+// The rules table alone, on a normalized path. Height maps are decided by ReliefClassifier (they need the pixels).
+ReliefVerdict ClassifyTextureName(std::string_view normalized_path);
+
+// The whole decision for one texture; `rgba` may be any mip (64x64 is plenty; read only for "bump" names). Every
+// first decision for a path is logged at LogLevel::Debug with its rule.
+class ReliefClassifier
 {
   public:
-    explicit HeightMapClassifier(HeightMapManifest manifest = {});
-    HeightMapVerdict Classify(std::string_view path, std::span<const uint8_t> rgba);
+    ReliefVerdict Classify(std::string_view path, std::span<const uint8_t> rgba);
 
   private:
-    HeightMapManifest manifest_;
     std::vector<std::string> logged_;
 };
 

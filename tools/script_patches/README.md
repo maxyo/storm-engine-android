@@ -36,7 +36,8 @@ is honoured.
 
 Allowed targets (`isPatchTargetPath`): `program/dialog.c`,
 `program/dialogs/<language>/**` (each language file is its own target),
-`program/quests/`, `program/sea_ai/`, `program/loc_ai/` and `program/weather/`,
+`program/quests/`, `program/sea_ai/`, `program/loc_ai/`, `program/weather/` and
+`program/battle_interface/` (the town flag of locations without a town),
 `.c`/`.h` only; the list grows only when a real fix needs another directory. The UI overlay paths
 (`program/interface`, `program/controls`) are excluded so a file is never both
 replaced and patched.

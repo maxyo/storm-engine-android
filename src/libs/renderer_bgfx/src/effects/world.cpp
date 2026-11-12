@@ -1,5 +1,5 @@
-// World passes of the graphics effects: the analytic sky, the fx water and contact shadows. The consumer entities
-// (SKY, SEA, shadow) call them where they would draw their legacy passes; the draws go into the shim's current game
+// World passes of the graphics effects: the analytic sky, contact shadows and the improvements of the game's own sea.
+// The consumer entities (SKY, shadow) call them where they would draw their legacy passes; the draws go into the shim's current game
 // view in submission order, with the D3D camera of that moment as the bgfx view transform.
 #include "effects/effects.hpp"
 
@@ -39,16 +39,22 @@ std::array<float, 16> backend_projection(const shim::Device &device, const D3DMA
     return out;
 }
 
+// D3D perspective: _33 = f / (f - n), _43 = -n f / (f - n). Leaves the planes as they are for other matrices.
+void clip_planes(const D3DMATRIX &p, float &near_plane, float &far_plane)
+{
+    if (p.m[2][2] != 0.0f && p.m[2][2] != 1.0f)
+    {
+        near_plane = -p.m[3][2] / p.m[2][2];
+        far_plane = p.m[3][2] / (1.0f - p.m[2][2]);
+    }
+}
+
 float seconds()
 {
     static const auto start = std::chrono::steady_clock::now();
     return std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count();
 }
 
-fx::Vec3 decode(const std::array<float, 3> &rgb)
-{
-    return {rgb[0], rgb[1], rgb[2]};
-}
 } // namespace
 
 render::EffectsWorld Host::world() const
@@ -57,9 +63,9 @@ render::EffectsWorld Host::world() const
     if (!device_ready_)
         return world;
     world.sky = settings_.sky_atmosphere;
-    world.water = settings_.water != fx::WaterQuality::Legacy;
     world.contact_shadows = settings_.contact_shadows;
     world.lens_flare = settings_.lens_flare;
+    world.lamp_character_shadows = settings_.lamp_shadows > 0 && lighting_.lamp_shadows().has_geometry();
     return world;
 }
 
@@ -104,13 +110,7 @@ bool Host::begin_world_pass(WorldPass &pass, const render::EffectsMatrix &view, 
     const auto &v = view;
     for (int i = 0; i < 3; ++i)
         pass.camera[i] = -(v[12] * v[i * 4 + 0] + v[13] * v[i * 4 + 1] + v[14] * v[i * 4 + 2]);
-    // D3D perspective: _33 = f / (f - n), _43 = -n f / (f - n).
-    const D3DMATRIX &p = device->s.proj;
-    if (p.m[2][2] != 0.0f && p.m[2][2] != 1.0f)
-    {
-        pass.near_plane = -p.m[3][2] / p.m[2][2];
-        pass.far_plane = p.m[3][2] / (1.0f - p.m[2][2]);
-    }
+    clip_planes(device->s.proj, pass.near_plane, pass.far_plane);
     camera_height_ = pass.camera[1];
     return true;
 }
@@ -131,98 +131,57 @@ void Host::draw_sky(const render::EffectsMatrix &view)
     sky_.Submit(pass.view, settings_, pass.view_mtx.data(), pass.projection.data());
 }
 
-void Host::draw_water(const render::EffectsWaterMesh &mesh, const render::EffectsMatrix &view)
+void Host::prepare_sea(shim::Device &device)
 {
-    if (settings_.water == fx::WaterQuality::Legacy || !mesh.vertex_count || !mesh.index_count)
-        return;
-    const bgfx::VertexLayout &layout = fx::Water::MeshLayout();
-    if (bgfx::getAvailTransientVertexBuffer(mesh.vertex_count, layout) < mesh.vertex_count ||
-        bgfx::getAvailTransientIndexBuffer(mesh.index_count) < mesh.index_count)
+    if (!bgfx::isValid(u_sea_fx_))
     {
-        if (!water_buffers_logged_)
-            shim::logf("ERROR: effects: no transient buffer space for the fx water (%u vertices, %u indices): sea not drawn",
-                       mesh.vertex_count, mesh.index_count);
-        water_buffers_logged_ = true;
-        return;
+        u_sea_fx_ = bgfx::createUniform("u_seaFx", bgfx::UniformType::Vec4, 3);
+        s_sea_depth_ = bgfx::createUniform("s_seaDepth", bgfx::UniformType::Sampler);
     }
-    WorldPass pass;
-    if (!begin_world_pass(pass, view))
-        return;
-    update_sky(pass.camera[1]);
-    if (settings_.water == fx::WaterQuality::High)
+    float near_plane = 0.1f, far_plane = 4000.0f;
+    clip_planes(device.s.proj, near_plane, far_plane);
+    bool soft_edges = device_ready_ && settings_.sea_soft_edges;
+    if (soft_edges)
     {
-        // The snapshot of the scene behind the water: colour and depth of the current target, read in a view of
-        // its own; the water then continues in a new view on the same target.
-        shim::Device &device = *shim::Device::current;
+        // The scene distance behind the sea: the depth of the current target, read in a view of its own before the
+        // first sea draw into this target in this frame; the sea then continues in a new view on the same target.
         shim::TexStore *color = device.rt->store.get();
         shim::TexStore *depth = device.ds ? device.ds->store.get() : nullptr;
         // A multisampled target is read through its resolve textures, which hold the depth too only where the
-        // backend resolves it (Support::msaa_depth).
-        if (depth && (!color->target_flags || support_.msaa_depth))
+        // backend resolves it (Support::msaa_depth; ConstrainSettings keeps the soft edges off otherwise).
+        const bool readable = depth && (!color->target_flags || support_.msaa_depth);
+        const uint32_t frame = shim::Context::instance().submitted_frames();
+        if (!readable)
         {
-            color->sync();
+            soft_edges = false;
+            if (!sea_depth_logged_)
+                shim::logf("ERROR: effects: the sea is drawn into a target without a readable depth: no soft sea edges "
+                           "there (logged once)");
+            sea_depth_logged_ = true;
+        }
+        else if (sea_depth_frame_ != frame || sea_depth_target_ != device.rt)
+        {
             depth->sync();
             const bgfx::ViewId capture = device.effects_view(true);
-            water_.CaptureScene(capture, color->handle, depth->handle, static_cast<uint16_t>(color->width),
-                                static_cast<uint16_t>(color->height), pass.near_plane, pass.far_plane);
-            if (!begin_world_pass(pass, view, true))
-                return;
-        }
-        else if (!water_capture_logged_)
-        {
-            water_capture_logged_ = true;
-            shim::logf("ERROR: effects: High water needs a readable depth of the target to see the scene behind the "
-                       "sea; Water refuses the frame");
+            sea_depth_.Capture(capture, depth->handle, static_cast<uint16_t>(color->width),
+                               static_cast<uint16_t>(color->height), near_plane, far_plane);
+            device.effects_view(true);
+            sea_depth_frame_ = frame;
+            sea_depth_target_ = device.rt;
         }
     }
-    fx::WaterFrame frame;
-    if (shim::TexStore *env = shim::store_of(render::ResolveEffectsTexture(mesh.env_map)); env && env->kind == shim::TexKind::Cube)
-    {
-        env->sync();
-        frame.env_cube = env->handle;
-    }
-    else if (!water_env_logged_)
-    {
-        water_env_logged_ = true;
-        shim::logf("ERROR: effects: the SEA entity gave the fx water no environment cube: the sea reflects the analytic "
-                   "sky only");
-    }
-    frame.view = pass.view;
-    frame.camera = pass.camera;
-    frame.time = seconds();
-    frame.crest_height = mesh.crest_height;
-    frame.far_plane = pass.far_plane;
-    fx::WaterShading shading;
-    const render::EffectsWaterShading &in = mesh.shading;
-    shading.water_color = decode(in.water_color);
-    shading.sky_color = decode(in.sky_color);
-    shading.reflection = in.reflection;
-    shading.transparency = in.transparency;
-    shading.attenuation = in.attenuation;
-    shading.fresnel = in.fresnel;
-    shading.bump_speed = in.bump_speed;
-    shading.foam = in.foam;
-    shading.foam_v = in.foam_v;
-    shading.foam_k = in.foam_k;
-    shading.foam_uv = in.foam_uv;
-    shading.fog_color = decode(in.fog_color);
-    shading.fog_density = in.fog_density;
-
-    bgfx::TransientVertexBuffer vertices;
-    bgfx::TransientIndexBuffer indices;
-    bgfx::allocTransientVertexBuffer(&vertices, mesh.vertex_count, layout);
-    bgfx::allocTransientIndexBuffer(&indices, mesh.index_count);
-    memcpy(vertices.data, mesh.vertices, static_cast<size_t>(mesh.vertex_count) * layout.getStride());
-    memcpy(indices.data, mesh.indices, static_cast<size_t>(mesh.index_count) * sizeof(uint16_t));
-    const bgfx::ProgramHandle program = water_.PrepareMesh(settings_, frame, shading, sky_, mesh.world_offset);
-    if (!bgfx::isValid(program))
-    {
-        bgfx::discard(); // Water logged why; drop the state it set
-        return;
-    }
-    bgfx::setVertexBuffer(0, &vertices);
-    bgfx::setIndexBuffer(&indices);
-    bgfx::submit(pass.view, program);
+    const bool specular = device_ready_ && settings_.sea_specular && has_weather();
+    const auto &sun = weather_.sun_dir;
+    const float strength = settings_.sea_specular_strength;
+    const float sea_fx[12] = {
+        settings_.sea_band_limit ? 1.0f : 0.0f, soft_edges ? 1.0f : 0.0f, specular ? 1.0f : 0.0f, far_plane,
+        sun[0], sun[1], sun[2], settings_.sea_specular_power,
+        weather_.sun_color[0] * strength, weather_.sun_color[1] * strength, weather_.sun_color[2] * strength,
+        1.0f / std::max(settings_.sea_edge_depth, 0.01f),
+    };
+    bgfx::setUniform(u_sea_fx_, sea_fx, 3);
+    if (soft_edges) // otherwise the shader does not read the unit
+        bgfx::setTexture(fx::kNormalMapStage, s_sea_depth_, sea_depth_.Texture(), BGFX_SAMPLER_UVW_CLAMP | BGFX_SAMPLER_POINT);
 }
 
 void Host::contact_shadow(const std::array<float, 3> &ground, const render::EffectsMatrix &view)
@@ -253,11 +212,6 @@ bool EffectsSkyFogColor(std::array<float, 3> &rgb)
 void EffectsDrawSky(const EffectsMatrix &view)
 {
     effects::Host::instance().draw_sky(view);
-}
-
-void EffectsDrawWater(const EffectsWaterMesh &mesh, const EffectsMatrix &view)
-{
-    effects::Host::instance().draw_water(mesh, view);
 }
 
 void EffectsContactShadow(const std::array<float, 3> &ground, const EffectsMatrix &view)

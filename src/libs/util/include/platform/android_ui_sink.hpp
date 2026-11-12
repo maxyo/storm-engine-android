@@ -20,6 +20,8 @@ void screen(const std::string &screen, uint64_t revision);
 void interfaceModel(std::string json);
 // A passing line of the game's log: a toast over the game.
 void toast(std::string text);
+// Something the player asked for failed: a lasting danger toast of the pack string `string_key`.
+void alert(std::string string_key);
 // Top of every engine loop iteration, before the queued commands are read: starts the host
 // once the renderer is ready and applies what the platform thread sent (touches, presentation).
 void tick();

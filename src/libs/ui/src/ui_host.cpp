@@ -187,15 +187,21 @@ class CountedDocument final : public Rml::ElementDocument
     }
 
   protected:
+    void OnLayoutStart() override // patches/rmlui-document-layout-start.patch
+    {
+        layout_started_ = std::chrono::steady_clock::now();
+    }
     void OnLayout() override
     {
         Rml::ElementDocument::OnLayout();
         ++stats_.laid_out;
         ++stats_.layout_passes;
+        stats_.layout_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - layout_started_).count();
     }
 
   private:
     FrameStats &stats_;
+    std::chrono::steady_clock::time_point layout_started_;
 };
 
 class CountedDocumentInstancer final : public Rml::ElementInstancer
@@ -425,21 +431,14 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             for (int i = 0; i < element->GetNumChildren(); ++i)
                 pending.push_back(element->GetChild(i));
         }
-        // The host's own toast stacks keep clear of the cutout too (8 / 16 dp: their offsets in base.rcss).
+        // The host's toast stack keeps clear of the cutout too (8 dp: its offset in base.rcss).
         if (overlay_)
-        {
-            const auto inset = [this](const char *id, Rml::PropertyId side, float base, float extra) {
-                if (Rml::Element *stack = overlay_->GetElementById(id))
-                    stack->SetProperty(side, Rml::Property(base + extra, Rml::Unit::DP));
-            };
-            for (const char *id : {"toasts-top", "toasts-bottom"})
+            if (Rml::Element *stack = overlay_->GetElementById("toasts"))
             {
-                inset(id, Rml::PropertyId::Left, 0.0f, left);
-                inset(id, Rml::PropertyId::Right, 0.0f, right);
+                stack->SetProperty(Rml::PropertyId::Left, Rml::Property(left, Rml::Unit::DP));
+                stack->SetProperty(Rml::PropertyId::Right, Rml::Property(right, Rml::Unit::DP));
+                stack->SetProperty(Rml::PropertyId::Top, Rml::Property(8.0f + top, Rml::Unit::DP));
             }
-            inset("toasts-top", Rml::PropertyId::Top, 8.0f, top);
-            inset("toasts-bottom", Rml::PropertyId::Bottom, 16.0f, bottom);
-        }
     }
 
     void SetGameRoot(const std::string &game_root) override
@@ -572,7 +571,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         const bool images = GameImagesChanged();
         const double routing = std::min(router_->Tick(), hud_->Tick());
 
-        context_->Update();
+        UpdateContext();
         // Scroll edges move only with a layout, a touch or a scroll in motion: the walk over
         // every element is skipped on frames without any of them.
         const bool moved = changed_ || counters_.laid_out > 0 || context_->GetNextUpdateDelay() <= 0.0;
@@ -581,7 +580,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         // What fell under a cutout with this layout moves out of it (SetCutouts).
         const bool cutouts = moved && AvoidCutouts();
         if (clamps || cutouts) // clamped text was re-cut for a new width, a scrolling edge changed, content moved off a cutout
-            context_->Update();
+            UpdateContext();
         delay = context_->GetNextUpdateDelay();
         // What makes the shown frame out of date: input and host calls (changed_), rebuilt
         // or re-laid-out components, ticking behaviours, animations and transitions, game
@@ -595,10 +594,13 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         delay = std::min(delay, routing);
         for (const Toast_ &toast : toasts_)
             delay = std::min(delay, std::max(0.0, (toast.leaving >= 0.0 ? toast.leaving + ToastLeaveSeconds() : toast.until) - now));
+        TakeGameImageCost(counters_.picture_ms, counters_.pictures);
         counters_.update_ms += Milliseconds(started, std::chrono::steady_clock::now());
         const bool draw = changed_ || !drawn_;
         if (!draw)
         {
+            if (switch_.drawn)
+                ReportSwitch(true); // nothing more to draw: the screen has settled
             // The frame on the screen still shows everything: acknowledgements that wait
             // for a drawn frame are given for it.
             hud_->Drawn();
@@ -606,6 +608,20 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             ReleaseHeld();
         }
         return draw;
+    }
+
+    // Context::Update, its time split for FrameStats: layout (the documents' own hooks), component
+    // rebuilds and game pictures (theirs); the rest is styles.
+    void UpdateContext()
+    {
+        TakeGameImageCost(counters_.picture_ms, counters_.pictures);
+        const double rebuilt = counters_.rebuild_ms, acquired = counters_.picture_ms, laid_out = counters_.layout_ms;
+        const auto started = std::chrono::steady_clock::now();
+        context_->Update();
+        const double ms = Milliseconds(started, std::chrono::steady_clock::now());
+        TakeGameImageCost(counters_.picture_ms, counters_.pictures); // acquired in their elements' update
+        counters_.style_ms +=
+            std::max(0.0, ms - (counters_.rebuild_ms - rebuilt) - (counters_.picture_ms - acquired) - (counters_.layout_ms - laid_out));
     }
 
     double Frame() override
@@ -629,6 +645,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         drawn_ = true;
         counters_.render_ms = Milliseconds(updated, std::chrono::steady_clock::now());
         counters_.number = last_frame_.number + 1;
+        ReportSwitch(false);
         last_frame_ = counters_;
         counters_ = FrameStats(); // what happens until the next frame counts for it
         hud_->Drawn();
@@ -656,14 +673,22 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         OverlayToast(text, "danger", Setting("alertMs", 6000.0));
     }
 
+    void AlertString(const std::string &key) override
+    {
+        Alert(Text(key));
+    }
+
     void OverlayToast(const std::string &text, const std::string &tone, double milliseconds)
     {
         if (!overlay_ || text.empty())
             return;
-        const bool top = document_ && document_->GetAttribute<Rml::String>("data-toast", "bottom") == "top";
-        Rml::Element *stack = overlay_->GetElementById(top ? "toasts-top" : "toasts-bottom");
+        // One place for every toast: the top edge (the HUD's event lines are there too).
+        Rml::Element *stack = overlay_->GetElementById("toasts");
         if (!stack)
+        {
+            Rml::Log::Message(Rml::Log::LT_ERROR, "overlay.rml has no #toasts stack: toast dropped: %s", text.c_str());
             return;
+        }
         const double until = system_.GetElapsedTime() + milliseconds / 1000.0;
         for (Toast_ &shown : toasts_)
             if (shown.text == text && shown.element && shown.leaving < 0.0)
@@ -686,8 +711,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         notice->SetAttribute("place", "none");
         notice->SetAttribute("tone", tone.empty() ? "info" : tone);
         notice->SetAttribute("text", text);
-        if (top)
-            notice->SetAttribute("compact", "");
+        notice->SetAttribute("compact", "");
         changed_ = true;
         Toast_ toast;
         toast.element = stack->AppendChild(std::move(notice))->GetObserverPtr();
@@ -732,7 +756,17 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void SetInterface(const InterfaceModel &model) override
     {
+        const auto started = std::chrono::steady_clock::now();
+        if (model.opening != switch_.opening)
+        {
+            if (!switch_.open)
+                switch_.Begin(started, false);
+            switch_.opening = model.opening;
+            switch_.screen = model.screen;
+            switch_.modelled = started;
+        }
         router_->SetInterface(model);
+        counters_.apply_ms += Milliseconds(started, std::chrono::steady_clock::now());
         if (opening_ == Opening::AwaitModel)
             opening_ = Opening::AwaitFrame;
         PublishTouchMap();
@@ -740,6 +774,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void CloseInterface() override
     {
+        switch_.open = false;
         router_->CloseInterface();
         if (opening_ != Opening::None)
         {
@@ -754,6 +789,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void ExpectInterface() override
     {
+        if (!switch_.open)
+            switch_.Begin(std::chrono::steady_clock::now(), true);
         changed_ = true;
         opening_ = Opening::AwaitModel;
         PublishTouchMap();
@@ -769,9 +806,11 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         }
         if (channel == "video")
             return SetVideo(state);
+        const auto started = std::chrono::steady_clock::now();
         try
         {
             router_->SetState(channel, state);
+            counters_.apply_ms += Milliseconds(started, std::chrono::steady_clock::now());
         }
         catch (const Json::exception &error)
         {
@@ -1039,7 +1078,10 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         auto *root = dynamic_cast<ComponentElement *>(hud_document_->GetElementById("hud"));
         Rml::Element *layer = root ? ComponentSlot(*root) : nullptr;
         const Rml::Vector2f corner = layer ? layer->GetAbsoluteOffset(Rml::BoxArea::Border) : Rml::Vector2f(0.0f, 0.0f);
-        out = {origin.x, origin.y, size.x, size.y, corner.x, corner.y, static_cast<float>(config_.width), static_cast<float>(config_.height), config_.density};
+        const Rml::Vector2f extent = layer ? layer->GetBox().GetSize(Rml::BoxArea::Border)
+                                           : Rml::Vector2f(static_cast<float>(config_.width), static_cast<float>(config_.height));
+        out = {origin.x, origin.y, size.x, size.y, corner.x, corner.y, static_cast<float>(config_.width), static_cast<float>(config_.height), config_.density,
+               extent.x, extent.y};
         return true;
     }
 
@@ -1100,6 +1142,11 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void Send(const Action &action) override
     {
+        if (action.screen != "sound") // a press's click is not what a switch answers
+        {
+            last_action_ = std::chrono::steady_clock::now();
+            last_action_text_ = action.screen + " " + action.node + " " + action.verb;
+        }
         if (config_.on_action)
             config_.on_action(action);
     }
@@ -1258,6 +1305,17 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         else if (!enable && found != ticking_.end())
             ticking_.erase(found);
     }
+    void PressStarted(ComponentElement &component) override
+    {
+        // Game interfaces only (their scripts' click); the HUD and the application screens have none.
+        if (!screen_root_ || component.GetOwnerDocument() != screen_root_)
+            return;
+        Action action;
+        action.screen = "sound";
+        action.verb = "press";
+        Send(action);
+    }
+
     FrameStats &Counters() override
     {
         return counters_;
@@ -1517,6 +1575,59 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     // them for that: the next interface gets them, gameplay drops them (ReleaseHeld). Every
     // other reason (a cutscene, a dialogue, a command menu, a control group no mode knows, no
     // native player) leaves the touches to the game as before. States decide it, not a timer.
+    // One log line per screen switch ("UI switch"), also in the player's shared log: from the
+    // engine action that led to it (when there was one since the last switch) through the game
+    // opening its interface and the model arriving to the screen's first frame, and on until
+    // its frames stop rebuilding or laying out (pictures that arrived, re-cut text): the CPU
+    // of those frames by stage (FrameStats). GPU time is the renderer's.
+    void ReportSwitch(bool idle)
+    {
+        if (!switch_.open || switch_.modelled == Clock::time_point{})
+            return;
+        const auto now = Clock::now();
+        if (!idle)
+        {
+            const FrameStats &frame = counters_;
+            if (!switch_.drawn)
+            {
+                switch_.drawn = true;
+                switch_.first = now;
+                switch_.first_frame = frame;
+            }
+            else
+            {
+                FrameStats &sum = switch_.settle;
+                sum.update_ms += frame.update_ms, sum.render_ms += frame.render_ms, sum.apply_ms += frame.apply_ms;
+                sum.rebuild_ms += frame.rebuild_ms, sum.style_ms += frame.style_ms, sum.layout_ms += frame.layout_ms;
+                sum.picture_ms += frame.picture_ms, sum.texture_ms += frame.texture_ms, sum.pictures += frame.pictures;
+                sum.textures += frame.textures, sum.texture_bytes += frame.texture_bytes, sum.rebuilds += frame.rebuilds;
+                sum.laid_out += frame.laid_out, sum.layout_passes += frame.layout_passes;
+            }
+            ++switch_.frames;
+            const bool busy = frame.rebuilds > 0 || frame.laid_out > 0 || frame.pictures > 0 || frame.textures > 0;
+            if ((busy || switch_.frames == 1) && switch_.frames < 30)
+                return;
+        }
+        const auto ms = [](Clock::time_point from, Clock::time_point to) { return Milliseconds(from, to); };
+        const bool acted = last_action_ > reported_ && last_action_ <= switch_.begun;
+        const Clock::time_point origin = acted ? last_action_ : switch_.begun;
+        const FrameStats &f = switch_.first_frame, &s = switch_.settle;
+        char line[1024];
+        std::snprintf(line, sizeof line,
+                      "UI switch %s: first frame %.0f ms after %s%s (game: %s%.0f ms to the model), settled %.0f ms after it in %d more frames | "
+                      "first frame CPU: apply %.1f, rebuild %.1f (%d), style %.1f, layout %.1f (%d boxes, %d passes), pictures %d in %.1f, "
+                      "render %.1f incl. textures %d (%zu KB) in %.1f | settling CPU: update %.1f, render %.1f, rebuild %d, layout %.1f (%d passes), "
+                      "pictures %d in %.1f",
+                      switch_.screen.c_str(), ms(origin, switch_.first), acted ? "the action " : "the interface opened",
+                      acted ? last_action_text_.c_str() : "", switch_.expected ? ("interface opened +" + std::to_string(int(ms(origin, switch_.begun))) + " ms, ").c_str() : "",
+                      ms(origin, switch_.modelled), ms(switch_.first, now), switch_.frames - 1, f.apply_ms, f.rebuild_ms, f.rebuilds, f.style_ms,
+                      f.layout_ms, f.laid_out, f.layout_passes, f.pictures, f.picture_ms, f.render_ms, f.textures, f.texture_bytes / 1024, f.texture_ms,
+                      s.update_ms, s.render_ms, s.rebuilds, s.layout_ms, s.layout_passes, s.pictures, s.picture_ms);
+        Log(line);
+        switch_.open = false;
+        reported_ = now;
+    }
+
     bool Between() const
     {
         if (video_ || opening_ != Opening::None || InterfaceActive())
@@ -1664,6 +1775,28 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         AwaitFrame
     };
     Opening opening_ = Opening::None;
+    // A screen switch, timed from the engine action before it to its first frames (ReportSwitch).
+    using Clock = std::chrono::steady_clock;
+    struct Switch
+    {
+        bool open = false;
+        bool expected = false;  // the engine announced it (ExpectInterface) before its model
+        uint64_t opening = 0;   // InterfaceModel::opening of the screen being timed
+        std::string screen;
+        Clock::time_point begun, modelled, first;
+        bool drawn = false; // its first frame with the model is drawn
+        FrameStats first_frame, settle;
+        int frames = 0;
+        void Begin(Clock::time_point now, bool by_expect)
+        {
+            *this = Switch{false, by_expect, opening};
+            open = true;
+            begun = now;
+            modelled = {};
+        }
+    } switch_;
+    Clock::time_point last_action_{}, reported_{}; // the newest engine action; the end of the last switch reported
+    std::string last_action_text_;
     bool unlaid_ = false; // something covers the game since the last frame (PublishTouchMap)
     bool between_ = false; // nothing the player can use is shown (Between)
     struct HeldTouch

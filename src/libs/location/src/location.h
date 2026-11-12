@@ -151,6 +151,9 @@ class Location : public Entity
     void DrawEnemyBars();
     void DrawBar(const storm::math::ProjectedPoint &vrt, uint32_t color, float hp, float energy);
     void CorrectBar(float v, float start, float end, BarVertex *vrt);
+    // Tells the renderer the location's still, collidable geometry (AO volume and lamp shadows of interiors, the static
+    // sun shadow map outdoors).
+    void ReportAoGeometry();
 
   private:
     PtcData ptc;
@@ -165,6 +168,7 @@ class Location : public Entity
 
     bool isPause;
     bool isDebugView;
+    bool aoGeometryReported_ = false;
 
     VRenderer *rs;
 

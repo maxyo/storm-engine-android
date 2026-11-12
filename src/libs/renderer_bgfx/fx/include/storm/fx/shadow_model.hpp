@@ -21,6 +21,12 @@ struct ShadowSetup
 // Shadow map size for a quality level (0 = no shadows).
 int ShadowMapSize(ShadowQuality quality);
 
+// Share of the sun's direct light a fully shadowed receiver loses, for a sun at height `sun_dir_y` (unit vector y).
+// All of it: what stays in the shadow is the ambient (and the lamps), so a shadow reads as a shadow, about as dark
+// as the baked ground shadows of the towns' lightmaps (shade / sun 0.4-0.6 in Town_Martinique day2). A low sun gives
+// endless, shimmering shadows: they fade out between 7° and the horizon.
+float SunShadowStrength(float sun_dir_y);
+
 // Cascade covering the sphere (`focus`, `radius`) as seen from the sun. `caster_reach` extends the depth range
 // towards the sun for casters outside the sphere (masts, sails). The cascade moves in whole texels, so
 // shadow edges do not crawl when the camera moves.

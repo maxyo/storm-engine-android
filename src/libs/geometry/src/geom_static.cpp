@@ -415,6 +415,58 @@ int32_t GEOM::GetIndexBuffer() const
     return idx_buff;
 }
 
+bool GEOM::HasCollision() const
+{
+    return !sroot.empty();
+}
+
+bool GEOM::AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices) const
+{
+    const auto *triangles = static_cast<const RDF_TRIANGLE *>(srv.ReadIndexBuffer(idx_buff));
+    if (!triangles)
+        return false;
+    const size_t first_position = positions.size(), first_index = indices.size();
+    bool ok = true;
+    for (int32_t v = 0; v < rhead.nvrtbuffs && ok; ++v)
+    {
+        const size_t base = positions.size();
+        if (vbuff[v].nverts == 0)
+            continue;
+        const auto *data = static_cast<const uint8_t *>(srv.ReadVertexBuffer(vbuff[v].dev_buff));
+        if (!data)
+        {
+            ok = false;
+            break;
+        }
+        for (int32_t i = 0; i < vbuff[v].nverts; ++i)
+            positions.push_back(reinterpret_cast<const RDF_VERTEX0 *>(data + static_cast<size_t>(vbuff[v].stride) * i)->pos);
+        srv.UnlockVertexBuffer(vbuff[v].dev_buff);
+        for (int32_t o = 0; o < rhead.nobjects; ++o)
+        {
+            if (object[o].vertex_buff != v || !(object[o].flags & VISIBLE))
+                continue;
+            for (int32_t t = 0; t < object[o].ntriangles; ++t)
+                for (const unsigned short index : triangles[object[o].striangle + t].vindex)
+                {
+                    const uint32_t vertex = static_cast<uint32_t>(object[o].start_vertex) + index;
+                    if (vertex >= static_cast<uint32_t>(vbuff[v].nverts))
+                    {
+                        ok = false;
+                        break;
+                    }
+                    indices.push_back(static_cast<uint32_t>(base) + vertex);
+                }
+        }
+    }
+    srv.UnlockIndexBuffer(idx_buff);
+    if (!ok)
+    {
+        positions.resize(first_position);
+        indices.resize(first_index);
+    }
+    return ok;
+}
+
 int32_t GEOM::GetTexture(int32_t tx) const
 {
     return tlookup[tx];

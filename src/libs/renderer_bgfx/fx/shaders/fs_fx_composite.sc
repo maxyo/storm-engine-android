@@ -15,7 +15,7 @@ uniform vec4 u_fxAo[3];
 #endif
 uniform vec4 u_fxTone; // x: exposure * mid-grey bias, y: curve strength, z: bloom intensity, w: exposure
 uniform vec4 u_fxLut;  // x: (N - 1) / N, y: 0.5 / N
-uniform vec4 u_fxFinish; // x: dither amplitude, y: vignette strength, z: film grain strength, w: grain seed (changes every frame)
+uniform vec4 u_fxDither; // x: amplitude (0 = off), y: noise seed (changes every frame)
 
 #ifdef FX_SSAO
 // x: occlusion * weight, y: weight. A tap counts as far as its depth matches the pixel's depth z (both / far).
@@ -53,10 +53,7 @@ void main()
 #endif
 #endif
     c = texture3D(s_fxLut, c * u_fxLut.x + vec3_splat(u_fxLut.y)).rgb;
-    // Optional finish: vignette, film grain, and the dither that keeps smooth gradients free of banding.
-    vec2 corner = v_uv - vec2_splat(0.5);
-    c *= 1.0 - u_fxFinish.y * smoothstep(0.18, 0.75, dot(corner, corner) * 1.6);
-    float noise = fxNoise(gl_FragCoord.xy + vec2_splat(u_fxFinish.w));
-    c += vec3_splat((noise - 0.5) * (u_fxFinish.x + u_fxFinish.z * 0.07 * (1.0 - 0.6 * fxLuma(c))));
+    // Dither: keeps smooth gradients free of banding.
+    c += vec3_splat((fxNoise(gl_FragCoord.xy + vec2_splat(u_fxDither.y)) - 0.5) * u_fxDither.x);
     gl_FragColor = vec4(c, fxLuma(c));
 }

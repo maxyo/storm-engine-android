@@ -131,30 +131,28 @@ int main()
         game.Frame(true);
         assert(game.store.open && game.store.deal && game.store.row == 2);
     }
-    // One click per touch gesture: the re-selection's two actions (close the deal, open the next
-    // row) arrive in consecutive frames and click once; a quantity drag's edit-box texts never click.
+    // The interface click belongs to the gesture (the UI's "uisound:press" when a press starts):
+    // the widget actions the UI sends are silent in CINODE::DoAction, a re-selection's pair and a
+    // quantity drag's 50 texts alike; the game's own presses (no UI action running) still click.
     {
-        storm::mobile::ActionSound sound;
         int clicks = 0;
-        const auto act = [&](uint32_t now, bool edit) {
-            storm::mobile::ActionSound::Scope scope(sound, now);
-            if (edit)
-                scope.EditText();
-            if (!sound.Quiet())
+        const auto do_action = [&] { // CINODE::DoAction with bFirstPress
+            if (!storm::mobile::uiAction.Active())
                 ++clicks;
         };
-        act(1000, false); // QTY_CANCEL_BUTTON press
-        act(1033, false); // TABLE_LIST activate, the next frame
+        const auto widget_action = [&] {
+            const storm::mobile::UiAction::Scope programmatic(storm::mobile::uiAction);
+            do_action();
+        };
+        widget_action(); // QTY_CANCEL_BUTTON press
+        widget_action(); // TABLE_LIST activate, the next frame
+        for (int step = 0; step < 50; ++step)
+            widget_action(); // a drag: one text per step
+        assert(clicks == 0 && !storm::mobile::uiAction.Active());
+        do_action(); // a press of the game itself
         assert(clicks == 1);
-        for (uint32_t t = 2000; t < 3000; t += 16)
-            act(t, true); // a drag: one text per step
-        assert(clicks == 1);
-        act(3010, false); // the deal's button after the drag: a press of its own
-        assert(clicks == 2);
-        act(3500, false); // a later tap
-        assert(clicks == 3 && !sound.Quiet());
     }
-    std::puts("PASS one click per gesture: two actions of one tap click once, a quantity drag never clicks");
+    std::puts("PASS the touch UI's widget actions never click: a re-selection and a 50-step drag are silent");
     std::puts("PASS store re-selection: one script event per frame keeps the store open, the next row's deal starts at 0");
     return 0;
 }

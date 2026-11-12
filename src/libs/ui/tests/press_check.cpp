@@ -77,10 +77,10 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
         "template": "<div style=\"font-family: LatoLatin;\"><c-row id=\"resume\" style=\"display: block; position: absolute; left: 0; top: 0; width: 200dp; height: 48dp;\" title=\"Resume\"/></div>"})"));
     Write(pack / "components.json", components.dump());
     Write(pack / "overlay.rml", "<rml><head><style>body { font-family: LatoLatin; } #tooltip { display: none; } #tooltip.open { display: block; position: absolute; }"
-                                " #toasts-bottom { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; }"
+                                " #toasts { position: absolute; left: 0; right: 0; top: 0; display: flex; flex-direction: column; }"
                                 " @keyframes in { from { opacity: 0; } to { opacity: 1; } } @keyframes out { from { opacity: 1; max-height: 30dp; } to { opacity: 0; max-height: 0dp; } }"
                                 " c-notice { display: block; animation: 0.18s cubic-out in; } c-notice.leaving { opacity: 0; max-height: 0dp; animation: 0.22s cubic-out out; }</style></head>"
-                                "<body><div id=\"tooltip\"></div><div id=\"toasts-bottom\"></div></body></rml>");
+                                "<body><div id=\"tooltip\"></div><div id=\"toasts\"></div></body></rml>");
     Write(pack / "rows.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
                              " c-row { display: block; position: absolute; left: 0; width: 200dp; height: 48dp; }"
                              " c-fit { display: block; position: absolute; left: 0; width: 72dp; height: 40dp; }</style></head><body>"
@@ -109,6 +109,7 @@ int main(int argc, char **argv)
     std::unique_ptr<FileSource> files = DirectoryFiles(pack.string());
     NoBackend backend;
     std::vector<std::string> clicks;
+    int sounds = 0; // the interface clicks a press start asked for (Action screen "sound")
     double clock = 0.0;
     Config config;
     config.files = files.get();
@@ -116,7 +117,12 @@ int main(int argc, char **argv)
     config.width = 800;
     config.height = 400;
     config.clock = [&clock] { return clock; };
-    config.on_action = [&clicks](const Action &action) {
+    config.on_action = [&clicks, &sounds](const Action &action) {
+        if (action.screen == "sound")
+        {
+            ++sounds;
+            return;
+        }
         clicks.push_back(action.node + " " + action.verb + (action.value.empty() ? "" : " " + action.value));
     };
     std::string error;
@@ -338,6 +344,37 @@ int main(int argc, char **argv)
     host->CloseInterface();
     frames(0.05);
     Expect(clicks.empty() && !host->WantsTouch(700, 350), "an opening withdrawn before its model drops its held tap and gives the touches back");
+
+    // One tap whose finger trembles (the platform delivers every sample with its time, the
+    // historical ones of a batched move too): one press, one click, one action. On a game
+    // interface the press start asks for the interface's click; a plain document (the
+    // launcher's screens) has none.
+    const auto trembling_tap = [&](float x, float y, int samples) {
+        clicks.clear();
+        sounds = 0;
+        double t = clock;
+        host->Touch(TouchPhase::Down, 1, x, y, t);
+        for (int i = 0; i < samples; ++i)
+            host->Touch(TouchPhase::Move, 1, x + float(i % 3), y + float(i % 2), t += 0.004);
+        frames(1.0 / 60.0);
+        host->Touch(TouchPhase::Up, 1, x + 1, y, t + 0.004);
+        frames(0.05);
+    };
+    host->ExpectInterface();
+    Expect(host->SetInterface(menu), "the game menu opens again");
+    frames(0.05);
+    trembling_tap(100, 24, 12);
+    Expect(sounds == 1 && clicks.size() == 1 && clicks[0] == " back",
+           "a tap with 12 move samples on a game interface: one click, one action (" + std::to_string(sounds) + " clicks, " +
+               std::to_string(clicks.size()) + " actions)");
+    host->CloseInterface();
+    frames(0.05);
+    Expect(host->LoadDocument("rows.rml"), "the rows document loads for the trembling tap");
+    frames(0.05);
+    trembling_tap(100, 24, 12);
+    Expect(sounds == 0 && clicks.size() == 1 && clicks[0] == "short click",
+           "a tap with 12 move samples on a plain document: one action, no click (" + std::to_string(clicks.size()) + " actions)");
+
     host.reset();
     fs::remove_all(pack);
     if (failures)

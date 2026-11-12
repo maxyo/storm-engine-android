@@ -247,6 +247,9 @@ class CombatConsumer final : public HudConsumer
         out.mode = *mode;
         const std::string kind = Text(state, "interactKind").value_or("");
         out.interact_kind = kind == "dialog" || kind == "boarding" ? kind : "interact";
+        out.interact_name = Text(state, "interactName").value_or("");
+        if (out.interact_name.size() > 128)
+            return "interactName too long";
         return {};
     }
 };
@@ -386,6 +389,25 @@ class ContextActionConsumer final : public HudConsumer
     {
         const bool valid = state.is_string() && state.get<std::string>().size() <= 64;
         hud.Edit().context_action = valid ? state.get<std::string>() : std::string();
+        return valid ? std::string() : "expected a short string";
+    }
+};
+
+// A JSON string: the name of the place the reload locator the hero stands in leads to, in the
+// game's words (its LocLables), "" = none.
+class ReloadPlaceConsumer final : public HudConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "reloadPlace";
+    }
+
+  protected:
+    std::string Read(const Json &state, Hud &hud) override
+    {
+        const bool valid = state.is_string() && state.get<std::string>().size() <= 128;
+        hud.Edit().reload_place = valid ? state.get<std::string>() : std::string();
         return valid ? std::string() : "expected a short string";
     }
 };
@@ -857,6 +879,7 @@ class WorldMapConsumer final : public HudConsumer
         const auto hour = Number(state, "hour", 0.0, 24.0, bad), force = Number(state, "windForce", 0.0, 1.0, bad),
                    wind = Number(state, "windAngle", -7.0, 7.0, bad), heading = Number(state, "heading", -1e6, 1e6, bad),
                    morale = Number(state, "morale", 0.0, 100.0, bad), speed = Number(state, "speed", 0.0, 1.0, bad),
+                   time_scale = Number(state, "timeScale", 0.0, 100.0, bad),
                    food = Number(state, "foodDays", 0.0, 1e9, bad), rum = Number(state, "rumDays", 0.0, 1e9, bad),
                    flag = Number(state, "flag", 0.0, 4.0, bad), storm = Number(state, "stormState", 0.0, 2.0, bad);
         if (bad)
@@ -909,6 +932,7 @@ class WorldMapConsumer final : public HudConsumer
         out.wind_force = force.value_or(-1.0);
         out.morale = morale.value_or(-1.0);
         out.speed = speed.value_or(-1.0);
+        out.time_scale = time_scale.value_or(-1.0);
         out.angles = wind && heading;
         out.wind_angle = wind.value_or(0.0);
         out.heading = heading.value_or(0.0);
@@ -961,6 +985,7 @@ void AddStateConsumers(std::vector<std::unique_ptr<screens::StateConsumer>> &con
     consumers.push_back(std::make_unique<VitalsConsumer>());
     consumers.push_back(std::make_unique<WorldInfoConsumer>());
     consumers.push_back(std::make_unique<ContextActionConsumer>());
+    consumers.push_back(std::make_unique<ReloadPlaceConsumer>());
     consumers.push_back(std::make_unique<LandCommandsConsumer>());
     consumers.push_back(std::make_unique<ShipConsumer>());
     consumers.push_back(std::make_unique<SeaOrdersConsumer>());

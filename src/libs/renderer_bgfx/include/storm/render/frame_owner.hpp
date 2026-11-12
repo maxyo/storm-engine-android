@@ -5,12 +5,12 @@
 // Frame layout (bgfx view ids, all ViewMode::Sequential):
 //   [kPreGameViewBegin .. +kPreGameViewCount)  reserved for passes that precede the scene.
 //   [kGameViewBegin .. kGameViewEnd)  game: D3D9-shaped shim. Renders into an offscreen
-//                               "game backbuffer" (may be smaller than the surface:
-//                               dynamic resolution) and other render targets.
+//                               "game backbuffer" (its size may differ from the surface's:
+//                               scaled blit) and other render targets.
 //   [kPostViewBegin .. +kPostViewCount)  reserved for post-processing of the game target.
 //   kCompositeView              game backbuffer -> surface backbuffer (scaled blit).
 //   [kUiViewBegin .. +kUiViewCount)  client views, drawn LAST, at native surface
-//                               resolution, never scaled by dynamic resolution.
+//                               resolution, never scaled with the game backbuffer.
 //
 // Threading: bgfx runs single-threaded (BGFX_CONFIG_MULTITHREADED=0). Every
 // callback below and every bgfx call must happen on the engine main thread,

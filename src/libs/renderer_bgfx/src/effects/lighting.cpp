@@ -2,6 +2,8 @@
 
 #include "shim/device.hpp"
 
+#include <bx/math.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -75,7 +77,8 @@ void Lighting::configure(const fx::Settings &settings, const fx::RendererState &
     coverage_ = state.alpha_to_coverage;
     budget_ = fx::PointLightBudget(settings);
     shadows_.configure(settings);
-    normal_maps_.configure(lighting_ && (flags_ & fx::kLightingNormalMap));
+    lamps_.configure(settings);
+    normal_maps_.configure(lighting_ && (flags_ & fx::kLightingNormalMap), settings.normal_map_size);
     find_shaders();
 }
 
@@ -136,6 +139,8 @@ bool Lighting::prepare_programs(shim::Device &device, const fx::Settings &settin
             if (!device.prepare_program(vs_lit_, fs_baked_[n][linear], budget))
                 return false;
         }
+    if (per_pixel && settings.lamp_shadows && !lamps_.prepare_programs(device, budget))
+        return false;
     return !per_pixel || shadows_.prepare_programs(device, settings, budget);
 }
 
@@ -194,14 +199,38 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             shim::logf("effects: a baked draw without vertex positions gets no dynamic lights");
         }
     }
-    // Relief: stage 1 holds a height texture with a derived normal map (the game's 2x detail layer).
+    // Relief: the normal map of stage 1's texture (a grey height texture: the game's 2x detail layer, on the second UV
+    // set) or else of stage 0's (the colour texture of stone, wood, plaster, ground).
     bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE;
-    shim::TexStore *stage1 = shim::store_of(device.s.textures[1]);
-    if ((flags_ & fx::kLightingNormalMap) && lighting_ && layout.has_normal && stage1 &&
-        device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE && device.s.tss[1][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
+    int relief_stage = -1;
+    if ((flags_ & fx::kLightingNormalMap) && lighting_ && layout.has_normal && device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
         !(lit && material_ == Material::Character))
-        normal_map = normal_maps_.handle(*stage1, fx_);
+        for (const int stage : {1, 0})
+        {
+            shim::TexStore *store = shim::store_of(device.s.textures[stage]);
+            if (!store || !store->normal_map || device.s.tss[stage][D3DTSS_COLOROP] == D3DTOP_DISABLE)
+                continue;
+            normal_map = normal_maps_.handle(*store, fx_);
+            relief_stage = stage;
+            break;
+        }
     baked |= !lit_state && bgfx::isValid(normal_map);
+    // The interior's AO volume darkens what is drawn into the game picture: baked location geometry (which then takes
+    // the baked variant) and lit models (characters, props). Reflections and other targets keep their look.
+    const shim::TexStore *picture = device.back_color ? device.back_color->store.get() : nullptr;
+    const bool ao = ao_volume_ && lighting_ && layout.has_normal && target && target == picture;
+    baked |= !lit_state && ao;
+    // Lamp shadows: the same receivers; the first one of a frame chooses the lamps for its camera.
+    bool lamp_on = false;
+    if (lamps_.enabled() && lighting_ && layout.has_normal && target && target == picture)
+    {
+        const D3DMATRIX &v = device.s.view;
+        std::array<float, 3> eye{};
+        for (int j = 0; j < 3; ++j)
+            eye[j] = -(v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
+        lamp_on = lamps_.prepare(const_cast<shim::Device &>(device), eye);
+    }
+    baked |= !lit_state && lamp_on;
     if (!lit && !baked && !coverage)
         return;
     if (cube_variant != 0)
@@ -230,6 +259,24 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     }
     draw.lit = true;
     draw.vs_id = vs_lit_;
+    if (ao)
+    {
+        draw.ao = true;
+        ++frame_.ao;
+    }
+    if (lamp_on)
+    {
+        draw.lamps = true;
+        ++frame_.lamp_lit;
+        // Characters cast into the lamp faces their sphere reaches.
+        if (lit && material_ == Material::Character && sphere.valid)
+        {
+            draw.lamp_caster = draw.caster = true;
+            draw.sphere = sphere;
+        }
+    }
+    if (ao || lamp_on)
+        memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
 
 
     // Sun and ambient as the fixed-function pipeline would use them; ComputeLighting gives the per-pixel terms.
@@ -241,6 +288,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         ambient = {((c >> 16) & 255) / 255.0f, ((c >> 8) & 255) / 255.0f, (c & 255) / 255.0f, 1.0f};
     }
     input.ambient = rgb(ambient);
+    draw.ambient = 0.299f * ambient.r + 0.587f * ambient.g + 0.114f * ambient.b;
     fx::PointLight points[shim::kMaxLights];
     uint8_t point_slot[shim::kMaxLights];
     size_t point_count = 0;
@@ -293,7 +341,19 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     auto &u = draw.light.u_fxLight;
     const bool hemisphere = per_pixel && (flags_ & fx::kLightingHemisphere);
     const bool specular = per_pixel && (flags_ & fx::kLightingSpecular);
-    if (!per_pixel || sun_slot < 0 || !lit)
+    // Interiors: the weather's sun shines outside. Lit models (characters, props) indoors get no sun at all, per vertex
+    // or per pixel: the room's lamps (per-pixel point lights) and its ambient light them, and there is no sun shadow.
+    const bool indoor_sun = per_pixel && sun_slot >= 0 && lit && lamps_.has_geometry();
+    if (indoor_sun)
+    {
+        u[1][0] = u[1][1] = u[1][2] = 0.0f;
+        draw.vertex_diffuse_off |= static_cast<uint8_t>(1u << sun_slot);
+        draw.vertex_specular_off |= static_cast<uint8_t>(1u << sun_slot);
+        if (!indoor_sun_reported_)
+            shim::logf("effects: interior: lit models take no sun (the lamps and the ambient light them), no sun shadow map");
+        indoor_sun_reported_ = true;
+    }
+    else if (!per_pixel || sun_slot < 0 || !lit)
         u[1][0] = u[1][1] = u[1][2] = 0.0f; // the sun stays in the vertex sum (or there is none)
     else
     {
@@ -310,12 +370,12 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         u[2][3] = 0.0f;
     if (!per_pixel || !(flags_ & fx::kLightingRim))
         u[5][1] = 0.0f;
-    draw.ff = {two_sided && u[2][3] > 0.0f ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
     const bool relief = bgfx::isValid(normal_map) && u[5][0] > 0.0f;
+    draw.ff = {two_sided && u[2][3] > 0.0f ? 1.0f : 0.0f, relief ? static_cast<float>(relief_stage) : 0.0f, 0.0f, 0.0f};
     if (relief)
     {
         draw.normal_map = normal_map;
-        draw.normal_map_flags = device.sampler_flags(1, *stage1);
+        draw.normal_map_flags = device.sampler_flags(relief_stage, *shim::store_of(device.s.textures[relief_stage]));
         ++frame_.relief;
     }
 
@@ -347,11 +407,11 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         }
         draw.points = fx::PackPointLights(selection, input.view);
         // Sun shadows: lit draws into the game picture (the first one of a frame prepares the map with its camera).
-        const shim::TexStore *picture = device.back_color ? device.back_color->store.get() : nullptr;
-        if (per_pixel && sun_slot >= 0 && target && target == picture)
+        if (per_pixel && sun_slot >= 0 && target && target == picture && !indoor_sun)
         {
             memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
-            draw.shadow = draw.caster = shadows_.prepare(draw.view);
+            draw.shadow = draw.sun_caster = shadows_.prepare(const_cast<shim::Device &>(device), draw.view);
+            draw.caster |= draw.sun_caster;
         }
         const int shadow = draw.shadow ? (settings_.shadows == fx::ShadowQuality::Soft ? 2 : 1) : 0;
         draw.fs_id = fs_lit_[specular][relief][linear][shadow];
@@ -368,6 +428,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
 
 void Lighting::submit(const FfDraw &draw)
 {
+    caster_ = draw;
     if (!bgfx::isValid(u_coverage_))
     {
         u_coverage_ = bgfx::createUniform("u_fxCoverage", bgfx::UniformType::Vec4);
@@ -383,6 +444,61 @@ void Lighting::submit(const FfDraw &draw)
         fx_.BindNormalMap(draw.normal_map, draw.normal_map_flags);
     if (draw.shadow)
         shadows_.bind(draw.view);
+    bind_ao_volume(draw);
+    lamps_.bind(draw.lamps, draw.view, draw.ambient);
+}
+
+void Lighting::submit_caster(shim::Device &device, const D3DMATRIX &world, bool skinned)
+{
+    if (caster_.lamp_caster)
+    {
+        lamps_.submit_caster(device, &world.m[0][0], skinned, caster_.sphere.center, caster_.sphere.radius);
+        ++frame_.lamp_casters;
+    }
+    if (caster_.sun_caster)
+    {
+        shadows_.submit_caster(device, &world.m[0][0], skinned);
+        ++frame_.casters;
+    }
+    else
+        bgfx::discard(BGFX_DISCARD_ALL);
+}
+
+void Lighting::bind_ao_volume(const FfDraw &draw)
+{
+    if (!bgfx::isValid(u_ao_params_))
+    {
+        s_ao_volume_ = bgfx::createUniform("s_fxAoVolume", bgfx::UniformType::Sampler);
+        u_ao_matrix_ = bgfx::createUniform("u_fxAoVolume", bgfx::UniformType::Mat4);
+        u_ao_params_ = bgfx::createUniform("u_fxAoParams", bgfx::UniformType::Vec4);
+    }
+    // Every lit / baked program reads u_fxAoParams: x = 0 turns the volume off for draws without it. Its 3D sampler
+    // still needs a 3D texture on its unit (GL refuses a draw whose sampler types share a unit: an unbound sampler
+    // stays on unit 0, the 2D stage 0), so those draws get a 1x1x1 open volume.
+    if (!draw.ao || !ao_volume_)
+    {
+        if (!bgfx::isValid(ao_open_))
+        {
+            const uint8_t open[4] = {255, 255, 255, 255};
+            ao_open_ = bgfx::createTexture3D(1, 1, 1, false, bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_POINT, bgfx::copy(open, 4));
+        }
+        const float off[4] = {0.0f, 1.0f, 0.0f, 0.0f};
+        bgfx::setUniform(u_ao_params_, off);
+        bgfx::setTexture(fx::kAoVolumeStage, s_ao_volume_, ao_open_);
+        return;
+    }
+    if (draw.view != ao_view_)
+    {
+        float inverse_view[16];
+        bx::mtxInverse(inverse_view, draw.view.data());
+        bx::mtxMul(ao_view_to_uvw_.data(), inverse_view, ao_volume_->world_to_uvw.data());
+        ao_view_ = draw.view;
+    }
+    const fx::AoVolumeLevel &level = fx::kAoVolumeLevel[std::min<uint8_t>(settings_.ao_volume, fx::kAoVolumeLevels)];
+    const float params[4] = {level.strength, level.contrast, 0.5f * ao_volume_->cell, 1.0f / fx::kAoOpenSurface};
+    bgfx::setUniform(u_ao_matrix_, ao_view_to_uvw_.data());
+    bgfx::setUniform(u_ao_params_, params);
+    bgfx::setTexture(fx::kAoVolumeStage, s_ao_volume_, ao_volume_->texture);
 }
 
 bool Lighting::aerial_fog(const D3DMATRIX &view, bool vs_port, std::array<float, 2> &haze)
@@ -412,6 +528,10 @@ void Lighting::end_frame()
     last_frame_ = frame_;
     frame_ = {};
     shadows_.end_frame();
+    normal_maps_.end_frame();
+    lamps_.end_frame();
+    if (!lamps_.has_geometry())
+        indoor_sun_reported_ = false; // said again in the next interior
     if (!dynamic_lights_this_frame_)
         dynamic_lights_.clear(); // no location reported them: none exist
     dynamic_lights_this_frame_ = false;
@@ -421,7 +541,11 @@ void Lighting::shutdown()
 {
     fx_.Shutdown();
     shadows_.shutdown();
-    for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_aerial_up_})
+    lamps_.shutdown();
+    if (bgfx::isValid(ao_open_))
+        bgfx::destroy(ao_open_);
+    ao_open_ = BGFX_INVALID_HANDLE;
+    for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_aerial_up_, &s_ao_volume_, &u_ao_matrix_, &u_ao_params_})
     {
         if (bgfx::isValid(*u))
             bgfx::destroy(*u);
@@ -433,7 +557,10 @@ void Lighting::on_device_lost()
 {
     fx_.OnDeviceLost();
     shadows_.on_device_lost();
-    u_coverage_ = u_ff_ = u_aerial_up_ = BGFX_INVALID_HANDLE;
+    lamps_.on_device_lost();
+    u_coverage_ = u_ff_ = u_aerial_up_ = s_ao_volume_ = u_ao_matrix_ = u_ao_params_ = BGFX_INVALID_HANDLE;
+    ao_view_ = {};
+    ao_open_ = BGFX_INVALID_HANDLE;
 }
 
 } // namespace storm::effects

@@ -1,6 +1,6 @@
 $input v_uv
 // Contrast adaptive sharpening, five-tap cross variant; with a bilinear
-// source it doubles as the upscale filter for dynamic resolution.
+// source it also upscales a smaller render (tools/fx-preview render_scale).
 // Derived from AMD FidelityFX CAS (ffx_cas.h).
 // Copyright (c) 2017-2019 Advanced Micro Devices, Inc., MIT License; see ../THIRD_PARTY.md.
 #include "fx_common.sh"

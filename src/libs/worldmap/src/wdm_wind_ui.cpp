@@ -414,6 +414,8 @@ void WdmWindUI::LRender(VRenderer *rs)
     source.hour = finite(wdmObjects->wm->hour);
     source.windForce = finite(widForce); source.windAngle = finite(ang); source.heading = finite(ay);
     source.speed = finite(std::round(wdmObjects->playerShip->SpeedShare() * 100.0) / 100.0);
+    if (const float scale = core.GetTimeScale(); std::isfinite(scale) && scale >= 0.f && scale <= 100.f)
+        source.timeScale = std::round(scale * 100.0) / 100.0;
     if (androidMoraleValid) source.morale = (morale + 1.0) * 50.0;
     if (androidFoodValid) source.foodDays = food;
     source.rumDays = rum;

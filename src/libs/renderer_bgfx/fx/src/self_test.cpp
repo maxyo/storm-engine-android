@@ -167,13 +167,12 @@ SelfTest::Result SelfTest::Poll(uint32_t frame)
         return result;
     }
     // The chain's output: the pattern through the colour grade (no bloom below the threshold, dither ±0.5/255).
-    // Looks a CPU mirror does not model (tone curve, scene grade, vignette, grain) get a wide tolerance: the test
+    // Looks a CPU mirror does not model (tone curve, scene grade, occlusion) get a wide tolerance: the test
     // then only tells a working chain from garbage.
     std::array<int, 3> expected[kColors];
     for (int i = 0; i < kColors; ++i)
         expected[i] = Expected(settings_, kPattern[i]);
-    const bool approximate = settings_.tonemap || settings_.scene_grading || settings_.vignette > 0.0f ||
-                             settings_.film_grain > 0.0f || settings_.ssao;
+    const bool approximate = settings_.tonemap || settings_.scene_grading || settings_.ssao;
     std::string output_text;
     if (Compare(output_pixels_.data(), expected, output_text) > (approximate ? 48 : 8))
     {

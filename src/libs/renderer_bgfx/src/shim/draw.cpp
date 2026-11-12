@@ -1070,6 +1070,10 @@ HRESULT Device::draw(const DrawCall &call)
         return D3D_OK;
     }
 
+    // Effects: the Sea2 pixel port's improvements; its soft edges may capture the scene depth in a view of their own
+    // first, so this comes before the draw's view.
+    if (ps_port && s.ps->port->sea_fx)
+        effects::Host::instance().prepare_sea(*this);
     const uint16_t view_id = ensure_view();
     const uint64_t frame = Context::instance().frame_index();
     // ---- index source ----

@@ -55,8 +55,12 @@ endif()
 # Runs git outside of any repository in <dir>: the build directory usually lies inside a worktree,
 # and git apply there would take paths relative to that repository.
 function(storm_git_outside_repo dir result_var output_var)
-    # Git looks for a repository in <dir> itself (no .git there) and never above the ceiling.
-    get_filename_component(ceiling "${dir}" DIRECTORY)
+    # Git looks for a repository in <dir> itself (no .git there) and never above the ceiling. The
+    # ceiling is the parent of the normalised <dir>: for "<scratch>/." it is not <scratch> itself, where
+    # Git would go on up into the worktree around a build directory and skip every path as outside it.
+    cmake_path(SET normal NORMALIZE "${dir}")
+    string(REGEX REPLACE "/$" "" normal "${normal}")
+    get_filename_component(ceiling "${normal}" DIRECTORY)
     execute_process(COMMAND "${CMAKE_COMMAND}" -E env "GIT_CEILING_DIRECTORIES=${ceiling}" git ${ARGN}
         WORKING_DIRECTORY "${dir}" RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE output)
     set(${result_var} "${result}" PARENT_SCOPE)
@@ -158,6 +162,21 @@ function(storm_patched_view pristine view patch_dir)
         if(NOT result EQUAL 0)
             message(FATAL_ERROR "Cannot apply ${patch} to ${pristine}/${patch_dir}: ${output}")
         endif()
+        # Git skips a path it takes for one outside its work tree and still succeeds: a patch that
+        # changed nothing is an error, not a build without the fix.
+        storm_patch_paths("${patch}" paths created)
+        foreach(path ${paths})
+            set(file "${prefix}${path}")
+            if(EXISTS "${pristine}/${file}" AND EXISTS "${scratch}/${file}")
+                file(SHA256 "${pristine}/${file}" before)
+                file(SHA256 "${scratch}/${file}" after)
+                if(before STREQUAL after)
+                    message(FATAL_ERROR "${patch} applied nothing to ${file} (git: ${output})")
+                endif()
+            elseif(NOT EXISTS "${pristine}/${file}" AND NOT EXISTS "${scratch}/${file}")
+                message(FATAL_ERROR "${patch} did not create ${file} (git: ${output})")
+            endif()
+        endforeach()
     endforeach()
     foreach(path ${patched})
         set(target "${view}/${path}")

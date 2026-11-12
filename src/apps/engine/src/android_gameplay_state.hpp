@@ -119,8 +119,8 @@ inline GameplaySnapshot readGameplaySnapshot(bool ready)
         }
         // The time scale controls are global (no key group): offered when the scripts created them.
         auto *created = attributes ? attributes->FindAClass(attributes, "map.controls") : nullptr;
-        // A touch HUD offers four steps of them (android_time_scale.hpp).
-        if (sea && !context.worldmap && created && created->GetAttributeClass("TimeScaleFaster") && created->GetAttributeClass("TimeScaleSlower"))
+        // A touch HUD offers four steps of them at sea and on the world map (android_time_scale.hpp).
+        if ((sea || context.worldmap) && created && created->GetAttributeClass("TimeScaleFaster") && created->GetAttributeClass("TimeScaleSlower"))
             for (auto name : {"TimeScaleX1", "TimeScaleX2", "TimeScaleX4", "TimeScaleX8"}) out.capabilities.emplace_back(name);
         // The battle abilities the scripts' command list knows (launched like its own buttons).
         auto *battleData = static_cast<VDATA *>(core.GetScriptVariable("BattleInterface"));

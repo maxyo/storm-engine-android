@@ -1,12 +1,12 @@
-// Post-processing chain: ambient occlusion, bloom, sun shafts, tone curve, colour grades, dither, optional
-// vignette and grain, FXAA, sharpening / upscale, lens flare. Reads the game's offscreen colour target and writes
+// Post-processing chain: ambient occlusion, bloom, sun shafts, tone curve, colour grades, dither, FXAA,
+// sharpening, lens flare. Reads the game's offscreen colour target and writes
 // the final image into a frame buffer or the back buffer.
 //
-//   scene ─┬─────────────────────────────► composite ─► [FXAA] ─► [CAS] ─► target
-//          ├► bright pass ► down… ► up… ──┤ (bloom, + sun shafts)
-//   depth ─┴► ambient occlusion (half) ───┘
+//   scene ─► [wobble] ─┬─────────────────────────────► composite ─► [FXAA] ─► [CAS] ─► target
+//                      ├► bright pass ► down… ► up… ──┤ (bloom, + sun shafts)
+//   depth ─────────────┴► ambient occlusion (half) ───┘
 //
-// With Settings::PostIsIdentity() the chain is a single copy. Passes that are
+// With Settings::PostIsIdentity() the chain is a single copy (or the wobble alone). Passes that are
 // switched off cost nothing. Requests it cannot honour (ValidateSettings() in
 // settings.hpp lists them) are logged as errors, never quietly replaced. Everything runs in gamma-encoded RGBA8 targets.
 #pragma once
@@ -32,7 +32,7 @@ class PostChain
     struct Frame
     {
         bgfx::TextureHandle scene_color = BGFX_INVALID_HANDLE; // RGBA8, gamma encoded, the game's offscreen target
-        uint16_t scene_width = 0;                              // its size: the dynamic-resolution render size
+        uint16_t scene_width = 0;                              // its size (smaller than the target only in tools/fx-preview render_scale)
         uint16_t scene_height = 0;
         bgfx::FrameBufferHandle target = BGFX_INVALID_HANDLE;  // invalid = back buffer
         uint16_t target_width = 0;
@@ -60,6 +60,15 @@ class PostChain
         // A cut (location loaded, interior entered, the camera jumped): the scene grade is applied in this
         // frame instead of being followed in the background.
         bool scene_cut = false;
+        // The game's underwater screen wobble (Render.SeaEffect), on every preset: the legacy look. amplitude is
+        // the wave height as a fraction of the picture size (the game's SeaEffectSize), phase in radians. The
+        // rest of the chain processes the wobbled picture (ambient occlusion reads the unwobbled depth).
+        struct Wobble
+        {
+            bool on = false;
+            float amplitude = 0.0f;
+            float phase = 0.0f;
+        } wobble;
     };
     static constexpr int kLutSlicesPerFrame = 2;
 
@@ -105,7 +114,7 @@ class PostChain
     // destroyed with the last chain that uses them.
     struct Programs
     {
-        static constexpr int kCount = 17;
+        static constexpr int kCount = 18;
         std::array<bgfx::ProgramHandle, kCount> handles{};
         Programs() { handles.fill(BGFX_INVALID_HANDLE); }
         ~Programs();
@@ -118,6 +127,7 @@ class PostChain
     Target graded_{};      // composite output when another pass follows
     Target antialiased_{}; // FXAA output when sharpening follows
     Target occlusion_{};   // half resolution: occlusion + packed depth
+    Target wobbled_{};     // the wobbled scene when more passes follow
     bgfx::TextureHandle lut_ = BGFX_INVALID_HANDLE;
     GradePreset lut_grade_ = GradePreset::Original;
     float lut_strength_ = -1.0f;
@@ -126,7 +136,8 @@ class PostChain
     std::vector<uint8_t> pending_texels_;
     int pending_slice_ = -1; // next blue slice to build; -1: no rebuild in progress
     uint32_t frame_counter_ = 0;
-    bgfx::UniformHandle u_finish_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_dither_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_wobble_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_scene_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_bloom_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_lut_ = BGFX_INVALID_HANDLE;
