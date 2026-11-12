@@ -425,7 +425,11 @@ void WdmWindUI::LRender(VRenderer *rs)
     source.complete = (!source.flag || (*source.flag>=0 && *source.flag<=4)) &&
         (wdmObjects->coordinate.empty() || !source.coordinates.empty());
     storm::android::worldMapHud.source = std::move(source);
-    if (storm::android::worldMapHud.covered(storm::android::MapInstruments, wdmObjects->wm->GetId(),SDL_GetTicks())) return;
+    // The UI's answer (and the modal's proof of what was hidden), then the layer table: while the
+    // UI presents the world-map HUD the instruments are its own, also under a game interface over
+    // the map (the encounter signal), when no frame is available.
+    const bool answered = storm::android::worldMapHud.covered(storm::android::MapInstruments, wdmObjects->wm->GetId(),SDL_GetTicks());
+    if (storm::android::legacyDrawRefused("world map instruments", storm::android::hudPresenters.worldMap) || answered) return;
 #endif
     // Buffer for drawing
     Vertex buf[(3 * 2) * 2];

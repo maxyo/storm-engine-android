@@ -574,10 +574,6 @@ int main(int argc, char *argv[])
             storm::platform::reportFrameWork(std::chrono::duration_cast<std::chrono::nanoseconds>(*work));
 #ifdef __ANDROID__
         storm::android::worldMapHud.clock(SDL_GetTicks());
-        // An interface over the world map leaves its native HUD covered (android_worldmap.hpp).
-        storm::android::worldMapHud.interfaceOver(core_private->initialized() && !storm::android::mobileScreen.empty()
-                                                      ? static_cast<uint64_t>(core.GetEntityId("WorldMap"))
-                                                      : 0);
         const auto combatDrainEpoch = storm::android::combatCancelEpoch.load(std::memory_order_acquire);
         // The UI host first: it applies the touches the platform sent, and what they produce
         // is read in this iteration, together with the activity's own queue.

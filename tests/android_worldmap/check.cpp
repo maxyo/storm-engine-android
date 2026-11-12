@@ -173,16 +173,5 @@ int main()
         hudPresenters.worldMap=false;
         assert(!p.covered(1,19)); // no presenting UI: its last word (nothing) stands
     }
-    {
-        // An interface of the game over the world map (the encounter signal): no frame is
-        // available, yet the presenting UI keeps every native part off, or the game's own
-        // instruments and fleet draw behind the card. Only the world map it is shown over.
-        hudPresenters.worldMap=true;
-        WorldMapHud p;p.update(complete(),10);p.resetActivity();p.update(WorldMapFrame{},20); // the interface opened
-        assert(!p.covered(7,19));
-        p.interfaceOver(19);assert(p.covered(7,19)&&p.covered(1,19)&&!p.covered(7,20));
-        p.interfaceOver(0);assert(!p.covered(7,19)); // closed: the scene's own frame decides again
-        hudPresenters.worldMap=false;p.interfaceOver(19);assert(!p.covered(7,19)); // no presenting UI: the native parts stay
-    }
-    std::cout<<"PASS map coverage without a lease (and under an interface over the map), presenter pending, command identity, one-shot dispatch, quest lock, release, activity and tick rollover\n";
+    std::cout<<"PASS map coverage without a lease, presenter pending, command identity, one-shot dispatch, quest lock, release, activity and tick rollover\n";
 }

@@ -84,7 +84,7 @@ struct LegacyLayer
     std::string_view name;
     LegacyLayerKind kind;
 };
-inline constexpr std::array<LegacyLayer, 13> kLegacyLayers{{
+inline constexpr std::array<LegacyLayer, 15> kLegacyLayers{{
     {"sea interface", LegacyLayerKind::Hud},      // info images, perk/state and command icons, readouts, lines, border
     {"sea navigator", LegacyLayerKind::Hud},      // native compass: the touch HUD's disc
     {"sea ship cards", LegacyLayerKind::Hud},     // squadron cards: the touch HUD's ship cards
@@ -95,6 +95,8 @@ inline constexpr std::array<LegacyLayer, 13> kLegacyLayers{{
     {"timer bar", LegacyLayerKind::Hud},          // countdown bar
     {"interface cursor", LegacyLayerKind::Hud},   // mouse pointer of the original interface
     {"loading spinner", LegacyLayerKind::Hud},    // loading/saving spinner
+    {"world map instruments", LegacyLayerKind::Hud}, // compass, date, coordinates, flag: the touch HUD's instruments
+    {"world map fleet", LegacyLayerKind::Hud},    // ship signs of the squadron: the touch HUD's fleet
     {"ship bars", LegacyLayerKind::World},        // hull/sails/crew bars and relation icon over ships and forts
     {"ship pointer", LegacyLayerKind::World},     // pointer over an order's target ship
     // Not world-space, but the touch HUD has nothing in its place yet: shown until it is ported
