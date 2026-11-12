@@ -1595,7 +1595,20 @@ std::vector<std::pair<size_t, size_t>> BgfxBackendImpl::PlanJobs(Executor &plann
     {
         Job &job = jobs_[j];
         if (!job.placed && !PlaceJob(job))
-            break; // no room until the placed jobs are done
+        {
+            // No room beside the placed jobs. When every one of them finishes in this frame, the
+            // buffers are free again for the views after theirs: the next jobs start over in
+            // them within the same frame (a screen's worth of panel shadows is made in one
+            // frame, not in one frame per buffer-full).
+            bool finishing = true;
+            for (size_t done = 0; done < j; ++done)
+                finishing = finishing && done < ranges.size() && ranges[done].second >= jobs_[done].commands.size();
+            if (!finishing)
+                break; // no room until the placed jobs are done
+            shelf_ = {};
+            if (!PlaceJob(job))
+                break;
+        }
         const size_t start = job.cursor;
         size_t end = start;
         bool full = false;
