@@ -25,6 +25,10 @@ namespace storm::texture
 {
 struct Job;
 }
+namespace storm::fx
+{
+struct AlphaMask;
+}
 namespace storm::effects
 {
 struct NormalMapEntry;
@@ -109,6 +113,10 @@ struct TexStore
     uint64_t transcode_key = 0;
     int64_t fallback_bytes = 0;       // size of the temporary texture, 0 once ETC2 is in place
     std::shared_ptr<texture::Job> transcode_job;
+    // Effects: the texture's alpha cuts holes into what it covers (foliage, nets, gratings, rigging): its alpha at a
+    // small size, made when the game file is loaded (effects/texture_pixels.hpp); null for textures without holes.
+    // Every pass that draws a material's depth or coverage cuts by it (effects/casters.hpp).
+    std::shared_ptr<const fx::AlphaMask> cutout;
     // Effects: the normal map derived from this height texture (src/effects/normal_maps.hpp), null for others.
     std::shared_ptr<effects::NormalMapEntry> normal_map;
 

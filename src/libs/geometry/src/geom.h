@@ -104,7 +104,7 @@ class GEOM : public GEOS
     virtual int32_t GetIndexBuffer() const;
 
     bool AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices,
-                         std::vector<uint32_t> *colors) const override;
+                         SurfaceData *surface) const override;
     bool HasCollision() const override;
     const std::string &LightmapFile() const override;
     bool AppendLightmapTriangles(std::vector<glm::vec3> &positions, std::vector<glm::vec2> &uvs,

@@ -129,23 +129,34 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
 // (fx_lamp_shadows).
 void SetEffectsLamps(std::span<const EffectsPointLight> lamps);
 
-// Location, once it is loaded: the still geometry the lamps' shadows are cast from (world space positions, triangle
-// list) with its baked vertex colours (one D3DCOLOR per position: in an interior they are the light its lit models
-// stand in). `interior`: the weather's sun and ambient are not this place's light; room_lo..room_hi is then the box
-// one walks in, with room for the walls and the ceiling (the room light covers it; the geometry may reach far
-// beyond). When leaving: empty spans.
-void SetEffectsLampGeometry(std::span<const std::array<float, 3>> positions, std::span<const uint32_t> colors,
-                            std::span<const uint32_t> indices, bool interior, const std::array<float, 3> &room_lo = {},
-                            const std::array<float, 3> &room_hi = {});
+// Location, once it is loaded: its still geometry (world space, triangle list), for everything the effects cast or
+// bake from it: the lamps' shadows, the room light, and in an interior the ambient-occlusion volume (read from the
+// cache or baked on a worker while the settings ask for it: fx_ao_volume). When leaving: an empty one.
+struct EffectsLocationGeometry
+{
+    std::string_view name; // names it in the log
+    std::span<const std::array<float, 3>> positions;
+    // One D3DCOLOR per position: the baked lighting (in an interior it is the light its lit models stand in).
+    std::span<const uint32_t> colors;
+    // The first texture coordinates per position, and the runs of `indices` drawn with one texture: where a texture's
+    // alpha cuts holes (foliage, nets, gratings) the shadows and the occlusion have them too. Indices outside every
+    // run count as solid.
+    std::span<const std::array<float, 2>> uvs;
+    std::span<const uint32_t> indices;
+    struct Surface
+    {
+        uint32_t first_index = 0, index_count = 0;
+        shim::BaseTexture *texture = nullptr; // alive until the next SetEffectsLocationGeometry
+    };
+    std::span<const Surface> surfaces;
+    // The weather's sun and ambient are not this place's light; room_lo..room_hi is then the box one walks in, with
+    // room for the walls and the ceiling: the room light and the AO volume cover it (the geometry may reach far
+    // beyond and only occludes there).
+    bool interior = false;
+    std::array<float, 3> room_lo{}, room_hi{};
+};
+void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry);
 
-// Location, once an interior is loaded: the static geometry its ambient-occlusion volume is baked from (world space
-// positions, triangle list; `name` names it in the log) and the box that gets the volume (where one walks, with a
-// margin: the geometry outside it, such as the backdrop behind the windows, only occludes). Outdoors and when
-// leaving: empty spans. The volume is read from the cache or baked on a worker while the settings ask for it
-// (fx_ao_volume, Средняя / Высокая).
-void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<float, 3>> positions,
-                          std::span<const uint32_t> indices, const std::array<float, 3> &bounds_lo = {},
-                          const std::array<float, 3> &bounds_hi = {});
 
 // Location, once an outdoor location is loaded: its lightmapped ground (the still models with a shadow.tga lightmap:
 // world positions, lightmap texture coordinates, triangle list, the lightmap of each triangle) and those lightmaps

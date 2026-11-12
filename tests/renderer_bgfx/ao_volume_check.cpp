@@ -216,7 +216,9 @@ int main()
             std::vector<uint32_t> indices;
             add_box(positions, indices, {-3.0f, -0.05f, -3.0f}, {3.0f, 0.0f, 3.0f}); // the floor slab
             add_box(positions, indices, {-0.6f, 0.76f, -0.6f}, {0.6f, 0.8f, 0.6f});  // the table top
-            render::SetEffectsAoGeometry("ao_volume_check room", positions, indices);
+            // The room box one walks in: the floor with room above it.
+            const std::array<float, 3> room_lo{-3.0f, -0.2f, -3.0f}, room_hi{3.0f, 3.0f, 3.0f};
+            render::SetEffectsLocationGeometry({"ao_volume_check room", positions, {}, {}, indices, {}, true, room_lo, room_hi});
 
             // Picture coordinates: the centre is under the table, (0.2, 0.2) is open floor 1.8 m from the edge.
             settle(harness, 0, {});
@@ -260,9 +262,9 @@ int main()
             // (seen from the lamp) is darker than the floor beside it at the same distance; without the lamps there
             // is no such shadow; and the lamp brightens the baked floor it reaches (half of its light is new).
             add_box(positions, indices, {-1.3f, 0.0f, -1.3f}, {-0.7f, 2.0f, -0.7f});
-            render::SetEffectsAoGeometry("ao_volume_check room with a pillar", positions, indices);
             const std::vector<uint32_t> baked_colors(positions.size(), 0xFF808080u);
-            render::SetEffectsLampGeometry(positions, baked_colors, indices, true, {-3.0f, 0.0f, -3.0f}, {3.0f, 3.0f, 3.0f});
+            render::SetEffectsLocationGeometry(
+                {"ao_volume_check room with a pillar", positions, baked_colors, {}, indices, {}, true, room_lo, room_hi});
             const render::EffectsPointLight lamp{{-2.0f, 2.0f, -2.0f}, {4.0f, 3.6f, 3.0f}, 15.0f, 0.5f, 0.0f, 0.1f};
             D3DLIGHT9 lamp_light{};
             lamp_light.Type = D3DLIGHT_POINT;
@@ -339,8 +341,7 @@ int main()
                     }
                 }
             render::SetEffectsLamps({});
-            render::SetEffectsLampGeometry({}, {}, {}, false);
-            render::SetEffectsAoGeometry({}, {}, {});
+            render::SetEffectsLocationGeometry({});
             render::ConfigureEffects(0, {});
             render::SetEffectsWorldOrigin({0.0f, 0.0f, 0.0f});
         }

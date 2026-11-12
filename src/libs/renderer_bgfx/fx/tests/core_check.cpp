@@ -2,6 +2,7 @@
 // baked noise, the sky model, lighting and point-light selection, the shadow cascade and the
 // explicit handling of unsupported settings. No GPU is needed.
 #include "storm/fx/ao_volume.hpp"
+#include "storm/fx/cutout.hpp"
 #include "storm/fx/capabilities.hpp"
 #include "storm/fx/lamp_shadows.hpp"
 #include "storm/fx/ground_light.hpp"
@@ -78,6 +79,7 @@ void CheckSettings()
     CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 3); // Низкая: no shadows, as the original
     CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 0 && high.lamp_shadows == 0); // until the owner's OK
     CHECK(!medium.lamp_soft && high.lamp_soft && high.lamp_baked == 0.5f && high.lamp_gain == 1.0f && high.lamp_debug == 0);
+    CHECK(medium.lamp_model_lift == 0.0f && high.lamp_model_lift == 0.0f);
     // «Средняя»: the cheap looks (tone curve, the grade of the place and hour, aerial perspective, rim light) under
     // the restrained Caribbean grade; «Высокая» adds the sun glare and sun shafts. «Низкая» has none of them.
     for (const Settings *preset : {&medium, &high})
@@ -1424,6 +1426,79 @@ void CheckAoVolume()
     CHECK(static_cast<size_t>(large.size[0]) * large.size[1] * large.size[2] <= coarse.max_cells && large.cell > 0.2f);
 }
 
+// Materials whose texture alpha cuts holes (fx/cutout.hpp): the CPU passes cut what the colour pass's alpha test cuts.
+void CheckCutout()
+{
+    // A checkerboard of 8 x 8 squares, alpha 255 / 0, and an opaque image.
+    const int n = 64;
+    std::vector<uint8_t> checker(static_cast<size_t>(n) * n * 4, 255), solid(static_cast<size_t>(n) * n * 4, 255);
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x)
+            checker[(static_cast<size_t>(y) * n + x) * 4 + 3] = ((x / 8 + y / 8) & 1) ? 0 : 255;
+    const float reference = 160.0f / 255.0f;
+    AlphaMask mask, none;
+    CHECK(MakeAlphaMask(checker, n, n, reference, mask) && mask.width == n && mask.alpha.size() == static_cast<size_t>(n) * n);
+    CHECK(!MakeAlphaMask(solid, n, n, reference, none) && none.alpha.empty()); // no holes: no mask, the caster is whole
+    solid[3] = 0; // one transparent texel in 4096 is not a cut-out
+    CHECK(!MakeAlphaMask(solid, n, n, reference, none));
+    CHECK(mask.At(0.06f, 0.06f) == 1.0f && mask.At(0.19f, 0.06f) == 0.0f && mask.At(1.06f, -0.94f) == 1.0f); // wraps
+
+    // A 2 x 2 m quad with that texture, cut into pieces of 5 cm: about half of its area stays, every piece lies on an
+    // opaque square, none on a hole.
+    std::vector<Vec3> positions = {{0.0f, 1.0f, 0.0f}, {2.0f, 1.0f, 0.0f}, {2.0f, 1.0f, 2.0f}, {0.0f, 1.0f, 2.0f}};
+    const std::vector<std::array<float, 2>> uvs = {{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
+    const std::vector<uint32_t> quad = {0, 1, 2, 0, 2, 3};
+    std::vector<uint32_t> pieces;
+    AppendCutTriangles(positions, pieces, uvs, quad, mask, reference, 0.05f);
+    CHECK(!pieces.empty() && pieces.size() % 3 == 0);
+    float area = 0.0f;
+    bool on_opaque = true;
+    for (size_t t = 0; t < pieces.size(); t += 3)
+    {
+        const Vec3 &a = positions[pieces[t]], &b = positions[pieces[t + 1]], &c = positions[pieces[t + 2]];
+        area += 0.5f * std::fabs((b[0] - a[0]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[0] - a[0]));
+        const float u = (a[0] + b[0] + c[0]) / 6.0f, v = (a[2] + b[2] + c[2]) / 6.0f; // the quad's uv = position / 2
+        on_opaque &= mask.At(u, v) > reference && Near(a[1], 1.0f, 1e-5f);
+    }
+    CHECK(on_opaque && Near(area, 2.0f, 0.1f));
+
+    // The AO bake under a grating (the cut pieces as points of the bake's cell size; its bars and holes are 25 cm)
+    // against under a solid plate of the same size, 0.6 m above a floor: the floor under the grating sees clearly more
+    // than under the plate, and less than an open floor.
+    const auto floor_visibility = [&](bool plate, bool grating) {
+        std::vector<Vec3> p;
+        std::vector<uint32_t> idx;
+        AddBox(p, idx, {-4.0f, -0.1f, -4.0f}, {6.0f, 0.0f, 6.0f});
+        if (plate)
+            AddBox(p, idx, {0.0f, 0.6f, 0.0f}, {2.0f, 0.62f, 2.0f});
+        if (grating)
+        {
+            const auto base = static_cast<uint32_t>(p.size());
+            for (const Vec3 &corner : {Vec3{0.0f, 0.6f, 0.0f}, Vec3{2.0f, 0.6f, 0.0f}, Vec3{2.0f, 0.6f, 2.0f}, Vec3{0.0f, 0.6f, 2.0f}})
+                p.push_back(corner);
+            std::vector<std::array<float, 2>> grating_uvs(p.size(), std::array<float, 2>{0.0f, 0.0f});
+            grating_uvs[base + 1] = {1.0f, 0.0f};
+            grating_uvs[base + 2] = {1.0f, 1.0f};
+            grating_uvs[base + 3] = {0.0f, 1.0f};
+            const std::vector<uint32_t> tris = {base, base + 1, base + 2, base, base + 2, base + 3};
+            AppendCutTriangles(p, idx, grating_uvs, tris, mask, reference, 0.1f, 0.02f);
+        }
+        AoBakeParams params;
+        params.threads = 1;
+        params.bounds_lo = {-2.0f, -0.1f, -2.0f};
+        params.bounds_hi = {4.0f, 2.0f, 4.0f};
+        const AoVolume volume = BakeAoVolume({p, idx}, params);
+        return volume.Sample({1.0f, 0.1f, 1.0f}, {0.0f, 1.0f, 0.0f});
+    };
+    const float open = floor_visibility(false, false), under_plate = floor_visibility(true, false),
+                under_grating = floor_visibility(false, true);
+    std::printf("cut-out: AO on the floor: open %.2f, under a grating %.2f, under a plate %.2f\n", open, under_grating,
+                under_plate);
+    // (The volume's rays cross the grating's one-cell layer obliquely and its cells are 0.2 m: it tells a 25 cm grating
+    // from a plate only by a few per cent. Finer holes are below what it resolves.)
+    CHECK(under_plate < open - 0.15f && under_grating > under_plate + 0.03f && under_grating < open - 0.03f);
+}
+
 int main()
 {
     CheckSettings();
@@ -1443,6 +1518,7 @@ int main()
     CheckReliefRules();
     CheckAoVolume();
     CheckLampShadows();
+    CheckCutout();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

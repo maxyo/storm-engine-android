@@ -274,12 +274,24 @@ class GEOS
     virtual int32_t GetIndexBuffer() const = 0;
 
     // Positions (model space) and triangle list of the visible objects, appended to `positions` / `indices` (the
-    // indices are offset by the positions already there); with `colors`, the vertices' colours (the baked lighting
-    // of a location model, D3DCOLOR) are appended alongside the positions. Reads the static vertex and index buffers
-    // back read-only (the renderer keeps CPU copies of them). False, with nothing appended, when a buffer cannot be
-    // read.
+    // indices are offset by the positions already there). With `surface`, appended alongside: the vertices' colours
+    // (the baked lighting of a location model, D3DCOLOR) and first texture coordinates, and the runs of the appended
+    // indices that are drawn with one texture (the renderer's texture id of the material's first texture, -1: none).
+    // Reads the static vertex and index buffers back read-only (the renderer keeps CPU copies of them). False, with
+    // nothing appended, when a buffer cannot be read.
+    struct TextureRun
+    {
+        uint32_t first_index, index_count;
+        int32_t texture;
+    };
+    struct SurfaceData
+    {
+        std::vector<uint32_t> colors;
+        std::vector<glm::vec2> uvs;
+        std::vector<TextureRun> runs;
+    };
     virtual bool AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices,
-                                 std::vector<uint32_t> *colors = nullptr) const = 0;
+                                 SurfaceData *surface = nullptr) const = 0;
     // True when the file carries collision data (the BSP the location walks and traces on).
     virtual bool HasCollision() const = 0;
     // The model's lightmap (its texture shadow.tga, from the location's lighting folder of the time of day): its file

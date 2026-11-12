@@ -1,7 +1,10 @@
 #include "effects/effects.hpp"
 
+#include "effects/casters.hpp"
+#include "effects/texture_pixels.hpp"
 #include "shim/device.hpp"
 #include "storm/fx/capabilities.hpp"
+#include "storm/fx/cutout.hpp"
 #include "storm/fx/color_lut.hpp"
 #include "storm/fx/log.hpp"
 #include "storm/fx/sky_model.hpp"
@@ -83,6 +86,8 @@ const Option kOptions[] = {
      [](fx::Settings &s, int v) { s.lamp_gain = static_cast<float>(std::clamp(v, 0, 300)) / 100.0f; }},
     {"fx_lamp_baked", "0..100 %: the part of the lamp light the baked colours already hold",
      [](fx::Settings &s, int v) { s.lamp_baked = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
+    {"fx_lamp_model_lift", "0..100 %: lit models of an interior brighter than the room light around them",
+     [](fx::Settings &s, int v) { s.lamp_model_lift = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
     {"fx_lamp_debug", "0 off, 1 every lamp in its own colour, 2 the shadow mask",
      [](fx::Settings &s, int v) { s.lamp_debug = static_cast<uint8_t>(std::clamp(v, 0, 2)); }},
     {"fx_ao_volume", "interiors: 0 off, 1 as the game's data, 2 moderate, 3 strong",
@@ -638,16 +643,6 @@ void SetEffectsTechnique(const char *name)
     effects::Host::instance().lighting().set_technique(name);
 }
 
-void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<float, 3>> positions,
-                          std::span<const uint32_t> indices, const std::array<float, 3> &bounds_lo,
-                          const std::array<float, 3> &bounds_hi)
-{
-    std::vector<fx::Vec3> points(positions.begin(), positions.end());
-    std::vector<uint32_t> triangles(indices.begin(), indices.end());
-    effects::Host::instance().ao_volumes().set_geometry(std::string(name), std::move(points), std::move(triangles),
-                                                        bounds_lo, bounds_hi);
-}
-
 void SetEffectsWorldOrigin(const std::array<float, 3> &origin)
 {
     effects::Host::instance().lighting().set_world_origin(origin);
@@ -698,13 +693,40 @@ void SetEffectsGroundLight(std::string_view name, std::span<const std::array<flo
     shadows.set_ground(std::move(ground));
 }
 
-void SetEffectsLampGeometry(std::span<const std::array<float, 3>> positions, std::span<const uint32_t> colors,
-                            std::span<const uint32_t> indices, bool interior, const std::array<float, 3> &room_lo,
-                            const std::array<float, 3> &room_hi)
+void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry)
 {
-    effects::Host::instance().lighting().lamp_shadows().set_geometry({positions.begin(), positions.end()},
-                                                                     {colors.begin(), colors.end()},
-                                                                     {indices.begin(), indices.end()}, interior, room_lo, room_hi);
+    effects::Host::instance().lighting().lamp_shadows().set_geometry(geometry);
+    // The AO volume of an interior: the same geometry, with the triangles of textures that cut holes replaced by the
+    // pieces the alpha test keeps, as points at the bake's occupancy cell size of 0.1 m (effects/casters.hpp: one rule
+    // for every pass; holes narrower than a cell are below what the volume resolves).
+    std::vector<fx::Vec3> points;
+    std::vector<uint32_t> triangles;
+    const bool room = geometry.room_hi[0] > geometry.room_lo[0] && geometry.room_hi[1] > geometry.room_lo[1] &&
+                      geometry.room_hi[2] > geometry.room_lo[2];
+    if (geometry.interior && room)
+    {
+        points.assign(geometry.positions.begin(), geometry.positions.end());
+        std::vector<bool> cut(geometry.indices.size(), false);
+        std::vector<uint32_t> pieces;
+        if (geometry.uvs.size() == geometry.positions.size())
+            for (const auto &surface : geometry.surfaces)
+            {
+                const shim::TexStore *store = shim::store_of(surface.texture);
+                const effects::CasterMaterial material = effects::location_caster_material(store);
+                if (material.cut <= 0.0f || surface.first_index + surface.index_count > geometry.indices.size())
+                    continue;
+                std::fill(cut.begin() + surface.first_index, cut.begin() + surface.first_index + surface.index_count, true);
+                fx::AppendCutTriangles(points, pieces, geometry.uvs,
+                                       geometry.indices.subspan(surface.first_index, surface.index_count), *store->cutout,
+                                       material.cut, 0.1f, 0.02f);
+            }
+        for (size_t i = 0; i < geometry.indices.size(); ++i)
+            if (!cut[i])
+                triangles.push_back(geometry.indices[i]);
+        triangles.insert(triangles.end(), pieces.begin(), pieces.end());
+    }
+    effects::Host::instance().ao_volumes().set_geometry(std::string(geometry.name), std::move(points), std::move(triangles),
+                                                        geometry.room_lo, geometry.room_hi);
 }
 
 void SetEffectsLamps(std::span<const EffectsPointLight> lamps)
@@ -732,7 +754,10 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)
 void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path)
 {
     if (shim::TexStore *store = shim::store_of(texture))
+    {
+        store->cutout = effects::texture_cutout(*store);
         effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path);
+    }
 }
 
 void ConfigureReliefDirectory(const std::filesystem::path &directory)

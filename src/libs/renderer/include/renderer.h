@@ -186,6 +186,10 @@ inline uint32_t F2DW(float f)
 //
 
 class CVideoTexture;
+namespace storm::shim
+{
+struct BaseTexture;
+}
 
 class VRenderer : public SERVICE, public storm::render::TextureColorReader
 {
@@ -250,6 +254,8 @@ class VRenderer : public SERVICE, public storm::render::TextureColorReader
     // Size of the current colour render target ({0, 0}, logged, if there is none).
     virtual POINT GetRenderTargetSize() = 0;
     virtual bool TextureSet(int32_t stage, int32_t texid) = 0;
+    // The renderer's own texture object of an id (the graphics effects are told about textures by it); null: none.
+    virtual storm::shim::BaseTexture *GetTextureFromID(int32_t texid) = 0;
     virtual bool TextureRelease(int32_t texid) = 0;
     virtual bool TextureIncReference(int32_t texid) = 0;
 

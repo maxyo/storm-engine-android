@@ -148,9 +148,10 @@ bool Lighting::prepare_programs(shim::Device &device, const fx::Settings &settin
             if (!device.prepare_program(vs_lit_, fs_baked_[n][linear], budget))
                 return false;
         }
-    if (per_pixel && settings.lamp_shadows && !lamps_.prepare_programs(device, budget))
+    if (per_pixel && settings.lamp_shadows && !casters_.prepare_programs(device, Casters::Pass::Lamp, budget))
         return false;
-    return !per_pixel || shadows_.prepare_programs(device, settings, budget);
+    return !per_pixel || settings.shadows == fx::ShadowQuality::Off ||
+           casters_.prepare_programs(device, Casters::Pass::Sun, budget);
 }
 
 void Lighting::set_technique(const char *name)
@@ -248,7 +249,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         std::array<float, 3> eye{}; // absolute, like the lamps
         for (int j = 0; j < 3; ++j)
             eye[j] = origin_[j] - (v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
-        lamp_on = lamps_.prepare(const_cast<shim::Device &>(device), eye);
+        lamp_on = lamps_.prepare(const_cast<shim::Device &>(device), eye, casters_);
     }
     baked |= !lit_state && lamp_on;
     if (!lit && !baked && !coverage)
@@ -451,6 +452,14 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
                 draw.ground_sun = shadows_.ground_sun({sphere.center[0] + origin_[0], sphere.center[1] + origin_[1],
                                                        sphere.center[2] + origin_[2]}); // the lightmaps are absolute
         }
+        // How the draw's material casts (effects/casters.hpp): cut where the colour pass's alpha test discards,
+        // nothing for a blended material that writes no depth.
+        if (draw.caster)
+        {
+            draw.caster_material = caster_material(device, layout);
+            if (!draw.caster_material.casts)
+                draw.caster = draw.sun_caster = draw.lamp_caster = false;
+        }
         const int shadow = draw.shadow ? (settings_.shadows == fx::ShadowQuality::Soft ? 2 : 1) : 0;
         draw.fs_id = fs_lit_[specular][relief][linear][shadow];
         frame_.shadowed += draw.shadow ? 1 : 0;
@@ -495,12 +504,13 @@ void Lighting::submit_caster(shim::Device &device, const D3DMATRIX &world, bool 
         absolute.m[3][0] += caster_.origin[0];
         absolute.m[3][1] += caster_.origin[1];
         absolute.m[3][2] += caster_.origin[2];
-        lamps_.submit_caster(device, &absolute.m[0][0], skinned, caster_.sphere.center, caster_.sphere.radius);
+        lamps_.submit_caster(device, &absolute.m[0][0], skinned, caster_.sphere.center, caster_.sphere.radius, casters_,
+                             caster_.caster_material);
         ++frame_.lamp_casters;
     }
     if (caster_.sun_caster)
     {
-        shadows_.submit_caster(device, &world.m[0][0], skinned);
+        shadows_.submit_caster(device, &world.m[0][0], skinned, casters_, caster_.caster_material);
         ++frame_.casters;
     }
     else
@@ -587,6 +597,7 @@ void Lighting::shutdown()
     fx_.Shutdown();
     shadows_.shutdown();
     lamps_.shutdown();
+    casters_.shutdown();
     if (bgfx::isValid(ao_open_))
         bgfx::destroy(ao_open_);
     ao_open_ = BGFX_INVALID_HANDLE;
@@ -603,6 +614,7 @@ void Lighting::on_device_lost()
     fx_.OnDeviceLost();
     shadows_.on_device_lost();
     lamps_.on_device_lost();
+    casters_.on_device_lost();
     u_coverage_ = u_ff_ = u_aerial_up_ = s_ao_volume_ = u_ao_matrix_ = u_ao_params_ = BGFX_INVALID_HANDLE;
     ao_view_ = {};
     ao_open_ = BGFX_INVALID_HANDLE;

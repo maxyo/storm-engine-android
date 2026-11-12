@@ -33,6 +33,7 @@
 #pragma once
 
 #include "effects/ao_volume.hpp"
+#include "effects/casters.hpp"
 #include "effects/lamp_shadows.hpp"
 #include "effects/normal_maps.hpp"
 #include "effects/shadows.hpp"
@@ -95,6 +96,7 @@ struct FfDraw
     bool room_light = false;       // its ambient is the room light of the interior
     bool sun_caster = false;       // caster: the sun shadow view
     bool lamp_caster = false;      // caster: the lamp faces its sphere reaches (characters)
+    CasterMaterial caster_material{}; // caster: how its material casts (effects/casters.hpp)
     DrawSphere sphere{};
     float ground_sun = 1.0f;       // receiver: the sun the location's lightmaps show under it (SunShadows::ground_sun)
 };
@@ -189,6 +191,7 @@ class Lighting
     NormalMaps normal_maps_;
     SunShadows shadows_;
     LampShadows lamps_;
+    Casters casters_; // the caster programs and material rule of the sun cascade and the lamp atlases
     FfDraw caster_{}; // the last submitted draw's caster flags (submit -> submit_caster)
     bool cube_reported_ = false;
     bool indoor_sun_reported_ = false;

@@ -97,6 +97,7 @@ void LampShadows::configure(const fx::Settings &settings)
     gain_ = settings.lamp_gain;
     baked_ = settings.lamp_baked;
     soft_ = settings.lamp_soft;
+    model_lift_ = settings.lamp_model_lift;
     debug_ = settings.lamp_debug;
 }
 
@@ -146,18 +147,59 @@ void LampShadows::set_lamps(const std::vector<fx::Lamp> &lamps)
     }
 }
 
-void LampShadows::set_geometry(std::vector<fx::Vec3> positions, std::vector<uint32_t> colors, std::vector<uint32_t> indices,
-                               bool interior, const fx::Vec3 &room_lo, const fx::Vec3 &room_hi)
+void LampShadows::set_geometry(const render::EffectsLocationGeometry &geometry)
 {
-    if (positions == positions_ && indices == indices_ && colors == colors_ && interior == interior_ && room_lo == room_lo_ &&
-        room_hi == room_hi_)
+    const auto same = [](const auto &kept, const auto &given) {
+        return kept.size() == given.size() && std::equal(kept.begin(), kept.end(), given.begin());
+    };
+    const auto same_surfaces = [&] {
+        size_t cut_indices = 0;
+        for (const CutOut &cut : cut_)
+            cut_indices += cut.indices.size();
+        size_t given = 0;
+        for (const auto &surface : geometry.surfaces)
+            if (const shim::TexStore *store = shim::store_of(surface.texture); store && store->cutout)
+                given += surface.index_count;
+        return cut_indices == given;
+    };
+    if (same(positions_, geometry.positions) && same(indices_, geometry.indices) && same(colors_, geometry.colors) &&
+        same(uvs_, geometry.uvs) && same_surfaces() && geometry.interior == interior_ && geometry.room_lo == room_lo_ &&
+        geometry.room_hi == room_hi_)
         return;
-    room_lo_ = room_lo;
-    room_hi_ = room_hi;
-    positions_ = std::move(positions);
-    colors_ = std::move(colors);
-    indices_ = std::move(indices);
-    interior_ = interior;
+    for (Slot &slot : slot_)
+        free_slot(slot); // their index buffers and textures belong to the geometry that goes
+    positions_.assign(geometry.positions.begin(), geometry.positions.end());
+    colors_.assign(geometry.colors.begin(), geometry.colors.end());
+    uvs_.assign(geometry.uvs.begin(), geometry.uvs.end());
+    indices_.assign(geometry.indices.begin(), geometry.indices.end());
+    interior_ = geometry.interior;
+    room_lo_ = geometry.room_lo;
+    room_hi_ = geometry.room_hi;
+    // Triangles of a texture whose alpha cuts holes cast through it; all others cast whole.
+    solid_.clear();
+    cut_.clear();
+    std::vector<bool> cut_index(indices_.size(), false);
+    if (uvs_.size() == positions_.size())
+        for (const auto &surface : geometry.surfaces)
+        {
+            const shim::TexStore *store = shim::store_of(surface.texture);
+            if (!store || !store->cutout || surface.first_index + surface.index_count > indices_.size())
+                continue;
+            auto into = std::find_if(cut_.begin(), cut_.end(), [&](const CutOut &c) { return c.texture == surface.texture; });
+            if (into == cut_.end())
+                into = cut_.insert(cut_.end(), CutOut{surface.texture, {}});
+            for (uint32_t i = surface.first_index; i < surface.first_index + surface.index_count; ++i)
+            {
+                into->indices.push_back(indices_[i]);
+                cut_index[i] = true;
+            }
+        }
+    else if (!geometry.surfaces.empty())
+        shim::logf("ERROR: effects: lamps: the location's geometry came without texture coordinates: foliage, nets and "
+                   "gratings cast whole shadows");
+    for (size_t i = 0; i < indices_.size(); ++i)
+        if (!cut_index[i])
+            solid_.push_back(indices_[i]);
     geometry_lo_ = geometry_hi_ = positions_.empty() ? fx::Vec3{} : positions_.front();
     for (const fx::Vec3 &p : positions_)
         for (int k = 0; k < 3; ++k)
@@ -183,23 +225,6 @@ void LampShadows::set_geometry(std::vector<fx::Vec3> positions, std::vector<uint
     geometry_dirty_ = true;
     layout_dirty_ = true;
     reported_ = false;
-}
-
-void LampShadows::find_shaders()
-{
-    if (fs_caster_)
-        return;
-    vs_caster_[0] = shim::shader_id_by_name("vs_ff_caster");
-    vs_caster_[1] = shim::shader_id_by_name("vs_ff_caster_skin");
-    fs_caster_ = shim::shader_id_by_name("fs_ff_lamp_caster");
-}
-
-bool LampShadows::prepare_programs(shim::Device &device, int &budget)
-{
-    if (!enabled())
-        return true;
-    find_shaders();
-    return device.prepare_program(vs_caster_[0], fs_caster_, budget) && device.prepare_program(vs_caster_[1], fs_caster_, budget);
 }
 
 void LampShadows::ensure_targets()
@@ -243,6 +268,8 @@ void LampShadows::free_slot(Slot &slot)
 {
     if (bgfx::isValid(slot.triangles))
         bgfx::destroy(slot.triangles);
+    for (const auto &cut : slot.cut)
+        bgfx::destroy(cut.second);
     slot = Slot{};
     grid_dirty_ = true;
 }
@@ -288,10 +315,17 @@ void LampShadows::choose_slots(const std::array<float, 3> &eye)
         free->lamp = lamp;
         free->at = lamps_[lamp];
         free->holder = holder_[lamp];
-        const std::vector<uint32_t> near = fx::TrianglesInSphere(positions_, indices_, free->at.position, free->at.range);
-        if (!near.empty())
-            free->triangles = bgfx::createIndexBuffer(
-                bgfx::copy(near.data(), static_cast<uint32_t>(near.size() * sizeof(uint32_t))), BGFX_BUFFER_INDEX32);
+        const auto buffer = [&](const std::vector<uint32_t> &triangles) {
+            const std::vector<uint32_t> near = fx::TrianglesInSphere(positions_, triangles, free->at.position, free->at.range);
+            return near.empty() ? bgfx::IndexBufferHandle BGFX_INVALID_HANDLE
+                                : bgfx::createIndexBuffer(
+                                      bgfx::copy(near.data(), static_cast<uint32_t>(near.size() * sizeof(uint32_t))),
+                                      BGFX_BUFFER_INDEX32);
+        };
+        free->triangles = buffer(solid_);
+        for (size_t c = 0; c < cut_.size(); ++c)
+            if (const bgfx::IndexBufferHandle near = buffer(cut_[c].indices); bgfx::isValid(near))
+                free->cut.emplace_back(c, near);
         placed[lamp] = true;
         ++kept;
     }
@@ -349,7 +383,7 @@ void LampShadows::upload_room()
                          1.0f / (room_.cell[2] * static_cast<float>(room_.nz)), 0.0f};
 }
 
-bool LampShadows::prepare(shim::Device &device, const std::array<float, 3> &eye)
+bool LampShadows::prepare(shim::Device &device, const std::array<float, 3> &eye, Casters &casters)
 {
     if (prepared_)
         return active_;
@@ -370,7 +404,7 @@ bool LampShadows::prepare(shim::Device &device, const std::array<float, 3> &eye)
     const bool all = layout_dirty_;
     choose_slots(eye);
     layout_dirty_ = false;
-    draw_static(device, all);
+    draw_static(device, all, casters);
     int used = 0;
     for (Slot &slot : slot_)
     {
@@ -433,7 +467,7 @@ bool LampShadows::relit(const fx::Vec3 &position) const
     return false;
 }
 
-void LampShadows::draw_static(shim::Device &device, bool all)
+void LampShadows::draw_static(shim::Device &device, bool all, Casters &casters)
 {
     if (std::none_of(slot_.begin(), slot_.end(), [](const Slot &s) { return s.lamp >= 0 && !s.ready; }))
         return;
@@ -441,14 +475,21 @@ void LampShadows::draw_static(shim::Device &device, bool all)
     {
         if (bgfx::isValid(static_vb_))
             bgfx::destroy(static_vb_);
+        // Position and the texture coordinates of the cut-out casters (zero when the location gave none).
         bgfx::VertexLayout layout;
-        layout.begin().add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float).end();
-        static_vb_ = bgfx::createVertexBuffer(
-            bgfx::copy(positions_.data(), static_cast<uint32_t>(positions_.size() * sizeof(fx::Vec3))), layout);
+        layout.begin().add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float).add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float).end();
+        const bgfx::Memory *vertices = bgfx::alloc(static_cast<uint32_t>(positions_.size() * 5 * sizeof(float)));
+        auto *out = reinterpret_cast<float *>(vertices->data);
+        for (size_t i = 0; i < positions_.size(); ++i, out += 5)
+        {
+            memcpy(out, positions_[i].data(), 3 * sizeof(float));
+            out[3] = uvs_.size() == positions_.size() ? uvs_[i][0] : 0.0f;
+            out[4] = uvs_.size() == positions_.size() ? uvs_[i][1] : 0.0f;
+        }
+        static_vb_ = bgfx::createVertexBuffer(vertices, layout);
         geometry_dirty_ = false;
     }
-    find_shaders();
-    const bgfx::ProgramHandle program = device.program(vs_caster_[0], fs_caster_); // logs a failure
+    const bgfx::ProgramHandle program = casters.program(device, Casters::Pass::Lamp, false, {}); // logs a failure
     bgfx::setViewName(kLampStaticView, "fx lamp shadows (location)");
     bgfx::setViewMode(kLampStaticView, bgfx::ViewMode::Sequential);
     bgfx::setViewFrameBuffer(kLampStaticView, static_fb_);
@@ -475,11 +516,12 @@ void LampShadows::draw_static(shim::Device &device, bool all)
         bgfx::setVertexBuffer(0, clear_vb_);
         bgfx::setState(BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_ALWAYS);
         bgfx::submit(kLampStaticView, program);
-        if (bgfx::isValid(slot.triangles))
-            for (int face = 0; face < 6; ++face)
+        const float caster[4] = {static_cast<float>(face_size_), 1.0f / slot.at.range, slot.holder, fx::kLampFaceGuard};
+        for (int face = 0; face < 6; ++face)
+        {
+            const std::array<float, 16> m = face_matrix(slot.at, s, face, columns_, rows_);
+            if (bgfx::isValid(slot.triangles))
             {
-                const std::array<float, 16> m = face_matrix(slot.at, s, face, columns_, rows_);
-                const float caster[4] = {static_cast<float>(face_size_), 1.0f / slot.at.range, slot.holder, fx::kLampFaceGuard};
                 scissor_tile(s, face, columns_, face_size_);
                 bgfx::setUniform(u_caster_, caster);
                 bgfx::setTransform(m.data());
@@ -488,6 +530,28 @@ void LampShadows::draw_static(shim::Device &device, bool all)
                 bgfx::setState(kCasterState);
                 bgfx::submit(kLampStaticView, program);
             }
+            // Foliage, nets, gratings: with their texture, so the shadow has their holes.
+            for (const auto &[cut, triangles] : slot.cut)
+            {
+                shim::TexStore *store = shim::store_of(cut_[cut].texture);
+                if (!store)
+                    continue;
+                // The same rule as for a draw: the location's material with this texture (sets the cut's uniforms).
+                const bgfx::ProgramHandle program_cut =
+                    casters.program(device, Casters::Pass::Lamp, false, location_caster_material(store));
+                if (!bgfx::isValid(program_cut))
+                    continue;
+                store->sync();
+                scissor_tile(s, face, columns_, face_size_);
+                bgfx::setUniform(u_caster_, caster);
+                bgfx::setTexture(0, casters.sampler(), store->handle);
+                bgfx::setTransform(m.data());
+                bgfx::setVertexBuffer(0, static_vb_);
+                bgfx::setIndexBuffer(triangles);
+                bgfx::setState(kCasterState);
+                bgfx::submit(kLampStaticView, program_cut);
+            }
+        }
         slot.ready = true;
         if (all)
             slot.weight = 1.0f;
@@ -499,21 +563,24 @@ void LampShadows::draw_static(shim::Device &device, bool all)
     {
         reported_ = true;
         upload_grid();
+        size_t cut_triangles = 0;
+        for (const CutOut &c : cut_)
+            cut_triangles += c.indices.size() / 3;
         shim::logf("effects: lamps: %s, %d of %zu lamps (%zu lights before merging fixtures) have a slot, faces %d px, "
                    "characters %d px; grid %dx%dx%d cells, at most %d lamps over a cell, %d cells over the %d held; room "
-                   "light %dx%dx%d",
+                   "light %dx%dx%d; %zu textures cut holes into %zu triangles",
                    interior_ ? "interior" : "outdoors", drawn, lamps_.size(), raw_.size(), face_size_, dynamic_face_size_, grid_.nx,
-                   grid_.ny, grid_.nz, grid_.max_lamps, grid_.overflow_cells, fx::kLampGridCapacity, room_.nx, room_.ny, room_.nz);
+                   grid_.ny, grid_.nz, grid_.max_lamps, grid_.overflow_cells, fx::kLampGridCapacity, room_.nx, room_.ny, room_.nz,
+                   cut_.size(), cut_triangles);
     }
 }
 
 void LampShadows::submit_caster(shim::Device &device, const float *world, bool skinned, const std::array<float, 3> &center,
-                                float radius)
+                                float radius, Casters &casters, const CasterMaterial &material)
 {
     if (!active_)
         return;
-    find_shaders();
-    const bgfx::ProgramHandle program = device.program(vs_caster_[skinned ? 1 : 0], fs_caster_);
+    const bgfx::ProgramHandle program = casters.program(device, Casters::Pass::Lamp, skinned, material);
     if (!bgfx::isValid(program))
         return;
     for (int s = 0; s < slots_; ++s)
@@ -556,7 +623,7 @@ void LampShadows::bind(bool active, const std::array<float, 16> &view, bool room
     bgfx::setUniform(u_lamps_, on ? uniforms_.data() : none.data(), static_cast<uint16_t>(uniforms_.size()));
     std::array<std::array<float, 4>, 4> grid = grid_uniforms_;
     const bool room_on = on && room && room_ready_;
-    grid[2][3] = room_on ? 1.0f : 0.0f;
+    grid[2][3] = room_on ? 1.0f + model_lift_ : 0.0f;
     bgfx::setUniform(u_grid_, grid.data(), static_cast<uint16_t>(grid.size()));
     const uint32_t sampler = BGFX_SAMPLER_COMPARE_LEQUAL | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
     bgfx::setTexture(fx::kLampDynamicStage, s_dynamic_, on ? dynamic_map_ : open_map_, sampler);
@@ -594,8 +661,7 @@ void LampShadows::shutdown()
         if (bgfx::isValid(*b))
             bgfx::destroy(*b);
     for (Slot &slot : slot_)
-        if (bgfx::isValid(slot.triangles))
-            bgfx::destroy(slot.triangles);
+        free_slot(slot);
     for (bgfx::UniformHandle *u : {&s_static_, &s_dynamic_, &s_grid_, &s_room_, &u_view_, &u_lamps_, &u_grid_, &u_caster_})
         if (bgfx::isValid(*u))
             bgfx::destroy(*u);

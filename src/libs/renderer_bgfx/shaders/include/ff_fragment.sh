@@ -59,7 +59,7 @@ float ffAoVolume(vec3 P, vec3 Ng, vec3 Nw)
 //               light | att0, att1, att2, w the lamp's own size in metres (no point is lit from nearer)
 // u_fxLampGrid[0]: xyz the lamp grid's corner, w debug view (1 each slot in its colour, 2 the shadow mask)
 // u_fxLampGrid[1]: xyz 1 / the grid's extent, w cells along x
-// u_fxLampGrid[2]: xyz the room light's corner, w 1 = this draw takes its ambient from the room light
+// u_fxLampGrid[2]: xyz the room light's corner, w > 0 = this draw takes its ambient from the room light, times w
 // u_fxLampGrid[3]: xyz 1 / the room light's extent, w 1 = 5x5 filter on the static faces
 uniform mat4 u_fxLampView;
 uniform vec4 u_fxLamps[50];
@@ -71,43 +71,44 @@ SAMPLER2DSHADOW(s_fxLampStatic, 11);
 
 // 3x3 percentage-closer filter in four hardware-filtered compare taps: the optimised PCF of The Witness, after
 // MJP's Shadows sample (github.com/TheRealMJP/Shadows, MIT). uv: atlas coordinates, size: the atlas in texels.
+// (The macros' own names carry a prefix: their arguments are expressions of the caller's variables.)
 #define FF_LAMP_PCF3(result, map, uv, size, depth) \
     { \
-        vec2 texel = (uv) * (size); \
-        vec2 base = floor(texel + vec2_splat(0.5)); \
-        vec2 st = texel + vec2_splat(0.5) - base; \
-        base = (base - vec2_splat(0.5)) / (size); \
-        vec2 w0 = vec2_splat(3.0) - 2.0 * st; \
-        vec2 w1 = vec2_splat(1.0) + 2.0 * st; \
-        vec2 o0 = ((vec2_splat(2.0) - st) / w0 - vec2_splat(1.0)) / (size); \
-        vec2 o1 = (st / w1 + vec2_splat(1.0)) / (size); \
-        result = (w0.x * w0.y * shadow2D(map, vec3(base.x + o0.x, base.y + o0.y, depth)) + \
-                  w1.x * w0.y * shadow2D(map, vec3(base.x + o1.x, base.y + o0.y, depth)) + \
-                  w0.x * w1.y * shadow2D(map, vec3(base.x + o0.x, base.y + o1.y, depth)) + \
-                  w1.x * w1.y * shadow2D(map, vec3(base.x + o1.x, base.y + o1.y, depth))) / 16.0; \
+        vec2 pcf_texel = (uv) * (size); \
+        vec2 pcf_base = floor(pcf_texel + vec2_splat(0.5)); \
+        vec2 pcf_st = pcf_texel + vec2_splat(0.5) - pcf_base; \
+        pcf_base = (pcf_base - vec2_splat(0.5)) / (size); \
+        vec2 pcf_w0 = vec2_splat(3.0) - 2.0 * pcf_st; \
+        vec2 pcf_w1 = vec2_splat(1.0) + 2.0 * pcf_st; \
+        vec2 pcf_o0 = ((vec2_splat(2.0) - pcf_st) / pcf_w0 - vec2_splat(1.0)) / (size); \
+        vec2 pcf_o1 = (pcf_st / pcf_w1 + vec2_splat(1.0)) / (size); \
+        result = (pcf_w0.x * pcf_w0.y * shadow2D(map, vec3(pcf_base.x + pcf_o0.x, pcf_base.y + pcf_o0.y, depth)) + \
+                  pcf_w1.x * pcf_w0.y * shadow2D(map, vec3(pcf_base.x + pcf_o1.x, pcf_base.y + pcf_o0.y, depth)) + \
+                  pcf_w0.x * pcf_w1.y * shadow2D(map, vec3(pcf_base.x + pcf_o0.x, pcf_base.y + pcf_o1.y, depth)) + \
+                  pcf_w1.x * pcf_w1.y * shadow2D(map, vec3(pcf_base.x + pcf_o1.x, pcf_base.y + pcf_o1.y, depth))) / 16.0; \
     }
 
 // The same filter over 5x5 texels in nine taps.
 #define FF_LAMP_PCF5(result, map, uv, size, depth) \
     { \
-        vec2 texel = (uv) * (size); \
-        vec2 base = floor(texel + vec2_splat(0.5)); \
-        vec2 st = texel + vec2_splat(0.5) - base; \
-        base = (base - vec2_splat(0.5)) / (size); \
-        vec2 w0 = vec2_splat(4.0) - 3.0 * st; \
-        vec2 w2 = vec2_splat(1.0) + 3.0 * st; \
-        vec2 o0 = ((vec2_splat(3.0) - 2.0 * st) / w0 - vec2_splat(2.0)) / (size); \
-        vec2 o1 = ((vec2_splat(3.0) + st) / 7.0) / (size); \
-        vec2 o2 = (st / w2 + vec2_splat(2.0)) / (size); \
-        result = (w0.x * w0.y * shadow2D(map, vec3(base.x + o0.x, base.y + o0.y, depth)) + \
-                  7.0 * w0.y * shadow2D(map, vec3(base.x + o1.x, base.y + o0.y, depth)) + \
-                  w2.x * w0.y * shadow2D(map, vec3(base.x + o2.x, base.y + o0.y, depth)) + \
-                  w0.x * 7.0 * shadow2D(map, vec3(base.x + o0.x, base.y + o1.y, depth)) + \
-                  49.0 * shadow2D(map, vec3(base.x + o1.x, base.y + o1.y, depth)) + \
-                  w2.x * 7.0 * shadow2D(map, vec3(base.x + o2.x, base.y + o1.y, depth)) + \
-                  w0.x * w2.y * shadow2D(map, vec3(base.x + o0.x, base.y + o2.y, depth)) + \
-                  7.0 * w2.y * shadow2D(map, vec3(base.x + o1.x, base.y + o2.y, depth)) + \
-                  w2.x * w2.y * shadow2D(map, vec3(base.x + o2.x, base.y + o2.y, depth))) / 144.0; \
+        vec2 pcf_texel = (uv) * (size); \
+        vec2 pcf_base = floor(pcf_texel + vec2_splat(0.5)); \
+        vec2 pcf_st = pcf_texel + vec2_splat(0.5) - pcf_base; \
+        pcf_base = (pcf_base - vec2_splat(0.5)) / (size); \
+        vec2 pcf_w0 = vec2_splat(4.0) - 3.0 * pcf_st; \
+        vec2 pcf_w2 = vec2_splat(1.0) + 3.0 * pcf_st; \
+        vec2 pcf_o0 = ((vec2_splat(3.0) - 2.0 * pcf_st) / pcf_w0 - vec2_splat(2.0)) / (size); \
+        vec2 pcf_o1 = ((vec2_splat(3.0) + pcf_st) / 7.0) / (size); \
+        vec2 pcf_o2 = (pcf_st / pcf_w2 + vec2_splat(2.0)) / (size); \
+        result = (pcf_w0.x * pcf_w0.y * shadow2D(map, vec3(pcf_base.x + pcf_o0.x, pcf_base.y + pcf_o0.y, depth)) + \
+                  7.0 * pcf_w0.y * shadow2D(map, vec3(pcf_base.x + pcf_o1.x, pcf_base.y + pcf_o0.y, depth)) + \
+                  pcf_w2.x * pcf_w0.y * shadow2D(map, vec3(pcf_base.x + pcf_o2.x, pcf_base.y + pcf_o0.y, depth)) + \
+                  pcf_w0.x * 7.0 * shadow2D(map, vec3(pcf_base.x + pcf_o0.x, pcf_base.y + pcf_o1.y, depth)) + \
+                  49.0 * shadow2D(map, vec3(pcf_base.x + pcf_o1.x, pcf_base.y + pcf_o1.y, depth)) + \
+                  pcf_w2.x * 7.0 * shadow2D(map, vec3(pcf_base.x + pcf_o2.x, pcf_base.y + pcf_o1.y, depth)) + \
+                  pcf_w0.x * pcf_w2.y * shadow2D(map, vec3(pcf_base.x + pcf_o0.x, pcf_base.y + pcf_o2.y, depth)) + \
+                  7.0 * pcf_w2.y * shadow2D(map, vec3(pcf_base.x + pcf_o1.x, pcf_base.y + pcf_o2.y, depth)) + \
+                  pcf_w2.x * pcf_w2.y * shadow2D(map, vec3(pcf_base.x + pcf_o2.x, pcf_base.y + pcf_o2.y, depth))) / 144.0; \
     }
 
 // 1 = the lamp of slot `slot` reaches the point at L from it (unit geometric normal Ng, facing the lamp by ngl),
@@ -388,7 +389,7 @@ void main()
         // holds leaves the ambient, as on the baked surfaces.
         vec3 room = ffRoomLight(Pw, Nw);
         float level = max(dot(room, vec3(0.299, 0.587, 0.114)), 0.03);
-        ambient = fxLightColor(room) * (level / (level + u_fxLamps[0].w * u_fxLamps[0].z * lamps.a));
+        ambient = fxLightColor(room) * (u_fxLampGrid[2].w * level / (level + u_fxLamps[0].w * u_fxLamps[0].z * lamps.a));
     }
     // A lamp's light on a model is at most that of a fully lit surface: above half of it the sum is compressed
     // towards 1 (a model at a candle's flame is lit, not burnt out).

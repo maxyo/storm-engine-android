@@ -3,7 +3,7 @@
 //
 // The location reports its lamps every frame (render::SetEffectsLamps: the static lights of lights.ini placed at
 // its locators, with their flicker) and once its still geometry with its baked vertex colours
-// (render::SetEffectsLampGeometry). Candles of one fixture are merged; every lamp gets the radius within which it
+// (render::SetEffectsLocationGeometry). Candles of one fixture are merged; every lamp gets the radius within which it
 // lights (fx::LampRadius). The lamps nearest to the camera, up to Settings::lamp_shadows, take a slot:
 //   * a row of six cube faces in two depth atlases holding the distance to the lamp / its radius (linear, written
 //     by fs_ff_lamp_caster): `static` with the still geometry around the lamp, drawn once when the lamp takes the
@@ -20,19 +20,23 @@
 // GL refuses a draw that leaves a shadow or 3D sampler on a unit of another type.
 #pragma once
 
+#include "effects/casters.hpp"
 #include "storm/fx/lamp_shadows.hpp"
 #include "storm/fx/settings.hpp"
+#include "storm/render/effects.hpp"
 
 #include <bgfx/bgfx.h>
 
 #include <array>
 #include <chrono>
+#include <utility>
 #include <vector>
 
 namespace storm::shim
 {
 struct Device;
-}
+struct BaseTexture;
+} // namespace storm::shim
 
 namespace storm::effects
 {
@@ -46,26 +50,24 @@ class LampShadows
     bool interior() const { return interior_ && !positions_.empty(); }
     // Main thread, every frame the location draws: its lamps (empty when it has none).
     void set_lamps(const std::vector<fx::Lamp> &lamps);
-    // The still geometry of the location with its baked vertex colours (D3DCOLOR per position); empty: none (the sea).
-    // An interior's room light covers room_lo..room_hi.
-    void set_geometry(std::vector<fx::Vec3> positions, std::vector<uint32_t> colors, std::vector<uint32_t> indices, bool interior,
-                      const fx::Vec3 &room_lo, const fx::Vec3 &room_hi);
+    // The still geometry of the location (render::EffectsLocationGeometry); an empty one: none (the sea).
+    void set_geometry(const render::EffectsLocationGeometry &geometry);
     // The first receiver of a frame: gives the lamps around the camera at `eye` their slots, renders static faces
     // that are due and opens the dynamic atlas. True when this frame's receivers take lamps or the room light.
-    bool prepare(shim::Device &device, const std::array<float, 3> &eye);
+    bool prepare(shim::Device &device, const std::array<float, 3> &eye, Casters &casters);
     // A D3D point light at `position` is one of the place's lamps that has a slot this frame: the receivers light it
     // per pixel with its shadow, so it leaves the draw's own light sums.
     bool relit(const fx::Vec3 &position) const;
     // This frame's lit models take their ambient from the room light.
     bool room_light() const { return active_ && room_ready_; }
-    // A character draw (buffers and bone palette still bound): into the dynamic faces its sphere reaches.
+    // A character draw (buffers, textures and bone palette still bound): into the dynamic faces its sphere reaches;
+    // `material`: how it casts (effects/casters.hpp).
     void submit_caster(shim::Device &device, const float *world, bool skinned, const std::array<float, 3> &center,
-                       float radius);
+                       float radius, Casters &casters, const CasterMaterial &material);
     // Receiver uniforms and textures for a draw with the camera `view` (row-vector absolute world -> view);
     // `active` false: the open textures and no lamps. `room`: the draw's ambient is the room light.
     void bind(bool active, const std::array<float, 16> &view, bool room);
     void end_frame();
-    bool prepare_programs(shim::Device &device, int &budget);
     // Lamps with a slot and static faces drawn in the last frame (effects profile).
     int last_slots() const { return last_slots_; }
     int last_static_faces() const { return last_static_faces_; }
@@ -82,17 +84,17 @@ class LampShadows
         bool ready = false;     // its static faces are drawn
         bool leaving = false;   // fading out: the slot goes to another lamp
         float weight = 0.0f;    // 0..1, the fade
-        bgfx::IndexBufferHandle triangles = BGFX_INVALID_HANDLE; // the still geometry within its radius
+        bgfx::IndexBufferHandle triangles = BGFX_INVALID_HANDLE; // the solid still geometry within its radius
+        std::vector<std::pair<size_t, bgfx::IndexBufferHandle>> cut; // ... and of each cut-out texture (index into cut_)
         uint32_t casters = 0, last_casters = 0;                  // character draws this / the last frame
     };
 
     void ensure_targets();
     void choose_slots(const std::array<float, 3> &eye);
     void free_slot(Slot &slot);
-    void draw_static(shim::Device &device, bool all);
+    void draw_static(shim::Device &device, bool all, Casters &casters);
     void upload_grid();
     void upload_room();
-    void find_shaders();
 
     int slots_ = 0;
     int face_size_ = 0, dynamic_face_size_ = 0;
@@ -114,7 +116,16 @@ class LampShadows
     bool interior_ = false;
     std::vector<fx::Vec3> positions_;
     std::vector<uint32_t> colors_;
-    std::vector<uint32_t> indices_;
+    std::vector<std::array<float, 2>> uvs_;
+    std::vector<uint32_t> indices_; // every triangle (the room light)
+    std::vector<uint32_t> solid_;   // the triangles that cast whole
+    struct CutOut                   // the triangles of one texture whose alpha cuts holes
+    {
+        shim::BaseTexture *texture = nullptr;
+        std::vector<uint32_t> indices;
+    };
+    std::vector<CutOut> cut_;
+    float model_lift_ = 0.0f;
     fx::Vec3 geometry_lo_{}, geometry_hi_{};
     fx::Vec3 room_lo_{}, room_hi_{};
     fx::LampGrid grid_;
@@ -132,8 +143,6 @@ class LampShadows
     std::array<std::array<float, 4>, 2 + 3 * fx::kMaxShadowLamps> uniforms_{};
     std::array<std::array<float, 4>, 4> grid_uniforms_{};
     std::array<float, 16> bound_view_{}, view_to_world_{};
-    uint32_t vs_caster_[2] = {};
-    uint32_t fs_caster_ = 0;
     bool reported_ = false;
 };
 

@@ -145,6 +145,8 @@ struct Settings
     float lamp_gain = 1.0f;  // the lamps' strength on baked surfaces, 1 = the chosen look (0..3)
     float lamp_baked = 0.5f; // the part of that light the baked colours are taken to hold already (0..1): 1 = lamps
                              // only take light away where they are hidden, less = they also brighten what they reach
+    // Indoors the lit models stand this much above the room light around them (0 = at its level).
+    float lamp_model_lift = 0.0f;
     uint8_t lamp_debug = 0;  // 1: every lamp slot in its own colour, 2: the shadow mask
 
     static Settings FromPreset(QualityPreset preset);

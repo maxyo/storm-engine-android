@@ -535,14 +535,14 @@ bool GEOM::AppendLightmapTriangles(std::vector<glm::vec3> &positions, std::vecto
     return ok;
 }
 
-bool GEOM::AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices,
-                           std::vector<uint32_t> *colors) const
+bool GEOM::AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices, SurfaceData *surface) const
 {
     const auto *triangles = static_cast<const RDF_TRIANGLE *>(srv.ReadIndexBuffer(idx_buff));
     if (!triangles)
         return false;
     const size_t first_position = positions.size(), first_index = indices.size();
-    const size_t first_color = colors ? colors->size() : 0;
+    const size_t first_color = surface ? surface->colors.size() : 0, first_uv = surface ? surface->uvs.size() : 0;
+    const size_t first_run = surface ? surface->runs.size() : 0;
     bool ok = true;
     for (int32_t v = 0; v < rhead.nvrtbuffs && ok; ++v)
     {
@@ -559,14 +559,18 @@ bool GEOM::AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32
         {
             const auto *vertex = reinterpret_cast<const RDF_VERTEX0 *>(data + static_cast<size_t>(vbuff[v].stride) * i);
             positions.push_back(vertex->pos);
-            if (colors)
-                colors->push_back(vertex->color);
+            if (surface)
+            {
+                surface->colors.push_back(static_cast<uint32_t>(vertex->color));
+                surface->uvs.emplace_back(vertex->tu0, vertex->tv0);
+            }
         }
         srv.UnlockVertexBuffer(vbuff[v].dev_buff);
         for (int32_t o = 0; o < rhead.nobjects; ++o)
         {
             if (object[o].vertex_buff != v || !(object[o].flags & VISIBLE))
                 continue;
+            const size_t run_first = indices.size();
             for (int32_t t = 0; t < object[o].ntriangles; ++t)
                 for (const unsigned short index : triangles[object[o].striangle + t].vindex)
                 {
@@ -578,6 +582,9 @@ bool GEOM::AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32
                     }
                     indices.push_back(static_cast<uint32_t>(base) + vertex);
                 }
+            if (surface && indices.size() > run_first)
+                surface->runs.push_back({static_cast<uint32_t>(run_first), static_cast<uint32_t>(indices.size() - run_first),
+                                         material[object[o].material].texture[0]});
         }
     }
     srv.UnlockIndexBuffer(idx_buff);
@@ -585,8 +592,12 @@ bool GEOM::AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32
     {
         positions.resize(first_position);
         indices.resize(first_index);
-        if (colors)
-            colors->resize(first_color);
+        if (surface)
+        {
+            surface->colors.resize(first_color);
+            surface->uvs.resize(first_uv);
+            surface->runs.resize(first_run);
+        }
     }
     return ok;
 }

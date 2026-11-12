@@ -19,6 +19,8 @@
 #include "storm/fx/ground_light.hpp"
 #include "storm/fx/shadows.hpp"
 
+#include "effects/casters.hpp"
+
 #include <bgfx/bgfx.h>
 
 #include <array>
@@ -59,19 +61,15 @@ class SunShadows
         const auto sun = ground_.SunVisibility({center[0], center[1], center[2]});
         return sun ? *sun : 1.0f;
     }
-    // Caster: the draw's buffers (and bone palette) are still bound (submitted with BGFX_DISCARD_NONE); `world` is
-    // its world matrix.
-    void submit_caster(shim::Device &device, const float *world, bool skinned);
-    // The caster programs of `settings` (Lighting::prepare_programs).
-    bool prepare_programs(shim::Device &device, const fx::Settings &settings, int &budget);
+    // Caster: the draw's buffers, textures and bone palette are still bound (submitted with BGFX_DISCARD_NONE);
+    // `world` is its world matrix, `material` how it casts (effects/casters.hpp).
+    void submit_caster(shim::Device &device, const float *world, bool skinned, Casters &casters, const CasterMaterial &material);
     void end_frame();
 
     void shutdown() { shadows_.Shutdown(); }
     void on_device_lost() { shadows_.OnDeviceLost(); }
 
   private:
-    void find_shaders();
-
     fx::Settings settings_{};
     fx::Shadows shadows_;
     fx::GroundLight ground_;
@@ -79,8 +77,6 @@ class SunShadows
     bool sun_present_ = false;
     bool prepared_ = false; // prepare() ran this frame
     bool active_ = false;   // ... and fx::Shadows::Begin() accepted it
-    uint32_t vs_caster_[2] = {}; // [skinned]
-    uint32_t fs_caster_ = 0;
 };
 
 } // namespace storm::effects

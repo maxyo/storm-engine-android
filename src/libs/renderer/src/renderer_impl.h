@@ -412,7 +412,7 @@ class Renderer : public VRenderer
 
     void MakePostProcess() override;
 
-    storm::shim::BaseTexture *GetTextureFromID(int32_t nTextureID);
+    storm::shim::BaseTexture *GetTextureFromID(int32_t nTextureID) override;
 
   private:
     std::unique_ptr<storm::GamePictures> gamePictures_;

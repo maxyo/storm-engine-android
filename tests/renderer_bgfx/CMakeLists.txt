@@ -60,3 +60,11 @@ target_include_directories(ao_volume_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/..
 target_compile_definitions(ao_volume_check PRIVATE NOMINMAX)
 target_compile_options(ao_volume_check PRIVATE -fsigned-char)
 target_link_libraries(ao_volume_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
+
+# cutout_caster_check: a material whose texture alpha cuts holes casts with them in the lamp atlases (still geometry,
+# characters) and the sun cascade; blended materials without depth write cast nothing (src/effects/casters.hpp).
+add_executable(cutout_caster_check cutout_caster_check.cpp)
+target_include_directories(cutout_caster_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
+target_compile_definitions(cutout_caster_check PRIVATE NOMINMAX)
+target_compile_options(cutout_caster_check PRIVATE -fsigned-char)
+target_link_libraries(cutout_caster_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
