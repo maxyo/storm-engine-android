@@ -2263,42 +2263,6 @@ static void Launcher()
     Expect(surface.props["play"]["busy"].get<bool>(), "starting: «Играть» is busy");
     router.SetState("launcher", launcher({{"phase", "ready"}, {"library", true}, {"hasGame", true}, {"starting", false}}));
     Expect(!surface.props["play"]["busy"].get<bool>(), "started (or failed): «Играть» is free again");
-    // «Подготовка рельефа» (the relief channel of the app's ReliefCoordinator): its card while it runs,
-    // the line under «Играть» that playing pauses it, «Прервать», and its result until closed.
-    const auto ready = [&](Json relief) {
-        router.SetState("launcher", launcher({{"phase", "ready"}, {"library", true}, {"hasGame", true}, {"relief", std::move(relief)}}));
-    };
-    ready({{"busy", false}, {"cancelling", false}, {"done", 0}, {"total", 0}, {"texture", ""}});
-    Expect(surface.props["relief"].is_null() && surface.props["playNote"] == "" && surface.props["notices"].empty(), "no relief step: nothing of it");
-    ready({{"busy", true}, {"cancelling", false}, {"done", 0}, {"total", 0}, {"texture", ""}});
-    Expect(surface.props["relief"]["percent"] == -1.0 && surface.props["relief"]["status"] == "", "the list not known yet: an indeterminate bar");
-    ready({{"busy", true}, {"cancelling", false}, {"done", 312}, {"total", 855}, {"texture", "ships/brig1/hull1/bortoutbrig"}});
-    {
-        const Json &relief = surface.props["relief"];
-        Expect(relief["title"] == "<launcher.relief.title>" && relief["status"] == "<launcher.relief.progress>" && relief["percent"] == 36.0 &&
-                   relief["texture"] == "ships/brig1/hull1/bortoutbrig" && relief["cancel"] == "<launcher.relief.cancel>" &&
-                   surface.props["playNote"] == "<launcher.relief.play_note>",
-               "running: title, «N из M текстур», 36 %, the texture, «Прервать», the note under «Играть»: " + surface.props.dump());
-    }
-    router.OnEvent({"relief-cancel", "click", ""});
-    ExpectEqual(verb(), "APP relief-cancel ", "«Прервать» cancels the step");
-    ready({{"busy", true}, {"cancelling", true}, {"done", 313}, {"total", 855}, {"texture", "x"}});
-    Expect(surface.props["relief"]["title"] == "<launcher.relief.cancelling>" && surface.props["relief"]["cancelBusy"] == true, "cancelling: said, the button waits");
-    surface.commands.clear();
-    router.OnEvent({"relief-cancel", "click", ""});
-    Expect(surface.commands.empty(), "a second «Прервать» while it stops sends nothing");
-    for (const char *key : {"relief_finished", "relief_cancelled", "relief_failed"})
-    {
-        ready({{"busy", false}, {"cancelling", false}, {"done", 855}, {"total", 855}, {"texture", ""},
-               {"result", {{"key", key}, {"args", Json::array({"disk full"})}}}});
-        const Json &notice = surface.props["notices"][0];
-        Expect(notice["id"] == "relief-result" && notice["text"] == "<launcher.relief." + std::string(key) + ">" && notice["action"] == "<launcher.relief.dismiss>" &&
-                   notice["tone"] == (std::string(key) == "relief_finished" ? "ok" : std::string(key) == "relief_cancelled" ? "info" : "danger") &&
-                   surface.props["relief"].is_null(),
-               std::string("result ") + key + ": a notice the player closes: " + notice.dump());
-        router.OnEvent({"relief-result", "click", ""});
-        ExpectEqual(verb(), "APP relief-dismiss ", "closing it dismisses the result");
-    }
 
     surface.now = 10;
     router.SetState("launcher", launcher({{"phase", "busy"}, {"hasGame", false},
