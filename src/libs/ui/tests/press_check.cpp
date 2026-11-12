@@ -95,6 +95,20 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
                                "<c-row id=\"small\" style=\"top: 200dp; width: 40dp;\" title=\"S\"/>"
                                "<c-row id=\"wide\" style=\"top: 300dp; width: 800dp;\" title=\"A row across the screen\"/>"
                                "</body></rml>");
+    // The dialogue panel's layout (C-DialoguePanel): the speech box stops 44 dp above the
+    // bottom for the «Дальше ›» line, the replies (data-reserve) reach the bottom and take that
+    // line's place on the final page.
+    Write(pack / "pages.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
+                              " .panel { position: absolute; left: 0; top: 0; width: 400dp; height: 200dp; }"
+                              " ui-pages { display: block; position: absolute; left: 0; top: 0; right: 0; bottom: 44dp; line-height: 26dp; white-space: nowrap; overflow: hidden; }"
+                              " .replies { position: absolute; left: 0; right: 0; bottom: 0; }"
+                              " .replies c-row { display: block; height: 48dp; }"
+                              " ui-pages.more ~ .replies { visibility: hidden; pointer-events: none; }"
+                              " .next { position: absolute; right: 0; bottom: 0; width: 80dp; height: 44dp; } ui-pages.last ~ .next { display: none; }</style></head><body>"
+                              "<div class=\"panel\"><ui-pages text=\"Welcome aboard, captain! The yard has timber, pitch and canvas in plenty, and my men have been idle since the storm. What will it be today?\" page=\"0\" mode=\"paged\"/>"
+                              "<div class=\"replies\" data-reserve=\"1\"><c-row id=\"reply\" title=\"Repair my ship\"/><c-row id=\"leave\" title=\"Goodbye\"/></div>"
+                              "<c-row id=\"next\" class=\"next\" title=\"Next\"/></div>"
+                              "</body></rml>");
     return pack;
 }
 
@@ -278,6 +292,16 @@ int main(int argc, char **argv)
     frames(0.05);
     tap(20, 220);
     Expect(clicks.size() == 1 && clicks[0] == "small click", "without the cutout the control is back at the edge");
+
+    // A greeting that fits beside the replies stays on one page: the replies show at once (the
+    // pager measures the part of the speech box they cover, not their whole height).
+    Expect(host->LoadDocument("pages.rml"), "the paged speech loads");
+    frames(0.2);
+    tap(40, 130);
+    Expect(clicks.size() == 1 && clicks[0] == "reply click", "a three-line greeting and two replies: one page, the replies answer at once: " +
+                                                                  (clicks.empty() ? std::string("nothing") : clicks[0]));
+    tap(360, 180);
+    Expect(clicks.size() == 1 && clicks[0] == "leave click", "the last reply sits where «Дальше» would be, and it is not there");
 
     host.reset();
     host = Host::Create(config, &error);
