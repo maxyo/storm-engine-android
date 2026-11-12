@@ -251,11 +251,12 @@ class SavesScreen final : public Screen
             const Json dim = Json{{"tone", "dim"}};
             Json cells = Json::array();
             if (record.fresh)
-                cells = Json::array({Json{{"text", Name(bindings, record)}, {"sub", record.Identity()}, {"icon", "plus"}, {"iconTone", "brass"}}, "", "", ""});
+                cells = Json::array({Json{{"text", Name(bindings, record)}, {"sub", record.Identity()}, {"icon", "plus"}, {"iconTone", "brass"}}, "", ""});
             else
                 cells = Json::array({record.autosave ? Json{{"text", Name(bindings, record)}, {"sub", record.Identity()}} : Json(Name(bindings, record)),
-                                     Json{{"text", record.played.Valid() ? GameDate(bindings, record.played) : ""}, {"tone", "dim"}},
-                                     Json{{"text", record.created.Valid() ? CreatedDate(bindings, record.created) : ""}, {"tone", "dim"}},
+                                     // the game date over when it was saved: one column, so the name keeps its room
+                                     Json{{"text", record.played.Valid() ? GameDate(bindings, record.played) : ""}, {"tone", "dim"},
+                                          {"sub", record.created.Valid() ? CreatedDate(bindings, record.created) : ""}},
                                      record.autosave ? Json{{"icon", "energy"}, {"iconTone", "gold"}, {"iconOnly", true}} : Json("")});
             rows.push_back(Json{{"cells", cells}, {"selected", &record == chosen}, {"disabled", !record.row->enabled}});
         }
@@ -268,9 +269,11 @@ class SavesScreen final : public Screen
 
         Json view = Json::object();
         view["title"] = bindings.Text(saving ? "save.title_save" : "save.title_load");
+        // Name, the game date with the save's own date under it, the autosave mark. Two fixed
+        // date columns (232 dp) left the name ~10 dp in the list beside the 280 dp detail on a
+        // 640 dp screen; one column of 120 dp leaves it ~120 dp there.
         view["columns"] = Json::array({Json{{"label", bindings.Text("save.record")}, {"w", "1"}},
-                                       Json{{"label", bindings.Text("save.game_date")}, {"w", "104px"}, {"align", "right"}},
-                                       Json{{"label", bindings.Text("save.created")}, {"w", "128px"}, {"align", "right"}},
+                                       Json{{"label", bindings.Text("save.game_date")}, {"w", "120px"}, {"align", "right"}},
                                        Json{{"label", ""}, {"w", "24px"}, {"align", "center"}}});
         view["rows"] = rows;
         view["detail"] = chosen ? Detail(bindings, *chosen, saving) : Json();
