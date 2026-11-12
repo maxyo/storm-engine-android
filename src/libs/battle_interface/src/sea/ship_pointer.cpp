@@ -91,7 +91,8 @@ void SHIPPOINTER::Execute(uint32_t delta_time)
 void SHIPPOINTER::Realize(uint32_t delta_time) const
 {
 #ifdef __ANDROID__
-    // One coverage rule (android_hud_presenter.hpp): the touch HUD presents the sea HUD.
+    // A world-space layer (android_hud_presenter.hpp): the pointer over an order's target ship
+    // shows under the touch HUD.
     if (storm::android::legacyDrawRefused("ship pointer", storm::android::hudPresenters.sea)) return;
 #endif
     if (!m_bVisible)
