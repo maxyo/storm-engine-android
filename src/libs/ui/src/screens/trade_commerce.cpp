@@ -2,17 +2,21 @@
 // buy / sell / transfer layout (pack screen <s-trade>). Goods are one C-TradeList that never
 // moves: filter chips and sortable columns in its head, 44 dp rows; the row whose quantity
 // window the game has open shows in the dock beside the list (object, description, C-Quantity
-// with the amount on our side after the deal). Money deals are confirmed by the dock's primary
-// button with the price; free transfers apply as soon as the amount settles, and the hand at
-// a row's end takes the whole stack in one tap.
+// with the amount on our side after the deal). While the player sets an amount nothing goes
+// to the game: the amount, its limits (stock, money, hold), the total and the button's text are
+// computed here from what the open row already says, with the game's own formulas (DealMath
+// below mirrors store.c / cannons.c / contraband.c / itemstrade.c ChangeQTY_EDIT), so the
+// control answers in the same frame. Only the confirmation goes out: the amount and the game's
+// OK in one flush for a money deal («Купить / Продать N»), or as soon as the amount settles for
+// a free transfer; the hand at a row's end takes the whole stack in one tap.
 //
 // All six interfaces share the game's nodes (TABLE_LIST, QTY_*); they differ in the
 // columns of the table, described per interface below.
 #include "controls.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
-#include <limits>
 
 namespace storm::ui::screens
 {
@@ -35,12 +39,61 @@ struct Layout
     bool quick = false;            // the hand at a row's end takes the whole stack (free transfers by the game's amount window)
     // Our short captions of the game's category tabs, by position; a tab past them keeps the game's caption.
     const char *tabs[4] = {nullptr, nullptr, nullptr, nullptr};
+    int weight = -1;               // what one pack (goods) or one piece (items) weighs; -1 = the deal has no weight
+    bool pieces = false;           // itemstrade.c: single pieces with fractional weights (else goods in packs, whole cwt)
 };
 
-constexpr Layout kStore{StringKey("trade.store"), 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL"};
-constexpr Layout kContraband{StringKey("trade.contraband"), 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL"};
-constexpr Layout kCannons{StringKey("trade.cannons"), 0, 5, 3, 2, 4, -1, "SHIPS_SCROLL", true, {7, 8, 9}};
-constexpr Layout kItemsTrade{StringKey("trade.items"), 0, 5, 3, 2, 4, -1, "CHARACTERS_SCROLL", true};
+// The arithmetic of a money deal exactly as the game's scripts do it (ChangeQTY_EDIT of store.c, cannons.c,
+// contraband.c for goods in packs; itemstrade.c for pieces), so that what the player sees while choosing is
+// what the game will charge. makeint() truncates; all values here are non-negative.
+struct DealMath
+{
+    bool pieces = false; // itemstrade.c
+    int units = 1;       // pack size (Goods[].Units); 1 for pieces and cannons
+    double weight = 0.0; // of one pack / one piece
+    double load = 0.0, capacity = -1.0; // what we carry of what we can; capacity < 0 = unknown: no weight limit applied
+    int money = -1;      // ours; < 0 = unknown: no money limit applied
+
+    // goods.h GetGoodWeightByType: whole packs, rounded at 0.05; pieces: fWeight * qty.
+    double Weight(int amount) const
+    {
+        if (pieces)
+            return weight * amount;
+        return static_cast<double>(static_cast<int>(((amount + units - 1) / units) * weight + 0.05));
+    }
+    // makeint(price * qty / iUnits + 0.5); pieces have no units.
+    int Total(int amount, int price) const
+    {
+        return static_cast<int>(static_cast<double>(price) * amount / (pieces ? 1 : units) + 0.5);
+    }
+    // The most that can be bought of `stock`: the largest amount the game takes as it is. Its script lets a request
+    // through while what we carry with it does not exceed the capacity and its total does not exceed the money
+    // (past that it cuts the request down, and by one pack more than needed); both grow with the amount, so the
+    // largest request that passes is found by halving.
+    int BuyLimit(int stock, int price) const
+    {
+        const auto passes = [&](int amount) {
+            if (capacity >= 0.0 && weight > 0.0 && load + Weight(amount) > capacity)
+                return false;
+            return !(money >= 0 && price > 0 && Total(amount, price) > money);
+        };
+        int low = 0, high = std::max(0, stock);
+        while (low < high)
+        {
+            const int middle = low + (high - low + 1) / 2;
+            if (passes(middle))
+                low = middle;
+            else
+                high = middle - 1;
+        }
+        return low;
+    }
+};
+
+constexpr Layout kStore{StringKey("trade.store"), 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL", false, {-1, -1, -1}, false, {nullptr, nullptr, nullptr, nullptr}, 7};
+constexpr Layout kContraband{StringKey("trade.contraband"), 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL", false, {-1, -1, -1}, false, {nullptr, nullptr, nullptr, nullptr}, 7};
+constexpr Layout kCannons{StringKey("trade.cannons"), 0, 5, 3, 2, 4, -1, "SHIPS_SCROLL", true, {7, 8, 9}, false, {nullptr, nullptr, nullptr, nullptr}, 6};
+constexpr Layout kItemsTrade{StringKey("trade.items"), 0, 5, 3, 2, 4, -1, "CHARACTERS_SCROLL", true, {-1, -1, -1}, false, {nullptr, nullptr, nullptr, nullptr}, 6, true};
 constexpr Layout kStorage{StringKey("trade.storage"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL", false, {-1, -1, -1}, true};
 // Looting a captured colony (ColonyCapture.c): the hold, the town's stores, a free transfer.
 constexpr Layout kColonyCapture{StringKey("trade.loot"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL", false, {-1, -1, -1}, true};
@@ -201,61 +254,61 @@ class CommerceScreen final : public Screen
         else if (other_caption.rfind(own_caption, 0) == 0) // "Предметов" / "Предметов торговца"
             own_caption = bindings.Text("trade.yours");
 
-        // The quantity control shows the amount on our side after the deal.
+        // The open deal is the player's until it is confirmed: what we hold and what the other side has are
+        // taken once, when the game opens the row's amount window (the pivot of the control and its two ends
+        // never move after that), and the amount starts at the pivot. Nothing the game publishes while the
+        // amount is being chosen moves it; a row whose stock the game changed (a transfer went through) starts anew.
         const int ours = selected ? Number(selected->CellText(columns.own)) : 0;
         const int theirs = selected ? Number(selected->CellText(columns.other)) : 0;
-        const int model_target = deal ? Number(admitted.Label("QTY_INFO_SHIP_QTY")) : ours;
-        if (!deal || !selected || selected->row_id != limit_row_)
+        if (!deal)
+            deal_row_.clear();
+        else if (selected->row_id != deal_row_ || ((ours != deal_ours_ || theirs != deal_theirs_) && !bindings.Waiting(*edit, "edit")))
         {
-            limit_row_ = deal && selected ? selected->row_id : std::string();
-            limit_min_ = std::numeric_limits<int>::min();
-            limit_max_ = std::numeric_limits<int>::max();
+            deal_row_ = selected->row_id;
+            deal_ours_ = ours;
+            deal_theirs_ = theirs;
+            target_ = ours;
         }
-        // The player's own amount stands until the game has answered it: while it waits to
-        // go out and until a revision made after it arrives (at most 2 s), so that steps
-        // count on from it and not from a revision the game made before it saw the request.
-        const uint64_t revision = admitted.model->revision;
-        const bool mine = deal && selected->row_id == local_row_;
-        const bool waiting = mine && bindings.Waiting(*edit, "edit");
-        if (waiting)
-            asked_revision_ = revision;
-        // A revision answers the player's amount only when it is whole. The amount goes out as
-        // "0" and then the signed amount, in one flush; the game may publish the zero on its
-        // own first (QTY_EDIT 0, the hold as before), and it publishes its clamped QTY_EDIT a
-        // revision before the labels that follow from it (QTY_INFO_SHIP_QTY still the old
-        // figure; seen on the device). Taking either as the answer learnt a false limit at
-        // what we hold. Whole = the hold figure moved by exactly the edit box's amount.
-        const int edit_amount = std::abs(Number(edit ? edit->value : std::string()));
-        const bool zero_echo = mine && local_target_ != local_ours_ && edit_amount == 0 && model_target == ours;
-        const bool whole = std::abs(model_target - ours) == edit_amount;
-        const bool answered = mine && !waiting && !zero_echo && whole && revision > asked_revision_;
-        const bool recent = mine && (waiting || (!answered && bindings.Now() - local_at_ < 2.0));
-        const int target = recent ? local_target_ : model_target;
-        if (recent && !waiting)
-            bindings.RebuildAfter(local_at_ + 2.0 - bindings.Now());
-        else if (answered && ours == local_ours_ && model_target != local_target_)
-        {
-            // The game answered with another amount: its limit in that direction (money,
-            // hold space, the merchant's purse). The control stops there instead of jumping
-            // out and back on every further tap.
-            if (local_target_ > ours && model_target >= ours && model_target < local_target_)
-                limit_max_ = model_target;
-            if (local_target_ < ours && model_target <= ours && model_target > local_target_)
-                limit_min_ = model_target;
-            local_target_ = model_target;
-        }
-
-        // One amount for everything the deal shows: the quantity control (its number, knob and
-        // buy / sell caption), the deal button and the header previews all derive from it. It
-        // is the player's pending amount until the game has answered, then the game's.
+        const int buy_price = selected && money ? Number(selected->CellText(columns.buy)) : 0;
+        const int sell_price = selected && money ? Number(selected->CellText(columns.sell)) : 0;
         const bool can_take = !selected || !money || selected->CellText(columns.buy) != "-";
         const bool can_give = !selected || !money || selected->CellText(columns.sell) != "-";
-        const int low = std::max(can_give ? 0 : ours, std::min(limit_min_, ours));
-        const int high = std::min(can_take ? ours + theirs : ours, std::max(limit_max_, ours));
-        const int shown = std::clamp(target, low, std::max(low, high));
-        // The game's figures (price line, hold, balance) describe its own amount: they are shown
-        // once it is the one the player set.
-        const bool settled = shown == model_target;
+        // The scale's left end: everything we hold given away; what we hold is the pivot.
+        const int low = can_give ? 0 : deal_ours_;
+        const int high = can_take ? deal_ours_ + deal_theirs_ : deal_ours_;
+
+        // The game's arithmetic for this row; the limits stop the knob where the game would.
+        DealMath math;
+        math.pieces = columns.pieces;
+        if (selected)
+        {
+            if (columns.pack >= 0)
+                math.units = std::max(1, Number(selected->CellText(columns.pack)));
+            if (columns.weight >= 0)
+                math.weight = std::atof(selected->CellText(columns.weight).c_str());
+        }
+        if (const Json carried = Figure(admitted.Label("CAPACITY")); carried.is_object())
+        {
+            const std::string value = carried["value"];
+            if (const size_t slash = value.find('/'); slash != std::string::npos)
+            {
+                math.load = std::atof(value.c_str());
+                math.capacity = std::atof(value.c_str() + slash + 1);
+            }
+        }
+        const Widget *balance = admitted.One("OUR_GOLD");
+        if (balance && balance->label.find_first_of("0123456789") != std::string::npos)
+            math.money = Number(balance->label);
+        const int most = money ? std::min(high, deal_ours_ + math.BuyLimit(deal_theirs_, buy_price)) : high;
+        const int shown = deal ? std::clamp(target_, low, std::max(low, most)) : ours;
+        const int amount = shown - deal_ours_; // > 0 we take (buy), < 0 we give (sell)
+        const int total = money ? math.Total(std::abs(amount), amount > 0 ? buy_price : sell_price) : 0;
+        const double weight = math.Weight(std::abs(amount));
+        const auto weight_text = [&](double value) {
+            char buffer[32];
+            std::snprintf(buffer, sizeof(buffer), columns.pieces ? "%.1f" : "%.0f", value);
+            return std::string(buffer);
+        };
 
         // The quick take waits for the game to open the row's amount window, then takes all of it.
         if (!quick_row_.empty())
@@ -330,21 +383,20 @@ class CommerceScreen final : public Screen
                       {"reason", row->unavailable_reason}};
             if (row == selected && deal)
             {
-                const std::string result = settled ? OneLine(admitted.Label("QTY_Result")) : std::string();
                 // One slider for both directions: what we hold is the origin, the zone to its
                 // left gives (sells), the zone to its right takes (buys), each in its colour.
                 Json quantity{{"value", shown},
                               {"min", low},
-                              {"max", high},
+                              // The right end is the most this deal can take (stock, hold, purse): fixed while the
+                              // deal is open, so the whole rail is usable and the pivot stays where it is.
+                              {"max", std::max(low, most)},
                               {"zones", true},
-                              {"origin", ours},
+                              {"origin", deal_ours_},
                               {"lessLabel", bindings.Text(money ? StringKey("trade.sell") : StringKey("trade.give"))},
                               {"moreLabel", bindings.Text(money ? StringKey("trade.buy") : StringKey("trade.take"))},
                               {"label", own_caption},
                               {"allLabel", bindings.Text("common.all")},
-                              // A money deal's price is on its button (one place); the control keeps the
-                              // width for the amount. A free transfer's line stays.
-                              {"summary", money || result.empty() ? "-" : result},
+                              {"summary", "-"}, // a money deal's price is on its button (one place)
                               {"disabled", !edit->Offers("edit")}};
                 if (columns.small)
                     quantity["steps"] = Json::array({1, 10});
@@ -382,7 +434,6 @@ class CommerceScreen final : public Screen
                     return;
                 const Widget *row = goods[index];
                 reopen_row_.clear();
-                local_row_.clear();
                 if (deal && row == selected)
                 {
                     if (!edit->Offers("edit") || !ok)
@@ -410,7 +461,6 @@ class CommerceScreen final : public Screen
             quick_row_.clear();
             if (deal && row == selected)
                 return; // a tap on the open row closes it
-            local_row_.clear();
             if (row->Offers("activate"))
                 bindings.Send(*row, "activate", row->row_id);
             else if (row->Offers("select"))
@@ -418,31 +468,20 @@ class CommerceScreen final : public Screen
         });
         if (deal)
         {
-            // The game's edit box holds the amount to take; a negative number is the
-            // amount to give.
-            const auto set = [this, &bindings, edit, ok, selected, ours, money, asked = revision](const Event &event) {
-                const int wanted = std::atoi(event.value.c_str());
-                const int delta = wanted - ours;
-                local_row_ = selected->row_id;
-                local_target_ = wanted;
-                local_ours_ = ours;
-                asked_revision_ = asked; // a revision after this one answers the request
-                local_at_ = bindings.Now();
-                // Once the game has turned a negative amount into giving it reads every
-                // later number as an amount to give. Zero always leaves giving, so it goes
-                // right before the signed amount, in the same flush: sent on its own it made
-                // the game reset the deal and publish that in between (the amount jumped back
-                // to what we hold while the player was still stepping).
-                const std::string amount = std::to_string(delta);
+            // The amount is the player's: every sample of a drag and every step only moves it here (the next
+            // frame shows it, its total and its button). A free transfer has no button: it goes to the game
+            // when a drag ends, or shortly after the last step.
+            const auto set = [this, &bindings, edit, ok, selected, money, low, most](const Event &event) {
+                target_ = std::clamp(std::atoi(event.value.c_str()), low, std::max(low, most));
+                bindings.Rebuild();
                 if (money)
-                {
-                    bindings.SendLatest(*edit, "edit", amount, selected->row_id, std::string("0"));
                     return;
-                }
-                // A free transfer applies at once: when a drag ends, or shortly after the
-                // last step, the amount is entered and confirmed.
+                // The game's edit box holds the amount to take; a negative number is the amount to give. Once
+                // the game has turned a negative amount into giving it reads every later number as an amount to
+                // give; zero always leaves giving, so it goes right before the signed amount, in the same flush.
+                const int delta = target_ - deal_ours_;
                 const double wait = event.verb == "commit" ? 0.0 : 0.4;
-                bindings.SendAfter(wait, *edit, "edit", amount, selected->row_id, std::string("0"));
+                bindings.SendAfter(wait, *edit, "edit", std::to_string(delta), selected->row_id, std::string("0"));
                 if (ok && delta != 0)
                 {
                     bindings.SendAfter(wait, *ok, "press", {}, selected->row_id);
@@ -482,28 +521,20 @@ class CommerceScreen final : public Screen
         else
             view["subject"] = Json();
 
-        // Header figures. While a deal is being set they show what it changes: the game
-        // already counts the deal into the hold figure, so the figure from before is kept;
-        // the balance changes only on confirmation, so its outcome is computed from the
-        // game's own result line.
-        const int amount_now = settled ? std::abs(model_target - ours) : 0;
+        // Header figures. While a deal is being set they show what it changes, computed here like the deal.
         Json stats = Json::array();
         for (const char *node : {"CAPACITY", "STORE_CAPACITY"})
         {
             Json figure = Figure(admitted.Label(node));
             if (figure.is_null() || stats.size() == 2)
                 continue;
-            if (std::string(node) == "CAPACITY")
+            // (the preview is there from the moment the deal opens, so the header does not reflow at the first step)
+            if (std::string(node) == "CAPACITY" && deal && money && math.capacity >= 0.0 && math.weight > 0.0)
             {
                 const std::string now = figure["value"];
-                if (amount_now == 0)
-                    hold_before_ = now;
-                else if (!hold_before_.empty() && hold_before_ != now)
-                {
-                    figure["value"] = hold_before_.substr(0, hold_before_.find(" /"));
-                    figure["preview"] = now.substr(0, now.find(" /"));
-                    figure["previewTone"] = "neutral";
-                }
+                figure["value"] = now.substr(0, now.find(" /"));
+                figure["preview"] = weight_text(math.load + (amount > 0 ? weight : -weight));
+                figure["previewTone"] = "neutral";
             }
             stats.push_back(std::move(figure));
         }
@@ -516,25 +547,20 @@ class CommerceScreen final : public Screen
                 load["label"] = place;
             stats.push_back(std::move(load));
         }
-        const Widget *balance = admitted.One("OUR_GOLD");
         const std::string gold = balance ? balance->label : std::string();
         if (const size_t digit = gold.find_first_of("0123456789"); digit != std::string::npos)
         {
             const size_t end = gold.find_first_not_of("0123456789 ", digit);
-            std::string amount = gold.substr(digit, end == std::string::npos ? std::string::npos : end - digit);
-            while (!amount.empty() && amount.back() == ' ')
-                amount.pop_back();
+            std::string purse = gold.substr(digit, end == std::string::npos ? std::string::npos : end - digit);
+            while (!purse.empty() && purse.back() == ' ')
+                purse.pop_back();
             // Some merchants trade for doubloons; the engine marks the balance then.
             const auto currency = balance->context.find("currency");
             Json figure = currency != balance->context.end() && currency->second == "doubloons"
-                              ? Json{{"label", bindings.Text("trade.doubloons")}, {"value", amount}, {"tone", "gold"}}
-                              : Json{{"icon", "money"}, {"value", amount}, {"tone", "gold"}};
-            const std::string result = admitted.Label("QTY_Result");
-            if (deal && money && amount_now > 0 && FirstNumber(result) > 0)
-            {
-                const int price = FirstNumber(result);
-                figure["preview"] = Spaced(Number(amount) + (model_target > ours ? -price : price));
-            }
+                              ? Json{{"label", bindings.Text("trade.doubloons")}, {"value", purse}, {"tone", "gold"}}
+                              : Json{{"icon", "money"}, {"value", purse}, {"tone", "gold"}};
+            if (deal && money)
+                figure["preview"] = Spaced(Number(gold) + (amount > 0 ? -total : total));
             if (stats.size() == 2)
                 stats.erase(1);
             stats.push_back(std::move(figure));
@@ -615,17 +641,22 @@ class CommerceScreen final : public Screen
         // Bar buttons: the deal of a money trade, else what the place offers (take all, …).
         Json actions = Json::array();
         view["primary"] = Json();
-        if (deal && ok && money)
+        if (deal && ok && money && amount != 0)
         {
-            // The button names the shown amount in our words; until the game holds that amount
-            // it waits (a press would confirm the game's previous one).
-            const std::string operation = bindings.Text(shown > ours ? StringKey("trade.buy") : StringKey("trade.sell"));
-            view["primary"] = DealView(bindings, *ok, operation, std::abs(shown - ours), settled ? OneLine(admitted.Label("QTY_Result")) : std::string(), !settled);
-            if (!view["primary"].is_null())
-                bindings.On("primary", "", [&bindings, ok, selected, settled](const Event &) {
-                    if (settled) // while the game does not hold the shown amount the button waits
-                        bindings.Send(*ok, "press", {}, selected->row_id);
-                });
+            // The button names the deal in our words with its price (and the weight it moves): the amount and
+            // the game's OK go out together when it is pressed, nothing before.
+            std::string sub = Spaced(total);
+            if (math.weight > 0.0)
+                sub += " \xC2\xB7 " + weight_text(weight) + (columns.pieces ? std::string() : " " + bindings.Text("transfer.cwt"));
+            view["primary"] = Json{{"label", bindings.Text(amount > 0 ? StringKey("trade.buy") : StringKey("trade.sell")) + " " + std::to_string(std::abs(amount))},
+                                   {"sub", sub},
+                                   {"disabled", !ok->Offers("press") || !edit->Offers("edit")},
+                                   {"reason", ok->unavailable_reason},
+                                   {"busy", bindings.Pending("primary")}};
+            bindings.On("primary", "", [&bindings, edit, ok, selected, amount](const Event &) {
+                bindings.SendAfter(0.0, *edit, "edit", std::to_string(amount), selected->row_id, std::string("0"));
+                bindings.SendAfter(0.0, *ok, "press", {}, selected->row_id);
+            });
         }
         else if (!deal)
         {
@@ -658,23 +689,17 @@ class CommerceScreen final : public Screen
 
   private:
     const Layout &layout_;
-    std::string hold_before_; // the hold figure before the amount of the open deal was set
     std::string reopen_row_;  // the row whose window the game closed after a free transfer
     int filter_ = 0; // 0 all, 1 on our side, 2 profitable (export goods) / on the other side
     int sort_ = -1;  // the column the rows are ordered by (own, other, buy, sell); -1 = the game's order
     bool sort_descending_ = true;
     std::string quick_row_; // the row whose whole stack is taken once the game opens its amount window
     double quick_at_ = 0.0;
-    // The amount the player set last: shown until the game's own number catches up.
-    std::string local_row_;
-    int local_target_ = 0;
-    int local_ours_ = 0; // what we held when it was set: a learnt limit is one of this deal only
-    double local_at_ = 0.0;
-    uint64_t asked_revision_ = 0; // the model revision the player's amount was asked against
-    // The game's own limits for the open row, learnt from its answers.
-    std::string limit_row_;
-    int limit_min_ = std::numeric_limits<int>::min();
-    int limit_max_ = std::numeric_limits<int>::max();
+    // The open deal: its row, what both sides held when the game opened it (the control's pivot and ends)
+    // and the amount on our side the player has set.
+    std::string deal_row_;
+    int deal_ours_ = 0, deal_theirs_ = 0;
+    int target_ = 0;
 };
 
 } // namespace

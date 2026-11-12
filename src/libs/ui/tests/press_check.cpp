@@ -94,6 +94,8 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
                                " c-row { display: block; position: absolute; left: 0; height: 40dp; }</style></head><body>"
                                "<c-row id=\"small\" style=\"top: 200dp; width: 40dp;\" title=\"S\"/>"
                                "<c-row id=\"wide\" style=\"top: 300dp; width: 800dp;\" title=\"A row across the screen\"/>"
+                               "<div style=\"display: block; position: absolute; left: 0; top: 150dp; width: 200dp; height: 40dp; overflow-y: auto;\">"
+                               "<c-row id=\"listed\" style=\"position: relative; top: 0; width: 40dp;\" title=\"L\"/><div style=\"display: block; height: 200dp;\"></div></div>"
                                "</body></rml>");
     // The dialogue panel's layout (C-DialoguePanel): the speech box stops 44 dp above the
     // bottom for the «Дальше ›» line, the replies (data-reserve) reach the bottom and take that
@@ -321,6 +323,11 @@ int main(int argc, char **argv)
     Expect(clicks.size() == 1 && clicks[0] == "wide click", "the row across the screen runs under the cutout");
     tap(60, 100);
     Expect(clicks.empty(), "away from the cutout nothing moves into empty space");
+    // The same small control inside a scrolling list stays where the list puts it: scrolled content ignores the cutout.
+    tap(20, 165);
+    Expect(clicks.size() == 1 && clicks[0] == "listed click", "a row of a scrolling list stays under the cutout: " + (clicks.empty() ? std::string("nothing") : clicks[0]));
+    tap(60, 165);
+    Expect(clicks.empty(), "and was not moved out beside it");
     host->SetCutouts({});
     frames(0.05);
     tap(20, 220);

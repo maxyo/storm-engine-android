@@ -34,7 +34,8 @@ system bars). Component templates read them as `safe.left` … `safe.bottom`. `-
 `DisplayCutout.getBoundingRects`): screens and the HUD lay out edge to edge, and after layout
 only what falls under a cutout and must stay readable or touchable moves out by the minimum
 (the cutout's depth plus 4 dp, a translate): text, icons, pictures and components no larger than
-a quarter of the screen. Backgrounds, panels, rows and lists run under it. Touch regions and the
+a quarter of the screen. Backgrounds, panels, rows and lists run under it, and nothing inside a scrolling element
+(`overflow: auto` / `scroll`) is ever moved: scrolled content ignores the cutout. Touch regions and the
 behaviours' hit boxes follow the move.
 
 ## Android

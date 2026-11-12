@@ -1451,7 +1451,9 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     // a translate: text, icons, pictures and small controls (a component no larger than a
     // quarter of the screen each way, moved whole). Larger components (panels, rows, lists) stay
     // under the cutout; their content is looked at one by one. A transform the pack set itself is
-    // not overwritten: that element counts as a container. True when a shift changed.
+    // not overwritten: that element counts as a container. What scrolls is never moved: the content
+    // of a scrolling element passes under the cutout as it goes (a row that stepped aside while it
+    // crossed the cutout read as a dent travelling through the list). True when a shift changed.
     bool AvoidCutouts()
     {
         std::unordered_map<Rml::Element *, Rml::Vector2f> next;
@@ -1517,6 +1519,9 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         if (!element->IsVisible(true))
             return;
+        const auto scrolls = [](Rml::Style::Overflow overflow) { return overflow == Rml::Style::Overflow::Auto || overflow == Rml::Style::Overflow::Scroll; };
+        if (scrolls(element->GetComputedValues().overflow_x()) || scrolls(element->GetComputedValues().overflow_y()))
+            return; // scrolled content ignores the cutout
         const Rml::Vector2f size = element->GetBox().GetSize(Rml::BoxArea::Border);
         const Rml::Rectanglef box = Rml::Rectanglef::FromPositionSize(element->GetAbsoluteOffset(Rml::BoxArea::Border), size);
         const auto ours = cutout_shifts_.find(element);
