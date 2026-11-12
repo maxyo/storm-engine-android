@@ -47,8 +47,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.normal_map_size = 256; // the prepared 512 maps from their second mip: a quarter of High's memory
         s.shadows = ShadowQuality::Low;
         s.ao_volume = 2;
-        // The lamps' relight of locations (option fx_lamp_shadows 8) stays off until the owner has seen its sheet.
-        s.lamp_shadows = 0;
+        s.lamp_shadows = 8;
         return s;
     }
     s.render_scale = 0.77f; // FSR 1 "Ultra Quality": 2464x1109 of a 3200x1440 display
@@ -66,7 +65,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.point_lights = 8;
     s.shadows = ShadowQuality::Soft;
     s.ao_volume = 3;
-    s.lamp_shadows = 0; // see Средняя (option fx_lamp_shadows 16)
+    s.lamp_shadows = 16;
     s.lamp_soft = true;
     s.ssao = true;
     s.ssao_intensity = 0.35f;
