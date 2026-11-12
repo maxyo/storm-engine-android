@@ -283,6 +283,14 @@ struct Device final : Object
     // The game picture's colour/depth stores for the current effects state (MSAA), kept inside the Surfaces the
     // engine holds (GetBackBuffer / GetRenderTarget results stay valid).
     void create_scene_stores(uint32_t width, uint32_t height);
+    // fx render scale (fx::RendererState::render_scale < 1): a 3D frame draws into the internal-size scene stores
+    // (enter_scaled_picture, at the start of a frame after a 3D frame); at the scene boundary the post chain upscales
+    // the scene onto the display-size picture, which the interfaces then draw on (leave_scaled_picture: `copy` the
+    // internal picture up when no post chain ran, e.g. an interface before any 3D).
+    void enter_scaled_picture();
+    void leave_scaled_picture(bool copy);
+    // Store pixels per game-addressed pixel of the current render target (1 except on the scaled scene stores).
+    std::array<float, 2> target_scale() const;
     // Graphics effects (src/effects): the 3D scene of this frame is complete; runs the post chain on it and
     // makes its output the game picture the interface is drawn on. Once per presented frame.
     void scene_complete();
@@ -304,6 +312,12 @@ struct Device final : Object
     // Effects: the second game picture the post chain writes (swapped with back_color's store at the scene
     // boundary), and a single-sample depth for other render targets while the scene target is multisampled.
     TexStorePtr post_color, single_depth;
+    // fx render scale: the internal-size scene colour + depth, and the display-size stores parked while they draw.
+    TexStorePtr scaled_color, scaled_depth, held_color, held_depth;
+    bool scaled_next = false;          // the next frame starts on the scaled stores (this one had a 3D scene)
+    bool held_depth_clear = false;     // the display-size depth returned from parking is cleared in its next view
+    uint16_t view_clear_bits = 0;      // clear bits new_view() gave the current view (Clear keeps them)
+    bool scaled_copy_logged = false;
     bool scene_done = false;  // the post chain ran (or was not needed) in this presented frame
     bool scene_drawn = false; // a perspective draw reached the game picture in this presented frame
     bool interface_drawn = false; // an interface announced itself (MakePostProcess) in this presented frame

@@ -57,6 +57,8 @@ const Option kOptions[] = {
     {"fx_bloom", "0 off, 1 on", [](fx::Settings &s, int v) { s.bloom = on(v); }},
     {"fx_sun_shafts", "0 off, 1 on", [](fx::Settings &s, int v) { s.sun_shafts = on(v); }},
     {"fx_smaa", "0 off, 1 on", [](fx::Settings &s, int v) { s.smaa = on(v); }},
+    {"fx_render_scale", "50..100: the 3D scene at this % of the display size, upscaled by FSR 1 (100 = native)",
+     [](fx::Settings &s, int v) { s.render_scale = static_cast<float>(std::clamp(v, 50, 100)) / 100.0f; }},
     {"fx_sharpen", "0 off, 1 on (FSR 1 RCAS)", [](fx::Settings &s, int v) { s.sharpen = on(v); }},
     {"fx_sharpness", "0..100 % RCAS strength (100 = the reference's maximum)",
      [](fx::Settings &s, int v) { s.sharpness = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
@@ -287,7 +289,7 @@ void Host::apply()
         if (!possible.smaa && !possible.PostIsIdentity())
             report_.disabled.push_back("fx_smaa");
         if (possible.PostIsIdentity())
-            for (const char *name : {"fx_tonemap", "fx_bloom", "fx_sun_shafts", "fx_smaa", "fx_sharpen",
+            for (const char *name : {"fx_tonemap", "fx_bloom", "fx_sun_shafts", "fx_smaa", "fx_render_scale", "fx_sharpen",
                                      "fx_sharpness", "fx_dither", "fx_lens_flare", "fx_scene_grading", "fx_grade"})
                 report_.disabled.push_back(name);
     }
@@ -343,6 +345,7 @@ void Host::activate(const fx::Settings &settings, const fx::Support &support)
     const bool depth_read = scene_depth_read();
     renderer_state_changed_ = renderer_state_changed_ ||
                               (device_ready_ && (state.msaa_samples != renderer_state_.msaa_samples ||
+                                                 state.render_scale != renderer_state_.render_scale ||
                                                  state.max_anisotropy != renderer_state_.max_anisotropy ||
                                                  depth_read != depth_read_));
     depth_read_ = depth_read;

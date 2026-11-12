@@ -164,6 +164,10 @@ Device::~Device()
     framebuffers.clear();
     post_color.reset();
     single_depth.reset();
+    scaled_color.reset();
+    scaled_depth.reset();
+    held_color.reset();
+    held_depth.reset();
     current = nullptr;
     Context::instance().shutdown();
 }
@@ -180,6 +184,8 @@ void Device::create_backbuffer(uint32_t width, uint32_t height)
         back_depth->Release();
     back_color = new Surface(nullptr, 0, 0);
     back_depth = new Surface(nullptr, 0, 0);
+    held_color.reset(); // parked stores of the old surfaces
+    held_depth.reset();
     create_scene_stores(width, height);
     rt = back_color;
     rt->AddRef();
@@ -192,6 +198,14 @@ void Device::create_backbuffer(uint32_t width, uint32_t height)
 
 void Device::create_scene_stores(uint32_t width, uint32_t height)
 {
+    // A parked frame goes back to the display-size stores first: they are the ones made or kept below.
+    if (held_color)
+    {
+        back_color->store = std::move(held_color);
+        back_depth->store = std::move(held_depth);
+        held_color.reset();
+        held_depth.reset();
+    }
     // Effects: MSAA of the scene target (fx::RendererState). bgfx resolves colour and depth when the frame buffer
     // is left; the composite and the post chain read the resolved textures.
     const auto &host = effects::Host::instance();
@@ -199,35 +213,111 @@ void Device::create_scene_stores(uint32_t width, uint32_t height)
     const uint64_t msaa = state.msaa_samples >= 4 ? BGFX_TEXTURE_RT_MSAA_X4
                           : state.msaa_samples == 2 ? BGFX_TEXTURE_RT_MSAA_X2
                                                     : 0;
+    // fx render scale: the 3D scene draws into stores of the internal size and the post chain upscales it (FSR 1)
+    // onto the display-size picture, which carries no MSAA then: only the interfaces draw on it.
+    const bool scaled = host.post_active() && state.render_scale < 1.0f;
+    const uint32_t scaled_width = std::max(1u, static_cast<uint32_t>(std::lround(width * state.render_scale)));
+    const uint32_t scaled_height = std::max(1u, static_cast<uint32_t>(std::lround(height * state.render_scale)));
+    const uint64_t picture_msaa = scaled ? 0 : msaa;
     // A multisampled depth is resolved into a texture only when an effect reads it (ambient occlusion, the high
     // water's scene capture): otherwise it stays a write-only render buffer, so leaving the scene target resolves
     // colour alone (less bandwidth on tile GPUs, and no depth/stencil resolve blit, which drivers get wrong).
-    const uint64_t depth_flags = msaa | (msaa && !host.scene_depth_read() ? BGFX_TEXTURE_RT_WRITE_ONLY : 0);
-    // A settings switch rebuilds only the targets it changes (an anisotropy change none of them).
-    const auto fits = [&](const std::shared_ptr<TexStore> &store, uint64_t flags) {
-        return store && store->width == width && store->height == height && store->target_flags == flags;
+    const auto depth_flags = [&](uint64_t samples) {
+        return samples | (samples && !host.scene_depth_read() ? BGFX_TEXTURE_RT_WRITE_ONLY : 0);
     };
-    const auto target = [&](D3DFORMAT format, DWORD usage, uint64_t flags) {
-        auto store = make_store(this, TexKind::Tex2D, width, height, 1, 1, usage, format, D3DPOOL_DEFAULT);
+    // A settings switch rebuilds only the targets it changes (an anisotropy change none of them).
+    const auto fits = [](const std::shared_ptr<TexStore> &store, uint32_t w, uint32_t h, uint64_t flags) {
+        return store && store->width == w && store->height == h && store->target_flags == flags;
+    };
+    const auto target = [&](uint32_t w, uint32_t h, D3DFORMAT format, DWORD usage, uint64_t flags) {
+        auto store = make_store(this, TexKind::Tex2D, w, h, 1, 1, usage, format, D3DPOOL_DEFAULT);
         store->backbuffer = true;
         store->target_flags = flags;
         return store;
     };
-    if (!fits(back_color->store, msaa))
-        back_color->store = target(D3DFMT_A8R8G8B8, D3DUSAGE_RENDERTARGET, msaa);
-    if (!fits(back_depth->store, depth_flags))
-        back_depth->store = target(D3DFMT_D24S8, D3DUSAGE_DEPTHSTENCIL, depth_flags);
-    if (!host.post_active())
+    if (!fits(back_color->store, width, height, picture_msaa))
+        back_color->store = target(width, height, D3DFMT_A8R8G8B8, D3DUSAGE_RENDERTARGET, picture_msaa);
+    if (!fits(back_depth->store, width, height, depth_flags(picture_msaa)))
+        back_depth->store = target(width, height, D3DFMT_D24S8, D3DUSAGE_DEPTHSTENCIL, depth_flags(picture_msaa));
+    // The second display-size picture of the post chain's ping-pong; a scaled 3D frame needs none (the chain writes
+    // the display-size picture directly), so it is made only when a 3D frame is drawn at the display size.
+    if (!host.post_active() || scaled)
         post_color = nullptr;
-    else if (!fits(post_color, msaa))
-        post_color = target(D3DFMT_A8R8G8B8, D3DUSAGE_RENDERTARGET, msaa);
+    else if (!fits(post_color, width, height, msaa))
+        post_color = target(width, height, D3DFMT_A8R8G8B8, D3DUSAGE_RENDERTARGET, msaa);
+    if (scaled)
+    {
+        const bool changed = !fits(scaled_color, scaled_width, scaled_height, msaa);
+        if (changed)
+            scaled_color = target(scaled_width, scaled_height, D3DFMT_A8R8G8B8, D3DUSAGE_RENDERTARGET, msaa);
+        if (!fits(scaled_depth, scaled_width, scaled_height, depth_flags(msaa)))
+            scaled_depth = target(scaled_width, scaled_height, D3DFMT_D24S8, D3DUSAGE_DEPTHSTENCIL, depth_flags(msaa));
+        for (TexStore *store : {scaled_color.get(), scaled_depth.get()})
+        {
+            store->game_width = width;
+            store->game_height = height;
+        }
+        if (changed)
+            logf("effects: render scale %.2f: the 3D scene at %ux%u, upscaled by FSR 1 to %ux%u, interfaces at %ux%u",
+                 static_cast<double>(state.render_scale), scaled_width, scaled_height, width, height, width, height);
+    }
+    else
+    {
+        if (scaled_color)
+            logf("effects: render scale 1: the 3D scene at the display size %ux%u", width, height);
+        scaled_color = nullptr;
+        scaled_depth = nullptr;
+    }
     if (!msaa)
         single_depth = nullptr;
-    else if (!fits(single_depth, 0))
+    else if (!fits(single_depth, width, height, 0))
         single_depth = make_store(this, TexKind::Tex2D, width, height, 1, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8,
                                   D3DPOOL_DEFAULT);
     world_anisotropy = state.max_anisotropy > 1;
     view_dirty = true;
+    if (scaled_next)
+        enter_scaled_picture();
+}
+
+void Device::enter_scaled_picture()
+{
+    if (!scaled_color || held_color)
+        return;
+    held_color = std::move(back_color->store);
+    held_depth = std::move(back_depth->store);
+    back_color->store = scaled_color;
+    back_depth->store = scaled_depth;
+    held_depth_clear = false; // the parked depth is not drawn with until the scene ends
+    view_dirty = true;
+}
+
+void Device::leave_scaled_picture(bool copy)
+{
+    if (!held_color)
+        return;
+    if (copy && Context::instance().ready())
+    {
+        // No post chain upscaled this frame (no 3D before the first interface, no surface, no views left): what was
+        // drawn so far is copied up, bilinear, so the interface is drawn at the display size like on every frame.
+        if (!scaled_copy_logged)
+            logd("effects: a frame without a 3D scene on the scaled picture is copied up to the display size");
+        scaled_copy_logged = true;
+        Surface from(back_color->store, 0, 0), to(held_color, 0, 0);
+        StretchRect(&from, nullptr, &to, nullptr, D3DTEXF_LINEAR);
+    }
+    back_color->store = std::move(held_color);
+    back_depth->store = std::move(held_depth);
+    held_color.reset();
+    held_depth.reset();
+    held_depth_clear = true;
+    view_dirty = true;
+}
+
+std::array<float, 2> Device::target_scale() const
+{
+    const TexStore &store = *rt->store;
+    return {static_cast<float>(store.level_width(rt->level)) / static_cast<float>(store.addressed_width(rt->level)),
+            static_cast<float>(store.level_height(rt->level)) / static_cast<float>(store.addressed_height(rt->level))};
 }
 
 void Device::set_default_state()
@@ -375,6 +465,7 @@ HRESULT Device::Present()
     // before any 3D cannot be split: it is presented as it is.
     if (!scene_done && !interface_drawn)
         scene_complete();
+    leave_scaled_picture(true); // a frame that never reached a post chain (no surface): presented at the display size
     const bool scene_frame = scene_drawn;
     scene_done = false;
     scene_drawn = false;
@@ -386,12 +477,17 @@ HRESULT Device::Present()
         effects.advance_switch(); // a settings change: programs, self-test (views kPostViewBegin..), then the switch
     context.present(back_color->store->handle, back_color->store->width, back_color->store->height);
     effects.end_frame(scene_frame, context.last_frame());
+    // The render scale applies to 3D frames: the next frame starts on the scaled scene stores after a 3D frame, on the
+    // display-size picture otherwise (menus, loading screens).
+    scaled_next = scene_frame;
     if (effects.take_renderer_state_change())
     {
-        // Between frames: the scene target follows the new MSAA setting, samplers the new anisotropy.
+        // Between frames: the scene target follows the new MSAA setting and render scale, samplers the new anisotropy.
         create_scene_stores(back_color->store->width, back_color->store->height);
         context.refresh_reset_flags();
     }
+    else if (scaled_next)
+        enter_scaled_picture();
     views_used = 0;
     view_dirty = true;
     view_has_content = false;
@@ -416,13 +512,19 @@ void Device::scene_complete()
         if (!interface_first_logged && effects::Host::instance().post_active())
             logf("effects: an interface was drawn before the 3D scene; such frames are presented without post effects");
         interface_first_logged = true;
+        leave_scaled_picture(true);
         return;
     }
     scene_done = true;
     auto &host = effects::Host::instance();
     if (!host.post_active() || !Context::instance().ready())
+    {
+        leave_scaled_picture(true);
         return;
-    if (!post_color)
+    }
+    // A scaled scene is upscaled straight onto the parked display-size picture; a display-size one ping-pongs.
+    const bool scaled = held_color != nullptr;
+    if (!scaled && !post_color)
     {
         // The settings switched post-processing on after the device was created.
         post_color = make_store(this, TexKind::Tex2D, back_color->store->width, back_color->store->height, 1, 1,
@@ -433,8 +535,9 @@ void Device::scene_complete()
     // The post chain writes this target outside the shim's views: a new one (the first post frame after a settings
     // switch) is cleared now, in a view before the chain's. Cleared later, by the first shim view that draws the
     // interface into it, it wiped the processed scene: one black frame after every preset change.
-    post_color->sync();
-    clear_if_new(post_color.get());
+    TexStore *out = scaled ? held_color.get() : post_color.get();
+    out->sync();
+    clear_if_new(out);
     const uint16_t budget = render::kGameViewEnd - render::kGameViewBegin;
     if (views_used + fx::PostChain::kMaxViews > budget)
     {
@@ -442,6 +545,7 @@ void Device::scene_complete()
             logf("ERROR: effects: %u game views used, no room for the post chain (%u): frame presented without it",
                  views_used, fx::PostChain::kMaxViews);
         post_view_logged = true;
+        leave_scaled_picture(true);
         return;
     }
     TexStore *scene = back_color->store.get();
@@ -454,15 +558,18 @@ void Device::scene_complete()
         targets.scene_depth = back_depth->store->handle;
     targets.width = static_cast<uint16_t>(scene->width);
     targets.height = static_cast<uint16_t>(scene->height);
-    targets.target_width = static_cast<uint16_t>(post_color->width);
-    targets.target_height = static_cast<uint16_t>(post_color->height);
-    targets.target = framebuffer(post_color.get(), 0, 0, nullptr);
+    targets.target_width = static_cast<uint16_t>(out->width);
+    targets.target_height = static_cast<uint16_t>(out->height);
+    targets.target = framebuffer(out, 0, 0, nullptr);
     targets.first_view = static_cast<bgfx::ViewId>(render::kGameViewBegin + views_used);
     memcpy(targets.view.data(), &scene_view.m[0][0], sizeof(float) * 16);
     memcpy(targets.projection.data(), &scene_proj.m[0][0], sizeof(float) * 16);
     views_used += host.submit_post(targets);
     // The interface is drawn on the processed picture, which is then presented.
-    std::swap(back_color->store, post_color);
+    if (scaled)
+        leave_scaled_picture(false);
+    else
+        std::swap(back_color->store, post_color);
     view_dirty = true;
 }
 
@@ -587,13 +694,26 @@ uint16_t Device::new_view()
     }
     bgfx::setViewFrameBuffer(view, framebuffer(color, rt->face, rt->level, depth));
     bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
-    bgfx::setViewClear(view, BGFX_CLEAR_NONE);
+    // The display-size depth back from parking (render scale) holds an old frame: cleared in the first view that
+    // uses it, in the same pass (a tile GPU loads nothing).
+    view_clear_bits = BGFX_CLEAR_NONE;
+    if (held_depth_clear && depth && depth == back_depth->store.get())
+    {
+        view_clear_bits = BGFX_CLEAR_DEPTH | BGFX_CLEAR_STENCIL;
+        held_depth_clear = false;
+    }
+    bgfx::setViewClear(view, view_clear_bits, 0, 1.0f, 0);
+    // The game addresses its viewport in display pixels; a scaled scene store has fewer.
     const uint32_t target_height = color->level_height(rt->level);
+    const std::array<float, 2> scale = target_scale();
     const D3DVIEWPORT9 &vp = s.viewport;
-    const uint32_t y = Context::instance().flip_y() ? target_height - std::min<uint32_t>(target_height, vp.Y + vp.Height)
-                                                    : vp.Y;
-    bgfx::setViewRect(view, static_cast<int16_t>(vp.X), static_cast<int16_t>(y), static_cast<uint16_t>(vp.Width),
-                      static_cast<uint16_t>(vp.Height), vp.MinZ, vp.MaxZ);
+    const auto x0 = static_cast<uint32_t>(std::lround(vp.X * scale[0]));
+    const auto y0 = static_cast<uint32_t>(std::lround(vp.Y * scale[1]));
+    const auto w = static_cast<uint32_t>(std::lround((vp.X + vp.Width) * scale[0])) - x0;
+    const auto h = static_cast<uint32_t>(std::lround((vp.Y + vp.Height) * scale[1])) - y0;
+    const uint32_t y = Context::instance().flip_y() ? target_height - std::min<uint32_t>(target_height, y0 + h) : y0;
+    bgfx::setViewRect(view, static_cast<int16_t>(x0), static_cast<int16_t>(y), static_cast<uint16_t>(w),
+                      static_cast<uint16_t>(h), vp.MinZ, vp.MaxZ);
     return view;
 }
 
@@ -622,6 +742,8 @@ HRESULT Device::Clear(DWORD count, const D3DRECT *, DWORD flags, D3DCOLOR color,
         bits |= BGFX_CLEAR_DEPTH;
     if ((flags & D3DCLEAR_STENCIL) && ds)
         bits |= BGFX_CLEAR_STENCIL;
+    if (!view_has_content)
+        bits |= view_clear_bits; // the view's own depth clear (new_view) stays
     const uint32_t rgba = ((color & 0x00FFFFFF) << 8) | (color >> 24);
     bgfx::setViewClear(view, bits, rgba, z, static_cast<uint8_t>(stencil));
     bgfx::touch(view);
@@ -639,8 +761,8 @@ HRESULT Device::SetRenderTarget(DWORD index, Surface *surface)
         assign_ref(rt, next);
         view_dirty = true;
     }
-    // D3D resets the viewport to the full target.
-    s.viewport = {0, 0, rt->store->level_width(rt->level), rt->store->level_height(rt->level), 0.0f, 1.0f};
+    // D3D resets the viewport to the full target (in the pixels the game addresses).
+    s.viewport = {0, 0, rt->store->addressed_width(rt->level), rt->store->addressed_height(rt->level), 0.0f, 1.0f};
     s.scissor = {0, 0, static_cast<LONG>(s.viewport.Width), static_cast<LONG>(s.viewport.Height)};
     view_dirty = true;
     return D3D_OK;
@@ -830,7 +952,7 @@ HRESULT Device::StretchRect(Surface *src, const RECT *src_rect, Surface *dst, co
     const D3DVIEWPORT9 saved_viewport = s.viewport;
     rt = to;
     ds = nullptr;
-    const uint32_t dw = to->store->level_width(to->level), dh = to->store->level_height(to->level);
+    const uint32_t dw = to->store->addressed_width(to->level), dh = to->store->addressed_height(to->level);
     if (dst_rect)
         s.viewport = {static_cast<DWORD>(dst_rect->left), static_cast<DWORD>(dst_rect->top),
                       static_cast<DWORD>(dst_rect->right - dst_rect->left),
@@ -839,8 +961,8 @@ HRESULT Device::StretchRect(Surface *src, const RECT *src_rect, Surface *dst, co
         s.viewport = {0, 0, dw, dh, 0.0f, 1.0f};
     view_dirty = true;
     const uint16_t id = ensure_view();
-    const float sw = static_cast<float>(from->store->level_width(from->level));
-    const float sh = static_cast<float>(from->store->level_height(from->level));
+    const float sw = static_cast<float>(from->store->addressed_width(from->level));
+    const float sh = static_cast<float>(from->store->addressed_height(from->level));
     float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
     if (src_rect)
     {
@@ -873,6 +995,16 @@ HRESULT Device::GetRenderTargetData(Surface *target, Surface *dest)
         return D3DERR_INVALIDCALL;
     if (!Context::instance().ready())
         return D3DERR_DEVICELOST; // no read-back without a surface (the caller keeps its previous data)
+    if (from->store->game_width)
+    {
+        // The scaled scene store: read at the size the game addresses (its GetDesc), scaled up like the post chain's
+        // input would be.
+        Surface resized(make_store(this, TexKind::Tex2D, from->store->game_width, from->store->game_height, 1, 1,
+                                   D3DUSAGE_RENDERTARGET, from->store->format, D3DPOOL_DEFAULT),
+                        0, 0);
+        const HRESULT copied = StretchRect(from, nullptr, &resized, nullptr, D3DTEXF_LINEAR);
+        return copied == D3D_OK ? GetRenderTargetData(&resized, dest) : copied;
+    }
     from->store->sync();
     const uint32_t w = from->store->level_width(from->level), h = from->store->level_height(from->level);
     if (to->store->level_width(to->level) != w || to->store->level_height(to->level) != h)

@@ -762,8 +762,8 @@ void fill_desc(const TexStore &store, uint32_t level, D3DSURFACE_DESC *desc)
     desc->Type = D3DRTYPE_SURFACE;
     desc->Usage = store.usage;
     desc->Pool = store.pool;
-    desc->Width = store.level_width(level);
-    desc->Height = store.level_height(level);
+    desc->Width = store.addressed_width(level);
+    desc->Height = store.addressed_height(level);
 }
 
 HRESULT lock_rect(TexStore &store, uint32_t face, uint32_t level, D3DLOCKED_RECT *locked, const RECT *rect,

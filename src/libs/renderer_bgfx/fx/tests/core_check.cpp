@@ -58,7 +58,9 @@ void CheckSettings()
     const Settings high = Settings::FromPreset(QualityPreset::High);
     CHECK(!medium.PostIsIdentity() && !high.PostIsIdentity());
     CHECK(medium.bloom_downscale == 4 && high.bloom_downscale == 2);
-    CHECK(!medium.sharpen && !high.sharpen);
+    // FSR 1 on both: Средняя renders the scene smaller than Высокая; «Низкая» stays native without any post pass.
+    CHECK(medium.sharpen && high.sharpen && medium.render_scale < high.render_scale && high.render_scale < 1.0f);
+    CHECK(medium.render_scale >= 0.5f && original.render_scale == 1.0f && !original.sharpen);
     // MSAA is the primary anti-aliasing of the presets; SMAA is left to the player. Optional looks stay off.
     CHECK(medium.msaa == 4 && high.msaa == 4 && !medium.smaa && !high.smaa && original.msaa == 1);
     CHECK(medium.anisotropy == 4 && high.anisotropy == 8 && original.anisotropy == 1);

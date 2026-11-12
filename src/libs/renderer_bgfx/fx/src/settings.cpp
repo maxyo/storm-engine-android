@@ -27,9 +27,14 @@ Settings Settings::FromPreset(QualityPreset preset)
     // full «Карибы» grade: no visible saturation boost).
     s.grade = GradePreset::Caribbean;
     s.grade_strength = 0.35f;
+    // FSR 1: the 3D scene at a lower internal resolution, EASU up to the display, RCAS there; the interfaces stay at
+    // the display resolution. MSAA (and SMAA where it replaces it) antialiases the internal picture before EASU.
+    s.sharpen = true;
+    s.sharpness = 0.75f; // 0.5 stops below the reference's maximum
 
     if (preset == QualityPreset::Medium)
     {
+        s.render_scale = 0.67f; // FSR 1 "Quality": 2144x965 of a 3200x1440 display
         s.bloom_downscale = 4;
         s.bloom_levels = 3;
         s.sea_band_limit = true;
@@ -43,8 +48,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.lamp_shadows = 0;
         return s;
     }
-    // No sharpening by default: sharpening turns the sub-pixel detail of distant foliage into a visible mosaic; it
-    // stays an option (RCAS).
+    s.render_scale = 0.77f; // FSR 1 "Ultra Quality": 2464x1109 of a 3200x1440 display
     s.bloom_downscale = 2;
     s.bloom_levels = 4;
     s.anisotropy = 8;

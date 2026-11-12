@@ -82,6 +82,9 @@ struct TexStore
     bool depth_stencil = false;
     bool system_memory = false; // never uploaded (offscreen plain surfaces)
     bool backbuffer = false;    // the game's offscreen backbuffer colour/depth
+    // The game picture's 3D scene stores at an internal size (fx render scale): the size the game addresses (its
+    // viewports, scissors, GetDesc), the display size. 0 = the store's own size.
+    uint32_t game_width = 0, game_height = 0;
     uint64_t target_flags = 0;  // extra bgfx texture flags of a render target (MSAA of the scene target)
     bool immutable = false;     // MarkTextureImmutable: no CPU copy is kept after the upload
 
@@ -113,6 +116,8 @@ struct TexStore
     uint32_t faces() const { return kind == TexKind::Cube ? 6 : 1; }
     uint32_t level_width(uint32_t level) const { return std::max(1u, width >> level); }
     uint32_t level_height(uint32_t level) const { return std::max(1u, height >> level); }
+    uint32_t addressed_width(uint32_t level) const { return game_width ? game_width : level_width(level); }
+    uint32_t addressed_height(uint32_t level) const { return game_height ? game_height : level_height(level); }
     uint32_t level_depth(uint32_t level) const { return kind == TexKind::Volume ? std::max(1u, depth >> level) : 1; }
     Sub &sub(uint32_t face, uint32_t level) { return subs[face * levels + level]; }
     // A read-only lock (D3DLOCK_READONLY) does not make the level dirty: its unlock uploads nothing.
