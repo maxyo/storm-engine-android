@@ -12,6 +12,7 @@
 #include "shared/messages.h"
 
 #ifdef __ANDROID__
+#include "platform/android_camera_zoom.hpp"
 #include "platform/android_ui.hpp"
 
 namespace
@@ -533,6 +534,9 @@ void ISPYGLASS::ChangeTelescopeType(const char *pcTextureName, float fZoomScale,
         m_Camera.fSpyGlassPerspective = m_Camera.fOldPerspective / fZoomScale;
     else
         m_Camera.fSpyGlassPerspective = m_Camera.fOldPerspective;
+#ifdef __ANDROID__
+    m_Camera.fGlassMagnification = m_Camera.fMagnification = fZoomScale > 0.f ? fZoomScale : 1.f;
+#endif
 
     m_Camera.bIsActive = false;
     m_Camera.bIsGrow = true;
@@ -544,6 +548,16 @@ void ISPYGLASS::UpdateCamera()
         return;
     const float fTime = core.GetDeltaTime() * .001f;
     m_Camera.fCurUpdatingTime += fTime;
+#ifdef __ANDROID__
+    // The pinch of the camera look: the telescope's zoom, from no magnification to the glass's own.
+    if (const float scale = storm::android::cameraZoom.take(); scale != 1.f)
+    {
+        const float glass = m_Camera.fGlassMagnification;
+        m_Camera.fMagnification =
+            storm::android::pinchMagnification(m_Camera.fMagnification, scale, std::min(1.f, glass), std::max(1.f, glass));
+        m_Camera.fSpyGlassPerspective = m_Camera.fOldPerspective / m_Camera.fMagnification;
+    }
+#endif
 
     if (!m_Camera.bIsActive)
     {

@@ -29,6 +29,7 @@
 #ifdef __ANDROID__
 #include <android/log.h>
 #include "platform/android_ui.hpp"
+#include "platform/android_camera_zoom.hpp"
 #include "platform/android_held_controls.hpp"
 #include "platform/script_patches.hpp"
 #include "platform/android_shortcuts.hpp"
@@ -575,6 +576,10 @@ int main(int argc, char *argv[])
         // The UI host first: it applies the touches the platform sent, and what they produce
         // is read in this iteration, together with the activity's own queue.
         storm::android::ui::tick();
+        // A pinch acts only in the frame it came for (android_camera_zoom.hpp).
+        if (storm::android::cameraZoom.beginFrame())
+            __android_log_print(ANDROID_LOG_WARN, "StormInput", "camera pinch dropped: no camera with a zoom took it (gameplay %s)",
+                                gameplayState.json().c_str());
         auto mobileCommands = storm::android::ui::takeCommands();
         for (auto &command : storm::android::pollMobileActions())
             mobileCommands.push_back(std::move(command));
@@ -583,7 +588,7 @@ int main(int argc, char *argv[])
             if(storm::android::worldMapHud.modal.ownsInput(SDL_GetTicks()) &&
                 (command.starts_with("gameplay:") || command.starts_with("shortcut:") || command.starts_with("context:") ||
                  command.starts_with("move:") || command.starts_with("combat:") || command.starts_with("sails:") ||
-                 command.starts_with("hold:") || command.starts_with("seaquick:")))continue;
+                 command.starts_with("hold:") || command.starts_with("seaquick:") || command.starts_with("camera:")))continue;
             if (command.starts_with("combat:"))
             {
                 storm::android::combatInput.offer(std::string_view(command).substr(7), SDL_GetTicks(), combatDrainEpoch);
@@ -599,6 +604,11 @@ int main(int argc, char *argv[])
             else if (command.starts_with("spyglass:"))
             {
                 storm::android::spyglass.acknowledge(std::string_view(command).substr(9));
+            }
+            else if (command.starts_with("camera:"))
+            {
+                if (!storm::android::cameraZoom.offer(std::string_view(command).substr(7)))
+                    __android_log_print(ANDROID_LOG_ERROR, "StormInput", "invalid camera command '%s'", command.c_str());
             }
             else if (command.starts_with("hold:"))
             {

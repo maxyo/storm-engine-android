@@ -135,6 +135,7 @@ class LocationCamera : public Entity
     float dAx, dAy;
 #ifdef __ANDROID__
     float dragAy = 0.0f; // this frame's camera drag as a yaw angle (mobile camera mode)
+    float gameRadius = 3.0f; // the game's radius (MSG_CAMERA_SET_RADIUS); radius is it scaled by the pinch
 #endif
 
     glm::vec3 camPos, lookTo;    // Current camera parameters

@@ -11,6 +11,7 @@
 #include "location_camera.h"
 #ifdef __ANDROID__
 #include <platform/android_camera.hpp>
+#include <platform/android_camera_zoom.hpp>
 #endif
 
 #include "core.h"
@@ -51,6 +52,10 @@ LocationCamera::LocationCamera()
     teleport_dist = 12.0f;
     lookHeight = 0.8f;
     radius = 3.0f;
+#ifdef __ANDROID__
+    gameRadius = radius;
+    radius = gameRadius * storm::android::cameraZoom.land;
+#endif
     rotInertia = 5.0f;
     radInertia = 7.0f;
     // Camera values
@@ -263,6 +268,15 @@ void LocationCamera::Realize(uint32_t delta_time)
                     if (character->IsDead())
                         dAy = 0.0f;
                 }
+#ifdef __ANDROID__
+                // The pinch of the camera look scales the follow radius (platform/android_camera_zoom.hpp);
+                // CameraFollow eases to it and still keeps it out of the walls.
+                if (const float scale = storm::android::cameraZoom.take(); scale != 1.0f)
+                {
+                    storm::android::cameraZoom.land = storm::android::pinchLandZoom(storm::android::cameraZoom.land, scale);
+                    radius = gameRadius * storm::android::cameraZoom.land;
+                }
+#endif
                 if (isViewExecute)
                 {
                     // kMorph = 0.0f;
@@ -412,6 +426,10 @@ uint64_t LocationCamera::ProcessMessage(MESSAGE &message)
         return 1;
     case MSG_CAMERA_SET_RADIUS:
         radius = message.Float();
+#ifdef __ANDROID__
+        gameRadius = radius;
+        radius = gameRadius * storm::android::cameraZoom.land;
+#endif
         return 1;
     case MSG_CAMERA_SET_PERSPECTIVE:
         cameraPerspective = message.Float();

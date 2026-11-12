@@ -4,6 +4,10 @@
 
 #include "math_inlines.h"
 
+#ifdef __ANDROID__
+#include <platform/android_camera_zoom.hpp>
+#endif
+
 #define SCMR_BOXSCALE_X 1.6f
 #define SCMR_BOXSCALE_Y 1.3f
 #define SCMR_BOXSCALE_Z 1.4f
@@ -133,27 +137,33 @@ void SHIP_CAMERA::Move(float fDeltaTime)
     boxSize.z += realBoxSize.y;
 
     const auto maxRad = boxSize.z * 2.0f;
-    // Semi-axes of the ellipsoid along which the camera moves
-    a = boxSize.x * 1.2f + fDistance * (maxRad - boxSize.x * 1.2f);     // x
-    b = boxSize.y * 1.5f + fDistance * (70.0f - boxSize.y * 1.5f);  // y
-    c = boxSize.z * 1.2f + fDistance * (maxRad - boxSize.z * 1.2f); // z
-    // Find the position of the camera on the ellipsoid
+    // The position of the camera, relative to the ship, on the ellipsoid of a distance (0..1)
+    const auto place = [&](float distance) {
+        // Semi-axes of the ellipsoid along which the camera moves
+        const glm::vec3 axes(boxSize.x * 1.2f + distance * (maxRad - boxSize.x * 1.2f), // x
+                             boxSize.y * 1.5f + distance * (70.0f - boxSize.y * 1.5f),   // y
+                             boxSize.z * 1.2f + distance * (maxRad - boxSize.z * 1.2f)); // z
+        if (vAng.x <= 0.0f) // above 0 driving on an ellipsoid
+            return std::pair(axes, glm::vec3(axes.x * cosf(-vAng.x) * sinf(vAng.y), axes.y * sinf(-vAng.x),
+                                             axes.z * cosf(-vAng.x) * cosf(vAng.y)));
+        // below 0 driving on an elliptical cylinder
+        return std::pair(axes, glm::vec3(axes.x * sinf(vAng.y), 0.0f, axes.z * cosf(vAng.y)));
+    };
+#ifdef __ANDROID__
+    // The pinch of the camera look (platform/android_camera_zoom.hpp) moves the wheel's distance,
+    // within its 0..1, so that the camera comes as many times nearer as the fingers spread.
+    if (const float scale = storm::android::cameraZoom.take(); scale != 1.0f)
+    {
+        const auto length = [&](float distance) { return glm::length(place(distance).second); };
+        fDistance = storm::android::pinchParameter(fDistance, scale, length(fDistance), length(0.0f), length(1.0f));
+        fDistanceDlt = 0.0f; // the wheel's inertia does not carry on past the fingers
+    }
+#endif
+    auto [axes, vPos] = place(fDistance);
+    a = axes.x;
+    b = axes.y;
+    c = axes.z;
     vCenter.y += 0.5f * boxSize.y;
-    glm::vec3 vPos;
-    if (vAng.x <= 0.0f)
-    {
-        // Above 0 driving on an ellipsoid
-        vPos.x = a * cosf(-vAng.x) * sinf(vAng.y);
-        vPos.y = b * sinf(-vAng.x);
-        vPos.z = c * cosf(-vAng.x) * cosf(vAng.y);
-    }
-    else
-    {
-        // Below 0 driving on an elliptical cylinder
-        vPos.x = a * sinf(vAng.y);
-        vPos.y = 0.0f;
-        vPos.z = c * cosf(vAng.y);
-    }
     vPos = storm::math::transformPoint(storm::math::eulerMatrix(glm::vec3(0.0f, fModelAy, 0.0f), vCenter), vPos);
     vCenter.y += fDistance * 2.0f * boxSize.y;
     vCenter.y = std::min(vCenter.y, boxSize.y);
