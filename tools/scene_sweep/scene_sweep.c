@@ -241,6 +241,11 @@ void SceneSweep_Finish()
 void SceneSweep_PreparePlayer()
 {
 	DialogExit();
+	// A new game leaves its opening weather ("11 Hour", seadogs.c startGameWeather) pending until the next
+	// CreateWeatherEnvironment, which applies it over the location's QuestlockWeather and then clears it. The
+	// intro did not use it up, so the first scene of the sweep got it (UnderWater with day lighting instead of
+	// its "Underwater" weather). Every scene sets its own time and weather.
+	startGameWeather = false;
 	ssHome = pchar.location;
 	ssHomeGroup = pchar.location.group;
 	ssHomeLocator = pchar.location.locator;
