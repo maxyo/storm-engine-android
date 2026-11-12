@@ -750,7 +750,7 @@ class PanZoomBehavior final : public Behavior
             moved_ = false;
             fling_[0].Stop(), fling_[1].Stop(); // a finger stops a picture in motion
             tracker_.Clear();
-            tracker_.Add(pointer.time, pointer.position);
+            tracker_.Add(pointer.time, {pointer.position.x, pointer.position.y});
             Rml::Element *zoom = ClosestWith(pointer.target, &self, "data-zoom");
             zoom_ = zoom ? Attr(zoom, "data-zoom") : std::string();
             zoom_box_ = zoom ? BorderBox(zoom) : Rml::Rectanglef();
@@ -785,7 +785,7 @@ class PanZoomBehavior final : public Behavior
         }
         if (!zoom_.empty())
             return;
-        tracker_.Add(pointer.time, pointer.position);
+        tracker_.Add(pointer.time, {pointer.position.x, pointer.position.y});
         const float slop = 8.0f * self.Host().Density();
         if (!moved_ && (pointer.position - pointer.start).SquaredMagnitude() <= slop * slop)
             return;
@@ -881,7 +881,7 @@ class PanZoomBehavior final : public Behavior
     void Throw(ComponentElement &self, const Pointer &pointer)
     {
         tracker_.Lift(pointer.time);
-        const Rml::Vector2f velocity = tracker_.Velocity();
+        const touch::Point velocity = tracker_.Velocity();
         const float density = self.Host().Density();
         bool thrown = false;
         for (int i = 0; i < 2; ++i)

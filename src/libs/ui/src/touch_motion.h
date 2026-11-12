@@ -1,81 +1,25 @@
-// Finger motion as Android's own views have it: velocity from the timestamped samples of a
-// pointer, and the fling that follows a release. Lists (TouchScroll) and the map's pan
-// (behaviour panzoom) share it, so every drag in the UI follows the finger and coasts alike.
+// Touch scrolling of the UI's boxes. Lists (TouchScroll) and the map's pan (behaviour panzoom)
+// use the finger physics shared with the game cameras (util touch_physics.hpp: Android's
+// VelocityTracker and OverScroller), so every drag follows the finger and coasts alike.
 //
 // Our own code rather than RmlUi's touch scrolling: RmlUi 6.3 takes no sample times (its
 // velocity comes from when the engine loop got to the events), integrates its inertia per
 // frame with a linear friction and a delta clamp (the travel depends on the frame rate), and
-// rounds every step to whole pixels (slow motion stalls, then stops at a cut-off). The model
-// here is the published one of android.widget.OverScroller and VelocityTracker (no library
-// carries it for C++); its constants are Android's ViewConfiguration defaults.
+// rounds every step to whole pixels (slow motion stalls, then stops at a cut-off).
 #pragma once
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/Vector2.h>
 
-#include <array>
+#include "touch_physics.hpp"
 
 namespace storm::ui
 {
 
-// Android's ViewConfiguration, in dp (density = physical pixels per dp).
-constexpr float kMinFlingDp = 50.0f;   // a slower release does not fling (getScaledMinimumFlingVelocity)
-constexpr float kMaxFlingDp = 8000.0f; // per second (getScaledMaximumFlingVelocity)
-
-// The velocity of one pointer at its newest sample, in pixels per second: a least-squares
-// fit of a second-degree polynomial per axis over the samples of the last 100 ms
-// (VelocityTracker's default "lsq2" strategy). A pause of more than 40 ms between samples
-// starts the history anew: the finger had stopped.
-class VelocityTracker
-{
-  public:
-    void Clear();
-    // A sample more than 40 ms after the one before clears the history first (the finger
-    // had stopped): a release after a pause has no velocity.
-    void Add(double time, Rml::Vector2f position);
-    // The pointer went up at `time`. Its position is not a sample (it repeats the last move;
-    // an injected or late up may even step back), but an up 40 ms or more after the last
-    // sample means the finger had stopped: no velocity (VelocityTracker, ACTION_UP).
-    void Lift(double time);
-    Rml::Vector2f Velocity() const;
-
-  private:
-    struct Sample
-    {
-        double time = 0.0;
-        Rml::Vector2f position;
-    };
-    static constexpr int kHistory = 20;
-    std::array<Sample, kHistory> samples_{};
-    int count_ = 0, newest_ = -1;
-};
-
-// The travel of a fling along one axis: OverScroller's spline (SplineOverScroller.fling),
-// evaluated at absolute times, so the position at any frame time is exact whatever the frame
-// rate (no per-frame integration). Distance and duration grow with the release speed; the
-// curve starts at the release speed and ends at rest.
-class Fling
-{
-  public:
-    // `velocity` in pixels per second, `density` in pixels per dp.
-    void Start(double time, float position, float velocity, float density);
-    void Stop()
-    {
-        active_ = false;
-    }
-    bool Active() const
-    {
-        return active_;
-    }
-    // The position at `time`; the fling ends (Active false) once it is at rest.
-    float Advance(double time);
-
-  private:
-    bool active_ = false;
-    double start_ = 0.0;
-    double duration_ = 0.0; // seconds
-    float origin_ = 0.0f, distance_ = 0.0f; // signed
-};
+using touch::Fling;
+using touch::kMaxFlingDp;
+using touch::kMinFlingDp;
+using touch::VelocityTracker;
 
 // Drags and flings of RmlUi's scrolling boxes (overflow auto/scroll) by touch, for one pointer
 // at a time. The finger moves the content 1:1 from where the drag starts (beyond the slop);

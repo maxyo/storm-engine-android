@@ -152,7 +152,8 @@ add_library(storm_ui STATIC
     src/picture_atlas.cpp
     src/frame_renderer.cpp)
 target_compile_features(storm_ui PUBLIC cxx_std_20)
-target_include_directories(storm_ui PUBLIC include PRIVATE src)
+# The finger physics shared with the game cameras (header-only, standard library only).
+target_include_directories(storm_ui PUBLIC include PRIVATE src "${CMAKE_CURRENT_SOURCE_DIR}/../util/include")
 target_link_libraries(storm_ui PUBLIC RmlUi::RmlUi nlohmann_json::nlohmann_json PRIVATE lunasvg::lunasvg plutovg::plutovg)
 if(ANDROID)
     target_sources(storm_ui PRIVATE src/asset_files.cpp) # the pack in the APK assets
