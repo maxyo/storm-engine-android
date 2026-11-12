@@ -31,6 +31,10 @@ int32_t vbuff = -1;
 // into its own blurred texture, so the frame leaves the back buffer once instead of once per character.
 std::vector<Shadow *> Shadow::instances_;
 uint32_t Shadow::epoch_ = 0, Shadow::preparedEpoch_ = UINT32_MAX;
+float Shadow::fogDensity_ = 0.0f;
+// Frames a shadow keeps its occlusion rays while neither it nor the light moved (other characters walking through the
+// rays are seen this much later; the shading fades at 1 per second anyway).
+static constexpr uint32_t kRayRefresh = 8;
 
 namespace
 {
@@ -188,6 +192,11 @@ void Shadow::prepareAll(uint32_t Delta_Time)
     rs->GetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prev_proj));
     D3DVIEWPORT9 vp;
     rs->GetViewport(&vp);
+    // The weather's shadow and fog densities are the same for every shadow of the frame.
+    auto *pV = core.Event("EWhr_GetShadowDensity");
+    HEAD_DENSITY = ((VDATA *)pV->GetArrayElement(0))->GetInt();
+    DENSITY = ((VDATA *)pV->GetArrayElement(1))->GetInt();
+    fogDensity_ = core.Event("EWhr_GetFogDensity")->GetFloat();
     // prepare() pushes the frame's render target before it leaves it (sceneOpen goes false).
     bool sceneOpen = true;
     // prepare() runs script events and the character's realize, which may create or delete shadows.
@@ -208,13 +217,6 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
     auto *obj = static_cast<MODEL *>(core.GetEntityPointer(entity));
     if (!obj)
         return;
-
-    auto *pV = core.Event("EWhr_GetShadowDensity");
-    HEAD_DENSITY = ((VDATA *)pV->GetArrayElement(0))->GetInt();
-    DENSITY = ((VDATA *)pV->GetArrayElement(1))->GetInt();
-
-    pV = core.Event("EWhr_GetFogDensity");
-    auto fogDensity = pV->GetFloat();
 
     auto *node = obj->GetNode(0);
     GEOS::INFO gi;
@@ -254,8 +256,28 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
 
     const auto its = core.GetEntityIds(SHADOW);
 
+    // Reuse the rays while the character, the light and the model size stand still (and for at most kRayRefresh
+    // frames); the ray inputs are exact functions of these.
+    const bool still = rays_.radius == gi.radius && rays_.objPos == ObjPos && rays_.lightPos == light_pos;
+    if (!still)
+    {
+        rays_ = Rays{};
+        rays_.objPos = ObjPos;
+        rays_.lightPos = light_pos;
+        rays_.radius = gi.radius;
+        // Spread the refreshes of shadows that stand still over the frames.
+        rays_.age = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this) / sizeof(void *)) % kRayRefresh;
+    }
+    else if (++rays_.age >= kRayRefresh)
+    {
+        rays_.age = 0;
+        rays_.headRay = rays_.minVal = -1.0f;
+    }
+
     glm::vec3 hdest = headPos + storm::math::normalizeOrZero(headPos - light_pos) * 100.0f;
-    float ray = col->Trace(its, headPos, hdest, nullptr, 0);
+    if (rays_.headRay < 0.0f)
+        rays_.headRay = col->Trace(its, headPos, hdest, nullptr, 0);
+    float ray = rays_.headRay;
     glm::vec3 cen;
     float radius;
     if (ray <= 1.0f)
@@ -285,14 +307,19 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
         return;
     }
 
-    float minVal = 0.0f;
-    for (int32_t it = 0; it < 10; it++)
+    if (rays_.minVal < 0.0f)
     {
-        glm::vec3 ps = ObjPos;
-        ps.y += gi.radius * 0.111f * static_cast<float>(it);
-        if (col->Trace(its, ps, lightPos, nullptr, 0) > 1.0f)
-            minVal += 0.1f;
+        float minVal = 0.0f;
+        for (int32_t it = 0; it < 10; it++)
+        {
+            glm::vec3 ps = ObjPos;
+            ps.y += gi.radius * 0.111f * static_cast<float>(it);
+            if (col->Trace(its, ps, lightPos, nullptr, 0) > 1.0f)
+                minVal += 0.1f;
+        }
+        rays_.minVal = minVal;
     }
+    const float minVal = rays_.minVal;
 
     float dtime = Delta_Time * 0.001f;
     if (minVal <= 0.5f)
@@ -374,7 +401,7 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
     out.lightPos = lightPos;
     out.camPos = camPos;
     float dist = 3.0f * sqrtf(storm::math::lengthSquared(cen - camPos));
-    shading *= powf(2.71f, -fogDensity * dist);
+    shading *= powf(2.71f, -fogDensity_ * dist);
     out.shade = static_cast<int32_t>(fabsf(shading * 255.0f));
 }
 
