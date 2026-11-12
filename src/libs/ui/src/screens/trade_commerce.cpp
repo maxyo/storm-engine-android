@@ -95,12 +95,6 @@ int FirstNumber(const std::string &text)
     return std::atoi(text.substr(first, end == std::string::npos ? std::string::npos : end - first).c_str());
 }
 
-std::string OneLine(std::string text)
-{
-    std::replace(text.begin(), text.end(), '\n', ' ');
-    return text;
-}
-
 // The trade type, which the game tells only by the colour of the goods name: the tone of
 // the row's second line and the string key of its word.
 struct TradeType

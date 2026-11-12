@@ -15,8 +15,6 @@ std::string Field(const Widget *fact, const char *key);
 // The first number in a game text ("Вес: 4.6 / 140" → 4, "-3" → -3), 0 without one.
 int Number(const std::string &text);
 std::string Trim(std::string text);
-// A game text on one line: line breaks ("\r", "\n") and runs of spaces become one space, trimmed.
-std::string OneLine(const std::string &text);
 // Lower case for the game's upper-case words ("ОТЛИЧНОЕ"): ASCII, Latin-1 and Cyrillic.
 std::string LowerText(const std::string &text);
 // A game number with a decimal point in the interface's language ("2.4" → "2,4" except in

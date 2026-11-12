@@ -1,0 +1,61 @@
+{
+ "schemaVersion": 2,
+ "language": "russian",
+ "revision": 1,
+ "screenRevision": 1,
+ "screen": "quick_save",
+ "widgets": [
+  {
+   "node": "INFO_WINDOW_FADER",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_FRAME",
+   "type": "image",
+   "label": "",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_TEXT",
+   "type": "text",
+   "label": "Идёт сохранение...",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  },
+  {
+   "node": "INFO_WINDOW_CAPTION",
+   "type": "text",
+   "label": "Быстрое сохранение",
+   "value": "",
+   "index": -1,
+   "order": 0,
+   "enabled": true,
+   "rowId": "",
+   "images": [],
+   "actions": [],
+   "cells": []
+  }
+ ]
+}

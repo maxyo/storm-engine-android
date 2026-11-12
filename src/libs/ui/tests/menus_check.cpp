@@ -548,6 +548,24 @@ static void GameOver(const std::string &models)
     Expect(!router.Active() && surface.errors.size() == 1, "an unknown kind is an error");
 }
 
+// The quick save's plate (quick_save.c): the game's caption and line, nothing to press.
+static void QuickSave(const std::string &models)
+{
+    FakeSurface surface;
+    Router router(surface);
+    router.SetInterface(Load(models, "quick-save.json"));
+    Expect(router.Using() == "quick_save" && surface.tag == "s-quick-save" && surface.errors.empty() && surface.props["extras"]["rows"].empty(),
+           "the quick save is a ported screen; every node is known");
+    Expect(surface.props["title"] == "Быстрое сохранение" && surface.props["text"] == "Идёт сохранение...", "the game's caption and line");
+    router.Back();
+    Expect(surface.commands.empty() && router.Using() == "quick_save", "back does nothing: the game closes it when the record is written");
+    InterfaceModel untitled = Load(models, "quick-save.json");
+    Without(untitled, "INFO_WINDOW_CAPTION");
+    untitled.opening += 1;
+    router.SetInterface(untitled);
+    Expect(surface.props["title"] == "<menu.quick_save>", "without the game's caption: our title");
+}
+
 // The engine's load watchdog (core load_watch.hpp): the player is told which record did not load.
 static void LoadFailure()
 {
@@ -567,6 +585,7 @@ int main(int argc, char **argv)
     const std::string models = argc > 1 ? argv[1] : "tests/models";
     GameMenu(models);
     GameOver(models);
+    QuickSave(models);
     LoadFailure();
     Saves(models);
     Autosaves(models);

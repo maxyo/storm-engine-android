@@ -53,6 +53,7 @@ std::unique_ptr<Screen> CreateMapScreen();
 std::unique_ptr<Screen> CreateLauncherScreen();
 std::unique_ptr<Screen> CreateDownloadsScreen();
 std::unique_ptr<Screen> CreateAboutScreen();
+std::unique_ptr<Screen> CreateQuickSaveScreen();
 std::unique_ptr<StateConsumer> CreateLauncherConsumer();
 
 namespace
@@ -81,6 +82,7 @@ const ScreenEntry kPorted[] = {
     {"transfer_main", CreateTransferScreen},
     {"alchemy", CreateAlchemyScreen},
     {"game_over", CreateGameOverScreen}, // state channel gameOver, not a game interface
+    {"quick_save", CreateQuickSaveScreen},
     {"nationrelation", CreateNationsScreen},
     {"lscchar_all", CreateHeroScreen},
     {"character", CreateHeroScreen},
@@ -107,6 +109,12 @@ const ScreenEntry kPorted[] = {
     {"app:downloads", CreateDownloadsScreen},
     {"app:about", CreateAboutScreen},
 };
+
+// TEHO interfaces with no screen of their own, on purpose (the generic layout draws them if
+// they ever open): passengers and selectnation are commented out of BaseInterface.c and have
+// no files; disease_alert has no disease_alert.c / .ini in the game, so it never loads;
+// ransack_main loads transfer_main.ini (id "transfer_main", ported); pshero opens only from
+// the beta-test debug key (Debuger.c, MOD_BETTATESTMODE).
 
 } // namespace
 
