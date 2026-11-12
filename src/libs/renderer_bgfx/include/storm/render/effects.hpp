@@ -9,7 +9,6 @@
 
 #include <array>
 #include <cstdint>
-#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -115,17 +114,13 @@ void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<floa
 // ("bump") textures get a normal map for the per-pixel lighting's relief (fx_light_normal_map).
 void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path);
 
-// Renderer: the device texture behind a renderer texture id (EffectsWaterMesh::env_map), null for an invalid id.
-void SetEffectsTextureResolver(std::function<shim::BaseTexture *(int32_t)> resolver);
-
-// ---- World passes: fx sky, fx water, contact shadows ----
+// ---- World passes: fx sky, contact shadows ----
 // The consumer entities (SKY, SEA, shadow, SUNGLOW) ask which parts are on and then either call the fx pass below
 // or keep their legacy drawing. Changes only at the Present that switches settings (EffectsReport::pending);
 // everything false in «Низкая».
 struct EffectsWorld
 {
     bool sky = false;             // fx sky replaces the textured sky box and the fog sphere of SKY
-    bool water = false;           // fx water replaces the Sea2 / Sea3 passes of SEA (and its reflection renders)
     bool contact_shadows = false; // a soft blob under each character
     bool lens_flare = false;      // the post chain draws the lens flare: SUNGLOW leaves its flare sprites out
 };
@@ -142,36 +137,6 @@ using EffectsMatrix = std::array<float, 16>;
 
 // Draws the analytic sky on the far plane (depth test only). Only while CurrentEffectsWorld().sky.
 void EffectsDrawSky(const EffectsMatrix &view);
-
-// The SEA entity's surface for the fx water: its CPU-displaced vertices (SEA::SeaVertex: position relative to
-// `world_offset`, normal, uv) and triangle list, the look from its Sea2 attributes and its environment cube (the
-// scene reflected in the sea, rendered this frame by SEA::EnvMap_Render). Only while CurrentEffectsWorld().water.
-struct EffectsWaterShading
-{
-    std::array<float, 3> water_color{0.04f, 0.22f, 0.39f}; // Sea2.WaterColor
-    std::array<float, 3> sky_color{1.0f, 1.0f, 1.0f};      // Sea2.SkyColor
-    float reflection = 0.7f;                               // Sea2.Reflection
-    float transparency = 0.6f;                             // Sea2.Transparency
-    float attenuation = 0.2f;                              // Sea2.Attenuation
-    float fresnel = 0.5f;                                  // Sea2.Frenel
-    float bump_speed = 1.0f;                               // Sea2.BumpSpeed
-    bool foam = false;                                     // Sea2.FoamEnable and the foam option
-    float foam_v = 3.0f, foam_k = 0.3f, foam_uv = 1.0f;    // Sea2.FoamV / FoamK / FoamUV
-    std::array<float, 3> fog_color{0.5f, 0.6f, 0.7f};      // D3DRS_FOGCOLOR
-    float fog_density = 0.0f;                              // Sea.Fog.SeaDensity while Sea.Fog.Enable, else 0
-};
-struct EffectsWaterMesh
-{
-    const void *vertices = nullptr; // vertex_count * 32 bytes (SEA::SeaVertex)
-    uint32_t vertex_count = 0;
-    const uint16_t *indices = nullptr;
-    uint32_t index_count = 0;
-    std::array<float, 2> world_offset{0.0f, 0.0f}; // SEA::vWorldOffset x, z
-    float crest_height = 4.0f;                     // Amp1 + Amp2
-    EffectsWaterShading shading;
-    int32_t env_map = -1; // required: renderer texture id of the cube the water reflects
-};
-void EffectsDrawWater(const EffectsWaterMesh &mesh, const EffectsMatrix &view);
 
 // A contact shadow on the floor at `ground` (a character's feet), drawn at once. Call it after the floor is drawn.
 // Only while CurrentEffectsWorld().contact_shadows.

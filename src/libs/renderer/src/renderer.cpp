@@ -676,10 +676,6 @@ bool Renderer::Init()
 
         gamePictures_ = std::make_unique<storm::GamePictures>(*this);
         storm::render::SetGamePictureProvider(gamePictures_.get());
-        storm::render::SetEffectsTextureResolver([this](int32_t texture) -> storm::shim::BaseTexture * {
-            return texture >= 0 && texture < MAX_STEXTURES && Textures[texture].ref > 0 ? Textures[texture].d3dtex
-                                                                                       : nullptr;
-        });
         // The Android surface is destroyed in background: stop presenting before control returns
         // to SDL (early subscriber) and re-attach to the new native window on return.
         appEventsSubscription_ = storm::AppEvents::instance().subscribe(
@@ -959,7 +955,6 @@ bool Renderer::ReleaseDevice()
         storm::AppEvents::instance().unsubscribe(appEventsSubscription_);
     appEventsSubscription_ = -1;
     storm::render::SetGamePictureProvider(nullptr);
-    storm::render::SetEffectsTextureResolver(nullptr);
     gamePictures_.reset();
     if (aniVBuffer)
         aniVBuffer->Release();

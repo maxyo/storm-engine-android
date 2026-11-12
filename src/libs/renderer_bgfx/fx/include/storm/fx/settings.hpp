@@ -3,7 +3,7 @@
 // Every field may be changed between frames; the passes read the struct each
 // frame and (re)create GPU resources lazily. `QualityPreset::Low` turns
 // every effect off: the post chain degenerates to a plain copy and the legacy
-// sea / sky / fixed-function lighting paths must be used unchanged.
+// sea / sky / fixed-function lighting paths are used unchanged.
 #pragma once
 
 #include <cstdint>
@@ -34,14 +34,6 @@ enum class GradePreset : uint8_t
     Original,  // «Оригинал»: identity look-up table
     Caribbean, // «Карибы»: warm, saturated
     Overcast,  // «Пасмурно»: cool, low saturation, softer contrast
-};
-
-enum class WaterQuality : uint8_t
-{
-    Legacy, // fx::Water is not used; the ported Sea2/Sea3 techniques draw the sea
-    Low,    // analytic sky reflection, two detail normals, sun specular
-    Medium, // + crest foam, reflected clouds / environment cube
-    High,   // + scene depth: depth colour, shore foam, soft edges, refraction
 };
 
 // Bits understood by shaders/include/fx_lighting.sh (see lighting.hpp).
@@ -119,8 +111,14 @@ struct Settings
 
     // ---- world passes ----
     bool contact_shadows = false; // soft blobs under characters and objects (ContactShadows)
-    WaterQuality water = WaterQuality::Legacy;
-    bool water_refraction = false; // needs a copy of the opaque scene colour
+    // The game's own sea (the ported Sea2 technique, shaders/ports/fs_port_sea2.sc) with improvements on top; the
+    // reflected ray is clamped to the horizon always, these are optional:
+    bool sea_band_limit = false;  // the bump detail fades with the pixel footprint: no shimmer towards the horizon
+    bool sea_soft_edges = false;  // the sea fades out where shallow in front of the scene (needs the scene depth)
+    bool sea_specular = false;    // a clean sun highlight from the bumped normal over the game's own sun road
+    float sea_edge_depth = 1.5f;  // metres of water over which a soft edge fades in
+    float sea_specular_power = 400.0f;
+    float sea_specular_strength = 0.6f;
     bool sky_atmosphere = false;   // analytic sky instead of the textured sky box
     bool sky_clouds = false;
     uint32_t lighting_flags = kLightingNone;
@@ -146,13 +144,11 @@ struct Support
 {
     bool lut_3d = false;        // 3D RGBA8 texture: the grading table every post effect passes through
     bool shadow_map = false;    // D16 texture as a render target: Settings::shadows
-    bool scene_snapshot = false; // two colour attachments: WaterQuality::High
-    bool wave_field = false;    // RGBA16F texture readable in the vertex shader: Water::SubmitField
-    bool scene_depth = false;   // the scene's depth attachment can be sampled: Settings::ssao, WaterQuality::High
+    bool scene_depth = false;   // the scene's depth attachment can be sampled: Settings::ssao, Settings::sea_soft_edges
     bool normal_map = false;    // RG8 textures: kLightingNormalMap
     bool msaa = false;          // multisampled RGBA8 render targets: Settings::msaa
     bool msaa_depth = false;    // the scene depth can still be sampled when the scene target is multisampled
-                                // (renderer knowledge, like scene_depth): msaa together with ssao / high water
+                                // (renderer knowledge, like scene_depth): msaa together with ssao / sea soft edges
     bool anisotropy = false;    // anisotropic texture filtering
     bool ao_volume = false;     // R8 3D textures with linear filtering: Settings::ao_volume
 
@@ -160,7 +156,7 @@ struct Support
 };
 
 // Inconsistent or unsupported requests in `settings`, one message each; empty = every effect will run exactly
-// as asked. PostChain, Water and Shadows refuse (and log) what this reports.
+// as asked. PostChain, Shadows and the sea's soft edges refuse (and log) what this reports.
 std::vector<std::string> ValidateSettings(const Settings &settings, const Support &support);
 
 // The explicit, one-time alternative to a silent fallback: returns `requested` with every option that

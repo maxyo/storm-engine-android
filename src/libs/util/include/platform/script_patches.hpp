@@ -153,7 +153,7 @@ inline bool isPatchTargetPath(const fs::path &relative)
         return slash != std::string::npos && slash > dialogs.size();
     }
     for (const std::string_view directory : {"program/quests/", "program/sea_ai/", "program/loc_ai/",
-                                             "program/weather/"})
+                                             "program/weather/", "program/battle_interface/"})
         if (key.starts_with(directory))
             return true;
     return false;

@@ -104,7 +104,6 @@ class SEA : public SEA_BASE
 
     SeaVertex *pVSea;
     uint16_t *pTriangles;
-    std::vector<uint16_t> fxIndices_; // the triangle list for the fx water (instead of the locked index buffer)
     uint32_t *pIndices;
     int32_t iVStart, iTStart, iIStart;
 
@@ -161,6 +160,8 @@ class SEA : public SEA_BASE
     float WaveXZ(float x, float z, glm::vec3 *pNormal = nullptr) override;
 
     void AddBlock(int32_t iTX, int32_t iTY, int32_t iSize, int32_t iLOD);
+    uint32_t TreeDim() const;
+    void PlaceTree();
     void BuildTree(int32_t iTX, int32_t iTY, int32_t iLev);
     void SetBlock(uint32_t dwBlockIndex);
 

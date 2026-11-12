@@ -12,7 +12,7 @@
 #include "storm/fx/settings.hpp"
 #include "storm/fx/sky.hpp"
 #include "storm/fx/sky_model.hpp"
-#include "storm/fx/water.hpp"
+#include "storm/fx/sea_depth.hpp"
 #include "storm/render/effects.hpp"
 #include "storm/render/program_cache.hpp"
 
@@ -48,8 +48,8 @@ class Host
     const fx::Settings &settings() const { return settings_; }
     const fx::RendererState &renderer_state() const { return renderer_state_; }
     bool post_active() const { return device_ready_ && !settings_.PostIsIdentity(); }
-    // An effect samples the scene depth (ambient occlusion, the high water's scene capture).
-    bool scene_depth_read() const { return settings_.ssao || settings_.water == fx::WaterQuality::High; }
+    // An effect samples the scene depth (ambient occlusion, the sea's soft edges).
+    bool scene_depth_read() const { return settings_.ssao || settings_.sea_soft_edges; }
     // True once after a settings switch made MSAA, anisotropy or the scene depth read change (the shim rebuilds
     // what of the scene target differs, between frames).
     bool take_renderer_state_change()
@@ -101,7 +101,9 @@ class Host
     render::EffectsWorld world() const;
     bool sky_fog_color(std::array<float, 3> &rgb);
     void draw_sky(const render::EffectsMatrix &view);
-    void draw_water(const render::EffectsWaterMesh &mesh, const render::EffectsMatrix &view);
+    // Before each draw with the game's Sea2 pixel shader (shaders/ports/fs_port_sea2.sc): sets its u_seaFx and,
+    // for the soft edges, captures the scene distance behind the sea once per frame and target and binds it.
+    void prepare_sea(shim::Device &device);
     void contact_shadow(const std::array<float, 3> &ground, const render::EffectsMatrix &view);
 
   private:
@@ -111,7 +113,7 @@ class Host
     // Makes `settings` the ones that draw; the shim follows a renderer-state change at the next Present.
     void activate(const fx::Settings &settings);
     static bool needs_self_test(const fx::Settings &settings);
-    // The sky behind the fx sky and water, the scene grade and the hemisphere ambient, from the last weather.
+    // The sky behind the fx sky, the scene grade and the hemisphere ambient, from the last weather.
     const fx::SkyState &sky_state();
     fx::WeatherInput weather_input() const;
     bool has_weather() const { return weather_this_frame_ || weather_last_frame_; }
@@ -158,15 +160,18 @@ class Host
     fx::PostChain post_;
     Lighting lighting_;
     fx::Sky sky_;
-    fx::Water water_;
+    fx::SeaDepth sea_depth_;
     fx::ContactShadows contact_;
     AoVolumes ao_;
     const AoVolumes::Bound *ao_bound_ = nullptr;
     float camera_height_ = 0.0f; // of the last world pass
     bool sky_weather_logged_ = false;
-    bool water_buffers_logged_ = false;
-    bool water_capture_logged_ = false;
-    bool water_env_logged_ = false;
+    bgfx::UniformHandle u_sea_fx_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_sea_depth_ = BGFX_INVALID_HANDLE;
+    // The capture of this frame: the target it was taken of and the view the sea continues in after it.
+    uint32_t sea_depth_frame_ = UINT32_MAX;
+    const void *sea_depth_target_ = nullptr;
+    bool sea_depth_logged_ = false;
     // The fx view transform last set on a shim view this frame: another camera in the same view needs a new view.
     bgfx::ViewId transform_view_ = UINT16_MAX;
     std::array<float, 32> transform_{};
@@ -183,8 +188,3 @@ class Host
 
 } // namespace storm::effects
 
-namespace storm::render
-{
-// The device texture of a renderer texture id through the resolver Renderer installed (null without one).
-storm::shim::BaseTexture *ResolveEffectsTexture(int32_t texture);
-} // namespace storm::render
