@@ -1,7 +1,28 @@
 #include "attributes.h"
+#include "script_state.hpp"
 
 #include "string_compare.hpp"
 #include "platform/platform.hpp"
+
+#include <atomic>
+
+namespace storm
+{
+namespace
+{
+std::atomic<uint64_t> scriptStateGeneration{0};
+}
+
+uint64_t ScriptStateGeneration() noexcept
+{
+    return scriptStateGeneration.load(std::memory_order_relaxed);
+}
+
+void ScriptStateChanged() noexcept
+{
+    scriptStateGeneration.fetch_add(1, std::memory_order_relaxed);
+}
+} // namespace storm
 
 ATTRIBUTES::ATTRIBUTES(VSTRING_CODEC *p): ATTRIBUTES(*p)
 {
@@ -23,6 +44,7 @@ ATTRIBUTES & ATTRIBUTES::operator=(ATTRIBUTES &&other) noexcept
     // Do not update parent
     // parent_ = other.parent_;
     break_ = other.break_;
+    storm::ScriptStateChanged();
     return *this;
 }
 
@@ -72,15 +94,20 @@ ATTRIBUTES::LegacyProxy ATTRIBUTES::GetThisAttr() const
 void ATTRIBUTES::SetName(const std::string_view &new_name)
 {
     nameCode_ = stringCodec_.Convert(new_name.data());
+    storm::ScriptStateChanged();
 }
 
 void ATTRIBUTES::SetValue(const char *new_value)
 {
     if (new_value == nullptr)
     {
+        if (value_)
+            storm::ScriptStateChanged();
         value_.reset();
     }
     else {
+        if (!value_ || *value_ != new_value)
+            storm::ScriptStateChanged();
         value_ = new_value;
     }
 
@@ -90,6 +117,8 @@ void ATTRIBUTES::SetValue(const char *new_value)
 
 void ATTRIBUTES::SetValue(const std::string_view &new_value)
 {
+    if (!value_ || *value_ != new_value)
+        storm::ScriptStateChanged();
     value_ = new_value;
 
     if (break_)
@@ -222,12 +251,14 @@ bool ATTRIBUTES::SetAttributeUseFloat(const char *name, float val)
 
 ATTRIBUTES & ATTRIBUTES::CreateAttribute(const std::string_view &name)
 {
+    storm::ScriptStateChanged();
     const auto &attr = attributes_.emplace_back(new ATTRIBUTES(stringCodec_, this, name));
     return *attr;
 }
 
 ATTRIBUTES * ATTRIBUTES::CreateAttribute(const std::string_view &name, const char *attribute)
 {
+    storm::ScriptStateChanged();
     const auto &attr = attributes_.emplace_back(new ATTRIBUTES(stringCodec_, this, name));
 
     if (attribute)
@@ -254,6 +285,8 @@ bool ATTRIBUTES::DeleteAttributeClassX(ATTRIBUTES *pA)
         return false;
     if (pA == this)
     {
+        if (!attributes_.empty())
+            storm::ScriptStateChanged();
         attributes_.clear();
     }
     else
@@ -271,6 +304,7 @@ bool ATTRIBUTES::DeleteAttributeClassX(ATTRIBUTES *pA)
                     attributes_[i] = std::move(attributes_[i + 1]);
 
                 attributes_.pop_back();
+                storm::ScriptStateChanged();
                 return true;
             }
             if (attributes_[n]->DeleteAttributeClassX(pA))
@@ -363,6 +397,7 @@ ATTRIBUTES * ATTRIBUTES::VerifyAttributeClassByCode(uint32_t name_code)
 
 ATTRIBUTES * ATTRIBUTES::CreateAttribute(uint32_t name_code, const char *attribute)
 {
+    storm::ScriptStateChanged();
     const auto &attr = attributes_.emplace_back(new ATTRIBUTES(stringCodec_, this, name_code));
 
     if (attribute)
@@ -380,18 +415,22 @@ size_t ATTRIBUTES::SetAttribute(uint32_t name_code, const char *attribute)
     {
         if (attributes_[n]->nameCode_ == name_code)
         {
+            auto &value = attributes_[n]->value_;
+            if (attribute ? !value || *value != attribute : value.has_value())
+                storm::ScriptStateChanged();
             if (attribute)
             {
-                attributes_[n]->value_ = attribute;
+                value = attribute;
             }
             else
             {
-                attributes_[n]->value_.reset();
+                value.reset();
             }
             return n;
         }
     }
 
+    storm::ScriptStateChanged();
     auto &attr = attributes_.emplace_back(new ATTRIBUTES(stringCodec_, this, name_code));
 
     if (attribute)
@@ -412,11 +451,15 @@ size_t ATTRIBUTES::SetAttribute(uint32_t name_code, const std::string_view &attr
     {
         if (attributes_[n]->nameCode_ == name_code)
         {
-            attributes_[n]->value_ = attribute;
+            auto &value = attributes_[n]->value_;
+            if (!value || *value != attribute)
+                storm::ScriptStateChanged();
+            value = attribute;
             return n;
         }
     }
 
+    storm::ScriptStateChanged();
     auto &attr = attributes_.emplace_back(new ATTRIBUTES(stringCodec_, this, name_code));
 
     attributes_[n]->value_ = attribute;
@@ -431,6 +474,8 @@ uint32_t ATTRIBUTES::GetThisNameCode() const noexcept
 
 void ATTRIBUTES::SetNameCode(uint32_t n) noexcept
 {
+    if (nameCode_ != n)
+        storm::ScriptStateChanged();
     nameCode_ = n;
 }
 
@@ -441,6 +486,7 @@ VSTRING_CODEC & ATTRIBUTES::GetStringCodec() const noexcept
 
 ATTRIBUTES * ATTRIBUTES::CreateNewAttribute(uint32_t name_code)
 {
+    storm::ScriptStateChanged();
     const std::unique_ptr<ATTRIBUTES> &attr = attributes_.emplace_back(new ATTRIBUTES(stringCodec_, this, name_code));
     return attr.get();
 }
@@ -461,15 +507,14 @@ ATTRIBUTES::ATTRIBUTES(VSTRING_CODEC &string_codec, ATTRIBUTES *parent, const ui
 
 ATTRIBUTES ATTRIBUTES::Copy() const
 {
+    // A detached tree: no script state changes until it is assigned somewhere.
     ATTRIBUTES result(stringCodec_, nullptr, nameCode_);
-    result.value_ = value_;
-
-    for (const auto &attribute : attributes_)
-    {
-        auto &new_child = result.CreateAttribute(attribute->GetThisName());
-        new_child = attribute->Copy();
-    }
-
+    const auto copy = [](const auto &self, const ATTRIBUTES &from, ATTRIBUTES &to) -> void {
+        to.value_ = from.value_;
+        for (const auto &attribute : from.attributes_)
+            self(self, *attribute, *to.attributes_.emplace_back(new ATTRIBUTES(from.stringCodec_, &to, attribute->nameCode_)));
+    };
+    copy(copy, *this, result);
     return result;
 }
 

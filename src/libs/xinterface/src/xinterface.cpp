@@ -8,6 +8,7 @@
 #include <storm/render/frame_owner.hpp>
 
 #include "xinterface.h"
+#include "profiler.hpp"
 #include "load_watch.hpp"
 #include "save_description.hpp"
 #include <set>
@@ -667,6 +668,7 @@ void XINTERFACE::Realize(uint32_t)
     }
     else
     {
+        STORM_PROFILE_ZONE("UI model: collect");
         std::vector<MobileWidget> widgets;
         MobileCollectWidgets(widgets);
         if (saves)
@@ -783,8 +785,11 @@ void XINTERFACE::Realize(uint32_t)
             ++snapshotRevision;
         }
         if (changed || (!mobileLeft_ && storm::android::lastWidgetSnapshot.empty())) // nothing new: nothing to build or send
+        {
+            STORM_PROFILE_ZONE("UI model: publish");
             storm::android::publishMobileWidgets(MobileWidgetJson(storm::android::mobileScreen, widgets,
                                                                   storm::android::mobileScreenRevision, snapshotRevision, language));
+        }
     }
 #endif
 
