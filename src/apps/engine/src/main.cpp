@@ -25,6 +25,10 @@
 #include "v_sound_service.h"
 #include "fs.h"
 #include "platform/host_hooks.hpp"
+#include "profiler.hpp"
+#ifdef STORM_TRACY
+#include <common/TracyVersion.hpp>
+#endif
 #include "watermark.hpp"
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -402,6 +406,13 @@ int main(int argc, char *argv[])
     // Init logging
     spdlog::set_default_logger(storm::logging::getOrCreateLogger(defaultLoggerName));
     spdlog::info("Logging system initialized. Running on {}", STORM_BUILD_WATERMARK_STRING);
+#ifdef STORM_TRACY
+    // Development build (cmake/tracy.cmake). The application's release packaging refuses a library with this line.
+    STORM_PROFILE_THREAD("game");
+    spdlog::info("storm-profiler: Tracy {}.{}.{} client, on demand, listening on 127.0.0.1:8086 (device: adb forward "
+                 "tcp:8086 tcp:8086; tools/android/README.md)",
+                 tracy::Version::Major, tracy::Version::Minor, tracy::Version::Patch);
+#endif
     spdlog::info("mimalloc-redirect status: {}", mi_is_redirected());
 #ifdef __ANDROID__
     AnnounceScriptPatches();
@@ -528,6 +539,7 @@ int main(int argc, char *argv[])
     isRunning = true;
     while (isRunning)
     {
+        STORM_PROFILE_ZONE("main loop");
         if (const auto work = frameWork.lap(storm::platform::FrameWorkClock::Clock::now()))
             storm::platform::reportFrameWork(std::chrono::duration_cast<std::chrono::nanoseconds>(*work));
 #ifdef __ANDROID__
@@ -535,7 +547,10 @@ int main(int argc, char *argv[])
         const auto combatDrainEpoch = storm::android::combatCancelEpoch.load(std::memory_order_acquire);
         // The UI host first: it applies the touches the platform sent, and what they produce
         // is read in this iteration, together with the activity's own queue.
-        storm::android::ui::tick();
+        {
+            STORM_PROFILE_ZONE("UI host: input");
+            storm::android::ui::tick();
+        }
         // A pinch acts only in the frame it came for (android_camera_zoom.hpp).
         if (storm::android::cameraZoom.beginFrame())
             __android_log_print(ANDROID_LOG_WARN, "StormInput", "camera pinch dropped: no camera with a zoom took it (gameplay %s)",
@@ -868,6 +883,7 @@ int main(int argc, char *argv[])
 #ifdef __ANDROID__
                 storm::android::worldMapHud.beginDraw(SDL_GetTicks());
 #endif
+                STORM_PROFILE_ZONE("frame: script, entities, render");
                 RunFrame();
             }
             catch (const std::exception &error)

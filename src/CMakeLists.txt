@@ -32,6 +32,16 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -g")
 # Add _DEBUG flag
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
 
+# Tracy profiler in development builds (-DSTORM_TRACY=ON); before the libraries, which bgfx's profiler follows.
+include(tracy)
+
 # this is crucial to include libs first
 add_subdirectory(libs)
 add_subdirectory(apps)
+
+# The sources that record Tracy zones (src/libs/util/include/profiler.hpp); nothing changes without STORM_TRACY.
+storm_tracy_sources(engine "${CMAKE_CURRENT_SOURCE_DIR}/apps/engine/src/main.cpp")
+storm_tracy_sources(core "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/src/core_impl.cpp")
+storm_tracy_sources(storm_bgfx "${CMAKE_CURRENT_SOURCE_DIR}/libs/renderer_bgfx/src/shim/context.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/renderer_bgfx/src/shim/program_cache.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/renderer_bgfx/src/shim/frame_pacing.cpp")

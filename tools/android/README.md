@@ -158,6 +158,36 @@ and gets each frame's CPU work without the present wait. Logged (tag `storm-bgfx
 Emulator frame times are far above 16.7 ms (its present alone takes ~50 ms), so emulator runs show
 that pacing works, not its quality; the numbers come from a phone's log.
 
+## Tracy profiler (development builds)
+
+`-DSTORM_TRACY=ON` (`cmake/tracy.cmake`, Tracy 0.14.1, BSD-3-Clause) links the Tracy client into a
+development build. Use its own build directory next to the normal one (e.g. `build/android-tracy`):
+only the instrumented sources (`storm_tracy_sources` in `src/CMakeLists.txt`) and bgfx (with
+`BGFX_CONFIG_PROFILER`) compile differently, the rest comes from ccache. The application refuses such
+a `libengine.so` for release APKs; a debug APK keeps the INTERNET permission for the profiler's socket.
+The client records on demand (nothing until a viewer connects), listens on 127.0.0.1:8086 only, does
+not broadcast and installs no crash handler; the engine log says
+`storm-profiler: Tracy 0.14.1 client, on demand, listening on 127.0.0.1:8086`.
+
+Recorded: frame marks at every present; zones of the main loop (UI host input, the frame), the core
+frame (script frame events, save/load, services, `execute` with one zone per entity, named by its
+class, `realize` the same, controls, run end with the present), the shim's present (UI render,
+`bgfx::frame`, the Swappy wait) and bgfx's own scopes (bgfx callback profiler functions, render
+thread = game thread); plots of bgfx's CPU and GPU frame timers, draws, texture/render target memory,
+transient buffer use, resident memory, the present wait and Swappy's interval.
+
+Connect from the development machine (the viewer must be Tracy 0.14.1, the protocol is versioned):
+
+```sh
+adb -s <serial> forward tcp:8086 tcp:8086
+# GUI: tracy-profiler (Tracy's profiler/ directory, or the 0.14.1 Windows release), connect to 127.0.0.1
+# headless: tracy-capture from Tracy's capture/ directory
+tracy-capture -o game.tracy -a 127.0.0.1 -s 30   # 30 s, open game.tracy in the GUI later
+```
+
+A host build (`-DSTORM_HOST_SOURCES=...`) with `-DSTORM_TRACY=ON` is profiled the same way, without
+the forward.
+
 ## Host checks and CI
 
 `python3 tools/ci/run_host_tests.py` fetches the pinned open-source sources into

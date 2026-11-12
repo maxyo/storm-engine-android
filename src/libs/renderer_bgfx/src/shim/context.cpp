@@ -2,6 +2,7 @@
 #include "effects/effects.hpp"
 #include "frame_pacing.hpp"
 #include "perf.hpp"
+#include "profiler.hpp"
 #include "program_cache.hpp"
 #include "storm/render/d3d_interop.hpp"
 
@@ -18,6 +19,9 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#ifdef STORM_TRACY
+#include <unistd.h>
+#endif
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -555,8 +559,42 @@ void Context::draw_fullscreen(uint16_t view, bgfx::TextureHandle texture, uint32
     bgfx::submit(view, blit_program_);
 }
 
+#ifdef STORM_TRACY
+namespace
+{
+// Tracy plots of the presented frame: bgfx's own CPU and GPU timers and counters, and the process's resident memory.
+void plot_frame_stats()
+{
+    const bgfx::Stats *stats = bgfx::getStats();
+    if (stats->gpuTimerFreq > 0 && stats->gpuTimeEnd > stats->gpuTimeBegin)
+        STORM_PROFILE_PLOT("bgfx GPU frame ms", double(stats->gpuTimeEnd - stats->gpuTimeBegin) * 1000.0 / stats->gpuTimerFreq);
+    if (stats->cpuTimerFreq > 0)
+        STORM_PROFILE_PLOT("bgfx CPU frame ms", double(stats->cpuTimeEnd - stats->cpuTimeBegin) * 1000.0 / stats->cpuTimerFreq);
+    STORM_PROFILE_PLOT("bgfx draws", int64_t(stats->numDraw));
+    if (stats->textureMemoryUsed >= 0)
+        STORM_PROFILE_PLOT("bgfx texture MB", double(stats->textureMemoryUsed) / (1024.0 * 1024.0));
+    if (stats->rtMemoryUsed >= 0)
+        STORM_PROFILE_PLOT("bgfx render target MB", double(stats->rtMemoryUsed) / (1024.0 * 1024.0));
+    STORM_PROFILE_PLOT("bgfx transient VB KB", double(stats->transientVbUsed) / 1024.0);
+    static uint32_t frames = 0;
+    if (frames++ % 30 == 0)
+    {
+        // Resident pages (statm field 2): twice a second at 60 fps.
+        if (FILE *statm = fopen("/proc/self/statm", "r"))
+        {
+            unsigned long size = 0, resident = 0;
+            if (fscanf(statm, "%lu %lu", &size, &resident) == 2)
+                STORM_PROFILE_PLOT("resident MB", double(resident) * sysconf(_SC_PAGESIZE) / (1024.0 * 1024.0));
+            fclose(statm);
+        }
+    }
+}
+} // namespace
+#endif
+
 void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint32_t game_height)
 {
+    STORM_PROFILE_ZONE("present");
     if (!initialised_)
         return;
     begin_frame_if_needed();
@@ -593,12 +631,26 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
             bgfx::setViewRect(id, 0, 0, w, h);
             bgfx::setViewClear(id, BGFX_CLEAR_NONE);
         }
-        for (auto &entry : clients_)
-            entry.client->OnUiRender(frame_);
+        {
+            STORM_PROFILE_ZONE("UI render");
+            for (auto &entry : clients_)
+                entry.client->OnUiRender(frame_);
+        }
         const auto started = std::chrono::steady_clock::now();
-        if (run_frame(BGFX_FRAME_NONE, &last_frame_))
+        bool presented = false;
+        {
+            STORM_PROFILE_ZONE("bgfx::frame: GL submit and swap");
+            presented = run_frame(BGFX_FRAME_NONE, &last_frame_);
+        }
+        if (presented)
+        {
             perf_frame_presented(
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+            STORM_PROFILE_FRAME();
+#ifdef STORM_TRACY
+            plot_frame_stats();
+#endif
+        }
         ProgramCache::instance().log_activity();
     }
     else

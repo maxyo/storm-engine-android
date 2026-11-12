@@ -27,6 +27,11 @@ include("${CMAKE_CURRENT_LIST_DIR}/cmake/bgfx_upstream.cmake")
 # same ESSL shader blobs and code paths are exercised. Selecting one renderer
 # explicitly disables all the others (bgfx/src/config.h).
 target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_RENDERER_OPENGLES=30)
+# Tracy builds (cmake/tracy.cmake): bgfx reports its own scopes through the callback's profiler functions
+# (shim/program_cache.cpp).
+if(STORM_TRACY)
+    target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_PROFILER=1)
+endif()
 if(ANDROID)
     target_link_libraries(bgfx PUBLIC android log EGL GLESv3)
 else()
@@ -140,6 +145,8 @@ endif()
 set_target_properties(storm_bgfx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(storm_bgfx PRIVATE -fsigned-char)
 target_compile_definitions(storm_bgfx PRIVATE NOMINMAX)
+# context.cpp records Tracy zones through src/libs/util/include/profiler.hpp (no other util header).
+set_property(SOURCE src/shim/context.cpp APPEND PROPERTY INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../util/include")
 
 # DXT -> ETC2 transcode and on-disk cache (no bgfx dependency; unit-tested on the host).
 file(GLOB texture_core_sources CONFIGURE_DEPENDS src/texture/core/*.cpp src/texture/core/*.hpp)

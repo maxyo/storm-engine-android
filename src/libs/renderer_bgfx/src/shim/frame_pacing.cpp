@@ -4,6 +4,7 @@
 
 #ifdef __ANDROID__
 #include "platform/host_hooks.hpp"
+#include "profiler.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -169,7 +170,11 @@ bool FramePacing::present(void *display, void *surface)
 bool FramePacing::present_frame(void *display, void *surface)
 {
     const auto before = Clock::now();
-    const bool presented = SwappyGL_swap(static_cast<EGLDisplay>(display), static_cast<EGLSurface>(surface));
+    bool presented = false;
+    {
+        STORM_PROFILE_ZONE("present: Swappy waits for the vsync slot");
+        presented = SwappyGL_swap(static_cast<EGLDisplay>(display), static_cast<EGLSurface>(surface));
+    }
     const auto after = Clock::now();
     if (!presented)
     {
@@ -179,6 +184,8 @@ bool FramePacing::present_frame(void *display, void *surface)
     }
     const auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(after - before);
     storm::platform::presentWaited(wait);
+    STORM_PROFILE_PLOT("present wait ms", to_ms(wait));
+    STORM_PROFILE_PLOT("Swappy swap interval ms", to_ms(swap_interval_));
     if (last_present_ != Clock::time_point{})
     {
         intervals_ms_.push_back(static_cast<float>(to_ms(after - last_present_)));
