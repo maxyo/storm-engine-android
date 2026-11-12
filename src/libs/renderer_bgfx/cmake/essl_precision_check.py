@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Fails when an embedded ESSL shader blob (shaderc --bin2c header) declares anything mediump or lowp.
+"""Fails when an embedded ESSL shader blob (shaderc --bin2c header) contains mediump or lowp anywhere.
 
 GPUs differ in what mediump means: Adreno and Mali run it as fp16, others as fp32. Positions, depth, time and the
-HDR / tone / occlusion maths overflow or band in fp16, so every shader of the engine is highp; shaderc's
-spirv-cross output declares each variable with an explicit qualifier, and only its default line
-`precision mediump float;` may remain. A shader that needs mediump for speed must be added here with a reason.
+HDR / tone / occlusion maths overflow or band in fp16, so every shader of the engine is highp. shaderc's
+spirv-cross output declares most variables with an explicit qualifier, but not all (OpUndef placeholders, for
+example), so its default precision is highp too (patches/bgfx-essl-highp-default.patch) and the default line
+`precision mediump float;` is an error like any other mediump. A shader that needs mediump for speed must be
+added here with a reason.
   essl_precision_check.py <stamp> <blob.bin.h>...
 """
 import pathlib
@@ -19,7 +21,7 @@ for blob in blobs:
     if start < 0:
         continue  # not an ESSL blob
     for line in text[start:].split('\n'):
-        if re.search(r'\b(mediump|lowp)\b', line) and not re.fullmatch(r'\s*precision\s+mediump\s+float;\s*', line):
+        if re.search(r'\b(mediump|lowp)\b', line):
             problems.append(f'{pathlib.Path(blob).name}: {line.strip()[:120]}')
 if problems:
     sys.exit('Shader precision check failed (only highp is allowed, see this script):\n  ' + '\n  '.join(problems))

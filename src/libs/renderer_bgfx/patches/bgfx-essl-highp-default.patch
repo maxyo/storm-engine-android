@@ -1,0 +1,13 @@
+--- a/tools/shaderc/shaderc_glsl.cpp
++++ b/tools/shaderc/shaderc_glsl.cpp
+@@ -226,6 +226,10 @@
+ 			compilerOptions.vulkan_semantics                   = false;
+ 			compilerOptions.enable_420pack_extension           = false;
+ 			compilerOptions.emit_uniform_buffer_as_plain_uniforms = true;
++			// storm: ESSL fragment shaders default to highp; mediump is fp16 on Adreno and Mali, and a
++			// declaration spirv-cross leaves unqualified must not silently take it.
++			compilerOptions.fragment.default_float_precision   = spirv_cross::CompilerGLSL::Options::Highp;
++			compilerOptions.fragment.default_int_precision     = spirv_cross::CompilerGLSL::Options::Highp;
+ 			compiler.set_common_options(compilerOptions);
+ 
+ 			spirv_cross::ShaderResources resources = compiler.get_shader_resources();
