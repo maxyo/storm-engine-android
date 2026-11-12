@@ -1,0 +1,12 @@
+{
+  "comment": "Defects of the game's own data that the engine reports correctly and cannot fix (we never ship or patch game data files). A scene whose only problems match an entry here is reported as KNOWN, not as failed; anything else still fails it. Each entry: the game version, the scene, the game file at fault, the exact text the sweep sees (a substring of the reason), and why it cannot be fixed. Remove an entry once its cause is gone.",
+  "defects": [
+    {
+      "game": "TEHO 1.7.3",
+      "scene": "loc:UnderWater",
+      "file": "RESOURCE/MODELS/Locations/UnderWater/UnderWater_morning10.col",
+      "error": "engine error: geometry: resource\\models\\locations\\UnderWater\\UnderWater.gm has 86193 vertices but its vertex colour file resource\\models\\locations\\UnderWater\\UnderWater_morning10.col has 83897 entries",
+      "reason": "The game ships a baked vertex colour file made for an older version of the model (2296 vertices fewer). The engine reports it (geom_static.cpp) and draws the model's own vertex colours, as the original engine did; the data is the game's."
+    }
+  ]
+}

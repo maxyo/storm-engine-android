@@ -49,6 +49,12 @@ A scene fails on: a crash or fatal engine error, a timeout, a failed teleport to
 missing textures or models, engine/renderer errors in the logs, a fader that never goes,
 or a black, single-colour or unchanged frame.
 
+**Known game data defects.** A problem in the game's own files that the engine reports correctly and cannot fix
+(we never ship or patch game data) is listed in `known_defects.json`: the game version, the scene, the file at fault,
+the exact error text the sweep sees and the reason. A scene whose only problems match its entries is reported as
+`KNOWN` (progress line, `status: known` in the report, its own section of the summary), not as failed; any other
+problem still fails it. Remove an entry once its cause is gone.
+
 ## Running
 Needs a Linux host engine configured with `-DSTORM_SCENE_SWEEP=ON`, Xvfb, Pillow and the
 game files (`--out` must be on the same filesystem as `--game`). Keep one persistent build
