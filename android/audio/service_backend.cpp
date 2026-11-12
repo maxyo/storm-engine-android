@@ -317,24 +317,32 @@ void Mixer::listener(Vec3 p,Vec3 f,Vec3 up) {
     ma_engine_listener_set_direction(&backend.engine,0,f.x,f.y,-f.z);
     ma_engine_listener_set_world_up(&backend.engine,0,up.x,up.y,-up.z);
 }
-void Mixer::active(bool enabled,float duration) {
-    if(enabled==!suspended)return;
+ma_result Mixer::active(bool enabled,float duration) {
+    if(enabled==!suspended)return MA_SUCCESS;
     // Control thread owns stop/start. Background transition waits at most 1s for
     // the audio-frame fade, then stops the device; no audio callback blocks.
     uint64_t frames=uint64_t(std::min(seconds(duration),1.0f)*48000);
     if(enabled) {
+        // A device that does not start leaves the mixer suspended (silent, cursors frozen):
+        // the next active(true) starts it again.
+        const ma_result started=backend.resume();
+        if(started!=MA_SUCCESS)return started;
         ma_sound_group_set_fade_in_pcm_frames(&master,0,1,frames);
-        backend.resume();suspended=false;
-    } else {
-        ma_sound_group_set_fade_in_pcm_frames(&master,ma_sound_group_get_current_fade_volume(&master),0,frames);
-        uint64_t end=ma_engine_get_time_in_pcm_frames(&backend.engine)+frames;
-        auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(1200);
-        while(ma_engine_get_time_in_pcm_frames(&backend.engine)<end && std::chrono::steady_clock::now()<deadline) {
-            if(offline) {float pcm[512];backend.read(pcm,256);}
-            else std::this_thread::sleep_for(std::chrono::milliseconds(2));
-        }
-        update();backend.suspend();suspended=true;
+        suspended=false;
+        return MA_SUCCESS;
     }
+    ma_sound_group_set_fade_in_pcm_frames(&master,ma_sound_group_get_current_fade_volume(&master),0,frames);
+    uint64_t end=ma_engine_get_time_in_pcm_frames(&backend.engine)+frames;
+    auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(1200);
+    while(ma_engine_get_time_in_pcm_frames(&backend.engine)<end && std::chrono::steady_clock::now()<deadline) {
+        if(offline) {float pcm[512];backend.read(pcm,256);}
+        else std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    update();
+    // The mixer is suspended either way: the master has faded out, so a device that did not
+    // stop plays silence, and the next active(true) starts it (a no-op on a running device).
+    suspended=true;
+    return backend.suspend();
 }
 void Mixer::read(float* pcm,unsigned frames) {backend.read(pcm,frames);update();}
 unsigned Mixer::physicalCount() const {unsigned n=0;for(auto& v:voices)if(v && v->physical)++n;return n;}

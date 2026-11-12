@@ -57,6 +57,12 @@ Offline suspend gates the manual PCM pump and preserves the cursor; only the
 `--device` mode calls actual device stop/start. Do not report offline cycles as
 Android lifecycle validation.
 
+A device that refuses to stop or start (an AAudio/OpenSL error on a focus or lifecycle
+change) never throws: `Mixer::active` returns the error, `SoundService::SetActiveWithFade`
+logs it (`Audio device did not start: ...`), and the mixer stays suspended (silent, cursors
+frozen) until the next `active(true)` starts the device. The service check injects start
+and stop failures through `Mixer::deviceControl`.
+
 ## Local validation evidence
 
 Host GCC 14: PCM/controls/spatial/streaming and 100 offline cycles pass. The same

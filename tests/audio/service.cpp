@@ -29,6 +29,24 @@ int main(int argc,char**argv) try {
         require(render(cycle,256)==0 && cycle.find(id)->cursor==saved,"cycle suspended");
         cycle.active(true,0);require(render(cycle,512)>0,"cycle resumed");
     }
+    {   // A device that refuses to start or stop on a focus change (an AAudio error, the phone crash
+        // of 2026-11-12) is reported, never thrown: the mixer stays suspended and silent, and the
+        // next active(true) starts the device again.
+        static int starts=0;
+        Mixer device(true,2);Play effect;effect.loop=true;auto id=device.play(dir+"/tone.wav",effect);
+        render(device,256);require(device.active(false,0)==MA_SUCCESS,"device stop");
+        device.deviceControl([](ma_engine*,bool start){if(start){++starts;return MA_ERROR;}return MA_SUCCESS;});
+        auto saved=device.find(id)->cursor;
+        require(device.active(true,0)==MA_ERROR,"start failure reported");
+        require(render(device,512)==0 && device.find(id)->cursor==saved,"silent and frozen after a failed start");
+        require(device.active(true,0)==MA_ERROR && starts==2,"start retried on the next foreground");
+        device.deviceControl(noDevice);
+        require(device.active(true,0)==MA_SUCCESS && render(device,512)>0,"sound after the device starts");
+        device.deviceControl([](ma_engine*,bool start){return start ? MA_SUCCESS:MA_ERROR;});
+        require(device.active(false,0)==MA_ERROR,"stop failure reported");
+        require(render(device,512)==0,"silent after a failed stop: the master has faded out");
+        require(device.active(true,0)==MA_SUCCESS && render(device,512)>0,"resumes after a failed stop");
+    }
     Mixer levels(true,2);p={};p.loop=true;auto level=levels.play(dir+"/tone.wav",p);
     levels.categories(0,1,1);require(render(levels,1024)==0,"FX category mute");
     levels.categories(1,1,1);require(render(levels,1024)>1,"FX category unmute");

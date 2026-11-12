@@ -43,7 +43,7 @@ int main(int argc, char** argv) try {
         Sound m(b,(dir+"/tone.ogg").c_str(),true,false);
         a.play(); m.play();
         std::this_thread::sleep_for(std::chrono::seconds(2));
-        b.suspend(); std::this_thread::sleep_for(std::chrono::seconds(1)); b.resume();
+        check(b.suspend()); std::this_thread::sleep_for(std::chrono::seconds(1)); check(b.resume());
         std::this_thread::sleep_for(std::chrono::seconds(2));
         std::cout << "Device probe completed; audible/lifecycle verification is manual\n";
         return 0;
@@ -118,9 +118,9 @@ int main(int argc, char** argv) try {
     for(int i=0;i<100;i++) {
         Backend cycle(true); Sound s(cycle,(dir+"/tone.wav").c_str(),false,false);
         s.play(); render(cycle,256); auto pos=s.cursor();
-        cycle.suspend(); auto silence=render(cycle,256);
+        check(cycle.suspend()); auto silence=render(cycle,256);
         require(s.cursor()==pos && silence[0]+silence[1]==0,"lifecycle cursor/silence");
-        cycle.resume(); render(cycle,256); require(s.cursor()>pos,"lifecycle resume");
+        check(cycle.resume()); render(cycle,256); require(s.cursor()>pos,"lifecycle resume");
     }
     std::cout << "100 offline lifecycle/cleanup cycles PASS (device unverified)\n";
     return 0;

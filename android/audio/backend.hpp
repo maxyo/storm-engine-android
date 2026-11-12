@@ -4,6 +4,11 @@
 #include <algorithm>
 namespace storm_audio {
 inline void check(ma_result r) { if (r != MA_SUCCESS) throw std::runtime_error(ma_result_description(r)); }
+// Starts (true) or stops (false) the playback device of an engine. Tests replace it to inject
+// device failures (Backend::device).
+using DeviceControl = ma_result (*)(ma_engine*, bool start);
+inline ma_result controlDevice(ma_engine* engine, bool start) { return start ? ma_engine_start(engine) : ma_engine_stop(engine); }
+inline ma_result noDevice(ma_engine*, bool) { return MA_SUCCESS; }
 // Shared miniaudio primitive used by the isolated checks and open SoundService.
 class Backend {
     ma_context context{};
@@ -12,7 +17,8 @@ class Backend {
     bool suspended = false;
 public:
     ma_engine engine{};
-    explicit Backend(bool offline) : offline(offline) {
+    DeviceControl device;
+    explicit Backend(bool offline) : offline(offline), device(offline ? noDevice : controlDevice) {
         auto config = ma_engine_config_init();
         config.channels = 2;
         config.sampleRate = 48000;
@@ -36,8 +42,10 @@ public:
     ~Backend() { ma_engine_uninit(&engine); if (hasContext) ma_context_uninit(&context); }
     Backend(const Backend&) = delete;
     Backend& operator=(const Backend&) = delete;
-    void suspend() { if (!offline) check(ma_engine_stop(&engine)); suspended = true; }
-    void resume() { if (!offline) check(ma_engine_start(&engine)); suspended = false; }
+    // MA_SUCCESS, or the device's error with the state unchanged. A device stops and starts on
+    // focus and lifecycle changes, where the platform may refuse it (AAudio/OpenSL errors).
+    ma_result suspend() { const ma_result r = device(&engine, false); if (r == MA_SUCCESS) suspended = true; return r; }
+    ma_result resume() { const ma_result r = device(&engine, true); if (r == MA_SUCCESS) suspended = false; return r; }
     // Game/control thread only. Device rendering remains owned by miniaudio.
     void read(float* pcm, ma_uint64 frames) {
         if (!offline) throw std::runtime_error("manual PCM read requires offline mode");

@@ -3,6 +3,7 @@
 #include "storm_glm.h"
 #include "v_file_service.h"
 #include <thread>
+#include <spdlog/spdlog.h>
 
 SoundService::SoundService():bShowDebugInfo(false),initialized(false),fFXVolume(.5f),fMusicVolume(.5f),fSpeechVolume(.5f),fPitch(1) {}
 SoundService::~SoundService() = default;
@@ -87,7 +88,15 @@ void SoundService::SetCameraOrientation(const glm::vec3& nose,const glm::vec3& h
     auto f=storm::math::normalizeOrZero(nose);auto u=storm::math::normalizeOrZero(head);listenerForward={f.x,f.y,f.z};listenerUp={u.x,u.y,u.z};
     if(audio)audio->listener(listenerPos,listenerForward,listenerUp);
 }
-void SoundService::SetActiveWithFade(bool active) {if(audio)audio->active(active,fadeTimeInSeconds);}
+// Focus and lifecycle changes stop and start the audio device; the platform may refuse
+// (AAudio/OpenSL error). The game goes on: a device that did not start leaves the game silent
+// until the next focus change or resume starts it again.
+void SoundService::SetActiveWithFade(bool active) {
+    if(!audio)return;
+    if(const ma_result r=audio->active(active,fadeTimeInSeconds); r!=MA_SUCCESS)
+        spdlog::error("Audio device did not {}: {} ({}); {}",active ? "start":"stop",ma_result_description(r),int(r),
+                      active ? "no sound until the next focus change or resume starts it":"the faded-out device keeps running silently");
+}
 void SoundService::SetDucking(float gain) {if(audio)audio->duck(gain);}
 uint64_t SoundService::TrimCaches() {
     if(!audio)return 0;

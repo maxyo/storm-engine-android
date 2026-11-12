@@ -102,7 +102,12 @@ public:
     void pitch(float);
     void spatial(uint32_t,int,const void*);
     void listener(Vec3,Vec3,Vec3);
-    void active(bool,float);
+    // Foreground (fade in, device started) or background (fade out, device stopped). Returns
+    // the device's error, if any, without throwing: a device that did not start keeps the
+    // mixer suspended until the next active(true).
+    ma_result active(bool,float);
+    // Device start/stop used by active(); tests inject failures.
+    void deviceControl(DeviceControl control) {backend.device=control;}
     void update();
     void read(float*,unsigned);
     bool playing(uint32_t) const;
