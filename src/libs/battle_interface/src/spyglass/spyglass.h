@@ -76,6 +76,12 @@ class ISPYGLASS : public Entity
         float fUpdateTime;
 
         float fOldPerspective;
+#ifdef __ANDROID__
+        // The glass's own magnification (ChangeTelescopeType) and the current one, which the
+        // pinch of the camera look moves between 1 and the glass's (platform/android_camera_zoom.hpp).
+        float fGlassMagnification = 1.f;
+        float fMagnification = 1.f;
+#endif
 
         bool bIsActive;
         bool bIsGrow;

@@ -11,6 +11,10 @@
 #include "wdm_camera.h"
 #include "wdm_player_ship.h"
 
+#ifdef __ANDROID__
+#include <platform/android_camera_zoom.hpp>
+#endif
+
 //============================================================================================
 
 #define WDM_CAMERA_HEIGHT_MIN 50.0f
@@ -105,7 +109,16 @@ void WdmCamera::Move(float dltTime, VRenderer *rs)
     const auto movelrspd = 50.0f * MoveLeftRight(dltTime);
     const auto moveudspd = 50.0f * MoveUpDown(dltTime);
     const auto rotspd = 1.0f * RotLeftRight(dltTime);
-    const auto zoomspd = 30.0f * ZoomInOut(dltTime);
+    auto zoomspd = 30.0f * ZoomInOut(dltTime);
+#ifdef __ANDROID__
+    // The pinch of the camera look (platform/android_camera_zoom.hpp) moves the height the wheel
+    // moves (WMapForward / WMapBackward), along the same line of sight and within the same
+    // limits, as many times lower as the fingers spread. The free camera has no zoom
+    // (GetHightHeight), so a pinch there reaches no camera and is reported.
+    if (float freeHeight; !GetHightHeight(freeHeight))
+        if (const float scale = storm::android::cameraZoom.take(); scale != 1.0f)
+            zoomspd += (pos.y - storm::android::pinchDistance(pos.y, scale, WDM_CAMERA_HEIGHT_MIN, WDM_CAMERA_HEIGHT_MAX)) / snX;
+#endif
     // The point at height 0 at which we are looking relative to the current camera position
     const auto cx = sn * pos.y * csX / snX;
     const auto cz = cs * pos.y * csX / snX;
