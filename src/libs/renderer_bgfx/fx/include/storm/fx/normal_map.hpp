@@ -66,18 +66,27 @@ inline constexpr int kNormalMapReferenceSize = 1024;
 // The derivation options of a class (strength, band, size). ReliefClass::None has none to give: an empty map.
 NormalMapOptions ReliefOptions(ReliefClass relief);
 
+// How NormalMap::rg holds the texels. DeriveNormalMap makes RG8; the game stores and uploads EAC RG11 (half the
+// memory, core in OpenGL ES 3.0), encoded by the renderer's texture module.
+enum class NormalMapFormat : uint8_t
+{
+    Rg8,     // 2 bytes per texel
+    EacRg11, // 16 bytes per 4x4 block (R block, then G block); levels smaller than 4 texels take one block per axis
+};
+
 struct NormalMap
 {
     int width = 0;
     int height = 0;
     int mip_count = 0;
-    // RG8, all mips, top first, tightly packed: x and y of the unit tangent-space normal as 0.5 + 0.5 * n.
+    NormalMapFormat format = NormalMapFormat::Rg8;
+    // All mips, top first, tightly packed: x and y of the unit tangent-space normal as 0.5 + 0.5 * n.
     // z = sqrt(1 - x² - y²) is rebuilt in the shader. +x follows +u, +y follows +v, z points out of the surface.
     std::vector<uint8_t> rg;
 };
 
 // Bump this when the derivation changes, and put NormalMapCacheKey() into the cache key of the device cache.
-inline constexpr uint32_t kNormalMapVersion = 2;
+inline constexpr uint32_t kNormalMapVersion = 3;
 uint64_t NormalMapCacheKey(const NormalMapOptions &options);
 
 // Size of the derived top mip for a `width` x `height` texture (max_size applied).
@@ -90,8 +99,9 @@ NormalMap DeriveNormalMap(std::span<const uint8_t> rgba, int width, int height, 
 
 // Removes top mips until the larger side is at most `max_size` (the preset's resolution of the resident map).
 void DropTopMips(NormalMap &map, int max_size);
-// Bytes of all mips of an RG8 map whose top mip is width x height.
-size_t NormalMapBytes(int width, int height);
+// Bytes of one level, and of all mips of a map whose top mip is width x height.
+size_t NormalMapLevelBytes(NormalMapFormat format, int width, int height);
+size_t NormalMapBytes(int width, int height, NormalMapFormat format = NormalMapFormat::Rg8);
 
 // ---- which textures get relief ----
 

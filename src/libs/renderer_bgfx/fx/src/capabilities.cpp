@@ -13,7 +13,7 @@ Support DetectSupport(const RendererFacts &renderer)
     Support support;
     support.lut_3d = detail::SupportsLut3d();
     support.shadow_map = detail::SupportsShadowMap();
-    support.normal_map = detail::SupportsNormalMap();
+    support.normal_map = detail::SupportsNormalMap(bgfx::TextureFormat::EACRG11);
     support.ao_volume = detail::SupportsAoVolume();
     support.msaa = detail::SupportsMsaa();
     support.smaa = detail::SupportsSmaa();

@@ -435,12 +435,19 @@ void NormalMapSize(int width, int height, const NormalMapOptions &options, int &
     }
 }
 
-size_t NormalMapBytes(int width, int height)
+size_t NormalMapLevelBytes(NormalMapFormat format, int width, int height)
+{
+    if (format == NormalMapFormat::EacRg11)
+        return static_cast<size_t>((width + 3) / 4) * ((height + 3) / 4) * 16;
+    return static_cast<size_t>(width) * height * 2;
+}
+
+size_t NormalMapBytes(int width, int height, NormalMapFormat format)
 {
     size_t bytes = 0;
     for (;;)
     {
-        bytes += static_cast<size_t>(width) * height * 2;
+        bytes += NormalMapLevelBytes(format, width, height);
         if (width == 1 && height == 1)
             return bytes;
         width = std::max(width / 2, 1);
@@ -521,7 +528,7 @@ void DropTopMips(NormalMap &map, int max_size)
     size_t offset = 0;
     while (map.mip_count > 1 && std::max(map.width, map.height) > max_size)
     {
-        offset += static_cast<size_t>(map.width) * map.height * 2;
+        offset += NormalMapLevelBytes(map.format, map.width, map.height);
         map.width = std::max(map.width / 2, 1);
         map.height = std::max(map.height / 2, 1);
         --map.mip_count;

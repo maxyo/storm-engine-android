@@ -738,6 +738,16 @@ void CheckNormalMaps()
     DropTopMips(trimmed, 32);
     CHECK(trimmed.width == 32 && trimmed.height == 8 && trimmed.mip_count == 6 && trimmed.rg.size() == NormalMapBytes(32, 8));
     CHECK(std::equal(trimmed.rg.begin(), trimmed.rg.end(), strip.rg.end() - static_cast<std::ptrdiff_t>(trimmed.rg.size())));
+    // EAC RG11 sizes: 16 bytes per 4x4 block, at least one block per level; DropTopMips keeps the right tail.
+    CHECK(NormalMapLevelBytes(NormalMapFormat::EacRg11, 256, 64) == 64u * 16 * 16 && NormalMapLevelBytes(NormalMapFormat::EacRg11, 2, 1) == 16);
+    CHECK(NormalMapBytes(4, 4, NormalMapFormat::EacRg11) == 3 * 16);
+    NormalMap eac{256, 64, 9, NormalMapFormat::EacRg11, std::vector<uint8_t>(NormalMapBytes(256, 64, NormalMapFormat::EacRg11))};
+    for (size_t i = 0; i < eac.rg.size(); ++i)
+        eac.rg[i] = static_cast<uint8_t>(i * 7);
+    NormalMap eac_trimmed = eac;
+    DropTopMips(eac_trimmed, 64);
+    CHECK(eac_trimmed.width == 64 && eac_trimmed.mip_count == 7 && eac_trimmed.rg.size() == NormalMapBytes(64, 16, NormalMapFormat::EacRg11));
+    CHECK(std::equal(eac_trimmed.rg.begin(), eac_trimmed.rg.end(), eac.rg.end() - static_cast<std::ptrdiff_t>(eac_trimmed.rg.size())));
     other = options;
     other.max_size = 512;
     CHECK(NormalMapCacheKey(options) != NormalMapCacheKey(other));

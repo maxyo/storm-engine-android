@@ -83,7 +83,7 @@ std::string Support::Describe() const
     text += word(shadow_map);
     text += ", sampleable scene depth: ";
     text += word(scene_depth);
-    text += ", RG8 normal maps: ";
+    text += ", EAC RG11 normal maps: ";
     text += word(normal_map);
     text += ", MSAA targets: ";
     text += word(msaa);
@@ -165,7 +165,7 @@ constexpr Rule kRules[] = {
     {[](const Settings &s, const Support &c) { return s.shadows != ShadowQuality::Off && !c.shadow_map; },
      [](Settings &s) { s.shadows = ShadowQuality::Off; }, "sun shadows need a D16 depth render target: switched off"},
     {[](const Settings &s, const Support &c) { return (s.lighting_flags & kLightingNormalMap) && !c.normal_map; },
-     [](Settings &s) { s.lighting_flags &= ~static_cast<uint32_t>(kLightingNormalMap); }, "normal maps need RG8 textures: switched off"},
+     [](Settings &s) { s.lighting_flags &= ~static_cast<uint32_t>(kLightingNormalMap); }, "normal maps need EAC RG11 textures: switched off"},
     {[](const Settings &s, const Support &) {
          return (s.lighting_flags & kLightingNormalMap) && !(s.lighting_flags & (kLightingPerPixel | kLightingPoint));
      },

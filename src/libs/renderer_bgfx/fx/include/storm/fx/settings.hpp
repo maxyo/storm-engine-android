@@ -157,7 +157,7 @@ struct Support
     bool lut_3d = false;        // 3D RGBA8 texture: the grading table every post effect passes through
     bool shadow_map = false;    // D16 texture as a render target: Settings::shadows
     bool scene_depth = false;   // the scene's depth attachment can be sampled: Settings::ssao, Settings::sea_soft_edges
-    bool normal_map = false;    // RG8 textures: kLightingNormalMap
+    bool normal_map = false;    // EAC RG11 textures (the derived maps): kLightingNormalMap
     bool msaa = false;          // multisampled RGBA8 render targets: Settings::msaa
     bool smaa = false;          // R8 and RG8 textures (the SMAA search and area tables): Settings::smaa
     bool msaa_depth = false;    // the scene depth can still be sampled when the scene target is multisampled

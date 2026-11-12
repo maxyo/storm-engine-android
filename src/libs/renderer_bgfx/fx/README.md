@@ -120,9 +120,10 @@ Sampler stages 5 and 6 belong to `fx_atmosphere.sh`, stage 15 to the shadow map,
 fixed-function emulator's units).
 
 Normal maps are derived on the device from the player's own textures (`DeriveNormalMap`, deterministic, RG8
-with mips). Cache them on the device; never ship or commit them. Which textures get one, and how strong, is the
-ordered rules table of `ClassifyTextureName` (stone/brick strong, wood/planks medium, plaster/ground weak; nothing for
-faces, cloth and sails, UI, water, glass, foliage cards, sky, decals and unknown names). Colour textures become height
-through their luminance minus a Gaussian of `band_sigma` texels, normalised to unit RMS and softly limited, so wide
-dark or bright patches make no pits or hills. Cost: 2 bytes per texel plus a third for the mips (a 1024² map 2.7 MB,
-512² 0.7 MB; Settings::normal_map_size caps the resident size).
+with mips; the renderer stores and uploads them as EAC RG11, `NormalMapFormat`). Cache them on the device; never ship
+or commit them. Which textures get one, and how strong, is the ordered rules table of `ClassifyTextureName`
+(stone/brick strong; wood/planks and building atlases medium; plaster/ground weak; nothing for faces, cloth and sails,
+UI, water, glass, foliage cards, grass ground, sky, decals and unknown names). Colour textures become height through
+their luminance minus a Gaussian of `band_sigma` texels, relative to the local brightness and softly limited, so wide
+dark or bright patches make no pits or hills. Cost: 1 byte per texel (EAC RG11) plus a third for the mips (a 1024²
+map 1.4 MB, 512² 0.35 MB; Settings::normal_map_size caps the resident size).

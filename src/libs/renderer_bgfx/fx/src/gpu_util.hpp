@@ -34,7 +34,7 @@ void SetupView(bgfx::ViewId view, const char *name, bgfx::FrameBufferHandle targ
 bool SupportsLut3d();
 bool SupportsShadowMap();
 bool SupportsAoVolume();
-bool SupportsNormalMap();
+bool SupportsNormalMap(bgfx::TextureFormat::Enum format);
 bool SupportsMsaa();
 bool SupportsSmaa();
 // The format of SMAA's edge target: RG8 where it renders, else RGBA8.

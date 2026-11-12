@@ -59,6 +59,10 @@ void decode_level(DxtFormat format, const uint8_t *src, uint32_t width, uint32_t
 // has no RGB8A1 encoder, so such textures go to RGBA8/EAC).
 EtcFormat choose_etc_format(DxtFormat format, const uint8_t *payload, size_t size);
 
+// EAC RG11 (two EAC blocks per 4x4 texels: R, then G) of one RG8 level of width x height texels; edge texels are
+// repeated up to the block size. `out`: blocks_x(width) * blocks_x(height) * 16 bytes.
+void encode_eac_rg11(const uint8_t *rg, uint32_t width, uint32_t height, uint8_t *out);
+
 struct EncodeScratch
 {
     std::vector<uint32_t> pixels;
