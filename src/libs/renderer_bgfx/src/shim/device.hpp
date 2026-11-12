@@ -128,6 +128,7 @@ class Context final : public render::FrameOwner
     std::condition_variable release_done_;
     bool flip_y_ = false;
     bool border_clamp_ = false;
+    const char *timer_queries_ = "none (no GL context)";
     bool vsync_ = true;
     const bgfx::Caps *caps_ = nullptr;
     render::SurfaceMetrics surface_;

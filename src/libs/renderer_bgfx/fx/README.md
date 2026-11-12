@@ -56,7 +56,10 @@ the sea's soft edges and contact shadows draw into the internal scene) and EASU 
 interfaces then draw on. Frames without 3D (menus, loading screens) are drawn at the display size; the change is
 logged as "effects: render scale ...: the 3D scene at WxH (internal height H), upscaled by FSR 1 to WxH" (or "the 3D
 scene at the display size"). Without post effects the chain is EASU + RCAS alone. RCAS runs only after an upscale. With `fx_gpu_profile=1` the
-profile line gives `scene=`/`display=` sizes and `gpu_smaa_ms`, `gpu_easu_ms`, `gpu_rcas_ms`. The GPU self-test of
+profile line gives `scene=`/`display=` sizes and `gpu_smaa_ms`, `gpu_easu_ms`, `gpu_rcas_ms`. `fx_gpu_profile` is a measurement
+option, off by default: it times every view with GPU timer queries (BGFX_DEBUG_PROFILER), which costs CPU in the GL
+backend (on the x86_64 emulator about 40 ms more GL submit per frame in a town); without it bgfx times only the whole
+frame (`gpu_ms` in RenderMetrics). The GPU self-test of
 a settings switch runs the chain with an upscale when the settings have an internal height.
 
 Implemented but in no preset (options only): hemisphere ambient,

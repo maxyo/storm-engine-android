@@ -273,6 +273,9 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
         border_clamp_ = extensions.find("GL_EXT_texture_border_clamp") != std::string::npos ||
                         extensions.find("GL_OES_texture_border_clamp") != std::string::npos ||
                         extensions.find("GL_NV_texture_border_clamp") != std::string::npos;
+        // GPU timers (effects profile gpu_*_ms, Tracy): GLES offers them only through this extension
+        // (patches/bgfx-gles-timer-queries.patch imports its entry points).
+        timer_queries_ = extensions.find("GL_EXT_disjoint_timer_query") != std::string::npos ? "EXT_disjoint_timer_query" : "none";
     }
     initialised_ = true;
     surface_.width_px = width;
@@ -283,13 +286,13 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
         read_density();
     ++surface_.generation;
     logf("bgfx renderer=%s %ux%u originBottomLeft=%d homogeneousDepth=%d maxTextureSize=%u BC1=%d BC3=%d ETC2=%d BGRA8=%d "
-         "border_clamp=%d",
+         "border_clamp=%d timer_queries=%s",
          bgfx::getRendererName(bgfx::getRendererType()), width, height, caps_->originBottomLeft,
          caps_->homogeneousDepth, caps_->limits.maxTextureSize,
          (caps_->formats[bgfx::TextureFormat::BC1] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
          (caps_->formats[bgfx::TextureFormat::BC3] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
          (caps_->formats[bgfx::TextureFormat::ETC2] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
-         (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0, border_clamp_);
+         (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0, border_clamp_, timer_queries_);
     create_resources();
     effects::Host::instance().on_device_created();
     for (auto &entry : clients_)
