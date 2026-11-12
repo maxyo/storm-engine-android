@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <set>
@@ -21,6 +22,12 @@ namespace storm::android
 // deterministically: no answer, no timing, no race. Whatever the game shows that the touch
 // HUD lacks must be ported into it, never let through; a legacy layer that tries to draw under
 // coverage is refused and logged once (legacyDrawRefused).
+//
+// The rule covers the HUD, the screen-space panels the touch HUD replaces. Markers the game
+// draws in the scene itself (the hull/sails/crew bars and relation icons over ships and forts,
+// the pointer over an order's target ship) are part of the 3D view: the touch HUD has nothing in
+// their place, so they always draw. Every legacy layer is classified once below (kLegacyLayers):
+// a world-space layer is logged once as shown, a layer missing from the table is an error.
 //
 // The UI still answers each owner revision once (covering or not), as an event: those answers
 // carry what the engine needs (the navigator aperture, the quick action's authority to
@@ -67,19 +74,61 @@ struct HudPresenters
 };
 inline HudPresenters hudPresenters;
 
-// A legacy HUD layer asks to draw. True: it must not (the UI presents that HUD); the first
-// refusal of each layer is logged, loudly, so a layer the touch HUD still lacks gets noticed.
+enum class LegacyLayerKind
+{
+    Hud,   // screen-space HUD: the touch HUD presents it, refused under coverage
+    World, // drawn in the scene: shown under the touch HUD too
+};
+struct LegacyLayer
+{
+    std::string_view name;
+    LegacyLayerKind kind;
+};
+inline constexpr std::array<LegacyLayer, 13> kLegacyLayers{{
+    {"sea interface", LegacyLayerKind::Hud},      // info images, perk/state and command icons, readouts, lines, border
+    {"sea navigator", LegacyLayerKind::Hud},      // native compass: the touch HUD's disc
+    {"sea ship cards", LegacyLayerKind::Hud},     // squadron cards: the touch HUD's ship cards
+    {"land interface", LegacyLayerKind::Hud},     // location images and texts: the touch HUD's location line
+    {"land command list", LegacyLayerKind::Hud},  // stock action list: the touch HUD's sheet
+    {"log and actions", LegacyLayerKind::Hud},    // log lines and action hints
+    {"active perk icons", LegacyLayerKind::Hud},  // perk icons over the time control
+    {"timer bar", LegacyLayerKind::Hud},          // countdown bar
+    {"boarding status", LegacyLayerKind::Hud},    // crew strength bars of a deck fight
+    {"interface cursor", LegacyLayerKind::Hud},   // mouse pointer of the original interface
+    {"loading spinner", LegacyLayerKind::Hud},    // loading/saving spinner
+    {"ship bars", LegacyLayerKind::World},        // hull/sails/crew bars and relation icon over ships and forts
+    {"ship pointer", LegacyLayerKind::World},     // pointer over an order's target ship
+}};
+inline const LegacyLayer *legacyLayer(std::string_view name)
+{
+    for (const auto &layer : kLegacyLayers)
+        if (layer.name == name) return &layer;
+    return nullptr;
+}
+
+// A legacy layer asks to draw. True: it must not (the UI presents that HUD); the first refusal
+// of each HUD layer is logged, loudly, so a layer the touch HUD still lacks gets noticed. A
+// world-space layer is never refused; an unclassified one is refused and reported as an error.
 inline bool legacyDrawRefused(const char *layer, bool presented)
 {
     if (!presented) return false;
+    const LegacyLayer *known = legacyLayer(layer);
     static std::set<std::string> reported;
-    if (reported.insert(layer).second)
-    {
+    const bool first = reported.insert(layer).second;
 #ifdef STORM_HUD_PRESENTER_LOG
-        __android_log_print(ANDROID_LOG_WARN, "StormHud", "legacy HUD layer '%s' refused: the touch HUD presents this mode", layer);
-#endif
+    if (first)
+    {
+        if (!known)
+            __android_log_print(ANDROID_LOG_ERROR, "StormHud", "legacy layer '%s' is not classified (android_hud_presenter.hpp); refused", layer);
+        else if (known->kind == LegacyLayerKind::World)
+            __android_log_print(ANDROID_LOG_INFO, "StormHud", "world-space layer '%s' shown under the touch HUD", layer);
+        else
+            __android_log_print(ANDROID_LOG_WARN, "StormHud", "legacy HUD layer '%s' refused: the touch HUD presents this mode", layer);
     }
-    return true;
+#else
+    (void)first;
+#endif
+    return !known || known->kind == LegacyLayerKind::Hud;
 }
 inline bool legacyDrawRefused(const char *layer) { return legacyDrawRefused(layer, hudPresenters.any()); }
 } // namespace storm::android

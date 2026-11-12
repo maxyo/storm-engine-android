@@ -177,7 +177,7 @@ void BATTLE_INTERFACE::Realize(uint32_t delta_time)
             rs->MakePostProcess();
 #ifdef __ANDROID__
             // One coverage rule (android_hud_presenter.hpp): while the touch HUD presents the sea
-            // HUD, none of the legacy sea interface draws: info images, perk/state icons, the
+            // HUD, none of the legacy sea interface's panels draws: info images, perk/state icons, the
             // command icons, readout texts, lines and the battle border. Only the navigator runs,
             // which draws the radar into the touch HUD's own disc and never the native compass.
             const bool legacy = !storm::android::legacyDrawRefused("sea interface", storm::android::hudPresenters.sea);
@@ -185,7 +185,14 @@ void BATTLE_INTERFACE::Realize(uint32_t delta_time)
             constexpr bool legacy = true;
 #endif
 
-            if (legacy && m_bShowBattleNavigator && m_pShipInfoImages)
+            // The bars and relation icons over ships and forts are drawn in the scene: the touch HUD
+            // has nothing in their place, so they show under it (a world-space layer).
+#ifdef __ANDROID__
+            const bool shipBars = !storm::android::legacyDrawRefused("ship bars", storm::android::hudPresenters.sea);
+#else
+            constexpr bool shipBars = true;
+#endif
+            if (shipBars && m_bShowBattleNavigator && m_pShipInfoImages)
                 m_pShipInfoImages->Draw();
 
             if (legacy && m_bShowBattleNavigator)
