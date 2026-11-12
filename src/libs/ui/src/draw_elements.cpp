@@ -524,6 +524,21 @@ namespace
 
 bool clamps_changed = false;
 
+// Text that fits itself to its box (ui-clamp, ui-pages) learns the box from layout. A flex
+// container formats its items several times in one pass to measure them (max-content,
+// shrink-to-fit, at widths of 10000 px and more): OnLayout sees those trial widths before the
+// final one. Only the width an element has once the pass is over counts, so OnLayout just
+// notes the element here and TextClampsChanged settles each after the pass; reacting in
+// OnLayout itself made every pass that touched a header lay the document out a second time.
+class FitsText
+{
+  public:
+    virtual ~FitsText() = default;
+    // After a layout pass: true when the element must refit (in the next update) and lay out again.
+    virtual bool Settle() = 0;
+};
+std::vector<Rml::ObserverPtr<Rml::Element>> laid_out_fits;
+
 // <ui-clamp lines="2" min-size="12" text="…">: at most `lines` lines (1–3 in the design: list
 // rows, dialogue replies, table cells, tile labels). A text that does not fit at the element's
 // font size steps down one pixel at a time, at most to `min-size` (dp; none = no step-down),
@@ -535,10 +550,28 @@ bool clamps_changed = false;
 // line boxes shrink with it); the style sheet's size, noted while no step-down applies, stays
 // the base of the next fit, and a new text starts from the style sheet again. natural="1"
 // sizes the element by its text on one line at the base size (see Natural).
-class ClampElement final : public Rml::Element
+class ClampElement final : public Rml::Element, public FitsText
 {
   public:
     using Rml::Element::Element;
+
+    bool Settle() override
+    {
+        const float laid = laid_width_;
+        laid_width_ = -1.0f;
+        FontKey font = laid_font_;
+        if (applied_ == 0)
+            base_ = font.size;
+        font.size = base_;
+        if (laid <= 0.0f || (std::fabs(laid - width_) < 0.5f && font == font_))
+            return false;
+        width_ = laid;
+        font_ = font;
+        // Children created during layout would be drawn before their styles (the font)
+        // are resolved: refit in the next update instead.
+        refit_ = true;
+        return true;
+    }
 
   protected:
     void OnAttributeChange(const Rml::ElementAttributes &changed) override
@@ -546,27 +579,23 @@ class ClampElement final : public Rml::Element
         Rml::Element::OnAttributeChange(changed);
         if (changed.count("text") || changed.count("lines") || changed.count("min-size"))
         {
-            width_ = -1.0f;
-            Show(GetAttribute<Rml::String>("text", ""), 0);
+            // A box already laid out keeps its width for a new text (a row's new amount, a
+            // renamed title): fitted in this update at that width, so the first layout shows
+            // it finished. Only a box never laid out shows the whole text first.
+            if (width_ > 0.0f)
+                refit_ = true;
+            else
+                Show(GetAttribute<Rml::String>("text", ""), 0);
         }
     }
 
     void OnLayout() override
     {
         Rml::Element::OnLayout();
-        const float width = GetBox().GetSize(Rml::BoxArea::Content).x;
-        FontKey font = Font();
-        if (applied_ == 0)
-            base_ = font.size;
-        font.size = base_;
-        if (width <= 0.0f || (std::fabs(width - width_) < 0.5f && font == font_))
-            return;
-        width_ = width;
-        font_ = font;
-        // Children created during layout would be drawn before their styles (the font)
-        // are resolved: refit in the next update instead.
-        refit_ = true;
-        clamps_changed = true;
+        if (laid_width_ < 0.0f) // not noted yet in this pass
+            laid_out_fits.push_back(GetObserverPtr());
+        laid_width_ = GetBox().GetSize(Rml::BoxArea::Content).x;
+        laid_font_ = Font();
     }
 
     void OnUpdate() override
@@ -757,8 +786,9 @@ class ClampElement final : public Rml::Element
         return line + dots;
     }
 
-    float width_ = -1.0f;
-    FontKey font_;
+    float width_ = -1.0f;      // the width the shown text is fitted to
+    float laid_width_ = -1.0f; // the newest width layout gave in this pass (Settle), -1 = not noted
+    FontKey font_, laid_font_;
     float base_ = 0.0f; // the style sheet's font size (px)
     int applied_ = 0;   // the stepped-down size set inline (px), 0 = none
     float natural_ = 0.0f; // natural="1": the one-line width asked for (px)
@@ -783,10 +813,25 @@ class ClampElement final : public Rml::Element
 // the class `more` while pages remain and `last` on the final page; the template shows
 // the «next» control or the replies with sibling selectors (`ui-pages.more ~ …`). `mode`
 // speech / replies forces one of the two states (the design canvas shows them so).
-class PagesElement final : public Rml::Element
+class PagesElement final : public Rml::Element, public FitsText
 {
   public:
     using Rml::Element::Element;
+
+    bool Settle() override
+    {
+        noted_ = false;
+        const Rml::Vector2f size = laid_size_;
+        const float reserve = Reserve();
+        if (std::fabs(size.x - width_) >= 0.5f || std::fabs(size.y - height_) >= 0.5f || std::fabs(reserve - reserve_) >= 0.5f)
+        {
+            width_ = size.x;
+            height_ = size.y;
+            reserve_ = reserve;
+            dirty_ = true;
+        }
+        return dirty_; // refit in the next update, then lay out again
+    }
 
   protected:
     void OnAttributeChange(const Rml::ElementAttributes &changed) override
@@ -822,17 +867,10 @@ class PagesElement final : public Rml::Element
     void OnLayout() override
     {
         Rml::Element::OnLayout();
-        const Rml::Vector2f size = GetBox().GetSize(Rml::BoxArea::Content);
-        const float reserve = Reserve();
-        if (std::fabs(size.x - width_) >= 0.5f || std::fabs(size.y - height_) >= 0.5f || std::fabs(reserve - reserve_) >= 0.5f)
-        {
-            width_ = size.x;
-            height_ = size.y;
-            reserve_ = reserve;
-            dirty_ = true;
-        }
-        if (dirty_)
-            clamps_changed = true; // refit in the next update, then lay out again
+        if (!noted_)
+            laid_out_fits.push_back(GetObserverPtr());
+        noted_ = true;
+        laid_size_ = GetBox().GetSize(Rml::BoxArea::Content);
     }
 
     void OnUpdate() override
@@ -923,6 +961,8 @@ class PagesElement final : public Rml::Element
     float width_ = -1.0f, height_ = -1.0f, reserve_ = -1.0f;
     bool dirty_ = true;
     bool more_ = false;
+    bool noted_ = false;            // in laid_out_fits for this pass
+    Rml::Vector2f laid_size_{-1, -1}; // the newest content size layout gave (Settle)
 };
 
 } // namespace
@@ -943,8 +983,13 @@ int ClampedTextIn(Rml::Element *root)
 
 bool TextClampsChanged()
 {
-    const bool changed = clamps_changed;
+    bool changed = clamps_changed;
     clamps_changed = false;
+    std::vector<Rml::ObserverPtr<Rml::Element>> laid = std::move(laid_out_fits);
+    laid_out_fits.clear();
+    for (const auto &entry : laid)
+        if (auto *fits = dynamic_cast<FitsText *>(entry.get()))
+            changed = fits->Settle() || changed;
     return changed;
 }
 
