@@ -21,7 +21,7 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `generic.cpp` | the generic auto-layout for interfaces without a ported screen |
 | `trade_crew.cpp` | crew hire: the trade layout with one always-open row |
 | `trade_shipyard.cpp` | shipyard: catalogue, ship card, the game's windows as sheets; sends the engine's `yard@` capability tokens, one per model revision |
-| `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout, a column table per interface |
+| `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout (the list that never moves: filter chips, columns sorted by a tap on their caption, `goods quick` = the whole stack in one tap for free transfers; the open deal in the list's dock), a column table per interface |
 | `extra_games.cpp` | tavern dice and cards (`boal_dice`, `boal_cards`): the felt from the script images and facts the engine exports (`ANDROID_TABLE_GAME`) |
 | `extra_goods.cpp` | the treasurer's purchase list (`goodstransfer`): rows the engine exports (`ANDROID_GOODS_ORDER`), a standing order saved as the amount settles (`order` action) |
 | `extra_repair.cpp` | self repair (`repair`): hull, masts, sails as amounts sent as the game's arrow presses, materials per amount |

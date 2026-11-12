@@ -179,7 +179,7 @@ class TransferScreen final : public Screen
     Json Build(const Admission &admitted, Bindings &bindings) override
     {
         Json view = goods_->Build(admitted, bindings);
-        view.erase("filters");
+        view["list"].erase("filters"); // the cargo is one short list of the two holds
         view.erase("info");
         view.erase("infoLabel");
         const std::string title = Trim(admitted.Label("TITLE"));
@@ -193,8 +193,11 @@ class TransferScreen final : public Screen
         const std::string mode = Context(marker, "mode");
         const bool captain_alive = Context(marker, "captainAlive") == "1";
         const std::string ours = admitted.Label("SHIP_NAME"), theirs = admitted.Label("SHIP_NAME2");
-        if (!ours.empty() && !theirs.empty() && view["list"].contains("cols"))
-            view["list"]["cols"] = Json::array({Json{{"label", ours}}, Json{{"label", theirs}}});
+        if (!ours.empty() && !theirs.empty() && view["list"].contains("cols") && view["list"]["cols"].size() == 2)
+        {
+            view["list"]["cols"][0]["label"] = ours;
+            view["list"]["cols"][1]["label"] = theirs;
+        }
 
         // Header: the two ships, their free space (or the vacant captain), the next ship.
         Json stats = Json::array();
@@ -364,6 +367,16 @@ class TransferScreen final : public Screen
             cargo_ = Amount();
             cargo_row_ = selected ? selected->row_id : std::string();
         }
+        // The hand at a row's end: once the game has selected that row, all of the other hold is asked for.
+        if (selected && selected->index == quick_row_)
+        {
+            cargo_.target = cargo_.send = own + other;
+            cargo_.send_at = bindings.Now();
+            quick_row_ = -1;
+        }
+        const bool movable = take && give && take->Offers("press") && give->Offers("press");
+        view["list"]["quick"] = "hand"; // the game shows its arrows for the selected row only: a row is offered by what the other hold has
+        view["dealing"] = selected != nullptr;
         const bool recent = cargo_.target >= 0 && (cargo_.send >= 0 || bindings.Now() - cargo_.send_at < 1.0);
         if (recent && cargo_.send < 0)
             bindings.RebuildAfter(cargo_.send_at + 1.0 - bindings.Now());
@@ -385,19 +398,38 @@ class TransferScreen final : public Screen
             const size_t index = static_cast<size_t>(std::atoi(row["id"].get<std::string>().c_str()));
             const bool open = index < goods.size() && goods[index] == selected;
             row["selected"] = open;
+            row["quick"] = index < goods.size() && Number(goods[index]->CellText(3)) > 0 && (open ? movable : goods[index]->Offers("select"));
             row.erase("q");
             if (open)
                 row["q"] = Json{{"value", recent ? cargo_.target : own},
                                 {"min", 0},
                                 {"max", own + other},
+                                {"zones", true},
+                                {"origin", own},
+                                {"lessLabel", bindings.Text("trade.give")},
+                                {"moreLabel", bindings.Text("trade.take")},
                                 {"label", ours},
+                                {"summary", "-"},
                                 {"steps", Json::array({pack, pack * 10, pack * 100})},
-                                {"disabled", !take || !give || !take->Offers("press") || !give->Offers("press")}};
+                                {"disabled", !movable}};
         }
-        bindings.On("goods", "row", [&bindings, goods, selected](const Event &event) {
+        bindings.On("goods", "row", [this, &bindings, goods, selected](const Event &event) {
             const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
+            quick_row_ = -1;
             if (index < goods.size() && goods[index] != selected && goods[index]->Offers("select"))
                 bindings.Send(*goods[index], "select", goods[index]->row_id);
+        });
+        bindings.On("goods", "quick", [this, &bindings, goods, selected](const Event &event) {
+            const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
+            if (index >= goods.size())
+                return;
+            quick_row_ = goods[index]->index;
+            if (goods[index] == selected)
+                bindings.Rebuild();
+            else if (goods[index]->Offers("select"))
+                bindings.Send(*goods[index], "select", goods[index]->row_id);
+            else
+                quick_row_ = -1;
         });
         const auto set = [this, &bindings](const Event &event) {
             cargo_.target = cargo_.send = std::atoi(event.value.c_str());
@@ -564,6 +596,7 @@ class TransferScreen final : public Screen
     std::unique_ptr<Screen> goods_;
     Amount crew_, hire_, cargo_;
     std::string cargo_row_; // the cargo row the amount above belongs to
+    int quick_row_ = -1;    // the cargo row (the game's index: its rows carry no identity) whose whole stock is taken once the game selects it
     int hire_max_ = 0;
     bool hire_seen_ = false;
 };

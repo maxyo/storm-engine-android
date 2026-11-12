@@ -553,14 +553,73 @@ static void Commerce(const std::string &models)
 
     // Chest / body: the game's category tabs, take all, remove body.
     router.SetInterface(Load(models, "itemsbox.json"));
-    Expect(surface.props["filters"].size() == 4 && surface.props["filters"][0]["selected"] == true, "itemsbox: the game's tabs");
+    Expect(surface.props["list"]["filters"].size() == 4 && surface.props["list"]["filters"][0]["selected"] == true, "itemsbox: the game's tabs");
     Expect(surface.props["list"]["cols"][0]["label"] == "<trade.yours>" && surface.props["list"]["cols"][1]["label"] == "<trade.theirs>",
            "itemsbox: the game names both amount columns alike, so the string table names them");
     ExpectEqual(surface.language, "russian", "the router passes the model's language on");
     ExpectEqual(surface.props["primary"]["label"], "Взять всё", "itemsbox: take all is the primary");
     Expect(surface.props["actions"].size() == 1 && surface.props["actions"][0]["label"] == "Убрать тело", "itemsbox: remove body beside it");
-    router.OnEvent({"filters", "select", "2"});
+    router.OnEvent({"goods", "filter", "2"});
     ExpectEqual(surface.Last(), "widget:itemsbox\tTABBTN_3\t-1\tpress", "a tab presses the game's tab button");
+    {
+        // The chest's four tabs carry our short captions; a fifth (a mod's) keeps the game's.
+        const Json &chips = surface.props["list"]["filters"];
+        Expect(chips.size() == 4 && chips[0]["label"] == "<common.all>" && chips[1]["label"] == "<trade.tab_mine>" &&
+                   chips[2]["label"] == "<trade.tab_here>" && chips[3]["label"] == "<trade.tab_weapons>",
+               "itemsbox: the game's tabs as chips with our short captions: " + chips.dump());
+        InterfaceModel modded = Load(models, "itemsbox.json");
+        Widget button, caption;
+        for (const Widget &widget : modded.widgets)
+        {
+            if (widget.node == "TABBTN_4")
+                button = widget;
+            if (widget.node == "TABSTR_4")
+                caption = widget;
+        }
+        button.node = "TABBTN_5";
+        caption.node = "TABSTR_5";
+        caption.label = "Карты";
+        modded.widgets.push_back(button);
+        modded.widgets.push_back(caption);
+        FakeSurface mod_surface;
+        Router mod(mod_surface);
+        mod.SetInterface(modded);
+        Expect(mod_surface.props["list"]["filters"].size() == 5 && mod_surface.props["list"]["filters"][4]["label"] == "Карты",
+               "itemsbox: a tab we do not know is appended with the game's caption");
+        // The hand at a row's end: the game opens the row's amount window, then all of the stack is taken.
+        const Json &loot = mod_surface.props["list"]["rows"];
+        size_t with = loot.size();
+        for (size_t i = 0; i < loot.size(); ++i)
+            if (loot[i]["quick"] == true && with == loot.size())
+                with = i;
+        Expect(mod_surface.props["list"]["quick"] == "hand" && with < loot.size(), "itemsbox: rows with something to take offer the quick take");
+        mod_surface.commands.clear();
+        mod.OnEvent({"goods", "quick", loot[with]["id"].get<std::string>()});
+        Expect(mod_surface.commands.size() == 1 && mod_surface.commands[0].find("\tTABLE_LIST\t") != std::string::npos &&
+                   mod_surface.commands[0].find("activate@") != std::string::npos,
+               "quick take: first the row's amount window: " + (mod_surface.commands.empty() ? std::string() : mod_surface.commands[0]));
+    }
+    {
+        // The amount window opened for the quick take: the whole stack is entered and confirmed, the window is not reopened.
+        FakeSurface quick_surface;
+        Router quick(quick_surface);
+        quick.SetInterface(Load(models, "itemsbox.json"));
+        InterfaceModel open = Load(models, "itemsbox-deal.json");
+        std::string row_index;
+        int there = 0;
+        for (const Widget &widget : open.widgets)
+            if (widget.node == "TABLE_LIST" && widget.value == "1")
+                row_index = std::to_string(widget.index), there = std::atoi(widget.CellText(4).c_str());
+        quick.OnEvent({"goods", "quick", row_index});
+        quick_surface.commands.clear();
+        open.revision += 10;
+        quick.SetInterface(open);
+        quick.Tick();
+        Expect(quick_surface.commands.size() == 3 && quick_surface.commands[1].find("QTY_EDIT") != std::string::npos &&
+                   quick_surface.commands[1].rfind("|" + std::to_string(there)) == quick_surface.commands[1].size() - std::to_string(there).size() - 1 &&
+                   quick_surface.commands[2].find("QTY_OK_BUTTON") != std::string::npos,
+               "quick take: all of the other side, confirmed: " + Json(quick_surface.commands).dump());
+    }
     router.OnEvent({"primary", "click", ""});
     ExpectEqual(surface.Last(), "widget:itemsbox\tGETALL_BUTTON\t-1\tpress", "take all");
     router.OnEvent({"action-0", "click", ""});
@@ -577,7 +636,26 @@ static void Commerce(const std::string &models)
     router.SetInterface(buying);
     Expect(surface.props["stats"][0]["value"] == "189" && surface.props["stats"][0]["preview"] == "194", "hold: before → with the deal");
     Expect(surface.props["stats"][1]["value"] == "1 500" && surface.props["stats"][1]["preview"] == "1 475", "balance: now → after buying for 25");
-    ExpectEqual(surface.props["list"]["rows"][5]["meta"], "<trade.export> · Пачка 10", "the trade type the colour tells is named from the string table");
+    ExpectEqual(surface.props["list"]["rows"][5]["meta"], "<trade.export>", "the trade type the colour tells is named from the string table");
+    ExpectEqual(surface.props["list"]["rows"][5]["sub"], "<trade.export> · Пачка 10", "the dock's second line adds the pack");
+    {
+        // Buy and sell are columns of their own; a caption's tap orders the rows by it (largest, smallest, the game's order).
+        const Json &cols = surface.props["list"]["cols"];
+        Expect(cols.size() == 4 && cols[2]["label"] == "<trade.buy>" && cols[3]["label"] == "<trade.sell>" && cols[2]["sortable"] == true,
+               "store: hold, store, buy, sell columns");
+        const std::string first = surface.props["list"]["rows"][0]["id"];
+        router.OnEvent({"goods", "sort", "2"});
+        const Json sorted = surface.props["list"]["rows"];
+        bool descending = true;
+        for (size_t i = 1; i < sorted.size(); ++i)
+            descending = descending && std::atoi(sorted[i - 1]["cells"][2]["text"].get<std::string>().c_str()) >=
+                                           std::atoi(sorted[i]["cells"][2]["text"].get<std::string>().c_str());
+        Expect(descending && surface.props["list"]["cols"][2]["sort"] == "desc", "sort by the buy price, largest first");
+        router.OnEvent({"goods", "sort", "2"});
+        Expect(surface.props["list"]["cols"][2]["sort"] == "asc", "second tap: smallest first");
+        router.OnEvent({"goods", "sort", "2"});
+        Expect(surface.props["list"]["cols"][2]["sort"] == "" && surface.props["list"]["rows"][0]["id"] == first, "third tap: the game's order again");
+    }
     InterfaceModel doubloons = Load(models, "itemstrade-deal.json");
     for (Widget &widget : doubloons.widgets)
         if (widget.node == "OUR_GOLD")
@@ -591,7 +669,7 @@ static void Commerce(const std::string &models)
     router.SetInterface(Load(models, "cannons-deal.json"));
     ExpectEqual(surface.props["primary"]["label"], "<trade.buy> 6", "cannons: the primary names the deal");
     ExpectEqual(surface.props["primary"]["sub"], "Деньги 1740, вес 36 ц", "and carries the price");
-    ExpectEqual(surface.props["list"]["rows"][1]["meta"], "Дист. 450 · Урон x1.5 · Время 11", "cannons: range, damage, reload under the name");
+    ExpectEqual(surface.props["list"]["rows"][1]["sub"], "Дист. 450 · Урон x1.5 · Время 11", "cannons: range, damage, reload in the dock's second line");
     router.SetInterface(Load(models, "contraband-deal.json"));
     Expect(surface.props["list"]["rows"][0]["q"]["max"] == 50 && surface.props["list"]["rows"][0]["q"]["min"] == 0, "contraband: goods without a buy price can only be sold");
     ExpectEqual(surface.props["primary"]["label"], "<trade.sell> 50", "contraband: selling");
@@ -774,6 +852,20 @@ static void Transfer(const std::string &models)
     router.OnEvent({"goods", "commit", "0"});
     Expect(surface.commands.size() == 8 && surface.commands[0] == prefix + "B_RIGHT\t-1\tpress",
            "all given before the game answered the three packs: counted from 160, eight packs");
+    {
+        // The hand at a row's end: the row is selected, then all of the other hold is asked for by the game's arrow.
+        FakeSurface quick_surface;
+        Router quick(quick_surface);
+        quick.SetInterface(Load(models, "transfer-loot.json"));
+        Expect(quick_surface.props["list"]["quick"] == "hand" && quick_surface.props["list"]["rows"][0]["quick"] == true, "cargo: rows the other hold has offer the quick take");
+        quick.OnEvent({"goods", "quick", "0"});
+        ExpectEqual(quick_surface.Last(), prefix + "TABLE_LIST\t0\tselect", "quick take: the row is selected first");
+        quick_surface.commands.clear();
+        quick.SetInterface(Load(models, "transfer-loot-row.json"));
+        quick.Tick();
+        Expect(quick_surface.commands.size() == 25 && quick_surface.commands[0] == prefix + "B_LEFT\t-1\tpress" && quick_surface.props["dealing"] == true,
+               "quick take: 495 of theirs = 25 packs of 20 taken: " + std::to_string(quick_surface.commands.size()));
+    }
 
     router.SetInterface(Load(models, "transfer-hire.json"));
     const Json &hire = surface.props["modal"];
