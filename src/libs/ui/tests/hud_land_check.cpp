@@ -286,6 +286,8 @@ static void CheckStatus()
                party[1]["bars"] == Json::parse(R"([{"kind":"health","value":84},{"kind":"energy","value":70}])") && party[2]["texture"] == "" &&
                party[2]["name"] == "Офицер Бета" && party[0]["tap"] == true && party[2]["tap"] == true,
            "explore: the party row, hero first, officers with their faces, health and energy; an officer without a face keeps the placeholder");
+    Expect(std::find(mount.logs.begin(), mount.logs.end(), "land HUD: Офицер Бета (character 32) has no FaceId: the portrait placeholder stays") != mount.logs.end(),
+           "… and that is said, naming the person");
     // A tap on a member opens the character screen on that person.
     mount.commands.clear();
     bench.Press("party", "member", "2");

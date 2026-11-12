@@ -264,9 +264,17 @@ class LandScene final : public Scene
 
     // --- the party ---
 
-    static Picture Face(const std::string &face)
+    // The face portrait of a party member. A character without a FaceId has no portrait in the
+    // game either (landinterface.c falls back to its generic two.tga figure): the placeholder
+    // stays, and that is said once per person.
+    Picture Face(const std::string &face, const std::string &name, int character)
     {
-        return {face.empty() ? std::string() : "INTERFACES/PORTRAITS/128/face_" + face, {}};
+        if (face.empty())
+        {
+            hud_.Log("land HUD: " + name + " (character " + std::to_string(character) + ") has no FaceId: the portrait placeholder stays");
+            return {};
+        }
+        return {"INTERFACES/PORTRAITS/128/face_" + face, {}};
     }
 
     // The party row (as the original land interface's icons): the hero first, then the officers
@@ -278,9 +286,9 @@ class LandScene final : public Scene
         const Vitals &vitals = states.vitals;
         const bool tap = !melee && vitals.hero >= 0;
         Json members = Json::array();
-        members.push_back(MemberCell(vitals.name, Face(vitals.face), {{"health", vitals.health}, {"energy", vitals.energy}}, tap));
+        members.push_back(MemberCell(vitals.name, Face(vitals.face, vitals.name, vitals.hero), {{"health", vitals.health}, {"energy", vitals.energy}}, tap));
         for (const Vitals::Officer &officer : vitals.officers)
-            members.push_back(MemberCell(officer.name, Face(officer.face), {{"health", officer.health}, {"energy", officer.energy}}, tap));
+            members.push_back(MemberCell(officer.name, Face(officer.face, officer.name, officer.id), {{"health", officer.health}, {"energy", officer.energy}}, tap));
         view.elements["party"] = Json{{"officers", members}};
         if (!tap)
             return;
