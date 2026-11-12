@@ -7,6 +7,7 @@
 //   * «Низкая» -> «Высокая»: frames stay identical to «Низкая» while EffectsReport::pending, the frame after the
 //     switch creates no bgfx program, and the first frames of «Высокая» show the scene (the post target written
 //     by the chain was once cleared by the interface's first view: a black frame after every change).
+//   * three interfaces in a frame (each ends the scene, as each game interface does): the post chain runs once.
 //   * back to «Низкая»: the picture equals the first one; «Высокая» again: active at once (programs kept, the
 //     self-test of these settings already passed).
 #include "device.hpp"
@@ -71,7 +72,8 @@ class Frames
     }
 
     // One game frame: the 3D scene, the scene boundary, the interface; the game picture read back, then presented.
-    Picture render()
+    // Every interface marks the end of the scene (as each game interface calls Renderer::MakePostProcess).
+    Picture render(int interfaces = 1)
     {
         check(d_.BeginScene(), "BeginScene");
         check(d_.SetRenderTarget(0, back_), "SetRenderTarget");
@@ -111,15 +113,18 @@ class Frames
         };
         d_.SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE);
         check(d_.DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, quad, sizeof(SceneVertex)), "draw (scene)");
-        render::EffectsSceneComplete();
-        // The interface over the processed picture: pre-transformed, unlit.
+        // The interfaces over the processed picture: pre-transformed, unlit.
         d_.SetRenderState(D3DRS_ZENABLE, FALSE);
         d_.SetRenderState(D3DRS_LIGHTING, FALSE);
         const float w = kUiWidth, h = kUiHeight;
         const UiVertex ui[6] = {{0, 0, 0, 1, 0xFFE0E0E0}, {w, 0, 0, 1, 0xFFE0E0E0}, {0, h, 0, 1, 0xFFE0E0E0},
                                 {0, h, 0, 1, 0xFFE0E0E0}, {w, 0, 0, 1, 0xFFE0E0E0}, {w, h, 0, 1, 0xFFE0E0E0}};
         d_.SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
-        check(d_.DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, ui, sizeof(UiVertex)), "draw (interface)");
+        for (int i = 0; i < interfaces; ++i)
+        {
+            render::EffectsSceneComplete();
+            check(d_.DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, ui, sizeof(UiVertex)), "draw (interface)");
+        }
         check(d_.EndScene(), "EndScene");
         check(d_.GetRenderTargetData(back_, readback_), "GetRenderTargetData");
         D3DLOCKED_RECT locked;
@@ -233,6 +238,12 @@ int main()
                 ok &= expect(std::fabs(mean - low_mean) < low_mean * 0.35, "«Высокая»: the processed scene is shown");
             }
             ok &= expect(programs() == before, "the first frames of «Высокая» link no program");
+            // Three interfaces end the scene three times: the post chain still runs once (the same picture as one).
+            const Picture one = frames.render(1);
+            const Picture three = frames.render(3);
+            std::printf("     «Высокая», three interfaces: scene mean %.1f (one interface %.1f)\n", scene_mean(three),
+                        scene_mean(one));
+            ok &= expect(max_difference(one, three) <= 1, "«Высокая»: the post chain runs once per frame, whatever the interfaces");
 
             render::ConfigureEffects(0, {});
             for (int i = 0; i < kMaxSwitchFrames && render::CurrentEffects().pending; ++i)

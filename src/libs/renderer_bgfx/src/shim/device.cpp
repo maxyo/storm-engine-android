@@ -391,6 +391,11 @@ HRESULT Device::Present()
 void Device::scene_complete()
 {
     interface_drawn = true;
+    // Every interface of the frame ends the scene (Renderer::MakePostProcess): only the first one runs the post
+    // chain. The later ones draw on the processed picture; run again, the chain graded, bloomed and tone-mapped it
+    // once more per interface (three times in a town with its battle interface, log and perk icons).
+    if (scene_done)
+        return;
     if (!scene_drawn)
     {
         // Nothing 3D in the game picture yet: the interface and the 3D drawn after it cannot be separated, so this
