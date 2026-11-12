@@ -97,6 +97,15 @@ struct FrameStats
 {
     double update_ms = 0.0; // CPU: timers, routing, Context::Update (styles, rebuilds, layout)
     double render_ms = 0.0; // CPU: Context::Render and the backend's frame (command submission, not GPU time)
+    // Parts of update_ms (and, for textures, of render_ms), for the screen switch line (Host log
+    // "UI switch"): what a frame's CPU went to.
+    double apply_ms = 0.0;   // host calls between frames: interface models and state channels applied
+    double rebuild_ms = 0.0; // components re-rendered from their templates (RML parsed, trees patched)
+    double style_ms = 0.0;   // RmlUi's element update without the rebuilds: styles, definitions
+    double layout_ms = 0.0;  // RmlUi's document layout and positioning
+    double picture_ms = 0.0; // game pictures acquired from the renderer (.tx read, decoded, uploaded)
+    int pictures = 0;        // game pictures acquired
+    double texture_ms = 0.0; // textures made through the render interface (pack images decoded; font atlases)
     int rebuilds = 0;       // components re-rendered from their template (an unchanged output patches nothing)
     int laid_out = 0;       // component boxes formatted (0 = no layout ran)
     int layout_passes = 0;  // documents formatted (RmlUi lays out a whole document at a time)

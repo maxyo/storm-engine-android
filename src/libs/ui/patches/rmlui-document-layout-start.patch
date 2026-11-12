@@ -1,0 +1,26 @@
+diff --git a/Include/RmlUi/Core/ElementDocument.h b/Include/RmlUi/Core/ElementDocument.h
+index 5241d44..dd99bf3 100644
+--- a/Include/RmlUi/Core/ElementDocument.h
++++ b/Include/RmlUi/Core/ElementDocument.h
+@@ -127,6 +127,9 @@ protected:
+ 	/// Called during update if the element size has been changed.
+ 	void OnResize() override;
+ 
++	/// Called when a layout of the document starts formatting; OnLayout follows when it is done.
++	virtual void OnLayoutStart() {}
++
+ 	/// Returns whether the document can receive focus during click when another document is modal.
+ 	bool IsFocusableFromModal() const;
+ 	/// Sets whether the document can receive focus when another document is modal.
+diff --git a/Source/Core/ElementDocument.cpp b/Source/Core/ElementDocument.cpp
+index 381e4c8..a8987e3 100644
+--- a/Source/Core/ElementDocument.cpp
++++ b/Source/Core/ElementDocument.cpp
+@@ -481,6 +481,7 @@ void ElementDocument::UpdateLayout()
+ 	{
+ 		RMLUI_ZoneScoped;
+ 		RMLUI_ZoneText(source_url.c_str(), source_url.size());
++		OnLayoutStart();
+ 
+ 		Vector2f containing_block(0, 0);
+ 		if (GetParentNode() != nullptr)

@@ -45,6 +45,8 @@ bool GameImagesChanged();
 // True while a picture changed state and that is not yet taken: the host must keep drawing
 // frames to show it (nothing else wakes an idle host).
 bool GameImagesPending();
+// Adds what acquiring game pictures cost since the last call (milliseconds, pictures) and resets it.
+void TakeGameImageCost(double &ms, int &count);
 void ShutdownGameImages();
 
 } // namespace storm::ui
