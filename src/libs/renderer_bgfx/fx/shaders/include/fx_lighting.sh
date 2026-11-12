@@ -172,7 +172,8 @@ float fxBakedRelief(vec3 Ng, vec3 N, vec3 V)
     vec3 t = u_fxLight[0].xyz - Ng * dot(u_fxLight[0].xyz, Ng);
     if (dot(t, t) < 1e-4) t = V - Ng * dot(V, Ng);
     vec3 L = Ng * 0.5 + t * (0.866 * inversesqrt(max(dot(t, t), 1e-12)));
-    return clamp(1.0 + 2.4 * (dot(N, L) - 0.5), 0.4, 1.6);
+    // N leans as far as Settings::normal_map_strength (u_fxLight[5].x) lets it, so that knob scales this too.
+    return clamp(1.0 + 2.4 * (dot(N, L) - 0.5), 0.6, 1.4);
 }
 #endif // FX_LIGHT_NORMALMAP
 

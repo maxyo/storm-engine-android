@@ -397,7 +397,9 @@ void CheckSupport()
     constrained = ConstrainSettings(high, no_rg, changes);
     CHECK(changes.size() == 1 && !(constrained.lighting_flags & kLightingNormalMap));
     CHECK(LightingDefines(constrained).find("NORMALMAP") == std::string::npos);
-    CHECK(Settings::FromPreset(QualityPreset::Medium).normal_map_strength < high.normal_map_strength);
+    // One relief strength for both presets: half of the APK #10 look.
+    CHECK(Settings::FromPreset(QualityPreset::Medium).normal_map_strength == high.normal_map_strength &&
+          high.normal_map_strength == 0.5f);
 
     // Inconsistent requests are reported as well.
     Settings odd;
