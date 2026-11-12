@@ -16,10 +16,16 @@ int main()
     assert(hudPresenters.declare("land") && !legacyDrawRefused("boarding status"));
     assert(legacyDrawRefused("land interface", hudPresenters.land));
     assert(legacyDrawRefused("not a layer", true)); // unclassified: refused, reported as an error
+    // World map under the touch HUD: the game's instruments and fleet are the touch HUD's, by the
+    // table alone (no frame needed), so they stay off under a game interface over the map too:
+    // the encounter signal's card showed them through when only the frame's coverage hid them.
+    assert(!legacyDrawRefused("world map instruments", hudPresenters.worldMap) && !legacyDrawRefused("world map fleet", hudPresenters.worldMap));
+    assert(hudPresenters.declare("worldmap"));
+    assert(legacyDrawRefused("world map instruments", hudPresenters.worldMap) && legacyDrawRefused("world map fleet", hudPresenters.worldMap));
     // Without the touch HUD every legacy layer draws.
     hudPresenters.lost();
     assert(!legacyDrawRefused("ship bars", hudPresenters.sea) && !legacyDrawRefused("sea interface", hudPresenters.sea));
     for (const auto &layer : kLegacyLayers)
         assert(legacyLayer(layer.name) == &layer);
-    std::cout << "PASS hud layers: world-space ship bars and pointer shown at sea under the touch HUD, HUD panels refused, unclassified refused\n";
+    std::cout << "PASS hud layers: world-space ship bars and pointer shown at sea under the touch HUD, HUD panels refused (world map instruments and fleet too), unclassified refused\n";
 }

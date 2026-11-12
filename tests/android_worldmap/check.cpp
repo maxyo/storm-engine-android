@@ -14,7 +14,8 @@ struct WMShipCommandList {
 #include "select.inc"
 constexpr int BI_COMMODE_COMMAND_SELECT=1,BI_MSG_COMMAND_ACTIVATE=2;
 struct WM_INTERFACE {
-    bool m_bVisible=true,active=false;int m_nCommandMode=0,executed=0;
+    bool m_bVisible=true,active=false,stopOnPurpose=false;int m_nCommandMode=0,executed=0;
+    void MarkStopOnPurpose(){assert(!executed);stopOnPurpose=true;} // before the command leaves the map
     WMShipCommandList *m_pCommandList=nullptr;
     std::vector<WMShipCommandList::Item> fresh;
     bool IsCommandMenuActive(){return active;}
@@ -123,6 +124,19 @@ int main()
     interface.fresh={{"Cancel","Cancel"},{"EnterToIsland","Approach island"}};
     assert(!interface.ActivateAndroidMapCommand("EnterToSea")&&!interface.executed);
     assert(interface.ActivateAndroidMapCommand("EnterToIsland")&&interface.executed==BI_MSG_COMMAND_ACTIVATE&&commands.selected=="i1");
+    // Leaving for the open sea is a stop on purpose (WMapCancel's script half, first): an
+    // encounter met there can be sailed past. A failed selection marks nothing.
+    assert(interface.stopOnPurpose);
+    {
+        WM_INTERFACE engage;engage.m_pCommandList=&commands;engage.fresh={{"EnterToAttack","Attack"},{"EnterToSea","To sea"}};
+        assert(engage.ActivateAndroidMapCommand("EnterToAttack")&&engage.executed&&!engage.stopOnPurpose);
+        WM_INTERFACE missing;missing.m_pCommandList=&commands;missing.fresh={{"EnterToAttack","Attack"}};
+        assert(!missing.ActivateAndroidMapCommand("EnterToSea")&&!missing.stopOnPurpose);
+        WM_INTERFACE sea;sea.m_pCommandList=&commands;sea.fresh={{"EnterToSea","To sea"}};
+        assert(sea.ActivateAndroidMapCommand("EnterToSea")&&sea.stopOnPurpose&&sea.executed);
+        assert(leavesForOpenSea("EnterToSea")&&leavesForOpenSea("EnterToIsland")&&!leavesForOpenSea("EnterToShip")&&
+               !leavesForOpenSea("EnterToStorm")&&!leavesForOpenSea("EnterToEnemy"));
+    }
     interface.active=true;assert(!interface.ActivateAndroidMapCommand("EnterToIsland"));interface.active=false;
     interface.m_bVisible=false;assert(!interface.ActivateAndroidMapCommand("EnterToIsland"));
     WorldMapHud h;auto f=complete();h.update(f,10);h.resetActivity();

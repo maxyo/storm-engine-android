@@ -48,7 +48,7 @@ struct CardKind
 {
     const char *screen;
     const char *icon;
-    const char *cancel_variant; // B_CANCEL when the game allows it
+    const char *cancel_variant; // B_CANCEL, offered or not
     bool salary;                // the amount (INFO_TEXT3) goes on the primary
 };
 
@@ -104,7 +104,9 @@ class CardScreen final : public Screen
         if (cancel && !cancel->label.empty())
         {
             const bool offered = cancel->Offers("press");
-            Json button = ButtonView(bindings, *cancel, "cancel", offered ? kind_.cancel_variant : "secondary");
+            // The same kind of control whether the game allows it or not; only its state differs
+            // (a disabled quiet «Плыть дальше» is dimmer ink, not a box that reads as a button).
+            Json button = ButtonView(bindings, *cancel, "cancel", kind_.cancel_variant);
             if (kind_.salary)
                 button["label"] = bindings.Text("reading.salary_refuse");
             if (!offered && cancel->unavailable_reason.empty())

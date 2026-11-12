@@ -56,6 +56,13 @@ struct WorldMapFrame
         return mask;
     }
 };
+// The world-map commands that leave the map for the open sea (WmInterface.c: "Выйти в море"):
+// the touch HUD's way to stop on purpose, which on PC is WMapCancel (Space). Attacking or
+// approaching a ship or storm stays the game's own command.
+inline bool leavesForOpenSea(std::string_view command)
+{
+    return command == "EnterToSea" || command == "EnterToIsland";
+}
 class WorldMapHud
 {
     WorldMapFrame frame_;
