@@ -511,6 +511,7 @@ void XINTERFACE::MobileCollectWidgets(std::vector<MobileWidget> &widgets)
     if(storm::android::mobileScreen=="goodstransfer")MobileCollectGoodsTransfer(widgets);
     if(storm::android::mobileScreen=="sailsgerald")MobileCollectSailsGerald(widgets);
     if(storm::android::mobileScreen=="alchemy")MobileCollectAlchemy(widgets);
+    if(storm::android::mobileScreen=="itemsbox")MobileCollectItemsBox(widgets);
 }
 
 void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
@@ -605,6 +606,7 @@ void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
 #include "mobile_goods_transfer.inc"
 #include "mobile_sails_gerald.inc"
 #include "mobile_alchemy.inc"
+#include "mobile_items_box.inc"
 #endif
 
 void XINTERFACE::Realize(uint32_t)
@@ -2441,6 +2443,9 @@ void XINTERFACE::DoControl()
         }
         if(action.screen=="alchemy"&&(action.node=="ANDROID_ALCHEMY"||action.node=="ANDROID_ALCHEMY_RECIPE")){
             storm::android::lastWidgetSnapshot.clear();MobileApplyAlchemy(action.node,action.value);continue;
+        }
+        if(action.screen=="itemsbox"&&action.node=="ANDROID_TAKE_ALL"){
+            storm::android::lastWidgetSnapshot.clear();MobileApplyItemsBoxTakeAll(action.value);continue;
         }
         if(action.screen=="shipyard"&&action.value.rfind("yard@",0)==0){
             MobileApplyShipyard(action.node,action.index,action.value);continue;
