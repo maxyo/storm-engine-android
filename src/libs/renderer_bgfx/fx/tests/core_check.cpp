@@ -70,7 +70,7 @@ void CheckSettings()
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
     CHECK(!medium.ssao && high.ssao && !original.ssao);
     CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 3); // Низкая: no shadows, as the original
-    CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 2 && high.lamp_shadows == 4);
+    CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 0 && high.lamp_shadows == 0); // off until fixed
     // The presets keep the legacy look: no tone curve, grade, flare, shafts, fx sky, hemisphere or linear sums.
     for (const Settings *preset : {&medium, &high})
         CHECK(!preset->tonemap && !preset->scene_grading && !preset->lens_flare && !preset->sun_shafts &&
@@ -321,7 +321,7 @@ void CheckSupport()
     no_shadow.shadow_map = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_shadow, changes);
-    CHECK(constrained.shadows == ShadowQuality::Off && constrained.lamp_shadows == 0 && changes.size() == 2);
+    CHECK(constrained.shadows == ShadowQuality::Off && constrained.lamp_shadows == 0 && changes.size() == 1);
     CHECK(LightingDefines(constrained).find("FX_LIGHT_SHADOW") == std::string::npos);
 
     // No R8 3D textures: no AO volume, said once; the rest stays.

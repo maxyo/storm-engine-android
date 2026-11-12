@@ -40,7 +40,8 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.normal_map_size = 512; // a quarter of High's memory
         s.shadows = ShadowQuality::Low;
         s.ao_volume = 2;
-        s.lamp_shadows = 2;
+        // Lamp shadows stay off until their darkening of baked surfaces matches the bake (option fx_lamp_shadows).
+        s.lamp_shadows = 0;
         return s;
     }
     s.bloom_downscale = 2;
@@ -56,7 +57,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.point_lights = 8;
     s.shadows = ShadowQuality::Soft;
     s.ao_volume = 3;
-    s.lamp_shadows = 4;
+    s.lamp_shadows = 0; // see Средняя
     s.ssao = true;
     s.ssao_intensity = 0.35f;
     return s;
