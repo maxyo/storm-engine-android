@@ -134,10 +134,13 @@ class EngineUi
         states_[name] = std::move(json); // replayed when a new host starts
     }
 
-    void Screen(const std::string &screen, uint64_t revision)
+    void Screen(const std::string &screen, uint64_t revision, double release_ms, double load_ms)
     {
-        __android_log_print(ANDROID_LOG_INFO, kTag, "interface %s %s (revision %llu)", screen.empty() ? screen_.c_str() : screen.c_str(),
-                            screen.empty() ? "closed" : "opened", static_cast<unsigned long long>(revision));
+        if (screen.empty())
+            __android_log_print(ANDROID_LOG_INFO, kTag, "interface %s closed (revision %llu)", screen_.c_str(), static_cast<unsigned long long>(revision));
+        else // the game's part of a screen switch ("UI switch" follows with the UI's)
+            __android_log_print(ANDROID_LOG_INFO, kTag, "interface %s opened (revision %llu): the game released the old one in %.0f ms and loaded it in %.0f ms",
+                                screen.c_str(), static_cast<unsigned long long>(revision), release_ms, load_ms);
         screen_ = screen;
         if (!screen.empty())
         {
@@ -572,9 +575,9 @@ void state(std::string_view channel, std::string json)
     EngineUi::Get().State(channel, std::move(json));
 }
 
-void screen(const std::string &screen, uint64_t revision)
+void screen(const std::string &screen, uint64_t revision, double release_ms, double load_ms)
 {
-    EngineUi::Get().Screen(screen, revision);
+    EngineUi::Get().Screen(screen, revision, release_ms, load_ms);
 }
 
 void interfaceModel(std::string json)

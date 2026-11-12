@@ -973,10 +973,14 @@ uint64_t XINTERFACE::ProcessMessage(MESSAGE &message)
 
     case MSG_INTERFACE_INIT: {
         const std::string &param = message.String();
+        const auto started = std::chrono::steady_clock::now();
         ReleaseOld();
+        const auto released = std::chrono::steady_clock::now();
         LoadDialog(param.c_str());
 #ifdef __ANDROID__
-        storm::android::showMobileScreen(param);
+        const auto loaded = std::chrono::steady_clock::now();
+        storm::android::showMobileScreen(param, std::chrono::duration<double, std::milli>(released - started).count(),
+                                         std::chrono::duration<double, std::milli>(loaded - released).count());
         storm::android::tutorialSkip.reset(storm::android::mobileScreenRevision);
         inventoryEquipCapability.invalidate();
         storm::mobile::ResetImages();
