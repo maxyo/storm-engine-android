@@ -30,6 +30,7 @@
 #include <android/log.h>
 #include "platform/android_ui.hpp"
 #include "platform/android_camera_zoom.hpp"
+#include "platform/android_camera_turn.hpp"
 #include "platform/android_held_controls.hpp"
 #include "platform/script_patches.hpp"
 #include "platform/android_shortcuts.hpp"
@@ -605,6 +606,11 @@ int main(int argc, char *argv[])
             else if (command.starts_with("spyglass:"))
             {
                 storm::android::spyglass.acknowledge(std::string_view(command).substr(9));
+            }
+            else if (command.starts_with("camera:turn\t"))
+            {
+                if (!storm::android::cameraTurn.offer(std::string_view(command).substr(7)))
+                    __android_log_print(ANDROID_LOG_ERROR, "StormInput", "invalid camera command '%s'", command.c_str());
             }
             else if (command.starts_with("camera:"))
             {
