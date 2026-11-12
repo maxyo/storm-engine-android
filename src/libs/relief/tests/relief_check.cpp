@@ -1,5 +1,5 @@
 // Host check of the relief preparation with the real DeepBump model (storm_relief_core): a small synthetic game,
-// prepared, found complete by Check(), keyed as the game keys it, resumed without work, stale maps pruned, cancelled.
+// prepared, marked complete, keyed as the game keys it, resumed without work, stale maps pruned, cancelled.
 #include "relief.hpp"
 #include "storm/fx/relief_store.hpp"
 
@@ -73,12 +73,22 @@ int main(int argc, char **argv)
     job.model = model;
     job.map_size = 128;
     job.threads = 2;
-    CHECK(relief::Check(textures, output, job.map_size).total == 1 && relief::Check(textures, output, job.map_size).missing == 1);
+    CHECK(!relief::Complete(textures, output, job.map_size));
     int calls = 0;
     relief::Result result = relief::Prepare(job, [&](const relief::Progress &) { return ++calls, false; });
     CHECK(result.status == 0 && result.prepared == 1 && result.failed == 0 && result.total == 1 && calls == 2);
-    CHECK(result.tiles == 1 && result.provider.rfind("CPU", 0) == 0);
-    CHECK(relief::Check(textures, output, job.map_size).missing == 0);
+    CHECK(result.provider.rfind("CPU", 0) == 0);
+    // Marked complete (the game skips its background pass), until the game has another relief texture.
+    CHECK(relief::Complete(textures, output, job.map_size) && !relief::Complete(textures, output, 256));
+    // By name, only relief textures.
+    {
+        const std::filesystem::path game = root / "ordered";
+        WriteTx(game / "RESOURCE/Textures/StoneB.tga.tx", 64);
+        WriteTx(game / "RESOURCE/Textures/StoneA.tga.tx", 64);
+        WriteTx(game / "RESOURCE/Textures/Characters/Face.tga.tx", 64);
+        const std::vector<std::filesystem::path> order = relief::List(game / "RESOURCE/Textures");
+        CHECK(order.size() == 2 && order[0].filename() == "StoneA.tga.tx" && order[1].filename() == "StoneB.tga.tx");
+    }
     // The game's key: path, probe level (64x64 here), method, size.
     const uint64_t key = fx::ReliefKey("locations/stonewall", probe, 64, 64, fx::kReliefMethodVersion, job.map_size);
     const std::optional<fx::NormalMap> map = fx::ReadReliefMap(output, key);

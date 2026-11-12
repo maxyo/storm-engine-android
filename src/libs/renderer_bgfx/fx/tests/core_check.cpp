@@ -911,27 +911,31 @@ void CheckLuminanceRelief()
 // DeepBump around the model (a stand-in `infer`): tiles cover the wrapped image, axes, strength; the relief store.
 void CheckDeepBump()
 {
-    constexpr int T = kDeepBumpTile;
-    // A stand-in whose output depends only on the texel's own value: the blended result must be that function of the
-    // texel, wherever the tiles fall (positions, wrap, blend weights).
+    // A stand-in whose output depends only on the texel's own value: the cropped result must be that function of the
+    // texel (padding, wrap, crop, axes).
     const int w = 300, h = 170;
     std::vector<float> grey(static_cast<size_t>(w) * h);
     for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x)
             grey[static_cast<size_t>(y) * w + x] = static_cast<float>((x * 7 + y * 13) % 97) / 96.0f;
-    int tiles = 0;
-    const auto per_texel = [&](const float *tile, float *out) {
-        ++tiles;
-        for (int i = 0; i < T * T; ++i)
+    int calls = 0, pw = 0, ph = 0;
+    bool wrapped = true;
+    const auto per_texel = [&](const float *image, int iw, int ih, float *out) {
+        ++calls;
+        pw = iw, ph = ih;
+        const size_t plane = static_cast<size_t>(iw) * ih;
+        // The padding repeats the texture: the texel kDeepBumpPad left of the image's first column is its last one.
+        wrapped = image[kDeepBumpPad * iw + 0] == grey[w - kDeepBumpPad] && image[0] == grey[static_cast<size_t>(h - kDeepBumpPad) * w + w - kDeepBumpPad];
+        for (size_t i = 0; i < plane; ++i)
         {
-            out[i] = 0.5f + 0.3f * tile[i];            // x grows with the value
-            out[T * T + i] = 0.5f + 0.2f;               // the model's +y (up the image)
-            out[2 * T * T + i] = 1.0f;
+            out[i] = 0.5f + 0.3f * image[i];  // x grows with the value
+            out[plane + i] = 0.5f + 0.2f;     // the model's +y (up the image)
+            out[2 * plane + i] = 1.0f;
         }
         return true;
     };
     const std::vector<float> normals = DeepBumpNormals(grey, w, h, per_texel);
-    CHECK(tiles == DeepBumpTileCount(w, h) && normals.size() == static_cast<size_t>(w) * h * 3);
+    CHECK(calls == 1 && pw == 448 && ph == 320 && wrapped && normals.size() == static_cast<size_t>(w) * h * 3);
     float worst = 0.0f;
     for (size_t t = 0; t < grey.size(); ++t)
     {
@@ -942,7 +946,7 @@ void CheckDeepBump()
     }
     CHECK(worst < 1e-4f);
     // An aborted inference gives no normals.
-    CHECK(DeepBumpNormals(grey, w, h, [](const float *, float *) { return false; }).empty());
+    CHECK(DeepBumpNormals(grey, w, h, [](const float *, int, int, float *) { return false; }).empty());
 
     // The input: grey = mean of R, G, B, box-halved to the map size.
     std::vector<uint8_t> rgba(16 * 8 * 4, 0);

@@ -241,6 +241,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     // Relief: the normal map of stage 1's texture (a grey height texture: the game's 2x detail layer, on the second UV
     // set) or else of stage 0's (the colour texture of stone, wood, plaster, ground).
     bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE;
+    float relief_fade = 0.0f; // a map just uploaded fades in (effects::kReliefFade)
     int relief_stage = -1;
     if ((flags_ & fx::kLightingNormalMap) && lighting_ && layout.has_normal && device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
         !(lit && material_ == Material::Character))
@@ -249,7 +250,9 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             shim::TexStore *store = shim::store_of(device.s.textures[stage]);
             if (!store || !store->normal_map || device.s.tss[stage][D3DTSS_COLOROP] == D3DTOP_DISABLE)
                 continue;
-            normal_map = normal_maps_.handle(*store, fx_);
+            const NormalMaps::Relief map = normal_maps_.handle(*store, fx_);
+            normal_map = map.handle;
+            relief_fade = map.fade;
             relief_stage = stage;
             break;
         }
@@ -417,6 +420,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         u[2][3] = 0.0f;
     if (!per_pixel || !(flags_ & fx::kLightingRim))
         u[5][1] = 0.0f;
+    u[5][0] *= relief_fade;
     const bool relief = bgfx::isValid(normal_map) && u[5][0] > 0.0f;
     draw.ff = {two_sided && u[2][3] > 0.0f ? 1.0f : 0.0f, relief ? static_cast<float>(relief_stage) : 0.0f, 0.0f, 0.0f};
     if (relief)

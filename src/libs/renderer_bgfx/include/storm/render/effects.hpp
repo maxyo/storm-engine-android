@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -177,14 +178,24 @@ void SetEffectsGroundLight(std::string_view name, std::span<const std::array<flo
                            std::span<const std::array<float, 2>> uvs, std::span<const uint32_t> indices,
                            std::span<const uint32_t> triangle_lightmap, std::span<const EffectsLightmap> lightmaps);
 
-// The game file a texture was loaded from (Renderer::TextureLoad, after its levels are filled). Stone, wood, plaster
-// and ground textures and grey height ("bump") textures get a normal map for the per-pixel lighting's relief
-// (fx_light_normal_map, fx/normal_map.hpp).
-void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path);
+// The texture's name and the game file it was loaded from (Renderer::TextureLoad, after its levels are filled). Stone,
+// wood, plaster and ground textures and grey height ("bump") textures get a normal map for the per-pixel lighting's
+// relief (fx_light_normal_map, fx/normal_map.hpp, src/effects/relief_generator.hpp).
+void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path, const std::filesystem::path &file);
 
-// The relief directory (fx/relief_store.hpp): the normal maps «Подготовка рельефа» made at import, and the height maps the
-// game derives. Before the first texture is loaded.
-void ConfigureReliefDirectory(const std::filesystem::path &directory);
+// Relief maps (fx/relief_store.hpp): made by DeepBump in the game process the first time a texture needs one, and the
+// height maps the game derives; kept in `directory`. Before the first texture is loaded.
+struct ReliefConfig
+{
+    std::filesystem::path directory;
+    std::filesystem::path textures; // the game's RESOURCE/Textures (the generator reads the texture files)
+    // Reads the DeepBump model (src/libs/relief/model). Null: no maps are made (logged); textures without one get no
+    // relief.
+    std::function<std::vector<uint8_t>()> model;
+};
+void ConfigureRelief(const ReliefConfig &config);
+// Before the renderer goes: stops the generator (the texture in progress is abandoned, its map made next time).
+void ShutdownRelief();
 
 // ---- World passes: contact shadows ----
 // The consumer entities (shadow, SUNGLOW) ask which parts are on and then either call the fx pass below

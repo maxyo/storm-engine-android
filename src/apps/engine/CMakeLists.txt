@@ -29,8 +29,8 @@ if(ANDROID)
     set_target_properties(engine PROPERTIES VERSION "" SOVERSION "" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/game")
     include(build_stamp)
     storm_build_stamp(engine)
-    # The APK takes the relief preparation (libstorm_relief.so, libonnxruntime.so, the DeepBump model) from the same
-    # <build>/game directory: building the engine builds it too (src/libs/relief/README.md).
-    add_dependencies(engine storm_relief)
+    # The APK takes what the relief generation needs next to libengine.so (libonnxruntime.so, the DeepBump model asset)
+    # from the same <build>/game directory: building the engine puts them there (src/libs/relief/README.md).
+    add_dependencies(engine storm_relief_package)
 endif()
 
