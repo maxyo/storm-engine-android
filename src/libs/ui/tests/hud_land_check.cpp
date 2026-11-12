@@ -288,6 +288,13 @@ static void CheckStatus()
            "explore: the party row, hero first, officers with their faces, health and energy; an officer without a face shows the game's own figure");
     Expect(std::find(mount.logs.begin(), mount.logs.end(), "land HUD: Офицер Бета (character 32) has no FaceId: the game's own figure battle_interface/two") != mount.logs.end(),
            "… and that is said, naming the person");
+    Json bare = State("vitals-status");
+    bare["officers"][1].erase("picture");
+    bench.Set("vitals", bare);
+    Expect(mount.shown.elements["party"]["officers"][2]["texture"] == "" &&
+               std::find(mount.logs.begin(), mount.logs.end(),
+                         "land HUD: Офицер Бета (character 32) has no FaceId: the game's two.tga fallback is missing, the placeholder stays") != mount.logs.end(),
+           "without the game's figure either: the neutral placeholder, said aloud");
     // A tap on a member opens the character screen on that person.
     mount.commands.clear();
     bench.Press("party", "member", "2");

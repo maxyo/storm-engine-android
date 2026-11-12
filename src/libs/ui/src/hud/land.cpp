@@ -266,13 +266,14 @@ class LandScene final : public Scene
 
     // The portrait of a party member: the game's 128 px face by FaceId. Without a FaceId the
     // land interface draws its generic figure (landinterface.c: two.tga), which the engine sends
-    // as the icon's picture: shown the same, and said once per person.
+    // as the icon's picture when the game has that file: shown the same; without it the game
+    // has no picture either and the neutral placeholder stays. Both are said once per person.
     Picture Face(const std::string &face, const Picture &icon, const std::string &name, int character)
     {
         if (!face.empty())
             return {"INTERFACES/PORTRAITS/128/face_" + face, {}};
         hud_.Log("land HUD: " + name + " (character " + std::to_string(character) + ") has no FaceId: " +
-                 (icon.texture.empty() ? "the engine gives no picture either, the placeholder stays" : "the game's own figure " + icon.texture));
+                 (icon.texture.empty() ? "the game's two.tga fallback is missing, the placeholder stays" : "the game's own figure " + icon.texture));
         return icon;
     }
 
