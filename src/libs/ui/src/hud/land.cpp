@@ -384,7 +384,12 @@ class LandScene final : public Scene
             input.On("block", "up", [this](const Event &) { Strike("block", "up"); });
             input.Ignore("block", "click");
         }
-        if (combat.Has("pistol") && combat.pistol != "no_weapon")
+        // The shot is always in the combat cluster (owner decision) once the engine binds it:
+        // without a firearm equipped it is inactive, and a tap on it toasts the reason (the
+        // press behaviour of a disabled button).
+        if (combat.Has("pistol") && combat.pistol == "no_weapon")
+            view.elements["shot"] = Json{{"disabled", true}, {"reason", hud_.Text("hud.combat.noFirearm")}};
+        else if (combat.Has("pistol"))
         {
             const bool loading = combat.pistol == "unloaded";
             Json shot = {{"disabled", !ready || loading}, {"reloading", loading}};
