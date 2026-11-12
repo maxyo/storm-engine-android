@@ -25,6 +25,10 @@
 #include "v_sound_service.h"
 #include "fs.h"
 #include "platform/host_hooks.hpp"
+#include "profiler.hpp"
+#ifdef STORM_TRACY
+#include <common/TracyVersion.hpp>
+#endif
 #include "watermark.hpp"
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -126,45 +130,6 @@ void RunFrame()
 
     lifecycleDiagnostics.notifyAfterRun();
 }
-
-// Sleep-based frame limiter. The previous one compared SDL_GetTicks() and
-// `continue`d, spinning the whole main loop (event pump, JNI polling) on one
-// core until the frame time had passed, with whole-millisecond periods
-// (max_fps=60 actually ran at 62.5).
-class FrameLimiter
-{
-  public:
-    using Clock = std::chrono::steady_clock;
-
-    void setLimit(uint32_t fps)
-    {
-        period_ = fps ? std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / fps))
-                      : Clock::duration::zero();
-        next_ = Clock::now();
-    }
-
-    // Blocks until the next frame is due.
-    void wait()
-    {
-        if (period_ == Clock::duration::zero())
-            return;
-        const auto now = Clock::now();
-        if (now < next_)
-        {
-            std::this_thread::sleep_until(next_);
-            next_ += period_;
-        }
-        else
-        {
-            // Late: schedule from now instead of bursting to catch up.
-            next_ = (now - next_ > period_) ? now + period_ : next_ + period_;
-        }
-    }
-
-  private:
-    Clock::duration period_ = Clock::duration::zero();
-    Clock::time_point next_{};
-};
 
 // Last line of defence for exceptions thrown out of a frame (about 490 `throw`
 // sites are reachable from the frame loop): log, flush, tell the player, and
@@ -441,6 +406,13 @@ int main(int argc, char *argv[])
     // Init logging
     spdlog::set_default_logger(storm::logging::getOrCreateLogger(defaultLoggerName));
     spdlog::info("Logging system initialized. Running on {}", STORM_BUILD_WATERMARK_STRING);
+#ifdef STORM_TRACY
+    // Development build (cmake/tracy.cmake). The application's release packaging refuses a library with this line.
+    STORM_PROFILE_THREAD("game");
+    spdlog::info("storm-profiler: Tracy {}.{}.{} client, on demand, listening on 127.0.0.1:8086 (device: adb forward "
+                 "tcp:8086 tcp:8086; tools/android/README.md)",
+                 tracy::Version::Major, tracy::Version::Minor, tracy::Version::Patch);
+#endif
     spdlog::info("mimalloc-redirect status: {}", mi_is_redirected());
 #ifdef __ANDROID__
     AnnounceScriptPatches();
@@ -454,7 +426,6 @@ int main(int argc, char *argv[])
     // Read config
     auto ini = fio->OpenIniFile(fs::ENGINE_INI_FILE_NAME);
 
-    uint32_t dwMaxFPS = 0;
     int width = 1024, height = 768;
     int preferred_display = 0;
     bool fullscreen = false;
@@ -463,7 +434,6 @@ int main(int argc, char *argv[])
 
     if (ini)
     {
-        dwMaxFPS = static_cast<uint32_t>(ini->GetInt(nullptr, "max_fps", 0));
         auto bDebugWindow = ini->GetInt(nullptr, "DebugWindow", 0) == 1;
         auto bAcceleration = ini->GetInt(nullptr, "Acceleration", 0) == 1;
         if (ini->GetInt(nullptr, "logs", 1) == 0) // disable logging
@@ -494,9 +464,7 @@ int main(int argc, char *argv[])
     // Init core
     core_private->InitBase();
 
-    // Message loop
-    FrameLimiter frameLimiter;
-    frameLimiter.setLimit(dwMaxFPS);
+    // Message loop. Frames are paced by the renderer's present (Swappy on Android, vsync elsewhere).
 
 #ifdef __ANDROID__
     storm::android::Lifecycle androidLifecycle;
@@ -571,6 +539,7 @@ int main(int argc, char *argv[])
     isRunning = true;
     while (isRunning)
     {
+        STORM_PROFILE_ZONE("main loop");
         if (const auto work = frameWork.lap(storm::platform::FrameWorkClock::Clock::now()))
             storm::platform::reportFrameWork(std::chrono::duration_cast<std::chrono::nanoseconds>(*work));
 #ifdef __ANDROID__
@@ -578,7 +547,10 @@ int main(int argc, char *argv[])
         const auto combatDrainEpoch = storm::android::combatCancelEpoch.load(std::memory_order_acquire);
         // The UI host first: it applies the touches the platform sent, and what they produce
         // is read in this iteration, together with the activity's own queue.
-        storm::android::ui::tick();
+        {
+            STORM_PROFILE_ZONE("UI host: input");
+            storm::android::ui::tick();
+        }
         // A pinch acts only in the frame it came for (android_camera_zoom.hpp).
         if (storm::android::cameraZoom.beginFrame())
             __android_log_print(ANDROID_LOG_WARN, "StormInput", "camera pinch dropped: no camera with a zoom took it (gameplay %s)",
@@ -845,9 +817,7 @@ int main(int argc, char *argv[])
 #endif
         )
         {
-            const auto limiterStart = storm::platform::FrameWorkClock::Clock::now();
-            frameLimiter.wait();
-            frameWork.frame(storm::platform::FrameWorkClock::Clock::now() - limiterStart);
+            frameWork.frame();
 
 #ifdef __ANDROID__
             // Activity changes revoke queued intents before any native Player
@@ -913,6 +883,7 @@ int main(int argc, char *argv[])
 #ifdef __ANDROID__
                 storm::android::worldMapHud.beginDraw(SDL_GetTicks());
 #endif
+                STORM_PROFILE_ZONE("frame: script, entities, render");
                 RunFrame();
             }
             catch (const std::exception &error)

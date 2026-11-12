@@ -7,7 +7,6 @@
 #include "legacy_colored_mesh.hpp"
 #include "legacy_textured_mesh.hpp"
 #include "sky_mesh.hpp"
-#include "storm/render/effects.hpp"
 #include <algorithm>
 #include <cmath>
 #ifdef __ANDROID__
@@ -140,18 +139,6 @@ bool SKY::DrawSkyObjects(uint32_t Delta_Time, bool sun_sprite)
 void SKY::Realize(uint32_t Delta_Time)
 {
     fAngleY += static_cast<float>(Delta_Time) * 0.001f * fSkySpeedRotate;
-
-    if (storm::render::CurrentEffectsWorld().sky)
-    {
-        // The analytic sky (renderer_bgfx/fx) replaces the textured sky box and the fog sphere; the fog takes its
-        // horizon colour (WEATHER). Stars, planets and the moon are drawn on top; it draws its own sun disc.
-        storm::render::EffectsMatrix view;
-        pRS->GetTransform(D3DTS_VIEW, reinterpret_cast<D3DMATRIX *>(view.data()));
-        storm::render::EffectsDrawSky(view);
-        if (Delta_Time != 0)
-            DrawSkyObjects(Delta_Time, false);
-        return;
-    }
 
     float fFov;
     glm::vec3 vPos, vAng;

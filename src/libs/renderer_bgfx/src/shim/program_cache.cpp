@@ -11,6 +11,10 @@
 #include <cstring>
 #include <fstream>
 #include <system_error>
+#include <vector>
+#ifdef STORM_TRACY
+#include <tracy/TracyC.h>
+#endif
 
 namespace storm::shim
 {
@@ -297,6 +301,48 @@ void ProgramCache::fatal(const char *file, uint16_t line, bgfx::Fatal::Enum code
     if (code != bgfx::Fatal::DebugCheck)
         std::abort(); // bgfx's contract: the callback must not return from a fatal error
 }
+
+#ifdef STORM_TRACY
+namespace
+{
+// Zones bgfx opened on this thread (the render thread is the game thread: BGFX_CONFIG_MULTITHREADED is off).
+thread_local std::vector<TracyCZoneCtx> bgfx_zones;
+} // namespace
+
+void ProgramCache::profilerBegin(const char *name, uint32_t abgr, const char *file, uint16_t line)
+{
+    // bgfx's 0xAABBGGRR as Tracy's 0xRRGGBB. The source location is copied: bgfx's names may be built per call.
+    const uint32_t rgb = ((abgr & 0xffu) << 16) | (abgr & 0xff00u) | ((abgr >> 16) & 0xffu);
+    const uint64_t location =
+        ___tracy_alloc_srcloc_name(line, file, std::strlen(file), "bgfx", 4, name, std::strlen(name), rgb);
+    bgfx_zones.push_back(___tracy_emit_zone_begin_alloc(location, 1));
+}
+
+void ProgramCache::profilerBeginLiteral(const char *name, uint32_t abgr, const char *file, uint16_t line)
+{
+    profilerBegin(name, abgr, file, line);
+}
+
+void ProgramCache::profilerEnd()
+{
+    if (bgfx_zones.empty())
+        return;
+    ___tracy_emit_zone_end(bgfx_zones.back());
+    bgfx_zones.pop_back();
+}
+#else
+void ProgramCache::profilerBegin(const char *, uint32_t, const char *, uint16_t)
+{
+}
+
+void ProgramCache::profilerBeginLiteral(const char *, uint32_t, const char *, uint16_t)
+{
+}
+
+void ProgramCache::profilerEnd()
+{
+}
+#endif
 
 void ProgramCache::traceVargs(const char *, uint16_t, const char *format, va_list args)
 {

@@ -21,18 +21,23 @@ int main()
 {
     const FrameWorkClock::Clock::time_point t0{};
     {
+        using storm::platform::presentWaited;
         FrameWorkClock clock;
         expect(!clock.lap(t0), "first loop top reports nothing");
-        clock.frame(10ms);
+        clock.frame();
+        presentWaited(10ms);
         const auto work = clock.lap(t0 + 33ms);
-        expect(work && *work == 23ms, "frame work excludes the limiter sleep");
+        expect(work && *work == 23ms, "frame work excludes the present wait");
+        presentWaited(7ms); // a present outside a frame iteration is not carried into the next one
         expect(!clock.lap(t0 + 83ms), "an iteration without a frame (background sleep) reports nothing");
-        clock.frame(0ms);
-        expect(clock.lap(t0 + 100ms) == 17ms, "frame without a limiter sleep reports the whole iteration");
-        clock.frame(5ms);
-        clock.frame(5ms);
-        expect(clock.lap(t0 + 130ms) == 20ms, "several sleeps in one iteration are all excluded");
-        clock.frame(50ms);
+        clock.frame();
+        expect(clock.lap(t0 + 100ms) == 17ms, "frame without a present wait reports the whole iteration");
+        clock.frame();
+        presentWaited(5ms);
+        presentWaited(5ms);
+        expect(clock.lap(t0 + 130ms) == 20ms, "several presents in one iteration are all excluded");
+        clock.frame();
+        presentWaited(50ms);
         expect(clock.lap(t0 + 140ms) == 0ms, "work never goes negative");
     }
     {
@@ -50,7 +55,8 @@ int main()
         }
         expect(!storm::platform::saveInProgress(), "no save after the scope");
     }
-    storm::platform::reportFrameWork(16ms); // no-op off Android
-    std::puts("PASS: host hooks (frame work clock, save-in-progress scope, no-op frame report)");
+    storm::platform::reportFrameWork(16ms); // no-ops off Android
+    storm::platform::frameWorkTarget(16ms);
+    std::puts("PASS: host hooks (frame work clock, save-in-progress scope, no-op frame work hint)");
     return 0;
 }

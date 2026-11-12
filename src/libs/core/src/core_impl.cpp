@@ -9,10 +9,17 @@
 #include "controls.h"
 #include "fs.h"
 #include "platform/host_hooks.hpp"
+#include "profiler.hpp"
 #include "save_file.hpp"
 #include "save_trash.hpp"
 
 #include <fstream>
+#ifdef STORM_TRACY
+#include <cxxabi.h>
+#include <string>
+#include <typeindex>
+#include <unordered_map>
+#endif
 
 #include "string_compare.hpp"
 #include <SDL2/SDL.h>
@@ -23,6 +30,32 @@ uint64_t get_performance_counter()
 {
     return SDL_GetPerformanceCounter();
 }
+
+#ifdef STORM_TRACY
+namespace
+{
+// The class of an entity for its profiler zone, demangled once per type.
+const std::string &EntityClassName(Entity &entity)
+{
+    static std::unordered_map<std::type_index, std::string> names;
+    auto [it, inserted] = names.try_emplace(typeid(entity));
+    if (inserted)
+    {
+        int status = 0;
+        char *demangled = abi::__cxa_demangle(typeid(entity).name(), nullptr, nullptr, &status);
+        it->second = status == 0 && demangled ? demangled : typeid(entity).name();
+        std::free(demangled);
+    }
+    return it->second;
+}
+} // namespace
+#define STORM_PROFILE_ENTITY(entity)                                                                                   \
+    STORM_PROFILE_ZONE("entity");                                                                                      \
+    const std::string &entityName = EntityClassName(entity);                                                           \
+    STORM_PROFILE_ZONE_TEXT(entityName.data(), entityName.size())
+#else
+#define STORM_PROFILE_ENTITY(entity) static_cast<void>(0)
+#endif
 
 namespace storm
 {
@@ -193,16 +226,25 @@ bool CoreImpl::Run()
     if (!bEngineIniProcessed)
         ProcessEngineIniFile();
 
-    Compiler->ProcessFrame(Timer.GetDeltaTime());
-    Compiler->ProcessEvent("frame");
+    {
+        STORM_PROFILE_ZONE("script: frame");
+        Compiler->ProcessFrame(Timer.GetDeltaTime());
+        Compiler->ProcessEvent("frame");
+    }
 #ifdef __ANDROID__
     storm::android::ApplyNewGameChoiceAfterFrame();
 #endif
 
-    ProcessStateLoading();
-    ReportFailedLoad();
+    {
+        STORM_PROFILE_ZONE("save/load state");
+        ProcessStateLoading();
+        ReportFailedLoad();
+    }
 
-    ProcessRunStart(SECTION_ALL);
+    {
+        STORM_PROFILE_ZONE("services: run start");
+        ProcessRunStart(SECTION_ALL);
+    }
     if (stopFrameProcessing_)
     {
         // service asked to skip current frame processing
@@ -219,15 +261,21 @@ bool CoreImpl::Run()
         return false;
     ProcessRealize(); // transfer control to objects via Realize() function
 
-    if (Controls)
-        Controls->Update(Timer.rDelta_Time);
+    {
+        STORM_PROFILE_ZONE("controls");
+        if (Controls)
+            Controls->Update(Timer.rDelta_Time);
 
-    if (Controls)
-        ProcessControls();
+        if (Controls)
+            ProcessControls();
+    }
 
     entity_manager_.NewLifecycle();
 
-    ProcessRunEnd(SECTION_ALL);
+    {
+        STORM_PROFILE_ZONE("services: run end (present)");
+        ProcessRunEnd(SECTION_ALL);
+    }
 
     return true;
 }
@@ -564,6 +612,7 @@ void CoreImpl::Trace(const char *format, ...)
 void CoreImpl::ProcessExecute()
 {
     uint64_t ticks;
+    STORM_PROFILE_ZONE("execute: game logic, physics");
 
     ProcessRunStart(SECTION_EXECUTE);
 
@@ -573,6 +622,7 @@ void CoreImpl::ProcessExecute()
     {
         if (auto *ptr = core.GetEntityPointerSafe(id))
         {
+            STORM_PROFILE_ENTITY(*ptr);
             ptr->ProcessStage(Entity::Stage::execute, deltatime);
         }
     }
@@ -583,6 +633,7 @@ void CoreImpl::ProcessExecute()
 void CoreImpl::ProcessRealize()
 {
     uint64_t ticks;
+    STORM_PROFILE_ZONE("realize: render submit");
     ProcessRunStart(SECTION_REALIZE);
 
     const auto deltatime = Timer.GetDeltaTime();
@@ -591,6 +642,7 @@ void CoreImpl::ProcessRealize()
     {
         if (auto *ptr = core.GetEntityPointerSafe(id))
         {
+            STORM_PROFILE_ENTITY(*ptr);
             ptr->ProcessStage(Entity::Stage::realize, deltatime);
         }
     }

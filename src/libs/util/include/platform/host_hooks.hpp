@@ -18,9 +18,18 @@
 
 namespace storm::platform
 {
+// Time the game thread blocked in presents since the last FrameWorkClock lap: the frame pacing waiting for the
+// frame's vsync slot (renderer_bgfx shim/frame_pacing.cpp), which is not work. Game thread only.
+inline std::chrono::nanoseconds presentWait{0};
+
+inline void presentWaited(std::chrono::nanoseconds wait)
+{
+    presentWait += wait;
+}
+
 // CPU work of one main-loop iteration that ran a frame: the wall time between two
-// loop tops minus the frame limiter's sleep. Iterations that did not run a frame
-// (backgrounded, paused) report nothing. Game thread only.
+// loop tops minus the time its presents waited (presentWait). Iterations that did not
+// run a frame (backgrounded, paused) report nothing. Game thread only.
 class FrameWorkClock
 {
   public:
@@ -32,25 +41,23 @@ class FrameWorkClock
     {
         std::optional<Clock::duration> work;
         if (started_ && frame_)
-            work = std::max(Clock::duration::zero(), now - start_ - sleep_);
+            work = std::max(Clock::duration::zero(),
+                            now - start_ - std::chrono::duration_cast<Clock::duration>(presentWait));
         start_ = now;
         started_ = true;
         frame_ = false;
-        sleep_ = Clock::duration::zero();
+        presentWait = std::chrono::nanoseconds::zero();
         return work;
     }
 
-    // The current iteration runs a frame; `limiterSleep` is the time the frame
-    // limiter blocked in it.
-    void frame(Clock::duration limiterSleep)
+    // The current iteration runs a frame.
+    void frame()
     {
         frame_ = true;
-        sleep_ += limiterSleep;
     }
 
   private:
     Clock::time_point start_{};
-    Clock::duration sleep_ = Clock::duration::zero();
     bool started_ = false;
     bool frame_ = false;
 };
@@ -76,32 +83,23 @@ inline bool saveInProgress()
 }
 
 #ifdef __ANDROID__
-// Feeds the app's ADPF PerformanceHint session:
-// static org.stormengine.port.GamePerformance.reportFrameWork(long nanos), "(J)V".
-// The class and method are resolved once through the activity's class loader (FindClass
+// Feeds the app's ADPF PerformanceHint session through two static methods of
+// org.stormengine.port.GamePerformance: reportFrameWork(long nanos) and updateTargetWork(long nanos), "(J)V".
+// The class and methods are resolved once through the activity's class loader (FindClass
 // on a native thread would only see the system loader) and cached as a global ref, so a
-// report is one static call without allocations. If the class or method is missing, or
-// the call throws, the reason is logged once and reporting stays disabled. Game thread only.
+// call is one static call without allocations. If the class or a method is missing, or
+// a call throws, the reason is logged once and the hint stays disabled. Game thread only.
 class FrameWorkHint
 {
   public:
     void report(std::chrono::nanoseconds work)
     {
-        if (state_ == State::Disabled)
-            return;
-        // SDL attaches the calling thread on first use and caches the env per thread.
-        auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-        if (!env)
-            return disable("no JNIEnv for the game thread");
-        if (state_ == State::Unresolved && !resolve(env))
-            return;
-        env->CallStaticVoidMethod(class_, method_, static_cast<jlong>(work.count()));
-        if (env->ExceptionCheck())
-        {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-            disable("GamePerformance.reportFrameWork threw");
-        }
+        call(&FrameWorkHint::report_, work);
+    }
+
+    void target(std::chrono::nanoseconds target)
+    {
+        call(&FrameWorkHint::target_, target);
     }
 
   private:
@@ -111,6 +109,26 @@ class FrameWorkHint
         Ready,
         Disabled
     };
+
+    void call(jmethodID FrameWorkHint::*method, std::chrono::nanoseconds value)
+    {
+        if (state_ == State::Disabled)
+            return;
+        // SDL attaches the calling thread on first use and caches the env per thread.
+        auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+        if (!env)
+            return disable("no JNIEnv for the game thread");
+        if (state_ == State::Unresolved && !resolve(env))
+            return;
+        env->CallStaticVoidMethod(class_, this->*method, static_cast<jlong>(value.count()));
+        if (env->ExceptionCheck())
+        {
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+            disable(method == &FrameWorkHint::report_ ? "GamePerformance.reportFrameWork threw"
+                                                      : "GamePerformance.updateTargetWork threw");
+        }
+    }
 
     bool resolve(JNIEnv *env)
     {
@@ -146,15 +164,18 @@ class FrameWorkHint
             disable("class org.stormengine.port.GamePerformance not found");
             return false;
         }
-        method_ = env->GetStaticMethodID(found, "reportFrameWork", "(J)V");
+        report_ = env->GetStaticMethodID(found, "reportFrameWork", "(J)V");
         if (env->ExceptionCheck())
             env->ExceptionClear();
-        if (method_)
+        target_ = env->GetStaticMethodID(found, "updateTargetWork", "(J)V");
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        if (report_ && target_)
             class_ = static_cast<jclass>(env->NewGlobalRef(found));
         env->DeleteLocalRef(found);
-        if (!method_ || !class_)
+        if (!report_ || !target_ || !class_)
         {
-            disable("static GamePerformance.reportFrameWork(J)V not found");
+            disable("static GamePerformance.reportFrameWork(J)V or updateTargetWork(J)V not found");
             return false;
         }
         state_ = State::Ready;
@@ -170,18 +191,34 @@ class FrameWorkHint
 
     State state_ = State::Unresolved;
     jclass class_ = nullptr;
-    jmethodID method_ = nullptr;
+    jmethodID report_ = nullptr;
+    jmethodID target_ = nullptr;
 };
+
+inline FrameWorkHint &frameWorkHint()
+{
+    static FrameWorkHint hint;
+    return hint;
+}
 #endif
 
 // Reports the CPU work of the last frame to the host's performance hint. Game thread only.
 inline void reportFrameWork(std::chrono::nanoseconds work)
 {
 #ifdef __ANDROID__
-    static FrameWorkHint hint;
-    hint.report(work);
+    frameWorkHint().report(work);
 #else
     (void)work;
+#endif
+}
+
+// The work duration the host's performance hint aims at: the frame pacing's preferred swap interval. Game thread only.
+inline void frameWorkTarget(std::chrono::nanoseconds target)
+{
+#ifdef __ANDROID__
+    frameWorkHint().target(target);
+#else
+    (void)target;
 #endif
 }
 } // namespace storm::platform

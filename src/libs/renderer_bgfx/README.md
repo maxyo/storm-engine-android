@@ -44,6 +44,10 @@ on Android and on the Linux development host alike.
   `bgfx-anisotropy-level.patch`: the GL backend applies one anisotropy level to every sampler, the device
   maximum; the patch caps it with `bgfx::gl::g_stormMaxAnisotropy` so the presets get 4x / 8x (set by
   `src/effects`). Upstream bgfx has no per-level API; keep it until it does.
+  `bgfx-swap-present-hook.patch`: `bgfx::setEglPresent` replaces `eglSwapBuffers` for the window surface of
+  the context bgfx created, so the shim presents with Android Frame Pacing (`src/shim/frame_pacing.hpp`,
+  Swappy GL from `cmake/swappy.cmake`; tools/android/README.md, "Frame pacing"). Upstream bgfx has no
+  present hook; keep it until it does.
 - `fx/` — optional effects package (see its README), driven by `src/effects/` (presets, post chain,
   lighting and alpha to coverage of the fixed-function emulator).
   A preset change on a live device (and the device's start, which begins on «Низкая») is staged by

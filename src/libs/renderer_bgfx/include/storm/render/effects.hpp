@@ -146,13 +146,12 @@ void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path);
 // used files are evicted): the app's cache directory on Android. Before the first texture is loaded.
 void ConfigureEffectsCache(const std::filesystem::path &directory, uint64_t max_bytes);
 
-// ---- World passes: fx sky, contact shadows ----
-// The consumer entities (SKY, SEA, shadow, SUNGLOW) ask which parts are on and then either call the fx pass below
+// ---- World passes: contact shadows ----
+// The consumer entities (shadow, SUNGLOW) ask which parts are on and then either call the fx pass below
 // or keep their legacy drawing. Changes only at the Present that switches settings (EffectsReport::pending);
 // everything false in «Низкая».
 struct EffectsWorld
 {
-    bool sky = false;             // fx sky replaces the textured sky box and the fog sphere of SKY
     bool contact_shadows = false; // a soft blob under each character
     bool lens_flare = false;      // the post chain draws the sun glare: SUNGLOW leaves its glow, overflow and flare
                                   // sprites of the sun out and reports the sun's visibility (SetEffectsSunGlare)
@@ -162,17 +161,10 @@ struct EffectsWorld
 };
 EffectsWorld CurrentEffectsWorld();
 
-// The fog colour that matches the fx sky's horizon (0..1, gamma-encoded) while the fx sky is on and the weather of
-// this frame is known; false otherwise (keep the game's fog colour).
-bool EffectsSkyFogColor(std::array<float, 3> &rgb);
-
 // The world passes below draw into the current render target with the current D3D projection, in submission
 // order. `view` is the world -> view matrix as the engine sees it (VRenderer::GetTransform(D3DTS_VIEW)): the
 // device itself holds a camera-relative view, because Renderer moves the camera translation into the world matrix.
 using EffectsMatrix = std::array<float, 16>;
-
-// Draws the analytic sky on the far plane (depth test only). Only while CurrentEffectsWorld().sky.
-void EffectsDrawSky(const EffectsMatrix &view);
 
 // A contact shadow on the floor at `ground` (a character's feet), drawn at once. Call it after the floor is drawn.
 // Only while CurrentEffectsWorld().contact_shadows.

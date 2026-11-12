@@ -126,8 +126,6 @@ struct Settings
     float sea_edge_depth = 1.5f;  // metres of water over which a soft edge fades in
     float sea_specular_power = 400.0f;
     float sea_specular_strength = 0.6f;
-    bool sky_atmosphere = false;   // analytic sky instead of the textured sky box
-    bool sky_clouds = false;
     uint32_t lighting_flags = kLightingNone;
     uint8_t point_lights = 4;      // per draw call with kLightingPoint: 4 or 8
     // With kLightingNormalMap: the one strength of all relief (lit models and baked surfaces alike; the texture classes

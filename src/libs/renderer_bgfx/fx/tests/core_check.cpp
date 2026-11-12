@@ -52,7 +52,6 @@ void CheckSettings()
     const Settings original = Settings::FromPreset(QualityPreset::Low);
     CHECK(original.PostIsIdentity());
     CHECK(!original.sea_band_limit && !original.sea_soft_edges && !original.sea_specular);
-    CHECK(!original.sky_atmosphere);
     CHECK(original.lighting_flags == kLightingNone);
     const Settings medium = Settings::FromPreset(QualityPreset::Medium);
     const Settings high = Settings::FromPreset(QualityPreset::High);
@@ -174,8 +173,6 @@ void CheckToneCurve()
 
 void CheckNoise()
 {
-    const BakedTexture clouds = BakeCloudNoise(64, 3u);
-    CHECK(clouds.size == 64 && clouds.mip_count == 7);
     for (int i = 0; i < 300; ++i)
     {
         const float u = 0.013f * i, v = 0.007f * i;
@@ -222,17 +219,14 @@ void CheckSky()
     CHECK(night_zenith[2] > 0.002f && night_zenith[2] < 0.06f);
     CHECK(night.sun_light[0] < 1e-3f);
 
-    // Overcast: grey, darker dome, more cloud, weaker sun.
+    // Overcast: grey, darker dome, weaker sun.
     const SkyState storm = sky_for(0.85f, 1.0f);
     const Vec3 storm_zenith = SkyColor(storm, {0.0f, 1.0f, 0.0f});
     CHECK(storm_zenith[2] / std::max(storm_zenith[0], 1e-4f) < 1.6f);
-    CHECK(storm.cloud_cover > noon.cloud_cover + 0.3f);
     CHECK(storm.sun_light[1] < noon.sun_light[1] * 0.5f);
 
-    // Fog colour is the horizon in the viewing direction, and its average is `horizon`.
-    const Vec3 fog = FogColor(noon, {-1.0f, 0.0f});
-    CHECK(Near(fog[0], horizon[0], 1e-4f) && Near(fog[2], horizon[2], 1e-4f));
-    CHECK(noon.horizon[1] > 0.5f * fog[1] && noon.horizon[1] < 2.0f * fog[1]);
+    // `horizon` is the average of the horizon row.
+    CHECK(noon.horizon[1] > 0.5f * horizon[1] && noon.horizon[1] < 2.0f * horizon[1]);
     // Below the horizon the panorama clamps to the horizon row.
     const Vec3 below = SkyColor(noon, {-0.8f, -0.6f, 0.0f});
     CHECK(Near(below[1], horizon[1], 1e-4f));
@@ -889,9 +883,6 @@ void CheckCheapUpgrades()
     const auto fog_low = ComputeAerialFogHaze(2.0f), fog_high = ComputeAerialFogHaze(200.0f);
     CHECK(Near(fog_low[0] * noon.fog_density * 6.0f, low.u_fxAerial[1][0], 1e-7f) && fog_low[0] > 10.0f * fog_high[0]);
     CHECK(fog_low[1] == low.u_fxAerial[1][1] && kAerialFogDesaturation < low.u_fxAerial[1][2]);
-    // The sea under the haze: denser than the plain fog, less so from the masthead than from the deck.
-    CHECK(SeaFogDensity(noon, 2.0f) > SeaFogDensity(noon, 30.0f) && SeaFogDensity(noon, 30.0f) > noon.fog_density);
-    CHECK(SeaFogDensity(noon, 2.0f) < noon.fog_density * (1.0f + kHazeDensityFactor) + 1e-6f);
 
     // Wind: stronger weather, larger and faster sway; the direction is the weather's.
     weather.wind = {0.6f, 0.8f};
