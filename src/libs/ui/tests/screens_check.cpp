@@ -319,6 +319,44 @@ static void Store(const std::string &models)
 
     router.OnEvent({"goods", "row", "1"});
     ExpectEqual(surface.Last(), "widget:store\tTABLE_LIST\t1\tactivate@7:goods:1:ship:0", "row tap opens the deal for that row");
+    {
+        FakeSurface sel_surface;
+        Router sel(sel_surface);
+        sel.SetInterface(Load(models, "store.json"));
+        sel.OnEvent({"goods", "row", "1"});
+        // The game selects the tapped row in one loop and opens its window in the next: the frame
+        // between is not shown, the selection and its deal appear together.
+        InterfaceModel chosen = Load(models, "store.json");
+        chosen.revision = 30;
+        for (Widget &widget : chosen.widgets)
+            if (widget.node == "TABLE_LIST")
+                widget.value = widget.index == 1 ? "1" : "0";
+        const Json before = sel_surface.props;
+        sel.SetInterface(chosen);
+        Expect(sel_surface.props == before, "the selection without its deal is held back: the screen stays as it was");
+        InterfaceModel opened = Load(models, "store-deal.json");
+        opened.revision = 31;
+        for (Widget &widget : opened.widgets)
+            if (widget.node == "TABLE_LIST")
+                widget.value = widget.index == 1 ? "1" : "0";
+        sel.SetInterface(opened);
+        Expect(sel_surface.props["list"]["rows"][1]["selected"] == true && sel_surface.props["list"]["rows"][1].contains("q"),
+               "the deal arrives: the row selected and its deal in the same frame: " + sel_surface.props["list"]["rows"][1].dump());
+        // A tap whose window never comes is shown selected after the hold (and said).
+        sel.OnEvent({"goods", "row", "2"});
+        InterfaceModel lone = Load(models, "store.json");
+        lone.revision = 32;
+        for (Widget &widget : lone.widgets)
+            if (widget.node == "TABLE_LIST")
+                widget.value = widget.index == 2 ? "1" : "0";
+        sel.SetInterface(lone);
+        Expect(sel_surface.props["list"]["rows"][2]["selected"] != true, "held while its window may still come");
+        sel_surface.now += 0.6;
+        sel.Tick();
+        Expect(sel_surface.props["list"]["rows"][2]["selected"] == true && !sel_surface.errors.empty(),
+               "no window within the hold: shown selected, and said: " + (sel_surface.errors.empty() ? std::string() : sel_surface.errors.back()));
+        sel_surface.errors.clear();
+    }
 
     // The open deal (store-deal.json: «Ядра», 200 in the hold, 1 840 in the store, 5 to buy and 3 to sell a pack of 20
     // that weighs 1 cwt; the hold is 189 / 199, the purse 1 500). The model is the game's own window mid-deal

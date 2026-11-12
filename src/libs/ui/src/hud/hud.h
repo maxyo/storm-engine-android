@@ -549,6 +549,7 @@ class Hud
     bool menu_only_ = false; // shown is only the layout "menu" (the game-menu button)
     bool live_ = false;
     bool interface_ = false;
+    double dialogue_since_ = -1.0; // when the game's dialogue began (presentation), -1 = none
     bool declared_ = false; // the "hudowner" declarations were sent
 };
 

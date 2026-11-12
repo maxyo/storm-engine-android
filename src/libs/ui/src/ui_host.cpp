@@ -1593,6 +1593,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
                 {
                     element->RemoveProperty(Rml::PropertyId::PaddingLeft);
                     element->RemoveProperty(Rml::PropertyId::PaddingRight);
+                    element->RemoveProperty(Rml::PropertyId::BoxSizing);
                 }
                 it = cutout_rows_.erase(it);
                 changed = true;
@@ -1604,12 +1605,16 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         {
             auto &entry = cutout_rows_[element];
             // Set again when a template patch rewrote the element's style and dropped it.
-            const bool kept = entry.element.get() == element && entry.padding == padding &&
+            const bool kept = entry.element.get() == element && entry.padding == padding && element->GetLocalProperty(Rml::PropertyId::BoxSizing) &&
                               (padding.x <= 0.0f || element->GetLocalProperty(Rml::PropertyId::PaddingLeft)) &&
                               (padding.y <= 0.0f || element->GetLocalProperty(Rml::PropertyId::PaddingRight));
             if (kept)
                 continue;
             entry = {element->GetObserverPtr(), padding};
+            // The padding comes out of the row's own box: a row sized by the style sheet (c-bar,
+            // width: 100%) keeps its size and its parts share what is left (the flexible track
+            // shrinks), instead of the row growing by the padding past its parent's edge.
+            element->SetProperty(Rml::PropertyId::BoxSizing, Rml::Property(Rml::Style::BoxSizing::BorderBox));
             if (padding.x > 0.0f)
                 element->SetProperty(Rml::PropertyId::PaddingLeft, Rml::Property(padding.x, Rml::Unit::PX));
             else

@@ -474,7 +474,34 @@ static void CheckScenes()
         bench.Game();
         hud.Tick();
         Expect(hud.Visible(), "the menu closed");
-        for (const char *cover : {"loading", "cinematic", "dialogue"})
+        {
+            // A dialogue: the game says so before the dialogue panel's first state arrives; the HUD
+            // stays until the panel covers the game, so both change in the same frame.
+            Json talking = State("presentation-game");
+            talking["dialogue"] = true;
+            bench.Feed("presentation", talking);
+            hud.Tick();
+            Expect(hud.Visible(), "a dialogue without its panel yet: the HUD stays (no frame with neither)");
+            mount.interface = true; // the panel's first state: the dialogue screen covers the game
+            hud.Tick();
+            Expect(!hud.Visible(), "the panel came: the HUD goes in the same frame");
+            mount.interface = false;
+            bench.Game();
+            hud.Tick();
+            Expect(hud.Visible(), "the dialogue ended");
+            bench.Feed("presentation", talking);
+            hud.Tick();
+            mount.now += 0.3;
+            hud.Tick();
+            Expect(hud.Visible(), "still waiting for the panel");
+            mount.now += 0.3;
+            hud.Tick();
+            Expect(!hud.Visible() && !mount.errors.empty() && mount.errors.back().find("no dialogue panel") != std::string::npos,
+                   "a dialogue whose panel never comes hides the HUD after the wait, said");
+            bench.Game();
+            hud.Tick();
+        }
+        for (const char *cover : {"loading", "cinematic"})
         {
             Json covered = State("presentation-game");
             covered[cover] = true;

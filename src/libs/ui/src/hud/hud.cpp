@@ -19,6 +19,7 @@ namespace
 
 constexpr double kIdle = 3600.0;
 constexpr size_t kLines = 3;
+constexpr double kDialogueWait = 0.5; // s: a dialogue hides the HUD by then even if its panel has not come
 constexpr double kLeaveSeconds = 0.22; // a line animates out this long (pack time.toastLeave), then goes
 // The layout scene under the spyglass when no ported scene owns the mode (the platform still
 // draws the sea HUD): the overlay alone, no elements.
@@ -343,7 +344,16 @@ void Hud::Refresh()
     // Over a free game the HUD is up; where no scene draws it (a cut-scene, a mode no scene
     // owns: a blocked game) the layout "menu" still gives the one game-menu button, as every
     // scene has it. The game decides what its menu offers there (save disabled and why).
-    const bool free = shown.known && shown.screen.empty() && !shown.loading && !shown.dialogue && !interface_;
+    // A dialogue: the game says so a frame or two before the dialogue panel's first state; the HUD
+    // stays until the panel covers the game (interface_), so both change in one frame. A dialogue
+    // whose panel does not come hides it after kDialogueWait.
+    const double now = mount_.Now();
+    if (!shown.dialogue)
+        dialogue_since_ = -1.0;
+    else if (dialogue_since_ < 0.0)
+        dialogue_since_ = now;
+    const bool dialogue = shown.dialogue && now - dialogue_since_ >= kDialogueWait;
+    const bool free = shown.known && shown.screen.empty() && !shown.loading && !dialogue && !interface_;
     const bool full = free && (scene_ || spyglass) && !shown.cinematic;
     if (!free)
     {
@@ -451,6 +461,18 @@ double Hud::Tick()
     for (const Line &line : lines_)
         if (line.held < 0.0)
             next = std::min(next, std::max(0.0, (line.leaving >= 0.0 ? line.leaving + kLeaveSeconds : line.until) - now));
+    // A dialogue whose panel has not come: the HUD goes at kDialogueWait.
+    if (visible_ && states_.presentation.dialogue && dialogue_since_ >= 0.0 && !interface_)
+    {
+        if (now >= dialogue_since_ + kDialogueWait)
+        {
+            Error("HUD: the game's dialogue has no dialogue panel after " + std::to_string(kDialogueWait) + " s; the HUD is hidden");
+            Refresh();
+            next = 0.0;
+        }
+        else
+            next = std::min(next, dialogue_since_ + kDialogueWait - now);
+    }
     return next;
 }
 
