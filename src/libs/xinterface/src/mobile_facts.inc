@@ -28,6 +28,23 @@ void XINTERFACE::MobileCollectFacts(std::vector<MobileWidget> &widgets)
             if(auto *character=variable->GetAClass())
                 if(const char *index=character->GetAttribute("index"))subject=std::atoi(index);
     core.Event("AndroidInterfaceFacts","sl",storm::android::mobileScreen.c_str(),subject);
+    // The adapter's word on the open interface's script (mobile_interface_leaving.hpp): "1" loaded,
+    // "0" unloaded, anything else unknown.
+    {
+        std::optional<bool> script;
+        if(AttributesPointer)
+            if(const char *value=AttributesPointer->GetAttribute("AndroidScript")) {
+                if(std::string_view(value)=="1")script=true;
+                else if(std::string_view(value)=="0")script=false;
+            }
+        static bool missingSaid=false;
+        if(!script&&!missingSaid) {
+            missingSaid=true;
+            core.Trace("ERROR interface %s: the application's adapter does not say whether its script is loaded (GameInterface.AndroidScript): "
+                       "an interface that is leaving may show a half-emptied screen",storm::android::mobileScreen.c_str());
+        }
+        mobileLeft_=mobileLeaving_.Update(storm::android::mobileScreenRevision,script);
+    }
     auto *facts=core.Entity_GetAttributeClass(g_idInterface,"AndroidFacts");
     for(size_t l=0;facts&&l<facts->GetAttributesNum();++l) {
         auto *list=facts->GetAttributeClass(l);

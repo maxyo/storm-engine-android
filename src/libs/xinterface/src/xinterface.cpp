@@ -505,6 +505,7 @@ void XINTERFACE::MobileCollectWidgets(std::vector<MobileWidget> &widgets)
     if(storm::android::mobileScreen!="mainmenu")collect(collect,m_pNodes);
     if(storm::android::mobileScreen=="nationrelation")MobileCollectNations(widgets);
     if(storm::android::mobileScreen=="lscchar_all"||storm::android::mobileScreen=="character")MobileCollectHero(widgets);
+    mobileLeft_=false;
     if(storm::android::mobileScreen!="mainmenu")MobileCollectFacts(widgets);
     if(storm::android::mobileScreen=="shipyard")MobileCollectShipyard(widgets);
     if(storm::android::mobileScreen=="boal_dice"||storm::android::mobileScreen=="boal_cards")MobileCollectTableGame(widgets);
@@ -774,13 +775,14 @@ void XINTERFACE::Realize(uint32_t)
         const char *gameLanguage = pStringService ? pStringService->GetLanguage() : nullptr;
         const std::string language = gameLanguage ? gameLanguage : "";
         auto payload = MobileWidgetJson(storm::android::mobileScreen, widgets, storm::android::mobileScreenRevision, 0, language);
-        const bool changed = payload != previousPayload;
+        // An interface whose script has ended publishes nothing more (mobile_interface_leaving.hpp).
+        const bool changed = !mobileLeft_ && payload != previousPayload;
         if (changed)
         {
             previousPayload = std::move(payload);
             ++snapshotRevision;
         }
-        if (changed || storm::android::lastWidgetSnapshot.empty()) // nothing new: nothing to build or send
+        if (changed || (!mobileLeft_ && storm::android::lastWidgetSnapshot.empty())) // nothing new: nothing to build or send
             storm::android::publishMobileWidgets(MobileWidgetJson(storm::android::mobileScreen, widgets,
                                                                   storm::android::mobileScreenRevision, snapshotRevision, language));
     }

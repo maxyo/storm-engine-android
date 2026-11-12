@@ -11,6 +11,7 @@
 #include <filesystem>
 #ifdef __ANDROID__
 #include "mobile_alchemy.hpp"
+#include "mobile_interface_leaving.hpp"
 #endif
 
 class CXI_WINDOW;
@@ -341,6 +342,8 @@ class XINTERFACE : public XINTERFACE_BASE
     void MobileCollectNations(std::vector<MobileWidget> &widgets);
     void MobileCollectHero(std::vector<MobileWidget> &widgets);
     void MobileCollectFacts(std::vector<MobileWidget> &widgets);
+    storm::mobile::InterfaceLeaving mobileLeaving_;
+    bool mobileLeft_ = false; // the open interface's script has ended: no further model of it (MobileCollectFacts)
     void MobileCollectShipyard(std::vector<MobileWidget> &widgets);
     void MobileCollectTableGame(std::vector<MobileWidget> &widgets);
     void MobileCollectGoodsTransfer(std::vector<MobileWidget> &widgets);
