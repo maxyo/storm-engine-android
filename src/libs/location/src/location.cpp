@@ -69,6 +69,8 @@ Location::~Location()
 {
     if (aoGeometryReported_)
         storm::render::SetEffectsAoGeometry({}, {}, {}); // the next location reports its own
+    if (lampGeometryReported_)
+        storm::render::SetEffectsLampGeometry({}, {}, {}, false);
     if (groundLightReported_)
         storm::render::SetEffectsGroundLight({}, {}, {}, {}, {}, {});
     if (!AttributesPointer)
@@ -145,6 +147,64 @@ void Location::ReportAoGeometry()
         }
     }
     storm::render::SetEffectsAoGeometry(id ? id : "", positions, indices, lo, hi);
+}
+
+void Location::ReportLampGeometry()
+{
+    lampGeometryReported_ = true;
+    const char *id = AttributesPointer ? AttributesPointer->GetAttribute("id") : nullptr;
+    const char *weather = AttributesPointer ? AttributesPointer->GetAttribute("lockWeather") : nullptr;
+    // What casts the lamps' shadows: the still models one can collide with (walls, floors, furniture, houses), with
+    // the lighting baked into their vertices. Models without collision are backdrops and glass; animated and moving
+    // models do not stay where a shadow map has them.
+    std::vector<std::array<float, 3>> positions;
+    std::vector<uint32_t> colors, indices;
+    std::vector<glm::vec3> local;
+    std::vector<uint32_t> local_indices, local_colors;
+    for (int32_t i = 0; i < model.Models(); ++i)
+    {
+        MODEL *m = model[i];
+        if (!m || !model.IsStill(i))
+            continue;
+        for (int32_t n = 0;; ++n)
+        {
+            NODE *node = m->GetNode(n);
+            if (!node)
+                break;
+            if (!node->geo || !node->geo->HasCollision())
+                continue;
+            local.clear();
+            local_indices.clear();
+            local_colors.clear();
+            if (!node->geo->AppendTriangles(local, local_indices, &local_colors))
+            {
+                core.Trace("ERROR: Location %s: the buffers of model %s cannot be read: it casts no lamp shadows",
+                           id ? id : "?", model.GetModelName(i));
+                continue;
+            }
+            const auto base = static_cast<uint32_t>(positions.size());
+            for (const glm::vec3 &p : local)
+            {
+                const glm::vec3 w = storm::math::transformPoint(node->glob_mtx, p);
+                positions.push_back({w.x, w.y, w.z});
+            }
+            colors.insert(colors.end(), local_colors.begin(), local_colors.end());
+            for (const uint32_t index : local_indices)
+                indices.push_back(base + index);
+        }
+    }
+    const bool interior = weather && storm::iEquals(weather, "Inside");
+    // The room: where one walks (the characters' patch) with room for the walls, the furniture and the ceiling.
+    std::array<float, 3> lo{}, hi{};
+    if (interior && ptc.numTriangles == 0)
+        core.Trace("ERROR: Location %s: an interior without a walk patch: its lit models keep the weather's ambient",
+                   id ? id : "?");
+    else if (interior)
+    {
+        lo = {ptc.min.x - 2.0f, ptc.min.y - 0.5f, ptc.min.z - 2.0f};
+        hi = {ptc.max.x + 2.0f, ptc.max.y + 4.0f, ptc.max.z + 2.0f};
+    }
+    storm::render::SetEffectsLampGeometry(positions, colors, indices, interior, lo, hi);
 }
 
 namespace
@@ -339,6 +399,8 @@ void Location::Realize(uint32_t delta_time)
     // The first frame: every model of the location (always, day/night, back) is loaded by now.
     if (!aoGeometryReported_)
         ReportAoGeometry();
+    if (!lampGeometryReported_)
+        ReportLampGeometry();
     if (!groundLightReported_)
         ReportGroundLight();
     const auto fDeltaTime = static_cast<float>(delta_time) * 0.001f;

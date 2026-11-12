@@ -71,7 +71,7 @@ class Harness
     bool relative = false;
 
     // The floor from 5 m above, orthographic over 6 x 6 m; returns the picture (BGRA).
-    // `light`: a lit floor with this one light (lamp shadows have lit receivers only); none: the baked floor.
+    // `light`: a lit floor with this one light; none: the baked floor.
     std::vector<uint8_t> render(const D3DLIGHT9 *light = nullptr)
     {
         check(d_.BeginScene(), "BeginScene");
@@ -255,11 +255,14 @@ int main()
                 previous = centre;
             }
 
-            // Lamp shadows: a lamp 2.5 m above the floor at (-2, -2) and a 0.6 m pillar between it and the far side;
-            // the lit floor (lamp shadows have lit receivers only) behind the pillar (seen from the lamp) darkens, the
-            // floor beside it does not.
+            // The lamps relight the room with their shadows: a lamp 2 m above the floor at (-2, -2) and a 0.6 m pillar
+            // between it and the far side. On the baked floor and on a lit floor alike, the floor behind the pillar
+            // (seen from the lamp) is darker than the floor beside it at the same distance; without the lamps there
+            // is no such shadow; and the lamp brightens the baked floor it reaches (half of its light is new).
             add_box(positions, indices, {-1.3f, 0.0f, -1.3f}, {-0.7f, 2.0f, -0.7f});
             render::SetEffectsAoGeometry("ao_volume_check room with a pillar", positions, indices);
+            const std::vector<uint32_t> baked_colors(positions.size(), 0xFF808080u);
+            render::SetEffectsLampGeometry(positions, baked_colors, indices, true, {-3.0f, 0.0f, -3.0f}, {3.0f, 3.0f, 3.0f});
             const render::EffectsPointLight lamp{{-2.0f, 2.0f, -2.0f}, {4.0f, 3.6f, 3.0f}, 15.0f, 0.5f, 0.0f, 0.1f};
             D3DLIGHT9 lamp_light{};
             lamp_light.Type = D3DLIGHT_POINT;
@@ -268,61 +271,75 @@ int main()
             lamp_light.Range = 15.0f;
             lamp_light.Attenuation0 = 0.5f;
             lamp_light.Attenuation2 = 0.1f;
-            for (const int count : {0, 4})
-            {
-                bool ready = true;
-                render::ConfigureEffects(2, {{"fx_ao_volume", 0}, {"fx_lamp_shadows", count}});
-                for (int frame = 0; frame < 400; ++frame)
+            float baked_beside_without = 0.0f;
+            for (const bool lit_floor : {false, true})
+                for (const int count : {0, 8})
                 {
-                    render::SetEffectsLamps(std::span(&lamp, 1));
-                    harness.render(&lamp_light);
-                    if (!render::CurrentEffects().pending && frame > 30)
-                        break;
-                    SDL_Delay(5);
-                }
-                ready = !render::CurrentEffects().pending;
-                render::SetEffectsLamps(std::span(&lamp, 1));
-                const auto picture = harness.render(&lamp_light);
-                if (const char *dump = std::getenv("AO_CHECK_DUMP"))
-                {
-                    char name[512];
-                    std::snprintf(name, sizeof(name), "%s/lamp_%d.ppm", dump, count);
-                    if (FILE *f = std::fopen(name, "wb"))
+                    const D3DLIGHT9 *light = lit_floor ? &lamp_light : nullptr;
+                    const char *floor = lit_floor ? "lit" : "baked";
+                    render::ConfigureEffects(2, {{"fx_ao_volume", 0}, {"fx_lamp_shadows", count}});
+                    for (int frame = 0; frame < 400; ++frame)
                     {
-                        std::fprintf(f, "P6 %u %u 255\n", kSize, kSize);
-                        for (size_t i = 0; i < picture.size(); i += 4)
-                            std::fputc(picture[i + 2], f), std::fputc(picture[i + 1], f), std::fputc(picture[i], f);
-                        std::fclose(f);
+                        render::SetEffectsLamps(std::span(&lamp, 1));
+                        harness.render(light);
+                        if (!render::CurrentEffects().pending && frame > 30)
+                            break;
+                        SDL_Delay(5);
+                    }
+                    const bool ready = !render::CurrentEffects().pending;
+                    render::SetEffectsLamps(std::span(&lamp, 1));
+                    const auto picture = harness.render(light);
+                    if (const char *dump = std::getenv("AO_CHECK_DUMP"))
+                    {
+                        char name[512];
+                        std::snprintf(name, sizeof(name), "%s/lamp_%s_%d.ppm", dump, floor, count);
+                        if (FILE *f = std::fopen(name, "wb"))
+                        {
+                            std::fprintf(f, "P6 %u %u 255\n", kSize, kSize);
+                            for (size_t i = 0; i < picture.size(); i += 4)
+                                std::fputc(picture[i + 2], f), std::fputc(picture[i + 1], f), std::fputc(picture[i], f);
+                            std::fclose(f);
+                        }
+                    }
+                    // Picture (read back top row first): x = (world x + 3) / 6, y = (3 - world z) / 6. Behind the
+                    // pillar from the lamp: world (0.5, 0.5); beside it, as far from the lamp: (1.2, -2.0).
+                    const float behind = mean(picture, (0.5f + 3.0f) / 6.0f, (3.0f - 0.5f) / 6.0f);
+                    const float beside = mean(picture, (1.2f + 3.0f) / 6.0f, (3.0f + 2.0f) / 6.0f);
+                    std::printf("%s floor, fx_lamp_shadows=%d: behind the pillar %.1f, beside it %.1f\n", floor, count, behind,
+                                beside);
+                    if (!ready)
+                    {
+                        std::printf("FAIL: fx_lamp_shadows=%d still pending\n", count);
+                        ok = false;
+                    }
+                    const bool shadow = behind < 0.85f * beside;
+                    if (count == 0 && shadow)
+                    {
+                        std::printf("FAIL: a shadow behind the pillar without the lamps (%s floor)\n", floor);
+                        ok = false;
+                    }
+                    if (count != 0 && !shadow)
+                    {
+                        std::printf("FAIL: no lamp shadow behind the pillar (%s floor)\n", floor);
+                        ok = false;
+                    }
+                    if (!lit_floor && count == 0)
+                        baked_beside_without = beside;
+                    if (!lit_floor && count != 0 && (beside < 1.05f * baked_beside_without || behind > 0.97f * baked_beside_without))
+                    {
+                        std::printf("FAIL: the lamp must brighten the baked floor it reaches (%.1f -> %.1f) and darken its "
+                                    "shadow (%.1f)\n",
+                                    baked_beside_without, beside, behind);
+                        ok = false;
+                    }
+                    if (lit_floor && count != 0 && beside < 100.0f)
+                    {
+                        std::printf("FAIL: the lit floor beside the pillar is dark (shadow acne or no lamp light)\n");
+                        ok = false;
                     }
                 }
-                // Picture (read back top row first): x = (world x + 3) / 6, y = (3 - world z) / 6. Behind the pillar
-                // from the lamp: world (0.5, 0.5); beside it, as far from the lamp: (1.2, -2.0).
-                const float behind = mean(picture, (0.5f + 3.0f) / 6.0f, (3.0f - 0.5f) / 6.0f);
-                const float beside = mean(picture, (1.2f + 3.0f) / 6.0f, (3.0f + 2.0f) / 6.0f);
-                std::printf("fx_lamp_shadows=%d: floor behind the pillar %.1f, beside it %.1f\n", count, behind, beside);
-                if (!ready)
-                {
-                    std::printf("FAIL: fx_lamp_shadows=%d still pending\n", count);
-                    ok = false;
-                }
-                const bool shadow = behind < 0.85f * beside;
-                if (count == 4 && beside < 140.0f)
-                {
-                    std::printf("FAIL: the lit floor beside the pillar darkens (shadow acne)\n");
-                    ok = false;
-                }
-                if (count == 0 && shadow)
-                {
-                    std::printf("FAIL: a shadow behind the pillar without lamp shadows\n");
-                    ok = false;
-                }
-                if (count == 4 && !shadow)
-                {
-                    std::printf("FAIL: no lamp shadow behind the pillar\n");
-                    ok = false;
-                }
-            }
             render::SetEffectsLamps({});
+            render::SetEffectsLampGeometry({}, {}, {}, false);
             render::SetEffectsAoGeometry({}, {}, {});
             render::ConfigureEffects(0, {});
             render::SetEffectsWorldOrigin({0.0f, 0.0f, 0.0f});

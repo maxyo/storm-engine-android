@@ -23,6 +23,8 @@ inline constexpr uint8_t kShadowMapStage = 15; // 13 is the renderer's bone pale
 inline constexpr uint8_t kAoVolumeStage = 12;    // the interior's AO volume (RGBA8 3D, four lobes)
 inline constexpr uint8_t kLampDynamicStage = 10; // lamp shadow atlases (characters / location)
 inline constexpr uint8_t kLampStaticStage = 11;
+inline constexpr uint8_t kRoomLightStage = 8;    // the baked colours around every point of an interior (RGBA8 3D)
+inline constexpr uint8_t kLampGridStage = 9;     // which lamps reach which cell of the place (RGBA8 3D)
 inline constexpr uint8_t kNormalMapStage = 14;
 
 enum class QualityPreset : uint8_t
@@ -135,8 +137,14 @@ struct Settings
     ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
     // Ambient-occlusion volume of interiors (ao_volume.hpp): 0 off, else one of the strengths AoVolumeLevel names.
     uint8_t ao_volume = 0;
-    // Lamp shadows of interiors (lamp_shadows.hpp): how many lamps cast them, 0, 2 or 4.
+    // The lamps of a location relight it with shadows (lamp_shadows.hpp): how many lamps around the camera take
+    // part, 0, 8 or 16. Interiors also light their lit models with the room's own baked light.
     uint8_t lamp_shadows = 0;
+    bool lamp_soft = false;  // a 5x5 instead of a 3x3 filter on the lamp shadows of the still geometry
+    float lamp_gain = 1.0f;  // the lamps' strength on baked surfaces, 1 = the chosen look (0..3)
+    float lamp_baked = 0.5f; // the part of that light the baked colours are taken to hold already (0..1): 1 = lamps
+                             // only take light away where they are hidden, less = they also brighten what they reach
+    uint8_t lamp_debug = 0;  // 1: every lamp slot in its own colour, 2: the shadow mask
 
     static Settings FromPreset(QualityPreset preset);
 

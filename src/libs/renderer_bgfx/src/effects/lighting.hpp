@@ -7,9 +7,13 @@
 //     directional light is the sun (per pixel with kLightingPerPixel), the global ambient becomes the hemisphere
 //     (kLightingHemisphere), and the strongest point / spot lights up to the budget (4 / 8) are evaluated per
 //     pixel (kLightingPoint); the rest stay in the vertex sum, so no light is lost.
-//   * baked draw (lighting off, vertex normals): the location's static models with baked colours. They get only
-//     the dynamic lights the engine reports (SetEffectsDynamicLights: carried lanterns), fs_ff_baked*; without
-//     any the legacy program draws them.
+//   * baked draw (lighting off, vertex normals): the location's static models with baked colours. They get the
+//     dynamic lights the engine reports (SetEffectsDynamicLights: carried lanterns), fs_ff_baked*; without any of
+//     this list's effects the legacy program draws them.
+//   * lamps (Settings::lamp_shadows, effects/lamp_shadows.hpp): lit and baked draws into the game picture are relit
+//     by the location's own lamps around the camera, each with its shadow maps; a lit draw's D3D point lights that
+//     are such lamps leave its sums (LampShadows::relit). Lit draws of an interior take their ambient from the room
+//     light (the baked colours around them) instead of the weather's ambient.
 //   * material: from the technique the renderer executes (SetEffectsTechnique): Animation* = character,
 //     ShipSail* / ShipFlag = sail (two-sided, translucent), DLightModel = stone; lit draws without a technique
 //     are the ship hulls, masts and deck objects = hull.
@@ -87,7 +91,8 @@ struct FfDraw
     std::array<float, 16> world_view{};
     std::array<float, 3> origin{}; // absolute = device world + origin
     bool ao = false;               // samples the interior's AO volume (submit() binds it for `view`)
-    bool lamps = false;            // receives the interior's lamp shadows (submit() binds them for `view`)
+    bool lamps = false;            // lit by the place's lamps with their shadows (submit() binds them for `view`)
+    bool room_light = false;       // its ambient is the room light of the interior
     bool sun_caster = false;       // caster: the sun shadow view
     bool lamp_caster = false;      // caster: the lamp faces its sphere reaches (characters)
     DrawSphere sphere{};

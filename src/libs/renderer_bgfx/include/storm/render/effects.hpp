@@ -125,8 +125,18 @@ struct EffectsPointLight
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
 
 // Location, every frame it draws: its static lamps (the lights of lights.ini at its locators, colour with this
-// frame's flicker). In interiors the strongest ones cast shadows (fx_lamp_shadows); outdoors: empty.
+// frame's flicker). The ones around the camera relight the location per pixel, each with its shadow
+// (fx_lamp_shadows).
 void SetEffectsLamps(std::span<const EffectsPointLight> lamps);
+
+// Location, once it is loaded: the still geometry the lamps' shadows are cast from (world space positions, triangle
+// list) with its baked vertex colours (one D3DCOLOR per position: in an interior they are the light its lit models
+// stand in). `interior`: the weather's sun and ambient are not this place's light; room_lo..room_hi is then the box
+// one walks in, with room for the walls and the ceiling (the room light covers it; the geometry may reach far
+// beyond). When leaving: empty spans.
+void SetEffectsLampGeometry(std::span<const std::array<float, 3>> positions, std::span<const uint32_t> colors,
+                            std::span<const uint32_t> indices, bool interior, const std::array<float, 3> &room_lo = {},
+                            const std::array<float, 3> &room_hi = {});
 
 // Location, once an interior is loaded: the static geometry its ambient-occlusion volume is baked from (world space
 // positions, triangle list; `name` names it in the log) and the box that gets the volume (where one walks, with a

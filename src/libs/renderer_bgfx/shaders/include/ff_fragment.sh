@@ -5,8 +5,11 @@
 //   FX_FF_LIT       per-pixel lighting of a lit draw (vs_ff_lit): the diffuse colour the stages read is
 //                   re-lit per pixel with fx_lighting.sh (sun, hemisphere, point / spot lights, rim, translucency,
 //                   specular with FX_LIGHT_SPECULAR); features the settings leave off arrive with zero strength.
-//   FX_FF_BAKED     geometry with baked vertex colours (lighting off, vs_ff_lit): only dynamic point lights are
-//                   added, as texture * light.
+//   FX_FF_BAKED     geometry with baked vertex colours (lighting off, vs_ff_lit): dynamic point lights are added,
+//                   as texture * light.
+//   lamps           FX_FF_LIT / FX_FF_BAKED: the location's lamps with their shadows (ffLampLight, off per draw by
+//                   u_fxLamps[0].x = 0) relight the baked colours and light the lit draws; lit draws of an interior
+//                   take the room light as their ambient (ffRoomLight, u_fxLampGrid[2].w).
 //   FX_LIGHT_NORMALMAP  with FX_FF_LIT / FX_FF_BAKED: relief from the normal map derived from stage 1's height texture
 //                   or stage 0's colour texture (stage 14, that stage's coordinates: u_fxFf.y): lit draws perturb the
 //                   normal, baked ones scale their colour.
@@ -46,73 +49,199 @@ float ffAoVolume(vec3 P, vec3 Ng, vec3 Nw)
     return mix(1.0, pow(ao, u_fxAoParams.y), u_fxAoParams.x);
 }
 
-// Lamp shadows of interiors (src/effects/lamp_shadows.hpp, fx/lamp_shadows.hpp for the face convention).
-// u_fxLampView: view space -> world. u_fxLamps[0]: x lamp count, y 1 = GL texture origin (bottom-left), z 1 / rows of
-// the atlases; per lamp i at 1 + 4i: xyz position, w far plane | rgb colour, w range | att0, att1, att2, w slot |
-// x static texel, yzw unused. Receivers: lit models only (FX_FF_LIT).
+// The lamps of a location, per pixel and with their shadows (src/effects/lamp_shadows.hpp; fx/lamp_shadows.hpp for
+// the face convention). All of it in absolute world space.
+// u_fxLampView: view space -> world.
+// u_fxLamps[0]: x lamp slots (0 = no lamps for this draw), y 1 = GL texture origin (bottom-left), z the lamps' gain
+//               on baked colours, w the part of the lamp light the baked colours already hold
+// u_fxLamps[1]: x 1 / faces per atlas row, y 1 / atlas rows, z static face size in texels, w dynamic face size
+// per slot i at 2 + 3i: xyz position, w radius | rgb colour (with the slot's fade), w 1 = characters stand in its
+//               light | att0, att1, att2, w the lamp's own size in metres (no point is lit from nearer)
+// u_fxLampGrid[0]: xyz the lamp grid's corner, w debug view (1 each slot in its colour, 2 the shadow mask)
+// u_fxLampGrid[1]: xyz 1 / the grid's extent, w cells along x
+// u_fxLampGrid[2]: xyz the room light's corner, w 1 = this draw takes its ambient from the room light
+// u_fxLampGrid[3]: xyz 1 / the room light's extent, w 1 = 5x5 filter on the static faces
 uniform mat4 u_fxLampView;
-uniform vec4 u_fxLamps[17];
+uniform vec4 u_fxLamps[50];
+uniform vec4 u_fxLampGrid[4];
+SAMPLER3D(s_fxRoomLight, 8);
+SAMPLER3D(s_fxLampGrid, 9);
 SAMPLER2DSHADOW(s_fxLampDynamic, 10);
 SAMPLER2DSHADOW(s_fxLampStatic, 11);
 
-// 1 = the lamp reaches Pw, 0 = something stands between them (the location or a character).
-float ffLampVisibility(int i, vec3 Pw)
+// 3x3 percentage-closer filter in four hardware-filtered compare taps: the optimised PCF of The Witness, after
+// MJP's Shadows sample (github.com/TheRealMJP/Shadows, MIT). uv: atlas coordinates, size: the atlas in texels.
+#define FF_LAMP_PCF3(result, map, uv, size, depth) \
+    { \
+        vec2 texel = (uv) * (size); \
+        vec2 base = floor(texel + vec2_splat(0.5)); \
+        vec2 st = texel + vec2_splat(0.5) - base; \
+        base = (base - vec2_splat(0.5)) / (size); \
+        vec2 w0 = vec2_splat(3.0) - 2.0 * st; \
+        vec2 w1 = vec2_splat(1.0) + 2.0 * st; \
+        vec2 o0 = ((vec2_splat(2.0) - st) / w0 - vec2_splat(1.0)) / (size); \
+        vec2 o1 = (st / w1 + vec2_splat(1.0)) / (size); \
+        result = (w0.x * w0.y * shadow2D(map, vec3(base.x + o0.x, base.y + o0.y, depth)) + \
+                  w1.x * w0.y * shadow2D(map, vec3(base.x + o1.x, base.y + o0.y, depth)) + \
+                  w0.x * w1.y * shadow2D(map, vec3(base.x + o0.x, base.y + o1.y, depth)) + \
+                  w1.x * w1.y * shadow2D(map, vec3(base.x + o1.x, base.y + o1.y, depth))) / 16.0; \
+    }
+
+// The same filter over 5x5 texels in nine taps.
+#define FF_LAMP_PCF5(result, map, uv, size, depth) \
+    { \
+        vec2 texel = (uv) * (size); \
+        vec2 base = floor(texel + vec2_splat(0.5)); \
+        vec2 st = texel + vec2_splat(0.5) - base; \
+        base = (base - vec2_splat(0.5)) / (size); \
+        vec2 w0 = vec2_splat(4.0) - 3.0 * st; \
+        vec2 w2 = vec2_splat(1.0) + 3.0 * st; \
+        vec2 o0 = ((vec2_splat(3.0) - 2.0 * st) / w0 - vec2_splat(2.0)) / (size); \
+        vec2 o1 = ((vec2_splat(3.0) + st) / 7.0) / (size); \
+        vec2 o2 = (st / w2 + vec2_splat(2.0)) / (size); \
+        result = (w0.x * w0.y * shadow2D(map, vec3(base.x + o0.x, base.y + o0.y, depth)) + \
+                  7.0 * w0.y * shadow2D(map, vec3(base.x + o1.x, base.y + o0.y, depth)) + \
+                  w2.x * w0.y * shadow2D(map, vec3(base.x + o2.x, base.y + o0.y, depth)) + \
+                  w0.x * 7.0 * shadow2D(map, vec3(base.x + o0.x, base.y + o1.y, depth)) + \
+                  49.0 * shadow2D(map, vec3(base.x + o1.x, base.y + o1.y, depth)) + \
+                  w2.x * 7.0 * shadow2D(map, vec3(base.x + o2.x, base.y + o1.y, depth)) + \
+                  w0.x * w2.y * shadow2D(map, vec3(base.x + o0.x, base.y + o2.y, depth)) + \
+                  7.0 * w2.y * shadow2D(map, vec3(base.x + o1.x, base.y + o2.y, depth)) + \
+                  w2.x * w2.y * shadow2D(map, vec3(base.x + o2.x, base.y + o2.y, depth))) / 144.0; \
+    }
+
+// 1 = the lamp of slot `slot` reaches the point at L from it (unit geometric normal Ng, facing the lamp by ngl),
+// 0 = the location or a character stands between them. radius: the lamp's; characters: its dynamic faces hold some.
+float ffLampVisibility(float slot, vec3 L, float radius, float characters, vec3 Ng, float ngl)
 {
-    vec4 lamp = u_fxLamps[1 + 4 * i];
-    vec3 L = Pw - lamp.xyz;
-    vec3 a = abs(L);
+    // One texel of a face at this distance, in metres: the receiver steps that far off its surface (further at grazing
+    // light), and the compared distance is pulled in by most of a texel.
+    float soft = u_fxLampGrid[3].w;
+    float texel = 2.1 * length(L) / u_fxLamps[1].z;
+    vec3 Lo = L + Ng * (texel * (1.0 + soft + 1.5 * (1.0 - clamp(ngl, 0.0, 1.0))) + 0.004);
+    vec3 a = abs(Lo);
     vec3 F;
     vec3 R;
     vec3 U;
     float face;
     if (a.x >= a.y && a.x >= a.z)
     {
-        if (L.x >= 0.0) { face = 0.0; F = vec3(1.0, 0.0, 0.0); R = vec3(0.0, 0.0, -1.0); U = vec3(0.0, 1.0, 0.0); }
+        if (Lo.x >= 0.0) { face = 0.0; F = vec3(1.0, 0.0, 0.0); R = vec3(0.0, 0.0, -1.0); U = vec3(0.0, 1.0, 0.0); }
         else { face = 1.0; F = vec3(-1.0, 0.0, 0.0); R = vec3(0.0, 0.0, 1.0); U = vec3(0.0, 1.0, 0.0); }
     }
     else if (a.y >= a.z)
     {
-        if (L.y >= 0.0) { face = 2.0; F = vec3(0.0, 1.0, 0.0); R = vec3(1.0, 0.0, 0.0); U = vec3(0.0, 0.0, -1.0); }
+        if (Lo.y >= 0.0) { face = 2.0; F = vec3(0.0, 1.0, 0.0); R = vec3(1.0, 0.0, 0.0); U = vec3(0.0, 0.0, -1.0); }
         else { face = 3.0; F = vec3(0.0, -1.0, 0.0); R = vec3(1.0, 0.0, 0.0); U = vec3(0.0, 0.0, 1.0); }
     }
     else
     {
-        if (L.z >= 0.0) { face = 4.0; F = vec3(0.0, 0.0, 1.0); R = vec3(1.0, 0.0, 0.0); U = vec3(0.0, 1.0, 0.0); }
+        if (Lo.z >= 0.0) { face = 4.0; F = vec3(0.0, 0.0, 1.0); R = vec3(1.0, 0.0, 0.0); U = vec3(0.0, 1.0, 0.0); }
         else { face = 5.0; F = vec3(0.0, 0.0, -1.0); R = vec3(-1.0, 0.0, 0.0); U = vec3(0.0, 1.0, 0.0); }
     }
-    float major = max(dot(L, F), 0.31); // inside the near plane: lit
+    float major = max(dot(Lo, F), 1e-4);
     float s = 1.0 / 1.05; // fx::kLampFaceGuard
-    float u = dot(L, R) / major * s;
-    float v = dot(L, U) / major * s;
-    float tile = u_fxLamps[3 + 4 * i].w * 6.0 + face;
-    float row = floor(tile / 6.0);
-    float column = tile - row * 6.0;
-    float x = (column + u * 0.5 + 0.5) / 6.0;
-    float y = (row + 0.5 - v * 0.5) * u_fxLamps[0].z;
+    vec2 uv = vec2((face + 0.5 + 0.5 * s * dot(Lo, R) / major) * u_fxLamps[1].x,
+                   (slot + 0.5 - 0.5 * s * dot(Lo, U) / major) * u_fxLamps[1].y);
     if (u_fxLamps[0].y > 0.5)
-        y = 1.0 - y;
-    float far = lamp.w;
-    float depth = far / (far - 0.3) * (1.0 - 0.3 / major) - 0.0015; // fx::kLampShadowNear, a small bias
-    float t = u_fxLamps[4 + 4 * i].x;
-    float lit = 0.25 * (shadow2D(s_fxLampStatic, vec3(x - t, y - t, depth)) + shadow2D(s_fxLampStatic, vec3(x + t, y - t, depth)) +
-                        shadow2D(s_fxLampStatic, vec3(x - t, y + t, depth)) + shadow2D(s_fxLampStatic, vec3(x + t, y + t, depth)));
-    // Characters cast into the dynamic atlas at a quarter of the static resolution and receive from it themselves: a
-    // larger bias (about 15 cm at 2 m) keeps them from shadowing their own surface.
-    return min(lit, shadow2D(s_fxLampDynamic, vec3(x, y, depth - 0.012)));
+        uv.y = 1.0 - uv.y;
+    float depth = (length(Lo) - 0.75 * texel) / radius;
+    vec2 faces = vec2(1.0 / u_fxLamps[1].x, 1.0 / u_fxLamps[1].y);
+    float lit;
+    if (soft > 0.5)
+    {
+        FF_LAMP_PCF5(lit, s_fxLampStatic, uv, faces * u_fxLamps[1].z, depth)
+    }
+    else
+    {
+        FF_LAMP_PCF3(lit, s_fxLampStatic, uv, faces * u_fxLamps[1].z, depth)
+    }
+    if (characters > 0.5)
+    {
+        // The characters' faces are coarser by the ratio of the face sizes.
+        float moving;
+        FF_LAMP_PCF3(moving, s_fxLampDynamic, uv, faces * u_fxLamps[1].w, depth - texel * (u_fxLamps[1].z / u_fxLamps[1].w - 1.0) / radius)
+        lit = min(lit, moving);
+    }
+    return lit;
 }
 
-// The lamp's diffuse light at Pw (the D3D formulas the game's lights use), without the shadow, in the space fxLit sums
-// light in (fxLightColor: squared colour and falloff with FX_LIGHT_LINEAR, like fxPointDiffuse).
-vec3 ffLampLight(int i, vec3 Pw, vec3 Nw)
+vec3 ffLampDebugColor(float slot)
 {
-    vec3 d = u_fxLamps[1 + 4 * i].xyz - Pw;
-    float distance = length(d);
-    vec4 color = u_fxLamps[2 + 4 * i];
-    vec4 att = u_fxLamps[3 + 4 * i];
-    if (distance > color.w)
-        return vec3_splat(0.0);
-    float ndl = max(dot(Nw, d / max(distance, 1e-4)), 0.0);
-    return fxLightColor(color.rgb / max(att.x + att.y * distance + att.z * distance * distance, 1e-3)) * ndl;
+    vec3 hue = abs(fract(vec3_splat(slot * 0.381966) + vec3(0.0, 0.3333, 0.6667)) * 6.0 - vec3_splat(3.0)) - vec3_splat(1.0);
+    return clamp(hue, 0.0, 1.0);
+}
+
+// Adds the lamp with grid number `id` (slot + 1, 0 = none) at Pw: sum.rgb its light with its shadow, sum.a the
+// luminance of its light without the shadow. Ng: geometric normal (shadow bias, no light from behind the
+// surface), N: shading normal. The game's own D3D attenuation, faded to zero at the lamp's radius.
+void ffLampAdd(float id, vec3 Pw, vec3 Ng, vec3 N, inout vec4 sum)
+{
+    if (id < 0.5)
+        return;
+    float slot = id - 1.0;
+    int base = 2 + 3 * int(slot);
+    vec4 lamp = u_fxLamps[base];
+    vec3 L = Pw - lamp.xyz;
+    float reach = length(L);
+    if (reach >= lamp.w)
+        return;
+    vec3 toLamp = -L / max(reach, 1e-4);
+    float ngl = dot(Ng, toLamp);
+    float ndl = dot(N, toLamp);
+    if (ngl <= 0.0 || ndl <= 0.0)
+        return;
+    vec4 color = u_fxLamps[base + 1];
+    vec4 att = u_fxLamps[base + 2];
+    float window = reach / lamp.w;
+    window = 1.0 - window * window * window * window;
+    // The lamp is its flames and their fixture, not a point: nothing is lit from nearer than its own size.
+    float d = max(reach, att.w);
+    float falloff = window * window / max(att.x + att.y * d + att.z * d * d, 1e-3);
+#ifdef FX_LIGHT_LINEAR
+    falloff *= falloff; // as fxPointLight
+#endif
+    float light = ndl * falloff;
+    vec3 rgb = fxLightColor(color.rgb);
+    if (u_fxLampGrid[0].w > 0.5)
+        rgb = ffLampDebugColor(slot) * dot(rgb, vec3(0.299, 0.587, 0.114));
+    sum.rgb += rgb * (light * ffLampVisibility(slot, L, lamp.w, color.w, Ng, ngl));
+    sum.a += dot(rgb, vec3(0.299, 0.587, 0.114)) * light;
+}
+
+// The lamps that reach Pw, from the lamp grid (up to eight per cell).
+vec4 ffLampLight(vec3 Pw, vec3 Ng, vec3 N)
+{
+    vec4 sum = vec4_splat(0.0);
+    if (u_fxLamps[0].x < 0.5)
+        return sum;
+    vec3 cell = (Pw - u_fxLampGrid[0].xyz) * u_fxLampGrid[1].xyz;
+    if (min(min(cell.x, cell.y), cell.z) < 0.0 || max(max(cell.x, cell.y), cell.z) > 1.0)
+        return sum;
+    float half_texel = 0.5 / u_fxLampGrid[1].w;
+    float u = 0.5 * clamp(cell.x, half_texel, 1.0 - half_texel);
+    vec4 near = floor(texture3D(s_fxLampGrid, vec3(u, cell.y, cell.z)) * 255.0 + vec4_splat(0.5));
+    ffLampAdd(near.x, Pw, Ng, N, sum);
+    ffLampAdd(near.y, Pw, Ng, N, sum);
+    ffLampAdd(near.z, Pw, Ng, N, sum);
+    ffLampAdd(near.w, Pw, Ng, N, sum);
+    if (near.w > 0.5)
+    {
+        vec4 more = floor(texture3D(s_fxLampGrid, vec3(u + 0.5, cell.y, cell.z)) * 255.0 + vec4_splat(0.5));
+        ffLampAdd(more.x, Pw, Ng, N, sum);
+        ffLampAdd(more.y, Pw, Ng, N, sum);
+        ffLampAdd(more.z, Pw, Ng, N, sum);
+        ffLampAdd(more.w, Pw, Ng, N, sum);
+    }
+    return sum;
+}
+
+// The light of the place around Pw (fx::RoomLight: its baked colours), in the baked colours' own units; Nw: the
+// surface's normal (the light is taken half a metre in front of it).
+vec3 ffRoomLight(vec3 Pw, vec3 Nw)
+{
+    vec3 uvw = (Pw + Nw * 0.5 - u_fxLampGrid[2].xyz) * u_fxLampGrid[3].xyz;
+    return texture3D(s_fxRoomLight, clamp(uvw, 0.0, 1.0)).rgb;
 }
 #define FF_DIFFUSE ffDiffuse
 #else
@@ -241,28 +370,33 @@ void main()
 #ifdef FX_LIGHT_NORMALMAP
     N = fxPerturbNormal(Ng, P, u_fxFf.y > 0.5 ? v_texcoord1.xy : v_texcoord0.xy);
 #endif
+    vec3 Pw = mul(u_fxLampView, vec4(P, 1.0)).xyz;
     vec3 Nw = normalize(mul(u_fxLampView, vec4(Ng, 0.0)).xyz);
+    // The place's lamps with their shadows (nothing where there are none).
+    vec4 lamps = ffLampLight(Pw, Nw, normalize(mul(u_fxLampView, vec4(N, 0.0)).xyz));
     float aoVolume = ffAoVolume(P, Ng, Nw);
 #ifdef FX_FF_LIT
     // The volume occludes the ambient part (the per-vertex sum carries the global ambient and the lights not lit per
-    // pixel); the per-pixel sun and lamps keep their own visibility.
+    // pixel); the per-pixel sun and the lamps keep their own visibility.
     float sunShadow = fxSunShadow(P, Ng);
-    vec3 lit = fxLit(v_color0.rgb * aoVolume, v_matDiffuse.rgb, fxSunDiffuse(N, V) * sunShadow + fxPointDiffuse(N, P),
-                     v_matAmbient.rgb, fxAmbient(N) * aoVolume);
-    // Lamp shadows: the light of a hidden lamp leaves the sum (wherever it carried it: per vertex or per pixel) before
-    // the sum saturates; taken from the saturated colour, a lamp brighter than white near it took everything.
-    // Two texels of a 512² face at 4 m along the normal: no self-shadowing at grazing light.
-    vec3 Pw = mul(u_fxLampView, vec4(P + Ng * 0.06, 1.0)).xyz;
-    vec3 lampLost = vec3_splat(0.0);
-    for (int i = 0; i < 4; ++i)
-        if (float(i) < u_fxLamps[0].x)
-            lampLost += ffLampLight(i, Pw, Nw) * (1.0 - ffLampVisibility(i, Pw));
-#ifdef FX_LIGHT_LINEAR
-    lit = sqrt(max(lit * lit - v_matDiffuse.rgb * v_matDiffuse.rgb * lampLost, 0.0));
-#else
-    lit = max(lit - v_matDiffuse.rgb * lampLost, 0.0);
-#endif
-    ffDiffuse = vec4(clamp(lit, 0.0, 1.0), v_color0.a);
+    vec3 ambient = fxAmbient(N);
+    float lampSeen = dot(lamps.rgb, vec3(0.299, 0.587, 0.114));
+    if (u_fxLampGrid[2].w > 0.5)
+    {
+        // Indoors the model stands in the room's own light: the baked colours around it are its ambient (the global
+        // ambient is the weather's, of the street). Where lamps light the pixel directly, the part of them the bake
+        // holds leaves the ambient, as on the baked surfaces.
+        vec3 room = ffRoomLight(Pw, Nw);
+        float level = max(dot(room, vec3(0.299, 0.587, 0.114)), 0.03);
+        ambient = fxLightColor(room) * (level / (level + u_fxLamps[0].w * u_fxLamps[0].z * lamps.a));
+    }
+    // A lamp's light on a model is at most that of a fully lit surface: above half of it the sum is compressed
+    // towards 1 (a model at a candle's flame is lit, not burnt out).
+    float lampShown = lampSeen <= 0.5 ? lampSeen : 0.5 + (lampSeen - 0.5) / (1.0 + 2.0 * (lampSeen - 0.5));
+    vec3 lampLight = lamps.rgb * (lampShown / max(lampSeen, 1e-4));
+    ffDiffuse = vec4(clamp(fxLit(v_color0.rgb * aoVolume, v_matDiffuse.rgb,
+                                 fxSunDiffuse(N, V) * sunShadow + fxPointDiffuse(N, P) + lampLight,
+                                 v_matAmbient.rgb, ambient * aoVolume), 0.0, 1.0), v_color0.a);
 #else
     ffDiffuse = v_color0;
     vec4 tex0 = vec4_splat(0.0);
@@ -284,9 +418,29 @@ void main()
 #ifdef FX_LIGHT_NORMALMAP
     current.rgb *= fxBakedRelief(Ng, N, V);
 #endif
-    // The baked colours of interiors are mostly the ambient of the room (local-testing/shadows/DESIGN.md §2.1).
-    current.rgb *= aoVolume;
+    // The place's lamps relight the baked colour b: b * (b + G * lit) / (b + k * G * unshadowed). Where no lamp
+    // reaches, the colour is the bake; the side towards a lamp gets its light, what the lamp cannot see loses the
+    // part of that light the bake is taken to hold (k). The AO volume occludes all of it: the room's own look stays.
+    float baked = max(dot(v_color0.rgb, vec3(0.299, 0.587, 0.114)), 0.03);
+    float gain = u_fxLamps[0].z;
+#ifdef FX_LIGHT_LINEAR
+    current.rgb *= aoVolume * sqrt((vec3_splat(baked * baked) + gain * gain * lamps.rgb) /
+                                   (baked * baked + u_fxLamps[0].w * gain * gain * lamps.a));
+#else
+    current.rgb *= aoVolume * (vec3_splat(baked) + gain * lamps.rgb) / (baked + u_fxLamps[0].w * gain * lamps.a);
+#endif
     current.rgb = fxLit(current.rgb, tex0.rgb, fxPointDiffuse(N, P), vec3_splat(0.0), vec3_splat(0.0));
+#endif
+#ifdef FX_FF_PIXEL_LIGHTING
+    if (u_fxLamps[0].x > 0.5 && u_fxLampGrid[0].w > 0.5)
+    {
+        // Debug views: the lamps' light in the slots' colours over a grey picture, or what the shadows remove.
+        float grey = dot(current.rgb, vec3(0.299, 0.587, 0.114));
+        if (u_fxLampGrid[0].w < 1.5)
+            current.rgb = vec3_splat(0.35 * grey) + lamps.rgb * u_fxLamps[0].z;
+        else
+            current.rgb = vec3_splat(lamps.a > 1e-4 ? dot(lamps.rgb, vec3(0.299, 0.587, 0.114)) / lamps.a : 0.5);
+    }
 #endif
     gl_FragColor = ffFinish(current);
     FF_SLOPE_DEPTH();

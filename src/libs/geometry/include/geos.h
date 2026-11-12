@@ -274,9 +274,12 @@ class GEOS
     virtual int32_t GetIndexBuffer() const = 0;
 
     // Positions (model space) and triangle list of the visible objects, appended to `positions` / `indices` (the
-    // indices are offset by the positions already there). Reads the static vertex and index buffers back read-only
-    // (the renderer keeps CPU copies of them). False, with nothing appended, when a buffer cannot be read.
-    virtual bool AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices) const = 0;
+    // indices are offset by the positions already there); with `colors`, the vertices' colours (the baked lighting
+    // of a location model, D3DCOLOR) are appended alongside the positions. Reads the static vertex and index buffers
+    // back read-only (the renderer keeps CPU copies of them). False, with nothing appended, when a buffer cannot be
+    // read.
+    virtual bool AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices,
+                                 std::vector<uint32_t> *colors = nullptr) const = 0;
     // True when the file carries collision data (the BSP the location walks and traces on).
     virtual bool HasCollision() const = 0;
     // The model's lightmap (its texture shadow.tga, from the location's lighting folder of the time of day): its file

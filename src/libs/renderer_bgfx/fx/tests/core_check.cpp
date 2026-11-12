@@ -72,7 +72,8 @@ void CheckSettings()
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
     CHECK(!medium.ssao && high.ssao && !original.ssao);
     CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 3); // Низкая: no shadows, as the original
-    CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 0 && high.lamp_shadows == 0); // off until fixed
+    CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 0 && high.lamp_shadows == 0); // until the owner's OK
+    CHECK(!medium.lamp_soft && high.lamp_soft && high.lamp_baked == 0.5f && high.lamp_gain == 1.0f && high.lamp_debug == 0);
     // «Средняя»: the cheap looks (tone curve, the grade of the place and hour, aerial perspective, rim light) under
     // the restrained Caribbean grade; «Высокая» adds the sun glare and sun shafts. «Низкая» has none of them.
     for (const Settings *preset : {&medium, &high})
@@ -324,6 +325,10 @@ void CheckSupport()
     changes.clear();
     constrained = ConstrainSettings(high, no_shadow, changes);
     CHECK(constrained.shadows == ShadowQuality::Off && constrained.lamp_shadows == 0 && changes.size() == 1);
+    Settings with_lamps = high;
+    with_lamps.lamp_shadows = 16;
+    changes.clear();
+    CHECK(ConstrainSettings(with_lamps, no_shadow, changes).lamp_shadows == 0 && changes.size() == 2); // sun, lamps
     CHECK(LightingDefines(constrained).find("FX_LIGHT_SHADOW") == std::string::npos);
 
     // No R8 3D textures: no AO volume, said once; the rest stays.
@@ -332,6 +337,14 @@ void CheckSupport()
     changes.clear();
     constrained = ConstrainSettings(high, no_ao, changes);
     CHECK(constrained.ao_volume == 0 && changes.size() == 1 && constrained.shadows == high.shadows);
+    // ... and no lamp grid or room light: no lamp shadows either, each said once.
+    changes.clear();
+    constrained = ConstrainSettings(with_lamps, no_ao, changes);
+    CHECK(constrained.ao_volume == 0 && constrained.lamp_shadows == 0 && changes.size() == 2 && constrained.shadows == high.shadows);
+    Settings five_lamps = high;
+    five_lamps.lamp_shadows = 5;
+    changes.clear();
+    CHECK(ConstrainSettings(five_lamps, all, changes).lamp_shadows == 8 && changes.size() == 1);
     // An AO volume without the fx lighting path has no shader to apply it: switched off, said.
     Settings unlit = high;
     unlit.lighting_flags = kLightingNone;
@@ -1100,22 +1113,92 @@ void CheckLampShadows()
     CHECK(clustered.size() == 2 && Near(clustered[0].color[0], 6.6f, 1e-4f));
     CHECK(Near(clustered[0].position[0], 1.0333f, 1e-3f) && Near(clustered[0].position[2], 0.9667f, 1e-3f));
 
-    // Selection: the nearest strong lamp first; out of range lamps never; hysteresis keeps a slot.
-    std::vector<Lamp> room = {{{0.0f, 2.0f, 0.0f}, {2.0f, 2.0f, 2.0f}, 10.0f, 0.5f, 0.0f, 1.0f},
-                              {{6.0f, 2.0f, 0.0f}, {2.0f, 2.0f, 2.0f}, 10.0f, 0.5f, 0.0f, 1.0f},
-                              {{50.0f, 2.0f, 0.0f}, {9.0f, 9.0f, 9.0f}, 10.0f, 0.5f, 0.0f, 1.0f}};
-    std::vector<int> pick = SelectShadowLamps(room, {1.0f, 1.7f, 0.0f}, 2, {});
-    CHECK(pick.size() == 2 && pick[0] == 0 && pick[1] == 1);
-    pick = SelectShadowLamps(room, {1.0f, 1.7f, 0.0f}, 1, {});
-    CHECK(pick.size() == 1 && pick[0] == 0);
-    // At the middle the right lamp is marginally stronger; the left one keeps its slot.
-    pick = SelectShadowLamps(room, {3.1f, 1.7f, 0.0f}, 1, std::vector<int>{0});
-    CHECK(pick.size() == 1 && pick[0] == 0);
-    pick = SelectShadowLamps(room, {5.5f, 1.7f, 0.0f}, 1, std::vector<int>{0});
-    CHECK(pick.size() == 1 && pick[0] == 1);
+    // A lamp lights as far as its light stays above the threshold: the candle of lights.ini 3.6 m at 0.12, the
+    // fireplace farther, never beyond the limit or its own D3D range; three candles reach farther than one.
+    const float candle_radius = LampRadius(candle, 0.12f, 12.0f);
+    const float light_there = (0.299f * 2.2f + 0.587f * 1.5f + 0.114f * 0.5f) / (0.5f + 1.5f * candle_radius * candle_radius);
+    CHECK(Near(light_there, 0.12f, 1e-3f) && candle_radius > 2.5f && candle_radius < 3.5f);
+    CHECK(LampRadius(clustered[0], 0.12f, 12.0f) > candle_radius + 1.0f);
+    CHECK(LampRadius(clustered[1], 0.12f, 12.0f) > LampRadius(clustered[0], 0.12f, 12.0f));
+    CHECK(LampRadius(clustered[1], 0.001f, 12.0f) == 12.0f && LampRadius(candle, 0.0001f, 50.0f) == 15.0f);
 
-    // Caster side (face view-projection + tile) and receiver side (LampShadowCoord) agree on atlas position and depth
-    // in every face, and the guard band keeps points of a face inside its tile.
+    // The lamp grid: a cell holds the lamps whose radius reaches it, the strongest there first; cells no lamp reaches
+    // hold none; a cell that more lamps reach than it holds keeps the strongest and is counted.
+    {
+        std::vector<Lamp> row;
+        for (int i = 0; i < 3; ++i)
+            row.push_back({{2.5f + 5.0f * static_cast<float>(i), 1.5f, 2.5f}, {2.0f, 2.0f, 2.0f}, 3.0f, 0.5f, 0.0f, 1.5f});
+        const LampGrid grid = BuildLampGrid(row, {0.0f, 0.0f, 0.0f}, {15.0f, 3.0f, 5.0f}, 1.0f, 64, 16);
+        CHECK(grid.nx == 15 && grid.ny == 3 && grid.nz == 5 && grid.rgba.size() == 2u * 15 * 3 * 5 * 4 && grid.overflow_cells == 0);
+        const auto cell = [&](int x, int y, int z, int k) {
+            return grid.rgba[((static_cast<size_t>(z) * grid.ny + y) * (2 * grid.nx) + x + (k / 4) * grid.nx) * 4 + k % 4];
+        };
+        CHECK(cell(2, 1, 2, 0) == 1 && cell(2, 1, 2, 1) == 0);  // the first lamp's own cell
+        CHECK(cell(7, 1, 2, 0) == 2 && cell(12, 1, 2, 0) == 3); // the second and the third
+        CHECK(cell(5, 1, 2, 0) != 0 && cell(5, 1, 2, 1) != 0 && cell(5, 1, 2, 2) == 0); // between two: both
+        CHECK(cell(4, 1, 2, 0) == 1 && cell(4, 1, 2, 1) == 2); // nearer the first: it comes first
+        std::vector<Lamp> crowd(12, row[0]);
+        crowd[11].color = {9.0f, 9.0f, 9.0f}; // the strongest, last in the list
+        const LampGrid full = BuildLampGrid(crowd, {0.0f, 0.0f, 0.0f}, {5.0f, 3.0f, 5.0f}, 1.0f, 64, 16);
+        CHECK(full.max_lamps == 12 && full.overflow_cells > 0);
+        const size_t texel = (static_cast<size_t>(2) * full.ny + 1) * (2 * full.nx) + 2;
+        CHECK(full.rgba[texel * 4] == 12 && full.rgba[(texel + full.nx) * 4 + 3] != 0);
+        // A lamp with radius 0 (a free slot) is in no cell.
+        row[1].range = 0.0f;
+        const LampGrid without = BuildLampGrid(row, {0.0f, 0.0f, 0.0f}, {15.0f, 3.0f, 5.0f}, 1.0f, 64, 16);
+        for (size_t i = 0; i < without.rgba.size(); ++i)
+            CHECK(without.rgba[i] != 2);
+        // A hall larger than the grid holds cells: larger cells, the same coverage.
+        const LampGrid hall = BuildLampGrid(row, {0.0f, 0.0f, 0.0f}, {200.0f, 3.0f, 5.0f}, 1.0f, 64, 16);
+        CHECK(hall.nx == 64 && Near(hall.cell[0], 200.0f / 64.0f, 1e-4f));
+    }
+
+    // The still triangles a lamp can shadow with: those that touch its sphere.
+    {
+        std::vector<Vec3> p;
+        std::vector<uint32_t> idx;
+        AddBox(p, idx, {-0.5f, 0.0f, -0.5f}, {0.5f, 1.0f, 0.5f});   // at the lamp
+        AddBox(p, idx, {20.0f, 0.0f, -0.5f}, {21.0f, 1.0f, 0.5f});  // far away
+        AddBox(p, idx, {-30.0f, -1.0f, -30.0f}, {30.0f, 0.0f, 30.0f}); // a floor far larger than the lamp's reach
+        const std::vector<uint32_t> near = TrianglesInSphere(p, idx, {0.0f, 2.0f, 0.0f}, 4.0f);
+        CHECK(near.size() % 3 == 0 && near.size() >= 36 + 6 && near.size() < idx.size());
+        bool far_box = false, floor_top = false;
+        for (const uint32_t i : near)
+        {
+            far_box |= i >= 8 && i < 16;
+            floor_top |= i >= 16;
+        }
+        CHECK(!far_box && floor_top);
+    }
+
+    // The room light: the baked colours around a point, mostly those of the level surfaces. A room with a bright
+    // floor and dark walls and ceiling, one half lit warm: the light where one stands is close to the floor's (the
+    // walls count little), the warm half is warm, the upper storey's cell is darker, and it is the same every time.
+    {
+        std::vector<Vec3> p;
+        std::vector<uint32_t> idx;
+        AddBox(p, idx, {0.0f, 0.0f, 0.0f}, {12.0f, 6.0f, 6.0f});
+        std::vector<uint32_t> colors(p.size());
+        for (size_t i = 0; i < p.size(); ++i)
+        {
+            const uint32_t level = p[i][1] < 1.0f ? 160u : 60u;
+            const uint32_t blue = p[i][0] < 6.0f ? level / 3u : level;
+            colors[i] = 0xff000000u | (level << 16) | (level << 8) | blue;
+        }
+        const RoomLight room = BuildRoomLight(p, colors, idx, {0.0f, -0.5f, 0.0f}, {12.0f, 8.5f, 6.0f}, 1.5f, 3.0f, 48, 12);
+        CHECK(room.nx == 8 && room.ny == 3 && room.nz == 4 && room.rgba.size() == 8u * 3 * 4 * 4);
+        const auto at = [&](int x, int y, int z, int ch) { return room.rgba[((static_cast<size_t>(z) * room.ny + y) * room.nx + x) * 4 + ch]; };
+        CHECK(at(4, 0, 2, 0) > 110 && at(4, 0, 2, 0) <= 160); // where one stands: near the floor's 160, above the mean
+        CHECK(at(4, 0, 2, 0) > at(4, 2, 2, 0) + 40);          // under the ceiling it is the ceiling's
+        CHECK(at(1, 0, 1, 2) + 20 < at(6, 0, 1, 2));          // the warm half has less blue
+        const RoomLight again = BuildRoomLight(p, colors, idx, {0.0f, -0.5f, 0.0f}, {12.0f, 8.5f, 6.0f}, 1.5f, 3.0f, 48, 12);
+        CHECK(again.rgba == room.rgba);
+        CHECK(BuildRoomLight(p, colors, idx, {50.0f, 0.0f, 0.0f}, {60.0f, 6.0f, 6.0f}, 1.5f, 3.0f, 48, 12).rgba.empty());
+    }
+
+    // Caster side (face view-projection + tile, the distance fs_ff_lamp_caster writes) and receiver side
+    // (LampFaceCoord, the distance to the lamp) agree on atlas position and distance in every face, and the guard
+    // band keeps points of a face inside its tile.
     const Vec3 lamp{0.5f, 2.0f, -1.0f};
     const float far_plane = 12.0f;
     const int columns = 6, rows = 4;
@@ -1123,11 +1206,11 @@ void CheckLampShadows()
     for (int i = 0; i < 200; ++i)
     {
         const float a = static_cast<float>(i) * 2.399963f, y = 1.0f - 2.0f * (static_cast<float>(i) + 0.5f) / 200.0f;
-        const float r = std::sqrt(1.0f - y * y), distance = 0.6f + 0.05f * static_cast<float>(i % 100);
+        const float r = std::sqrt(1.0f - y * y), distance = 0.05f + 0.05f * static_cast<float>(i % 100);
         const Vec3 p{lamp[0] + r * std::cos(a) * distance, lamp[1] + y * distance, lamp[2] + r * std::sin(a) * distance};
         for (const int slot : {0, 3})
         {
-            const LampShadowSample s = LampShadowCoord(lamp, p, far_plane, slot, columns, rows);
+            const LampFaceSample s = LampFaceCoord(lamp, p, slot, columns, rows);
             faces_seen |= 1 << s.face;
             const auto vp = LampFaceViewProj(lamp, s.face, far_plane);
             const auto tile_clip = TileClip(LampAtlasTile(slot, s.face, columns, rows));
@@ -1137,11 +1220,13 @@ void CheckLampShadows()
             for (int j = 0; j < 4; ++j)
                 atlas[j] = clip[0] * tile_clip[j] + clip[1] * tile_clip[4 + j] + clip[2] * tile_clip[8 + j] + clip[3] * tile_clip[12 + j];
             const float x = atlas[0] / atlas[3] * 0.5f + 0.5f, yy = 0.5f - atlas[1] / atlas[3] * 0.5f;
-            CHECK(Near(x, s.x, 1e-4f) && Near(yy, s.y, 1e-4f) && Near(clip[2] / clip[3], s.depth, 1e-4f));
+            CHECK(Near(x, s.x, 1e-4f) && Near(yy, s.y, 1e-4f));
+            CHECK(Near(LampCasterDistance(clip[0], clip[1], clip[3]), distance, 1e-3f));
+            // In front of the near plane (a table top 15 cm under its candle, a wall 3 cm behind its sconce).
+            CHECK(clip[3] > kLampShadowNear && clip[2] / clip[3] > 0.0f && clip[2] / clip[3] < 1.0f);
             const AtlasTile t = LampAtlasTile(slot, s.face, columns, rows);
             const float margin = 0.5f * (1.0f - 1.0f / kLampFaceGuard) * t.sx * 0.99f;
             CHECK(s.x >= t.x0 + margin && s.x <= t.x0 + t.sx - margin && s.y >= t.y0 && s.y <= t.y0 + t.sy);
-            CHECK(s.depth > 0.0f && s.depth < 1.0f);
         }
     }
     CHECK(faces_seen == 63);

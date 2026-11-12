@@ -47,7 +47,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.normal_map_size = 512; // a quarter of High's memory
         s.shadows = ShadowQuality::Low;
         s.ao_volume = 2;
-        // Lamp shadows stay off until their darkening of baked surfaces matches the bake (option fx_lamp_shadows).
+        // The lamps' relight of locations (option fx_lamp_shadows 8) stays off until the owner has seen its sheet.
         s.lamp_shadows = 0;
         return s;
     }
@@ -66,7 +66,8 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.point_lights = 8;
     s.shadows = ShadowQuality::Soft;
     s.ao_volume = 3;
-    s.lamp_shadows = 0; // see Средняя
+    s.lamp_shadows = 0; // see Средняя (option fx_lamp_shadows 16)
+    s.lamp_soft = true;
     s.ssao = true;
     s.ssao_intensity = 0.35f;
     return s;
@@ -184,10 +185,12 @@ constexpr Rule kRules[] = {
      },
      [](Settings &s) { s.ao_volume = 0; },
      "the ambient occlusion volume of interiors needs per-pixel lighting or per-pixel point lights: switched off"},
-    {[](const Settings &s, const Support &) { return s.lamp_shadows != 0 && s.lamp_shadows != 2 && s.lamp_shadows != 4; },
-     [](Settings &s) { s.lamp_shadows = s.lamp_shadows > 2 ? 4 : 2; }, "lamp shadows are cast by 2 or 4 lamps: rounded"},
+    {[](const Settings &s, const Support &) { return s.lamp_shadows != 0 && s.lamp_shadows != 8 && s.lamp_shadows != 16; },
+     [](Settings &s) { s.lamp_shadows = s.lamp_shadows > 8 ? 16 : 8; }, "8 or 16 lamps relight an interior: rounded"},
     {[](const Settings &s, const Support &c) { return s.lamp_shadows && !c.shadow_map; }, [](Settings &s) { s.lamp_shadows = 0; },
      "lamp shadows need a D16 depth render target: switched off"},
+    {[](const Settings &s, const Support &c) { return s.lamp_shadows && !c.ao_volume; }, [](Settings &s) { s.lamp_shadows = 0; },
+     "the lamps' grid and the room light need RGBA8 3D textures: lamp shadows switched off"},
     {[](const Settings &s, const Support &) { return s.lamp_shadows && !(s.lighting_flags & kLightingPerPixel); },
      [](Settings &s) { s.lamp_shadows = 0; }, "lamp shadows need per-pixel lighting: switched off"},
     {[](const Settings &s, const Support &) { return (s.lighting_flags & kLightingPoint) && s.point_lights != 4 && s.point_lights != 8; },

@@ -76,8 +76,15 @@ const Option kOptions[] = {
     {"fx_sea_band_limit", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_band_limit = on(v); }},
     {"fx_sea_soft_edges", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_soft_edges = on(v); }},
     {"fx_sea_specular", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_specular = on(v); }},
-    {"fx_lamp_shadows", "interiors: lamps that cast shadows, 0, 2 or 4",
-     [](fx::Settings &s, int v) { s.lamp_shadows = static_cast<uint8_t>(std::clamp(v, 0, 4)); }},
+    {"fx_lamp_shadows", "lamps that relight a location with their shadows, 0, 8 or 16",
+     [](fx::Settings &s, int v) { s.lamp_shadows = static_cast<uint8_t>(std::clamp(v, 0, 16)); }},
+    {"fx_lamp_soft", "0 3x3, 1 5x5 filter of the lamp shadows", [](fx::Settings &s, int v) { s.lamp_soft = on(v); }},
+    {"fx_lamp_gain", "0..300 % of the lamps' strength on baked surfaces",
+     [](fx::Settings &s, int v) { s.lamp_gain = static_cast<float>(std::clamp(v, 0, 300)) / 100.0f; }},
+    {"fx_lamp_baked", "0..100 %: the part of the lamp light the baked colours already hold",
+     [](fx::Settings &s, int v) { s.lamp_baked = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
+    {"fx_lamp_debug", "0 off, 1 every lamp in its own colour, 2 the shadow mask",
+     [](fx::Settings &s, int v) { s.lamp_debug = static_cast<uint8_t>(std::clamp(v, 0, 2)); }},
     {"fx_ao_volume", "interiors: 0 off, 1 as the game's data, 2 moderate, 3 strong",
      [](fx::Settings &s, int v) { s.ao_volume = static_cast<uint8_t>(std::clamp(v, 0, 3)); }},
     {"fx_shadows", "0 off, 1 low, 2 soft",
@@ -583,10 +590,11 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
                          profile_sum_rcas_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d scene=%ux%u display=%ux%u %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u lamp_slots=%d lamp_static_faces=%d",
                        preset_, last_post_size_[0], last_post_size_[1], last_post_size_[2], last_post_size_[3], gpu,
                        profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
-                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters);
+                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters,
+                       lighting_.lamp_shadows().last_slots(), lighting_.lamp_shadows().last_static_faces());
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_sum_smaa_ = profile_sum_easu_ = profile_sum_rcas_ = 0.0;
@@ -636,7 +644,6 @@ void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<floa
 {
     std::vector<fx::Vec3> points(positions.begin(), positions.end());
     std::vector<uint32_t> triangles(indices.begin(), indices.end());
-    effects::Host::instance().lighting().lamp_shadows().set_geometry(points, triangles);
     effects::Host::instance().ao_volumes().set_geometry(std::string(name), std::move(points), std::move(triangles),
                                                         bounds_lo, bounds_hi);
 }
@@ -691,13 +698,22 @@ void SetEffectsGroundLight(std::string_view name, std::span<const std::array<flo
     shadows.set_ground(std::move(ground));
 }
 
+void SetEffectsLampGeometry(std::span<const std::array<float, 3>> positions, std::span<const uint32_t> colors,
+                            std::span<const uint32_t> indices, bool interior, const std::array<float, 3> &room_lo,
+                            const std::array<float, 3> &room_hi)
+{
+    effects::Host::instance().lighting().lamp_shadows().set_geometry({positions.begin(), positions.end()},
+                                                                     {colors.begin(), colors.end()},
+                                                                     {indices.begin(), indices.end()}, interior, room_lo, room_hi);
+}
+
 void SetEffectsLamps(std::span<const EffectsPointLight> lamps)
 {
     std::vector<fx::Lamp> converted;
     converted.reserve(lamps.size());
     for (const EffectsPointLight &l : lamps)
         converted.push_back({l.position, l.color, l.range, l.att0, l.att1, l.att2});
-    effects::Host::instance().lighting().lamp_shadows().set_lamps(std::move(converted));
+    effects::Host::instance().lighting().lamp_shadows().set_lamps(converted);
 }
 
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)

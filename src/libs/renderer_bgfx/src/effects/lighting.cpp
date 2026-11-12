@@ -238,11 +238,11 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     const shim::TexStore *picture = device.back_color ? device.back_color->store.get() : nullptr;
     const bool ao = ao_volume_ && lighting_ && layout.has_normal && target && target == picture;
     baked |= !lit_state && ao;
-    // Lamp shadows: lit models in the game picture (characters, props); the first one of a frame chooses the lamps for
-    // its camera. Baked surfaces receive none: the game's bakes carry little lamp light the shadow could take away
-    // (fitted c0 + b x lamp light: R² ~0.1 in the taverns), so darkening them drew shadows where no lamp had lit.
+    // The room's lamps relight what is drawn into the game picture, each with its shadow (effects/lamp_shadows.hpp):
+    // baked location geometry (which then takes the baked variant) and lit models. The first receiver of a frame
+    // gives the lamps around its camera their slots.
     bool lamp_on = false;
-    if (lamps_.enabled() && lit && target && target == picture)
+    if (lamps_.enabled() && lighting_ && layout.has_normal && target && target == picture)
     {
         const D3DMATRIX &v = device.s.view;
         std::array<float, 3> eye{}; // absolute, like the lamps
@@ -250,6 +250,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             eye[j] = origin_[j] - (v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
         lamp_on = lamps_.prepare(const_cast<shim::Device &>(device), eye);
     }
+    baked |= !lit_state && lamp_on;
     if (!lit && !baked && !coverage)
         return;
     if (cube_variant != 0)
@@ -335,6 +336,13 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
                 input.sun_diffuse = rgb(l.Diffuse);
             }
         }
+        else if (lamp_on && l.Type == D3DLIGHT_POINT &&
+                 lamps_.relit({l.Position.x + origin_[0], l.Position.y + origin_[1], l.Position.z + origin_[2]}))
+        {
+            // One of the room's lamps: the receiver lights it per pixel from the lamp grid, with its shadow.
+            draw.vertex_diffuse_off |= static_cast<uint8_t>(1u << slot);
+            draw.vertex_specular_off |= static_cast<uint8_t>(1u << slot);
+        }
         else
         {
             points[point_count] = point_light(l);
@@ -367,7 +375,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     const bool specular = per_pixel && (flags_ & fx::kLightingSpecular);
     // Interiors: the weather's sun shines outside. Lit models (characters, props) indoors get no sun at all, per vertex
     // or per pixel: the room's lamps (per-pixel point lights) and its ambient light them, and there is no sun shadow.
-    const bool indoor_sun = per_pixel && sun_slot >= 0 && lit && lamps_.has_geometry();
+    const bool indoor_sun = per_pixel && sun_slot >= 0 && lit && lamps_.interior();
     if (indoor_sun)
     {
         u[1][0] = u[1][1] = u[1][2] = 0.0f;
@@ -385,9 +393,12 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         if (specular)
             draw.vertex_specular_off |= static_cast<uint8_t>(1u << sun_slot);
     }
-    if (hemisphere && lit)
+    // Lit models of an interior stand in the room's own light (the baked colours around them, ff_fragment.sh
+    // ffRoomLight) instead of the weather's ambient.
+    draw.room_light = lit && lamp_on && lamps_.room_light();
+    if ((hemisphere || draw.room_light) && lit)
         draw.vertex_ambient_off = true;
-    else
+    if (!hemisphere || !lit)
         for (int i = 0; i < 3; ++i)
             u[3][i] = u[4][i] = 0.0f;
     if (!per_pixel || !(flags_ & fx::kLightingTranslucent))
@@ -472,7 +483,7 @@ void Lighting::submit(const FfDraw &draw)
     if (draw.shadow)
         shadows_.bind(draw.view, draw.ground_sun);
     bind_ao_volume(draw);
-    lamps_.bind(draw.lamps, draw.world_view);
+    lamps_.bind(draw.lamps, draw.world_view, draw.room_light);
 }
 
 void Lighting::submit_caster(shim::Device &device, const D3DMATRIX &world, bool skinned)
@@ -564,7 +575,7 @@ void Lighting::end_frame()
     shadows_.end_frame();
     normal_maps_.end_frame();
     lamps_.end_frame();
-    if (!lamps_.has_geometry())
+    if (!lamps_.interior())
         indoor_sun_reported_ = false; // said again in the next interior
     if (!dynamic_lights_this_frame_)
         dynamic_lights_.clear(); // no location reported them: none exist
