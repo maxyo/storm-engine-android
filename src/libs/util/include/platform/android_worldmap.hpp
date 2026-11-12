@@ -29,8 +29,9 @@ struct MapShipFrame
 {
     std::string id, name;
     std::optional<double> hull, sails;
-    std::optional<int> crew, shipClass;
+    std::optional<int> crew, shipClass, crewMax;
     std::string type; // Optional stable RealShips model name; never the vessel's display name.
+    std::optional<ShipPicture> picture; // the sign's ship picture (wm_sign shiptexturename, faceuv)
 };
 struct MapCommand { std::string id, label; bool operator==(const MapCommand &) const = default; };
 struct WorldMapFrame
@@ -186,6 +187,8 @@ public:
         for(size_t k=0;k<frame_.ships.size();++k){const auto &s=frame_.ships[k];if(k)out+=',';
             out+="{\"id\":"+q(s.id)+",\"name\":"+q(s.name)+",\"hull\":"+n(s.hull)+",\"sails\":"+n(s.sails)+",\"crew\":"+n(s.crew)+",\"shipClass\":"+n(s.shipClass);
             if(!s.type.empty())out+=",\"type\":"+q(s.type);
+            if(s.crewMax)out+=",\"crewMax\":"+n(s.crewMax);
+            if(s.picture)out+=",\"picture\":"+shipPictureJson(*s.picture);
             out+='}';}
         out+="],\"commands\":[";
         for(size_t k=0;k<frame_.commands.size();++k){if(k)out+=',';const auto &c=frame_.commands[k];out+="{\"id\":"+q(c.id)+",\"label\":"+q(c.label)+"}";}

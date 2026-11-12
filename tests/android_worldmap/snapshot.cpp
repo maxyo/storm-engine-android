@@ -47,6 +47,8 @@ GameplaySnapshot readGameplaySnapshot(bool){return live;}
 std::string context="Martinique";
 std::string worldMapContext(uint64_t){return context;}
 void readWorldMapCommands(WorldMapFrame &f){f.shipsVisible=true;f.commandsReady=true;f.commands={{"EnterToIsland","Approach island"}};}
+// The battle interface's ship sign (battle_interface): no battle interface on the map.
+std::optional<ShipPicture> seaShipPicture(int){return std::nullopt;}
 #include "helpers.inc"
 #include "entry.inc"
 #include "snapshot.inc"
@@ -60,6 +62,8 @@ int main(){
  companion.SetAttribute("index","1");companion.SetAttribute("id","friend");put(companion,"Ship.Name","Second ship");put(companion,"Ship.Type","0");
  profile.SetAttribute("name","QA_map");shipType.SetAttribute("Class","6");shipType.SetAttribute("Name","Lugger");
  for(const char *sign:{"sign1","sign2"}){auto *a=badges.CreateAttribute(sign,nullptr);a->SetAttribute("leftprogress","0.8");a->SetAttribute("rightprogress","0.9");a->SetAttribute("text","40");}
+ badges.SetAttribute("shiptexturename","battle_interface\\ship_icons2.tga.tx");shipType.SetAttribute("MaxCrew","80");
+ badges.GetAttributeClass("sign1")->SetAttribute("faceuv","0.25,0.0625,0.3125,0.125");badges.GetAttributeClass("sign2")->SetAttribute("faceuv","1,0,0.5,1");
  core.battle=&badges;core.variables["Characters"].attrs={&captain,&companion};core.variables["nMainCharacterIndex"].integer=0;
  core.variables["PlayerProfile"].attrs={&profile};core.variables["RealShips"].attrs={&shipType};
  core.variables["wdmLockReload"].integer=0;core.variables["questwdmLockReload"].integer=0;
@@ -67,6 +71,10 @@ int main(){
  worldMapHud.contextActionOwner=19;worldMapHud.contextAction="EnterToSea";
  auto frame=readWorldMapFrame(game,true);assert(frame.available&&frame.commandsReady&&frame.ships.size()==2);
  assert(frame.ships[0].name=="Adelina"&&frame.ships[1].name=="Second ship");assert(frame.ships[0].hull==80&&frame.ships[0].crew==40&&frame.ships[0].shipClass==6);
+ // The sign's ship picture (faceuv in the sign texture) and the crew capacity of the ship type; a
+ // malformed rectangle gives no picture rather than a wrong one.
+ assert(frame.ships[0].crewMax==80&&frame.ships[0].picture&&frame.ships[0].picture->texture=="battle_interface/ship_icons2"&&
+        frame.ships[0].picture->uv==(std::array<float,4>{0.25f,0.0625f,0.3125f,0.125f})&&!frame.ships[1].picture);
  assert(frame.ships[0].type=="Lugger"&&frame.ships[1].type=="Lugger");
  WorldMapHud typedHud;typedHud.update(frame,1);
  assert(typedHud.json().find("\"type\":\"Lugger\"")!=std::string::npos);

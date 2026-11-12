@@ -278,6 +278,9 @@ void BIShipIcon::Init(ATTRIBUTES *pRoot, ATTRIBUTES *pA)
         pcTmp = pA->GetAttribute("shiptexturename");
         if (pcTmp)
             m_nShipTextureID = m_pRS->TextureCreate(pcTmp);
+#ifdef __ANDROID__
+        m_sShipTextureName = pcTmp ? pcTmp : "";
+#endif
         m_dwShipColor = pA->GetAttributeAsDword("shipcolor", m_dwShipColor);
         /*pcTmp = pA->GetAttribute( "shipuv" );
         if( pcTmp ) sscanf( pcTmp, "%f,%f,%f,%f", &m_rShipClassUV.left,&m_rShipClassUV.top,
@@ -849,6 +852,17 @@ void BIShipIcon::ReadAndroidOrders(storm::android::SeaOrdersFrame &frame)
     frame.stage = m_nCommandMode == BI_COMMODE_COMMAND_SELECT ? "commands" :
         (m_nCommandMode & (BI_COMMODE_CANNON_CHARGE | BI_COMMODE_USER_ICONS | BI_COMMODE_ABILITY_ICONS)) ? "options" : "targets";
     m_pCommandList->ReadAndroidOrders(frame);
+}
+
+std::optional<storm::android::ShipPicture> BIShipIcon::AndroidShipPicture(int32_t characterIndex)
+{
+    // The same picture number (the script's BIDT_SHIPPICTURE answer, kept by the ships list) and
+    // cell arithmetic as the sign draws; a dead companion's skull is not a ship picture.
+    auto *ship = g_ShipList.FindShip(characterIndex);
+    if (!ship || ship->isDead || m_sShipTextureName.empty()) return {};
+    FRECT uv;
+    GetShipUVFromPictureIndex(ship->pictureNum, uv);
+    return storm::android::shipPicture(m_sShipTextureName, {uv.left, uv.top, uv.right, uv.bottom});
 }
 
 void BIShipIcon::CloseAndroidOrders()

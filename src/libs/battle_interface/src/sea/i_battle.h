@@ -6,6 +6,8 @@
 #include "renderer.h"
 #ifdef __ANDROID__
 #include <platform/android_sea_orders.hpp>
+#include <platform/android_ship_telemetry.hpp>
+#include <optional>
 #endif
 
 class BIShipIcon;
@@ -28,6 +30,7 @@ class BATTLE_INTERFACE : public Entity
     bool ReadAndroidOrders(storm::android::SeaOrdersFrame &frame);
     bool ExecuteAndroidOrder(const storm::android::SeaOrdersRequest &request);
     void CloseAndroidOrders();
+    std::optional<storm::android::ShipPicture> AndroidShipPicture(int32_t characterIndex) const;
 #endif
     uint64_t ProcessMessage(MESSAGE &message) override;
     uint32_t AttributeChanged(ATTRIBUTES *pAttr) override;

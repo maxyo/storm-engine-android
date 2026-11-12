@@ -840,6 +840,7 @@ int main(int argc, char *argv[])
             if (const auto shortcut = gameplayShortcuts.take(SDL_GetTicks(), shortcutReady))
             {
                 const auto *control = storm::android::shortcutControl(*shortcut);
+                const auto *screen = storm::android::shortcutScreen(*shortcut);
                 if (shortcutLogBudget > 0)
                 {
                     --shortcutLogBudget;
@@ -858,12 +859,16 @@ int main(int argc, char *argv[])
                         resume = read("buttons.resume.enable");
                     }
                     catch (...) { /* Diagnostics must never alter command delivery or guards. */ }
-                    spdlog::info("Android shortcut Control Activation: {} dialogRun={} InterfaceStates.Launched={} resume.enable={}",
-                                 control, dialogRun, launched, resume);
+                    spdlog::info("Android shortcut {}: {} dialogRun={} InterfaceStates.Launched={} resume.enable={}",
+                                 control ? "Control Activation" : "AndroidOpenScreen", control ? control : screen, dialogRun, launched, resume);
                 }
-                // Use exactly the ordinary control event. Script guards (dialogRun,
-                // resume.enable, fight mode, etc.) still decide whether to act.
-                core_private->Event("Control Activation", "s", control);
+                // Use exactly the ordinary control event, or the app adapter's screen opening
+                // (android_open_screen.c). Script guards (dialogRun, resume.enable, fight mode,
+                // etc.) still decide whether to act.
+                if (control)
+                    core_private->Event("Control Activation", "s", control);
+                else
+                    core_private->Event("AndroidOpenScreen", "s", screen);
             }
 #endif
             // Exceptions escaping a frame are reported and end the session in order

@@ -6,8 +6,9 @@
 //                                                 of the hero (Loc_ai/LAi_character.c)
 //   "potions":  N                                 health potions the hero carries: items with
 //                                                 potion.health, what the quick heal uses
-//   "officers": [{"id", "name", "face", "health"}] data.icons.id1… of the land interface
-//                                                 (landinterface.c SetCharacterIconData)
+//   "id", "name", "face": the hero's character index, name and FaceId (the party's first portrait)
+//   "officers": [{"id", "name", "face", "health", "energy"}] data.icons.id1… of the land
+//                                                 interface (landinterface.c SetCharacterIconData)
 //   "dash":     0…1                               the backstep's remaining cooldown, only in
 //                                                 fight mode (Character "RecoilWait")
 //   "opponent": {"name", "health"}                the enemy captain of a boarding cabin fight
@@ -87,7 +88,11 @@ inline std::string landStatusJson(ATTRIBUTES *icons)
     std::string effects;
     for (const auto &[name, path] : {std::pair{"poison", "chr_ai.poison"}, {"drunk", "chr_ai.drunk"}, {"healing", "chr_ai.hp_bottle"}})
         if (landNumber(hero, path) > 0.f) effects += std::string(effects.empty() ? "" : ",") + "\"" + name + "\"";
-    std::string json = ",\"effects\":[" + effects + "],\"potions\":" + std::to_string(healthPotions(hero)) + ",\"officers\":[";
+    const std::string heroName = landText(hero, "name"), heroLast = landText(hero, "lastname");
+    std::string json = ",\"id\":" + std::to_string(heroIcon ? static_cast<int>(heroIcon->GetAttributeAsDword("chrindex", -1)) : -1) +
+                       ",\"name\":" + gameplayJsonString(heroLast.empty() ? heroName : heroName + " " + heroLast) +
+                       ",\"face\":" + gameplayJsonString(landText(hero, "FaceId")) + ",\"effects\":[" + effects +
+                       "],\"potions\":" + std::to_string(healthPotions(hero)) + ",\"officers\":[";
     bool first = true;
     for (size_t i = 0; icons && i < icons->GetAttributesNum(); ++i)
     {
@@ -98,10 +103,12 @@ inline std::string landStatusJson(ATTRIBUTES *icons)
         if (!officer) continue;
         const std::string name = landText(officer, "name"), last = landText(officer, "lastname");
         const float health = std::clamp(icon->GetAttributeAsFloat("health", 0.f), 0.f, 1.f);
+        const float energy = std::clamp(icon->GetAttributeAsFloat("energy", 0.f), 0.f, 1.f);
         json += std::string(first ? "" : ",") + "{\"id\":" + std::to_string(index) +
                 ",\"name\":" + gameplayJsonString(last.empty() ? name : name + " " + last) +
                 ",\"face\":" + gameplayJsonString(landText(officer, "FaceId")) +
-                ",\"health\":" + std::to_string(std::isfinite(health) ? health : 0.f) + "}";
+                ",\"health\":" + std::to_string(std::isfinite(health) ? health : 0.f) +
+                ",\"energy\":" + std::to_string(std::isfinite(energy) ? energy : 0.f) + "}";
         first = false;
     }
     json += "]";
