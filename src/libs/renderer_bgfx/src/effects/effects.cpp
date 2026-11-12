@@ -396,6 +396,7 @@ uint16_t Host::submit_post(const PostTargets &targets)
         frame.far_plane = p[14] / (1.0f - p[10]);
     }
     frame.projection_scale = {p[0], p[5]};
+    frame.wobble = {.on = wobble_.on, .amplitude = wobble_.amplitude, .phase = wobble_.phase};
 
     // A frame without weather has no sky (interiors).
     const bool weather = has_weather();
@@ -448,7 +449,8 @@ void Host::advance_switch()
     switch_cache_ = cache;
     const int per_frame = from_cache ? kCachedProgramsPerFrame : kProgramsPerFrame;
     int budget = per_frame;
-    const bool ready = (target_.PostIsIdentity() || post_.Prepare(target_, budget)) && (!target_.sea_soft_edges || sea_depth_.Prepare(budget)) &&
+    // The post chain's programs also on «Низкая»: the underwater wobble runs on every preset.
+    const bool ready = post_.Prepare(target_, budget) && (!target_.sea_soft_edges || sea_depth_.Prepare(budget)) &&
                        sky_.Prepare(target_, budget) && contact_.Prepare(target_, budget) &&
                        lighting_.prepare_programs(*device, target_, budget);
     switch_programs_ += per_frame - budget;
@@ -637,5 +639,10 @@ EffectsReport CurrentEffects()
 void SetEffectsWeather(const EffectsWeather &weather)
 {
     effects::Host::instance().set_weather(weather);
+}
+
+void SetEffectsWobble(const EffectsWobble &wobble)
+{
+    effects::Host::instance().set_wobble(wobble);
 }
 } // namespace storm::render

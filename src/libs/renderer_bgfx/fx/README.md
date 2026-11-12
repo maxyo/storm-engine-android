@@ -18,6 +18,10 @@ The player chooses «Низкая / Средняя / Высокая» (`QualityP
 `fx_*` keys of engine.ini / `STORM_FX_OPTIONS` (`src/effects/effects.cpp`), for development.
 
 - **Низкая**: everything off, the legacy image untouched.
+
+On every preset the post chain also draws the game's underwater screen wobble (`Render.SeaEffect`,
+`PostChain::Frame::wobble`, `fs_fx_wobble.sc`): the legacy look, which the D3D9 engine's dead post-process chain
+never showed on this port.
 - **Средняя**: faint bloom on the brightest highlights, MSAA 4x + alpha to coverage, dither, contact shadows,
   a gentle Caribbean grade, anisotropy 4, the sea's band limit, per-pixel lighting with 4 point lights and normal
   maps, sun shadows (low), the ambient-occlusion volume of interiors.

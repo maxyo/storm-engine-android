@@ -66,6 +66,16 @@ std::string TakeEffectsNotice();
 // called by every interface before it draws). The post chain runs here, on the scene only.
 void EffectsSceneComplete();
 
+// The game's underwater screen wobble of this frame (script Render.SeaEffect, SeaEffectSize, SeaEffectSpeed), set by
+// the renderer at the start of every frame. It is the legacy look and runs on every preset.
+struct EffectsWobble
+{
+    bool on = false;
+    float amplitude = 0.0f; // wave height, fraction of the picture size
+    float phase = 0.0f;     // radians, advanced by the renderer at SeaEffectSpeed radians per second
+};
+void SetEffectsWobble(const EffectsWobble &wobble);
+
 // The weather of this frame, pushed by the WEATHER entity every frame it runs. A frame without it has no sky
 // (interiors): sun effects are off and the scene grade is the interior one. The scene camera is taken from the
 // draws themselves (the last perspective draw into the game picture).

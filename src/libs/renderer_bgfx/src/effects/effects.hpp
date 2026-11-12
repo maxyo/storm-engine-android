@@ -47,7 +47,9 @@ class Host
 
     const fx::Settings &settings() const { return settings_; }
     const fx::RendererState &renderer_state() const { return renderer_state_; }
-    bool post_active() const { return device_ready_ && !settings_.PostIsIdentity(); }
+    // The post chain runs: an effect is on, or the game's underwater wobble (on every preset) is.
+    bool post_active() const { return device_ready_ && (!settings_.PostIsIdentity() || wobble_.on); }
+    void set_wobble(const render::EffectsWobble &wobble) { wobble_ = wobble; }
     // An effect samples the scene depth (ambient occlusion, the sea's soft edges).
     bool scene_depth_read() const { return settings_.ssao || settings_.sea_soft_edges; }
     // True once after a settings switch made MSAA, anisotropy or the scene depth read change (the shim rebuilds
@@ -154,6 +156,7 @@ class Host
     float device_max_anisotropy_ = 0.0f; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
     render::EffectsReport report_{};
     render::EffectsWeather weather_{};
+    render::EffectsWobble wobble_{}; // set by the renderer every frame (Render.SeaEffect)
     bool weather_this_frame_ = false; // pushed since the last presented frame
     bool weather_last_frame_ = false;
     bool scene_cut_pending_ = true;

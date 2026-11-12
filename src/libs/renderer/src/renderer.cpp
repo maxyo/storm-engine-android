@@ -2688,8 +2688,18 @@ void Renderer::RunStart()
     ATTRIBUTES *pARender = pScriptRender->GetAClass();
 
     dwBackColor = pARender->GetAttributeAsDword("BackColor", 0);
-    // The game's Render.SeaEffect (underwater screen wobble) belonged to the D3D9 post-process chain, which never
-    // ran on this engine (its render targets were never created) and is gone; the attribute is not read.
+    // Render.SeaEffect (locations_loader.c, underwater locations): the game's screen wobble, drawn by the effects
+    // post chain on every preset. The phase advances at SeaEffectSpeed radians per second, as in the D3D9 engine.
+    storm::render::EffectsWobble wobble;
+    wobble.on = pARender->GetAttributeAsDword("SeaEffect", 0) != 0;
+    if (wobble.on)
+    {
+        const float speed = pARender->GetAttributeAsFloat("SeaEffectSpeed", 0.0f);
+        fWobblePhase = std::fmod(fWobblePhase + static_cast<float>(core.GetRDeltaTime()) * 0.001f * speed, 2.0f * PI);
+        wobble.amplitude = pARender->GetAttributeAsFloat("SeaEffectSize", 0.0f);
+        wobble.phase = fWobblePhase;
+    }
+    storm::render::SetEffectsWobble(wobble);
     SetScreenAsRenderTarget();
 
     ClearFrame(D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | ((stencil_format == D3DFMT_D24S8) ? D3DCLEAR_STENCIL : 0));

@@ -513,6 +513,7 @@ private:
     void SetScreenAsRenderTarget();
 
     uint32_t dwBackColor;
+    float fWobblePhase = 0.0f; // Render.SeaEffect wave phase, radians
 
     // state save/load ex
     POINT screen_size;
