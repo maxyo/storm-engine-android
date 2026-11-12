@@ -910,6 +910,8 @@ std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
     fx::Settings lit = basic;
     lit.shadows = fx::ShadowQuality::Off;
     lit.ssao = false;
+    lit.ao_volume = 0;    // the interior AO volume and lamp shadows need per-pixel lighting (and an interior)
+    lit.lamp_shadows = 0;
     lit.lighting_flags = fx::kLightingNone;
     add("lighting_0_per_vertex", Content::Deck, lit);
     add("lighting_sunset_0_per_vertex", Content::Deck, lit, preview::Weather::Sunset);
