@@ -253,6 +253,11 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
         };
         ProgramCache::instance().attach_device(text(GL_VENDOR) + " | " + text(GL_RENDERER) + " | " + text(GL_VERSION) +
                                                " | bgfx API " + std::to_string(BGFX_API_VERSION));
+        // The extensions bgfx itself requires before it uses GL_CLAMP_TO_BORDER (renderer_gl.cpp).
+        const std::string extensions = text(GL_EXTENSIONS);
+        border_clamp_ = extensions.find("GL_EXT_texture_border_clamp") != std::string::npos ||
+                        extensions.find("GL_OES_texture_border_clamp") != std::string::npos ||
+                        extensions.find("GL_NV_texture_border_clamp") != std::string::npos;
     }
     initialised_ = true;
     surface_.width_px = width;
@@ -262,13 +267,14 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     if (window_)
         read_density();
     ++surface_.generation;
-    logf("bgfx renderer=%s %ux%u originBottomLeft=%d homogeneousDepth=%d maxTextureSize=%u BC1=%d BC3=%d ETC2=%d BGRA8=%d",
+    logf("bgfx renderer=%s %ux%u originBottomLeft=%d homogeneousDepth=%d maxTextureSize=%u BC1=%d BC3=%d ETC2=%d BGRA8=%d "
+         "border_clamp=%d",
          bgfx::getRendererName(bgfx::getRendererType()), width, height, caps_->originBottomLeft,
          caps_->homogeneousDepth, caps_->limits.maxTextureSize,
          (caps_->formats[bgfx::TextureFormat::BC1] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
          (caps_->formats[bgfx::TextureFormat::BC3] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
          (caps_->formats[bgfx::TextureFormat::ETC2] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
-         (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0);
+         (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0, border_clamp_);
     create_resources();
     effects::Host::instance().on_device_created();
     for (auto &entry : clients_)

@@ -648,9 +648,23 @@ uint32_t Device::sampler_flags(uint32_t stage, const TexStore &store) const
             return 0;
         }
     };
-    flags |= address(sm[D3DSAMP_ADDRESSU], BGFX_SAMPLER_U_MIRROR, BGFX_SAMPLER_U_CLAMP, BGFX_SAMPLER_U_CLAMP);
-    flags |= address(sm[D3DSAMP_ADDRESSV], BGFX_SAMPLER_V_MIRROR, BGFX_SAMPLER_V_CLAMP, BGFX_SAMPLER_V_CLAMP);
-    flags |= address(sm[D3DSAMP_ADDRESSW], BGFX_SAMPLER_W_MIRROR, BGFX_SAMPLER_W_CLAMP, BGFX_SAMPLER_W_CLAMP);
+    flags |= address(sm[D3DSAMP_ADDRESSU], BGFX_SAMPLER_U_MIRROR, BGFX_SAMPLER_U_CLAMP, BGFX_SAMPLER_U_BORDER);
+    flags |= address(sm[D3DSAMP_ADDRESSV], BGFX_SAMPLER_V_MIRROR, BGFX_SAMPLER_V_CLAMP, BGFX_SAMPLER_V_BORDER);
+    flags |= address(sm[D3DSAMP_ADDRESSW], BGFX_SAMPLER_W_MIRROR, BGFX_SAMPLER_W_CLAMP, BGFX_SAMPLER_W_BORDER);
+    if (sm[D3DSAMP_ADDRESSU] == D3DTADDRESS_BORDER || sm[D3DSAMP_ADDRESSV] == D3DTADDRESS_BORDER ||
+        sm[D3DSAMP_ADDRESSW] == D3DTADDRESS_BORDER)
+    {
+        if (!Context::instance().border_clamp())
+        {
+            // Without the extension the GPU has no border colour: bgfx clamps to the edge, said once here.
+            static bool logged = false;
+            if (!logged)
+                logf("ERROR: D3DTADDRESS_BORDER sampled on a GPU without texture border clamp: clamped to the edge "
+                     "(texels beyond the edge repeat the last row instead of the border colour)");
+            logged = true;
+        }
+        flags |= BGFX_SAMPLER_BORDER_COLOR(border_color_index(sm[D3DSAMP_BORDERCOLOR]));
+    }
     if (sm[D3DSAMP_MINFILTER] == D3DTEXF_ANISOTROPIC)
         flags |= BGFX_SAMPLER_MIN_ANISOTROPIC;
     else if (sm[D3DSAMP_MINFILTER] <= D3DTEXF_POINT)
@@ -667,6 +681,31 @@ uint32_t Device::sampler_flags(uint32_t stage, const TexStore &store) const
         flags = (flags & ~(BGFX_SAMPLER_MIN_MASK | BGFX_SAMPLER_MAG_MASK)) | BGFX_SAMPLER_MIN_ANISOTROPIC |
                 BGFX_SAMPLER_MAG_ANISOTROPIC;
     return flags;
+}
+
+// bgfx samples a border through a palette entry: one entry per distinct D3DSAMP_BORDERCOLOR, kept for the device's
+// life (the game uses the default transparent black). Palette entries are bgfx-global; the shim is their only user.
+uint32_t Device::border_color_index(DWORD color) const
+{
+    size_t index = 0;
+    while (index < border_colors.size() && border_colors[index] != color)
+        ++index;
+    constexpr size_t kPaletteEntries = 16; // BGFX_CONFIG_MAX_COLOR_PALETTE (bgfx/src/config.h)
+    if (index == border_colors.size())
+    {
+        if (index >= kPaletteEntries)
+        {
+            trap("more distinct D3DSAMP_BORDERCOLOR values than bgfx palette entries (first entry used)");
+            index = 0;
+        }
+        else
+            border_colors.push_back(color);
+    }
+    // Set with every use (a few sail draws): the entry survives a bgfx re-initialisation. D3DCOLOR is ARGB, the
+    // palette takes RGBA.
+    const DWORD c = border_colors[index];
+    bgfx::setPaletteColor(static_cast<uint8_t>(index), (c << 8) | (c >> 24));
+    return static_cast<uint32_t>(index);
 }
 
 // ---------------------------------------------------------------------------
