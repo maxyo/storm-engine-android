@@ -364,6 +364,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     bool LoadDocument(const std::string &path) override
     {
+        game_interface_ = false;
         router_->CloseInterface();
         const bool opened = OpenDocument(path);
         PublishTouchMap();
@@ -765,6 +766,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             switch_.screen = model.screen;
             switch_.modelled = started;
         }
+        game_interface_ = true;
         router_->SetInterface(model);
         counters_.apply_ms += Milliseconds(started, std::chrono::steady_clock::now());
         if (opening_ == Opening::AwaitModel)
@@ -775,6 +777,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     void CloseInterface() override
     {
         switch_.open = false;
+        game_interface_ = false;
         router_->CloseInterface();
         if (opening_ != Opening::None)
         {
@@ -1304,8 +1307,9 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     }
     void PressStarted(ComponentElement &component) override
     {
-        // Game interfaces only (their scripts' click); the HUD and the application screens have none.
-        if (!screen_root_ || component.GetOwnerDocument() != screen_root_)
+        // Game interfaces only (their scripts' click); the HUD and the application screens (the
+        // launcher and the downloads, state channels of their own process) have none.
+        if (!game_interface_ || !screen_root_ || component.GetOwnerDocument() != screen_root_)
             return;
         Action action;
         action.screen = "sound";
@@ -1772,6 +1776,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         AwaitFrame
     };
     Opening opening_ = Opening::None;
+    bool game_interface_ = false; // a game interface model is shown (SetInterface until CloseInterface)
     // A screen switch, timed from the engine action before it to its first frames (ReportSwitch).
     using Clock = std::chrono::steady_clock;
     struct Switch
