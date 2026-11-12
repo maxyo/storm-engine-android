@@ -19,10 +19,6 @@ constexpr bgfx::ViewId kLampDynamicView = render::kPreGameViewBegin + 2;
 constexpr uint64_t kCasterState = BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS;
 constexpr uint64_t kMapFlags = BGFX_TEXTURE_RT | BGFX_SAMPLER_COMPARE_LEQUAL | BGFX_SAMPLER_U_CLAMP |
                                BGFX_SAMPLER_V_CLAMP;
-// Baked colours: the share of a lamp in them, A / (A + kBakedAmbient * ambient). The game's own bakes give the lamps a
-// small share (Tavern01 night: ~0.17 constant + 0.12 per unit of lamp light, i.e. k ~ 12; DESIGN.md §2.1), which hides
-// the shadows; the owner asked for shadows one sees: k = 3 (a candle at 1 m takes about half of the light by day).
-constexpr float kBakedAmbient = 3.0f;
 
 // World -> clip of a face, mapped into its tile, for the backend's clip depth (GL: -1..1).
 std::array<float, 16> face_matrix(const fx::Lamp &lamp, int slot, int face, int columns, int rows)
@@ -170,8 +166,7 @@ bool LampShadows::prepare(shim::Device &device, const std::array<float, 3> &eye)
         uniforms_[1 + 4 * i] = {l.position[0], l.position[1], l.position[2], slot_lamps_[i].range};
         uniforms_[2 + 4 * i] = {l.color[0], l.color[1], l.color[2], l.range};
         uniforms_[3 + 4 * i] = {l.att0, l.att1, l.att2, static_cast<float>(i)};
-        uniforms_[4 + 4 * i] = {kBakedAmbient, 1.0f / static_cast<float>(columns_ * face_size_),
-                                1.0f / static_cast<float>(columns_ * dynamic_face_size_), 0.0f};
+        uniforms_[4 + 4 * i] = {1.0f / static_cast<float>(columns_ * face_size_), 0.0f, 0.0f, 0.0f};
     }
     active_ = true;
     return true;
@@ -254,7 +249,7 @@ void LampShadows::submit_caster(shim::Device &device, const float *world, bool s
     }
 }
 
-void LampShadows::bind(bool active, const std::array<float, 16> &view, float ambient)
+void LampShadows::bind(bool active, const std::array<float, 16> &view)
 {
     ensure_targets();
     const bool on = active && active_;
@@ -266,13 +261,7 @@ void LampShadows::bind(bool active, const std::array<float, 16> &view, float amb
     }
     static const std::array<std::array<float, 4>, 1 + 4 * fx::kMaxShadowLamps> none{};
     bgfx::setUniform(u_view_, view_to_world_.data());
-    if (on)
-    {
-        uniforms_[0][3] = ambient;
-        bgfx::setUniform(u_lamps_, uniforms_.data(), static_cast<uint16_t>(uniforms_.size()));
-    }
-    else
-        bgfx::setUniform(u_lamps_, none.data(), static_cast<uint16_t>(none.size()));
+    bgfx::setUniform(u_lamps_, on ? uniforms_.data() : none.data(), static_cast<uint16_t>(uniforms_.size()));
     const uint32_t sampler = BGFX_SAMPLER_COMPARE_LEQUAL | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
     bgfx::setTexture(fx::kLampDynamicStage, s_dynamic_, on ? dynamic_map_ : open_map_, sampler);
     bgfx::setTexture(fx::kLampStaticStage, s_static_, on ? static_map_ : open_map_, sampler);

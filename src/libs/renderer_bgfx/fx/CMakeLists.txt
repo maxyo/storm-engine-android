@@ -42,7 +42,7 @@ include(shaders/shaders.cmake)
 add_library(storm_bgfx_fx_core STATIC
     src/color_lut.cpp src/noise_bake.cpp src/sky_model.cpp
     src/lighting_model.cpp src/light_set.cpp src/shadow_model.cpp src/normal_map.cpp src/settings.cpp src/log.cpp
-    src/ao_volume.cpp src/voxelizer_impl.c src/lamp_shadows.cpp)
+    src/ao_volume.cpp src/voxelizer_impl.c src/lamp_shadows.cpp src/ground_light.cpp)
 target_compile_features(storm_bgfx_fx_core PUBLIC cxx_std_20)
 target_include_directories(storm_bgfx_fx_core PUBLIC include)
 target_include_directories(storm_bgfx_fx_core SYSTEM PRIVATE "${storm_voxelizer_SOURCE_DIR}")

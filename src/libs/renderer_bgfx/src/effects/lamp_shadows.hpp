@@ -7,8 +7,8 @@
 //   static  - the location geometry, drawn when a lamp takes its slot (pre-game view kLampStaticView);
 //   dynamic - the characters (the skinned lit draws, submitted like the sun casters), redrawn every frame
 //             (pre-game view kLampDynamicView), only into the faces their sphere reaches.
-// Receivers (the lit and baked variants into the game picture) remove each lamp's share of their light where either
-// atlas hides it (ff_fragment.sh ffLampShadows). Both atlases are always bound at stages 10 / 11 (a 1x1 open depth
+// Receivers (the lit variant into the game picture: characters and props; baked surfaces, whose bakes carry little lamp
+// light, receive none) remove the lamp's light where either atlas hides it (ff_fragment.sh ffLampVisibility). Both atlases are always bound at stages 10 / 11 (a 1x1 open depth
 // texture when there are none), since GL refuses a draw that leaves a shadow sampler on a unit of another type.
 #pragma once
 
@@ -47,8 +47,7 @@ class LampShadows
                        float radius);
     // Receiver uniforms and textures for a draw with the camera `view` (row-vector world -> view); `active` false:
     // the open atlases and no lamps.
-    // `ambient`: the luminance of the draw's global ambient (the baked colours' reference).
-    void bind(bool active, const std::array<float, 16> &view, float ambient);
+    void bind(bool active, const std::array<float, 16> &view);
     void end_frame();
     bool prepare_programs(shim::Device &device, int &budget);
 

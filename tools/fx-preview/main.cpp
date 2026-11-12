@@ -525,7 +525,7 @@ class Preview
                 bgfx::setUniform(u_point_count_, packed.u_fxPointCount.data());
             }
             if (settings.shadows != fx::ShadowQuality::Off && (settings.lighting_flags & fx::kLightingPerPixel))
-                shadows_.Bind(lighting.view);
+                shadows_.Bind(lighting.view, 1.0f);
             // Renderer state from fx: anisotropic filtering on the world textures, alpha to coverage on alpha-tested ones.
             const uint32_t sampler = renderer.max_anisotropy > 1 ? BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC : BGFX_SAMPLER_NONE;
             bgfx::setTexture(0, s_base_, bgfx::isValid(mesh.base) ? mesh.base : white_base_, sampler);

@@ -23,7 +23,9 @@ LightingMaterial LightingMaterial::Sail()
 
 LightingMaterial LightingMaterial::Character()
 {
-    return {20.0f, 0.10f, 0.0f, 0.2f, 0.0f, 0.5f};
+    // Matte like the original fixed-function characters: no highlight (a white sheen on skin and cloth read as glaze
+    // in the sun), a faint rim.
+    return {20.0f, 0.0f, 0.0f, 0.2f, 0.0f, 0.2f};
 }
 
 LightingUniforms ComputeLighting(const LightingInput &input, const LightingMaterial &material, const SkyState *sky,

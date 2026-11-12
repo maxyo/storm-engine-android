@@ -11,8 +11,14 @@
 #include "location.h"
 
 #include <chrono>
+#include <string>
+#include <optional>
+#include <memory>
+#include <cstring>
+#include <algorithm>
 
 #include "core.h"
+#include "v_file_service.h"
 #include "character.h"
 #include "grass.h"
 #include "lights.h"
@@ -63,6 +69,8 @@ Location::~Location()
 {
     if (aoGeometryReported_)
         storm::render::SetEffectsAoGeometry({}, {}, {}); // the next location reports its own
+    if (groundLightReported_)
+        storm::render::SetEffectsGroundLight({}, {}, {}, {}, {}, {});
     if (!AttributesPointer)
         return;
     auto *const atr = AttributesPointer->FindAClass(AttributesPointer, "locators");
@@ -139,6 +147,128 @@ void Location::ReportAoGeometry()
     storm::render::SetEffectsAoGeometry(id ? id : "", positions, indices, lo, hi);
 }
 
+namespace
+{
+
+// One mip level of a .tx lightmap, the first not wider than kMaxWidth (a texel of a 2048² town lightmap is a few
+// centimetres; the ground lookup averages over 0.3 m anyway).
+std::optional<storm::render::EffectsLightmap> ReadLightmap(const std::string &file)
+{
+    constexpr uint32_t kMaxWidth = 512;
+    char *data = nullptr;
+    uint32_t size = 0;
+    if (!fio->LoadFile(file.c_str(), &data, &size))
+        return std::nullopt;
+    std::unique_ptr<char[]> owned(data);
+    struct Header
+    {
+        int32_t flags, width, height, nmips;
+        char format[4];
+        int32_t mip_size;
+    } head{};
+    if (size < sizeof(head))
+        return std::nullopt;
+    std::memcpy(&head, data, sizeof(head));
+    const bool dxt = head.format[0] == 'D' && head.format[1] == 'X' && head.format[2] == 'T' &&
+                     (head.format[3] == '1' || head.format[3] == '3' || head.format[3] == '5');
+    if (!dxt || head.flags != 0 || head.width <= 0 || head.height <= 0 || head.nmips <= 0)
+    {
+        core.Trace("ERROR: lightmap %s: format %.4s, flags %d: only plain DXT1/3/5 lightmaps light the characters", file.c_str(),
+                   head.format, head.flags);
+        return std::nullopt;
+    }
+    const uint32_t block = head.format[3] == '1' ? 8 : 16;
+    size_t offset = sizeof(head);
+    uint32_t w = static_cast<uint32_t>(head.width), h = static_cast<uint32_t>(head.height);
+    for (int32_t m = 1; m < head.nmips && w > kMaxWidth && w > 4 && h > 4; ++m)
+    {
+        offset += static_cast<size_t>((w + 3) / 4) * ((h + 3) / 4) * block;
+        w /= 2;
+        h /= 2;
+    }
+    const size_t level = static_cast<size_t>((w + 3) / 4) * ((h + 3) / 4) * block;
+    if (offset + level > size)
+    {
+        core.Trace("ERROR: lightmap %s is shorter than its %dx%d %d-level header says", file.c_str(), head.width,
+                   head.height, head.nmips);
+        return std::nullopt;
+    }
+    storm::render::EffectsLightmap map;
+    map.width = w;
+    map.height = h;
+    std::memcpy(map.format.data(), head.format, 4);
+    map.data.assign(reinterpret_cast<const uint8_t *>(data) + offset, reinterpret_cast<const uint8_t *>(data) + offset + level);
+    return map;
+}
+
+} // namespace
+
+void Location::ReportGroundLight()
+{
+    groundLightReported_ = true;
+    const char *id = AttributesPointer ? AttributesPointer->GetAttribute("id") : nullptr;
+    const char *weather = AttributesPointer ? AttributesPointer->GetAttribute("lockWeather") : nullptr;
+    if (weather && storm::iEquals(weather, "Inside"))
+        return; // no sun indoors
+    std::vector<std::array<float, 3>> positions;
+    std::vector<std::array<float, 2>> uvs;
+    std::vector<uint32_t> indices, triangle_lightmap;
+    std::vector<storm::render::EffectsLightmap> lightmaps;
+    std::vector<std::string> files;
+    std::vector<glm::vec3> local;
+    std::vector<glm::vec2> local_uvs;
+    std::vector<uint32_t> local_indices;
+    for (int32_t i = 0; i < model.Models(); ++i)
+    {
+        MODEL *m = model[i];
+        if (!m || !model.IsStill(i))
+            continue;
+        for (int32_t n = 0;; ++n)
+        {
+            NODE *node = m->GetNode(n);
+            if (!node)
+                break;
+            if (!node->geo || node->geo->LightmapFile().empty())
+                continue;
+            const std::string &file = node->geo->LightmapFile();
+            auto known = std::find(files.begin(), files.end(), file);
+            uint32_t lightmap = static_cast<uint32_t>(known - files.begin());
+            if (known == files.end())
+            {
+                auto map = ReadLightmap(file);
+                if (!map)
+                {
+                    core.Trace("ERROR: Location %s: lightmap %s of model %s cannot be read: characters on it keep the "
+                               "full sun", id ? id : "?", file.c_str(), model.GetModelName(i));
+                    continue;
+                }
+                files.push_back(file);
+                lightmaps.push_back(std::move(*map));
+            }
+            local.clear();
+            local_uvs.clear();
+            local_indices.clear();
+            if (!node->geo->AppendLightmapTriangles(local, local_uvs, local_indices))
+            {
+                core.Trace("ERROR: Location %s: the buffers of model %s cannot be read: characters on it keep the full sun",
+                           id ? id : "?", model.GetModelName(i));
+                continue;
+            }
+            const auto base = static_cast<uint32_t>(positions.size());
+            for (size_t v = 0; v < local.size(); ++v)
+            {
+                const glm::vec3 w = storm::math::transformPoint(node->glob_mtx, local[v]);
+                positions.push_back({w.x, w.y, w.z});
+                uvs.push_back({local_uvs[v].x, local_uvs[v].y});
+            }
+            for (const uint32_t index : local_indices)
+                indices.push_back(base + index);
+            triangle_lightmap.insert(triangle_lightmap.end(), local_indices.size() / 3, lightmap);
+        }
+    }
+    storm::render::SetEffectsGroundLight(id ? id : "", positions, uvs, indices, triangle_lightmap, lightmaps);
+}
+
 // Initialization
 bool Location::Init()
 {
@@ -209,6 +339,8 @@ void Location::Realize(uint32_t delta_time)
     // The first frame: every model of the location (always, day/night, back) is loaded by now.
     if (!aoGeometryReported_)
         ReportAoGeometry();
+    if (!groundLightReported_)
+        ReportGroundLight();
     const auto fDeltaTime = static_cast<float>(delta_time) * 0.001f;
 
     fCausticFrame += fDeltaTime * fCausticSpeed;

@@ -4,6 +4,7 @@
 #include "storm/fx/ao_volume.hpp"
 #include "storm/fx/capabilities.hpp"
 #include "storm/fx/lamp_shadows.hpp"
+#include "storm/fx/ground_light.hpp"
 #include "storm/fx/color_lut.hpp"
 #include "storm/fx/light_set.hpp"
 #include "storm/fx/lighting_model.hpp"
@@ -70,7 +71,7 @@ void CheckSettings()
     CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
     CHECK(!medium.ssao && high.ssao && !original.ssao);
-    CHECK(original.ao_volume == 0 && medium.ao_volume == 0 && high.ao_volume == 0); // off until interiors are reworked
+    CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 3); // Низкая: no shadows, as the original
     CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 0 && high.lamp_shadows == 0); // off until fixed
     // «Средняя»: the cheap looks (tone curve, the grade of the place and hour, aerial perspective, rim light) under
     // the restrained Caribbean grade; «Высокая» adds the sun glare and sun shafts. «Низкая» has none of them.
@@ -329,18 +330,16 @@ void CheckSupport()
     Support no_ao = all;
     no_ao.ao_volume = false;
     changes.clear();
-    Settings with_ao = high;
-    with_ao.ao_volume = 3; // fx_ao_volume 3
-    constrained = ConstrainSettings(with_ao, no_ao, changes);
+    constrained = ConstrainSettings(high, no_ao, changes);
     CHECK(constrained.ao_volume == 0 && changes.size() == 1 && constrained.shadows == high.shadows);
     // An AO volume without the fx lighting path has no shader to apply it: switched off, said.
-    Settings unlit = with_ao;
+    Settings unlit = high;
     unlit.lighting_flags = kLightingNone;
     unlit.shadows = ShadowQuality::Off;
     unlit.lamp_shadows = 0;
     changes.clear();
     CHECK(ConstrainSettings(unlit, all, changes).ao_volume == 0 && changes.size() == 1);
-    Settings too_strong = with_ao;
+    Settings too_strong = high;
     too_strong.ao_volume = 9;
     changes.clear();
     CHECK(ConstrainSettings(too_strong, all, changes).ao_volume == kAoVolumeLevels && changes.size() == 1);
@@ -1057,6 +1056,37 @@ void AddBox(std::vector<Vec3> &p, std::vector<uint32_t> &i, Vec3 lo, Vec3 hi)
     for (const auto &f : faces)
         for (const uint32_t t : {f[0], f[1], f[2], f[0], f[2], f[3]})
             i.push_back(base + t);
+}
+
+void CheckGroundLight()
+{
+    // A 20 x 20 m street (y = 0) whose lightmap is in shade west of x = 0 and in sun east of it; a roof 3 m up over
+    // the east half, its lightmap all dark, and a wall: neither is ground under a character standing on the street.
+    std::vector<Vec3> p{{-10.0f, 0.0f, -10.0f}, {10.0f, 0.0f, -10.0f}, {10.0f, 0.0f, 10.0f}, {-10.0f, 0.0f, 10.0f},
+                        {0.0f, 3.0f, -10.0f}, {10.0f, 3.0f, -10.0f}, {10.0f, 3.0f, 10.0f}, {0.0f, 3.0f, 10.0f},
+                        {-5.0f, 0.0f, -10.0f}, {-5.0f, 4.0f, -10.0f}, {-5.0f, 4.0f, 10.0f}};
+    std::vector<std::array<float, 2>> uv{{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f},
+                                         {1.0f, 1.0f}, {0.0f, 1.0f}, {0.0f, 0.0f}, {0.0f, 0.0f}, {0.0f, 0.0f}};
+    std::vector<uint32_t> idx{0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10};
+    std::vector<uint32_t> map{0, 0, 1, 1, 1};
+    GroundLightmap street{64, 64, std::vector<uint8_t>(64 * 64)};
+    for (int y = 0; y < 64; ++y)
+        for (int x = 0; x < 64; ++x)
+            street.luminance[y * 64 + x] = x < 32 ? 60 : 200;
+    GroundLightmap roof{4, 4, std::vector<uint8_t>(16, 10)};
+    GroundLight ground;
+    ground.Build(p, uv, idx, map, {street, roof});
+    std::printf("ground light: %zu ground triangles, street shade %.2f sun %.2f\n", ground.Triangles(), ground.Levels(0)[0],
+                ground.Levels(0)[1]);
+    CHECK(ground.Triangles() == 4); // the wall is no ground
+    CHECK(Near(ground.Levels(0)[0], 60.0f / 255.0f, 0.01f) && Near(ground.Levels(0)[1], 200.0f / 255.0f, 0.01f));
+    const auto shade = ground.SunAt({-6.0f, 0.9f, 2.0f}), sun = ground.SunAt({6.0f, 0.9f, 2.0f});
+    CHECK(shade && sun && Near(*shade, 0.0f, 0.02f) && Near(*sun, 1.0f, 0.02f)); // the roof above does not count
+    const auto edge = ground.SunVisibility({0.0f, 0.9f, 2.0f}), near_edge = ground.SunVisibility({0.2f, 0.9f, 2.0f});
+    CHECK(edge && near_edge && *edge > 0.3f && *edge < 0.7f && *near_edge > *edge); // a soft edge, no step
+    CHECK(Near(*ground.SunVisibility({6.0f, 0.9f, 2.0f}), 1.0f, 0.02f));
+    CHECK(!ground.SunAt({30.0f, 0.9f, 0.0f}) && !ground.SunAt({6.0f, 7.0f, 0.0f})); // off the street; 4 m above the roof
+    CHECK(Near(*ground.SunAt({6.0f, 3.5f, 2.0f}), 0.0f, 0.02f)); // on the roof
 }
 
 void CheckLampShadows()

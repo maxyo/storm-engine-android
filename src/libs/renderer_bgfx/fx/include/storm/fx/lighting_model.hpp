@@ -29,7 +29,7 @@ struct LightingMaterial
     float translucency = 0.0f;      // sails, flags: 0.4 .. 0.7
     float wrap = 0.0f;              // 0 = hard N·L like the legacy pipeline; skin / cloth: 0.15 .. 0.3
     float relief = 0.0f;            // scale of the derived normal map (whose texture class sets the strength): 1, canvas 0.35
-    float rim = 0.0f;               // rim light against the sun (kLightingRim): characters 0.5, hulls and sails 0.3
+    float rim = 0.0f;               // rim light against the sun (kLightingRim): characters 0.2, hulls and sails 0.3
 
     static LightingMaterial Stone();     // walls, rock, ground
     static LightingMaterial Hull();      // wet painted wood

@@ -12,6 +12,7 @@ Import library main header
 
 #include <cstdint>
 #include <fstream>
+#include <string>
 #include <vector>
 
 #include "storm_glm.h"
@@ -278,6 +279,13 @@ class GEOS
     virtual bool AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices) const = 0;
     // True when the file carries collision data (the BSP the location walks and traces on).
     virtual bool HasCollision() const = 0;
+    // The model's lightmap (its texture shadow.tga, from the location's lighting folder of the time of day): its file
+    // ("resource\textures\lighting\...\shadow.tga.tx"), empty when the model has none. AppendLightmapTriangles
+    // appends, like AppendTriangles, the visible objects that the lightmap covers with their lightmap texture
+    // coordinates; false, with nothing appended, when a buffer cannot be read or the model has no lightmap.
+    virtual const std::string &LightmapFile() const = 0;
+    virtual bool AppendLightmapTriangles(std::vector<glm::vec3> &positions, std::vector<glm::vec2> &uvs,
+                                         std::vector<uint32_t> &indices) const = 0;
 
     //-----------------------------------------
     // unused
@@ -297,6 +305,8 @@ class GEOM_SERVICE
     virtual void free(void *ptr) = 0;
 
     virtual GEOS::ID CreateTexture(const char *fname) = 0;
+    // The file CreateTexture loads for `fname` (relative to resource\textures, without the .tx).
+    virtual std::string TextureFile(const char *fname) const = 0;
     virtual void ReleaseTexture(GEOS::ID tex) = 0;
     virtual void SetMaterial(const GEOS::MATERIAL &mt) = 0;
 
