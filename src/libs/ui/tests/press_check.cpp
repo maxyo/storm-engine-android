@@ -118,6 +118,15 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
         "template": "<div data-range=\"value\" style=\"position: absolute; left: 100dp; top: 100dp; width: 400dp; height: 40dp;\"><div id=\"knob\" data-range-knob=\"\" style=\"position: absolute; left: {{ (value - min) / (max - min) * 100 }}%; top: 0; width: 0; height: 40dp;\"></div></div>"})"));
     Write(pack / "slide.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }</style></head><body>"
                               "<c-slide id=\"coarse\" max=\"4\"/></body></rml>");
+    // A slider whose value's texts and marks are live parts (data-live-*): a drag needs no render
+    // of the control until its shape (here: above or below the middle) changes.
+    components["components"].push_back(Json::parse(R"({
+        "tag": "c-live-slide", "behaviors": ["range"],
+        "props": {"value": {"type": "int", "default": 0}, "min": {"type": "int", "default": 0}, "max": {"type": "int", "default": 100},
+                  "active": {"type": "bool", "default": false}},
+        "template": "<div data-live-shape=\"value > 50 ? 'high' : 'low'\"><div data-range=\"value\" style=\"position: absolute; left: 100dp; top: 100dp; width: 400dp; height: 40dp;\"><div id=\"live-knob\" data-range-knob=\"\" data-live-style=\"'left: ' + value + '%;'\" style=\"position: absolute; left: {{value}}%; top: 0; width: 0; height: 40dp;\"></div></div><div id=\"live-num\" data-live-text=\"value\">{{value}}</div><t-if test=\"value > 50\"><div id=\"live-high\">high</div></t-if></div>"})"));
+    Write(pack / "live-slide.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }</style></head><body>"
+                                   "<c-live-slide id=\"live\" value=\"10\"/></body></rml>");
     Write(pack / "slide-fine.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }</style></head><body>"
                                    "<c-slide id=\"fine\" max=\"4000\"/></body></rml>");
     Write(pack / "components.json", components.dump());
@@ -653,6 +662,48 @@ int main(int argc, char **argv)
     // A slider's knob stays under the finger: the value has steps (0…4 over 400 px: 100 px each),
     // the finger has none. The template places the knob at the value; the behaviour moves it on
     // to the finger with a transform and takes that away on release.
+    // The live slider: the drag moves change its number and knob without a render; the middle
+    // (its shape) renders once; the update stays far under half a millisecond.
+    Expect(host->LoadDocument("live-slide.rml"), "the live slider loads");
+    frames(0.1);
+    {
+        Rml::Context *context = Rml::GetContext("storm-ui");
+        const auto find = [context](const char *id) -> Rml::Element * {
+            for (int i = 0; context && i < context->GetNumDocuments(); ++i)
+                if (Rml::Element *found = context->GetDocument(i)->GetElementById(id))
+                    return found;
+            return nullptr;
+        };
+        // 400 px track at 100..500 (density 1): value 10 at 140, 30 at 220.
+        host->Touch(TouchPhase::Down, 1, 140, 120, clock);
+        frames(1.0 / 60.0);
+        int renders = 0, refreshed = 0;
+        double worst = 0.0;
+        for (float x = 150; x <= 300; x += 10) // values 12 … 50: below the middle
+        {
+            host->Touch(TouchPhase::Move, 1, x, 120, clock);
+            clock += 1.0 / 60.0;
+            host->Frame();
+            const FrameStats moved = host->LastFrameStats();
+            renders += moved.rebuilds;
+            refreshed += moved.refreshed;
+            worst = std::max(worst, moved.update_ms);
+        }
+        Rml::Element *num = find("live-num");
+        Expect(renders == 0 && refreshed >= 10, "a drag below the middle renders the control " + std::to_string(renders) + " times (" +
+                                                    std::to_string(refreshed) + " live refreshes)");
+        Expect(num && num->GetInnerRML() == "50", "the number follows the finger: " + (num ? std::string(num->GetInnerRML()) : std::string("none")));
+        Expect(worst < 0.5, "a drag move's update is under 0.5 ms (worst " + std::to_string(worst) + " ms)");
+        host->Touch(TouchPhase::Move, 1, 340, 120, clock); // 60: above the middle
+        clock += 1.0 / 60.0;
+        host->Frame();
+        Expect(host->LastFrameStats().rebuilds == 1 && find("live-high") != nullptr, "crossing the middle renders once: its branch shows");
+        host->Touch(TouchPhase::Up, 1, 340, 120, clock);
+        frames(0.05);
+        num = find("live-num");
+        Expect(num && num->GetInnerRML() == "60", "after the release the render shows the value");
+    }
+
     Expect(host->LoadDocument("slide.rml"), "the slider document loads");
     frames(0.1);
     {

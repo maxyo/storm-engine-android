@@ -109,6 +109,7 @@ struct FrameStats
     int rebuilds = 0;       // components re-rendered from their template (an unchanged output patches nothing)
     int touched = 0;        // elements those rebuilds changed: attributes or text set, elements made or removed
     int forwarded = 0;      // of them, components that only passed changed props on (no template render)
+    int refreshed = 0;      // components whose live parts followed a behaviour's quiet change (no render)
     int patch_fallbacks = 0; // levels of them morphed whole (a keyed list, a render the light parser refuses)
     int laid_out = 0;       // component boxes formatted (0 = no layout ran)
     int layout_passes = 0;  // documents formatted (RmlUi lays out a whole document at a time)
