@@ -73,7 +73,9 @@ std::string Support::Describe() const
     text += word(shadow_map);
     text += ", scene snapshot (2 colour targets): ";
     text += word(scene_snapshot);
-    text += ", wave field in the vertex shader: ";
+    // Water::SubmitField (the GPU-displaced grid) is used by tools/fx-preview only; the game's SEA displaces its
+    // mesh on the CPU, so the capability is reported, not used.
+    text += ", wave field in the vertex shader (device-capable, not used by SEA): ";
     text += word(wave_field);
     text += ", sampleable scene depth: ";
     text += word(scene_depth);
