@@ -596,7 +596,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             delay = std::min(delay, 0.05); // a decoded picture is shown on the next frame
         delay = std::min(delay, routing);
         for (const Toast_ &toast : toasts_)
-            delay = std::min(delay, std::max(0.0, (toast.leaving >= 0.0 ? toast.leaving + ToastLeaveSeconds() : toast.until) - now));
+            if (toast.held < 0.0)
+                delay = std::min(delay, std::max(0.0, (toast.leaving >= 0.0 ? toast.leaving + ToastLeaveSeconds() : toast.until) - now));
         TakeGameImageCost(counters_.picture_ms, counters_.pictures);
         counters_.update_ms += Milliseconds(started, std::chrono::steady_clock::now());
         const bool draw = changed_ || !drawn_;
@@ -666,14 +667,21 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         if (hud_->Notice(text, tone)) // over the game, events go to the HUD's top-centre log
             return;
-        OverlayToast(text, tone, Setting("toastMs", 2600.0));
+        OverlayToast(text, tone, hud::ToastSeconds(text));
     }
 
     // On the overlay whatever is shown: over the game, over a screen, and through the change
     // from one to the other (a failed load: the HUD's log would vanish with the menu that comes back).
     void Alert(const std::string &text) override
     {
-        OverlayToast(text, "danger", Setting("alertMs", 6000.0));
+        OverlayToast(text, "danger", Setting("alertMs", 6000.0) / 1000.0);
+    }
+
+    void GameMessage(const std::string &text, const std::string &target) override
+    {
+        if (hud_->Notice(text, "info", target)) // over the game: the HUD's log, a tap opens the target
+            return;
+        OverlayToast(text, "info", hud::ToastSeconds(text)); // over a screen: only shown
     }
 
     void AlertString(const std::string &key) override
@@ -681,7 +689,9 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         Alert(Text(key));
     }
 
-    void OverlayToast(const std::string &text, const std::string &tone, double milliseconds)
+    // `seconds`: how long it stays (hud::ToastSeconds for a toast, longer for an alert); a repeat
+    // starts it again, a finger on it stops it (behaviour toast: hold / release).
+    void OverlayToast(const std::string &text, const std::string &tone, double seconds)
     {
         if (!overlay_ || text.empty())
             return;
@@ -692,12 +702,15 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             Rml::Log::Message(Rml::Log::LT_ERROR, "overlay.rml has no #toasts stack: toast dropped: %s", text.c_str());
             return;
         }
-        const double until = system_.GetElapsedTime() + milliseconds / 1000.0;
+        const double until = system_.GetElapsedTime() + seconds;
         for (Toast_ &shown : toasts_)
             if (shown.text == text && shown.element && shown.leaving < 0.0)
             {
                 shown.element->SetAttribute("text", hud::RepeatedText(text, ++shown.count));
-                shown.until = until;
+                if (shown.held >= 0.0)
+                    shown.held = seconds;
+                else
+                    shown.until = until;
                 changed_ = true;
                 return;
             }
@@ -721,6 +734,24 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         toast.until = until;
         toast.text = text;
         toasts_.push_back(std::move(toast));
+    }
+
+    // A finger on an overlay toast (behaviour toast): its timer stops while held.
+    void ToastTouched(ComponentElement &source, const std::string &verb)
+    {
+        const double now = system_.GetElapsedTime();
+        for (Toast_ &toast : toasts_)
+            if (toast.element.get() == &source && toast.leaving < 0.0)
+            {
+                if (verb == "hold" && toast.held < 0.0)
+                    toast.held = std::max(0.0, toast.until - now);
+                else if (verb == "release" && toast.held >= 0.0)
+                {
+                    toast.until = now + toast.held;
+                    toast.held = -1.0;
+                    changed_ = true;
+                }
+            }
     }
 
     bool SetProps(const std::string &element_id, const std::string &json) override
@@ -1246,6 +1277,11 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         std::string id;
         for (Rml::Element *element = &source; element && id.empty(); element = element->GetParentNode())
             id = element->GetId();
+        if (overlay_ && source.GetOwnerDocument() == overlay_)
+        {
+            ToastTouched(source, verb); // the overlay holds only the toasts and the tooltip
+            return;
+        }
         if (hud_document_ && source.GetOwnerDocument() == hud_document_)
         {
             // The HUD: its scene maps the event to engine input.
@@ -1691,6 +1727,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         std::string text; // the message; the element shows it with its repeat count
         int count = 1;
         double leaving = -1.0; // when it started to animate out (c-notice leaving), -1 = shown
+        double held = -1.0;    // the seconds it had left when a finger stopped it (-1 = running)
     };
 
     // How long a toast animates out (pack time.toastLeave); the stack closes up meanwhile.
@@ -1720,7 +1757,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     void ExpireToasts(double now)
     {
         for (size_t i = toasts_.size(); i-- > 0;)
-            if (toasts_[i].leaving < 0.0 && now >= toasts_[i].until)
+            if (toasts_[i].leaving < 0.0 && toasts_[i].held < 0.0 && now >= toasts_[i].until)
                 Leave(toasts_[i], now);
             else if (toasts_[i].leaving >= 0.0 && now >= toasts_[i].leaving + ToastLeaveSeconds())
                 RemoveToast(i);

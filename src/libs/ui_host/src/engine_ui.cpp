@@ -170,12 +170,12 @@ class EngineUi
         PublishInterfaceActive();
     }
 
-    void Toast(std::string text, const std::string &tone)
+    void GameMessage(std::string text, std::string target)
     {
         if (host_)
-            host_->Toast(text, tone);
+            host_->GameMessage(text, target);
         else
-            __android_log_print(ANDROID_LOG_ERROR, kTag, "no UI host yet, toast not shown: %s", text.c_str());
+            __android_log_print(ANDROID_LOG_ERROR, kTag, "no UI host yet, game message not shown: %s", text.c_str());
     }
 
     void AlertString(const std::string &key)
@@ -601,9 +601,9 @@ void interfaceModel(std::string json)
     EngineUi::Get().Interface(std::move(json));
 }
 
-void toast(std::string text)
+void toast(std::string text, std::string target)
 {
-    EngineUi::Get().Toast(std::move(text), "info");
+    EngineUi::Get().GameMessage(std::move(text), std::move(target));
 }
 
 void alert(std::string string_key)

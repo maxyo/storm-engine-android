@@ -122,6 +122,12 @@ class COMPILER : public VIRTUAL_COMPILER
     void SetEventHandler(const char *event_name, const char *func_name, int32_t flag, bool bStatic = false);
     void DelEventHandler(const char *event_name, const char *func_name);
     bool HasActiveEventHandler(const char *event_name, const char *func_name);
+    // The running call of the script function `func_name` nearest the top of the call stack:
+    // its depth (0 = the innermost call), or -1 when it is not running; and argument `index`
+    // of that call (nullptr when it has fewer). For tagging what a script does at its source
+    // (the touch UI: which game function wrote a log line).
+    int CallDepth(const char *func_name) const;
+    DATA *CallArgument(const char *func_name, uint32_t index);
 
     bool Completed()
     {
@@ -364,7 +370,9 @@ private:
     // backtrace stack
     // NB: pointers are safe as long as we pop elements before they expire
     static constexpr size_t CALLSTACK_SIZE = 64U;
-    storm::ringbuffer_stack<std::tuple<const char *, size_t, const char *>, CALLSTACK_SIZE> callStack_;
+    // file, line, name, where its arguments start on SStack (kNoArguments for an event)
+    static constexpr uint32_t kNoArguments = UINT32_MAX;
+    storm::ringbuffer_stack<std::tuple<const char *, size_t, const char *, uint32_t, uint32_t>, CALLSTACK_SIZE> callStack_;
 
     // attempt to read/write script cache?
     int script_cache_mode_;

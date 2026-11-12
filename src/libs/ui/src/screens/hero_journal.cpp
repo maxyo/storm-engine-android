@@ -133,6 +133,9 @@ class JournalScreen final : public Screen
         revision_ = admitted.model->revision;
         const Widget *text = admitted.One("QUEST_TEXT");
         text_open_ = text != nullptr;
+        // A tap on a «Logbook Update» line opened the journal (hud.cpp Open): that quest opens.
+        if (const auto request = bindings.TakeSubject("journal"); request && !request->quest.empty())
+            intent_ = {request->quest, bindings.Now()};
 
         // The game's active tab and our section.
         std::string active;
@@ -391,6 +394,7 @@ class JournalScreen final : public Screen
                 intent_ = {};
                 return;
             }
+        bindings.Error("questbook: entry " + intent_.row + " is not among the titles of this tab; the list stays");
         intent_ = {};
     }
 };

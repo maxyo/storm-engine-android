@@ -3,7 +3,8 @@
 //   storm_ui_shot --pack DIR --doc gallery/buttons.rml --size 915x412 --density 2 --out shot.png
 //                 [--game-root DIR] [--safe L,T,R,B] [--cutout X,Y,W,H …] [--script "down 1 120 80; wait 0.5; shot held.png; up 1 120 80"]
 //                 [--views N]
-//   script commands: down|move|up <pointer> <x> <y>, wait <s>, shot <png>, toast <text>, timed (print what
+//   script commands: down|move|up <pointer> <x> <y>, wait <s>, shot <png>, toast <text>,
+//   message <target|-> <text> (a game log line, Host::GameMessage), timed (print what
 //                    each later command costs up to its finished frame),
 //                    props <element id> <json>, scroll <element id>,
 //                    device-reset (bgfx: device loss and restore, as after a lost EGL context)
@@ -708,6 +709,14 @@ int main(int argc, char **argv)
             std::string text;
             std::getline(words, text);
             host->Toast(text.substr(text.find_first_not_of(' ') == std::string::npos ? 0 : text.find_first_not_of(' ')), "info");
+            run(1.0 / 60.0);
+        }
+        else if (verb == "message") // message <target|-> <text>: a game log line that leads to target ("-" = nowhere)
+        {
+            std::string target, text;
+            words >> target;
+            std::getline(words, text);
+            host->GameMessage(text.substr(text.find_first_not_of(' ') == std::string::npos ? 0 : text.find_first_not_of(' ')), target == "-" ? "" : target);
             run(1.0 / 60.0);
         }
         else if (verb == "props") // props <element id> <json object>

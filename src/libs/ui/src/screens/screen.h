@@ -76,9 +76,11 @@ class Router;
 // `position` the ship's place in the squadron, flagship 0 (ship screen).
 struct SubjectRequest
 {
-    std::string screen; // character | ship
+    std::string screen; // character | ship | journal
     int character = -1;
     int position = -1;
+    std::string tab;   // character: the tab to show ("perks"), "" = the screen's own
+    std::string quest; // journal: the quest to open (its QuestInfo id)
     double until = 0.0;
 };
 

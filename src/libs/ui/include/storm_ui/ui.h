@@ -190,6 +190,10 @@ class Host
     // Something the player asked for failed, in the pack's words: a danger toast of the string
     // `key` (the pack's table in the game language) that stays several seconds.
     virtual void AlertString(const std::string &key) = 0;
+    // A line of the game's log: an event line of the HUD's log over the game (a toast
+    // elsewhere). `target` is where a tap on it leads, "" = nowhere: "character:<index>" (that
+    // character's abilities), "journal:<quest id>" (that quest), "items" (the inventory).
+    virtual void GameMessage(const std::string &text, const std::string &target) = 0;
     // Replaces the props of the component with this element id (JSON object).
     virtual bool SetProps(const std::string &element_id, const std::string &json) = 0;
     virtual void ScrollTo(const std::string &element_id) = 0;

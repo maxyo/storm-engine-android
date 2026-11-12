@@ -707,7 +707,7 @@ VDATA *COMPILER::ProcessEvent(const char *event_name)
     // TODO: only do if stack debug if enabled (should be runtime configurable)
     // push event name to call stack
     storm::ringbuffer_stack_push_guard push_guard(callStack_);
-    push_guard.push(std::make_tuple("", 0U, event_name));
+    push_guard.push(std::make_tuple("", 0U, event_name, kNoArguments, 0U));
 
     uint32_t event_code;
     uint32_t func_code;
@@ -3721,17 +3721,18 @@ bool COMPILER::BC_CallFunction(uint32_t func_code, uint32_t &ip, DATA *&pVResult
     // TODO: only do if stack debug if enabled (should be runtime configurable)
     // push function details to call stack
     storm::ringbuffer_stack_push_guard push_guard(callStack_);
-    push_guard.push(std::make_tuple(call_fi.decl_file_name.c_str(), call_fi.decl_line, call_fi.name.c_str()));
 
     // number f arguments pushed into stack for this function call
     if (BC_TokenGet() != ARGS_NUM)
     {
+        push_guard.push(std::make_tuple(call_fi.decl_file_name.c_str(), call_fi.decl_line, call_fi.name.c_str(), kNoArguments, 0U));
         SetError("missing args_num token");
         return false;
     }
     arguments = *((int32_t *)&pRunCodeBase[TLR_DataOffset]);
 
     check_sp = SStack.GetDataNum() - arguments;
+    push_guard.push(std::make_tuple(call_fi.decl_file_name.c_str(), call_fi.decl_line, call_fi.name.c_str(), check_sp, arguments));
     /*
     // arguments number check done on compilation stage now
     // arguments pushed into stack before this function call
@@ -7053,6 +7054,30 @@ DATA *COMPILER::GetOperand(const char *pCodeBase, uint32_t &ip, S_TOKEN_TYPE *pT
     default:
         SetError("invalid operand");
         return nullptr;
+    }
+    return nullptr;
+}
+
+int COMPILER::CallDepth(const char *func_name) const
+{
+    auto calls = callStack_;
+    for (int depth = 0; !calls.empty(); ++depth, calls.pop())
+        if (storm::iEquals(std::get<2>(calls.back()), func_name))
+            return depth;
+    return -1;
+}
+
+DATA *COMPILER::CallArgument(const char *func_name, uint32_t index)
+{
+    auto calls = callStack_;
+    for (; !calls.empty(); calls.pop())
+    {
+        const auto &[file, line, name, offset, count] = calls.back();
+        if (!storm::iEquals(name, func_name))
+            continue;
+        if (offset == kNoArguments || index >= count || offset + index >= SStack.GetDataNum())
+            return nullptr;
+        return SStack.Read(offset, index);
     }
     return nullptr;
 }

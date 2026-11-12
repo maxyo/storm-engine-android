@@ -25,4 +25,9 @@ public:
     // Whether the script function `func_name` is an executable handler of `event_name` now (registered,
     // not deleted). Reads the interpreter's event table only; nothing is dispatched or registered.
     virtual bool HasActiveEventHandler(const char *event_name, const char *func_name) = 0;
+    // The running call of the script function `func_name` nearest the top of the script call
+    // stack: its depth (0 = innermost), -1 when it is not running; argument `index` of that call,
+    // nullptr when there is none. Reads the interpreter's call stack only.
+    virtual int ScriptCallDepth(const char *func_name) = 0;
+    virtual VDATA *ScriptCallArgument(const char *func_name, uint32_t index) = 0;
 };

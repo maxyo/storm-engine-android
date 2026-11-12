@@ -62,10 +62,10 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
         "template": "<ui-clamp lines=\"1\" min-size=\"{{least}}\" text=\"{{title}}\" style=\"display: block; width: 100%; white-space: nowrap;\"/>"})"));
     // The toast the host shows: it comes in and goes out with an animation (as the pack's C-Notice).
     components["components"].push_back(Json::parse(R"({
-        "tag": "c-notice",
+        "tag": "c-notice", "behaviors": ["toast"],
         "props": {"text": {"type": "text", "default": ""}, "variant": {"type": "text", "default": ""}, "place": {"type": "text", "default": ""},
                   "tone": {"type": "text", "default": ""}, "compact": {"type": "bool", "default": false}, "leaving": {"type": "bool", "default": false}},
-        "template": "<div style=\"height: 30dp;\">{{text}}</div>"})"));
+        "template": "<div data-toast=\"toast\" style=\"height: 30dp;\">{{text}}</div>"})"));
     components["components"].push_back(Json::parse(R"({
         "tag": "c-pz", "behaviors": ["panzoom"],
         "props": {"base": {"type": "json", "default": [1000, 500]}, "view": {"type": "json", "default": []}},
@@ -76,10 +76,10 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
         "props": {"line": {"type": "json", "default": {}}, "resume": {"type": "json", "default": {}}, "buttons": {"type": "json", "default": []}, "confirm": {"type": "json", "default": {}}, "extras": {"type": "json", "default": []}},
         "template": "<div style=\"font-family: LatoLatin;\"><c-row id=\"resume\" style=\"display: block; position: absolute; left: 0; top: 0; width: 200dp; height: 48dp;\" title=\"Resume\"/></div>"})"));
     Write(pack / "components.json", components.dump());
-    Write(pack / "overlay.rml", "<rml><head><style>body { font-family: LatoLatin; } #tooltip { display: none; } #tooltip.open { display: block; position: absolute; }"
+    Write(pack / "overlay.rml", "<rml><head><style>body { font-family: LatoLatin; width: 100%; height: 100%; pointer-events: none; z-index: 1000; } #tooltip { display: none; } #tooltip.open { display: block; position: absolute; }"
                                 " #toasts { position: absolute; left: 0; right: 0; top: 0; display: flex; flex-direction: column; }"
                                 " @keyframes in { from { opacity: 0; } to { opacity: 1; } } @keyframes out { from { opacity: 1; max-height: 30dp; } to { opacity: 0; max-height: 0dp; } }"
-                                " c-notice { display: block; animation: 0.18s cubic-out in; } c-notice.leaving { opacity: 0; max-height: 0dp; animation: 0.22s cubic-out out; }</style></head>"
+                                " c-notice { display: block; width: 100%; animation: 0.18s cubic-out in; } c-notice [data-toast] { display: block; pointer-events: auto; } c-notice.leaving { opacity: 0; max-height: 0dp; animation: 0.22s cubic-out out; }</style></head>"
                                 "<body><div id=\"tooltip\"></div><div id=\"toasts\"></div></body></rml>");
     Write(pack / "rows.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
                              " c-row { display: block; position: absolute; left: 0; width: 200dp; height: 48dp; }"
@@ -225,7 +225,7 @@ int main(int argc, char **argv)
     frames(0.05);
     Expect(host->WantsTouch(100, 24) && host->InterfaceActive(), "after the video the screen takes the touches again");
     Expect(!host->SetState("video", R"({"fullscreen":"yes"})"), "a malformed video state is refused aloud");
-    // A toast animates in, stays (toastMs), animates out (toastLeave) and goes: frames keep
+    // A toast animates in, stays (hud::ToastSeconds: 3 s for a short one), animates out (toastLeave) and goes: frames keep
     // coming while an animation runs, and stop once everything has settled.
     frames(0.5);
     double delay = 0.0;
@@ -244,8 +244,16 @@ int main(int argc, char **argv)
     host->Toast("Saved", "ok");
     Expect(drawing(0.0, 0.15), "the toast's entrance keeps frames coming");
     frames(0.2);
-    Expect(!host->Prepare(delay) && delay > 0.05 && delay < 0.5, "a shown toast asks for no frame, only a wake-up when it is due");
-    frames(0.2);
+    Expect(!host->Prepare(delay) && delay > 2.5 && delay < 2.7, "a shown toast asks for no frame, only a wake-up when it is due");
+    // a finger on it stops its time; lifting it gives back what was left
+    Expect(host->WantsTouch(10, 8), "the toast takes a finger");
+    host->Touch(TouchPhase::Down, 1, 10, 8);
+    frames(5.0);
+    Expect(!host->Prepare(delay) && delay > 3.0, "held: no wake-up is due while the finger stays: " + std::to_string(delay));
+    host->Touch(TouchPhase::Up, 1, 10, 8);
+    frames(0.05);
+    Expect(!host->Prepare(delay) && delay > 2.4 && delay < 2.7, "released: the time it had left runs on: " + std::to_string(delay));
+    frames(2.6);
     Expect(drawing(0.0, 0.18), "its exit keeps frames coming");
     frames(0.2);
     Expect(!host->Prepare(delay) && delay > 0.2, "after the exit has run the toast is gone and frames stop");

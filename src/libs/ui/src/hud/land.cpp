@@ -383,7 +383,8 @@ class LandScene final : public Scene
         std::string icon, text;
     };
 
-    // What the hint names now: whom the talk button talks to, or where the door ahead leads.
+    // What the hint names now: whom the talk button talks to, where the door ahead leads, or
+    // what the context button does to a thing or a chest.
     std::optional<Hint> WantedHint(const States &states) const
     {
         if (states.combat.Has("interact") && states.combat.interact_kind == "dialog")
@@ -391,8 +392,15 @@ class LandScene final : public Scene
             const std::string talk = hud_.Text("hud.context.talk");
             return Hint{"talk", states.combat.interact_name.empty() ? talk : talk + ": " + states.combat.interact_name};
         }
-        if (Lower(states.context_action) == "reload" && !states.reload_place.empty())
+        const std::string action = Lower(states.context_action);
+        if (action == "reload" && !states.reload_place.empty())
             return Hint{"door", Capitalized(states.reload_place)};
+        // A thing to take, a chest: the game names no object, so the hint names the action
+        // (the context button's own words and icon).
+        if (action == "pick" || action == "openbox")
+            for (const Named &entry : kContext)
+                if (action == entry.key)
+                    return Hint{entry.icon, hud_.Text(entry.label)};
         return std::nullopt;
     }
 

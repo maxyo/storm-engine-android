@@ -6,6 +6,7 @@
 #include "../screens/screen.h"
 
 #include <cstdint>
+#include <algorithm>
 #include <functional>
 #include <map>
 #include <memory>
@@ -24,6 +25,16 @@ namespace storm::ui::hud
 inline std::string RepeatedText(const std::string &text, int count)
 {
     return count > 1 ? text + " \u00D7" + std::to_string(count) : text;
+}
+
+// How long a toast stays (owner rule, every toast and event line): 2.5 s and 60 ms a
+// character, at least 3 s, at most 7 s. A repeat («×N») starts it again; a finger on it stops it.
+inline double ToastSeconds(const std::string &text)
+{
+    size_t characters = 0;
+    for (const char c : text)
+        characters += (static_cast<unsigned char>(c) & 0xC0u) != 0x80u; // UTF-8: count the lead bytes
+    return std::clamp(2.5 + 0.06 * static_cast<double>(characters), 3.0, 7.0);
 }
 
 
@@ -466,8 +477,9 @@ class Hud
     std::optional<SubjectRequest> TakeSubject(const std::string &screen);
 
     // --- for the host ---
-    // An event line for the top-centre log; false while no scene shows one.
-    bool Notice(const std::string &text, const std::string &tone);
+    // An event line for the top-centre log; false while no scene shows one. `target`: where a
+    // tap on it leads (Host::GameMessage), "" = nowhere.
+    bool Notice(const std::string &text, const std::string &tone, const std::string &target = {});
     // False when the event belongs to nothing bound.
     bool OnEvent(const Event &event);
     // Applies pending state changes and timed work; returns seconds until the next call.
@@ -510,9 +522,13 @@ class Hud
         int count = 1;
         unsigned key = 0;     // the line's own element in the log (data-key)
         double leaving = -1.0; // when it started to animate out (-1 = shown); removed kLeaveSeconds later
+        double held = -1.0;    // the seconds it had left when a finger stopped it (-1 = running)
+        std::string target;    // where a tap on it leads, "" = nowhere
     };
     void Refresh();
     void Conceal();
+    // A tap on an event line that leads somewhere: opens that screen on its subject.
+    void Open(const std::string &target);
     void Present(bool visible, bool menu_only);
 
     Mount &mount_;
