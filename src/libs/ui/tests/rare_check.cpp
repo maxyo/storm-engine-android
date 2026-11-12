@@ -116,8 +116,8 @@ static void Card(const std::string &models)
     ExpectEqual(card["text"], "По курсу два торговца. Что делаем?", "news and question read as one paragraph");
     const Json &actions = card["actions"];
     Expect(actions.size() == 2 && actions[1]["id"] == "ok" && actions[1]["variant"] == "primary", "engage is the primary, right");
-    Expect(actions[0]["disabled"] == true && actions[0]["variant"] == "secondary" && actions[0]["reason"] == "<reading.cannot_leave>",
-           "a forced encounter shows «sail on» disabled with its reason");
+    Expect(actions[0]["disabled"] == true && actions[0]["variant"] == "quiet" && actions[0]["reason"] == "<reading.cannot_leave>",
+           "a forced encounter shows «sail on» disabled with its reason, as the same quiet control");
     router.OnEvent({"ok", "click", ""});
     ExpectEqual(surface.Last(), "widget:map\tB_OK\t-1\tpress", "engage presses B_OK");
     const size_t sent = surface.commands.size();
