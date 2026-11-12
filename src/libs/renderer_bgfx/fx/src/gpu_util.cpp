@@ -1,4 +1,5 @@
 #include "gpu_util.hpp"
+#include "storm/fx/log.hpp"
 
 #include <cstring>
 
@@ -46,13 +47,19 @@ bgfx::ProgramHandle LoadProgram(const char *vertex, const char *fragment)
     const bgfx::ShaderHandle fs = LoadShader(fragment);
     if (!bgfx::isValid(vs) || !bgfx::isValid(fs))
     {
+        Log(LogLevel::Error, "no shader blob %s: program %s + %s not created", bgfx::isValid(vs) ? fragment : vertex, vertex,
+            fragment);
         if (bgfx::isValid(vs))
             bgfx::destroy(vs);
         if (bgfx::isValid(fs))
             bgfx::destroy(fs);
         return BGFX_INVALID_HANDLE;
     }
-    return bgfx::createProgram(vs, fs, true);
+    // bgfx refuses a pair whose vertex outputs differ from the fragment inputs ($output / $input).
+    const bgfx::ProgramHandle program = bgfx::createProgram(vs, fs, true);
+    if (!bgfx::isValid(program))
+        Log(LogLevel::Error, "program %s + %s not created (vertex outputs do not match the fragment inputs?)", vertex, fragment);
+    return program;
 }
 
 void SubmitScreenTriangle(bgfx::ViewId view, bgfx::ProgramHandle program, uint64_t state, bool flip_v,
@@ -135,13 +142,23 @@ bool SupportsMsaa()
            Format(bgfx::TextureFormat::D24S8, BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA);
 }
 
-void SetupView(bgfx::ViewId view, const char *name, bgfx::FrameBufferHandle target, uint16_t width, uint16_t height)
+bool SupportsSmaa()
+{
+    return Format(bgfx::TextureFormat::R8, BGFX_CAPS_FORMAT_TEXTURE_2D) && Format(bgfx::TextureFormat::RG8, BGFX_CAPS_FORMAT_TEXTURE_2D);
+}
+
+bgfx::TextureFormat::Enum SmaaEdgeFormat()
+{
+    return Format(bgfx::TextureFormat::RG8, BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER) ? bgfx::TextureFormat::RG8 : bgfx::TextureFormat::RGBA8;
+}
+
+void SetupView(bgfx::ViewId view, const char *name, bgfx::FrameBufferHandle target, uint16_t width, uint16_t height, bool clear)
 {
     bgfx::setViewName(view, name);
     bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
     bgfx::setViewFrameBuffer(view, target);
     bgfx::setViewRect(view, 0, 0, width, height);
-    bgfx::setViewClear(view, BGFX_CLEAR_NONE);
+    bgfx::setViewClear(view, clear ? BGFX_CLEAR_COLOR : BGFX_CLEAR_NONE, 0x00000000);
 }
 
 } // namespace storm::fx::detail

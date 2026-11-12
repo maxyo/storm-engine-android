@@ -59,8 +59,8 @@ void CheckSettings()
     CHECK(!medium.PostIsIdentity() && !high.PostIsIdentity());
     CHECK(medium.bloom_downscale == 4 && high.bloom_downscale == 2);
     CHECK(!medium.sharpen && !high.sharpen);
-    // MSAA is the primary anti-aliasing of the presets; FXAA is left to the player. Optional looks stay off.
-    CHECK(medium.msaa == 4 && high.msaa == 4 && !medium.fxaa && !high.fxaa && original.msaa == 1);
+    // MSAA is the primary anti-aliasing of the presets; SMAA is left to the player. Optional looks stay off.
+    CHECK(medium.msaa == 4 && high.msaa == 4 && !medium.smaa && !high.smaa && original.msaa == 1);
     CHECK(medium.anisotropy == 4 && high.anisotropy == 8 && original.anisotropy == 1);
     CHECK(medium.dither && !original.dither);
     // The game's own sea everywhere: the band limit from «Средняя», soft edges at «Высокая», the specular optional.
@@ -292,7 +292,7 @@ void CheckSupport()
 {
     Support all;
     all.lut_3d = all.shadow_map = all.scene_depth = all.normal_map = true;
-    all.msaa = all.msaa_depth = all.anisotropy = all.ao_volume = true;
+    all.msaa = all.msaa_depth = all.anisotropy = all.ao_volume = all.smaa = true;
     for (QualityPreset preset : {QualityPreset::Low, QualityPreset::Medium, QualityPreset::High})
     {
         const Settings settings = Settings::FromPreset(preset);
@@ -363,25 +363,48 @@ void CheckSupport()
     changes.clear();
     constrained = ConstrainSettings(high, no_msaa, changes);
     CHECK(constrained.msaa == 1 && !constrained.alpha_to_coverage && constrained.ssao && constrained.sea_soft_edges);
-    // ... and FXAA takes over the anti-aliasing, reported (PowerVR, minimal GLES, a failed MSAA self-test).
-    CHECK(constrained.fxaa && !high.fxaa);
-    CHECK(std::find(changes.begin(), changes.end(), std::string("MSAA unavailable: FXAA instead")) != changes.end());
+    // ... and SMAA takes over the anti-aliasing, reported (PowerVR, minimal GLES, a failed MSAA self-test).
+    CHECK(constrained.smaa && !high.smaa);
+    CHECK(std::find(changes.begin(), changes.end(), std::string("MSAA unavailable: SMAA instead")) != changes.end());
     CHECK(ValidateSettings(constrained, no_msaa).empty());
-    // Without the post chain there is no FXAA either: MSAA goes, reported as no anti-aliasing at all.
+    // Without the post chain there is no SMAA either: MSAA goes, reported as no anti-aliasing at all.
+    const std::string no_aa =
+        "MSAA unavailable and SMAA needs the post-processing chain (3D textures) and R8/RG8 textures: no anti-aliasing";
     Support no_msaa_no_lut = no_msaa;
     no_msaa_no_lut.lut_3d = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_msaa_no_lut, changes);
-    CHECK(constrained.msaa == 1 && !constrained.fxaa && constrained.PostIsIdentity());
-    CHECK(std::find(changes.begin(), changes.end(),
-                    std::string("MSAA unavailable and FXAA needs the post-processing chain (3D textures): no anti-aliasing")) !=
-          changes.end());
-    // An explicit MSAA off (fx_msaa=1) is the player's choice, not a missing capability: no FXAA is added.
+    CHECK(constrained.msaa == 1 && !constrained.smaa && constrained.PostIsIdentity() && constrained.render_scale == 1.0f);
+    CHECK(std::find(changes.begin(), changes.end(), no_aa) != changes.end());
+    // ... nor without its tables: SMAA asked for explicitly is switched off, reported.
+    Support no_msaa_no_r8 = no_msaa;
+    no_msaa_no_r8.smaa = false;
+    changes.clear();
+    constrained = ConstrainSettings(high, no_msaa_no_r8, changes);
+    CHECK(constrained.msaa == 1 && !constrained.smaa && std::find(changes.begin(), changes.end(), no_aa) != changes.end());
+    Settings smaa_on = high;
+    smaa_on.smaa = true;
+    changes.clear();
+    CHECK(!ConstrainSettings(smaa_on, no_msaa_no_r8, changes).smaa &&
+          std::find(changes.begin(), changes.end(), std::string("SMAA needs R8 and RG8 textures: switched off")) != changes.end());
+    // An explicit MSAA off (fx_msaa=1) is the player's choice, not a missing capability: no SMAA is added.
     Settings msaa_off = high;
     msaa_off.msaa = 1;
     msaa_off.alpha_to_coverage = false;
     changes.clear();
-    CHECK(!ConstrainSettings(msaa_off, no_msaa, changes).fxaa && changes.empty());
+    CHECK(!ConstrainSettings(msaa_off, no_msaa, changes).smaa && changes.empty());
+    // The FSR 1 range of the render scale; the upscale is part of the post chain.
+    Settings scaled = high;
+    scaled.render_scale = 0.3f;
+    changes.clear();
+    CHECK(ConstrainSettings(scaled, all, changes).render_scale == 0.5f && changes.size() == 1);
+    scaled.render_scale = 0.7f;
+    Settings only_scaled;
+    only_scaled.render_scale = 0.7f;
+    CHECK(Settings{}.PostIsIdentity() && !only_scaled.PostIsIdentity());
+    CHECK(RendererStateFor(scaled).render_scale == 0.7f);
+    changes.clear();
+    CHECK(ConstrainSettings(scaled, no_lut, changes).render_scale == 1.0f && !changes.empty());
     const RendererState state = RendererStateFor(high);
     CHECK(state.msaa_samples == 4 && state.alpha_to_coverage && state.max_anisotropy == 8);
     CHECK(RendererStateFor(Settings{}).msaa_samples == 1 && !RendererStateFor(Settings{}).alpha_to_coverage);
@@ -983,7 +1006,7 @@ void CheckCapsProfiles()
 {
     Support all;
     all.lut_3d = all.shadow_map = all.scene_depth = all.normal_map = true;
-    all.msaa = all.msaa_depth = all.anisotropy = true;
+    all.msaa = all.msaa_depth = all.anisotropy = all.smaa = true;
     for (int p = 0; p < static_cast<int>(CapsProfile::Count); ++p)
     {
         const auto profile = static_cast<CapsProfile>(p);
@@ -1000,9 +1023,9 @@ void CheckCapsProfiles()
                 CHECK(changes.empty());
             if (!support.msaa)
                 CHECK(constrained.msaa == 1 && !constrained.alpha_to_coverage);
-            // Every phone without MSAA still gets anti-aliasing on Средняя / Высокая: FXAA in its place.
+            // Every phone without MSAA still gets anti-aliasing on Средняя / Высокая: SMAA in its place.
             if (preset != QualityPreset::Low)
-                CHECK(constrained.fxaa == !support.msaa);
+                CHECK(constrained.smaa == !support.msaa);
         }
     }
     // A profile only removes.

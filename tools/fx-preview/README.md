@@ -29,7 +29,7 @@ lights, bloom); a broadside at dusk (flash lights); a wall, a boulder, a plank d
 from two sides and under a torch); before / after pairs for the cheap upgrades (anisotropic filtering, MSAA and
 alpha to coverage on palms, a hedge and rigging, wind sway at two moments, linear-light sums, rim light, aerial
 perspective, contact shadows, scene grades by hour, weather and interior, lens flare, dither); an aliasing
-chart (FXAA, sharpening, MSAA, 75 % render scale). CPU products (baked
+chart (SMAA, RCAS sharpening, MSAA, the FSR 1 upscale from 75 %). CPU products (baked
 textures, sky panoramas, grading tables) are written as images too.
 
 The run fails (exit code 1) if the package reports an error or if `ConstrainSettings()` has to change a

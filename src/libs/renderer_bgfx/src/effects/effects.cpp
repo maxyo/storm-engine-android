@@ -56,8 +56,10 @@ const Option kOptions[] = {
     {"fx_tonemap", "0 off, 1 on", [](fx::Settings &s, int v) { s.tonemap = on(v); }},
     {"fx_bloom", "0 off, 1 on", [](fx::Settings &s, int v) { s.bloom = on(v); }},
     {"fx_sun_shafts", "0 off, 1 on", [](fx::Settings &s, int v) { s.sun_shafts = on(v); }},
-    {"fx_fxaa", "0 off, 1 on", [](fx::Settings &s, int v) { s.fxaa = on(v); }},
-    {"fx_sharpen", "0 off, 1 on", [](fx::Settings &s, int v) { s.sharpen = on(v); }},
+    {"fx_smaa", "0 off, 1 on", [](fx::Settings &s, int v) { s.smaa = on(v); }},
+    {"fx_sharpen", "0 off, 1 on (FSR 1 RCAS)", [](fx::Settings &s, int v) { s.sharpen = on(v); }},
+    {"fx_sharpness", "0..100 % RCAS strength (100 = the reference's maximum)",
+     [](fx::Settings &s, int v) { s.sharpness = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
     {"fx_ssao", "0 off, 1 on", [](fx::Settings &s, int v) { s.ssao = on(v); }},
     {"fx_dither", "0 off, 1 on", [](fx::Settings &s, int v) { s.dither = on(v); }},
     {"fx_lens_flare", "0 off, 1 on", [](fx::Settings &s, int v) { s.lens_flare = on(v); }},
@@ -122,10 +124,11 @@ std::string describe(const fx::Settings &s)
 {
     char text[512];
     snprintf(text, sizeof(text),
-             "tonemap=%d bloom=%d(1/%u,%u) shafts=%d fxaa=%d sharpen=%d ssao=%d dither=%d flare=%d scene_grading=%d "
+             "tonemap=%d bloom=%d(1/%u,%u) shafts=%d smaa=%d scale=%.2f sharpen=%d(%.2f) ssao=%d dither=%d flare=%d scene_grading=%d "
              "grade=%d msaa=%u a2c=%d aniso=%u sky=%d clouds=%d sea=%d%d%d shadows=%d "
              "lighting=0x%x contact=%d",
-             s.tonemap, s.bloom, s.bloom_downscale, s.bloom_levels, s.sun_shafts, s.fxaa, s.sharpen, s.ssao, s.dither,
+             s.tonemap, s.bloom, s.bloom_downscale, s.bloom_levels, s.sun_shafts, s.smaa, static_cast<double>(s.render_scale), s.sharpen,
+             static_cast<double>(s.sharpness), s.ssao, s.dither,
              s.lens_flare, s.scene_grading, static_cast<int>(s.grade), s.msaa,
              s.alpha_to_coverage, s.anisotropy, s.sky_atmosphere, s.sky_clouds, s.sea_band_limit, s.sea_soft_edges, s.sea_specular,
              static_cast<int>(s.shadows), s.lighting_flags, s.contact_shadows);
@@ -272,7 +275,7 @@ void Host::apply()
         report_.support = target_support_.Describe();
         // Options the device can never honour, for the settings screen.
         fx::Settings all = fx::Settings::FromPreset(fx::QualityPreset::High);
-        all.fxaa = true;
+        all.smaa = true;
         std::vector<std::string> unused;
         const fx::Settings possible = fx::ConstrainSettings(all, target_support_, unused);
         if (possible.msaa <= 1)
@@ -281,9 +284,11 @@ void Host::apply()
             report_.disabled.push_back("fx_anisotropy");
         if (!possible.ssao)
             report_.disabled.push_back("fx_ssao");
+        if (!possible.smaa && !possible.PostIsIdentity())
+            report_.disabled.push_back("fx_smaa");
         if (possible.PostIsIdentity())
-            for (const char *name : {"fx_tonemap", "fx_bloom", "fx_sun_shafts", "fx_fxaa", "fx_sharpen", "fx_dither",
-                                     "fx_lens_flare", "fx_scene_grading", "fx_grade"})
+            for (const char *name : {"fx_tonemap", "fx_bloom", "fx_sun_shafts", "fx_smaa", "fx_sharpen",
+                                     "fx_sharpness", "fx_dither", "fx_lens_flare", "fx_scene_grading", "fx_grade"})
                 report_.disabled.push_back(name);
     }
     for (const Pending &pending : kPending)
@@ -391,8 +396,9 @@ uint16_t Host::submit_post(const PostTargets &targets)
     frame.scene_width = targets.width;
     frame.scene_height = targets.height;
     frame.target = targets.target;
-    frame.target_width = targets.width;
-    frame.target_height = targets.height;
+    frame.target_width = targets.target_width;
+    frame.target_height = targets.target_height;
+    last_post_size_ = {targets.width, targets.height, targets.target_width, targets.target_height};
     frame.first_view = targets.first_view;
     frame.flip_v = false; // the target is the game's next offscreen picture, same row order as the scene
     frame.scene_depth = targets.scene_depth;
@@ -540,28 +546,45 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
             {
                 const bgfx::ViewStats &view = stats->viewStats[i];
                 if (last_post_views_ && view.view >= last_post_first_ && view.view < last_post_first_ + last_post_views_)
-                    times_.post_ms += static_cast<double>(view.gpuTimeEnd - view.gpuTimeBegin) * to_ms;
+                {
+                    const double ms = static_cast<double>(view.gpuTimeEnd - view.gpuTimeBegin) * to_ms;
+                    times_.post_ms += ms;
+                    // The pass names of fx::PostChain (SetupView).
+                    if (std::strncmp(view.name, "fx smaa", 7) == 0)
+                        times_.smaa_ms += ms;
+                    else if (std::strcmp(view.name, "fx fsr easu") == 0)
+                        times_.easu_ms += ms;
+                    else if (std::strcmp(view.name, "fx fsr rcas") == 0)
+                        times_.rcas_ms += ms;
+                }
             }
             times_.post_views = last_post_views_;
             profile_sum_frame_ += times_.frame_ms;
             profile_sum_post_ += times_.post_ms;
+            profile_sum_smaa_ += times_.smaa_ms;
+            profile_sum_easu_ += times_.easu_ms;
+            profile_sum_rcas_ += times_.rcas_ms;
             ++profile_gpu_frames_;
         }
         profile_sum_cpu_ += static_cast<double>(stats->cpuTimeFrame) * 1000.0 / static_cast<double>(stats->cpuTimerFreq);
         profile_draws_ += stats->numDraw;
         if (++profile_count_ == kProfileFrames)
         {
-            char gpu[96] = "gpu_frame_ms=n/a gpu_post_ms=n/a (no timer queries)";
+            char gpu[192] = "gpu_frame_ms=n/a gpu_post_ms=n/a (no timer queries)";
             if (profile_gpu_frames_ > 0)
-                snprintf(gpu, sizeof(gpu), "gpu_frame_ms=%.2f gpu_post_ms=%.2f", profile_sum_frame_ / profile_gpu_frames_,
-                         profile_sum_post_ / profile_gpu_frames_);
+                snprintf(gpu, sizeof(gpu), "gpu_frame_ms=%.2f gpu_post_ms=%.2f gpu_smaa_ms=%.2f gpu_easu_ms=%.2f gpu_rcas_ms=%.2f",
+                         profile_sum_frame_ / profile_gpu_frames_, profile_sum_post_ / profile_gpu_frames_,
+                         profile_sum_smaa_ / profile_gpu_frames_, profile_sum_easu_ / profile_gpu_frames_,
+                         profile_sum_rcas_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
-            shim::logf("effects profile: preset %d %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
+            shim::logf("effects profile: preset %d scene=%ux%u display=%ux%u %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
                        "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u",
-                       preset_, gpu, profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
+                       preset_, last_post_size_[0], last_post_size_[1], last_post_size_[2], last_post_size_[3], gpu,
+                       profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
                        last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters);
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
+            profile_sum_smaa_ = profile_sum_easu_ = profile_sum_rcas_ = 0.0;
             profile_draws_ = 0;
         }
     }

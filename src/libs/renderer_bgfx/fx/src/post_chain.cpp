@@ -6,6 +6,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+
+// The reference SMAA tables (fetched with SMAA.hlsl, see CMakeLists.txt) and FidelityFX FSR 1's constant setup on
+// the CPU (A_CPU: the same FsrEasuCon / FsrRcasCon the reference shaders are written against).
+#include "AreaTex.h"
+#include "SearchTex.h"
+#define A_CPU 1
+#include "ffx_a.h"
+#include "ffx_fsr1.h"
 
 namespace storm::fx
 {
@@ -22,8 +31,11 @@ enum ProgramIndex
     kShafts,
     kSsao,
     kComposite, // + 1 bloom, + 2 tone curve, + 4 ambient occlusion
-    kFxaa = kComposite + 8,
-    kCas,
+    kSmaaEdges = kComposite + 8, // vs_fx_smaa_* + fs_fx_smaa_*
+    kSmaaWeights,
+    kSmaaBlend,
+    kEasu,
+    kRcas,
     kWobble,
     kFlare, // vs_fx_sprite + fs_fx_sprite
 };
@@ -33,7 +45,8 @@ constexpr const char *kFragmentNames[] = {
     "fs_fx_ssao",
     "fs_fx_composite",   "fs_fx_composite_b",     "fs_fx_composite_t", "fs_fx_composite_bt",
     "fs_fx_composite_a", "fs_fx_composite_ab",    "fs_fx_composite_at", "fs_fx_composite_abt",
-    "fs_fx_fxaa",        "fs_fx_cas",             "fs_fx_wobble",      "fs_fx_sprite",
+    "fs_fx_smaa_edges",  "fs_fx_smaa_weights",    "fs_fx_smaa_blend",  "fs_fx_easu",     "fs_fx_rcas",
+    "fs_fx_wobble",      "fs_fx_sprite",
 };
 static_assert(std::size(kFragmentNames) == kFlare + 1);
 
@@ -59,15 +72,20 @@ void PostChain::Shutdown()
     for (Target &target : bloom_)
         Destroy(target.fb);
     Destroy(graded_.fb);
+    Destroy(smaa_edges_.fb);
+    Destroy(smaa_weights_.fb);
     Destroy(antialiased_.fb);
+    Destroy(upscaled_.fb);
+    Destroy(smaa_area_);
+    Destroy(smaa_search_);
     Destroy(occlusion_.fb);
     Destroy(wobbled_.fb);
     Destroy(lut_);
     Destroy(u_dither_);
     Destroy(u_wobble_);
     for (bgfx::UniformHandle *uniform :
-         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_,
-          &u_ao_})
+         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &s_ao_, &s_depth_, &u_ao_,
+          &u_smaa_, &s_smaa_edges_, &s_smaa_area_, &s_smaa_search_, &s_smaa_weights_, &u_fsr_, &u_fsr_out_})
         Destroy(*uniform);
     lut_strength_ = -1.0f;
     pending_slice_ = -1;
@@ -82,15 +100,19 @@ void PostChain::OnDeviceLost()
     for (Target &target : bloom_)
         target = {};
     graded_ = {};
+    smaa_edges_ = {};
+    smaa_weights_ = {};
     antialiased_ = {};
+    upscaled_ = {};
+    smaa_area_ = smaa_search_ = BGFX_INVALID_HANDLE;
     occlusion_ = {};
     wobbled_ = {};
     lut_ = BGFX_INVALID_HANDLE;
     u_dither_ = BGFX_INVALID_HANDLE;
     u_wobble_ = BGFX_INVALID_HANDLE;
     for (bgfx::UniformHandle *uniform :
-         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_,
-          &u_ao_})
+         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &s_ao_, &s_depth_, &u_ao_,
+          &u_smaa_, &s_smaa_edges_, &s_smaa_area_, &s_smaa_search_, &s_smaa_weights_, &u_fsr_, &u_fsr_out_})
         *uniform = BGFX_INVALID_HANDLE;
     lut_strength_ = -1.0f;
     pending_slice_ = -1;
@@ -109,12 +131,18 @@ void PostChain::EnsureUniforms()
         u_tone_ = bgfx::createUniform("u_fxTone", bgfx::UniformType::Vec4);
         u_bloom_range_ = bgfx::createUniform("u_fxBloomRange", bgfx::UniformType::Vec4);
         u_lut_ = bgfx::createUniform("u_fxLut", bgfx::UniformType::Vec4);
-        u_texel_ = bgfx::createUniform("u_fxTexel", bgfx::UniformType::Vec4);
         s_ao_ = bgfx::createUniform("s_fxAoTex", bgfx::UniformType::Sampler);
         s_depth_ = bgfx::createUniform("s_fxSceneDepth", bgfx::UniformType::Sampler);
         u_ao_ = bgfx::createUniform("u_fxAo", bgfx::UniformType::Vec4, 3);
         u_dither_ = bgfx::createUniform("u_fxDither", bgfx::UniformType::Vec4);
         u_wobble_ = bgfx::createUniform("u_fxWobble", bgfx::UniformType::Vec4, 2);
+        u_smaa_ = bgfx::createUniform("u_fxSmaa", bgfx::UniformType::Vec4);
+        s_smaa_edges_ = bgfx::createUniform("s_fxSmaaEdges", bgfx::UniformType::Sampler);
+        s_smaa_area_ = bgfx::createUniform("s_fxSmaaArea", bgfx::UniformType::Sampler);
+        s_smaa_search_ = bgfx::createUniform("s_fxSmaaSearch", bgfx::UniformType::Sampler);
+        s_smaa_weights_ = bgfx::createUniform("s_fxSmaaWeights", bgfx::UniformType::Sampler);
+        u_fsr_ = bgfx::createUniform("u_fxFsr", bgfx::UniformType::Vec4, 4);
+        u_fsr_out_ = bgfx::createUniform("u_fxFsrOut", bgfx::UniformType::Vec4);
     }
 }
 
@@ -122,8 +150,12 @@ bgfx::ProgramHandle PostChain::Program(int index)
 {
     EnsureUniforms();
     bgfx::ProgramHandle &program = programs_->handles[index];
+    static constexpr const char *kSmaaVertex[] = {"vs_fx_smaa_edges", "vs_fx_smaa_weights", "vs_fx_smaa_blend"};
     if (!bgfx::isValid(program))
-        program = LoadProgram(index == kFlare ? "vs_fx_sprite" : "vs_fx_screen", kFragmentNames[index]);
+        program = LoadProgram(index == kFlare                                  ? "vs_fx_sprite"
+                              : index >= kSmaaEdges && index <= kSmaaBlend     ? kSmaaVertex[index - kSmaaEdges]
+                                                                               : "vs_fx_screen",
+                              kFragmentNames[index]);
     return program;
 }
 
@@ -135,7 +167,7 @@ bgfx::ProgramHandle PostChain::CopyProgram()
 bool PostChain::Prepare(const Settings &settings, int &budget)
 {
     // The programs Submit() picks for these settings (a frame with the scene depth and the sun on screen).
-    int needed[9];
+    int needed[13];
     int count = 0;
     needed[count++] = kWobble; // underwater, on every preset
     if (settings.PostIsIdentity() || !SupportsLut3d())
@@ -153,10 +185,16 @@ bool PostChain::Prepare(const Settings &settings, int &budget)
                 needed[count++] = kShafts;
         }
         needed[count++] = kComposite + (settings.bloom ? 1 : 0) + (settings.tonemap ? 2 : 0) + (settings.ssao ? 4 : 0);
-        if (settings.fxaa)
-            needed[count++] = kFxaa;
+        if (settings.smaa)
+        {
+            needed[count++] = kSmaaEdges;
+            needed[count++] = kSmaaWeights;
+            needed[count++] = kSmaaBlend;
+        }
+        if (settings.render_scale < 1.0f)
+            needed[count++] = kEasu;
         if (settings.sharpen)
-            needed[count++] = kCas;
+            needed[count++] = kRcas;
         if (settings.lens_flare)
             needed[count++] = kFlare;
     }
@@ -171,16 +209,27 @@ bool PostChain::Prepare(const Settings &settings, int &budget)
     return true;
 }
 
-void PostChain::EnsureTarget(Target &target, uint16_t width, uint16_t height)
+void PostChain::EnsureTarget(Target &target, uint16_t width, uint16_t height, bgfx::TextureFormat::Enum format)
 {
     width = std::max<uint16_t>(width, 1);
     height = std::max<uint16_t>(height, 1);
     if (bgfx::isValid(target.fb) && target.width == width && target.height == height)
         return;
     Destroy(target.fb);
-    target.fb = bgfx::createFrameBuffer(width, height, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | kClampLinear);
+    target.fb = bgfx::createFrameBuffer(width, height, format, BGFX_TEXTURE_RT | kClampLinear);
     target.width = width;
     target.height = height;
+}
+
+void PostChain::EnsureSmaaTables()
+{
+    if (bgfx::isValid(smaa_area_))
+        return;
+    // As the headers specify: the area table RG8, the search table R8, rows top first; sampled linear, clamped.
+    smaa_area_ = bgfx::createTexture2D(AREATEX_WIDTH, AREATEX_HEIGHT, false, 1, bgfx::TextureFormat::RG8, kClampLinear,
+                                       bgfx::makeRef(areaTexBytes, sizeof(areaTexBytes)));
+    smaa_search_ = bgfx::createTexture2D(SEARCHTEX_WIDTH, SEARCHTEX_HEIGHT, false, 1, bgfx::TextureFormat::R8, kClampLinear,
+                                         bgfx::makeRef(searchTexBytes, sizeof(searchTexBytes)));
 }
 
 void PostChain::EnsureLut(const Settings &settings, const ColorGrade &scene_grade, bool scene_cut)
@@ -256,7 +305,7 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
         if (!copy_only)
             EnsureTarget(wobbled_, frame.scene_width, frame.scene_height);
         SetupView(view, "fx underwater wobble", copy_only ? frame.target : wobbled_.fb,
-                  copy_only ? frame.target_width : frame.scene_width, copy_only ? frame.target_height : frame.scene_height);
+                  copy_only ? frame.target_width : frame.scene_width, copy_only ? frame.target_height : frame.scene_height, true);
         const bgfx::ProgramHandle program = Program(kWobble);
         bgfx::setUniform(u_wobble_, wobble, 2);
         bgfx::setTexture(0, s_scene_, frame.scene_color, kClampLinear);
@@ -267,7 +316,7 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
     }
     if (copy_only)
     {
-        SetupView(view, "fx copy", frame.target, frame.target_width, frame.target_height);
+        SetupView(view, "fx copy", frame.target, frame.target_width, frame.target_height, true);
         const bgfx::ProgramHandle copy = Program(kCopy);
         bgfx::setTexture(0, s_scene_, frame.scene_color, same_size ? kClampPoint : kClampLinear);
         SubmitScreenTriangle(view, copy, kWriteColor, frame.flip_v);
@@ -296,7 +345,7 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
         ao[2][1] = 1.0f / frame.scene_height;
         ao[2][2] = 1.0f / occlusion_.width;
         ao[2][3] = 1.0f / occlusion_.height;
-        SetupView(view, "fx ambient occlusion", occlusion_.fb, occlusion_.width, occlusion_.height);
+        SetupView(view, "fx ambient occlusion", occlusion_.fb, occlusion_.width, occlusion_.height, true);
         const bgfx::ProgramHandle program = Program(kSsao);
         bgfx::setUniform(u_ao_, ao, 3);
         bgfx::setTexture(4, s_depth_, frame.scene_depth, kClampPoint);
@@ -317,7 +366,7 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
         for (int i = 0; i <= levels; ++i)
             EnsureTarget(bloom_[i], width >> i, height >> i);
 
-        SetupView(view, "fx bloom bright", bloom_[0].fb, bloom_[0].width, bloom_[0].height);
+        SetupView(view, "fx bloom bright", bloom_[0].fb, bloom_[0].width, bloom_[0].height, true);
         const float threshold = std::clamp(settings.bloom_threshold, 0.0f, 0.98f);
         const float prefilter[4] = {1.0f / frame.scene_width, 1.0f / frame.scene_height, threshold,
                                     std::clamp(settings.bloom_knee, 0.0f, 1.0f) * threshold};
@@ -330,7 +379,7 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
 
         for (int i = 1; i <= levels; ++i)
         {
-            SetupView(view, "fx bloom down", bloom_[i].fb, bloom_[i].width, bloom_[i].height);
+            SetupView(view, "fx bloom down", bloom_[i].fb, bloom_[i].width, bloom_[i].height, true);
             const float half[4] = {0.5f / bloom_[i - 1].width, 0.5f / bloom_[i - 1].height, 0.0f, 0.0f};
             const bgfx::ProgramHandle down = Program(kBloomDown);
             bgfx::setUniform(u_bloom_, half);
@@ -339,7 +388,7 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
         }
         for (int i = levels; i >= 1; --i)
         {
-            SetupView(view, "fx bloom up", bloom_[i - 1].fb, bloom_[i - 1].width, bloom_[i - 1].height);
+            SetupView(view, "fx bloom up", bloom_[i - 1].fb, bloom_[i - 1].width, bloom_[i - 1].height, true);
             const float half[4] = {0.5f / bloom_[i].width, 0.5f / bloom_[i].height, 0.0f, 0.0f};
             const bgfx::ProgramHandle up = Program(kBloomUp);
             bgfx::setUniform(u_bloom_, half);
@@ -361,16 +410,18 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
     }
 
     // ---- composite: bloom, tone curve, grade ----
-    const bool then_fxaa = settings.fxaa;
+    // Different sizes: the scene is the internal picture of Settings::render_scale, EASU brings it to the target.
+    const bool upscale = !same_size;
+    const bool then_smaa = settings.smaa;
     const bool then_sharpen = settings.sharpen;
-    const bool composite_is_final = !then_fxaa && !then_sharpen;
+    const bool composite_is_final = !then_smaa && !upscale && !then_sharpen;
     if (!composite_is_final)
         EnsureTarget(graded_, frame.scene_width, frame.scene_height);
     EnsureLut(settings, frame.scene_grade, frame.scene_cut);
     {
         const bgfx::FrameBufferHandle out = composite_is_final ? frame.target : graded_.fb;
         SetupView(view, "fx composite", out, composite_is_final ? frame.target_width : frame.scene_width,
-                  composite_is_final ? frame.target_height : frame.scene_height);
+                  composite_is_final ? frame.target_height : frame.scene_height, true);
         const bgfx::ProgramHandle composite =
             Program(kComposite + (levels > 0 ? 1 : 0) + (settings.tonemap ? 2 : 0) + (occlusion ? 4 : 0));
         const float tone[4] = {settings.exposure * TonemapExposureBias(), std::clamp(settings.tonemap_strength, 0.0f, 1.0f),
@@ -381,7 +432,7 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
         const float dither[4] = {settings.dither ? 1.0f / 255.0f : 0.0f, static_cast<float>((++frame_counter_ * 37u) % 251u),
                                  0.0f, 0.0f};
         bgfx::setUniform(u_dither_, dither);
-        bgfx::setTexture(0, s_scene_, frame.scene_color, same_size || !composite_is_final ? kClampPoint : kClampLinear);
+        bgfx::setTexture(0, s_scene_, frame.scene_color, kClampPoint);
         if (levels > 0)
             bgfx::setTexture(1, s_bloom_, bgfx::getTexture(bloom_[0].fb), kClampLinear);
         bgfx::setTexture(2, s_lut_, lut_, kClampLinear);
@@ -391,37 +442,92 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
             bgfx::setTexture(3, s_ao_, bgfx::getTexture(occlusion_.fb), kClampLinear);
             bgfx::setTexture(4, s_depth_, frame.scene_depth, kClampPoint);
         }
-        // The intermediate target keeps luma in alpha for FXAA; a final target must stay opaque.
-        SubmitScreenTriangle(view++, composite, composite_is_final ? BGFX_STATE_WRITE_RGB : kWriteColor,
-                             composite_is_final && frame.flip_v);
+        SubmitScreenTriangle(view++, composite, kWriteColor, composite_is_final && frame.flip_v);
     }
+    bgfx::TextureHandle current = BGFX_INVALID_HANDLE;
+    if (!composite_is_final)
+        current = bgfx::getTexture(graded_.fb);
 
-    // ---- anti-aliasing ----
-    bgfx::TextureHandle current = composite_is_final ? frame.scene_color : bgfx::getTexture(graded_.fb);
-    const float texel[4] = {1.0f / frame.scene_width, 1.0f / frame.scene_height, std::clamp(settings.sharpness, 0.0f, 1.0f), 0.0f};
-    if (then_fxaa)
+    // ---- SMAA 1x at the scene size: edges, blending weights, neighbourhood blend ----
+    if (then_smaa)
     {
-        if (then_sharpen)
-            EnsureTarget(antialiased_, frame.scene_width, frame.scene_height);
-        const bgfx::FrameBufferHandle out = then_sharpen ? antialiased_.fb : frame.target;
-        SetupView(view, "fx fxaa", out, then_sharpen ? frame.scene_width : frame.target_width,
-                  then_sharpen ? frame.scene_height : frame.target_height);
-        const bgfx::ProgramHandle fxaa = Program(kFxaa);
-        bgfx::setUniform(u_texel_, texel);
+        EnsureSmaaTables();
+        EnsureTarget(smaa_edges_, frame.scene_width, frame.scene_height, SmaaEdgeFormat());
+        EnsureTarget(smaa_weights_, frame.scene_width, frame.scene_height);
+        const float metrics[4] = {1.0f / frame.scene_width, 1.0f / frame.scene_height, static_cast<float>(frame.scene_width),
+                                  static_cast<float>(frame.scene_height)};
+        // Edge pixels only: the rest discards and keeps the clear (no edge), as the reference requires.
+        SetupView(view, "fx smaa edges", smaa_edges_.fb, smaa_edges_.width, smaa_edges_.height, true);
+        bgfx::setUniform(u_smaa_, metrics);
         bgfx::setTexture(0, s_scene_, current, kClampLinear);
-        SubmitScreenTriangle(view++, fxaa, kWriteColor, !then_sharpen && frame.flip_v);
-        if (then_sharpen)
+        SubmitScreenTriangle(view++, Program(kSmaaEdges), kWriteColor);
+
+        SetupView(view, "fx smaa weights", smaa_weights_.fb, smaa_weights_.width, smaa_weights_.height, true);
+        bgfx::setUniform(u_smaa_, metrics);
+        bgfx::setTexture(0, s_smaa_edges_, bgfx::getTexture(smaa_edges_.fb), kClampLinear);
+        bgfx::setTexture(1, s_smaa_area_, smaa_area_, kClampLinear);
+        bgfx::setTexture(2, s_smaa_search_, smaa_search_, kClampLinear);
+        SubmitScreenTriangle(view++, Program(kSmaaWeights), kWriteColor);
+
+        const bool smaa_is_final = !upscale && !then_sharpen;
+        if (!smaa_is_final)
+            EnsureTarget(antialiased_, frame.scene_width, frame.scene_height);
+        SetupView(view, "fx smaa blend", smaa_is_final ? frame.target : antialiased_.fb,
+                  smaa_is_final ? frame.target_width : frame.scene_width, smaa_is_final ? frame.target_height : frame.scene_height,
+                  true);
+        bgfx::setUniform(u_smaa_, metrics);
+        bgfx::setTexture(0, s_scene_, current, kClampLinear);
+        bgfx::setTexture(1, s_smaa_weights_, bgfx::getTexture(smaa_weights_.fb), kClampLinear);
+        SubmitScreenTriangle(view++, Program(kSmaaBlend), kWriteColor, smaa_is_final && frame.flip_v);
+        if (!smaa_is_final)
             current = bgfx::getTexture(antialiased_.fb);
     }
 
-    // ---- sharpen / upscale ----
+    // ---- FSR 1: EASU upscale to the target size, RCAS sharpening there ----
+    // The constants are the reference's (FsrEasuCon / FsrRcasCon); [3].zw of the uniform carries the input size.
+    float fsr[4][4] = {};
+    const auto fsr_constants = [&fsr](const AU1 *con, int count, float input_width, float input_height) {
+        std::memset(fsr, 0, sizeof(fsr));
+        std::memcpy(fsr, con, sizeof(AU1) * count);
+        fsr[3][2] = input_width;
+        fsr[3][3] = input_height;
+    };
+    if (upscale)
+    {
+        varAU4(con0);
+        varAU4(con1);
+        varAU4(con2);
+        varAU4(con3);
+        FsrEasuCon(con0, con1, con2, con3, frame.scene_width, frame.scene_height, frame.scene_width, frame.scene_height,
+                   frame.target_width, frame.target_height);
+        AU1 con[16];
+        std::memcpy(con, con0, sizeof(AU1) * 4);
+        std::memcpy(con + 4, con1, sizeof(AU1) * 4);
+        std::memcpy(con + 8, con2, sizeof(AU1) * 4);
+        std::memcpy(con + 12, con3, sizeof(AU1) * 2); // con3.zw are unused by EASU and carry the input size
+        fsr_constants(con, 14, frame.scene_width, frame.scene_height);
+        if (then_sharpen)
+            EnsureTarget(upscaled_, frame.target_width, frame.target_height);
+        SetupView(view, "fx fsr easu", then_sharpen ? upscaled_.fb : frame.target, frame.target_width, frame.target_height, true);
+        const float out_size[4] = {static_cast<float>(frame.target_width), static_cast<float>(frame.target_height), 0.0f, 0.0f};
+        bgfx::setUniform(u_fsr_, fsr, 4);
+        bgfx::setUniform(u_fsr_out_, out_size);
+        // EASU fetches texels: the sampler state does not matter.
+        bgfx::setTexture(0, s_scene_, current, kClampPoint);
+        SubmitScreenTriangle(view++, Program(kEasu), kWriteColor, !then_sharpen && frame.flip_v);
+        current = bgfx::getTexture(upscaled_.fb);
+    }
     if (then_sharpen)
     {
-        SetupView(view, "fx sharpen", frame.target, frame.target_width, frame.target_height);
-        const bgfx::ProgramHandle cas = Program(kCas);
-        bgfx::setUniform(u_texel_, texel);
-        bgfx::setTexture(0, s_scene_, current, kClampLinear);
-        SubmitScreenTriangle(view++, cas, kWriteColor, frame.flip_v);
+        // sharpness 1 = 0 stops (the reference's maximum), 0 = 2 stops softer.
+        varAU4(con0);
+        FsrRcasCon(con0, 2.0f * (1.0f - std::clamp(settings.sharpness, 0.0f, 1.0f)));
+        con0[1] = con0[2] = con0[3] = 0; // packed halves of the 16-bit path: not used in the 32-bit one
+        fsr_constants(con0, 4, frame.target_width, frame.target_height);
+        SetupView(view, "fx fsr rcas", frame.target, frame.target_width, frame.target_height, true);
+        bgfx::setUniform(u_fsr_, fsr, 4);
+        bgfx::setTexture(0, s_scene_, current, kClampPoint);
+        SubmitScreenTriangle(view++, Program(kRcas), kWriteColor, frame.flip_v);
     }
     // ---- lens flare: procedural sprites added on top of the finished image ----
     if (settings.lens_flare && frame.sun_visibility > 0.0f)

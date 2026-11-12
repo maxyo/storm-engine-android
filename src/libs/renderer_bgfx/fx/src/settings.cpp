@@ -19,7 +19,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.bloom = true;
     s.bloom_threshold = 0.92f;
     s.bloom_intensity = 0.12f;
-    s.msaa = 4; // the primary anti-aliasing; FXAA replaces it where MSAA is unavailable (ConstrainSettings)
+    s.msaa = 4; // the primary anti-aliasing; SMAA replaces it where MSAA is unavailable (ConstrainSettings)
     s.alpha_to_coverage = true;
     s.dither = true; // ±0.5/255: invisible, removes banding of the bloom
     s.contact_shadows = true;
@@ -43,11 +43,11 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.lamp_shadows = 0;
         return s;
     }
+    // No sharpening by default: sharpening turns the sub-pixel detail of distant foliage into a visible mosaic; it
+    // stays an option (RCAS).
     s.bloom_downscale = 2;
     s.bloom_levels = 4;
     s.anisotropy = 8;
-    // No sharpening by default: CAS turns the sub-pixel detail of distant foliage into a visible mosaic even at
-    // low strength; it stays an option.
     s.sea_band_limit = true;
     s.sea_soft_edges = true;
     // Wind sway is not in the presets: the game already sways sails, flags and grass itself, and the static
@@ -65,7 +65,7 @@ Settings Settings::FromPreset(QualityPreset preset)
 bool Settings::PostIsIdentity() const
 {
     const bool graded = grade != GradePreset::Original && grade_strength > 0.0f;
-    return !tonemap && !graded && !bloom && !fxaa && !sharpen && !sun_shafts && !ssao && !dither && !lens_flare && !scene_grading;
+    return !tonemap && !graded && !bloom && !smaa && !sharpen && render_scale >= 1.0f && !sun_shafts && !ssao && !dither && !lens_flare && !scene_grading;
 }
 
 std::string Support::Describe() const
@@ -81,6 +81,8 @@ std::string Support::Describe() const
     text += word(normal_map);
     text += ", MSAA targets: ";
     text += word(msaa);
+    text += ", R8/RG8 textures (SMAA): ";
+    text += word(smaa);
     text += ", sampleable depth with MSAA: ";
     text += word(msaa_depth);
     text += ", anisotropic filtering: ";
@@ -103,23 +105,28 @@ struct Rule
 constexpr Rule kRules[] = {
     {[](const Settings &s, const Support &c) { return !c.lut_3d && !s.PostIsIdentity(); },
      [](Settings &s) {
-         s.tonemap = s.bloom = s.ssao = s.sun_shafts = s.scene_grading = s.dither = s.lens_flare = s.fxaa = s.sharpen = false;
+         s.tonemap = s.bloom = s.ssao = s.sun_shafts = s.scene_grading = s.dither = s.lens_flare = s.smaa = s.sharpen = false;
          s.grade = GradePreset::Original;
+         s.render_scale = 1.0f;
      },
-     "the post-processing chain needs 3D textures: every post effect switched off"},
+     "the post-processing chain needs 3D textures: every post effect switched off, the scene at native resolution (no FSR)"},
+    {[](const Settings &s, const Support &) { return !(s.render_scale >= 0.5f && s.render_scale <= 1.0f); },
+     [](Settings &s) { s.render_scale = s.render_scale > 1.0f ? 1.0f : 0.5f; }, "render scale must be 0.5..1 (the FSR 1 range): clamped"},
     {[](const Settings &s, const Support &) { return s.msaa != 1 && s.msaa != 2 && s.msaa != 4; }, [](Settings &s) { s.msaa = s.msaa > 2 ? 4 : 1; },
      "MSAA sample count must be 1, 2 or 4: rounded"},
     // A requested MSAA (Средняя / Высокая) that the device cannot give (no multisampled targets: caps, a GPU-family
-    // profile, or the self-test found the multisampled scene broken) is replaced by FXAA, so these phones keep an
-    // anti-aliasing. FXAA is a post effect: without the post chain (3D textures) there is none to give.
-    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa && c.lut_3d; },
+    // profile, or the self-test found the multisampled scene broken) is replaced by SMAA, so these phones keep an
+    // anti-aliasing. SMAA is a post effect: without the post chain (3D textures) or its tables (R8/RG8) there is none.
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa && c.lut_3d && c.smaa; },
      [](Settings &s) {
          s.msaa = 1;
-         s.fxaa = true;
+         s.smaa = true;
      },
-     "MSAA unavailable: FXAA instead"},
-    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa && !c.lut_3d; }, [](Settings &s) { s.msaa = 1; },
-     "MSAA unavailable and FXAA needs the post-processing chain (3D textures): no anti-aliasing"},
+     "MSAA unavailable: SMAA instead"},
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa && !(c.lut_3d && c.smaa); }, [](Settings &s) { s.msaa = 1; },
+     "MSAA unavailable and SMAA needs the post-processing chain (3D textures) and R8/RG8 textures: no anti-aliasing"},
+    {[](const Settings &s, const Support &c) { return s.smaa && !c.smaa; }, [](Settings &s) { s.smaa = false; },
+     "SMAA needs R8 and RG8 textures: switched off"},
     {[](const Settings &s, const Support &) { return s.alpha_to_coverage && s.msaa <= 1; }, [](Settings &s) { s.alpha_to_coverage = false; },
      "alpha to coverage works only with MSAA: switched off"},
     {[](const Settings &s, const Support &c) { return s.anisotropy > 1 && !c.anisotropy; }, [](Settings &s) { s.anisotropy = 1; },
@@ -211,6 +218,7 @@ RendererState RendererStateFor(const Settings &settings)
     state.msaa_samples = settings.msaa;
     state.alpha_to_coverage = settings.alpha_to_coverage && settings.msaa > 1;
     state.max_anisotropy = settings.anisotropy;
+    state.render_scale = settings.render_scale;
     return state;
 }
 
@@ -245,7 +253,7 @@ Support RestrictSupport(const Support &device, CapsProfile profile)
     Support s = device;
     switch (profile)
     {
-    case CapsProfile::Gles30Minimal:
+    case CapsProfile::Gles30Minimal: // R8/RG8 textures are core GLES 3.0: SMAA stays
         s.msaa = s.msaa_depth = s.anisotropy = false;
         break;
     case CapsProfile::MaliG5x:

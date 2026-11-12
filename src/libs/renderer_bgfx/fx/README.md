@@ -1,7 +1,7 @@
 # Graphics effects package for the bgfx renderer
 
 Upgrades on top of the legacy look: post-processing (ambient occlusion, tone curve, colour grades by place and
-hour, bloom, sun shafts, lens flare, dither, FXAA, CAS sharpening), improvements of the game's own sea (`SeaDepth`), an analytic sky with matching
+hour, bloom, sun shafts, lens flare, dither, SMAA, the FSR 1 upscale and sharpening), improvements of the game's own sea (`SeaDepth`), an analytic sky with matching
 fog, contact shadows, and per-pixel lighting for the fixed-function emulator: sun, point and spot lights, sun
 shadows, an ambient-occlusion volume of interiors, rim light, linear-light sums, relief from derived normal maps
 and aerial perspective. MSAA, alpha to coverage and anisotropic filtering are renderer state: fx decides them
@@ -29,9 +29,16 @@ never showed on this port.
   lights, soft sun shadows and ambient occlusion.
 
 Where MSAA is unavailable (no multisampled targets, a GPU-family profile, a failed self-test) `ConstrainSettings`
-replaces it with FXAA. Implemented but in no preset (options only; `tests/core_check.cpp` keeps them out of the
+replaces it with SMAA 1x (logged "MSAA unavailable: SMAA instead"; without the post chain or R8/RG8 textures there
+is no anti-aliasing, logged too). MSAA stays the anti-aliasing where it exists: it resolves the sub-pixel rigging,
+masts and alpha-tested foliage that a post filter cannot recover, and costs little on tile GPUs.
+
+With `fx_gpu_profile=1` the profile line gives the `scene=`/`display=` sizes of the post chain and `gpu_smaa_ms`,
+`gpu_easu_ms`, `gpu_rcas_ms`.
+
+Implemented but in no preset (options only; `tests/core_check.cpp` keeps them out of the
 presets): tone curve, scene grading by place and hour, lens flare, sun shafts, analytic sky and clouds,
-hemisphere ambient, linear-light sums, rim light, aerial perspective, CAS sharpening, the sea's sun specular. Wind sway (`fx_wind.sh`)
+hemisphere ambient, linear-light sums, rim light, aerial perspective, RCAS sharpening, the sea's sun specular. Wind sway (`fx_wind.sh`)
 is not wired into the game. `Shadows::CasterProgram`,
 `Sky::BindAerial/BindWind` and the flash lights are used by `tools/fx-preview` only.
 

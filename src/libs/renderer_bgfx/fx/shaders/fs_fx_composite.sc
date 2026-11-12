@@ -1,6 +1,5 @@
 $input v_uv
 // Scene (+ ambient occlusion, bloom) -> tone curve -> colour grade. Variants: FX_BLOOM, FX_TONEMAP, FX_SSAO.
-// Alpha receives luma for the FXAA pass.
 #include "fx_common.sh"
 #include "fx_tonemap.sh"
 
@@ -55,5 +54,5 @@ void main()
     c = texture3D(s_fxLut, c * u_fxLut.x + vec3_splat(u_fxLut.y)).rgb;
     // Dither: keeps smooth gradients free of banding.
     c += vec3_splat((fxNoise(gl_FragCoord.xy + vec2_splat(u_fxDither.y)) - 0.5) * u_fxDither.x);
-    gl_FragColor = vec4(c, fxLuma(c));
+    gl_FragColor = vec4(c, 1.0);
 }

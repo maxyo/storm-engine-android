@@ -95,9 +95,12 @@ struct Settings
     float bloom_threshold = 0.85f; // linear value of the brightest channel above which a pixel glows
     float bloom_knee = 0.12f;     // glow fades in from threshold * (1 - knee) and is full at white
     float bloom_intensity = 0.35f;
-    bool fxaa = false;
-    bool sharpen = false;         // contrast adaptive sharpening, also the upscale filter
-    float sharpness = 0.5f;       // 0..1
+    bool smaa = false;            // SMAA 1x (post anti-aliasing), where MSAA is unavailable (ConstrainSettings)
+    // The 3D scene is rendered at this fraction of the display size (0.5..1) and upscaled by FSR 1 EASU; the game's
+    // interfaces are drawn at the display size after the upscale. 1 = native.
+    float render_scale = 1.0f;
+    bool sharpen = false;         // FSR 1 RCAS (robust contrast-adaptive sharpening) at the display size
+    float sharpness = 0.5f;       // 0..1: RCAS strength, 1 = the reference's maximum (0 stops), 0 = 2 stops softer
     bool sun_shafts = false;      // high end only
     float sun_shafts_intensity = 0.35f;
     bool dither = false;          // +-0.5/255 ordered noise on the sky and the final image: no banding in gradients
@@ -156,6 +159,7 @@ struct Support
     bool scene_depth = false;   // the scene's depth attachment can be sampled: Settings::ssao, Settings::sea_soft_edges
     bool normal_map = false;    // RG8 textures: kLightingNormalMap
     bool msaa = false;          // multisampled RGBA8 render targets: Settings::msaa
+    bool smaa = false;          // R8 and RG8 textures (the SMAA search and area tables): Settings::smaa
     bool msaa_depth = false;    // the scene depth can still be sampled when the scene target is multisampled
                                 // (renderer knowledge, like scene_depth): msaa together with ssao / sea soft edges
     bool anisotropy = false;    // anisotropic texture filtering
@@ -182,6 +186,8 @@ struct RendererState
                                       // fxCoverageAlpha() (fx_coverage.sh) instead of the alpha test
     uint8_t max_anisotropy = 1;       // > 1: BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC on mip-mapped world
                                       // textures and BGFX_RESET_MAXANISOTROPY; cap the level at this value
+    float render_scale = 1.0f;        // < 1: the scene colour + depth target is this fraction of the display size;
+                                      // PostChain upscales it, the interfaces draw on the display-size picture
 };
 RendererState RendererStateFor(const Settings &settings);
 

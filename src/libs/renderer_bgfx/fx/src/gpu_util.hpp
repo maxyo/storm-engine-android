@@ -25,8 +25,10 @@ template <typename Handle> void Destroy(Handle &handle)
     handle = BGFX_INVALID_HANDLE;
 }
 
-// Sequential view rendering into `target` (invalid = back buffer) without clearing.
-void SetupView(bgfx::ViewId view, const char *name, bgfx::FrameBufferHandle target, uint16_t width, uint16_t height);
+// Sequential view rendering into `target` (invalid = back buffer). `clear`: the pass writes every pixel (or SMAA's
+// edges need zeros): cleared at the start, so a tile GPU does not load the old contents.
+void SetupView(bgfx::ViewId view, const char *name, bgfx::FrameBufferHandle target, uint16_t width, uint16_t height,
+               bool clear = false);
 
 // Device capabilities the passes depend on; fx::DetectSupport() reports the same answers.
 bool SupportsLut3d();
@@ -34,6 +36,9 @@ bool SupportsShadowMap();
 bool SupportsAoVolume();
 bool SupportsNormalMap();
 bool SupportsMsaa();
+bool SupportsSmaa();
+// The format of SMAA's edge target: RG8 where it renders, else RGBA8.
+bgfx::TextureFormat::Enum SmaaEdgeFormat();
 
 inline constexpr uint32_t kClampLinear = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_W_CLAMP;
 inline constexpr uint32_t kClampPoint = kClampLinear | BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT | BGFX_SAMPLER_MIP_POINT;

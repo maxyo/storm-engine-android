@@ -1,10 +1,13 @@
-// Post-processing chain: ambient occlusion, bloom, sun shafts, tone curve, colour grades, dither, FXAA,
-// sharpening, lens flare. Reads the game's offscreen colour target and writes
-// the final image into a frame buffer or the back buffer.
+// Post-processing chain: ambient occlusion, bloom, sun shafts, tone curve, colour grades, dither, SMAA, the FSR 1
+// upscale and sharpening, lens flare. Reads the game's offscreen colour target and writes the final image into a
+// frame buffer or the back buffer.
 //
-//   scene ─► [wobble] ─┬─────────────────────────────► composite ─► [FXAA] ─► [CAS] ─► target
-//                      ├► bright pass ► down… ► up… ──┤ (bloom, + sun shafts)
-//   depth ─────────────┴► ambient occlusion (half) ───┘
+//   scene ─► [wobble] ─┬─────────────────────────────► composite ─► [SMAA] ─► [EASU] ─► [RCAS] ─► target
+//                      ├► bright pass ► down… ► up… ──┤ (bloom,     edges,     (scene     (target
+//   depth ─────────────┴► ambient occlusion (half) ───┘  + shafts)  weights,    → target   size)
+//                                                                   blend       size)
+// Everything before EASU runs at the scene's (internal) size; EASU runs when the scene is smaller than the target
+// (Settings::render_scale), RCAS and the lens flare at the target size.
 //
 // With Settings::PostIsIdentity() the chain is a single copy (or the wobble alone). Passes that are
 // switched off cost nothing. Requests it cannot honour (ValidateSettings() in
@@ -27,12 +30,12 @@ class PostChain
 {
   public:
     // Views consumed at most by one Submit(): a contiguous range the caller reserves.
-    static constexpr uint16_t kMaxViews = 20;
+    static constexpr uint16_t kMaxViews = 24;
 
     struct Frame
     {
         bgfx::TextureHandle scene_color = BGFX_INVALID_HANDLE; // RGBA8, gamma encoded, the game's offscreen target
-        uint16_t scene_width = 0;                              // its size (smaller than the target only in tools/fx-preview render_scale)
+        uint16_t scene_width = 0;                              // its size: smaller than the target with Settings::render_scale < 1
         uint16_t scene_height = 0;
         bgfx::FrameBufferHandle target = BGFX_INVALID_HANDLE;  // invalid = back buffer
         uint16_t target_width = 0;
@@ -104,7 +107,9 @@ class PostChain
         uint16_t width = 0;
         uint16_t height = 0;
     };
-    void EnsureTarget(Target &target, uint16_t width, uint16_t height);
+    void EnsureTarget(Target &target, uint16_t width, uint16_t height,
+                      bgfx::TextureFormat::Enum format = bgfx::TextureFormat::RGBA8);
+    void EnsureSmaaTables();
     void EnsureLut(const Settings &settings, const ColorGrade &scene_grade, bool scene_cut);
     bgfx::ProgramHandle Program(int index);
     void EnsureUniforms();
@@ -114,7 +119,7 @@ class PostChain
     // destroyed with the last chain that uses them.
     struct Programs
     {
-        static constexpr int kCount = 18;
+        static constexpr int kCount = 21;
         std::array<bgfx::ProgramHandle, kCount> handles{};
         Programs() { handles.fill(BGFX_INVALID_HANDLE); }
         ~Programs();
@@ -125,7 +130,12 @@ class PostChain
     bool uniforms_loaded_ = false;
     std::array<Target, kMaxBloomLevels + 1> bloom_{};
     Target graded_{};      // composite output when another pass follows
-    Target antialiased_{}; // FXAA output when sharpening follows
+    Target smaa_edges_{};  // SMAA edges (RG8 where it renders) and blending weights, scene size
+    Target smaa_weights_{};
+    Target antialiased_{}; // SMAA output when the upscale or sharpening follows
+    Target upscaled_{};    // EASU output when sharpening follows, target size
+    bgfx::TextureHandle smaa_area_ = BGFX_INVALID_HANDLE;   // the reference's precomputed tables (RG8, R8)
+    bgfx::TextureHandle smaa_search_ = BGFX_INVALID_HANDLE;
     Target occlusion_{};   // half resolution: occlusion + packed depth
     Target wobbled_{};     // the wobbled scene when more passes follow
     bgfx::TextureHandle lut_ = BGFX_INVALID_HANDLE;
@@ -146,10 +156,16 @@ class PostChain
     bgfx::UniformHandle u_tone_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_bloom_range_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_lut_ = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle u_texel_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_ao_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_depth_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_ao_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_smaa_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_smaa_edges_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_smaa_area_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_smaa_search_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_smaa_weights_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_fsr_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_fsr_out_ = BGFX_INVALID_HANDLE;
     bool reported_depth_ = false;
     bool reported_shafts_ = false;
     bool reported_lut_ = false;

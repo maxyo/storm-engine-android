@@ -454,6 +454,8 @@ void Device::scene_complete()
         targets.scene_depth = back_depth->store->handle;
     targets.width = static_cast<uint16_t>(scene->width);
     targets.height = static_cast<uint16_t>(scene->height);
+    targets.target_width = static_cast<uint16_t>(post_color->width);
+    targets.target_height = static_cast<uint16_t>(post_color->height);
     targets.target = framebuffer(post_color.get(), 0, 0, nullptr);
     targets.first_view = static_cast<bgfx::ViewId>(render::kGameViewBegin + views_used);
     memcpy(targets.view.data(), &scene_view.m[0][0], sizeof(float) * 16);

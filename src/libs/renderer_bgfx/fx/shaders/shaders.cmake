@@ -28,8 +28,16 @@ foreach(variant "" b t bt a ab at abt)
     endif()
 endforeach()
 storm_fx_add_shader(fx_shaders fs_fx_ssao "${fx_sc}/fs_fx_ssao.sc")
-storm_fx_add_shader(fx_shaders fs_fx_fxaa "${fx_sc}/fs_fx_fxaa.sc")
-storm_fx_add_shader(fx_shaders fs_fx_cas "${fx_sc}/fs_fx_cas.sc")
+# SMAA 1x (include/fx_smaa.sh): a vertex shader per pass for the reference's offsets.
+storm_fx_add_shader(fx_shaders vs_fx_smaa_edges "${fx_sc}/vs_fx_smaa.sc" DEFINES FX_SMAA_EDGES)
+storm_fx_add_shader(fx_shaders vs_fx_smaa_weights "${fx_sc}/vs_fx_smaa.sc" DEFINES FX_SMAA_WEIGHTS)
+storm_fx_add_shader(fx_shaders vs_fx_smaa_blend "${fx_sc}/vs_fx_smaa_blend.sc")
+foreach(pass edges weights blend)
+    storm_fx_add_shader(fx_shaders fs_fx_smaa_${pass} "${fx_sc}/fs_fx_smaa_${pass}.sc")
+endforeach()
+# FSR 1 (include/fx_fsr.sh): EASU upscale, RCAS sharpening.
+storm_fx_add_shader(fx_shaders fs_fx_easu "${fx_sc}/fs_fx_easu.sc")
+storm_fx_add_shader(fx_shaders fs_fx_rcas "${fx_sc}/fs_fx_rcas.sc")
 
 storm_fx_add_shader(fx_shaders vs_fx_sky "${fx_sc}/vs_fx_sky.sc")
 storm_fx_add_shader(fx_shaders fs_fx_sky "${fx_sc}/fs_fx_sky.sc")
@@ -44,4 +52,4 @@ storm_fx_add_shader(fx_shaders vs_fx_shadow_caster "${fx_sc}/vs_fx_shadow_caster
 storm_fx_add_shader(fx_shaders fs_fx_shadow_caster "${fx_sc}/fs_fx_shadow_caster.sc")
 
 storm_fx_build_shaders(TARGET storm_fx_shaders NAMESPACE storm_fx_shaders VARYING "${fx_sc}/varying.def.sc"
-    INCLUDES "${fx_sc}/include" SHADERS ${fx_shaders})
+    INCLUDES "${fx_sc}/include" "${storm_smaa_SOURCE_DIR}" "${storm_fidelityfx_fsr_SOURCE_DIR}/ffx-fsr" SHADERS ${fx_shaders})
