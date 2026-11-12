@@ -5,7 +5,6 @@ $input v_uv
 
 SAMPLER2D(s_fxScene, 0);
 uniform vec4 u_fxBloom; // xy: tap offset in uv, z: threshold, w: knee width below the threshold
-uniform vec4 u_fxBloomRange; // x: 1 = expand the LDR highlights to HDR (with the tone curve), 0 = glow as they are
 
 vec3 tap(vec2 uv)
 {
@@ -22,7 +21,7 @@ void main()
     float start = u_fxBloom.z - u_fxBloom.w;
     float w = clamp((l - start) / (1.0 - start), 0.0, 1.0);
     w *= w;
-    // Without the tone curve the picture stays LDR: white walls, sails or the sea seen from below glow as white,
-    // not as three times white (a halo around every bright surface).
-    gl_FragColor = vec4(fxBloomEncode(mix(c, fxExpandLdr(c), u_fxBloomRange.x) * w), 1.0);
+    // The glow stays LDR also under the tone curve: white walls, sails or the sea seen from below glow as white, not
+    // as three times white (a halo around every bright surface, far brighter than the game's highlights).
+    gl_FragColor = vec4(fxBloomEncode(c * w), 1.0);
 }

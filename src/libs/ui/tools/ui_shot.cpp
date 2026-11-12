@@ -264,10 +264,6 @@ class PictureOwner final : public storm::render::FrameOwner
     {
         Unused("IsFormatSupported");
     }
-    void SetFrameRateLimit(uint32_t) override
-    {
-        Unused("SetFrameRateLimit");
-    }
 
   private:
     struct Picture

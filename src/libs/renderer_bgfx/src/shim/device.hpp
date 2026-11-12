@@ -67,6 +67,9 @@ class Context final : public render::FrameOwner
     uint32_t submitted_frames() const { return submitted_frames_; }
     const bgfx::Caps *caps() const { return caps_; }
     bool flip_y() const { return flip_y_; }
+    // D3DTADDRESS_BORDER: GL_CLAMP_TO_BORDER (EXT/OES/NV_texture_border_clamp), which bgfx otherwise turns into
+    // clamp-to-edge without telling.
+    bool border_clamp() const { return border_clamp_; }
     bgfx::UniformHandle sampler(uint32_t unit) const { return samplers_[unit]; }
     void draw_fullscreen(uint16_t view, bgfx::TextureHandle texture, uint32_t sampler_flags, uint64_t state,
                          float u0 = 0, float v0 = 0, float u1 = 1, float v1 = 1);
@@ -88,7 +91,6 @@ class Context final : public render::FrameOwner
     render::GamePicture AcquireGamePicture(std::string_view path) override;
     render::GamePicture QueryGamePicture(std::string_view path) override;
     void ReleaseGamePicture(std::string_view path) override;
-    void SetFrameRateLimit(uint32_t fps) override { frame_limit_ = fps; }
     void set_picture_provider(render::GamePictureProvider *provider);
 
   private:
@@ -105,7 +107,6 @@ class Context final : public render::FrameOwner
     };
     bool start(SDL_Window *window, uint32_t width, uint32_t height, bool vsync); // null window: headless
     void create_resources();
-    void pace();
     void try_restore();
     bool read_density(); // true when it changed
     uint32_t reset_flags() const;
@@ -126,6 +127,7 @@ class Context final : public render::FrameOwner
     std::mutex release_mutex_;
     std::condition_variable release_done_;
     bool flip_y_ = false;
+    bool border_clamp_ = false;
     bool vsync_ = true;
     const bgfx::Caps *caps_ = nullptr;
     render::SurfaceMetrics surface_;
@@ -139,10 +141,8 @@ class Context final : public render::FrameOwner
     std::unordered_map<std::string, Picture> pictures_;
     render::GamePictureProvider *picture_provider_ = nullptr;
     GameTarget game_target_;
-    uint32_t frame_limit_ = 0;
     uint32_t last_frame_ = 0;
     uint32_t submitted_frames_ = 0;
-    double last_present_ = 0.0;
 };
 
 struct Device final : Object
@@ -324,6 +324,9 @@ struct Device final : Object
     bool post_view_logged = false;
     bool interface_first_logged = false;
     bool world_anisotropy = false; // fx::RendererState::max_anisotropy > 1, fixed when the device is created
+    // D3DSAMP_BORDERCOLOR values in bgfx palette entries (BGFX_SAMPLER_BORDER_COLOR), allocated on first use.
+    mutable std::vector<DWORD> border_colors;
+    uint32_t border_color_index(DWORD color) const;
     D3DMATRIX scene_view{}, scene_proj{}; // camera of the last perspective draw into the game picture
     uint16_t view = 0;
     uint16_t views_used = 0;

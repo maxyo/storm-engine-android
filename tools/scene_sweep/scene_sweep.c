@@ -15,6 +15,8 @@
 //   combat:<id>    location <id> with a sword fight against a spawned enemy
 //   surface:<id>   underwater location <id> at noon, the camera looking up at the sea surface
 //   sea:<island>   sea around <island> ("sea:" is open sea)
+//   dusk:open      the open sea at sunset (19:00, the "19 Hour" weather: its sunset sky), heading towards the sun
+//   dawn:open      the open sea at sunrise (7:00, the "7 Hour" weather), heading into the low sun (in view)
 //   battle:<island> sea around <island> with an attacking enemy ship, captured once it has fired
 //   boarding:<island> boarding of that enemy ship (deck fight)
 //   map:world      world map
@@ -328,6 +330,8 @@ void SceneSweep_Start()
 	case "night":	SceneSweep_StartLocation(0);	break;
 	case "surface":	SceneSweep_StartLocation(12);	break;
 	case "sea":		SceneSweep_StartSea(false);		break;
+	case "dusk":	SceneSweep_StartSea(false);		break;
+	case "dawn":	SceneSweep_StartSea(false);		break;
 	case "battle":	SceneSweep_StartSea(true);		break;
 	case "boarding":
 		if(ssStep == 0) SceneSweep_StartSea(true);
@@ -355,7 +359,7 @@ void SceneSweep_Start()
 		}
 		break;
 	}
-	if(ssKind != "loc" && ssKind != "combat" && ssKind != "night" && ssKind != "surface" && ssKind != "sea" && ssKind != "battle" &&
+	if(ssKind != "loc" && ssKind != "combat" && ssKind != "night" && ssKind != "surface" && ssKind != "sea" && ssKind != "dusk" && ssKind != "dawn" && ssKind != "battle" &&
 		ssKind != "boarding" && ssKind != "map" && ssKind != "storm")
 	{
 		SceneSweep_Fail("unknown scene kind");
@@ -405,6 +409,8 @@ bool SceneSweep_Loaded()
 		return true;
 		break;
 	case "sea":		return SceneSweep_AtSea();	break;
+	case "dusk":	return SceneSweep_AtSea();	break;
+	case "dawn":	return SceneSweep_AtSea();	break;
 	case "battle":
 		if(!SceneSweep_AtSea()) return false;
 		// The enemy attacks the hero: its cannons must fire (sea AI relations, cannons, balls).
@@ -521,6 +527,21 @@ void SceneSweep_StartLocation(int hour)
 	if(!DoQuestReloadToLocation(ssId, group, locator, "")) SceneSweep_Fail("the game refused the reload to " + group + ":" + locator);
 }
 
+// The sea login angle ay with which the camera behind the ship looks towards the sun at `hour`, `offset` radians
+// to the side (so that the ship does not hide it). WEATHER moves the sun from azimuth 0 at 5:00 to PI at 23:00
+// (WEATHER::SunAt, the game keeps the defaults) and puts it at (cos az, -sin az) in x, z; the camera of a ship
+// logged in at ay looks along (sin(ay - PI), cos(ay - PI)) (measured: its yaw is ay - PI).
+float SceneSweep_SunHeading(float hour, float offset)
+{
+	float az = (hour - 5.0) / 18.0 * PI;
+	float x = cos(az);
+	float z = -sin(az);
+	if(abs(z) < 0.001) z = 0.001;
+	float ay = atan(x / z);
+	if(z < 0.0) ay = ay + PI;
+	return ay + PI + offset;
+}
+
 void SceneSweep_StartSea(bool withEnemy)
 {
 	if(SceneSweep_AtSea())
@@ -530,12 +551,30 @@ void SceneSweep_StartSea(bool withEnemy)
 			if(ssKind == "map" || ssKind == "storm") return;	// already where the step leads
 		}
 	}
-	SetCurrentTime(12, 0);
-	SetNextWeather("12 Hour");
+	// The game's sunset sky is the 19:00 weather, while WEATHER::SunAt still has the sun about 39 degrees up (above
+	// the view); at 7:00 the sun stands about 15 degrees above the sea, in view, with its glow and flare.
+	if(ssKind == "dusk")
+	{
+		SetCurrentTime(19, 0);
+		SetNextWeather("19 Hour");
+	}
+	if(ssKind == "dawn")
+	{
+		SetCurrentTime(7, 0);
+		SetNextWeather("7 Hour");
+	}
+	if(ssKind != "dusk" && ssKind != "dawn")
+	{
+		SetCurrentTime(12, 0);
+		SetNextWeather("12 Hour");
+	}
 	string island = ssId;
-	if(ssKind == "map" || ssKind == "storm") island = "";
+	if(ssKind == "map" || ssKind == "storm" || ssKind == "dusk" || ssKind == "dawn") island = "";
 	DeleteAttribute(&questToSeaLoginer, "");
 	QuestToSeaLogin_Prepare(0.0, 0.0, island);
+	// The open sea, the ship (and its camera) heading into the sun: sun glare, shafts, the sun road.
+	if(ssKind == "dusk") questToSeaLoginer.PlayerGroup.ay = SceneSweep_SunHeading(19.0, 0.3);	// the sunset sky ahead
+	if(ssKind == "dawn") questToSeaLoginer.PlayerGroup.ay = SceneSweep_SunHeading(7.0, 0.45);
 	if(island != "")
 	{
 		if(FindIsland(island) < 0)
@@ -544,6 +583,7 @@ void SceneSweep_StartSea(bool withEnemy)
 			return;
 		}
 		QuestToSeaLogin_PrepareLoc(island, "reload", "l1", false);
+		// At sunset the ship (and its camera) heads into the sun: sun glare, shafts, the sun road.
 	}
 	if(withEnemy)
 	{

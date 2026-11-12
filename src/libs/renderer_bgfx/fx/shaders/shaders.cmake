@@ -39,9 +39,6 @@ endforeach()
 storm_fx_add_shader(fx_shaders fs_fx_easu "${fx_sc}/fs_fx_easu.sc")
 storm_fx_add_shader(fx_shaders fs_fx_rcas "${fx_sc}/fs_fx_rcas.sc")
 
-storm_fx_add_shader(fx_shaders vs_fx_sky "${fx_sc}/vs_fx_sky.sc")
-storm_fx_add_shader(fx_shaders fs_fx_sky "${fx_sc}/fs_fx_sky.sc")
-storm_fx_add_shader(fx_shaders fs_fx_sky_clouds "${fx_sc}/fs_fx_sky.sc" DEFINES FX_SKY_CLOUDS)
 
 storm_fx_add_shader(fx_shaders fs_fx_sea_depth "${fx_sc}/fs_fx_sea_depth.sc")
 

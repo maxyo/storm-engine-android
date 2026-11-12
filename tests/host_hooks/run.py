@@ -2,7 +2,7 @@
 """Host checks for the engine -> host OS hooks (src/libs/util/include/platform/host_hooks.hpp).
 
 With --sdl-source and CXX set to the NDK clang++, only compiles the checks for Android,
-which also compiles the JNI frame work reporter."""
+which also compiles the JNI frame work hint (report and target)."""
 import argparse
 import os
 from pathlib import Path

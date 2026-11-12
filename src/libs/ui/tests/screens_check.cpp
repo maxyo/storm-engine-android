@@ -970,6 +970,34 @@ static void Transfer(const std::string &models)
     router.OnEvent({"fate-kill", "click", ""});
     ExpectEqual(surface.Last(), prefix + "CAPTURE_CREW_KILL\t-1\tpress", "overboard once the hold completes");
 
+    {
+        // The surrendered captain: his portrait beside the question, overboard held, prison the plain answer.
+        InterfaceModel capture = Load(models, "transfer-loot.json");
+        capture.widgets.push_back(Make("CAPTURE_CAPTION", "text", "Решение по пленным"));
+        capture.widgets.push_back(Make("CAPTURE_TEXT", "text", "Выберите участь сдавшегося капитана."));
+        capture.widgets.push_back(Make("CAPTURE_CAPTAIN_KILL", "button", "Выкинуть за борт", {"press"}));
+        capture.widgets.push_back(Make("CAPTURE_CAPTAIN_PRISON", "button", "Взять пленником", {"press"}));
+        capture.widgets.push_back(Make("CAPTURE_CANCEL", "button", "Отмена", {"press"}));
+        Widget face = Make("CAPTUR_PICTURE", "image", "");
+        ImageRef portrait;
+        portrait.kind = "portrait";
+        portrait.image = "100";
+        face.images.push_back(portrait);
+        capture.widgets.push_back(face);
+        FakeSurface capture_surface;
+        Router capture_router(capture_surface);
+        capture_router.SetInterface(capture);
+        const Json &asked = capture_surface.props["modal"];
+        Expect(capture_surface.errors.empty() && capture_surface.props["extras"]["rows"].empty() &&
+                   asked["image"] == Json({{"kind", "portrait"}, {"texture", "INTERFACES/PORTRAITS/128/face_100"}}) &&
+                   asked["actions"][0]["hold"] == true && asked["actions"][0]["variant"] == "danger" && asked["actions"][1]["variant"] == "primary",
+               "the captain's fate: his portrait, overboard held: " + asked.dump());
+        capture_surface.commands.clear();
+        capture_router.OnEvent({"modal", "dismiss", ""});
+        Expect(capture_surface.commands.empty() && capture_surface.errors.empty(), "a tap beside the question answers nothing and is no error");
+        capture_router.OnEvent({"capture-prison", "click", ""});
+        ExpectEqual(capture_surface.Last(), prefix + "CAPTURE_CAPTAIN_PRISON\t-1\tpress", "prison is the game's own button");
+    }
     router.SetInterface(Load(models, "transfer-fate.json"));
     const Json &ship = surface.props["modal"];
     Expect(ship["actions"].size() == 2 && ship["actions"][0]["label"] == "<transfer.sink>" && ship["actions"][0]["hold"] == true, "a ship without a captain: sink (held) or keep");

@@ -32,11 +32,11 @@ struct ColorGrade
     // Mood of a place and hour; see SceneGrade().
     enum class Mood
     {
-        TropicalNoon, // crisp, slightly warm, deep blues
-        Sunset,       // golden, long warm highlights
-        Night,        // cool, low saturation, readable shadows
-        Storm,        // grey-green, flat
-        Interior,     // taverns, cabins, caves: warm lamp light, soft contrast
+        TropicalNoon, // the player's grade as it is
+        Sunset,       // golden, warm highlights
+        Night,        // cool moonlight, warm lamps
+        Storm,        // cool grey-green
+        Interior,     // taverns, cabins, caves: warm lamp light
     };
     static ColorGrade ForMood(Mood mood);
     // Component-wise interpolation, e.g. for weather transitions or grade_strength.
@@ -71,10 +71,10 @@ std::array<float, 3> SampleLut(const std::vector<uint8_t> &lut, int size, std::a
 
 // ---- tone curve (mirrors shaders/include/fx_tonemap.sh) ----
 // Scene values are display-linear (gamma 2.0 decoded). `ExpandLdr` gives the
-// 0..1 legacy image some highlight headroom, `AcesFit` is the filmic curve.
+// 0..1 legacy image some highlight headroom, `AgxCurve` is the tone curve (AgX on a grey value).
 float ExpandLdr(float x);
-std::array<float, 3> AcesFit(std::array<float, 3> linear_rgb);
-// Exposure that makes `AcesFit(ExpandLdr(grey) * k)` return `grey` again for
+float AgxCurve(float linear);
+// Exposure that makes `AgxCurve(ExpandLdr(grey) * k)` return `grey` again for
 // 18 % grey, so enabling the tone curve does not change the overall brightness.
 float TonemapExposureBias();
 // Whole LDR -> LDR transfer of the tone-map pass for a neutral value (0..1, gamma encoded).

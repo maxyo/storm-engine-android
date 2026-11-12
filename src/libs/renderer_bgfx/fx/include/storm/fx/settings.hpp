@@ -84,9 +84,9 @@ inline constexpr AoVolumeLevel kAoVolumeLevel[kAoVolumeLevels + 1] = {
 struct Settings
 {
     // ---- post chain ----
-    bool tonemap = false;       // filmic (ACES fit) tone curve
+    bool tonemap = false;       // AgX tone curve on the luminance (fx_tonemap.sh)
     float exposure = 1.0f;      // linear multiplier before the tone curve
-    float tonemap_strength = 0.6f; // 0 = untouched .. 1 = full filmic contrast (crushes the darkest shadows)
+    float tonemap_strength = 0.6f; // 0 = untouched .. 1 = the full AgX curve
     GradePreset grade = GradePreset::Original;
     float grade_strength = 1.0f; // 0 = identity .. 1 = full preset
     bool bloom = false;
@@ -126,8 +126,6 @@ struct Settings
     float sea_edge_depth = 1.5f;  // metres of water over which a soft edge fades in
     float sea_specular_power = 400.0f;
     float sea_specular_strength = 0.6f;
-    bool sky_atmosphere = false;   // analytic sky instead of the textured sky box
-    bool sky_clouds = false;
     uint32_t lighting_flags = kLightingNone;
     uint8_t point_lights = 4;      // per draw call with kLightingPoint: 4 or 8
     // With kLightingNormalMap: the one strength of all relief (lit models and baked surfaces alike; the texture classes
@@ -157,7 +155,7 @@ struct Support
     bool lut_3d = false;        // 3D RGBA8 texture: the grading table every post effect passes through
     bool shadow_map = false;    // D16 texture as a render target: Settings::shadows
     bool scene_depth = false;   // the scene's depth attachment can be sampled: Settings::ssao, Settings::sea_soft_edges
-    bool normal_map = false;    // RG8 textures: kLightingNormalMap
+    bool normal_map = false;    // EAC RG11 textures (the derived maps): kLightingNormalMap
     bool msaa = false;          // multisampled RGBA8 render targets: Settings::msaa
     bool smaa = false;          // R8 and RG8 textures (the SMAA search and area tables): Settings::smaa
     bool msaa_depth = false;    // the scene depth can still be sampled when the scene target is multisampled

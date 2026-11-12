@@ -80,7 +80,12 @@ struct FfDraw
     uint32_t normal_map_flags = 0;
     bool shadow = false;           // FX_LIGHT_SHADOW variant: submit() binds the map for `view`
     bool caster = false;           // the shim also submits this draw into the shadow view (submit_caster)
-    std::array<float, 16> view{};  // the draw's world -> view (shadow and AO-volume receivers)
+    std::array<float, 16> view{};  // the draw's device world -> view (the sun cascade: casters and receivers alike)
+    // Absolute world -> view: the device's world is camera-relative (the game's Renderer moves the camera translation
+    // into every world matrix and light: set_world_origin); the effects' own world data (AO volume, lamps and their
+    // atlases, the location's geometry) is absolute.
+    std::array<float, 16> world_view{};
+    std::array<float, 3> origin{}; // absolute = device world + origin
     bool ao = false;               // samples the interior's AO volume (submit() binds it for `view`)
     bool lamps = false;            // receives the interior's lamp shadows (submit() binds them for `view`)
     bool sun_caster = false;       // caster: the sun shadow view
@@ -111,11 +116,21 @@ class Lighting
     bool aerial_fog(const D3DMATRIX &view, bool vs_port, std::array<float, 2> &haze);
 
     void set_technique(const char *name);
-    // The frame's dynamic point lights (not in any baked colours); kept until a frame passes without them.
+    // The frame's dynamic point lights (not in any baked colours, absolute world); kept until a frame passes without
+    // them.
     void set_dynamic_lights(std::span<const fx::PointLight> lights)
     {
         dynamic_lights_.assign(lights.begin(), lights.end());
         dynamic_lights_this_frame_ = true;
+        device_lights_origin_valid_ = false;
+    }
+    // Where the device's camera-relative world has its origin in absolute world (the camera position the game's
+    // Renderer subtracted from every world matrix and D3D light; render::SetEffectsWorldOrigin).
+    void set_world_origin(const std::array<float, 3> &origin)
+    {
+        if (origin != origin_)
+            device_lights_origin_valid_ = false;
+        origin_ = origin;
     }
     void set_sky(const fx::SkyState *sky) { sky_ = sky; }
     // The interior's AO volume for this frame's draws into the game picture (null: none).
@@ -155,7 +170,10 @@ class Lighting
     int budget_ = 0;
     Material material_ = Material::Hull;
     bool technique_set_ = false;
-    std::vector<fx::PointLight> dynamic_lights_;
+    std::vector<fx::PointLight> dynamic_lights_;        // absolute world
+    std::vector<fx::PointLight> device_dynamic_lights_; // the same in the device's camera-relative world
+    bool device_lights_origin_valid_ = false;
+    std::array<float, 3> origin_{};
     bool dynamic_lights_this_frame_ = false;
     const fx::SkyState *sky_ = nullptr;
     void find_shaders();

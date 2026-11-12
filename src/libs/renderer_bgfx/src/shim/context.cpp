@@ -1,6 +1,8 @@
 #include "device.hpp"
 #include "effects/effects.hpp"
+#include "frame_pacing.hpp"
 #include "perf.hpp"
+#include "profiler.hpp"
 #include "program_cache.hpp"
 #include "storm/render/d3d_interop.hpp"
 
@@ -17,6 +19,9 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#ifdef STORM_TRACY
+#include <unistd.h>
+#endif
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -224,6 +229,7 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
         init.type = bgfx::RendererType::OpenGLES;
         if (!native_handles(window, &init.swapChain.nwh, &init.swapChain.ndt))
             return false;
+        FramePacing::instance().start(); // bgfx presents through it from the first frame
     }
     else
     {
@@ -240,8 +246,11 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     if (!bgfx::init(init))
     {
         logf("bgfx::init failed");
+        FramePacing::instance().shutdown();
         return false;
     }
+    if (window)
+        FramePacing::instance().set_window(init.swapChain.nwh);
     caps_ = bgfx::getCaps();
     flip_y_ = caps_->originBottomLeft;
     if (window)
@@ -253,6 +262,11 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
         };
         ProgramCache::instance().attach_device(text(GL_VENDOR) + " | " + text(GL_RENDERER) + " | " + text(GL_VERSION) +
                                                " | bgfx API " + std::to_string(BGFX_API_VERSION));
+        // The extensions bgfx itself requires before it uses GL_CLAMP_TO_BORDER (renderer_gl.cpp).
+        const std::string extensions = text(GL_EXTENSIONS);
+        border_clamp_ = extensions.find("GL_EXT_texture_border_clamp") != std::string::npos ||
+                        extensions.find("GL_OES_texture_border_clamp") != std::string::npos ||
+                        extensions.find("GL_NV_texture_border_clamp") != std::string::npos;
     }
     initialised_ = true;
     surface_.width_px = width;
@@ -262,13 +276,14 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     if (window_)
         read_density();
     ++surface_.generation;
-    logf("bgfx renderer=%s %ux%u originBottomLeft=%d homogeneousDepth=%d maxTextureSize=%u BC1=%d BC3=%d ETC2=%d BGRA8=%d",
+    logf("bgfx renderer=%s %ux%u originBottomLeft=%d homogeneousDepth=%d maxTextureSize=%u BC1=%d BC3=%d ETC2=%d BGRA8=%d "
+         "border_clamp=%d",
          bgfx::getRendererName(bgfx::getRendererType()), width, height, caps_->originBottomLeft,
          caps_->homogeneousDepth, caps_->limits.maxTextureSize,
          (caps_->formats[bgfx::TextureFormat::BC1] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
          (caps_->formats[bgfx::TextureFormat::BC3] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
          (caps_->formats[bgfx::TextureFormat::ETC2] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
-         (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0);
+         (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0, border_clamp_);
     create_resources();
     effects::Host::instance().on_device_created();
     for (auto &entry : clients_)
@@ -311,6 +326,7 @@ void Context::shutdown()
     dump_traps();
     effects::Host::instance().shutdown();
     bgfx::shutdown();
+    FramePacing::instance().shutdown();
     ProgramCache::instance().detach_device();
     initialised_ = false;
     surface_.valid = false;
@@ -396,6 +412,7 @@ void Context::surface_lost()
         frame_aborted_ = frame_open_;
         logf("surface lost: presentation suspended");
     }
+    FramePacing::instance().set_window(nullptr); // Swappy lets go of the window Android destroys
     {
         std::lock_guard lock(release_mutex_);
         surface_in_use_ = false;
@@ -502,6 +519,7 @@ void Context::try_restore()
         surface_in_use_ = true;
     }
     bgfx::reset(reset_flags(), &chain);
+    FramePacing::instance().set_window(chain.nwh);
     if (frame_aborted_)
     {
         // Draws submitted before the surface went away belong to a frame that was never finished.
@@ -541,24 +559,42 @@ void Context::draw_fullscreen(uint16_t view, bgfx::TextureHandle texture, uint32
     bgfx::submit(view, blit_program_);
 }
 
-void Context::pace()
+#ifdef STORM_TRACY
+namespace
 {
-    if (frame_limit_ == 0)
-        return;
-    const double interval = 1.0 / frame_limit_;
-    const double target = last_present_ + interval;
-    double now = now_seconds();
-    if (now < target)
+// Tracy plots of the presented frame: bgfx's own CPU and GPU timers and counters, and the process's resident memory.
+void plot_frame_stats()
+{
+    const bgfx::Stats *stats = bgfx::getStats();
+    if (stats->gpuTimerFreq > 0 && stats->gpuTimeEnd > stats->gpuTimeBegin)
+        STORM_PROFILE_PLOT("bgfx GPU frame ms", double(stats->gpuTimeEnd - stats->gpuTimeBegin) * 1000.0 / stats->gpuTimerFreq);
+    if (stats->cpuTimerFreq > 0)
+        STORM_PROFILE_PLOT("bgfx CPU frame ms", double(stats->cpuTimeEnd - stats->cpuTimeBegin) * 1000.0 / stats->cpuTimerFreq);
+    STORM_PROFILE_PLOT("bgfx draws", int64_t(stats->numDraw));
+    if (stats->textureMemoryUsed >= 0)
+        STORM_PROFILE_PLOT("bgfx texture MB", double(stats->textureMemoryUsed) / (1024.0 * 1024.0));
+    if (stats->rtMemoryUsed >= 0)
+        STORM_PROFILE_PLOT("bgfx render target MB", double(stats->rtMemoryUsed) / (1024.0 * 1024.0));
+    STORM_PROFILE_PLOT("bgfx transient VB KB", double(stats->transientVbUsed) / 1024.0);
+    static uint32_t frames = 0;
+    if (frames++ % 30 == 0)
     {
-        std::this_thread::sleep_for(std::chrono::duration<double>(target - now));
-        now = now_seconds();
+        // Resident pages (statm field 2): twice a second at 60 fps.
+        if (FILE *statm = fopen("/proc/self/statm", "r"))
+        {
+            unsigned long size = 0, resident = 0;
+            if (fscanf(statm, "%lu %lu", &size, &resident) == 2)
+                STORM_PROFILE_PLOT("resident MB", double(resident) * sysconf(_SC_PAGESIZE) / (1024.0 * 1024.0));
+            fclose(statm);
+        }
     }
-    // Never accumulate debt after a long frame.
-    last_present_ = now > target + interval ? now : target;
 }
+} // namespace
+#endif
 
 void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint32_t game_height)
 {
+    STORM_PROFILE_ZONE("present");
     if (!initialised_)
         return;
     begin_frame_if_needed();
@@ -595,13 +631,26 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
             bgfx::setViewRect(id, 0, 0, w, h);
             bgfx::setViewClear(id, BGFX_CLEAR_NONE);
         }
-        for (auto &entry : clients_)
-            entry.client->OnUiRender(frame_);
-        pace();
+        {
+            STORM_PROFILE_ZONE("UI render");
+            for (auto &entry : clients_)
+                entry.client->OnUiRender(frame_);
+        }
         const auto started = std::chrono::steady_clock::now();
-        if (run_frame(BGFX_FRAME_NONE, &last_frame_))
+        bool presented = false;
+        {
+            STORM_PROFILE_ZONE("bgfx::frame: GL submit and swap");
+            presented = run_frame(BGFX_FRAME_NONE, &last_frame_);
+        }
+        if (presented)
+        {
             perf_frame_presented(
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+            STORM_PROFILE_FRAME();
+#ifdef STORM_TRACY
+            plot_frame_stats();
+#endif
+        }
         ProgramCache::instance().log_activity();
     }
     else

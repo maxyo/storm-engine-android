@@ -238,6 +238,10 @@ void SUNGLOW::Realize(uint32_t Delta_Time)
     // float fGlowSize = bMoon ? Glow.fMoonSize : Glow.fSunSize;
     fFadeout = 1.f;
 
+    // The fx post chain draws the one sun glare (renderer_bgfx/fx lens flare): the glow, overflow and flare sprites
+    // of the sun are left out then, and the post chain gets the sun's traced visibility instead. The moon keeps them.
+    const bool fx_glare = !bMoon && storm::render::CurrentEffectsWorld().lens_flare;
+
     // if (bHaveGlow && vSun.y > fBottomClip-fGlowSize)
     if (bHaveGlow && vSun.y > fBottomClip - Glow.fGlowSize)
     {
@@ -252,11 +256,13 @@ void SUNGLOW::Realize(uint32_t Delta_Time)
         // DrawRect( RGB(vSunColor.x, vSunColor.y, vSunColor.z), vSun, fGlowSize, fAngle * Glow.fRotateSpeed,
         // Glow.sTechniqueZ, fBottomClip );
 
-        if (!bMoon)
+        auto fGlowFadeout = fFadeout - (1.f - fFadeout) * 1.5f;
+        if (fGlowFadeout < 0.f)
+            fGlowFadeout = 0.f;
+        if (fx_glare)
+            storm::render::SetEffectsSunGlare(fAlpha * fGlowFadeout, bHaveFlare ? fAlphaFlare : 0.0f);
+        else if (!bMoon)
         {
-            auto fGlowFadeout = fFadeout - (1.f - fFadeout) * 1.5f;
-            if (fGlowFadeout < 0.f)
-                fGlowFadeout = 0.f;
             pRS->TextureSet(0, iSunGlowTex);
             glm::vec3 vGlowColor = fAlpha * fGlowFadeout * COLOR2VECTOR(Glow.dwColor);
             uint32_t rgb = makeRGB(static_cast<uint32_t>(vGlowColor.x), static_cast<uint32_t>(vGlowColor.y),
@@ -270,7 +276,7 @@ void SUNGLOW::Realize(uint32_t Delta_Time)
     auto fDot = glm::dot(vCamera, storm::math::normalizeOrZero(vSun));
 
     fMaxOverflowAlphaValue = (fDot > Overflow.fStart) ? (fDot - Overflow.fStart) / (1.0f - Overflow.fStart) : 0.0f;
-    if (bHaveOverflow)
+    if (bHaveOverflow && !fx_glare)
     {
         pRS->TextureSet(0, iOverflowTex);
 
@@ -287,8 +293,7 @@ void SUNGLOW::Realize(uint32_t Delta_Time)
 
     // calculate and draw flares
     aRSR.clear();
-    // The fx post chain draws its own lens flare (renderer_bgfx/fx): the flare sprites are left out then.
-    if (Delta_Time && Flares.aFlares.size() && bHaveFlare && !storm::render::CurrentEffectsWorld().lens_flare)
+    if (Delta_Time && Flares.aFlares.size() && bHaveFlare && !fx_glare)
     {
         auto mCam = OldMatrix;
         storm::math::invertRigid(mCam);

@@ -137,6 +137,59 @@ llvmpipe 2.3 / 0.7-1.0 s, arm64 + host GPU 13.3 / 0.2-0.4 s, x86_64 + host GPU 1
 0.3-0.6 s; with the host GPU the emulator's frame present (~50 ms) is the limit. Release and
 performance numbers still come from a real arm64 device.
 
+## Frame pacing (Swappy)
+
+The game window presents through Android Frame Pacing (Swappy GL 2.1.3 from the Android Game SDK,
+`src/libs/renderer_bgfx/src/shim/frame_pacing.hpp`; bgfx calls it instead of `eglSwapBuffers`,
+`patches/bgfx-swap-present-hook.patch`). It aims at 60 fps: a whole number of refreshes of one of
+the display's modes (1 at 60 Hz, 2 at 120 Hz; a 90 Hz panel uses its 60 Hz mode where it has one),
+and falls back to a steady 30 fps when frames do not fit. There is no frame limiter of our own and
+no `max_fps` key. The ADPF hint session (application `GamePerformance`) aims at that 60 fps interval
+and gets each frame's CPU work without the present wait. Logged (tag `storm-bgfx`, also in
+«Поделиться логом»):
+
+- once: `frame pacing: Swappy GL ...; display modes ...; current refresh ...; swap interval ...`;
+- on a change of Swappy's interval or the display mode: `frame pacing: Swappy presents every ...`;
+- every 30 s: `frame pacing: 30.0 s, N frames (fps) ...; frame ms p50 p95 p99 max; refreshes per
+  frame 1:..% 2:..% ...; present wait mean ...` (intervals between presents, in display refreshes);
+- without Swappy an error `frame pacing: Swappy GL unavailable (...)`: the game then presents with
+  `eglSwapBuffers` at swap interval 1, the display's own rate, unpaced, and logs the same 30 s lines
+  (`eglSwapBuffers, no Swappy`). Swappy's own switch `adb shell setprop swappy.disable 1` (root, e.g. an
+  emulator after `adb root`) selects that path for an A/B with the same APK.
+
+Emulator frame times are far above 16.7 ms (its present alone takes ~50 ms), so emulator runs show
+that pacing works, not its quality; the numbers come from a phone's log.
+
+## Tracy profiler (development builds)
+
+`-DSTORM_TRACY=ON` (`cmake/tracy.cmake`, Tracy 0.14.1, BSD-3-Clause) links the Tracy client into a
+development build. Use its own build directory next to the normal one (e.g. `build/android-tracy`):
+only the instrumented sources (`storm_tracy_sources` in `src/CMakeLists.txt`) and bgfx (with
+`BGFX_CONFIG_PROFILER`) compile differently, the rest comes from ccache. The application refuses such
+a `libengine.so` for release APKs; a debug APK keeps the INTERNET permission for the profiler's socket.
+The client records on demand (nothing until a viewer connects), listens on 127.0.0.1:8086 only, does
+not broadcast and installs no crash handler; the engine log says
+`storm-profiler: Tracy 0.14.1 client, on demand, listening on 127.0.0.1:8086`.
+
+Recorded: frame marks at every present; zones of the main loop (UI host input, the frame), the core
+frame (script frame events, save/load, services, `execute` with one zone per entity, named by its
+class, `realize` the same, controls, run end with the present), the shim's present (UI render,
+`bgfx::frame`, the Swappy wait) and bgfx's own scopes (bgfx callback profiler functions, render
+thread = game thread); plots of bgfx's CPU and GPU frame timers, draws, texture/render target memory,
+transient buffer use, resident memory, the present wait and Swappy's interval.
+
+Connect from the development machine (the viewer must be Tracy 0.14.1, the protocol is versioned):
+
+```sh
+adb -s <serial> forward tcp:8086 tcp:8086
+# GUI: tracy-profiler (Tracy's profiler/ directory, or the 0.14.1 Windows release), connect to 127.0.0.1
+# headless: tracy-capture from Tracy's capture/ directory
+tracy-capture -o game.tracy -a 127.0.0.1 -s 30   # 30 s, open game.tracy in the GUI later
+```
+
+A host build (`-DSTORM_HOST_SOURCES=...`) with `-DSTORM_TRACY=ON` is profiled the same way, without
+the forward.
+
 ## Host checks and CI
 
 `python3 tools/ci/run_host_tests.py` fetches the pinned open-source sources into

@@ -56,6 +56,23 @@ LOG_RULES = [
     (r'stdout', r'(?i)\[storm-bgfx\].*(error|fail|trap|unsupported|missing|invalid)', 'renderer error'),
 ]
 FATAL = re.compile(r'Engine stopped: (.*)')
+# Defects of the game's own data the engine reports and cannot fix (known_defects.json): reported as KNOWN.
+KNOWN_DEFECTS = json.loads((HERE / 'known_defects.json').read_text(encoding='utf-8'))['defects']
+
+
+def classify(scene, reasons):
+    """Splits a scene's reasons into (failing, known): a reason is known when an entry for this scene matches it."""
+    failing, known = [], []
+    for reason in reasons:
+        match = next((defect for defect in KNOWN_DEFECTS
+                      if defect['scene'] == scene and defect['error'] in reason), None)
+        (known if match else failing).append(f"{reason} [known: {match['file']}]" if match else reason)
+    return failing, known
+
+
+def status_of(scene, reasons):
+    failing, known = classify(scene, reasons)
+    return 'fail' if failing else 'known' if known else 'pass'
 
 
 def parse_arguments():
@@ -112,7 +129,7 @@ def select(scenes, arguments, previous, build):
         if previous is None:
             sys.exit(f'--failed and --changed need the previous report in {arguments.out}/report.json')
         old = previous['scenes']
-        failed = {name for name, result in old.items() if result['status'] != 'pass'}
+        failed = {name for name, result in old.items() if result['status'] not in ('pass', 'known')}
         if arguments.failed:
             chosen = [scene for scene in chosen if scene.id in failed]
         elif previous['build'] != build:
@@ -247,8 +264,8 @@ class Shard(threading.Thread):
         entry = self.results.setdefault(scene, {'reasons': [], 'shard': self.index})
         entry['reasons'] += [reason for reason in reasons if reason not in entry['reasons']]
         entry.update({key: value for key, value in metrics.items() if value is not None})
-        entry['status'] = 'fail' if entry['reasons'] else 'pass'
-        if entry['reasons']:
+        entry['status'] = status_of(scene, entry['reasons'])
+        if entry['status'] == 'fail':
             self.context['failed'].set()
         self.context['progress'](scene, entry)
 
@@ -459,7 +476,7 @@ def contact_sheets(out, scenes, results):
     directory.mkdir()
     columns, rows, width, height, label = 6, 8, 320, 180, 14
     shown = [scene for scene in scenes if results.get(scene.id, {}).get('shot')]
-    groups = [('failures', [scene for scene in shown if results[scene.id]['status'] != 'pass'])]
+    groups = [('failures', [scene for scene in shown if results[scene.id]['status'] not in ('pass', 'known')])]
     groups += [('all', sorted(shown, key=lambda scene: (scene.category, scene.id)))]
     for name, members in groups:
         for page in range(0, len(members), columns * rows):
@@ -468,7 +485,7 @@ def contact_sheets(out, scenes, results):
             for index, scene in enumerate(members[page:page + columns * rows]):
                 x, y = index % columns * width, index // columns * (height + label)
                 sheet.paste(Image.open(out / results[scene.id]['shot']).resize((width, height)), (x, y))
-                failed = results[scene.id]['status'] != 'pass'
+                failed = results[scene.id]['status'] not in ('pass', 'known')
                 if failed:
                     draw.rectangle((x, y, x + width - 1, y + height - 1), outline=(255, 32, 32), width=3)
                 draw.text((x + 3, y + height + 1), scene.id[:52], fill=(255, 96, 96) if failed else (220, 220, 220))
@@ -479,23 +496,29 @@ def summarize(report, scenes, baseline):
     results = report['scenes']
     lines = []
     ran = [scene for scene in scenes if scene.id in results]
-    failed = [scene for scene in ran if results[scene.id]['status'] != 'pass']
-    extra = [name for name in results if name not in {scene.id for scene in scenes} and results[name]['status'] != 'pass']
+    failed = [scene for scene in ran if results[scene.id]['status'] not in ('pass', 'known')]
+    known = [scene for scene in ran if results[scene.id]['status'] == 'known']
+    extra = [name for name in results if name not in {scene.id for scene in scenes} and
+             results[name]['status'] not in ('pass', 'known')]
     meta = report['meta']
-    lines.append(f"Scene sweep {meta['started']}: {len(ran)} scenes, {len(ran) - len(failed)} passed, {len(failed)} failed"
-                 f" in {meta['wall_seconds']} s with {meta['jobs']} engines")
+    lines.append(f"Scene sweep {meta['started']}: {len(ran)} scenes, {len(ran) - len(failed) - len(known)} passed, "
+                 f"{len(known)} known game data defects, {len(failed)} failed in {meta['wall_seconds']} s with "
+                 f"{meta['jobs']} engines")
     lines.append('')
     lines.append(f"{'category':<24}{'scenes':>7}{'failed':>7}")
     categories = collections.Counter(scene.category for scene in ran)
     bad = collections.Counter(scene.category for scene in failed)
     for category, count in sorted(categories.items(), key=lambda item: (-item[1], item[0])):
         lines.append(f'{category:<24}{count:>7}{bad[category]:>7}')
-    kinds = collections.Counter(reason.split(':')[0] for scene in failed for reason in results[scene.id]['reasons'])
-    kinds.update(reason.split(':')[0] for name in extra for reason in results[name]['reasons'])
+    def failing(name):
+        return classify(name, results[name]['reasons'])[0]
+
+    kinds = collections.Counter(reason.split(':')[0] for scene in failed for reason in failing(scene.id))
+    kinds.update(reason.split(':')[0] for name in extra for reason in failing(name))
     if kinds:
         lines += ['', 'Failure kinds (scenes can have several):']
         lines += [f'{count:>6}  {kind}' for kind, count in kinds.most_common()]
-        texts = collections.Counter(re.sub(r' \(x\d+\)$', '', reason) for scene in failed for reason in results[scene.id]['reasons'])
+        texts = collections.Counter(re.sub(r' \(x\d+\)$', '', reason) for scene in failed for reason in failing(scene.id))
         lines += ['', 'Top errors:'] + [f'{count:>6}  {text}' for text, count in texts.most_common(25)]
     slow = sorted((scene for scene in ran if 'load_ms' in results[scene.id]), key=lambda scene: -results[scene.id]['load_ms'])
     if slow:
@@ -504,15 +527,20 @@ def summarize(report, scenes, baseline):
         lines += [f"{results[scene.id]['load_ms']:>8} ms  {scene.id}" for scene in slow[:10]]
     regressions = None
     if baseline is not None:
-        regressions = [name for name, result in results.items() if result['status'] != 'pass' and
+        regressions = [name for name, result in results.items() if result['status'] not in ('pass', 'known') and
                        baseline['scenes'].get(name, {}).get('status') == 'pass']
         lines += ['', f'Against the baseline: {len(regressions)} scenes pass there and fail here']
         lines += [f'  {name}' for name in regressions]
+    if known:
+        lines += ['', 'KNOWN game data defects (known_defects.json; not failures, not hidden):']
+        for scene in known:
+            lines.append(f'  {scene.id}')
+            lines += [f'      {reason}' for reason in classify(scene.id, results[scene.id]['reasons'])[1][:6]]
     if failed or extra:
         lines += ['', 'Failing scenes:']
         for name in [scene.id for scene in failed] + extra:
             lines.append(f'  {name}')
-            lines += [f'      {reason}' for reason in results[name]['reasons'][:6]]
+            lines += [f'      {reason}' for reason in failing(name)[:6]]
     return '\n'.join(lines) + '\n', (regressions if baseline is not None else [scene.id for scene in failed] + extra)
 
 
@@ -558,7 +586,9 @@ def main():
     def progress(scene, entry):
         with lock:
             done[entry['status']] += 1
-            if entry['status'] != 'pass':
+            if entry['status'] == 'known':
+                print(f"KNOWN {scene}: {'; '.join(classify(scene, entry['reasons'])[1][:3])}", flush=True)
+            elif entry['status'] != 'pass':
                 print(f"FAIL {scene}: {'; '.join(entry['reasons'][:3])}", flush=True)
                 if arguments.fail_fast:
                     context['stop'].set()
@@ -590,7 +620,7 @@ def main():
         for name, entry in shard.results.items():
             if name in results:
                 results[name]['reasons'] += [reason for reason in entry['reasons'] if reason not in results[name]['reasons']]
-                results[name]['status'] = 'fail' if results[name]['reasons'] else 'pass'
+                results[name]['status'] = status_of(name, results[name]['reasons'])
             else:
                 results[name] = entry
     known = {scene.id: scene for scene in scenes}

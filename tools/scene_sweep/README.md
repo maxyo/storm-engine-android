@@ -16,7 +16,7 @@ without editing the tool:
 - the sea around every island of `PROGRAM/islands/islands_init.c`;
 - special scenes: the main menu with its 3D back scene, the new-game intro, one location of
   every type at midnight, land fights (jungle, town, cave, deck), the sea surface seen from below
-  (the first underwater location with a sea, camera looking up), a sea battle, a boarding,
+  (the first underwater location with a sea, camera looking up), the open sea at sunset (19:00) and at sunrise (7:00, the low sun in view), heading towards the sun, a sea battle, a boarding,
   the world map and a storm entered from the world map.
   The sea battle waits until the enemy ship has fired its cannons (`CANNON_FIRE` from that
   captain) and fails when it has not within 90 s of game time at sea.
@@ -48,6 +48,12 @@ the sweep fails (`inventory:tables`) when they differ from what `inventory.py` p
 A scene fails on: a crash or fatal engine error, a timeout, a failed teleport to the entry locator, script errors (`error.log`),
 missing textures or models, engine/renderer errors in the logs, a fader that never goes,
 or a black, single-colour or unchanged frame.
+
+**Known game data defects.** A problem in the game's own files that the engine reports correctly and cannot fix
+(we never ship or patch game data) is listed in `known_defects.json`: the game version, the scene, the file at fault,
+the exact error text the sweep sees and the reason. A scene whose only problems match its entries is reported as
+`KNOWN` (progress line, `status: known` in the report, its own section of the summary), not as failed; any other
+problem still fails it. Remove an entry once its cause is gone.
 
 ## Running
 Needs a Linux host engine configured with `-DSTORM_SCENE_SWEEP=ON`, Xvfb, Pillow and the

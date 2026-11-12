@@ -13,13 +13,27 @@ Import library main file
 #include <cstdint>
 #include <cstring>
 #include <fmt/format.h>
+#include <mutex>
+#include <set>
+#include <spdlog/spdlog.h>
+#include <string>
 #include <vector>
 
 #include "../../util/include/string_compare.hpp"
 
 namespace
 {
-std::vector<uint32_t> getColData(GEOM_SERVICE &srv, const std::string_view &file_name)
+// Each problem of a vertex colour (.col) file is logged once per file: models are loaded again for every
+// location visit.
+bool firstReport(const std::string &key)
+{
+    static std::mutex mutex;
+    static std::set<std::string> reported;
+    std::lock_guard lock(mutex);
+    return reported.insert(key).second;
+}
+
+std::vector<uint32_t> getColData(GEOM_SERVICE &srv, const std::string_view &file_name, bool &missing)
 {
     std::vector<uint32_t> result;
 
@@ -33,6 +47,7 @@ std::vector<uint32_t> getColData(GEOM_SERVICE &srv, const std::string_view &file
             srv.ReadFile(ltfl, result.data(), file_size);
         }
     }
+    missing = !ltfl.is_open();
     srv.CloseFile(ltfl);
 
     return result;
@@ -49,9 +64,10 @@ GEOS *CreateGeometry(const char *fname, const char *lightname, GEOM_SERVICE &srv
 GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t flags) : srv(_srv)
 {
     std::vector<uint32_t> colData;
+    bool colMissing = false;
     if (lightname != nullptr)
     {
-        colData = getColData(srv, lightname);
+        colData = getColData(srv, lightname, colMissing);
     }
 
     auto file = srv.OpenFile(fname);
@@ -168,6 +184,17 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
         nvertices += vbuff[v].nverts;
     }
     srv.free(rvb);
+    // The game has no baked lighting of this model for this light set (weather): the model's own vertex colours are
+    // drawn, as in the original engine. Reported for models with vertices (locator models have none).
+    if (colMissing && nvertices > 0 && firstReport(lightname))
+        spdlog::warn("geometry: no vertex colour file {} for {}: the model's own vertex colours are used", lightname,
+                     fname);
+    // A vertex colour file baked for another version of the model (another vertex count) cannot be matched to these
+    // vertices: as in the original engine it is not applied, and the model keeps its own colours. Reported.
+    if (!colData.empty() && colData.size() != nvertices && firstReport(std::string(lightname)))
+        spdlog::error("geometry: {} has {} vertices but its vertex colour file {} has {} entries: not applied, the "
+                      "model's own vertex colours are used",
+                      fname, nvertices, lightname, colData.size());
     // read vertices
     auto itColData = colData.begin();
     for (v = 0; v < rhead.nvrtbuffs; v++)

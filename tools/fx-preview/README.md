@@ -29,13 +29,13 @@ lights, bloom); a broadside at dusk (flash lights); a wall, a boulder, a plank d
 from two sides and under a torch); before / after pairs for the cheap upgrades (anisotropic filtering, MSAA and
 alpha to coverage on palms, a hedge and rigging, wind sway at two moments, linear-light sums, rim light, aerial
 perspective, contact shadows, scene grades by hour, weather and interior, lens flare, dither); an aliasing
-chart (SMAA, RCAS sharpening, MSAA, the FSR 1 upscale from 75 %). CPU products (baked
-textures, sky panoramas, grading tables) are written as images too.
+chart (SMAA, RCAS sharpening, MSAA, the FSR 1 upscale from 75 %). CPU products (sky
+panoramas, grading tables) are written as images too.
 
 The run fails (exit code 1) if the package reports an error or if `ConstrainSettings()` has to change a
 shot's settings: every image shows exactly the settings in its name.
 
-The "original" shots use stand-ins for the legacy sky and fixed-function lighting (per-vertex, the engine's seven
-nearest lights), since the real ones live in the game; they show what the package leaves untouched, not how the
+Every shot uses a stand-in for the game's sky (the presets keep it); the "original" shots also use a stand-in for
+the fixed-function lighting (per-vertex, the engine's seven nearest lights), since the real ones live in the game; they show what the package leaves untouched, not how the
 game looks. The sea is always a stand-in for the game's Sea2 (a procedural swell with a per-vertex Fresnel
 colour); the `sea_*` settings act on the game's own sea shader and are not shown here.

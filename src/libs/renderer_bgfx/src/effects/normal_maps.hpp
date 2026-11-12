@@ -5,9 +5,9 @@
 // whether the texture gets relief and of which class; such a texture's map is derived from its top level on a texture
 // worker (fx::DeriveNormalMap: grey height maps as heights, colour textures from their band-passed luminance) and
 // kept on disk (texture::write_derived_file into the directory of ConfigureNormalMapCache, keyed by the source pixels
-// and fx::NormalMapCacheKey, which includes the preset's resolution it is derived at). A map is uploaded (RG8; a
-// smaller preset chosen later drops its top mips) when a draw first
-// needs it; until then, and whenever the option is off, only the cache file exists. Textures loaded while the option
+// and fx::NormalMapCacheKey, which includes the preset's resolution it is derived at), encoded as EAC RG11
+// (texture::encode_eac_rg11, 1 byte per texel). A map is uploaded (a smaller preset chosen later drops its top mips)
+// when a draw first needs it; until then, and whenever the option is off, only the cache file exists. Textures loaded while the option
 // is off get no relief until they are loaded again (the next location): their pixels are not kept.
 #pragma once
 

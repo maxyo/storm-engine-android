@@ -40,9 +40,10 @@ class ProgramCache final : public bgfx::CallbackI
     // bgfx::CallbackI
     void fatal(const char *file, uint16_t line, bgfx::Fatal::Enum code, const char *str) override;
     void traceVargs(const char *file, uint16_t line, const char *format, va_list args) override;
-    void profilerBegin(const char *, uint32_t, const char *, uint16_t) override {}
-    void profilerBeginLiteral(const char *, uint32_t, const char *, uint16_t) override {}
-    void profilerEnd() override {}
+    // bgfx's own scopes (bgfx built with BGFX_CONFIG_PROFILER in Tracy builds) as Tracy zones; nothing otherwise.
+    void profilerBegin(const char *name, uint32_t abgr, const char *file, uint16_t line) override;
+    void profilerBeginLiteral(const char *name, uint32_t abgr, const char *file, uint16_t line) override;
+    void profilerEnd() override;
     uint32_t cacheReadSize(uint64_t id) override;
     bool cacheRead(uint64_t id, void *data, uint32_t size) override;
     void cacheWrite(uint64_t id, const void *data, uint32_t size) override;

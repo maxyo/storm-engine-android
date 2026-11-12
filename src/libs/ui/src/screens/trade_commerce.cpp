@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 
 namespace storm::ui::screens
 {
@@ -41,6 +42,7 @@ struct Layout
     const char *tabs[4] = {nullptr, nullptr, nullptr, nullptr};
     int weight = -1;               // what one pack (goods) or one piece (items) weighs; -1 = the deal has no weight
     bool pieces = false;           // itemstrade.c: single pieces with fractional weights (else goods in packs, whole cwt)
+    bool best = false;             // town loot: «Забрать самое ценное» (the adapter's ANDROID_LOOT values)
 };
 
 // The arithmetic of a money deal exactly as the game's scripts do it (ChangeQTY_EDIT of store.c, cannons.c,
@@ -96,7 +98,7 @@ constexpr Layout kCannons{StringKey("trade.cannons"), 0, 5, 3, 2, 4, -1, "SHIPS_
 constexpr Layout kItemsTrade{StringKey("trade.items"), 0, 5, 3, 2, 4, -1, "CHARACTERS_SCROLL", true, {-1, -1, -1}, false, {nullptr, nullptr, nullptr, nullptr}, 6, true};
 constexpr Layout kStorage{StringKey("trade.storage"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL", false, {-1, -1, -1}, true};
 // Looting a captured colony (ColonyCapture.c): the hold, the town's stores, a free transfer.
-constexpr Layout kColonyCapture{StringKey("trade.loot"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL", false, {-1, -1, -1}, true};
+constexpr Layout kColonyCapture{StringKey("trade.loot"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL", false, {-1, -1, -1}, true, {nullptr, nullptr, nullptr, nullptr}, 5, false, true};
 constexpr Layout kItemsBox{StringKey("trade.chest"), 0, 4, 2, -1, -1, -1, "CHARACTERS_SCROLL", true, {-1, -1, -1}, true,
                            {StringKey("common.all"), StringKey("trade.tab_mine"), StringKey("trade.tab_here"), StringKey("trade.tab_weapons")}};
 // The goods of the loot / exchange screen (transfer_main): ours, weight, name, theirs, weight.
@@ -104,6 +106,7 @@ constexpr Layout kTransfer{StringKey("transfer.title"), 0, 3, 2, -1, -1, -1, "",
 
 constexpr NodeRule kNodes[] = {
     {"TABLE_LIST", "choice|table", true},
+    {"ANDROID_LOOT", "fact"}, // town loot: what a pack of each good is worth (the adapter)
     {"EXIT_BTN", "button"},
     {"STORECAPTION1", "text"},
     {"TITLE", "heading|text"},
@@ -339,6 +342,57 @@ class CommerceScreen final : public Screen
             }
             else
                 bindings.RebuildAfter(quick_at_ + 3.0 - bindings.Now());
+        }
+
+        // «Забрать самое ценное» (town loot): the plan. The goods worth most per unit of hold space first (the
+        // adapter's value of a pack over the pack's weight), of each as many whole packs as the hold still has
+        // room for, until the hold is full. The engine then makes the player's own moves for every good of the
+        // plan in one script call (xinterface mobile_colony_loot.inc), with one answer at the end.
+        double room = -1.0;
+        if (const Json carried = Figure(admitted.Label("CAPACITY")); carried.is_object())
+        {
+            const std::string value = carried["value"];
+            if (const size_t slash = value.find('/'); slash != std::string::npos)
+                room = std::max(0.0, std::atof(value.c_str() + slash + 1) - std::atof(value.c_str()));
+        }
+        const Widget *loot = nullptr;   // where the plan is sent
+        std::string best_plan;          // "<row>=<amount>,…": the table's 1-based rows
+        double best_weight = 0.0;       // what the plan weighs
+        if (columns.best)
+        {
+            std::map<int, double> worth; // TABLE_LIST row index → value of a pack per unit of its weight
+            for (const Widget *fact : admitted.All("ANDROID_LOOT"))
+            {
+                loot = loot ? loot : fact;
+                const auto cost = fact->context.find("cost");
+                if (cost != fact->context.end())
+                    worth[std::atoi(fact->row_id.c_str() + 2) - 1] = std::atof(cost->second.c_str());
+            }
+            std::vector<const Widget *> ranked;
+            for (const Widget *row : goods)
+            {
+                const double pack_weight = std::atof(row->CellText(columns.weight).c_str());
+                if (Number(row->CellText(columns.other)) > 0 && pack_weight > 0.0 && worth.count(row->index))
+                {
+                    worth[row->index] /= pack_weight;
+                    ranked.push_back(row);
+                }
+            }
+            std::stable_sort(ranked.begin(), ranked.end(), [&worth](const Widget *a, const Widget *b) { return worth[a->index] > worth[b->index]; });
+            double left = std::max(0.0, room);
+            for (const Widget *row : ranked)
+            {
+                const double pack_weight = std::atof(row->CellText(columns.weight).c_str());
+                const int units = std::max(1, Number(row->CellText(columns.pack)));
+                const int there = Number(row->CellText(columns.other));
+                const int amount = std::min(there, static_cast<int>(left / pack_weight) * units);
+                if (amount <= 0)
+                    continue; // no room for a pack of it: a lighter good further down may still fit
+                const double weight = (amount + units - 1) / units * pack_weight;
+                left -= weight;
+                best_weight += weight;
+                best_plan += (best_plan.empty() ? "" : ",") + std::to_string(row->index + 1) + "=" + std::to_string(amount);
+            }
         }
 
         // «Взять всё» of a chest answered: the game's own take-all ran (ANDROID_TAKE_ALL) and
@@ -693,6 +747,29 @@ class CommerceScreen final : public Screen
                 bindings.SendAfter(0.0, *ok, "press", {}, selected->row_id);
             });
         }
+        else if (!deal && columns.best)
+        {
+            // Town loot: one button fills the hold with what is worth most; its number is the room it will fill.
+            if (!loot && !goods.empty() && best_reported_ != admitted.model->opening)
+            {
+                best_reported_ = admitted.model->opening;
+                bindings.Error("colonycapture: the interface adapter sent no ANDROID_LOOT (the goods' values are unknown: «Забрать самое ценное» is off)");
+            }
+            const bool can = loot && !best_plan.empty();
+            view["primary"] = Json{{"label", bindings.Text("trade.take_best")},
+                                   {"sub", can ? std::to_string(static_cast<int>(best_weight)) + " " + bindings.Text("transfer.cwt") : std::string()},
+                                   {"disabled", !can},
+                                   {"reason", !loot ? bindings.Text("items.unavailable") : bindings.Text("trade.no_room")},
+                                   {"busy", bindings.Pending("primary")}};
+            bindings.On("primary", "", [&bindings, loot, best_plan, can](const Event &) {
+                if (can)
+                    bindings.Send(*loot, "take", best_plan);
+            });
+            if (room >= 0.0)
+                // The town's name: the game's caption up to its colon («Картахена: Грабёж»).
+                view["place"] = Json{{"title", view["title"].get<std::string>().substr(0, view["title"].get<std::string>().find(':'))},
+                                     {"facts", Json::array({Json{{"k", bindings.Text("trade.free_room")}, {"v", std::to_string(static_cast<int>(room)) + " " + bindings.Text("transfer.cwt")}}})}};
+        }
         else if (!deal)
         {
             for (const char *node : {"DELBODY_BUTTON", "SKULL_BUTTON"})
@@ -741,6 +818,7 @@ class CommerceScreen final : public Screen
     int sort_ = -1;  // the column the rows are ordered by (own, other, buy, sell); -1 = the game's order
     bool sort_descending_ = true;
     std::string quick_row_; // the row whose whole stack is taken once the game opens its amount window
+    uint64_t best_reported_ = 0; // the opening the missing values were reported for
     uint64_t take_all_revision_ = 0; // «Взять всё» of a chest went out from this revision (0 = none)
     double quick_at_ = 0.0;
     // The open deal: its row, what both sides held when the game opened it (the control's pivot and ends)

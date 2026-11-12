@@ -10,6 +10,10 @@
 
 #include "lights.h"
 
+#include "light_choice.hpp"
+
+#include <cmath>
+
 #include "core.h"
 #include "storm/render/effects.hpp"
 #include "string_compare.hpp"
@@ -200,37 +204,6 @@ void Lights::Realize(uint32_t delta_time)
     glm::vec3 pos, ang;
     rs->GetCamera(pos, ang, ang.x);
 
-    ///////////////////
-    // Dynamic lighting augmentation
-    auto lightsAtPos = GetLightsAt(pos);
-
-    // 8 lights in total in D3D. 1 reserved for sun
-    uint32_t d3d_light_index = max_d3d_lights - max_d3d_custom_lights;
-    for (auto i = std::cbegin(lightsAtPos); i != std::cend(lightsAtPos); ++i)
-    {
-        if (d3d_light_index < max_d3d_lights)
-        {
-            // increase intensity
-            using intensity_type = decltype(lights[*i].intensity);
-            constexpr auto max_intensity = std::numeric_limits<intensity_type>::max();
-            if (auto attenuation = static_cast<intensity_type>(delta_time * 0.001f * max_intensity);
-                attenuation + lights[*i].intensity > max_intensity)
-            {
-                lights[*i].intensity = std::numeric_limits<decltype(lights[*i].intensity)>::max();
-            }
-            else
-            {
-                lights[*i].intensity += attenuation;
-            }
-
-            d3d_light_index++;
-        }
-        else
-        {
-            lights[*i].intensity = 0;
-        }
-    }
-
     // Graphics effects: carried lanterns are the only location lights not baked into the static models' colours
     // (src/libs/lighter); the per-pixel lighting adds them to that geometry.
     std::vector<storm::render::EffectsPointLight> dynamic;
@@ -241,9 +214,8 @@ void Lights::Realize(uint32_t delta_time)
             continue;
         const Light &l = lights[moving.light];
         const D3DLIGHT9 &type = types[l.type].dxLight;
-        const float k = static_cast<float>(l.intensity) / 255.0f;
         dynamic.push_back({{l.pos.x, l.pos.y, l.pos.z},
-                           {l.color.r * k, l.color.g * k, l.color.b * k},
+                           {l.color.r, l.color.g, l.color.b},
                            type.Range,
                            type.Attenuation0,
                            type.Attenuation1,
@@ -261,7 +233,7 @@ void Lights::Realize(uint32_t delta_time)
         const Light &l = lights[i];
         if (moving[i])
             continue;
-        // `color` carries the flicker; `intensity` is only the fade of the few lights the D3D budget lights per vertex.
+        // `color` carries the flicker.
         const D3DLIGHT9 &type = types[l.type].dxLight;
         lamps.push_back({{l.pos.x, l.pos.y, l.pos.z}, {l.color.r, l.color.g, l.color.b}, type.Range,
                          type.Attenuation0, type.Attenuation1, type.Attenuation2});
@@ -442,7 +414,6 @@ void Lights::AddLight(int32_t index, const glm::vec3 &pos)
     lights[numLights].itensDlt = 0.0f;
     lights[numLights].timeSlow = 0.0f;
     lights[numLights].type = index;
-    lights[numLights].intensity = 0;
 
     // Send a message to the lighter
     if (const auto eid = core.GetEntityId("Lighter"))
@@ -525,29 +496,32 @@ void Lights::DelMovingLight(int32_t id)
         }
 }
 
-// Set light sources for the character
+// Set the light sources for a model at `pos` (a character, a lit model of the location)
 void Lights::SetLightsAt(const glm::vec3 &pos)
 {
-    // get lights at specified pos
-    auto const lightsAtPos = GetLightsAt(pos);
-
-    // unset all lights
     UnsetLights();
-
-    // enable only involved lights
     uint32_t d3d_light_index = max_d3d_lights - max_d3d_custom_lights;
-    for (auto i = std::cbegin(lightsAtPos); i != std::cend(lightsAtPos) && d3d_light_index < max_d3d_lights; ++i)
+    // The sources that are strongest at `pos` (light_choice.hpp): the camera has no part in the choice.
+    const auto strength = [&](size_t i) {
+        // The type's steady colour: a flicker must not reorder the sources.
+        const D3DCOLORVALUE &c = types[lights[i].type].color;
+        const D3DLIGHT9 &l = types[lights[i].type].dxLight;
+        const float dx = pos.x - lights[i].pos.x, dy = pos.y - lights[i].pos.y, dz = pos.z - lights[i].pos.z;
+        return storm::location::LightStrength(0.299f * c.r + 0.587f * c.g + 0.114f * c.b,
+                                              l.Attenuation0, l.Attenuation1, l.Attenuation2, l.Range,
+                                              std::sqrt(dx * dx + dy * dy + dz * dz));
+    };
+    for (const uint32_t index : storm::location::ChooseLights(numLights, strength, max_d3d_custom_lights))
     {
-        // Setting the source
-        LightType &l = types[lights[*i].type];
-        l.dxLight.Diffuse.r = lights[*i].color.r * static_cast<float>(lights[*i].intensity) / 255.0f;
-        l.dxLight.Diffuse.g = lights[*i].color.g * static_cast<float>(lights[*i].intensity) / 255.0f;
-        l.dxLight.Diffuse.b = lights[*i].color.b * static_cast<float>(lights[*i].intensity) / 255.0f;
-        l.dxLight.Position = lights[*i].pos;
+        D3DLIGHT9 light = types[lights[index].type].dxLight;
+        light.Diffuse.r = lights[index].color.r;
+        light.Diffuse.g = lights[index].color.g;
+        light.Diffuse.b = lights[index].color.b;
+        light.Position = lights[index].pos;
 
-        rs->SetLight(d3d_light_index, &l.dxLight);
+        rs->SetLight(d3d_light_index, &light);
         rs->LightEnable(d3d_light_index, true);
-        lt[d3d_light_index].light = *i;
+        lt[d3d_light_index].light = index;
         lt[d3d_light_index].set = true;
 
         d3d_light_index++;

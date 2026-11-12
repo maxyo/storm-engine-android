@@ -14,6 +14,15 @@ namespace storm::effects
 namespace
 {
 
+// Absolute world -> view from the device's camera-relative world -> view (row vectors): (p - origin) * view.
+std::array<float, 16> AbsoluteView(const std::array<float, 16> &view, const std::array<float, 3> &origin)
+{
+    std::array<float, 16> v = view;
+    for (int j = 0; j < 3; ++j)
+        v[12 + j] -= origin[0] * view[j] + origin[1] * view[4 + j] + origin[2] * view[8 + j];
+    return v;
+}
+
 fx::Vec3 rgb(const D3DCOLORVALUE &c)
 {
     return {c.r, c.g, c.b};
@@ -187,10 +196,19 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     bool baked = false;
     if (lighting_ && layout.has_normal && !lit_state && budget_ > 0 && !dynamic_lights_.empty())
     {
+        // The dynamic lights are absolute; the draw's sphere and view are in the device's camera-relative world.
+        if (!device_lights_origin_valid_)
+        {
+            device_dynamic_lights_ = dynamic_lights_;
+            for (fx::PointLight &l : device_dynamic_lights_)
+                for (int k = 0; k < 3; ++k)
+                    l.position[k] -= origin_[k];
+            device_lights_origin_valid_ = true;
+        }
         // Ranked at the draw's own vertices: a torch lights the wall next to it wherever the camera is.
         if (sphere.valid)
         {
-            baked_lights = select(dynamic_lights_, sphere.center, sphere.radius, budget_, true, &unused);
+            baked_lights = select(device_dynamic_lights_, sphere.center, sphere.radius, budget_, true, &unused);
             baked = baked_lights.count > 0;
         }
         else if (!bounds_reported_)
@@ -225,9 +243,9 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     if (lamps_.enabled() && lighting_ && layout.has_normal && target && target == picture)
     {
         const D3DMATRIX &v = device.s.view;
-        std::array<float, 3> eye{};
+        std::array<float, 3> eye{}; // absolute, like the lamps
         for (int j = 0; j < 3; ++j)
-            eye[j] = -(v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
+            eye[j] = origin_[j] - (v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
         lamp_on = lamps_.prepare(const_cast<shim::Device &>(device), eye);
     }
     baked |= !lit_state && lamp_on;
@@ -272,11 +290,17 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         if (lit && material_ == Material::Character && sphere.valid)
         {
             draw.lamp_caster = draw.caster = true;
-            draw.sphere = sphere;
+            draw.sphere = sphere; // absolute, like the lamp faces
+            for (int k = 0; k < 3; ++k)
+                draw.sphere.center[k] += origin_[k];
         }
     }
     if (ao || lamp_on)
+    {
         memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
+        draw.origin = origin_;
+        draw.world_view = AbsoluteView(draw.view, origin_);
+    }
 
 
     // Sun and ambient as the fixed-function pipeline would use them; ComputeLighting gives the per-pixel terms.
@@ -445,14 +469,19 @@ void Lighting::submit(const FfDraw &draw)
     if (draw.shadow)
         shadows_.bind(draw.view);
     bind_ao_volume(draw);
-    lamps_.bind(draw.lamps, draw.view, draw.ambient);
+    lamps_.bind(draw.lamps, draw.world_view, draw.ambient);
 }
 
 void Lighting::submit_caster(shim::Device &device, const D3DMATRIX &world, bool skinned)
 {
     if (caster_.lamp_caster)
     {
-        lamps_.submit_caster(device, &world.m[0][0], skinned, caster_.sphere.center, caster_.sphere.radius);
+        // The lamp faces are absolute; the draw's world matrix is camera-relative.
+        D3DMATRIX absolute = world;
+        absolute.m[3][0] += caster_.origin[0];
+        absolute.m[3][1] += caster_.origin[1];
+        absolute.m[3][2] += caster_.origin[2];
+        lamps_.submit_caster(device, &absolute.m[0][0], skinned, caster_.sphere.center, caster_.sphere.radius);
         ++frame_.lamp_casters;
     }
     if (caster_.sun_caster)
@@ -487,12 +516,12 @@ void Lighting::bind_ao_volume(const FfDraw &draw)
         bgfx::setTexture(fx::kAoVolumeStage, s_ao_volume_, ao_open_);
         return;
     }
-    if (draw.view != ao_view_)
+    if (draw.world_view != ao_view_)
     {
         float inverse_view[16];
-        bx::mtxInverse(inverse_view, draw.view.data());
+        bx::mtxInverse(inverse_view, draw.world_view.data());
         bx::mtxMul(ao_view_to_uvw_.data(), inverse_view, ao_volume_->world_to_uvw.data());
-        ao_view_ = draw.view;
+        ao_view_ = draw.world_view;
     }
     const fx::AoVolumeLevel &level = fx::kAoVolumeLevel[std::min<uint8_t>(settings_.ao_volume, fx::kAoVolumeLevels)];
     const float params[4] = {level.strength, level.contrast, 0.5f * ao_volume_->cell, 1.0f / fx::kAoOpenSurface};
@@ -514,9 +543,11 @@ bool Lighting::aerial_fog(const D3DMATRIX &view, bool vs_port, std::array<float,
     }
     if (!bgfx::isValid(u_aerial_up_))
         u_aerial_up_ = bgfx::createUniform("u_fxAerialUp", bgfx::UniformType::Vec4);
-    // World up in view space is the second row of the row-vector view matrix; the eye's height -t * R^T.
+    // World up in view space is the second row of the row-vector view matrix; the eye's height -t * R^T, in absolute
+    // world (the device's view is camera-relative: its eye is at the origin's height).
     const float up[4] = {view.m[1][0], view.m[1][1], view.m[1][2], 0.0f};
-    const float eye_height = -(view.m[3][0] * view.m[1][0] + view.m[3][1] * view.m[1][1] + view.m[3][2] * view.m[1][2]);
+    const float eye_height =
+        origin_[1] - (view.m[3][0] * view.m[1][0] + view.m[3][1] * view.m[1][1] + view.m[3][2] * view.m[1][2]);
     haze = fx::ComputeAerialFogHaze(eye_height);
     bgfx::setUniform(u_aerial_up_, up);
     ++frame_.aerial;

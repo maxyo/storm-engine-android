@@ -2,6 +2,7 @@
 
 #include "core.h"
 #include "lights.h"
+#include "model.h"
 
 // ============================================================================================
 // Construction, destruction
@@ -47,14 +48,11 @@ void LocModelRealizer::Realize(uint32_t delta_time) const
         uint32_t dwLighting;
         if (lights)
         {
-            static glm::vec3 camPos, camAng;
-            rs->GetCamera(camPos, camAng, camAng.x);
-
             rs->GetRenderState(D3DRS_LIGHTING, &dwLighting);
             rs->GetLightEnable(0, &bLight0Enable);
 
-            // calc lightning at camera pos
-            lights->SetLightsAt(camPos);
+            // The sources around the model itself (wherever the camera is)
+            lights->SetLightsAt(storm::math::pos(static_cast<MODEL *>(pE)->mtx));
 
             rs->SetRenderState(D3DRS_LIGHTING, TRUE);
             rs->LightEnable(0, TRUE);

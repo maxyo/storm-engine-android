@@ -29,7 +29,6 @@ class WEATHER : public WEATHER_BASE
     float fSunEndTime;
     // moon moving data
     bool bMoonPresent;
-    bool bEffectsFogColor = false; // D3DRS_FOGCOLOR holds the fx sky's horizon (PushEffectsWeather)
     float fMoonHeight;
     float fMoonBegAngle;
     float fMoonBegTime;

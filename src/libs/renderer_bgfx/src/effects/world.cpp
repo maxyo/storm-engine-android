@@ -62,7 +62,6 @@ render::EffectsWorld Host::world() const
     render::EffectsWorld world;
     if (!device_ready_)
         return world;
-    world.sky = settings_.sky_atmosphere;
     world.contact_shadows = settings_.contact_shadows;
     world.lens_flare = settings_.lens_flare;
     world.lamp_character_shadows = settings_.lamp_shadows > 0 && lighting_.lamp_shadows().has_geometry();
@@ -72,18 +71,6 @@ render::EffectsWorld Host::world() const
 void Host::update_sky(float camera_height)
 {
     sky_.Update(weather_input(), seconds(), camera_height);
-}
-
-bool Host::sky_fog_color(std::array<float, 3> &rgb)
-{
-    if (!device_ready_ || !settings_.sky_atmosphere || !weather_this_frame_)
-        return false;
-    update_sky(camera_height_);
-    // The panorama stores sqrt(linear): the game's colours are gamma-encoded the same way.
-    const fx::Vec3 &horizon = sky_.State().horizon;
-    for (int i = 0; i < 3; ++i)
-        rgb[i] = std::sqrt(std::clamp(horizon[i], 0.0f, 1.0f));
-    return true;
 }
 
 bool Host::begin_world_pass(WorldPass &pass, const render::EffectsMatrix &view, bool fresh)
@@ -113,22 +100,6 @@ bool Host::begin_world_pass(WorldPass &pass, const render::EffectsMatrix &view, 
     clip_planes(device->s.proj, pass.near_plane, pass.far_plane);
     camera_height_ = pass.camera[1];
     return true;
-}
-
-void Host::draw_sky(const render::EffectsMatrix &view)
-{
-    if (!settings_.sky_atmosphere)
-        return;
-    if (!has_weather() && !sky_weather_logged_)
-    {
-        sky_weather_logged_ = true;
-        shim::logf("ERROR: effects: the fx sky is drawn without a WEATHER entity: it shows the default weather");
-    }
-    WorldPass pass;
-    if (!begin_world_pass(pass, view))
-        return;
-    update_sky(pass.camera[1]);
-    sky_.Submit(pass.view, settings_, pass.view_mtx.data(), pass.projection.data());
 }
 
 void Host::prepare_sea(shim::Device &device)
@@ -202,16 +173,6 @@ namespace storm::render
 EffectsWorld CurrentEffectsWorld()
 {
     return effects::Host::instance().world();
-}
-
-bool EffectsSkyFogColor(std::array<float, 3> &rgb)
-{
-    return effects::Host::instance().sky_fog_color(rgb);
-}
-
-void EffectsDrawSky(const EffectsMatrix &view)
-{
-    effects::Host::instance().draw_sky(view);
 }
 
 void EffectsContactShadow(const std::array<float, 3> &ground, const EffectsMatrix &view)

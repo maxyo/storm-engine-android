@@ -84,7 +84,7 @@ void PostChain::Shutdown()
     Destroy(u_dither_);
     Destroy(u_wobble_);
     for (bgfx::UniformHandle *uniform :
-         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &s_ao_, &s_depth_, &u_ao_,
+         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_shafts_, &u_tone_, &u_lut_, &s_ao_, &s_depth_, &u_ao_,
           &u_smaa_, &s_smaa_edges_, &s_smaa_area_, &s_smaa_search_, &s_smaa_weights_, &u_fsr_, &u_fsr_out_})
         Destroy(*uniform);
     lut_strength_ = -1.0f;
@@ -111,7 +111,7 @@ void PostChain::OnDeviceLost()
     u_dither_ = BGFX_INVALID_HANDLE;
     u_wobble_ = BGFX_INVALID_HANDLE;
     for (bgfx::UniformHandle *uniform :
-         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &s_ao_, &s_depth_, &u_ao_,
+         {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_shafts_, &u_tone_, &u_lut_, &s_ao_, &s_depth_, &u_ao_,
           &u_smaa_, &s_smaa_edges_, &s_smaa_area_, &s_smaa_search_, &s_smaa_weights_, &u_fsr_, &u_fsr_out_})
         *uniform = BGFX_INVALID_HANDLE;
     lut_strength_ = -1.0f;
@@ -129,7 +129,6 @@ void PostChain::EnsureUniforms()
         u_bloom_ = bgfx::createUniform("u_fxBloom", bgfx::UniformType::Vec4);
         u_shafts_ = bgfx::createUniform("u_fxShafts", bgfx::UniformType::Vec4);
         u_tone_ = bgfx::createUniform("u_fxTone", bgfx::UniformType::Vec4);
-        u_bloom_range_ = bgfx::createUniform("u_fxBloomRange", bgfx::UniformType::Vec4);
         u_lut_ = bgfx::createUniform("u_fxLut", bgfx::UniformType::Vec4);
         s_ao_ = bgfx::createUniform("s_fxAoTex", bgfx::UniformType::Sampler);
         s_depth_ = bgfx::createUniform("s_fxSceneDepth", bgfx::UniformType::Sampler);
@@ -372,8 +371,6 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
                                     std::clamp(settings.bloom_knee, 0.0f, 1.0f) * threshold};
         const bgfx::ProgramHandle bright = Program(kBloomPrefilter);
         bgfx::setUniform(u_bloom_, prefilter);
-        const float range[4] = {settings.tonemap ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
-        bgfx::setUniform(u_bloom_range_, range);
         bgfx::setTexture(0, s_scene_, frame.scene_color, kClampLinear);
         SubmitScreenTriangle(view++, bright, kWriteColor);
 
@@ -551,6 +548,8 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
         // Fades out as the sun leaves the screen.
         const float off_screen = std::max(std::fabs(sx), std::fabs(sy));
         const float strength = settings.lens_flare_intensity * frame.sun_visibility * std::clamp((1.25f - off_screen) / 0.35f, 0.0f, 1.0f);
+        const float glare = strength * std::clamp(frame.sun_glare, 0.0f, 1.0f);
+        const float ghosts = glare * std::clamp(frame.sun_ghosts, 0.0f, 1.0f);
         struct Vertex
         {
             float pos[3], color[3], uv[3];
@@ -565,7 +564,7 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
             return l;
         }();
         const uint32_t count = static_cast<uint32_t>(std::size(kElements)) * 6;
-        if (strength > 0.0f && bgfx::getAvailTransientVertexBuffer(count, layout) >= count)
+        if (glare > 0.0f && bgfx::getAvailTransientVertexBuffer(count, layout) >= count)
         {
             bgfx::TransientVertexBuffer buffer;
             bgfx::allocTransientVertexBuffer(&buffer, count, layout);
@@ -573,11 +572,12 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &input)
             const float aspect = static_cast<float>(frame.target_height) / static_cast<float>(frame.target_width);
             for (const Element &e : kElements)
             {
+                const float k = e.shape == 1.0f ? ghosts : glare;
                 const float cx = sx * (1.0f - e.along), cy = sy * (1.0f - e.along);
                 const float corners[6][2] = {{-1, -1}, {1, -1}, {-1, 1}, {-1, 1}, {1, -1}, {1, 1}};
                 for (const auto &corner : corners)
                     *v++ = {{cx + corner[0] * e.size * e.stretch * aspect, cy + corner[1] * e.size, 0.0f},
-                            {e.r * frame.sun_color[0] * strength, e.g * frame.sun_color[1] * strength, e.b * frame.sun_color[2] * strength},
+                            {e.r * frame.sun_color[0] * k, e.g * frame.sun_color[1] * k, e.b * frame.sun_color[2] * k},
                             {corner[0], corner[1], e.shape}};
             }
             const bgfx::ProgramHandle flare = Program(kFlare);

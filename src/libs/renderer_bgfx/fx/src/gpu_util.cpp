@@ -130,9 +130,9 @@ bool SupportsShadowMap()
     return Format(bgfx::TextureFormat::D16, BGFX_CAPS_FORMAT_TEXTURE_2D | BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER);
 }
 
-bool SupportsNormalMap()
+bool SupportsNormalMap(bgfx::TextureFormat::Enum format)
 {
-    return Format(bgfx::TextureFormat::RG8, BGFX_CAPS_FORMAT_TEXTURE_2D);
+    return Format(format, BGFX_CAPS_FORMAT_TEXTURE_2D);
 }
 
 bool SupportsMsaa()

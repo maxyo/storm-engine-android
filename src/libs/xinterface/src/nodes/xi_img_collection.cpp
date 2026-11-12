@@ -481,3 +481,30 @@ void CXI_IMGCOLLECTION::SetInternalName(std::string &sName)
         }
     }
 }
+
+#ifdef __ANDROID__
+
+void CXI_IMGCOLLECTION::MobileCollect(std::vector<MobileWidget> &widgets) const
+{
+    if (!m_bUse || !sGroupName)
+        return;
+    int index = 0;
+    for (const PicEditInfo &picture : m_aEditInfo)
+    {
+        if (picture.bNative || picture.sName.empty())
+            continue;
+        const char *caption = pStringService ? pStringService->GetString(picture.sName.c_str()) : nullptr;
+        MobileWidget widget{m_nodeName, "image", caption ? caption : "", "", index, m_rect.top * 8192 + m_rect.left + index};
+        storm::mobile::ImageRef image;
+        image.tintArgb = picture.dwColor;
+        image.source = {"atlas", sGroupName, picture.sName, {}, {}, -1};
+        widget.images.push_back(image);
+        widget.rowId = picture.sName;
+        widget.context["x"] = std::to_string(picture.nLeft - m_xyCommonOffset.x);
+        widget.context["y"] = std::to_string(picture.nTop - m_xyCommonOffset.y);
+        widgets.push_back(std::move(widget));
+        ++index;
+    }
+}
+
+#endif

@@ -29,7 +29,7 @@
 namespace storm::render
 {
 
-inline constexpr uint32_t kFrameOwnerApiVersion = 4;
+inline constexpr uint32_t kFrameOwnerApiVersion = 5;
 
 // bgfx::ViewId values. Compile-time constants so clients can size tables.
 inline constexpr uint16_t kPreGameViewBegin = 0; // passes that must run before the scene (e.g. a shadow map)
@@ -195,10 +195,6 @@ class FrameOwner
     virtual GamePicture QueryGamePicture(std::string_view path) = 0;
     virtual void ReleaseGamePicture(std::string_view path) = 0;
 
-    // ---- pacing ----
-    // Wall-clock frame limiter in frames per second, 0 = display rate.
-    virtual void SetFrameRateLimit(uint32_t fps) = 0;
-
   protected:
     virtual ~FrameOwner() = default;
 };
@@ -240,6 +236,7 @@ PictureRect GamePictureRect();
 // Version history
 //   1  initial: view range, hooks, surface metrics, texture helpers, game pictures.
 //   4  GamePictureRect(): the letterboxed game picture on the surface.
+//   5  SetFrameRateLimit() removed: the renderer paces presents itself (Swappy on Android).
 //   3  view ranges reserved before the scene and for post-processing (game views are 8..223,
 //      composite 248); CurrentGameTarget().
 //   2  UI views moved to 256..319 (64 views); density reported from the display; game picture

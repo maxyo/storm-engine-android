@@ -27,6 +27,11 @@ include("${CMAKE_CURRENT_LIST_DIR}/cmake/bgfx_upstream.cmake")
 # same ESSL shader blobs and code paths are exercised. Selecting one renderer
 # explicitly disables all the others (bgfx/src/config.h).
 target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_RENDERER_OPENGLES=30)
+# Tracy builds (cmake/tracy.cmake): bgfx reports its own scopes through the callback's profiler functions
+# (shim/program_cache.cpp).
+if(STORM_TRACY)
+    target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_PROFILER=1)
+endif()
 if(ANDROID)
     target_link_libraries(bgfx PUBLIC android log EGL GLESv3)
 else()
@@ -126,10 +131,22 @@ target_include_directories(storm_bgfx PUBLIC include PRIVATE src)
 target_link_libraries(storm_bgfx PUBLIC storm_bgfx_runtime PRIVATE storm_bgfx_shaders ${SDL2_LIBRARIES})
 if(ANDROID)
     target_link_libraries(storm_bgfx PRIVATE GLESv3) # driver string and limit queries next to bgfx
+    # Swappy GL presents the game's frames (src/shim/frame_pacing.cpp). Only that file sees its headers and the
+    # host hooks it reports to (header-only platform/host_hooks.hpp): the other shim sources keep their compile
+    # commands (and their ccache entries).
+    include("${CMAKE_CURRENT_LIST_DIR}/cmake/swappy.cmake")
+    set_source_files_properties(src/shim/frame_pacing.cpp PROPERTIES
+        INCLUDE_DIRECTORIES "${storm_swappy_include};${CMAKE_CURRENT_LIST_DIR}/../util/include"
+        COMPILE_DEFINITIONS "STORM_SWAPPY_PACKAGE=\"games-frame-pacing ${storm_swappy_version}\"")
+    target_link_libraries(storm_bgfx PRIVATE $<LINK_ONLY:storm_swappy>)
+    # Swappy registers its JNI methods itself: none of its symbols are exported from the library linking it.
+    target_link_options(storm_bgfx INTERFACE "LINKER:--exclude-libs,libswappy_static.a")
 endif()
 set_target_properties(storm_bgfx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(storm_bgfx PRIVATE -fsigned-char)
 target_compile_definitions(storm_bgfx PRIVATE NOMINMAX)
+# context.cpp records Tracy zones through src/libs/util/include/profiler.hpp (no other util header).
+set_property(SOURCE src/shim/context.cpp APPEND PROPERTY INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../util/include")
 
 # DXT -> ETC2 transcode and on-disk cache (no bgfx dependency; unit-tested on the host).
 file(GLOB texture_core_sources CONFIGURE_DEPENDS src/texture/core/*.cpp src/texture/core/*.hpp)
