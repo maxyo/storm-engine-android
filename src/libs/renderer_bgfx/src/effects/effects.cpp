@@ -596,15 +596,22 @@ void SetEffectsTechnique(const char *name)
     effects::Host::instance().lighting().set_technique(name);
 }
 
-void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<float, 3>> positions,
-                          std::span<const uint32_t> indices, const std::array<float, 3> &bounds_lo,
-                          const std::array<float, 3> &bounds_hi)
+void SetEffectsLocationGeometry(std::string_view name, std::span<const std::array<float, 3>> positions,
+                                std::span<const uint32_t> indices, bool interior, const std::array<float, 3> &bounds_lo,
+                                const std::array<float, 3> &bounds_hi)
 {
     std::vector<fx::Vec3> points(positions.begin(), positions.end());
     std::vector<uint32_t> triangles(indices.begin(), indices.end());
-    effects::Host::instance().lighting().lamp_shadows().set_geometry(points, triangles);
-    effects::Host::instance().ao_volumes().set_geometry(std::string(name), std::move(points), std::move(triangles),
-                                                        bounds_lo, bounds_hi);
+    effects::Host &host = effects::Host::instance();
+    host.lighting().shadows().set_geometry(interior ? std::vector<fx::Vec3>{} : points,
+                                           interior ? std::vector<uint32_t>{} : triangles);
+    if (!interior)
+    {
+        points.clear();
+        triangles.clear();
+    }
+    host.lighting().lamp_shadows().set_geometry(points, triangles);
+    host.ao_volumes().set_geometry(std::string(name), std::move(points), std::move(triangles), bounds_lo, bounds_hi);
 }
 
 void SetEffectsLamps(std::span<const EffectsPointLight> lamps)

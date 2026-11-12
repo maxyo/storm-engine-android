@@ -410,7 +410,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         if (per_pixel && sun_slot >= 0 && target && target == picture && !indoor_sun)
         {
             memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
-            draw.shadow = draw.sun_caster = shadows_.prepare(draw.view);
+            draw.shadow = draw.sun_caster = shadows_.prepare(const_cast<shim::Device &>(device), draw.view);
             draw.caster |= draw.sun_caster;
         }
         const int shadow = draw.shadow ? (settings_.shadows == fx::ShadowQuality::Soft ? 2 : 1) : 0;

@@ -249,6 +249,11 @@ vec3 fxPointSpecular(vec3 N, vec3 P, vec3 V)
 SAMPLER2DSHADOW(s_fxShadowMap, 15);
 uniform mat4 u_fxShadowMtx; // view space -> shadow map uv and depth
 uniform vec4 u_fxShadow;    // x: one texel in uv, y: shadow strength, z: normal offset in view units, w: depth bias
+// The location's still geometry from the sun (src/effects/shadows.hpp: cached around the player, stage 9): houses,
+// walls and palms onto the lit models. u_fxShadowStatic: x one texel, y 1 = present, z normal offset, w depth bias.
+SAMPLER2DSHADOW(s_fxShadowStatic, 9);
+uniform mat4 u_fxShadowStaticMtx;
+uniform vec4 u_fxShadowStatic;
 
 // 1 = fully lit by the sun, 1 - strength = fully shadowed. P and N in view space.
 float fxSunShadow(vec3 P, vec3 N)
@@ -269,7 +274,19 @@ float fxSunShadow(vec3 P, vec3 N)
     // Outside the map (and beyond its far plane) everything is lit; fade out over the last tenth.
     vec2 edge = abs(coord.xy - vec2_splat(0.5)) * 2.0;
     float inside = clamp((1.0 - max(max(edge.x, edge.y), coord.z)) * 10.0, 0.0, 1.0);
-    return 1.0 - (1.0 - lit) * u_fxShadow.y * inside;
+    lit = 1.0 - (1.0 - lit) * inside;
+    if (u_fxShadowStatic.y > 0.5)
+    {
+        vec4 s = mul(u_fxShadowStaticMtx, vec4(P + N * u_fxShadowStatic.z, 1.0));
+        vec3 sc = vec3(s.xy, s.z - u_fxShadowStatic.w);
+        vec2 so = u_fxShadowStatic.xx;
+        float slit = 0.25 * (shadow2D(s_fxShadowStatic, sc + vec3(-so.x, -so.y, 0.0)) + shadow2D(s_fxShadowStatic, sc + vec3(so.x, -so.y, 0.0)) +
+                             shadow2D(s_fxShadowStatic, sc + vec3(-so.x, so.y, 0.0)) + shadow2D(s_fxShadowStatic, sc + vec3(so.x, so.y, 0.0)));
+        vec2 sedge = abs(sc.xy - vec2_splat(0.5)) * 2.0;
+        float sinside = clamp((1.0 - max(max(sedge.x, sedge.y), sc.z)) * 10.0, 0.0, 1.0);
+        lit = min(lit, 1.0 - (1.0 - slit) * sinside);
+    }
+    return 1.0 - (1.0 - lit) * u_fxShadow.y;
 }
 #else
 #define fxSunShadow(P, N) 1.0

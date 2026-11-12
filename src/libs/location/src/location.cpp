@@ -62,7 +62,7 @@ Location::Location()
 Location::~Location()
 {
     if (aoGeometryReported_)
-        storm::render::SetEffectsAoGeometry({}, {}, {}); // the next location reports its own
+        storm::render::SetEffectsLocationGeometry({}, {}, {}, false); // the next location reports its own
     if (!AttributesPointer)
         return;
     auto *const atr = AttributesPointer->FindAClass(AttributesPointer, "locators");
@@ -89,54 +89,55 @@ void Location::ReportAoGeometry()
     aoGeometryReported_ = true;
     const char *id = AttributesPointer ? AttributesPointer->GetAttribute("id") : nullptr;
     const char *weather = AttributesPointer ? AttributesPointer->GetAttribute("lockWeather") : nullptr;
+    // Interiors: the game's own marker, lockWeather "Inside".
+    const bool interior = weather && storm::iEquals(weather, "Inside");
     std::vector<std::array<float, 3>> positions;
     std::vector<uint32_t> indices;
     std::array<float, 3> lo{}, hi{};
-    // Interiors (the game's own marker: lockWeather "Inside"). Their occluders are the still models one can collide
-    // with: walls, floors, furniture. Models without collision are what lies outside the room (the backdrop behind
-    // the windows, hundreds of metres wide) or glass; animated and moving models do not stay where they were baked.
-    if (weather && storm::iEquals(weather, "Inside") && ptc.numTriangles == 0)
+    if (interior && ptc.numTriangles == 0)
         core.Trace("ERROR: Location %s: an interior without a walk patch: no ambient occlusion", id ? id : "?");
-    else if (weather && storm::iEquals(weather, "Inside"))
+    else if (interior)
     {
-        // The volume covers where one walks (the characters' patch) with room for the walls, furniture and ceiling.
+        // The AO volume covers where one walks (the characters' patch) with room for walls, furniture and ceiling.
         lo = {ptc.min.x - 2.0f, ptc.min.y - 0.5f, ptc.min.z - 2.0f};
         hi = {ptc.max.x + 2.0f, ptc.max.y + 4.0f, ptc.max.z + 2.0f};
-        std::vector<glm::vec3> local;
-        std::vector<uint32_t> local_indices;
-        for (int32_t i = 0; i < model.Models(); ++i)
+    }
+    // The occluders are the still models one can collide with: walls, floors, furniture, houses, palms. Models without
+    // collision are what lies outside a room (the backdrop behind the windows, hundreds of metres wide), glass, or far
+    // scenery; animated and moving models do not stay where they were baked or drawn into a cached map.
+    std::vector<glm::vec3> local;
+    std::vector<uint32_t> local_indices;
+    for (int32_t i = 0; i < model.Models() && !(interior && ptc.numTriangles == 0); ++i)
+    {
+        MODEL *m = model[i];
+        if (!m || !model.IsStill(i))
+            continue;
+        for (int32_t n = 0;; ++n)
         {
-            MODEL *m = model[i];
-            if (!m || !model.IsStill(i))
+            NODE *node = m->GetNode(n);
+            if (!node)
+                break;
+            if (!node->geo || !node->geo->HasCollision())
                 continue;
-            for (int32_t n = 0;; ++n)
+            local.clear();
+            local_indices.clear();
+            if (!node->geo->AppendTriangles(local, local_indices))
             {
-                NODE *node = m->GetNode(n);
-                if (!node)
-                    break;
-                if (!node->geo || !node->geo->HasCollision())
-                    continue;
-                local.clear();
-                local_indices.clear();
-                if (!node->geo->AppendTriangles(local, local_indices))
-                {
-                    core.Trace("ERROR: Location %s: the buffers of model %s cannot be read: it is missing from the "
-                               "ambient occlusion",
-                               id ? id : "?", model.GetModelName(i));
-                    continue;
-                }
-                const auto base = static_cast<uint32_t>(positions.size());
-                for (const glm::vec3 &p : local)
-                {
-                    const glm::vec3 w = storm::math::transformPoint(node->glob_mtx, p);
-                    positions.push_back({w.x, w.y, w.z});
-                }
-                for (const uint32_t index : local_indices)
-                    indices.push_back(base + index);
+                core.Trace("ERROR: Location %s: the buffers of model %s cannot be read: it casts no fx shadows",
+                           id ? id : "?", model.GetModelName(i));
+                continue;
             }
+            const auto base = static_cast<uint32_t>(positions.size());
+            for (const glm::vec3 &p : local)
+            {
+                const glm::vec3 w = storm::math::transformPoint(node->glob_mtx, p);
+                positions.push_back({w.x, w.y, w.z});
+            }
+            for (const uint32_t index : local_indices)
+                indices.push_back(base + index);
         }
     }
-    storm::render::SetEffectsAoGeometry(id ? id : "", positions, indices, lo, hi);
+    storm::render::SetEffectsLocationGeometry(id ? id : "", positions, indices, interior, lo, hi);
 }
 
 // Initialization

@@ -69,7 +69,7 @@ class Harness
     }
 
     // The floor from 5 m above, orthographic over 6 x 6 m; returns the picture (BGRA).
-    std::vector<uint8_t> render()
+    std::vector<uint8_t> render(bool lit = false)
     {
         check(d_.BeginScene(), "BeginScene");
         check(d_.Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xFF000000, 1.0f, 0), "Clear");
@@ -91,8 +91,21 @@ class Harness
         d_.SetTransform(D3DTS_PROJECTION, &projection);
         d_.SetRenderState(D3DRS_ZENABLE, FALSE);
         d_.SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-        d_.SetRenderState(D3DRS_LIGHTING, FALSE);
+        d_.SetRenderState(D3DRS_LIGHTING, lit ? TRUE : FALSE);
         d_.SetRenderState(D3DRS_AMBIENT, 0xFF202020);
+        if (lit)
+        {
+            // The sun from the west (-x), 45° up: the wall of the outdoor case shades the floor east of it.
+            D3DMATERIAL9 material{};
+            material.Diffuse = material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
+            d_.SetMaterial(&material);
+            D3DLIGHT9 sun{};
+            sun.Type = D3DLIGHT_DIRECTIONAL;
+            sun.Diffuse = {0.7f, 0.7f, 0.7f, 1.0f};
+            sun.Direction = {0.7071f, -0.7071f, 0.0f};
+            d_.SetLight(0, &sun);
+            d_.LightEnable(0, TRUE);
+        }
         d_.SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
         d_.SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
         d_.SetTexture(0, nullptr);
@@ -186,7 +199,7 @@ int main()
             std::vector<uint32_t> indices;
             add_box(positions, indices, {-3.0f, -0.05f, -3.0f}, {3.0f, 0.0f, 3.0f}); // the floor slab
             add_box(positions, indices, {-0.6f, 0.76f, -0.6f}, {0.6f, 0.8f, 0.6f});  // the table top
-            render::SetEffectsAoGeometry("ao_volume_check room", positions, indices);
+            render::SetEffectsLocationGeometry("ao_volume_check room", positions, indices, true);
 
             // Picture coordinates: the centre is under the table, (0.2, 0.2) is open floor 1.8 m from the edge.
             settle(harness, 0, {});
@@ -228,7 +241,7 @@ int main()
             // Lamp shadows: a lamp 2.5 m above the floor at (-2, -2) and a 0.6 m pillar between it and the far side;
             // the floor behind the pillar (seen from the lamp) darkens, the floor beside it does not.
             add_box(positions, indices, {-1.3f, 0.0f, -1.3f}, {-0.7f, 2.0f, -0.7f});
-            render::SetEffectsAoGeometry("ao_volume_check room with a pillar", positions, indices);
+            render::SetEffectsLocationGeometry("ao_volume_check room with a pillar", positions, indices, true);
             const render::EffectsPointLight lamp{{-2.0f, 2.0f, -2.0f}, {4.0f, 3.6f, 3.0f}, 15.0f, 0.5f, 0.0f, 0.1f};
             for (const int count : {0, 4})
             {
@@ -285,7 +298,37 @@ int main()
                 }
             }
             render::SetEffectsLamps({});
-            render::SetEffectsAoGeometry({}, {}, {});
+
+            // Outdoors: a 3 m wall of the location geometry casts the sun's shadow on a lit receiver east of it (the
+            // static sun shadow map); the floor west of the wall stays in the sun.
+            std::vector<std::array<float, 3>> street;
+            std::vector<uint32_t> street_indices;
+            add_box(street, street_indices, {-0.5f, 0.0f, -3.0f}, {0.0f, 3.0f, 3.0f});
+            render::SetEffectsLocationGeometry("ao_volume_check street", street, street_indices, false);
+            render::EffectsWeather weather;
+            weather.sun_dir = {-0.7071f, 0.7071f, 0.0f};
+            weather.sun_present = true;
+            weather.sky_sun_dir = weather.sun_dir;
+            render::ConfigureEffects(2, {{"fx_ao_volume", 0}});
+            for (int frame = 0; frame < 400; ++frame)
+            {
+                render::SetEffectsWeather(weather);
+                harness.render(true);
+                if (!render::CurrentEffects().pending && frame > 30)
+                    break;
+                SDL_Delay(5);
+            }
+            render::SetEffectsWeather(weather);
+            const auto street_picture = harness.render(true);
+            const float shade = mean(street_picture, (1.2f + 3.0f) / 6.0f, 0.5f);
+            const float sun = mean(street_picture, (-2.0f + 3.0f) / 6.0f, 0.5f);
+            std::printf("outdoors: floor in the wall's shadow %.1f, in the sun %.1f\n", shade, sun);
+            if (!(shade < 0.75f * sun))
+            {
+                std::printf("FAIL: the location geometry casts no sun shadow on lit receivers\n");
+                ok = false;
+            }
+            render::SetEffectsLocationGeometry({}, {}, {}, false);
             render::ConfigureEffects(0, {});
         }
         device->Release();
