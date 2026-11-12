@@ -45,8 +45,8 @@ void main()
 #endif
     c = fxEncode(lin * u_fxTone.w + bloom);
 #ifdef FX_TONEMAP
-    vec3 film = fxAcesFit((fxExpandLdr(lin) + bloom) * u_fxTone.x);
-    // The filmic toe would crush the darkest tones (night scenes on a phone in daylight): fade the curve in
+    vec3 film = fxToneLuma((fxExpandLdr(lin) + bloom) * u_fxTone.x);
+    // The curve's toe would deepen the darkest tones (night scenes on a phone in daylight): fade the curve in
     // over the shadows, so it shapes mid-tones and highlights only.
     c = mix(c, fxEncode(film), u_fxTone.y * clamp(fxLuma(lin) * (1.0 / FX_TONE_SHADOW_END), 0.0, 1.0));
 #endif

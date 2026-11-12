@@ -73,11 +73,14 @@ void CheckSettings()
     CHECK(!medium.ssao && high.ssao && !original.ssao);
     CHECK(original.ao_volume == 0 && medium.ao_volume == 0 && high.ao_volume == 0); // off until interiors are reworked
     CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 0 && high.lamp_shadows == 0); // off until fixed
-    // The presets keep the legacy look: no tone curve, grade, flare, shafts, fx sky, hemisphere or linear sums.
+    // «Средняя»: the cheap looks (tone curve, the grade of the place and hour, aerial perspective, rim light) under
+    // the restrained Caribbean grade; «Высокая» adds the sun glare and sun shafts. «Низкая» has none of them.
     for (const Settings *preset : {&medium, &high})
-        CHECK(!preset->tonemap && !preset->scene_grading && !preset->lens_flare && !preset->sun_shafts &&
-              !preset->sky_atmosphere && preset->grade == GradePreset::Caribbean && preset->grade_strength <= 0.4f &&
-              !(preset->lighting_flags & (kLightingHemisphere | kLightingLinear | kLightingRim | kLightingAerial)));
+        CHECK(preset->tonemap && preset->tonemap_strength == 0.6f && preset->scene_grading && preset->grade == GradePreset::Caribbean &&
+              preset->grade_strength <= 0.4f && (preset->lighting_flags & kLightingRim) && (preset->lighting_flags & kLightingAerial));
+    CHECK(!medium.lens_flare && !medium.sun_shafts);
+    CHECK(high.lens_flare && high.lens_flare_intensity == 0.5f && high.sun_shafts && high.sun_shafts_intensity == 0.35f);
+    CHECK(!original.tonemap && !original.scene_grading && !original.lens_flare && !original.sun_shafts);
     Settings graded = original;
     graded.grade = GradePreset::Caribbean;
     CHECK(!graded.PostIsIdentity());
@@ -157,9 +160,11 @@ void CheckToneCurve()
         CHECK(v >= previous && v >= 0.0f && v <= 1.0f);
         previous = v;
     }
-    // Filmic shape: darker shadows, white not clipped.
+    // AgX shape: slightly darker shadows, white rolled off instead of clipped (the full curve takes it to about
+    // 0.87, the default strength keeps it above 0.9).
     CHECK(TonemapTransfer(0.2f) < 0.2f);
-    CHECK(TonemapTransfer(1.0f) > 0.9f && TonemapTransfer(1.0f) < 1.0f);
+    CHECK(TonemapTransfer(1.0f) > 0.85f && TonemapTransfer(1.0f) < 0.9f);
+    CHECK(TonemapTransfer(1.0f, 1.0f, Settings{}.tonemap_strength) > 0.9f);
     // At the default strength shadows are only mildly deepened.
     const Settings defaults;
     CHECK(TonemapTransfer(0.1f, 1.0f, defaults.tonemap_strength) > 0.055f);
@@ -282,10 +287,10 @@ void CheckLighting()
     s.lighting_flags = kLightingPoint; // baked geometry: dynamic point lights only
     CHECK(LightingDefines(s) == "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4" && PointLightBudget(s) == 4);
     CHECK(LightingDefines(Settings::FromPreset(QualityPreset::Medium)) ==
-          "FX_LIGHT_PER_PIXEL;FX_LIGHT_SHADOW;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4;FX_LIGHT_NORMALMAP");
+          "FX_LIGHT_PER_PIXEL;FX_LIGHT_SHADOW;FX_LIGHT_RIM;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4;FX_LIGHT_NORMALMAP;FX_AERIAL");
     CHECK(LightingDefines(Settings::FromPreset(QualityPreset::High)) ==
           "FX_LIGHT_PER_PIXEL;FX_LIGHT_SPECULAR;FX_LIGHT_TRANSLUCENT;FX_LIGHT_SHADOW;FX_LIGHT_SHADOW_SOFT;"
-          "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=8;FX_LIGHT_NORMALMAP");
+          "FX_LIGHT_RIM;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=8;FX_LIGHT_NORMALMAP;FX_AERIAL");
     CHECK(PointLightBudget(Settings::FromPreset(QualityPreset::High)) == 8);
 }
 
@@ -905,6 +910,7 @@ void CheckCheapUpgrades()
         return ComputeSky(w);
     };
     const std::array<float, 3> grey{0.5f, 0.5f, 0.5f};
+    const std::array<float, 3> gain_identity{1.0f, 1.0f, 1.0f};
     const ColorGrade day = SceneGrade(sky_at(0.8f), 0.0f, 0.0f), dusk = SceneGrade(sky_at(0.08f), 0.0f, 0.0f);
     const ColorGrade night = SceneGrade(sky_at(-0.5f), 0.0f, 0.0f), storm = SceneGrade(sky_at(0.8f), 1.0f, 0.0f);
     const ColorGrade indoors = SceneGrade(sky_at(-0.5f), 0.0f, 1.0f);
@@ -912,7 +918,11 @@ void CheckCheapUpgrades()
     CHECK(indoors == ColorGrade::ForMood(ColorGrade::Mood::Interior));
     CHECK(dusk.Apply(grey)[0] > dusk.Apply(grey)[2] + 0.015f);   // warm
     CHECK(night.Apply(grey)[2] > night.Apply(grey)[0] + 0.015f); // cool
-    CHECK(storm.saturation < day.saturation && night.saturation < day.saturation);
+    CHECK(storm.Apply(grey)[2] > storm.Apply(grey)[0]); // cool
+    // Restrained: the moods shift hue and warmth only, never contrast, saturation or exposure.
+    for (const ColorGrade *mood : {&day, &dusk, &night, &storm, &indoors})
+        CHECK(mood->contrast == 1.0f && mood->saturation == 1.0f && mood->vibrance == 0.0f && mood->exposure == 0.0f &&
+              mood->gain == gain_identity);
     // A small step of the sun is a small step of the grade (no jump at dusk).
     float worst = 0.0f;
     for (int i = 0; i < 60; ++i)
@@ -922,7 +932,7 @@ void CheckCheapUpgrades()
     }
     CHECK(worst < 0.02f);
     // The post chain rebuilds the table only when the drift shows in 8-bit output.
-    CHECK(GradeDifference(day, day) == 0.0f && GradeDifference(day, night) > 0.02f);
+    CHECK(GradeDifference(day, day) == 0.0f && GradeDifference(day, night) > 0.01f);
     const ColorGrade user = ColorGrade::Preset(GradePreset::Caribbean);
     // Built two slices at a time (the post chain's background rebuild), the table is the same.
     std::vector<uint8_t> sliced(8 * 8 * 8 * 4);

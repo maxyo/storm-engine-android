@@ -51,11 +51,15 @@ class PostChain
         float far_plane = 4000.0f;
         std::array<float, 2> projection_scale{1.0f, 1.0f};
         // Sun shafts and lens flare: sun position in scene uv (0..1, origin top-left), 0..1 visibility (0 when
-        // the sun is behind the camera, below the horizon or hidden: the engine's sun glow already traces
-        // that) and the sun's colour (0..1, the game's).
+        // the sun is behind the camera, below the horizon or under clouds) and the sun's colour (0..1, the game's).
         std::array<float, 3> sun_color{1.0f, 0.9f, 0.7f};
         std::array<float, 2> sun_uv{0.5f, 0.5f};
         float sun_visibility = 0.0f;
+        // Lens flare only: 0..1, how much of the sun the camera sees past terrain, buildings and sails (the
+        // engine's sun glow traces it), for the glare; the flare ghosts take `sun_ghosts` (0 where the game's
+        // weather has no flare). The sun shafts find the occluders themselves, in the image.
+        float sun_glare = 0.0f;
+        float sun_ghosts = 0.0f;
         // Settings::scene_grading: the grade of the place and hour, e.g. SceneGrade(sky.State(), overcast,
         // interior). Once the drift shows in 8-bit output the table is rebuilt in the background,
         // kLutSlicesPerFrame blue slices per frame, and swapped in when complete.
@@ -154,7 +158,6 @@ class PostChain
     bgfx::UniformHandle u_bloom_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_shafts_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_tone_ = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle u_bloom_range_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_lut_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_ao_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_depth_ = BGFX_INVALID_HANDLE;

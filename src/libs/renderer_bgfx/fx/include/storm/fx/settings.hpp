@@ -84,9 +84,9 @@ inline constexpr AoVolumeLevel kAoVolumeLevel[kAoVolumeLevels + 1] = {
 struct Settings
 {
     // ---- post chain ----
-    bool tonemap = false;       // filmic (ACES fit) tone curve
+    bool tonemap = false;       // AgX tone curve on the luminance (fx_tonemap.sh)
     float exposure = 1.0f;      // linear multiplier before the tone curve
-    float tonemap_strength = 0.6f; // 0 = untouched .. 1 = full filmic contrast (crushes the darkest shadows)
+    float tonemap_strength = 0.6f; // 0 = untouched .. 1 = the full AgX curve
     GradePreset grade = GradePreset::Original;
     float grade_strength = 1.0f; // 0 = identity .. 1 = full preset
     bool bloom = false;

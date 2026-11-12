@@ -96,6 +96,12 @@ struct EffectsWeather
 };
 void SetEffectsWeather(const EffectsWeather &weather);
 
+// While CurrentEffectsWorld().lens_flare: how much of the sun the camera sees this frame (0..1: SUNGLOW's traced
+// visibility past terrain, buildings and sails, with its fade at the horizon), and how strong the flare ghosts are
+// (0..1: the weather's Sun.Flare and SUNGLOW's fade as the sun leaves the view). The fx sun glare is drawn with
+// them; a frame without the call has no glare.
+void SetEffectsSunGlare(float glare, float ghosts);
+
 // The technique block CTechnique executes (lower case), nullptr when its passes are closed. The per-pixel lighting
 // picks the material from it (characters, sails, ...).
 void SetEffectsTechnique(const char *name);
@@ -142,7 +148,8 @@ struct EffectsWorld
 {
     bool sky = false;             // fx sky replaces the textured sky box and the fog sphere of SKY
     bool contact_shadows = false; // a soft blob under each character
-    bool lens_flare = false;      // the post chain draws the lens flare: SUNGLOW leaves its flare sprites out
+    bool lens_flare = false;      // the post chain draws the sun glare: SUNGLOW leaves its glow, overflow and flare
+                                  // sprites of the sun out and reports the sun's visibility (SetEffectsSunGlare)
     // An interior with lamp shadows: the characters' shadows come from the room's lamps; the shadow entity leaves
     // its projected shadow (cast along the outdoor sun) out.
     bool lamp_character_shadows = false;

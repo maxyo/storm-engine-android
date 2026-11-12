@@ -12,10 +12,10 @@ Settings Settings::FromPreset(QualityPreset preset)
     if (preset == QualityPreset::Low)
         return s;
 
-    // «Средняя» and «Высокая» are the same game, cleaner: the legacy palette and exposure stay. No tone
-    // curve, a gentle Caribbean grade only, no lens flare or sun shafts (all options); a faint bloom on the brightest highlights,
-    // MSAA, sharper textures, per-pixel lighting that keeps the legacy brightness (the global ambient stays the
-    // flat one of the fixed-function pipeline, lights add in gamma space as before), the game's own sky.
+    // «Средняя» and «Высокая» keep the legacy palette and exposure under a restrained colour grade; the effects add
+    // depth and atmosphere. «Средняя» takes the cheap ones (a tone curve, the grade of the place and hour, aerial
+    // perspective, rim light), «Высокая» all of them (+ the sun glare and sun shafts). A faint bloom on the
+    // brightest highlights, MSAA, sharper textures, per-pixel lighting.
     s.bloom = true;
     s.bloom_threshold = 0.92f;
     s.bloom_intensity = 0.12f;
@@ -23,6 +23,9 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.alpha_to_coverage = true;
     s.dither = true; // ±0.5/255: invisible, removes banding of the bloom
     s.contact_shadows = true;
+    s.tonemap = true;
+    // The grade of the place and hour shifts hue and warmth only (color_lut.cpp SceneGrade), no saturation.
+    s.scene_grading = true;
     // A gentle Caribbean grade: warm sunlight, clearer turquoise water, lush greens, restrained (a third of the
     // full «Карибы» grade: no visible saturation boost).
     s.grade = GradePreset::Caribbean;
@@ -39,7 +42,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.bloom_levels = 3;
         s.sea_band_limit = true;
         s.anisotropy = 4;
-        s.lighting_flags = kLightingPerPixel | kLightingPoint | kLightingNormalMap;
+        s.lighting_flags = kLightingPerPixel | kLightingPoint | kLightingNormalMap | kLightingRim | kLightingAerial;
         s.point_lights = 4;
         s.normal_map_size = 512; // a quarter of High's memory
         s.shadows = ShadowQuality::Low;
@@ -54,11 +57,14 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.bloom_downscale = 2;
     s.bloom_levels = 4;
     s.anisotropy = 8;
+    s.lens_flare = true; // the one sun glare: SUNGLOW leaves its glow, overflow and flare sprites out
+    s.sun_shafts = true;
     s.sea_band_limit = true;
     s.sea_soft_edges = true;
     // Wind sway is not in the presets: the game already sways sails, flags and grass itself, and the static
     // location models carry no anchor weights for foliage (option fx_wind, reported as not wired).
-    s.lighting_flags = kLightingPerPixel | kLightingSpecular | kLightingTranslucent | kLightingPoint | kLightingNormalMap;
+    s.lighting_flags = kLightingPerPixel | kLightingSpecular | kLightingTranslucent | kLightingPoint | kLightingNormalMap |
+                       kLightingRim | kLightingAerial;
     s.point_lights = 8;
     s.shadows = ShadowQuality::Soft;
     s.ao_volume = 0;    // see Средняя

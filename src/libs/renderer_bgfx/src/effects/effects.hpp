@@ -66,6 +66,11 @@ class Host
     }
 
     void set_weather(const render::EffectsWeather &weather);
+    void set_sun_glare(float glare, float ghosts)
+    {
+        sun_glare_ = glare;
+        sun_ghosts_ = ghosts;
+    }
     // Per-pixel lighting and alpha to coverage of the fixed-function emulator (effects/lighting.hpp).
     Lighting &lighting() { return lighting_; }
     AoVolumes &ao_volumes() { return ao_; }
@@ -167,6 +172,8 @@ class Host
     render::EffectsWeather weather_{};
     render::EffectsWobble wobble_{}; // set by the renderer every frame (Render.SeaEffect)
     bool weather_this_frame_ = false; // pushed since the last presented frame
+    float sun_glare_ = 0.0f;          // SetEffectsSunGlare since the last presented frame
+    float sun_ghosts_ = 0.0f;
     bool weather_last_frame_ = false;
     bool scene_cut_pending_ = true;
     fx::PostChain post_;

@@ -74,41 +74,28 @@ ColorGrade ColorGrade::ForMood(Mood mood)
     ColorGrade g;
     switch (mood)
     {
-    case Mood::TropicalNoon:
-        g.temperature = 0.04f;
-        g.contrast = 1.06f;
-        g.saturation = 1.06f;
-        g.vibrance = 0.20f;
-        g.shadow_tint = {-0.008f, 0.0f, 0.012f};
+    // The moods shift hue and warmth only, over the player's grade: contrast, saturation and exposure stay those
+    // of the game (restrained look; the brightness of the original is kept).
+    case Mood::TropicalNoon: // the player's grade as it is
         break;
     case Mood::Sunset:
-        g.temperature = 0.16f;
-        g.tint = 0.03f;
-        g.contrast = 1.05f;
-        g.saturation = 1.08f;
-        g.shadow_tint = {0.004f, -0.006f, 0.016f};
-        g.highlight_tint = {0.030f, 0.010f, -0.030f};
+        g.temperature = 0.12f;
+        g.tint = 0.02f;
+        g.shadow_tint = {0.004f, -0.004f, 0.012f};
+        g.highlight_tint = {0.024f, 0.008f, -0.024f};
         break;
     case Mood::Night:
-        g.temperature = -0.16f;
-        g.saturation = 0.78f;
-        g.contrast = 0.96f;
-        g.lift = {0.010f, 0.014f, 0.026f};
+        g.temperature = -0.14f;
+        g.lift = {0.002f, 0.004f, 0.010f};
         g.highlight_tint = {0.012f, 0.006f, -0.010f}; // lamps and windows stay warm
         break;
     case Mood::Storm:
         g.temperature = -0.08f;
-        g.tint = -0.04f;
-        g.saturation = 0.72f;
-        g.contrast = 0.95f;
-        g.gain = {0.95f, 0.97f, 0.96f};
+        g.tint = -0.03f;
         break;
     case Mood::Interior:
-        g.temperature = 0.12f;
-        g.saturation = 0.94f;
-        g.contrast = 0.97f;
-        g.lift = {0.014f, 0.010f, 0.006f};
-        g.highlight_tint = {0.020f, 0.008f, -0.016f};
+        g.temperature = 0.08f;
+        g.highlight_tint = {0.016f, 0.006f, -0.012f};
         break;
     }
     return g;
@@ -273,23 +260,15 @@ float ExpandLdr(float x)
     return x / (1.0f - k * std::min(x, 1.0f));
 }
 
-// ACES RRT+ODT fit by Stephen Hill from Baking Lab, Copyright (c) 2016 MJP, MIT License (see
-// ../THIRD_PARTY.md); mirrored in shaders/include/fx_tonemap.sh.
-std::array<float, 3> AcesFit(std::array<float, 3> c)
+// AgX on a grey value: Blender's log2 range around middle grey and the sigmoid polynomial of Benjamin Wrensch's
+// "Minimal AgX", as in three.js (MIT, Copyright (c) 2010-2023 three.js authors; see ../THIRD_PARTY.md); mirrored in
+// shaders/include/fx_tonemap.sh.
+float AgxCurve(float y)
 {
-    const Rgb in{0.59719f * c[0] + 0.35458f * c[1] + 0.04823f * c[2], 0.07600f * c[0] + 0.90834f * c[1] + 0.01566f * c[2],
-                 0.02840f * c[0] + 0.13383f * c[1] + 0.83777f * c[2]};
-    Rgb fit;
-    for (int i = 0; i < 3; ++i)
-    {
-        const float v = in[i];
-        const float a = v * (v + 0.0245786f) - 0.000090537f;
-        const float b = v * (0.983729f * v + 0.4329510f) + 0.238081f;
-        fit[i] = a / b;
-    }
-    return Rgb{Saturate(1.60475f * fit[0] - 0.53108f * fit[1] - 0.07367f * fit[2]),
-               Saturate(-0.10208f * fit[0] + 1.10813f * fit[1] - 0.00605f * fit[2]),
-               Saturate(-0.00327f * fit[0] - 0.07276f * fit[1] + 1.07602f * fit[2])};
+    const float x = Saturate((std::log2(std::max(y, 1e-10f)) + 12.47393f) / 16.5f);
+    const float x2 = x * x, x4 = x2 * x2;
+    const float s = 15.5f * x4 * x2 - 40.14f * x4 * x + 31.96f * x4 - 6.868f * x2 * x + 0.4298f * x2 + 0.1191f * x - 0.00232f;
+    return std::pow(std::max(s, 0.0f), 2.2f);
 }
 
 float TonemapExposureBias()
@@ -302,7 +281,7 @@ float TonemapExposureBias()
         {
             const float mid = 0.5f * (lo + hi);
             const float v = expanded * mid;
-            (AcesFit(Rgb{v, v, v})[1] < grey ? lo : hi) = mid;
+            (AgxCurve(v) < grey ? lo : hi) = mid;
         }
         return 0.5f * (lo + hi);
     }();
@@ -315,7 +294,7 @@ float TonemapTransfer(float encoded, float exposure, float strength)
     const float v = ExpandLdr(linear) * exposure * TonemapExposureBias();
     const float plain = std::sqrt(Saturate(linear * exposure));
     constexpr float kShadowEnd = 0.12f; // FX_TONE_SHADOW_END
-    return Mix(plain, std::sqrt(AcesFit(Rgb{v, v, v})[1]), strength * Saturate(linear / kShadowEnd));
+    return Mix(plain, std::sqrt(Saturate(AgxCurve(v))), strength * Saturate(linear / kShadowEnd));
 }
 
 } // namespace storm::fx

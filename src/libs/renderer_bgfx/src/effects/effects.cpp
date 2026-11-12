@@ -440,6 +440,8 @@ uint16_t Host::submit_post(const PostTargets &targets)
                 std::clamp(weather_.sun_dir[1] * 8.0f, 0.0f, 1.0f) * (1.0f - std::clamp(weather_.overcast, 0.0f, 1.0f));
         }
         frame.sun_color = weather_.sun_color;
+        frame.sun_glare = sun_glare_;
+        frame.sun_ghosts = sun_ghosts_;
     }
     if (settings_.scene_grading)
         frame.scene_grade = fx::SceneGrade(sky_state(), weather_.overcast, weather ? 0.0f : 1.0f);
@@ -525,6 +527,7 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
         lighting_.shadows().set_sun({0.0f, 1.0f, 0.0f}, false); // and no sun shadows
     }
     weather_this_frame_ = false;
+    sun_glare_ = sun_ghosts_ = 0.0f;
     lighting_.end_frame();
     ao_bound_ = ao_.update(settings_.ao_volume > 0); // for the next frame's draws
     lighting_.set_ao_volume(ao_bound_);
@@ -690,5 +693,10 @@ void SetEffectsWeather(const EffectsWeather &weather)
 void SetEffectsWobble(const EffectsWobble &wobble)
 {
     effects::Host::instance().set_wobble(wobble);
+}
+
+void SetEffectsSunGlare(float glare, float ghosts)
+{
+    effects::Host::instance().set_sun_glare(glare, ghosts);
 }
 } // namespace storm::render
