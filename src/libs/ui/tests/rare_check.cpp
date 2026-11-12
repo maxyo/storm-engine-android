@@ -221,6 +221,7 @@ static void Maps(const std::string &models)
            "colony sheet: name, flag, travel");
     Expect(info["facts"].size() == 4 && info["facts"][1] == Json({{"k", "Казна"}, {"v", "86 300"}}) && info["factsTitle"] == "Сведения о колонии",
            "colony facts pair the game's two columns");
+    Expect(info["page"] == "trade" && info["tabs"].size() == 2 && info["tabs"][0]["selected"] == true, "the colony sheet opens on its trade page, the town is the other");
     const Json &sections = info["sections"];
     Expect(sections.size() == 3 && sections[0]["title"] == "Экспорт" && sections[0]["goods"].size() == 2 &&
                sections[0]["goods"][1] == Json({{"texture", "atlas:GOODS/Coffee"}, {"uv", ""}, {"label", "Кофе"}}) &&
@@ -391,6 +392,90 @@ static void ColonyLoot(const std::string &models)
     Expect(surface.errors.empty() && surface.props["extras"]["rows"].empty(), "every node of the colony loot is known");
     ExpectEqual(surface.props["header"]["title"].is_string() ? surface.props["header"]["title"].get<std::string>() : surface.props["title"].get<std::string>(),
                 "Город: Грабёж", "the game's caption is the title");
+
+    // «Забрать самое ценное»: the hold is filled with what is worth most per unit of its space, one good after
+    // another through the game's own amount window. Packs of 10; a pack weighs: sugar 1, planks 2, sailcloth 1,
+    // coffee 1; the adapter's values of a pack: 100, 60, 150, 120. So: sailcloth (150 a cwt), coffee (120), …
+    const double weights[] = {1, 2, 1, 1};
+    const int costs[] = {100, 60, 150, 120};
+    int revision = 100;
+    // The town's stock by row, what the hold carries, and the row whose amount window is open (-1: none).
+    const auto state = [&](std::vector<int> there, int load, int capacity, int open) {
+        InterfaceModel model = Load(models, "colonycapture-deal.json");
+        model.revision = static_cast<uint64_t>(++revision);
+        Widget fact_template;
+        for (Widget &widget : model.widgets)
+        {
+            if (widget.node == "TABLE_LIST")
+            {
+                fact_template = widget;
+                widget.value = widget.index == open ? "1" : "0";
+                for (Cell &cell : widget.cells)
+                {
+                    if (cell.column == 3)
+                        cell.text = std::to_string(there[static_cast<size_t>(widget.index)]);
+                    if (cell.column == 5)
+                        cell.text = std::to_string(static_cast<int>(weights[widget.index]));
+                }
+            }
+            if (widget.node == "CAPACITY")
+                widget.label = "Трюм:\n" + std::to_string(load) + " / " + std::to_string(capacity);
+        }
+        if (open < 0)
+            model.widgets.erase(std::remove_if(model.widgets.begin(), model.widgets.end(), [](const Widget &w) { return w.node.rfind("QTY_", 0) == 0; }),
+                                model.widgets.end());
+        for (int row = 0; row < 4; ++row)
+        {
+            Widget fact = fact_template;
+            fact.node = "ANDROID_LOOT";
+            fact.type = "fact";
+            fact.index = row;
+            fact.row_id = "tr" + std::to_string(row + 1);
+            fact.value.clear();
+            fact.actions.clear();
+            fact.cells.clear();
+            fact.context = {{"cost", std::to_string(costs[row])}};
+            model.widgets.push_back(fact);
+        }
+        return model;
+    };
+    const std::string prefix = "widget:colonycapture\t";
+    router.SetInterface(state({60, 400, 150, 300}, 201, 240, -1));
+    Expect(surface.props["primary"]["label"] == "<trade.take_best>" && surface.props["primary"]["sub"] == "39 <transfer.cwt>" &&
+               surface.props["primary"]["disabled"] == false && surface.props["place"]["facts"][0]["v"] == "39 <transfer.cwt>" && surface.errors.empty(),
+           "town loot: one button that fills the 39 cwt of room: " + surface.props["primary"].dump());
+    surface.commands.clear();
+    router.OnEvent({"primary", "click", ""});
+    Expect(surface.commands.size() == 1 && surface.commands[0].rfind(prefix + "TABLE_LIST\t2\tactivate@", 0) == 0 && surface.props["primary"]["busy"] == true,
+           "first the sailcloth (150 a cwt): its amount window: " + Json(surface.commands).dump());
+    surface.commands.clear();
+    router.SetInterface(state({60, 400, 150, 300}, 201, 240, 2));
+    router.Tick();
+    Expect(surface.commands.size() == 3 && surface.commands[1].find("QTY_EDIT") != std::string::npos && surface.commands[1].rfind("|150") == surface.commands[1].size() - 4 &&
+               surface.commands[2].find("QTY_OK_BUTTON") != std::string::npos,
+           "all 150 of it fit (15 cwt): entered and confirmed: " + Json(surface.commands).dump());
+    surface.commands.clear();
+    router.SetInterface(state({60, 400, 0, 300}, 216, 240, -1));
+    Expect(surface.commands.size() == 1 && surface.commands[0].rfind(prefix + "TABLE_LIST\t3\tactivate@", 0) == 0, "then the coffee (120 a cwt): " + Json(surface.commands).dump());
+    surface.commands.clear();
+    router.SetInterface(state({60, 400, 0, 300}, 216, 240, 3));
+    router.Tick();
+    Expect(surface.commands.size() == 3 && surface.commands[1].rfind("|240") == surface.commands[1].size() - 4,
+           "24 cwt of room are 24 packs of the 30: 240 pieces: " + Json(surface.commands).dump());
+    surface.commands.clear();
+    router.SetInterface(state({60, 400, 0, 60}, 240, 240, -1));
+    Expect(surface.commands.empty() && surface.props["primary"]["busy"] == false && surface.props["primary"]["disabled"] == true &&
+               surface.props["primary"]["reason"] == "<trade.no_room>",
+           "the hold is full: it ends, and the button says why it is off: " + surface.props["primary"].dump());
+    {
+        // Without the adapter's values the button is off and the screen says so aloud.
+        InterfaceModel bare = state({60, 400, 150, 300}, 201, 240, -1);
+        bare.widgets.erase(std::remove_if(bare.widgets.begin(), bare.widgets.end(), [](const Widget &w) { return w.node == "ANDROID_LOOT"; }), bare.widgets.end());
+        FakeSurface bare_surface;
+        Router bare_router(bare_surface);
+        bare_router.SetInterface(bare);
+        Expect(bare_surface.props["primary"]["disabled"] == true && bare_surface.errors.size() == 1, "no values from the adapter: off, and an error");
+    }
 }
 
 int main(int argc, char **argv)

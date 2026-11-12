@@ -139,6 +139,30 @@ class MapScreen final : public Screen
 
         view["info"] = Info(admitted);
         info_open_ = !view["info"].is_null();
+        if (info_open_)
+        {
+            // Two pages of ours instead of one scrolling sheet: what the colony trades, and the town's facts
+            // (with the siege). A page with nothing on it is not offered; a new colony opens on the trade.
+            Json &info = view["info"];
+            if (info["title"] != info_title_)
+            {
+                info_title_ = info["title"].get<std::string>();
+                info_city_ = false;
+            }
+            const bool has_trade = !info["sections"].empty();
+            const bool has_city = !info["facts"].empty() || !info["notes"].empty();
+            const bool city = has_city && (info_city_ || !has_trade);
+            info["page"] = city ? "city" : "trade";
+            info["tabs"] = has_trade && has_city ? Json::array({Json{{"id", "trade"}, {"label", bindings.Text("colony.trade")}, {"selected", !city}},
+                                                                Json{{"id", "city"}, {"label", bindings.Text("colony.city")}, {"selected", city}}})
+                                                 : Json::array();
+            bindings.On("info-tabs", "select", [this, &bindings](const Event &event) {
+                info_city_ = event.value == "city";
+                bindings.Rebuild();
+            });
+        }
+        else
+            info_title_.clear();
         bindings.On("info-close", "", [this, &bindings](const Event &) { Back(bindings); });
 
         const Widget *exit = admitted.One("EXIT_BTN");
@@ -210,6 +234,8 @@ class MapScreen final : public Screen
 
     const Widget *map_ = nullptr;
     bool info_open_ = false;
+    std::string info_title_; // the colony the sheet shows
+    bool info_city_ = false; // its «Город» page
 };
 
 } // namespace
