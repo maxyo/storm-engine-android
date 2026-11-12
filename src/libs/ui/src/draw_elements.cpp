@@ -809,7 +809,7 @@ class ClampElement final : public Rml::Element, public FitsText
 // its height holds) at a time. `page` counts how often the player asked for the next page;
 // the element advances from where the shown page starts, so a new width or height reflows
 // the rest of the text without skipping any. The final page must leave room for the
-// sibling marked data-reserve (the replies), whose height it measures. The element gets
+// sibling marked data-reserve (the replies): the part of this box that sibling covers. The element gets
 // the class `more` while pages remain and `last` on the final page; the template shows
 // the «next» control or the replies with sibling selectors (`ui-pages.more ~ …`). `mode`
 // speech / replies forces one of the two states (the design canvas shows them so).
@@ -883,6 +883,10 @@ class PagesElement final : public Rml::Element, public FitsText
     }
 
   private:
+    // How much of this box's height the reserved part covers: from the reserved part's top
+    // (with its top margin) down to this box's content bottom. The two need not end together:
+    // the text box may stop short of the bottom (the dialogue's «Дальше ›» line under it),
+    // while the replies, which take that line's place on the final page, reach it.
     float Reserve()
     {
         Rml::Element *parent = GetParentNode();
@@ -890,7 +894,11 @@ class PagesElement final : public Rml::Element, public FitsText
         {
             Rml::Element *child = parent->GetChild(i);
             if (child != this && child->HasAttribute("data-reserve") && child->GetNumChildren() > 0)
-                return child->GetBox().GetSize(Rml::BoxArea::Border).y + child->GetBox().GetEdge(Rml::BoxArea::Margin, Rml::BoxEdge::Top);
+            {
+                const float reserve_top = child->GetAbsoluteOffset(Rml::BoxArea::Border).y - child->GetBox().GetEdge(Rml::BoxArea::Margin, Rml::BoxEdge::Top);
+                const float content_bottom = GetAbsoluteOffset(Rml::BoxArea::Content).y + GetBox().GetSize(Rml::BoxArea::Content).y;
+                return std::max(0.0f, content_bottom - reserve_top);
+            }
         }
         return 0.0f;
     }
