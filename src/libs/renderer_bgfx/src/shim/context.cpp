@@ -241,6 +241,12 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     init.swapChain.height = height;
     init.swapChain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
     init.reset = reset_flags();
+    // Transient buffers sized to the largest frames measured (scene sweeps, perf counters tvb_max_kb/tib_max_kb: 10.2 MB
+    // of vertices, 4.9 MB of indices) with a margin; each new peak is logged ("transient buffers:", perf.cpp) and a
+    // draw that does not fit is a logged TRAP. The GL backend grows its buffers to what frames really write
+    // (patches/bgfx-gl-transient-ring.patch).
+    init.limits.maxTransientVbSize = 16u << 20;
+    init.limits.maxTransientIbSize = 8u << 20;
     init.fallback = false; // never continue on the Noop renderer
     init.callback = &ProgramCache::instance(); // program binaries between runs; bgfx fatals and traces into the log
     if (!bgfx::init(init))

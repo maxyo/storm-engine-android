@@ -1,4 +1,5 @@
 #include "perf.hpp"
+#include "shim.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -31,6 +32,19 @@ void perf_frame_presented(double backend_ms)
         totals.gpu_ms += 1000.0 * static_cast<double>(stats->gpuTimeEnd - stats->gpuTimeBegin) /
                          static_cast<double>(stats->gpuTimerFreq);
         ++totals.gpu_frames;
+    }
+    // The transient buffers' use of every client (shim draws, UI, effects) against the limits (the CMake
+    // BGFX_CONFIG_MAX_TRANSIENT_*_BUFFER_SIZE): logged at each new peak 25% above the last one logged.
+    static uint64_t logged_vb = 0, logged_ib = 0;
+    const uint64_t used_vb = static_cast<uint64_t>(std::max<int32_t>(0, stats->transientVbUsed));
+    const uint64_t used_ib = static_cast<uint64_t>(std::max<int32_t>(0, stats->transientIbUsed));
+    if (used_vb > logged_vb + logged_vb / 4 || used_ib > logged_ib + logged_ib / 4)
+    {
+        logged_vb = std::max(logged_vb, used_vb);
+        logged_ib = std::max(logged_ib, used_ib);
+        const bgfx::Caps *caps = bgfx::getCaps();
+        logf("transient buffers: frame peak vertices %.0f KB of %.0f KB, indices %.0f KB of %.0f KB", used_vb / 1024.0,
+             caps->limits.maxTransientVbSize / 1024.0, used_ib / 1024.0, caps->limits.maxTransientIbSize / 1024.0);
     }
     totals.texture_memory = static_cast<uint64_t>(std::max<int64_t>(0, stats->textureMemoryUsed));
     totals.render_target_memory = static_cast<uint64_t>(std::max<int64_t>(0, stats->rtMemoryUsed));
