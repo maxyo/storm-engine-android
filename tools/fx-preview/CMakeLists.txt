@@ -8,47 +8,24 @@ include(FetchContent)
 
 set(STORM_FX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../src/libs/renderer_bgfx/fx")
 
-# The bgfx pin is owned by src/libs/renderer_bgfx/CMakeLists.txt. Read it from
-# there instead of repeating it, so the preview always builds the same bgfx.
-file(READ "${STORM_FX_DIR}/../CMakeLists.txt" renderer_cmake)
-string(REGEX MATCH "GIT_TAG ([0-9a-f]+)" _ "${renderer_cmake}")
-set(bgfx_pin "${CMAKE_MATCH_1}")
-if(NOT bgfx_pin)
-    message(FATAL_ERROR "Cannot read the bgfx.cmake pin from src/libs/renderer_bgfx/CMakeLists.txt")
-endif()
-
-set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
-set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
-set(BGFX_WITH_WAYLAND OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_GEOMETRY OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_TEXTURE OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_BIN2C OFF CACHE BOOL "" FORCE)
-set(BGFX_CONFIG_VIDEO OFF CACHE BOOL "" FORCE)
+# The same pinned, patched bgfx as the game (renderer_bgfx/cmake/bgfx_pin.cmake, through
+# bgfx_upstream.cmake) and the shared host shaderc of that pin (storm_shaderc.cmake).
+set(STORM_BGFX_CMAKE "${STORM_FX_DIR}/../cmake")
 set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
-# Offline: -DFETCHCONTENT_SOURCE_DIR_STORM_BGFX_UPSTREAM=/path/to/pinned/checkout
-storm_fetch_declare(storm_bgfx_upstream
-    GIT_REPOSITORY https://github.com/bkaradzic/bgfx.cmake.git
-    GIT_TAG ${bgfx_pin}
-    GIT_SUBMODULES bgfx bx bimg
-    GIT_SUBMODULES_RECURSE TRUE)
-FetchContent_MakeAvailable(storm_bgfx_upstream)
+set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+include("${STORM_BGFX_CMAKE}/bgfx_upstream.cmake")
+include("${STORM_BGFX_CMAKE}/storm_shaderc.cmake")
 # Same backend as the game on Android: OpenGL ES 3.0 (headless EGL pbuffer here).
 target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_RENDERER_OPENGLES=30)
 target_link_libraries(bgfx PUBLIC EGL GLESv2)
-foreach(target bgfx bx bimg bimg_decode bimg_encode)
-    if(TARGET ${target})
-        target_compile_options(${target} PRIVATE -w)
-    endif()
-endforeach()
+target_compile_options(bimg_encode PRIVATE -w)
 # What the effects package links (renderer_bgfx/CMakeLists.txt defines it in the engine).
 add_library(storm_bgfx_runtime INTERFACE)
 target_link_libraries(storm_bgfx_runtime INTERFACE bgfx bimg bx)
 
-set(STORM_FX_BGFX_SHADER_INCLUDE "${storm_bgfx_upstream_SOURCE_DIR}/bgfx/src")
-set(STORM_FX_SHADERC_COMMAND "$<TARGET_FILE:shaderc>")
-set(STORM_FX_SHADERC_DEPENDS shaderc)
+set(STORM_FX_BGFX_SHADER_INCLUDE "${STORM_BGFX_SOURCE_DIR}/bgfx/src")
+set(STORM_FX_SHADERC_COMMAND "${STORM_SHADERC_COMMAND}")
+set(STORM_FX_SHADERC_DEPENDS "${STORM_SHADERC_DEPENDS}")
 enable_testing()
 add_subdirectory("${STORM_FX_DIR}" fx)
 
