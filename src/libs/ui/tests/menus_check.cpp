@@ -387,7 +387,8 @@ static void Settings(const std::string &models)
         for (const char *key : {"fx_ssao", "fx_msaa", "fx_bloom", "fx_grade", "fx_dither", "fx_contact_shadows", "fx_shadows", "fx_sea_band_limit",
                                 "fx_sea_soft_edges", "fx_sea_specular", "fx_light_per_pixel", "fx_light_point", "fx_light_specular",
                                 "fx_light_normal_map", "fx_alpha_to_coverage", "fx_anisotropy", "fx_ao_volume", "fx_smaa", "fx_sharpen",
-                                "fx_render_scale", "fx_gpu_profile"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
+                                "fx_render_scale", "fx_gpu_profile", "fx_lamp_shadows", "fx_lamp_soft", "fx_lamp_model_lift",
+                                "fx_lamp_debug"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
             reported[key] = -1;
         debug.SetState("appSettings", reported);
         debug.SetInterface(Load(models, "settings.json"));
@@ -406,6 +407,9 @@ static void Settings(const std::string &models)
         Expect(row("app-fx_render_scale")["options"] == Json::array({"пресет", "50%", "67%", "77%", "100%"}) && row("app-fx_smaa")["label"] == "SMAA" &&
                    row("app-fx_sharpen").is_object() && row("app-fx_gpu_profile")["options"] == Json::array({"выкл", "вкл"}),
                "effects debug: render scale, SMAA, RCAS, GPU timing: " + rows.dump());
+        Expect(row("app-fx_lamp_shadows")["options"] == Json::array({"пресет", "выкл", "8", "16"}) && row("app-fx_lamp_soft").is_object() &&
+                   row("app-fx_lamp_model_lift").is_object() && row("app-fx_lamp_debug").is_object(),
+               "effects debug: lamp shadows 0/8/16, their filter, the characters' lift, the lamp views: " + rows.dump());
         debug.OnEvent({"app-fx_render_scale", "change", "2"});
         debug.OnEvent({"app-fx_gpu_profile", "change", "1"});
         debug.OnEvent({"done", "click", ""});

@@ -848,6 +848,7 @@ std::pair<std::string, std::string> NoticeName(std::string file)
         {"storm-GPLv3", {"Storm Engine", "GPL-3.0"}}, {"SDL", {"SDL", "zlib"}}, {"NDK-toolchain-NOTICE", {"Android NDK", ""}},
         {"miniaudio-storm-patch", {"miniaudio (patch)", ""}}, {"try_signal-license", {"try_signal", ""}},
         {"fast_float-LICENSE-APACHE", {"fast_float", "Apache-2.0"}}, {"fast_float-LICENSE-MIT", {"fast_float", "MIT"}},
+        {"MJP-Shadows-MIT", {"MJP Shadows sample", "MIT"}},
     };
     for (const auto &[stem, shown] : kNamed)
         if (file == stem)

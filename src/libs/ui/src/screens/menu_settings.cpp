@@ -202,6 +202,16 @@ class SettingsScreen final : public Screen
                     DebugSegment(bindings, debug, "fx_sharpen", "Резкость (RCAS)", {-1, 0, 1}, onOff);
                     DebugSegment(bindings, debug, "fx_gpu_profile", "Замер GPU", {-1, 1}, {"выкл", "вкл"});
                 }
+                // The lamps' relight of locations (f0265528, fb6f189e): how many lamps cast shadows, the
+                // shadow filter, how much brighter characters indoors are than the room, the lamp views.
+                if (Known("fx_lamp_shadows"))
+                {
+                    DebugSegment(bindings, debug, "fx_lamp_shadows", "Тени ламп", {-1, 0, 8, 16}, {"пресет", "выкл", "8", "16"});
+                    DebugSegment(bindings, debug, "fx_lamp_soft", "Фильтр теней ламп", {-1, 0, 1}, {"пресет", "3x3", "5x5"});
+                    DebugSegment(bindings, debug, "fx_lamp_model_lift", "Персонажи ярче комнаты", {-1, 0, 20, 50, 100},
+                                 {"пресет", "0%", "20%", "50%", "100%"});
+                    DebugSegment(bindings, debug, "fx_lamp_debug", "Лампы: отладка", {-1, 0, 1, 2}, {"пресет", "выкл", "цвета", "маска"});
+                }
                 sections.push_back({"", {debug}});
             }
         }
