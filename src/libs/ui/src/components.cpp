@@ -3,6 +3,7 @@
 #include <RmlUi/Core/ElementText.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <map>
 #include <set>
@@ -469,6 +470,20 @@ void ComponentElement::OnLayout()
 
 void ComponentElement::RebuildNow()
 {
+    // FrameStats::rebuild_ms: the outermost rebuild only (a morph rebuilds nested components inside it).
+    static int depth = 0;
+    const auto started = std::chrono::steady_clock::now();
+    ++depth;
+    struct Timed
+    {
+        FrameStats &stats;
+        std::chrono::steady_clock::time_point started;
+        ~Timed()
+        {
+            if (--depth == 0)
+                stats.rebuild_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        }
+    } timed{services_.Counters(), started};
     dirty_ = false;
     // Counted for every re-render, also one whose output is unchanged: a behaviour may still
     // change what is shown in Rebuilt (Prepare draws a frame for it).

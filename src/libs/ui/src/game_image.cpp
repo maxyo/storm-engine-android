@@ -15,6 +15,7 @@
 #include "elements.h"
 #include "picture_atlas.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -151,7 +152,10 @@ class Store
     {
         if (entry.state != State::Loading || !renderer_)
             return;
-        switch (renderer_->AcquireGamePicture(texture))
+        const auto started = std::chrono::steady_clock::now();
+        const RenderBackend::PictureState state = renderer_->AcquireGamePicture(texture);
+        acquire_ms_ += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        switch (state)
         {
         case RenderBackend::PictureState::Pending:
             changed_ = true; // keep frames coming
@@ -167,7 +171,17 @@ class Store
             entry.state = State::Unavailable;
             break;
         }
+        ++acquired_;
         changed_ = true;
+    }
+
+    // What acquiring pictures cost since the last call (FrameStats::picture_ms, pictures).
+    void TakeCost(double &ms, int &count)
+    {
+        ms += acquire_ms_;
+        count += acquired_;
+        acquire_ms_ = 0.0;
+        acquired_ = 0;
     }
 
     std::shared_ptr<Entry> Request(const std::string &texture)
@@ -198,6 +212,8 @@ class Store
 
   private:
     std::unique_ptr<PictureAtlas> atlas_; // of the current game root, read on first use
+    double acquire_ms_ = 0.0; // TakeCost
+    int acquired_ = 0;
     std::string atlas_missing_;
     std::unordered_map<std::string, std::shared_ptr<Entry>> entries_;
     std::string root_;
@@ -398,6 +414,11 @@ void SetGameImageRenderer(RenderBackend *renderer)
 bool GameImagesChanged()
 {
     return Store::Get().TakeChanged();
+}
+
+void TakeGameImageCost(double &ms, int &count)
+{
+    Store::Get().TakeCost(ms, count);
 }
 
 bool GameImagesPending()

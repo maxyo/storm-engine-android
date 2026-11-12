@@ -36,5 +36,11 @@ backend in host captures, against a slower first frame on the emulator (numbers 
 src/libs/ui/README.md, «Renderer»). Those screens show no game pictures (no texture module
 without the engine): the neutral placeholder stays, logged once.
 
+Every screen switch logs one line (`StormUi` INFO, also in the player's shared log): `UI switch
+<screen>: first frame N ms after the action …` — from the engine action that led to it through the
+game opening its interface and the model arriving to the screen's first frame and until its frames
+stop re-laying out, with the CPU of those frames by stage (model apply, component rebuilds, styles,
+layout, game pictures, render with texture uploads; `FrameStats`).
+
 Debug recordings (`adb shell setprop log.tag.<tag> DEBUG`): `StormUiState` logs every state,
 `StormUiModels` writes the newest model of each screen to `<external files>/ui-models/`.

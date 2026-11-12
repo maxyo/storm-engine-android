@@ -11,6 +11,8 @@ std::string EngineCommand(const Action &action)
 {
     if (action.screen.empty())
         return {};
+    if (action.screen == "sound") // the interface click of a press that started (Services::PressStarted)
+        return "uisound:" + action.verb;
     if (action.screen == "hud") // HUD input: the verb names the engine entry point
         return action.verb + ":" + action.value;
     if (action.screen == "dialogue") // reply: "<generation>:<index>"; edit: the typed reply text; no back

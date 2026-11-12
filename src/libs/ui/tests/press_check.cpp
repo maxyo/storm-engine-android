@@ -109,6 +109,7 @@ int main(int argc, char **argv)
     std::unique_ptr<FileSource> files = DirectoryFiles(pack.string());
     NoBackend backend;
     std::vector<std::string> clicks;
+    int sounds = 0; // the interface clicks a press start asked for (Action screen "sound")
     double clock = 0.0;
     Config config;
     config.files = files.get();
@@ -116,7 +117,12 @@ int main(int argc, char **argv)
     config.width = 800;
     config.height = 400;
     config.clock = [&clock] { return clock; };
-    config.on_action = [&clicks](const Action &action) {
+    config.on_action = [&clicks, &sounds](const Action &action) {
+        if (action.screen == "sound")
+        {
+            ++sounds;
+            return;
+        }
         clicks.push_back(action.node + " " + action.verb + (action.value.empty() ? "" : " " + action.value));
     };
     std::string error;
@@ -338,6 +344,37 @@ int main(int argc, char **argv)
     host->CloseInterface();
     frames(0.05);
     Expect(clicks.empty() && !host->WantsTouch(700, 350), "an opening withdrawn before its model drops its held tap and gives the touches back");
+
+    // One tap whose finger trembles (the platform delivers every sample with its time, the
+    // historical ones of a batched move too): one press, one click, one action. On a game
+    // interface the press start asks for the interface's click; a plain document (the
+    // launcher's screens) has none.
+    const auto trembling_tap = [&](float x, float y, int samples) {
+        clicks.clear();
+        sounds = 0;
+        double t = clock;
+        host->Touch(TouchPhase::Down, 1, x, y, t);
+        for (int i = 0; i < samples; ++i)
+            host->Touch(TouchPhase::Move, 1, x + float(i % 3), y + float(i % 2), t += 0.004);
+        frames(1.0 / 60.0);
+        host->Touch(TouchPhase::Up, 1, x + 1, y, t + 0.004);
+        frames(0.05);
+    };
+    host->ExpectInterface();
+    Expect(host->SetInterface(menu), "the game menu opens again");
+    frames(0.05);
+    trembling_tap(100, 24, 12);
+    Expect(sounds == 1 && clicks.size() == 1 && clicks[0] == " back",
+           "a tap with 12 move samples on a game interface: one click, one action (" + std::to_string(sounds) + " clicks, " +
+               std::to_string(clicks.size()) + " actions)");
+    host->CloseInterface();
+    frames(0.05);
+    Expect(host->LoadDocument("rows.rml"), "the rows document loads for the trembling tap");
+    frames(0.05);
+    trembling_tap(100, 24, 12);
+    Expect(sounds == 0 && clicks.size() == 1 && clicks[0] == "short click",
+           "a tap with 12 move samples on a plain document: one action, no click (" + std::to_string(clicks.size()) + " actions)");
+
     host.reset();
     fs::remove_all(pack);
     if (failures)

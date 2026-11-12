@@ -4,6 +4,7 @@
 #include <RmlUi/Core/Mesh.h>
 #include <RmlUi/Core/MeshUtilities.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 
@@ -204,7 +205,9 @@ void FrameRenderer::ReleaseGeometry(Rml::CompiledGeometryHandle geometry)
 
 Rml::TextureHandle FrameRenderer::LoadTexture(Rml::Vector2i &dimensions, const Rml::String &source)
 {
+    const auto started = std::chrono::steady_clock::now();
     const Rml::TextureHandle texture = target_.LoadTexture(dimensions, source);
+    stats_.texture_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     ++stats_.textures;
     stats_.texture_bytes += static_cast<size_t>(dimensions.x) * static_cast<size_t>(dimensions.y) * 4;
     texture_serials_[texture] = next_serial_++;
@@ -215,7 +218,9 @@ Rml::TextureHandle FrameRenderer::GenerateTexture(Rml::Span<const Rml::byte> sou
 {
     ++stats_.textures;
     stats_.texture_bytes += source.size();
+    const auto started = std::chrono::steady_clock::now();
     const Rml::TextureHandle texture = target_.GenerateTexture(source, dimensions);
+    stats_.texture_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     texture_serials_[texture] = next_serial_++;
     return texture;
 }
