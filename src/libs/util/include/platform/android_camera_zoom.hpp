@@ -103,6 +103,14 @@ inline float pinchLandZoom(float zoom, float scale)
 {
     return pinchDistance(zoom, scale, kLandZoomMin, kLandZoomMax);
 }
+// The telescope's view while it grows in (fraction 0..1 of its activate time): from the
+// camera's view at the raise, the deck's pinch zoom included, to the glass's. Lowered, the
+// telescope hands the view straight back to the deck camera, whose zoom it never touched.
+inline float telescopeGrowPerspective(float raisedFrom, float glass, float fraction)
+{
+    return raisedFrom + (glass - raisedFrom) * std::clamp(fraction, 0.0f, 1.0f);
+}
+
 // The deck camera has no zoom of its own in this game (its perspective is the "Perspective"
 // attribute): the pinch narrows the field of view up to twice. The fingers set the target, the
 // view eases to it (kDeckZoomEase per second), and leaving the deck (the camera off or not in

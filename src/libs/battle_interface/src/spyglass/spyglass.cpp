@@ -392,6 +392,10 @@ void ISPYGLASS::TurnOnTelescope(bool bTurnOn)
         m_Camera.bIsGrow = true;
         m_Camera.fCurActivateTime = 0.f;
         m_Camera.fCurUpdatingTime = m_Camera.fUpdateTime;
+#ifdef __ANDROID__
+        glm::vec3 pos, ang;
+        rs->GetCamera(pos, ang, m_Camera.fRaisedFromPerspective);
+#endif
 
         m_pFortObj = nullptr;
 
@@ -578,8 +582,13 @@ void ISPYGLASS::UpdateCamera()
         float fPerspect = m_Camera.fOldPerspective;
         if (m_Camera.bIsGrow)
         {
+#ifdef __ANDROID__
+            fPerspect = storm::android::telescopeGrowPerspective(m_Camera.fRaisedFromPerspective, m_Camera.fSpyGlassPerspective,
+                                                                 m_Camera.fCurActivateTime / m_Camera.fActivateTime);
+#else
             fPerspect = m_Camera.fOldPerspective + (m_Camera.fSpyGlassPerspective - m_Camera.fOldPerspective) *
                                                        (m_Camera.fCurActivateTime / m_Camera.fActivateTime);
+#endif
         }
         else
         {
