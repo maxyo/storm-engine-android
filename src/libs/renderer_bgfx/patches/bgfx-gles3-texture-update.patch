@@ -1,0 +1,21 @@
+--- a/src/renderer_gl.cpp
++++ b/src/renderer_gl.cpp
+@@ -974,7 +974,7 @@
+ 		{ "EXT_texture_view",                         false,                                    true  },
+ 		{ "EXT_texture_type_2_10_10_10_REV",          false,                                    true  },
+ 		{ "EXT_timer_query",                          BGFX_CONFIG_RENDERER_OPENGL >= 33,        true  },
+-		{ "EXT_unpack_subimage",                      false,                                    true  },
++		{ "EXT_unpack_subimage",                      BGFX_CONFIG_RENDERER_OPENGLES >= 30,      true  }, // storm: GL_UNPACK_ROW_LENGTH is core in GLES 3.0
+ 		{ "EXT_sRGB",                                 false,                                    true  }, // GLES extension.
+ 		{ "EXT_multisampled_render_to_texture",       false,                                    true  }, // GLES extension.
+ 
+@@ -6991,7 +6991,8 @@
+ 			&&  !unpackRowLength
+ 			&&  !convert) )
+ 			{
+-				bimg::imageCopy(temp, width, height, 1, bpp, srcPitch, data);
++				// storm: every slice of a 3D update (one copied slice left the rest of `temp` uninitialised).
++				bimg::imageCopy(temp, width, height, _depth, bpp, srcPitch, data);
+ 				data = temp;
+ 			}
+ 

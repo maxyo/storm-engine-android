@@ -14,9 +14,12 @@ namespace
 {
 using namespace detail;
 
-// Two flat colours, left and right half: below the bloom threshold, so a working chain only grades them.
-constexpr uint8_t kPattern[2][4] = {{77, 140, 64, 255}, {153, 102, 51, 255}};
-constexpr uint16_t kProbeX[2] = {16, 48};
+// Four flat colours in vertical bands, below the bloom threshold, so a working chain only grades them. Their blue
+// spans the whole range: the 3D grading table is sampled in slices far apart (a table with only its first slice
+// uploaded, as a GLES upload path once produced, cannot pass).
+constexpr int kColors = 4;
+constexpr uint8_t kPattern[kColors][4] = {{77, 140, 12, 255}, {153, 102, 90, 255}, {60, 120, 170, 255}, {140, 110, 235, 255}};
+constexpr uint16_t kProbeX[kColors] = {8, 24, 40, 56};
 constexpr uint16_t kProbeY = 32;
 
 std::array<int, 3> Expected(const Settings &settings, const uint8_t *rgb)
@@ -29,10 +32,10 @@ std::array<int, 3> Expected(const Settings &settings, const uint8_t *rgb)
 }
 
 // Largest channel difference at the two probes; `text` gets "expected/read" for the log.
-int Compare(const uint8_t *pixels, const std::array<int, 3> (&expected)[2], std::string &text)
+int Compare(const uint8_t *pixels, const std::array<int, 3> (&expected)[kColors], std::string &text)
 {
     int worst = 0;
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < kColors; ++i)
     {
         const uint8_t *p = pixels + (static_cast<size_t>(kProbeY) * 64 + kProbeX[i]) * 4;
         char line[96];
@@ -97,7 +100,7 @@ bool SelfTest::Submit(const Settings &settings, bgfx::ViewId first_view, const P
         scene_flags_ = msaa;
     }
     if (!bgfx::isValid(pattern_))
-        pattern_ = bgfx::createTexture2D(2, 1, false, 1, bgfx::TextureFormat::RGBA8, kClampPoint,
+        pattern_ = bgfx::createTexture2D(kColors, 1, false, 1, bgfx::TextureFormat::RGBA8, kClampPoint,
                                          bgfx::copy(kPattern, sizeof(kPattern)));
     if (!bgfx::isValid(output_))
         output_ = bgfx::createFrameBuffer(kSize, kSize, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | kClampPoint);
@@ -152,8 +155,9 @@ SelfTest::Result SelfTest::Poll(uint32_t frame)
     result.done = true;
 
     // The resolved scene must hold the pattern exactly (point-sampled copy, no blending).
-    const std::array<int, 3> pattern[2] = {{kPattern[0][0], kPattern[0][1], kPattern[0][2]},
-                                           {kPattern[1][0], kPattern[1][1], kPattern[1][2]}};
+    std::array<int, 3> pattern[kColors];
+    for (int i = 0; i < kColors; ++i)
+        pattern[i] = {kPattern[i][0], kPattern[i][1], kPattern[i][2]};
     std::string scene_text;
     if (Compare(scene_pixels_.data(), pattern, scene_text) > 2)
     {
@@ -165,7 +169,9 @@ SelfTest::Result SelfTest::Poll(uint32_t frame)
     // The chain's output: the pattern through the colour grade (no bloom below the threshold, dither ±0.5/255).
     // Looks a CPU mirror does not model (tone curve, scene grade, vignette, grain) get a wide tolerance: the test
     // then only tells a working chain from garbage.
-    const std::array<int, 3> expected[2] = {Expected(settings_, kPattern[0]), Expected(settings_, kPattern[1])};
+    std::array<int, 3> expected[kColors];
+    for (int i = 0; i < kColors; ++i)
+        expected[i] = Expected(settings_, kPattern[i]);
     const bool approximate = settings_.tonemap || settings_.scene_grading || settings_.vignette > 0.0f ||
                              settings_.film_grain > 0.0f || settings_.ssao;
     std::string output_text;
