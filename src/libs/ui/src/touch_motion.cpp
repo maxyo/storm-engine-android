@@ -1,170 +1,15 @@
 #include "touch_motion.h"
 
 #include <RmlUi/Core/ComputedValues.h>
+#include <RmlUi/Core/Log.h>
+#include <RmlUi/Core/Transform.h>
+#include <RmlUi/Core/TransformPrimitive.h>
 
 #include <algorithm>
 #include <cmath>
 
 namespace storm::ui
 {
-
-namespace
-{
-
-// VelocityTracker
-constexpr double kHorizon = 0.100;       // seconds of history the fit uses
-constexpr double kAssumeStopped = 0.040; // a gap this long means the pointer had stopped
-
-// OverScroller (SplineOverScroller)
-constexpr double kScrollFriction = 0.015; // ViewConfiguration.getScrollFriction()
-constexpr double kGravity = 9.80665;      // SensorManager.GRAVITY_EARTH
-constexpr double kInflexion = 0.35;
-constexpr double kStartTension = 0.5, kEndTension = 1.0;
-constexpr int kSamples = 100;
-const double kDecelerationRate = std::log(0.78) / std::log(0.9);
-
-// SPLINE_POSITION: the distance travelled (0..1) at each hundredth of the duration.
-const std::array<float, kSamples + 1> &SplinePosition()
-{
-    static const std::array<float, kSamples + 1> table = [] {
-        std::array<float, kSamples + 1> out{};
-        const float p1 = kStartTension * kInflexion, p2 = 1.0f - kEndTension * (1.0f - kInflexion);
-        float x_min = 0.0f;
-        for (int i = 0; i < kSamples; ++i)
-        {
-            const float alpha = static_cast<float>(i) / kSamples;
-            float x_max = 1.0f, x = 0.0f, coef = 0.0f;
-            while (true)
-            {
-                x = x_min + (x_max - x_min) / 2.0f;
-                coef = 3.0f * x * (1.0f - x);
-                const float tx = coef * ((1.0f - x) * p1 + x * p2) + x * x * x;
-                if (std::fabs(tx - alpha) < 1e-5f)
-                    break;
-                if (tx > alpha)
-                    x_max = x;
-                else
-                    x_min = x;
-            }
-            out[i] = coef * ((1.0f - x) * kStartTension + x) + x * x * x;
-        }
-        out[kSamples] = 1.0f;
-        return out;
-    }();
-    return table;
-}
-
-// Least squares fit of x(t) = b0 + b1 t + b2 t^2 (t relative to the newest sample); returns b1,
-// the velocity at the newest sample. Two samples give the straight line through them.
-float Derivative(const double *t, const float *x, int n)
-{
-    if (n < 2)
-        return 0.0f;
-    if (n == 2)
-        return t[0] == t[1] ? 0.0f : static_cast<float>((x[0] - x[1]) / (t[0] - t[1]));
-    double s[5] = {}, r[3] = {};
-    for (int i = 0; i < n; ++i)
-    {
-        double power = 1.0;
-        for (int k = 0; k < 5; ++k)
-        {
-            s[k] += power;
-            if (k < 3)
-                r[k] += power * x[i];
-            power *= t[i];
-        }
-    }
-    // Normal equations [s0 s1 s2; s1 s2 s3; s2 s3 s4] b = r, by Cramer's rule.
-    const auto det3 = [](double a, double b, double c, double d, double e, double f, double g, double h, double i) {
-        return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
-    };
-    const double det = det3(s[0], s[1], s[2], s[1], s[2], s[3], s[2], s[3], s[4]);
-    if (std::fabs(det) < 1e-18)
-    {
-        // Degenerate (samples at the same instants): the line through the oldest and newest.
-        return t[0] == t[n - 1] ? 0.0f : static_cast<float>((x[0] - x[n - 1]) / (t[0] - t[n - 1]));
-    }
-    const double b1 = det3(s[0], r[0], s[2], s[1], r[1], s[3], s[2], r[2], s[4]) / det;
-    return static_cast<float>(b1);
-}
-
-} // namespace
-
-void VelocityTracker::Clear()
-{
-    count_ = 0;
-    newest_ = -1;
-}
-
-void VelocityTracker::Add(double time, Rml::Vector2f position)
-{
-    if (count_ > 0 && time - samples_[newest_].time > kAssumeStopped)
-        Clear();
-    newest_ = (newest_ + 1) % kHistory;
-    samples_[newest_] = {time, position};
-    count_ = std::min(count_ + 1, kHistory);
-}
-
-void VelocityTracker::Lift(double time)
-{
-    if (count_ > 0 && time - samples_[newest_].time >= kAssumeStopped)
-        Clear();
-}
-
-Rml::Vector2f VelocityTracker::Velocity() const
-{
-    if (count_ == 0)
-        return {0.0f, 0.0f};
-    const double newest = samples_[newest_].time;
-    double t[kHistory];
-    float x[kHistory], y[kHistory];
-    int n = 0;
-    for (int i = 0; i < count_; ++i)
-    {
-        const Sample &sample = samples_[(newest_ - i + kHistory) % kHistory];
-        if (newest - sample.time > kHorizon)
-            break;
-        t[n] = sample.time - newest;
-        x[n] = sample.position.x;
-        y[n] = sample.position.y;
-        ++n;
-    }
-    return {Derivative(t, x, n), Derivative(t, y, n)};
-}
-
-void Fling::Start(double time, float position, float velocity, float density)
-{
-    active_ = false;
-    origin_ = position;
-    start_ = time;
-    if (velocity == 0.0f)
-        return;
-    const double physical = kGravity * 39.37 * (density * 160.0) * 0.84; // OverScroller.mPhysicalCoeff (ppi = 160 dpi per dp)
-    const double l = std::log(kInflexion * std::fabs(velocity) / (kScrollFriction * physical));
-    duration_ = std::exp(l / (kDecelerationRate - 1.0));
-    distance_ = static_cast<float>(kScrollFriction * physical * std::exp(kDecelerationRate / (kDecelerationRate - 1.0) * l)) *
-                (velocity < 0.0f ? -1.0f : 1.0f);
-    active_ = duration_ > 0.0 && distance_ != 0.0f;
-}
-
-float Fling::Advance(double time)
-{
-    if (!active_)
-        return origin_ + distance_;
-    const double t = (time - start_) / duration_;
-    if (t >= 1.0)
-    {
-        active_ = false;
-        return origin_ + distance_;
-    }
-    if (t <= 0.0)
-        return origin_;
-    const auto &spline = SplinePosition();
-    const int index = static_cast<int>(kSamples * t);
-    const double t_inf = static_cast<double>(index) / kSamples, t_sup = static_cast<double>(index + 1) / kSamples;
-    const double coef = (spline[index + 1] - spline[index]) / (t_sup - t_inf);
-    return origin_ + static_cast<float>((spline[index] + (t - t_inf) * coef) * distance_);
-}
 
 namespace
 {
@@ -199,9 +44,28 @@ void TouchScroll::Down(Rml::Element *target, Rml::Vector2f at, double time, floa
 {
     bool axis[2] = {false, false};
     Rml::Element *box = ScrollingBox(target, axis);
-    caught_ = box && box == box_.get() && Flinging();
+    const bool same = box && box == box_.get();
+    caught_ = same && Flinging();
     fling_[0].Stop();
     fling_[1].Stop();
+    // A finger on a stretched box holds the stretch where it is and drags on from it; any
+    // other box lets go of its stretch at once.
+    for (int i = 0; i < 2; ++i)
+    {
+        if (same && stretch_[i].Value() != 0.0f)
+        {
+            pull_[i] = stretch_[i].PullFor(Size(i));
+            stretch_[i].Pull(pull_[i], Size(i));
+            caught_ = true;
+        }
+        else
+        {
+            pull_[i] = 0.0f;
+            stretch_[i].Stop();
+        }
+    }
+    if (!same)
+        Stretch(time);
     box_ = box ? box->GetObserverPtr() : Rml::ObserverPtr<Rml::Element>();
     down_ = box != nullptr;
     dragging_ = caught_;
@@ -214,7 +78,7 @@ void TouchScroll::Down(Rml::Element *target, Rml::Vector2f at, double time, floa
     slop_ = slop;
     start_ = last_ = at;
     tracker_.Clear();
-    tracker_.Add(time, at);
+    tracker_.Add(time, {at.x, at.y});
 }
 
 bool TouchScroll::Move(Rml::Vector2f at, double time)
@@ -222,7 +86,7 @@ bool TouchScroll::Move(Rml::Vector2f at, double time)
     Rml::Element *box = box_.get();
     if (!down_ || !box)
         return false;
-    tracker_.Add(time, at);
+    tracker_.Add(time, {at.x, at.y});
     if (!dragging_)
     {
         const Rml::Vector2f travel = at - start_;
@@ -237,9 +101,16 @@ bool TouchScroll::Move(Rml::Vector2f at, double time)
     const Rml::Vector2f limit = Limit(box);
     for (int i = 0; i < 2; ++i)
         if (axis_[i])
-            position_[i] = std::clamp(position_[i] - (at[i] - last_[i]), 0.0f, limit[i]);
+        {
+            // The travel goes into the pull past an edge first, then into the scroll offset.
+            const float wanted = position_[i] + pull_[i] - (at[i] - last_[i]);
+            position_[i] = std::clamp(wanted, 0.0f, limit[i]);
+            pull_[i] = wanted - position_[i];
+            stretch_[i].Pull(pull_[i], Size(i));
+        }
     last_ = at;
     Place();
+    Stretch(time);
     return true;
 }
 
@@ -247,14 +118,24 @@ void TouchScroll::Up(double time, bool cancelled)
 {
     const bool fling = down_ && dragging_ && !cancelled && box_;
     down_ = dragging_ = caught_ = false;
+    // A stretch springs back, whatever ended the drag; a stretched axis does not fling.
+    bool stretched[2] = {false, false};
+    for (int i = 0; i < 2; ++i)
+    {
+        stretched[i] = stretch_[i].Value() != 0.0f;
+        if (stretched[i])
+            stretch_[i].Release(time);
+        pull_[i] = 0.0f;
+    }
+    last_update_ = time;
     if (!fling)
         return;
     tracker_.Lift(time);
-    const Rml::Vector2f velocity = tracker_.Velocity();
+    const touch::Point velocity = tracker_.Velocity();
     for (int i = 0; i < 2; ++i)
     {
         const float speed = -velocity[i]; // the content moves against the finger's scroll offset
-        if (!axis_[i] || std::fabs(speed) < kMinFlingDp * density_)
+        if (!axis_[i] || stretched[i] || std::fabs(speed) < kMinFlingDp * density_)
             continue;
         fling_[i].Start(time, position_[i], std::clamp(speed, -kMaxFlingDp * density_, kMaxFlingDp * density_), density_);
     }
@@ -263,13 +144,17 @@ void TouchScroll::Up(double time, bool cancelled)
 bool TouchScroll::Update(double time)
 {
     Rml::Element *box = box_.get();
-    if (!Flinging())
+    const bool springing = stretch_[0].Springing() || stretch_[1].Springing();
+    if (!Flinging() && !springing)
         return false;
-    // Gone, or scrolled by something else meanwhile (ScrollTo, a rebuild): the fling ends.
+    // Gone, or scrolled by something else meanwhile (ScrollTo, a rebuild): the motion ends.
     if (!box || std::fabs(box->GetScrollLeft() - std::round(position_.x)) > 1.0f || std::fabs(box->GetScrollTop() - std::round(position_.y)) > 1.0f)
     {
         fling_[0].Stop();
         fling_[1].Stop();
+        stretch_[0].Stop();
+        stretch_[1].Stop();
+        Stretch(time);
         return false;
     }
     const Rml::Vector2f limit = Limit(box);
@@ -277,13 +162,81 @@ bool TouchScroll::Update(double time)
     {
         if (!fling_[i].Active())
             continue;
+        const float before = position_[i];
         const float at = fling_[i].Advance(time);
         position_[i] = std::clamp(at, 0.0f, limit[i]);
-        if (position_[i] != at) // reached an edge: the fling ends there
+        if (position_[i] != at) // reached an edge: the fling ends there, its momentum stretches the content
+        {
             fling_[i].Stop();
+            const double elapsed = time - last_update_;
+            if (elapsed > 0.0)
+                stretch_[i].Absorb(time, static_cast<float>((at - before) / elapsed), Size(i));
+        }
     }
+    last_update_ = time;
     Place();
+    Stretch(time);
     return true; // this frame moved; the next Update reports the end
+}
+
+float TouchScroll::Size(int axis) const
+{
+    const Rml::Element *box = box_.get();
+    return box ? (axis == 0 ? const_cast<Rml::Element *>(box)->GetClientWidth() : const_cast<Rml::Element *>(box)->GetClientHeight()) : 0.0f;
+}
+
+void TouchScroll::Stretch(double time)
+{
+    Rml::Element *box = box_.get();
+    const float amount[2] = {stretch_[0].At(time), stretch_[1].At(time)};
+    if (!box || (amount[0] == 0.0f && amount[1] == 0.0f))
+    {
+        for (const auto &row : stretched_)
+            if (Rml::Element *element = row.get())
+                element->RemoveProperty(Rml::PropertyId::Transform);
+        stretched_.clear();
+        return;
+    }
+    // The rows: the children of the box, or of its only child (a list's wrapper), down to
+    // where there are several. The runtime's edge fade is none of them.
+    const auto rows_of = [](Rml::Element *element) {
+        std::vector<Rml::Element *> rows;
+        for (int i = 0; i < element->GetNumChildren(); ++i)
+            if (Rml::Element *child = element->GetChild(i); !child->IsClassSet("scroll-fade"))
+                rows.push_back(child);
+        return rows;
+    };
+    std::vector<Rml::Element *> rows = rows_of(box);
+    while (rows.size() == 1)
+        rows = rows_of(rows.front());
+    // Each row moves away from the far edge by the stretch times its distance from it: the
+    // edge pulled moves the most, the far one stays.
+    const Rml::Vector2f origin = box->GetAbsoluteOffset(Rml::BoxArea::Padding);
+    const float size[2] = {Size(0), Size(1)};
+    std::vector<Rml::ObserverPtr<Rml::Element>> stretched;
+    for (Rml::Element *row : rows)
+    {
+        const bool ours = std::any_of(stretched_.begin(), stretched_.end(), [row](const auto &held) { return held.get() == row; });
+        if (!ours && row->GetComputedValues().has_local_transform())
+        {
+            if (!warned_)
+                Rml::Log::Message(Rml::Log::LT_WARNING, "Scroll stretch: a row with a transform of its own keeps it (%s)", row->GetAddress().c_str());
+            warned_ = true;
+            continue;
+        }
+        const Rml::Vector2f at = row->GetAbsoluteOffset(Rml::BoxArea::Border) + row->GetBox().GetSize(Rml::BoxArea::Border) * 0.5f - origin;
+        float shift[2] = {0.0f, 0.0f};
+        for (int i = 0; i < 2; ++i)
+        {
+            const float centre = std::clamp(at[i], 0.0f, size[i]);
+            shift[i] = amount[i] < 0.0f ? -amount[i] * (size[i] - centre) : -amount[i] * centre;
+        }
+        Rml::TransformPtr transform = Rml::MakeShared<Rml::Transform>();
+        transform->AddPrimitive(Rml::Transforms::Translate2D(shift[0], shift[1], Rml::Unit::PX));
+        row->SetProperty(Rml::PropertyId::Transform, Rml::Property(transform, Rml::Unit::TRANSFORM));
+        stretched.push_back(row->GetObserverPtr());
+    }
+    stretched_ = std::move(stretched);
 }
 
 void TouchScroll::Place()

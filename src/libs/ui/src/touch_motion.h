@@ -1,88 +1,35 @@
-// Finger motion as Android's own views have it: velocity from the timestamped samples of a
-// pointer, and the fling that follows a release. Lists (TouchScroll) and the map's pan
-// (behaviour panzoom) share it, so every drag in the UI follows the finger and coasts alike.
+// Touch scrolling of the UI's boxes. Lists (TouchScroll) and the map's pan (behaviour panzoom)
+// use the finger physics shared with the game cameras (util touch_physics.hpp: Android's
+// VelocityTracker and OverScroller), so every drag follows the finger and coasts alike.
 //
 // Our own code rather than RmlUi's touch scrolling: RmlUi 6.3 takes no sample times (its
 // velocity comes from when the engine loop got to the events), integrates its inertia per
 // frame with a linear friction and a delta clamp (the travel depends on the frame rate), and
-// rounds every step to whole pixels (slow motion stalls, then stops at a cut-off). The model
-// here is the published one of android.widget.OverScroller and VelocityTracker (no library
-// carries it for C++); its constants are Android's ViewConfiguration defaults.
+// rounds every step to whole pixels (slow motion stalls, then stops at a cut-off).
 #pragma once
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/Vector2.h>
 
-#include <array>
+#include "touch_physics.hpp"
+
+#include <vector>
 
 namespace storm::ui
 {
 
-// Android's ViewConfiguration, in dp (density = physical pixels per dp).
-constexpr float kMinFlingDp = 50.0f;   // a slower release does not fling (getScaledMinimumFlingVelocity)
-constexpr float kMaxFlingDp = 8000.0f; // per second (getScaledMaximumFlingVelocity)
-
-// The velocity of one pointer at its newest sample, in pixels per second: a least-squares
-// fit of a second-degree polynomial per axis over the samples of the last 100 ms
-// (VelocityTracker's default "lsq2" strategy). A pause of more than 40 ms between samples
-// starts the history anew: the finger had stopped.
-class VelocityTracker
-{
-  public:
-    void Clear();
-    // A sample more than 40 ms after the one before clears the history first (the finger
-    // had stopped): a release after a pause has no velocity.
-    void Add(double time, Rml::Vector2f position);
-    // The pointer went up at `time`. Its position is not a sample (it repeats the last move;
-    // an injected or late up may even step back), but an up 40 ms or more after the last
-    // sample means the finger had stopped: no velocity (VelocityTracker, ACTION_UP).
-    void Lift(double time);
-    Rml::Vector2f Velocity() const;
-
-  private:
-    struct Sample
-    {
-        double time = 0.0;
-        Rml::Vector2f position;
-    };
-    static constexpr int kHistory = 20;
-    std::array<Sample, kHistory> samples_{};
-    int count_ = 0, newest_ = -1;
-};
-
-// The travel of a fling along one axis: OverScroller's spline (SplineOverScroller.fling),
-// evaluated at absolute times, so the position at any frame time is exact whatever the frame
-// rate (no per-frame integration). Distance and duration grow with the release speed; the
-// curve starts at the release speed and ends at rest.
-class Fling
-{
-  public:
-    // `velocity` in pixels per second, `density` in pixels per dp.
-    void Start(double time, float position, float velocity, float density);
-    void Stop()
-    {
-        active_ = false;
-    }
-    bool Active() const
-    {
-        return active_;
-    }
-    // The position at `time`; the fling ends (Active false) once it is at rest.
-    float Advance(double time);
-
-  private:
-    bool active_ = false;
-    double start_ = 0.0;
-    double duration_ = 0.0; // seconds
-    float origin_ = 0.0f, distance_ = 0.0f; // signed
-};
+using touch::Fling;
+using touch::kMaxFlingDp;
+using touch::kMinFlingDp;
+using touch::VelocityTracker;
 
 // Drags and flings of RmlUi's scrolling boxes (overflow auto/scroll) by touch, for one pointer
 // at a time. The finger moves the content 1:1 from where the drag starts (beyond the slop);
 // every sample of the pointer counts for the release velocity; the fling then runs on the
 // frame clock (Update). A pointer that goes down on a box in motion stops it and drags it at
-// once (a caught fling is never a tap). The content stops at its edges; a fling that reaches
-// one ends there.
+// once (a caught fling is never a tap). Past an edge the content stretches (touch::EdgeStretch:
+// a pull while the finger drags it there, the fling's momentum when one reaches it) and
+// springs back: its rows are moved apart by transforms, so a stretch lays nothing out.
 class TouchScroll
 {
   public:
@@ -91,7 +38,8 @@ class TouchScroll
     // True from the sample that starts the drag on (the press under the finger is withdrawn).
     bool Move(Rml::Vector2f at, double time);
     void Up(double time, bool cancelled);
-    // Moves a flinging box to where it is at `time`; true while one is in motion.
+    // Moves a flinging box to where it is at `time` and its stretch with it; true while
+    // either is in motion.
     bool Update(double time);
     // Down caught a box in motion (the touch is a drag from its start).
     bool Caught() const
@@ -110,6 +58,10 @@ class TouchScroll
   private:
     // Sets the box's scroll offset (RmlUi keeps whole pixels) from the exact position.
     void Place();
+    // Moves the rows of the box apart by the stretch at `time` (none: they get no transform).
+    void Stretch(double time);
+    // The box's size along an axis (what a stretch is a fraction of).
+    float Size(int axis) const;
 
     Rml::ObserverPtr<Rml::Element> box_;
     bool axis_[2] = {false, false}; // the box scrolls along x / y
@@ -119,6 +71,11 @@ class TouchScroll
     bool down_ = false, dragging_ = false, caught_ = false;
     VelocityTracker tracker_;
     Fling fling_[2];
+    double last_update_ = 0.0;       // the time of the last Update (a fling's speed at an edge)
+    Rml::Vector2f pull_;             // px past the edges while the finger drags (signed)
+    touch::EdgeStretch stretch_[2];
+    std::vector<Rml::ObserverPtr<Rml::Element>> stretched_; // rows with a stretch transform
+    bool warned_ = false;            // a row with a transform of its own was reported
 };
 
 } // namespace storm::ui

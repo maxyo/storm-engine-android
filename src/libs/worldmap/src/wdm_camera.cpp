@@ -12,7 +12,10 @@
 #include "wdm_player_ship.h"
 
 #ifdef __ANDROID__
+#include <platform/android_camera_turn.hpp>
 #include <platform/android_camera_zoom.hpp>
+
+#include <time.h>
 #endif
 
 //============================================================================================
@@ -108,9 +111,24 @@ void WdmCamera::Move(float dltTime, VRenderer *rs)
     const auto snX = sinf(ang.x);
     const auto movelrspd = 50.0f * MoveLeftRight(dltTime);
     const auto moveudspd = 50.0f * MoveUpDown(dltTime);
-    const auto rotspd = 1.0f * RotLeftRight(dltTime);
+    auto rotspd = 1.0f * RotLeftRight(dltTime);
     auto zoomspd = 30.0f * ZoomInOut(dltTime);
 #ifdef __ANDROID__
+    // The look finger turns the camera (platform/android_camera_turn.hpp): by its travel at
+    // this frame's time, the near ground under it following it 1:1, and coasting on after a
+    // release. It replaces the PC's mouse with the rotate key held (a speed per frame, not the
+    // finger's travel), in the free camera too.
+    {
+        timespec now{};
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        const float fraction = storm::android::cameraTurn.take(now.tv_sec * 1000.0 + now.tv_nsec / 1e6);
+        if (fraction != 0.0f)
+        {
+            D3DMATRIX projection{};
+            rs->GetTransform(D3DTS_PROJECTION, &projection);
+            rotspd += storm::android::turnAngle(fraction, ang.x, projection._11, projection._22);
+        }
+    }
     // The pinch of the camera look (platform/android_camera_zoom.hpp) moves the height the wheel
     // moves (WMapForward / WMapBackward), along the same line of sight and within the same
     // limits, as many times lower as the fingers spread. The free camera has no zoom
