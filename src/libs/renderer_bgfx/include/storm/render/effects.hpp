@@ -116,13 +116,14 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
 // frame's flicker). In interiors the strongest ones cast shadows (fx_lamp_shadows); outdoors: empty.
 void SetEffectsLamps(std::span<const EffectsPointLight> lamps);
 
-// Location, once loaded: its still, collidable geometry (world space positions, triangle list; `name` names it in the
-// log). Interiors bake their ambient-occlusion volume from it over the box one walks in (`bounds_lo`..`bounds_hi`:
-// the geometry outside, such as the backdrop behind the windows, only occludes) and draw it into the lamp shadows;
-// outdoors it casts into the static sun shadow map (buildings and palms onto characters and props). Leaving: empty.
-void SetEffectsLocationGeometry(std::string_view name, std::span<const std::array<float, 3>> positions,
-                                std::span<const uint32_t> indices, bool interior,
-                                const std::array<float, 3> &bounds_lo = {}, const std::array<float, 3> &bounds_hi = {});
+// Location, once an interior is loaded: the static geometry its ambient-occlusion volume is baked from (world space
+// positions, triangle list; `name` names it in the log) and the box that gets the volume (where one walks, with a
+// margin: the geometry outside it, such as the backdrop behind the windows, only occludes). Outdoors and when
+// leaving: empty spans. The volume is read from the cache or baked on a worker while the settings ask for it
+// (fx_ao_volume, Средняя / Высокая).
+void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<float, 3>> positions,
+                          std::span<const uint32_t> indices, const std::array<float, 3> &bounds_lo = {},
+                          const std::array<float, 3> &bounds_hi = {});
 
 // The game file a texture was loaded from (Renderer::TextureLoad, after its levels are filled). Stone, wood, plaster
 // and ground textures and grey height ("bump") textures get a normal map for the per-pixel lighting's relief

@@ -13,6 +13,8 @@
 #include "runtime_stub.h"
 #include "storm_ui/ui.h"
 
+#include <RmlUi/Core.h>
+
 #include <nlohmann/json.hpp>
 
 #include <cstdio>
@@ -90,6 +92,19 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
                              "<c-fit id=\"cut\" style=\"top: 300dp;\" hold=\"1\" title=\"Mannschaft\"/>"
                              "<c-pz id=\"pz\" style=\"display: block; position: absolute; left: 400dp; top: 200dp; width: 400dp; height: 200dp;\"/>"
                              "</body></rml>");
+    // A store-like component: a list of 20 rows, the deal's amount, its total and the buy button.
+    components["components"].push_back(Json::parse(R"({
+        "tag": "c-store",
+        "props": {"rows": {"type": "json", "default": []}, "amount": {"type": "int", "default": 0}, "total": {"type": "text", "default": ""}},
+        "template": "<div id=\"list\"><t-for each=\"rows\" as=\"r\"><div class=\"row{{ r.sel ? ' sel' : '' }}\" data-value=\"{{r.id}}\"><span class=\"name\">{{r.name}}</span><span class=\"held\">{{r.held}}</span></div></t-for></div><div id=\"amount\">{{amount}}</div><div id=\"total\">{{total}}</div><c-row id=\"buy\" title=\"{{total}}\" style=\"display: block; width: 200dp; height: 48dp;\"/>"})"));
+    Write(pack / "components.json", components.dump());
+    {
+        Json rows = Json::array();
+        for (int i = 0; i < 20; ++i)
+            rows.push_back({{"id", i}, {"name", "Goods " + std::to_string(i)}, {"held", i * 10}, {"sel", i == 3}});
+        Write(pack / "store.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }</style></head><body>"
+                                  "<c-store id=\"store\" amount=\"1\" total=\"Buy 1\" rows='" + rows.dump() + "'/></body></rml>");
+    }
     Write(pack / "cutout.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
                                " c-row { display: block; position: absolute; left: 0; height: 40dp; }</style></head><body>"
                                "<c-row id=\"small\" style=\"top: 200dp; width: 40dp;\" title=\"S\"/>"
@@ -452,6 +467,56 @@ int main(int argc, char **argv)
     trembling_tap(100, 24, 12);
     Expect(sounds == 0 && clicks.size() == 1 && clicks[0] == "short click",
            "a tap with 12 move samples on a plain document: one action, no click (" + std::to_string(clicks.size()) + " actions)");
+
+
+    // One value changes, only what shows it changes: a new amount sets the amount's text, the
+    // total's text and the button's title (which rebuilds the button), not one of the 20 rows.
+    Expect(host->LoadDocument("store.rml"), "the store document loads");
+    frames(0.1);
+    {
+        Rml::Element *list = nullptr;
+        std::vector<Rml::Element *> rows_before;
+        const auto rows_of = [&] {
+            std::vector<Rml::Element *> rows;
+            if (list)
+                for (int i = 0; i < list->GetNumChildren(); ++i)
+                    rows.push_back(list->GetChild(i));
+            return rows;
+        };
+        const auto find = [](const char *id) -> Rml::Element * {
+            Rml::Context *context = Rml::GetContext("storm-ui");
+            for (int i = 0; context && i < context->GetNumDocuments(); ++i)
+                if (Rml::Element *found = context->GetDocument(i)->GetElementById(id))
+                    return found;
+            return nullptr;
+        };
+        list = find("list");
+        Expect(list && list->GetNumChildren() == 20, "the store lists 20 rows");
+        rows_before = rows_of();
+        Expect(host->SetProps("store", R"({"amount": 2, "total": "Buy 2"})"), "the amount changes");
+        clock += 1.0 / 60.0;
+        host->Frame();
+        const FrameStats changed = host->LastFrameStats();
+        Expect(changed.touched > 0 && changed.touched <= 4 && changed.patch_fallbacks == 0,
+               "a new amount touches the amount, the total and the button only (" + std::to_string(changed.touched) + " elements, " +
+                   std::to_string(changed.patch_fallbacks) + " whole levels)");
+        Expect(find("list") == list && rows_of() == rows_before, "the rows are the same elements");
+        Json rows = Json::array();
+        for (int i = 0; i < 20; ++i)
+            rows.push_back({{"id", i}, {"name", "Goods " + std::to_string(i)}, {"held", i == 3 ? 32 : i * 10}, {"sel", i == 3}});
+        Expect(host->SetProps("store", Json{{"rows", rows}}.dump()), "one row's hold changes");
+        clock += 1.0 / 60.0;
+        host->Frame();
+        const FrameStats row = host->LastFrameStats();
+        Expect(row.touched == 1 && rows_of() == rows_before, "one row's figure touches that figure only (" + std::to_string(row.touched) + " elements)");
+        // The same values again: the render is the shown one, nothing to draw.
+        Expect(host->SetProps("store", R"({"amount": 2, "total": "Buy 2"})"), "the same amount again");
+        double delay = 0.0;
+        clock += 1.0 / 60.0;
+        host->Prepare(delay);
+        host->Frame();
+        Expect(host->LastFrameStats().touched == 0 && host->LastFrameStats().laid_out == 0, "the same values touch and lay out nothing");
+    }
 
     host.reset();
     fs::remove_all(pack);

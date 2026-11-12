@@ -16,6 +16,7 @@ namespace storm::ui
 {
 
 class ComponentElement;
+struct RmlNode; // components.cpp: a template render as a light tree
 
 struct PropSpec
 {
@@ -203,6 +204,11 @@ class ComponentElement final : public Rml::Element
     bool built_ = false;
     bool built_children_ = false; // `children` of the last build
     std::string built_rml_;        // what the template gave at the last build
+    // built_rml_ as a light tree (components.cpp RmlNode): the next build patches only what
+    // changed against it. Not ok: the render had something the parser does not take.
+    std::vector<RmlNode> built_tree_;
+    bool built_tree_ok_ = false;
+    TemplateMemo memo_; // loop items of the last render (RenderTemplate)
     bool pending_slot_ = false;   // slot_content_ replaces the slot on the next build
     std::vector<Rml::ElementPtr> slot_content_;
     bool error_ = false; // ReportError happened since the last rebuild

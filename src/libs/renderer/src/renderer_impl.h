@@ -1,6 +1,9 @@
 #pragma once
 
 #include "game_pictures.hpp"
+#ifdef __ANDROID__
+#include "android_render_resolution.hpp"
+#endif
 #include "technique.h"
 #include "font.h"
 #include "video_texture.h"
@@ -414,6 +417,11 @@ class Renderer : public VRenderer
   private:
     std::unique_ptr<storm::GamePictures> gamePictures_;
     int appEventsSubscription_ = -1;
+#ifdef __ANDROID__
+    void ApplyViewResize();
+    storm::android::RenderExtent pendingViewResize_{}; // a view size not yet applied (WindowResized)
+    float renderScale_[2] = {1.0f, 1.0f};              // game picture px per view px, chosen at start
+#endif
 
     struct VertexDeclaration
     {

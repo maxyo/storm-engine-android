@@ -585,10 +585,11 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         if (clamps || cutouts) // clamped text was re-cut for a new width, a scrolling edge changed, content moved off a cutout
             UpdateContext();
         delay = context_->GetNextUpdateDelay();
-        // What makes the shown frame out of date: input and host calls (changed_), rebuilt
-        // or re-laid-out components, ticking behaviours, animations and transitions, game
+        // What makes the shown frame out of date: input and host calls (changed_), component
+        // rebuilds that changed elements (a render equal to the shown one changes nothing),
+        // layout, ticking behaviours, animations and transitions, game
         // pictures that arrived, re-cut text.
-        if (images || clamps || cutouts || !ticking_.empty() || delay <= 0.0 || counters_.rebuilds > 0 || counters_.laid_out > 0)
+        if (images || clamps || cutouts || !ticking_.empty() || delay <= 0.0 || counters_.touched > 0 || counters_.laid_out > 0)
             changed_ = true;
         if (changed_)
             delay = 0.0;
@@ -1657,12 +1658,12 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         char line[1024];
         std::snprintf(line, sizeof line,
                       "UI switch %s: first frame %.0f ms after %s%s (game: %s%.0f ms to the model), settled %.0f ms after it in %d more frames | "
-                      "first frame CPU: apply %.1f, rebuild %.1f (%d), style %.1f, layout %.1f (%d boxes, %d passes), pictures %d in %.1f, "
-                      "render %.1f incl. textures %d (%zu KB) in %.1f | settling CPU: update %.1f, render %.1f, rebuild %d, layout %.1f (%d passes), "
+                      "first frame CPU: apply %.1f, rebuild %.1f (%d, %d elements touched), style %.1f, layout %.1f (%d boxes, %d passes), pictures %d in %.1f, "
+                      "render %.1f incl. %d meshes, textures %d (%zu KB) in %.1f | settling CPU: update %.1f, render %.1f, rebuild %d, layout %.1f (%d passes), "
                       "pictures %d in %.1f",
                       switch_.screen.c_str(), ms(origin, switch_.first), acted ? "the tap" : "the interface opened", "", switch_.expected ? ("interface opened +" + std::to_string(int(ms(origin, switch_.begun))) + " ms, ").c_str() : "",
-                      ms(origin, switch_.modelled), ms(switch_.first, now), switch_.frames - 1, f.apply_ms, f.rebuild_ms, f.rebuilds, f.style_ms,
-                      f.layout_ms, f.laid_out, f.layout_passes, f.pictures, f.picture_ms, f.render_ms, f.textures, f.texture_bytes / 1024, f.texture_ms,
+                      ms(origin, switch_.modelled), ms(switch_.first, now), switch_.frames - 1, f.apply_ms, f.rebuild_ms, f.rebuilds, f.touched, f.style_ms,
+                      f.layout_ms, f.laid_out, f.layout_passes, f.pictures, f.picture_ms, f.render_ms, f.geometry, f.textures, f.texture_bytes / 1024, f.texture_ms,
                       s.update_ms, s.render_ms, s.rebuilds, s.layout_ms, s.layout_passes, s.pictures, s.picture_ms);
         Log(line);
         switch_.open = false;
