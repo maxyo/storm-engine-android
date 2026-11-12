@@ -17,6 +17,8 @@ export PATH="$work/python/bin:$PATH"
 if [[ -n "${JAVA_HOME_17_X64:-}" ]]; then export JAVA_HOME="$JAVA_HOME_17_X64"; export PATH="$JAVA_HOME/bin:$PATH"; fi
 ndk="$work/tools/ndk/android-ndk-r30"
 python3 "$repo/tools/android/engine_sources.py" --directory "$work/sources"
+source "$repo/tools/android/sources_lock.sh"
+sources_lock shared "$work/sources" # held until this build exits: no checkout changes under it
 # The host shaderc for the embedded shaders is built once per bgfx pin by the configure step
 # (src/libs/renderer_bgfx/cmake/storm_shaderc.cmake); -DSTORM_SHADERC overrides it.
 cmake -S "$repo" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE="$build_type" \
