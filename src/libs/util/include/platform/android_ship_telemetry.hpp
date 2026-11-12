@@ -121,12 +121,56 @@ inline bool shipSailControlAllowed(const ShipSailGuard &guard)
         !guard.dead && guard.canDropSails && guard.state && std::isfinite(*guard.state) &&
         *guard.state >= 0 && *guard.state <= 1;
 }
+// The ship's picture as the original battle interface draws it: a cell of its ship-icon atlas
+// (BattleInterface.ShipIcon / wm_sign.shiptexturename, battle_interface\ship_icons2.tga). `texture`
+// is the texture-namespace name ("battle_interface/ship_icons2"), `uv` left, top, right, bottom 0…1.
+struct ShipPicture
+{
+    std::string texture;
+    std::array<float, 4> uv{};
+    bool operator==(const ShipPicture &) const = default;
+};
+// "battle_interface\ship_icons2.tga.tx" → "battle_interface/ship_icons2"; "" when it is not a
+// plain relative texture name (the UI resolves it under RESOURCE/Textures of the player's game).
+inline std::string shipPictureTexture(std::string_view file)
+{
+    std::string name;
+    for (const char c : file)
+    {
+        if (static_cast<unsigned char>(c) < 0x20 || c == ':' || c == '"') return {};
+        name += c == '\\' ? '/' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    for (const char *suffix : {".tx", ".tga"})
+    {
+        const std::string_view tail(suffix);
+        if (name.size() > tail.size() && std::string_view(name).substr(name.size() - tail.size()) == tail)
+            name.resize(name.size() - tail.size());
+    }
+    if (name.empty() || name.size() > 128 || name.front() == '/' || name.find("..") != std::string::npos) return {};
+    return name;
+}
+// A picture with a texture and a rectangle inside 0…1, or nothing.
+inline std::optional<ShipPicture> shipPicture(std::string_view file, const std::array<float, 4> &uv)
+{
+    ShipPicture picture{shipPictureTexture(file), uv};
+    for (const float v : uv)
+        if (!std::isfinite(v) || v < 0.f || v > 1.f) return {};
+    if (picture.texture.empty() || uv[2] <= uv[0] || uv[3] <= uv[1]) return {};
+    return picture;
+}
+inline std::string shipPictureJson(const ShipPicture &picture)
+{
+    char uv[96];
+    std::snprintf(uv, sizeof uv, "[%.6g,%.6g,%.6g,%.6g]", picture.uv[0], picture.uv[1], picture.uv[2], picture.uv[3]);
+    return "{\"texture\":" + gameplayJsonString(picture.texture) + ",\"uv\":" + uv + "}";
+}
 struct ShipTelemetryEntry
 {
     int characterIndex = -1;
     std::string entityId, name, type;
     std::optional<ShipMetric> hull, crew, sails;
     std::optional<int32_t> shipClass;
+    std::optional<ShipPicture> picture;
     bool operator==(const ShipTelemetryEntry &) const = default;
 };
 inline constexpr std::array<const char *, 4> ShipAmmoNames{"balls", "grapes", "knippels", "bombs"};
@@ -193,6 +237,10 @@ struct ShipTelemetryFrame
 // Resolve current battle-interface captions on the game thread; implemented by battle_interface.
 #ifdef __ANDROID__
 void readShipCaptions(ShipTelemetryFrame &frame, uint64_t mainShipId);
+// The character's ship picture in the battle interface's ship icons (BIShipIcon: the picture
+// number the script gives for BIDT_SHIPPICTURE, the icon atlas and its grid); implemented by
+// battle_interface. Nothing while the battle interface has no such ship.
+std::optional<ShipPicture> seaShipPicture(int characterIndex);
 #endif
 
 // Native and Java exchange value copies only. All instances are game-thread owned.
@@ -232,6 +280,7 @@ class ShipTelemetryState
         if (!entry.name.empty()) json += ",\"name\":" + gameplayJsonString(entry.name);
         if (!entry.type.empty()) json += ",\"type\":" + gameplayJsonString(entry.type);
         if (entry.shipClass) json += ",\"shipClass\":" + std::to_string(*entry.shipClass);
+        if (entry.picture) json += ",\"picture\":" + shipPictureJson(*entry.picture);
         appendMetric(json, "hull", entry.hull);
         appendMetric(json, "crew", entry.crew);
         appendMetric(json, "sailIntegrity", entry.sails);

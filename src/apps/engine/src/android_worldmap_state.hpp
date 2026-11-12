@@ -48,11 +48,18 @@ inline WorldMapFrame readWorldMapFrame(const GameplayState &gameplay, bool ready
         if(const auto v=shipNumber(badge,"leftprogress");v && *v<=1)ship.hull=*v*100;
         if(const auto v=shipNumber(badge,"rightprogress");v && *v<=1)ship.sails=*v*100;
         if(const auto v=shipNumber(badge,"text");v && *v<=100000 && std::floor(*v)==*v)ship.crew=static_cast<int>(*v);
+        if(auto *uv=badge?badge->FindAClass(badge,"faceuv"):nullptr;uv&&uv->HasValue()&&battle)
+        {
+            std::array<float,4> rect{};
+            if(std::sscanf(uv->GetValue().c_str(),"%f,%f,%f,%f",&rect[0],&rect[1],&rect[2],&rect[3])==4)
+                ship.picture=shipPicture(shipText(battle,"shiptexturename"),rect);
+        }
         if(type && realShips && *type<realShips->GetElementsNum() && std::floor(*type)==*type)
         {
             auto *shipType=realShips->GetAClass(static_cast<int>(*type));
             ship.type=shipCaptionText(shipCanonicalType(shipType));
             if(const auto c=shipNumber(shipType,"Class");c && *c>=1 && *c<=7 && std::floor(*c)==*c)ship.shipClass=static_cast<int>(*c);
+            if(const auto m=shipNumber(shipType,"MaxCrew");m && *m>=1 && *m<=100000 && std::floor(*m)==*m)ship.crewMax=static_cast<int>(*m);
         }
         frame.identity+="|"+std::to_string(ship.id.size())+":"+ship.id+":"+std::to_string(ship.name.size())+":"+ship.name;
         frame.ships.push_back(std::move(ship));

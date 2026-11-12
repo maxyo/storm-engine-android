@@ -150,7 +150,7 @@ class SeaScene final : public Scene
         const Ship *ship = Current(states);
 
         if (ship)
-            BuildVitals(*ship, view);
+            BuildFleet(*ship, view, input);
 
         const SeaOrders &orders = states.sea_orders;
         if (orders.known && orders.active)
@@ -191,7 +191,6 @@ class SeaScene final : public Scene
 
         if (ship)
         {
-            BuildFleet(*ship, orders, view, input);
             BuildMinimap(*ship, view, input);
             BuildSails(*ship, view, input);
         }
@@ -345,49 +344,41 @@ class SeaScene final : public Scene
 
     // --- bars, fleet, minimap, sails ---
 
-    static void BuildVitals(const Ship &ship, View &view)
+    // The squadron column (V2-Sea-Sailing, as the original battle interface's ship icons): the
+    // flagship first, then the companions, each the ship's round picture ringed by its hull,
+    // crew and sails. A tap opens the orders for that ship, as a click on the engine's icon does.
+    void BuildFleet(const Ship &ship, View &view, Input &input)
     {
-        const Ship::Vessel &own = ship.own;
-        if (own.hull < 0.0 && own.crew < 0.0 && own.sails < 0.0)
+        if (ship.own.hull < 0.0 && ship.own.crew < 0.0 && ship.own.sails < 0.0 && ship.fleet.empty())
             return;
-        view.elements["vitals"] = Json::object();
-        if (own.hull >= 0.0)
-            view.elements["hull"] = Json{{"value", Percent(own.hull)}};
-        if (own.crew >= 0.0)
-            view.elements["crew"] = Json{{"value", Percent(own.crew)}};
-        if (own.sails >= 0.0)
-            view.elements["sails"] = Json{{"value", Percent(own.sails)}};
-    }
-
-    void BuildFleet(const Ship &ship, const SeaOrders &orders, View &view, Input &input)
-    {
-        if (ship.fleet.empty())
-            return;
+        const SeaOrders &orders = hud_.Current().sea_orders;
+        const bool tap = orders.known && orders.available && !orders.active;
         Json ships = Json::array();
-        for (const Ship::Vessel &vessel : ship.fleet)
+        for (size_t i = 0; i <= ship.fleet.size(); ++i)
         {
-            Json token = {{"icon", ShipIcon(vessel.type)}, {"label", vessel.name}};
-            if (vessel.hull >= 0.0)
-                token["hp"] = Percent(vessel.hull);
-            ships.push_back(std::move(token));
+            const Ship::Vessel &vessel = i == 0 ? ship.own : ship.fleet[i - 1];
+            if (vessel.picture.texture.empty())
+                hud_.Log("sea HUD: the engine gives no picture for the ship " + vessel.name + " (" + vessel.type + "): its placeholder stays");
+            ships.push_back(MemberCell(vessel.name, vessel.picture, {{"health", vessel.hull}, {"crew", vessel.crew}, {"sails", vessel.sails}}, tap));
         }
         view.elements["fleet"] = Json{{"ships", ships}};
-        // A tap on a companion opens the orders for it.
+        if (!tap)
+            return;
         input.On("fleet", "ship", [this](const Event &event) {
             const States &states = hud_.Current();
             const Ship *current = Current(states);
             const size_t index = static_cast<size_t>(std::max(0, std::atoi(event.value.c_str())));
-            if (!current || index >= current->fleet.size())
+            if (!current || index > current->fleet.size())
                 return;
+            const Ship::Vessel &vessel = index == 0 ? current->own : current->fleet[index - 1];
             for (const SeaOrders::Recipient &recipient : states.sea_orders.recipients)
-                if (recipient.character == current->fleet[index].character && recipient.entity == current->fleet[index].entity)
+                if (recipient.character == vessel.character && recipient.entity == vessel.entity)
                 {
                     Order("open", recipient.id);
                     return;
                 }
-            hud_.Log("sea HUD: the engine offers no orders for " + current->fleet[index].name);
+            hud_.Log("sea HUD: the engine offers no orders for " + vessel.name);
         });
-        (void)orders;
     }
 
     void BuildMinimap(const Ship &ship, View &view, Input &input)
@@ -757,13 +748,13 @@ class SeaScene final : public Scene
         {
             const auto has = [&shown](const char *id) { return shown.elements.contains(id); };
             const auto prop = [&shown](const char *id, const char *key) { return shown.elements.contains(id) && shown.elements[id].contains(key); };
-            mask |= has("hull") ? kHull : 0;
-            mask |= has("crew") ? kCrew : 0;
-            mask |= has("sails") ? kSailIntegrity : 0;
+            // the flagship's cell of the squadron column carries its hull, crew and sails bars
+            mask |= has("fleet") && ship->own.hull >= 0.0 ? kHull : 0;
+            mask |= has("fleet") && ship->own.crew >= 0.0 ? kCrew : 0;
+            mask |= has("fleet") && ship->own.sails >= 0.0 ? kSailIntegrity : 0;
             mask |= prop("ammo", "badge") ? kAmmoCount | kPowder : 0;
             mask |= has("sail") ? kSailPosition : 0;
-            // the orders panel lists the fleet itself
-            mask |= has("vitals") && (ship->fleet.empty() || has("fleet") || shown.sheet == "s-hud-orders") ? kFleet : 0;
+            mask |= has("fleet") ? kFleet : 0;
             mask |= prop("minimap", "speed") ? kSpeed | kWind : 0;
             mask |= prop("minimap", "time") ? kDateTime : 0;
             mask |= prop("minimap", "place") ? kLocation : 0;

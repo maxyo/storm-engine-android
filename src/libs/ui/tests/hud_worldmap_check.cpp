@@ -53,7 +53,17 @@ static void CheckScene()
     for (const char *id : {"fleet", "pause", "camera", "helm", "sail", "compass", "context"})
         Expect(mount.Has(id), std::string("the world map shows ") + id);
     Expect(!mount.Has("details") && !mount.Has("attack") && !mount.Has("storm"), "no details, no encounter buttons");
-    Expect(shown["fleet"]["ships"][0]["icon"] == "ship-frigate" && shown["fleet"]["ships"][1]["hp"] == 74, "the fleet");
+    const Json &ships = shown["fleet"]["ships"];
+    Expect(ships.size() == 2 && ships[0]["name"] == "Аделина" && ships[0]["texture"] == "battle_interface/ship_icons2" && ships[0]["uv"] == "0.5,0.25,0.5625,0.3125" &&
+               ships[0]["bars"] == Json::parse(R"([{"kind":"health","value":82},{"kind":"crew","value":50},{"kind":"sails","value":90}])") &&
+               ships[1]["bars"][0]["value"] == 74 && ships[1]["tap"] == true,
+           "the squadron: the map signs' ship pictures with hull, sails and crew inside: " + ships.dump());
+    // A tap on a ship opens the ship screen on it.
+    bench.Press("fleet", "ship", "1");
+    const auto subject = bench.hud.TakeSubject("ship");
+    Expect(mount.Last() == "shortcut:shipscreen" && subject && subject->position == 1, "a tap on a ship opens the ship screen on that ship: " + mount.Last());
+    bench.Press("fleet", "ship", "5");
+    Expect(mount.Last() == "shortcut:shipscreen" && !bench.hud.TakeSubject("ship"), "a ship that is not there opens nothing");
     Expect(shown["compass"]["course"] == 130 && shown["compass"]["windFrom"] == 140 && shown["compass"]["wind"] == 82 && shown["compass"]["time"] == "12:31" &&
                shown["compass"]["days"] == "18" && shown["compass"]["sun"] == "188" && shown["sail"]["value"] == 70,
            "compass and lever: " + shown["compass"].dump());

@@ -72,6 +72,22 @@ int main()
         assert(json.find("\"crew\":" + std::to_string(33.0) + ",\"crewMax\":" + std::to_string(120.0)) != std::string::npos);
         assert(json.find("\"sailIntegrity\":" + std::to_string(77.0) + ",\"sailIntegrityMax\":" + std::to_string(100.0)) != std::string::npos);
     }
+    {   // the ship's picture: the battle interface's icon atlas, named in the texture namespace
+        assert(shipPictureTexture("battle_interface\\ship_icons2.tga.tx") == "battle_interface/ship_icons2");
+        assert(shipPictureTexture("BATTLE_INTERFACE\\Ship_Icons2.TGA") == "battle_interface/ship_icons2");
+        assert(shipPictureTexture("").empty() && shipPictureTexture("c:\\x.tga").empty() && shipPictureTexture("..\\x").empty() &&
+               shipPictureTexture("\\x.tga").empty());
+        const auto picture = shipPicture("battle_interface\\ship_icons2.tga.tx", {0.5f, 0.125f, 0.5625f, 0.1875f});
+        assert(picture && picture->texture == "battle_interface/ship_icons2");
+        assert(!shipPicture("battle_interface\\ship_icons2.tga.tx", {0.5f, 0.125f, 0.5f, 0.1875f}));   // empty rectangle
+        assert(!shipPicture("battle_interface\\ship_icons2.tga.tx", {0.f, 0.f, 1.5f, 1.f}));            // outside the texture
+        assert(!shipPicture("", {0.f, 0.f, 1.f, 1.f}));
+        ShipTelemetryFrame pictured = inventory;
+        pictured.ship.picture = picture;
+        ShipTelemetryState pictureState; pictureState.update(13, pictured);
+        assert(pictureState.json().find("\"picture\":{\"texture\":\"battle_interface/ship_icons2\",\"uv\":[0.5,0.125,0.5625,0.1875]}") != std::string::npos);
+        assert(inventoryState.json().find("\"picture\"") == std::string::npos); // no picture known: none said
+    }
     inventoryState.published(*inventoryFirst, 0);
     const auto inventoryGeneration = inventoryState.hudRevision();
     inventory.ammoCounts[1] = 24;

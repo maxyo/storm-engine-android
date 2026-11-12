@@ -152,6 +152,14 @@ int main()
     changed.shipsComplete=false;h.update(changed,512);assert(h.frame().availableMask()==5);
     h.update(complete(),513);
     auto json=h.json();assert(json.find("\"foodDays\":17")!=std::string::npos);assert(json.find("Adelina")!=std::string::npos);
+    {   // the sign's ship picture and the crew capacity go with the ship
+        auto pictured=complete();pictured.ships[0].crewMax=80;
+        pictured.ships[0].picture=shipPicture("battle_interface\\ship_icons2.tga.tx",{0.25f,0.0625f,0.3125f,0.125f});
+        WorldMapHud p;p.update(pictured,600);const auto out=p.json();
+        assert(out.find("\"crew\":40,\"shipClass\":6")!=std::string::npos&&out.find("\"crewMax\":80")!=std::string::npos);
+        assert(out.find("\"picture\":{\"texture\":\"battle_interface/ship_icons2\",\"uv\":[0.25,0.0625,0.3125,0.125]}")!=std::string::npos);
+        assert(json.find("\"picture\"")==std::string::npos&&json.find("crewMax")==std::string::npos);
+    }
     {
         // One coverage rule: while the UI presents the world map HUD the native instruments, fleet
         // and command icon are off, whatever the UI answered (or not yet).

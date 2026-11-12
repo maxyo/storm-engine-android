@@ -6,6 +6,8 @@
 #include <vector>
 #ifdef __ANDROID__
 #include <platform/android_sea_orders.hpp>
+#include <platform/android_ship_telemetry.hpp>
+#include <optional>
 #endif
 
 #define MAX_SHIP_QUANTITY 8
@@ -52,6 +54,8 @@ class BIShipIcon
     void ReadAndroidOrders(storm::android::SeaOrdersFrame &frame);
     bool ExecuteAndroidOrder(const storm::android::SeaOrdersRequest &request);
     void CloseAndroidOrders();
+    // The picture this ship sign draws for the character's ship (texture and atlas cell).
+    std::optional<storm::android::ShipPicture> AndroidShipPicture(int32_t characterIndex);
 #endif
 
   protected:
@@ -112,6 +116,9 @@ class BIShipIcon
     std::vector<float> m_aClassProgress;
 
     int32_t m_nShipTextureID;
+#ifdef __ANDROID__
+    std::string m_sShipTextureName; // the file behind m_nShipTextureID, for the touch HUD's picture
+#endif
     int32_t m_nShipSquareQ;
     uint32_t m_dwShipColor;
     // FRECT m_rShipUV;

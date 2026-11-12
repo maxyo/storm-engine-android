@@ -63,6 +63,7 @@ inline ShipTelemetryEntry shipEntry(SHIP_BASE *ship)
     entry.hull = metric("Ship.HP", "HP");
     entry.crew = metric("Ship.Crew.Quantity", "MaxCrew");
     entry.sails = metric("Ship.SP", "SP");
+    entry.picture = seaShipPicture(entry.characterIndex);
     return entry;
 }
 inline bool shipSailControlAllowed(SHIP_BASE *ship, const GameplayState &gameplay)

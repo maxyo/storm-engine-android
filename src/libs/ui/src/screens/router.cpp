@@ -337,6 +337,11 @@ void Bindings::Error(const std::string &text)
     router_.surface_.Error("screen " + router_.using_ + ": " + text);
 }
 
+std::optional<SubjectRequest> Bindings::TakeSubject(const std::string &screen)
+{
+    return router_.hud_ ? router_.hud_->TakeSubject(screen) : std::nullopt;
+}
+
 void Bindings::Rebuild()
 {
     router_.rebuild_ = true;

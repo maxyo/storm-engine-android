@@ -6,8 +6,14 @@
 //                                                 of the hero (Loc_ai/LAi_character.c)
 //   "potions":  N                                 health potions the hero carries: items with
 //                                                 potion.health, what the quick heal uses
-//   "officers": [{"id", "name", "face", "health"}] data.icons.id1… of the land interface
-//                                                 (landinterface.c SetCharacterIconData)
+//   "id", "name", "face", "picture": the hero's character index, name, FaceId and, without a
+//                                                 FaceId, the picture the land interface draws
+//                                                 instead (the party's first portrait)
+//   "officers": [{"id", "name", "face", "picture", "health", "energy"}] data.icons.id1… of the
+//                                                 land interface (landinterface.c
+//                                                 SetCharacterIconData: without a FaceId its
+//                                                 texture + uv, the generic two.tga figure, when
+//                                                 the game has that file)
 //   "dash":     0…1                               the backstep's remaining cooldown, only in
 //                                                 fight mode (Character "RecoilWait")
 //   "opponent": {"name", "health"}                the enemy captain of a boarding cabin fight
@@ -21,7 +27,11 @@
 #include "entity.h"
 #include "shared/messages.h"
 #include "v_data.h"
+#include "v_file_service.h"
 #include <platform/android_gameplay.hpp>
+#include <platform/android_ship_telemetry.hpp>
+
+#include <cstdio>
 
 #include <algorithm>
 #include <cmath>
@@ -79,6 +89,21 @@ inline int healthPotions(ATTRIBUTES *hero)
     return count;
 }
 
+// For a character without a FaceId: the picture the land interface draws instead (the icon's
+// texture and uv, landinterface.c: battle_interface\two.tga), as JSON; null when the character
+// has a FaceId (the UI shows the game's 128 px face), or when that file is not in the game's data
+// (TEHO ships no two.tga: the game itself has no picture then).
+inline std::string landIconPicture(ATTRIBUTES *character, ATTRIBUTES *icon)
+{
+    if (!landText(character, "FaceId").empty()) return "null";
+    std::array<float, 4> uv{0.f, 0.f, 1.f, 1.f};
+    const std::string rect = landText(icon, "uv"), file = landText(icon, "texture");
+    if (!rect.empty() && std::sscanf(rect.c_str(), "%f,%f,%f,%f", &uv[0], &uv[1], &uv[2], &uv[3]) != 4) return "null";
+    if (file.empty() || !fio->_FileOrDirectoryExists(("resource\\textures\\" + file + ".tx").c_str())) return "null";
+    const auto picture = shipPicture(file, uv);
+    return picture ? shipPictureJson(*picture) : "null";
+}
+
 // `icons` is data.icons of the land interface; id0 is the hero.
 inline std::string landStatusJson(ATTRIBUTES *icons)
 {
@@ -87,7 +112,12 @@ inline std::string landStatusJson(ATTRIBUTES *icons)
     std::string effects;
     for (const auto &[name, path] : {std::pair{"poison", "chr_ai.poison"}, {"drunk", "chr_ai.drunk"}, {"healing", "chr_ai.hp_bottle"}})
         if (landNumber(hero, path) > 0.f) effects += std::string(effects.empty() ? "" : ",") + "\"" + name + "\"";
-    std::string json = ",\"effects\":[" + effects + "],\"potions\":" + std::to_string(healthPotions(hero)) + ",\"officers\":[";
+    const std::string heroName = landText(hero, "name"), heroLast = landText(hero, "lastname");
+    std::string json = ",\"id\":" + std::to_string(heroIcon ? static_cast<int>(heroIcon->GetAttributeAsDword("chrindex", -1)) : -1) +
+                       ",\"name\":" + gameplayJsonString(heroLast.empty() ? heroName : heroName + " " + heroLast) +
+                       ",\"face\":" + gameplayJsonString(landText(hero, "FaceId")) + ",\"picture\":" + landIconPicture(hero, heroIcon) +
+                       ",\"effects\":[" + effects +
+                       "],\"potions\":" + std::to_string(healthPotions(hero)) + ",\"officers\":[";
     bool first = true;
     for (size_t i = 0; icons && i < icons->GetAttributesNum(); ++i)
     {
@@ -98,10 +128,12 @@ inline std::string landStatusJson(ATTRIBUTES *icons)
         if (!officer) continue;
         const std::string name = landText(officer, "name"), last = landText(officer, "lastname");
         const float health = std::clamp(icon->GetAttributeAsFloat("health", 0.f), 0.f, 1.f);
+        const float energy = std::clamp(icon->GetAttributeAsFloat("energy", 0.f), 0.f, 1.f);
         json += std::string(first ? "" : ",") + "{\"id\":" + std::to_string(index) +
                 ",\"name\":" + gameplayJsonString(last.empty() ? name : name + " " + last) +
-                ",\"face\":" + gameplayJsonString(landText(officer, "FaceId")) +
-                ",\"health\":" + std::to_string(std::isfinite(health) ? health : 0.f) + "}";
+                ",\"face\":" + gameplayJsonString(landText(officer, "FaceId")) + ",\"picture\":" + landIconPicture(officer, icon) +
+                ",\"health\":" + std::to_string(std::isfinite(health) ? health : 0.f) +
+                ",\"energy\":" + std::to_string(std::isfinite(energy) ? energy : 0.f) + "}";
         first = false;
     }
     json += "]";

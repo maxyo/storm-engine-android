@@ -21,6 +21,13 @@ int main()
     action = queue.take(10002, true);
     assert(action && std::strcmp(shortcutControl(*action), "Interface") == 0);
     assert(!queue.take(10002, true)); // Never retry after script refusal or menu open.
+    assert(queue.offer("characterscreen", 10003));
+    action = queue.take(10004, true);
+    assert(action && !shortcutControl(*action) && std::strcmp(shortcutScreen(*action), "character") == 0);
+    assert(queue.offer("shipscreen", 10005));
+    action = queue.take(10006, true);
+    assert(action && !shortcutControl(*action) && std::strcmp(shortcutScreen(*action), "ship") == 0);
+    assert(!shortcutScreen(GameplayShortcut::MainMenu) && !shortcutScreen(GameplayShortcut::Character));
 
     queue.offer("character", 0);
     assert(!queue.take(GameplayShortcuts::lifetimeMs, true)); // No stale UI replay.

@@ -175,15 +175,15 @@ Channels (JSON as the engine publishes it unless noted):
 |---|---|---|
 | `gameplay` | `{schemaVersion: 1, revision, mode: explore\|melee\|sailing\|naval\|worldmap\|unknown, language, inputOwner, analogMovement, movementGeneration, capabilities: […], blocked: why the mode is unknown (starting\|paused\|loading\|interface\|dialogue\|cutscene\|video\|commands\|no-scene\|no-land-interface\|no-player\|group\|error)}` | `Gameplay` |
 | `combat` | `{schemaVersion: 2, gameplayRevision, activityGeneration, playerId, mode, actions: {name: generation}, interactKind, pistol: {state, progress 0…20}}`; a command carries the activity and the action's own generation, so an action appearing or going away (`interact` as people walk past) fences only itself | `Combat` |
-| `vitals` | `{health, energy, reload: 0…1, loaded, capacity, effects: [poison\|drunk\|healing], potions, officers: [{id, name, face, health}], dash?: 0…1}` or `null` | `Vitals` |
+| `vitals` | `{health, energy, reload: 0…1, loaded, capacity, id, name, face (the hero), effects: [poison\|drunk\|healing], potions, officers: [{id, name, face, health, energy}], dash?: 0…1}` or `null` | `Vitals` |
 | `worldInfo` | a JSON string: the engine's location lines, `\n` between them | `States::world_info` |
 | `contextAction` | a JSON string: the script's quick action name, `""` = none | `States::context_action` |
 | `landCommands` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage, pendingLabel, selectedItemId, canBack, canClose, items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `LandCommands` |
 | `spyglass` | `{schemaVersion: 1, revision, on, generation, target: null \| {kind: ship\|fort, name, type, class, hull, sails, crew, cannons, cannonsMax, charge, nation, sail, speed, distance, captain, cannonType, portrait, skills: {…}}}`, fields the telescope cannot show left out | `Spyglass` |
-| `ship` | the engine's ship telemetry (`android_ship_telemetry.hpp`): `{schemaVersion: 1, gameplayRevision, sequence, hudRevision, valid, …own ship, fleet: […], navigator…, shipSpeedKnots, windSpeed, cannonCharge, timeScale, abilities: [{id, state: ready|active|recovery|blocked, fill}], ammo, ammoCount, ammoCounts, sailState, canSetSails, dateTimeText, locationText}` | `Ship` |
+| `ship` | the engine's ship telemetry (`android_ship_telemetry.hpp`): `{schemaVersion: 1, gameplayRevision, sequence, hudRevision, valid, …own ship, fleet: […] (each ship with `picture: {texture, uv}`, its battle-interface icon), navigator…, shipSpeedKnots, windSpeed, cannonCharge, timeScale, abilities: [{id, state: ready|active|recovery|blocked, fill}], ammo, ammoCount, ammoCounts, sailState, canSetSails, dateTimeText, locationText}` | `Ship` |
 | `seaOrders` | `{schemaVersion: 1, sceneEpoch, revision, activityGeneration, available, active, complete, stage: commands\|options\|targets, recipientId, selectedItemId, pendingLabel, canBack, canClose, recipients: […], items: [{id, kind, label, source, enabled, cooldown}]}` or `null` | `SeaOrders` |
 | `seaQuickAction` | `{schemaVersion: 1, activity, revision, available, action: Map\|Moor\|Board\|LandTroops\|Reload, label}` | `SeaQuick` |
-| `worldMap` | the engine's world-map frame (`android_worldmap.hpp`): `{schemaVersion: 1, revision, activity, gameplayRevision, available, mask, commandsReady, shipsVisible, instrumentsVisible, date, hour, windForce, windAngle, heading, speed, morale, foodDays, rumDays, coordinates, flag, stormState, ships: […], commands: [{id, label}]}` | `WorldMap` |
+| `worldMap` | the engine's world-map frame (`android_worldmap.hpp`): `{schemaVersion: 1, revision, activity, gameplayRevision, available, mask, commandsReady, shipsVisible, instrumentsVisible, date, hour, windForce, windAngle, heading, speed, morale, foodDays, rumDays, coordinates, flag, stormState, ships: [{id, name, hull, sails, crew, crewMax, shipClass, type, picture: {texture, uv}}], commands: [{id, label}]}` | `WorldMap` |
 | `presentation` | written by the platform host: `{screen, loading, cinematic, dialogue, live}` | `Presentation` |
 | `video` | `{fullscreen: true}` while a game video plays over the whole screen (engine aviplayer.cpp; never for a player embedded in an interface node), `null` after | the host (ui_host.cpp): the interface screen is hidden and takes no touch or back key until it ends |
 
@@ -200,6 +200,14 @@ props come first, the scene's props on top; a prop the scene stops giving return
 default. `Input::On(id, verb, handler)` binds component events; an event without a binding,
 a layout scene or element the pack lacks, and a channel carrying something else than its
 contract are errors (log, toast in debug hosts), never quiet drops.
+
+The party (land: the hero and his officers, face portraits) and the squadron (sea and world
+map: each ship's picture of the battle interface's icon atlas) are one cell kind
+(`MemberCell`: a round picture ringed by its bars) in `c-hud-plate` variants `officers` / `fleet`. A tap
+on a sea ship opens the orders for it; a tap on a land member or a map ship sends the shortcut
+`characterscreen` / `shipscreen` and leaves the subject with `Hud::RequestSubject`; the hero
+screen that opens takes it once (`Bindings::TakeSubject`) and selects that person or ship with
+its header switch.
 
 Input goes out with `Hud::Send(verb, value, slot)`: the engine command is `<verb>:<value>`
 (`move`, `combat`, `landcommands`, `context`; at sea `hold` (held controls: helm, spyglass),

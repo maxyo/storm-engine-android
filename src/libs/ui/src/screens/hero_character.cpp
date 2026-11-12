@@ -200,6 +200,8 @@ class HeroScreen final : public Screen
                   : admitted.One("MSG_OK")                                                           ? Window::Message
                                                                                                      : Window::None;
         Walk(bindings);
+        if (full && intent_.kind == Intent::None && window_ == Window::None)
+            OpenOnSubject(bindings);
 
         // Header: tabs, the officer switch, the sections.
         const int free_self = Number(Field(subject, "freeself"));
@@ -470,6 +472,28 @@ class HeroScreen final : public Screen
         case Intent::None:
             return;
         }
+    }
+
+    // A tap on a land party portrait opened this screen for that person (hud land.cpp): the
+    // header's officer switch selects the post the person holds, as the player's choice does.
+    void OpenOnSubject(Bindings &bindings)
+    {
+        const auto request = bindings.TakeSubject("character");
+        if (!request)
+            return;
+        for (const Widget *post : a_->All("ANDROID_POSTS"))
+            if (std::atoi(Field(post, "character").c_str()) == request->character && !Field(post, "character").empty())
+            {
+                const int slot = std::atoi(Field(post, "slot").c_str());
+                for (const Widget *row : a_->All("CHARACTERS_SCROLL"))
+                    if (row->index == slot && row->value != "1" && row->Offers("select"))
+                    {
+                        sent_revision_ = 0;
+                        Step(bindings, row, "select", row->row_id);
+                    }
+                return;
+            }
+        bindings.Error("lscchar_all: character " + std::to_string(request->character) + " of the HUD's tap holds no post here; the captain stays");
     }
 
     void BindSections(Bindings &bindings)

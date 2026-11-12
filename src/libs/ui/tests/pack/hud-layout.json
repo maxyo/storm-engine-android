@@ -12,24 +12,16 @@
      }
     },
     {
-     "id": "vitals",
+     "id": "party",
+     "component": "c-party",
+     "rcss": "position: absolute; left: 12dp; top: 10dp; width: 240dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "effects",
      "component": "c-box",
-     "rcss": "position: absolute; left: 10dp; top: 10dp; width: 200dp; height: 40dp;",
-     "props": {},
-     "children": [
-      {
-       "id": "health",
-       "component": "c-box",
-       "rcss": "",
-       "props": {}
-      },
-      {
-       "id": "energy",
-       "component": "c-box",
-       "rcss": "",
-       "props": {}
-      }
-     ]
+     "rcss": "position: absolute; left: 12dp; top: 68dp; width: 120dp; height: 28dp;",
+     "props": {}
     },
     {
      "id": "log",
@@ -92,24 +84,16 @@
      }
     },
     {
-     "id": "vitals",
+     "id": "party",
+     "component": "c-party",
+     "rcss": "position: absolute; left: 12dp; top: 10dp; width: 240dp; height: 52dp;",
+     "props": {}
+    },
+    {
+     "id": "effects",
      "component": "c-box",
-     "rcss": "position: absolute; left: 10dp; top: 10dp; width: 200dp; height: 40dp;",
-     "props": {},
-     "children": [
-      {
-       "id": "health",
-       "component": "c-box",
-       "rcss": "",
-       "props": {}
-      },
-      {
-       "id": "energy",
-       "component": "c-box",
-       "rcss": "",
-       "props": {}
-      }
-     ]
+     "rcss": "position: absolute; left: 12dp; top: 68dp; width: 120dp; height: 28dp;",
+     "props": {}
     },
     {
      "id": "log",
@@ -204,35 +188,9 @@
   "sea": {
    "elements": [
     {
-     "id": "vitals",
-     "component": "c-box",
-     "rcss": "position: absolute; left: 10dp; top: 10dp; width: 200dp; height: 40dp;",
-     "props": {},
-     "children": [
-      {
-       "id": "hull",
-       "component": "c-box",
-       "rcss": "",
-       "props": {}
-      },
-      {
-       "id": "crew",
-       "component": "c-box",
-       "rcss": "",
-       "props": {}
-      },
-      {
-       "id": "sails",
-       "component": "c-box",
-       "rcss": "",
-       "props": {}
-      }
-     ]
-    },
-    {
      "id": "fleet",
      "component": "c-fleet",
-     "rcss": "position: absolute; left: 10dp; top: 60dp; width: 56dp; height: 240dp;",
+     "rcss": "position: absolute; left: 10dp; top: 10dp; width: 56dp; height: 240dp;",
      "props": {}
     },
     {
@@ -347,35 +305,9 @@
   "sea-battle": {
    "elements": [
     {
-     "id": "vitals",
-     "component": "c-box",
-     "rcss": "position: absolute; left: 10dp; top: 10dp; width: 200dp; height: 40dp;",
-     "props": {},
-     "children": [
-      {
-       "id": "hull",
-       "component": "c-box",
-       "rcss": "",
-       "props": {}
-      },
-      {
-       "id": "crew",
-       "component": "c-box",
-       "rcss": "",
-       "props": {}
-      },
-      {
-       "id": "sails",
-       "component": "c-box",
-       "rcss": "",
-       "props": {}
-      }
-     ]
-    },
-    {
      "id": "fleet",
      "component": "c-fleet",
-     "rcss": "position: absolute; left: 10dp; top: 60dp; width: 56dp; height: 240dp;",
+     "rcss": "position: absolute; left: 10dp; top: 10dp; width: 56dp; height: 240dp;",
      "props": {}
     },
     {

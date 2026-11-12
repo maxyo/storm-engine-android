@@ -11,7 +11,10 @@ static void CheckExplore()
     FakeMount &mount = bench.mount;
     bench.Explore();
     ExpectEqual(mount.shown.layout, "land", "explore uses the land layout");
-    Expect(mount.shown.elements["health"]["value"] == 84 && mount.shown.elements["energy"]["value"] == 62 && mount.Has("vitals"), "vitals in percent");
+    const Json hero = mount.shown.elements["party"]["officers"];
+    Expect(hero.size() == 1 && hero[0]["bars"] == Json::parse(R"([{"kind":"health","value":84},{"kind":"energy","value":62}])") &&
+               hero[0]["texture"] == "" && !hero[0].contains("tap") && !mount.Has("effects"),
+           "the party: the hero alone, health and energy inside, no tap without the hero's identity, no effects row");
     ExpectEqual(mount.shown.elements["location"]["text"].get<std::string>(), "Сен-Пьер · улицы", "the location line is town · place, without island, date or time");
     bench.Set("worldInfo", Json("Открытое море\n7 окт. 1654\n12:31"));
     ExpectEqual(mount.shown.elements["location"]["text"].get<std::string>(), "Открытое море", "a single name stands alone");
@@ -129,7 +132,7 @@ static void CheckExplore()
     bench.Set("vitals", Json(nullptr));
     bench.Set("worldInfo", Json(""));
     bench.Set("landCommands", Json(nullptr));
-    Expect(!mount.Has("vitals") && !mount.Has("health") && !mount.Has("location") && !mount.Has("actions"), "absent states take their elements away");
+    Expect(!mount.Has("party") && !mount.Has("effects") && !mount.Has("location") && !mount.Has("actions"), "absent states take their elements away");
 
     // without analog movement there is no stick, and that is said
     Json keyboard = State("gameplay-explore");
@@ -202,7 +205,7 @@ static void CheckCombat()
     bench.Melee();
     ExpectEqual(mount.shown.layout, "land-combat", "melee uses the combat layout");
     Expect(mount.Has("strike") && mount.Has("block") && mount.Has("shot") && mount.Has("actions") && mount.Has("potion") && mount.Has("weapon") &&
-               !mount.Has("context") && !mount.Has("moves") && !mount.Has("dash") && !mount.Has("officers"),
+               !mount.Has("context") && !mount.Has("moves") && !mount.Has("dash") && !mount.Has("effects"),
            "the combat set; no wheel until the strike is held; nothing without data");
     Expect(mount.shown.elements["hero"]["disabled"] == true, "no character screen in a fight");
     ExpectEqual(mount.shown.elements["weapon"]["label"].get<std::string>(), "hud.weapon.sheathe", "the weapon button sheathes now");
@@ -279,21 +282,48 @@ static void CheckStatus()
     FakeMount &mount = bench.mount;
     bench.Explore();
     bench.Feed("vitals", "vitals-status");
-    const Json states = mount.shown.elements["vitals"]["states"];
+    const Json states = mount.shown.elements["effects"]["states"];
     Expect(states.size() == 2 && states[0]["icon"] == "skull" && states[0]["fillTone"] == "danger" && states[1]["icon"] == "potion" &&
                states[1]["label"] == "hud.effect.healing",
            "effects: one small icon each, in a fixed order");
     Expect(mount.shown.elements["potion"]["badge"] == "3" && mount.shown.elements["potion"]["fillTone"] == "active", "potion: count and the healing fill");
-    Expect(!mount.Has("officers") && !mount.Has("dash"), "explore: no officers column, no dash");
+    Expect(!mount.Has("dash"), "explore: no dash");
+    const Json party = mount.shown.elements["party"]["officers"];
+    Expect(party.size() == 3 && party[0]["name"] == "Шарль де Мор" && party[0]["texture"] == "INTERFACES/PORTRAITS/128/face_201" &&
+               party[1]["texture"] == "INTERFACES/PORTRAITS/128/face_205" &&
+               party[1]["bars"] == Json::parse(R"([{"kind":"health","value":84},{"kind":"energy","value":70}])") && party[2]["texture"] == "battle_interface/two" && party[2]["uv"] == "0,0,0.5,1" &&
+               party[2]["name"] == "Офицер Бета" && party[0]["tap"] == true && party[2]["tap"] == true,
+           "explore: the party row, hero first, officers with their faces, health and energy; an officer without a face shows the game's own figure");
+    Expect(std::find(mount.logs.begin(), mount.logs.end(), "land HUD: Офицер Бета (character 32) has no FaceId: the game's own figure battle_interface/two") != mount.logs.end(),
+           "… and that is said, naming the person");
+    Json bare = State("vitals-status");
+    bare["officers"][1].erase("picture");
+    bench.Set("vitals", bare);
+    Expect(mount.shown.elements["party"]["officers"][2]["texture"] == "" &&
+               std::find(mount.logs.begin(), mount.logs.end(),
+                         "land HUD: Офицер Бета (character 32) has no FaceId: the game's two.tga fallback is missing, the placeholder stays") != mount.logs.end(),
+           "without the game's figure either: the neutral placeholder, said aloud");
+    // A tap on a member opens the character screen on that person.
+    mount.commands.clear();
+    bench.Press("party", "member", "2");
+    ExpectEqual(mount.Last(), "shortcut:characterscreen", "a tap on an officer opens the character screen");
+    auto subject = bench.hud.TakeSubject("character");
+    Expect(subject && subject->character == 32 && !bench.hud.TakeSubject("character"), "… on that officer (character 32), taken once");
+    bench.Press("party", "member", "0");
+    subject = bench.hud.TakeSubject("character");
+    Expect(subject && subject->character == 1 && !bench.hud.TakeSubject("ship"), "the hero's portrait: the character screen on the hero");
+    bench.Press("party", "member", "0");
+    bench.Frame(Hud::kSubjectSeconds + 1.0);
+    Expect(!bench.hud.TakeSubject("character") && !mount.logs.empty() && mount.logs.back().find("lapsed") != std::string::npos,
+           "a request no screen takes in time lapses, and that is said");
 
     Json combat = State("combat-melee");
     combat["actions"]["dash"] = 23;
     bench.Feed("gameplay", "gameplay-melee");
     bench.Set("combat", combat);
-    const Json officers = mount.shown.elements["officers"]["officers"];
-    Expect(officers.size() == 2 && officers[0]["texture"] == "INTERFACES/PORTRAITS/128/face_205" && officers[0]["hp"] == 84 &&
-               officers[1]["texture"] == "" && officers[1]["name"] == "Офицер Бета",
-           "combat: the officers column with portraits and health");
+    const Json officers = mount.shown.elements["party"]["officers"];
+    Expect(officers.size() == 3 && officers[1]["bars"][0]["value"] == 84 && !officers[0].contains("tap") && !officers[1].contains("tap"),
+           "combat: the same party row; no taps (the game refuses the character screen in a fight)");
     Expect(mount.shown.elements["dash"]["fill"] == 40 && mount.shown.elements["dash"]["fillTone"] == "cooldown" &&
                mount.shown.elements["dash"]["disabled"] == true,
            "dash cooling down: filled and not pressable");
@@ -327,7 +357,7 @@ static void CheckSheet()
     mount.commands.clear();
 
     bench.Feed("landCommands", "land-commands-root");
-    Expect(mount.shown.sheet == "s-hud-sheet" && mount.shown.modal && mount.Has("vitals") && !mount.Has("move") && !mount.Has("hero"),
+    Expect(mount.shown.sheet == "s-hud-sheet" && mount.shown.modal && mount.Has("party") && !mount.Has("move") && !mount.Has("hero"),
            "an open menu: the sheet over the bars, no controls");
     const Json &props = mount.shown.sheet_props;
     Expect(props["title"] == "hud.sheet.actions" && props["back"] == false && props["layout"] == "rows" && props["rows"].size() == 6,

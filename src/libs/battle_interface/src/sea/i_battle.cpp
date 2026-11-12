@@ -505,6 +505,17 @@ void BATTLE_INTERFACE::ReadAndroidCaptions(storm::android::ShipTelemetryFrame &f
     }
 }
 
+std::optional<storm::android::ShipPicture> BATTLE_INTERFACE::AndroidShipPicture(int32_t characterIndex) const
+{
+    return m_pShipIcon ? m_pShipIcon->AndroidShipPicture(characterIndex) : std::nullopt;
+}
+
+std::optional<storm::android::ShipPicture> storm::android::seaShipPicture(int characterIndex)
+{
+    auto *battle = dynamic_cast<BATTLE_INTERFACE *>(core.GetEntityPointer(BIUtils::idBattleInterface));
+    return battle ? battle->AndroidShipPicture(characterIndex) : std::nullopt;
+}
+
 void storm::android::readShipCaptions(ShipTelemetryFrame &frame, uint64_t mainShipId)
 {
     if (auto *battleInterface = dynamic_cast<BATTLE_INTERFACE *>(core.GetEntityPointer(BIUtils::idBattleInterface)))
