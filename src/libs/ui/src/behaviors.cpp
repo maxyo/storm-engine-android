@@ -447,8 +447,17 @@ class RangeBehavior final : public Behavior
         const double value = std::clamp(low + std::round(t * (high - low) / step) * step, std::min(low, high), std::max(low, high));
         const bool changed = Number(self.Prop(prop_), low - 1.0) != value;
         at_ = float(t);
-        if (changed || self.Flag("active") != active)
+        if (self.Flag("active") != active)
             self.SetProps(Json{{prop_, value}, {"active", active}});
+        else if (changed)
+        {
+            // Under the finger the value's own texts and marks follow at once (the template's
+            // data-live-* parts), without a render of the control; the model's next revision
+            // brings the same value (Refresh made it the shown one), a branch change renders.
+            self.SetPropQuiet(prop_, value);
+            if (!self.Refresh())
+                self.SetProps(Json{{prop_, value}});
+        }
         Follow(self);
         if (changed)
             self.Emit("change", ToText(Json(value)));

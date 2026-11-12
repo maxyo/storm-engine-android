@@ -796,6 +796,7 @@ void ComponentElement::SetProps(const Json &props)
         if (!known)
             ReportError("unknown prop '" + item.key() + "'");
         props_[item.key()] = item.value();
+        set_since_render_.insert(item.key());
     }
     dirty_ = true;
 }
@@ -810,6 +811,7 @@ void ComponentElement::ReportError(const std::string &what)
 void ComponentElement::SetPropQuiet(const std::string &name, Json value)
 {
     props_[name] = std::move(value);
+    set_since_render_.insert(name);
 }
 
 void ComponentElement::SetLive(const std::string &name, bool on)
@@ -837,6 +839,13 @@ void ComponentElement::OnAttributeChange(const Rml::ElementAttributes &changed)
         if (entry.first == "props") // a whole props object, like dc-props on the canvas
         {
             const Json parsed = Json::parse(entry.second.Get<Rml::String>(), nullptr, false);
+            // The same props again (a parent's render after it passed them on directly, Forward): nothing to rebuild.
+            const bool same = parsed.is_object() && std::all_of(parsed.items().begin(), parsed.items().end(), [this](const auto &item) {
+                const auto current = props_.find(item.key());
+                return current != props_.end() && *current == item.value();
+            });
+            if (same)
+                continue;
             if (parsed.is_object())
                 SetProps(parsed);
             else
@@ -860,10 +869,15 @@ void ComponentElement::OnAttributeChange(const Rml::ElementAttributes &changed)
         {
             // A removed attribute (a morph from another instance of the component) returns the
             // prop to its default; it is not an empty, "present" value (a bool would read true).
+            Json value = HasAttribute(entry.first) ? ParseAttribute(*prop, entry.second) : Json();
+            const auto current = props_.find(prop->name);
+            if (current != props_.end() ? *current == value && !value.is_null() : value.is_null())
+                continue; // the same value again (see "props" above)
             if (HasAttribute(entry.first))
-                props_[prop->name] = ParseAttribute(*prop, entry.second);
+                props_[prop->name] = std::move(value);
             else
                 props_.erase(prop->name);
+            set_since_render_.insert(prop->name);
             dirty_ = true;
         }
         else if (!IsGenericAttribute(entry.first))
@@ -1021,6 +1035,9 @@ void ComponentElement::RebuildNow()
     rendered_values_ = Json::object();
     for (const PropSpec &prop : spec_.props)
         rendered_values_[prop.name] = Prop(prop.name);
+    rendered_extras_ = Json{{"dp", scope["dp"]}, {"safe", scope["safe"]}, {"children", has_children}};
+    set_since_render_.clear();
+    shapes_pending_ = true; // data-live-shown is noted once the tree is the render (end of RebuildNow)
     if (!kept.empty())
     {
         if (Rml::Element *slot = FindSlot(this))
@@ -1031,6 +1048,31 @@ void ComponentElement::RebuildNow()
     }
     built_ = true;
     built_children_ = has_children;
+    if (shapes_pending_)
+    {
+        // What the render's structure was decided on (Refresh compares with it).
+        shapes_pending_ = false;
+        std::function<void(Rml::Element *)> note = [&](Rml::Element *element) {
+            for (int i = 0; i < element->GetNumChildren(); ++i)
+            {
+                Rml::Element *child = element->GetChild(i);
+                if (child->HasAttribute("data-live-shape"))
+                {
+                    try
+                    {
+                        child->SetAttribute("data-live-shown", ToText(EvaluateExpression(child->GetAttribute<Rml::String>("data-live-shape", ""), scope)));
+                    }
+                    catch (const std::exception &error)
+                    {
+                        ReportError(std::string("data-live-shape: ") + error.what());
+                    }
+                }
+                if (!dynamic_cast<ComponentElement *>(child))
+                    note(child);
+            }
+        };
+        note(this);
+    }
     ReportUnknownComponents(this);
     ApplyBoxSize(scope);
     ApplyClasses();
@@ -1072,9 +1114,15 @@ bool ComponentElement::Forward()
     if (pending_slot_ || error_)
         return false;
     std::vector<std::pair<std::string, Json>> changed; // path -> new value
+    Json current = Json::object();                     // the props that changed, as they are now
     for (const PropSpec &prop : spec_.props)
     {
-        const Json now = Prop(prop.name);
+        if (!set_since_render_.count(prop.name) && rendered_values_.contains(prop.name))
+            continue; // not set since the live tree showed it
+        // By reference: a screen's props are its whole list.
+        static const Json none;
+        const auto set = props_.find(prop.name);
+        const Json &now = set != props_.end() && !set->is_null() ? *set : prop.fallback.is_null() ? none : prop.fallback;
         const auto before = rendered_values_.find(prop.name);
         if (before == rendered_values_.end())
             return false;
@@ -1084,6 +1132,7 @@ bool ComponentElement::Forward()
         if (prop.as_class || std::any_of(spec_.class_rules.begin(), spec_.class_rules.end(),
                                          [&](const auto &rule) { return rule.second.find(prop.name) != std::string::npos; }))
             return false;
+        current[prop.name] = now;
         if (before->is_object() && now.is_object())
         {
             for (const auto &item : now.items())
@@ -1097,11 +1146,20 @@ bool ComponentElement::Forward()
             changed.emplace_back(prop.name, now);
     }
     if (changed.empty())
-        return false; // nothing for this: the ordinary path, which finds the render unchanged
+    {
+        // The live tree already shows these props (Forward or Refresh made it so, and the
+        // density, safe area and slot are as rendered): nothing to render.
+        const bool shown = !built_tree_ok_ && rendered_extras_ == Json{{"dp", services_.Density()}, {"safe", services_.SafeArea()}, {"children", built_children_}};
+        if (shown)
+            set_since_render_.clear();
+        return shown;
+    }
     struct Set
     {
         Rml::Element *element;
         std::string attribute, value;
+        Json passed; // a nested component's prop: given as it is (no text to write and parse again)
+        bool direct = false;
     };
     std::vector<Set> sets;
     const auto value_at = [this](const Json &values, const std::string &path) {
@@ -1116,32 +1174,34 @@ bool ComponentElement::Forward()
         }
         return value ? *value : Json();
     };
-    Json current = Json::object();
-    for (const PropSpec &prop : spec_.props)
-        current[prop.name] = Prop(prop.name);
     for (const auto &[path, value] : changed)
     {
         const auto truth_kept = [&](const std::string &enclosing) {
             return Truthy(value_at(rendered_values_, enclosing)) == Truthy(value_at(current, enclosing));
         };
-        // The analysis of a path is the template's: kept per spec, unless it depended on a truth.
-        static std::map<std::pair<const ComponentSpec *, std::string>, std::optional<std::vector<ForwardSite>>> analysed;
-        bool asked = false;
-        const auto truth = [&](const std::string &enclosing) {
-            asked = true;
-            return truth_kept(enclosing);
+        // The analysis of a path is the template's, kept per spec with the enclosing paths whose
+        // truth it assumed (t-if tests), which are checked on every use.
+        struct Analysis
+        {
+            std::optional<std::vector<ForwardSite>> sites;
+            std::vector<std::string> truths;
         };
+        static std::map<std::pair<const ComponentSpec *, std::string>, Analysis> analysed;
         const auto key = std::make_pair(&spec_, path);
         auto cached = analysed.find(key);
-        std::optional<std::vector<ForwardSite>> found;
-        if (cached != analysed.end())
-            found = cached->second;
-        else
+        if (cached == analysed.end())
         {
-            found = ForwardSites(spec_.body, path, truth);
-            if (!asked)
-                analysed.emplace(key, found);
+            Analysis analysis;
+            analysis.sites = ForwardSites(spec_.body, path, [&](const std::string &enclosing) {
+                analysis.truths.push_back(enclosing);
+                return true;
+            });
+            cached = analysed.emplace(key, std::move(analysis)).first;
         }
+        std::optional<std::vector<ForwardSite>> found = cached->second.sites;
+        for (const std::string &enclosing : cached->second.truths)
+            if (!truth_kept(enclosing))
+                found.reset();
         const auto &sites = found;
         if (!sites || sites->empty())
             return false;
@@ -1151,20 +1211,147 @@ bool ComponentElement::Forward()
             if (!element)
                 return false;
             const Json passed = site.path == path ? value : value_at(current, site.path);
-            sets.push_back({element, site.attribute, site.json ? passed.dump() : ToText(passed)});
+            // A nested component's prop (or its whole props) takes the value itself; its attribute
+            // text stays the last render's until the next render writes it (with the same props).
+            auto *component = dynamic_cast<ComponentElement *>(element);
+            const PropSpec *prop = component ? component->Spec().FindAttribute(site.attribute) : nullptr;
+            if (component && site.json && (prop || (site.attribute == "props" && passed.is_object())))
+                sets.push_back({element, site.attribute, prop ? prop->name : std::string(), passed, true});
+            else
+                sets.push_back({element, site.attribute, site.json ? passed.dump() : ToText(passed)});
         }
     }
     for (const Set &set : sets)
+    {
+        if (set.direct)
+        {
+            auto *component = static_cast<ComponentElement *>(set.element);
+            const Json props = set.value.empty() ? set.passed : Json{{set.value, set.passed}};
+            bool differs = false;
+            for (const auto &item : props.items())
+                differs = differs || component->Prop(item.key()) != item.value();
+            if (differs)
+            {
+                component->SetProps(props);
+                ++services_.Counters().touched;
+            }
+            continue;
+        }
         if (set.element->GetAttribute<Rml::String>(set.attribute, "") != set.value)
         {
             set.element->SetAttribute(set.attribute, set.value);
             ++services_.Counters().touched;
         }
+    }
     ++services_.Counters().forwarded;
-    rendered_values_ = std::move(current);
+    set_since_render_.clear();
+    for (auto &item : current.items())
+        rendered_values_[item.key()] = std::move(item.value());
     // The live tree is no longer the last render: the next render morphs it whole once.
     built_tree_ok_ = false;
     built_rml_.clear();
+    return true;
+}
+
+// Live parts (data-live-text / -class / -style: template expressions of the props) are
+// evaluated again and applied, without a render, after a behaviour changed props quietly (a
+// slider's value under the finger). data-live-shape on the template's root names an expression
+// of everything that changes the template's structure (which branches show): when its value
+// changed, false, and the caller renders the template instead.
+bool ComponentElement::Refresh()
+{
+    if (!built_ || pending_slot_ || error_)
+        return false;
+    Json scope = Json::object();
+    for (const PropSpec &prop : spec_.props)
+        scope[prop.name] = Prop(prop.name);
+    scope["spec"] = spec_.constants;
+    scope["children"] = built_children_;
+    scope["dp"] = services_.Density();
+    scope["safe"] = services_.SafeArea();
+    // Only this template's own elements: a nested component refreshes itself.
+    std::vector<Rml::Element *> live;
+    std::function<void(Rml::Element *)> walk = [&](Rml::Element *element) {
+        for (int i = 0; i < element->GetNumChildren(); ++i)
+        {
+            Rml::Element *child = element->GetChild(i);
+            if (child->HasAttribute("data-live-shape") || child->HasAttribute("data-live-text") || child->HasAttribute("data-live-class") ||
+                child->HasAttribute("data-live-style"))
+                live.push_back(child);
+            if (!dynamic_cast<ComponentElement *>(child))
+                walk(child);
+        }
+    };
+    walk(this);
+    if (live.empty())
+        return false; // a template without live parts follows its props by rendering
+    try
+    {
+        for (Rml::Element *element : live)
+            if (element->HasAttribute("data-live-shape") &&
+                ToText(EvaluateExpression(element->GetAttribute<Rml::String>("data-live-shape", ""), scope)) !=
+                    element->GetAttribute<Rml::String>("data-live-shown", ""))
+                return false;
+        for (Rml::Element *element : live)
+        {
+            if (element->HasAttribute("data-live-text"))
+            {
+                const std::string text = ToText(EvaluateExpression(element->GetAttribute<Rml::String>("data-live-text", ""), scope));
+                if (element->GetNumChildren() != 1 || !rmlui_dynamic_cast<Rml::ElementText *>(element->GetFirstChild()))
+                    return false;
+                auto *node = rmlui_dynamic_cast<Rml::ElementText *>(element->GetFirstChild());
+                if (node->GetText() != text)
+                {
+                    node->SetText(text);
+                    ++services_.Counters().touched;
+                }
+            }
+            if (element->HasAttribute("data-live-class"))
+            {
+                // "name: expr; name: expr": each class on while its expression is true.
+                const std::string rules = element->GetAttribute<Rml::String>("data-live-class", "");
+                for (size_t at = 0; at < rules.size();)
+                {
+                    const size_t end = std::min(rules.find(';', at), rules.size());
+                    const size_t colon = rules.find(':', at);
+                    if (colon != std::string::npos && colon < end)
+                    {
+                        std::string name = rules.substr(at, colon - at);
+                        name.erase(std::remove(name.begin(), name.end(), ' '), name.end());
+                        const bool on = Truthy(EvaluateExpression(rules.substr(colon + 1, end - colon - 1), scope));
+                        if (element->IsClassSet(name) != on)
+                        {
+                            element->SetClass(name, on);
+                            ++services_.Counters().touched;
+                        }
+                    }
+                    at = end + 1;
+                }
+            }
+            if (element->HasAttribute("data-live-style"))
+            {
+                const std::string style = ToText(EvaluateExpression(element->GetAttribute<Rml::String>("data-live-style", ""), scope));
+                for (const auto &[name, value] : ParseStyle(style))
+                    if (element->GetProperty(name) == nullptr || element->GetProperty(name)->ToString() != value)
+                        element->SetProperty(name, value);
+                ++services_.Counters().touched;
+            }
+        }
+    }
+    catch (const std::exception &error)
+    {
+        ReportError(std::string("data-live: ") + error.what());
+        return false;
+    }
+    set_since_render_.clear();
+    rendered_values_ = scope;
+    rendered_values_.erase("spec");
+    rendered_values_.erase("children");
+    rendered_values_.erase("dp");
+    rendered_values_.erase("safe");
+    built_tree_ok_ = false; // the live tree is no longer the last render (Forward)
+    built_rml_.clear();
+    ++services_.Counters().refreshed;
     return true;
 }
 

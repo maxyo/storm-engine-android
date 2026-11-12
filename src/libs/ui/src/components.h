@@ -8,6 +8,7 @@
 
 #include <RmlUi/Core.h>
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -151,6 +152,9 @@ class ComponentElement final : public Rml::Element
     // Changes one prop without rebuilding the inner tree (drag feedback); the behaviour
     // updates the affected elements itself.
     void SetPropQuiet(const std::string &name, Json value);
+    // After quiet prop changes: the template's live parts follow them without a render
+    // (data-live-*); false when its shape changed and it must render (components.cpp).
+    bool Refresh();
     // Live state classes ("pressed", "active", "done") owned by behaviours.
     void SetLive(const std::string &name, bool on);
     void Emit(const std::string &verb, const std::string &value = {});
@@ -211,7 +215,10 @@ class ComponentElement final : public Rml::Element
     // changed against it. Not ok: the render had something the parser does not take.
     std::vector<RmlNode> built_tree_;
     bool built_tree_ok_ = false;
-    Json rendered_values_; // the props the live tree shows (last render or Forward)
+    Json rendered_values_; // the props the live tree shows (last render, Forward or Refresh)
+    std::set<std::string> set_since_render_; // props set since rendered_values_ (Forward compares only these)
+    Json rendered_extras_; // and the density, safe area and slot it was rendered with
+    bool shapes_pending_ = false; // a render whose data-live-shape values are still to be noted
     TemplateMemo memo_; // loop items of the last render (RenderTemplate)
     bool pending_slot_ = false;   // slot_content_ replaces the slot on the next build
     std::vector<Rml::ElementPtr> slot_content_;
