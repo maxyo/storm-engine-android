@@ -673,10 +673,10 @@ int main(int argc, char **argv)
                 capture->Finish();
                 const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
                 const storm::ui::FrameStats stats = host->LastFrameStats();
-                std::printf("timed %s: %.2f ms to a finished frame (update %.2f: rebuild %.2f, style %.2f, layout %.2f; render %.2f; rebuilds %d, laid out %d "
-                            "in %d passes)\n",
+                std::printf("timed %s: %.2f ms to a finished frame (update %.2f: rebuild %.2f, style %.2f, layout %.2f; render %.2f; rebuilds %d touching %d elements (%d whole), laid out %d "
+                            "in %d passes, %d meshes)\n",
                             text.c_str(), ms, stats.update_ms, stats.rebuild_ms, stats.style_ms, stats.layout_ms, stats.render_ms, stats.rebuilds,
-                            stats.laid_out, stats.layout_passes);
+                            stats.touched, stats.patch_fallbacks, stats.laid_out, stats.layout_passes, stats.geometry);
             }
         } timing{timed && verb != "timed", command.substr(command.find_first_not_of(' ') == std::string::npos ? 0 : command.find_first_not_of(' ')),
                  command_started, capture.get(), host.get()};

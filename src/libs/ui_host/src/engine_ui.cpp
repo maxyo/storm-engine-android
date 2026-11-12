@@ -543,6 +543,9 @@ class EngineUi
                 draws += stats.draws;
                 layers += stats.layers;
                 layouts += stats.layout_passes;
+                touched += stats.touched;
+                boxes += stats.laid_out;
+                meshes += stats.geometry;
             }
             const uint32_t now = SDL_GetTicks();
             if (!since)
@@ -552,14 +555,15 @@ class EngineUi
             const double per = made ? double(made) : 1.0;
             __android_log_print(ANDROID_LOG_DEBUG, "StormUiInput",
                                 "%u UI frames in %.1f s, %u made (the rest replayed unchanged): per made frame CPU update %.2f ms + render %.2f ms, "
-                                "%.0f draws, %.1f layers; %ld layout passes",
-                                frames, (now - since) / 1000.0, made, update_ms / per, render_ms / per, double(draws) / per, double(layers) / per, layouts);
-            frames = made = 0, update_ms = render_ms = 0.0, draws = layers = layouts = 0, since = now;
+                                "%.0f draws, %.1f layers, %.1f elements touched, %.0f boxes laid out, %.1f meshes made; %ld layout passes",
+                                frames, (now - since) / 1000.0, made, update_ms / per, render_ms / per, double(draws) / per, double(layers) / per,
+                                double(touched) / per, double(boxes) / per, double(meshes) / per, layouts);
+            frames = made = 0, update_ms = render_ms = 0.0, draws = layers = layouts = touched = boxes = meshes = 0, since = now;
         }
         uint32_t since = 0, frames = 0, made = 0;
         uint64_t counted = 0; // FrameStats::number of the last frame summed
         double update_ms = 0.0, render_ms = 0.0;
-        long draws = 0, layers = 0, layouts = 0;
+        long draws = 0, layers = 0, layouts = 0, touched = 0, boxes = 0, meshes = 0;
     } frame_trace_;
     std::map<std::string, std::string> states_;
     std::map<std::string, std::string> platform_states_; // guarded by inbox_mutex_
