@@ -126,8 +126,11 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
     }
     Write(pack / "cutout-bar.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
                                    " #bar { display: flex; flex-direction: row; position: absolute; left: 0; top: 0; width: 800dp; height: 40dp; }"
-                                   " c-row { display: block; flex: 0 0 auto; width: 40dp; height: 40dp; }</style></head><body>"
-                                   "<div id=\"bar\"><c-row id=\"first\" title=\"A\"/><c-row id=\"second\" title=\"B\"/></div></body></rml>");
+                                   " c-row { display: block; flex: 0 0 auto; width: 40dp; height: 40dp; }"
+                                   " #meter { display: flex; flex-direction: row; position: absolute; left: 0; top: 100dp; width: 200dp; height: 40dp; }"
+                                   " #track { display: block; flex: 1 1 0; height: 40dp; }</style></head><body>"
+                                   "<div id=\"bar\"><c-row id=\"first\" title=\"A\"/><c-row id=\"second\" title=\"B\"/></div>"
+                                   "<div id=\"meter\"><c-row id=\"icon\" title=\"I\"/><div id=\"track\"></div><c-row id=\"end\" title=\"90\"/></div></body></rml>");
     Write(pack / "cutout.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
                                " c-row { display: block; position: absolute; left: 0; height: 40dp; }</style></head><body>"
                                "<c-row id=\"small\" style=\"top: 200dp; width: 40dp;\" title=\"S\"/>"
@@ -362,6 +365,14 @@ int main(int argc, char **argv)
     Expect(clicks.size() == 1 && clicks[0] == "second click", "the second follows it, not under it: " + (clicks.empty() ? std::string("nothing") : clicks[0]));
     tap(20, 20);
     Expect(clicks.empty(), "nothing of the bar is left under the cutout");
+    // A row of a set width (a hero card's health bar, width 100%) beside a cutout keeps its width:
+    // the padding comes out of it and its flexible part gives way, so its last part stays inside.
+    host->SetCutouts({Cutout{0, 90, 60, 60}});
+    frames(0.05);
+    tap(180, 120); // 160..200: the row's end, where the row ends
+    Expect(clicks.size() == 1 && clicks[0] == "end click", "the end of a set-width row stays inside it: " + (clicks.empty() ? std::string("nothing") : clicks[0]));
+    tap(84, 120);
+    Expect(clicks.size() == 1 && clicks[0] == "icon click", "its first part beside the cutout: " + (clicks.empty() ? std::string("nothing") : clicks[0]));
     host->SetCutouts({});
     frames(0.05);
     tap(20, 20);
