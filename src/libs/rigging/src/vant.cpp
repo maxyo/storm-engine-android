@@ -89,16 +89,6 @@ void VANT_BASE::Execute(uint32_t Delta_Time)
 
     if (bUse)
     {
-        // ====================================================
-        // If the ini-file has been changed, read the info from it
-        if (fio->_FileOrDirectoryExists(RIGGING_INI_FILE))
-        {
-            auto ft_new = fio->_GetLastWriteTime(RIGGING_INI_FILE);
-            if (ft_old != ft_new)
-            {
-                LoadIni();
-            }
-        }
 
         doMove();
     }
@@ -625,10 +615,6 @@ void VANT::LoadIni()
     char section[256];
     char param[256];
 
-    if (fio->_FileOrDirectoryExists(RIGGING_INI_FILE))
-    {
-        ft_old = fio->_GetLastWriteTime(RIGGING_INI_FILE);
-    }
     auto ini = fio->OpenIniFile("resource\\ini\\rigging.ini");
     if (!ini)
     {
@@ -706,10 +692,6 @@ void VANTL::LoadIni()
     char section[256];
     char param[256];
 
-    if (fio->_FileOrDirectoryExists(RIGGING_INI_FILE))
-    {
-        ft_old = fio->_GetLastWriteTime(RIGGING_INI_FILE);
-    }
     auto ini = fio->OpenIniFile("resource\\ini\\rigging.ini");
     if (!ini)
     {
@@ -787,10 +769,6 @@ void VANTZ::LoadIni()
     char section[256];
     char param[256];
 
-    if (fio->_FileOrDirectoryExists(RIGGING_INI_FILE))
-    {
-        ft_old = fio->_GetLastWriteTime(RIGGING_INI_FILE);
-    }
     auto ini = fio->OpenIniFile("resource\\ini\\rigging.ini");
     if (!ini)
     {

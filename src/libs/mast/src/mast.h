@@ -27,7 +27,6 @@ class MAST : public Entity
     bool bModel;
     entid_t model_id, oldmodel_id;
     entid_t ship_id;
-    std::filesystem::file_time_type ft_old;
     NODE *m_pMastNode;
 
   public:
