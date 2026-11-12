@@ -827,7 +827,26 @@ static void Transfer(const std::string &models)
     const std::string prefix = "widget:transfer_main\t";
     router.SetInterface(Load(models, "transfer-loot.json"));
     Expect(router.Using() == "transfer_main" && surface.tag == "s-transfer" && surface.errors.empty(), "loot is drawn by the transfer screen");
-    Expect(surface.props["tabs"].size() == 2 && surface.props["tabs"][0]["selected"] == true, "cargo and crew tabs, cargo open");
+    Expect(surface.props["tabs"].size() == 3 && surface.props["tabs"][0]["selected"] == true && surface.props["tabs"][2]["id"] == "ships" &&
+               surface.props["ships"].is_null(),
+           "cargo, crew and ships tabs, cargo open");
+    {
+        // The other ship's card of the dock, and the «Корабли» tab: both ships' figures side by side.
+        const Json &prize = surface.props["prize"];
+        Expect(prize["title"] == "Корабль 2" && prize["facts"].size() == 3 && prize["facts"][0]["k"] == "Корпус", "the other ship's card: " + prize.dump());
+        surface.commands.clear();
+        router.OnEvent({"header", "tab", "2"});
+        const Json &ships = surface.props["ships"];
+        Expect(surface.commands.empty() && surface.props["tabs"][2]["selected"] == true && ships["ours"]["title"] == "Корабль 1" &&
+                   ships["rows"].size() >= 8 && ships["rows"][0]["k"] == "Корпус" && ships["rows"][0]["icon"] == "hull",
+               "the ships tab is ours: nothing is sent, the figures are listed row by row: " + ships["rows"][0].dump());
+        bool toned = false;
+        for (const Json &row : ships["rows"])
+            toned = toned || row.contains("tone");
+        Expect(toned, "a figure where the other ship is plainly better or worse is toned");
+        router.OnEvent({"header", "tab", "0"});
+        Expect(surface.props["ships"].is_null() && surface.props["tabs"][0]["selected"] == true, "back to the cargo");
+    }
     Expect(surface.props["stats"][1]["value"] == "<transfer.no_captain>", "the captured ship has no captain");
     Expect(surface.props["list"]["cols"][0]["label"] == "Корабль 1" && surface.props["list"]["rows"].size() > 5, "goods columns named by the ships");
     ExpectEqual(surface.props["primary"]["label"], "<transfer.take_all>", "take all the cargo");
