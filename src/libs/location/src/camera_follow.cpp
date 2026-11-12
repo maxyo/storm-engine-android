@@ -10,6 +10,7 @@
 
 #include "camera_follow.h"
 #include "character.h"
+#include "location.h"
 #include "location_camera.h"
 
 //============================================================================================
@@ -264,7 +265,6 @@ void CameraFollow::DrawDebug()
 #endif
 }
 
-//
 float CameraFollow::FindRadius(float curAng) const
 {
     static const auto pi = 3.14159265359f;
@@ -397,8 +397,24 @@ float CameraFollow::FindRadius(float curAng) const
     }
 #endif
 
-    // looking for a radius
-    lc->Clip(p, 5, pos, lc->radius, ApplyPoly);
+    // looking for a radius: the smallest one any polygon allows (ApplyPolyFindNearest only lowers fndRadius), so the
+    // still models and the moving ones can be clipped apart. A camera that stands (the hero idle, no turn) asks the
+    // same question every frame: the still models' answer is reused while the look point, the angles, the radius and
+    // those models are unchanged; the moving ones (rotators, animated) are clipped every frame.
+    if (lc->location)
+    {
+        const uint64_t geometry = lc->location->StillSignature();
+        StillRadius &still = stillRadius_;
+        if (still.valid && still.location == lc->location && still.geometry == geometry && still.pos == pos &&
+            still.ang == curAng && still.ax == lc->ax && still.radius == lc->radius)
+            fndRadius = still.found;
+        else
+        {
+            lc->location->Clip(p, 5, pos, lc->radius, ApplyPoly, ModelArray::ClipModels::still);
+            still = {true, lc->location, pos, curAng, lc->ax, lc->radius, fndRadius, geometry};
+        }
+        lc->location->Clip(p, 5, pos, lc->radius, ApplyPoly, ModelArray::ClipModels::moving);
+    }
 
 #ifdef LFC_DEBUG
     lc->location->GetRS()->Print(10, 10, "NumPoly: %i, steps: %i", numPoly1, camSteps);

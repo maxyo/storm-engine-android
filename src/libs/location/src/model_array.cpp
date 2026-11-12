@@ -471,11 +471,36 @@ bool ModelArray::GetCollideTriangle(TRIANGLE &trg) const
     return isHavecTrg;
 }
 
-void ModelArray::Clip(PLANE *p, int32_t numPlanes, glm::vec3 &cnt, float rad, bool (*fnc)(const glm::vec3 *vtx, int32_t num))
+bool ModelArray::Moving(int32_t i)
+{
+    return model[i].rotator || GetAnimation(i);
+}
+
+uint64_t ModelArray::StillSignature()
+{
+    uint64_t hash = 1469598103934665603ull; // FNV-1a
+    const auto mix = [&hash](const void *data, size_t bytes) {
+        for (size_t i = 0; i < bytes; ++i)
+            hash = (hash ^ static_cast<const uint8_t *>(data)[i]) * 1099511628211ull;
+    };
+    for (int32_t i = 0; i < numModels; i++)
+    {
+        if (!model[i].isVisible || Moving(i))
+            continue;
+        auto *mdl = static_cast<MODEL *>(core.GetEntityPointer(model[i].id));
+        mix(&model[i].id, sizeof(model[i].id));
+        if (mdl)
+            mix(&mdl->mtx, sizeof(mdl->mtx));
+    }
+    return hash;
+}
+
+void ModelArray::Clip(PLANE *p, int32_t numPlanes, glm::vec3 &cnt, float rad, bool (*fnc)(const glm::vec3 *vtx, int32_t num),
+                      ClipModels which)
 {
     for (int32_t i = 0; i < numModels; i++)
     {
-        if (model[i].isVisible)
+        if (model[i].isVisible && Moving(i) == (which == ClipModels::moving))
         {
             auto *mdl = static_cast<MODEL *>(core.GetEntityPointer(model[i].id));
             mdl->Clip(p, numPlanes, cnt, rad, fnc);

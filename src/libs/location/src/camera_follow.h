@@ -64,6 +64,16 @@ class CameraFollow
     // private:
   public:
     LocationCamera *lc;
+    // FindRadius's clip of the location's still models in the last frame: a pure function of these inputs.
+    struct StillRadius
+    {
+        bool valid = false;
+        const void *location = nullptr;
+        glm::vec3 pos{0.0f};
+        float ang = 0.0f, ax = 0.0f, radius = 0.0f, found = 0.0f;
+        uint64_t geometry = 0;
+    };
+    mutable StillRadius stillRadius_;
 
     glm::vec3 camPos, lookTo;
     // Camera following the character

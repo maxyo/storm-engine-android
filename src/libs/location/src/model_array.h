@@ -96,6 +96,7 @@ class ModelArray
     MODEL *operator[](int32_t modelIndex);
     // Getting animation by index
     Animation *GetAnimation(int32_t modelIndex);
+    bool Moving(int32_t modelIndex);
     // Neither animated nor moved by a rotation or UV slide: part of the location's still geometry
     bool IsStill(int32_t modelIndex);
     // Getting the renderer ID by index
@@ -123,7 +124,17 @@ class ModelArray
     // Trace the ray through the location
     float Trace(const glm::vec3 &src, const glm::vec3 &dst);
     bool GetCollideTriangle(TRIANGLE &trg) const;
-    void Clip(PLANE *p, int32_t numPlanes, glm::vec3 &cnt, float rad, bool (*fnc)(const glm::vec3 *vtx, int32_t num));
+    // The visible models Clip() visits: those that stand still, or those that move (a rotator turns them every frame,
+    // an animation may change them).
+    enum class ClipModels
+    {
+        still,
+        moving
+    };
+    void Clip(PLANE *p, int32_t numPlanes, glm::vec3 &cnt, float rad, bool (*fnc)(const glm::vec3 *vtx, int32_t num),
+              ClipModels which);
+    // What Clip(still) sees: a hash of the visible still models and their matrices.
+    uint64_t StillSignature();
 
     // --------------------------------------------------------------------------------------------
     // Encapsulation
