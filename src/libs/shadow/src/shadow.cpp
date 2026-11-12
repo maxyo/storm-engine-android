@@ -165,6 +165,9 @@ void Shadow::Realize(uint32_t Delta_Time)
         rs->GetTransform(D3DTS_VIEW, reinterpret_cast<D3DMATRIX *>(view.data()));
         storm::render::EffectsContactShadow({feet.x, feet.y, feet.z}, view);
     }
+    // Interiors with fx lamp shadows: the character's shadow comes from the room's lamps (renderer_bgfx effects).
+    if (storm::render::CurrentEffectsWorld().lamp_character_shadows)
+        return;
     // Each shadow is realized once per frame: meeting one that already ran in this epoch starts a new frame.
     if (preparedEpoch_ != epoch_ || lastEpoch_ == epoch_)
     {

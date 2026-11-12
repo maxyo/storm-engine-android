@@ -65,6 +65,7 @@ render::EffectsWorld Host::world() const
     world.sky = settings_.sky_atmosphere;
     world.contact_shadows = settings_.contact_shadows;
     world.lens_flare = settings_.lens_flare;
+    world.lamp_character_shadows = settings_.lamp_shadows > 0 && lighting_.lamp_shadows().has_geometry();
     return world;
 }
 

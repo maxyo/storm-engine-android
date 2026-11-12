@@ -126,6 +126,7 @@ class Lighting
     // The lamp faces first (buffers kept), then the sun view, which ends the draw (all bindings discarded).
     void submit_caster(shim::Device &device, const D3DMATRIX &world, bool skinned);
     LampShadows &lamp_shadows() { return lamps_; }
+    const LampShadows &lamp_shadows() const { return lamps_; }
     void end_frame();
     // Draws of the last presented frame that used a lit / baked / coverage variant (effects profile).
     struct Counts

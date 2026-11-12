@@ -143,6 +143,9 @@ struct EffectsWorld
     bool sky = false;             // fx sky replaces the textured sky box and the fog sphere of SKY
     bool contact_shadows = false; // a soft blob under each character
     bool lens_flare = false;      // the post chain draws the lens flare: SUNGLOW leaves its flare sprites out
+    // An interior with lamp shadows: the characters' shadows come from the room's lamps; the shadow entity leaves
+    // its projected shadow (cast along the outdoor sun) out.
+    bool lamp_character_shadows = false;
 };
 EffectsWorld CurrentEffectsWorld();
 
