@@ -520,6 +520,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             return;
         }
 
+        if (phase == TouchPhase::Up) // the end of a tap: what a screen switch answers (ReportSwitch)
+            last_tap_ = Clock::now() - std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(std::max(0.0, Now() - time)));
         const auto found = captures_.find(pointer);
         if (found == captures_.end())
             return;
@@ -1142,11 +1144,6 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void Send(const Action &action) override
     {
-        if (action.screen != "sound") // a press's click is not what a switch answers
-        {
-            last_action_ = std::chrono::steady_clock::now();
-            last_action_text_ = action.screen + " " + action.node + " " + action.verb;
-        }
         if (config_.on_action)
             config_.on_action(action);
     }
@@ -1610,8 +1607,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
                 return;
         }
         const auto ms = [](Clock::time_point from, Clock::time_point to) { return Milliseconds(from, to); };
-        const bool acted = last_action_ > reported_ && last_action_ <= switch_.begun;
-        const Clock::time_point origin = acted ? last_action_ : switch_.begun;
+        const bool acted = last_tap_ > reported_ && last_tap_ <= switch_.begun;
+        const Clock::time_point origin = acted ? last_tap_ : switch_.begun;
         const FrameStats &f = switch_.first_frame, &s = switch_.settle;
         char line[1024];
         std::snprintf(line, sizeof line,
@@ -1619,8 +1616,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
                       "first frame CPU: apply %.1f, rebuild %.1f (%d), style %.1f, layout %.1f (%d boxes, %d passes), pictures %d in %.1f, "
                       "render %.1f incl. textures %d (%zu KB) in %.1f | settling CPU: update %.1f, render %.1f, rebuild %d, layout %.1f (%d passes), "
                       "pictures %d in %.1f",
-                      switch_.screen.c_str(), ms(origin, switch_.first), acted ? "the action " : "the interface opened",
-                      acted ? last_action_text_.c_str() : "", switch_.expected ? ("interface opened +" + std::to_string(int(ms(origin, switch_.begun))) + " ms, ").c_str() : "",
+                      switch_.screen.c_str(), ms(origin, switch_.first), acted ? "the tap" : "the interface opened", "", switch_.expected ? ("interface opened +" + std::to_string(int(ms(origin, switch_.begun))) + " ms, ").c_str() : "",
                       ms(origin, switch_.modelled), ms(switch_.first, now), switch_.frames - 1, f.apply_ms, f.rebuild_ms, f.rebuilds, f.style_ms,
                       f.layout_ms, f.laid_out, f.layout_passes, f.pictures, f.picture_ms, f.render_ms, f.textures, f.texture_bytes / 1024, f.texture_ms,
                       s.update_ms, s.render_ms, s.rebuilds, s.layout_ms, s.layout_passes, s.pictures, s.picture_ms);
@@ -1797,8 +1793,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             modelled = {};
         }
     } switch_;
-    Clock::time_point last_action_{}, reported_{}; // the newest engine action; the end of the last switch reported
-    std::string last_action_text_;
+    Clock::time_point last_tap_{}, reported_{}; // the newest touch end (its own time); the end of the last switch reported
     bool unlaid_ = false; // something covers the game since the last frame (PublishTouchMap)
     bool between_ = false; // nothing the player can use is shown (Between)
     struct HeldTouch
