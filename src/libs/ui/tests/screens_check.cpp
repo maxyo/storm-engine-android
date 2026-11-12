@@ -340,7 +340,7 @@ static void Store(const std::string &models)
             if (widget.node == "TABLE_LIST")
                 widget.value = widget.index == 1 ? "1" : "0";
         sel.SetInterface(opened);
-        Expect(sel_surface.props["list"]["rows"][1]["selected"] == true && sel_surface.props["list"]["rows"][1].contains("q"),
+        Expect(sel_surface.props["list"]["rows"][1]["selected"] == true && sel_surface.props.contains("deal") && !sel_surface.props["deal"].is_null(),
                "the deal arrives: the row selected and its deal in the same frame: " + sel_surface.props["list"]["rows"][1].dump());
         // A tap whose window never comes is shown selected after the hold (and said).
         sel.OnEvent({"goods", "row", "2"});
