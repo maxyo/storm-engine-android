@@ -139,6 +139,15 @@ int main()
     auto map = readGameplaySnapshot(true);
     assert(map.mode == "worldmap" && map.inputOwner.empty() && map.capabilities.size() == 6);
     assert(std::find(map.capabilities.begin(), map.capabilities.end(), "ChrAction") == map.capabilities.end());
+    // The time acceleration's four steps are offered on the world map too, as at sea, once the
+    // scripts created their global time controls.
+    auto *created = bindings.CreateAttribute("map", nullptr)->CreateAttribute("controls", nullptr);
+    created->CreateAttribute("TimeScaleFaster", nullptr);
+    created->CreateAttribute("TimeScaleSlower", nullptr);
+    const auto timed = readGameplaySnapshot(true);
+    for (const char *step : {"TimeScaleX1", "TimeScaleX2", "TimeScaleX4", "TimeScaleX8"})
+        assert(std::find(timed.capabilities.begin(), timed.capabilities.end(), step) != timed.capabilities.end());
+    bindings.DeleteAttributeClassX(bindings.GetAttributeClass("map"));
     core.entities["WorldMap"] = 22;
     assert(readGameplaySnapshot(true).scene != map.scene);
     interfaceState.SetAttributeUseDword("Launched", 1); unknown();

@@ -834,6 +834,7 @@ class WorldMapConsumer final : public HudConsumer
         const auto hour = Number(state, "hour", 0.0, 24.0, bad), force = Number(state, "windForce", 0.0, 1.0, bad),
                    wind = Number(state, "windAngle", -7.0, 7.0, bad), heading = Number(state, "heading", -1e6, 1e6, bad),
                    morale = Number(state, "morale", 0.0, 100.0, bad), speed = Number(state, "speed", 0.0, 1.0, bad),
+                   time_scale = Number(state, "timeScale", 0.0, 100.0, bad),
                    food = Number(state, "foodDays", 0.0, 1e9, bad), rum = Number(state, "rumDays", 0.0, 1e9, bad),
                    flag = Number(state, "flag", 0.0, 4.0, bad), storm = Number(state, "stormState", 0.0, 2.0, bad);
         if (bad)
@@ -880,6 +881,7 @@ class WorldMapConsumer final : public HudConsumer
         out.wind_force = force.value_or(-1.0);
         out.morale = morale.value_or(-1.0);
         out.speed = speed.value_or(-1.0);
+        out.time_scale = time_scale.value_or(-1.0);
         out.angles = wind && heading;
         out.wind_angle = wind.value_or(0.0);
         out.heading = heading.value_or(0.0);

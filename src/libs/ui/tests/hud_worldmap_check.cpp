@@ -117,11 +117,42 @@ static void CheckScene()
     Expect(Sent(mount, "worldmap:44\t2\tack\t0"), "under a menu the engine's instruments come back");
 }
 
+// The time acceleration as at sea: the scale the engine runs at, a tap asks for the next step.
+static void CheckTime()
+{
+    Bench bench;
+    FakeMount &mount = bench.mount;
+    bench.Feed("gameplay", "gameplay-worldmap");
+    bench.Feed("worldMap", "world-map");
+    Expect(!mount.Has("time"), "no time steps bound: no time button");
+    Json gameplay = State("gameplay-worldmap");
+    for (const char *step : {"TimeScaleX1", "TimeScaleX2", "TimeScaleX4", "TimeScaleX8"})
+        gameplay["capabilities"].push_back(step);
+    bench.Set("gameplay", gameplay);
+    Expect(!mount.Has("time"), "the steps without the engine's scale: no time button");
+    Json map = State("world-map");
+    map["timeScale"] = 1;
+    bench.Set("worldMap", map);
+    const Json &shown = mount.shown.elements;
+    Expect(mount.Has("time") && shown["time"]["badge"] == "×1" && shown["time"]["variant"] == "normal", "the world map's time scale: " + shown["time"].dump());
+    bench.Press("time");
+    Expect(mount.Last() == "gameplay:9\tTimeScaleX2", "x1 → x2: " + mount.Last());
+    map["timeScale"] = 2.5; // the scripts' limit on the world map
+    bench.Set("worldMap", map);
+    Expect(shown["time"]["badge"] == "×2.5" && shown["time"]["variant"] == "active", "the limited scale is shown as it is: " + shown["time"].dump());
+    bench.Press("time");
+    Expect(mount.Last() == "gameplay:9\tTimeScaleX4", "x2.5 counts as x2: the next step is asked for, the engine goes round at its limit: " + mount.Last());
+    map["timeScale"] = 101;
+    bench.Set("worldMap", map);
+    Expect(!bench.hud.Current().world_map.known && !mount.errors.empty(), "a time scale out of range is rejected aloud");
+}
+
 int main(int argc, char **argv)
 {
     states_directory = argc > 1 ? argv[1] : "tests/states";
     CheckConsumer();
     CheckScene();
+    CheckTime();
     if (failures)
         std::fprintf(stderr, "%d world-map HUD check(s) failed\n", failures);
     else

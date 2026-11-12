@@ -1,11 +1,12 @@
 // The world-map HUD: fleet, compass (a tap shows the details beside it), helm slider, sail
-// lever, camera, menu and the map's commands (go to sea, enter a port or a ship, attack, the
+// lever, camera, time acceleration (as at sea), menu and the map's commands (go to sea, enter a port or a ship, attack, the
 // storm). Layout scene `world-map` of hud-layout.json.
 //
 // Input goes back through the engine's entry points:
 //   hold:<gameplayRevision>\t<control>\t<0|1>    WMapShipTurnLeft/Right (helm), WMapShipSailUp/Down (lever), WMapCameraSwitch
 //   worldmap:<revision>\t<activity>\tack\t<mask>  which of the engine's instruments, fleet and command icon are replaced
 //   worldmap:<revision>\t<activity>\tactivate\t<command id>
+//   gameplay:<gameplayRevision>\tTimeScaleX1|X2|X4|X8   the time button (BuildTimeScale)
 //   shortcut:mainmenu
 #include "hud.h"
 
@@ -108,6 +109,7 @@ class WorldMapScene final : public Scene
             input.On("camera", "up", [this](const Event &) { Hold("WMapCameraSwitch", false); });
             input.Ignore("camera", "click");
         }
+        BuildTimeScale(hud_, gameplay, map ? map->time_scale : -1.0, view, input);
         if (gameplay.Has("WMapShipTurnLeft") || gameplay.Has("WMapShipTurnRight"))
         {
             view.elements["helm"] = Json::object();

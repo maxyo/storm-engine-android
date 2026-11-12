@@ -23,6 +23,7 @@ struct MapInstrumentFrame
     std::string date, coordinates;
     std::optional<double> hour, windForce, windAngle, heading, morale;
     std::optional<double> speed; // the map ship's speed, share of its maximum 0…1
+    std::optional<double> timeScale; // the world's time scale the scripts set (x1 = 1)
     std::optional<int> foodDays, rumDays, flag, stormState;
 };
 struct MapShipFrame
@@ -181,7 +182,7 @@ public:
             ",\"shipsVisible\":"+(frame_.shipsVisible?"true":"false")+
             ",\"instrumentsVisible\":"+(frame_.instrumentsVisible?"true":"false")+
             ",\"date\":"+q(i.date)+",\"hour\":"+n(i.hour)+",\"windForce\":"+n(i.windForce)+",\"windAngle\":"+n(i.windAngle)+
-            ",\"heading\":"+n(i.heading)+",\"speed\":"+n(i.speed)+",\"morale\":"+n(i.morale)+",\"foodDays\":"+n(i.foodDays)+",\"rumDays\":"+n(i.rumDays)+
+            ",\"heading\":"+n(i.heading)+",\"speed\":"+n(i.speed)+",\"timeScale\":"+n(i.timeScale)+",\"morale\":"+n(i.morale)+",\"foodDays\":"+n(i.foodDays)+",\"rumDays\":"+n(i.rumDays)+
             ",\"coordinates\":"+q(i.coordinates)+",\"flag\":"+n(i.flag)+",\"stormState\":"+n(i.stormState)+",\"ships\":[";
         for(size_t k=0;k<frame_.ships.size();++k){const auto &s=frame_.ships[k];if(k)out+=',';
             out+="{\"id\":"+q(s.id)+",\"name\":"+q(s.name)+",\"hull\":"+n(s.hull)+",\"sails\":"+n(s.sails)+",\"crew\":"+n(s.crew)+",\"shipClass\":"+n(s.shipClass);

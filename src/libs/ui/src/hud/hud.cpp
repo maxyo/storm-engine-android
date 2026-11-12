@@ -3,6 +3,7 @@
 #include "hud.h"
 
 #include <algorithm>
+#include <cstdio>
 
 namespace storm::ui::hud
 {
@@ -50,6 +51,30 @@ bool Ported(std::string_view mode)
             if (mode == name)
                 return true;
     return false;
+}
+
+void BuildTimeScale(Hud &hud, const Gameplay &gameplay, double scale, View &view, Input &input)
+{
+    static const char *const kSteps[] = {"TimeScaleX1", "TimeScaleX2", "TimeScaleX4", "TimeScaleX8"};
+    if (scale < 0.0)
+        return;
+    for (const char *step : kSteps)
+        if (!gameplay.Has(step))
+            return;
+    char text[16];
+    std::snprintf(text, sizeof(text), "%.2f", scale);
+    std::string badge = text;
+    while (badge.back() == '0')
+        badge.pop_back();
+    if (badge.back() == '.')
+        badge.pop_back();
+    const int current = scale < 1.5 ? 0 : scale < 3.0 ? 1 : scale < 6.0 ? 2 : 3;
+    view.elements["time"] = Json{{"badge", "×" + badge}, {"variant", current ? "active" : "normal"}};
+    input.On("time", "click", [&hud, next = std::string(kSteps[(current + 1) % 4])](const Event &) {
+        const Gameplay &now = hud.Current().gameplay;
+        if (hud.Interactive() && now.Has(next))
+            hud.Send("gameplay", std::to_string(now.revision) + "\t" + next);
+    });
 }
 
 std::string Lower(std::string text)
