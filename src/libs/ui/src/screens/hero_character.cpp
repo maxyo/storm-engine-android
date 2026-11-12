@@ -2,9 +2,12 @@
 // -Companions, -OfficerAssign, -OfficerActions) and the read-only card of another character
 // (interface character, V2-Hero-Candidate). Fills the pack screen <s-hero>.
 //
-// Three tabs of our own: «Умения» (the PIRATES column, personal and ship skills, ‹ › while
-// points are free), «Способности» (the perk list of the game's two groups with a detail
-// panel) and «Офицеры» (posts, free posts, passengers). The stock interface keeps its rules:
+// Tabs of our own: «Умения» (the PIRATES column, personal and ship skills, ‹ › while points
+// are free), the game's two perk groups as a tab each with its free points («Личные»,
+// «Корабельные»: a grid of perk tiles that shows learned / open / locked at a glance, narrowed
+// by all / open / learned, the description beside it; learning is confirmed on a parchment card
+// with the perk's full text, what it needs and what it costs) and «Офицеры» (posts, free posts,
+// passengers). The stock interface keeps its rules:
 // every change goes through its own controls, and actions that need several of them (a skill
 // arrow sits on the selected row only, a perk is learned in its window, a post is changed in
 // the post chooser) are intents the screen walks one engine step per model revision, each
@@ -15,6 +18,7 @@
 // the hidden PIRATES table is exported read-only by the engine (xinterface mobile_facts.inc).
 #include "hero.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <map>
 
@@ -210,19 +214,40 @@ class HeroScreen final : public Screen
         Json tabs = Json::array();
         tabs.push_back(Json{{"id", "skills"}, {"label", bindings.Text("hero.tab_skills")}, {"selected", tab_ == Tab::Skills},
                             {"badge", free_skill > 0 ? Json(free_skill) : Json("")}});
-        tabs.push_back(Json{{"id", "perks"}, {"label", bindings.Text("hero.tab_perks")}, {"selected", tab_ == Tab::Perks},
-                            {"badge", free_self + free_ship > 0 ? Json(free_self + free_ship) : Json("")}});
+        // The game's two perk groups (TABBTN_n with TABSTR_n "Личные 1"; the active one shows value 1) are a
+        // tab each. A group the player asked for is shown as chosen while the game switches to it.
+        const Widget *group1 = admitted.One("TABBTN_1");
+        const Widget *group2 = admitted.One("TABBTN_2");
+        const bool ship = group2 && group2->value == "1";
+        if (wanted_ship_ == static_cast<int>(ship) || intent_.kind != Intent::None)
+            wanted_ship_ = -1;
+        const bool shown_ship = wanted_ship_ >= 0 ? wanted_ship_ == 1 : ship;
+        const std::string caption1 = GroupCaption(admitted.Label("TABSTR_1")).first, caption2 = GroupCaption(admitted.Label("TABSTR_2")).first;
+        tabs.push_back(Json{{"id", "perks1"}, {"label", caption1.empty() ? bindings.Text("hero.tab_perks") : caption1},
+                            {"selected", tab_ == Tab::Perks && !shown_ship}, {"badge", free_self > 0 ? Json(free_self) : Json("")}});
+        if (group2 && !caption2.empty())
+            tabs.push_back(Json{{"id", "perks2"}, {"label", caption2}, {"selected", tab_ == Tab::Perks && shown_ship},
+                                {"badge", free_ship > 0 ? Json(free_ship) : Json("")}});
         if (full)
             tabs.push_back(Json{{"id", "officers"}, {"label", bindings.Text("hero.tab_officers")}, {"selected", tab_ == Tab::Officers}});
         view["tabs"] = tabs;
-        bindings.On("header-tabs", "select", [this, &bindings](const Event &event) {
-            const Tab next = event.value == "perks" ? Tab::Perks : event.value == "officers" ? Tab::Officers : Tab::Skills;
-            if (next == tab_)
+        bindings.On("header-tabs", "select", [this, &bindings, group1, group2, ship](const Event &event) {
+            const bool perks = event.value == "perks1" || event.value == "perks2";
+            const Tab next = perks ? Tab::Perks : event.value == "officers" ? Tab::Officers : Tab::Skills;
+            const bool want_ship = event.value == "perks2";
+            if (next == tab_ && (!perks || want_ship == (wanted_ship_ >= 0 ? wanted_ship_ == 1 : ship)))
                 return;
             tab_ = next;
+            learn_open_ = false;
             sent_revision_ = 0; // a player action: its first step may go at once
             if (window_ != Window::None && window_ != Window::Message)
                 CloseWindow(bindings);
+            else if (perks && want_ship != ship)
+            {
+                perk_.clear();
+                wanted_ship_ = want_ship ? 1 : 0;
+                Step(bindings, want_ship ? group2 : group1, "press");
+            }
             bindings.Rebuild();
         });
         view["tab"] = tab_ == Tab::Skills ? "skills" : tab_ == Tab::Perks ? "perks" : "officers";
@@ -237,7 +262,7 @@ class HeroScreen final : public Screen
         if (tab_ == Tab::Skills)
             SkillsView(view, bindings, free_skill);
         else if (tab_ == Tab::Perks)
-            PerksView(view, bindings, subject, full, free_self, free_ship);
+            PerksView(view, bindings, subject, full, ship, ship ? free_ship : free_self);
         else
             OfficersView(view, bindings);
         view["dialog"] = DialogView(bindings);
@@ -255,12 +280,17 @@ class HeroScreen final : public Screen
     // Android back closes the subject list or the game's window first.
     bool OwnsBack() const override
     {
-        return subjects_.Open() || window_ != Window::None;
+        return subjects_.Open() || learn_open_ || window_ != Window::None;
     }
     void Back(Bindings &bindings) override
     {
         if (subjects_.Open())
             return subjects_.Close(bindings);
+        if (learn_open_)
+        {
+            learn_open_ = false;
+            return bindings.Rebuild();
+        }
         sent_revision_ = 0; // a player action: its first step may go at once
         CloseWindow(bindings);
     }
@@ -300,6 +330,9 @@ class HeroScreen final : public Screen
     Window window_ = Window::None;
     Intent intent_;
     std::string perk_;                  // the perk in the detail panel
+    int perk_filter_ = 0;               // 0 all, 1 open to learn, 2 learned
+    bool learn_open_ = false;           // the parchment card that confirms learning perk_
+    int wanted_ship_ = -1;              // the perk group the player asked for until the game shows it (0 personal, 1 ship)
     std::map<std::string, int> added_;  // points the player put into a skill during this visit
 
     // One engine step per model revision: a step is sent only after the engine answered the last.
@@ -650,26 +683,37 @@ class HeroScreen final : public Screen
         view["points"] = points;
     }
 
-    void PerksView(Json &view, Bindings &bindings, const Widget *subject, bool full, int free_self, int free_ship)
+    // What a perk needs: every required perk with whether the character has it. The adapter names all of
+    // them (`conditions`) and those still missing (`need`), both as the game's captions joined by ", ".
+    static Json Conditions(const Widget *fact)
     {
-        // The game's two groups: TABBTN_n with TABSTR_n "Личные 1"; the active one shows TabDeSelected (value 1).
-        const Widget *tab1 = a_->One("TABBTN_1");
-        const Widget *tab2 = a_->One("TABBTN_2");
-        const bool ship = tab2 && tab2->value == "1";
-        const auto group1 = GroupCaption(a_->Label("TABSTR_1"));
-        const auto group2 = GroupCaption(a_->Label("TABSTR_2"));
-        view["groups"] = Json::array({Json{{"id", "1"}, {"label", group1.first}, {"badge", free_self > 0 ? Json(free_self) : Json("")}, {"selected", !ship}},
-                                      Json{{"id", "2"}, {"label", group2.first}, {"badge", free_ship > 0 ? Json(free_ship) : Json("")}, {"selected", ship}}});
-        bindings.On("perk-groups", "select", [this, &bindings, tab1, tab2, ship](const Event &event) {
-            const bool want_ship = event.value == "2";
-            if (want_ship == ship)
-                return;
-            sent_revision_ = 0; // a player action: its first step may go at once
-            if (window_ != Window::None)
-                return CloseWindow(bindings);
-            perk_.clear();
-            Step(bindings, want_ship ? tab2 : tab1, "press");
-        });
+        const auto split = [](const std::string &text) {
+            std::vector<std::string> parts;
+            for (size_t at = 0; at < text.size();)
+            {
+                const size_t comma = text.find(", ", at);
+                parts.push_back(Trim(text.substr(at, comma == std::string::npos ? std::string::npos : comma - at)));
+                at = comma == std::string::npos ? text.size() : comma + 2;
+            }
+            return parts;
+        };
+        const std::vector<std::string> missing = split(Field(fact, "need"));
+        Json conditions = Json::array();
+        for (const std::string &name : split(Field(fact, "conditions").empty() ? Field(fact, "need") : Field(fact, "conditions")))
+            if (!name.empty())
+                conditions.push_back(Json{{"name", name}, {"met", std::find(missing.begin(), missing.end(), name) == missing.end()}});
+        return conditions;
+    }
+
+    Json PerkImage(const Widget &row, bool locked) const
+    {
+        if (HasPerkIcon(row.row_id))
+            return Json{{"kind", "token"}, {"icon", "perk-" + Lowercase(row.row_id)}, {"enamel", locked ? "iron" : "red"}};
+        return PictureOf(row.cells.empty() || row.cells[0].images.empty() ? nullptr : &row.cells[0].images[0]);
+    }
+
+    void PerksView(Json &view, Bindings &bindings, const Widget *subject, bool full, bool ship, int free)
+    {
         const std::string exp = Field(subject, ship ? "expship" : "expself");
         const std::string rate = Field(subject, ship ? "rateship" : "rateself");
         view["progress"] = full && Number(rate) > 0 ? bindings.Text("hero.next_point") + " " + Thousands(exp.empty() ? "0" : exp) + " / " + Thousands(rate) : "";
@@ -677,27 +721,43 @@ class HeroScreen final : public Screen
         std::map<std::string, const Widget *> facts;
         for (const Widget *fact : a_->All("ANDROID_PERKS"))
             facts[fact->row_id] = fact;
-        const std::vector<const Widget *> rows = a_->All("TABLE_PERKS");
-        if (perk_.empty() || !Row("TABLE_PERKS", perk_))
-            perk_ = rows.empty() ? "" : rows.front()->row_id;
+        const std::vector<const Widget *> all = a_->All("TABLE_PERKS");
+        // The tiles: learned, open to learn, locked by a missing perk; narrowed by the chips.
+        std::vector<const Widget *> rows;
+        int learned_count = 0, open_count = 0;
         Json list = Json::array();
+        for (const Widget *row : all)
+        {
+            const Widget *fact = facts.count(row->row_id) ? facts[row->row_id] : nullptr;
+            const bool learned = Field(fact, "learned") == "1";
+            const bool locked = !learned && !Field(fact, "need").empty();
+            learned_count += learned;
+            open_count += !learned && !locked;
+            if ((perk_filter_ == 1 && (learned || locked)) || (perk_filter_ == 2 && !learned))
+                continue;
+            rows.push_back(row);
+        }
+        if (perk_.empty() || std::find_if(rows.begin(), rows.end(), [this](const Widget *row) { return row->row_id == perk_; }) == rows.end())
+            perk_ = rows.empty() ? "" : rows.front()->row_id;
         for (const Widget *row : rows)
         {
             const Widget *fact = facts.count(row->row_id) ? facts[row->row_id] : nullptr;
             const bool learned = Field(fact, "learned") == "1";
-            const std::string need = Field(fact, "need");
-            Json cell{{"text", Trim(row->CellText(1))}};
-            if (HasPerkIcon(row->row_id))
-                cell["image"] = Json{{"kind", "token"}, {"icon", "perk-" + Lowercase(row->row_id)}, {"enamel", !learned && !need.empty() ? "iron" : "red"}};
-            else
-                cell["image"] = PictureOf(row->cells.empty() || row->cells[0].images.empty() ? nullptr : &row->cells[0].images[0]);
-            if (learned)
-                cell["badge"] = "check";
-            else if (!need.empty())
-                cell["badge"] = "lock", cell["tone"] = "dim";
-            list.push_back(Json{{"cells", Json::array({cell})}, {"selected", row->row_id == perk_}});
+            const bool locked = !learned && !Field(fact, "need").empty();
+            list.push_back(Json{{"name", Trim(row->CellText(1))},
+                                {"image", PerkImage(*row, locked)},
+                                {"state", learned ? "learned" : locked ? "locked" : "open"},
+                                {"selected", row->row_id == perk_}});
         }
         view["perks"] = list;
+        view["perksEmpty"] = bindings.Text("hero.no_perks");
+        view["filters"] = Json::array({Json{{"label", bindings.Text("common.all")}, {"count", all.size()}, {"selected", perk_filter_ == 0}},
+                                       Json{{"label", bindings.Text("hero.filter_open")}, {"count", open_count}, {"selected", perk_filter_ == 1}},
+                                       Json{{"label", bindings.Text("hero.filter_learned")}, {"count", learned_count}, {"selected", perk_filter_ == 2}}});
+        bindings.On("perk-filter", "select", [this, &bindings](const Event &event) {
+            perk_filter_ = std::clamp(std::atoi(event.value.c_str()), 0, 2);
+            bindings.Rebuild();
+        });
         bindings.On("perks", "row", [this, &bindings, rows](const Event &event) {
             const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
             if (index < rows.size())
@@ -713,20 +773,16 @@ class HeroScreen final : public Screen
         if (!row)
         {
             view["detail"] = nullptr;
+            learn_open_ = false;
             return;
         }
         const bool learned = Field(fact, "learned") == "1";
         const std::string need = Field(fact, "need");
-        const int free = ship ? free_ship : free_self;
-        Json detail{{"title", Trim(row->CellText(1))}, {"sub", LowerText(ship ? group2.first : group1.first)}, {"text", Field(fact, "text")}};
-        if (HasPerkIcon(perk_))
-            detail["image"] = Json{{"kind", "token"}, {"icon", "perk-" + Lowercase(perk_)}, {"enamel", !learned && !need.empty() ? "iron" : "red"}};
-        else
-            detail["image"] = PictureOf(row->cells.empty() || row->cells[0].images.empty() ? nullptr : &row->cells[0].images[0]);
-        if (!need.empty() && !learned)
-            detail["need"] = bindings.Text("hero.needs") + " " + need;
+        Json detail{{"title", Trim(row->CellText(1))}, {"text", Field(fact, "text")}, {"image", PerkImage(*row, !learned && !need.empty())},
+                    {"conditions", Conditions(fact)}};
         if (Field(fact, "officer") == "1")
             detail["note"] = bindings.Text("hero.officer_has");
+        const bool can_learn = full && !learned && need.empty() && free > 0;
         if (full)
         {
             const std::string reason = learned ? bindings.Text("hero.learned") : !need.empty() ? bindings.Text("hero.needs") + " " + need
@@ -734,17 +790,18 @@ class HeroScreen final : public Screen
                                                                                               : std::string();
             detail["learn"] = Json{{"id", "perk-learn"},
                                    {"label", learned ? bindings.Text("hero.learned") : bindings.Text("hero.learn")},
-                                   {"sub", learned ? "" : bindings.Text("common.free") + ": " + std::to_string(std::max(free, 0))},
+                                   {"sub", learned ? "" : bindings.Text("hero.points") + " " + std::to_string(std::max(free, 0))},
                                    {"disabled", !reason.empty()},
                                    {"reason", reason},
                                    {"busy", intent_.kind == Intent::Learn}};
-            bindings.On("perk-learn", "", [this, &bindings](const Event &) {
-                Intent intent;
-                intent.kind = Intent::Learn;
-                intent.row = perk_;
-                Start(bindings, intent);
+            // Learning is confirmed on a parchment card (the owner's exception to hold-to-confirm).
+            bindings.On("perk-learn", "", [this, &bindings, can_learn](const Event &) {
+                learn_open_ = can_learn;
+                bindings.Rebuild();
             });
         }
+        if (!can_learn)
+            learn_open_ = false;
         view["detail"] = detail;
     }
 
@@ -798,6 +855,39 @@ class HeroScreen final : public Screen
         for (const Widget *p : a_->All("ANDROID_POSTS"))
             if (slot && Field(p, "slot") == std::to_string(slot->index))
                 post = p;
+        // The card that confirms learning: the perk's picture, its full text, what it needs, what it costs.
+        if (learn_open_ && tab_ == Tab::Perks && window_ == Window::None && intent_.kind == Intent::None)
+            if (const Widget *row = Row("TABLE_PERKS", perk_))
+            {
+                const Widget *fact = nullptr;
+                for (const Widget *candidate : a_->All("ANDROID_PERKS"))
+                    if (candidate->row_id == perk_)
+                        fact = candidate;
+                const auto cancel = [this, &bindings](const Event &) {
+                    learn_open_ = false;
+                    bindings.Rebuild();
+                };
+                bindings.On("dialog", "dismiss", cancel);
+                bindings.On("dialog-close", "", cancel);
+                bindings.On("learn-cancel", "", cancel);
+                bindings.On("learn-ok", "", [this, &bindings](const Event &) {
+                    learn_open_ = false;
+                    Intent intent;
+                    intent.kind = Intent::Learn;
+                    intent.row = perk_;
+                    Start(bindings, intent);
+                    bindings.Rebuild();
+                });
+                return Json{{"kind", "learn"},
+                            {"title", Trim(row->CellText(1))},
+                            {"text", Field(fact, "text")},
+                            {"image", PerkImage(*row, false)},
+                            {"conditions", Conditions(fact)},
+                            {"note", Field(fact, "officer") == "1" ? bindings.Text("hero.officer_has") : std::string()},
+                            {"actions", Json::array({Json{{"id", "learn-cancel"}, {"label", bindings.Text("common.cancel")}, {"variant", "quiet"}},
+                                                     Json{{"id", "learn-ok"}, {"label", bindings.Text("hero.learn")},
+                                                          {"sub", bindings.Text("hero.points") + " 1"}, {"variant", "primary"}}})}};
+            }
         const auto close = [this, &bindings](const Event &) {
             sent_revision_ = 0; // a player action: its first step may go at once
             CloseWindow(bindings);
