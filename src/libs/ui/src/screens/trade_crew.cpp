@@ -60,12 +60,6 @@ int Number(const std::string &text)
     return digits.empty() ? 0 : std::atoi(digits.c_str());
 }
 
-std::string OneLine(std::string text)
-{
-    std::replace(text.begin(), text.end(), '\n', ' ');
-    return text;
-}
-
 // Skill rows of a crew table (picture, name, word) as label / value pairs.
 Json Facts(const Admission &admitted, const char *table, const char *morale)
 {

@@ -239,6 +239,20 @@ std::string NationOf(const ImageRef *image)
     return {};
 }
 
+std::string OneLine(const std::string &text)
+{
+    std::string out;
+    for (char c : text)
+    {
+        if (c == '\r' || c == '\n' || c == '\t')
+            c = ' ';
+        if (c != ' ' || (!out.empty() && out.back() != ' '))
+            out += c;
+    }
+    const size_t first = out.find_first_not_of(' ');
+    return first == std::string::npos ? std::string() : out.substr(first, out.find_last_not_of(' ') - first + 1);
+}
+
 Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id, const char *variant)
 {
     bindings.Forward(id, button, "press");

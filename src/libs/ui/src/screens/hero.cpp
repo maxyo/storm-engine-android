@@ -33,19 +33,6 @@ std::string Trim(std::string text)
     return text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1);
 }
 
-std::string OneLine(const std::string &text)
-{
-    std::string out;
-    for (char c : text)
-    {
-        if (c == '\r' || c == '\n' || c == '\t')
-            c = ' ';
-        if (c != ' ' || (!out.empty() && out.back() != ' '))
-            out += c;
-    }
-    return Trim(out);
-}
-
 // Lower case for the game's upper-case words ("ОТЛИЧНОЕ"): ASCII, Latin-1 and Cyrillic.
 std::string LowerText(const std::string &text)
 {

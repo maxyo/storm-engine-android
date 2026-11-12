@@ -10,6 +10,8 @@ namespace storm::ui::screens
 {
 
 std::string Upper(std::string_view text);
+// A game text on one line: line breaks ("\r", "\n"), tabs and runs of spaces become one space, trimmed.
+std::string OneLine(const std::string &text);
 bool Short(const std::string &text, size_t chars); // at most `chars` code points, one line
 size_t Length(const std::string &text);            // code points
 
