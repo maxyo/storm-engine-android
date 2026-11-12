@@ -86,6 +86,7 @@ struct Pointer
     Rml::Vector2f position;   // context coordinates, physical pixels
     Rml::Vector2f start;      // where it went down
     Rml::Element *target = nullptr; // element under the finger at down
+    double time = 0.0;              // when the newest sample (position) happened, host clock
 };
 
 class Behavior

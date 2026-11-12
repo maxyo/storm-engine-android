@@ -32,6 +32,7 @@
 //           data-swipe-dead dp
 #include "components.h"
 #include "elements.h"
+#include "touch_motion.h"
 
 #include <RmlUi/Core/EventListener.h>
 
@@ -742,6 +743,9 @@ class PanZoomBehavior final : public Behavior
         if (fingers_.empty())
         {
             moved_ = false;
+            fling_[0].Stop(), fling_[1].Stop(); // a finger stops a picture in motion
+            tracker_.Clear();
+            tracker_.Add(pointer.time, pointer.position);
             Rml::Element *zoom = ClosestWith(pointer.target, &self, "data-zoom");
             zoom_ = zoom ? Attr(zoom, "data-zoom") : std::string();
             zoom_box_ = zoom ? BorderBox(zoom) : Rml::Rectanglef();
@@ -776,11 +780,12 @@ class PanZoomBehavior final : public Behavior
         }
         if (!zoom_.empty())
             return;
+        tracker_.Add(pointer.time, pointer.position);
         const float slop = 8.0f * self.Host().Density();
         if (!moved_ && (pointer.position - pointer.start).SquaredMagnitude() <= slop * slop)
             return;
         moved_ = true;
-        offset_ += pointer.position - last;
+        offset_ += pointer.position - last; // 1:1 with the finger at every zoom (offset_ is in screen pixels)
         Apply(self);
     }
 
@@ -788,7 +793,12 @@ class PanZoomBehavior final : public Behavior
     {
         if (!Find(pointer.id))
             return;
+        const bool panned = fingers_.size() == 1 && moved_ && zoom_.empty();
         fingers_.erase(std::remove_if(fingers_.begin(), fingers_.end(), [&](const Finger &f) { return f.id == pointer.id; }), fingers_.end());
+        if (fingers_.size() == 1) // the pinch ends: the finger left pans on from where it is (no velocity of the pinch)
+            tracker_.Clear();
+        if (panned && !cancelled && ready_)
+            Throw(self, pointer);
         if (!fingers_.empty() || moved_ || cancelled)
             return;
         Rml::Element *port = FindWith(&self, "data-panzoom");
@@ -818,12 +828,23 @@ class PanZoomBehavior final : public Behavior
         self.Emit("point", value);
     }
 
-    // After a rebuild the viewport may change size (a sheet opens beside it) once the layout
-    // has run: a few frames re-check it before the ticks stop.
-    void Tick(ComponentElement &self, double) override
+    // Ticks while the picture coasts after a pan (placed where the fling is at this frame's
+    // time), and after a rebuild, when the viewport may change size (a sheet opens beside it)
+    // once the layout has run: a few frames re-check it.
+    void Tick(ComponentElement &self, double now) override
     {
         Rml::Element *port = FindWith(&self, "data-panzoom");
-        if (port && Ready(self, port) && --settle_ <= 0)
+        if (fling_[0].Active() || fling_[1].Active())
+        {
+            const Rml::Vector2f wanted = {fling_[0].Active() ? fling_[0].Advance(now) : offset_.x, fling_[1].Active() ? fling_[1].Advance(now) : offset_.y};
+            offset_ = wanted;
+            Apply(self);
+            for (int i = 0; i < 2; ++i)
+                if (offset_[i] != wanted[i]) // held at an edge: that axis is done
+                    fling_[i].Stop();
+        }
+        const bool settled = !port || (Ready(self, port) && --settle_ <= 0);
+        if (settled && !fling_[0].Active() && !fling_[1].Active())
             self.Host().RequestTicks(self, false);
     }
 
@@ -850,6 +871,24 @@ class PanZoomBehavior final : public Behavior
 
   private:
     static constexpr float kStep = 1.6f;
+
+    // A pan released in motion coasts on (the lists' fling, touch_motion.h).
+    void Throw(ComponentElement &self, const Pointer &pointer)
+    {
+        tracker_.Lift(pointer.time);
+        const Rml::Vector2f velocity = tracker_.Velocity();
+        const float density = self.Host().Density();
+        bool thrown = false;
+        for (int i = 0; i < 2; ++i)
+            if (std::fabs(velocity[i]) >= kMinFlingDp * density)
+            {
+                fling_[i].Start(pointer.time, offset_[i], std::clamp(velocity[i], -kMaxFlingDp * density, kMaxFlingDp * density), density);
+                thrown = true;
+            }
+        if (thrown)
+            self.Host().RequestTicks(self, true);
+    }
+
     struct Finger
     {
         int id;
@@ -915,13 +954,21 @@ class PanZoomBehavior final : public Behavior
         Rml::Element *element = FindWith(&self, "data-plane");
         if (!element)
             return;
-        element->SetProperty(Rml::PropertyId::Left, Rml::Property(offset_.x, Rml::Unit::PX));
-        element->SetProperty(Rml::PropertyId::Top, Rml::Property(offset_.y, Rml::Unit::PX));
-        element->SetProperty(Rml::PropertyId::Width, Rml::Property(plane.x, Rml::Unit::PX));
-        element->SetProperty(Rml::PropertyId::Height, Rml::Property(plane.y, Rml::Unit::PX));
+        // The position by a transform: a pan lays nothing out (left / top would lay out the
+        // whole document on every frame of it). Only a new zoom sizes the plane.
+        char transform[64];
+        std::snprintf(transform, sizeof transform, "translate(%.2fpx, %.2fpx)", offset_.x, offset_.y);
+        element->SetProperty("transform", transform);
+        if (element->GetProperty<float>("width") != plane.x || element->GetProperty<float>("height") != plane.y)
+        {
+            element->SetProperty(Rml::PropertyId::Width, Rml::Property(plane.x, Rml::Unit::PX));
+            element->SetProperty(Rml::PropertyId::Height, Rml::Property(plane.y, Rml::Unit::PX));
+        }
     }
 
     std::vector<Finger> fingers_;
+    VelocityTracker tracker_; // the panning finger
+    Fling fling_[2];          // the offset coasting along x / y after a pan
     std::string zoom_; // "in" / "out" while the finger is on a zoom part
     Rml::Rectanglef zoom_box_;
     bool moved_ = false;

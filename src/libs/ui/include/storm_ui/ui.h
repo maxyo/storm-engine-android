@@ -111,6 +111,7 @@ struct FrameStats
     // With Config::verify_unchanged: this frame was predicted unchanged by Prepare but drew
     // other commands than the frame shown (also an error in the log).
     bool mispredicted = false;
+    uint64_t number = 0; // which Frame this was (1, 2, …): a frame replayed unchanged keeps the last one's
 };
 
 enum class TouchPhase
@@ -141,7 +142,17 @@ class Host
     // Safe-area insets in dp (display cutout and system bars). HUD scenes and menu screens
     // keep their content inside; templates read them as `safe.left` … `safe.bottom`.
     virtual void SetSafeArea(float left, float top, float right, float bottom) = 0;
-    virtual void Touch(TouchPhase phase, int pointer, float x, float y) = 0;
+    // One sample of a pointer, in physical pixels. `time` is when it happened, in seconds of
+    // the host's clock (Now): platforms pass every sample they have (a move event's historical
+    // ones too) with its own time, which drag velocities and flings are measured from.
+    virtual void Touch(TouchPhase phase, int pointer, float x, float y, double time) = 0;
+    // A sample that happens now (tests, tools).
+    void Touch(TouchPhase phase, int pointer, float x, float y)
+    {
+        Touch(phase, pointer, x, y, Now());
+    }
+    // The host's clock in seconds (Config::clock, else a monotonic clock from its start).
+    virtual double Now() const = 0;
     // Settles timers, routing and the documents without drawing. True when the frame on
     // the screen is out of date: the host then asks for a Frame. False when it still shows
     // everything (a state that changed nothing visible): the host draws nothing, and

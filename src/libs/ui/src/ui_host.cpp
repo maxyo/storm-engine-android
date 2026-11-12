@@ -3,6 +3,7 @@
 #include "storm_ui/render_backend.h"
 
 #include "components.h"
+#include "touch_motion.h"
 #include "elements.h"
 #include "frame_renderer.h"
 #include "hud/hud.h"
@@ -438,7 +439,9 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         SetGameImageRoot(game_root);
     }
 
-    void Touch(TouchPhase phase, int pointer, float x, float y) override
+    using Host::Touch;
+
+    void Touch(TouchPhase phase, int pointer, float x, float y, double time) override
     {
         changed_ = true;
         // A pointer that went down on what is not laid out yet (an interface whose model is
@@ -452,20 +455,23 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
                 Log("touch held for " + std::string(opening_ != Opening::None ? "an interface being opened" : between_ ? "what comes after the transition" : "the next layout") +
                     ": " + RoutingFacts());
             }
-            held_.push_back({phase, pointer, x, y});
+            held_.push_back({phase, pointer, x, y, time});
             return;
         }
-        Apply(phase, pointer, x, y);
+        Apply(phase, pointer, x, y, time);
     }
 
-    void Apply(TouchPhase phase, int pointer, float x, float y)
+    void Apply(TouchPhase phase, int pointer, float x, float y, double time)
     {
         const Rml::Vector2f at = {x, y};
+        // A tap that travels this far is a drag (a scroll), no longer a press.
+        const float slop = 10.0f * config_.density;
         if (phase == TouchPhase::Down)
         {
             Capture capture;
             capture.pointer.id = pointer;
             capture.pointer.position = capture.pointer.start = at;
+            capture.pointer.time = time;
             capture.pointer.target = context_->GetElementAtPoint(at);
             // The HUD takes input only while the player can act (Presentation::live).
             if (capture.pointer.target && capture.pointer.target->GetOwnerDocument() == hud_document_ && !hud_->Interactive())
@@ -483,13 +489,15 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             }
             else
             {
-                if (component && component->PointerDown(capture.pointer))
-                    capture.component = component->GetObserverPtr();
                 if (scroll_pointer_ < 0)
                 {
                     scroll_pointer_ = pointer;
-                    context_->ProcessTouchStart(Rml::TouchList{Rml::Touch{static_cast<Rml::TouchId>(pointer), at}}, 0);
+                    scroll_.Down(capture.pointer.target, at, time, config_.density, slop);
                 }
+                // A finger that stops a list in motion drags it: it presses nothing.
+                const bool caught = pointer == scroll_pointer_ && scroll_.Caught();
+                if (component && !caught && component->PointerDown(capture.pointer))
+                    capture.component = component->GetObserverPtr();
             }
             captures_[pointer] = std::move(capture);
             return;
@@ -500,6 +508,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             return;
         Capture &capture = found->second;
         capture.pointer.position = at;
+        capture.pointer.time = time;
         auto *component = static_cast<ComponentElement *>(capture.component.get());
         const bool ended = phase == TouchPhase::Up || phase == TouchPhase::Cancel;
 
@@ -515,31 +524,23 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         }
         else
         {
+            const bool scrolling = pointer == scroll_pointer_ && phase == TouchPhase::Move && scroll_.Move(at, time);
             if (component)
             {
-                // A tap that travels becomes a scroll: the press is withdrawn.
-                const float slop = 10.0f * config_.density;
                 if (ended)
                     component->PointerUp(capture.pointer, phase == TouchPhase::Cancel);
-                else if ((at - capture.pointer.start).SquaredMagnitude() > slop * slop)
+                else if (scrolling || (at - capture.pointer.start).SquaredMagnitude() > slop * slop)
                 {
-                    component->PointerUp(capture.pointer, true);
+                    component->PointerUp(capture.pointer, true); // the press is withdrawn
                     capture.component = {};
                 }
                 else
                     component->PointerMove(capture.pointer);
             }
-            if (pointer == scroll_pointer_)
+            if (pointer == scroll_pointer_ && ended)
             {
-                const Rml::TouchList touch{Rml::Touch{static_cast<Rml::TouchId>(pointer), at}};
-                if (phase == TouchPhase::Move)
-                    context_->ProcessTouchMove(touch, 0);
-                else if (phase == TouchPhase::Up)
-                    context_->ProcessTouchEnd(touch, 0);
-                else
-                    context_->ProcessTouchCancel(touch);
-                if (ended)
-                    scroll_pointer_ = -1;
+                scroll_.Up(time, phase == TouchPhase::Cancel);
+                scroll_pointer_ = -1;
             }
         }
         if (ended)
@@ -550,6 +551,9 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         const auto started = std::chrono::steady_clock::now();
         const double now = system_.GetElapsedTime();
+        // A list in motion after the finger left: placed where it is at this frame's time.
+        if (scroll_.Update(now))
+            changed_ = true;
         const std::vector<Rml::ObserverPtr<Rml::Element>> ticking = ticking_;
         for (const auto &entry : ticking)
             if (auto *component = static_cast<ComponentElement *>(entry.get()))
@@ -612,6 +616,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         changed_ = counters_.textures > 0 || counters_.textures_shared > 0;
         drawn_ = true;
         counters_.render_ms = Milliseconds(updated, std::chrono::steady_clock::now());
+        counters_.number = last_frame_.number + 1;
         last_frame_ = counters_;
         counters_ = FrameStats(); // what happens until the next frame counts for it
         hud_->Drawn();
@@ -1436,7 +1441,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             return;
         }
         for (const HeldTouch &touch : held)
-            Apply(touch.phase, touch.pointer, touch.x, touch.y);
+            Apply(touch.phase, touch.pointer, touch.x, touch.y, touch.time);
     }
 
     struct Toast_
@@ -1529,6 +1534,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         TouchPhase phase;
         int pointer;
         float x, y;
+        double time;
     };
     std::vector<HeldTouch> held_;
     std::set<int> held_pointers_;
@@ -1537,7 +1543,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     std::unordered_map<int, Capture> captures_;
     std::vector<Rml::ObserverPtr<Rml::Element>> ticking_;
     std::vector<Toast_> toasts_;
-    int scroll_pointer_ = -1;
+    int scroll_pointer_ = -1; // the pointer that drags lists (one at a time)
+    TouchScroll scroll_;
     bool initialised_ = false;
 };
 
