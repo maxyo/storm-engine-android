@@ -8,6 +8,10 @@
 #include "model.h"
 #include "vma.hpp"
 
+#ifdef __ANDROID__
+#include <platform/android_camera_zoom.hpp>
+#endif
+
 #define D3DFVF_VERTEX (D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1)
 #define AIM_SIZE 0.05f
 
@@ -22,6 +26,9 @@ class DECK_CAMERA : public COMMON_CAMERA
     };
 
     VERTEX tri[4];
+#ifdef __ANDROID__
+    storm::android::DeckZoom androidZoom; // the pinch's field-of-view zoom (android_camera_zoom.hpp)
+#endif
 
     // parameters loaded from INI file //
     // --------------------------------------
