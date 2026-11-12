@@ -11,7 +11,6 @@
 #pragma once
 
 #include <vector>
-#include <set>
 
 #include "collide.h"
 #include "renderer.h"
@@ -51,7 +50,6 @@ class Lights : public Entity
         float corona;        // Crown transparency
 
         int32_t type; // Source type index
-        uint8_t intensity;
     };
 
     // Controllable (moving) source
@@ -133,25 +131,6 @@ class Lights : public Entity
     // Encapsulation
     // --------------------------------------------------------------------------------------------
   private:
-
-    auto GetLightsAt(const glm::vec3 &pos)
-    {
-        const auto dist = [&pos](const auto &light) {
-            const auto dx = (pos.x - light.pos.x);
-            const auto dy = (pos.y - light.pos.y);
-            const auto dz = (pos.z - light.pos.z);
-            return dx * dx + dy * dy + dz * dz + 2.0f;
-        };
-        const auto cmp = [&](const auto lhs, const auto rhs) { return dist(lights[lhs]) < dist(lights[rhs]); };
-
-        std::set<uint32_t, decltype(cmp)> sorted_lights(cmp);
-        for (uint32_t i = 0; i < numLights; i++)
-        {
-            sorted_lights.insert(i);
-        }
-
-        return sorted_lights;
-    }
 
     void PrintDebugInfo();
 
