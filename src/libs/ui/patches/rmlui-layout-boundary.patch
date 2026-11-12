@@ -1,0 +1,209 @@
+diff --git a/Include/RmlUi/Core/Element.h b/Include/RmlUi/Core/Element.h
+index e0e9572..f231b29 100644
+--- a/Include/RmlUi/Core/Element.h
++++ b/Include/RmlUi/Core/Element.h
+@@ -633,6 +633,11 @@ protected:
+ 
+ 	/// Forces a re-layout of this element, and any other elements required.
+ 	virtual void DirtyLayout();
++	/// The nearest element from this one up to the document that is a layout boundary: one with the attribute
++	/// 'rmlui-layout-boundary', whose width (and position) the layout around it decides and whose contents stay inside
++	/// it. A change of layout inside it formats only it, and the whole document only when its size came out different
++	/// (ElementDocument::UpdateLayout). Returns null when there is none.
++	Element* GetLayoutBoundary();
+ 	/// Returns true if the element has been marked as needing a re-layout.
+ 	virtual bool IsLayoutDirty();
+ 
+diff --git a/Include/RmlUi/Core/ElementDocument.h b/Include/RmlUi/Core/ElementDocument.h
+index dd99bf3..5ae628d 100644
+--- a/Include/RmlUi/Core/ElementDocument.h
++++ b/Include/RmlUi/Core/ElementDocument.h
+@@ -157,6 +157,10 @@ private:
+ 	/// Updates the layout if necessary.
+ 	void UpdateLayout();
+ 
++	/// Marks a layout boundary (see Element::GetLayoutBoundary) whose contents changed: the next layout formats only
++	/// its contents, unless the whole document needs formatting anyway.
++	void DirtyLayoutBoundary(Element* boundary);
++
+ 	/// Updates the position of the document based on the style properties.
+ 	void UpdatePosition();
+ 	/// Sets the dirty flag for document positioning
+@@ -175,8 +179,13 @@ private:
+ 	bool layout_dirty;
+ 	bool position_dirty;
+ 
++	// Layout boundaries whose contents need formatting (DirtyLayoutBoundary), and whether a format is running.
++	Vector<ObserverPtr<Element>> dirty_layout_boundaries;
++	bool formatting = false;
++
+ 	friend class Rml::Context;
+ 	friend class Rml::Factory;
++	friend class Rml::Element; // DirtyLayoutBoundary
+ };
+ 
+ } // namespace Rml
+diff --git a/Source/Core/Element.cpp b/Source/Core/Element.cpp
+index fa087f9..0c9af7a 100644
+--- a/Source/Core/Element.cpp
++++ b/Source/Core/Element.cpp
+@@ -1825,7 +1825,14 @@ void Element::OnPropertyChange(const PropertyIdSet& changed_properties)
+ 
+ 		if (!changed_properties_forcing_layout.Empty())
+ 		{
+-			DirtyLayout();
++			// A property of a layout boundary itself may change its size: not only its contents.
++			if (HasAttribute("rmlui-layout-boundary"))
++			{
++				if (ElementDocument* document = GetOwnerDocument())
++					document->DirtyLayout();
++			}
++			else
++				DirtyLayout();
+ 		}
+ 		else if (top_right_bottom_left_changed)
+ 		{
+@@ -1984,10 +1991,26 @@ void Element::OnChildRemove(Element* /*child*/) {}
+ 
+ void Element::DirtyLayout()
+ {
+-	if (Element* document = GetOwnerDocument())
++	ElementDocument* document = GetOwnerDocument();
++	if (!document)
++		return;
++	if (Element* boundary = GetLayoutBoundary())
++		document->DirtyLayoutBoundary(boundary);
++	else
+ 		document->DirtyLayout();
+ }
+ 
++Element* Element::GetLayoutBoundary()
++{
++	Element* document = GetOwnerDocument();
++	for (Element* element = this; element && element != document; element = element->parent)
++	{
++		if (element->HasAttribute("rmlui-layout-boundary"))
++			return element;
++	}
++	return nullptr;
++}
++
+ bool Element::IsLayoutDirty()
+ {
+ 	if (Element* document = GetOwnerDocument())
+diff --git a/Source/Core/ElementDocument.cpp b/Source/Core/ElementDocument.cpp
+index a8987e3..0d19310 100644
+--- a/Source/Core/ElementDocument.cpp
++++ b/Source/Core/ElementDocument.cpp
+@@ -477,6 +477,32 @@ void ElementDocument::UpdateLayout()
+ {
+ 	// Note: Carefully consider when to call this function for performance reasons.
+ 	// Ideally, only called once per update loop.
++	if (!layout_dirty && !dirty_layout_boundaries.empty())
++	{
++		RMLUI_ZoneScopedN("PartialLayout");
++		Vector<ObserverPtr<Element>> boundaries = std::move(dirty_layout_boundaries);
++		dirty_layout_boundaries.clear();
++		OnLayoutStart();
++		formatting = true;
++		bool kept = true;
++		for (const ObserverPtr<Element>& entry : boundaries)
++		{
++			Element* boundary = entry.get();
++			if (!kept || !boundary || boundary->GetOwnerDocument() != this || !boundary->IsVisible(true))
++				continue;
++			// One whose ancestor is formatted as well is formatted with it.
++			bool nested = false;
++			for (Element* ancestor = boundary->GetParentNode(); ancestor && !nested; ancestor = ancestor->GetParentNode())
++				for (const ObserverPtr<Element>& other : boundaries)
++					nested = nested || other.get() == ancestor;
++			if (!nested)
++				kept = LayoutEngine::FormatBoundary(boundary);
++		}
++		formatting = false;
++		OnLayout();
++		// A boundary whose size came out different changes the layout around it: the whole document is formatted.
++		layout_dirty = !kept;
++	}
+ 	if (layout_dirty)
+ 	{
+ 		RMLUI_ZoneScoped;
+@@ -487,14 +513,27 @@ void ElementDocument::UpdateLayout()
+ 		if (GetParentNode() != nullptr)
+ 			containing_block = GetParentNode()->GetBox().GetSize();
+ 
++		formatting = true;
+ 		LayoutEngine::FormatElement(this, containing_block);
++		formatting = false;
+ 
+ 		// Ignore dirtied layout during document formatting. Layouting must not require re-iteration.
+ 		// In particular, scrollbars being enabled may set the dirty flag, but this case is already handled within the layout engine.
+ 		layout_dirty = false;
++		dirty_layout_boundaries.clear();
+ 	}
+ }
+ 
++void ElementDocument::DirtyLayoutBoundary(Element* boundary)
++{
++	if (layout_dirty || formatting)
++		return;
++	for (const ObserverPtr<Element>& entry : dirty_layout_boundaries)
++		if (entry.get() == boundary)
++			return;
++	dirty_layout_boundaries.push_back(boundary->GetObserverPtr());
++}
++
+ void ElementDocument::UpdatePosition()
+ {
+ 	if (position_dirty)
+diff --git a/Source/Core/Layout/LayoutEngine.cpp b/Source/Core/Layout/LayoutEngine.cpp
+index ebed838..6d58e88 100644
+--- a/Source/Core/Layout/LayoutEngine.cpp
++++ b/Source/Core/Layout/LayoutEngine.cpp
+@@ -1,5 +1,7 @@
+ #include "LayoutEngine.h"
++#include "../../../Include/RmlUi/Core/ComputedValues.h"
+ #include "../../../Include/RmlUi/Core/Element.h"
++#include "../../../Include/RmlUi/Core/Math.h"
+ #include "../../../Include/RmlUi/Core/Log.h"
+ #include "../../../Include/RmlUi/Core/Profiling.h"
+ #include "ContainerBox.h"
+@@ -30,4 +32,23 @@ void LayoutEngine::FormatElement(Element* element, Vector2f containing_block)
+ 	}
+ }
+ 
++bool LayoutEngine::FormatBoundary(Element* element)
++{
++	RMLUI_ASSERT(element);
++	Box box = element->GetBox();
++	const Vector2f before = box.GetSize(BoxArea::Border);
++	Element* parent = element->GetParentNode();
++	// An automatic height in normal flow comes from the contents: formatted again from them, and compared. A flex
++	// item's or a set height is the one it has.
++	const bool flex_item = parent && (parent->GetDisplay() == Style::Display::Flex || parent->GetDisplay() == Style::Display::InlineFlex);
++	if (!flex_item && element->GetComputedValues().height().type == Style::Height::Auto)
++		box.SetContent(Vector2f(box.GetSize().x, -1.f));
++	RootBox root(parent ? parent->GetBox().GetSize() : before);
++	if (!FormattingContext::FormatIndependent(&root, element, &box, FormattingContextType::Block))
++		Log::Message(Log::LT_ERROR, "Error while formatting layout boundary: %s", element->GetAddress().c_str());
++	element->ClampScrollOffsetRecursive();
++	const Vector2f after = element->GetBox().GetSize(BoxArea::Border);
++	return Math::Absolute(after.x - before.x) < 0.01f && Math::Absolute(after.y - before.y) < 0.01f;
++}
++
+ } // namespace Rml
+diff --git a/Source/Core/Layout/LayoutEngine.h b/Source/Core/Layout/LayoutEngine.h
+index 60853df..47f80aa 100644
+--- a/Source/Core/Layout/LayoutEngine.h
++++ b/Source/Core/Layout/LayoutEngine.h
+@@ -14,6 +14,10 @@ public:
+ 	/// @param[in] element The element to lay out.
+ 	/// @param[in] containing_block The size of the containing block.
+ 	static void FormatElement(Element* element, Vector2f containing_block);
++	/// Formats a layout boundary (Element::GetLayoutBoundary) again at its width and position from the last layout, its
++	/// height too unless that is automatic in normal flow. Returns false when its size came out different: the layout
++	/// around it must be made again.
++	static bool FormatBoundary(Element* element);
+ };
+ 
+ } // namespace Rml
