@@ -123,6 +123,14 @@ struct FrameStats
     // other commands than the frame shown (also an error in the log).
     bool mispredicted = false;
     uint64_t number = 0; // which Frame this was (1, 2, …): a frame replayed unchanged keeps the last one's
+    // Frames made for this one that the backend did not show (RenderBackend::FrameHeld): the frame
+    // before stayed on the screen while the textures of this one were made. Their cost is in this one.
+    int held = 0;
+    // What the frame showed, for the frame timeline of a platform host: the mounted screen with the
+    // interface model it was built from ("s-store store#12.3" = pack screen, interface id, opening,
+    // model revision), "document", "hud" or "nothing", and " +opening" while an interface the game
+    // announced has no frame yet.
+    std::string shown;
 };
 
 enum class TouchPhase

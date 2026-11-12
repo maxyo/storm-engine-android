@@ -26,7 +26,11 @@ The build pulls in `src/libs/renderer_bgfx` for bgfx, its shader build and the p
 off-screen through the UI's bgfx backend on bgfx's GLES 3.0 renderer (Mesa llvmpipe, headless,
 simulated clock), the tool acting as the frame owner with the engine's UI view range (`--views N`)
 and decoding game pictures from `--game-root` itself. It can replay touches:
-`--script "down 1 660 88; wait 0.5; shot held.png; up 1 660 88"`.
+`--script "down 1 660 88; wait 0.5; shot held.png; up 1 660 88"`. `shot` first lets the backend finish
+its texture work; `seen <png>` saves what the last frame left on the screen, as the player saw it.
+`mark` remembers that picture, `whole` fails unless the last frame showed the marked picture still or the
+new one with nothing missing, `arrived` fails while the marked picture is still there (the
+`ui_whole_frame` test).
 Reported component actions are printed as `action <id> <verb> <value>`; `--safe L,T,R,B`
 applies safe-area insets in dp (what `Host::SetSafeArea` receives from the platform: the
 system bars). Component templates read them as `safe.left` … `safe.bottom`. `--cutout X,Y,W,H`
@@ -162,6 +166,15 @@ backend gets the same savings without code of its own:
 
 A backend must implement layers and `SaveLayerAsTexture` (RmlUi's box shadows need them
 too); without it a filtered element is not drawn and an error says so.
+
+A frame is shown whole or not at all. The textures RmlUi saves from a layer (box shadows: the
+panels of a screen) are made by jobs of the backend that may not fit into the frame that first
+draws them. Such a frame is held back (`RenderBackend::FrameHeld`): the jobs run, the frame on the
+screen is submitted again, the host draws the new frame again until its textures are there, and
+nothing that waits for a frame on the screen (held touches, HUD acknowledgements, the screen
+switch line) is told before. Drawn at once, a new screen appeared twice: first without its panels,
+a frame later with them. `FrameStats::held` counts the frames held for the one shown; a job that
+does not finish in 30 frames is an error and the frame is then shown as it is.
 
 `storm_ui_shot … --script "wait 1; bench 300 [<channel> <a.json> <b.json>]"` measures
 frames as a platform host makes them (GPU finished per frame) and prints the costs; with a

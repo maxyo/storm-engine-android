@@ -25,6 +25,7 @@
 #include <time.h>
 
 #include <array>
+#include <cstdio>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
@@ -164,6 +165,7 @@ class EngineUi
         if (screen_.empty())
             return; // a late snapshot of a screen that closed
         Record(json);
+        TraceInput("model", screen_ + ", " + std::to_string(json.size()) + " bytes");
         if (host_)
             host_->SetInterface(json);
         interface_ = std::move(json);
@@ -216,8 +218,8 @@ class EngineUi
             }
             // With the trace every sample: where, and how long ago it happened (input latency).
             if (trace_input_)
-                TraceInput("touch", std::to_string(step.phase) + " " + std::to_string(int(step.x)) + "," + std::to_string(int(step.y)) + " age " +
-                                        std::to_string(int(now_ms - step.time_ms)) + " ms");
+                TraceInput("touch", std::to_string(step.phase) + " " + std::to_string(int(step.x)) + "," + std::to_string(int(step.y)) + " sampled at " +
+                                        std::to_string(int64_t(step.time_ms)) + " ms, age " + std::to_string(int(now_ms - step.time_ms)) + " ms");
             if (step.phase == static_cast<int>(storm::ui::TouchPhase::Up))
                 tap_loop_ = loop_;
             // The sample's own time on the host's clock: how long ago it happened.
@@ -529,7 +531,9 @@ class EngineUi
         void OnUiRender(const storm::render::FrameContext &frame) override
         {
             EngineUi &ui = EngineUi::Get();
-            ui.TraceInput("frame", std::to_string(frame.frame_index));
+            char at[64];
+            std::snprintf(at, sizeof at, "%llu at %.1f ms", static_cast<unsigned long long>(frame.frame_index), MonotonicMs());
+            ui.TraceInput("frame", at);
             if (!ui.host_)
                 return;
             const storm::ui::FrameStats stats = ui.host_->LastFrameStats();
@@ -537,6 +541,16 @@ class EngineUi
             if (stats.number != counted) // a frame the host made (not the last one replayed unchanged)
             {
                 counted = stats.number;
+                // The frame timeline: every frame the host made, with what it showed and what it cost.
+                const double now_ms = MonotonicMs();
+                __android_log_print(ANDROID_LOG_DEBUG, "StormUiInput",
+                                    "loop %llu: made frame %llu at %.1f ms (+%.1f): shows %s after %d held | update %.1f = apply %.1f + rebuild %.1f (%d, %d touched) + "
+                                    "style %.1f + layout %.1f (%d boxes, %d passes) + pictures %.1f (%d), render %.1f (%d meshes, %d textures)",
+                                    static_cast<unsigned long long>(ui.loop_), static_cast<unsigned long long>(stats.number), now_ms,
+                                    made_ms ? now_ms - made_ms : 0.0, stats.shown.c_str(), stats.held, stats.update_ms, stats.apply_ms, stats.rebuild_ms,
+                                    stats.rebuilds, stats.touched, stats.style_ms, stats.layout_ms, stats.laid_out, stats.layout_passes,
+                                    stats.picture_ms, stats.pictures, stats.render_ms, stats.geometry, stats.textures);
+                made_ms = now_ms;
                 ++made;
                 update_ms += stats.update_ms;
                 render_ms += stats.render_ms;
@@ -562,6 +576,7 @@ class EngineUi
         }
         uint32_t since = 0, frames = 0, made = 0;
         uint64_t counted = 0; // FrameStats::number of the last frame summed
+        double made_ms = 0.0; // when the last made frame was traced
         double update_ms = 0.0, render_ms = 0.0;
         long draws = 0, layers = 0, layouts = 0, touched = 0, boxes = 0, meshes = 0;
     } frame_trace_;

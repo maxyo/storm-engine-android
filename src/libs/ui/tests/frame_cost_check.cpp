@@ -195,6 +195,37 @@ void FilterCache()
     Expect(backend.Count("push") == 0 && backend.Count("draw") == 0, "a layer composited into an empty region draws nothing");
 }
 
+// A frame the backend held back (RenderBackend::FrameHeld) was never drawn: a filter result it was
+// asked to save in that frame does not exist. The renderer forgets it and saves it again in a
+// frame that is shown; a result made before stays.
+void DroppedFrame()
+{
+    Recorder backend;
+    FrameStats stats;
+    FrameRenderer renderer(backend, stats);
+    const Rml::CompiledGeometryHandle geometry = Mesh(renderer, 0);
+    const Rml::CompiledFilterHandle filter = renderer.CompileFilter("drop-shadow", {});
+    const Rml::Rectanglei region = Rml::Rectanglei::FromPositionSize({0, 0}, {40, 40});
+    const auto frame = [&](bool dropped) {
+        backend.calls.clear();
+        stats = FrameStats();
+        renderer.BeginFrame();
+        FilteredElement(renderer, geometry, filter, region);
+        renderer.EndFrame();
+        if (dropped)
+            renderer.Dropped();
+    };
+    frame(false);
+    frame(true);
+    Expect(backend.Count("save") == 1 && backend.Count("release-texture") == 1, "a result saved in a frame that was not shown is given back");
+    frame(false);
+    Expect(backend.Count("save") == 1 && stats.cached_layers == 0, "the next frame saves it again instead of drawing a texture never filled");
+    frame(true);
+    Expect(backend.Count("draw") == 1 && backend.Count("release-texture") == 0, "a result made in a shown frame survives a held one");
+    frame(false);
+    Expect(backend.Count("push") == 0 && stats.cached_layers == 1, "and is drawn from the cache after it");
+}
+
 // RmlUi's box shadow: a layer drawn, saved as a texture, popped. An element rebuilt with the
 // same look draws the same: it gets the texture made before, and it lives while held.
 void SharedShadows()
@@ -283,6 +314,36 @@ void TapLatency(const std::string &pack)
     runtime.Frame();
     Expect(runtime.host->LastFrameStats().layout_passes == 0, "a model that changed nothing lays nothing out");
     Expect(!runtime.host->Prepare(delay), "the screen is complete in that one frame");
+}
+
+// A frame the backend holds back (the textures of a new screen are still being made, the frame
+// before stays on the screen) is not a drawn frame: the host draws it again, and nothing that
+// waits for a frame on the screen is told until one is shown.
+void HeldFrame(const std::string &pack)
+{
+    Runtime runtime(pack);
+    runtime.Explore();
+    double delay = 0.0;
+    Expect(!runtime.host->Prepare(delay), "the HUD is steady before the screen opens");
+    const uint64_t shown = runtime.host->LastFrameStats().number;
+
+    runtime.host->ExpectInterface();
+    std::ifstream file(states_directory + "/../models/game-menu.json", std::ios::binary);
+    const std::string model{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    Expect(runtime.host->SetInterface(model), "the game menu model is accepted");
+
+    runtime.backend.hold = 2;
+    runtime.Frame();
+    Expect(runtime.host->LastFrameStats().number == shown, "a held frame is not a frame shown");
+    Expect(runtime.host->Prepare(delay) && delay == 0.0, "the host asks for the frame again at once");
+    runtime.Frame();
+    Expect(runtime.host->LastFrameStats().number == shown, "held a second time");
+    runtime.Frame();
+    const FrameStats stats = runtime.host->LastFrameStats();
+    Expect(stats.number == shown + 1 && stats.held == 2, "the frame shown counts the two held for it");
+    Expect(stats.apply_ms > 0.0, "and carries what they cost (the model was applied before the first)");
+    runtime.Frame();
+    Expect(runtime.host->LastFrameStats().held == 0, "the frames after it are held by nothing");
 }
 
 // The list of scroll.rml (300 px high, 60 rows of 41 px: 2160 px to scroll at density 1).
@@ -565,9 +626,11 @@ int main(int argc, char **argv)
     }
     states_directory = argv[1];
     FilterCache();
+    DroppedFrame();
     SharedShadows();
     SteadyRuntime(argv[2]);
     TapLatency(argv[2]);
+    HeldFrame(argv[2]);
     ScrollFling(argv[2]);
     ScrollStretch(argv[2]);
     if (failures)

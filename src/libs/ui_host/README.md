@@ -42,5 +42,10 @@ game opening its interface and the model arriving to the screen's first frame an
 stop re-laying out, with the CPU of those frames by stage (model apply, component rebuilds, styles,
 layout, game pictures, render with texture uploads; `FrameStats`).
 
+The frame timeline (`adb shell setprop log.tag.StormUiInput DEBUG` before the game starts, logcat tag
+`StormUiInput`): per engine loop iteration every touch sample with its own time and its age when
+applied, every action and model, and every frame the host made with what it showed (the screen and
+the model revision it was built from), the frames held for it and its CPU by stage.
+
 Debug recordings (`adb shell setprop log.tag.<tag> DEBUG`): `StormUiState` logs every state,
 `StormUiModels` writes the newest model of each screen to `<external files>/ui-models/`.

@@ -1,6 +1,6 @@
 body { display: block; width: 100%; height: 100%; }
 div { display: block; }
-s-hud, c-box, c-button, c-stick, c-fleet, c-minimap, c-lever, c-helm, s-hud-orders, t-sheet { display: block; }
+s-hud, c-box, c-panels, c-button, c-stick, c-fleet, c-minimap, c-lever, c-helm, s-hud-orders, t-sheet { display: block; }
 s-hud-orders { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
 /* boxes only show: a touch on one belongs to what lies under it */
 c-box { pointer-events: none; }
@@ -8,3 +8,6 @@ c-box { pointer-events: none; }
 /* The runtime's scroll-edge fade, as the real pack styles it (base.rcss). */
 .scroll-fade { position: absolute; left: 0; right: 0; height: 26dp; pointer-events: none; z-index: 3; background-color: #00000080; display: none; }
 .scroll-below > .scroll-fade { display: block; }
+
+/* Panels with a box shadow each (panels.rml): layer textures the backend makes in jobs. */
+.panel { position: absolute; top: 40dp; background-color: #4a3020; border-radius: 6dp; box-shadow: #000000c0 0dp 4dp 12dp 0dp; }

@@ -25,6 +25,14 @@ class RenderBackend
     // that draws over the game frame ignores it.
     virtual void BeginFrame(bool clear) = 0;
     virtual void EndFrame() = 0;
+    // True when the frame just ended was not shown: it would have been drawn without textures the
+    // backend is still making (layer textures: box shadows), so the frame before it stays on the
+    // screen. The host draws the frame again until it is shown, and tells nobody it was drawn.
+    // A backend that makes every texture within the frame that draws it never holds one.
+    virtual bool FrameHeld() const
+    {
+        return false;
+    }
 
     // Game pictures (.tx). A backend that draws inside the engine frame gets them from the
     // renderer: Pending keeps the element's placeholder and polls again next frame, Ready

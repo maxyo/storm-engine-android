@@ -76,7 +76,10 @@ jobs:
           sudo apt-get update
           # libx11-dev, libgl-dev: the UI decodes .tx textures with bimg from the renderer's bgfx pin, and
           # bgfx.cmake configures (does not build) the bgfx runtime with X11 and OpenGL on Linux.
-          sudo apt-get install -y --no-install-recommends ninja-build ccache libx11-dev libgl-dev
+          # libegl1, libegl-mesa0, libgles2, libgl1-mesa-dri: storm_ui_shot draws through bgfx's GLES 3.0
+          # renderer on Mesa's surfaceless EGL (llvmpipe) in the ui_whole_frame test.
+          sudo apt-get install -y --no-install-recommends ninja-build ccache libx11-dev libgl-dev \
+            libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri
       - name: Cache fetched UI dependencies and compiler output
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:

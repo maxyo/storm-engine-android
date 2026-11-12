@@ -103,6 +103,22 @@ void FrameRenderer::BeginFrame()
     hash_marks_.clear();
 }
 
+void FrameRenderer::Dropped()
+{
+    for (auto bucket = cache_.begin(); bucket != cache_.end();)
+    {
+        auto &entries = bucket->second;
+        for (size_t i = entries.size(); i-- > 0;)
+            if (entries[i].made == frame_)
+            {
+                target_.ReleaseTexture(entries[i].texture);
+                target_.ReleaseGeometry(entries[i].quad);
+                entries.erase(entries.begin() + static_cast<long>(i));
+            }
+        bucket = entries.empty() ? cache_.erase(bucket) : std::next(bucket);
+    }
+}
+
 void FrameRenderer::EndFrame()
 {
     buffer_.clear(); // RmlUi pairs every layer it pushes; nothing is left open here
@@ -656,6 +672,7 @@ void FrameRenderer::CompositeLayers(Rml::LayerHandle source, Rml::LayerHandle de
     Entry entry;
     entry.key = std::move(key);
     entry.used = frame_;
+    entry.made = frame_;
     entry.texture = target_.SaveLayerAsTexture();
     target_.PopLayer();
     target_.PopLayer();

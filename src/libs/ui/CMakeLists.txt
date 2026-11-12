@@ -235,6 +235,11 @@ elseif(NOT CMAKE_CROSSCOMPILING)
     target_include_directories(storm_ui_frame_cost_unit PRIVATE src)
     add_test(NAME ui_frame_cost COMMAND storm_ui_frame_cost_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
     add_test(NAME ui_hud_sea COMMAND storm_ui_hud_sea_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")
+    # A new picture is shown whole or not yet (RenderBackend::FrameHeld), through the bgfx backend: six
+    # panels with a box shadow each appear, with too few views to make their textures beside the frame.
+    add_test(NAME ui_whole_frame COMMAND storm_ui_shot --pack "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack" --doc panels.rml --size 640x360 --density 1
+             --views 12 --out "${CMAKE_CURRENT_BINARY_DIR}/whole-frame.png"
+             --script "wait 0.2; mark; props panels {\"sizes\":[40,50,60,70,80,90]}; whole; wait 0.0166; whole; wait 0.0166; whole; wait 0.3; arrived")
     add_executable(storm_ui_routing_unit tests/routing_check.cpp)
     target_link_libraries(storm_ui_routing_unit PRIVATE storm_ui)
     add_test(NAME ui_routing COMMAND storm_ui_routing_unit "${CMAKE_CURRENT_SOURCE_DIR}/tests/states" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pack")

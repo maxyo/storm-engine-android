@@ -263,6 +263,11 @@ class Router
     {
         return screen_ != nullptr;
     }
+    // The model the mounted screen was built from.
+    const InterfaceModel &Model() const
+    {
+        return model_;
+    }
     // Name of the screen implementation in use: the interface id or "generic".
     const std::string &Using() const
     {

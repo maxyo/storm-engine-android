@@ -614,6 +614,11 @@ class Executor
         job.layers = layers_;
         job.post = post_;
     }
+    // Planning: draws left out because the texture they sample is still being made by a queued job.
+    int Starved() const
+    {
+        return starved_;
+    }
 
   private:
     void Run(const Command &command, bool degraded);
@@ -714,6 +719,7 @@ class Executor
     std::array<int, 3> post_ = {0, 1, 2};
     std::unordered_set<const Texture *> filled_; // filled by this frame's blits
     int budget_ = 0;                                // planning: views the frame may use (0: no limit)
+    int starved_ = 0;                               // Starved()
     std::unordered_set<const Command *> unfiltered_; // composites drawn without their filters
 };
 class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
@@ -766,6 +772,10 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
         open_layers_.clear();
     }
     void EndFrame() override;
+    bool FrameHeld() const override
+    {
+        return held_frames_ > 0;
+    }
     PictureState AcquireGamePicture(const std::string &texture) override;
 
     // ---- BgfxBackend ----------------------------------------------------------------
@@ -820,7 +830,7 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
             next_frame_delay_ = host_->Frame();
         else
         {
-            Execute(Commands(last_main_), last_clear_);
+            Submit(shown_main_, shown_clear_, false);
             next_frame_delay_ = delay;
         }
     }
@@ -834,8 +844,10 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
             set.Forget();
         jobs_.clear();
         commands_.clear();
-        last_main_.clear();
+        shown_main_.clear();
+        held_frames_ = 0;
         replayable_ = false;
+        ReleaseShownPictures();
         // RmlUi re-creates textures and geometry on demand through this interface.
         Rml::ReleaseTextures(this);
         Rml::ReleaseCompiledGeometry(this);
@@ -904,8 +916,10 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
         const Ref<Texture> &texture = FromHandle<Texture>(handle);
         texture->released = true;
         replayable_ = false; // the recorded frame may use it
+        // A game picture stays with the frame on the screen, which may be shown again while the next
+        // one waits for its textures (EndFrame): given back when another frame takes its place.
         if (texture->kind == Texture::Kind::Picture)
-            ReleasePicture(texture->picture);
+            shown_pictures_.push_back(texture->picture);
         ReleaseHandle<Texture>(handle);
     }
 
@@ -1033,6 +1047,21 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
 
     Rml::TextureHandle LoadPicture(Rml::Vector2i &dimensions, const std::string &path);
     void ReleasePicture(const std::string &path);
+    void ReleaseShownPictures()
+    {
+        for (const std::string &path : shown_pictures_)
+            ReleasePicture(path);
+        shown_pictures_.clear();
+    }
+    // True while a queued job still has to fill `texture`.
+    bool Awaited(const Texture &texture) const
+    {
+        for (const Job &job : jobs_)
+            for (const Command &command : job.commands)
+                if (command.op == Op::SaveTexture && command.texture.get() == &texture && !texture.released)
+                    return true;
+        return false;
+    }
     bgfx::TextureHandle PictureHandle(const Texture &texture) const;
 
     void ExtractJobs(Commands &main);
@@ -1067,11 +1096,17 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
     // Recording.
     bool clear_ = false;
     Commands commands_;
-    // The frame's commands without its texture jobs, for frames the host calls unchanged.
-    Commands last_main_;
-    bool last_clear_ = false;
+    // The commands of the frame on the screen, without its texture jobs: submitted again for a
+    // frame the host calls unchanged (`replayable_`), and instead of a frame that would be drawn
+    // without textures its jobs are still making (EndFrame).
+    Commands shown_main_;
+    bool shown_clear_ = false;
     bool replayable_ = false;
-    void Execute(Commands main, bool clear);
+    int held_frames_ = 0; // frames in a row that were not shown (FrameHeld)
+    std::vector<std::string> shown_pictures_; // game pictures RmlUi gave back that the frame on the screen may draw
+    // Submits the queued texture jobs that fit and `main`. With `complete_only`, a `main` that
+    // would be drawn without a texture a job is still making is not submitted at all: false.
+    bool Submit(const Commands &main, bool clear, bool complete_only);
     DrawState state_;
     int depth_ = 1;
     std::vector<size_t> open_layers_; // indices of the PushLayer commands of open layers
@@ -1631,22 +1666,40 @@ void BgfxBackendImpl::EndFrame()
     commands_.clear();
     replayable_ = false;
     if (!device_ready_ || sets_[0].width <= 0)
+    {
+        held_frames_ = 0;
         return;
+    }
     ExtractJobs(main);
+    // A frame is shown whole or not at all. Layer textures (box shadows: the panels of a screen)
+    // are made by jobs that may not fit into this frame's views beside the frame itself; drawn
+    // now, the frame would show the screen without them and the next one with them (a screen
+    // that appears twice). Such a frame is held back: the jobs run, the frame on the screen is
+    // submitted again, and the host draws the new one again until its textures are there.
+    // Bounded: a job that never finishes is an error, and the frame is then shown as it is.
+    constexpr int kMaxHeldFrames = 30;
+    const bool bounded = held_frames_ >= kMaxHeldFrames;
+    if (bounded)
+        Rml::Log::Message(Rml::Log::LT_ERROR, "UI frame shown without %d layer textures: their jobs did not finish in %d frames", int(jobs_.size()),
+                          kMaxHeldFrames);
+    if (!Submit(main, clear_, !bounded))
+    {
+        ++held_frames_;
+        Submit(shown_main_, shown_clear_, false);
+        return;
+    }
+    held_frames_ = 0;
     // A frame that saves layers as textures (the frame renderer filling its filter cache) is
     // not repeated: the next one draws from the cache.
     replayable_ = std::none_of(main.begin(), main.end(), [](const Command &command) { return command.op == Op::SaveTexture; });
-    if (replayable_)
-    {
-        last_main_ = main;
-        last_clear_ = clear_;
-    }
-    Execute(std::move(main), clear_);
+    shown_main_ = std::move(main);
+    shown_clear_ = clear_;
+    ReleaseShownPictures();
 }
 
-void BgfxBackendImpl::Execute(Commands main, bool clear)
+bool BgfxBackendImpl::Submit(const Commands &main, bool clear, bool complete_only)
 {
-    const bool clear_ = clear; // the frame's own clear, also for a replayed frame
+    const bool clear_ = clear; // the frame's own clear, also for a frame submitted again
     Executor counter(*this);
     counter.SetBudget(view_count_);
     counter.Main(main, clear_, false);
@@ -1666,6 +1719,8 @@ void BgfxBackendImpl::Execute(Commands main, bool clear)
     planner.TakeDecisions(counter);
     const std::vector<std::pair<size_t, size_t>> ranges = PlanJobs(planner, int(view_count_) - main_views);
     planner.Main(main, clear_, degraded);
+    if (complete_only && planner.Starved() > 0)
+        return false;
 
     Executor live(*this, planner, first_view_);
     for (size_t j = 0; j < ranges.size(); ++j)
@@ -1680,6 +1735,7 @@ void BgfxBackendImpl::Execute(Commands main, bool clear)
     live.Main(main, clear_, degraded);
     while (!jobs_.empty() && jobs_.front().cursor >= jobs_.front().commands.size())
         jobs_.pop_front();
+    return true;
 }
 
 // ---- executor -----------------------------------------------------------------------
@@ -2161,7 +2217,11 @@ void Executor::Run(const Command &command, bool degraded)
                 break;
             case Texture::Kind::Target:
                 if (!filled_.count(&texture) && !(texture.filled && texture.Current()))
+                {
+                    if (!live_ && b_->Awaited(texture))
+                        ++starved_;
                     return; // its job has not run yet
+                }
                 reads.Add({{TargetKind::Texture, 0, 0, &texture}, {0, 0, 1, 1}});
                 break;
             case Texture::Kind::Picture:

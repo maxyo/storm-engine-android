@@ -1,0 +1,6 @@
+<rml>
+<head><link type="text/rcss" href="kit.rcss"/></head>
+<body style="width: 100%; height: 100%; background-color: #203040;">
+<c-panels id="panels"/>
+</body>
+</rml>

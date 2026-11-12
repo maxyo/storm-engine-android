@@ -43,6 +43,9 @@ class FrameRenderer final : public Rml::RenderInterface
     // Around Context::Render. EndFrame releases the cache entries this frame did not use.
     void BeginFrame();
     void EndFrame();
+    // The backend did not show the frame just ended (RenderBackend::FrameHeld): the filter results
+    // it was asked to save in that frame were never made and are forgotten.
+    void Dropped();
     // Hash of the drawing commands of the last finished frame.
     uint64_t FrameHash() const
     {
@@ -114,6 +117,7 @@ class FrameRenderer final : public Rml::RenderInterface
         Rml::TextureHandle texture = 0;
         Rml::CompiledGeometryHandle quad = 0;
         uint64_t used = 0; // frame number
+        uint64_t made = 0; // frame number
         int origin_x = 0, origin_y = 0; // where the region was when the result was saved
     };
 

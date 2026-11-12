@@ -110,6 +110,11 @@ class Capture
     virtual void Attach(storm::ui::Host &host) = 0;
     virtual void Frame(storm::ui::Host &host) = 0;
     virtual bool Shot(storm::ui::Host &host, const std::string &path) = 0;
+    // The picture as the last frame left it: nothing is settled and no frame is drawn first.
+    virtual bool Seen(const std::string &path) = 0;
+    virtual std::vector<unsigned char> Pixels() = 0;
+    // Frames until the backend has no texture work left, then the picture.
+    virtual std::vector<unsigned char> Settled(storm::ui::Host &host) = 0;
     virtual bool ResetDevice()
     {
         return false;
@@ -461,6 +466,21 @@ class BgfxCapture final : public Capture
         if (settle)
             std::fprintf(stderr, "settle %d frames\n", settle);
         Frame(host);
+        return Seen(path);
+    }
+    bool Seen(const std::string &path) override
+    {
+        return SavePng(Pixels(), width_, height_, path);
+    }
+    std::vector<unsigned char> Settled(storm::ui::Host &host) override
+    {
+        for (int settle = 0; backend_->PendingWork() > 0 && settle < 60; ++settle)
+            Frame(host);
+        Frame(host);
+        return Pixels();
+    }
+    std::vector<unsigned char> Pixels() override
+    {
         std::vector<unsigned char> rgba(static_cast<size_t>(width_) * height_ * 4);
         bgfx::TextureRegion destination, source;
         destination.init(readback_);
@@ -474,7 +494,7 @@ class BgfxCapture final : public Capture
         while (bgfx::frame() < ready)
         {
         }
-        return SavePng(rgba, width_, height_, path);
+        return rgba;
     }
     bool BenchFrame(storm::ui::Host &host) override
     {
@@ -650,6 +670,7 @@ int main(int argc, char **argv)
     }
 
     int status = 0;
+    std::vector<unsigned char> marked; // `mark`
     std::stringstream commands(script);
     std::string command;
     bool timed = false;
@@ -703,6 +724,32 @@ int main(int argc, char **argv)
             words >> path;
             if (!capture->Shot(*host, path))
                 status = 6;
+        }
+        else if (verb == "seen") // seen <file.png>: what the last frame showed (shot settles the texture work first)
+        {
+            std::string path;
+            words >> path;
+            if (!capture->Seen(path))
+                status = 6;
+        }
+        else if (verb == "mark") // mark: remembers the picture on the screen (for `whole`)
+            marked = capture->Pixels();
+        else if (verb == "whole") // whole: the last frame showed the marked picture still, or the new one with nothing missing
+        {
+            const std::vector<unsigned char> seen = capture->Pixels();
+            const bool kept = seen == marked;
+            const bool whole = !kept && seen == capture->Settled(*host);
+            std::printf("whole: the frame showed %s\n", kept ? "the picture before" : whole ? "the new picture, whole" : "a picture that changed afterwards");
+            if (!kept && !whole)
+                status = 7;
+        }
+        else if (verb == "arrived") // arrived: the picture on the screen is no longer the marked one
+        {
+            if (capture->Pixels() == marked)
+            {
+                std::printf("arrived: the marked picture is still on the screen\n");
+                status = 7;
+            }
         }
         else if (verb == "toast")
         {

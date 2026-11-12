@@ -639,6 +639,19 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         context_->Render();
         backend_->EndFrame();
         renderer_->EndFrame();
+        counters_.render_ms += Milliseconds(updated, std::chrono::steady_clock::now());
+        if (backend_->FrameHeld())
+        {
+            // Not shown: the backend is still making textures this frame draws (the box shadows
+            // of a screen's panels) and left the frame before it on the screen. Drawn again
+            // next time; what it cost goes to the frame that is shown, and nothing that waits
+            // for a drawn frame (held touches, the HUD's acknowledgements, the switch report)
+            // is told.
+            renderer_->Dropped();
+            ++counters_.held;
+            changed_ = true;
+            return 0.0;
+        }
         counters_.mispredicted = !predicted && config_.verify_unchanged && renderer_->FrameHash() != shown_hash_;
         if (counters_.mispredicted)
             Error("UI frame predicted unchanged drew something else: a change that does not ask for a frame; " + renderer_->Difference());
@@ -648,8 +661,8 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         // the next frame: that frame is drawn too.
         changed_ = counters_.textures > 0 || counters_.textures_shared > 0;
         drawn_ = true;
-        counters_.render_ms = Milliseconds(updated, std::chrono::steady_clock::now());
         counters_.number = last_frame_.number + 1;
+        counters_.shown = Shown();
         ReportSwitch(false);
         last_frame_ = counters_;
         counters_ = FrameStats(); // what happens until the next frame counts for it
@@ -1668,6 +1681,22 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         Log(line);
         switch_.open = false;
         reported_ = now;
+    }
+
+    // FrameStats::shown.
+    std::string Shown() const
+    {
+        std::string shown = "nothing";
+        if (video_)
+            shown = "video";
+        else if (Rml::Element *screen = screen_root_ && document_ ? document_->GetElementById("screen") : nullptr)
+            shown = screen->GetTagName() + " " + router_->Model().screen + "#" + std::to_string(router_->Model().opening) + "." +
+                    std::to_string(router_->Model().revision);
+        else if (document_)
+            shown = "document";
+        else if (hud_document_ && hud_document_->IsVisible())
+            shown = "hud";
+        return opening_ == Opening::None ? shown : shown + " +opening";
     }
 
     bool Between() const
