@@ -1,0 +1,255 @@
+Upstream RmlUi pull request #1038 (Jan Niklas Hasse, commit 972f9f9, on 6.3): "Fix exponential layout time
+with nested flex containers". Measurements a flex container takes of its items (shrink-to-fit width,
+max-content size, formatted height) are cached for one layout pass. Not merged upstream (closed in favour of
+the maintainer's unreleased partial_layout_update branch); drop this patch when a release carries either.
+
+diff --git a/Source/Core/Layout/ContainerBox.cpp b/Source/Core/Layout/ContainerBox.cpp
+index db670ef..94de172 100644
+--- a/Source/Core/Layout/ContainerBox.cpp
++++ b/Source/Core/Layout/ContainerBox.cpp
+@@ -267,7 +267,7 @@ float FlexContainer::GetShrinkToFitWidth() const
+ 		return box.GetSize().x;
+ 
+ 	// Infer shrink-to-fit width from the intrinsic width of the element.
+-	return FlexFormattingContext::GetMaxContentSize(element).x;
++	return LayoutDetails::GetFlexMaxContentSize(element).x;
+ }
+ 
+ String FlexContainer::DebugDumpTree(int depth) const
+diff --git a/Source/Core/Layout/FlexFormattingContext.cpp b/Source/Core/Layout/FlexFormattingContext.cpp
+index 68ec692..3cd5a2d 100644
+--- a/Source/Core/Layout/FlexFormattingContext.cpp
++++ b/Source/Core/Layout/FlexFormattingContext.cpp
+@@ -337,9 +337,8 @@ void FlexFormattingContext::Format(Vector2f& flex_resulting_content_size, Vector
+ 			if (initial_box_size.x < 0.f && flex_available_content_size.x >= 0.f)
+ 				format_box.SetContent(Vector2f(flex_available_content_size.x - item.cross.sum_edges, initial_box_size.y));
+ 
+-			FormattingContext::FormatIndependent(flex_container_box, element, (format_box.GetSize().x >= 0 ? &format_box : nullptr),
+-				FormattingContextType::Block);
+-			item.inner_flex_base_size = element->GetBox().GetSize().y;
++			item.inner_flex_base_size =
++				LayoutDetails::GetFormattedHeight(flex_container_box, element, (format_box.GetSize().x >= 0 ? &format_box : nullptr));
+ 
+ 			// Apply the automatic block size as minimum size (§4.5). Strictly speaking, we should also apply this to
+ 			// the other branches in column mode (and inline min-content size in row mode). However, the formatting step
+@@ -680,8 +679,8 @@ void FlexFormattingContext::Format(Vector2f& flex_resulting_content_size, Vector
+ 				if (content_size.y < 0.0f)
+ 				{
+ 					item.box.SetContent(Vector2f(GetInnerUsedMainSize(item), content_size.y));
+-					FormattingContext::FormatIndependent(flex_container_box, item.element, &item.box, FormattingContextType::Block);
+-					item.hypothetical_cross_size = item.element->GetBox().GetSize().y + item.cross.sum_edges;
++					item.hypothetical_cross_size =
++						LayoutDetails::GetFormattedHeight(flex_container_box, item.element, &item.box) + item.cross.sum_edges;
+ 				}
+ 				else
+ 				{
+diff --git a/Source/Core/Layout/LayoutDetails.cpp b/Source/Core/Layout/LayoutDetails.cpp
+index c39dbbf..f930b4c 100644
+--- a/Source/Core/Layout/LayoutDetails.cpp
++++ b/Source/Core/Layout/LayoutDetails.cpp
+@@ -6,12 +6,31 @@
+ #include "../../../Include/RmlUi/Core/Math.h"
+ #include "../../../Include/RmlUi/Core/Profiling.h"
+ #include "ContainerBox.h"
++#include "FlexFormattingContext.h"
+ #include "FormattingContext.h"
+ #include "LayoutEngine.h"
+ #include <float.h>
+ 
+ namespace Rml {
+ 
++// The cache in scope, if any, see LayoutDetails::SizingCache.
++static LayoutDetails::SizingCache* sizing_cache = nullptr;
++
++LayoutDetails::SizingCache::SizingCache()
++{
++	if (!sizing_cache)
++	{
++		sizing_cache = this;
++		active = true;
++	}
++}
++
++LayoutDetails::SizingCache::~SizingCache()
++{
++	if (active)
++		sizing_cache = nullptr;
++}
++
+ // Convert width or height of a border box to the width or height of its corresponding content box.
+ static inline float BorderSizeToContentSize(float border_size, float border_padding_edges_size)
+ {
+@@ -218,6 +237,19 @@ float LayoutDetails::GetShrinkToFitWidth(Element* element, Vector2f containing_b
+ {
+ 	RMLUI_ASSERT(element);
+ 
++	if (sizing_cache)
++	{
++		auto it = sizing_cache->shrink_to_fit_widths.find(element);
++		if (it != sizing_cache->shrink_to_fit_widths.end())
++		{
++			for (const SizingCache::ShrinkToFitWidth& cached : it->second)
++			{
++				if (cached.containing_block == containing_block)
++					return cached.width;
++			}
++		}
++	}
++
+ 	// @performance Can we lay out the elements directly using a fit-content size mode, instead of fetching the
+ 	// shrink-to-fit width first? Use a non-definite placeholder for the box content width, and available width as a
+ 	// maximum constraint.
+@@ -258,9 +290,62 @@ float LayoutDetails::GetShrinkToFitWidth(Element* element, Vector2f containing_b
+ 			Math::Max(0.f, containing_block.x - box.GetSizeAcross(BoxDirection::Horizontal, BoxArea::Margin, BoxArea::Padding));
+ 		shrink_to_fit_width = Math::Min(shrink_to_fit_width, available_width);
+ 	}
++
++	if (sizing_cache)
++		sizing_cache->shrink_to_fit_widths[element].push_back({containing_block, shrink_to_fit_width});
++
+ 	return shrink_to_fit_width;
+ }
+ 
++Vector2f LayoutDetails::GetFlexMaxContentSize(Element* element)
++{
++	RMLUI_ASSERT(element);
++
++	if (sizing_cache)
++	{
++		auto it = sizing_cache->max_content_sizes.find(element);
++		if (it != sizing_cache->max_content_sizes.end())
++			return it->second;
++	}
++
++	const Vector2f max_content_size = FlexFormattingContext::GetMaxContentSize(element);
++
++	if (sizing_cache)
++		sizing_cache->max_content_sizes[element] = max_content_size;
++
++	return max_content_size;
++}
++
++float LayoutDetails::GetFormattedHeight(ContainerBox* parent_container, Element* element, const Box* override_initial_box)
++{
++	RMLUI_ASSERT(element);
++
++	const Vector2f containing_block = GetContainingBlock(parent_container, element->GetPosition()).size;
++	const bool override_box = (override_initial_box != nullptr);
++	const Box box = (override_box ? *override_initial_box : Box());
++
++	if (sizing_cache)
++	{
++		auto it = sizing_cache->formatted_heights.find(element);
++		if (it != sizing_cache->formatted_heights.end())
++		{
++			for (const SizingCache::FormattedHeight& cached : it->second)
++			{
++				if (cached.override_box == override_box && cached.box == box && cached.containing_block == containing_block)
++					return cached.height;
++			}
++		}
++	}
++
++	FormattingContext::FormatIndependent(parent_container, element, override_initial_box, FormattingContextType::Block);
++	const float height = element->GetBox().GetSize().y;
++
++	if (sizing_cache)
++		sizing_cache->formatted_heights[element].push_back({override_box, box, containing_block, height});
++
++	return height;
++}
++
+ ComputedAxisSize LayoutDetails::BuildComputedHorizontalSize(const ComputedValues& computed)
+ {
+ 	return ComputedAxisSize{computed.width(), computed.min_width(), computed.max_width(), computed.padding_left(), computed.padding_right(),
+diff --git a/Source/Core/Layout/LayoutDetails.h b/Source/Core/Layout/LayoutDetails.h
+index 18a9ccc..d1a3a85 100644
+--- a/Source/Core/Layout/LayoutDetails.h
++++ b/Source/Core/Layout/LayoutDetails.h
+@@ -1,11 +1,11 @@
+ #pragma once
+ 
++#include "../../../Include/RmlUi/Core/Box.h"
+ #include "../../../Include/RmlUi/Core/StyleTypes.h"
+ #include "../../../Include/RmlUi/Core/Types.h"
+ 
+ namespace Rml {
+ 
+-class Box;
+ class BlockContainer;
+ class ContainerBox;
+ 
+@@ -40,6 +40,34 @@ enum class BuildBoxMode {
+  */
+ class LayoutDetails {
+ public:
++	/// Caches content-based sizes while in scope, see GetShrinkToFitWidth, GetFlexMaxContentSize, and GetFormattedHeight. The same element is often
++	/// sized under the same constraints many times during a single layout pass, in particular with nested flex containers, where the number of times
++	/// otherwise grows exponentially with the nesting depth. Thus, it should be in scope for the duration of a layout pass, during which no element
++	/// changes, but not any longer. Nested scopes use the outermost cache.
++	class SizingCache : NonCopyMoveable {
++	public:
++		SizingCache();
++		~SizingCache();
++
++	private:
++		struct ShrinkToFitWidth {
++			Vector2f containing_block;
++			float width;
++		};
++		UnorderedMap<Element*, Vector<ShrinkToFitWidth>> shrink_to_fit_widths;
++		UnorderedMap<Element*, Vector2f> max_content_sizes;
++		struct FormattedHeight {
++			bool override_box;
++			Box box;
++			Vector2f containing_block;
++			float height;
++		};
++		UnorderedMap<Element*, Vector<FormattedHeight>> formatted_heights;
++		bool active = false;
++
++		friend class LayoutDetails;
++	};
++
+ 	/// Generates the box dimensions for an element.
+ 	/// @param[out] box The box to be built.
+ 	/// @param[in] containing_block The dimensions of the content area of the block containing the element.
+@@ -78,8 +106,18 @@ public:
+ 		BuildBoxMode box_context, bool replaced_element);
+ 
+ 	/// Formats the element and returns the width of its contents.
++	/// @note The result is cached for the same element and containing block while a SizingCache is in scope.
+ 	static float GetShrinkToFitWidth(Element* element, Vector2f containing_block);
+ 
++	/// Returns the max-content size of a flex container, see FlexFormattingContext::GetMaxContentSize.
++	/// @note The result is cached for the same element while a SizingCache is in scope.
++	static Vector2f GetFlexMaxContentSize(Element* element);
++
++	/// Formats the element independently, and returns the resulting height of its content box. Only for measuring, since the element is not
++	/// formatted when the height is cached, so it must be formatted for its final layout afterwards.
++	/// @note The result is cached for the same element, initial box, and containing block while a SizingCache is in scope.
++	static float GetFormattedHeight(ContainerBox* parent_container, Element* element, const Box* override_initial_box);
++
+ 	/// Build computed axis size along the horizontal direction (width and friends).
+ 	static ComputedAxisSize BuildComputedHorizontalSize(const ComputedValues& computed);
+ 	/// Build computed axis size along the vertical direction (height and friends).
+diff --git a/Source/Core/Layout/LayoutEngine.cpp b/Source/Core/Layout/LayoutEngine.cpp
+index ebed838..b4bc52c 100644
+--- a/Source/Core/Layout/LayoutEngine.cpp
++++ b/Source/Core/Layout/LayoutEngine.cpp
+@@ -4,6 +4,7 @@
+ #include "../../../Include/RmlUi/Core/Profiling.h"
+ #include "ContainerBox.h"
+ #include "FormattingContext.h"
++#include "LayoutDetails.h"
+ 
+ namespace Rml {
+ 
+@@ -12,6 +13,7 @@ void LayoutEngine::FormatElement(Element* element, Vector2f containing_block)
+ 	RMLUI_ASSERT(element && containing_block.x >= 0 && containing_block.y >= 0);
+ 
+ 	RootBox root(containing_block);
++	LayoutDetails::SizingCache sizing_cache;
+ 
+ 	auto layout_box = FormattingContext::FormatIndependent(&root, element, nullptr, FormattingContextType::Block);
+ 	if (!layout_box)
