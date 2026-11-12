@@ -7,6 +7,10 @@
 #include "math_inlines.h"
 #include "shared/messages.h"
 
+#ifdef __ANDROID__
+#include <platform/android_spyglass.hpp>
+#endif
+
 #define DISCR_F_VAL 0.00001f
 #define EQU_FLOAT(x, y) (x) - (y) > DISCR_F_VAL ? false : (y) - (x) > DISCR_F_VAL ? false : true
 #define BEF_FLOAT(x, y) (y) - (x) >= DISCR_F_VAL
@@ -53,12 +57,27 @@ bool DECK_CAMERA::LoadState(ENTITY_STATE *state)
 
 void DECK_CAMERA::Execute(uint32_t Delta_Time)
 {
+#ifdef __ANDROID__
+    if (!isOn() || !isActive())
+        androidZoom.reset(); // off the deck: back to the game's view
+#endif
     if (!isOn())
         return;
     if (!FindShip() || !FindPath())
         return;
 
     SetPerspective(AttributesPointer->GetAttributeAsFloat("Perspective"));
+#ifdef __ANDROID__
+    // The pinch of the camera look (platform/android_camera_zoom.hpp), unless the raised spyglass
+    // takes it for its own zoom.
+    if (isActive())
+    {
+        if (!storm::android::spyglass.on())
+            if (const float scale = storm::android::cameraZoom.take(); scale != 1.0f)
+                androidZoom.pinch(scale);
+        SetPerspective(GetPerspective() / androidZoom.step(Delta_Time * 0.001f));
+    }
+#endif
 
     Move(Delta_Time);
 }

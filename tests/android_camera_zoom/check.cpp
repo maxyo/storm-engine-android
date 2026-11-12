@@ -73,4 +73,25 @@ int main()
     assert(pinchLandZoom(1.0f, 4.0f) == kLandZoomMin && pinchLandZoom(1.0f, 0.25f) == kLandZoomMax);
     assert(near(pinchLandZoom(1.0f, 1.2f), 1.0f / 1.2f));
     assert(mailbox.land == 1.0f);
+
+    // Deck: field-of-view zoom 1x..2x; the view eases to the fingers' target, and leaving the
+    // deck puts it back to the game's 1x at once.
+    DeckZoom deck;
+    assert(deck.step(0.016f) == 1.0f);
+    deck.pinch(1.5f);
+    assert(near(deck.target(), 1.5f));
+    const float first = deck.step(0.016f);
+    assert(first > 1.0f && first < 1.5f); // smooth: part of the way in one frame
+    for (int frame = 0; frame < 60; ++frame)
+        deck.step(0.016f);
+    assert(near(deck.step(0.016f), 1.5f, 1e-3f));
+    deck.pinch(4.0f);
+    assert(deck.target() == kDeckZoomMax);
+    deck.pinch(0.01f);
+    assert(deck.target() == kDeckZoomMin);
+    deck.pinch(1.8f);
+    deck.step(1.0f); // a long frame lands on the target, never past it
+    assert(near(deck.step(0.0f), 1.8f));
+    deck.reset();
+    assert(deck.target() == 1.0f && deck.step(0.016f) == 1.0f);
 }

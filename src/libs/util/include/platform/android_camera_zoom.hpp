@@ -14,9 +14,11 @@ namespace storm::android
 // move (the mouse wheel on PC), within the game's limits:
 //   sea, third person  SHIP_CAMERA fDistance 0..1 (ShipCamera_Forward / _Backward)
 //   world map          WdmCamera height 50..300 (WMapForward / WMapBackward; none in free mode)
-//   spyglass           magnification 1..the glass's own (ChangeTelescopeType)
+//   spyglass           magnification 1..the glass's own (ChangeTelescopeType); while it is
+//                      raised the deck camera leaves the pinch to it
 //   land, follow       LocationCamera radius, kLandZoomMin..kLandZoomMax of the game's radius
-// The deck camera of this game has no zoom: a pinch there reaches no camera and is reported.
+//   deck               DeckZoom: field-of-view zoom kDeckZoomMin..kDeckZoomMax of the game's
+//                      perspective (the game has none here; ours, like the spyglass's range)
 //
 // Game-thread owned. The engine loop calls beginFrame() before it applies the commands of an
 // iteration, so a pinch acts only in the frame it arrived for: one that no camera took (no
@@ -101,4 +103,33 @@ inline float pinchLandZoom(float zoom, float scale)
 {
     return pinchDistance(zoom, scale, kLandZoomMin, kLandZoomMax);
 }
+// The deck camera has no zoom of its own in this game (its perspective is the "Perspective"
+// attribute): the pinch narrows the field of view up to twice. The fingers set the target, the
+// view eases to it (kDeckZoomEase per second), and leaving the deck (the camera off or not in
+// charge) puts it back to 1x.
+inline constexpr float kDeckZoomMin = 1.0f, kDeckZoomMax = 2.0f, kDeckZoomEase = 15.0f;
+class DeckZoom
+{
+    float target_ = 1.0f, current_ = 1.0f;
+
+  public:
+    void pinch(float scale)
+    {
+        target_ = pinchMagnification(target_, scale, kDeckZoomMin, kDeckZoomMax);
+    }
+    // The zoom of this frame, eased towards the fingers' target.
+    float step(float seconds)
+    {
+        current_ += (target_ - current_) * std::clamp(seconds * kDeckZoomEase, 0.0f, 1.0f);
+        return current_;
+    }
+    void reset()
+    {
+        target_ = current_ = 1.0f;
+    }
+    float target() const
+    {
+        return target_;
+    }
+};
 } // namespace storm::android
