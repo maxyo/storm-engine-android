@@ -22,6 +22,7 @@
 #include <android/log.h>
 #include <jni.h>
 #include <sys/system_properties.h>
+#include <time.h>
 
 #include <array>
 #include <atomic>
@@ -46,6 +47,14 @@ constexpr const char *kTag = "StormUi";
 constexpr uint32_t kCloseGraceMs = 150;
 // Frame owner client order: after the renderer's own clients.
 constexpr int kClientOrder = 1000;
+
+// The clock of MotionEvent times (SystemClock.uptimeMillis is CLOCK_MONOTONIC), in ms.
+double MonotonicMs()
+{
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return now.tv_sec * 1000.0 + now.tv_nsec / 1e6;
+}
 
 // adb shell setprop log.tag.<tag> DEBUG
 bool Loggable(const char *tag)
@@ -181,6 +190,7 @@ class EngineUi
         }
         if (!host_)
             return; // nothing of it applies to a host that is not there (touches of no UI)
+        const double now_ms = MonotonicMs();
         for (Step &step : work)
         {
             if (step.call)
@@ -188,9 +198,13 @@ class EngineUi
                 step.call(*host_);
                 continue;
             }
-            if (step.phase != kMove)
-                TraceInput("touch", std::to_string(step.phase) + " " + std::to_string(int(step.x)) + "," + std::to_string(int(step.y)));
-            host_->Touch(static_cast<storm::ui::TouchPhase>(step.phase), step.pointer, step.x, step.y);
+            // With the trace every sample: where, and how long ago it happened (input latency).
+            if (trace_input_)
+                TraceInput("touch", std::to_string(step.phase) + " " + std::to_string(int(step.x)) + "," + std::to_string(int(step.y)) + " age " +
+                                        std::to_string(int(now_ms - step.time_ms)) + " ms");
+            // The sample's own time on the host's clock: how long ago it happened.
+            host_->Touch(static_cast<storm::ui::TouchPhase>(step.phase), step.pointer, step.x, step.y,
+                         host_->Now() - (now_ms - step.time_ms) / 1000.0);
         }
         PublishInterfaceActive();
     }
@@ -245,24 +259,13 @@ class EngineUi
         inbox_.push_back({std::move(call)});
     }
 
-    // A pointer step. A move replaces the same pointer's move still waiting (only where the
-    // finger is now matters): a fast finger costs one host call per pointer and frame.
-    void Touch(int phase, int pointer, float x, float y)
+    // A pointer sample with its time (MotionEvent's, milliseconds of CLOCK_MONOTONIC). Every
+    // sample is kept, the historical ones of a batched move too: drags and flings measure the
+    // finger's speed from them (storm::ui TouchScroll).
+    void Touch(int phase, int pointer, float x, float y, double time_ms)
     {
         const std::lock_guard lock(inbox_mutex_);
-        if (phase == kMove)
-            for (auto step = inbox_.rbegin(); step != inbox_.rend() && !step->call; ++step)
-            {
-                if (step->pointer != pointer)
-                    continue;
-                if (step->phase == kMove)
-                {
-                    step->x = x, step->y = y;
-                    return;
-                }
-                break;
-            }
-        inbox_.push_back({{}, phase, pointer, x, y});
+        inbox_.push_back({{}, phase, pointer, x, y, time_ms});
     }
 
     // Answered from the layout of the last frame (Host is thread-safe here).
@@ -506,18 +509,20 @@ class EngineUi
             render_ms += stats.render_ms;
             draws += stats.draws;
             layers += stats.layers;
+            layouts += stats.layout_passes;
             const uint32_t now = SDL_GetTicks();
             if (!since)
                 since = now;
             if (now - since < 5000)
                 return;
-            __android_log_print(ANDROID_LOG_DEBUG, "StormUiInput", "%u UI frames in %.1f s: CPU per frame update %.2f ms + render %.2f ms, %.0f draws, %.1f layers",
-                                frames, (now - since) / 1000.0, update_ms / frames, render_ms / frames, double(draws) / frames, double(layers) / frames);
-            frames = 0, update_ms = render_ms = 0.0, draws = layers = 0, since = now;
+            __android_log_print(ANDROID_LOG_DEBUG, "StormUiInput",
+                                "%u UI frames in %.1f s: CPU per frame update %.2f ms + render %.2f ms, %.0f draws, %.1f layers, %ld layout passes",
+                                frames, (now - since) / 1000.0, update_ms / frames, render_ms / frames, double(draws) / frames, double(layers) / frames, layouts);
+            frames = 0, update_ms = render_ms = 0.0, draws = layers = layouts = 0, since = now;
         }
         uint32_t since = 0, frames = 0;
         double update_ms = 0.0, render_ms = 0.0;
-        long draws = 0, layers = 0;
+        long draws = 0, layers = 0, layouts = 0;
     } frame_trace_;
     std::map<std::string, std::string> states_;
     std::map<std::string, std::string> platform_states_; // guarded by inbox_mutex_
@@ -527,13 +532,13 @@ class EngineUi
     std::atomic<bool> interface_active_{false};
     std::vector<std::string> commands_;
     std::map<std::string, size_t> slots_; // slot -> index in commands_
-    static constexpr int kMove = 1; // storm::ui::TouchPhase::Move on the JNI surface
     // What the platform thread sent: a call, or (no call) a pointer step.
     struct Step
     {
         std::function<void(storm::ui::Host &)> call;
         int phase = 0, pointer = 0;
         float x = 0.0f, y = 0.0f;
+        double time_ms = 0.0; // CLOCK_MONOTONIC (SystemClock.uptimeMillis)
     };
     std::mutex inbox_mutex_;
     std::vector<Step> inbox_;
@@ -595,12 +600,13 @@ JNIEXPORT jboolean JNICALL Java_org_stormengine_port_EngineUi_nativeWantsTouch(J
     return EngineUi::Get().WantsTouch(x, y) ? JNI_TRUE : JNI_FALSE;
 }
 
-// phase: 0 down, 1 move, 2 up, 3 cancel; physical pixels of the surface
-JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeTouch(JNIEnv *, jclass, jint phase, jint pointer, jfloat x, jfloat y)
+// phase: 0 down, 1 move, 2 up, 3 cancel; physical pixels of the surface; time: the sample's
+// MotionEvent time (SystemClock.uptimeMillis base)
+JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeTouch(JNIEnv *, jclass, jint phase, jint pointer, jfloat x, jfloat y, jlong time)
 {
     if (phase < 0 || phase > 3)
         return;
-    EngineUi::Get().Touch(phase, pointer, x, y);
+    EngineUi::Get().Touch(phase, pointer, x, y, static_cast<double>(time));
 }
 
 JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeCancelInput(JNIEnv *, jclass)

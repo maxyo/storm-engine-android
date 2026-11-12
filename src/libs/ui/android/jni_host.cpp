@@ -252,11 +252,16 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeResize(JNIEnv *, 
 }
 
 // phase: 0 down, 1 move, 2 up, 3 cancel
-JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeTouch(JNIEnv *, jclass, jlong handle, jint phase, jint pointer, jfloat x, jfloat y)
+// time: the sample's MotionEvent time (SystemClock.uptimeMillis, CLOCK_MONOTONIC ms): every
+// sample counts with its own time for drag velocities (the view sends a batched move's
+// historical samples too).
+JNIEXPORT void JNICALL Java_org_stormengine_port_StormUi_nativeTouch(JNIEnv *, jclass, jlong handle, jint phase, jint pointer, jfloat x, jfloat y,
+                                                                      jlong time)
 {
     if (phase < 0 || phase > 3)
         return;
-    From(handle)->host->Touch(static_cast<storm::ui::TouchPhase>(phase), pointer, x, y);
+    storm::ui::Host &host = *From(handle)->host;
+    host.Touch(static_cast<storm::ui::TouchPhase>(phase), pointer, x, y, host.Now() - (Seconds() - static_cast<double>(time) / 1000.0));
 }
 
 // Settles the UI without drawing: < 0 when the frame on the screen is out of date (ask for

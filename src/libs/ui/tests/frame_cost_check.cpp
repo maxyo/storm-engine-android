@@ -9,11 +9,14 @@
 //     that does is drawn. Every frame Prepare calls unchanged is verified (Runtime::Frame).
 //   * The tap budget: press in the next frame, action in the touch call, the answer's
 //     screen in the next frame after the model.
+//   * Touch scrolling (ScrollFling): drag 1:1, fling on the frame clock, nothing laid out.
 #include "../src/frame_renderer.h"
 #include "hud_bench.h"
 
 #include <RmlUi/Core.h>
 
+#include <cmath>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -280,36 +283,165 @@ void TapLatency(const std::string &pack)
     Expect(!runtime.host->Prepare(delay), "the screen is complete in that one frame");
 }
 
-// A fling: after the finger lifts, the list keeps moving (RmlUi's inertia) and every frame of
-// that motion is drawn, until it stops; then the runtime is idle again.
-void ScrollFling(const std::string &pack)
+// The list of scroll.rml (300 px high, 60 rows of 41 px: 2160 px to scroll at density 1).
+Rml::Element *List()
 {
-    Runtime runtime(pack);
-    Expect(runtime.host->LoadDocument("scroll.rml"), "the scroll test document loads");
-    for (int i = 0; i < 3; ++i)
-        runtime.Frame();
-    double delay = 0.0;
-    Expect(!runtime.host->Prepare(delay), "a still list needs no frame");
-    runtime.host->Touch(TouchPhase::Down, 1, 150, 280);
-    runtime.Frame();
-    for (int y = 260; y >= 60; y -= 40) // a quick upward swipe, one move per frame
+    Rml::Context *context = Rml::GetContext(0);
+    for (int i = 0; context && i < context->GetNumDocuments(); ++i)
+        if (Rml::Element *list = context->GetDocument(i)->GetElementById("list"))
+            return list;
+    return nullptr;
+}
+
+struct Gesture
+{
+    std::vector<float> drag;  // offset after each frame of the drag
+    float released = 0.0f;    // offset at the release
+    std::vector<float> fling; // offset after each frame from the release until the list rests
+    int layouts = 0;          // layout passes in those frames (the first drag frame excluded)
+    bool settled = false;     // the runtime was idle once the list rested
+};
+
+// One finger: down at y 290, then upwards at `speed` px/s with a sample every 1/120 s (two
+// per 60 Hz frame, as a touchscreen gives them: every sample with its own time), `travel` px
+// in all; `pause` seconds still before the release; frames of `frame` seconds throughout.
+Gesture Swipe(Runtime &runtime, float speed, float travel, double pause, double frame)
+{
+    Gesture out;
+    Rml::Element *list = List();
+    const double step = 1.0 / 120.0;
+    double next_frame = runtime.clock + frame;
+    float y = 290.0f;
+    runtime.host->Touch(TouchPhase::Down, 1, 150, y, runtime.clock);
+    double t = runtime.clock;
+    const auto frames_until = [&](double time, std::vector<float> *offsets) {
+        while (next_frame <= time + 1e-9)
+        {
+            runtime.Frame(next_frame - runtime.clock);
+            next_frame += frame;
+            if (offsets)
+            {
+                if (!offsets->empty())
+                    out.layouts += runtime.host->LastFrameStats().layout_passes;
+                offsets->push_back(list->GetScrollTop());
+            }
+        }
+    };
+    for (float moved = 0.0f; moved < travel;)
     {
-        runtime.host->Touch(TouchPhase::Move, 1, 150, static_cast<float>(y));
-        runtime.Frame();
-        if (y < 260) // the first move may add the edge fade (a new element)
-            Expect(runtime.host->LastFrameStats().laid_out == 0, "scrolling lays nothing out (the edge fade moves by transform)");
+        t += step;
+        frames_until(t, &out.drag);
+        moved = std::min(travel, moved + speed * static_cast<float>(step));
+        runtime.host->Touch(TouchPhase::Move, 1, 150, 290.0f - moved, t);
+        y = 290.0f - moved;
     }
-    runtime.host->Touch(TouchPhase::Up, 1, 150, 60);
-    int moving = 0;
+    t += pause;
+    frames_until(t, &out.drag);
+    out.released = list->GetScrollTop();
+    runtime.host->Touch(TouchPhase::Up, 1, 150, y, t);
+    double delay = 0.0;
     for (int i = 0; i < 600 && runtime.host->Prepare(delay); ++i)
     {
         Expect(delay <= 0.0, "while the list moves the next frame is wanted at once");
-        runtime.Frame();
-        ++moving;
+        runtime.Frame(next_frame - runtime.clock);
+        next_frame += frame;
+        out.layouts += runtime.host->LastFrameStats().layout_passes;
+        out.fling.push_back(list->GetScrollTop());
     }
-    Expect(moving >= 5, "the motion after the finger lifts is drawn frame by frame (" + std::to_string(moving) + " frames)");
-    Expect(moving < 600, "and it settles");
-    Expect(!runtime.host->Prepare(delay), "then the list is idle");
+    out.settled = !runtime.host->Prepare(delay);
+    return out;
+}
+
+// A drag follows the finger 1:1 from where it leaves the slop, every frame; the release
+// flings on at the finger's speed and slows to rest (monotonic, ever smaller steps), on the
+// frame clock: the same gesture at 30 fps ends where it ends at 60 fps. Nothing is laid out
+// while the list moves. A finger that rested before the release does not fling; one that
+// goes down on a list in motion stops it.
+// A runtime showing the list of scroll.rml at rest.
+std::unique_ptr<Runtime> ListRuntime(const std::string &pack)
+{
+    auto runtime = std::make_unique<Runtime>(pack);
+    Expect(runtime->host->LoadDocument("scroll.rml"), "the scroll test document loads");
+    for (int i = 0; i < 3; ++i)
+        runtime->Frame();
+    Expect(List() != nullptr, "the list is there");
+    double delay = 0.0;
+    Expect(!runtime->host->Prepare(delay), "a still list needs no frame");
+    return runtime;
+}
+
+void ScrollFling(const std::string &pack)
+{
+    const float speed = 2400.0f; // px/s: a quick swipe
+    double delay = 0.0;
+    std::unique_ptr<Runtime> runtime = ListRuntime(pack);
+    const Gesture fast = Swipe(*runtime, speed, 280.0f, 0.0, 1.0 / 60.0);
+    // The drag: 280 px of travel, the first 10 px (the slop) move nothing.
+    Expect(std::fabs(fast.released - 270.0f) <= 1.0f, "the drag follows the finger 1:1 beyond the slop (" + std::to_string(fast.released) + " px of 270)");
+    bool steady = true;
+    for (size_t i = 2; i < fast.drag.size(); ++i)
+        steady = steady && std::fabs((fast.drag[i] - fast.drag[i - 1]) - speed / 60.0f) <= 1.0f;
+    Expect(steady, "every frame of the drag moves the list by the finger's travel in that frame (40 px)");
+    Expect(fast.fling.size() >= 30, "the fling lasts (" + std::to_string(fast.fling.size()) + " frames at 60 fps)");
+    bool monotonic = true, slowing = true;
+    float previous = fast.released, previous_step = speed / 60.0f + 2.0f;
+    for (float offset : fast.fling)
+    {
+        const float step = offset - previous;
+        monotonic = monotonic && step >= 0.0f;
+        slowing = slowing && step <= previous_step + 1.0f; // whole pixels: one of rounding
+        previous_step = step, previous = offset;
+    }
+    Expect(monotonic, "the fling moves one way");
+    Expect(slowing, "and slows down every frame");
+    const float first = fast.fling.empty() ? 0.0f : fast.fling.front() - fast.released;
+    Expect(first >= 0.6f * speed / 60.0f && first <= 1.1f * speed / 60.0f,
+           "it starts at the finger's speed (" + std::to_string(first) + " px in the first frame, the finger made 40)");
+    Expect(fast.fling.size() >= 2 && fast.fling[fast.fling.size() - 1] - fast.fling[fast.fling.size() - 2] <= 1.0f,
+           "and comes to rest gently");
+    Expect(fast.layouts == 0, "scrolling lays nothing out (" + std::to_string(fast.layouts) + " layout passes)");
+    Expect(fast.settled, "then the list is idle");
+
+    runtime.reset();
+    runtime = ListRuntime(pack);
+    const Gesture slow_frames = Swipe(*runtime, speed, 280.0f, 0.0, 1.0 / 30.0);
+    Expect(!slow_frames.fling.empty() && !fast.fling.empty() && std::fabs(slow_frames.fling.back() - fast.fling.back()) <= 1.0f,
+           "at 30 fps the same gesture rests where it rests at 60 fps (" +
+               (slow_frames.fling.empty() ? std::string("-") : std::to_string(slow_frames.fling.back())) + " / " +
+               (fast.fling.empty() ? std::string("-") : std::to_string(fast.fling.back())) + ")");
+
+    runtime.reset();
+    runtime = ListRuntime(pack);
+    const Gesture rested = Swipe(*runtime, speed, 280.0f, 0.1, 1.0 / 60.0);
+    Expect(rested.fling.size() <= 1 && std::fabs(rested.released - 270.0f) <= 1.0f && (rested.fling.empty() || rested.fling.back() == rested.released),
+           "a finger that rested before the release does not fling (" + std::to_string(rested.released) + " px, " + std::to_string(rested.fling.size()) + " frames after)");
+
+    // Caught: a second finger-down 5 frames into a fling holds the list where it is.
+    runtime.reset();
+    runtime = ListRuntime(pack);
+    Rml::Element *list = List();
+    runtime->host->Touch(TouchPhase::Down, 1, 150, 290, runtime->clock);
+    for (int i = 1; i <= 14; ++i) // 20 px every 1/120 s, a frame after every second sample
+    {
+        runtime->host->Touch(TouchPhase::Move, 1, 150, 290.0f - 20.0f * i, runtime->clock + (i % 2 ? 1.0 / 120.0 : 1.0 / 60.0));
+        if (i % 2 == 0)
+            runtime->Frame(1.0 / 60.0);
+    }
+    runtime->host->Touch(TouchPhase::Up, 1, 150, 10, runtime->clock);
+    for (int i = 0; i < 5; ++i)
+        runtime->Frame();
+    runtime->host->Touch(TouchPhase::Down, 1, 150, 150, runtime->clock);
+    runtime->Frame();
+    const float held = list->GetScrollTop();
+    for (int i = 0; i < 10; ++i)
+        runtime->Frame();
+    Expect(list->GetScrollTop() == held, "a finger on a list in motion stops it");
+    runtime->host->Touch(TouchPhase::Move, 1, 150, 145, runtime->clock);
+    runtime->Frame();
+    Expect(list->GetScrollTop() == held + 5.0f, "and drags it at once, without the slop");
+    runtime->host->Touch(TouchPhase::Up, 1, 150, 145, runtime->clock + 0.1);
+    runtime->Frame();
+    Expect(!runtime->host->Prepare(delay), "then the list is idle");
 }
 
 } // namespace
