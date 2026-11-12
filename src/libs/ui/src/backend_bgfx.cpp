@@ -730,6 +730,7 @@ class BgfxBackendImpl final : public BgfxBackend, public Rml::RenderInterface
     }
     ~BgfxBackendImpl() override
     {
+        ReleaseShownPictures();
         DestroyGpu();
     }
 
