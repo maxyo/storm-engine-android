@@ -21,6 +21,8 @@ constexpr double kLeaveSeconds = 0.22; // a line animates out this long (pack ti
 // The layout scene under the spyglass when no ported scene owns the mode (the platform still
 // draws the sea HUD): the overlay alone, no elements.
 constexpr const char *kSpyglassLayout = "sea";
+// Where no scene draws the HUD: only the game-menu button (hud-layout.json scene "menu").
+constexpr const char *kMenuLayout = "menu";
 
 const char *const kLandModes[] = {"explore", "melee"};
 const char *const kSeaModes[] = {"sailing", "naval"};
@@ -149,12 +151,13 @@ bool Hud::OnEvent(const Event &event)
 
 // The platform host hears when the HUD appears and disappears: what it draws itself over a
 // game without a HUD (a pause button) depends on it.
-void Hud::Present(bool visible)
+void Hud::Present(bool visible, bool menu_only)
 {
-    if (visible == visible_)
+    if (visible == visible_ && menu_only == menu_only_)
         return;
     visible_ = visible;
-    Send("presence", visible ? "shown" : "hidden");
+    menu_only_ = menu_only;
+    Send("presence", !visible ? "hidden" : menu_only ? "menu" : "shown");
 }
 
 void Hud::Refresh()
@@ -191,8 +194,12 @@ void Hud::Refresh()
 
     // The raised telescope is drawn over any scene, and also where no scene is ported yet.
     const bool spyglass = states_.spyglass.known && states_.spyglass.on;
-    const bool visible = (scene_ || spyglass) && shown.known && shown.screen.empty() && !shown.loading && !shown.cinematic && !shown.dialogue && !interface_;
-    if (!visible)
+    // Over a free game the HUD is up; where no scene draws it (a cut-scene, a mode no scene
+    // owns: a blocked game) the layout "menu" still gives the one game-menu button, as every
+    // scene has it. The game decides what its menu offers there (save disabled and why).
+    const bool free = shown.known && shown.screen.empty() && !shown.loading && !shown.dialogue && !interface_;
+    const bool full = free && (scene_ || spyglass) && !shown.cinematic;
+    if (!free)
     {
         Conceal();
         return;
@@ -206,12 +213,24 @@ void Hud::Refresh()
     }
     View view;
     Input input;
-    Present(true); // Build may read LogLines and send input
-    if (scene_)
+    if (!full && visible_ && !menu_only_ && scene_)
+    {
+        // The scene's HUD gives way to the menu button (a cut-scene starts): as when hidden.
+        scene_->Released(states_);
+        scene_->Hidden(states_);
+    }
+    Present(true, !full); // Build may read LogLines and send input
+    if (!full)
+    {
+        view.layout = kMenuLayout;
+        view.elements["pause"] = Json::object();
+        input.On("pause", "click", [this](const Event &) { Send("shortcut", "mainmenu"); });
+    }
+    else if (scene_)
         scene_->Build(states_, view, input);
     else
         view.layout = kSpyglassLayout;
-    if (spyglass)
+    if (full && spyglass)
     {
         view.overlay = "s-hud-spyglass";
         view.overlay_props = SpyglassProps(states_.spyglass, *this);
@@ -234,7 +253,7 @@ void Hud::Conceal()
             scene_->Released(states_);
         mount_.HideHud();
     }
-    Present(false);
+    Present(false, false);
     input_.handlers_.clear();
     lines_.clear();
     view_ = View();
@@ -290,7 +309,7 @@ double Hud::Tick()
 
 void Hud::Drawn()
 {
-    if (visible_ && scene_ && !changed_)
+    if (visible_ && !menu_only_ && scene_ && !changed_)
         scene_->Drawn(states_);
     // The spyglass overlay is on the screen, or not: said once per raise of the telescope (and
     // again when that changes); the engine keeps the word for the raise (android_spyglass.hpp).
@@ -318,7 +337,7 @@ void Hud::Released()
 
 bool Hud::Back()
 {
-    return visible_ && scene_ && scene_->Back(states_);
+    return visible_ && !menu_only_ && scene_ && scene_->Back(states_);
 }
 
 // --- layout -----------------------------------------------------------------------------

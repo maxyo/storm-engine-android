@@ -112,9 +112,6 @@ class Bindings
     // a draft, sends it itself); nothing happens when the player cancels.
     void AskText(const Event &event, const std::string &text, const std::string &title, bool numeric,
                  std::function<void(const std::string &)> accepted);
-    // A request for the platform host, not the engine (Action screen "hud", like the HUD's
-    // `shortcut`): `pause` opens the host's pause menu.
-    void Platform(const std::string &verb, const std::string &value = {});
     // Shows a long text on a parchment sheet over the screen.
     void Read(const std::string &title, const std::string &text);
     void Toast(const std::string &text);

@@ -420,7 +420,7 @@ class EngineUi
     // the activity.
     void OnAction(const storm::ui::Action &action)
     {
-        if (action.screen == "hud" && (action.verb == "shortcut" || action.verb == "pause" || action.verb == "presence"))
+        if (action.screen == "hud" && (action.verb == "shortcut" || action.verb == "presence"))
         {
             CallActivity("onUiHudInput", "(Ljava/lang/String;Ljava/lang/String;)V", [&](JNIEnv *env, jobject activity, jmethodID method) {
                 jstring verb = Utf(env, action.verb), value = Utf(env, action.value);

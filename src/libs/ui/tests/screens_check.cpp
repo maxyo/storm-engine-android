@@ -1096,8 +1096,6 @@ static void Dialogue(const std::string &models)
     Expect(surface.props["replies"][1]["pressed"] == true, "the reply sent looks busy until the engine answers");
     router.OnEvent({"dialogue-next", "click", ""});
     Expect(surface.props["page"] == 1, "«next» turns the page (the pager clamps at the last one)");
-    router.OnEvent({"dialogue-menu", "click", ""});
-    ExpectEqual(surface.Last(), "pause:", "the menu button asks the platform host for its pause menu");
     Expect(!router.WantsBack(), "without an editor the back key stays the host's");
     router.SetState("dialogue", Json{{"active", false}});
     Expect(surface.tag.empty(), "inactive dialogue unmounts");

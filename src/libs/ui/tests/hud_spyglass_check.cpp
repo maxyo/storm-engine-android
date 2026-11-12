@@ -219,7 +219,7 @@ static void CheckOverlay()
     bench.Feed("gameplay", State("gameplay-sailing"));
     bench.Feed("presentation", State("presentation-game"));
     hud.Tick();
-    Expect(!hud.Visible(), "sailing without a scene and the telescope down: no HUD");
+    Expect(hud.MenuOnly(), "sailing without a scene and the telescope down: only the game-menu button");
     bench.Feed("spyglass", State("spyglass-ship"));
     hud.Tick();
     Expect(hud.Visible() && mount.shown.layout == "sea" && mount.shown.elements.empty() && mount.shown.overlay == "s-hud-spyglass" &&
@@ -242,7 +242,7 @@ static void CheckOverlay()
     bench.Feed("presentation", State("presentation-game"));
     bench.Feed("spyglass", State("spyglass-down"));
     hud.Tick();
-    Expect(!hud.Visible(), "the telescope down: the HUD goes again");
+    Expect(hud.MenuOnly(), "the telescope down: only the game-menu button again");
 
     // Over a ported scene the card lies on top of its elements.
     bench.Feed("gameplay", State("gameplay-explore"));

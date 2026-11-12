@@ -320,15 +320,6 @@ void Bindings::AskText(const Event &event, const std::string &text, const std::s
     router_.surface_.RequestText(std::move(request), event.id);
 }
 
-void Bindings::Platform(const std::string &verb, const std::string &value)
-{
-    Action action;
-    action.screen = "hud";
-    action.verb = verb;
-    action.value = value;
-    router_.Emit(std::move(action));
-}
-
 void Bindings::Read(const std::string &title, const std::string &text)
 {
     router_.reading_title_ = title;

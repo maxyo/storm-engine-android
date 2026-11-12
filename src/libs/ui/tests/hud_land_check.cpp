@@ -22,6 +22,9 @@ static void CheckExplore()
                mount.Has("potion") && mount.Has("weapon") && !mount.Has("context") && !mount.Has("strike") && !mount.shown.modal,
            "the peace set; no context without an action");
     ExpectEqual(mount.shown.elements["weapon"]["label"].get<std::string>(), "hud.weapon.draw", "the weapon button names what it will do");
+    mount.commands.clear();
+    bench.Press("pause");
+    ExpectEqual(mount.Last(), "shortcut:mainmenu", "the menu button opens the game menu");
 
     // A game message repeated while its toast is up: one toast with a count, kept longer.
     Expect(bench.hud.Notice("Недостаточно денег", "info") && bench.hud.Notice("Взято: ром", "info"), "event lines go to the HUD's log");
@@ -206,6 +209,11 @@ static void CheckCombat()
     Expect(mount.shown.elements["shot"]["badge"] == "1" && mount.shown.elements["shot"]["disabled"] == false && !mount.shown.elements["shot"].contains("fill"),
            "a loaded pistol: charges as the badge, no fill");
 
+    // In a fight (a boarding, a no-save zone) the menu button is the same one as in peace: the
+    // game's own menu, which greys out what it does not allow there.
+    mount.commands.clear();
+    bench.Press("pause");
+    ExpectEqual(mount.Last(), "shortcut:mainmenu", "the combat menu button opens the game menu, as in peace");
     mount.commands.clear();
     bench.Press("shot");
     ExpectEqual(mount.Last(), "combat:2\t6\t21\t1\tpistol\ttap", "the shot");
@@ -403,7 +411,8 @@ static void CheckSheet()
     // the menu closed while gameplay is still blocked: the scene has nothing to hold on to
     bench.Set("gameplay", blocked);
     bench.Set("landCommands", Json(nullptr));
-    Expect(!mount.visible && mount.Last() == "presence:hidden", "no menu and no mode: the HUD goes and tells the platform host");
+    Expect(mount.visible && mount.shown.layout == "menu" && mount.Last() == "presence:menu",
+           "no menu and no mode: only the game-menu button, and the platform host hears it");
     bench.Feed("gameplay", "gameplay-explore");
     Expect(mount.visible && mount.Last() == "presence:shown", "explore again: the HUD is back and says so");
 
