@@ -342,6 +342,10 @@ class TransferScreen final : public Screen
         else if (admitted.One("ACCEPT_ADD_OFFICER") || !admitted.All("PASSENGERSLIST").empty())
             way_out = Captains(admitted, bindings, view);
 
+        // A tap beside a window of the game answers nothing: these are questions with consequences (a miss must
+        // not sink a ship or refuse the defectors). Seen on the device as an unmapped-event error.
+        for (const char *window : {"modal", "amount", "sheet"})
+            bindings.Ignore(window, "dismiss");
         const Widget *exit = admitted.One("EXIT_BTN");
         const bool deal = admitted.One("QTY_OK_BUTTON") && admitted.One("QTY_EDIT");
         const Widget *deal_cancel = admitted.One("QTY_CANCEL_BUTTON");

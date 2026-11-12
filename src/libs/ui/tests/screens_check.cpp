@@ -992,6 +992,9 @@ static void Transfer(const std::string &models)
                    asked["image"] == Json({{"kind", "portrait"}, {"texture", "INTERFACES/PORTRAITS/128/face_100"}}) &&
                    asked["actions"][0]["hold"] == true && asked["actions"][0]["variant"] == "danger" && asked["actions"][1]["variant"] == "primary",
                "the captain's fate: his portrait, overboard held: " + asked.dump());
+        capture_surface.commands.clear();
+        capture_router.OnEvent({"modal", "dismiss", ""});
+        Expect(capture_surface.commands.empty() && capture_surface.errors.empty(), "a tap beside the question answers nothing and is no error");
         capture_router.OnEvent({"capture-prison", "click", ""});
         ExpectEqual(capture_surface.Last(), prefix + "CAPTURE_CAPTAIN_PRISON\t-1\tpress", "prison is the game's own button");
     }
