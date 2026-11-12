@@ -372,6 +372,7 @@ struct Placement
     float layer_x = 0.0f, layer_y = 0.0f;                  // the origin of the HUD layer (the safe area)
     float screen_width = 0.0f, screen_height = 0.0f;
     float density = 1.0f; // pixels per dp
+    float layer_width = 0.0f, layer_height = 0.0f; // the size of the HUD layer (the safe area)
 };
 
 // What the HUD needs from the host; unit tests give it a fake.

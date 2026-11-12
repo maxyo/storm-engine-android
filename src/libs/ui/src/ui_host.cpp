@@ -1039,7 +1039,10 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         auto *root = dynamic_cast<ComponentElement *>(hud_document_->GetElementById("hud"));
         Rml::Element *layer = root ? ComponentSlot(*root) : nullptr;
         const Rml::Vector2f corner = layer ? layer->GetAbsoluteOffset(Rml::BoxArea::Border) : Rml::Vector2f(0.0f, 0.0f);
-        out = {origin.x, origin.y, size.x, size.y, corner.x, corner.y, static_cast<float>(config_.width), static_cast<float>(config_.height), config_.density};
+        const Rml::Vector2f extent = layer ? layer->GetBox().GetSize(Rml::BoxArea::Border)
+                                           : Rml::Vector2f(static_cast<float>(config_.width), static_cast<float>(config_.height));
+        out = {origin.x, origin.y, size.x, size.y, corner.x, corner.y, static_cast<float>(config_.width), static_cast<float>(config_.height), config_.density,
+               extent.x, extent.y};
         return true;
     }
 
