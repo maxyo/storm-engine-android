@@ -139,8 +139,11 @@ class EngineUi
         if (screen.empty())
             __android_log_print(ANDROID_LOG_INFO, kTag, "interface %s closed (revision %llu)", screen_.c_str(), static_cast<unsigned long long>(revision));
         else // the game's part of a screen switch ("UI switch" follows with the UI's)
-            __android_log_print(ANDROID_LOG_INFO, kTag, "interface %s opened (revision %llu): the game released the old one in %.0f ms and loaded it in %.0f ms",
-                                screen.c_str(), static_cast<unsigned long long>(revision), release_ms, load_ms);
+            __android_log_print(ANDROID_LOG_INFO, kTag,
+                                "interface %s opened (revision %llu) %llu engine frames after the last tap: the game released the old one in %.0f ms and "
+                                "loaded it in %.0f ms",
+                                screen.c_str(), static_cast<unsigned long long>(revision), static_cast<unsigned long long>(loop_ - tap_loop_), release_ms,
+                                load_ms);
         screen_ = screen;
         if (!screen.empty())
         {
@@ -205,6 +208,8 @@ class EngineUi
             if (trace_input_)
                 TraceInput("touch", std::to_string(step.phase) + " " + std::to_string(int(step.x)) + "," + std::to_string(int(step.y)) + " age " +
                                         std::to_string(int(now_ms - step.time_ms)) + " ms");
+            if (step.phase == static_cast<int>(storm::ui::TouchPhase::Up))
+                tap_loop_ = loop_;
             // The sample's own time on the host's clock: how long ago it happened.
             host_->Touch(static_cast<storm::ui::TouchPhase>(step.phase), step.pointer, step.x, step.y,
                          host_->Now() - (now_ms - step.time_ms) / 1000.0);
@@ -504,7 +509,8 @@ class EngineUi
     std::mutex host_mutex_; // the host's lifetime against the platform thread's queries
     bool failed_ = false;
     uint64_t generation_ = 0;
-    uint64_t loop_ = 0; // engine loop iterations (Tick)
+    uint64_t loop_ = 0;     // engine loop iterations (Tick)
+    uint64_t tap_loop_ = 0; // the iteration that applied the newest touch end
     bool trace_input_ = false;
     // With the input trace: which loop iteration each presented UI frame belongs to, and every
     // 5 s what the UI frames cost on the CPU (GPU work is the renderer's, in RenderMetrics).
