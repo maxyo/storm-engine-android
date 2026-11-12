@@ -291,12 +291,13 @@ static void CheckSailing()
     bench.Frame();
     bench.Frame();
     Expect(mount.shown.elements["log"]["safeLeft"] == 190, "the band of event lines begins after the last fleet column: " + mount.shown.elements["log"].dump());
-    // A narrow screen (640 dp): beside the top row the band would be under 200 dp, so it drops
-    // under the row, between the fleet and the minimap. On a wide one (915 dp) it stays pinned.
-    const auto top_row = [&](float width) {
+    // A narrow screen (640 dp, the fleet in one or two columns): beside the top row the band
+    // would be under 240 dp, so it drops under the row, between the fleet and the minimap. On a
+    // wide one (915 dp) it stays pinned. The time button is at the bottom, not in the row.
+    const auto top_row = [&](float width, float last_column) {
         mount.boxes["fleet .item.ship:first-child"] = {10, 10, 56, 56, 0, 0, width, 360, 1, width, 360};
-        mount.boxes["fleet .item.ship:last-child"] = {10, 190, 56, 56, 0, 0, width, 360, 1, width, 360};
-        mount.boxes["time "] = {width - 414, 10, 48, 48, 0, 0, width, 360, 1, width, 360};
+        mount.boxes["fleet .item.ship:last-child"] = {last_column, 10, 56, 56, 0, 0, width, 360, 1, width, 360};
+        mount.boxes["time "] = {width - 320, 296, 48, 48, 0, 0, width, 360, 1, width, 360}; // at the bottom: not in the top row
         mount.boxes["hero "] = {width - 356, 10, 48, 48, 0, 0, width, 360, 1, width, 360};
         mount.boxes["pause "] = {width - 298, 10, 48, 48, 0, 0, width, 360, 1, width, 360};
         mount.boxes["orders "] = {width - 240, 10, 48, 48, 0, 0, width, 360, 1, width, 360};
@@ -304,13 +305,16 @@ static void CheckSailing()
         bench.Frame();
         bench.Frame();
     };
-    top_row(640);
+    top_row(640, 10);
+    Expect(mount.shown.elements["log"]["offset"] == 66 && mount.shown.elements["log"]["safeLeft"] == 74,
+           "640 dp, one fleet column: the band drops: " + mount.shown.elements["log"].dump());
+    top_row(640, 74);
     {
         const Json &log = mount.shown.elements["log"];
-        Expect(log["offset"] == 66 && log["safeLeft"] == 74 && log["safeRight"] == 190,
+        Expect(log["offset"] == 66 && log["safeLeft"] == 138 && log["safeRight"] == 190,
                "640 dp: the band drops under the top row, between the fleet and the minimap: " + log.dump());
     }
-    top_row(915);
+    top_row(915, 74);
     Expect(!mount.shown.elements["log"].contains("offset") && !mount.shown.elements["log"].contains("safeRight"),
            "915 dp: the band stays pinned to the top edge: " + mount.shown.elements["log"].dump());
 

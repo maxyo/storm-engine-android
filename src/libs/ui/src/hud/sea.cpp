@@ -429,7 +429,7 @@ class SeaScene final : public Scene
     // and the minimap (the pack's overlap check lays it out the same way: notice spec "band").
     void FollowFleet(const View &shown)
     {
-        static constexpr float kBandMin = 200.0f, kGap = 8.0f;
+        static constexpr float kBandMin = 240.0f, kGap = 8.0f;
         Band band;
         Placement first, last;
         if (shown.elements.contains("fleet") && hud_.Measure("fleet", ".item.ship:first-child", first) &&
@@ -437,7 +437,7 @@ class SeaScene final : public Scene
             band.left = static_cast<int>(std::ceil((last.x + last.width - last.layer_x) / last.density)) + 8;
         // the top row: the buttons the band runs beside, and the minimap it runs under
         float row_left = 0.0f, row_bottom = 0.0f, map_left = 0.0f, layer_width = 0.0f, fleet_right = 0.0f;
-        for (const char *id : {"time", "hero", "pause", "orders"})
+        for (const char *id : {"hero", "pause", "orders"})
         {
             Placement button;
             if (!shown.elements.contains(id) || !hud_.Measure(id, "", button))
