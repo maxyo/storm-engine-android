@@ -166,6 +166,41 @@ int main(int argc, char **argv)
     Expect(clicks.empty(), "a drag pans and sends nothing");
     tap(600, 300);
     Expect(clicks.size() == 1 && clicks[0] == "pz point 400.0,250.0", "after a 64 px pan the centre shows a point 100 units left");
+    // A quick pan (1200 px/s, a sample every 1/120 s, a frame every second one): the picture
+    // follows 1:1 with nothing laid out, then coasts on, frame by frame, to the right edge
+    // of the zoomed picture (640 px wide in the 400 px viewport).
+    {
+        double t = clock;
+        float x = 700.0f;
+        int layouts = 0, coasting = 0;
+        host->Touch(TouchPhase::Down, 1, x, 300, t);
+        for (int i = 1; i <= 12; ++i)
+        {
+            t += 1.0 / 120.0;
+            x -= 10.0f;
+            host->Touch(TouchPhase::Move, 1, x, 300, t);
+            if (i % 2 == 0)
+            {
+                clock = t;
+                host->Frame();
+                layouts += i > 2 ? host->LastFrameStats().layout_passes : 0;
+            }
+        }
+        host->Touch(TouchPhase::Up, 1, x, 300, t);
+        double next = 1.0;
+        while (coasting < 120 && host->Prepare(next) && next == 0.0)
+        {
+            clock += 1.0 / 60.0;
+            host->Frame();
+            layouts += host->LastFrameStats().layout_passes;
+            ++coasting;
+        }
+        Expect(layouts == 0, "a pan and its coast lay nothing out (" + std::to_string(layouts) + " layout passes)");
+        Expect(coasting >= 3 && coasting < 120, "the released picture coasts on frame by frame and stops (" + std::to_string(coasting) + " frames)");
+        tap(600, 300);
+        Expect(clicks.size() == 1 && clicks[0] == "pz point 687.5,250.0", "it came to rest at the right edge of the picture (" +
+                                                                               (clicks.empty() ? std::string("-") : clicks[0]) + ")");
+    }
     // A full-screen game video (channel "video") hides what the UI shows and gives every touch
     // to the game; the screen comes back as it was when the video ends.
     Expect(host->WantsTouch(100, 24) && host->InterfaceActive(), "a document takes the touches");
