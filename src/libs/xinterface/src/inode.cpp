@@ -1,4 +1,5 @@
 #include "inode.h"
+#include "mobile_action_frame.hpp"
 #include <cstdarg>
 
 #include "core.h"
@@ -123,7 +124,7 @@ CINODE *CINODE::DoAction(int wActCode, bool &bBreakPress, bool bFirstPress)
     if (m_pCommands[i].bUse)
     {
         // if(m_pCommands[i].nSound!=0)
-        if (bFirstPress)
+        if (bFirstPress && !storm::mobile::actionSound.Quiet()) // one click per touch gesture (mobile_action_frame.hpp)
             core.Event(ISOUND_EVENT, "l", 1);
         // core.Event(ISOUND_EVENT,"l",m_pCommands[i].nSound);
         // execute command
