@@ -21,6 +21,7 @@
 #include "string_service/str_service.h"
 #include "xservice.h"
 #include <cstdio>
+#include "mobile_action_frame.hpp"
 // Save facts (the hero and location in each save's description) are game data on every platform.
 #include "mobile_save_facts.hpp"
 #ifdef __ANDROID__
@@ -2423,7 +2424,9 @@ void XINTERFACE::DoControl()
             else core.Event("eventSelecterActivate");
         }
     }
-    while (!storm::android::uiWidgetActions.empty() && m_bUse)
+    // Actions that queued a script event end this frame's share (mobile_action_frame.hpp).
+    const storm::mobile::ActionFrame frame(m_pEvents);
+    while (!storm::android::uiWidgetActions.empty() && m_bUse && frame.Open(m_pEvents))
     {
         auto action = storm::android::uiWidgetActions.front();
         storm::android::uiWidgetActions.pop_front();
@@ -2602,16 +2605,7 @@ void XINTERFACE::DoControl()
             continue;
         }
         if (node->MobileApply(action.index, action.value))
-        {
-            // An edit box takes its text at once, but the script event its activation queues
-            // runs in the next Execute and reads the box then. A second text applied in the same
-            // frame overwrote the first before its event ran: the trade's "0" (leave selling)
-            // followed by "277" (buy) reached the script as "277" twice, read as selling.
-            // The rest of the queue waits for the next frame, after the event has run.
-            if (node->m_nNodeType == NODETYPE_PCEDITBOX || node->m_nNodeType == NODETYPE_EDITBOX)
-                break;
             continue;
-        }
         if (action.index == -1 && action.value == "press" && node->m_bSelected && node->m_bClickable)
         {
             const int code = node->CheckCommandUsed(ACTION_MOUSECLICK) ? ACTION_MOUSECLICK : ACTION_ACTIVATE;
