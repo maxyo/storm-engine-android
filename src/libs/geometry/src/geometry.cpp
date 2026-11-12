@@ -194,17 +194,10 @@ std::fstream GEOM_SERVICE_R::OpenFile(const char *fname)
         RenderService->ProgressView();
     }
     auto fileS = fio->_CreateFile(fname, std::ios::binary | std::ios::in);
-    if (!fileS.is_open())
-    {
-        if (storm::iEquals(&fname[strlen(fname) - 4], ".col"))
-        {
-            //    core.Trace("geometry::can't open file %s", fname);
-        }
-        else
-        {
-            throw std::runtime_error("can't open geometry file");
-        }
-    }
+    // A missing vertex colour (.col) file is reported by the caller (geom_static.cpp getColData); a missing model
+    // is an error.
+    if (!fileS.is_open() && !storm::iEquals(&fname[strlen(fname) - 4], ".col"))
+        throw std::runtime_error("can't open geometry file");
 
     return fileS;
 }
