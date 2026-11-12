@@ -19,7 +19,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.bloom = true;
     s.bloom_threshold = 0.92f;
     s.bloom_intensity = 0.12f;
-    s.msaa = 4; // the primary anti-aliasing; FXAA stays available as an option
+    s.msaa = 4; // the primary anti-aliasing; FXAA replaces it where MSAA is unavailable (ConstrainSettings)
     s.alpha_to_coverage = true;
     s.dither = true; // ±0.5/255: invisible, removes banding of the bloom
     s.contact_shadows = true;
@@ -110,8 +110,17 @@ constexpr Rule kRules[] = {
      "the post-processing chain needs 3D textures: every post effect switched off"},
     {[](const Settings &s, const Support &) { return s.msaa != 1 && s.msaa != 2 && s.msaa != 4; }, [](Settings &s) { s.msaa = s.msaa > 2 ? 4 : 1; },
      "MSAA sample count must be 1, 2 or 4: rounded"},
-    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa; }, [](Settings &s) { s.msaa = 1; },
-     "MSAA needs multisampled render targets: switched off"},
+    // A requested MSAA (Средняя / Высокая) that the device cannot give (no multisampled targets: caps, a GPU-family
+    // profile, or the self-test found the multisampled scene broken) is replaced by FXAA, so these phones keep an
+    // anti-aliasing. FXAA is a post effect: without the post chain (3D textures) there is none to give.
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa && c.lut_3d; },
+     [](Settings &s) {
+         s.msaa = 1;
+         s.fxaa = true;
+     },
+     "MSAA unavailable: FXAA instead"},
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa && !c.lut_3d; }, [](Settings &s) { s.msaa = 1; },
+     "MSAA unavailable and FXAA needs the post-processing chain (3D textures): no anti-aliasing"},
     {[](const Settings &s, const Support &) { return s.alpha_to_coverage && s.msaa <= 1; }, [](Settings &s) { s.alpha_to_coverage = false; },
      "alpha to coverage works only with MSAA: switched off"},
     {[](const Settings &s, const Support &c) { return s.anisotropy > 1 && !c.anisotropy; }, [](Settings &s) { s.anisotropy = 1; },

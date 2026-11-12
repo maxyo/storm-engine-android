@@ -566,6 +566,25 @@ void CheckSupport()
     changes.clear();
     constrained = ConstrainSettings(high, no_msaa, changes);
     CHECK(constrained.msaa == 1 && !constrained.alpha_to_coverage && constrained.ssao && constrained.water == WaterQuality::High);
+    // ... and FXAA takes over the anti-aliasing, reported (PowerVR, minimal GLES, a failed MSAA self-test).
+    CHECK(constrained.fxaa && !high.fxaa);
+    CHECK(std::find(changes.begin(), changes.end(), std::string("MSAA unavailable: FXAA instead")) != changes.end());
+    CHECK(ValidateSettings(constrained, no_msaa).empty());
+    // Without the post chain there is no FXAA either: MSAA goes, reported as no anti-aliasing at all.
+    Support no_msaa_no_lut = no_msaa;
+    no_msaa_no_lut.lut_3d = false;
+    changes.clear();
+    constrained = ConstrainSettings(high, no_msaa_no_lut, changes);
+    CHECK(constrained.msaa == 1 && !constrained.fxaa && constrained.PostIsIdentity());
+    CHECK(std::find(changes.begin(), changes.end(),
+                    std::string("MSAA unavailable and FXAA needs the post-processing chain (3D textures): no anti-aliasing")) !=
+          changes.end());
+    // An explicit MSAA off (fx_msaa=1) is the player's choice, not a missing capability: no FXAA is added.
+    Settings msaa_off = high;
+    msaa_off.msaa = 1;
+    msaa_off.alpha_to_coverage = false;
+    changes.clear();
+    CHECK(!ConstrainSettings(msaa_off, no_msaa, changes).fxaa && changes.empty());
     const RendererState state = RendererStateFor(high);
     CHECK(state.msaa_samples == 4 && state.alpha_to_coverage && state.max_anisotropy == 8);
     CHECK(RendererStateFor(Settings{}).msaa_samples == 1 && !RendererStateFor(Settings{}).alpha_to_coverage);
@@ -998,6 +1017,9 @@ void CheckCapsProfiles()
                 CHECK(changes.empty());
             if (!support.msaa)
                 CHECK(constrained.msaa == 1 && !constrained.alpha_to_coverage);
+            // Every phone without MSAA still gets anti-aliasing on Средняя / Высокая: FXAA in its place.
+            if (preset != QualityPreset::Low)
+                CHECK(constrained.fxaa == !support.msaa);
         }
     }
     // A profile only removes.
