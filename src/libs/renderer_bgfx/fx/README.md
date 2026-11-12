@@ -1,24 +1,43 @@
 # Graphics effects package for the bgfx renderer
 
-Optional upgrades on top of the legacy look: post-processing (ambient occlusion, tone curve, colour grades
-by place and hour, bloom, sun shafts, lens flare, dither, optional vignette and grain, FXAA, sharpening /
-dynamic-resolution upscale), a sea surface, an analytic sky with matching fog, contact shadows, and
-per-pixel lighting for the fixed-function emulator: sun, point and spot lights, flash lights for shots and
-explosions, sun shadows, rim light, linear-light sums, relief from derived normal maps, aerial perspective
-and wind sway. MSAA, alpha to coverage and anisotropic filtering are renderer state: fx decides them
-(`RendererStateFor`), the renderer applies them. `QualityPreset::Low` switches everything off
-and leaves the legacy image untouched.
+Upgrades on top of the legacy look: post-processing (ambient occlusion, tone curve, colour grades by place and
+hour, bloom, sun shafts, lens flare, dither, FXAA, CAS sharpening), a sea surface, an analytic sky with matching
+fog, contact shadows, and per-pixel lighting for the fixed-function emulator: sun, point and spot lights, sun
+shadows, an ambient-occlusion volume of interiors, rim light, linear-light sums, relief from derived normal maps
+and aerial perspective. MSAA, alpha to coverage and anisotropic filtering are renderer state: fx decides them
+(`RendererStateFor`), the renderer applies them.
 
-The package is self-contained: it depends on bgfx only, takes plain structs instead of engine types, and
-generates every texture it needs. It is not part of the engine build until the renderer adds it.
+Part of the engine build: `renderer_bgfx/CMakeLists.txt` adds this directory and links `storm_bgfx_fx`;
+`src/effects` (`effects::Host`) owns the settings, feeds the per-frame inputs from the engine and calls the fx
+objects. The package itself depends on bgfx only, takes plain structs instead of engine types, and generates
+every texture it needs.
+
+## Presets
+
+The player chooses «Низкая / Средняя / Высокая» (`QualityPreset`, `Settings::FromPreset`); single options are
+`fx_*` keys of engine.ini / `STORM_FX_OPTIONS` (`src/effects/effects.cpp`), for development.
+
+- **Низкая**: everything off, the legacy image untouched.
+- **Средняя**: faint bloom on the brightest highlights, MSAA 4x + alpha to coverage, dither, contact shadows,
+  a gentle Caribbean grade, anisotropy 4, fx water (medium), per-pixel lighting with 4 point lights and normal
+  maps, sun shadows (low), the ambient-occlusion volume of interiors.
+- **Высокая**: as Средняя with anisotropy 8, high water with refraction, specular and translucency, 8 point
+  lights, soft sun shadows and ambient occlusion.
+
+Where MSAA is unavailable (no multisampled targets, a GPU-family profile, a failed self-test) `ConstrainSettings`
+replaces it with FXAA. Implemented but in no preset (options only; `tests/core_check.cpp` keeps them out of the
+presets): tone curve, scene grading by place and hour, lens flare, sun shafts, analytic sky and clouds,
+hemisphere ambient, linear-light sums, rim light, aerial perspective, CAS sharpening. Wind sway (`fx_wind.sh`)
+is not wired into the game. `Water::UpdateField/SubmitField/SubmitGerstner`, `Shadows::CasterProgram`,
+`Sky::BindAerial/BindWind` and the flash lights are used by `tools/fx-preview` only.
 
 ## Layout
 
 | Path | Contents |
 | --- | --- |
-| `include/storm/fx/settings.hpp` | `Settings`, presets «Оригинал / Среднее / Высокое», grades «Оригинал / Карибы / Пасмурно» |
+| `include/storm/fx/settings.hpp` | `Settings`, presets «Низкая / Средняя / Высокая», grades «Оригинал / Карибы / Пасмурно», `ConstrainSettings` |
 | `include/storm/fx/post_chain.hpp` | `PostChain`: scene colour → target |
-| `include/storm/fx/water.hpp` | `Water`: sea surface from the engine mesh, the engine height field or Gerstner waves |
+| `include/storm/fx/water.hpp` | `Water`: sea surface from the engine mesh (the GPU height field and Gerstner waves: fx-preview only) |
 | `include/storm/fx/sky.hpp` | `Sky`: sky pass and the atmosphere state shared with water and fog |
 | `include/storm/fx/lighting.hpp`, `shaders/include/fx_lighting.sh` | lighting flags and uniforms for the fixed-function emulator |
 | `include/storm/fx/light_set.hpp` | point / spot lights: selection per draw call, flash lights |
@@ -26,7 +45,7 @@ generates every texture it needs. It is not part of the engine build until the r
 | `include/storm/fx/shadows.hpp` | `Shadows`: sun shadow map |
 | `include/storm/fx/contact_shadows.hpp` | `ContactShadows`: soft blobs under characters and objects |
 | `include/storm/fx/ao_volume.hpp` | ambient-occlusion volume of interiors: CPU bake from the static geometry, disk-cache format (the renderer side: `src/effects/ao_volume.hpp`) |
-| `shaders/include/fx_aerial.sh`, `fx_wind.sh`, `fx_coverage.sh` | aerial perspective, wind sway, alpha to coverage for the emulator |
+| `shaders/include/fx_aerial.sh`, `fx_wind.sh`, `fx_coverage.sh` | aerial perspective, wind sway (not wired), alpha to coverage for the emulator |
 | `include/storm/fx/capabilities.hpp`, `log.hpp` | what the device supports; error reporting |
 | `include/storm/fx/{color_lut,noise_bake,wave_model,water_grid,sky_model,lighting_model,shadow_model}.hpp` | CPU side, no GPU needed (`storm_bgfx_fx_core`) |
 | `shaders/` | bgfx shader sources; `shaders.cmake` lists every compiled variant |
@@ -35,22 +54,14 @@ generates every texture it needs. It is not part of the engine build until the r
 
 ## Build
 
-From the renderer, after the bgfx targets exist:
-
-```cmake
-set(STORM_FX_SHADERC_COMMAND "${STORM_SHADERC_COMMAND}")
-set(STORM_FX_SHADERC_DEPENDS "${STORM_SHADERC_DEPENDS}")
-set(STORM_FX_BGFX_SHADER_INCLUDE "${STORM_BGFX_SOURCE_DIR}/bgfx/src")
-add_subdirectory(fx)
-target_link_libraries(storm_bgfx PRIVATE storm_bgfx_fx)
-```
-
-Shaders are compiled offline with the pinned shaderc into embedded blobs (`STORM_FX_SHADER_PROFILE`, default
-`300_es`). The target `storm_fx_shaders_all_profiles` also compiles every variant for SPIR-V and Metal.
-
-Stand-alone (host preview, unit checks, all shader profiles): see `tools/fx-preview/README.md`.
+Built with the renderer (see above). Shaders are compiled offline with the pinned shaderc into embedded blobs
+(`STORM_FX_SHADER_PROFILE`, default `300_es`); the target `storm_fx_shaders_all_profiles` also compiles every
+variant for SPIR-V and Metal. Unit checks of the CPU side: `storm_fx_core_check`, run by
+`tests/renderer_bgfx/run.py`. Stand-alone preview of every effect: `tools/fx-preview/README.md`.
 
 ## Use
+
+The game's path is `src/effects` (`effects::Host`); the API in short:
 
 ```cpp
 // Once, and whenever the player changes an option: what the device cannot do is taken out explicitly.
@@ -58,20 +69,14 @@ const fx::Support support = fx::DetectSupport({.scene_depth = ..., .msaa_depth =
 std::vector<std::string> changes;
 fx::Settings settings = fx::ConstrainSettings(fx::Settings::FromPreset(fx::QualityPreset::Medium), support, changes);
 for (const auto &line : changes) log(line);      // and grey the options out on the settings screen
-settings.grade = fx::GradePreset::Caribbean;
 const fx::RendererState state = fx::RendererStateFor(settings); // MSAA, alpha to coverage, anisotropy
 
 // Per frame.
-if (shadows.Begin(settings, shadow_frame))       // then submit casters with shadows.CasterProgram()
-    ...
-
 sky.Update(weather, time, camera_height);        // every frame, also when only the water uses it
-if (settings.sky_atmosphere) sky.Submit(scene_view, settings, view, proj);
 if (settings.water == fx::WaterQuality::High)
     water.CaptureScene(capture_view, scene_color, scene_depth, w, h, near, far);
-water.UpdateField(field);                        // or PrepareMesh() with the engine's own vertex buffer
-water.SubmitField(settings, water_frame, shading, sky, sea_state);
-contact_shadows.Submit(scene_view, settings);    // after Add() for each character / object
+water.PrepareMesh(...);                          // the engine's own sea mesh
+contact_shadows.Submit(scene_view, settings);    // after Add() for each character
 post_frame.scene_grade = fx::SceneGrade(sky.State(), overcast, interior);
 post.Submit(settings, post_frame);               // scene colour (+ depth for occlusion) -> back buffer
 
@@ -79,7 +84,6 @@ post.Submit(settings, post_frame);               // scene colour (+ depth for oc
 lighting.Apply(fx::ComputeLighting(input, fx::LightingMaterial::Hull(), &sky.State()));
 lighting.Apply(fx::PackPointLights(fx::SelectLights(lights, center, radius, fx::PointLightBudget(settings)), view));
 shadows.Bind(view);
-sky.BindAerial(view); sky.BindWind();            // FX_AERIAL / FX_WIND variants
 ```
 
 ## No silent fallbacks
