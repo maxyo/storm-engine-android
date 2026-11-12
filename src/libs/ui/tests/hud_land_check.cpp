@@ -262,7 +262,14 @@ static void CheckCombat()
     Json holster = State("combat-melee");
     holster["pistol"] = Json{{"state", "no_weapon"}, {"progress", 0}};
     bench.Set("combat", holster);
-    Expect(!mount.Has("shot"), "no pistol equipped: no shot button");
+    Expect(mount.Has("shot") && mount.shown.elements["shot"]["disabled"] == true && !mount.shown.elements["shot"].contains("badge") &&
+               !mount.shown.elements["shot"].contains("fill"),
+           "no firearm equipped: the shot button stays, inactive: " + mount.shown.elements["shot"].dump());
+    const size_t unarmed = mount.commands.size();
+    bench.Press("shot");
+    bench.Frame();
+    Expect(mount.commands.size() == unarmed && mount.Has("log") && mount.shown.elements["log"]["lines"][0]["text"] == "hud.combat.noFirearm",
+           "a tap without a firearm fires nothing and says why");
 
     // a new activity restarts the sequence
     Json next = State("combat-melee");
