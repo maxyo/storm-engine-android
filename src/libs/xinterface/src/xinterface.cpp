@@ -2431,6 +2431,7 @@ void XINTERFACE::DoControl()
         auto action = storm::android::uiWidgetActions.front();
         storm::android::uiWidgetActions.pop_front();
         if (action.screen != storm::android::mobileScreen) continue;
+        storm::mobile::ActionSound::Scope sound(storm::mobile::actionSound, SDL_GetTicks()); // one click per gesture
         if(action.screen=="goodstransfer"&&action.node=="ANDROID_GOODS_ORDER"){
             storm::android::lastWidgetSnapshot.clear();MobileApplyGoodsTransfer(action.value);continue;
         }
@@ -2522,6 +2523,18 @@ void XINTERFACE::DoControl()
             return nullptr;
         };
         auto *node = find(find, m_pNodes, action.node);
+        if (node && (node->m_nNodeType == NODETYPE_PCEDITBOX || node->m_nNodeType == NODETYPE_EDITBOX))
+        {
+            sound.EditText();
+            // A quantity drag sends its amount as an ordered pair per step (zero, then the amount),
+            // and every text waits a frame for its script event: a fast drag queued steps behind
+            // each other and the amount trailed the finger. A text with a whole later pair for the
+            // same box behind it is superseded: only the newest pair is applied.
+            const auto later = std::count_if(storm::android::uiWidgetActions.begin(), storm::android::uiWidgetActions.end(),
+                                             [&](const auto &next) { return next.screen == action.screen && next.node == action.node; });
+            if (later >= 2)
+                continue;
+        }
         // A map's "release" ends the right-button hold while the window the hold opened has
         // locked the map (CXI_SCROLLEDPICTURE::MobileApply).
         if (!node && action.value == "release")
