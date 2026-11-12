@@ -118,6 +118,48 @@ static void CheckExplore()
     bench.Set("combat", State("combat-explore"));
     Expect(!mount.Has("context"), "boarding continued: no button");
 
+    // the bottom hint: whom the talk button talks to, where the door ahead leads; shown at once,
+    // held through a short loss (a passer-by at the edge of the cone, a door re-entered), then it
+    // fades and goes
+    bench.Frame(1.0);
+    Expect(!mount.Has("hint"), "nothing to name: no hint");
+    Json talk = State("combat-explore-talk");
+    talk["interactName"] = "Хуан Перес";
+    bench.Set("combat", talk);
+    const auto hint = [&](const char *icon, const char *text, bool leaving) {
+        return mount.Has("hint") && mount.shown.elements["hint"]["icon"] == icon && mount.shown.elements["hint"]["text"] == text &&
+               mount.shown.elements["hint"]["leaving"] == leaving;
+    };
+    Expect(hint("talk", "hud.context.talk: Хуан Перес", false), "the talk target named: " + mount.shown.elements["hint"].dump());
+    bench.Set("combat", State("combat-explore"));
+    Expect(hint("talk", "hud.context.talk: Хуан Перес", false), "the target lost: the hint holds");
+    bench.Frame(0.3);
+    bench.Set("combat", talk);
+    bench.Frame(0.4);
+    Expect(hint("talk", "hud.context.talk: Хуан Перес", false), "back within the hold: it never blinked");
+    bench.Set("combat", State("combat-explore"));
+    bench.Frame(0.3);
+    Expect(hint("talk", "hud.context.talk: Хуан Перес", false), "still within the hold");
+    bench.Frame(0.25);
+    Expect(hint("talk", "hud.context.talk: Хуан Перес", true), "the hold ran out: it fades");
+    bench.Frame(0.25);
+    Expect(!mount.Has("hint"), "faded: gone");
+    talk.erase("interactName");
+    bench.Set("combat", talk);
+    Expect(hint("talk", "hud.context.talk", false), "a target without a name: the bare label");
+    bench.Set("combat", State("combat-explore"));
+    bench.Set("contextAction", Json("Reload"));
+    bench.Set("reloadPlace", Json("таверна"));
+    Expect(hint("door", "Таверна", false), "a door in front: where it leads, capitalised: " + mount.shown.elements["hint"].dump());
+    bench.Set("reloadPlace", Json(""));
+    bench.Set("contextAction", Json(""));
+    bench.Frame(0.6);
+    bench.Frame(0.3);
+    Expect(!mount.Has("hint"), "away from the door: gone");
+    bench.Set("contextAction", Json("Reload"));
+    Expect(!mount.Has("hint"), "a door the game names no place for: the button alone");
+    bench.Set("contextAction", Json(""));
+
     // a combat state of another revision is not ready: buttons stay, disabled, and send nothing
     Json stale = State("combat-explore");
     stale["gameplayRevision"] = 9;

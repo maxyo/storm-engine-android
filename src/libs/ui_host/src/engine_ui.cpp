@@ -164,10 +164,20 @@ class EngineUi
         PublishInterfaceActive();
     }
 
-    void Toast(std::string text)
+    void Toast(std::string text, const std::string &tone)
     {
         if (host_)
-            host_->Toast(text, "info");
+            host_->Toast(text, tone);
+        else
+            __android_log_print(ANDROID_LOG_ERROR, kTag, "no UI host yet, toast not shown: %s", text.c_str());
+    }
+
+    void AlertString(const std::string &key)
+    {
+        if (host_)
+            host_->AlertString(key);
+        else
+            __android_log_print(ANDROID_LOG_ERROR, kTag, "no UI host yet, alert not shown: %s", key.c_str());
     }
 
     void Tick()
@@ -584,7 +594,12 @@ void interfaceModel(std::string json)
 
 void toast(std::string text)
 {
-    EngineUi::Get().Toast(std::move(text));
+    EngineUi::Get().Toast(std::move(text), "info");
+}
+
+void alert(std::string string_key)
+{
+    EngineUi::Get().AlertString(string_key);
 }
 
 void tick()
@@ -653,6 +668,12 @@ JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeSetState(JNIEnv 
 {
     std::string name = storm::android::ui::Text(env, channel), text = storm::android::ui::Bytes(env, json);
     EngineUi::Get().PlatformState(std::move(name), std::move(text));
+}
+
+JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeToast(JNIEnv *env, jclass, jstring text, jstring tone)
+{
+    std::string line = storm::android::ui::Text(env, text), kind = storm::android::ui::Text(env, tone);
+    EngineUi::Get().Post([line = std::move(line), kind = std::move(kind)](storm::ui::Host &host) { host.Toast(line, kind); });
 }
 
 JNIEXPORT void JNICALL Java_org_stormengine_port_EngineUi_nativeSubmitText(JNIEnv *env, jclass, jstring token, jstring text, jboolean accepted)

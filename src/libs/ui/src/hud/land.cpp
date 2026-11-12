@@ -21,6 +21,10 @@ namespace
 
 constexpr double kIdle = 3600.0;
 constexpr double kChoiceSeconds = 1.5;    // a tapped row waits this long for the engine to select it
+// The bottom hint (hud-layout.json "hint"): once what it names is gone it stays kHintHold more
+// (a source that comes straight back, a reload locator re-entered at its edge, does not make it
+// blink), then fades out for kHintLeave (pack time.toastLeave) and goes.
+constexpr double kHintHold = 0.5, kHintLeave = 0.22;
 
 using screens::StringKey;
 
@@ -46,6 +50,30 @@ const Named kContext[] = {
     {"reload", "door", StringKey("hud.context.enter")},      {"pick", "hand", StringKey("hud.context.take")},          {"openbox", "chest", StringKey("hud.context.open")},
     {"entertosea", "boat", StringKey("hud.context.toSea")}, {"entertoship", "boat", StringKey("hud.context.toShip")}, {"action", "hand", StringKey("hud.context.action")},
 };
+
+// The text with its first letter capital (the game's LocLables write places in lower case:
+// "таверна"); Latin and Cyrillic, UTF-8.
+std::string Capitalized(std::string text)
+{
+    if (!text.empty() && text[0] >= 'a' && text[0] <= 'z')
+        text[0] = static_cast<char>(text[0] - 'a' + 'A');
+    else if (text.size() >= 2)
+    {
+        const auto first = static_cast<unsigned char>(text[0]), second = static_cast<unsigned char>(text[1]);
+        const unsigned code = ((first & 0x1Fu) << 6) | (second & 0x3Fu);
+        unsigned upper = code;
+        if (code >= 0x430 && code <= 0x44F) // а…я
+            upper = code - 0x20;
+        else if (code >= 0x450 && code <= 0x45F) // ѐ…џ (ё)
+            upper = code - 0x50;
+        if ((first & 0xE0u) == 0xC0u && upper != code)
+        {
+            text[0] = static_cast<char>(0xC0u | (upper >> 6));
+            text[1] = static_cast<char>(0x80u | (upper & 0x3Fu));
+        }
+    }
+    return text;
+}
 
 // Rows of the action sheet by the script command behind them.
 const Named kCommands[] = {
@@ -161,6 +189,7 @@ class LandScene final : public Scene
             BuildCombat(states, ready, view, input);
         else
             BuildContext(states, ready, view, input);
+        BuildHint(melee || !ready ? std::nullopt : WantedHint(states), view);
     }
 
     double Tick(const States &states, double now) override
@@ -180,6 +209,15 @@ class LandScene final : public Scene
         }
         else if (!choice_.empty())
             next = std::min(next, choice_until_ - now);
+        if (hint_ && hint_lost_ >= 0.0)
+        {
+            // the lost hint's two steps: it starts to fade, then it goes
+            const double fade = hint_lost_ + kHintHold, gone = fade + kHintLeave;
+            if ((now >= fade && !hint_leaving_) || now >= gone)
+                hud_.Rebuild();
+            else
+                next = std::min(next, (now < fade ? fade : gone) - now);
+        }
         return next;
     }
 
@@ -336,6 +374,44 @@ class LandScene final : public Scene
         }
         view.elements["context"] = Json{{"icon", known->icon}, {"label", hud_.Text(known->label)}};
         input.On("context", "click", [this, name = states.context_action](const Event &) { hud_.Send("context", name); });
+    }
+
+    // --- the bottom hint ---
+
+    struct Hint
+    {
+        std::string icon, text;
+    };
+
+    // What the hint names now: whom the talk button talks to, or where the door ahead leads.
+    std::optional<Hint> WantedHint(const States &states) const
+    {
+        if (states.combat.Has("interact") && states.combat.interact_kind == "dialog")
+        {
+            const std::string talk = hud_.Text("hud.context.talk");
+            return Hint{"talk", states.combat.interact_name.empty() ? talk : talk + ": " + states.combat.interact_name};
+        }
+        if (Lower(states.context_action) == "reload" && !states.reload_place.empty())
+            return Hint{"door", Capitalized(states.reload_place)};
+        return std::nullopt;
+    }
+
+    // Shown at once and exactly while it applies; a lost one holds, fades and goes (kHintHold).
+    void BuildHint(const std::optional<Hint> &wanted, View &view)
+    {
+        const double now = hud_.Now();
+        if (wanted)
+        {
+            hint_ = wanted;
+            hint_lost_ = -1.0;
+        }
+        else if (hint_ && hint_lost_ < 0.0)
+            hint_lost_ = now;
+        if (hint_ && hint_lost_ >= 0.0 && now >= hint_lost_ + kHintHold + kHintLeave)
+            hint_.reset();
+        hint_leaving_ = hint_ && hint_lost_ >= 0.0 && now >= hint_lost_ + kHintHold;
+        if (hint_)
+            view.elements["hint"] = Json{{"icon", hint_->icon}, {"text", hint_->text}, {"leaving", hint_leaving_}};
     }
 
     // --- combat set ---
@@ -613,6 +689,9 @@ class LandScene final : public Scene
     bool wheel_open_ = false;
     std::string move_;
     // action sheet
+    std::optional<Hint> hint_; // the bottom hint shown
+    double hint_lost_ = -1.0;  // when what it names went away (-1 = it still applies)
+    bool hint_leaving_ = false;
     std::string choice_; // tapped row on its way through select → activate
     double choice_until_ = 0.0;
     uint64_t choice_revision_ = 0;

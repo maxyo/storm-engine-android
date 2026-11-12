@@ -187,6 +187,9 @@ class Host
     // What the last Frame did (see FrameStats).
     virtual FrameStats LastFrameStats() const = 0;
     virtual void Toast(const std::string &text, const std::string &tone) = 0;
+    // Something the player asked for failed, in the pack's words: a danger toast of the string
+    // `key` (the pack's table in the game language) that stays several seconds.
+    virtual void AlertString(const std::string &key) = 0;
     // Replaces the props of the component with this element id (JSON object).
     virtual bool SetProps(const std::string &element_id, const std::string &json) = 0;
     virtual void ScrollTo(const std::string &element_id) = 0;

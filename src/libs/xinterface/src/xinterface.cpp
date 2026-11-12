@@ -3958,7 +3958,7 @@ void XINTERFACE::SaveOptionsFile(const char *fileName, ATTRIBUTES *pAttr)
     if(!saved) {
         core.Trace("Could not save options '%s' (resolved '%s'), filesystem error=%d: %s",fileName,target.string().c_str(),error.value(),error.message().c_str());
 #ifdef __ANDROID__
-        storm::android::showSaveError();
+        storm::android::ui::alert("settings.notSaved"); // the UI's one toast place, the top edge
         std::error_code cleanup;
         std::filesystem::remove(pending,cleanup);
 #endif

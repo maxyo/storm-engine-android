@@ -77,10 +77,10 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
         "template": "<div style=\"font-family: LatoLatin;\"><c-row id=\"resume\" style=\"display: block; position: absolute; left: 0; top: 0; width: 200dp; height: 48dp;\" title=\"Resume\"/></div>"})"));
     Write(pack / "components.json", components.dump());
     Write(pack / "overlay.rml", "<rml><head><style>body { font-family: LatoLatin; } #tooltip { display: none; } #tooltip.open { display: block; position: absolute; }"
-                                " #toasts-bottom { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; }"
+                                " #toasts { position: absolute; left: 0; right: 0; top: 0; display: flex; flex-direction: column; }"
                                 " @keyframes in { from { opacity: 0; } to { opacity: 1; } } @keyframes out { from { opacity: 1; max-height: 30dp; } to { opacity: 0; max-height: 0dp; } }"
                                 " c-notice { display: block; animation: 0.18s cubic-out in; } c-notice.leaving { opacity: 0; max-height: 0dp; animation: 0.22s cubic-out out; }</style></head>"
-                                "<body><div id=\"tooltip\"></div><div id=\"toasts-bottom\"></div></body></rml>");
+                                "<body><div id=\"tooltip\"></div><div id=\"toasts\"></div></body></rml>");
     Write(pack / "rows.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
                              " c-row { display: block; position: absolute; left: 0; width: 200dp; height: 48dp; }"
                              " c-fit { display: block; position: absolute; left: 0; width: 72dp; height: 40dp; }</style></head><body>"
