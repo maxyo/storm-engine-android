@@ -223,7 +223,9 @@ static void Saves(const std::string &models)
     ExpectEqual(rows[0]["cells"][0], "Герой Альфа · Порт Альфа", "a record is named «<hero> · <location>»");
     ExpectEqual(rows[2]["cells"][0], "Остров Гамма", "a record written without the hero: its location");
     ExpectEqual(rows[0]["cells"][1]["text"], "1 <common.month_10> 1654", "in-game date of the record");
-    ExpectEqual(rows[0]["cells"][2]["text"], "10 <common.month_3> 2001", "creation date of the record (another year: the year instead of the time)");
+    ExpectEqual(rows[0]["cells"][1]["sub"], "10 <common.month_3> 2001", "creation date under it (another year: the year instead of the time)");
+    Expect(surface.props["columns"].size() == 3 && surface.props["columns"][1]["w"] == "120px",
+           "name, the dates in one column, the autosave mark: the name keeps its room beside the detail");
     const Json detail = surface.props["detail"];
     Expect(detail["title"] == "Бухта Бета" && detail["sub"] == "Герой Альфа" && detail["delete"] == true && detail["primary"] == "<save.load>", "detail of the chosen record");
     Expect(detail["facts"].size() == 3 && detail["facts"][0]["v"] == "2 <common.month_10> 1654, 11:20" &&
@@ -497,7 +499,7 @@ static void Autosaves(const std::string &models)
     router.SetInterface(Load(models, "saves-autosave.json"));
     const Json rows = surface.props["rows"];
     Expect(rows.size() == 4 && rows[0]["cells"][0]["text"] == "<save.autosave> 2" && rows[0]["cells"][0]["sub"] == "Герой Альфа · Остров Гамма" &&
-               rows[0]["cells"][3]["icon"] == "energy",
+               rows[0]["cells"][2]["icon"] == "energy",
            "autosaves form their own group at the top, named by the string table, marked by the bolt");
     router.OnEvent({"saves", "row", "0"});
     Expect(surface.props["detail"]["delete"] == false && surface.props["detail"]["title"] == "Остров Гамма" &&
