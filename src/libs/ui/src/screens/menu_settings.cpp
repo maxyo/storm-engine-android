@@ -179,6 +179,7 @@ class SettingsScreen final : public Screen
                 DebugSegment(bindings, debug, "fx_light_normal_map", "Карты нормалей", {-1, 0, 1}, onOff);
                 DebugSegment(bindings, debug, "fx_alpha_to_coverage", "Alpha to coverage", {-1, 0, 1}, onOff);
                 DebugSegment(bindings, debug, "fx_anisotropy", "Анизотропия", {-1, 1, 4, 8}, {"пресет", "выкл", "4x", "8x"});
+                DebugSegment(bindings, debug, "fx_ao_volume", "Затенение (объём)", {-1, 0, 1, 2, 3}, {"пресет", "выкл", "игра", "умер", "сильн"});
                 sections.push_back({"", {debug}});
             }
         }
