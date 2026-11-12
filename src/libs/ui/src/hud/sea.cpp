@@ -175,8 +175,12 @@ class SeaScene final : public Scene
         if (!lines.empty())
         {
             view.elements["log"] = Json{{"lines", lines}};
-            if (band_left_ > 0)
-                view.elements["log"]["safeLeft"] = band_left_;
+            if (band_.left > 0)
+                view.elements["log"]["safeLeft"] = band_.left;
+            if (band_.right > 0)
+                view.elements["log"]["safeRight"] = band_.right;
+            if (band_.top > 0)
+                view.elements["log"]["offset"] = band_.top;
         }
 
         view.elements["hero"] = Json::object();
@@ -213,10 +217,10 @@ class SeaScene final : public Scene
             walk_ = 0;
         BuildGuns(states, ship, view, input);
         BuildTimeScale(hud_, gameplay, ship ? ship->time_scale : -1.0, view, input);
+        if (fan_open_)
+            return; // the fan takes the place of the buttons around the ammunition, the abilities too (hud-layout.json "replaces")
         if (ship && layout_ == "sea-battle")
             BuildAbilities(gameplay, *ship, view, input);
-        if (fan_open_)
-            return; // the fan takes the place of the buttons around the ammunition
         BuildQuick(states.sea_quick, view, input);
         if (gameplay.Has("Sea_CameraSwitch"))
         {
@@ -417,18 +421,50 @@ class SeaScene final : public Scene
         input.On("sail", "change", [this](const Event &event) { Sails(event.value); });
     }
 
-    // On a short screen the fleet wraps into further columns towards the middle of the top
-    // edge: the band of event lines then begins to the right of the last column.
+    // The band of event lines (hud-layout.json "log", C-Notice place hud): pinned to the top
+    // edge between the fleet and the top row of buttons. On a short screen the fleet wraps into
+    // further columns towards the middle of the top edge: the band then begins to the right of
+    // the last column. On a narrow screen, where the band beside the top row would be under
+    // kBandMin dp (lines cut to a few characters), it drops under the top row, between the fleet
+    // and the minimap (the pack's overlap check lays it out the same way: notice spec "band").
     void FollowFleet(const View &shown)
     {
-        int left = 0;
+        static constexpr float kBandMin = 240.0f, kGap = 8.0f;
+        Band band;
         Placement first, last;
         if (shown.elements.contains("fleet") && hud_.Measure("fleet", ".item.ship:first-child", first) &&
             hud_.Measure("fleet", ".item.ship:last-child", last) && last.x > first.x)
-            left = static_cast<int>(std::ceil((last.x + last.width - last.layer_x) / last.density)) + 8;
-        if (left == band_left_)
+            band.left = static_cast<int>(std::ceil((last.x + last.width - last.layer_x) / last.density)) + 8;
+        // the top row: the buttons the band runs beside, and the minimap it runs under
+        float row_left = 0.0f, row_bottom = 0.0f, map_left = 0.0f, layer_width = 0.0f, fleet_right = 0.0f;
+        for (const char *id : {"hero", "pause", "orders"})
+        {
+            Placement button;
+            if (!shown.elements.contains(id) || !hud_.Measure(id, "", button))
+                continue;
+            const float x = (button.x - button.layer_x) / button.density, bottom = (button.y - button.layer_y + button.height) / button.density;
+            row_left = row_left > 0.0f ? std::min(row_left, x) : x;
+            row_bottom = std::max(row_bottom, bottom);
+            layer_width = button.layer_width / button.density;
+        }
+        Placement map, column;
+        if (shown.elements.contains("minimap") && hud_.Measure("minimap", "", map))
+            map_left = (map.x - map.layer_x) / map.density;
+        if (shown.elements.contains("fleet") && hud_.Measure("fleet", ".item.ship:last-child", column))
+            fleet_right = (column.x - column.layer_x + column.width) / column.density;
+        if (row_left > 0.0f && map_left > 0.0f && layer_width > 0.0f)
+        {
+            const float left = band.left > 0 ? static_cast<float>(band.left) : fleet_right + kGap;
+            if (row_left - kGap - left < kBandMin)
+            {
+                band.left = static_cast<int>(std::ceil(fleet_right + kGap));
+                band.right = static_cast<int>(std::ceil(layer_width - (map_left - kGap)));
+                band.top = static_cast<int>(std::ceil(row_bottom + kGap));
+            }
+        }
+        if (band == band_)
             return;
-        band_left_ = left;
+        band_ = band;
         if (shown.elements.contains("log"))
             hud_.Rebuild();
     }
@@ -919,7 +955,13 @@ class SeaScene final : public Scene
 
     Hud &hud_;
     std::string layout_ = "sea";
-    int band_left_ = 0; // dp from the safe area; 0 = the layout's own band
+    // The band of event lines, dp from the safe area; 0 = the layout's own (FollowFleet).
+    struct Band
+    {
+        int left = 0, right = 0, top = 0;
+        bool operator==(const Band &) const = default;
+    };
+    Band band_;
     // held controls
     std::map<std::string, Held> holds_;
     int turn_ = 0;

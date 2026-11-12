@@ -417,6 +417,9 @@ class LandScene final : public Scene
         {
             view.elements["opponent"] = Json{{"title", hud_.Text("hud.captain") + " " + states.vitals.opponent}};
             view.elements["opponent-hp"] = Json{{"value", std::lround(states.vitals.opponent_health * 100.0)}};
+            // The enemy captain takes the place of the location line (hud-layout.json: the
+            // opponent replaces the location; they never overlap).
+            view.elements.erase("location");
         }
         // Elements of a dimmed cluster that are not shown now cannot be dimmed.
         view.dimmed.erase(std::remove_if(view.dimmed.begin(), view.dimmed.end(), [&view](const std::string &id) { return !view.elements.contains(id); }),
