@@ -18,8 +18,9 @@ void state(std::string_view channel, std::string json);
 void screen(const std::string &screen, uint64_t revision);
 // Interface model (widget snapshot) of the open screen; the newest replaces older ones.
 void interfaceModel(std::string json);
-// A passing line of the game's log: a toast over the game.
-void toast(std::string text);
+// A passing line of the game's log: a toast over the game; `target` is where a tap on it
+// leads (Host::GameMessage), "" = nowhere.
+void toast(std::string text, std::string target = {});
 // Something the player asked for failed: a lasting danger toast of the pack string `string_key`.
 void alert(std::string string_key);
 // Top of every engine loop iteration, before the queued commands are read: starts the host

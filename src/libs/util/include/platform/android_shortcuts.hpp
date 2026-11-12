@@ -6,10 +6,11 @@
 
 namespace storm::android
 {
-// MainMenu and Character are the game's keys (Esc, F2). CharacterScreen and ShipScreen open
-// that screen itself, whatever section F2 would reopen: a HUD portrait or squadron ship tap
-// (the UI then selects its subject in the screen).
-enum class GameplayShortcut { MainMenu, Character, CharacterScreen, ShipScreen };
+// MainMenu and Character are the game's keys (Esc, F2). CharacterScreen, ShipScreen,
+// JournalScreen and ItemsScreen open that screen itself, whatever section F2 would reopen: a HUD
+// portrait or squadron ship tap, a tap on an event line that leads there (the UI then selects
+// its subject in the screen).
+enum class GameplayShortcut { MainMenu, Character, CharacterScreen, ShipScreen, JournalScreen, ItemsScreen };
 
 // Names are control identifiers consumed by the game's existing
 // "Control Activation" handler. Never accept arbitrary script event/function names.
@@ -20,7 +21,9 @@ inline const char *shortcutControl(GameplayShortcut shortcut)
     case GameplayShortcut::MainMenu: return "MainMenu";
     case GameplayShortcut::Character: return "Interface";
     case GameplayShortcut::CharacterScreen:
-    case GameplayShortcut::ShipScreen: return nullptr;
+    case GameplayShortcut::ShipScreen:
+    case GameplayShortcut::JournalScreen:
+    case GameplayShortcut::ItemsScreen: return nullptr;
     }
     return nullptr;
 }
@@ -33,6 +36,8 @@ inline const char *shortcutScreen(GameplayShortcut shortcut)
     {
     case GameplayShortcut::CharacterScreen: return "character";
     case GameplayShortcut::ShipScreen: return "ship";
+    case GameplayShortcut::JournalScreen: return "journal";
+    case GameplayShortcut::ItemsScreen: return "items";
     case GameplayShortcut::MainMenu:
     case GameplayShortcut::Character: return nullptr;
     }
@@ -61,6 +66,8 @@ class GameplayShortcuts
         else if (name == "character") shortcut = GameplayShortcut::Character;
         else if (name == "characterscreen") shortcut = GameplayShortcut::CharacterScreen;
         else if (name == "shipscreen") shortcut = GameplayShortcut::ShipScreen;
+        else if (name == "journalscreen") shortcut = GameplayShortcut::JournalScreen;
+        else if (name == "itemsscreen") shortcut = GameplayShortcut::ItemsScreen;
         else return false;
         expire(now);
         // Only one menu intent may be outstanding. Coalesce repeats and reject

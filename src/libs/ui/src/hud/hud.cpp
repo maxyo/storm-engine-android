@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 namespace storm::ui::hud
 {
@@ -17,7 +18,6 @@ namespace
 {
 
 constexpr double kIdle = 3600.0;
-constexpr double kLineSeconds = 2.6; // an event line stays this long (pack setting toastMs)
 constexpr size_t kLines = 3;
 constexpr double kLeaveSeconds = 0.22; // a line animates out this long (pack time.toastLeave), then goes
 // The layout scene under the spyglass when no ported scene owns the mode (the platform still
@@ -184,11 +184,12 @@ Json Hud::LogLines() const
 {
     Json lines = Json::array();
     for (size_t i = lines_.size(); i-- > 0;)
-        lines.push_back(Json{{"text", lines_[i].text}, {"tone", lines_[i].tone}, {"key", std::to_string(lines_[i].key)}, {"leaving", lines_[i].leaving >= 0.0}});
+        lines.push_back(Json{{"text", lines_[i].text}, {"tone", lines_[i].tone}, {"key", std::to_string(lines_[i].key)}, {"leaving", lines_[i].leaving >= 0.0},
+                             {"open", !lines_[i].target.empty()}});
     return lines;
 }
 
-bool Hud::Notice(const std::string &text, const std::string &tone)
+bool Hud::Notice(const std::string &text, const std::string &tone, const std::string &target)
 {
     if (!visible_ || text.empty() || !view_.log)
         return false;
@@ -196,7 +197,11 @@ bool Hud::Notice(const std::string &text, const std::string &tone)
         if (line.base == text && line.leaving < 0.0)
         {
             line.text = RepeatedText(text, ++line.count);
-            line.until = mount_.Now() + kLineSeconds;
+            line.target = target;
+            if (line.held >= 0.0)
+                line.held = ToastSeconds(text);
+            else
+                line.until = mount_.Now() + ToastSeconds(text);
             changed_ = true;
             return true;
         }
@@ -209,7 +214,8 @@ bool Hud::Notice(const std::string &text, const std::string &tone)
                 line.leaving = now;
                 break;
             }
-    lines_.push_back({text, tone.empty() ? "info" : tone, now + kLineSeconds, text, 1, ++next_line_key_});
+    lines_.push_back({text, tone.empty() ? "info" : tone, now + ToastSeconds(text), text, 1, ++next_line_key_});
+    lines_.back().target = target;
     changed_ = true;
     return true;
 }
@@ -218,6 +224,37 @@ bool Hud::OnEvent(const Event &event)
 {
     if (!visible_)
         return false;
+    if (event.id == "log" && (event.verb == "hold" || event.verb == "release"))
+    {
+        // A finger on an event line stops its timer; lifting it gives the line the time it had left.
+        const double now = mount_.Now();
+        for (Line &line : lines_)
+            if (std::to_string(line.key) == event.value && line.leaving < 0.0)
+            {
+                if (event.verb == "hold" && line.held < 0.0)
+                    line.held = std::max(0.0, line.until - now);
+                else if (event.verb == "release" && line.held >= 0.0)
+                {
+                    line.until = now + line.held;
+                    line.held = -1.0;
+                }
+            }
+        return true;
+    }
+    if (event.id == "log" && event.verb == "open")
+    {
+        // The tap opens where the line leads and dismisses it.
+        for (Line &line : lines_)
+            if (std::to_string(line.key) == event.value && line.leaving < 0.0 && !line.target.empty())
+            {
+                if (Interactive())
+                    Open(line.target);
+                line.leaving = mount_.Now();
+                line.held = -1.0;
+                changed_ = true;
+            }
+        return true;
+    }
     auto found = input_.handlers_.find(event.id + "\n" + event.verb);
     if (found == input_.handlers_.end())
         found = input_.handlers_.find(event.id + "\n");
@@ -230,6 +267,32 @@ bool Hud::OnEvent(const Event &event)
     const Input::Handler handler = found->second;
     handler(event);
     return true;
+}
+
+void Hud::Open(const std::string &target)
+{
+    const auto [kind, subject] = [&] {
+        const size_t colon = target.find(':');
+        return std::pair{target.substr(0, colon), colon == std::string::npos ? std::string() : target.substr(colon + 1)};
+    }();
+    if (kind == "character" && !subject.empty())
+    {
+        SubjectRequest request{"character", std::atoi(subject.c_str())};
+        request.tab = "perks";
+        RequestSubject(request);
+        Send("shortcut", "characterscreen");
+    }
+    else if (kind == "journal" && !subject.empty())
+    {
+        SubjectRequest request{"journal"};
+        request.quest = subject;
+        RequestSubject(request);
+        Send("shortcut", "journalscreen");
+    }
+    else if (kind == "items")
+        Send("shortcut", "itemsscreen");
+    else
+        Error("HUD: an event line leads to '" + target + "', which no screen opens");
 }
 
 // The platform host hears when the HUD appears and disappears: what it draws itself over a
@@ -363,7 +426,7 @@ double Hud::Tick()
     }
     // An expired line animates out first, then goes.
     for (Line &line : lines_)
-        if (line.leaving < 0.0 && now >= line.until)
+        if (line.leaving < 0.0 && line.held < 0.0 && now >= line.until)
         {
             line.leaving = now;
             changed_ = true;
@@ -386,7 +449,8 @@ double Hud::Tick()
     if (changed_)
         next = 0.0;
     for (const Line &line : lines_)
-        next = std::min(next, std::max(0.0, (line.leaving >= 0.0 ? line.leaving + kLeaveSeconds : line.until) - now));
+        if (line.held < 0.0)
+            next = std::min(next, std::max(0.0, (line.leaving >= 0.0 ? line.leaving + kLeaveSeconds : line.until) - now));
     return next;
 }
 

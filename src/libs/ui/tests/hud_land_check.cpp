@@ -29,7 +29,11 @@ static void CheckExplore()
     bench.Press("pause");
     ExpectEqual(mount.Last(), "shortcut:mainmenu", "the menu button opens the game menu");
 
-    // A game message repeated while its toast is up: one toast with a count, kept longer.
+    // How long a toast stays (owner rule): 2.5 s + 60 ms a character, 3…7 s.
+    Expect(hud::ToastSeconds("Готово") == 3.0 && std::abs(hud::ToastSeconds("Недостаточно денег") - 3.58) < 1e-9 &&
+               hud::ToastSeconds(std::string(200, 'x')) == 7.0,
+           "toast time by length: the short one 3 s, 18 characters 3.58 s, a long one 7 s");
+    // A game message repeated while its toast is up: one toast with a count, its time starts again.
     Expect(bench.hud.Notice("Недостаточно денег", "info") && bench.hud.Notice("Взято: ром", "info"), "event lines go to the HUD's log");
     bench.Frame(2.0);
     Expect(bench.hud.Notice("Недостаточно денег", "info"), "the repeat is taken");
@@ -39,7 +43,7 @@ static void CheckExplore()
         Expect(lines.size() == 2 && lines[1]["text"] == "Недостаточно денег \u00D72" && lines[0]["text"] == "Взято: ром",
                "no second copy: the shown line counts «×2»: " + lines.dump());
     }
-    bench.Frame(1.0); // 3 s after the first: the other line animates out, the repeated one lives on
+    bench.Frame(1.2); // 3.2 s after the first: «Взято: ром» (3.1 s) animates out, the repeated one lives on
     bench.Frame(0.3); // and is gone after its exit
     {
         const Json lines = mount.shown.elements["log"]["lines"];
@@ -48,14 +52,22 @@ static void CheckExplore()
     bench.hud.Notice("Недостаточно денег", "info");
     bench.Frame();
     ExpectEqual(mount.shown.elements["log"]["lines"][0]["text"].get<std::string>(), "Недостаточно денег \u00D73", "and counts on");
-    bench.Frame(3.0);
+    // a finger on the line stops its time; lifting it gives back what was left
+    const std::string held = mount.shown.elements["log"]["lines"][0]["key"];
+    bench.Press("log", "hold", held);
+    bench.Frame(10.0);
+    Expect(mount.Has("log") && mount.shown.elements["log"]["lines"][0]["leaving"] == false, "held: it stays as long as the finger does");
+    bench.Press("log", "release", held);
+    bench.Frame(3.4);
+    Expect(mount.shown.elements["log"]["lines"][0]["leaving"] == false, "released: the time it had left (3.58 s) runs on");
+    bench.Frame(0.3);
     Expect(mount.shown.elements["log"]["lines"][0]["leaving"] == true, "then it animates out");
     bench.Frame(0.3);
     Expect(!mount.Has("log"), "and goes");
     bench.hud.Notice("Недостаточно денег", "info");
     bench.Frame();
     ExpectEqual(mount.shown.elements["log"]["lines"][0]["text"].get<std::string>(), "Недостаточно денег", "after it went, the same message starts afresh");
-    bench.Frame(3.0);
+    bench.Frame(4.0);
 
     bench.Press("hero");
     ExpectEqual(mount.Last(), "shortcut:character", "Персонаж opens the character");
@@ -159,6 +171,45 @@ static void CheckExplore()
     bench.Set("contextAction", Json("Reload"));
     Expect(!mount.Has("hint"), "a door the game names no place for: the button alone");
     bench.Set("contextAction", Json(""));
+    bench.Frame(1.0);
+    bench.Set("contextAction", Json("Pick"));
+    Expect(hint("hand", "hud.context.take", false), "a thing to take: the action's own words");
+    bench.Set("contextAction", Json("OpenBox"));
+    Expect(hint("chest", "hud.context.open", false), "a chest: the action's own words");
+    bench.Set("contextAction", Json(""));
+    bench.Frame(1.0);
+    Expect(!mount.Has("hint"), "nothing at hand: gone");
+
+    // event lines that lead somewhere (tagged by the game function that wrote them): a tap opens
+    // that screen on its subject and dismisses the line; the others are only shown
+    bench.hud.Notice("Получен новый уровень", "info", "character:12");
+    bench.hud.Notice("Запись в судовом журнале", "info", "journal:Sharlie");
+    bench.hud.Notice("Получено 500 пиастров", "info");
+    bench.Frame();
+    {
+        const Json lines = mount.shown.elements["log"]["lines"];
+        Expect(lines.size() == 3 && lines[0]["open"] == false && lines[1]["open"] == true && lines[2]["open"] == true,
+               "a line that leads somewhere says so (the ›); money does not: " + lines.dump());
+        const auto key = [&](size_t i) { return lines[i]["key"].get<std::string>(); };
+        bench.Press("log", "open", key(1));
+        ExpectEqual(mount.Last(), "shortcut:journalscreen", "a quest record opens the journal");
+        const auto journal = bench.hud.TakeSubject("journal");
+        Expect(journal && journal->quest == "Sharlie", "… on that quest");
+        bench.Frame();
+        Expect(mount.shown.elements["log"]["lines"][1]["leaving"] == true, "the tapped line is dismissed");
+        bench.Press("log", "open", key(2));
+        ExpectEqual(mount.Last(), "shortcut:characterscreen", "a new level opens the character screen");
+        const auto character = bench.hud.TakeSubject("character");
+        Expect(character && character->character == 12 && character->tab == "perks", "… of that character, on its abilities");
+        const size_t sent = mount.commands.size();
+        bench.Press("log", "open", key(0));
+        Expect(mount.commands.size() == sent, "money opens nothing");
+    }
+    bench.hud.Notice("Вы получили предмет", "info", "items");
+    bench.Frame();
+    bench.Press("log", "open", mount.shown.elements["log"]["lines"][0]["key"].get<std::string>());
+    ExpectEqual(mount.Last(), "shortcut:itemsscreen", "a taken item opens the inventory");
+    bench.Frame(8.0);
 
     // a combat state of another revision is not ready: buttons stay, disabled, and send nothing
     Json stale = State("combat-explore");

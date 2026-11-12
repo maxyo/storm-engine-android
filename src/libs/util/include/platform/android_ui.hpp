@@ -187,9 +187,11 @@ inline void publishWorldInfo(const std::string &text) {
 // > 0 while the engine runs a script action whose log line the HUD already shows otherwise
 // (the time scale: its button carries the multiplier).
 inline int gameMessagesMuted = 0;
-inline void publishGameMessage(const std::string &text) {
+// `target`: where a tap on the toast leads ("" = nowhere; game_message_target.hpp tags it at the
+// script function that wrote the line).
+inline void publishGameMessage(const std::string &text, const std::string &target = {}) {
     if (gameMessagesMuted > 0 || text.empty()) return;
-    ui::toast(text);
+    ui::toast(text, target);
 }
 // Set from the game thread's command queue ("graphics:reload", sent by the platform host after
 // the settings screen stored new renderer preferences); the renderer re-applies the graphics

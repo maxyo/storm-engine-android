@@ -453,7 +453,7 @@ static void CheckScenes()
         mount.now = 0.3;
         hud.Tick();
         Expect(mount.shown.elements["log"]["lines"].size() == 3, "the leaving line goes after its exit");
-        Expect(hud.Tick() <= 2.6, "the log asks for the frame that ends a line");
+        Expect(hud.Tick() <= 3.0, "the log asks for the frame that ends a line (3 s for a short one)");
         mount.now = 3.0;
         hud.Tick();
         const Json leaving = mount.shown.elements["log"]["lines"];

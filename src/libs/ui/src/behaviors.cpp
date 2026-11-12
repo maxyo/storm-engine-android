@@ -22,6 +22,10 @@
 //           the centre. The view is the component's own: nothing goes to the engine for it.
 //           A change of the prop `room` (the layout around the view) refits it to the new size.
 //
+//   toast   data-toast="key" on each toast line (C-Notice toast / log): a finger on a line
+//           reports `hold <key>` (its timer stops) and lifting it `release <key>`; a line
+//           marked data-open also reports `open <key>` when the finger lifts on it
+//
 // Two more are given to single elements with data-behavior="…" (HUD layout), on top of
 // what their component has:
 //   hold    reports `down` and `up`: a control that acts for as long as it is held
@@ -651,6 +655,53 @@ class HoldBehavior final : public Behavior
     int pointer_ = -1;
 };
 
+// A toast line under a finger: held (paused) while touched, opened by a tap when it leads
+// somewhere (data-open).
+class ToastBehavior final : public Behavior
+{
+  public:
+    bool Down(ComponentElement &self, const Pointer &pointer) override
+    {
+        if (part_)
+            return false;
+        Rml::Element *part = ClosestWith(pointer.target, &self, "data-toast");
+        if (!part)
+            return false;
+        part_ = part;
+        part_alive_ = part->GetObserverPtr();
+        pointer_ = pointer.id;
+        key_ = Attr(part, "data-toast");
+        if (part->HasAttribute("data-open"))
+            part->SetClass("pressed", true);
+        self.Emit("hold", key_);
+        return true;
+    }
+
+    void Up(ComponentElement &self, const Pointer &pointer, bool cancelled) override
+    {
+        if (!part_ || pointer.id != pointer_)
+            return;
+        Rml::Element *part = part_alive_ ? part_ : nullptr;
+        part_ = nullptr;
+        if (part)
+            part->SetClass("pressed", false);
+        self.Emit("release", key_);
+        if (!cancelled && part && part->HasAttribute("data-open") && Inside(part, pointer.position, 12.0f * self.Host().Density()))
+            self.Emit("open", key_);
+    }
+
+    void Regions(ComponentElement &self, std::vector<Rml::Element *> &out) const override
+    {
+        AllWith(&self, "data-toast", out);
+    }
+
+  private:
+    Rml::Element *part_ = nullptr;
+    Rml::ObserverPtr<Rml::Element> part_alive_;
+    int pointer_ = -1;
+    std::string key_;
+};
+
 // One finger picks one of several moves: the direction of the drag from where it went
 // down selects a sector, staying near that point selects the centre. Only the release
 // commits; a cancelled gesture commits nothing.
@@ -1051,6 +1102,7 @@ class ColumnsBehavior final : public Behavior
 void RegisterBuiltinBehaviors()
 {
     RegisterBehavior("press", &Make<PressBehavior>);
+    RegisterBehavior("toast", &Make<ToastBehavior>);
     RegisterBehavior("range", &Make<RangeBehavior>);
     RegisterBehavior("stick", &Make<StickBehavior>);
     RegisterBehavior("lever", &Make<LeverBehavior>);

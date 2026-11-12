@@ -9,6 +9,7 @@
 #include "log_and_action.h"
 #include "sea_quick_action_source.hpp"
 #include "reload_place_source.hpp"
+#include "game_message_target.hpp"
 #include "controls.h"
 #include "core.h"
 #include "message.h"
@@ -519,7 +520,7 @@ void ILogAndActions::SetString(const char *str, bool immortal)
     // presents the game (the legacy log does not draw then); otherwise lasting lines stay here.
     if (!immortal || storm::android::hudPresenters.any())
     {
-        storm::android::publishGameMessage(str);
+        storm::android::publishGameMessage(str, storm::android::gameMessageTarget());
         return;
     }
 #endif

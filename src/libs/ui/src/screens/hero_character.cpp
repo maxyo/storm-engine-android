@@ -186,6 +186,14 @@ class HeroScreen final : public Screen
         CheckAdapter(admitted, bindings, "ANDROID_SUBJECT", checked_opening_);
         const bool full = admitted.model->screen == "lscchar_all";
         const Widget *subject = admitted.One("ANDROID_SUBJECT");
+        // A HUD tap that opened this screen (a party portrait, an event line that leads to the
+        // abilities): taken once; its tab at once, its person once the screen can switch.
+        if (auto request = bindings.TakeSubject("character"))
+        {
+            if (request->tab == "perks")
+                tab_ = Tab::Perks;
+            subject_request_ = std::move(request);
+        }
         if (!full && tab_ == Tab::Officers)
             tab_ = Tab::Skills;
 
@@ -200,7 +208,7 @@ class HeroScreen final : public Screen
                   : admitted.One("MSG_OK")                                                           ? Window::Message
                                                                                                      : Window::None;
         Walk(bindings);
-        if (full && intent_.kind == Intent::None && window_ == Window::None)
+        if (full && subject_request_ && intent_.kind == Intent::None && window_ == Window::None)
             OpenOnSubject(bindings);
 
         // Header: tabs, the officer switch, the sections.
@@ -297,6 +305,7 @@ class HeroScreen final : public Screen
     uint64_t checked_opening_ = 0;
     SubjectSwitch subjects_;
     Tab tab_ = Tab::Skills;
+    std::optional<SubjectRequest> subject_request_; // the HUD's subject, until the screen can switch to it
     Window window_ = Window::None;
     Intent intent_;
     std::string perk_;                  // the perk in the detail panel
@@ -474,13 +483,13 @@ class HeroScreen final : public Screen
         }
     }
 
-    // A tap on a land party portrait opened this screen for that person (hud land.cpp): the
-    // header's officer switch selects the post the person holds, as the player's choice does.
+    // A tap on a land party portrait or an event line opened this screen for that person (hud
+    // land.cpp, hud.cpp Open): the header's officer switch selects the post the person holds, as
+    // the player's choice does.
     void OpenOnSubject(Bindings &bindings)
     {
-        const auto request = bindings.TakeSubject("character");
-        if (!request)
-            return;
+        const auto request = std::move(subject_request_);
+        subject_request_.reset();
         for (const Widget *post : a_->All("ANDROID_POSTS"))
             if (std::atoi(Field(post, "character").c_str()) == request->character && !Field(post, "character").empty())
             {
@@ -493,7 +502,10 @@ class HeroScreen final : public Screen
                     }
                 return;
             }
-        bindings.Error("lscchar_all: character " + std::to_string(request->character) + " of the HUD's tap holds no post here; the captain stays");
+        // An event line about the captain (a level, ability points) names the hero, who holds no
+        // post: the captain is shown already.
+        if (request->tab.empty())
+            bindings.Error("lscchar_all: character " + std::to_string(request->character) + " of the HUD's tap holds no post here; the captain stays");
     }
 
     void BindSections(Bindings &bindings)

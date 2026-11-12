@@ -1034,6 +1034,16 @@ const char *CoreImpl::EngineIniFileName()
     return fs::ENGINE_INI_FILE_NAME;
 }
 
+int CoreImpl::ScriptCallDepth(const char *func_name)
+{
+    return Compiler ? Compiler->CallDepth(func_name) : -1;
+}
+
+VDATA *CoreImpl::ScriptCallArgument(const char *func_name, uint32_t index)
+{
+    return Compiler ? Compiler->CallArgument(func_name, index) : nullptr;
+}
+
 bool CoreImpl::HasActiveEventHandler(const char *event_name, const char *func_name)
 {
     return Compiler && Compiler->HasActiveEventHandler(event_name, func_name);
