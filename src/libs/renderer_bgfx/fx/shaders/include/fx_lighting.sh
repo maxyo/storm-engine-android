@@ -13,8 +13,8 @@
 //   FX_LIGHT_RIM          rim light on silhouettes seen against the sun (characters, ships)
 //   FX_LIGHT_LINEAR       lights are summed in linear light: overlapping lights no longer burn out and
 //                         the terminator is soft. Combine with fxLit() / fxAddSpecular().
-//   FX_LIGHT_NORMALMAP    relief from a normal map derived from the game's height ("bump") texture
-//                         of texture stage 1; no mesh tangents needed
+//   FX_LIGHT_NORMALMAP    relief from a normal map derived from the game's height ("bump") texture of texture
+//                         stage 1 or the colour texture of stage 0 (fx/normal_map.hpp); no mesh tangents needed
 //
 // Contract with the emulator's vertex shader when FX_LIGHT_PER_PIXEL is on:
 //   * pass the view-space normal and position to the fragment shader;
@@ -36,10 +36,10 @@
 // overlapping lights add up the way light does. Render targets stay gamma encoded; the
 // «Оригинал» preset never defines this flag.
 //
-// FX_LIGHT_NORMALMAP (only for draw calls whose stage 1 texture has a derived normal map, bound with
+// FX_LIGHT_NORMALMAP (only for draw calls whose stage 1 or stage 0 texture has a derived normal map, bound with
 // fx::Lighting::BindNormalMap): replace the interpolated normal before any of the calls above,
-//   N = fxPerturbNormal(N, P, stage 1 texture coordinates);
-// The stage itself stays as it is (the 2x multiply detail layer of the original look). Cost per pixel:
+//   N = fxPerturbNormal(N, P, that stage's texture coordinates);
+// The stages themselves stay as they are (colour, and the 2x multiply detail layer of the original look). Cost per pixel:
 // one RG8 fetch, four screen-space derivatives, two cross products and two normalisations.
 // For baked geometry, which has no run-time sun term, multiply the baked colour instead:
 //   current.rgb *= fxBakedRelief(Ngeometry, N, V);
@@ -143,7 +143,7 @@ vec3 fxRim(vec3 N, vec3 V)
 // Sampler stage 14 (fx::kNormalMapStage) is reserved for the derived normal map (RG8: x, y of the tangent-space normal).
 SAMPLER2D(s_fxNormalMap, 14);
 
-// N: unit interpolated normal, P: position (both view space), uv: the height texture's coordinates.
+// N: unit interpolated normal, P: position (both view space), uv: the coordinates of the map's texture.
 // The tangent frame comes from screen-space derivatives of P and uv (a cotangent frame), so meshes need no
 // tangents and mirrored or rotated texture mappings are handled by construction.
 vec3 fxPerturbNormal(vec3 N, vec3 P, vec2 uv)
@@ -172,7 +172,7 @@ float fxBakedRelief(vec3 Ng, vec3 N, vec3 V)
     vec3 t = u_fxLight[0].xyz - Ng * dot(u_fxLight[0].xyz, Ng);
     if (dot(t, t) < 1e-4) t = V - Ng * dot(V, Ng);
     vec3 L = Ng * 0.5 + t * (0.866 * inversesqrt(max(dot(t, t), 1e-12)));
-    return clamp(1.0 + 1.6 * (dot(N, L) - 0.5), 0.55, 1.5);
+    return clamp(1.0 + 2.4 * (dot(N, L) - 0.5), 0.4, 1.6);
 }
 #endif // FX_LIGHT_NORMALMAP
 

@@ -597,6 +597,14 @@ bool Renderer::Init()
 #endif
         storm::render::ConfigureProgramCache(programCache);
 
+        // Normal maps derived from the game's textures (fx relief): game-derived data, never shipped.
+#ifdef __ANDROID__
+        const std::filesystem::path effectsCache = storm::android::cacheDirectory();
+#else
+        const std::filesystem::path effectsCache = fs::GetStashPath();
+#endif
+        storm::render::ConfigureEffectsCache(effectsCache, uint64_t{512} << 20);
+
         FovMultiplier = ini->GetFloat(nullptr, "fov_multiplier", 1.0f);
 
         screen_size.x = ini->GetInt(nullptr, "screen_x", 1024);
@@ -1631,7 +1639,7 @@ bool Renderer::TextureLoad(int32_t t)
         }
         Textures[t].d3dtex = tex;
         Textures[t].isCubeMap = false;
-        storm::render::SetEffectsTextureSource(tex, Textures[t].name); // relief from height textures
+        storm::render::SetEffectsTextureSource(tex, Textures[t].name); // relief (fx normal maps)
     }
     else
     {

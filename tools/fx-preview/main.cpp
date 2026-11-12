@@ -242,7 +242,8 @@ class Preview
         // Height textures and the normal maps derived from them.
         const uint8_t neutral = 128; // 2x multiply by 0.5 changes nothing
         neutral_detail_ = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::R8, BGFX_SAMPLER_NONE, bgfx::copy(&neutral, 1));
-        flat_normal_map_ = lighting_.CreateNormalMap(fx::DeriveNormalMap({&neutral, 1}, 1, 1));
+        const uint8_t neutral_rgba[4] = {neutral, neutral, neutral, 255};
+        flat_normal_map_ = lighting_.CreateNormalMap(fx::DeriveNormalMap(neutral_rgba, 1, 1, fx::ReliefOptions(fx::ReliefClass::HeightMap)));
         const std::pair<preview::Relief, const char *> reliefs[] = {{preview::Relief::Wall, "bump_houses"},
                                                                     {preview::Relief::Rock, "rockBump"},
                                                                     {preview::Relief::Deck, "woodBump"},
@@ -292,7 +293,11 @@ class Preview
             relief_detail_[i] = bgfx::createTexture2D(static_cast<uint16_t>(width), static_cast<uint16_t>(height), false, 1,
                                                       bgfx::TextureFormat::R8, BGFX_SAMPLER_NONE,
                                                       bgfx::copy(pixels.data(), static_cast<uint32_t>(pixels.size())));
-            relief_normal_[i] = lighting_.CreateNormalMap(fx::DeriveNormalMap(pixels, width, height));
+            std::vector<uint8_t> grey;
+            grey.reserve(pixels.size() * 4);
+            for (const uint8_t h : pixels)
+                grey.insert(grey.end(), {h, h, h, 255});
+            relief_normal_[i] = lighting_.CreateNormalMap(fx::DeriveNormalMap(grey, width, height, fx::ReliefOptions(fx::ReliefClass::HeightMap)));
         }
     }
 

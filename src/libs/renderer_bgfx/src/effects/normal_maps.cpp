@@ -2,11 +2,13 @@
 
 #include "shim/device.hpp"
 #include "storm/fx/lighting.hpp"
-#include "texture/core/cache.hpp"
+#include "texture/core/formats.hpp"
 #include "texture/core/service.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
+#include <mutex>
 
 namespace storm::effects
 {
@@ -54,15 +56,90 @@ std::vector<uint8_t> decode_rgba(D3DFORMAT format, const uint8_t *data, uint32_t
     return rgba;
 }
 
-// The full mip chain, as fx::DeriveNormalMap produces it.
-uint32_t mip_count(uint32_t width, uint32_t height)
+// The formats decode_rgba reads: DXT and the game's uncompressed colour formats.
+bool readable_format(D3DFORMAT format)
+{
+    texture::DxtFormat dxt;
+    switch (format)
+    {
+    case D3DFMT_A8R8G8B8:
+    case D3DFMT_X8R8G8B8:
+    case D3DFMT_R8G8B8:
+    case D3DFMT_R5G6B5:
+    case D3DFMT_A1R5G5B5:
+    case D3DFMT_X1R5G5B5:
+    case D3DFMT_A4R4G4B4:
+    case D3DFMT_X4R4G4B4:
+    case D3DFMT_L8:
+        return true;
+    default:
+        return dxt_format(format, &dxt);
+    }
+}
+
+uint32_t mip_count(int width, int height)
 {
     uint32_t count = 1;
-    for (uint32_t size = std::max(width, height); size > 1; size >>= 1)
+    for (int size = std::max(width, height); size > 1; size >>= 1)
         ++count;
     return count;
 }
+
+// The directory of the derived maps (ConfigureEffectsCache) and its size budget, shared with the worker tasks.
+struct CacheDirectory
+{
+    std::mutex mutex;
+    std::filesystem::path path;
+    uint64_t max_bytes = 0;
+    uint64_t total = 0;
+    bool scanned = false;
+};
+CacheDirectory &cache_directory()
+{
+    static CacheDirectory directory;
+    return directory;
+}
+
+std::filesystem::path cache_path()
+{
+    CacheDirectory &cache = cache_directory();
+    std::lock_guard lock(cache.mutex);
+    return cache.path;
+}
+
+// Worker: after writing `written` bytes, evicts the least recently used maps beyond the budget.
+void account_write(uint64_t written)
+{
+    CacheDirectory &cache = cache_directory();
+    std::lock_guard lock(cache.mutex);
+    if (cache.path.empty())
+        return;
+    if (!cache.scanned)
+    {
+        cache.total = texture::scan_cache(cache.path);
+        cache.scanned = true;
+    }
+    cache.total += written;
+    if (cache.total > cache.max_bytes)
+        cache.total = texture::evict_cache(cache.path, cache.max_bytes / 10 * 9);
+}
 } // namespace
+
+void ConfigureNormalMapCache(const std::filesystem::path &directory, uint64_t max_bytes)
+{
+    CacheDirectory &cache = cache_directory();
+    std::lock_guard lock(cache.mutex);
+    cache.path = directory;
+    cache.max_bytes = max_bytes;
+    cache.scanned = false;
+    std::error_code error;
+    if (!directory.empty() && !std::filesystem::create_directories(directory, error) && error)
+    {
+        shim::logf("ERROR: effects: normal-map cache %s cannot be created (%s): every map is derived again on each load",
+                   directory.string().c_str(), error.message().c_str());
+        cache.path.clear();
+    }
+}
 
 NormalMapEntry::~NormalMapEntry()
 {
@@ -70,84 +147,156 @@ NormalMapEntry::~NormalMapEntry()
         bgfx::destroy(handle);
 }
 
+void NormalMaps::configure(bool enabled, int max_size)
+{
+    const bool changed = enabled != enabled_ || max_size != max_size_;
+    if (enabled && !enabled_ && loaded_while_off_)
+        shim::logf("effects: relief switched on: textures loaded while it was off get their normal maps when they are "
+                   "loaded again (the next location)");
+    enabled_ = enabled;
+    max_size_ = max_size;
+    if (!changed)
+        return;
+    std::erase_if(entries_, [](const std::weak_ptr<NormalMapEntry> &entry) { return entry.expired(); });
+    for (const std::weak_ptr<NormalMapEntry> &weak : entries_)
+        if (const std::shared_ptr<NormalMapEntry> entry = weak.lock())
+            release(*entry);
+}
+
+void NormalMaps::release(NormalMapEntry &entry)
+{
+    if (entry.state != NormalMapEntry::Uploaded)
+        return;
+    if (bgfx::isValid(entry.handle))
+        bgfx::destroy(entry.handle);
+    entry.handle = BGFX_INVALID_HANDLE;
+    entry.bytes = 0;
+    entry.wanted = false;
+    entry.state = NormalMapEntry::Stored; // read back from the cache when drawn again
+}
+
 void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path)
 {
     if (!path || store.kind != shim::TexKind::Tex2D || store.subs.empty())
         return;
-    if (!fx::NameSuggestsHeightMap(fx::NormalizeTexturePath(path)))
-        return; // HeightMapReason::NameNoMatch; no manifest (RESOURCE/fx_height_maps.txt) is read
-    texture::DxtFormat dxt;
-    if (!dxt_format(store.format, &dxt) && shim::format_info(store.format).bytes_per_pixel != 4)
+    if (!enabled_)
+    {
+        loaded_while_off_ = true;
+        return;
+    }
+    const std::string name = fx::NormalizeTexturePath(path);
+    const bool readable = readable_format(store.format);
+    // Only "bump" names need the pixels (grey or not); classify from a small level (64 px is plenty).
+    std::vector<uint8_t> small;
+    if (fx::NameSuggestsHeightMap(name) && readable)
+    {
+        uint32_t level = 0;
+        while (level + 1 < store.levels && std::max(store.level_width(level), store.level_height(level)) > 64)
+            ++level;
+        const std::vector<uint8_t> &data = store.sub(0, level).data;
+        if (!data.empty())
+            small = decode_rgba(store.format, data.data(), store.level_width(level), store.level_height(level));
+    }
+    const fx::ReliefVerdict verdict = classifier_.Classify(path, small);
+    if (verdict.relief == fx::ReliefClass::None)
+        return;
+    if (!readable)
     {
         if (!format_reported_)
-            shim::logf("ERROR: effects: height texture %s has D3D format %u, which the normal-map derivation does not "
-                       "read: no relief for it (and textures like it)",
-                       path, static_cast<unsigned>(store.format));
+            shim::logf("ERROR: effects: texture %s (relief %s) has D3D format %u, which the normal-map derivation does "
+                       "not read: no relief for it (and textures like it)",
+                       name.c_str(), fx::ReliefClassName(verdict.relief), static_cast<unsigned>(store.format));
         format_reported_ = true;
         return;
     }
-    // Classify from a small level (64 px is plenty), derive from the top one.
-    uint32_t level = 0;
-    while (level + 1 < store.levels && std::max(store.level_width(level), store.level_height(level)) > 64)
-        ++level;
-    const std::vector<uint8_t> &small = store.sub(0, level).data;
     const std::vector<uint8_t> &top = store.sub(0, 0).data;
-    if (small.empty() || top.empty())
+    if (top.empty())
     {
-        shim::logf("ERROR: effects: height texture %s has no level data when it is reported: no relief for it", path);
+        shim::logf("ERROR: effects: texture %s has no level data when it is reported: no relief for it", name.c_str());
         return;
     }
-    const std::vector<uint8_t> rgba = decode_rgba(store.format, small.data(), store.level_width(level),
-                                                  store.level_height(level));
-    if (!classifier_.Classify(path, rgba).is_height_map)
-        return;
-    auto entry = std::make_shared<NormalMapEntry>();
-    entry->format = store.format;
-    entry->width = store.width;
-    entry->height = store.height;
-    entry->source = top;
-    store.normal_map = entry;
-    if (enabled_)
-        derive(entry);
-}
+    const std::filesystem::path directory = cache_path();
+    if (directory.empty() && !cache_reported_)
+    {
+        cache_reported_ = true;
+        shim::logf("ERROR: effects: no normal-map cache directory (ConfigureEffectsCache): maps are derived on every "
+                   "load and kept in memory until drawn");
+    }
 
-void NormalMaps::derive(const std::shared_ptr<NormalMapEntry> &entry)
-{
-    entry->state = NormalMapEntry::Pending;
-    texture::Service &service = texture::Service::instance();
-    service.post([entry, data = std::move(entry->source), directory = service.cache_directory(), options = options_] {
-        const uint32_t width = entry->width, height = entry->height;
-        const uint64_t key = texture::hash64(data.data(), data.size(),
-                                             fx::NormalMapCacheKey(options) ^ (uint64_t{width} << 32 | height));
-        const uint32_t mips = mip_count(width, height);
-        const texture::DerivedShape shape{.magic = {'S', 'T', 'X', 'C', 'N', 'R', 'G', '8'},
-                                          .version = fx::kNormalMapVersion, .width = width, .height = height,
-                                          .levels = mips};
+    auto entry = std::make_shared<NormalMapEntry>();
+    entry->name = name;
+    entry->relief = verdict.relief;
+    entry->options = fx::ReliefOptions(verdict.relief);
+    entry->options.max_size = max_size_; // derived at the preset's size: a smaller preset derives (and stores) less
+    int width, height;
+    fx::NormalMapSize(static_cast<int>(store.width), static_cast<int>(store.height), entry->options, width, height);
+    entry->shape = {.magic = {'S', 'T', 'X', 'C', 'N', 'R', 'G', '8'}, .version = fx::kNormalMapVersion,
+                    .width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(height),
+                    .levels = mip_count(width, height)};
+    store.normal_map = entry;
+    entries_.push_back(entry);
+
+    texture::Service::instance().post([entry, data = top, format = store.format, source_width = store.width,
+                                       source_height = store.height, directory, counters = counters_] {
+        entry->key = texture::hash64(data.data(), data.size(),
+                                     fx::NormalMapCacheKey(entry->options) ^ (uint64_t{source_width} << 32 | source_height));
         if (!directory.empty())
-            if (std::optional<texture::Blob> cached = texture::read_derived_file(directory, key, shape, kMaxMapBytes))
+            if (std::optional<texture::Blob> cached = texture::read_derived_file(directory, entry->key, entry->shape, kMaxMapBytes))
             {
-                entry->map.width = static_cast<int>(width);
-                entry->map.height = static_cast<int>(height);
-                entry->map.mip_count = static_cast<int>(mips);
-                entry->map.rg.assign(cached->data.get(), cached->data.get() + cached->size);
+                ++counters->cached;
+                if (!entry->wanted)
+                {
+                    entry->state = NormalMapEntry::Stored;
+                    return;
+                }
+                entry->map = {static_cast<int>(entry->shape.width), static_cast<int>(entry->shape.height),
+                              static_cast<int>(entry->shape.levels), {cached->data.get(), cached->data.get() + cached->size}};
                 entry->state = NormalMapEntry::Derived;
                 return;
             }
-        const std::vector<uint8_t> rgba = decode_rgba(entry->format, data.data(), width, height);
-        std::vector<uint8_t> heights(static_cast<size_t>(width) * height);
-        for (size_t i = 0; i < heights.size(); ++i)
-            heights[i] = rgba[i * 4];
-        entry->map = fx::DeriveNormalMap(heights, static_cast<int>(width), static_cast<int>(height), options);
-        if (entry->map.rg.empty() || entry->map.mip_count != static_cast<int>(mips))
+        const auto start = std::chrono::steady_clock::now();
+        const std::vector<uint8_t> rgba = decode_rgba(format, data.data(), source_width, source_height);
+        fx::NormalMap map = fx::DeriveNormalMap(rgba, static_cast<int>(source_width), static_cast<int>(source_height), entry->options);
+        counters->derive_us += static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
+        ++counters->derived;
+        if (map.rg.empty() || map.mip_count != static_cast<int>(entry->shape.levels) ||
+            map.width != static_cast<int>(entry->shape.width))
         {
             entry->state = NormalMapEntry::Failed;
             return;
         }
         if (!directory.empty())
-            texture::write_derived_file(directory, key, shape, entry->map.rg.data(), entry->map.rg.size());
+        {
+            account_write(texture::write_derived_file(directory, entry->key, entry->shape, map.rg.data(), map.rg.size()));
+            if (!entry->wanted)
+            {
+                entry->state = NormalMapEntry::Stored;
+                return;
+            }
+        }
+        entry->map = std::move(map);
         entry->state = NormalMapEntry::Derived;
     });
-    entry->source.clear();
+}
+
+void NormalMaps::read_cached(const std::shared_ptr<NormalMapEntry> &entry)
+{
+    entry->state = NormalMapEntry::Pending;
+    texture::Service::instance().post([entry, directory = cache_path()] {
+        std::optional<texture::Blob> cached;
+        if (!directory.empty())
+            cached = texture::read_derived_file(directory, entry->key, entry->shape, kMaxMapBytes);
+        if (!cached)
+        {
+            // Evicted (or the directory went away) while the texture stayed loaded.
+            entry->state = NormalMapEntry::Failed;
+            return;
+        }
+        entry->map = {static_cast<int>(entry->shape.width), static_cast<int>(entry->shape.height),
+                      static_cast<int>(entry->shape.levels), {cached->data.get(), cached->data.get() + cached->size}};
+        entry->state = NormalMapEntry::Derived;
+    });
 }
 
 bgfx::TextureHandle NormalMaps::handle(shim::TexStore &store, fx::Lighting &lighting)
@@ -155,17 +304,18 @@ bgfx::TextureHandle NormalMaps::handle(shim::TexStore &store, fx::Lighting &ligh
     const std::shared_ptr<NormalMapEntry> &entry = store.normal_map;
     if (!entry)
         return BGFX_INVALID_HANDLE;
+    entry->wanted = true;
     switch (entry->state.load())
     {
-    case NormalMapEntry::Source:
-        derive(entry);
+    case NormalMapEntry::Stored:
+        read_cached(entry);
         return BGFX_INVALID_HANDLE;
     case NormalMapEntry::Derived:
+        fx::DropTopMips(entry->map, max_size_);
         entry->handle = lighting.CreateNormalMap(entry->map); // logs why when it cannot
+        entry->bytes = entry->map.rg.size();
         entry->map = {};
         entry->state = bgfx::isValid(entry->handle) ? NormalMapEntry::Uploaded : NormalMapEntry::Failed;
-        if (bgfx::isValid(entry->handle))
-            shim::logf("effects: normal map %ux%u of a height texture uploaded", entry->width, entry->height);
         break;
     default:
         break;
@@ -173,11 +323,41 @@ bgfx::TextureHandle NormalMaps::handle(shim::TexStore &store, fx::Lighting &ligh
     if (entry->state == NormalMapEntry::Failed && !entry->failure_reported)
     {
         entry->failure_reported = true;
-        shim::logf("ERROR: effects: no normal map for a %ux%u height texture (derivation or upload failed): no relief "
-                   "for it",
-                   entry->width, entry->height);
+        shim::logf("ERROR: effects: no normal map for texture %s (relief %s): derivation, cache read or upload failed",
+                   entry->name.c_str(), fx::ReliefClassName(entry->relief));
     }
     return entry->handle;
+}
+
+NormalMaps::Stats NormalMaps::stats()
+{
+    Stats stats;
+    std::erase_if(entries_, [](const std::weak_ptr<NormalMapEntry> &entry) { return entry.expired(); });
+    for (const std::weak_ptr<NormalMapEntry> &weak : entries_)
+        if (const std::shared_ptr<NormalMapEntry> entry = weak.lock(); entry && entry->state == NormalMapEntry::Uploaded)
+        {
+            ++stats.resident;
+            stats.bytes += entry->bytes;
+        }
+    stats.derived = counters_->derived;
+    stats.cached = counters_->cached;
+    stats.derive_ms = static_cast<double>(counters_->derive_us) / 1000.0;
+    return stats;
+}
+
+void NormalMaps::end_frame()
+{
+    if (++frames_ < 300)
+        return;
+    frames_ = 0;
+    const Stats now = stats();
+    if (now.resident == logged_.resident && now.bytes == logged_.bytes && now.derived == logged_.derived &&
+        now.cached == logged_.cached)
+        return;
+    logged_ = now;
+    shim::logf("effects relief: %u normal maps resident (%.1f MB, max %d px); since start %u derived (%.0f ms on texture "
+               "workers), %u read from the cache",
+               now.resident, static_cast<double>(now.bytes) / 1048576.0, max_size_, now.derived, now.derive_ms, now.cached);
 }
 
 } // namespace storm::effects

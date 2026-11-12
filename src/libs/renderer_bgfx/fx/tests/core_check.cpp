@@ -262,11 +262,11 @@ void CheckLighting()
     SkyState sky;
     sky.dome = {0.2f, 0.4f, 0.8f};
     const LightingUniforms tinted = ComputeLighting(input, LightingMaterial::Character(), &sky, Settings{});
-    // Relief strength: per material, scaled by the preset; stone > wood > canvas, none on characters.
+    // Relief scale: per material (the texture class sets the strength), scaled by the preset; none on characters.
     Settings half;
     half.normal_map_strength = 0.5f;
     CHECK(Near(ComputeLighting(input, LightingMaterial::Stone(), nullptr, half).u_fxLight[5][0], 0.5f, 1e-6f));
-    CHECK(LightingMaterial::Stone().relief > LightingMaterial::Hull().relief && LightingMaterial::Hull().relief > LightingMaterial::Sail().relief);
+    CHECK(LightingMaterial::Stone().relief == LightingMaterial::Hull().relief && LightingMaterial::Hull().relief > LightingMaterial::Sail().relief);
     CHECK(tinted.u_fxLight[5][0] == 0.0f);
     CHECK(tinted.u_fxLight[3][2] > tinted.u_fxLight[3][0]);
     CHECK(tinted.u_fxLight[4][0] > tinted.u_fxLight[4][2]);
@@ -577,6 +577,20 @@ std::array<float, 3> NormalAt(const NormalMap &map, int mip, int x, int y)
     return {nx, ny, std::sqrt(std::max(1.0f - nx * nx - ny * ny, 0.0f))};
 }
 
+// Grey RGBA texels from heights.
+std::vector<uint8_t> Grey(const std::vector<uint8_t> &heights)
+{
+    std::vector<uint8_t> rgba;
+    for (uint8_t h : heights)
+        rgba.insert(rgba.end(), {h, h, h, 255});
+    return rgba;
+}
+
+NormalMap Derive(const std::vector<uint8_t> &heights, int width, int height, const NormalMapOptions &options)
+{
+    return DeriveNormalMap(Grey(heights), width, height, options);
+}
+
 void CheckNormalMaps()
 {
     const int n = 64;
@@ -586,7 +600,7 @@ void CheckNormalMaps()
 
     // A flat height field: every normal points straight out, at every mip.
     const std::vector<uint8_t> flat(n * n, 77);
-    const NormalMap level = DeriveNormalMap(flat, n, n, options);
+    const NormalMap level = Derive(flat, n, n, options);
     CHECK(level.width == n && level.height == n && level.mip_count == 7);
     size_t texels = 0;
     for (int s = n; s >= 1; s /= 2)
@@ -600,7 +614,7 @@ void CheckNormalMaps()
         for (int x = 0; x < n; ++x)
             ramp[y * n + x] = static_cast<uint8_t>(x * 255 / (n - 1));
     options.wrap = false;
-    const NormalMap slope = DeriveNormalMap(ramp, n, n, options);
+    const NormalMap slope = Derive(ramp, n, n, options);
     const float expected = 4.0f / (n - 1); // dh/du in texels, times strength
     const auto mid = NormalAt(slope, 0, n / 2, n / 2);
     CHECK(Near(mid[0] / mid[2], -expected, 0.012f) && Near(mid[1], 0.0f, 0.01f));
@@ -612,7 +626,7 @@ void CheckNormalMaps()
     for (int y = 0; y < n; ++y)
         for (int x = 0; x < n; ++x)
             ramp_v[y * n + x] = ramp[x * n + y];
-    const auto mid_v = NormalAt(DeriveNormalMap(ramp_v, n, n, options), 0, n / 2, n / 2);
+    const auto mid_v = NormalAt(Derive(ramp_v, n, n, options), 0, n / 2, n / 2);
     CHECK(Near(mid_v[1] / mid_v[2], -expected, 0.012f) && Near(mid_v[0], 0.0f, 0.01f));
 
     // A cone: normals point away from the apex, with equal lean all around.
@@ -620,7 +634,7 @@ void CheckNormalMaps()
     for (int y = 0; y < n; ++y)
         for (int x = 0; x < n; ++x)
             cone[y * n + x] = static_cast<uint8_t>(std::clamp(255.0f - 6.0f * std::hypot(x - 31.5f, y - 31.5f), 0.0f, 255.0f));
-    const NormalMap hill = DeriveNormalMap(cone, n, n, options);
+    const NormalMap hill = Derive(cone, n, n, options);
     for (int i = 0; i < 16; ++i)
     {
         const float angle = 0.3927f * i;
@@ -637,7 +651,7 @@ void CheckNormalMaps()
         for (int x = 0; x < n; ++x)
             wave[y * n + x] = static_cast<uint8_t>(std::lround(127.5f + 100.0f * std::sin(6.2831853f * 2.0f * (x + 0.5f) / n)));
     options.wrap = true;
-    const NormalMap tiled = DeriveNormalMap(wave, n, n, options);
+    const NormalMap tiled = Derive(wave, n, n, options);
     for (int x = 0; x < n; ++x)
     {
         const float slope_here = 4.0f * (100.0f / 255.0f) * (6.2831853f * 2.0f / n) * std::cos(6.2831853f * 2.0f * (x + 0.5f) / n);
@@ -647,7 +661,7 @@ void CheckNormalMaps()
     CHECK(std::abs(tiled.rg[0] - tiled.rg[(n - 1) * 2]) <= std::abs(tiled.rg[2 * 10] - tiled.rg[2 * 11]) + 1);
     // Without wrapping the same texture has an edge: the border normal differs from the wrapped one.
     options.wrap = false;
-    CHECK(DeriveNormalMap(wave, n, n, options).rg[0] != tiled.rg[0]);
+    CHECK(Derive(wave, n, n, options).rg[0] != tiled.rg[0]);
     options.wrap = true;
 
     // The pre-blur softens DXT block noise: the steps between 4x4 blocks give smaller peak slopes.
@@ -659,7 +673,7 @@ void CheckNormalMaps()
         NormalMapOptions o = options;
         o.strength = 8.0f;
         o.pre_blur = blur;
-        const NormalMap map = DeriveNormalMap(blocky, n, n, o);
+        const NormalMap map = Derive(blocky, n, n, o);
         int worst = 0;
         for (int i = 0; i < n * n * 2; ++i)
             worst = std::max(worst, std::abs(map.rg[i] - 128));
@@ -668,7 +682,7 @@ void CheckNormalMaps()
     CHECK(peak(false) > 8 && peak(true) * 10 <= peak(false) * 8);
 
     // Deterministic and cacheable: same input, same bytes; the key changes with every option.
-    CHECK(DeriveNormalMap(cone, n, n, options).rg == DeriveNormalMap(cone, n, n, options).rg);
+    CHECK(Derive(cone, n, n, options).rg == Derive(cone, n, n, options).rg);
     NormalMapOptions other = options;
     other.strength = 2.0f;
     CHECK(NormalMapCacheKey(options) == NormalMapCacheKey(options) && NormalMapCacheKey(options) != NormalMapCacheKey(other));
@@ -676,9 +690,138 @@ void CheckNormalMaps()
     other.pre_blur = !options.pre_blur;
     CHECK(NormalMapCacheKey(options) != NormalMapCacheKey(other));
     // Non-square textures and bad input.
-    const NormalMap strip = DeriveNormalMap(std::vector<uint8_t>(256 * 64, 10), 256, 64, options);
+    const NormalMap strip = Derive(std::vector<uint8_t>(256 * 64, 10), 256, 64, options);
     CHECK(strip.mip_count == 9 && strip.rg.size() == 2u * (256 * 64 + 128 * 32 + 64 * 16 + 32 * 8 + 16 * 4 + 8 * 2 + 4 + 2 + 1));
-    CHECK(DeriveNormalMap(flat, n, n + 1, options).rg.empty());
+    CHECK(Derive(flat, n, n + 1, options).rg.empty());
+
+    // The size cap: a 256 x 64 texture with max_size 64 is derived at 64 x 16, and DropTopMips trims a chain.
+    NormalMapOptions capped = options;
+    capped.max_size = 64;
+    int w = 0, h = 0;
+    NormalMapSize(256, 64, capped, w, h);
+    CHECK(w == 64 && h == 16);
+    NormalMap small = Derive(std::vector<uint8_t>(256 * 64, 10), 256, 64, capped);
+    CHECK(small.width == 64 && small.height == 16 && small.mip_count == 7 && small.rg.size() == NormalMapBytes(64, 16));
+    NormalMap trimmed = strip;
+    DropTopMips(trimmed, 32);
+    CHECK(trimmed.width == 32 && trimmed.height == 8 && trimmed.mip_count == 6 && trimmed.rg.size() == NormalMapBytes(32, 8));
+    CHECK(std::equal(trimmed.rg.begin(), trimmed.rg.end(), strip.rg.end() - static_cast<std::ptrdiff_t>(trimmed.rg.size())));
+    other = options;
+    other.max_size = 512;
+    CHECK(NormalMapCacheKey(options) != NormalMapCacheKey(other));
+    other = options;
+    other.source = NormalMapSource::Luminance;
+    CHECK(NormalMapCacheKey(options) != NormalMapCacheKey(other));
+    NormalMapOptions wider = other;
+    wider.band_sigma = other.band_sigma + 1.0f;
+    CHECK(NormalMapCacheKey(other) != NormalMapCacheKey(wider));
+}
+
+// Max lean |n.xy| over a square of the top mip.
+float MaxLean(const NormalMap &map, int x0, int y0, int x1, int y1)
+{
+    float lean = 0.0f;
+    for (int y = y0; y < y1; ++y)
+        for (int x = x0; x < x1; ++x)
+        {
+            const auto normal = NormalAt(map, 0, x, y);
+            lean = std::max(lean, std::hypot(normal[0], normal[1]));
+        }
+    return lean;
+}
+
+// Colour textures: luminance, band-passed, as height.
+void CheckLuminanceRelief()
+{
+    const int n = 128;
+    const NormalMapOptions stone = ReliefOptions(ReliefClass::Stone);
+    CHECK(stone.source == NormalMapSource::Luminance && stone.strength > ReliefOptions(ReliefClass::Wood).strength &&
+          ReliefOptions(ReliefClass::Wood).strength > ReliefOptions(ReliefClass::Plaster).strength &&
+          ReliefOptions(ReliefClass::Building).strength > ReliefOptions(ReliefClass::Plaster).strength);
+    CHECK(ReliefOptions(ReliefClass::HeightMap).source == NormalMapSource::Height);
+    const auto texture = [&](auto colour) {
+        std::vector<uint8_t> rgba;
+        for (int y = 0; y < n; ++y)
+            for (int x = 0; x < n; ++x)
+            {
+                const std::array<uint8_t, 3> c = colour(x, y);
+                rgba.insert(rgba.end(), {c[0], c[1], c[2], 255});
+            }
+        return rgba;
+    };
+
+    // A flat colour (any colour) has no relief at all.
+    const NormalMap flat = DeriveNormalMap(texture([](int, int) { return std::array<uint8_t, 3>{180, 90, 40}; }), n, n, stone);
+    CHECK(flat.width == n && std::all_of(flat.rg.begin(), flat.rg.end(), [](uint8_t v) { return v == 128; }));
+
+    // A big dark patch (a stain, a painted panel) on a plain wall: the inside of the patch is as flat as the wall around
+    // it (no pit); only its rim leans, and only over a few texels.
+    const NormalMap patch = DeriveNormalMap(texture([](int x, int y) {
+                                                const bool dark = std::abs(x - 64) < 32 && std::abs(y - 64) < 32;
+                                                return dark ? std::array<uint8_t, 3>{40, 40, 50} : std::array<uint8_t, 3>{200, 190, 170};
+                                            }),
+                                            n, n, stone);
+    CHECK(MaxLean(patch, 48, 48, 80, 80) < 0.02f); // centre of the patch
+    CHECK(MaxLean(patch, 0, 0, 16, 16) < 0.02f);   // the wall far from it
+    CHECK(MaxLean(patch, 28, 60, 36, 68) > 0.3f);  // the rim
+    // The same patch at twice the size: still flat inside, so the depth does not grow with the patch (a height field
+    // would make a pit whose walls get no flatter).
+    const NormalMap wide = DeriveNormalMap(texture([](int x, int y) {
+                                               const bool dark = std::abs(x - 64) < 56 && std::abs(y - 64) < 56;
+                                               return dark ? std::array<uint8_t, 3>{40, 40, 50} : std::array<uint8_t, 3>{200, 190, 170};
+                                           }),
+                                           n, n, stone);
+    CHECK(MaxLean(wide, 40, 40, 88, 88) < 0.02f);
+
+    // Bricks: light bricks with dark mortar lines every 16 texels (rows) and 32 texels (columns). The brick faces are
+    // higher than the mortar: on both sides of a horizontal line the normal leans down into it, in v only.
+    const NormalMap bricks = DeriveNormalMap(texture([](int x, int y) {
+                                                 const bool mortar = y % 16 < 2 || (x + (y / 16 % 2) * 16) % 32 < 2;
+                                                 const uint8_t v = mortar ? 60 : 190;
+                                                 return std::array<uint8_t, 3>{v, static_cast<uint8_t>(v * 0.8f), static_cast<uint8_t>(v * 0.6f)};
+                                             }),
+                                             n, n, stone);
+    const auto above = NormalAt(bricks, 0, 8, 16 - 2); // the brick above the line at y = 16..17: leans to +v
+    const auto below = NormalAt(bricks, 0, 8, 17 + 2); // the brick below it: leans to -v
+    CHECK(above[1] > 0.3f && below[1] < -0.3f && std::fabs(above[0]) < 0.05f && std::fabs(below[0]) < 0.05f);
+    // ... and next to a vertical line (x = 0..1 in this row) the lean is in u.
+    const auto right = NormalAt(bricks, 0, 2, 8);
+    CHECK(right[0] < -0.3f && std::fabs(right[1]) < 0.05f);
+    // The middle of a brick is nearly flat (only the faint halo of the band pass).
+    CHECK(MaxLean(bricks, 14, 7, 18, 10) < 0.1f);
+    // Stronger classes lean more on the same texture.
+    const auto plaster = NormalAt(DeriveNormalMap(texture([](int x, int y) {
+                                                      const bool mortar = y % 16 < 2 || (x + (y / 16 % 2) * 16) % 32 < 2;
+                                                      const uint8_t v = mortar ? 60 : 190;
+                                                      return std::array<uint8_t, 3>{v, v, v};
+                                                  }),
+                                                  n, n, ReliefOptions(ReliefClass::Plaster)),
+                                  0, 8, 17 + 2);
+    CHECK(plaster[1] < 0.0f && plaster[1] > below[1]);
+
+    // A lower preset derives a smaller map with the same relief: a 2048-wide stripe pattern derived at
+    // 512 leans like the 1024 map (strength and band are given at kNormalMapReferenceSize).
+    const int big = 2048;
+    std::vector<uint8_t> stripes(static_cast<size_t>(big) * 8 * 4);
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < big; ++x)
+        {
+            const uint8_t v = static_cast<uint8_t>(std::lround(127.5f + 100.0f * std::sin(6.2831853f * x / 64.0f)));
+            uint8_t *t = &stripes[(static_cast<size_t>(y) * big + x) * 4];
+            t[0] = t[1] = t[2] = v;
+            t[3] = 255;
+        }
+    NormalMapOptions full = stone, half = stone;
+    full.max_size = 1024;
+    half.max_size = 512;
+    const NormalMap at_full = DeriveNormalMap(stripes, big, 8, full), at_half = DeriveNormalMap(stripes, big, 8, half);
+    CHECK(at_full.width == 1024 && at_half.width == 512);
+    float lean_full = 0.0f, lean_half = 0.0f;
+    for (int x = 0; x < 1024; ++x)
+        lean_full = std::max(lean_full, std::fabs(NormalAt(at_full, 0, x, 1)[0]));
+    for (int x = 0; x < 512; ++x)
+        lean_half = std::max(lean_half, std::fabs(NormalAt(at_half, 0, x, 1)[0]));
+    CHECK(lean_full > 0.1f && Near(lean_half, lean_full, 0.1f * lean_full));
 }
 
 void CheckCheapUpgrades()
@@ -754,10 +897,12 @@ void CheckCheapUpgrades()
 }
 
 int g_log_lines = 0;
+int g_debug_lines = 0;
 
-void CheckHeightMapRules()
+void CheckReliefRules()
 {
     CHECK(NormalizeTexturePath("Locations\\Bump_City.tga.tx") == "locations/bump_city");
+    CHECK(NormalizeTexturePath("resource\\textures\\Ships\\Brig1\\Hull1\\bortoutbrig.TGA") == "ships/brig1/hull1/bortoutbrig");
     CHECK(NameSuggestsHeightMap("bump_houses") && NameSuggestsHeightMap("ships/sailbumpu1") && NameSuggestsHeightMap("sph2_bump2"));
     CHECK(!NameSuggestsHeightMap("bumpy_folder/wall") && !NameSuggestsHeightMap("deckplanksu2"));
 
@@ -771,21 +916,58 @@ void CheckHeightMapRules()
     }
     CHECK(IsGrayscale(grey) && !IsGrayscale(tinted) && !IsGrayscale({}));
 
-    const HeightMapManifest manifest = HeightMapManifest::Parse("# overrides\n+Detail\\DetailWoodU1.tga\n-bump_land  # looks wrong\n\nnonsense\n");
-    CHECK(manifest.include.size() == 1 && manifest.include[0] == "detail/detailwoodu1");
-    CHECK(manifest.exclude.size() == 1 && manifest.exclude[0] == "bump_land");
+    // The table on names from TEHO's RESOURCE/Textures.
+    const auto relief = [](const char *path) { return ClassifyTextureName(NormalizeTexturePath(path)).relief; };
+    const ReliefClass N = ReliefClass::None, S = ReliefClass::Stone, W = ReliefClass::Wood, B = ReliefClass::Building,
+                      P = ReliefClass::Plaster;
+    const std::pair<const char *, ReliefClass> cases[] = {
+        // stone and brick
+        {"StoneH2_walls.tga.tx", S}, {"BigBarBrick.tga", S}, {"rockK1a", S}, {"skala_jungle", S}, {"cobbleM1", S},
+        {"TOWN_COB", S}, {"Beton_2", S}, {"fort_fra_0", S}, {"TortugaFortMain", S}, {"cavernTileU4", S}, {"tileU8", S},
+        {"063pierres", S}, {"pierStone1", S}, {"lighthouseU1", S}, {"incas_hram", S}, {"Crypt_0", S},
+        // wood, planks, ships
+        {"woodPlanksU1", W}, {"deckPlanksT5", W}, {"Capdeck_2", W}, {"dm_barque", W}, {"Gundeck_1", W}, {"pierWood1", W},
+        {"balkU3", W}, {"doorU1", W}, {"Hold_1", W}, {"TOWN_WOOD", W}, {"Ships\\Brig1\\Hull1\\bortoutbrig", W},
+        {"Ships\\Barque1\\Hull3\\deckPlanksT3", W}, {"Ships\\deck", W}, {"cabinet1c", W},
+        // building atlases
+        {"BigHouse01", B}, {"Residence2_walls", B}, {"Tavern1_walls", B}, {"tavern1ins", B}, {"church2_walls", B},
+        {"windmill_walls", B}, {"FlH03", B}, {"SpH4_walls", B}, {"Shipyard1", B}, {"objects_tex2", W},
+        // plaster, ground
+        {"Celling", P}, {"floorU3", P}, {"groundK2", P}, {"1sand1", P}, {"shoreU5", P},
+        {"dirtK3", P}, {"tropa256", P}, {"jungleU5", P}, {"1grass1", N}, {"grassgreen1", N},
+        // no relief: characters, UI, sky, water, glass, foliage cards, cloth and sails, decals, light, lightmaps
+        {"Characters\\Lo_Man_1", N}, {"INTERFACES\\PORTRAITS\\128\\face_1", N}, {"BATTLE_INTERFACE\\cannons", N},
+        {"WEATHER\\SKIES\\day", N}, {"lighting\\day1\\Fort_lm", N}, {"Ships\\parus_common", N},
+        {"Ships\\Mayfang1\\Hull1\\mayfang1_alpha", N}, {"Ships\\trailShip", N}, {"sky_up", N}, {"water1", N},
+        {"sea_1", N}, {"GlassWindow", N}, {"windBigHouse01", N}, {"res_win", N}, {"occlTempleU1", N}, {"reflChurchU2", N},
+        {"MontserratMask", N}, {"PalmsSprites", N}, {"leafPalms", N}, {"Ferns", N}, {"tree4", N}, {"cloth1", N},
+        {"carpetU4", N}, {"ropeU1", N}, {"FishingNets", N}, {"SignboardsA", N}, {"smoke_dirt", N}, {"bonfire_small", N},
+        {"corona01", N}, {"fonar", N}, {"lighthouseFonarU1", N}, {"candle4c", N}, {"WaterFall", N}, {"River1", N},
+        {"metalU4", N}, {"cannon_T1", N}, {"skelet3", N}, {"telo", N}, {"Item_Rapier02", N}, {"MenuWoodFlooooor01", N},
+        {"HiDeckalpha", N}, {"cap_deck_glass", N}, {"Particles_list", N}, {"shadow2", N}, {"back_jungle", N},
+    };
+    for (const auto &[path, expected] : cases)
+        if (relief(path) != expected)
+        {
+            std::printf("FAILED relief rule: %s is %s, expected %s\n", path, ReliefClassName(relief(path)), ReliefClassName(expected));
+            ++failures;
+        }
+    // An unknown name has no rule: no relief.
+    CHECK(ClassifyTextureName("antigua").rule == nullptr && ClassifyTextureName("antigua").relief == N);
 
-    SetLogSink([](LogLevel, const char *) { ++g_log_lines; });
-    HeightMapClassifier classifier(manifest);
+    SetLogSink([](LogLevel level, const char *) { ++(level == LogLevel::Debug ? g_debug_lines : g_log_lines); });
+    ReliefClassifier classifier;
     const auto verdict = [&](const char *path, const std::vector<uint8_t> &pixels) { return classifier.Classify(path, pixels); };
-    CHECK(verdict("bump_city.tga.tx", grey).is_height_map && verdict("bump_city.tga.tx", grey).reason == HeightMapReason::NameAndGrayscale);
-    CHECK(!verdict("Bump3.tga", tinted).is_height_map && verdict("Bump3.tga", tinted).reason == HeightMapReason::NotGrayscale);
-    CHECK(verdict("WEATHER\\SEA\\BUMP_G2MX\\seabump0017.tga.tx", grey).reason == HeightMapReason::ExcludedFolder);
-    CHECK(verdict("deckPlanksU2.tga", grey).reason == HeightMapReason::NameNoMatch);
-    CHECK(verdict("bump_land.tga", grey).reason == HeightMapReason::ManifestExclude && !verdict("bump_land.tga", grey).is_height_map);
-    CHECK(verdict("detail/DetailWoodU1.tga", tinted).is_height_map); // the manifest wins over both rules
-    // One log line per decided texture, none for ordinary textures, none for repeats.
-    CHECK(g_log_lines == 5);
+    CHECK(verdict("bump_city.tga.tx", grey).relief == ReliefClass::HeightMap);
+    // A coloured "bump" texture is an ordinary one: here the table's stone.
+    CHECK(verdict("bump_rock.tga", tinted).relief == S);
+    // The sea's animated bump frames stay without relief (folder rule), grey or not.
+    CHECK(verdict("WEATHER\\SEA\\BUMP_G2MX\\seabump0017.tga.tx", grey).relief == N);
+    CHECK(verdict("deckPlanksU2.tga", {}).relief == W);
+    CHECK(verdict("Antigua.tga.tx", {}).relief == N);
+    CHECK(verdict("deckPlanksU2.tga", {}).relief == W); // a repeat: decided again, not logged again
+    // One debug line per texture, nothing at the normal levels.
+    CHECK(g_debug_lines == 5 && g_log_lines == 0);
     SetLogSink(nullptr);
 }
 } // namespace
@@ -939,7 +1121,8 @@ int main()
     CheckShadows();
     CheckNormalMaps();
     CheckCheapUpgrades();
-    CheckHeightMapRules();
+    CheckLuminanceRelief();
+    CheckReliefRules();
     CheckAoVolume();
     if (failures)
     {

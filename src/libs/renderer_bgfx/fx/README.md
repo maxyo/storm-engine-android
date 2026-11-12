@@ -41,7 +41,7 @@ is not wired into the game. `Shadows::CasterProgram`,
 | `include/storm/fx/sky.hpp` | `Sky`: sky pass and the atmosphere state shared with fog and lighting |
 | `include/storm/fx/lighting.hpp`, `shaders/include/fx_lighting.sh` | lighting flags and uniforms for the fixed-function emulator |
 | `include/storm/fx/light_set.hpp` | point / spot lights: selection per draw call, flash lights |
-| `include/storm/fx/normal_map.hpp` | normal maps derived from the game's height ("bump") textures; the rule that finds those textures |
+| `include/storm/fx/normal_map.hpp` | normal maps derived from the game's textures (grey "bump" heights, band-passed luminance of colour textures); the path/name rules table that gives each texture its relief class |
 | `include/storm/fx/shadows.hpp` | `Shadows`: sun shadow map |
 | `include/storm/fx/contact_shadows.hpp` | `ContactShadows`: soft blobs under characters and objects |
 | `include/storm/fx/ao_volume.hpp` | ambient-occlusion volume of interiors: CPU bake from the static geometry, disk-cache format (the renderer side: `src/effects/ao_volume.hpp`) |
@@ -101,4 +101,9 @@ Sampler stages 5 and 6 belong to `fx_atmosphere.sh`, stage 15 to the shadow map,
 fixed-function emulator's units).
 
 Normal maps are derived on the device from the player's own textures (`DeriveNormalMap`, deterministic, RG8
-with mips). Cache them on the device; never ship or commit them.
+with mips). Cache them on the device; never ship or commit them. Which textures get one, and how strong, is the
+ordered rules table of `ClassifyTextureName` (stone/brick strong, wood/planks medium, plaster/ground weak; nothing for
+faces, cloth and sails, UI, water, glass, foliage cards, sky, decals and unknown names). Colour textures become height
+through their luminance minus a Gaussian of `band_sigma` texels, normalised to unit RMS and softly limited, so wide
+dark or bright patches make no pits or hills. Cost: 2 bytes per texel plus a third for the mips (a 1024² map 2.7 MB,
+512² 0.7 MB; Settings::normal_map_size caps the resident size).

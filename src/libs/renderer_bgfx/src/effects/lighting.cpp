@@ -77,7 +77,7 @@ void Lighting::configure(const fx::Settings &settings, const fx::RendererState &
     coverage_ = state.alpha_to_coverage;
     budget_ = fx::PointLightBudget(settings);
     shadows_.configure(settings);
-    normal_maps_.configure(lighting_ && (flags_ & fx::kLightingNormalMap));
+    normal_maps_.configure(lighting_ && (flags_ & fx::kLightingNormalMap), settings.normal_map_size);
     find_shaders();
 }
 
@@ -196,13 +196,21 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             shim::logf("effects: a baked draw without vertex positions gets no dynamic lights");
         }
     }
-    // Relief: stage 1 holds a height texture with a derived normal map (the game's 2x detail layer).
+    // Relief: the normal map of stage 1's texture (a grey height texture: the game's 2x detail layer, on the second UV
+    // set) or else of stage 0's (the colour texture of stone, wood, plaster, ground).
     bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE;
-    shim::TexStore *stage1 = shim::store_of(device.s.textures[1]);
-    if ((flags_ & fx::kLightingNormalMap) && lighting_ && layout.has_normal && stage1 &&
-        device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE && device.s.tss[1][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
+    int relief_stage = -1;
+    if ((flags_ & fx::kLightingNormalMap) && lighting_ && layout.has_normal && device.s.tss[0][D3DTSS_COLOROP] != D3DTOP_DISABLE &&
         !(lit && material_ == Material::Character))
-        normal_map = normal_maps_.handle(*stage1, fx_);
+        for (const int stage : {1, 0})
+        {
+            shim::TexStore *store = shim::store_of(device.s.textures[stage]);
+            if (!store || !store->normal_map || device.s.tss[stage][D3DTSS_COLOROP] == D3DTOP_DISABLE)
+                continue;
+            normal_map = normal_maps_.handle(*store, fx_);
+            relief_stage = stage;
+            break;
+        }
     baked |= !lit_state && bgfx::isValid(normal_map);
     // The interior's AO volume darkens what is drawn into the game picture: baked location geometry (which then takes
     // the baked variant) and lit models (characters, props). Reflections and other targets keep their look.
@@ -323,12 +331,12 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         u[2][3] = 0.0f;
     if (!per_pixel || !(flags_ & fx::kLightingRim))
         u[5][1] = 0.0f;
-    draw.ff = {two_sided && u[2][3] > 0.0f ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
     const bool relief = bgfx::isValid(normal_map) && u[5][0] > 0.0f;
+    draw.ff = {two_sided && u[2][3] > 0.0f ? 1.0f : 0.0f, relief ? static_cast<float>(relief_stage) : 0.0f, 0.0f, 0.0f};
     if (relief)
     {
         draw.normal_map = normal_map;
-        draw.normal_map_flags = device.sampler_flags(1, *stage1);
+        draw.normal_map_flags = device.sampler_flags(relief_stage, *shim::store_of(device.s.textures[relief_stage]));
         ++frame_.relief;
     }
 
@@ -462,6 +470,7 @@ void Lighting::end_frame()
     last_frame_ = frame_;
     frame_ = {};
     shadows_.end_frame();
+    normal_maps_.end_frame();
     if (!dynamic_lights_this_frame_)
         dynamic_lights_.clear(); // no location reported them: none exist
     dynamic_lights_this_frame_ = false;

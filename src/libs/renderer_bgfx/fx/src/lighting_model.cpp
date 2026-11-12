@@ -13,7 +13,7 @@ LightingMaterial LightingMaterial::Stone()
 
 LightingMaterial LightingMaterial::Hull()
 {
-    return {32.0f, 0.22f, 0.0f, 0.0f, 0.6f, 0.3f};
+    return {32.0f, 0.22f, 0.0f, 0.0f, 1.0f, 0.3f};
 }
 
 LightingMaterial LightingMaterial::Sail()

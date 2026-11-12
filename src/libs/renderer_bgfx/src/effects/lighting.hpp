@@ -13,9 +13,10 @@
 //   * material: from the technique the renderer executes (SetEffectsTechnique): Animation* = character,
 //     ShipSail* / ShipFlag = sail (two-sided, translucent), DLightModel = stone; lit draws without a technique
 //     are the ship hulls, masts and deck objects = hull.
-//   * relief (kLightingNormalMap): a lit or baked draw whose stage 1 holds a height texture with a derived normal map
-//     (effects/normal_maps.hpp) uses the FX_LIGHT_NORMALMAP variant with the map at stage 14 and stage 1's sampler
-//     flags; lit draws perturb the normal, baked ones scale their colour by fxBakedRelief. Characters have none.
+//   * relief (kLightingNormalMap): a lit or baked draw whose stage 1 texture (a grey height map), or else stage 0
+//     texture (stone, wood, plaster, ground), has a derived normal map (effects/normal_maps.hpp) uses the
+//     FX_LIGHT_NORMALMAP variant with the map at stage 14, that stage's sampler flags and texture coordinates
+//     (u_fxFf.y); lit draws perturb the normal, baked ones scale their colour by fxBakedRelief. Characters have none.
 //   * sun shadows (Settings::shadows, effects/shadows.hpp): lit draws into the game picture cast (the shim submits
 //     them again into the shadow view: FfDraw::caster) and receive (FX_LIGHT_SHADOW[_SOFT] variants).
 //   * alpha to coverage (RendererState::alpha_to_coverage): alpha-tested (GREATER / GREATEREQUAL), non-blended draws

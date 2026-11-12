@@ -8,7 +8,8 @@
 //   FX_FF_BAKED     geometry with baked vertex colours (lighting off, vs_ff_lit): only dynamic point lights are
 //                   added, as texture * light.
 //   FX_LIGHT_NORMALMAP  with FX_FF_LIT / FX_FF_BAKED: relief from the normal map derived from stage 1's height texture
-//                   (stage 14, stage 1's coordinates): lit draws perturb the normal, baked ones scale their colour.
+//                   or stage 0's colour texture (stage 14, that stage's coordinates: u_fxFf.y): lit draws perturb the
+//                   normal, baked ones scale their colour.
 //   FX_LIGHT_SHADOW[_SOFT]  with FX_FF_LIT: the sun's diffuse and specular terms are scaled by the sun shadow map
 //                   (stage 15, src/effects/shadows.hpp).
 //   AO volume       FX_FF_LIT / FX_FF_BAKED: the interior's ambient occlusion (ffAoVolume, off per draw by
@@ -21,6 +22,7 @@
 #define FX_FF_PIXEL_LIGHTING 1
 #include "fx_lighting.sh"
 // x: two-sided surface whose back side shows the light passing through (normal flipped towards the viewer)
+// y: FX_LIGHT_NORMALMAP: the texture stage (0 or 1) whose coordinates the normal map follows
 uniform vec4 u_fxFf;
 vec4 ffDiffuse;
 
@@ -164,7 +166,7 @@ void main()
 #endif
     vec3 Ng = N;
 #ifdef FX_LIGHT_NORMALMAP
-    N = fxPerturbNormal(Ng, P, v_texcoord1.xy);
+    N = fxPerturbNormal(Ng, P, u_fxFf.y > 0.5 ? v_texcoord1.xy : v_texcoord0.xy);
 #endif
     float aoVolume = ffAoVolume(P, Ng);
 #ifdef FX_FF_LIT

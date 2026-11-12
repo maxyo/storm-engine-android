@@ -45,7 +45,7 @@ enum LightingFlags : uint32_t
     kLightingSpecular = 1u << 2,   // FX_LIGHT_SPECULAR: Blinn-Phong highlight
     kLightingTranslucent = 1u << 3, // FX_LIGHT_TRANSLUCENT: back-lit thin surfaces (sails, flags)
     kLightingPoint = 1u << 4,       // FX_LIGHT_POINT: point and spot lights evaluated per pixel
-    kLightingNormalMap = 1u << 5,   // FX_LIGHT_NORMALMAP: relief from normal maps derived from the game's bump textures
+    kLightingNormalMap = 1u << 5,   // FX_LIGHT_NORMALMAP: relief from normal maps derived from the game's textures
     kLightingRim = 1u << 6,         // FX_LIGHT_RIM: rim light on characters and ships seen against the sun
     kLightingLinear = 1u << 7,      // FX_LIGHT_LINEAR: lights are added in linear light instead of gamma space
     kLightingAerial = 1u << 8,      // FX_AERIAL: aerial perspective and height fog instead of the plain fog
@@ -124,6 +124,7 @@ struct Settings
     uint32_t lighting_flags = kLightingNone;
     uint8_t point_lights = 4;      // per draw call with kLightingPoint: 4 or 8
     float normal_map_strength = 1.0f; // with kLightingNormalMap: scales every material's relief (0..1)
+    uint16_t normal_map_size = 1024;  // with kLightingNormalMap: larger side of the resident normal maps (RG8 + mips)
     ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
     // Ambient-occlusion volume of interiors (ao_volume.hpp): 0 off, else one of the strengths AoVolumeLevel names.
     uint8_t ao_volume = 0;

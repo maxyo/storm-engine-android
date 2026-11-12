@@ -9,6 +9,7 @@ namespace storm::fx
 
 enum class LogLevel
 {
+    Debug, // per-item decisions worth a trace but not a line in the normal log (which textures get relief)
     Info,  // capability report, settings changed by ConstrainSettings
     Error, // a request that was refused or could not be honoured: a bug in the caller or a missing input
 };

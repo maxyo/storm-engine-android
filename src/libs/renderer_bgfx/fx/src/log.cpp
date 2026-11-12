@@ -9,7 +9,7 @@ namespace
 {
 void DefaultSink(LogLevel level, const char *message)
 {
-    std::fprintf(stderr, "[fx] %s%s\n", level == LogLevel::Error ? "error: " : "", message);
+    std::fprintf(stderr, "[fx] %s%s\n", level == LogLevel::Error ? "error: " : level == LogLevel::Debug ? "debug: " : "", message);
 }
 
 LogSink g_sink = DefaultSink;

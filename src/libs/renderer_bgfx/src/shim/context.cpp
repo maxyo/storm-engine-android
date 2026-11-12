@@ -51,6 +51,19 @@ void logf(const char *format, ...)
     fprintf(stderr, "[storm-bgfx] %s\n", buffer);
 }
 
+void logd(const char *format, ...)
+{
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_DEBUG, "storm-bgfx", "%s", buffer);
+#endif
+    fprintf(stderr, "[storm-bgfx] debug: %s\n", buffer);
+}
+
 HRESULT trap(const char *method)
 {
     std::lock_guard lock(trap_mutex);

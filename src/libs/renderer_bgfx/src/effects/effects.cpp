@@ -25,7 +25,10 @@ namespace
 {
 void log_sink(fx::LogLevel level, const char *message)
 {
-    shim::logf("%sfx: %s", level == fx::LogLevel::Error ? "ERROR: " : "", message);
+    if (level == fx::LogLevel::Debug)
+        shim::logd("fx: %s", message);
+    else
+        shim::logf("%sfx: %s", level == fx::LogLevel::Error ? "ERROR: " : "", message);
 }
 
 // One engine option: an integer from engine.ini / the app's graphics preferences. -1 keeps the preset's value.
@@ -614,6 +617,11 @@ void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path
 {
     if (shim::TexStore *store = shim::store_of(texture))
         effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path);
+}
+
+void ConfigureEffectsCache(const std::filesystem::path &directory, uint64_t max_bytes)
+{
+    effects::ConfigureNormalMapCache(directory / "NormalMaps", max_bytes);
 }
 
 std::string TakeEffectsNotice()

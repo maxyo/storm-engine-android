@@ -36,7 +36,8 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.anisotropy = 4;
         s.lighting_flags = kLightingPerPixel | kLightingPoint | kLightingNormalMap;
         s.point_lights = 4;
-        s.normal_map_strength = 0.6f;
+        s.normal_map_strength = 0.8f;
+        s.normal_map_size = 512; // a quarter of High's memory
         s.shadows = ShadowQuality::Low;
         s.ao_volume = 2;
         return s;

@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <span>
 #include <string>
 #include <string_view>
@@ -110,9 +111,14 @@ void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<floa
                           std::span<const uint32_t> indices, const std::array<float, 3> &bounds_lo = {},
                           const std::array<float, 3> &bounds_hi = {});
 
-// The game file a texture was loaded from (Renderer::TextureLoad, after its levels are filled). Grey height
-// ("bump") textures get a normal map for the per-pixel lighting's relief (fx_light_normal_map).
+// The game file a texture was loaded from (Renderer::TextureLoad, after its levels are filled). Stone, wood, plaster
+// and ground textures and grey height ("bump") textures get a normal map for the per-pixel lighting's relief
+// (fx_light_normal_map, fx/normal_map.hpp).
 void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path);
+
+// Where the effects keep what they derive from the game's files (normal maps), at most `max_bytes` (least recently
+// used files are evicted): the app's cache directory on Android. Before the first texture is loaded.
+void ConfigureEffectsCache(const std::filesystem::path &directory, uint64_t max_bytes);
 
 // ---- World passes: fx sky, contact shadows ----
 // The consumer entities (SKY, SEA, shadow, SUNGLOW) ask which parts are on and then either call the fx pass below
