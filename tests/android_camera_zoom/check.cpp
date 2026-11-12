@@ -94,4 +94,21 @@ int main()
     assert(near(deck.step(0.0f), 1.8f));
     deck.reset();
     assert(deck.target() == 1.0f && deck.step(0.016f) == 1.0f);
+
+    // Zoomed deck -> raise the spyglass -> lower it: the telescope grows in from the deck's
+    // zoomed view (no jump back to 1x first), reaches the glass's view, and once lowered the
+    // deck view comes back with the zoom it had (the deck camera keeps its zoom meanwhile).
+    const float perspective = 1.285f, glass = perspective / 7.0f;
+    DeckZoom zoomed;
+    zoomed.pinch(2.0f);
+    for (int frame = 0; frame < 120; ++frame)
+        zoomed.step(0.016f);
+    const float deckView = perspective / zoomed.step(0.016f);
+    assert(near(deckView, perspective / 2.0f, 1e-3f));
+    assert(telescopeGrowPerspective(deckView, glass, 0.0f) == deckView); // the raise's first frame
+    assert(near(telescopeGrowPerspective(deckView, glass, 0.5f), (deckView + glass) / 2.0f));
+    assert(telescopeGrowPerspective(deckView, glass, 1.0f) == glass && telescopeGrowPerspective(deckView, glass, 3.0f) == glass);
+    for (int frame = 0; frame < 60; ++frame) // the deck camera stays in charge under the raised glass
+        zoomed.step(0.016f);
+    assert(near(perspective / zoomed.step(0.016f), deckView, 1e-3f)); // lowered: the deck's own zoom again
 }

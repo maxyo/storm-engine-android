@@ -12,4 +12,4 @@ with tempfile.TemporaryDirectory(prefix='storm-camera-zoom-') as d:
                     '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 print("PASS: pinch factors multiply within a frame, act only in it (a dropped one is reported once, never applied later), "
-      "bad commands refused; ship distance, world-map height, spyglass magnification and land radius follow the fingers within the game's limits; deck FOV zoom 1x..2x eases to the fingers and resets off the deck")
+      "bad commands refused; ship distance, world-map height, spyglass magnification and land radius follow the fingers within the game's limits; deck FOV zoom 1x..2x eases to the fingers and resets off the deck; a raised spyglass grows in from the zoomed deck view and gives it back")

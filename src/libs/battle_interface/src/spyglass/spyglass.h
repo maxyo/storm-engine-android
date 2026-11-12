@@ -81,6 +81,9 @@ class ISPYGLASS : public Entity
         // pinch of the camera look moves between 1 and the glass's (platform/android_camera_zoom.hpp).
         float fGlassMagnification = 1.f;
         float fMagnification = 1.f;
+        // The view the telescope grows in from: the camera's own at the raise (the deck's pinch
+        // zoom included), not the one at Init, so raising a zoomed deck view does not jump.
+        float fRaisedFromPerspective = 1.f;
 #endif
 
         bool bIsActive;
