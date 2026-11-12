@@ -2,7 +2,10 @@
 
 #include <RmlUi/Core/ElementText.h>
 
+#include <RmlUi/Core/StringUtilities.h>
+
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <map>
@@ -69,6 +72,16 @@ Rml::Element *ComponentSlot(ComponentElement &component)
 {
     return FindSlot(&component);
 }
+
+struct RmlNode
+{
+    bool text = false;
+    size_t begin = 0, end = 0;             // the node's whole text in the render
+    size_t inner_begin = 0, inner_end = 0; // between its tags (elements)
+    std::string tag;
+    std::vector<std::pair<std::string, std::string>> attributes; // raw, as written
+    std::vector<RmlNode> children;
+};
 
 namespace
 {
@@ -285,6 +298,271 @@ void MorphChildren(Rml::Element *live, Rml::Element *fresh)
     }
     for (size_t i = wanted.size(); i < current_children.size(); ++i)
         live->RemoveChild(current_children[i]);
+}
+
+// --- the rendered template's own tree ---------------------------------------------------
+// A template renders to RML text. Parsing all of it into RmlUi elements to compare them with
+// the live ones (the morph above) instanced every element of the component on every change
+// of one value: the store's list re-made all its rows for a new amount. RmlNode is the same
+// text as spans of a light tree, compared with the previous render's: an element whose text
+// did not change is left alone, a changed one is patched attribute by attribute, and RmlUi
+// elements are instanced only for what is new.
+
+// Parses what the templates write (elements, attributes in quotes, text, comments); anything
+// else is refused and the component falls back to the whole morph.
+bool ParseRml(std::string_view rml, size_t &at, std::vector<RmlNode> &out, const std::string &closing)
+{
+    while (at < rml.size())
+    {
+        if (rml[at] != '<')
+        {
+            const size_t end = std::min(rml.find('<', at), rml.size());
+            const std::string_view run = rml.substr(at, end - at);
+            // RmlUi makes no element of text that is only white space (Factory::InstanceElementText).
+            if (!std::all_of(run.begin(), run.end(), [](char c) { return Rml::StringUtilities::IsWhitespace(c); }))
+            {
+                RmlNode node;
+                node.text = true;
+                node.begin = at;
+                node.end = end;
+                out.push_back(std::move(node));
+            }
+            at = end;
+            continue;
+        }
+        if (rml.compare(at, 4, "<!--") == 0)
+        {
+            const size_t end = rml.find("-->", at);
+            if (end == std::string_view::npos)
+                return false;
+            at = end + 3;
+            continue;
+        }
+        if (rml.compare(at, 2, "</") == 0)
+        {
+            const size_t end = rml.find('>', at);
+            if (end == std::string_view::npos || closing.empty() || rml.substr(at + 2, end - at - 2) != closing)
+                return false;
+            at = end + 1;
+            return true;
+        }
+        if (at + 1 >= rml.size() || !std::isalpha(static_cast<unsigned char>(rml[at + 1])))
+            return false; // <! <? and the like
+        RmlNode node;
+        node.begin = at;
+        size_t i = at + 1;
+        while (i < rml.size() && (std::isalnum(static_cast<unsigned char>(rml[i])) || rml[i] == '-' || rml[i] == '_'))
+            ++i;
+        node.tag = std::string(rml.substr(at + 1, i - at - 1));
+        bool self_closing = false;
+        while (true)
+        {
+            while (i < rml.size() && Rml::StringUtilities::IsWhitespace(rml[i]))
+                ++i;
+            if (i >= rml.size())
+                return false;
+            if (rml[i] == '>')
+            {
+                ++i;
+                break;
+            }
+            if (rml.compare(i, 2, "/>") == 0)
+            {
+                i += 2;
+                self_closing = true;
+                break;
+            }
+            const size_t name_begin = i;
+            while (i < rml.size() && rml[i] != '=' && rml[i] != '>' && rml[i] != '/' && !Rml::StringUtilities::IsWhitespace(rml[i]))
+                ++i;
+            std::string name(rml.substr(name_begin, i - name_begin));
+            if (name.empty() || i >= rml.size() || rml[i] != '=')
+                return false; // attributes without a value are not written by the templates
+            ++i;
+            if (i >= rml.size() || (rml[i] != '"' && rml[i] != '\''))
+                return false;
+            const char quote = rml[i];
+            const size_t value_end = rml.find(quote, i + 1);
+            if (value_end == std::string_view::npos)
+                return false;
+            node.attributes.emplace_back(std::move(name), std::string(rml.substr(i + 1, value_end - i - 1)));
+            i = value_end + 1;
+        }
+        node.inner_begin = node.inner_end = i;
+        at = i;
+        if (!self_closing)
+        {
+            if (!ParseRml(rml, at, node.children, node.tag))
+                return false;
+            node.inner_end = rml.rfind("</", at - 1);
+        }
+        node.end = at;
+        out.push_back(std::move(node));
+    }
+    return closing.empty();
+}
+
+std::string_view Span(std::string_view rml, const RmlNode &node)
+{
+    return rml.substr(node.begin, node.end - node.begin);
+}
+
+// RmlUi elements for a piece of the render (one node, or the run of a node list).
+Rml::ElementPtr Instance(Rml::Element *live, std::string_view rml)
+{
+    Rml::ElementPtr fresh = live->GetOwnerDocument()->CreateElement("div");
+    fresh->SetInnerRML(Rml::String(rml));
+    return fresh;
+}
+
+struct PatchStats
+{
+    int touched = 0;    // elements given another attribute or text, made, or removed
+    int fallbacks = 0;  // levels morphed whole (a keyed list, a live tree that is not the last render's)
+};
+
+void PatchChildren(Rml::Element *live, std::string_view before, const std::vector<RmlNode> &old_nodes, std::string_view after,
+                   const std::vector<RmlNode> &new_nodes, PatchStats &stats);
+
+// `live` was made from `old_node`; makes it what `new_node` describes. Same rules as SyncElement.
+void PatchElement(Rml::Element *live, std::string_view before, const RmlNode &old_node, std::string_view after, const RmlNode &new_node,
+                  PatchStats &stats)
+{
+    if (new_node.text)
+    {
+        auto *text = rmlui_dynamic_cast<Rml::ElementText *>(live);
+        const Rml::String value = Rml::StringUtilities::DecodeRml(Rml::String(Span(after, new_node)));
+        if (text && text->GetText() != value)
+        {
+            text->SetText(value);
+            ++stats.touched;
+        }
+        return;
+    }
+    std::map<std::string, Rml::String> wanted;
+    for (const auto &[name, value] : new_node.attributes)
+        wanted[name] = Rml::StringUtilities::DecodeRml(value);
+    bool touched = false;
+    std::vector<std::string> stale;
+    for (const auto &entry : live->GetAttributes())
+        if (!wanted.count(entry.first) && !(entry.first == "rmlui-layout-boundary" && dynamic_cast<ComponentElement *>(live)) &&
+            std::any_of(old_node.attributes.begin(), old_node.attributes.end(), [&](const auto &old) { return old.first == entry.first; }))
+            stale.push_back(entry.first); // only what the template set: runtime attributes stay, as with an unchanged render
+    for (const std::string &name : stale)
+    {
+        if (name == "style")
+            for (const auto &old : ParseStyle(live->GetAttribute<Rml::String>("style", "")))
+                live->RemoveProperty(old.first);
+        live->RemoveAttribute(name);
+        touched = true;
+    }
+    for (const auto &[name, value] : wanted)
+    {
+        const bool had = live->HasAttribute(name);
+        const Rml::String current = live->GetAttribute<Rml::String>(name, "");
+        if (had && current == value)
+            continue;
+        if (name == "style" && had)
+        {
+            const auto kept = ParseStyle(value);
+            for (const auto &old : ParseStyle(current))
+                if (!kept.count(old.first))
+                    live->RemoveProperty(old.first);
+        }
+        live->SetAttribute(name, value);
+        if (name == "style" && had)
+            TweenStyle(live, current, value);
+        touched = true;
+    }
+    if (touched)
+        ++stats.touched;
+    if (live->HasAttribute("slot"))
+        return; // the component's own children live here
+    if (live->GetTagName().rfind("ui-", 0) == 0 && live->GetTagName() != "ui-wheel")
+        return; // code-drawn elements own their children
+    const std::string_view old_inner = before.substr(old_node.inner_begin, old_node.inner_end - old_node.inner_begin);
+    const std::string_view new_inner = after.substr(new_node.inner_begin, new_node.inner_end - new_node.inner_begin);
+    if (auto *component = dynamic_cast<ComponentElement *>(live))
+    {
+        // A nested component rebuilds itself from its attributes; only content passed into
+        // its slot comes from this template.
+        if (old_inner != new_inner)
+        {
+            Rml::ElementPtr fresh = Instance(live, new_inner);
+            component->SyncSlot(fresh.get());
+            ++stats.touched;
+        }
+        return;
+    }
+    if (old_inner != new_inner)
+        PatchChildren(live, before, old_node.children, after, new_node.children, stats);
+}
+
+void PatchChildren(Rml::Element *live, std::string_view before, const std::vector<RmlNode> &old_nodes, std::string_view after,
+                   const std::vector<RmlNode> &new_nodes, PatchStats &stats)
+{
+    std::vector<Rml::Element *> current;
+    for (int i = 0; i < live->GetNumChildren(); ++i)
+        if (!live->GetChild(i)->IsClassSet("scroll-fade")) // the runtime's own (MorphChildren)
+            current.push_back(live->GetChild(i));
+    const bool keyed = !new_nodes.empty() && std::all_of(new_nodes.begin(), new_nodes.end(), [](const RmlNode &node) {
+        return std::any_of(node.attributes.begin(), node.attributes.end(), [](const auto &a) { return a.first == "data-key"; });
+    });
+    if (keyed || current.size() != old_nodes.size())
+    {
+        // A keyed list, or a live level that is not the last render (code added or removed
+        // children): the whole level is morphed as before.
+        ++stats.fallbacks;
+        const std::string_view run =
+            new_nodes.empty() ? std::string_view() : after.substr(new_nodes.front().begin, new_nodes.back().end - new_nodes.front().begin);
+        Rml::ElementPtr fresh = Instance(live, run);
+        MorphChildren(live, fresh.get());
+        stats.touched += int(new_nodes.size());
+        return;
+    }
+    for (size_t i = 0; i < new_nodes.size(); ++i)
+    {
+        const RmlNode &node = new_nodes[i];
+        if (i < old_nodes.size())
+        {
+            const RmlNode &old = old_nodes[i];
+            if (Span(before, old) == Span(after, node))
+                continue; // rendered the same: untouched
+            Rml::Element *element = current[i];
+            const bool same = old.text == node.text && (node.text ? rmlui_dynamic_cast<Rml::ElementText *>(element) != nullptr
+                                                                   : element->GetTagName() == node.tag &&
+                                                                         std::any_of(old.attributes.begin(), old.attributes.end(),
+                                                                                     [](const auto &a) { return a.first == "slot"; }) ==
+                                                                             std::any_of(node.attributes.begin(), node.attributes.end(),
+                                                                                         [](const auto &a) { return a.first == "slot"; }));
+            const auto id_of = [](const RmlNode &n) {
+                for (const auto &a : n.attributes)
+                    if (a.first == "id")
+                        return Rml::StringUtilities::DecodeRml(a.second);
+                return Rml::String();
+            };
+            // A component that takes another id is another component (MorphChildren).
+            if (same && (node.text || !dynamic_cast<ComponentElement *>(element) || element->GetId() == id_of(node)))
+            {
+                PatchElement(element, before, old, after, node, stats);
+                continue;
+            }
+            Rml::ElementPtr fresh = Instance(live, Span(after, node));
+            if (fresh->GetNumChildren() == 1)
+                live->ReplaceChild(fresh->RemoveChild(fresh->GetFirstChild()), element);
+            ++stats.touched;
+            continue;
+        }
+        Rml::ElementPtr fresh = Instance(live, Span(after, node));
+        while (fresh->GetNumChildren() > 0)
+            live->AppendChild(fresh->RemoveChild(fresh->GetFirstChild()));
+        ++stats.touched;
+    }
+    for (size_t i = new_nodes.size(); i < current.size(); ++i)
+    {
+        live->RemoveChild(current[i]);
+        ++stats.touched;
+    }
 }
 
 } // namespace
@@ -549,7 +827,7 @@ void ComponentElement::RebuildNow()
     std::string rml;
     try
     {
-        rml = RenderTemplate(spec_.body, scope);
+        rml = RenderTemplate(spec_.body, scope, &memo_);
     }
     catch (const std::exception &error)
     {
@@ -563,13 +841,36 @@ void ComponentElement::RebuildNow()
         if (!built_ && Truthy(spec_.constants.value("layoutBoundary", Json(false))))
             SetAttribute("rmlui-layout-boundary", "");
         SetInnerRML(rml);
+        ++services_.Counters().touched;
+        size_t at = 0;
+        built_tree_.clear();
+        built_tree_ok_ = ParseRml(rml, at, built_tree_, {});
     }
     else if (rml != built_rml_)
     {
-        // Later builds patch the existing tree in place.
-        Rml::ElementPtr fresh = document->CreateElement("div");
-        fresh->SetInnerRML(rml);
-        MorphChildren(this, fresh.get());
+        // Later builds patch the existing tree in place: only what the render changed.
+        std::vector<RmlNode> fresh_tree;
+        size_t at = 0;
+        if (built_tree_ok_ && ParseRml(rml, at, fresh_tree, {}))
+        {
+            PatchStats stats;
+            PatchChildren(this, built_rml_, built_tree_, rml, fresh_tree, stats);
+            services_.Counters().touched += stats.touched;
+            services_.Counters().patch_fallbacks += stats.fallbacks;
+            built_tree_ = std::move(fresh_tree);
+        }
+        else
+        {
+            Rml::ElementPtr fresh = document->CreateElement("div");
+            fresh->SetInnerRML(rml);
+            MorphChildren(this, fresh.get());
+            ++services_.Counters().patch_fallbacks;
+            ++services_.Counters().touched;
+            at = 0;
+            fresh_tree.clear();
+            built_tree_ok_ = ParseRml(rml, at, fresh_tree, {});
+            built_tree_ = std::move(fresh_tree);
+        }
     }
     // Else the template gave what is shown already (a model revision that did not touch this
     // component): no tree is parsed, compared or laid out.

@@ -13,13 +13,29 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 namespace storm::ui
 {
 
 using Json = nlohmann::json;
 
-std::string RenderTemplate(std::string_view source, const Json &scope);
+// What a component keeps between its renders so that a loop over a prop renders again only
+// the items that changed (RenderTemplate): per loop, the output of each item by its value and
+// position, valid while the rest of the scope is what it was.
+struct TemplateMemo
+{
+    struct Loop
+    {
+        std::string outside; // the scope without the looped prop, as it was
+        std::unordered_map<std::string, std::string> items; // item key -> its output
+        std::unordered_map<std::string, std::string> next;  // filled by the render in progress
+    };
+    std::unordered_map<std::string, Loop> loops; // by the loop's place in the template
+    int rendered = 0, reused = 0;                // items of the last render
+};
+
+std::string RenderTemplate(std::string_view source, const Json &scope, TemplateMemo *memo = nullptr);
 // The lookup behind the template helper tr('key'): the UI string of the current language
 // (pack strings/<lang>.json). The host installs it; without one tr() is a template error.
 void SetTemplateStrings(std::function<std::string(const std::string &key)> lookup);
