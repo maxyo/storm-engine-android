@@ -40,6 +40,7 @@ constexpr NodeRule kNodes[] = {
     {"CONTRABAND_CAPTION", "text"},
     {"AGGRESSIVE_CAPTION", "text"},
     {"TRADEASSISTANT_*", "text"},
+    {"GOODS_PICTURES", "image"}, // MapBest: the goods of the colony and of the trade assistant, where the script drew them
     {"MAIN_BACK", "image"},
     {"BOUNDARIES", "image"},
 };
@@ -141,23 +142,39 @@ class MapScreen final : public Screen
         info_open_ = !view["info"].is_null();
         if (info_open_)
         {
-            // Two pages of ours instead of one scrolling sheet: what the colony trades, and the town's facts
-            // (with the siege). A page with nothing on it is not offered; a new colony opens on the trade.
+            // Pages of ours instead of one scrolling sheet: what the colony trades, the trade assistant's
+            // profits, and the town's facts (with the siege). A page with nothing on it is not offered; a new
+            // colony opens on the first there is.
             Json &info = view["info"];
             if (info["title"] != info_title_)
             {
                 info_title_ = info["title"].get<std::string>();
-                info_city_ = false;
+                info_page_.clear();
             }
-            const bool has_trade = !info["sections"].empty();
-            const bool has_city = !info["facts"].empty() || !info["notes"].empty();
-            const bool city = has_city && (info_city_ || !has_trade);
-            info["page"] = city ? "city" : "trade";
-            info["tabs"] = has_trade && has_city ? Json::array({Json{{"id", "trade"}, {"label", bindings.Text("colony.trade")}, {"selected", !city}},
-                                                                Json{{"id", "city"}, {"label", bindings.Text("colony.city")}, {"selected", city}}})
-                                                 : Json::array();
+            const auto has = [&info](const char *page) {
+                for (const Json &section : info["sections"])
+                    if (section["page"] == page)
+                        return true;
+                return false;
+            };
+            Json tabs = Json::array();
+            const auto offer = [&](const char *id, const std::string &label, bool there) {
+                if (there)
+                    tabs.push_back(Json{{"id", id}, {"label", label}, {"selected", false}});
+            };
+            offer("trade", bindings.Text("colony.trade"), has("trade"));
+            offer("assistant", bindings.Text("colony.assistant"), has("assistant"));
+            offer("city", bindings.Text("colony.city"), !info["facts"].empty() || !info["notes"].empty());
+            std::string page = tabs.empty() ? std::string("trade") : tabs[0]["id"].get<std::string>();
+            for (const Json &tab : tabs)
+                if (tab["id"] == info_page_)
+                    page = info_page_;
+            for (Json &tab : tabs)
+                tab["selected"] = tab["id"] == page;
+            info["page"] = page;
+            info["tabs"] = tabs.size() > 1 ? tabs : Json::array();
             bindings.On("info-tabs", "select", [this, &bindings](const Event &event) {
-                info_city_ = event.value == "city";
+                info_page_ = event.value;
                 bindings.Rebuild();
             });
         }
@@ -226,7 +243,76 @@ class MapScreen final : public Screen
             const std::string title = admitted.Label(caption_node);
             if (goods.empty() && lines.empty())
                 continue;
-            sections.push_back(Json{{"title", title}, {"goods", goods}, {"lines", lines}});
+            sections.push_back(Json{{"title", title}, {"goods", goods}, {"lines", lines}, {"page", std::string(prefix) == "TRADEASSISTANT" ? "assistant" : "trade"}});
+        }
+        // MapBest.c draws its goods as pictures at fixed places (ShowColonyInfo): the colony's own right of
+        // x 410 in bands (export from y 245, import 330, contraband 415, aggressive 470), the trade assistant's
+        // in two columns (x 230: bought here and sold there, x 310: the other way), one row per price line of
+        // TRADEASSISTANT_PRICES1 / 2 (profit per unit of weight). The engine exports each picture with its
+        // place and the good's name; here they become rows: the good, and for the assistant its profit beside it.
+        const std::vector<const Widget *> pictures = admitted.All("GOODS_PICTURES");
+        if (!pictures.empty())
+        {
+            const auto place = [](const Widget *picture, const char *axis) {
+                const auto found = picture->context.find(axis);
+                return found == picture->context.end() ? 0 : std::atoi(found->second.c_str());
+            };
+            const auto good = [](const Widget *picture) {
+                Json texture = TextureOf(picture->FirstImage());
+                if (texture.is_null())
+                    texture = Json::object();
+                texture["label"] = picture->label.empty() ? picture->row_id : picture->label;
+                return texture;
+            };
+            const auto numbers = [&admitted](const char *node) {
+                std::vector<std::string> out;
+                for (const std::string &text : Labels(admitted.All(node)))
+                    for (size_t at = 0; at < text.size();)
+                    {
+                        const size_t end = text.find_first_of(" \n\t", at);
+                        if (end != at)
+                            out.push_back(text.substr(at, end == std::string::npos ? std::string::npos : end - at));
+                        at = end == std::string::npos ? text.size() : end + 1;
+                    }
+                return out;
+            };
+            sections = Json::array();
+            struct Band
+            {
+                const char *caption;
+                int from, to;
+            };
+            static const Band bands[] = {{"EXPORT_CAPTION", 0, 330}, {"IMPORT_CAPTION", 330, 415}, {"CONTRABAND_CAPTION", 415, 470}, {"AGGRESSIVE_CAPTION", 470, 1 << 20}};
+            for (const Band &band : bands)
+            {
+                Json goods = Json::array();
+                for (const Widget *picture : pictures)
+                    if (place(picture, "x") >= 400 && place(picture, "y") >= band.from && place(picture, "y") < band.to)
+                        goods.push_back(good(picture));
+                if (!goods.empty())
+                    sections.push_back(Json{{"title", admitted.Label(band.caption)}, {"goods", goods}, {"lines", Json::array()}, {"page", "trade"}});
+            }
+            for (int column = 0; column < 2; ++column)
+            {
+                std::vector<const Widget *> listed;
+                for (const Widget *picture : pictures)
+                    if (place(picture, "x") < 400 && (place(picture, "x") >= 270) == (column == 1))
+                        listed.push_back(picture);
+                std::stable_sort(listed.begin(), listed.end(), [&place](const Widget *a, const Widget *b) { return place(a, "y") < place(b, "y"); });
+                const std::vector<std::string> prices = numbers(column == 0 ? "TRADEASSISTANT_PRICES1" : "TRADEASSISTANT_PRICES2");
+                Json goods = Json::array();
+                for (size_t i = 0; i < listed.size(); ++i)
+                {
+                    Json row = good(listed[i]);
+                    row["value"] = i < prices.size() ? "+" + prices[i] : std::string();
+                    goods.push_back(std::move(row));
+                }
+                const std::string direction = admitted.Label(column == 0 ? "TRADEASSISTANT_TO" : "TRADEASSISTANT_FROM");
+                if (!goods.empty())
+                    sections.push_back(Json{{"title", direction}, {"goods", goods}, {"lines", Json::array()}, {"page", "assistant"}});
+            }
+            if (const std::string special = admitted.Label("TRADEASSISTANT_SPECIAL"); !special.empty())
+                sections.push_back(Json{{"title", ""}, {"goods", Json::array()}, {"lines", Json::array({special})}, {"page", "assistant"}});
         }
         info["sections"] = sections;
         return info;
@@ -235,7 +321,7 @@ class MapScreen final : public Screen
     const Widget *map_ = nullptr;
     bool info_open_ = false;
     std::string info_title_; // the colony the sheet shows
-    bool info_city_ = false; // its «Город» page
+    std::string info_page_;  // the page of it the player chose
 };
 
 } // namespace

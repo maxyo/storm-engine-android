@@ -221,7 +221,9 @@ static void Maps(const std::string &models)
            "colony sheet: name, flag, travel");
     Expect(info["facts"].size() == 4 && info["facts"][1] == Json({{"k", "Казна"}, {"v", "86 300"}}) && info["factsTitle"] == "Сведения о колонии",
            "colony facts pair the game's two columns");
-    Expect(info["page"] == "trade" && info["tabs"].size() == 2 && info["tabs"][0]["selected"] == true, "the colony sheet opens on its trade page, the town is the other");
+    Expect(info["page"] == "trade" && info["tabs"].size() == 3 && info["tabs"][0]["selected"] == true && info["tabs"][1]["id"] == "assistant" &&
+               info["tabs"][2]["id"] == "city",
+           "the colony sheet opens on its goods; the trade assistant and the town are pages of their own");
     const Json &sections = info["sections"];
     Expect(sections.size() == 3 && sections[0]["title"] == "Экспорт" && sections[0]["goods"].size() == 2 &&
                sections[0]["goods"][1] == Json({{"texture", "atlas:GOODS/Coffee"}, {"uv", ""}, {"label", "Кофе"}}) &&
@@ -233,6 +235,70 @@ static void Maps(const std::string &models)
     ExpectEqual(surface.Last(), "widget:mapbest\tMAP\t-1\trelease", "the cross lets go of the colony (the game's right button up)");
     router.Back();
     ExpectEqual(surface.Last(), "widget:mapbest\tMAP\t-1\trelease", "so does the back key");
+
+    // As the game really sends it (MapBest.c): the goods are pictures the script drew at its own places (the engine
+    // exports them with x, y and the good's name), the assistant's profits two joined columns of numbers.
+    {
+        InterfaceModel real = Load(models, "map-best-colony.json");
+        Widget picture_template;
+        for (const Widget &widget : real.widgets)
+            if (widget.node == "EXPORT1_PICTURE")
+                picture_template = widget;
+        real.widgets.erase(std::remove_if(real.widgets.begin(), real.widgets.end(),
+                                          [](const Widget &w) {
+                                              return w.node.find("_PICTURE") != std::string::npos && w.node != "INFO_NATION_PICTURE" ||
+                                                     w.node == "EXPORT_INFO" || w.node == "IMPORT_INFO" || w.node.rfind("TRADEASSISTANT_", 0) == 0;
+                                          }),
+                           real.widgets.end());
+        int index = 0;
+        const auto picture = [&](const char *id, const char *name, int x, int y) {
+            Widget widget = picture_template;
+            widget.node = "GOODS_PICTURES";
+            widget.index = index++;
+            widget.row_id = id;
+            widget.label = name;
+            widget.images[0].group = "GOODS";
+            widget.images[0].image = id;
+            widget.context = {{"x", std::to_string(x)}, {"y", std::to_string(y)}};
+            real.widgets.push_back(widget);
+        };
+        const auto text = [&](const char *node, const char *label) {
+            Widget widget;
+            widget.node = node;
+            widget.type = "text";
+            widget.label = label;
+            real.widgets.push_back(widget);
+        };
+        picture("Sugar", "Сахар", 410, 245);
+        picture("Coffee", "Кофе", 438, 245);
+        picture("Rum", "Ром", 410, 330);
+        picture("Weapon", "Оружие", 410, 415);
+        picture("Rum", "Ром", 230, 395);      // the assistant, bought here and sold there
+        picture("Sugar", "Сахар", 230, 423);
+        picture("Coffee", "Кофе", 310, 395);  // and the way back
+        text("TRADEASSISTANT_CAPTION", "Торговый помощник");
+        text("TRADEASSISTANT_TO", "Туда");
+        text("TRADEASSISTANT_FROM", "Обратно");
+        text("TRADEASSISTANT_PRICES1", "6.4 5.7");
+        text("TRADEASSISTANT_PRICES2", "2.1");
+        text("CONTRABAND_CAPTION", "Контрабанда");
+        FakeSurface real_surface;
+        Router real_router(real_surface);
+        real_router.SetInterface(real);
+        const Json &rows = real_surface.props["info"]["sections"];
+        Expect(real_surface.errors.empty() && rows.size() == 5 && rows[0]["title"] == "Экспорт" && rows[0]["goods"].size() == 2 &&
+                   rows[1]["goods"][0]["label"] == "Ром" && rows[2]["title"] == "Контрабанда" && rows[2]["goods"][0]["texture"] == "atlas:GOODS/Weapon",
+               "the colony's goods by the script's bands: " + rows.dump());
+        Expect(rows[3]["title"] == "Туда" && rows[3]["page"] == "assistant" && rows[0]["page"] == "trade" && rows[3]["goods"].size() == 2 && rows[3]["goods"][0]["label"] == "Ром" &&
+                   rows[3]["goods"][0]["value"] == "+6.4" && rows[3]["goods"][1]["value"] == "+5.7" && rows[4]["title"] == "Обратно" &&
+                   rows[4]["goods"][0] == Json({{"texture", "atlas:GOODS/Coffee"}, {"uv", ""}, {"label", "Кофе"}, {"value", "+2.1"}}) && rows[4]["page"] == "assistant",
+               "the assistant: each good with its profit on the same row, both directions: " + rows[3].dump() + rows[4].dump());
+        // The town page is the other tab.
+        real_router.OnEvent({"info-tabs", "select", "city"});
+        Expect(real_surface.props["info"]["page"] == "city" && real_surface.props["info"]["tabs"][2]["selected"] == true, "«Город» shows the facts");
+        real_router.OnEvent({"info-tabs", "select", "assistant"});
+        Expect(real_surface.props["info"]["page"] == "assistant", "«Помощник» shows the profits");
+    }
 }
 
 static void Notices(const std::string &models)
@@ -440,33 +506,34 @@ static void ColonyLoot(const std::string &models)
         return model;
     };
     const std::string prefix = "widget:colonycapture\t";
-    router.SetInterface(state({60, 400, 150, 300}, 201, 240, -1));
+    InterfaceModel town = state({60, 400, 150, 300}, 201, 240, -1);
+    router.SetInterface(town);
     Expect(surface.props["primary"]["label"] == "<trade.take_best>" && surface.props["primary"]["sub"] == "39 <transfer.cwt>" &&
-               surface.props["primary"]["disabled"] == false && surface.props["place"]["facts"][0]["v"] == "39 <transfer.cwt>" && surface.errors.empty(),
+               surface.props["primary"]["disabled"] == false && surface.props["place"]["title"] == "Город" &&
+               surface.props["place"]["facts"][0]["v"] == "39 <transfer.cwt>" && surface.errors.empty(),
            "town loot: one button that fills the 39 cwt of room: " + surface.props["primary"].dump());
     surface.commands.clear();
     router.OnEvent({"primary", "click", ""});
-    Expect(surface.commands.size() == 1 && surface.commands[0].rfind(prefix + "TABLE_LIST\t2\tactivate@", 0) == 0 && surface.props["primary"]["busy"] == true,
-           "first the sailcloth (150 a cwt): its amount window: " + Json(surface.commands).dump());
-    surface.commands.clear();
-    router.SetInterface(state({60, 400, 150, 300}, 201, 240, 2));
-    router.Tick();
-    Expect(surface.commands.size() == 3 && surface.commands[1].find("QTY_EDIT") != std::string::npos && surface.commands[1].rfind("|150") == surface.commands[1].size() - 4 &&
-               surface.commands[2].find("QTY_OK_BUTTON") != std::string::npos,
-           "all 150 of it fit (15 cwt): entered and confirmed: " + Json(surface.commands).dump());
-    surface.commands.clear();
-    router.SetInterface(state({60, 400, 0, 300}, 216, 240, -1));
-    Expect(surface.commands.size() == 1 && surface.commands[0].rfind(prefix + "TABLE_LIST\t3\tactivate@", 0) == 0, "then the coffee (120 a cwt): " + Json(surface.commands).dump());
-    surface.commands.clear();
-    router.SetInterface(state({60, 400, 0, 300}, 216, 240, 3));
-    router.Tick();
-    Expect(surface.commands.size() == 3 && surface.commands[1].rfind("|240") == surface.commands[1].size() - 4,
-           "24 cwt of room are 24 packs of the 30: 240 pieces: " + Json(surface.commands).dump());
-    surface.commands.clear();
+    // The plan in ONE action: all 150 of the sailcloth (150 a cwt, 15 cwt), then coffee (120 a cwt): 24 cwt of room are
+    // 24 packs of its 30: 240 pieces; nothing of the sugar and the planks: the hold is full. Rows are the table's tr numbers.
+    Expect(surface.commands.size() == 1 && surface.commands[0] == prefix + "ANDROID_LOOT\t0\ttake@" + std::to_string(town.opening) + ":3=150,4=240",
+           "one script call takes the most valuable per unit of space, greedily, to a full hold: " + Json(surface.commands).dump());
+    {
+        // A good too heavy for the room that is left is passed over for a lighter one further down.
+        FakeSurface tight_surface;
+        Router tight(tight_surface);
+        InterfaceModel model = state({60, 400, 0, 0}, 239, 240, -1); // 1 cwt of room: no planks (2 a pack), ten of sugar
+        tight.SetInterface(model);
+        tight.OnEvent({"primary", "click", ""});
+        Expect(tight_surface.commands.size() == 1 && tight_surface.commands[0].rfind(":1=10") == tight_surface.commands[0].size() - 5 &&
+                   tight_surface.props["primary"]["sub"] == "1 <transfer.cwt>",
+               "1 cwt of room: a pack of sugar, no planks: " + Json(tight_surface.commands).dump());
+    }
     router.SetInterface(state({60, 400, 0, 60}, 240, 240, -1));
-    Expect(surface.commands.empty() && surface.props["primary"]["busy"] == false && surface.props["primary"]["disabled"] == true &&
-               surface.props["primary"]["reason"] == "<trade.no_room>",
-           "the hold is full: it ends, and the button says why it is off: " + surface.props["primary"].dump());
+    surface.commands.clear();
+    router.OnEvent({"primary", "click", ""});
+    Expect(surface.commands.empty() && surface.props["primary"]["disabled"] == true && surface.props["primary"]["reason"] == "<trade.no_room>",
+           "a full hold: the button is off and says why: " + surface.props["primary"].dump());
     {
         // Without the adapter's values the button is off and the screen says so aloud.
         InterfaceModel bare = state({60, 400, 150, 300}, 201, 240, -1);

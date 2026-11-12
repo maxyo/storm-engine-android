@@ -351,6 +351,7 @@ class XINTERFACE : public XINTERFACE_BASE
     bool MobileApplyAlchemy(const std::string &node,const std::string &value);
     void MobileCollectItemsBox(std::vector<MobileWidget> &widgets);
     bool MobileApplyItemsBoxTakeAll(const std::string &value);
+    bool MobileApplyColonyLoot(const std::string &value);
     int32_t m_mobileAlchemyStrings=-1;
     std::string m_mobileAlchemyLanguage;
     bool MobileApplyShipyard(const std::string &node,int index,const std::string &value);

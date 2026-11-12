@@ -607,6 +607,7 @@ void XINTERFACE::MobileCollectNations(std::vector<MobileWidget> &widgets)
 #include "mobile_sails_gerald.inc"
 #include "mobile_alchemy.inc"
 #include "mobile_items_box.inc"
+#include "mobile_colony_loot.inc"
 #endif
 
 void XINTERFACE::Realize(uint32_t)
@@ -2446,6 +2447,9 @@ void XINTERFACE::DoControl()
         }
         if(action.screen=="itemsbox"&&action.node=="ANDROID_TAKE_ALL"){
             storm::android::lastWidgetSnapshot.clear();MobileApplyItemsBoxTakeAll(action.value);continue;
+        }
+        if(action.screen=="colonycapture"&&action.node=="ANDROID_LOOT"){
+            storm::android::lastWidgetSnapshot.clear();MobileApplyColonyLoot(action.value);continue;
         }
         if(action.screen=="shipyard"&&action.value.rfind("yard@",0)==0){
             MobileApplyShipyard(action.node,action.index,action.value);continue;

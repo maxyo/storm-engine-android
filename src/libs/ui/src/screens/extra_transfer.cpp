@@ -79,6 +79,7 @@ constexpr NodeRule kNodes[] = {
     {"REMOVE_EXIT_BTN", "button"},
     // captain and crew capture
     {"CAPTURE_CAPTION", "text"},
+    {"CAPTUR_PICTURE", "image"}, // the surrendered captain's portrait (the ini's own spelling)
     {"CAPTURE_TEXT", "text"},
     {"CAPTURE_CAPTAIN_KILL", "button"},
     {"CAPTURE_CAPTAIN_PRISON", "button"},
@@ -301,7 +302,10 @@ class TransferScreen final : public Screen
             const Widget *cancel = admitted.One("CAPTURE_CANCEL");
             if (cancel)
                 acts.push_back(Action(bindings, *cancel, "capture-cancel", cancel->label, "quiet"));
-            view["modal"] = Json{{"title", Trim(admitted.Label("CAPTURE_CAPTION"))}, {"text", Trim(admitted.Label("CAPTURE_TEXT"))}, {"actions", acts}};
+            // The captain's face beside the question, where the game names the picture (a portrait).
+            const Widget *face = admitted.One("CAPTUR_PICTURE");
+            view["modal"] = Json{{"title", Trim(admitted.Label("CAPTURE_CAPTION"))}, {"text", Trim(admitted.Label("CAPTURE_TEXT"))}, {"actions", acts},
+                                 {"image", PictureOf(face ? face->FirstImage() : nullptr)}};
             way_out = cancel;
         }
         else if (const Widget *accept = admitted.One("REMOVE_ACCEPT_OFFICER"))

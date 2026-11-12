@@ -18,7 +18,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
-#include <set>
 
 namespace storm::ui::screens
 {
@@ -332,9 +331,7 @@ class CommerceScreen final : public Screen
         {
             if (deal && selected->row_id == quick_row_ && edit->Offers("edit") && ok)
             {
-                const int take = quick_amount_ >= 0 ? std::min(quick_amount_, theirs) : theirs;
-                quick_amount_ = -1;
-                bindings.SendAfter(0.0, *edit, "edit", std::to_string(take), selected->row_id, std::string("0"));
+                bindings.SendAfter(0.0, *edit, "edit", std::to_string(theirs), selected->row_id, std::string("0"));
                 bindings.SendAfter(0.0, *ok, "press", {}, selected->row_id);
                 quick_row_.clear();
             }
@@ -347,10 +344,10 @@ class CommerceScreen final : public Screen
                 bindings.RebuildAfter(quick_at_ + 3.0 - bindings.Now());
         }
 
-        // «Забрать самое ценное» (town loot): while it runs, each revision without an open amount takes the next
-        // good: the one worth most per unit of hold space (the adapter's value of a pack over the pack's weight)
-        // among those not taken yet, as many whole packs as the hold still has room for. It ends when the hold
-        // is full or nothing is left; a good the hold has no room for a pack of is passed over.
+        // «Забрать самое ценное» (town loot): the plan. The goods worth most per unit of hold space first (the
+        // adapter's value of a pack over the pack's weight), of each as many whole packs as the hold still has
+        // room for, until the hold is full. The engine then makes the player's own moves for every good of the
+        // plan in one script call (xinterface mobile_colony_loot.inc), with one answer at the end.
         double room = -1.0;
         if (const Json carried = Figure(admitted.Label("CAPACITY")); carried.is_object())
         {
@@ -358,48 +355,43 @@ class CommerceScreen final : public Screen
             if (const size_t slash = value.find('/'); slash != std::string::npos)
                 room = std::max(0.0, std::atof(value.c_str() + slash + 1) - std::atof(value.c_str()));
         }
-        std::map<int, double> worth; // TABLE_LIST row index → value of a pack per unit of its weight
+        const Widget *loot = nullptr;   // where the plan is sent
+        std::string best_plan;          // "<row>=<amount>,…": the table's 1-based rows
+        double best_weight = 0.0;       // what the plan weighs
         if (columns.best)
+        {
+            std::map<int, double> worth; // TABLE_LIST row index → value of a pack per unit of its weight
             for (const Widget *fact : admitted.All("ANDROID_LOOT"))
             {
-                const int index = std::atoi(fact->row_id.c_str() + 2) - 1;
+                loot = loot ? loot : fact;
                 const auto cost = fact->context.find("cost");
-                for (const Widget *row : goods)
-                    if (row->index == index && cost != fact->context.end())
-                    {
-                        const double pack_weight = std::atof(row->CellText(columns.weight).c_str());
-                        worth[index] = pack_weight > 0.0 ? std::atof(cost->second.c_str()) / pack_weight : 0.0;
-                    }
+                if (cost != fact->context.end())
+                    worth[std::atoi(fact->row_id.c_str() + 2) - 1] = std::atof(cost->second.c_str());
             }
-        const auto next_best = [&]() -> std::pair<const Widget *, int> {
-            const Widget *pick = nullptr;
-            int amount = 0;
+            std::vector<const Widget *> ranked;
             for (const Widget *row : goods)
             {
-                const int there = Number(row->CellText(columns.other));
+                const double pack_weight = std::atof(row->CellText(columns.weight).c_str());
+                if (Number(row->CellText(columns.other)) > 0 && pack_weight > 0.0 && worth.count(row->index))
+                {
+                    worth[row->index] /= pack_weight;
+                    ranked.push_back(row);
+                }
+            }
+            std::stable_sort(ranked.begin(), ranked.end(), [&worth](const Widget *a, const Widget *b) { return worth[a->index] > worth[b->index]; });
+            double left = std::max(0.0, room);
+            for (const Widget *row : ranked)
+            {
                 const double pack_weight = std::atof(row->CellText(columns.weight).c_str());
                 const int units = std::max(1, Number(row->CellText(columns.pack)));
-                if (there <= 0 || pack_weight <= 0.0 || !worth.count(row->index) || best_done_.count(row->row_id) || !row->Offers("activate"))
-                    continue;
-                const int fits = std::min(there, static_cast<int>(room / pack_weight) * units);
-                if (fits > 0 && (!pick || worth[row->index] > worth[pick->index]))
-                    pick = row, amount = fits;
-            }
-            return {pick, amount};
-        };
-        if (best_active_ && quick_row_.empty() && !deal && admitted.model->revision > best_revision_)
-        {
-            const auto [row, amount] = next_best();
-            if (!row || room < 0.0)
-                best_active_ = false;
-            else
-            {
-                best_done_.insert(row->row_id);
-                best_revision_ = admitted.model->revision;
-                quick_row_ = row->row_id;
-                quick_amount_ = amount;
-                quick_at_ = bindings.Now();
-                bindings.Send(*row, "activate", row->row_id);
+                const int there = Number(row->CellText(columns.other));
+                const int amount = std::min(there, static_cast<int>(left / pack_weight) * units);
+                if (amount <= 0)
+                    continue; // no room for a pack of it: a lighter good further down may still fit
+                const double weight = (amount + units - 1) / units * pack_weight;
+                left -= weight;
+                best_weight += weight;
+                best_plan += (best_plan.empty() ? "" : ",") + std::to_string(row->index + 1) + "=" + std::to_string(amount);
             }
         }
 
@@ -546,7 +538,6 @@ class CommerceScreen final : public Screen
                 bindings.Send(*cancel, "press", {}, selected->row_id);
             reopen_row_.clear();
             quick_row_.clear();
-            best_active_ = false; // the player took over
             if (deal && row == selected)
                 return; // a tap on the open row closes it
             if (row->Offers("activate"))
@@ -759,31 +750,20 @@ class CommerceScreen final : public Screen
         else if (!deal && columns.best)
         {
             // Town loot: one button fills the hold with what is worth most; its number is the room it will fill.
-            double there_weight = 0.0;
-            for (const Widget *row : goods)
-            {
-                const int units = std::max(1, Number(row->CellText(columns.pack)));
-                there_weight += (Number(row->CellText(columns.other)) + units - 1) / units * std::atof(row->CellText(columns.weight).c_str());
-            }
-            const bool known = !worth.empty();
-            if (!known && !goods.empty() && best_reported_ != admitted.model->opening)
+            if (!loot && !goods.empty() && best_reported_ != admitted.model->opening)
             {
                 best_reported_ = admitted.model->opening;
                 bindings.Error("colonycapture: the interface adapter sent no ANDROID_LOOT (the goods' values are unknown: «Забрать самое ценное» is off)");
             }
-            const bool can = known && room > 0.0 && next_best().first != nullptr;
+            const bool can = loot && !best_plan.empty();
             view["primary"] = Json{{"label", bindings.Text("trade.take_best")},
-                                   {"sub", can ? std::to_string(static_cast<int>(std::min(room, there_weight))) + " " + bindings.Text("transfer.cwt") : std::string()},
-                                   {"disabled", !can && !best_active_},
-                                   {"reason", !known ? bindings.Text("items.unavailable") : room <= 0.0 || there_weight > 0.0 ? bindings.Text("trade.no_room") : std::string()},
-                                   {"busy", best_active_}};
-            bindings.On("primary", "", [this, &bindings, can](const Event &) {
-                if (!can || best_active_)
-                    return;
-                best_active_ = true;
-                best_done_.clear();
-                best_revision_ = 0;
-                bindings.Rebuild();
+                                   {"sub", can ? std::to_string(static_cast<int>(best_weight)) + " " + bindings.Text("transfer.cwt") : std::string()},
+                                   {"disabled", !can},
+                                   {"reason", !loot ? bindings.Text("items.unavailable") : bindings.Text("trade.no_room")},
+                                   {"busy", bindings.Pending("primary")}};
+            bindings.On("primary", "", [&bindings, loot, best_plan, can](const Event &) {
+                if (can)
+                    bindings.Send(*loot, "take", best_plan);
             });
             if (room >= 0.0)
                 // The town's name: the game's caption up to its colon («Картахена: Грабёж»).
@@ -823,7 +803,6 @@ class CommerceScreen final : public Screen
         bindings.On("header-back", "", [this, &bindings, exit, cancel, deal, selected](const Event &) {
             reopen_row_.clear();
             quick_row_.clear();
-            best_active_ = false; // the player took over
             if (deal && cancel && cancel->Offers("press"))
                 bindings.Send(*cancel, "press", {}, selected->row_id);
             else
@@ -839,11 +818,6 @@ class CommerceScreen final : public Screen
     int sort_ = -1;  // the column the rows are ordered by (own, other, buy, sell); -1 = the game's order
     bool sort_descending_ = true;
     std::string quick_row_; // the row whose whole stack is taken once the game opens its amount window
-    int quick_amount_ = -1; // how much of it (-1 = all the other side has)
-    // «Забрать самое ценное»: running, the rows it has taken from, the revision its last step went out in.
-    bool best_active_ = false;
-    std::set<std::string> best_done_;
-    uint64_t best_revision_ = 0;
     uint64_t best_reported_ = 0; // the opening the missing values were reported for
     uint64_t take_all_revision_ = 0; // «Взять всё» of a chest went out from this revision (0 = none)
     double quick_at_ = 0.0;
