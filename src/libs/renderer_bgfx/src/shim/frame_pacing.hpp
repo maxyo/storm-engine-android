@@ -1,19 +1,20 @@
 // Frame pacing of the game window: Android Frame Pacing (Swappy GL, Android Game SDK) presents each frame at
 // a vsync of the display (bgfx::setEglPresent, patches/bgfx-swap-present-hook.patch).
 //
-// Rate: 60 fps (kTargetFrame) at a whole number of display refreshes; Swappy may pick another display mode
-// for it (a 90 Hz panel switches to its 60 Hz mode where it has one; on 120 Hz every second refresh). When
-// frames take longer, Swappy's auto swap interval lowers the rate to a steady fraction of it, down to 30 fps
-// (kSlowestFrame), and raises it again when they fit; it never paces faster than kTargetFrame.
+// Rate: the settings' «Частота кадров» (storm::render::SetFrameRate, live; kDefaultFrame = 60 fps until set) at a
+// whole number of display refreshes (swap_interval.hpp); Swappy may pick another display mode for it (60 fps on a
+// 90/120 Hz panel: its 60 Hz mode or every second 120 Hz refresh). When frames take longer, Swappy's auto swap
+// interval lowers the rate to a steady fraction of it, down to 30 fps (kSlowestFrame), and raises it again when
+// they fit; it never paces faster than the setting.
 //
-// ADPF: the hint session's target is kTargetFrame's swap interval, not the interval Swappy fell back to (a
+// ADPF: the hint session's target is the setting's swap interval, not the interval Swappy fell back to (a
 // lowered target would let the CPU clock down and keep the game at the lower rate); its actual work is the
 // game thread's CPU time per frame, without the present wait measured here (platform/host_hooks.hpp).
 // Swappy's CPU affinity is off: the scheduler and ADPF place the game thread.
 //
 // Without Swappy (its init failed or the device disables it) an error says why, and the present is a plain
 // eglSwapBuffers at swap interval 1: the display's rate, unpaced; the frame times are logged the same way and
-// ADPF aims at kTargetFrame.
+// ADPF aims at the setting's frame time.
 //
 // Every 30 s of presented frames the log gets a "frame pacing:" line with the frame intervals measured after
 // each present (percentiles and a histogram in display refreshes) and the mean present wait. Swappy's own
@@ -30,7 +31,7 @@ namespace storm::shim
 class FramePacing
 {
   public:
-    static constexpr std::chrono::nanoseconds kTargetFrame{16'666'667};
+    static constexpr std::chrono::nanoseconds kDefaultFrame{16'666'667};
     static constexpr std::chrono::nanoseconds kSlowestFrame{33'333'333};
 
     static FramePacing &instance();
@@ -39,6 +40,8 @@ class FramePacing
     void start();
     // The window the game presents to (Swappy reports the frame rate for it); nullptr while there is none.
     void set_window(void *native_window);
+    // The frame rate to pace at, frames per second; applies at once (logged), before start() at its start.
+    void set_frame_rate(uint32_t fps);
     void shutdown();
 
   private:
@@ -50,6 +53,7 @@ class FramePacing
     void reset_stats();
 
     bool started_ = false;
+    std::chrono::nanoseconds target_ = kDefaultFrame;
     bool swappy_ = false; // false: started without Swappy, presents with eglSwapBuffers
     std::chrono::nanoseconds swap_interval_{0}; // what Swappy paces at now
     std::chrono::nanoseconds refresh_period_{0};

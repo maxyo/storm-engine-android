@@ -7,7 +7,8 @@
 // the host asks the engine to re-read it), plus the texture quality (memory on small phones,
 // at the next start), both application options from the platform host on the state channel
 // "appSettings", kept as a draft and sent back with «Готово» (Bindings::SendHost); and the
-// game's own grass and sea detail (scene density the renderer preset does not cover). The
+// game's own grass and sea detail (scene density the renderer preset does not cover), and the frame rate
+// «Частота кадров» among the rates the host reports for the display (applied at once). The
 // single fx_* effect overrides are developer-only engine.ini keys (and STORM_FX_OPTIONS).
 // Keyboard bindings are not offered at all (mobile only); colour correction is not
 // available in the Android renderer. Fills the pack screen <s-settings>.
@@ -153,6 +154,18 @@ class SettingsScreen final : public Screen
             graphics.rows.back().erase("label");
             Segment(bindings, graphics, "texture_degradation", "settings.texture_quality", {0, 1, 2},
                     {bindings.Text("settings.texture_full"), bindings.Text("settings.texture_medium"), bindings.Text("settings.texture_low")});
+            // «Частота кадров»: the rates the host found the display can show (frame_rate_options: whole divisors
+            // of its refresh rates), applied at once with «Готово» (the engine's frame pacing).
+            std::vector<int> rates;
+            Json rateLabels = Json::array();
+            if (draft_.is_object() && draft_.contains("frame_rate_options") && draft_["frame_rate_options"].is_array())
+                for (const Json &rate : draft_["frame_rate_options"])
+                    if (rate.is_number_integer())
+                    {
+                        rates.push_back(rate.get<int>());
+                        rateLabels.push_back(std::to_string(rates.back()));
+                    }
+            Segment(bindings, graphics, "frame_rate", "settings.frame_rate", rates, rateLabels, false);
             game(detail, "HERB_CHECKBOX", "settings.grass");
             game(detail, "SEA_DETAILS_SLIDE", "settings.sea_detail");
             sections.push_back({"", {graphics, detail}});
@@ -239,7 +252,10 @@ class SettingsScreen final : public Screen
         bindings.On("done", "", [this, &bindings, ok](const Event &) {
             if (draft_.is_object() && draft_ != AppSettings())
             {
-                bindings.SendHost("app-settings", draft_.dump());
+                // The settings only: what the host reports about the device (frame_rate_options) is not one.
+                Json settings = draft_;
+                settings.erase("frame_rate_options");
+                bindings.SendHost("app-settings", settings.dump());
                 AppSettings() = draft_;
             }
             bindings.Send(*ok, "press");

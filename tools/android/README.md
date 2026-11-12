@@ -141,14 +141,17 @@ performance numbers still come from a real arm64 device.
 
 The game window presents through Android Frame Pacing (Swappy GL 2.1.3 from the Android Game SDK,
 `src/libs/renderer_bgfx/src/shim/frame_pacing.hpp`; bgfx calls it instead of `eglSwapBuffers`,
-`patches/bgfx-swap-present-hook.patch`). It aims at 60 fps: a whole number of refreshes of one of
-the display's modes (1 at 60 Hz, 2 at 120 Hz; a 90 Hz panel uses its 60 Hz mode where it has one),
-and falls back to a steady 30 fps when frames do not fit. There is no frame limiter of our own and
-no `max_fps` key. The ADPF hint session (application `GamePerformance`) aims at that 60 fps interval
+`patches/bgfx-swap-present-hook.patch`). It paces at the player's «Частота кадров» (settings, image
+page; the app offers 30/60/90/120 and the display's own rates where a refresh rate is a whole multiple,
+60 by default; applied at once): a whole number of refreshes of one of the display's modes (60 fps: 1 at
+60 Hz, 2 at 120 Hz; a 90 Hz panel uses its 60 Hz mode where it has one; `swap_interval.hpp`,
+`tests/frame_pacing`), and falls back to a steady 30 fps when frames do not fit. There is no frame limiter of our own and
+no `max_fps` key. The ADPF hint session (application `GamePerformance`) aims at that interval
 and gets each frame's CPU work without the present wait. Logged (tag `storm-bgfx`, also in
 «Поделиться логом»):
 
-- once: `frame pacing: Swappy GL ...; display modes ...; current refresh ...; swap interval ...`;
+- at start and at each «Частота кадров» change: `frame pacing: Swappy GL ...; frame rate N fps (setting); display
+  modes ...; current refresh ...; swap interval ...`;
 - on a change of Swappy's interval or the display mode: `frame pacing: Swappy presents every ...`;
 - every 30 s: `frame pacing: 30.0 s, N frames (fps) ...; frame ms p50 p95 p99 max; refreshes per
   frame 1:..% 2:..% ...; present wait mean ...` (intervals between presents, in display refreshes);

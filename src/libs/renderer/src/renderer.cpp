@@ -20,6 +20,7 @@
 #include "string_compare.hpp"
 #include "storm/render/d3d_interop.hpp"
 #include "storm/render/effects.hpp"
+#include "storm/render/frame_rate.hpp"
 #include "storm/render/perf_stats.hpp"
 #include "storm/render/program_cache.hpp"
 #include "storm/render/texture_cache.hpp"
@@ -499,6 +500,13 @@ void ConfigureGraphicsEffects(const std::function<int(const char *, int)> &iniVa
 #endif
 }
 #ifdef __ANDROID__
+// The player's «Частота кадров» (the app offers the rates the display can show, 60 by default): the frame pacing
+// follows it at once (Swappy's interval, the ADPF target; logged by the shim).
+void ConfigureFrameRate()
+{
+    storm::render::SetFrameRate(static_cast<uint32_t>(std::max(storm::android::graphicsSetting("frame_rate", 60), 0)));
+}
+
 // The settings screen stored a new quality preset: the effects follow it without a restart
 // (MSAA and anisotropy rebuild the scene stores at the next Present). Options engine.ini
 // gave keep its values as fallbacks.
@@ -511,6 +519,7 @@ void ReconfigureGraphicsEffects()
         const auto found = effectsIniValues.find(name);
         return found == effectsIniValues.end() ? fallback : found->second;
     });
+    ConfigureFrameRate();
 }
 #endif
 } // namespace
@@ -573,6 +582,9 @@ bool Renderer::Init()
         ConfigureGraphicsEffects([&ini](const char *name, int fallback) {
             return effectsIniValues[name] = ini->GetInt(nullptr, name, fallback);
         });
+#ifdef __ANDROID__
+        ConfigureFrameRate();
+#endif
 
         storm::render::TextureCacheConfig textureCache;
         ini->ReadString(nullptr, "texture_compression", str, sizeof(str), "auto");

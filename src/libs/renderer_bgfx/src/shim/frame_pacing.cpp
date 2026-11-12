@@ -1,4 +1,5 @@
 #include "frame_pacing.hpp"
+#include "swap_interval.hpp"
 
 #include "shim.hpp"
 
@@ -92,9 +93,9 @@ void FramePacing::start()
                           : "no JNI environment or activity for the game thread",
                  refresh_period_.count() ? (std::to_string(1'000'000'000LL / refresh_period_.count()) + " Hz").c_str()
                                          : "refresh unknown to SDL",
-                 to_ms(kTargetFrame));
+                 to_ms(target_));
         log_error(message);
-        storm::platform::frameWorkTarget(kTargetFrame);
+        storm::platform::frameWorkTarget(target_);
     }
     // Both ways the present goes through present_frame: the same frame times and present wait.
     bgfx::setEglPresent(&FramePacing::present);
@@ -110,51 +111,62 @@ void FramePacing::choose_interval()
     const uint64_t current = SwappyGL_getRefreshPeriodNanos();
     if (periods.empty())
         periods.push_back(current);
-    // A whole number of refreshes of one of the display's modes closest to the target; on a tie the current
-    // mode (no switch), then the slower mode.
-    const auto target = static_cast<double>(kTargetFrame.count());
-    uint64_t best_period = 0, best_count = 0;
-    double best_error = 0.0;
     std::string rates;
     for (const uint64_t period : periods)
     {
         if (period == 0)
             continue;
-        const uint64_t refreshes = std::max<uint64_t>(1, std::llround(target / period));
-        const double error = std::abs(static_cast<double>(refreshes * period) - target);
-        const bool better = best_period == 0 || error < best_error - 1e5 ||
-                            (error < best_error + 1e5 && (period == current || (best_period != current && period > best_period)));
-        if (better)
-        {
-            best_period = period;
-            best_count = refreshes;
-            best_error = error;
-        }
         char rate[48];
         snprintf(rate, sizeof(rate), "%s%.2f ms (%.0f Hz)", rates.empty() ? "" : ", ", period / 1e6, 1e9 / period);
         rates += rate;
     }
-    if (best_period == 0)
+    const SwapChoice choice = ChooseSwapInterval(periods, current, static_cast<uint64_t>(target_.count()));
+    if (choice.period == 0)
     {
         // Swappy knows no display period: keep its own default pacing.
         log_error("frame pacing: Swappy reports no display refresh period; it paces at its own default interval");
         return;
     }
-    const uint64_t interval = best_period * best_count;
-    const uint64_t slowest =
-        best_period * std::max<uint64_t>(best_count, std::llround(static_cast<double>(kSlowestFrame.count()) / best_period));
+    const uint64_t interval = choice.interval();
+    const uint64_t slowest = SlowestSwapInterval(choice, static_cast<uint64_t>(kSlowestFrame.count()));
     SwappyGL_setSwapIntervalNS(interval);
     SwappyGL_setMaxAutoSwapIntervalNS(slowest);
     swap_interval_ = std::chrono::nanoseconds(SwappyGL_getSwapIntervalNS());
     refresh_period_ = std::chrono::nanoseconds(current);
-    logf("frame pacing: Swappy GL %d.%d.%d (%s); display modes %s; current refresh %.2f ms (%.0f Hz); "
-         "swap interval %.2f ms (%.1f fps, %llu refreshes of the %.0f Hz mode), slower down to %.2f ms when frames do "
-         "not fit; CPU affinity off (ADPF)",
-         SWAPPY_MAJOR_VERSION, SWAPPY_MINOR_VERSION, SWAPPY_BUGFIX_VERSION, STORM_SWAPPY_PACKAGE, rates.c_str(),
-         current / 1e6, current ? 1e9 / current : 0.0, interval / 1e6, 1e9 / interval,
-         static_cast<unsigned long long>(best_count), 1e9 / best_period, slowest / 1e6);
+    logf("frame pacing: Swappy GL %d.%d.%d (%s); frame rate %.0f fps (setting); display modes %s; current refresh "
+         "%.2f ms (%.0f Hz); swap interval %.2f ms (%.1f fps, %llu refreshes of the %.0f Hz mode), slower down to %.2f "
+         "ms when frames do not fit; CPU affinity off (ADPF)",
+         SWAPPY_MAJOR_VERSION, SWAPPY_MINOR_VERSION, SWAPPY_BUGFIX_VERSION, STORM_SWAPPY_PACKAGE, 1e9 / target_.count(),
+         rates.c_str(), current / 1e6, current ? 1e9 / current : 0.0, interval / 1e6, 1e9 / interval,
+         static_cast<unsigned long long>(choice.refreshes), 1e9 / choice.period, slowest / 1e6);
     // ADPF aims at the preferred rate (FramePacing in frame_pacing.hpp: not at a lowered one).
     storm::platform::frameWorkTarget(std::chrono::nanoseconds(interval));
+}
+
+void FramePacing::set_frame_rate(uint32_t fps)
+{
+    if (fps < 1 || fps > 1000)
+    {
+        char message[128];
+        snprintf(message, sizeof(message), "frame pacing: frame rate %u fps is not valid; keeping %.0f fps", fps,
+                 1e9 / target_.count());
+        log_error(message);
+        return;
+    }
+    const std::chrono::nanoseconds target(1'000'000'000LL / fps);
+    if (target == target_)
+        return;
+    target_ = target;
+    if (!started_)
+        return; // start() paces at it
+    if (swappy_)
+    {
+        choose_interval(); // logs the new interval, sets the ADPF target
+        return;
+    }
+    logf("frame pacing: frame rate %u fps (setting); without Swappy the present stays unpaced, ADPF aims at %.2f ms", fps,
+         to_ms(target_));
+    storm::platform::frameWorkTarget(target_);
 }
 
 void FramePacing::set_window(void *native_window)
@@ -243,7 +255,7 @@ void FramePacing::log_stats(double seconds)
     const size_t count = sorted.size();
     const auto percentile = [&](size_t percent) { return sorted[(count * percent + 99) / 100 - 1]; };
     // Frame intervals in display refreshes (1 ... 5, 6 = six or more); without a known refresh in 60 Hz ones.
-    const double refresh = refresh_period_.count() ? to_ms(refresh_period_) : to_ms(kTargetFrame);
+    const double refresh = refresh_period_.count() ? to_ms(refresh_period_) : to_ms(kDefaultFrame);
     uint32_t buckets[6] = {};
     for (const float ms : intervals_ms_)
         ++buckets[std::clamp<long>(std::lround(ms / refresh), 1, 6) - 1];
@@ -282,6 +294,18 @@ void FramePacing::shutdown()
 {
 }
 
+void FramePacing::set_frame_rate(uint32_t)
+{
+}
+
 #endif
 
 } // namespace storm::shim
+
+namespace storm::render
+{
+void SetFrameRate(uint32_t fps)
+{
+    shim::FramePacing::instance().set_frame_rate(fps);
+}
+} // namespace storm::render
