@@ -338,6 +338,19 @@ HRESULT Device::Reset(D3DPRESENT_PARAMETERS *present)
     return D3D_OK;
 }
 
+HRESULT Device::ResizeBackBuffer(uint32_t width, uint32_t height)
+{
+    if (width == 0 || height == 0)
+        return D3DERR_INVALIDCALL;
+    params.BackBufferWidth = width;
+    params.BackBufferHeight = height;
+    for (auto &[key, handle] : framebuffers) // made for the old back buffer among others
+        bgfx::destroy(handle);
+    framebuffers.clear();
+    create_backbuffer(width, height);
+    return D3D_OK;
+}
+
 // ---------------------------------------------------------------------------
 // frame / views
 HRESULT Device::BeginScene()
