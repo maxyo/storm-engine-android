@@ -417,6 +417,7 @@ class CommerceScreen final : public Screen
             });
 
         Json rows = Json::array();
+        Json deal_view; // the open deal's quantity control (view["deal"]), null without one
         for (const size_t i : order)
         {
             const Widget *row = goods[i];
@@ -479,7 +480,15 @@ class CommerceScreen final : public Screen
                               {"disabled", !edit->Offers("edit") || nothing}};
                 if (columns.small)
                     quantity["steps"] = Json::array({1, 10});
-                view["q"] = std::move(quantity);
+                // The deal is the dock's own prop, not the row's: a drag changes it alone, so the list's
+                // rows stay as they are and the quantity control is the only component that renders
+                // (components.cpp Forward). What the dock's row template defaulted is said here.
+                for (const char *key : {"all", "stack"})
+                    if (!quantity.contains(key))
+                        quantity[key] = true;
+                if (!quantity.contains("surface"))
+                    quantity["surface"] = "wood";
+                deal_view = std::move(quantity);
                 view["text"] = admitted.Label("QTY_GOODS_INFO");
             }
             rows.push_back(std::move(view));
@@ -666,6 +675,7 @@ class CommerceScreen final : public Screen
             cols.push_back(Json{{"label", captions[i]}, {"sortable", true},
                                 {"sort", sort_ == static_cast<int>(i) ? (sort_descending_ ? "desc" : "asc") : ""}});
         view["list"] = Json{{"label", header(columns.name)}, {"cols", cols}, {"rows", rows}, {"quick", columns.quick ? "hand" : ""}};
+        view["deal"] = std::move(deal_view);
 
         // The game's own category tabs (chests) replace our filters.
         Json tabs = Json::array();

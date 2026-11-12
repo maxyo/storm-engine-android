@@ -325,7 +325,7 @@ static void Store(const std::string &models)
     // (QTY_EDIT 100, «Деньги 25, вес 5 ц»): none of that moves the control, which is the player's.
     const InterfaceModel open_deal = Load(models, "store-deal.json");
     router.SetInterface(open_deal);
-    const auto quantity = [&surface]() { return surface.props["list"]["rows"][0]["q"]; };
+    const auto quantity = [&surface]() { return surface.props["deal"]; };
     // store.c ChangeQTY_EDIT, written out again here: makeint(price * qty / iUnits + 0.5) and
     // GetGoodWeightByType (whole packs, rounded at 0.05).
     const auto game_total = [](int price, int amount) { return static_cast<int>(static_cast<double>(price) * amount / 20 + 0.5); };
@@ -402,7 +402,7 @@ static void Store(const std::string &models)
         }
         poor.SetInterface(model);
         poor.OnEvent({"goods", "change", "2040"});
-        Expect(poor_surface.props["list"]["rows"][0]["q"]["value"] == 441 && poor_surface.props["primary"]["sub"] == "60 \xC2\xB7 13 <transfer.cwt>",
+        Expect(poor_surface.props["deal"]["value"] == 441 && poor_surface.props["primary"]["sub"] == "60 \xC2\xB7 13 <transfer.cwt>",
                "the purse limits the purchase as store.c does: " + poor_surface.props["primary"].dump());
     }
     {
@@ -422,13 +422,9 @@ static void Store(const std::string &models)
             FakeSurface blocked_surface;
             Router blocked_router(blocked_surface);
             blocked_router.SetInterface(model);
-            size_t open_row = 0;
-            for (size_t i = 0; i < blocked_surface.props["list"]["rows"].size(); ++i)
-                if (blocked_surface.props["list"]["rows"][i].contains("q"))
-                    open_row = i;
-            const Json q = blocked_surface.props["list"]["rows"][open_row]["q"];
+            const Json q = blocked_surface.props["deal"];
             blocked_router.OnEvent({"goods", "change", "20"});
-            const Json after = blocked_surface.props["list"]["rows"][open_row]["q"];
+            const Json after = blocked_surface.props["deal"];
             Expect(q["value"] == 0 && q["max"] == 0 && q["disabled"] == true && q["reason"] == reason && after["value"] == 0 &&
                        blocked_surface.commands.empty() && blocked_surface.toasts.size() == 1 && blocked_surface.toasts[0] == reason &&
                        blocked_surface.props["primary"]["disabled"] == true && blocked_surface.props["primary"]["reason"] == reason,
@@ -670,7 +666,7 @@ static void Commerce(const std::string &models)
     router.OnEvent({"action-0", "click", ""});
     ExpectEqual(surface.Last(), "widget:itemsbox\tDELBODY_BUTTON\t-1\tpress", "remove body");
     router.SetInterface(Load(models, "itemsbox-deal.json"));
-    Expect(surface.props["list"]["rows"][0]["q"]["steps"].size() == 2 && surface.props["list"]["rows"][0]["q"]["max"] == 26, "single items: steps 1 and 10, up to both sides");
+    Expect(surface.props["deal"]["steps"].size() == 2 && surface.props["deal"]["max"] == 26, "single items: steps 1 and 10, up to both sides");
 
     // The row's own facts: the trade type by the name's colour, the pack in the dock's second line.
     router.SetInterface(Load(models, "store.json"));
@@ -706,7 +702,7 @@ static void Commerce(const std::string &models)
                 widget.context["currency"] = "doubloons";
         router.SetInterface(doubloons);
         ExpectEqual(surface.props["subject"]["label"], "Шарль де Мор", "items trade: the character selector is the subject");
-        Expect(surface.props["list"]["rows"][0]["q"]["value"] == 3 && surface.props["list"]["rows"][0]["q"]["max"] == 13 && surface.props["primary"].is_null(),
+        Expect(surface.props["deal"]["value"] == 3 && surface.props["deal"]["max"] == 13 && surface.props["primary"].is_null(),
                "items trade opens at the pivot too");
         surface.commands.clear();
         router.OnEvent({"goods", "change", "8"});
@@ -716,7 +712,7 @@ static void Commerce(const std::string &models)
                "five pieces: 750 and 2.5 of weight as itemstrade.c says («Деньги 750, вес 2.5»), the named balance 1 500 → 750: " +
                    surface.props["primary"].dump() + surface.props["stats"].dump());
         router.OnEvent({"goods", "change", "15"});
-        Expect(surface.props["list"]["rows"][0]["q"]["value"] == 13 && surface.props["primary"]["label"] == "<trade.buy> 10",
+        Expect(surface.props["deal"]["value"] == 13 && surface.props["primary"]["label"] == "<trade.buy> 10",
                "the purse stops it at ten pieces (ten cost 1 500)");
         router.OnEvent({"goods", "change", "1"});
         router.OnEvent({"primary", "click", ""});
@@ -745,8 +741,8 @@ static void Commerce(const std::string &models)
     }
     // contraband.c: a good without a buy price can only be sold: the pivot is the scale's right end.
     router.SetInterface(Load(models, "contraband-deal.json"));
-    Expect(surface.props["list"]["rows"][0]["q"]["max"] == 50 && surface.props["list"]["rows"][0]["q"]["min"] == 0 &&
-               surface.props["list"]["rows"][0]["q"]["origin"] == 50 && surface.props["list"]["rows"][0]["q"]["value"] == 50,
+    Expect(surface.props["deal"]["max"] == 50 && surface.props["deal"]["min"] == 0 &&
+               surface.props["deal"]["origin"] == 50 && surface.props["deal"]["value"] == 50,
            "contraband: only a sale, the pivot at the right end, the knob on it");
     router.OnEvent({"goods", "change", "0"});
     Expect(surface.props["primary"]["label"] == "<trade.sell> 50" && surface.props["primary"]["sub"] == "230 \xC2\xB7 5 <transfer.cwt>",
