@@ -642,6 +642,11 @@ void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<floa
                                                         bounds_lo, bounds_hi);
 }
 
+void SetEffectsWorldOrigin(const std::array<float, 3> &origin)
+{
+    effects::Host::instance().lighting().set_world_origin(origin);
+}
+
 void SetEffectsLamps(std::span<const EffectsPointLight> lamps)
 {
     std::vector<fx::Lamp> converted;

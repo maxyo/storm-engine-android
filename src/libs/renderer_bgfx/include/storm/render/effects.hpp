@@ -106,6 +106,12 @@ void SetEffectsSunGlare(float glare, float ghosts);
 // picks the material from it (characters, sails, ...).
 void SetEffectsTechnique(const char *name);
 
+// Renderer, whenever its camera moves: the game's Renderer keeps the device camera-relative (the D3D view has no
+// translation; every world matrix and D3D light is shifted by minus the camera position, for float precision far
+// from the origin). `origin` is that camera position: absolute world = device world + origin. Every effect that meets
+// absolute world data (the location's geometry, lamps, dynamic lights, lightmaps) converts with it.
+void SetEffectsWorldOrigin(const std::array<float, 3> &origin);
+
 // Point lights of this frame that no baked vertex colours contain (lanterns carried by characters), world space,
 // D3DLIGHT9 attenuation. Static location geometry, drawn with its baked colours, is lit only by these. A frame
 // without the call has none.

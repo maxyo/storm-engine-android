@@ -405,6 +405,7 @@ Renderer::Renderer()
 
     vViewRelationPos = glm::vec3(0.f, 0.f, 0.f);
     vWordRelationPos = -vViewRelationPos;
+    storm::render::SetEffectsWorldOrigin({0.0f, 0.0f, 0.0f});
     bUseLargeBackBuffer = false;
 }
 
@@ -2059,6 +2060,7 @@ bool Renderer::SetCamera(const glm::vec3 &pos, const glm::vec3 &ang)
         Ang = ang;
         vWordRelationPos = -Pos;
     }
+    storm::render::SetEffectsWorldOrigin({-vWordRelationPos.x, -vWordRelationPos.y, -vWordRelationPos.z});
     // if(CHECKD3DERR(SetTransform(D3DTS_VIEW, mtx))==true)    return false;
 
     d3d9->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(mtx));
@@ -2525,6 +2527,7 @@ void Renderer::SetTransform(int32_t type, D3DMATRIX *mtx)
 
         glm::vec3 vDeltaWorld = vWordRelationPos;
         vWordRelationPos = storm::math::inverseTransformNormal(m, -vViewRelationPos);
+        storm::render::SetEffectsWorldOrigin({-vWordRelationPos.x, -vWordRelationPos.y, -vWordRelationPos.z});
         vDeltaWorld -= vWordRelationPos;
         glm::mat4 mw;
         d3d9->GetTransform(D3DTS_WORLD, (D3DMATRIX *)&mw);
