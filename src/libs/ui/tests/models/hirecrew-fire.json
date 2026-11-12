@@ -418,6 +418,23 @@
     "press"
    ],
    "cells": []
+  },
+  {
+   "node": "ANDROID_CREWHIRE",
+   "type": "fact",
+   "label": "",
+   "value": "",
+   "index": 0,
+   "enabled": false,
+   "rowId": "c0",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "character": "1",
+    "max": "94",
+    "space": "511"
+   }
   }
  ]
 }

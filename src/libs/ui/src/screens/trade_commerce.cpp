@@ -300,6 +300,18 @@ class CommerceScreen final : public Screen
         if (balance && balance->label.find_first_of("0123456789") != std::string::npos)
             math.money = Number(balance->label);
         const int most = money ? std::min(high, deal_ours_ + math.BuyLimit(deal_theirs_, buy_price)) : high;
+        // Why the amount cannot go further up although the other side has more: the purse or the room. A tap or
+        // a drag past the end says it; with nothing at all to do the deal shows as disabled.
+        std::string more_reason;
+        if (deal && money && can_take && most < high)
+        {
+            DealMath unpaid = math;
+            unpaid.money = -1; // the limit of the room alone
+            more_reason = bindings.Text(unpaid.BuyLimit(deal_theirs_, buy_price) > most - deal_ours_ ? StringKey("trade.no_money")
+                                        : columns.pieces                                           ? StringKey("trade.no_carry")
+                                                                                                   : StringKey("trade.no_room"));
+        }
+        const bool nothing = deal && money && low == std::max(low, most) && !more_reason.empty();
         const int shown = deal ? std::clamp(target_, low, std::max(low, most)) : ours;
         const int amount = shown - deal_ours_; // > 0 we take (buy), < 0 we give (sell)
         const int total = money ? math.Total(std::abs(amount), amount > 0 ? buy_price : sell_price) : 0;
@@ -426,7 +438,9 @@ class CommerceScreen final : public Screen
                               {"label", own_caption},
                               {"allLabel", bindings.Text("common.all")},
                               {"summary", "-"}, // a money deal's price is on its button (one place)
-                              {"disabled", !edit->Offers("edit")}};
+                              {"moreReason", more_reason},
+                              {"reason", nothing ? more_reason : std::string()},
+                              {"disabled", !edit->Offers("edit") || nothing}};
                 if (columns.small)
                     quantity["steps"] = Json::array({1, 10});
                 view["q"] = std::move(quantity);
@@ -501,8 +515,15 @@ class CommerceScreen final : public Screen
             // The amount is the player's: every sample of a drag and every step only moves it here (the next
             // frame shows it, its total and its button). A free transfer has no button: it goes to the game
             // when a drag ends, or shortly after the last step.
-            const auto set = [this, &bindings, edit, ok, selected, money, low, most](const Event &event) {
-                target_ = std::clamp(std::atoi(event.value.c_str()), low, std::max(low, most));
+            const auto set = [this, &bindings, edit, ok, selected, money, low, most, more_reason](const Event &event) {
+                const int wanted = std::atoi(event.value.c_str());
+                // Past the end the purse or the room allows: the reason, once per push (a drag reports many samples).
+                if (wanted > std::max(low, most) && !more_reason.empty() && bindings.Now() - reason_at_ > 1.5)
+                {
+                    reason_at_ = bindings.Now();
+                    bindings.Toast(more_reason);
+                }
+                target_ = std::clamp(wanted, low, std::max(low, most));
                 bindings.Rebuild();
                 if (money)
                     return;
@@ -671,7 +692,10 @@ class CommerceScreen final : public Screen
         // Bar buttons: the deal of a money trade, else what the place offers (take all, …).
         Json actions = Json::array();
         view["primary"] = Json();
-        if (deal && ok && money && amount != 0)
+        if (nothing)
+            // Not even one can be bought and there is nothing to sell: the deal is there, disabled, and says why.
+            view["primary"] = Json{{"label", bindings.Text("trade.buy")}, {"sub", ""}, {"disabled", true}, {"reason", more_reason}, {"busy", false}};
+        else if (deal && ok && money && amount != 0)
         {
             // The button names the deal in our words with its price (and the weight it moves): the amount and
             // the game's OK go out together when it is pressed, nothing before.
@@ -747,6 +771,7 @@ class CommerceScreen final : public Screen
     std::string deal_row_;
     int deal_ours_ = 0, deal_theirs_ = 0;
     int target_ = 0;
+    double reason_at_ = -10.0; // when the "cannot go further" reason was last said
 };
 
 } // namespace
