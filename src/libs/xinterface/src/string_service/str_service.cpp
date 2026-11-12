@@ -93,8 +93,6 @@ STRSERVICE::STRSERVICE()
     m_psStrName = nullptr;
     m_psString = nullptr;
 
-    m_pUsersBlocks = nullptr;
-
     g_StringServicePointer = this;
     m_nDialogSourceFile = -1;
 }
@@ -125,32 +123,6 @@ STRSERVICE::~STRSERVICE()
     STORM_DELETE(m_sIniFileName);
     STORM_DELETE(m_sLanguage);
     STORM_DELETE(m_sLanguageDir);
-
-    while (m_pUsersBlocks != nullptr)
-    {
-        auto *pUSB = m_pUsersBlocks;
-        m_pUsersBlocks = m_pUsersBlocks->next;
-        if (pUSB->psStrName != nullptr)
-        {
-            for (i = 0; i < pUSB->nStringsQuantity; i++)
-                if (pUSB->psStrName[i] != nullptr)
-                    delete pUSB->psStrName[i];
-            delete pUSB->psStrName;
-            pUSB->psStrName = nullptr;
-        }
-        if (pUSB->psString != nullptr)
-        {
-            for (i = 0; i < pUSB->nStringsQuantity; i++)
-                if (pUSB->psString[i] != nullptr)
-                    delete pUSB->psString[i];
-            delete pUSB->psString;
-            pUSB->psString = nullptr;
-        }
-        delete pUSB->fileName;
-        pUSB->nStringsQuantity = 0;
-        delete pUSB;
-        pUSB = nullptr;
-    }
 }
 
 bool STRSERVICE::Init()
@@ -381,74 +353,9 @@ void STRSERVICE::SetLanguage(const char *sLanguage)
 
     // end of search
 
-    // =======================================================================
-    // Re-reading user files
-    // =======================================================================
-    auto *const pOldURoot = m_pUsersBlocks;
-    m_pUsersBlocks = nullptr;
-    for (auto *pUSB = pOldURoot; pUSB != nullptr; pUSB = pUSB->next)
-    {
-        if (pUSB->nref <= 0)
-            continue;
-        const int32_t newID = OpenUsersStringFile(pUSB->fileName);
-        UsersStringBlock *pUTmp;
-        for (pUTmp = m_pUsersBlocks; pUTmp != nullptr; pUTmp = pUTmp->next)
-            if (pUTmp->blockID == newID)
-                break;
-        if (pUTmp == nullptr)
-        {
-            core.Trace("Error: Can`t reinit user language file %s", pUSB->fileName);
-            continue;
-        }
-
-        pUTmp->blockID = pUSB->blockID;
-        pUTmp->nref = pUSB->nref;
-        if (pUTmp->nStringsQuantity != pUSB->nStringsQuantity)
-        {
-            core.Trace("Warning: user strings file %s have different size for new language %s", pUTmp->fileName,
-                       m_sLanguage);
-            int itmp1, itmp2;
-            for (itmp1 = 0; itmp1 < pUTmp->nStringsQuantity; itmp1++)
-            {
-                if (pUTmp->psStrName[itmp1] == nullptr)
-                    continue;
-                for (itmp2 = 0; itmp2 < pUSB->nStringsQuantity; itmp2++)
-                {
-                    if (pUSB->psStrName[itmp2] == nullptr)
-                        continue;
-                    if (storm::iEquals(pUSB->psStrName[itmp2], pUTmp->psStrName[itmp1]))
-                        break;
-                }
-                if (itmp2 >= pUSB->nStringsQuantity)
-                    core.Trace(">>> string <%s> not found into strings file", pUTmp->psStrName[itmp1]);
-            }
-
-            for (itmp1 = 0; itmp1 < pUSB->nStringsQuantity; itmp1++)
-            {
-                if (pUSB->psStrName[itmp1] == nullptr)
-                    continue;
-                for (int itmp2 = 0; itmp2 < pUTmp->nStringsQuantity; itmp2++)
-                {
-                    if (pUTmp->psStrName[itmp2] == nullptr)
-                        continue;
-                    if (storm::iEquals(pUTmp->psStrName[itmp2], pUSB->psStrName[itmp1]))
-                        break;
-                }
-                if (itmp2 >= pUTmp->nStringsQuantity)
-                    core.Trace(">>> string <%s> is new into strings file", pUSB->psStrName[itmp1]);
-            }
-        }
-    }
-    // Delete old user files
-    UsersStringBlock *pNewURoot = m_pUsersBlocks;
-    m_pUsersBlocks = pOldURoot;
-    while (m_pUsersBlocks)
-    {
-        m_pUsersBlocks->nref = 1;
-        CloseUsersStringFile(m_pUsersBlocks->blockID);
-    }
-    m_pUsersBlocks = pNewURoot;
-    //=======================================================================
+    // Re-read the open user files in the new language under their ids
+    for (const auto &problem : m_usersFiles.Reload([this](const std::string &name) { return LoadUsersStringFile(name); }))
+        core.Trace("Warning: language %s: %s", m_sLanguage, problem.c_str());
 
     // UNGUARD
 }
@@ -566,203 +473,68 @@ char *STRSERVICE::GetStringName(int32_t strNum)
 
 int32_t STRSERVICE::OpenUsersStringFile(const char *fileName)
 {
-    int i;
     if (fileName == nullptr)
-    {
         return -1;
-    }
+    return m_usersFiles.Open(fileName, [this](const std::string &name) { return LoadUsersStringFile(name); });
+}
 
-    UsersStringBlock *pPrev = nullptr;
-    UsersStringBlock *itUSB;
-    for (itUSB = m_pUsersBlocks; itUSB != nullptr; itUSB = itUSB->next)
-    {
-        if (itUSB->fileName != nullptr && storm::iEquals(itUSB->fileName, fileName))
-        {
-            break;
-        }
-        pPrev = itUSB;
-    }
-    if (itUSB != nullptr)
-    {
-        itUSB->nref++;
-        return itUSB->blockID;
-    }
-
-    auto pUSB = std::make_unique<UsersStringBlock>();
-
-    // strings reading
+std::optional<storm::strings::UserStringFiles::Rows> STRSERVICE::LoadUsersStringFile(const std::string &fileName) const
+{
     char param[512];
-    sprintf_s(param, "resource\\ini\\TEXTS\\%s\\%s", m_sLanguageDir, fileName);
+    sprintf_s(param, "resource\\ini\\TEXTS\\%s\\%s", m_sLanguageDir, fileName.c_str());
     auto fileS = fio->_CreateFile(param, std::ios::binary | std::ios::in);
     if (!fileS.is_open())
     {
         spdlog::warn("WARNING! Strings file \"{}\" does not exist", fileName);
-        return -1;
+        return {};
     }
 
     const int32_t filesize = fio->_GetFileSize(param);
-
     if (filesize <= 0)
     {
         spdlog::warn("WARNING! Strings file \"{}\" has zero size", fileName);
-        return -1;
+        return {};
     }
 
-    auto fileBuf = new char[filesize + 1];
-    if (fileBuf == nullptr)
+    std::vector<char> fileBuf(filesize + 1);
+    if (!fio->_ReadFile(fileS, fileBuf.data(), filesize))
     {
-        throw std::runtime_error("Allocate memory error");
-    }
-
-    if (!fio->_ReadFile(fileS, fileBuf, filesize))
-    {
-        core.Trace("Can`t read strings file: %s", fileName);
+        core.Trace("Can`t read strings file: %s", fileName.c_str());
         fio->_CloseFile(fileS);
-        STORM_DELETE(fileBuf);
-        return -1;
+        return {};
     }
     fio->_CloseFile(fileS);
     fileBuf[filesize] = 0;
 
-    pUSB->nref = 1;
-    const auto len = strlen(fileName) + 1;
-    pUSB->fileName = new char[len];
-    if (pUSB->fileName == nullptr)
-    {
-        throw std::runtime_error("Allocate memory error");
-    }
-    memcpy(pUSB->fileName, fileName, len);
-    pUSB->blockID = GetFreeUsersID();
-
+    storm::strings::UserStringFiles::Rows rows;
     int32_t stridx = 0;
-    pUSB->psStrName = nullptr;
-    pUSB->psString = nullptr;
-    for (pUSB->nStringsQuantity = 0;; pUSB->nStringsQuantity++)
+    while (true)
     {
-        if (!GetNextUsersString(fileBuf, stridx, nullptr, nullptr))
-        {
+        storm::strings::UserStringFiles::Row row;
+        if (!GetNextUsersString(fileBuf.data(), stridx, &row.first, &row.second))
             break;
-        }
+        rows.push_back(std::move(row));
     }
-    if (pUSB->nStringsQuantity == 0)
-    {
-        core.Trace("WARNING! Strings file \"%s\" not contain strings", fileName);
-    }
-    else
-    {
-        pUSB->psStrName = new char *[pUSB->nStringsQuantity];
-        pUSB->psString = new char *[pUSB->nStringsQuantity];
-        if (pUSB->psStrName == nullptr || pUSB->psString == nullptr)
-        {
-            throw std::runtime_error("Allocate memory error");
-        }
-        stridx = 0;
-        for (i = 0; i < pUSB->nStringsQuantity; i++)
-        {
-            GetNextUsersString(fileBuf, stridx, &pUSB->psStrName[i], &pUSB->psString[i]);
-        }
-    }
-
-    STORM_DELETE(fileBuf);
-
-    const int32_t block_id = pUSB->blockID;
-    pUSB->next = nullptr;
-    if (pPrev == nullptr)
-    {
-        m_pUsersBlocks = pUSB.release();
-    }
-    else
-    {
-        pPrev->next = pUSB.release();
-    }
-    return block_id;
+    if (rows.empty())
+        core.Trace("WARNING! Strings file \"%s\" not contain strings", fileName.c_str());
+    return rows;
 }
 
 void STRSERVICE::CloseUsersStringFile(int32_t id)
 {
-    int i;
-    if (id == -1)
-        return;
-
-    UsersStringBlock *pPrev = nullptr;
-    UsersStringBlock *pUSB;
-    for (pUSB = m_pUsersBlocks; pUSB != nullptr; pUSB = pUSB->next)
-    {
-        if (pUSB->blockID == id)
-            break;
-        pPrev = pUSB;
-    }
-    if (pUSB == nullptr)
-        return;
-    pUSB->nref--;
-    if (pUSB->nref > 0)
-        return;
-
-    if (pPrev == nullptr)
-        m_pUsersBlocks = pUSB->next;
-    else
-        pPrev->next = pUSB->next;
-
-    if (pUSB->fileName != nullptr)
-    {
-        delete pUSB->fileName;
-        pUSB->fileName = nullptr;
-    }
-    if (pUSB->psStrName != nullptr)
-    {
-        for (i = 0; i < pUSB->nStringsQuantity; i++)
-            if (pUSB->psStrName[i] != nullptr)
-                delete pUSB->psStrName[i];
-        delete pUSB->psStrName;
-        pUSB->psStrName = nullptr;
-    }
-    if (pUSB->psString != nullptr)
-    {
-        for (i = 0; i < pUSB->nStringsQuantity; i++)
-            if (pUSB->psString[i] != nullptr)
-                delete pUSB->psString[i];
-        delete pUSB->psString;
-        pUSB->psString = nullptr;
-    }
-    delete pUSB;
+    m_usersFiles.Close(id);
 }
 
 char *STRSERVICE::TranslateFromUsers(int32_t id, const char *inStr)
 {
-    int i;
-    if (inStr == nullptr || id == -1)
+    if (inStr == nullptr)
         return nullptr;
-    UsersStringBlock *pUSB;
-    for (pUSB = m_pUsersBlocks; pUSB != nullptr; pUSB = pUSB->next)
-        if (pUSB->blockID == id)
-            break;
-    if (pUSB == nullptr)
-        return nullptr;
-
-    for (i = 0; i < pUSB->nStringsQuantity; i++)
-        if (pUSB->psStrName[i] != nullptr && storm::iEquals(pUSB->psStrName[i], inStr))
-            break;
-    if (i < pUSB->nStringsQuantity)
-        return pUSB->psString[i];
-    return nullptr;
+    // The interface keeps char * for its callers; nobody writes through it.
+    return const_cast<char *>(m_usersFiles.Translate(id, inStr));
 }
 
-int32_t STRSERVICE::GetFreeUsersID() const
-{
-    int id;
-    for (id = 0;; id++)
-    {
-        UsersStringBlock *pUSB;
-        for (pUSB = m_pUsersBlocks; pUSB != nullptr; pUSB = pUSB->next)
-            if (pUSB->blockID == id)
-                break;
-        if (pUSB == nullptr)
-            break;
-    }
-    return id;
-}
-
-bool STRSERVICE::GetNextUsersString(char *src, int32_t &idx, char **strName, char **strData) const
+bool STRSERVICE::GetNextUsersString(char *src, int32_t &idx, std::optional<std::string> *strName,
+                                    std::optional<std::string> *strData) const
 {
     char *tmpStr;
     char *dataBeg;
@@ -771,9 +543,9 @@ bool STRSERVICE::GetNextUsersString(char *src, int32_t &idx, char **strName, cha
     char *nameEnd;
 
     if (strName != nullptr)
-        *strName = nullptr;
+        strName->reset();
     if (strData != nullptr)
-        *strData = nullptr;
+        strData->reset();
     if (src == nullptr || idx < 0)
         return false;
 
@@ -892,23 +664,17 @@ bool STRSERVICE::GetNextUsersString(char *src, int32_t &idx, char **strName, cha
         break;
     }
 
+    // strncpy semantics: a name or text stops at an embedded NUL
+    const auto part = [](const char *begin, const char *end) {
+        return std::string(begin, strnlen(begin, end - begin + 1));
+    };
     if (strName != nullptr && nameBeg <= nameEnd)
-    {
-        *strName = new char[nameEnd - nameBeg + 2];
-        if (*strName == nullptr)
-            throw std::runtime_error("Allocate memory error");
-        strncpy_s(*strName, nameEnd - nameBeg + 2, nameBeg, nameEnd - nameBeg + 1);
-        strName[0][nameEnd - nameBeg + 1] = 0;
-    }
+        *strName = part(nameBeg, nameEnd);
 
     if (strData != nullptr && dataBeg <= dataEnd)
     {
-        *strData = new char[dataEnd - dataBeg + 2];
-        if (*strData == nullptr)
-            throw std::runtime_error("Allocate memory error");
-        strncpy_s(*strData, dataEnd - dataBeg + 2, dataBeg, dataEnd - dataBeg + 1);
-        strData[0][dataEnd - dataBeg + 1] = 0;
-        Assert(utf8::IsValidUtf8(*strData));
+        *strData = part(dataBeg, dataEnd);
+        Assert(utf8::IsValidUtf8(strData->c_str()));
     }
 
     return true;
