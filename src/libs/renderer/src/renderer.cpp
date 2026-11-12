@@ -675,6 +675,9 @@ bool Renderer::Init()
             throw std::runtime_error("Cannot initialize renderer: could not create an OpenGL ES 3.0 device");
 #endif
 #ifdef __ANDROID__
+        // The render scale a later view size keeps (ApplyViewResize).
+        renderScale_[0] = viewSize.width > 0 ? static_cast<float>(screen_size.x) / viewSize.width : 1.0f;
+        renderScale_[1] = viewSize.height > 0 ? static_cast<float>(screen_size.y) / viewSize.height : 1.0f;
         core.Trace("AndroidRenderResolution: legacy=%dx%d view=%dx%d chosen=%dx%d final=%dx%d reason=%s deviceAdjusted=%d",
                    legacySize.width, legacySize.height, viewSize.width, viewSize.height,
                    startupSize.extent.width, startupSize.extent.height, screen_size.x, screen_size.y,
@@ -687,11 +690,15 @@ bool Renderer::Init()
         // The Android surface is destroyed in background: stop presenting before control returns
         // to SDL (early subscriber) and re-attach to the new native window on return.
         appEventsSubscription_ = storm::AppEvents::instance().subscribe(
-            [](const storm::AppEvent &event) {
+            [this](const storm::AppEvent &event) {
                 if (event.type == storm::AppEventType::WillEnterBackground)
                     storm::render::NotifySurfaceLost();
                 else if (event.type == storm::AppEventType::DidEnterForeground)
                     storm::render::NotifySurfaceRestored();
+#ifdef __ANDROID__
+                else if (event.type == storm::AppEventType::WindowResized)
+                    pendingViewResize_ = {event.width, event.height}; // applied between frames (RunStart)
+#endif
             },
             true);
         pTechnique = std::make_unique<CTechnique>(this);
@@ -2659,6 +2666,43 @@ void Renderer::RestoreRender()
     resourcesReleased = false;
 }
 
+#ifdef __ANDROID__
+// The view changed size (split screen, foldables, `wm size`, a display size setting): the game
+// target follows it at the same render scale as at start (a lower render resolution chosen in
+// the graphics settings stays lower), instead of being letterboxed in the new surface. Between
+// frames (RunStart). The device keeps every resource and state; only the back buffer and its
+// frame buffers are made again, and the renderer takes the new back buffer.
+void Renderer::ApplyViewResize()
+{
+    const storm::android::RenderExtent view = pendingViewResize_;
+    pendingViewResize_ = {};
+    const storm::android::RenderExtent wanted = storm::android::boundedRenderExtent(
+        {std::clamp(static_cast<int>(std::lround(view.width * renderScale_[0])), 320, 8192),
+         std::clamp(static_cast<int>(std::lround(view.height * renderScale_[1])), 320, 8192)});
+    if (wanted.width <= 0 || (wanted.width == screen_size.x && wanted.height == screen_size.y))
+        return;
+    Release(pOriginalScreenSurface);
+    Release(pOriginalDepthSurface);
+    d3dpp.BackBufferWidth = wanted.width;
+    d3dpp.BackBufferHeight = wanted.height;
+    if (CHECKD3DERR(d3d9->ResizeBackBuffer(wanted.width, wanted.height)))
+        throw std::runtime_error("Cannot resize the game picture to " + std::to_string(wanted.width) + "x" + std::to_string(wanted.height));
+    d3d9->GetRenderTarget(0, &pOriginalScreenSurface);
+    d3d9->GetDepthStencilSurface(&pOriginalDepthSurface);
+    screen_size.x = wanted.width;
+    screen_size.y = wanted.height;
+    OriginalViewPort.Width = wanted.width; // every frame starts with it (BeginScene)
+    OriginalViewPort.Height = wanted.height;
+    m_fHeightDeformator = (float)(screen_size.y * 4.0f) / (float)(screen_size.x * 3.0f);
+    if (auto *render = static_cast<VDATA *>(core.GetScriptVariable("Render")); render && render->GetAClass())
+    {
+        render->GetAClass()->SetAttributeUseDword("screen_x", screen_size.x);
+        render->GetAClass()->SetAttributeUseDword("screen_y", screen_size.y);
+    }
+    core.Trace("AndroidRenderResolution: view resized to %dx%d, game picture %dx%d", view.width, view.height, screen_size.x, screen_size.y);
+}
+#endif
+
 bool Renderer::ResetDevice()
 {
     LostRender();
@@ -2674,6 +2718,8 @@ bool Renderer::ResetDevice()
 void Renderer::RunStart()
 {
 #ifdef __ANDROID__
+    if (pendingViewResize_.width > 0)
+        ApplyViewResize();
     ReconfigureGraphicsEffects(); // the settings screen stored new preferences
 #endif
     // The GPU self-test switched an effect stage off on this device: tell the player once (also logged).

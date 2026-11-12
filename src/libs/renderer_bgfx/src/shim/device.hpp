@@ -156,6 +156,10 @@ struct Device final : Object
     HRESULT GetDeviceCaps(D3DCAPS9 *caps);
     HRESULT GetDirect3D(Direct3D **d3d);
     HRESULT Reset(D3DPRESENT_PARAMETERS *params);
+    // The view changed size: the back buffer (and the scene stores behind it) is made again at the
+    // new size and bound as render target; every other state and resource stays as it is. Between
+    // frames only.
+    HRESULT ResizeBackBuffer(uint32_t width, uint32_t height);
     HRESULT Present();
     HRESULT GetBackBuffer(UINT, UINT, D3DBACKBUFFER_TYPE, Surface **surface);
     HRESULT CreateTexture(UINT width, UINT height, UINT levels, DWORD usage, D3DFORMAT format, D3DPOOL pool,
