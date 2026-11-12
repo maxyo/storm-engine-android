@@ -1583,16 +1583,48 @@ static void Items(const std::string &models)
     ExpectEqual(router.Using(), "items", "the items draw on the items screen");
     ExpectEqual(surface.tag, "s-items", "s-items mounted");
     Json view = surface.props;
-    Expect(view["slots"].size() == 10 && view["slots"][0]["label"] == "Rapier" && view["slots"][0]["image"]["texture"] == "atlas:ITEMS_1/itm1" &&
-               view["slots"][1]["empty"] == true,
-           "ten slots: what the hero wears, the empty ones dashed");
-    Expect(view["rows"].size() == 3 && view["rows"][0]["cells"][0]["badge"] == "check" && view["rows"][2]["cells"][1] == "\xC3\x97" "3",
+    Expect(view["slots"].size() == 10 && view["slots"][0]["label"] == "<items.slot_blade>" && view["slots"][0]["name"] == "Rapier" &&
+               view["slots"][0]["image"]["texture"] == "atlas:ITEMS_1/itm1" && view["slots"][1]["empty"] == true,
+           "ten slots: the slot's caption under what the hero wears, the empty ones dashed");
+    Expect(view["rows"].size() == 3 && !view.contains("columns") && view["rows"][0]["cells"][0]["badge"] == "check" && view["rows"][2]["cells"][1] == "\xC3\x97" "3",
            "the list: worn mark, a count only above one");
     Expect(view["stats"][0]["value"] == "4.6 / 140" && view["subject"]["label"] == "Anne Bonny" && view["tabs"].size() == 4,
            "weight in the header, the officer switch, the game's tabs");
     Expect(view["detail"]["title"] == "Rapier" && view["detail"]["text"] == "A light blade." && view["detail"]["action"]["label"] == "Take off" &&
                view["detail"]["action"]["disabled"] == false,
            "the selected item with the game's own action");
+    {
+        // The description in parts: the worn rapier's own figures (nothing to compare with), its kind, then the text.
+        const Json &facts = view["detail"]["facts"];
+        Expect(facts.size() == 4 && facts[0] == Json({{"k", "<items.attack>"}, {"v", "60.0"}}) && facts[2]["k"] == "<items.weight>" &&
+                   facts[3] == Json({{"k", "<items.kind>"}, {"v", "Rapiers"}}),
+               "the worn weapon: attack, balance, weight, kind: " + facts.dump());
+        // The dagger against the worn rapier: weaker (red), lighter (green); the balance has no better side.
+        FakeSurface dagger_surface;
+        Router dagger(dagger_surface);
+        InterfaceModel selected = model;
+        for (Widget &widget : selected.widgets)
+        {
+            if (widget.node == "TABLE_ITEMS")
+                widget.value = widget.index == 1 ? "1" : "0";
+            if (widget.node == "ANDROID_INFO")
+                widget.context = {{"row", "tr2"}, {"text", "A short blade."}, {"kind", "Rapiers"}, {"weight", "1.5"}};
+        }
+        dagger.SetInterface(selected);
+        const Json &against = dagger_surface.props["detail"]["facts"];
+        Expect(against[0] == Json({{"k", "<items.attack>"}, {"v", "34.5"}, {"d", "\xE2\x88\x92" "25.5"}, {"dTone", "danger"}}) &&
+                   against[1] == Json({{"k", "<items.balance>"}, {"v", "2.0"}, {"d", "+0.6"}}) &&
+                   against[2] == Json({{"k", "<items.weight>"}, {"v", "1.5"}, {"d", "\xE2\x88\x92" "0.9"}, {"dTone", "ok"}}) &&
+                   dagger_surface.props["detail"]["text"] == "A short blade.",
+               "an item against the worn one of its slot: " + against.dump());
+        // A row the adapter did not describe keeps the game's own text.
+        for (Widget &widget : selected.widgets)
+            if (widget.node == "ANDROID_INFO")
+                widget.context["row"] = "tr9";
+        selected.revision += 1;
+        dagger.SetInterface(selected);
+        Expect(dagger_surface.props["detail"]["text"] == "A light blade.", "no description from the adapter: the game's INFO_TEXT");
+    }
     Expect(view["extras"]["rows"].empty(), "every widget is known: no extras");
     {
         // An item worn nowhere (the potion: no slot) has no slot line and is no error.

@@ -462,7 +462,10 @@
     "slot": "blade",
     "worn": "1",
     "quest": "0",
-    "map": "0"
+    "map": "0",
+    "attack": "60.0",
+    "balance": "1.4",
+    "weight": "2.4"
    }
   },
   {
@@ -480,7 +483,10 @@
     "slot": "blade",
     "worn": "0",
     "quest": "0",
-    "map": "0"
+    "map": "0",
+    "attack": "34.5",
+    "balance": "2.0",
+    "weight": "1.5"
    }
   },
   {
@@ -515,7 +521,28 @@
    "context": {
     "label": "Rapier",
     "group": "ITEMS_1",
-    "image": "itm1"
+    "image": "itm1",
+    "attack": "60.0",
+    "balance": "1.4",
+    "weight": "2.4"
+   }
+  },
+  {
+   "node": "ANDROID_INFO",
+   "type": "fact",
+   "label": "",
+   "value": "",
+   "index": 0,
+   "enabled": false,
+   "rowId": "i0",
+   "images": [],
+   "actions": [],
+   "cells": [],
+   "context": {
+    "row": "tr1",
+    "text": "A light blade.",
+    "kind": "Rapiers",
+    "weight": "2.4"
    }
   }
  ]
