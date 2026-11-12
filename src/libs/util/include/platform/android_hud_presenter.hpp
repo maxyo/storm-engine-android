@@ -93,11 +93,13 @@ inline constexpr std::array<LegacyLayer, 13> kLegacyLayers{{
     {"log and actions", LegacyLayerKind::Hud},    // log lines and action hints
     {"active perk icons", LegacyLayerKind::Hud},  // perk icons over the time control
     {"timer bar", LegacyLayerKind::Hud},          // countdown bar
-    {"boarding status", LegacyLayerKind::Hud},    // crew strength bars of a deck fight
     {"interface cursor", LegacyLayerKind::Hud},   // mouse pointer of the original interface
     {"loading spinner", LegacyLayerKind::Hud},    // loading/saving spinner
     {"ship bars", LegacyLayerKind::World},        // hull/sails/crew bars and relation icon over ships and forts
     {"ship pointer", LegacyLayerKind::World},     // pointer over an order's target ship
+    // Not world-space, but the touch HUD has nothing in its place yet: shown until it is ported
+    // into the HUD (two side-strength bars), then refused again.
+    {"boarding status", LegacyLayerKind::World},  // crew strength bars of a deck fight
 }};
 inline const LegacyLayer *legacyLayer(std::string_view name)
 {

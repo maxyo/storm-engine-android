@@ -12,6 +12,9 @@ int main()
     assert(!legacyDrawRefused("ship pointer", hudPresenters.sea));
     assert(legacyDrawRefused("sea interface", hudPresenters.sea) && legacyDrawRefused("sea navigator", hudPresenters.sea) &&
            legacyDrawRefused("sea ship cards", hudPresenters.sea) && legacyDrawRefused("active perk icons"));
+    // The deck fight's strength bars show until the touch HUD has its own.
+    assert(hudPresenters.declare("land") && !legacyDrawRefused("boarding status"));
+    assert(legacyDrawRefused("land interface", hudPresenters.land));
     assert(legacyDrawRefused("not a layer", true)); // unclassified: refused, reported as an error
     // Without the touch HUD every legacy layer draws.
     hudPresenters.lost();
