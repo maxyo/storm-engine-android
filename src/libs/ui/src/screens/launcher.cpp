@@ -11,7 +11,9 @@
 //               recovery_required|start_failed, result: {key, args}, exit: {reason, when},
 //               import: {recovering, cancelling, canCancel, stage, bytes, total, files,
 //               choices: [{id, name, version, languages, defaultLanguage, bytes, files,
-//               patches, place, missing}], password: {for, retry}}}
+//               patches, place, missing}], password: {for, retry}},
+//               relief: {busy, cancelling, done, total, texture, result: {key, args}}}
+//               («Подготовка рельефа», the app's ReliefCoordinator: verbs relief-cancel, relief-dismiss)
 //   downloads: {sets: [{id, kind, name, state, downloaded, wanted, rate, peers, stalled,
 //               networkError, error, errorKind, discovered: ""|checking|game|none|undecided,
 //               main: <verb>, menu: [<verb>], busy}],
@@ -382,6 +384,7 @@ class LauncherScreen final : public Screen
 
         if (phase == "ready")
         {
+            Relief(view, Obj(state, "relief"), bindings);
             view["view"] = "ready";
             view["title"] = bindings.Text("launcher.app_name");
             // `starting`: the app is checking the files and installing the UI layers before the game
@@ -423,6 +426,64 @@ class LauncherScreen final : public Screen
     }
 
   private:
+    // «Подготовка рельефа» (DeepBump relief maps, made once in the launcher process): its progress
+    // card with «Прервать» while it runs, and the line under «Играть» saying that playing now pauses
+    // it until the next start; its last result as a notice that the player closes.
+    void Relief(Json &view, const Json &relief, Bindings &bindings)
+    {
+        view["relief"] = nullptr;
+        view["playNote"] = "";
+        if (!relief.is_object())
+        {
+            bindings.Error("launcher: ready without the relief state");
+            return;
+        }
+        const auto send = [this, &bindings](const char *verb) { bindings.Send(command_, verb, {}); };
+        if (Flag(relief, "busy"))
+        {
+            const double done = Num(relief, "done"), total = Num(relief, "total");
+            const bool cancelling = Flag(relief, "cancelling");
+            std::string status;
+            if (total > 0)
+                status = Fill(bindings.Text("launcher.relief.progress"),
+                              {std::to_string(static_cast<long long>(done)), std::to_string(static_cast<long long>(total))});
+            view["relief"] = Json{{"title", bindings.Text(cancelling ? "launcher.relief.cancelling" : "launcher.relief.title")},
+                                  {"subtitle", bindings.Text("launcher.relief.subtitle")},
+                                  {"status", status},
+                                  {"texture", Str(relief, "texture")},
+                                  {"percent", total > 0 ? std::min(100.0, std::floor(done * 100 / total)) : -1.0},
+                                  {"cancel", bindings.Text("launcher.relief.cancel")},
+                                  {"cancelBusy", cancelling || bindings.Pending("relief-cancel")}};
+            view["playNote"] = bindings.Text("launcher.relief.play_note");
+            bindings.On("relief-cancel", "", [send, cancelling](const Event &) {
+                if (!cancelling)
+                    send("relief-cancel");
+            });
+        }
+        const Json &result = Obj(relief, "result");
+        const std::string key = Str(result, "key");
+        if (key.empty())
+            return;
+        static const char *const kKnown[] = {StringKey("launcher.relief.relief_finished"), StringKey("launcher.relief.relief_cancelled"),
+                                             StringKey("launcher.relief.relief_failed")};
+        const std::string table = "launcher.relief." + key;
+        Json notice{{"id", "relief-result"}, {"action", bindings.Text("launcher.relief.dismiss")}};
+        if (std::find_if(std::begin(kKnown), std::end(kKnown), [&table](const char *k) { return table == k; }) == std::end(kKnown))
+        {
+            bindings.Error("launcher: unknown relief result " + key);
+            notice["text"] = key;
+            notice["tone"] = "danger";
+        }
+        else
+        {
+            const Json &args = List(result, "args");
+            notice["text"] = Fill(bindings.Text(table), {!args.empty() && args[0].is_string() ? args[0].get<std::string>() : std::string()});
+            notice["tone"] = key == "relief_finished" ? "ok" : key == "relief_cancelled" ? "info" : "danger";
+        }
+        view["notices"].push_back(notice);
+        bindings.On("relief-result", "", [send](const Event &) { send("relief-dismiss"); });
+    }
+
     // Several game copies found (V2-Launcher-Folder as a picker of copies): the ready ones
     // fit, a copy that lacks volumes says which; «Использовать» installs the chosen one.
     Json Choose(Json &view, const Json &import, Bindings &bindings)
