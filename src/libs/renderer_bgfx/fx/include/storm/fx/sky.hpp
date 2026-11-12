@@ -1,5 +1,5 @@
-// Analytic sky pass and the atmosphere state shared with the water (and with
-// any shader that includes fx_atmosphere.sh).
+// Analytic sky pass and the atmosphere state shared with any shader that includes
+// fx_atmosphere.sh.
 #pragma once
 
 #include "storm/fx/settings.hpp"

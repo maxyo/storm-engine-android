@@ -12,7 +12,6 @@
 #include "storm/fx/post_chain.hpp"
 #include "storm/fx/shadows.hpp"
 #include "storm/fx/sky.hpp"
-#include "storm/fx/water.hpp"
 
 #include <bgfx/bgfx.h>
 #include <bimg/bimg.h>
@@ -43,8 +42,6 @@ constexpr float kNear = 0.5f;
 constexpr float kFar = 4000.0f;
 constexpr bgfx::ViewId kShadowView = 0;
 constexpr bgfx::ViewId kSceneView = 1;
-constexpr bgfx::ViewId kCaptureView = 2;
-constexpr bgfx::ViewId kWaterView = 3;
 constexpr bgfx::ViewId kPostView = 10;
 constexpr bgfx::ViewId kReadbackView = 40;
 
@@ -124,13 +121,6 @@ enum class Content
     Pattern,  // aliasing test chart
 };
 
-enum class WaterSource
-{
-    Field,
-    Mesh,
-    Gerstner
-};
-
 struct Shot
 {
     std::string name;
@@ -138,10 +128,8 @@ struct Shot
     fx::Settings settings;
     preview::Weather weather = preview::Weather::Day;
     float render_scale = 1.0f;
-    WaterSource source = WaterSource::Field;
-    bool env_cube = false;
     float sun_turn = 0.0f; // rotates the sun around the vertical axis, degrees
-    float time = 12.5f;    // seconds: waves, clouds, wind
+    float time = 12.5f;    // seconds: clouds, wind (the sea and the ships stay at kTime)
     float interior = 0.0f; // 1 = the scene counts as indoors for the scene grade
     bool blobs = false;    // contact shadow blobs under the quay's figure and objects
 };
@@ -204,9 +192,7 @@ class Preview
         output_fb_ = bgfx::createFrameBuffer(kWidth, kHeight, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
         readback_ = bgfx::createTexture2D(kWidth, kHeight, false, 1, bgfx::TextureFormat::RGBA8,
                                           BGFX_TEXTURE_READ_BACK | BGFX_TEXTURE_BLIT_DST);
-        preview::FillWaveField(field_, kTime);
-        sea_ = preview::MakeSeaState(kTime);
-        const float ship_y = field_.Height(sea_, 30.0f, 95.0f) - 0.4f;
+        const float ship_y = preview::SeaHeight(30.0f, 95.0f, kTime) - 0.4f;
         const preview::Ship ship = preview::MakeShip({30.0f, ship_y, 95.0f}, 0.6f);
         ship_hull_.Set(ship.hull);
         ship_sails_.Set(ship.sails);
@@ -340,16 +326,10 @@ class Preview
         bgfx::destroy(readback_);
         if (bgfx::isValid(scene_fb_))
             bgfx::destroy(scene_fb_);
-        if (bgfx::isValid(sea_vertices_))
-            bgfx::destroy(sea_vertices_);
-        if (bgfx::isValid(sea_indices_))
-            bgfx::destroy(sea_indices_);
-        if (bgfx::isValid(env_cube_))
-            bgfx::destroy(env_cube_);
     }
 
-    // Renders one shot to <out_dir>/<name>.png and returns its pixels (RGBA).
-    std::vector<uint8_t> Render(const Shot &shot)
+    // Renders one shot to <out_dir>/<name>.png.
+    void Render(const Shot &shot)
     {
         const fx::Settings &settings = shot.settings;
         const auto scene_w = static_cast<uint16_t>(std::lround(kWidth * shot.render_scale));
@@ -455,8 +435,10 @@ class Preview
             ++variant;
         if (variant == std::size(kMeshVariants))
         {
-            std::printf("%s: no shader variant for \"%s\"\n", shot.name.c_str(), defines.c_str());
-            variant = 0;
+            // The variant table (preview_variants in CMakeLists.txt) no longer matches fx::LightingDefines().
+            std::printf("%s: no shader variant for \"%s\" (add it to preview_variants in CMakeLists.txt)\n", shot.name.c_str(),
+                        defines.c_str());
+            std::exit(1);
         }
         const bool per_pixel_points = (settings.lighting_flags & fx::kLightingPoint) != 0;
 
@@ -629,66 +611,11 @@ class Preview
 
         if (has_sea)
         {
-            fx::WaterShading shading;
-            shading.water_color = shot.weather == preview::Weather::Storm ? fx::Vec3{0.24f, 0.28f, 0.31f} : fx::Vec3{0.04f, 0.22f, 0.39f};
+            fx::Vec3 water_color = shot.weather == preview::Weather::Storm ? fx::Vec3{0.24f, 0.28f, 0.31f} : fx::Vec3{0.04f, 0.22f, 0.39f};
             if (night)
-                shading.water_color = {0.02f, 0.06f, 0.12f};
-            shading.foam = true;
-            shading.foam_v = 2.35f;
-            shading.foam_k = 1.1f;
-            fx::WaterFrame frame;
-            frame.view = kWaterView;
-            frame.camera = {eye.x, eye.y, eye.z};
-            frame.time = kTime;
-            frame.crest_height = sea_.layers[0].amp + sea_.layers[1].amp;
-            frame.far_plane = kFar;
-            if (settings.water == fx::WaterQuality::Legacy)
-            {
-                BuildLegacySea(shading, weather, eye);
-                draw(legacy_sea_, nullptr);
-            }
-            else
-            {
-                if (shot.env_cube)
-                {
-                    BuildEnvCube(sky_state);
-                    frame.env_cube = env_cube_;
-                }
-                if (settings.water == fx::WaterQuality::High)
-                    water_.CaptureScene(kCaptureView, bgfx::getTexture(scene_fb_, 0), bgfx::getTexture(scene_fb_, 1), scene_w, scene_h,
-                                        kNear, kFar);
-                bgfx::setViewName(kWaterView, "water");
-                bgfx::setViewMode(kWaterView, bgfx::ViewMode::Sequential);
-                bgfx::setViewFrameBuffer(kWaterView, scene_fb_);
-                bgfx::setViewRect(kWaterView, 0, 0, scene_w, scene_h);
-                bgfx::setViewClear(kWaterView, BGFX_CLEAR_NONE);
-                bgfx::setViewTransform(kWaterView, view, proj);
-                if (shot.source == WaterSource::Field)
-                {
-                    water_.UpdateField(field_);
-                    water_.SubmitField(settings, frame, shading, sky_, sea_);
-                }
-                else if (shot.source == WaterSource::Gerstner)
-                {
-                    fx::GerstnerSource source;
-                    source.amp = {sea_.layers[0].amp, sea_.layers[1].amp};
-                    source.scale = {sea_.layers[0].scale, sea_.layers[1].scale};
-                    source.move_speed = {{{4.0f, 0.0f}, {0.0f, 1.5f}}};
-                    source.pos_shift = sea_.pos_shift;
-                    water_.SubmitGerstner(settings, frame, shading, sky_, fx::GerstnerFromEngine(source), sea_.bump_scale);
-                }
-                else
-                {
-                    BuildEngineSea(eye);
-                    const bgfx::ProgramHandle program = water_.PrepareMesh(settings, frame, shading, sky_, {eye.x, eye.z});
-                    if (bgfx::isValid(program))
-                    {
-                        bgfx::setVertexBuffer(0, sea_vertices_);
-                        bgfx::setIndexBuffer(sea_indices_);
-                        bgfx::submit(kWaterView, program);
-                    }
-                }
-            }
+                water_color = {0.02f, 0.06f, 0.12f};
+            BuildLegacySea(water_color, weather, eye);
+            draw(legacy_sea_, nullptr);
         }
 
         // Post chain into the back buffer.
@@ -737,7 +664,6 @@ class Preview
         WritePng(out_dir_ + "/" + shot.name + ".png", kWidth, kHeight, kWidth * 4, pixels.data(), bimg::TextureFormat::RGBA8, bottom_up);
         std::printf("%-34s %ux%u -> %ux%u, %u post views, %d point lights over budget\n", shot.name.c_str(), scene_w, scene_h, kWidth,
                     kHeight, used, lighting_.TakeDroppedLights());
-        return pixels;
     }
 
   private:
@@ -761,60 +687,27 @@ class Preview
         scene_samples_ = samples;
     }
 
-    // The sea as the SEA entity builds it on the CPU: every vertex through EngineWaveField::Displace.
-    void BuildEngineSea(bx::Vec3 eye)
-    {
-        const fx::WaterGridMesh grid = fx::BuildWaterGrid(96);
-        const std::vector<fx::WaterGridLevel> levels = fx::PlaceWaterGrid(eye.x, eye.z, 0.5f, 9);
-        std::vector<fx::SeaVertex> vertices;
-        std::vector<uint32_t> indices;
-        for (const fx::WaterGridLevel &level : levels)
-        {
-            const auto base = static_cast<uint32_t>(vertices.size());
-            for (size_t i = 0; i < grid.vertices.size(); i += 3)
-                vertices.push_back(field_.Displace(sea_, level.origin[0] + grid.vertices[i] * level.step,
-                                                   level.origin[1] + grid.vertices[i + 1] * level.step, {eye.x, eye.z}));
-            for (uint16_t index : level.ring < 0 ? grid.full : grid.rings[level.ring])
-                indices.push_back(base + index);
-        }
-        cpu_sea_vertices_ = vertices;
-        cpu_sea_indices_ = indices;
-        if (bgfx::isValid(sea_vertices_))
-            bgfx::destroy(sea_vertices_);
-        if (bgfx::isValid(sea_indices_))
-            bgfx::destroy(sea_indices_);
-        sea_vertices_ = bgfx::createVertexBuffer(
-            bgfx::copy(vertices.data(), static_cast<uint32_t>(vertices.size() * sizeof(fx::SeaVertex))), fx::Water::MeshLayout());
-        sea_indices_ = bgfx::createIndexBuffer(bgfx::copy(indices.data(), static_cast<uint32_t>(indices.size() * 4)), BGFX_BUFFER_INDEX32);
-    }
-
     // Stand-in for the legacy Sea2 look (no fx): per-vertex Fresnel blend of water and sky colour, vertex fog.
-    void BuildLegacySea(const fx::WaterShading &shading, const fx::WeatherInput &weather, bx::Vec3 eye)
+    void BuildLegacySea(const fx::Vec3 &water_color, const fx::WeatherInput &weather, bx::Vec3 eye)
     {
-        BuildEngineSea(eye);
-        preview::Mesh mesh;
-        mesh.indices = cpu_sea_indices_;
-        mesh.vertices.reserve(cpu_sea_vertices_.size());
+        constexpr float kReflection = 0.7f; // Sea2.Reflection
+        preview::Mesh mesh = preview::MakeSea({eye.x, eye.z}, kTime);
         const fx::Vec3 sky{0.62f * weather.sun_color[0] + 0.1f, 0.74f * weather.sun_color[1] + 0.1f, 0.86f * weather.sun_color[2] + 0.1f};
-        for (const fx::SeaVertex &v : cpu_sea_vertices_)
+        for (preview::Vertex &v : mesh.vertices)
         {
-            const float to_eye[3] = {-v.pos[0], eye.y - v.pos[1], -v.pos[2]};
+            const float to_eye[3] = {eye.x - v.pos[0], eye.y - v.pos[1], eye.z - v.pos[2]};
             const float dist = std::sqrt(to_eye[0] * to_eye[0] + to_eye[1] * to_eye[1] + to_eye[2] * to_eye[2]);
             const float ndv = std::max((v.normal[0] * to_eye[0] + v.normal[1] * to_eye[1] + v.normal[2] * to_eye[2]) / dist, 0.0f);
-            const float fresnel = std::clamp(std::pow(1.0f - ndv, 3.0f) * shading.reflection * 1.2f, 0.0f, 1.0f);
+            const float fresnel = std::clamp(std::pow(1.0f - ndv, 3.0f) * kReflection * 1.2f, 0.0f, 1.0f);
             const float fog = 1.0f - std::exp(-weather.fog_density * dist);
-            preview::Vertex out{};
             uint32_t packed = 0xff000000u;
             for (int c = 0; c < 3; ++c)
             {
-                out.pos[c] = v.pos[c] + (c == 0 ? eye.x : c == 2 ? eye.z : 0.0f);
-                out.normal[c] = v.normal[c];
-                float value = shading.water_color[c] + (sky[c] - shading.water_color[c]) * fresnel;
+                float value = water_color[c] + (sky[c] - water_color[c]) * fresnel;
                 value += (weather.fog_color[c] - value) * fog;
                 packed |= static_cast<uint32_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f)) << (8 * c);
             }
-            out.abgr = packed;
-            mesh.vertices.push_back(out);
+            v.abgr = packed;
         }
         legacy_sea_.Set(mesh);
     }
@@ -839,41 +732,14 @@ class Preview
         legacy_sky_.Set(dome);
     }
 
-    // Stand-in for the SEA entity's environment cube: the analytic sky rendered into six small faces on the CPU.
-    void BuildEnvCube(const fx::SkyState &sky)
-    {
-        constexpr int kSize = 64;
-        std::vector<uint8_t> texels(static_cast<size_t>(kSize) * kSize * 4 * 6);
-        size_t o = 0;
-        for (int face = 0; face < 6; ++face)
-            for (int y = 0; y < kSize; ++y)
-                for (int x = 0; x < kSize; ++x)
-                {
-                    const float s = (x + 0.5f) / kSize * 2.0f - 1.0f, t = (y + 0.5f) / kSize * 2.0f - 1.0f;
-                    const float dirs[6][3] = {{1, -t, -s}, {-1, -t, s}, {s, 1, t}, {s, -1, -t}, {s, -t, 1}, {-s, -t, -1}};
-                    const float len = std::sqrt(dirs[face][0] * dirs[face][0] + dirs[face][1] * dirs[face][1] + dirs[face][2] * dirs[face][2]);
-                    const fx::Vec3 c = fx::SkyColor(sky, {dirs[face][0] / len, dirs[face][1] / len, dirs[face][2] / len});
-                    for (int i = 0; i < 3; ++i)
-                        texels[o++] = static_cast<uint8_t>(std::lround(std::sqrt(std::clamp(c[i], 0.0f, 1.0f)) * 255.0f));
-                    texels[o++] = 255;
-                }
-        if (bgfx::isValid(env_cube_))
-            bgfx::destroy(env_cube_);
-        env_cube_ = bgfx::createTextureCube(kSize, false, 1, bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
-                                            bgfx::copy(texels.data(), static_cast<uint32_t>(texels.size())));
-    }
-
     std::string out_dir_;
     fx::PostChain post_;
-    fx::Water water_;
     fx::Sky sky_;
     fx::Lighting lighting_;
     fx::Shadows shadows_;
     fx::ContactShadows contact_shadows_;
     fx::FlashLights flashes_;
     std::vector<fx::PointLight> town_lights_;
-    fx::EngineWaveField field_;
-    fx::EngineSeaState sea_;
     std::vector<bgfx::ProgramHandle> programs_; // parallel to kMeshVariants
     bgfx::UniformHandle u_light_, u_point_, u_point_count_, s_detail_, s_base_;
     bgfx::TextureHandle white_base_ = BGFX_INVALID_HANDLE, frond_texture_ = BGFX_INVALID_HANDLE, rope_texture_ = BGFX_INVALID_HANDLE;
@@ -889,23 +755,7 @@ class Preview
     uint8_t scene_samples_ = 0;
     GpuMesh ship_hull_, ship_sails_, island_, quay_, figure_, moored_hull_, moored_sails_, town_, town_glow_, harbour_figure_,
         harbour_hull_, harbour_sails_, firing_hull_, firing_sails_, muzzle_fire_, pattern_, legacy_sky_, legacy_sea_;
-    std::vector<fx::SeaVertex> cpu_sea_vertices_;
-    std::vector<uint32_t> cpu_sea_indices_;
-    bgfx::VertexBufferHandle sea_vertices_ = BGFX_INVALID_HANDLE;
-    bgfx::IndexBufferHandle sea_indices_ = BGFX_INVALID_HANDLE;
-    bgfx::TextureHandle env_cube_ = BGFX_INVALID_HANDLE;
 };
-
-// Mean absolute difference of two RGBA images, 0..255.
-double MeanDifference(const std::vector<uint8_t> &a, const std::vector<uint8_t> &b)
-{
-    if (a.size() != b.size() || a.empty())
-        return 255.0;
-    double sum = 0.0;
-    for (size_t i = 0; i < a.size(); ++i)
-        sum += std::abs(static_cast<int>(a[i]) - static_cast<int>(b[i]));
-    return sum / static_cast<double>(a.size());
-}
 
 // CPU-side products as images: baked textures, sky panoramas, grading LUT strips.
 void WriteCpuImages(const std::string &dir)
@@ -915,8 +765,7 @@ void WriteCpuImages(const std::string &dir)
         work();
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     };
-    fx::BakedTexture detail, clouds;
-    const double detail_ms = ms([&] { detail = fx::BakeWaterDetail(); });
+    fx::BakedTexture clouds;
     const double cloud_ms = ms([&] { clouds = fx::BakeCloudNoise(); });
     const auto channel = [&](const fx::BakedTexture &texture, int c, const char *name) {
         std::vector<uint8_t> grey(static_cast<size_t>(texture.size) * texture.size * 4);
@@ -927,14 +776,6 @@ void WriteCpuImages(const std::string &dir)
         }
         WritePng(dir + "/" + name + ".png", texture.size, texture.size, texture.size * 4, grey.data(), bimg::TextureFormat::RGBA8, false);
     };
-    std::vector<uint8_t> normals(detail.rgba.begin(), detail.rgba.begin() + static_cast<size_t>(detail.size) * detail.size * 4);
-    for (size_t i = 0; i < normals.size(); i += 4)
-    {
-        normals[i + 2] = 255;
-        normals[i + 3] = 255;
-    }
-    WritePng(dir + "/tex_water_normal.png", detail.size, detail.size, detail.size * 4, normals.data(), bimg::TextureFormat::RGBA8, false);
-    channel(detail, 2, "tex_water_foam");
     channel(clouds, 0, "tex_cloud_coverage");
     channel(clouds, 1, "tex_cloud_billows");
 
@@ -969,12 +810,7 @@ void WriteCpuImages(const std::string &dir)
                             &lut[(static_cast<size_t>(b) * n + g) * n * 4], static_cast<size_t>(n) * 4);
         WritePng(dir + "/lut_" + name + ".png", n * n, n, n * n * 4, strip.data(), bimg::TextureFormat::RGBA8, false);
     }
-    fx::EngineWaveField field;
-    preview::FillWaveField(field, 0.0f);
-    const double pack_ms = ms([&] { field.PackLayerHalf(0); field.PackLayerHalf(1); });
-    std::printf("CPU cost on this host: water detail bake %.1f ms, cloud bake %.1f ms, sky panorama %.2f ms, grading LUT %.2f ms, "
-                "two wave layers packed %.3f ms\n",
-                detail_ms, cloud_ms, sky_ms, lut_ms, pack_ms);
+    std::printf("CPU cost on this host: cloud bake %.1f ms, sky panorama %.2f ms, grading LUT %.2f ms\n", cloud_ms, sky_ms, lut_ms);
 }
 
 std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
@@ -1060,25 +896,6 @@ std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
     add("broadside_dusk_2_medium", Content::Broadside, medium, preview::Weather::Sunset);
     add("broadside_dusk_3_high", Content::Broadside, high, preview::Weather::Sunset);
 
-    // Water quality levels at the shore, and the geometry sources.
-    fx::Settings water = depth_high;
-    water.water_refraction = false; // exists at High only
-    water.water = fx::WaterQuality::Legacy;
-    add("water_shore_0_legacy", Content::Shore, water);
-    water.water = fx::WaterQuality::Low;
-    add("water_shore_1_low", Content::Shore, water);
-    water.water = fx::WaterQuality::Medium;
-    add("water_shore_2_medium", Content::Shore, water);
-    add("water_shore_2_medium_envcube", Content::Shore, water).env_cube = true;
-    add("water_shore_3_high", Content::Shore, depth_high);
-    fx::Settings no_refraction = depth_high;
-    no_refraction.water_refraction = false;
-    add("water_shore_3_high_no_refraction", Content::Shore, no_refraction);
-    add("water_shore_3_high_envcube", Content::Shore, depth_high).env_cube = true;
-    add("water_source_field", Content::Ocean, medium);
-    add("water_source_mesh", Content::Ocean, medium).source = WaterSource::Mesh;
-    add("water_source_gerstner", Content::Ocean, medium).source = WaterSource::Gerstner;
-
     // Sky without clouds.
     fx::Settings clear = high;
     clear.sky_clouds = false;
@@ -1118,9 +935,7 @@ std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
     // MSAA with alpha to coverage on foliage and rigging; wind sway at two moments.
     one_more = basic;
     one_more.fxaa = false;
-    one_more.ssao = false; // depth-based effects and MSAA exclude each other on this renderer
-    one_more.water = fx::WaterQuality::Medium;
-    one_more.water_refraction = false;
+    one_more.ssao = one_more.sea_soft_edges = false; // depth-based effects and MSAA exclude each other on this renderer
     add("a2c_0_no_aa_alpha_test", Content::Garden, one_more).sun_turn = 215.0f;
     one_more.msaa = 4;
     add("a2c_1_msaa_alpha_test", Content::Garden, one_more).sun_turn = 215.0f;
@@ -1256,7 +1071,6 @@ int main(int argc, char **argv)
         WriteCpuImages(out_dir);
     {
         Preview preview(out_dir, height_map_dir);
-        std::vector<uint8_t> field, mesh;
         for (Shot shot : AllShots(support, !height_map_dir.empty()))
         {
             if (!filter.empty() && shot.name.find(filter) == std::string::npos)
@@ -1268,14 +1082,8 @@ int main(int argc, char **argv)
                 std::printf("%s: %s\n", shot.name.c_str(), change.c_str());
                 ++errors; // on this host nothing should have to change
             }
-            const std::vector<uint8_t> pixels = preview.Render(shot);
-            if (shot.name == "water_source_field")
-                field = pixels;
-            if (shot.name == "water_source_mesh")
-                mesh = pixels;
+            preview.Render(shot);
         }
-        if (!field.empty() && !mesh.empty())
-            std::printf("height-field (GPU) vs engine mesh (CPU) sea: mean difference %.2f / 255\n", MeanDifference(field, mesh));
     }
     bgfx::shutdown();
     if (errors)

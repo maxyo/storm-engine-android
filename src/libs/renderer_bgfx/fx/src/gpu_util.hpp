@@ -32,8 +32,6 @@ void SetupView(bgfx::ViewId view, const char *name, bgfx::FrameBufferHandle targ
 bool SupportsLut3d();
 bool SupportsShadowMap();
 bool SupportsAoVolume();
-bool SupportsSceneSnapshot();
-bool SupportsWaveField();
 bool SupportsNormalMap();
 bool SupportsMsaa();
 

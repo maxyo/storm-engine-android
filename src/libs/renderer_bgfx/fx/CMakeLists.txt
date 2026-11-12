@@ -27,7 +27,7 @@ storm_fetch_declare(storm_voxelizer
 FetchContent_MakeAvailable(storm_voxelizer)
 
 add_library(storm_bgfx_fx_core STATIC
-    src/color_lut.cpp src/noise_bake.cpp src/wave_model.cpp src/water_grid.cpp src/sky_model.cpp
+    src/color_lut.cpp src/noise_bake.cpp src/sky_model.cpp
     src/lighting_model.cpp src/light_set.cpp src/shadow_model.cpp src/normal_map.cpp src/settings.cpp src/log.cpp
     src/ao_volume.cpp src/voxelizer_impl.c)
 target_compile_features(storm_bgfx_fx_core PUBLIC cxx_std_20)
@@ -39,7 +39,7 @@ target_link_libraries(storm_bgfx_fx_core PUBLIC Threads::Threads) # the AO bake'
 set_target_properties(storm_bgfx_fx_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(storm_bgfx_fx STATIC
-    src/gpu_util.cpp src/post_chain.cpp src/water.cpp src/sky.cpp src/lighting.cpp src/shadows.cpp src/capabilities.cpp
+    src/gpu_util.cpp src/post_chain.cpp src/sea_depth.cpp src/sky.cpp src/lighting.cpp src/shadows.cpp src/capabilities.cpp
     src/contact_shadows.cpp src/self_test.cpp)
 target_link_libraries(storm_bgfx_fx PUBLIC storm_bgfx_fx_core storm_bgfx_runtime PRIVATE storm_fx_shaders)
 set_target_properties(storm_bgfx_fx PROPERTIES POSITION_INDEPENDENT_CODE ON)

@@ -32,7 +32,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     {
         s.bloom_downscale = 4;
         s.bloom_levels = 3;
-        s.water = WaterQuality::Medium;
+        s.sea_band_limit = true;
         s.anisotropy = 4;
         s.lighting_flags = kLightingPerPixel | kLightingPoint | kLightingNormalMap;
         s.point_lights = 4;
@@ -46,8 +46,8 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.anisotropy = 8;
     // No sharpening by default: CAS turns the sub-pixel detail of distant foliage into a visible mosaic even at
     // low strength; it stays an option.
-    s.water = WaterQuality::High;
-    s.water_refraction = true;
+    s.sea_band_limit = true;
+    s.sea_soft_edges = true;
     // Wind sway is not in the presets: the game already sways sails, flags and grass itself, and the static
     // location models carry no anchor weights for foliage (option fx_wind, reported as not wired).
     s.lighting_flags = kLightingPerPixel | kLightingSpecular | kLightingTranslucent | kLightingPoint | kLightingNormalMap;
@@ -72,12 +72,6 @@ std::string Support::Describe() const
     text += word(lut_3d);
     text += ", shadow map: ";
     text += word(shadow_map);
-    text += ", scene snapshot (2 colour targets): ";
-    text += word(scene_snapshot);
-    // Water::SubmitField (the GPU-displaced grid) is used by tools/fx-preview only; the game's SEA displaces its
-    // mesh on the CPU, so the capability is reported, not used.
-    text += ", wave field in the vertex shader (device-capable, not used by SEA): ";
-    text += word(wave_field);
     text += ", sampleable scene depth: ";
     text += word(scene_depth);
     text += ", RG8 normal maps: ";
@@ -129,12 +123,9 @@ constexpr Rule kRules[] = {
      "anisotropic filtering is not available: switched off"},
     {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa_depth && s.ssao; }, [](Settings &s) { s.ssao = false; },
      "ambient occlusion cannot read the depth of a multisampled scene on this renderer: switched off (or turn MSAA off)"},
-    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa_depth && s.water == WaterQuality::High; },
-     [](Settings &s) {
-         s.water = WaterQuality::Medium;
-         s.water_refraction = false;
-     },
-     "high water quality cannot read the depth of a multisampled scene on this renderer: lowered to medium (or turn MSAA off)"},
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa_depth && s.sea_soft_edges; },
+     [](Settings &s) { s.sea_soft_edges = false; },
+     "soft sea edges cannot read the depth of a multisampled scene on this renderer: switched off (or turn MSAA off)"},
     {[](const Settings &s, const Support &) { return (s.lighting_flags & kLightingRim) && !(s.lighting_flags & kLightingPerPixel); },
      [](Settings &s) { s.lighting_flags &= ~static_cast<uint32_t>(kLightingRim); }, "rim light needs per-pixel lighting: switched off"},
     {[](const Settings &s, const Support &) {
@@ -146,14 +137,8 @@ constexpr Rule kRules[] = {
      "sun shafts are part of the bloom chain and bloom is off: sun shafts switched off"},
     {[](const Settings &s, const Support &c) { return s.ssao && !c.scene_depth; }, [](Settings &s) { s.ssao = false; },
      "ambient occlusion needs a sampleable scene depth texture: switched off"},
-    {[](const Settings &s, const Support &c) { return s.water == WaterQuality::High && !(c.scene_snapshot && c.scene_depth); },
-     [](Settings &s) {
-         s.water = WaterQuality::Medium;
-         s.water_refraction = false;
-     },
-     "high water quality needs a scene snapshot (two colour targets and sampleable depth): lowered to medium"},
-    {[](const Settings &s, const Support &) { return s.water_refraction && s.water != WaterQuality::High; },
-     [](Settings &s) { s.water_refraction = false; }, "water refraction exists only at high water quality: switched off"},
+    {[](const Settings &s, const Support &c) { return s.sea_soft_edges && !c.scene_depth; }, [](Settings &s) { s.sea_soft_edges = false; },
+     "soft sea edges need a sampleable scene depth texture: switched off"},
     {[](const Settings &s, const Support &) {
          return !(s.lighting_flags & kLightingPerPixel) && (s.lighting_flags & (kLightingHemisphere | kLightingSpecular | kLightingTranslucent));
      },
@@ -196,7 +181,7 @@ std::vector<std::string> ValidateSettings(const Settings &settings, const Suppor
 Settings ConstrainSettings(const Settings &requested, const Support &support, std::vector<std::string> &changes)
 {
     Settings settings = requested;
-    // A fix can expose another violation (lower water quality -> refraction), so run until stable.
+    // A fix can expose another violation (per-pixel lighting off -> its shadows), so run until stable.
     for (bool changed = true; changed;)
     {
         changed = false;
@@ -252,7 +237,7 @@ Support RestrictSupport(const Support &device, CapsProfile profile)
     switch (profile)
     {
     case CapsProfile::Gles30Minimal:
-        s.msaa = s.msaa_depth = s.anisotropy = s.wave_field = false;
+        s.msaa = s.msaa_depth = s.anisotropy = false;
         break;
     case CapsProfile::MaliG5x:
     case CapsProfile::Adreno6xx:

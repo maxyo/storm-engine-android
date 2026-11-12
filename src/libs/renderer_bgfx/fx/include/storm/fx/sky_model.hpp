@@ -1,5 +1,5 @@
 // CPU side of the sky: single scattering (Rayleigh + Mie) integrated into a
-// small panorama that the sky, water and fog shaders sample with one fetch.
+// small panorama that the sky and fog shaders sample with one fetch.
 // The panorama is rebuilt only when the weather input changes noticeably.
 #pragma once
 

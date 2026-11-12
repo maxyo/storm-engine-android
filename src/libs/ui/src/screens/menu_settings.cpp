@@ -159,7 +159,7 @@ class SettingsScreen final : public Screen
             // A debuggable app reports single fx overrides (GraphicsSettings.DEBUG_KEYS): rows to bisect
             // rendering problems on a phone, applied with «Готово» like the preset. Development only, so
             // the texts are not translated.
-            if (Known("fx_water"))
+            if (Known("fx_ssao"))
             {
                 Column debug{"Отладка эффектов"};
                 const Json onOff = Json::array({"пресет", "выкл", "вкл"});
@@ -170,7 +170,9 @@ class SettingsScreen final : public Screen
                 DebugSegment(bindings, debug, "fx_dither", "Дизеринг", {-1, 0, 1}, onOff);
                 DebugSegment(bindings, debug, "fx_contact_shadows", "Контактные тени", {-1, 0, 1}, onOff);
                 DebugSegment(bindings, debug, "fx_shadows", "Тени солнца", {-1, 0, 1, 2}, {"пресет", "выкл", "низк", "мягк"});
-                DebugSegment(bindings, debug, "fx_water", "Вода", {-1, 0, 1, 2, 3}, {"пресет", "старая", "низк", "средн", "высок"});
+                DebugSegment(bindings, debug, "fx_sea_band_limit", "Море: мягкая даль", {-1, 0, 1}, onOff);
+                DebugSegment(bindings, debug, "fx_sea_soft_edges", "Море: мягкие края", {-1, 0, 1}, onOff);
+                DebugSegment(bindings, debug, "fx_sea_specular", "Море: блик солнца", {-1, 0, 1}, onOff);
                 DebugSegment(bindings, debug, "fx_light_per_pixel", "Освещение попиксельно", {-1, 0, 1}, onOff);
                 DebugSegment(bindings, debug, "fx_light_point", "Точечные огни", {-1, 0, 1}, onOff);
                 DebugSegment(bindings, debug, "fx_light_specular", "Блики", {-1, 0, 1}, onOff);

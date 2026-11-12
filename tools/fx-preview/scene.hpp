@@ -1,11 +1,10 @@
 // Procedural test content for the fx preview: meshes, a synthetic stand-in for
-// the engine's sea height frames and the weather set-ups. Nothing is loaded
+// the game's sea surface and the weather set-ups. Nothing is loaded
 // from game data.
 #pragma once
 
 #include "storm/fx/light_set.hpp"
 #include "storm/fx/sky_model.hpp"
-#include "storm/fx/wave_model.hpp"
 
 #include <array>
 #include <cstdint>
@@ -85,10 +84,11 @@ Mesh MakeReliefMesh(Relief kind);
 // Procedural stand-in for the game's height texture of that surface: size * size grey values.
 std::vector<uint8_t> MakeHeightMap(Relief kind, int size);
 
-// Sea state resembling a fresh breeze in the game (two layers, values in the range of the Sea2 weather tables).
-storm::fx::EngineSeaState MakeSeaState(float time);
-// Fills both layers with tiling synthetic swell; `time` animates it like the engine's frame blend.
-void FillWaveField(storm::fx::EngineWaveField &field, float time);
+// Stand-in for the height of the game's sea (metres) at (x, z): a few travelling swells. The sea mesh and the
+// floating ships both use it. `normal`, if given, receives the unit surface normal.
+float SeaHeight(float x, float z, float time, float *normal = nullptr);
+// The open sea around `centre` (x, z) out to the horizon, finest under the camera; white vertex colours.
+Mesh MakeSea(std::array<float, 2> centre, float time);
 
 enum class Weather
 {

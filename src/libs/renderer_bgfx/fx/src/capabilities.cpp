@@ -13,8 +13,6 @@ Support DetectSupport(const RendererFacts &renderer)
     Support support;
     support.lut_3d = detail::SupportsLut3d();
     support.shadow_map = detail::SupportsShadowMap();
-    support.scene_snapshot = detail::SupportsSceneSnapshot();
-    support.wave_field = detail::SupportsWaveField();
     support.normal_map = detail::SupportsNormalMap();
     support.ao_volume = detail::SupportsAoVolume();
     support.msaa = detail::SupportsMsaa();

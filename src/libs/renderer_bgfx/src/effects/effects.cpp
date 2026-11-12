@@ -65,9 +65,9 @@ const Option kOptions[] = {
     {"fx_alpha_to_coverage", "0 off, 1 on", [](fx::Settings &s, int v) { s.alpha_to_coverage = on(v); }},
     {"fx_anisotropy", "1, 4, 8", [](fx::Settings &s, int v) { s.anisotropy = static_cast<uint8_t>(std::clamp(v, 1, 16)); }},
     {"fx_contact_shadows", "0 off, 1 on", [](fx::Settings &s, int v) { s.contact_shadows = on(v); }},
-    {"fx_water", "0 legacy, 1 low, 2 medium, 3 high",
-     [](fx::Settings &s, int v) { s.water = static_cast<fx::WaterQuality>(std::clamp(v, 0, 3)); }},
-    {"fx_water_refraction", "0 off, 1 on", [](fx::Settings &s, int v) { s.water_refraction = on(v); }},
+    {"fx_sea_band_limit", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_band_limit = on(v); }},
+    {"fx_sea_soft_edges", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_soft_edges = on(v); }},
+    {"fx_sea_specular", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_specular = on(v); }},
     {"fx_sky", "0 off, 1 on", [](fx::Settings &s, int v) { s.sky_atmosphere = on(v); }},
     {"fx_clouds", "0 off, 1 on", [](fx::Settings &s, int v) { s.sky_clouds = on(v); }},
     {"fx_ao_volume", "interiors: 0 off, 1 as the game's data, 2 moderate, 3 strong",
@@ -116,11 +116,11 @@ std::string describe(const fx::Settings &s)
     char text[512];
     snprintf(text, sizeof(text),
              "tonemap=%d bloom=%d(1/%u,%u) shafts=%d fxaa=%d sharpen=%d ssao=%d dither=%d flare=%d scene_grading=%d "
-             "grade=%d msaa=%u a2c=%d aniso=%u sky=%d clouds=%d water=%d shadows=%d "
+             "grade=%d msaa=%u a2c=%d aniso=%u sky=%d clouds=%d sea=%d%d%d shadows=%d "
              "lighting=0x%x contact=%d",
              s.tonemap, s.bloom, s.bloom_downscale, s.bloom_levels, s.sun_shafts, s.fxaa, s.sharpen, s.ssao, s.dither,
              s.lens_flare, s.scene_grading, static_cast<int>(s.grade), s.msaa,
-             s.alpha_to_coverage, s.anisotropy, s.sky_atmosphere, s.sky_clouds, static_cast<int>(s.water),
+             s.alpha_to_coverage, s.anisotropy, s.sky_atmosphere, s.sky_clouds, s.sea_band_limit, s.sea_soft_edges, s.sea_specular,
              static_cast<int>(s.shadows), s.lighting_flags, s.contact_shadows);
     return text;
 }
@@ -175,7 +175,9 @@ void Host::on_device_lost()
     self_test_.OnDeviceLost();
     lighting_.on_device_lost();
     sky_.OnDeviceLost();
-    water_.OnDeviceLost();
+    sea_depth_.OnDeviceLost();
+    u_sea_fx_ = s_sea_depth_ = BGFX_INVALID_HANDLE;
+    sea_depth_frame_ = UINT32_MAX;
     contact_.OnDeviceLost();
     ao_.on_device_lost();
     ao_bound_ = nullptr;
@@ -189,7 +191,14 @@ void Host::shutdown()
     self_test_.Shutdown();
     lighting_.shutdown();
     sky_.Shutdown();
-    water_.Shutdown();
+    sea_depth_.Shutdown();
+    for (bgfx::UniformHandle *uniform : {&u_sea_fx_, &s_sea_depth_})
+        if (bgfx::isValid(*uniform))
+        {
+            bgfx::destroy(*uniform);
+            *uniform = BGFX_INVALID_HANDLE;
+        }
+    sea_depth_frame_ = UINT32_MAX;
     contact_.Shutdown();
     ao_.shutdown();
     ao_bound_ = nullptr;
@@ -436,7 +445,7 @@ void Host::advance_switch()
     switch_cache_ = cache;
     const int per_frame = from_cache ? kCachedProgramsPerFrame : kProgramsPerFrame;
     int budget = per_frame;
-    const bool ready = (target_.PostIsIdentity() || post_.Prepare(target_, budget)) && water_.Prepare(target_, budget) &&
+    const bool ready = (target_.PostIsIdentity() || post_.Prepare(target_, budget)) && (!target_.sea_soft_edges || sea_depth_.Prepare(budget)) &&
                        sky_.Prepare(target_, budget) && contact_.Prepare(target_, budget) &&
                        lighting_.prepare_programs(*device, target_, budget);
     switch_programs_ += per_frame - budget;
@@ -599,25 +608,6 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)
                         .att2 = l.att2};
     }
     effects::Host::instance().lighting().set_dynamic_lights(std::span(converted, count));
-}
-
-namespace
-{
-std::function<storm::shim::BaseTexture *(int32_t)> &textureResolver()
-{
-    static std::function<storm::shim::BaseTexture *(int32_t)> resolver;
-    return resolver;
-}
-} // namespace
-
-void SetEffectsTextureResolver(std::function<storm::shim::BaseTexture *(int32_t)> resolver)
-{
-    textureResolver() = std::move(resolver);
-}
-
-storm::shim::BaseTexture *ResolveEffectsTexture(int32_t texture)
-{
-    return textureResolver() ? textureResolver()(texture) : nullptr;
 }
 
 void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path)
