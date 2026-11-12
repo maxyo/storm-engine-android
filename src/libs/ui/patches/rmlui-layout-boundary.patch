@@ -1,3 +1,10 @@
+Partial layout for RmlUi 6.3: a change inside an element marked rmlui-layout-boundary formats only that element
+(at its last width), and the whole document only when its size came out different. Our own until upstream
+releases its counterpart, the maintainer's partial_layout_update branch (996e0ed, LayoutNode layout cache):
+that branch forked before 6.3 and predates 6.3's scroll-area rework (#941; one content_overflow_size against
+6.3's visible and scrollable overflow sizes through ContainerBox and every formatting context), so it does not
+merge onto our pin. Drop this patch at the RmlUi bump that carries partial layout.
+
 diff --git a/Include/RmlUi/Core/Element.h b/Include/RmlUi/Core/Element.h
 index e0e9572..f231b29 100644
 --- a/Include/RmlUi/Core/Element.h
