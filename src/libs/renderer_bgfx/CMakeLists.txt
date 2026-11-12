@@ -126,6 +126,16 @@ target_include_directories(storm_bgfx PUBLIC include PRIVATE src)
 target_link_libraries(storm_bgfx PUBLIC storm_bgfx_runtime PRIVATE storm_bgfx_shaders ${SDL2_LIBRARIES})
 if(ANDROID)
     target_link_libraries(storm_bgfx PRIVATE GLESv3) # driver string and limit queries next to bgfx
+    # Swappy GL presents the game's frames (src/shim/frame_pacing.cpp). Only that file sees its headers and the
+    # host hooks it reports to (header-only platform/host_hooks.hpp): the other shim sources keep their compile
+    # commands (and their ccache entries).
+    include("${CMAKE_CURRENT_LIST_DIR}/cmake/swappy.cmake")
+    set_source_files_properties(src/shim/frame_pacing.cpp PROPERTIES
+        INCLUDE_DIRECTORIES "${storm_swappy_include};${CMAKE_CURRENT_LIST_DIR}/../util/include"
+        COMPILE_DEFINITIONS "STORM_SWAPPY_PACKAGE=\"games-frame-pacing ${storm_swappy_version}\"")
+    target_link_libraries(storm_bgfx PRIVATE $<LINK_ONLY:storm_swappy>)
+    # Swappy registers its JNI methods itself: none of its symbols are exported from the library linking it.
+    target_link_options(storm_bgfx INTERFACE "LINKER:--exclude-libs,libswappy_static.a")
 endif()
 set_target_properties(storm_bgfx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(storm_bgfx PRIVATE -fsigned-char)

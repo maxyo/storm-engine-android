@@ -91,7 +91,6 @@ class Context final : public render::FrameOwner
     render::GamePicture AcquireGamePicture(std::string_view path) override;
     render::GamePicture QueryGamePicture(std::string_view path) override;
     void ReleaseGamePicture(std::string_view path) override;
-    void SetFrameRateLimit(uint32_t fps) override { frame_limit_ = fps; }
     void set_picture_provider(render::GamePictureProvider *provider);
 
   private:
@@ -108,7 +107,6 @@ class Context final : public render::FrameOwner
     };
     bool start(SDL_Window *window, uint32_t width, uint32_t height, bool vsync); // null window: headless
     void create_resources();
-    void pace();
     void try_restore();
     bool read_density(); // true when it changed
     uint32_t reset_flags() const;
@@ -143,10 +141,8 @@ class Context final : public render::FrameOwner
     std::unordered_map<std::string, Picture> pictures_;
     render::GamePictureProvider *picture_provider_ = nullptr;
     GameTarget game_target_;
-    uint32_t frame_limit_ = 0;
     uint32_t last_frame_ = 0;
     uint32_t submitted_frames_ = 0;
-    double last_present_ = 0.0;
 };
 
 struct Device final : Object

@@ -1,5 +1,6 @@
 #include "device.hpp"
 #include "effects/effects.hpp"
+#include "frame_pacing.hpp"
 #include "perf.hpp"
 #include "program_cache.hpp"
 #include "storm/render/d3d_interop.hpp"
@@ -224,6 +225,7 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
         init.type = bgfx::RendererType::OpenGLES;
         if (!native_handles(window, &init.swapChain.nwh, &init.swapChain.ndt))
             return false;
+        FramePacing::instance().start(); // bgfx presents through it from the first frame
     }
     else
     {
@@ -240,8 +242,11 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     if (!bgfx::init(init))
     {
         logf("bgfx::init failed");
+        FramePacing::instance().shutdown();
         return false;
     }
+    if (window)
+        FramePacing::instance().set_window(init.swapChain.nwh);
     caps_ = bgfx::getCaps();
     flip_y_ = caps_->originBottomLeft;
     if (window)
@@ -317,6 +322,7 @@ void Context::shutdown()
     dump_traps();
     effects::Host::instance().shutdown();
     bgfx::shutdown();
+    FramePacing::instance().shutdown();
     ProgramCache::instance().detach_device();
     initialised_ = false;
     surface_.valid = false;
@@ -402,6 +408,7 @@ void Context::surface_lost()
         frame_aborted_ = frame_open_;
         logf("surface lost: presentation suspended");
     }
+    FramePacing::instance().set_window(nullptr); // Swappy lets go of the window Android destroys
     {
         std::lock_guard lock(release_mutex_);
         surface_in_use_ = false;
@@ -508,6 +515,7 @@ void Context::try_restore()
         surface_in_use_ = true;
     }
     bgfx::reset(reset_flags(), &chain);
+    FramePacing::instance().set_window(chain.nwh);
     if (frame_aborted_)
     {
         // Draws submitted before the surface went away belong to a frame that was never finished.
@@ -545,22 +553,6 @@ void Context::draw_fullscreen(uint16_t view, bgfx::TextureHandle texture, uint32
     bgfx::setTexture(0, samplers_[0], texture, sampler_flags);
     bgfx::setState(state);
     bgfx::submit(view, blit_program_);
-}
-
-void Context::pace()
-{
-    if (frame_limit_ == 0)
-        return;
-    const double interval = 1.0 / frame_limit_;
-    const double target = last_present_ + interval;
-    double now = now_seconds();
-    if (now < target)
-    {
-        std::this_thread::sleep_for(std::chrono::duration<double>(target - now));
-        now = now_seconds();
-    }
-    // Never accumulate debt after a long frame.
-    last_present_ = now > target + interval ? now : target;
 }
 
 void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint32_t game_height)
@@ -603,7 +595,6 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
         }
         for (auto &entry : clients_)
             entry.client->OnUiRender(frame_);
-        pace();
         const auto started = std::chrono::steady_clock::now();
         if (run_frame(BGFX_FRAME_NONE, &last_frame_))
             perf_frame_presented(

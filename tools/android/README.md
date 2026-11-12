@@ -137,6 +137,27 @@ llvmpipe 2.3 / 0.7-1.0 s, arm64 + host GPU 13.3 / 0.2-0.4 s, x86_64 + host GPU 1
 0.3-0.6 s; with the host GPU the emulator's frame present (~50 ms) is the limit. Release and
 performance numbers still come from a real arm64 device.
 
+## Frame pacing (Swappy)
+
+The game window presents through Android Frame Pacing (Swappy GL 2.1.3 from the Android Game SDK,
+`src/libs/renderer_bgfx/src/shim/frame_pacing.hpp`; bgfx calls it instead of `eglSwapBuffers`,
+`patches/bgfx-swap-present-hook.patch`). It aims at 60 fps: a whole number of refreshes of one of
+the display's modes (1 at 60 Hz, 2 at 120 Hz; a 90 Hz panel uses its 60 Hz mode where it has one),
+and falls back to a steady 30 fps when frames do not fit. There is no frame limiter of our own and
+no `max_fps` key. The ADPF hint session (application `GamePerformance`) aims at that 60 fps interval
+and gets each frame's CPU work without the present wait. Logged (tag `storm-bgfx`, also in
+«Поделиться логом»):
+
+- once: `frame pacing: Swappy GL ...; display modes ...; current refresh ...; swap interval ...`;
+- on a change of Swappy's interval or the display mode: `frame pacing: Swappy presents every ...`;
+- every 30 s: `frame pacing: 30.0 s, N frames (fps) ...; frame ms p50 p95 p99 max; refreshes per
+  frame 1:..% 2:..% ...; present wait mean ...` (intervals between presents, in display refreshes);
+- without Swappy an error `frame pacing: Swappy GL unavailable (...)`: the game then presents with
+  `eglSwapBuffers` at swap interval 1, the display's own rate, unpaced.
+
+Emulator frame times are far above 16.7 ms (its present alone takes ~50 ms), so emulator runs show
+that pacing works, not its quality; the numbers come from a phone's log.
+
 ## Host checks and CI
 
 `python3 tools/ci/run_host_tests.py` fetches the pinned open-source sources into

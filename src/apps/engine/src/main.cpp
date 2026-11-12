@@ -127,45 +127,6 @@ void RunFrame()
     lifecycleDiagnostics.notifyAfterRun();
 }
 
-// Sleep-based frame limiter. The previous one compared SDL_GetTicks() and
-// `continue`d, spinning the whole main loop (event pump, JNI polling) on one
-// core until the frame time had passed, with whole-millisecond periods
-// (max_fps=60 actually ran at 62.5).
-class FrameLimiter
-{
-  public:
-    using Clock = std::chrono::steady_clock;
-
-    void setLimit(uint32_t fps)
-    {
-        period_ = fps ? std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / fps))
-                      : Clock::duration::zero();
-        next_ = Clock::now();
-    }
-
-    // Blocks until the next frame is due.
-    void wait()
-    {
-        if (period_ == Clock::duration::zero())
-            return;
-        const auto now = Clock::now();
-        if (now < next_)
-        {
-            std::this_thread::sleep_until(next_);
-            next_ += period_;
-        }
-        else
-        {
-            // Late: schedule from now instead of bursting to catch up.
-            next_ = (now - next_ > period_) ? now + period_ : next_ + period_;
-        }
-    }
-
-  private:
-    Clock::duration period_ = Clock::duration::zero();
-    Clock::time_point next_{};
-};
-
 // Last line of defence for exceptions thrown out of a frame (about 490 `throw`
 // sites are reachable from the frame loop): log, flush, tell the player, and
 // let main() shut the engine down in order. Android already caught
@@ -454,7 +415,6 @@ int main(int argc, char *argv[])
     // Read config
     auto ini = fio->OpenIniFile(fs::ENGINE_INI_FILE_NAME);
 
-    uint32_t dwMaxFPS = 0;
     int width = 1024, height = 768;
     int preferred_display = 0;
     bool fullscreen = false;
@@ -463,7 +423,6 @@ int main(int argc, char *argv[])
 
     if (ini)
     {
-        dwMaxFPS = static_cast<uint32_t>(ini->GetInt(nullptr, "max_fps", 0));
         auto bDebugWindow = ini->GetInt(nullptr, "DebugWindow", 0) == 1;
         auto bAcceleration = ini->GetInt(nullptr, "Acceleration", 0) == 1;
         if (ini->GetInt(nullptr, "logs", 1) == 0) // disable logging
@@ -494,9 +453,7 @@ int main(int argc, char *argv[])
     // Init core
     core_private->InitBase();
 
-    // Message loop
-    FrameLimiter frameLimiter;
-    frameLimiter.setLimit(dwMaxFPS);
+    // Message loop. Frames are paced by the renderer's present (Swappy on Android, vsync elsewhere).
 
 #ifdef __ANDROID__
     storm::android::Lifecycle androidLifecycle;
@@ -845,9 +802,7 @@ int main(int argc, char *argv[])
 #endif
         )
         {
-            const auto limiterStart = storm::platform::FrameWorkClock::Clock::now();
-            frameLimiter.wait();
-            frameWork.frame(storm::platform::FrameWorkClock::Clock::now() - limiterStart);
+            frameWork.frame();
 
 #ifdef __ANDROID__
             // Activity changes revoke queued intents before any native Player
