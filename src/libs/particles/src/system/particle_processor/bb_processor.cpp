@@ -29,7 +29,6 @@ Must be > 0
 #define PLOD 5.0f
 //=============================================================
 
-storm::render::VertexDeclarationId BillBoardProcessor::vertexDecl_;
 
 BillBoardProcessor::BillBoardProcessor()
 {
@@ -566,7 +565,7 @@ void BillBoardProcessor::Clear()
     Particles.clear();
 }
 
-void BillBoardProcessor::CreateVertexDeclaration() const
+void BillBoardProcessor::CreateVertexDeclaration()
 {
     if (vertexDecl_)
         return;

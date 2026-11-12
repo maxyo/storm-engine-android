@@ -19,7 +19,7 @@ class SEA : public SEA_BASE
     uint32_t dwShipCode = MakeHashValue("ship");
     uint32_t dwSailCode = MakeHashValue("sail");
 
-    static storm::render::VertexDeclarationId vertexDecl_;
+    storm::render::VertexDeclarationId vertexDecl_;
 
     struct SeaVertex
     {

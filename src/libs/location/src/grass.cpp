@@ -986,7 +986,7 @@ int32_t Grass::GetColor(glm::vec3 color)
     return (r << 16) | (g << 8) | b;
 }
 
-void Grass::CreateVertexDeclaration() const
+void Grass::CreateVertexDeclaration()
 {
     if (!vertexDecl_)
     {

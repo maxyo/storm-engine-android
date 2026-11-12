@@ -20,7 +20,6 @@
 #define WdmCloudsSizeMin 30.0f
 #define WdmCloudsSizeMax 50.0f
 
-storm::render::VertexDeclarationId WdmClouds::vertexDecl_;
 
 WdmClouds::Cloud::Cloud()
 {

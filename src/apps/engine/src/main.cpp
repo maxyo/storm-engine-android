@@ -27,6 +27,7 @@
 #include "platform/host_hooks.hpp"
 #include "watermark.hpp"
 #ifdef __ANDROID__
+#include <android/log.h>
 #include "platform/android_ui.hpp"
 #include "platform/android_held_controls.hpp"
 #include "platform/script_patches.hpp"
@@ -362,8 +363,16 @@ void HandleWindowEvent(const storm::OSWindow::Event &event)
 
 int main(int argc, char *argv[])
 {
-    // Prevent multiple instances
 #ifdef __ANDROID__
+    // The engine runs once per process: its globals and statics (services, script state, ids of
+    // renderer objects) hold one run. The app ends the game process when this function returns
+    // (GameActivity.onDestroy), so the next start is a fresh process; entering it again in the
+    // same process would run on the previous run's state.
+    static bool entered = false;
+    if (entered)
+        __android_log_assert(nullptr, "StormEngine",
+                             "SDL_main entered a second time in one process: the engine runs once per process");
+    entered = true;
     try
     {
         storm::android::prepareGameDirectory();

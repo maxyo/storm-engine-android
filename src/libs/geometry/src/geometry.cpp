@@ -5,8 +5,6 @@
 
 CREATE_SERVICE(GEOMETRY)
 
-storm::render::VertexDeclarationId GEOM_SERVICE_R::vertexDecl_;
-
 char technique[256] = "";
 char RenderServiceName[] = "renderer";
 GEOM_SERVICE_R GSR;
@@ -185,8 +183,8 @@ void GEOM_SERVICE_R::SetRenderService(VRenderer *render_service)
         {0, 24, D3DDECLTYPE_D3DCOLOR, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_COLOR, 0},
         {0, 28, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 1},
         D3DDECL_END()};
-    if (!vertexDecl_)
-        vertexDecl_ = RenderService->CreateVertexDeclaration(VertexElements);
+    // GSR is a global that outlives each renderer: the declaration id belongs to this renderer.
+    vertexDecl_ = RenderService->CreateVertexDeclaration(VertexElements);
 }
 
 std::fstream GEOM_SERVICE_R::OpenFile(const char *fname)

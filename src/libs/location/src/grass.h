@@ -25,7 +25,7 @@ class Character;
 
 class Grass : public Entity
 {
-    static inline storm::render::VertexDeclarationId vertexDecl_;
+    storm::render::VertexDeclarationId vertexDecl_;
 
 #pragma pack(push, 1)
 
@@ -152,7 +152,7 @@ class Grass : public Entity
     // Get the color
     static int32_t GetColor(glm::vec3 color);
     // Vertex declaration
-    void CreateVertexDeclaration() const;
+    void CreateVertexDeclaration();
 
   private:
     // Render service

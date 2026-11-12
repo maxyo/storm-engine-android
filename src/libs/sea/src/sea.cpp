@@ -40,7 +40,6 @@ CREATE_CLASS(SEA)
 #define GC_FREE 28
 
 SEA *SEA::pSea = nullptr;
-storm::render::VertexDeclarationId SEA::vertexDecl_;
 
 SEA::SEA()
 {

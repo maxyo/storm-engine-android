@@ -30,7 +30,7 @@ class GEOMETRY final : public VGEOMETRY
 
 class GEOM_SERVICE_R final : public GEOM_SERVICE
 {
-    static storm::render::VertexDeclarationId vertexDecl_;
+    storm::render::VertexDeclarationId vertexDecl_;
 
     VRenderer *RenderService;
     GEOS::ID CurentIndexBuffer;

@@ -17,7 +17,6 @@
 #define WdmStormSizeMin 40.0f
 #define WdmStormSizeMax 60.0f
 
-storm::render::VertexDeclarationId WdmCloud::vertexDecl_;
 
 // ============================================================================================
 // Construction, destruction

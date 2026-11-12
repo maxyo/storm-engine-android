@@ -18,7 +18,7 @@ class WdmCloud;
 
 class WdmClouds : public WdmRenderObject
 {
-    static storm::render::VertexDeclarationId vertexDecl_;
+    storm::render::VertexDeclarationId vertexDecl_;
     void CreateVertexDeclaration(VRenderer *rs);
 
     struct Cloud
