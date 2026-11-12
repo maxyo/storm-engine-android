@@ -335,8 +335,9 @@ class Preview
     void Render(const Shot &shot)
     {
         const fx::Settings &settings = shot.settings;
-        const auto scene_w = static_cast<uint16_t>(std::lround(kWidth * settings.render_scale));
-        const auto scene_h = static_cast<uint16_t>(std::lround(kHeight * settings.render_scale));
+        const float scale = fx::RenderScale(settings.render_height, kHeight);
+        const auto scene_w = static_cast<uint16_t>(std::lround(kWidth * scale));
+        const auto scene_h = static_cast<uint16_t>(std::lround(kHeight * scale));
         // This tool is the renderer: it applies what fx asks of one.
         const fx::RendererState renderer = fx::RendererStateFor(settings);
         EnsureSceneTarget(scene_w, scene_h, renderer.msaa_samples);
@@ -1000,12 +1001,12 @@ std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
     msaa.msaa = 4;
     add("aa_3_msaa4", Content::Pattern, msaa);
     fx::Settings scaled = original;
-    scaled.render_scale = 0.75f;
+    scaled.render_height = 540; // 75 % of the chart
     add("aa_scale75_0_easu", Content::Pattern, scaled);
-    aa.render_scale = 0.75f;
+    aa.render_height = 540;
     add("aa_scale75_1_smaa_easu_rcas", Content::Pattern, aa);
     fx::Settings high_scaled = high;
-    high_scaled.render_scale = 0.75f;
+    high_scaled.render_height = 540;
     high_scaled.sharpen = true;
     add("dynres_day_scale75_high", Content::Ocean, high_scaled);
     return shots;

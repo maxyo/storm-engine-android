@@ -16,18 +16,30 @@ every texture it needs.
 The player chooses «Низкая / Средняя / Высокая» (`QualityPreset`, `Settings::FromPreset`); single options are
 `fx_*` keys of engine.ini / `STORM_FX_OPTIONS` (`src/effects/effects.cpp`), for development.
 
-- **Низкая**: everything off, the legacy image untouched.
+Every preset renders the 3D scene at an internal height on taller displays and upscales it with FSR 1 (EASU, then
+RCAS sharpening at the display size); the game's interfaces are drawn at the display size after it. A height, not a
+factor: a display that is not taller renders natively, so a 720-line phone (and a 1080-line one on Высокая) is not
+scaled for nothing.
+
+| Preset | Internal height | 3200x1440 | 2400x1080 | 1600x720 |
+| --- | --- | --- | --- | --- |
+| Низкая | 900 | 2000x900 (0.63) | 2000x900 (0.83) | native |
+| Средняя | 1000 | 2222x1000 (0.69) | 2222x1000 (0.93) | native |
+| Высокая | 1100 | 2444x1100 (0.76) | native | native |
+
+The heights never decrease from Низкая to Высокая: a higher preset never renders the scene smaller.
+
+- **Низкая**: the legacy image (no effect) at the internal height above, upscaled by EASU + RCAS only (no other pass).
 
 On every preset the post chain also draws the game's underwater screen wobble (`Render.SeaEffect`,
 `PostChain::Frame::wobble`, `fs_fx_wobble.sc`): the legacy look, which the D3D9 engine's dead post-process chain
 never showed on this port.
-- **Средняя**: the 3D scene at 67 % of the display size, upscaled by FSR 1 (EASU, then RCAS sharpening at the
-  display size; the game's interfaces are drawn at the display size after it), faint bloom on the brightest
-  highlights, MSAA 4x + alpha to coverage (on the internal picture, before the upscale), dither, contact shadows,
+- **Средняя**: faint bloom on the brightest highlights, MSAA 4x + alpha to coverage (on the internal picture,
+  before the upscale), dither, contact shadows,
   a gentle Caribbean grade, anisotropy 4, the sea's band limit, per-pixel lighting with 4 point lights and normal
   maps, sun shadows (low), the ambient-occlusion volume of interiors, the AgX tone curve on the luminance
   (strength 0.6), the grade of the place and hour (hue and warmth only), aerial perspective and height fog, rim light.
-- **Высокая**: as Средняя with the scene at 77 %, anisotropy 8, soft sea edges, specular and translucency, 8 point
+- **Высокая**: as Средняя with anisotropy 8, soft sea edges, specular and translucency, 8 point
   lights, soft sun shadows and ambient occlusion, the sun glare (replacing the game's sun glow and flare sprites)
   and sun shafts.
 
@@ -36,14 +48,16 @@ replaces it with SMAA 1x (logged "MSAA unavailable: SMAA instead"; without the p
 is no anti-aliasing, logged too). MSAA stays the anti-aliasing where it exists: it resolves the sub-pixel rigging,
 masts and alpha-tested foliage that a post filter cannot recover, and costs little on tile GPUs.
 
-The render scale (`Settings::render_scale`, option `fx_render_scale`) applies to 3D frames: the shim
+The internal height (`Settings::render_height`, option `fx_render_height`, `fx::RenderScale()`; never below half
+the display, FSR 1's range) applies to 3D frames: the shim
 (`src/shim/device.cpp`) draws them into internal-size scene stores while the game keeps addressing display pixels
 (viewports, scissors, `GetDesc`), the post chain runs at the internal size (ambient occlusion, bloom, grade, SMAA;
 the sea's soft edges and contact shadows draw into the internal scene) and EASU writes the display-size picture the
 interfaces then draw on. Frames without 3D (menus, loading screens) are drawn at the display size; the change is
-logged as "effects: render scale ...: the 3D scene at WxH, upscaled by FSR 1 to WxH". With `fx_gpu_profile=1` the
+logged as "effects: render scale ...: the 3D scene at WxH (internal height H), upscaled by FSR 1 to WxH" (or "the 3D
+scene at the display size"). Without post effects the chain is EASU + RCAS alone. RCAS runs only after an upscale. With `fx_gpu_profile=1` the
 profile line gives `scene=`/`display=` sizes and `gpu_smaa_ms`, `gpu_easu_ms`, `gpu_rcas_ms`. The GPU self-test of
-a settings switch runs the chain at the same render scale.
+a settings switch runs the chain with an upscale when the settings have an internal height.
 
 Implemented but in no preset (options only): hemisphere ambient,
 linear-light sums, the sea's sun specular. Wind sway (`fx_wind.sh`)

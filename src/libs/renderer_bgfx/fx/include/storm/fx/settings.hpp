@@ -83,6 +83,11 @@ inline constexpr AoVolumeLevel kAoVolumeLevel[kAoVolumeLevels + 1] = {
     {"strong stylised contrast", 1.0f, 1.7f},
 };
 
+// The presets' internal scene heights (Settings::render_height): non-decreasing from «Низкая», the fastest.
+inline constexpr uint16_t kLowRenderHeight = 900;
+inline constexpr uint16_t kMediumRenderHeight = 1000;
+inline constexpr uint16_t kHighRenderHeight = 1100;
+
 struct Settings
 {
     // ---- post chain ----
@@ -98,10 +103,11 @@ struct Settings
     float bloom_knee = 0.12f;     // glow fades in from threshold * (1 - knee) and is full at white
     float bloom_intensity = 0.35f;
     bool smaa = false;            // SMAA 1x (post anti-aliasing), where MSAA is unavailable (ConstrainSettings)
-    // The 3D scene is rendered at this fraction of the display size (0.5..1) and upscaled by FSR 1 EASU; the game's
-    // interfaces are drawn at the display size after the upscale. 1 = native.
-    float render_scale = 1.0f;
-    bool sharpen = false;         // FSR 1 RCAS (robust contrast-adaptive sharpening) at the display size
+    // The 3D scene's internal height in pixels on displays taller than this (FSR 1 EASU up to the display, the
+    // game's interfaces drawn at the display size after it); a display this tall or smaller renders natively, so a
+    // small phone is not scaled for nothing. 0 = native everywhere. RenderScale() gives the factor for a display.
+    uint16_t render_height = 0;
+    bool sharpen = false;         // FSR 1 RCAS (robust contrast-adaptive sharpening) after the EASU upscale
     float sharpness = 0.5f;       // 0..1: RCAS strength, 1 = the reference's maximum (0 stops), 0 = 2 stops softer
     bool sun_shafts = false;      // high end only
     float sun_shafts_intensity = 0.35f;
@@ -199,10 +205,17 @@ struct RendererState
                                       // fxCoverageAlpha() (fx_coverage.sh) instead of the alpha test
     uint8_t max_anisotropy = 1;       // > 1: BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC on mip-mapped world
                                       // textures and BGFX_RESET_MAXANISOTROPY; cap the level at this value
-    float render_scale = 1.0f;        // < 1: the scene colour + depth target is this fraction of the display size;
-                                      // PostChain upscales it, the interfaces draw on the display-size picture
+    uint16_t render_height = 0;       // Settings::render_height: with RenderScale() < 1 the scene colour + depth target
+                                      // is that fraction of the display size; PostChain upscales it, the interfaces
+                                      // draw on the display-size picture
 };
 RendererState RendererStateFor(const Settings &settings);
+
+// The factor of the display size the 3D scene renders at for Settings::render_height on a display `display_height`
+// pixels tall: render_height / display_height, never below kMinRenderScale (FSR 1's range), 1 when the display is
+// not taller than render_height or render_height is 0.
+inline constexpr float kMinRenderScale = 0.5f;
+float RenderScale(uint16_t render_height, uint32_t display_height);
 
 // Names for the settings screen (UTF-8, Russian).
 std::string_view NameRu(QualityPreset preset);

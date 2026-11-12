@@ -82,7 +82,7 @@ class Host
     {
         bgfx::TextureHandle scene_color = BGFX_INVALID_HANDLE;
         bgfx::TextureHandle scene_depth = BGFX_INVALID_HANDLE; // invalid when not sampleable (MSAA)
-        uint16_t width = 0, height = 0;               // the scene: the internal size with Settings::render_scale < 1
+        uint16_t width = 0, height = 0;               // the scene: the internal size with Settings::render_height
         bgfx::FrameBufferHandle target = BGFX_INVALID_HANDLE;
         uint16_t target_width = 0, target_height = 0; // the display-size picture the interfaces draw on
         bgfx::ViewId first_view = 0;

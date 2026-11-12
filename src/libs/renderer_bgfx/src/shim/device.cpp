@@ -213,11 +213,13 @@ void Device::create_scene_stores(uint32_t width, uint32_t height)
     const uint64_t msaa = state.msaa_samples >= 4 ? BGFX_TEXTURE_RT_MSAA_X4
                           : state.msaa_samples == 2 ? BGFX_TEXTURE_RT_MSAA_X2
                                                     : 0;
-    // fx render scale: the 3D scene draws into stores of the internal size and the post chain upscales it (FSR 1)
-    // onto the display-size picture, which carries no MSAA then: only the interfaces draw on it.
-    const bool scaled = host.post_active() && state.render_scale < 1.0f;
-    const uint32_t scaled_width = std::max(1u, static_cast<uint32_t>(std::lround(width * state.render_scale)));
-    const uint32_t scaled_height = std::max(1u, static_cast<uint32_t>(std::lround(height * state.render_scale)));
+    // fx internal scene height: on a taller display the 3D scene draws into stores of the internal size and the post
+    // chain upscales it (FSR 1) onto the display-size picture, which carries no MSAA then: only the interfaces draw on
+    // it. Without post effects («Низкая») the chain is the upscale alone.
+    const float scale = fx::RenderScale(state.render_height, height);
+    const bool scaled = scale < 1.0f;
+    const uint32_t scaled_width = std::max(1u, static_cast<uint32_t>(std::lround(width * scale)));
+    const uint32_t scaled_height = std::max(1u, static_cast<uint32_t>(std::lround(height * scale)));
     const uint64_t picture_msaa = scaled ? 0 : msaa;
     // A multisampled depth is resolved into a texture only when an effect reads it (ambient occlusion, the high
     // water's scene capture): otherwise it stays a write-only render buffer, so leaving the scene target resolves
@@ -247,8 +249,7 @@ void Device::create_scene_stores(uint32_t width, uint32_t height)
         post_color = target(width, height, D3DFMT_A8R8G8B8, D3DUSAGE_RENDERTARGET, msaa);
     if (scaled)
     {
-        const bool changed = !fits(scaled_color, scaled_width, scaled_height, msaa);
-        if (changed)
+        if (!fits(scaled_color, scaled_width, scaled_height, msaa))
             scaled_color = target(scaled_width, scaled_height, D3DFMT_A8R8G8B8, D3DUSAGE_RENDERTARGET, msaa);
         if (!fits(scaled_depth, scaled_width, scaled_height, depth_flags(msaa)))
             scaled_depth = target(scaled_width, scaled_height, D3DFMT_D24S8, D3DUSAGE_DEPTHSTENCIL, depth_flags(msaa));
@@ -257,16 +258,23 @@ void Device::create_scene_stores(uint32_t width, uint32_t height)
             store->game_width = width;
             store->game_height = height;
         }
-        if (changed)
-            logf("effects: render scale %.2f: the 3D scene at %ux%u, upscaled by FSR 1 to %ux%u, interfaces at %ux%u",
-                 static_cast<double>(state.render_scale), scaled_width, scaled_height, width, height, width, height);
     }
     else
     {
-        if (scaled_color)
-            logf("effects: render scale 1: the 3D scene at the display size %ux%u", width, height);
         scaled_color = nullptr;
         scaled_depth = nullptr;
+    }
+    const std::array<uint32_t, 3> decided{scaled ? scaled_width : width, scaled ? scaled_height : height, state.render_height};
+    if (decided != scene_size_logged)
+    {
+        scene_size_logged = decided;
+        if (scaled)
+            logf("effects: render scale %.2f: the 3D scene at %ux%u (internal height %u), upscaled by FSR 1 to %ux%u, "
+                 "interfaces at %ux%u",
+                 static_cast<double>(scale), scaled_width, scaled_height, state.render_height, width, height, width, height);
+        else
+            logf("effects: the 3D scene at the display size %ux%u%s", width, height,
+                 state.render_height ? " (not taller than the internal height: no upscale)" : "");
     }
     if (!msaa)
         single_depth = nullptr;
@@ -517,13 +525,13 @@ void Device::scene_complete()
     }
     scene_done = true;
     auto &host = effects::Host::instance();
-    if (!host.post_active() || !Context::instance().ready())
+    // A scaled scene is upscaled straight onto the parked display-size picture; a display-size one ping-pongs.
+    const bool scaled = held_color != nullptr;
+    if (!(host.post_active() || scaled) || !Context::instance().ready())
     {
         leave_scaled_picture(true);
         return;
     }
-    // A scaled scene is upscaled straight onto the parked display-size picture; a display-size one ping-pongs.
-    const bool scaled = held_color != nullptr;
     if (!scaled && !post_color)
     {
         // The settings switched post-processing on after the device was created.

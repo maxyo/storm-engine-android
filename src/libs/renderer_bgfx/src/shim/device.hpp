@@ -283,7 +283,7 @@ struct Device final : Object
     // The game picture's colour/depth stores for the current effects state (MSAA), kept inside the Surfaces the
     // engine holds (GetBackBuffer / GetRenderTarget results stay valid).
     void create_scene_stores(uint32_t width, uint32_t height);
-    // fx render scale (fx::RendererState::render_scale < 1): a 3D frame draws into the internal-size scene stores
+    // fx internal scene height (fx::RenderScale(RendererState::render_height, display) < 1): a 3D frame draws into the internal-size scene stores
     // (enter_scaled_picture, at the start of a frame after a 3D frame); at the scene boundary the post chain upscales
     // the scene onto the display-size picture, which the interfaces then draw on (leave_scaled_picture: `copy` the
     // internal picture up when no post chain ran, e.g. an interface before any 3D).
@@ -318,6 +318,7 @@ struct Device final : Object
     bool held_depth_clear = false;     // the display-size depth returned from parking is cleared in its next view
     uint16_t view_clear_bits = 0;      // clear bits new_view() gave the current view (Clear keeps them)
     bool scaled_copy_logged = false;
+    std::array<uint32_t, 3> scene_size_logged{}; // scene width, height and internal height last logged
     bool scene_done = false;  // the post chain ran (or was not needed) in this presented frame
     bool scene_drawn = false; // a perspective draw reached the game picture in this presented frame
     bool interface_drawn = false; // an interface announced itself (MakePostProcess) in this presented frame

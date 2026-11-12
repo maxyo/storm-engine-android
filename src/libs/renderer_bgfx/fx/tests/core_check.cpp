@@ -63,9 +63,19 @@ void CheckSettings()
     const Settings high = Settings::FromPreset(QualityPreset::High);
     CHECK(!medium.PostIsIdentity() && !high.PostIsIdentity());
     CHECK(medium.bloom_downscale == 4 && high.bloom_downscale == 2);
-    // FSR 1 on both: Средняя renders the scene smaller than Высокая; «Низкая» stays native without any post pass.
-    CHECK(medium.sharpen && high.sharpen && medium.render_scale < high.render_scale && high.render_scale < 1.0f);
-    CHECK(medium.render_scale >= 0.5f && original.render_scale == 1.0f && !original.sharpen);
+    // FSR 1 on every preset, by an internal scene height; «Низкая» otherwise the original look.
+    CHECK(original.sharpen && medium.sharpen && high.sharpen);
+    // Monotonic: a higher preset never renders the scene smaller («Низкая» is the fastest).
+    CHECK(original.render_height > 0 && original.render_height <= medium.render_height &&
+          medium.render_height <= high.render_height);
+    // On the owner's 3200x1440 panel all three scale; a 1080-line phone scales Низкая and Средняя; 720 lines none.
+    CHECK(RenderScale(original.render_height, 1440) == 0.625f && RenderScale(medium.render_height, 1440) < 0.7f &&
+          RenderScale(high.render_height, 1440) < 0.8f);
+    CHECK(RenderScale(original.render_height, 1080) < 0.85f && RenderScale(medium.render_height, 1080) < 1.0f &&
+          RenderScale(high.render_height, 1080) == 1.0f);
+    CHECK(RenderScale(original.render_height, 720) == 1.0f && RenderScale(medium.render_height, 720) == 1.0f &&
+          RenderScale(high.render_height, 720) == 1.0f);
+    CHECK(RenderScale(900, 2160) == 0.5f && RenderScale(0, 2160) == 1.0f); // never below FSR 1's range
     // MSAA is the primary anti-aliasing of the presets; SMAA is left to the player. Optional looks stay off.
     CHECK(medium.msaa == 4 && high.msaa == 4 && !medium.smaa && !high.smaa && original.msaa == 1);
     CHECK(medium.anisotropy == 4 && high.anisotropy == 8 && original.anisotropy == 1);
@@ -309,9 +319,17 @@ void CheckSupport()
         CHECK(ValidateSettings(settings, all).empty());
         std::vector<std::string> changes;
         CHECK(ConstrainSettings(settings, all, changes) == settings && changes.empty());
-        // The original look never depends on a capability.
+        // The original look never depends on a capability; only «Низкая»'s upscale needs the post chain, and
+        // without it the scene is native and nothing else changes.
         if (preset == QualityPreset::Low)
-            CHECK(ValidateSettings(settings, Support{}).empty());
+        {
+            changes.clear();
+            Settings native = settings;
+            native.render_height = 0;
+            native.sharpen = false; // RCAS is part of the upscale
+            CHECK(ConstrainSettings(settings, Support{}, changes) == native && changes.size() == 1);
+            CHECK(ValidateSettings(native, Support{}).empty());
+        }
     }
     const Settings high = Settings::FromPreset(QualityPreset::High);
 
@@ -398,7 +416,7 @@ void CheckSupport()
     no_msaa_no_lut.lut_3d = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_msaa_no_lut, changes);
-    CHECK(constrained.msaa == 1 && !constrained.smaa && constrained.PostIsIdentity() && constrained.render_scale == 1.0f);
+    CHECK(constrained.msaa == 1 && !constrained.smaa && constrained.PostIsIdentity() && constrained.render_height == 0);
     CHECK(std::find(changes.begin(), changes.end(), no_aa) != changes.end());
     // ... nor without its tables: SMAA asked for explicitly is switched off, reported.
     Support no_msaa_no_r8 = no_msaa;
@@ -417,18 +435,20 @@ void CheckSupport()
     msaa_off.alpha_to_coverage = false;
     changes.clear();
     CHECK(!ConstrainSettings(msaa_off, no_msaa, changes).smaa && changes.empty());
-    // The FSR 1 range of the render scale; the upscale is part of the post chain.
+    // The internal height's range; the upscale is part of the post chain (3D textures), the sharpening part of the
+    // upscale: neither makes the post effects non-identical by itself.
     Settings scaled = high;
-    scaled.render_scale = 0.3f;
+    scaled.render_height = 100;
     changes.clear();
-    CHECK(ConstrainSettings(scaled, all, changes).render_scale == 0.5f && changes.size() == 1);
-    scaled.render_scale = 0.7f;
+    CHECK(ConstrainSettings(scaled, all, changes).render_height == 360 && changes.size() == 1);
+    scaled.render_height = 1000;
     Settings only_scaled;
-    only_scaled.render_scale = 0.7f;
-    CHECK(Settings{}.PostIsIdentity() && !only_scaled.PostIsIdentity());
-    CHECK(RendererStateFor(scaled).render_scale == 0.7f);
+    only_scaled.render_height = 1000;
+    only_scaled.sharpen = true;
+    CHECK(Settings{}.PostIsIdentity() && only_scaled.PostIsIdentity());
+    CHECK(RendererStateFor(scaled).render_height == 1000);
     changes.clear();
-    CHECK(ConstrainSettings(scaled, no_lut, changes).render_scale == 1.0f && !changes.empty());
+    CHECK(ConstrainSettings(only_scaled, no_lut, changes).render_height == 0 && !changes.empty());
     const RendererState state = RendererStateFor(high);
     CHECK(state.msaa_samples == 4 && state.alpha_to_coverage && state.max_anisotropy == 8);
     CHECK(RendererStateFor(Settings{}).msaa_samples == 1 && !RendererStateFor(Settings{}).alpha_to_coverage);
