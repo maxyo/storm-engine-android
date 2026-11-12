@@ -17,6 +17,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <unistd.h>
@@ -97,13 +98,19 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
         "tag": "c-store",
         "props": {"rows": {"type": "json", "default": []}, "amount": {"type": "int", "default": 0}, "total": {"type": "text", "default": ""}},
         "template": "<div id=\"list\"><t-for each=\"rows\" as=\"r\"><div class=\"row{{ r.sel ? ' sel' : '' }}\" data-value=\"{{r.id}}\"><span class=\"name\">{{r.name}}</span><span class=\"held\">{{r.held}}</span></div></t-for></div><div id=\"amount\">{{amount}}</div><div id=\"total\">{{total}}</div><c-row id=\"buy\" title=\"{{total}}\" style=\"display: block; width: 200dp; height: 48dp;\"/>"})"));
+    // constants.boxSize: the size prop is the box (an icon measured without formatting its content).
+    components["components"].push_back(Json::parse(R"({
+        "tag": "c-sized", "constants": {"boxSize": "size"},
+        "props": {"size": {"type": "int", "default": 24}},
+        "template": "<div style=\"display: inline-block; width: 10dp; height: 10dp;\"></div>"})"));
     Write(pack / "components.json", components.dump());
     {
         Json rows = Json::array();
         for (int i = 0; i < 20; ++i)
             rows.push_back({{"id", i}, {"name", "Goods " + std::to_string(i)}, {"held", i * 10}, {"sel", i == 3}});
         Write(pack / "store.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }</style></head><body>"
-                                  "<c-store id=\"store\" amount=\"1\" total=\"Buy 1\" rows='" + rows.dump() + "'/></body></rml>");
+                                  "<c-store id=\"store\" amount=\"1\" total=\"Buy 1\" rows='" + rows.dump() + "'/>"
+                                  "<div style=\"display: flex;\"><c-sized id=\"sized\" size=\"20\"/></div></body></rml>");
     }
     Write(pack / "cutout.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
                                " c-row { display: block; position: absolute; left: 0; height: 40dp; }</style></head><body>"
@@ -516,6 +523,13 @@ int main(int argc, char **argv)
         host->Prepare(delay);
         host->Frame();
         Expect(host->LastFrameStats().touched == 0 && host->LastFrameStats().laid_out == 0, "the same values touch and lay out nothing");
+        Rml::Element *sized = find("sized");
+        Expect(sized && std::abs(sized->GetBox().GetSize(Rml::BoxArea::Border).x - 20.0f) < 0.01f &&
+                   std::abs(sized->GetBox().GetSize(Rml::BoxArea::Border).y - 20.0f) < 0.01f,
+               "constants.boxSize makes the size prop the box: 20 x 20");
+        Expect(host->SetProps("sized", R"({"size": 32})"), "the size changes");
+        frames(0.05);
+        Expect(std::abs(sized->GetBox().GetSize(Rml::BoxArea::Border).x - 32.0f) < 0.01f, "… and the box follows: 32");
     }
 
     host.reset();

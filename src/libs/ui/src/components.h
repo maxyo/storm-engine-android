@@ -188,6 +188,7 @@ class ComponentElement final : public Rml::Element
 
   private:
     void ApplyClasses();
+    void ApplyBoxSize(const Json &scope);
     // A wrong prop, enum value or template: logged with the element and drawn as the
     // striped "ui-error" marker instead of a silent default.
     void ReportError(const std::string &what);
@@ -200,6 +201,7 @@ class ComponentElement final : public Rml::Element
     std::vector<std::string> live_classes_;
     std::vector<std::string> applied_classes_;
     std::string extra_behavior_; // added by data-behavior
+    float box_size_ = -2.0f;      // constants.boxSize applied (dp), -1 = none
     bool dirty_ = true;
     bool built_ = false;
     bool built_children_ = false; // `children` of the last build
