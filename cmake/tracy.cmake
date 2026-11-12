@@ -11,8 +11,10 @@ set(storm_tracy_version 0.14.1)
 # On demand: nothing is recorded until a viewer connects. Only on the loopback interface (adb forward on
 # a device, the viewer on the same machine on the host), no broadcast to the network, no crash handler
 # (the engine's own handler and Android's exit info stay in charge), no systrace sampling or frame images.
+# TRACY_TIMER_FALLBACK: an x86_64 emulator under KVM reports no invariant TSC, and without the fallback
+# timer Tracy aborts the process at start (tracy::InitFailure); devices are not affected.
 set(storm_tracy_definitions TRACY_ENABLE TRACY_ON_DEMAND TRACY_ONLY_LOCALHOST TRACY_NO_BROADCAST
-    TRACY_NO_CRASH_HANDLER TRACY_NO_SYSTEM_TRACING TRACY_NO_FRAME_IMAGE)
+    TRACY_NO_CRASH_HANDLER TRACY_NO_SYSTEM_TRACING TRACY_NO_FRAME_IMAGE TRACY_TIMER_FALLBACK)
 if(STORM_TRACY)
     storm_fetch_declare(storm_tracy
         GIT_REPOSITORY https://github.com/wolfpld/tracy.git
