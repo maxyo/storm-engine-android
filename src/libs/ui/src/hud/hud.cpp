@@ -3,6 +3,8 @@
 #include "hud.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 
 namespace storm::ui::hud
 {
@@ -56,6 +58,63 @@ std::string Lower(std::string text)
         if (c >= 'A' && c <= 'Z')
             c = static_cast<char>(c - 'A' + 'a');
     return text;
+}
+
+void Hud::RequestSubject(const SubjectRequest &request)
+{
+    subject_ = request;
+    subject_->until = Now() + kSubjectSeconds;
+}
+
+std::optional<SubjectRequest> Hud::TakeSubject(const std::string &screen)
+{
+    if (!subject_ || subject_->screen != screen)
+        return std::nullopt;
+    std::optional<SubjectRequest> taken;
+    if (Now() <= subject_->until)
+        taken = subject_;
+    else
+        Log("HUD: the " + screen + " screen opened after its subject request lapsed; it shows its own first subject");
+    subject_.reset();
+    return taken;
+}
+
+Json MemberCell(const std::string &name, const Picture &picture, std::initializer_list<MemberBar> bars, bool tap)
+{
+    Json cell = {{"name", name}, {"texture", picture.texture}, {"uv", picture.uv}, {"bars", Json::array()}};
+    for (const MemberBar &bar : bars)
+        if (bar.share >= 0.0)
+            cell["bars"].push_back(Json{{"kind", bar.kind}, {"value", static_cast<int>(std::lround(std::clamp(bar.share, 0.0, 1.0) * 100.0))}});
+    if (tap)
+        cell["tap"] = true;
+    return cell;
+}
+
+std::string ReadPicture(const Json &value, Picture &out)
+{
+    const auto texture = value.is_object() ? value.find("texture") : value.end();
+    const auto uv = value.is_object() ? value.find("uv") : value.end();
+    if (texture == value.end() || !texture->is_string() || uv == value.end() || !uv->is_array() || uv->size() != 4)
+        return "picture: expected {texture, uv: [left, top, right, bottom]}";
+    const std::string name = texture->get<std::string>();
+    if (name.empty() || name.size() > 128 || name.find_first_of("\\:\"") != std::string::npos ||
+        std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 32 || c == 127; }))
+        return "picture: bad texture name";
+    double rect[4];
+    for (size_t i = 0; i < 4; ++i)
+    {
+        if (!(*uv)[i].is_number())
+            return "picture: uv is not four numbers";
+        rect[i] = (*uv)[i].get<double>();
+        if (!std::isfinite(rect[i]) || rect[i] < 0.0 || rect[i] > 1.0)
+            return "picture: uv outside 0..1";
+    }
+    if (rect[2] <= rect[0] || rect[3] <= rect[1])
+        return "picture: empty uv rectangle";
+    char text[96];
+    std::snprintf(text, sizeof text, "%.6g,%.6g,%.6g,%.6g", rect[0], rect[1], rect[2], rect[3]);
+    out = {name, text};
+    return {};
 }
 
 void Input::On(const std::string &id, const std::string &verb, Handler handler)

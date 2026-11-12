@@ -6,7 +6,7 @@
 //   hold:<gameplayRevision>\t<control>\t<0|1>    WMapShipTurnLeft/Right (helm), WMapShipSailUp/Down (lever), WMapCameraSwitch
 //   worldmap:<revision>\t<activity>\tack\t<mask>  which of the engine's instruments, fleet and command icon are replaced
 //   worldmap:<revision>\t<activity>\tactivate\t<command id>
-//   shortcut:mainmenu
+//   shortcut:<mainmenu|shipscreen>
 #include "hud.h"
 
 #include <algorithm>
@@ -129,7 +129,7 @@ class WorldMapScene final : public Scene
             details_ = false;
             return;
         }
-        BuildFleet(*map, view);
+        BuildFleet(*map, view, input);
         BuildCompass(*map, view, input);
         BuildCommands(*map, view, input);
     }
@@ -213,19 +213,33 @@ class WorldMapScene final : public Scene
         return std::to_string(map.revision) + "\t" + std::to_string(map.activity);
     }
 
-    void BuildFleet(const WorldMap &map, View &view)
+    // The squadron column, as the map's own ship signs: the flagship first, each ship's picture
+    // with hull, sails and crew inside it (sea.cpp draws the same cells). A tap opens the ship
+    // screen on that ship.
+    void BuildFleet(const WorldMap &map, View &view, Input &input)
     {
         if (!map.ships_visible || map.fleet.empty())
             return;
         Json ships = Json::array();
         for (const WorldMap::Vessel &vessel : map.fleet)
         {
-            Json token = {{"icon", ShipIcon(vessel.type)}, {"label", vessel.name}};
-            if (vessel.hull >= 0.0)
-                token["hp"] = static_cast<int>(std::lround(vessel.hull));
-            ships.push_back(std::move(token));
+            if (vessel.picture.texture.empty())
+                hud_.Log("world-map HUD: the engine gives no picture for the ship " + vessel.name + " (" + vessel.type + "): its placeholder stays");
+            ships.push_back(MemberCell(vessel.name, vessel.picture,
+                                       {{"health", vessel.hull < 0.0 ? -1.0 : vessel.hull / 100.0},
+                                        {"sails", vessel.sails < 0.0 ? -1.0 : vessel.sails / 100.0},
+                                        {"crew", vessel.crew}},
+                                       true));
         }
         view.elements["fleet"] = Json{{"ships", ships}};
+        input.On("fleet", "ship", [this](const Event &event) {
+            const WorldMap *now = Current(hud_.Current());
+            const int index = std::atoi(event.value.c_str());
+            if (!now || index < 0 || static_cast<size_t>(index) >= now->fleet.size())
+                return;
+            hud_.RequestSubject({"ship", -1, index});
+            hud_.Send("shortcut", "shipscreen");
+        });
     }
 
     void BuildCompass(const WorldMap &map, View &view, Input &input)

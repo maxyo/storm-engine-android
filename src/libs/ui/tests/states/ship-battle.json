@@ -58,7 +58,16 @@
    "crew": 160,
    "crewMax": 200,
    "sailIntegrity": 90,
-   "sailIntegrityMax": 100
+   "sailIntegrityMax": 100,
+   "picture": {
+    "texture": "battle_interface/ship_icons2",
+    "uv": [
+     0.25,
+     0.0625,
+     0.3125,
+     0.125
+    ]
+   }
   },
   {
    "characterIndex": 8,
@@ -71,7 +80,16 @@
    "crew": 200,
    "crewMax": 200,
    "sailIntegrity": 100,
-   "sailIntegrityMax": 100
+   "sailIntegrityMax": 100,
+   "picture": {
+    "texture": "battle_interface/ship_icons2",
+    "uv": [
+     0.625,
+     0.0,
+     0.6875,
+     0.0625
+    ]
+   }
   },
   {
    "characterIndex": 9,
@@ -84,7 +102,16 @@
    "crew": 120,
    "crewMax": 200,
    "sailIntegrity": 70,
-   "sailIntegrityMax": 100
+   "sailIntegrityMax": 100,
+   "picture": {
+    "texture": "battle_interface/ship_icons2",
+    "uv": [
+     0.5,
+     0.0,
+     0.5625,
+     0.0625
+    ]
+   }
   },
   {
    "characterIndex": 10,
@@ -97,7 +124,16 @@
    "crew": 140,
    "crewMax": 200,
    "sailIntegrity": 80,
-   "sailIntegrityMax": 100
+   "sailIntegrityMax": 100,
+   "picture": {
+    "texture": "battle_interface/ship_icons2",
+    "uv": [
+     0.375,
+     0.0,
+     0.4375,
+     0.0625
+    ]
+   }
   },
   {
    "characterIndex": 11,
@@ -110,7 +146,16 @@
    "crew": 180,
    "crewMax": 200,
    "sailIntegrity": 90,
-   "sailIntegrityMax": 100
+   "sailIntegrityMax": 100,
+   "picture": {
+    "texture": "battle_interface/ship_icons2",
+    "uv": [
+     0.375,
+     0.0625,
+     0.4375,
+     0.125
+    ]
+   }
   },
   {
    "characterIndex": 12,
@@ -123,7 +168,16 @@
    "crew": 100,
    "crewMax": 200,
    "sailIntegrity": 60,
-   "sailIntegrityMax": 100
+   "sailIntegrityMax": 100,
+   "picture": {
+    "texture": "battle_interface/ship_icons2",
+    "uv": [
+     0.75,
+     0.0,
+     0.8125,
+     0.0625
+    ]
+   }
   },
   {
    "characterIndex": 13,
@@ -136,7 +190,16 @@
    "crew": 60,
    "crewMax": 200,
    "sailIntegrity": 40,
-   "sailIntegrityMax": 100
+   "sailIntegrityMax": 100,
+   "picture": {
+    "texture": "battle_interface/ship_icons2",
+    "uv": [
+     0.0,
+     0.0,
+     0.0625,
+     0.0625
+    ]
+   }
   }
  ],
  "timeScale": 1.5,
@@ -151,5 +214,14 @@
    "state": "recovery",
    "fill": 0.4
   }
- ]
+ ],
+ "picture": {
+  "texture": "battle_interface/ship_icons2",
+  "uv": [
+   0.5,
+   0.125,
+   0.5625,
+   0.1875
+  ]
+ }
 }

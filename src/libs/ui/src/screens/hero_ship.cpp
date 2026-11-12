@@ -148,6 +148,8 @@ class ShipScreen final : public Screen
             reopen_.clear();
         }
         Walk(bindings);
+        if (window_ == Window::None && intent_.kind == Intent::None)
+            OpenOnSubject(bindings);
 
         Json view = Json::object();
         view["title"] = Trim(admitted.Label("TITLE"));
@@ -425,6 +427,28 @@ class ShipScreen final : public Screen
             intent.row = event.value;
             Start(bindings, intent);
         });
+    }
+
+    // A tap on a world-map squadron ship opened this screen for that ship (hud world_map.cpp):
+    // the squadron switch selects it, as the player's choice does. SHIPS_SCROLL lists the
+    // squadron in its companion order, flagship first, as the map's ship signs do.
+    void OpenOnSubject(Bindings &bindings)
+    {
+        const auto request = bindings.TakeSubject("ship");
+        if (!request)
+            return;
+        const std::vector<const Widget *> rows = a_->All("SHIPS_SCROLL");
+        if (request->position < 0 || static_cast<size_t>(request->position) >= std::max<size_t>(rows.size(), 1))
+            return bindings.Error("ship: the HUD's tap names squadron ship " + std::to_string(request->position) + " of " +
+                                  std::to_string(rows.size()) + "; the screen's own ship stays");
+        if (rows.empty())
+            return; // the flagship alone: the screen shows it
+        const Widget *row = rows[static_cast<size_t>(request->position)];
+        if (row->value != "1" && row->Offers("select"))
+        {
+            sent_revision_ = 0;
+            Step(bindings, row, "select", row->row_id);
+        }
     }
 
     // The subject switch over SHIPS_SCROLL, the ships of the squadron, with their list; null with a

@@ -72,6 +72,16 @@ Admission Admit(const InterfaceModel &model, std::span<const NodeRule> rules);
 
 class Router;
 
+// A HUD tap that opens a game screen on a subject (hud::Hud::RequestSubject). `character` is the person's character index (character screen),
+// `position` the ship's place in the squadron, flagship 0 (ship screen).
+struct SubjectRequest
+{
+    std::string screen; // character | ship
+    int character = -1;
+    int position = -1;
+    double until = 0.0;
+};
+
 // Given to Screen::Build: connects element ids of the view to what happens on their events.
 class Bindings
 {
@@ -122,6 +132,8 @@ class Bindings
     void Error(const std::string &text);
     // Local state of the screen changed: build the view again from the same model.
     void Rebuild();
+    // The subject a HUD tap asked this screen to open on (hud::Hud::RequestSubject), taken once.
+    std::optional<SubjectRequest> TakeSubject(const std::string &screen);
     // Builds the view again after `seconds` even if no new model comes (local state that
     // expires, such as the amount the player set being preferred over the game's for a moment).
     void RebuildAfter(double seconds);

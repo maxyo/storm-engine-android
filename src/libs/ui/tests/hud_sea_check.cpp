@@ -137,13 +137,16 @@ static void CheckSailing()
     Sail(bench);
     const Json &shown = mount.shown.elements;
     Expect(mount.visible && mount.shown.layout == "sea" && !mount.shown.modal && mount.shown.sheet.empty(), "sailing: the sea layout");
-    for (const char *id : {"vitals", "hull", "crew", "sails", "fleet", "hero", "pause", "orders", "minimap", "sail", "helm", "context", "camera", "ammo", "fire"})
+    for (const char *id : {"fleet", "hero", "pause", "orders", "minimap", "sail", "helm", "context", "camera", "ammo", "fire"})
         Expect(mount.Has(id), std::string("sailing shows ") + id);
     Expect(!mount.Has("spyglass") && !mount.Has("log") && !mount.Has("ammo-1"), "sailing: no spyglass off the deck, no event lines, no fan");
-    Expect(shown["hull"]["value"] == 82 && shown["crew"]["value"] == 90 && shown["sails"]["value"] == 95, "the three bars");
-    Expect(shown["fleet"]["ships"].size() == 3 && shown["fleet"]["ships"][0]["icon"] == "ship-brig" && shown["fleet"]["ships"][2]["hp"] == 41 &&
-               shown["fleet"]["ships"][1]["label"] == "Ласточка",
-           "the companions with their hulls");
+    const Json &ships = shown["fleet"]["ships"];
+    Expect(ships.size() == 4 && ships[0]["name"] == "Аделина" &&
+               ships[0]["bars"] == Json::parse(R"([{"kind":"health","value":82},{"kind":"sails","value":95},{"kind":"crew","value":90}])"),
+           "the flagship first, its hull, sails and crew inside its picture: " + ships[0].dump());
+    Expect(ships[0]["texture"] == "battle_interface/ship_icons2" && ships[0]["uv"] == "0.5,0.125,0.5625,0.1875" && ships[1]["name"] == "Сокол" &&
+               ships[3]["bars"][0]["value"] == 41 && ships[2]["name"] == "Ласточка" && ships[1]["tap"] == true,
+           "then the companions, each the battle interface's ship picture: " + ships[1].dump());
     Expect(shown["minimap"]["place"] == "Мартиника" && shown["minimap"]["time"] == "09:06" && shown["minimap"]["speed"] == "4" &&
                shown["minimap"]["wind"] == "9" && shown["minimap"]["native"] == true,
            "the minimap readouts: " + shown["minimap"].dump());
@@ -182,8 +185,10 @@ static void CheckSailing()
     Expect(mount.Last() == "gameplay:9\tTimeScaleX2", "x1 → x2: " + mount.Last());
     bench.Press("orders");
     Expect(mount.Last() == "orders:1\t6\t14\t2\topen\t", "orders: " + mount.Last());
-    bench.Press("fleet", "ship", "1");
+    bench.Press("fleet", "ship", "2");
     Expect(mount.Last() == "orders:1\t6\t14\t2\topen\tr503_8", "a tap on a companion opens the orders for it: " + mount.Last());
+    bench.Press("fleet", "ship", "0");
+    Expect(mount.Last() == "orders:1\t6\t14\t2\topen\tr501_1", "a tap on the flagship opens its own orders: " + mount.Last());
     const size_t before = mount.commands.size();
     bench.Press("fleet", "ship", "7");
     Expect(mount.commands.size() == before, "a companion that is not there opens nothing");
@@ -310,14 +315,14 @@ static void CheckSailing()
     // states that take elements away
     bench.Feed("presentation", "presentation-game");
     bench.Feed("ship", "ship-none");
-    Expect(mount.visible && !mount.Has("vitals") && !mount.Has("fleet") && !mount.Has("minimap") && !mount.Has("sail") && !mount.Has("ammo") && mount.Has("fire") &&
+    Expect(mount.visible && !mount.Has("fleet") && !mount.Has("minimap") && !mount.Has("sail") && !mount.Has("ammo") && mount.Has("fire") &&
                mount.Has("helm"),
            "without telemetry only the controls of the gameplay state stay");
     Json other = State("ship");
     other["sequence"] = 30;
     other["gameplayRevision"] = 8;
     bench.Set("ship", other);
-    Expect(!mount.Has("vitals"), "the ship of another gameplay revision is not shown");
+    Expect(!mount.Has("fleet"), "the ship of another gameplay revision is not shown");
     Json deck = State("gameplay-sailing");
     deck["revision"] = 11;
     deck["capabilities"].push_back("DeckCamera_Forward");
@@ -347,9 +352,9 @@ static void CheckBattle()
     bench.Feed("ship", "ship-battle");
     bench.Feed("seaQuickAction", "sea-quick-board");
     const Json &shown = mount.shown.elements;
-    Expect(mount.shown.layout == "sea-battle" && mount.Has("spyglass") && shown["fleet"]["ships"].size() == 7, "battle: its layout, the spyglass on deck, seven companions");
+    Expect(mount.shown.layout == "sea-battle" && mount.Has("spyglass") && shown["fleet"]["ships"].size() == 8, "battle: its layout, the spyglass on deck, the flagship and seven companions");
     Expect(shown["fire"]["fill"] == 65 && shown["fire"]["fillTone"] == "reload" && shown["fire"]["reloading"] == true, "guns that reload fill the fire button: " + shown["fire"].dump());
-    Expect(shown["ammo"]["badge"] == "12" && shown["ammo"]["badgeTone"] == "danger" && shown["hull"]["value"] == 27 && shown["sail"]["value"] == 1 &&
+    Expect(shown["ammo"]["badge"] == "12" && shown["ammo"]["badgeTone"] == "danger" && shown["fleet"]["ships"][0]["bars"][0]["value"] == 27 && shown["sail"]["value"] == 1 &&
                shown["minimap"]["time"] == "11:42",
            "battle values");
     Expect(shown["time"]["badge"] == "×1.5" && shown["time"]["variant"] == "active", "an accelerated world: " + shown["time"].dump());
@@ -394,7 +399,9 @@ static void CheckOrders()
     bench.Feed("ship", "ship-orders");
     const Json &props = mount.shown.sheet_props;
     Expect(mount.visible && mount.shown.layout == "sea-battle" && mount.shown.sheet == "s-hud-orders" && mount.shown.modal, "the orders panel is a modal sheet over the sea");
-    Expect(mount.Has("vitals") && !mount.Has("helm") && !mount.Has("fire") && mount.Has("minimap") && mount.shown.elements["minimap"]["readout"] == false, "under the panel the bars and the radar stay");
+    Expect(mount.Has("fleet") && !mount.shown.elements["fleet"]["ships"][0].contains("tap") && !mount.Has("helm") && !mount.Has("fire") && mount.Has("minimap") &&
+               mount.shown.elements["minimap"]["readout"] == false,
+           "under the panel the squadron (not tappable) and the radar stay");
     Expect(props["title"] == "hud.orders.title" && props["back"] == false && props["crumb"] == "" && props["recipients"].size() == 4 && props["tiles"].size() == 5 &&
                props["rows"].size() == 1,
            "first stage: ships, order tiles, ability rows: " + props.dump());
@@ -520,12 +527,12 @@ static void CheckTouches(const std::string &pack)
 
     // The test layout (800 × 400): helm 20…220 × 309…373, fire 708…784 × 308…384, minimap disc
     // 654…754 × 34…134, sail lever 732…788 × 154…298, context 640…704 × 226…290, the first
-    // companion 10…62 × 60…112, vitals 10…210 × 10…50.
+    // flagship 10…62 × 10…62, then a companion every 60 dp down.
     Expect(host.WantsTouch(120, 341) && host.WantsTouch(746, 346) && host.WantsTouch(704, 84) && host.WantsTouch(760, 226) && host.WantsTouch(672, 258) &&
                host.WantsTouch(36, 86),
            "helm, fire, minimap, lever, quick action and companions are the UI's");
     Expect(!host.WantsTouch(400, 200) && !host.WantsTouch(100, 30) && !host.WantsTouch(300, 341) && !host.WantsTouch(700, 150),
-           "the open sea, the bars and the minimap readouts are the game's");
+           "the open sea, the space beside the squadron and the minimap readouts are the game's");
     Expect(run.Sent("navigator:9\t3\t4\tprepare\t1\t800\t400\t704\t84\t50\t1000\t1"), "the aperture is the disc as it is laid out");
     Expect(run.Sent("shiphud:9\t2047\t3") && run.Sent("seaquick:1\t5\t31\tack\t1"), "the first drawn frame acknowledges what it shows");
 

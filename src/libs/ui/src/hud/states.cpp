@@ -283,6 +283,17 @@ class VitalsConsumer final : public HudConsumer
     // The status fields; each one, when present, must have its shape.
     static std::string Status(const Json &state, Vitals &next)
     {
+        // The hero of the party row: character index, name and FaceId, all or none.
+        if (state.contains("id") || state.contains("name") || state.contains("face"))
+        {
+            const auto id = Whole(state, "id");
+            const auto name = Text(state, "name"), face = Text(state, "face");
+            if (!id || !name || !face || !Printable(*name, 256, true) || !Token(*face, true))
+                return "id, name, face: expected the hero's character index, name and FaceId";
+            next.hero = static_cast<int>(std::min<uint64_t>(*id, 1000000));
+            next.name = *name;
+            next.face = *face;
+        }
         static const std::set<std::string> kEffects = {"poison", "drunk", "healing"};
         if (const auto effects = state.find("effects"); effects != state.end())
         {
@@ -310,10 +321,13 @@ class VitalsConsumer final : public HudConsumer
             {
                 const auto id = officer.is_object() ? Whole(officer, "id") : std::nullopt;
                 if (!id || !officer.contains("name") || !officer["name"].is_string() || !officer.contains("face") ||
-                    !officer["face"].is_string() || !officer.contains("health") || !officer["health"].is_number())
-                    return "officers: expected {id, name, face, health}";
+                    !officer["face"].is_string() || !officer.contains("health") || !officer["health"].is_number() ||
+                    !officer.contains("energy") || !officer["energy"].is_number())
+                    return "officers: expected {id, name, face, health, energy}";
+                if (!Token(officer["face"].get<std::string>(), true))
+                    return "officers: bad face";
                 next.officers.push_back({static_cast<int>(*id), officer["name"].get<std::string>(), officer["face"].get<std::string>(),
-                                         Ratio(officer, "health")});
+                                         Ratio(officer, "health"), Ratio(officer, "energy")});
             }
         }
         if (const auto dash = state.find("dash"); dash != state.end())
@@ -519,6 +533,8 @@ class ShipConsumer final : public HudConsumer
         out.hull = Share(object, "hull", "hullMax");
         out.crew = Share(object, "crew", "crewMax");
         out.sails = Share(object, "sailIntegrity", "sailIntegrityMax");
+        if (const auto picture = object.find("picture"); picture != object.end())
+            return ReadPicture(*picture, out.picture);
         return {};
     }
 
@@ -849,8 +865,14 @@ class WorldMapConsumer final : public HudConsumer
             vessel.name = *name;
             vessel.type = Text(source, "type").value_or("");
             vessel.hull = Number(source, "hull", 0.0, 100.0, bad).value_or(-1.0);
+            vessel.sails = Number(source, "sails", 0.0, 100.0, bad).value_or(-1.0);
+            const auto crew = Number(source, "crew", 0.0, 1e6, bad), most = Number(source, "crewMax", 1.0, 1e6, bad);
             if (bad || !Printable(vessel.type, 128, true))
-                return "a ship has a bad hull or type";
+                return "a ship has a bad hull, sails, crew or type";
+            vessel.crew = crew && most ? std::min(1.0, *crew / *most) : -1.0;
+            if (const auto picture = source.find("picture"); picture != source.end())
+                if (std::string problem = ReadPicture(*picture, vessel.picture); !problem.empty())
+                    return "a ship's " + problem;
             out.fleet.push_back(std::move(vessel));
         }
         std::set<std::string> ids;

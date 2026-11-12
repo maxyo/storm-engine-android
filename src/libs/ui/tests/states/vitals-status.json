@@ -6,9 +6,12 @@
  "reload": 1,
  "effects": ["poison", "healing"],
  "potions": 3,
+ "id": 1,
+ "name": "Шарль де Мор",
+ "face": "201",
  "officers": [
-  {"id": 31, "name": "Офицер Альфа", "face": "205", "health": 0.84},
-  {"id": 32, "name": "Офицер Бета", "face": "", "health": 0.12}
+  {"id": 31, "name": "Офицер Альфа", "face": "205", "health": 0.84, "energy": 0.7},
+  {"id": 32, "name": "Офицер Бета", "face": "", "health": 0.12, "energy": 0.5}
  ],
  "dash": 0.4
 }

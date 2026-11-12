@@ -6,7 +6,7 @@
 //   combat:2\t<activityGeneration>\t<actionGeneration>\t<sequence>\t<action>\t<tap|down|up|cancel>
 //     (the action's generation from the combat state; 0 for "all\tcancel")
 //   landcommands:1\t<sceneEpoch>\t<revision>\t<activityGeneration>\t<verb>\t<id>
-//   context:<action name>          shortcut:<mainmenu|character>
+//   context:<action name>          shortcut:<mainmenu|character|characterscreen>
 #include "hud.h"
 
 #include <algorithm>
@@ -90,9 +90,9 @@ class LandScene final : public Scene
             for (const auto &known : kEffects)
                 if (std::find(states.vitals.effects.begin(), states.vitals.effects.end(), known.effect) != states.vitals.effects.end())
                     effects.push_back(Json{{"icon", known.icon}, {"fill", 100}, {"fillTone", known.tone}, {"label", hud_.Text(known.label)}});
-            view.elements["vitals"] = Json{{"states", effects}};
-            view.elements["health"] = Json{{"value", std::lround(states.vitals.health * 100.0)}};
-            view.elements["energy"] = Json{{"value", std::lround(states.vitals.energy * 100.0)}};
+            if (!effects.empty())
+                view.elements["effects"] = Json{{"states", effects}};
+            BuildParty(states, melee, view, input);
         }
 
         const LandCommands &commands = states.land_commands;
@@ -262,6 +262,38 @@ class LandScene final : public Scene
         return "1\t" + std::to_string(commands.scene) + "\t" + std::to_string(commands.revision) + "\t" + std::to_string(commands.activity);
     }
 
+    // --- the party ---
+
+    static Picture Face(const std::string &face)
+    {
+        return {face.empty() ? std::string() : "INTERFACES/PORTRAITS/128/face_" + face, {}};
+    }
+
+    // The party row (as the original land interface's icons): the hero first, then the officers
+    // who walk with him, each the face portrait with health and energy inside it. A tap opens
+    // the character screen on that person; the game refuses that screen in a fight, so a tap
+    // there does nothing.
+    void BuildParty(const States &states, bool melee, View &view, Input &input)
+    {
+        const Vitals &vitals = states.vitals;
+        const bool tap = !melee && vitals.hero >= 0;
+        Json members = Json::array();
+        members.push_back(MemberCell(vitals.name, Face(vitals.face), {{"health", vitals.health}, {"energy", vitals.energy}}, tap));
+        for (const Vitals::Officer &officer : vitals.officers)
+            members.push_back(MemberCell(officer.name, Face(officer.face), {{"health", officer.health}, {"energy", officer.energy}}, tap));
+        view.elements["party"] = Json{{"officers", members}};
+        if (!tap)
+            return;
+        input.On("party", "member", [this](const Event &event) {
+            const Vitals &now = hud_.Current().vitals;
+            const size_t index = static_cast<size_t>(std::max(0, std::atoi(event.value.c_str())));
+            if (!now.known || index > now.officers.size())
+                return;
+            hud_.RequestSubject({"character", index == 0 ? now.hero : now.officers[index - 1].id});
+            hud_.Send("shortcut", "characterscreen");
+        });
+    }
+
     // --- context slot (explore) ---
 
     void BuildContext(const States &states, bool ready, View &view, Input &input)
@@ -366,16 +398,6 @@ class LandScene final : public Scene
                 dash["fill"] = std::lround(states.vitals.dash * 100.0), dash["fillTone"] = "cooldown";
             view.elements["dash"] = std::move(dash);
             input.On("dash", "click", [this](const Event &) { Strike("dash", "tap"); });
-        }
-        // The officers column (V2-Land-Combat): portraits of the land officers with their health.
-        if (states.vitals.known && !states.vitals.officers.empty())
-        {
-            Json officers = Json::array();
-            for (const Vitals::Officer &officer : states.vitals.officers)
-                officers.push_back(Json{{"name", officer.name},
-                                        {"texture", officer.face.empty() ? std::string() : "INTERFACES/PORTRAITS/128/face_" + officer.face},
-                                        {"hp", std::lround(officer.health * 100.0)}});
-            view.elements["officers"] = Json{{"officers", officers}};
         }
         // The enemy captain of a boarding cabin fight (V2-Land-Boarding-Cabin): name and health.
         if (states.vitals.known && !states.vitals.opponent.empty())

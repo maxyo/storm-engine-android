@@ -1,6 +1,7 @@
 // Host checks for screen routing: admission (KNOWN / REQUIRED / extras), the generic
 // classification and the mapping of component events to engine actions. Synthetic
 // models only (tests/models); no GL context, no game data.
+#include "../src/hud/hud.h"
 #include "../src/picture_atlas.h"
 #include "../src/screens/controls.h"
 
@@ -1562,6 +1563,83 @@ static void Items(const std::string &models)
     ExpectEqual(surface.Last(), "widget:items\tMAP_EXIT_BTN\t-1\tpress", "back is the map's close");
 }
 
+// A HUD tap opens the character or the ship screen on its subject (hud::Hud::RequestSubject):
+// the screen selects it with the header's switch, as the player would, once.
+struct SubjectMount final : storm::ui::hud::Mount
+{
+    double now = 0.0;
+    bool Measure(const std::string &, const std::string &, storm::ui::hud::Placement &) const override { return false; }
+    bool ShowHud(const storm::ui::hud::View &) override { return true; }
+    void HideHud() override {}
+    void Send(const Action &) override {}
+    void SetLanguage(const std::string &) override {}
+    std::string Text(const std::string &key) override { return key; }
+    void Log(const std::string &) override {}
+    void Error(const std::string &) override {}
+    double Now() const override { return now; }
+    bool InterfaceActive() const override { return true; }
+};
+
+static void OpenOnSubject(const std::string &models)
+{
+    {
+        FakeSurface surface;
+        Router router(surface);
+        SubjectMount mount;
+        storm::ui::hud::Hud hud(mount);
+        router.AttachHud(&hud);
+        hud.RequestSubject({"character", 9, -1});
+        router.SetInterface(Load(models, "hero.json"));
+        Expect(surface.Last().rfind("widget:lscchar_all\tCHARACTERS_SCROLL\t1\tselect@", 0) == 0,
+               "a tapped officer (character 9, the navigator's post) is selected in the officer switch: " + surface.Last());
+        const size_t sent = surface.commands.size();
+        InterfaceModel again = Load(models, "hero.json");
+        again.revision += 1;
+        router.SetInterface(again);
+        Expect(surface.commands.size() == sent, "the request is taken once");
+    }
+    {
+        FakeSurface surface;
+        Router router(surface);
+        SubjectMount mount;
+        storm::ui::hud::Hud hud(mount);
+        router.AttachHud(&hud);
+        hud.RequestSubject({"character", 1, -1});
+        router.SetInterface(Load(models, "hero.json"));
+        Expect(surface.commands.empty() && !hud.TakeSubject("character"), "the hero's portrait: the captain is already the subject, nothing to select");
+        hud.RequestSubject({"character", 77, -1});
+        InterfaceModel again = Load(models, "hero.json");
+        again.revision += 1;
+        router.SetInterface(again);
+        Expect(surface.commands.empty() && !surface.errors.empty(), "a person without a post here: the captain stays, and that is said");
+    }
+    {
+        FakeSurface surface;
+        Router router(surface);
+        SubjectMount mount;
+        storm::ui::hud::Hud hud(mount);
+        router.AttachHud(&hud);
+        hud.RequestSubject({"ship", -1, 0});
+        router.SetInterface(Load(models, "ship.json"));
+        Expect(surface.Last().rfind("widget:ship\tSHIPS_SCROLL\t0\tselect@", 0) == 0, "a tapped flagship is selected in the squadron switch: " + surface.Last());
+    }
+    {
+        FakeSurface surface;
+        Router router(surface);
+        SubjectMount mount;
+        storm::ui::hud::Hud hud(mount);
+        router.AttachHud(&hud);
+        hud.RequestSubject({"ship", -1, 1});
+        router.SetInterface(Load(models, "ship.json"));
+        Expect(surface.commands.empty() && surface.errors.empty(), "the tapped ship is the one shown already: nothing to select");
+        hud.RequestSubject({"ship", -1, 4});
+        InterfaceModel again = Load(models, "ship.json");
+        again.revision += 1;
+        router.SetInterface(again);
+        Expect(surface.commands.empty() && !surface.errors.empty(), "a ship the squadron does not have: said aloud");
+    }
+}
+
 // The ship screen (hero_ship.cpp): the game's figures in three tabs, its windows as our dialogs.
 static void Ship(const std::string &models)
 {
@@ -2184,6 +2262,7 @@ int main(int argc, char **argv)
     Hero(models);
     Items(models);
     Ship(models);
+    OpenOnSubject(models);
     Journal(models);
     Launcher();
     if (failures)

@@ -9,6 +9,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <span>
 #include <string>
@@ -70,15 +71,24 @@ struct Combat
 
 // Channel "vitals": the land hero's bars and loaded charges, and his status
 // (battle_interface land_status.hpp): effects, potions, officers, dash cooldown.
+// A picture of the player's own game files for c-game-image: a texture-namespace name and the
+// rectangle "left,top,right,bottom" (0…1) of it, "" for the whole texture. Empty texture = none.
+struct Picture
+{
+    std::string texture, uv;
+};
+
 struct Vitals
 {
     struct Officer
     {
         int id = -1;
-        std::string name, face; // face: the game's FaceId
-        double health = 0.0;    // 0…1
+        std::string name, face;            // face: the game's FaceId
+        double health = 0.0, energy = 0.0; // 0…1
     };
     bool known = false;
+    int hero = -1;    // the hero's character index (-1: not given)
+    std::string name, face; // the hero's name and FaceId
     double health = 0.0, energy = 0.0, reload = 0.0; // 0…1
     int loaded = 0, capacity = 0;
     std::vector<std::string> effects; // poison, drunk, healing
@@ -125,6 +135,7 @@ struct Ship
         std::string entity, name, type;
         int ship_class = 0;
         double hull = -1.0, crew = -1.0, sails = -1.0;
+        Picture picture; // the battle interface's ship icon
     };
     bool known = false; // a valid frame of the current sea scene
     uint64_t gameplay_revision = 0, sequence = 0, hud_revision = 0;
@@ -201,7 +212,9 @@ struct WorldMap
     struct Vessel
     {
         std::string id, name, type;
-        double hull = -1.0; // 0…100
+        double hull = -1.0, sails = -1.0; // 0…100
+        double crew = -1.0;               // 0…1 of the ship's crew capacity
+        Picture picture;                  // the map sign's ship icon
     };
     struct Command
     {
@@ -381,6 +394,8 @@ class Mount
     virtual bool InterfaceActive() const = 0;
 };
 
+using screens::SubjectRequest;
+
 class Hud
 {
   public:
@@ -435,6 +450,15 @@ class Hud
     // Event lines shown top-centre by the scene's `log` element; newest first.
     Json LogLines() const;
 
+    // A tap on a party portrait or a squadron ship opens a game screen on that subject: the
+    // scene sends the opening shortcut and leaves the subject here; the screen that opens takes
+    // it once (screens/hero_character.cpp: the officer switch, hero_ship.cpp: the squadron
+    // switch). A request nobody takes lapses after kSubjectSeconds.
+    static constexpr double kSubjectSeconds = 5.0;
+    void RequestSubject(const SubjectRequest &request);
+    // The pending subject of `screen` ("character" | "ship"), cleared by taking it.
+    std::optional<SubjectRequest> TakeSubject(const std::string &screen);
+
     // --- for the host ---
     // An event line for the top-centre log; false while no scene shows one.
     bool Notice(const std::string &text, const std::string &tone);
@@ -481,6 +505,7 @@ class Hud
     void Present(bool visible);
 
     Mount &mount_;
+    std::optional<SubjectRequest> subject_;
     std::span<const SceneEntry> scenes_;
     States states_;
     const SceneEntry *entry_ = nullptr;
@@ -507,6 +532,19 @@ std::string Lower(std::string text);
 
 // The fleet token of a ship by a word of the engine's ship model name ("Lugger" → ship-lugger).
 const char *ShipIcon(const std::string &type);
+
+// One member of a party or squadron column (c-hud-plate variant officers / fleet): the game
+// picture and the bars drawn inside it, {kind, share 0…1}; a share below 0 (unknown) is left
+// out. `tap` makes the cell report its index (verb `member` / `ship`).
+struct MemberBar
+{
+    const char *kind;
+    double share;
+};
+Json MemberCell(const std::string &name, const Picture &picture, std::initializer_list<MemberBar> bars, bool tap);
+// The picture of a state channel: {texture, uv: [left, top, right, bottom]}; an error text
+// when it has another shape.
+std::string ReadPicture(const Json &value, Picture &out);
 
 // Consumers of the HUD channels, added to the router's list (screens/registry.cpp).
 void AddStateConsumers(std::vector<std::unique_ptr<screens::StateConsumer>> &consumers);
