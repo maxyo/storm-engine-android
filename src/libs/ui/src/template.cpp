@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <stdexcept>
 #include <vector>
@@ -145,10 +146,28 @@ std::string GroupDigits(const Json &value)
     return grouped + text.substr(end);
 }
 
+// Names in scope: a loop's own (item, index, last) over the scope around it. Each level refers
+// to its parent instead of copying it: a loop copied the whole scope (every prop, every row)
+// per item, and a nested loop per item of the outer one.
+struct Scope
+{
+    const Json &vars;
+    const Scope *parent = nullptr;
+    TemplateMemo *memo = nullptr; // the root's: loops over a root prop reuse unchanged items
+    const Json *Find(const std::string &name) const
+    {
+        for (const Scope *level = this; level; level = level->parent)
+            if (level->vars.is_object())
+                if (const auto found = level->vars.find(name); found != level->vars.end())
+                    return &*found;
+        return nullptr;
+    }
+};
+
 class Parser
 {
   public:
-    Parser(std::string_view text, const Json &scope) : text_(text), scope_(scope)
+    Parser(std::string_view text, const Scope &scope) : text_(text), scope_(scope)
     {
     }
 
@@ -307,6 +326,9 @@ class Parser
 
     Json Postfix(bool live)
     {
+        // A path from a name (a.b[0].c) is followed by reference: only its end is copied.
+        if (const Json *path = Path(live))
+            return *path;
         Json value = Primary(live);
         while (true)
         {
@@ -334,6 +356,64 @@ class Parser
             else
                 return value;
         }
+    }
+
+    // The value a name path refers to, or null (position unchanged) when the expression here is
+    // not a path: a literal, a call, a parenthesis, a keyword.
+    const Json *Path(bool live)
+    {
+        static const Json none;
+        Skip();
+        const size_t start = pos_;
+        if (pos_ >= text_.size() || !(std::isalpha(static_cast<unsigned char>(text_[pos_])) || text_[pos_] == '_' || text_[pos_] == '$'))
+            return nullptr;
+        const std::string name = Identifier();
+        Skip();
+        if (name == "true" || name == "false" || name == "null" || (pos_ < text_.size() && text_[pos_] == '('))
+        {
+            pos_ = start;
+            return nullptr;
+        }
+        const Json *value = scope_.Find(name);
+        if (!value)
+            value = &none;
+        while (true)
+        {
+            Skip();
+            if (pos_ < text_.size() && text_[pos_] == '.')
+            {
+                ++pos_;
+                const std::string key = Identifier();
+                value = MemberRef(*value, key);
+            }
+            else if (pos_ < text_.size() && text_[pos_] == '[')
+            {
+                ++pos_;
+                const Json index = Ternary(live);
+                if (!Eat("]"))
+                    Fail("expected ']'");
+                if (index.is_number() && value->is_array())
+                {
+                    const auto at = static_cast<long long>(index.get<double>());
+                    value = at >= 0 && static_cast<size_t>(at) < value->size() ? &(*value)[static_cast<size_t>(at)] : &none;
+                }
+                else
+                    value = MemberRef(*value, ToText(index));
+            }
+            else
+                return value;
+        }
+    }
+
+    static const Json *MemberRef(const Json &object, const std::string &key)
+    {
+        static const Json none;
+        if (object.is_object())
+        {
+            const auto found = object.find(key);
+            return found != object.end() ? &*found : &none;
+        }
+        return &none;
     }
 
     static Json Member(const Json &object, const std::string &key)
@@ -415,7 +495,8 @@ class Parser
                 return Json();
             return Call(name, arguments);
         }
-        return Member(scope_, name);
+        const Json *found = scope_.Find(name);
+        return found ? *found : Json();
     }
 
     Json Call(const std::string &name, const std::vector<Json> &a) const
@@ -556,7 +637,7 @@ class Parser
     }
 
     std::string_view text_;
-    const Json &scope_;
+    const Scope &scope_;
     size_t pos_ = 0;
 };
 
@@ -673,7 +754,7 @@ Tag MatchingClose(std::string_view source, size_t from, std::string_view name, T
     }
 }
 
-void RenderText(std::string_view source, const Json &scope, std::string &out)
+void RenderText(std::string_view source, const Scope &scope, std::string &out)
 {
     size_t at = 0;
     while (true)
@@ -697,7 +778,7 @@ void RenderText(std::string_view source, const Json &scope, std::string &out)
     }
 }
 
-void RenderBlock(std::string_view source, const Json &scope, std::string &out)
+void RenderBlock(std::string_view source, const Scope &scope, std::string &out)
 {
     size_t at = 0;
     while (true)
@@ -731,16 +812,58 @@ void RenderBlock(std::string_view source, const Json &scope, std::string &out)
             const std::string_view body = source.substr(tag.end, close.begin - tag.end);
             if (list.is_array())
             {
-                Json inner = scope;
+                Json local = Json::object();
+                const Scope inner{local, &scope};
+                // A loop over a prop of the component (each="rows") in a memo: an item whose
+                // value and position are as at the last render, with the rest of the scope
+                // unchanged too, gives the same output, which is reused instead of rendered.
+                const std::string each(Attribute(tag.attributes, "each"));
+                TemplateMemo::Loop *memo = nullptr;
+                // Short lists render faster than the scope compares: only lists of some length.
+                if (scope.memo && !scope.parent && list.size() >= 4 && scope.vars.is_object() && scope.vars.contains(each))
+                {
+                    Json outside = scope.vars;
+                    outside.erase(each);
+                    std::string signature = outside.dump();
+                    memo = &scope.memo->loops[std::to_string(reinterpret_cast<uintptr_t>(body.data())) + ":" + each];
+                    if (memo->outside != signature)
+                    {
+                        memo->items.clear();
+                        memo->outside = std::move(signature);
+                    }
+                    memo->next.clear();
+                }
                 size_t index = 0;
                 for (const Json &item : list)
                 {
-                    inner[as] = item;
-                    inner[as + "_i"] = index;
-                    inner[as + "_last"] = index + 1 == list.size();
+                    const bool last = index + 1 == list.size();
+                    std::string key;
+                    if (memo)
+                    {
+                        key = std::to_string(index) + (last ? "L" : "") + ":" + item.dump();
+                        if (const auto found = memo->items.find(key); found != memo->items.end())
+                        {
+                            out += found->second;
+                            memo->next.emplace(std::move(key), std::move(found->second));
+                            ++scope.memo->reused;
+                            ++index;
+                            continue;
+                        }
+                    }
+                    local[as] = item;
+                    local[as + "_i"] = index;
+                    local[as + "_last"] = last;
+                    const size_t from = out.size();
                     RenderBlock(body, inner, out);
+                    if (memo)
+                    {
+                        memo->next.emplace(std::move(key), out.substr(from));
+                        ++scope.memo->rendered;
+                    }
                     ++index;
                 }
+                if (memo)
+                    memo->items.swap(memo->next);
             }
             at = close.end;
         }
@@ -753,14 +876,16 @@ void RenderBlock(std::string_view source, const Json &scope, std::string &out)
 
 Json EvaluateExpression(std::string_view expression, const Json &scope)
 {
-    return Parser(expression, scope).Run();
+    return Parser(expression, Scope{scope}).Run();
 }
 
-std::string RenderTemplate(std::string_view source, const Json &scope)
+std::string RenderTemplate(std::string_view source, const Json &scope, TemplateMemo *memo)
 {
     std::string out;
     out.reserve(source.size() * 2);
-    RenderBlock(source, scope, out);
+    if (memo)
+        memo->rendered = memo->reused = 0;
+    RenderBlock(source, Scope{scope, nullptr, memo}, out);
     return out;
 }
 
