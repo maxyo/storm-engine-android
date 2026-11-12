@@ -22,6 +22,7 @@ void finish_layout(LayoutInfo &info, uint32_t stream, uint32_t stride)
 {
     bgfx::VertexLayout &layout = info.layout[stream];
     layout.end();
+    info.extent[stream] = layout.m_stride;
     if (stride > layout.m_stride)
         layout.m_stride = static_cast<uint16_t>(stride);
     // The hash covers attributes and offsets only; make it unique per stride.
@@ -94,23 +95,27 @@ const LayoutInfo *Device::fvf_layout(DWORD fvf, uint32_t stride)
     return &info;
 }
 
-bool Device::build_decl_layout(VertexDeclaration &decl)
+const LayoutInfo *Device::build_decl_layout(VertexDeclaration &decl)
 {
-    LayoutInfo &info = decl.info;
-    bool same = info.stream_count != 0;
-    for (uint32_t i = 0; same && i < info.stream_count; ++i)
-        same = info.stride[i] == std::max<uint32_t>(s.stream_stride[i], info.layout[i].m_stride) ||
-               s.stream_stride[i] == info.stride[i];
-    if (same)
-        return true;
-    info = LayoutInfo{};
+    // A stream's stride is the one bound with SetStreamSource, or the attributes' extent when that is smaller (0).
+    for (const auto &cached : decl.layouts)
+    {
+        bool same = true;
+        for (uint32_t i = 0; same && i < cached->stream_count; ++i)
+            same = cached->stride[i] == std::max<uint32_t>(s.stream_stride[i], cached->extent[i]);
+        if (same)
+            return cached.get();
+    }
+    decl.layouts.push_back(std::make_unique<LayoutInfo>());
+    LayoutInfo &info = *decl.layouts.back();
     uint32_t streams = 0;
     for (const auto &element : decl.elements)
         streams = std::max<uint32_t>(streams, element.Stream + 1u);
     if (streams > kMaxStreams)
     {
+        decl.layouts.pop_back();
         trap("vertex declaration with more than 4 streams");
-        return false;
+        return nullptr;
     }
     for (uint32_t stream = 0; stream < streams; ++stream)
     {
@@ -156,8 +161,9 @@ bool Device::build_decl_layout(VertexDeclaration &decl)
                 count = 4, bytes = 8, type = bgfx::AttribType::Int16, normalized = element.Type == D3DDECLTYPE_SHORT4N;
                 break;
             default:
+                decl.layouts.pop_back();
                 trap("vertex declaration element type");
-                return false;
+                return nullptr;
             }
             bgfx::Attrib::Enum attrib = bgfx::Attrib::Count;
             switch (element.Usage)
@@ -207,13 +213,13 @@ bool Device::build_decl_layout(VertexDeclaration &decl)
         finish_layout(info, stream, s.stream_stride[stream]);
     }
     info.stream_count = static_cast<uint8_t>(streams);
-    return true;
+    return &info;
 }
 
 const LayoutInfo *Device::current_layout()
 {
     if (s.decl)
-        return build_decl_layout(*s.decl) ? &s.decl->info : nullptr;
+        return build_decl_layout(*s.decl);
     return fvf_layout(s.fvf, s.stream_stride[0]);
 }
 
@@ -1008,7 +1014,7 @@ HRESULT Device::draw(const DrawCall &call)
             // User-pointer draws supply stream 0 only.
             const UINT saved = s.stream_stride[0];
             s.stream_stride[0] = call.up_stride;
-            layout = build_decl_layout(*s.decl) ? &s.decl->info : nullptr;
+            layout = build_decl_layout(*s.decl);
             s.stream_stride[0] = saved;
         }
         else

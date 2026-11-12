@@ -267,7 +267,7 @@ struct Device final : Object
     void skip_draw(const char *reason);
     const LayoutInfo *current_layout();
     const LayoutInfo *fvf_layout(DWORD fvf, uint32_t stride);
-    bool build_decl_layout(VertexDeclaration &decl);
+    const LayoutInfo *build_decl_layout(VertexDeclaration &decl);
     uint16_t ensure_view();
     uint16_t new_view();
     bgfx::FrameBufferHandle framebuffer(TexStore *color, uint32_t face, uint32_t level, TexStore *depth);

@@ -266,6 +266,7 @@ struct LayoutInfo
     bgfx::VertexLayoutHandle handle[kMaxStreams] = {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE,
                                                     BGFX_INVALID_HANDLE};
     uint16_t stride[kMaxStreams] = {};
+    uint16_t extent[kMaxStreams] = {}; // bytes the attributes span, before padding to the stream stride
     uint8_t stream_count = 0;
     bool rhw = false, has_normal = false, has_color0 = false, has_color1 = false;
     bool skinned = false; // XYZB2 | LASTBETA_UBYTE4: one blend weight + bone indices (GPU skinning)
@@ -276,7 +277,10 @@ struct LayoutInfo
 struct VertexDeclaration final : Object
 {
     std::vector<D3DVERTEXELEMENT9> elements; // without the D3DDECL_END terminator
-    LayoutInfo info;
+    // One layout per combination of stream strides it is drawn with: a declaration is shared by vertex buffers of
+    // different strides (the geometry service's caustic declaration serves every model type), and a bgfx layout
+    // carries its stride.
+    std::vector<std::unique_ptr<LayoutInfo>> layouts;
 };
 
 // ---------------------------------------------------------------------------
