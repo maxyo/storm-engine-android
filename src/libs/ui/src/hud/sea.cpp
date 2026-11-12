@@ -212,7 +212,7 @@ class SeaScene final : public Scene
         else
             walk_ = 0;
         BuildGuns(states, ship, view, input);
-        BuildTime(gameplay, ship, view, input);
+        BuildTimeScale(hud_, gameplay, ship ? ship->time_scale : -1.0, view, input);
         if (ship && layout_ == "sea-battle")
             BuildAbilities(gameplay, *ship, view, input);
         if (fan_open_)
@@ -495,30 +495,6 @@ class SeaScene final : public Scene
                 hud_.Rebuild();
             });
         }
-    }
-
-    // The game's time acceleration in four steps (owner decision): a tap is the next of x1, x2,
-    // x4, x8 after the scale the engine runs at; the scripts apply and clamp it
-    // (android_time_scale.hpp), the badge shows what the engine really runs at.
-    void BuildTime(const Gameplay &gameplay, const Ship *ship, View &view, Input &input)
-    {
-        static const char *const kSteps[] = {"TimeScaleX1", "TimeScaleX2", "TimeScaleX4", "TimeScaleX8"};
-        if (!ship || ship->time_scale < 0.0)
-            return;
-        for (const char *step : kSteps)
-            if (!gameplay.Has(step))
-                return;
-        char text[16];
-        std::snprintf(text, sizeof(text), "%.2f", ship->time_scale);
-        std::string scale = text;
-        while (scale.back() == '0')
-            scale.pop_back();
-        if (scale.back() == '.')
-            scale.pop_back();
-        const double now = ship->time_scale;
-        const int current = now < 1.5 ? 0 : now < 3.0 ? 1 : now < 6.0 ? 2 : 3;
-        view.elements["time"] = Json{{"badge", "×" + scale}, {"variant", current ? "active" : "normal"}};
-        input.On("time", "click", [this, next = std::string(kSteps[(current + 1) % 4])](const Event &) { Control(next); });
     }
 
     // The battle abilities beside the guns (V2-Sea-Battle effect-0 / effect-1): a tap launches
