@@ -480,7 +480,13 @@ static void CheckScenes()
             covered[cover] = true;
             bench.Feed("presentation", covered);
             hud.Tick();
-            Expect(!hud.Visible(), std::string(cover) + " hides the HUD");
+            // A cut-scene keeps the one game-menu button; loading and a dialogue hide everything.
+            if (std::string(cover) == "cinematic")
+                Expect(hud.MenuOnly() && mount.shown.layout == "menu" && hud.OnEvent({"pause", "click", ""}) &&
+                           mount.commands.back() == "shortcut:mainmenu",
+                       "a cut-scene: only the game-menu button, which opens the game menu");
+            else
+                Expect(!hud.Visible(), std::string(cover) + " hides the HUD");
         }
         bench.Game();
         mount.interface = true;
@@ -511,8 +517,8 @@ static void CheckScenes()
         Expect(calls == std::vector<std::string>({"build"}), "explore → melee stays in the scene");
         bench.Feed("gameplay", State("gameplay-sailing"));
         hud.Tick();
-        Expect(!hud.Visible() && !mount.visible && calls == std::vector<std::string>({"build", "released", "suspended", "destroy"}),
-               "a mode of another zone ends the scene after releasing what it held");
+        Expect(hud.MenuOnly() && mount.shown.layout == "menu" && calls == std::vector<std::string>({"build", "released", "suspended", "destroy"}),
+               "a mode of another zone ends the scene after releasing what it held; the game-menu button stays");
 
         // a view the pack cannot draw is not half-shown
         bench.Feed("gameplay", State("gameplay-explore"));

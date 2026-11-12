@@ -680,6 +680,16 @@ int main(int argc, char *argv[])
                 core_private->Event("Control Activation", "s", "ICancel");
                 core_private->Event("Control Deactivation", "s", "ICancel");
             }
+            else if (command.starts_with("widget:game_over\tEND\t"))
+            {
+                // The death screen's choice: end the game's death picture now. The game's own
+                // end of it (interface.c StartPictureAsVideo → PictureAsVideoBreak) goes on to
+                // its title screen, as after the picture's time.
+                if (storm::android::gameOverShown)
+                    core_private->Event("PictureAsVideoBreak");
+                else
+                    spdlog::warn("death screen: end of the death picture asked while none is shown");
+            }
             else if (command.starts_with("shortcut:"))
             {
                 if (storm::android::mobileScreen.empty())

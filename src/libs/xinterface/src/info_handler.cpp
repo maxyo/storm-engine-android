@@ -45,7 +45,10 @@ InfoHandler::~InfoHandler()
 {
 #ifdef __ANDROID__
     if (gameOver_)
+    {
+        storm::android::gameOverShown = false;
         storm::android::publishUiState("gameOver", "null");
+    }
 #endif
     TEXTURE_RELEASE(m_rs, tex);
 }
@@ -71,6 +74,7 @@ bool InfoHandler::Init()
     }
 #ifdef __ANDROID__
     gameOver_ = PublishGameOver(AttributesPointer);
+    storm::android::gameOverShown = storm::android::gameOverShown || gameOver_;
 #endif
 
     tex = m_rs->GetRenderTargetAsTexture();

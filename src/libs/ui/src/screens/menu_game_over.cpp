@@ -2,9 +2,13 @@
 // while the game shows its death picture and then returns to the title screen by itself.
 // State channel "gameOver" (xinterface info_handler.cpp): {kind: sea|land|defeat, language}
 // while the picture is up, null after. The consumer makes an interface model of its own
-// ("game_over", one KIND text) that the screen turns into the pack screen <s-game-over>.
-// Nothing to press: the game decides when it ends.
+// ("game_over": KIND text, END button) that the screen turns into the pack screen <s-game-over>.
+// The game menu is gone with the game (its resume and save are off, its handlers cleared),
+// so the death screen offers what the game offers next, on its title screen: «Загрузить»,
+// «Настройки», «Главное меню». A choice ends the picture at once (END → the game's own end
+// of the death picture) and the title screen opens it (menu.h TitleIntent).
 #include "controls.h"
+#include "menu.h"
 
 namespace storm::ui::screens
 {
@@ -14,6 +18,7 @@ namespace
 
 constexpr NodeRule kNodes[] = {
     {"KIND", "text", true},
+    {"END", "button", true},
 };
 
 class GameOverScreen final : public Screen
@@ -38,7 +43,20 @@ class GameOverScreen final : public Screen
             if (kind == known)
                 title = bindings.Text(key);
         bindings.Ignore("header-back", ""); // the game leaves this screen by itself
-        return Json{{"title", title}};
+        const Widget *end = admitted.One("END");
+        Json actions = Json::array();
+        static const char *const kChoices[][3] = {{"go-load", StringKey("menu.load"), "Load"},
+                                                  {"go-options", StringKey("menu.settings"), "Options"},
+                                                  {"go-title", StringKey("menu.main_menu"), ""}};
+        for (const auto &[id, label, intent] : kChoices)
+        {
+            actions.push_back(Json{{"id", id}, {"label", bindings.Text(label)}, {"busy", bindings.Pending(id)}});
+            bindings.On(id, "", [&bindings, end, intent = std::string(intent)](const Event &) {
+                TitleIntent() = intent;
+                bindings.Send(*end, "press");
+            });
+        }
+        return Json{{"title", title}, {"actions", actions}};
     }
 };
 
@@ -70,6 +88,11 @@ class GameOverConsumer final : public StateConsumer
         text.type = "text";
         text.label = kind;
         model.widgets.push_back(text);
+        Widget end; // ends the death picture now (engine: the game's own end of it)
+        end.node = "END";
+        end.type = "button";
+        end.actions = {"press"};
+        model.widgets.push_back(end);
         router.SetInterface(model);
     }
 

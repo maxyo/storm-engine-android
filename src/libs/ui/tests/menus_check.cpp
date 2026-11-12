@@ -157,6 +157,23 @@ static void GameMenu(const std::string &models)
     router.OnEvent({"resume", "click", ""});
     Expect(surface.commands.size() == sent && surface.errors.empty(), "an unavailable «Продолжить» sends nothing");
 
+    // A place where the game allows no saving (boarding, a battle, a no-save zone): the same
+    // menu, «Сохранить» shown but disabled; a tap says why only when the game gives a reason.
+    InterfaceModel no_save = Load(models, "game-menu.json");
+    no_save.opening = 100;
+    for (Widget &widget : no_save.widgets)
+        if (widget.node == "MB_SAVE")
+            widget.enabled = false, widget.actions.clear(), widget.unavailable_reason = "Сейчас нельзя сохраниться";
+    router.SetInterface(no_save);
+    {
+        Json save;
+        for (const Json &button : surface.props["buttons"])
+            if (button["id"] == "save")
+                save = button;
+        Expect(surface.props["buttons"].size() == 4 && save["disabled"] == true && save["reason"] == "Сейчас нельзя сохраниться",
+               "no-save zone: the same four actions, «Сохранить» disabled with the game's reason");
+    }
+
     InterfaceModel broken = Load(models, "game-menu.json");
     Without(broken, "MB_RESUME");
     broken.opening = 99;
@@ -472,7 +489,7 @@ static void Autosaves(const std::string &models)
     Expect(!listed && surface.props["rows"].size() == 4, "autosaves are never an overwrite target");
 }
 
-static void GameOver()
+static void GameOver(const std::string &models)
 {
     FakeSurface surface;
     Router router(surface);
@@ -480,7 +497,27 @@ static void GameOver()
     Expect(router.Using() == "game_over" && surface.tag == "s-game-over" && surface.props["title"] == "<menu.game_over_sea>",
            "game over: the defeat's title over the death picture");
     router.Back();
-    Expect(surface.commands.empty() && router.Using() == "game_over", "nothing to press, back does nothing: the game ends it");
+    Expect(surface.commands.empty() && router.Using() == "game_over", "back does nothing: the game ends it");
+    const Json actions = surface.props["actions"];
+    Expect(actions.size() == 3 && actions[0]["id"] == "go-load" && actions[1]["id"] == "go-options" && actions[2]["id"] == "go-title",
+           "the death screen offers load, settings and the title screen");
+    router.OnEvent({"go-load", "click", ""});
+    ExpectEqual(surface.Last(), "widget:game_over\tEND\t-1\tpress", "a choice ends the death picture at once");
+    router.SetState("gameOver", nullptr);
+    surface.commands.clear();
+    router.SetInterface(Load(models, "title.json"));
+    Expect(surface.commands.size() == 1 && surface.commands[0] == "main:Load", "then the title screen opens the chosen load once");
+    router.SetInterface(Load(models, "title.json"));
+    Expect(surface.commands.size() == 1, "only once");
+    router.SetState("gameOver", Json{{"kind", "land"}, {"language", "russian"}});
+    router.OnEvent({"go-title", "click", ""});
+    surface.commands.clear();
+    InterfaceModel title = Load(models, "title.json");
+    title.opening += 1;
+    router.SetInterface(title);
+    Expect(surface.commands.empty() && surface.errors.empty(), "«Главное меню» stays on the title screen");
+    router.CloseInterface();
+    router.SetState("gameOver", Json{{"kind", "sea"}});
     router.SetState("gameOver", nullptr);
     Expect(!router.Active(), "null closes it");
     router.SetState("gameOver", Json{{"kind", "victory"}});
@@ -505,7 +542,7 @@ int main(int argc, char **argv)
 {
     const std::string models = argc > 1 ? argv[1] : "tests/models";
     GameMenu(models);
-    GameOver();
+    GameOver(models);
     LoadFailure();
     Saves(models);
     Autosaves(models);

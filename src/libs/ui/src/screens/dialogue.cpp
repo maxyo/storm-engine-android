@@ -134,7 +134,6 @@ class DialogueScreen final : public Screen
             ++page_;
             bindings.Rebuild();
         });
-        bindings.On("dialogue-menu", "click", [&bindings](const Event &) { bindings.Platform("pause"); });
 
         Json view{{"speaker", admitted.Label("SPEAKER")}, {"text", admitted.Label("TEXT")}, {"page", page_}, {"replies", rows},
                   {"edit", nullptr}};

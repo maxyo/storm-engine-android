@@ -74,6 +74,9 @@ inline void traceWorldMapModal(const char *event,const std::string &detail)
     if(remaining)__android_log_print(ANDROID_LOG_INFO,"StormMapModalNative","%s tick=%u %s",event,SDL_GetTicks(),detail.c_str());
 }
 inline int cinematicState = -1;
+// The game's death picture is up (xinterface info_handler.cpp): the death screen's choice may
+// end it at once ("widget:game_over\tEND", main.cpp).
+inline bool gameOverShown = false;
 inline void showSaveError() {
     auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
     auto activity=static_cast<jobject>(SDL_AndroidGetActivity());

@@ -498,6 +498,18 @@
      }
     }
    ]
+  },
+  "menu": {
+   "elements": [
+    {
+     "id": "pause",
+     "component": "c-hud-button",
+     "rcss": "position: absolute; right: 12dp; top: 8dp; width: 48dp; height: 48dp;",
+     "props": {
+      "icon": "menu"
+     }
+    }
+   ]
   }
  }
 }

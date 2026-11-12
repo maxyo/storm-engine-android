@@ -450,6 +450,11 @@ class Hud
     {
         return visible_;
     }
+    // What is shown is only the game-menu button (layout "menu"): no scene draws this mode.
+    bool MenuOnly() const
+    {
+        return visible_ && menu_only_;
+    }
     // The player can act: touches on HUD elements belong to the HUD.
     bool Interactive() const
     {
@@ -478,7 +483,7 @@ class Hud
     };
     void Refresh();
     void Conceal();
-    void Present(bool visible);
+    void Present(bool visible, bool menu_only);
 
     Mount &mount_;
     std::span<const SceneEntry> scenes_;
@@ -494,6 +499,7 @@ class Hud
     bool changed_ = true;
     std::string spyglass_answer_; // the last word said about the spyglass overlay
     bool visible_ = false;
+    bool menu_only_ = false; // shown is only the layout "menu" (the game-menu button)
     bool live_ = false;
     bool interface_ = false;
     bool declared_ = false; // the "hudowner" declarations were sent

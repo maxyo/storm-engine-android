@@ -1,6 +1,8 @@
 // Shared state of the menu screens (menu_*.cpp).
 #pragma once
 
+#include <string>
+
 namespace storm::ui::screens
 {
 
@@ -34,6 +36,15 @@ inline bool ContinueRequested()
 inline void SetContinueRequested(bool requested)
 {
     ContinueFlag() = requested;
+}
+
+// The death screen's choice (menu_game_over.cpp): the game goes to its title screen after a
+// defeat; there the title screen opens what the player chose ("Load", "Options"; empty = the
+// title itself) once, as if tapped.
+inline std::string &TitleIntent()
+{
+    static std::string intent;
+    return intent;
 }
 
 } // namespace storm::ui::screens

@@ -8,6 +8,8 @@
 #include "controls.h"
 #include "menu.h"
 
+#include <utility>
+
 namespace storm::ui::screens
 {
 
@@ -62,6 +64,16 @@ class TitleScreen final : public Screen
                                        button("options", "menu.settings", options_), button("credits", "menu.credits", credits_)});
         view["exit"] = button("exit", "menu.exit", exit_);
         view["about"] = Json{{"id", "about"}, {"label", bindings.Text("menu.about")}};
+        // Chosen on the death screen: done once the title is up.
+        if (const std::string intent = std::exchange(TitleIntent(), std::string()); !intent.empty())
+        {
+            if (intent == "Load")
+                bindings.Send(load_, "press");
+            else if (intent == "Options")
+                bindings.Send(options_, "press");
+            else
+                bindings.Error("title: unknown intent from the death screen '" + intent + "'");
+        }
         bindings.On("about", "", [&bindings](const Event &) { bindings.SendHost("app-about", ""); });
         return view;
     }

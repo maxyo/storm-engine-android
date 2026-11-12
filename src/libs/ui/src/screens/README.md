@@ -60,8 +60,7 @@ verbs, §8 admission and extras) and the V2 mockups of the design canvas.
      `bindings.Forward(id, widget, "press")`, `bindings.On(id, verb, handler)` and inside a
      handler `bindings.Send(widget, verb, value)`, `SendLatest` (drags), `Back(exit)`,
      `EditText` / `AskText` (the screen gets the typed text), `Read`, `Rebuild()` for local
-     state kept in members, `Platform(verb)` for a request to the platform host (`pause`),
-     `SendHost(node, value)` for a setting of the application itself (an `Action` without a
+     state kept in members, `SendHost(node, value)` for a setting of the application itself (an `Action` without a
      screen that the platform host keeps; `app-settings` = the renderer options). A screen
      with a modal of its own returns true from `OwnsBack()` and closes it in `Back()`: the
      back key then goes there first (`Host::WantsBack`). Mark events that are
@@ -206,10 +205,11 @@ Input goes out with `Hud::Send(verb, value, slot)`: the engine command is `<verb
 (`move`, `combat`, `landcommands`, `context`; at sea `hold` (held controls: helm, spyglass),
 `sails`, `gameplay`, `seaquick`, `orders`, `shiphud`, `navigator`; on the world map `hold` and `worldmap`); a `slot` marks a latest-value input (stick
 position, coverage acknowledgement) of which a queueing host keeps only the newest. Three
-verbs are for the platform host: `shortcut` (`mainmenu`, `character`), `presence`
-(`shown` / `hidden`) and `pause` (its pause menu; the dialogue's menu button, through
-`Bindings::Platform`). Sequences, owners and revisions are formed here; the platform adds
-nothing.
+verbs are for the platform host: `shortcut` (`mainmenu` = the game's own menu, everywhere:
+every scene and the layout `menu` where no scene draws, a cut-scene or a blocked game, have the
+one menu button; `character`) and `presence` (`shown` / `menu` (only that button) / `hidden`).
+There is no menu of the platform's own. Sequences, owners and revisions are formed here; the
+platform adds nothing.
 
 Touches over the game are decided per pointer at pointer-down: `Host::WantsTouch(x, y)` is
 true on an interactive HUD element (what the behaviours report as `Regions`), anywhere
