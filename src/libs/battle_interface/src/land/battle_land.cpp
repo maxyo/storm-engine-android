@@ -275,6 +275,26 @@ std::string landOwnerKey(BATTLE_LAND_INTERFACE *battle)
     }
     return key;
 }
+// Cheap native reads only: no script call, no string building beyond the locator's name.
+LandRefreshSignal landRefreshSignal(bool ready, BATTLE_LAND_INTERFACE *battle)
+{
+    LandRefreshSignal signal;
+    signal.ready = ready;
+    if (!battle) return signal;
+    signal.owner = battle->GetId();
+    signal.player = core.GetEntityId("Player");
+    signal.location = core.GetEntityId("location");
+    signal.menuActive = battle->AttributesPointer && battle->AttributesPointer->GetAttributeAsDword("ComState", 0);
+    const char *reload = nullptr;
+    if (auto *value = static_cast<VDATA *>(core.GetScriptVariable("chrWaitReloadLocator")); value && value->Get(reload) && reload)
+        signal.reload = reload;
+    return signal;
+}
+}
+void pollLandCommands(bool ready, uint32_t tick)
+{
+    if (landRefresh.due(tick, landRefreshSignal(ready, landOwner())))
+        refreshLandCommands(ready);
 }
 void refreshLandCommands(bool ready)
 {
@@ -319,6 +339,7 @@ void closeLandCommands()
 {
     if (auto *battle = landOwner()) battle->CloseAndroidLand();
     landCommands.update({}, {});
+    landRefresh.force(); // the list was emptied here, not by the scripts: ask them on the next poll
 }
 }
 #endif

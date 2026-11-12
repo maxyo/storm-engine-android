@@ -922,7 +922,8 @@ int main(int argc, char *argv[])
             }
             {
                 STORM_PROFILE_ZONE("HUD adapter: land commands");
-                storm::android::refreshLandCommands(storm::android::landCommandsReady(gameplayReady));
+                // Asks the scripts on a change signal or once per period (android_hud_refresh.hpp).
+                storm::android::pollLandCommands(storm::android::landCommandsReady(gameplayReady), SDL_GetTicks());
                 storm::android::publishLandCommands();
                 if (const auto request = storm::android::landCommands.take(SDL_GetTicks())) {
                     storm::android::executeLandCommand(*request);
