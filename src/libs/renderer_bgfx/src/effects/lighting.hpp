@@ -167,6 +167,7 @@ class Lighting
     LampShadows lamps_;
     FfDraw caster_{}; // the last submitted draw's caster flags (submit -> submit_caster)
     bool cube_reported_ = false;
+    bool indoor_sun_reported_ = false;
     bool bounds_reported_ = false;
     bool aerial_port_reported_ = false;
     bgfx::UniformHandle u_aerial_up_ = BGFX_INVALID_HANDLE;
