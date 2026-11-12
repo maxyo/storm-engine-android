@@ -22,6 +22,7 @@ class WM_INTERFACE : public Entity
     std::chrono::steady_clock::time_point androidCommandPoll{};
     void ReadAndroidMapCommands(storm::android::WorldMapFrame &frame);
     bool ActivateAndroidMapCommand(const std::string &id);
+    void MarkStopOnPurpose(); // the script half of WMapCancel (android_worldmap.hpp: leavesForOpenSea)
 #endif
     void Realize(uint32_t delta_time);
     uint64_t ProcessMessage(MESSAGE &message) override;

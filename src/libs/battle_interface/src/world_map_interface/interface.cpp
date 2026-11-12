@@ -244,12 +244,21 @@ void WM_INTERFACE::ReadAndroidMapCommands(storm::android::WorldMapFrame &frame)
     frame.commands=m_pCommandList->AndroidMapCommands();
     frame.commandsReady=!frame.commands.empty();
 }
+void WM_INTERFACE::MarkStopOnPurpose()
+{
+    // What Space (WMapCancel, «Выход из карты в море») does in the scripts before the map is left
+    // (seadogs.c): the stop is the player's own (pchar.space_press), so an encounter met there can
+    // be sailed past (map.c CalculateInfoData), as on PC. The command then leaves the map as the
+    // engine's WMapCancel does (MSG_WORLDMAP_LAUNCH_EXIT_TO_SEA: ExitFromMap).
+    core.Event("Control Activation", "s", "WMapCancel");
+}
 bool WM_INTERFACE::ActivateAndroidMapCommand(const std::string &id)
 {
     if (!m_bVisible || !m_pCommandList || IsCommandMenuActive())return false;
     m_nCommandMode=BI_COMMODE_COMMAND_SELECT;
     UpdateCommandList();
     if(!m_pCommandList->SelectAndroidMapCommand(id))return false;
+    if(storm::android::leavesForOpenSea(id))MarkStopOnPurpose();
     // Keep original end-check, launch event, sound, and command teardown.
     ExecuteCommand(BI_MSG_COMMAND_ACTIVATE);
     return true;
