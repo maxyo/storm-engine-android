@@ -20,12 +20,12 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `controls.*` | shared view builders: buttons and their roles, action rows, control rows (toggle, segment, slider, stepper, field) |
 | `generic.cpp` | the generic auto-layout for interfaces without a ported screen |
 | `trade_crew.cpp` | crew hire: the trade layout with one always-open row |
-| `trade_shipyard.cpp` | shipyard: catalogue, ship card, the game's windows as sheets; sends the engine's `yard@` capability tokens, one per model revision |
-| `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout, a column table per interface |
+| `trade_shipyard.cpp` | shipyard: one list (our fleet slots, the yard's offers), the ship card with an offer's figures beside our chosen ship's, held buy / sell (the game's confirmation of a held deal is answered), the game's windows as sheets; sends the engine's `yard@` capability tokens, one per model revision |
+| `trade_commerce.cpp` | reference ported screens: store, contraband, cannons, items trade, storage, chests — one layout (the list that never moves: filter chips, columns sorted by a tap on their caption, `goods quick` = the whole stack in one tap for free transfers; the open deal in the list's dock), a column table per interface |
 | `extra_games.cpp` | tavern dice and cards (`boal_dice`, `boal_cards`): the felt from the script images and facts the engine exports (`ANDROID_TABLE_GAME`) |
 | `extra_goods.cpp` | the treasurer's purchase list (`goodstransfer`): rows the engine exports (`ANDROID_GOODS_ORDER`), a standing order saved as the amount settles (`order` action) |
 | `extra_repair.cpp` | self repair (`repair`): hull, masts, sails as amounts sent as the game's arrow presses, materials per amount |
-| `extra_transfer.cpp` | loot and exchange (`transfer_main`): cargo by pack arrows, crew tab, the game's windows as modals / a sheet; the question window's script mode from `ANDROID_TRANSFER`; dangerous answers held |
+| `extra_transfer.cpp` | loot and exchange (`transfer_main`): cargo by pack arrows (`goods quick` takes a whole stock), crew tab, the «Корабли» tab of ours (both ships' figures side by side), the other ship's card in the dock, the game's windows as modals / a sheet; the question window's script mode from `ANDROID_TRANSFER`; dangerous answers held |
 | `extra_sails.cpp` | sail emblems (`sailsgerald`): the emblem ribbon (`SCROLL_GERALD` rows with texture paths) and one contextual primary |
 | `extra_alchemy.cpp` | alchemy (`alchemy`): recipe rows the engine exports (`ANDROID_ALCHEMY_RECIPE`, `choose`), the components and N batches crafted by one guarded `craft` action (`ANDROID_ALCHEMY`) |
 | `hero_ship.cpp` | the ship (`ship`): overview, crew, hold over the one stock screen; the game's windows (drop overboard, cannons by side, shares, the morale and exchange questions) as our controls; facts from the adapter `android_hero.c` (`ANDROID_SHIP`, `ANDROID_SHARES`) |

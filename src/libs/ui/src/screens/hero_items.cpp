@@ -9,6 +9,9 @@
 // (ANDROID_ITEMS, ANDROID_SLOTS; ANDROID_POSTS for the officer switch).
 #include "hero.h"
 
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <map>
 
 namespace storm::ui::screens
@@ -34,6 +37,7 @@ constexpr NodeRule kNodes[] = {
     {"DOWN_BUTTON", "button"},
     {"SETUP_FRAME_CAPTION", "text"}, // "Экипировка: <name>": the officer switch names the character
     {"SETUP_BIG_PICTURE", "image"},
+    {"ANDROID_INFO", "fact"},        // the selected item's description in parts (the adapter)
     {"ITEM_*", "image"},             // what each slot holds: ANDROID_SLOTS has it with names
     {"SLOT_ITEM_*", "image"},
     {"SLOT_PIC_*", "image"},
@@ -134,10 +138,12 @@ class ItemsScreen final : public Screen
         {
             const Widget *item = worn.count(slot.id) ? worn[slot.id] : nullptr;
             Json tile{{"id", slot.id}, {"selected", filter_ == slot.id}};
+            // A tile is the slot: its caption under what is worn there (the item's name is in the list
+            // and on the parchment).
+            tile["label"] = bindings.Text(slot.label);
             if (item)
             {
-                tile["label"] = item->label;
-                tile["sub"] = bindings.Text(slot.label);
+                tile["name"] = item->label;
                 ImageRef picture;
                 picture.kind = "atlas";
                 picture.group = Field(item, "group");
@@ -149,7 +155,6 @@ class ItemsScreen final : public Screen
             }
             else
             {
-                tile["label"] = bindings.Text(slot.label);
                 tile["icon"] = slot.icon;
                 tile["empty"] = true;
             }
@@ -192,10 +197,10 @@ class ItemsScreen final : public Screen
         for (const Widget *row : admitted.All("TABLE_ITEMS"))
         {
             const Widget *fact = facts.count(row->index) ? facts[row->index] : nullptr;
+            if (row->value == "1")
+                selected = row; // the parchment shows the game's selected item whatever the list is narrowed to
             if (!filter_slot.empty() && Field(fact, "slot") != filter_slot)
                 continue;
-            if (row->value == "1")
-                selected = row;
             Json name{{"text", Trim(row->CellText(0))}};
             name["image"] = PictureOf(row->cells.empty() || row->cells[0].images.empty() ? nullptr : &row->cells[0].images[0]);
             if (Field(fact, "worn") == "1")
@@ -207,9 +212,6 @@ class ItemsScreen final : public Screen
                                 {"selected", row->value == "1"}});
             shown.push_back(row);
         }
-        view["columns"] = Json::array({Json{{"label", bindings.Text("items.item")}, {"w", "1fr"}},
-                                       Json{{"label", ""}, {"w", "40px"}, {"align", "right"}},
-                                       Json{{"label", bindings.Text("items.weight")}, {"w", "52px"}, {"align", "right"}}});
         view["rows"] = rows;
         view["empty"] = bindings.Text(filter_slot.empty() ? "items.none" : "items.none_fits");
         bindings.On("items", "row", [this, &bindings, shown](const Event &event) {
@@ -227,7 +229,12 @@ class ItemsScreen final : public Screen
         });
 
         // The selected item.
-        view["detail"] = selected ? DetailView(bindings, *selected, facts.count(selected->index) ? facts[selected->index] : nullptr) : Json(nullptr);
+        const Widget *selected_fact = selected && facts.count(selected->index) ? facts[selected->index] : nullptr;
+        // What is worn in the selected item's slot: its figures are set against it. An amulet goes to any
+        // of three slots and is compared with none.
+        const std::string selected_slot = Field(selected_fact, "slot");
+        const Widget *against = Field(selected_fact, "worn") != "1" && worn.count(selected_slot) ? worn[selected_slot] : nullptr;
+        view["detail"] = selected ? DetailView(bindings, *selected, selected_fact, against) : Json(nullptr);
 
         // The game's map window.
         view["map"] = map_open_ ? Json{{"title", Trim(admitted.Label("MAP_CAPTION"))},
@@ -354,7 +361,54 @@ class ItemsScreen final : public Screen
             intent_ = {};
     }
 
-    Json DetailView(Bindings &bindings, const Widget &row, const Widget *fact)
+    // A weapon's figures from the adapter (android_hero.c AndroidItemStats), each with its difference
+    // against the worn item of the slot: green where the item is better, red where worse; the balance
+    // has no better side (it depends on the blade's kind), its difference stays plain.
+    Json Stats(Bindings &bindings, const Widget *fact, const Widget *against)
+    {
+        struct Figure
+        {
+            const char *field;
+            const char *label;
+            int better; // +1 more is better, -1 less is better, 0 neither
+            int digits;
+        };
+        static const Figure figures[] = {{"attack", StringKey("items.attack"), 1, 1},   {"balance", StringKey("items.balance"), 0, 1},
+                                         {"dmgmin", StringKey("items.dmg_min"), 1, 0}, {"dmgmax", StringKey("items.dmg_max"), 1, 0},
+                                         {"reload", StringKey("items.reload"), -1, 0}, {"accuracy", StringKey("items.accuracy"), 1, 0},
+                                         {"weight", StringKey("items.weight"), -1, 1}};
+        const std::string &language = a_->model->language;
+        const auto text = [&language](double value, int digits) {
+            char buffer[32];
+            std::snprintf(buffer, sizeof(buffer), "%.*f", digits, value);
+            return Decimal(buffer, language);
+        };
+        Json stats = Json::array();
+        for (const Figure &figure : figures)
+        {
+            const std::string value = Field(fact, figure.field);
+            if (value.empty())
+                continue;
+            const double number = std::atof(value.c_str());
+            Json line{{"k", bindings.Text(figure.label)}, {"v", text(number, figure.digits)}};
+            const std::string other = Field(against, figure.field);
+            if (!other.empty())
+            {
+                const double difference = number - std::atof(other.c_str());
+                const double shown = std::round(difference * (figure.digits ? 10.0 : 1.0)) / (figure.digits ? 10.0 : 1.0);
+                if (shown != 0.0)
+                {
+                    line["d"] = (shown > 0 ? "+" : "\xE2\x88\x92") + text(std::abs(shown), figure.digits);
+                    if (figure.better != 0)
+                        line["dTone"] = (shown > 0) == (figure.better > 0) ? "ok" : "danger";
+                }
+            }
+            stats.push_back(std::move(line));
+        }
+        return stats;
+    }
+
+    Json DetailView(Bindings &bindings, const Widget &row, const Widget *fact, const Widget *against)
     {
         const bool worn = Field(fact, "worn") == "1";
         const bool quest = Field(fact, "quest") == "1";
@@ -366,24 +420,38 @@ class ItemsScreen final : public Screen
         std::string sub = *slot_label ? LowerText(bindings.Text(slot_label)) : std::string();
         if (worn)
             sub += (sub.empty() ? "" : " \xC2\xB7 ") + bindings.Text("items.worn");
-        const Widget *info = a_->One("INFO_PIC");
-        Json image = PictureOf(info ? info->FirstImage() : nullptr);
+        const Widget *picture = a_->One("INFO_PIC");
+        Json image = PictureOf(picture ? picture->FirstImage() : nullptr);
         if (image.is_null())
             image = PictureOf(row.cells.empty() || row.cells[0].images.empty() ? nullptr : &row.cells[0].images[0]);
-        // The game's description: a short "key: value" paragraph (Атака/Баланс, Тип) is a fact row,
-        // the rest stays text.
-        Json facts = Json::array();
-        std::string text;
+        // The description in parts from the adapter (android_hero.c AndroidItemInfo): the weapon's figures
+        // against what is worn, its kind, the weight, then the item's own text. The stock INFO_TEXT is one
+        // wrapped text of all of them; it is shown as it is only for a row the adapter did not describe.
+        const Widget *info = nullptr;
+        for (const Widget *candidate : a_->All("ANDROID_INFO"))
+            if (std::atoi(Field(candidate, "row").c_str() + 2) - 1 == row.index)
+                info = candidate;
         const std::string &language = a_->model->language;
-        for (const Widget *part : a_->All("INFO_TEXT"))
+        Json facts = Stats(bindings, fact, against);
+        std::string text;
+        if (info)
         {
-            const std::string paragraph = Trim(part->label);
-            const size_t colon = paragraph.find(':');
-            if (colon != std::string::npos && colon > 0 && colon <= 32 && paragraph.size() <= 64 && colon + 1 < paragraph.size())
-                facts.push_back(Json{{"k", Trim(paragraph.substr(0, colon))}, {"v", Decimal(Trim(paragraph.substr(colon + 1)), language)}});
-            else if (!paragraph.empty())
-                text += (text.empty() ? "" : "\n") + Decimal(paragraph, language);
+            if (!Field(info, "kind").empty())
+                facts.push_back(Json{{"k", bindings.Text("items.kind")}, {"v", Field(info, "kind")}});
+            if (Field(fact, "weight").empty() && !Field(info, "weight").empty())
+            {
+                char weight[32];
+                std::snprintf(weight, sizeof(weight), "%.1f", std::atof(Field(info, "weight").c_str()));
+                facts.push_back(Json{{"k", bindings.Text("items.weight")}, {"v", Decimal(weight, language)}});
+            }
+            text = Decimal(Trim(Field(info, "text")), language);
+            if (!Field(info, "potion").empty())
+                text += (text.empty() ? "" : "\n") + Field(info, "potion");
         }
+        else
+            for (const Widget *part : a_->All("INFO_TEXT"))
+                if (const std::string paragraph = Trim(part->label); !paragraph.empty())
+                    text += (text.empty() ? "" : "\n") + Decimal(paragraph, language);
         Json detail{{"title", Trim(row.CellText(0))}, {"sub", sub}, {"facts", facts}, {"text", text}, {"image", image}};
         const Widget *equip = a_->One("EQUIP_BUTTON");
         // A quest item has no action (the game offers none either).

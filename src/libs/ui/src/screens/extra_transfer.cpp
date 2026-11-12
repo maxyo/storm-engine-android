@@ -1,6 +1,8 @@
-// Loot and exchange with another ship (interface "transfer_main", mockups V2-Extra-Transfer*,
-// V2-Land-Boarding-Decide / -Crew / -ShipFate). The cargo is the commerce layout (free
-// transfer, trade_commerce.cpp); on top of it: the cargo / crew tabs, the ship actions and
+// Loot and exchange with another ship (interface "transfer_main": a boarded prize, a companion,
+// a ship met at sea). The cargo is the commerce layout (free transfer, trade_commerce.cpp);
+// on top of it: the cargo / crew / ships tabs (the two ships' figures side by side, the other
+// ship's better ones green and worse red: what the keep / swap / sink decision needs and the
+// stock screen shows in two small tables), the other ship's card with the ship actions in the dock, and
 // the game's windows — the defectors (hire), the fate of the surrendered crew and captain,
 // the one question window (sink, let go, remove the captain, plain messages) as a modal,
 // the captain choice as a side sheet. Dangerous answers are held, never asked twice.
@@ -179,7 +181,7 @@ class TransferScreen final : public Screen
     Json Build(const Admission &admitted, Bindings &bindings) override
     {
         Json view = goods_->Build(admitted, bindings);
-        view.erase("filters");
+        view["list"].erase("filters"); // the cargo is one short list of the two holds
         view.erase("info");
         view.erase("infoLabel");
         const std::string title = Trim(admitted.Label("TITLE"));
@@ -193,8 +195,11 @@ class TransferScreen final : public Screen
         const std::string mode = Context(marker, "mode");
         const bool captain_alive = Context(marker, "captainAlive") == "1";
         const std::string ours = admitted.Label("SHIP_NAME"), theirs = admitted.Label("SHIP_NAME2");
-        if (!ours.empty() && !theirs.empty() && view["list"].contains("cols"))
-            view["list"]["cols"] = Json::array({Json{{"label", ours}}, Json{{"label", theirs}}});
+        if (!ours.empty() && !theirs.empty() && view["list"].contains("cols") && view["list"]["cols"].size() == 2)
+        {
+            view["list"]["cols"][0]["label"] = ours;
+            view["list"]["cols"][1]["label"] = theirs;
+        }
 
         // Header: the two ships, their free space (or the vacant captain), the next ship.
         Json stats = Json::array();
@@ -209,27 +214,42 @@ class TransferScreen final : public Screen
         view["subject"] = Json();
         Cargo(admitted, bindings, view, ours);
 
-        // Tabs: the crew is the game's crew window.
+        // Tabs: the crew is the game's crew window; the ships are the two figure tables it always sends.
         const Widget *crew_button = admitted.One("CREW_BUTTON");
         const Widget *crew_exit = admitted.One("CREW_EXIT_BTN");
         const bool crew_open = admitted.One("CREW_QTY") != nullptr;
+        const bool has_ships = !admitted.All("TABLE_OTHER").empty() && !admitted.All("TABLE_OTHER2").empty();
+        if (crew_open || !has_ships)
+            ships_open_ = false;
         view["tabs"] = Json::array();
         view["crew"] = Json();
-        if (crew_button)
+        if (crew_button || has_ships)
         {
-            view["tabs"] = Json::array({Json{{"label", bindings.Text("transfer.cargo")}, {"selected", !crew_open}},
-                                        Json{{"label", bindings.Text("transfer.crew")}, {"selected", crew_open},
-                                             {"disabled", !crew_open && !crew_button->Offers("press")}, {"reason", crew_button->unavailable_reason}}});
-            bindings.On("header", "tab", [&bindings, crew_open, crew_button, crew_exit](const Event &event) {
-                const bool want_crew = event.value == "1";
-                if (want_crew && !crew_open && crew_button->Offers("press"))
+            Json tabs = Json::array({Json{{"id", "cargo"}, {"label", bindings.Text("transfer.cargo")}, {"selected", !crew_open && !ships_open_}}});
+            if (crew_button)
+                tabs.push_back(Json{{"id", "crew"}, {"label", bindings.Text("transfer.crew")}, {"selected", crew_open},
+                                    {"disabled", !crew_open && !crew_button->Offers("press")}, {"reason", crew_button->unavailable_reason}});
+            if (has_ships)
+                tabs.push_back(Json{{"id", "ships"}, {"label", bindings.Text("transfer.ships")}, {"selected", ships_open_}});
+            view["tabs"] = tabs;
+            // The header's own tabs report their index.
+            bindings.On("header", "tab", [this, &bindings, tabs, crew_open, crew_button, crew_exit](const Event &event) {
+                const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
+                const std::string id = index < tabs.size() ? tabs[index].value("id", "") : std::string();
+                const bool want_crew = id == "crew";
+                ships_open_ = id == "ships";
+                if (want_crew && !crew_open && crew_button && crew_button->Offers("press"))
                     bindings.Send(*crew_button, "press");
                 else if (!want_crew && crew_open)
                     bindings.Send(crew_exit ? *crew_exit : *crew_button, "press");
+                else
+                    bindings.Rebuild();
             });
         }
         if (crew_open)
             view["crew"] = CrewView(admitted, bindings, ours, theirs);
+        view["ships"] = ships_open_ ? ShipsView(admitted, bindings, ours, theirs) : Json();
+        view["prize"] = has_ships ? PrizeView(admitted, bindings, theirs) : Json();
 
         // The bar: captain, swap, take everything.
         Json actions = Json::array();
@@ -335,6 +355,93 @@ class TransferScreen final : public Screen
     }
 
   private:
+    static const Widget *FigureRow(const Admission &admitted, const char *table, const std::string &row_id)
+    {
+        for (const Widget *row : admitted.All(table))
+            if (row->row_id == row_id)
+                return row;
+        return nullptr;
+    }
+
+    // The last number of a figure ("610 / 610" → 610, "14.59" → 14.59, "40 : 9 / 40" → 40); -1 without one.
+    static double LastNumber(const std::string &text)
+    {
+        const size_t end = text.find_last_of("0123456789");
+        if (end == std::string::npos)
+            return -1.0;
+        size_t begin = end;
+        while (begin > 0 && ((text[begin - 1] >= '0' && text[begin - 1] <= '9') || text[begin - 1] == '.'))
+            --begin;
+        return std::atof(text.substr(begin, end - begin + 1).c_str());
+    }
+
+    // The two ships side by side, row by row of the game's tables (ours TABLE_OTHER, theirs TABLE_OTHER2).
+    // The other ship's figure is green where a larger last number is plainly better and it has it, red
+    // where it has less (hull, speed, turn rate, deadweight, crew); the rest stays plain.
+    Json ShipsView(const Admission &admitted, Bindings &bindings, const std::string &ours, const std::string &theirs)
+    {
+        struct Figure
+        {
+            const char *row;
+            const char *icon;
+            bool larger_is_better;
+        };
+        static const Figure figures[] = {{"Hull", "hull", true},         {"Sails", "sail-full", false},    {"Speed", "speed", true},
+                                         {"Maneuver", "maneuver", true}, {"AgainstWind", "upwind", false}, {"Capacity", "capacity", true},
+                                         {"Crew", "crew", true},         {"sCannons", "caliber", false},   {"CannonType", "cannon", false}};
+        Json rows = Json::array();
+        for (const Widget *row : admitted.All("TABLE_OTHER"))
+        {
+            if (row->CellText(1).empty())
+                continue;
+            const Figure *figure = nullptr;
+            for (const Figure &known : figures)
+                if (row->row_id == known.row)
+                    figure = &known;
+            const Widget *other = FigureRow(admitted, "TABLE_OTHER2", row->row_id);
+            const std::string mine = row->CellText(2), their = other ? other->CellText(2) : std::string();
+            Json line{{"k", row->CellText(1)}, {"a", mine}, {"b", their}, {"icon", figure ? figure->icon : "ship"}};
+            const double left = LastNumber(mine), right = LastNumber(their);
+            if (figure && figure->larger_is_better && left >= 0 && right >= 0 && left != right)
+                line["tone"] = right > left ? "ok" : "danger";
+            rows.push_back(std::move(line));
+        }
+        const auto side = [&](const std::string &name, const char *type, const char *rank) {
+            std::string sub = Trim(admitted.Label(type));
+            if (const std::string cls = Trim(admitted.Label(rank)); !cls.empty())
+                sub += (sub.empty() ? "" : " \xC2\xB7 ") + bindings.Text("yard.class") + " " + cls;
+            return Json{{"title", name}, {"sub", sub}};
+        };
+        return Json{{"ours", side(ours, "SHIP_TYPE", "SHIP_RANK")}, {"theirs", side(theirs, "SHIP_TYPE2", "SHIP_RANK2")}, {"rows", rows}};
+    }
+
+    // The other ship's card of the dock: what it is and the state it is in.
+    Json PrizeView(const Admission &admitted, Bindings &bindings, const std::string &theirs)
+    {
+        std::string sub = Trim(admitted.Label("SHIP_TYPE2"));
+        if (const std::string cls = Trim(admitted.Label("SHIP_RANK2")); !cls.empty())
+            sub += (sub.empty() ? "" : " \xC2\xB7 ") + bindings.Text("yard.class") + " " + cls;
+        // Hull and sails as the share of whole ("2100 / 2384" → 88 %), the crew as it stands against the full one.
+        Json facts = Json::array();
+        for (const char *row_id : {"Hull", "Sails", "Crew"})
+        {
+            const Widget *row = FigureRow(admitted, "TABLE_OTHER2", row_id);
+            if (!row)
+                continue;
+            const std::string text = row->CellText(2);
+            const double whole = LastNumber(text), now = std::atof(text.c_str());
+            if (whole <= 0)
+                continue;
+            const bool crew = std::string(row_id) == "Crew";
+            const int percent = static_cast<int>(std::clamp(std::round(now * 100.0 / whole), 0.0, 999.0));
+            facts.push_back(Json{{"k", row->CellText(1)},
+                                 {"v", crew ? std::to_string(static_cast<int>(now)) + " / " + std::to_string(static_cast<int>(whole)) : std::to_string(percent) + " %"},
+                                 {"tone", percent < 50 ? "danger" : ""}});
+        }
+        const Widget *picture = admitted.One("SHIP_BIG_PICTURE2");
+        return Json{{"title", theirs}, {"sub", sub}, {"image", PictureOf(picture ? picture->FirstImage() : nullptr)}, {"facts", facts}};
+    }
+
     // {id, label, variant, hold} of a modal button that presses `widget`.
     static Json Action(Bindings &bindings, const Widget &widget, const std::string &id, const std::string &label, const char *variant, bool hold = false)
     {
@@ -364,6 +471,16 @@ class TransferScreen final : public Screen
             cargo_ = Amount();
             cargo_row_ = selected ? selected->row_id : std::string();
         }
+        // The hand at a row's end: once the game has selected that row, all of the other hold is asked for.
+        if (selected && selected->index == quick_row_)
+        {
+            cargo_.target = cargo_.send = own + other;
+            cargo_.send_at = bindings.Now();
+            quick_row_ = -1;
+        }
+        const bool movable = take && give && take->Offers("press") && give->Offers("press");
+        view["list"]["quick"] = "hand"; // the game shows its arrows for the selected row only: a row is offered by what the other hold has
+        view["dealing"] = selected != nullptr;
         const bool recent = cargo_.target >= 0 && (cargo_.send >= 0 || bindings.Now() - cargo_.send_at < 1.0);
         if (recent && cargo_.send < 0)
             bindings.RebuildAfter(cargo_.send_at + 1.0 - bindings.Now());
@@ -385,19 +502,38 @@ class TransferScreen final : public Screen
             const size_t index = static_cast<size_t>(std::atoi(row["id"].get<std::string>().c_str()));
             const bool open = index < goods.size() && goods[index] == selected;
             row["selected"] = open;
+            row["quick"] = index < goods.size() && Number(goods[index]->CellText(3)) > 0 && (open ? movable : goods[index]->Offers("select"));
             row.erase("q");
             if (open)
                 row["q"] = Json{{"value", recent ? cargo_.target : own},
                                 {"min", 0},
                                 {"max", own + other},
+                                {"zones", true},
+                                {"origin", own},
+                                {"lessLabel", bindings.Text("trade.give")},
+                                {"moreLabel", bindings.Text("trade.take")},
                                 {"label", ours},
+                                {"summary", "-"},
                                 {"steps", Json::array({pack, pack * 10, pack * 100})},
-                                {"disabled", !take || !give || !take->Offers("press") || !give->Offers("press")}};
+                                {"disabled", !movable}};
         }
-        bindings.On("goods", "row", [&bindings, goods, selected](const Event &event) {
+        bindings.On("goods", "row", [this, &bindings, goods, selected](const Event &event) {
             const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
+            quick_row_ = -1;
             if (index < goods.size() && goods[index] != selected && goods[index]->Offers("select"))
                 bindings.Send(*goods[index], "select", goods[index]->row_id);
+        });
+        bindings.On("goods", "quick", [this, &bindings, goods, selected](const Event &event) {
+            const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
+            if (index >= goods.size())
+                return;
+            quick_row_ = goods[index]->index;
+            if (goods[index] == selected)
+                bindings.Rebuild();
+            else if (goods[index]->Offers("select"))
+                bindings.Send(*goods[index], "select", goods[index]->row_id);
+            else
+                quick_row_ = -1;
         });
         const auto set = [this, &bindings](const Event &event) {
             cargo_.target = cargo_.send = std::atoi(event.value.c_str());
@@ -564,6 +700,8 @@ class TransferScreen final : public Screen
     std::unique_ptr<Screen> goods_;
     Amount crew_, hire_, cargo_;
     std::string cargo_row_; // the cargo row the amount above belongs to
+    bool ships_open_ = false; // the «Корабли» tab of ours
+    int quick_row_ = -1;    // the cargo row (the game's index: its rows carry no identity) whose whole stock is taken once the game selects it
     int hire_max_ = 0;
     bool hire_seen_ = false;
 };

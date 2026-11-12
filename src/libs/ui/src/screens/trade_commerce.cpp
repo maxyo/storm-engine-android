@@ -1,8 +1,10 @@
 // Commerce: store, contraband, cannons, items trade, storage, colony loot and chests / bodies — one
-// buy / sell / transfer layout (pack screen <s-trade>, mockups V2-Trade-*). Goods are one
-// C-TradeList; the row whose quantity window the game has open expands into C-Quantity,
-// which shows the amount on our side after the deal. Money deals are confirmed by the
-// primary button with the price; free transfers apply as soon as the amount settles.
+// buy / sell / transfer layout (pack screen <s-trade>). Goods are one C-TradeList that never
+// moves: filter chips and sortable columns in its head, 44 dp rows; the row whose quantity
+// window the game has open shows in the dock beside the list (object, description, C-Quantity
+// with the amount on our side after the deal). Money deals are confirmed by the dock's primary
+// button with the price; free transfers apply as soon as the amount settles, and the hand at
+// a row's end takes the whole stack in one tap.
 //
 // All six interfaces share the game's nodes (TABLE_LIST, QTY_*); they differ in the
 // columns of the table, described per interface below.
@@ -29,17 +31,21 @@ struct Layout
     int pack = -1;       // pack size
     const char *owners;  // node of the "whose" selector
     bool small = false;  // single items: steps of 1 and 10
-    int details[3] = {-1, -1, -1}; // extra columns shown under the name (cannons: range, damage, reload)
+    int details[3] = {-1, -1, -1}; // extra columns named in the dock (cannons: range, damage, reload)
+    bool quick = false;            // the hand at a row's end takes the whole stack (free transfers by the game's amount window)
+    // Our short captions of the game's category tabs, by position; a tab past them keeps the game's caption.
+    const char *tabs[4] = {nullptr, nullptr, nullptr, nullptr};
 };
 
 constexpr Layout kStore{StringKey("trade.store"), 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL"};
 constexpr Layout kContraband{StringKey("trade.contraband"), 0, 5, 3, 2, 4, 6, "SHIPS_SCROLL"};
 constexpr Layout kCannons{StringKey("trade.cannons"), 0, 5, 3, 2, 4, -1, "SHIPS_SCROLL", true, {7, 8, 9}};
 constexpr Layout kItemsTrade{StringKey("trade.items"), 0, 5, 3, 2, 4, -1, "CHARACTERS_SCROLL", true};
-constexpr Layout kStorage{StringKey("trade.storage"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL"};
+constexpr Layout kStorage{StringKey("trade.storage"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL", false, {-1, -1, -1}, true};
 // Looting a captured colony (ColonyCapture.c): the hold, the town's stores, a free transfer.
-constexpr Layout kColonyCapture{StringKey("trade.loot"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL"};
-constexpr Layout kItemsBox{StringKey("trade.chest"), 0, 4, 2, -1, -1, -1, "CHARACTERS_SCROLL", true};
+constexpr Layout kColonyCapture{StringKey("trade.loot"), 0, 3, 2, -1, -1, 4, "SHIPS_SCROLL", false, {-1, -1, -1}, true};
+constexpr Layout kItemsBox{StringKey("trade.chest"), 0, 4, 2, -1, -1, -1, "CHARACTERS_SCROLL", true, {-1, -1, -1}, true,
+                           {StringKey("common.all"), StringKey("trade.tab_mine"), StringKey("trade.tab_here"), StringKey("trade.tab_weapons")}};
 // The goods of the loot / exchange screen (transfer_main): ours, weight, name, theirs, weight.
 constexpr Layout kTransfer{StringKey("transfer.title"), 0, 3, 2, -1, -1, -1, "", false};
 
@@ -251,8 +257,37 @@ class CommerceScreen final : public Screen
         // once it is the one the player set.
         const bool settled = shown == model_target;
 
+        // The quick take waits for the game to open the row's amount window, then takes all of it.
+        if (!quick_row_.empty())
+        {
+            if (deal && selected->row_id == quick_row_ && edit->Offers("edit") && ok)
+            {
+                bindings.SendAfter(0.0, *edit, "edit", std::to_string(theirs), selected->row_id, std::string("0"));
+                bindings.SendAfter(0.0, *ok, "press", {}, selected->row_id);
+                quick_row_.clear();
+            }
+            else if (bindings.Now() - quick_at_ > 3.0)
+            {
+                bindings.Error(std::string(columns.title) + ": the game did not open the amount window of " + quick_row_ + "; nothing was taken");
+                quick_row_.clear();
+            }
+            else
+                bindings.RebuildAfter(quick_at_ + 3.0 - bindings.Now());
+        }
+
+        // The order of the rows: the game's, or by the column whose caption the player tapped.
+        std::vector<size_t> order(goods.size());
+        for (size_t i = 0; i < order.size(); ++i)
+            order[i] = i;
+        const int sort_columns[4] = {columns.own, columns.other, columns.buy, columns.sell};
+        if (sort_ >= 0 && sort_ < 4 && sort_columns[sort_] >= 0)
+            std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+                const int left = Number(goods[a]->CellText(sort_columns[sort_])), right = Number(goods[b]->CellText(sort_columns[sort_]));
+                return sort_descending_ ? left > right : left < right;
+            });
+
         Json rows = Json::array();
-        for (size_t i = 0; i < goods.size(); ++i)
+        for (const size_t i : order)
         {
             const Widget *row = goods[i];
             const int own = Number(row->CellText(columns.own));
@@ -266,22 +301,28 @@ class CommerceScreen final : public Screen
             const char *tone = type.tone;
             if (filter_ == 2 && (money ? std::string(tone) != "ok" : Number(row->CellText(columns.other)) == 0))
                 continue;
-            std::string meta = type.word ? bindings.Text(type.word) : std::string();
+            // Beside the name: the trade type only (a 44 dp row keeps the name whole); the dock's second
+            // line adds the pack and the details (cannons: range, damage, reload).
+            const std::string meta = type.word ? bindings.Text(type.word) : std::string();
+            std::string sub = meta;
             const std::string pack = columns.pack >= 0 ? row->CellText(columns.pack) : std::string();
             if (!pack.empty() && pack != "1")
-                meta += (meta.empty() ? "" : " · ") + header(columns.pack) + " " + pack;
+                sub += (sub.empty() ? "" : " · ") + header(columns.pack) + " " + pack;
             for (const int detail : columns.details)
                 if (detail >= 0 && !row->CellText(detail).empty())
-                    meta += (meta.empty() ? "" : " · ") + header(detail) + " " + row->CellText(detail);
+                    sub += (sub.empty() ? "" : " · ") + header(detail) + " " + row->CellText(detail);
             Json cells = Json::array({row->CellText(columns.own), row->CellText(columns.other)});
             if (money)
-                cells.push_back(Json{{"text", row->CellText(columns.buy)},
-                                     {"bold", true},
-                                     {"sub", header(columns.sell) + " " + row->CellText(columns.sell)}});
+            {
+                cells.push_back(Json{{"text", row->CellText(columns.buy)}, {"bold", true}});
+                cells.push_back(Json{{"text", row->CellText(columns.sell)}, {"bold", true}});
+            }
             Json view{{"id", std::to_string(i)},
                       {"name", row->CellText(columns.name)},
                       {"image", PictureOf(name && !name->images.empty() ? &name->images.front() : row->FirstImage())},
                       {"meta", meta},
+                      {"sub", sub},
+                      {"quick", columns.quick && Number(row->CellText(columns.other)) > 0 && row->Offers("activate")},
                       {"metaTone", tone},
                       {"cells", cells},
                       {"selected", row == selected},
@@ -308,6 +349,7 @@ class CommerceScreen final : public Screen
                 if (columns.small)
                     quantity["steps"] = Json::array({1, 10});
                 view["q"] = std::move(quantity);
+                view["text"] = admitted.Label("QTY_GOODS_INFO");
             }
             rows.push_back(std::move(view));
         }
@@ -322,6 +364,41 @@ class CommerceScreen final : public Screen
             reopen_row_.clear();
         }
 
+        bindings.On("goods", "sort", [this, &bindings](const Event &event) {
+            // A caption's taps: largest first, smallest first, the game's order again.
+            const int column = std::atoi(event.value.c_str());
+            if (sort_ != column)
+                sort_ = column, sort_descending_ = true;
+            else if (sort_descending_)
+                sort_descending_ = false;
+            else
+                sort_ = -1;
+            bindings.Rebuild();
+        });
+        if (columns.quick)
+            bindings.On("goods", "quick", [this, &bindings, goods, selected, deal, cancel, edit, ok, theirs](const Event &event) {
+                const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
+                if (index >= goods.size())
+                    return;
+                const Widget *row = goods[index];
+                reopen_row_.clear();
+                local_row_.clear();
+                if (deal && row == selected)
+                {
+                    if (!edit->Offers("edit") || !ok)
+                        return;
+                    bindings.SendAfter(0.0, *edit, "edit", std::to_string(theirs), row->row_id, std::string("0"));
+                    bindings.SendAfter(0.0, *ok, "press", {}, row->row_id);
+                    return;
+                }
+                if (deal && cancel && cancel->Offers("press"))
+                    bindings.Send(*cancel, "press", {}, selected->row_id);
+                if (!row->Offers("activate"))
+                    return;
+                quick_row_ = row->row_id;
+                quick_at_ = bindings.Now();
+                bindings.Send(*row, "activate", row->row_id);
+            });
         bindings.On("goods", "row", [this, &bindings, goods, selected, deal, cancel](const Event &event) {
             const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
             if (index >= goods.size())
@@ -330,6 +407,7 @@ class CommerceScreen final : public Screen
             if (deal && cancel && cancel->Offers("press"))
                 bindings.Send(*cancel, "press", {}, selected->row_id);
             reopen_row_.clear();
+            quick_row_.clear();
             if (deal && row == selected)
                 return; // a tap on the open row closes it
             local_row_.clear();
@@ -463,10 +541,19 @@ class CommerceScreen final : public Screen
         }
         view["stats"] = stats;
 
-        Json cols = Json::array({Json{{"label", own_caption}}, Json{{"label", other_caption}}});
+        // The captions of a money deal's prices name the operation («Купить», «Продать»): the column is
+        // what one pack costs in that direction.
+        std::vector<std::string> captions{own_caption, other_caption};
         if (money)
-            cols.push_back(Json{{"label", header(columns.buy)}});
-        view["list"] = Json{{"label", header(columns.name)}, {"cols", cols}, {"rows", rows}};
+        {
+            captions.push_back(bindings.Text("trade.buy"));
+            captions.push_back(bindings.Text("trade.sell"));
+        }
+        Json cols = Json::array();
+        for (size_t i = 0; i < captions.size(); ++i)
+            cols.push_back(Json{{"label", captions[i]}, {"sortable", true},
+                                {"sort", sort_ == static_cast<int>(i) ? (sort_descending_ ? "desc" : "asc") : ""}});
+        view["list"] = Json{{"label", header(columns.name)}, {"cols", cols}, {"rows", rows}, {"quick", columns.quick ? "hand" : ""}};
 
         // The game's own category tabs (chests) replace our filters.
         Json tabs = Json::array();
@@ -479,13 +566,15 @@ class CommerceScreen final : public Screen
                 continue;
             // The script reads the click on the caption over the picture where it has one.
             const Widget *target = caption->Offers("press") ? caption : button;
-            tabs.push_back(Json{{"label", caption->label}, {"selected", button->value == "1"}, {"disabled", !target->Offers("press")}});
+            // Our short caption by position; a tab past the known ones (a mod's) keeps the game's.
+            const char *known = i <= 4 ? columns.tabs[i - 1] : nullptr;
+            tabs.push_back(Json{{"label", known ? bindings.Text(known) : caption->label}, {"selected", button->value == "1"}, {"disabled", !target->Offers("press")}});
             tab_buttons.push_back(target);
         }
         if (!tabs.empty())
         {
-            view["filters"] = tabs;
-            bindings.On("filters", "select", [&bindings, tab_buttons](const Event &event) {
+            view["list"]["filters"] = tabs;
+            bindings.On("goods", "filter", [&bindings, tab_buttons](const Event &event) {
                 const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
                 if (index < tab_buttons.size() && tab_buttons[index]->Offers("press"))
                     bindings.Send(*tab_buttons[index], "press");
@@ -496,21 +585,32 @@ class CommerceScreen final : public Screen
             Json filters = Json::array({Json{{"label", bindings.Text("common.all")}, {"selected", filter_ == 0}}, Json{{"label", own_caption}, {"selected", filter_ == 1}}});
             if (!columns.small)
                 filters.push_back(Json{{"label", money ? bindings.Text("trade.profitable") : other_caption}, {"selected", filter_ == 2}});
-            view["filters"] = filters;
-            bindings.On("filters", "select", [this, &bindings](const Event &event) {
+            view["list"]["filters"] = filters;
+            bindings.On("goods", "filter", [this, &bindings](const Event &event) {
                 filter_ = std::clamp(std::atoi(event.value.c_str()), 0, 2);
                 bindings.Rebuild();
             });
         }
 
-        // The description of the open deal, else the place's own text.
-        std::string info = deal ? admitted.Label("QTY_GOODS_INFO") : admitted.Label("INFO_TEXT");
-        if (!deal && !admitted.Label("STORAGE_INFO").empty())
-            info += (info.empty() ? "" : "\n") + admitted.Label("STORAGE_INFO");
-        view["info"] = !info.empty();
+        // The description of the open deal is in the dock (a tap reads it whole); without a deal the
+        // dock offers the place's own text.
+        if (deal)
+        {
+            view["info"] = false;
+            bindings.On("goods", "info", [&bindings, text = admitted.Label("QTY_GOODS_INFO"), title = admitted.Label("QTY_CAPTION")](const Event &) {
+                bindings.Read(title, text);
+            });
+        }
+        else
+        {
+            std::string info = admitted.Label("INFO_TEXT");
+            if (!admitted.Label("STORAGE_INFO").empty())
+                info += (info.empty() ? "" : "\n") + admitted.Label("STORAGE_INFO");
+            view["info"] = !info.empty();
+            bindings.On("info", "", [&bindings, info](const Event &) { bindings.Read(std::string(), info); });
+        }
         view["infoLabel"] = bindings.Text("common.description");
-        const std::string info_title = deal ? admitted.Label("QTY_CAPTION") : std::string();
-        bindings.On("info", "", [&bindings, info, info_title](const Event &) { bindings.Read(info_title, info); });
+        view["dealing"] = deal; // the dock is the deal's: the place's note waits
 
         // Bar buttons: the deal of a money trade, else what the place offers (take all, …).
         Json actions = Json::array();
@@ -547,6 +647,7 @@ class CommerceScreen final : public Screen
         const Widget *exit = admitted.One("EXIT_BTN");
         bindings.On("header-back", "", [this, &bindings, exit, cancel, deal, selected](const Event &) {
             reopen_row_.clear();
+            quick_row_.clear();
             if (deal && cancel && cancel->Offers("press"))
                 bindings.Send(*cancel, "press", {}, selected->row_id);
             else
@@ -560,6 +661,10 @@ class CommerceScreen final : public Screen
     std::string hold_before_; // the hold figure before the amount of the open deal was set
     std::string reopen_row_;  // the row whose window the game closed after a free transfer
     int filter_ = 0; // 0 all, 1 on our side, 2 profitable (export goods) / on the other side
+    int sort_ = -1;  // the column the rows are ordered by (own, other, buy, sell); -1 = the game's order
+    bool sort_descending_ = true;
+    std::string quick_row_; // the row whose whole stack is taken once the game opens its amount window
+    double quick_at_ = 0.0;
     // The amount the player set last: shown until the game's own number catches up.
     std::string local_row_;
     int local_target_ = 0;

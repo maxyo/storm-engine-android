@@ -553,14 +553,73 @@ static void Commerce(const std::string &models)
 
     // Chest / body: the game's category tabs, take all, remove body.
     router.SetInterface(Load(models, "itemsbox.json"));
-    Expect(surface.props["filters"].size() == 4 && surface.props["filters"][0]["selected"] == true, "itemsbox: the game's tabs");
+    Expect(surface.props["list"]["filters"].size() == 4 && surface.props["list"]["filters"][0]["selected"] == true, "itemsbox: the game's tabs");
     Expect(surface.props["list"]["cols"][0]["label"] == "<trade.yours>" && surface.props["list"]["cols"][1]["label"] == "<trade.theirs>",
            "itemsbox: the game names both amount columns alike, so the string table names them");
     ExpectEqual(surface.language, "russian", "the router passes the model's language on");
     ExpectEqual(surface.props["primary"]["label"], "Взять всё", "itemsbox: take all is the primary");
     Expect(surface.props["actions"].size() == 1 && surface.props["actions"][0]["label"] == "Убрать тело", "itemsbox: remove body beside it");
-    router.OnEvent({"filters", "select", "2"});
+    router.OnEvent({"goods", "filter", "2"});
     ExpectEqual(surface.Last(), "widget:itemsbox\tTABBTN_3\t-1\tpress", "a tab presses the game's tab button");
+    {
+        // The chest's four tabs carry our short captions; a fifth (a mod's) keeps the game's.
+        const Json &chips = surface.props["list"]["filters"];
+        Expect(chips.size() == 4 && chips[0]["label"] == "<common.all>" && chips[1]["label"] == "<trade.tab_mine>" &&
+                   chips[2]["label"] == "<trade.tab_here>" && chips[3]["label"] == "<trade.tab_weapons>",
+               "itemsbox: the game's tabs as chips with our short captions: " + chips.dump());
+        InterfaceModel modded = Load(models, "itemsbox.json");
+        Widget button, caption;
+        for (const Widget &widget : modded.widgets)
+        {
+            if (widget.node == "TABBTN_4")
+                button = widget;
+            if (widget.node == "TABSTR_4")
+                caption = widget;
+        }
+        button.node = "TABBTN_5";
+        caption.node = "TABSTR_5";
+        caption.label = "Карты";
+        modded.widgets.push_back(button);
+        modded.widgets.push_back(caption);
+        FakeSurface mod_surface;
+        Router mod(mod_surface);
+        mod.SetInterface(modded);
+        Expect(mod_surface.props["list"]["filters"].size() == 5 && mod_surface.props["list"]["filters"][4]["label"] == "Карты",
+               "itemsbox: a tab we do not know is appended with the game's caption");
+        // The hand at a row's end: the game opens the row's amount window, then all of the stack is taken.
+        const Json &loot = mod_surface.props["list"]["rows"];
+        size_t with = loot.size();
+        for (size_t i = 0; i < loot.size(); ++i)
+            if (loot[i]["quick"] == true && with == loot.size())
+                with = i;
+        Expect(mod_surface.props["list"]["quick"] == "hand" && with < loot.size(), "itemsbox: rows with something to take offer the quick take");
+        mod_surface.commands.clear();
+        mod.OnEvent({"goods", "quick", loot[with]["id"].get<std::string>()});
+        Expect(mod_surface.commands.size() == 1 && mod_surface.commands[0].find("\tTABLE_LIST\t") != std::string::npos &&
+                   mod_surface.commands[0].find("activate@") != std::string::npos,
+               "quick take: first the row's amount window: " + (mod_surface.commands.empty() ? std::string() : mod_surface.commands[0]));
+    }
+    {
+        // The amount window opened for the quick take: the whole stack is entered and confirmed, the window is not reopened.
+        FakeSurface quick_surface;
+        Router quick(quick_surface);
+        quick.SetInterface(Load(models, "itemsbox.json"));
+        InterfaceModel open = Load(models, "itemsbox-deal.json");
+        std::string row_index;
+        int there = 0;
+        for (const Widget &widget : open.widgets)
+            if (widget.node == "TABLE_LIST" && widget.value == "1")
+                row_index = std::to_string(widget.index), there = std::atoi(widget.CellText(4).c_str());
+        quick.OnEvent({"goods", "quick", row_index});
+        quick_surface.commands.clear();
+        open.revision += 10;
+        quick.SetInterface(open);
+        quick.Tick();
+        Expect(quick_surface.commands.size() == 3 && quick_surface.commands[1].find("QTY_EDIT") != std::string::npos &&
+                   quick_surface.commands[1].rfind("|" + std::to_string(there)) == quick_surface.commands[1].size() - std::to_string(there).size() - 1 &&
+                   quick_surface.commands[2].find("QTY_OK_BUTTON") != std::string::npos,
+               "quick take: all of the other side, confirmed: " + Json(quick_surface.commands).dump());
+    }
     router.OnEvent({"primary", "click", ""});
     ExpectEqual(surface.Last(), "widget:itemsbox\tGETALL_BUTTON\t-1\tpress", "take all");
     router.OnEvent({"action-0", "click", ""});
@@ -577,7 +636,26 @@ static void Commerce(const std::string &models)
     router.SetInterface(buying);
     Expect(surface.props["stats"][0]["value"] == "189" && surface.props["stats"][0]["preview"] == "194", "hold: before → with the deal");
     Expect(surface.props["stats"][1]["value"] == "1 500" && surface.props["stats"][1]["preview"] == "1 475", "balance: now → after buying for 25");
-    ExpectEqual(surface.props["list"]["rows"][5]["meta"], "<trade.export> · Пачка 10", "the trade type the colour tells is named from the string table");
+    ExpectEqual(surface.props["list"]["rows"][5]["meta"], "<trade.export>", "the trade type the colour tells is named from the string table");
+    ExpectEqual(surface.props["list"]["rows"][5]["sub"], "<trade.export> · Пачка 10", "the dock's second line adds the pack");
+    {
+        // Buy and sell are columns of their own; a caption's tap orders the rows by it (largest, smallest, the game's order).
+        const Json &cols = surface.props["list"]["cols"];
+        Expect(cols.size() == 4 && cols[2]["label"] == "<trade.buy>" && cols[3]["label"] == "<trade.sell>" && cols[2]["sortable"] == true,
+               "store: hold, store, buy, sell columns");
+        const std::string first = surface.props["list"]["rows"][0]["id"];
+        router.OnEvent({"goods", "sort", "2"});
+        const Json sorted = surface.props["list"]["rows"];
+        bool descending = true;
+        for (size_t i = 1; i < sorted.size(); ++i)
+            descending = descending && std::atoi(sorted[i - 1]["cells"][2]["text"].get<std::string>().c_str()) >=
+                                           std::atoi(sorted[i]["cells"][2]["text"].get<std::string>().c_str());
+        Expect(descending && surface.props["list"]["cols"][2]["sort"] == "desc", "sort by the buy price, largest first");
+        router.OnEvent({"goods", "sort", "2"});
+        Expect(surface.props["list"]["cols"][2]["sort"] == "asc", "second tap: smallest first");
+        router.OnEvent({"goods", "sort", "2"});
+        Expect(surface.props["list"]["cols"][2]["sort"] == "" && surface.props["list"]["rows"][0]["id"] == first, "third tap: the game's order again");
+    }
     InterfaceModel doubloons = Load(models, "itemstrade-deal.json");
     for (Widget &widget : doubloons.widgets)
         if (widget.node == "OUR_GOLD")
@@ -591,7 +669,7 @@ static void Commerce(const std::string &models)
     router.SetInterface(Load(models, "cannons-deal.json"));
     ExpectEqual(surface.props["primary"]["label"], "<trade.buy> 6", "cannons: the primary names the deal");
     ExpectEqual(surface.props["primary"]["sub"], "Деньги 1740, вес 36 ц", "and carries the price");
-    ExpectEqual(surface.props["list"]["rows"][1]["meta"], "Дист. 450 · Урон x1.5 · Время 11", "cannons: range, damage, reload under the name");
+    ExpectEqual(surface.props["list"]["rows"][1]["sub"], "Дист. 450 · Урон x1.5 · Время 11", "cannons: range, damage, reload in the dock's second line");
     router.SetInterface(Load(models, "contraband-deal.json"));
     Expect(surface.props["list"]["rows"][0]["q"]["max"] == 50 && surface.props["list"]["rows"][0]["q"]["min"] == 0, "contraband: goods without a buy price can only be sold");
     ExpectEqual(surface.props["primary"]["label"], "<trade.sell> 50", "contraband: selling");
@@ -749,7 +827,26 @@ static void Transfer(const std::string &models)
     const std::string prefix = "widget:transfer_main\t";
     router.SetInterface(Load(models, "transfer-loot.json"));
     Expect(router.Using() == "transfer_main" && surface.tag == "s-transfer" && surface.errors.empty(), "loot is drawn by the transfer screen");
-    Expect(surface.props["tabs"].size() == 2 && surface.props["tabs"][0]["selected"] == true, "cargo and crew tabs, cargo open");
+    Expect(surface.props["tabs"].size() == 3 && surface.props["tabs"][0]["selected"] == true && surface.props["tabs"][2]["id"] == "ships" &&
+               surface.props["ships"].is_null(),
+           "cargo, crew and ships tabs, cargo open");
+    {
+        // The other ship's card of the dock, and the «Корабли» tab: both ships' figures side by side.
+        const Json &prize = surface.props["prize"];
+        Expect(prize["title"] == "Корабль 2" && prize["facts"].size() == 3 && prize["facts"][0]["k"] == "Корпус", "the other ship's card: " + prize.dump());
+        surface.commands.clear();
+        router.OnEvent({"header", "tab", "2"});
+        const Json &ships = surface.props["ships"];
+        Expect(surface.commands.empty() && surface.props["tabs"][2]["selected"] == true && ships["ours"]["title"] == "Корабль 1" &&
+                   ships["rows"].size() >= 8 && ships["rows"][0]["k"] == "Корпус" && ships["rows"][0]["icon"] == "hull",
+               "the ships tab is ours: nothing is sent, the figures are listed row by row: " + ships["rows"][0].dump());
+        bool toned = false;
+        for (const Json &row : ships["rows"])
+            toned = toned || row.contains("tone");
+        Expect(toned, "a figure where the other ship is plainly better or worse is toned");
+        router.OnEvent({"header", "tab", "0"});
+        Expect(surface.props["ships"].is_null() && surface.props["tabs"][0]["selected"] == true, "back to the cargo");
+    }
     Expect(surface.props["stats"][1]["value"] == "<transfer.no_captain>", "the captured ship has no captain");
     Expect(surface.props["list"]["cols"][0]["label"] == "Корабль 1" && surface.props["list"]["rows"].size() > 5, "goods columns named by the ships");
     ExpectEqual(surface.props["primary"]["label"], "<transfer.take_all>", "take all the cargo");
@@ -774,6 +871,20 @@ static void Transfer(const std::string &models)
     router.OnEvent({"goods", "commit", "0"});
     Expect(surface.commands.size() == 8 && surface.commands[0] == prefix + "B_RIGHT\t-1\tpress",
            "all given before the game answered the three packs: counted from 160, eight packs");
+    {
+        // The hand at a row's end: the row is selected, then all of the other hold is asked for by the game's arrow.
+        FakeSurface quick_surface;
+        Router quick(quick_surface);
+        quick.SetInterface(Load(models, "transfer-loot.json"));
+        Expect(quick_surface.props["list"]["quick"] == "hand" && quick_surface.props["list"]["rows"][0]["quick"] == true, "cargo: rows the other hold has offer the quick take");
+        quick.OnEvent({"goods", "quick", "0"});
+        ExpectEqual(quick_surface.Last(), prefix + "TABLE_LIST\t0\tselect", "quick take: the row is selected first");
+        quick_surface.commands.clear();
+        quick.SetInterface(Load(models, "transfer-loot-row.json"));
+        quick.Tick();
+        Expect(quick_surface.commands.size() == 25 && quick_surface.commands[0] == prefix + "B_LEFT\t-1\tpress" && quick_surface.props["dealing"] == true,
+               "quick take: 495 of theirs = 25 packs of 20 taken: " + std::to_string(quick_surface.commands.size()));
+    }
 
     router.SetInterface(Load(models, "transfer-hire.json"));
     const Json &hire = surface.props["modal"];
@@ -884,17 +995,24 @@ static void Shipyard(const std::string &models)
     router.SetInterface(main);
     Expect(router.Using() == "shipyard" && surface.tag == "s-shipyard" && router.Rejection().empty(), "shipyard is drawn by its screen");
     Expect(surface.errors.empty() && surface.props["extras"]["rows"].empty() && surface.props["extras"]["note"] == "", "no errors, no extras");
-    Expect(surface.props["catalog"]["rows"].size() == 3 && surface.props["catalog"]["rows"][2]["cells"][2]["text"] == "23 824" &&
-               surface.props["catalog"]["rows"][0]["cells"][0]["sub"] == "«Чайка»",
-           "catalogue: type, «name», grouped price");
-    Expect(surface.props["own"]["sub"] == "Класс 5" && surface.props["own"]["actions"].size() == 2 && surface.props["own"]["actions"][1]["sub"] == "11\u00a0575",
-           "our ship: repair, and sell with its trade-in price");
-    Expect(surface.props["detail"]["title"] == "Кеч «Марта»" && surface.props["detail"]["primary"].is_null() &&
-               surface.props["detail"]["cannons"]["value"] == "6 фунт / 12" && surface.props["sheet"].is_null(),
-           "our ship on the right; no buy button for it");
-    Expect(surface.props["subject"]["label"] == "Марта" && surface.props["subject"]["sub"] == "1 <common.of> 5", "fleet slots in the header");
+    Expect(surface.props["offers"].size() == 3 && surface.props["offers"][2]["value"] == "23 824" &&
+               surface.props["offers"][0]["title"] == "Шлюпка «Чайка»" && surface.props["offers"][0]["meta"] == "<yard.class> 6",
+           "the yard's offers: type «name», class, grouped price: " + surface.props["offers"][0].dump());
+    Expect(surface.props["fleet"].size() == 2 && surface.props["fleet"][0]["title"] == "Кеч «Марта»" && surface.props["fleet"][0]["meta"] == "Класс 5" &&
+               surface.props["fleet"][0]["value"] == "11\u00a0575" && surface.props["fleet"][0]["selected"] == true &&
+               surface.props["fleet"][1]["title"] == "<yard.empty_slot>" && surface.props["subject"].is_null(),
+           "our ships in the list: each slot with a ship and its trade-in value, one free place of the four");
+    {
+        const Json &detail = surface.props["detail"];
+        Expect(detail["title"] == "Кеч «Марта»" && detail["actions"].size() == 3 && detail["actions"][0]["id"] == "repair" &&
+                   detail["actions"][1]["sub"] == "6 фунт / 12" && detail["actions"][2]["id"] == "sell" && detail["actions"][2]["hold"] == true &&
+                   detail["actions"][2]["sub"] == "11\u00a0575" && surface.props["sheet"].is_null(),
+               "our ship on the card: repair, cannons, sell held with its price; no buy button for it");
+        Expect(detail["facts"].size() == 8 && detail["facts"][0] == Json({{"k", "Корпус"}, {"v", "610 / 610"}, {"icon", "hull"}}) && detail["against"] == "",
+               "the figures with their icons, nothing to compare our ship with");
+    }
 
-    router.OnEvent({"catalog", "row", "1"});
+    router.OnEvent({"offer-1", "click", ""});
     ExpectEqual(surface.Last(), Yard(main, "TABLE_SHIPYARD", 1, "choice", "select"), "a catalogue row selects the offer with its token");
     surface.commands.clear();
     router.OnEvent({"sell", "click", ""});
@@ -905,8 +1023,8 @@ static void Shipyard(const std::string &models)
     ExpectEqual(surface.Last(), Yard(main, "BUTTON_SELL", -1, "button", "press"), "sell presses the game's button");
     main.revision += 1;
     router.SetInterface(main);
-    router.OnEvent({"header", "subject-next", ""});
-    ExpectEqual(surface.Last(), Yard(main, "SHIPS_SCROLL", 1, "choice", "select"), "the next fleet slot");
+    router.OnEvent({"fleet-1", "click", ""});
+    ExpectEqual(surface.Last(), Yard(main, "SHIPS_SCROLL", 1, "choice", "select"), "the free place is a fleet slot of the list");
     main.revision += 1;
     router.SetInterface(main);
     router.OnEvent({"cannons", "click", ""});
@@ -923,7 +1041,7 @@ static void Shipyard(const std::string &models)
     router.SetInterface(settling);
     surface.commands.clear();
     router.OnEvent({"sell", "click", ""});
-    Expect(surface.commands.empty() && surface.props["own"]["actions"][1]["disabled"] == true, "a state that is not ready offers nothing");
+    Expect(surface.commands.empty() && surface.props["detail"]["actions"][2]["disabled"] == true, "a state that is not ready offers nothing");
     Expect(surface.errors.empty(), "a state settling for a moment is not an error");
     surface.now += 2.5;
     router.Tick();
@@ -931,16 +1049,46 @@ static void Shipyard(const std::string &models)
 
     const InterfaceModel preview = Load(models, "shipyard-preview.json");
     router.SetInterface(preview);
-    Expect(surface.props["detail"]["title"] == "Шлюпка «Чайка»" && surface.props["detail"]["primary"]["label"] == "Купить" &&
-               surface.props["detail"]["primary"]["sub"] == "2 170" && surface.props["catalog"]["rows"][0]["selected"] == true,
-           "an offer on the right: buy with its price");
+    {
+        // shipyard.c: a ship in the chosen slot is traded in; 2 170 for a ship worth 11 575 returns 9 405.
+        const Json &detail = surface.props["detail"];
+        Expect(detail["title"] == "Шлюпка «Чайка»" && detail["actions"].size() == 1 && detail["actions"][0]["label"] == "<yard.trade_get>" &&
+                   detail["actions"][0]["sub"] == "9 405" && detail["actions"][0]["hold"] == true && surface.props["offers"][0]["selected"] == true &&
+                   surface.props["fleet"][0]["selected"] == true && detail["against"] == "Марта",
+               "an offer on the card: traded for our chosen ship, the difference on the held button: " + detail["actions"].dump());
+        Expect(detail["facts"][0]["own"] == "610 / 610" && detail["facts"][0]["tone"] == "danger" && detail["facts"][3]["tone"] == "ok" &&
+                   !detail["facts"][1].contains("tone"),
+               "its figures beside our ship's: a weaker hull red, a better turn rate green, sails plain: " + detail["facts"].dump());
+        // Into the free place it is a plain purchase.
+        InterfaceModel free_place = preview;
+        for (Widget &widget : free_place.widgets)
+            if (widget.node == "SHIPS_SCROLL" && widget.type == "choice")
+                widget.value = widget.index == 1 ? "1" : "0";
+        FakeSurface free_surface;
+        Router free_router(free_surface);
+        free_router.SetInterface(free_place);
+        Expect(free_surface.props["detail"]["actions"][0]["label"] == "Купить" && free_surface.props["detail"]["actions"][0]["sub"] == "2 170" &&
+                   !free_surface.props["detail"]["facts"][0].contains("own"),
+               "the free place chosen: buy with the full price, nothing to compare with");
+    }
     router.OnEvent({"primary", "click", ""});
     ExpectEqual(surface.Last(), Yard(preview, "BUTTON_BUY", -1, "button", "press"), "buy presses the game's button");
     InterfaceModel looking = preview;
     looking.revision += 1;
     router.SetInterface(looking);
-    router.OnEvent({"own", "click", ""});
+    router.OnEvent({"fleet-0", "click", ""});
     ExpectEqual(surface.Last(), Yard(looking, "SHIPS_SCROLL", 0, "choice", "select"), "our ship's row brings it back to the card");
+    {
+        // A deal held on its button is not asked about again: the game's question is answered at once.
+        FakeSurface held_surface;
+        Router held(held_surface);
+        held.SetInterface(Load(models, "shipyard-main.json"));
+        held.OnEvent({"sell", "click", ""});
+        const InterfaceModel asked = Load(models, "shipyard-confirm-sell.json");
+        held.SetInterface(asked);
+        ExpectEqual(held_surface.Last(), Yard(asked, "MSG_OK", -1, "button", "press"), "held sell: the game's confirmation is answered");
+        Expect(held_surface.props["sheet"].is_null(), "and no sheet asks a second time");
+    }
 
     const InterfaceModel sell = Load(models, "shipyard-confirm-sell.json");
     router.SetInterface(sell);
@@ -1333,8 +1481,9 @@ static void Hero(const std::string &models)
     ExpectEqual(router.Using(), "lscchar_all", "the character draws on the hero screen");
     ExpectEqual(surface.tag, "s-hero", "s-hero mounted");
     Json view = surface.props;
-    Expect(view["sections"] == "hero" && view["tabs"].size() == 3 && view["tabs"][0]["badge"] == 2 && view["tabs"][1]["badge"] == 1,
-           "three tabs, free skill and perk points as badges");
+    Expect(view["sections"] == "hero" && view["tabs"].size() == 4 && view["tabs"][0]["badge"] == 2 && view["tabs"][1]["id"] == "perks1" &&
+               view["tabs"][1]["badge"] == 1 && view["tabs"][2]["id"] == "perks2" && view["tabs"][3]["id"] == "officers",
+           "skills, the two perk groups and officers; free skill and perk points as badges: " + view["tabs"].dump());
     Expect(view["card"]["title"] == "Anne Bonny" && view["card"]["portrait"] == "INTERFACES/PORTRAITS/128/face_7" &&
                view["card"]["health"]["value"] == 75 && view["card"]["health"]["text"] == "90" && view["card"]["free"] == "2" &&
                view["card"]["lines"][0]["v"] == "excellent" && view["card"]["lines"][1]["v"] == "63 / 100",
@@ -1376,18 +1525,39 @@ static void Hero(const std::string &models)
     Expect(surface.props["personal"]["rows"][0]["cells"][1]["noLeft"] == false, "a point added in this visit may be taken back");
 
     // Learning a perk: select, open its window, accept.
-    router.OnEvent({"header-tabs", "select", "perks"});
+    surface.commands.clear();
+    router.OnEvent({"header-tabs", "select", "perks1"});
     view = surface.props;
-    Expect(view["tab"] == "perks" && view["perks"].size() == 2 && view["detail"]["title"] == "Basic defense" &&
-               view["detail"]["learn"]["disabled"] == false && view["progress"] == "<hero.next_point> 340 / 1\xC2\xA0" "000",
-           "the perk list, its detail and the progress to the next point");
-    Expect(view["perks"][1]["cells"][0]["badge"] == "lock", "a perk with a missing requirement is locked");
+    Expect(surface.commands.empty() && view["tab"] == "perks" && view["tabs"][1]["selected"] == true && view["perks"].size() == 2 &&
+               view["detail"]["title"] == "Basic defense" && view["detail"]["learn"]["disabled"] == false &&
+               view["detail"]["learn"]["sub"] == "<hero.points> 1" && view["progress"] == "<hero.next_point> 340 / 1\xC2\xA0" "000",
+           "the game's open perk group: its tiles, the detail and the progress to the next point");
+    Expect(view["perks"][0]["state"] == "open" && view["perks"][1]["state"] == "locked" && view["perks"][1]["image"]["enamel"] == "iron",
+           "a perk with a missing requirement is locked");
+    Expect(view["filters"][0]["count"] == 2 && view["filters"][1]["count"] == 1 && view["filters"][2]["count"] == 0, "the chips count all, open, learned");
+    router.OnEvent({"perk-filter", "select", "1"});
+    Expect(surface.props["perks"].size() == 1 && surface.props["perks"][0]["name"] == "Basic defense", "«open» keeps what can be learned now");
+    router.OnEvent({"perk-filter", "select", "0"});
     router.OnEvent({"perks", "row", "1"});
-    Expect(surface.props["detail"]["learn"]["disabled"] == true && surface.props["detail"]["need"] == "<hero.needs> Basic defense",
+    Expect(surface.props["detail"]["learn"]["disabled"] == true &&
+               surface.props["detail"]["conditions"] == Json::array({Json{{"name", "Basic defense"}, {"met", false}}}),
            "the locked perk's detail names what it needs");
+    router.OnEvent({"perk-learn", "click", ""});
+    Expect(surface.props["dialog"].is_null(), "a perk that cannot be learned opens no card");
     router.OnEvent({"perks", "row", "0"});
     router.OnEvent({"perk-learn", "click", ""});
-    ExpectEqual(surface.Last(), "widget:lscchar_all\tTABLE_PERKS\t0\tactivate@4:basicdefense", "the selected perk's window is opened");
+    {
+        const Json &card = surface.props["dialog"];
+        Expect(surface.commands.empty() && card["kind"] == "learn" && card["title"] == "Basic defense" && card["text"] == "Damage taken is 10% lower." &&
+                   card["actions"][1]["id"] == "learn-ok" && card["actions"][1]["sub"] == "<hero.points> 1" && router.WantsBack(),
+               "learning asks on a card: the perk's text and its cost; nothing is sent yet: " + card.dump());
+    }
+    router.OnEvent({"learn-cancel", "click", ""});
+    Expect(surface.commands.empty() && surface.props["dialog"].is_null(), "«Отмена» closes the card and learns nothing");
+    router.OnEvent({"perk-learn", "click", ""});
+    router.OnEvent({"learn-ok", "click", ""});
+    ExpectEqual(surface.Last(), "widget:lscchar_all\tTABLE_PERKS\t0\tactivate@4:basicdefense", "confirmed: the selected perk's window is opened");
+    Expect(surface.props["dialog"].is_null(), "the card is gone while the game learns");
     model.revision += 1;
     model.widgets.push_back(Make("PERK_ACCEPT", "button", "Learn", {"press"}));
     model.widgets.push_back(Make("PERK_CANCEL", "button", "Cancel", {"press"}));
@@ -1395,6 +1565,12 @@ static void Hero(const std::string &models)
     ExpectEqual(surface.Last(), "widget:lscchar_all\tPERK_ACCEPT\t-1\tpress", "and accepted in the game's window");
     Expect(router.WantsBack(), "while the game's window is open the back key closes it");
     model.widgets.resize(model.widgets.size() - 2);
+    // The other perk group is its own tab: the game's group button is pressed, the tab shows chosen at once.
+    model.revision += 1;
+    router.SetInterface(model);
+    router.OnEvent({"header-tabs", "select", "perks2"});
+    ExpectEqual(surface.Last(), "widget:lscchar_all\tTABBTN_2\t-1\tpress", "the ship perks: the game's second group");
+    Expect(surface.props["tabs"][2]["selected"] == true && surface.props["tabs"][1]["selected"] == false, "the asked group shows as chosen while the game switches");
 
     // Officers: a post opens the game's remove window; the dialog removes or closes.
     model.revision += 1;
@@ -1491,16 +1667,48 @@ static void Items(const std::string &models)
     ExpectEqual(router.Using(), "items", "the items draw on the items screen");
     ExpectEqual(surface.tag, "s-items", "s-items mounted");
     Json view = surface.props;
-    Expect(view["slots"].size() == 10 && view["slots"][0]["label"] == "Rapier" && view["slots"][0]["image"]["texture"] == "atlas:ITEMS_1/itm1" &&
-               view["slots"][1]["empty"] == true,
-           "ten slots: what the hero wears, the empty ones dashed");
-    Expect(view["rows"].size() == 3 && view["rows"][0]["cells"][0]["badge"] == "check" && view["rows"][2]["cells"][1] == "\xC3\x97" "3",
+    Expect(view["slots"].size() == 10 && view["slots"][0]["label"] == "<items.slot_blade>" && view["slots"][0]["name"] == "Rapier" &&
+               view["slots"][0]["image"]["texture"] == "atlas:ITEMS_1/itm1" && view["slots"][1]["empty"] == true,
+           "ten slots: the slot's caption under what the hero wears, the empty ones dashed");
+    Expect(view["rows"].size() == 3 && !view.contains("columns") && view["rows"][0]["cells"][0]["badge"] == "check" && view["rows"][2]["cells"][1] == "\xC3\x97" "3",
            "the list: worn mark, a count only above one");
     Expect(view["stats"][0]["value"] == "4.6 / 140" && view["subject"]["label"] == "Anne Bonny" && view["tabs"].size() == 4,
            "weight in the header, the officer switch, the game's tabs");
     Expect(view["detail"]["title"] == "Rapier" && view["detail"]["text"] == "A light blade." && view["detail"]["action"]["label"] == "Take off" &&
                view["detail"]["action"]["disabled"] == false,
            "the selected item with the game's own action");
+    {
+        // The description in parts: the worn rapier's own figures (nothing to compare with), its kind, then the text.
+        const Json &facts = view["detail"]["facts"];
+        Expect(facts.size() == 4 && facts[0] == Json({{"k", "<items.attack>"}, {"v", "60.0"}}) && facts[2]["k"] == "<items.weight>" &&
+                   facts[3] == Json({{"k", "<items.kind>"}, {"v", "Rapiers"}}),
+               "the worn weapon: attack, balance, weight, kind: " + facts.dump());
+        // The dagger against the worn rapier: weaker (red), lighter (green); the balance has no better side.
+        FakeSurface dagger_surface;
+        Router dagger(dagger_surface);
+        InterfaceModel selected = model;
+        for (Widget &widget : selected.widgets)
+        {
+            if (widget.node == "TABLE_ITEMS")
+                widget.value = widget.index == 1 ? "1" : "0";
+            if (widget.node == "ANDROID_INFO")
+                widget.context = {{"row", "tr2"}, {"text", "A short blade."}, {"kind", "Rapiers"}, {"weight", "1.5"}};
+        }
+        dagger.SetInterface(selected);
+        const Json &against = dagger_surface.props["detail"]["facts"];
+        Expect(against[0] == Json({{"k", "<items.attack>"}, {"v", "34.5"}, {"d", "\xE2\x88\x92" "25.5"}, {"dTone", "danger"}}) &&
+                   against[1] == Json({{"k", "<items.balance>"}, {"v", "2.0"}, {"d", "+0.6"}}) &&
+                   against[2] == Json({{"k", "<items.weight>"}, {"v", "1.5"}, {"d", "\xE2\x88\x92" "0.9"}, {"dTone", "ok"}}) &&
+                   dagger_surface.props["detail"]["text"] == "A short blade.",
+               "an item against the worn one of its slot: " + against.dump());
+        // A row the adapter did not describe keeps the game's own text.
+        for (Widget &widget : selected.widgets)
+            if (widget.node == "ANDROID_INFO")
+                widget.context["row"] = "tr9";
+        selected.revision += 1;
+        dagger.SetInterface(selected);
+        Expect(dagger_surface.props["detail"]["text"] == "A light blade.", "no description from the adapter: the game's INFO_TEXT");
+    }
     Expect(view["extras"]["rows"].empty(), "every widget is known: no extras");
     {
         // An item worn nowhere (the potion: no slot) has no slot line and is no error.

@@ -1,6 +1,10 @@
-// Shipyard (interface "shipyard", mockups V2-Shipyard-*): our ship and the yard's catalogue
-// on the left, the ship being looked at (ours or one on offer) on the right, the game's own
-// windows (confirmation, repair, captain, officer, cannons, help) as sheets. Fills <s-shipyard>.
+// Shipyard (interface "shipyard"): one list on the left, «our ships» (every fleet slot with its
+// trade-in value, one free place) over the yard's offers; on the right the ship being looked at:
+// its figures with icons and full captions, an offer's figures beside those of the chosen ship of
+// ours (better green, worse red), and the deal at the card's bottom. Buying and selling are held
+// buttons that carry the price; the game's own confirmation is answered for a held deal and shown
+// as a sheet only when the game opens it unasked. The game's other windows (repair, captain,
+// officer, cannons, help) are sheets. Fills <s-shipyard>.
 //
 // The engine describes the shipyard with special widgets (xinterface/mobile_shipyard.inc):
 // `shipyard_state` (index 1 = protocol version) carries the window mode and the selected
@@ -13,7 +17,9 @@
 #include "controls.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
+#include <map>
 
 namespace storm::ui::screens
 {
@@ -154,6 +160,16 @@ int FirstNumber(const std::string &text)
     return first == std::string::npos ? -1 : std::atoi(text.c_str() + first);
 }
 
+// A price as the game writes it ("23 824", "11\u00a0575") → 23824.
+int Number(const std::string &text)
+{
+    long value = 0;
+    for (const char c : text)
+        if (c >= '0' && c <= '9')
+            value = value * 10 + (c - '0');
+    return static_cast<int>(value);
+}
+
 // "Тартана\n\nПальмье" → {type, proper name}.
 std::pair<std::string, std::string> TypeAndName(const std::string &cell)
 {
@@ -241,58 +257,45 @@ class ShipyardScreen final : public Screen
                    : !Context(slot, "shipName").empty()       ? Context(slot, "shipName")
                                                               : slot->label;
         };
-        view["subject"] = Json();
-        if (fleet.size() > 1)
-        {
-            view["subject"] = Json{{"label", slot_name(owned)},
-                                   {"sub", std::to_string(current + 1) + " " + bindings.Text("common.of") + " " + std::to_string(fleet.size())},
-                                   {"prev", main && current > 0 && offers(fleet[current - 1], "select")},
-                                   {"next", main && current + 1 < fleet.size() && offers(fleet[current + 1], "select")},
-                                   {"list", false}};
-            const auto choose = [send, fleet](size_t index) {
-                if (index < fleet.size())
-                    send(fleet[index], "select");
-            };
-            bindings.On("header", "subject-prev", [choose, current](const Event &) { choose(current - 1); });
-            bindings.On("header", "subject-next", [choose, current](const Event &) { choose(current + 1); });
-            bindings.Ignore("header", "subject-list");
-        }
+        view["subject"] = Json(); // the fleet is in the list
         Json stats = Json::array();
         if (const std::string money = Trim(admitted.Label("MONEY_TEXT")); !money.empty())
             stats.push_back(Json{{"icon", "money"}, {"value", money}, {"tone", "gold"}});
         view["stats"] = stats;
 
-        // Our ship: its picture and trade-in value, repair and sell.
-        const std::string quote = Context(owned, "saleQuote");
-        Json own{{"title", owned ? slot_name(owned) : std::string()},
-                 {"sub", Context(owned, "class")},
-                 {"image", PictureOf(owned ? owned->FirstImage() : nullptr)},
-                 {"selected", Context(state, "previewKind") == "owned"},
-                 {"disabled", !main || !offers(owned, "select")},
-                 {"actions", Json::array()}};
-        // Our ship back on the right after looking at an offer.
-        bindings.On("own", "", [send, owned](const Event &) { send(owned, "select"); });
-        for (const auto &[node, id] : {std::pair{"BUTTON_REPAIR", "repair"}, std::pair{"BUTTON_SELL", "sell"}})
-            if (const Widget *button = Typed(admitted, node, "button"))
-            {
-                own["actions"].push_back(Json{{"id", id},
-                                              {"label", button->label},
-                                              // selling is a money deal: its button names the price
-                                              {"sub", std::string(id) == "sell" ? KeepTogether(quote) : std::string()},
-                                              {"disabled", !main || !offers(button, "press")},
-                                              {"reason", button->unavailable_reason},
-                                              {"busy", bindings.Pending(id)}});
-                bindings.On(id, "", [send, button](const Event &) { send(button, "press"); });
-            }
-        view["own"] = own;
+        // Our ships: every slot that holds one, and one free place (the chosen slot when it is free, else
+        // the first). The chosen slot is where a purchase goes: a ship there is traded in.
+        const std::string preview_kind = Context(state, "previewKind");
+        const bool yard_preview = preview_kind == "yard";
+        size_t free_place = fleet.size();
+        for (size_t i = 0; i < fleet.size(); ++i)
+            if (Context(fleet[i], "ownerKind") == "EMPTY_SLOT" && (free_place == fleet.size() || i == current))
+                free_place = i;
+        Json ours = Json::array();
+        for (size_t i = 0; i < fleet.size(); ++i)
+        {
+            const Widget *slot = fleet[i];
+            const bool free = Context(slot, "ownerKind") == "EMPTY_SLOT";
+            if (free && i != free_place)
+                continue;
+            const std::string type = Context(slot, "type"), name = slot_name(slot);
+            const std::string id = "fleet-" + std::to_string(i);
+            ours.push_back(Json{{"id", id},
+                                {"title", free || type.empty() ? name : type + " «" + name + "»"},
+                                {"meta", Context(slot, "class")},
+                                {"value", KeepTogether(Context(slot, "saleQuote"))},
+                                {"image", free ? Json() : PictureOf(slot->FirstImage())},
+                                {"icon", free ? "plus" : "ship"},
+                                {"selected", i == current},
+                                {"disabled", !main || !offers(slot, "select")}});
+            bindings.On(id, "", [send, slot](const Event &) { send(slot, "select"); });
+        }
+        view["fleet"] = ours;
 
-        // The catalogue: ship, class, price (the card on the right has the rest).
-        const Widget *catalog = Typed(admitted, "ANDROID_SHIPYARD_CATALOG", "shipyard_catalog");
-        const auto caption = [catalog](int column) { return catalog ? Trim(Lines(catalog->CellText(column))) : std::string(); };
-        const bool yard_preview = Context(state, "previewKind") == "yard";
-        std::vector<const Widget *> offers_list;
+        // The yard's offers: ship, class, price (the card on the right has the rest).
         Json rows = Json::array();
         const Widget *chosen = nullptr;
+        size_t offer_index = 0;
         for (const Widget *offer : admitted.All("TABLE_SHIPYARD"))
         {
             if (offer->type != "choice")
@@ -305,25 +308,22 @@ class ShipyardScreen final : public Screen
             const bool selected = yard_preview && offer->value == "1";
             if (selected)
                 chosen = offer;
-            rows.push_back(Json{{"cells", Json::array({Json{{"text", type}, {"sub", name.empty() ? name : "«" + name + "»"}, {"image", PictureOf(first && !first->images.empty() ? &first->images.front() : nullptr)}, {"icon", "ship"}},
-                                                       Json{{"text", offer->CellText(1)}},
-                                                       Json{{"text", Grouped(offer->CellText(4))}, {"bold", true}}})},
+            const std::string id = "offer-" + std::to_string(offer_index++);
+            rows.push_back(Json{{"id", id},
+                                {"title", name.empty() ? type : type + " «" + name + "»"},
+                                {"meta", offer->CellText(1).empty() ? std::string() : bindings.Text("yard.class") + " " + offer->CellText(1)},
+                                {"value", Grouped(offer->CellText(4))},
+                                {"image", PictureOf(first && !first->images.empty() ? &first->images.front() : nullptr)},
                                 {"selected", selected},
                                 {"disabled", !offers(offer, "select")},
                                 {"reason", offer->unavailable_reason}});
-            offers_list.push_back(offer);
+            bindings.On(id, "", [send, offer, main](const Event &) {
+                if (main && offer->value != "1")
+                    send(offer, "select");
+            });
         }
-        view["catalog"] = Json{{"columns", Json::array({Json{{"label", caption(0)}, {"w", 3}},
-                                                        Json{{"label", caption(1)}, {"w", "64px"}, {"align", "right"}},
-                                                        Json{{"label", caption(4)}, {"w", "96px"}, {"align", "right"}}})},
-                               {"rows", rows},
-                               {"empty", rows.empty() ? bindings.Text("yard.no_ships") : std::string()}};
-        bindings.On("catalog", "row", [send, offers_list, main](const Event &event) {
-            const size_t index = static_cast<size_t>(std::atoi(event.value.c_str()));
-            if (main && index < offers_list.size() && offers_list[index]->value != "1")
-                send(offers_list[index], "select");
-        });
-        bindings.Ignore("catalog", "select");
+        view["offers"] = rows;
+        view["noOffers"] = rows.empty() ? bindings.Text("yard.no_ships") : std::string();
 
         // The ship being looked at.
         const bool preview = yard_preview || Context(owned, "ownerKind") == "OWNER_SHIP";
@@ -337,6 +337,30 @@ class ShipyardScreen final : public Screen
                     name = edit->value;
             const std::string type = Trim(admitted.Label("FRAME_INFO_CAPTION"));
             const std::string rank = Trim(admitted.Label("SHIP_RANK"));
+            // The figures, by the game's row: icon, caption, value. Those of our chosen ship are kept while
+            // it is on the card, and shown beside an offer's: better green, worse red where a larger last
+            // number is plainly better (hull, speed, turn rate, deadweight, crew).
+            struct Figure
+            {
+                const char *row;
+                const char *icon;
+                bool larger_is_better;
+            };
+            static const Figure figures[] = {{"Hull", "hull", true},       {"Sails", "sail-full", false},  {"Speed", "speed", true},
+                                             {"Maneuver", "maneuver", true}, {"AgainstWind", "upwind", false}, {"Capacity", "capacity", true},
+                                             {"Crew", "crew", true},         {"sCannons", "caliber", false}};
+            const std::string slot_key = Context(owned, "slot");
+            if (!yard_preview)
+                own_figures_[slot_key].clear();
+            const auto last_number = [](const std::string &text) {
+                size_t end = text.find_last_of("0123456789");
+                if (end == std::string::npos)
+                    return -1.0;
+                size_t begin = end;
+                while (begin > 0 && (std::isdigit(static_cast<unsigned char>(text[begin - 1])) || text[begin - 1] == '.'))
+                    --begin;
+                return std::atof(text.substr(begin, end - begin + 1).c_str());
+            };
             Json facts = Json::array();
             const Widget *cannon_type = nullptr;
             for (const Widget *row : admitted.All("TABLE_OTHER"))
@@ -346,8 +370,25 @@ class ShipyardScreen final : public Screen
                     cannon_type = row;
                     continue;
                 }
-                if (!row->CellText(1).empty())
-                    facts.push_back(Json{{"k", row->CellText(1)}, {"v", row->CellText(2)}});
+                if (row->CellText(1).empty())
+                    continue;
+                const Figure *figure = nullptr;
+                for (const Figure &known : figures)
+                    if (row->row_id == known.row)
+                        figure = &known;
+                const std::string value = row->CellText(2);
+                Json fact{{"k", row->CellText(1)}, {"v", value}, {"icon", figure ? figure->icon : "ship"}};
+                if (!yard_preview)
+                    own_figures_[slot_key][row->row_id] = value;
+                else if (const auto kept = own_figures_.find(slot_key); kept != own_figures_.end() && kept->second.count(row->row_id))
+                {
+                    const std::string &ours_value = kept->second[row->row_id];
+                    fact["own"] = ours_value;
+                    const double theirs = last_number(value), mine = last_number(ours_value);
+                    if (figure && figure->larger_is_better && theirs >= 0 && mine >= 0 && theirs != mine)
+                        fact["tone"] = theirs > mine ? "ok" : "danger";
+                }
+                facts.push_back(std::move(fact));
             }
             const Widget *picture = Control(admitted, "SHIP_BIG_PICTURE", -2);
             Json detail{{"title", name.empty() ? type : type + " «" + name + "»"},
@@ -356,27 +397,59 @@ class ShipyardScreen final : public Screen
                         {"help", offers(picture, "help")},
                         {"helpLabel", bindings.Text("common.description")},
                         {"facts", facts},
-                        {"cannons", Json()},
+                        {"against", yard_preview && !empty_slot ? slot_name(owned) : std::string()},
                         {"text", Lines(admitted.Label("INFO_TEXT"))},
-                        {"primary", Json()}};
+                        {"actions", Json::array()}};
             bindings.On("detail-help", "", [send, picture](const Event &) { send(picture, "help"); });
-            if (cannon_type)
+            // The deal at the card's bottom. Our ship: repair, cannons, sell (held, with its price). An offer:
+            // buy into the free place, or trade our chosen ship in with the difference; held as well.
+            const auto action = [&](const char *id, const Widget *button, const std::string &verb, std::string label, std::string sub, const char *variant, bool hold) {
+                detail["actions"].push_back(Json{{"id", id},
+                                                 {"label", std::move(label)},
+                                                 {"sub", std::move(sub)},
+                                                 {"variant", variant},
+                                                 {"hold", hold},
+                                                 {"disabled", !main || !offers(button, verb)},
+                                                 {"reason", button->unavailable_reason},
+                                                 {"busy", bindings.Pending(id)}});
+            };
+            if (!yard_preview)
             {
-                detail["cannons"] = Json{{"title", cannon_type->CellText(1)},
-                                         {"value", cannon_type->CellText(2)},
-                                         {"disabled", !main || !offers(cannon_type, "activate")},
-                                         {"reason", cannon_type->unavailable_reason}};
-                bindings.On("cannons", "", [send, cannon_type](const Event &) { send(cannon_type, "activate"); });
+                if (const Widget *repair = Typed(admitted, "BUTTON_REPAIR", "button"))
+                {
+                    action("repair", repair, "press", repair->label, {}, "secondary", false);
+                    bindings.On("repair", "", [send, repair](const Event &) { send(repair, "press"); });
+                }
+                if (cannon_type)
+                {
+                    action("cannons", cannon_type, "activate", cannon_type->CellText(1), cannon_type->CellText(2), "secondary", false);
+                    bindings.On("cannons", "", [send, cannon_type](const Event &) { send(cannon_type, "activate"); });
+                }
+                if (const Widget *sell = Typed(admitted, "BUTTON_SELL", "button"))
+                {
+                    action("sell", sell, "press", sell->label, KeepTogether(Context(owned, "saleQuote")), "danger", true);
+                    bindings.On("sell", "", [this, &bindings, send, sell](const Event &) {
+                        if (send(sell, "press"))
+                            held_deal_ = "ShipSell", held_at_ = bindings.Now();
+                    });
+                }
             }
-            const Widget *buy = Typed(admitted, "BUTTON_BUY", "button");
-            if (yard_preview && buy)
+            else if (const Widget *buy = Typed(admitted, "BUTTON_BUY", "button"))
             {
-                detail["primary"] = Json{{"label", buy->label},
-                                         {"sub", chosen ? Grouped(chosen->CellText(4)) : std::string()},
-                                         {"disabled", !main || !offers(buy, "press")},
-                                         {"reason", buy->unavailable_reason},
-                                         {"busy", bindings.Pending("primary")}};
-                bindings.On("primary", "", [send, buy](const Event &) { send(buy, "press"); });
+                // shipyard.c ShowMessageInfo: a ship in the chosen slot is traded in for the difference.
+                const int price = Number(chosen ? chosen->CellText(4) : std::string());
+                const int quote = Number(Context(owned, "saleQuote"));
+                std::string label = buy->label, sub = chosen ? Grouped(chosen->CellText(4)) : std::string();
+                if (!empty_slot && chosen)
+                {
+                    label = bindings.Text(price >= quote ? StringKey("yard.trade_pay") : StringKey("yard.trade_get"));
+                    sub = Grouped(std::to_string(std::abs(price - quote)));
+                }
+                action("primary", buy, "press", std::move(label), std::move(sub), "primary", true);
+                bindings.On("primary", "", [this, &bindings, send, buy](const Event &) {
+                    if (send(buy, "press"))
+                        held_deal_ = "ShipBuy", held_at_ = bindings.Now();
+                });
             }
             view["detail"] = detail;
         }
@@ -385,8 +458,20 @@ class ShipyardScreen final : public Screen
         const Widget *close = nullptr;
         std::string close_verb = "press";
         view["sheet"] = Json();
-        if (mode == "confirm")
+        if (mode != "confirm" && bindings.Now() - held_at_ > kHeldDeal)
+            held_deal_.clear();
+        if (mode == "confirm" && !held_deal_.empty() && held_deal_ == Context(state, "messageMode") && bindings.Now() - held_at_ <= kHeldDeal)
         {
+            // The deal was held on its button: the game's question is answered, not asked again.
+            const Widget *ok = Typed(admitted, "MSG_OK", "button");
+            if (send(ok, "press"))
+                held_deal_.clear();
+            else
+                bindings.RebuildAfter(0.1);
+        }
+        else if (mode == "confirm")
+        {
+            held_deal_.clear();
             close = Typed(admitted, "MSG_CANCEL", "button");
             const Widget *ok = Typed(admitted, "MSG_OK", "button");
             const bool selling = Context(state, "messageMode") == "ShipSell";
@@ -625,6 +710,12 @@ class ShipyardScreen final : public Screen
     bool reported_ = false;
     std::string last_mode_;
     Repair hull_, sails_;
+    // Our ships' figures by fleet slot, kept from the last time each was on the card.
+    std::map<std::string, std::map<std::string, std::string>> own_figures_;
+    // A deal held on its button (the game's message mode it will ask about) and when.
+    static constexpr double kHeldDeal = 3.0;
+    std::string held_deal_;
+    double held_at_ = -100.0;
 };
 
 } // namespace
