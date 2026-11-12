@@ -721,9 +721,16 @@ int main(int argc, char **argv)
         {
             std::string path;
             words >> path;
-            if (!host->SetInterface(ReadFile(path)))
+            const std::string model = ReadFile(path);
+            const auto set_started = std::chrono::steady_clock::now();
+            if (!host->SetInterface(model))
                 status = 5;
+            const auto set_done = std::chrono::steady_clock::now();
             run(1.0 / 60.0);
+            if (timed)
+                std::printf("  model applied in %.2f ms, frame call %.2f ms\n",
+                            std::chrono::duration<double, std::milli>(set_done - set_started).count(),
+                            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - set_done).count());
         }
         else if (verb == "text") // text <answer>: what the player typed into the editor
         {
