@@ -111,6 +111,7 @@ struct FrameStats
     // With Config::verify_unchanged: this frame was predicted unchanged by Prepare but drew
     // other commands than the frame shown (also an error in the log).
     bool mispredicted = false;
+    uint64_t number = 0; // which Frame this was (1, 2, …): a frame replayed unchanged keeps the last one's
 };
 
 enum class TouchPhase

@@ -616,6 +616,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         changed_ = counters_.textures > 0 || counters_.textures_shared > 0;
         drawn_ = true;
         counters_.render_ms = Milliseconds(updated, std::chrono::steady_clock::now());
+        counters_.number = last_frame_.number + 1;
         last_frame_ = counters_;
         counters_ = FrameStats(); // what happens until the next frame counts for it
         hud_->Drawn();

@@ -505,22 +505,30 @@ class EngineUi
                 return;
             const storm::ui::FrameStats stats = ui.host_->LastFrameStats();
             ++frames;
-            update_ms += stats.update_ms;
-            render_ms += stats.render_ms;
-            draws += stats.draws;
-            layers += stats.layers;
-            layouts += stats.layout_passes;
+            if (stats.number != counted) // a frame the host made (not the last one replayed unchanged)
+            {
+                counted = stats.number;
+                ++made;
+                update_ms += stats.update_ms;
+                render_ms += stats.render_ms;
+                draws += stats.draws;
+                layers += stats.layers;
+                layouts += stats.layout_passes;
+            }
             const uint32_t now = SDL_GetTicks();
             if (!since)
                 since = now;
             if (now - since < 5000)
                 return;
+            const double per = made ? double(made) : 1.0;
             __android_log_print(ANDROID_LOG_DEBUG, "StormUiInput",
-                                "%u UI frames in %.1f s: CPU per frame update %.2f ms + render %.2f ms, %.0f draws, %.1f layers, %ld layout passes",
-                                frames, (now - since) / 1000.0, update_ms / frames, render_ms / frames, double(draws) / frames, double(layers) / frames, layouts);
-            frames = 0, update_ms = render_ms = 0.0, draws = layers = layouts = 0, since = now;
+                                "%u UI frames in %.1f s, %u made (the rest replayed unchanged): per made frame CPU update %.2f ms + render %.2f ms, "
+                                "%.0f draws, %.1f layers; %ld layout passes",
+                                frames, (now - since) / 1000.0, made, update_ms / per, render_ms / per, double(draws) / per, double(layers) / per, layouts);
+            frames = made = 0, update_ms = render_ms = 0.0, draws = layers = layouts = 0, since = now;
         }
-        uint32_t since = 0, frames = 0;
+        uint32_t since = 0, frames = 0, made = 0;
+        uint64_t counted = 0; // FrameStats::number of the last frame summed
         double update_ms = 0.0, render_ms = 0.0;
         long draws = 0, layers = 0, layouts = 0;
     } frame_trace_;
