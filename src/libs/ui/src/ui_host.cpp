@@ -431,21 +431,14 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             for (int i = 0; i < element->GetNumChildren(); ++i)
                 pending.push_back(element->GetChild(i));
         }
-        // The host's own toast stacks keep clear of the cutout too (8 / 16 dp: their offsets in base.rcss).
+        // The host's toast stack keeps clear of the cutout too (8 dp: its offset in base.rcss).
         if (overlay_)
-        {
-            const auto inset = [this](const char *id, Rml::PropertyId side, float base, float extra) {
-                if (Rml::Element *stack = overlay_->GetElementById(id))
-                    stack->SetProperty(side, Rml::Property(base + extra, Rml::Unit::DP));
-            };
-            for (const char *id : {"toasts-top", "toasts-bottom"})
+            if (Rml::Element *stack = overlay_->GetElementById("toasts"))
             {
-                inset(id, Rml::PropertyId::Left, 0.0f, left);
-                inset(id, Rml::PropertyId::Right, 0.0f, right);
+                stack->SetProperty(Rml::PropertyId::Left, Rml::Property(left, Rml::Unit::DP));
+                stack->SetProperty(Rml::PropertyId::Right, Rml::Property(right, Rml::Unit::DP));
+                stack->SetProperty(Rml::PropertyId::Top, Rml::Property(8.0f + top, Rml::Unit::DP));
             }
-            inset("toasts-top", Rml::PropertyId::Top, 8.0f, top);
-            inset("toasts-bottom", Rml::PropertyId::Bottom, 16.0f, bottom);
-        }
     }
 
     void SetGameRoot(const std::string &game_root) override
@@ -680,14 +673,22 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         OverlayToast(text, "danger", Setting("alertMs", 6000.0));
     }
 
+    void AlertString(const std::string &key) override
+    {
+        Alert(Text(key));
+    }
+
     void OverlayToast(const std::string &text, const std::string &tone, double milliseconds)
     {
         if (!overlay_ || text.empty())
             return;
-        const bool top = document_ && document_->GetAttribute<Rml::String>("data-toast", "bottom") == "top";
-        Rml::Element *stack = overlay_->GetElementById(top ? "toasts-top" : "toasts-bottom");
+        // One place for every toast: the top edge (the HUD's event lines are there too).
+        Rml::Element *stack = overlay_->GetElementById("toasts");
         if (!stack)
+        {
+            Rml::Log::Message(Rml::Log::LT_ERROR, "overlay.rml has no #toasts stack: toast dropped: %s", text.c_str());
             return;
+        }
         const double until = system_.GetElapsedTime() + milliseconds / 1000.0;
         for (Toast_ &shown : toasts_)
             if (shown.text == text && shown.element && shown.leaving < 0.0)
@@ -710,8 +711,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         notice->SetAttribute("place", "none");
         notice->SetAttribute("tone", tone.empty() ? "info" : tone);
         notice->SetAttribute("text", text);
-        if (top)
-            notice->SetAttribute("compact", "");
+        notice->SetAttribute("compact", "");
         changed_ = true;
         Toast_ toast;
         toast.element = stack->AppendChild(std::move(notice))->GetObserverPtr();

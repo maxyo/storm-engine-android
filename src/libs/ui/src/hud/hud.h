@@ -58,6 +58,7 @@ struct Combat
     bool known = false;
     uint64_t gameplay_revision = 0, activity = 0;
     std::string player, mode = "unknown", interact_kind = "interact"; // interact_kind: dialog | boarding | interact
+    std::string interact_name; // whom the talk button talks to ("" = the engine has no name)
     // Offered action -> its availability generation, which a command for it carries.
     std::map<std::string, uint64_t> actions;
     std::string pistol = "unknown"; // unknown, no_weapon, unloaded, loaded
@@ -265,6 +266,7 @@ struct States
     Vitals vitals;
     std::string world_info;     // channel "worldInfo": lines of the location text
     std::string context_action; // channel "contextAction": the script's quick action, "" = none
+    std::string reload_place;   // channel "reloadPlace": where the reload locator the hero is in leads, "" = none
     LandCommands land_commands;
     Ship ship;
     SeaOrders sea_orders;

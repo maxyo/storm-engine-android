@@ -45,10 +45,23 @@ inline bool boardingContinueArmed(CorePrivate *scripts)
     return character && !character->FindAClass(character, "GenQuest.CannotReloadBoarding");
 }
 inline std::string combatInteractKind = "dialog";
+// Whom the talk button talks to (the touch HUD's bottom hint): the script character's name and
+// last name, as the game writes them; "" when it has none.
+inline std::string combatInteractName;
+inline std::string dialogTargetName(int64_t target)
+{
+    auto *characters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
+    if (!characters || target < 0 || static_cast<uint64_t>(target) >= characters->GetElementsNum()) return {};
+    auto *character = characters->GetAClass(static_cast<uint32_t>(target));
+    std::string name = shipText(character, "name");
+    const std::string last = shipText(character, "lastname");
+    if (!last.empty()) name += (name.empty() ? "" : " ") + last;
+    return name;
+}
 inline void updateCombatState(const GameplayState &gameplay, CorePrivate *scripts)
 {
     std::vector<CombatBinding> bindings;
-    std::string scene, player, mode = "unknown", interactKind = "dialog";
+    std::string scene, player, mode = "unknown", interactKind = "dialog", interactName;
     if (combatContextCurrent(gameplay, core.Controls != nullptr))
     {
         mode = gameplay.snapshot().mode;
@@ -85,6 +98,7 @@ inline void updateCombatState(const GameplayState &gameplay, CorePrivate *script
             }
             else if (const auto target = dialogTarget(); target >= 0)
             {
+                interactName = dialogTargetName(target);
                 add("interact",false,{"ChrAction"});
                 if (!bindings.empty() && bindings.back().action == "interact") bindings.back().target = target;
             }
@@ -107,6 +121,7 @@ inline void updateCombatState(const GameplayState &gameplay, CorePrivate *script
     }
     combatInput.update(gameplay.revision(), std::move(scene), std::move(player), std::move(mode), std::move(bindings));
     combatInteractKind = std::move(interactKind);
+    combatInteractName = std::move(interactName);
 }
 inline uint64_t combatHost = 0;
 inline std::string lastCombatState;
@@ -134,6 +149,7 @@ inline void publishCombatState()
     const auto pistol = readPistolState();
     json.pop_back();
     json += ",\"interactKind\":" + gameplayJsonString(combatInteractKind);
+    json += ",\"interactName\":" + gameplayJsonString(combatInteractName);
     json += ",\"pistol\":{\"state\":" + gameplayJsonString(pistol.state) +
             ",\"progress\":" + std::to_string(pistol.progress) + "}}";
     if (json == lastCombatState) return;

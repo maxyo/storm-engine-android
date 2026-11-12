@@ -77,17 +77,6 @@ inline int cinematicState = -1;
 // The game's death picture is up (xinterface info_handler.cpp): the death screen's choice may
 // end it at once ("widget:game_over\tEND", main.cpp).
 inline bool gameOverShown = false;
-inline void showSaveError() {
-    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
-    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
-    if(!env||!activity)return;
-    auto type=env->GetObjectClass(activity);
-    auto method=type?env->GetMethodID(type,"showSaveError","()V"):nullptr;
-    if(method)env->CallVoidMethod(activity,method);
-    if(env->ExceptionCheck()){env->ExceptionDescribe();env->ExceptionClear();}
-    if(type)env->DeleteLocalRef(type);
-    env->DeleteLocalRef(activity);
-}
 // Gameplay state: channel "gameplay" of the UI host, and the activity's copy for its own controls.
 inline std::string lastGameplayState;
 inline void publishGameplayState(const std::string &json)
@@ -220,6 +209,13 @@ inline int graphicsSetting(const char *key, int fallback) {
     if (type) env->DeleteLocalRef(type);
     env->DeleteLocalRef(activity);
     return value;
+}
+// Where the reload locator the hero stands in leads (the touch HUD's bottom hint), "" = none.
+inline std::string lastReloadPlace;
+inline void publishReloadPlace(const std::string &place) {
+    if (lastReloadPlace == place) return;
+    lastReloadPlace = place;
+    ui::state("reloadPlace", uiJsonText(place));
 }
 inline void publishContextAction(const std::string &name) {
     if (contextAction == name) return;
