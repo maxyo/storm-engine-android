@@ -369,6 +369,41 @@ static void Settings(const std::string &models)
     surface.commands.clear();
     router.OnEvent({"done", "click", ""});
     Expect(surface.commands.size() == 1, "unchanged renderer options are not sent again");
+    {
+        // A debuggable host reports single effect overrides: «Отладка эффектов» has the FSR / SMAA
+        // rows and «Замер GPU» (fx_gpu_profile), handed to the host with «Готово» like the others.
+        FakeSurface debug_surface;
+        Router debug(debug_surface);
+        Json reported{{"fx_preset", 1}, {"texture_degradation", 0}};
+        for (const char *key : {"fx_ssao", "fx_msaa", "fx_bloom", "fx_grade", "fx_dither", "fx_contact_shadows", "fx_shadows", "fx_sea_band_limit",
+                                "fx_sea_soft_edges", "fx_sea_specular", "fx_light_per_pixel", "fx_light_point", "fx_light_specular",
+                                "fx_light_normal_map", "fx_alpha_to_coverage", "fx_anisotropy", "fx_ao_volume", "fx_smaa", "fx_sharpen",
+                                "fx_render_scale", "fx_gpu_profile"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
+            reported[key] = -1;
+        debug.SetState("appSettings", reported);
+        debug.SetInterface(Load(models, "settings.json"));
+        debug.OnEvent({"tabs", "select", "2"});
+        Json rows = Json::array();
+        for (const Json &section : debug_surface.props["sections"])
+            for (const Json &column : section["columns"])
+                if (column["title"] == "Отладка эффектов")
+                    rows = column["rows"];
+        const auto row = [&](const char *id) {
+            for (const Json &r : rows)
+                if (r["id"] == id)
+                    return r;
+            return Json();
+        };
+        Expect(row("app-fx_render_scale")["options"] == Json::array({"пресет", "50%", "67%", "77%", "100%"}) && row("app-fx_smaa")["label"] == "SMAA" &&
+                   row("app-fx_sharpen").is_object() && row("app-fx_gpu_profile")["options"] == Json::array({"выкл", "вкл"}),
+               "effects debug: render scale, SMAA, RCAS, GPU timing: " + rows.dump());
+        debug.OnEvent({"app-fx_render_scale", "change", "2"});
+        debug.OnEvent({"app-fx_gpu_profile", "change", "1"});
+        debug.OnEvent({"done", "click", ""});
+        Expect(!debug_surface.commands.empty() && debug_surface.commands[0].find("\"fx_render_scale\":67") != std::string::npos &&
+                   debug_surface.commands[0].find("\"fx_gpu_profile\":1") != std::string::npos,
+               "«Готово» hands the scale and the GPU timing to the host: " + Json(debug_surface.commands).dump());
+    }
     router.OnEvent({"header-back", "click", ""});
     ExpectEqual(surface.Last(), prefix + "BTN_CANCEL\t-1\tpress", "← drops the game's changes");
 
