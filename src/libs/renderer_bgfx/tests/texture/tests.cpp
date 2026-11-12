@@ -181,6 +181,21 @@ void test_eac_rg11()
     CHECK(worst <= 4);
 }
 
+// The game's uncompressed .tx formats decode to RGBA8 (R first) as the renderer uploads them.
+void test_tx_formats()
+{
+    CHECK(tx_format_known(21) && tx_format_known(0x31545844) && !tx_format_known(50));
+    CHECK(tx_level_bytes(23, 4, 2) == 16 && tx_level_bytes(0x31545844, 5, 5) == 32 && tx_level_bytes(21, 2, 2) == 16);
+    const uint8_t argb[4] = {10, 20, 30, 40}; // B, G, R, A in memory
+    uint8_t out[4];
+    CHECK(decode_tx_level(21, argb, 1, 1, out) && out[0] == 30 && out[1] == 20 && out[2] == 10 && out[3] == 40);
+    const uint8_t rgb565[2] = {0x00, 0xF8}; // pure red
+    CHECK(decode_tx_level(23, rgb565, 1, 1, out) && out[0] == 255 && out[1] == 0 && out[2] == 0 && out[3] == 255);
+    const uint8_t argb4444[2] = {0x0F, 0x80}; // a 8, r 0, g 0, b 15
+    CHECK(decode_tx_level(26, argb4444, 1, 1, out) && out[0] == 0 && out[2] == 255 && out[3] == 136);
+    CHECK(!decode_tx_level(50, argb, 1, 1, out));
+}
+
 void test_hash()
 {
     // reference XXH64 values
@@ -433,6 +448,7 @@ int main()
     test_decoder();
     test_channel_order();
     test_eac_rg11();
+    test_tx_formats();
     test_hash();
     test_quality();
     test_cube();

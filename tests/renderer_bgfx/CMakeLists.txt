@@ -11,6 +11,8 @@ target_include_directories(storm_check_sdl INTERFACE "${STORM_SDL_INCLUDE}")
 set(SDL2_LIBRARIES storm_check_sdl)
 set(STORM_BGFX_BUILD_TESTS ON CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx" renderer_bgfx)
+# The relief preparation (onnxruntime + DeepBump): storm_relief_check.
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../src/libs/relief" relief)
 # The pinned SDL source headers carry no platform configuration; the checks run on the host's X11
 # SDL runtime, so the shim takes its native window from SDL's X11 window info (skinning_check).
 target_compile_definitions(storm_bgfx PRIVATE SDL_VIDEO_DRIVER_X11=1)

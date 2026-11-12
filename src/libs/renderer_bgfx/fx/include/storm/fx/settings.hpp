@@ -131,9 +131,10 @@ struct Settings
     uint32_t lighting_flags = kLightingNone;
     uint8_t point_lights = 4;      // per draw call with kLightingPoint: 4 or 8
     // With kLightingNormalMap: the one strength of all relief (lit models and baked surfaces alike; the texture classes
-    // keep their ratios), the same on Средняя and Высокая. 1.0 = the look of APK #10, which the owner found too strong.
-    float normal_map_strength = 0.5f;
-    uint16_t normal_map_size = 1024;  // with kLightingNormalMap: larger side of the resident normal maps (RG8 + mips)
+    // keep their ratios), the same on Средняя and Высокая. 1.0: the owner's choice, DeepBump's maps at the full strength
+    // of our own derivation (relief_store.hpp).
+    float normal_map_strength = 1.0f;
+    uint16_t normal_map_size = 512;   // with kLightingNormalMap: larger side of the resident normal maps (EAC RG11 + mips)
     ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
     // Ambient-occlusion volume of interiors (ao_volume.hpp): 0 off, else one of the strengths AoVolumeLevel names.
     uint8_t ao_volume = 0;

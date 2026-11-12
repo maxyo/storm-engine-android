@@ -44,7 +44,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.anisotropy = 4;
         s.lighting_flags = kLightingPerPixel | kLightingPoint | kLightingNormalMap | kLightingRim | kLightingAerial;
         s.point_lights = 4;
-        s.normal_map_size = 512; // a quarter of High's memory
+        s.normal_map_size = 256; // the prepared 512 maps from their second mip: a quarter of High's memory
         s.shadows = ShadowQuality::Low;
         s.ao_volume = 2;
         // The lamps' relight of locations (option fx_lamp_shadows 8) stays off until the owner has seen its sheet.

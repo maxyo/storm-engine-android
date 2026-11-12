@@ -166,9 +166,9 @@ void SetEffectsGroundLight(std::string_view name, std::span<const std::array<flo
 // (fx_light_normal_map, fx/normal_map.hpp).
 void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path);
 
-// Where the effects keep what they derive from the game's files (normal maps), at most `max_bytes` (least recently
-// used files are evicted): the app's cache directory on Android. Before the first texture is loaded.
-void ConfigureEffectsCache(const std::filesystem::path &directory, uint64_t max_bytes);
+// The relief directory (fx/relief_store.hpp): the normal maps «Подготовка рельефа» made at import, and the height maps the
+// game derives. Before the first texture is loaded.
+void ConfigureReliefDirectory(const std::filesystem::path &directory);
 
 // ---- World passes: contact shadows ----
 // The consumer entities (shadow, SUNGLOW) ask which parts are on and then either call the fx pass below

@@ -62,6 +62,26 @@ EtcFormat choose_etc_format(DxtFormat format, const uint8_t *payload, size_t siz
 // EAC RG11 (two EAC blocks per 4x4 texels: R, then G) of one RG8 level of width x height texels; edge texels are
 // repeated up to the block size. `out`: blocks_x(width) * blocks_x(height) * 16 bytes.
 void encode_eac_rg11(const uint8_t *rg, uint32_t width, uint32_t height, uint8_t *out);
+// A whole RG8 mip chain (levels halving from width x height, top first, tightly packed) as EAC RG11 levels.
+std::vector<uint8_t> encode_eac_rg11_chain(const uint8_t *rg, uint32_t width, uint32_t height, uint32_t levels);
+
+// The colour formats of the game's .tx textures, by their D3DFORMAT / TX_FORMAT code (the same numbers).
+enum class TxFormat : uint32_t
+{
+    A8R8G8B8 = 21,
+    X8R8G8B8 = 22,
+    R5G6B5 = 23,
+    A1R5G5B5 = 25,
+    A4R4G4B4 = 26,
+    Dxt1 = 0x31545844, // 'DXT1'
+    Dxt3 = 0x33545844,
+    Dxt5 = 0x35545844,
+};
+// True for the codes above; the size of one level of such a texture (DXT: whole 4x4 blocks).
+bool tx_format_known(uint32_t format);
+size_t tx_level_bytes(uint32_t format, uint32_t width, uint32_t height);
+// One level as RGBA8 (R first), width x height texels, from `data` of tx_level_bytes(). False for an unknown format.
+bool decode_tx_level(uint32_t format, const uint8_t *data, uint32_t width, uint32_t height, uint8_t *rgba);
 
 struct EncodeScratch
 {

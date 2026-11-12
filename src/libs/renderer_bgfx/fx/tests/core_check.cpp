@@ -10,12 +10,16 @@
 #include "storm/fx/lighting_model.hpp"
 #include "storm/fx/log.hpp"
 #include "storm/fx/noise_bake.hpp"
+#include "storm/fx/deepbump.hpp"
 #include "storm/fx/normal_map.hpp"
+#include "storm/fx/relief_store.hpp"
 #include "storm/fx/settings.hpp"
 #include "storm/fx/shadow_model.hpp"
 #include "storm/fx/sky_model.hpp"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -435,9 +439,9 @@ void CheckSupport()
     constrained = ConstrainSettings(high, no_rg, changes);
     CHECK(changes.size() == 1 && !(constrained.lighting_flags & kLightingNormalMap));
     CHECK(LightingDefines(constrained).find("NORMALMAP") == std::string::npos);
-    // One relief strength for both presets: half of the APK #10 look.
+    // One relief strength for both presets: DeepBump's maps at full strength (the owner's choice).
     CHECK(Settings::FromPreset(QualityPreset::Medium).normal_map_strength == high.normal_map_strength &&
-          high.normal_map_strength == 0.5f);
+          high.normal_map_strength == 1.0f);
 
     // Inconsistent requests are reported as well.
     Settings odd;
@@ -875,6 +879,87 @@ void CheckLuminanceRelief()
     for (int x = 0; x < 512; ++x)
         lean_half = std::max(lean_half, std::fabs(NormalAt(at_half, 0, x, 1)[0]));
     CHECK(lean_full > 0.1f && Near(lean_half, lean_full, 0.1f * lean_full));
+}
+
+// DeepBump around the model (a stand-in `infer`): tiles cover the wrapped image, axes, strength; the relief store.
+void CheckDeepBump()
+{
+    constexpr int T = kDeepBumpTile;
+    // A stand-in whose output depends only on the texel's own value: the blended result must be that function of the
+    // texel, wherever the tiles fall (positions, wrap, blend weights).
+    const int w = 300, h = 170;
+    std::vector<float> grey(static_cast<size_t>(w) * h);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            grey[static_cast<size_t>(y) * w + x] = static_cast<float>((x * 7 + y * 13) % 97) / 96.0f;
+    int tiles = 0;
+    const auto per_texel = [&](const float *tile, float *out) {
+        ++tiles;
+        for (int i = 0; i < T * T; ++i)
+        {
+            out[i] = 0.5f + 0.3f * tile[i];            // x grows with the value
+            out[T * T + i] = 0.5f + 0.2f;               // the model's +y (up the image)
+            out[2 * T * T + i] = 1.0f;
+        }
+        return true;
+    };
+    const std::vector<float> normals = DeepBumpNormals(grey, w, h, per_texel);
+    CHECK(tiles == DeepBumpTileCount(w, h) && normals.size() == static_cast<size_t>(w) * h * 3);
+    float worst = 0.0f;
+    for (size_t t = 0; t < grey.size(); ++t)
+    {
+        float n[3] = {0.3f * grey[t], -0.2f, 0.5f}; // y flipped into our +v
+        const float l = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        for (int c = 0; c < 3; ++c)
+            worst = std::max(worst, std::fabs(normals[t * 3 + c] - n[c] / l));
+    }
+    CHECK(worst < 1e-4f);
+    // An aborted inference gives no normals.
+    CHECK(DeepBumpNormals(grey, w, h, [](const float *, float *) { return false; }).empty());
+
+    // The input: grey = mean of R, G, B, box-halved to the map size.
+    std::vector<uint8_t> rgba(16 * 8 * 4, 0);
+    for (size_t i = 0; i < rgba.size(); i += 4)
+        rgba[i] = 255, rgba[i + 3] = 255; // pure red: grey 1/3
+    const std::vector<float> input = DeepBumpInput(rgba, 16, 8, 4, 2);
+    CHECK(input.size() == 8 && Near(input[0], 1.0f / 3.0f, 1e-5f));
+
+    // The map: mips down to 1x1, RMS tilt of the top mip = the target, never above 0.99.
+    const NormalMap map = DeepBumpNormalMap(normals, w, h, 0.15f);
+    CHECK(map.width == w && map.height == h && map.mip_count == 9 && map.rg.size() == NormalMapBytes(w, h));
+    CHECK(Near(TiltRms(map), 0.15f, 0.01f));
+    const NormalMap steep = DeepBumpNormalMap(normals, w, h, 5.0f);
+    for (size_t i = 0; i < steep.rg.size(); i += 2)
+    {
+        const float x = steep.rg[i] / 255.0f * 2 - 1, y = steep.rg[i + 1] / 255.0f * 2 - 1;
+        CHECK(std::sqrt(x * x + y * y) <= 1.0f);
+    }
+
+    // Probe levels: the first level no larger than 64 px, none below a 4x4 block.
+    CHECK(ReliefProbeLevel(1024, 512, 11) == 4 && ReliefProbeLevel(64, 64, 7) == 0 && ReliefProbeLevel(512, 4, 8) == -1);
+    CHECK(ReliefProbeLevel(256, 256, 1) == -1);
+    // Keys follow the path, the probe bytes and the method.
+    const uint8_t probe[4] = {1, 2, 3, 4};
+    const uint64_t key = ReliefKey("a/b", probe, 4, 4, kReliefMethodVersion, kReliefMapSize);
+    const uint8_t other[4] = {1, 2, 3, 5};
+    CHECK(key == ReliefKey("a/b", probe, 4, 4, kReliefMethodVersion, kReliefMapSize));
+    CHECK(key != ReliefKey("a/c", probe, 4, 4, kReliefMethodVersion, kReliefMapSize));
+    CHECK(key != ReliefKey("a/b", other, 4, 4, kReliefMethodVersion, kReliefMapSize));
+    CHECK(key != ReliefKey("a/b", probe, 4, 4, kReliefHeightMethod, kReliefMapSize));
+
+    // The store: a written map reads back; a damaged file is deleted and reported.
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "storm_fx_relief_check";
+    std::filesystem::remove_all(dir);
+    NormalMap eac{8, 4, 4, NormalMapFormat::EacRg11, std::vector<uint8_t>(NormalMapBytes(8, 4, NormalMapFormat::EacRg11), 7)};
+    CHECK(!HasReliefMap(dir, key) && !ReadReliefMap(dir, key));
+    CHECK(WriteReliefMap(dir, key, eac) && HasReliefMap(dir, key));
+    const std::optional<NormalMap> back = ReadReliefMap(dir, key);
+    CHECK(back && back->width == 8 && back->height == 4 && back->mip_count == 4 && back->format == NormalMapFormat::EacRg11 &&
+          back->rg == eac.rg);
+    std::filesystem::resize_file(ReliefFile(dir, key), 40);
+    std::string error;
+    CHECK(!ReadReliefMap(dir, key, &error) && !error.empty() && !HasReliefMap(dir, key));
+    std::filesystem::remove_all(dir);
 }
 
 void CheckCheapUpgrades()
@@ -1354,6 +1439,7 @@ int main()
     CheckNormalMaps();
     CheckCheapUpgrades();
     CheckLuminanceRelief();
+    CheckDeepBump();
     CheckReliefRules();
     CheckAoVolume();
     CheckLampShadows();

@@ -610,13 +610,21 @@ bool Renderer::Init()
 #endif
         storm::render::ConfigureProgramCache(programCache);
 
-        // Normal maps derived from the game's textures (fx relief): game-derived data, never shipped.
+        // Relief maps (fx/relief_store.hpp): made from the game's files at import (Android launcher: the app's external
+        // files directory, or the internal one, + "relief", the same rule as the launcher's NativeRelief call), never
+        // shipped. engine.ini relief_dir overrides (host checks with prepared maps).
+        ini->ReadString(nullptr, "relief_dir", str, sizeof(str), "");
+        std::filesystem::path reliefDir = str;
+        if (reliefDir.empty())
+        {
 #ifdef __ANDROID__
-        const std::filesystem::path effectsCache = storm::android::cacheDirectory();
+            const char *external = SDL_AndroidGetExternalStoragePath();
+            reliefDir = std::filesystem::path(external && *external ? external : SDL_AndroidGetInternalStoragePath()) / "relief";
 #else
-        const std::filesystem::path effectsCache = fs::GetStashPath();
+            reliefDir = fs::GetStashPath() / "relief";
 #endif
-        storm::render::ConfigureEffectsCache(effectsCache, uint64_t{512} << 20);
+        }
+        storm::render::ConfigureReliefDirectory(reliefDir);
 
         FovMultiplier = ini->GetFloat(nullptr, "fov_multiplier", 1.0f);
 
