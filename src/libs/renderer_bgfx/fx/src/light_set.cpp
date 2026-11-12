@@ -25,7 +25,8 @@ float LightAttenuation(const PointLight &light, float distance)
     return attenuation * fade;
 }
 
-LightSelection SelectLights(std::span<const PointLight> lights, Vec3 center, float radius, int max_count, bool include_baked)
+LightSelection SelectLights(std::span<const PointLight> lights, Vec3 center, float radius, int max_count, bool include_baked,
+                            bool fade_rank)
 {
     struct Scored
     {
@@ -53,6 +54,17 @@ LightSelection SelectLights(std::span<const PointLight> lights, Vec3 center, flo
     selection.dropped = static_cast<int>(scored.size() - keep);
     for (size_t i = 0; i < keep; ++i)
         selection.lights[selection.count++] = *scored[i].light;
+    if (fade_rank && keep > 0 && scored.size() > keep)
+    {
+        // partial_sort leaves the rest unordered: the strongest left-out light is the largest of them.
+        float next = 0.0f;
+        for (size_t i = keep; i < scored.size(); ++i)
+            next = std::max(next, scored[i].score);
+        const float last = scored[keep - 1].score;
+        const float weight = std::clamp((last - next) / (kRankFade * last), 0.0f, 1.0f);
+        for (float &c : selection.lights[keep - 1].color)
+            c *= weight;
+    }
     return selection;
 }
 

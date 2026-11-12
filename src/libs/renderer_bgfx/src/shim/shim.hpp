@@ -223,6 +223,14 @@ struct BufferBase
 struct VertexBuffer final : Object, BufferBase
 {
     DWORD fvf = 0;
+    // Bounding spheres of vertex ranges drawn from this buffer (Device::draw_bounds), valid for `bounds_serial`.
+    struct RangeBounds
+    {
+        uint32_t first, count, stride, offset;
+        float center[3], radius;
+    };
+    std::vector<RangeBounds> bounds;
+    uint32_t bounds_serial = UINT32_MAX;
     bgfx::VertexBufferHandle handle = BGFX_INVALID_HANDLE; // immutable snapshot, re-created when stale
     ~VertexBuffer() override;
     HRESULT Lock(UINT offset, UINT size, void **data, DWORD flags);

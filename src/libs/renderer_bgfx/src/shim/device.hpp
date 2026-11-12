@@ -246,6 +246,8 @@ struct Device final : Object
         uint32_t primitive_count = 0;
         bool indexed = false;
         int32_t base_vertex = 0;
+        uint32_t min_index = 0;    // indexed: D3D MinVertexIndex / NumVertices (the vertices the indices reach)
+        uint32_t index_vertex_count = 0;
         uint32_t start_vertex = 0; // non-indexed
         uint32_t start_index = 0;
         const uint8_t *up_vertices = nullptr;
@@ -255,6 +257,9 @@ struct Device final : Object
         uint32_t up_vertex_count = 0;
     };
     HRESULT draw(const DrawCall &call);
+    // Object-space bounding sphere of the vertices a draw reaches (stream 0 positions); false when unknown.
+    bool draw_bounds(const DrawCall &call, const LayoutInfo &layout, uint32_t element_count, float center[3],
+                     float &radius);
     void skip_draw(const char *reason);
     const LayoutInfo *current_layout();
     const LayoutInfo *fvf_layout(DWORD fvf, uint32_t stride);

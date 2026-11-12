@@ -50,6 +50,15 @@ namespace storm::effects
 {
 
 // What one fixed-function draw does differently under the effects.
+// World-space bounding sphere of the vertices a draw covers (shim::Device::draw_bounds): the lights are chosen
+// for it, so the choice depends on where the geometry is, never on the camera.
+struct DrawSphere
+{
+    fx::Vec3 center{0.0f, 0.0f, 0.0f};
+    float radius = 0.0f;
+    bool valid = false;
+};
+
 struct FfDraw
 {
     bool active = false;      // a variant below replaces the legacy program
@@ -84,7 +93,8 @@ class Lighting
     bool idle() const { return !lighting_ && !coverage_; }
 
     // Fixed-function draw (no shader ports). `cube_variant` = the fs_ff_cube* variant the shim picked (0 = none).
-    void prepare(const shim::Device &device, const shim::LayoutInfo &layout, uint32_t cube_variant, FfDraw &draw);
+    void prepare(const shim::Device &device, const shim::LayoutInfo &layout, uint32_t cube_variant, const DrawSphere &sphere,
+                 FfDraw &draw);
     void submit(const FfDraw &draw);
     // Fog of a draw with fog enabled in D3DFOG_EXP mode (the game's): true when it takes the aerial perspective (fog
     // mode 5); u_fxAerialUp is then set for that draw and `haze` goes where fog mode 5 reads it (the fog start and end
@@ -145,6 +155,7 @@ class Lighting
     NormalMaps normal_maps_;
     SunShadows shadows_;
     bool cube_reported_ = false;
+    bool bounds_reported_ = false;
     bool aerial_port_reported_ = false;
     bgfx::UniformHandle u_aerial_up_ = BGFX_INVALID_HANDLE;
     fx::Lighting fx_;

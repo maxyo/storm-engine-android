@@ -50,7 +50,11 @@ struct LightSelection
 // The `max_count` lights that contribute most to an object with the given bounding sphere, strongest first.
 // Lights that cannot reach the sphere are dropped. `include_baked = false` is for geometry whose vertex
 // colours already contain the baked lights: only dynamic lights (flashes, carried lanterns) are returned.
-LightSelection SelectLights(std::span<const PointLight> lights, Vec3 center, float radius, int max_count, bool include_baked = true);
+// `fade_rank`: when lights are left out, the weakest kept one is dimmed as the strongest left-out one catches up
+// (full at kRankFade of its score ahead, off when equal), so a light entering or leaving the budget never pops.
+inline constexpr float kRankFade = 0.5f;
+LightSelection SelectLights(std::span<const PointLight> lights, Vec3 center, float radius, int max_count, bool include_baked = true,
+                            bool fade_rank = false);
 
 // Short-lived lights for muzzle flashes and explosions. Add() at the event, Update() once per frame,
 // then append Lights() to the frame's light list.

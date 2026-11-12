@@ -3,6 +3,7 @@
 #include "perf.hpp"
 #include "ports.hpp"
 #include "util.hpp"
+#include <cfloat>
 
 
 namespace storm::shim
@@ -790,6 +791,78 @@ bgfx::ProgramHandle Device::program(uint32_t vs_id, uint32_t fs_id)
 
 // ---------------------------------------------------------------------------
 // draws
+bool Device::draw_bounds(const DrawCall &call, const LayoutInfo &layout, uint32_t element_count, float center[3],
+                         float &radius)
+{
+    const bgfx::VertexLayout &vl = layout.layout[0];
+    if (layout.rhw || !vl.has(bgfx::Attrib::Position))
+        return false;
+    // The vertex range the draw reaches: D3D's MinVertexIndex / NumVertices for indexed draws.
+    uint32_t first = call.indexed ? static_cast<uint32_t>(call.base_vertex) + call.min_index : call.start_vertex;
+    uint32_t count = call.indexed ? call.index_vertex_count : element_count;
+    const uint8_t *data;
+    size_t available;
+    VertexBuffer *vb = nullptr;
+    if (call.up_vertices)
+    {
+        data = call.up_vertices;
+        if (call.indexed)
+            first = call.min_index;
+        available = (static_cast<size_t>(first) + count) * call.up_stride;
+    }
+    else
+    {
+        vb = s.stream[0];
+        if (!vb || s.stream_offset[0] > vb->shadow.size())
+            return false;
+        data = vb->shadow.data() + s.stream_offset[0];
+        available = vb->shadow.size() - s.stream_offset[0];
+    }
+    const uint32_t stride = vl.getStride();
+    if (count == 0 || stride == 0 || (static_cast<size_t>(first) + count) * stride > available)
+        return false;
+    if (vb)
+    {
+        if (vb->bounds_serial != vb->write_serial)
+        {
+            vb->bounds.clear();
+            vb->bounds_serial = vb->write_serial;
+        }
+        for (const VertexBuffer::RangeBounds &b : vb->bounds)
+            if (b.first == first && b.count == count && b.stride == stride && b.offset == s.stream_offset[0])
+            {
+                memcpy(center, b.center, sizeof(float) * 3);
+                radius = b.radius;
+                return true;
+            }
+    }
+    // Box centre, then the farthest vertex from it.
+    float lo[3] = {FLT_MAX, FLT_MAX, FLT_MAX}, hi[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    float p[4];
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        bgfx::vertexUnpack(p, bgfx::Attrib::Position, vl, data, first + i);
+        for (int k = 0; k < 3; ++k)
+        {
+            lo[k] = std::min(lo[k], p[k]);
+            hi[k] = std::max(hi[k], p[k]);
+        }
+    }
+    float r2 = 0.0f;
+    for (int k = 0; k < 3; ++k)
+        center[k] = 0.5f * (lo[k] + hi[k]);
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        bgfx::vertexUnpack(p, bgfx::Attrib::Position, vl, data, first + i);
+        const float dx = p[0] - center[0], dy = p[1] - center[1], dz = p[2] - center[2];
+        r2 = std::max(r2, dx * dx + dy * dy + dz * dz);
+    }
+    radius = std::sqrt(r2);
+    if (vb && vb->bounds.size() < 256) // static models draw a handful of subsets; dynamic buffers are rewritten
+        vb->bounds.push_back({first, count, stride, s.stream_offset[0], {center[0], center[1], center[2]}, radius});
+    return true;
+}
+
 HRESULT Device::DrawPrimitive(D3DPRIMITIVETYPE type, UINT start_vertex, UINT primitive_count)
 {
     DrawCall call;
@@ -799,14 +872,16 @@ HRESULT Device::DrawPrimitive(D3DPRIMITIVETYPE type, UINT start_vertex, UINT pri
     return draw(call);
 }
 
-HRESULT Device::DrawIndexedPrimitive(D3DPRIMITIVETYPE type, INT base_vertex, UINT, UINT, UINT start_index,
-                                     UINT primitive_count)
+HRESULT Device::DrawIndexedPrimitive(D3DPRIMITIVETYPE type, INT base_vertex, UINT min_index, UINT vertex_count,
+                                     UINT start_index, UINT primitive_count)
 {
     DrawCall call;
     call.type = type;
     call.primitive_count = primitive_count;
     call.indexed = true;
     call.base_vertex = base_vertex;
+    call.min_index = min_index;
+    call.index_vertex_count = vertex_count;
     call.start_index = start_index;
     return draw(call);
 }
@@ -833,6 +908,8 @@ HRESULT Device::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE type, UINT min_index, UI
     call.up_indices = index_data;
     call.up_index32 = index_format == D3DFMT_INDEX32;
     call.up_vertex_count = min_index + vertex_count;
+    call.min_index = min_index;
+    call.index_vertex_count = vertex_count;
     return draw(call);
 }
 
@@ -950,7 +1027,23 @@ HRESULT Device::draw(const DrawCall &call)
     effects::Lighting &fx_lighting = effects::Host::instance().lighting();
     effects::FfDraw fx_draw;
     if (!vs_port && !ps_port && fs_variant != 4 && !fx_lighting.idle())
-        fx_lighting.prepare(*this, *layout, fs_variant, fx_draw);
+    {
+        // The lights are chosen for the part of the world the draw covers (its vertices' sphere in world space).
+        effects::DrawSphere sphere;
+        float center[3], radius = 0.0f;
+        if (draw_bounds(call, *layout, element_count, center, radius))
+        {
+            const D3DMATRIX &w = s.world;
+            for (int k = 0; k < 3; ++k)
+                sphere.center[k] = center[0] * w.m[0][k] + center[1] * w.m[1][k] + center[2] * w.m[2][k] + w.m[3][k];
+            float scale = 0.0f;
+            for (int r = 0; r < 3; ++r)
+                scale = std::max(scale, std::sqrt(w.m[r][0] * w.m[r][0] + w.m[r][1] * w.m[r][1] + w.m[r][2] * w.m[r][2]));
+            sphere.radius = radius * scale;
+            sphere.valid = true;
+        }
+        fx_lighting.prepare(*this, *layout, fs_variant, sphere, fx_draw);
+    }
     if (layout->skinned && (vs_port || !store_of(s.vertex_texture)))
     {
         skip_draw(vs_port ? "skinned vertices with a vertex shader port"

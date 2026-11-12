@@ -11,10 +11,6 @@ namespace storm::effects
 
 namespace
 {
-// Assumed bounding radius of a lit object around its world origin (characters, deck objects; hulls are larger,
-// their farther lights then stay in the vertex sum) and of the view around the camera for baked geometry.
-constexpr float kObjectRadius = 2.0f;
-constexpr float kBakedRadius = 20.0f;
 
 fx::Vec3 rgb(const D3DCOLORVALUE &c)
 {
@@ -44,10 +40,11 @@ fx::PointLight point_light(const D3DLIGHT9 &l)
 }
 
 // The per-draw budget (4 / 8) is a designed limit. Within it every light is taken (the shader applies range and
-// cone); beyond it fx::SelectLights ranks them by their contribution at a sphere the shim can only estimate
-// (it does not know the object's bounds). `picked` marks the chosen entries of `lights`.
+// cone); beyond it fx::SelectLights ranks them by their contribution at the draw's bounding sphere. `fade`: the
+// weakest kept light fades out as the first left-out one catches up (lights that only exist per pixel, so a
+// change of the chosen set is never a jump). `picked` marks the chosen entries of `lights`.
 fx::LightSelection select(std::span<const fx::PointLight> lights, const fx::Vec3 &center, float radius, int budget,
-                          uint8_t *picked)
+                          bool fade, uint8_t *picked)
 {
     fx::LightSelection selection;
     if (lights.size() <= static_cast<size_t>(budget))
@@ -57,7 +54,7 @@ fx::LightSelection select(std::span<const fx::PointLight> lights, const fx::Vec3
         *picked = static_cast<uint8_t>((1u << lights.size()) - 1u);
         return selection;
     }
-    selection = fx::SelectLights(lights, center, radius, budget);
+    selection = fx::SelectLights(lights, center, radius, budget, true, fade);
     *picked = 0;
     for (int i = 0; i < selection.count; ++i)
         for (size_t j = 0; j < lights.size(); ++j)
@@ -160,7 +157,8 @@ void Lighting::set_technique(const char *name)
         material_ = Material::Stone;
 }
 
-void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layout, uint32_t cube_variant, FfDraw &draw)
+void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layout, uint32_t cube_variant,
+                       const DrawSphere &sphere, FfDraw &draw)
 {
     if (layout.rhw)
         return;
@@ -184,13 +182,17 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     bool baked = false;
     if (lighting_ && layout.has_normal && !lit_state && budget_ > 0 && !dynamic_lights_.empty())
     {
-        // Static location models are drawn with the identity world matrix: rank around the camera instead.
-        const D3DMATRIX &v = device.s.view;
-        fx::Vec3 eye;
-        for (int j = 0; j < 3; ++j)
-            eye[j] = -(v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
-        baked_lights = select(dynamic_lights_, eye, kBakedRadius, budget_, &unused);
-        baked = baked_lights.count > 0;
+        // Ranked at the draw's own vertices: a torch lights the wall next to it wherever the camera is.
+        if (sphere.valid)
+        {
+            baked_lights = select(dynamic_lights_, sphere.center, sphere.radius, budget_, true, &unused);
+            baked = baked_lights.count > 0;
+        }
+        else if (!bounds_reported_)
+        {
+            bounds_reported_ = true;
+            shim::logf("effects: a baked draw without vertex positions gets no dynamic lights");
+        }
     }
     // Relief: stage 1 holds a height texture with a derived normal map (the game's 2x detail layer).
     bgfx::TextureHandle normal_map = BGFX_INVALID_HANDLE;
@@ -323,8 +325,16 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         if (budget_ > 0 && point_count > 0)
         {
             uint8_t picked = 0;
+            // Lights left out stay in the vertex sum, so the choice is not faded; it depends only on where the
+            // draw's vertices and the lights are. Without positions the model origin stands for the draw.
             const D3DMATRIX &w = device.s.world;
-            selection = select(std::span(points, point_count), {w.m[3][0], w.m[3][1], w.m[3][2]}, kObjectRadius, budget_,
+            const fx::Vec3 center = sphere.valid ? sphere.center : fx::Vec3{w.m[3][0], w.m[3][1], w.m[3][2]};
+            if (!sphere.valid && !bounds_reported_)
+            {
+                bounds_reported_ = true;
+                shim::logf("effects: a lit draw without vertex positions: its lights are chosen at the model origin");
+            }
+            selection = select(std::span(points, point_count), center, sphere.valid ? sphere.radius : 0.0f, budget_, false,
                                &picked);
             for (size_t i = 0; i < point_count; ++i)
                 if (picked & (1u << i))

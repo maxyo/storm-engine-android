@@ -642,6 +642,41 @@ void CheckLights()
     lights[3].color = {16.0f, 16.0f, 16.0f};
     CHECK(SelectLights(lights, {0.0f, 1.0f, 0.0f}, 1.0f, 1).lights[0].position[0] == 9.0f);
 
+    // A wall of a large baked mesh next to a torch: chosen at the wall's own sphere, the torch lights it, and the
+    // choice does not depend on anything else (there is no camera in it: the renderer passes the draw's bounds).
+    {
+        PointLight wall_torch = torch;
+        wall_torch.position = {40.0f, 2.0f, 0.0f};
+        std::vector<PointLight> town(6, torch);
+        for (int i = 0; i < 6; ++i)
+            town[i].position = {-60.0f + 4.0f * i, 2.0f, 0.0f}; // far from the wall
+        town.push_back(wall_torch);
+        const LightSelection wall = SelectLights(town, {41.0f, 2.0f, 0.0f}, 3.0f, 4, true, true);
+        CHECK(wall.count == 1 && wall.lights[0].position[0] == 40.0f && wall.lights[0].color[0] == torch.color[0]);
+    }
+    // Rank fade: as a left-out light catches up with the weakest kept one, the kept one dims to nothing, so the
+    // swap of the two is continuous; with a clear lead it keeps its full colour.
+    {
+        PointLight a = torch, b = torch;
+        a.position = {0.0f, 0.0f, 0.0f};
+        b.position = {0.0f, 0.0f, 0.0f};
+        a.color = {1.0f, 1.0f, 1.0f};
+        float previous_weight = 1.0f;
+        for (int step = 0; step <= 10; ++step)
+        {
+            b.color = {0.1f * step, 0.1f * step, 0.1f * step}; // catches up with a
+            const PointLight pair[2] = {a, b};
+            const LightSelection one = SelectLights(pair, {0.0f, 0.0f, 0.0f}, 0.0f, 1, true, true);
+            CHECK(one.count == 1 && one.lights[0].color[0] <= previous_weight + 1e-6f);
+            previous_weight = one.lights[0].color[0];
+            if (step <= 4)
+                CHECK(Near(one.lights[0].color[0], 1.0f, 1e-6f)); // b at most 40 %: a keeps all of its light
+        }
+        CHECK(previous_weight < 1e-6f); // equal scores: the kept light is faded out completely
+        const PointLight pair[2] = {a, b};
+        CHECK(SelectLights(pair, {0.0f, 0.0f, 0.0f}, 0.0f, 1).lights[0].color[0] == 1.0f); // fade off: unchanged
+    }
+
     // Uniform packing: view-space position, D3D terms, spot cone as scale and bias.
     std::array<float, 16> view = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -1, -2, -3, 1};
     LightSelection selection;
