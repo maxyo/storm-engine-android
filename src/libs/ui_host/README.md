@@ -38,7 +38,8 @@ without the engine): the neutral placeholder stays, logged once.
 
 Every screen switch logs one line (`StormUi` INFO, also in the player's shared log): `UI switch
 <screen>: first frame N ms after the action …` — from the engine action that led to it through the
-game opening its interface and the model arriving to the screen's first frame and until its frames
+game opening its interface and the model arriving to the screen's first frame (with
+the frames held back for it while its layer textures were made) and until its frames
 stop re-laying out, with the CPU of those frames by stage (model apply, component rebuilds, styles,
 layout, game pictures, render with texture uploads; `FrameStats`).
 

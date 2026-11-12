@@ -1776,12 +1776,12 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
         const FrameStats &f = switch_.first_frame, &s = switch_.settle;
         char line[1024];
         std::snprintf(line, sizeof line,
-                      "UI switch %s: first frame %.0f ms after %s%s (game: %s%.0f ms to the model), settled %.0f ms after it in %d more frames | "
+                      "UI switch %s: first frame %.0f ms after %s%s (game: %s%.0f ms to the model; %d frames held for its textures), settled %.0f ms after it in %d more frames | "
                       "first frame CPU: apply %.1f, rebuild %.1f (%d, %d elements touched), style %.1f, layout %.1f (%d boxes, %d passes), pictures %d in %.1f, "
                       "render %.1f incl. %d meshes, textures %d (%zu KB) in %.1f | settling CPU: update %.1f, render %.1f, rebuild %d, layout %.1f (%d passes), "
                       "pictures %d in %.1f",
                       switch_.screen.c_str(), ms(origin, switch_.first), acted ? "the tap" : "the interface opened", "", switch_.expected ? ("interface opened +" + std::to_string(int(ms(origin, switch_.begun))) + " ms, ").c_str() : "",
-                      ms(origin, switch_.modelled), ms(switch_.first, now), switch_.frames - 1, f.apply_ms, f.rebuild_ms, f.rebuilds, f.touched, f.style_ms,
+                      ms(origin, switch_.modelled), f.held, ms(switch_.first, now), switch_.frames - 1, f.apply_ms, f.rebuild_ms, f.rebuilds, f.touched, f.style_ms,
                       f.layout_ms, f.laid_out, f.layout_passes, f.pictures, f.picture_ms, f.render_ms, f.geometry, f.textures, f.texture_bytes / 1024, f.texture_ms,
                       s.update_ms, s.render_ms, s.rebuilds, s.layout_ms, s.layout_passes, s.pictures, s.picture_ms);
         Log(line);
