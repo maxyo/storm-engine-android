@@ -976,17 +976,24 @@ static void Shipyard(const std::string &models)
     router.SetInterface(main);
     Expect(router.Using() == "shipyard" && surface.tag == "s-shipyard" && router.Rejection().empty(), "shipyard is drawn by its screen");
     Expect(surface.errors.empty() && surface.props["extras"]["rows"].empty() && surface.props["extras"]["note"] == "", "no errors, no extras");
-    Expect(surface.props["catalog"]["rows"].size() == 3 && surface.props["catalog"]["rows"][2]["cells"][2]["text"] == "23 824" &&
-               surface.props["catalog"]["rows"][0]["cells"][0]["sub"] == "«Чайка»",
-           "catalogue: type, «name», grouped price");
-    Expect(surface.props["own"]["sub"] == "Класс 5" && surface.props["own"]["actions"].size() == 2 && surface.props["own"]["actions"][1]["sub"] == "11\u00a0575",
-           "our ship: repair, and sell with its trade-in price");
-    Expect(surface.props["detail"]["title"] == "Кеч «Марта»" && surface.props["detail"]["primary"].is_null() &&
-               surface.props["detail"]["cannons"]["value"] == "6 фунт / 12" && surface.props["sheet"].is_null(),
-           "our ship on the right; no buy button for it");
-    Expect(surface.props["subject"]["label"] == "Марта" && surface.props["subject"]["sub"] == "1 <common.of> 5", "fleet slots in the header");
+    Expect(surface.props["offers"].size() == 3 && surface.props["offers"][2]["value"] == "23 824" &&
+               surface.props["offers"][0]["title"] == "Шлюпка «Чайка»" && surface.props["offers"][0]["meta"] == "<yard.class> 6",
+           "the yard's offers: type «name», class, grouped price: " + surface.props["offers"][0].dump());
+    Expect(surface.props["fleet"].size() == 2 && surface.props["fleet"][0]["title"] == "Кеч «Марта»" && surface.props["fleet"][0]["meta"] == "Класс 5" &&
+               surface.props["fleet"][0]["value"] == "11\u00a0575" && surface.props["fleet"][0]["selected"] == true &&
+               surface.props["fleet"][1]["title"] == "<yard.empty_slot>" && surface.props["subject"].is_null(),
+           "our ships in the list: each slot with a ship and its trade-in value, one free place of the four");
+    {
+        const Json &detail = surface.props["detail"];
+        Expect(detail["title"] == "Кеч «Марта»" && detail["actions"].size() == 3 && detail["actions"][0]["id"] == "repair" &&
+                   detail["actions"][1]["sub"] == "6 фунт / 12" && detail["actions"][2]["id"] == "sell" && detail["actions"][2]["hold"] == true &&
+                   detail["actions"][2]["sub"] == "11\u00a0575" && surface.props["sheet"].is_null(),
+               "our ship on the card: repair, cannons, sell held with its price; no buy button for it");
+        Expect(detail["facts"].size() == 8 && detail["facts"][0] == Json({{"k", "Корпус"}, {"v", "610 / 610"}, {"icon", "hull"}}) && detail["against"] == "",
+               "the figures with their icons, nothing to compare our ship with");
+    }
 
-    router.OnEvent({"catalog", "row", "1"});
+    router.OnEvent({"offer-1", "click", ""});
     ExpectEqual(surface.Last(), Yard(main, "TABLE_SHIPYARD", 1, "choice", "select"), "a catalogue row selects the offer with its token");
     surface.commands.clear();
     router.OnEvent({"sell", "click", ""});
@@ -997,8 +1004,8 @@ static void Shipyard(const std::string &models)
     ExpectEqual(surface.Last(), Yard(main, "BUTTON_SELL", -1, "button", "press"), "sell presses the game's button");
     main.revision += 1;
     router.SetInterface(main);
-    router.OnEvent({"header", "subject-next", ""});
-    ExpectEqual(surface.Last(), Yard(main, "SHIPS_SCROLL", 1, "choice", "select"), "the next fleet slot");
+    router.OnEvent({"fleet-1", "click", ""});
+    ExpectEqual(surface.Last(), Yard(main, "SHIPS_SCROLL", 1, "choice", "select"), "the free place is a fleet slot of the list");
     main.revision += 1;
     router.SetInterface(main);
     router.OnEvent({"cannons", "click", ""});
@@ -1015,7 +1022,7 @@ static void Shipyard(const std::string &models)
     router.SetInterface(settling);
     surface.commands.clear();
     router.OnEvent({"sell", "click", ""});
-    Expect(surface.commands.empty() && surface.props["own"]["actions"][1]["disabled"] == true, "a state that is not ready offers nothing");
+    Expect(surface.commands.empty() && surface.props["detail"]["actions"][2]["disabled"] == true, "a state that is not ready offers nothing");
     Expect(surface.errors.empty(), "a state settling for a moment is not an error");
     surface.now += 2.5;
     router.Tick();
@@ -1023,16 +1030,46 @@ static void Shipyard(const std::string &models)
 
     const InterfaceModel preview = Load(models, "shipyard-preview.json");
     router.SetInterface(preview);
-    Expect(surface.props["detail"]["title"] == "Шлюпка «Чайка»" && surface.props["detail"]["primary"]["label"] == "Купить" &&
-               surface.props["detail"]["primary"]["sub"] == "2 170" && surface.props["catalog"]["rows"][0]["selected"] == true,
-           "an offer on the right: buy with its price");
+    {
+        // shipyard.c: a ship in the chosen slot is traded in; 2 170 for a ship worth 11 575 returns 9 405.
+        const Json &detail = surface.props["detail"];
+        Expect(detail["title"] == "Шлюпка «Чайка»" && detail["actions"].size() == 1 && detail["actions"][0]["label"] == "<yard.trade_get>" &&
+                   detail["actions"][0]["sub"] == "9 405" && detail["actions"][0]["hold"] == true && surface.props["offers"][0]["selected"] == true &&
+                   surface.props["fleet"][0]["selected"] == true && detail["against"] == "Марта",
+               "an offer on the card: traded for our chosen ship, the difference on the held button: " + detail["actions"].dump());
+        Expect(detail["facts"][0]["own"] == "610 / 610" && detail["facts"][0]["tone"] == "danger" && detail["facts"][3]["tone"] == "ok" &&
+                   !detail["facts"][1].contains("tone"),
+               "its figures beside our ship's: a weaker hull red, a better turn rate green, sails plain: " + detail["facts"].dump());
+        // Into the free place it is a plain purchase.
+        InterfaceModel free_place = preview;
+        for (Widget &widget : free_place.widgets)
+            if (widget.node == "SHIPS_SCROLL" && widget.type == "choice")
+                widget.value = widget.index == 1 ? "1" : "0";
+        FakeSurface free_surface;
+        Router free_router(free_surface);
+        free_router.SetInterface(free_place);
+        Expect(free_surface.props["detail"]["actions"][0]["label"] == "Купить" && free_surface.props["detail"]["actions"][0]["sub"] == "2 170" &&
+                   !free_surface.props["detail"]["facts"][0].contains("own"),
+               "the free place chosen: buy with the full price, nothing to compare with");
+    }
     router.OnEvent({"primary", "click", ""});
     ExpectEqual(surface.Last(), Yard(preview, "BUTTON_BUY", -1, "button", "press"), "buy presses the game's button");
     InterfaceModel looking = preview;
     looking.revision += 1;
     router.SetInterface(looking);
-    router.OnEvent({"own", "click", ""});
+    router.OnEvent({"fleet-0", "click", ""});
     ExpectEqual(surface.Last(), Yard(looking, "SHIPS_SCROLL", 0, "choice", "select"), "our ship's row brings it back to the card");
+    {
+        // A deal held on its button is not asked about again: the game's question is answered at once.
+        FakeSurface held_surface;
+        Router held(held_surface);
+        held.SetInterface(Load(models, "shipyard-main.json"));
+        held.OnEvent({"sell", "click", ""});
+        const InterfaceModel asked = Load(models, "shipyard-confirm-sell.json");
+        held.SetInterface(asked);
+        ExpectEqual(held_surface.Last(), Yard(asked, "MSG_OK", -1, "button", "press"), "held sell: the game's confirmation is answered");
+        Expect(held_surface.props["sheet"].is_null(), "and no sheet asks a second time");
+    }
 
     const InterfaceModel sell = Load(models, "shipyard-confirm-sell.json");
     router.SetInterface(sell);
