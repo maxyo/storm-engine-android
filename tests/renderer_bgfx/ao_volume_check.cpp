@@ -71,7 +71,8 @@ class Harness
     bool relative = false;
 
     // The floor from 5 m above, orthographic over 6 x 6 m; returns the picture (BGRA).
-    std::vector<uint8_t> render()
+    // `light`: a lit floor with this one light (lamp shadows have lit receivers only); none: the baked floor.
+    std::vector<uint8_t> render(const D3DLIGHT9 *light = nullptr)
     {
         check(d_.BeginScene(), "BeginScene");
         check(d_.Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xFF000000, 1.0f, 0), "Clear");
@@ -103,8 +104,19 @@ class Harness
         d_.SetTransform(D3DTS_PROJECTION, &projection);
         d_.SetRenderState(D3DRS_ZENABLE, FALSE);
         d_.SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-        d_.SetRenderState(D3DRS_LIGHTING, FALSE);
+        d_.SetRenderState(D3DRS_LIGHTING, light ? TRUE : FALSE);
         d_.SetRenderState(D3DRS_AMBIENT, 0xFF202020);
+        if (light)
+        {
+            D3DMATERIAL9 material{};
+            material.Diffuse = material.Ambient = {1.0f, 1.0f, 1.0f, 1.0f};
+            d_.SetMaterial(&material);
+            D3DLIGHT9 shifted = *light; // the Renderer shifts the lights with the world matrices
+            if (relative)
+                shifted.Position.y -= 5.0f;
+            d_.SetLight(0, &shifted);
+            d_.LightEnable(0, TRUE);
+        }
         d_.SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
         d_.SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
         d_.SetTexture(0, nullptr);
@@ -244,10 +256,18 @@ int main()
             }
 
             // Lamp shadows: a lamp 2.5 m above the floor at (-2, -2) and a 0.6 m pillar between it and the far side;
-            // the floor behind the pillar (seen from the lamp) darkens, the floor beside it does not.
+            // the lit floor (lamp shadows have lit receivers only) behind the pillar (seen from the lamp) darkens, the
+            // floor beside it does not.
             add_box(positions, indices, {-1.3f, 0.0f, -1.3f}, {-0.7f, 2.0f, -0.7f});
             render::SetEffectsAoGeometry("ao_volume_check room with a pillar", positions, indices);
             const render::EffectsPointLight lamp{{-2.0f, 2.0f, -2.0f}, {4.0f, 3.6f, 3.0f}, 15.0f, 0.5f, 0.0f, 0.1f};
+            D3DLIGHT9 lamp_light{};
+            lamp_light.Type = D3DLIGHT_POINT;
+            lamp_light.Diffuse = {4.0f, 3.6f, 3.0f, 1.0f};
+            lamp_light.Position = {-2.0f, 2.0f, -2.0f};
+            lamp_light.Range = 15.0f;
+            lamp_light.Attenuation0 = 0.5f;
+            lamp_light.Attenuation2 = 0.1f;
             for (const int count : {0, 4})
             {
                 bool ready = true;
@@ -255,14 +275,14 @@ int main()
                 for (int frame = 0; frame < 400; ++frame)
                 {
                     render::SetEffectsLamps(std::span(&lamp, 1));
-                    harness.render();
+                    harness.render(&lamp_light);
                     if (!render::CurrentEffects().pending && frame > 30)
                         break;
                     SDL_Delay(5);
                 }
                 ready = !render::CurrentEffects().pending;
                 render::SetEffectsLamps(std::span(&lamp, 1));
-                const auto picture = harness.render();
+                const auto picture = harness.render(&lamp_light);
                 if (const char *dump = std::getenv("AO_CHECK_DUMP"))
                 {
                     char name[512];

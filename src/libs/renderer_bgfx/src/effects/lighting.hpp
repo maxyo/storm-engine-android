@@ -91,7 +91,6 @@ struct FfDraw
     bool sun_caster = false;       // caster: the sun shadow view
     bool lamp_caster = false;      // caster: the lamp faces its sphere reaches (characters)
     DrawSphere sphere{};
-    float ambient = 0.0f;          // luminance of the draw's global ambient (lamp shadows on baked colours)
 };
 
 class Lighting

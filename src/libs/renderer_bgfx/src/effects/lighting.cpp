@@ -238,9 +238,11 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     const shim::TexStore *picture = device.back_color ? device.back_color->store.get() : nullptr;
     const bool ao = ao_volume_ && lighting_ && layout.has_normal && target && target == picture;
     baked |= !lit_state && ao;
-    // Lamp shadows: the same receivers; the first one of a frame chooses the lamps for its camera.
+    // Lamp shadows: lit models in the game picture (characters, props); the first one of a frame chooses the lamps for
+    // its camera. Baked surfaces receive none: the game's bakes carry little lamp light the shadow could take away
+    // (fitted c0 + b x lamp light: R² ~0.1 in the taverns), so darkening them drew shadows where no lamp had lit.
     bool lamp_on = false;
-    if (lamps_.enabled() && lighting_ && layout.has_normal && target && target == picture)
+    if (lamps_.enabled() && lit && target && target == picture)
     {
         const D3DMATRIX &v = device.s.view;
         std::array<float, 3> eye{}; // absolute, like the lamps
@@ -248,7 +250,6 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             eye[j] = origin_[j] - (v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
         lamp_on = lamps_.prepare(const_cast<shim::Device &>(device), eye);
     }
-    baked |= !lit_state && lamp_on;
     if (!lit && !baked && !coverage)
         return;
     if (cube_variant != 0)
@@ -312,7 +313,6 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         ambient = {((c >> 16) & 255) / 255.0f, ((c >> 8) & 255) / 255.0f, (c & 255) / 255.0f, 1.0f};
     }
     input.ambient = rgb(ambient);
-    draw.ambient = 0.299f * ambient.r + 0.587f * ambient.g + 0.114f * ambient.b;
     fx::PointLight points[shim::kMaxLights];
     uint8_t point_slot[shim::kMaxLights];
     size_t point_count = 0;
@@ -469,7 +469,7 @@ void Lighting::submit(const FfDraw &draw)
     if (draw.shadow)
         shadows_.bind(draw.view);
     bind_ao_volume(draw);
-    lamps_.bind(draw.lamps, draw.world_view, draw.ambient);
+    lamps_.bind(draw.lamps, draw.world_view);
 }
 
 void Lighting::submit_caster(shim::Device &device, const D3DMATRIX &world, bool skinned)
