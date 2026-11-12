@@ -18,6 +18,7 @@ namespace storm::fx
 // They are above the emulator's own units (stages 0..4, cube maps 5..7 and 11, volume textures 8..10 and 12),
 // so every combination fits in the 16 units of GLES 3.0.
 inline constexpr uint8_t kShadowMapStage = 15; // 13 is the renderer's bone palette (vertex shader)
+inline constexpr uint8_t kAoVolumeStage = 12;  // the interior's AO volume (R8 3D) in the lit / baked FF variants
 inline constexpr uint8_t kNormalMapStage = 14;
 
 enum class QualityPreset : uint8_t
@@ -67,6 +68,23 @@ enum class ShadowQuality : uint8_t
     Soft, // 2048² map, four taps
 };
 
+// Strengths of the interior ambient-occlusion volume (Settings::ao_volume, option fx_ao_volume), for the owner's
+// choice of the interior contrast. The shader darkens by mix(1, pow(ao, contrast), strength), where ao is the baked
+// visibility relative to an open floor or wall (1 there, lower under tables, behind barrels, in corners).
+inline constexpr uint8_t kAoVolumeLevels = 3;
+struct AoVolumeLevel
+{
+    const char *name;
+    float strength;
+    float contrast;
+};
+inline constexpr AoVolumeLevel kAoVolumeLevel[kAoVolumeLevels + 1] = {
+    {"off", 0.0f, 1.0f},
+    {"as the game's data", 0.6f, 1.0f},
+    {"moderate contrast", 0.85f, 1.4f},
+    {"strong stylised contrast", 1.0f, 2.2f},
+};
+
 struct Settings
 {
     // ---- post chain ----
@@ -111,6 +129,8 @@ struct Settings
     uint8_t point_lights = 4;      // per draw call with kLightingPoint: 4 or 8
     float normal_map_strength = 1.0f; // with kLightingNormalMap: scales every material's relief (0..1)
     ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
+    // Ambient-occlusion volume of interiors (ao_volume.hpp): 0 off, else one of the strengths AoVolumeLevel names.
+    uint8_t ao_volume = 0;
 
     static Settings FromPreset(QualityPreset preset);
 
@@ -136,6 +156,7 @@ struct Support
     bool msaa_depth = false;    // the scene depth can still be sampled when the scene target is multisampled
                                 // (renderer knowledge, like scene_depth): msaa together with ssao / high water
     bool anisotropy = false;    // anisotropic texture filtering
+    bool ao_volume = false;     // R8 3D textures with linear filtering: Settings::ao_volume
 
     std::string Describe() const;
 };

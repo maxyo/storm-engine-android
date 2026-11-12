@@ -2,6 +2,8 @@
 
 #include "shim/device.hpp"
 
+#include <bx/math.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -202,6 +204,11 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         !(lit && material_ == Material::Character))
         normal_map = normal_maps_.handle(*stage1, fx_);
     baked |= !lit_state && bgfx::isValid(normal_map);
+    // The interior's AO volume darkens what is drawn into the game picture: baked location geometry (which then takes
+    // the baked variant) and lit models (characters, props). Reflections and other targets keep their look.
+    const shim::TexStore *picture = device.back_color ? device.back_color->store.get() : nullptr;
+    const bool ao = ao_volume_ && lighting_ && layout.has_normal && target && target == picture;
+    baked |= !lit_state && ao;
     if (!lit && !baked && !coverage)
         return;
     if (cube_variant != 0)
@@ -230,6 +237,12 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     }
     draw.lit = true;
     draw.vs_id = vs_lit_;
+    if (ao)
+    {
+        draw.ao = true;
+        memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
+        ++frame_.ao;
+    }
 
 
     // Sun and ambient as the fixed-function pipeline would use them; ComputeLighting gives the per-pixel terms.
@@ -347,7 +360,6 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         }
         draw.points = fx::PackPointLights(selection, input.view);
         // Sun shadows: lit draws into the game picture (the first one of a frame prepares the map with its camera).
-        const shim::TexStore *picture = device.back_color ? device.back_color->store.get() : nullptr;
         if (per_pixel && sun_slot >= 0 && target && target == picture)
         {
             memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
@@ -383,6 +395,44 @@ void Lighting::submit(const FfDraw &draw)
         fx_.BindNormalMap(draw.normal_map, draw.normal_map_flags);
     if (draw.shadow)
         shadows_.bind(draw.view);
+    bind_ao_volume(draw);
+}
+
+void Lighting::bind_ao_volume(const FfDraw &draw)
+{
+    if (!bgfx::isValid(u_ao_params_))
+    {
+        s_ao_volume_ = bgfx::createUniform("s_fxAoVolume", bgfx::UniformType::Sampler);
+        u_ao_matrix_ = bgfx::createUniform("u_fxAoVolume", bgfx::UniformType::Mat4);
+        u_ao_params_ = bgfx::createUniform("u_fxAoParams", bgfx::UniformType::Vec4);
+    }
+    // Every lit / baked program reads u_fxAoParams: x = 0 turns the volume off for draws without it. Its 3D sampler
+    // still needs a 3D texture on its unit (GL refuses a draw whose sampler types share a unit: an unbound sampler
+    // stays on unit 0, the 2D stage 0), so those draws get a 1x1x1 open volume.
+    if (!draw.ao || !ao_volume_)
+    {
+        if (!bgfx::isValid(ao_open_))
+        {
+            const uint8_t open = 255;
+            ao_open_ = bgfx::createTexture3D(1, 1, 1, false, bgfx::TextureFormat::R8, BGFX_SAMPLER_POINT, bgfx::copy(&open, 1));
+        }
+        const float off[4] = {0.0f, 1.0f, 0.0f, 0.0f};
+        bgfx::setUniform(u_ao_params_, off);
+        bgfx::setTexture(fx::kAoVolumeStage, s_ao_volume_, ao_open_);
+        return;
+    }
+    if (draw.view != ao_view_)
+    {
+        float inverse_view[16];
+        bx::mtxInverse(inverse_view, draw.view.data());
+        bx::mtxMul(ao_view_to_uvw_.data(), inverse_view, ao_volume_->world_to_uvw.data());
+        ao_view_ = draw.view;
+    }
+    const fx::AoVolumeLevel &level = fx::kAoVolumeLevel[std::min<uint8_t>(settings_.ao_volume, fx::kAoVolumeLevels)];
+    const float params[4] = {level.strength, level.contrast, 0.5f * ao_volume_->cell, 0.0f};
+    bgfx::setUniform(u_ao_matrix_, ao_view_to_uvw_.data());
+    bgfx::setUniform(u_ao_params_, params);
+    bgfx::setTexture(fx::kAoVolumeStage, s_ao_volume_, ao_volume_->texture);
 }
 
 bool Lighting::aerial_fog(const D3DMATRIX &view, bool vs_port, std::array<float, 2> &haze)
@@ -421,7 +471,10 @@ void Lighting::shutdown()
 {
     fx_.Shutdown();
     shadows_.shutdown();
-    for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_aerial_up_})
+    if (bgfx::isValid(ao_open_))
+        bgfx::destroy(ao_open_);
+    ao_open_ = BGFX_INVALID_HANDLE;
+    for (bgfx::UniformHandle *u : {&u_coverage_, &u_ff_, &u_aerial_up_, &s_ao_volume_, &u_ao_matrix_, &u_ao_params_})
     {
         if (bgfx::isValid(*u))
             bgfx::destroy(*u);
@@ -433,7 +486,9 @@ void Lighting::on_device_lost()
 {
     fx_.OnDeviceLost();
     shadows_.on_device_lost();
-    u_coverage_ = u_ff_ = u_aerial_up_ = BGFX_INVALID_HANDLE;
+    u_coverage_ = u_ff_ = u_aerial_up_ = s_ao_volume_ = u_ao_matrix_ = u_ao_params_ = BGFX_INVALID_HANDLE;
+    ao_view_ = {};
+    ao_open_ = BGFX_INVALID_HANDLE;
 }
 
 } // namespace storm::effects

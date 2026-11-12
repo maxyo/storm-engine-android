@@ -102,6 +102,15 @@ struct EffectsPointLight
 };
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
 
+// Location, once an interior is loaded: the static geometry its ambient-occlusion volume is baked from (world space
+// positions, triangle list; `name` names it in the log) and the box that gets the volume (where one walks, with a
+// margin: the geometry outside it, such as the backdrop behind the windows, only occludes). Outdoors and when
+// leaving: empty spans. The volume is read from the cache or baked on a worker while the settings ask for it
+// (fx_ao_volume, Средняя / Высокая).
+void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<float, 3>> positions,
+                          std::span<const uint32_t> indices, const std::array<float, 3> &bounds_lo = {},
+                          const std::array<float, 3> &bounds_hi = {});
+
 // The game file a texture was loaded from (Renderer::TextureLoad, after its levels are filled). Grey height
 // ("bump") textures get a normal map for the per-pixel lighting's relief (fx_light_normal_map).
 void SetEffectsTextureSource(shim::BaseTexture *texture, const char *path);

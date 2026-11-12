@@ -2,6 +2,7 @@
 // baked noise, the engine wave model and its GPU/Gerstner mappings, the sea
 // grid, the sky model, lighting and point-light selection, the shadow cascade and the
 // explicit handling of unsupported settings. No GPU is needed.
+#include "storm/fx/ao_volume.hpp"
 #include "storm/fx/capabilities.hpp"
 #include "storm/fx/color_lut.hpp"
 #include "storm/fx/light_set.hpp"
@@ -16,6 +17,7 @@
 #include "storm/fx/wave_model.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -67,6 +69,7 @@ void CheckSettings()
     CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
     CHECK(!medium.ssao && high.ssao && !original.ssao);
+    CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 2); // Низкая: no shadows, as the original
     // The presets keep the legacy look: no tone curve, grade, flare, shafts, fx sky, hemisphere or linear sums.
     for (const Settings *preset : {&medium, &high})
         CHECK(!preset->tonemap && !preset->scene_grading && !preset->lens_flare && !preset->sun_shafts &&
@@ -513,7 +516,7 @@ void CheckSupport()
 {
     Support all;
     all.lut_3d = all.shadow_map = all.scene_snapshot = all.wave_field = all.scene_depth = all.normal_map = true;
-    all.msaa = all.msaa_depth = all.anisotropy = true;
+    all.msaa = all.msaa_depth = all.anisotropy = all.ao_volume = true;
     for (QualityPreset preset : {QualityPreset::Low, QualityPreset::Medium, QualityPreset::High})
     {
         const Settings settings = Settings::FromPreset(preset);
@@ -544,6 +547,23 @@ void CheckSupport()
     constrained = ConstrainSettings(high, no_shadow, changes);
     CHECK(constrained.shadows == ShadowQuality::Off && changes.size() == 1);
     CHECK(LightingDefines(constrained).find("FX_LIGHT_SHADOW") == std::string::npos);
+
+    // No R8 3D textures: no AO volume, said once; the rest stays.
+    Support no_ao = all;
+    no_ao.ao_volume = false;
+    changes.clear();
+    constrained = ConstrainSettings(high, no_ao, changes);
+    CHECK(constrained.ao_volume == 0 && changes.size() == 1 && constrained.shadows == high.shadows);
+    // An AO volume without the fx lighting path has no shader to apply it: switched off, said.
+    Settings unlit = high;
+    unlit.lighting_flags = kLightingNone;
+    unlit.shadows = ShadowQuality::Off;
+    changes.clear();
+    CHECK(ConstrainSettings(unlit, all, changes).ao_volume == 0 && changes.size() == 1);
+    Settings too_strong = high;
+    too_strong.ao_volume = 9;
+    changes.clear();
+    CHECK(ConstrainSettings(too_strong, all, changes).ao_volume == kAoVolumeLevels && changes.size() == 1);
 
     // No 3D textures: the post chain is reduced to its plain copy; MSAA is the renderer's and stays.
     Support no_lut = all;
@@ -1026,6 +1046,109 @@ void CheckCapsProfiles()
     CHECK(RestrictSupport(Support{}, CapsProfile::Xclipse).msaa == false);
 }
 
+// Axis-aligned box as 12 triangles (the AO bake only needs surfaces).
+void AddBox(std::vector<Vec3> &p, std::vector<uint32_t> &i, Vec3 lo, Vec3 hi)
+{
+    const uint32_t base = static_cast<uint32_t>(p.size());
+    for (int c = 0; c < 8; ++c)
+        p.push_back({c & 1 ? hi[0] : lo[0], c & 2 ? hi[1] : lo[1], c & 4 ? hi[2] : lo[2]});
+    const uint32_t faces[6][4] = {{0, 1, 3, 2}, {4, 6, 7, 5}, {0, 4, 5, 1}, {2, 3, 7, 6}, {0, 2, 6, 4}, {1, 5, 7, 3}};
+    for (const auto &f : faces)
+        for (const uint32_t t : {f[0], f[1], f[2], f[0], f[2], f[3]})
+            i.push_back(base + t);
+}
+
+void CheckAoVolume()
+{
+    // A 6 x 3 x 6 m room, a table (top at 0.8 m), a barrel 0.7 m from the +x wall.
+    std::vector<Vec3> p;
+    std::vector<uint32_t> idx;
+    AddBox(p, idx, {-3.0f, 0.0f, -3.0f}, {3.0f, 3.0f, 3.0f});
+    AddBox(p, idx, {-0.6f, 0.76f, -0.6f}, {0.6f, 0.8f, 0.6f});
+    AddBox(p, idx, {1.7f, 0.0f, -0.3f}, {2.3f, 0.9f, 0.3f});
+    AoBakeParams params;
+    params.threads = 1;
+    const AoGeometry geometry{p, idx};
+    const auto start = std::chrono::steady_clock::now();
+    const AoVolume volume = BakeAoVolume(geometry, params);
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    std::printf("ao volume: %dx%dx%d cells of %.2f m baked in %.1f ms (1 thread)\n", volume.size[0], volume.size[1],
+                volume.size[2], volume.cell, ms);
+    CHECK(!volume.Empty());
+    CHECK(Near(volume.cell, 0.2f, 1e-6f));
+    CHECK(volume.size[0] == 32 && volume.size[1] == 17 && volume.size[2] == 32);
+    // Receivers sample half a cell off the surface along the normal (as the shader does).
+    const float open = volume.Sample({-1.5f, 0.1f, -1.5f});
+    const float under_table = volume.Sample({0.0f, 0.1f, 0.0f});
+    const float corner = volume.Sample({2.9f, 0.1f, 2.9f});
+    const float behind_barrel = volume.Sample({2.65f, 0.1f, 0.0f});
+    const float in_front_of_barrel = volume.Sample({1.0f, 0.1f, 0.0f});
+    const float mid_air = volume.Sample({-1.5f, 1.6f, -1.5f});
+    const float wall = volume.Sample({2.9f, 1.5f, -1.5f});
+    std::printf("ao volume: open floor %.2f, under the table %.2f, corner %.2f, behind / in front of the barrel %.2f / "
+                "%.2f, wall %.2f, mid-air %.2f\n",
+                open, under_table, corner, behind_barrel, in_front_of_barrel, wall, mid_air);
+    CHECK(open > 0.45f && open < 0.75f);       // the floor hides about half of the sphere
+    CHECK(under_table < 0.85f * open);         // the shader scales the contrast (fx strength)
+    CHECK(behind_barrel < 0.75f * open);       // ... and behind the barrels
+    CHECK(behind_barrel < in_front_of_barrel); // ... than in front of them
+    CHECK(corner < 0.85f * open);
+    CHECK(wall > corner && wall < mid_air);
+    CHECK(mid_air > 0.9f);
+    CHECK(volume.At({0.0f, 50.0f, 0.0f}) == 1.0f); // outside the grid: open
+    // Inside the table top the cells take their open neighbours' value, not 0.
+    CHECK(volume.At({0.0f, 0.78f, 0.0f}) > 0.2f);
+
+    // The thread count does not change a single cell; the key follows geometry and parameters.
+    params.threads = 4;
+    const AoVolume threaded = BakeAoVolume(geometry, params);
+    CHECK(threaded.visibility == volume.visibility);
+    const uint64_t key = AoBakeKey(geometry, params);
+    CHECK(key == AoBakeKey(geometry, AoBakeParams{}));    // threads are not part of the key
+    AoBakeParams wider = params;
+    wider.radius = 2.0f;
+    CHECK(key != AoBakeKey(geometry, wider));
+    std::vector<Vec3> moved = p;
+    moved[0][1] += 0.01f;
+    CHECK(key != AoBakeKey({moved, idx}, params));
+
+    // Disk cache round trip and explicit refusals.
+    const std::vector<uint8_t> bytes = EncodeAoVolume(volume, key);
+    std::string error;
+    const auto decoded = DecodeAoVolume(bytes, key, error);
+    CHECK(decoded && decoded->visibility == volume.visibility && decoded->size == volume.size &&
+          decoded->origin == volume.origin && decoded->cell == volume.cell);
+    CHECK(!DecodeAoVolume(bytes, key + 1, error) && error.find("other geometry") != std::string::npos);
+    CHECK(!DecodeAoVolume(std::span(bytes).first(bytes.size() - 1), key, error) && !error.empty());
+    CHECK(!DecodeAoVolume(std::span(bytes).first(10), key, error) && !error.empty());
+
+    // Bounds: a backdrop far outside the room does not grow the grid, yet still occludes inside it.
+    std::vector<Vec3> with_backdrop = p;
+    std::vector<uint32_t> backdrop_idx = idx;
+    AddBox(with_backdrop, backdrop_idx, {-200.0f, -5.0f, -150.0f}, {250.0f, 45.0f, 120.0f});
+    AoBakeParams bounded = params;
+    bounded.bounds_lo = {-3.5f, -0.5f, -3.5f};
+    bounded.bounds_hi = {3.5f, 3.5f, 3.5f};
+    const AoVolume clipped = BakeAoVolume({with_backdrop, backdrop_idx}, bounded);
+    CHECK(clipped.size[0] == 37 && clipped.size[1] == 22 && clipped.size[2] == 37 && clipped.cell == volume.cell);
+    std::printf("ao volume, bounded: under the table %.2f, open floor %.2f\n", clipped.Sample({0.0f, 0.1f, 0.0f}),
+                clipped.Sample({-1.5f, 0.1f, -1.5f}));
+    CHECK(Near(clipped.Sample({0.0f, 0.1f, 0.0f}), under_table, 0.08f) && Near(clipped.Sample({-1.5f, 0.1f, -1.5f}), open, 0.08f)); // another cell grid
+    CHECK(AoBakeKey({with_backdrop, backdrop_idx}, bounded) != AoBakeKey({with_backdrop, backdrop_idx}, params));
+
+    // Nothing to bake: an empty volume (the caller then has no AO for the location and says so).
+    CHECK(BakeAoVolume({}, params).Empty());
+    // A huge box grows the cell to stay within the cell budget.
+    std::vector<Vec3> big;
+    std::vector<uint32_t> big_idx;
+    AddBox(big, big_idx, {0.0f, 0.0f, 0.0f}, {300.0f, 40.0f, 300.0f});
+    AoBakeParams coarse;
+    coarse.max_cells = 64 * 64 * 64;
+    coarse.radius = 0.5f;
+    const AoVolume large = BakeAoVolume({big, big_idx}, coarse);
+    CHECK(static_cast<size_t>(large.size[0]) * large.size[1] * large.size[2] <= coarse.max_cells && large.cell > 0.2f);
+}
+
 int main()
 {
     CheckSettings();
@@ -1044,6 +1167,7 @@ int main()
     CheckNormalMaps();
     CheckCheapUpgrades();
     CheckHeightMapRules();
+    CheckAoVolume();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

@@ -54,6 +54,8 @@ class GEOM_SERVICE_R final : public GEOM_SERVICE
 
     GEOS::ID CreateVertexBuffer(int32_t type, int32_t size);
     void *LockVertexBuffer(GEOS::ID vb);
+    const void *ReadVertexBuffer(GEOS::ID vb) override;
+    const void *ReadIndexBuffer(GEOS::ID ib) override;
     void UnlockVertexBuffer(GEOS::ID vb);
     void ReleaseVertexBuffer(GEOS::ID vb);
 

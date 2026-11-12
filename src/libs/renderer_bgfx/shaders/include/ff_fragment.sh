@@ -11,6 +11,8 @@
 //                   (stage 14, stage 1's coordinates): lit draws perturb the normal, baked ones scale their colour.
 //   FX_LIGHT_SHADOW[_SOFT]  with FX_FF_LIT: the sun's diffuse and specular terms are scaled by the sun shadow map
 //                   (stage 15, src/effects/shadows.hpp).
+//   AO volume       FX_FF_LIT / FX_FF_BAKED: the interior's ambient occlusion (ffAoVolume, off per draw by
+//                   u_fxAoParams.x = 0): darkens the ambient of lit draws and the baked colours.
 //   FX_FF_COVERAGE  alpha to coverage instead of the alpha-test discard (fx_coverage.sh); in the FX_FF_LIT /
 //                   FX_FF_BAKED variants it is switched per draw by u_fxCoverage.z.
 #include "ff_finish.sh"
@@ -21,6 +23,22 @@
 // x: two-sided surface whose back side shows the light passing through (normal flipped towards the viewer)
 uniform vec4 u_fxFf;
 vec4 ffDiffuse;
+
+// Ambient-occlusion volume of the interior (src/effects/ao_volume.hpp; stage 12 = fx::kAoVolumeStage).
+// u_fxAoVolume: view space -> volume uvw. u_fxAoParams: x strength (0 = no volume for this draw), y contrast,
+// z normal offset in metres (half a cell: sample the open side of the surface).
+SAMPLER3D(s_fxAoVolume, 12);
+uniform mat4 u_fxAoVolume;
+uniform vec4 u_fxAoParams;
+float ffAoVolume(vec3 P, vec3 Ng)
+{
+    if (u_fxAoParams.x <= 0.0)
+        return 1.0;
+    vec3 uvw = mul(u_fxAoVolume, vec4(P + Ng * u_fxAoParams.z, 1.0)).xyz;
+    // The volume stores visibility over the whole sphere: an open floor or wall sees half of it.
+    float ao = clamp(texture3D(s_fxAoVolume, uvw).r * 2.0, 0.0, 1.0);
+    return mix(1.0, pow(ao, u_fxAoParams.y), u_fxAoParams.x);
+}
 #define FF_DIFFUSE ffDiffuse
 #else
 #define FF_DIFFUSE v_color0
@@ -148,10 +166,13 @@ void main()
 #ifdef FX_LIGHT_NORMALMAP
     N = fxPerturbNormal(Ng, P, v_texcoord1.xy);
 #endif
+    float aoVolume = ffAoVolume(P, Ng);
 #ifdef FX_FF_LIT
+    // The volume occludes the ambient part (the per-vertex sum carries the global ambient and the lights not lit per
+    // pixel); the per-pixel sun and lamps keep their own visibility.
     float sunShadow = fxSunShadow(P, Ng);
-    ffDiffuse = vec4(clamp(fxLit(v_color0.rgb, v_matDiffuse.rgb, fxSunDiffuse(N, V) * sunShadow + fxPointDiffuse(N, P),
-                                 v_matAmbient.rgb, fxAmbient(N)), 0.0, 1.0), v_color0.a);
+    ffDiffuse = vec4(clamp(fxLit(v_color0.rgb * aoVolume, v_matDiffuse.rgb, fxSunDiffuse(N, V) * sunShadow + fxPointDiffuse(N, P),
+                                 v_matAmbient.rgb, fxAmbient(N) * aoVolume), 0.0, 1.0), v_color0.a);
 #else
     ffDiffuse = v_color0;
     vec4 tex0 = vec4_splat(0.0);
@@ -173,6 +194,8 @@ void main()
 #ifdef FX_LIGHT_NORMALMAP
     current.rgb *= fxBakedRelief(Ng, N, V);
 #endif
+    // The baked colours of interiors are mostly the ambient of the room (local-testing/shadows/DESIGN.md §2.1).
+    current.rgb *= aoVolume;
     current.rgb = fxLit(current.rgb, tex0.rgb, fxPointDiffuse(N, P), vec3_splat(0.0), vec3_splat(0.0));
 #endif
     gl_FragColor = ffFinish(current);

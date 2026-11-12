@@ -100,4 +100,7 @@ class GEOM : public GEOS
     virtual int32_t GetVertexBuffer(int32_t vb) const;
 
     virtual int32_t GetIndexBuffer() const;
+
+    bool AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices) const override;
+    bool HasCollision() const override;
 };

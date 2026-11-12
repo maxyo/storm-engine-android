@@ -12,6 +12,9 @@ Import library main header
 
 #include <cstdint>
 #include <fstream>
+#include <vector>
+
+#include "storm_glm.h"
 
 class GEOS
 {
@@ -269,6 +272,13 @@ class GEOS
     // GetIndexBuffer
     virtual int32_t GetIndexBuffer() const = 0;
 
+    // Positions (model space) and triangle list of the visible objects, appended to `positions` / `indices` (the
+    // indices are offset by the positions already there). Reads the static vertex and index buffers back read-only
+    // (the renderer keeps CPU copies of them). False, with nothing appended, when a buffer cannot be read.
+    virtual bool AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices) const = 0;
+    // True when the file carries collision data (the BSP the location walks and traces on).
+    virtual bool HasCollision() const = 0;
+
     //-----------------------------------------
     // unused
     //-----------------------------------------
@@ -292,6 +302,9 @@ class GEOM_SERVICE
 
     virtual GEOS::ID CreateVertexBuffer(int32_t type, int32_t size) = 0;
     virtual void *LockVertexBuffer(GEOS::ID vb) = 0;
+    // Read-only access to a static buffer's contents (no upload follows); Unlock*Buffer ends it.
+    virtual const void *ReadVertexBuffer(GEOS::ID vb) = 0;
+    virtual const void *ReadIndexBuffer(GEOS::ID ib) = 0;
     virtual void UnlockVertexBuffer(GEOS::ID vb) = 0;
     virtual void ReleaseVertexBuffer(GEOS::ID vb) = 0;
 

@@ -17,11 +17,25 @@ set(STORM_FX_SHADER_PROFILE "300_es" CACHE STRING "shaderc profile for the embed
 include(cmake/storm_fx_shaders.cmake)
 include(shaders/shaders.cmake)
 
+# voxelizer.h (MIT, header-only): the triangle/box overlap test of the AO volume bake (src/voxelizer_impl.c).
+# Offline: -DFETCHCONTENT_SOURCE_DIR_STORM_VOXELIZER=/path/to/this/revision
+include(FetchContent)
+storm_fetch_declare(storm_voxelizer
+    URL https://codeload.github.com/karimnaaji/voxelizer/tar.gz/f6ee9cf6863c034853a587f205f12183c7d57b74
+    URL_HASH SHA256=8b6971f0c8c3e79ca0feb6ef8f93cbf23378672159ebd58d458ff1996385be45
+    STORM_POPULATE_ONLY)
+FetchContent_MakeAvailable(storm_voxelizer)
+
 add_library(storm_bgfx_fx_core STATIC
     src/color_lut.cpp src/noise_bake.cpp src/wave_model.cpp src/water_grid.cpp src/sky_model.cpp
-    src/lighting_model.cpp src/light_set.cpp src/shadow_model.cpp src/normal_map.cpp src/settings.cpp src/log.cpp)
+    src/lighting_model.cpp src/light_set.cpp src/shadow_model.cpp src/normal_map.cpp src/settings.cpp src/log.cpp
+    src/ao_volume.cpp src/voxelizer_impl.c)
 target_compile_features(storm_bgfx_fx_core PUBLIC cxx_std_20)
 target_include_directories(storm_bgfx_fx_core PUBLIC include)
+target_include_directories(storm_bgfx_fx_core SYSTEM PRIVATE "${storm_voxelizer_SOURCE_DIR}")
+set_source_files_properties(src/voxelizer_impl.c PROPERTIES COMPILE_OPTIONS "-w")
+find_package(Threads REQUIRED)
+target_link_libraries(storm_bgfx_fx_core PUBLIC Threads::Threads) # the AO bake's workers
 set_target_properties(storm_bgfx_fx_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(storm_bgfx_fx STATIC

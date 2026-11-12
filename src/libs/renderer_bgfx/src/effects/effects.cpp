@@ -72,6 +72,8 @@ const Option kOptions[] = {
     {"fx_water_refraction", "0 off, 1 on", [](fx::Settings &s, int v) { s.water_refraction = on(v); }},
     {"fx_sky", "0 off, 1 on", [](fx::Settings &s, int v) { s.sky_atmosphere = on(v); }},
     {"fx_clouds", "0 off, 1 on", [](fx::Settings &s, int v) { s.sky_clouds = on(v); }},
+    {"fx_ao_volume", "interiors: 0 off, 1 as the game's data, 2 moderate, 3 strong",
+     [](fx::Settings &s, int v) { s.ao_volume = static_cast<uint8_t>(std::clamp(v, 0, 3)); }},
     {"fx_shadows", "0 off, 1 low, 2 soft",
      [](fx::Settings &s, int v) { s.shadows = static_cast<fx::ShadowQuality>(std::clamp(v, 0, 2)); }},
     {"fx_point_lights", "4, 8", [](fx::Settings &s, int v) { s.point_lights = static_cast<uint8_t>(v >= 8 ? 8 : 4); }},
@@ -177,6 +179,9 @@ void Host::on_device_lost()
     sky_.OnDeviceLost();
     water_.OnDeviceLost();
     contact_.OnDeviceLost();
+    ao_.on_device_lost();
+    ao_bound_ = nullptr;
+    lighting_.set_ao_volume(nullptr);
     device_ready_ = false;
 }
 
@@ -188,6 +193,9 @@ void Host::shutdown()
     sky_.Shutdown();
     water_.Shutdown();
     contact_.Shutdown();
+    ao_.shutdown();
+    ao_bound_ = nullptr;
+    lighting_.set_ao_volume(nullptr);
     device_ready_ = false;
 }
 
@@ -489,6 +497,8 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
     }
     weather_this_frame_ = false;
     lighting_.end_frame();
+    ao_bound_ = ao_.update(settings_.ao_volume > 0); // for the next frame's draws
+    lighting_.set_ao_volume(ao_bound_);
     transform_view_ = UINT16_MAX; // the shim's views start again next frame
     times_ = {};
     if (!profile_)
@@ -527,9 +537,9 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
                          profile_sum_post_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u",
                        preset_, gpu, profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
-                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters);
+                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters, counts.ao);
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_draws_ = 0;
@@ -570,6 +580,14 @@ void EffectsSceneComplete()
 void SetEffectsTechnique(const char *name)
 {
     effects::Host::instance().lighting().set_technique(name);
+}
+
+void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<float, 3>> positions,
+                          std::span<const uint32_t> indices, const std::array<float, 3> &bounds_lo,
+                          const std::array<float, 3> &bounds_hi)
+{
+    effects::Host::instance().ao_volumes().set_geometry(std::string(name), {positions.begin(), positions.end()},
+                                                        {indices.begin(), indices.end()}, bounds_lo, bounds_hi);
 }
 
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)

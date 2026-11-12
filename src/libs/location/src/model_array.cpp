@@ -214,6 +214,12 @@ MODEL *ModelArray::operator[](int32_t modelIndex)
     return static_cast<MODEL *>(core.GetEntityPointer(model[modelIndex].id));
 }
 
+bool ModelArray::IsStill(int32_t modelIndex)
+{
+    Assert(modelIndex >= 0 && modelIndex < numModels);
+    return !model[modelIndex].rotator && !model[modelIndex].slider && !GetAnimation(modelIndex);
+}
+
 // Getting animation by index
 Animation *ModelArray::GetAnimation(int32_t modelIndex)
 {

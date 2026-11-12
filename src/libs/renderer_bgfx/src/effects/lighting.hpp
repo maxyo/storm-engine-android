@@ -27,6 +27,7 @@
 // Cube-mapped draws (fs_ff_cube*) have no lighting or coverage variant: they keep the legacy path, reported once.
 #pragma once
 
+#include "effects/ao_volume.hpp"
 #include "effects/normal_maps.hpp"
 #include "effects/shadows.hpp"
 #include "storm/fx/lighting.hpp"
@@ -77,7 +78,8 @@ struct FfDraw
     uint32_t normal_map_flags = 0;
     bool shadow = false;           // FX_LIGHT_SHADOW variant: submit() binds the map for `view`
     bool caster = false;           // the shim also submits this draw into the shadow view (submit_caster)
-    std::array<float, 16> view{};  // the draw's world -> view (shadow receivers)
+    std::array<float, 16> view{};  // the draw's world -> view (shadow and AO-volume receivers)
+    bool ao = false;               // samples the interior's AO volume (submit() binds it for `view`)
 };
 
 class Lighting
@@ -109,6 +111,8 @@ class Lighting
         dynamic_lights_this_frame_ = true;
     }
     void set_sky(const fx::SkyState *sky) { sky_ = sky; }
+    // The interior's AO volume for this frame's draws into the game picture (null: none).
+    void set_ao_volume(const AoVolumes::Bound *volume) { ao_volume_ = volume; }
     NormalMaps &normal_maps() { return normal_maps_; }
     SunShadows &shadows() { return shadows_; }
     // After the draw was submitted with its buffers kept (BGFX_DISCARD_NONE for buffers): the depth-only copy.
@@ -121,7 +125,7 @@ class Lighting
     // Draws of the last presented frame that used a lit / baked / coverage variant (effects profile).
     struct Counts
     {
-        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, shadowed = 0, casters = 0, aerial = 0;
+        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, shadowed = 0, casters = 0, aerial = 0, ao = 0;
     };
     Counts last_frame() const { return last_frame_; }
 
@@ -160,6 +164,15 @@ class Lighting
     bgfx::UniformHandle u_aerial_up_ = BGFX_INVALID_HANDLE;
     fx::Lighting fx_;
     bgfx::UniformHandle u_ff_ = BGFX_INVALID_HANDLE;
+    // AO volume (ff_fragment.sh ffAoVolume): sampler stage kAoVolumeStage, view -> volume uvw, parameters
+    void bind_ao_volume(const FfDraw &draw);
+    const AoVolumes::Bound *ao_volume_ = nullptr;
+    bgfx::UniformHandle s_ao_volume_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_ao_matrix_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_ao_params_ = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle ao_open_ = BGFX_INVALID_HANDLE; // 1x1x1 R8 = 255 for draws without the volume
+    std::array<float, 16> ao_view_{};     // the camera ao_view_to_uvw_ was made for
+    std::array<float, 16> ao_view_to_uvw_{};
     bgfx::UniformHandle u_coverage_ = BGFX_INVALID_HANDLE;
     Counts frame_{}, last_frame_{};
 };

@@ -38,6 +38,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.point_lights = 4;
         s.normal_map_strength = 0.6f;
         s.shadows = ShadowQuality::Low;
+        s.ao_volume = 2;
         return s;
     }
     s.bloom_downscale = 2;
@@ -52,6 +53,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.lighting_flags = kLightingPerPixel | kLightingSpecular | kLightingTranslucent | kLightingPoint | kLightingNormalMap;
     s.point_lights = 8;
     s.shadows = ShadowQuality::Soft;
+    s.ao_volume = 2;
     s.ssao = true;
     s.ssao_intensity = 0.35f;
     return s;
@@ -87,6 +89,8 @@ std::string Support::Describe() const
     text += word(msaa_depth);
     text += ", anisotropic filtering: ";
     text += word(anisotropy);
+    text += ", R8 3D textures (AO volume): ";
+    text += word(ao_volume);
     return text;
 }
 
@@ -168,6 +172,15 @@ constexpr Rule kRules[] = {
      },
      [](Settings &s) { s.lighting_flags &= ~static_cast<uint32_t>(kLightingNormalMap); },
      "normal maps need per-pixel lighting or per-pixel point lights: switched off"},
+    {[](const Settings &s, const Support &) { return s.ao_volume > kAoVolumeLevels; },
+     [](Settings &s) { s.ao_volume = kAoVolumeLevels; }, "ambient occlusion volume strength must be 0..3: lowered to 3"},
+    {[](const Settings &s, const Support &c) { return s.ao_volume && !c.ao_volume; }, [](Settings &s) { s.ao_volume = 0; },
+     "the ambient occlusion volume of interiors needs R8 3D textures: switched off"},
+    {[](const Settings &s, const Support &) {
+         return s.ao_volume && !(s.lighting_flags & (kLightingPerPixel | kLightingPoint));
+     },
+     [](Settings &s) { s.ao_volume = 0; },
+     "the ambient occlusion volume of interiors needs per-pixel lighting or per-pixel point lights: switched off"},
     {[](const Settings &s, const Support &) { return (s.lighting_flags & kLightingPoint) && s.point_lights != 4 && s.point_lights != 8; },
      [](Settings &s) { s.point_lights = s.point_lights > 4 ? 8 : 4; }, "point lights per draw call must be 4 or 8: rounded"},
 };

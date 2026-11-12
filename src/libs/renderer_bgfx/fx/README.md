@@ -25,6 +25,7 @@ generates every texture it needs. It is not part of the engine build until the r
 | `include/storm/fx/normal_map.hpp` | normal maps derived from the game's height ("bump") textures; the rule that finds those textures |
 | `include/storm/fx/shadows.hpp` | `Shadows`: sun shadow map |
 | `include/storm/fx/contact_shadows.hpp` | `ContactShadows`: soft blobs under characters and objects |
+| `include/storm/fx/ao_volume.hpp` | ambient-occlusion volume of interiors: CPU bake from the static geometry, disk-cache format (the renderer side: `src/effects/ao_volume.hpp`) |
 | `shaders/include/fx_aerial.sh`, `fx_wind.sh`, `fx_coverage.sh` | aerial perspective, wind sway, alpha to coverage for the emulator |
 | `include/storm/fx/capabilities.hpp`, `log.hpp` | what the device supports; error reporting |
 | `include/storm/fx/{color_lut,noise_bake,wave_model,water_grid,sky_model,lighting_model,shadow_model}.hpp` | CPU side, no GPU needed (`storm_bgfx_fx_core`) |

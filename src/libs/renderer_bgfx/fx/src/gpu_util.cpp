@@ -112,6 +112,11 @@ bool SupportsLut3d()
     return Format(bgfx::TextureFormat::RGBA8, BGFX_CAPS_FORMAT_TEXTURE_3D);
 }
 
+bool SupportsAoVolume()
+{
+    return Format(bgfx::TextureFormat::R8, BGFX_CAPS_FORMAT_TEXTURE_3D);
+}
+
 bool SupportsShadowMap()
 {
     // Compare samplers have no capability bit of their own: every backend bgfx offers for this engine has them.

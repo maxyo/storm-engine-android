@@ -16,6 +16,7 @@ Support DetectSupport(const RendererFacts &renderer)
     support.scene_snapshot = detail::SupportsSceneSnapshot();
     support.wave_field = detail::SupportsWaveField();
     support.normal_map = detail::SupportsNormalMap();
+    support.ao_volume = detail::SupportsAoVolume();
     support.msaa = detail::SupportsMsaa();
     support.anisotropy = renderer.anisotropy;
     support.scene_depth = renderer.scene_depth;

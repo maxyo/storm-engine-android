@@ -3,6 +3,7 @@
 // The shim asks it what to set up (RendererState) and calls it at the scene boundary.
 #pragma once
 
+#include "effects/ao_volume.hpp"
 #include "effects/lighting.hpp"
 #include "storm/fx/contact_shadows.hpp"
 #include "storm/fx/capabilities.hpp"
@@ -61,6 +62,9 @@ class Host
     void set_weather(const render::EffectsWeather &weather);
     // Per-pixel lighting and alpha to coverage of the fixed-function emulator (effects/lighting.hpp).
     Lighting &lighting() { return lighting_; }
+    AoVolumes &ao_volumes() { return ao_; }
+    // The interior's AO volume for the draws of this frame (null outdoors, before it is ready, or when off).
+    const AoVolumes::Bound *ao_volume() const { return ao_bound_; }
 
     // Runs the post chain on `scene` into `target` starting at `first_view`; returns the number of views used.
     struct PostTargets
@@ -156,6 +160,8 @@ class Host
     fx::Sky sky_;
     fx::Water water_;
     fx::ContactShadows contact_;
+    AoVolumes ao_;
+    const AoVolumes::Bound *ao_bound_ = nullptr;
     float camera_height_ = 0.0f; // of the last world pass
     bool sky_weather_logged_ = false;
     bool water_buffers_logged_ = false;
