@@ -813,6 +813,10 @@ class ClampElement final : public Rml::Element, public FitsText
 // the class `more` while pages remain and `last` on the final page; the template shows
 // the «next» control or the replies with sibling selectors (`ui-pages.more ~ …`). `mode`
 // speech / replies forces one of the two states (the design canvas shows them so).
+// An ancestor marked data-grow (the dialogue sheet) grows first, up to its max-height, so a
+// text that would fit beside the reserved part in a taller box needs no extra page; paging
+// starts only when even that is not enough. The ancestor's own min-height must come from its
+// classes: the element sets it inline (and drops it for a new text).
 class PagesElement final : public Rml::Element, public FitsText
 {
   public:
@@ -845,6 +849,8 @@ class PagesElement final : public Rml::Element, public FitsText
                 text_ = text;
                 offset_ = 0;
                 applied_ = GetAttribute<int>("page", 0);
+                if (Rml::Element *grow = Grower())
+                    grow->RemoveProperty(Rml::PropertyId::MinHeight); // a new text starts from the designed height
             }
             dirty_ = true;
         }
@@ -909,6 +915,33 @@ class PagesElement final : public Rml::Element, public FitsText
         return line > 0.0f ? line : std::max(1.0f, GetComputedValues().font_size() * 1.2f);
     }
 
+    Rml::Element *Grower()
+    {
+        for (Rml::Element *element = GetParentNode(); element; element = element->GetParentNode())
+            if (element->HasAttribute("data-grow"))
+                return element;
+        return nullptr;
+    }
+
+    // The whole text does not fit beside the reserved part by `missing` px: the grower takes
+    // as much of it as its max-height allows. True when it grew (the layout runs again).
+    bool Grow(float missing)
+    {
+        Rml::Element *grow = Grower();
+        if (!grow || missing <= 0.0f)
+            return false;
+        const float height = grow->GetBox().GetSize(Rml::BoxArea::Border).y;
+        Rml::Element *holder = grow->GetOffsetParent();
+        const float base = holder ? holder->GetBox().GetSize(Rml::BoxArea::Padding).y : 0.0f;
+        const auto max = grow->GetComputedValues().max_height();
+        const float cap = max.type == Rml::Style::LengthPercentage::Percentage ? max.value * base / 100.0f : max.value;
+        const float wanted = std::min(cap, height + missing);
+        if (wanted <= height + 0.5f)
+            return false;
+        grow->SetProperty(Rml::PropertyId::MinHeight, Rml::Property(wanted, Rml::Unit::PX));
+        return true;
+    }
+
     PageBreak Page(size_t offset, std::vector<size_t> &starts)
     {
         const std::string rest = text_.substr(std::min(offset, text_.size()));
@@ -920,6 +953,7 @@ class PagesElement final : public Rml::Element, public FitsText
         const float total = bottoms.empty() ? 0.0f : bottoms.back();
         // Rounding of the box must not cost a line that fits.
         const float slack = 0.5f;
+        last_missing_ = total - (height_ - reserve_ + slack);
         return ChoosePage(text_, offset, starts, bottoms, total, height_ + slack, height_ - reserve_ + slack);
     }
 
@@ -929,6 +963,12 @@ class PagesElement final : public Rml::Element, public FitsText
         const int page = GetAttribute<int>("page", 0);
         std::vector<size_t> starts;
         PageBreak shown = Page(offset_, starts);
+        // The first page of a text that needs more room: the grower takes it if it can.
+        if (mode == "paged" && offset_ == 0 && applied_ == 0 && page == 0 && shown.more && Grow(last_missing_))
+        {
+            clamps_changed = true;
+            return;
+        }
         while (mode == "paged" && applied_ < page && shown.more)
         {
             offset_ = shown.next;
@@ -967,6 +1007,7 @@ class PagesElement final : public Rml::Element, public FitsText
     size_t offset_ = 0; // start of the page shown
     int applied_ = 0;   // `page` requests already turned into offsets
     float width_ = -1.0f, height_ = -1.0f, reserve_ = -1.0f;
+    float last_missing_ = 0.0f; // how much the last measured text lacked beside the reserved part
     bool dirty_ = true;
     bool more_ = false;
     bool noted_ = false;            // in laid_out_fits for this pass

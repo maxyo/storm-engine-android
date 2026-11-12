@@ -109,6 +109,31 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
                               "<div class=\"replies\" data-reserve=\"1\"><c-row id=\"reply\" title=\"Repair my ship\"/><c-row id=\"leave\" title=\"Goodbye\"/></div>"
                               "<c-row id=\"next\" class=\"next\" title=\"Next\"/></div>"
                               "</body></rml>");
+    // The dialogue sheet (s-dialogue): it grows (data-grow) up to its max-height before the
+    // speech pages; here 200 dp high in a 400 dp screen, at most 88 % (352 dp).
+    const std::string sheet =
+        "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
+        " .sheet { position: absolute; left: 0; bottom: 0; width: 400dp; height: 200dp; max-height: 88%; }"
+        " ui-pages { display: block; position: absolute; left: 0; top: 0; right: 0; bottom: 44dp; line-height: 26dp; white-space: nowrap; overflow: hidden; }"
+        " .replies { position: absolute; left: 0; right: 0; bottom: 0; } .replies c-row { display: block; height: 48dp; }"
+        " ui-pages.more ~ .replies { visibility: hidden; pointer-events: none; }"
+        " .next { position: absolute; right: 0; bottom: 0; width: 80dp; height: 44dp; } ui-pages.last ~ .next { display: none; }</style></head><body>"
+        "<div class=\"sheet\" data-grow=\"1\"><ui-pages text=\"TEXT\" page=\"0\" mode=\"paged\"/>"
+        "<div class=\"replies\" data-reserve=\"1\"><c-row id=\"reply\" title=\"Repair my ship\"/><c-row id=\"leave\" title=\"Goodbye\"/></div>"
+        "<c-row id=\"next\" class=\"next\" title=\"Next\"/></div></body></rml>";
+    const auto with = [&](const std::string &text) {
+        std::string doc = sheet;
+        doc.replace(doc.find("TEXT"), 4, text);
+        return doc;
+    };
+    const std::string greeting = "Welcome aboard, captain! The yard has timber, pitch and canvas in plenty, and my men have been idle since "
+                                 "the storm. We can mend the hull, change the sails and rigging, or sell you a sloop or a brig that "
+                                 "stand at the pier. What will it be today?";
+    Write(pack / "grow.rml", with(greeting));
+    std::string story;
+    for (int i = 0; i < 8; ++i)
+        story += greeting + " ";
+    Write(pack / "grow-long.rml", with(story));
     return pack;
 }
 
@@ -310,6 +335,20 @@ int main(int argc, char **argv)
                                                                   (clicks.empty() ? std::string("nothing") : clicks[0]));
     tap(360, 180);
     Expect(clicks.size() == 1 && clicks[0] == "leave click", "the last reply sits where «Дальше» would be, and it is not there");
+
+    // A greeting too long for the designed sheet beside its replies: the sheet grows and it
+    // stays one page; a speech longer than even the tallest sheet pages.
+    Expect(host->LoadDocument("grow.rml"), "the growing sheet loads");
+    frames(0.3);
+    tap(40, 330);
+    Expect(clicks.size() == 1 && clicks[0] == "reply click", "the sheet grew: the greeting and its replies on one page: " +
+                                                                  (clicks.empty() ? std::string("nothing") : clicks[0]));
+    Expect(host->LoadDocument("grow-long.rml"), "the long speech loads");
+    frames(0.3);
+    tap(360, 380);
+    Expect(clicks.size() == 1 && clicks[0] == "next click", "a speech beyond the tallest sheet pages: «Дальше» is there");
+    tap(40, 330);
+    Expect(clicks.empty(), "… and the replies wait");
 
     host.reset();
     host = Host::Create(config, &error);
