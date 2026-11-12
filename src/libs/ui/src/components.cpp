@@ -886,9 +886,36 @@ void ComponentElement::RebuildNow()
     built_ = true;
     built_children_ = has_children;
     ReportUnknownComponents(this);
+    ApplyBoxSize(scope);
     ApplyClasses();
     for (const auto &behavior : behaviors_)
         behavior->Rebuilt(*this);
+}
+
+// constants.boxSize: the name of a prop that is the component's width and height in dp (C-Icon:
+// its size). A box whose size is set needs no formatting of its content to be measured: an
+// icon in a header's nested flex rows was formatted about 500 times per layout of the header.
+void ComponentElement::ApplyBoxSize(const Json &scope)
+{
+    const auto prop = spec_.constants.find("boxSize");
+    if (prop == spec_.constants.end() || !prop->is_string())
+        return;
+    const auto value = scope.find(prop->get<std::string>());
+    const float size = value != scope.end() && value->is_number() ? value->get<float>() : -1.0f;
+    if (size == box_size_)
+        return;
+    box_size_ = size;
+    if (size > 0.0f)
+    {
+        SetProperty(Rml::PropertyId::Width, Rml::Property(size, Rml::Unit::DP));
+        SetProperty(Rml::PropertyId::Height, Rml::Property(size, Rml::Unit::DP));
+    }
+    else
+    {
+        RemoveProperty(Rml::PropertyId::Width);
+        RemoveProperty(Rml::PropertyId::Height);
+        ReportError("constants.boxSize names prop '" + prop->get<std::string>() + "', which is not a number");
+    }
 }
 
 void ComponentElement::SyncSlot(Rml::Element *content)
