@@ -17,19 +17,25 @@ fetch_archive() {
         unzip -q "$work/downloads/$filename" -d "$destination"
     fi
 }
+source "$repo/tools/android/sources_lock.sh"
 checkout_source() {
     local name=$1 url=$2 revision=$3
     if [[ ! -d "$work/sources/$name/.git" ]]; then
-        git init -q "$work/sources/$name"
-        git -C "$work/sources/$name" remote add origin "$url"
-        git -C "$work/sources/$name" fetch --depth 1 origin "$revision"
-        git -C "$work/sources/$name" checkout --detach FETCH_HEAD
+        sources_lock exclusive "$work/sources" # one writer; builds reading the directory finish first
+        if [[ ! -d "$work/sources/$name/.git" ]]; then
+            git init -q "$work/sources/$name"
+            git -C "$work/sources/$name" remote add origin "$url"
+            git -C "$work/sources/$name" fetch --depth 1 origin "$revision"
+            git -C "$work/sources/$name" checkout --detach FETCH_HEAD
+        fi
+        flock -u "$storm_sources_lock_fd"
     fi
     test "$(git -C "$work/sources/$name" rev-parse HEAD)" = "$revision"
 }
 fetch_archive android-ndk-r30-linux.zip 753611f410d002cfcd3f3dc2ef49aad532089d3180b436c060a90bf0fcb64df2 "$work/tools/ndk"
 checkout_source SDL https://github.com/libsdl-org/SDL.git 2e9821423a237a1206e3c09020778faacfe430be
 checkout_source fmt https://github.com/fmtlib/fmt.git d141cdbeb0fb422a3fb7173b285fd38e0d1772dc
+sources_lock shared "$work/sources" # the dependency builds below compile from it
 python3 -m venv "$work/python"
 "$work/python/bin/pip" install --disable-pip-version-check cmake==3.22.1 ninja==1.13.0
 export PATH="$work/python/bin:$PATH"
