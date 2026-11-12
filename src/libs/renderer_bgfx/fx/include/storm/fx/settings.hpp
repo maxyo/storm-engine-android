@@ -108,8 +108,6 @@ struct Settings
     bool lens_flare = false;      // procedural sun glare and flare ghosts (switch the legacy flare sprites off)
     float lens_flare_intensity = 0.5f;
     bool scene_grading = false;   // PostChain::Frame::scene_grade (mood of the place and hour) is applied
-    float vignette = 0.0f;        // 0 = off .. 1 = strong darkening of the corners; optional, off in every preset
-    float film_grain = 0.0f;      // 0 = off .. 1; optional, off in every preset
     bool ssao = false;            // high end only; needs the scene depth texture
     float ssao_radius = 0.6f;     // metres
     float ssao_intensity = 0.8f;

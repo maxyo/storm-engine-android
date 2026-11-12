@@ -1176,15 +1176,11 @@ std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
     add("flare_0_off", Content::Ocean, basic, preview::Weather::Sunset);
     add("flare_1_on", Content::Ocean, one_more, preview::Weather::Sunset);
     add("flare_day_1_on", Content::Shore, one_more).sun_turn = 215.0f;
-    // Dither against banding in the night sky; optional vignette and grain.
+    // Dither against banding in the night sky.
     one_more = basic;
     one_more.dither = true;
     add("dither_0_off", Content::Ocean, basic, preview::Weather::Night);
     add("dither_1_on", Content::Ocean, one_more, preview::Weather::Night);
-    one_more = basic;
-    one_more.vignette = 0.5f;
-    one_more.film_grain = 0.5f;
-    add("optional_vignette_grain", Content::Ocean, one_more);
 
     // Normal maps derived from height textures: the sun in two positions, then a torch at night.
     fx::Settings flat = basic;
@@ -1199,7 +1195,7 @@ std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
         add(std::string("normalmap_") + light + "_2_high" + suffix, Content::Materials, basic, weather).sun_turn = turn;
     }
 
-    // Anti-aliasing, sharpening and dynamic resolution on the test chart.
+    // Anti-aliasing, sharpening and a 75 % render scale on the test chart.
     add("aa_0_off", Content::Pattern, original);
     fx::Settings aa = original;
     aa.fxaa = true;

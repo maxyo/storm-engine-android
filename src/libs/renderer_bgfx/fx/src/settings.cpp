@@ -62,8 +62,7 @@ Settings Settings::FromPreset(QualityPreset preset)
 bool Settings::PostIsIdentity() const
 {
     const bool graded = grade != GradePreset::Original && grade_strength > 0.0f;
-    return !tonemap && !graded && !bloom && !fxaa && !sharpen && !sun_shafts && !ssao && !dither && !lens_flare && !scene_grading &&
-           vignette <= 0.0f && film_grain <= 0.0f;
+    return !tonemap && !graded && !bloom && !fxaa && !sharpen && !sun_shafts && !ssao && !dither && !lens_flare && !scene_grading;
 }
 
 std::string Support::Describe() const
@@ -108,7 +107,6 @@ constexpr Rule kRules[] = {
     {[](const Settings &s, const Support &c) { return !c.lut_3d && !s.PostIsIdentity(); },
      [](Settings &s) {
          s.tonemap = s.bloom = s.ssao = s.sun_shafts = s.scene_grading = s.dither = s.lens_flare = s.fxaa = s.sharpen = false;
-         s.vignette = s.film_grain = 0.0f;
          s.grade = GradePreset::Original;
      },
      "the post-processing chain needs 3D textures: every post effect switched off"},

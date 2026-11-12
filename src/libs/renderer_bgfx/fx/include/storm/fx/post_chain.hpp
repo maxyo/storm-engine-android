@@ -1,5 +1,5 @@
-// Post-processing chain: ambient occlusion, bloom, sun shafts, tone curve, colour grades, dither, optional
-// vignette and grain, FXAA, sharpening / upscale, lens flare. Reads the game's offscreen colour target and writes
+// Post-processing chain: ambient occlusion, bloom, sun shafts, tone curve, colour grades, dither, FXAA,
+// sharpening, lens flare. Reads the game's offscreen colour target and writes
 // the final image into a frame buffer or the back buffer.
 //
 //   scene ─┬─────────────────────────────► composite ─► [FXAA] ─► [CAS] ─► target
@@ -32,7 +32,7 @@ class PostChain
     struct Frame
     {
         bgfx::TextureHandle scene_color = BGFX_INVALID_HANDLE; // RGBA8, gamma encoded, the game's offscreen target
-        uint16_t scene_width = 0;                              // its size: the dynamic-resolution render size
+        uint16_t scene_width = 0;                              // its size (smaller than the target only in tools/fx-preview render_scale)
         uint16_t scene_height = 0;
         bgfx::FrameBufferHandle target = BGFX_INVALID_HANDLE;  // invalid = back buffer
         uint16_t target_width = 0;
@@ -126,7 +126,7 @@ class PostChain
     std::vector<uint8_t> pending_texels_;
     int pending_slice_ = -1; // next blue slice to build; -1: no rebuild in progress
     uint32_t frame_counter_ = 0;
-    bgfx::UniformHandle u_finish_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_dither_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_scene_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_bloom_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_lut_ = BGFX_INVALID_HANDLE;

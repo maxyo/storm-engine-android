@@ -61,8 +61,6 @@ const Option kOptions[] = {
     {"fx_scene_grading", "0 off, 1 on", [](fx::Settings &s, int v) { s.scene_grading = on(v); }},
     {"fx_grade", "0 Оригинал, 1 Карибы, 2 Пасмурно",
      [](fx::Settings &s, int v) { s.grade = static_cast<fx::GradePreset>(std::clamp(v, 0, 2)); }},
-    {"fx_vignette", "0..100 (%)", [](fx::Settings &s, int v) { s.vignette = std::clamp(v, 0, 100) / 100.0f; }},
-    {"fx_film_grain", "0..100 (%)", [](fx::Settings &s, int v) { s.film_grain = std::clamp(v, 0, 100) / 100.0f; }},
     {"fx_msaa", "1, 2, 4", [](fx::Settings &s, int v) { s.msaa = static_cast<uint8_t>(std::clamp(v, 1, 4)); }},
     {"fx_alpha_to_coverage", "0 off, 1 on", [](fx::Settings &s, int v) { s.alpha_to_coverage = on(v); }},
     {"fx_anisotropy", "1, 4, 8", [](fx::Settings &s, int v) { s.anisotropy = static_cast<uint8_t>(std::clamp(v, 1, 16)); }},
@@ -118,10 +116,10 @@ std::string describe(const fx::Settings &s)
     char text[512];
     snprintf(text, sizeof(text),
              "tonemap=%d bloom=%d(1/%u,%u) shafts=%d fxaa=%d sharpen=%d ssao=%d dither=%d flare=%d scene_grading=%d "
-             "grade=%d vignette=%.2f grain=%.2f msaa=%u a2c=%d aniso=%u sky=%d clouds=%d water=%d shadows=%d "
+             "grade=%d msaa=%u a2c=%d aniso=%u sky=%d clouds=%d water=%d shadows=%d "
              "lighting=0x%x contact=%d",
              s.tonemap, s.bloom, s.bloom_downscale, s.bloom_levels, s.sun_shafts, s.fxaa, s.sharpen, s.ssao, s.dither,
-             s.lens_flare, s.scene_grading, static_cast<int>(s.grade), s.vignette, s.film_grain, s.msaa,
+             s.lens_flare, s.scene_grading, static_cast<int>(s.grade), s.msaa,
              s.alpha_to_coverage, s.anisotropy, s.sky_atmosphere, s.sky_clouds, static_cast<int>(s.water),
              static_cast<int>(s.shadows), s.lighting_flags, s.contact_shadows);
     return text;
@@ -269,7 +267,7 @@ void Host::apply()
             report_.disabled.push_back("fx_ssao");
         if (possible.PostIsIdentity())
             for (const char *name : {"fx_tonemap", "fx_bloom", "fx_sun_shafts", "fx_fxaa", "fx_sharpen", "fx_dither",
-                                     "fx_lens_flare", "fx_scene_grading", "fx_grade", "fx_vignette", "fx_film_grain"})
+                                     "fx_lens_flare", "fx_scene_grading", "fx_grade"})
                 report_.disabled.push_back(name);
     }
     for (const Pending &pending : kPending)

@@ -64,7 +64,7 @@ void CheckSettings()
     // MSAA is the primary anti-aliasing of the presets; FXAA is left to the player. Optional looks stay off.
     CHECK(medium.msaa == 4 && high.msaa == 4 && !medium.fxaa && !high.fxaa && original.msaa == 1);
     CHECK(medium.anisotropy == 4 && high.anisotropy == 8 && original.anisotropy == 1);
-    CHECK(high.vignette == 0.0f && high.film_grain == 0.0f && medium.dither && !original.dither);
+    CHECK(medium.dither && !original.dither);
     CHECK(high.water == WaterQuality::High && medium.water == WaterQuality::Medium);
     CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);

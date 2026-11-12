@@ -61,7 +61,7 @@ void PostChain::Shutdown()
     Destroy(antialiased_.fb);
     Destroy(occlusion_.fb);
     Destroy(lut_);
-    Destroy(u_finish_);
+    Destroy(u_dither_);
     for (bgfx::UniformHandle *uniform :
          {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_,
           &u_ao_})
@@ -82,7 +82,7 @@ void PostChain::OnDeviceLost()
     antialiased_ = {};
     occlusion_ = {};
     lut_ = BGFX_INVALID_HANDLE;
-    u_finish_ = BGFX_INVALID_HANDLE;
+    u_dither_ = BGFX_INVALID_HANDLE;
     for (bgfx::UniformHandle *uniform :
          {&s_scene_, &s_bloom_, &s_lut_, &u_bloom_, &u_bloom_range_, &u_shafts_, &u_tone_, &u_lut_, &u_texel_, &s_ao_, &s_depth_,
           &u_ao_})
@@ -108,7 +108,7 @@ void PostChain::EnsureUniforms()
         s_ao_ = bgfx::createUniform("s_fxAoTex", bgfx::UniformType::Sampler);
         s_depth_ = bgfx::createUniform("s_fxSceneDepth", bgfx::UniformType::Sampler);
         u_ao_ = bgfx::createUniform("u_fxAo", bgfx::UniformType::Vec4, 3);
-        u_finish_ = bgfx::createUniform("u_fxFinish", bgfx::UniformType::Vec4);
+        u_dither_ = bgfx::createUniform("u_fxDither", bgfx::UniformType::Vec4);
     }
 }
 
@@ -344,9 +344,9 @@ uint16_t PostChain::Submit(const Settings &settings, const Frame &frame)
         const float lut[4] = {static_cast<float>(kDefaultLutSize - 1) / kDefaultLutSize, 0.5f / kDefaultLutSize, 0.0f, 0.0f};
         bgfx::setUniform(u_tone_, tone);
         bgfx::setUniform(u_lut_, lut);
-        const float finish[4] = {settings.dither ? 1.0f / 255.0f : 0.0f, std::clamp(settings.vignette, 0.0f, 1.0f),
-                                 std::clamp(settings.film_grain, 0.0f, 1.0f), static_cast<float>((++frame_counter_ * 37u) % 251u)};
-        bgfx::setUniform(u_finish_, finish);
+        const float dither[4] = {settings.dither ? 1.0f / 255.0f : 0.0f, static_cast<float>((++frame_counter_ * 37u) % 251u),
+                                 0.0f, 0.0f};
+        bgfx::setUniform(u_dither_, dither);
         bgfx::setTexture(0, s_scene_, frame.scene_color, same_size || !composite_is_final ? kClampPoint : kClampLinear);
         if (levels > 0)
             bgfx::setTexture(1, s_bloom_, bgfx::getTexture(bloom_[0].fb), kClampLinear);
