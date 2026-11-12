@@ -2174,6 +2174,13 @@ static void Launcher()
     ExpectEqual(verb(), "APP play ", "play");
     router.OnEvent({"about", "click", ""});
     ExpectEqual(verb(), "APP about ", "about from the header");
+    // While the app checks the files and installs the layers before the game starts, «Играть»
+    // shows it, for as long as it takes (not only the router's pending second and a half).
+    surface.now += 5.0;
+    router.SetState("launcher", launcher({{"phase", "ready"}, {"library", true}, {"hasGame", true}, {"starting", true}}));
+    Expect(surface.props["play"]["busy"].get<bool>(), "starting: «Играть» is busy");
+    router.SetState("launcher", launcher({{"phase", "ready"}, {"library", true}, {"hasGame", true}, {"starting", false}}));
+    Expect(!surface.props["play"]["busy"].get<bool>(), "started (or failed): «Играть» is free again");
 
     surface.now = 10;
     router.SetState("launcher", launcher({{"phase", "busy"}, {"hasGame", false},

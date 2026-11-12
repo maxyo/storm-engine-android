@@ -7,7 +7,7 @@
 //   {screen: launcher|downloads|about, language: <game language name>, <screen>: {...}}
 // with the raw data of that screen; every text the player reads is formatted here from the
 // pack's string table.
-//   launcher:  {phase: setup|ready|busy, files, library, hasGame, problem: ""|no_game|
+//   launcher:  {phase: setup|ready|busy, starting, files, library, hasGame, problem: ""|no_game|
 //               recovery_required|start_failed, result: {key, args}, exit: {reason, when},
 //               import: {recovering, cancelling, canCancel, stage, bytes, total, files,
 //               choices: [{id, name, version, languages, defaultLanguage, bytes, files,
@@ -384,7 +384,9 @@ class LauncherScreen final : public Screen
         {
             view["view"] = "ready";
             view["title"] = bindings.Text("launcher.app_name");
-            view["play"] = Json{{"label", bindings.Text("launcher.play")}, {"busy", bindings.Pending("play")}};
+            // `starting`: the app is checking the files and installing the UI layers before the game
+            // starts (GameLauncherActivity.play): «Играть» stays busy until the game is there.
+            view["play"] = Json{{"label", bindings.Text("launcher.play")}, {"busy", bindings.Pending("play") || Flag(state, "starting")}};
             view["files"] = bindings.Text("launcher.files");
             bindings.On("play", "", [send](const Event &) { send("play"); });
             bindings.On("files", "", [send](const Event &) { send("files"); });
