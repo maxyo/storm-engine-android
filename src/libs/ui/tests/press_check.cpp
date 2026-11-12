@@ -100,6 +100,11 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
         "tag": "c-store",
         "props": {"rows": {"type": "json", "default": []}, "amount": {"type": "int", "default": 0}, "total": {"type": "text", "default": ""}},
         "template": "<div id=\"list\"><t-for each=\"rows\" as=\"r\"><div class=\"row{{ r.sel ? ' sel' : '' }}\" data-value=\"{{r.id}}\"><span class=\"name\">{{r.name}}</span><span class=\"held\">{{r.held}}</span></div></t-for></div><div id=\"amount\">{{amount}}</div><div id=\"total\">{{total}}</div><c-row id=\"buy\" title=\"{{total}}\" style=\"display: block; width: 200dp; height: 48dp;\"/>"})"));
+    // A screen that passes its deal on: the amount goes to the store whole, the label is its own text.
+    components["components"].push_back(Json::parse(R"({
+        "tag": "c-outer",
+        "props": {"deal": {"type": "json", "default": null}, "rows": {"type": "json", "default": []}, "label": {"type": "text", "default": ""}},
+        "template": "<div class=\"label\">{{label}}</div><t-if test=\"deal\"><c-store id=\"inner\" rows=\"{{ json(rows) }}\" props=\"{{ json(deal) }}\"/></t-if>"})"));
     // constants.boxSize: the size prop is the box (an icon measured without formatting its content).
     components["components"].push_back(Json::parse(R"({
         "tag": "c-sized", "constants": {"boxSize": "size"},
@@ -123,6 +128,12 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
         Write(pack / "store.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }</style></head><body>"
                                   "<c-store id=\"store\" amount=\"1\" total=\"Buy 1\" rows='" + rows.dump() + "'/>"
                                   "<div style=\"display: flex;\"><c-sized id=\"sized\" size=\"20\"/></div></body></rml>");
+        Write(pack / "bar.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }</style></head><body>"
+                                "<div id=\"bar\" rmlui-layout-boundary=\"\" style=\"display: flex; flex-direction: row; width: 800dp; height: 40dp;\">"
+                                "<div id=\"stat\" rmlui-layout-boundary=\"\" style=\"flex: 0 0 auto;\">189</div><div id=\"rest\" style=\"flex: 1 1 0;\">rest</div>"
+                                "</div></body></rml>");
+        Write(pack / "outer.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }</style></head><body>"
+                                  "<c-outer id=\"outer\" label=\"Store\" deal='{\"amount\": 1, \"total\": \"Buy 1\"}' rows='" + rows.dump() + "'/></body></rml>");
     }
     Write(pack / "cutout-bar.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }"
                                    " #bar { display: flex; flex-direction: row; position: absolute; left: 0; top: 0; width: 800dp; height: 40dp; }"
@@ -564,6 +575,68 @@ int main(int argc, char **argv)
         Expect(host->SetProps("sized", R"({"size": 32})"), "the size changes");
         frames(0.05);
         Expect(std::abs(sized->GetBox().GetSize(Rml::BoxArea::Border).x - 32.0f) < 0.01f, "… and the box follows: 32");
+    }
+
+    // A boundary sized by its contents in a flex row (a header's figure): a text of the same width
+    // lays out only it; a wider one changes the row around it, which is laid out again.
+    Expect(host->LoadDocument("bar.rml"), "the bar document loads");
+    frames(0.1);
+    {
+        Rml::Context *context = Rml::GetContext("storm-ui");
+        const auto find = [context](const char *id) -> Rml::Element * {
+            for (int i = 0; context && i < context->GetNumDocuments(); ++i)
+                if (Rml::Element *found = context->GetDocument(i)->GetElementById(id))
+                    return found;
+            return nullptr;
+        };
+        Rml::Element *stat = find("stat"), *rest = find("rest");
+        const float narrow = stat ? stat->GetBox().GetSize().x : 0.f, rest_at = rest ? rest->GetAbsoluteLeft() : 0.f;
+        Expect(stat && rest && narrow > 0.f, "the bar is laid out");
+        if (stat && rest)
+        {
+            stat->SetInnerRML("WWWWWWW 1 514");
+            frames(0.05);
+            Expect(stat->GetBox().GetSize().x > narrow + 10.f && rest->GetAbsoluteLeft() > rest_at + 10.f,
+                   "a wider figure widens its box and moves what follows (" + std::to_string(stat->GetBox().GetSize().x) + ")");
+            stat->SetInnerRML("189");
+            frames(0.05);
+            Expect(std::abs(stat->GetBox().GetSize().x - narrow) < 0.01f && std::abs(rest->GetAbsoluteLeft() - rest_at) < 0.01f,
+                   "back to the first figure: back to the first layout");
+        }
+    }
+
+    // A value a screen only passes on (a drag of the deal's amount): the screen does not render its
+    // template, the store renders once and touches the amount, the total and the button only.
+    Expect(host->LoadDocument("outer.rml"), "the outer document loads");
+    frames(0.1);
+    {
+        Expect(host->SetProps("outer", R"({"deal": {"amount": 2, "total": "Buy 2"}})"), "the deal's amount changes");
+        clock += 1.0 / 60.0;
+        host->Frame();
+        const FrameStats moved = host->LastFrameStats();
+        Expect(moved.forwarded >= 1 && moved.rebuilds == 1 && moved.touched <= 5 && moved.laid_out <= 30 && moved.patch_fallbacks == 0,
+               "a passed-on value: the screen forwards it (" + std::to_string(moved.forwarded) + "), only the store renders (" +
+                   std::to_string(moved.rebuilds) + " renders), " + std::to_string(moved.touched) + " elements touched, " +
+                   std::to_string(moved.laid_out) + " boxes");
+        Expect(host->SetProps("outer", R"({"label": "Shop"})"), "the screen's own text changes");
+        clock += 1.0 / 60.0;
+        host->Frame();
+        const FrameStats own = host->LastFrameStats();
+        Expect(own.forwarded == 0 && own.rebuilds == 1, "its own text: the screen renders, the store does not");
+        Expect(host->SetProps("outer", R"({"deal": {"amount": 3, "total": "Buy 3"}})"), "the amount after the screen rendered");
+        clock += 1.0 / 60.0;
+        host->Frame();
+        Rml::Context *context = Rml::GetContext("storm-ui");
+        Rml::Element *amount = nullptr;
+        for (int i = 0; context && i < context->GetNumDocuments() && !amount; ++i)
+            amount = context->GetDocument(i)->GetElementById("amount");
+        Expect(amount && amount->GetInnerRML() == "3", "the store shows the amount passed on last");
+        Expect(host->SetProps("outer", R"({"deal": null})"), "the deal closes");
+        frames(0.05);
+        amount = nullptr;
+        for (int i = 0; context && i < context->GetNumDocuments() && !amount; ++i)
+            amount = context->GetDocument(i)->GetElementById("amount");
+        Expect(!amount, "a deal whose truth changed renders the screen: the store is gone");
     }
 
     // A slider's knob stays under the finger: the value has steps (0…4 over 400 px: 100 px each),

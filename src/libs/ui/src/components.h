@@ -188,6 +188,7 @@ class ComponentElement final : public Rml::Element
 
   private:
     void ApplyClasses();
+    bool Forward();
     void ApplyBoxSize(const Json &scope);
     // A wrong prop, enum value or template: logged with the element and drawn as the
     // striped "ui-error" marker instead of a silent default.
@@ -210,6 +211,7 @@ class ComponentElement final : public Rml::Element
     // changed against it. Not ok: the render had something the parser does not take.
     std::vector<RmlNode> built_tree_;
     bool built_tree_ok_ = false;
+    Json rendered_values_; // the props the live tree shows (last render or Forward)
     TemplateMemo memo_; // loop items of the last render (RenderTemplate)
     bool pending_slot_ = false;   // slot_content_ replaces the slot on the next build
     std::vector<Rml::ElementPtr> slot_content_;

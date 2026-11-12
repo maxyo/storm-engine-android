@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace storm::ui
 {
@@ -27,9 +28,9 @@ struct TemplateMemo
 {
     struct Loop
     {
-        std::string outside; // the scope without the looped prop, as it was
-        std::unordered_map<std::string, std::string> items; // item key -> its output
-        std::unordered_map<std::string, std::string> next;  // filled by the render in progress
+        Json outside;                     // the scope without the looped prop, as it was
+        std::vector<Json> items;          // each item as it was rendered, by position
+        std::vector<std::string> outputs; // and its output
     };
     std::unordered_map<std::string, Loop> loops; // by the loop's place in the template
     int rendered = 0, reused = 0;                // items of the last render

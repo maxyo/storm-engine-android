@@ -822,48 +822,49 @@ void RenderBlock(std::string_view source, const Scope &scope, std::string &out)
                 // Short lists render faster than the scope compares: only lists of some length.
                 if (scope.memo && !scope.parent && list.size() >= 4 && scope.vars.is_object() && scope.vars.contains(each))
                 {
-                    Json outside = scope.vars;
-                    outside.erase(each);
-                    std::string signature = outside.dump();
                     memo = &scope.memo->loops[std::to_string(reinterpret_cast<uintptr_t>(body.data())) + ":" + each];
-                    if (memo->outside != signature)
+                    // The rest of the scope as at the last render? Compared in place, not copied.
+                    bool same = memo->outside.is_object() && memo->outside.size() + 1 == scope.vars.size();
+                    for (auto entry = scope.vars.begin(); same && entry != scope.vars.end(); ++entry)
+                        if (entry.key() != each)
+                        {
+                            const auto found = memo->outside.find(entry.key());
+                            same = found != memo->outside.end() && *found == entry.value();
+                        }
+                    if (!same || memo->items.size() != list.size())
                     {
-                        memo->items.clear();
-                        memo->outside = std::move(signature);
+                        memo->outside = Json::object();
+                        for (auto entry = scope.vars.begin(); entry != scope.vars.end(); ++entry)
+                            if (entry.key() != each)
+                                memo->outside[entry.key()] = entry.value();
+                        memo->items.assign(list.size(), Json());
+                        memo->outputs.assign(list.size(), std::string());
                     }
-                    memo->next.clear();
                 }
                 size_t index = 0;
                 for (const Json &item : list)
                 {
-                    const bool last = index + 1 == list.size();
-                    std::string key;
-                    if (memo)
+                    // Same item at the same place (so the same _i and _last), same scope: same output.
+                    if (memo && !memo->items[index].is_null() && memo->items[index] == item)
                     {
-                        key = std::to_string(index) + (last ? "L" : "") + ":" + item.dump();
-                        if (const auto found = memo->items.find(key); found != memo->items.end())
-                        {
-                            out += found->second;
-                            memo->next.emplace(std::move(key), std::move(found->second));
-                            ++scope.memo->reused;
-                            ++index;
-                            continue;
-                        }
+                        out += memo->outputs[index];
+                        ++scope.memo->reused;
+                        ++index;
+                        continue;
                     }
                     local[as] = item;
                     local[as + "_i"] = index;
-                    local[as + "_last"] = last;
+                    local[as + "_last"] = index + 1 == list.size();
                     const size_t from = out.size();
                     RenderBlock(body, inner, out);
                     if (memo)
                     {
-                        memo->next.emplace(std::move(key), out.substr(from));
+                        memo->items[index] = item;
+                        memo->outputs[index] = out.substr(from);
                         ++scope.memo->rendered;
                     }
                     ++index;
                 }
-                if (memo)
-                    memo->items.swap(memo->next);
             }
             at = close.end;
         }

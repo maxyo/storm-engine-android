@@ -9,6 +9,8 @@
 #include <chrono>
 #include <cstdlib>
 #include <map>
+#include <optional>
+#include <functional>
 #include <set>
 #include <stdexcept>
 #include <unordered_map>
@@ -565,6 +567,141 @@ void PatchChildren(Rml::Element *live, std::string_view before, const std::vecto
     }
 }
 
+// --- props a template only passes on ------------------------------------------------------
+// A screen's template mostly hands its props to nested components (stats="{{ json(stats) }}").
+// When every prop that changed is used only like that, the component does not render its
+// template again: the attribute is set on the live element, which rebuilds that nested
+// component alone. A drag of the store's amount changed the header figures, the deal row and
+// the button; s-trade, c-screen and c-trade-list each rendered and diffed their whole template
+// for it.
+struct ForwardSite
+{
+    std::string tag, id;      // the element: its tag and literal id (empty: the template's only such tag)
+    std::string attribute;    // where the value goes
+    std::string path;         // what goes there: the changed path, or an object around it passed whole
+    bool json = false;        // {{ json(path) }}, else {{ path }}
+};
+
+bool IsNameChar(char c)
+{
+    return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$';
+}
+
+// Where `path` (a prop, or one key of an object prop: "list.rows") is used in `body`, if every
+// use is a whole attribute value {{ json(path) }} or {{ path }} of an element outside loops, or a
+// t-if test of an enclosing path whose truth did not change (`truth_kept`). Empty optional: some
+// other use; the template must be rendered.
+std::optional<std::vector<ForwardSite>> ForwardSites(std::string_view body, const std::string &path, const std::function<bool(const std::string &)> &truth_kept)
+{
+    std::vector<ForwardSite> sites;
+    const std::string root = path.substr(0, path.find('.'));
+    for (size_t at = body.find(root); at != std::string_view::npos; at = body.find(root, at + 1))
+    {
+        if ((at > 0 && (IsNameChar(body[at - 1]) || body[at - 1] == '.' || body[at - 1] == '-')) ||
+            (at + root.size() < body.size() && (IsNameChar(body[at + root.size()]) || body[at + root.size()] == '-')))
+            continue; // part of another name (or of a class name)
+        // Only expressions read props: {{ … }} and the tests and lists of t-if / t-for; an
+        // attribute name or literal text of the same spelling is no use.
+        const size_t hole = body.rfind("{{", at), hole_end = body.rfind("}}", at);
+        const bool in_hole = hole != std::string_view::npos && (hole_end == std::string_view::npos || hole_end < hole);
+        if (!in_hole)
+        {
+            const size_t tag_open = body.rfind('<', at);
+            const std::string_view head = tag_open == std::string_view::npos ? std::string_view() : body.substr(tag_open, at - tag_open);
+            const bool control = head.rfind("<t-if", 0) == 0 || head.rfind("<t-for", 0) == 0;
+            if (!control || head.find('>') != std::string_view::npos || head.find('"') == std::string_view::npos)
+                continue;
+        }
+        size_t end = at + root.size();
+        while (end + 1 < body.size() && body[end] == '.' && IsNameChar(body[end + 1]))
+        {
+            ++end;
+            while (end < body.size() && IsNameChar(body[end]))
+                ++end;
+        }
+        const std::string used(body.substr(at, end - at));
+        const bool related = used == path || used.rfind(path + ".", 0) == 0 || path.rfind(used + ".", 0) == 0;
+        if (!related)
+            continue;
+        // The enclosing tag and the attribute this use is in (a '<' or '>' in an expression is
+        // inside quotes).
+        size_t open = body.rfind('<', at);
+        while (open != std::string_view::npos && open > 0 && !std::isalpha(static_cast<unsigned char>(body[open + 1])))
+            open = body.rfind('<', open - 1);
+        size_t close = std::string_view::npos;
+        bool quoted = false;
+        for (size_t i = open == std::string_view::npos ? body.size() : open; i < body.size(); ++i)
+        {
+            if (body[i] == '"')
+                quoted = !quoted;
+            else if (body[i] == '>' && !quoted)
+            {
+                close = i;
+                break;
+            }
+        }
+        if (open == std::string_view::npos || close == std::string_view::npos || close < at)
+            return std::nullopt; // in text, not in a tag
+        const std::string_view tag_text = body.substr(open, close - open);
+        size_t name_end = 1;
+        while (name_end < tag_text.size() && (IsNameChar(tag_text[name_end]) || tag_text[name_end] == '-'))
+            ++name_end;
+        const std::string tag(tag_text.substr(1, name_end - 1));
+        const size_t quote = body.rfind('"', at);
+        const size_t equals = quote == std::string_view::npos ? std::string_view::npos : body.rfind('=', quote);
+        if (equals == std::string_view::npos || equals < open)
+            return std::nullopt;
+        size_t name_begin = equals;
+        while (name_begin > open && (IsNameChar(body[name_begin - 1]) || body[name_begin - 1] == '-'))
+            --name_begin;
+        const std::string attribute(body.substr(name_begin, equals - name_begin));
+        const size_t value_end = body.find('"', at);
+        std::string value(body.substr(quote + 1, value_end - quote - 1));
+        value.erase(std::remove_if(value.begin(), value.end(), [](char c) { return c == ' '; }), value.end());
+        if (tag == "t-if" && attribute == "test" && value == used && used != path && truth_kept(used))
+            continue; // only the truth of an enclosing path, which the change kept
+        if (tag.rfind("t-", 0) == 0)
+            return std::nullopt;
+        // The changed path itself, or the object around it passed on whole ({{ json(deal) }} for deal.value).
+        const bool json = value == "{{json(" + used + ")}}";
+        if (!(used == path && (json || value == "{{" + path + "}}")) && !(json && path.rfind(used + ".", 0) == 0))
+            return std::nullopt;
+        // Not in a loop: one element per use.
+        const std::string_view before = body.substr(0, open);
+        size_t loops = 0, at_loop = 0;
+        while ((at_loop = before.find("<t-for", at_loop)) != std::string_view::npos)
+            ++loops, ++at_loop;
+        size_t ends = 0, at_end = 0;
+        while ((at_end = before.find("</t-for>", at_end)) != std::string_view::npos)
+            ++ends, ++at_end;
+        if (loops != ends)
+            return std::nullopt;
+        ForwardSite site;
+        site.tag = tag;
+        site.attribute = attribute;
+        site.path = used;
+        site.json = json;
+        const size_t id_at = tag_text.find(" id=\"");
+        if (id_at != std::string_view::npos)
+        {
+            const size_t id_end = tag_text.find('"', id_at + 5);
+            site.id = std::string(tag_text.substr(id_at + 5, id_end - id_at - 5));
+            if (site.id.find("{{") != std::string::npos)
+                return std::nullopt;
+        }
+        sites.push_back(std::move(site));
+    }
+    return sites;
+}
+
+// The live element of a site under `self`: by id, or the only element of the tag.
+Rml::Element *SiteElement(Rml::Element *self, const ForwardSite &site)
+{
+    Rml::ElementList found;
+    self->QuerySelectorAll(found, site.id.empty() ? site.tag : site.tag + "#" + site.id);
+    return found.size() == 1 ? found.front() : nullptr;
+}
+
 } // namespace
 
 bool IsGenericAttribute(const std::string &attribute)
@@ -764,6 +901,12 @@ void ComponentElement::RebuildNow()
         }
     } timed{services_.Counters(), started};
     dirty_ = false;
+    if (built_ && GetOwnerDocument() && Forward())
+    {
+        for (const auto &behavior : behaviors_)
+            behavior->Rebuilt(*this);
+        return;
+    }
     // Counted for every re-render, also one whose output is unchanged: a behaviour may still
     // change what is shown in Rebuilt (Prepare draws a frame for it).
     ++services_.Counters().rebuilds;
@@ -875,6 +1018,9 @@ void ComponentElement::RebuildNow()
     // Else the template gave what is shown already (a model revision that did not touch this
     // component): no tree is parsed, compared or laid out.
     built_rml_ = std::move(rml);
+    rendered_values_ = Json::object();
+    for (const PropSpec &prop : spec_.props)
+        rendered_values_[prop.name] = Prop(prop.name);
     if (!kept.empty())
     {
         if (Rml::Element *slot = FindSlot(this))
@@ -916,6 +1062,110 @@ void ComponentElement::ApplyBoxSize(const Json &scope)
         RemoveProperty(Rml::PropertyId::Height);
         ReportError("constants.boxSize names prop '" + prop->get<std::string>() + "', which is not a number");
     }
+}
+
+// The props that changed since the last render, by path (a changed object prop by its keys).
+// When the template only passes each of them on (ForwardSites), they are set on the elements
+// that take them and the template is not rendered. False: it must be.
+bool ComponentElement::Forward()
+{
+    if (pending_slot_ || error_)
+        return false;
+    std::vector<std::pair<std::string, Json>> changed; // path -> new value
+    for (const PropSpec &prop : spec_.props)
+    {
+        const Json now = Prop(prop.name);
+        const auto before = rendered_values_.find(prop.name);
+        if (before == rendered_values_.end())
+            return false;
+        if (*before == now)
+            continue;
+        // Classes and class rules read props as they are.
+        if (prop.as_class || std::any_of(spec_.class_rules.begin(), spec_.class_rules.end(),
+                                         [&](const auto &rule) { return rule.second.find(prop.name) != std::string::npos; }))
+            return false;
+        if (before->is_object() && now.is_object())
+        {
+            for (const auto &item : now.items())
+                if (!before->contains(item.key()) || (*before)[item.key()] != item.value())
+                    changed.emplace_back(prop.name + "." + item.key(), item.value());
+            for (const auto &item : before->items())
+                if (!now.contains(item.key()))
+                    changed.emplace_back(prop.name + "." + item.key(), Json());
+        }
+        else
+            changed.emplace_back(prop.name, now);
+    }
+    if (changed.empty())
+        return false; // nothing for this: the ordinary path, which finds the render unchanged
+    struct Set
+    {
+        Rml::Element *element;
+        std::string attribute, value;
+    };
+    std::vector<Set> sets;
+    const auto value_at = [this](const Json &values, const std::string &path) {
+        const Json *value = &values;
+        size_t at = 0;
+        while (value && at <= path.size())
+        {
+            const size_t dot = std::min(path.find('.', at), path.size());
+            const std::string key = path.substr(at, dot - at);
+            value = value->is_object() && value->contains(key) ? &(*value)[key] : nullptr;
+            at = dot + 1;
+        }
+        return value ? *value : Json();
+    };
+    Json current = Json::object();
+    for (const PropSpec &prop : spec_.props)
+        current[prop.name] = Prop(prop.name);
+    for (const auto &[path, value] : changed)
+    {
+        const auto truth_kept = [&](const std::string &enclosing) {
+            return Truthy(value_at(rendered_values_, enclosing)) == Truthy(value_at(current, enclosing));
+        };
+        // The analysis of a path is the template's: kept per spec, unless it depended on a truth.
+        static std::map<std::pair<const ComponentSpec *, std::string>, std::optional<std::vector<ForwardSite>>> analysed;
+        bool asked = false;
+        const auto truth = [&](const std::string &enclosing) {
+            asked = true;
+            return truth_kept(enclosing);
+        };
+        const auto key = std::make_pair(&spec_, path);
+        auto cached = analysed.find(key);
+        std::optional<std::vector<ForwardSite>> found;
+        if (cached != analysed.end())
+            found = cached->second;
+        else
+        {
+            found = ForwardSites(spec_.body, path, truth);
+            if (!asked)
+                analysed.emplace(key, found);
+        }
+        const auto &sites = found;
+        if (!sites || sites->empty())
+            return false;
+        for (const ForwardSite &site : *sites)
+        {
+            Rml::Element *element = SiteElement(this, site);
+            if (!element)
+                return false;
+            const Json passed = site.path == path ? value : value_at(current, site.path);
+            sets.push_back({element, site.attribute, site.json ? passed.dump() : ToText(passed)});
+        }
+    }
+    for (const Set &set : sets)
+        if (set.element->GetAttribute<Rml::String>(set.attribute, "") != set.value)
+        {
+            set.element->SetAttribute(set.attribute, set.value);
+            ++services_.Counters().touched;
+        }
+    ++services_.Counters().forwarded;
+    rendered_values_ = std::move(current);
+    // The live tree is no longer the last render: the next render morphs it whole once.
+    built_tree_ok_ = false;
+    built_rml_.clear();
+    return true;
 }
 
 void ComponentElement::SyncSlot(Rml::Element *content)
