@@ -13,6 +13,8 @@
 
 #include "touch_physics.hpp"
 
+#include <vector>
+
 namespace storm::ui
 {
 
@@ -25,8 +27,9 @@ using touch::VelocityTracker;
 // at a time. The finger moves the content 1:1 from where the drag starts (beyond the slop);
 // every sample of the pointer counts for the release velocity; the fling then runs on the
 // frame clock (Update). A pointer that goes down on a box in motion stops it and drags it at
-// once (a caught fling is never a tap). The content stops at its edges; a fling that reaches
-// one ends there.
+// once (a caught fling is never a tap). Past an edge the content stretches (touch::EdgeStretch:
+// a pull while the finger drags it there, the fling's momentum when one reaches it) and
+// springs back: its rows are moved apart by transforms, so a stretch lays nothing out.
 class TouchScroll
 {
   public:
@@ -35,7 +38,8 @@ class TouchScroll
     // True from the sample that starts the drag on (the press under the finger is withdrawn).
     bool Move(Rml::Vector2f at, double time);
     void Up(double time, bool cancelled);
-    // Moves a flinging box to where it is at `time`; true while one is in motion.
+    // Moves a flinging box to where it is at `time` and its stretch with it; true while
+    // either is in motion.
     bool Update(double time);
     // Down caught a box in motion (the touch is a drag from its start).
     bool Caught() const
@@ -54,6 +58,10 @@ class TouchScroll
   private:
     // Sets the box's scroll offset (RmlUi keeps whole pixels) from the exact position.
     void Place();
+    // Moves the rows of the box apart by the stretch at `time` (none: they get no transform).
+    void Stretch(double time);
+    // The box's size along an axis (what a stretch is a fraction of).
+    float Size(int axis) const;
 
     Rml::ObserverPtr<Rml::Element> box_;
     bool axis_[2] = {false, false}; // the box scrolls along x / y
@@ -63,6 +71,11 @@ class TouchScroll
     bool down_ = false, dragging_ = false, caught_ = false;
     VelocityTracker tracker_;
     Fling fling_[2];
+    double last_update_ = 0.0;       // the time of the last Update (a fling's speed at an edge)
+    Rml::Vector2f pull_;             // px past the edges while the finger drags (signed)
+    touch::EdgeStretch stretch_[2];
+    std::vector<Rml::ObserverPtr<Rml::Element>> stretched_; // rows with a stretch transform
+    bool warned_ = false;            // a row with a transform of its own was reported
 };
 
 } // namespace storm::ui

@@ -14,6 +14,8 @@
 #include "hud_bench.h"
 
 #include <RmlUi/Core.h>
+#include <RmlUi/Core/Transform.h>
+#include <RmlUi/Core/TransformPrimitive.h>
 
 #include <cmath>
 #include <memory>
@@ -371,6 +373,104 @@ std::unique_ptr<Runtime> ListRuntime(const std::string &pack)
     return runtime;
 }
 
+// The vertical shift a row of the list has from a stretch (0: no transform).
+float Shift(Rml::Element *row)
+{
+    const Rml::Property *property = row->GetLocalProperty(Rml::PropertyId::Transform);
+    if (!property)
+        return 0.0f;
+    const Rml::TransformPtr transform = property->Get<Rml::TransformPtr>();
+    if (!transform || transform->GetNumPrimitives() != 1 || transform->GetPrimitive(0).type != Rml::TransformPrimitive::TRANSLATE2D)
+        return 1e9f; // not a stretch
+    return transform->GetPrimitive(0).translate_2d.values[1].number;
+}
+
+bool Unstretched(Rml::Element *list)
+{
+    for (int i = 0; i < list->GetNumChildren(); ++i)
+        if (!list->GetChild(i)->IsClassSet("scroll-fade") && list->GetChild(i)->GetLocalProperty(Rml::PropertyId::Transform))
+            return false;
+    return true;
+}
+
+// Past an edge the list stretches and springs back, by transforms (nothing laid out): a
+// finger pulling down at the top spreads the rows from the bottom edge, the top row moving
+// the most; released, every row is back without a transform within half a second. A fling
+// that reaches the end stretches the rows by its momentum (at most 8% of the list) and they
+// come back the same way, the list resting at its end.
+void ScrollStretch(const std::string &pack)
+{
+    std::unique_ptr<Runtime> runtime = ListRuntime(pack);
+    Rml::Element *list = List();
+    double t = runtime->clock;
+    runtime->host->Touch(TouchPhase::Down, 1, 150, 100, t);
+    int layouts = 0;
+    for (int i = 1; i <= 16; ++i) // 160 px down over 133 ms, a frame every second sample
+    {
+        t += 1.0 / 120.0;
+        runtime->host->Touch(TouchPhase::Move, 1, 150, 100.0f + 10.0f * i, t);
+        if (i % 2 == 0)
+        {
+            runtime->Frame(t - runtime->clock);
+            layouts += i > 2 ? runtime->host->LastFrameStats().layout_passes : 0;
+        }
+    }
+    const float top = Shift(list->GetChild(0)), lower = Shift(list->GetChild(5));
+    Expect(list->GetScrollTop() == 0.0f, "a list pulled down at its top stays at its top");
+    Expect(top > 5.0f && top <= 0.08f * 300.0f + 0.5f && lower > 0.0f && lower < top,
+           "and stretches: the top row moves the most (" + std::to_string(top) + " px), a lower one less (" + std::to_string(lower) + " px)");
+    runtime->host->Touch(TouchPhase::Up, 1, 150, 260, t);
+    double delay = 0.0;
+    int back = 0;
+    float previous = top;
+    bool shrinking = true;
+    for (; back < 120 && runtime->host->Prepare(delay); ++back)
+    {
+        runtime->Frame();
+        layouts += runtime->host->LastFrameStats().layout_passes;
+        const float now = Shift(list->GetChild(0));
+        shrinking = shrinking && now <= previous + 0.01f && now >= -0.01f;
+        previous = now;
+    }
+    Expect(shrinking, "released, it springs back without overshooting");
+    Expect(back <= 30 && Unstretched(list) && list->GetScrollTop() == 0.0f,
+           "every row is back without a transform within half a second (" + std::to_string(back) + " frames)");
+    Expect(layouts == 0, "a stretch lays nothing out (" + std::to_string(layouts) + " layout passes)");
+
+    runtime.reset();
+    runtime = ListRuntime(pack);
+    list = List();
+    const Gesture far = Swipe(*runtime, 8000.0f, 280.0f, 0.0, 1.0 / 60.0);
+    Expect(!far.fling.empty() && far.fling.back() == 2160.0f, "a fast fling rests at the list's end (" + std::to_string(far.fling.back()) + ")");
+    // One layout at most: at the end the edge fade goes (display: none), not one per frame.
+    Expect(far.layouts <= 1, "and lays nothing out on the way but the end's fade (" + std::to_string(far.layouts) + " layout passes)");
+    // Swipe ran until the runtime was idle: the stretch came and went. Run it again with a
+    // look at the rows on the way.
+    runtime.reset();
+    runtime = ListRuntime(pack);
+    list = List();
+    t = runtime->clock;
+    runtime->host->Touch(TouchPhase::Down, 1, 150, 290, t);
+    for (int i = 1; i <= 14; ++i)
+    {
+        t += 1.0 / 120.0;
+        runtime->host->Touch(TouchPhase::Move, 1, 150, 290.0f - 20.0f * i * 3.3f, t);
+        if (i % 2 == 0)
+            runtime->Frame(t - runtime->clock);
+    }
+    runtime->host->Touch(TouchPhase::Up, 1, 150, 290.0f - 20.0f * 14 * 3.3f, t);
+    float most = 0.0f;
+    int frames = 0;
+    for (; frames < 300 && runtime->host->Prepare(delay); ++frames)
+    {
+        runtime->Frame();
+        for (int i = 0; i < list->GetNumChildren(); ++i)
+            most = std::min(most, Shift(list->GetChild(i)));
+    }
+    Expect(most < -1.0f && most >= -0.08f * 300.0f - 0.5f, "a fling into the end stretches the rows by its momentum (" + std::to_string(most) + " px)");
+    Expect(frames < 300 && Unstretched(list) && list->GetScrollTop() == 2160.0f, "then they come back and the list rests at its end");
+}
+
 void ScrollFling(const std::string &pack)
 {
     const float speed = 2400.0f; // px/s: a quick swipe
@@ -469,6 +569,7 @@ int main(int argc, char **argv)
     SteadyRuntime(argv[2]);
     TapLatency(argv[2]);
     ScrollFling(argv[2]);
+    ScrollStretch(argv[2]);
     if (failures)
         std::fprintf(stderr, "%d frame cost check(s) failed\n", failures);
     else

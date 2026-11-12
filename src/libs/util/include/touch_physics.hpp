@@ -240,4 +240,81 @@ inline float Fling::Advance(double time)
     return origin_ + static_cast<float>((spline[index] + (t - t_inf) * coef) * distance_);
 }
 
+// The stretch of a scrolling box pulled past an edge (Android 12's stretch overscroll, not the
+// older glow): a fraction of the box's size by which its content spreads away from the far
+// edge. While a finger pulls, it grows with the pull and saturates (a whole box of pull gives
+// 63% of the most); on release, and when a fling hits the edge (it takes the fling's speed), a
+// critically damped spring brings it back to rest. Evaluated at absolute times like the fling.
+// Its constants are a look, not Android's (whose stretch is a render effect): at most kMax of
+// the size, back in about a quarter of a second (kOmega).
+class EdgeStretch
+{
+  public:
+    static constexpr float kMax = 0.08f;   // the most the content spreads, of the box's size
+    static constexpr float kOmega = 20.0f; // the spring's rate, 1/s (critical damping)
+
+    // A finger pulls `pull` px past the edge (signed: < 0 before the start, > 0 past the end)
+    // of a box `size` px long.
+    void Pull(float pull, float size)
+    {
+        spring_ = false;
+        value_ = size > 0.0f ? std::copysign(kMax * (1.0f - std::exp(-std::fabs(pull) / size)), pull) : 0.0f;
+    }
+    // The pull that gives the current stretch (a finger catching a stretch goes on from it).
+    float PullFor(float size) const
+    {
+        const float part = std::min(std::fabs(value_) / kMax, 0.999f);
+        return std::copysign(-size * std::log(1.0f - part), value_);
+    }
+    // The finger let go at `time`: the stretch springs back from where it is.
+    void Release(double time)
+    {
+        Spring(time, 0.0f);
+    }
+    // A fling reached the edge at `time` at `speed` px/s (signed like a pull) in a box `size`
+    // px long: the content stretches on by its momentum and springs back.
+    void Absorb(double time, float speed, float size)
+    {
+        const float most = kMax * kOmega * 2.718281828f; // the rate whose peak is kMax
+        Spring(time, size > 0.0f ? std::clamp(0.5f * speed / size, -most, most) : 0.0f);
+    }
+    // The stretch at `time` (a spring at rest ends: 0).
+    float At(double time)
+    {
+        if (!spring_)
+            return value_;
+        const float t = static_cast<float>(std::max(0.0, time - start_));
+        value_ = (from_ + (rate_ + kOmega * from_) * t) * std::exp(-kOmega * t);
+        if (t > 0.05f && std::fabs(value_) < 2e-4f)
+            spring_ = false, value_ = 0.0f;
+        return value_;
+    }
+    void Stop()
+    {
+        spring_ = false;
+        value_ = 0.0f;
+    }
+    // A spring runs (the stretch changes by itself).
+    bool Springing() const
+    {
+        return spring_;
+    }
+    float Value() const
+    {
+        return value_;
+    }
+
+  private:
+    void Spring(double time, float rate)
+    {
+        start_ = time;
+        from_ = value_;
+        rate_ = rate;
+        spring_ = from_ != 0.0f || rate_ != 0.0f;
+    }
+    bool spring_ = false;
+    double start_ = 0.0;
+    float value_ = 0.0f, from_ = 0.0f, rate_ = 0.0f;
+};
+
 } // namespace storm::touch
