@@ -39,6 +39,8 @@
 #include "touch_motion.h"
 
 #include <RmlUi/Core/EventListener.h>
+#include <RmlUi/Core/Transform.h>
+#include <RmlUi/Core/TransformPrimitive.h>
 
 #include <algorithm>
 #include <cmath>
@@ -370,7 +372,10 @@ class PressBehavior final : public Behavior
     bool tooltip_open_ = false;
 };
 
-// Horizontal slider: the finger position maps straight to the value.
+// Horizontal slider: the finger position maps straight to the value, and the knob (the element
+// with data-range-knob inside the track, which the template places at the value) stays under the
+// finger while it drags: a value has steps, the finger has none, and a knob drawn at the value
+// alone moved in jumps of a step. It returns to the value's place on release.
 class RangeBehavior final : public Behavior
 {
   public:
@@ -415,8 +420,16 @@ class RangeBehavior final : public Behavior
         if (!active_ || pointer.id != pointer_)
             return;
         active_ = false;
+        if (Rml::Element *knob = Knob(self))
+            knob->RemoveProperty(Rml::PropertyId::Transform);
         self.SetProps(Json{{"active", false}});
         self.Emit("commit", ToText(self.Prop(prop_)));
+    }
+
+    // A re-render sets the knob's style again (its place at the value): the offset to the finger is put back.
+    void Rebuilt(ComponentElement &self) override
+    {
+        Follow(self);
     }
 
     void Regions(ComponentElement &self, std::vector<Rml::Element *> &out) const override
@@ -433,10 +446,33 @@ class RangeBehavior final : public Behavior
         const double t = std::clamp((x - left_) / width_, 0.0f, 1.0f);
         const double value = std::clamp(low + std::round(t * (high - low) / step) * step, std::min(low, high), std::max(low, high));
         const bool changed = Number(self.Prop(prop_), low - 1.0) != value;
+        at_ = float(t);
         if (changed || self.Flag("active") != active)
             self.SetProps(Json{{prop_, value}, {"active", active}});
+        Follow(self);
         if (changed)
             self.Emit("change", ToText(Json(value)));
+    }
+
+    Rml::Element *Knob(ComponentElement &self) const
+    {
+        Rml::ElementList found;
+        self.QuerySelectorAll(found, "[data-range] [data-range-knob]");
+        return found.empty() ? nullptr : found.front();
+    }
+
+    // Moves the knob from the value's place (where the template put it) to the finger's: a
+    // transform, which lays nothing out.
+    void Follow(ComponentElement &self)
+    {
+        Rml::Element *knob = active_ ? Knob(self) : nullptr;
+        if (!knob)
+            return;
+        const double low = Number(self.Prop("min"), 0.0), high = Number(self.Prop("max"), 100.0);
+        const double value = std::clamp(Number(self.Prop(prop_), low), std::min(low, high), std::max(low, high));
+        const float value_at = high != low ? float((value - low) / (high - low)) : 0.0f;
+        knob->SetProperty(Rml::PropertyId::Transform,
+                          Rml::Transform::MakeProperty({Rml::Transforms::TranslateX{(at_ - value_at) * width_, Rml::Unit::PX}}));
     }
 
     bool active_ = false;
@@ -444,6 +480,7 @@ class RangeBehavior final : public Behavior
     std::string prop_;
     float left_ = 0.0f;
     float width_ = 1.0f;
+    float at_ = 0.0f; // where the finger is along the track, 0…1
 };
 
 // Helm capsule (x only) and movement stick (x and y). Springs back on release.

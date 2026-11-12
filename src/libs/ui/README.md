@@ -76,7 +76,7 @@ The stand-alone project of this directory is for host checks and captures only.
 | `include/storm_ui/render_backend.h` | the only renderer-specific seam |
 | `include/storm_ui/backend_bgfx.h`, `src/backend_bgfx.cpp`, `shaders/` | the render backend (bgfx) and frame client |
 | `src/components.*`, `src/template.*` | `<c-…>` elements rendered from spec + template + props |
-| `src/behaviors.cpp` | press, hold-to-confirm, long-press tooltip, range, stick, lever, table columns |
+| `src/behaviors.cpp` | press, hold-to-confirm, long-press tooltip, range (the knob, `data-range-knob`, stays under the finger between the value's steps: a transform, no layout), stick, lever, table columns |
 | `src/draw_elements.cpp` | `<ui-ring>` (hold progress), `<ui-paper>` (aged parchment), `<ui-clamp>` (text in N lines, stepped down to `min-size` before it is cut with an ellipsis) |
 | `src/icons.cpp` | `<ui-icon>`: SVG symbols rasterised per size and colour; `icon-shadow: <colour> <x> <y> <sigma>` bakes a drop shadow into the raster (use it instead of `filter: drop-shadow` on an icon: no offscreen layer per frame) |
 | `src/picture_atlas.*` | the game's `pictures.ini` (group + picture → texture + rectangle), read from the game root at run time |

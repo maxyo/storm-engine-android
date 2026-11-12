@@ -14,6 +14,8 @@
 #include "storm_ui/ui.h"
 
 #include <RmlUi/Core.h>
+#include <RmlUi/Core/Transform.h>
+#include <RmlUi/Core/TransformPrimitive.h>
 
 #include <nlohmann/json.hpp>
 
@@ -103,6 +105,16 @@ static fs::path MakePack(const fs::path &base, const fs::path &font)
         "tag": "c-sized", "constants": {"boxSize": "size"},
         "props": {"size": {"type": "int", "default": 24}},
         "template": "<div style=\"display: inline-block; width: 10dp; height: 10dp;\"></div>"})"));
+    // A slider (behaviour range): the template places the knob at the value.
+    components["components"].push_back(Json::parse(R"({
+        "tag": "c-slide", "behaviors": ["range"],
+        "props": {"value": {"type": "int", "default": 0}, "min": {"type": "int", "default": 0}, "max": {"type": "int", "default": 100},
+                  "active": {"type": "bool", "default": false}},
+        "template": "<div data-range=\"value\" style=\"position: absolute; left: 100dp; top: 100dp; width: 400dp; height: 40dp;\"><div id=\"knob\" data-range-knob=\"\" style=\"position: absolute; left: {{ (value - min) / (max - min) * 100 }}%; top: 0; width: 0; height: 40dp;\"></div></div>"})"));
+    Write(pack / "slide.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }</style></head><body>"
+                              "<c-slide id=\"coarse\" max=\"4\"/></body></rml>");
+    Write(pack / "slide-fine.rml", "<rml><head><style>body { font-family: LatoLatin; font-size: 16dp; width: 800dp; height: 400dp; }</style></head><body>"
+                                   "<c-slide id=\"fine\" max=\"4000\"/></body></rml>");
     Write(pack / "components.json", components.dump());
     {
         Json rows = Json::array();
@@ -530,6 +542,102 @@ int main(int argc, char **argv)
         Expect(host->SetProps("sized", R"({"size": 32})"), "the size changes");
         frames(0.05);
         Expect(std::abs(sized->GetBox().GetSize(Rml::BoxArea::Border).x - 32.0f) < 0.01f, "… and the box follows: 32");
+    }
+
+    // A slider's knob stays under the finger: the value has steps (0…4 over 400 px: 100 px each),
+    // the finger has none. The template places the knob at the value; the behaviour moves it on
+    // to the finger with a transform and takes that away on release.
+    Expect(host->LoadDocument("slide.rml"), "the slider document loads");
+    frames(0.1);
+    {
+        const auto find = [](const char *id) -> Rml::Element * {
+            Rml::Context *context = Rml::GetContext("storm-ui");
+            for (int i = 0; context && i < context->GetNumDocuments(); ++i)
+                if (Rml::Element *found = context->GetDocument(i)->GetElementById(id))
+                    return found;
+            return nullptr;
+        };
+        // Where the knob is drawn: its laid-out place plus its transform.
+        const auto knob_x = [&]() -> float {
+            Rml::Element *knob = find("knob");
+            if (!knob)
+                return -1.0f;
+            float x = knob->GetAbsoluteOffset(Rml::BoxArea::Border).x;
+            if (const Rml::Property *property = knob->GetLocalProperty(Rml::PropertyId::Transform))
+                if (const Rml::TransformPtr transform = property->Get<Rml::TransformPtr>())
+                    for (const Rml::TransformPrimitive &primitive : transform->GetPrimitives())
+                        if (primitive.type == Rml::TransformPrimitive::TRANSLATEX)
+                            x += primitive.translate_x.values[0].number;
+            return x;
+        };
+        clicks.clear();
+        host->Touch(TouchPhase::Down, 1, 100, 120);
+        frames(0.05);
+        float worst = 0.0f;
+        int layouts = 0;
+        for (float x = 101.0f; x <= 500.0f; x += 7.0f)
+        {
+            host->Touch(TouchPhase::Move, 1, x, 120);
+            clock += 1.0 / 60.0;
+            host->Frame();
+            worst = std::max(worst, std::abs(knob_x() - x));
+            // A frame in which the value did not change moves the knob without a rebuild or a layout.
+            if (host->LastFrameStats().rebuilds == 0)
+                layouts += host->LastFrameStats().layout_passes;
+        }
+        Expect(worst < 0.01f, "the knob is drawn under the finger in every frame of the drag (worst " + std::to_string(worst) + " px off)");
+        Expect(clicks.size() == 4, "while the value still changes in steps: 4 changes over the drag (" + std::to_string(clicks.size()) + ")");
+        Expect(layouts == 0, "a move between two values lays nothing out");
+        host->Touch(TouchPhase::Up, 1, 493, 120);
+        frames(0.05);
+        Expect(std::abs(knob_x() - 500.0f) < 0.01f, "released, the knob is at its value (4 of 4: 500 px), not where the finger left it");
+    }
+
+    // A platform that gives the touches once per frame sends the moves as samples and has each
+    // pointer placed for the frame's time (Host::PlaceTouches). A finger moving evenly (1000 px/s,
+    // a sample every 7 ms) under frames every 1/120 s: placed at its newest sample the slider
+    // moved 7 or 14 px per frame; placed for the frame's time it moves the same 8.33 px in each.
+    Expect(host->LoadDocument("slide-fine.rml"), "the fine slider loads");
+    frames(0.1);
+    {
+        const auto drag = [&](bool placed) {
+            clicks.clear();
+            const double start = clock;
+            double sample = start;
+            host->Touch(TouchPhase::Down, 1, 120, 120, start);
+            std::vector<float> values;
+            for (int frame = 1; frame <= 30; ++frame)
+            {
+                clock = start + frame / 120.0;
+                while (sample + 0.007 <= clock)
+                {
+                    sample += 0.007;
+                    host->Touch(placed ? TouchPhase::Sample : TouchPhase::Move, 1, 120.0f + float((sample - start) * 1000.0), 120, sample);
+                }
+                if (placed)
+                    host->PlaceTouches(clock);
+                host->Frame();
+                if (!clicks.empty())
+                    values.push_back(std::stof(clicks.back().substr(clicks.back().rfind(' ') + 1)) / 10.0f); // 10 units per px
+                else
+                    values.push_back(values.empty() ? 20.0f : values.back());
+            }
+            host->Touch(TouchPhase::Up, 1, 400, 120, clock);
+            frames(0.05);
+            float least = 1e9f, most = 0.0f;
+            for (size_t i = 3; i < values.size(); ++i) // from the third frame: two samples are there
+            {
+                least = std::min(least, values[i] - values[i - 1]);
+                most = std::max(most, values[i] - values[i - 1]);
+            }
+            return std::pair<float, float>(least, most);
+        };
+        const auto [raw_least, raw_most] = drag(false);
+        Expect(raw_most - raw_least > 6.0f, "at its newest sample the slider moves in uneven steps (" + std::to_string(raw_least) + " to " +
+                                                std::to_string(raw_most) + " px per frame): the check measures something");
+        const auto [least, most] = drag(true);
+        Expect(least > 8.1f && most < 8.6f, "placed for the frame's time it moves evenly: 8.33 px in every frame (" + std::to_string(least) + " to " +
+                                                std::to_string(most) + ")");
     }
 
     host.reset();

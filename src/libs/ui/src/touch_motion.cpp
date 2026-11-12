@@ -81,12 +81,19 @@ void TouchScroll::Down(Rml::Element *target, Rml::Vector2f at, double time, floa
     tracker_.Add(time, {at.x, at.y});
 }
 
-bool TouchScroll::Move(Rml::Vector2f at, double time)
+void TouchScroll::Sample(Rml::Vector2f at, double time)
+{
+    if (down_ && box_)
+        tracker_.Add(time, {at.x, at.y});
+}
+
+bool TouchScroll::Move(Rml::Vector2f at, double time, bool sampled)
 {
     Rml::Element *box = box_.get();
     if (!down_ || !box)
         return false;
-    tracker_.Add(time, {at.x, at.y});
+    if (sampled)
+        tracker_.Add(time, {at.x, at.y});
     if (!dragging_)
     {
         const Rml::Vector2f travel = at - start_;

@@ -451,6 +451,58 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     using Host::Touch;
 
+    // PlaceTouches places a pointer where it was this long before the frame's time, as Android's
+    // own resampling of batched touches does: at the usual sample rates the place then lies
+    // between two samples, not past the newest.
+    static constexpr double kTouchPlaceLatency = 0.005;
+    struct Capture
+    {
+        Pointer pointer;
+        Rml::ObserverPtr<Rml::Element> component;
+        bool exclusive = false;
+        struct Sample
+        {
+            Rml::Vector2f at;
+            double time = 0.0;
+        };
+        std::vector<Sample> trail; // the newest samples of the pointer, oldest first
+        bool unplaced = false;     // samples came since the pointer was last placed (PlaceTouches)
+
+        void Remember(Rml::Vector2f at, double time)
+        {
+            if (trail.size() == 8)
+                trail.erase(trail.begin());
+            trail.push_back({at, time});
+        }
+        // Where the pointer was at `time`: on the line between the two samples around it; past
+        // the newest sample, on along the last two for at most half their distance in time and
+        // 8 ms, when they are 2 to 20 ms apart (the rules of Android's touch resampling:
+        // InputConsumer). Otherwise the nearest sample.
+        Sample At(double time) const
+        {
+            const Sample &newest = trail.back();
+            if (trail.size() < 2)
+                return newest;
+            if (time >= newest.time)
+            {
+                const Sample &before = trail[trail.size() - 2];
+                const double apart = newest.time - before.time;
+                if (apart < 0.002 || apart > 0.020)
+                    return newest;
+                const double ahead = std::min({time - newest.time, apart * 0.5, 0.008});
+                return {newest.at + (newest.at - before.at) * float(ahead / apart), newest.time + ahead};
+            }
+            for (size_t i = trail.size() - 1; i > 0; --i)
+                if (time >= trail[i - 1].time)
+                {
+                    const Sample &a = trail[i - 1], &b = trail[i];
+                    const double apart = b.time - a.time;
+                    return {apart > 0.0 ? a.at + (b.at - a.at) * float((time - a.time) / apart) : b.at, time};
+                }
+            return trail.front();
+        }
+    };
+
     void Touch(TouchPhase phase, int pointer, float x, float y, double time) override
     {
         changed_ = true;
@@ -465,23 +517,57 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
                 Log("touch held for " + std::string(opening_ != Opening::None ? "an interface being opened" : between_ ? "what comes after the transition" : "the next layout") +
                     ": " + RoutingFacts());
             }
-            held_.push_back({phase, pointer, x, y, time});
+            // Applied later, all at once: a sample is then a move like any other.
+            held_.push_back({phase == TouchPhase::Sample ? TouchPhase::Move : phase, pointer, x, y, time});
             return;
         }
-        Apply(phase, pointer, x, y, time);
+        if (phase == TouchPhase::Sample)
+            Sampled(pointer, x, y, time);
+        else
+            Apply(phase, pointer, x, y, time);
+    }
+
+    // A move sample whose place comes with PlaceTouches.
+    void Sampled(int pointer, float x, float y, double time)
+    {
+        const auto found = captures_.find(pointer);
+        if (found == captures_.end())
+            return;
+        Capture &capture = found->second;
+        capture.Remember({x, y}, time);
+        capture.unplaced = true;
+        if (!capture.exclusive && pointer == scroll_pointer_)
+            scroll_.Sample({x, y}, time);
+    }
+
+    void PlaceTouches(double time) override
+    {
+        // What a move does may end any capture (a screen that closes): by pointer, looked up again.
+        std::vector<int> pointers;
+        for (const auto &entry : captures_)
+            if (entry.second.unplaced)
+                pointers.push_back(entry.first);
+        for (const int pointer : pointers)
+        {
+            const auto found = captures_.find(pointer);
+            if (found == captures_.end() || !found->second.unplaced)
+                continue;
+            found->second.unplaced = false;
+            const Capture::Sample place = found->second.At(time - kTouchPlaceLatency);
+            MoveTo(found->second, pointer, place.at, place.time, false);
+        }
     }
 
     void Apply(TouchPhase phase, int pointer, float x, float y, double time)
     {
         const Rml::Vector2f at = {x, y};
-        // A tap that travels this far is a drag (a scroll), no longer a press.
-        const float slop = 10.0f * config_.density;
         if (phase == TouchPhase::Down)
         {
             Capture capture;
             capture.pointer.id = pointer;
             capture.pointer.position = capture.pointer.start = at;
             capture.pointer.time = time;
+            capture.Remember(at, time);
             capture.pointer.target = context_->GetElementAtPoint(at);
             // The HUD takes input only while the player can act (Presentation::live).
             if (capture.pointer.target && capture.pointer.target->GetOwnerDocument() == hud_document_ && !hud_->Interactive())
@@ -502,7 +588,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
                 if (scroll_pointer_ < 0)
                 {
                     scroll_pointer_ = pointer;
-                    scroll_.Down(capture.pointer.target, at, time, config_.density, slop);
+                    scroll_.Down(capture.pointer.target, at, time, config_.density, Slop());
                 }
                 // A finger that stops a list in motion drags it: it presses nothing.
                 const bool caught = pointer == scroll_pointer_ && scroll_.Caught();
@@ -515,53 +601,75 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
         if (phase == TouchPhase::Up) // the end of a tap: what a screen switch answers (ReportSwitch)
             last_tap_ = Clock::now() - std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(std::max(0.0, Now() - time)));
-        const auto found = captures_.find(pointer);
+        auto found = captures_.find(pointer);
         if (found == captures_.end())
             return;
+        if (phase == TouchPhase::Move)
+        {
+            found->second.Remember(at, time);
+            found->second.unplaced = false;
+            MoveTo(found->second, pointer, at, time, true);
+            return;
+        }
+        // The gesture ends where its newest sample was, not where it was last placed.
+        if (found->second.unplaced)
+        {
+            found->second.unplaced = false;
+            const Capture::Sample newest = found->second.trail.back();
+            MoveTo(found->second, pointer, newest.at, newest.time, false);
+            found = captures_.find(pointer);
+            if (found == captures_.end())
+                return;
+        }
         Capture &capture = found->second;
         capture.pointer.position = at;
         capture.pointer.time = time;
         auto *component = static_cast<ComponentElement *>(capture.component.get());
-        const bool ended = phase == TouchPhase::Up || phase == TouchPhase::Cancel;
+        if (component)
+            component->PointerUp(capture.pointer, phase == TouchPhase::Cancel);
+        if (!capture.exclusive && pointer == scroll_pointer_)
+        {
+            scroll_.Up(time, phase == TouchPhase::Cancel);
+            scroll_pointer_ = -1;
+        }
+        captures_.erase(pointer);
+    }
 
+    // A tap that travels this far is a drag (a scroll), no longer a press.
+    float Slop() const
+    {
+        return 10.0f * config_.density;
+    }
+
+    // The pointer is at `at`: what it drags follows. `sampled`: a sample of the touch screen
+    // (it counts for a list's release velocity), not a place between or past samples.
+    void MoveTo(Capture &capture, int pointer, Rml::Vector2f at, double time, bool sampled)
+    {
+        capture.pointer.position = at;
+        capture.pointer.time = time;
+        auto *component = static_cast<ComponentElement *>(capture.component.get());
         if (capture.exclusive)
         {
             if (component)
-            {
-                if (ended)
-                    component->PointerUp(capture.pointer, phase == TouchPhase::Cancel);
-                else
-                    component->PointerMove(capture.pointer);
-            }
+                component->PointerMove(capture.pointer);
+            return;
+        }
+        const bool scrolling = pointer == scroll_pointer_ && scroll_.Move(at, time, sampled);
+        if (!component)
+            return;
+        if (scrolling || (at - capture.pointer.start).SquaredMagnitude() > Slop() * Slop())
+        {
+            component->PointerUp(capture.pointer, true); // the press is withdrawn
+            capture.component = {};
         }
         else
-        {
-            const bool scrolling = pointer == scroll_pointer_ && phase == TouchPhase::Move && scroll_.Move(at, time);
-            if (component)
-            {
-                if (ended)
-                    component->PointerUp(capture.pointer, phase == TouchPhase::Cancel);
-                else if (scrolling || (at - capture.pointer.start).SquaredMagnitude() > slop * slop)
-                {
-                    component->PointerUp(capture.pointer, true); // the press is withdrawn
-                    capture.component = {};
-                }
-                else
-                    component->PointerMove(capture.pointer);
-            }
-            if (pointer == scroll_pointer_ && ended)
-            {
-                scroll_.Up(time, phase == TouchPhase::Cancel);
-                scroll_pointer_ = -1;
-            }
-        }
-        if (ended)
-            captures_.erase(found);
+            component->PointerMove(capture.pointer);
     }
 
     bool Prepare(double &delay) override
     {
         const auto started = std::chrono::steady_clock::now();
+        const double style_before = counters_.style_ms;
         const double now = system_.GetElapsedTime();
         // A list in motion after the finger left: placed where it is at this frame's time.
         if (scroll_.Update(now))
@@ -600,10 +708,14 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
             if (toast.held < 0.0)
                 delay = std::min(delay, std::max(0.0, (toast.leaving >= 0.0 ? toast.leaving + ToastLeaveSeconds() : toast.until) - now));
         TakeGameImageCost(counters_.picture_ms, counters_.pictures);
-        counters_.update_ms += Milliseconds(started, std::chrono::steady_clock::now());
         const bool draw = changed_ || !drawn_;
-        if (!draw)
+        if (draw)
+            counters_.update_ms += Milliseconds(started, std::chrono::steady_clock::now());
+        else
         {
+            // Nothing to draw: this pass is not part of the next frame's cost (a thousand idle
+            // passes summed made a tap's frame look like it took a second of styles).
+            counters_.style_ms = style_before;
             if (switch_.drawn)
                 ReportSwitch(true); // nothing more to draw: the screen has settled
             // The frame on the screen still shows everything: acknowledgements that wait
@@ -1378,12 +1490,6 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     }
 
   private:
-    struct Capture
-    {
-        Pointer pointer;
-        Rml::ObserverPtr<Rml::Element> component;
-        bool exclusive = false;
-    };
     // Where a pointer going down belongs to the UI; read by the thread that gets touches.
     struct TouchMap
     {

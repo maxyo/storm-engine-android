@@ -222,10 +222,13 @@ class EngineUi
                                         std::to_string(int64_t(step.time_ms)) + " ms, age " + std::to_string(int(now_ms - step.time_ms)) + " ms");
             if (step.phase == static_cast<int>(storm::ui::TouchPhase::Up))
                 tap_loop_ = loop_;
-            // The sample's own time on the host's clock: how long ago it happened.
-            host_->Touch(static_cast<storm::ui::TouchPhase>(step.phase), step.pointer, step.x, step.y,
+            // The sample's own time on the host's clock: how long ago it happened. The moves of
+            // this iteration are samples: each pointer is placed once, below, for this frame.
+            const auto phase = static_cast<storm::ui::TouchPhase>(step.phase);
+            host_->Touch(phase == storm::ui::TouchPhase::Move ? storm::ui::TouchPhase::Sample : phase, step.pointer, step.x, step.y,
                          host_->Now() - (now_ms - step.time_ms) / 1000.0);
         }
+        host_->PlaceTouches(host_->Now());
         PublishInterfaceActive();
     }
 

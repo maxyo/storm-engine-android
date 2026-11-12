@@ -36,7 +36,11 @@ class TouchScroll
     // `slop` in pixels: how far the finger travels before a drag starts.
     void Down(Rml::Element *target, Rml::Vector2f at, double time, float density, float slop);
     // True from the sample that starts the drag on (the press under the finger is withdrawn).
-    bool Move(Rml::Vector2f at, double time);
+    // `sampled`: a sample of the touch screen, which counts for the release velocity; false for
+    // a place between or past samples (Host::PlaceTouches).
+    bool Move(Rml::Vector2f at, double time, bool sampled = true);
+    // A sample that only counts for the release velocity (its place comes with a later Move).
+    void Sample(Rml::Vector2f at, double time);
     void Up(double time, bool cancelled);
     // Moves a flinging box to where it is at `time` and its stretch with it; true while
     // either is in motion.

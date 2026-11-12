@@ -138,7 +138,10 @@ enum class TouchPhase
     Down,
     Move,
     Up,
-    Cancel
+    Cancel,
+    // A move sample of a platform that gives the UI its touches once per frame: it counts for
+    // drag velocities at once, and what the pointer drags moves at the next Host::PlaceTouches.
+    Sample
 };
 
 // A display cutout's bounding rectangle in physical pixels (Host::SetCutouts).
@@ -183,6 +186,13 @@ class Host
     {
         Touch(phase, pointer, x, y, Now());
     }
+    // Places every pointer with samples given as TouchPhase::Sample where the finger is at `time`
+    // (the frame's time on the host's clock): between its two samples around `time` less a few
+    // milliseconds, or a little past the newest one along the finger's motion. A frame loop and
+    // the touch screen run on clocks of their own: placed at its newest sample, a finger moving
+    // evenly was 0 to 8 ms old from frame to frame, so a slider or a list under it moved in
+    // uneven steps. One move per pointer and frame reaches the behaviours.
+    virtual void PlaceTouches(double time) = 0;
     // The host's clock in seconds (Config::clock, else a monotonic clock from its start).
     virtual double Now() const = 0;
     // Settles timers, routing and the documents without drawing. True when the frame on
