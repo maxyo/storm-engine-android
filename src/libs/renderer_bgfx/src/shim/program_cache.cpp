@@ -130,8 +130,10 @@ void ProgramCache::log_activity()
     std::lock_guard lock(mutex_);
     if (stats_.loaded == logged_.loaded && stats_.stored == logged_.stored && stats_.invalid == logged_.invalid)
         return;
-    logf("program cache: %u loaded, %u linked and stored (%u over rejected binaries), %u invalid this frame; "
-         "%u binaries, %.1f MB",
+    // Statistics only: every unusable binary already logged its own ERROR line (forget). No problem words here, so
+    // log checks such as tools/scene_sweep (keywords error/fail/invalid/...) do not take the summary for a failure.
+    logf("program cache: %u loaded, %u linked and stored (%u over binaries the driver refused), %u removed as "
+         "unusable this frame; %u binaries, %.1f MB",
          stats_.loaded - logged_.loaded, stats_.stored - logged_.stored, stats_.replaced - logged_.replaced,
          stats_.invalid - logged_.invalid, stats_.entries, stats_.bytes / 1048576.0);
     logged_ = stats_;
