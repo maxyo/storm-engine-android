@@ -175,8 +175,16 @@ void CAviPlayer::Execute()
         Finish();
         return;
     }
-    if (m_bShowVideo)
-        DetectTapToSkip();
+    if (!m_bShowVideo)
+        return;
+#ifdef __ANDROID__
+    if (storm::android::startAtMainMenu)
+    {
+        SkipForMainMenuStart();
+        return;
+    }
+#endif
+    DetectTapToSkip();
 }
 
 void CAviPlayer::Finish()
@@ -209,6 +217,22 @@ void CAviPlayer::DetectTapToSkip()
         return;
     tapState_ = 1;
     spdlog::info("Video: tap on {}, sending ICancel to the video-break handlers", filename);
+    SendCancel();
+}
+
+// The host started the engine straight at the main menu (the pause menu's exit): the videos
+// before it are broken off as a tap would, once per video; the scripts' handlers decide.
+void CAviPlayer::SkipForMainMenuStart()
+{
+    if (startSkipSent_)
+        return;
+    startSkipSent_ = true;
+    spdlog::info("Video: start at the main menu, sending ICancel for {} to the video-break handlers", filename);
+    SendCancel();
+}
+
+void CAviPlayer::SendCancel()
+{
     core.Event("Control Activation", "s", "ICancel");
     core.Event("Control Deactivation", "s", "ICancel");
 }

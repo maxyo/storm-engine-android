@@ -1,7 +1,12 @@
 // Pause menu (interface "game_menu", mockups V2-Menu-Game and V2-Menu-ExitConfirm): the
 // primary «Продолжить» over a 2 × 2 grid of save, load, settings and exit, centred over
 // the paused scene. The game's exit question (CONFIRM_EXIT_*, or CONFIRM_WINDOW_* in some
-// versions) becomes the danger C-Dialog. Above the actions the game in progress
+// versions) becomes the danger C-Dialog. The one exit leads to the game's main menu (owner
+// decision): the game's own exit to the main menu where it has one (CL: MB_EXITMENU), else
+// its exit from the program (TEHO: MB_EXITGAME/MB_QUIT, ExitProgram), after which the host
+// starts a fresh engine straight at the main menu (host action `app-exit-to-main-menu`; the
+// engine runs once per process). The app itself is left by the main menu's own exit.
+// Above the actions the game in progress
 // «<hero> · <location> · <date>» from the engine's ANDROID_GAME text (context hero,
 // location, gameDate YYYY-MM-DD). Fills the pack screen <s-game-menu>.
 #include "controls.h"
@@ -21,6 +26,7 @@ constexpr NodeRule kNodes[] = {
     {"MB_SAVE", "button"},
     {"MB_LOAD", "button"},
     {"MB_OPTIONS", "button"},
+    {"MB_EXITMENU", "button"},
     {"MB_EXITGAME", "button"},
     {"MB_QUIT", "button"},
     {"MB_UPDATES", "button"},
@@ -111,12 +117,18 @@ class GameMenuScreen final : public Screen
         view["resume"] = ResumeView(bindings, *admitted.One("MB_RESUME"));
 
         Json buttons = Json::array();
-        const Widget *exit = admitted.One("MB_EXITGAME") ? admitted.One("MB_EXITGAME") : admitted.One("MB_QUIT");
+        // The game's exit to its main menu when it has one; its exit from the program is then
+        // not offered (the main menu has its own).
+        const Widget *toMenu = admitted.One("MB_EXITMENU");
+        const Widget *exit = toMenu ? toMenu : admitted.One("MB_EXITGAME") ? admitted.One("MB_EXITGAME") : admitted.One("MB_QUIT");
         const std::pair<const char *, const Widget *> grid[] = {
             {"save", admitted.One("MB_SAVE")}, {"load", admitted.One("MB_LOAD")}, {"options", admitted.One("MB_OPTIONS")}, {"exit", exit}};
         for (const auto &[id, button] : grid)
             if (button)
                 buttons.push_back(ButtonView(bindings, *button, id, "secondary"));
+        // The game's label of its program exit («Выход») would promise leaving the game: «Выйти».
+        if (exit && !toMenu)
+            buttons.back()["label"] = bindings.Text("menu.exit");
         // Optional in game variants; shown only while the game offers it.
         if (const Widget *updates = admitted.One("MB_UPDATES"); updates && updates->Offers("press"))
             buttons.push_back(ButtonView(bindings, *updates, "updates", "secondary"));
@@ -128,12 +140,21 @@ class GameMenuScreen final : public Screen
         if (yes)
         {
             const std::string question = Joined(admitted, window ? "CONFIRM_WINDOW_STRINGS" : "CONFIRM_EXIT_TEXT");
+            // The game's question of its own exit to the main menu is kept; its question of the
+            // program exit («выйти из игры») is not what happens here, so ours replaces it.
             view["confirm"] = Json{{"preset", "danger"},
-                                   {"title", window ? question : bindings.Text("menu.exit_question")},
-                                   {"text", window ? std::string() : question},
-                                   {"yes", window ? yes->label : bindings.Text("menu.exit")},
+                                   {"title", toMenu ? question : bindings.Text("menu.exit_to_main_menu_question")},
+                                   {"text", std::string()},
+                                   {"yes", bindings.Text("menu.exit")},
                                    {"no", window && no ? no->label : bindings.Text("common.cancel")}}; // V2-Menu-ExitConfirm: «Отмена»
-            bindings.Forward("confirm-confirm", *yes, "press");
+            if (toMenu)
+                bindings.Forward("confirm-confirm", *yes, "press");
+            else
+                bindings.On("confirm-confirm", "", [&bindings, yes](const Event &) {
+                    // Before the press: the host must know why the engine ends before it ends.
+                    bindings.SendHost("app-exit-to-main-menu", "");
+                    bindings.Send(*yes, "press");
+                });
             if (no)
             {
                 bindings.Forward("confirm-cancel", *no, "press");

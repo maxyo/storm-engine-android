@@ -227,6 +227,25 @@ inline void publishContextAction(const std::string &name) {
     contextAction = name; requestedContextAction.clear();
     ui::state("contextAction",uiJsonText(name));
 }
+// The host starts this engine straight at the game's main menu (GameActivity.startsAtMainMenu,
+// after the pause menu's exit): until the first interface opens, the videos are broken off
+// through the game's own video break (CAviPlayer, ICancel as a tap sends).
+inline bool startAtMainMenu = false;
+inline void readStartAtMainMenu() {
+    auto *env=static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+    auto activity=static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) { spdlog::error("Start at the main menu: no game activity to ask"); return; }
+    auto type=env->GetObjectClass(activity);
+    auto method=type ? env->GetMethodID(type,"startsAtMainMenu","()Z") : nullptr;
+    if (method) startAtMainMenu=env->CallBooleanMethod(activity,method);
+    if (env->ExceptionCheck() || !method) {
+        env->ExceptionClear(); startAtMainMenu=false;
+        spdlog::error("Start at the main menu: GameActivity.startsAtMainMenu() is unavailable; the game starts with its videos");
+    }
+    if (type) env->DeleteLocalRef(type);
+    env->DeleteLocalRef(activity);
+    if (startAtMainMenu) spdlog::info("Start at the main menu: the videos before it are skipped");
+}
 inline int loadingState = -1;
 inline void publishLoading(bool active) {
     if (loadingState == static_cast<int>(active)) return;
@@ -301,6 +320,10 @@ inline void showMobileScreen(const std::string &name)
     if (suffix != std::string::npos) screen.resize(suffix);
     for (auto &c : screen) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     mobileScreen = screen;
+    if (startAtMainMenu && !screen.empty()) {
+        startAtMainMenu = false;
+        spdlog::info("Start at the main menu: interface {} opened", screen);
+    }
     ++mobileScreenRevision;
     interfacePresentation.begin(mobileScreenRevision, !screen.empty(), interfacePresentation.negotiated());
     uiTouches.clear();

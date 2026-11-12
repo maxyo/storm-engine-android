@@ -115,6 +115,7 @@ static void GameMenu(const std::string &models)
     Expect(surface.errors.empty() && surface.props["extras"]["rows"].empty(), "every node of the pause menu is known");
     ExpectEqual(surface.props["resume"]["label"], "Продолжить", "resume is the game's button");
     Expect(surface.props["buttons"].size() == 4 && surface.props["buttons"][3]["id"] == "exit", "grid: save, load, settings, exit (no disabled updates)");
+    ExpectEqual(surface.props["buttons"][3]["label"], "<menu.exit>", "the exit tile reads «Выйти», not the game's program exit");
     Expect(surface.props["confirm"].is_null(), "no question yet");
     router.OnEvent({"resume", "click", ""});
     ExpectEqual(surface.Last(), "back", "«Продолжить» resumes through the menu's cancel (exitCancel)");
@@ -128,14 +129,37 @@ static void GameMenu(const std::string &models)
 
     router.SetInterface(Load(models, "game-menu-exit.json"));
     const Json confirm = surface.props["confirm"];
-    Expect(confirm["preset"] == "danger" && confirm["title"] == "<menu.exit_question>" && confirm["text"] == "Выйти?",
-           "exit question: danger dialog keeping the game's text");
+    Expect(confirm["preset"] == "danger" && confirm["title"] == "<menu.exit_to_main_menu_question>" && confirm["text"] == "" &&
+               confirm["yes"] == "<menu.exit>",
+           "exit question: «Выйти в главное меню?», not the game's question of the program exit");
+    const size_t before = surface.commands.size();
     router.OnEvent({"confirm-confirm", "click", ""});
-    ExpectEqual(surface.Last(), "widget:game_menu\tCONFIRM_EXIT_YES\t-1\tpress", "«Выйти» answers yes");
+    Expect(surface.commands.size() == before + 2 && surface.commands[before] == "host app-exit-to-main-menu " &&
+               surface.commands[before + 1] == "widget:game_menu\tCONFIRM_EXIT_YES\t-1\tpress",
+           "«Выйти» tells the host it leads to the main menu, then answers yes (the game's ExitProgram)");
     router.OnEvent({"confirm", "dismiss", ""});
     ExpectEqual(surface.Last(), "widget:game_menu\tCONFIRM_EXIT_NO\t-1\tpress", "the scrim answers no");
     router.OnEvent({"confirm-cancel", "click", ""});
     ExpectEqual(surface.Last(), "widget:game_menu\tCONFIRM_EXIT_NO\t-1\tpress", "«Отмена» answers no");
+
+    // CL's game_menu has its own exit to the main menu (MB_EXITMENU → GameOverMainMenu): it is the
+    // one exit, its program exit (MB_EXITGAME) is left to the main menu, no host restart.
+    InterfaceModel cl = Load(models, "game-menu.json");
+    cl.opening = 96;
+    for (const Widget &widget : cl.widgets)
+        if (widget.node == "MB_EXITGAME")
+        {
+            Widget toMenu = widget;
+            toMenu.node = "MB_EXITMENU";
+            toMenu.label = "Главное меню";
+            cl.widgets.push_back(toMenu);
+            break;
+        }
+    router.SetInterface(cl);
+    Expect(surface.errors.empty() && surface.props["buttons"].size() == 4 && surface.props["buttons"][3]["label"] == "Главное меню",
+           "CL: the exit tile is the game's exit to the main menu");
+    router.OnEvent({"exit", "click", ""});
+    ExpectEqual(surface.Last(), "widget:game_menu\tMB_EXITMENU\t-1\tpress", "CL: exit presses MB_EXITMENU");
 
     // TEHO's game_menu.c greys out MB_RESUME during a boarding; its cancel still resumes there.
     InterfaceModel boarding = Load(models, "game-menu.json");

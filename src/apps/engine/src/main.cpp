@@ -442,6 +442,7 @@ int main(int argc, char *argv[])
     spdlog::info("mimalloc-redirect status: {}", mi_is_redirected());
 #ifdef __ANDROID__
     AnnounceScriptPatches();
+    storm::android::readStartAtMainMenu();
 #endif
 
     // Init core

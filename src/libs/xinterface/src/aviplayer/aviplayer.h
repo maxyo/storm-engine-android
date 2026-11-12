@@ -56,6 +56,8 @@ class CAviPlayer : public xiBaseVideo
     void Upload(const storm::video::Frame &frame);
     void ReleaseTexture();
     void DetectTapToSkip();
+    void SkipForMainMenuStart();
+    void SendCancel();
 
     VRenderer *rs = nullptr;
     bool m_bShowVideo = true;
@@ -69,4 +71,5 @@ class CAviPlayer : public xiBaseVideo
     bool reupload_ = false;     // upload the shown frame again (surface may have been recreated)
     int appEvents_ = -1;
     int tapState_ = 0;          // 0: wait for release, 1: wait for press, 2: pressed
+    bool startSkipSent_ = false; // ICancel sent for the start at the main menu
 };
