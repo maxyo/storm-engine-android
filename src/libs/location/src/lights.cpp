@@ -250,6 +250,23 @@ void Lights::Realize(uint32_t delta_time)
                            type.Attenuation2});
     }
     storm::render::SetEffectsDynamicLights(dynamic);
+    // The other lights stand still: the strongest of them cast the lamp shadows of interiors.
+    std::vector<bool> moving(numLights, false);
+    for (const MovingLight &m : aMovingLight)
+        if (m.light >= 0 && m.light < numLights)
+            moving[m.light] = true;
+    std::vector<storm::render::EffectsPointLight> lamps;
+    for (int32_t i = 0; i < numLights; ++i)
+    {
+        const Light &l = lights[i];
+        if (moving[i])
+            continue;
+        // `color` carries the flicker; `intensity` is only the fade of the few lights the D3D budget lights per vertex.
+        const D3DLIGHT9 &type = types[l.type].dxLight;
+        lamps.push_back({{l.pos.x, l.pos.y, l.pos.z}, {l.color.r, l.color.g, l.color.b}, type.Range,
+                         type.Attenuation0, type.Attenuation1, type.Attenuation2});
+    }
+    storm::render::SetEffectsLamps(lamps);
 
     ////////////////
     // Draw coronas

@@ -73,6 +73,8 @@ const Option kOptions[] = {
     {"fx_sea_specular", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_specular = on(v); }},
     {"fx_sky", "0 off, 1 on", [](fx::Settings &s, int v) { s.sky_atmosphere = on(v); }},
     {"fx_clouds", "0 off, 1 on", [](fx::Settings &s, int v) { s.sky_clouds = on(v); }},
+    {"fx_lamp_shadows", "interiors: lamps that cast shadows, 0, 2 or 4",
+     [](fx::Settings &s, int v) { s.lamp_shadows = static_cast<uint8_t>(std::clamp(v, 0, 4)); }},
     {"fx_ao_volume", "interiors: 0 off, 1 as the game's data, 2 moderate, 3 strong",
      [](fx::Settings &s, int v) { s.ao_volume = static_cast<uint8_t>(std::clamp(v, 0, 3)); }},
     {"fx_shadows", "0 off, 1 low, 2 soft",
@@ -549,9 +551,9 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
                          profile_sum_post_ / profile_gpu_frames_);
             const Lighting::Counts counts = lighting_.last_frame();
             shim::logf("effects profile: preset %d %s cpu_frame_ms=%.2f draws=%.0f post_views=%u lit_draws=%u "
-                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u",
+                       "baked_draws=%u coverage_draws=%u relief_draws=%u aerial_draws=%u shadowed_draws=%u casters=%u ao_draws=%u lamp_draws=%u lamp_casters=%u",
                        preset_, gpu, profile_sum_cpu_ / kProfileFrames, static_cast<double>(profile_draws_) / kProfileFrames,
-                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters, counts.ao);
+                       last_post_views_, counts.lit, counts.baked, counts.coverage, counts.relief, counts.aerial, counts.shadowed, counts.casters, counts.ao, counts.lamp_lit, counts.lamp_casters);
             profile_count_ = profile_gpu_frames_ = 0;
             profile_sum_frame_ = profile_sum_post_ = profile_sum_cpu_ = 0.0;
             profile_draws_ = 0;
@@ -598,8 +600,20 @@ void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<floa
                           std::span<const uint32_t> indices, const std::array<float, 3> &bounds_lo,
                           const std::array<float, 3> &bounds_hi)
 {
-    effects::Host::instance().ao_volumes().set_geometry(std::string(name), {positions.begin(), positions.end()},
-                                                        {indices.begin(), indices.end()}, bounds_lo, bounds_hi);
+    std::vector<fx::Vec3> points(positions.begin(), positions.end());
+    std::vector<uint32_t> triangles(indices.begin(), indices.end());
+    effects::Host::instance().lighting().lamp_shadows().set_geometry(points, triangles);
+    effects::Host::instance().ao_volumes().set_geometry(std::string(name), std::move(points), std::move(triangles),
+                                                        bounds_lo, bounds_hi);
+}
+
+void SetEffectsLamps(std::span<const EffectsPointLight> lamps)
+{
+    std::vector<fx::Lamp> converted;
+    converted.reserve(lamps.size());
+    for (const EffectsPointLight &l : lamps)
+        converted.push_back({l.position, l.color, l.range, l.att0, l.att1, l.att2});
+    effects::Host::instance().lighting().lamp_shadows().set_lamps(std::move(converted));
 }
 
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)

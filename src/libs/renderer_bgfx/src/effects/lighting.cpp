@@ -77,6 +77,7 @@ void Lighting::configure(const fx::Settings &settings, const fx::RendererState &
     coverage_ = state.alpha_to_coverage;
     budget_ = fx::PointLightBudget(settings);
     shadows_.configure(settings);
+    lamps_.configure(settings);
     normal_maps_.configure(lighting_ && (flags_ & fx::kLightingNormalMap), settings.normal_map_size);
     find_shaders();
 }
@@ -138,6 +139,8 @@ bool Lighting::prepare_programs(shim::Device &device, const fx::Settings &settin
             if (!device.prepare_program(vs_lit_, fs_baked_[n][linear], budget))
                 return false;
         }
+    if (per_pixel && settings.lamp_shadows && !lamps_.prepare_programs(device, budget))
+        return false;
     return !per_pixel || shadows_.prepare_programs(device, settings, budget);
 }
 
@@ -217,6 +220,17 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     const shim::TexStore *picture = device.back_color ? device.back_color->store.get() : nullptr;
     const bool ao = ao_volume_ && lighting_ && layout.has_normal && target && target == picture;
     baked |= !lit_state && ao;
+    // Lamp shadows: the same receivers; the first one of a frame chooses the lamps for its camera.
+    bool lamp_on = false;
+    if (lamps_.enabled() && lighting_ && layout.has_normal && target && target == picture)
+    {
+        const D3DMATRIX &v = device.s.view;
+        std::array<float, 3> eye{};
+        for (int j = 0; j < 3; ++j)
+            eye[j] = -(v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
+        lamp_on = lamps_.prepare(const_cast<shim::Device &>(device), eye);
+    }
+    baked |= !lit_state && lamp_on;
     if (!lit && !baked && !coverage)
         return;
     if (cube_variant != 0)
@@ -248,9 +262,21 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     if (ao)
     {
         draw.ao = true;
-        memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
         ++frame_.ao;
     }
+    if (lamp_on)
+    {
+        draw.lamps = true;
+        ++frame_.lamp_lit;
+        // Characters cast into the lamp faces their sphere reaches.
+        if (lit && material_ == Material::Character && sphere.valid)
+        {
+            draw.lamp_caster = draw.caster = true;
+            draw.sphere = sphere;
+        }
+    }
+    if (ao || lamp_on)
+        memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
 
 
     // Sun and ambient as the fixed-function pipeline would use them; ComputeLighting gives the per-pixel terms.
@@ -262,6 +288,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         ambient = {((c >> 16) & 255) / 255.0f, ((c >> 8) & 255) / 255.0f, (c & 255) / 255.0f, 1.0f};
     }
     input.ambient = rgb(ambient);
+    draw.ambient = 0.299f * ambient.r + 0.587f * ambient.g + 0.114f * ambient.b;
     fx::PointLight points[shim::kMaxLights];
     uint8_t point_slot[shim::kMaxLights];
     size_t point_count = 0;
@@ -371,7 +398,8 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         if (per_pixel && sun_slot >= 0 && target && target == picture)
         {
             memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
-            draw.shadow = draw.caster = shadows_.prepare(draw.view);
+            draw.shadow = draw.sun_caster = shadows_.prepare(draw.view);
+            draw.caster |= draw.sun_caster;
         }
         const int shadow = draw.shadow ? (settings_.shadows == fx::ShadowQuality::Soft ? 2 : 1) : 0;
         draw.fs_id = fs_lit_[specular][relief][linear][shadow];
@@ -388,6 +416,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
 
 void Lighting::submit(const FfDraw &draw)
 {
+    caster_ = draw;
     if (!bgfx::isValid(u_coverage_))
     {
         u_coverage_ = bgfx::createUniform("u_fxCoverage", bgfx::UniformType::Vec4);
@@ -404,6 +433,23 @@ void Lighting::submit(const FfDraw &draw)
     if (draw.shadow)
         shadows_.bind(draw.view);
     bind_ao_volume(draw);
+    lamps_.bind(draw.lamps, draw.view, draw.ambient);
+}
+
+void Lighting::submit_caster(shim::Device &device, const D3DMATRIX &world, bool skinned)
+{
+    if (caster_.lamp_caster)
+    {
+        lamps_.submit_caster(device, &world.m[0][0], skinned, caster_.sphere.center, caster_.sphere.radius);
+        ++frame_.lamp_casters;
+    }
+    if (caster_.sun_caster)
+    {
+        shadows_.submit_caster(device, &world.m[0][0], skinned);
+        ++frame_.casters;
+    }
+    else
+        bgfx::discard(BGFX_DISCARD_ALL);
 }
 
 void Lighting::bind_ao_volume(const FfDraw &draw)
@@ -421,8 +467,8 @@ void Lighting::bind_ao_volume(const FfDraw &draw)
     {
         if (!bgfx::isValid(ao_open_))
         {
-            const uint8_t open = 255;
-            ao_open_ = bgfx::createTexture3D(1, 1, 1, false, bgfx::TextureFormat::R8, BGFX_SAMPLER_POINT, bgfx::copy(&open, 1));
+            const uint8_t open[4] = {255, 255, 255, 255};
+            ao_open_ = bgfx::createTexture3D(1, 1, 1, false, bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_POINT, bgfx::copy(open, 4));
         }
         const float off[4] = {0.0f, 1.0f, 0.0f, 0.0f};
         bgfx::setUniform(u_ao_params_, off);
@@ -437,7 +483,7 @@ void Lighting::bind_ao_volume(const FfDraw &draw)
         ao_view_ = draw.view;
     }
     const fx::AoVolumeLevel &level = fx::kAoVolumeLevel[std::min<uint8_t>(settings_.ao_volume, fx::kAoVolumeLevels)];
-    const float params[4] = {level.strength, level.contrast, 0.5f * ao_volume_->cell, 0.0f};
+    const float params[4] = {level.strength, level.contrast, 0.5f * ao_volume_->cell, 1.0f / fx::kAoOpenSurface};
     bgfx::setUniform(u_ao_matrix_, ao_view_to_uvw_.data());
     bgfx::setUniform(u_ao_params_, params);
     bgfx::setTexture(fx::kAoVolumeStage, s_ao_volume_, ao_volume_->texture);
@@ -471,6 +517,7 @@ void Lighting::end_frame()
     frame_ = {};
     shadows_.end_frame();
     normal_maps_.end_frame();
+    lamps_.end_frame();
     if (!dynamic_lights_this_frame_)
         dynamic_lights_.clear(); // no location reported them: none exist
     dynamic_lights_this_frame_ = false;
@@ -480,6 +527,7 @@ void Lighting::shutdown()
 {
     fx_.Shutdown();
     shadows_.shutdown();
+    lamps_.shutdown();
     if (bgfx::isValid(ao_open_))
         bgfx::destroy(ao_open_);
     ao_open_ = BGFX_INVALID_HANDLE;
@@ -495,6 +543,7 @@ void Lighting::on_device_lost()
 {
     fx_.OnDeviceLost();
     shadows_.on_device_lost();
+    lamps_.on_device_lost();
     u_coverage_ = u_ff_ = u_aerial_up_ = s_ao_volume_ = u_ao_matrix_ = u_ao_params_ = BGFX_INVALID_HANDLE;
     ao_view_ = {};
     ao_open_ = BGFX_INVALID_HANDLE;

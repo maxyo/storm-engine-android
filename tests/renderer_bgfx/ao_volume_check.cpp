@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <vector>
 
 using namespace storm;
@@ -91,6 +92,7 @@ class Harness
         d_.SetRenderState(D3DRS_ZENABLE, FALSE);
         d_.SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
         d_.SetRenderState(D3DRS_LIGHTING, FALSE);
+        d_.SetRenderState(D3DRS_AMBIENT, 0xFF202020);
         d_.SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
         d_.SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
         d_.SetTexture(0, nullptr);
@@ -222,6 +224,67 @@ int main()
                 ok &= level_ok;
                 previous = centre;
             }
+
+            // Lamp shadows: a lamp 2.5 m above the floor at (-2, -2) and a 0.6 m pillar between it and the far side;
+            // the floor behind the pillar (seen from the lamp) darkens, the floor beside it does not.
+            add_box(positions, indices, {-1.3f, 0.0f, -1.3f}, {-0.7f, 2.0f, -0.7f});
+            render::SetEffectsAoGeometry("ao_volume_check room with a pillar", positions, indices);
+            const render::EffectsPointLight lamp{{-2.0f, 2.0f, -2.0f}, {4.0f, 3.6f, 3.0f}, 15.0f, 0.5f, 0.0f, 0.1f};
+            for (const int count : {0, 4})
+            {
+                bool ready = true;
+                render::ConfigureEffects(2, {{"fx_ao_volume", 0}, {"fx_lamp_shadows", count}});
+                for (int frame = 0; frame < 400; ++frame)
+                {
+                    render::SetEffectsLamps(std::span(&lamp, 1));
+                    harness.render();
+                    if (!render::CurrentEffects().pending && frame > 30)
+                        break;
+                    SDL_Delay(5);
+                }
+                ready = !render::CurrentEffects().pending;
+                render::SetEffectsLamps(std::span(&lamp, 1));
+                const auto picture = harness.render();
+                if (const char *dump = std::getenv("AO_CHECK_DUMP"))
+                {
+                    char name[512];
+                    std::snprintf(name, sizeof(name), "%s/lamp_%d.ppm", dump, count);
+                    if (FILE *f = std::fopen(name, "wb"))
+                    {
+                        std::fprintf(f, "P6 %u %u 255\n", kSize, kSize);
+                        for (size_t i = 0; i < picture.size(); i += 4)
+                            std::fputc(picture[i + 2], f), std::fputc(picture[i + 1], f), std::fputc(picture[i], f);
+                        std::fclose(f);
+                    }
+                }
+                // Picture (read back top row first): x = (world x + 3) / 6, y = (3 - world z) / 6. Behind the pillar
+                // from the lamp: world (0.5, 0.5); beside it, as far from the lamp: (1.2, -2.0).
+                const float behind = mean(picture, (0.5f + 3.0f) / 6.0f, (3.0f - 0.5f) / 6.0f);
+                const float beside = mean(picture, (1.2f + 3.0f) / 6.0f, (3.0f + 2.0f) / 6.0f);
+                std::printf("fx_lamp_shadows=%d: floor behind the pillar %.1f, beside it %.1f\n", count, behind, beside);
+                if (!ready)
+                {
+                    std::printf("FAIL: fx_lamp_shadows=%d still pending\n", count);
+                    ok = false;
+                }
+                const bool shadow = behind < 0.85f * beside;
+                if (count == 4 && beside < 140.0f)
+                {
+                    std::printf("FAIL: the lit floor beside the pillar darkens (shadow acne)\n");
+                    ok = false;
+                }
+                if (count == 0 && shadow)
+                {
+                    std::printf("FAIL: a shadow behind the pillar without lamp shadows\n");
+                    ok = false;
+                }
+                if (count == 4 && !shadow)
+                {
+                    std::printf("FAIL: no lamp shadow behind the pillar\n");
+                    ok = false;
+                }
+            }
+            render::SetEffectsLamps({});
             render::SetEffectsAoGeometry({}, {}, {});
             render::ConfigureEffects(0, {});
         }
@@ -229,6 +292,7 @@ int main()
     }
     SDL_DestroyWindow(window);
     SDL_Quit();
-    std::printf(ok ? "PASS: the AO volume darkens under the table and nowhere else\n" : "FAIL: AO volume check\n");
+    std::printf(ok ? "PASS: the AO volume darkens under the table and nowhere else; a lamp shadow falls behind the pillar\n"
+                : "FAIL: AO volume / lamp shadow check\n");
     return ok ? 0 : 1;
 }

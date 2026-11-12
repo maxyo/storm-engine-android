@@ -29,6 +29,7 @@
 #pragma once
 
 #include "effects/ao_volume.hpp"
+#include "effects/lamp_shadows.hpp"
 #include "effects/normal_maps.hpp"
 #include "effects/shadows.hpp"
 #include "storm/fx/lighting.hpp"
@@ -81,6 +82,11 @@ struct FfDraw
     bool caster = false;           // the shim also submits this draw into the shadow view (submit_caster)
     std::array<float, 16> view{};  // the draw's world -> view (shadow and AO-volume receivers)
     bool ao = false;               // samples the interior's AO volume (submit() binds it for `view`)
+    bool lamps = false;            // receives the interior's lamp shadows (submit() binds them for `view`)
+    bool sun_caster = false;       // caster: the sun shadow view
+    bool lamp_caster = false;      // caster: the lamp faces its sphere reaches (characters)
+    DrawSphere sphere{};
+    float ambient = 0.0f;          // luminance of the draw's global ambient (lamp shadows on baked colours)
 };
 
 class Lighting
@@ -117,16 +123,15 @@ class Lighting
     NormalMaps &normal_maps() { return normal_maps_; }
     SunShadows &shadows() { return shadows_; }
     // After the draw was submitted with its buffers kept (BGFX_DISCARD_NONE for buffers): the depth-only copy.
-    void submit_caster(shim::Device &device, const D3DMATRIX &world, bool skinned)
-    {
-        shadows_.submit_caster(device, &world.m[0][0], skinned);
-        ++frame_.casters;
-    }
+    // The lamp faces first (buffers kept), then the sun view, which ends the draw (all bindings discarded).
+    void submit_caster(shim::Device &device, const D3DMATRIX &world, bool skinned);
+    LampShadows &lamp_shadows() { return lamps_; }
     void end_frame();
     // Draws of the last presented frame that used a lit / baked / coverage variant (effects profile).
     struct Counts
     {
-        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, shadowed = 0, casters = 0, aerial = 0, ao = 0;
+        uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, shadowed = 0, casters = 0, aerial = 0, ao = 0, lamp_lit = 0,
+                 lamp_casters = 0;
     };
     Counts last_frame() const { return last_frame_; }
 
@@ -159,6 +164,8 @@ class Lighting
     uint32_t fs_baked_[2][2] = {};  // [normal map][linear]
     NormalMaps normal_maps_;
     SunShadows shadows_;
+    LampShadows lamps_;
+    FfDraw caster_{}; // the last submitted draw's caster flags (submit -> submit_caster)
     bool cube_reported_ = false;
     bool bounds_reported_ = false;
     bool aerial_port_reported_ = false;
@@ -171,7 +178,7 @@ class Lighting
     bgfx::UniformHandle s_ao_volume_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_ao_matrix_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_ao_params_ = BGFX_INVALID_HANDLE;
-    bgfx::TextureHandle ao_open_ = BGFX_INVALID_HANDLE; // 1x1x1 R8 = 255 for draws without the volume
+    bgfx::TextureHandle ao_open_ = BGFX_INVALID_HANDLE; // 1x1x1 RGBA8 = 255 for draws without the volume
     std::array<float, 16> ao_view_{};     // the camera ao_view_to_uvw_ was made for
     std::array<float, 16> ao_view_to_uvw_{};
     bgfx::UniformHandle u_coverage_ = BGFX_INVALID_HANDLE;

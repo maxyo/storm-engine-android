@@ -69,7 +69,27 @@ template <typename T> bool Get(std::span<const uint8_t> data, size_t &at, T &val
 }
 } // namespace
 
-float AoVolume::At(Vec3 world) const
+const std::array<Vec3, kAoLobes> &AoLobeAxes()
+{
+    static const float k = 0.57735027f;
+    static const std::array<Vec3, kAoLobes> axes = {{{k, k, k}, {k, -k, -k}, {-k, k, -k}, {-k, -k, k}}};
+    return axes;
+}
+
+float AoVolume::Combine(const float lobes[kAoLobes], Vec3 normal)
+{
+    float sum = 0.0f, weight = 0.0f;
+    for (int i = 0; i < kAoLobes; ++i)
+    {
+        const Vec3 &a = AoLobeAxes()[i];
+        const float w = std::max(normal[0] * a[0] + normal[1] * a[1] + normal[2] * a[2], 0.0f);
+        sum += w * lobes[i];
+        weight += w;
+    }
+    return weight > 0.0f ? sum / weight : 1.0f;
+}
+
+float AoVolume::At(Vec3 world, Vec3 normal) const
 {
     int c[3];
     for (int i = 0; i < 3; ++i)
@@ -78,10 +98,14 @@ float AoVolume::At(Vec3 world) const
         if (c[i] < 0 || c[i] >= size[i])
             return 1.0f;
     }
-    return visibility[(static_cast<size_t>(c[2]) * size[1] + c[1]) * size[0] + c[0]] / 255.0f;
+    const size_t index = (static_cast<size_t>(c[2]) * size[1] + c[1]) * size[0] + c[0];
+    float lobes[kAoLobes];
+    for (int k = 0; k < kAoLobes; ++k)
+        lobes[k] = visibility[index * kAoLobes + k] / 255.0f;
+    return Combine(lobes, normal);
 }
 
-float AoVolume::Sample(Vec3 world) const
+float AoVolume::Sample(Vec3 world, Vec3 normal) const
 {
     if (Empty())
         return 1.0f;
@@ -93,7 +117,7 @@ float AoVolume::Sample(Vec3 world) const
         c0[i] = std::min(static_cast<int>(u), size[i] - 2 < 0 ? 0 : size[i] - 2);
         f[i] = size[i] > 1 ? u - static_cast<float>(c0[i]) : 0.0f;
     }
-    float sum = 0.0f;
+    float lobes[kAoLobes] = {};
     for (int corner = 0; corner < 8; ++corner)
     {
         float w = 1.0f;
@@ -104,9 +128,11 @@ float AoVolume::Sample(Vec3 world) const
             c[i] = std::min(c0[i] + bit, size[i] - 1);
             w *= bit ? f[i] : 1.0f - f[i];
         }
-        sum += w * visibility[(static_cast<size_t>(c[2]) * size[1] + c[1]) * size[0] + c[0]];
+        const size_t index = (static_cast<size_t>(c[2]) * size[1] + c[1]) * size[0] + c[0];
+        for (int k = 0; k < kAoLobes; ++k)
+            lobes[k] += w * visibility[index * kAoLobes + k] / 255.0f;
     }
-    return sum / 255.0f;
+    return Combine(lobes, normal);
 }
 
 uint64_t AoBakeKey(const AoGeometry &geometry, const AoBakeParams &params)
@@ -206,7 +232,7 @@ AoVolume BakeAoVolume(const AoGeometry &geometry, const AoBakeParams &params)
     const auto directions = Directions();
     const Grid cells{volume.size};
     const size_t count = static_cast<size_t>(cells.size[0]) * cells.size[1] * cells.size[2];
-    volume.visibility.assign(count, 255);
+    volume.visibility.assign(count * kAoLobes, 255);
     std::vector<uint8_t> inside(count, 0);
     // Cells with no solid voxel within `radius` (Chebyshev, so a superset of the sphere) see everything: a separable
     // sliding-window count of solid voxels finds them without marching (most of a hall's air).
@@ -258,6 +284,16 @@ AoVolume BakeAoVolume(const AoGeometry &geometry, const AoBakeParams &params)
     for (int i = 0; i < kAoDirections; ++i)
         for (int j = 0; j < 3; ++j)
             increment[i][j] = directions[i][j];
+    // Each lobe weighs the directions by their cosine to its axis (the receiver's hemisphere, AoLobeAxes).
+    float lobe_weight[kAoLobes][kAoDirections] = {};
+    float lobe_total[kAoLobes] = {};
+    for (int k = 0; k < kAoLobes; ++k)
+        for (int i = 0; i < kAoDirections; ++i)
+        {
+            const Vec3 &a = AoLobeAxes()[k];
+            lobe_weight[k][i] = std::max(directions[i][0] * a[0] + directions[i][1] * a[1] + directions[i][2] * a[2], 0.0f);
+            lobe_total[k] += lobe_weight[k][i];
+        }
     const float bound[3] = {static_cast<float>(occ.size[0]), static_cast<float>(occ.size[1]), static_cast<float>(occ.size[2])};
     auto bake_slices = [&](int z_begin, int z_end) {
         for (int z = z_begin; z < z_end; ++z)
@@ -277,9 +313,10 @@ AoVolume BakeAoVolume(const AoGeometry &geometry, const AoBakeParams &params)
                     }
                     if (!near[occ.Index(2 * x + 1, 2 * y + 1, 2 * z + 1)])
                         continue; // keeps 255
-                    float occlusion = 0.0f;
-                    for (const Vec3 &d : increment)
+                    float occlusion[kAoLobes] = {};
+                    for (int di = 0; di < kAoDirections; ++di)
                     {
+                        const Vec3 &d = increment[di];
                         float p[3] = {2.0f * x + 1.0f, 2.0f * y + 1.0f, 2.0f * z + 1.0f};
                         for (int s = 1; s <= steps; ++s)
                         {
@@ -291,13 +328,18 @@ AoVolume BakeAoVolume(const AoGeometry &geometry, const AoBakeParams &params)
                                 break;
                             if (solid[occ.Index(static_cast<int>(p[0]), static_cast<int>(p[1]), static_cast<int>(p[2]))])
                             {
-                                occlusion += weight[s];
+                                for (int k = 0; k < kAoLobes; ++k)
+                                    occlusion[k] += weight[s] * lobe_weight[k][di];
                                 break;
                             }
                         }
                     }
-                    const float visible = 1.0f - occlusion / static_cast<float>(kAoDirections);
-                    volume.visibility[index] = static_cast<uint8_t>(std::lround(std::clamp(visible, 0.0f, 1.0f) * 255.0f));
+                    for (int k = 0; k < kAoLobes; ++k)
+                    {
+                        const float visible = 1.0f - occlusion[k] / lobe_total[k];
+                        volume.visibility[index * kAoLobes + k] =
+                            static_cast<uint8_t>(std::lround(std::clamp(visible, 0.0f, 1.0f) * 255.0f));
+                    }
                 }
     };
     const unsigned threads = std::clamp(params.threads, 1u, static_cast<unsigned>(std::max(1, cells.size[2])));
@@ -326,18 +368,20 @@ AoVolume BakeAoVolume(const AoGeometry &geometry, const AoBakeParams &params)
                     const size_t index = cells.Index(x, y, z);
                     if (!inside[index])
                         continue;
-                    int sum = 0, n = 0;
+                    int sum[kAoLobes] = {}, n = 0;
                     for (int dz = -1; dz <= 1; ++dz)
                         for (int dy = -1; dy <= 1; ++dy)
                             for (int dx = -1; dx <= 1; ++dx)
                                 if (cells.Inside(x + dx, y + dy, z + dz) && !inside[cells.Index(x + dx, y + dy, z + dz)])
                                 {
-                                    sum += volume.visibility[cells.Index(x + dx, y + dy, z + dz)];
+                                    for (int k = 0; k < kAoLobes; ++k)
+                                        sum[k] += volume.visibility[cells.Index(x + dx, y + dy, z + dz) * kAoLobes + k];
                                     ++n;
                                 }
                     if (n > 0)
                     {
-                        next[index] = static_cast<uint8_t>((sum + n / 2) / n);
+                        for (int k = 0; k < kAoLobes; ++k)
+                            next[index * kAoLobes + k] = static_cast<uint8_t>((sum[k] + n / 2) / n);
                         next_inside[index] = 0;
                     }
                 }
@@ -407,7 +451,7 @@ std::optional<AoVolume> DecodeAoVolume(std::span<const uint8_t> data, uint64_t k
         volume.size[i] = size[i];
         cells *= static_cast<size_t>(size[i]);
     }
-    if (data.size() - at != cells || !(volume.cell > 0.0f))
+    if (data.size() - at != cells * kAoLobes || !(volume.cell > 0.0f))
     {
         error = "cell data does not match the size";
         return std::nullopt;

@@ -3,7 +3,7 @@
 // The location reports the static geometry of an interior once it is loaded (render::SetEffectsAoGeometry, from
 // Location's first frame). While the settings ask for the volume, it is read from the texture cache directory or
 // baked on a texture worker (fx::BakeAoVolume, about a second for an interior, the time logged) and
-// uploaded as an R8 3D texture; the lit and baked fixed-function variants sample it. Outdoors, or before the volume is
+// uploaded as an RGBA8 3D texture (four cosine lobes); the lit and baked fixed-function variants sample it. Outdoors, or before the volume is
 // ready, there is none and nothing darkens. A failed bake or upload is logged once per location.
 #pragma once
 

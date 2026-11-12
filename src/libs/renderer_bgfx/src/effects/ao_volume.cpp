@@ -102,11 +102,11 @@ const AoVolumes::Bound *AoVolumes::update(bool wanted)
             const fx::AoVolume &v = job_->volume;
             bound_.texture = bgfx::createTexture3D(
                 static_cast<uint16_t>(v.size[0]), static_cast<uint16_t>(v.size[1]), static_cast<uint16_t>(v.size[2]), false,
-                bgfx::TextureFormat::R8, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_W_CLAMP,
+                bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_W_CLAMP,
                 bgfx::copy(v.visibility.data(), static_cast<uint32_t>(v.visibility.size())));
             if (!bgfx::isValid(bound_.texture))
             {
-                shim::logf("ERROR: effects: AO volume of %s: the %dx%dx%d R8 3D texture cannot be created: no ambient "
+                shim::logf("ERROR: effects: AO volume of %s: the %dx%dx%d RGBA8 3D texture cannot be created: no ambient "
                            "occlusion here",
                            name_.c_str(), v.size[0], v.size[1], v.size[2]);
                 job_->state = Job::Failed;

@@ -112,6 +112,10 @@ struct EffectsPointLight
 };
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
 
+// Location, every frame it draws: its static lamps (the lights of lights.ini at its locators, colour with this
+// frame's flicker). In interiors the strongest ones cast shadows (fx_lamp_shadows); outdoors: empty.
+void SetEffectsLamps(std::span<const EffectsPointLight> lamps);
+
 // Location, once an interior is loaded: the static geometry its ambient-occlusion volume is baked from (world space
 // positions, triangle list; `name` names it in the log) and the box that gets the volume (where one walks, with a
 // margin: the geometry outside it, such as the backdrop behind the windows, only occludes). Outdoors and when

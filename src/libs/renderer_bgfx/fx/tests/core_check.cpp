@@ -3,6 +3,7 @@
 // explicit handling of unsupported settings. No GPU is needed.
 #include "storm/fx/ao_volume.hpp"
 #include "storm/fx/capabilities.hpp"
+#include "storm/fx/lamp_shadows.hpp"
 #include "storm/fx/color_lut.hpp"
 #include "storm/fx/light_set.hpp"
 #include "storm/fx/lighting_model.hpp"
@@ -68,7 +69,8 @@ void CheckSettings()
     CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
     CHECK(!medium.ssao && high.ssao && !original.ssao);
-    CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 2); // Низкая: no shadows, as the original
+    CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 3); // Низкая: no shadows, as the original
+    CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 2 && high.lamp_shadows == 4);
     // The presets keep the legacy look: no tone curve, grade, flare, shafts, fx sky, hemisphere or linear sums.
     for (const Settings *preset : {&medium, &high})
         CHECK(!preset->tonemap && !preset->scene_grading && !preset->lens_flare && !preset->sun_shafts &&
@@ -319,7 +321,7 @@ void CheckSupport()
     no_shadow.shadow_map = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_shadow, changes);
-    CHECK(constrained.shadows == ShadowQuality::Off && changes.size() == 1);
+    CHECK(constrained.shadows == ShadowQuality::Off && constrained.lamp_shadows == 0 && changes.size() == 2);
     CHECK(LightingDefines(constrained).find("FX_LIGHT_SHADOW") == std::string::npos);
 
     // No R8 3D textures: no AO volume, said once; the rest stays.
@@ -332,6 +334,7 @@ void CheckSupport()
     Settings unlit = high;
     unlit.lighting_flags = kLightingNone;
     unlit.shadows = ShadowQuality::Off;
+    unlit.lamp_shadows = 0;
     changes.clear();
     CHECK(ConstrainSettings(unlit, all, changes).ao_volume == 0 && changes.size() == 1);
     Settings too_strong = high;
@@ -1016,6 +1019,74 @@ void AddBox(std::vector<Vec3> &p, std::vector<uint32_t> &i, Vec3 lo, Vec3 hi)
             i.push_back(base + t);
 }
 
+void CheckLampShadows()
+{
+    // Three candles of one candlestick become one lamp; the fireplace stays apart.
+    const Lamp candle{{1.0f, 2.0f, 1.0f}, {2.2f, 1.5f, 0.5f}, 15.0f, 0.5f, 0.0f, 1.5f};
+    std::vector<Lamp> lamps = {candle, candle, candle, {{-4.0f, 0.8f, 0.0f}, {2.2f, 1.2f, 0.7f}, 40.0f, 1.5f, 0.0f, 0.2f}};
+    lamps[1].position[0] += 0.1f;
+    lamps[2].position[2] -= 0.1f;
+    const std::vector<Lamp> clustered = ClusterLamps(lamps, 0.6f);
+    CHECK(clustered.size() == 2 && Near(clustered[0].color[0], 6.6f, 1e-4f));
+    CHECK(Near(clustered[0].position[0], 1.0333f, 1e-3f) && Near(clustered[0].position[2], 0.9667f, 1e-3f));
+
+    // Selection: the nearest strong lamp first; out of range lamps never; hysteresis keeps a slot.
+    std::vector<Lamp> room = {{{0.0f, 2.0f, 0.0f}, {2.0f, 2.0f, 2.0f}, 10.0f, 0.5f, 0.0f, 1.0f},
+                              {{6.0f, 2.0f, 0.0f}, {2.0f, 2.0f, 2.0f}, 10.0f, 0.5f, 0.0f, 1.0f},
+                              {{50.0f, 2.0f, 0.0f}, {9.0f, 9.0f, 9.0f}, 10.0f, 0.5f, 0.0f, 1.0f}};
+    std::vector<int> pick = SelectShadowLamps(room, {1.0f, 1.7f, 0.0f}, 2, {});
+    CHECK(pick.size() == 2 && pick[0] == 0 && pick[1] == 1);
+    pick = SelectShadowLamps(room, {1.0f, 1.7f, 0.0f}, 1, {});
+    CHECK(pick.size() == 1 && pick[0] == 0);
+    // At the middle the right lamp is marginally stronger; the left one keeps its slot.
+    pick = SelectShadowLamps(room, {3.1f, 1.7f, 0.0f}, 1, std::vector<int>{0});
+    CHECK(pick.size() == 1 && pick[0] == 0);
+    pick = SelectShadowLamps(room, {5.5f, 1.7f, 0.0f}, 1, std::vector<int>{0});
+    CHECK(pick.size() == 1 && pick[0] == 1);
+
+    // Caster side (face view-projection + tile) and receiver side (LampShadowCoord) agree on atlas position and depth
+    // in every face, and the guard band keeps points of a face inside its tile.
+    const Vec3 lamp{0.5f, 2.0f, -1.0f};
+    const float far_plane = 12.0f;
+    const int columns = 6, rows = 4;
+    int faces_seen = 0;
+    for (int i = 0; i < 200; ++i)
+    {
+        const float a = static_cast<float>(i) * 2.399963f, y = 1.0f - 2.0f * (static_cast<float>(i) + 0.5f) / 200.0f;
+        const float r = std::sqrt(1.0f - y * y), distance = 0.6f + 0.05f * static_cast<float>(i % 100);
+        const Vec3 p{lamp[0] + r * std::cos(a) * distance, lamp[1] + y * distance, lamp[2] + r * std::sin(a) * distance};
+        for (const int slot : {0, 3})
+        {
+            const LampShadowSample s = LampShadowCoord(lamp, p, far_plane, slot, columns, rows);
+            faces_seen |= 1 << s.face;
+            const auto vp = LampFaceViewProj(lamp, s.face, far_plane);
+            const auto tile_clip = TileClip(LampAtlasTile(slot, s.face, columns, rows));
+            float clip[4], atlas[4];
+            for (int j = 0; j < 4; ++j)
+                clip[j] = p[0] * vp[j] + p[1] * vp[4 + j] + p[2] * vp[8 + j] + vp[12 + j];
+            for (int j = 0; j < 4; ++j)
+                atlas[j] = clip[0] * tile_clip[j] + clip[1] * tile_clip[4 + j] + clip[2] * tile_clip[8 + j] + clip[3] * tile_clip[12 + j];
+            const float x = atlas[0] / atlas[3] * 0.5f + 0.5f, yy = 0.5f - atlas[1] / atlas[3] * 0.5f;
+            CHECK(Near(x, s.x, 1e-4f) && Near(yy, s.y, 1e-4f) && Near(clip[2] / clip[3], s.depth, 1e-4f));
+            const AtlasTile t = LampAtlasTile(slot, s.face, columns, rows);
+            const float margin = 0.5f * (1.0f - 1.0f / kLampFaceGuard) * t.sx * 0.99f;
+            CHECK(s.x >= t.x0 + margin && s.x <= t.x0 + t.sx - margin && s.y >= t.y0 && s.y <= t.y0 + t.sy);
+            CHECK(s.depth > 0.0f && s.depth < 1.0f);
+        }
+    }
+    CHECK(faces_seen == 63);
+    // A character 2 m in front of the lamp on +Z is in that face only; one straddling the edge in two; one at the
+    // lamp in all six.
+    int in_faces = 0, edge_faces = 0, at_lamp = 0;
+    for (int f = 0; f < 6; ++f)
+    {
+        in_faces += SphereInLampFace(lamp, f, {lamp[0], lamp[1], lamp[2] + 2.0f}, 0.4f) ? 1 : 0;
+        edge_faces += SphereInLampFace(lamp, f, {lamp[0] + 2.0f, lamp[1], lamp[2] + 2.0f}, 0.4f) ? 1 : 0;
+        at_lamp += SphereInLampFace(lamp, f, lamp, 0.4f) ? 1 : 0;
+    }
+    CHECK(in_faces == 1 && edge_faces == 2 && at_lamp == 6);
+}
+
 void CheckAoVolume()
 {
     // A 6 x 3 x 6 m room, a table (top at 0.8 m), a barrel 0.7 m from the +x wall.
@@ -1024,6 +1095,8 @@ void CheckAoVolume()
     AddBox(p, idx, {-3.0f, 0.0f, -3.0f}, {3.0f, 3.0f, 3.0f});
     AddBox(p, idx, {-0.6f, 0.76f, -0.6f}, {0.6f, 0.8f, 0.6f});
     AddBox(p, idx, {1.7f, 0.0f, -0.3f}, {2.3f, 0.9f, 0.3f});
+    for (float z = -2.5f; z <= 2.5f; z += 1.0f) // ceiling beams across the room, 0.4 m under the ceiling
+        AddBox(p, idx, {-3.0f, 2.6f, z - 0.1f}, {3.0f, 2.8f, z + 0.1f});
     AoBakeParams params;
     params.threads = 1;
     const AoGeometry geometry{p, idx};
@@ -1036,26 +1109,29 @@ void CheckAoVolume()
     CHECK(Near(volume.cell, 0.2f, 1e-6f));
     CHECK(volume.size[0] == 32 && volume.size[1] == 17 && volume.size[2] == 32);
     // Receivers sample half a cell off the surface along the normal (as the shader does).
-    const float open = volume.Sample({-1.5f, 0.1f, -1.5f});
-    const float under_table = volume.Sample({0.0f, 0.1f, 0.0f});
-    const float corner = volume.Sample({2.9f, 0.1f, 2.9f});
-    const float behind_barrel = volume.Sample({2.65f, 0.1f, 0.0f});
-    const float in_front_of_barrel = volume.Sample({1.0f, 0.1f, 0.0f});
-    const float mid_air = volume.Sample({-1.5f, 1.6f, -1.5f});
-    const float wall = volume.Sample({2.9f, 1.5f, -1.5f});
+    const Vec3 up{0.0f, 1.0f, 0.0f}, west{-1.0f, 0.0f, 0.0f};
+    const float open = volume.Sample({-1.5f, 0.1f, -1.5f}, up);
+    const float under_table = volume.Sample({0.0f, 0.1f, 0.0f}, up);
+    const float corner = volume.Sample({2.9f, 0.1f, 2.9f}, up);
+    const float behind_barrel = volume.Sample({2.65f, 0.1f, 0.0f}, up);
+    const float in_front_of_barrel = volume.Sample({1.0f, 0.1f, 0.0f}, up);
+    const float mid_air = volume.Sample({-1.5f, 1.6f, -1.5f}, up);
+    const float wall = volume.Sample({2.9f, 1.5f, -1.5f}, west);
+    const float wall_under_beams = volume.Sample({2.9f, 2.35f, -1.5f}, west);
     std::printf("ao volume: open floor %.2f, under the table %.2f, corner %.2f, behind / in front of the barrel %.2f / "
-                "%.2f, wall %.2f, mid-air %.2f\n",
-                open, under_table, corner, behind_barrel, in_front_of_barrel, wall, mid_air);
-    CHECK(open > 0.45f && open < 0.75f);       // the floor hides about half of the sphere
+                "%.2f, wall %.2f, wall under the beams %.2f, mid-air %.2f\n",
+                open, under_table, corner, behind_barrel, in_front_of_barrel, wall, wall_under_beams, mid_air);
+    CHECK(Near(open, kAoOpenSurface, 0.04f) && Near(wall, kAoOpenSurface, 0.04f)); // the shader's reference
     CHECK(under_table < 0.85f * open);         // the shader scales the contrast (fx strength)
     CHECK(behind_barrel < 0.75f * open);       // ... and behind the barrels
     CHECK(behind_barrel < in_front_of_barrel); // ... than in front of them
     CHECK(corner < 0.85f * open);
     CHECK(wall > corner && wall < mid_air);
     CHECK(mid_air > 0.9f);
-    CHECK(volume.At({0.0f, 50.0f, 0.0f}) == 1.0f); // outside the grid: open
+    CHECK(wall_under_beams > 0.65f * wall); // beams 0.25 m above shade a wall less than a table top shades the floor
+    CHECK(volume.At({0.0f, 50.0f, 0.0f}, up) == 1.0f); // outside the grid: open
     // Inside the table top the cells take their open neighbours' value, not 0.
-    CHECK(volume.At({0.0f, 0.78f, 0.0f}) > 0.2f);
+    CHECK(volume.At({0.0f, 0.78f, 0.0f}, up) > 0.2f);
 
     // The thread count does not change a single cell; the key follows geometry and parameters.
     params.threads = 4;
@@ -1089,9 +1165,10 @@ void CheckAoVolume()
     bounded.bounds_hi = {3.5f, 3.5f, 3.5f};
     const AoVolume clipped = BakeAoVolume({with_backdrop, backdrop_idx}, bounded);
     CHECK(clipped.size[0] == 37 && clipped.size[1] == 22 && clipped.size[2] == 37 && clipped.cell == volume.cell);
-    std::printf("ao volume, bounded: under the table %.2f, open floor %.2f\n", clipped.Sample({0.0f, 0.1f, 0.0f}),
-                clipped.Sample({-1.5f, 0.1f, -1.5f}));
-    CHECK(Near(clipped.Sample({0.0f, 0.1f, 0.0f}), under_table, 0.08f) && Near(clipped.Sample({-1.5f, 0.1f, -1.5f}), open, 0.08f)); // another cell grid
+    std::printf("ao volume, bounded: under the table %.2f, open floor %.2f\n", clipped.Sample({0.0f, 0.1f, 0.0f}, up),
+                clipped.Sample({-1.5f, 0.1f, -1.5f}, up));
+    CHECK(Near(clipped.Sample({0.0f, 0.1f, 0.0f}, up), under_table, 0.08f) &&
+          Near(clipped.Sample({-1.5f, 0.1f, -1.5f}, up), open, 0.08f)); // another cell grid
     CHECK(AoBakeKey({with_backdrop, backdrop_idx}, bounded) != AoBakeKey({with_backdrop, backdrop_idx}, params));
 
     // Nothing to bake: an empty volume (the caller then has no AO for the location and says so).
@@ -1124,6 +1201,7 @@ int main()
     CheckLuminanceRelief();
     CheckReliefRules();
     CheckAoVolume();
+    CheckLampShadows();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

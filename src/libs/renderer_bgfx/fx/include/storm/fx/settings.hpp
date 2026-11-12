@@ -15,10 +15,14 @@ namespace storm::fx
 {
 
 // Sampler stages fx binds into the fixed-function emulator's programs (FX_LIGHT_SHADOW, FX_LIGHT_NORMALMAP).
-// They are above the emulator's own units (stages 0..4, cube maps 5..7 and 11, volume textures 8..10 and 12),
-// so every combination fits in the 16 units of GLES 3.0.
+// They are above the emulator's own units (stages 0..4, cube maps 5..7) except 10..12: the shim also maps volume
+// textures (8..10, 12) and a stage-3 cube (11) there, which only ported pixel shaders read; the fx lit / baked
+// variants never run a port and bind their own textures to those units after the shim, so every combination fits
+// in the 16 units of GLES 3.0.
 inline constexpr uint8_t kShadowMapStage = 15; // 13 is the renderer's bone palette (vertex shader)
-inline constexpr uint8_t kAoVolumeStage = 12;  // the interior's AO volume (R8 3D) in the lit / baked FF variants
+inline constexpr uint8_t kAoVolumeStage = 12;    // the interior's AO volume (RGBA8 3D, four lobes)
+inline constexpr uint8_t kLampDynamicStage = 10; // lamp shadow atlases (characters / location)
+inline constexpr uint8_t kLampStaticStage = 11;
 inline constexpr uint8_t kNormalMapStage = 14;
 
 enum class QualityPreset : uint8_t
@@ -74,7 +78,7 @@ inline constexpr AoVolumeLevel kAoVolumeLevel[kAoVolumeLevels + 1] = {
     {"off", 0.0f, 1.0f},
     {"as the game's data", 0.6f, 1.0f},
     {"moderate contrast", 0.85f, 1.4f},
-    {"strong stylised contrast", 1.0f, 2.2f},
+    {"strong stylised contrast", 1.0f, 1.7f},
 };
 
 struct Settings
@@ -128,6 +132,8 @@ struct Settings
     ShadowQuality shadows = ShadowQuality::Off; // sun shadows on per-pixel lit surfaces (needs kLightingPerPixel)
     // Ambient-occlusion volume of interiors (ao_volume.hpp): 0 off, else one of the strengths AoVolumeLevel names.
     uint8_t ao_volume = 0;
+    // Lamp shadows of interiors (lamp_shadows.hpp): how many lamps cast them, 0, 2 or 4.
+    uint8_t lamp_shadows = 0;
 
     static Settings FromPreset(QualityPreset preset);
 
@@ -151,7 +157,7 @@ struct Support
     bool msaa_depth = false;    // the scene depth can still be sampled when the scene target is multisampled
                                 // (renderer knowledge, like scene_depth): msaa together with ssao / sea soft edges
     bool anisotropy = false;    // anisotropic texture filtering
-    bool ao_volume = false;     // R8 3D textures with linear filtering: Settings::ao_volume
+    bool ao_volume = false;     // RGBA8 3D textures with linear filtering: Settings::ao_volume
 
     std::string Describe() const;
 };

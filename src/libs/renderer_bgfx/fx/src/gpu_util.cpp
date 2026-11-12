@@ -114,7 +114,7 @@ bool SupportsLut3d()
 
 bool SupportsAoVolume()
 {
-    return Format(bgfx::TextureFormat::R8, BGFX_CAPS_FORMAT_TEXTURE_3D);
+    return Format(bgfx::TextureFormat::RGBA8, BGFX_CAPS_FORMAT_TEXTURE_3D);
 }
 
 bool SupportsShadowMap()
