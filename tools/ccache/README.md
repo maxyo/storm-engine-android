@@ -43,18 +43,30 @@ instead of a cold compile.
   include it by name, as `src/libs/diagnostics/include/watermark.hpp` does.
 - Cross-worktree hits need **the same build directory depth** in the worktree (relative paths
   must match): `build/<name>` everywhere, or the script defaults (`build/android-ci/<name>`).
-- Pinned FetchContent sources (bgfx with its patches, etcpak, glm, RmlUi, FreeType, lunasvg,
-  json) are fetched once per machine into `~/.cache/storm-deps/fetchcontent/<name>-<digest>`
+- Pinned FetchContent sources (bgfx, etcpak, glm, RmlUi, FreeType, lunasvg, json) are fetched once
+  per machine into `~/.cache/storm-deps/fetchcontent/<name>-<digest of the pin>`
   (`storm_fetch_declare` in `cmake/StormBuildCache.cmake`, `STORM_DEPS_CACHE` overrides the
-  root) and shared read-only by all build directories. The digest covers the pin and the contents of
-  its patches: adding or editing a patch reconfigures existing build directories on their next build
-  (the patches are configure dependencies), which move to the matching copy with a CMake warning;
-  `FETCHCONTENT_SOURCE_DIR_<NAME>` values inside the shared cache are this mechanism's own choice and
-  are recomputed, an explicit override elsewhere must carry every patch or configuration fails. Their absolute paths are the same for
-  every build, which also keeps their objects shareable across any build directory depth.
-- The host `shaderc` of the bgfx pin is built once per machine and pin into
-  `~/.cache/storm-deps/shaderc-<digest>` by the first configure that needs it, under a lock
-  (`src/libs/renderer_bgfx/cmake/storm_shaderc.cmake`); `-DSTORM_SHADERC=<binary>` overrides.
+  root): pristine copies, shared read-only by all build directories. Unpatched ones are compiled
+  from there (absolute paths, the same for every build at any build directory depth).
+- Patched ones (bgfx, RmlUi) are compiled from the build directory's own view
+  `<build dir>/_deps/<name>-patched-<digest of the pin>` (`storm_patched_view`): real directories
+  whose files are symbolic links into the pristine copy, except the files a patch changes, which
+  are real, patched files. The view's path does not depend on the patches, so editing a patch
+  keeps every other compile command and ccache key, and the build stays incremental: linked files
+  keep the pristine timestamps, a patched file is rewritten (with a fresh timestamp) only when its
+  content changes, so Ninja rebuilds exactly its dependents. The patches are configure dependencies:
+  adding, removing or editing one reconfigures the build directory on its next build.
+  `FETCHCONTENT_SOURCE_DIR_<NAME>` values inside the shared cache or a view are this mechanism's own
+  choice and are recomputed; an explicit override elsewhere must carry every patch or configuration
+  fails.
+- The host `shaderc` is built once per machine into `~/.cache/storm-deps/shaderc-<key>` by the
+  first configure that needs it, under a lock (`src/libs/renderer_bgfx/cmake/storm_shaderc.cmake`);
+  `-DSTORM_SHADERC=<binary>` overrides. The key covers the pin and only the bgfx patches that change
+  a file shaderc compiles or includes (recorded from Ninja's dependency log of every shaderc build in
+  `~/.cache/storm-deps/shaderc-inputs-<pin key>.txt`), or that create a file: a renderer-only patch
+  reuses the existing shaderc. A needed shaderc build compiles with its own build directory as
+  `CCACHE_BASEDIR`, so only the files its patches change miss the cache; its build directory is
+  removed afterwards (only the binary is used).
 
 ## Is this build warm?
 

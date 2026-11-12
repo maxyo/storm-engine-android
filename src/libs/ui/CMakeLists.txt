@@ -36,8 +36,8 @@ storm_fetch_declare(storm_ui_lunasvg
 storm_fetch_declare(storm_ui_json
     URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
     URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa)
-# Local fixes on top of the RmlUi pin: patches/rmlui-*.patch (a changed patch set moves every build directory to
-# the matching shared source copy on its next build).
+# Local fixes on top of the RmlUi pin: patches/rmlui-*.patch, applied in the build directory's own patched view of
+# the shared source copy (storm_patched_view): a changed patch recompiles only what the changed files reach.
 file(GLOB storm_ui_rmlui_patches CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/patches/rmlui-*.patch")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${storm_ui_rmlui_patches})
 storm_fetch_declare(storm_ui_rmlui

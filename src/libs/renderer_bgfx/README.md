@@ -35,7 +35,7 @@ on Android and on the Linux development host alike.
   GPUs without S3TC. The tier (bc / etc2 / rgba8) is fixed per GPU at startup and logged once;
   `texture_compression` and `texture_cache_mb` in engine.ini override it. Tests and the benchmark build with
   `-DSTORM_BGFX_BUILD_TESTS=ON` (`storm_texture_tests`, `storm_texture_bench`).
-- `patches/` — fixes applied to the pinned bgfx when its shared source copy is fetched (`bgfx_pin.cmake`) (currently: re-attach to a new
+- `patches/` — fixes applied to the pinned bgfx in each build directory's patched view of its shared source copy (`bgfx_pin.cmake`, `storm_patched_view`) (currently: re-attach to a new
   Android native window after the activity returns from background). The same fix is upstream as bgfx
   99b7977f ("Android: restore main-window EGL surface recreation", the commit right after the pinned
   fd541f05). It is not taken yet because every bgfx.cmake revision that carries it (5730f7a and later)
@@ -55,7 +55,7 @@ on Android and on the Linux development host alike.
 ## Building
 
 Host and Android builds compile the embedded shaders with the host `shaderc` of the pin, which the
-configure step builds once per machine into `~/.cache/storm-deps/shaderc-<digest>`
+configure step builds once per machine into `~/.cache/storm-deps/shaderc-<key>`
 (`cmake/storm_shaderc.cmake`; `-DSTORM_SHADERC=<binary>` overrides it). Host:
 
 ```sh
