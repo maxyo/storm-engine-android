@@ -91,6 +91,7 @@ struct FfDraw
     bool sun_caster = false;       // caster: the sun shadow view
     bool lamp_caster = false;      // caster: the lamp faces its sphere reaches (characters)
     DrawSphere sphere{};
+    float ground_sun = 1.0f;       // receiver: the sun the location's lightmaps show under it (SunShadows::ground_sun)
 };
 
 class Lighting

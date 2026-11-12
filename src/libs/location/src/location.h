@@ -153,6 +153,7 @@ class Location : public Entity
     void CorrectBar(float v, float start, float end, BarVertex *vrt);
     // Tells the renderer the still, collidable geometry of an interior for its ambient-occlusion volume.
     void ReportAoGeometry();
+    void ReportGroundLight();
 
   private:
     PtcData ptc;
@@ -168,6 +169,7 @@ class Location : public Entity
     bool isPause;
     bool isDebugView;
     bool aoGeometryReported_ = false;
+    bool groundLightReported_ = false;
 
     VRenderer *rs;
 

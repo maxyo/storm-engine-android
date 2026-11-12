@@ -10,6 +10,7 @@ Import library main file
 #include "geom.h"
 #include <storm/config.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <fmt/format.h>
@@ -245,7 +246,14 @@ GEOM::GEOM(const char *fname, const char *lightname, GEOM_SERVICE &_srv, int32_t
     srv.CloseFile(file);
 
     for (int32_t t = 0; t < rhead.ntextures; t++)
+    {
         tlookup[t] = srv.CreateTexture(&globname[tname[t]]);
+        if (storm::iEquals(&globname[tname[t]], "shadow.tga") && tlookup[t] >= 0)
+        {
+            lightmap_file_ = "resource\\textures\\" + srv.TextureFile(&globname[tname[t]]) + ".tx";
+            lightmap_id_ = tlookup[t];
+        }
+    }
     for (int32_t m = 0; m < rhead.nmaterials; m++)
     {
         material[m].group_name = &globname[rmat[m].group_name];
@@ -445,6 +453,86 @@ int32_t GEOM::GetIndexBuffer() const
 bool GEOM::HasCollision() const
 {
     return !sroot.empty();
+}
+
+const std::string &GEOM::LightmapFile() const
+{
+    return lightmap_file_;
+}
+
+bool GEOM::AppendLightmapTriangles(std::vector<glm::vec3> &positions, std::vector<glm::vec2> &uvs,
+                                   std::vector<uint32_t> &indices) const
+{
+    if (lightmap_id_ < 0)
+        return false;
+    const auto *triangles = static_cast<const RDF_TRIANGLE *>(srv.ReadIndexBuffer(idx_buff));
+    if (!triangles)
+        return false;
+    const size_t first_position = positions.size(), first_index = indices.size();
+    bool ok = true;
+    for (int32_t v = 0; v < rhead.nvrtbuffs && ok; ++v)
+    {
+        // The objects of this buffer whose material carries the lightmap, and at which stage (= texture coordinate set).
+        std::vector<std::pair<int32_t, int32_t>> covered;
+        for (int32_t o = 0; o < rhead.nobjects; ++o)
+        {
+            if (object[o].vertex_buff != v || !(object[o].flags & VISIBLE) || object[o].material < 0 ||
+                object[o].material >= rhead.nmaterials)
+                continue;
+            for (int32_t stage = 0; stage < 4; ++stage)
+                if (material[object[o].material].texture_type[stage] != TEXTURE_NONE &&
+                    material[object[o].material].texture[stage] == lightmap_id_ && stage <= (vbuff[v].type & 3))
+                {
+                    covered.emplace_back(o, stage);
+                    break;
+                }
+        }
+        if (covered.empty() || vbuff[v].nverts == 0)
+            continue;
+        const auto *data = static_cast<const uint8_t *>(srv.ReadVertexBuffer(vbuff[v].dev_buff));
+        if (!data)
+        {
+            ok = false;
+            break;
+        }
+        for (const auto &[o, stage] : covered)
+        {
+            // Each object's vertices with that object's texture coordinate set.
+            const size_t base = positions.size();
+            for (int32_t i = 0; i < object[o].num_vertices; ++i)
+            {
+                const uint32_t vertex = static_cast<uint32_t>(object[o].start_vertex + i);
+                if (vertex >= static_cast<uint32_t>(vbuff[v].nverts))
+                {
+                    ok = false;
+                    break;
+                }
+                const uint8_t *p = data + static_cast<size_t>(vbuff[v].stride) * vertex;
+                positions.push_back(reinterpret_cast<const RDF_VERTEX0 *>(p)->pos);
+                const float *uv = reinterpret_cast<const float *>(p + offsetof(RDF_VERTEX0, tu0)) + 2 * stage;
+                uvs.emplace_back(uv[0], uv[1]);
+            }
+            for (int32_t t = 0; t < object[o].ntriangles && ok; ++t)
+                for (const unsigned short index : triangles[object[o].striangle + t].vindex)
+                {
+                    if (index >= object[o].num_vertices)
+                    {
+                        ok = false;
+                        break;
+                    }
+                    indices.push_back(static_cast<uint32_t>(base) + index);
+                }
+        }
+        srv.UnlockVertexBuffer(vbuff[v].dev_buff);
+    }
+    srv.UnlockIndexBuffer(idx_buff);
+    if (!ok)
+    {
+        positions.resize(first_position);
+        uvs.resize(first_position);
+        indices.resize(first_index);
+    }
+    return ok;
 }
 
 bool GEOM::AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices) const

@@ -227,22 +227,20 @@ void GEOM_SERVICE_R::free(void *ptr)
     delete[] static_cast<char*>(ptr);
 }
 
+std::string GEOM_SERVICE_R::TextureFile(const char *fname) const
+{
+    if (storm::iEquals(fname, "shadow.tga"))
+        return std::string("lighting\\") + lightPath + "\\" + fname;
+    return std::string(texturePath) + fname;
+}
+
 GEOS::ID GEOM_SERVICE_R::CreateTexture(const char *fname)
 {
-    char tex[256];
-    if (storm::iEquals(fname, "shadow.tga"))
-    {
-        sprintf_s(tex, "lighting\\%s\\%s", lightPath, fname);
-    }
-    else
-    {
-        strcpy_s(tex, texturePath);
-        strcat_s(tex, fname);
-    }
+    const std::string tex = TextureFile(fname);
     if (RenderService)
     {
         RenderService->ProgressView();
-        return RenderService->TextureCreate(tex);
+        return RenderService->TextureCreate(tex.c_str());
     }
     return INVALID_TEXTURE_ID;
 }

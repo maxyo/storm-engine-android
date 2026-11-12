@@ -24,6 +24,7 @@ void Shadows::Shutdown()
     Destroy(s_map_);
     Destroy(u_matrix_);
     Destroy(u_params_);
+    Destroy(u_ground_);
     map_size_ = 0;
 }
 
@@ -35,6 +36,7 @@ void Shadows::OnDeviceLost()
     s_map_ = BGFX_INVALID_HANDLE;
     u_matrix_ = BGFX_INVALID_HANDLE;
     u_params_ = BGFX_INVALID_HANDLE;
+    u_ground_ = BGFX_INVALID_HANDLE;
     map_size_ = 0;
 }
 
@@ -45,6 +47,7 @@ void Shadows::EnsureResources(int map_size)
         s_map_ = bgfx::createUniform("s_fxShadowMap", bgfx::UniformType::Sampler);
         u_matrix_ = bgfx::createUniform("u_fxShadowMtx", bgfx::UniformType::Mat4);
         u_params_ = bgfx::createUniform("u_fxShadow", bgfx::UniformType::Vec4);
+        u_ground_ = bgfx::createUniform("u_fxGroundSun", bgfx::UniformType::Vec4);
     }
     if (map_size_ == map_size && bgfx::isValid(target_))
         return;
@@ -108,7 +111,7 @@ bool Shadows::Begin(const Settings &settings, const ShadowFrame &frame)
     return true;
 }
 
-void Shadows::Bind(const std::array<float, 16> &camera_view)
+void Shadows::Bind(const std::array<float, 16> &camera_view, float ground_sun)
 {
     if (!bgfx::isValid(map_))
     {
@@ -124,6 +127,8 @@ void Shadows::Bind(const std::array<float, 16> &camera_view)
     }
     bgfx::setUniform(u_matrix_, view_to_shadow_.data());
     bgfx::setUniform(u_params_, params_.data());
+    const float ground[4] = {ground_sun, 0.0f, 0.0f, 0.0f};
+    bgfx::setUniform(u_ground_, ground);
     bgfx::setTexture(kShadowMapStage, s_map_, map_);
 }
 

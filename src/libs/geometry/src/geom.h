@@ -57,6 +57,8 @@ class GEOM : public GEOS
     VERTEX_BUFFER *vbuff = nullptr;
 
     int32_t *atriangles = nullptr;
+    std::string lightmap_file_;   // see LightmapFile()
+    int32_t lightmap_id_ = -1;    // the renderer's id of that texture
     int32_t traceid;
     glm::dvec3 src, dst;
 
@@ -103,4 +105,7 @@ class GEOM : public GEOS
 
     bool AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices) const override;
     bool HasCollision() const override;
+    const std::string &LightmapFile() const override;
+    bool AppendLightmapTriangles(std::vector<glm::vec3> &positions, std::vector<glm::vec2> &uvs,
+                                 std::vector<uint32_t> &indices) const override;
 };

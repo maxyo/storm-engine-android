@@ -436,6 +436,9 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
             draw.shadow = draw.sun_caster = shadows_.prepare(draw.view);
             draw.caster |= draw.sun_caster;
+            if (draw.shadow && sphere.valid && shadows_.has_ground())
+                draw.ground_sun = shadows_.ground_sun({sphere.center[0] + origin_[0], sphere.center[1] + origin_[1],
+                                                       sphere.center[2] + origin_[2]}); // the lightmaps are absolute
         }
         const int shadow = draw.shadow ? (settings_.shadows == fx::ShadowQuality::Soft ? 2 : 1) : 0;
         draw.fs_id = fs_lit_[specular][relief][linear][shadow];
@@ -467,7 +470,7 @@ void Lighting::submit(const FfDraw &draw)
     if (bgfx::isValid(draw.normal_map))
         fx_.BindNormalMap(draw.normal_map, draw.normal_map_flags);
     if (draw.shadow)
-        shadows_.bind(draw.view);
+        shadows_.bind(draw.view, draw.ground_sun);
     bind_ao_volume(draw);
     lamps_.bind(draw.lamps, draw.world_view);
 }

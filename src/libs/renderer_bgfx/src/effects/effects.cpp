@@ -6,6 +6,7 @@
 #include "storm/fx/log.hpp"
 #include "storm/fx/sky_model.hpp"
 #include "storm/render/program_cache.hpp"
+#include "texture/core/formats.hpp"
 
 #include <GLES2/gl2.h>
 
@@ -643,6 +644,51 @@ void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<floa
 void SetEffectsWorldOrigin(const std::array<float, 3> &origin)
 {
     effects::Host::instance().lighting().set_world_origin(origin);
+}
+
+void SetEffectsGroundLight(std::string_view name, std::span<const std::array<float, 3>> positions,
+                           std::span<const std::array<float, 2>> uvs, std::span<const uint32_t> indices,
+                           std::span<const uint32_t> triangle_lightmap, std::span<const EffectsLightmap> lightmaps)
+{
+    effects::SunShadows &shadows = effects::Host::instance().lighting().shadows();
+    if (indices.empty())
+    {
+        shadows.set_ground({});
+        return;
+    }
+    std::vector<fx::GroundLightmap> maps;
+    maps.reserve(lightmaps.size());
+    std::vector<uint8_t> rgba;
+    for (const EffectsLightmap &map : lightmaps)
+    {
+        const char kind = map.format[3];
+        const texture::DxtFormat format =
+            kind == '1' ? texture::DxtFormat::Bc1 : kind == '3' ? texture::DxtFormat::Bc2 : texture::DxtFormat::Bc3;
+        fx::GroundLightmap out;
+        if ((kind == '1' || kind == '3' || kind == '5') && map.width >= 4 && map.height >= 4 &&
+            map.data.size() >= texture::dxt_level_size(format, map.width, map.height))
+        {
+            rgba.resize(static_cast<size_t>(map.width) * map.height * 4);
+            texture::decode_level(format, map.data.data(), map.width, map.height, rgba.data());
+            out.width = static_cast<int>(map.width);
+            out.height = static_cast<int>(map.height);
+            out.luminance.resize(static_cast<size_t>(map.width) * map.height);
+            for (size_t i = 0; i < out.luminance.size(); ++i)
+                out.luminance[i] = static_cast<uint8_t>(
+                    (299u * rgba[4 * i] + 587u * rgba[4 * i + 1] + 114u * rgba[4 * i + 2] + 500u) / 1000u);
+        }
+        else
+            shim::logf("effects: ground light of %.*s: a lightmap of %ux%u %.4s is not DXT1/3/5 of that size: the "
+                       "characters on it keep the full sun",
+                       static_cast<int>(name.size()), name.data(), map.width, map.height, map.format.data());
+        maps.push_back(std::move(out));
+    }
+    std::vector<fx::Vec3> points(positions.begin(), positions.end());
+    fx::GroundLight ground;
+    ground.Build(points, uvs, indices, triangle_lightmap, std::move(maps));
+    shim::logf("effects: ground light of %.*s: %zu ground triangles under %zu lightmaps light the characters outdoors",
+               static_cast<int>(name.size()), name.data(), ground.Triangles(), lightmaps.size());
+    shadows.set_ground(std::move(ground));
 }
 
 void SetEffectsLamps(std::span<const EffectsPointLight> lamps)

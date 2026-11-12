@@ -137,6 +137,20 @@ void SetEffectsAoGeometry(std::string_view name, std::span<const std::array<floa
                           std::span<const uint32_t> indices, const std::array<float, 3> &bounds_lo = {},
                           const std::array<float, 3> &bounds_hi = {});
 
+// Location, once an outdoor location is loaded: its lightmapped ground (the still models with a shadow.tga lightmap:
+// world positions, lightmap texture coordinates, triangle list, the lightmap of each triangle) and those lightmaps
+// (one mip level of each, as stored: DXT1/3/5). Lit models (characters, props) take the sun as the ground under
+// them shows it (fx/ground_light.hpp) instead of a shadow map of the location. Interiors and when leaving: empty.
+struct EffectsLightmap
+{
+    uint32_t width = 0, height = 0;
+    std::array<char, 4> format{}; // the .tx format tag: 'D','X','T','1' / '3' / '5'
+    std::vector<uint8_t> data;
+};
+void SetEffectsGroundLight(std::string_view name, std::span<const std::array<float, 3>> positions,
+                           std::span<const std::array<float, 2>> uvs, std::span<const uint32_t> indices,
+                           std::span<const uint32_t> triangle_lightmap, std::span<const EffectsLightmap> lightmaps);
+
 // The game file a texture was loaded from (Renderer::TextureLoad, after its levels are filled). Stone, wood, plaster
 // and ground textures and grey height ("bump") textures get a normal map for the per-pixel lighting's relief
 // (fx_light_normal_map, fx/normal_map.hpp).
