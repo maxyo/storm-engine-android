@@ -111,8 +111,6 @@ class Host
 
     // World passes (world.cpp): drawn into the shim's current game view, in submission order.
     render::EffectsWorld world() const;
-    bool sky_fog_color(std::array<float, 3> &rgb);
-    void draw_sky(const render::EffectsMatrix &view);
     // Before each draw with the game's Sea2 pixel shader (shaders/ports/fs_port_sea2.sc): sets its u_seaFx and,
     // for the soft edges, captures the scene distance behind the sea once per frame and target and binds it.
     void prepare_sea(shim::Device &device);
@@ -184,7 +182,6 @@ class Host
     AoVolumes ao_;
     const AoVolumes::Bound *ao_bound_ = nullptr;
     float camera_height_ = 0.0f; // of the last world pass
-    bool sky_weather_logged_ = false;
     bgfx::UniformHandle u_sea_fx_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_sea_depth_ = BGFX_INVALID_HANDLE;
     // The capture of this frame: the target it was taken of and the view the sea continues in after it.

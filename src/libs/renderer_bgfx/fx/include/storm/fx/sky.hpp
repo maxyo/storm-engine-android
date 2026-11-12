@@ -1,8 +1,7 @@
-// Analytic sky pass and the atmosphere state shared with any shader that includes
-// fx_atmosphere.sh.
+// The atmosphere state of the weather (fx::SkyState: the place-and-hour grade, the hemisphere ambient, the aerial
+// perspective) and the uniforms of the emulator's FX_AERIAL / FX_WIND variants. The sky itself is the game's.
 #pragma once
 
-#include "storm/fx/settings.hpp"
 #include "storm/fx/sky_model.hpp"
 
 #include <bgfx/bgfx.h>
@@ -18,8 +17,8 @@ class Sky
     Sky(const Sky &) = delete;
     Sky &operator=(const Sky &) = delete;
 
-    // Once per frame, before Bind()/Submit(). Rebuilds the sky panorama only when the weather moved enough
-    // (about 2 ms of CPU, typically once every few game minutes). `time_seconds` drives the cloud drift.
+    // Once per frame. Rebuilds the sky state only when the weather moved enough (about 2 ms of CPU, typically once
+    // every few game minutes). `time_seconds` drives the wind sway.
     // `camera_height`: the camera's y above the sea, for the haze layer.
     void Update(const WeatherInput &weather, float time_seconds, float camera_height);
     const SkyState &State() const
@@ -27,21 +26,10 @@ class Sky
         return state_;
     }
 
-    // Sets the fx_atmosphere.sh uniforms and textures (sampler stages 5 and 6) for the next draw call.
-    void Bind(const Settings &settings);
-
     // FX_AERIAL / FX_WIND variants of the fixed-function emulator: set u_fxAerial (needs the scene's
     // world -> view matrix) and u_fxWind for the next draw call.
     void BindAerial(const std::array<float, 16> &view);
     void BindWind();
-
-    // Draws the sky on the far plane of `view` (depth test LEQUAL, no depth write): submit it after the
-    // opaque geometry to save fill rate, or first. `view_matrix` / `projection` are the 4x4 matrices given
-    // to bgfx::setViewTransform. The game's own sun glow, flares, stars and moon are drawn on top as before.
-    void Submit(bgfx::ViewId view, const Settings &settings, const float *view_matrix, const float *projection);
-    // Creates the programs Submit() will need for `settings` (each a shader link on the GPU driver), at most
-    // `budget` of them; `budget` is reduced by the number created. True once all of them exist (PostChain::Prepare).
-    bool Prepare(const Settings &settings, int &budget);
 
     void Shutdown();
     void OnDeviceLost();
@@ -52,17 +40,9 @@ class Sky
     WeatherInput weather_{};
     SkyState state_{};
     bool state_valid_ = false;
-    bool lut_dirty_ = true;
     float time_ = 0.0f;
     float camera_height_ = 0.0f;
     bool resources_ = false;
-    bgfx::TextureHandle lut_ = BGFX_INVALID_HANDLE;
-    bgfx::TextureHandle clouds_ = BGFX_INVALID_HANDLE;
-    bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
-    bgfx::ProgramHandle program_clouds_ = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle s_lut_ = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle s_clouds_ = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle u_sky_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_aerial_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_wind_ = BGFX_INVALID_HANDLE;
 };

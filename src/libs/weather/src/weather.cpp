@@ -149,21 +149,6 @@ void WEATHER::PushEffectsWeather()
     out.wind_dir = {std::cos(fFloats[whf_wind_angle]), std::sin(fFloats[whf_wind_angle])};
     out.wind_speed = fFloats[whf_wind_speed];
     storm::render::SetEffectsWeather(out);
-
-    // With the fx sky the fog takes its horizon colour (SKY draws no fog sphere then), so far geometry meets the sky.
-    std::array<float, 3> fog;
-    if (storm::render::EffectsSkyFogColor(fog))
-    {
-        pRS->SetRenderState(D3DRS_FOGCOLOR, ARGB(255, static_cast<uint32_t>(fog[0] * 255.0f + 0.5f),
-                                                 static_cast<uint32_t>(fog[1] * 255.0f + 0.5f),
-                                                 static_cast<uint32_t>(fog[2] * 255.0f + 0.5f)));
-        bEffectsFogColor = true;
-    }
-    else if (bEffectsFogColor)
-    {
-        pRS->SetRenderState(D3DRS_FOGCOLOR, GetColor(whc_fog_color));
-        bEffectsFogColor = false;
-    }
 }
 
 bool WEATHER::SunAt(float hour, float &height_angle, float &azimuth_angle, glm::vec3 &pos) const

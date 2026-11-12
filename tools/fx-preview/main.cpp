@@ -8,7 +8,6 @@
 #include "storm/fx/contact_shadows.hpp"
 #include "storm/fx/lighting.hpp"
 #include "storm/fx/log.hpp"
-#include "storm/fx/noise_bake.hpp"
 #include "storm/fx/post_chain.hpp"
 #include "storm/fx/shadows.hpp"
 #include "storm/fx/sky.hpp"
@@ -128,7 +127,7 @@ struct Shot
     fx::Settings settings;
     preview::Weather weather = preview::Weather::Day;
     float sun_turn = 0.0f; // rotates the sun around the vertical axis, degrees
-    float time = 12.5f;    // seconds: clouds, wind (the sea and the ships stay at kTime)
+    float time = 12.5f;    // seconds: wind (the sea and the ships stay at kTime)
     float interior = 0.0f; // 1 = the scene counts as indoors for the scene grade
     bool blobs = false;    // contact shadow blobs under the quay's figure and objects
 };
@@ -602,15 +601,8 @@ class Preview
 
         if (shot.content != Content::Pattern)
         {
-            if (settings.sky_atmosphere)
-            {
-                sky_.Submit(kSceneView, settings, view, proj);
-            }
-            else
-            {
-                BuildLegacySky(weather, eye);
-                draw(legacy_sky_, nullptr);
-            }
+            BuildLegacySky(weather, eye);
+            draw(legacy_sky_, nullptr);
         }
 
         if (has_sea)
@@ -761,7 +753,7 @@ class Preview
         harbour_hull_, harbour_sails_, firing_hull_, firing_sails_, muzzle_fire_, pattern_, legacy_sky_, legacy_sea_;
 };
 
-// CPU-side products as images: baked textures, sky panoramas, grading LUT strips.
+// CPU-side products as images: sky panoramas, grading LUT strips.
 void WriteCpuImages(const std::string &dir)
 {
     const auto ms = [](auto &&work) {
@@ -769,20 +761,6 @@ void WriteCpuImages(const std::string &dir)
         work();
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     };
-    fx::BakedTexture clouds;
-    const double cloud_ms = ms([&] { clouds = fx::BakeCloudNoise(); });
-    const auto channel = [&](const fx::BakedTexture &texture, int c, const char *name) {
-        std::vector<uint8_t> grey(static_cast<size_t>(texture.size) * texture.size * 4);
-        for (int i = 0; i < texture.size * texture.size; ++i)
-        {
-            grey[4 * i] = grey[4 * i + 1] = grey[4 * i + 2] = texture.rgba[4 * i + c];
-            grey[4 * i + 3] = 255;
-        }
-        WritePng(dir + "/" + name + ".png", texture.size, texture.size, texture.size * 4, grey.data(), bimg::TextureFormat::RGBA8, false);
-    };
-    channel(clouds, 0, "tex_cloud_coverage");
-    channel(clouds, 1, "tex_cloud_billows");
-
     double sky_ms = 0.0;
     const std::pair<preview::Weather, const char *> weathers[] = {{preview::Weather::Day, "day"},
                                                                   {preview::Weather::Sunset, "sunset"},
@@ -814,7 +792,7 @@ void WriteCpuImages(const std::string &dir)
                             &lut[(static_cast<size_t>(b) * n + g) * n * 4], static_cast<size_t>(n) * 4);
         WritePng(dir + "/lut_" + name + ".png", n * n, n, n * n * 4, strip.data(), bimg::TextureFormat::RGBA8, false);
     }
-    std::printf("CPU cost on this host: cloud bake %.1f ms, sky panorama %.2f ms, grading LUT %.2f ms\n", cloud_ms, sky_ms, lut_ms);
+    std::printf("CPU cost on this host: sky panorama %.2f ms, grading LUT %.2f ms\n", sky_ms, lut_ms);
 }
 
 std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
@@ -899,11 +877,6 @@ std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
     add("broadside_dusk_1_original", Content::Broadside, original, preview::Weather::Sunset);
     add("broadside_dusk_2_medium", Content::Broadside, medium, preview::Weather::Sunset);
     add("broadside_dusk_3_high", Content::Broadside, high, preview::Weather::Sunset);
-
-    // Sky without clouds.
-    fx::Settings clear = high;
-    clear.sky_clouds = false;
-    add("sky_clear", Content::Ocean, clear);
 
     // Sun lighting flags, without shadows and occlusion so only the shading changes.
     fx::Settings lit = basic;

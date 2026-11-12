@@ -1,8 +1,7 @@
 # Graphics effects package for the bgfx renderer
 
 Upgrades on top of the legacy look: post-processing (ambient occlusion, tone curve, colour grades by place and
-hour, bloom, sun shafts, lens flare, dither, SMAA, the FSR 1 upscale and sharpening), improvements of the game's own sea (`SeaDepth`), an analytic sky with matching
-fog, contact shadows, and per-pixel lighting for the fixed-function emulator: sun, point and spot lights, sun
+hour, bloom, sun shafts, lens flare, dither, SMAA, the FSR 1 upscale and sharpening), improvements of the game's own sea (`SeaDepth`), contact shadows, and per-pixel lighting for the fixed-function emulator: sun, point and spot lights, sun
 shadows, an ambient-occlusion volume of interiors, rim light, linear-light sums, relief from derived normal maps
 and aerial perspective. MSAA, alpha to coverage and anisotropic filtering are renderer state: fx decides them
 (`RendererStateFor`), the renderer applies them.
@@ -46,7 +45,7 @@ logged as "effects: render scale ...: the 3D scene at WxH, upscaled by FSR 1 to 
 profile line gives `scene=`/`display=` sizes and `gpu_smaa_ms`, `gpu_easu_ms`, `gpu_rcas_ms`. The GPU self-test of
 a settings switch runs the chain at the same render scale.
 
-Implemented but in no preset (options only): analytic sky and clouds, hemisphere ambient,
+Implemented but in no preset (options only): hemisphere ambient,
 linear-light sums, the sea's sun specular. Wind sway (`fx_wind.sh`)
 is not wired into the game. `Shadows::CasterProgram`,
 `Sky::BindAerial/BindWind` and the flash lights are used by `tools/fx-preview` only.
@@ -58,7 +57,7 @@ is not wired into the game. `Shadows::CasterProgram`,
 | `include/storm/fx/settings.hpp` | `Settings`, presets «Низкая / Средняя / Высокая», grades «Оригинал / Карибы / Пасмурно», `ConstrainSettings` |
 | `include/storm/fx/post_chain.hpp` | `PostChain`: scene colour → target |
 | `include/storm/fx/sea_depth.hpp` | `SeaDepth`: the scene distance behind the game's sea, for its soft edges |
-| `include/storm/fx/sky.hpp` | `Sky`: sky pass and the atmosphere state shared with fog and lighting |
+| `include/storm/fx/sky.hpp` | `Sky`: the atmosphere state of the weather (grade of the place and hour, hemisphere ambient, aerial perspective); the sky itself is the game's on every preset |
 | `include/storm/fx/lighting.hpp`, `shaders/include/fx_lighting.sh` | lighting flags and uniforms for the fixed-function emulator |
 | `include/storm/fx/light_set.hpp` | point / spot lights: selection per draw call, flash lights |
 | `include/storm/fx/normal_map.hpp` | normal maps derived from the game's textures (grey "bump" heights, band-passed luminance of colour textures); the path/name rules table that gives each texture its relief class |
@@ -117,7 +116,7 @@ shadows fading out as the sun reaches the horizon.
 
 All colour targets are gamma-encoded RGBA8, like the legacy pipeline; no float render targets are required.
 After a lost context call `OnDeviceLost()` on each object; resources are re-created on the next use.
-Sampler stages 5 and 6 belong to `fx_atmosphere.sh`, stage 15 to the shadow map, stage 14 to the derived normal map and, in the sea's own pixel shader, to `SeaDepth::Texture()` (above the
+Stage 15 belongs to the shadow map, stage 14 to the derived normal map and, in the sea's own pixel shader, to `SeaDepth::Texture()` (above the
 fixed-function emulator's units).
 
 Normal maps are derived on the device from the player's own textures (`DeriveNormalMap`, deterministic, RG8

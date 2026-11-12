@@ -215,14 +215,6 @@ SkyState ComputeSky(const WeatherInput &weather)
     const float transmittance_luma = std::max(Luma(sun_transmittance), 1e-4f);
     const Vec3 sun_hue = Mix(Vec3{1.0f, 1.0f, 1.0f}, sun_transmittance * (1.0f / transmittance_luma), 0.6f);
     sky.sun_light = sun_tint * sun_hue * (1.0f - 0.7f * overcast) * Smoothstep(-0.05f, 0.08f, sun_height);
-    sky.sun_disc = sun_tint * sun_transmittance * (40.0f * (1.0f - overcast) * (1.0f - overcast));
-    sky.glow = sun_tint * sun_hue * sun_transmittance * (1.0f - 0.85f * overcast);
-
-    sky.cloud_cover = Saturate(0.38f + 0.62f * overcast);
-    const Vec3 white{1.0f, 1.0f, 1.0f};
-    sky.cloud_lit = Mix((sky.sun_light * 0.85f + dome_average * 0.35f), dome * 1.15f, overcast) + night_horizon * sky.night;
-    sky.cloud_shade = Mix(Mix(dome_average, white * Luma(dome_average), 0.45f) * 0.75f + sky.sun_light * 0.10f, dome * 0.45f, overcast) +
-                      night_zenith * sky.night;
     return sky;
 }
 
@@ -258,21 +250,6 @@ Vec3 SkyColor(const SkyState &sky, Vec3 dir)
             out[i] += w * static_cast<float>(sky.lut[o + i]) / 255.0f;
     }
     return Decode(out);
-}
-
-Vec3 FogColor(const SkyState &sky, std::array<float, 2> view_xz)
-{
-    const float len = std::hypot(view_xz[0], view_xz[1]);
-    if (len < 1e-5f)
-        return sky.horizon;
-    return SkyColor(sky, Vec3{view_xz[0] / len, 0.0f, view_xz[1] / len});
-}
-
-float SeaFogDensity(const SkyState &sky, float camera_height)
-{
-    const float rise = -std::max(camera_height, 0.0f) / kHazeLayerHeight;
-    const float layer = std::fabs(rise) > 1e-3f ? (1.0f - std::exp(-rise)) / rise : 1.0f;
-    return sky.fog_density * (1.0f + kHazeDensityFactor * std::exp(rise) * layer);
 }
 
 AerialUniforms ComputeAerial(const SkyState &sky, float camera_height, const std::array<float, 16> &view)

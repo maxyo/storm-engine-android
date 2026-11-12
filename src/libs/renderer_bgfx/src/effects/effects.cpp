@@ -75,8 +75,6 @@ const Option kOptions[] = {
     {"fx_sea_band_limit", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_band_limit = on(v); }},
     {"fx_sea_soft_edges", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_soft_edges = on(v); }},
     {"fx_sea_specular", "0 off, 1 on", [](fx::Settings &s, int v) { s.sea_specular = on(v); }},
-    {"fx_sky", "0 off, 1 on", [](fx::Settings &s, int v) { s.sky_atmosphere = on(v); }},
-    {"fx_clouds", "0 off, 1 on", [](fx::Settings &s, int v) { s.sky_clouds = on(v); }},
     {"fx_lamp_shadows", "interiors: lamps that cast shadows, 0, 2 or 4",
      [](fx::Settings &s, int v) { s.lamp_shadows = static_cast<uint8_t>(std::clamp(v, 0, 4)); }},
     {"fx_ao_volume", "interiors: 0 off, 1 as the game's data, 2 moderate, 3 strong",
@@ -127,12 +125,12 @@ std::string describe(const fx::Settings &s)
     char text[512];
     snprintf(text, sizeof(text),
              "tonemap=%d bloom=%d(1/%u,%u) shafts=%d smaa=%d scale=%.2f sharpen=%d(%.2f) ssao=%d dither=%d flare=%d scene_grading=%d "
-             "grade=%d msaa=%u a2c=%d aniso=%u sky=%d clouds=%d sea=%d%d%d shadows=%d "
+             "grade=%d msaa=%u a2c=%d aniso=%u sea=%d%d%d shadows=%d "
              "lighting=0x%x contact=%d",
              s.tonemap, s.bloom, s.bloom_downscale, s.bloom_levels, s.sun_shafts, s.smaa, static_cast<double>(s.render_scale), s.sharpen,
              static_cast<double>(s.sharpness), s.ssao, s.dither,
              s.lens_flare, s.scene_grading, static_cast<int>(s.grade), s.msaa,
-             s.alpha_to_coverage, s.anisotropy, s.sky_atmosphere, s.sky_clouds, s.sea_band_limit, s.sea_soft_edges, s.sea_specular,
+             s.alpha_to_coverage, s.anisotropy, s.sea_band_limit, s.sea_soft_edges, s.sea_specular,
              static_cast<int>(s.shadows), s.lighting_flags, s.contact_shadows);
     return text;
 }
@@ -470,7 +468,7 @@ void Host::advance_switch()
     int budget = per_frame;
     // The post chain's programs also on «Низкая»: the underwater wobble runs on every preset.
     const bool ready = post_.Prepare(target_, budget) && (!target_.sea_soft_edges || sea_depth_.Prepare(budget)) &&
-                       sky_.Prepare(target_, budget) && contact_.Prepare(target_, budget) &&
+                       contact_.Prepare(target_, budget) &&
                        lighting_.prepare_programs(*device, target_, budget);
     switch_programs_ += per_frame - budget;
     if (!ready)
