@@ -43,7 +43,9 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.point_lights = 4;
         s.normal_map_size = 512; // a quarter of High's memory
         s.shadows = ShadowQuality::Low;
-        s.ao_volume = 2;
+        // The AO volume stays off: its shade lies as blotches on the walls instead of falling from objects (owner,
+        // APK #10 / #11); option fx_ao_volume 1..3 for debugging while interior shadows are reworked.
+        s.ao_volume = 0;
         // Lamp shadows stay off until their darkening of baked surfaces matches the bake (option fx_lamp_shadows).
         s.lamp_shadows = 0;
         return s;
@@ -59,7 +61,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.lighting_flags = kLightingPerPixel | kLightingSpecular | kLightingTranslucent | kLightingPoint | kLightingNormalMap;
     s.point_lights = 8;
     s.shadows = ShadowQuality::Soft;
-    s.ao_volume = 3;
+    s.ao_volume = 0;    // see Средняя
     s.lamp_shadows = 0; // see Средняя
     s.ssao = true;
     s.ssao_intensity = 0.35f;

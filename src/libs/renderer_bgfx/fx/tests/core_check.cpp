@@ -71,7 +71,7 @@ void CheckSettings()
     CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
     CHECK(!medium.ssao && high.ssao && !original.ssao);
-    CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 3); // Низкая: no shadows, as the original
+    CHECK(original.ao_volume == 0 && medium.ao_volume == 0 && high.ao_volume == 0); // off until interiors are reworked
     CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 0 && high.lamp_shadows == 0); // off until fixed
     // The presets keep the legacy look: no tone curve, grade, flare, shafts, fx sky, hemisphere or linear sums.
     for (const Settings *preset : {&medium, &high})
@@ -330,16 +330,18 @@ void CheckSupport()
     Support no_ao = all;
     no_ao.ao_volume = false;
     changes.clear();
-    constrained = ConstrainSettings(high, no_ao, changes);
+    Settings with_ao = high;
+    with_ao.ao_volume = 3; // fx_ao_volume 3
+    constrained = ConstrainSettings(with_ao, no_ao, changes);
     CHECK(constrained.ao_volume == 0 && changes.size() == 1 && constrained.shadows == high.shadows);
     // An AO volume without the fx lighting path has no shader to apply it: switched off, said.
-    Settings unlit = high;
+    Settings unlit = with_ao;
     unlit.lighting_flags = kLightingNone;
     unlit.shadows = ShadowQuality::Off;
     unlit.lamp_shadows = 0;
     changes.clear();
     CHECK(ConstrainSettings(unlit, all, changes).ao_volume == 0 && changes.size() == 1);
-    Settings too_strong = high;
+    Settings too_strong = with_ao;
     too_strong.ao_volume = 9;
     changes.clear();
     CHECK(ConstrainSettings(too_strong, all, changes).ao_volume == kAoVolumeLevels && changes.size() == 1);
