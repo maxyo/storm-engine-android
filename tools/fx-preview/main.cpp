@@ -127,7 +127,6 @@ struct Shot
     Content content = Content::Ocean;
     fx::Settings settings;
     preview::Weather weather = preview::Weather::Day;
-    float render_scale = 1.0f;
     float sun_turn = 0.0f; // rotates the sun around the vertical axis, degrees
     float time = 12.5f;    // seconds: clouds, wind (the sea and the ships stay at kTime)
     float interior = 0.0f; // 1 = the scene counts as indoors for the scene grade
@@ -337,8 +336,8 @@ class Preview
     void Render(const Shot &shot)
     {
         const fx::Settings &settings = shot.settings;
-        const auto scene_w = static_cast<uint16_t>(std::lround(kWidth * shot.render_scale));
-        const auto scene_h = static_cast<uint16_t>(std::lround(kHeight * shot.render_scale));
+        const auto scene_w = static_cast<uint16_t>(std::lround(kWidth * settings.render_scale));
+        const auto scene_h = static_cast<uint16_t>(std::lround(kHeight * settings.render_scale));
         // This tool is the renderer: it applies what fx asks of one.
         const fx::RendererState renderer = fx::RendererStateFor(settings);
         EnsureSceneTarget(scene_w, scene_h, renderer.msaa_samples);
@@ -831,19 +830,19 @@ std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
     const fx::Settings high = fx::ConstrainSettings(fx::Settings::FromPreset(QualityPreset::High), support, changes);
     for (const std::string &change : changes)
         std::printf("preset High on this device: %s\n", change.c_str());
-    // High with the scene depth kept readable instead of MSAA (FXAA takes over): the choice for depth-based
+    // High with the scene depth kept readable instead of MSAA (SMAA takes over): the choice for depth-based
     // effects on renderers that cannot resolve the depth of a multisampled scene.
     fx::Settings depth_high = fx::Settings::FromPreset(QualityPreset::High);
     depth_high.msaa = 1;
     depth_high.alpha_to_coverage = false;
-    depth_high.fxaa = true;
+    depth_high.smaa = true;
     // The High preset before the cheap upgrades: the "before" of their comparisons, one upgrade added at a time.
     fx::Settings basic = depth_high;
     basic.lighting_flags &= ~static_cast<uint32_t>(fx::kLightingRim | fx::kLightingLinear | fx::kLightingAerial | fx::kLightingWind);
     basic.msaa = 1;
     basic.alpha_to_coverage = false;
     basic.anisotropy = 1;
-    basic.fxaa = true;
+    basic.smaa = true;
     basic.dither = basic.lens_flare = basic.scene_grading = basic.contact_shadows = false;
     std::vector<Shot> shots;
     const auto add = [&](std::string name, Content content, fx::Settings settings, preview::Weather weather = preview::Weather::Day) -> Shot & {
@@ -941,7 +940,7 @@ std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
     add("aniso_1_on", Content::Materials, one_more).sun_turn = 240.0f;
     // MSAA with alpha to coverage on foliage and rigging; wind sway at two moments.
     one_more = basic;
-    one_more.fxaa = false;
+    one_more.smaa = false;
     one_more.ssao = one_more.sea_soft_edges = false; // depth-based effects and MSAA exclude each other on this renderer
     add("a2c_0_no_aa_alpha_test", Content::Garden, one_more).sun_turn = 215.0f;
     one_more.msaa = 4;
@@ -1017,19 +1016,25 @@ std::vector<Shot> AllShots(const fx::Support &support, bool game_height_maps)
         add(std::string("normalmap_") + light + "_2_high" + suffix, Content::Materials, basic, weather).sun_turn = turn;
     }
 
-    // Anti-aliasing, sharpening and a 75 % render scale on the test chart.
+    // Anti-aliasing, sharpening and the FSR 1 upscale from 75 % on the test chart.
     add("aa_0_off", Content::Pattern, original);
     fx::Settings aa = original;
-    aa.fxaa = true;
-    add("aa_1_fxaa", Content::Pattern, aa);
+    aa.smaa = true;
+    add("aa_1_smaa", Content::Pattern, aa);
     aa.sharpen = true;
-    add("aa_2_fxaa_sharpen", Content::Pattern, aa);
+    add("aa_2_smaa_rcas", Content::Pattern, aa);
     fx::Settings msaa = original;
     msaa.msaa = 4;
     add("aa_3_msaa4", Content::Pattern, msaa);
-    add("aa_scale75_0_bilinear", Content::Pattern, original).render_scale = 0.75f;
-    add("aa_scale75_1_fxaa_sharpen", Content::Pattern, aa).render_scale = 0.75f;
-    add("dynres_day_scale75_high", Content::Ocean, high).render_scale = 0.75f;
+    fx::Settings scaled = original;
+    scaled.render_scale = 0.75f;
+    add("aa_scale75_0_easu", Content::Pattern, scaled);
+    aa.render_scale = 0.75f;
+    add("aa_scale75_1_smaa_easu_rcas", Content::Pattern, aa);
+    fx::Settings high_scaled = high;
+    high_scaled.render_scale = 0.75f;
+    high_scaled.sharpen = true;
+    add("dynres_day_scale75_high", Content::Ocean, high_scaled);
     return shots;
 }
 } // namespace

@@ -1,6 +1,5 @@
 $input v_uv
 // Scene (+ ambient occlusion, bloom) -> tone curve -> colour grade. Variants: FX_BLOOM, FX_TONEMAP, FX_SSAO.
-// Alpha receives luma for the FXAA pass.
 #include "fx_common.sh"
 #include "fx_tonemap.sh"
 
@@ -46,8 +45,8 @@ void main()
 #endif
     c = fxEncode(lin * u_fxTone.w + bloom);
 #ifdef FX_TONEMAP
-    vec3 film = fxAcesFit((fxExpandLdr(lin) + bloom) * u_fxTone.x);
-    // The filmic toe would crush the darkest tones (night scenes on a phone in daylight): fade the curve in
+    vec3 film = fxToneLuma((fxExpandLdr(lin) + bloom) * u_fxTone.x);
+    // The curve's toe would deepen the darkest tones (night scenes on a phone in daylight): fade the curve in
     // over the shadows, so it shapes mid-tones and highlights only.
     c = mix(c, fxEncode(film), u_fxTone.y * clamp(fxLuma(lin) * (1.0 / FX_TONE_SHADOW_END), 0.0, 1.0));
 #endif
@@ -55,5 +54,5 @@ void main()
     c = texture3D(s_fxLut, c * u_fxLut.x + vec3_splat(u_fxLut.y)).rgb;
     // Dither: keeps smooth gradients free of banding.
     c += vec3_splat((fxNoise(gl_FragCoord.xy + vec2_splat(u_fxDither.y)) - 0.5) * u_fxDither.x);
-    gl_FragColor = vec4(c, fxLuma(c));
+    gl_FragColor = vec4(c, 1.0);
 }

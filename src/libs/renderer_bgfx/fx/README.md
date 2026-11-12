@@ -1,7 +1,7 @@
 # Graphics effects package for the bgfx renderer
 
 Upgrades on top of the legacy look: post-processing (ambient occlusion, tone curve, colour grades by place and
-hour, bloom, sun shafts, lens flare, dither, FXAA, CAS sharpening), improvements of the game's own sea (`SeaDepth`), an analytic sky with matching
+hour, bloom, sun shafts, lens flare, dither, SMAA, the FSR 1 upscale and sharpening), improvements of the game's own sea (`SeaDepth`), an analytic sky with matching
 fog, contact shadows, and per-pixel lighting for the fixed-function emulator: sun, point and spot lights, sun
 shadows, an ambient-occlusion volume of interiors, rim light, linear-light sums, relief from derived normal maps
 and aerial perspective. MSAA, alpha to coverage and anisotropic filtering are renderer state: fx decides them
@@ -22,16 +22,32 @@ The player chooses «Низкая / Средняя / Высокая» (`QualityP
 On every preset the post chain also draws the game's underwater screen wobble (`Render.SeaEffect`,
 `PostChain::Frame::wobble`, `fs_fx_wobble.sc`): the legacy look, which the D3D9 engine's dead post-process chain
 never showed on this port.
-- **Средняя**: faint bloom on the brightest highlights, MSAA 4x + alpha to coverage, dither, contact shadows,
+- **Средняя**: the 3D scene at 67 % of the display size, upscaled by FSR 1 (EASU, then RCAS sharpening at the
+  display size; the game's interfaces are drawn at the display size after it), faint bloom on the brightest
+  highlights, MSAA 4x + alpha to coverage (on the internal picture, before the upscale), dither, contact shadows,
   a gentle Caribbean grade, anisotropy 4, the sea's band limit, per-pixel lighting with 4 point lights and normal
-  maps, sun shadows (low), the ambient-occlusion volume of interiors.
-- **Высокая**: as Средняя with anisotropy 8, soft sea edges, specular and translucency, 8 point
-  lights, soft sun shadows and ambient occlusion.
+  maps, sun shadows (low), the ambient-occlusion volume of interiors, the AgX tone curve on the luminance
+  (strength 0.6), the grade of the place and hour (hue and warmth only), aerial perspective and height fog, rim light.
+- **Высокая**: as Средняя with the scene at 77 %, anisotropy 8, soft sea edges, specular and translucency, 8 point
+  lights, soft sun shadows and ambient occlusion, the sun glare (replacing the game's sun glow and flare sprites)
+  and sun shafts.
 
 Where MSAA is unavailable (no multisampled targets, a GPU-family profile, a failed self-test) `ConstrainSettings`
-replaces it with FXAA. Implemented but in no preset (options only; `tests/core_check.cpp` keeps them out of the
-presets): tone curve, scene grading by place and hour, lens flare, sun shafts, analytic sky and clouds,
-hemisphere ambient, linear-light sums, rim light, aerial perspective, CAS sharpening, the sea's sun specular. Wind sway (`fx_wind.sh`)
+replaces it with SMAA 1x (logged "MSAA unavailable: SMAA instead"; without the post chain or R8/RG8 textures there
+is no anti-aliasing, logged too). MSAA stays the anti-aliasing where it exists: it resolves the sub-pixel rigging,
+masts and alpha-tested foliage that a post filter cannot recover, and costs little on tile GPUs.
+
+The render scale (`Settings::render_scale`, option `fx_render_scale`) applies to 3D frames: the shim
+(`src/shim/device.cpp`) draws them into internal-size scene stores while the game keeps addressing display pixels
+(viewports, scissors, `GetDesc`), the post chain runs at the internal size (ambient occlusion, bloom, grade, SMAA;
+the sea's soft edges and contact shadows draw into the internal scene) and EASU writes the display-size picture the
+interfaces then draw on. Frames without 3D (menus, loading screens) are drawn at the display size; the change is
+logged as "effects: render scale ...: the 3D scene at WxH, upscaled by FSR 1 to WxH". With `fx_gpu_profile=1` the
+profile line gives `scene=`/`display=` sizes and `gpu_smaa_ms`, `gpu_easu_ms`, `gpu_rcas_ms`. The GPU self-test of
+a settings switch runs the chain at the same render scale.
+
+Implemented but in no preset (options only): analytic sky and clouds, hemisphere ambient,
+linear-light sums, the sea's sun specular. Wind sway (`fx_wind.sh`)
 is not wired into the game. `Shadows::CasterProgram`,
 `Sky::BindAerial/BindWind` and the flash lights are used by `tools/fx-preview` only.
 
@@ -105,9 +121,10 @@ Sampler stages 5 and 6 belong to `fx_atmosphere.sh`, stage 15 to the shadow map,
 fixed-function emulator's units).
 
 Normal maps are derived on the device from the player's own textures (`DeriveNormalMap`, deterministic, RG8
-with mips). Cache them on the device; never ship or commit them. Which textures get one, and how strong, is the
-ordered rules table of `ClassifyTextureName` (stone/brick strong, wood/planks medium, plaster/ground weak; nothing for
-faces, cloth and sails, UI, water, glass, foliage cards, sky, decals and unknown names). Colour textures become height
-through their luminance minus a Gaussian of `band_sigma` texels, normalised to unit RMS and softly limited, so wide
-dark or bright patches make no pits or hills. Cost: 2 bytes per texel plus a third for the mips (a 1024² map 2.7 MB,
-512² 0.7 MB; Settings::normal_map_size caps the resident size).
+with mips; the renderer stores and uploads them as EAC RG11, `NormalMapFormat`). Cache them on the device; never ship
+or commit them. Which textures get one, and how strong, is the ordered rules table of `ClassifyTextureName`
+(stone/brick strong; wood/planks and building atlases medium; plaster/ground weak; nothing for faces, cloth and sails,
+UI, water, glass, foliage cards, grass ground, sky, decals and unknown names). Colour textures become height through
+their luminance minus a Gaussian of `band_sigma` texels, relative to the local brightness and softly limited, so wide
+dark or bright patches make no pits or hills. Cost: 1 byte per texel (EAC RG11) plus a third for the mips (a 1024²
+map 1.4 MB, 512² 0.35 MB; Settings::normal_map_size caps the resident size).

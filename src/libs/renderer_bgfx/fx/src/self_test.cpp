@@ -31,13 +31,15 @@ std::array<int, 3> Expected(const Settings &settings, const uint8_t *rgb)
             static_cast<int>(std::lround(out[2] * 255.0f))};
 }
 
-// Largest channel difference at the two probes; `text` gets "expected/read" for the log.
-int Compare(const uint8_t *pixels, const std::array<int, 3> (&expected)[kColors], std::string &text)
+// Largest channel difference at the probes of a `size`-pixel square (the probes scale with it); `text` gets
+// "expected/read" for the log.
+int Compare(const uint8_t *pixels, uint16_t size, const std::array<int, 3> (&expected)[kColors], std::string &text)
 {
     int worst = 0;
     for (int i = 0; i < kColors; ++i)
     {
-        const uint8_t *p = pixels + (static_cast<size_t>(kProbeY) * 64 + kProbeX[i]) * 4;
+        const size_t x = kProbeX[i] * size / 64, y = kProbeY * size / 64;
+        const uint8_t *p = pixels + (y * size + x) * 4;
         char line[96];
         snprintf(line, sizeof(line), "%s(%d,%d,%d) read (%u,%u,%u)", i ? "; " : "", expected[i][0], expected[i][1],
                  expected[i][2], p[0], p[1], p[2]);
@@ -90,14 +92,18 @@ bool SelfTest::Submit(const Settings &settings, bgfx::ViewId first_view, const P
     const RendererState state = RendererStateFor(settings);
     // The game's scene target: RGBA8 colour and D24S8 depth, multisampled like it (src/shim/device.cpp).
     const uint64_t msaa = state.msaa_samples >= 4 ? BGFX_TEXTURE_RT_MSAA_X4 : state.msaa_samples == 2 ? BGFX_TEXTURE_RT_MSAA_X2 : 0;
-    if (!bgfx::isValid(scene_) || scene_flags_ != msaa)
+    // The scene at the internal size of the render scale, like the game's (the post chain then upscales it).
+    const auto size = static_cast<uint16_t>(std::lround(kSize * std::clamp(state.render_scale, 0.5f, 1.0f)));
+    if (!bgfx::isValid(scene_) || scene_flags_ != msaa || scene_size_ != size)
     {
         Destroy(scene_);
+        Destroy(readback_scene_);
         const bgfx::TextureHandle attachments[2] = {
-            bgfx::createTexture2D(kSize, kSize, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | msaa | kClampPoint),
-            bgfx::createTexture2D(kSize, kSize, false, 1, bgfx::TextureFormat::D24S8, BGFX_TEXTURE_RT | msaa | kClampPoint)};
+            bgfx::createTexture2D(size, size, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | msaa | kClampPoint),
+            bgfx::createTexture2D(size, size, false, 1, bgfx::TextureFormat::D24S8, BGFX_TEXTURE_RT | msaa | kClampPoint)};
         scene_ = bgfx::createFrameBuffer(2, attachments, true);
         scene_flags_ = msaa;
+        scene_size_ = size;
     }
     if (!bgfx::isValid(pattern_))
         pattern_ = bgfx::createTexture2D(kColors, 1, false, 1, bgfx::TextureFormat::RGBA8, kClampPoint,
@@ -106,14 +112,14 @@ bool SelfTest::Submit(const Settings &settings, bgfx::ViewId first_view, const P
         output_ = bgfx::createFrameBuffer(kSize, kSize, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | kClampPoint);
     const uint64_t readback = BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK | kClampPoint;
     if (!bgfx::isValid(readback_scene_))
-        readback_scene_ = bgfx::createTexture2D(kSize, kSize, false, 1, bgfx::TextureFormat::RGBA8, readback);
+        readback_scene_ = bgfx::createTexture2D(size, size, false, 1, bgfx::TextureFormat::RGBA8, readback);
     if (!bgfx::isValid(readback_output_))
         readback_output_ = bgfx::createTexture2D(kSize, kSize, false, 1, bgfx::TextureFormat::RGBA8, readback);
     if (!bgfx::isValid(s_scene_))
         s_scene_ = bgfx::createUniform("s_fxScene", bgfx::UniformType::Sampler);
 
     bgfx::ViewId view = first_view;
-    SetupView(view, "fx self-test scene", scene_, kSize, kSize);
+    SetupView(view, "fx self-test scene", scene_, size, size);
     bgfx::setViewClear(view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x000000ff, 1.0f, 0);
     bgfx::setTexture(0, s_scene_, pattern_, kClampPoint);
     SubmitScreenTriangle(view++, post_.CopyProgram(), BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
@@ -121,7 +127,7 @@ bool SelfTest::Submit(const Settings &settings, bgfx::ViewId first_view, const P
     PostChain::Frame frame;
     frame.scene_color = bgfx::getTexture(scene_, 0);
     frame.scene_depth = bgfx::getTexture(scene_, 1);
-    frame.scene_width = frame.scene_height = kSize;
+    frame.scene_width = frame.scene_height = size;
     frame.target = output_;
     frame.target_width = frame.target_height = kSize;
     frame.first_view = view;
@@ -159,7 +165,7 @@ SelfTest::Result SelfTest::Poll(uint32_t frame)
     for (int i = 0; i < kColors; ++i)
         pattern[i] = {kPattern[i][0], kPattern[i][1], kPattern[i][2]};
     std::string scene_text;
-    if (Compare(scene_pixels_.data(), pattern, scene_text) > 2)
+    if (Compare(scene_pixels_.data(), scene_size_, pattern, scene_text) > 2)
     {
         result.failed = Stage::SceneTarget;
         result.detail = "scene target (MSAA " + std::to_string(RendererStateFor(settings_).msaa_samples) +
@@ -174,7 +180,7 @@ SelfTest::Result SelfTest::Poll(uint32_t frame)
         expected[i] = Expected(settings_, kPattern[i]);
     const bool approximate = settings_.tonemap || settings_.scene_grading || settings_.ssao;
     std::string output_text;
-    if (Compare(output_pixels_.data(), expected, output_text) > (approximate ? 48 : 8))
+    if (Compare(output_pixels_.data(), kSize, expected, output_text) > (approximate ? 48 : 8))
     {
         result.failed = Stage::PostChain;
         result.detail = "post chain: expected " + output_text;

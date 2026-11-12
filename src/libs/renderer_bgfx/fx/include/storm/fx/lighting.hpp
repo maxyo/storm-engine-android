@@ -26,10 +26,10 @@ class Lighting
     // Sets u_fxPoint / u_fxPointCount for the next draw call of a FX_LIGHT_POINT variant.
     void Apply(const PointLightUniforms &uniforms);
 
-    // FX_LIGHT_NORMALMAP variants. CreateNormalMap() uploads a derived map (RG8 with mips; the caller owns
-    // and destroys the texture). BindNormalMap() binds it to sampler stage kNormalMapStage for the next draw call with
-    // the sampler flags of the height texture's stage (wrap mode, anisotropy). A draw call whose stage 1
-    // holds no height map must use a variant without FX_LIGHT_NORMALMAP.
+    // FX_LIGHT_NORMALMAP variants. CreateNormalMap() uploads a derived map (RG8 or EAC RG11, NormalMap::format, with
+    // mips; the caller owns and destroys the texture). BindNormalMap() binds it to sampler stage kNormalMapStage for the
+    // next draw call with the sampler flags of the map's texture stage (wrap mode, anisotropy). A draw call without a
+    // map must use a variant without FX_LIGHT_NORMALMAP.
     bgfx::TextureHandle CreateNormalMap(const NormalMap &map);
     void BindNormalMap(bgfx::TextureHandle normal_map, uint32_t sampler_flags = BGFX_SAMPLER_NONE);
 

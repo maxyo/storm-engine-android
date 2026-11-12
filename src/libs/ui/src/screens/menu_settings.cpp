@@ -180,6 +180,15 @@ class SettingsScreen final : public Screen
                 DebugSegment(bindings, debug, "fx_alpha_to_coverage", "Alpha to coverage", {-1, 0, 1}, onOff);
                 DebugSegment(bindings, debug, "fx_anisotropy", "Анизотропия", {-1, 1, 4, 8}, {"пресет", "выкл", "4x", "8x"});
                 DebugSegment(bindings, debug, "fx_ao_volume", "Затенение (объём)", {-1, 0, 1, 2, 3}, {"пресет", "выкл", "игра", "умер", "сильн"});
+                // FSR 1 and SMAA (cc59cbe9, 924e22d2): the scene's internal size, the post AA, RCAS;
+                // «Замер GPU» logs GPU timer averages, which «Поделиться логом» carries out.
+                if (Known("fx_render_scale"))
+                {
+                    DebugSegment(bindings, debug, "fx_render_scale", "Масштаб сцены", {-1, 50, 67, 77, 100}, {"пресет", "50%", "67%", "77%", "100%"});
+                    DebugSegment(bindings, debug, "fx_smaa", "SMAA", {-1, 0, 1}, onOff);
+                    DebugSegment(bindings, debug, "fx_sharpen", "Резкость (RCAS)", {-1, 0, 1}, onOff);
+                    DebugSegment(bindings, debug, "fx_gpu_profile", "Замер GPU", {-1, 1}, {"выкл", "вкл"});
+                }
                 sections.push_back({"", {debug}});
             }
         }

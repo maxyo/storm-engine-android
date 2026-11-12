@@ -62,15 +62,18 @@ void Lighting::Apply(const PointLightUniforms &uniforms)
 
 bgfx::TextureHandle Lighting::CreateNormalMap(const NormalMap &map)
 {
-    if (!detail::SupportsNormalMap())
+    const bgfx::TextureFormat::Enum format =
+        map.format == NormalMapFormat::EacRg11 ? bgfx::TextureFormat::EACRG11 : bgfx::TextureFormat::RG8;
+    if (!detail::SupportsNormalMap(format))
     {
-        STORM_FX_ERROR_ONCE(normal_map_reported_, "Lighting::CreateNormalMap(): no RG8 textures on this device (Support::normal_map)");
+        STORM_FX_ERROR_ONCE(normal_map_reported_, "Lighting::CreateNormalMap(): no %s textures on this device (Support::normal_map)",
+                            map.format == NormalMapFormat::EacRg11 ? "EAC RG11" : "RG8");
         return BGFX_INVALID_HANDLE;
     }
-    if (map.rg.empty())
+    if (map.rg.empty() || map.rg.size() != NormalMapBytes(map.width, map.height, map.format))
         return BGFX_INVALID_HANDLE;
     return bgfx::createTexture2D(static_cast<uint16_t>(map.width), static_cast<uint16_t>(map.height), map.mip_count > 1, 1,
-                                 bgfx::TextureFormat::RG8, BGFX_SAMPLER_NONE, bgfx::copy(map.rg.data(), static_cast<uint32_t>(map.rg.size())));
+                                 format, BGFX_SAMPLER_NONE, bgfx::copy(map.rg.data(), static_cast<uint32_t>(map.rg.size())));
 }
 
 void Lighting::BindNormalMap(bgfx::TextureHandle normal_map, uint32_t sampler_flags)

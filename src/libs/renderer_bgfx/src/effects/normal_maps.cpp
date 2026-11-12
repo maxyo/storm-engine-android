@@ -85,6 +85,33 @@ uint32_t mip_count(int width, int height)
     return count;
 }
 
+// The derived RG8 chain as EAC RG11, level by level: half the memory on the GPU and on disk.
+fx::NormalMap encode_eac(const fx::NormalMap &rg8)
+{
+    fx::NormalMap eac{rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11, {}};
+    if (rg8.rg.empty())
+        return eac;
+    eac.rg.resize(fx::NormalMapBytes(rg8.width, rg8.height, fx::NormalMapFormat::EacRg11));
+    size_t in = 0, out = 0;
+    int w = rg8.width, h = rg8.height;
+    for (int level = 0; level < rg8.mip_count; ++level)
+    {
+        texture::encode_eac_rg11(rg8.rg.data() + in, static_cast<uint32_t>(w), static_cast<uint32_t>(h), eac.rg.data() + out);
+        in += fx::NormalMapLevelBytes(fx::NormalMapFormat::Rg8, w, h);
+        out += fx::NormalMapLevelBytes(fx::NormalMapFormat::EacRg11, w, h);
+        w = std::max(w / 2, 1);
+        h = std::max(h / 2, 1);
+    }
+    return eac;
+}
+
+// A map read back from the cache directory.
+fx::NormalMap stored_map(const texture::DerivedShape &shape, const texture::Blob &blob)
+{
+    return {static_cast<int>(shape.width), static_cast<int>(shape.height), static_cast<int>(shape.levels),
+            fx::NormalMapFormat::EacRg11, {blob.data.get(), blob.data.get() + blob.size}};
+}
+
 // The directory of the derived maps (ConfigureEffectsCache) and its size budget, shared with the worker tasks.
 struct CacheDirectory
 {
@@ -230,7 +257,7 @@ void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path)
     entry->options.max_size = max_size_; // derived at the preset's size: a smaller preset derives (and stores) less
     int width, height;
     fx::NormalMapSize(static_cast<int>(store.width), static_cast<int>(store.height), entry->options, width, height);
-    entry->shape = {.magic = {'S', 'T', 'X', 'C', 'N', 'R', 'G', '8'}, .version = fx::kNormalMapVersion,
+    entry->shape = {.magic = {'S', 'T', 'X', 'C', 'N', 'E', 'A', 'C'}, .version = fx::kNormalMapVersion,
                     .width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(height),
                     .levels = mip_count(width, height)};
     store.normal_map = entry;
@@ -249,14 +276,14 @@ void NormalMaps::on_texture_loaded(shim::TexStore &store, const char *path)
                     entry->state = NormalMapEntry::Stored;
                     return;
                 }
-                entry->map = {static_cast<int>(entry->shape.width), static_cast<int>(entry->shape.height),
-                              static_cast<int>(entry->shape.levels), {cached->data.get(), cached->data.get() + cached->size}};
+                entry->map = stored_map(entry->shape, *cached);
                 entry->state = NormalMapEntry::Derived;
                 return;
             }
         const auto start = std::chrono::steady_clock::now();
         const std::vector<uint8_t> rgba = decode_rgba(format, data.data(), source_width, source_height);
-        fx::NormalMap map = fx::DeriveNormalMap(rgba, static_cast<int>(source_width), static_cast<int>(source_height), entry->options);
+        fx::NormalMap map = encode_eac(
+            fx::DeriveNormalMap(rgba, static_cast<int>(source_width), static_cast<int>(source_height), entry->options));
         counters->derive_us += static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
         ++counters->derived;
@@ -293,8 +320,7 @@ void NormalMaps::read_cached(const std::shared_ptr<NormalMapEntry> &entry)
             entry->state = NormalMapEntry::Failed;
             return;
         }
-        entry->map = {static_cast<int>(entry->shape.width), static_cast<int>(entry->shape.height),
-                      static_cast<int>(entry->shape.levels), {cached->data.get(), cached->data.get() + cached->size}};
+        entry->map = stored_map(entry->shape, *cached);
         entry->state = NormalMapEntry::Derived;
     });
 }

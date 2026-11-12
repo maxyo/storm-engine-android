@@ -58,9 +58,11 @@ void CheckSettings()
     const Settings high = Settings::FromPreset(QualityPreset::High);
     CHECK(!medium.PostIsIdentity() && !high.PostIsIdentity());
     CHECK(medium.bloom_downscale == 4 && high.bloom_downscale == 2);
-    CHECK(!medium.sharpen && !high.sharpen);
-    // MSAA is the primary anti-aliasing of the presets; FXAA is left to the player. Optional looks stay off.
-    CHECK(medium.msaa == 4 && high.msaa == 4 && !medium.fxaa && !high.fxaa && original.msaa == 1);
+    // FSR 1 on both: Средняя renders the scene smaller than Высокая; «Низкая» stays native without any post pass.
+    CHECK(medium.sharpen && high.sharpen && medium.render_scale < high.render_scale && high.render_scale < 1.0f);
+    CHECK(medium.render_scale >= 0.5f && original.render_scale == 1.0f && !original.sharpen);
+    // MSAA is the primary anti-aliasing of the presets; SMAA is left to the player. Optional looks stay off.
+    CHECK(medium.msaa == 4 && high.msaa == 4 && !medium.smaa && !high.smaa && original.msaa == 1);
     CHECK(medium.anisotropy == 4 && high.anisotropy == 8 && original.anisotropy == 1);
     CHECK(medium.dither && !original.dither);
     // The game's own sea everywhere: the band limit from «Средняя», soft edges at «Высокая», the specular optional.
@@ -69,13 +71,16 @@ void CheckSettings()
     CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
     CHECK(!medium.ssao && high.ssao && !original.ssao);
-    CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 3); // Низкая: no shadows, as the original
+    CHECK(original.ao_volume == 0 && medium.ao_volume == 0 && high.ao_volume == 0); // off until interiors are reworked
     CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 0 && high.lamp_shadows == 0); // off until fixed
-    // The presets keep the legacy look: no tone curve, grade, flare, shafts, fx sky, hemisphere or linear sums.
+    // «Средняя»: the cheap looks (tone curve, the grade of the place and hour, aerial perspective, rim light) under
+    // the restrained Caribbean grade; «Высокая» adds the sun glare and sun shafts. «Низкая» has none of them.
     for (const Settings *preset : {&medium, &high})
-        CHECK(!preset->tonemap && !preset->scene_grading && !preset->lens_flare && !preset->sun_shafts &&
-              !preset->sky_atmosphere && preset->grade == GradePreset::Caribbean && preset->grade_strength <= 0.4f &&
-              !(preset->lighting_flags & (kLightingHemisphere | kLightingLinear | kLightingRim | kLightingAerial)));
+        CHECK(preset->tonemap && preset->tonemap_strength == 0.6f && preset->scene_grading && preset->grade == GradePreset::Caribbean &&
+              preset->grade_strength <= 0.4f && (preset->lighting_flags & kLightingRim) && (preset->lighting_flags & kLightingAerial));
+    CHECK(!medium.lens_flare && !medium.sun_shafts);
+    CHECK(high.lens_flare && high.lens_flare_intensity == 0.5f && high.sun_shafts && high.sun_shafts_intensity == 0.35f);
+    CHECK(!original.tonemap && !original.scene_grading && !original.lens_flare && !original.sun_shafts);
     Settings graded = original;
     graded.grade = GradePreset::Caribbean;
     CHECK(!graded.PostIsIdentity());
@@ -155,9 +160,11 @@ void CheckToneCurve()
         CHECK(v >= previous && v >= 0.0f && v <= 1.0f);
         previous = v;
     }
-    // Filmic shape: darker shadows, white not clipped.
+    // AgX shape: slightly darker shadows, white rolled off instead of clipped (the full curve takes it to about
+    // 0.87, the default strength keeps it above 0.9).
     CHECK(TonemapTransfer(0.2f) < 0.2f);
-    CHECK(TonemapTransfer(1.0f) > 0.9f && TonemapTransfer(1.0f) < 1.0f);
+    CHECK(TonemapTransfer(1.0f) > 0.85f && TonemapTransfer(1.0f) < 0.9f);
+    CHECK(TonemapTransfer(1.0f, 1.0f, Settings{}.tonemap_strength) > 0.9f);
     // At the default strength shadows are only mildly deepened.
     const Settings defaults;
     CHECK(TonemapTransfer(0.1f, 1.0f, defaults.tonemap_strength) > 0.055f);
@@ -280,10 +287,10 @@ void CheckLighting()
     s.lighting_flags = kLightingPoint; // baked geometry: dynamic point lights only
     CHECK(LightingDefines(s) == "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4" && PointLightBudget(s) == 4);
     CHECK(LightingDefines(Settings::FromPreset(QualityPreset::Medium)) ==
-          "FX_LIGHT_PER_PIXEL;FX_LIGHT_SHADOW;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4;FX_LIGHT_NORMALMAP");
+          "FX_LIGHT_PER_PIXEL;FX_LIGHT_SHADOW;FX_LIGHT_RIM;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=4;FX_LIGHT_NORMALMAP;FX_AERIAL");
     CHECK(LightingDefines(Settings::FromPreset(QualityPreset::High)) ==
           "FX_LIGHT_PER_PIXEL;FX_LIGHT_SPECULAR;FX_LIGHT_TRANSLUCENT;FX_LIGHT_SHADOW;FX_LIGHT_SHADOW_SOFT;"
-          "FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=8;FX_LIGHT_NORMALMAP");
+          "FX_LIGHT_RIM;FX_LIGHT_POINT;FX_LIGHT_POINT_MAX=8;FX_LIGHT_NORMALMAP;FX_AERIAL");
     CHECK(PointLightBudget(Settings::FromPreset(QualityPreset::High)) == 8);
 }
 
@@ -292,7 +299,7 @@ void CheckSupport()
 {
     Support all;
     all.lut_3d = all.shadow_map = all.scene_depth = all.normal_map = true;
-    all.msaa = all.msaa_depth = all.anisotropy = all.ao_volume = true;
+    all.msaa = all.msaa_depth = all.anisotropy = all.ao_volume = all.smaa = true;
     for (QualityPreset preset : {QualityPreset::Low, QualityPreset::Medium, QualityPreset::High})
     {
         const Settings settings = Settings::FromPreset(preset);
@@ -328,16 +335,18 @@ void CheckSupport()
     Support no_ao = all;
     no_ao.ao_volume = false;
     changes.clear();
-    constrained = ConstrainSettings(high, no_ao, changes);
+    Settings with_ao = high;
+    with_ao.ao_volume = 3; // fx_ao_volume 3
+    constrained = ConstrainSettings(with_ao, no_ao, changes);
     CHECK(constrained.ao_volume == 0 && changes.size() == 1 && constrained.shadows == high.shadows);
     // An AO volume without the fx lighting path has no shader to apply it: switched off, said.
-    Settings unlit = high;
+    Settings unlit = with_ao;
     unlit.lighting_flags = kLightingNone;
     unlit.shadows = ShadowQuality::Off;
     unlit.lamp_shadows = 0;
     changes.clear();
     CHECK(ConstrainSettings(unlit, all, changes).ao_volume == 0 && changes.size() == 1);
-    Settings too_strong = high;
+    Settings too_strong = with_ao;
     too_strong.ao_volume = 9;
     changes.clear();
     CHECK(ConstrainSettings(too_strong, all, changes).ao_volume == kAoVolumeLevels && changes.size() == 1);
@@ -363,25 +372,48 @@ void CheckSupport()
     changes.clear();
     constrained = ConstrainSettings(high, no_msaa, changes);
     CHECK(constrained.msaa == 1 && !constrained.alpha_to_coverage && constrained.ssao && constrained.sea_soft_edges);
-    // ... and FXAA takes over the anti-aliasing, reported (PowerVR, minimal GLES, a failed MSAA self-test).
-    CHECK(constrained.fxaa && !high.fxaa);
-    CHECK(std::find(changes.begin(), changes.end(), std::string("MSAA unavailable: FXAA instead")) != changes.end());
+    // ... and SMAA takes over the anti-aliasing, reported (PowerVR, minimal GLES, a failed MSAA self-test).
+    CHECK(constrained.smaa && !high.smaa);
+    CHECK(std::find(changes.begin(), changes.end(), std::string("MSAA unavailable: SMAA instead")) != changes.end());
     CHECK(ValidateSettings(constrained, no_msaa).empty());
-    // Without the post chain there is no FXAA either: MSAA goes, reported as no anti-aliasing at all.
+    // Without the post chain there is no SMAA either: MSAA goes, reported as no anti-aliasing at all.
+    const std::string no_aa =
+        "MSAA unavailable and SMAA needs the post-processing chain (3D textures) and R8/RG8 textures: no anti-aliasing";
     Support no_msaa_no_lut = no_msaa;
     no_msaa_no_lut.lut_3d = false;
     changes.clear();
     constrained = ConstrainSettings(high, no_msaa_no_lut, changes);
-    CHECK(constrained.msaa == 1 && !constrained.fxaa && constrained.PostIsIdentity());
-    CHECK(std::find(changes.begin(), changes.end(),
-                    std::string("MSAA unavailable and FXAA needs the post-processing chain (3D textures): no anti-aliasing")) !=
-          changes.end());
-    // An explicit MSAA off (fx_msaa=1) is the player's choice, not a missing capability: no FXAA is added.
+    CHECK(constrained.msaa == 1 && !constrained.smaa && constrained.PostIsIdentity() && constrained.render_scale == 1.0f);
+    CHECK(std::find(changes.begin(), changes.end(), no_aa) != changes.end());
+    // ... nor without its tables: SMAA asked for explicitly is switched off, reported.
+    Support no_msaa_no_r8 = no_msaa;
+    no_msaa_no_r8.smaa = false;
+    changes.clear();
+    constrained = ConstrainSettings(high, no_msaa_no_r8, changes);
+    CHECK(constrained.msaa == 1 && !constrained.smaa && std::find(changes.begin(), changes.end(), no_aa) != changes.end());
+    Settings smaa_on = high;
+    smaa_on.smaa = true;
+    changes.clear();
+    CHECK(!ConstrainSettings(smaa_on, no_msaa_no_r8, changes).smaa &&
+          std::find(changes.begin(), changes.end(), std::string("SMAA needs R8 and RG8 textures: switched off")) != changes.end());
+    // An explicit MSAA off (fx_msaa=1) is the player's choice, not a missing capability: no SMAA is added.
     Settings msaa_off = high;
     msaa_off.msaa = 1;
     msaa_off.alpha_to_coverage = false;
     changes.clear();
-    CHECK(!ConstrainSettings(msaa_off, no_msaa, changes).fxaa && changes.empty());
+    CHECK(!ConstrainSettings(msaa_off, no_msaa, changes).smaa && changes.empty());
+    // The FSR 1 range of the render scale; the upscale is part of the post chain.
+    Settings scaled = high;
+    scaled.render_scale = 0.3f;
+    changes.clear();
+    CHECK(ConstrainSettings(scaled, all, changes).render_scale == 0.5f && changes.size() == 1);
+    scaled.render_scale = 0.7f;
+    Settings only_scaled;
+    only_scaled.render_scale = 0.7f;
+    CHECK(Settings{}.PostIsIdentity() && !only_scaled.PostIsIdentity());
+    CHECK(RendererStateFor(scaled).render_scale == 0.7f);
+    changes.clear();
+    CHECK(ConstrainSettings(scaled, no_lut, changes).render_scale == 1.0f && !changes.empty());
     const RendererState state = RendererStateFor(high);
     CHECK(state.msaa_samples == 4 && state.alpha_to_coverage && state.max_anisotropy == 8);
     CHECK(RendererStateFor(Settings{}).msaa_samples == 1 && !RendererStateFor(Settings{}).alpha_to_coverage);
@@ -711,6 +743,16 @@ void CheckNormalMaps()
     DropTopMips(trimmed, 32);
     CHECK(trimmed.width == 32 && trimmed.height == 8 && trimmed.mip_count == 6 && trimmed.rg.size() == NormalMapBytes(32, 8));
     CHECK(std::equal(trimmed.rg.begin(), trimmed.rg.end(), strip.rg.end() - static_cast<std::ptrdiff_t>(trimmed.rg.size())));
+    // EAC RG11 sizes: 16 bytes per 4x4 block, at least one block per level; DropTopMips keeps the right tail.
+    CHECK(NormalMapLevelBytes(NormalMapFormat::EacRg11, 256, 64) == 64u * 16 * 16 && NormalMapLevelBytes(NormalMapFormat::EacRg11, 2, 1) == 16);
+    CHECK(NormalMapBytes(4, 4, NormalMapFormat::EacRg11) == 3 * 16);
+    NormalMap eac{256, 64, 9, NormalMapFormat::EacRg11, std::vector<uint8_t>(NormalMapBytes(256, 64, NormalMapFormat::EacRg11))};
+    for (size_t i = 0; i < eac.rg.size(); ++i)
+        eac.rg[i] = static_cast<uint8_t>(i * 7);
+    NormalMap eac_trimmed = eac;
+    DropTopMips(eac_trimmed, 64);
+    CHECK(eac_trimmed.width == 64 && eac_trimmed.mip_count == 7 && eac_trimmed.rg.size() == NormalMapBytes(64, 16, NormalMapFormat::EacRg11));
+    CHECK(std::equal(eac_trimmed.rg.begin(), eac_trimmed.rg.end(), eac.rg.end() - static_cast<std::ptrdiff_t>(eac_trimmed.rg.size())));
     other = options;
     other.max_size = 512;
     CHECK(NormalMapCacheKey(options) != NormalMapCacheKey(other));
@@ -868,6 +910,7 @@ void CheckCheapUpgrades()
         return ComputeSky(w);
     };
     const std::array<float, 3> grey{0.5f, 0.5f, 0.5f};
+    const std::array<float, 3> gain_identity{1.0f, 1.0f, 1.0f};
     const ColorGrade day = SceneGrade(sky_at(0.8f), 0.0f, 0.0f), dusk = SceneGrade(sky_at(0.08f), 0.0f, 0.0f);
     const ColorGrade night = SceneGrade(sky_at(-0.5f), 0.0f, 0.0f), storm = SceneGrade(sky_at(0.8f), 1.0f, 0.0f);
     const ColorGrade indoors = SceneGrade(sky_at(-0.5f), 0.0f, 1.0f);
@@ -875,7 +918,11 @@ void CheckCheapUpgrades()
     CHECK(indoors == ColorGrade::ForMood(ColorGrade::Mood::Interior));
     CHECK(dusk.Apply(grey)[0] > dusk.Apply(grey)[2] + 0.015f);   // warm
     CHECK(night.Apply(grey)[2] > night.Apply(grey)[0] + 0.015f); // cool
-    CHECK(storm.saturation < day.saturation && night.saturation < day.saturation);
+    CHECK(storm.Apply(grey)[2] > storm.Apply(grey)[0]); // cool
+    // Restrained: the moods shift hue and warmth only, never contrast, saturation or exposure.
+    for (const ColorGrade *mood : {&day, &dusk, &night, &storm, &indoors})
+        CHECK(mood->contrast == 1.0f && mood->saturation == 1.0f && mood->vibrance == 0.0f && mood->exposure == 0.0f &&
+              mood->gain == gain_identity);
     // A small step of the sun is a small step of the grade (no jump at dusk).
     float worst = 0.0f;
     for (int i = 0; i < 60; ++i)
@@ -885,7 +932,7 @@ void CheckCheapUpgrades()
     }
     CHECK(worst < 0.02f);
     // The post chain rebuilds the table only when the drift shows in 8-bit output.
-    CHECK(GradeDifference(day, day) == 0.0f && GradeDifference(day, night) > 0.02f);
+    CHECK(GradeDifference(day, day) == 0.0f && GradeDifference(day, night) > 0.01f);
     const ColorGrade user = ColorGrade::Preset(GradePreset::Caribbean);
     // Built two slices at a time (the post chain's background rebuild), the table is the same.
     std::vector<uint8_t> sliced(8 * 8 * 8 * 4);
@@ -983,7 +1030,7 @@ void CheckCapsProfiles()
 {
     Support all;
     all.lut_3d = all.shadow_map = all.scene_depth = all.normal_map = true;
-    all.msaa = all.msaa_depth = all.anisotropy = true;
+    all.msaa = all.msaa_depth = all.anisotropy = all.smaa = true;
     for (int p = 0; p < static_cast<int>(CapsProfile::Count); ++p)
     {
         const auto profile = static_cast<CapsProfile>(p);
@@ -1000,9 +1047,9 @@ void CheckCapsProfiles()
                 CHECK(changes.empty());
             if (!support.msaa)
                 CHECK(constrained.msaa == 1 && !constrained.alpha_to_coverage);
-            // Every phone without MSAA still gets anti-aliasing on Средняя / Высокая: FXAA in its place.
+            // Every phone without MSAA still gets anti-aliasing on Средняя / Высокая: SMAA in its place.
             if (preset != QualityPreset::Low)
-                CHECK(constrained.fxaa == !support.msaa);
+                CHECK(constrained.smaa == !support.msaa);
         }
     }
     // A profile only removes.

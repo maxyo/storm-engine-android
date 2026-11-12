@@ -301,14 +301,17 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
     const DWORD *rs = s.rs;
     const float vw = static_cast<float>(std::max<DWORD>(1, s.viewport.Width));
     const float vh = static_cast<float>(std::max<DWORD>(1, s.viewport.Height));
+    // Pre-transformed vertices are in the pixels the game addresses; the half-pixel shift of D3D9 is a half pixel
+    // of the store (fewer pixels on a scaled scene store), like point sizes.
+    const std::array<float, 2> scale = target_scale();
 
     // D3D clip space -> backend clip space (row-vector matrix, applied last).
     D3DMATRIX fix = identity();
     const float fy = flip ? -1.0f : 1.0f;
     const float bias = as_float(rs[D3DRS_DEPTHBIAS]);
     fix.m[1][1] = fy;
-    fix.m[3][0] = 1.0f / vw;
-    fix.m[3][1] = -fy / vh;
+    fix.m[3][0] = 1.0f / (vw * scale[0]);
+    fix.m[3][1] = -fy / (vh * scale[1]);
     if (caps->homogeneousDepth)
     {
         // D3D keeps z == 0 and z == w; after the remap to [-1, 1] rounding would clip them,
@@ -449,7 +452,7 @@ void Device::apply_ff_uniforms(const LayoutInfo &layout, bool vs_port, bool ps_p
              material_source(rs[D3DRS_EMISSIVEMATERIALSOURCE], color_vertex, layout),
              material_source(rs[D3DRS_SPECULARMATERIALSOURCE], color_vertex, layout)},
             {rs[D3DRS_SPECULARENABLE] ? 1.0f : 0.0f, s.material.Power, fog_from_specular ? 1.0f : 0.0f,
-             as_float(rs[D3DRS_POINTSIZE])},
+             as_float(rs[D3DRS_POINTSIZE]) * scale[1]},
         };
         set_uniform(U_VS, &vs[0][0], 4);
 
@@ -1358,11 +1361,15 @@ HRESULT Device::draw(const DrawCall &call)
         bgfx::setStencil(fstencil);
     if (s.rs[D3DRS_SCISSORTESTENABLE])
     {
+        // In the pixels the game addresses, like the viewport (new_view).
         const uint32_t target_height = rt->store->level_height(rt->level);
-        const int32_t w = s.scissor.right - s.scissor.left, h = s.scissor.bottom - s.scissor.top;
-        const int32_t y = Context::instance().flip_y() ? static_cast<int32_t>(target_height) - s.scissor.bottom
-                                                       : s.scissor.top;
-        bgfx::setScissor(static_cast<uint16_t>(std::max<int32_t>(0, s.scissor.left)), static_cast<uint16_t>(std::max(0, y)),
+        const std::array<float, 2> scale = target_scale();
+        const auto px = [](LONG v, float k) { return static_cast<int32_t>(std::lround(static_cast<float>(v) * k)); };
+        const int32_t left = px(s.scissor.left, scale[0]), right = px(s.scissor.right, scale[0]);
+        const int32_t top = px(s.scissor.top, scale[1]), bottom = px(s.scissor.bottom, scale[1]);
+        const int32_t w = right - left, h = bottom - top;
+        const int32_t y = Context::instance().flip_y() ? static_cast<int32_t>(target_height) - bottom : top;
+        bgfx::setScissor(static_cast<uint16_t>(std::max<int32_t>(0, left)), static_cast<uint16_t>(std::max(0, y)),
                          static_cast<uint16_t>(std::max(0, w)), static_cast<uint16_t>(std::max(0, h)));
     }
     // Effects: a sun shadow caster keeps its buffers for the depth-only copy into the shadow view (effects/shadows.hpp).

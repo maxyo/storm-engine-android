@@ -4,6 +4,7 @@
 #include <bimg/bimg.h>
 #include <bx/allocator.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace storm::texture
@@ -56,6 +57,20 @@ EtcFormat choose_etc_format(DxtFormat format, const uint8_t *payload, size_t siz
     if (format != DxtFormat::Bc1)
         return EtcFormat::Rgba8;
     return bc1_has_transparency(payload, size) ? EtcFormat::Rgba8 : EtcFormat::Rgb8;
+}
+
+void encode_eac_rg11(const uint8_t *rg, uint32_t width, uint32_t height, uint8_t *out)
+{
+    // etcpak reads R from bits 16..23 and G from bits 8..15 of each uint32 texel (see encode_level).
+    const uint32_t aligned_width = blocks_x(width) * 4, aligned_height = blocks_x(height) * 4;
+    std::vector<uint32_t> texels(size_t(aligned_width) * aligned_height);
+    for (uint32_t y = 0; y < aligned_height; ++y)
+        for (uint32_t x = 0; x < aligned_width; ++x)
+        {
+            const uint8_t *t = rg + (size_t(std::min(y, height - 1)) * width + std::min(x, width - 1)) * 2;
+            texels[size_t(y) * aligned_width + x] = uint32_t(t[0]) << 16 | uint32_t(t[1]) << 8;
+        }
+    CompressEacRg(texels.data(), reinterpret_cast<uint64_t *>(out), (aligned_width / 4) * (aligned_height / 4), aligned_width);
 }
 
 void encode_level(EtcFormat format, const uint8_t *rgba, uint32_t aligned_width, uint32_t aligned_height,

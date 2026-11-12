@@ -29,6 +29,9 @@ struct PassTimes
 {
     double frame_ms = 0.0;
     double post_ms = 0.0;
+    double smaa_ms = 0.0; // the three SMAA passes
+    double easu_ms = 0.0; // FSR 1 upscale
+    double rcas_ms = 0.0; // FSR 1 sharpening
     uint16_t post_views = 0;
 };
 
@@ -63,6 +66,11 @@ class Host
     }
 
     void set_weather(const render::EffectsWeather &weather);
+    void set_sun_glare(float glare, float ghosts)
+    {
+        sun_glare_ = glare;
+        sun_ghosts_ = ghosts;
+    }
     // Per-pixel lighting and alpha to coverage of the fixed-function emulator (effects/lighting.hpp).
     Lighting &lighting() { return lighting_; }
     AoVolumes &ao_volumes() { return ao_; }
@@ -74,8 +82,9 @@ class Host
     {
         bgfx::TextureHandle scene_color = BGFX_INVALID_HANDLE;
         bgfx::TextureHandle scene_depth = BGFX_INVALID_HANDLE; // invalid when not sampleable (MSAA)
-        uint16_t width = 0, height = 0;
+        uint16_t width = 0, height = 0;               // the scene: the internal size with Settings::render_scale < 1
         bgfx::FrameBufferHandle target = BGFX_INVALID_HANDLE;
+        uint16_t target_width = 0, target_height = 0; // the display-size picture the interfaces draw on
         bgfx::ViewId first_view = 0;
         // The scene camera: D3D row-vector matrices of the last perspective draw into the scene.
         std::array<float, 16> view{};
@@ -163,6 +172,8 @@ class Host
     render::EffectsWeather weather_{};
     render::EffectsWobble wobble_{}; // set by the renderer every frame (Render.SeaEffect)
     bool weather_this_frame_ = false; // pushed since the last presented frame
+    float sun_glare_ = 0.0f;          // SetEffectsSunGlare since the last presented frame
+    float sun_ghosts_ = 0.0f;
     bool weather_last_frame_ = false;
     bool scene_cut_pending_ = true;
     fx::PostChain post_;
@@ -191,6 +202,8 @@ class Host
     int profile_count_ = 0;
     int profile_gpu_frames_ = 0;
     double profile_sum_frame_ = 0.0, profile_sum_post_ = 0.0, profile_sum_cpu_ = 0.0;
+    double profile_sum_smaa_ = 0.0, profile_sum_easu_ = 0.0, profile_sum_rcas_ = 0.0;
+    std::array<uint16_t, 4> last_post_size_{}; // scene width, height, target width, height of the last post chain
     uint64_t profile_draws_ = 0;
 };
 

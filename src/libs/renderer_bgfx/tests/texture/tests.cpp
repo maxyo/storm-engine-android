@@ -157,6 +157,30 @@ void test_channel_order()
     }
 }
 
+// EAC RG11 of a derived normal map level (etcpak CompressEacRg) through bimg's reference decoder: R and G land in
+// the right channels, smooth gradients stay within a few steps, and a level that is no multiple of 4 is padded.
+void test_eac_rg11()
+{
+    const uint32_t w = 8, h = 6;
+    std::vector<uint8_t> rg(size_t(w) * h * 2);
+    for (uint32_t y = 0; y < h; ++y)
+        for (uint32_t x = 0; x < w; ++x)
+        {
+            rg[(y * w + x) * 2 + 0] = static_cast<uint8_t>(40 + x * 20);
+            rg[(y * w + x) * 2 + 1] = static_cast<uint8_t>(200 - y * 25);
+        }
+    std::vector<uint8_t> blocks(size_t(blocks_x(w)) * blocks_x(h) * 16);
+    encode_eac_rg11(rg.data(), w, h, blocks.data());
+    std::vector<uint8_t> decoded(size_t(w) * 8 * 4);
+    bimg::imageDecodeToRgba8(&allocator, decoded.data(), blocks.data(), w, 8, w * 4, bimg::TextureFormat::EACRG11);
+    int worst = 0;
+    for (uint32_t y = 0; y < h; ++y)
+        for (uint32_t x = 0; x < w; ++x)
+            for (int c = 0; c < 2; ++c)
+                worst = std::max(worst, std::abs(decoded[(y * w + x) * 4 + c] - rg[(y * w + x) * 2 + c]));
+    CHECK(worst <= 4);
+}
+
 void test_hash()
 {
     // reference XXH64 values
@@ -408,6 +432,7 @@ int main()
     fs::create_directories(directory);
     test_decoder();
     test_channel_order();
+    test_eac_rg11();
     test_hash();
     test_quality();
     test_cube();

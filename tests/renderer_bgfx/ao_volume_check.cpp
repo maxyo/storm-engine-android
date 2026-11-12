@@ -68,6 +68,8 @@ class Harness
         back_->Release();
     }
 
+    bool relative = false;
+
     // The floor from 5 m above, orthographic over 6 x 6 m; returns the picture (BGRA).
     std::vector<uint8_t> render()
     {
@@ -86,7 +88,17 @@ class Harness
         projection.m[0][0] = projection.m[1][1] = 1.0f / 3.0f;
         projection.m[2][2] = 0.1f;
         projection.m[3][3] = 1.0f;
-        d_.SetTransform(D3DTS_WORLD, &identity);
+        D3DMATRIX world = identity;
+        if (relative)
+        {
+            // The camera at (0, 5, 0) moves into the world matrix, as Renderer::SetCamera does.
+            world.m[3][1] = -5.0f;
+            view.m[3][2] = 0.0f;
+            render::SetEffectsWorldOrigin({0.0f, 5.0f, 0.0f});
+        }
+        else
+            render::SetEffectsWorldOrigin({0.0f, 0.0f, 0.0f});
+        d_.SetTransform(D3DTS_WORLD, &world);
         d_.SetTransform(D3DTS_VIEW, &view);
         d_.SetTransform(D3DTS_PROJECTION, &projection);
         d_.SetRenderState(D3DRS_ZENABLE, FALSE);
@@ -180,8 +192,14 @@ int main()
         params.EnableAutoDepthStencil = TRUE;
         params.AutoDepthStencilFormat = D3DFMT_D24S8;
         auto *device = new Device(window, params);
+        // Both ways the device can hold the scene: absolute, and camera-relative as the game's Renderer keeps it (no view
+        // translation; world matrices shifted by minus the camera, render::SetEffectsWorldOrigin). The AO volume and
+        // the lamps are absolute world data: the pictures must match.
+        for (const bool relative : {false, true})
         {
+            std::printf("%s\n", relative ? "camera-relative device (the game's Renderer):" : "absolute device:");
             Harness harness(*device);
+            harness.relative = relative;
             std::vector<std::array<float, 3>> positions;
             std::vector<uint32_t> indices;
             add_box(positions, indices, {-3.0f, -0.05f, -3.0f}, {3.0f, 0.0f, 3.0f}); // the floor slab
@@ -287,6 +305,7 @@ int main()
             render::SetEffectsLamps({});
             render::SetEffectsAoGeometry({}, {}, {});
             render::ConfigureEffects(0, {});
+            render::SetEffectsWorldOrigin({0.0f, 0.0f, 0.0f});
         }
         device->Release();
     }
