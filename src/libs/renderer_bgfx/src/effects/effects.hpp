@@ -46,6 +46,7 @@ class Host
     const render::EffectsReport &report() const { return report_; }
 
     const fx::Settings &settings() const { return settings_; }
+    const fx::Support &support() const { return support_; } // what settings() were constrained against
     const fx::RendererState &renderer_state() const { return renderer_state_; }
     // The post chain runs: an effect is on, or the game's underwater wobble (on every preset) is.
     bool post_active() const { return device_ready_ && (!settings_.PostIsIdentity() || wobble_.on); }
@@ -113,7 +114,7 @@ class Host
     static constexpr int kCachedProgramsPerFrame = 4; // binaries from the program cache load without a link
     void apply();
     // Makes `settings` the ones that draw; the shim follows a renderer-state change at the next Present.
-    void activate(const fx::Settings &settings);
+    void activate(const fx::Settings &settings, const fx::Support &support);
     static bool needs_self_test(const fx::Settings &settings);
     // The sky behind the fx sky, the scene grade and the hemisphere ambient, from the last weather.
     const fx::SkyState &sky_state();
@@ -141,7 +142,11 @@ class Host
     uint32_t switch_programs_ = 0;
     render::ProgramCacheStats switch_cache_{}; // at the previous advance_switch
     fx::RendererState renderer_state_{};
-    fx::Support support_{};        // what the settings are constrained against
+    // What the active settings (settings_) were constrained against, and what the requested ones (target_) are:
+    // a settings switch makes both active together (activate), so what draws is always checked against the support
+    // it was made for. A narrower support (fx_caps_profile, a failed self-test) waits for its settings like them.
+    fx::Support support_{};
+    fx::Support target_support_{};
     fx::Support support_device_{}; // what DetectSupport found
     fx::CapsProfile caps_profile_ = fx::CapsProfile::Device;
     bool msaa_broken_ = false; // the self-test found the multisampled scene target broken on this device

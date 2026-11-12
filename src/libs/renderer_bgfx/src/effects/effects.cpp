@@ -171,7 +171,7 @@ void Host::on_device_created()
     device_ready_ = true;
     // Nothing is drawn yet: the device starts on the legacy path («Низкая», no effect, no MSAA) and switches to
     // the request like any later change (advance_switch), once its programs exist and the self-test passed.
-    activate(fx::Settings::FromPreset(fx::QualityPreset::Low));
+    activate(fx::Settings::FromPreset(fx::QualityPreset::Low), fx::Support{}); // needs nothing
     apply();
     renderer_state_changed_ = false; // the scene target is created after this, with the active state
 }
@@ -261,20 +261,20 @@ void Host::apply()
     {
         // What the device can do, narrowed by a forced GPU-family profile (fx_caps_profile, development) and by
         // the stages the self-test found broken on this device.
-        support_ = fx::RestrictSupport(support_device_, caps_profile_);
+        target_support_ = fx::RestrictSupport(support_device_, caps_profile_);
         if (caps_profile_ != fx::CapsProfile::Device)
             report_.changes.push_back(std::string("caps profile forced: ") + fx::CapsProfileName(caps_profile_));
         if (msaa_broken_)
-            support_.msaa = support_.msaa_depth = false;
+            target_support_.msaa = target_support_.msaa_depth = false;
         if (post_broken_)
-            support_.lut_3d = false;
-        next = fx::ConstrainSettings(next, support_, report_.changes);
-        report_.support = support_.Describe();
+            target_support_.lut_3d = false;
+        next = fx::ConstrainSettings(next, target_support_, report_.changes);
+        report_.support = target_support_.Describe();
         // Options the device can never honour, for the settings screen.
         fx::Settings all = fx::Settings::FromPreset(fx::QualityPreset::High);
         all.fxaa = true;
         std::vector<std::string> unused;
-        const fx::Settings possible = fx::ConstrainSettings(all, support_, unused);
+        const fx::Settings possible = fx::ConstrainSettings(all, target_support_, unused);
         if (possible.msaa <= 1)
             report_.disabled.push_back("fx_msaa");
         if (possible.anisotropy <= 1)
@@ -305,7 +305,7 @@ void Host::apply()
     report_.summary = describe(next);
     target_ = next;
     if (!device_ready_)
-        activate(next); // nothing is drawn before the device exists
+        activate(next, target_support_); // nothing is drawn before the device exists
     else if (!(target_ == settings_) && !switching_)
     {
         // The current settings keep drawing until the new ones are ready (advance_switch).
@@ -315,7 +315,10 @@ void Host::apply()
         switch_programs_ = 0;
     }
     else if (target_ == settings_)
+    {
         switching_ = false;
+        support_ = target_support_; // the same settings, also valid on the new support (ConstrainSettings left them)
+    }
     report_.pending = switching_;
     if (changed)
     {
@@ -327,9 +330,10 @@ void Host::apply()
     }
 }
 
-void Host::activate(const fx::Settings &settings)
+void Host::activate(const fx::Settings &settings, const fx::Support &support)
 {
     settings_ = settings;
+    support_ = support;
     const fx::RendererState state = fx::RendererStateFor(settings_);
     const bool depth_read = scene_depth_read();
     renderer_state_changed_ = renderer_state_changed_ ||
@@ -470,7 +474,7 @@ void Host::advance_switch()
     }
     switching_ = false;
     report_.pending = false;
-    activate(target_);
+    activate(target_, target_support_);
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - switch_started_).count();
     shim::logf("effects: preset %d (%s) active after %u frames, %.0f ms (%u programs prepared)", preset_,
                std::string(fx::NameRu(static_cast<fx::QualityPreset>(preset_))).c_str(), switch_frames_, ms,

@@ -10,7 +10,12 @@
 //   * three interfaces in a frame (each ends the scene, as each game interface does): the post chain runs once.
 //   * back to «Низкая»: the picture equals the first one; «Высокая» again: active at once (programs kept, the
 //     self-test of these settings already passed).
+//   * a narrower device support at run time (fx_caps_profile, as after a failed MSAA self-test): every frame of the
+//     switch draws settings that are valid for the support they are checked against (effects::Host::support());
+//     the narrower support once arrived before its settings, and the old MSAA target was judged by it.
 #include "device.hpp"
+#include "effects/effects.hpp"
+#include "storm/fx/capabilities.hpp"
 #include <SDL2/SDL.h>
 #include "storm/render/effects.hpp"
 
@@ -254,6 +259,26 @@ int main()
             render::ConfigureEffects(2, {});
             const int again = frames_until_active(frames, last, kept);
             ok &= expect(again == 1, "«Высокая» again: active at the next Present (programs kept, self-test passed)");
+
+            // PowerVR profile: no MSAA, so no readable multisampled depth (ambient occlusion, the sea's soft edges).
+            const effects::Host &host = effects::Host::instance();
+            ok &= expect(host.settings().msaa > 1 && host.support().msaa_depth, "«Высокая»: MSAA with a readable depth");
+            const int profile = static_cast<int>(fx::CapsProfile::PowerVR);
+            ok &= expect(render::ConfigureEffects(2, {{"fx_caps_profile", profile}}).pending,
+                         "«Высокая» on the PowerVR profile: pending");
+            bool consistent = true;
+            int frame = 0;
+            for (; frame < kMaxSwitchFrames; ++frame)
+            {
+                consistent = consistent && fx::ValidateSettings(host.settings(), host.support()).empty();
+                if (!render::CurrentEffects().pending)
+                    break;
+                frames.render();
+            }
+            std::printf("     PowerVR profile active after %d frames\n", frame);
+            ok &= expect(frame < kMaxSwitchFrames && host.settings().msaa == 1 && !host.support().msaa,
+                         "the narrower support and its settings become active");
+            ok &= expect(consistent, "every frame of the switch draws settings valid for the support they are checked against");
         }
         device->Release();
     }
