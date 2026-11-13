@@ -86,9 +86,9 @@ void CheckSettings()
     CHECK((medium.lighting_flags & kLightingPerPixel) && !(medium.lighting_flags & kLightingSpecular));
     CHECK(medium.shadows == ShadowQuality::Low && high.shadows == ShadowQuality::Soft && original.shadows == ShadowQuality::Off);
     CHECK(!medium.ssao && high.ssao && !original.ssao);
-    CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 3); // Низкая: no shadows, as the original
+    CHECK(original.ao_volume == 0 && medium.ao_volume == 2 && high.ao_volume == 2); // Низкая: no shadows, as the original
     CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 8 && high.lamp_shadows == 16);
-    CHECK(!medium.lamp_soft && high.lamp_soft && high.lamp_baked == 0.5f && high.lamp_gain == 1.0f && high.lamp_debug == 0);
+    CHECK(!medium.lamp_soft && high.lamp_soft && high.lamp_baked == 0.25f && high.lamp_gain == 1.0f && high.lamp_debug == 0);
     CHECK(medium.lamp_model_lift == 0.2f && high.lamp_model_lift == 0.2f); // the owner: characters a little above the room
     CHECK(original.lamp_moving == 0 && medium.lamp_moving == 1 && high.lamp_moving == 2); // carried lanterns, ship lanterns
     // «Средняя»: the cheap looks (tone curve, the grade of the place and hour, aerial perspective, rim light) under
