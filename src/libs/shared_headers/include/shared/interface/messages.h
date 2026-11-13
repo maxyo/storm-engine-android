@@ -58,6 +58,8 @@
 #define MSG_HELPCHOOSER_START 45200
 
 #define MSG_INTERFACE_GET_FREE_SPACE 45300
+// "lse": profile, out record name. The autosave record to write next (xinterface save_autosave.hpp).
+#define MSG_INTERFACE_AUTOSAVE_RECORD 45301
 
 #define INTERFACE_CHANGE_INTERMEDIA 0
 #define INTERFACE_CHANGE_WAVE 1

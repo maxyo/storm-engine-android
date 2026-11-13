@@ -131,32 +131,34 @@ std::string PlayTime(const Bindings &bindings, int minutes)
     return hours + std::to_string(minutes % 60) + " " + bindings.Text("save.minutes");
 }
 
-// The application's background autosaves, two rotating records the game lists like any
-// other (app PROGRAM/interface/android_background_save.c names their files
-// "Автосохранение 1|2"; the name is matching data, not UI text). Returns the slot number,
-// 0 for other records. They are shown as their own pair and never deleted or overwritten.
-int AutosaveSlot(const std::string &label)
+// The autosave records: three per profile, written in rotation by every autosave (engine
+// xinterface save_autosave.hpp names their files "Автосохранение 1..3"; the name is matching
+// data, not UI text), and the single record a game whose scripts we do not patch writes
+// itself before a boarding ("<profile> AutoSave", interface.c AutoSaveContinue). They are
+// shown as their own group, told apart by place and time (the number says nothing about
+// their order), and never deleted or overwritten by the player.
+bool IsAutosave(const std::string &label)
 {
-    static const std::string prefix = "Автосохранение ";
-    if (label.size() <= prefix.size() || label.compare(0, prefix.size(), prefix) != 0)
-        return 0;
-    const std::string number = label.substr(prefix.size());
-    return number.find_first_not_of("0123456789") == std::string::npos ? std::atoi(number.c_str()) : 0;
+    static const std::string prefix = "Автосохранение ", own = " AutoSave";
+    if (label.size() > own.size() && label.compare(label.size() - own.size(), own.size(), own) == 0)
+        return true;
+    return label.size() > prefix.size() && label.compare(0, prefix.size(), prefix) == 0 &&
+           label.find_first_not_of("0123456789", prefix.size()) == std::string::npos;
 }
 
 struct Record
 {
     const Widget *row = nullptr;
     bool fresh = false;
-    int autosave = 0;
+    bool autosave = false;
     std::string hero, location;
     Stamp played, created;
     int minutes = -1;
 
     static Record Of(const Widget *row)
     {
-        Record record{row, row->unavailable_reason == "new", 0};
-        record.autosave = record.fresh ? 0 : AutosaveSlot(row->label);
+        Record record{row, row->unavailable_reason == "new", false};
+        record.autosave = !record.fresh && IsAutosave(row->label);
         record.hero = Context(*row, "hero");
         record.location = Context(*row, "location");
         record.played = ParseStamp(Context(*row, "gameDate"), Context(*row, "gameTime"));
@@ -181,7 +183,7 @@ std::string Name(const Bindings &bindings, const Record &record)
     if (record.fresh)
         return bindings.Text("save.new");
     if (record.autosave)
-        return bindings.Text("save.autosave") + " " + std::to_string(record.autosave);
+        return bindings.Text("save.autosave");
     return record.Identity();
 }
 
@@ -213,7 +215,7 @@ class SavesScreen final : public Screen
         // at the top. The new record leads the list (V2-Save-Save). The player's choice
         // holds while it exists, else the new record when saving, else the game's selection.
         if (saving)
-            std::erase_if(records, [](const Record &r) { return r.autosave != 0; });
+            std::erase_if(records, [](const Record &r) { return r.autosave; });
         std::stable_sort(records.begin(), records.end(),
                          [](const Record &a, const Record &b) { return (a.fresh ? 0 : a.autosave ? 1 : 2) < (b.fresh ? 0 : b.autosave ? 1 : 2); });
         const Record *chosen = nullptr;

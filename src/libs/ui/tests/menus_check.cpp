@@ -550,12 +550,12 @@ static void Autosaves(const std::string &models)
     Router router(surface);
     router.SetInterface(Load(models, "saves-autosave.json"));
     const Json rows = surface.props["rows"];
-    Expect(rows.size() == 4 && rows[0]["cells"][0]["text"] == "<save.autosave> 2" && rows[0]["cells"][0]["sub"] == "Герой Альфа · Остров Гамма" &&
+    Expect(rows.size() == 4 && rows[0]["cells"][0]["text"] == "<save.autosave>" && rows[0]["cells"][0]["sub"] == "Герой Альфа · Остров Гамма" &&
                rows[0]["cells"][2]["icon"] == "energy",
            "autosaves form their own group at the top, named by the string table, marked by the bolt");
     router.OnEvent({"saves", "row", "0"});
     Expect(surface.props["detail"]["delete"] == false && surface.props["detail"]["title"] == "Остров Гамма" &&
-               surface.props["detail"]["sub"] == "<save.autosave> 2 · Герой Альфа",
+               surface.props["detail"]["sub"] == "<save.autosave> · Герой Альфа",
            "an autosave has no quick delete");
     router.OnEvent({"primary", "click", ""});
     ExpectEqual(surface.Last(), "widget:save_load\tANDROID_SAVE_LIST\t1\tactivate@9:9", "an autosave loads");
