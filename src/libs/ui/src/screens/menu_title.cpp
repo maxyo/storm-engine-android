@@ -91,7 +91,7 @@ class TitleScreen final : public Screen
 };
 
 // Channel "titleIntent" {intent: "Continue"}: the platform host asks the title screen for «Продолжить»
-// as if tapped, once, when the title screen next builds (the app's Test Lab Game Loop sets it at the
+// as if tapped, once: at once when the title is up, else when it next builds (the app's Test Lab Game Loop sets it at the
 // game's start, android/game/testloop). Anything else is an error.
 class TitleIntentConsumer final : public StateConsumer
 {
@@ -103,7 +103,12 @@ class TitleIntentConsumer final : public StateConsumer
     void OnState(const Json &state, Router &router) override
     {
         if (state.is_object() && state.contains("intent") && state["intent"] == "Continue")
+        {
             TitleIntent() = "Continue";
+            // Asked while the title is up (after the automatic preset measured it): act now, not at its next build.
+            if (router.Using() == "mainmenu")
+                router.RebuildActive();
+        }
         else
             router.ReportError("state channel titleIntent: expected {intent: Continue}, got " + state.dump());
     }

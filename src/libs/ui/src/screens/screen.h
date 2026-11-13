@@ -251,6 +251,8 @@ class Router
     // it (a dialogue the closing interface's script started); a channel screen it covered comes back.
     void CloseGameInterface(const std::string &screen);
     void SetState(const std::string &channel, const Json &state);
+    // Builds the screen in use again now (a state consumer whose state the screen reads, e.g. titleIntent).
+    void RebuildActive();
     // False when no screen is mounted or the event belongs to nothing bound.
     bool OnEvent(const Event &event);
     void SubmitText(const std::string &token, const std::string &text, bool accepted);
