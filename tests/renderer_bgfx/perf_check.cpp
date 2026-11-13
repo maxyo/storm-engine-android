@@ -423,8 +423,7 @@ int main(int argc, char **argv)
         auto *device = new Device(nullptr, params);
         {
             Scene scene(*device);
-            // Frames 1-6 create programs, layouts, buffers and textures; the rewritten buffer becomes a dynamic buffer
-            // at its first draw from its own storage after a rewrite (frame 5).
+            // Frames 1-6 create programs, layouts, buffers and textures.
             for (uint32_t frame = 1; frame <= 6; ++frame)
                 scene.frame(frame);
             const render::PerfCounters start = render::PerfTotals();

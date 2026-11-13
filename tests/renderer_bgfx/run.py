@@ -47,7 +47,8 @@ warmth = here.parents[1] / 'tools/ccache/warmth'
 subprocess.run([str(warmth), 'begin', str(build)], check=True)
 subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm_texture_tests', 'perf_check', 'skinning_check',
                 'preset_switch_check', 'sea_edge_check', 'program_cache_check', 'storm_fx_core_check', 'ao_volume_check',
-                'storm_relief_check', 'cutout_caster_check', 'relief_switch_check', 'texture_format_check'], check=True)
+                'storm_relief_check', 'cutout_caster_check', 'relief_switch_check', 'texture_format_check',
+                'buffer_pool_check'], check=True)
 subprocess.run([str(warmth), 'end', str(build)], check=True)
 subprocess.run([str(build / 'renderer_bgfx' / 'storm_texture_tests')], check=True)
 subprocess.run([str(build / 'perf_check')], check=True)
@@ -60,7 +61,9 @@ subprocess.run([str(build / 'ao_volume_check')], check=True)
 subprocess.run([str(build / 'cutout_caster_check')], check=True)
 subprocess.run([str(build / 'relief_switch_check')], check=True)
 subprocess.run([str(build / 'texture_format_check')], check=True)
+subprocess.run([str(build / 'buffer_pool_check')], check=True)
 subprocess.run([str(build / 'relief' / 'storm_relief_check'), (build / 'deepbump_model_path.txt').read_text()], check=True)
 print('PASS: storm_bgfx builds; storm_texture_tests; perf_check; skinning_check; preset_switch_check; sea_edge_check; program_cache_check; '
-      'fx core_check; ao_volume_check; cutout_caster_check; relief_switch_check; texture_format_check; relief_check',
+      'fx core_check; ao_volume_check; cutout_caster_check; relief_switch_check; texture_format_check; buffer_pool_check; '
+      'relief_check',
       flush=True)

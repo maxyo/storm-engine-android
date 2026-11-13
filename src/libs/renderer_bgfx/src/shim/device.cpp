@@ -110,7 +110,6 @@ Device *Device::current = nullptr;
 Device::Device(SDL_Window *sdl_window, const D3DPRESENT_PARAMETERS &present) : window(sdl_window), params(present)
 {
     current = this;
-    byte_layout.begin().add(bgfx::Attrib::TexCoord7, 1, bgfx::AttribType::Uint8).end();
     lights.resize(kMaxLights);
     shaders.assign(embedded_shader_count(), BGFX_INVALID_HANDLE);
 

@@ -374,7 +374,6 @@ struct Device final : Object
     std::map<std::pair<uint32_t, uint32_t>, bgfx::ProgramHandle> programs;
     std::unordered_map<uint16_t, uint32_t> program_uniform_bytes; // by program handle: user uniforms of both shaders
     std::vector<bgfx::ShaderHandle> shaders; // index = shader id
-    bgfx::VertexLayout byte_layout;
 
     // uniform handles + last value sent (uniforms are sticky in submission order)
     struct Uniform
@@ -443,7 +442,7 @@ struct Device final : Object
     std::vector<TransientRange> transient_ranges;
     void forget_transient(const VertexBuffer *vb);
     // The GPU copy of a buffer drawn from its own storage (not as transient data): see draw.cpp.
-    void upload_buffer(VertexBuffer &vb);
+    void upload_buffer(VertexBuffer &vb, const bgfx::VertexLayout &layout);
     void upload_buffer(IndexBuffer &ib, bool index32);
     bool uniforms_changed = false; // a uniform was set since the previous submit
 

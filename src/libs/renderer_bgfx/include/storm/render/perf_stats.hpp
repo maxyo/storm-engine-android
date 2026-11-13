@@ -36,7 +36,7 @@ struct PerfCounters
     uint64_t fan_draws = 0;        // triangle fans converted to lists
     uint64_t buffer_uploads = 0;   // vertex/index buffers created or updated from their shadow copy
     uint64_t buffer_upload_bytes = 0;
-    uint64_t buffer_creates = 0;   // bgfx buffer handles created for them (a rewrite updates in place: none)
+    uint64_t buffer_creates = 0;   // bgfx buffers created for them (ranges of shared GL buffers; a rewrite updates in place: none)
     uint64_t texture_uploads = 0;  // texture levels created or updated from the CPU
     uint64_t texture_upload_bytes = 0;
     // Time, milliseconds.

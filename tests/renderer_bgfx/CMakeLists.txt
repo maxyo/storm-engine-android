@@ -95,3 +95,11 @@ target_include_directories(texture_format_check PRIVATE "${CMAKE_CURRENT_LIST_DI
 target_compile_definitions(texture_format_check PRIVATE NOMINMAX)
 target_compile_options(texture_format_check PRIVATE -fsigned-char)
 target_link_libraries(texture_format_check PRIVATE storm_bgfx storm_check_sdl)
+
+# buffer_pool_check: write-once buffers in bgfx's shared dynamic buffers (src/shim/draw.cpp) on OpenGL ES (an X display, like
+# skinning_check): every range draws exactly its buffer's data, after releases, rewrites and another stride.
+add_executable(buffer_pool_check buffer_pool_check.cpp)
+target_include_directories(buffer_pool_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
+target_compile_definitions(buffer_pool_check PRIVATE NOMINMAX)
+target_compile_options(buffer_pool_check PRIVATE -fsigned-char)
+target_link_libraries(buffer_pool_check PRIVATE storm_bgfx storm_check_sdl)

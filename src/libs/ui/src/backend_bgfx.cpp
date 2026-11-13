@@ -97,8 +97,11 @@ struct Geometry
     std::vector<int> indices;
     uint32_t index_count = 0;
     Rml::Vector2f min, max; // bounds of the positions
-    bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
-    bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
+    // Dynamic buffers although written once: bgfx places them in its shared vertex and index buffers (one layout,
+    // so their offsets stay whole vertices), where a static buffer each made a GL buffer per element and opening a
+    // screen created a few hundred in its first frame.
+    bgfx::DynamicVertexBufferHandle vb = BGFX_INVALID_HANDLE;
+    bgfx::DynamicIndexBufferHandle ib = BGFX_INVALID_HANDLE;
     uint32_t epoch = 0;
 
     ~Geometry()
@@ -112,8 +115,10 @@ struct Geometry
             return true;
         if (vertices.empty() || indices.empty())
             return false;
-        vb = bgfx::createVertexBuffer(bgfx::copy(vertices.data(), uint32_t(vertices.size() * sizeof(Rml::Vertex))), Layout());
-        ib = bgfx::createIndexBuffer(bgfx::copy(indices.data(), uint32_t(indices.size() * sizeof(int))), BGFX_BUFFER_INDEX32);
+        vb = bgfx::createDynamicVertexBuffer(bgfx::copy(vertices.data(), uint32_t(vertices.size() * sizeof(Rml::Vertex))),
+                                             Layout());
+        ib = bgfx::createDynamicIndexBuffer(bgfx::copy(indices.data(), uint32_t(indices.size() * sizeof(int))),
+                                            BGFX_BUFFER_INDEX32);
         epoch = g_epoch;
         std::vector<Rml::Vertex>().swap(vertices);
         std::vector<int>().swap(indices);

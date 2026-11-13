@@ -242,10 +242,10 @@ struct VertexBuffer final : Object, BufferBase
     };
     std::vector<RangeBounds> bounds;
     uint32_t bounds_serial = UINT32_MAX;
-    // GPU copy: a static buffer while the data has been written once; a rewrite turns it into a dedicated dynamic
-    // buffer that later rewrites update in place (Device::upload_buffer).
-    bgfx::VertexBufferHandle handle = BGFX_INVALID_HANDLE;
-    bgfx::DynamicVertexBufferHandle dynamic = BGFX_INVALID_HANDLE;
+    // GPU copy (Device::upload_buffer): a range of bgfx's shared dynamic buffers in the layout (`stride`) it is drawn
+    // with; rewrites update it in place.
+    bgfx::DynamicVertexBufferHandle handle = BGFX_INVALID_HANDLE;
+    uint32_t stride = 0;
     ~VertexBuffer() override;
     HRESULT Lock(UINT offset, UINT size, void **data, DWORD flags);
     HRESULT Unlock();
@@ -256,8 +256,7 @@ struct VertexBuffer final : Object, BufferBase
 struct IndexBuffer final : Object, BufferBase
 {
     bool index32 = false;
-    bgfx::IndexBufferHandle handle = BGFX_INVALID_HANDLE;           // written once (see VertexBuffer)
-    bgfx::DynamicIndexBufferHandle dynamic = BGFX_INVALID_HANDLE;   // rewritten: updated in place
+    bgfx::DynamicIndexBufferHandle handle = BGFX_INVALID_HANDLE; // shared, updated in place (see VertexBuffer)
     ~IndexBuffer() override;
     HRESULT Lock(UINT offset, UINT size, void **data, DWORD flags);
     HRESULT Unlock();
