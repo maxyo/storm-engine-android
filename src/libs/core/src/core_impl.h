@@ -135,6 +135,7 @@ class CoreImpl final : public CorePrivate
     entity_container_cref GetEntityIds(const char *name) const override;
     void SetLayerType(layer_index_t index, layer_type_t type) override;
     void SetLayerFrozen(layer_index_t index, bool freeze) override;
+    void HoldSceneRealize(bool held);
     void RemoveFromLayer(layer_index_t index, entid_t id) override;
     hash_t GetClassCode(entid_t id) const override;
     bool IsLayerFrozen(layer_index_t index) const override;

@@ -171,6 +171,16 @@ PictureRect GamePictureRect()
 {
     return shim::Context::instance().picture_rect();
 }
+
+void HoldGamePicture(bool hold)
+{
+    shim::Context::instance().hold_picture(hold);
+}
+
+bool GamePictureHeld()
+{
+    return shim::Context::instance().picture_held();
+}
 } // namespace storm::render
 
 namespace storm::shim
@@ -611,6 +621,7 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
     if (!initialised_)
         return;
     begin_frame_if_needed();
+    presented_game_color_ = game_color;
     if (surface_.valid)
     {
         const uint16_t w = static_cast<uint16_t>(surface_.width_px), h = static_cast<uint16_t>(surface_.height_px);

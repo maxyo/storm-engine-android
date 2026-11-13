@@ -47,6 +47,13 @@ class Context final : public render::FrameOwner
     void request_surface_restore();
     // The game picture on the surface as of the last composite (game thread).
     render::PictureRect picture_rect() const { return picture_rect_; }
+    // render::HoldGamePicture: asked by the application, kept by the Device (Device::Present).
+    void hold_picture(bool hold) { hold_requested_ = hold; }
+    bool hold_requested() const { return hold_requested_; }
+    void set_picture_held(bool held) { picture_held_ = held; }
+    bool picture_held() const { return hold_requested_ && picture_held_; }
+    // The game picture the last present() composited (host checks: which picture a frame showed).
+    bgfx::TextureHandle presented_game_color() const { return presented_game_color_; }
     // Surface lifecycle (Android): pause stops presenting, resume re-attaches the native window.
     void surface_lost();
     // Marks the surface for re-attachment; the actual bgfx reset happens once SDL holds a native window.
@@ -119,6 +126,8 @@ class Context final : public render::FrameOwner
     bool frame_open_ = false;
     bool restore_pending_ = false;
     render::PictureRect picture_rect_;
+    bool hold_requested_ = false, picture_held_ = false;
+    bgfx::TextureHandle presented_game_color_ = BGFX_INVALID_HANDLE;
     std::atomic<bool> restore_requested_{false};
     std::atomic<bool> density_refresh_requested_{false};
     bool surface_epoch_flag_ = false;
@@ -320,6 +329,10 @@ struct Device final : Object
     TexStorePtr post_color, single_depth;
     // fx render scale: the internal-size scene colour + depth, and the display-size stores parked while they draw.
     TexStorePtr scaled_color, scaled_depth, held_color, held_depth;
+    // The picture presented again while a pause menu holds the game (render::HoldGamePicture).
+    TexStorePtr paused_picture;
+    void keep_paused_picture();
+    void release_paused_picture();
     bool scaled_next = false;          // the next frame starts on the scaled stores (this one had a 3D scene)
     bool held_depth_clear = false;     // the display-size depth returned from parking is cleared in its next view
     uint16_t view_clear_bits = 0;      // clear bits new_view() gave the current view (Clear keeps them)
