@@ -409,6 +409,11 @@ class Mount
     virtual double Now() const = 0;
     // A game interface is mounted over the game: the HUD stays out of the way.
     virtual bool InterfaceActive() const = 0;
+    // A screen is mounted (a game interface, the dialogue panel), shown or held under a
+    // full-screen video: what the player can still reach.
+    virtual bool ScreenMounted() const = 0;
+    // A notice for the player that survives the change of screen (the danger toast).
+    virtual void Alert(const std::string &text) = 0;
 };
 
 using screens::SubjectRequest;
@@ -527,6 +532,7 @@ class Hud
     };
     void Refresh();
     void Conceal();
+    double WatchDialogue(double now); // seconds until it must look again
     // A tap on an event line that leads somewhere: opens that screen on its subject.
     void Open(const std::string &target);
     void Present(bool visible, bool menu_only);
@@ -550,6 +556,8 @@ class Hud
     bool live_ = false;
     bool interface_ = false;
     double dialogue_since_ = -1.0; // when the game's dialogue began (presentation), -1 = none
+    double unseen_since_ = -1.0;   // the game in a dialogue with no screen mounted since, -1 = not
+    bool unseen_ended_ = false;    // the watchdog ended that dialogue (once per episode)
     bool declared_ = false; // the "hudowner" declarations were sent
 };
 

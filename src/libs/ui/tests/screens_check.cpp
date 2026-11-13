@@ -1946,6 +1946,8 @@ struct SubjectMount final : storm::ui::hud::Mount
     void Error(const std::string &) override {}
     double Now() const override { return now; }
     bool InterfaceActive() const override { return true; }
+    bool ScreenMounted() const override { return true; }
+    void Alert(const std::string &) override {}
 };
 
 static void OpenOnSubject(const std::string &models)

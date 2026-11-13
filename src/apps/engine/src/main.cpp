@@ -48,6 +48,7 @@
 #include "android_sea_orders_state.hpp"
 #include "android_land_commands_state.hpp"
 #include "android_worldmap_state.hpp"
+#include "android_dialogue_watchdog.hpp"
 #include <sstream>
 #include <charconv>
 #endif
@@ -747,6 +748,8 @@ int main(int argc, char *argv[])
                 if (accepted)
                     storm::android::requestedContextAction = command.substr(8);
             }
+            else if (command.starts_with("dialogue-lost:"))
+                storm::android::endUnseenDialogue(std::string_view(command).substr(14));
             else if (command.starts_with("dialogue:"))
             {
                 if (storm::android::dialogueActions.size() < 8)
