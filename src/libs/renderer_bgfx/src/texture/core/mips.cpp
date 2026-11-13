@@ -82,14 +82,28 @@ template <typename Fetch> Level downsample(uint32_t width, uint32_t height, Fetc
     return out;
 }
 
-// The alpha scale that makes `level` pass the test at kCutoutReference for `coverage` of its texels.
-float coverage_scale(const Level &level, float coverage)
+// A cut-out level's alpha: which texels pass the test at kCutoutReference (those whose alpha bin is at least `bin`) and
+// the scale of the alpha around it.
+constexpr int kBins = 4096;
+
+int alpha_bin(float alpha)
 {
-    constexpr int kBins = 4096;
+    return int(std::clamp(alpha, 0.0f, 1.0f) * (kBins - 1) + 0.5f);
+}
+
+struct Cut
+{
+    int bin = 0;        // texels in this bin and above pass, the others fail (kBins: none passes)
+    float scale = 1.0f; // their alpha's scale: the lowest passing bin lands on the reference
+};
+
+// The cut that makes `level` pass the test for `coverage` of its texels, as closely as its texels allow.
+Cut coverage_cut(const Level &level, float coverage)
+{
     std::vector<uint32_t> histogram(kBins, 0);
     const size_t texels = size_t(level.width) * level.height;
     for (size_t i = 0; i < texels; ++i)
-        ++histogram[size_t(std::clamp(level.texels[i * kChannels + 3], 0.0f, 1.0f) * (kBins - 1) + 0.5f)];
+        ++histogram[size_t(alpha_bin(level.texels[i * kChannels + 3]))];
     // The alpha t such that the texels at or above it come closest to `coverage`: scaled by ref / t they pass the
     // test. (Texels of one alpha pass or fail together: a level rarely hits the share exactly.)
     const double wanted = coverage * double(texels);
@@ -107,10 +121,13 @@ float coverage_scale(const Level &level, float coverage)
         above = with;
     }
     const float t = std::max(float(bin) / (kBins - 1), 1.0f / (kBins - 1));
-    return (kCutoutReference / 255.0f) / t;
+    return {bin, (kCutoutReference / 255.0f) / t};
 }
 
-std::vector<uint8_t> to_rgba8(const Level &level, float alpha_scale)
+// `cut`: a cut-out level's (null: its alpha as it is). The cut decides each texel's side of the test: the scaled alpha,
+// rounded to 8 bits, must not carry a failing texel over the reference (a 1x1 level of a small disk at 15 % coverage
+// would turn opaque: the planets' grey squares in the night sky) nor a passing one under it.
+std::vector<uint8_t> to_rgba8(const Level &level, const Cut *cut)
 {
     std::vector<uint8_t> out(size_t(level.width) * level.height * 4);
     const float *t = level.texels.data();
@@ -120,7 +137,10 @@ std::vector<uint8_t> to_rgba8(const Level &level, float alpha_scale)
         const bool weighted = a > 1.0f / 1024.0f;
         for (int c = 0; c < 3; ++c)
             out[i + c] = to_srgb(weighted ? t[c] / a : t[4 + c]);
-        out[i + 3] = uint8_t(std::clamp(a * alpha_scale * 255.0f + 0.5f, 0.0f, 255.0f));
+        int alpha = int(std::clamp(a * (cut ? cut->scale : 1.0f) * 255.0f + 0.5f, 0.0f, 255.0f));
+        if (cut)
+            alpha = alpha_bin(a) >= cut->bin ? std::max(alpha, int(kCutoutReference)) : std::min(alpha, kCutoutReference - 1);
+        out[i + 3] = uint8_t(alpha);
     }
     return out;
 }
@@ -175,7 +195,8 @@ std::vector<std::vector<uint8_t>> build_mip_chain(const uint8_t *rgba, uint32_t 
     });
     for (uint32_t l = 1; l < levels; ++l)
     {
-        chain.push_back(to_rgba8(level, cutout ? coverage_scale(level, coverage) : 1.0f));
+        const Cut cut = cutout ? coverage_cut(level, coverage) : Cut{};
+        chain.push_back(to_rgba8(level, cutout ? &cut : nullptr));
         if (l + 1 < levels)
         {
             const Level &below = level;

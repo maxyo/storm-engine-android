@@ -17,7 +17,8 @@ namespace storm::texture
 {
 
 // Bump when the decoder, encoder settings or the container layout change.
-inline constexpr uint32_t kEncoderVersion = 3; // 2: BC decoding by bimg, 3: rebuilt mip chains, BC tier
+inline constexpr uint32_t kEncoderVersion = 4; // 2: BC decoding by bimg, 3: rebuilt mip chains, BC tier, 4: cut-out
+                                               // levels keep failing texels below the reference
 
 uint64_t hash64(const void *data, size_t size, uint64_t seed);
 

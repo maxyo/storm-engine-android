@@ -464,6 +464,21 @@ void test_mips()
     CHECK(coverage(plain[2]) < top * 0.6);
     for (int level = 0; level < 3; ++level)
         CHECK(std::abs(coverage(kept[level]) - top) < 0.05);
+    // A small disk (15 % coverage, the night sky's planets): its 1x1 level stays transparent. The scaled alpha of the
+    // failing texel must not round up to the reference (it did: the whole sprite drawn as an opaque square).
+    std::vector<uint8_t> disk(64 * 64 * 4, 0);
+    for (int y = 0; y < 64; ++y)
+        for (int x = 0; x < 64; ++x)
+            if ((x - 31.5) * (x - 31.5) + (y - 31.5) * (y - 31.5) < 14.0 * 14.0)
+            {
+                uint8_t *p = disk.data() + (y * 64 + x) * 4;
+                p[0] = p[1] = p[2] = 200;
+                p[3] = 255;
+            }
+    const auto disk_chain = build_mip_chain(disk.data(), 64, 64, full_mip_levels(64, 64), true);
+    CHECK(coverage(disk) < 0.2 && disk_chain.back().size() == 4 && disk_chain.back()[3] < kCutoutReference);
+    for (size_t level = 0; level + 4 < disk_chain.size(); ++level) // 32x32 and 16x16
+        CHECK(std::abs(coverage(disk_chain[level]) - coverage(disk)) < 0.03);
     // A blended (soft) alpha is not a cut-out.
     std::vector<uint8_t> soft(16 * 16 * 4, 0);
     for (int i = 0; i < 256; ++i)
