@@ -828,6 +828,8 @@ int main(int argc, char *argv[])
             // frame. Taken after RunFrame, it waited for the next frame to show anything.
             if (const auto action = gameplayState.take(SDL_GetTicks()))
             {
+                STORM_PROFILE_ZONE("HUD command: gameplay action");
+                STORM_PROFILE_ZONE_TEXT(action->data(), action->size());
                 // A battle ability goes through the command list, as the native menu launches it.
                 if (action->starts_with("BI_"))
                     storm::android::launchShipAbility(*action);
@@ -844,8 +846,11 @@ int main(int argc, char *argv[])
                 storm::android::mobileScreen.empty();
             if (const auto shortcut = gameplayShortcuts.take(SDL_GetTicks(), shortcutReady))
             {
+                STORM_PROFILE_ZONE("HUD command: shortcut");
                 const auto *control = storm::android::shortcutControl(*shortcut);
                 const auto *screen = storm::android::shortcutScreen(*shortcut);
+                [[maybe_unused]] const std::string_view shortcutName = control ? control : screen; // Tracy only
+                STORM_PROFILE_ZONE_TEXT(shortcutName.data(), shortcutName.size());
                 if (shortcutLogBudget > 0)
                 {
                     --shortcutLogBudget;
@@ -903,22 +908,30 @@ int main(int argc, char *argv[])
             const bool gameplayReady = isRunning && bActive && androidLifecycle.canRun() &&
                 core_private->initialized() && core.Controls && storm::android::loadingState == 0 &&
                 storm::android::mobileScreen.empty();
-            storm::android::refreshSeaOrders(storm::android::seaOrdersReady(gameplayReady));
-            // Detect Activity replacement before accepting any queued action.
-            storm::android::publishSeaOrders();
-            if (const auto request = storm::android::seaOrders.take(SDL_GetTicks()))
             {
-                storm::android::executeSeaOrder(*request);
+                STORM_PROFILE_ZONE("HUD adapter: sea orders");
                 storm::android::refreshSeaOrders(storm::android::seaOrdersReady(gameplayReady));
+                // Detect Activity replacement before accepting any queued action.
                 storm::android::publishSeaOrders();
+                if (const auto request = storm::android::seaOrders.take(SDL_GetTicks()))
+                {
+                    storm::android::executeSeaOrder(*request);
+                    storm::android::refreshSeaOrders(storm::android::seaOrdersReady(gameplayReady));
+                    storm::android::publishSeaOrders();
+                }
             }
-            storm::android::refreshLandCommands(storm::android::landCommandsReady(gameplayReady));
-            storm::android::publishLandCommands();
-            if (const auto request = storm::android::landCommands.take(SDL_GetTicks())) {
-                storm::android::executeLandCommand(*request);
-                storm::android::refreshLandCommands(storm::android::landCommandsReady(gameplayReady));
+            {
+                STORM_PROFILE_ZONE("HUD adapter: land commands");
+                // Asks the scripts on a change signal or once per period (android_hud_refresh.hpp).
+                storm::android::pollLandCommands(storm::android::landCommandsReady(gameplayReady), SDL_GetTicks());
                 storm::android::publishLandCommands();
+                if (const auto request = storm::android::landCommands.take(SDL_GetTicks())) {
+                    storm::android::executeLandCommand(*request);
+                    storm::android::refreshLandCommands(storm::android::landCommandsReady(gameplayReady));
+                    storm::android::publishLandCommands();
+                }
             }
+            STORM_PROFILE_ZONE("HUD adapter: gameplay, combat, map, ship");
             auto gameplaySnapshot = storm::android::readGameplaySnapshot(gameplayReady);
             if (!gameplayReady)
                 gameplaySnapshot.blocked = notReady(); // the same reason as the blocked branch above: one state per loop
