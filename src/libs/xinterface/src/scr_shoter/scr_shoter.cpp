@@ -4,6 +4,8 @@
 #include "core.h"
 #include "string_compare.hpp"
 
+#include "storm/render/frame_owner.hpp"
+
 #include <spdlog/spdlog.h>
 
 #define SS_TEXTURE_WIDTH 128
@@ -147,7 +149,14 @@ bool SCRSHOTER::MakeScreenShot()
         return false;
     }
 
-    // Add a texture with a frame to the shot
+    // Add a texture with a frame to the shot: drawn on the GPU, so not without a surface (an autosave as the app goes
+    // to the background: the shot comes from the renderer's copy of the last frame and keeps no frame)
+    const auto *owner = storm::render::FrameOwner::Get();
+    if (!owner || !owner->DeviceReady())
+    {
+        spdlog::info("Screenshot for the save taken without its frame: no surface to draw the frame on");
+        return true;
+    }
     const int nTextureID = rs->TextureCreate("interfaces\\EmptyBorder.tga");
     if (nTextureID >= 0)
     {
