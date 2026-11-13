@@ -161,6 +161,13 @@ constexpr Rule kRules[] = {
      "anisotropic filtering is not available: switched off"},
     {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa_depth && s.ssao; }, [](Settings &s) { s.ssao = false; },
      "ambient occlusion cannot read the depth of a multisampled scene on this renderer: switched off (or turn MSAA off)"},
+    // At a render scale the scene depth is carried to the display-size picture for the 3D drawn after the scene
+    // (DepthCopy): it must be readable.
+    {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa_depth && s.render_scale < 1.0f; },
+     [](Settings &s) { s.render_scale = 1.0f; },
+     "render scale cannot carry the depth of a multisampled scene on this renderer: the scene at native resolution (or turn MSAA off)"},
+    {[](const Settings &s, const Support &c) { return s.render_scale < 1.0f && !c.scene_depth; }, [](Settings &s) { s.render_scale = 1.0f; },
+     "render scale needs a sampleable scene depth texture: the scene at native resolution"},
     {[](const Settings &s, const Support &c) { return s.msaa > 1 && !c.msaa_depth && s.sea_soft_edges; },
      [](Settings &s) { s.sea_soft_edges = false; },
      "soft sea edges cannot read the depth of a multisampled scene on this renderer: switched off (or turn MSAA off)"},

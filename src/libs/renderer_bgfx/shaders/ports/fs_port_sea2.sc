@@ -8,8 +8,11 @@ $input v_color0, v_color1, v_texcoord0, v_texcoord1, v_texcoord2, v_texcoord3, v
 //   whose colour at the horizon the side faces hold;
 // - band limit: the bump detail fades towards the flat surface as one pixel covers more texels of the bump
 //   texture (far and grazing water), so the reflection does not shimmer at the horizon;
-// - soft edges: the water fades out where it is shallower than kEdgeDepth in front of the scene behind it
-//   (s_seaDepth, the scene's view distance packed into RGB8 by fs_fx_sea_depth);
+// - soft edges: the water fades out where it is shallower than the edge depth in front of the scene behind it
+//   (s_seaDepth, the scene's view distance per pixel packed into RGB8 by fs_fx_sea_depth). Where that distance is
+//   nearer than the water itself, the pixel belongs to an object in front of the sea (its edge: a rope, a sail, a
+//   hull, partly covering a multisampled pixel) and the water is not faded: fading it there showed what lies under
+//   the sea as bright fringes along every edge over the water;
 // - specular: a sun highlight from the bumped normal over the game's own sun road (optional).
 #include "port_ps.sh"
 SAMPLER3D(s_vol0, 8);
@@ -49,7 +52,8 @@ void main()
         // Blended as Sea2: source + destination * alpha; fading to the scene keeps destination * 1.
         vec3 packed = texture2D(s_seaDepth, gl_FragCoord.xy * u_viewTexel.xy).rgb;
         float behind = dot(packed, vec3(1.0, 1.0 / 255.0, 1.0 / 65025.0)) * u_seaFx[0].w;
-        float edge = clamp((behind - v_fog.z) * u_seaFx[2].w, 0.0, 1.0);
+        float gap = behind - v_fog.z;
+        float edge = gap < 0.0 ? 1.0 : clamp(gap * u_seaFx[2].w, 0.0, 1.0);
         gl_FragColor.rgb *= edge;
         gl_FragColor.a = 1.0 - edge * (1.0 - gl_FragColor.a);
     }

@@ -17,6 +17,8 @@
 //   sea:<island>   sea around <island> ("sea:" is open sea)
 //   dusk:open      the open sea at sunset (19:00, the "19 Hour" weather: its sunset sky), heading towards the sun
 //   dawn:open      the open sea at sunrise (7:00, the "7 Hour" weather), heading into the low sun (in view)
+//   ship:night     the open sea at 0:00 (the "0 Hours" weather), the ship camera close and looking down at the hero's
+//                  ship: rigging against the water, the bow wave and the hull at the waterline
 //   battle:<island> sea around <island> with an attacking enemy ship, captured once it has fired
 //   boarding:<island> boarding of that enemy ship (deck fight)
 //   map:world      world map
@@ -332,6 +334,7 @@ void SceneSweep_Start()
 	case "sea":		SceneSweep_StartSea(false);		break;
 	case "dusk":	SceneSweep_StartSea(false);		break;
 	case "dawn":	SceneSweep_StartSea(false);		break;
+	case "ship":	SceneSweep_StartSea(false);		break;
 	case "battle":	SceneSweep_StartSea(true);		break;
 	case "boarding":
 		if(ssStep == 0) SceneSweep_StartSea(true);
@@ -359,8 +362,8 @@ void SceneSweep_Start()
 		}
 		break;
 	}
-	if(ssKind != "loc" && ssKind != "combat" && ssKind != "night" && ssKind != "surface" && ssKind != "sea" && ssKind != "dusk" && ssKind != "dawn" && ssKind != "battle" &&
-		ssKind != "boarding" && ssKind != "map" && ssKind != "storm")
+	if(ssKind != "loc" && ssKind != "combat" && ssKind != "night" && ssKind != "surface" && ssKind != "sea" && ssKind != "dusk" && ssKind != "dawn" && ssKind != "ship" &&
+		ssKind != "battle" && ssKind != "boarding" && ssKind != "map" && ssKind != "storm")
 	{
 		SceneSweep_Fail("unknown scene kind");
 	}
@@ -411,6 +414,19 @@ bool SceneSweep_Loaded()
 	case "sea":		return SceneSweep_AtSea();	break;
 	case "dusk":	return SceneSweep_AtSea();	break;
 	case "dawn":	return SceneSweep_AtSea();	break;
+	case "ship":
+		if(!SceneSweep_AtSea()) return false;
+		if(ssStep == 0)
+		{
+			ssStep = 1;
+			// Close behind the ship, about 50 degrees down: the camera's pitch is held between these limits.
+			SeaShipCamera.MinDistance = 12.0;
+			SeaShipCamera.Distance = 0.0;
+			SeaShipCamera.MinAngleX = -0.95;
+			SeaShipCamera.MaxAngleX = -0.9;
+		}
+		return true;
+		break;
 	case "battle":
 		if(!SceneSweep_AtSea()) return false;
 		// The enemy attacks the hero: its cannons must fire (sea AI relations, cannons, balls).
@@ -563,13 +579,18 @@ void SceneSweep_StartSea(bool withEnemy)
 		SetCurrentTime(7, 0);
 		SetNextWeather("7 Hour");
 	}
-	if(ssKind != "dusk" && ssKind != "dawn")
+	if(ssKind == "ship")
+	{
+		SetCurrentTime(0, 0);
+		SetNextWeather("0 Hours");
+	}
+	if(ssKind != "dusk" && ssKind != "dawn" && ssKind != "ship")
 	{
 		SetCurrentTime(12, 0);
 		SetNextWeather("12 Hour");
 	}
 	string island = ssId;
-	if(ssKind == "map" || ssKind == "storm" || ssKind == "dusk" || ssKind == "dawn") island = "";
+	if(ssKind == "map" || ssKind == "storm" || ssKind == "dusk" || ssKind == "dawn" || ssKind == "ship") island = "";
 	DeleteAttribute(&questToSeaLoginer, "");
 	QuestToSeaLogin_Prepare(0.0, 0.0, island);
 	// The open sea, the ship (and its camera) heading into the sun: sun glare, shafts, the sun road.

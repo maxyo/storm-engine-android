@@ -286,9 +286,10 @@ struct Device final : Object
     // fx internal scene height (fx::RenderScale(RendererState::render_height, display) < 1): a 3D frame draws into the internal-size scene stores
     // (enter_scaled_picture, at the start of a frame after a 3D frame); at the scene boundary the post chain upscales
     // the scene onto the display-size picture, which the interfaces then draw on (leave_scaled_picture: `copy` the
-    // internal picture up when no post chain ran, e.g. an interface before any 3D).
+    // internal picture up when no post chain ran, e.g. an interface before any 3D; `depth_kept`: the display-size
+    // depth was given the scene's, not cleared).
     void enter_scaled_picture();
-    void leave_scaled_picture(bool copy);
+    void leave_scaled_picture(bool copy, bool depth_kept = false);
     // Store pixels per game-addressed pixel of the current render target (1 except on the scaled scene stores).
     std::array<float, 2> target_scale() const;
     // Graphics effects (src/effects): the 3D scene of this frame is complete; runs the post chain on it and

@@ -1,6 +1,6 @@
 // The scene's view distance behind the legacy sea, for its soft edges (Settings::sea_soft_edges): the sea is
 // depth-tested against the depth attachment, so it cannot sample it; Capture() packs the distance into an RGB8
-// texture at half resolution (point-sampled) in a view of its own, before the sea draws.
+// texture of the scene size (one texel per pixel, point-sampled) in a view of its own, before the sea draws.
 #pragma once
 
 #include <bgfx/bgfx.h>

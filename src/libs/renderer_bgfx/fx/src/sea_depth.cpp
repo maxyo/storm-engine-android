@@ -27,7 +27,8 @@ bool SeaDepth::Prepare(int &budget)
 void SeaDepth::Capture(bgfx::ViewId view, bgfx::TextureHandle scene_depth, uint16_t width, uint16_t height,
                        float near_plane, float far_plane)
 {
-    const uint16_t w = std::max<uint16_t>(width / 2, 1), h = std::max<uint16_t>(height / 2, 1);
+    // Per pixel of the scene: a coarser capture gave the pixels next to an object its distance (fringes).
+    const uint16_t w = std::max<uint16_t>(width, 1), h = std::max<uint16_t>(height, 1);
     if (!bgfx::isValid(target_) || width_ != w || height_ != h)
     {
         Destroy(target_);
