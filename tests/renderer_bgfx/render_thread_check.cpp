@@ -1,12 +1,15 @@
 // bgfx's render thread through the shim (src/shim/device.hpp, Context; patches/bgfx-render-thread-hooks.patch) on
 // OpenGL ES in an SDL window (an X display: xvfb-run in CI), with the render thread and with render_thread=0:
-//   1. the device reports the mode asked for, and the driver's strings read on the render thread;
+//   1. the device reports the mode asked for and the device's strings (OpenGL ES: read on the render thread), and
+//      the backend self-test passes;
 //   2. frames present with the game thread taking turns with the render thread, and overlapping it;
 //   3. a surface release from another thread (Android's surfaceDestroyed) returns only when no frame is in flight,
 //      presentation stops, and resumes after the surface is restored: many times, at any point of a frame;
 //   4. the renderer shuts down and starts again.
 #include "device.hpp"
 #include "storm/render/frame_owner.hpp"
+
+#include "check_backend.hpp"
 
 #include <SDL2/SDL.h>
 
@@ -47,10 +50,16 @@ bool run(SDL_Window *window, bool render_thread)
         if (!context.init(window, kWidth, kHeight, false))
             return expect(false, mode, "the device starts");
         ok &= expect(context.render_thread() == render_thread, mode, "bgfx runs in the mode asked for");
-        ok &= expect(!context.gl_info().renderer.empty() && context.gl_info().renderer != "?" &&
-                         context.gl_info().version.find("OpenGL ES") != std::string::npos &&
-                         !context.gl_info().extensions.empty(),
-                     mode, "the driver's strings are known after init");
+        const shim::DeviceInfo &device = context.device_info();
+        ok &= expect(!device.renderer.empty() && device.renderer != "?" &&
+                         (device.vulkan ? device.version.find("Vulkan") != std::string::npos
+                                        : device.version.find("OpenGL ES") != std::string::npos && !device.extensions.empty()),
+                     mode, "the device's strings are known after init");
+        // The self-test that decides whether a device keeps Vulkan (Context::start) holds on every backend.
+        std::string failure;
+        ok &= expect(context.backend_self_test(&failure), mode, "the backend self-test passes");
+        if (!failure.empty())
+            std::printf("  %s\n", failure.c_str());
         present(context, 20);
         render::SetFrameOverlap(0);
         present(context, 20);
@@ -109,6 +118,7 @@ int main()
         std::fprintf(stderr, "FAIL: SDL video: %s (an X display is needed)\n", SDL_GetError());
         return 1;
     }
+    host_check::UseBackendFromEnvironment();
     SDL_Window *window = SDL_CreateWindow("render_thread_check", 0, 0, kWidth, kHeight, 0);
     if (!window)
     {

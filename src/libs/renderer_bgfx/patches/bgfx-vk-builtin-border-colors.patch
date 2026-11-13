@@ -1,0 +1,49 @@
+Vulkan sampler border colours without VK_EXT_custom_border_color: bgfx used opaque black for every
+BGFX_SAMPLER_BORDER_COLOR palette entry on such devices. D3D's default border colour, which the game's sails sample,
+is transparent black: Vulkan has it built in (as opaque black and opaque white), so the palette colour now selects
+the matching built-in colour; only other colours need the extension (the shim reports those, draw.cpp). The sampler
+cache keys such samplers by their palette entry, as with the extension.
+
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+index 2f76eb8..e1ad5a1 100644
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -4572,10 +4572,11 @@ VK_IMPORT_DEVICE
+ 				: _palette[index]
+ 				;
+ 
++			// Storm Engine patch (renderer_bgfx/patches/bgfx-vk-builtin-border-colors.patch): without
++			// VK_EXT_custom_border_color the palette colour still selects one of Vulkan's own border colours.
+ 			const bool needColor = true
+ 				&& needBorderColor(_flags)
+ 				&& NULL != rgba
+-				&& m_borderColorSupport
+ 				;
+ 
+ 			uint32_t hashKey;
+@@ -4645,7 +4646,24 @@ VK_IMPORT_DEVICE
+ 			sci.unnormalizedCoordinates = VK_FALSE;
+ 
+ 			VkSamplerCustomBorderColorCreateInfoEXT cbcci;
+-			if (needColor)
++			if (needColor
++			&& !m_borderColorSupport)
++			{
++				// Storm Engine patch: transparent black, opaque black and opaque white exist in every Vulkan;
++				// any other colour needs the extension and stays opaque black here.
++				const bool black = 0.0f == rgba[0] && 0.0f == rgba[1] && 0.0f == rgba[2];
++				const bool white = 1.0f == rgba[0] && 1.0f == rgba[1] && 1.0f == rgba[2];
++
++				if (black && 0.0f == rgba[3])
++				{
++					sci.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
++				}
++				else if (white && 1.0f == rgba[3])
++				{
++					sci.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
++				}
++			}
++			else if (needColor)
+ 			{
+ 				cbcci.sType = VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT;
+ 				cbcci.pNext = NULL;

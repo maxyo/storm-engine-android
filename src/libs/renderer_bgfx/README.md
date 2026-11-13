@@ -1,7 +1,7 @@
 # renderer_bgfx
 
-The engine's only GPU backend: [bgfx](https://github.com/bkaradzic/bgfx) on OpenGL ES 3.0,
-on Android and on the Linux development host alike.
+The engine's only renderer: [bgfx](https://github.com/bkaradzic/bgfx), on OpenGL ES 3.0 or on Vulkan,
+on Android and on the Linux development host alike (see "Backends").
 
 - `cmake/bgfx_pin.cmake` — the single pin of bgfx, bx, bimg and of bgfx.cmake (its CMake scripts only).
   `cmake/bgfx_upstream.cmake` adds those targets (patched, see `patches/`). Everything that uses
@@ -59,12 +59,54 @@ on Android and on the Linux development host alike.
   finished (rendered and presented), which bgfx has no API for; see "Threads" below.
   `bgfx-shaderc-point-size.patch` (shaderc only): `gl_PointSize` in the SPIR-V build of a vertex shader;
   Vulkan leaves a point's size undefined without it (the stars are a point list).
+  `bgfx-vk-present-hook.patch`, `bgfx-vk-unbound-samplers.patch`, `bgfx-vk-builtin-border-colors.patch`: the
+  Vulkan backend, see "Backends".
+
+## Backends
+
+bgfx is built with two backends, OpenGL ES 3.0 and Vulkan; a device runs one, chosen when it is created
+(`src/shim/backend_select.hpp`, `Context::start`):
+
+- Asked for with `render_backend = auto | gles | vulkan` in engine.ini (debuggable Android builds: the graphics
+  setting of the same name, 0 / 1 / 2). `auto`, the default, takes Vulkan only for GPU vendors listed in
+  `VulkanByDefault` (filled from measurements on real devices; empty so far) and OpenGL ES otherwise.
+- Vulkan needs: the system's loader and a device with Vulkan 1.1, `VK_KHR_swapchain` and `VK_KHR_maintenance1`
+  (read by `ProbeVulkan` before bgfx is touched); no marker of a Vulkan start on this device and driver that
+  never presented a frame (`<cache>/RenderBackend/vulkan-start`, written before `bgfx::init`, removed after three
+  presented frames: a driver that kills the process in its start is not started on Vulkan twice); `bgfx::init`;
+  and the backend self-test (a known picture drawn into a target and read back).
+- A Vulkan that fails any of the last three makes the device start again on OpenGL ES: the one deliberate
+  fallback of the renderer, said as an error with the reason. Every start logs one line, which the
+  application's diagnostics export keeps:
+  `render backend: Vulkan (render_backend = vulkan): <reason>; Vulkan device: <name, version, driver, ids>`.
+- OpenGL ES is not a spare: it is the backend of every device Vulkan is not chosen for, and of the launcher's
+  screens (their `GLSurfaceView` owns the context).
+
+What differs between the two, all inside the shim:
+
+| | OpenGL ES | Vulkan |
+|---|---|---|
+| Shaders | ESSL blob | SPIR-V blob (`storm/render/shader_blob.hpp`) |
+| Present | Swappy GL (`bgfx-swap-present-hook.patch`) | Swappy Vk (`bgfx-vk-present-hook.patch`), FIFO swap chain |
+| Device facts (`shim::DeviceInfo`) | `glGetString` on the render thread | the probe |
+| Program cache entries | linked program binaries | pipeline caches, one per pipeline state (bgfx's own `cacheRead` / `cacheWrite` in `getPipeline`) |
+| GPU timers | `EXT_disjoint_timer_query` (`bgfx-gles-timer-queries.patch`) | bgfx's timestamp queries |
+| A sampler a draw sets no texture for | samples black | gets a black texture of its kind (`bgfx-vk-unbound-samplers.patch`) |
+| `D3DTADDRESS_BORDER` | with a border-clamp extension | always; colours other than transparent / opaque black and opaque white need `VK_EXT_custom_border_color` (`bgfx-vk-builtin-border-colors.patch`; reported when one is used) |
+| Multisampled targets | resolved when left; the samples are discarded after it (`bgfx-gl-framebuffer-discard.patch`) | resolved by bgfx after the render pass from the stored samples: no discard of what it reads (`Device::scene_complete`, the UI's layers) |
+| Uniforms | only changed ones uploaded (`bgfx-gl-uniform-commit.patch`, `gl_uniforms`) | one uniform block per draw; the counters are 0 |
+| Anisotropy level | `bgfx::gl::g_stormMaxAnisotropy` | `bgfx::vk::g_stormMaxAnisotropy` (both `bgfx-anisotropy-level.patch`) |
+
+Orientation and depth range come from bgfx's caps on both (`originBottomLeft`, `homogeneousDepth`).
+`tests/renderer_bgfx/run.py` runs every check that draws on OpenGL ES and again on Vulkan
+(`STORM_CHECK_BACKEND=vulkan`) where the host has a Vulkan device.
 
 ## Threads
 
 bgfx runs multithreaded (`BGFX_CONFIG_MULTITHREADED`). The game thread records a frame; `bgfx::frame()`
-(only in `Context::run_frame`) hands it to bgfx's render thread, which owns the EGL context, executes the GL
-backend and presents (Swappy), after `bgfx::frame()` has returned. Rules that follow:
+(only in `Context::run_frame`) hands it to bgfx's render thread, which owns the EGL context (OpenGL ES) or
+records and submits the command buffers (Vulkan), executes the backend and presents (Swappy), after
+`bgfx::frame()` has returned. Rules that follow:
 
 - No GL or EGL call outside bgfx. What the driver says about itself is read once on the render thread:
   `shim::Context::gl_info()`.

@@ -7,6 +7,8 @@
 // In each the floor behind an opaque square is in shadow and the floor behind a hole next to it is lit; with an opaque
 // texture both are in shadow. A blended plate that writes no depth (glass) casts nothing.
 #include "device.hpp"
+#include "check_backend.hpp"
+
 #include <SDL2/SDL.h>
 #include "storm/render/effects.hpp"
 
@@ -235,6 +237,7 @@ int main()
         std::fprintf(stderr, "FAIL: SDL video: %s (an X display is needed)\n", SDL_GetError());
         return 1;
     }
+    host_check::UseBackendFromEnvironment();
     SDL_Window *window = SDL_CreateWindow("cutout_caster_check", 0, 0, kSize, kSize, 0);
     if (!window || !shim::Context::instance().init(window, kSize, kSize, false))
     {

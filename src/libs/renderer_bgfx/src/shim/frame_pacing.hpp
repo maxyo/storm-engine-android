@@ -1,5 +1,9 @@
-// Frame pacing of the game window: Android Frame Pacing (Swappy GL, Android Game SDK) presents each frame at
-// a vsync of the display (bgfx::setEglPresent, patches/bgfx-swap-present-hook.patch).
+// Frame pacing of the game window: Android Frame Pacing (Swappy, Android Game SDK) presents each frame at a vsync
+// of the display, on either backend: Swappy GL in place of eglSwapBuffers (bgfx::setEglPresent,
+// patches/bgfx-swap-present-hook.patch), Swappy Vk in place of vkQueuePresentKHR (bgfx::setVkPresentHooks,
+// patches/bgfx-vk-present-hook.patch). Everything below is the same code for both; only the Swappy calls differ.
+// Swappy Vk works per swap chain: it is set up when bgfx has created one (on the presenting thread) and the
+// interval is chosen for it at the game thread's next frame.
 //
 // Rate: the settings' «Частота кадров» (storm::render::SetFrameRate, live; kDefaultFrame = 60 fps until set) at a
 // whole number of display refreshes (swap_interval.hpp); Swappy may pick another display mode for it (60 fps on a
@@ -13,8 +17,8 @@
 // Swappy's CPU affinity is off: the scheduler and ADPF place the game thread.
 //
 // Without Swappy (its init failed or the device disables it) an error says why, and the present is a plain
-// eglSwapBuffers at swap interval 1: the display's rate, unpaced; the frame times are logged the same way and
-// ADPF aims at the setting's frame time.
+// eglSwapBuffers at swap interval 1 / vkQueuePresentKHR on the FIFO swap chain: the display's rate, unpaced; the
+// frame times are logged the same way and ADPF aims at the setting's frame time.
 //
 // Every 30 s of presented frames the log gets a "frame pacing:" line with the frame intervals measured after
 // each present (percentiles and a histogram in display refreshes) and the mean present wait. Swappy's own
@@ -39,9 +43,12 @@ class FramePacing
     static FramePacing &instance();
 
     // Game thread, before bgfx::init of the game window (Android: Swappy with SDL's activity). `render_thread`:
-    // bgfx presents on its render thread (the present function then runs there; everything else of this class is
-    // called on the game thread).
-    void start(bool render_thread);
+    // bgfx presents on its render thread (the present functions then run there; everything else of this class is
+    // called on the game thread). `vulkan`: the device is started on bgfx's Vulkan backend.
+    void start(bool render_thread, bool vulkan);
+    // Game thread, once per presented frame: takes in what the presenting thread reported (a new Vulkan swap
+    // chain: the swap interval is chosen for it).
+    void game_frame();
     // Game thread: it was blocked this long handing a frame to the render thread, which is not work (ADPF). Without
     // a render thread the present itself, on the game thread, reports its wait.
     void game_thread_waited(std::chrono::nanoseconds wait);
@@ -66,17 +73,40 @@ class FramePacing
   private:
 #ifdef __ANDROID__
     static bool present(void *display, void *surface);
-    bool present_frame(void *display, void *surface);
+    // bgfx::VkPresentHooks (presenting thread).
+    static void vk_swap_chain_created(void *physical_device, void *device, void *queue, uint32_t queue_family,
+                                      uint64_t swap_chain, void *native_window);
+    static void vk_swap_chain_destroying(void *device, uint64_t swap_chain);
+    static int32_t vk_present(void *queue, const void *present_info);
+    // Presenting thread: the present took from `before` to `after`.
+    void presented(std::chrono::steady_clock::time_point before, std::chrono::steady_clock::time_point after);
+    // What Swappy paces at now and the display's refresh period, for the backend in use.
+    std::chrono::nanoseconds swappy_interval();
+    std::chrono::nanoseconds swappy_refresh();
     void choose_interval();
+    // Any presenting path without Swappy: says why as an error, reads the display's rate for the statistics.
+    void unpaced(const char *why);
     void log_stats(double seconds);
     void reset_stats();
 
     bool started_ = false;
-    bool render_thread_ = false; // present_frame runs on bgfx's render thread
+    bool render_thread_ = false; // the presents run on bgfx's render thread
+    bool vulkan_ = false;        // Swappy Vk; false: Swappy GL
+    // Vulkan: the swap chain Swappy Vk paces (zero: none) and its device, set by the presenting thread; the game
+    // thread's Swappy calls for it hold chain_mutex_ so the swap chain cannot go meanwhile.
+    std::mutex chain_mutex_;
+    void *vk_device_ = nullptr;
+    uint64_t vk_swap_chain_ = 0;
+    uint64_t vk_refresh_ns_ = 0;             // SwappyVk_initAndGetRefreshCycleDuration
+    uint64_t vk_interval_ns_ = 0;            // the interval the game thread chose last; a new swap chain starts on it
+    uint64_t vk_slowest_ns_ = 0;
+    std::atomic<bool> chain_changed_{false}; // a new swap chain: the game thread chooses its interval
+    void *vulkan_library_ = nullptr;         // the loader, for vkQueuePresentKHR without Swappy
+    int32_t (*vk_queue_present_)(void *queue, const void *present_info) = nullptr;
     std::chrono::nanoseconds preferred_{0}; // game thread: the interval of the setting
     std::chrono::nanoseconds present_wait_{0}; // presenting thread
     std::chrono::nanoseconds target_ = kDefaultFrame;
-    std::atomic<bool> swappy_{false}; // false: started without Swappy, presents with eglSwapBuffers
+    std::atomic<bool> swappy_{false}; // false: no Swappy, presents with eglSwapBuffers / vkQueuePresentKHR
     // What follows is written by the present (render thread) and by the game thread's interval choice.
     std::mutex mutex_;
     std::chrono::nanoseconds swap_interval_{0}; // what Swappy paces at now

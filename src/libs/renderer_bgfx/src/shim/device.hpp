@@ -1,5 +1,6 @@
 #pragma once
 
+#include "backend_select.hpp"
 #include "bone_palettes.hpp"
 #include "frame_overlap.hpp"
 #include "shim.hpp"
@@ -10,6 +11,7 @@
 #include <condition_variable>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 
 struct SDL_Window;
@@ -27,13 +29,19 @@ namespace storm::shim
 inline constexpr uint32_t kSamplerUnits = 14;
 inline constexpr uint32_t kBonePaletteUnit = 13;
 
-// What the GL driver says about itself, read once on bgfx's render thread (the only thread with the GL context).
-// Empty strings on a backend without GL (headless Noop).
-struct GlInfo
+// What the GPU and its driver say about themselves. OpenGL ES: read once on bgfx's render thread (the only thread
+// with the GL context). Vulkan: from the probe made before bgfx::init (backend_select.hpp). Empty strings on the
+// headless Noop backend.
+struct DeviceInfo
 {
-    std::string vendor, renderer, version, extensions; // glGetString
-    float max_anisotropy = 0.0f;                       // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT; 0 without the extension
-    // A whole name of the extension list.
+    bool vulkan = false;
+    // OpenGL ES: glGetString(GL_VENDOR / GL_RENDERER / GL_VERSION). Vulkan: "vendor 0x5143", the device name,
+    // "Vulkan 1.3.128, driver 0x80273000".
+    std::string vendor, renderer, version;
+    std::string extensions;       // OpenGL ES only: glGetString(GL_EXTENSIONS)
+    bool anisotropy = false;      // anisotropic filtering (EXT_texture_filter_anisotropic / samplerAnisotropy)
+    float max_anisotropy = 0.0f;  // the device's highest level; 0 without anisotropy
+    // A whole name of the OpenGL ES extension list.
     bool has_extension(const char *name) const;
 };
 
@@ -56,8 +64,12 @@ class Context final : public render::FrameOwner
     bool render_thread() const { return render_thread_active_; }
     // render::SetFrameOverlap: -1 chosen per frame (FrameOverlap), 0 never, 1 always. Any time.
     void set_frame_overlap(int mode);
+    // render::SetRenderBackend. Before the device exists.
+    void set_backend(render::Backend backend, std::filesystem::path state_directory);
+    // The backend the device runs and why, as logged ("render backend: ..." without the prefix); empty before.
+    const std::string &backend_choice() const { return backend_choice_; }
     // Valid from init on.
-    const GlInfo &gl_info() const { return gl_info_; }
+    const DeviceInfo &device_info() const { return device_info_; }
     // Any thread: a frame handed to the render thread is not finished yet (rendered and presented).
     bool frames_in_flight()
     {
@@ -113,9 +125,12 @@ class Context final : public render::FrameOwner
     uint32_t submitted_frames() const { return submitted_frames_; }
     const bgfx::Caps *caps() const { return caps_; }
     bool flip_y() const { return flip_y_; }
-    // D3DTADDRESS_BORDER: GL_CLAMP_TO_BORDER (EXT/OES/NV_texture_border_clamp), which bgfx otherwise turns into
-    // clamp-to-edge without telling.
+    // D3DTADDRESS_BORDER. OpenGL ES: GL_CLAMP_TO_BORDER (EXT/OES/NV_texture_border_clamp), which bgfx otherwise
+    // turns into clamp-to-edge without telling. Vulkan: always.
     bool border_clamp() const { return border_clamp_; }
+    // Any D3DSAMP_BORDERCOLOR. False on Vulkan without VK_EXT_custom_border_color: only transparent black, opaque
+    // black and opaque white exist there (patches/bgfx-vk-builtin-border-colors.patch).
+    bool border_colors() const { return border_colors_; }
     bgfx::UniformHandle sampler(uint32_t unit) const { return samplers_[unit]; }
     void draw_fullscreen(uint16_t view, bgfx::TextureHandle texture, uint32_t sampler_flags, uint64_t state,
                          float u0 = 0, float v0 = 0, float u1 = 1, float v1 = 1);
@@ -151,7 +166,20 @@ class Context final : public render::FrameOwner
         uint32_t refs = 0;
         uint32_t token = 0;
     };
+  public:
+    // A known picture drawn into a target and read back, before anything is presented on a backend that was just
+    // chosen (Vulkan): shader modules, a pipeline, a texture upload, sampling, the target's orientation, the
+    // read-back. False with `failure` set. Public for the host checks, which run it on every backend.
+    bool backend_self_test(std::string *failure);
+
+  private:
     bool start(SDL_Window *window, uint32_t width, uint32_t height, bool vsync); // null window: headless
+    // bgfx::init on `type` for start(), up to the device's facts. `vulkan`: the probe's device for Vulkan. On
+    // failure everything is torn down again and `failure` says why.
+    bool start_backend(bgfx::RendererType::Enum type, const VulkanDevice *vulkan, uint32_t width, uint32_t height,
+                       std::string *failure);
+    // Undoes start_backend (and create_resources).
+    void stop_backend();
     void create_resources();
     void try_restore();
     bool read_density(); // true when it changed
@@ -187,8 +215,9 @@ class Context final : public render::FrameOwner
     bool frames_handed_ = false;  // handed_frame_ is a frame of this device
     uint32_t handed_frame_ = 0;   // number of the last frame bgfx::frame() handed to the render thread
     uint32_t done_frame_ = 0;     // number of the last frame the render thread finished
-    bool gl_info_read_ = false;   // gl_info_ is filled (render thread, its first finished frame)
-    int render_tid_ = 0;          // the render thread's Linux tid, with gl_info_
+    bool render_info_read_ = false; // the render thread's first finished frame filled what follows
+    int render_tid_ = 0;            // the render thread's Linux tid
+    DeviceInfo render_gl_info_;     // OpenGL ES: the driver's strings, read on the render thread
     std::chrono::steady_clock::time_point hand_time_[4]{}; // when frame (number & 3) was given to bgfx::frame()
     std::chrono::steady_clock::time_point done_time_{};    // when done_frame_ was finished
     std::chrono::nanoseconds render_work_{0}; // render thread's time for done_frame_ without its present wait
@@ -196,11 +225,18 @@ class Context final : public render::FrameOwner
     std::condition_variable release_done_;
     bool render_thread_ = true;         // requested
     bool render_thread_active_ = false; // this device runs bgfx's render thread
-    bool gl_backend_ = false;           // the device has a GL context (not headless)
-    GlInfo gl_info_;
+    bool gl_backend_ = false;           // the device has a GL context (OpenGL ES; not Vulkan, not headless)
+    bool vulkan_backend_ = false;
+    DeviceInfo device_info_;
+    render::Backend backend_request_ = render::Backend::Auto;
+    std::filesystem::path backend_state_directory_;
+    std::string backend_choice_;
+    std::optional<BackendAttempt> backend_attempt_;       // a Vulkan start not yet confirmed by presented frames
+    uint32_t backend_presented_ = 0;                        // presented frames of this device
     BonePalettes bone_palettes_;
     bool flip_y_ = false;
     bool border_clamp_ = false;
+    bool border_colors_ = false;
     const char *timer_queries_ = "none (no GL context)";
     bool vsync_ = true;
     const bgfx::Caps *caps_ = nullptr;

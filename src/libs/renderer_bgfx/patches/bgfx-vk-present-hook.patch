@@ -1,0 +1,119 @@
+The Vulkan backend presents its swap chains through functions the host sets (bgfx::setVkPresentHooks) instead of
+vkQueuePresentKHR: the engine presents with Android Frame Pacing (SwappyVk_queuePresent, src/shim/frame_pacing.cpp,
+which declares the same struct and function), which times each present to the display's vsync, as the EGL backend
+does through bgfx-swap-present-hook.patch. SwappyVk keeps state per swap chain, so the host is also told when one
+was created and when it is about to go. VK_GOOGLE_display_timing, the device extension SwappyVk asks for
+(SwappyVk_determineDeviceExtensions), joins bgfx's optional extensions on Android. Without hooks set, bgfx presents
+with vkQueuePresentKHR. Upstream bgfx has no present hook; keep the patch until it does.
+
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+index 96fb346..2f76eb8 100644
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -17,8 +17,32 @@
+ #	import <Metal/Metal.h>
+ #endif // BX_PLATFORM_OSX
+ 
++namespace bgfx
++{
++	/// Storm Engine patch (renderer_bgfx/patches/bgfx-vk-present-hook.patch): the host presents the Vulkan swap
++	/// chains itself (the engine: Android Frame Pacing, SwappyVk_queuePresent, src/shim/frame_pacing.cpp, which
++	/// declares the same struct and function). All three are called on the render thread. The handles are the
++	/// Vulkan ones: dispatchable handles as pointers, the swap chain as 64 bits.
++	struct VkPresentHooks
++	{
++		/// After vkCreateSwapchainKHR succeeded for the window `_nwh`.
++		void (*swapChainCreated)(void* _physicalDevice, void* _device, void* _queue, uint32_t _queueFamily, uint64_t _swapChain, void* _nwh);
++		/// Before the swap chain is released; it is destroyed later.
++		void (*swapChainDestroying)(void* _device, uint64_t _swapChain);
++		/// In place of vkQueuePresentKHR: `_presentInfo` is the VkPresentInfoKHR; returns the VkResult.
++		int32_t (*present)(void* _queue, const void* _presentInfo);
++	};
++
++	/// NULL (the default): bgfx presents with vkQueuePresentKHR. Set before bgfx::init, cleared after
++	/// bgfx::shutdown; the struct must outlive the device.
++	void setVkPresentHooks(const VkPresentHooks* _hooks);
++
++} // namespace bgfx
++
+ namespace bgfx { namespace vk
+ {
++	static const VkPresentHooks* s_presentHooks = NULL;
++
+ 	// storm: anisotropy level cap applied at the next reset (see updateResolution).
+ 	float g_stormMaxAnisotropy = 0.0f;
+ 
+@@ -414,6 +438,7 @@ VK_IMPORT_DEVICE
+ 
+ #	if BX_PLATFORM_ANDROID
+ 			KHR_android_surface,
++			GOOGLE_display_timing,
+ #	elif BX_PLATFORM_LINUX
+ 			KHR_wayland_surface,
+ 			KHR_xlib_surface,
+@@ -469,6 +494,9 @@ VK_IMPORT_DEVICE
+ 		{ "VK_NV_low_latency2",                     2, false, false, false,                                                         Layer::Count },
+ #	if BX_PLATFORM_ANDROID
+ 		{ VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,    1, false, false, true,                                                          Layer::Count },
++		// Storm Engine patch: the one device extension SwappyVk_determineDeviceExtensions asks for (present times
++		// of Android Frame Pacing); enabled where the device has it.
++		{ "VK_GOOGLE_display_timing",               1, false, false, true,                                                          Layer::Count },
+ #	elif BX_PLATFORM_LINUX
+ 		{ VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,    1, false, false, true,                                                          Layer::Count },
+ 		{ VK_KHR_XLIB_SURFACE_EXTENSION_NAME,       1, false, false, true,                                                          Layer::Count },
+@@ -9986,6 +10014,12 @@ VK_DESTROY
+ 
+ 		m_sci.oldSwapchain = m_swapChain;
+ 
++		if (NULL != s_presentHooks)
++		{
++			// Storm Engine patch.
++			s_presentHooks->swapChainCreated(physicalDevice, device, m_queue, s_renderVK->m_globalQueueFamily, (uint64_t)m_swapChain.vk, m_nwh);
++		}
++
+ 		result = vkGetSwapchainImagesKHR(device, m_swapChain, &m_numSwapChainImages, NULL);
+ 		if (VK_SUCCESS != result)
+ 		{
+@@ -10118,6 +10152,13 @@ VK_DESTROY
+ 			release(m_renderDoneSemaphore[ii]);
+ 		}
+ 
++		if (NULL != s_presentHooks
++		&&  VK_NULL_HANDLE != m_swapChain)
++		{
++			// Storm Engine patch.
++			s_presentHooks->swapChainDestroying(s_renderVK->m_device, (uint64_t)m_swapChain.vk );
++		}
++
+ 		release(m_swapChain);
+ 		m_numSwapChainImages = 0;
+ 	}
+@@ -10750,7 +10791,11 @@ VK_DESTROY
+ 				BGFX_PROFILER_SCOPE("vkQueuePresentHKR", kColorFrame);
+ 				LowLatencyScope lowLatencyScope(*this);
+ 
+-				result = vkQueuePresentKHR(m_queue, &pi);
++				// Storm Engine patch: the host's present function, when one is set.
++				result = NULL != s_presentHooks
++					? VkResult(s_presentHooks->present(m_queue, &pi) )
++					: vkQueuePresentKHR(m_queue, &pi)
++					;
+ 			}
+ 
+ 			if (result != VK_SUCCESS)
+@@ -13302,7 +13347,14 @@ VK_DESTROY
+ 		kick();
+ 	}
+ 
+-} /* namespace vk */ } // namespace bgfx
++} /* namespace vk */
++
++	void setVkPresentHooks(const VkPresentHooks* _hooks)
++	{
++		vk::s_presentHooks = _hooks;
++	}
++
++} // namespace bgfx
+ 
+ #else
+ 

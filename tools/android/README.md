@@ -139,9 +139,10 @@ performance numbers still come from a real arm64 device.
 
 ## Frame pacing (Swappy)
 
-The game window presents through Android Frame Pacing (Swappy GL 2.1.3 from the Android Game SDK,
-`src/libs/renderer_bgfx/src/shim/frame_pacing.hpp`; bgfx calls it instead of `eglSwapBuffers`,
-`patches/bgfx-swap-present-hook.patch`). It paces at the player's «Частота кадров» (settings, image
+The game window presents through Android Frame Pacing (Swappy 2.1.3 from the Android Game SDK,
+`src/libs/renderer_bgfx/src/shim/frame_pacing.hpp`): Swappy GL on the OpenGL ES backend (bgfx calls it instead of
+`eglSwapBuffers`, `patches/bgfx-swap-present-hook.patch`), Swappy Vk on the Vulkan backend (instead of
+`vkQueuePresentKHR`, `patches/bgfx-vk-present-hook.patch`); the rest is the same code. It paces at the player's «Частота кадров» (settings, image
 page; the app offers 30/60/90/120 and the display's own rates where a refresh rate is a whole multiple,
 60 by default; applied at once): a whole number of refreshes of one of the display's modes (60 fps: 1 at
 60 Hz, 2 at 120 Hz; a 90 Hz panel uses its 60 Hz mode where it has one; `swap_interval.hpp`,
@@ -151,7 +152,7 @@ and gets each frame's CPU work without the present wait. Logged (tag `storm-bgfx
 «Поделиться логом»):
 
 - at start and at each «Частота кадров» change: `frame pacing: Swappy GL ...; frame rate N fps (setting); display
-  modes ...; current refresh ...; swap interval ...`;
+  modes ...; current refresh ...; swap interval ...` (`Swappy Vk` on the Vulkan backend);
 - on a change of Swappy's interval or the display mode: `frame pacing: Swappy presents every ...`;
 - every 30 s: `frame pacing: 30.0 s, N frames (fps) ...; frame ms p50 p95 p99 max; refreshes per
   frame 1:..% 2:..% ...; present wait mean ...` (intervals between presents, in display refreshes);

@@ -1,4 +1,4 @@
-# Android Frame Pacing (Swappy GL) from the Android Game SDK (AGDK), Apache-2.0
+# Android Frame Pacing (Swappy GL and Swappy Vk, one library) from the Android Game SDK (AGDK), Apache-2.0
 # (third_party/licenses/Swappy-Apache-2.0.txt). The prebuilt static library of Google's
 # androidx.games:games-frame-pacing AAR (Google Maven), pinned by version and SHA-256; the AAR is a
 # zip that also carries the Java helper (SwappyDisplayManager) as a dex embedded in the static library,

@@ -56,12 +56,14 @@ void ProgramCache::configure(const render::ProgramCacheConfig &config)
     configured_ = !config.directory.empty();
 }
 
-void ProgramCache::attach_device(const std::string &device)
+void ProgramCache::attach_device(const std::string &device, bool vulkan)
 {
     std::lock_guard lock(mutex_);
     entries_.clear();
     total_bytes_ = 0;
     served_.clear();
+    served_checksums_.clear();
+    vulkan_ = vulkan;
     device_dir_.clear();
     if (!configured_)
     {
@@ -121,6 +123,7 @@ void ProgramCache::detach_device()
     entries_.clear();
     pending_.clear();
     served_.clear();
+    served_checksums_.clear();
 }
 
 render::ProgramCacheStats ProgramCache::stats()
@@ -239,6 +242,8 @@ bool ProgramCache::cacheRead(uint64_t id, void *data, uint32_t size)
         return false;
     }
     std::memcpy(data, pending_.data(), size);
+    if (vulkan_)
+        served_checksums_[id] = checksum(pending_.data(), pending_.size());
     pending_.clear();
     pending_id_ = 0;
     // Most recently used: kept longest by evict().
@@ -262,7 +267,22 @@ void ProgramCache::cacheWrite(uint64_t id, const void *data, uint32_t size)
              size);
         return;
     }
-    if (served_.erase(id))
+    if (vulkan_)
+    {
+        // bgfx hands back the pipeline's cache after every creation: unchanged when the driver took what was loaded.
+        // (The file may be gone meanwhile, the app cache cleared: then it is written again.)
+        const auto served = served_checksums_.find(id);
+        std::error_code missing;
+        if (served != served_checksums_.end() && served->second == checksum(data, size) && fs::exists(file_of(id), missing))
+            return;
+        if (served != served_checksums_.end())
+        {
+            // The driver built the pipeline anew (its own header check refused the data, or it added to it).
+            ++stats_.replaced;
+            served_checksums_.erase(served);
+        }
+    }
+    else if (served_.erase(id))
     {
         // bgfx linked a program this run loaded: the driver rejected the binary (logged by bgfx).
         logf("program cache: binary %016" PRIx64 " was rejected by the driver: replaced by the new link", id);

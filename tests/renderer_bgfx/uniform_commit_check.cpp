@@ -9,6 +9,8 @@
 // programs with one colour must upload almost nothing: every program already holds every value (before the patch
 // each switch re-uploaded the program's whole uniform block).
 #include "device.hpp"
+#include "check_backend.hpp"
+
 #include <SDL2/SDL.h>
 
 #include "storm/render/perf_stats.hpp"
@@ -185,6 +187,7 @@ int main()
         std::fprintf(stderr, "FAIL: SDL video: %s (an X display is needed)\n", SDL_GetError());
         return 1;
     }
+    host_check::UseBackendFromEnvironment();
     SDL_Window *window = SDL_CreateWindow("uniform_commit_check", 0, 0, kSize, kSize, 0);
     if (!window || !shim::Context::instance().init(window, kSize, kSize, false))
     {

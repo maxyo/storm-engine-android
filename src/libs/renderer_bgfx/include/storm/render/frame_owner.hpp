@@ -23,6 +23,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <span>
 #include <string_view>
 
@@ -225,6 +226,23 @@ void SetRenderThread(bool enabled);
 // this one. -1 (default): only while game work + render work do not fit the frame (no added input latency where
 // they fit); 0 never; 1 always (engine.ini render_overlap, measurements). Each change is logged.
 void SetFrameOverlap(int mode);
+
+// The bgfx backend of the game window (src/shim/backend_select.hpp). Auto: Vulkan on the devices it is chosen for
+// (a Vulkan 1.1 device of a GPU family measured faster on it, whose Vulkan start and self-test pass), OpenGL ES on
+// the others. OpenGLES / Vulkan ask for that backend (engine.ini render_backend = gles / vulkan, measurements);
+// Vulkan asked for on a device that cannot run it still ends on OpenGL ES, with an error. Call before the device
+// is created; the choice and its reason are logged when it is ("render backend: ...").
+enum class Backend
+{
+    Auto,
+    OpenGLES,
+    Vulkan,
+};
+// `state_directory` (under the cache root; may be cleared at any time): where a Vulkan start leaves its marker
+// until frames were presented, so a driver that kills the process in it is not started on Vulkan again.
+void SetRenderBackend(Backend backend, const std::filesystem::path &state_directory);
+// The backend the device runs and why, as logged; empty before the first device.
+const char *RenderBackendChoice();
 
 // Platform surface lifecycle, reported by the application loop (Android pause/resume).
 // Between Lost and Restored nothing is presented and FrameClient::OnUiRender is not called.

@@ -610,10 +610,19 @@ void Device::scene_complete()
     // single-sample depth) and the next frame clears them. Invalidating them after the resolve spares a tile GPU
     // writing them back to memory (patches/bgfx-gl-framebuffer-discard.patch). Single-sample targets are the
     // textures the chain reads: never discarded.
+    // Vulkan: bgfx resolves a multisampled texture after its render pass, from the stored attachment (colour:
+    // vkCmdResolveImage; a depth an effect reads: a shader pass), so the discard would leave nothing to resolve.
+    // Only a multisampled depth that nothing reads can go there.
     if (view_color == scene && (scene->target_flags & BGFX_TEXTURE_RT_MSAA_MASK) &&
         (back_depth->store->target_flags & BGFX_TEXTURE_RT_MSAA_MASK))
-        bgfx::setViewClear(view, view_clear_set | BGFX_CLEAR_DISCARD_COLOR_0 | BGFX_CLEAR_DISCARD_DEPTH | BGFX_CLEAR_DISCARD_STENCIL,
-                           view_clear_rgba, view_clear_z, view_clear_stencil);
+    {
+        uint16_t discard = BGFX_CLEAR_DISCARD_COLOR_0 | BGFX_CLEAR_DISCARD_DEPTH | BGFX_CLEAR_DISCARD_STENCIL;
+        if (Context::instance().device_info().vulkan)
+            discard = (back_depth->store->target_flags & BGFX_TEXTURE_RT_WRITE_ONLY)
+                          ? BGFX_CLEAR_DISCARD_DEPTH | BGFX_CLEAR_DISCARD_STENCIL
+                          : BGFX_CLEAR_NONE;
+        bgfx::setViewClear(view, view_clear_set | discard, view_clear_rgba, view_clear_z, view_clear_stencil);
+    }
     effects::Host::PostTargets targets;
     targets.scene_color = scene->handle;
     // A multisampled depth is resolved into the texture with the colour only when an effect reads it.

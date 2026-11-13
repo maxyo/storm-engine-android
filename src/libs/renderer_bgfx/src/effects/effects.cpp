@@ -20,9 +20,14 @@
 #include <cmath>
 #include <cstring>
 
+// patches/bgfx-anisotropy-level.patch: the level cap of each backend.
 namespace bgfx::gl
 {
-extern float g_stormMaxAnisotropy; // patches/bgfx-anisotropy-level.patch
+extern float g_stormMaxAnisotropy;
+}
+namespace bgfx::vk
+{
+extern float g_stormMaxAnisotropy;
 }
 
 namespace storm::effects
@@ -180,11 +185,11 @@ void Host::on_device_created()
     // (FrameBufferGL::resolve, GL_DEPTH_BUFFER_BIT for readable depth attachments).
     facts.scene_depth = true;
     facts.msaa_depth = true;
-    // bgfx has no capability bit for it; the GL backend applies it only with this extension.
-    const shim::GlInfo &gl = shim::Context::instance().gl_info(); // read on the render thread
-    facts.anisotropy = gl.has_extension("GL_EXT_texture_filter_anisotropic");
+    // bgfx has no capability bit for it; the backends apply it only where the device has it.
+    const shim::DeviceInfo &device = shim::Context::instance().device_info();
+    facts.anisotropy = device.anisotropy;
     if (facts.anisotropy)
-        device_max_anisotropy_ = gl.max_anisotropy;
+        device_max_anisotropy_ = device.max_anisotropy;
     support_device_ = fx::DetectSupport(facts);
     device_ready_ = true;
     // Nothing is drawn yet: the device starts on the plain legacy path (no effect, no MSAA, not even «Низкая»'s
@@ -375,8 +380,9 @@ void Host::activate(const fx::Settings &settings, const fx::Support &support)
                                                  depth_read != depth_read_));
     depth_read_ = depth_read;
     renderer_state_ = state;
-    // The level of every anisotropic sampler (patches/bgfx-anisotropy-level.patch), applied at the next reset.
-    bgfx::gl::g_stormMaxAnisotropy = static_cast<float>(state.max_anisotropy);
+    // The level of every anisotropic sampler (patches/bgfx-anisotropy-level.patch: one cap per backend), applied
+    // at the next reset.
+    bgfx::gl::g_stormMaxAnisotropy = bgfx::vk::g_stormMaxAnisotropy = static_cast<float>(state.max_anisotropy);
     lighting_.configure(settings_, renderer_state_);
 }
 
@@ -526,7 +532,7 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
         if (result.done && result.failed == fx::SelfTest::Stage::None)
         {
             shim::logf("effects self-test passed on %s (preset %d, MSAA %ux)",
-                       shim::Context::instance().gl_info().renderer.c_str(), preset_,
+                       shim::Context::instance().device_info().renderer.c_str(), preset_,
                        fx::RendererStateFor(tested_).msaa_samples);
             verified_.push_back(tested_);
         }
@@ -534,7 +540,7 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
         {
             const bool scene = result.failed == fx::SelfTest::Stage::SceneTarget;
             shim::logf("ERROR: effects self-test failed on %s (%s): %s. %s switched off; %s",
-                       shim::Context::instance().gl_info().renderer.c_str(),
+                       shim::Context::instance().device_info().renderer.c_str(),
                        bgfx::getRendererName(bgfx::getRendererType()), result.detail.c_str(),
                        scene ? "MSAA" : "the post-processing chain", support_.Describe().c_str());
             // Like a missing capability: ConstrainSettings switches the stage off and reports it.

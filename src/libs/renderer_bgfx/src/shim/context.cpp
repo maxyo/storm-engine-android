@@ -31,11 +31,13 @@
 #include <jni.h>
 #endif
 
-// patches/bgfx-render-thread-hooks.patch (src/bgfx.cpp) defines these two.
 namespace bgfx
 {
+// patches/bgfx-render-thread-hooks.patch (src/bgfx.cpp) defines these two.
 typedef void (*RenderFrameDoneFn)(uint32_t _frame);
 void setRenderFrameDone(RenderFrameDoneFn _done);
+// patches/bgfx-vk-unbound-samplers.patch (src/renderer_vk.cpp).
+void setVkUnboundTextures(TextureHandle _texture2d, TextureHandle _textureCube, TextureHandle _texture3d);
 } // namespace bgfx
 
 namespace storm::shim
@@ -193,6 +195,16 @@ void SetRenderThread(bool enabled)
     shim::Context::instance().set_render_thread(enabled);
 }
 
+void SetRenderBackend(Backend backend, const std::filesystem::path &state_directory)
+{
+    shim::Context::instance().set_backend(backend, state_directory);
+}
+
+const char *RenderBackendChoice()
+{
+    return shim::Context::instance().backend_choice().c_str();
+}
+
 void SetFrameOverlap(int mode)
 {
     shim::Context::instance().set_frame_overlap(mode);
@@ -236,7 +248,7 @@ bool native_handles(SDL_Window *window, void **nwh, void **ndt)
 }
 } // namespace
 
-bool GlInfo::has_extension(const char *name) const
+bool DeviceInfo::has_extension(const char *name) const
 {
     const size_t length = strlen(name);
     for (size_t at = extensions.find(name); at != std::string::npos; at = extensions.find(name, at + length))
@@ -250,6 +262,14 @@ void Context::set_render_thread(bool enabled)
     if (initialised_ && enabled != render_thread_)
         logf("ERROR: render_thread=%d is set while the device exists; it applies to the next device", enabled);
     render_thread_ = enabled;
+}
+
+void Context::set_backend(render::Backend backend, std::filesystem::path state_directory)
+{
+    if (initialised_ && backend != backend_request_)
+        logf("ERROR: render_backend is set while the device exists; it applies to the next device");
+    backend_request_ = backend;
+    backend_state_directory_ = std::move(state_directory);
 }
 
 void Context::set_frame_overlap(int mode)
@@ -304,10 +324,11 @@ void Context::render_frame_done(uint32_t frame)
     Context &context = instance();
     const auto now = std::chrono::steady_clock::now();
     const std::chrono::nanoseconds present_wait = FramePacing::instance().take_present_wait();
-    GlInfo info;
-    bool read = false;
-    // The first frame bgfx::init runs creates the GL context; start() waits for what is read here.
-    if (context.gl_backend_ && !context.gl_info_read_ && glGetString(GL_VERSION))
+    DeviceInfo info;
+    // The first frame bgfx::init runs creates the device (OpenGL ES: the GL context); start_backend() waits for
+    // what is read here. Only the GL backend has a GL context to ask.
+    const bool first = !context.render_info_read_ && (!context.gl_backend_ || glGetString(GL_VERSION));
+    if (first && context.gl_backend_)
     {
         const auto text = [](GLenum name) {
             const auto *value = reinterpret_cast<const char *>(glGetString(name));
@@ -317,19 +338,19 @@ void Context::render_frame_done(uint32_t frame)
         info.renderer = text(GL_RENDERER);
         info.version = text(GL_VERSION);
         info.extensions = text(GL_EXTENSIONS);
-        if (info.has_extension("GL_EXT_texture_filter_anisotropic"))
+        info.anisotropy = info.has_extension("GL_EXT_texture_filter_anisotropic");
+        if (info.anisotropy)
         {
             constexpr GLenum kMaxAnisotropy = 0x84FF; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
             glGetFloatv(kMaxAnisotropy, &info.max_anisotropy);
         }
-        read = true;
     }
     {
         std::lock_guard lock(context.release_mutex_);
-        if (read)
+        if (first)
         {
-            context.gl_info_ = std::move(info);
-            context.gl_info_read_ = true;
+            context.render_gl_info_ = std::move(info);
+            context.render_info_read_ = true;
             context.render_tid_ = static_cast<int>(gettid());
         }
         // The frame's work began when it was handed over, or when the frame before it was finished.
@@ -375,26 +396,117 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     }
     window_ = window;
     vsync_ = vsync;
-    gl_backend_ = window != nullptr;
-    gl_info_ = {};
+    backend_attempt_.reset();
+    backend_presented_ = 0;
+    std::string failure;
+    if (!window)
     {
-        std::lock_guard lock(release_mutex_);
-        frames_handed_ = false;
-        gl_info_read_ = false;
-    }
-    bgfx::Init init;
-    if (window)
-    {
-        init.type = bgfx::RendererType::OpenGLES;
-        if (!native_handles(window, &init.swapChain.nwh, &init.swapChain.ndt))
+        // init_headless(): the shim does all its work, bgfx's Noop backend draws nothing.
+        logf("headless: bgfx Noop renderer, nothing is drawn");
+        backend_choice_ = "none (headless: bgfx Noop)";
+        if (!start_backend(bgfx::RendererType::Noop, nullptr, width, height, &failure))
+        {
+            logf("ERROR: %s", failure.c_str());
             return false;
-        FramePacing::instance().start(render_thread_); // bgfx presents through it from the first frame
+        }
     }
     else
     {
-        // init_headless(): the shim does all its work, bgfx's Noop backend draws nothing.
-        init.type = bgfx::RendererType::Noop;
-        logf("headless: bgfx Noop renderer, nothing is drawn");
+        const VulkanDevice vulkan = ProbeVulkan();
+        BackendAttempt attempt(backend_state_directory_, vulkan);
+        BackendDecision decision = DecideBackend(backend_request_, vulkan, attempt.failed_before());
+        if (decision.vulkan)
+        {
+            // The marker stays until frames were presented (present()); a start that fails here in an orderly way
+            // leaves it too, so the next starts go to OpenGL ES at once instead of trying Vulkan every time.
+            attempt.begin();
+            if (start_backend(bgfx::RendererType::Vulkan, &vulkan, width, height, &failure) && !backend_self_test(&failure))
+                stop_backend();
+            if (failure.empty())
+                backend_attempt_.emplace(std::move(attempt));
+            else
+            {
+                // The explicit exception to "no fallbacks": a device whose Vulkan cannot run the game still has to
+                // start. Said as an error, with the reason, and kept in the choice line below.
+                logf("ERROR: render backend: Vulkan failed on %s: %s. Starting on OpenGL ES; Vulkan is not tried again "
+                     "on this driver until the cache is cleared",
+                     vulkan.describe().c_str(), failure.c_str());
+                decision = {false, "Vulkan failed (" + failure + ")"};
+                failure.clear();
+            }
+        }
+        if (!decision.vulkan && !start_backend(bgfx::RendererType::OpenGLES, nullptr, width, height, &failure))
+        {
+            logf("ERROR: %s", failure.c_str());
+            return false;
+        }
+        static const char *const requests[] = {"auto", "gles", "vulkan"};
+        backend_choice_ = std::string(decision.vulkan ? "Vulkan" : "OpenGL ES") + " (render_backend = " +
+                          requests[static_cast<int>(backend_request_)] + "): " + decision.reason + "; Vulkan device: " +
+                          vulkan.describe();
+        // An asked-for backend that is not the one running is an error line; either way the same text.
+        const bool refused = (backend_request_ == render::Backend::Vulkan) != decision.vulkan &&
+                             backend_request_ != render::Backend::Auto;
+        logf("%srender backend: %s", refused ? "ERROR: " : "", backend_choice_.c_str());
+        if (decision.vulkan && !vulkan.large_points)
+            logf("render backend: the Vulkan device has no largePoints: point lists (the stars) are one pixel wide");
+    }
+    initialised_ = true;
+    surface_.width_px = width;
+    surface_.height_px = height;
+    surface_.valid = true;
+    surface_in_use_ = true;
+    if (window_)
+        read_density();
+    ++surface_.generation;
+    logf("bgfx renderer=%s %ux%u originBottomLeft=%d homogeneousDepth=%d maxTextureSize=%u BC1=%d BC3=%d ETC2=%d BGRA8=%d "
+         "border_clamp=%d border_colors=%d timer_queries=%s",
+         bgfx::getRendererName(bgfx::getRendererType()), width, height, caps_->originBottomLeft,
+         caps_->homogeneousDepth, caps_->limits.maxTextureSize,
+         (caps_->formats[bgfx::TextureFormat::BC1] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
+         (caps_->formats[bgfx::TextureFormat::BC3] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
+         (caps_->formats[bgfx::TextureFormat::ETC2] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
+         (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0, border_clamp_, border_colors_,
+         timer_queries_);
+    effects::Host::instance().on_device_created();
+    for (auto &entry : clients_)
+    {
+        entry.client->OnDeviceRestored();
+        entry.client->OnSurfaceChanged(surface_);
+    }
+    return true;
+}
+
+bool Context::start_backend(bgfx::RendererType::Enum type, const VulkanDevice *vulkan, uint32_t width, uint32_t height,
+                            std::string *failure)
+{
+    const bool window = type != bgfx::RendererType::Noop;
+    gl_backend_ = type == bgfx::RendererType::OpenGLES;
+    vulkan_backend_ = type == bgfx::RendererType::Vulkan;
+    device_info_ = {};
+    {
+        std::lock_guard lock(release_mutex_);
+        frames_handed_ = false;
+        render_info_read_ = false;
+    }
+    bgfx::Init init;
+    init.type = type;
+    if (window)
+    {
+        if (!native_handles(window_, &init.swapChain.nwh, &init.swapChain.ndt))
+        {
+            *failure = "the window has no native handle";
+            return false;
+        }
+        FramePacing::instance().start(render_thread_, vulkan != nullptr); // bgfx presents through it from the first frame
+    }
+    if (vulkan)
+    {
+        // The device the probe read is the one bgfx takes: it matches these ids where they fit bgfx's 16 bits (a
+        // software device goes by bgfx's own vendor id; an Adreno's device id is wider and left open) and otherwise
+        // prefers devices in the probe's order. Checked below.
+        init.vendorId = vulkan->software ? BGFX_PCI_ID_SOFTWARE_RASTERIZER : static_cast<uint16_t>(vulkan->vendor_id);
+        init.deviceId = vulkan->device_id <= UINT16_MAX ? static_cast<uint16_t>(vulkan->device_id) : 0;
     }
     init.swapChain.width = width;
     init.swapChain.height = height;
@@ -409,7 +521,7 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     // (patches/bgfx-gl-transient-ring.patch).
     init.limits.maxTransientVbSize = 16u << 20;
     init.limits.maxTransientIbSize = 8u << 20;
-    init.fallback = false; // never continue on the Noop renderer
+    init.fallback = false; // never continue on another renderer than the one chosen here
     init.callback = &ProgramCache::instance(); // program binaries between runs; bgfx fatals and traces into the log
     bgfx::setRenderFrameDone(&Context::render_frame_done);
     // bgfx's own switch: a renderFrame() call before init makes the calling thread the render thread, and no
@@ -418,9 +530,9 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
         bgfx::renderFrame();
     if (!bgfx::init(init))
     {
-        logf("bgfx::init failed");
         bgfx::setRenderFrameDone(nullptr);
         FramePacing::instance().shutdown();
+        *failure = std::string("bgfx::init failed on ") + bgfx::getRendererName(type);
         return false;
     }
     caps_ = bgfx::getCaps();
@@ -429,66 +541,164 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
         logf("ERROR: render thread: asked for %s, bgfx runs %s", render_thread_ ? "on" : "off",
              render_thread_active_ ? "multithreaded" : "single-threaded");
     else if (render_thread_active_)
-        logf("render thread: on (bgfx multithreaded: the GL backend, the driver and the present run on bgfx's render "
+        logf("render thread: on (bgfx multithreaded: the backend, the driver and the present run on bgfx's render "
              "thread)");
     else
         logf("render thread: OFF (render_thread=0): bgfx renders and presents inside bgfx::frame() on the game thread");
     if (window)
     {
-        // The render thread reads the driver's strings after the first frame of bgfx::init, which may still be
-        // on its way.
+        // The render thread reports its id (and on OpenGL ES reads the driver's strings) after the first frame of
+        // bgfx::init, which may still be on its way.
         std::unique_lock lock(release_mutex_);
-        if (!release_done_.wait_for(lock, std::chrono::seconds(5), [this] { return gl_info_read_; }))
+        if (!release_done_.wait_for(lock, std::chrono::seconds(5), [this] { return render_info_read_; }))
         {
             lock.unlock();
-            logf("ERROR: the render thread reported no GL context within 5 s of bgfx::init: no device");
-            bgfx::shutdown();
-            bgfx::setRenderFrameDone(nullptr);
-            FramePacing::instance().shutdown();
+            stop_backend();
+            *failure = "the render thread reported no device within 5 s of bgfx::init";
             return false;
         }
+        device_info_ = render_gl_info_;
     }
     if (window)
         FramePacing::instance().set_window(init.swapChain.nwh);
     if (window && render_thread_active_)
         FramePacing::instance().render_thread_started(render_tid_);
     flip_y_ = caps_->originBottomLeft;
-    if (window)
+    border_clamp_ = border_colors_ = false;
+    if (vulkan)
+    {
+        // bgfx reports the low 16 bits of the device's ids.
+        if (caps_->vendorId != static_cast<uint16_t>(vulkan->vendor_id) ||
+            caps_->deviceId != static_cast<uint16_t>(vulkan->device_id))
+        {
+            char ids[96];
+            snprintf(ids, sizeof(ids), "vendor 0x%x device 0x%x, not the probed device", caps_->vendorId, caps_->deviceId);
+            stop_backend();
+            *failure = std::string("bgfx took another Vulkan device (") + ids + ")";
+            return false;
+        }
+        char text[64];
+        device_info_.vulkan = true;
+        snprintf(text, sizeof(text), "vendor 0x%x", vulkan->vendor_id);
+        device_info_.vendor = text;
+        device_info_.renderer = vulkan->name;
+        snprintf(text, sizeof(text), "Vulkan %u.%u.%u, driver 0x%x", (vulkan->api_version >> 22) & 0x7f,
+                 (vulkan->api_version >> 12) & 0x3ff, vulkan->api_version & 0xfff, vulkan->driver_version);
+        device_info_.version = text;
+        device_info_.anisotropy = vulkan->anisotropy;
+        device_info_.max_anisotropy = vulkan->max_anisotropy;
+        // The pipeline caches are valid for this device, driver and bgfx version only (the driver checks its own
+        // header too).
+        ProgramCache::instance().attach_device(vulkan->cache_key() + " | bgfx API " + std::to_string(BGFX_API_VERSION), true);
+        border_clamp_ = true; // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER is core
+        border_colors_ = vulkan->border_color;
+        timer_queries_ = "Vulkan timestamp queries"; // bgfx's TimerQueryVK, where the queue has timestampValidBits
+    }
+    else if (window)
     {
         // The program binaries are valid for this GPU, driver and bgfx version only.
-        ProgramCache::instance().attach_device(gl_info_.vendor + " | " + gl_info_.renderer + " | " + gl_info_.version +
-                                               " | bgfx API " + std::to_string(BGFX_API_VERSION));
+        ProgramCache::instance().attach_device(device_info_.vendor + " | " + device_info_.renderer + " | " +
+                                                   device_info_.version + " | bgfx API " + std::to_string(BGFX_API_VERSION),
+                                               false);
         // The extensions bgfx itself requires before it uses GL_CLAMP_TO_BORDER (renderer_gl.cpp).
-        border_clamp_ = gl_info_.has_extension("GL_EXT_texture_border_clamp") ||
-                        gl_info_.has_extension("GL_OES_texture_border_clamp") ||
-                        gl_info_.has_extension("GL_NV_texture_border_clamp");
+        border_clamp_ = border_colors_ = device_info_.has_extension("GL_EXT_texture_border_clamp") ||
+                                         device_info_.has_extension("GL_OES_texture_border_clamp") ||
+                                         device_info_.has_extension("GL_NV_texture_border_clamp");
         // GPU timers (effects profile gpu_*_ms, Tracy): GLES offers them only through this extension
         // (patches/bgfx-gles-timer-queries.patch imports its entry points).
-        timer_queries_ = gl_info_.has_extension("GL_EXT_disjoint_timer_query") ? "EXT_disjoint_timer_query" : "none";
+        timer_queries_ = device_info_.has_extension("GL_EXT_disjoint_timer_query") ? "EXT_disjoint_timer_query" : "none";
     }
-    initialised_ = true;
-    surface_.width_px = width;
-    surface_.height_px = height;
-    surface_.valid = true;
-    surface_in_use_ = true;
-    if (window_)
-        read_density();
-    ++surface_.generation;
-    logf("bgfx renderer=%s %ux%u originBottomLeft=%d homogeneousDepth=%d maxTextureSize=%u BC1=%d BC3=%d ETC2=%d BGRA8=%d "
-         "border_clamp=%d timer_queries=%s",
-         bgfx::getRendererName(bgfx::getRendererType()), width, height, caps_->originBottomLeft,
-         caps_->homogeneousDepth, caps_->limits.maxTextureSize,
-         (caps_->formats[bgfx::TextureFormat::BC1] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
-         (caps_->formats[bgfx::TextureFormat::BC3] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
-         (caps_->formats[bgfx::TextureFormat::ETC2] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0,
-         (caps_->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0, border_clamp_, timer_queries_);
+    else
+        timer_queries_ = "none (headless)";
     create_resources();
-    effects::Host::instance().on_device_created();
-    for (auto &entry : clients_)
+    return true;
+}
+
+void Context::stop_backend()
+{
+    bgfx::shutdown(); // joins the render thread; every bgfx handle is gone with it
+    bgfx::setRenderFrameDone(nullptr);
+    if (vulkan_backend_)
+        bgfx::setVkUnboundTextures(BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE);
     {
-        entry.client->OnDeviceRestored();
-        entry.client->OnSurfaceChanged(surface_);
+        // The frames bgfx::shutdown ran itself were never handed over by run_frame.
+        std::lock_guard lock(release_mutex_);
+        frames_handed_ = false;
     }
+    render_thread_active_ = false;
+    FramePacing::instance().shutdown();
+    ProgramCache::instance().detach_device();
+    caps_ = nullptr;
+}
+
+bool Context::backend_self_test(std::string *failure)
+{
+    // A 2x2 texture, one colour per texel, drawn over a 16x16 target with the blit program (point sampled, the
+    // texture's top row at the target's top as every blit of the shim), copied into a read-back texture and read.
+    constexpr uint16_t kSize = 16;
+    static const uint8_t texels[16] = {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255};
+    constexpr uint64_t kPoint = BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT | BGFX_SAMPLER_MIP_POINT |
+                                BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+    const bgfx::TextureHandle source =
+        bgfx::createTexture2D(2, 2, false, 1, bgfx::TextureFormat::RGBA8, kPoint, bgfx::makeRef(texels, sizeof(texels)));
+    const bgfx::TextureHandle target =
+        bgfx::createTexture2D(kSize, kSize, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | kPoint);
+    const bgfx::TextureHandle staging = bgfx::createTexture2D(kSize, kSize, false, 1, bgfx::TextureFormat::RGBA8,
+                                                              BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK | kPoint);
+    const bgfx::FrameBufferHandle frame_buffer = bgfx::createFrameBuffer(1, &target, false);
+    std::vector<uint8_t> pixels(size_t(kSize) * kSize * 4, 0);
+    const bool created = bgfx::isValid(source) && bgfx::isValid(target) && bgfx::isValid(staging) &&
+                         bgfx::isValid(frame_buffer) && bgfx::isValid(blit_program_);
+    if (created)
+    {
+        constexpr bgfx::ViewId kDraw = 0, kCopy = 1;
+        bgfx::setViewFrameBuffer(kDraw, frame_buffer);
+        bgfx::setViewRect(kDraw, 0, 0, kSize, kSize);
+        bgfx::setViewClear(kDraw, BGFX_CLEAR_COLOR, 0x000000ff, 1.0f, 0);
+        // As Device::StretchRect draws into a target: v runs with the target's rows where the origin is at the top.
+        if (flip_y_)
+            draw_fullscreen(kDraw, source, static_cast<uint32_t>(kPoint), BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A, 0, 1, 1, 0);
+        else
+            draw_fullscreen(kDraw, source, static_cast<uint32_t>(kPoint), BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+        bgfx::TextureRegion from, to;
+        from.init(target);
+        to.init(staging);
+        bgfx::blit(kCopy, to, from);
+        const uint32_t ready = bgfx::read(to, pixels.data());
+        uint32_t current = 0;
+        while (current < ready)
+            run_frame(BGFX_FRAME_FLUSH, &current); // presents nothing; `pixels` is written before it returns `ready`
+        bgfx::setViewFrameBuffer(kDraw, BGFX_INVALID_HANDLE);
+    }
+    for (const bgfx::TextureHandle texture : {source, target, staging})
+        if (bgfx::isValid(texture))
+            bgfx::destroy(texture);
+    if (bgfx::isValid(frame_buffer))
+        bgfx::destroy(frame_buffer);
+    if (!created)
+    {
+        *failure = "the backend self-test could not create its textures, target or program";
+        return false;
+    }
+    // The centre of each quadrant: the read-back's first row is the target's top row on a top-left origin backend
+    // and its bottom row on a bottom-left one; the picture was drawn accordingly, so the rows read the same.
+    for (int quadrant = 0; quadrant < 4; ++quadrant)
+    {
+        const int x = quadrant % 2 ? 12 : 4, y = quadrant / 2 ? 12 : 4;
+        const uint8_t *got = &pixels[(size_t(y) * kSize + x) * 4];
+        const uint8_t *want = &texels[quadrant * 4];
+        if (std::abs(got[0] - want[0]) > 2 || std::abs(got[1] - want[1]) > 2 || std::abs(got[2] - want[2]) > 2)
+        {
+            char text[192];
+            snprintf(text, sizeof(text),
+                     "the backend self-test read %u,%u,%u at (%d, %d) of its known picture, expected %u,%u,%u", got[0],
+                     got[1], got[2], x, y, want[0], want[1], want[2]);
+            *failure = text;
+            return false;
+        }
+    }
+    logf("render backend: self-test passed on %s (shaders, a pipeline, a texture, a target and its read-back)",
+         bgfx::getRendererName(bgfx::getRendererType()));
     return true;
 }
 
@@ -513,6 +723,18 @@ void Context::create_resources()
     static const float vertices[12] = {-1.0f, 1.0f, 0.0f, 0.0f, 3.0f, 1.0f, 2.0f, 0.0f, -1.0f, -3.0f, 0.0f, 2.0f};
     blit_vertices_ = bgfx::createVertexBuffer(bgfx::makeRef(vertices, sizeof(vertices)), blit_layout_);
     blit_uv_ = bgfx::createUniform("u_blitUv", bgfx::UniformType::Vec4);
+    if (vulkan_backend_)
+    {
+        // What a sampler samples when a draw sets no texture for it: black, as on OpenGL ES, where the draws rely on
+        // it (a fixed-function program declares five stages, a draw binds those its material uses). Vulkan needs a
+        // texture there (patches/bgfx-vk-unbound-samplers.patch). They go with bgfx::shutdown.
+        static const uint8_t black[6 * 4] = {0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255};
+        constexpr uint64_t kPoint = BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP;
+        bgfx::setVkUnboundTextures(
+            bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, kPoint, bgfx::makeRef(black, 4)),
+            bgfx::createTextureCube(1, false, 1, bgfx::TextureFormat::RGBA8, kPoint, bgfx::makeRef(black, sizeof(black))),
+            bgfx::createTexture3D(1, 1, 1, false, bgfx::TextureFormat::RGBA8, kPoint, bgfx::makeRef(black, 4)));
+    }
 }
 
 void Context::shutdown()
@@ -524,19 +746,11 @@ void Context::shutdown()
     dump_traps();
     effects::Host::instance().shutdown();
     bone_palettes_.shutdown();
-    bgfx::shutdown(); // joins the render thread
-    bgfx::setRenderFrameDone(nullptr);
-    {
-        // The frames bgfx::shutdown ran itself were never handed over by run_frame.
-        std::lock_guard lock(release_mutex_);
-        frames_handed_ = false;
-    }
-    render_thread_active_ = false;
+    stop_backend();
     overlap_ = {};
     overlap_logged_ = false;
     gate_end_ = {};
-    FramePacing::instance().shutdown();
-    ProgramCache::instance().detach_device();
+    backend_attempt_.reset(); // a Vulkan start that never presented keeps its marker
     initialised_ = false;
     surface_.valid = false;
     surface_lost();
@@ -609,7 +823,13 @@ uint32_t Context::reset_flags() const
     // Effects: anisotropic filtering of world textures at the level of fx::RendererState (before the device exists this
     // is the request; without the extension the backend ignores the flag).
     const bool anisotropy = effects::Host::instance().renderer_state().max_anisotropy > 1;
-    return (vsync_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) | BGFX_RESET_FLIP_AFTER_RENDER |
+#ifdef __ANDROID__
+    // Android Frame Pacing on Vulkan paces a FIFO swap chain (frame_pacing.hpp), which is bgfx's vsync mode.
+    const bool vsync = vsync_ || vulkan_backend_;
+#else
+    const bool vsync = vsync_;
+#endif
+    return (vsync ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) | BGFX_RESET_FLIP_AFTER_RENDER |
            (anisotropy ? BGFX_RESET_MAXANISOTROPY : BGFX_RESET_NONE) |
            (surface_epoch_flag_ ? BGFX_RESET_FLUSH_AFTER_RENDER : BGFX_RESET_NONE);
 }
@@ -874,6 +1094,13 @@ void Context::present(bgfx::TextureHandle game_color, uint32_t game_width, uint3
         }
         if (presented)
         {
+            // A Vulkan start is confirmed by frames on the screen: its marker goes (backend_select.hpp).
+            if (backend_attempt_ && ++backend_presented_ >= 3)
+            {
+                backend_attempt_->succeed();
+                backend_attempt_.reset();
+            }
+            FramePacing::instance().game_frame();
             double wait_ms = 0.0;
             if (render_thread_active_)
             {

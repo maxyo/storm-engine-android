@@ -7,6 +7,8 @@
 #include "device.hpp"
 #include "texture/core/formats.hpp"
 
+#include "check_backend.hpp"
+
 #include <SDL2/SDL.h>
 #include <bx/allocator.h>
 
@@ -150,8 +152,11 @@ bool compare(const char *name, D3DFORMAT format, uint32_t seed, const std::vecto
             worst = std::max<uint32_t>(worst, std::abs(int(got[c]) - int(expected[i * 4 + c])));
         worst565 = std::max<uint32_t>(worst565, rgb565[i * 2] != expected565[i * 2] || rgb565[i * 2 + 1] != expected565[i * 2 + 1]);
     }
-    // 1/255: a GPU may round an 8-bit value through its float pipeline differently by one step.
-    const bool ok = worst <= 1 && worst565 == 0;
+    // 1/255: a GPU may round an 8-bit value through its float pipeline differently by one step. A hardware block
+    // decoder interpolates DXT's two in-between colours its own way (NVIDIA: up to 4/255 from the reference; the
+    // software rasterisers of CI decode exactly).
+    const uint32_t tolerance = format == D3DFMT_DXT1 || format == D3DFMT_DXT3 || format == D3DFMT_DXT5 ? 5 : 1;
+    const bool ok = worst <= tolerance && worst565 == 0;
     std::printf("%s %s: worst channel difference %u/255, R5G6B5 readback %s\n", ok ? "PASS" : "FAIL", name, worst,
                 worst565 ? "differs" : "equal");
     return ok;
@@ -165,6 +170,7 @@ int main()
         std::fprintf(stderr, "FAIL: SDL video: %s (an X display is needed)\n", SDL_GetError());
         return 1;
     }
+    host_check::UseBackendFromEnvironment();
     SDL_Window *window = SDL_CreateWindow("texture_format_check", 0, 0, kSize, kSize, 0);
     if (!window || !shim::Context::instance().init(window, kSize, kSize, false))
     {

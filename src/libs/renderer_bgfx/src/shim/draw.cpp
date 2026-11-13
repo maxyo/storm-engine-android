@@ -737,6 +737,20 @@ uint32_t Device::sampler_flags(uint32_t stage, const TexStore &store) const
                      "(texels beyond the edge repeat the last row instead of the border colour)");
             logged = true;
         }
+        else if (!Context::instance().border_colors())
+        {
+            // Vulkan without VK_EXT_custom_border_color has three border colours (D3DCOLOR ARGB): the game's own
+            // (D3D's default, transparent black) is one of them.
+            const DWORD color = sm[D3DSAMP_BORDERCOLOR];
+            static bool logged = false;
+            if (color != 0x00000000 && color != 0xff000000 && color != 0xffffffff && !logged)
+            {
+                logf("ERROR: D3DSAMP_BORDERCOLOR 0x%08x sampled on a Vulkan device without custom border colours: "
+                     "opaque black is sampled instead",
+                     static_cast<unsigned>(color));
+                logged = true;
+            }
+        }
         flags |= BGFX_SAMPLER_BORDER_COLOR(border_color_index(sm[D3DSAMP_BORDERCOLOR]));
     }
     if (sm[D3DSAMP_MINFILTER] == D3DTEXF_ANISOTROPIC)

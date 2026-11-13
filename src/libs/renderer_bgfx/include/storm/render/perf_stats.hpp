@@ -28,7 +28,8 @@ struct PerfCounters
     uint64_t uniform_draws = 0;    // draws with at least one uniform update
     // glUniform* calls of the GL backend and their bytes, every client (patches/bgfx-gl-uniform-commit.patch:
     // a program gets only the uniforms whose value differs from what it holds). With bgfx's render thread
-    // they trail the game thread's frames by up to one frame.
+    // they trail the game thread's frames by up to one frame. Zero on the Vulkan backend, which has no such
+    // calls: it writes a draw's uniform block into a scratch buffer.
     uint64_t gl_uniform_calls = 0;
     uint64_t gl_uniform_bytes = 0;
     uint64_t texture_binds = 0;    // bgfx::setTexture calls

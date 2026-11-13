@@ -1,0 +1,142 @@
+Vulkan: a sampler a program declares but a draw sets no texture for. OpenGL samples such a sampler as black and
+the engine's draws rely on it (a fixed-function program declares five texture stages and a draw binds the ones
+the material uses; a stage without a texture is never sampled). bgfx's Vulkan backend left the descriptor of such
+a sampler unwritten, which Vulkan does not allow for a descriptor the pipeline uses statically (lavapipe crashes in
+the shader, other drivers read whatever the pool held). The host now gives bgfx one texture per kind (2D, cube,
+3D; bgfx::setVkUnboundTextures, the engine: src/shim/context.cpp) and an unset sampler gets the one of its kind.
+The kinds a program declares are part of the descriptor set's cache key.
+
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+index 2b449fe..1b007bf 100644
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -37,12 +37,39 @@ namespace bgfx
+ 	/// bgfx::shutdown; the struct must outlive the device.
+ 	void setVkPresentHooks(const VkPresentHooks* _hooks);
+ 
++	/// Storm Engine patch (renderer_bgfx/patches/bgfx-vk-unbound-samplers.patch): the textures a sampler of the
++	/// program takes when a draw has set none for its stage: a 2D one (also for 2D arrays), a cube and a 3D one,
++	/// sampled with point filtering. Vulkan requires every descriptor a pipeline uses statically to be valid;
++	/// without these bgfx leaves such a descriptor unwritten. Invalid handles (the default): as before. Set after
++	/// bgfx::init with textures that live until bgfx::shutdown; the engine declares the same function
++	/// (src/shim/context.cpp).
++	void setVkUnboundTextures(TextureHandle _texture2d, TextureHandle _textureCube, TextureHandle _texture3d);
++
+ } // namespace bgfx
+ 
+ namespace bgfx { namespace vk
+ {
+ 	static const VkPresentHooks* s_presentHooks = NULL;
+ 
++	// Storm Engine patch (bgfx-vk-unbound-samplers.patch): by kind, see unboundKind().
++	static TextureHandle s_unboundTexture[3] = { BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE };
++
++	static uint32_t unboundKind(VkImageViewType _type)
++	{
++		switch (_type)
++		{
++		case VK_IMAGE_VIEW_TYPE_CUBE:
++		case VK_IMAGE_VIEW_TYPE_CUBE_ARRAY:
++			return 1;
++
++		case VK_IMAGE_VIEW_TYPE_3D:
++			return 2;
++
++		default:
++			return 0;
++		}
++	}
++
+ 	// storm: anisotropy level cap applied at the next reset (see updateResolution).
+ 	float g_stormMaxAnisotropy = 0.0f;
+ 
+@@ -5475,9 +5502,30 @@ VK_IMPORT_DEVICE
+ 
+ 			for (uint32_t stage = 0; stage < BGFX_CONFIG_MAX_TEXTURE_SAMPLERS; ++stage)
+ 			{
+-				const Binding& bind = _renderBind.m_bind[stage];
++				Binding bind = _renderBind.m_bind[stage];
+ 				const BindInfo& bindInfo = _program.m_bindInfo[stage];
+ 
++				if (kInvalidHandle == bind.m_idx
++				&&  isValid(bindInfo.uniformHandle)
++				&&  BindType::Sampler == bindInfo.type)
++				{
++					// Storm Engine patch (bgfx-vk-unbound-samplers.patch): a sampler of the program the draw
++					// has set no texture for takes the host's texture of its kind.
++					const VkImageViewType type = UINT32_MAX == bindInfo.index
++						? VK_IMAGE_VIEW_TYPE_2D
++						: _program.m_textures[bindInfo.index].type
++						;
++					const TextureHandle unbound = s_unboundTexture[unboundKind(type)];
++
++					if (isValid(unbound) )
++					{
++						bind.setTexture(unbound, 0
++							| BGFX_SAMPLER_POINT
++							| BGFX_SAMPLER_UVW_CLAMP
++							);
++					}
++				}
++
+ 				if (kInvalidHandle != bind.m_idx
+ 				&&  isValid(bindInfo.uniformHandle) )
+ 				{
+@@ -7333,6 +7381,7 @@ VK_DESTROY
+ 
+ 		m_numTextures = 0;
+ 		m_msaaMask    = 0;
++		m_unboundKinds = 0;
+ 
+ 		for (uint8_t stage = 0; stage < BX_COUNTOF(m_bindInfo); ++stage)
+ 		{
+@@ -7371,6 +7420,7 @@ VK_DESTROY
+ 				{
+ 					m_textures[m_numTextures] = shader->m_textures[index];
+ 					m_msaaMask |= shader->m_textures[index].msaa ? UINT32_C(1) << stage : 0;
++					m_unboundKinds |= unboundKind(shader->m_textures[index].type) << ( (stage * 2) & 31);
+ 					index = m_numTextures;
+ 					m_numTextures++;
+ 				}
+@@ -12495,6 +12545,7 @@ VK_DESTROY
+ 						hash.begin();
+ 						hash.add(program.m_descriptorSetLayout);
+ 						hash.add(program.m_msaaMask);
++						hash.add(program.m_unboundKinds); // Storm Engine patch: the descriptor set depends on them
+ 						hash.add(bindIdx);
+ 						hash.add(currentSbo.buffer);
+ 						hash.add(vsSize);
+@@ -12858,6 +12909,7 @@ VK_DESTROY
+ 						hash.begin();
+ 						hash.add(program.m_descriptorSetLayout);
+ 						hash.add(program.m_msaaMask);
++						hash.add(program.m_unboundKinds); // Storm Engine patch: the descriptor set depends on them
+ 						hash.add(bindIdx);
+ 						hash.add(currentSbo.buffer);
+ 						hash.add(vsSize);
+@@ -13372,6 +13424,13 @@ VK_DESTROY
+ 		vk::s_presentHooks = _hooks;
+ 	}
+ 
++	void setVkUnboundTextures(TextureHandle _texture2d, TextureHandle _textureCube, TextureHandle _texture3d)
++	{
++		vk::s_unboundTexture[0] = _texture2d;
++		vk::s_unboundTexture[1] = _textureCube;
++		vk::s_unboundTexture[2] = _texture3d;
++	}
++
+ } // namespace bgfx
+ 
+ #else
+diff --git a/src/renderer_vk.h b/src/renderer_vk.h
+index 91fd155..61ba92d 100644
+--- a/src/renderer_vk.h
++++ b/src/renderer_vk.h
+@@ -613,6 +613,7 @@ VK_DESTROY_FUNC(DescriptorSet);
+ 		TextureBindInfo m_textures[BGFX_CONFIG_MAX_TEXTURE_SAMPLERS];
+ 		uint8_t m_numTextures;
+ 		uint32_t m_msaaMask;
++		uint32_t m_unboundKinds; // Storm Engine patch: two bits per stage, the kind of texture a sampler takes unset
+ 
+ 		PredefinedUniform m_predefined[PredefinedUniform::Count * 2];
+ 		uint8_t m_numPredefined;

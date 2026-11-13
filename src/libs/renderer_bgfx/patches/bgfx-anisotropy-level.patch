@@ -24,3 +24,30 @@ index 58de3d40..27395689 100644
  				: 0.0f
  				;
  
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+index b75807e..96fb346 100644
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -19,6 +19,9 @@
+ 
+ namespace bgfx { namespace vk
+ {
++	// storm: anisotropy level cap applied at the next reset (see updateResolution).
++	float g_stormMaxAnisotropy = 0.0f;
++
+ 	struct PrimInfo
+ 	{
+ 		VkPrimitiveTopology m_topology;
+@@ -3742,7 +3745,11 @@ VK_IMPORT_DEVICE
+ 			float maxAnisotropy = 1.0f;
+ 			if (!!(_reset & BGFX_RESET_MAXANISOTROPY) )
+ 			{
+-				maxAnisotropy = m_deviceProperties.limits.maxSamplerAnisotropy;
++				// storm: the level is capped by g_stormMaxAnisotropy (0 = the device maximum), as in the GL backend.
++				maxAnisotropy = 0.0f < g_stormMaxAnisotropy
++					? bx::min(m_deviceProperties.limits.maxSamplerAnisotropy, g_stormMaxAnisotropy)
++					: m_deviceProperties.limits.maxSamplerAnisotropy
++					;
+ 			}
+ 
+ 			if (m_maxAnisotropy != maxAnisotropy)

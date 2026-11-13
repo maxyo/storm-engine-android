@@ -6,6 +6,8 @@
 //   «Высокая» with fx_ao_volume=0: the baked variant must reproduce exactly that colour;
 //   fx_ao_volume=1..3: under the table clearly darker, the open floor unchanged, stronger levels darker.
 #include "device.hpp"
+#include "check_backend.hpp"
+
 #include <SDL2/SDL.h>
 #include "storm/render/effects.hpp"
 
@@ -194,6 +196,7 @@ int main()
         std::fprintf(stderr, "FAIL: SDL video: %s (an X display is needed)\n", SDL_GetError());
         return 1;
     }
+    host_check::UseBackendFromEnvironment();
     SDL_Window *window = SDL_CreateWindow("ao_volume_check", 0, 0, kSize, kSize, 0);
     if (!window || !shim::Context::instance().init(window, kSize, kSize, false))
     {

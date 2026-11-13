@@ -7,6 +7,8 @@
 // another stride than at first, and compares every picture with the same geometry drawn from client memory
 // (DrawIndexedPrimitiveUP): each range must address exactly its buffer's data. Only the shared buffers may be created.
 #include "device.hpp"
+#include "check_backend.hpp"
+
 #include <SDL2/SDL.h>
 #include "storm/render/perf_stats.hpp"
 
@@ -207,6 +209,7 @@ int main()
         std::fprintf(stderr, "FAIL: SDL video: %s (an X display is needed)\n", SDL_GetError());
         return 1;
     }
+    host_check::UseBackendFromEnvironment();
     SDL_Window *window = SDL_CreateWindow("buffer_pool_check", 0, 0, kWidth, kHeight, 0);
     if (!window || !shim::Context::instance().init(window, kWidth, kHeight, false))
     {

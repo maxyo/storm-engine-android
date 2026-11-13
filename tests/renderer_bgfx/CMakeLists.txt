@@ -29,6 +29,12 @@ target_compile_definitions(perf_check PRIVATE NOMINMAX)
 target_compile_options(perf_check PRIVATE -fsigned-char)
 target_link_libraries(perf_check PRIVATE storm_bgfx storm_check_sdl)
 
+# backend_select_check: the choice between Vulkan and OpenGL ES and the marker of a failed Vulkan start
+# (src/shim/backend_select.hpp). No GPU.
+add_executable(backend_select_check backend_select_check.cpp)
+target_include_directories(backend_select_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
+target_link_libraries(backend_select_check PRIVATE storm_bgfx storm_check_sdl)
+
 # skinning_check renders through OpenGL ES in an SDL window (an X display: xvfb-run in CI) and
 # compares GPU skinning with the CPU kernel of src/libs/model.
 add_executable(skinning_check skinning_check.cpp)

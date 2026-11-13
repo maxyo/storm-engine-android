@@ -8,6 +8,8 @@
 // Unlit, lit (one directional light, normalised normals) and lit with the effects' per-pixel lighting
 // (fx «Высокое»: vs_ff_lit / vs_ff_lit_skin); the read-back pictures must match.
 #include "device.hpp"
+#include "check_backend.hpp"
+
 #include <SDL2/SDL.h>
 #include "skinning.hpp"
 #include "skinning_palette.hpp"
@@ -231,6 +233,7 @@ int main()
         std::fprintf(stderr, "FAIL: SDL video: %s (an X display is needed)\n", SDL_GetError());
         return 1;
     }
+    host_check::UseBackendFromEnvironment();
     SDL_Window *window = SDL_CreateWindow("skinning_check", 0, 0, kSize, kSize, 0);
     if (!window || !shim::Context::instance().init(window, kSize, kSize, false))
     {

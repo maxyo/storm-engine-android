@@ -735,6 +735,17 @@ bool Renderer::Init()
         renderThread = storm::android::graphicsSetting("render_thread", renderThread);
 #endif
         storm::render::SetRenderThread(renderThread != 0);
+        // Key render_backend (frame_owner.hpp SetRenderBackend): auto (the default: Vulkan on the devices it is
+        // chosen for), gles or vulkan. The Android graphics setting of the same name wins: 0 auto, 1 gles, 2 vulkan.
+        // A Vulkan start leaves its marker under the cache root until frames were presented. Logged by the shim.
+        ini->ReadString(nullptr, "render_backend", str, sizeof(str), "auto");
+        int renderBackend = std::string_view(str) == "gles" ? 1 : std::string_view(str) == "vulkan" ? 2 : 0;
+        if (renderBackend == 0 && std::string_view(str) != "auto")
+            spdlog::error("engine.ini render_backend = '{}' is not auto, gles or vulkan; using auto", str);
+#ifdef __ANDROID__
+        renderBackend = std::clamp(storm::android::graphicsSetting("render_backend", renderBackend), 0, 2);
+#endif
+        storm::render::SetRenderBackend(static_cast<storm::render::Backend>(renderBackend), fs::GetCachePath() / "RenderBackend");
         // Developer key render_overlap (frame_owner.hpp SetFrameOverlap): -1 chosen per frame, 0 never, 1 always.
         int renderOverlap = ini->GetInt(nullptr, "render_overlap", -1);
 #ifdef __ANDROID__

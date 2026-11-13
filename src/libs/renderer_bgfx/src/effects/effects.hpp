@@ -177,7 +177,7 @@ class Host
     fx::Settings tested_{};               // the settings of the running self-test
     std::vector<fx::Settings> verified_; // settings whose self-test passed on this device
     std::string notice_; // scene_depth_read() when the scene target was last (re)built
-    float device_max_anisotropy_ = 0.0f; // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
+    float device_max_anisotropy_ = 0.0f; // shim::DeviceInfo::max_anisotropy
     render::EffectsReport report_{};
     render::EffectsWeather weather_{};
     render::EffectsWobble wobble_{}; // set by the renderer every frame (Render.SeaEffect)

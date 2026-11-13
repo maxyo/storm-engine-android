@@ -128,7 +128,7 @@ target_include_directories(storm_bgfx PUBLIC include PRIVATE src)
 target_link_libraries(storm_bgfx PUBLIC storm_bgfx_runtime PRIVATE storm_bgfx_shaders ${SDL2_LIBRARIES})
 if(ANDROID)
     target_link_libraries(storm_bgfx PRIVATE GLESv3) # driver string and limit queries next to bgfx
-    # Swappy GL presents the game's frames (src/shim/frame_pacing.cpp). Only that file sees its headers and the
+    # Swappy (GL or Vk, by the backend) presents the game's frames (src/shim/frame_pacing.cpp). Only that file sees its headers and the
     # host hooks it reports to (header-only platform/host_hooks.hpp): the other shim sources keep their compile
     # commands (and their ccache entries).
     include("${CMAKE_CURRENT_LIST_DIR}/cmake/swappy.cmake")
@@ -139,6 +139,11 @@ if(ANDROID)
     # Swappy registers its JNI methods itself: none of its symbols are exported from the library linking it.
     target_link_options(storm_bgfx INTERFACE "LINKER:--exclude-libs,libswappy_static.a")
 endif()
+# The Vulkan probe (src/shim/backend_select.cpp) reads the loader through the Vulkan headers bgfx itself compiles
+# against; no other source sees them.
+set_source_files_properties(src/shim/backend_select.cpp PROPERTIES
+    INCLUDE_DIRECTORIES "${STORM_BGFX_SOURCE_DIR}/3rdparty/khronos")
+target_link_libraries(storm_bgfx PRIVATE ${CMAKE_DL_LIBS})
 set_target_properties(storm_bgfx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(storm_bgfx PRIVATE -fsigned-char)
 target_compile_definitions(storm_bgfx PRIVATE NOMINMAX)
