@@ -106,6 +106,10 @@ class CoastFoam : public Entity
     SEA_BASE *pSea;
     std::vector<Foam *> aFoams;
     int32_t iVBuffer, iIBuffer;
+    // The strands of one texture that follow each other, drawn together (FlushStrands): one draw drew one strand
+    std::vector<FoamVertex> aBatchVertices;
+    std::vector<uint16_t> aBatchIndices;
+    int32_t iBatchTexture = -1;
     PLANE *pFrustumPlanes;
 
     float fMaxFoamDistance, fFoamDeltaY;
@@ -127,4 +131,8 @@ class CoastFoam : public Entity
     void RecalculateFoam(int32_t iFoam);
     void ExecuteFoamType2(Foam *pF, float fDeltaTime);
     void ExecuteFoamType1(Foam *pF, float fDeltaTime);
+    // Room in the batch for a strand of `vertices` vertices and `indices` indices drawn with `texture`: the batch is
+    // drawn first when the texture differs or the buffers would overflow; base is the strand's first vertex.
+    void AddStrand(int32_t texture, uint32_t vertices, uint32_t indices, FoamVertex *&pFV, uint16_t *&pI, uint16_t &base);
+    void FlushStrands();
 };
