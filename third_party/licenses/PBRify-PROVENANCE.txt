@@ -1,6 +1,7 @@
-PBRify models shipped in the APK as the assets pbrify-normal-int8.onnx, pbrify-height-int8.onnx and
-pbrify-roughness-int8.onnx, int8 versions of PBRify's normal, height and roughness networks, for the relief and gloss
-maps the game makes on the device (src/libs/relief).
+PBRify models shipped in the APK as the assets pbrify-normal-int8.onnx, pbrify-height-int8.onnx,
+pbrify-roughness-int8.onnx and pbrify-upscale-int8.onnx, int8 versions of PBRify's normal, height and roughness
+networks and of its 4x upscaler, for the relief and gloss maps and the neural x2 textures the game makes on the device
+from the player's own game files (src/libs/relief). No game texture, map or upscaled texture is shipped.
 
 Author:    Kim2091, PBRify_Remix (https://github.com/Kim2091/PBRify_Remix): the SPAN models 1x-PBRify_NormalV3,
            1x-PBRify_Height and 1x-PBRify_RoughnessV2, released under CC0-1.0 (PBRify-CC0-1.0.txt).
@@ -28,3 +29,24 @@ Modified:  by src/libs/relief/model/make_models.py: weights and activations quan
            sha256 860845c92142b7d1bd89ac514ae58206d431fd2c899e955dd492348389c5f00b
            The modified files stay CC0-1.0.
 Use:       run with onnxruntime (MIT, onnxruntime-MIT.txt) on the player's device, in the game process.
+
+Upscaler (pbrify-upscale-int8.onnx):
+Author:    Kim2091, PBRify_Remix release v1.7.2
+           (https://github.com/Kim2091/PBRify_Remix/releases/download/v1.7.2/PBRify_Remix-1.7.2.zip, 116606222 bytes,
+           sha256 d787a88f644c542620f869e0c61e71f795488020fcece9a97e774ca2c2cecb0b), its file
+           Extras/Old_Models/4x-PBRify_UpscalerSPANV4.pth (9016813 bytes,
+           sha256 d1f1fa1af7a5ab23fcf143e75aac4951e6c52d56bf77d9ccd4d004a4831d0461), a 4x SPAN network, released under
+           CC0-1.0 (the release's LICENSE; PBRify-CC0-1.0.txt).
+Training:  the release's EXTRA_INFO.md: textures from ambientCG and PolyHaven (both CC0), degraded and DXT1-compressed,
+           trained with traiNNer-redux. OpenModelDB (openmodeldb.info/models/4x-PBRify-UpscalerSPANV4, read 2026-11-14)
+           lists the dataset as "ambientCG + UltraSharpV2" and the licence as CC0-1.0 (UltraSharpV2 is Kim2091's own
+           upscaling model and its data; no separate licence is stated for it). The model itself is CC0-1.0.
+Modified:  by src/libs/relief/model/make_upscale_model.py: exported to ONNX (opset 17, I/O 1x3xHxW float 0..1 and
+           1x3x4Hx4W) with spandrel, weights and activations quantised to int8 (static QDQ, per-channel weights,
+           calibrated on the procedural textures of make_models.py with 16 px wrap or mirror padding; no game data),
+           unused nodes dropped. Result (checked at build time):
+           pbrify-upscale-int8.onnx, 521540 bytes,
+           sha256 5148c5c90562bdff8567dd612b427ebe001371d4abb906fb1358d94e1480f552
+           The modified file stays CC0-1.0.
+Use:       the game upscales a texture 4x with it on the player's device and box-filters the result to 2x in linear
+           light (fx/upscale.hpp); the 2x textures are a cache in the app's cache directory.

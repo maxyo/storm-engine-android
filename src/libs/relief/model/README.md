@@ -33,3 +33,19 @@ Against the float models on 10 TEHO textures at 512 px, the correlation of the i
 normals and 0.9917 for the height; the roughness on 8 of them at 256 px at least 0.991 (0.9913..0.9995; a calibration on
 game textures was worse, 0.967..0.997, and would put game data into the file). One 512 texture on an x86-64 host with 4
 threads: about 0.19 s per model (the float model 0.52 s).
+
+## The upscaler
+
+`pbrify-upscale-int8.onnx` (521 540 bytes, sha256 `5148c5c90562bdff8567dd612b427ebe001371d4abb906fb1358d94e1480f552`)
+is made the same way, by `make_upscale_model.py` as its own `storm_derived_files` (`storm_upscale_model`, its own
+`upscale-requirements.txt`: torch CPU and spandrel for the export), from Kim2091/PBRify_Remix release v1.7.2's `4x-PBRify_UpscalerSPANV4.pth` (CC0-1.0;
+the release and the file pinned by sha256): exported with spandrel, converted by pnnx into `pbrify-upscale.ncnn.param` / `.bin` for the GPU (pinned likewise), quantised to int8 as above (calibration on the same
+procedural textures with 16 px wrap or mirror padding: no game data). Input 1x3xHxW, output 1x3x4Hx4W, 0..1. The
+build checks the result against that sha256. `fx::kUpscaleModelDigest` (fx/upscale.hpp)
+is its prefix, part of the ×2 textures' method and of the relief maps' (the maps of small textures are made from the ×2).
+
+Against the float model on 8 TEHO textures (256 px crops, ×4 then boxed to ×2 in linear light): 36.8..43.0 dB PSNR,
+RMSE 0.007..0.015, a quarter of the network's own change against bicubic (0.22..0.32; 0.64 on one flat signboard);
+side by side the difference is grain, no structure. A calibration on game crops was no better (37.6..42.1 dB) and would
+put game data into the file; keeping the first and last convolutions in float bought 0.5 dB for 25 % more time. The
+int8 model takes 2.7..3x less time than the float one (onnxruntime CPU, x86-64).

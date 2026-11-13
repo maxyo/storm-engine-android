@@ -33,6 +33,7 @@ struct BounceTexture;
 namespace storm::effects
 {
 struct NormalMapEntry;
+struct UpscaleEntry;
 }
 
 namespace storm::shim
@@ -134,6 +135,8 @@ struct TexStore
     bool lightmap = false;
     // Effects: the gloss map derived from this colour texture (src/effects/normal_maps.hpp), null for others.
     std::shared_ptr<effects::NormalMapEntry> gloss_map;
+    // Effects: its neural ×2 (src/effects/upscale.hpp), drawn in its place near the camera; null without a ×2 target.
+    std::shared_ptr<effects::UpscaleEntry> upscale;
 
     ~TexStore();
     uint32_t faces() const { return kind == TexKind::Cube ? 6 : 1; }

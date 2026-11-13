@@ -203,6 +203,40 @@ Blob transcode_to_ktx(const Layout &layout, const uint8_t *payload, GpuFormat fo
     return blob;
 }
 
+Blob encode_rgba_to_ktx(const uint8_t *rgba, uint32_t width, uint32_t height, GpuFormat format)
+{
+    Layout out;
+    out.width = width;
+    out.height = height;
+    out.levels = full_mip_levels(width, height);
+    const std::vector<std::vector<uint8_t>> chain = build_mip_chain(rgba, width, height, out.levels, false);
+    size_t total = 0;
+    for (uint32_t level = 0; level < out.levels; ++level)
+        total += gpu_level_size(format, out.level_width(level), out.level_height(level));
+    std::vector<uint8_t> encoded(total), aligned;
+    size_t offset = 0;
+    for (uint32_t level = 0; level < out.levels; ++level)
+    {
+        const uint32_t w = out.level_width(level), h = out.level_height(level);
+        const uint8_t *source = level == 0 ? rgba : chain[level - 1].data();
+        // Edge texels repeated up to whole blocks.
+        const uint32_t aw = blocks_x(w) * 4, ah = blocks_x(h) * 4;
+        aligned.resize(size_t(aw) * ah * 4);
+        for (uint32_t y = 0; y < ah; ++y)
+            for (uint32_t x = 0; x < aw; ++x)
+                memcpy(aligned.data() + (size_t(y) * aw + x) * 4, source + (size_t(std::min(y, h - 1)) * w + std::min(x, w - 1)) * 4,
+                       4);
+        encode_gpu(format, aligned.data(), aw, ah, encoded.data() + offset);
+        offset += gpu_level_size(format, w, h);
+    }
+    Blob blob;
+    blob.size = ktx_size(format, out);
+    blob.data = std::make_unique<uint8_t[]>(blob.size);
+    bx::StaticMemoryBlockWriter writer(blob.data.get(), uint32_t(blob.size));
+    write_ktx(&writer, format, out, encoded.data());
+    return blob;
+}
+
 fs::path cache_file_path(const fs::path &directory, uint64_t key)
 {
     char name[32];

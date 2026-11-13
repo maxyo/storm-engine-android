@@ -38,6 +38,7 @@ class Session;
 namespace storm::effects
 {
 struct NormalMapEntry;
+struct UpscaleEntry;
 
 struct ReliefSetup
 {
@@ -60,6 +61,13 @@ class ReliefGenerator
     void request(const std::shared_ptr<NormalMapEntry> &entry, std::filesystem::path file);
     // Main thread: relief is on (the rest of the game is made only then).
     void set_active(bool active);
+    // Main thread: the ×2 of a texture the game wants at ×2 (effects/upscale.hpp) whose file is not there. After the
+    // relief requests (whose small textures are upscaled first anyway), before the rest of the game. False when
+    // kUpscaleQueue requests wait already (the entry asks again later). Done: the entry becomes Stored, or Failed.
+    bool request_upscale(const std::shared_ptr<UpscaleEntry> &entry);
+    // Main thread: the game shows the ×2 textures (Settings::upscale): the requested relief maps made from a ×2 also
+    // keep it in `directory`, encoded for the tier (`bc`). The rest of the game keeps only its maps.
+    void set_display(bool on, std::filesystem::path directory, bool bc);
     // Stops the worker (the texture in progress is abandoned: onnxruntime stops its inference).
     void shutdown();
     // Any thread (the system is low on memory: render::TrimRelief): the models are released after the texture in
@@ -71,6 +79,8 @@ class ReliefGenerator
         uint32_t requested = 0;    // loaded textures waiting for their map
         int rest = -1;             // other relief textures of the game still to make; -1 not counted yet
         uint32_t made = 0;         // maps made since the start
+        uint32_t upscaled = 0;     // ×2 textures made alone (effects/upscale.hpp) since the start
+        double upscale_ms = 0.0;   // their worker time
         double made_ms = 0.0;      // their worker time
         double slowest_ms = 0.0;   // the slowest of them
         std::string paused;        // why the work waits (the thermal status, the renderer's hold); empty: it may run
@@ -93,6 +103,7 @@ class ReliefGenerator
     void prepare_rest();
     void release_models(const char *why); // worker, under mutex_
     bool must_wait(); // under mutex_: the background gate (thermal.hpp), changes logged
+    void prepare_upscale(const std::shared_ptr<UpscaleEntry> &entry);
 
     std::mutex mutex_;
     std::condition_variable wake_;
@@ -102,12 +113,15 @@ class ReliefGenerator
     bool active_ = false;
     ReliefSetup setup_;
     std::deque<Request> requests_;
+    std::deque<std::weak_ptr<UpscaleEntry>> upscales_;
+    bool display_ = false, display_bc_ = false;
+    std::filesystem::path display_directory_;
     uint64_t order_ = 0;
     std::chrono::steady_clock::time_point last_request_{}, idle_since_{};
     Stats stats_;
     // Worker only.
     std::unique_ptr<relief::Session> session_;
-    std::array<std::vector<uint8_t>, 9> models_; // relief::kModelFiles; onnxruntime keeps no copy of the bytes it was given
+    std::array<std::vector<uint8_t>, 12> models_; // relief::kModelFiles; onnxruntime keeps no copy of the bytes it was given
     bool model_failed_ = false;
     std::vector<std::filesystem::path> rest_;
     size_t rest_at_ = 0;

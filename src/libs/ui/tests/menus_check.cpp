@@ -402,7 +402,7 @@ static void Settings(const std::string &models)
                                 "fx_town_walls", "fx_gloss", "fx_gloss_strength",
                                 "fx_gloss_debug", "fx_sea_waves", "fx_sea_waves_lift",
                                 "fx_sea_wakes", "fx_sea_waves_debug", "fx_pom_probe",
-                                "fx_pom_toggle"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
+                                "fx_pom_toggle", "fx_upscale"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
             reported[key] = -1;
         debug.SetState("appSettings", reported);
         debug.SetInterface(Load(models, "settings.json"));
@@ -439,6 +439,9 @@ static void Settings(const std::string &models)
         Expect(row("app-fx_sea_waves").is_object() && row("app-fx_sea_wakes").is_object() &&
                    row("app-fx_sea_waves_debug")["options"].size() == 4,
                "effects debug: waves from objects: " + rows.dump());
+        Expect(row("app-fx_upscale")["options"] == Json::array({"пресет", "выкл", "вкл"}) &&
+                   row("app-fx_upscale")["label"] == "Нейро-×2 текстур",
+               "effects debug: neural ×2 textures forced on or off: " + rows.dump());
         Expect(row("app-fx_town_light")["options"] == Json::array({"пресет", "игра", "наш"}) && row("app-fx_town_light_debug").is_object(),
                "effects debug: the town light, game's or ours, and its view: " + rows.dump());
         Expect(row("app-fx_pom_probe")["label"] == "Прицел: текстура и параллакс" &&

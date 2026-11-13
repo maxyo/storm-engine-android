@@ -7,6 +7,23 @@ game files with PBRify's normal and height models (`fx/relief_model.hpp`) throug
 directory (`fx/relief_store.hpp`). Nothing derived is shipped. Grey "bump" textures are height maps; the game derives
 their maps itself. The owner's choice: PBRify for both maps, its normals as the model gives them (no rescale).
 
+## The neural ×2 first
+
+A texture whose larger side is at most the map's size (`fx::ReliefMapsFromUpscale`, 512) is upscaled before its maps:
+PBRify's 4x SPAN upscaler (`upscale.hpp`, CC0-1.0) on the device the relief's networks use (`backend.hpp`: the int8
+model on the CPU, its ncnn fp16 graph on the GPU, which tiles it again at 128 + 24), in 256-texel tiles padded by 24
+(wrapped for the tiling stone, wood and plaster, mirrored for atlases), its ×4 box-filtered to ×2 in linear light, the
+alpha stretched bilinearly. The normal and height networks run on that ×2 at twice the map's size and their planes are
+box-filtered to the map; the roughness runs on it at the gloss's size. The maps keep their sizes. Measured against
+the maps from the texture itself (local-testing/pom/pbrify-set, x2.json and inter.json): half the height noise and
+DXT steps, the stone's shape 8..26 % stronger, the normals' tilt the same (0.164 against 0.168); their inference takes
+four times as long. Larger textures have the detail and make their maps from themselves.
+
+The same ×2 is the game's display texture (renderer `src/effects/upscale.hpp`, fx/upscale.hpp): with
+`UpscaleOutput` the preparation keeps it in the upscale directory encoded for the device's tier; `Session::Upscale`
+makes it alone for the other textures the game shows at ×2 (characters, textures of 1024). `storm_relief_cli --x2-list`
+lists a game's ×2 targets, `--x2` makes them (host renders).
+
 ## Where the maps are made
 
 In the game process, lazily (renderer_bgfx `src/effects/relief_generator.hpp`): a texture loaded without its map is

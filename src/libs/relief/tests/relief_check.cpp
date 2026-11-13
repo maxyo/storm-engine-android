@@ -1,9 +1,12 @@
 // Host check of the relief preparation with the real PBRify models (storm_relief_core): a small synthetic game,
 // prepared (a stone texture's relief with its material, a window glass's own gloss map), marked complete, keyed as the game
-// keys it, resumed without work, stale maps pruned, cancelled.
+// keys it, resumed without work, stale maps pruned, cancelled; the neural ×2 (the upscaler, the maps of a small texture
+// made from its ×2 and the ×2 kept for the game, a character's ×2 alone).
 #include "relief.hpp"
 
 #include "backend.hpp"
+#include "upscale.hpp"
+#include "storm/fx/upscale.hpp"
 #include "storm/fx/gloss_map.hpp"
 #include "storm/fx/relief_model.hpp"
 #include "storm/fx/height_map.hpp"
@@ -16,6 +19,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -75,7 +79,7 @@ int main(int argc, char **argv)
     std::vector<std::vector<uint8_t>> files;
     for (const char *name : relief::kModelFiles)
         files.push_back(read(name));
-    const std::vector<uint8_t> &normal = files[0], &height = files[1], &roughness = files[2];
+    const std::vector<uint8_t> &normal = files[0], &height = files[1], &roughness = files[2], &upscale = files[9];
     const std::filesystem::path root = std::filesystem::temp_directory_path() / "storm_relief_check";
     std::filesystem::remove_all(root);
     const std::filesystem::path textures = root / "RESOURCE/Textures", output = root / "relief";
@@ -87,7 +91,7 @@ int main(int argc, char **argv)
     job.textures = textures;
     job.output = output;
     // The CPU (no ncnn graphs): the int8 models' maps; the GPU's are checked against them below.
-    job.models = {normal, height, roughness};
+    job.models = {.normal = normal, .height = height, .roughness = roughness, .upscale = upscale};
     job.map_size = 128;
     job.threads = 2;
     const size_t candidates = relief::List(textures).size();
@@ -134,9 +138,105 @@ int main(int argc, char **argv)
     fx::WriteReliefMap(output, 42, *map);
     result = relief::Prepare(job, [](const relief::Progress &) { return true; });
     CHECK(result.status == 1 && result.prepared == 0 && fx::HasReliefMap(output, 42));
+    // The neural ×2 (fx/upscale.hpp). The upscaler itself on the bricks: twice the size, the same colours when boxed back
+    // (the network sharpens, it does not shift), and no seam where the wrapped texture tiles.
+    {
+        std::string error;
+        std::vector<uint8_t> rgba;
+        int w = 0, h = 0;
+        CHECK(relief::ReadTextureLevel(textures / "Locations/StoneWall.tga.tx", 1 << 16, rgba, w, h) && w == 128);
+        std::vector<uint8_t> rolled(rgba.size());
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x)
+                std::memcpy(&rolled[(size_t(y) * w + (x + 37) % w) * 4], &rgba[(size_t(y) * w + x) * 4], 4);
+        const auto cpu_runtime = relief::CpuRuntime::Open(2, error);
+        std::vector<uint8_t> cpu_x2;
+        // On the CPU (int8), and on the GPU (ncnn, fp16) where the host has a Vulkan compute device.
+        for (int device = 0; device < (relief::Gpu().available ? 2 : 1); ++device)
+        {
+            std::unique_ptr<relief::Network> network =
+                device == 0 ? (cpu_runtime ? cpu_runtime->Load(upscale, fx::kUpscalePad, 4, error) : nullptr)
+                            : relief::LoadGpuNetwork(files[10], files[11], fx::kUpscalePad, 4, error);
+            CHECK(network);
+            if (!network)
+                continue;
+            const std::string describe = network->Describe();
+            relief::Upscaler upscaler(std::move(network));
+            std::vector<uint8_t> x2, x2_rolled;
+            CHECK(upscaler.Run(rgba, w, h, true, x2, error) && x2.size() == size_t(4 * w * h * 4));
+            if (x2.size() != size_t(4 * w * h * 4))
+                continue;
+            double diff = 0.0;
+            for (int y = 0; y < h; ++y)
+                for (int x = 0; x < w; ++x)
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        int sum = 0;
+                        for (int d = 0; d < 4; ++d)
+                            sum += x2[((size_t(2 * y + d / 2) * 2 * w) + 2 * x + d % 2) * 4 + c];
+                        diff += std::abs(sum / 4.0 - rgba[(size_t(y) * w + x) * 4 + c]);
+                    }
+            diff /= double(w) * h * 3;
+            // No seam: the ×2 of the texture shifted by 37 texels is the ×2 shifted by 74 (wrapped padding beyond the
+            // network's reach makes every texel see the same neighbours; on the GPU its own tiles must join too).
+            int worst = 0;
+            CHECK(upscaler.Run(rolled, w, h, true, x2_rolled, error) && x2_rolled.size() == x2.size());
+            for (int y = 0; y < 2 * h && x2_rolled.size() == x2.size(); ++y)
+                for (int x = 0; x < 2 * w; ++x)
+                    for (int c = 0; c < 3; ++c)
+                        worst = std::max(worst, std::abs(int(x2_rolled[(size_t(y) * 2 * w + (x + 74) % (2 * w)) * 4 + c]) -
+                                                         int(x2[(size_t(y) * 2 * w + x) * 4 + c])));
+            // The GPU's fp16 float graph against the CPU's int8: within the int8 model's own error (36.8 dB and up on
+            // game textures against the float model).
+            double psnr = 0.0;
+            if (device == 0)
+                cpu_x2 = x2;
+            else
+            {
+                double squared = 0.0;
+                for (size_t i = 0; i < x2.size(); ++i)
+                    squared += (i % 4 == 3) ? 0.0 : double(x2[i] - cpu_x2[i]) * double(x2[i] - cpu_x2[i]);
+                psnr = 10.0 * std::log10(255.0 * 255.0 / std::max(squared / (x2.size() * 0.75), 1e-9));
+            }
+            std::printf("x2 on %s: boxed back %.2f/255 from the source; shifted by 37 texels: at most %d/255 off%s\n",
+                        describe.c_str(), diff, worst,
+                        device ? (", against the CPU's int8: PSNR " + std::to_string(psnr) + " dB").c_str() : "");
+            CHECK(diff < 8.0 && worst <= 3 && (device == 0 || psnr > 33.0));
+        }
+    }
+    // With a display output the maps of a small texture come from its ×2, which is kept for the game under the game's key.
+    {
+        const std::filesystem::path x2_dir = root / "upscale";
+        std::filesystem::remove(fx::ReliefFile(output, key));
+        job.display = relief::UpscaleOutput{x2_dir, false};
+        result = relief::Prepare(job, nullptr);
+        const uint64_t x2_key = fx::ReliefKey("locations/stonewall", probe, 64, 64, fx::UpscaleMethod(false), 128);
+        const std::optional<std::vector<uint8_t>> ktx = fx::ReadUpscaled(x2_dir, x2_key);
+        CHECK(result.prepared == 1 && ktx && ktx->size() > 12 && std::memcmp(ktx->data() + 1, "KTX 11", 6) == 0);
+        // KTX 1.1: pixelWidth at 36, mip levels at 56.
+        uint32_t width = 0, levels = 0;
+        if (ktx && ktx->size() > 60)
+        {
+            std::memcpy(&width, ktx->data() + 36, 4);
+            std::memcpy(&levels, ktx->data() + 56, 4);
+        }
+        CHECK(width == 256 && levels == 9);
+        job.display.reset();
+        // The ×2 alone: a character's texture (no relief, no gloss) gets one, once; a texture without a target none.
+        std::string error;
+        const std::unique_ptr<relief::Session> session = relief::Session::Open({.normal = normal, .height = height, .roughness = roughness, .upscale = upscale}, 2,
+                                                                               root / "device", error);
+        CHECK(session);
+        const relief::UpscaleOutput display{x2_dir, true};
+        WriteTx(textures / "Weather/Sky/Sky1.tga.tx", 64);
+        std::string failure;
+        CHECK(session && session->Upscale(textures, textures / "Characters/Face.tga.tx", display, 64, failure) == relief::Outcome::Prepared);
+        CHECK(session && session->Upscale(textures, textures / "Characters/Face.tga.tx", display, 64, failure) == relief::Outcome::Existing);
+        CHECK(session && session->Upscale(textures, textures / "Weather/Sky/Sky1.tga.tx", display, 0, failure) == relief::Outcome::Skipped);
+    }
     // A broken model is an error, not a crash.
     const std::vector<uint8_t> junk(100, 7);
-    job.models = {normal, height, junk};
+    job.models = {.normal = normal, .height = height, .roughness = junk, .upscale = upscale};
     CHECK(relief::Prepare(job, nullptr).status == 2);
     // The GPU path (ncnn, fp16 graphs of the float models) against the CPU's int8 models, network by network, on a
     // brick pattern with the game's padding: the same maps within the int8 models' own error, and the tiles join.
@@ -206,7 +306,8 @@ int main(int argc, char **argv)
     }
     // The crash guard (backend.hpp MarkGpuRunning): a marker left behind by a run that died in the GPU's driver.
     {
-        const relief::Models all{files[0], files[1], files[2], files[3], files[4], files[5], files[6], files[7], files[8]};
+        const relief::Models all{files[0], files[1], files[2], files[3], files[4],  files[5],
+                                 files[6], files[7], files[8], files[9], files[10], files[11]};
         const std::filesystem::path cache = root / "crash";
         std::string error;
         std::string logged; // what the library logged (stderr) during open()

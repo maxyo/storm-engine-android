@@ -90,6 +90,7 @@ is not wired into the game. `Shadows::CasterProgram`,
 | `include/storm/fx/relief_model.hpp`, `relief_store.hpp` | PBRify's normal and height models' input, crop, axes and mips (run by src/libs/relief); the relief directory's files and keys |
 | `include/storm/fx/gloss_map.hpp` | gloss from PBRify's roughness network (class from the path rules; GGX-to-Blinn power, grooves, dark texels, metal mask, class caps) that shapes the sun's and the lamps' highlights |
 | `include/storm/fx/parallax_trust.hpp`, `parallax_exclusions.hpp` | where the relief's height can be trusted with the parallax (a per-texel mask made with the relief: windows and glass out), and the shipped and user exclusion lists |
+| `include/storm/fx/upscale.hpp` | the neural ×2 textures (PBRify's 4x upscaler boxed to ×2, made by src/libs/relief): which textures, their cache files, the GPU budget from the RAM and the choice of the resident ones by distance |
 | `include/storm/fx/height_map.hpp` | the relief's material texture: PBRify's height (normalised per atlas region) for the parallax and the cavity, the gloss beside it |
 | `include/storm/fx/normal_map.hpp` | normal maps of the grey "bump" heights; the path/name rules table that gives each texture its relief class |
 | `include/storm/fx/shadows.hpp` | `Shadows`: sun shadow map |

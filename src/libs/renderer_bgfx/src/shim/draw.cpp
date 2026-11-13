@@ -1,5 +1,6 @@
 #include "device.hpp"
 #include "effects/effects.hpp"
+#include "effects/upscale.hpp"
 #include "perf.hpp"
 #include "ports.hpp"
 #include "util.hpp"
@@ -1412,6 +1413,32 @@ HRESULT Device::draw(const DrawCall &call)
 
     // ---- textures ----
     const uint32_t stage_limit = ps_port ? s.ps->port->sampler_count : kFfStages;
+    // The draw's distance from the camera (its vertices' bounding sphere), for the textures with a neural ×2
+    // (effects/upscale.hpp): computed at the first such texture.
+    effects::Upscales &upscales = effects::upscales();
+    float upscale_distance = -2.0f;
+    const auto draw_distance = [&] {
+        if (upscale_distance > -2.0f)
+            return upscale_distance;
+        upscale_distance = -1.0f;
+        float center[3], radius = 0.0f;
+        if (draw_bounds(call, *layout, element_count, center, radius))
+        {
+            const D3DMATRIX &w = s.world, &v = s.view;
+            float scale = 0.0f, d2 = 0.0f;
+            for (int r = 0; r < 3; ++r)
+                scale = std::max(scale, std::sqrt(w.m[r][0] * w.m[r][0] + w.m[r][1] * w.m[r][1] + w.m[r][2] * w.m[r][2]));
+            for (int k = 0; k < 3; ++k)
+            {
+                const float world = center[0] * w.m[0][k] + center[1] * w.m[1][k] + center[2] * w.m[2][k] + w.m[3][k];
+                // The camera: -t R^T of the view's rotation R and translation t.
+                const float eye = -(v.m[3][0] * v.m[k][0] + v.m[3][1] * v.m[k][1] + v.m[3][2] * v.m[k][2]);
+                d2 += (world - eye) * (world - eye);
+            }
+            upscale_distance = std::max(0.0f, std::sqrt(d2) - radius * scale);
+        }
+        return upscale_distance;
+    };
     for (uint32_t stage = 0; stage < stage_limit; ++stage)
     {
         TexStore *store = store_of(s.textures[stage]);
@@ -1444,6 +1471,10 @@ HRESULT Device::draw(const DrawCall &call)
         if (store->lightmap) // a town's lightmap: ours for the hour's sun in its place (effects/town_light.hpp)
             if (const bgfx::TextureHandle ours = fx_lighting.town_light().replacement(store); bgfx::isValid(ours))
                 handle = ours;
+        if (store->upscale && upscales.active())
+            if (const float distance = draw_distance(); distance >= 0.0f)
+                if (const bgfx::TextureHandle ours = upscales.replacement(*store, distance); bgfx::isValid(ours))
+                    handle = ours;
         bgfx::setTexture(static_cast<uint8_t>(unit), Context::instance().sampler(unit), handle, flags);
         ++perf().texture_binds;
         if (last_draw.texture[unit] != handle.idx || last_draw.sampler[unit] != flags)

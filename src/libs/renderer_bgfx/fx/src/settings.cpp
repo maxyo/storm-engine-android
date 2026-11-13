@@ -84,6 +84,8 @@ Settings Settings::FromPreset(QualityPreset preset)
                        kLightingRim | kLightingAerial;
     s.point_lights = 8;
     s.gloss = true;
+    // Neural ×2 textures near the camera: Высокая only at first (the owner's choice), until phones' numbers say more.
+    s.upscale = true;
     s.parallax = ParallaxQuality::Occlusion;
     s.parallax_shadow = true;
     s.relief_cavity = true;

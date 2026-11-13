@@ -280,6 +280,8 @@ struct ReliefConfig
     // Reads a model file by its name (src/libs/relief/model/README.md: pbrify-{normal,height,roughness}-int8.onnx). Null:
     // no maps are made (logged); textures without one get no relief.
     std::function<std::vector<uint8_t>(const char *file)> model;
+    // The neural ×2 textures (fx/upscale.hpp), derived like the maps: in the cache root too.
+    std::filesystem::path upscale_directory;
 };
 void ConfigureRelief(const ReliefConfig &config);
 // The owner's parallax tuning file (fx/parallax_exclusions.hpp): `exclude <texture>` / `include <texture>` lines, written by
@@ -303,6 +305,10 @@ struct ParallaxProbeState
     uint32_t serial = 0;
 };
 const ParallaxProbeState &EffectsParallaxProbe();
+// The neural ×2 textures have settled (effects/upscale.hpp): with the option on, the last residency plan found every
+// texture it chose resident at ×2 (none still being read, uploaded or made). The scene sweep waits for it before it
+// captures a variant.
+bool UpscaleSettled();
 // Before the renderer goes: stops the generator (the texture in progress is abandoned, its map made next time).
 void ShutdownRelief();
 // Any thread, the system low on memory (Android onTrimMemory / onLowMemory): the relief's models are released after

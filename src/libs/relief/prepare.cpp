@@ -9,6 +9,10 @@
 #include "storm/fx/normal_map.hpp"
 #include "storm/fx/relief_store.hpp"
 
+#include "upscale.hpp"
+#include "cache.hpp"
+#include "storm/fx/upscale.hpp"
+#include "storm/fx/cutout.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -342,10 +346,37 @@ std::vector<std::filesystem::path> List(const std::filesystem::path &textures)
     return files;
 }
 
+namespace
+{
+// The game's ×2 of a texture (fx/upscale.hpp): its chain encoded for the device's tier, into the upscale directory.
+bool WriteDisplay(const UpscaleOutput &display, uint64_t key, const std::vector<uint8_t> &x2, int width, int height,
+                  const std::string &name)
+{
+    const Clock::time_point start = Clock::now();
+    bool opaque = true;
+    for (size_t i = 3; i < x2.size() && opaque; i += 4)
+        opaque = x2[i] == 255;
+    const texture::GpuFormat format = display.bc ? (opaque ? texture::GpuFormat::Bc1 : texture::GpuFormat::Bc3)
+                                                 : (opaque ? texture::GpuFormat::Etc2Rgb8 : texture::GpuFormat::Etc2Rgba8);
+    const texture::Blob ktx = texture::encode_rgba_to_ktx(x2.data(), static_cast<uint32_t>(width),
+                                                          static_cast<uint32_t>(height), format);
+    if (!fx::WriteUpscaled(display.directory, key, {ktx.data.get(), ktx.size}))
+    {
+        Log("ERROR: ×2 of %s: cannot write %s", name.c_str(), fx::UpscaleFile(display.directory, key).string().c_str());
+        return false;
+    }
+    Log("×2 %s: %dx%d %s, %.1f MB, mips and encode %.0f ms", name.c_str(), width, height, opaque ? "opaque" : "with alpha",
+        static_cast<double>(ktx.size) / 1048576.0, Seconds(start) * 1000.0);
+    return true;
+}
+
+} // namespace
+
 struct Session::Impl
 {
     std::unique_ptr<CpuRuntime> runtime;                // before the networks: released after them
     std::unique_ptr<Network> normal, height, roughness; // PBRify's three networks, on the chosen device
+    std::unique_ptr<Upscaler> upscaler;                 // its 4x upscaler (fx/upscale.hpp), on the same device
     std::filesystem::path cache;
     bool gpu_unproven = false; // on the GPU, before its first texture: the crash guard's marker is written around it
     // The GPU held against the CPU on the real textures (DemoteGpu): the models (owned by the caller, alive with the
@@ -378,7 +409,8 @@ std::unique_ptr<Session> Session::Open(const Models &models, int threads, const 
     threads = threads > 0 ? threads : static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
     // The device first (backend.hpp ChooseDevice: kept from before, or measured now with the normal network): on the
     // GPU onnxruntime is never opened (its environment and arena were most of the relief's memory).
-    const bool gpu_models = !models.normal_param.empty() && !models.height_param.empty() && !models.roughness_param.empty();
+    const bool gpu_models = !models.normal_param.empty() && !models.height_param.empty() && !models.roughness_param.empty() &&
+                            !models.upscale_param.empty();
     const Device device = gpu_models ? ChooseDevice(cache, models.normal, models.normal_param, models.normal_bin,
                                                     fx::kReliefModelPad, threads, impl->cpu_ms_per_texel)
                                      : Device::Cpu;
@@ -397,10 +429,15 @@ std::unique_ptr<Session> Session::Open(const Models &models, int threads, const 
             impl->height = LoadGpuNetwork(models.height_param, models.height_bin, fx::kReliefModelPad, 1, error);
         if (impl->height)
             impl->roughness = LoadGpuNetwork(models.roughness_param, models.roughness_bin, fx::kReliefModelPad, 1, error);
+        // The upscaler on the same device (its tiles padded by fx::kUpscalePad, beyond its reach).
+        if (impl->roughness)
+            if (std::unique_ptr<Network> upscale =
+                    LoadGpuNetwork(models.upscale_param, models.upscale_bin, fx::kUpscalePad, 4, error))
+                impl->upscaler = std::make_unique<Upscaler>(std::move(upscale));
     }
     else
         impl->OpenCpu(error);
-    if (!impl->normal || !impl->height || !impl->roughness)
+    if (!impl->normal || !impl->height || !impl->roughness || !impl->upscaler)
     {
         Log("ERROR: %s", error.c_str());
         return nullptr;
@@ -417,6 +454,7 @@ bool Session::Impl::OpenCpu(std::string &error)
     normal.reset();
     height.reset();
     roughness.reset();
+    upscaler.reset();
     ReleaseGpu(); // opened to learn the GPU, or used until now
     runtime = CpuRuntime::Open(threads, error);
     if (runtime)
@@ -425,9 +463,12 @@ bool Session::Impl::OpenCpu(std::string &error)
         height = runtime->Load(models.height, fx::kReliefModelPad, 1, error);
     if (height)
         roughness = runtime->Load(models.roughness, fx::kReliefModelPad, 1, error);
+    if (roughness)
+        if (std::unique_ptr<Network> upscale = runtime->Load(models.upscale, fx::kUpscalePad, 4, error))
+            upscaler = std::make_unique<Upscaler>(std::move(upscale));
     stats.gpu = false;
     stats.provider = normal ? normal->Describe() : "-";
-    return roughness != nullptr;
+    return upscaler != nullptr;
 }
 
 void Session::Cancel()
@@ -437,6 +478,8 @@ void Session::Cancel()
     for (Network *network : {impl_->normal.get(), impl_->height.get(), impl_->roughness.get()})
         if (network)
             network->Cancel();
+    if (impl_->upscaler)
+        impl_->upscaler->Cancel();
 }
 
 const Session::Stats &Session::stats() const
@@ -445,7 +488,8 @@ const Session::Stats &Session::stats() const
 }
 
 Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::filesystem::path &file,
-                             const std::filesystem::path &output, int map_size, std::string &failure)
+                             const std::filesystem::path &output, int map_size, std::string &failure,
+                             const UpscaleOutput *display)
 {
     // One decode, then PBRify's networks (the owner's choice): the normals and the height at the map size, the
     // roughness at the gloss map's. Outputs: the relief map (EAC RG11 normals, with the material texture of a class with
@@ -485,7 +529,7 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     // The source: the first level no larger than twice the map, which the models' inputs are box-filtered down from.
     const int level = tx.first;
     const uint32_t lw = std::max(1u, tx.width >> level), lh = std::max(1u, tx.height >> level);
-    const int width = static_cast<int>(lw), height = static_cast<int>(lh);
+    int width = static_cast<int>(lw), height = static_cast<int>(lh);
     std::vector<uint8_t> rgba(size_t(lw) * lh * 4);
     const std::span<const uint8_t> bytes = tx.Level(level);
     if (bytes.size() < texture::d3d_level_bytes(tx.format, lw, lh) ||
@@ -496,14 +540,46 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         return Outcome::Failed;
     }
     const double decode_ms = lap();
-    // The sizes: the relief map's (map_size) and the gloss's (fx::kGlossMapSize), both halvings of the texture.
+    // A texture up to the map's size: its ×2 first (fx::ReliefMapsFromUpscale), the models run on it at up to twice the
+    // map's size and are box-filtered to the map (the ×2 is kept for the game's display too, `display`).
+    double upscale_ms = 0.0;
+    int model_scale = 1;
+    if (fx::ReliefMapsFromUpscale(width, height))
+    {
+        std::vector<uint8_t> x2;
+        const fx::UpscaleTarget target = fx::ClassifyUpscale(candidate->name, relief, false);
+        // The crash guard around the GPU's first texture (backend.hpp MarkGpuRunning): the ×2 is its first network.
+        if (impl_->gpu_unproven)
+            MarkGpuRunning(impl_->cache, GpuLabel(Gpu()));
+        if (!impl_->upscaler->Run(rgba, width, height, fx::UpscaleWraps(target, relief), x2, failure))
+        {
+            if (impl_->cancelled)
+                failure = "cancelled";
+            Log("ERROR: no relief map for %s: its ×2: %s", candidate->name.c_str(), failure.c_str());
+            return Outcome::Failed;
+        }
+        if (display && level == 0 && target != fx::UpscaleTarget::None)
+            if (const std::optional<uint64_t> x2_key = Key(*candidate, tx, fx::UpscaleMethod(display->bc), std::max(width, height)))
+                if (!fx::HasUpscaled(display->directory, *x2_key))
+                    WriteDisplay(*display, *x2_key, x2, width * 2, height * 2, candidate->name);
+        rgba = std::move(x2);
+        width *= 2;
+        height *= 2;
+        model_scale = 2;
+        upscale_ms = lap();
+    }
+    // The sizes: the relief map's (map_size) and the gloss's (fx::kGlossMapSize), halvings of the texture itself; on a ×2
+    // the normal and height networks run at twice the map's size and are box-filtered down to it.
     fx::NormalMapOptions options;
     options.max_size = map_size;
+    int fw = 0, fh = 0;
+    fx::NormalMapSize(width / model_scale, height / model_scale, options, fw, fh);
+    options.max_size = map_size * model_scale;
     int mw = 0, mh = 0;
     fx::NormalMapSize(width, height, options, mw, mh);
     options.max_size = fx::kGlossMapSize;
     int gw = 0, gh = 0;
-    fx::NormalMapSize(width, height, options, gw, gh);
+    fx::NormalMapSize(width / model_scale, height / model_scale, options, gw, gh);
     double infer_ms = 0.0, infer_texels = 0.0;
     std::string per_model; // each inference: the model, its padded size, its time
     const auto run = [&](Network &model, const std::vector<float> &input, int w, int h) {
@@ -593,6 +669,25 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         Log("ERROR: no relief map for %s: %s", candidate->name.c_str(), failure.c_str());
         return Outcome::Failed;
     }
+    // The models' planes at the map's size (box-filtered when they ran on a ×2 at twice it).
+    if (mw != fw || mh != fh)
+    {
+        for (std::vector<float> *planes : {&normal_planes, &height_planes})
+            if (!planes->empty())
+            {
+                const size_t n = static_cast<size_t>(mw) * mh;
+                std::vector<float> boxed;
+                for (int c = 0; c < 3; ++c)
+                {
+                    const std::vector<float> one =
+                        HalveTo(std::vector<float>(planes->begin() + c * n, planes->begin() + (c + 1) * n), mw, mh, fw, fh);
+                    boxed.insert(boxed.end(), one.begin(), one.end());
+                }
+                *planes = std::move(boxed);
+            }
+        mw = fw;
+        mh = fh;
+    }
     fx::GlossField gloss;
     if (gloss_wanted)
     {
@@ -655,12 +750,119 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     for (const float g : gloss.gloss)
         mean_gloss += g;
     mean_gloss = gloss.gloss.empty() ? 0.0 : mean_gloss / static_cast<double>(gloss.gloss.size());
-    Log("relief %s: %dx%d%s, gloss %s %dx%d (mean %.2f), %.0f ms (read %.0f, decode %.0f, models %.0f of which "
+    Log("relief %s: %dx%d%s%s, gloss %s %dx%d (mean %.2f), %.0f ms (read %.0f, decode %.0f, ×2 %.0f, models %.0f of which "
         "inference %.0f: %s; gloss %.0f, mips, material, encode and write %.0f; depth %.1f texels, parallax trust %.0f%%; %s)",
-        candidate->name.c_str(), key ? mw : 0, key ? mh : 0, key ? "" : " (no relief)", fx::GlossClassName(candidate->gloss),
-        gloss.width, gloss.height, mean_gloss, ms, read_ms, decode_ms, model_ms, infer_ms, per_model.c_str(), gloss_ms,
-        write_ms, static_cast<double>(map.depth), 100.0 * static_cast<double>(map.trust_coverage), impl_->stats.provider.c_str());
+        candidate->name.c_str(), key ? mw : 0, key ? mh : 0, key ? "" : " (no relief)",
+        model_scale > 1 ? " from its ×2" : "", fx::GlossClassName(candidate->gloss), gloss.width, gloss.height, mean_gloss,
+        ms, read_ms, decode_ms, upscale_ms, model_ms, infer_ms, per_model.c_str(), gloss_ms, write_ms,
+        static_cast<double>(map.depth), 100.0 * static_cast<double>(map.trust_coverage), impl_->stats.provider.c_str());
     return Outcome::Prepared;
+}
+
+Outcome Session::Upscale(const std::filesystem::path &textures, const std::filesystem::path &file, const UpscaleOutput &display,
+                         int source_size, std::string &failure)
+{
+    // The ×2 alone (fx/upscale.hpp): a texture whose maps do not come from it (larger than the map) or that has none (the
+    // characters). Its class decides the padding and whether it gets one at all.
+    const Clock::time_point start = Clock::now();
+    std::error_code error;
+    const std::string name = fx::NormalizeTexturePath(std::filesystem::relative(file, textures, error).generic_string());
+    TxFile tx;
+    // From the level the game loaded as its top (0: the file's), the probe level below it.
+    if (error || !tx.Load(file, [&source_size](const TxFile &t) {
+            if (source_size <= 0)
+                source_size = static_cast<int>(std::max(t.width, t.height));
+            int level = 0;
+            while (level + 1 < static_cast<int>(t.levels) &&
+                   static_cast<int>(std::max(t.width >> level, t.height >> level)) > source_size)
+                ++level;
+            return level;
+        }))
+        return Outcome::Skipped;
+    const fx::ReliefVerdict verdict = fx::ClassifyTextureName(name);
+    const fx::UpscaleTarget target =
+        fx::ClassifyUpscale(name, fx::NameSuggestsHeightMap(name) ? fx::ReliefClass::HeightMap : verdict.relief, false);
+    const int level = tx.first;
+    const uint32_t lw = std::max(1u, tx.width >> level), lh = std::max(1u, tx.height >> level);
+    if (target == fx::UpscaleTarget::None || static_cast<int>(std::max(lw, lh)) != source_size ||
+        !fx::UpscaleSize(static_cast<int>(lw), static_cast<int>(lh)))
+        return Outcome::Skipped;
+    const std::optional<uint64_t> key = Key(Candidate{file, name}, tx, fx::UpscaleMethod(display.bc), source_size);
+    if (!key)
+        return Outcome::Skipped;
+    if (fx::HasUpscaled(display.directory, *key))
+        return Outcome::Existing;
+    std::vector<uint8_t> rgba(size_t(lw) * lh * 4), x2;
+    const std::span<const uint8_t> bytes = tx.Level(level);
+    if (bytes.size() < texture::d3d_level_bytes(tx.format, lw, lh) || !texture::decode_rgba8(tx.format, bytes.data(), lw, lh, rgba.data()))
+    {
+        failure = "unreadable level " + std::to_string(level);
+        return Outcome::Failed;
+    }
+    const double decode_ms = Seconds(start) * 1000.0;
+    if (impl_->gpu_unproven)
+        MarkGpuRunning(impl_->cache, GpuLabel(Gpu()));
+    if (!impl_->upscaler->Run(rgba, static_cast<int>(lw), static_cast<int>(lh), fx::UpscaleWraps(target, verdict.relief), x2,
+                              failure))
+    {
+        if (impl_->cancelled)
+            failure = "cancelled";
+        return Outcome::Failed;
+    }
+    if (impl_->gpu_unproven)
+    {
+        ClearGpuRunning(impl_->cache);
+        impl_->gpu_unproven = false;
+    }
+    const double infer_ms = impl_->upscaler->infer_ms();
+    if (!WriteDisplay(display, *key, x2, static_cast<int>(lw) * 2, static_cast<int>(lh) * 2, name))
+    {
+        failure = "cannot write its file";
+        return Outcome::Failed;
+    }
+    Log("×2 %s (%s): %ux%u, %.0f ms (read and decode %.0f, inference %.0f)", name.c_str(), fx::UpscaleTargetName(target), lw,
+        lh, Seconds(start) * 1000.0, decode_ms, infer_ms);
+    return Outcome::Prepared;
+}
+
+std::vector<UpscaleCandidate> UpscaleCandidates(const std::filesystem::path &textures)
+{
+    std::vector<UpscaleCandidate> list;
+    std::error_code error;
+    for (auto it = std::filesystem::recursive_directory_iterator(textures, error);
+         !error && it != std::filesystem::recursive_directory_iterator(); it.increment(error))
+    {
+        std::error_code e;
+        if (!it->is_regular_file(e) || Lower(it->path().extension().string()) != ".tx")
+            continue;
+        const std::string name = fx::NormalizeTexturePath(std::filesystem::relative(it->path(), textures, e).generic_string());
+        const fx::ReliefClass relief =
+            fx::NameSuggestsHeightMap(name) ? fx::ReliefClass::HeightMap : fx::ClassifyTextureName(name).relief;
+        if (e || fx::ClassifyUpscale(name, relief, false) == fx::UpscaleTarget::None)
+            continue;
+        // The cut-out test of the game (effects texture_pixels: the level no larger than 128, alpha against 160/255).
+        TxFile tx;
+        if (!tx.Load(it->path(), [](const TxFile &t) {
+                int level = 0;
+                while (level + 1 < static_cast<int>(t.levels) && std::max(t.width >> level, t.height >> level) > 128u)
+                    ++level;
+                return level;
+            }))
+            continue;
+        const int level = tx.first;
+        const uint32_t lw = std::max(1u, tx.width >> level), lh = std::max(1u, tx.height >> level);
+        const std::span<const uint8_t> bytes = tx.Level(level);
+        std::vector<uint8_t> rgba(size_t(lw) * lh * 4);
+        fx::AlphaMask mask;
+        const bool cutout = bytes.size() >= texture::d3d_level_bytes(tx.format, lw, lh) &&
+                            texture::decode_rgba8(tx.format, bytes.data(), lw, lh, rgba.data()) &&
+                            fx::MakeAlphaMask(rgba, static_cast<int>(lw), static_cast<int>(lh), 160.0f / 255.0f, mask);
+        const fx::UpscaleTarget target = fx::ClassifyUpscale(name, relief, cutout);
+        if (target != fx::UpscaleTarget::None && fx::UpscaleSize(static_cast<int>(tx.width), static_cast<int>(tx.height)))
+            list.push_back({it->path(), name, target, static_cast<int>(tx.width), static_cast<int>(tx.height)});
+    }
+    std::sort(list.begin(), list.end(), [](const UpscaleCandidate &a, const UpscaleCandidate &b) { return a.name < b.name; });
+    return list;
 }
 
 int Prune(const std::filesystem::path &textures, const std::vector<std::filesystem::path> &files,
@@ -806,7 +1008,7 @@ Result Prepare(const Job &job, const std::function<bool(const Progress &)> &prog
             break;
         state.current = file.filename().string();
         std::string failure;
-        switch (session->PrepareFile(job.textures, file, job.output, job.map_size, failure))
+        switch (session->PrepareFile(job.textures, file, job.output, job.map_size, failure, job.display ? &*job.display : nullptr))
         {
         case Outcome::Prepared: ++result.prepared; break;
         case Outcome::Existing: ++result.existing; break;

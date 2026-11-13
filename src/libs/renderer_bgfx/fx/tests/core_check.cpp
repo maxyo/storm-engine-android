@@ -22,6 +22,7 @@
 #include "storm/fx/parallax_probe.hpp"
 #include "storm/fx/parallax_trust.hpp"
 #include "storm/fx/relief_store.hpp"
+#include "storm/fx/upscale.hpp"
 #include "storm/fx/settings.hpp"
 #include "storm/fx/wave_clock.hpp"
 #include "storm/fx/shadow_model.hpp"
@@ -34,6 +35,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <optional>
 #include <map>
 #include <thread>
 #include <vector>
@@ -2370,6 +2372,59 @@ void CheckParallaxTrust()
     std::filesystem::remove_all(file.parent_path());
 }
 
+void CheckUpscale()
+{
+    // Which textures get a ×2, and how their tiles are padded.
+    CHECK(ClassifyUpscale("locations/cobblem1", ReliefClass::Stone, false) == UpscaleTarget::Surface);
+    CHECK(ClassifyUpscale("locations/cobblem1", ReliefClass::Stone, true) == UpscaleTarget::None); // alpha-cut
+    CHECK(ClassifyUpscale("characters/blaze", ReliefClass::None, false) == UpscaleTarget::Character);
+    CHECK(ClassifyUpscale("weather/sky/sky1", ReliefClass::None, false) == UpscaleTarget::None);
+    CHECK(ClassifyUpscale("bump/wallbump", ReliefClass::HeightMap, false) == UpscaleTarget::None);
+    CHECK(UpscaleWraps(UpscaleTarget::Surface, ReliefClass::Stone) && !UpscaleWraps(UpscaleTarget::Surface, ReliefClass::Building) &&
+          !UpscaleWraps(UpscaleTarget::Character, ReliefClass::None));
+    CHECK(ReliefMapsFromUpscale(512, 256) && !ReliefMapsFromUpscale(1024, 512));
+    CHECK(UpscaleSize(1024, 512) && !UpscaleSize(2048, 2048) && !UpscaleSize(0, 64));
+    CHECK(UpscaleMethod(false) != UpscaleMethod(true));
+    // The budget from the RAM.
+    CHECK(UpscaleBudgetBytes(2ull << 30) == 64ull << 20 && UpscaleBudgetBytes(8ull << 30) == 256ull << 20 &&
+          UpscaleBudgetBytes(16ull << 30) == 384ull << 20);
+    // Residency: nearest first within the budget; a resident one is kept until kUpscaleFar; not drawn = released.
+    {
+        const uint64_t mb = 1ull << 20;
+        const UpscaleCandidate c[] = {{5.0f, 6 * mb, false}, {2.0f, 6 * mb, false}, {30.0f, 1 * mb, true},
+                                      {30.0f, 1 * mb, false}, {-1.0f, 1 * mb, true}, {10.0f, 6 * mb, false},
+                                      {40.0f, 1 * mb, true}, {20.0f, 1 * mb, false}};
+        const UpscalePlan plan = PlanUpscaleResidency(c, 14 * mb);
+        CHECK(plan.keep[1] && plan.keep[0] && !plan.keep[5] && plan.keep[2] && !plan.keep[3] && !plan.keep[4] &&
+              !plan.keep[6] && plan.keep[7]);
+        CHECK(plan.bytes == 14 * mb && plan.limited == 1 && plan.nearest_limited == 10.0f);
+        CHECK(PlanUpscaleResidency(c, 64 * mb).limited == 0);
+    }
+    // The cache: written atomically, read back, a damaged file deleted, the least recently used trimmed first.
+    {
+        const std::filesystem::path dir = std::filesystem::temp_directory_path() / "storm_fx_upscale_check";
+        std::filesystem::remove_all(dir);
+        std::vector<uint8_t> ktx(5000);
+        for (size_t i = 0; i < ktx.size(); ++i)
+            ktx[i] = static_cast<uint8_t>(i * 7);
+        CHECK(!HasUpscaled(dir, 1) && WriteUpscaled(dir, 1, ktx) && HasUpscaled(dir, 1));
+        const std::optional<std::vector<uint8_t>> back = ReadUpscaled(dir, 1);
+        CHECK(back && *back == ktx);
+        CHECK(!ReadUpscaled(dir, 2));
+        {
+            std::fstream f(UpscaleFile(dir, 1), std::ios::in | std::ios::out | std::ios::binary);
+            f.seekp(100);
+            f.put(static_cast<char>(0x5a));
+        }
+        std::string error;
+        CHECK(!ReadUpscaled(dir, 1, &error) && !error.empty() && !HasUpscaled(dir, 1));
+        CHECK(WriteUpscaled(dir, 3, ktx) && WriteUpscaled(dir, 4, ktx));
+        std::filesystem::last_write_time(UpscaleFile(dir, 3), std::filesystem::file_time_type::clock::now() - std::chrono::hours(1));
+        CHECK(TrimUpscaled(dir, 6000) <= 6000 && !HasUpscaled(dir, 3) && HasUpscaled(dir, 4));
+        std::filesystem::remove_all(dir);
+    }
+}
+
 int main()
 {
     CheckSettings();
@@ -2405,6 +2460,7 @@ int main()
     CheckParallaxProbe();
     CheckSeaWaves();
     CheckGlossMaps();
+    CheckUpscale();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

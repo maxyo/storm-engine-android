@@ -1,5 +1,6 @@
 #include "effects/effects.hpp"
 #include "effects/thermal.hpp"
+#include "effects/upscale.hpp"
 #include "effects/relief_generator.hpp"
 
 #include "effects/casters.hpp"
@@ -139,6 +140,10 @@ const Option kOptions[] = {
      [](fx::Settings &s, int v) { s.normal_map_strength = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
     {"fx_gloss", "0 off, 1 on: gloss maps shape the sun's and the lamps' highlights",
      [](fx::Settings &s, int v) { s.gloss = on(v); }},
+    {"fx_upscale", "0 off, 1 on: textures near the camera drawn at their neural ×2 (PBRify, made on the device)",
+     [](fx::Settings &s, int v) { s.upscale = on(v); }},
+    {"fx_upscale_budget", "MB of GPU memory for the ×2 textures, 0 from the device's RAM (measurements)",
+     [](fx::Settings &s, int v) { s.upscale_budget_mb = static_cast<uint16_t>(std::clamp(v, 0, 4096)); }},
     {"fx_gloss_strength", "10..300 % of the gloss maps' highlights",
      [](fx::Settings &s, int v) { s.gloss_strength = static_cast<float>(std::clamp(v, 10, 300)) / 100.0f; }},
     {"fx_gloss_debug", "0 off, 1 the gloss (magenta: no map), 2 the relief normals, 3 the sun the bake shows, 4 the metal mask",
@@ -437,6 +442,7 @@ void Host::activate(const fx::Settings &settings, const fx::Support &support)
     bgfx::gl::g_stormMaxAnisotropy.store(static_cast<float>(state.max_anisotropy), std::memory_order_relaxed);
     bgfx::vk::g_stormMaxAnisotropy.store(static_cast<float>(state.max_anisotropy), std::memory_order_relaxed);
     lighting_.configure(settings_, renderer_state_);
+    upscales().configure(settings_.upscale, settings_.upscale_budget_mb);
 }
 
 bool Host::needs_self_test(const fx::Settings &settings)
@@ -617,6 +623,7 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
     sun_glare_ = sun_ghosts_ = 0.0f;
     lighting_.probe().end_frame(scene_frame, lighting_.normal_maps());
     lighting_.end_frame();
+    upscales().end_frame();
     {
         const auto now = std::chrono::steady_clock::now();
         const float dt = last_frame_end_ == std::chrono::steady_clock::time_point{}
@@ -927,14 +934,21 @@ void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path
         store->cutout = effects::texture_cutout(*store);
         store->albedo = effects::texture_albedo(*store);
         effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path, file);
+        effects::upscales().on_texture_loaded(*store, store->name, file);
         std::string lower(path ? path : "");
         std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         store->lightmap = lower.find("lighting") != std::string::npos && lower.find("shadow.tga") != std::string::npos;
     }
 }
 
+bool UpscaleSettled()
+{
+    return effects::upscales().settled();
+}
+
 void ConfigureRelief(const ReliefConfig &config)
 {
+    effects::ConfigureUpscaleDirectory(config.upscale_directory);
     effects::ConfigureRelief({config.directory, config.textures, config.model});
 }
 

@@ -269,6 +269,9 @@ class SettingsScreen final : public Screen
                     DebugSegment(bindings, debug, "fx_pom_probe", "Прицел: текстура и параллакс", {-1, 1}, {"выкл", "вкл"});
                     DebugSegment(bindings, debug, "fx_pom_toggle", "Прицел: переключить параллакс", {-1, 1}, {"А", "Б"});
                 }
+                // Neural ×2 textures near the camera (feat/upscale, Высокая): forced on or off.
+                if (Known("fx_upscale"))
+                    DebugSegment(bindings, debug, "fx_upscale", "Нейро-×2 текстур", {-1, 0, 1}, onOff);
                 // The renderer's thread, its frame overlap and the graphics API (read at the game's start).
                 if (Known("render_backend"))
                 {

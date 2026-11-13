@@ -51,6 +51,10 @@ size_t ktx_size(GpuFormat format, const Layout &out);
 // only the top levels are read.
 Blob transcode_to_ktx(const Layout &layout, const uint8_t *payload, GpuFormat format);
 
+// An RGBA8 image (R first, width x height) with its chain rebuilt down to 1x1 (build_mip_chain: linear light, no
+// cut-out) and every level encoded in `format`, as a KTX container (the neural ×2 textures, fx/upscale.hpp).
+Blob encode_rgba_to_ktx(const uint8_t *rgba, uint32_t width, uint32_t height, GpuFormat format);
+
 struct FileHeader
 {
     char magic[8];

@@ -3,6 +3,7 @@
 #include "effects/normal_maps.hpp"
 #include "effects/thermal.hpp"
 #include "backend.hpp"
+#include "effects/upscale.hpp"
 #include "relief.hpp"
 #include "shim/shim.hpp"
 #include "storm/fx/relief_store.hpp"
@@ -71,6 +72,10 @@ void ReliefGenerator::shutdown()
             if (const std::shared_ptr<NormalMapEntry> entry = request.entry.lock())
                 entry->state = NormalMapEntry::Missing;
         requests_.clear();
+        for (const std::weak_ptr<UpscaleEntry> &weak : upscales_)
+            if (const std::shared_ptr<UpscaleEntry> entry = weak.lock())
+                entry->state = UpscaleEntry::Missing;
+        upscales_.clear();
     }
     wake_.notify_all();
     if (worker_.joinable())
@@ -79,6 +84,29 @@ void ReliefGenerator::shutdown()
     session_.reset();
     for (std::vector<uint8_t> &bytes : models_)
         bytes = {};
+}
+
+bool ReliefGenerator::request_upscale(const std::shared_ptr<UpscaleEntry> &entry)
+{
+    {
+        std::lock_guard lock(mutex_);
+        if (!worker_.joinable() || stopping_ || model_failed_)
+            return false;
+        std::erase_if(upscales_, [](const std::weak_ptr<UpscaleEntry> &weak) { return weak.expired(); });
+        if (upscales_.size() >= kUpscaleQueue)
+            return false;
+        upscales_.push_back(entry);
+    }
+    wake_.notify_all();
+    return true;
+}
+
+void ReliefGenerator::set_display(bool on, std::filesystem::path directory, bool bc)
+{
+    std::lock_guard lock(mutex_);
+    display_ = on;
+    display_directory_ = std::move(directory);
+    display_bc_ = bc;
 }
 
 void ReliefGenerator::request(const std::shared_ptr<NormalMapEntry> &entry, std::filesystem::path file)
@@ -143,6 +171,7 @@ void ReliefGenerator::run()
     for (;;)
     {
         std::optional<Request> request;
+        std::shared_ptr<UpscaleEntry> upscale;
         {
             std::unique_lock lock(mutex_);
             for (;;)
@@ -157,7 +186,13 @@ void ReliefGenerator::run()
                 const Clock::time_point now = Clock::now();
                 const bool rest = active_ && !rest_done_ && !model_failed_;
                 request = next_request();
-                if (request || (rest && now - last_request_ >= kRestQuiet))
+                if (!request)
+                    while (!upscales_.empty() && !upscale)
+                    {
+                        upscale = upscales_.front().lock();
+                        upscales_.pop_front();
+                    }
+                if (request || upscale || (rest && now - last_request_ >= kRestQuiet))
                     break;
                 // Nothing due: a request wakes the worker; the rest waits for a quiet spell; with no work left at
                 // all the model goes after kIdleRelease.
@@ -180,6 +215,8 @@ void ReliefGenerator::run()
             {
                 if (request)
                     requests_.push_front(std::move(*request));
+                if (upscale)
+                    upscales_.push_front(upscale);
                 wake_.wait_for(lock, kWaitPause, [this] { return stopping_; });
                 continue;
             }
@@ -190,6 +227,8 @@ void ReliefGenerator::run()
             if (request)
                 if (const std::shared_ptr<NormalMapEntry> entry = request->entry.lock())
                     entry->state = NormalMapEntry::Missing;
+            if (upscale)
+                upscale->state = UpscaleEntry::Failed;
             std::lock_guard lock(mutex_);
             for (const Request &r : requests_)
                 if (const std::shared_ptr<NormalMapEntry> entry = r.entry.lock())
@@ -200,6 +239,8 @@ void ReliefGenerator::run()
         }
         if (request)
             prepare_request(*request);
+        else if (upscale)
+            prepare_upscale(upscale);
         else
         {
             prepare_rest();
@@ -248,8 +289,8 @@ bool ReliefGenerator::open_session()
     // All cores but the game's main and render threads.
     const unsigned cores = std::thread::hardware_concurrency();
     const int threads = cores > 2 ? static_cast<int>(cores - 2) : 1;
-    const relief::Models models{models_[0], models_[1], models_[2], models_[3], models_[4],
-                                models_[5], models_[6], models_[7], models_[8]};
+    const relief::Models models{models_[0], models_[1], models_[2], models_[3],  models_[4],  models_[5],
+                                models_[6], models_[7], models_[8], models_[9], models_[10], models_[11]};
     std::unique_ptr<relief::Session> session =
         read ? relief::Session::Open(models, threads, setup_.directory, error) : nullptr;
     if (!session)
@@ -284,10 +325,17 @@ void ReliefGenerator::prepare_request(const Request &request)
     const std::shared_ptr<NormalMapEntry> entry = request.entry.lock();
     if (!entry)
         return; // unloaded meanwhile
+    std::optional<relief::UpscaleOutput> display;
+    {
+        std::lock_guard lock(mutex_);
+        if (display_)
+            display = relief::UpscaleOutput{display_directory_, display_bc_};
+    }
     const Clock::time_point start = Clock::now();
     std::string failure;
     const relief::Outcome outcome =
-        session_->PrepareFile(setup_.textures, request.file, setup_.directory, fx::kReliefMapSize, failure);
+        session_->PrepareFile(setup_.textures, request.file, setup_.directory, fx::kReliefMapSize, failure,
+                              display ? &*display : nullptr);
     const double ms = Ms(start);
     {
         std::lock_guard lock(mutex_);
@@ -390,10 +438,17 @@ void ReliefGenerator::prepare_rest()
         rest_.clear();
         return;
     }
+    // The ×2 its small textures' maps are made from is kept too while the game shows them (cheap: the encode only).
+    std::optional<relief::UpscaleOutput> display;
+    {
+        std::lock_guard lock(mutex_);
+        if (display_)
+            display = relief::UpscaleOutput{display_directory_, display_bc_};
+    }
     const Clock::time_point start = Clock::now();
     std::string failure;
-    const relief::Outcome outcome =
-        session_->PrepareFile(setup_.textures, rest_[rest_at_++], setup_.directory, fx::kReliefMapSize, failure);
+    const relief::Outcome outcome = session_->PrepareFile(setup_.textures, rest_[rest_at_++], setup_.directory,
+                                                          fx::kReliefMapSize, failure, display ? &*display : nullptr);
     const double ms = Ms(start);
     std::lock_guard lock(mutex_);
     stats_.rest = static_cast<int>(rest_.size() - rest_at_);
@@ -403,6 +458,47 @@ void ReliefGenerator::prepare_rest()
         ++stats_.made;
         stats_.made_ms += ms;
         stats_.slowest_ms = std::max(stats_.slowest_ms, ms);
+    }
+}
+
+void ReliefGenerator::prepare_upscale(const std::shared_ptr<UpscaleEntry> &entry)
+{
+    relief::UpscaleOutput display;
+    {
+        std::lock_guard lock(mutex_);
+        if (!display_)
+        {
+            entry->state = UpscaleEntry::Missing; // switched off meanwhile
+            return;
+        }
+        display = {display_directory_, display_bc_};
+    }
+    const Clock::time_point start = Clock::now();
+    std::string failure;
+    const relief::Outcome outcome = session_->Upscale(setup_.textures, entry->file, display,
+                                                      static_cast<int>(std::max(entry->width, entry->height)), failure);
+    const double ms = Ms(start);
+    std::lock_guard lock(mutex_);
+    if (stopping_)
+        return;
+    switch (outcome)
+    {
+    case relief::Outcome::Prepared:
+        ++stats_.upscaled;
+        stats_.upscale_ms += ms;
+        [[fallthrough]];
+    case relief::Outcome::Existing:
+        entry->state = UpscaleEntry::Stored; // the next plan reads it
+        break;
+    case relief::Outcome::Skipped:
+        // The game and the preparation disagree on the texture's class or file: a defect, not a state.
+        shim::logf("ERROR: effects upscale: %s: its file %s gets no ×2", entry->name.c_str(), entry->file.string().c_str());
+        entry->state = UpscaleEntry::Failed;
+        break;
+    case relief::Outcome::Failed:
+        shim::logf("ERROR: effects upscale: ×2 of %s not made (%s)", entry->name.c_str(), failure.c_str());
+        entry->state = UpscaleEntry::Failed;
+        break;
     }
 }
 

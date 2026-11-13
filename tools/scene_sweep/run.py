@@ -120,6 +120,8 @@ def parse_arguments():
     parser.add_argument('--variants', default='',
                         help="graphics option sets separated by ';' (e.g. 'fx_preset=0;fx_preset=2,fx_bloom=0'): every "
                              "game scene is captured once per set (shots/<scene>@v<i>.jpg, report 'variants')")
+    parser.add_argument('--lossless', action='store_true',
+                        help='save the shots as PNG instead of JPEG (comparison sheets of fine texture detail)')
     parser.add_argument('--settle', type=int, default=300,
                         help='ms each scene renders after its fader before the capture; frame time and the renderer '
                              'counters are means over this window (raise it for performance measurements)')
@@ -582,10 +584,11 @@ class Shard(threading.Thread):
                         render_checked = True
                     image = read_frame(self.work / 'Xvfb_screen0', self.size)
                     variant = values.get('variant')
-                    shot = Path('shots') / (current.replace(':', '/') + (f'@v{variant}' if variant else '') + '.jpg')
+                    suffix = '.png' if self.arguments.lossless else '.jpg'
+                    shot = Path('shots') / (current.replace(':', '/') + (f'@v{variant}' if variant else '') + suffix)
                     target = self.arguments.out / shot
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    image.save(target, quality=82)
+                    image.save(target, **({} if self.arguments.lossless else {'quality': 82}))
                     status = Path(f'/proc/{engine.pid}/status').read_text()
                     metrics.setdefault('first_window', {k: float(values[k]) for k in ('frames', 'p50', 'p95', 'p99', 'max')})
                     measured = dict(frame_ms=round(float(values['frame_ms']), 1), draws=int(values['draws']),

@@ -1,4 +1,5 @@
 #include "storm/fx/gloss_map.hpp"
+#include "storm/fx/upscale.hpp"
 
 #include "image_field.hpp"
 #include "name_rules.hpp"
@@ -327,7 +328,10 @@ GlossVerdict ClassifyGlossName(std::string_view path)
 
 uint64_t GlossMethod(GlossClass gloss)
 {
-    return ((uint64_t{kGlossMethod} << 8) | static_cast<uint64_t>(gloss)) ^ kReliefRoughnessModelDigest;
+    // The roughness network runs on the texture's ×2 when it is small enough (ReliefMapsFromUpscale): the upscaler's
+    // digest too.
+    return (((uint64_t{kGlossMethod} << 8) | static_cast<uint64_t>(gloss)) ^ kReliefRoughnessModelDigest) * 0x100000001b3ull ^
+           kUpscaleModelDigest;
 }
 
 float GlossMetalTint(GlossClass gloss)

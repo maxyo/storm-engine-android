@@ -530,7 +530,7 @@ void ConfigureGraphicsEffects(const std::function<int(const char *, int)> &iniVa
         ApplyEffectsOverrides(variant, preset, options);
         spdlog::info("graphics effects: sweep variant '{}'", variant);
         ApplyEffects(preset, effectsAutoHeight, options);
-    }, [] { return !storm::render::CurrentEffects().pending; });
+    }, [] { return !storm::render::CurrentEffects().pending && storm::render::UpscaleSettled(); });
     storm::scene_sweep::setIncompleteFrameHook([] { return storm::render::LastIncompleteFrame(); });
 #endif
 }
@@ -863,6 +863,12 @@ bool Renderer::Init()
         relief.textures = std::filesystem::u8path(fio->ConvertPathResource("resource\\textures"));
         if (relief.directory.empty())
             relief.directory = fs::GetCachePath() / "relief";
+        // The neural ×2 textures (fx/upscale.hpp): derived from the game's files as the maps, in the cache root; engine.ini
+        // upscale_dir overrides (host renders with prepared ×2).
+        ini->ReadString(nullptr, "upscale_dir", str, sizeof(str), "");
+        relief.upscale_directory = std::filesystem::u8path(str);
+        if (relief.upscale_directory.empty())
+            relief.upscale_directory = fs::GetCachePath() / "upscale";
 #ifdef __ANDROID__
         relief.model = [](const char *file) {
             std::vector<uint8_t> model;

@@ -6,11 +6,13 @@
 #pragma once
 
 #include "storm/fx/relief_store.hpp"
+#include "storm/fx/upscale.hpp"
 
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -39,13 +41,23 @@ struct Models
     std::span<const uint8_t> normal_param, normal_bin;       // pbrify-normal.ncnn.param, .bin
     std::span<const uint8_t> height_param, height_bin;       // pbrify-height.ncnn.param, .bin
     std::span<const uint8_t> roughness_param, roughness_bin; // pbrify-roughness.ncnn.param, .bin
+    std::span<const uint8_t> upscale;                        // pbrify-upscale-int8.onnx (fx/upscale.hpp)
+    std::span<const uint8_t> upscale_param, upscale_bin;     // pbrify-upscale.ncnn.param, .bin
+};
+
+// Where the game's ×2 textures go (fx/upscale.hpp: the upscale directory) and the GPU tier they are encoded for.
+struct UpscaleOutput
+{
+    std::filesystem::path directory;
+    bool bc = false; // BC1/BC3 (GPUs with S3TC), else ETC2
 };
 // The model files' names, in Models' order.
 inline constexpr const char *kModelFiles[] = {"pbrify-normal-int8.onnx",   "pbrify-height-int8.onnx",
                                               "pbrify-roughness-int8.onnx", "pbrify-normal.ncnn.param",
                                               "pbrify-normal.ncnn.bin",     "pbrify-height.ncnn.param",
                                               "pbrify-height.ncnn.bin",     "pbrify-roughness.ncnn.param",
-                                              "pbrify-roughness.ncnn.bin"};
+                                              "pbrify-roughness.ncnn.bin",  "pbrify-upscale-int8.onnx",
+                                              "pbrify-upscale.ncnn.param",  "pbrify-upscale.ncnn.bin"};
 
 // The models loaded once for many textures, on the device measured for this game (backend.hpp ChooseDevice: the GPU
 // through ncnn, or the CPU through onnxruntime; logged). One thread at a time (Cancel aside).
@@ -66,9 +78,16 @@ class Session
                                          std::string &error);
     ~Session();
     // One texture file under `textures` (the game's RESOURCE/Textures; the key does not depend on where the game
-    // lies), unless its map is there already.
+    // lies), unless its map is there already. A texture up to the map's size is upscaled first and its maps are made
+    // from its ×2 (fx::ReliefMapsFromUpscale); with `display` that ×2 is also kept for the game (fx/upscale.hpp).
     Outcome PrepareFile(const std::filesystem::path &textures, const std::filesystem::path &file,
-                        const std::filesystem::path &output, int map_size, std::string &failure);
+                        const std::filesystem::path &output, int map_size, std::string &failure,
+                        const UpscaleOutput *display = nullptr);
+    // The game's ×2 of one texture file (fx::ClassifyUpscale by its path: Skipped for a texture that gets none), made
+    // from its level whose larger side is `source_size` (the texture as the game loaded it; 0 its top level), unless it is
+    // there already.
+    Outcome Upscale(const std::filesystem::path &textures, const std::filesystem::path &file, const UpscaleOutput &display,
+                    int source_size, std::string &failure);
     // Any thread (the game's shutdown): the texture being prepared fails at once, and every later one.
     void Cancel();
     const Stats &stats() const;
@@ -99,6 +118,7 @@ struct Job
     Models models;
     int map_size = fx::kReliefMapSize;
     int threads = 0;
+    std::optional<UpscaleOutput> display; // the ×2 the maps of small textures are made from, kept for the game too
 };
 struct Progress
 {
@@ -121,6 +141,17 @@ Result Prepare(const Job &job, const std::function<bool(const Progress &)> &prog
 // The first level of the game texture `file` (.tx) whose larger side is at most `max_size`, decoded to RGBA8 (R first)
 // into `rgba`. False when the file is no texture the relief reads (palette, cube map, unknown format, damaged).
 bool ReadTextureLevel(const std::filesystem::path &file, int max_size, std::vector<uint8_t> &rgba, int &width, int &height);
+
+// The textures of a game that get a ×2 (fx::ClassifyUpscale: their class by name, an alpha that cuts holes as the
+// game decides it, effects texture_pixels), with their sizes: the host tool's list for `Session::Upscale`.
+struct UpscaleCandidate
+{
+    std::filesystem::path file;
+    std::string name;
+    fx::UpscaleTarget target;
+    int width = 0, height = 0;
+};
+std::vector<UpscaleCandidate> UpscaleCandidates(const std::filesystem::path &textures);
 
 long long PeakRssKb();
 // Logging of the library: Android log tag "storm-relief" and stderr.

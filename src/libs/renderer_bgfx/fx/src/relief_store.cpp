@@ -2,6 +2,7 @@
 
 #include "storm/fx/gloss_map.hpp"
 #include "storm/fx/relief_model.hpp"
+#include "storm/fx/upscale.hpp"
 #include "storm/fx/height_map.hpp"
 
 #include <algorithm>
@@ -69,10 +70,11 @@ uint64_t ReliefMethod(ReliefClass relief)
         const uint64_t parts[3] = {kReliefHeightMethod, NormalMapCacheKey(options), kHeightMapVersion}; // with their heights
         return Mix(method, parts, sizeof(parts));
     }
-    // PBRify's normals, height and roughness (their models' digests), the material's height and gloss derivations.
-    const uint64_t parts[7] = {kReliefMethodVersion, kReliefNormalModelDigest, kReliefHeightModelDigest,
+    // PBRify's normals, height and roughness (their models' digests), the material's height and gloss derivations, and
+    // the upscaler whose ×2 they run on for textures up to the map's size (ReliefMapsFromUpscale).
+    const uint64_t parts[8] = {kReliefMethodVersion, kReliefNormalModelDigest, kReliefHeightModelDigest,
                                kReliefRoughnessModelDigest, static_cast<uint64_t>(kReliefMapSize),
-                               ReliefHasHeight(relief) ? kHeightMapVersion : 0u, kGlossMethod};
+                               ReliefHasHeight(relief) ? kHeightMapVersion : 0u, kGlossMethod, kUpscaleModelDigest};
     return Mix(method, parts, sizeof(parts));
 }
 

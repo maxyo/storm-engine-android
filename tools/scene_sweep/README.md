@@ -115,6 +115,7 @@ python3 tools/scene_sweep/run.py --game <game dir> --engine <build>/engine --out
   `src/libs/renderer_bgfx/src/shim/pipeline_sets.hpp`).
 - `--timeout S` seconds a scene may take before its engine is killed (default 240); the script fails a scene that
   has not loaded 30 s before that with its own reason (`not loaded after ... ms`).
+- `--lossless` saves the shots as PNG (comparison sheets of fine texture detail; JPEG by default).
 - `--settle MS` how long each scene renders after its fader before the capture (default 300).
   Frame time and the renderer counters are means over this window: raise it (e.g. 5000) with
   `--only` on a few scenes and `--jobs 1` for performance measurements.

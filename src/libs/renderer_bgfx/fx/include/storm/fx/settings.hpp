@@ -172,6 +172,10 @@ struct Settings
     // (gloss_map.hpp): the sun's and the lamps' on lit and baked surfaces alike. Off: the lit materials' fixed highlight
     // only (no lamp or baked highlights).
     bool gloss = false;
+    // Neural ×2 textures (upscale.hpp, renderer src/effects/upscale.hpp): the relief classes' colour textures and the
+    // characters' drawn near the camera take PBRify's ×2 made on the device, within a GPU budget from the device's RAM.
+    bool upscale = false;
+    uint16_t upscale_budget_mb = 0; // with upscale: their GPU memory, 0 = UpscaleBudgetBytes of the device's RAM
     float gloss_strength = 1.0f;   // with gloss: the share of the gloss maps' highlights (0..3), 1 = the chosen look
     uint16_t gloss_map_size = 256; // with gloss: larger side of the resident gloss maps (EAC RG11 + mips)
     // 0 off; 1 the gloss of every lit or baked pixel as grey (magenta: no gloss map, the material's own highlight);
