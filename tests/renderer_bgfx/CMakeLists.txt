@@ -79,3 +79,12 @@ target_include_directories(sea_edge_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../
 target_compile_definitions(sea_edge_check PRIVATE NOMINMAX)
 target_compile_options(sea_edge_check PRIVATE -fsigned-char)
 target_link_libraries(sea_edge_check PRIVATE storm_bgfx storm_check_sdl)
+
+# relief_switch_check: textures loaded while relief is off are looked up when it is switched on (a preset raised in a
+# location): requested from the generator, height maps derived. No GPU (shim stores filled like TextureLoad).
+add_executable(relief_switch_check relief_switch_check.cpp)
+target_include_directories(relief_switch_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src")
+target_compile_definitions(relief_switch_check PRIVATE NOMINMAX)
+target_compile_options(relief_switch_check PRIVATE -fsigned-char)
+target_link_libraries(relief_switch_check PRIVATE storm_bgfx storm_check_sdl)

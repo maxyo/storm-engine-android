@@ -91,6 +91,10 @@ struct Result
 // `progress` after each texture (and once with done = 0); returning true cancels.
 Result Prepare(const Job &job, const std::function<bool(const Progress &)> &progress);
 
+// The first level of the game texture `file` (.tx) whose larger side is at most `max_size`, decoded to RGBA8 (R first)
+// into `rgba`. False when the file is no texture the relief reads (palette, cube map, unknown format, damaged).
+bool ReadTextureLevel(const std::filesystem::path &file, int max_size, std::vector<uint8_t> &rgba, int &width, int &height);
+
 long long PeakRssKb();
 // Logging of the library: Android log tag "storm-relief" and stderr.
 void Log(const char *format, ...);
