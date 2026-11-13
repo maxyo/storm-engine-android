@@ -59,8 +59,8 @@ on Android and on the Linux development host alike (see "Backends").
   finished (rendered and presented), which bgfx has no API for; see "Threads" below.
   `bgfx-shaderc-point-size.patch` (shaderc only): `gl_PointSize` in the SPIR-V build of a vertex shader;
   Vulkan leaves a point's size undefined without it (the stars are a point list).
-  `bgfx-vk-present-hook.patch`, `bgfx-vk-unbound-samplers.patch`, `bgfx-vk-builtin-border-colors.patch`: the
-  Vulkan backend, see "Backends".
+  `bgfx-vk-present-hook.patch`, `bgfx-vk-unbound-samplers.patch`, `bgfx-vk-builtin-border-colors.patch`,
+  `bgfx-vulkan-pipeline-cache.patch`: the Vulkan backend, see "Backends".
 
 ## Backends
 
@@ -89,7 +89,7 @@ What differs between the two, all inside the shim:
 | Shaders | ESSL blob | SPIR-V blob (`storm/render/shader_blob.hpp`) |
 | Present | Swappy GL (`bgfx-swap-present-hook.patch`) | Swappy Vk (`bgfx-vk-present-hook.patch`), FIFO swap chain |
 | Device facts (`shim::DeviceInfo`) | `glGetString` on the render thread | the probe |
-| Program cache entries | linked program binaries | pipeline caches, one per pipeline state (bgfx's own `cacheRead` / `cacheWrite` in `getPipeline`) |
+| Program cache entries | linked program binaries | the device's one `VkPipelineCache` as a single entry, which every pipeline is created with (`bgfx-vulkan-pipeline-cache.patch`); each pipeline creation over 16 ms is logged (`pipeline: ...`) |
 | GPU timers | `EXT_disjoint_timer_query` (`bgfx-gles-timer-queries.patch`) | bgfx's timestamp queries |
 | A sampler a draw sets no texture for | samples black | gets a black texture of its kind (`bgfx-vk-unbound-samplers.patch`) |
 | `D3DTADDRESS_BORDER` | with a border-clamp extension | always; colours other than transparent / opaque black and opaque white need `VK_EXT_custom_border_color` (`bgfx-vk-builtin-border-colors.patch`; reported when one is used) |

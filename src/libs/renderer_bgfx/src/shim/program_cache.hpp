@@ -1,11 +1,13 @@
 // The renderer's bgfx::CallbackI (storm/render/program_cache.hpp): what the driver compiled, in files, plus bgfx's
-// fatal errors and traces into the engine log. OpenGL ES: linked program binaries, one per program. Vulkan: pipeline
-// caches, one per pipeline state (bgfx's renderer_vk.cpp getPipeline hands each new pipeline's VkPipelineCache data
-// to cacheWrite and asks cacheRead for it at the next start), so a pipeline is not compiled again in a later run.
+// fatal errors and traces into the engine log. OpenGL ES: linked program binaries, one per program. Vulkan: the
+// device's one VkPipelineCache as a single entry (patches/bgfx-vulkan-pipeline-cache.patch: loaded at init, every
+// pipeline is created with it, saved when pipelines were added), so neither a pipeline nor a shader of one is
+// compiled again in a later run; its file is written on a thread of its own, the render thread only hands the bytes
+// over. Every pipeline creation is timed and the ones that stall a frame are logged ("pipeline: ...").
 //
 // Layout: <directory>/<device key>/<bgfx id>.bin. The device key hashes the device and its driver (OpenGL ES:
 // GL_VENDOR, GL_RENDERER, GL_VERSION; Vulkan: name, driver version, ids and the driver's pipelineCacheUUID) and
-// BGFX_API_VERSION; bgfx's id already hashes both shaders (Vulkan: and the pipeline state). A file carries the key,
+// BGFX_API_VERSION; bgfx's id already hashes both shaders (Vulkan: one fixed id). A file carries the key,
 // the id, the size and a checksum of the binary: anything that does not match is logged, removed and reported as
 // missing, and bgfx links the program (patches/bgfx-program-binary-cache.patch: also when the driver rejects a
 // binary, which programCache() then replaces). Writes go to a temporary file renamed into place.
@@ -21,6 +23,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace storm::shim
@@ -32,10 +35,10 @@ class ProgramCache final : public bgfx::CallbackI
     static ProgramCache &instance();
 
     void configure(const render::ProgramCacheConfig &config);
-    // After bgfx::init on a real backend: opens the directory of this device; the binaries of other devices or
-    // drivers are removed. `vulkan`: the entries are pipeline caches, which bgfx writes again after every pipeline
-    // it creates, also from a cache it loaded (a write of the bytes already stored is skipped); on OpenGL ES a
-    // write of a program this run loaded means the driver refused the binary.
+    // Before bgfx::init on a real backend (bgfx's Vulkan backend reads its pipeline cache in it): opens the directory
+    // of this device; the binaries of other devices or drivers are removed. `vulkan`: the entry is the device's
+    // pipeline cache, written again whenever pipelines were added (a write of the bytes already stored is skipped);
+    // on OpenGL ES a write of a program this run loaded means the driver refused the binary.
     void attach_device(const std::string &device, bool vulkan);
     void detach_device();
     render::ProgramCacheStats stats();
@@ -77,6 +80,11 @@ class ProgramCache final : public bgfx::CallbackI
     uint64_t key_ = 0;
     bool vulkan_ = false;
     std::map<uint64_t, uint64_t> served_checksums_; // Vulkan: what cacheRead handed out this run, by id
+    std::thread writer_;                            // Vulkan: writes the pipeline cache's file
+    // bgfx::setVkPipelineCreated (render thread).
+    static void pipeline_created(const char *vs, const char *fs, uint64_t state, double ms);
+    uint32_t pipelines_ = 0, slow_pipelines_ = 0; // of this device
+    double pipelines_ms_ = 0.0;
     std::map<uint64_t, Entry> entries_;
     uint64_t total_bytes_ = 0;
     // The binary read by cacheReadSize, handed out by the cacheRead that follows.

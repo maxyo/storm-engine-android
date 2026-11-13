@@ -16,12 +16,21 @@
 #include <tracy/TracyC.h>
 #endif
 
+// patches/bgfx-vulkan-pipeline-cache.patch (src/renderer_vk.cpp) defines these two.
+namespace bgfx
+{
+typedef void (*VkPipelineCreatedFn)(const char *_vs, const char *_fs, uint64_t _state, double _ms);
+void setVkPipelineCreated(VkPipelineCreatedFn _created);
+} // namespace bgfx
+
 namespace storm::shim
 {
 
 namespace
 {
 namespace fs = std::filesystem;
+// A pipeline creation this long holds the render thread over a 60 Hz frame: logged with its program and state.
+constexpr double kSlowPipelineMs = 16.0;
 
 constexpr char kMagic[8] = {'S', 'T', 'P', 'R', 'O', 'G', 'B', 'N'};
 constexpr uint32_t kVersion = 1;
@@ -64,6 +73,9 @@ void ProgramCache::attach_device(const std::string &device, bool vulkan)
     served_.clear();
     served_checksums_.clear();
     vulkan_ = vulkan;
+    pipelines_ = slow_pipelines_ = 0;
+    pipelines_ms_ = 0.0;
+    bgfx::setVkPipelineCreated(vulkan ? &ProgramCache::pipeline_created : nullptr);
     device_dir_.clear();
     if (!configured_)
     {
@@ -116,9 +128,29 @@ void ProgramCache::attach_device(const std::string &device, bool vulkan)
     evict();
 }
 
+void ProgramCache::pipeline_created(const char *vs, const char *fs, uint64_t state, double ms)
+{
+    ProgramCache &cache = instance();
+    std::lock_guard lock(cache.mutex_);
+    ++cache.pipelines_;
+    cache.pipelines_ms_ += ms;
+    if (ms < kSlowPipelineMs)
+        return;
+    ++cache.slow_pipelines_;
+    logf("pipeline: %.1f ms on the render thread for %s + %s, state 0x%016" PRIx64 " (pipeline %u of this start, %u of "
+         "them slow, %.0f ms in all)",
+         ms, vs, fs, state, cache.pipelines_, cache.slow_pipelines_, cache.pipelines_ms_);
+}
+
 void ProgramCache::detach_device()
 {
     std::lock_guard lock(mutex_);
+    if (writer_.joinable())
+        writer_.join();
+    if (vulkan_ && pipelines_)
+        logf("pipelines: %u created by this device, %u of them over %.0f ms, %.0f ms in all", pipelines_, slow_pipelines_,
+             kSlowPipelineMs, pipelines_ms_);
+    bgfx::setVkPipelineCreated(nullptr);
     device_dir_.clear();
     entries_.clear();
     pending_.clear();
@@ -269,7 +301,7 @@ void ProgramCache::cacheWrite(uint64_t id, const void *data, uint32_t size)
     }
     if (vulkan_)
     {
-        // bgfx hands back the pipeline's cache after every creation: unchanged when the driver took what was loaded.
+        // The device's pipeline cache, saved again: unchanged when nothing new was compiled since it was loaded.
         // (The file may be gone meanwhile, the app cache cleared: then it is written again.)
         const auto served = served_checksums_.find(id);
         std::error_code missing;
@@ -277,7 +309,7 @@ void ProgramCache::cacheWrite(uint64_t id, const void *data, uint32_t size)
             return;
         if (served != served_checksums_.end())
         {
-            // The driver built the pipeline anew (its own header check refused the data, or it added to it).
+            // The driver's cache differs from what was loaded (it added pipelines, or its header check refused the data).
             ++stats_.replaced;
             served_checksums_.erase(served);
         }
@@ -299,28 +331,44 @@ void ProgramCache::cacheWrite(uint64_t id, const void *data, uint32_t size)
     header.id = id;
     header.checksum = checksum(data, size);
     const fs::path file = file_of(id);
-    fs::path temporary = file;
-    temporary += ".tmp";
-    {
-        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
-        out.write(reinterpret_cast<const char *>(&header), sizeof(header));
-        out.write(static_cast<const char *>(data), size);
-        if (!out)
+    const auto write = [file, id, header](const void *bytes) {
+        fs::path temporary = file;
+        temporary += ".tmp";
         {
-            logf("ERROR: program cache: cannot write %s: binary %016" PRIx64 " not stored", temporary.string().c_str(), id);
-            std::error_code error;
-            fs::remove(temporary, error);
-            return;
+            std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+            out.write(reinterpret_cast<const char *>(&header), sizeof(header));
+            out.write(static_cast<const char *>(bytes), header.size);
+            if (!out)
+            {
+                logf("ERROR: program cache: cannot write %s: binary %016" PRIx64 " not stored", temporary.string().c_str(), id);
+                std::error_code error;
+                fs::remove(temporary, error);
+                return false;
+            }
         }
-    }
-    std::error_code error;
-    fs::rename(temporary, file, error);
-    if (error)
+        std::error_code error;
+        fs::rename(temporary, file, error);
+        if (error)
+        {
+            logf("ERROR: program cache: cannot store %s (%s)", file.string().c_str(), error.message().c_str());
+            fs::remove(temporary, error);
+            return false;
+        }
+        return true;
+    };
+    if (vulkan_)
     {
-        logf("ERROR: program cache: cannot store %s (%s)", file.string().c_str(), error.message().c_str());
-        fs::remove(temporary, error);
-        return;
+        // Megabytes, from the render thread between two frames: the file is written off it. One write at a time;
+        // the one before has long finished (bgfx saves seconds apart).
+        if (writer_.joinable())
+            writer_.join();
+        writer_ = std::thread([write, copy = std::vector<uint8_t>(static_cast<const uint8_t *>(data),
+                                                                  static_cast<const uint8_t *>(data) + size)] {
+            write(copy.data());
+        });
     }
+    else if (!write(data))
+        return;
     if (const auto it = entries_.find(id); it != entries_.end())
         total_bytes_ -= it->second.bytes;
     Entry &entry = entries_[id];

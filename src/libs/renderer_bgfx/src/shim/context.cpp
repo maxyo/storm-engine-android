@@ -507,6 +507,9 @@ bool Context::start_backend(bgfx::RendererType::Enum type, const VulkanDevice *v
         // prefers devices in the probe's order. Checked below.
         init.vendorId = vulkan->software ? BGFX_PCI_ID_SOFTWARE_RASTERIZER : static_cast<uint16_t>(vulkan->vendor_id);
         init.deviceId = vulkan->device_id <= UINT16_MAX ? static_cast<uint16_t>(vulkan->device_id) : 0;
+        // The pipeline cache is valid for this device, driver and bgfx version only (the driver checks its own header
+        // too). Before bgfx::init, which loads it.
+        ProgramCache::instance().attach_device(vulkan->cache_key() + " | one cache | bgfx API " + std::to_string(BGFX_API_VERSION), true);
     }
     init.swapChain.width = width;
     init.swapChain.height = height;
@@ -532,6 +535,7 @@ bool Context::start_backend(bgfx::RendererType::Enum type, const VulkanDevice *v
     {
         bgfx::setRenderFrameDone(nullptr);
         FramePacing::instance().shutdown();
+        ProgramCache::instance().detach_device();
         *failure = std::string("bgfx::init failed on ") + bgfx::getRendererName(type);
         return false;
     }
@@ -587,9 +591,6 @@ bool Context::start_backend(bgfx::RendererType::Enum type, const VulkanDevice *v
         device_info_.version = text;
         device_info_.anisotropy = vulkan->anisotropy;
         device_info_.max_anisotropy = vulkan->max_anisotropy;
-        // The pipeline caches are valid for this device, driver and bgfx version only (the driver checks its own
-        // header too).
-        ProgramCache::instance().attach_device(vulkan->cache_key() + " | bgfx API " + std::to_string(BGFX_API_VERSION), true);
         border_clamp_ = true; // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER is core
         border_colors_ = vulkan->border_color;
         timer_queries_ = "Vulkan timestamp queries"; // bgfx's TimerQueryVK, where the queue has timestampValidBits

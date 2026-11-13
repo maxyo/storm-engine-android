@@ -1,7 +1,7 @@
 // Program binary cache (src/shim/program_cache.hpp, patches/bgfx-program-binary-cache.patch) through OpenGL ES in
-// an SDL window (an X display: xvfb-run in CI), and the same cache holding Vulkan's pipeline caches
-// (STORM_CHECK_BACKEND=vulkan: one entry per pipeline state, several per program; the device's start loads one
-// pipeline of its own, the backend self-test's). Each "run" starts the renderer, switches to «Высокая» (about twenty
+// an SDL window (an X display: xvfb-run in CI), and the same cache holding Vulkan's pipeline cache
+// (STORM_CHECK_BACKEND=vulkan: the device's one VkPipelineCache as a single entry, vulkan_cache() below; steps 1..6
+// are the OpenGL ES ones). Each "run" starts the renderer, switches to «Высокая» (about twenty
 // programs: fixed-function variants, post chain, self-test), renders a lit scene with an interface, reads the
 // picture back and shuts the renderer down, in one process:
 //   1. empty cache: every program linked and stored, none loaded; a stale device directory is removed;
@@ -206,6 +206,36 @@ void write(const fs::path &file, const std::vector<char> &bytes)
     std::ofstream(file, std::ios::binary | std::ios::trunc).write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
 }
 
+// Vulkan: one entry, the device's pipeline cache, loaded when the device starts and saved when pipelines were added.
+bool vulkan_cache(SDL_Window *window, const fs::path &root)
+{
+    bool ok = true;
+    const Run cold = run(window);
+    ok &= expect(cold.stats.loaded == 0 && cold.stats.stored >= 1 && entries(root).size() == 1,
+                 "empty cache: nothing loaded, the pipeline cache stored as one entry");
+    ok &= expect(!fs::exists(root / "0123456789abcdef"), "the directory of another device is removed");
+    const Run warm = run(window);
+    // A driver may hand back other bytes for the same pipelines: one more write is no fault.
+    ok &= expect(warm.stats.loaded == 1 && warm.stats.stored <= 1 && warm.stats.invalid == 0, "warm cache: the pipeline cache loaded");
+    ok &= expect(max_difference(warm.picture, cold.picture) <= 2, "warm cache: the same picture");
+    {
+        auto corrupt = read(entries(root)[0]);
+        corrupt.back() ^= 0x5A;
+        write(entries(root)[0], corrupt);
+    }
+    const Run damaged = run(window);
+    ok &= expect(damaged.stats.invalid == 1 && damaged.stats.loaded == 0 && damaged.stats.stored >= 1,
+                 "a corrupt entry: removed, the pipelines compiled and stored again");
+    ok &= expect(max_difference(damaged.picture, cold.picture) <= 2, "damaged cache: the same picture");
+    const Run cleared = run(window, [&] { fs::remove_all(root); });
+    ok &= expect(cleared.stats.invalid == 0 && cleared.stats.stored >= 1 && entries(root).size() == 1,
+                 "cache deleted while running: nothing invalid, the pipeline cache stored into the directory made again");
+    ok &= expect(max_difference(cleared.picture, cold.picture) <= 2, "cache deleted while running: the same picture");
+    const Run refilled = run(window);
+    ok &= expect(refilled.stats.loaded == 1, "after the deletion: the next run loads the pipeline cache");
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -228,6 +258,15 @@ int main()
     write(root / "0123456789abcdef" / "00000000000000aa.bin", {'o', 'l', 'd'});
     render::ConfigureProgramCache({root, 32ull << 20});
     bool ok = true;
+    if (host_check::VulkanAsked())
+    {
+        ok = vulkan_cache(window, root);
+        fs::remove_all(root);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        std::printf("%s: program_cache_check\n", ok ? "PASS" : "FAIL");
+        return ok ? 0 : 1;
+    }
 
     const Run cold = run(window);
     if (cold.stats.stored == 0)
@@ -238,17 +277,13 @@ int main()
     ok &= expect(cold.stats.loaded == 0, "empty cache: nothing loaded, every program linked and stored");
     ok &= expect(!fs::exists(root / "0123456789abcdef"), "the directory of another device is removed");
 
-    const bool vulkan = host_check::VulkanAsked();
     const Run warm = run(window);
-    // The first run also ran the GPU self-test (OpenGL ES: its copy program; Vulkan: the pipelines of its targets);
-    // the later ones do not (its result is kept).
-    ok &= expect(warm.stats.stored == 0 && warm.stats.loaded > 0 && (vulkan || warm.stats.loaded + 1 >= cold.stats.stored),
+    // The first run also ran the GPU self-test (its copy program); the later ones do not (its result is kept).
+    ok &= expect(warm.stats.stored == 0 && warm.stats.loaded > 0 && warm.stats.loaded + 1 >= cold.stats.stored,
                  "warm cache: every program loaded, none linked");
     ok &= expect(max_difference(warm.picture, cold.picture) <= 2, "warm cache: the same picture");
-    // How long a driver takes to build a pipeline without its cache is the driver's own: not compared on Vulkan.
-    if (!vulkan)
-        ok &= expect(warm.switch_frames * 2 < cold.switch_frames,
-                     "warm cache: «Высокая» prepared in fewer frames (cached binaries need no link)");
+    ok &= expect(warm.switch_frames * 2 < cold.switch_frames,
+                 "warm cache: «Высокая» prepared in fewer frames (cached binaries need no link)");
 
     auto files = entries(root);
     {
@@ -290,15 +325,13 @@ int main()
     render::ConfigureProgramCache({root, 32ull << 20});
     const Run filled = run(window);
     const Run cleared = run(window, [&] { fs::remove_all(root); });
-    // Vulkan: the device's start loaded the self-test's pipeline before the cache went.
-    ok &= expect(cleared.stats.invalid == 0 && cleared.stats.loaded <= (vulkan ? 1u : 0u) &&
+    ok &= expect(cleared.stats.invalid == 0 && cleared.stats.loaded == 0 &&
                      cleared.stats.stored + 1 >= filled.stats.entries,
                  "cache deleted while running: nothing invalid, every program linked and stored again");
     ok &= expect(!entries(root).empty(), "cache deleted while running: the directory is made again");
     ok &= expect(max_difference(cleared.picture, cold.picture) <= 2, "cache deleted while running: the same picture");
     const Run refilled = run(window);
-    // Vulkan: the pipeline the cleared run had loaded before the cache went was not written again by that run.
-    ok &= expect(refilled.stats.stored <= (vulkan ? 1u : 0u) && refilled.stats.loaded + 1 >= filled.stats.entries,
+    ok &= expect(refilled.stats.stored == 0 && refilled.stats.loaded + 1 >= filled.stats.entries,
                  "after the deletion: the next run loads every program");
 
     fs::remove_all(root);

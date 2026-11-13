@@ -1,0 +1,254 @@
+Vulkan pipelines are created with the device's one VkPipelineCache, which is loaded from CallbackI::cacheRead
+at init and handed to CallbackI::cacheWrite as one entry (id "STORMVKP") once no pipeline has been created for
+60 frames, at the latest 600 frames after the last save, and at shutdown. Upstream gave every pipeline a cache
+of its own (filled from cacheRead by the pipeline's hash) and only merged it into the device's cache afterwards,
+so the device's cache was never used to create anything: a pipeline that differs from an earlier one only in
+its render state compiled both shaders again, within a run and in every later run, and each entry on disk
+repeated the shaders (Adreno 830: 132 entries, 8.3 MB). bgfx::setVkPipelineCreated reports every
+vkCreateGraphicsPipelines with the shaders' names (kept from bgfx::setName), the state and its duration, so the
+engine can log the slow ones.
+
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+index 1b007bf..dda0d27 100644
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -47,8 +47,24 @@ namespace bgfx
+ 
+ } // namespace bgfx
+ 
++namespace bgfx
++{
++	/// Storm Engine patch (renderer_bgfx/patches/bgfx-vulkan-pipeline-cache.patch): called on the render thread
++	/// after every vkCreateGraphicsPipelines with the names of the program's shaders (bgfx::setName), the draw
++	/// state and the milliseconds the call took. NULL (the default): nothing is called. The engine declares the
++	/// same two names (src/shim/program_cache.cpp).
++	typedef void (*VkPipelineCreatedFn)(const char* _vs, const char* _fs, uint64_t _state, double _ms);
++	void setVkPipelineCreated(VkPipelineCreatedFn _created);
++
++} // namespace bgfx
++
+ namespace bgfx { namespace vk
+ {
++	static VkPipelineCreatedFn s_pipelineCreated = NULL;
++
++	// Storm Engine patch: the id of the device's one pipeline cache in CallbackI::cacheRead / cacheWrite.
++	static const uint64_t kStormPipelineCacheId = UINT64_C(0x53544f524d564b50);
++
+ 	static const VkPresentHooks* s_presentHooks = NULL;
+ 
+ 	// Storm Engine patch (bgfx-vk-unbound-samplers.patch): by kind, see unboundKind().
+@@ -2820,8 +2836,34 @@ VK_IMPORT_DEVICE
+ 				pcci.flags = 0;
+ 				pcci.initialDataSize = 0;
+ 				pcci.pInitialData    = NULL;
++
++				// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch): the device has one pipeline cache,
++				// which every pipeline is created with, loaded here and saved by stormSavePipelineCache().
++				void* stormCacheData = NULL;
++				const uint32_t stormCacheSize = g_callback->cacheReadSize(kStormPipelineCacheId);
++
++				if (0 < stormCacheSize)
++				{
++					stormCacheData = bx::alloc(g_allocator, stormCacheSize);
++
++					if (g_callback->cacheRead(kStormPipelineCacheId, stormCacheData, stormCacheSize) )
++					{
++						pcci.initialDataSize = stormCacheSize;
++						pcci.pInitialData    = stormCacheData;
++					}
++				}
++
+ 				result = vkCreatePipelineCache(m_device, &pcci, m_allocatorCb, &m_pipelineCache);
+ 
++				if (NULL != stormCacheData)
++				{
++					bx::free(g_allocator, stormCacheData);
++				}
++
++				m_stormPipelinesUnsaved  = 0;
++				m_stormFramesSincePipeline = 0;
++				m_stormFramesSinceSave     = 0;
++
+ 				if (VK_SUCCESS != result)
+ 				{
+ 					BX_TRACE("Init error: vkCreatePipelineCache failed %d: %s.", result, getName(result) );
+@@ -2948,6 +2990,11 @@ VK_IMPORT_DEVICE
+ 		{
+ 			VK_CHECK(vkDeviceWaitIdle(m_device) );
+ 
++			if (0 < m_stormPipelinesUnsaved)
++			{
++				stormSavePipelineCache();
++			}
++
+ 			if (m_timerQuerySupport)
+ 			{
+ 				m_gpuTimer.shutdown();
+@@ -3071,6 +3118,18 @@ VK_IMPORT_DEVICE
+ 				getFrameBuffer(m_windows[ii]).present();
+ 			}
+ 
++			// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch): new pipelines are saved once none has
++			// been created for a second or so of frames, and at the latest ten seconds of frames after the last
++			// save (a mobile process is killed without a shutdown).
++			++m_stormFramesSincePipeline;
++			++m_stormFramesSinceSave;
++
++			if (0 < m_stormPipelinesUnsaved
++			&& (60 <= m_stormFramesSincePipeline || 600 <= m_stormFramesSinceSave) )
++			{
++				stormSavePipelineCache();
++			}
++
+ 			const int64_t now = bx::getHPCounter();
+ 
+ 			m_presentElapsed += now - start;
+@@ -3580,6 +3639,7 @@ VK_IMPORT_DEVICE
+ 
+ 			case Handle::Shader:
+ 				setDebugObjectName(m_device, m_shaders[_handle.idx].m_module, "%.*s", _len, _name);
++				bx::strCopy(m_shaders[_handle.idx].m_stormName, BX_COUNTOF(m_shaders[_handle.idx].m_stormName), bx::StringView(_name, _len) ); // Storm Engine patch
+ 				break;
+ 
+ 			case Handle::Texture:
+@@ -5341,37 +5401,15 @@ VK_IMPORT_DEVICE
+ 			graphicsPipeline.basePipelineHandle = VK_NULL_HANDLE;
+ 			graphicsPipeline.basePipelineIndex  = 0;
+ 
+-			uint32_t length = g_callback->cacheReadSize(hash);
+-			bool cached = length > 0;
+-
+-			void* cachedData = NULL;
+-
+-			VkPipelineCacheCreateInfo pcci;
+-			pcci.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+-			pcci.pNext = NULL;
+-			pcci.flags = 0;
+-			pcci.initialDataSize = 0;
+-			pcci.pInitialData    = NULL;
+-
+-			if (cached)
+-			{
+-				cachedData = bx::alloc(g_allocator, length);
+-				if (g_callback->cacheRead(hash, cachedData, length) )
+-				{
+-					BX_TRACE("Loading cached pipeline state (size %d).", length);
+-					bx::MemoryReader reader(cachedData, length);
+-
+-					pcci.initialDataSize = (size_t)reader.remaining();
+-					pcci.pInitialData    = reader.getDataPtr();
+-				}
+-			}
+-
+-			VkPipelineCache cache;
+-			VK_CHECK(vkCreatePipelineCache(m_device, &pcci, m_allocatorCb, &cache) );
++			// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch): created with the device's one pipeline
++			// cache. Upstream gave every pipeline a cache of its own, filled from CallbackI::cacheRead by the
++			// pipeline's hash: a pipeline that differs from an earlier one only in its state compiled both
++			// shaders again, in the same run and in every later one.
++			const int64_t stormStart = bx::getHPCounter();
+ 
+ 			const VkResult result = vkCreateGraphicsPipelines(
+ 				  m_device
+-				, cache
++				, m_pipelineCache
+ 				, 1
+ 				, &graphicsPipeline
+ 				, m_allocatorCb
+@@ -5388,29 +5426,44 @@ VK_IMPORT_DEVICE
+ 			m_pipelineStateCache.add(hash, pipeline);
+ 			pipelineMruAdd(key, pipeline);
+ 
+-			size_t dataSize;
+-			VK_CHECK(vkGetPipelineCacheData(m_device, cache, &dataSize, NULL) );
++			++m_stormPipelinesUnsaved;
++			m_stormFramesSincePipeline = 0;
+ 
+-			if (0 < dataSize)
++			if (NULL != s_pipelineCreated)
+ 			{
+-				if (length < dataSize)
+-				{
+-					cachedData = bx::realloc(g_allocator, cachedData, dataSize);
+-				}
+-
+-				VK_CHECK(vkGetPipelineCacheData(m_device, cache, &dataSize, cachedData) );
+-				g_callback->cacheWrite(hash, cachedData, (uint32_t)dataSize);
++				s_pipelineCreated(
++					  program.m_vsh->m_stormName
++					, NULL != program.m_fsh ? program.m_fsh->m_stormName : ""
++					, _state
++					, double(bx::getHPCounter() - stormStart) * 1000.0 / double(bx::getHPFrequency() )
++					);
+ 			}
+ 
+-			VK_CHECK(vkMergePipelineCaches(m_device, m_pipelineCache, 1, &cache) );
+-			vkDestroy(cache);
++			return pipeline;
++		}
++
++		// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch): hands the device's pipeline cache to
++		// CallbackI::cacheWrite.
++		void stormSavePipelineCache()
++		{
++			size_t size = 0;
+ 
+-			if (NULL != cachedData)
++			if (VK_SUCCESS == vkGetPipelineCacheData(m_device, m_pipelineCache, &size, NULL)
++			&&  0 < size)
+ 			{
+-				bx::free(g_allocator, cachedData);
++				void* data = bx::alloc(g_allocator, size);
++
++				// VK_INCOMPLETE (the cache grew meanwhile) still leaves valid data of `size` bytes.
++				if (0 <= vkGetPipelineCacheData(m_device, m_pipelineCache, &size, data) )
++				{
++					g_callback->cacheWrite(kStormPipelineCacheId, data, uint32_t(size) );
++				}
++
++				bx::free(g_allocator, data);
+ 			}
+ 
+-			return pipeline;
++			m_stormPipelinesUnsaved = 0;
++			m_stormFramesSinceSave  = 0;
+ 		}
+ 
+ 		void resetDescriptorPools(uint32_t _frame)
+@@ -6380,6 +6433,11 @@ VK_IMPORT_DEVICE
+ 		SwapChain m_mainSwapChain;
+ 		uint32_t  m_reset;
+ 		float m_maxAnisotropy;
++
++		// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch)
++		uint32_t m_stormPipelinesUnsaved;
++		uint32_t m_stormFramesSincePipeline;
++		uint32_t m_stormFramesSinceSave;
+ 		bool m_wireframe;
+ 
+ 		VkBuffer m_captureBuffer;
+@@ -13424,6 +13482,11 @@ VK_DESTROY
+ 		vk::s_presentHooks = _hooks;
+ 	}
+ 
++	void setVkPipelineCreated(VkPipelineCreatedFn _created)
++	{
++		vk::s_pipelineCreated = _created;
++	}
++
+ 	void setVkUnboundTextures(TextureHandle _texture2d, TextureHandle _textureCube, TextureHandle _texture3d)
+ 	{
+ 		vk::s_unboundTexture[0] = _texture2d;
+diff --git a/src/renderer_vk.h b/src/renderer_vk.h
+index 61ba92d..9dc1ae1 100644
+--- a/src/renderer_vk.h
++++ b/src/renderer_vk.h
+@@ -551,6 +551,8 @@ VK_DESTROY_FUNC(DescriptorSet);
+ 
+ 	struct ShaderVK
+ 	{
++		char m_stormName[48] = {}; // Storm Engine patch (bgfx-vulkan-pipeline-cache.patch): bgfx::setName
++
+ 		ShaderVK()
+ 			: m_module(VK_NULL_HANDLE)
+ 			, m_constantBuffer(NULL)
