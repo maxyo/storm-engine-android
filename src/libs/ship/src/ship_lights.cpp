@@ -6,6 +6,7 @@
 #include "math_inlines.h"
 #include "shared/messages.h"
 #include "ship.h"
+#include "storm/render/effects.hpp"
 
 VRenderer *ShipLights::pRS = nullptr;
 COLLIDE *ShipLights::pCollide = nullptr;
@@ -589,6 +590,16 @@ void ShipLights::Execute(uint32_t dwDeltaTime)
             L.Light.Diffuse.b = L.pLT->cLightColor.b * fIntensity;
         }
     }
+
+    // Graphics effects: the lanterns that are lit (not the cannons' flashes, not the lights that are only a flare)
+    // cast shadows on their ships; the nearest to the camera get the lamp slots of the lights that move.
+    std::vector<storm::render::EffectsPointLight> lanterns;
+    for (const ShipLight &L : aLights)
+        if (!L.bOff && !L.bLightOff && !L.bCoronaOnly && !L.bDynamicLight)
+            lanterns.push_back({{L.vCurPos.x, L.vCurPos.y, L.vCurPos.z},
+                                {L.Light.Diffuse.r, L.Light.Diffuse.g, L.Light.Diffuse.b},
+                                L.Light.Range, L.Light.Attenuation0, L.Light.Attenuation1, L.Light.Attenuation2});
+    storm::render::SetEffectsShipLights(lanterns);
 }
 
 // draw flares

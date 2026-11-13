@@ -142,6 +142,9 @@ struct Settings
     // part, 0, 8 or 16. Interiors also light their lit models with the room's own baked light.
     uint8_t lamp_shadows = 0;
     bool lamp_soft = false;  // a 5x5 instead of a 3x3 filter on the lamp shadows of the still geometry
+    // How many of those slots are kept for lights that move (carried lanterns and torches): the nearest to the
+    // camera cast shadows, their still faces redrawn whenever they move. 0, 1 or 2.
+    uint8_t lamp_moving = 0;
     float lamp_gain = 1.0f;  // the lamps' strength on baked surfaces, 1 = the chosen look (0..3)
     float lamp_baked = 0.5f; // the part of that light the baked colours are taken to hold already (0..1): 1 = lamps
                              // only take light away where they are hidden, less = they also brighten what they reach

@@ -56,14 +56,16 @@ float ffAoVolume(vec3 P, vec3 Ng, vec3 Nw)
 //               on baked colours, w the part of the lamp light the baked colours already hold
 // u_fxLamps[1]: x 1 / faces per atlas row, y 1 / atlas rows, z static face size in texels, w dynamic face size
 // per slot i at 2 + 3i: xyz position, w radius | rgb colour (with the slot's fade), w 1 = characters stand in its
-//               light | att0, att1, att2, w the lamp's own size in metres (no point is lit from nearer)
+//               light, + 2 = a light that moves (a carried lantern: no bake holds its light, it only adds) |
+//               att0, att1, att2, w the lamp's own size in metres (no point is lit from nearer)
 // u_fxLampGrid[0]: xyz the lamp grid's corner, w debug view (1 each slot in its colour, 2 the shadow mask)
 // u_fxLampGrid[1]: xyz 1 / the grid's extent, w cells along x
 // u_fxLampGrid[2]: xyz the room light's corner, w > 0 = this draw takes its ambient from the room light, times w
 // u_fxLampGrid[3]: xyz 1 / the room light's extent, w 1 = 5x5 filter on the static faces
+// u_fxLampGrid[4]: x the first slot of the lights that move, y how many such slots (they are not in the grid)
 uniform mat4 u_fxLampView;
 uniform vec4 u_fxLamps[50];
-uniform vec4 u_fxLampGrid[4];
+uniform vec4 u_fxLampGrid[5];
 SAMPLER3D(s_fxRoomLight, 8);
 SAMPLER3D(s_fxLampGrid, 9);
 SAMPLER2DSHADOW(s_fxLampDynamic, 10);
@@ -206,16 +208,33 @@ void ffLampAdd(float id, vec3 Pw, vec3 Ng, vec3 N, inout vec4 sum)
     vec3 rgb = fxLightColor(color.rgb);
     if (u_fxLampGrid[0].w > 0.5)
         rgb = ffLampDebugColor(slot) * dot(rgb, vec3(0.299, 0.587, 0.114));
-    sum.rgb += rgb * (light * ffLampVisibility(slot, L, lamp.w, color.w, Ng, ngl));
+    float moving = color.w > 1.5 ? 1.0 : 0.0;
+    sum.rgb += rgb * (light * ffLampVisibility(slot, L, lamp.w, color.w - 2.0 * moving, Ng, ngl));
     sum.a += dot(rgb, vec3(0.299, 0.587, 0.114)) * light;
 }
 
-// The lamps that reach Pw, from the lamp grid (up to eight per cell).
+// The light of the lights that move (a carried lantern, a ship's lanterns) at the pixel, with their shadows. The
+// bake holds nothing of them: it is plain added light, as the game's own point lights, not a part of the relit sum.
+vec3 ffLampMoved;
+
+// The lamps that reach Pw, from the lamp grid (up to eight per cell); sets ffLampMoved.
 vec4 ffLampLight(vec3 Pw, vec3 Ng, vec3 N)
 {
     vec4 sum = vec4_splat(0.0);
+    ffLampMoved = vec3_splat(0.0);
     if (u_fxLamps[0].x < 0.5)
         return sum;
+    // The lights that move (at most two) are few and anywhere: every pixel asks them, without the grid.
+    vec4 moved = vec4_splat(0.0);
+    if (u_fxLampGrid[4].y > 0.5)
+        ffLampAdd(u_fxLampGrid[4].x + 1.0, Pw, Ng, N, moved);
+    if (u_fxLampGrid[4].y > 1.5)
+        ffLampAdd(u_fxLampGrid[4].x + 2.0, Pw, Ng, N, moved);
+    // The debug views show every light the same way.
+    if (u_fxLampGrid[0].w > 0.5)
+        sum = moved;
+    else
+        ffLampMoved = moved.rgb;
     vec3 cell = (Pw - u_fxLampGrid[0].xyz) * u_fxLampGrid[1].xyz;
     if (min(min(cell.x, cell.y), cell.z) < 0.0 || max(max(cell.x, cell.y), cell.z) > 1.0)
         return sum;
@@ -396,7 +415,7 @@ void main()
     float lampShown = lampSeen <= 0.5 ? lampSeen : 0.5 + (lampSeen - 0.5) / (1.0 + 2.0 * (lampSeen - 0.5));
     vec3 lampLight = lamps.rgb * (lampShown / max(lampSeen, 1e-4));
     ffDiffuse = vec4(clamp(fxLit(v_color0.rgb * aoVolume, v_matDiffuse.rgb,
-                                 fxSunDiffuse(N, V) * sunShadow + fxPointDiffuse(N, P) + lampLight,
+                                 fxSunDiffuse(N, V) * sunShadow + fxPointDiffuse(N, P) + lampLight + ffLampMoved,
                                  v_matAmbient.rgb, ambient * aoVolume), 0.0, 1.0), v_color0.a);
 #else
     ffDiffuse = v_color0;
@@ -430,7 +449,7 @@ void main()
 #else
     current.rgb *= aoVolume * (vec3_splat(baked) + gain * lamps.rgb) / (baked + u_fxLamps[0].w * gain * lamps.a);
 #endif
-    current.rgb = fxLit(current.rgb, tex0.rgb, fxPointDiffuse(N, P), vec3_splat(0.0), vec3_splat(0.0));
+    current.rgb = fxLit(current.rgb, tex0.rgb, fxPointDiffuse(N, P) + ffLampMoved, vec3_splat(0.0), vec3_splat(0.0));
 #endif
 #ifdef FX_FF_PIXEL_LIGHTING
     if (u_fxLamps[0].x > 0.5 && u_fxLampGrid[0].w > 0.5)

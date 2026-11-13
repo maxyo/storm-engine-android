@@ -112,9 +112,9 @@ void SetEffectsTechnique(const char *name);
 // absolute world data (the location's geometry, lamps, dynamic lights, lightmaps) converts with it.
 void SetEffectsWorldOrigin(const std::array<float, 3> &origin);
 
-// Point lights of this frame that no baked vertex colours contain (lanterns carried by characters), world space,
-// D3DLIGHT9 attenuation. Static location geometry, drawn with its baked colours, is lit only by these. A frame
-// without the call has none.
+// Point lights of this frame that no baked vertex colours contain (lanterns and torches carried by characters), world
+// space, D3DLIGHT9 attenuation. Static location geometry, drawn with its baked colours, is lit only by these; the
+// nearest to the camera cast shadows (fx_lamp_moving). A frame without the call has none.
 struct EffectsPointLight
 {
     std::array<float, 3> position{};
@@ -123,6 +123,11 @@ struct EffectsPointLight
     float att0 = 0.0f, att1 = 0.0f, att2 = 1.0f;
 };
 void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights);
+
+// SHIP_LIGHTS, every frame at sea: the lanterns of the ships that are lit (world space, with this frame's flicker;
+// not the flashes of the cannons). The nearest to the camera take the lamp slots of the lights that move
+// (fx_lamp_moving) and cast the shadows of masts, rigging, sails, deck and crew. A frame without the call has none.
+void SetEffectsShipLights(std::span<const EffectsPointLight> lights);
 
 // Location, every frame it draws: its static lamps (the lights of lights.ini at its locators, colour with this
 // frame's flicker). The ones around the camera relight the location per pixel, each with its shadow

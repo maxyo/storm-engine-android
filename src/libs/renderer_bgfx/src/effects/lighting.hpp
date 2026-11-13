@@ -179,6 +179,7 @@ class Lighting
     bool technique_set_ = false;
     std::vector<fx::PointLight> dynamic_lights_;        // absolute world
     std::vector<fx::PointLight> device_dynamic_lights_; // the same in the device's camera-relative world
+    std::vector<fx::PointLight> candidate_lights_; // ... those a baked draw may take (scratch of prepare())
     bool device_lights_origin_valid_ = false;
     std::array<float, 3> origin_{};
     bool dynamic_lights_this_frame_ = false;

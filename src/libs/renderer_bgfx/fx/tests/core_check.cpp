@@ -80,6 +80,7 @@ void CheckSettings()
     CHECK(original.lamp_shadows == 0 && medium.lamp_shadows == 8 && high.lamp_shadows == 16);
     CHECK(!medium.lamp_soft && high.lamp_soft && high.lamp_baked == 0.5f && high.lamp_gain == 1.0f && high.lamp_debug == 0);
     CHECK(medium.lamp_model_lift == 0.2f && high.lamp_model_lift == 0.2f); // the owner: characters a little above the room
+    CHECK(original.lamp_moving == 0 && medium.lamp_moving == 1 && high.lamp_moving == 2); // carried lanterns, ship lanterns
     // «Средняя»: the cheap looks (tone curve, the grade of the place and hour, aerial perspective, rim light) under
     // the restrained Caribbean grade; «Высокая» adds the sun glare and sun shafts. «Низкая» has none of them.
     for (const Settings *preset : {&medium, &high})
@@ -340,6 +341,15 @@ void CheckSupport()
     constrained = ConstrainSettings(high, no_ao, changes);
     // ... and no lamp grid or room light: no lamp shadows either, each said once.
     CHECK(constrained.ao_volume == 0 && constrained.lamp_shadows == 0 && changes.size() == 2 && constrained.shadows == high.shadows);
+    // The slots of the lights that move are some of the lamp slots: at most two, never more than there are.
+    Settings many_moving = high;
+    many_moving.lamp_moving = 5;
+    changes.clear();
+    CHECK(ConstrainSettings(many_moving, all, changes).lamp_moving == 2 && changes.size() == 1);
+    Settings no_lamps = high; // without lamp slots the number says nothing and is left alone
+    no_lamps.lamp_shadows = 0;
+    changes.clear();
+    CHECK(ConstrainSettings(no_lamps, all, changes).lamp_moving == 2 && changes.empty());
     Settings five_lamps = high;
     five_lamps.lamp_shadows = 5;
     changes.clear();
@@ -1233,22 +1243,64 @@ void CheckLampShadows()
         CHECK(hall.nx == 64 && Near(hall.cell[0], 200.0f / 64.0f, 1e-4f));
     }
 
-    // The still triangles a lamp can shadow with: those that touch its sphere.
+    // The still triangles a lamp can shadow with: those that touch its sphere, found through the triangle grid; the
+    // same list as testing every triangle, for a lamp anywhere (a carried lantern asks every frame).
     {
         std::vector<Vec3> p;
         std::vector<uint32_t> idx;
         AddBox(p, idx, {-0.5f, 0.0f, -0.5f}, {0.5f, 1.0f, 0.5f});   // at the lamp
         AddBox(p, idx, {20.0f, 0.0f, -0.5f}, {21.0f, 1.0f, 0.5f});  // far away
         AddBox(p, idx, {-30.0f, -1.0f, -30.0f}, {30.0f, 0.0f, 30.0f}); // a floor far larger than the lamp's reach
-        const std::vector<uint32_t> near = TrianglesInSphere(p, idx, {0.0f, 2.0f, 0.0f}, 4.0f);
+        for (int i = 0; i < 40; ++i) // furniture all over the floor
+        {
+            const float x = -28.0f + 1.4f * static_cast<float>(i), z = 25.0f * std::sin(1.7f * static_cast<float>(i));
+            AddBox(p, idx, {x, 0.0f, z}, {x + 0.8f, 0.9f, z + 0.8f});
+        }
+        const TriangleGrid grid = BuildTriangleGrid(p, idx, 4.0f);
+        CHECK(grid.count == idx.size() / 3 && grid.size[0] >= 15 && grid.size[0] <= kTriangleGridCells && grid.size[1] == 1);
+        std::vector<uint32_t> near, seen;
+        TrianglesInSphere(grid, idx, {0.0f, 2.0f, 0.0f}, 4.0f, near, seen);
         CHECK(near.size() % 3 == 0 && near.size() >= 36 + 6 && near.size() < idx.size());
         bool far_box = false, floor_top = false;
         for (const uint32_t i : near)
         {
             far_box |= i >= 8 && i < 16;
-            floor_top |= i >= 16;
+            floor_top |= i >= 16 && i < 24;
         }
         CHECK(!far_box && floor_top);
+        bool same = true;
+        for (int probe = 0; probe < 60; ++probe)
+        {
+            const Vec3 lamp{-29.0f + static_cast<float>(probe), 1.5f, 20.0f * std::cos(0.9f * static_cast<float>(probe))};
+            const float reach = 1.0f + 0.2f * static_cast<float>(probe % 30);
+            std::vector<uint32_t> expected, got;
+            for (size_t t = 0; t + 2 < idx.size(); t += 3)
+            {
+                Vec3 lo = p[idx[t]], hi = p[idx[t]];
+                for (int v = 1; v < 3; ++v)
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        lo[k] = std::min(lo[k], p[idx[t + v]][k]);
+                        hi[k] = std::max(hi[k], p[idx[t + v]][k]);
+                    }
+                float d2 = 0.0f;
+                for (int k = 0; k < 3; ++k)
+                {
+                    const float nearest = std::clamp(lamp[k], lo[k], hi[k]);
+                    d2 += (nearest - lamp[k]) * (nearest - lamp[k]);
+                }
+                if (d2 <= reach * reach)
+                    expected.insert(expected.end(), {idx[t], idx[t + 1], idx[t + 2]});
+            }
+            TrianglesInSphere(grid, idx, lamp, reach, got, seen);
+            same &= got == expected;
+        }
+        CHECK(same);
+        // Nothing for a lamp outside the place, and for a place without triangles.
+        near.clear();
+        TrianglesInSphere(grid, idx, {500.0f, 0.0f, 0.0f}, 5.0f, near, seen);
+        TrianglesInSphere(BuildTriangleGrid(p, {}, 4.0f), {}, {0.0f, 0.0f, 0.0f}, 5.0f, near, seen);
+        CHECK(near.empty());
     }
 
     // The room light: the baked colours around a point, mostly those of the level surfaces. A room with a bright

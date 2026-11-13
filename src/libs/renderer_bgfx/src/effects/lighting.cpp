@@ -191,10 +191,23 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     const bool lit_state = rs[D3DRS_LIGHTING] != 0;
     const bool per_pixel = (flags_ & fx::kLightingPerPixel) != 0;
     bool lit = lighting_ && layout.has_normal && lit_state;
+    // The room's lamps relight what is drawn into the game picture, each with its shadow (effects/lamp_shadows.hpp):
+    // baked location geometry (which then takes the baked variant) and lit models. The first receiver of a frame
+    // gives the lamps around its camera their slots.
+    const shim::TexStore *picture = device.back_color ? device.back_color->store.get() : nullptr;
+    bool lamp_on = false;
+    if (lamps_.enabled() && lighting_ && layout.has_normal && target && target == picture)
+    {
+        const D3DMATRIX &v = device.s.view;
+        std::array<float, 3> eye{}; // absolute, like the lamps
+        for (int j = 0; j < 3; ++j)
+            eye[j] = origin_[j] - (v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
+        lamp_on = lamps_.prepare(const_cast<shim::Device &>(device), eye, casters_);
+    }
     // Baked colours: dynamic lights only (the lighter tool put the location's own lights into the colours).
     fx::LightSelection baked_lights;
     uint8_t unused = 0;
-    bool baked = false;
+    bool baked = !lit_state && lamp_on;
     if (lighting_ && layout.has_normal && !lit_state && budget_ > 0 && !dynamic_lights_.empty())
     {
         // The dynamic lights are absolute; the draw's sphere and view are in the device's camera-relative world.
@@ -206,11 +219,18 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
                     l.position[k] -= origin_[k];
             device_lights_origin_valid_ = true;
         }
+        // The candidates of this draw: a carried lantern that has a lamp slot is lit by the lamps, with its shadow
+        // (where the lamps light this draw), so it is not added a second time.
+        candidate_lights_.clear();
+        for (size_t i = 0; i < dynamic_lights_.size(); ++i)
+            if (!lamp_on || !lamps_.relit(dynamic_lights_[i].position))
+                candidate_lights_.push_back(device_dynamic_lights_[i]);
         // Ranked at the draw's own vertices: a torch lights the wall next to it wherever the camera is.
         if (sphere.valid)
         {
-            baked_lights = select(device_dynamic_lights_, sphere.center, sphere.radius, budget_, true, &unused);
-            baked = baked_lights.count > 0;
+            if (!candidate_lights_.empty())
+                baked_lights = select(candidate_lights_, sphere.center, sphere.radius, budget_, true, &unused);
+            baked |= baked_lights.count > 0;
         }
         else if (!bounds_reported_)
         {
@@ -236,22 +256,8 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     baked |= !lit_state && bgfx::isValid(normal_map);
     // The interior's AO volume darkens what is drawn into the game picture: baked location geometry (which then takes
     // the baked variant) and lit models (characters, props). Reflections and other targets keep their look.
-    const shim::TexStore *picture = device.back_color ? device.back_color->store.get() : nullptr;
     const bool ao = ao_volume_ && lighting_ && layout.has_normal && target && target == picture;
     baked |= !lit_state && ao;
-    // The room's lamps relight what is drawn into the game picture, each with its shadow (effects/lamp_shadows.hpp):
-    // baked location geometry (which then takes the baked variant) and lit models. The first receiver of a frame
-    // gives the lamps around its camera their slots.
-    bool lamp_on = false;
-    if (lamps_.enabled() && lighting_ && layout.has_normal && target && target == picture)
-    {
-        const D3DMATRIX &v = device.s.view;
-        std::array<float, 3> eye{}; // absolute, like the lamps
-        for (int j = 0; j < 3; ++j)
-            eye[j] = origin_[j] - (v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
-        lamp_on = lamps_.prepare(const_cast<shim::Device &>(device), eye, casters_);
-    }
-    baked |= !lit_state && lamp_on;
     if (!lit && !baked && !coverage)
         return;
     if (cube_variant != 0)
@@ -289,13 +295,18 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     {
         draw.lamps = true;
         ++frame_.lamp_lit;
-        // Characters cast into the lamp faces their sphere reaches.
-        if (lit && material_ == Material::Character && sphere.valid)
+        // Lit draws are what is not in the still geometry (characters, props, a ship's hull, masts and sails): they
+        // cast into the faces of the lamps their sphere reaches.
+        if (lit && sphere.valid)
         {
-            draw.lamp_caster = draw.caster = true;
-            draw.sphere = sphere; // absolute, like the lamp faces
+            DrawSphere absolute = sphere; // like the lamp faces
             for (int k = 0; k < 3; ++k)
-                draw.sphere.center[k] += origin_[k];
+                absolute.center[k] += origin_[k];
+            if (lamps_.reaches(absolute.center, absolute.radius))
+            {
+                draw.lamp_caster = draw.caster = true;
+                draw.sphere = absolute;
+            }
         }
     }
     if (ao || lamp_on)

@@ -82,6 +82,8 @@ const Option kOptions[] = {
     {"fx_lamp_shadows", "lamps that relight a location with their shadows, 0, 8 or 16",
      [](fx::Settings &s, int v) { s.lamp_shadows = static_cast<uint8_t>(std::clamp(v, 0, 16)); }},
     {"fx_lamp_soft", "0 3x3, 1 5x5 filter of the lamp shadows", [](fx::Settings &s, int v) { s.lamp_soft = on(v); }},
+    {"fx_lamp_moving", "0, 1, 2: lamp slots for carried lanterns and torches (their shadows move with them)",
+     [](fx::Settings &s, int v) { s.lamp_moving = static_cast<uint8_t>(std::clamp(v, 0, 2)); }},
     {"fx_lamp_gain", "0..300 % of the lamps' strength on baked surfaces",
      [](fx::Settings &s, int v) { s.lamp_gain = static_cast<float>(std::clamp(v, 0, 300)) / 100.0f; }},
     {"fx_lamp_baked", "0..100 %: the part of the lamp light the baked colours already hold",
@@ -749,6 +751,21 @@ void SetEffectsDynamicLights(std::span<const EffectsPointLight> lights)
                         .att2 = l.att2};
     }
     effects::Host::instance().lighting().set_dynamic_lights(std::span(converted, count));
+    // The same lights for the lamps: the nearest to the camera take a moving slot and cast shadows.
+    std::vector<fx::Lamp> moving;
+    moving.reserve(lights.size());
+    for (const EffectsPointLight &l : lights)
+        moving.push_back({l.position, l.color, l.range, l.att0, l.att1, l.att2});
+    effects::Host::instance().lighting().lamp_shadows().set_moving(std::move(moving));
+}
+
+void SetEffectsShipLights(std::span<const EffectsPointLight> lights)
+{
+    std::vector<fx::Lamp> moving;
+    moving.reserve(lights.size());
+    for (const EffectsPointLight &l : lights)
+        moving.push_back({l.position, l.color, l.range, l.att0, l.att1, l.att2});
+    effects::Host::instance().lighting().lamp_shadows().set_ship_lights(std::move(moving));
 }
 
 void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path)

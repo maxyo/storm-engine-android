@@ -1,4 +1,6 @@
 #include "storm/fx/settings.hpp"
+
+#include <algorithm>
 #include "storm/fx/capabilities.hpp"
 
 #include <iterator>
@@ -48,6 +50,7 @@ Settings Settings::FromPreset(QualityPreset preset)
         s.shadows = ShadowQuality::Low;
         s.ao_volume = 2;
         s.lamp_shadows = 8;
+        s.lamp_moving = 1;
         return s;
     }
     s.render_scale = 0.77f; // FSR 1 "Ultra Quality": 2464x1109 of a 3200x1440 display
@@ -66,6 +69,7 @@ Settings Settings::FromPreset(QualityPreset preset)
     s.shadows = ShadowQuality::Soft;
     s.ao_volume = 3;
     s.lamp_shadows = 16;
+    s.lamp_moving = 2;
     s.lamp_soft = true;
     s.ssao = true;
     s.ssao_intensity = 0.35f;
@@ -186,6 +190,9 @@ constexpr Rule kRules[] = {
      "the ambient occlusion volume of interiors needs per-pixel lighting or per-pixel point lights: switched off"},
     {[](const Settings &s, const Support &) { return s.lamp_shadows != 0 && s.lamp_shadows != 8 && s.lamp_shadows != 16; },
      [](Settings &s) { s.lamp_shadows = s.lamp_shadows > 8 ? 16 : 8; }, "8 or 16 lamps relight an interior: rounded"},
+    {[](const Settings &s, const Support &) { return s.lamp_moving > 2 || (s.lamp_shadows && s.lamp_moving > s.lamp_shadows); },
+     [](Settings &s) { s.lamp_moving = static_cast<uint8_t>(std::min<int>({s.lamp_moving, 2, s.lamp_shadows ? s.lamp_shadows : 2})); },
+     "at most 2 of the lamp slots are for moving lights: lowered"},
     {[](const Settings &s, const Support &c) { return s.lamp_shadows && !c.shadow_map; }, [](Settings &s) { s.lamp_shadows = 0; },
      "lamp shadows need a D16 depth render target: switched off"},
     {[](const Settings &s, const Support &c) { return s.lamp_shadows && !c.ao_volume; }, [](Settings &s) { s.lamp_shadows = 0; },

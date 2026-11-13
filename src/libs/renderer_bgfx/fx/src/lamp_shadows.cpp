@@ -256,33 +256,125 @@ RoomLight BuildRoomLight(std::span<const Vec3> positions, std::span<const uint32
     return room;
 }
 
-std::vector<uint32_t> TrianglesInSphere(std::span<const Vec3> positions, std::span<const uint32_t> indices, Vec3 center,
-                                        float radius)
+TriangleGrid BuildTriangleGrid(std::span<const Vec3> positions, std::span<const uint32_t> indices, float cell)
 {
-    std::vector<uint32_t> out;
-    for (size_t t = 0; t + 2 < indices.size(); t += 3)
+    TriangleGrid grid;
+    grid.count = indices.size() / 3;
+    grid.box.resize(grid.count);
+    Vec3 lo{0.0f, 0.0f, 0.0f}, hi{0.0f, 0.0f, 0.0f};
+    bool any = false;
+    std::vector<std::array<Vec3, 2>> &box = grid.box;
+    for (size_t t = 0; t < grid.count; ++t)
     {
-        const uint32_t i0 = indices[t], i1 = indices[t + 1], i2 = indices[t + 2];
+        const uint32_t i0 = indices[3 * t], i1 = indices[3 * t + 1], i2 = indices[3 * t + 2];
         if (i0 >= positions.size() || i1 >= positions.size() || i2 >= positions.size())
+        {
+            box[t] = {Vec3{1.0f, 1.0f, 1.0f}, Vec3{-1.0f, -1.0f, -1.0f}}; // never found
             continue;
+        }
         const Vec3 &a = positions[i0], &b = positions[i1], &c = positions[i2];
-        Vec3 middle, d;
         for (int k = 0; k < 3; ++k)
         {
-            middle[k] = (a[k] + b[k] + c[k]) / 3.0f;
-            d[k] = middle[k] - center[k];
+            box[t][0][k] = std::min({a[k], b[k], c[k]});
+            box[t][1][k] = std::max({a[k], b[k], c[k]});
+            lo[k] = any ? std::min(lo[k], box[t][0][k]) : box[t][0][k];
+            hi[k] = any ? std::max(hi[k], box[t][1][k]) : box[t][1][k];
         }
-        float reach = 0.0f;
-        for (const Vec3 *p : {&a, &b, &c})
-        {
-            const Vec3 e{(*p)[0] - middle[0], (*p)[1] - middle[1], (*p)[2] - middle[2]};
-            reach = std::max(reach, Dot(e, e));
-        }
-        const float limit = radius + std::sqrt(reach);
-        if (Dot(d, d) <= limit * limit)
-            out.insert(out.end(), {i0, i1, i2});
+        any = true;
     }
-    return out;
+    grid.lo = lo;
+    for (int k = 0; k < 3; ++k)
+    {
+        const float extent = std::max(hi[k] - lo[k], cell);
+        grid.size[k] = std::clamp(static_cast<int>(std::ceil(extent / cell)), 1, kTriangleGridCells);
+        grid.cell[k] = extent / static_cast<float>(grid.size[k]);
+    }
+    const size_t cells = static_cast<size_t>(grid.size[0]) * grid.size[1] * grid.size[2];
+    const auto range = [&](size_t t, int k, int &from, int &to) {
+        from = std::clamp(static_cast<int>(std::floor((box[t][0][k] - lo[k]) / grid.cell[k])), 0, grid.size[k] - 1);
+        to = std::clamp(static_cast<int>(std::floor((box[t][1][k] - lo[k]) / grid.cell[k])), 0, grid.size[k] - 1);
+    };
+    // Two passes: count the triangles of every cell, then fill the lists.
+    grid.first.assign(cells + 1, 0);
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        for (size_t t = 0; t < grid.count; ++t)
+        {
+            if (box[t][0][0] > box[t][1][0])
+                continue;
+            int x0, x1, y0, y1, z0, z1;
+            range(t, 0, x0, x1);
+            range(t, 1, y0, y1);
+            range(t, 2, z0, z1);
+            for (int z = z0; z <= z1; ++z)
+                for (int y = y0; y <= y1; ++y)
+                    for (int x = x0; x <= x1; ++x)
+                    {
+                        const size_t c = (static_cast<size_t>(z) * grid.size[1] + y) * grid.size[0] + x;
+                        if (pass == 0)
+                            ++grid.first[c + 1];
+                        else
+                            grid.triangles[grid.first[c]++] = static_cast<uint32_t>(t);
+                    }
+        }
+        if (pass == 0)
+        {
+            for (size_t c = 0; c < cells; ++c)
+                grid.first[c + 1] += grid.first[c];
+            grid.triangles.resize(grid.first[cells]);
+        }
+        else
+        {
+            // The fill moved every start to its cell's end: shift them back.
+            for (size_t c = cells; c > 0; --c)
+                grid.first[c] = grid.first[c - 1];
+            grid.first[0] = 0;
+        }
+    }
+    return grid;
+}
+
+void TrianglesInSphere(const TriangleGrid &grid, std::span<const uint32_t> indices, Vec3 center, float radius,
+                       std::vector<uint32_t> &out, std::vector<uint32_t> &seen)
+{
+    if (grid.count == 0)
+        return;
+    int from[3], to[3];
+    for (int k = 0; k < 3; ++k)
+    {
+        if (center[k] + radius < grid.lo[k] || center[k] - radius > grid.lo[k] + grid.cell[k] * static_cast<float>(grid.size[k]))
+            return;
+        from[k] = std::clamp(static_cast<int>(std::floor((center[k] - radius - grid.lo[k]) / grid.cell[k])), 0, grid.size[k] - 1);
+        to[k] = std::clamp(static_cast<int>(std::floor((center[k] + radius - grid.lo[k]) / grid.cell[k])), 0, grid.size[k] - 1);
+    }
+    // A triangle is listed in every cell its box touches: `seen` marks the ones already taken (one bit each).
+    seen.assign((grid.count + 31) / 32, 0);
+    std::vector<uint32_t> found;
+    for (int z = from[2]; z <= to[2]; ++z)
+        for (int y = from[1]; y <= to[1]; ++y)
+            for (int x = from[0]; x <= to[0]; ++x)
+            {
+                const size_t c = (static_cast<size_t>(z) * grid.size[1] + y) * grid.size[0] + x;
+                for (uint32_t i = grid.first[c]; i < grid.first[c + 1]; ++i)
+                {
+                    const uint32_t t = grid.triangles[i];
+                    if (seen[t / 32] & (1u << (t % 32)))
+                        continue;
+                    seen[t / 32] |= 1u << (t % 32);
+                    // The point of the triangle's box nearest to the lamp: inside the lamp's radius?
+                    float d2 = 0.0f;
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        const float nearest = std::clamp(center[k], grid.box[t][0][k], grid.box[t][1][k]);
+                        d2 += (nearest - center[k]) * (nearest - center[k]);
+                    }
+                    if (d2 <= radius * radius)
+                        found.push_back(t);
+                }
+            }
+    std::sort(found.begin(), found.end()); // the order of `indices`: the same list whatever the cells' order
+    for (const uint32_t t : found)
+        out.insert(out.end(), {indices[3 * t], indices[3 * t + 1], indices[3 * t + 2]});
 }
 
 const std::array<CubeFace, 6> &CubeFaces()
