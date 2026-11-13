@@ -24,7 +24,17 @@ static const float farBlend = 16.0f;
 static const int32_t vbuff_size = 1024;
 static int32_t refcount = 0;
 #define TEXTURE_SIZE 128
-int32_t shTex = -1; // shared: the raw shadow map of the character being prepared (renderer texture id)
+// The shadow maps of a frame share two atlases (raw model, blurred), one tile per visible shadow: two render-target
+// switches per frame instead of two per shadow. A tile is TEXTURE_SIZE square inside a cell with a cleared gutter,
+// so the blur's ±1.5 texel taps and the projection's bilinear reads stay black at the edge, as at the border of the
+// former per-shadow targets.
+static constexpr int32_t kAtlasGutter = 2;
+static constexpr int32_t kAtlasCell = TEXTURE_SIZE + 2 * kAtlasGutter;
+static constexpr int32_t kAtlasColumns = 8;
+static constexpr int32_t kAtlasWidth = kAtlasCell * kAtlasColumns;
+int32_t shAtlas = -1;    // shared: the models of this frame's visible shadows (renderer texture id)
+int32_t blurAtlas = -1;  // shared: their blurred maps, read by project()
+int32_t atlasRows = 0;   // rows of both atlases (kAtlasColumns tiles each)
 int32_t vbuff = -1;
 
 // All shadows of a frame render their maps in one pass (prepareAll) at the first Shadow::Realize, each
@@ -38,9 +48,37 @@ static constexpr uint32_t kRayRefresh = 8;
 
 namespace
 {
-int32_t createShadowTarget(VRenderer *rs, D3DFORMAT format)
+void releaseAtlases(VRenderer *rs)
 {
-    return rs->TextureCreate(TEXTURE_SIZE, TEXTURE_SIZE, 1, D3DUSAGE_RENDERTARGET, format, D3DPOOL_DEFAULT);
+    if (shAtlas >= 0)
+        rs->TextureRelease(shAtlas);
+    if (blurAtlas >= 0)
+        rs->TextureRelease(blurAtlas);
+    shAtlas = blurAtlas = -1;
+    atlasRows = 0;
+}
+
+// Room for `tiles` shadows; the atlases grow by rows (a busy boarding or town square) and stay at that size.
+void ensureAtlases(VRenderer *rs, int32_t tiles)
+{
+    const int32_t rows = (tiles + kAtlasColumns - 1) / kAtlasColumns;
+    if (rows <= atlasRows && shAtlas >= 0)
+        return;
+    releaseAtlases(rs);
+    atlasRows = std::max(rows, 2);
+    const int32_t height = atlasRows * kAtlasCell;
+    shAtlas = rs->TextureCreate(kAtlasWidth, height, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R5G6B5, D3DPOOL_DEFAULT);
+    blurAtlas = rs->TextureCreate(kAtlasWidth, height, 1, D3DUSAGE_RENDERTARGET, D3DFMT_X8R8G8B8, D3DPOOL_DEFAULT);
+    if (shAtlas < 0 || blurAtlas < 0)
+        throw std::runtime_error("Shadow: could not create the shadow atlases");
+    core.Trace("Shadow: atlas %dx%d (%d tiles)", kAtlasWidth, height, atlasRows * kAtlasColumns);
+}
+
+// Top-left pixel of a tile's map in the atlases.
+void tileOrigin(int32_t tile, int32_t &x, int32_t &y)
+{
+    x = (tile % kAtlasColumns) * kAtlasCell + kAtlasGutter;
+    y = (tile / kAtlasColumns) * kAtlasCell + kAtlasGutter;
 }
 
 int32_t createShadowVertexBuffer(VRenderer *rs)
@@ -53,8 +91,7 @@ void releaseShared(VRenderer *rs)
 {
     rs->ReleaseVertexBuffer(vbuff);
     vbuff = -1;
-    rs->TextureRelease(shTex);
-    shTex = -1;
+    releaseAtlases(rs);
 }
 } // namespace
 
@@ -67,7 +104,6 @@ Shadow::Shadow()
 Shadow::~Shadow()
 {
     std::erase(instances_, this);
-    rs->TextureRelease(blurTex_);
     refcount--;
     if (refcount == 0)
         releaseShared(rs);
@@ -88,12 +124,8 @@ bool Shadow::Init()
         throw std::runtime_error("No service: renderer");
 
     if (refcount == 0)
-    {
-        shTex = createShadowTarget(rs, D3DFMT_R5G6B5);
         vbuff = createShadowVertexBuffer(rs);
-    }
     refcount++;
-    blurTex_ = createShadowTarget(rs, D3DFMT_X8R8G8B8);
     instances_.push_back(this);
 
     // UNGUARD
@@ -102,6 +134,7 @@ bool Shadow::Init()
 
 glm::mat4 trans;
 float perspective, atten_start, atten_end;
+float atlasU0, atlasV0, atlasSU, atlasSV; // the projected shadow's tile in the blurred atlas
 Shadow::SHADOW_VERTEX *shadvert;
 int32_t tot_verts;
 glm::vec3 lightPos, ObjPos, objPos;
@@ -130,9 +163,9 @@ bool AddPoly(const glm::vec3 *vr, int32_t nverts)
         const auto z = (trans[0][2] * vr[v].x + trans[1][2] * vr[v].y + trans[2][2] * vr[v].z + trans[3][2]);
         const auto rhw = perspective * 0.5f / z;
         shadvert[tot_verts].tu =
-            rhw * (trans[0][0] * vr[v].x + trans[1][0] * vr[v].y + trans[2][0] * vr[v].z + trans[3][0]) + 0.5f;
+            atlasU0 + atlasSU * (rhw * (trans[0][0] * vr[v].x + trans[1][0] * vr[v].y + trans[2][0] * vr[v].z + trans[3][0]) + 0.5f);
         shadvert[tot_verts].tv =
-            -rhw * (trans[0][1] * vr[v].x + trans[1][1] * vr[v].y + trans[2][1] * vr[v].z + trans[3][1]) + 0.5f;
+            atlasV0 + atlasSV * (-rhw * (trans[0][1] * vr[v].x + trans[1][1] * vr[v].y + trans[2][1] * vr[v].z + trans[3][1]) + 0.5f);
         tot_verts++;
     }
     const auto start = tot_verts - 3;
@@ -145,9 +178,9 @@ bool AddPoly(const glm::vec3 *vr, int32_t nverts)
         const auto z = (trans[0][2] * vr[v].x + trans[1][2] * vr[v].y + trans[2][2] * vr[v].z + trans[3][2]);
         const auto rhw = perspective * 0.5f / z;
         shadvert[tot_verts].tu =
-            rhw * (trans[0][0] * vr[v].x + trans[1][0] * vr[v].y + trans[2][0] * vr[v].z + trans[3][0]) + 0.5f;
+            atlasU0 + atlasSU * (rhw * (trans[0][0] * vr[v].x + trans[1][0] * vr[v].y + trans[2][0] * vr[v].z + trans[3][0]) + 0.5f);
         shadvert[tot_verts].tv =
-            -rhw * (trans[0][1] * vr[v].x + trans[1][1] * vr[v].y + trans[2][1] * vr[v].z + trans[3][1]) + 0.5f;
+            atlasV0 + atlasSV * (-rhw * (trans[0][1] * vr[v].x + trans[1][1] * vr[v].y + trans[2][1] * vr[v].z + trans[3][1]) + 0.5f);
         tot_verts++;
     }
     return true;
@@ -197,12 +230,39 @@ void Shadow::prepareAll(uint32_t Delta_Time)
     HEAD_DENSITY = ((VDATA *)pV->GetArrayElement(0))->GetInt();
     DENSITY = ((VDATA *)pV->GetArrayElement(1))->GetInt();
     fogDensity_ = core.Event("EWhr_GetFogDensity")->GetFloat();
-    // prepare() pushes the frame's render target before it leaves it (sceneOpen goes false).
-    bool sceneOpen = true;
-    // prepare() runs script events and the character's realize, which may create or delete shadows.
-    storm::shadow::forEachLive(instances_, [&](Shadow *shadow) { shadow->prepare(Delta_Time, prev_view, prev_proj, sceneOpen); });
-    if (!sceneOpen)
+    int32_t tiles = 0;
+    storm::shadow::forEachLive(instances_, [&](Shadow *shadow) {
+        shadow->prepare(Delta_Time, prev_view, prev_proj);
+        if (shadow->prepared_.visible)
+            shadow->prepared_.tile = tiles++;
+    });
+    if (tiles > 0)
     {
+        ensureAtlases(rs, tiles);
+        rs->EndScene();
+        rs->PushRenderTarget();
+        // Pass 1: every visible character's model into its tile of the raw atlas.
+        rs->SetRenderTarget(shAtlas, 0, 0, {});
+        rs->Clear(0L, nullptr, D3DCLEAR_TARGET, 0, 0.0f, 0L);
+        rs->BeginScene();
+        rs->SetRenderState(D3DRS_SCISSORTESTENABLE, TRUE);
+        // The character's realize may create or delete shadows.
+        storm::shadow::forEachLive(instances_, [&](Shadow *shadow) {
+            if (shadow->prepared_.visible)
+                shadow->renderModel();
+        });
+        rs->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+        rs->EndScene();
+        // Pass 2: the blur of every tile into the blurred atlas.
+        rs->SetRenderTarget(blurAtlas, 0, 0, {});
+        rs->Clear(0L, nullptr, D3DCLEAR_TARGET, 0, 0.0f, 0L);
+        rs->BeginScene();
+        rs->TextureSet(0, shAtlas);
+        storm::shadow::forEachLive(instances_, [&](Shadow *shadow) {
+            if (shadow->prepared_.visible)
+                shadow->Smooth();
+        });
+        rs->EndScene();
         rs->PopRenderTarget();
         rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(prev_view));
         rs->SetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(prev_proj));
@@ -211,7 +271,7 @@ void Shadow::prepareAll(uint32_t Delta_Time)
     rs->SetViewport(&vp);
 }
 
-void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::mat4 &visPoj, bool &sceneOpen)
+void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::mat4 &visPoj)
 {
     prepared_.visible = false;
     auto *obj = static_cast<MODEL *>(core.GetEntityPointer(entity));
@@ -354,42 +414,10 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
     FindPlanes(lightmtx, proj);
     std::copy(planes, planes + 4, prepared_.planes);
 
-    //---------------------------------------------------------------
-    // draw object into the shared shadow map, blur it into this shadow's texture
-    if (sceneOpen)
-    {
-        rs->EndScene();
-        rs->PushRenderTarget();
-        sceneOpen = false;
-    }
-    rs->SetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(proj));
-    rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(lightmtx));
-
-    rs->SetRenderTarget(shTex, 0, 0, {});
-
-    rs->Clear(0L, nullptr, D3DCLEAR_TARGET, 0, 0.0f, 0L);
-    rs->BeginScene();
-
-    rs->SetRenderState(D3DRS_TEXTUREFACTOR, DENSITY);
-    char tech[256];
-    strcpy_s(tech, node->GetTechnique());
-    node->SetTechnique("shadow_model");
-    node->flags &= ~NODE::VISIBLE_TREE;
-
-    rs->SetRenderState(D3DRS_ZENABLE, FALSE);
-    obj->ProcessStage(Stage::realize, 0);
-    rs->SetRenderState(D3DRS_ZENABLE, TRUE);
-
-    node->flags |= NODE::VISIBLE_TREE;
-    node->SetTechnique(tech);
-
-    rs->EndScene();
-
-    Smooth();
-
-    // what the projection in Realize needs (planes were stored above)
+    // what the map render (renderModel, Smooth) and the projection in Realize need (planes were stored above)
     Prepared &out = prepared_;
     out.visible = true;
+    out.proj = proj;
     out.trans = lightmtx;
     out.perspective = std::max(proj[0][0], proj[1][1]);
     out.lightmtx = lightmtx;
@@ -403,6 +431,45 @@ void Shadow::prepare(uint32_t Delta_Time, const glm::mat4 &visView, const glm::m
     float dist = 3.0f * sqrtf(storm::math::lengthSquared(cen - camPos));
     shading *= powf(2.71f, -fogDensity_ * dist);
     out.shade = static_cast<int32_t>(fabsf(shading * 255.0f));
+}
+
+// The character's model into its tile of the raw atlas: the light's projection mapped onto the tile (clip space
+// scaled and offset, D3D row vectors) and the scissor at the tile, so the map is the one of a TEXTURE_SIZE target.
+void Shadow::renderModel()
+{
+    auto *obj = static_cast<MODEL *>(core.GetEntityPointer(entity));
+    if (!obj)
+    {
+        prepared_.visible = false;
+        return;
+    }
+    auto *node = obj->GetNode(0);
+    int32_t x, y;
+    tileOrigin(prepared_.tile, x, y);
+    const float height = static_cast<float>(atlasRows * kAtlasCell);
+    glm::mat4 tile; // p' = p * proj * tile
+    tile[0][0] = TEXTURE_SIZE / static_cast<float>(kAtlasWidth);
+    tile[1][1] = TEXTURE_SIZE / height;
+    tile[3][0] = -1.0f + (2.0f * x + TEXTURE_SIZE) / kAtlasWidth;
+    tile[3][1] = 1.0f - (2.0f * y + TEXTURE_SIZE) / height;
+    const glm::mat4 proj = tile * prepared_.proj;
+    rs->SetTransform(D3DTS_PROJECTION, storm::math::d3dMatrix(proj));
+    rs->SetTransform(D3DTS_VIEW, storm::math::d3dMatrix(prepared_.lightmtx));
+    const RECT scissor{x, y, x + TEXTURE_SIZE, y + TEXTURE_SIZE};
+    rs->SetScissorRect(&scissor);
+
+    rs->SetRenderState(D3DRS_TEXTUREFACTOR, DENSITY);
+    char tech[256];
+    strcpy_s(tech, node->GetTechnique());
+    node->SetTechnique("shadow_model");
+    node->flags &= ~NODE::VISIBLE_TREE;
+
+    rs->SetRenderState(D3DRS_ZENABLE, FALSE);
+    obj->ProcessStage(Stage::realize, 0);
+    rs->SetRenderState(D3DRS_ZENABLE, TRUE);
+
+    node->flags |= NODE::VISIBLE_TREE;
+    node->SetTechnique(tech);
 }
 
 void Shadow::project()
@@ -433,7 +500,13 @@ void Shadow::project()
     planes[5].Nz = -pdir.z;
     planes[5].D = glm::dot(-pdir, objPos - 3.5f * pdir);
 
-    rs->TextureSet(0, blurTex_);
+    rs->TextureSet(0, blurAtlas);
+    int32_t x, y;
+    tileOrigin(in.tile, x, y);
+    atlasU0 = static_cast<float>(x) / kAtlasWidth;
+    atlasV0 = static_cast<float>(y) / (atlasRows * kAtlasCell);
+    atlasSU = static_cast<float>(TEXTURE_SIZE) / kAtlasWidth;
+    atlasSV = static_cast<float>(TEXTURE_SIZE) / (atlasRows * kAtlasCell);
     rs->SetTransform(D3DTS_WORLD, storm::math::d3dMatrix(glm::mat4()));
 
     rs->SetRenderState(D3DRS_TEXTUREFACTOR, (in.shade << 16) | (in.shade << 8) | (in.shade << 0));
@@ -515,6 +588,8 @@ void Shadow::FindPlanes(const glm::mat4 &view, const glm::mat4 &proj)
     planes[3].D = (pos.x * planes[3].Nx + pos.y * planes[3].Ny + pos.z * planes[3].Nz);
 }
 
+// This shadow's tile of the raw atlas blurred into the same tile of the blurred atlas (nine shifted, additive
+// copies), inside the blur pass of prepareAll.
 void Shadow::Smooth()
 {
     struct SMOOTHVRT
@@ -524,41 +599,23 @@ void Shadow::Smooth()
         float tu, tv;
     };
 
-    float dt = 0.0f;
+    int32_t x, y;
+    tileOrigin(prepared_.tile, x, y);
+    const float width = static_cast<float>(kAtlasWidth), height = static_cast<float>(atlasRows * kAtlasCell);
+    // tile-local uv (0..1 over TEXTURE_SIZE texels) -> atlas uv
+    const auto atlasU = [&](float u) { return (x + u * TEXTURE_SIZE) / width; };
+    const auto atlasV = [&](float v) { return (y + v * TEXTURE_SIZE) / height; };
     SMOOTHVRT vrt[4];
-    vrt[0].sx = 0.0f;
-    vrt[0].sy = 0.0f;
-    vrt[0].sz = 0.5f;
-    vrt[0].rhw = 0.5f;
-    vrt[0].tu = 0.0f;
-    vrt[0].tv = 0.0f;
-    vrt[1].sx = 0.0f;
-    vrt[1].sy = TEXTURE_SIZE - 1.0f;
-    vrt[1].sz = 0.5f;
-    vrt[1].rhw = 0.5f;
-    vrt[1].tu = 0.0f;
-    vrt[1].tv = 1.0f;
-    vrt[2].sx = TEXTURE_SIZE - 1.0f;
-    vrt[2].sy = TEXTURE_SIZE - 1.0f;
-    vrt[2].sz = 0.5f;
-    vrt[2].rhw = 0.5f;
-    vrt[2].tu = 1.0f;
-    vrt[2].tv = 1.0f;
-    vrt[3].sx = TEXTURE_SIZE - 1.0f;
-    vrt[3].sy = 0.0f;
-    vrt[3].sz = 0.5f;
-    vrt[3].rhw = 0.5f;
-    vrt[3].tu = 1.0f;
-    vrt[3].tv = 0.0f;
+    const float corner[4][2] = {{0.0f, 0.0f}, {0.0f, 1.0f}, {1.0f, 1.0f}, {1.0f, 0.0f}};
+    for (int32_t k = 0; k < 4; k++)
+    {
+        vrt[k].sx = x + corner[k][0] * (TEXTURE_SIZE - 1.0f);
+        vrt[k].sy = y + corner[k][1] * (TEXTURE_SIZE - 1.0f);
+        vrt[k].sz = 0.5f;
+        vrt[k].rhw = 0.5f;
+    }
     vrt[0].diffuse = vrt[3].diffuse = HEAD_DENSITY;
     vrt[1].diffuse = vrt[2].diffuse = 0xFFFFFFFF;
-
-    rs->SetRenderTarget(blurTex_, 0, 0, {});
-
-    rs->Clear(0L, nullptr, D3DCLEAR_TARGET, 0, 0.0f, 0L);
-    rs->BeginScene();
-
-    rs->TextureSet(0, shTex);
 
     if (rs->TechniqueExecuteStart("shadow_smooth"))
         do
@@ -570,14 +627,11 @@ void Shadow::Smooth()
                 {
                     const float ud = 1.5f * (u / (nIterations - 1.0f) - 0.5f) / (TEXTURE_SIZE - 1.0f) * 2.0f;
                     const float vd = 1.5f * (v / (nIterations - 1.0f) - 0.5f) / (TEXTURE_SIZE - 1.0f) * 2.0f;
-                    vrt[0].tu = 0.0f + ud;
-                    vrt[0].tv = 0.0f + vd;
-                    vrt[1].tu = 0.0f + ud;
-                    vrt[1].tv = 1.0f + vd;
-                    vrt[2].tu = 1.0f + ud;
-                    vrt[2].tv = 1.0f + vd;
-                    vrt[3].tu = 1.0f + ud;
-                    vrt[3].tv = 0.0f + vd;
+                    for (int32_t k = 0; k < 4; k++)
+                    {
+                        vrt[k].tu = atlasU(corner[k][0] + ud);
+                        vrt[k].tv = atlasV(corner[k][1] + vd);
+                    }
                     const int32_t col = static_cast<int32_t>(1.0f / (nIterations * nIterations) * 255.0f);
                     rs->SetRenderState(D3DRS_TEXTUREFACTOR, 0xFF000000 | (col << 16) | (col << 8) | (col << 0));
                     rs->DrawPrimitiveUP(D3DPT_TRIANGLEFAN,
@@ -585,8 +639,6 @@ void Shadow::Smooth()
                                         sizeof(SMOOTHVRT));
                 }
         } while (rs->TechniqueExecuteNext());
-
-    rs->EndScene();
 }
 
 uint64_t Shadow::ProcessMessage(MESSAGE &message)
@@ -607,8 +659,6 @@ uint64_t Shadow::ProcessMessage(MESSAGE &message)
 
 void Shadow::LostRender()
 {
-    rs->TextureRelease(blurTex_);
-    blurTex_ = -1;
     if (--refcount == 0)
         releaseShared(rs);
 }
@@ -616,9 +666,5 @@ void Shadow::LostRender()
 void Shadow::RestoreRender()
 {
     if (refcount++ == 0)
-    {
-        shTex = createShadowTarget(rs, D3DFMT_R5G6B5);
-        vbuff = createShadowVertexBuffer(rs);
-    }
-    blurTex_ = createShadowTarget(rs, D3DFMT_X8R8G8B8);
+        vbuff = createShadowVertexBuffer(rs); // the atlases are created on the next frame that needs them
 }

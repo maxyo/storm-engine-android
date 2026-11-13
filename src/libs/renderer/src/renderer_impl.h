@@ -264,6 +264,7 @@ class Renderer : public VRenderer
     // D3D Device/Viewport Section
     HRESULT GetViewport(D3DVIEWPORT9 *pViewport) override;
     HRESULT SetViewport(const D3DVIEWPORT9 *pViewport) override;
+    HRESULT SetScissorRect(const RECT *rect) override;
 
     // D3D
     void SetStreamSource(UINT StreamNumber, int32_t vertexBuffer, UINT Stride) override;

@@ -3244,6 +3244,11 @@ HRESULT Renderer::SetViewport(const D3DVIEWPORT9 *pViewport)
     return CHECKD3DERR(d3d9->SetViewport(pViewport));
 }
 
+HRESULT Renderer::SetScissorRect(const RECT *rect)
+{
+    return CHECKD3DERR(d3d9->SetScissorRect(rect));
+}
+
 uint32_t Renderer::SetRenderState(uint32_t State, uint32_t Value)
 {
     return CHECKD3DERR(d3d9->SetRenderState(static_cast<D3DRENDERSTATETYPE>(State), Value));
