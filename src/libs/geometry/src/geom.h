@@ -28,6 +28,7 @@ class GEOM : public GEOS
     std::vector<glm::vec3> vrt{};
     std::vector<RDF_BSPTRIANGLE> btrg{};
     std::vector<BSP_NODE> sroot{};
+    bool lostBakedLight_ = false;
 
     glm::vec3 res_norm;
     float res_pldist;
@@ -106,6 +107,10 @@ class GEOM : public GEOS
     bool AppendTriangles(std::vector<glm::vec3> &positions, std::vector<uint32_t> &indices,
                          SurfaceData *surface) const override;
     bool HasCollision() const override;
+    bool LostBakedLight() const override
+    {
+        return lostBakedLight_;
+    }
     const std::string &LightmapFile() const override;
     int32_t LightmapTexture() const override
     {

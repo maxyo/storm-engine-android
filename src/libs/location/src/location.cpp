@@ -711,6 +711,22 @@ int32_t Location::LoadStaticModel(const char *modelName, const char *tech, int32
         model.DeleteModel(im);
         return -1;
     }
+    // A model the game baked for other hours but not for this one (the furniture of houses in the late evening)
+    // would be drawn with its own colours, full bright in a dark room: it is lit by the lights around it instead, as
+    // the models the scripts mark for dynamic light, so it stands in the light of the place.
+    if (!useDynamicLights)
+        for (int32_t n = 0;; ++n)
+        {
+            NODE *part = mdl->GetNode(n);
+            if (!part)
+                break;
+            if (part->geo && part->geo->LostBakedLight())
+            {
+                core.Trace("Location: model %s has no baked colours for this hour: lit by the lights around it", modelName);
+                core.Send_Message(model.RealizerID(im), "lip", 1, mdl->GetId(), GetLights());
+                break;
+            }
+        }
     // Add the model to special layers
     core.AddToLayer(SHADOW, mdl->GetId(), 10);
     core.AddToLayer(SUN_TRACE, mdl->GetId(), 10);
