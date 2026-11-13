@@ -235,6 +235,15 @@ class SettingsScreen final : public Screen
                     DebugSegment(bindings, debug, "fx_bounce_debug", "Отражённый свет: отладка", {-1, 0, 1}, onOff);
                     DebugSegment(bindings, debug, "fx_town_walls", "Стены городов", {-1, 0, 1}, {"пресет", "игра", "наши"});
                 }
+                // Gloss maps (6e5576d5, Высокая): per-texel highlights of the sun and lamps, metal in its own colour.
+                if (Known("fx_gloss"))
+                {
+                    DebugSegment(bindings, debug, "fx_gloss", "Блеск", {-1, 0, 1}, onOff);
+                    DebugSegment(bindings, debug, "fx_gloss_strength", "Сила блеска", {-1, 50, 100, 200, 300},
+                                 {"пресет", "50%", "100%", "200%", "300%"});
+                    DebugSegment(bindings, debug, "fx_gloss_debug", "Блеск: отладка", {-1, 0, 1, 2, 3, 4},
+                                 {"пресет", "выкл", "блеск", "нормали", "солнце", "металл"});
+                }
                 // The renderer's thread, its frame overlap and the graphics API (read at the game's start).
                 if (Known("render_backend"))
                 {
