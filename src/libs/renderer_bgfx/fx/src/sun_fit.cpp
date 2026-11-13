@@ -1,7 +1,12 @@
 #include "storm/fx/sun_fit.hpp"
 
+#include "storm/fx/log.hpp"
+
 #include <algorithm>
 #include <cmath>
+#include <atomic>
+#include <chrono>
+#include <mutex>
 #include <thread>
 #include <utility>
 
@@ -40,18 +45,78 @@ Vec3 Direction(float azimuth_deg, float elevation_deg)
 
 } // namespace
 
-void ParallelRanges(size_t count, unsigned threads, const std::function<void(size_t, size_t)> &work)
+namespace
 {
-    threads = std::max(1u, std::min<unsigned>(threads, static_cast<unsigned>(std::max<size_t>(1, count / 256))));
+std::atomic<bool (*)()> g_hot{nullptr};
+std::mutex g_pause;
+bool g_paused = false;
+std::chrono::steady_clock::time_point g_paused_at;
+std::atomic<int> g_pause_ms{5000};
+
+// Between two pieces of a bake: while the device is hot every bake thread waits, the pause logged once.
+void ThermalGate()
+{
+    bool (*hot)() = g_hot.load();
+    if (!hot || !hot())
+        return;
+    for (;;)
+    {
+        {
+            std::lock_guard lock(g_pause);
+            if (!hot())
+            {
+                if (g_paused)
+                {
+                    g_paused = false;
+                    Log(LogLevel::Info, "ray bakes resumed after %.1f s: the device cooled down",
+                        std::chrono::duration<double>(std::chrono::steady_clock::now() - g_paused_at).count());
+                }
+                return;
+            }
+            if (!g_paused)
+            {
+                g_paused = true;
+                g_paused_at = std::chrono::steady_clock::now();
+                Log(LogLevel::Info, "ray bakes paused: the device is hot (thermal status MODERATE or higher)");
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(g_pause_ms.load()));
+    }
+}
+} // namespace
+
+void SetBakeThermal(bool (*hot)(), int pause_ms)
+{
+    g_hot = hot;
+    g_pause_ms = pause_ms;
+}
+
+void ParallelRanges(size_t count, unsigned threads, const std::function<void(size_t, size_t)> &work, size_t min_piece)
+{
+    min_piece = std::max<size_t>(1, min_piece);
+    threads = std::max(1u, std::min<unsigned>(threads, static_cast<unsigned>(std::max<size_t>(1, count / min_piece))));
+    // Pieces of at least min_piece items, about 16 per thread, taken in turn: the thermal gate sits between them.
+    const size_t piece = std::max<size_t>(min_piece, (count + threads * 16 - 1) / (threads * 16));
+    std::atomic<size_t> next{0};
+    auto run = [&] {
+        for (;;)
+        {
+            const size_t first = next.fetch_add(piece);
+            if (first >= count)
+                return;
+            ThermalGate();
+            work(first, std::min(count, first + piece));
+        }
+    };
     std::vector<std::thread> pool;
     for (unsigned t = 1; t < threads; ++t)
-        pool.emplace_back([&, t] {
+        pool.emplace_back([&] {
 #if defined(__linux__)
             setpriority(PRIO_PROCESS, static_cast<id_t>(syscall(SYS_gettid)), 10);
 #endif
-            work(count * t / threads, count * (t + 1) / threads);
+            run();
         });
-    work(0, count / threads);
+    run();
     for (std::thread &th : pool)
         th.join();
 }
@@ -243,24 +308,21 @@ struct Candidate
 std::pair<SunFit, Candidate> Best(const Occluders &occluders, std::span<const SunFitSample> samples, float reach,
                                   const std::vector<Candidate> &candidates, unsigned threads)
 {
-    threads = std::clamp(threads, 1u, static_cast<unsigned>(std::max<size_t>(1, candidates.size())));
-    std::vector<std::pair<SunFit, Candidate>> best(threads, {SunFit{}, Candidate{0.0f, 45.0f}});
-    auto work = [&](unsigned t) {
-        Occluders::Scratch scratch;
-        for (size_t i = t; i < candidates.size(); i += threads)
-        {
-            const SunFit f = Rate(occluders, samples, Direction(candidates[i].az, candidates[i].el), reach, scratch);
-            if (f.r > best[t].first.r)
-                best[t] = {f, candidates[i]};
-        }
-    };
-    std::vector<std::thread> pool;
-    for (unsigned t = 1; t < threads; ++t)
-        pool.emplace_back(work, t);
-    work(0);
-    for (std::thread &th : pool)
-        th.join();
-    return *std::max_element(best.begin(), best.end(), [](const auto &a, const auto &b) { return a.first.r < b.first.r; });
+    std::vector<SunFit> rated(candidates.size());
+    ParallelRanges(
+        candidates.size(), threads,
+        [&](size_t first, size_t last) {
+            Occluders::Scratch scratch;
+            for (size_t i = first; i < last; ++i)
+                rated[i] = Rate(occluders, samples, Direction(candidates[i].az, candidates[i].el), reach, scratch);
+        },
+        1);
+    // The first of the best (as one thread would find it).
+    std::pair<SunFit, Candidate> best{SunFit{}, Candidate{0.0f, 45.0f}};
+    for (size_t i = 0; i < candidates.size(); ++i)
+        if (rated[i].r > best.first.r)
+            best = {rated[i], candidates[i]};
+    return best;
 }
 
 } // namespace

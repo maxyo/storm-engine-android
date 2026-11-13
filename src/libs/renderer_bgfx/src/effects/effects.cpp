@@ -1,4 +1,5 @@
 #include "effects/effects.hpp"
+#include "effects/thermal.hpp"
 #include "effects/relief_generator.hpp"
 
 #include "effects/casters.hpp"
@@ -170,6 +171,7 @@ Host &Host::instance()
 void Host::on_device_created()
 {
     fx::SetLogSink(log_sink);
+    fx::SetBakeThermal(&device_hot); // the ray bakes (town light, visibility) pause while the device is hot
     fx::RendererFacts facts;
     // The game's offscreen depth is a D24S8 BGFX_TEXTURE_RT texture (TexStore::create_gpu): sampleable. With MSAA
     // the pinned bgfx GL backend blits the depth into that texture too when the frame buffer is resolved

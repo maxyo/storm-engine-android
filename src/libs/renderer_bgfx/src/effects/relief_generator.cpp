@@ -1,6 +1,7 @@
 #include "effects/relief_generator.hpp"
 
 #include "effects/normal_maps.hpp"
+#include "effects/thermal.hpp"
 #include "relief.hpp"
 #include "shim/shim.hpp"
 #include "storm/fx/relief_store.hpp"
@@ -12,9 +13,6 @@
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-#endif
-#ifdef __ANDROID__
-#include <dlfcn.h>
 #endif
 
 namespace storm::effects
@@ -33,26 +31,6 @@ double Ms(Clock::time_point since)
     return std::chrono::duration<double, std::milli>(Clock::now() - since).count();
 }
 
-#ifdef __ANDROID__
-// AThermal (NDK, API 30+) through dlsym: the app's minimum API is 24.
-struct Thermal
-{
-    using Acquire = void *(*)();
-    using Status = int (*)(void *);
-    void *manager = nullptr;
-    Status status = nullptr;
-    Thermal()
-    {
-        void *library = dlopen("libandroid.so", RTLD_NOW);
-        const auto acquire = library ? reinterpret_cast<Acquire>(dlsym(library, "AThermal_acquireManager")) : nullptr;
-        status = library ? reinterpret_cast<Status>(dlsym(library, "AThermal_getCurrentStatus")) : nullptr;
-        manager = acquire && status ? acquire() : nullptr;
-        if (!manager)
-            shim::logf("effects: relief generation: no thermal status on this Android (AThermal needs Android 11): it "
-                       "does not pause when the device is hot");
-    }
-};
-#endif
 } // namespace
 
 ReliefGenerator &ReliefGenerator::instance()
@@ -357,19 +335,12 @@ void ReliefGenerator::prepare_rest()
 
 bool ReliefGenerator::thermal_hot()
 {
-#ifdef __ANDROID__
-    static Thermal thermal;
-    // ATHERMAL_STATUS_MODERATE: "UI not affected, but", the first level where the platform asks to cut load.
-    constexpr int kModerate = 2;
-    const bool hot = thermal.manager && thermal.status(thermal.manager) >= kModerate;
+    const bool hot = device_hot();
     if (hot != stats_.hot)
         shim::logf(hot ? "effects: relief generation paused: the device is hot (thermal status MODERATE or higher)"
                        : "effects: relief generation resumed: the device cooled down");
     stats_.hot = hot;
     return hot;
-#else
-    return false;
-#endif
 }
 
 } // namespace storm::effects

@@ -21,6 +21,7 @@
 #include "storm/fx/sky_model.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <chrono>
@@ -1736,6 +1737,36 @@ void CheckVisibility()
     CHECK(VisibilityVolume{}.Sample({0.0f, 0.0f, 0.0f})[0] == 1.0f); // none: open
 }
 
+std::atomic<int> g_hot_calls{0};
+bool HotTwice()
+{
+    return g_hot_calls.fetch_add(1) < 3;
+}
+
+void CheckBakeThermal()
+{
+    // The bakes' pieces wait while the device is hot and then run all; the result is that of one thread.
+    std::vector<int> once(5000, 0), hot(5000, 0);
+    ParallelRanges(once.size(), 1, [&](size_t first, size_t last) {
+        for (size_t i = first; i < last; ++i)
+            once[i] = static_cast<int>(i * 7 % 13);
+    });
+    SetBakeThermal(&HotTwice, 10);
+    const auto started = std::chrono::steady_clock::now();
+    ParallelRanges(hot.size(), 4, [&](size_t first, size_t last) {
+        for (size_t i = first; i < last; ++i)
+            hot[i] = static_cast<int>(i * 7 % 13);
+    });
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    SetBakeThermal(nullptr);
+    std::printf("bake thermal: %d status calls, %.0f ms with a pause of 10 ms\n", g_hot_calls.load(), ms);
+    CHECK(hot == once && g_hot_calls.load() > 3 && ms >= 10.0);
+    // Few heavy items (the sun fit's candidates) still spread over the threads.
+    std::atomic<int> pieces{0};
+    ParallelRanges(8, 4, [&](size_t first, size_t last) { pieces += 1; (void)first; (void)last; }, 1);
+    CHECK(pieces.load() == 8);
+}
+
 int main()
 {
     CheckSettings();
@@ -1759,6 +1790,7 @@ int main()
     CheckSunFit();
     CheckTownLight();
     CheckVisibility();
+    CheckBakeThermal();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

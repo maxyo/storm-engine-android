@@ -25,10 +25,15 @@
 namespace storm::fx
 {
 
-// Runs `work(first, last)` over [0, count) split on `threads` threads (at least 256 items each); returns when all are
-// done. The bakes over an Occluders (one Scratch per range). The threads it starts run at nice 10 (Linux, Android): the
-// game's main and render threads go first.
-void ParallelRanges(size_t count, unsigned threads, const std::function<void(size_t, size_t)> &work);
+// Runs `work(first, last)` over [0, count) on `threads` threads, in pieces of at least `min_piece` items (about 16 per
+// thread); returns when all are done. The bakes over an Occluders (one Scratch per piece). The threads it starts run at
+// nice 10 (Linux, Android): the game's main and render threads go first. Between pieces every thread waits while the
+// device is hot (SetBakeThermal), the pause and the resume logged.
+void ParallelRanges(size_t count, unsigned threads, const std::function<void(size_t, size_t)> &work,
+                    size_t min_piece = 256);
+// The device's thermal status for ParallelRanges (true: hot; asked between pieces, so cheap), null: never pauses.
+// While hot it is asked again every `pause_ms`.
+void SetBakeThermal(bool (*hot)(), int pause_ms = 5000);
 // The threads of a background bake: all cores but the game's main and render threads (at least one), as the relief
 // generation takes them.
 unsigned BakeThreads();
