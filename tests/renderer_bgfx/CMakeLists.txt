@@ -88,3 +88,10 @@ target_include_directories(relief_switch_check PRIVATE "${CMAKE_CURRENT_LIST_DIR
 target_compile_definitions(relief_switch_check PRIVATE NOMINMAX)
 target_compile_options(relief_switch_check PRIVATE -fsigned-char)
 target_link_libraries(relief_switch_check PRIVATE storm_bgfx storm_check_sdl)
+
+add_executable(texture_format_check texture_format_check.cpp)
+target_include_directories(texture_format_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim"
+    "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src")
+target_compile_definitions(texture_format_check PRIVATE NOMINMAX)
+target_compile_options(texture_format_check PRIVATE -fsigned-char)
+target_link_libraries(texture_format_check PRIVATE storm_bgfx storm_check_sdl)

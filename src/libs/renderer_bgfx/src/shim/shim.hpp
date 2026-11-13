@@ -55,14 +55,10 @@ struct FormatInfo
     uint8_t bytes_per_pixel = 0; // 0 for block formats
     uint8_t block_bytes = 0;     // 8 or 16 for DXTn
     bool depth = false;
-    bool has_alpha = false;
 };
 FormatInfo format_info(D3DFORMAT format);
 uint32_t level_pitch(D3DFORMAT format, uint32_t width);
 uint32_t level_size(D3DFORMAT format, uint32_t width, uint32_t height);
-// Converts one level of an uncompressed D3D format to RGBA8 (R first).
-void convert_to_rgba8(D3DFORMAT format, const uint8_t *src, uint32_t src_pitch, uint32_t width, uint32_t height,
-                      uint8_t *dst);
 
 // ---------------------------------------------------------------------------
 // texture storage shared by textures and surfaces
