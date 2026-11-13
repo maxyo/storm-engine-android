@@ -17,6 +17,8 @@
 #include "platform/android_runtime.hpp"
 #include "platform/resource_overlay.hpp"
 #include "platform/script_patches.hpp"
+
+#include <set>
 #include "platform/android_writable_storage.hpp"
 #endif
 #include <string>
@@ -538,11 +540,18 @@ void FILE_SERVICE::ScanResourcePaths()
     storm::resource_index::scan(ResourcePaths, fio->_GetExecutableDirectory());
 #ifdef __ANDROID__
     const std::filesystem::path internal(SDL_AndroidGetInternalStoragePath());
-    storm::android::indexUiOverlay(internal / "mobile-ui/current", ResourcePaths);
+    std::unordered_map<std::string, std::string> uiOverlay;
+    storm::android::indexUiOverlay(internal / "mobile-ui/current", uiOverlay);
+    std::set<std::string> overlaid;
+    for (auto &[key, path] : uiOverlay)
+    {
+        overlaid.insert(key);
+        ResourcePaths[key] = std::move(path);
+    }
     storm::android::indexUiOverlay(internal / "engine-shaders/current", ResourcePaths, true);
     // Fixes to the player's own scripts; throws LayerError if the layer is damaged.
     storm::script_patches::lastReport() = storm::script_patches::applyLayer(
-        internal / "script-patches/current", internal / "script-patches/derived", ResourcePaths);
+        internal / "script-patches/current", internal / "script-patches/derived", ResourcePaths, overlaid);
 #endif
     ResourcePathsFirstScan = false;
 }

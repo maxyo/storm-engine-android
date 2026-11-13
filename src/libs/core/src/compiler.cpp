@@ -1,3 +1,4 @@
+#include "script_state.hpp"
 #include "compiler.h"
 #ifdef __ANDROID__
 #include "platform/android_land_commands.hpp"
@@ -857,6 +858,7 @@ void COMPILER::UnloadSegment(const char *segment_name)
         {
             const uint32_t segment_id = SegmentTable[n].id;
             SegmentTable[n].bUnload = true;
+            storm::ScriptStateChanged();
             FuncTab.InvalidateBySegmentID(segment_id);
             VarTab.InvalidateBySegmentID(segment_id);
             EventTab.InvalidateBySegmentID(segment_id);
@@ -908,6 +910,7 @@ bool COMPILER::BC_LoadSegment(const char *file_name)
             return true;
         }
     }
+    storm::ScriptStateChanged(); // a segment comes (or, failing, goes): SegmentIsLoaded changes
 
     // compute new segment id --------------------------
     uint32_t id = 0;

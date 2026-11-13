@@ -42,6 +42,7 @@ add_subdirectory(apps)
 # The sources that record Tracy zones (src/libs/util/include/profiler.hpp); nothing changes without STORM_TRACY.
 storm_tracy_sources(engine "${CMAKE_CURRENT_SOURCE_DIR}/apps/engine/src/main.cpp")
 storm_tracy_sources(core "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/src/core_impl.cpp")
+storm_tracy_sources(xinterface "${CMAKE_CURRENT_SOURCE_DIR}/libs/xinterface/src/xinterface.cpp")
 storm_tracy_sources(storm_bgfx "${CMAKE_CURRENT_SOURCE_DIR}/libs/renderer_bgfx/src/shim/context.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/renderer_bgfx/src/shim/program_cache.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/renderer_bgfx/src/shim/frame_pacing.cpp")
