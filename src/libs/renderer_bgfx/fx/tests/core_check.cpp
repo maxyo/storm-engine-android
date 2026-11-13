@@ -1457,6 +1457,25 @@ void CheckAoVolume()
     // Inside the table top the cells take their open neighbours' value, not 0.
     CHECK(volume.At({0.0f, 0.78f, 0.0f}, up) > 0.2f);
 
+    // A cramped place, a corridor 1.2 m wide and 2 m high, with its walk points: its floor is as light as an open
+    // floor (its baked colours hold how light the place is), a shelf across it still darkens the floor under it.
+    {
+        std::vector<Vec3> cp;
+        std::vector<uint32_t> cidx;
+        AddBox(cp, cidx, {-0.6f, 0.0f, -4.0f}, {0.6f, 2.0f, 4.0f});
+        AddBox(cp, cidx, {-0.6f, 0.76f, 2.0f}, {0.6f, 0.8f, 3.0f});
+        AoBakeParams walked = params;
+        for (float z = -3.5f; z <= 3.5f; z += 0.5f) // one walks along its middle, under the shelf too
+            walked.walk.push_back({0.0f, 0.0f, z});
+        const AoVolume corridor = BakeAoVolume({cp, cidx}, walked);
+        CHECK(AoBakeKey({cp, cidx}, walked) != AoBakeKey({cp, cidx}, params));
+        const float floor = corridor.Sample({0.0f, 0.1f, -1.0f}, up);
+        const float under_shelf = corridor.Sample({0.0f, 0.1f, 2.5f}, up);
+        std::printf("ao volume, corridor: floor %.2f, under the shelf %.2f\n", floor, under_shelf);
+        CHECK(floor > 0.9f * kAoOpenSurface);
+        CHECK(under_shelf < 0.85f * floor);
+    }
+
     // The thread count does not change a single cell; the key follows geometry and parameters.
     params.threads = 4;
     const AoVolume threaded = BakeAoVolume(geometry, params);

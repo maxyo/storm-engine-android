@@ -20,12 +20,12 @@ constexpr size_t kMaxCacheBytes = 8u << 20;
 } // namespace
 
 void AoVolumes::set_geometry(std::string name, std::vector<fx::Vec3> positions, std::vector<uint32_t> indices,
-                             const fx::Vec3 &bounds_lo, const fx::Vec3 &bounds_hi)
+                             const fx::Vec3 &bounds_lo, const fx::Vec3 &bounds_hi, std::vector<fx::Vec3> walk)
 {
     const bool bounded = bounds_lo[0] < bounds_hi[0];
     const fx::Vec3 lo = bounded ? bounds_lo : fx::Vec3{1.0f, 1.0f, 1.0f};
     const fx::Vec3 hi = bounded ? bounds_hi : fx::Vec3{-1.0f, -1.0f, -1.0f};
-    if (name == name_ && positions == positions_ && indices == indices_ && lo == bounds_lo_ && hi == bounds_hi_)
+    if (name == name_ && positions == positions_ && indices == indices_ && lo == bounds_lo_ && hi == bounds_hi_ && walk == walk_)
         return; // the same location again: keep its volume
     bounds_lo_ = lo;
     bounds_hi_ = hi;
@@ -35,6 +35,7 @@ void AoVolumes::set_geometry(std::string name, std::vector<fx::Vec3> positions, 
     name_ = std::move(name);
     positions_ = std::move(positions);
     indices_ = std::move(indices);
+    walk_ = std::move(walk);
 }
 
 void AoVolumes::start()
@@ -43,11 +44,12 @@ void AoVolumes::start()
     job->name = name_;
     job_ = job;
     texture::Service &service = texture::Service::instance();
-    service.post([job, positions = positions_, indices = indices_, lo = bounds_lo_, hi = bounds_hi_,
+    service.post([job, positions = positions_, indices = indices_, lo = bounds_lo_, hi = bounds_hi_, walk = walk_,
                   directory = service.cache_directory()] {
         fx::AoBakeParams params;
         params.bounds_lo = lo;
         params.bounds_hi = hi;
+        params.walk = walk;
         params.threads = std::max(1u, std::thread::hardware_concurrency() / 2);
         const fx::AoGeometry geometry{positions, indices};
         const uint64_t key = fx::AoBakeKey(geometry, params);

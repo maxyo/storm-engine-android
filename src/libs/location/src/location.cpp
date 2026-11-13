@@ -92,6 +92,36 @@ Location::~Location()
     delete sphereVertex;
 }
 
+// The share of the place one walks in that lies under a roof, 0..1: from the triangles of the walk patch (by their
+// area; a few hundred of them), at head height, rays straight up and four at 60 degrees above the ground; the share
+// of them the location's models stop. A room, a cave, a hold: near 1; a street, a deck, a shore: under a third.
+float Location::RoofedShare()
+{
+    if (ptc.numTriangles <= 0)
+        return 0.0f;
+    const glm::vec3 directions[5] = {{0.0f, 1.0f, 0.0f}, {0.5f, 0.866f, 0.0f}, {-0.5f, 0.866f, 0.0f}, {0.0f, 0.866f, 0.5f},
+                                     {0.0f, 0.866f, -0.5f}};
+    const int32_t step = std::max(1, ptc.numTriangles / 300);
+    double roofed = 0.0, all = 0.0;
+    for (int32_t t = 0; t < ptc.numTriangles; t += step)
+    {
+        glm::vec3 corner[3];
+        for (int k = 0; k < 3; ++k)
+        {
+            const PtcVertex &v = ptc.vertex[ptc.triangle[t].i[k]];
+            corner[k] = {v.x, v.y, v.z};
+        }
+        const float area = 0.5f * glm::length(glm::cross(corner[1] - corner[0], corner[2] - corner[0]));
+        const glm::vec3 head = (corner[0] + corner[1] + corner[2]) / 3.0f + glm::vec3(0.0f, 1.6f, 0.0f);
+        for (const glm::vec3 &direction : directions)
+        {
+            roofed += model.Trace(head, head + direction * 200.0f) <= 1.0f ? area : 0.0;
+            all += area;
+        }
+    }
+    return all > 0.0 ? static_cast<float>(roofed / all) : 0.0f;
+}
+
 void Location::ReportGeometry()
 {
     geometryReported_ = true;
@@ -158,21 +188,35 @@ void Location::ReportGeometry()
                 surfaces.push_back({first_index + run.first_index, run.index_count, rs->GetTextureFromID(run.texture)});
         }
     }
-    const bool interior = weather && storm::iEquals(weather, "Inside");
-    // The room (interiors: the game's own marker, lockWeather "Inside"): where one walks (the characters' patch) with
-    // room for the walls, the furniture and the ceiling.
+    // An interior is what the place is: one walks under a roof (rooms, caves, dungeons, a ship's hold and cabins).
+    // The scripts' weather lock is not that: holds, cabins, grottoes and many houses keep the weather of the island.
+    // (Measured in 64 places: every enclosed one 92 % or more, every open one 34 % or less, one fort bastion 51 %.)
+    const float roofed = RoofedShare();
+    const bool interior = roofed >= kInteriorRoofedShare;
+    interior_ = interior;
+    core.Trace("Location %s: %.0f %% of where one walks is under a roof: %s (the scripts lock its weather: %s)", id ? id : "?",
+               roofed * 100.0f, interior ? "an interior" : "outdoors", weather ? weather : "no");
+    // The room: where one walks (the characters' patch) with room for the walls, the furniture and the ceiling.
     std::array<float, 3> lo{}, hi{};
-    if (interior && ptc.numTriangles == 0)
-        core.Trace("ERROR: Location %s: an interior without a walk patch: no ambient occlusion, and its lit models keep "
-                   "the weather's ambient",
+    if (ptc.numTriangles == 0 && weather && storm::iEquals(weather, "Inside"))
+        core.Trace("ERROR: Location %s: its weather is locked to Inside and it has no walk patch: it cannot be told to be an "
+                   "interior: no ambient occlusion, and its lit models keep the weather's ambient",
                    id ? id : "?");
     else if (interior)
     {
         lo = {ptc.min.x - 2.0f, ptc.min.y - 0.5f, ptc.min.z - 2.0f};
         hi = {ptc.max.x + 2.0f, ptc.max.y + 4.0f, ptc.max.z + 2.0f};
     }
+    // Where one walks: the middles of the walk patch's triangles (every one, or 300 of them spread over it).
+    std::vector<std::array<float, 3>> walk;
+    for (int32_t t = 0, step = std::max(1, ptc.numTriangles / 300); interior && t < ptc.numTriangles; t += step)
+    {
+        const PtcVertex &a = ptc.vertex[ptc.triangle[t].i[0]], &b = ptc.vertex[ptc.triangle[t].i[1]],
+                        &c = ptc.vertex[ptc.triangle[t].i[2]];
+        walk.push_back({(a.x + b.x + c.x) / 3.0f, (a.y + b.y + c.y) / 3.0f, (a.z + b.z + c.z) / 3.0f});
+    }
     storm::render::SetEffectsLocationGeometry({id ? id : "", positions, colors, uvs, indices, surfaces, interior, lo, hi,
-                                               collision_positions, collision_indices});
+                                               collision_positions, collision_indices, walk});
 }
 
 namespace
@@ -235,10 +279,9 @@ void Location::ReportLightmaps()
 {
     lightmapsReported_ = true;
     const char *id = AttributesPointer ? AttributesPointer->GetAttribute("id") : nullptr;
-    const char *weather = AttributesPointer ? AttributesPointer->GetAttribute("lockWeather") : nullptr;
-    if (weather && storm::iEquals(weather, "Inside"))
+    if (interior_)
     {
-        core.Trace("Location %s: inside (lockWeather): no town light", id ? id : "?");
+        core.Trace("Location %s: one walks under a roof here (ReportGeometry): no town light", id ? id : "?");
         return; // no sun indoors
     }
     std::vector<std::array<float, 3>> positions;

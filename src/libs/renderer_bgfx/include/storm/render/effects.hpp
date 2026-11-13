@@ -150,15 +150,20 @@ struct EffectsLocationGeometry
         shim::BaseTexture *texture = nullptr; // alive until the next SetEffectsLocationGeometry
     };
     std::span<const Surface> surfaces;
-    // The weather's sun and ambient are not this place's light; room_lo..room_hi is then the box one walks in, with
-    // room for the walls and the ceiling: the room light and the AO volume cover it (the geometry may reach far
-    // beyond and only occludes there).
+    // What the place is: most of where one walks lies under a roof (measured by the location from its walk patch
+    // and collision data; rooms, caves, a ship's hold and cabins, whatever the scripts say of its weather).
+    // room_lo..room_hi is then the box one walks in, with room for the walls and the ceiling: the room light and the
+    // AO volume are built over it (the geometry may reach far beyond and only occludes there). What a pixel gets of
+    // the sun, the sky and the room's occlusion is decided per pixel by the visibility volume, not by this.
     bool interior = false;
     std::array<float, 3> room_lo{}, room_hi{};
     // The still models' collision data (world space): what the location traces against (Location::Trace), which may
     // close where nothing is drawn (a ceiling only the camera collides with). The visibility volume's occluders.
     std::span<const std::array<float, 3>> collision_positions;
     std::span<const uint32_t> collision_indices;
+    // Points on the floor where one walks (from the walk patch, a few hundred): the AO volume is measured against
+    // what that floor sees, so a narrow place does not go dark as a whole.
+    std::span<const std::array<float, 3>> walk;
 };
 void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry);
 

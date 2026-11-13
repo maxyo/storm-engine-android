@@ -397,19 +397,9 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     auto &u = draw.light.u_fxLight;
     const bool hemisphere = per_pixel && (flags_ & fx::kLightingHemisphere);
     const bool specular = per_pixel && (flags_ & fx::kLightingSpecular);
-    // Interiors: the weather's sun shines outside. Lit models (characters, props) indoors get no sun at all, per vertex
-    // or per pixel: the room's lamps (per-pixel point lights) and its ambient light them, and there is no sun shadow.
-    const bool indoor_sun = per_pixel && sun_slot >= 0 && lit && lamps_.interior();
-    if (indoor_sun)
-    {
-        u[1][0] = u[1][1] = u[1][2] = 0.0f;
-        draw.vertex_diffuse_off |= static_cast<uint8_t>(1u << sun_slot);
-        draw.vertex_specular_off |= static_cast<uint8_t>(1u << sun_slot);
-        if (!indoor_sun_reported_)
-            shim::logf("effects: interior: lit models take no sun (the lamps and the ambient light them), no sun shadow map");
-        indoor_sun_reported_ = true;
-    }
-    else if (!per_pixel || sun_slot < 0 || !lit)
+    // The per-pixel sun reaches a pixel by how open it is (the visibility volume, ff_fragment.sh): under a roof none
+    // of it arrives, whatever the scripts say of the place's weather.
+    if (!per_pixel || sun_slot < 0 || !lit)
         u[1][0] = u[1][1] = u[1][2] = 0.0f; // the sun stays in the vertex sum (or there is none)
     else
     {
@@ -470,7 +460,8 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         // Sun shadows: lit draws into the game picture (the first one of a frame prepares the map with its camera).
         // Surfaces under a location lightmap carry the sun's shadows already (ours: the same sun, TownLight) and the
         // place's still geometry casts from its own tiles: they neither receive nor cast.
-        if (per_pixel && sun_slot >= 0 && target && target == picture && !indoor_sun && !lightmapped)
+        // (Where one walks under a roof no sun shadow map is made: the sun reaches a pixel there by its openness.)
+        if (per_pixel && sun_slot >= 0 && target && target == picture && !lamps_.interior() && !lightmapped)
         {
             memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
             draw.shadow = draw.sun_caster = shadows_.prepare(const_cast<shim::Device &>(device), draw.view, origin_, casters_);
@@ -646,8 +637,6 @@ void Lighting::end_frame()
     shadows_.end_frame();
     normal_maps_.end_frame();
     lamps_.end_frame();
-    if (!lamps_.interior())
-        indoor_sun_reported_ = false; // said again in the next interior
     if (!dynamic_lights_this_frame_)
         dynamic_lights_.clear(); // no location reported them: none exist
     dynamic_lights_this_frame_ = false;

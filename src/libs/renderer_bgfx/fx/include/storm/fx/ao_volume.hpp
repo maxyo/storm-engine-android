@@ -28,11 +28,14 @@ inline constexpr int kAoDirections = 32;
 // the floor does).
 inline constexpr int kAoLobes = 4;
 // Bump on any change of the bake that changes its output (the disk cache is keyed by it).
-inline constexpr uint32_t kAoBakeVersion = 2;
+inline constexpr uint32_t kAoBakeVersion = 3;
 
 const std::array<Vec3, kAoLobes> &AoLobeAxes();
 // What an open floor or wall sees (the floor itself hides part of the lobes): the shader's "no occlusion" (1).
 inline constexpr float kAoOpenSurface = 0.78f;
+// The bake raises the whole volume so that the floor one walks on reads as an open floor (AoBakeParams::walk), by
+// no more than this.
+inline constexpr float kAoWalkLift = 2.0f;
 
 struct AoBakeParams
 {
@@ -43,6 +46,8 @@ struct AoBakeParams
     float cell = 0.2f;              // metres; grown when the box would need more than max_cells
     float radius = 1.5f;            // metres: occluders farther than this do not count
     uint32_t max_cells = 1u << 20;  // 128 x 64 x 128
+    // Points on the floor where one walks (the location's walk patch); empty: none, the volume stays as measured.
+    std::vector<Vec3> walk;
     unsigned threads = 1;           // worker threads of the bake (the result is identical for any count)
 };
 

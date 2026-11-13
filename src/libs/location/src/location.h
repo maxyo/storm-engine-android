@@ -158,6 +158,9 @@ class Location : public Entity
     void CorrectBar(float v, float start, float end, BarVertex *vrt);
     // Tells the renderer the still, collidable geometry of an interior for its ambient-occlusion volume.
     void ReportGeometry();
+    float RoofedShare();
+    // A place is an interior when at least this share of where one walks lies under a roof.
+    static constexpr float kInteriorRoofedShare = 0.7f;
     void ReportLightmaps();
 
   private:
@@ -174,6 +177,7 @@ class Location : public Entity
     bool isPause;
     bool isDebugView;
     bool geometryReported_ = false;
+    bool interior_ = false; // ReportGeometry: one walks under a roof
     bool lightmapsReported_ = false;
 
     VRenderer *rs;

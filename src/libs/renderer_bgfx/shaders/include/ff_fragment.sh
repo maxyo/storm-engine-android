@@ -438,11 +438,21 @@ void main()
     vec3 Nw = normalize(mul(u_fxLampView, vec4(Ng, 0.0)).xyz);
     // The place's lamps with their shadows (nothing where there are none).
     vec4 lamps = ffLampLight(Pw, Nw, normalize(mul(u_fxLampView, vec4(N, 0.0)).xyz));
-    float aoVolume = ffAoVolume(P, Ng, Nw);
+    // How open the pixel is to the sky (the visibility volume): x the sky it sees, y whether the sun can reach it.
+    // Under a roof the sun and the weather's ambient do not arrive and the room's own occlusion counts in full; in
+    // a doorway, by a window or under a hatch each arrives by its share.
+    vec2 skySeen = ffVisibility(P, Ng);
+#ifndef STAGE0_CUBE
+    // Until the place's visibility volume is there (it is baked when the place is entered; ffVisibility says "open"
+    // without one), a place that has an AO volume counts as closed: it is one where one walks under a roof.
+    if (u_fxVisibilityParams.x <= 0.0 && u_fxAoParams.x > 0.0)
+        skySeen = vec2_splat(0.0);
+#endif
+    float aoVolume = mix(ffAoVolume(P, Ng, Nw), 1.0, skySeen.x);
 #ifdef FX_FF_LIT
     // The volume occludes the ambient part (the per-vertex sum carries the global ambient and the lights not lit per
     // pixel); the per-pixel sun and the lamps keep their own visibility.
-    float sunShadow = fxSunShadow(P, Ng);
+    float sunShadow = fxSunShadow(P, Ng) * skySeen.y;
     vec3 ambient = fxAmbient(N);
     float lampSeen = dot(lamps.rgb, vec3(0.299, 0.587, 0.114));
     if (u_fxLampGrid[2].w > 0.5)
@@ -452,7 +462,12 @@ void main()
         // holds leaves the ambient, as on the baked surfaces.
         vec3 room = ffRoomLight(Pw, Nw);
         float level = max(dot(room, vec3(0.299, 0.587, 0.114)), 0.03);
-        ambient = fxLightColor(room) * (u_fxLampGrid[2].w * level / (level + u_fxLamps[0].w * u_fxLamps[0].z * lamps.a));
+        vec3 roomAmbient = fxLightColor(room) * (u_fxLampGrid[2].w * level / (level + u_fxLamps[0].w * u_fxLamps[0].z * lamps.a));
+#ifdef FX_LIGHT_HEMISPHERE
+        ambient = mix(roomAmbient, ambient, skySeen.x); // the sky's light where the sky is seen
+#else
+        ambient = roomAmbient; // (without the hemisphere the weather's ambient is in the vertex sum, switched off here)
+#endif
     }
     // A lamp's light on a model is at most that of a fully lit surface: above half of it the sum is compressed
     // towards 1 (a model at a candle's flame is lit, not burnt out).

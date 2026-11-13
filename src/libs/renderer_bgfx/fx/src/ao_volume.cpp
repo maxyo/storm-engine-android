@@ -144,6 +144,10 @@ uint64_t AoBakeKey(const AoGeometry &geometry, const AoBakeParams &params)
     Hash(h, &params.max_cells, sizeof(params.max_cells));
     Hash(h, params.bounds_lo.data(), sizeof(params.bounds_lo));
     Hash(h, params.bounds_hi.data(), sizeof(params.bounds_hi));
+    const uint64_t walk = params.walk.size();
+    Hash(h, &walk, sizeof(walk));
+    if (walk)
+        Hash(h, params.walk.data(), params.walk.size() * sizeof(Vec3));
     const uint64_t counts[2] = {geometry.positions.size(), geometry.indices.size()};
     Hash(h, counts, sizeof(counts));
     Hash(h, geometry.positions.data(), geometry.positions.size_bytes());
@@ -353,6 +357,38 @@ AoVolume BakeAoVolume(const AoGeometry &geometry, const AoBakeParams &params)
                                  static_cast<int>(cells.size[2] * (i + 1) / threads));
         for (auto &worker : workers)
             worker.join();
+    }
+
+    // What the volume adds is local: under a table, behind a barrel, in a corner. Where the whole place is narrow or
+    // low (a ship's corridor and crew quarters, a hold between its ribs, a hut) the floor one walks on has walls
+    // within the radius everywhere and sees less than an open floor does: the place would go dark as a whole, though
+    // its baked colours already hold how light it is. So the volume is measured against the place's own walking
+    // floor: what an upward surface sees at the walk points (their median), against what an open floor sees
+    // (kAoOpenSurface). Every cell is raised by that ratio, never lowered, by no more than kAoWalkLift: the floor one
+    // walks on reads as open, and what stands on it darkens it as before.
+    if (!params.walk.empty())
+    {
+        std::vector<float> seen;
+        seen.reserve(params.walk.size());
+        for (const Vec3 &point : params.walk)
+        {
+            const Vec3 above{point[0], point[1] + 0.5f * volume.cell, point[2]};
+            bool within = true;
+            for (int k = 0; k < 3; ++k)
+                within = within && above[k] >= volume.origin[k] &&
+                         above[k] < volume.origin[k] + static_cast<float>(volume.size[k]) * volume.cell;
+            if (within)
+                seen.push_back(volume.Sample(above, {0.0f, 1.0f, 0.0f}));
+        }
+        if (!seen.empty())
+        {
+            const auto middle = seen.begin() + static_cast<std::ptrdiff_t>(seen.size() / 2);
+            std::nth_element(seen.begin(), middle, seen.end());
+            const float lift = std::clamp(kAoOpenSurface / std::max(*middle, 0.05f), 1.0f, kAoWalkLift);
+            if (lift > 1.0f)
+                for (uint8_t &value : volume.visibility)
+                    value = static_cast<uint8_t>(std::min(255.0f, std::round(static_cast<float>(value) * lift)));
+        }
     }
 
     // Cells inside geometry take the mean of their open neighbours (two rings), so the trilinear filter next to a wall

@@ -33,7 +33,7 @@ class AoVolumes
     // Main thread. Replaces the location's geometry (empty: outdoors or no location, the volume goes).
     // `bounds_lo` > `bounds_hi` (or both zero): no bounds, the geometry's box.
     void set_geometry(std::string name, std::vector<fx::Vec3> positions, std::vector<uint32_t> indices,
-                      const fx::Vec3 &bounds_lo, const fx::Vec3 &bounds_hi);
+                      const fx::Vec3 &bounds_lo, const fx::Vec3 &bounds_hi, std::vector<fx::Vec3> walk);
     // Main thread, once per frame with the active settings: starts the load or bake when wanted, uploads a finished
     // one. The volume to sample this frame, or nullptr.
     const Bound *update(bool wanted);
@@ -62,6 +62,7 @@ class AoVolumes
     std::vector<fx::Vec3> positions_;
     std::vector<uint32_t> indices_;
     fx::Vec3 bounds_lo_{1.0f, 1.0f, 1.0f}, bounds_hi_{-1.0f, -1.0f, -1.0f};
+    std::vector<fx::Vec3> walk_; // points on the floor where one walks (fx::AoBakeParams::walk)
     std::shared_ptr<Job> job_;
     bool failure_reported_ = false;
     Bound bound_{};

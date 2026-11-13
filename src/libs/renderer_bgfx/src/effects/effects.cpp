@@ -752,7 +752,8 @@ void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry)
         lighting.town_light().set_occluders(geometry.name, geometry.positions, geometry.uvs, geometry.indices, std::move(cut));
     }
     effects::Host::instance().ao_volumes().set_geometry(std::string(geometry.name), std::move(points), std::move(triangles),
-                                                        geometry.room_lo, geometry.room_hi);
+                                                        geometry.room_lo, geometry.room_hi,
+                                                        std::vector<fx::Vec3>(geometry.walk.begin(), geometry.walk.end()));
 }
 
 void SetEffectsLamps(std::span<const EffectsPointLight> lamps)
