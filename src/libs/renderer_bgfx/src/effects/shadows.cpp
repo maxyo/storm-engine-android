@@ -19,7 +19,8 @@ namespace
 {
 // Shadowed region: a sphere of this radius whose centre lies this far in front of the camera (the third-person
 // cameras look at the player from a few metres behind), casters up to kCasterReach towards the sun (masts, palms).
-constexpr float kRadius = 40.0f;
+// 30 m (was 40, the owner's choice from the before/after): a quarter fewer town tiles, a quarter finer texels.
+constexpr float kRadius = 30.0f;
 constexpr float kAhead = 18.0f;
 constexpr float kCasterReach = 120.0f;
 constexpr bgfx::ViewId kShadowView = render::kPreGameViewBegin;
