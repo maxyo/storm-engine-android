@@ -394,7 +394,8 @@ static void Settings(const std::string &models)
                                 "fx_light_normal_map", "fx_alpha_to_coverage", "fx_anisotropy", "fx_ao_volume", "fx_smaa", "fx_sharpen",
                                 "fx_render_height", "fx_gpu_profile", "fx_lamp_shadows", "fx_lamp_soft", "fx_lamp_model_lift",
                                 "fx_lamp_debug", "fx_sail_light", "fx_town_light", "fx_town_light_debug", "fx_lamp_tint",
-                                "render_backend", "render_thread", "render_overlap"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
+                                "render_backend", "render_thread", "render_overlap", "fx_bounce", "fx_bounce_debug",
+                                "fx_town_walls"}) // GraphicsSettings.DEBUG_KEYS, -1 = the preset's
             reported[key] = -1;
         debug.SetState("appSettings", reported);
         debug.SetInterface(Load(models, "settings.json"));
@@ -422,6 +423,9 @@ static void Settings(const std::string &models)
                    row("app-render_backend")["options"] == Json::array({"авто", "GLES", "Vulkan"}) &&
                    row("app-render_thread").is_object() && row("app-render_overlap").is_object(),
                "effects debug: lamp tint, graphics API, render thread, frame overlap: " + rows.dump());
+        Expect(row("app-fx_bounce").is_object() && row("app-fx_bounce_debug").is_object() &&
+                   row("app-fx_town_walls")["options"] == Json::array({"пресет", "игра", "наши"}),
+               "effects debug: bounce and town walls: " + rows.dump());
         Expect(row("app-fx_town_light")["options"] == Json::array({"пресет", "игра", "наш"}) && row("app-fx_town_light_debug").is_object(),
                "effects debug: the town light, game's or ours, and its view: " + rows.dump());
         debug.OnEvent({"app-fx_render_height", "change", "2"});

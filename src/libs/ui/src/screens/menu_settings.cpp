@@ -228,6 +228,13 @@ class SettingsScreen final : public Screen
                     DebugSegment(bindings, debug, "fx_town_light", "Свет городов", {-1, 0, 1}, {"пресет", "игра", "наш"});
                     DebugSegment(bindings, debug, "fx_town_light_debug", "Свет городов: отладка", {-1, 0, 1}, onOff);
                 }
+                // One bounce of indirect light (9c8b33fe) and the town walls relit per pixel (32d9ce5d).
+                if (Known("fx_bounce"))
+                {
+                    DebugSegment(bindings, debug, "fx_bounce", "Отражённый свет", {-1, 0, 1}, onOff);
+                    DebugSegment(bindings, debug, "fx_bounce_debug", "Отражённый свет: отладка", {-1, 0, 1}, onOff);
+                    DebugSegment(bindings, debug, "fx_town_walls", "Стены городов", {-1, 0, 1}, {"пресет", "игра", "наши"});
+                }
                 // The renderer's thread, its frame overlap and the graphics API (read at the game's start).
                 if (Known("render_backend"))
                 {
