@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bone_palettes.hpp"
 #include "shim.hpp"
 #include "storm/render/frame_owner.hpp"
 
@@ -29,6 +30,8 @@ class Context final : public render::FrameOwner
   public:
     static Context &instance();
 
+    BonePalettes &bone_palettes() { return bone_palettes_; }
+
     bool init(SDL_Window *window, uint32_t width, uint32_t height, bool vsync);
     // Host checks without a display (tests/renderer_bgfx): bgfx's Noop renderer, no window, no surface events.
     bool init_headless(uint32_t width, uint32_t height);
@@ -44,6 +47,13 @@ class Context final : public render::FrameOwner
     void request_surface_restore();
     // The game picture on the surface as of the last composite (game thread).
     render::PictureRect picture_rect() const { return picture_rect_; }
+    // render::HoldGamePicture: asked by the application, kept by the Device (Device::Present).
+    void hold_picture(bool hold) { hold_requested_ = hold; }
+    bool hold_requested() const { return hold_requested_; }
+    void set_picture_held(bool held) { picture_held_ = held; }
+    bool picture_held() const { return hold_requested_ && picture_held_; }
+    // The game picture the last present() composited (host checks: which picture a frame showed).
+    bgfx::TextureHandle presented_game_color() const { return presented_game_color_; }
     // Surface lifecycle (Android): pause stops presenting, resume re-attaches the native window.
     void surface_lost();
     // Marks the surface for re-attachment; the actual bgfx reset happens once SDL holds a native window.
@@ -116,6 +126,8 @@ class Context final : public render::FrameOwner
     bool frame_open_ = false;
     bool restore_pending_ = false;
     render::PictureRect picture_rect_;
+    bool hold_requested_ = false, picture_held_ = false;
+    bgfx::TextureHandle presented_game_color_ = BGFX_INVALID_HANDLE;
     std::atomic<bool> restore_requested_{false};
     std::atomic<bool> density_refresh_requested_{false};
     bool surface_epoch_flag_ = false;
@@ -126,8 +138,10 @@ class Context final : public render::FrameOwner
     bool in_frame_ = false; // guarded by release_mutex_
     std::mutex release_mutex_;
     std::condition_variable release_done_;
+    BonePalettes bone_palettes_;
     bool flip_y_ = false;
     bool border_clamp_ = false;
+    const char *timer_queries_ = "none (no GL context)";
     bool vsync_ = true;
     const bgfx::Caps *caps_ = nullptr;
     render::SurfaceMetrics surface_;
@@ -315,9 +329,19 @@ struct Device final : Object
     TexStorePtr post_color, single_depth;
     // fx render scale: the internal-size scene colour + depth, and the display-size stores parked while they draw.
     TexStorePtr scaled_color, scaled_depth, held_color, held_depth;
+    // The picture presented again while a pause menu holds the game (render::HoldGamePicture).
+    TexStorePtr paused_picture;
+    void keep_paused_picture();
+    void release_paused_picture();
     bool scaled_next = false;          // the next frame starts on the scaled stores (this one had a 3D scene)
     bool held_depth_clear = false;     // the display-size depth returned from parking is cleared in its next view
     uint16_t view_clear_bits = 0;      // clear bits new_view() gave the current view (Clear keeps them)
+    // The current view's clear as last set (new_view, Clear): scene_complete adds discard flags without changing it.
+    uint16_t view_clear_set = 0;
+    uint32_t view_clear_rgba = 0;
+    float view_clear_z = 1.0f;
+    uint8_t view_clear_stencil = 0;
+    TexStore *view_color = nullptr; // the current view's colour target
     bool scaled_copy_logged = false;
     std::array<uint32_t, 3> scene_size_logged{}; // scene width, height and internal height last logged
     bool scene_done = false;  // the post chain ran (or was not needed) in this presented frame
@@ -418,12 +442,17 @@ struct Device final : Object
     };
     std::vector<TransientRange> transient_ranges;
     void forget_transient(const VertexBuffer *vb);
+    // The GPU copy of a buffer drawn from its own storage (not as transient data): see draw.cpp.
+    void upload_buffer(VertexBuffer &vb);
+    void upload_buffer(IndexBuffer &ib, bool index32);
     bool uniforms_changed = false; // a uniform was set since the previous submit
 
 };
 
 uint32_t shader_id_by_name(const char *name);
 bgfx::ShaderHandle create_embedded_shader(uint32_t id);
+// The FF_OPAQUE twin (no discard: early depth stays on) of a fixed-function fragment shader, UINT32_MAX if none.
+uint32_t opaque_twin(uint32_t fs_id);
 uint32_t embedded_shader_count();
 
 } // namespace storm::shim

@@ -29,3 +29,6 @@ vec4 a_weight    : BLENDWEIGHT;
 ivec4 a_indices  : BLENDINDICES; // integer: bgfx binds non-normalised Uint8 with glVertexAttribIPointer
 vec3 a_tangent   : TANGENT;
 vec3 a_bitangent : BITANGENT;
+// Instance data of a GPU-skinned draw (one instance): x = its first row in the frame's bone palette texture
+// (shim bone_palettes.hpp), outside the uniforms so that it does not re-commit the program's uniform block per draw.
+vec4 i_data0     : TEXCOORD7;

@@ -903,6 +903,8 @@ VertexBuffer::~VertexBuffer()
         device->forget_transient(this);
     if (bgfx::isValid(handle) && Context::instance().initialised())
         bgfx::destroy(handle);
+    if (bgfx::isValid(dynamic) && Context::instance().initialised())
+        bgfx::destroy(dynamic);
     perf_resize(&render::PerfCounters::buffer_shadow_bytes, shadow.size(), 0);
     perf_resize(&render::PerfCounters::buffer_gpu_bytes, gpu_bytes, 0);
 }
@@ -940,6 +942,8 @@ IndexBuffer::~IndexBuffer()
 {
     if (bgfx::isValid(handle) && Context::instance().initialised())
         bgfx::destroy(handle);
+    if (bgfx::isValid(dynamic) && Context::instance().initialised())
+        bgfx::destroy(dynamic);
     perf_resize(&render::PerfCounters::buffer_shadow_bytes, shadow.size(), 0);
     perf_resize(&render::PerfCounters::buffer_gpu_bytes, gpu_bytes, 0);
 }

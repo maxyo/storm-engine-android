@@ -1,3 +1,4 @@
+#include "script_state.hpp"
 #include "compiler.h"
 #include "core_impl.h"
 #include "debug-trap.h"
@@ -2588,6 +2589,7 @@ DATA *COMPILER::BC_CallIntFunction(uint32_t func_code, DATA *&pVResult, uint32_t
         }
         pA = pV->GetAClass();
 
+        storm::ScriptStateChanged(); // reorders the children
         std::sort(std::begin(pA->attributes_), std::end(pA->attributes_),
                   [](const std::unique_ptr<ATTRIBUTES> &lhs, const std::unique_ptr<ATTRIBUTES> &rhs) {
                       return strcmp(lhs->GetThisName(), rhs->GetThisName()) < 0;

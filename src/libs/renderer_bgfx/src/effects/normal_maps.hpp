@@ -10,8 +10,9 @@
 //   * grey height ("bump") textures: their values are heights. The game derives their maps itself (fx::DeriveNormalMap
 //     on a texture worker) into the same directory, once.
 // Maps are EAC RG11 with mips, read on a texture worker and uploaded when a draw first needs them (a smaller preset
-// drops their top mips); the relief fades in over kReliefFade. Turning the option off releases them. Textures loaded
-// while the option is off get no relief until they are loaded again (the next location): their levels are not kept.
+// drops their top mips); the relief fades in over kReliefFade. Turning the option off releases them. Every texture of
+// a relief class gets its entry when it is loaded, relief on or off: one loaded while it is off is looked up (and
+// requested or derived) when it is switched on, like one loaded then.
 #pragma once
 
 #include "storm/fx/normal_map.hpp"
@@ -52,6 +53,7 @@ struct NormalMapEntry
 {
     enum State : int
     {
+        Unqueued, // loaded while relief was off: nothing looked up yet (configure() does it when it is switched on)
         Pending,  // on a texture worker (being looked up, read or derived)
         Stored,   // in the relief directory
         Waiting,  // a colour texture whose map the relief generator is making
@@ -60,12 +62,13 @@ struct NormalMapEntry
         Uploaded, // `handle` is valid
         Failed,
     };
-    std::atomic<int> state{Pending};
+    std::atomic<int> state{Unqueued};
     std::atomic<bool> wanted{false}; // a draw asked for it: the worker keeps the map in memory for the upload
     std::atomic<uint32_t> drawn{0};  // the frame a draw last asked for it (the generator makes those on screen first)
     std::string name;                // normalized texture path, for the logs
     fx::ReliefClass relief = fx::ReliefClass::None;
     uint64_t key = 0;     // fx::ReliefKey
+    std::filesystem::path file; // the game file the texture was loaded from (the generator and the derivation read it)
     fx::NormalMap map;    // written by the worker before `state` becomes Derived
     bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
     size_t bytes = 0; // of the uploaded texture
@@ -78,7 +81,8 @@ class NormalMaps
 {
   public:
     // `max_size`: larger side of the uploaded top mip (Settings::normal_map_size). Turning the option off or changing
-    // the size releases the uploaded maps; they come back from the relief directory when drawn again.
+    // the size releases the uploaded maps; they come back from the relief directory when drawn again. Turning it on
+    // looks up the textures loaded while it was off.
     void configure(bool enabled, int max_size);
     // Main thread, right after the texture's levels were filled. `file`: the game file it was read from.
     void on_texture_loaded(shim::TexStore &store, const char *path, const std::filesystem::path &file);
@@ -95,6 +99,7 @@ class NormalMaps
     {
         uint32_t resident = 0;  // uploaded maps
         size_t bytes = 0;       // their GPU memory
+        uint32_t unqueued = 0;  // loaded while relief was off, not looked up yet
         uint32_t waiting = 0;   // loaded colour textures of a relief class whose map is being made
         uint32_t missing = 0;   // loaded colour textures of a relief class that get no map (generator unavailable)
         uint32_t derived = 0;   // height maps derived since the start
@@ -107,13 +112,15 @@ class NormalMaps
   private:
     void release(NormalMapEntry &entry);
     void read_stored(const std::shared_ptr<NormalMapEntry> &entry);
+    // On a texture worker: Stored when the directory has its map, else requested (colour textures) or derived (height
+    // maps, from the game file).
+    void look_up(const std::shared_ptr<NormalMapEntry> &entry);
 
     bool enabled_ = false;
     int max_size_ = 1024;
     fx::ReliefClassifier classifier_;
     bool format_reported_ = false;
     bool directory_reported_ = false;
-    bool loaded_while_off_ = false;
     std::vector<std::weak_ptr<NormalMapEntry>> entries_; // for configure() and stats()
     uint32_t frames_ = 0;
     uint32_t frame_ = 1; // for NormalMapEntry::drawn

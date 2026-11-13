@@ -132,7 +132,10 @@ void checkWhitelist()
         CHECK(isPatchTargetPath(path));
         CHECK(!storm::android::isUiOverlayPath(path)); // the two layers never claim the same file
     }
-    for (const char *path : {"program/interface/mainmenu.c", "program/controls/init.c", "program/dialogs/x.c",
+    // program/interface/ is shared with the UI overlay: applyLayer refuses an overlaid target
+    // (checkOverlaidTarget).
+    CHECK(isPatchTargetPath("PROGRAM/interface/ship.c"));
+    for (const char *path : {"program/controls/init.c", "program/dialogs/x.c",
                              "program/seadogs.c", "program/battle_interface/bi.txt", "program/quests/q.txt", "../program/dialog.c",
                              "/program/dialog.c", "program/quests/../seadogs.c", "resource/ini/x.ini"})
         CHECK(!isPatchTargetPath(path));
@@ -168,7 +171,7 @@ void checkIndexErrors(const fs::path &root)
     CHECK(throwsLayerError(parse(target + fix), "no set record"));
     CHECK(throwsLayerError(parse("set\tbad-1\tG\t1\n" + target + fix), "does not identify"));
     CHECK(throwsLayerError(parse("set\tother\tG\t1\n"), "differs from its directory"));
-    CHECK(throwsLayerError(parse(head + "target\tPROGRAM/interface/m.c\t" + sha256("a") + "\t" + sha256("b") +
+    CHECK(throwsLayerError(parse(head + "target\tPROGRAM/controls/m.c\t" + sha256("a") + "\t" + sha256("b") +
                                  "\tm.patch\n"),
                            "not an allowed patch target"));
     CHECK(throwsLayerError(parse(head + "target\tPROGRAM/dialog.c\t" + sha256("a") + "\t" + sha256("b") +
@@ -332,6 +335,17 @@ void checkCacheInvalidation(const fs::path &root)
     f.apply();
     CHECK(!fs::exists(f.derived / "0123"));
 }
+// program/interface/ is a patch target and the UI overlay's directory: a target the
+// overlay replaces is a damaged layer, never patched and overlaid at once.
+void checkOverlaidTarget(const fs::path &root)
+{
+    Fixture f(root / "overlaid");
+    const auto report = f.apply();
+    CHECK(report.unapplied.empty());
+    Fixture g(root / "overlaid2");
+    CHECK(throwsLayerError([&] { applyLayer(g.layer, g.derived, g.paths, {"program/sea_ai/s.c"}); },
+                           "replaced by the UI overlay"));
+}
 } // namespace
 
 int main(int argc, char **argv)
@@ -347,5 +361,6 @@ int main(int argc, char **argv)
     checkSetSelection(root);
     checkDamagedLayer(root);
     checkCacheInvalidation(root);
+    checkOverlaidTarget(root);
     std::puts("script patches: all checks passed");
 }

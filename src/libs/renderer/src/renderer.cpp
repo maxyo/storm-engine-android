@@ -19,6 +19,8 @@
 #include "debug-trap.h"
 #include "string_compare.hpp"
 #include "storm/render/d3d_interop.hpp"
+#include "storm/render/frame_owner.hpp"
+#include "scene_hold.hpp"
 #include "storm/render/effects.hpp"
 #include "storm/render/frame_rate.hpp"
 #include "storm/render/perf_stats.hpp"
@@ -2772,6 +2774,11 @@ void Renderer::RunStart()
     if (pendingViewResize_.width > 0)
         ApplyViewResize();
     ReconfigureGraphicsEffects(); // the settings screen stored new preferences
+    // The pause menu covers a paused game: its last 3D frame is presented again instead of drawing the scene every
+    // frame (perf audit F11). The hold begins once the renderer kept a full frame and ends with the menu; a settings
+    // or size change while it lasts is drawn in one full frame, which is kept in its turn.
+    storm::render::HoldGamePicture(storm::android::mobileScreen == "game_menu");
+    storm::core::HoldSceneRealize(storm::render::GamePictureHeld());
 #endif
     // The GPU self-test switched an effect stage off on this device: tell the player once (also logged).
     if (const std::string notice = storm::render::TakeEffectsNotice(); !notice.empty())
@@ -3242,6 +3249,11 @@ HRESULT Renderer::GetViewport(D3DVIEWPORT9 *pViewport)
 HRESULT Renderer::SetViewport(const D3DVIEWPORT9 *pViewport)
 {
     return CHECKD3DERR(d3d9->SetViewport(pViewport));
+}
+
+HRESULT Renderer::SetScissorRect(const RECT *rect)
+{
+    return CHECKD3DERR(d3d9->SetScissorRect(rect));
 }
 
 uint32_t Renderer::SetRenderState(uint32_t State, uint32_t Value)

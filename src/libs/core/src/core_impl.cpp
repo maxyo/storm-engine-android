@@ -4,6 +4,7 @@
 #include "platform/android_ui.hpp"
 #endif
 #include "core_impl.h"
+#include "scene_hold.hpp"
 
 #include "compiler.h"
 #include "controls.h"
@@ -1204,6 +1205,17 @@ entity_container_cref CoreImpl::GetEntityIds(const char *name) const
 void CoreImpl::SetLayerType(layer_index_t index, layer_type_t type)
 {
     entity_manager_.SetLayerType(index, type);
+}
+
+void CoreImpl::HoldSceneRealize(bool held)
+{
+    entity_manager_.SetLayerHeld(REALIZE, held);
+    entity_manager_.SetLayerHeld(SEA_REALIZE, held);
+}
+
+void storm::core::HoldSceneRealize(bool held)
+{
+    core_internal.HoldSceneRealize(held);
 }
 
 void CoreImpl::SetLayerFrozen(layer_index_t index, bool freeze)

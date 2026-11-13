@@ -320,39 +320,6 @@ void SAIL::Execute(uint32_t Delta_Time)
     if (bUse)
     {
         int i;
-        // ====================================================
-        // If the ini-file has been changed, read the info from it
-        if (fio->_FileOrDirectoryExists(RIGGING_INI_FILE))
-        {
-            auto ft_new = fio->_GetLastWriteTime(RIGGING_INI_FILE);
-            if (ft_old != ft_new)
-            {
-                int oldWindQnt = WINDVECTOR_QUANTITY;
-                LoadSailIni();
-                if (oldWindQnt != WINDVECTOR_QUANTITY) // if changed the size of the wind table
-                {
-                    STORM_DELETE(WindVect);
-                    WindVect = new float[WINDVECTOR_QUANTITY];
-                    if (WindVect) // wind vector table calculation
-                        for (i = 0; i < WINDVECTOR_QUANTITY; i++)
-                            WindVect[i] =
-                                sinf(static_cast<float>(i) / static_cast<float>(WINDVECTOR_QUANTITY) * 2.f * PI);
-                    else
-                    {
-                        throw std::runtime_error("No memory allocation: WindVect");
-                    }
-                }
-                for (i = 0; i < sailQuantity; i++)
-                {
-                    slist[i]->MaxSumWind = slist[i]->sailHeight * MAXSUMWIND;
-                    // correct the current indices for the new size of the vector table
-                    while (slist[i]->VertIdx >= WINDVECTOR_QUANTITY)
-                        slist[i]->VertIdx -= WINDVECTOR_QUANTITY;
-                    while (slist[i]->HorzIdx >= WINDVECTOR_QUANTITY)
-                        slist[i]->HorzIdx -= WINDVECTOR_QUANTITY;
-                }
-            }
-        }
 
         // get the wind value
         if (const auto ei = core.GetEntityId("weather"))
@@ -1335,10 +1302,6 @@ void SAIL::LoadSailIni()
     // GUARD(SAIL::LoadSailIni());
     char section[256], param[256];
 
-    if (fio->_FileOrDirectoryExists(RIGGING_INI_FILE))
-    {
-        ft_old = fio->_GetLastWriteTime(RIGGING_INI_FILE);
-    }
     auto ini = fio->OpenIniFile("resource\\ini\\rigging.ini");
     if (!ini)
     {

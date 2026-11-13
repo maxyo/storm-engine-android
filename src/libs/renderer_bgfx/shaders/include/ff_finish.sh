@@ -22,6 +22,9 @@ uniform vec4 u_fxCoverage;
 
 vec4 ffFinish(vec4 color)
 {
+    // FF_OPAQUE: the twin of a shader for draws without a clip plane and without an alpha test (the shim picks it,
+    // draw.cpp opaque_twin): a shader that can discard loses early depth and hidden-surface removal on tile GPUs.
+#ifndef FF_OPAQUE
     if (v_fog.y < 0.0) discard;
     float func = u_ffFs[3].x;
 #ifdef FX_FF_COVERAGE
@@ -46,6 +49,7 @@ vec4 ffFinish(vec4 color)
         else if (func < 7.5) pass = a >= ref;
         if (!pass) discard;
     }
+#endif
     if (u_ffFs[3].y > 0.5) color.rgb += v_color1.rgb;
     float mode = u_ffFs[1].w;
     if (mode > 4.5)

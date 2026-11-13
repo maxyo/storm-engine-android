@@ -173,7 +173,7 @@ void Lighting::set_technique(const char *name)
 }
 
 void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layout, uint32_t cube_variant,
-                       const DrawSphere &sphere, FfDraw &draw)
+                       const DrawSphereSource &sphere_source, FfDraw &draw)
 {
     if (layout.rhw)
         return;
@@ -226,7 +226,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             if (!lamp_on || !lamps_.relit(dynamic_lights_[i].position))
                 candidate_lights_.push_back(device_dynamic_lights_[i]);
         // Ranked at the draw's own vertices: a torch lights the wall next to it wherever the camera is.
-        if (sphere.valid)
+        if (const DrawSphere &sphere = sphere_source.get(); sphere.valid)
         {
             if (!candidate_lights_.empty())
                 baked_lights = select(candidate_lights_, sphere.center, sphere.radius, budget_, true, &unused);
@@ -300,9 +300,9 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         ++frame_.lamp_lit;
         // Lit draws are what is not in the still geometry (characters, props, a ship's hull, masts and sails): they
         // cast into the faces of the lamps their sphere reaches.
-        if (lit && sphere.valid)
+        if (lit && sphere_source.get().valid)
         {
-            DrawSphere absolute = sphere; // like the lamp faces
+            DrawSphere absolute = sphere_source.get(); // like the lamp faces
             for (int k = 0; k < 3; ++k)
                 absolute.center[k] += origin_[k];
             if (lamps_.reaches(absolute.center, absolute.radius))
@@ -439,6 +439,7 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             // Lights left out stay in the vertex sum, so the choice is not faded; it depends only on where the
             // draw's vertices and the lights are. Without positions the model origin stands for the draw.
             const D3DMATRIX &w = device.s.world;
+            const DrawSphere &sphere = sphere_source.get();
             const fx::Vec3 center = sphere.valid ? sphere.center : fx::Vec3{w.m[3][0], w.m[3][1], w.m[3][2]};
             if (!sphere.valid && !bounds_reported_)
             {
@@ -463,9 +464,12 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
             memcpy(draw.view.data(), &device.s.view.m[0][0], sizeof(float) * 16);
             draw.shadow = draw.sun_caster = shadows_.prepare(draw.view);
             draw.caster |= draw.sun_caster;
-            if (draw.shadow && sphere.valid && shadows_.has_ground())
+            if (draw.shadow && shadows_.has_ground() && sphere_source.get().valid)
+            {
+                const DrawSphere &sphere = sphere_source.get();
                 draw.ground_sun = shadows_.ground_sun({sphere.center[0] + origin_[0], sphere.center[1] + origin_[1],
                                                        sphere.center[2] + origin_[2]}); // the lightmaps are absolute
+            }
         }
         // How the draw's material casts (effects/casters.hpp): cut where the colour pass's alpha test discards,
         // nothing for a blended material that writes no depth.

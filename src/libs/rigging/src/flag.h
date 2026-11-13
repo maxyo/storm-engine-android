@@ -60,7 +60,6 @@ class FLAG : public Entity
     };
 
     WIND globalWind;
-    std::filesystem::file_time_type ft_old;
 
   public:
     FLAG();

@@ -128,9 +128,9 @@ inline std::string sha256(std::string_view data)
 
 // ------------------------------------------------------------ whitelist ----
 
-// Game scripts a patch may target. The UI overlay (program/interface,
-// program/controls) replaces whole files and is deliberately disjoint, so a file
-// is never both overlaid and patched.
+// Game scripts a patch may target. program/interface/ shares its directory with the UI
+// overlay (whole files the application replaces); a file is never both overlaid and patched:
+// applyLayer refuses a target the overlay replaces.
 inline bool isPatchTargetPath(const fs::path &relative)
 {
     if (relative.empty() || relative.is_absolute())
@@ -154,7 +154,7 @@ inline bool isPatchTargetPath(const fs::path &relative)
     }
     for (const std::string_view directory : {"program/quests/", "program/sea_ai/", "program/loc_ai/",
                                              "program/weather/", "program/battle_interface/",
-                                             "program/locations/"})
+                                             "program/locations/", "program/interface/"})
         if (key.starts_with(directory))
             return true;
     return false;
@@ -558,13 +558,15 @@ inline std::vector<Set> loadLayer(const fs::path &layer)
     return sets;
 }
 
-// `paths` is the resource index (lowercase game-relative key -> real path).
-// Selects the set that identifies the player's game, patches what it can into
-// `derivedRoot` and redirects `paths` there. Returns what happened; throws
-// LayerError when the layer is broken. A missing layer directory means "no
-// patches" (desktop builds, tests).
+// `paths` is the resource index (lowercase game-relative key -> real path);
+// `overlaid` the keys of it the UI overlay replaces. Selects the set that
+// identifies the player's game, patches what it can into `derivedRoot` and
+// redirects `paths` there. Returns what happened; throws LayerError when the
+// layer is broken, a target the UI overlay replaces included. A missing layer
+// directory means "no patches" (desktop builds, tests).
 inline Report applyLayer(const fs::path &layer, const fs::path &derivedRoot,
-                         std::unordered_map<std::string, std::string> &paths)
+                         std::unordered_map<std::string, std::string> &paths,
+                         const std::set<std::string> &overlaid = {})
 {
     Report report;
     std::error_code ec;
@@ -620,6 +622,10 @@ inline Report applyLayer(const fs::path &layer, const fs::path &derivedRoot,
         return report;
     }
     const Set &set = *selected;
+    for (const auto &target : set.targets)
+        if (overlaid.contains(target.key))
+            throw LayerError("set " + set.id + ": " + target.path +
+                             " is replaced by the UI overlay; a file is never both overlaid and patched");
     report.set = set.id;
     report.game = set.game;
     report.version = set.version;

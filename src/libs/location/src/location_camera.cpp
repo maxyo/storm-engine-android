@@ -631,13 +631,6 @@ bool LocationCamera::GetCollideTriangle(TRIANGLE &trg) const
     return location->GetCollideTriangle(trg);
 }
 
-void LocationCamera::Clip(PLANE *p, int32_t numPlanes, glm::vec3 &cnt, float rad,
-                          bool (*fnc)(const glm::vec3 *vtx, int32_t num)) const
-{
-    if (location)
-        location->Clip(p, numPlanes, cnt, rad, fnc);
-}
-
 void LocationCamera::TurnOnDynamicFov(float fSpeed, float fTime, float fRelationMin, float fRelationMax,
                                       float fAngSpeed, float fAngMax)
 {

@@ -13,6 +13,10 @@
 //   * a narrower device support at run time (fx_caps_profile, as after a failed MSAA self-test): every frame of the
 //     switch draws settings that are valid for the support they are checked against (effects::Host::support());
 //     the narrower support once arrived before its settings, and the old MSAA target was judged by it.
+//   * the pause hold (render::HoldGamePicture): the first 3D frame after the hold was asked for is kept and
+//     presented again by the frames after it, which draw no scene; a preset switch and a back buffer resize while
+//     it lasts drop the kept picture, the next 3D frame is kept in its turn; releasing the hold presents the game's
+//     own picture at once.
 #include "device.hpp"
 #include "effects/effects.hpp"
 #include "storm/fx/capabilities.hpp"
@@ -169,6 +173,23 @@ class Frames
         return pixels;
     }
 
+    // A frame of a held pause: the scene is not drawn, an interface may be.
+    void interface_only()
+    {
+        check(d_.BeginScene(), "BeginScene");
+        check(d_.SetRenderTarget(0, back_), "SetRenderTarget");
+        check(d_.Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xFF000000, 1.0f, 0), "Clear");
+        d_.SetRenderState(D3DRS_ZENABLE, FALSE);
+        d_.SetRenderState(D3DRS_LIGHTING, FALSE);
+        const float w = kUiWidth, h = kUiHeight;
+        const UiVertex ui[6] = {{0, 0, 0, 1, 0xFFE0E0E0}, {w, 0, 0, 1, 0xFFE0E0E0}, {0, h, 0, 1, 0xFFE0E0E0},
+                                {0, h, 0, 1, 0xFFE0E0E0}, {w, 0, 0, 1, 0xFFE0E0E0}, {w, h, 0, 1, 0xFFE0E0E0}};
+        d_.SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+        check(d_.DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, ui, sizeof(UiVertex)), "draw (interface)");
+        check(d_.EndScene(), "EndScene");
+        check(d_.Present(), "Present");
+    }
+
   private:
     Device &d_;
     storm::shim::Surface *readback_ = nullptr, *back_ = nullptr;
@@ -197,6 +218,11 @@ uint32_t max_difference(const Picture &a, const Picture &b)
         for (int c = 0; c < 3; ++c)
             worst = std::max<uint32_t>(worst, std::abs(int(a[i + c]) - int(b[i + c])));
     return worst;
+}
+
+uint16_t presented()
+{
+    return shim::Context::instance().presented_game_color().idx;
 }
 
 uint32_t programs()
@@ -330,7 +356,47 @@ int main()
             ok &= expect(frame < kMaxSwitchFrames && host.settings().msaa == 1 && !host.support().msaa,
                          "the narrower support and its settings become active");
             ok &= expect(consistent, "every frame of the switch draws settings valid for the support they are checked against");
+
+            // The pause hold.
+            render::HoldGamePicture(true);
+            ok &= expect(!render::GamePictureHeld(), "hold asked: nothing held before a frame was kept");
+            frames.interface_only();
+            ok &= expect(!render::GamePictureHeld(), "a frame without a 3D scene is not kept");
+            frames.render();
+            const uint16_t held_picture = presented();
+            ok &= expect(render::GamePictureHeld(), "the first 3D frame after the hold was asked for is kept");
+            bool shown = true;
+            for (int i = 0; i < 3; ++i)
+            {
+                frames.interface_only();
+                shown = shown && render::GamePictureHeld() && presented() == held_picture;
+            }
+            ok &= expect(shown, "held frames present the kept picture");
+            render::ConfigureEffects(0, {});
+            for (frame = 0; frame < kMaxSwitchFrames && render::CurrentEffects().pending; ++frame)
+                frames.interface_only();
+            ok &= expect(!render::CurrentEffects().pending && !render::GamePictureHeld(),
+                         "a preset switch while held drops the kept picture");
+            frames.render();
+            const uint16_t rekept = presented();
+            frames.interface_only();
+            ok &= expect(render::GamePictureHeld() && presented() == rekept, "... the next 3D frame is kept in its turn");
+            render::HoldGamePicture(false);
+            frames.interface_only();
+            ok &= expect(!render::GamePictureHeld() && presented() != rekept, "released: the game's own picture at once");
+            render::HoldGamePicture(true);
+            frames.render();
+            ok &= expect(render::GamePictureHeld(), "held again");
         }
+        check(device->ResizeBackBuffer(kWidth, kHeight), "ResizeBackBuffer"); // new back buffer stores
+        ok &= expect(!render::GamePictureHeld(), "a back buffer resize while held drops the kept picture");
+        {
+            Frames frames(*device);
+            frames.render();
+            frames.interface_only();
+            ok &= expect(render::GamePictureHeld(), "... the next 3D frame on the new back buffer is kept");
+        }
+        render::HoldGamePicture(false);
         device->Release();
     }
     SDL_DestroyWindow(window);

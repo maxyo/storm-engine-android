@@ -279,6 +279,25 @@ long long PeakRssKb()
     return usage.ru_maxrss;
 }
 
+bool ReadTextureLevel(const std::filesystem::path &file, int max_size, std::vector<uint8_t> &rgba, int &width, int &height)
+{
+    TxFile tx;
+    if (!tx.Load(file))
+        return false;
+    int level = 0;
+    while (level + 1 < static_cast<int>(tx.levels) && std::max(tx.width >> level, tx.height >> level) > uint32_t(max_size))
+        ++level;
+    const uint32_t lw = std::max(1u, tx.width >> level), lh = std::max(1u, tx.height >> level);
+    const std::span<const uint8_t> bytes = tx.Level(level);
+    rgba.assign(size_t(lw) * lh * 4, 0);
+    if (bytes.size() < texture::tx_level_bytes(tx.format, lw, lh) ||
+        !texture::decode_tx_level(tx.format, bytes.data(), lw, lh, rgba.data()))
+        return false;
+    width = static_cast<int>(lw);
+    height = static_cast<int>(lh);
+    return true;
+}
+
 std::vector<std::filesystem::path> List(const std::filesystem::path &textures)
 {
     std::vector<Candidate> candidates = Candidates(textures);

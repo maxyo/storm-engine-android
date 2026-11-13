@@ -12,6 +12,8 @@
 #ifdef __ANDROID__
 #include "mobile_alchemy.hpp"
 #include "mobile_interface_leaving.hpp"
+#include "mobile_facts_cache.hpp"
+#include "script_state.hpp"
 #endif
 
 class CXI_WINDOW;
@@ -344,6 +346,15 @@ class XINTERFACE : public XINTERFACE_BASE
     void MobileCollectFacts(std::vector<MobileWidget> &widgets);
     storm::mobile::InterfaceLeaving mobileLeaving_;
     bool mobileLeft_ = false; // the open interface's script has ended: no further model of it (MobileCollectFacts)
+    struct MobileFacts
+    {
+        std::vector<MobileWidget> widgets;
+        bool left = false; // mobileLeft_ as of the collection
+    };
+    storm::mobile::FactsCache<MobileFacts> mobileFacts_;
+    mutable storm::mobile::FactsCache<std::string> mobileNationFlags_; // MobileNationFlags
+    std::pair<uint64_t, std::string> mobileFactsOpening_; // the opening and its screen (diagnostics)
+    uint64_t mobileFactsFrames_ = 0; // interface frames of that opening
     void MobileCollectShipyard(std::vector<MobileWidget> &widgets);
     void MobileCollectTableGame(std::vector<MobileWidget> &widgets);
     void MobileCollectGoodsTransfer(std::vector<MobileWidget> &widgets);

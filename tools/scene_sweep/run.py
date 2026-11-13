@@ -118,6 +118,30 @@ def file_digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def game_snapshot(game):
+    """Inode, size and modification time of every file of the player's game. The engines run on hard-linked
+    copies of it: a write through a link would change the player's file and every other sweep's copy."""
+    snapshot = {}
+    pending = [game]
+    while pending:
+        with os.scandir(pending.pop()) as entries:
+            for entry in entries:
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(entry.path)
+                else:
+                    status = entry.stat(follow_symlinks=False)
+                    snapshot[entry.path] = (status.st_ino, status.st_size, status.st_mtime_ns)
+    return snapshot
+
+
+def check_game_unchanged(game, snapshot, when):
+    now = game_snapshot(game)
+    changed = sorted(set(now) ^ set(snapshot) | {path for path in now.keys() & snapshot.keys() if now[path] != snapshot[path]})
+    if changed:
+        raise RuntimeError(f'the game directory {game} changed {when} ({len(changed)} files: '
+                           f'{", ".join(changed[:5])}): a write through the hard link of a copy, or another program')
+
+
 def select(scenes, arguments, previous, build):
     chosen = scenes
     if arguments.only:
@@ -275,8 +299,15 @@ class Shard(threading.Thread):
         # Hard links: no extra disk space, and the engine's resource index does not follow symlinks.
         subprocess.run(['cp', '-al', str(self.arguments.game), str(game)], check=True)
         source = self.arguments.game
-        for name in ('engine.ini', 'options'):  # files the game rewrites must not be the player's
-            (game / name).unlink(missing_ok=True)
+
+        def own(relative):
+            """A file of the copy the sweep or the game writes: unlinked first, so the write lands in the copy."""
+            path = game / relative
+            path.unlink(missing_ok=True)
+            return path
+
+        for name in ('engine.ini', 'options'):  # the game rewrites both
+            own(name)
         # The player's profiles: a profile named like the sweep's new game stops it at "the profile exists" (and the
         # game would write into the player's hard-linked saves).
         shutil.rmtree(inventory.find_case_insensitive(game, 'save') or game / 'save', ignore_errors=True)
@@ -288,12 +319,12 @@ class Shard(threading.Thread):
             settings, count = re.subn(rf'(?mi)^{key}\s*=.*$', f'{key} = {value}', settings)
             if not count:
                 settings = f'{key} = {value}\n' + settings
-        (game / 'engine.ini').write_text(settings)
+        own('engine.ini').write_text(settings)
         techniques = inventory.find_case_insensitive(game, 'RESOURCE/techniques')
         shutil.rmtree(techniques)
         shutil.copytree(self.arguments.techniques, techniques)
-        shutil.copy(HERE / 'scene_sweep.c', game / 'PROGRAM' / 'scene_sweep.c')
-        os.link(self.context['engine'], game / 'engine')  # resources are looked up next to the executable
+        shutil.copy(HERE / 'scene_sweep.c', own('PROGRAM/scene_sweep.c'))
+        os.link(self.context['engine'], own('engine'))  # resources are looked up next to the executable
         control = run / 'control'
         control.mkdir()
         (control / 'scenes.txt').write_text(''.join(scene + '\n' for scene in self.queue))
@@ -323,6 +354,7 @@ class Shard(threading.Thread):
             engine.wait()
             if not self.arguments.keep_work:
                 shutil.rmtree(game)
+        check_game_unchanged(self.arguments.game, self.context['game'], f'during engine run {run}')
 
     def watch(self, engine, run, control, stdout):
         events = control / 'events.log'
@@ -581,7 +613,7 @@ def main():
     done = collections.Counter()
     lock = threading.Lock()
     context = {'stop': threading.Event(), 'failed': threading.Event(), 'errors': [], 'table_mismatch': None,
-               'tables': inventory.tables(arguments.game), 'engine': engine}
+               'tables': inventory.tables(arguments.game), 'engine': engine, 'game': game_snapshot(arguments.game)}
 
     def progress(scene, entry):
         with lock:

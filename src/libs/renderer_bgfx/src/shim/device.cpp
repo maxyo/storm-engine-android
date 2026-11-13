@@ -186,6 +186,7 @@ void Device::create_backbuffer(uint32_t width, uint32_t height)
     back_depth = new Surface(nullptr, 0, 0);
     held_color.reset(); // parked stores of the old surfaces
     held_depth.reset();
+    release_paused_picture();
     create_scene_stores(width, height);
     rt = back_color;
     rt->AddRef();
@@ -285,6 +286,28 @@ void Device::create_scene_stores(uint32_t width, uint32_t height)
     view_dirty = true;
     if (scaled_next)
         enter_scaled_picture();
+}
+
+// The presented picture becomes the paused one; the game draws on a new store of the same kind meanwhile.
+void Device::keep_paused_picture()
+{
+    const TexStore &shown = *back_color->store;
+    auto fresh = make_store(this, TexKind::Tex2D, shown.width, shown.height, 1, 1, shown.usage, shown.format,
+                            D3DPOOL_DEFAULT);
+    fresh->backbuffer = true;
+    fresh->target_flags = shown.target_flags;
+    paused_picture = std::move(back_color->store);
+    back_color->store = std::move(fresh);
+    view_dirty = true;
+    Context::instance().set_picture_held(true);
+}
+
+void Device::release_paused_picture()
+{
+    if (!paused_picture)
+        return;
+    paused_picture.reset();
+    Context::instance().set_picture_held(false);
 }
 
 void Device::enter_scaled_picture()
@@ -483,13 +506,25 @@ HRESULT Device::Present()
     auto &effects = effects::Host::instance();
     if (context.ready())
         effects.advance_switch(); // a settings change: programs, self-test (views kPostViewBegin..), then the switch
-    context.present(back_color->store->handle, back_color->store->width, back_color->store->height);
+    // render::HoldGamePicture (a pause menu over the game): the first 3D frame presented after the hold was asked for
+    // is kept and presented in place of the following frames, which draw no scene (GamePictureHeld). A kept picture
+    // of another size than the game picture (the display or the window changed) is dropped: the next frame is drawn
+    // in full and kept again.
+    if (paused_picture && (!context.hold_requested() || paused_picture->width != back_color->store->width ||
+                           paused_picture->height != back_color->store->height))
+        release_paused_picture();
+    const TexStore &shown = paused_picture ? *paused_picture : *back_color->store;
+    const uint32_t presented = context.last_frame();
+    context.present(shown.handle, shown.width, shown.height);
+    if (context.hold_requested() && !paused_picture && scene_frame && context.last_frame() != presented)
+        keep_paused_picture();
     effects.end_frame(scene_frame, context.last_frame());
     // The render scale applies to 3D frames: the next frame starts on the scaled scene stores after a 3D frame, on the
     // display-size picture otherwise (menus, loading screens).
     scaled_next = scene_frame;
     if (effects.take_renderer_state_change())
     {
+        release_paused_picture(); // drawn with the old settings: the next frame is drawn in full and kept again
         // Between frames: the scene target follows the new MSAA setting and render scale, samplers the new anisotropy.
         create_scene_stores(back_color->store->width, back_color->store->height);
         context.refresh_reset_flags();
@@ -560,6 +595,15 @@ void Device::scene_complete()
     TexStore *scene = back_color->store.get();
     scene->sync();
     back_depth->store->sync();
+    // The multisampled scene is resolved when bgfx leaves it for the chain's first view; nothing reads its
+    // multisampled attachments afterwards in this frame (the interface draws on the processed picture, which takes a
+    // single-sample depth) and the next frame clears them. Invalidating them after the resolve spares a tile GPU
+    // writing them back to memory (patches/bgfx-gl-framebuffer-discard.patch). Single-sample targets are the
+    // textures the chain reads: never discarded.
+    if (view_color == scene && (scene->target_flags & BGFX_TEXTURE_RT_MSAA_MASK) &&
+        (back_depth->store->target_flags & BGFX_TEXTURE_RT_MSAA_MASK))
+        bgfx::setViewClear(view, view_clear_set | BGFX_CLEAR_DISCARD_COLOR_0 | BGFX_CLEAR_DISCARD_DEPTH | BGFX_CLEAR_DISCARD_STENCIL,
+                           view_clear_rgba, view_clear_z, view_clear_stencil);
     effects::Host::PostTargets targets;
     targets.scene_color = scene->handle;
     // A multisampled depth is resolved into the texture with the colour only when an effect reads it.
@@ -723,6 +767,11 @@ uint16_t Device::new_view()
         held_depth_clear = false;
     }
     bgfx::setViewClear(view, view_clear_bits, 0, 1.0f, 0);
+    view_clear_set = view_clear_bits;
+    view_clear_rgba = 0;
+    view_clear_z = 1.0f;
+    view_clear_stencil = 0;
+    view_color = color;
     // The game addresses its viewport in display pixels; a scaled scene store has fewer.
     const uint32_t target_height = color->level_height(rt->level);
     const std::array<float, 2> scale = target_scale();
@@ -766,6 +815,10 @@ HRESULT Device::Clear(DWORD count, const D3DRECT *, DWORD flags, D3DCOLOR color,
         bits |= view_clear_bits; // the view's own depth clear (new_view) stays
     const uint32_t rgba = ((color & 0x00FFFFFF) << 8) | (color >> 24);
     bgfx::setViewClear(view, bits, rgba, z, static_cast<uint8_t>(stencil));
+    view_clear_set = bits;
+    view_clear_rgba = rgba;
+    view_clear_z = z;
+    view_clear_stencil = static_cast<uint8_t>(stencil);
     bgfx::touch(view);
     view_has_content = true;
     return D3D_OK;

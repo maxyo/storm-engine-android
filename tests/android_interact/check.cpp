@@ -2,6 +2,8 @@
 #include <platform/android_dialog_target.hpp>
 #include <cassert>
 #include <iostream>
+#include <string>
+#include <vector>
 
 struct USER_CONTROL
 {
@@ -16,11 +18,23 @@ struct Controls
     int GetControlsNum() const { return entries.size(); }
     bool GetControlDesc(int index, USER_CONTROL &out) const { out = entries.at(index); return true; }
 } controls;
+// The script's Characters array as dialogTargetName reads it: each character's name and last name.
+struct ATTRIBUTES
+{
+    std::string name, lastname;
+};
+struct VDATA
+{
+    std::vector<ATTRIBUTES> characters;
+    uint32_t GetElementsNum() const { return characters.size(); }
+    ATTRIBUTES *GetAClass(uint32_t index) { return &characters.at(index); }
+} characters{std::vector<ATTRIBUTES>(14)};
 struct Core
 {
     struct Controls *Controls = &controls;
     unsigned player = 7;
     unsigned GetEntityId(const char *) const { return player; }
+    void *GetScriptVariable(const char *name) { return std::string(name) == "Characters" ? &characters : nullptr; }
 } core;
 
 struct CorePrivate;
@@ -31,6 +45,10 @@ int64_t dialogIndex = 12;
 int64_t dialogTarget() { return dialogAvailable ? dialogIndex : -1; }
 bool boardingContinueArmed(CorePrivate *) { return boardingArmed; }
 bool combatContextCurrent(const GameplayState &, bool ready) { return current && ready; }
+std::string shipText(ATTRIBUTES *character, const char *field)
+{
+    return std::string(field) == "name" ? character->name : std::string(field) == "lastname" ? character->lastname : std::string();
+}
 #include "adapter.inc"
 }
 
@@ -52,8 +70,10 @@ int main()
         return "2\t" + std::to_string(combatInput.generation()) + "\t" +
             std::to_string(combatInput.actionGeneration("interact")) + "\t" + std::to_string(sequence) + "\tinteract\t" + phase;
     };
+    characters.characters[12] = {"Хуан", "Гарсия"};
     refresh();
     assert(combatInput.json().find("\"interact\"") != std::string::npos);
+    assert(combatInteractName == "Хуан Гарсия"); // the bottom hint names the talk target
     assert(!combatInput.offer(packet(1, "down"), 10));
     assert(combatInput.offer(packet(1), 10));
     assert(combatInput.merge("ChrAction", 0) == 0); // Not a wall-clock key pulse.

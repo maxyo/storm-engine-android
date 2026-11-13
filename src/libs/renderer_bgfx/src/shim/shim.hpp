@@ -246,7 +246,10 @@ struct VertexBuffer final : Object, BufferBase
     };
     std::vector<RangeBounds> bounds;
     uint32_t bounds_serial = UINT32_MAX;
-    bgfx::VertexBufferHandle handle = BGFX_INVALID_HANDLE; // immutable snapshot, re-created when stale
+    // GPU copy: a static buffer while the data has been written once; a rewrite turns it into a dedicated dynamic
+    // buffer that later rewrites update in place (Device::upload_buffer).
+    bgfx::VertexBufferHandle handle = BGFX_INVALID_HANDLE;
+    bgfx::DynamicVertexBufferHandle dynamic = BGFX_INVALID_HANDLE;
     ~VertexBuffer() override;
     HRESULT Lock(UINT offset, UINT size, void **data, DWORD flags);
     HRESULT Unlock();
@@ -257,7 +260,8 @@ struct VertexBuffer final : Object, BufferBase
 struct IndexBuffer final : Object, BufferBase
 {
     bool index32 = false;
-    bgfx::IndexBufferHandle handle = BGFX_INVALID_HANDLE;
+    bgfx::IndexBufferHandle handle = BGFX_INVALID_HANDLE;           // written once (see VertexBuffer)
+    bgfx::DynamicIndexBufferHandle dynamic = BGFX_INVALID_HANDLE;   // rewritten: updated in place
     ~IndexBuffer() override;
     HRESULT Lock(UINT offset, UINT size, void **data, DWORD flags);
     HRESULT Unlock();

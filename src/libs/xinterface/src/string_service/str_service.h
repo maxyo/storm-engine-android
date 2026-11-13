@@ -4,22 +4,11 @@
 
 #include "script_libriary.h"
 #include "../string_service.h"
+#include "user_string_files.hpp"
 
 //-----------SDEVICE-----------
 class STRSERVICE : public VSTRSERVICE
 {
-    struct UsersStringBlock
-    {
-        int32_t nref;
-        char *fileName;
-        int32_t blockID;
-        int32_t nStringsQuantity;
-        char **psStrName;
-        char **psString;
-
-        UsersStringBlock *next;
-    };
-
   public:
     STRSERVICE();
     ~STRSERVICE() override;
@@ -51,8 +40,9 @@ class STRSERVICE : public VSTRSERVICE
 
   protected:
     void LoadIni();
-    int32_t GetFreeUsersID() const;
-    bool GetNextUsersString(char *src, int32_t &idx, char **strName, char **strData) const;
+    std::optional<storm::strings::UserStringFiles::Rows> LoadUsersStringFile(const std::string &fileName) const;
+    bool GetNextUsersString(char *src, int32_t &idx, std::optional<std::string> *strName,
+                            std::optional<std::string> *strData) const;
 
   protected:
     char *m_sLanguage;
@@ -63,7 +53,9 @@ class STRSERVICE : public VSTRSERVICE
     char **m_psStrName;
     char **m_psString;
 
-    UsersStringBlock *m_pUsersBlocks;
+    // Kept parsed after their last close: the interface scripts reopen the same few files
+    // every frame (user_string_files.hpp).
+    storm::strings::UserStringFiles m_usersFiles{32};
 
     int32_t m_nDialogSourceFile;
 };

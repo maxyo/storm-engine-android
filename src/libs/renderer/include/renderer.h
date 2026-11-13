@@ -349,6 +349,8 @@ class VRenderer : public SERVICE, public storm::render::TextureColorReader
     // D3D Device/Viewport Section
     virtual HRESULT GetViewport(D3DVIEWPORT9 *pViewport) = 0;
     virtual HRESULT SetViewport(const D3DVIEWPORT9 *pViewport) = 0;
+    // D3DRS_SCISSORTESTENABLE's rectangle, in the pixels of the current render target.
+    virtual HRESULT SetScissorRect(const RECT *rect) = 0;
     // How many fixed-function lights can be enabled at once.
     virtual uint32_t GetMaxActiveLights() = 0;
 
