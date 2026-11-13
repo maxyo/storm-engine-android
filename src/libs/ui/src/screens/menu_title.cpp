@@ -64,11 +64,18 @@ class TitleScreen final : public Screen
                                        button("options", "menu.settings", options_), button("credits", "menu.credits", credits_)});
         view["exit"] = button("exit", "menu.exit", exit_);
         view["about"] = Json{{"id", "about"}, {"label", bindings.Text("menu.about")}};
-        // Chosen on the death screen: done once the title is up.
+        // Chosen on the death screen, or asked by the host (titleIntent): done once the title is up.
         if (const std::string intent = std::exchange(TitleIntent(), std::string()); !intent.empty())
         {
             if (intent == "Load")
                 bindings.Send(load_, "press");
+            else if (intent == "Continue" && any)
+            {
+                SetContinueRequested(true);
+                bindings.Send(load_, "press");
+            }
+            else if (intent == "Continue")
+                bindings.Error("title: the host asked for «Продолжить», but the game has no record to continue");
             else if (intent == "Options")
                 bindings.Send(options_, "press");
             else
@@ -83,11 +90,35 @@ class TitleScreen final : public Screen
                  exit_ = Command("Exit");
 };
 
+// Channel "titleIntent" {intent: "Continue"}: the platform host asks the title screen for «Продолжить»
+// as if tapped, once, when the title screen next builds (the app's Test Lab Game Loop sets it at the
+// game's start, android/game/testloop). Anything else is an error.
+class TitleIntentConsumer final : public StateConsumer
+{
+  public:
+    const char *Channel() const override
+    {
+        return "titleIntent";
+    }
+    void OnState(const Json &state, Router &router) override
+    {
+        if (state.is_object() && state.contains("intent") && state["intent"] == "Continue")
+            TitleIntent() = "Continue";
+        else
+            router.ReportError("state channel titleIntent: expected {intent: Continue}, got " + state.dump());
+    }
+};
+
 } // namespace
 
 std::unique_ptr<Screen> CreateTitleScreen()
 {
     return std::make_unique<TitleScreen>();
+}
+
+std::unique_ptr<StateConsumer> CreateTitleIntentConsumer()
+{
+    return std::make_unique<TitleIntentConsumer>();
 }
 
 } // namespace storm::ui::screens

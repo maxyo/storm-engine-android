@@ -498,6 +498,27 @@ static void Title(const std::string &models)
     router.SetInterface(question);
     Expect(surface.commands.size() == 1 && surface.Last() == "widget:save_load\tCONFIRM_YES\t-1\tpress", "and answers the load question");
     SetFromTitle(false);
+    {
+        // The host's «Продолжить» (titleIntent, the app's Test Lab Game Loop): once, at the next title build.
+        surface.commands.clear();
+        router.SetState("titleIntent", Json{{"intent", "Continue"}});
+        router.SetInterface(Load(models, "title.json"));
+        Expect(surface.commands.size() == 1 && surface.Last() == "main:Load" && ContinueRequested(),
+               "titleIntent Continue opens the saves to load the newest record");
+        SetContinueRequested(false);
+        router.SetInterface(Load(models, "title.json"));
+        Expect(surface.commands.size() == 1, "only once");
+        router.SetState("titleIntent", Json{{"intent", "Continue"}});
+        InterfaceModel none = Load(models, "title.json");
+        Without(none, "ANDROID_CONTINUE");
+        const size_t errors = surface.errors.size();
+        router.SetInterface(none);
+        Expect(surface.commands.size() == 1 && surface.errors.size() == errors + 1, "without a record it is an error, nothing is sent");
+        router.SetState("titleIntent", Json{{"intent", "New"}});
+        Expect(surface.errors.size() == errors + 2, "an unknown intent is an error");
+        surface.errors.clear();
+        SetFromTitle(false);
+    }
 }
 
 static void NewGame(const std::string &models)
