@@ -975,7 +975,8 @@ void CheckDeepBump()
 
     // Probe levels: the first level no larger than 64 px, none below a 4x4 block.
     CHECK(ReliefProbeLevel(1024, 512, 11) == 4 && ReliefProbeLevel(64, 64, 7) == 0 && ReliefProbeLevel(512, 4, 8) == -1);
-    CHECK(ReliefProbeLevel(256, 256, 1) == -1);
+    // Few mips (the decks' 512 textures have three): the smallest level is the probe.
+    CHECK(ReliefProbeLevel(256, 256, 1) == 0 && ReliefProbeLevel(512, 256, 3) == 2 && ReliefProbeLevel(512, 512, 3) == 2);
     // Keys follow the path, the probe bytes and the method.
     const uint8_t probe[4] = {1, 2, 3, 4};
     const uint64_t key = ReliefKey("a/b", probe, 4, 4, kReliefMethodVersion, kReliefMapSize);

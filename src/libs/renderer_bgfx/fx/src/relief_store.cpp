@@ -32,11 +32,13 @@ uint64_t Mix(uint64_t key, const void *data, size_t size)
 
 int ReliefProbeLevel(int width, int height, int levels)
 {
+    // The first level no larger than kReliefProbeSize; a texture whose smallest level is larger (few mips: the decks'
+    // 512 textures have three) is probed at that smallest level. Skipped top mips (texture_degradation) never change it.
     for (int level = 0; level < levels; ++level)
     {
         if (width < 4 || height < 4)
             return -1;
-        if (std::max(width, height) <= kReliefProbeSize)
+        if (std::max(width, height) <= kReliefProbeSize || level + 1 == levels)
             return level;
         width /= 2;
         height /= 2;

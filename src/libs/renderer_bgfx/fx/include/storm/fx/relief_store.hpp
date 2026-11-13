@@ -4,7 +4,7 @@
 // effects/relief_generator.hpp) and reads them. Derived from the player's files: never ship or commit them.
 //
 // A texture's key covers the method and the map's options and the texture itself: its normalized path and the bytes of
-// its first mip level no larger than kReliefProbeSize (the game may skip top mips, texture_degradation, so the top level
+// its first mip level no larger than kReliefProbeSize, or its smallest (the game may skip top mips, texture_degradation, so the top level
 // is not the same on every device; that level is). Its file holds the map as EAC RG11 with all mips.
 #pragma once
 
@@ -29,7 +29,8 @@ inline constexpr uint32_t kReliefHeightMethod = 0x48000001u;
 inline constexpr uint32_t kReliefMethodVersion = 3;
 
 // Index of the probe level: the first of `levels` levels (sizes halving from width x height) whose larger side is at
-// most kReliefProbeSize; -1 when that level would be smaller than a 4x4 block on a side (no relief).
+// most kReliefProbeSize, or the last level when none is that small; -1 when that level would be smaller than a 4x4
+// block on a side (no relief).
 int ReliefProbeLevel(int width, int height, int levels);
 
 // `method`: kReliefMethodVersion for prepared DeepBump maps; a separate tag for maps the game derives itself.
