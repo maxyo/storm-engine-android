@@ -66,13 +66,15 @@ class Session
 
 // Removes the maps of textures this game no longer has and every map of another method (another game, an older build,
 // model or options; fx::ReliefMethod), and the gloss maps (fx/gloss_map.hpp) of textures it no longer has; the
-// game's own height maps stay while they are current. Returns how many.
-int Prune(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size);
-// The mark of a complete pass (Prune done): the method, the map size and how many relief textures the game had. Cheap
-// to check (names only): the game skips its background pass while the mark matches.
-void MarkComplete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size);
+// game's own height maps stay while they are current. `files`: List(textures) (one walk of the game's folders serves
+// the listing, the mark and the pruning). Reads each file's header and probe level only. Returns how many.
+int Prune(const std::filesystem::path &textures, const std::vector<std::filesystem::path> &files,
+          const std::filesystem::path &output, int map_size);
+// The mark of a complete pass (Prune done): the method, the map size and how many relief textures the game had
+// (`candidates`: List(textures).size()). Cheap to check: the game skips its background pass while the mark matches.
+void MarkComplete(const std::filesystem::path &output, int map_size, size_t candidates);
 // Also false when maps of that pass are missing since (the system evicted part of its cache): `missing` says how many.
-bool Complete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size, int *missing = nullptr);
+bool Complete(const std::filesystem::path &output, int map_size, size_t candidates, int *missing = nullptr);
 
 // The whole job at once (host tool and checks): List, every texture, Prune.
 struct Job

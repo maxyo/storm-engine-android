@@ -40,7 +40,7 @@ made. The build makes that directory (below); its path is in `<build>/relief_mod
   (`model/README.md`; provenance in `third_party/licenses/PBRify-PROVENANCE.txt`). Their digests are pinned in this
   folder's CMakeLists.txt and match `fx::kReliefNormalModelDigest`, `fx::kReliefHeightModelDigest` and
   `fx::kReliefRoughnessModelDigest`. Per texture: one decode, then one inference of each
-  model on the whole image at the map's size, wrap-padded by `fx::kReliefModelPad` (48 px, beyond the networks'
+  model on the whole image at the map's size, wrap-padded by `fx::kReliefModelPad` (24 px, beyond the networks'
   receptive field: no seam where the texture tiles); the roughness model at the gloss map's size.
 - Height (`fx/height_map.hpp`): the height model's output, each atlas region normalised against its own neighbourhood
   (`fx::kHeightRegionTexels`), then its 2 % / 98 % become 0 and 1; the class's depth (`fx::ReliefDepthTexels`) is stored

@@ -298,9 +298,17 @@ void ReliefGenerator::prepare_rest()
     {
         rest_listed_ = true;
         const Clock::time_point start = Clock::now();
+        // One walk of the game's folders (names only) for the listing, the mark and the pruning.
+        rest_ = relief::List(setup_.textures);
+        rest_at_ = 0;
+        const double list_ms = Ms(start);
         int missing = 0;
-        if (relief::Complete(setup_.textures, setup_.directory, fx::kReliefMapSize, &missing))
+        if (relief::Complete(setup_.directory, fx::kReliefMapSize, rest_.size(), &missing))
         {
+            shim::logf("effects: relief generation: the game's %zu relief and gloss textures have their maps (checked in "
+                       "%.0f ms)",
+                       rest_.size(), Ms(start));
+            rest_.clear();
             std::lock_guard lock(mutex_);
             rest_done_ = true;
             stats_.rest = 0;
@@ -312,19 +320,18 @@ void ReliefGenerator::prepare_rest()
                        missing);
         // Maps of another method (an older build, another model or options) are removed first: they never match a key
         // again, and their room is the new maps'.
-        const int stale = relief::Prune(setup_.textures, setup_.directory, fx::kReliefMapSize);
+        const Clock::time_point prune_start = Clock::now();
+        const int stale = relief::Prune(setup_.textures, rest_, setup_.directory, fx::kReliefMapSize);
         if (stale > 0)
             shim::logf("effects: relief generation: %d maps of another method or game removed", stale);
-        rest_ = relief::List(setup_.textures);
-        rest_at_ = 0;
         shim::logf("effects: relief generation: %zu relief and gloss textures of the game to make in the background (listed in "
-                   "%.0f ms)",
-                   rest_.size(), Ms(start));
+                   "%.0f ms, pruned in %.0f ms)",
+                   rest_.size(), list_ms, Ms(prune_start));
     }
     if (rest_at_ >= rest_.size())
     {
-        const int removed = relief::Prune(setup_.textures, setup_.directory, fx::kReliefMapSize);
-        relief::MarkComplete(setup_.textures, setup_.directory, fx::kReliefMapSize);
+        const int removed = relief::Prune(setup_.textures, rest_, setup_.directory, fx::kReliefMapSize);
+        relief::MarkComplete(setup_.directory, fx::kReliefMapSize, rest_.size());
         shim::logf("effects: relief generation: every relief texture of the game has its map (%d stale maps removed)",
                    removed);
         std::lock_guard lock(mutex_);

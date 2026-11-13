@@ -29,7 +29,7 @@ MODELS = {
     'pbrify-height-int8.onnx': ('1x-PBRify_Height.onnx', '2b14afd583148cb5b0a554bf86a009b6a898aadc00d213aa3ec2544e17c835f5'),
     'pbrify-roughness-int8.onnx': ('1x-PBRify_RoughnessV2.onnx', '8a8de1bbeab70df8b2550bdc11fddd5a315a12eeb47d561ce55b38551ea52131'),
 }
-PAD = 48  # fx::kReliefModelPad
+PAD = 48  # the calibration's wrap padding (the game pads fx::kReliefModelPad, 24: as far as the networks see)
 
 
 def original(sources, name, sha256):

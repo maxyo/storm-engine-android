@@ -6,7 +6,7 @@ Not in the repository (the owner's rule): the build makes them. `pbrify-normal-i
 sha256 `860845c92142b7d1bd89ac514ae58206d431fd2c899e955dd492348389c5f00b`) are made by `make_models.py` from
 Kim2091/PBRify_Remix's SPAN models 1x-PBRify_NormalV3, 1x-PBRify_Height and 1x-PBRify_RoughnessV2 (CC0-1.0), as ONNX
 exports by fernandotonon/QtMeshEditor-models (revision b35b7f4c, CC0-1.0): static int8 quantisation (QDQ, per-channel
-weights) calibrated on procedural textures with the game's 48 px wrap padding (no game data), unused nodes dropped.
+weights) calibrated on procedural textures with a 48 px wrap padding (no game data), unused nodes dropped.
 They stay CC0-1.0 (`third_party/licenses/PBRify-CC0-1.0.txt`; provenance in `PBRify-PROVENANCE.txt`). Input and output
 1x3xHxW, 0..1, any size.
 

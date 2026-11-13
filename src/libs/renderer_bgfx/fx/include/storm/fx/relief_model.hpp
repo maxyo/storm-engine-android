@@ -16,9 +16,10 @@
 namespace storm::fx
 {
 
-// Texels of wrap padding on every side: more than the networks' receptive field (about 41 px), so a tiling texture
-// has no seam.
-inline constexpr int kReliefModelPad = 48;
+// Texels of wrap padding on every side: the networks' receptive field reaches 21 texels from a texel (measured: from
+// 22 on, the cropped output is the same to the bit as with any wider padding), so a tiling texture has no seam. Every
+// padded texel costs an inference's worth: 24 instead of 48 takes 15 % off a 512 map, 25 % off a 256 one.
+inline constexpr int kReliefModelPad = 24;
 
 // The first 8 bytes of the sha256 of the model files the game runs (src/libs/relief/model/README.md): part of the relief maps'
 // method (ReliefMethod), so other models never reuse their maps. src/libs/relief/CMakeLists.txt fails the build when a

@@ -82,13 +82,15 @@ int main(int argc, char **argv)
     job.models = {normal, height, roughness};
     job.map_size = 128;
     job.threads = 2;
-    CHECK(!relief::Complete(textures, output, job.map_size));
+    const size_t candidates = relief::List(textures).size();
+    CHECK(candidates == 2 && !relief::Complete(output, job.map_size, candidates));
     int calls = 0;
     relief::Result result = relief::Prepare(job, [&](const relief::Progress &) { return ++calls, false; });
     CHECK(result.status == 0 && result.prepared == 2 && result.failed == 0 && result.total == 2 && calls == 3);
     CHECK(result.provider.rfind("CPU", 0) == 0);
     // Marked complete (the game skips its background pass), until the game has another relief texture.
-    CHECK(relief::Complete(textures, output, job.map_size) && !relief::Complete(textures, output, 256));
+    CHECK(relief::Complete(output, job.map_size, candidates) && !relief::Complete(output, 256, candidates) &&
+          !relief::Complete(output, job.map_size, candidates + 1));
     // By name, only relief and gloss textures.
     {
         const std::filesystem::path game = root / "ordered";
@@ -116,9 +118,9 @@ int main(int argc, char **argv)
     // The system evicts part of the cache: the pass is no longer complete, and says how many maps went.
     std::filesystem::remove(fx::ReliefFile(output, key));
     int missing = 0;
-    CHECK(!relief::Complete(textures, output, job.map_size, &missing) && missing == 1);
+    CHECK(!relief::Complete(output, job.map_size, candidates, &missing) && missing == 1);
     result = relief::Prepare(job, nullptr);
-    CHECK(result.status == 0 && result.prepared == 1 && relief::Complete(textures, output, job.map_size, &missing) && missing == 0);
+    CHECK(result.status == 0 && result.prepared == 1 && relief::Complete(output, job.map_size, candidates, &missing) && missing == 0);
     // Cancelled at the start: nothing prepared, nothing pruned.
     std::filesystem::remove(fx::ReliefFile(output, key));
     fx::WriteReliefMap(output, 42, *map);

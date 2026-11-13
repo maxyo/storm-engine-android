@@ -56,15 +56,18 @@ double Seconds(Clock::time_point since)
     return std::chrono::duration<double>(Clock::now() - since).count();
 }
 
-// A game texture file: the header of the .tx format and its levels in the order the renderer reads them.
+// A game texture file: the header of the .tx format and its levels in the order the renderer reads them (each level a
+// quarter of the one above). Only the levels from `first` on are read: a key needs the small probe level alone, and
+// reading whole files made the game's first pass over 1376 textures take 88 s on an emulator.
 struct TxFile
 {
     uint32_t flags = 0, width = 0, height = 0, levels = 0, format = 0, top_bytes = 0;
-    std::vector<uint8_t> data; // all levels
+    int first = 0;             // the first level in `data`
+    std::vector<uint8_t> data; // levels first .. levels - 1
 
-    bool Load(const std::filesystem::path &path)
+    // The header alone.
+    bool Header(std::ifstream &in)
     {
-        std::ifstream in(path, std::ios::binary);
         int32_t header[6];
         if (!in.read(reinterpret_cast<char *>(header), sizeof(header)))
             return false;
@@ -74,14 +77,30 @@ struct TxFile
         levels = static_cast<uint32_t>(header[3]);
         format = static_cast<uint32_t>(header[4]);
         top_bytes = static_cast<uint32_t>(header[5]);
-        if ((flags & (kTxFlagPalette | kTxFlagCubemap)) || !texture::tx_format_known(format) || width == 0 || height == 0 ||
-            width > 8192 || height > 8192 || levels == 0 || top_bytes != texture::d3d_level_bytes(format, width, height))
-            return false;
-        data.assign(std::istreambuf_iterator<char>(in), {});
-        return data.size() >= top_bytes;
+        return !(flags & (kTxFlagPalette | kTxFlagCubemap)) && texture::tx_format_known(format) && width > 0 && height > 0 &&
+               width <= 8192 && height <= 8192 && levels > 0 && top_bytes == texture::d3d_level_bytes(format, width, height);
     }
-    // Level `level` as the renderer reads it (each level a quarter of the one above).
-    std::span<const uint8_t> Level(int level) const
+    // The header and the levels from the one `choose` picks (given the header) on.
+    template <typename Choose> bool Load(const std::filesystem::path &path, Choose &&choose)
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (!Header(in))
+            return false;
+        first = std::clamp(choose(*this), 0, static_cast<int>(levels) - 1);
+        in.seekg(static_cast<std::streamoff>(24 + Offset(first)));
+        data.assign(std::istreambuf_iterator<char>(in), {});
+        return !data.empty();
+    }
+    // The levels from the probe level on (the key, the grey test).
+    bool LoadProbe(const std::filesystem::path &path)
+    {
+        return Load(path, [](const TxFile &tx) { return std::max(ProbeLevel(tx), 0); });
+    }
+    static int ProbeLevel(const TxFile &tx)
+    {
+        return fx::ReliefProbeLevel(static_cast<int>(tx.width), static_cast<int>(tx.height), static_cast<int>(tx.levels));
+    }
+    size_t Offset(int level) const
     {
         size_t offset = 0, size = top_bytes;
         for (int l = 0; l < level; ++l)
@@ -89,6 +108,14 @@ struct TxFile
             offset += size;
             size /= 4;
         }
+        return offset;
+    }
+    // Level `level` (at least `first`).
+    std::span<const uint8_t> Level(int level) const
+    {
+        if (level < first)
+            return {};
+        const size_t offset = Offset(level) - Offset(first), size = static_cast<size_t>(top_bytes) >> (2 * level);
         if (offset + size > data.size())
             return {};
         return {data.data() + offset, size};
@@ -257,7 +284,63 @@ std::optional<uint64_t> PreparedKey(const Candidate &candidate, const TxFile &tx
     return relief == fx::ReliefClass::None ? std::nullopt : key;
 }
 
-// onnxruntime with one of the relief models: one session, its threads on each whole texture.
+bool OrtOk(const OrtApi *api, OrtStatus *status, std::string &error)
+{
+    if (!status)
+        return true;
+    error = std::string("onnxruntime: ") + api->GetErrorMessage(status);
+    api->ReleaseStatus(status);
+    return false;
+}
+
+// onnxruntime's environment for the three models: one thread pool and one memory arena for all of them (they run one
+// after the other: their own pools and arenas held three times the threads and the peak memory, ~1.4 GB on a host).
+class Runtime
+{
+  public:
+    ~Runtime()
+    {
+        if (memory_)
+            api_->ReleaseMemoryInfo(memory_);
+        if (env_)
+            api_->ReleaseEnv(env_);
+    }
+
+    bool Open(int threads, std::string &error)
+    {
+        api_ = OrtGetApiBase()->GetApi(ORT_API_VERSION);
+        if (!api_)
+        {
+            error = "onnxruntime does not offer API version " + std::to_string(ORT_API_VERSION);
+            return false;
+        }
+        // `threads` cores; waiting threads sleep instead of spinning: the game's threads share the cores, and spinning
+        // threads that wait for each other on an oversubscribed CPU cost many times the work itself.
+        OrtThreadingOptions *threading = nullptr;
+        bool ok = OrtOk(api_, api_->CreateThreadingOptions(&threading), error) &&
+                  OrtOk(api_, api_->SetGlobalIntraOpNumThreads(threading, threads), error) &&
+                  OrtOk(api_, api_->SetGlobalInterOpNumThreads(threading, 1), error) &&
+                  OrtOk(api_, api_->SetGlobalSpinControl(threading, 0), error) &&
+                  OrtOk(api_, api_->CreateEnvWithGlobalThreadPools(ORT_LOGGING_LEVEL_WARNING, "storm-relief", threading, &env_),
+                        error);
+        if (threading)
+            api_->ReleaseThreadingOptions(threading);
+        // No usage telemetry (onnxruntime's Android build would try its 1DS client); the shared arena.
+        return ok && OrtOk(api_, api_->DisableTelemetryEvents(env_), error) &&
+               OrtOk(api_, api_->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_), error) &&
+               OrtOk(api_, api_->CreateAndRegisterAllocator(env_, memory_, nullptr), error);
+    }
+
+    const OrtApi *api() const { return api_; }
+    OrtEnv *env() const { return env_; }
+
+  private:
+    const OrtApi *api_ = nullptr;
+    OrtEnv *env_ = nullptr;
+    OrtMemoryInfo *memory_ = nullptr;
+};
+
+// One of the relief models: one session on the runtime's threads, on each whole texture.
 class Model
 {
   public:
@@ -273,32 +356,21 @@ class Model
             api_->ReleaseSessionOptions(options_);
         if (memory_)
             api_->ReleaseMemoryInfo(memory_);
-        if (env_)
-            api_->ReleaseEnv(env_);
     }
 
-    bool Open(std::span<const uint8_t> model, int threads, std::string &error)
+    bool Open(const Runtime &runtime, std::span<const uint8_t> model, int threads, std::string &error)
     {
-        api_ = OrtGetApiBase()->GetApi(ORT_API_VERSION);
-        if (!api_)
-            return Fail("onnxruntime does not offer API version " + std::to_string(ORT_API_VERSION), error);
-        // No usage telemetry (onnxruntime's Android build would try its 1DS client).
-        if (!Ok(api_->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "storm-relief", &env_), error) ||
-            !Ok(api_->DisableTelemetryEvents(env_), error) ||
-            !Ok(api_->CreateSessionOptions(&options_), error) ||
-            !Ok(api_->SetSessionGraphOptimizationLevel(options_, ORT_ENABLE_ALL), error))
-            return false;
-        // onnxruntime's CPU provider (MLAS kernels, NEON on arm64) on `threads` cores. Its XNNPACK provider aborts inside
-        // onnxruntime 1.31.1 while the session is created (x86_64 emulator, src/libs/relief/README.md); NNAPI is
-        // deprecated.
-        // Waiting threads sleep instead of spinning: the game's threads share the cores, and spinning threads that
-        // wait for each other on an oversubscribed CPU cost many times the work itself.
-        if (!Ok(api_->SetIntraOpNumThreads(options_, threads), error) ||
-            !Ok(api_->AddSessionConfigEntry(options_, "session.intra_op.allow_spinning", "0"), error))
+        api_ = runtime.api();
+        // onnxruntime's CPU provider (MLAS kernels, NEON on arm64). Its XNNPACK provider aborts inside onnxruntime
+        // 1.31.1 while the session is created (x86_64 emulator, src/libs/relief/README.md); NNAPI is deprecated.
+        if (!Ok(api_->CreateSessionOptions(&options_), error) ||
+            !Ok(api_->SetSessionGraphOptimizationLevel(options_, ORT_ENABLE_ALL), error) ||
+            !Ok(api_->DisablePerSessionThreads(options_), error) ||
+            !Ok(api_->AddSessionConfigEntry(options_, "session.use_env_allocators", "1"), error))
             return false;
         provider_ = "CPU, " + std::to_string(threads) + " threads of " + std::to_string(std::thread::hardware_concurrency()) +
                     " cores, no spinning";
-        if (!Ok(api_->CreateSessionFromArray(env_, model.data(), model.size(), options_, &session_), error) ||
+        if (!Ok(api_->CreateSessionFromArray(runtime.env(), model.data(), model.size(), options_, &session_), error) ||
             !Ok(api_->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_), error) ||
             !Ok(api_->CreateRunOptions(&run_), error))
             return false;
@@ -345,14 +417,8 @@ class Model
         api_->ReleaseStatus(status);
         return false;
     }
-    static bool Fail(const std::string &message, std::string &error)
-    {
-        error = message;
-        return false;
-    }
 
     const OrtApi *api_ = nullptr;
-    OrtEnv *env_ = nullptr;
     OrtSessionOptions *options_ = nullptr;
     OrtSession *session_ = nullptr;
     OrtMemoryInfo *memory_ = nullptr;
@@ -418,6 +484,7 @@ std::vector<std::filesystem::path> List(const std::filesystem::path &textures)
 
 struct Session::Impl
 {
+    Runtime runtime;                 // before the models: released after them
     Model normal, height, roughness; // PBRify's three networks
     Stats stats;
     std::atomic<bool> cancelled{false};
@@ -432,8 +499,9 @@ std::unique_ptr<Session> Session::Open(const Models &models, int threads, std::s
 {
     auto impl = std::make_unique<Impl>();
     threads = threads > 0 ? threads : static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
-    if (!impl->normal.Open(models.normal, threads, error) || !impl->height.Open(models.height, threads, error) ||
-        !impl->roughness.Open(models.roughness, threads, error))
+    if (!impl->runtime.Open(threads, error) || !impl->normal.Open(impl->runtime, models.normal, threads, error) ||
+        !impl->height.Open(impl->runtime, models.height, threads, error) ||
+        !impl->roughness.Open(impl->runtime, models.roughness, threads, error))
     {
         Log("ERROR: %s", error.c_str());
         return nullptr;
@@ -474,7 +542,15 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     const std::optional<Candidate> candidate = Classify(textures, file);
     TxFile tx;
     fx::ReliefClass relief = fx::ReliefClass::None;
-    if (!candidate || !tx.Load(file))
+    // From the level the models read (the first no larger than twice the map) on: it and the probe level.
+    const auto source_level = [map_size](const TxFile &t) {
+        int level = 0;
+        while (level + 1 < static_cast<int>(t.levels) && std::max(t.width >> level, t.height >> level) > uint32_t(2 * map_size))
+            ++level;
+        return level;
+    };
+    // The keys from the probe level; the models' level only when a map is to be made.
+    if (!candidate || !tx.LoadProbe(file))
         return Outcome::Skipped;
     const std::optional<uint64_t> key = PreparedKey(*candidate, tx, map_size, relief);
     const std::optional<uint64_t> gloss_key = GlossKey(*candidate, tx);
@@ -482,12 +558,11 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         return Outcome::Skipped;
     if ((!key || fx::HasReliefMap(output, *key)) && (!gloss_key || fx::HasGlossMap(output, *gloss_key)))
         return Outcome::Existing;
+    if (!tx.Load(file, source_level))
+        return Outcome::Skipped;
     const double read_ms = lap();
     // The source: the first level no larger than twice the map, which the models' inputs are box-filtered down from.
-    int level = 0;
-    while (level + 1 < static_cast<int>(tx.levels) &&
-           std::max(tx.width >> level, tx.height >> level) > uint32_t(2 * map_size))
-        ++level;
+    const int level = tx.first;
     const uint32_t lw = std::max(1u, tx.width >> level), lh = std::max(1u, tx.height >> level);
     const int width = static_cast<int>(lw), height = static_cast<int>(lh);
     std::vector<uint8_t> rgba(size_t(lw) * lh * 4);
@@ -509,11 +584,17 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
     int gw = 0, gh = 0;
     fx::NormalMapSize(width, height, options, gw, gh);
     double infer_ms = 0.0;
+    std::string per_model; // each inference: the model, its padded size, its time
     const auto run = [&](Model &model, const std::vector<float> &input, int w, int h) {
         return fx::ReliefModelRun(input, w, h, [&](const float *image, int pw, int ph, float *out) {
             const Clock::time_point infer_start = Clock::now();
             const bool ok = model.Infer(image, pw, ph, out, failure);
-            infer_ms += std::chrono::duration<double, std::milli>(Clock::now() - infer_start).count();
+            const double ms = std::chrono::duration<double, std::milli>(Clock::now() - infer_start).count();
+            infer_ms += ms;
+            char part[64];
+            std::snprintf(part, sizeof(part), "%s%s %dx%d %.0f ms", per_model.empty() ? "" : ", ",
+                          &model == &impl_->normal ? "normal" : &model == &impl_->height ? "height" : "roughness", pw, ph, ms);
+            per_model += part;
             return ok;
         });
     };
@@ -620,20 +701,25 @@ Outcome Session::PrepareFile(const std::filesystem::path &textures, const std::f
         mean_gloss += g;
     mean_gloss = gloss.gloss.empty() ? 0.0 : mean_gloss / static_cast<double>(gloss.gloss.size());
     Log("relief %s: %dx%d%s, gloss %s %dx%d (mean %.2f), %.0f ms (read %.0f, decode %.0f, models %.0f of which "
-        "inference %.0f, gloss %.0f, mips, material, encode and write %.0f; depth %.1f texels)",
+        "inference %.0f: %s; gloss %.0f, mips, material, encode and write %.0f; depth %.1f texels; %s)",
         candidate->name.c_str(), key ? mw : 0, key ? mh : 0, key ? "" : " (no relief)", fx::GlossClassName(candidate->gloss),
-        gloss.width, gloss.height, mean_gloss, ms, read_ms, decode_ms, model_ms, infer_ms, gloss_ms, write_ms,
-        static_cast<double>(map.depth));
+        gloss.width, gloss.height, mean_gloss, ms, read_ms, decode_ms, model_ms, infer_ms, per_model.c_str(), gloss_ms,
+        write_ms, static_cast<double>(map.depth), impl_->stats.provider.c_str());
     return Outcome::Prepared;
 }
 
-int Prune(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size)
+int Prune(const std::filesystem::path &textures, const std::vector<std::filesystem::path> &files,
+          const std::filesystem::path &output, int map_size)
 {
     std::vector<std::filesystem::path> current;
-    for (const Candidate &candidate : Candidates(textures))
+    for (const std::filesystem::path &file : files)
     {
+        const std::optional<Candidate> found = Classify(textures, file);
+        if (!found)
+            continue;
+        const Candidate &candidate = *found;
         TxFile tx;
-        if (!tx.Load(candidate.file))
+        if (!tx.LoadProbe(candidate.file))
             continue;
         fx::ReliefClass relief;
         // A texture's own gloss map (fx/gloss_map.hpp): a gloss class without a relief height.
@@ -665,7 +751,7 @@ int Prune(const std::filesystem::path &textures, const std::filesystem::path &ou
 
 namespace
 {
-std::string CompleteMark(const std::filesystem::path &textures, int map_size)
+std::string CompleteMark(size_t candidates, int map_size)
 {
     // Every class's method (model, options, versions): another build's maps never count as complete.
     uint64_t methods = 0;
@@ -678,7 +764,7 @@ std::string CompleteMark(const std::filesystem::path &textures, int map_size)
     char hex[24];
     std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(methods));
     return std::string("method ") + hex + " size " + std::to_string(map_size) + " textures " +
-           std::to_string(Candidates(textures).size()) + "\n";
+           std::to_string(candidates) + "\n";
 }
 std::filesystem::path CompleteFile(const std::filesystem::path &output)
 {
@@ -695,21 +781,21 @@ int CountMaps(const std::filesystem::path &output)
 }
 } // namespace
 
-void MarkComplete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size)
+void MarkComplete(const std::filesystem::path &output, int map_size, size_t candidates)
 {
     std::error_code error;
     std::filesystem::create_directories(output, error);
-    std::ofstream(CompleteFile(output), std::ios::trunc) << CompleteMark(textures, map_size) << "maps " << CountMaps(output)
+    std::ofstream(CompleteFile(output), std::ios::trunc) << CompleteMark(candidates, map_size) << "maps " << CountMaps(output)
                                                          << "\n";
 }
 
-bool Complete(const std::filesystem::path &textures, const std::filesystem::path &output, int map_size, int *missing)
+bool Complete(const std::filesystem::path &output, int map_size, size_t candidates, int *missing)
 {
     if (missing)
         *missing = 0;
     std::ifstream in(CompleteFile(output));
     std::string method, maps;
-    if (!std::getline(in, method) || !std::getline(in, maps) || method + "\n" != CompleteMark(textures, map_size) ||
+    if (!std::getline(in, method) || !std::getline(in, maps) || method + "\n" != CompleteMark(candidates, map_size) ||
         maps.rfind("maps ", 0) != 0)
         return false;
     // The system may evict a cache: maps of a complete pass gone since are made again.
@@ -778,8 +864,8 @@ Result Prepare(const Job &job, const std::function<bool(const Progress &)> &prog
     }
     if (result.status == 0)
     {
-        result.removed = Prune(job.textures, job.output, job.map_size);
-        MarkComplete(job.textures, job.output, job.map_size);
+        result.removed = Prune(job.textures, files, job.output, job.map_size);
+        MarkComplete(job.output, job.map_size, files.size());
     }
     result.seconds = Seconds(start);
     result.infer_seconds = session->stats().infer_seconds;
