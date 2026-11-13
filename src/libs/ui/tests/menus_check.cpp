@@ -350,7 +350,8 @@ static void Settings(const std::string &models)
     Json preset = image[0]["columns"][0]["rows"][0];
     Expect(image[0]["columns"][0]["rows"].size() == 3 && preset["id"] == "app-fx_preset" && preset["selected"] == 0 && preset["restart"] == false && !preset.contains("label") &&
                preset["options"] == Json::array({"<settings.fx_low>", "<settings.fx_medium>", "<settings.fx_high>"}),
-           "the quality preset «Низкая / Средняя / Высокая», applied at once; no effect overrides");
+           "the quality preset «Низкая / Средняя / Высокая», applied at once; no effect overrides; a measured preset "
+           "(fx_preset_auto) is not marked: " + preset.dump());
     const Json textures = image[0]["columns"][0]["rows"][1];
     Expect(textures["id"] == "app-texture_degradation" && textures["restart"] == true && textures["disabled"] == false,
            "texture quality from the host, marked as needing a restart");
@@ -374,7 +375,8 @@ static void Settings(const std::string &models)
                surface.commands[0] ==
                    "host app-settings {\"frame_rate\":120,\"fx_preset\":2,\"texture_degradation\":0}" &&
                surface.commands[1] == prefix + "BTN_OK\t-1\tpress",
-           "«Готово» hands the renderer options to the host and confirms the game's settings");
+           "«Готово» hands the renderer options to the host and confirms the game's settings; the measured-preset "
+           "flag fx_preset_auto stays with the host");
     surface.commands.clear();
     router.OnEvent({"done", "click", ""});
     Expect(surface.commands.size() == 1, "unchanged renderer options are not sent again");

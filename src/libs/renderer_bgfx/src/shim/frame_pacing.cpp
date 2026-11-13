@@ -39,6 +39,7 @@ namespace
 {
 using Clock = std::chrono::steady_clock;
 constexpr auto kStatsWindow = std::chrono::seconds(30);
+constexpr size_t kMaxSamples = 4096; // set_sampling: the game thread takes them every frame
 
 double to_ms(std::chrono::nanoseconds value)
 {
@@ -187,6 +188,19 @@ void FramePacing::set_window(void *native_window)
     last_present_ = {};
 }
 
+void FramePacing::set_sampling(bool on)
+{
+    std::lock_guard lock(mutex_);
+    sampling_ = on;
+    samples_ms_.clear();
+}
+
+std::vector<float> FramePacing::take_intervals()
+{
+    std::lock_guard lock(mutex_);
+    return std::exchange(samples_ms_, {});
+}
+
 void FramePacing::game_thread_waited(std::chrono::nanoseconds wait)
 {
     storm::platform::presentWaited(wait);
@@ -256,6 +270,8 @@ bool FramePacing::present_frame(void *display, void *surface)
     {
         intervals_ms_.push_back(static_cast<float>(to_ms(after - last_present_)));
         wait_ms_ += to_ms(wait);
+        if (sampling_ && samples_ms_.size() < kMaxSamples)
+            samples_ms_.push_back(intervals_ms_.back());
     }
     last_present_ = after;
 
@@ -349,6 +365,15 @@ void FramePacing::set_frame_rate(uint32_t)
 {
 }
 
+void FramePacing::set_sampling(bool)
+{
+}
+
+std::vector<float> FramePacing::take_intervals()
+{
+    return {};
+}
+
 #endif
 
 } // namespace storm::shim
@@ -358,5 +383,15 @@ namespace storm::render
 void SetFrameRate(uint32_t fps)
 {
     shim::FramePacing::instance().set_frame_rate(fps);
+}
+
+void SamplePresentIntervals(bool on)
+{
+    shim::FramePacing::instance().set_sampling(on);
+}
+
+std::vector<float> TakePresentIntervals()
+{
+    return shim::FramePacing::instance().take_intervals();
 }
 } // namespace storm::render

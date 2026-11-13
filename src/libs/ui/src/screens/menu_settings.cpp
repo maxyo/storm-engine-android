@@ -274,9 +274,11 @@ class SettingsScreen final : public Screen
         bindings.On("done", "", [this, &bindings, ok](const Event &) {
             if (draft_.is_object() && draft_ != AppSettings())
             {
-                // The settings only: what the host reports about the device (frame_rate_options) is not one.
+                // The settings only: what the host reports about the device (frame_rate_options) and whether the
+                // preset was measured (fx_preset_auto: the host's automatic choice, not shown) are not ones.
                 Json settings = draft_;
                 settings.erase("frame_rate_options");
+                settings.erase("fx_preset_auto");
                 bindings.SendHost("app-settings", settings.dump());
                 AppSettings() = draft_;
             }
