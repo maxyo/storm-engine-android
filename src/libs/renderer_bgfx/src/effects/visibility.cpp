@@ -16,9 +16,8 @@ namespace
 {
 constexpr texture::DerivedShape kShape{.magic = {'S', 'T', 'X', 'C', 'V', 'I', 'S', 'V'}, .version = fx::kVisibilityBakeVersion};
 constexpr size_t kMaxCacheBytes = 4u << 20;
-constexpr float kInteriorCell = 0.5f; // metres: doorways, galleries and stairs resolve
-constexpr float kOutdoorCell = 1.0f;  // awnings, arcades and alleys; grown under the cell budget
-constexpr uint32_t kOutdoorCells = 1u << 19;
+constexpr float kCell = 0.5f;          // metres: doorways, galleries, a cabin's 3 m; grown under the cell budget (towns)
+constexpr uint32_t kMaxCells = 1u << 19;
 constexpr float kFocusMargin = 8.0f;  // metres around a town's ground (its walls stand on its edge)
 constexpr float kFocusAir = 25.0f;    // metres above its highest ground: roofs, towers, palms
 } // namespace
@@ -26,7 +25,8 @@ constexpr float kFocusAir = 25.0f;    // metres above its highest ground: roofs,
 fx::VisibilityParams Visibility::params_for() const
 {
     fx::VisibilityParams params;
-    params.cell = interior_ ? kInteriorCell : kOutdoorCell;
+    params.cell = kCell;
+    params.max_cells = kMaxCells;
     if (interior_)
     {
         if (room_hi_[0] > room_lo_[0] && room_hi_[1] > room_lo_[1] && room_hi_[2] > room_lo_[2])
@@ -36,7 +36,6 @@ fx::VisibilityParams Visibility::params_for() const
         }
         return params;
     }
-    params.max_cells = kOutdoorCells;
     if (focus_name_ == name_ && focus_hi_[0] > focus_lo_[0])
     {
         params.lo = {focus_lo_[0] - kFocusMargin, focus_lo_[1] - 2.0f, focus_lo_[2] - kFocusMargin};
@@ -162,6 +161,7 @@ const Visibility::Bound *Visibility::update()
         }
         bound_.world_to_uvw[15] = 1.0f;
         bound_.size = v.size;
+        bound_.cell = v.cell;
         float top = -1e30f;
         for (const uint32_t i : indices_)
             top = std::max(top, positions_[i][1]);

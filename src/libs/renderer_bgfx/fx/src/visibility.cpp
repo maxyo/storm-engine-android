@@ -122,7 +122,7 @@ VisibilityVolume BakeVisibility(const Occluders &occluders, std::span<const Vec3
             closed[c] = sky == 0 ? 1 : 0;
         }
     });
-    // Cells inside the geometry (all closed) next to open ones: the mean of those, read from the bake above.
+    // Cells inside the geometry (all closed) next to open ones: the most closed of those, read from the bake above.
     const std::vector<uint8_t> baked = v.rgba;
     const int step[3] = {1, v.size[0], v.size[0] * v.size[1]};
     for (size_t c = 0; c < count; ++c)
@@ -131,7 +131,7 @@ VisibilityVolume BakeVisibility(const Occluders &occluders, std::span<const Vec3
             continue;
         const int at[3] = {static_cast<int>(c % v.size[0]), static_cast<int>((c / v.size[0]) % v.size[1]),
                            static_cast<int>(c / (static_cast<size_t>(v.size[0]) * v.size[1]))};
-        int sum[2] = {0, 0}, n = 0;
+        int least[2] = {256, 256};
         for (int k = 0; k < 3; ++k)
             for (int s = -1; s <= 1; s += 2)
             {
@@ -140,14 +140,13 @@ VisibilityVolume BakeVisibility(const Occluders &occluders, std::span<const Vec3
                 const size_t o = c + static_cast<size_t>(static_cast<std::ptrdiff_t>(s) * step[k]);
                 if (closed[o])
                     continue;
-                sum[0] += baked[o * 4];
-                sum[1] += baked[o * 4 + 1];
-                ++n;
+                least[0] = std::min<int>(least[0], baked[o * 4]);
+                least[1] = std::min<int>(least[1], baked[o * 4 + 1]);
             }
-        if (n > 0)
+        if (least[0] < 256)
         {
-            v.rgba[c * 4] = static_cast<uint8_t>(sum[0] / n);
-            v.rgba[c * 4 + 1] = static_cast<uint8_t>(sum[1] / n);
+            v.rgba[c * 4] = static_cast<uint8_t>(least[0]);
+            v.rgba[c * 4 + 1] = static_cast<uint8_t>(least[1]);
         }
     }
     return v;

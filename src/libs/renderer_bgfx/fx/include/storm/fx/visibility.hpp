@@ -7,8 +7,9 @@
 //     closed;
 //   * open (G): the share of the directions more than 15° above the horizon that reach out, unweighted: whether a sun
 //     in the sky can get here at all (an awning, an arcade, a gallery close it; a narrow alley keeps some).
-// B and A are 0. A cell whose centre lies inside the geometry (every ray closed, its neighbours open) takes the mean of
-// its open neighbours, so trilinear filtering next to walls does not pull the surfaces dark.
+// B and A are 0. A cell whose centre lies inside the geometry (every ray closed) takes the most closed of its open
+// neighbours: a wall's cells must not carry the open outside into the room (receivers also read one cell off their
+// surface, ff_fragment.sh ffVisibility).
 //
 // The volume does not depend on the thread count; its cache key (VisibilityKey) covers everything it is made from.
 #pragma once
@@ -26,7 +27,7 @@ namespace storm::fx
 {
 
 // Bump on any change of the bake that changes its output (the disk cache is keyed by it).
-inline constexpr uint32_t kVisibilityBakeVersion = 1;
+inline constexpr uint32_t kVisibilityBakeVersion = 2;
 
 struct VisibilityParams
 {

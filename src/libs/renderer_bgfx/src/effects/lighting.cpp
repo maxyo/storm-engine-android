@@ -607,9 +607,8 @@ void Lighting::bind_visibility(const FfDraw &draw)
         bx::mtxMul(visibility_view_to_uvw_.data(), inverse_view, visibility_->world_to_uvw.data());
         visibility_view_ = draw.world_view;
     }
-    // y..w: half a cell in uvw, the trilinear clamp to the cell centres at the grid's faces.
-    const float params[4] = {settings_.visibility_debug ? 2.0f : 1.0f, 0.5f / static_cast<float>(visibility_->size[0]), 0.5f / static_cast<float>(visibility_->size[1]),
-                             0.5f / static_cast<float>(visibility_->size[2])};
+    // y: the receivers' offset along their normal, one cell.
+    const float params[4] = {settings_.visibility_debug ? 2.0f : 1.0f, visibility_->cell, 0.0f, 0.0f};
     bgfx::setUniform(u_visibility_matrix_, visibility_view_to_uvw_.data());
     bgfx::setUniform(u_visibility_params_, params);
     bgfx::setTexture(fx::kVisibilityStage, s_visibility_, visibility_->texture);

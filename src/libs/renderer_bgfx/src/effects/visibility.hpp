@@ -37,6 +37,7 @@ class Visibility
         bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
         std::array<float, 16> world_to_uvw{}; // row-vector absolute world -> 0..1 texture coordinates
         std::array<int, 3> size{};            // cells
+        float cell = 0.0f;                    // metres
     };
 
     // Main thread. The location's collision triangles (absolute world; what its traces hit); `interior`:

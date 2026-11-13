@@ -1703,6 +1703,10 @@ void CheckVisibility()
     CHECK(!one.Empty() && one.rgba == four.rgba); // the thread count does not change it
     CHECK(open[0] > 0.9f && open[1] > 0.9f);
     CHECK(hall[0] < 0.05f && hall[1] < 0.05f);  // a ceiling 12 m up closes it
+    // A wall read one cell off it (as ffVisibility does) on either side: the hall's side closed, the street's open.
+    const float inside_wall = one.Sample({5.3f + one.cell, 1.5f, 10.0f})[0], outside_wall = one.Sample({5.0f - one.cell, 1.5f, 10.0f})[0];
+    std::printf("visibility: by the hall's wall inside %.2f, outside %.2f\n", inside_wall, outside_wall);
+    CHECK(inside_wall < 0.15f && outside_wall > 0.5f); // outside: the 12 m wall itself hides half the sky
     CHECK(awning[1] < 0.5f && awning[0] < open[0] - 0.3f);
     // The cache entry: back as baked; another key is refused.
     const uint64_t key = VisibilityKey(p, idx, params);
