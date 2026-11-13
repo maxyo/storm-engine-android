@@ -108,6 +108,10 @@ const Option kOptions[] = {
      [](fx::Settings &s, int v) { s.shadows = static_cast<fx::ShadowQuality>(std::clamp(v, 0, 2)); }},
     {"fx_town_light", "0 the game's town lightmaps, 1 our own for the live sun",
      [](fx::Settings &s, int v) { s.town_light = on(v); }},
+    {"fx_bounce", "0 off, 1 one bounce of indirect light (lit surfaces light what is around them)",
+     [](fx::Settings &s, int v) { s.bounce = on(v); }},
+    {"fx_bounce_debug", "0 off, 1 lit and baked surfaces show the bounce's light over a dim grey picture",
+     [](fx::Settings &s, int v) { s.bounce_debug = on(v); }},
     {"fx_visibility_debug", "0 off, 1 lit and baked surfaces show the visibility volume (red sky, green open)",
      [](fx::Settings &s, int v) { s.visibility_debug = on(v); }},
     {"fx_town_light_debug", "0 off, 1 our town lightmaps show the sun's visibility",
@@ -238,6 +242,7 @@ void Host::shutdown()
     ao_.shutdown();
     ao_bound_ = nullptr;
     lighting_.set_ao_volume(nullptr);
+    bounce_.shutdown();
     visibility_.shutdown();
     lighting_.set_visibility(nullptr);
     device_ready_ = false;
@@ -572,7 +577,25 @@ void Host::end_frame(bool scene_frame, uint32_t frame)
     }
     ao_bound_ = ao_.update(settings_.ao_volume > 0); // for the next frame's draws
     lighting_.set_ao_volume(ao_bound_);
-    lighting_.set_visibility(visibility_.update()); // for the next frame's draws
+    {
+        // The visibility volume and the bounce in its second block, for the next frame's draws.
+        const Visibility::Bound *volume = visibility_.update();
+        TownLight &town = lighting_.town_light();
+        town.set_bounce_scene(settings_.bounce ? bounce_.scene() : nullptr);
+        Bounce::Light light;
+        light.sun = weather_.sun_dir;
+        light.sun_present = weather_last_frame_ && weather_.sun_present;
+        light.sun_color = weather_last_frame_ ? weather_.sun_color : std::array<float, 3>{0.0f, 0.0f, 0.0f};
+        const LampShadows &lamps = lighting_.lamp_shadows();
+        light.lamps = &lamps.lamps();
+        light.holders = &lamps.holders();
+        light.lamp_layout = lamps.layout();
+        light.town_sun = town.active();
+        light.town_field = town.sun_bounce();
+        bounce_.set_enabled(settings_.bounce);
+        bounce_.update(visibility_, volume, light);
+        lighting_.set_visibility(volume);
+    }
     transform_view_ = UINT16_MAX; // the shim's views start again next frame
     times_ = {};
     if (!profile_)
@@ -700,6 +723,7 @@ void SetEffectsLightmaps(std::string_view name, std::span<const std::array<float
 void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry)
 {
     effects::Host::instance().lighting().lamp_shadows().set_geometry(geometry);
+    effects::Host::instance().bounce().set_geometry(geometry);
     // The geometry with the triangles of textures that cut holes replaced by the pieces the alpha test keeps
     // (effects/casters.hpp: one rule for every pass), pieces of `piece` metres shrunk to `shrink` of their size.
     const auto cut_out = [&](float piece, float shrink, std::vector<fx::Vec3> &points, std::vector<uint32_t> &triangles) {
@@ -829,6 +853,7 @@ void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path
     if (shim::TexStore *store = shim::store_of(texture))
     {
         store->cutout = effects::texture_cutout(*store);
+        store->albedo = effects::texture_albedo(*store);
         effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path, file);
         std::string lower(path ? path : "");
         std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });

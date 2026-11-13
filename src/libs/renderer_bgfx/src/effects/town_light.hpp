@@ -8,8 +8,14 @@
 // blends from the last direction to the new one over kBlendSeconds and is uploaded to our own texture. A draw that
 // samples one of the game's lightmaps samples ours instead at the same stage (Lighting::prepare / submit): one texture
 // fetch as before. Until the first bake of a place is done, and on Низкая, the game's lightmaps stay.
+//
+// With the bounce (set_bounce_scene, effects/bounce.hpp) each sun bake also gathers the sun's bounce field for the same
+// direction and reads it on the texels: the light the lit surfaces around reflect adds to the sun's on our lightmap,
+// and the bounce of the bake's own sun (once per place) leaves the game's. The field goes on to the bounce texture
+// (sun_bounce): lit models in the street take the same light.
 #pragma once
 
+#include "effects/bounce.hpp"
 #include "storm/fx/sun_fit.hpp"
 #include "storm/fx/town_light.hpp"
 #include "storm/render/effects.hpp"
@@ -49,6 +55,10 @@ class TownLight
                        std::vector<fx::Occluders::Cut> cut);
     // Once per frame, before the draws: `sun` the hour's direction towards the sun (world), `present` false at night.
     void update(const std::array<float, 3> &sun, bool present, float seconds);
+    // Main thread, every frame: the place's bounce scene (null: none, or not ready).
+    void set_bounce_scene(std::shared_ptr<const Bounce::Scene> scene);
+    // The sun's bounce field of the last sun bake (white sun; null: none yet).
+    std::shared_ptr<const fx::BounceField> sun_bounce() const { return sun_bounce_; }
     // The texture a draw samples in place of the game's lightmap `store` (invalid: keep the game's).
     // Our lightmap for a draw that binds the game's `store` (any draw: the shim asks for every lightmap it binds),
     // invalid when it has none; counted for the effects profile.
@@ -71,6 +81,7 @@ class TownLight
         std::vector<uint8_t> baked;  // per texel: the sun's visibility along the direction the game's was baked with
         fx::TownLightTone tone;
         std::vector<uint8_t> sun_from, sun_to; // per texel: the last and the coming sun direction's visibility
+        std::vector<uint8_t> bounce_baked, bounce_from, bounce_to; // RGB per texel (fx::TexelBounce), empty: none
         std::vector<uint8_t> rgba;             // composed
         bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
     };
@@ -87,6 +98,11 @@ class TownLight
         std::array<float, 3> sun{};
         std::vector<std::vector<uint8_t>> visibility; // per map
         double ms = 0.0;                                // how long the bake took on its worker threads
+        std::shared_ptr<const fx::BounceField> field;   // with a bounce scene: the sun's field
+        std::vector<std::vector<uint8_t>> bounce;       // per map, per texel (empty: no bounce scene)
+        double bounce_ms = 0.0;
+        bool baked_bounce = false;                      // also the bake's sun's bounce (first bake with the scene)
+        std::vector<std::vector<uint8_t>> bounce_baked;
     };
     void start_place();
     void start_sun(const std::array<float, 3> &sun);
@@ -109,6 +125,9 @@ class TownLight
     std::shared_ptr<SunJob> sun_job_;
     std::vector<Map> maps_;
     std::array<float, 3> sun_baked_{0.0f, 0.0f, 0.0f}; // the direction sun_to was baked for
+    std::shared_ptr<const Bounce::Scene> bounce_scene_;
+    std::shared_ptr<const fx::BounceField> sun_bounce_;
+    fx::Vec3 bake_dir_{0.0f, 1.0f, 0.0f}; // the direction the game's lightmaps were baked with
     float blend_ = 1.0f;                               // sun_from -> sun_to
     unsigned generation_ = 0;                          // sun bakes taken in at this place (log and debug)
     bool debug_ = false;

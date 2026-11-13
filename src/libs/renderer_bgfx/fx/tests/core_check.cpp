@@ -2,6 +2,7 @@
 // baked noise, the sky model, lighting and point-light selection, the shadow cascade and the
 // explicit handling of unsupported settings. No GPU is needed.
 #include "storm/fx/ao_volume.hpp"
+#include "storm/fx/bounce.hpp"
 #include "storm/fx/cutout.hpp"
 #include "storm/fx/capabilities.hpp"
 #include "storm/fx/lamp_shadows.hpp"
@@ -392,6 +393,7 @@ void CheckSupport()
     unlit.shadows = ShadowQuality::Off;
     unlit.lamp_shadows = 0;
     unlit.town_light = false;
+    unlit.bounce = false;
     changes.clear();
     CHECK(ConstrainSettings(unlit, all, changes).ao_volume == 0 && changes.size() == 1);
     Settings too_strong = high;
@@ -404,8 +406,16 @@ void CheckSupport()
     flat_town.shadows = ShadowQuality::Off;
     flat_town.lamp_shadows = 0;
     flat_town.ao_volume = 0;
+    flat_town.bounce = false;
     changes.clear();
     CHECK(!ConstrainSettings(flat_town, all, changes).town_light && changes.size() == 1);
+    // So does the bounce.
+    Settings flat_bounce = flat_town;
+    flat_bounce.town_light = false;
+    flat_bounce.bounce = true;
+    changes.clear();
+    CHECK(!ConstrainSettings(flat_bounce, all, changes).bounce && changes.size() == 1);
+    CHECK(high.bounce && Settings::FromPreset(QualityPreset::Medium).bounce && !Settings::FromPreset(QualityPreset::Low).bounce);
 
     // No 3D textures: the post chain is reduced to its plain copy; MSAA is the renderer's and stays.
     Support no_lut = all;
@@ -1690,6 +1700,92 @@ void CheckBakeThermal()
     CHECK(pieces.load() == 8);
 }
 
+void CheckBounce()
+{
+    // A 40 x 40 m red ground and a grey wall 10 m high along z at x 5..5.3; the sun 60° up from -x lights the ground
+    // and the wall's west face, the wall's east face and the ground east of it up to 5.8 m stand in its shadow.
+    // The game's winding (D3D: clockwise front faces, left-handed): the cross product of the edges faces out.
+    std::vector<Vec3> p;
+    std::vector<uint32_t> idx;
+    AddBox(p, idx, {-20.0f, -0.5f, -20.0f}, {20.0f, 0.0f, 20.0f});
+    const size_t ground_triangles = idx.size() / 3;
+    AddBox(p, idx, {5.0f, 0.0f, -20.0f}, {5.3f, 10.0f, 20.0f});
+    for (size_t t = 0; t < idx.size(); t += 3)
+        std::swap(idx[t + 1], idx[t + 2]); // AddBox winds inwards
+    std::vector<uint32_t> texture(idx.size() / 3, 1);
+    std::fill(texture.begin(), texture.begin() + ground_triangles, 0u);
+    const BounceTexture red{1, 1, {153, 26, 26}}, grey{1, 1, {102, 102, 102}}; // 0.6, 0.1, 0.1 and 0.4
+    const std::vector<const BounceTexture *> textures = {&red, &grey};
+    const std::vector<std::array<float, 2>> uvs(p.size(), {0.0f, 0.0f});
+    const Occluders occluders(p, idx);
+    BounceGeometry geometry{p, uvs, idx, texture, textures};
+    BounceGrid grid;
+    grid.cell = 1.0f;
+    grid.origin = {-10.0f, -1.0f, -6.0f};
+    grid.size = {30, 14, 12};
+    BounceParams params;
+    params.surfel = 1.0f;
+    params.rays = 64;
+    params.threads = 4;
+    const auto started = std::chrono::steady_clock::now();
+    const BounceScene scene = BuildBounceScene(occluders, geometry, grid, params);
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    CHECK(!scene.Empty() && scene.stride == 1 && scene.untextured == 0);
+    const float elevation = 60.0f * 0.017453293f;
+    const Vec3 sun{-std::cos(elevation), std::sin(elevation), 0.0f};
+    const SurfelLight light = SunOnSurfels(occluders, scene, sun, {1.0f, 1.0f, 1.0f}, 4);
+    const BounceField field = GatherBounce(scene, light, 4);
+    // Read one cell off the surface, as ffBounce does.
+    const Rgb shaded_wall = field.Irradiance({5.3f + 1.0f, 3.0f, 0.0f}, {1.0f, 0.0f, 0.0f});
+    const Rgb lit_ground = field.Irradiance({14.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f});
+    const Rgb shaded_ground = field.Irradiance({7.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f});
+    const Rgb lit_wall = field.Irradiance({5.0f - 1.0f, 3.0f, 0.0f}, {-1.0f, 0.0f, 0.0f});
+    std::printf("bounce: %zu surfels, %zu points x %d rays in %.0f ms; shaded wall %.3f %.3f %.3f, lit ground %.3f, shaded "
+                "ground %.3f, lit wall %.3f\n",
+                scene.position.size(), scene.Points(), scene.rays, ms, shaded_wall[0], shaded_wall[1], shaded_wall[2],
+                lit_ground[0], shaded_ground[0], lit_wall[0]);
+    // The shaded wall takes the lit red ground's light, reddish: the lit ground (0.6 x sin 60°) fills a view factor of
+    // (sin 32° - sin 12.3°) / 2 = 0.16 of it, 0.08 (the L1 lobe gives a little less).
+    CHECK(shaded_wall[0] > 0.05f && shaded_wall[0] > 2.0f * shaded_wall[1]);
+    // A lit floor does not relight itself from the cell above it: far from the wall it gets almost nothing.
+    CHECK(lit_ground[0] < 0.25f * shaded_wall[0]);
+    // The shaded ground by the wall sees the lit ground beyond the shadow (and the wall above it is in shade too).
+    CHECK(shaded_ground[0] > lit_ground[0]);
+    // The lit wall faces the lit red ground too.
+    CHECK(lit_wall[0] > 0.08f && lit_wall[0] > 2.0f * lit_wall[2]);
+    // No sun, no bounce; the lamps light by their falloff and shadow: a lamp 1 m east of the wall lights the shaded
+    // side, its light comes back to the wall from the ground.
+    CHECK(GatherBounce(scene, SunOnSurfels(occluders, scene, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, 1), 1).Energy() == 0.0);
+    const Lamp lamp{{6.3f, 2.0f, 0.0f}, {2.0f, 1.5f, 0.8f}, 6.0f, 1.0f, 0.0f, 0.3f};
+    const float holder[1] = {0.2f};
+    const BounceField lamps = GatherBounce(scene, LampsOnSurfels(occluders, scene, std::span(&lamp, 1), holder, 4), 4);
+    const Rgb by_lamp = lamps.Irradiance({5.3f + 1.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f});
+    const Rgb behind_wall = lamps.Irradiance({5.0f - 1.0f, 1.0f, 0.0f}, {-1.0f, 0.0f, 0.0f});
+    std::printf("bounce: by the lamp %.3f %.3f %.3f, behind the wall %.4f\n", by_lamp[0], by_lamp[1], by_lamp[2], behind_wall[0]);
+    CHECK(by_lamp[0] > 0.02f && behind_wall[0] < 0.01f * by_lamp[0]);
+    // The threads do not change it; the cache entry comes back as baked, another key is refused.
+    params.threads = 1;
+    const BounceScene one = BuildBounceScene(occluders, geometry, grid, params);
+    CHECK(one.hit == scene.hit && one.inside == scene.inside && one.link == scene.link);
+    const uint64_t key = BounceKey(geometry, grid, params);
+    std::string error;
+    const std::optional<BounceScene> back = DecodeBounceScene(EncodeBounceScene(one, key), key, error);
+    CHECK(back && back->hit == one.hit && back->albedo == one.albedo && back->stride == one.stride);
+    CHECK(!DecodeBounceScene(EncodeBounceScene(one, key), key + 1, error) && !error.empty());
+    // The texture: every cell of the grid, v (the light's direction) in block 1's B and A and block 2's A.
+    std::vector<uint8_t> vis(static_cast<size_t>(grid.size[0]) * grid.size[1] * grid.size[2] * 4, 0), block;
+    EncodeBounceBlocks(grid, field, {1.0f, 1.0f, 1.0f}, nullptr, vis, block);
+    CHECK(block.size() == vis.size());
+    const size_t wall_cell = ((static_cast<size_t>(6) * grid.size[1] + 4) * grid.size[0] + 16) * 4; // x 6.5, y 3.5, z 0.5
+    const float c = block[wall_cell] / 255.0f, vx = vis[wall_cell + 2] / 255.0f * 4.0f - 2.0f;
+    std::printf("bounce: the shaded wall's cell c %.3f, v.x %.2f\n", c * c * kBounceRange, vx);
+    CHECK(c * c * kBounceRange > 0.02f && vx > 0.3f); // red, from the east (the lit ground beyond the shadow)
+    // A weather's sun of half the strength, plus the lamp's field: the lamp next to the cell dominates it.
+    std::vector<uint8_t> lit_vis = vis, lit_block;
+    EncodeBounceBlocks(grid, field, {0.5f, 0.5f, 0.5f}, &lamps, lit_vis, lit_block);
+    CHECK(lit_block[wall_cell + 1] > block[wall_cell + 1] && lit_vis[wall_cell] == vis[wall_cell]); // R / G of block 1 kept
+}
+
 int main()
 {
     CheckSettings();
@@ -1714,6 +1810,7 @@ int main()
     CheckTownLight();
     CheckVisibility();
     CheckBakeThermal();
+    CheckBounce();
     if (failures)
     {
         std::printf("%d check(s) failed\n", failures);

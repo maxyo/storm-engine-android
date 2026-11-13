@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <utility>
 
@@ -184,7 +185,41 @@ Occluders::Occluders(std::span<const Vec3> positions, std::span<const uint32_t> 
         visit(t, [&](size_t c) { items_[fill[c]++] = static_cast<uint32_t>(t); });
 }
 
-bool Occluders::Occluded(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch) const
+bool Occluders::Hits(uint32_t tri, const Vec3 &origin, const Vec3 &dir, float reach, Hit &hit) const
+{
+    const Vec3 &a = positions_[indices_[3 * tri]];
+    const Vec3 e1 = Sub(positions_[indices_[3 * tri + 1]], a), e2 = Sub(positions_[indices_[3 * tri + 2]], a);
+    const Vec3 p = Cross(dir, e2);
+    const float det = Dot(e1, p);
+    if (std::fabs(det) < 1e-9f)
+        return false;
+    const float inv = 1.0f / det;
+    const Vec3 s = Sub(origin, a);
+    const float u = Dot(s, p) * inv;
+    if (u < 0.0f || u > 1.0f)
+        return false;
+    const Vec3 q = Cross(s, e1);
+    const float v = Dot(dir, q) * inv;
+    if (v < 0.0f || u + v > 1.0f)
+        return false;
+    const float t = Dot(e2, q) * inv;
+    if (t <= 1e-3f || t >= reach)
+        return false;
+    if (!cut_.empty() && cut_[tri].mask)
+    {
+        // Through the hole the texture's alpha cuts there?
+        const std::array<float, 2> &t0 = uvs_[indices_[3 * tri]], &t1 = uvs_[indices_[3 * tri + 1]],
+                                   &t2 = uvs_[indices_[3 * tri + 2]];
+        const float w = 1.0f - u - v;
+        if (cut_[tri].mask->At(w * t0[0] + u * t1[0] + v * t2[0], w * t0[1] + u * t1[1] + v * t2[1]) <= cut_[tri].reference)
+            return false; // through the hole
+    }
+    hit = {t, tri, u, v};
+    return true;
+}
+
+template <bool Closest>
+bool Occluders::March(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch, Hit &best) const
 {
     if (triangles_ == 0)
         return false;
@@ -208,11 +243,12 @@ bool Occluders::Occluded(const Vec3 &origin, const Vec3 &dir, float reach, Scrat
         next[k] = std::fabs(dir[k]) > 1e-9f ? (bound - origin[k]) / dir[k] : 1e30f;
         delta[k] = std::fabs(dir[k]) > 1e-9f ? cell_ / std::fabs(dir[k]) : 1e30f;
     }
+    bool found = false;
     float t = 0.0f;
     while (t < reach)
     {
         if (cell[0] < 0 || cell[1] < 0 || cell[2] < 0 || cell[0] >= n_[0] || cell[1] >= n_[1] || cell[2] >= n_[2])
-            return false;
+            return found;
         const size_t c = (static_cast<size_t>(cell[2]) * n_[1] + cell[1]) * n_[0] + cell[0];
         for (uint32_t i = start_[c]; i < start_[c + 1]; ++i)
         {
@@ -220,42 +256,37 @@ bool Occluders::Occluded(const Vec3 &origin, const Vec3 &dir, float reach, Scrat
             if (scratch.stamp[tri] == scratch.ray)
                 continue;
             scratch.stamp[tri] = scratch.ray;
-            const Vec3 &a = positions_[indices_[3 * tri]];
-            const Vec3 e1 = Sub(positions_[indices_[3 * tri + 1]], a), e2 = Sub(positions_[indices_[3 * tri + 2]], a);
-            const Vec3 p = Cross(dir, e2);
-            const float det = Dot(e1, p);
-            if (std::fabs(det) < 1e-9f)
+            Hit hit;
+            if (!Hits(tri, origin, dir, Closest && found ? best.t : reach, hit))
                 continue;
-            const float inv = 1.0f / det;
-            const Vec3 s = Sub(origin, a);
-            const float u = Dot(s, p) * inv;
-            if (u < 0.0f || u > 1.0f)
-                continue;
-            const Vec3 q = Cross(s, e1);
-            const float v = Dot(dir, q) * inv;
-            if (v < 0.0f || u + v > 1.0f)
-                continue;
-            const float hit = Dot(e2, q) * inv;
-            if (hit <= 1e-3f || hit >= reach)
-                continue;
-            if (!cut_.empty() && cut_[tri].mask)
-            {
-                // Through the hole the texture's alpha cuts there?
-                const std::array<float, 2> &t0 = uvs_[indices_[3 * tri]], &t1 = uvs_[indices_[3 * tri + 1]],
-                                           &t2 = uvs_[indices_[3 * tri + 2]];
-                const float w = 1.0f - u - v;
-                if (cut_[tri].mask->At(w * t0[0] + u * t1[0] + v * t2[0], w * t0[1] + u * t1[1] + v * t2[1]) <=
-                    cut_[tri].reference)
-                    continue; // through the hole
-            }
-            return true;
+            best = hit;
+            found = true;
+            if (!Closest)
+                return true;
         }
         const int k = next[0] < next[1] ? (next[0] < next[2] ? 0 : 2) : (next[1] < next[2] ? 1 : 2);
+        // A hit before this cell's far side is nearer than anything a later cell holds.
+        if (found && best.t <= next[k])
+            return true;
         t = next[k];
         next[k] += delta[k];
         cell[k] += step[k];
     }
-    return false;
+    return found;
+}
+
+bool Occluders::Occluded(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch) const
+{
+    Hit hit;
+    return March<false>(origin, dir, reach, scratch, hit);
+}
+
+std::optional<Occluders::Hit> Occluders::Closest(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch) const
+{
+    Hit hit;
+    if (!March<true>(origin, dir, reach, scratch, hit))
+        return std::nullopt;
+    return hit;
 }
 
 namespace

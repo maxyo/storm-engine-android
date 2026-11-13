@@ -28,6 +28,7 @@ struct Job;
 namespace storm::fx
 {
 struct AlphaMask;
+struct BounceTexture;
 }
 namespace storm::effects
 {
@@ -114,6 +115,9 @@ struct TexStore
     // small size, made when the game file is loaded (effects/texture_pixels.hpp); null for textures without holes.
     // Every pass that draws a material's depth or coverage cuts by it (effects/casters.hpp).
     std::shared_ptr<const fx::AlphaMask> cutout;
+    // Effects: its colours at a small size (effects/texture_pixels.hpp texture_albedo), made when the game file is
+    // loaded (the CPU copy goes after the upload): what the bounce takes a surface's colour from. Null: unreadable.
+    std::shared_ptr<const fx::BounceTexture> albedo;
     // Effects: the normal map derived from this height texture (src/effects/normal_maps.hpp), null for others.
     std::shared_ptr<effects::NormalMapEntry> normal_map;
     // A location lightmap (lighting\<time>\...\shadow.tga): the surfaces it lies on carry the sun's shadows already.

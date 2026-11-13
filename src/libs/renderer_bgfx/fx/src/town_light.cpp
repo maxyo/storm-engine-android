@@ -307,31 +307,80 @@ TownLightTone CalibrateTownLight(const LightmapTexels &texels, std::span<const u
             tone.b = std::max(tone.b, estimates[estimates.size() / 2]);
         }
     }
+    // The game's sky per bin of ours (TownLightTone::game_sky).
+    if (tone.c > 0.02f)
+    {
+        double sum[TownLightTone::kSkyBins] = {};
+        size_t count[TownLightTone::kSkyBins] = {};
+        for (size_t i = 0; i < n; ++i)
+        {
+            const int bin = std::min(TownLightTone::kSkyBins - 1, sky[i] * TownLightTone::kSkyBins / 256);
+            sum[bin] += (lum[i] - tone.a - tone.b * sun[i] / 255.0) / tone.c;
+            ++count[bin];
+        }
+        for (int bin = 0; bin < TownLightTone::kSkyBins; ++bin)
+            if (count[bin] >= 200)
+                tone.game_sky[bin] = std::clamp(static_cast<float>(sum[bin] / static_cast<double>(count[bin])),
+                                                tone.game_sky[bin], 1.0f);
+    }
     // The sun must brighten and the lighting stay above zero everywhere (a closed sky, in shadow): a + min(c, 0) > 0.
     tone.valid = tone.b > 0.01f && tone.a + std::min(tone.c, 0.0f) > 0.01f && tone.r2 > 0.05f;
     return tone;
 }
 
+float TownLightTone::GameSky(float k) const
+{
+    const float x = std::clamp(k * kSkyBins - 0.5f, 0.0f, static_cast<float>(kSkyBins - 1));
+    const int i = std::min(static_cast<int>(x), kSkyBins - 2);
+    return std::max(k, game_sky[i] + (game_sky[i + 1] - game_sky[i]) * (x - static_cast<float>(i)));
+}
+
+std::vector<uint8_t> TexelBounce(const LightmapTexels &texels, const BounceField &field, float offset, unsigned threads)
+{
+    std::vector<uint8_t> out(texels.texel.size() * 3, 0);
+    if (field.Empty())
+        return out;
+    ParallelRanges(texels.texel.size(), threads, [&](size_t first, size_t last) {
+        for (size_t i = first; i < last; ++i)
+        {
+            const Vec3 &p = texels.position[i], &n = texels.normal[i];
+            const Rgb e = field.Irradiance({p[0] + n[0] * offset, p[1] + n[1] * offset, p[2] + n[2] * offset}, n);
+            for (int c = 0; c < 3; ++c)
+                out[i * 3 + c] = static_cast<uint8_t>(std::lround(255.0f * std::clamp(e[c], 0.0f, 1.0f)));
+        }
+    });
+    return out;
+}
+
 void ComposeTownLight(const LightmapTexels &texels, const TownLightTone &tone, std::span<const uint8_t> game,
                       std::span<const uint8_t> baked, std::span<const uint8_t> sun_a, std::span<const uint8_t> sun_b,
-                      float t, std::span<const uint8_t> sky, std::span<uint8_t> rgba)
+                      float t, std::span<const uint8_t> sky, std::span<uint8_t> rgba, const TownBounce &bounce)
 {
     const size_t n = texels.texel.size();
     const size_t bytes = static_cast<size_t>(texels.width) * texels.height * 4;
     if (baked.size() != n || sun_a.size() != n || sun_b.size() != n || sky.size() != n || rgba.size() < bytes ||
         game.size() < bytes)
         return;
+    const bool bounced = bounce.a.size() == n * 3 && bounce.b.size() == n * 3 && bounce.baked.size() == n * 3;
     for (size_t i = 0; i < n; ++i)
     {
         const float k = sky[i] / 255.0f;
         const float now = tone.a + tone.b * ((1.0f - t) * sun_a[i] + t * sun_b[i]) / 255.0f + tone.c * k;
-        const float then = tone.a + tone.b * baked[i] / 255.0f + tone.c * k;
-        // The paint under the game's light, lit by ours (a texel the game had in a shadow we do not see, or the
-        // other way round, at most 3x brighter / darker).
-        const float ratio = std::clamp(now / std::max(then, 0.02f), 0.33f, 3.0f);
+        const float then = tone.a + tone.b * baked[i] / 255.0f + tone.c * tone.GameSky(k);
         const size_t at = static_cast<size_t>(texels.texel[i]) * 4;
         for (int ch = 0; ch < 3; ++ch)
+        {
+            float lit = now, was = then;
+            if (bounced)
+            {
+                lit += tone.b * ((1.0f - bounce.t) * bounce.a[i * 3 + ch] + bounce.t * bounce.b[i * 3 + ch]) / 255.0f;
+                was += tone.b * bounce.baked[i * 3 + ch] / 255.0f;
+            }
+            // The paint under the game's light, lit by ours (a texel the game had in a shadow we do not see, or the
+            // other way round, at most 3x brighter / darker).
+            const float ratio = std::clamp(lit / std::max(was, 0.02f), 0.33f, 3.0f);
             rgba[at + ch] = static_cast<uint8_t>(std::lround(std::clamp(game[at + ch] * ratio, 0.0f, 255.0f)));
+        }
         rgba[at + 3] = game[at + 3];
     }
     for (size_t g = 0; g + 1 < texels.gutter.size(); g += 2)

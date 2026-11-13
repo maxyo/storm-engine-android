@@ -16,6 +16,7 @@
 
 #include <array>
 #include <memory>
+#include <optional>
 
 #include <cstdint>
 #include <functional>
@@ -62,8 +63,21 @@ class Occluders
     };
     // True when the ray from `origin` along unit `dir` hits a triangle within `reach`.
     bool Occluded(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch) const;
+    // The nearest triangle the ray hits within `reach` (alpha holes let it through): at origin + t dir, at
+    // barycentric (u, v) of the triangle's second and third corners.
+    struct Hit
+    {
+        float t = 0.0f;
+        uint32_t triangle = 0;
+        float u = 0.0f, v = 0.0f;
+    };
+    std::optional<Hit> Closest(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch) const;
+    size_t Triangles() const { return triangles_; }
 
   private:
+    bool Hits(uint32_t triangle, const Vec3 &origin, const Vec3 &dir, float reach, Hit &hit) const;
+    template <bool Closest> bool March(const Vec3 &origin, const Vec3 &dir, float reach, Scratch &scratch, Hit &best) const;
+
     std::vector<Vec3> positions_;
     std::vector<uint32_t> indices_;
     size_t triangles_ = 0;

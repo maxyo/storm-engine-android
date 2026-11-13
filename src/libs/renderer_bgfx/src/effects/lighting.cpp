@@ -591,15 +591,19 @@ void Lighting::bind_visibility(const FfDraw &draw)
         bgfx::setTexture(fx::kVisibilityStage, s_visibility_, visibility_open_);
         return;
     }
-    if (draw.world_view != visibility_view_)
+    // (The texture's layout changes when the bounce's block comes or goes.)
+    if (draw.world_view != visibility_view_ || visibility_->world_to_uvw != visibility_world_to_uvw_)
     {
         float inverse_view[16];
         bx::mtxInverse(inverse_view, draw.world_view.data());
         bx::mtxMul(visibility_view_to_uvw_.data(), inverse_view, visibility_->world_to_uvw.data());
         visibility_view_ = draw.world_view;
+        visibility_world_to_uvw_ = visibility_->world_to_uvw;
     }
-    // y: the receivers' offset along their normal, one cell.
-    const float params[4] = {settings_.visibility_debug ? 2.0f : 1.0f, visibility_->cell, 0.0f, 0.0f};
+    // x the mode (2 / 3: the debug views of the visibility / the bounce), y the receivers' offset along their normal,
+    // one cell, z the bounce block's offset in v (0: none), w the lamps' share of the bounce's light.
+    const float mode = settings_.visibility_debug ? 2.0f : settings_.bounce_debug ? 3.0f : 1.0f;
+    const float params[4] = {mode, visibility_->cell, visibility_->block_offset, visibility_->lamp_share};
     bgfx::setUniform(u_visibility_matrix_, visibility_view_to_uvw_.data());
     bgfx::setUniform(u_visibility_params_, params);
     bgfx::setTexture(fx::kVisibilityStage, s_visibility_, visibility_->texture);

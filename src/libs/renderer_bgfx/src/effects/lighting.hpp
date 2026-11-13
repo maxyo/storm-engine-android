@@ -243,7 +243,7 @@ class Lighting
     bgfx::UniformHandle u_visibility_matrix_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_visibility_params_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle visibility_open_ = BGFX_INVALID_HANDLE; // 1x1x1: sky 1, open 1
-    std::array<float, 16> visibility_view_{}, visibility_view_to_uvw_{};
+    std::array<float, 16> visibility_view_{}, visibility_view_to_uvw_{}, visibility_world_to_uvw_{};
     std::array<float, 16> ao_view_{};     // the camera ao_view_to_uvw_ was made for
     std::array<float, 16> ao_view_to_uvw_{};
     bgfx::UniformHandle u_coverage_ = BGFX_INVALID_HANDLE;

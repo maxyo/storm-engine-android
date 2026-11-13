@@ -137,6 +137,10 @@ void LampShadows::set_lamps(const std::vector<fx::Lamp> &lamps)
             placed_[i] = merged[i].position;
         }
         layout_dirty_ = true;
+        // The radii follow the flicker while the layout is dirty: only a move or another gain is a new layout.
+        if (moved || gain_ != layout_gain_)
+            ++layout_;
+        layout_gain_ = gain_;
     }
     lamps_ = std::move(merged);
     for (size_t i = 0; i < lamps_.size(); ++i)

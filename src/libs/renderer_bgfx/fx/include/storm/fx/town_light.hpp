@@ -18,6 +18,7 @@
 //     runs): its paint (the ground's colours are painted into it) and tone stay, its shadows move.
 #pragma once
 
+#include "storm/fx/bounce.hpp"
 #include "storm/fx/sky_model.hpp"
 #include "storm/fx/sun_fit.hpp"
 
@@ -60,6 +61,13 @@ struct TownLightTone
     float r2 = 0.0f; // how much of the game lightmap's luminance the least squares explain
     uint32_t edges = 0; // shadow edge pairs b was measured at (too few: b from the least squares)
     bool valid = false;
+    // The sky the game's lightmap behaves as if it had, per bin of our sky visibility (bin centres (i + 0.5) / 8): the
+    // mean of (luminance - a - b sun) / c over the bin's texels, at least our own (kept where a bin has too few
+    // texels). The game painted its narrow alleys and gaps between houses nearly as bright as the open street: with
+    // this as the lighting it was baked with, our sky darkens them as much as they are closed.
+    static constexpr int kSkyBins = 8;
+    float game_sky[kSkyBins] = {0.0625f, 0.1875f, 0.3125f, 0.4375f, 0.5625f, 0.6875f, 0.8125f, 0.9375f};
+    float GameSky(float k) const;
 };
 
 // The game lightmap's lighting (`rgba`: its texels, RGBA8 at the same size) from its sun visibility along the direction
@@ -67,11 +75,23 @@ struct TownLightTone
 TownLightTone CalibrateTownLight(const LightmapTexels &texels, std::span<const uint8_t> rgba,
                                  std::span<const uint8_t> sun, std::span<const uint8_t> sky);
 
+// The bounce on the texels (fx/bounce.hpp): per texel RGB, the irradiance the field gives one cell (`offset` metres)
+// off the surface along its normal, relative to the sun's (a white sun of 1), 0..1 in 0..255.
+std::vector<uint8_t> TexelBounce(const LightmapTexels &texels, const BounceField &field, float offset, unsigned threads = 1);
+
 // Our lightmap (RGBA8, width x height, the gutter filled): the game's (`game`) relit, its paint kept: each texel times
 // the lighting of the hour's sun (`sun_a` blended towards `sun_b` by `t`) over the lighting it was baked with
-// (`baked`), both from `tone` and the sky visibility.
+// (`baked`), both from `tone` and the sky visibility. With the bounce (`bounce_a` blended towards `bounce_b` by `tb`,
+// TexelBounce; empty: none) the sun's light reflected by the surfaces around adds to the sun's own on both sides of
+// the ratio, per channel: the hour's sun's bounce now, the bake's sun's (`bounce_baked`) then, so the game's paint
+// loses the bounce of its own sun where ours moved it.
+struct TownBounce
+{
+    std::span<const uint8_t> a, b, baked; // RGB per texel
+    float t = 1.0f;
+};
 void ComposeTownLight(const LightmapTexels &texels, const TownLightTone &tone, std::span<const uint8_t> game,
                       std::span<const uint8_t> baked, std::span<const uint8_t> sun_a, std::span<const uint8_t> sun_b,
-                      float t, std::span<const uint8_t> sky, std::span<uint8_t> rgba);
+                      float t, std::span<const uint8_t> sky, std::span<uint8_t> rgba, const TownBounce &bounce = {});
 
 } // namespace storm::fx
