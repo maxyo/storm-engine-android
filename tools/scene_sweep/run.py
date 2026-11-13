@@ -3,7 +3,8 @@
 
 An on-demand tool for engine and renderer work; not part of the routine checks
 (see README.md). Needs the player's game files, a Linux host engine built with
--DSTORM_SCENE_SWEEP=ON, Xvfb and Pillow.
+-DSTORM_SCENE_SWEEP=ON, Xvfb and Pillow. The engines draw with Vulkan on the host's GPU (--llvmpipe: Mesa
+llvmpipe on the CPU, OpenGL ES).
 
   python3 tools/scene_sweep/run.py --game <game dir> --engine build/host/engine --out <report dir>
 
@@ -15,6 +16,7 @@ An on-demand tool for engine and renderer work; not part of the routine checks
   --smoke             one scene of every category (a quick check after an engine change)
   --fail-fast         stop at the first failing scene
   --list              print the scene inventory and exit
+  --llvmpipe          render with Mesa llvmpipe (CPU, OpenGL ES) instead of Vulkan on the GPU
 """
 import argparse
 import collections
@@ -58,6 +60,11 @@ LOG_RULES = [
     (r'.', r'(?i)\[storm-bgfx\].*(error|fail|trap|unsupported|missing|invalid)', 'renderer error'),
 ]
 FATAL = re.compile(r'Engine stopped: (.*)')
+# The renderer each engine runs, from its log: the bgfx backend and the device the program cache is for.
+RENDER_BACKEND = re.compile(r'\[storm-bgfx\] bgfx renderer=(Vulkan|OpenGL ES)')
+RENDER_DEVICE = re.compile(r'\[storm-bgfx\] program cache: .*? binaries \(.*?\) for (.*?)(?: \| pipeline cache.*)?$',
+                           re.MULTILINE)
+SOFTWARE_DEVICE = re.compile(r'(?i)llvmpipe|lavapipe|softpipe|swiftshader')
 # Defects of the game's own data the engine reports and cannot fix (known_defects.json): reported as KNOWN.
 KNOWN_DEFECTS = json.loads((HERE / 'known_defects.json').read_text(encoding='utf-8'))['defects']
 
@@ -93,7 +100,10 @@ def parse_arguments():
     parser.add_argument('--list', action='store_true')
     parser.add_argument('--size', default='1280x720', help='window size (default 1280x720)')
     parser.add_argument('--timeout', type=int, default=240, help='seconds one scene may take before the engine is killed')
-    parser.add_argument('--gl-threads', type=int, default=2, help='software rasteriser threads per engine')
+    parser.add_argument('--llvmpipe', action='store_true',
+                        help='render with Mesa llvmpipe on the CPU (OpenGL ES, as before the GPU default) instead of '
+                             "Vulkan on the host's GPU; about 100x slower per frame")
+    parser.add_argument('--gl-threads', type=int, default=2, help='llvmpipe rasteriser threads per engine')
     parser.add_argument('--variants', default='',
                         help="graphics option sets separated by ';' (e.g. 'fx_preset=0;fx_preset=2,fx_bloom=0'): every "
                              "game scene is captured once per set (shots/<scene>@v<i>.jpg, report 'variants')")
@@ -230,7 +240,7 @@ def select(scenes, arguments, previous, build):
         if arguments.failed:
             chosen = [scene for scene in chosen if scene.id in failed]
         elif previous['build'] != build:
-            print('engine or sweep script changed since the previous report: every scene counts as changed')
+            print('engine, renderer or sweep script changed since the previous report: every scene counts as changed')
         else:
             chosen = [scene for scene in chosen if scene.id in failed or scene.id not in old or
                       old[scene.id]['fingerprint'] != scene.fingerprint]
@@ -388,7 +398,8 @@ class Shard(threading.Thread):
             shutil.copy(source / 'options', own('options'))
         settings = inventory.read_script(source / 'engine.ini')
         for key, value in (('full_screen', 0), ('screen_x', self.size[0]), ('screen_y', self.size[1]),
-                           ('vsync', 0), ('show_fps', 0)):
+                           ('vsync', 0), ('show_fps', 0),
+                           ('render_backend', 'gles' if self.arguments.llvmpipe else 'vulkan')):
             settings, count = re.subn(rf'(?mi)^{key}\s*=.*$', f'{key} = {value}', settings)
             if not count:
                 settings = f'{key} = {value}\n' + settings
@@ -413,10 +424,11 @@ class Shard(threading.Thread):
         run.mkdir()
         game, control = self.prepare(run)
         environment = dict(os.environ, DISPLAY=f':{self.display}', XDG_DATA_HOME=str(run / 'data'),
-                           SDL_VIDEODRIVER='x11', SDL_AUDIODRIVER='dummy', LIBGL_ALWAYS_SOFTWARE='1',
-                           LP_NUM_THREADS=str(self.arguments.gl_threads), STORM_SCENE_SWEEP_DIR=str(control),
+                           SDL_VIDEODRIVER='x11', SDL_AUDIODRIVER='dummy', STORM_SCENE_SWEEP_DIR=str(control),
                            STORM_SCENE_SWEEP_SETTLE_MS=str(self.arguments.settle),
                            STORM_SCENE_SWEEP_VARIANTS=self.arguments.variants)
+        if self.arguments.llvmpipe:
+            environment.update(LIBGL_ALWAYS_SOFTWARE='1', LP_NUM_THREADS=str(self.arguments.gl_threads))
         stdout = run / 'stdout.log'
         with open(stdout, 'wb') as output:
             engine = subprocess.Popen(
@@ -444,6 +456,7 @@ class Shard(threading.Thread):
         previous_frame = None
         metrics = {}
         fatal_checked = 0
+        render_checked = False
 
         def close(scene, reasons):
             nonlocal current, pending
@@ -471,6 +484,9 @@ class Shard(threading.Thread):
                     rest, _, renderer = rest.partition(' renderer: ')
                     values = dict(item.split('=') for item in rest.split())
                     pending += tail.collect()
+                    if not render_checked:  # the boot's lines, before the first capture (menu:main)
+                        self.check_renderer(pending)
+                        render_checked = True
                     image = read_frame(self.work / 'Xvfb_screen0', self.size)
                     variant = values.get('variant')
                     shot = Path('shots') / (current.replace(':', '/') + (f'@v{variant}' if variant else '') + '.jpg')
@@ -542,6 +558,27 @@ class Shard(threading.Thread):
         else:
             self.abnormal(current, f'crash: engine {how}', booted, close)
 
+    def check_renderer(self, lines):
+        """The engine runs the renderer the sweep asked for: Vulkan on a hardware GPU, or OpenGL ES on llvmpipe with
+        --llvmpipe. Anything else (no GPU, the Vulkan driver missing, a software Vulkan device) is a harness error:
+        the frame times and pictures of a sweep must never silently come from another renderer."""
+        text = '\n'.join(line for _, line in lines)
+        backend = RENDER_BACKEND.search(text)
+        device = RENDER_DEVICE.search(text)
+        if not backend or not device:
+            raise RuntimeError('the engine logged no renderer ("bgfx renderer=" and the program cache device) before '
+                               'its first capture')
+        render = f'{backend[1]} on {device[1]}'
+        if self.arguments.llvmpipe:
+            if backend[1] != 'OpenGL ES' or 'llvmpipe' not in device[1]:
+                raise RuntimeError(f'--llvmpipe asks for OpenGL ES on llvmpipe, the engine runs {render}')
+        elif backend[1] != 'Vulkan' or SOFTWARE_DEVICE.search(device[1]):
+            raise RuntimeError(f'the sweep renders with Vulkan on the GPU, the engine runs {render} (see '
+                               f'"render backend:" in {self.work}/run-{self.runs}/data/Akella/Sea Dogs/Logs/system.log;'
+                               f' --llvmpipe renders on the CPU)')
+        with self.context['lock']:
+            self.context['render'].add(render)
+
     def display_died(self, current):
         """The shard's X server exited under the engine: a harness failure, never the scene's."""
         log = (self.work / 'xvfb.log').read_text(errors='replace').strip().splitlines()[-3:]
@@ -611,7 +648,7 @@ def summarize(report, scenes, baseline):
     meta = report['meta']
     lines.append(f"Scene sweep {meta['started']}: {len(ran)} scenes, {len(ran) - len(failed) - len(known)} passed, "
                  f"{len(known)} known game data defects, {len(failed)} failed in {meta['wall_seconds']} s with "
-                 f"{meta['jobs']} engines")
+                 f"{meta['jobs']} engines ({meta['render'] or 'no renderer logged'})")
     lines.append('')
     lines.append(f"{'category':<24}{'scenes':>7}{'failed':>7}")
     categories = collections.Counter(scene.category for scene in ran)
@@ -638,6 +675,9 @@ def summarize(report, scenes, baseline):
         regressions = [name for name, result in results.items() if result['status'] not in ('pass', 'known') and
                        baseline['scenes'].get(name, {}).get('status') == 'pass']
         lines += ['', f'Against the baseline: {len(regressions)} scenes pass there and fail here']
+        theirs = baseline['build'].get('renderer', 'llvmpipe')  # reports before the GPU default: llvmpipe
+        if theirs != report['build']['renderer']:
+            lines.append(f"(the baseline rendered with {theirs}, this sweep with {report['build']['renderer']})")
         lines += [f'  {name}' for name in regressions]
     if known:
         lines += ['', 'KNOWN game data defects (known_defects.json; not failures, not hidden):']
@@ -674,7 +714,9 @@ def main():
         sys.exit('--out must be on the same filesystem as --game: the per-engine game copies are hard links')
     report_path = arguments.out / 'report.json'
     previous = json.loads(report_path.read_text()) if report_path.exists() else None
-    build = {'engine': file_digest(arguments.engine), 'script': file_digest(HERE / 'scene_sweep.c')}
+    # Pictures and frame times of the two renderers differ: a report of one is no previous report for the other.
+    build = {'engine': file_digest(arguments.engine), 'script': file_digest(HERE / 'scene_sweep.c'),
+             'renderer': 'llvmpipe' if arguments.llvmpipe else 'gpu'}
     chosen = select(scenes, arguments, previous, build)
     if not chosen:
         print('no scenes selected')
@@ -689,7 +731,8 @@ def main():
     done = collections.Counter()
     lock = threading.Lock()
     context = {'stop': threading.Event(), 'failed': threading.Event(), 'errors': [], 'table_mismatch': None,
-               'tables': inventory.tables(arguments.game), 'engine': engine, 'game': game_snapshot(arguments.game)}
+               'tables': inventory.tables(arguments.game), 'engine': engine, 'game': game_snapshot(arguments.game),
+               'lock': lock, 'render': set()}
 
     def progress(scene, entry):
         with lock:
@@ -704,7 +747,8 @@ def main():
                 print(f"{sum(done.values())} results, {done['fail']} failed", flush=True)
 
     context['progress'] = progress
-    print(f'{len(chosen)} scenes on {jobs} engines', flush=True)
+    print(f'{len(chosen)} scenes on {jobs} engines, rendering with '
+          + ('Mesa llvmpipe on the CPU (--llvmpipe)' if arguments.llvmpipe else 'Vulkan on the GPU'), flush=True)
     started = time.monotonic()
     shards = [Shard(index, queue, arguments, context) for index, queue in enumerate(make_shards(chosen, jobs))]
     for shard in shards:
@@ -748,7 +792,8 @@ def main():
         'meta': {'started': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
                  'wall_seconds': round(time.monotonic() - started), 'jobs': jobs, 'size': arguments.size,
                  'cores': os.cpu_count(), 'load_average': round(os.getloadavg()[0], 1),
-                 'engine': str(arguments.engine), 'game': str(arguments.game)},
+                 'engine': str(arguments.engine), 'game': str(arguments.game),
+                 'render': ' / '.join(sorted(context['render']))},
         'build': build,
         'scenes': dict(sorted(results.items())),
     }

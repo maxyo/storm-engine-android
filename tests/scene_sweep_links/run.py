@@ -37,7 +37,7 @@ def make_game(game, resource=None):
 
 
 def shard(game, techniques, engine):
-    return types.SimpleNamespace(arguments=types.SimpleNamespace(game=game, techniques=techniques),
+    return types.SimpleNamespace(arguments=types.SimpleNamespace(game=game, techniques=techniques, llvmpipe=False),
                                  size=(640, 360), queue=['loc:test'], context={'engine': engine})
 
 
