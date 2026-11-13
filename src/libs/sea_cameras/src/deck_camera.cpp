@@ -1,4 +1,5 @@
 #include "deck_camera.h"
+#include "deck_walk.hpp"
 
 #include "core.h"
 
@@ -8,6 +9,7 @@
 #include "shared/messages.h"
 
 #ifdef __ANDROID__
+#include <platform/android_deck_walk.hpp>
 #include <platform/android_spyglass.hpp>
 #endif
 
@@ -127,10 +129,6 @@ void DECK_CAMERA::Move(uint32_t DeltaTime)
     glm::mat4 rotMtx;
     storm::math::copy3x3(*&rotMtx, pathNode->glob_mtx);
     glbRotMtx = rotMtx * glbRotMtx;
-    auto cx = cosf(camera_ang.x);
-    auto sx = sinf(camera_ang.x);
-    auto cy = cosf(camera_ang.y);
-    auto sy = sinf(camera_ang.y);
     float xAng, yAng, zAng;
     auto v = storm::math::transformPoint(glbRotMtx, glm::vec3(0, 0, 1.f));
     yAng = atan2f(v.x, v.z);
@@ -147,41 +145,28 @@ void DECK_CAMERA::Move(uint32_t DeltaTime)
 
     // find out new camera position
     auto prev_pos = camera_pos;
-    auto speed0 = DeltaTime * fSensivityDistance;
+    auto speed0 = static_cast<float>(deckWalkTime(DeltaTime, core.GetRDeltaTime())) * fSensivityDistance;
     auto speed = 0.f;
-    glm::vec3 vShift;
-    vShift.x = cx * sy;
-    vShift.y = 0.f;
-    vShift.z = cx * cy;
-
-    /*glm::vec3 strafeV = glm::vec3(0.f,0.f,0.f);
-    core.Controls->GetControlState("DeckCamera_Left",cs);
-    if(cs.state == CST_ACTIVE)
-    {
-      strafeV = !(glm::vec3(0.f, -1.f, 0.f)^vShift);
-      speed=speed0;
-    }
-
-    core.Controls->GetControlState("DeckCamera_Right",cs);
-    if(cs.state == CST_ACTIVE)
-    {
-      strafeV = !(glm::vec3(0.f, 1.f, 0.f)^vShift);
-      speed=speed0;
-    }*/
-
+    // The walk: x sideways (to the right), y along the view (forward), a key all the way.
+    float walkX = 0.f, walkY = 0.f;
     core.Controls->GetControlState("DeckCamera_Forward", cs);
     if (cs.state == CST_ACTIVE)
-        speed = speed0;
-
+        walkY = 1.f;
     core.Controls->GetControlState("DeckCamera_Backward", cs);
     if (cs.state == CST_ACTIVE)
+        walkY = -1.f;
+#ifdef __ANDROID__
+    // The touch walk stick: forward, back and sideways as far as it is pushed (android_deck_walk.hpp).
+    if (const auto step = storm::android::deckWalk.read(); step && !walkY)
     {
-        speed = speed0;
-        vShift.x *= -1.f;
-        vShift.z *= -1.f;
+        walkX = step->x;
+        walkY = step->y;
     }
-
-    // vShift += strafeV;
+#endif
+    const DeckShift shift = deckWalkShift(walkX, walkY, camera_ang.x, camera_ang.y);
+    glm::vec3 vShift(shift.x, 0.f, shift.z);
+    if (walkX != 0.f || walkY != 0.f)
+        speed = speed0;
 
     if (speed != 0.f)
     {

@@ -566,6 +566,44 @@ std::string Lower(std::string text);
 // gameplay binds all four steps.
 void BuildTimeScale(Hud &hud, const Gameplay &gameplay, double scale, View &view, Input &input);
 
+// The analog sticks (the helm at sea and on the world map, the deck walk stick): how hard a
+// deflection of the stick (0…100 of its travel) pushes, 0…100. A small dead zone in the middle,
+// then a response curve, gentle near the middle and all the way at the end of the travel.
+constexpr double kStickDead = 8.0;
+int StickStrength(double deflection);
+
+// The controls a scene holds in the engine by name (android_held_controls.hpp), at sea and on
+// the world map: `hold:<gameplayRevision>\t<control>\t<0|1>[\t<strength 1…100>]`, said once per
+// change (the engine holds it until its release), each in its latest-value slot.
+class HoldSet
+{
+  public:
+    explicit HoldSet(Hud &hud) : hud_(hud)
+    {
+    }
+    // `strength` 1…100 is the analog part of a hold (how far the helm is pulled); 0 is a button.
+    void Hold(const std::string &control, bool down, int strength = 0);
+    // The helm slider's value (-100…100): `left` or `right` held as hard as it is pulled.
+    void Helm(const std::string &value, const std::string &left, const std::string &right);
+    // A hold whose gameplay is gone: the engine has let go already.
+    void Forget(const States &states);
+    // Cancelled input: every hold let go.
+    void Release(const Gameplay &gameplay);
+
+  private:
+    struct Held
+    {
+        bool down = false; // held until the pointer's up or cancel: the engine keeps it till then
+        int strength = 0;
+    };
+    void Send(const std::string &control, const Held &held, const Gameplay &gameplay);
+
+    Hud &hud_;
+    std::map<std::string, Held> held_;
+    int turn_ = 0;        // the helm as said: negative to the left, 1…100
+    std::string turning_; // the side it holds
+};
+
 // The fleet token of a ship by a word of the engine's ship model name ("Lugger" → ship-lugger).
 const char *ShipIcon(const std::string &type);
 

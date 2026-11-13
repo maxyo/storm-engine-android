@@ -3,7 +3,8 @@
 // storm). Layout scene `world-map` of hud-layout.json.
 //
 // Input goes back through the engine's entry points:
-//   hold:<gameplayRevision>\t<control>\t<0|1>    WMapShipTurnLeft/Right (helm), WMapShipSailUp/Down (lever), WMapCameraSwitch
+//   hold:<gameplayRevision>\t<control>\t<0|1>[\t<strength>]  WMapShipTurnLeft/Right (helm, strength 1…100: how far it is
+//                                                pulled), WMapShipSailUp/Down (lever), WMapCameraSwitch
 //   worldmap:<revision>\t<activity>\tack\t<mask>  which of the engine's instruments, fleet and command icon are replaced
 //   worldmap:<revision>\t<activity>\tactivate\t<command id>
 //   gameplay:<gameplayRevision>\tTimeScaleX1|X2|X4|X8   the time button (BuildTimeScale)
@@ -23,7 +24,6 @@ namespace
 
 constexpr double kIdle = 3600.0;
 constexpr double kTapSeconds = 1.5;      // a tapped command waits this long for the engine to act
-constexpr int kHelmDead = 22;            // of ±100: the helm turns the ship beyond this
 constexpr double kPi = 3.14159265358979323846;
 
 using screens::StringKey;
@@ -105,15 +105,15 @@ class WorldMapScene final : public Scene
         if (gameplay.Has("WMapCameraSwitch"))
         {
             view.elements["camera"] = Json::object();
-            input.On("camera", "down", [this](const Event &) { Hold("WMapCameraSwitch", true); });
-            input.On("camera", "up", [this](const Event &) { Hold("WMapCameraSwitch", false); });
+            input.On("camera", "down", [this](const Event &) { holds_.Hold("WMapCameraSwitch", true); });
+            input.On("camera", "up", [this](const Event &) { holds_.Hold("WMapCameraSwitch", false); });
             input.Ignore("camera", "click");
         }
         BuildTimeScale(hud_, gameplay, map ? map->time_scale : -1.0, view, input);
         if (gameplay.Has("WMapShipTurnLeft") || gameplay.Has("WMapShipTurnRight"))
         {
             view.elements["helm"] = Json::object();
-            input.On("helm", "change", [this](const Event &event) { Helm(event.value); });
+            input.On("helm", "change", [this](const Event &event) { holds_.Helm(event.value, "WMapShipTurnLeft", "WMapShipTurnRight"); });
         }
         else
             hud_.Error("world-map HUD: the engine binds no helm (WMapShipTurnLeft / WMapShipTurnRight); no helm");
@@ -144,16 +144,7 @@ class WorldMapScene final : public Scene
     double Tick(const States &states, double now) override
     {
         double next = kIdle;
-        for (auto &hold : holds_)
-        {
-            if (!hold.second.down)
-                continue;
-            if (!hud_.Interactive() || !states.gameplay.Has(hold.first))
-            {
-                hold.second.down = false;
-                continue;
-            }
-        }
+        holds_.Forget(states);
         if (!tapped_.empty())
         {
             if (now >= tapped_until_)
@@ -187,13 +178,7 @@ class WorldMapScene final : public Scene
 
     void Released(const States &states) override
     {
-        for (auto &hold : holds_)
-            if (hold.second.down)
-            {
-                hold.second.down = false;
-                SendHold(hold.first, hold.second, states.gameplay);
-            }
-        turn_ = 0;
+        holds_.Release(states.gameplay);
     }
 
     void Suspended(const States &states) override
@@ -353,51 +338,17 @@ class WorldMapScene final : public Scene
         Cover(states.world_map, 0);
     }
 
-    struct Held
-    {
-        bool down = false; // held until the pointer's up or cancel: the engine keeps it till then
-    };
-
-    void Helm(const std::string &value)
-    {
-        const int position = static_cast<int>(std::clamp(std::strtod(value.c_str(), nullptr), -100.0, 100.0));
-        const int turn = position <= -kHelmDead ? -1 : position >= kHelmDead ? 1 : 0;
-        if (turn == turn_)
-            return;
-        turn_ = turn;
-        Hold(turn < 0 ? "WMapShipTurnRight" : "WMapShipTurnLeft", false);
-        Hold(turn < 0 ? "WMapShipTurnLeft" : "WMapShipTurnRight", turn != 0);
-    }
-
     void Sails(const std::string &dir)
     {
-        Hold(dir == "up" ? "WMapShipSailDown" : "WMapShipSailUp", false);
+        holds_.Hold(dir == "up" ? "WMapShipSailDown" : "WMapShipSailUp", false);
         if (dir == "up" || dir == "down")
-            Hold(dir == "up" ? "WMapShipSailUp" : "WMapShipSailDown", true);
+            holds_.Hold(dir == "up" ? "WMapShipSailUp" : "WMapShipSailDown", true);
         else
-            Hold("WMapShipSailDown", false);
-    }
-
-    void Hold(const std::string &control, bool down)
-    {
-        const Gameplay &gameplay = hud_.Current().gameplay;
-        Held &held = holds_[control];
-        if (down && (!hud_.Interactive() || !gameplay.Has(control)))
-            down = false;
-        if (held.down == down)
-            return;
-        held.down = down;
-        SendHold(control, held, gameplay);
-    }
-
-    void SendHold(const std::string &control, Held &held, const Gameplay &gameplay)
-    {
-        hud_.Send("hold", std::to_string(gameplay.revision) + "\t" + control + "\t" + (held.down ? "1" : "0"), "hold-" + control);
+            holds_.Hold("WMapShipSailDown", false);
     }
 
     Hud &hud_;
-    std::map<std::string, Held> holds_;
-    int turn_ = 0;
+    HoldSet holds_{hud_};
     bool details_ = false;
     unsigned covered_ = 0;
     std::string covered_owner_, tapped_owner_;

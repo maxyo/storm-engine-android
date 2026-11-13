@@ -212,8 +212,12 @@ its header switch.
 
 Input goes out with `Hud::Send(verb, value, slot)`: the engine command is `<verb>:<value>`
 (`move`, `combat`, `landcommands`, `context`; at sea `hold` (held controls: helm, spyglass),
-`sails`, `gameplay`, `seaquick`, `orders`, `shiphud`, `navigator`; on the world map `hold` and `worldmap`); a `slot` marks a latest-value input (stick
-position, coverage acknowledgement) of which a queueing host keeps only the newest. Three
+`deckwalk` (the walk stick on deck), `sails`, `gameplay`, `seaquick`, `orders`, `shiphud`, `navigator`; on the world map `hold` and `worldmap`); a `slot` marks a latest-value input (stick
+position, coverage acknowledgement) of which a queueing host keeps only the newest. The sticks
+are analog (`StickStrength`: a dead zone of 8 of the travel, then a response curve): the helm
+holds its turn with a strength 1…100 (`HoldSet`, the engine's `CONTROL_STATE::fValue`, so the
+ship turns as far as the slider is pulled), the deck walk stick sends its vector, forward and
+sideways. Three
 verbs are for the platform host: `shortcut` (`mainmenu` = the game's own menu, everywhere:
 every scene and the layout `menu` where no scene draws, a cut-scene or a blocked game, have the
 one menu button; `character`) and `presence` (`shown` / `menu` (only that button) / `hidden`).

@@ -336,7 +336,9 @@ bool PCS_CONTROLS::GetControlState(int32_t control_code, CONTROL_STATE &_state_s
         {
             _state_struct.state = static_cast<CONTROL_STATE_TYPE>(combined);
             _state_struct.lValue = (combined == CST_ACTIVE || combined == CST_ACTIVATED) ? 1 : 0;
-            _state_struct.fValue = static_cast<float>(_state_struct.lValue);
+            // A held HUD control carries its analog part (the helm's deflection); a key is all the way.
+            const float strength = storm::android::heldControls.strength(pUserControls[control_code].name);
+            _state_struct.fValue = _state_struct.lValue && strength >= 0.0f ? strength : static_cast<float>(_state_struct.lValue);
             static unsigned budget = 256;
             static uint32_t loggedFrame = ~0u;
             static std::string loggedControl;
