@@ -1,5 +1,5 @@
 // The grass blades' 8-byte vertices (Grass::UpdateWindow, shaders/ports/vs_port_grass.sc), without engine
-// dependencies so tests/grass_pack checks them on every grass map of a game.
+// dependencies so tests/grass_pack (synthetic maps) and tools/game_checks/grass_pack (every map of a game) check them.
 //
 // The buffer holds a window of blocks around the camera's block. A vertex keeps the blade's place in that window in
 // 1/32 blocks (15 bits each way, the corner in the sign bits), so a window spans at most 1023 blocks whatever the map
