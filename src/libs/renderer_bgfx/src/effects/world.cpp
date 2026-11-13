@@ -22,6 +22,8 @@ constexpr float kWakeScale = 3.0f;
 constexpr float kWavesQuietSeconds = 12.0f;
 // The ripples' slope in the normal: the field's few-centimetre waves read at a phone's distance only stronger.
 constexpr float kRippleSlopeGain = 2.5f;
+// Metres one repeat of the game's foam texture (pena.tga, a photograph of churned water) covers.
+constexpr double kFoamTile = 10.0;
 
 // D3D clip space -> backend clip space, as Device::apply_ff_uniforms builds it for the fixed-function draws (without
 // depth bias): y flipped on bottom-left-origin backends, D3D's half-pixel offset, depth 0..1 -> -1..1 where the
@@ -228,7 +230,7 @@ void Host::set_sea_waves_uniforms()
 {
     if (!bgfx::isValid(u_sea_waves_))
     {
-        u_sea_waves_ = bgfx::createUniform("u_seaWaves", bgfx::UniformType::Vec4, 3);
+        u_sea_waves_ = bgfx::createUniform("u_seaWaves", bgfx::UniformType::Vec4, 4);
         u_sea_wakes_ = bgfx::createUniform("u_seaWakes", bgfx::UniformType::Vec4, 8);
         s_sea_waves_ = bgfx::createUniform("s_seaWaves", bgfx::UniformType::Sampler);
     }
@@ -245,9 +247,20 @@ void Host::set_sea_waves_uniforms()
         w[2] = 1.0f / fx::SeaWaves::kExtent;
         w[3] = settings_.sea_waves_lift ? 1.0f : 0.0f;
         w[4] = kRippleSlopeGain;
-        w[5] = 1.0f;
+        w[9] = sea_waves_.SurfaceFloat() ? 0.0f : 1.0f;
     }
+    w[5] = 1.0f; // foam: the ripples' crests and the wakes' tracks
     w[7] = fx::SeaWaves::kCell;
+    w[10] = sea_frame_.fresnel;
+    w[11] = fx::SeaWaves::kSize;
+    // The foam texture's uv at the sea's vertex origin, from the absolute world (the origin moves with the camera).
+    const auto tile_uv = [](float world) {
+        const double t = static_cast<double>(world) / kFoamTile;
+        return static_cast<float>(t - std::floor(t));
+    };
+    w[12] = tile_uv(origin[0]);
+    w[13] = tile_uv(origin[2]);
+    w[14] = static_cast<float>(1.0 / kFoamTile);
     // Kelvin wakes: the hulls under way nearest the camera.
     auto &k = sea_wakes_uniform_;
     k = {};
@@ -305,7 +318,7 @@ void Host::set_sea_waves_uniforms()
                    wakes ? "" : " (no hull under way)");
         sea_wakes_logged_ = wakes;
     }
-    bgfx::setUniform(u_sea_waves_, w.data(), 3);
+    bgfx::setUniform(u_sea_waves_, w.data(), 4);
     bgfx::setUniform(u_sea_wakes_, k.data(), 8);
     if (ripples)
         bgfx::setTexture(fx::kShadowMapStage, s_sea_waves_, sea_waves_.Surface(), BGFX_SAMPLER_UVW_CLAMP);

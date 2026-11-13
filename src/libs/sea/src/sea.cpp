@@ -1401,6 +1401,7 @@ void SEA::Realize(uint32_t dwDeltaTime)
             waves.focus = {vCamPos.x + flat.x, 0.0f, vCamPos.z + flat.z};
         }
         waves.dt = fDeltaTime;
+        waves.fresnel = fFrenel;
         waves.sources = waveSources_;
         storm::render::SetEffectsSeaFrame(waves);
 
@@ -1481,9 +1482,13 @@ void SEA::Realize(uint32_t dwDeltaTime)
             rs->SetVertexShaderConstantF(GC_FREE + 8, (const float *)&vec1, 4); // Matrix!!
 
             rs->TextureSet(0, volumeTexture);
+            // The foam texture for the waves from objects (the renderer's Sea2 pixel shader reads it only on their
+            // crests and wakes; the original shader leaves stage 1 unread).
+            rs->TextureSet(1, iFoamTexture);
             rs->TextureSet(3, envMap);
             rs->DrawIndexedPrimitiveNoVShader(D3DPT_TRIANGLELIST, iVSeaBuffer, sizeof(SeaVertex), iISeaBuffer, 0,
                                               iVStart, 0, iTStart, "Sea2");
+            rs->TextureSet(1, -1);
 
             if (fFoamK > 0.0f && bFoamEnable && bIniFoamEnable)
             {

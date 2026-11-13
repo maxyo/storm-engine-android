@@ -139,6 +139,7 @@ struct EffectsSeaFrame
     // centred there, so the ship the camera follows stays inside it.
     std::array<float, 3> focus{};
     float dt = 0.0f;                      // game seconds since the previous frame (0 while paused)
+    float fresnel = 0.75f;                // the sea's relative refractive index (Sea2.Frenel) of its vertex Fresnel
     std::span<const EffectsWaveSource> sources;
 };
 void SetEffectsSeaFrame(const EffectsSeaFrame &frame);

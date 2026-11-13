@@ -1,7 +1,7 @@
 $input v_uv
-// The surface of fx::SeaWaves for the sea shaders (shaders/include/sea_waves.sh): RGBA8, linear filtering on every
-// device. R: height (+-0.5 m), GB: slope in x / z (+-1), A: crest foam (0..1), zero at 128/255. Fades to flat
-// water at the border.
+// The surface of fx::SeaWaves for the sea shaders (shaders/include/sea_waves.sh), sampled with linear filtering:
+// R height (m), GB slope in x / z, A crest foam (0..1). RGBA16F as they are; RGBA8 (the packed state) as height
+// +-0.5 m and slopes +-1 around 128/255. Fades to flat water at the border.
 #include "fx_waves.sh"
 
 void main()
@@ -18,7 +18,10 @@ void main()
     float foam = clamp((h - 0.12) * 8.0, 0.0, 1.0) * clamp(curvature * 1.5, 0.0, 1.0);
     vec2 edge = min(v_uv, 1.0 - v_uv);
     float fade = smoothstep(0.02, 0.15, min(edge.x, edge.y));
-    // Zero is 128/255, exact in 8 bits (0.5 is not: a flat field would decode to a slight tilt everywhere).
-    gl_FragColor = vec4(clamp(h * fade + 128.0 / 255.0, 0.0, 1.0), clamp(slope * fade * 0.5 + 128.0 / 255.0, 0.0, 1.0),
-                        foam * fade);
+    if (u_wavesStep[2].z > 0.5)
+        // Zero is 128/255, exact in 8 bits (0.5 is not: a flat field would decode to a slight tilt everywhere).
+        gl_FragColor = vec4(clamp(h * fade + 128.0 / 255.0, 0.0, 1.0),
+                            clamp(slope * fade * 0.5 + 128.0 / 255.0, 0.0, 1.0), foam * fade);
+    else
+        gl_FragColor = vec4(h * fade, slope * fade, foam * fade);
 }

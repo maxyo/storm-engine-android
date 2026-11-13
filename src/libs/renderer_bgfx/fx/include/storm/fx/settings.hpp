@@ -157,7 +157,8 @@ struct Settings
     bool sea_waves = false;
     bool sea_waves_lift = false;
     bool sea_wakes = false;
-    uint8_t sea_waves_debug = 0; // 1: the sea shows the ripple slope (red), the wake slope (green), crest foam (blue)
+    uint8_t sea_waves_debug = 0; // 1: the sea shows the ripple slope (red), the wake slope (green), foam (blue);
+                                 // 2: the tilt the waves add to its normal (x red, z blue, none grey)
     uint32_t lighting_flags = kLightingNone;
     uint8_t point_lights = 4;      // per draw call with kLightingPoint: 4 or 8
     // With kLightingNormalMap: the one strength of all relief (lit models and baked surfaces alike; the texture classes
@@ -247,8 +248,10 @@ struct Support
     bool anisotropy = false;    // anisotropic texture filtering
     bool ao_volume = false;     // RGBA8 3D textures with linear filtering: Settings::ao_volume
     bool sea_waves_vertex = false; // RGBA8 textures can be sampled in a vertex shader: Settings::sea_waves_lift
-    // RG16F render targets: the ripple simulation keeps its heights in half floats; without them it packs each
-    // height into two RGBA8 channels (16-bit fixed point, logged when the simulation starts). Not a requirement.
+    // RG16F and RGBA16F render targets: the ripple simulation keeps its heights in half floats and its surface (height,
+    // slopes, foam) in RGBA16F; without them it packs each height into two RGBA8 channels (16-bit fixed point) and the
+    // surface into RGBA8 (8-bit slopes: their steps show in the reflection), logged when the simulation starts.
+    // Not a requirement.
     bool sea_waves_float = false;
 
     std::string Describe() const;

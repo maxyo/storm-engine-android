@@ -9,11 +9,13 @@
 // integration), with velocity damping, a sponge at the border and every source applied in the same pass. A hull
 // holds the water still inside its waterline (waves reflect off it) and pushes it around the waterline with its
 // speed (most at the bow) and its heave. Then a surface pass derives, per texel, the height, its gradient and a
-// crest-foam amount into an RGBA8 texture that every device samples with linear filtering, in vertex and fragment
-// shaders alike.
+// crest-foam amount into the surface texture, which the sea samples with linear filtering in its vertex shaders and
+// as a cubic B-spline (four linear taps) in its pixel shaders: the normals are smooth across the 0.5 m texels.
 //
-// The state is RG16F where it renders (Support::sea_waves_float); otherwise each height is packed into two RGBA8
-// channels as 16-bit fixed point (logged once): exact under the point sampling the passes use.
+// With Support::sea_waves_float the state is RG16F and the surface RGBA16F (height and slopes in metres, unscaled).
+// Otherwise (logged once) each height of the state is packed into two RGBA8 channels as 16-bit fixed point (exact
+// under the point sampling the passes use) and the surface is RGBA8: height +-kSurfaceHeight and slopes
+// +-kSurfaceSlope around 128/255, whose 8-bit steps (0.008 of slope) show as faint terraces in the reflection.
 #pragma once
 
 #include "storm/fx/wave_clock.hpp"
@@ -53,7 +55,7 @@ class SeaWaves
     static constexpr int kMaxSources = 16;
     static constexpr int kMaxSteps = WaveClock::kMaxSteps;
     static constexpr float kStep = WaveClock::kStep;
-    // Heights the surface texture holds: +-kSurfaceHeight metres; slopes +-kSurfaceSlope.
+    // The RGBA8 surface (no Support::sea_waves_float): heights +-kSurfaceHeight metres, slopes +-kSurfaceSlope.
     static constexpr float kSurfaceHeight = 0.5f;
     static constexpr float kSurfaceSlope = 1.0f;
 
@@ -74,9 +76,11 @@ class SeaWaves
                  bool float_state);
     // Drops the water's state (a new scene, a teleport): the next Advance starts from still water.
     void Reset();
-    // The RGBA8 surface of the last Advance (R height, GB gradient in x / z, A crest foam; see the constants above),
-    // and the absolute world x, z of its centre: uv = (world - centre) / kExtent + 0.5.
+    // The surface of the last Advance (R height, GB gradient in x / z, A crest foam; RGBA16F as they are, or RGBA8
+    // as described above when SurfaceFloat() is false), and the absolute world x, z of its centre:
+    // uv = (world - centre) / kExtent + 0.5.
     bgfx::TextureHandle Surface() const;
+    bool SurfaceFloat() const { return float_state_; }
     std::array<double, 2> Centre() const { return centre_; }
     bool Ready() const { return surface_ready_; }
     void Shutdown();

@@ -220,7 +220,7 @@ class Host
     uint32_t sea_frame_set_ = UINT32_MAX;   // submitted frame of the last set_sea_frame
     uint32_t sea_waves_frame_ = UINT32_MAX; // ... of the last simulation run
     float sea_waves_quiet_ = 0.0f;          // game seconds without a source
-    std::array<float, 12> sea_waves_uniform_{};
+    std::array<float, 16> sea_waves_uniform_{};
     int sea_wakes_logged_ = -1; // wake count last logged
     std::array<float, 32> sea_wakes_uniform_{};
     bgfx::UniformHandle u_sea_waves_ = BGFX_INVALID_HANDLE;

@@ -136,7 +136,7 @@ std::string Support::Describe() const
     text += word(ao_volume);
     text += ", vertex texture fetch (sea wave lift): ";
     text += word(sea_waves_vertex);
-    text += ", RG16F targets (sea wave heights; else packed RGBA8): ";
+    text += ", RG16F + RGBA16F targets (sea wave heights and surface; else packed RGBA8 + 8-bit surface): ";
     text += word(sea_waves_float);
     return text;
 }
@@ -344,7 +344,8 @@ Support RestrictSupport(const Support &device, CapsProfile profile)
     switch (profile)
     {
     case CapsProfile::Gles30Minimal: // R8/RG8 textures are core GLES 3.0: SMAA stays; vertex texture fetch is core
-        // RG16F renders only with EXT_color_buffer_half_float: the wave heights take the packed RGBA8 path
+        // RG16F / RGBA16F render only with EXT_color_buffer_half_float: the wave heights take the packed RGBA8 path
+        // and the ripple surface RGBA8
         s.msaa_samples = 1;
         s.msaa_depth = s.anisotropy = s.sea_waves_float = false;
         break;

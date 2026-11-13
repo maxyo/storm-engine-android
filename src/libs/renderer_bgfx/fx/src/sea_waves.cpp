@@ -45,10 +45,12 @@ void SeaWaves::Create(bool float_state)
     const bgfx::TextureFormat::Enum format = float_state ? bgfx::TextureFormat::RG16F : bgfx::TextureFormat::RGBA8;
     for (auto &state : state_)
         state = bgfx::createFrameBuffer(kSize, kSize, format, BGFX_TEXTURE_RT | kClampPoint);
-    surface_ = bgfx::createFrameBuffer(kSize, kSize, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | kClampLinear);
+    surface_ = bgfx::createFrameBuffer(kSize, kSize, float_state ? bgfx::TextureFormat::RGBA16F : bgfx::TextureFormat::RGBA8,
+                                       BGFX_TEXTURE_RT | kClampLinear);
     if (!float_state)
-        Log(LogLevel::Info, "sea waves: no RG16F render targets on this device: the wave heights are packed into "
-                            "RGBA8 (16-bit fixed point per height)");
+        Log(LogLevel::Info, "sea waves: no RG16F / RGBA16F render targets on this device: the wave heights are packed "
+                            "into RGBA8 (16-bit fixed point per height) and the ripple surface is RGBA8 (8-bit slopes: "
+                            "faint steps in the reflection)");
     float_state_ = float_state;
     reset_ = true;
     surface_ready_ = false;

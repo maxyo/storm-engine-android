@@ -19,7 +19,8 @@ void main()
     // The ripples glint in the sun road too (sea_waves.sh; the wakes only in the Sea2 pass).
     float foam, rough;
     vec3 debug;
-    vec3 N = seaWavesNormal(vec3(m1, m2, m3), v_texcoord4, length(fwidth(v_texcoord4.zw)), false, foam, rough, debug);
+    vec3 N = seaWavesNormal(vec3(m1, m2, m3), v_texcoord4, length(fwidth(v_texcoord4.zw)), false, 1.0, foam, rough,
+                            debug);
     vec4 t3 = textureCube(s_cube3, portReflect(N, eye));
     r0 = t3;                                                                // mov r0, t3
     if (u_seaWaves[2].x > 0.5)
