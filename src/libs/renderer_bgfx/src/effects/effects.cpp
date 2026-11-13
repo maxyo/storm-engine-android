@@ -91,6 +91,8 @@ const Option kOptions[] = {
      [](fx::Settings &s, int v) { s.lamp_gain = static_cast<float>(std::clamp(v, 0, 300)) / 100.0f; }},
     {"fx_lamp_baked", "0..100 %: the part of the lamp light the baked colours already hold",
      [](fx::Settings &s, int v) { s.lamp_baked = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
+    {"fx_lamp_tint", "0..100 %: the share of a lamp's own colour in the light it adds to baked surfaces",
+     [](fx::Settings &s, int v) { s.lamp_tint = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
     {"fx_lamp_model_lift", "0..100 %: lit models of an interior brighter than the room light around them",
      [](fx::Settings &s, int v) { s.lamp_model_lift = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f; }},
     {"fx_lamp_debug", "0 off, 1 every lamp in its own colour, 2 the shadow mask",

@@ -86,7 +86,8 @@ vec2 ffVisibility(vec3 P, vec3 Ng)
 // u_fxLampGrid[1]: xyz 1 / the grid's extent, w cells along x
 // u_fxLampGrid[2]: xyz the room light's corner, w > 0 = this draw takes its ambient from the room light, times w
 // u_fxLampGrid[3]: xyz 1 / the room light's extent, w 1 = 5x5 filter on the static faces
-// u_fxLampGrid[4]: x the first slot of the lights that move, y how many such slots (they are not in the grid)
+// u_fxLampGrid[4]: x the first slot of the lights that move, y how many such slots (they are not in the grid),
+//                  z the share of a lamp's own colour in what it adds to baked surfaces (the rest: the bake's tone)
 // u_fxLampGrid[5..7], [8..10]: per such slot, the rows of the turn from the world into the space of its faces
 uniform mat4 u_fxLampView;
 uniform vec4 u_fxLamps[50];
@@ -510,11 +511,15 @@ void main()
     // part of that light the bake is taken to hold (k). The AO volume occludes all of it: the room's own look stays.
     float baked = max(dot(v_color0.rgb, vec3(0.299, 0.587, 0.114)), 0.03);
     float gain = u_fxLamps[0].z;
+    // The baked colours already carry the tone the game gave its lamp light on these surfaces: the relight adds
+    // and takes light in that tone, with only a share of the lamp's own, far more saturated colour
+    // (u_fxLampGrid[4].z; with all of it a candle-lit wall goes orange-red where the game's is warm white).
+    vec3 lampTone = mix(vec3_splat(dot(lamps.rgb, vec3(0.299, 0.587, 0.114))), lamps.rgb, u_fxLampGrid[4].z);
 #ifdef FX_LIGHT_LINEAR
-    current.rgb *= aoVolume * sqrt((vec3_splat(baked * baked) + gain * gain * lamps.rgb) /
+    current.rgb *= aoVolume * sqrt((vec3_splat(baked * baked) + gain * gain * lampTone) /
                                    (baked * baked + u_fxLamps[0].w * gain * gain * lamps.a));
 #else
-    current.rgb *= aoVolume * (vec3_splat(baked) + gain * lamps.rgb) / (baked + u_fxLamps[0].w * gain * lamps.a);
+    current.rgb *= aoVolume * (vec3_splat(baked) + gain * lampTone) / (baked + u_fxLamps[0].w * gain * lamps.a);
 #endif
     current.rgb = fxLit(current.rgb, tex0.rgb, fxPointDiffuse(N, P) + ffLampMoved, vec3_splat(0.0), vec3_splat(0.0));
 #endif

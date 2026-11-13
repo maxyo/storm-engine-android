@@ -162,6 +162,9 @@ struct Settings
     // camera cast shadows, their still faces redrawn whenever they move. 0, 1 or 2.
     uint8_t lamp_moving = 0;
     float lamp_gain = 1.0f;  // the lamps' strength on baked surfaces, 1 = the chosen look (0..3)
+    // The share of a lamp's own colour in the light it adds to baked surfaces (0..1); the rest takes the tone of the
+    // baked colours, which hold the game's own, much less saturated lamp light.
+    float lamp_tint = 0.25f;
     float lamp_baked = 0.25f; // the part of that light the baked colours are taken to hold already (0..1): 1 = lamps
                              // only take light away where they are hidden, less = they also brighten what they reach
     // Indoors the lit models stand this much above the room light around them (0 = at its level): the owner wants

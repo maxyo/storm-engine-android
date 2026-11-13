@@ -94,6 +94,7 @@ void CheckSettings()
     CHECK(!original.town_light && medium.town_light && high.town_light); // Низкая keeps the game's town lightmaps
     CHECK(!medium.lamp_soft && high.lamp_soft && high.lamp_baked == 0.25f && high.lamp_gain == 1.0f && high.lamp_debug == 0);
     CHECK(medium.lamp_model_lift == 0.2f && high.lamp_model_lift == 0.2f); // the owner: characters a little above the room
+    CHECK(medium.lamp_tint == 0.25f && high.lamp_tint == 0.25f); // the owner: a quarter of the lamps' own colour on walls
     CHECK(original.lamp_moving == 0 && medium.lamp_moving == 1 && high.lamp_moving == 2); // carried lanterns, ship lanterns
     // «Средняя»: the cheap looks (tone curve, the grade of the place and hour, aerial perspective, rim light) under
     // the restrained Caribbean grade; «Высокая» adds the sun glare and sun shafts. «Низкая» has none of them.

@@ -109,6 +109,7 @@ void LampShadows::configure(const fx::Settings &settings)
     baked_ = settings.lamp_baked;
     soft_ = settings.lamp_soft;
     model_lift_ = settings.lamp_model_lift;
+    tint_ = settings.lamp_tint;
     debug_ = settings.lamp_debug;
 }
 
@@ -668,7 +669,7 @@ bool LampShadows::prepare(shim::Device &device, const std::array<float, 3> &eye,
                                 (slot.last_casters > 0 ? 1.0f : 0.0f) + (slot.moving ? 2.0f : 0.0f)};
         uniforms_[4 + 3 * s] = {slot.at.att0, slot.at.att1, slot.at.att2, slot.holder};
     }
-    grid_uniforms_[4] = {static_cast<float>(static_slots()), static_cast<float>(moving_slots_), 0.0f, 0.0f};
+    grid_uniforms_[4] = {static_cast<float>(static_slots()), static_cast<float>(moving_slots_), tint_, 0.0f};
     // Per moving slot: the turn from the world into the space of its faces (a ship's; else none).
     for (int i = 0; i < 2; ++i)
     {

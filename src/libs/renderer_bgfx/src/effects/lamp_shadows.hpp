@@ -193,6 +193,7 @@ class LampShadows
     };
     std::vector<CutOut> cut_;
     float model_lift_ = 0.0f;
+    float tint_ = 0.25f; // Settings::lamp_tint
     fx::Vec3 geometry_lo_{}, geometry_hi_{};
     fx::Vec3 room_lo_{}, room_hi_{};
     fx::LampGrid grid_;
