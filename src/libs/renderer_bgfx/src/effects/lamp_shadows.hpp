@@ -12,7 +12,8 @@
 //   * its number in the lamp grid (a small 3D texture: which slots reach which cell of the place).
 // A lamp fades in once its faces are drawn and fades out before its slot goes to another lamp.
 // The last Settings::lamp_moving slots are for the lights that move, the nearest to the camera; the receivers take
-// them without the grid, and they only add light (no bake holds theirs):
+// them without the grid, and they only add light (no bake holds theirs), as far and as strong as the game's point
+// light they stand for (its D3D range and attenuation, the fade of fxPointLight):
 //   * carried lanterns and torches (render::SetEffectsDynamicLights): their still faces are drawn again from the
 //     location's triangles around them whenever they move;
 //   * the ships' lanterns (render::SetEffectsShipLights): a lantern stands still on its ship, so its faces are in

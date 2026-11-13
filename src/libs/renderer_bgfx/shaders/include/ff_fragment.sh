@@ -197,11 +197,22 @@ void ffLampAdd(float id, vec3 Pw, vec3 Ng, vec3 N, inout vec4 sum)
         return;
     vec4 color = u_fxLamps[base + 1];
     vec4 att = u_fxLamps[base + 2];
-    float window = reach / lamp.w;
-    window = 1.0 - window * window * window * window;
+    float moving = color.w > 1.5 ? 1.0 : 0.0;
+    // A lamp of the place fades to zero at the radius it lights on the baked surfaces. A light that moves stands for
+    // one of the game's own point lights and only adds light: it reaches as that light does (fxPointLight: its D3D
+    // range, the radius here, with the same fade at its end).
+    float window;
+    if (moving > 0.5)
+        window = clamp((lamp.w - reach) / (FX_LIGHT_RANGE_FADE * lamp.w), 0.0, 1.0);
+    else
+    {
+        window = reach / lamp.w;
+        window = 1.0 - window * window * window * window;
+        window *= window;
+    }
     // The lamp is its flames and their fixture, not a point: nothing is lit from nearer than its own size.
     float d = max(reach, att.w);
-    float falloff = window * window / max(att.x + att.y * d + att.z * d * d, 1e-3);
+    float falloff = window / max(att.x + att.y * d + att.z * d * d, 1e-3);
 #ifdef FX_LIGHT_LINEAR
     falloff *= falloff; // as fxPointLight
 #endif
@@ -209,7 +220,6 @@ void ffLampAdd(float id, vec3 Pw, vec3 Ng, vec3 N, inout vec4 sum)
     vec3 rgb = fxLightColor(color.rgb);
     if (u_fxLampGrid[0].w > 0.5)
         rgb = ffLampDebugColor(slot) * dot(rgb, vec3(0.299, 0.587, 0.114));
-    float moving = color.w > 1.5 ? 1.0 : 0.0;
     // The faces of a ship's lantern are in the ship's space: the direction and the normal turn into it.
     vec3 Lf = L;
     vec3 Nf = Ng;

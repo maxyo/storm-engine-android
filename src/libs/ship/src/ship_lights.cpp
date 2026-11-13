@@ -7,6 +7,7 @@
 #include "math_inlines.h"
 #include "shared/messages.h"
 #include "ship.h"
+#include "storm/cosmetic_time.hpp"
 #include "storm/render/effects.hpp"
 
 VRenderer *ShipLights::pRS = nullptr;
@@ -405,11 +406,13 @@ void ShipLights::AddLights(VAI_OBJBASE *pObject, MODEL *pModel, bool bLights, bo
         }
         dwIdx++;
     }
+    PlaceLights();
 }
 
 void ShipLights::SetLights(VAI_OBJBASE *pObject)
 {
     if(!bLoadLights) return;
+    PlaceAndReport();
 
     uint32_t i;
     aSelectedLights.clear();
@@ -420,14 +423,6 @@ void ShipLights::SetLights(VAI_OBJBASE *pObject)
             continue;
         if (!aLights[i].bDynamicLight)
         {
-            if (aLights[i].pNode)
-            {
-                glm::vec3 vPos = aLights[i].vPos;
-                aLights[i].vCurPos = storm::math::transformPoint(aLights[i].pNode->glob_mtx, vPos);
-            }
-            else
-                aLights[i].vCurPos = storm::math::transformPoint(*(aLights[i].pObject->GetMatrix()), aLights[i].vPos);
-
             aLights[i].fCurDistance = sqrtf(storm::math::lengthSquared(pObject->GetPos() - aLights[i].vCurPos));
         }
         aLights[i].Light.Position.x = aLights[i].vCurPos.x;
@@ -468,6 +463,9 @@ void ShipLights::SetLights(VAI_OBJBASE *pObject)
 void ShipLights::Execute(uint32_t dwDeltaTime)
 {
     const float fDeltaTime = static_cast<float>(dwDeltaTime) * 0.001f;
+    // The flames' flicker is only for the eye: real time, so the time scale changes neither its speed nor its
+    // strength. Their burning out (fBrokenTime) and the cannon flashes (fCurTime) stay on game time.
+    const float fFlickerTime = storm::CosmeticDeltaSeconds(dwDeltaTime, core.GetRDeltaTime());
 
     float fFov;
     glm::vec3 vCamPos, vCamAng;
@@ -479,14 +477,6 @@ void ShipLights::Execute(uint32_t dwDeltaTime)
 
         if (L.bOff || L.bLightOff)
             continue;
-
-        if (!L.bDynamicLight)
-        {
-            if (L.pNode)
-                L.vCurPos = storm::math::transformPoint(L.pNode->glob_mtx, L.vPos);
-            else
-                L.vCurPos = storm::math::transformPoint(*(L.pObject->GetMatrix()), L.vPos);
-        }
 
         if (!L.bOff && L.bDead && L.fTotalBrokenTime <= 0.0f && pSea &&
             pSea->WaveXZ(L.vCurPos.x, L.vCurPos.x) > L.vCurPos.y)
@@ -536,35 +526,7 @@ void ShipLights::Execute(uint32_t dwDeltaTime)
 
         if (!L.bDynamicLight)
         {
-            float fIntensity = 0.0f;
-            float fKAmp = 1.0f;
-            for (uint32_t j = 0; j < 2; j++)
-            {
-                Oscillator &o = L.Osc[j];
-                o.fK += o.fStep * fDeltaTime;
-                if (o.fK >= 1.0f)
-                {
-                    if (o.fK < 2.0f)
-                    {
-                        o.fK -= 1.0f;
-                        o.fOldValue = o.fNewValue;
-                        o.fNewValue = RRnd(-o.fAmp, o.fAmp);
-                    }
-                    else
-                    {
-                        o.fK = 0.0f;
-                        o.fOldValue = RRnd(-o.fAmp, o.fAmp);
-                        o.fNewValue = RRnd(-o.fAmp, o.fAmp);
-                    }
-                }
-                const float fIns = o.fOldValue + (o.fNewValue - o.fOldValue) * o.fK;
-                fIntensity += fIns * fKAmp;
-                fKAmp -= fIns * o.fOneDivAmp;
-                if (fKAmp < 0.0f)
-                    break;
-            }
-
-            fIntensity = 1.0f + Clampf(fIntensity, -1.0f, 1.0f);
+            const float fIntensity = storm::ship::StepFlameFlicker(L.Osc, fFlickerTime);
             L.Light.Diffuse.r = L.pLT->cLightColor.r * fIntensity * fBroken;
             L.Light.Diffuse.g = L.pLT->cLightColor.g * fIntensity * fBroken;
             L.Light.Diffuse.b = L.pLT->cLightColor.b * fIntensity * fBroken;
@@ -591,8 +553,34 @@ void ShipLights::Execute(uint32_t dwDeltaTime)
             L.Light.Diffuse.b = L.pLT->cLightColor.b * fIntensity;
         }
     }
+    bPlacePending = true;
+}
 
+// The lanterns where their ships are drawn in this frame, and the effects told (ReportToEffects), once per frame
+// after Execute: at the first of SetLights (a ship or a fort about to be drawn) and Realize. Execute runs before the
+// ships move (the script puts ShipLights first in the execute layer), and the layer order does not put this entity's
+// Realize before the first draw either (at sea it came after the ships, so the lamp slots took the lanterns of the
+// frame before); every ship has moved once its first lit model is drawn.
+void ShipLights::PlaceAndReport()
+{
+    if (!bPlacePending)
+        return;
+    bPlacePending = false;
+    PlaceLights();
     ReportToEffects();
+}
+
+void ShipLights::PlaceLights()
+{
+    for (ShipLight &L : aLights)
+    {
+        if (L.bOff || L.bLightOff || L.bDynamicLight)
+            continue;
+        if (L.pNode)
+            L.vCurPos = storm::math::transformPoint(L.pNode->glob_mtx, L.vPos);
+        else
+            L.vCurPos = storm::math::transformPoint(*(L.pObject->GetMatrix()), L.vPos);
+    }
 }
 
 namespace
@@ -715,7 +703,8 @@ void ShipLights::ReportToEffects()
 // draw flares
 void ShipLights::Realize(uint32_t dwDeltaTime)
 {
-    float fDeltaTime = static_cast<float>(dwDeltaTime) * 0.001f;
+    if (!bReflection)
+        PlaceAndReport();
 
     float fFov;
     glm::vec3 vCamPos, vCamAng;

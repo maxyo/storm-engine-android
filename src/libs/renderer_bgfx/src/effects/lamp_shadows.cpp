@@ -378,7 +378,8 @@ void LampShadows::choose_moving(const std::array<float, 3> &eye)
     }
     std::vector<std::pair<float, size_t>> order;
     for (size_t i = 0; i < lights.size(); ++i)
-        if (0.299f * lights[i].lamp.color[0] + 0.587f * lights[i].lamp.color[1] + 0.114f * lights[i].lamp.color[2] > 1e-3f)
+        if (lights[i].lamp.range > 0.0f && // (a D3D light of no range lights nothing)
+            0.299f * lights[i].lamp.color[0] + 0.587f * lights[i].lamp.color[1] + 0.114f * lights[i].lamp.color[2] > 1e-3f)
             order.emplace_back(distance(lights[i].lamp.position, {eye[0], eye[1], eye[2]}), i);
     std::sort(order.begin(), order.end());
     if (order.size() > static_cast<size_t>(moving_slots_))
@@ -440,7 +441,9 @@ void LampShadows::choose_moving(const std::array<float, 3> &eye)
         const Candidate &light = lights[order[i].second];
         free->lamp = kMovingLamp;
         free->at = light.lamp;
-        free->at.range = fx::LampRadius(light.lamp, kLampFloor / std::max(gain_ * kBakedGain, 1e-3f), kLampReach);
+        // It stands for one of the game's point lights (render::SetEffectsDynamicLights / SetEffectsShipLights) and
+        // reaches as far as that light: its D3D range is the far end of its faces (ff_fragment.sh ffLampAdd).
+        free->at.range = light.lamp.range;
         free->holder = kLanternHolder;
         free->redraw = true;
         if (light.ship)
@@ -686,8 +689,8 @@ bool LampShadows::relit(const fx::Vec3 &position) const
     if (!active_)
         return false;
     for (const Slot &s : slot_)
-        // (A ship's lantern is where the ship is when the ship is drawn: a little off where it was reported.)
-        if (s.lamp == kMovingLamp && s.ready && !s.leaving && distance(s.at.position, position) < 0.5f)
+        // (A ship's lantern is reported where its ship is drawn: the same place but for the camera-relative rounding.)
+        if (s.lamp == kMovingLamp && s.ready && !s.leaving && distance(s.at.position, position) < 0.05f)
             return true;
     for (size_t j = 0; j < raw_.size(); ++j)
         if (raw_lamp_[j] >= 0 && distance(raw_[j].position, position) < 0.02f)

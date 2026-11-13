@@ -1,6 +1,7 @@
 #pragma once
 
 #include "collide.h"
+#include "flame_flicker.hpp"
 #include "renderer.h"
 #include "math_inlines.h"
 #include "sea_base.h"
@@ -56,16 +57,6 @@ class ShipLights : public IShipLights
         float fSunRoadFlareFadeDistance;
     };
 
-    struct Oscillator
-    {
-        float fStep;
-        float fAmp;
-        float fOneDivAmp;
-        float fNewValue;
-        float fOldValue;
-        float fK;
-    };
-
     struct ShipLight
     {
         VAI_OBJBASE *pObject;
@@ -77,7 +68,7 @@ class ShipLights : public IShipLights
         float fCurDistance;
         float fCurTime, fTotalTime, fUpTime;
         float fFlareAlpha, fFlareAlphaMax;
-        Oscillator Osc[2];
+        storm::ship::FlickerOscillator Osc[2];
         bool bCoronaOnly;
         bool bVisible;
         float fTotalBrokenTime, fBrokenTime;
@@ -105,6 +96,7 @@ class ShipLights : public IShipLights
     uint32_t dwMaxD3DLights;
     bool bLoadLights;
     bool bReflection;
+    bool bPlacePending = false; // Execute ran: the lanterns are placed and reported before the next draw
     float fSunRoadFlareSize;
 
     int32_t iCoronaTex, iFlareSunRoadTex;
@@ -140,6 +132,8 @@ class ShipLights : public IShipLights
 
     bool Init() override;
     void Execute(uint32_t dwDeltaTime);
+    void PlaceAndReport();
+    void PlaceLights();
     void ReportToEffects();
     void Realize(uint32_t dwDeltaTime);
     uint64_t ProcessMessage(MESSAGE &message) override;

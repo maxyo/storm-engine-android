@@ -10,11 +10,13 @@
 
 #include "lights.h"
 
+#include "flame_flicker.hpp"
 #include "light_choice.hpp"
 
 #include <cmath>
 
 #include "core.h"
+#include "storm/cosmetic_time.hpp"
 #include "storm/render/effects.hpp"
 #include "string_compare.hpp"
 
@@ -160,38 +162,15 @@ void Lights::Execute(uint32_t delta_time)
         for (int32_t i = 0; i < numTypes; i++)
             UpdateLightTypes(i);
     }
+    // The flames' flicker is only for the eye: real time, so the time scale changes neither its speed nor its strength.
+    const float seconds = storm::CosmeticDeltaSeconds(delta_time, core.GetRDeltaTime());
     for (int32_t i = 0; i < numLights; i++)
     {
-        // See what is there
         auto &l = types[lights[i].type];
         if (l.flicker == 0.0f && l.flickerSlow == 0.0f)
             continue;
-        // Updating the state
-        auto &ls = lights[i];
-        // Frequent flickering
-        ls.time += delta_time * 0.001f;
-        if (ls.time > l.p)
-        {
-            ls.time -= l.p;
-            ls.itens = (1.0f - rand() * 2.0f / RAND_MAX) * l.flicker;
-        }
-        // Smooth flickering
-        ls.timeSlow += delta_time * 0.001f;
-        auto k = ls.timeSlow * l.freqSlow;
-        if (k < 0.0f)
-            k = 0.0f;
-        if (k >= 1.0f)
-        {
-            k = 0.0f;
-            ls.timeSlow -= l.pSlow;
-            ls.itensDlt = ls.itensSlow;
-            ls.itensSlow = (1.0f - rand() * 2.0f / RAND_MAX) * l.flickerSlow;
-            ls.itensDlt = ls.itensSlow - ls.itensDlt;
-        }
-        ls.i = ls.itensSlow - ls.itensDlt + k * ls.itensDlt + ls.itens;
-        k = 1.0f + ls.i;
-        if (k < 0.0f)
-            k = 0.0f;
+        const float k = storm::location::StepFlameFlicker(lights[i].flicker, {l.flicker, l.p, l.flickerSlow, l.freqSlow, l.pSlow},
+                                                          seconds);
         lights[i].color.b = k * l.color.b;
         lights[i].color.g = k * l.color.g;
         lights[i].color.r = k * l.color.r;
@@ -297,7 +276,7 @@ void Lights::Realize(uint32_t delta_time)
         }
         alpha *= ls.corona * 255.0f;
         // Deviation coefficient
-        d = ls.i * 0.4f;
+        d = ls.flicker.i * 0.4f;
         if (d < -0.1f)
             d = -0.1f;
         if (d > 0.1f)
@@ -408,11 +387,7 @@ void Lights::AddLight(int32_t index, const glm::vec3 &pos)
     lights[numLights].pos.x = pos.x;
     lights[numLights].pos.y = pos.y;
     lights[numLights].pos.z = pos.z;
-    lights[numLights].time = 0.0f;
-    lights[numLights].itens = 0.0f;
-    lights[numLights].itensSlow = 0.0f;
-    lights[numLights].itensDlt = 0.0f;
-    lights[numLights].timeSlow = 0.0f;
+    lights[numLights].flicker = {};
     lights[numLights].type = index;
 
     // Send a message to the lighter

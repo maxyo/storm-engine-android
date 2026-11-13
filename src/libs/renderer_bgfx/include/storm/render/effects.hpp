@@ -158,8 +158,9 @@ struct EffectsLocationGeometry
 };
 void SetEffectsLocationGeometry(const EffectsLocationGeometry &geometry);
 
-// SHIP_LIGHTS, every frame at sea: the ships that carry lit lanterns and those lanterns (world space, with this
-// frame's flicker; not the flashes of the cannons). The nearest to the camera take the lamp slots of the lights that
+// SHIP_LIGHTS, every frame at sea, after the ships have moved and before the first of them is drawn: the ships that
+// carry lit lanterns and those lanterns (world space, where the ships are drawn in this frame, with this frame's
+// flicker; not the flashes of the cannons). The nearest to the camera take the lamp slots of the lights that
 // move (fx_lamp_moving). A lantern stands still on its ship, so the shadows of the ship itself (hull, masts, deck)
 // are drawn once into faces in the ship's own space and stay while the ship sails; the crew, the sails and other
 // ships cast every frame. A frame without the call has none.

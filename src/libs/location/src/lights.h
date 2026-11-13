@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "collide.h"
+#include "flame_flicker.hpp"
 #include "renderer.h"
 
 class Lights : public Entity
@@ -41,12 +42,7 @@ class Lights : public Entity
     {
         D3DCOLORVALUE color; // Current source color
         D3DVECTOR pos;       // Source position
-        float time;          // Time since last change of flickering intensity
-        float timeSlow;      // Time since the last change in the interpolated intensity
-        float itens;         // Shimmering intensity
-        float itensSlow;     // Necessary interpolated intensity
-        float itensDlt;      // Interpolated intensity difference
-        float i;             // Resulting intensity
+        storm::location::FlameFlicker flicker;
         float corona;        // Crown transparency
 
         int32_t type; // Source type index
