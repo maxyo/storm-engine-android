@@ -70,10 +70,29 @@ int main()
     assert(!held.holding("WMapShipSailDown"));
     allowed = true;
 
-    for (const auto *bad : {"", "8", "8\tShip_TurnLeft", "8\tShip_TurnLeft\t2", "x\tShip_TurnLeft\t1", "8\tShip_Fire\t1", "8\tChrForward\t1"})
+    // the analog part: the helm's deflection rides on the hold as fValue (strength / 100); a
+    // new strength changes it without restarting the activation; a plain hold is all the way
+    assert(held.strength("Ship_TurnLeft") < 0.0f);
+    assert(held.offer("8\tShip_TurnLeft\t1\t40", 1));
+    held.advance(1);
+    assert(state("Ship_TurnLeft") == 3 && held.strength("Ship_TurnLeft") == 0.4f);
+    assert(held.offer("8\tShip_TurnLeft\t1\t75", 1));
+    held.advance(1);
+    assert(state("Ship_TurnLeft") == 1 && held.strength("Ship_TurnLeft") == 0.75f);
+    assert(held.offer("8\tShip_TurnLeft\t1", 1));
+    held.advance(1);
+    assert(held.strength("Ship_TurnLeft") == 1.0f);
+    assert(held.offer("8\tShip_TurnLeft\t0", 1));
+    held.advance(1);
+    assert(state("Ship_TurnLeft") == 2 && held.strength("Ship_TurnLeft") < 0.0f);
+    held.advance(1);
+
+    for (const auto *bad : {"", "8", "8\tShip_TurnLeft", "8\tShip_TurnLeft\t2", "x\tShip_TurnLeft\t1", "8\tShip_Fire\t1", "8\tChrForward\t1",
+                            "8\tShip_TurnLeft\t1\t0", "8\tShip_TurnLeft\t1\t101", "8\tShip_TurnLeft\t1\t-5", "8\tShip_TurnLeft\t1\t", "8\tShip_TurnLeft\t0\t50",
+                            "8\tShip_TurnLeft\t1\t50\t1", "8\tDeckCamera_Forward\t1"})
         assert(!held.offer(bad, 1));
     HeldControls unguarded;
     unguarded.update(1);
     assert(!unguarded.offer("1\tShip_TurnLeft\t1", 0));
-    std::cout << "held controls: activation phases, held through silence until released, priority, revision, cancellation, guard, malformed requests PASS\n";
+    std::cout << "held controls: activation phases, held through silence until released, priority, revision, cancellation, guard, analog strength, malformed requests PASS\n";
 }

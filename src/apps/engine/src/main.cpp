@@ -36,6 +36,7 @@
 #include "shared/interface/messages.h"
 #include "platform/android_camera_zoom.hpp"
 #include "platform/android_camera_turn.hpp"
+#include "platform/android_deck_walk.hpp"
 #include "platform/android_held_controls.hpp"
 #include "platform/script_patches.hpp"
 #include "platform/android_shortcuts.hpp"
@@ -524,6 +525,10 @@ int main(int argc, char *argv[])
         return isRunning && bActive && androidLifecycle.canRun() && core_private->initialized() && core.Controls &&
             storm::android::loadingState == 0 && storm::android::mobileScreen.empty() && gameplayState.allows(control);
     };
+    // The deck walk stick acts where the gameplay binds walking on deck (first person), as its keys.
+    storm::android::deckWalk.guard = [&] {
+        return storm::android::heldControls.guard("DeckCamera_Forward") || storm::android::heldControls.guard("DeckCamera_Backward");
+    };
     storm::android::updateCombatState(gameplayState, core_private);
     storm::android::publishCombatState();
     storm::android::publishGameplayState(gameplayState.json());
@@ -563,7 +568,7 @@ int main(int argc, char *argv[])
             if(storm::android::worldMapHud.modal.ownsInput(SDL_GetTicks()) &&
                 (command.starts_with("gameplay:") || command.starts_with("shortcut:") || command.starts_with("context:") ||
                  command.starts_with("move:") || command.starts_with("combat:") || command.starts_with("sails:") ||
-                 command.starts_with("hold:") || command.starts_with("seaquick:") || command.starts_with("camera:")))continue;
+                 command.starts_with("hold:") || command.starts_with("deckwalk:") || command.starts_with("seaquick:") || command.starts_with("camera:")))continue;
             if (command.starts_with("combat:"))
             {
                 storm::android::combatInput.offer(std::string_view(command).substr(7), SDL_GetTicks(), combatDrainEpoch);
@@ -593,6 +598,10 @@ int main(int argc, char *argv[])
             else if (command.starts_with("hold:"))
             {
                 storm::android::heldControls.offer(std::string_view(command).substr(5), combatDrainEpoch);
+            }
+            else if (command.starts_with("deckwalk:"))
+            {
+                storm::android::deckWalk.offer(std::string_view(command).substr(9), combatDrainEpoch);
             }
             else if (command.starts_with("seaquick:"))
             {
@@ -783,6 +792,7 @@ int main(int argc, char *argv[])
             blocked.blocked = notReady();
             gameplayState.update(std::move(blocked));
             storm::android::heldControls.update(gameplayState.revision());
+            storm::android::deckWalk.update(gameplayState.revision());
             storm::android::updateCombatState(gameplayState, core_private);
             storm::android::publishCombatState();
             storm::android::publishGameplayState(gameplayState.json());
@@ -927,6 +937,7 @@ int main(int argc, char *argv[])
             gameplaySnapshot.movementGeneration = gameplaySnapshot.analogMovement ? storm::android::movementInput.generation() : 0;
             gameplayState.update(std::move(gameplaySnapshot));
             storm::android::heldControls.update(gameplayState.revision());
+            storm::android::deckWalk.update(gameplayState.revision());
             storm::android::seaQuickLifecycleReady = gameplayReady;
             storm::android::publishSeaQuickAction();
             storm::android::updateCombatState(gameplayState, core_private);
@@ -1000,6 +1011,7 @@ int main(int argc, char *argv[])
     storm::android::combatInput.guard = {};
     storm::android::movementInput.guard = {};
     storm::android::heldControls.guard = {};
+    storm::android::deckWalk.guard = {};
     storm::android::closeSeaOrders();
     storm::android::closeLandCommands();
     storm::android::publishLandCommands();

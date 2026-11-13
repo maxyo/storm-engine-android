@@ -10,6 +10,9 @@
 
 #include "wdm_player_ship.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "core.h"
 #include "math_inlines.h"
 
@@ -367,25 +370,20 @@ void WdmPlayerShip::Move(float dltTime)
         }
     }
     core.Controls->GetControlState("WMapShipSailDown", cs);
-    // Turns
-    auto isTurn = false;
-    core.Controls->GetControlState("WMapShipTurnLeft", cs);
-    if (cs.state == CST_ACTIVE)
-        isTurn = true;
-    core.Controls->GetControlState("WMapShipTurnLeft1", cs);
-    if (cs.state == CST_ACTIVE)
-        isTurn = true;
-    if (isTurn)
-        turnspd -= WDM_SHIP_INER_ST * WDM_SHIP_TSPEED * dltTime;
-    isTurn = false;
-    core.Controls->GetControlState("WMapShipTurnRight", cs);
-    if (cs.state == CST_ACTIVE)
-        isTurn = true;
-    core.Controls->GetControlState("WMapShipTurnRight1", cs);
-    if (cs.state == CST_ACTIVE)
-        isTurn = true;
-    if (isTurn)
-        turnspd += WDM_SHIP_INER_ST * WDM_SHIP_TSPEED * dltTime;
+    // Turns: as hard as the control is pulled (a key all the way, the touch helm by its
+    // deflection, android_held_controls.hpp); the turn speed settles proportionally to it.
+    const auto turn = [&cs](const char *control, const char *alternative) {
+        float pull = 0.0f;
+        for (const char *name : {control, alternative})
+        {
+            core.Controls->GetControlState(name, cs);
+            if (cs.state == CST_ACTIVE)
+                pull = std::max(pull, std::clamp(std::fabs(cs.fValue), 0.0f, 1.0f));
+        }
+        return pull;
+    };
+    turnspd -= WDM_SHIP_INER_ST * WDM_SHIP_TSPEED * dltTime * turn("WMapShipTurnLeft", "WMapShipTurnLeft1");
+    turnspd += WDM_SHIP_INER_ST * WDM_SHIP_TSPEED * dltTime * turn("WMapShipTurnRight", "WMapShipTurnRight1");
 }
 
 void WdmPlayerShip::Collide()

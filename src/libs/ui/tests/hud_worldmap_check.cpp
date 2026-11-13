@@ -89,10 +89,13 @@ static void CheckScene()
 
     // helm, lever, camera are held
     bench.Press("helm", "change", "70");
-    Expect(mount.Last() == "hold:9\tWMapShipTurnRight\t1", "the helm: " + mount.Last());
+    Expect(mount.Last() == "hold:9\tWMapShipTurnRight\t1\t53", "the helm, as hard as it is pulled: " + mount.Last());
+    bench.Press("helm", "change", "30");
+    Expect(mount.Last() == "hold:9\tWMapShipTurnRight\t1\t10" && !Sent(mount, "hold:9\tWMapShipTurnRight\t0"), "eased back, the same turn softer: " + mount.Last());
     bench.Press("helm", "change", "-70");
-    Expect(Sent(mount, "hold:9\tWMapShipTurnRight\t0") && mount.Last() == "hold:9\tWMapShipTurnLeft\t1", "over to the other side: " + mount.Last());
+    Expect(Sent(mount, "hold:9\tWMapShipTurnRight\t0") && mount.Last() == "hold:9\tWMapShipTurnLeft\t1\t53", "over to the other side: " + mount.Last());
     bench.Press("helm", "change", "0");
+    Expect(mount.Last() == "hold:9\tWMapShipTurnLeft\t0", "amidships: " + mount.Last());
     bench.Press("sail", "hold", "up");
     Expect(mount.Last() == "hold:9\tWMapShipSailUp\t1", "lever up: " + mount.Last());
     bench.Press("sail", "hold", "down");

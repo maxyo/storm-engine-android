@@ -2,7 +2,9 @@
 //
 // Layout scenes `sea` (sailing) and `sea-battle` (naval) of hud-layout.json. Input goes back
 // through the engine's entry points:
-//   hold:<gameplayRevision>\t<control>\t<0|1>         helm (Ship_TurnLeft / Ship_TurnRight), spyglass (TelescopeIn)
+//   hold:<gameplayRevision>\t<control>\t<0|1>[\t<strength>]  helm (Ship_TurnLeft / Ship_TurnRight, strength 1…100: how far
+//                                                    the slider is pulled), spyglass (TelescopeIn)
+//   deckwalk:<gameplayRevision>\t<x>\t<y>           the walk stick on deck: x right, y forward, -100…100 (0 0 = stop)
 //   sails:<gameplayRevision>\t<0|1|2>                 the sail lever
 //   gameplay:<gameplayRevision>\t<control>            Ship_Fire, Sea_CameraSwitch, hk_charge1…4
 //   seaquick:1\t<activity>\t<revision>\t<ack|activate>\t<0|1|action>
@@ -27,7 +29,6 @@ constexpr double kIdle = 3600.0;
 constexpr double kChoiceSeconds = 1.5;   // a tapped order waits this long for the engine to select it
 constexpr double kSailSeconds = 1.5;     // the lever shows the position asked for until the sails follow
 constexpr double kFanSeconds = 6.0;      // an untouched ammunition fan folds by itself
-constexpr int kHelmDead = 22;            // of ±100: the helm turns the ship beyond this
 
 using screens::StringKey;
 
@@ -201,20 +202,21 @@ class SeaScene final : public Scene
         if (gameplay.Has("Ship_TurnLeft") || gameplay.Has("Ship_TurnRight"))
         {
             view.elements["helm"] = Json::object();
-            input.On("helm", "change", [this](const Event &event) { Helm(event.value); });
+            input.On("helm", "change", [this](const Event &event) { holds_.Helm(event.value, "Ship_TurnLeft", "Ship_TurnRight"); });
         }
         else
             hud_.Error("sea HUD: the engine binds no helm (Ship_TurnLeft / Ship_TurnRight) in mode " + gameplay.mode + "; no helm");
 
-        // First person on deck: the move stick beside the helm walks (the deck camera only goes
-        // along the view, forward or back; turning is the look drag).
-        if (gameplay.Has("DeckCamera_Forward") || gameplay.Has("DeckCamera_Backward"))
+        // First person on deck: the floating move stick left of the guns walks, forward, back and
+        // sideways (turning is the look drag). Its zone lies under the helm and the fleet: they
+        // keep their own touches.
+        if (CanWalk(gameplay))
         {
             view.elements["walk"] = Json::object();
             input.On("walk", "change", [this](const Event &event) { Walk(event.value); });
         }
         else
-            walk_ = 0;
+            walk_ = {}; // the engine stops a walk the gameplay no longer binds (android_deck_walk.hpp)
         BuildGuns(states, ship, view, input);
         BuildTimeScale(hud_, gameplay, ship ? ship->time_scale : -1.0, view, input);
         if (fan_open_)
@@ -230,8 +232,8 @@ class SeaScene final : public Scene
         if (gameplay.Has("TelescopeIn")) // bound on deck only: the spyglass is held to the eye
         {
             view.elements["spyglass"] = Json::object();
-            input.On("spyglass", "down", [this](const Event &) { Hold("TelescopeIn", true); });
-            input.On("spyglass", "up", [this](const Event &) { Hold("TelescopeIn", false); });
+            input.On("spyglass", "down", [this](const Event &) { holds_.Hold("TelescopeIn", true); });
+            input.On("spyglass", "up", [this](const Event &) { holds_.Hold("TelescopeIn", false); });
             input.Ignore("spyglass", "click");
         }
     }
@@ -245,16 +247,9 @@ class SeaScene final : public Scene
     double Tick(const States &states, double now) override
     {
         double next = kIdle;
-        for (auto &hold : holds_)
-        {
-            if (!hold.second.down)
-                continue;
-            if (!hud_.Interactive() || !states.gameplay.Has(hold.first))
-            {
-                hold.second.down = false; // its gameplay is gone: the engine has let go already
-                continue;
-            }
-        }
+        holds_.Forget(states);
+        if ((walk_.x || walk_.y) && (!hud_.Interactive() || !CanWalk(states.gameplay)))
+            walk_ = {}; // so has the deck walk (android_deck_walk.hpp)
         const auto expire = [&](bool active, double until, const std::function<void()> &end) {
             if (!active)
                 return;
@@ -289,14 +284,12 @@ class SeaScene final : public Scene
 
     void Released(const States &states) override
     {
-        for (auto &hold : holds_)
-            if (hold.second.down)
-            {
-                hold.second.down = false;
-                SendHold(hold.first, hold.second, states.gameplay);
-            }
-        turn_ = 0;
-        walk_ = 0;
+        holds_.Release(states.gameplay);
+        if (walk_.x || walk_.y)
+        {
+            walk_ = {};
+            SendWalk(states.gameplay);
+        }
     }
 
     void Suspended(const States &states) override
@@ -620,25 +613,14 @@ class SeaScene final : public Scene
         hud_.Send("seaquick", answer, "seaquick-ack");
     }
 
-    // --- helm, sails, held buttons ---
+    // --- the walk stick on deck (the helm and held buttons: HoldSet) ---
 
-    struct Held
+    static bool CanWalk(const Gameplay &gameplay)
     {
-        bool down = false; // held until the pointer's up or cancel: the engine keeps it till then
-    };
-
-    void Helm(const std::string &value)
-    {
-        const int position = static_cast<int>(std::clamp(std::strtod(value.c_str(), nullptr), -100.0, 100.0));
-        const int turn = position <= -kHelmDead ? -1 : position >= kHelmDead ? 1 : 0;
-        if (turn == turn_)
-            return;
-        turn_ = turn;
-        // The side let go first, so that the engine never sees both held.
-        Hold(turn < 0 ? "Ship_TurnRight" : "Ship_TurnLeft", false);
-        Hold(turn < 0 ? "Ship_TurnLeft" : "Ship_TurnRight", turn != 0);
+        return gameplay.Has("DeckCamera_Forward") || gameplay.Has("DeckCamera_Backward");
     }
 
+    // The walk stick: its direction, and how far it is pushed along the stick curve.
     void Walk(const std::string &value)
     {
         const size_t comma = value.find(',');
@@ -647,32 +629,28 @@ class SeaScene final : public Scene
             hud_.Error("sea HUD: the walk stick reported '" + value + "', expected 'x,y'");
             return;
         }
-        // y grows downwards: up walks forward.
-        const double y = std::strtod(value.c_str() + comma + 1, nullptr);
-        const int walk = y <= -kHelmDead ? 1 : y >= kHelmDead ? -1 : 0;
-        if (walk == walk_)
+        const double x = std::strtod(value.c_str(), nullptr), down = std::strtod(value.c_str() + comma + 1, nullptr);
+        const double length = std::hypot(x, down);
+        const int strength = StickStrength(length);
+        Step step;
+        if (strength && hud_.Interactive() && CanWalk(hud_.Current().gameplay))
+        {
+            // y grows downwards: up walks forward.
+            step.x = static_cast<int>(std::lround(x / length * strength));
+            step.y = static_cast<int>(std::lround(-down / length * strength));
+        }
+        if (step.x == walk_.x && step.y == walk_.y)
             return;
-        walk_ = walk;
-        Hold(walk > 0 ? "DeckCamera_Backward" : "DeckCamera_Forward", false);
-        Hold(walk > 0 ? "DeckCamera_Forward" : "DeckCamera_Backward", walk != 0);
+        walk_ = step;
+        SendWalk(hud_.Current().gameplay);
     }
 
-    void Hold(const std::string &control, bool down)
+    void SendWalk(const Gameplay &gameplay)
     {
-        const Gameplay &gameplay = hud_.Current().gameplay;
-        Held &held = holds_[control];
-        if (down && (!hud_.Interactive() || !gameplay.Has(control)))
-            down = false;
-        if (held.down == down)
-            return;
-        held.down = down;
-        SendHold(control, held, gameplay);
+        hud_.Send("deckwalk", std::to_string(gameplay.revision) + "\t" + std::to_string(walk_.x) + "\t" + std::to_string(walk_.y), "deckwalk");
     }
 
-    void SendHold(const std::string &control, Held &held, const Gameplay &gameplay)
-    {
-        hud_.Send("hold", std::to_string(gameplay.revision) + "\t" + control + "\t" + (held.down ? "1" : "0"), "hold-" + control);
-    }
+    // --- sails ---
 
     void Sails(const std::string &value)
     {
@@ -963,9 +941,12 @@ class SeaScene final : public Scene
     };
     Band band_;
     // held controls
-    std::map<std::string, Held> holds_;
-    int turn_ = 0;
-    int walk_ = 0; // deck walking: 1 forward, -1 back
+    HoldSet holds_{hud_};
+    struct Step
+    {
+        int x = 0, y = 0; // the deck walk sent: right, forward, -100…100
+    };
+    Step walk_;
     // sails
     int sail_target_ = -1;
     double sail_until_ = 0.0;

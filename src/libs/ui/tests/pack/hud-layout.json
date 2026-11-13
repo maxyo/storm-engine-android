@@ -188,6 +188,17 @@
   "sea": {
    "elements": [
     {
+     "id": "walk",
+     "component": "c-stick",
+     "rcss": "position: absolute; left: 0dp; right: 328dp; bottom: 0dp; height: 224dp; max-height: 60%;",
+     "props": {
+      "kind": "move",
+      "floating": true,
+      "restLeft": 140,
+      "restBottom": 99
+     }
+    },
+    {
      "id": "fleet",
      "component": "c-fleet",
      "rcss": "position: absolute; left: 10dp; top: 10dp; width: 56dp; height: 240dp;",
@@ -291,19 +302,22 @@
      "component": "c-button",
      "rcss": "position: absolute; right: 366dp; top: 10dp; width: 48dp; height: 48dp;",
      "props": {}
-    },
-    {
-     "id": "walk",
-     "component": "c-stick",
-     "rcss": "position: absolute; left: 232dp; bottom: 27dp; width: 112dp; height: 112dp;",
-     "props": {
-      "kind": "move"
-     }
     }
    ]
   },
   "sea-battle": {
    "elements": [
+    {
+     "id": "walk",
+     "component": "c-stick",
+     "rcss": "position: absolute; left: 0dp; right: 328dp; bottom: 0dp; height: 224dp; max-height: 60%;",
+     "props": {
+      "kind": "move",
+      "floating": true,
+      "restLeft": 140,
+      "restBottom": 99
+     }
+    },
     {
      "id": "fleet",
      "component": "c-fleet",
@@ -420,14 +434,6 @@
      "component": "c-button",
      "rcss": "position: absolute; right: 168dp; bottom: 78dp; width: 44dp; height: 44dp;",
      "props": {}
-    },
-    {
-     "id": "walk",
-     "component": "c-stick",
-     "rcss": "position: absolute; left: 232dp; bottom: 27dp; width: 112dp; height: 112dp;",
-     "props": {
-      "kind": "move"
-     }
     }
    ]
   },

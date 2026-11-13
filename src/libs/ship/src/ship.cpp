@@ -1,6 +1,8 @@
 #include "ship.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <stdexcept>
 
 #include <fmt/format.h>
@@ -840,14 +842,20 @@ void SHIP::Execute(uint32_t DeltaTime)
     if (bMainCharacter && (!pAShipStopped || pAShipStopped->GetAttributeAsDword() == 0))
     {
         CONTROL_STATE cs, cs1;
+        // The rudder follows the control's analog value: a key is 1 (hard over), the touch helm
+        // its deflection (android_held_controls.hpp), so the turn rate is proportional to it.
+        const auto rudder = [](const CONTROL_STATE &a, const CONTROL_STATE &b) {
+            const auto part = [](const CONTROL_STATE &c) { return c.state == CST_ACTIVE ? std::clamp(std::fabs(c.fValue), 0.0f, 1.0f) : 0.0f; };
+            return std::max(part(a), part(b));
+        };
         core.Controls->GetControlState("Ship_TurnLeft", cs);
         core.Controls->GetControlState("Ship_TurnLeft1", cs1);
         if (cs.state == CST_ACTIVE || cs1.state == CST_ACTIVE)
-            Strength[STRENGTH_MAIN].vRotate.y = -1.0f;
+            Strength[STRENGTH_MAIN].vRotate.y = -rudder(cs, cs1);
         core.Controls->GetControlState("Ship_TurnRight", cs);
         core.Controls->GetControlState("Ship_TurnRight1", cs1);
         if (cs.state == CST_ACTIVE || cs1.state == CST_ACTIVE)
-            Strength[STRENGTH_MAIN].vRotate.y = 1.0f;
+            Strength[STRENGTH_MAIN].vRotate.y = rudder(cs, cs1);
         core.Controls->GetControlState("Ship_SailUp", cs);
         core.Controls->GetControlState("Ship_SailUp1", cs1);
         if (cs.state == CST_ACTIVATED || cs1.state == CST_ACTIVATED)

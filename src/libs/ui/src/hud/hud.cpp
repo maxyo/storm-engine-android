@@ -79,6 +79,76 @@ void BuildTimeScale(Hud &hud, const Gameplay &gameplay, double scale, View &view
     });
 }
 
+int StickStrength(double deflection)
+{
+    constexpr double kCurve = 1.6; // response exponent: half the travel past the dead zone is about a third of the push
+    const double past = (std::clamp(std::fabs(deflection), 0.0, 100.0) - kStickDead) / (100.0 - kStickDead);
+    if (past <= 0.0)
+        return 0;
+    return std::max(1, static_cast<int>(std::lround(std::pow(past, kCurve) * 100.0)));
+}
+
+void HoldSet::Hold(const std::string &control, bool down, int strength)
+{
+    const Gameplay &gameplay = hud_.Current().gameplay;
+    Held &held = held_[control];
+    if (down && (!hud_.Interactive() || !gameplay.Has(control)))
+        down = false;
+    if (!down)
+        strength = 0;
+    if (held.down == down && held.strength == strength)
+        return;
+    held.down = down;
+    held.strength = strength;
+    Send(control, held, gameplay);
+}
+
+void HoldSet::Helm(const std::string &value, const std::string &left, const std::string &right)
+{
+    const double position = std::clamp(std::strtod(value.c_str(), nullptr), -100.0, 100.0);
+    const int strength = StickStrength(position);
+    const int turn = position < 0.0 ? -strength : strength;
+    if (turn == turn_)
+        return;
+    turn_ = turn;
+    turning_ = turn < 0 ? left : turn > 0 ? right : std::string();
+    // The side let go first, so that the engine never sees both held.
+    Hold(turn < 0 ? right : left, false);
+    Hold(turn < 0 ? left : right, turn != 0, std::abs(turn));
+}
+
+void HoldSet::Forget(const States &states)
+{
+    for (auto &[control, held] : held_)
+        if (held.down && (!hud_.Interactive() || !states.gameplay.Has(control)))
+            held = {};
+    if (!turning_.empty() && !held_[turning_].down)
+    {
+        turn_ = 0; // the next pull of the helm is said again
+        turning_.clear();
+    }
+}
+
+void HoldSet::Release(const Gameplay &gameplay)
+{
+    for (auto &[control, held] : held_)
+        if (held.down)
+        {
+            held = {};
+            Send(control, held, gameplay);
+        }
+    turn_ = 0;
+    turning_.clear();
+}
+
+void HoldSet::Send(const std::string &control, const Held &held, const Gameplay &gameplay)
+{
+    std::string value = std::to_string(gameplay.revision) + "\t" + control + "\t" + (held.down ? "1" : "0");
+    if (held.down && held.strength)
+        value += "\t" + std::to_string(held.strength);
+    hud_.Send("hold", value, "hold-" + control);
+}
+
 std::string Lower(std::string text)
 {
     for (char &c : text)

@@ -210,20 +210,29 @@ static void CheckSailing()
     bench.Frame();
     Expect(!mount.Has("context") && !Sent(mount, "seaquick:1\t5\t33\tack\t1"), "no offer, no button, nothing covered");
 
-    // the helm holds a turn until it is let go
+    // the helm holds a turn as hard as it is pulled, until it is let go
+    const size_t before_helm = mount.commands.size();
+    bench.Press("helm", "change", "5");
+    Expect(mount.commands.size() == before_helm, "the dead zone in the middle turns nothing");
     bench.Press("helm", "change", "15");
-    Expect(mount.Last() != "hold:9\tShip_TurnRight\t1", "a helm near the middle turns nothing");
+    Expect(mount.Last() == "hold:9\tShip_TurnRight\t1\t2" && mount.slots.back() == "hold-Ship_TurnRight", "just off the middle a slight turn: " + mount.Last());
     bench.Press("helm", "change", "60");
-    Expect(mount.Last() == "hold:9\tShip_TurnRight\t1" && mount.slots.back() == "hold-Ship_TurnRight", "helm to starboard: " + mount.Last());
+    Expect(mount.Last() == "hold:9\tShip_TurnRight\t1\t40" && !Sent(mount, "hold:9\tShip_TurnRight\t0"),
+           "pulled further, the same hold turns harder (the curve: 60 of the travel is 40): " + mount.Last());
     bench.Frame(3.0);
-    Expect(Count(mount, "hold:9\tShip_TurnRight\t1") == 1, "a held helm is said once: the engine holds it until its release");
+    Expect(Count(mount, "hold:9\tShip_TurnRight\t1\t40") == 1, "a held helm is said once: the engine holds it until its release");
+    bench.Press("helm", "change", "100");
+    Expect(mount.Last() == "hold:9\tShip_TurnRight\t1\t100", "hard over: " + mount.Last());
     bench.Press("helm", "change", "-80");
-    Expect(Sent(mount, "hold:9\tShip_TurnRight\t0") && mount.Last() == "hold:9\tShip_TurnLeft\t1", "helm over to port: " + mount.Last());
+    Expect(Sent(mount, "hold:9\tShip_TurnRight\t0") && mount.Last() == "hold:9\tShip_TurnLeft\t1\t68", "helm over to port: " + mount.Last());
     bench.Press("helm", "change", "0");
     Expect(mount.Last() == "hold:9\tShip_TurnLeft\t0", "helm amidships: " + mount.Last());
     bench.Press("helm", "change", "100");
     bench.hud.Released();
     Expect(mount.Last() == "hold:9\tShip_TurnRight\t0", "cancelled input lets the helm go: " + mount.Last());
+    bench.Press("helm", "change", "100");
+    Expect(mount.Last() == "hold:9\tShip_TurnRight\t1\t100", "and the same pull after it is said again: " + mount.Last());
+    bench.Press("helm", "change", "0");
     const size_t held = mount.commands.size();
     bench.Frame(0.3);
     Expect(mount.commands.size() == held, "a released helm is silent");
@@ -355,12 +364,23 @@ static void CheckSailing()
     deck["capabilities"].push_back("DeckCamera_Backward");
     bench.Set("gameplay", deck);
     Expect(mount.Has("walk"), "first person on deck: the walk stick");
+    const size_t before_walk = mount.commands.size();
+    bench.Press("walk", "change", "4,-5");
+    Expect(mount.commands.size() == before_walk, "a thumb resting in the dead zone does not walk");
     bench.Press("walk", "change", "10,-70");
-    Expect(mount.Last() == "hold:11\tDeckCamera_Forward\t1", "up walks forward: " + mount.Last());
+    Expect(mount.Last() == "deckwalk:11\t8\t53" && mount.slots.back() == "deckwalk", "up walks forward, a little to the right: " + mount.Last());
+    bench.Press("walk", "change", "60,0");
+    Expect(mount.Last() == "deckwalk:11\t40\t0", "to the side it strafes, as far as it is pushed: " + mount.Last());
+    bench.Press("walk", "change", "-50,-50");
+    Expect(mount.Last() == "deckwalk:11\t-38\t38", "forward and to the left: " + mount.Last());
     bench.Press("walk", "change", "0,80");
-    Expect(Sent(mount, "hold:11\tDeckCamera_Forward\t0") && mount.Last() == "hold:11\tDeckCamera_Backward\t1", "down walks back: " + mount.Last());
+    Expect(mount.Last() == "deckwalk:11\t0\t-68", "down walks back: " + mount.Last());
     bench.Press("walk", "change", "0,0");
-    Expect(mount.Last() == "hold:11\tDeckCamera_Backward\t0", "let go: " + mount.Last());
+    Expect(mount.Last() == "deckwalk:11\t0\t0", "let go: " + mount.Last());
+    bench.Press("walk", "change", "0,-100");
+    bench.hud.Released();
+    Expect(mount.Last() == "deckwalk:11\t0\t0", "cancelled input stops the walk: " + mount.Last());
+    Expect(!Sent(mount, "hold:11\tDeckCamera_Forward\t1"), "the walk is no key any more");
     Json helmless = State("gameplay-sailing");
     helmless["revision"] = 12;
     helmless["capabilities"] = Json::array({"Ship_Fire"});
@@ -405,10 +425,10 @@ static void CheckBattle()
 
     // a helm held through sailing ↔ battle keeps turning in the new gameplay revision
     bench.Press("helm", "change", "-100");
-    Expect(mount.Last() == "hold:10\tShip_TurnLeft\t1", "helm in battle: " + mount.Last());
+    Expect(mount.Last() == "hold:10\tShip_TurnLeft\t1\t100", "helm in battle: " + mount.Last());
     bench.Feed("gameplay", "gameplay-sailing");
     bench.Frame(0.12);
-    Expect(mount.shown.layout == "sea" && !Sent(mount, "hold:10\tShip_TurnLeft\t0") && Count(mount, "hold:10\tShip_TurnLeft\t1") == 1 && !Sent(mount, "hold:9\tShip_TurnLeft\t1"),
+    Expect(mount.shown.layout == "sea" && !Sent(mount, "hold:10\tShip_TurnLeft\t0") && Count(mount, "hold:10\tShip_TurnLeft\t1\t100") == 1 && !Sent(mount, "hold:9\tShip_TurnLeft\t1\t100"),
            "the held helm carries on through the new gameplay revision (the engine keeps a taken hold)");
 }
 
@@ -569,7 +589,7 @@ static void CheckTouches(const std::string &pack)
     // the helm under one finger, the camera free, the guns under another
     host.Touch(TouchPhase::Down, 1, 120, 341);
     host.Touch(TouchPhase::Move, 1, 180, 341);
-    Expect(run.Last() == "hold:9\tShip_TurnRight\t1", "the helm turns the ship: " + run.Last());
+    Expect(run.Last() == "hold:9\tShip_TurnRight\t1\t85", "the helm turns the ship as far as the finger pulls it: " + run.Last());
     Expect(!host.WantsTouch(400, 200), "a held helm leaves the sea to the camera finger");
     host.Touch(TouchPhase::Down, 2, 746, 346);
     host.Touch(TouchPhase::Up, 2, 746, 346);
@@ -582,7 +602,7 @@ static void CheckTouches(const std::string &pack)
     Expect(run.Last() == "sails:9\t0", "… dragged down furls the sails: " + run.Last());
     host.Touch(TouchPhase::Up, 2, 760, 290);
     host.Touch(TouchPhase::Move, 1, 30, 341);
-    Expect(run.Sent("hold:9\tShip_TurnRight\t0") && run.Last() == "hold:9\tShip_TurnLeft\t1", "the helm goes over: " + run.Last());
+    Expect(run.Sent("hold:9\tShip_TurnRight\t0") && run.Last() == "hold:9\tShip_TurnLeft\t1\t100", "the helm goes over: " + run.Last());
 
     // the helm survives sailing → battle (the element is patched, not remounted)
     run.Feed("gameplay", "gameplay-naval");
@@ -625,6 +645,43 @@ static void CheckTouches(const std::string &pack)
     Expect(run.Last() == "orders:1\t6\t15\t2\tclose\t", "a tap on the scrim closes");
 }
 
+// First person on deck: the walk stick floats in the whole left part, above and beside the helm;
+// the helm and the squadron above keep their own touches (the zone lies under them).
+static void CheckDeckTouches(const std::string &pack)
+{
+    Runtime run(pack);
+    if (!run.host)
+        return;
+    Host &host = *run.host;
+    run.Feed("presentation", "presentation-game");
+    run.Feed("seaOrders", "sea-orders-idle");
+    Json deck = State("gameplay-sailing");
+    deck["capabilities"].push_back("DeckCamera_Forward");
+    deck["capabilities"].push_back("DeckCamera_Backward");
+    Expect(host.SetState("gameplay", deck.dump()), "the deck gameplay is accepted");
+    run.Feed("ship", "ship");
+    run.Frame();
+    run.Frame();
+    // The test layout (800 × 400): the walk zone 0…472 × 176…400 under the helm 20…220 × 309…373
+    // and the squadron 10…62 × 10…, a ship every 60 dp down.
+    Expect(host.WantsTouch(150, 250) && host.WantsTouch(120, 300) && host.WantsTouch(400, 380), "above and beside the helm is the walk stick's");
+    Expect(!host.WantsTouch(150, 150) && !host.WantsTouch(600, 250), "above the zone and right of it the camera looks");
+    host.Touch(TouchPhase::Down, 1, 150, 250);
+    host.Touch(TouchPhase::Move, 1, 150, 200);
+    Expect(run.Last() == "deckwalk:9\t0\t100", "the thumb above the helm walks forward: " + run.Last());
+    host.Touch(TouchPhase::Move, 1, 200, 250);
+    Expect(run.Last() == "deckwalk:9\t100\t0", "… and strafes to the right: " + run.Last());
+    host.Touch(TouchPhase::Down, 2, 120, 341);
+    host.Touch(TouchPhase::Move, 2, 180, 341);
+    Expect(run.Last() == "hold:9\tShip_TurnRight\t1\t85", "the helm keeps its own zone, beside the walking thumb: " + run.Last());
+    host.Touch(TouchPhase::Up, 2, 180, 341);
+    host.Touch(TouchPhase::Up, 1, 200, 250);
+    Expect(run.Last() == "deckwalk:9\t0\t0" && run.Sent("hold:9\tShip_TurnRight\t0"), "both let go: " + run.Last());
+    host.Touch(TouchPhase::Down, 1, 36, 206); // the fourth ship, inside the zone
+    host.Touch(TouchPhase::Up, 1, 36, 206);
+    Expect(run.Last().rfind("orders:1\t", 0) == 0, "a ship of the squadron over the zone is still tapped: " + run.Last());
+}
+
 int main(int argc, char **argv)
 {
     states_directory = argc > 1 ? argv[1] : "tests/states";
@@ -635,6 +692,7 @@ int main(int argc, char **argv)
     CheckOrders();
     CheckEmptyCategory();
     CheckTouches(pack);
+    CheckDeckTouches(pack);
     if (failures)
         std::fprintf(stderr, "%d sea HUD check(s) failed\n", failures);
     else
