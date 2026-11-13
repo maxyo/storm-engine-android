@@ -1163,6 +1163,14 @@ void SHIP::AddWaveSource(float fDeltaTime)
             source.station_half[k] = source.half_width * std::sqrt(std::max(0.0f, 1.0f - t * t));
         }
     }
+    if (!bWaterlineLogged)
+    {
+        bWaterlineLogged = true;
+        core.Trace("waves: ship %s: waterline %.1f m (stern %.1f, stem %.1f from its origin), half beam %.1f m; "
+                   "hull box %.1f x %.1f m",
+                   cShipIniName, source.stem - source.stern, source.stern, source.stem, source.half_width,
+                   State.vBoxSize.z, State.vBoxSize.x);
+    }
     source.speed = fWaveSpeed;
     source.heave = fWaveHeave;
     pSea->AddWaveSource(source);
