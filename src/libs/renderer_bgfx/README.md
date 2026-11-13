@@ -142,7 +142,13 @@ records and submits the command buffers (Vulkan), executes the backend and prese
 
 Host and Android builds compile the embedded shaders with the host `shaderc` of the pin, which the
 configure step builds once per machine into `~/.cache/storm-deps/shaderc-<key>`
-(`cmake/storm_shaderc.cmake`; `-DSTORM_SHADERC=<binary>` overrides it). Host:
+(`cmake/storm_shaderc.cmake`; `-DSTORM_SHADERC=<binary>` overrides it). Every shaderc run goes through
+`cmake/shaderc_cache.py`, a content-addressed result cache shared by all build directories and worktrees
+(`~/.cache/storm-deps/shader-cache`, `STORM_SHADER_CACHE` moves it): a variant whose shaderc, arguments,
+source, varying definition and included files (shaderc `--depends`) are unchanged is copied, not compiled.
+A fresh build directory then compiles no shader somebody already compiled (measured 2026-11-14: ~240 ->
+~23 CPU-s for the 278 runs of an Android build). `STORM_NO_SHADER_CACHE="<reason>"` turns it off, printed
+on every call; hits and misses: `<build dir>/shader-cache-stats.log`. Host:
 
 ```sh
 cmake -S . -B build/host -G Ninja -DSTORM_HOST_SOURCES=<prepared sources> -DSTORM_AUDIO_SOURCES=<audio sources>

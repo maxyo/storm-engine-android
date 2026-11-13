@@ -21,6 +21,9 @@ function(storm_fx_add_shader list_var name source)
 endfunction()
 
 function(storm_fx_build_shaders)
+    if(NOT STORM_SHADERC_LAUNCHER)
+        message(FATAL_ERROR "STORM_SHADERC_LAUNCHER is not set: include renderer_bgfx/cmake/storm_shaderc.cmake first")
+    endif()
     cmake_parse_arguments(arg "" "TARGET;NAMESPACE;VARYING" "INCLUDES;SHADERS" ${ARGN})
     set(gen_dir "${CMAKE_CURRENT_BINARY_DIR}/shaders-gen/${arg_NAMESPACE}")
     set(check_dir "${CMAKE_CURRENT_BINARY_DIR}/shaders-check/${arg_NAMESPACE}")
@@ -52,21 +55,21 @@ function(storm_fx_build_shaders)
         # list is passed as one quoted argument (shaderc expects "A;B").
         string(REPLACE "," "$<SEMICOLON>" defines "FX_SHADER,${defines}")
         set(common --type ${type} --varyingdef "${arg_VARYING}" ${include_args})
-        set(deps ${STORM_FX_SHADERC_DEPENDS} "${source}" "${arg_VARYING}" ${header_deps})
+        set(deps ${STORM_FX_SHADERC_DEPENDS} "${source}" "${arg_VARYING}" ${header_deps} "${STORM_SHADERC_LAUNCHER_SCRIPT}")
         set(output "${gen_dir}/${name}.bin.h")
         add_custom_command(OUTPUT "${output}"
-            COMMAND "${STORM_FX_SHADERC_COMMAND}" -f "${source}" -o "${output}" --bin2c "${name}"
+            COMMAND ${STORM_SHADERC_LAUNCHER} "${STORM_FX_SHADERC_COMMAND}" -f "${source}" -o "${output}" --bin2c "${name}"
                 --platform android -p ${STORM_FX_SHADER_PROFILE} -O 3 ${common} --define "${defines}"
             DEPENDS ${deps} VERBATIM)
         list(APPEND outputs "${output}")
         set(output_spirv "${gen_dir}/${name}.spv.bin.h")
         add_custom_command(OUTPUT "${output_spirv}"
-            COMMAND "${STORM_FX_SHADERC_COMMAND}" -f "${source}" -o "${output_spirv}" --bin2c "${name}_spv"
+            COMMAND ${STORM_SHADERC_LAUNCHER} "${STORM_FX_SHADERC_COMMAND}" -f "${source}" -o "${output_spirv}" --bin2c "${name}_spv"
                 --platform android -p spirv -O 3 ${common} --define "${defines}"
             DEPENDS ${deps} VERBATIM)
         list(APPEND outputs "${output_spirv}")
         add_custom_command(OUTPUT "${check_dir}/metal/${name}.bin"
-            COMMAND "${STORM_FX_SHADERC_COMMAND}" -f "${source}" -o "${check_dir}/metal/${name}.bin"
+            COMMAND ${STORM_SHADERC_LAUNCHER} "${STORM_FX_SHADERC_COMMAND}" -f "${source}" -o "${check_dir}/metal/${name}.bin"
                 --platform ios -p metal ${common} --define "${defines}"
             DEPENDS ${deps} VERBATIM)
         list(APPEND check_outputs "${check_dir}/metal/${name}.bin")

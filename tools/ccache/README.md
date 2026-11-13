@@ -67,6 +67,8 @@ instead of a cold compile.
   reuses the existing shaderc. A needed shaderc build compiles with its own build directory as
   `CCACHE_BASEDIR`, so only the files its patches change miss the cache; its build directory is
   removed afterwards (only the binary is used).
+- The shaders that binary compiles are cached like objects, by content, across build directories and
+  worktrees: `src/libs/renderer_bgfx/cmake/shaderc_cache.py` (`~/.cache/storm-deps/shader-cache`).
 
 ## Is this build warm?
 

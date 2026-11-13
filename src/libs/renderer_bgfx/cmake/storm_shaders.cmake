@@ -11,6 +11,9 @@
 # sources and varying.def.sc; see renderer_bgfx/README.md.
 set(STORM_SHADER_PRECISION_CHECK "${CMAKE_CURRENT_LIST_DIR}/shader_precision_check.py" CACHE INTERNAL "")
 function(storm_bgfx_embed_shaders)
+    if(NOT STORM_SHADERC_LAUNCHER)
+        message(FATAL_ERROR "STORM_SHADERC_LAUNCHER is not set: include renderer_bgfx/cmake/storm_shaderc.cmake first")
+    endif()
     cmake_parse_arguments(arg "" "TARGET;NAMESPACE;VARYING" "SOURCES;DEFINES;INCLUDES;VARIANTS" ${ARGN})
     set(out_dir "${CMAKE_CURRENT_BINARY_DIR}/shaders-gen/${arg_NAMESPACE}")
     file(MAKE_DIRECTORY "${out_dir}")
@@ -56,13 +59,13 @@ function(storm_bgfx_embed_shaders)
             set(define_args --define "${joined}")
         endif()
         set(common --type ${type} --platform android -O 3 --varyingdef "${arg_VARYING}" ${include_args} ${define_args})
-        set(deps ${STORM_SHADERC_DEPENDS} "${source}" "${arg_VARYING}" ${common_deps})
+        set(deps ${STORM_SHADERC_DEPENDS} "${source}" "${arg_VARYING}" ${common_deps} "${STORM_SHADERC_LAUNCHER_SCRIPT}")
         add_custom_command(OUTPUT "${output}"
-            COMMAND "${STORM_SHADERC_COMMAND}" -f "${source}" -o "${output}" --bin2c "${name}"
+            COMMAND ${STORM_SHADERC_LAUNCHER} "${STORM_SHADERC_COMMAND}" -f "${source}" -o "${output}" --bin2c "${name}"
                 -p ${STORM_BGFX_SHADER_PROFILE} ${common}
             DEPENDS ${deps} VERBATIM)
         add_custom_command(OUTPUT "${output_spirv}"
-            COMMAND "${STORM_SHADERC_COMMAND}" -f "${source}" -o "${output_spirv}" --bin2c "${name}_spv"
+            COMMAND ${STORM_SHADERC_LAUNCHER} "${STORM_SHADERC_COMMAND}" -f "${source}" -o "${output_spirv}" --bin2c "${name}_spv"
                 -p spirv ${common}
             DEPENDS ${deps} VERBATIM)
         list(APPEND outputs "${output}" "${output_spirv}")

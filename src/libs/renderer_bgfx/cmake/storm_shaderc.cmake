@@ -117,4 +117,10 @@ else()
 endif()
 message(STATUS "Host shaderc: ${storm_shaderc}")
 set(STORM_SHADERC_COMMAND "${storm_shaderc}" CACHE INTERNAL "")
+# Every shader compile runs through the content-addressed result cache shared by all build directories
+# (shaderc_cache.py; STORM_NO_SHADER_CACHE="<reason>" turns it off, loudly). Hits/misses: shader-cache-stats.log.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(STORM_SHADERC_LAUNCHER "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/shaderc_cache.py"
+    --stats "${CMAKE_BINARY_DIR}/shader-cache-stats.log" CACHE INTERNAL "")
+set(STORM_SHADERC_LAUNCHER_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/shaderc_cache.py" CACHE INTERNAL "")
 set(STORM_SHADERC_DEPENDS "${storm_shaderc}" CACHE INTERNAL "")
