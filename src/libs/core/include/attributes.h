@@ -87,6 +87,7 @@ private:
 
     void Release() const noexcept;
     ATTRIBUTES *CreateNewAttribute(uint32_t name_code);
+    void AdoptChildren() noexcept;
 
     VSTRING_CODEC &stringCodec_;
     uint32_t nameCode_{};
