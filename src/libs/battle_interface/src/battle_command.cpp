@@ -40,25 +40,30 @@ BICommandList::~BICommandList()
     Release();
 }
 
-void BICommandList::Draw()
+bool BICommandList::UpdateCooldowns()
 {
-    if (m_aCooldownUpdate.size() > 0)
+    bool updated = false;
+    const auto fDT = core.GetDeltaTime() * .001f;
+    for (int32_t n = 0; n < m_aCooldownUpdate.size(); n++)
     {
-        const auto fDT = core.GetDeltaTime() * .001f;
-        for (int32_t n = 0; n < m_aCooldownUpdate.size(); n++)
+        m_aCooldownUpdate[n].fTime -= fDT;
+        if (m_aCooldownUpdate[n].fTime < 0)
         {
-            m_aCooldownUpdate[n].fTime -= fDT;
-            if (m_aCooldownUpdate[n].fTime < 0)
-            {
-                m_aCooldownUpdate[n].fTime = m_aCooldownUpdate[n].fUpdateTime;
-                auto *pDat = core.Event("neGetCooldownFactor", "s",
-                                        m_aUsedCommand[m_aCooldownUpdate[n].nIconNum].sCommandName.c_str());
-                if (pDat)
-                    m_aUsedCommand[m_aCooldownUpdate[n].nIconNum].fCooldownFactor = pDat->GetFloat();
-                UpdateShowIcon();
-            }
+            m_aCooldownUpdate[n].fTime = m_aCooldownUpdate[n].fUpdateTime;
+            auto *pDat = core.Event("neGetCooldownFactor", "s",
+                                    m_aUsedCommand[m_aCooldownUpdate[n].nIconNum].sCommandName.c_str());
+            if (pDat)
+                m_aUsedCommand[m_aCooldownUpdate[n].nIconNum].fCooldownFactor = pDat->GetFloat();
+            UpdateShowIcon();
+            updated = true;
         }
     }
+    return updated;
+}
+
+void BICommandList::Draw()
+{
+    UpdateCooldowns();
     if (m_pImgRender)
         m_pImgRender->Render();
 

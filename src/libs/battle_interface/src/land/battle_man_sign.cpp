@@ -81,6 +81,10 @@ void BIManSign::Draw()
     }
 
 #ifdef __ANDROID__
+    // The native list is not drawn under the touch HUD; its cooldown animation still runs while
+    // the menu is open, and each step is a change of the menu the sheet shows.
+    if (IsActive() && m_pCommandList->UpdateCooldowns())
+        m_bAndroidChanged = true;
     auto *allIcons=m_pARoot ? m_pARoot->FindAClass(m_pARoot,"data.icons") : nullptr;
     auto *icons=allIcons ? allIcons->GetAttributeClass("id0") : nullptr;
     if(icons && icons->GetAttribute("health") && icons->GetAttribute("energy")) {
@@ -370,7 +374,7 @@ void BIManSign::SetActive(bool bActive)
     if (bSameActive)
         return;
     m_nCommandMode = BI_COMMODE_COMMAND_SELECT;
-    m_bMakeUpdate = true;
+    SetUpdate();
 }
 
 void BIManSign::MakeControl()
@@ -404,6 +408,9 @@ void BIManSign::MakeControl()
 
 void BIManSign::ExecuteCommand(int32_t command)
 {
+#ifdef __ANDROID__
+    m_bAndroidChanged = true;
+#endif
     switch (command)
     {
     case BI_MSG_COMMAND_ACTIVATE:

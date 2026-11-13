@@ -28,6 +28,9 @@ class BICommandList
     virtual ~BICommandList();
 
     void Draw();
+    // The original's cooldown animation: each cooling icon asks the scripts (neGetCooldownFactor)
+    // once per its own update time. True when a factor was asked again.
+    bool UpdateCooldowns();
     void Update(int32_t nTopLine, int32_t nCharacterIndex, int32_t nCommandMode);
     virtual void FillIcons() = 0;
 
