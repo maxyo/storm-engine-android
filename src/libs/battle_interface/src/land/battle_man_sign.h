@@ -5,6 +5,7 @@
 #include <platform/android_land_commands.hpp>
 #endif
 #include <string>
+#include <utility>
 #include <vector>
 
 #define MAX_MAN_QUANTITY 10
@@ -27,6 +28,9 @@ class BIManSign
     void SetUpdate()
     {
         m_bMakeUpdate = true;
+#ifdef __ANDROID__
+        m_bAndroidChanged = true;
+#endif
     }
 
     bool IsActive() const;
@@ -37,6 +41,9 @@ class BIManSign
     storm::android::LandCommandSource ReadAndroidLand(storm::android::LandCommandsFrame &frame);
     bool ExecuteAndroidLand(const storm::android::LandCommandsRequest &request);
     void CloseAndroidLand();
+    // The list changed since the last call: the scripts' update message, a new land interface,
+    // the menu opened or closed or a command executed (the touch HUD asks the scripts only then).
+    bool TakeAndroidChanged() { return std::exchange(m_bAndroidChanged, false); }
 #endif
 
   protected:
@@ -159,6 +166,9 @@ class BIManSign
     int32_t m_nCommandListVerticalOffset;
 
     bool m_bMakeUpdate;
+#ifdef __ANDROID__
+    bool m_bAndroidChanged = true;
+#endif
     bool m_bMakeVertexFill;
     bool m_bActive;
 };

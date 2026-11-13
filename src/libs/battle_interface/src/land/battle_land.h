@@ -22,6 +22,7 @@ class BATTLE_LAND_INTERFACE : public Entity
     storm::android::LandCommandSource ReadAndroidLand(storm::android::LandCommandsFrame &frame);
     bool ExecuteAndroidLand(const storm::android::LandCommandsRequest &request);
     void CloseAndroidLand();
+    bool TakeAndroidLandChanged();
 #endif
 
     void ProcessStage(Stage stage, uint32_t delta) override

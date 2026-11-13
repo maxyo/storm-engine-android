@@ -1,6 +1,5 @@
 #pragma once
 #include "android_gameplay.hpp"
-#include "android_hud_refresh.hpp"
 #include <array>
 #include <cmath>
 #include <limits>
@@ -211,24 +210,36 @@ public:
 
 };
 inline LandCommandsState landCommands;
-// What can change the command list without time passing, read natively each loop iteration
-// (android_hud_refresh.hpp). The script's own answer (dialog/officer/body targets, which
-// commands are possible) also follows the player's movement: that part is re-read per period.
-struct LandRefreshSignal
+// When the touch HUD asks the scripts for the menu again (AndroidLandRefresh, which runs the
+// original BLI_SetPossibleCommands). As in the original land interface, nothing polls: the list
+// is rebuilt when BIManSign is told it changed (BI_MSG_CARE_COMMANDLIST_UPDATE from
+// BLI_RefreshCommandMenu / LI_CareUpdateCommandList, MSG_BATTLE_LAND_START, the menu opening or
+// closing, a command executed), and right before a tap acts (executeLandCommand). Besides that
+// invalidation, only this presentation's own gating changes the published menu: readiness (a
+// dialogue, an interface, loading) and the land interface entity itself.
+class LandRefreshGate
 {
-    bool ready = false;
-    uint64_t owner = 0, player = 0, location = 0; // entity ids: a scene change or a loaded save
-    bool menuActive = false;                      // the native menu opened or closed (ComState)
-    std::string reload;                           // the reload locator the player waits in (a door)
-    bool operator==(const LandRefreshSignal &) const = default;
+    bool ready_ = false, forced_ = true;
+    uint64_t owner_ = 0;
+
+public:
+    // invalidated: the land interface's own "list changed" flag, taken this iteration.
+    bool due(bool ready, uint64_t owner, bool invalidated)
+    {
+        const bool result = forced_ || invalidated || ready != ready_ || owner != owner_;
+        ready_ = ready;
+        owner_ = owner;
+        forced_ = false;
+        return result;
+    }
+    // The menu was changed natively (closeLandCommands): the next poll asks.
+    void force() { forced_ = true; }
 };
-// 100 ms: the menu sheet and its taps follow the scripts within a few frames; a tap is
-// checked against a fresh read anyway (executeLandCommand).
-inline HudRefreshPolicy<LandRefreshSignal> landRefresh{100};
+inline LandRefreshGate landRefresh;
 // Defined by battle_interface. All entry points run on the game thread and
 // resolve the live entity on each call; no retained pointers cross a frame.
 // The main loop's entry: refreshes when landRefresh says so.
-void pollLandCommands(bool ready, uint32_t tick);
+void pollLandCommands(bool ready);
 // Asks the scripts now.
 void refreshLandCommands(bool ready);
 bool executeLandCommand(const LandCommandsRequest &request);

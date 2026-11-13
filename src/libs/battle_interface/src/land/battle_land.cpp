@@ -240,6 +240,10 @@ void BATTLE_LAND_INTERFACE::CloseAndroidLand()
 {
     if (m_pManSign) m_pManSign->CloseAndroidLand();
 }
+bool BATTLE_LAND_INTERFACE::TakeAndroidLandChanged()
+{
+    return m_pManSign && m_pManSign->TakeAndroidChanged();
+}
 namespace storm::android {
 namespace {
 BATTLE_LAND_INTERFACE *landOwner()
@@ -247,7 +251,11 @@ BATTLE_LAND_INTERFACE *landOwner()
     auto *value = static_cast<VDATA *>(core.GetScriptVariable("objLandInterface"));
     return value ? dynamic_cast<BATTLE_LAND_INTERFACE *>(core.GetEntityPointer(value->GetEntityID())) : nullptr;
 }
-std::string landOwnerKey(BATTLE_LAND_INTERFACE *battle)
+// Whose menu a tap acts on. The targets the open menu was built for (the NPC to talk to, the
+// officer, the body, the door, the item underfoot) belong to it only while the menu is open,
+// when the open menu holds the player still: a closed menu offers nothing but "open", and the
+// player walking about must not make that tap stale, since it is not re-read while walking.
+std::string landOwnerKey(BATTLE_LAND_INTERFACE *battle, bool active)
 {
     const auto player = core.GetEntityId("Player");
     auto *character = core.Entity_GetAttributePointer(player);
@@ -260,7 +268,9 @@ std::string landOwnerKey(BATTLE_LAND_INTERFACE *battle)
         const std::string v = a && a->HasValue() ? std::string(a->GetValue()) : "";
         key += ":" + std::to_string(v.size()) + ":" + v;
     };
-    for (const auto *path : {"id", "index", "dialogready", "boxname", "activeItem", "activeItem.pick"}) add(character, path);
+    for (const auto *path : {"id", "index"}) add(character, path);
+    if (!active) return key;
+    for (const auto *path : {"dialogready", "boxname", "activeItem", "activeItem.pick"}) add(character, path);
     auto *meta = battle->AttributesPointer ? battle->AttributesPointer->GetAttributeClass("AndroidLand") : nullptr;
     add(meta, "reload");
     auto *characters = static_cast<VDATA *>(core.GetScriptVariable("Characters"));
@@ -275,25 +285,12 @@ std::string landOwnerKey(BATTLE_LAND_INTERFACE *battle)
     }
     return key;
 }
-// Cheap native reads only: no script call, no string building beyond the locator's name.
-LandRefreshSignal landRefreshSignal(bool ready, BATTLE_LAND_INTERFACE *battle)
-{
-    LandRefreshSignal signal;
-    signal.ready = ready;
-    if (!battle) return signal;
-    signal.owner = battle->GetId();
-    signal.player = core.GetEntityId("Player");
-    signal.location = core.GetEntityId("location");
-    signal.menuActive = battle->AttributesPointer && battle->AttributesPointer->GetAttributeAsDword("ComState", 0);
-    const char *reload = nullptr;
-    if (auto *value = static_cast<VDATA *>(core.GetScriptVariable("chrWaitReloadLocator")); value && value->Get(reload) && reload)
-        signal.reload = reload;
-    return signal;
 }
-}
-void pollLandCommands(bool ready, uint32_t tick)
+void pollLandCommands(bool ready)
 {
-    if (landRefresh.due(tick, landRefreshSignal(ready, landOwner())))
+    auto *battle = landOwner();
+    const bool changed = battle && battle->TakeAndroidLandChanged();
+    if (landRefresh.due(ready, battle ? battle->GetId() : 0, changed))
         refreshLandCommands(ready);
 }
 void refreshLandCommands(bool ready)
@@ -313,7 +310,7 @@ void refreshLandCommands(bool ready)
         if (landCommands.releaseUnavailableSource(source)) battle->CloseAndroidLand();
         return;
     }
-    const auto key = landOwnerKey(battle);
+    const auto key = landOwnerKey(battle, frame.active);
     if (key.empty()) { traceLandAdapter(2, "empty-owner-key"); battle->CloseAndroidLand(); landCommands.update({}, {}); return; }
     const auto ownerKey = key + ":list:" + frame.ownerIdentity;
     traceLandAdapter(2, "ready owner=" + std::to_string(battle->GetId()) + " active=" + (frame.active ? "1" : "0") +
@@ -339,7 +336,7 @@ void closeLandCommands()
 {
     if (auto *battle = landOwner()) battle->CloseAndroidLand();
     landCommands.update({}, {});
-    landRefresh.force(); // the list was emptied here, not by the scripts: ask them on the next poll
+    landRefresh.force(); // the menu was emptied here, not by the scripts: ask them on the next poll
 }
 }
 #endif

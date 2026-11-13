@@ -922,8 +922,8 @@ int main(int argc, char *argv[])
             }
             {
                 STORM_PROFILE_ZONE("HUD adapter: land commands");
-                // Asks the scripts on a change signal or once per period (android_hud_refresh.hpp).
-                storm::android::pollLandCommands(storm::android::landCommandsReady(gameplayReady), SDL_GetTicks());
+                // Asks the scripts only when the land interface was told its list changed (LandRefreshGate).
+                storm::android::pollLandCommands(storm::android::landCommandsReady(gameplayReady));
                 storm::android::publishLandCommands();
                 if (const auto request = storm::android::landCommands.take(SDL_GetTicks())) {
                     storm::android::executeLandCommand(*request);
@@ -970,13 +970,13 @@ int main(int argc, char *argv[])
                 storm::android::worldMapHud.update(storm::android::readWorldMapFrame(gameplayState,gameplayReady),SDL_GetTicks());
                 storm::android::publishWorldMapHud();
             }
-            storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, SDL_GetTicks(), storm::android::seaOrders.frame().active));
+            storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, storm::android::seaOrders.frame().active));
             // Activity recreation revokes pending targets/ready ACKs before dispatch.
             storm::android::publishShipTelemetry();
             if (const auto detent = storm::android::shipTelemetry.takeSails(SDL_GetTicks()))
                 if (storm::android::applyShipSailTarget(gameplayState, *detent))
                 {
-                    storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, SDL_GetTicks(), storm::android::seaOrders.frame().active));
+                    storm::android::shipTelemetry.update(gameplayState.revision(), storm::android::readShipFrame(gameplayState, storm::android::seaOrders.frame().active));
                     storm::android::publishShipTelemetry();
                 }
             static uint32_t lastMobileState = 0;
