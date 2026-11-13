@@ -68,3 +68,11 @@ target_include_directories(cutout_caster_check PRIVATE "${CMAKE_CURRENT_LIST_DIR
 target_compile_definitions(cutout_caster_check PRIVATE NOMINMAX)
 target_compile_options(cutout_caster_check PRIVATE -fsigned-char)
 target_link_libraries(cutout_caster_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
+
+# sea_edge_check: the sea's soft edges (fs_port_sea2 + fx::SeaDepth, «Высокая») next to an object in front of the sea,
+# through the shim on OpenGL ES (an X display, like skinning_check): no water is faded where nothing lies under it.
+add_executable(sea_edge_check sea_edge_check.cpp)
+target_include_directories(sea_edge_check PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../src/libs/renderer_bgfx/src/shim")
+target_compile_definitions(sea_edge_check PRIVATE NOMINMAX)
+target_compile_options(sea_edge_check PRIVATE -fsigned-char)
+target_link_libraries(sea_edge_check PRIVATE storm_bgfx "${STORM_SDL_RUNTIME}")
