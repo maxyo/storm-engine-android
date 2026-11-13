@@ -72,9 +72,11 @@ int main()
         assert(hudPresenters.declare("sea"));
         silent.update(frame("Moor"));
         assert(silent.awaiting() && silent.covered(19));
-        assert(!hudPresenters.watch("sea", silent.awaiting(), 1000));
-        assert(!hudPresenters.watch("sea", silent.awaiting(), 1000 + HudPresenters::kSilentMs - 1) && silent.covered(19));
-        const auto line = hudPresenters.watch("sea", silent.awaiting(), 1000 + HudPresenters::kSilentMs);
+        // Frames of 10 ms: the watch counts frame time, so kSilentMs takes kSilentMs / 10 frames.
+        uint32_t tick = 1000;
+        for (uint32_t i = 0; i < HudPresenters::kSilentMs / 10; ++i, tick += 10)
+            assert(!hudPresenters.watch("sea", silent.awaiting(), tick) && silent.covered(19));
+        const auto line = hudPresenters.watch("sea", silent.awaiting(), tick);
         assert(line && line->find("HUD presenter sea withdrawn") != std::string::npos && line->find("legacy HUD is back") != std::string::npos);
         assert(!hudPresenters.sea && !silent.covered(19)); // native back
         assert(!hudPresenters.watch("sea", silent.awaiting(), 60000)); // said once
@@ -83,8 +85,10 @@ int main()
         // Answers in time reset the watch; a UI runtime failure reported by the host withdraws at once.
         assert(hudPresenters.declare("sea"));
         silent.update(frame("Board"));
-        assert(!hudPresenters.watch("sea", true, 100) && !hudPresenters.watch("sea", false, 9000) && !hudPresenters.watch("sea", true, 9500));
-        assert(!hudPresenters.watch("sea", true, 9500 + HudPresenters::kSilentMs - 1));
+        tick = 100;
+        for (uint32_t i = 0; i < HudPresenters::kSilentMs / 20; ++i, tick += 10) assert(!hudPresenters.watch("sea", true, tick));
+        assert(!hudPresenters.watch("sea", false, tick)); // answered: the silence starts again
+        for (uint32_t i = 0; i < HudPresenters::kSilentMs / 10; ++i, tick += 10) assert(!hudPresenters.watch("sea", true, tick));
         assert(hudPresenters.lost().find("UI runtime failed") != std::string::npos && !hudPresenters.sea && silent.awaiting() && !silent.covered(19));
         assert(hudPresenters.lost().empty()); // nothing left to lose: no second line
     }

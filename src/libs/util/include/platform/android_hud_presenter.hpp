@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -33,19 +34,28 @@ namespace storm::android
 // carry what the engine needs (the navigator aperture, the quick action's authority to
 // activate, the orders panel) and prove the UI alive. The way back to the legacy HUD is
 // explicit: a UI runtime failure reported by the platform host ("hudowner:lost"), or a UI that
-// leaves a revision unanswered for kSilentMs of engine time (an answer only waits for one UI
-// frame): the declaration is withdrawn loudly and the legacy HUD returns.
+// leaves a revision unanswered for kSilentMs of frame time (an answer only waits for one UI
+// frame): the declaration is withdrawn loudly and the legacy HUD returns. Silence is counted in
+// frames that ran, each at most kFrameMs: time in which no frame ran (the app in the background,
+// lost focus, a long load) gave the UI no frame to answer in and is not its silence.
 struct HudPresenters
 {
     static constexpr uint32_t kSilentMs = 10000;
+    static constexpr uint32_t kFrameMs = 100; // the most one frame adds to a silence
+    // An unanswered revision of one presented HUD: the tick of the last frame that watched it and
+    // the frame time it has been waiting; frames = 0 means none is waiting.
+    struct Silence
+    {
+        uint32_t last = 0, ms = 0, frames = 0;
+    };
     bool land = false, sea = false, worldMap = false, spyglass = false;
-    uint32_t seaSince = 0, worldMapSince = 0, spyglassSince = 0; // engine tick a revision began waiting; 0 = none
+    Silence seaSilence, worldMapSilence, spyglassSilence;
     bool declare(std::string_view hud)
     {
         if (hud == "land") return land = true;
-        if (hud == "sea") { seaSince = 0; return sea = true; }
-        if (hud == "worldmap") { worldMapSince = 0; return worldMap = true; }
-        if (hud == "spyglass") { spyglassSince = 0; return spyglass = true; }
+        if (hud == "sea") { seaSilence = {}; return sea = true; }
+        if (hud == "worldmap") { worldMapSilence = {}; return worldMap = true; }
+        if (hud == "spyglass") { spyglassSilence = {}; return spyglass = true; }
         return false;
     }
     // Legacy HUD layers shared by every mode (perk icons, log lines, timers): off while the UI
@@ -55,21 +65,24 @@ struct HudPresenters
     std::string lost()
     {
         const bool had = any();
-        land = sea = worldMap = spyglass = false; seaSince = worldMapSince = spyglassSince = 0;
+        land = sea = worldMap = spyglass = false; seaSilence = worldMapSilence = spyglassSilence = {};
         return had ? "HUD presenter lost: the UI runtime failed; the legacy HUD is back" : std::string();
     }
-    // Called every engine frame with whether a presented HUD has a revision the UI has not
-    // answered. Returns the error line to log when the UI stays silent and is withdrawn.
+    // Called once per frame that ran, with whether a presented HUD has a revision the UI has not
+    // answered and the engine tick of that frame. Returns the error line to log when the UI stays
+    // silent through kSilentMs of frame time and is withdrawn.
     std::optional<std::string> watch(std::string_view hud, bool waiting, uint32_t tick)
     {
         bool &declared = hud == "sea" ? sea : hud == "worldmap" ? worldMap : spyglass;
-        uint32_t &since = hud == "sea" ? seaSince : hud == "worldmap" ? worldMapSince : spyglassSince;
-        if (!declared || !waiting) { since = 0; return std::nullopt; }
-        if (!since) { since = tick ? tick : 1; return std::nullopt; }
-        if (tick - since < kSilentMs) return std::nullopt;
-        declared = false; since = 0;
+        Silence &silence = hud == "sea" ? seaSilence : hud == "worldmap" ? worldMapSilence : spyglassSilence;
+        if (!declared || !waiting) { silence = {}; return std::nullopt; }
+        if (silence.frames++) silence.ms += std::min(tick - silence.last, kFrameMs);
+        silence.last = tick;
+        if (silence.ms < kSilentMs) return std::nullopt;
+        const uint32_t frames = silence.frames;
+        declared = false; silence = {};
         return "HUD presenter " + std::string(hud) + " withdrawn: the UI left a revision unanswered for " +
-            std::to_string(kSilentMs) + " ms; its legacy HUD is back";
+            std::to_string(kSilentMs) + " ms of frame time (" + std::to_string(frames) + " frames); its legacy HUD is back";
     }
 };
 inline HudPresenters hudPresenters;

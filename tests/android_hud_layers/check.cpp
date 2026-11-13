@@ -25,7 +25,32 @@ int main()
     // Without the touch HUD every legacy layer draws.
     hudPresenters.lost();
     assert(!legacyDrawRefused("ship bars", hudPresenters.sea) && !legacyDrawRefused("sea interface", hudPresenters.sea));
+    // The watchdog counts frame time. A revision changes in the last frame before the app goes to
+    // the background for 15 s; the first frame after the resume is still waiting (the UI has had no
+    // frame to answer in): the presenter stays, and the UI's answer in the next frame ends the wait.
+    assert(hudPresenters.declare("sea"));
+    uint32_t tick = 100000;
+    assert(!hudPresenters.watch("sea", true, tick));
+    tick += 15000;
+    assert(!hudPresenters.watch("sea", true, tick) && hudPresenters.sea && legacyDrawRefused("sea interface", hudPresenters.sea));
+    assert(!hudPresenters.watch("sea", false, tick += 16) && hudPresenters.sea);
+    // Pauses never add up: a revision outstanding over several 15 s backgrounds keeps the presenter.
+    for (int pause = 0; pause < 20; ++pause)
+        assert(!hudPresenters.watch("sea", true, tick += 15000) && hudPresenters.sea);
+    hudPresenters.watch("sea", false, tick);
+    // A real stall, frames running and the UI silent: withdrawn after kSilentMs of frame time, at
+    // 60 fps and at a slow 5 fps (each long frame counts kFrameMs).
+    for (const uint32_t frameMs : {16u, 200u})
+    {
+        assert(hudPresenters.declare("sea"));
+        const uint32_t frames = (HudPresenters::kSilentMs + std::min(frameMs, HudPresenters::kFrameMs) - 1) / std::min(frameMs, HudPresenters::kFrameMs);
+        std::optional<std::string> line;
+        uint32_t ran = 0;
+        for (; !line && ran <= frames + 1; ++ran) line = hudPresenters.watch("sea", true, tick += frameMs);
+        assert(line && ran == frames + 1 && !hudPresenters.sea && !legacyDrawRefused("sea interface", hudPresenters.sea));
+        assert(line->find("HUD presenter sea withdrawn") != std::string::npos && line->find("frame time") != std::string::npos);
+    }
     for (const auto &layer : kLegacyLayers)
         assert(legacyLayer(layer.name) == &layer);
-    std::cout << "PASS hud layers: world-space ship bars and pointer shown at sea under the touch HUD, HUD panels refused (world map instruments and fleet too), unclassified refused\n";
+    std::cout << "PASS hud layers: world-space ship bars and pointer shown at sea under the touch HUD, HUD panels refused (world map instruments and fleet too), unclassified refused; the presenter watchdog counts frame time (15 s backgrounds never withdraw, a stall with frames does)\n";
 }

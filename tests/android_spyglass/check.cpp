@@ -38,10 +38,11 @@ int main()
     s.turn(true);
     assert(s.generation() == 3 && !s.covered() && s.awaiting() && !s.acknowledge("1\t1"));
     // A presenting UI: an unanswered raise keeps the native info off; a silent UI is withdrawn
-    // loudly after HudPresenters::kSilentMs of engine time and the native info comes back.
+    // loudly after HudPresenters::kSilentMs of frame time and the native info comes back.
     assert(hudPresenters.declare("spyglass") && s.covered());
-    assert(!hudPresenters.watch("spyglass", s.awaiting(), 500));
-    const auto line = hudPresenters.watch("spyglass", s.awaiting(), 500 + HudPresenters::kSilentMs);
+    uint32_t tick = 500;
+    for (uint32_t i = 0; i < HudPresenters::kSilentMs / 50; ++i, tick += 50) assert(!hudPresenters.watch("spyglass", s.awaiting(), tick));
+    const auto line = hudPresenters.watch("spyglass", s.awaiting(), tick);
     assert(line && line->find("HUD presenter spyglass withdrawn") != std::string::npos && !s.covered());
     assert(s.acknowledge("3\t1") && s.covered()); // a late answer still covers
     s.clear();
