@@ -13,6 +13,7 @@
 #include "runtime_stub.h"
 #include "storm_ui/ui.h"
 
+#include <algorithm>
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/Transform.h>
 #include <RmlUi/Core/TransformPrimitive.h>
@@ -219,6 +220,8 @@ int main(int argc, char **argv)
     config.width = 800;
     config.height = 400;
     config.clock = [&clock] { return clock; };
+    std::vector<std::pair<LogLevel, std::string>> logged;
+    config.on_log = [&logged](LogLevel level, const std::string &line) { logged.emplace_back(level, line); };
     config.on_action = [&clicks, &sounds](const Action &action) {
         if (action.screen == "sound")
         {
@@ -359,6 +362,22 @@ int main(int argc, char **argv)
     Expect(drawing(0.0, 0.18), "its exit keeps frames coming");
     frames(0.2);
     Expect(!host->Prepare(delay) && delay > 0.2, "after the exit has run the toast is gone and frames stop");
+
+    // Nothing reaches the screen without a line in the log (Config::on_log: the engine's log files), with where
+    // it came from; what is shown as an error is logged as one (error.log).
+    const auto wasLogged = [&logged](LogLevel level, const std::string &line) {
+        return std::find(logged.begin(), logged.end(), std::make_pair(level, line)) != logged.end();
+    };
+    Expect(wasLogged(LogLevel::Info, "shown ok (toast): Saved"), "a toast is logged");
+    host->Toast("Cannot save", "danger");
+    host->Toast("Gone", "warn");
+    host->GameMessage("Gold +100", "items");
+    host->AlertString("press.alert");
+    Expect(wasLogged(LogLevel::Error, "shown danger (toast): Cannot save"), "a danger toast is an error line");
+    Expect(wasLogged(LogLevel::Warning, "shown warn (toast): Gone"), "a warning toast is a warning line");
+    Expect(wasLogged(LogLevel::Info, "shown info (game log, opens items): Gold +100"), "a game log line, with where a tap leads");
+    Expect(wasLogged(LogLevel::Error, "shown danger (alert press.alert): press.alert"), "an alert of a string names its key");
+    frames(8.0);
 
     // A document opened by the platform and tapped before any frame laid it out: the tap
     // waits for that layout and then presses what is under it.

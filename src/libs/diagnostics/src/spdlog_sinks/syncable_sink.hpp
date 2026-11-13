@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mutex>
+
 #include <spdlog/common.h>
 #include <spdlog/details/log_msg.h>
 #include <spdlog/sinks/sink.h>
@@ -32,6 +34,10 @@ class syncable_sink final : public spdlog::sinks::sink
     void terminate_immediately();
 
   protected:
+    // Several loggers write one file (every logger's errors go to error.log, logging.cpp) from any thread, and
+    // the logging thread flushes meanwhile. sync() and terminate_immediately() do not lock: the crash handler
+    // calls them, possibly while the crashed thread holds the lock.
+    std::mutex mutex_;
     std::unique_ptr<spdlog::formatter> formatter_;
     details::file_helper file_helper_;
 };

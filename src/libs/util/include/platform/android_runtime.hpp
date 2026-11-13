@@ -40,22 +40,37 @@ struct StoragePaths
     std::filesystem::path user;
 };
 
-// The launcher may select an existing shared-storage folder; user data stays private.
-inline StoragePaths storagePaths(const char *internal, const char *external,
-                                 const std::filesystem::path &selectedGame = {})
+// The player's private data (saves, options, logs): known before any game folder is, so the logs open before the
+// game folder is checked and its failure is logged.
+inline std::filesystem::path userDirectory(const char *internal)
 {
     if (!internal || !*internal)
         throw std::runtime_error("Android internal storage is unavailable");
     const std::filesystem::path privateRoot(internal);
+    if (!privateRoot.is_absolute())
+        throw std::runtime_error("Android storage roots must be absolute");
+    return privateRoot / "storm";
+}
+
+// The launcher may select an existing shared-storage folder; user data stays private.
+inline StoragePaths storagePaths(const char *internal, const char *external,
+                                 const std::filesystem::path &selectedGame = {})
+{
+    const auto user = userDirectory(internal);
     const std::filesystem::path dataRoot(external && *external ? external : internal);
-    if (!privateRoot.is_absolute() || !dataRoot.is_absolute())
+    if (!dataRoot.is_absolute())
         throw std::runtime_error("Android storage roots must be absolute");
     if (!selectedGame.empty() && !selectedGame.is_absolute())
         throw std::runtime_error("Selected game directory must be absolute");
-    return {selectedGame.empty() ? dataRoot / "game" : selectedGame, privateRoot / "storm"};
+    return {selectedGame.empty() ? dataRoot / "game" : selectedGame, user};
 }
 
 #ifdef __ANDROID__
+inline std::filesystem::path userDirectory()
+{
+    return userDirectory(SDL_AndroidGetInternalStoragePath());
+}
+
 inline StoragePaths storagePaths()
 {
     auto *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());

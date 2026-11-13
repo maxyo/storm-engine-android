@@ -134,6 +134,7 @@ class System final : public Rml::SystemInterface
 {
   public:
     std::function<double()> clock;
+    std::function<void(LogLevel, const std::string &)> sink;
 
     double GetElapsedTime() override
     {
@@ -154,6 +155,11 @@ class System final : public Rml::SystemInterface
 #else
         std::fprintf(stderr, "[ui %d] %s\n", static_cast<int>(type), message.c_str());
 #endif
+        if (sink)
+            sink(type == Rml::Log::LT_ERROR || type == Rml::Log::LT_ASSERT ? LogLevel::Error
+                 : type == Rml::Log::LT_WARNING                            ? LogLevel::Warning
+                                                                           : LogLevel::Info,
+                 message);
         return true;
     }
 };
@@ -262,6 +268,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         config_ = config;
         system_.clock = config.clock;
+        system_.sink = config.on_log;
         if (!config.files)
         {
             if (error)
@@ -791,20 +798,19 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void Toast(const std::string &text, const std::string &tone) override
     {
-        if (hud_->Notice(text, tone)) // over the game, events go to the HUD's top-centre log
-            return;
-        OverlayToast(text, tone, hud::ToastSeconds(text));
+        Show("toast", text, tone);
     }
 
     // On the overlay whatever is shown: over the game, over a screen, and through the change
     // from one to the other (a failed load: the HUD's log would vanish with the menu that comes back).
     void Alert(const std::string &text) override
     {
-        OverlayToast(text, "danger", Setting("alertMs", 6000.0) / 1000.0);
+        ShowAlert("alert", text);
     }
 
     void GameMessage(const std::string &text, const std::string &target) override
     {
+        Shown(target.empty() ? "game log" : "game log, opens " + target, "info", text);
         if (hud_->Notice(text, "info", target)) // over the game: the HUD's log, a tap opens the target
             return;
         OverlayToast(text, "info", hud::ToastSeconds(text)); // over a screen: only shown
@@ -812,7 +818,37 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void AlertString(const std::string &key) override
     {
-        Alert(Text(key));
+        ShowAlert("alert " + key, Text(key));
+    }
+
+    // Every text the host puts on the screen goes through Show, ShowAlert or GameMessage, which log it first
+    // (Shown): what the player saw is in the log, with where it came from. `source` names the caller.
+    void Show(const std::string &source, const std::string &text, const std::string &tone)
+    {
+        Shown(source, tone, text);
+        ShowLogged(text, tone);
+    }
+
+    void ShowAlert(const std::string &source, const std::string &text)
+    {
+        Shown(source, "danger", text);
+        OverlayToast(text, "danger", Setting("alertMs", 6000.0) / 1000.0);
+    }
+
+    // A toast whose text is in the log already.
+    void ShowLogged(const std::string &text, const std::string &tone)
+    {
+        if (hud_->Notice(text, tone)) // over the game, events go to the HUD's top-centre log
+            return;
+        OverlayToast(text, tone, hud::ToastSeconds(text));
+    }
+
+    void Shown(const std::string &source, const std::string &tone, const std::string &text) const
+    {
+        if (text.empty())
+            return;
+        const auto type = tone == "danger" ? Rml::Log::LT_ERROR : tone == "warn" ? Rml::Log::LT_WARNING : Rml::Log::LT_INFO;
+        Rml::Log::Message(type, "shown %s (%s): %s", tone.c_str(), source.c_str(), text.c_str());
     }
 
     // `seconds`: how long it stays (hud::ToastSeconds for a toast, longer for an alert); a repeat
@@ -1331,7 +1367,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
 
     void Toast(const std::string &text) override
     {
-        Toast(text, "info");
+        Show("screen " + router_->Using(), text, "info");
     }
 
     void SetLanguage(const std::string &game_language) override
@@ -1376,7 +1412,7 @@ class HostImpl final : public Host, public Services, public screens::Surface, pu
     {
         Rml::Log::Message(Rml::Log::LT_ERROR, "%s", line.c_str());
         if (config_.show_errors)
-            Toast(line, "danger");
+            ShowLogged(line, "danger");
     }
 
     // --- Services -----------------------------------------------------------------
