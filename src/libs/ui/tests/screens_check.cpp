@@ -5,7 +5,9 @@
 #include "../src/picture_atlas.h"
 #include "../src/screens/controls.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <functional>
 #include <fstream>
 #include <iterator>
 
@@ -303,6 +305,42 @@ static void Generic(const std::string &models)
     Expect(surface.tag.empty() && !router.Active(), "closing unmounts the screen");
 }
 
+// The shared quantity flow (AmountDraft, controls.h) on one open quantity control: changing the amount (steps,
+// a drag, its end) sends nothing to the game, however long it settles; «Отмена» moves nothing; the confirm
+// button sends exactly one move (`one_move` checks its commands); a second press before the game answers sends
+// nothing more. `moves` tells a command that moves something; `reopen` brings the control back after «Отмена».
+static void DraftFlow(const std::string &name, Router &router, FakeSurface &surface, const std::string &control, int value, const std::string &label,
+                      const std::function<bool(const std::string &)> &moves, const std::function<bool(const std::vector<std::string> &)> &one_move,
+                      const std::function<void()> &reopen)
+{
+    const auto dump = [&surface]() { return Json(surface.commands).dump(); };
+    surface.commands.clear();
+    router.OnEvent({control, "change", std::to_string(value - 1)});
+    router.OnEvent({control, "change", std::to_string(value)});
+    router.OnEvent({control, "commit", std::to_string(value)});
+    surface.now += 2.0;
+    router.Tick();
+    Expect(surface.commands.empty(), name + ": a quantity change sends nothing to the game: " + dump());
+    const Json &actions = surface.props["actions"];
+    Expect(surface.props["primary"]["label"] == label && surface.props["primary"]["disabled"] == false && actions.is_array() && !actions.empty() &&
+               actions.back()["id"] == "deal-cancel" && actions.back()["label"] == "<common.cancel>",
+           name + ": the changed amount offers its confirm and «Отмена»: " + surface.props["primary"].dump() + actions.dump());
+    router.OnEvent({"deal-cancel", "click", ""});
+    router.Tick();
+    Expect(std::none_of(surface.commands.begin(), surface.commands.end(), moves), name + ": «Отмена» moves nothing: " + dump());
+    Expect(surface.props["primary"]["label"] != label, name + ": «Отмена» drops the amount set");
+    reopen();
+    router.OnEvent({control, "commit", std::to_string(value)});
+    surface.commands.clear();
+    router.OnEvent({"primary", "click", ""});
+    router.Tick();
+    Expect(one_move(surface.commands), name + ": the confirm sends one move: " + dump());
+    surface.commands.clear();
+    router.OnEvent({"primary", "click", ""});
+    router.Tick();
+    Expect(surface.commands.empty() && surface.props["primary"]["busy"] == true, name + ": a second press before the game answers sends nothing: " + dump());
+}
+
 static void Store(const std::string &models)
 {
     FakeSurface surface;
@@ -491,6 +529,24 @@ static void Store(const std::string &models)
                    surface.commands[2] == "widget:store\tQTY_OK_BUTTON\t-1\tguard@7:goods:0:ship:0|press",
                "«Купить 100»: the amount and the game's OK in one flush: " + Json(surface.commands).dump());
     }
+    {
+        // The store's «Купить / Продать N» is the same shared flow.
+        const std::string edit = "widget:store\tQTY_EDIT\t-1\tguard@7:goods:0:ship:0|";
+        const auto moves = [](const std::string &command) { return command.find("\tQTY_EDIT\t") != std::string::npos || command.find("\tQTY_OK_BUTTON\t") != std::string::npos; };
+        FakeSurface draft_surface;
+        Router draft_router(draft_surface);
+        draft_router.SetInterface(open_deal);
+        DraftFlow("store", draft_router, draft_surface, "goods", 150, "<trade.sell> 50", moves,
+                  [&](const std::vector<std::string> &commands) {
+                      return commands == std::vector<std::string>{edit + "0", edit + "-50", "widget:store\tQTY_OK_BUTTON\t-1\tguard@7:goods:0:ship:0|press"};
+                  },
+                  [&]() {
+                      ExpectEqual(draft_surface.Last(), "widget:store\tQTY_CANCEL_BUTTON\t-1\tguard@7:goods:0:ship:0|press", "store: «Отмена» closes the game's window");
+                      InterfaceModel again = open_deal;
+                      again.revision += 5;
+                      draft_router.SetInterface(again);
+                  });
+    }
     surface.commands.clear();
     router.OnEvent({"goods", "row", "2"});
     Expect(surface.commands.size() == 2 && surface.commands[0] == "widget:store\tQTY_CANCEL_BUTTON\t-1\tguard@7:goods:0:ship:0|press" &&
@@ -562,36 +618,36 @@ static void Commerce(const std::string &models)
                surface.props["stats"][1]["label"] == "Склад" && surface.props["stats"][1]["value"] == "0 / 50000 ц.",
            "storage: hold and storage load in the header");
 
-    // Storage: a free transfer applies when the amount settles; no primary button.
+    // Storage: a free transfer is confirmed like a money deal (AmountDraft): «Взять / Отдать N», «Отмена».
     router.SetInterface(Load(models, "storage-deal.json"));
-    Expect(surface.props["primary"].is_null() && surface.props["list"]["cols"].size() == 2, "storage: two amount columns, no deal button");
+    Expect(surface.props["primary"].is_null() && surface.props["list"]["cols"].size() == 2, "storage: two amount columns, nothing to confirm at the pivot");
     ExpectEqual(surface.props["list"]["rows"][0]["image"]["texture"], "atlas:GOODS/Sugar", "rows carry the game's picture reference");
     Expect(surface.props["stats"].size() == 2 && surface.props["stats"][1]["value"] == "2328 / 10000", "hold and storage figures in the header");
-    surface.commands.clear();
-    const std::string zero = "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|0";
-    router.OnEvent({"goods", "change", "80"});
-    router.OnEvent({"goods", "change", "90"});
-    Expect(surface.commands.empty(), "steps send nothing at once: the amount waits for them to settle");
-    surface.now += 0.5;
-    router.Tick();
-    Expect(surface.commands.size() == 3 && surface.commands[0] == zero && surface.commands[1] == "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|30" &&
-               surface.commands[2] == "widget:storage\tQTY_OK_BUTTON\t-1\tguard@7:row:0|press",
-           "then zero, the last amount and the confirmation go out together, in that order");
-    surface.commands.clear();
-    router.OnEvent({"goods", "commit", "10"});
-    router.Tick();
-    Expect(surface.commands.size() == 3 && surface.commands[0] == zero && surface.commands[1] == "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|-50",
-           "the end of a drag applies at once; less than we hold = give, after zero");
-    surface.commands.clear();
-    router.OnEvent({"goods", "commit", "60"});
-    router.Tick();
-    Expect(surface.commands.size() == 2 && surface.Last() == zero, "an unchanged amount confirms nothing");
-    surface.commands.clear();
-    router.SetInterface(Load(models, "storage.json")); // the game closed its window after the transfer
-    Expect(surface.commands.size() == 1 && surface.Last().rfind("widget:storage\tTABLE_LIST\t0\tactivate@", 0) == 0,
-           "the transferred row is opened again: " + surface.Last());
-    router.SetInterface(Load(models, "storage.json"));
-    Expect(surface.commands.size() == 1, "only once");
+    {
+        const std::string edit = "widget:storage\tQTY_EDIT\t-1\tguard@7:row:0|";
+        const std::string ok = "widget:storage\tQTY_OK_BUTTON\t-1\tguard@7:row:0|press";
+        const std::string cancel = "widget:storage\tQTY_CANCEL_BUTTON\t-1\tguard@7:row:0|press";
+        const auto moves = [](const std::string &command) { return command.find("\tQTY_EDIT\t") != std::string::npos || command.find("\tQTY_OK_BUTTON\t") != std::string::npos; };
+        const auto reopen = [&]() {
+            ExpectEqual(surface.Last(), cancel, "storage: «Отмена» closes the game's window");
+            InterfaceModel again = Load(models, "storage-deal.json");
+            again.revision += 5;
+            router.SetInterface(again);
+        };
+        DraftFlow("storage: take", router, surface, "goods", 90, "<trade.take> 30", moves,
+                  [&](const std::vector<std::string> &commands) {
+                      return commands == std::vector<std::string>{edit + "0", edit + "30", ok};
+                  },
+                  reopen);
+        router.SetInterface(Load(models, "storage.json")); // the game closed its window after the transfer
+        Expect(surface.commands.empty() && surface.props["primary"]["label"] != "<trade.take> 30", "the moved row is not opened again by itself");
+        router.SetInterface(Load(models, "storage-deal.json"));
+        DraftFlow("storage: give", router, surface, "goods", 10, "<trade.give> 50", moves,
+                  [&](const std::vector<std::string> &commands) {
+                      return commands == std::vector<std::string>{edit + "0", edit + "-50", ok};
+                  },
+                  reopen);
+    }
 
     // Chest / body: the game's category tabs, take all, remove body.
     router.SetInterface(Load(models, "itemsbox.json"));
@@ -710,6 +766,21 @@ static void Commerce(const std::string &models)
     ExpectEqual(surface.Last(), "widget:itemsbox\tDELBODY_BUTTON\t-1\tpress", "remove body");
     router.SetInterface(Load(models, "itemsbox-deal.json"));
     Expect(surface.props["deal"]["steps"].size() == 2 && surface.props["deal"]["max"] == 26, "single items: steps 1 and 10, up to both sides");
+    // A chest, a body, an officer's pockets: the owner's bug was a pick of the amount moving the items at once.
+    {
+        const auto moves = [](const std::string &command) { return command.find("\tQTY_EDIT\t") != std::string::npos || command.find("\tQTY_OK_BUTTON\t") != std::string::npos; };
+        DraftFlow("itemsbox", router, surface, "goods", 25, "<trade.take> 2", moves,
+                  [](const std::vector<std::string> &commands) {
+                      return commands.size() == 3 && commands[1].find("\tQTY_EDIT\t") != std::string::npos && commands[1].substr(commands[1].size() - 2) == "|2" &&
+                             commands[2].find("\tQTY_OK_BUTTON\t") != std::string::npos;
+                  },
+                  [&]() {
+                      ExpectEqual(surface.Last().substr(0, surface.Last().find("\tguard")), "widget:itemsbox\tQTY_CANCEL_BUTTON\t-1", "itemsbox: «Отмена» closes the game's window");
+                      InterfaceModel again = Load(models, "itemsbox-deal.json");
+                      again.revision += 5;
+                      router.SetInterface(again);
+                  });
+    }
 
     // The row's own facts: the trade type by the name's colour, the pack in the dock's second line.
     router.SetInterface(Load(models, "store.json"));
@@ -968,13 +1039,30 @@ static void Transfer(const std::string &models)
     router.SetInterface(Load(models, "transfer-loot-row.json"));
     const Json &shot = surface.props["list"]["rows"][0];
     Expect(shot["q"]["value"] == 100 && shot["q"]["max"] == 595 && shot["q"]["steps"][0] == 20, "the selected row: ours of both, in packs of 20");
-    surface.commands.clear();
-    router.OnEvent({"goods", "commit", "145"});
-    Expect(surface.commands.size() == 3 && surface.commands[0] == prefix + "B_LEFT\t-1\tpress", "+45 = three packs taken (the game moves whole packs)");
-    surface.commands.clear();
-    router.OnEvent({"goods", "commit", "0"});
-    Expect(surface.commands.size() == 8 && surface.commands[0] == prefix + "B_RIGHT\t-1\tpress",
-           "all given before the game answered the three packs: counted from 160, eight packs");
+    {
+        const auto arrows = [&prefix](const std::string &command) {
+            return command == prefix + "B_LEFT\t-1\tpress" || command == prefix + "B_RIGHT\t-1\tpress";
+        };
+        const auto presses = [&prefix](const std::string &node, size_t count) {
+            return [&prefix, node, count](const std::vector<std::string> &commands) {
+                return commands.size() == count && std::all_of(commands.begin(), commands.end(), [&](const std::string &c) { return c == prefix + node + "\t-1\tpress"; });
+            };
+        };
+        DraftFlow("transfer cargo: take", router, surface, "goods", 145, "<trade.take> 45", arrows, presses("B_LEFT", 3), [] {});
+        Expect(surface.props["list"]["rows"][0]["q"]["value"] == 145, "the control shows what was sent until the game answers");
+        InterfaceModel answered = Load(models, "transfer-loot-row.json");
+        answered.revision += 5;
+        router.SetInterface(answered); // (the game refused: the same figures, a new revision)
+        Expect(surface.props["list"]["rows"][0]["q"]["value"] == 100 && surface.props["primary"]["label"] == "<transfer.take_all>",
+               "an answer opens the amount again at the game's figure; the bar is the place's again");
+        DraftFlow("transfer cargo: give", router, surface, "goods", 0, "<trade.give> 100", arrows, presses("B_RIGHT", 5), [] {});
+        answered.revision += 5;
+        router.SetInterface(answered);
+        surface.commands.clear();
+        router.OnEvent({"goods", "change", "300"});
+        router.OnEvent({"header-back", "click", ""});
+        Expect(surface.commands.empty() && surface.props["primary"]["label"] == "<transfer.take_all>", "back drops the amount set first, moving nothing");
+    }
     {
         // The hand at a row's end: the row is selected, then all of the other hold is asked for by the game's arrow.
         FakeSurface quick_surface;
@@ -1049,9 +1137,12 @@ static void Transfer(const std::string &models)
     Expect(surface.props["crew"]["rows"][0]["q"]["value"] == 96 && surface.props["crew"]["rows"][0]["q"]["max"] == 154 &&
                surface.props["tabs"][1]["selected"] == true && surface.props["primary"].is_null(),
            "crew window: our 96 of both crews, crew tab open");
-    surface.commands.clear();
-    router.OnEvent({"crew", "commit", "100"});
-    Expect(surface.commands.size() == 4 && surface.commands[0] == prefix + "CREW_LEFT\t-1\tpress", "4 more men = four takes");
+    DraftFlow("transfer crew", router, surface, "crew", 100, "<trade.take> 4",
+              [&prefix](const std::string &command) { return command == prefix + "CREW_LEFT\t-1\tpress" || command == prefix + "CREW_RIGHT\t-1\tpress"; },
+              [&prefix](const std::vector<std::string> &commands) {
+                  return commands == std::vector<std::string>(4, prefix + "CREW_LEFT\t-1\tpress");
+              },
+              [] {});
     router.OnEvent({"header", "tab", "0"});
     ExpectEqual(surface.Last(), prefix + "CREW_EXIT_BTN\t-1\tpress", "cargo tab closes the crew window");
 }

@@ -6,9 +6,10 @@
 // to the game: the amount, its limits (stock, money, hold), the total and the button's text are
 // computed here from what the open row already says, with the game's own formulas (DealMath
 // below mirrors store.c / cannons.c / contraband.c / itemstrade.c ChangeQTY_EDIT), so the
-// control answers in the same frame. Only the confirmation goes out: the amount and the game's
-// OK in one flush for a money deal («Купить / Продать N»), or as soon as the amount settles for
-// a free transfer; the hand at a row's end takes the whole stack in one tap.
+// control answers in the same frame. Only the confirmation goes out (AmountDraft, controls.h): the
+// amount and the game's OK in one flush, on «Купить / Продать N» of a money deal and «Взять / Отдать N»
+// of a free transfer alike; «Отмена» closes the game's window with nothing moved. The hand at a row's
+// end takes the whole stack in one tap.
 //
 // All six interfaces share the game's nodes (TABLE_LIST, QTY_*); they differ in the
 // columns of the table, described per interface below.
@@ -281,28 +282,23 @@ class CommerceScreen final : public Screen
         else if (other_caption.rfind(own_caption, 0) == 0) // "Предметов" / "Предметов торговца"
             own_caption = bindings.Text("trade.yours");
 
-        // The open deal is the player's until it is confirmed: what we hold and what the other side has are
-        // taken once, when the game opens the row's amount window (the pivot of the control and its two ends
-        // never move after that), and the amount starts at the pivot. Nothing the game publishes while the
-        // amount is being chosen moves it; a row whose stock the game changed (a transfer went through) starts anew.
+        // The open deal is the player's draft until it is confirmed: what we hold and what the other side has
+        // are taken when the game opens the row's amount window (the pivot of the control and its two ends),
+        // and the amount starts at the pivot; nothing goes to the game while it is chosen.
         const int ours = selected ? Number(selected->CellText(columns.own)) : 0;
         const int theirs = selected ? Number(selected->CellText(columns.other)) : 0;
         if (!deal)
-            deal_row_.clear();
-        else if (selected->row_id != deal_row_ || ((ours != deal_ours_ || theirs != deal_theirs_) && !bindings.Waiting(*edit, "edit")))
-        {
-            deal_row_ = selected->row_id;
-            deal_ours_ = ours;
-            deal_theirs_ = theirs;
-            target_ = ours;
-        }
+            draft_.Close();
+        else
+            draft_.Follow(selected->row_id, ours, theirs, admitted.model->revision, bindings);
+        const int deal_ours = draft_.Origin(), deal_theirs = draft_.Other();
         const int buy_price = selected && money ? Number(selected->CellText(columns.buy)) : 0;
         const int sell_price = selected && money ? Number(selected->CellText(columns.sell)) : 0;
         const bool can_take = !selected || !money || selected->CellText(columns.buy) != "-";
         const bool can_give = !selected || !money || selected->CellText(columns.sell) != "-";
         // The scale's left end: everything we hold given away; what we hold is the pivot.
-        const int low = can_give ? 0 : deal_ours_;
-        const int high = can_take ? deal_ours_ + deal_theirs_ : deal_ours_;
+        const int low = can_give ? 0 : deal_ours;
+        const int high = can_take ? deal_ours + deal_theirs : deal_ours;
 
         // The game's arithmetic for this row; the limits stop the knob where the game would.
         DealMath math;
@@ -326,7 +322,7 @@ class CommerceScreen final : public Screen
         const Widget *balance = admitted.One("OUR_GOLD");
         if (balance && balance->label.find_first_of("0123456789") != std::string::npos)
             math.money = Number(balance->label);
-        const int most = money ? std::min(high, deal_ours_ + math.BuyLimit(deal_theirs_, buy_price)) : high;
+        const int most = money ? std::min(high, deal_ours + math.BuyLimit(deal_theirs, buy_price)) : high;
         // Why the amount cannot go further up although the other side has more: the purse or the room. A tap or
         // a drag past the end says it; with nothing at all to do the deal shows as disabled.
         std::string more_reason;
@@ -334,13 +330,13 @@ class CommerceScreen final : public Screen
         {
             DealMath unpaid = math;
             unpaid.money = -1; // the limit of the room alone
-            more_reason = bindings.Text(unpaid.BuyLimit(deal_theirs_, buy_price) > most - deal_ours_ ? StringKey("trade.no_money")
+            more_reason = bindings.Text(unpaid.BuyLimit(deal_theirs, buy_price) > most - deal_ours ? StringKey("trade.no_money")
                                         : columns.pieces                                           ? StringKey("trade.no_carry")
                                                                                                    : StringKey("trade.no_room"));
         }
         const bool nothing = deal && money && low == std::max(low, most) && !more_reason.empty();
-        const int shown = deal ? std::clamp(target_, low, std::max(low, most)) : ours;
-        const int amount = shown - deal_ours_; // > 0 we take (buy), < 0 we give (sell)
+        const int shown = deal ? draft_.Value(low, most) : ours;
+        const int amount = shown - deal_ours; // > 0 we take (buy), < 0 we give (sell)
         const int total = money ? math.Total(std::abs(amount), amount > 0 ? buy_price : sell_price) : 0;
         const double weight = math.Weight(std::abs(amount));
         const auto weight_text = [&](double value) {
@@ -492,7 +488,7 @@ class CommerceScreen final : public Screen
                               // deal is open, so the whole rail is usable and the pivot stays where it is.
                               {"max", std::max(low, most)},
                               {"zones", true},
-                              {"origin", deal_ours_},
+                              {"origin", deal_ours},
                               {"lessLabel", bindings.Text(money ? StringKey("trade.sell") : StringKey("trade.give"))},
                               {"moreLabel", bindings.Text(money ? StringKey("trade.buy") : StringKey("trade.take"))},
                               {"label", own_caption},
@@ -517,16 +513,6 @@ class CommerceScreen final : public Screen
             rows.push_back(std::move(view));
         }
 
-        // After a free transfer the row stays open, as the quantity control was: the game
-        // closed its window, so it is opened again once.
-        if (!deal && !reopen_row_.empty())
-        {
-            for (const Widget *row : goods)
-                if (row->row_id == reopen_row_ && row->Offers("activate"))
-                    bindings.Send(*row, "activate", row->row_id);
-            reopen_row_.clear();
-        }
-
         bindings.On("goods", "sort", [this, &bindings](const Event &event) {
             // A caption's taps: largest first, smallest first, the game's order again.
             const int column = std::atoi(event.value.c_str());
@@ -544,7 +530,6 @@ class CommerceScreen final : public Screen
                 if (index >= goods.size())
                     return;
                 const Widget *row = goods[index];
-                reopen_row_.clear();
                 if (deal && row == selected)
                 {
                     if (!edit->Offers("edit") || !ok)
@@ -568,7 +553,6 @@ class CommerceScreen final : public Screen
             const Widget *row = goods[index];
             if (deal && cancel && cancel->Offers("press"))
                 bindings.Send(*cancel, "press", {}, selected->row_id);
-            reopen_row_.clear();
             quick_row_.clear();
             if (deal && row == selected)
                 return; // a tap on the open row closes it
@@ -583,38 +567,7 @@ class CommerceScreen final : public Screen
                 bindings.Send(*row, "select", row->row_id);
         });
         if (deal)
-        {
-            // The amount is the player's: every sample of a drag and every step only moves it here (the next
-            // frame shows it, its total and its button). A free transfer has no button: it goes to the game
-            // when a drag ends, or shortly after the last step.
-            const auto set = [this, &bindings, edit, ok, selected, money, low, most, more_reason](const Event &event) {
-                const int wanted = std::atoi(event.value.c_str());
-                // Past the end the purse or the room allows: the reason, once per push (a drag reports many samples).
-                if (wanted > std::max(low, most) && !more_reason.empty() && bindings.Now() - reason_at_ > 1.5)
-                {
-                    reason_at_ = bindings.Now();
-                    bindings.Toast(more_reason);
-                }
-                target_ = std::clamp(wanted, low, std::max(low, most));
-                bindings.Rebuild();
-                if (money)
-                    return;
-                // The game's edit box holds the amount to take; a negative number is the amount to give. Once
-                // the game has turned a negative amount into giving it reads every later number as an amount to
-                // give; zero always leaves giving, so it goes right before the signed amount, in the same flush.
-                const int delta = target_ - deal_ours_;
-                const double wait = event.verb == "commit" ? 0.0 : 0.4;
-                bindings.SendAfter(wait, *edit, "edit", std::to_string(delta), selected->row_id, std::string("0"));
-                if (ok && delta != 0)
-                {
-                    bindings.SendAfter(wait, *ok, "press", {}, selected->row_id);
-                    reopen_row_ = selected->row_id; // the game closes its window on a transfer
-                }
-            };
-            // The quantity control sits inside the list and reports under its id.
-            bindings.On("goods", "change", set);
-            bindings.On("goods", "commit", set);
-        }
+            draft_.Bind(bindings, "goods", low, most, more_reason); // the control sits inside the list and reports under its id
 
         Json view = Json::object();
         const std::string caption = OneLine(admitted.Label("STORECAPTION1"));
@@ -768,22 +721,28 @@ class CommerceScreen final : public Screen
         if (nothing)
             // Not even one can be bought and there is nothing to sell: the deal is there, disabled, and says why.
             view["primary"] = Json{{"label", bindings.Text("trade.buy")}, {"sub", ""}, {"disabled", true}, {"reason", more_reason}, {"busy", false}};
-        else if (deal && ok && money && amount != 0)
+        else if (deal && ok)
         {
             // The button names the deal in our words with its price (and the weight it moves): the amount and
-            // the game's OK go out together when it is pressed, nothing before.
-            std::string sub = Spaced(total);
+            // the game's OK go out together when it is pressed, nothing before; «Отмена» beside it closes the
+            // game's window.
+            std::string sub = money ? Spaced(total) : std::string();
             if (math.weight > 0.0)
-                sub += " \xC2\xB7 " + weight_text(weight) + (columns.pieces ? std::string() : " " + bindings.Text("transfer.cwt"));
-            view["primary"] = Json{{"label", bindings.Text(amount > 0 ? StringKey("trade.buy") : StringKey("trade.sell")) + " " + std::to_string(std::abs(amount))},
-                                   {"sub", sub},
-                                   {"disabled", !ok->Offers("press") || !edit->Offers("edit")},
-                                   {"reason", ok->unavailable_reason},
-                                   {"busy", bindings.Pending("primary")}};
-            bindings.On("primary", "", [&bindings, edit, ok, selected, amount](const Event &) {
-                bindings.SendAfter(0.0, *edit, "edit", std::to_string(amount), selected->row_id, std::string("0"));
-                bindings.SendAfter(0.0, *ok, "press", {}, selected->row_id);
-            });
+                sub += (sub.empty() ? "" : " \xC2\xB7 ") + weight_text(weight) + (columns.pieces ? std::string() : " " + bindings.Text("transfer.cwt"));
+            const AmountDraft::Labels labels = money ? AmountDraft::Labels{StringKey("trade.buy"), StringKey("trade.sell")}
+                                                     : AmountDraft::Labels{StringKey("trade.take"), StringKey("trade.give")};
+            view["primary"] = draft_.Buttons(
+                bindings, actions, low, most, labels, sub, !ok->Offers("press") || !edit->Offers("edit"), ok->unavailable_reason, admitted.model->revision,
+                [&bindings, edit, ok, row = selected->row_id](int delta) {
+                    // The game's edit box holds the amount to take, a negative one the amount to give; once it has
+                    // turned to giving it reads every later number so, and zero leaves it: zero goes first, same flush.
+                    bindings.SendAfter(0.0, *edit, "edit", std::to_string(delta), row, std::string("0"));
+                    bindings.SendAfter(0.0, *ok, "press", {}, row);
+                },
+                [&bindings, cancel, row = selected->row_id]() {
+                    if (cancel && cancel->Offers("press"))
+                        bindings.Send(*cancel, "press", {}, row);
+                });
         }
         else if (!deal && columns.best)
         {
@@ -839,7 +798,6 @@ class CommerceScreen final : public Screen
 
         const Widget *exit = admitted.One("EXIT_BTN");
         bindings.On("header-back", "", [this, &bindings, exit, cancel, deal, selected](const Event &) {
-            reopen_row_.clear();
             quick_row_.clear();
             if (deal && cancel && cancel->Offers("press"))
                 bindings.Send(*cancel, "press", {}, selected->row_id);
@@ -859,7 +817,6 @@ class CommerceScreen final : public Screen
     std::string hold_row_;     // the tapped row whose window has not come yet
     double hold_at_ = 0.0;
     uint64_t hold_revision_ = 0; // the model revision the row was tapped in
-    std::string reopen_row_;  // the row whose window the game closed after a free transfer
     int filter_ = 0; // 0 all, 1 on our side, 2 profitable (export goods) / on the other side
     int sort_ = -1;  // the column the rows are ordered by (own, other, buy, sell); -1 = the game's order
     bool sort_descending_ = true;
@@ -867,12 +824,7 @@ class CommerceScreen final : public Screen
     uint64_t best_reported_ = 0; // the opening the missing values were reported for
     uint64_t take_all_revision_ = 0; // «Взять всё» of a chest went out from this revision (0 = none)
     double quick_at_ = 0.0;
-    // The open deal: its row, what both sides held when the game opened it (the control's pivot and ends)
-    // and the amount on our side the player has set.
-    std::string deal_row_;
-    int deal_ours_ = 0, deal_theirs_ = 0;
-    int target_ = 0;
-    double reason_at_ = -10.0; // when the "cannot go further" reason was last said
+    AmountDraft draft_; // the open deal: its row, what both sides held when the game opened it, the amount set
 };
 
 } // namespace

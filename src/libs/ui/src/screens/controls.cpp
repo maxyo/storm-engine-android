@@ -264,15 +264,111 @@ Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id,
                 {"busy", bindings.Pending(id)}};
 }
 
-Json DealView(Bindings &bindings, const Widget &ok, const std::string &operation, int amount, const std::string &sub, bool settling)
+void AmountDraft::Open(const std::string &key, int origin, int other)
 {
-    if (amount == 0)
+    open_ = true;
+    key_ = key;
+    origin_ = origin;
+    other_ = other;
+    target_ = origin;
+    sent_ = false;
+}
+
+void AmountDraft::Follow(const std::string &key, int origin, int other, uint64_t revision, Bindings &bindings)
+{
+    if (!open_ || key != key_)
+        Open(key, origin, other);
+    else if (sent_)
+    {
+        if (revision > sent_revision_ || bindings.Now() - sent_at_ >= kAnswer)
+            Open(key, origin, other); // answered (moved, or refused: the game's figures as they are)
+        else
+            bindings.RebuildAfter(sent_at_ + kAnswer - bindings.Now());
+    }
+    else if (origin != origin_ || other != other_)
+        Open(key, origin, other);
+}
+
+void AmountDraft::Close()
+{
+    open_ = false;
+    key_.clear();
+    sent_ = false;
+}
+
+int AmountDraft::Value(int low, int high) const
+{
+    return !open_ ? origin_ : std::clamp(target_, low, std::max(low, high));
+}
+
+void AmountDraft::Bind(Bindings &bindings, const std::string &id, int low, int high, const std::string &more_reason)
+{
+    const auto set = [this, &bindings, low, high = std::max(low, high), more_reason](const Event &event) {
+        const int wanted = std::atoi(event.value.c_str());
+        // Past the end the purse or the room allows: the reason, once per push (a drag reports many samples).
+        if (wanted > high && !more_reason.empty() && bindings.Now() - reason_at_ > 1.5)
+        {
+            reason_at_ = bindings.Now();
+            bindings.Toast(more_reason);
+        }
+        if (!sent_)
+            target_ = std::clamp(wanted, low, high);
+        bindings.Rebuild();
+    };
+    bindings.On(id, "change", set);
+    bindings.On(id, "commit", set);
+}
+
+Json AmountDraft::Buttons(Bindings &bindings, Json &actions, int low, int high, Labels labels, const std::string &sub, bool disabled,
+                          const std::string &reason, uint64_t revision, std::function<void(int)> commit, std::function<void()> cancel)
+{
+    const int value = Value(low, high);
+    const int delta = value - origin_;
+    if (!open_ || (!sent_ && delta == 0))
         return Json();
-    return Json{{"label", operation.empty() ? ok.label : operation + " " + std::to_string(amount)},
+    const std::string label = bindings.Text(delta > 0 ? labels.more : labels.less) + " " + std::to_string(std::abs(delta));
+    if (sent_)
+    {
+        // Sent, the game's answer not here yet: the same button waits, and a second press sends nothing (nor
+        // what the screen's bar has in its place without a deal, such as a take-all).
+        bindings.On("primary", "", [](const Event &) {});
+        return Json{{"label", label}, {"sub", sub}, {"disabled", false}, {"reason", ""}, {"busy", true}};
+    }
+    actions.push_back(Json{{"id", "deal-cancel"}, {"label", bindings.Text("common.cancel")}, {"variant", "secondary"}, {"disabled", false}, {"reason", ""}, {"busy", false}});
+    bindings.On("deal-cancel", "", [this, &bindings, cancel](const Event &) {
+        target_ = origin_;
+        if (cancel)
+            cancel();
+        bindings.Rebuild();
+    });
+    bindings.On("primary", "", [this, &bindings, value, delta, revision, disabled, commit](const Event &) {
+        if (disabled || sent_)
+            return;
+        Sent(value, revision, bindings.Now());
+        commit(delta);
+        bindings.Rebuild();
+    });
+    return Json{{"label", label},
                 {"sub", sub},
-                {"disabled", !ok.Offers("press")},
-                {"reason", ok.unavailable_reason},
-                {"busy", settling || bindings.Pending("primary")}};
+                {"disabled", disabled},
+                {"reason", reason},
+                {"busy", bindings.Pending("primary")}};
+}
+
+void AmountDraft::Sent(int value, uint64_t revision, double now)
+{
+    target_ = value;
+    sent_ = true;
+    sent_revision_ = revision;
+    sent_at_ = now;
+}
+
+bool AmountDraft::Drop()
+{
+    if (!open_ || sent_ || target_ == origin_)
+        return false;
+    target_ = origin_;
+    return true;
 }
 
 void TapChoice(Bindings &bindings, const Widget &choice)

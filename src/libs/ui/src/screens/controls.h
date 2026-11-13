@@ -44,12 +44,63 @@ Json MapViewOf(const Widget &map, std::span<const Widget *const> markers);
 std::string NationOf(const ImageRef *image);
 // {id, label, variant, disabled, reason, busy} of a c-button; a tap presses the widget.
 Json ButtonView(Bindings &bindings, const Widget &button, const std::string &id, const char *variant);
-// The primary button of a money deal (store, hire): {label: "<operation> <amount>", sub: the
-// price line, disabled, reason, busy}, or null while the amount is unchanged: with nothing to
-// confirm there is no deal button (the game's bare "Ok" read as a dead, empty button). An
-// amount the game refuses (`ok` not offering press) stays a disabled button with its reason.
-// `settling`: the game does not hold the amount yet; the button waits (busy) until it does.
-Json DealView(Bindings &bindings, const Widget &ok, const std::string &operation, int amount, const std::string &sub, bool settling = false);
+// The amount a quantity control sets is the player's draft until he confirms it (owner rule: picking an
+// amount moves nothing). A change or a drag of the control moves only the draft; the deal's button
+// («Взять / Отдать N» for a free transfer, «Купить / Продать N» for a money deal) sends it to the game,
+// «Отмена» drops it. Every screen whose quantity moves something keeps one per open control: chests,
+// bodies and the exchange with an officer (itemsbox), storage, town loot, the store and its kin
+// (trade_commerce.cpp), the cargo and crew of the loot / exchange of ships (extra_transfer.cpp).
+class AmountDraft
+{
+  public:
+    struct Labels
+    {
+        const char *more; // string key of the operation that raises our side («Взять», «Купить»)
+        const char *less; // … and of the one that lowers it («Отдать», «Продать»)
+    };
+    // The control of `key` (a row) shows `origin` (ours) beside `other` (theirs) as the game has them now. A new
+    // key, or figures the game changed (a move went through), open the draft again at the origin. A draft that
+    // was sent waits for the game's answer (a model `revision` past the one it was sent from, or kAnswer s):
+    // the control keeps showing it, and no second deal can be sent meanwhile.
+    void Follow(const std::string &key, int origin, int other, uint64_t revision, Bindings &bindings);
+    void Close(); // the control is gone (the game closed its window)
+    int Origin() const
+    {
+        return origin_;
+    }
+    int Other() const
+    {
+        return other_;
+    }
+    // The amount the control shows, within [low, high].
+    int Value(int low, int high) const;
+    // Binds `<id> change` and `<id> commit` of the control: both move the draft and build again, nothing goes
+    // to the game. Past `high` a `more_reason` (the purse, the room) is said once per push.
+    void Bind(Bindings &bindings, const std::string &id, int low, int high, const std::string &more_reason);
+    // The deal's buttons while the draft differs from its origin: returns the primary {label "<operation> N",
+    // sub, disabled, reason, busy}, whose press calls `commit(delta)` (delta > 0 raises our side), and appends
+    // «Отмена» (id "deal-cancel") to `actions`, which drops the draft and calls `cancel` (closing the game's
+    // window, where it has one). Null while the amount is unchanged; while a sent draft waits for its answer
+    // the button stays, busy, and takes no press.
+    Json Buttons(Bindings &bindings, Json &actions, int low, int high, Labels labels, const std::string &sub, bool disabled,
+                 const std::string &reason, uint64_t revision, std::function<void(int)> commit, std::function<void()> cancel);
+    // The deal was sent by other means (the quick take of a whole stack): wait for the answer like after Buttons.
+    void Sent(int value, uint64_t revision, double now);
+    // Drops a changed draft (the platform back); false when there was nothing to drop.
+    bool Drop();
+
+  private:
+    static constexpr double kAnswer = 1.5; // s: how long a sent draft waits for the game's answer
+    void Open(const std::string &key, int origin, int other);
+    bool open_ = false;
+    std::string key_;
+    int origin_ = 0, other_ = 0;
+    int target_ = 0;
+    bool sent_ = false;
+    uint64_t sent_revision_ = 0;
+    double sent_at_ = 0.0;
+    double reason_at_ = -10.0; // when the "cannot go further" reason was last said
+};
 // {kind:"action", id, title, disabled, reason, selected, busy}: a button or choice as a list row.
 Json ActionRow(Bindings &bindings, const Widget &widget, const std::string &id);
 // Sends the verb a tap on a choice row means: activate on the selected row when offered,
