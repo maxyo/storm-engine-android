@@ -250,7 +250,10 @@ bool Context::start(SDL_Window *window, uint32_t width, uint32_t height, bool vs
     }
     init.swapChain.width = width;
     init.swapChain.height = height;
-    init.swapChain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
+    // No depth/stencil on the window surface: nothing draws into the back buffer with depth or stencil (the game and the
+    // UI have their own targets; the composite and the UI's final pass write colour only). Spares a tile GPU the
+    // surface's depth/stencil memory and traffic.
+    init.swapChain.formatDepthStencil = bgfx::TextureFormat::Count;
     init.reset = reset_flags();
     // Transient buffers sized to the largest frames measured (scene sweeps, perf counters tvb_max_kb/tib_max_kb: 10.2 MB
     // of vertices, 4.9 MB of indices) with a margin; each new peak is logged ("transient buffers:", perf.cpp) and a
@@ -368,7 +371,7 @@ void Context::resize(uint32_t width, uint32_t height)
     native_handles(window_, &chain.nwh, &chain.ndt);
     chain.width = width;
     chain.height = height;
-    chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
+    chain.formatDepthStencil = bgfx::TextureFormat::Count; // as in start()
     bgfx::reset(reset_flags(), &chain);
     picture_held_ = false; // see surface_lost
     // A display change (fold, split screen, wm size/density) usually changes the density as well.
@@ -386,7 +389,7 @@ void Context::refresh_reset_flags()
     native_handles(window_, &chain.nwh, &chain.ndt);
     chain.width = surface_.width_px;
     chain.height = surface_.height_px;
-    chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
+    chain.formatDepthStencil = bgfx::TextureFormat::Count; // as in start()
     bgfx::reset(reset_flags(), &chain);
     picture_held_ = false; // see surface_lost
 }
@@ -535,7 +538,7 @@ void Context::try_restore()
     read_density();
     chain.width = surface_.width_px;
     chain.height = surface_.height_px;
-    chain.formatDepthStencil = bgfx::TextureFormat::D24S8; // the UI views use stencil clip masks
+    chain.formatDepthStencil = bgfx::TextureFormat::Count; // as in start()
     // A new ANativeWindow can reuse the old address; alternating this otherwise harmless flag makes
     // bgfx re-create the EGL surface on every restore.
     surface_epoch_flag_ = !surface_epoch_flag_;
