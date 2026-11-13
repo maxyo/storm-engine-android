@@ -32,6 +32,7 @@ engine ◀──────Action {screen, opening, node, index, verb, value}�
 | `dialogue.cpp` | state channel `dialogue`: speech paged by `<ui-pages>` (pure rules in `../text_pages.h`), replies in two columns, the answer editor (text through the IME bridge, or an amount on the number panel), the menu button (`pause` to the platform host) |
 | `menu_saves.cpp` | the save list (`save_load`); state channel `loadFailure` (`{record, reason}`, engine core `load_watch.hpp`): a toast naming the record a requested load failed on |
 | `menu_game_over.cpp` | state channel `gameOver` (`{kind: sea\|land\|defeat, language}` or `null`, engine xinterface `info_handler.cpp`): the game-over screen |
+| `menu_title.cpp` | the title screen (`mainmenu`); state channel `titleIntent` (`{intent: Continue}`, the platform host: the app's Test Lab Game Loop): «Продолжить» once at the next title build, an error without a record |
 | `maps.cpp` | the game's maps (`mapview`, `mapbest`, `papermap`): c-map-view (pan, pinch, zoom; the game's markers), a tap is `point` in the picture's base units, the colony sheet from the game's colony window, `release` closes it |
 | `launcher.cpp` | the application's own screens (launcher, download library, about) from the platform host's `launcher` channel; the contract is at the top of the file |
 
