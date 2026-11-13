@@ -53,37 +53,58 @@ subprocess.run(['cmake', '--build', str(build), '--target', 'storm_bgfx', 'storm
                 'storm_relief_check', 'cutout_caster_check', 'relief_switch_check', 'texture_format_check', 'backend_select_check',
                 'buffer_pool_check', 'thumbnail_check'], check=True)
 subprocess.run([str(warmth), 'end', str(build)], check=True)
-subprocess.run([str(build / 'renderer_bgfx' / 'storm_texture_tests')], check=True)
-subprocess.run([str(build / 'perf_check')], check=True)
-subprocess.run([str(build / 'backend_select_check')], check=True)
-subprocess.run([str(build / 'renderer_bgfx' / 'fx' / 'storm_fx_core_check')], check=True)
-subprocess.run([str(build / 'relief_switch_check')], check=True)
-subprocess.run([str(build / 'relief' / 'storm_relief_check'), (build / 'deepbump_model_path.txt').read_text()], check=True)
+# Every check is its own process: they run in parallel (STORM_CHECK_JOBS, default 6), the draws on OpenGL ES
+# and on Vulkan at once, longest first. A failing check's output is printed.
+import concurrent.futures
+jobs = int(os.environ.get('STORM_CHECK_JOBS', '6'))
+plain = [[str(build / 'renderer_bgfx' / 'storm_texture_tests')], [str(build / 'perf_check')], [str(build / 'backend_select_check')],
+         [str(build / 'renderer_bgfx' / 'fx' / 'storm_fx_core_check')], [str(build / 'relief_switch_check')],
+         [str(build / 'relief' / 'storm_relief_check'), (build / 'deepbump_model_path.txt').read_text()]]
 # The checks that draw, on OpenGL ES.
 gpu_checks = ['skinning_check', 'uniform_commit_check', 'preset_switch_check', 'sea_edge_check', 'program_cache_check',
               'render_thread_check', 'ao_volume_check', 'cutout_caster_check', 'texture_format_check', 'buffer_pool_check',
               'thumbnail_check']
-for name in gpu_checks:
-    subprocess.run([str(build / name)], check=True)
 # The same checks on Vulkan (STORM_CHECK_BACKEND, check_backend.hpp), where the host has a Vulkan device (CI: Mesa's
 # lavapipe). uniform_commit_check stays on OpenGL ES: it counts the GL backend's glUniform calls. Every run must
 # say that it ran on Vulkan: a check that ended on OpenGL ES (the shim's logged exception for a Vulkan that does
 # not start) fails here. Without any Vulkan device the pass is skipped, and said so.
 vulkan_env = dict(os.environ, STORM_CHECK_BACKEND='vulkan')
 vulkan_checks = [name for name in gpu_checks if name != 'uniform_commit_check']
-vulkan = 'not run'
-for name in vulkan_checks:
-    done = subprocess.run([str(build / name)], env=vulkan_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                          errors='replace')
-    choice = next((line for line in done.stdout.splitlines() if 'render backend: ' in line and '(render_backend = ' in line), '')
-    if name == vulkan_checks[0] and 'render backend: OpenGL ES' in choice and re.search(
-            r'no Vulkan loader|reports no physical device|vkCreateInstance failed|older than 1\.1', choice):
-        vulkan = 'SKIPPED, this host has no Vulkan device: ' + choice.split('): ', 1)[-1]
-        print(f'Vulkan checks {vulkan}', flush=True)
-        break
-    if done.returncode != 0 or 'render backend: Vulkan' not in choice:
-        print(done.stdout[-6000:])
-        raise SystemExit(f'{name} on Vulkan: exit {done.returncode}; {choice or "no render backend line"}')
-    vulkan = choice.split('Vulkan device: ', 1)[-1]
+SLOW = ('ao_volume_check', 'render_thread_check', 'program_cache_check', 'cutout_caster_check')
+
+
+def run_check(command, env=None):
+    return subprocess.run(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace')
+
+
+failures = []
+with concurrent.futures.ThreadPoolExecutor(jobs) as pool:
+    order = sorted(gpu_checks, key=lambda name: name not in SLOW)
+    vk = {name: pool.submit(run_check, [str(build / name)], vulkan_env) for name in order if name in vulkan_checks}
+    gl = {name: pool.submit(run_check, [str(build / name)]) for name in order}
+    other = [(command, pool.submit(run_check, command)) for command in plain]
+    for command, future in other:
+        if future.result().returncode != 0:
+            failures.append((Path(command[0]).name, future.result()))
+    for name in gpu_checks:
+        if gl[name].result().returncode != 0:
+            failures.append((name, gl[name].result()))
+    vulkan = 'not run'
+    for name in vulkan_checks:
+        done = vk[name].result()
+        choice = next((line for line in done.stdout.splitlines() if 'render backend: ' in line and '(render_backend = ' in line), '')
+        if name == vulkan_checks[0] and 'render backend: OpenGL ES' in choice and re.search(
+                r'no Vulkan loader|reports no physical device|vkCreateInstance failed|older than 1\.1', choice):
+            vulkan = 'SKIPPED, this host has no Vulkan device: ' + choice.split('): ', 1)[-1]
+            print(f'Vulkan checks {vulkan}', flush=True)
+            break
+        if done.returncode != 0 or 'render backend: Vulkan' not in choice:
+            failures.append((f'{name} on Vulkan ({choice or "no render backend line"})', done))
+            continue
+        vulkan = choice.split('Vulkan device: ', 1)[-1]
+for name, done in failures:
+    print(f'--- {name}: exit {done.returncode}\n{done.stdout[-6000:]}', flush=True)
+if failures:
+    raise SystemExit('FAIL: ' + ', '.join(name for name, _ in failures))
 print('PASS: storm_bgfx builds; storm_texture_tests; perf_check; backend_select_check; fx core_check; relief_switch_check; relief_check; '
       f'on OpenGL ES: {" ".join(gpu_checks)}; on Vulkan ({vulkan}): {" ".join(vulkan_checks)}', flush=True)
