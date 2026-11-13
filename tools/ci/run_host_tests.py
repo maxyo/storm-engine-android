@@ -7,13 +7,18 @@ and cmake/glm.cmake), then runs each tests/*/run.py with the arguments it
 declares (sources, glm, a build directory). Every failure is reported; the exit code is non-zero if
 any check failed. CI runs it on pushes and pull requests to develop.
 
-  python3 tools/ci/run_host_tests.py [--work build/host-ci] [--jobs N] [--only NAME ...]
+  python3 tools/ci/run_host_tests.py [--work build/host-ci] [--jobs N] [--only NAME ...] [--changed-since REF]
+
+--changed-since REF runs only the checks the changes since REF can affect (tools/ci/affected.py) and
+prints every check it leaves out with the reason. Checks start longest first (the times of the last
+run, <work>/durations.json), so the slowest one does not start last.
 
 The SDL input check needs a display: run under xvfb-run when headless.
 """
 import argparse
 import concurrent.futures
 import io
+import json
 import os
 from pathlib import Path
 import re
@@ -28,6 +33,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--work', type=Path, default=root / 'build/host-ci')
 parser.add_argument('--only', nargs='*', help='run only these test directory names')
 parser.add_argument('--jobs', type=int, default=os.cpu_count(), help='checks run in parallel')
+parser.add_argument('--changed-since', metavar='REF', help='only the checks the changes since REF affect')
 args = parser.parse_args()
 work = args.work.resolve()
 sources = work / 'sources'
@@ -75,8 +81,26 @@ values = {
     '--glm-source': glm_source,
 }
 checks = sorted(root.glob('tests/*/run.py'))
-if args.only:
+if args.only is not None:
+    unknown = sorted(set(args.only) - {path.parent.name for path in checks})
+    if unknown:
+        sys.exit('--only names no such check (tests/<name>/run.py): ' + ', '.join(unknown))
     checks = [path for path in checks if path.parent.name in args.only]
+if args.changed_since:
+    sys.path.insert(0, str(root / 'tools/ci'))
+    import affected
+    plan = affected.host_checks(affected.changed_files(args.changed_since), work)
+    for name, (selected, why) in plan.items():
+        if not selected and any(path.parent.name == name for path in checks):
+            print(f'SKIP {name}: {why}', flush=True)
+    checks = [path for path in checks if plan[path.parent.name][0]]
+durations_file = work / 'durations.json'
+try:
+    durations = json.loads(durations_file.read_text())
+except (OSError, ValueError):
+    durations = {}
+# Longest first; unknown ones (new checks) first of all.
+checks.sort(key=lambda path: -durations.get(path.parent.name, 1e9))
 # Options a check declares, with either quote style.
 OPTION = r'''add_argument\(\s*['"](--[a-z-]+)['"]'''
 
@@ -111,12 +135,16 @@ def run(script):
 
 
 failed = []
-with concurrent.futures.ThreadPoolExecutor(args.jobs) as pool:
-    for name, result, elapsed in pool.map(run, checks):
+with concurrent.futures.ThreadPoolExecutor(max(1, args.jobs)) as pool:
+    for future in concurrent.futures.as_completed([pool.submit(run, check) for check in checks]):
+        name, result, elapsed = future.result()
+        durations[name] = round(elapsed, 1)
         print(f'{"PASS" if result.returncode == 0 else "FAIL"} {name} ({elapsed:.1f}s)', flush=True)
         if result.returncode:
             print(result.stdout[-20000:], flush=True)
             failed.append(name)
+work.mkdir(parents=True, exist_ok=True)
+durations_file.write_text(json.dumps(dict(sorted(durations.items())), indent=0))
 if failed:
     sys.exit(f'{len(failed)} of {len(checks)} host checks failed: ' + ', '.join(failed))
 print(f'All {len(checks)} host checks passed')
