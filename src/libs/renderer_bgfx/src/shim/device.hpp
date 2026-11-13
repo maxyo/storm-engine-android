@@ -319,6 +319,12 @@ struct Device final : Object
     bool scaled_next = false;          // the next frame starts on the scaled stores (this one had a 3D scene)
     bool held_depth_clear = false;     // the display-size depth returned from parking is cleared in its next view
     uint16_t view_clear_bits = 0;      // clear bits new_view() gave the current view (Clear keeps them)
+    // The current view's clear as last set (new_view, Clear): scene_complete adds discard flags without changing it.
+    uint16_t view_clear_set = 0;
+    uint32_t view_clear_rgba = 0;
+    float view_clear_z = 1.0f;
+    uint8_t view_clear_stencil = 0;
+    TexStore *view_color = nullptr; // the current view's colour target
     bool scaled_copy_logged = false;
     std::array<uint32_t, 3> scene_size_logged{}; // scene width, height and internal height last logged
     bool scene_done = false;  // the post chain ran (or was not needed) in this presented frame

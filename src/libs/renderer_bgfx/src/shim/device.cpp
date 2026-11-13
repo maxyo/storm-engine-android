@@ -560,6 +560,15 @@ void Device::scene_complete()
     TexStore *scene = back_color->store.get();
     scene->sync();
     back_depth->store->sync();
+    // The multisampled scene is resolved when bgfx leaves it for the chain's first view; nothing reads its
+    // multisampled attachments afterwards in this frame (the interface draws on the processed picture, which takes a
+    // single-sample depth) and the next frame clears them. Invalidating them after the resolve spares a tile GPU
+    // writing them back to memory (patches/bgfx-gl-framebuffer-discard.patch). Single-sample targets are the
+    // textures the chain reads: never discarded.
+    if (view_color == scene && (scene->target_flags & BGFX_TEXTURE_RT_MSAA_MASK) &&
+        (back_depth->store->target_flags & BGFX_TEXTURE_RT_MSAA_MASK))
+        bgfx::setViewClear(view, view_clear_set | BGFX_CLEAR_DISCARD_COLOR_0 | BGFX_CLEAR_DISCARD_DEPTH | BGFX_CLEAR_DISCARD_STENCIL,
+                           view_clear_rgba, view_clear_z, view_clear_stencil);
     effects::Host::PostTargets targets;
     targets.scene_color = scene->handle;
     // A multisampled depth is resolved into the texture with the colour only when an effect reads it.
@@ -723,6 +732,11 @@ uint16_t Device::new_view()
         held_depth_clear = false;
     }
     bgfx::setViewClear(view, view_clear_bits, 0, 1.0f, 0);
+    view_clear_set = view_clear_bits;
+    view_clear_rgba = 0;
+    view_clear_z = 1.0f;
+    view_clear_stencil = 0;
+    view_color = color;
     // The game addresses its viewport in display pixels; a scaled scene store has fewer.
     const uint32_t target_height = color->level_height(rt->level);
     const std::array<float, 2> scale = target_scale();
@@ -766,6 +780,10 @@ HRESULT Device::Clear(DWORD count, const D3DRECT *, DWORD flags, D3DCOLOR color,
         bits |= view_clear_bits; // the view's own depth clear (new_view) stays
     const uint32_t rgba = ((color & 0x00FFFFFF) << 8) | (color >> 24);
     bgfx::setViewClear(view, bits, rgba, z, static_cast<uint8_t>(stencil));
+    view_clear_set = bits;
+    view_clear_rgba = rgba;
+    view_clear_z = z;
+    view_clear_stencil = static_cast<uint8_t>(stencil);
     bgfx::touch(view);
     view_has_content = true;
     return D3D_OK;
