@@ -183,21 +183,38 @@ void Player::Move(float dltTime)
         {
             // lastChange = 0.0f;
 #ifdef __ANDROID__
-            if (androidAxes && command.cmd == aicmd_none && !shootgunMode && !isSwim && !isJump)
+            if (androidAxes && command.cmd == aicmd_none && !shootgunMode && !isJump)
             {
                 const auto &axes = *androidAxes;
-                if (axes.magnitude == 0.0f)
+                const auto gait = storm::android::touchGait(axes, isSwim, IsFight());
+                if (gait == storm::android::TouchGait::stop)
                 {
                     StopAndroidMovement();
                 }
-                else if (IsFight() && axes.y < -0.22f)
+                else if (gait == storm::android::TouchGait::swim)
+                {
+                    // In water the native swim moves the hero along his heading at its own
+                    // pace (no run, no strafe, the waves on top): the stick steers it, relative
+                    // to the camera as on land.
+                    const bool cameraRelative = androidCameraRelative && locCam && locCam->IsThirdPersonFollow();
+                    const glm::vec3 forward = cameraRelative ? locCam->MovementViewDirection() :
+                        glm::vec3(sinf(ay), 0.0f, cosf(ay));
+                    const auto direction = storm::android::movementDirection(axes, forward.x, forward.z, ay);
+                    androidRunTier = false;
+                    SetRunMode(false);
+                    StartMove(false);
+                    androidMotionStop = false;
+                    strafeMove = 0.0f;
+                    Turn(direction.x, direction.z);
+                }
+                else if (gait == storm::android::TouchGait::combatBack)
                 {
                     // Backstep and side dodges are native combat actions, not
                     // ordinary locomotion whose impulses may be rescaled.
                     StopAndroidMovement();
                     if (axes.magnitude > .22f) Recoil();
                 }
-                else if (IsFight() && std::fabs(axes.y) < .22f)
+                else if (gait == storm::android::TouchGait::combatSide)
                 {
                     StopAndroidMovement();
                     if (axes.magnitude > .22f)

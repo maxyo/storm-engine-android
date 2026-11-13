@@ -63,6 +63,8 @@ struct Player:Motion
     void StrafeLeft(){++dodges;if(allowDodge)fgtSetType=1;}
     void StrafeRight(){++dodges;if(allowDodge)fgtSetType=1;}
     void SetRunMode(bool run){lastRun=run;}
+    float turnX=0,turnZ=0; int turns=0;
+    void Turn(float x,float z){turnX=x;turnZ=z;++turns;}
     void StartMove(bool back){isMove=true;lastBack=back;}
     void StrafeWhenMove(float);
     void StrafeWhenStop(float);
@@ -116,6 +118,27 @@ int main()
         if(special==3)native.isSwim=touch.isSwim=true;
         if(special==4)native.isJump=touch.isJump=true;
         native.step();touch.step();same(native.curPos,touch.curPos);assert(!touch.androidMotionApplied);
+    }
+    // Swimming: the held stick steers the native swim, relative to the camera, through every
+    // change between walking and swimming (it used to be dropped in water: the waves carried
+    // the hero one way and the stick could not change it).
+    {
+        Player swimmer; swimmer.androidCameraRelative=true; camera.forward={0,0,1};
+        swimmer.isSwim=true; swimmer.isMove=false; swimmer.androidRunTier=true;
+        swimmer.analog(MovementAxes{1,0,1,true}); // pushed right
+        assert(swimmer.isMove && !swimmer.lastRun && !swimmer.androidRunTier && swimmer.strafeMove==0 && !swimmer.androidMotion);
+        assert(swimmer.turns==1 && near(swimmer.turnX,1) && near(swimmer.turnZ,0));
+        swimmer.analog(MovementAxes{0,-1,1,true}); // pulled back: swims towards the camera
+        assert(swimmer.turns==2 && near(swimmer.turnX,0) && near(swimmer.turnZ,-1));
+        swimmer.isSwim=false; swimmer.analog(MovementAxes{0,1,1,true}); // ashore: the touch walk again
+        assert(swimmer.androidMotion && swimmer.turns==2 && near(swimmer.androidMotionDirection.z,1));
+        swimmer.isSwim=true; swimmer.analog(MovementAxes{-1,0,1,true}); // back in the water, same finger
+        assert(swimmer.turns==3 && near(swimmer.turnX,-1) && swimmer.isMove);
+        swimmer.analog(MovementAxes{0,0,0,true}); // the thumb in the dead zone stops the swim
+        assert(!swimmer.isMove && swimmer.androidMotionStop);
+        assert(touchGait(MovementAxes{0,-1,1,true},true,true)==TouchGait::swim && touchGait(MovementAxes{0,-1,1,true},false,true)==TouchGait::combatBack &&
+               touchGait(MovementAxes{1,0,1,true},false,true)==TouchGait::combatSide && touchGait(MovementAxes{0,1,1,true},false,false)==TouchGait::walk &&
+               touchGait(MovementAxes{},true,false)==TouchGait::stop);
     }
     Player scripted;scripted.androidMotionStop=true;scripted.androidRunTier=true;
     scripted.androidCameraRelative=true;scripted.task.task=1;scripted.release(std::nullopt);

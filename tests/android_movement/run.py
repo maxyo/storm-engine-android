@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Portable production mailbox, axis/pace and ordinary-motion guard regression."""
+"""Portable production mailbox, axis/pace and ordinary-motion guard regression; the stick steers the swim."""
 import argparse
 import os
 from pathlib import Path

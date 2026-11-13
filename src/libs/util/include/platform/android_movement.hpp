@@ -40,6 +40,18 @@ inline bool ordinaryMovementAllowed(bool requested, bool moving, bool locked, bo
     return requested && moving && !locked && !priority && !jumping && !swimming &&
         !fighting && !queuedFight && locomotion;
 }
+// What a held stick does to the hero in this frame. Swimming takes it too: the native swim
+// (its own pace, the waves) goes the stick's way. It used to be left out of the touch path, so
+// in water nothing but the waves moved the hero and the stick could not steer him.
+enum class TouchGait { stop, swim, combatBack, combatSide, walk };
+inline TouchGait touchGait(const MovementAxes &axes, bool swimming, bool fighting)
+{
+    if (axes.magnitude <= 0.0f) return TouchGait::stop;
+    if (swimming) return TouchGait::swim;
+    if (fighting && axes.y < -0.22f) return TouchGait::combatBack;
+    if (fighting && std::fabs(axes.y) < .22f) return TouchGait::combatSide;
+    return TouchGait::walk;
+}
 struct MovementPace { bool run; float speed; };
 // Two native gait speeds. Enter run at 80% travel and return to walk below
 // 65%; permission changes always take effect immediately. Direction stays analog.
