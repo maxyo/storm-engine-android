@@ -33,6 +33,7 @@ def make_game(game, resource=None):
     else:
         (game / 'RESOURCE' / 'techniques').mkdir(parents=True)
         (game / 'RESOURCE' / 'techniques' / 'game.fx').write_text('game\n')
+        (game / 'RESOURCE' / 'model.gm').write_text('model\n')  # untouched by prepare: stays a hard link
 
 
 def shard(game, techniques, engine):
@@ -64,6 +65,19 @@ with tempfile.TemporaryDirectory(prefix='sweep-links-') as directory:
     expect_link_error(lambda: sweep.inside(base / 'scratch', base / 'scratch' / 'via' / 'engine.fx'), 'a linked parent')
     expect_link_error(lambda: sweep.inside(base / 'scratch', base / 'scratch' / 'via'), 'the link itself')
     expect_link_error(lambda: sweep.inside(base / 'scratch', base / 'elsewhere'), 'a path outside the copy')
+
+    # chmod: only the copy's directories; a regular file is refused, hard-linked or not.
+    (base / 'scratch' / 'plain').write_text('plain\n')
+    os.link(base / 'scratch' / 'plain', base / 'scratch' / 'linked')
+    expect_link_error(lambda: sweep.make_directory_writable(base / 'scratch' / 'plain'), 'a chmod of a regular file')
+    expect_link_error(lambda: sweep.make_directory_writable(base / 'scratch' / 'linked'), 'a chmod of a hard-linked file')
+    # A write: never into a file with other names (nlink > 1); own_file gives a new inode.
+    expect_link_error(lambda: sweep.check_own_file(base / 'scratch' / 'linked'), 'a written file shared with another folder')
+    fresh = sweep.own_file(base / 'scratch', base / 'scratch' / 'linked')
+    fresh.write_text('own\n')
+    assert (base / 'scratch' / 'plain').read_text() == 'plain\n' and os.stat(fresh).st_nlink == 1
+    sweep.check_own_file(fresh)
+    print('PASS a write replaces a hard-linked file with its own inode, the other name unchanged')
 
     # A game folder whose RESOURCE links to a shared folder: refused, the shared folder untouched.
     shared = base / 'shared-RESOURCE'
@@ -103,6 +117,18 @@ with tempfile.TemporaryDirectory(prefix='sweep-links-') as directory:
         assert os.stat(game / written).st_nlink == 1, f'{written} is still a hard link into another folder'
     assert tree(readonly) == before, 'the read-only game folder was changed'
     assert all(not os.stat(p).st_mode & stat.S_IWUSR for p in [readonly, *readonly.rglob('*')]), 'a source mode was changed'
+    # A chmod of a copy's file goes through to the player's file: the snapshot (mode included) catches it.
+    snapshot = sweep.game_snapshot(readonly)
+    (game / 'PROGRAM').chmod(0o755)
+    shared = game / 'RESOURCE' / 'model.gm'
+    assert os.stat(shared).st_nlink > 1
+    os.chmod(shared, os.stat(shared).st_mode | stat.S_IWUSR)
+    try:
+        sweep.check_game_unchanged(readonly, snapshot, 'test')
+    except RuntimeError as error:
+        print(f'PASS a chmod through a hard link is reported: {str(error)[:120]}')
+    else:
+        raise AssertionError('a chmod through a hard link went unnoticed')
     for path in [readonly, *readonly.rglob('*')]:
         path.chmod(path.stat().st_mode | stat.S_IWUSR)
     print('PASS a read-only game folder: swept from a writable copy, every written file its own inode, the source unchanged')

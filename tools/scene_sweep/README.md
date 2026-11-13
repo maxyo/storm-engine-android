@@ -55,7 +55,9 @@ the sweep fails (`inventory:tables`) when they differ from what `inventory.py` p
   with a harness error naming the links, and every path it deletes or writes is checked to be no
   link and to resolve inside its own copy (tests/scene_sweep_links). Pass the real game folder. A
   read-only `--game` (local-testing/extracted/app) works: only the copy's own directories are made
-  writable, the hard-linked files keep their modes.
+  writable, the hard-linked files keep their modes. The sweep never chmods a regular file and never
+  writes a file with another name (nlink > 1): a written file is unlinked first and checked to be its
+  own inode, and the check of `--game` after every engine run includes the file modes.
 
 A scene fails on: a crash or fatal engine error, a timeout, a failed teleport to the entry locator, script errors (`error.log`),
 missing textures or models, engine/renderer errors in the logs, a fader that never goes,

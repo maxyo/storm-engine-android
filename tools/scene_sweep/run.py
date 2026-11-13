@@ -28,6 +28,7 @@ import re
 import resource
 import shutil
 import signal
+import stat
 import struct
 import subprocess
 import sys
@@ -119,8 +120,8 @@ def file_digest(path):
 
 
 def game_snapshot(game):
-    """Inode, size and modification time of every file of the player's game. The engines run on hard-linked
-    copies of it: a write through a link would change the player's file and every other sweep's copy."""
+    """Inode, size, modification time and mode of every file of the player's game. The engines run on hard-linked
+    copies of it: a write or a chmod through a link would change the player's file and every other sweep's copy."""
     snapshot = {}
     pending = [game]
     while pending:
@@ -130,7 +131,7 @@ def game_snapshot(game):
                     pending.append(entry.path)
                 else:
                     status = entry.stat(follow_symlinks=False)
-                    snapshot[entry.path] = (status.st_ino, status.st_size, status.st_mtime_ns)
+                    snapshot[entry.path] = (status.st_ino, status.st_size, status.st_mtime_ns, status.st_mode)
     return snapshot
 
 
@@ -174,9 +175,34 @@ def writable_directories(root):
     directories are its own inodes, so they are made writable; its files are hard links shared with the
     source and keep their modes (a chmod of one would change the player's file)."""
     for directory, _, _ in os.walk(root):
-        mode = os.stat(directory).st_mode
-        if not mode & 0o200:
-            os.chmod(directory, mode | 0o700)
+        make_directory_writable(Path(directory))
+
+
+def make_directory_writable(path):
+    """The sweep's only chmod: a directory of its own copy. A regular file is refused whatever its link count
+    (a copy's file is a hard link of the player's file, a chmod changes both)."""
+    status = os.lstat(path)
+    if not stat.S_ISDIR(status.st_mode):
+        raise LinkError(f'refusing to chmod {path}: not a directory (files of the copy keep their modes)')
+    if not status.st_mode & 0o200:
+        os.chmod(path, status.st_mode | 0o700)
+
+
+def own_file(root, path):
+    """A file of the copy the sweep is about to write: no link on the way, inside the copy, and unlinked first so
+    the write creates a new inode. A file still there after the unlink, or a new one with other names (nlink > 1),
+    is refused: writing it would change the player's file."""
+    path = inside(root, path)
+    path.unlink(missing_ok=True)
+    if path.exists():
+        raise LinkError(f'refusing to write {path}: it is still there after the unlink')
+    return path
+
+
+def check_own_file(path):
+    """After the sweep wrote `path`: it must be the copy's own inode."""
+    if os.lstat(path).st_nlink != 1:
+        raise LinkError(f'{path} was written but is shared with another folder (nlink {os.lstat(path).st_nlink})')
 
 
 def check_game_unchanged(game, snapshot, when):
@@ -349,9 +375,7 @@ class Shard(threading.Thread):
 
         def own(relative):
             """A file of the copy the sweep or the game writes: unlinked first, so the write lands in the copy."""
-            path = inside(game, game / relative)
-            path.unlink(missing_ok=True)
-            return path
+            return own_file(game, game / relative)
 
         for name in ('engine.ini', 'options'):  # the game rewrites both
             own(name)
@@ -372,6 +396,9 @@ class Shard(threading.Thread):
         shutil.copytree(self.arguments.techniques, techniques)
         shutil.copy(HERE / 'scene_sweep.c', own('PROGRAM/scene_sweep.c'))
         os.link(self.context['engine'], own('engine'))  # resources are looked up next to the executable
+        for written in ('engine.ini', 'options', 'PROGRAM/scene_sweep.c'):
+            if (game / written).exists():
+                check_own_file(game / written)
         control = run / 'control'
         control.mkdir()
         (control / 'scenes.txt').write_text(''.join(scene + '\n' for scene in self.queue))
