@@ -148,8 +148,10 @@ Stage 15 belongs to the shadow map, stage 14 to the derived normal map and, in t
 fixed-function emulator's units).
 
 Normal maps come from the player's own textures, on the device; never ship or commit them. Which textures get one is
-the ordered rules table of `ClassifyTextureName` (stone, wood, building atlases, plaster and ground; nothing for faces,
-cloth and sails, UI, water, glass, foliage cards, grass ground, sky, decals and unknown names). Colour textures get
+the ordered rules table of `ClassifyTextureName`: every surface (the owner: the parallax wherever it can work) — stone,
+wood, building atlases, plaster, ground, sand and cloth, metal, and as props whatever no rule names; nothing where it
+cannot work or would be wrong (characters, which have their own path; sails and flags, rigging and nets, foliage,
+water, glass, sky, UI, effects, light maps). Colour textures get
 PBRify's normals as the model gives them (`relief_model.hpp`, the owner's choice), made by src/libs/relief; grey "bump"
 textures get `DeriveNormalMap` of their heights, in the game. Both live in the relief directory (`relief_store.hpp`) as EAC RG11 with
 mips: 1 byte per texel plus a third (a 512² map 0.35 MB; prepared maps are 512, fx::kReliefMapSize; Settings::normal_map_size caps the resident
@@ -164,17 +166,19 @@ wood), capped on cloth, ground and plaster (0.1) and stone (0.35). A texture wit
 map in the relief directory: EAC RG11 with mips (256², 87 KB), R the metal mask (the highlight's tint), G the gloss. The lit and baked programs with FX_LIGHT_SPECULAR read them at stage 7
 (fx_lighting.sh `fxGlossSpec`: energy-kept Blinn-Phong, power 8..181, reflectance gloss^2.5 / 2): the sun's highlight on
 lit and on baked surfaces outdoors (where the bake shows the open sun), the lamps' highlights with their shadows.
-The colour textures' maps of the classes with a height (stone, wood, building atlases, plaster) also hold the relief's
-material texture (`height_map.hpp`): R PBRify's height for the parallax and the cavity, G the gloss (so these textures
+Every relief map also holds the relief's material texture (`height_map.hpp`): R PBRify's height for the parallax and the cavity, G the gloss (so these textures
 have no gloss map of their own), EAC RG11 with the same mips in the same file (a 512² material 0.35 MB). With Settings::parallax (Высокая: occlusion, 8..24 steps by view angle;
-Средняя: one-tap offset mapping) the lit and baked draws whose relief follows stage 0 take the FX_LIGHT_PARALLAX variants:
-the material at stage 7 (`kMaterialStage`, `s_fxMaterial`, the unit the gloss reads), stage 0's colour and the
-normal map read where the eye's ray meets the relief (`fx_lighting.sh` fxParallax), fading out between 10 and 15 m.
+Средняя: one-tap offset mapping) the lit and baked draws with relief take the FX_LIGHT_PARALLAX variants: the material
+at stage 7 (`kMaterialStage`, `s_fxMaterial`, the unit the gloss reads), the relief stage's texture (stage 0's colour, or
+stage 1's grey height texture with its own heights; stage 0's gloss then yields unit 7, counted) and the normal map read
+where the eye's ray meets the relief (`fx_lighting.sh` fxParallax), fading out between 10 and 15 m.
 The height is normalised per atlas region (`height_map.hpp`), each class has its
-own depth (`ReliefDepthTexels`: stone 12 texels of the 512 map, building atlases 8, plaster 5, wood 4), the shift at grazing views is held to 2.5 times the depth, and clamp-addressed textures have none (the
+own depth (`ReliefDepthTexels`: stone 12 texels of the 512 map, building atlases 8, the grey height maps 6, plaster 5,
+wood 4, props 3, metal 1.5), the shift at grazing views is held to 2.5 times the depth, and clamp-addressed textures have none (the
 reads would run off their edge). On Высокая the relief also shadows itself towards the sun (fxParallaxShadow, six taps
 of the height; not indoors): the lit draws' sun term, half of the baked colours.
 The same height gives the relief's cavity on Высокая and Средняя (fxReliefCavity: the height against itself two and a
 half levels coarser, one more tap): joints, gaps and recesses take ambient and bounce in full, half of the direct light,
 three quarters of the baked colours; it also draws where the parallax is off or clamped.
-The grey "bump" textures' maps (stage 1, their own coordinates) have no height and no parallax.
+The census logs each texture's parallax or the reason it has none ("effects parallax: texture ...") and a coverage
+table by class and reason ("effects parallax coverage, ..."), the textures drawn in the last 300 frames.

@@ -184,9 +184,21 @@ void NormalMaps::look_up(const std::shared_ptr<NormalMapEntry> &entry)
                    key, method);
         fx::NormalMapOptions options = fx::HeightMapOptions();
         options.max_size = fx::kReliefMapSize;
-        const fx::NormalMap rg8 = fx::DeriveNormalMap(rgba, width, height, options);
+        fx::NormalMap rg8 = fx::DeriveNormalMap(rgba, width, height, options);
+        // Its material texture: its own heights (no gloss: a height map is no colour), for the parallax and the cavity.
+        const bool material = !rg8.rg.empty() &&
+                              fx::AddReliefMaterial(rg8, fx::ReliefClass::HeightMap,
+                                                    fx::GreyHeights(rgba, width, height, rg8.width, rg8.height), {});
         fx::NormalMap map{rg8.width, rg8.height, rg8.mip_count, fx::NormalMapFormat::EacRg11,
                           texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.rg.data(), rg8.width, rg8.height, rg8.mip_count)};
+        if (material)
+        {
+            map.material = texture::encode_eac_chain(texture::EacFormat::Rg11, rg8.material.data(), rg8.width, rg8.height,
+                                                     rg8.mip_count);
+            map.depth = rg8.depth;
+        }
+        else if (!rg8.rg.empty())
+            shim::logf("effects: relief %s (height map): flat, no height: no parallax or cavity for it", entry->name.c_str());
         counters->derive_us += static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
         ++counters->derived;

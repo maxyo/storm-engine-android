@@ -3,12 +3,12 @@
 // Renderer::TextureLoad reports each texture's name and game file (SetEffectsTextureSource) right after its levels are
 // filled. While kLightingNormalMap is on, fx::ReliefClassifier decides from the path (and, for "bump" names, the
 // pixels) whether the texture gets relief:
-//   * colour textures of the relief classes (stone, wood, buildings, plaster, ground): their maps are made by PBRify's models
+//   * colour textures of the relief classes (every surface the parallax can work on): their maps are made by PBRify's models
 //     in the game process (effects/relief_generator.hpp) the first time the texture is loaded without one, into the
 //     relief directory, and kept there. Until its map is ready the texture has no relief; the "effects relief:" line
 //     says how many wait.
 //   * grey height ("bump") textures: their values are heights. The game derives their maps itself (fx::DeriveNormalMap
-//     on a texture worker) into the same directory, once.
+//     on a texture worker, the material texture of their own heights) into the same directory, once.
 // Gloss maps (fx/gloss_map.hpp) follow the same path for the colour textures of a gloss class whose relief class has no
 // height (TexStore::gloss_map): an entry at the load, looked up while Settings::gloss is on (now or when it is switched
 // on), requested from the relief generator (PBRify's roughness network) when the relief directory has none, stored

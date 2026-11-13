@@ -14,19 +14,22 @@
 
 #include <cstdint>
 #include <span>
+#include <vector>
 
 namespace storm::fx
 {
 
 // Bump when the height or the material's packing changes (it is part of the relief maps' method, ReliefMethod).
-inline constexpr uint32_t kHeightMapVersion = 4; // 4: PBRify's height, normalised per region
+inline constexpr uint32_t kHeightMapVersion = 5; // 4: PBRify's height, normalised per region; 5: every class, the
+                                                 // grey height maps' own
 
-// Whether a class's colour textures get a material texture (and so the parallax and the cavity): stone and brick, wood
-// and planks, plaster and ground, the buildings' atlases.
+// Whether a class's textures get a material texture (and so the parallax and the cavity): every class with relief
+// (the owner: the parallax wherever it can work), the grey height maps too (their own heights).
 bool ReliefHasHeight(ReliefClass relief);
 
 // The depth of a class's height in texels of the 512 map (Settings::parallax_strength scales them all): stone, brick and
-// cobbles 12, the buildings' atlases (stone, plaster and beams in one) 8, plaster and ground 5, wood 4.
+// cobbles 12, the buildings' atlases (stone, plaster and beams in one) 8, the grey height maps 6, plaster, ground and
+// cloth 5, wood 4, props 3, metal 1.5.
 float ReliefDepthTexels(ReliefClass relief);
 
 // How much of the sun's light the relief's own shadow takes where it falls (fx_lighting.sh fxParallaxShadow).
@@ -42,5 +45,9 @@ inline constexpr float kHeightRegionTexels = 24.0f;
 // at the same size, or empty (G 0: no gloss class). Deterministic. False (no material) for a map that is not Rg8, a
 // class without height, a flat height or mismatched sizes.
 bool AddReliefMaterial(NormalMap &map, ReliefClass relief, std::span<const float> height, std::span<const uint8_t> gloss);
+
+// The heights of a grey height ("bump") texture at the size of its map: its red channel (0..1), box-halved from
+// width x height to map_width x map_height (halvings, as NormalMapSize gives them).
+std::vector<float> GreyHeights(std::span<const uint8_t> rgba, int width, int height, int map_width, int map_height);
 
 } // namespace storm::fx

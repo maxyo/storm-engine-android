@@ -474,16 +474,22 @@ vec4 ffCombine(float op, vec4 a1, vec4 a2, vec4 a0, vec4 current, vec4 tex, vec4
 
 #define FF_UV(tc, ms) ((ms).y > 0.5 ? (tc).xy / (tc).w : (tc).xy)
 
-#ifndef STAGE0_SAMPLE
 #ifdef FX_LIGHT_PARALLAX
-// The parallax variant is only chosen for a stage 0 without projected coordinates (effects/lighting.cpp).
-#define STAGE0_SAMPLE texture2DGrad(s_tex0, ffReliefUv, ffReliefDx, ffReliefDy)
-#else
-#define STAGE0_SAMPLE texture2D(s_tex0, FF_UV(v_texcoord0, ms))
+// The parallax variant is only chosen for a relief stage without projected coordinates (effects/lighting.cpp): that
+// stage (u_fxFf.y) is read where the eye's ray meets the relief, the other as it is.
+#ifndef STAGE0_SAMPLE
+#define STAGE0_SAMPLE (u_fxFf.y > 0.5 ? texture2D(s_tex0, FF_UV(v_texcoord0, ms)) : texture2DGrad(s_tex0, ffReliefUv, ffReliefDx, ffReliefDy))
 #endif
+#ifndef STAGE1_SAMPLE
+#define STAGE1_SAMPLE (u_fxFf.y > 0.5 ? texture2DGrad(s_tex1, ffReliefUv, ffReliefDx, ffReliefDy) : texture2D(s_tex1, FF_UV(v_texcoord1, ms)))
+#endif
+#else
+#ifndef STAGE0_SAMPLE
+#define STAGE0_SAMPLE texture2D(s_tex0, FF_UV(v_texcoord0, ms))
 #endif
 #ifndef STAGE1_SAMPLE
 #define STAGE1_SAMPLE texture2D(s_tex1, FF_UV(v_texcoord1, ms))
+#endif
 #endif
 #ifndef STAGE2_SAMPLE
 #define STAGE2_SAMPLE texture2D(s_tex2, FF_UV(v_texcoord2, ms))
@@ -510,8 +516,8 @@ void main()
 #endif
     vec3 Ng = N;
 #ifdef FX_LIGHT_NORMALMAP
-    // The relief follows the coordinates of its stage (u_fxFf.y); with the parallax always stage 0's, whose colour is
-    // then read where the relief's map is (ffReliefUv, with the derivatives of the unshifted coordinates).
+    // The relief follows the coordinates of its stage (u_fxFf.y); with the parallax that stage's texture is then read
+    // where the relief's map is (ffReliefUv, with the derivatives of the unshifted coordinates).
     vec2 ffReliefUv = u_fxFf.y > 0.5 ? v_texcoord1.xy : v_texcoord0.xy;
     vec2 ffReliefDx = dFdx(ffReliefUv);
     vec2 ffReliefDy = dFdy(ffReliefUv);
@@ -538,10 +544,11 @@ void main()
 #ifdef FX_LIGHT_SPECULAR
     if (u_fxGloss.x > 0.0)
     {
-        // G the gloss; R a gloss map's metal mask (fx::GlossMaterial; u_fxGloss.y is 0 where R is a relief's height).
+        // G the gloss; R a gloss map's metal mask (fx::GlossMaterial, u_fxGloss.y > 0) or a relief's height (u_fxGloss.y
+        // < 0 on metal: its polished texels by their gloss, which the metal mask floored at 0.5).
         vec2 ffMaterial = texture2D(s_fxMaterial, v_texcoord0.xy).rg;
         ffGloss = ffMaterial.g;
-        ffMetal = u_fxGloss.y * ffMaterial.r * u_fxGloss.x;
+        ffMetal = (u_fxGloss.y > 0.0 ? u_fxGloss.y * ffMaterial.r : -u_fxGloss.y * smoothstep(0.4, 0.55, ffGloss)) * u_fxGloss.x;
         // Metal reflects several times what lacquer or glazing do.
         ffSpec = mix(ffSpec, fxGlossSpec(ffGloss) * vec2(1.0, (1.0 + 2.5 * ffMetal) * u_fxGloss.w), u_fxGloss.x);
     }

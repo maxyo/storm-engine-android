@@ -50,6 +50,8 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace storm::shim
@@ -196,9 +198,10 @@ class Lighting
     LampShadows &lamp_shadows() { return lamps_; }
     const LampShadows &lamp_shadows() const { return lamps_; }
     void end_frame();
-    // Why a draw whose stage 0 texture has a height-capable relief class drew without the parallax (census()).
+    // Why a textured draw drew without the parallax (census()).
     enum class ParallaxMiss : uint8_t
     {
+        NoReliefClass, // the texture's class has no relief: what the parallax cannot work on (its rule says which)
         Ported,        // a ported vertex or pixel shader of the game's technique
         Decal,         // a slope-biased decal (projected shadows)
         Pretransformed, // RHW vertices
@@ -206,11 +209,11 @@ class Lighting
         Cube,          // a cube-mapped stage: the legacy path
         Character,
         Off,           // relief or parallax switched off
-        Stage1,        // the stage 1 grey height texture's relief took the draw (its own coordinates)
+        Stage1,        // the stage 1 grey height texture's relief took the draw, without a height of its own
         NotReady,      // the map not uploaded yet (being made, read, faded in)
         NoHeight,      // the map has no height (flat)
-        Projected,     // stage 0 with projected coordinates
-        Clamped,       // stage 0 clamp-addressed
+        Projected,     // the relief's stage with projected coordinates
+        Clamped,       // the relief's stage clamp-addressed
         NoRelief,      // the draw took no relief: a lit material without it (props, hull parts), or fading in at 0
         Other,
     };
@@ -218,14 +221,16 @@ class Lighting
     // After prepare() (or instead of it, for a draw prepare() never sees): counts the draw for the census.
     void census(const shim::Device &device, const shim::LayoutInfo &layout, bool ported, bool decal, uint32_t cube_variant,
                 const FfDraw &draw);
+    static constexpr size_t kParallaxMisses = 15;
     // Draws of the last presented frame that used a lit / baked / coverage variant (effects profile).
     struct Counts
     {
         uint32_t lit = 0, baked = 0, coverage = 0, relief = 0, parallax = 0, glossy = 0, shadowed = 0, casters = 0, aerial = 0,
                  ao = 0, lamp_lit = 0, lamp_casters = 0, town_walls = 0;
-        // Draws whose stage 0 texture is of a class with a height but that drew without the parallax, by the reason
-        // (ParallaxMiss), so a parallax that never reaches the screen shows in the "effects parallax:" line.
-        std::array<uint32_t, 14> parallax_miss{};
+        // Textured draws that drew without the parallax, by the reason (ParallaxMiss), so a parallax that never
+        // reaches the screen shows in the "effects parallax:" line.
+        std::array<uint32_t, kParallaxMisses> parallax_miss{};
+        uint32_t gloss_yields = 0; // draws whose stage 0 gloss gave unit 7 to a stage 1 parallax
     };
     Counts last_frame() const { return last_frame_; }
 
@@ -303,7 +308,25 @@ class Lighting
     bgfx::UniformHandle u_coverage_ = BGFX_INVALID_HANDLE;
     Counts frame_{}, last_frame_{};
     uint32_t census_frames_ = 0, logged_parallax_ = 0;
-    std::array<uint32_t, 14> logged_miss_{};
+    std::array<uint32_t, kParallaxMisses> logged_miss_{};
+    // The parallax's coverage by texture (census()): each texture drawn, its class, whether it drew with the parallax
+    // (kCoverageParallax) or why not (a ParallaxMiss), the frame it was last drawn. The "effects parallax coverage:"
+    // table counts the textures drawn in the last kCoverageFrames frames.
+    struct Coverage
+    {
+        fx::ReliefClass relief = fx::ReliefClass::None;
+        uint8_t status = 0;
+        const char *rule = nullptr; // a texture without relief: the rule that says so
+        uint32_t frame = 0;
+        uint32_t parallax_frame = 0; // the last frame it drew with the parallax (0: never)
+    };
+    static constexpr uint8_t kCoverageParallax = 0xff;
+    static constexpr uint32_t kCoverageFrames = 300;
+    std::unordered_map<std::string, Coverage> parallax_coverage_;
+    uint32_t census_frame_ = 1;
+    std::string logged_coverage_;
+    void cover(const shim::TexStore &texture, fx::ReliefClass relief, uint8_t status);
+    void log_coverage();
 };
 
 } // namespace storm::effects

@@ -1,5 +1,5 @@
 // Host check of the relief preparation with the real PBRify models (storm_relief_core): a small synthetic game,
-// prepared (a stone texture's relief with its material, a bottle's own gloss map), marked complete, keyed as the game
+// prepared (a stone texture's relief with its material, a window glass's own gloss map), marked complete, keyed as the game
 // keys it, resumed without work, stale maps pruned, cancelled.
 #include "relief.hpp"
 #include "storm/fx/gloss_map.hpp"
@@ -73,7 +73,7 @@ int main(int argc, char **argv)
     std::filesystem::remove_all(root);
     const std::filesystem::path textures = root / "RESOURCE/Textures", output = root / "relief";
     const std::vector<uint8_t> probe = WriteTx(textures / "Locations/StoneWall.tga.tx", 128);
-    const std::vector<uint8_t> bottle_probe = WriteTx(textures / "Locations/Bottle.tga.tx", 64); // glass: gloss only
+    const std::vector<uint8_t> bottle_probe = WriteTx(textures / "Locations/WindowGlass.tga.tx", 64); // glass: gloss only, no relief
     WriteTx(textures / "Characters/Face.tga.tx", 64); // no relief, no gloss by the rules
 
     relief::Job job;
@@ -104,8 +104,8 @@ int main(int argc, char **argv)
     CHECK(map && map->width == 128 && map->mip_count == 8 && map->format == fx::NormalMapFormat::EacRg11);
     // A stone texture's map holds its material texture (EAC RG11: height, gloss; the same mips) and the stone's depth.
     CHECK(map && map->material.size() == map->rg.size() && map->depth == fx::ReliefDepthTexels(fx::ReliefClass::Stone) * 0.25f);
-    // The bottle: no relief, its own gloss map (EAC RG11: metal mask, gloss) at its size, all mips.
-    const uint64_t gloss_key = fx::ReliefKey("locations/bottle", bottle_probe, 64, 64, fx::GlossMethod(fx::GlossClass::Glass),
+    // The window glass: no relief, its own gloss map (EAC RG11: metal mask, gloss) at its size, all mips.
+    const uint64_t gloss_key = fx::ReliefKey("locations/windowglass", bottle_probe, 64, 64, fx::GlossMethod(fx::GlossClass::Glass),
                                              fx::kGlossMapSize);
     const std::optional<fx::NormalMap> gloss = fx::ReadGlossMap(output, gloss_key);
     CHECK(gloss && gloss->width == 64 && gloss->mip_count == 7 && gloss->format == fx::NormalMapFormat::EacRg11);

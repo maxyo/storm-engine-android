@@ -25,13 +25,14 @@ namespace storm::fx
 // Material class of a texture for the relief: which textures get a map, and where it comes from.
 enum class ReliefClass : uint8_t
 {
-    None,      // no relief: faces and skin, cloth and sails, UI, water, glass, foliage cards, sky, decals, gold, unknown
+    None,      // no relief: characters, sails and flags, rigging, UI, water, glass, foliage, sky, effects, light maps
     HeightMap, // grey "bump" texture: its values are heights
     Stone,
     Wood,
     Building, // one atlas per building: its walls, beams, doors
     Plaster,  // plaster, ceilings, floors, ground, sand
-    Metal,    // cannons, guns, iron, chains: fine pitting that the gloss highlights show
+    Metal,    // cannons, guns, iron, chains, lanterns, weapons: fine pitting that the gloss highlights show
+    Prop,     // what no rule names: the props of the locations and the ships, items, island textures
 };
 const char *ReliefClassName(ReliefClass relief);
 

@@ -64,7 +64,7 @@ uint64_t ReliefMethod(ReliefClass relief)
     {
         NormalMapOptions options = HeightMapOptions();
         options.max_size = kReliefMapSize; // as the game derives them (effects/normal_maps.cpp)
-        const uint64_t parts[2] = {kReliefHeightMethod, NormalMapCacheKey(options)};
+        const uint64_t parts[3] = {kReliefHeightMethod, NormalMapCacheKey(options), kHeightMapVersion}; // with their heights
         return Mix(method, parts, sizeof(parts));
     }
     // PBRify's normals, height and roughness (their models' digests), the material's height and gloss derivations.

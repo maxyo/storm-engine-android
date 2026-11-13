@@ -115,6 +115,7 @@ int main()
     WriteTx(textures / "bump_wall.tga.tx", height);
     WriteTx(textures / "brick_arch.tga.tx", colour);
     WriteTx(textures / "cannon_x.tga.tx", colour);
+    WriteTx(textures / "windowglass_x.tga.tx", colour);
     effects::ConfigureRelief({relief, textures, nullptr}); // no model: requested maps become "missing"
     // A map an older build made for the stone texture (its key without the model and the options: method 3 alone),
     // as the owner's phone kept them: never taken for the current one.
@@ -127,17 +128,19 @@ int main()
     effects::NormalMaps maps;
     maps.configure(false, 512, false); // «Низкая»: relief and gloss off
     maps.configure_gloss(false, 256);
-    auto stone = Store(colour), bump = Store(height), brick = Store(colour), cannon = Store(colour);
+    auto stone = Store(colour), bump = Store(height), brick = Store(colour), cannon = Store(colour), glass = Store(colour);
     maps.on_texture_loaded(*stone, "resource\\textures\\stone_wall.tga.tx", textures / "stone_wall.tga.tx");
     maps.on_texture_loaded(*bump, "resource\\textures\\bump_wall.tga.tx", textures / "bump_wall.tga.tx");
     maps.on_texture_loaded(*cannon, "resource\\textures\\cannon_x.tga.tx", textures / "cannon_x.tga.tx");
-    const std::vector<shim::TexStore *> loaded{stone.get(), bump.get(), cannon.get()};
+    maps.on_texture_loaded(*glass, "resource\\textures\\windowglass_x.tga.tx", textures / "windowglass_x.tga.tx");
+    const std::vector<shim::TexStore *> loaded{stone.get(), bump.get(), cannon.get(), glass.get()};
     effects::NormalMaps::Stats off = Settle(maps, loaded);
     expect(stone->normal_map && bump->normal_map, "textures loaded while relief is off get their entries");
-    expect(!stone->gloss_map && stone->normal_map->material_gloss != fx::GlossClass::None && cannon->gloss_map &&
-               !bump->gloss_map && cannon->normal_map && cannon->gloss_map->gloss == fx::GlossClass::Metal &&
-               cannon->normal_map->relief == fx::ReliefClass::Metal,
-           "a gloss class without a height (metal) gets a gloss entry, one with a height (stone) its relief's material, "
+    expect(!stone->gloss_map && stone->normal_map->material_gloss != fx::GlossClass::None && !cannon->gloss_map &&
+               cannon->normal_map && cannon->normal_map->material_gloss == fx::GlossClass::Metal &&
+               cannon->normal_map->relief == fx::ReliefClass::Metal && !glass->normal_map && glass->gloss_map &&
+               glass->gloss_map->gloss == fx::GlossClass::Glass && !bump->gloss_map,
+           "a gloss class without relief (glass) gets a gloss entry, one with relief (stone, metal) its relief's material, "
            "height maps none");
     expect(off.gloss_unqueued == 1 && off.gloss_waiting + off.gloss_missing == 0, "no gloss map is looked up while gloss is off");
     expect(off.unqueued == 3 && off.waiting == 0 && off.missing == 0 && off.derived == 0,

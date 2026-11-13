@@ -52,10 +52,11 @@ bool ReliefHasHeight(ReliefClass relief)
     case ReliefClass::Wood:
     case ReliefClass::Building:
     case ReliefClass::Plaster:
+    case ReliefClass::Metal:
+    case ReliefClass::Prop:
+    case ReliefClass::HeightMap:
         return true;
     case ReliefClass::None:
-    case ReliefClass::HeightMap:
-    case ReliefClass::Metal: // cannons, guns, chains: curved small parts, their gloss in their own gloss map
         return false;
     }
     return false;
@@ -69,13 +70,17 @@ float ReliefDepthTexels(ReliefClass relief)
         return 12.0f;
     case ReliefClass::Building:
         return 8.0f;
+    case ReliefClass::HeightMap: // the game's own detail heights, tiled small over their surface
+        return 6.0f;
     case ReliefClass::Plaster:
         return 5.0f;
     case ReliefClass::Wood:
         return 4.0f;
+    case ReliefClass::Prop:
+        return 3.0f;
+    case ReliefClass::Metal: // cannons, fittings: curved small parts, a shallow relief
+        return 1.5f;
     case ReliefClass::None:
-    case ReliefClass::HeightMap:
-    case ReliefClass::Metal:
         return 0.0f;
     }
     return 0.0f;
@@ -154,6 +159,35 @@ bool AddReliefMaterial(NormalMap &map, ReliefClass relief, std::span<const float
     }
     map.depth = ReliefDepthTexels(relief) * scale;
     return true;
+}
+
+std::vector<float> GreyHeights(std::span<const uint8_t> rgba, int width, int height, int map_width, int map_height)
+{
+    if (width <= 0 || height <= 0 || rgba.size() < static_cast<size_t>(width) * height * 4)
+        return {};
+    std::vector<float> v(static_cast<size_t>(width) * height);
+    for (size_t i = 0; i < v.size(); ++i)
+        v[i] = rgba[i * 4] / 255.0f;
+    int w = width, h = height;
+    while (w > map_width || h > map_height)
+    {
+        const int nw = w > map_width ? std::max(w / 2, 1) : w, nh = h > map_height ? std::max(h / 2, 1) : h;
+        const int sx = w / nw, sy = h / nh;
+        std::vector<float> out(static_cast<size_t>(nw) * nh);
+        for (int y = 0; y < nh; ++y)
+            for (int x = 0; x < nw; ++x)
+            {
+                float sum = 0.0f;
+                for (int dy = 0; dy < sy; ++dy)
+                    for (int dx = 0; dx < sx; ++dx)
+                        sum += v[static_cast<size_t>(y * sy + dy) * w + x * sx + dx];
+                out[static_cast<size_t>(y) * nw + x] = sum / static_cast<float>(sx * sy);
+            }
+        v = std::move(out);
+        w = nw;
+        h = nh;
+    }
+    return w == map_width && h == map_height ? v : std::vector<float>{};
 }
 
 } // namespace storm::fx

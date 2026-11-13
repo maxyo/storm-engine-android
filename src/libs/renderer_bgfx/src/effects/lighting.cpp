@@ -482,17 +482,18 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
         draw.normal_map = normal_map;
         draw.normal_map_flags = device.sampler_flags(relief_stage, *shim::store_of(device.s.textures[relief_stage]));
         ++frame_.relief;
-        // The parallax: a stage 0 map with its height, on coordinates that are not projected (the variant reads stage 0
-        // where the relief is); its depth fades in with the relief.
-        // A clamp-addressed stage 0 (a texture drawn once over its polygon, not tiled) has none: the shifted reads would
+        // The parallax: the relief stage's map with its height (stage 0's colour texture, or stage 1's grey height
+        // texture with its own heights), on coordinates that are not projected (the variant reads that stage where the
+        // relief is); its depth fades in with the relief.
+        // A clamp-addressed stage (a texture drawn once over its polygon, not tiled) has none: the shifted reads would
         // run off its edge into the clamped border.
         const uint32_t u = draw.normal_map_flags & BGFX_SAMPLER_U_MASK, v = draw.normal_map_flags & BGFX_SAMPLER_V_MASK;
         const bool clamped = u == BGFX_SAMPLER_U_CLAMP || u == BGFX_SAMPLER_U_BORDER || v == BGFX_SAMPLER_V_CLAMP ||
                              v == BGFX_SAMPLER_V_BORDER;
         // The cavity needs no shift: it also draws on a clamped stage 0 or with the parallax off.
         const bool parallax = settings_.parallax != fx::ParallaxQuality::Off && !clamped;
-        if (bgfx::isValid(relief_map.material) && relief_map.depth > 0.0f && relief_stage == 0 && (parallax || settings_.relief_cavity) &&
-            !(device.s.tss[0][D3DTSS_TEXTURETRANSFORMFLAGS] & D3DTTFF_PROJECTED))
+        if (bgfx::isValid(relief_map.material) && relief_map.depth > 0.0f && (parallax || settings_.relief_cavity) &&
+            !(device.s.tss[relief_stage][D3DTSS_TEXTURETRANSFORMFLAGS] & D3DTTFF_PROJECTED))
         {
             relief = 2;
             draw.parallax_variant = true;
@@ -513,16 +514,22 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
     }
     // Gloss: the map's texels shape the highlight; u_fxGloss.w switches on the lamps' and the baked surfaces'
     // highlights (develop's look without gloss: the lit materials' fixed highlight only).
-    // The parallax's material, when it is bound, is the same texture (stage 0's relief).
-    const bool glossy = bgfx::isValid(gloss_map.handle) && gloss_map.fade > 0.0f;
+    // The parallax's material, when it is bound, is the same texture (stage 0's relief); a stage 1 parallax binds stage
+    // 1's at the same unit: stage 0's gloss yields to it (counted in the census).
+    const bool gloss_yields = draw.parallax_variant && relief_stage == 1 && bgfx::isValid(gloss_map.handle);
+    if (gloss_yields)
+        ++frame_.gloss_yields;
+    const bool glossy = !gloss_yields && bgfx::isValid(gloss_map.handle) && gloss_map.fade > 0.0f;
     if (glossy)
     {
         draw.material = gloss_map.handle;
         draw.material_flags = device.sampler_flags(0, *gloss_store);
         ++frame_.glossy;
     }
-    // The metal tint needs the mask: a relief's material has its height in R (metal has no relief height).
-    draw.gloss = {glossy ? gloss_map.fade : 0.0f, glossy && metal_mask ? fx::GlossMetalTint(gloss_class) : 0.0f,
+    // The metal tint: by a gloss map's metal mask (its R, u_fxGloss.y > 0); a relief's material has its height in R,
+    // so there by its polished texels, their gloss (u_fxGloss.y < 0, ff_fragment.sh).
+    const float metal_tint = fx::GlossMetalTint(gloss_class);
+    draw.gloss = {glossy ? gloss_map.fade : 0.0f, glossy ? (metal_mask ? metal_tint : -metal_tint) : 0.0f,
                   gloss_ ? static_cast<float>(settings_.gloss_debug) : 0.0f, gloss_ ? settings_.gloss_strength : 0.0f};
     const bool baked_specular = specular && gloss_ && (glossy || gloss_debug);
 
@@ -602,10 +609,11 @@ void Lighting::prepare(const shim::Device &device, const shim::LayoutInfo &layou
 
 const char *Lighting::ParallaxMissName(ParallaxMiss miss)
 {
-    static const char *const names[] = {"ported shader", "decal", "pretransformed", "no vertex normals", "cube map",
-                                        "character", "switched off", "stage 1 height texture", "map not ready",
-                                        "map without height", "projected coordinates", "clamp-addressed",
-                                        "no relief on the draw", "other"};
+    static const char *const names[] = {"no relief by its class", "ported shader", "decal", "pretransformed",
+                                        "no vertex normals", "cube map", "character", "switched off",
+                                        "stage 1 height texture without a height", "map not ready", "map without height",
+                                        "projected coordinates", "clamp-addressed", "no relief on the draw", "other"};
+    static_assert(std::size(names) == kParallaxMisses);
     return names[static_cast<int>(miss)];
 }
 
@@ -613,16 +621,26 @@ void Lighting::census(const shim::Device &device, const shim::LayoutInfo &layout
                       uint32_t cube_variant, const FfDraw &draw)
 {
     const shim::TexStore *s0 = shim::store_of(device.s.textures[0]);
-    if (!s0 || !s0->normal_map || !fx::ReliefHasHeight(s0->normal_map->relief) ||
-        device.s.tss[0][D3DTSS_COLOROP] == D3DTOP_DISABLE)
-        return;
-    if (draw.parallax_variant)
-        return; // counted as frame_.parallax
+    if (!s0 || s0->kind != shim::TexKind::Tex2D || device.s.tss[0][D3DTSS_COLOROP] == D3DTOP_DISABLE)
+        return; // untextured
+    // The relief's stage: stage 1's grey height texture when it took the draw, else stage 0's colour texture.
     const shim::TexStore *s1 = shim::store_of(device.s.textures[1]);
-    const uint32_t flags = device.sampler_flags(0, *s0);
+    const bool stage1 = s1 && s1->normal_map && device.s.tss[1][D3DTSS_COLOROP] != D3DTOP_DISABLE;
+    const int stage = stage1 ? 1 : 0;
+    const shim::TexStore &texture = stage1 ? *s1 : *s0;
+    if (draw.parallax_variant)
+    {
+        // counted as frame_.parallax
+        cover(texture, texture.normal_map->relief, kCoverageParallax);
+        return;
+    }
+    const uint32_t flags = device.sampler_flags(stage, texture);
     const uint32_t u = flags & BGFX_SAMPLER_U_MASK, v = flags & BGFX_SAMPLER_V_MASK;
+    const NormalMapEntry *entry = texture.normal_map.get();
     ParallaxMiss miss = ParallaxMiss::Other;
-    if (ported)
+    if (!entry)
+        miss = ParallaxMiss::NoReliefClass;
+    else if (ported)
         miss = ParallaxMiss::Ported;
     else if (decal)
         miss = ParallaxMiss::Decal;
@@ -637,19 +655,107 @@ void Lighting::census(const shim::Device &device, const shim::LayoutInfo &layout
     else if (!lighting_ || !(flags_ & fx::kLightingNormalMap) ||
              (settings_.parallax == fx::ParallaxQuality::Off && !settings_.relief_cavity))
         miss = ParallaxMiss::Off;
-    else if (s1 && s1->normal_map && device.s.tss[1][D3DTSS_COLOROP] != D3DTOP_DISABLE)
-        miss = ParallaxMiss::Stage1;
-    else if (s0->normal_map->state != NormalMapEntry::Uploaded)
+    else if (entry->state != NormalMapEntry::Uploaded)
         miss = ParallaxMiss::NotReady;
-    else if (!bgfx::isValid(s0->normal_map->material) || s0->normal_map->depth <= 0.0f)
-        miss = ParallaxMiss::NoHeight;
-    else if (device.s.tss[0][D3DTSS_TEXTURETRANSFORMFLAGS] & D3DTTFF_PROJECTED)
+    else if (!bgfx::isValid(entry->material) || entry->depth <= 0.0f)
+        miss = stage1 ? ParallaxMiss::Stage1 : ParallaxMiss::NoHeight;
+    else if (device.s.tss[stage][D3DTSS_TEXTURETRANSFORMFLAGS] & D3DTTFF_PROJECTED)
         miss = ParallaxMiss::Projected;
     else if (u == BGFX_SAMPLER_U_CLAMP || u == BGFX_SAMPLER_U_BORDER || v == BGFX_SAMPLER_V_CLAMP || v == BGFX_SAMPLER_V_BORDER)
         miss = ParallaxMiss::Clamped;
     else if (!bgfx::isValid(draw.normal_map))
         miss = ParallaxMiss::NoRelief;
     ++frame_.parallax_miss[static_cast<size_t>(miss)];
+    cover(texture, entry ? entry->relief : fx::ReliefClass::None, static_cast<uint8_t>(miss));
+}
+
+void Lighting::cover(const shim::TexStore &texture, fx::ReliefClass relief, uint8_t status)
+{
+    if (texture.name.empty())
+        return; // not a game file (render targets, the renderer's own textures)
+    auto [it, added] = parallax_coverage_.try_emplace(texture.name);
+    Coverage &c = it->second;
+    // A texture that drew with the parallax in the window counts with it (its other draws may be clamped, decals...).
+    const bool parallax = status == kCoverageParallax;
+    if (parallax)
+        c.parallax_frame = census_frame_;
+    const uint8_t shown = !parallax && c.parallax_frame && census_frame_ - c.parallax_frame < kCoverageFrames
+                              ? kCoverageParallax
+                              : status;
+    if (added || shown != c.status)
+    {
+        if (relief == fx::ReliefClass::None)
+            c.rule = fx::ClassifyTextureName(texture.name).rule;
+        if (shown == kCoverageParallax)
+            shim::logf("effects parallax: texture %s (%s): parallax", texture.name.c_str(), fx::ReliefClassName(relief));
+        else
+            shim::logf("effects parallax: texture %s (%s): no parallax: %s%s%s", texture.name.c_str(),
+                       fx::ReliefClassName(relief), ParallaxMissName(static_cast<ParallaxMiss>(shown)),
+                       c.rule ? ", rule " : "", c.rule ? c.rule : "");
+    }
+    c.relief = relief;
+    c.status = shown;
+    c.frame = census_frame_;
+}
+
+void Lighting::log_coverage()
+{
+    // Per class: textures with the parallax, without it, and why (by reason; a class without relief by its rules).
+    struct Row
+    {
+        uint32_t with = 0, without = 0;
+        std::vector<std::pair<std::string, uint32_t>> reasons;
+    };
+    std::array<Row, static_cast<size_t>(fx::ReliefClass::Prop) + 1> rows{};
+    for (auto it = parallax_coverage_.begin(); it != parallax_coverage_.end();)
+    {
+        const Coverage &c = it->second;
+        if (census_frame_ - c.frame >= 10 * kCoverageFrames)
+        {
+            it = parallax_coverage_.erase(it); // not drawn for a long while (another location)
+            continue;
+        }
+        if (census_frame_ - c.frame < kCoverageFrames)
+        {
+            Row &row = rows[static_cast<size_t>(c.relief)];
+            if (c.status == kCoverageParallax)
+                ++row.with;
+            else
+            {
+                ++row.without;
+                const std::string reason =
+                    c.relief == fx::ReliefClass::None && c.rule ? std::string("rule ") + c.rule
+                                                                : ParallaxMissName(static_cast<ParallaxMiss>(c.status));
+                const auto found = std::find_if(row.reasons.begin(), row.reasons.end(),
+                                                [&](const auto &r) { return r.first == reason; });
+                if (found == row.reasons.end())
+                    row.reasons.emplace_back(reason, 1);
+                else
+                    ++found->second;
+            }
+        }
+        ++it;
+    }
+    std::string table;
+    for (size_t i = 0; i < rows.size(); ++i)
+    {
+        Row &row = rows[i];
+        if (!row.with && !row.without)
+            continue;
+        std::sort(row.reasons.begin(), row.reasons.end(), [](const auto &a, const auto &b) {
+            return a.second != b.second ? a.second > b.second : a.first < b.first;
+        });
+        std::string reasons;
+        for (const auto &[reason, n] : row.reasons)
+            reasons += (reasons.empty() ? "" : ", ") + reason + " " + std::to_string(n);
+        table += std::string(table.empty() ? "" : "; ") + fx::ReliefClassName(static_cast<fx::ReliefClass>(i)) + " " +
+                 std::to_string(row.with) + " with, " + std::to_string(row.without) + " without" +
+                 (reasons.empty() ? "" : " (" + reasons + ")");
+    }
+    if (table.empty() || table == logged_coverage_)
+        return;
+    logged_coverage_ = table;
+    shim::logf("effects parallax coverage, textures drawn in the last %u frames: %s", kCoverageFrames, table.c_str());
 }
 
 void Lighting::submit(const FfDraw &draw)
@@ -851,10 +957,14 @@ void Lighting::end_frame()
                 if (last_frame_.parallax_miss[i])
                     without += std::string(without.empty() ? "" : ", ") + ParallaxMissName(static_cast<ParallaxMiss>(i)) +
                                " " + std::to_string(last_frame_.parallax_miss[i]);
-            shim::logf("effects parallax: %u draws of a class with a height drew with it, %u without (%s)",
-                       last_frame_.parallax, missed, without.empty() ? "none" : without.c_str());
+            shim::logf("effects parallax: %u textured draws drew with it, %u without (%s); stage 0's gloss yielded to a "
+                       "stage 1 parallax in %u",
+                       last_frame_.parallax, missed, without.empty() ? "none" : without.c_str(), last_frame_.gloss_yields);
         }
     }
+    ++census_frame_;
+    if (census_frame_ % kCoverageFrames == 0)
+        log_coverage();
     town_light_.end_frame();
     shadows_.end_frame();
     normal_maps_.end_frame();

@@ -670,7 +670,8 @@ std::string CompleteMark(const std::filesystem::path &textures, int map_size)
     // Every class's method (model, options, versions): another build's maps never count as complete.
     uint64_t methods = 0;
     for (const fx::ReliefClass relief : {fx::ReliefClass::Stone, fx::ReliefClass::Wood, fx::ReliefClass::Building,
-                                         fx::ReliefClass::Plaster, fx::ReliefClass::Metal, fx::ReliefClass::HeightMap})
+                                         fx::ReliefClass::Plaster, fx::ReliefClass::Metal, fx::ReliefClass::Prop,
+                                         fx::ReliefClass::HeightMap})
         methods = (methods ^ fx::ReliefMethod(relief)) * 0x100000001b3ull;
     for (int gloss = 1; gloss <= static_cast<int>(fx::kLastGlossClass); ++gloss)
         methods = (methods ^ fx::GlossMethod(static_cast<fx::GlossClass>(gloss))) * 0x100000001b3ull;

@@ -15,7 +15,7 @@ namespace
 {
 using namespace img;
 
-const char *const kClassNames[] = {"none", "height map", "stone", "wood", "building", "plaster", "metal"};
+const char *const kClassNames[] = {"none", "height map", "stone", "wood", "building", "plaster", "metal", "prop"};
 
 using rules::Match;
 
@@ -30,12 +30,15 @@ struct Rule
 
 // TEHO's RESOURCE/Textures, first match wins. Location textures lie in the root folder under descriptive names
 // (English, Russian transliterations, a few French); ships in Ships/<type>/Hull<n>/. Written from the texture list of
-// the game; a texture no rule names gets no relief.
+// the game. Every surface gets relief (the owner: the parallax wherever it can work); the rules with no relief name what
+// it cannot work on or would be wrong for (their text is the reason in the logs and the census). A texture no rule
+// names is a prop (the last rule).
 constexpr ReliefClass N = ReliefClass::None, S = ReliefClass::Stone, W = ReliefClass::Wood, B = ReliefClass::Building,
-                      P = ReliefClass::Plaster, M = ReliefClass::Metal;
+                      P = ReliefClass::Plaster, M = ReliefClass::Metal, O = ReliefClass::Prop;
 #define STORM_RULE(folder, match, pattern, relief) {folder, Match::match, pattern, relief, folder pattern}
 const Rule kRules[] = {
-    // Folders of things without relief: characters, UI, sky and weather, light maps, effects, foliage, items.
+    // Folders of things without relief: characters (their own path), UI, sky and weather, light maps, effects, the
+    // grass cards, animals, flags.
     STORM_RULE("characters/", Folder, "", N),
     STORM_RULE("interfaces/", Folder, "", N),
     STORM_RULE("battle_interface/", Folder, "", N),
@@ -49,26 +52,29 @@ const Rule kRules[] = {
     STORM_RULE("weather/", Folder, "", N),
     STORM_RULE("lighting/", Folder, "", N), // the locations' baked light maps
     STORM_RULE("worldmap/", Folder, "", N),
-    STORM_RULE("islands/", Folder, "", N), // islands seen from the sea: too far for relief
     STORM_RULE("grass/", Folder, "", N),
     STORM_RULE("animals/", Folder, "", N),
-    STORM_RULE("items/", Folder, "", N),
-    STORM_RULE("ammo/", Folder, "", N),
     STORM_RULE("flags/", Folder, "", N),
     STORM_RULE("shipsflares/", Folder, "", N),
     STORM_RULE("locefx/", Folder, "", N),
     STORM_RULE("tornado/", Folder, "", N),
     STORM_RULE("texturesequence/", Folder, "", N),
-    // Ships: sails, wakes and the alpha-tested rigging have none; hulls, decks and boats are planks.
+    // Ships: sails, wakes and the alpha-tested rigging have none; metal fittings and guns are metal; hulls, decks and
+    // boats are planks.
     STORM_RULE("ships/", Contains, "parus", N),
     STORM_RULE("ships/", Contains, "trail", N),
     STORM_RULE("ships/", Contains, "alpha", N),
     STORM_RULE("ships/", Contains, "col", N),
+    STORM_RULE("ships/", Contains, "metal", M),
+    STORM_RULE("ships/", Contains, "cannon", M),
+    STORM_RULE("ships/", Contains, "gun", M),
     STORM_RULE("ships/", Folder, "", W),
+    // Weapons held or lying about.
+    STORM_RULE("ammo/", Folder, "", M),
 
     // Names. Buildings whose names start like an excluded word come first.
     STORM_RULE("", Contains, "windmill", B),
-    STORM_RULE("", Contains, "fonar", N), // lanterns
+    STORM_RULE("", Contains, "fonar", M), // lanterns
     STORM_RULE("", Contains, "lighthouse", S),
     // Not surfaces with relief: occlusion / reflection / mask maps, windows and glass, light, fire, smoke, water,
     // foliage cards, cloth, bones, signs, UI and effect sheets.
@@ -113,11 +119,8 @@ const Rule kRules[] = {
     STORM_RULE("", Contains, "flower", N),
     STORM_RULE("", Contains, "flora", N),
     STORM_RULE("", Contains, "fern", N),
-    STORM_RULE("", Contains, "grass", N), // grass ground: its blades read as worms, not as relief
+    STORM_RULE("", Contains, "grass", P), // grass ground (the grass cards: grass/)
     STORM_RULE("", Contains, "back", N), // background cards (back_jungle, back_mountains)
-    STORM_RULE("", Contains, "cloth", N),
-    STORM_RULE("", Contains, "carpet", N),
-    STORM_RULE("", Contains, "fabric", N),
     STORM_RULE("", Contains, "sail", N),
     STORM_RULE("", Contains, "flag", N),
     STORM_RULE("", Contains, "rope", N),
@@ -128,12 +131,10 @@ const Rule kRules[] = {
     STORM_RULE("", Contains, "vant", N), // shrouds
     STORM_RULE("", Contains, "metal", M),
     STORM_RULE("", Contains, "iron", M),
-    STORM_RULE("", Contains, "gold", N),
+    STORM_RULE("", Contains, "gold", M),
     STORM_RULE("", Contains, "gundeck", W),
     STORM_RULE("", Contains, "cannon", M),
     STORM_RULE("", Contains, "gun", M),
-    STORM_RULE("", Contains, "skelet", N),
-    STORM_RULE("", Contains, "skull", N),
     STORM_RULE("", Contains, "skin", N),
     STORM_RULE("", Contains, "telo", N),   // body
     STORM_RULE("", Contains, "golova", N), // head
@@ -144,12 +145,19 @@ const Rule kRules[] = {
     STORM_RULE("", Contains, "map", N),
     STORM_RULE("", Contains, "menu", N),
     STORM_RULE("", Contains, "particles", N),
-    STORM_RULE("", Contains, "item", N),
-    STORM_RULE("", Contains, "treasure", N),
     STORM_RULE("", Contains, "blood", N),
     STORM_RULE("", Contains, "bird", N),
     STORM_RULE("", Contains, "seagull", N),
     STORM_RULE("", Contains, "fish", N),
+
+    // Weapons and tools (before the wood: "rapier" holds "pier").
+    STORM_RULE("", Contains, "pistol", M),
+    STORM_RULE("", Contains, "blade", M),
+    STORM_RULE("", Contains, "sabre", M),
+    STORM_RULE("", Contains, "rapier", M),
+    STORM_RULE("", Contains, "sword", M),
+    STORM_RULE("", Contains, "katana", M),
+    STORM_RULE("", Contains, "anchor", M),
 
     // Stone and brick.
     STORM_RULE("", Contains, "stone", S),
@@ -250,6 +258,12 @@ const Rule kRules[] = {
     STORM_RULE("", Contains, "path", P),
     STORM_RULE("", Contains, "tropa", P), // path
     STORM_RULE("", Contains, "jungle", P),
+    // Cloth on furniture, carpets: woven, shallow (sails and flags have none, above).
+    STORM_RULE("", Contains, "cloth", P),
+    STORM_RULE("", Contains, "carpet", P),
+    STORM_RULE("", Contains, "fabric", P),
+    // Everything else: props of the locations and the ships, items, island textures.
+    {"", Match::Prefix, "", O, "(no other rule: a prop)"},
 
 };
 #undef STORM_RULE

@@ -896,6 +896,7 @@ void SetEffectsTextureSource(storm::shim::BaseTexture *texture, const char *path
 {
     if (shim::TexStore *store = shim::store_of(texture))
     {
+        store->name = fx::NormalizeTexturePath(path ? path : "");
         store->cutout = effects::texture_cutout(*store);
         store->albedo = effects::texture_albedo(*store);
         effects::Host::instance().lighting().normal_maps().on_texture_loaded(*store, path, file);

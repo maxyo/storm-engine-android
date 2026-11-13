@@ -553,7 +553,9 @@ void CheckSupport()
     CHECK(ReliefDepthTexels(ReliefClass::Stone) > ReliefDepthTexels(ReliefClass::Building) &&
           ReliefDepthTexels(ReliefClass::Building) > ReliefDepthTexels(ReliefClass::Plaster) &&
           ReliefDepthTexels(ReliefClass::Plaster) > ReliefDepthTexels(ReliefClass::Wood) &&
-          ReliefDepthTexels(ReliefClass::Wood) > 0.0f && ReliefDepthTexels(ReliefClass::HeightMap) == 0.0f);
+          ReliefDepthTexels(ReliefClass::Wood) > ReliefDepthTexels(ReliefClass::Prop) &&
+          ReliefDepthTexels(ReliefClass::Prop) > ReliefDepthTexels(ReliefClass::Metal) &&
+          ReliefDepthTexels(ReliefClass::Metal) > 0.0f && ReliefDepthTexels(ReliefClass::HeightMap) > 0.0f);
     // One relief strength for both presets: the models' maps at full strength (the owner's choice).
     CHECK(Settings::FromPreset(QualityPreset::Medium).normal_map_strength == high.normal_map_strength &&
           high.normal_map_strength == 1.0f);
@@ -996,8 +998,8 @@ void CheckReliefModel()
     // maps, the models, the material's height and gloss and the version. The maps of the methods before it (DeepBump's,
     // the heuristic gloss) are never found again.
     CHECK(ReliefMethod(ReliefClass::None) == 0);
-    CHECK(ReliefMethod(ReliefClass::Metal) != ReliefMethod(ReliefClass::Stone) &&
-          ReliefMethod(ReliefClass::Metal) != ReliefMethod(ReliefClass::HeightMap)); // no material texture
+    CHECK(ReliefMethod(ReliefClass::Metal) == ReliefMethod(ReliefClass::Stone) &&
+          ReliefMethod(ReliefClass::Metal) != ReliefMethod(ReliefClass::HeightMap)); // every colour class has a height
     for (const ReliefClass colour : {ReliefClass::Stone, ReliefClass::Wood, ReliefClass::Building, ReliefClass::Plaster})
         CHECK(ReliefMethod(colour) == ReliefMethod(ReliefClass::Stone) &&
               ReliefMethod(colour) != ReliefMethod(ReliefClass::HeightMap));
@@ -1034,9 +1036,20 @@ void CheckReliefModel()
 // part: each keeps its own range), its depth the class's, the gloss in G, the mips.
 void CheckReliefMaterial()
 {
+    // Every class with relief has a height (the parallax wherever it can work), the grey height maps their own.
     CHECK(ReliefHasHeight(ReliefClass::Stone) && ReliefHasHeight(ReliefClass::Wood) && ReliefHasHeight(ReliefClass::Plaster) &&
-          ReliefHasHeight(ReliefClass::Building) && !ReliefHasHeight(ReliefClass::HeightMap) && !ReliefHasHeight(ReliefClass::None) &&
-          !ReliefHasHeight(ReliefClass::Metal));
+          ReliefHasHeight(ReliefClass::Building) && ReliefHasHeight(ReliefClass::HeightMap) && !ReliefHasHeight(ReliefClass::None) &&
+          ReliefHasHeight(ReliefClass::Metal) && ReliefHasHeight(ReliefClass::Prop));
+    CHECK(ReliefDepthTexels(ReliefClass::Metal) > 0.0f && ReliefDepthTexels(ReliefClass::Metal) < ReliefDepthTexels(ReliefClass::Prop) &&
+          ReliefDepthTexels(ReliefClass::None) == 0.0f);
+    // A grey height texture's heights at its map's size.
+    {
+        std::vector<uint8_t> grey(8 * 8 * 4, 0);
+        for (int i = 0; i < 64; ++i)
+            grey[i * 4] = static_cast<uint8_t>(i % 8 < 4 ? 0 : 255);
+        const std::vector<float> h = GreyHeights(grey, 8, 8, 4, 4);
+        CHECK(h.size() == 16 && h[0] == 0.0f && h[3] == 1.0f && GreyHeights(grey, 8, 8, 3, 3).empty());
+    }
     CHECK(ReliefMethod(ReliefClass::Stone) != ReliefMethod(ReliefClass::HeightMap));
     const int n = 256;
     NormalMap map;
@@ -1072,7 +1085,8 @@ void CheckReliefMaterial()
     const std::vector<float> flat(static_cast<size_t>(n) * n, 0.5f);
     CHECK(!AddReliefMaterial(plain, ReliefClass::Stone, flat, {}) && plain.material.empty() && plain.depth == 0.0f);
     CHECK(!AddReliefMaterial(plain, ReliefClass::Stone, std::span(height).first(10), {}));
-    CHECK(!AddReliefMaterial(plain, ReliefClass::HeightMap, height, {}) && plain.material.empty());
+    CHECK(!AddReliefMaterial(plain, ReliefClass::None, height, {}) && plain.material.empty());
+    CHECK(AddReliefMaterial(plain, ReliefClass::HeightMap, height, {}) && !plain.material.empty());
 }
 
 void CheckCheapUpgrades()
@@ -1187,16 +1201,18 @@ void CheckReliefRules()
         {"windmill_walls", B}, {"FlH03", B}, {"SpH4_walls", B}, {"Shipyard1", B}, {"objects_tex2", W},
         // plaster, ground
         {"Celling", P}, {"floorU3", P}, {"groundK2", P}, {"1sand1", P}, {"shoreU5", P},
-        {"dirtK3", P}, {"tropa256", P}, {"jungleU5", P}, {"1grass1", N}, {"grassgreen1", N},
+        {"dirtK3", P}, {"tropa256", P}, {"jungleU5", P}, {"1grass1", P}, {"grassgreen1", P},
         // no relief: characters, UI, sky, water, glass, foliage cards, cloth and sails, decals, light, lightmaps
         {"Characters\\Lo_Man_1", N}, {"INTERFACES\\PORTRAITS\\128\\face_1", N}, {"BATTLE_INTERFACE\\cannons", N},
         {"WEATHER\\SKIES\\day", N}, {"lighting\\day1\\Fort_lm", N}, {"Ships\\parus_common", N},
         {"Ships\\Mayfang1\\Hull1\\mayfang1_alpha", N}, {"Ships\\trailShip", N}, {"sky_up", N}, {"water1", N},
         {"sea_1", N}, {"GlassWindow", N}, {"windBigHouse01", N}, {"res_win", N}, {"occlTempleU1", N}, {"reflChurchU2", N},
-        {"MontserratMask", N}, {"PalmsSprites", N}, {"leafPalms", N}, {"Ferns", N}, {"tree4", N}, {"cloth1", N},
-        {"carpetU4", N}, {"ropeU1", N}, {"FishingNets", N}, {"SignboardsA", N}, {"smoke_dirt", N}, {"bonfire_small", N},
-        {"corona01", N}, {"fonar", N}, {"lighthouseFonarU1", N}, {"candle4c", N}, {"WaterFall", N}, {"River1", N},
-        {"metalU4", ReliefClass::Metal}, {"cannon_T1", ReliefClass::Metal}, {"skelet3", N}, {"telo", N}, {"Item_Rapier02", N}, {"MenuWoodFlooooor01", N},
+        {"MontserratMask", N}, {"PalmsSprites", N}, {"leafPalms", N}, {"Ferns", N}, {"tree4", N}, {"cloth1", P},
+        {"carpetU4", P}, {"ropeU1", N}, {"FishingNets", N}, {"SignboardsA", N}, {"smoke_dirt", N}, {"bonfire_small", N},
+        {"corona01", N}, {"fonar", ReliefClass::Metal}, {"lighthouseFonarU1", ReliefClass::Metal}, {"candle4c", N}, {"WaterFall", N}, {"River1", N},
+        {"metalU4", ReliefClass::Metal}, {"cannon_T1", ReliefClass::Metal}, {"skelet3", ReliefClass::Prop}, {"telo", N}, {"Item_Rapier02", ReliefClass::Metal},
+        {"ammo/katana", ReliefClass::Metal}, {"items/purse", ReliefClass::Prop}, {"islands/caiman/caiman", ReliefClass::Prop},
+        {"islands/nevis/nevismask", N}, {"grass/grass_1", N}, {"Ships/Brig1/Hull1/cannon_brig", ReliefClass::Metal}, {"MenuWoodFlooooor01", N},
         {"HiDeckalpha", N}, {"cap_deck_glass", N}, {"Particles_list", N}, {"shadow2", N}, {"back_jungle", N},
     };
     for (const auto &[path, expected] : cases)
@@ -1205,8 +1221,8 @@ void CheckReliefRules()
             std::printf("FAILED relief rule: %s is %s, expected %s\n", path, ReliefClassName(relief(path)), ReliefClassName(expected));
             ++failures;
         }
-    // An unknown name has no rule: no relief.
-    CHECK(ClassifyTextureName("antigua").rule == nullptr && ClassifyTextureName("antigua").relief == N);
+    // An unknown name is a prop (the last rule, which says so).
+    CHECK(ClassifyTextureName("antigua").rule != nullptr && ClassifyTextureName("antigua").relief == ReliefClass::Prop);
 
     SetLogSink([](LogLevel level, const char *) { ++(level == LogLevel::Debug ? g_debug_lines : g_log_lines); });
     ReliefClassifier classifier;
@@ -1217,7 +1233,7 @@ void CheckReliefRules()
     // The sea's animated bump frames stay without relief (folder rule), grey or not.
     CHECK(verdict("WEATHER\\SEA\\BUMP_G2MX\\seabump0017.tga.tx", grey).relief == N);
     CHECK(verdict("deckPlanksU2.tga", {}).relief == W);
-    CHECK(verdict("Antigua.tga.tx", {}).relief == N);
+    CHECK(verdict("Antigua.tga.tx", {}).relief == ReliefClass::Prop);
     CHECK(verdict("deckPlanksU2.tga", {}).relief == W); // a repeat: decided again, not logged again
     // One debug line per texture, nothing at the normal levels.
     CHECK(g_debug_lines == 5 && g_log_lines == 0);

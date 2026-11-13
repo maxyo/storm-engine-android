@@ -1,7 +1,8 @@
 # Relief maps from PBRify
 
 Normal maps and material textures (R the height of the parallax and the cavity, G the gloss) for the colour textures
-that get relief (fx `ClassifyTextureName`: stone, wood, building atlases, plaster, ground) are made from the player's
+that get relief (fx `ClassifyTextureName`: every surface but characters, sails and flags, rigging, foliage, water,
+glass, sky, UI, effects and light maps) are made from the player's
 game files with PBRify's normal and height models (`fx/relief_model.hpp`) through onnxruntime, and kept in the relief
 directory (`fx/relief_store.hpp`). Nothing derived is shipped. Grey "bump" textures are height maps; the game derives
 their maps itself. The owner's choice: PBRify for both maps, its normals as the model gives them (no rescale).
@@ -45,8 +46,8 @@ no maps are made.
   (`fx::kHeightRegionTexels`), then its 2 % / 98 % become 0 and 1; the class's depth (`fx::ReliefDepthTexels`) is stored
   with it. Gloss (`fx/gloss_map.hpp`): the roughness model at 256² (`fx::kGlossMapSize`), corrected by
   `fx::GlossOfRoughness` (the height's grooves, dark texels, the metal mask, the class caps), stretched into G. The
-  material texture is stored beside the normals in the same file (EAC RG11 with mips) for stone, wood, building and
-  plaster textures; the other textures of a gloss class (metal, glass, leather...) get their own gloss map
+  material texture is stored beside the normals in the same file (EAC RG11 with mips) for every relief texture; the
+  textures of a gloss class without relief (glass...) get their own gloss map
   (`<key>.gloss`: R the metal mask, G the gloss) from the roughness and the height models at 256², in the same queue.
 - Runtime: onnxruntime 1.31.1 (MIT), Microsoft's prebuilt Android AAR (`libonnxruntime.so` of the ABI, C API) and Linux
   x64 release on the host; notices in `third_party/licenses/onnxruntime-*`. The CPU execution provider (MLAS kernels),

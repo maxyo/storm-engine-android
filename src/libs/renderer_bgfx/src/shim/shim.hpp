@@ -124,6 +124,9 @@ struct TexStore
     std::shared_ptr<const fx::BounceTexture> albedo;
     // Effects: the normal map derived from this height texture (src/effects/normal_maps.hpp), null for others.
     std::shared_ptr<effects::NormalMapEntry> normal_map;
+    // Effects: the game file's normalized path (fx::NormalizeTexturePath), for the parallax census; empty for textures
+    // the game made itself (render targets, the renderer's own).
+    std::string name;
     // A location lightmap (lighting\<time>\...\shadow.tga): the surfaces it lies on carry the sun's shadows already.
     bool lightmap = false;
     // Effects: the gloss map derived from this colour texture (src/effects/normal_maps.hpp), null for others.
