@@ -1,4 +1,4 @@
-// Transcode of a whole D3D payload into a KTX 1.1 container and the on-disk
+// Transcode of a whole D3D payload into a KTX 1.1 container (written by bimg) and the on-disk
 // cache of those containers.
 //
 // Cache file: FileHeader followed by the KTX blob. The key covers the D3D

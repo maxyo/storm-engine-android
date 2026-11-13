@@ -1,7 +1,12 @@
 #include "cache.hpp"
 
+#include <bimg/bimg.h>
+#include <bx/error.h>
+#include <bx/readerwriter.h>
+
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <thread>
 #include <vector>
@@ -13,7 +18,6 @@ namespace
 {
 constexpr char kMagic[8] = {'S', 'T', 'X', 'C', 'E', 'T', 'C', '2'};
 constexpr const char *kExtension = ".etc2";
-constexpr uint32_t kKtxHeaderSize = 64;
 
 constexpr uint64_t P1 = 11400714785074694791ull, P2 = 14029467366897019727ull, P3 = 1609587929392839161ull,
                    P4 = 9650029242287828579ull, P5 = 2870177450012600261ull;
@@ -34,10 +38,20 @@ uint32_t read32(const uint8_t *p)
 uint64_t round64(uint64_t acc, uint64_t input) { return rotl(acc + input * P2, 31) * P1; }
 uint64_t merge64(uint64_t acc, uint64_t value) { return (acc ^ round64(0, value)) * P1 + P4; }
 
-void put32(uint8_t *&out, uint32_t value)
+// The KTX 1.1 container, written by bimg: `levels` holds the ETC2 data mip level-major (all faces of a level, then the
+// next level), as KTX stores it. With a sizer (and no data) it only counts the container's bytes.
+size_t write_ktx(bx::WriterI *writer, EtcFormat format, const Layout &layout, const uint8_t *levels)
 {
-    memcpy(out, &value, 4);
-    out += 4;
+    bx::Error error;
+    const int32_t size = bimg::imageWriteKtx(writer, format == EtcFormat::Rgb8 ? bimg::TextureFormat::ETC2 : bimg::TextureFormat::ETC2A,
+                                             layout.faces == 6, layout.width, layout.height, 0, uint8_t(layout.levels), 1,
+                                             false, levels, &error);
+    if (!error.isOk())
+    {
+        fprintf(stderr, "bimg KTX write failed: %.*s\n", int(error.getMessage().getLength()), error.getMessage().getCPtr());
+        abort();
+    }
+    return size_t(size);
 }
 } // namespace
 
@@ -91,35 +105,12 @@ void KeyBuilder::add(const uint8_t *data, size_t size) { state_ = hash64(data, s
 
 size_t ktx_size(EtcFormat format, const Layout &layout)
 {
-    size_t total = kKtxHeaderSize;
-    for (uint32_t level = 0; level < layout.levels; ++level)
-        total += 4 + etc_level_size(format, layout.level_width(level), layout.level_height(level)) * layout.faces;
-    return total;
+    bx::SizerWriter sizer;
+    return write_ktx(&sizer, format, layout, nullptr);
 }
 
 Blob transcode_to_ktx(const Layout &layout, const uint8_t *payload, EtcFormat format)
 {
-    Blob blob;
-    blob.size = ktx_size(format, layout);
-    blob.data = std::make_unique<uint8_t[]>(blob.size);
-    uint8_t *out = blob.data.get();
-    static constexpr uint8_t kIdentifier[12] = {0xAB, 'K', 'T', 'X', ' ', '1', '1', 0xBB, '\r', '\n', 0x1A, '\n'};
-    memcpy(out, kIdentifier, 12);
-    out += 12;
-    put32(out, 0x04030201);
-    put32(out, 0); // glType
-    put32(out, 1); // glTypeSize
-    put32(out, 0); // glFormat
-    put32(out, format == EtcFormat::Rgb8 ? 0x9274 : 0x9278); // COMPRESSED_RGB8_ETC2 / RGBA8_ETC2_EAC
-    put32(out, format == EtcFormat::Rgb8 ? 0x1907 : 0x1908); // GL_RGB / GL_RGBA
-    put32(out, layout.width);
-    put32(out, layout.height);
-    put32(out, 0); // depth
-    put32(out, 0); // array elements
-    put32(out, layout.faces);
-    put32(out, layout.levels);
-    put32(out, 0); // key/value data
-
     // offsets of each (face, level) inside the face-major D3D payload
     std::vector<size_t> source_offset(size_t(layout.faces) * layout.levels);
     size_t offset = 0;
@@ -129,23 +120,29 @@ Blob transcode_to_ktx(const Layout &layout, const uint8_t *payload, EtcFormat fo
             source_offset[face * layout.levels + level] = offset;
             offset += dxt_level_size(layout.format, layout.level_width(level), layout.level_height(level));
         }
-
+    size_t etc_bytes = 0;
+    for (uint32_t level = 0; level < layout.levels; ++level)
+        etc_bytes += etc_level_size(format, layout.level_width(level), layout.level_height(level)) * layout.faces;
+    std::vector<uint8_t> etc(etc_bytes); // level-major, as KTX
     std::vector<uint8_t> rgba;
+    uint8_t *out = etc.data();
     for (uint32_t level = 0; level < layout.levels; ++level)
     {
         const uint32_t w = layout.level_width(level), h = layout.level_height(level);
         const uint32_t aw = blocks_x(w) * 4, ah = blocks_x(h) * 4;
-        const size_t face_bytes = etc_level_size(format, w, h);
-        // KTX: imageSize is the size of one face for non-array cube maps
-        put32(out, uint32_t(face_bytes));
         rgba.resize(size_t(aw) * ah * 4);
         for (uint32_t face = 0; face < layout.faces; ++face)
         {
             decode_level(layout.format, payload + source_offset[face * layout.levels + level], w, h, rgba.data());
             encode_etc(format, rgba.data(), aw, ah, out);
-            out += face_bytes;
+            out += etc_level_size(format, w, h);
         }
     }
+    Blob blob;
+    blob.size = ktx_size(format, layout);
+    blob.data = std::make_unique<uint8_t[]>(blob.size);
+    bx::StaticMemoryBlockWriter writer(blob.data.get(), uint32_t(blob.size));
+    write_ktx(&writer, format, layout, etc.data());
     return blob;
 }
 
