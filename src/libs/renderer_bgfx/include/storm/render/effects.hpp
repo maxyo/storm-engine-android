@@ -122,11 +122,18 @@ struct EffectsWaveSource
         Body, // a character in the water: swimming or wading
         Hull, // a boat or a ship
     };
+    // A hull's waterline this frame: kHullStations stations evenly spaced from `stern` to `stem` (metres along
+    // `forward` from `position`), each with the waterline's centre offset to the side (towards (-forward z, forward x))
+    // and its half beam there.
+    static constexpr int kHullStations = 8;
     Kind kind = Kind::Body;
-    std::array<float, 3> position{};          // absolute world; a hull: the centre of its waterline
+    std::array<float, 3> position{};          // absolute world; a hull: the ship's origin
     std::array<float, 2> forward{0.0f, 1.0f}; // unit heading in x, z
-    float half_length = 0.4f;                 // metres (a body: its radius)
-    float half_width = 0.4f;
+    float half_length = 0.4f;                 // metres (a body: its radius; a hull: half its waterline length)
+    float half_width = 0.4f;                  // a hull: its largest half beam at the waterline
+    float stern = -0.4f, stem = 0.4f;         // a hull
+    std::array<float, kHullStations> station_side{};
+    std::array<float, kHullStations> station_half{};
     float speed = 0.0f;  // m/s over the water along `forward`
     float heave = 0.0f;  // m/s up
     float stroke = 0.0f; // a body: 0 wading .. 1 swimming

@@ -14,6 +14,9 @@
 #include "sea_base.h"
 #include "ship_base.h"
 #include "ship_msg.h"
+#include "hull_waterline.h"
+
+#include <memory>
 
 #define DELTA_TIME(x) ((x)*0.001f)
 #define DELTA_TIME_ROTATE(x) ((x)*1.0f / 10.0f)
@@ -126,6 +129,7 @@ class SHIP : public SHIP_BASE
     glm::vec3 vWaveLastPos{};
     bool bWaveLastPos = false;
     float fWaveSpeed = 0.0f, fWaveHeave = 0.0f;
+    std::shared_ptr<const storm::ship::HullProfile> hullProfile_; // the hull's waterline (shared per model)
     void AddWaveSource(float fDeltaTime);
     bool bSetFixed;
     float fFixedSpeed;

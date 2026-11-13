@@ -78,7 +78,7 @@ void SeaWaves::Advance(std::span<const bgfx::ViewId> views, std::array<double, 2
     {
         s_state_ = bgfx::createUniform("s_wavesState", bgfx::UniformType::Sampler);
         u_step_ = bgfx::createUniform("u_wavesStep", bgfx::UniformType::Vec4, 3);
-        u_sources_ = bgfx::createUniform("u_wavesSrc", bgfx::UniformType::Vec4, kMaxSources * 3);
+        u_sources_ = bgfx::createUniform("u_wavesSrc", bgfx::UniformType::Vec4, kMaxSources * kSourceVectors);
     }
 
     // The centre in whole texels; the state moves with it by whole texels (exact under point sampling).
@@ -96,12 +96,12 @@ void SeaWaves::Advance(std::span<const bgfx::ViewId> views, std::array<double, 2
     cell_ = cell;
     centre_ = {static_cast<double>(cell[0]) * kCell, static_cast<double>(cell[1]) * kCell};
 
-    std::array<float, kMaxSources * 3 * 4> packed{};
+    std::array<float, kMaxSources * kSourceVectors * 4> packed{};
     const size_t count = std::min<size_t>(sources.size(), kMaxSources);
     for (size_t i = 0; i < count; ++i)
     {
         const WaveSource &s = sources[i];
-        float *a = packed.data() + i * 12;
+        float *a = packed.data() + i * kSourceVectors * 4;
         a[0] = static_cast<float>(s.position[0] - centre_[0]);
         a[1] = static_cast<float>(s.position[1] - centre_[1]);
         a[2] = s.forward[0];
@@ -115,6 +115,13 @@ void SeaWaves::Advance(std::span<const bgfx::ViewId> views, std::array<double, 2
         // A phase of its own from its position, so that two swimmers side by side do not stroke in step.
         a[10] = static_cast<float>(std::fmod(std::abs(s.position[0] * 1.7 + s.position[1] * 2.3), 6.2831853));
         a[11] = 0.0f;
+        a[12] = s.stern;
+        a[13] = s.stem;
+        for (int j = 0; j < WaveSource::kHullStations; ++j)
+        {
+            a[16 + j] = s.station_half[j];
+            a[24 + j] = s.station_side[j];
+        }
     }
 
     const float courant = kWaveSpeed * kStep / kCell;
@@ -131,7 +138,7 @@ void SeaWaves::Advance(std::span<const bgfx::ViewId> views, std::array<double, 2
             static_cast<float>(std::fmod(time_, 1000.0)), reset_ ? 1.0f : 0.0f, float_state_ ? 0.0f : 1.0f, kExtent,
         };
         bgfx::setUniform(u_step_, step, 3);
-        bgfx::setUniform(u_sources_, packed.data(), kMaxSources * 3);
+        bgfx::setUniform(u_sources_, packed.data(), kMaxSources * kSourceVectors);
         bgfx::setTexture(0, s_state_, bgfx::getTexture(state_[current_]), kClampPoint);
         SubmitScreenTriangle(views[i], step_, BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
         current_ = next;

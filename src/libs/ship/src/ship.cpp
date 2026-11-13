@@ -1143,8 +1143,26 @@ void SHIP::AddWaveSource(float fDeltaTime)
     source.kind = storm::render::EffectsWaveSource::Kind::Hull;
     source.position = {vWorld.x, vWorld.y, vWorld.z};
     source.forward = {vForward.x, vForward.y};
-    source.half_length = 0.5f * State.vBoxSize.z;
-    source.half_width = 0.5f * State.vBoxSize.x;
+    // The waterline traced from the hull (draft, heel and pitch of this frame); without a profile (logged once per
+    // model by HullProfile::Get) the hull's bounding box, as an ellipse around the model's origin.
+    MODEL *pModel = GetModel();
+    NODE *pNode = pModel ? pModel->GetNode(0) : nullptr;
+    if (!hullProfile_ || !pNode ||
+        !storm::ship::HullWaterline(*hullProfile_, pNode->glob_mtx, vWorld, vForward, *pSea, source))
+    {
+        if (hullProfile_ && pNode)
+            return; // out of the water: no waterline, no waves
+        source.half_length = 0.5f * State.vBoxSize.z;
+        source.half_width = 0.5f * State.vBoxSize.x;
+        source.stern = -source.half_length;
+        source.stem = source.half_length;
+        constexpr int kStations = storm::render::EffectsWaveSource::kHullStations;
+        for (int k = 0; k < kStations; ++k)
+        {
+            const float t = (static_cast<float>(k) + 0.5f) / kStations * 2.0f - 1.0f;
+            source.station_half[k] = source.half_width * std::sqrt(std::max(0.0f, 1.0f - t * t));
+        }
+    }
     source.speed = fWaveSpeed;
     source.heave = fWaveHeave;
     pSea->AddWaveSource(source);
@@ -1603,6 +1621,7 @@ bool SHIP::Mount(ATTRIBUTES *_pAShip)
     pNode->geo->GetInfo(ginfo);
 
     CalcRealBoxsize();
+    hullProfile_ = storm::ship::HullProfile::Get(temp_str, *pNode->geo);
 
     State.vBoxSize.x = ginfo.boxsize.x;
     State.vBoxSize.y = ginfo.boxsize.y;

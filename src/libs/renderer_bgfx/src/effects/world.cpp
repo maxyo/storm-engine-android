@@ -206,6 +206,10 @@ void Host::advance_sea_waves(shim::Device &device)
         w.forward = s.forward;
         w.half_length = s.half_length;
         w.half_width = s.half_width;
+        w.stern = s.stern;
+        w.stem = s.stem;
+        w.station_side = s.station_side;
+        w.station_half = s.station_half;
         w.speed = s.speed;
         w.heave = s.heave;
         w.stroke = s.stroke;
@@ -297,9 +301,9 @@ void Host::set_sea_waves_uniforms()
         {
             const render::EffectsWaveSource &s = *best[i].source;
             float *a = k.data() + i * 8;
-            // The V starts at the bow (sea vertex space: small numbers near the camera).
-            a[0] = s.position[0] + s.forward[0] * s.half_length - origin[0];
-            a[1] = s.position[2] + s.forward[1] * s.half_length - origin[2];
+            // The V starts at the stem on the waterline (sea vertex space: small numbers near the camera).
+            a[0] = s.position[0] + s.forward[0] * s.stem - origin[0];
+            a[1] = s.position[2] + s.forward[1] * s.stem - origin[2];
             a[2] = s.forward[0];
             a[3] = s.forward[1];
             const float u = s.speed;
