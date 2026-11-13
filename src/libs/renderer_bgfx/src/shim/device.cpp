@@ -797,6 +797,11 @@ uint16_t Device::new_view()
     view_clear_z = 1.0f;
     view_clear_stencil = 0;
     view_color = color;
+    if (const uint64_t frame = Context::instance().frame_index() + 1; color->target_frame != frame)
+    {
+        color->target_recurring = color->target_frame != 0 && frame - color->target_frame <= 8;
+        color->target_frame = frame;
+    }
     // The game addresses its viewport in display pixels; a scaled scene store has fewer.
     const uint32_t target_height = color->level_height(rt->level);
     const std::array<float, 2> scale = target_scale();
@@ -1159,6 +1164,17 @@ HRESULT Device::GetRenderTargetData(Surface *target, Surface *dest)
     return D3D_OK;
 }
 
+} // namespace storm::shim
+
+// patches/bgfx-vulkan-pipeline-cache.patch (src/renderer_vk.cpp).
+namespace bgfx
+{
+uint32_t getVkLastWaitingFrame();
+} // namespace bgfx
+
+namespace storm::shim
+{
+
 namespace
 {
 constexpr uint32_t kFrameCopyWidth = 512;
@@ -1172,9 +1188,17 @@ void Device::copy_frame(const TexStorePtr &shown)
     const auto now = std::chrono::steady_clock::now();
     if (copy.pending && context.last_frame() >= copy.ready_frame)
     {
-        copy.pixels.swap(copy.reading); // the render thread wrote `reading` in a frame that has finished
         copy.pending = false;
-        copy.finished = copy.taken;
+        // Vulkan: a frame in which a draw was still waiting for its pipeline (draw.cpp, may_wait) is not a picture
+        // to keep: dropped, and the next frame is copied instead.
+        const uint32_t waited = context.device_info().vulkan ? bgfx::getVkLastWaitingFrame() : 0;
+        if (waited != 0 && waited >= copy.scene_frame)
+            copy.taken = {};
+        else
+        {
+            copy.pixels.swap(copy.reading); // the render thread wrote `reading` in a frame that has finished
+            copy.finished = copy.taken;
+        }
     }
     if (copy.pending || (copy.taken != std::chrono::steady_clock::time_point{} && now - copy.taken < kFrameCopySeconds))
         return;
@@ -1213,6 +1237,7 @@ void Device::copy_frame(const TexStorePtr &shown)
     read_region.init(copy.staging);
     // Finished once bgfx::frame() has returned this number (see GetRenderTargetData); `reading` is not touched before.
     copy.ready_frame = bgfx::read(read_region, copy.reading.data());
+    copy.scene_frame = context.last_frame(); // at the latest the frame after this one holds the scene copied here
     copy.pending = true;
     copy.taken = now;
 }

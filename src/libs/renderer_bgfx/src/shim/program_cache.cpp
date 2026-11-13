@@ -19,7 +19,7 @@
 // patches/bgfx-vulkan-pipeline-cache.patch (src/renderer_vk.cpp) defines these two.
 namespace bgfx
 {
-typedef void (*VkPipelineCreatedFn)(const char *_vs, const char *_fs, uint64_t _state, double _ms);
+typedef void (*VkPipelineCreatedFn)(const char *_vs, const char *_fs, uint64_t _state, double _ms, bool _async);
 void setVkPipelineCreated(VkPipelineCreatedFn _created);
 } // namespace bgfx
 
@@ -73,8 +73,8 @@ void ProgramCache::attach_device(const std::string &device, bool vulkan)
     served_.clear();
     served_checksums_.clear();
     vulkan_ = vulkan;
-    pipelines_ = slow_pipelines_ = 0;
-    pipelines_ms_ = 0.0;
+    pipelines_ = slow_pipelines_ = async_pipelines_ = 0;
+    pipelines_ms_ = async_pipelines_ms_ = 0.0;
     bgfx::setVkPipelineCreated(vulkan ? &ProgramCache::pipeline_created : nullptr);
     device_dir_.clear();
     if (!configured_)
@@ -128,17 +128,28 @@ void ProgramCache::attach_device(const std::string &device, bool vulkan)
     evict();
 }
 
-void ProgramCache::pipeline_created(const char *vs, const char *fs, uint64_t state, double ms)
+void ProgramCache::pipeline_created(const char *vs, const char *fs, uint64_t state, double ms, bool async)
 {
     ProgramCache &cache = instance();
     std::lock_guard lock(cache.mutex_);
     ++cache.pipelines_;
+    if (async)
+    {
+        // Created on bgfx's pipeline thread while its draw was left out: no frame waited for it.
+        ++cache.async_pipelines_;
+        cache.async_pipelines_ms_ += ms;
+        if (ms >= kSlowPipelineMs)
+            logf("pipeline: %.1f ms off the render thread for %s + %s, state 0x%016" PRIx64 " (its draw appeared that much "
+                 "later)",
+                 ms, vs, fs, state);
+        return;
+    }
     cache.pipelines_ms_ += ms;
     if (ms < kSlowPipelineMs)
         return;
     ++cache.slow_pipelines_;
     logf("pipeline: %.1f ms on the render thread for %s + %s, state 0x%016" PRIx64 " (pipeline %u of this start, %u of "
-         "them slow, %.0f ms in all)",
+         "them slow on the render thread, %.0f ms there in all)",
          ms, vs, fs, state, cache.pipelines_, cache.slow_pipelines_, cache.pipelines_ms_);
 }
 
@@ -148,8 +159,10 @@ void ProgramCache::detach_device()
     if (writer_.joinable())
         writer_.join();
     if (vulkan_ && pipelines_)
-        logf("pipelines: %u created by this device, %u of them over %.0f ms, %.0f ms in all", pipelines_, slow_pipelines_,
-             kSlowPipelineMs, pipelines_ms_);
+        logf("pipelines: %u created by this device: %u on the render thread (%u of them over %.0f ms, %.0f ms in all), %u "
+             "off it while their draws waited (%.0f ms in all)",
+             pipelines_, pipelines_ - async_pipelines_, slow_pipelines_, kSlowPipelineMs, pipelines_ms_, async_pipelines_,
+             async_pipelines_ms_);
     bgfx::setVkPipelineCreated(nullptr);
     device_dir_.clear();
     entries_.clear();

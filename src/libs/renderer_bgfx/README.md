@@ -89,7 +89,7 @@ What differs between the two, all inside the shim:
 | Shaders | ESSL blob | SPIR-V blob (`storm/render/shader_blob.hpp`) |
 | Present | Swappy GL (`bgfx-swap-present-hook.patch`) | Swappy Vk (`bgfx-vk-present-hook.patch`), FIFO swap chain |
 | Device facts (`shim::DeviceInfo`) | `glGetString` on the render thread | the probe |
-| Program cache entries | linked program binaries | the device's one `VkPipelineCache` as a single entry, which every pipeline is created with (`bgfx-vulkan-pipeline-cache.patch`); each pipeline creation over 16 ms is logged (`pipeline: ...`) |
+| Program cache entries | linked program binaries | the device's one `VkPipelineCache` as a single entry, which every pipeline is created with (`bgfx-vulkan-pipeline-cache.patch`). A scene draw whose pipeline does not exist yet is left out of the frame while a pipeline thread creates it (state bit `STORM_STATE_PIPELINE_MAY_WAIT`, set in `Device::draw` for the scene and for targets rendered frame after frame; `vulkan_async_pipelines = 0` in engine.ini turns it off for measurements); everything else, and every read-back frame, creates its pipelines on the render thread. Creations over 16 ms are logged (`pipeline: N ms on / off the render thread ...`) |
 | GPU timers | `EXT_disjoint_timer_query` (`bgfx-gles-timer-queries.patch`) | bgfx's timestamp queries |
 | A sampler a draw sets no texture for | samples black | gets a black texture of its kind (`bgfx-vk-unbound-samplers.patch`) |
 | `D3DTADDRESS_BORDER` | with a border-clamp extension | always; colours other than transparent / opaque black and opaque white need `VK_EXT_custom_border_color` (`bgfx-vk-builtin-border-colors.patch`; reported when one is used) |

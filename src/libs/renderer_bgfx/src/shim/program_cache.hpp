@@ -3,7 +3,8 @@
 // device's one VkPipelineCache as a single entry (patches/bgfx-vulkan-pipeline-cache.patch: loaded at init, every
 // pipeline is created with it, saved when pipelines were added), so neither a pipeline nor a shader of one is
 // compiled again in a later run; its file is written on a thread of its own, the render thread only hands the bytes
-// over. Every pipeline creation is timed and the ones that stall a frame are logged ("pipeline: ...").
+// over. Every pipeline creation is timed and the ones that stall a frame are logged ("pipeline: ..."); the scene's
+// draws do not stall one: their pipelines are created off the render thread while the draw waits (shim draw.cpp).
 //
 // Layout: <directory>/<device key>/<bgfx id>.bin. The device key hashes the device and its driver (OpenGL ES:
 // GL_VENDOR, GL_RENDERER, GL_VERSION; Vulkan: name, driver version, ids and the driver's pipelineCacheUUID) and
@@ -82,9 +83,9 @@ class ProgramCache final : public bgfx::CallbackI
     std::map<uint64_t, uint64_t> served_checksums_; // Vulkan: what cacheRead handed out this run, by id
     std::thread writer_;                            // Vulkan: writes the pipeline cache's file
     // bgfx::setVkPipelineCreated (render thread).
-    static void pipeline_created(const char *vs, const char *fs, uint64_t state, double ms);
-    uint32_t pipelines_ = 0, slow_pipelines_ = 0; // of this device
-    double pipelines_ms_ = 0.0;
+    static void pipeline_created(const char *vs, const char *fs, uint64_t state, double ms, bool async);
+    uint32_t pipelines_ = 0, slow_pipelines_ = 0, async_pipelines_ = 0; // of this device
+    double pipelines_ms_ = 0.0, async_pipelines_ms_ = 0.0;
     std::map<uint64_t, Entry> entries_;
     uint64_t total_bytes_ = 0;
     // The binary read by cacheReadSize, handed out by the cacheRead that follows.

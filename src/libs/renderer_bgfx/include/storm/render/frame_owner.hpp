@@ -241,6 +241,10 @@ enum class Backend
 // `state_directory` (under the cache root; may be cleared at any time): where a Vulkan start leaves its marker
 // until frames were presented, so a driver that kills the process in it is not started on Vulkan again.
 void SetRenderBackend(Backend backend, const std::filesystem::path &state_directory);
+// Vulkan only: whether a scene draw whose pipeline does not exist yet waits for it off the render thread (on, the
+// default: the draw appears a few frames later and no frame waits for the driver's compile) or the render thread
+// creates it at the draw (engine.ini vulkan_async_pipelines = 0, measurements). Any time.
+void SetVulkanAsyncPipelines(bool enabled);
 // The backend the device runs and why, as logged; empty before the first device.
 const char *RenderBackendChoice();
 

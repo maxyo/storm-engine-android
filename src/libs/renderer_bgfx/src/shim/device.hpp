@@ -69,6 +69,9 @@ class Context final : public render::FrameOwner
     void set_frame_overlap(int mode);
     // render::SetRenderBackend. Before the device exists.
     void set_backend(render::Backend backend, std::filesystem::path state_directory);
+    // render::SetVulkanAsyncPipelines.
+    void set_async_pipelines(bool enabled);
+    bool async_pipelines() const { return async_pipelines_; }
     // The backend the device runs and why, as logged ("render backend: ..." without the prefix); empty before.
     const std::string &backend_choice() const { return backend_choice_; }
     // Valid from init on.
@@ -230,6 +233,7 @@ class Context final : public render::FrameOwner
     bool render_thread_active_ = false; // this device runs bgfx's render thread
     bool gl_backend_ = false;           // the device has a GL context (OpenGL ES; not Vulkan, not headless)
     bool vulkan_backend_ = false;
+    bool async_pipelines_ = true;
     DeviceInfo device_info_;
     render::Backend backend_request_ = render::Backend::Auto;
     std::filesystem::path backend_state_directory_;
@@ -446,6 +450,7 @@ struct Device final : Object
         bgfx::TextureHandle staging = BGFX_INVALID_HANDLE;
         std::vector<uint8_t> reading, pixels;    // RGBA8: the read in flight, the last one finished
         uint32_t width = 0, height = 0, ready_frame = 0;
+        uint32_t scene_frame = 0; // a bgfx frame number not later than the frame the copied scene was drawn in
         bool pending = false;
         std::chrono::steady_clock::time_point taken{}, finished{};
     } frame_copy;

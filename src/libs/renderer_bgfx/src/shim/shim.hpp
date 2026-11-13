@@ -79,6 +79,10 @@ struct TexStore
     DWORD usage = 0;
     D3DPOOL pool = D3DPOOL_DEFAULT;
     bool render_target = false;
+    // As a render target: the frame (Context::frame_index() + 1) a view last drew into it, and whether it was also
+    // drawn into within the eight frames before that one: a target the game renders again and again (draw.cpp).
+    uint64_t target_frame = 0;
+    bool target_recurring = false;
     bool needs_clear = false; // a render target whose GPU memory was never written (see Device::clear_if_new)
     bool depth_stencil = false;
     bool system_memory = false; // never uploaded (offscreen plain surfaces)

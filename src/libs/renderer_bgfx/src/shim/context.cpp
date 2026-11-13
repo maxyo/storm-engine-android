@@ -200,6 +200,11 @@ void SetRenderBackend(Backend backend, const std::filesystem::path &state_direct
     shim::Context::instance().set_backend(backend, state_directory);
 }
 
+void SetVulkanAsyncPipelines(bool enabled)
+{
+    shim::Context::instance().set_async_pipelines(enabled);
+}
+
 const char *RenderBackendChoice()
 {
     return shim::Context::instance().backend_choice().c_str();
@@ -270,6 +275,15 @@ void Context::set_backend(render::Backend backend, std::filesystem::path state_d
         logf("ERROR: render_backend is set while the device exists; it applies to the next device");
     backend_request_ = backend;
     backend_state_directory_ = std::move(state_directory);
+}
+
+void Context::set_async_pipelines(bool enabled)
+{
+    if (enabled != async_pipelines_)
+        logf(enabled ? "pipelines: scene draws wait for new Vulkan pipelines off the render thread"
+                     : "pipelines: vulkan_async_pipelines=0: every Vulkan pipeline is created on the render thread, at its "
+                       "first draw");
+    async_pipelines_ = enabled;
 }
 
 void Context::set_frame_overlap(int mode)

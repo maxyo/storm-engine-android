@@ -8,11 +8,18 @@ repeated the shaders (Adreno 830: 132 entries, 8.3 MB). bgfx::setVkPipelineCreat
 vkCreateGraphicsPipelines with the shaders' names (kept from bgfx::setName), the state and its duration, so the
 engine can log the slow ones.
 
+A draw submitted with the state bit STORM_STATE_PIPELINE_MAY_WAIT (a bit bgfx does not use) whose pipeline does
+not exist yet is left out of the frame: the pipeline is created on a thread of its own with the same cache, and
+the draw appears in the first frame that has it. The render thread never waits for a driver's shader compile on
+behalf of such a draw. Draws without the bit and every BGFX_FRAME_FLUSH frame (read-backs) create their pipelines
+on the render thread as before, waiting for the pipeline thread where it already has theirs. The pipeline thread
+is drained before a shader or program is destroyed and at shutdown.
+
 diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
-index 1b007bf..dda0d27 100644
+index 1b007bf..ef0181d 100644
 --- a/src/renderer_vk.cpp
 +++ b/src/renderer_vk.cpp
-@@ -47,8 +47,24 @@ namespace bgfx
+@@ -47,8 +47,72 @@ namespace bgfx
  
  } // namespace bgfx
  
@@ -22,14 +29,62 @@ index 1b007bf..dda0d27 100644
 +	/// after every vkCreateGraphicsPipelines with the names of the program's shaders (bgfx::setName), the draw
 +	/// state and the milliseconds the call took. NULL (the default): nothing is called. The engine declares the
 +	/// same two names (src/shim/program_cache.cpp).
-+	typedef void (*VkPipelineCreatedFn)(const char* _vs, const char* _fs, uint64_t _state, double _ms);
++	/// `_async`: created on the pipeline thread (see STORM_STATE_PIPELINE_MAY_WAIT), not held by the render thread.
++	typedef void (*VkPipelineCreatedFn)(const char* _vs, const char* _fs, uint64_t _state, double _ms, bool _async);
 +	void setVkPipelineCreated(VkPipelineCreatedFn _created);
++
++	/// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch): a draw state bit bgfx itself does not use. A draw
++	/// submitted with it whose pipeline does not exist yet is left out of the frame while the pipeline is created
++	/// on a thread of its own, and drawn from the first frame that has it; without the bit, and in every
++	/// BGFX_FRAME_FLUSH frame, the render thread creates the pipeline itself, as before. For draws that are
++	/// submitted again every frame. Ignored by the other backends. The engine defines the same value
++	/// (src/shim/draw.cpp).
++#define STORM_STATE_PIPELINE_MAY_WAIT UINT64_C(0x0800000000000000)
++
++	/// One more than the number (as bgfx::frame() returns it) of the last frame in which such a draw was left
++	/// out; 0 while none was. Any thread: the host can tell whether a frame it keeps (a read-back of what was
++	/// presented) was complete.
++	uint32_t getVkLastWaitingFrame();
 +
 +} // namespace bgfx
 +
  namespace bgfx { namespace vk
  {
 +	static VkPipelineCreatedFn s_pipelineCreated = NULL;
++	static volatile uint32_t s_stormLastWaitingFrame = 0; // written by the render thread only; a stale read is harmless
++
++	// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch): one vkCreateGraphicsPipelines, with everything its
++	// create info points to, so that it can run on the pipeline thread.
++	struct StormPipelineJob
++	{
++		VkPipelineColorBlendAttachmentState blendAttachmentState[BGFX_CONFIG_MAX_FRAME_BUFFER_ATTACHMENTS];
++		VkPipelineColorBlendStateCreateInfo colorBlendState;
++		VkPipelineInputAssemblyStateCreateInfo inputAssemblyState;
++		VkPipelineRasterizationStateCreateInfo rasterizationState;
++		VkPipelineRasterizationConservativeStateCreateInfoEXT conservativeRasterizationState;
++		VkPipelineRasterizationLineStateCreateInfoEXT lineRasterizationState;
++		VkPipelineDepthStencilStateCreateInfo depthStencilState;
++		VkVertexInputBindingDescription  inputBinding[BGFX_CONFIG_MAX_VERTEX_STREAMS + 1];
++		VkVertexInputAttributeDescription inputAttrib[Attrib::Count + BGFX_CONFIG_MAX_INSTANCE_DATA_COUNT];
++		VkPipelineVertexInputStateCreateInfo vertexInputState;
++		VkPipelineDynamicStateCreateInfo dynamicState;
++		VkPipelineShaderStageCreateInfo shaderStages[2];
++		VkPipelineViewportStateCreateInfo viewportState;
++		VkPipelineMultisampleStateCreateInfo multisampleState;
++		VkSampleMask sampleMask;
++		VkGraphicsPipelineCreateInfo graphicsPipeline;
++
++		uint32_t hash;
++		uint64_t state;
++		char vsName[48];
++		char fsName[48];
++		bool async;
++
++		::VkPipeline pipeline;
++		VkResult result;
++		double ms;
++		StormPipelineJob* next;
++	};
 +
 +	// Storm Engine patch: the id of the device's one pipeline cache in CallbackI::cacheRead / cacheWrite.
 +	static const uint64_t kStormPipelineCacheId = UINT64_C(0x53544f524d564b50);
@@ -37,7 +92,7 @@ index 1b007bf..dda0d27 100644
  	static const VkPresentHooks* s_presentHooks = NULL;
  
  	// Storm Engine patch (bgfx-vk-unbound-samplers.patch): by kind, see unboundKind().
-@@ -2820,8 +2836,34 @@ VK_IMPORT_DEVICE
+@@ -2820,8 +2884,40 @@ VK_IMPORT_DEVICE
  				pcci.flags = 0;
  				pcci.initialDataSize = 0;
  				pcci.pInitialData    = NULL;
@@ -69,13 +124,24 @@ index 1b007bf..dda0d27 100644
 +				m_stormFramesSincePipeline = 0;
 +				m_stormFramesSinceSave     = 0;
 +
++				m_stormQueueHead = m_stormQueueTail = m_stormDone = NULL;
++				m_stormNumPending = 0;
++				m_stormExit = false;
++				s_stormLastWaitingFrame = 0;
++				m_stormThread.init(stormPipelineThread, this, 0, "storm vk pipelines");
++
  				if (VK_SUCCESS != result)
  				{
  					BX_TRACE("Init error: vkCreatePipelineCache failed %d: %s.", result, getName(result) );
-@@ -2948,6 +2990,11 @@ VK_IMPORT_DEVICE
+@@ -2948,6 +3044,16 @@ VK_IMPORT_DEVICE
  		{
  			VK_CHECK(vkDeviceWaitIdle(m_device) );
  
++			stormWaitPipelines();
++			m_stormExit = true;
++			m_stormWork.post();
++			m_stormThread.shutdown();
++
 +			if (0 < m_stormPipelinesUnsaved)
 +			{
 +				stormSavePipelineCache();
@@ -84,7 +150,7 @@ index 1b007bf..dda0d27 100644
  			if (m_timerQuerySupport)
  			{
  				m_gpuTimer.shutdown();
-@@ -3071,6 +3118,18 @@ VK_IMPORT_DEVICE
+@@ -3071,6 +3177,18 @@ VK_IMPORT_DEVICE
  				getFrameBuffer(m_windows[ii]).present();
  			}
  
@@ -103,7 +169,23 @@ index 1b007bf..dda0d27 100644
  			const int64_t now = bx::getHPCounter();
  
  			m_presentElapsed += now - start;
-@@ -3580,6 +3639,7 @@ VK_IMPORT_DEVICE
+@@ -3149,6 +3267,7 @@ VK_IMPORT_DEVICE
+ 
+ 		void destroyShader(ShaderHandle _handle) override
+ 		{
++			stormWaitPipelines(); // Storm Engine patch: none is created with this shader's module any more
+ 			m_shaders[_handle.idx].destroy();
+ 			m_shaders.release(_handle.idx);
+ 		}
+@@ -3160,6 +3279,7 @@ VK_IMPORT_DEVICE
+ 
+ 		void destroyProgram(ProgramHandle _handle) override
+ 		{
++			stormWaitPipelines(); // Storm Engine patch: none is created with this program's layout any more
+ 			m_program[_handle.idx].destroy();
+ 			m_program.release(_handle.idx);
+ 		}
+@@ -3580,6 +3700,7 @@ VK_IMPORT_DEVICE
  
  			case Handle::Shader:
  				setDebugObjectName(m_device, m_shaders[_handle.idx].m_module, "%.*s", _len, _name);
@@ -111,7 +193,164 @@ index 1b007bf..dda0d27 100644
  				break;
  
  			case Handle::Texture:
-@@ -5341,37 +5401,15 @@ VK_IMPORT_DEVICE
+@@ -4072,6 +4193,7 @@ VK_IMPORT_DEVICE
+ 			if (m_wireframe != wireframe)
+ 			{
+ 				m_wireframe = wireframe;
++				stormWaitPipelines(); // Storm Engine patch
+ 				m_pipelineStateCache.invalidate();
+ 				pipelineMruReset();
+ 			}
+@@ -5105,10 +5227,12 @@ VK_IMPORT_DEVICE
+ 			return pipeline;
+ 		}
+ 
+-		VkPipeline getPipeline(uint64_t _state, uint32_t _rgba, uint64_t _stencil, uint8_t _numStreams, const VertexLayout** _layouts, ProgramHandle _program, uint8_t _numInstanceData, bool _depthClamp = false, int32_t _depthBias = 0, float _slopeScale = 0.0f, float _biasClamp = 0.0f, uint32_t _sampleMask = UINT32_MAX)
++		VkPipeline getPipeline(uint64_t _state, uint32_t _rgba, uint64_t _stencil, uint8_t _numStreams, const VertexLayout** _layouts, ProgramHandle _program, uint8_t _numInstanceData, bool _depthClamp = false, int32_t _depthBias = 0, float _slopeScale = 0.0f, float _biasClamp = 0.0f, uint32_t _sampleMask = UINT32_MAX, bool _mayWait = false)
+ 		{
+ 			ProgramVK& program = m_program[_program.idx];
+ 
++			stormCollectPipelines(); // Storm Engine patch: what the pipeline thread has finished
++
+ 			_state &= 0
+ 				| BGFX_STATE_WRITE_MASK
+ 				| BGFX_STATE_DEPTH_TEST_MASK
+@@ -5208,12 +5332,32 @@ VK_IMPORT_DEVICE
+ 				return pipeline;
+ 			}
+ 
+-			VkPipelineColorBlendAttachmentState blendAttachmentState[BGFX_CONFIG_MAX_FRAME_BUFFER_ATTACHMENTS];
+-			VkPipelineColorBlendStateCreateInfo colorBlendState;
++			// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch): a pipeline the pipeline thread is creating.
++			// A draw that may wait is left out of this frame; any other waits for it here.
++			for (uint32_t ii = 0; ii < m_stormNumPending; ++ii)
++			{
++				if (m_stormPending[ii] == hash)
++				{
++					if (_mayWait)
++					{
++						return VK_NULL_HANDLE;
++					}
++
++					stormWaitPipelines();
++					pipeline = m_pipelineStateCache.find(hash);
++					pipelineMruAdd(key, pipeline);
++					return pipeline;
++				}
++			}
++
++			// Everything the create info points to lives in the job (the names below are upstream's locals).
++			StormPipelineJob* job = (StormPipelineJob*)bx::alloc(g_allocator, sizeof(StormPipelineJob) );
++			VkPipelineColorBlendAttachmentState* blendAttachmentState = job->blendAttachmentState;
++			VkPipelineColorBlendStateCreateInfo& colorBlendState = job->colorBlendState;
+ 			colorBlendState.pAttachments = blendAttachmentState;
+ 			setBlendState(colorBlendState, _state, _rgba);
+ 
+-			VkPipelineInputAssemblyStateCreateInfo inputAssemblyState;
++			VkPipelineInputAssemblyStateCreateInfo& inputAssemblyState = job->inputAssemblyState;
+ 			inputAssemblyState.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+ 			inputAssemblyState.pNext = NULL;
+ 			inputAssemblyState.flags = 0;
+@@ -5226,12 +5370,12 @@ VK_IMPORT_DEVICE
+ 				: VK_FALSE
+ 				;
+ 
+-			VkPipelineRasterizationStateCreateInfo rasterizationState;
++			VkPipelineRasterizationStateCreateInfo& rasterizationState = job->rasterizationState;
+ 			setRasterizerState(rasterizationState, _state, m_wireframe, _depthClamp, _depthBias, _slopeScale, _biasClamp);
+ 
+ 			VkBaseInStructure* nextRasterizationState = (VkBaseInStructure*)&rasterizationState;
+ 
+-			VkPipelineRasterizationConservativeStateCreateInfoEXT conservativeRasterizationState;
++			VkPipelineRasterizationConservativeStateCreateInfoEXT& conservativeRasterizationState = job->conservativeRasterizationState;
+ 			if (s_extension[Extension::EXT_conservative_rasterization].m_supported)
+ 			{
+ 				nextRasterizationState->pNext = (VkBaseInStructure*)&conservativeRasterizationState;
+@@ -5239,7 +5383,7 @@ VK_IMPORT_DEVICE
+ 				setConservativeRasterizerState(conservativeRasterizationState, _state);
+ 			}
+ 
+-			VkPipelineRasterizationLineStateCreateInfoEXT lineRasterizationState;
++			VkPipelineRasterizationLineStateCreateInfoEXT& lineRasterizationState = job->lineRasterizationState;
+ 			if (m_lineAASupport
+ 			||  m_bresenhamLineSupport)
+ 			{
+@@ -5248,18 +5392,18 @@ VK_IMPORT_DEVICE
+ 				setLineRasterizerState(lineRasterizationState, _state);
+ 			}
+ 
+-			VkPipelineDepthStencilStateCreateInfo depthStencilState;
++			VkPipelineDepthStencilStateCreateInfo& depthStencilState = job->depthStencilState;
+ 			setDepthStencilState(depthStencilState, _state, _stencil);
+ 
+-			VkVertexInputBindingDescription  inputBinding[BGFX_CONFIG_MAX_VERTEX_STREAMS + 1];
+-			VkVertexInputAttributeDescription inputAttrib[Attrib::Count + BGFX_CONFIG_MAX_INSTANCE_DATA_COUNT];
++			VkVertexInputBindingDescription*  inputBinding = job->inputBinding;
++			VkVertexInputAttributeDescription* inputAttrib = job->inputAttrib;
+ 
+-			VkPipelineVertexInputStateCreateInfo vertexInputState;
++			VkPipelineVertexInputStateCreateInfo& vertexInputState = job->vertexInputState;
+ 			vertexInputState.pVertexBindingDescriptions   = inputBinding;
+ 			vertexInputState.pVertexAttributeDescriptions = inputAttrib;
+ 			setInputLayout(vertexInputState, _numStreams, _layouts, program, _numInstanceData);
+ 
+-			const VkDynamicState dynamicStates[] =
++			static const VkDynamicState dynamicStates[] =
+ 			{
+ 				VK_DYNAMIC_STATE_VIEWPORT,
+ 				VK_DYNAMIC_STATE_SCISSOR,
+@@ -5270,7 +5414,7 @@ VK_IMPORT_DEVICE
+ 				VK_DYNAMIC_STATE_FRAGMENT_SHADING_RATE_KHR, // optional
+ 			};
+ 
+-			VkPipelineDynamicStateCreateInfo dynamicState;
++			VkPipelineDynamicStateCreateInfo& dynamicState = job->dynamicState;
+ 			dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+ 			dynamicState.pNext = NULL;
+ 			dynamicState.flags = 0;
+@@ -5279,7 +5423,7 @@ VK_IMPORT_DEVICE
+ 				;
+ 			dynamicState.pDynamicStates = dynamicStates;
+ 
+-			VkPipelineShaderStageCreateInfo shaderStages[2];
++			VkPipelineShaderStageCreateInfo* shaderStages = job->shaderStages;
+ 			shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+ 			shaderStages[0].pNext = NULL;
+ 			shaderStages[0].flags = 0;
+@@ -5299,7 +5443,7 @@ VK_IMPORT_DEVICE
+ 				shaderStages[1].pSpecializationInfo = NULL;
+ 			}
+ 
+-			VkPipelineViewportStateCreateInfo viewportState;
++			VkPipelineViewportStateCreateInfo& viewportState = job->viewportState;
+ 			viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+ 			viewportState.pNext = NULL;
+ 			viewportState.flags = 0;
+@@ -5308,19 +5452,19 @@ VK_IMPORT_DEVICE
+ 			viewportState.scissorCount  = 1;
+ 			viewportState.pScissors     = NULL;
+ 
+-			VkPipelineMultisampleStateCreateInfo multisampleState;
++			VkPipelineMultisampleStateCreateInfo& multisampleState = job->multisampleState;
+ 			multisampleState.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+ 			multisampleState.pNext = NULL;
+ 			multisampleState.flags = 0;
+ 			multisampleState.rasterizationSamples  = frameBuffer.m_sampler.Sample;
+ 			multisampleState.sampleShadingEnable   = VK_FALSE;
+ 			multisampleState.minSampleShading      = 0.0f;
+-			const VkSampleMask sampleMask          = _sampleMask;
+-			multisampleState.pSampleMask           = UINT32_MAX == _sampleMask ? NULL : &sampleMask;
++			job->sampleMask                        = _sampleMask;
++			multisampleState.pSampleMask           = UINT32_MAX == _sampleMask ? NULL : &job->sampleMask;
+ 			multisampleState.alphaToCoverageEnable = !!(BGFX_STATE_BLEND_ALPHA_TO_COVERAGE & _state);
+ 			multisampleState.alphaToOneEnable      = VK_FALSE;
+ 
+-			VkGraphicsPipelineCreateInfo graphicsPipeline;
++			VkGraphicsPipelineCreateInfo& graphicsPipeline = job->graphicsPipeline;
+ 			graphicsPipeline.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+ 			graphicsPipeline.pNext = NULL;
+ 			graphicsPipeline.flags = 0;
+@@ -5341,76 +5485,177 @@ VK_IMPORT_DEVICE
  			graphicsPipeline.basePipelineHandle = VK_NULL_HANDLE;
  			graphicsPipeline.basePipelineIndex  = 0;
  
@@ -126,38 +365,82 @@ index 1b007bf..dda0d27 100644
 -			pcci.flags = 0;
 -			pcci.initialDataSize = 0;
 -			pcci.pInitialData    = NULL;
--
++			// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch): created with the device's one pipeline
++			// cache. Upstream gave every pipeline a cache of its own, filled from CallbackI::cacheRead by the
++			// pipeline's hash: a pipeline that differs from an earlier one only in its state compiled both
++			// shaders again, in the same run and in every later one.
++			job->hash  = hash;
++			job->state = _state;
++			bx::strCopy(job->vsName, BX_COUNTOF(job->vsName), program.m_vsh->m_stormName);
++			bx::strCopy(job->fsName, BX_COUNTOF(job->fsName), NULL != program.m_fsh ? program.m_fsh->m_stormName : "");
++			job->pipeline = VK_NULL_HANDLE;
++			job->next     = NULL;
++			job->async    = _mayWait && m_stormNumPending < BX_COUNTOF(m_stormPending);
+ 
 -			if (cached)
--			{
++			if (job->async)
+ 			{
 -				cachedData = bx::alloc(g_allocator, length);
 -				if (g_callback->cacheRead(hash, cachedData, length) )
--				{
++				// The pipeline thread creates it; the draw is left out until stormCollectPipelines() has it.
++				m_stormPending[m_stormNumPending++] = hash;
+ 				{
 -					BX_TRACE("Loading cached pipeline state (size %d).", length);
 -					bx::MemoryReader reader(cachedData, length);
 -
 -					pcci.initialDataSize = (size_t)reader.remaining();
 -					pcci.pInitialData    = reader.getDataPtr();
--				}
--			}
--
++					bx::MutexScope lock(m_stormLock);
++					if (NULL != m_stormQueueTail) { m_stormQueueTail->next = job; } else { m_stormQueueHead = job; }
++					m_stormQueueTail = job;
+ 				}
++				m_stormWork.post();
++				return VK_NULL_HANDLE;
+ 			}
+ 
 -			VkPipelineCache cache;
 -			VK_CHECK(vkCreatePipelineCache(m_device, &pcci, m_allocatorCb, &cache) );
-+			// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch): created with the device's one pipeline
-+			// cache. Upstream gave every pipeline a cache of its own, filled from CallbackI::cacheRead by the
-+			// pipeline's hash: a pipeline that differs from an earlier one only in its state compiled both
-+			// shaders again, in the same run and in every later one.
-+			const int64_t stormStart = bx::getHPCounter();
++			stormCreatePipeline(job);
++			pipeline = job->pipeline;
++			stormPipelineCreated(job);
++			pipelineMruAdd(key, pipeline);
  
- 			const VkResult result = vkCreateGraphicsPipelines(
- 				  m_device
+-			const VkResult result = vkCreateGraphicsPipelines(
+-				  m_device
 -				, cache
-+				, m_pipelineCache
- 				, 1
- 				, &graphicsPipeline
- 				, m_allocatorCb
-@@ -5388,29 +5426,44 @@ VK_IMPORT_DEVICE
- 			m_pipelineStateCache.add(hash, pipeline);
- 			pipelineMruAdd(key, pipeline);
+-				, 1
+-				, &graphicsPipeline
+-				, m_allocatorCb
+-				, &pipeline
+-				);
++			return pipeline;
++		}
+ 
+-			BGFX_FATAL(VK_SUCCESS == result && VK_NULL_HANDLE != pipeline
++		// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch). Render thread or pipeline thread: the device's
++		// pipeline cache is synchronised by Vulkan itself.
++		void stormCreatePipeline(StormPipelineJob* _job)
++		{
++			const int64_t start = bx::getHPCounter();
++			_job->result = vkCreateGraphicsPipelines(m_device, m_pipelineCache, 1, &_job->graphicsPipeline, m_allocatorCb, &_job->pipeline);
++			_job->ms = double(bx::getHPCounter() - start) * 1000.0 / double(bx::getHPFrequency() );
++		}
++
++		// Render thread: the created pipeline joins the cache; the job is freed.
++		void stormPipelineCreated(StormPipelineJob* _job)
++		{
++			BGFX_FATAL(VK_SUCCESS == _job->result && VK_NULL_HANDLE != _job->pipeline
+ 				, Fatal::InvalidShader
+ 				, "Failed to create graphics PSO! vkCreateGraphicsPipelines failed %d: %s."
+-				, result
+-				, getName(result)
++				, _job->result
++				, getName(_job->result)
+ 				);
+ 
+-			m_pipelineStateCache.add(hash, pipeline);
+-			pipelineMruAdd(key, pipeline);
++			m_pipelineStateCache.add(_job->hash, _job->pipeline);
  
 -			size_t dataSize;
 -			VK_CHECK(vkGetPipelineCacheData(m_device, cache, &dataSize, NULL) );
@@ -168,25 +451,101 @@ index 1b007bf..dda0d27 100644
 +			if (NULL != s_pipelineCreated)
  			{
 -				if (length < dataSize)
--				{
++				s_pipelineCreated(_job->vsName, _job->fsName, _job->state, _job->ms, _job->async);
++			}
++
++			bx::free(g_allocator, _job);
++		}
++
++		// Render thread: takes in what the pipeline thread has finished.
++		void stormCollectPipelines()
++		{
++			if (0 == m_stormNumPending)
++			{
++				return;
++			}
++
++			StormPipelineJob* done;
++			{
++				bx::MutexScope lock(m_stormLock);
++				done = m_stormDone;
++				m_stormDone = NULL;
++			}
++
++			while (NULL != done)
++			{
++				StormPipelineJob* job = done;
++				done = job->next;
++
++				for (uint32_t ii = 0; ii < m_stormNumPending; ++ii)
++				{
++					if (m_stormPending[ii] == job->hash)
++					{
++						m_stormPending[ii] = m_stormPending[--m_stormNumPending];
++						break;
++					}
++				}
++
++				stormPipelineCreated(job);
++			}
++		}
++
++		// Render thread: until the pipeline thread has nothing left (what it uses is about to go, or a draw
++		// needs its pipeline now).
++		void stormWaitPipelines()
++		{
++			while (0 < m_stormNumPending)
++			{
++				m_stormFinished.wait(2);
++				stormCollectPipelines();
++			}
++		}
++
++		static int32_t stormPipelineThread(bx::Thread* /*_thread*/, void* _userData)
++		{
++			RendererContextVK* self = (RendererContextVK*)_userData;
++
++			for (;;)
++			{
++				self->m_stormWork.wait();
++
++				StormPipelineJob* job;
+ 				{
 -					cachedData = bx::realloc(g_allocator, cachedData, dataSize);
--				}
--
++					bx::MutexScope lock(self->m_stormLock);
++					job = self->m_stormQueueHead;
++					if (NULL != job)
++					{
++						self->m_stormQueueHead = job->next;
++						if (NULL == self->m_stormQueueHead) { self->m_stormQueueTail = NULL; }
++					}
+ 				}
+ 
 -				VK_CHECK(vkGetPipelineCacheData(m_device, cache, &dataSize, cachedData) );
 -				g_callback->cacheWrite(hash, cachedData, (uint32_t)dataSize);
-+				s_pipelineCreated(
-+					  program.m_vsh->m_stormName
-+					, NULL != program.m_fsh ? program.m_fsh->m_stormName : ""
-+					, _state
-+					, double(bx::getHPCounter() - stormStart) * 1000.0 / double(bx::getHPFrequency() )
-+					);
++				if (NULL == job)
++				{
++					if (self->m_stormExit)
++					{
++						return 0;
++					}
++
++					continue;
++				}
++
++				self->stormCreatePipeline(job);
++
++				{
++					bx::MutexScope lock(self->m_stormLock);
++					job->next = self->m_stormDone;
++					self->m_stormDone = job;
++				}
++				self->m_stormFinished.post();
  			}
++		}
  
 -			VK_CHECK(vkMergePipelineCaches(m_device, m_pipelineCache, 1, &cache) );
 -			vkDestroy(cache);
-+			return pipeline;
-+		}
-+
 +		// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch): hands the device's pipeline cache to
 +		// CallbackI::cacheWrite.
 +		void stormSavePipelineCache()
@@ -215,25 +574,60 @@ index 1b007bf..dda0d27 100644
  		}
  
  		void resetDescriptorPools(uint32_t _frame)
-@@ -6380,6 +6433,11 @@ VK_IMPORT_DEVICE
+@@ -6380,6 +6625,21 @@ VK_IMPORT_DEVICE
  		SwapChain m_mainSwapChain;
  		uint32_t  m_reset;
  		float m_maxAnisotropy;
 +
 +		// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch)
 +		uint32_t m_stormPipelinesUnsaved;
++		bx::Thread m_stormThread;       // creates the pipelines of draws that may wait
++		bx::Semaphore m_stormWork;      // a job was queued, or m_stormExit was set
++		bx::Semaphore m_stormFinished;  // a job was finished
++		bx::Mutex m_stormLock;          // m_stormQueueHead / Tail / Done
++		StormPipelineJob* m_stormQueueHead;
++		StormPipelineJob* m_stormQueueTail;
++		StormPipelineJob* m_stormDone;
++		uint32_t m_stormPending[64];    // render thread: hashes of the pipelines queued and not collected yet
++		uint32_t m_stormNumPending;
++		bool m_stormExit;
 +		uint32_t m_stormFramesSincePipeline;
 +		uint32_t m_stormFramesSinceSave;
  		bool m_wireframe;
  
  		VkBuffer m_captureBuffer;
-@@ -13424,6 +13482,11 @@ VK_DESTROY
+@@ -12754,8 +13014,19 @@ VK_DESTROY
+ 							, depthControl.m_slopeScale
+ 							, depthControl.m_clamp
+ 							, sampleMask
++							, 0 != (draw.m_stateFlags & STORM_STATE_PIPELINE_MAY_WAIT) && !_render->m_flush
+ 							);
+ 
++						if (VK_NULL_HANDLE == pipeline)
++						{
++							// Storm Engine patch (bgfx-vulkan-pipeline-cache.patch): the draw may wait for its
++							// pipeline, which the pipeline thread is creating: left out of this frame.
++							pipelineState.valid = false;
++							currentState.m_stateFlags = ~state;
++							s_stormLastWaitingFrame = _render->m_frameNum + 1;
++							continue;
++						}
++
+ 						bx::memCopy(pipelineState.layouts, layouts, numStreams*sizeof(layouts[0]) );
+ 						pipelineState.pipeline        = pipeline;
+ 						pipelineState.state           = state;
+@@ -13424,6 +13695,16 @@ VK_DESTROY
  		vk::s_presentHooks = _hooks;
  	}
  
 +	void setVkPipelineCreated(VkPipelineCreatedFn _created)
 +	{
 +		vk::s_pipelineCreated = _created;
++	}
++
++	uint32_t getVkLastWaitingFrame()
++	{
++		return vk::s_stormLastWaitingFrame;
 +	}
 +
  	void setVkUnboundTextures(TextureHandle _texture2d, TextureHandle _textureCube, TextureHandle _texture3d)

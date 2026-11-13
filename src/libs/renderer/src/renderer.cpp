@@ -746,6 +746,8 @@ bool Renderer::Init()
         renderBackend = std::clamp(storm::android::graphicsSetting("render_backend", renderBackend), 0, 2);
 #endif
         storm::render::SetRenderBackend(static_cast<storm::render::Backend>(renderBackend), fs::GetCachePath() / "RenderBackend");
+        // Developer key vulkan_async_pipelines = 0 (frame_owner.hpp SetVulkanAsyncPipelines): measurements.
+        storm::render::SetVulkanAsyncPipelines(ini->GetInt(nullptr, "vulkan_async_pipelines", 1) != 0);
         // Developer key render_overlap (frame_owner.hpp SetFrameOverlap): -1 chosen per frame, 0 never, 1 always.
         int renderOverlap = ini->GetInt(nullptr, "render_overlap", -1);
 #ifdef __ANDROID__

@@ -1503,7 +1503,17 @@ HRESULT Device::draw(const DrawCall &call)
         const DWORD c = s.rs[D3DRS_BLENDFACTOR];
         factor = ((c & 0x00FFFFFF) << 8) | (c >> 24);
     }
-    bgfx::setState(bits, factor);
+    // Vulkan: a scene draw whose pipeline does not exist yet is left out of the frame while the pipeline is created
+    // off the render thread (patches/bgfx-vulkan-pipeline-cache.patch), instead of the frame waiting for the
+    // driver's shader compile. Only for what is drawn again anyway: the scene itself, next frame, and a target the
+    // game has been rendering frame after frame (the sea's environment map). Not for a target's first frames, so
+    // not for one the game draws once and keeps, and not while the next scene frame is to be kept as the pause
+    // picture. bgfx itself makes every read-back frame wait for its pipelines.
+    constexpr uint64_t kPipelineMayWait = UINT64_C(0x0800000000000000); // STORM_STATE_PIPELINE_MAY_WAIT
+    const bool may_wait = Context::instance().device_info().vulkan && Context::instance().async_pipelines() &&
+                          view_color && (view_color == back_color->store.get() || view_color->target_recurring) &&
+                          !Context::instance().hold_requested();
+    bgfx::setState(bits | (may_wait ? kPipelineMayWait : 0), factor);
     if (stencil)
         bgfx::setStencil(fstencil);
     if (s.rs[D3DRS_SCISSORTESTENABLE])

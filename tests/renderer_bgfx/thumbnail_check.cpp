@@ -20,6 +20,12 @@
 using namespace storm;
 using shim::Device;
 
+// patches/bgfx-vulkan-pipeline-cache.patch: one more than the last frame that left a draw out, 0 while none did.
+namespace bgfx
+{
+uint32_t getVkLastWaitingFrame();
+} // namespace bgfx
+
 namespace
 {
 
@@ -143,6 +149,13 @@ int main()
         check(device->CreateRenderTarget(kWidth, kHeight, D3DFMT_A8R8G8B8, D3DMULTISAMPLE_NONE, 0, FALSE, &other, nullptr),
               "CreateRenderTarget");
         for (int i = 0; i < 8; ++i)
+            frame(*device);
+        // Vulkan: a scene draw waits for a new pipeline off the render thread (shim draw.cpp, may_wait); the frames
+        // to read are the ones after the last frame that left a draw out, and the copy kept for the thumbnail is
+        // taken from such a frame (Device::copy_frame drops one that is not).
+        for (int i = 0; i < 600 && bgfx::getVkLastWaitingFrame() + 4 > context.last_frame(); ++i)
+            frame(*device);
+        for (int i = 0; i < 4; ++i)
             frame(*device);
         std::vector<uint32_t> pixels;
         ok &= expect(read(*device, back, pixels) == D3D_OK && top_red_bottom_blue(pixels),
